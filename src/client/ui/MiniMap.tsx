@@ -186,7 +186,7 @@ export function MiniMap({ className }: { className?: string }) {
         <path d="M0 0V-24M0-22 12-6H0" fill="#efe4c8" stroke="#22180f" strokeWidth="1.2" />
         {!still && <animateTransform attributeName="transform" type="rotate" additive="sum" dur="4s" repeatCount="indefinite" values="-3;3;-3" />}
       </g>
-      <text x="0" y="48" textAnchor="middle" fontFamily="'IM Fell English', serif" fontStyle="italic" fontSize="13" fill="#22180f">
+      <text x="0" y="62" textAnchor="middle" fontFamily="'IM Fell English', serif" fontStyle="italic" fontSize="13" fill="#22180f">
         the Heart
       </text>
       <text x="-176" y="-170" fontFamily="'IM Fell English', serif" fontStyle="italic" fontSize="12" fill="#4a3a28">

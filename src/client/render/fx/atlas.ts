@@ -721,8 +721,9 @@ export function makeFxTextures(art: FxArt | null = loaded): FxTextures {
     const r = rng(733);
     for (let i = 0; i < 16; i++) {
       const a = r() * Math.PI * 2;
-      const d = r() * 60;
-      radial(c, 128 + Math.cos(a) * d, 128 + Math.sin(a) * d, 50 + r() * 60, [[0, 'rgba(255,255,255,0.55)'], [0.6, 'rgba(255,255,255,0.3)'], [1, 'rgba(255,255,255,0)']]);
+      const rad = 50 + r() * 50;
+      const d = r() * (124 - rad);
+      radial(c, 128 + Math.cos(a) * d, 128 + Math.sin(a) * d, rad, [[0, 'rgba(255,255,255,0.55)'], [0.6, 'rgba(255,255,255,0.3)'], [1, 'rgba(255,255,255,0)']]);
     }
   });
 

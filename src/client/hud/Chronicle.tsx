@@ -37,8 +37,11 @@ export function filterChronicle(entries: readonly ChronicleEntry[], filter: Chro
   return out;
 }
 
-/** Splits chronicle text so @logins render in their army's color. */
-export function colorize(text: string, roster: readonly RosterEntry[]): ReactNode[] {
+/**
+ * Splits chronicle text so @logins render in their army's color. `bare` drops the @, so a
+ * line that opens with a name can take an illuminated initial.
+ */
+export function colorize(text: string, roster: readonly RosterEntry[], bare = false): ReactNode[] {
   const parts = text.split(/(@[A-Za-z0-9][A-Za-z0-9-]*)/g);
   return parts.map((part, i) => {
     if (!part.startsWith('@')) return part;
@@ -46,7 +49,7 @@ export function colorize(text: string, roster: readonly RosterEntry[]): ReactNod
     if (!r) return part;
     return (
       <strong key={i} className="who" style={hueVar(r.hue)}>
-        {part}
+        {bare ? part.slice(1) : part}
       </strong>
     );
   });
@@ -110,7 +113,7 @@ export function Chronicle({ entries, viewerP, now }: { entries: readonly Chronic
                   <EventIcon kind={e.kind} size={18} />
                 </span>
                 <span className="chron-body">
-                  <span className="chron-text">{colorize(entryText(e), roster)}</span>
+                  <span className="chron-text">{colorize(entryText(e), roster, true)}</span>
                   {e.kind === 'muster' && <MusterFacts entry={e} />}
                   {e.kind === 'muster' && e.units && <UnitChips units={e.units} />}
                   <span className="chron-time" title={new Date(at).toLocaleString()}>

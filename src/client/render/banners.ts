@@ -1,8 +1,9 @@
 import { FAR_ZOOM } from './lod.ts';
-import { Container, MeshPlane, Sprite, Text, Texture } from 'pixi.js';
+import { CanvasSource, Container, MeshPlane, Sprite, Text, Texture } from 'pixi.js';
+import { canvas2d } from './paint.ts';
 import { PlatoonState, type Platoon, type World } from '../../sim/api.ts';
 import type { RepoRef } from '../../sim/replay.ts';
-import { FLAG_H, FLAG_W, gradeOf, type FlagCache } from './flags.ts';
+import { FLAG_H, FLAG_W, TOKEN_H, TOKEN_W, gradeOf, type FlagCache } from './flags.ts';
 
 const VERTS_X = 10;
 
@@ -45,6 +46,9 @@ interface BannerView {
   barBg: Sprite;
   strength: Sprite;
   morale: Sprite;
+  /** The far-zoom heraldic token: the battalion's arms on a shield. */
+  token: Sprite;
+  tokenKey: string;
   count: Text;
   star: Text;
   seen: number;
@@ -125,6 +129,13 @@ export class BannerLayer {
         v.flag.texture = this.flags.battalion(hue, repo[0], repo[1], pl.ordinal, grade);
         v.key = key;
       }
+      // Far out, every platoon becomes a heraldic token; close in, a banner on its staff.
+      v.token.visible = far && pl.id !== selected;
+      v.pole.visible = v.finial.visible = v.flag.mesh.visible = !v.token.visible;
+      if (v.token.visible && v.tokenKey !== key) {
+        v.token.texture = this.flags.token(hue, repo[0], repo[1], grade);
+        v.tokenKey = key;
+      }
       const lift = 16 / zoom;
       v.root.position.set(v.x, v.y - lift);
       v.root.scale.set(scale);
@@ -139,8 +150,8 @@ export class BannerLayer {
       v.flag.mesh.alpha = 1;
       v.strength.width = BAR_W * Math.max(0, Math.min(1, pl.alive / Math.max(1, pl.size)));
       v.morale.width = BAR_W * Math.max(0, Math.min(1, pl.morale / 100));
-      v.morale.tint = pl.morale < 30 ? 0xe0603a : pl.morale < 60 ? 0xe8c25a : 0x7fc6ff;
-      v.strength.tint = 0x8be38b;
+      v.morale.tint = pl.morale < 30 ? 0xb8321f : pl.morale < 60 ? 0xd4a93e : 0x5a7fc4;
+      v.strength.tint = 0x3f9a84;
       v.count.visible = far || pl.id === selected;
       if (v.count.visible) v.count.text = String(pl.alive);
       v.star.visible = pl.champion;
@@ -170,21 +181,23 @@ export class BannerLayer {
 
   private create(): BannerView {
     const root = new Container();
-    const pole = new Sprite(Texture.WHITE);
-    pole.tint = 0x2a2016;
-    pole.width = 5;
-    pole.height = FLAG_H * 1.9;
-    pole.position.set(-2.5, -FLAG_H * 1.9);
-    const finial = new Sprite(Texture.WHITE);
-    finial.tint = 0xe8c25a;
-    finial.width = 10;
-    finial.height = 10;
-    finial.position.set(-5, -FLAG_H * 1.9 - 8);
+    // An oak staff with an ink edge, topped by a gilded spear-point finial.
+    const pole = new Sprite(this.staffTexture());
+    pole.anchor.set(0.5, 1);
+    pole.height = FLAG_H * 1.9 + 4;
+    pole.width = 7;
+    pole.position.set(0, 2);
+    const finial = new Sprite(this.finialTexture());
+    finial.anchor.set(0.5, 1);
+    finial.width = 14;
+    finial.height = 20;
+    finial.position.set(0, -FLAG_H * 1.9 + 2);
     const flag = new WavingFlag(this.flags.blank());
     flag.mesh.position.set(2, -FLAG_H * 1.85);
+    // Carved channels: an ink trough holding the pigment fill.
     const barBg = new Sprite(Texture.WHITE);
-    barBg.tint = 0x0b0d10;
-    barBg.alpha = 0.85;
+    barBg.tint = 0x22180f;
+    barBg.alpha = 0.92;
     barBg.width = BAR_W + 4;
     barBg.height = BAR_H * 2 + 6;
     barBg.position.set(-BAR_W / 2 - 2, 4);
@@ -194,18 +207,70 @@ export class BannerLayer {
     const morale = new Sprite(Texture.WHITE);
     morale.height = BAR_H - 2;
     morale.position.set(-BAR_W / 2, 7 + BAR_H);
-    const count = new Text({ text: '', style: { fontFamily: 'Inter, system-ui, sans-serif', fontSize: 30, fontWeight: '800', fill: 0xffffff, stroke: { color: 0x0b0d10, width: 6 } }, resolution: 2 });
+    const token = new Sprite();
+    token.anchor.set(0.5, 1);
+    token.width = TOKEN_W * 1.05;
+    token.height = TOKEN_H * 1.05;
+    token.position.set(0, 2);
+    token.visible = false;
+    const count = new Text({ text: '', style: { fontFamily: '"Alegreya SC", Alegreya, Georgia, serif', fontSize: 30, fontWeight: '700', fill: 0xefe4c8, stroke: { color: 0x22180f, width: 7, join: 'round' } }, resolution: 2 });
     count.anchor.set(0, 0.5);
     count.position.set(BAR_W / 2 + 8, 4 + BAR_H + 3);
-    const star = new Text({ text: '★', style: { fontFamily: 'Inter, system-ui, sans-serif', fontSize: 34, fill: 0xf2cf5b, stroke: { color: 0x0b0d10, width: 6 } }, resolution: 2 });
+    const star = new Text({ text: '✦', style: { fontFamily: 'Alegreya, Georgia, serif', fontSize: 38, fill: 0xf6dc8c, stroke: { color: 0x22180f, width: 6, join: 'round' } }, resolution: 2 });
     star.anchor.set(0.5);
     star.position.set(FLAG_W + 18, -FLAG_H * 1.6);
-    root.addChild(pole, flag.mesh, finial, barBg, strength, morale, count, star);
+    root.addChild(pole, flag.mesh, finial, token, barBg, strength, morale, count, star);
     this.root.addChild(root);
-    return { root, pole, finial, flag, barBg, strength, morale, count, star, seen: 0, key: '', routFlash: -1e9, x: 0, y: 0 };
+    return { root, pole, finial, flag, barBg, strength, morale, token, tokenKey: '', count, star, seen: 0, key: '', routFlash: -1e9, x: 0, y: 0 };
+  }
+
+  private staff: Texture | null = null;
+  private finialTex: Texture | null = null;
+
+  private staffTexture(): Texture {
+    if (!this.staff) {
+      const [c, ctx] = canvas2d(14, 128);
+      ctx.fillStyle = '#22180f';
+      ctx.fillRect(0, 0, 14, 128);
+      const g = ctx.createLinearGradient(2, 0, 12, 0);
+      g.addColorStop(0, '#a07a4a');
+      g.addColorStop(0.4, '#7a5530');
+      g.addColorStop(1, '#4a3420');
+      ctx.fillStyle = g;
+      ctx.fillRect(3, 0, 8, 128);
+      this.staff = new Texture({ source: new CanvasSource({ resource: c }) });
+    }
+    return this.staff;
+  }
+
+  private finialTexture(): Texture {
+    if (!this.finialTex) {
+      const [c, ctx] = canvas2d(28, 40);
+      ctx.beginPath();
+      ctx.moveTo(14, 2);
+      ctx.quadraticCurveTo(24, 18, 14, 32);
+      ctx.quadraticCurveTo(4, 18, 14, 2);
+      ctx.closePath();
+      const g = ctx.createLinearGradient(4, 0, 24, 0);
+      g.addColorStop(0, '#f6dc8c');
+      g.addColorStop(0.5, '#d4a93e');
+      g.addColorStop(1, '#8a6418');
+      ctx.fillStyle = g;
+      ctx.fill();
+      ctx.lineWidth = 2.4;
+      ctx.strokeStyle = '#22180f';
+      ctx.stroke();
+      ctx.fillStyle = '#d4a93e';
+      ctx.fillRect(7, 31, 14, 7);
+      ctx.strokeRect(7, 31, 14, 7);
+      this.finialTex = new Texture({ source: new CanvasSource({ resource: c }) });
+    }
+    return this.finialTex;
   }
 
   destroy(): void {
+    this.staff?.destroy(true);
+    this.finialTex?.destroy(true);
     for (const f of this.folding) f.v.root.destroy({ children: true });
     this.folding = [];
     for (const v of this.views.values()) v.root.destroy({ children: true });

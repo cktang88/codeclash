@@ -304,9 +304,10 @@ export class SiteLayer {
           if (!f.mesh.visible || !visible) continue;
           if (i === 0) {
             const r = roster[owner];
-            const key = `${world.players[owner]!.hue}|${r?.login ?? ''}`;
+            const arms = r?.heraldry;
+            const key = `${world.players[owner]!.hue}|${r?.login ?? ''}|${arms?.pattern ?? ''}|${arms?.emblem ?? ''}`;
             if (key !== v.flagKey) {
-              const std = this.flags.standard(world.players[owner]!.hue, r?.login ?? '?');
+              const std = this.flags.standard(world.players[owner]!.hue, r?.login ?? '?', arms);
               for (const ff of v.flags) ff.texture = std;
               v.flagKey = key;
             }
@@ -379,7 +380,7 @@ export class SiteLayer {
           v.halo.alpha = (0.1 + dmg * 0.35) * (0.4 + lights * 0.6) * throb;
           title = 'The Legacy Monolith';
           subtitle = 'everyone against the past';
-          if (st && !fallen) this.hpBar(v, st.hp / st.maxHp, def.radius * 1.7, -def.radius * 2.35, EMBER, dt);
+          if (st && !fallen) this.hpBar(v, st.hp / st.maxHp, def.radius * 1.7, -def.radius * 3.25, EMBER, dt);
         } else {
           const h = this.art.heart;
           if (v.body.texture !== h.body) {
@@ -417,7 +418,7 @@ export class SiteLayer {
         v.ring.ellipse(0, 0, def.radius * 1.3 * pulse, def.radius * 0.82 * pulse).stroke({ width: 4 / zoom, color: INK, alpha: 0.6 });
         v.ring.ellipse(0, 0, def.radius * 1.3 * pulse, def.radius * 0.82 * pulse).stroke({ width: 2 / zoom, color: GOLD, alpha: 0.95 });
       }
-      const top = def.kind === 'capital' ? def.radius * 2.3 : def.kind === 'shrine' ? def.radius * 1.45 : world.monolithFallen ? def.radius * 1.3 : def.radius * 2.45;
+      const top = def.kind === 'capital' ? def.radius * 2.3 : def.kind === 'shrine' ? def.radius * 1.45 : world.monolithFallen ? def.radius * 1.3 : def.radius * 3.4;
       v.label.set(title, subtitle, rubric);
       v.label.x = def.x;
       v.label.y = def.y - top;

@@ -6,6 +6,7 @@ import { derived } from '../../sim/derived.ts';
 import { cellAt, cellCenterX, cellCenterY } from '../../sim/flowfield.ts';
 import type { Runner } from '../net/runner.ts';
 import type { FloatingEmote, GameStore } from '../store.ts';
+import { sound } from '../audio/index.ts';
 import { Atmosphere } from './atmosphere.ts';
 import { BannerLayer, platoonCentroids } from './banners.ts';
 import { Camera } from './camera.ts';
@@ -40,10 +41,13 @@ export interface CinematicShot {
   dim?: number;
   /** Travel time; defaults by distance. */
   travelMs?: number;
+  /** Why the shot was called (muster, dragon, sack, monolith…). */
+  reason?: string;
 }
 
 /** Optional hooks the effects layer may expose. Read loosely so either side can land first. */
 interface FxHooks {
+  sound?: (name: string, x: number, y: number, gain: number) => void;
   onChronicle?(entries: readonly ChronicleEntry[], world: World): void;
   dayEnd?(): void;
   viewerP?: number | null;
@@ -84,6 +88,22 @@ async function fontsReady(): Promise<void> {
   await Promise.race([Promise.all(faces.map((f) => document.fonts.load(f).catch(() => []))).then(() => undefined), timeout]);
 }
 
+let sharedTextures: Textures | null = null;
+let sharedUnitArt: UnitArt | null = null;
+let sunTex: Texture | null = null;
+function sunGradient(): Texture {
+  if (sunTex) return sunTex;
+  const [c, ctx] = canvas2d(256, 4);
+  const g = ctx.createLinearGradient(0, 0, 256, 0);
+  g.addColorStop(0, 'rgba(255,255,255,1)');
+  g.addColorStop(0.45, 'rgba(90,90,90,1)');
+  g.addColorStop(1, 'rgba(0,0,0,1)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 256, 4);
+  sunTex = new Texture({ source: new CanvasSource({ resource: c, scaleMode: 'linear' }) });
+  return sunTex;
+}
+
 let vignetteTex: Texture | null = null;
 function vignette(): Texture {
   if (vignetteTex) return vignetteTex;
@@ -109,9 +129,12 @@ export class Battlefield {
   private readonly gradeLift = new Sprite(Texture.WHITE);
   private readonly gradeVignette: Sprite;
   private readonly gradeDim = new Sprite(Texture.WHITE);
+  /** The low sun's glow raking in from the east at dawn and the west at dusk. */
+  private readonly gradeSun: Sprite;
   /** Emissive lights and the readable overlays, above the grade with the same camera transform. */
   private readonly top = new Container();
   private readonly lights = new Container();
+  private readonly actors = new Container();
   private readonly torches: Sprite[] = [];
   private readonly camera: Camera;
   private readonly units: UnitLayer;
@@ -161,12 +184,14 @@ export class Battlefield {
     };
     this.banners = new BannerLayer(this.flags);
     this.gradeVignette = new Sprite(vignette());
+    this.gradeSun = new Sprite(sunGradient());
+    this.gradeSun.blendMode = 'screen';
     this.gradeMult.blendMode = 'multiply';
     this.gradeLift.blendMode = 'screen';
     this.gradeVignette.blendMode = 'multiply';
     this.gradeDim.tint = 0x0c1020;
     this.gradeDim.alpha = 0;
-    this.grade.addChild(this.gradeMult, this.gradeVignette, this.gradeLift, this.gradeDim);
+    this.grade.addChild(this.gradeMult, this.gradeVignette, this.gradeLift, this.gradeSun, this.gradeDim);
     this.lights.blendMode = 'add';
     for (let i = 0; i < MAX_TORCHES; i++) {
       const s = new Sprite(tex.soft);
@@ -184,12 +209,11 @@ export class Battlefield {
       this.selection,
       this.fx.ground,
       this.units.shadows,
-      this.units.bodies,
-      this.units.dots,
-      this.fx.air,
-      this.units.air,
     );
-    this.top.addChild(this.lights, torchLayer, this.fx.glow, this.banners.root, this.fx.overlay);
+    // Soldiers ride above the grade with only part of the hour's colour, so dark ink
+    // silhouettes never sink into the night ground.
+    this.actors.addChild(this.units.bodies, this.units.dots, this.fx.air, this.units.air);
+    this.top.addChild(this.lights, torchLayer, this.actors, this.fx.glow, this.banners.root, this.fx.overlay);
     this.camera = new Camera(app.canvas, {
       onClick: (sx, sy) => this.click(sx, sy),
       onUserPan: () => {
@@ -210,8 +234,12 @@ export class Battlefield {
       }),
     );
     // Effects may ask the camera for a set-piece shot, or a capital to open its gates.
-    if (!('cinematic' in hooks)) hooks.cinematic = (shot) => this.cinematic(shot);
-    if (!('openGate' in hooks)) hooks.openGate = (site) => this.layers?.sites.openGate(site, performance.now());
+    hooks.cinematic = (shot) => this.cinematic(shot);
+    // Effects name a capital by its slot; capitals are the first sites, one per slot.
+    hooks.openGate = (slot) => this.layers?.sites.openGate(slot, performance.now());
+    hooks.sound = (name, x, y, gain) => {
+      sound.play(name, { x, y, gain });
+    };
     app.ticker.add(this.tick);
   }
 
@@ -247,7 +275,10 @@ export class Battlefield {
     host.appendChild(app.canvas);
     const reducedMotion = opts.reducedMotion ?? window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
     siteArt();
-    const field = new Battlefield(app, host, store, getRunner, makeTextures(), makeUnitArt(), { reducedMotion });
+    // Baked once per page: a remount (StrictMode, route changes) reuses the atlases.
+    sharedTextures ??= makeTextures();
+    sharedUnitArt ??= makeUnitArt();
+    const field = new Battlefield(app, host, store, getRunner, sharedTextures, sharedUnitArt, { reducedMotion });
     if (signal) signal.addEventListener('abort', () => field.destroy(), { once: true });
     return field;
   }
@@ -296,7 +327,9 @@ export class Battlefield {
     const resume = this.cine?.resume ?? this.store.following;
     this.store.setFollowing(false);
     this.camera.shot(shot.x, shot.y, zoom, travel);
-    this.cine = { until: performance.now() + travel + (shot.holdMs ?? 2200), dim: Math.max(0, Math.min(1, shot.dim ?? 0)), resume };
+    // The dragon's summoning paints its own dimming and wing shadow: don't double it.
+    const dim = shot.reason === 'dragon' ? 0 : Math.max(0, Math.min(1, shot.dim ?? (shot.reason === 'monolith' || shot.reason === 'sack' ? 0.5 : 0)));
+    this.cine = { until: performance.now() + travel + (shot.holdMs ?? 2200), dim, resume };
   }
 
   /** Force the hour (0 dawn … 1 night), for previews and tests; null follows the war clock. */
@@ -403,12 +436,24 @@ export class Battlefield {
     this.gradeLift.tint = light.screen;
     this.gradeLift.visible = light.screen !== 0;
     this.gradeVignette.alpha = 0.25 + light.lights * 0.55;
+    const dawn = 1 - Math.min(1, light.phase / 0.12);
+    const dusk = Math.max(0, 1 - Math.abs(light.phase - 0.75) / 0.08);
+    this.gradeSun.visible = dawn + dusk > 0.01;
+    if (this.gradeSun.visible) {
+      const east = dawn > dusk;
+      this.gradeSun.tint = east ? 0x6a4818 : 0x70261a;
+      this.gradeSun.alpha = Math.max(dawn, dusk) * 0.6;
+      this.gradeSun.height = sh;
+      this.gradeSun.width = east ? -sw : sw;
+      this.gradeSun.x = east ? sw : 0;
+    }
     const dimTarget = this.cine ? this.cine.dim : 0;
     this.dim += (dimTarget - this.dim) * (1 - Math.pow(0.02, dtMs / 1000));
     this.gradeDim.alpha = this.dim * 0.55;
     this.gradeDim.visible = this.dim > 0.01;
     // Banners and labels stay readable at night, but still take a little of the hour's colour.
     this.banners.root.tint = mixColor(0xffffff, light.mult, 0.35);
+    this.actors.tint = mixColor(0xffffff, light.mult, 0.6);
 
     const bounds = this.camera.bounds(60);
     const cry = world.players.map((p) => p.cryUntil > world.tick);
@@ -441,10 +486,12 @@ export class Battlefield {
     );
     time('sites');
     layers.influence.update(world, this.rgb, now);
-    layers.water.update((now - this.started) / 1000, light.day);
+    time('influence');
+    layers.water.update((now - this.started) / 1000, light.day, zoom);
     const view = { x: bounds.minX, y: bounds.minY, width: bounds.maxX - bounds.minX, height: bounds.maxY - bounds.minY };
     this.collectFires(world);
     layers.atmosphere.update(dtMs, now, zoom, view, light, !!this.opts.reducedMotion);
+    time('atmosphere');
     this.updateTorches(world, centroids, zoom, bounds, now);
     time('world');
     this.drawSelection(world, centroids, now, zoom);
@@ -518,9 +565,6 @@ export class Battlefield {
   }
 
   private feedAudio(now: number, world: World, light: Daylight): void {
-    const fx = this.fx as unknown as { sound?: { setListener?(x: number, y: number, zoom: number): void; setBattleIntensity?(x: number): void; setTimeOfDay?(t: number): void } };
-    const sound = fx.sound;
-    if (!sound) return;
     sound.setListener?.(this.camera.x, this.camera.y, this.camera.zoom);
     if (now < this.audioAt) return;
     this.audioAt = now + 250;
@@ -560,7 +604,7 @@ export class Battlefield {
     const sites = new SiteLayer(this.tex, this.flags, world);
     const atmosphere = new Atmosphere(map, art.sea, () => this.fires);
     this.groundLayer.addChild(terrain, water.mesh, atmosphere.ground, influence.sprite, sites.ground, sites.root);
-    // Cloud shadows and birds pass over everything on the ground; their glow joins the lights.
+    // Cloud shadows and birds pass over the ground; their glow joins the lights.
     this.world.addChild(atmosphere.air);
     this.lights.addChild(sites.lights, atmosphere.glow);
     this.top.addChild(sites.labels.root);

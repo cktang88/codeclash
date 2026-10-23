@@ -69,7 +69,8 @@
 /* Night vellum: a dark band with gold tooling. */
 .night-band {
   background-color: var(--ink-night);
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .94 0 0 0 0 .88 0 0 0 0 .76 0 0 0 .09 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E"),
+  background-size: 160px 160px, auto;
+  background-image: var(--grain-night),
     linear-gradient(180deg, #1a2030, var(--ink-night) 70%);
 }
 
@@ -294,7 +295,7 @@
   padding: 14px 18px 14px 26px;
   color: var(--vellum);
   font-size: 16px;
-  animation: leaf-in var(--t-slow) var(--ease-in) both;
+  animation: leaf-in var(--t-slow) var(--ease-in) backwards;
 }
 
 .cta-banner::before,
@@ -304,7 +305,7 @@
   inset: 0;
   z-index: -1;
   border: 22px solid transparent;
-  border-image: var(--leaf-night) 30 fill / 22px round;
+  border-image: var(--leaf-night) 25% fill / 22px round;
   filter: var(--cast);
   transform: rotate(-0.2deg);
 }
@@ -374,7 +375,7 @@
   background: linear-gradient(180deg, #1d212b, #090b10);
   box-shadow: inset 0 0 0 1px rgba(212, 169, 62, 0.55), inset 0 0 0 3px #0a0c11, inset 0 0 0 3.6px rgba(212, 169, 62, 0.3), 0 8px 16px rgba(5, 6, 10, 0.5);
   clip-path: polygon(8px 0, calc(100% - 8px) 0, 100% 8px, 100% calc(100% - 8px), calc(100% - 8px) 100%, 8px 100%, 0 calc(100% - 8px), 0 8px);
-  animation: leaf-in var(--t-slow) var(--ease-in) both;
+  animation: leaf-in var(--t-slow) var(--ease-in) backwards;
   transition: transform var(--t-fast) var(--ease-in);
 }
 
@@ -515,7 +516,7 @@
   height: 34px;
   align-items: center;
   justify-content: center;
-  background: url('../ui/art/seal-gold.svg') center / 100% 100% no-repeat;
+  background: var(--seal-gold) center / 100% 100% no-repeat;
   color: var(--ink) !important;
 }
 
@@ -550,7 +551,7 @@
   display: flex;
   flex-direction: column;
   z-index: 5;
-  animation: leaf-in var(--t-slow) var(--ease-in) both;
+  animation: leaf-in var(--t-slow) var(--ease-in) backwards;
 }
 
 .side-left {
@@ -691,7 +692,7 @@
 }
 
 .standing {
-  animation: ink-in var(--t-slow) var(--ease-in) both;
+  animation: ink-in var(--t-slow) var(--ease-in) backwards;
 }
 
 .standing + .standing {
@@ -743,7 +744,7 @@
   width: 10px;
   height: 38px;
   flex: none;
-  background-color: hsl(var(--h, 35) 52% 42%);
+  background-color: color-mix(in srgb, hsl(var(--h, 35) 66% 50%) 84%, #9a7a4e);
   background-image: linear-gradient(90deg, rgba(255, 255, 255, 0.18), transparent 50%, rgba(0, 0, 0, 0.18));
   clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 80%, 0 100%);
 }
@@ -847,7 +848,7 @@
 }
 
 .chron {
-  animation: ink-in 420ms var(--ease-in) both;
+  animation: ink-in 420ms var(--ease-in) backwards;
 }
 
 .chron + .chron {
@@ -1053,7 +1054,7 @@ button.chron-btn:hover {
 }
 
 .doctrine.is-on > .icon {
-  background: url('../ui/art/seal.svg') center / 100% 100% no-repeat;
+  background: var(--seal) center / 100% 100% no-repeat;
   box-shadow: none;
   color: var(--gold-hi);
   border-radius: 0;
@@ -1220,7 +1221,7 @@ button.chron-btn:hover {
   flex-direction: column;
   gap: 9px;
   --tilt: 0.3deg;
-  animation: leaf-in var(--t-slow) var(--ease-in) both;
+  animation: leaf-in var(--t-slow) var(--ease-in) backwards;
 }
 
 .inspector p {
@@ -1331,7 +1332,7 @@ button.chron-btn:hover {
   inset: 0;
   z-index: -1;
   border: 16px solid transparent;
-  border-image: var(--leaf-night) 30 fill / 16px round;
+  border-image: var(--leaf-night) 25% fill / 16px round;
   filter: var(--cast);
 }
 
@@ -1367,7 +1368,7 @@ button.chron-btn:hover {
   inset: 0;
   z-index: -1;
   border: 10px solid transparent;
-  border-image: var(--note) 30 fill / 10px round;
+  border-image: var(--note) 25% fill / 10px round;
   filter: drop-shadow(0 3px 3px rgba(10, 12, 20, 0.45));
 }
 
@@ -1386,7 +1387,7 @@ button.chron-btn:hover {
   right: -2px;
   width: 11px;
   height: 11px;
-  background: url('../ui/art/seal.svg') center / 100% 100% no-repeat;
+  background: var(--seal) center / 100% 100% no-repeat;
 }
 
 .emote-btn:hover:not(:disabled) {
@@ -1436,7 +1437,7 @@ button.chron-btn:hover {
   inset: 0;
   z-index: -1;
   border: 14px solid transparent;
-  border-image: var(--note) 30 fill / 14px round;
+  border-image: var(--note) 25% fill / 14px round;
   transform: rotate(-3deg);
   filter: var(--cast);
 }
@@ -1449,7 +1450,7 @@ button.chron-btn:hover {
   width: 18px;
   height: 18px;
   margin-left: -9px;
-  background: url('../ui/art/seal.svg') center / 100% 100% no-repeat;
+  background: var(--seal) center / 100% 100% no-repeat;
 }
 
 .emote-who {
@@ -1501,7 +1502,7 @@ button.chron-btn:hover {
   gap: 8px;
   padding: 7px 0;
   font-size: 15px;
-  animation: ink-in 360ms var(--ease-in) both;
+  animation: ink-in 360ms var(--ease-in) backwards;
 }
 
 .chat-msg + .chat-msg {
@@ -1548,7 +1549,7 @@ button.chron-btn:hover {
   width: 50px;
   height: 50px;
   border: 0;
-  background: url('../ui/art/seal-gold.svg') center / 100% 100% no-repeat;
+  background: var(--seal-gold) center / 100% 100% no-repeat;
   color: var(--ink);
 }
 

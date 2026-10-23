@@ -356,7 +356,9 @@ export class Atmosphere {
       if (c.x > span) c.x -= span * 2;
       if (c.y > span) c.y -= span * 2;
       c.s.position.set(c.x, c.y);
-      c.s.alpha = 0.13 * day;
+      // Clouds shade the land, not the walnut table beyond the sheet.
+      const d = Math.hypot(c.x, c.y);
+      c.s.alpha = 0.13 * day * (1 - Math.min(1, Math.max(0, (d - R * 0.85) / (R * 0.4))));
       c.s.visible = day > 0.05;
     }
 

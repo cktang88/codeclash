@@ -27,10 +27,20 @@ out vec4 finalColor;
 uniform sampler2D uMask;
 uniform float uTime;
 uniform float uDay;
+uniform float uZoom;
 uniform vec3 uTint;
 
-float wave(vec2 p, vec2 d, float f, float s, float t) {
-  return sin(dot(p, d) * f + t * s);
+float hash(vec2 p) {
+  p = fract(p * vec2(123.34, 456.21));
+  p += dot(p, p + 45.32);
+  return fract(p.x * p.y);
+}
+
+float vnoise(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y);
 }
 
 void main() {
@@ -39,22 +49,23 @@ void main() {
   float depth = m.r;
   vec2 p = vWorld;
   float t = uTime;
-  // Three crossing swells, slightly warped so the crests never line up mechanically.
-  vec2 q = p + vec2(sin(p.y * 0.011 + t * 0.21), cos(p.x * 0.013 - t * 0.17)) * 9.0;
-  float h = wave(q, vec2(0.80, 0.60), 0.085, 1.3, t)
-          + wave(q, vec2(-0.55, 0.83), 0.061, -1.05, t) * 0.8
-          + wave(q, vec2(0.21, -0.98), 0.142, 1.9, t) * 0.45 * depth;
-  // Sun glints: thin bright crests where the swells add up.
-  float glint = smoothstep(1.55, 2.05, h) * (0.35 + 0.65 * depth);
-  // Inked ripple lines: long, slow, darker bands like an engraver's water hatching.
-  float band = sin(p.y * 0.19 + sin(p.x * 0.027 + t * 0.32) * 2.6 + t * 0.45);
-  float hatch = smoothstep(0.93, 0.99, band) * (0.25 + 0.5 * depth);
-  float light = glint * mix(0.25, 0.75, uDay);
+  // Sun glints: two drifting noise fields multiplied leave small, scattered
+  // sparkles that twinkle as the fields slide past each other.
+  float a1 = vnoise(p * 0.55 + vec2(t * 0.9, t * 0.3));
+  float a2 = vnoise(p * 0.43 + vec2(-t * 0.6, t * 0.8) + 17.0);
+  float swell = vnoise(p * 0.03 + vec2(t * 0.05, -t * 0.03));
+  // Too small to see from afar, where they would only alias: fade them with zoom.
+  float fade = smoothstep(0.45, 1.1, uZoom);
+  float glint = smoothstep(0.88, 0.97, a1 * a2 * 1.2 + swell * 0.2) * (0.4 + 0.6 * depth) * fade;
+  // Inked ripple lines: long, slow bands, broken into dashes like an engraver's water hatching.
+  float band = sin(p.y * 0.16 + sin(p.x * 0.021 + t * 0.3) * 2.4 + t * 0.4);
+  float dash = smoothstep(0.45, 0.6, vnoise(p * vec2(0.045, 0.12) + vec2(t * 0.05, 0.0)));
+  float hatch = smoothstep(0.94, 0.99, band) * dash * (0.3 + 0.5 * depth);
+  float light = glint * mix(0.35, 0.9, uDay);
   vec3 col = uTint * light;
-  float a = clamp(light + hatch * 0.32, 0.0, 1.0) * m.a;
-  // Hatch lines are ink (dark), glints are light: mix them in premultiplied space.
-  vec3 ink = vec3(0.10, 0.14, 0.22) * hatch * 0.32;
-  finalColor = vec4((col + ink) * m.a, a);
+  float alpha = clamp(light + hatch * 0.3, 0.0, 1.0) * m.a;
+  vec3 ink = vec3(0.10, 0.14, 0.22) * hatch * 0.3;
+  finalColor = vec4((col + ink) * m.a, alpha);
 }
 `;
 
@@ -77,6 +88,7 @@ export class WaterGlints {
         waterUniforms: {
           uTime: { value: 0, type: 'f32' },
           uDay: { value: 1, type: 'f32' },
+          uZoom: { value: 1, type: 'f32' },
           uTint: { value: new Float32Array([1, 0.97, 0.88]), type: 'vec3<f32>' },
         },
       },
@@ -84,10 +96,11 @@ export class WaterGlints {
     this.mesh = new Mesh({ geometry, shader: this.shader });
   }
 
-  update(seconds: number, day: number): void {
-    const u = this.shader.resources.waterUniforms.uniforms as { uTime: number; uDay: number };
+  update(seconds: number, day: number, zoom: number): void {
+    const u = this.shader.resources.waterUniforms.uniforms as { uTime: number; uDay: number; uZoom: number };
     u.uTime = seconds;
     u.uDay = day;
+    u.uZoom = zoom;
   }
 
   destroy(): void {

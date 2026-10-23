@@ -42,6 +42,11 @@
   --leaf-night: url('../ui/art/leaf-night.svg');
   --note: url('../ui/art/note.svg');
   --note-shade: url('../ui/art/note-shade.svg');
+  --table: url('../ui/art/table.svg');
+  --seal: url('../ui/art/seal.svg');
+  --seal-gold: url('../ui/art/seal-gold.svg');
+  --seal-blue: url('../ui/art/seal-blue.svg');
+  --grain-night: url('../ui/art/grain-night.svg');
   --leaf-w: 30px;
 
   --cast: drop-shadow(0 10px 14px rgba(10, 12, 20, 0.42)) drop-shadow(0 2px 2px rgba(10, 12, 20, 0.5));
@@ -77,6 +82,9 @@
 .panel,
 .vellum,
 .folio,
+.page.meta-armory,
+.page.meta-hall,
+.page.meta-season,
 .modal,
 .toast-paper,
 .cartouche {
@@ -138,7 +146,7 @@ body {
 /* The war table: dark walnut under candlelight. */
 body {
   background-color: var(--table);
-  background-image: radial-gradient(ellipse 80% 70% at 42% 30%, rgba(255, 170, 80, 0.1), transparent 70%), radial-gradient(ellipse at center, transparent 55%, rgba(5, 4, 3, 0.65) 100%), url('../ui/art/table.svg');
+  background-image: radial-gradient(ellipse 80% 70% at 42% 30%, rgba(255, 170, 80, 0.1), transparent 70%), radial-gradient(ellipse at center, transparent 55%, rgba(5, 4, 3, 0.65) 100%), var(--table);
   background-size: 100% 100%, 100% 100%, 480px 480px;
   background-attachment: fixed;
 }
@@ -295,7 +303,7 @@ code,
   inset: 0;
   z-index: -1;
   border: var(--leaf-w) solid transparent;
-  border-image: var(--leaf) 30 fill / var(--leaf-w) round;
+  border-image: var(--leaf) 25% fill / var(--leaf-w) round;
   transform: rotate(var(--tilt, 0deg));
   filter: var(--cast);
   pointer-events: none;
@@ -307,7 +315,10 @@ code,
 
 /* A full codex page laid on the table (digest, history, profile). Panels inside it are
    ruled plates on the same page rather than leaves stacked on leaves. */
-.folio {
+.folio,
+.page.meta-armory,
+.page.meta-hall,
+.page.meta-season {
   position: relative;
   isolation: isolate;
   max-width: 1120px;
@@ -316,19 +327,25 @@ code,
   --leaf-w: 30px;
 }
 
-.folio::before {
+.folio::before,
+.page.meta-armory::before,
+.page.meta-hall::before,
+.page.meta-season::before {
   content: '';
   position: absolute;
   inset: 0;
   z-index: -1;
   border: 30px solid transparent;
-  border-image: var(--leaf) 30 fill / 30px round;
+  border-image: var(--leaf) 25% fill / 30px round;
   transform: rotate(-0.15deg);
   filter: var(--cast);
   pointer-events: none;
 }
 
-.folio .panel::before {
+.folio .panel::before,
+.page.meta-armory .panel::before,
+.page.meta-hall .panel::before,
+.page.meta-season .panel::before {
   border: 0;
   border-image: none;
   background: rgba(217, 199, 158, 0.32);
@@ -349,7 +366,7 @@ code,
   inset: 0;
   z-index: -1;
   border: 18px solid transparent;
-  border-image: var(--note) 30 fill / 18px round;
+  border-image: var(--note) 25% fill / 18px round;
   transform: rotate(var(--tilt, 0deg));
   filter: var(--cast);
   pointer-events: none;
@@ -677,7 +694,7 @@ code,
   justify-content: center;
   width: 56px;
   height: 56px;
-  background: url('../ui/art/seal.svg') center / 100% 100% no-repeat;
+  background: var(--seal) center / 100% 100% no-repeat;
   color: rgba(70, 12, 4, 0.85);
   transition: transform var(--t-fast) var(--ease-in), filter var(--t-fast);
 }
@@ -688,12 +705,12 @@ code,
 }
 
 .seal-gold .seal-disc {
-  background-image: url('../ui/art/seal-gold.svg');
+  background-image: var(--seal-gold);
   color: rgba(70, 46, 8, 0.85);
 }
 
 .seal-blue .seal-disc {
-  background-image: url('../ui/art/seal-blue.svg');
+  background-image: var(--seal-blue);
   color: rgba(10, 20, 50, 0.85);
 }
 
@@ -904,7 +921,7 @@ code,
   padding: 0;
   justify-content: center;
   border-radius: 50%;
-  background: url('../ui/art/seal.svg') center / 100% 100% no-repeat;
+  background: var(--seal) center / 100% 100% no-repeat;
   color: var(--gold-hi);
   filter: drop-shadow(0 1px 0 rgba(18, 22, 31, 0.4));
 }
@@ -1123,7 +1140,7 @@ code,
 
 .toggle input:checked {
   border: 0;
-  background: url('../ui/art/seal.svg') center / 100% 100% no-repeat;
+  background: var(--seal) center / 100% 100% no-repeat;
   transform: rotate(-8deg);
 }
 

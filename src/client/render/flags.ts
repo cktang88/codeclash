@@ -1,5 +1,5 @@
 import { CanvasSource, Texture } from 'pixi.js';
-import { armyColor, battalionFlag, type Emblem, type Flag } from '../../rules/heraldry.ts';
+import { armyColor, battalionFlag, type Emblem, type Flag, type Pattern } from '../../rules/heraldry.ts';
 import { roman } from '../../sim/chronicle.ts';
 import { canvas2d } from './paint.ts';
 
@@ -267,15 +267,21 @@ export function paintFlag(flag: Flag, ordinal: number | null, grade: FlagGrade =
 }
 
 /** The army standard flown over a capital: the plain army hue with the player's initial. */
-export function paintStandard(hue: number, login: string): HTMLCanvasElement {
+export function paintStandard(hue: number, login: string, arms?: { pattern: Pattern; emblem: Emblem }): HTMLCanvasElement {
   const [c, ctx] = canvas2d(FLAG_W, FLAG_H);
   ctx.fillStyle = armyColor(hue, 46);
   ctx.fillRect(0, 0, FLAG_W, FLAG_H);
-  ctx.fillStyle = armyColor(hue, 30);
-  ctx.fillRect(0, FLAG_H * 0.72, FLAG_W, FLAG_H * 0.28);
-  ctx.fillStyle = '#f4e6b8';
-  ctx.fillRect(0, FLAG_H * 0.7, FLAG_W, 3);
-  textOutlined(ctx, (login[0] ?? '?').toUpperCase(), FLAG_W / 2, FLAG_H * 0.38, 36);
+  if (arms && arms.pattern !== 'plain') {
+    // The player's chosen arms, charged in a darker shade of the army's pigment.
+    paintPattern(ctx, { hue, field: armyColor(hue, 46), charge: armyColor(hue, 28), accent: '#000', pattern: arms.pattern, emblem: arms.emblem, initials: '' }, FLAG_W, FLAG_H);
+  } else {
+    ctx.fillStyle = armyColor(hue, 30);
+    ctx.fillRect(0, FLAG_H * 0.72, FLAG_W, FLAG_H * 0.28);
+    ctx.fillStyle = '#f4e6b8';
+    ctx.fillRect(0, FLAG_H * 0.7, FLAG_W, 3);
+  }
+  if (arms) paintEmblem(ctx, arms.emblem, FLAG_W / 2, FLAG_H * 0.42, 17);
+  else textOutlined(ctx, (login[0] ?? '?').toUpperCase(), FLAG_W / 2, FLAG_H * 0.38, 36);
   cloth(ctx, FLAG_W, FLAG_H);
   ctx.strokeStyle = INK;
   ctx.lineWidth = 3;
@@ -412,11 +418,11 @@ export class FlagCache {
     return t;
   }
 
-  standard(hue: number, login: string): Texture {
-    const key = `std|${hue}|${login}`;
+  standard(hue: number, login: string, arms?: { pattern: Pattern; emblem: Emblem }): Texture {
+    const key = `std|${hue}|${login}|${arms?.pattern ?? ''}|${arms?.emblem ?? ''}`;
     let t = this.cache.get(key);
     if (!t) {
-      t = new Texture({ source: new CanvasSource({ resource: paintStandard(hue, login), autoGenerateMipmaps: true }) });
+      t = new Texture({ source: new CanvasSource({ resource: paintStandard(hue, login, arms), autoGenerateMipmaps: true }) });
       this.cache.set(key, t);
     }
     return t;

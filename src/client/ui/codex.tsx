@@ -171,9 +171,9 @@ export function Ribbons<T extends string>({
   label,
   className,
 }: {
-  items: readonly (readonly [T, ReactNode])[];
+  items: readonly (readonly [NoInfer<T>, ReactNode])[];
   value: T | null;
-  onChange(v: T): void;
+  onChange: (v: NoInfer<T>) => void;
   label: string;
   className?: string;
 }) {

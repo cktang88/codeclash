@@ -89,8 +89,8 @@ const VELLUM_DEEP: Rgb = [185, 164, 119];
 const FOXING: Rgb = [196, 160, 104];
 const TABLE: Rgb = [36, 25, 18];
 const TABLE_GRAIN: Rgb = [58, 40, 27];
-const MEADOW: Rgb = [160, 166, 104];
-const GRASS: Rgb = [134, 146, 88];
+const MEADOW: Rgb = [170, 178, 106];
+const GRASS: Rgb = [130, 152, 86];
 const GRASS_DEEP: Rgb = [104, 120, 70];
 const OCHRE: Rgb = [196, 172, 108];
 const FOREST_FLOOR: Rgb = [92, 106, 62];
@@ -146,10 +146,12 @@ export function paintTerrain(map: MapDef, seed: number, maxPx: number, text: Cha
         c = mix(c, VELLUM_DEEP, smoothstep(sheet - 120, sheet, edge) * 0.65);
         const fox = smoothstep(0.72, 0.8, fbm(x / 70, y / 70, seed + 17, 3));
         c = mix(c, FOXING, fox * 0.35);
-        const seaT = 1 - smoothstep(seaW * 0.35, seaW, d - R + (mottle - 0.5) * 40);
+        // A wash of ultramarine laid along the coast, deepest inshore, with a crisp brushed outer edge.
+        const off = d - R + (mottle - 0.5) * 30;
+        const seaT = 1 - smoothstep(seaW * 0.9, seaW * 0.97, off);
         const swell = fbm(x / 90, y / 260, seed + 41, 3);
-        const sea = mix(SEA, DEEP, smoothstep(0.3, 0.75, swell) * 0.6);
-        c = mix(c, sea, seaT * 0.88);
+        const sea = mix(mix(DEEP, SEA, smoothstep(0, seaW, off)), VELLUM, smoothstep(seaW * 0.3, seaW, off) * 0.35);
+        c = mix(c, mix(sea, DEEP, smoothstep(0.55, 0.8, swell) * 0.25), seaT * 0.85);
       } else {
         // Land.
         c = mix(GRASS, MEADOW, smoothstep(0.4, 0.72, mottle));
@@ -246,8 +248,8 @@ export function paintTerrain(map: MapDef, seed: number, maxPx: number, text: Cha
 
   // A double ink rule framing the sheet, with fleurons at its corners.
   paintFrame(ctx, sheet - 34, seed);
-  paintCompass(ctx, sheet - 34, R);
-  paintCartouche(ctx, sheet - 34, R, text);
+  paintCompass(ctx, sheet - 34, R, seaW);
+  paintCartouche(ctx, sheet - 34, R, seaW, text);
   paintShrineNotes(ctx, map, R, seaW);
 
   // Paper grain and a candle-lit vignette over the whole sheet.
@@ -288,6 +290,27 @@ function paintCoast(ctx: CanvasRenderingContext2D, R: number, seaW: number, seed
   };
   ring(R, 3.2, 0.85, 0);
   ring(R - 3, 1, 0.35, 1);
+  // The sea's outer edge, inked like the coast but lighter.
+  ring(R + seaW * 0.94, 1.6, 0.6, 9);
+  // Engraver's sea: long wavy horizontal strokes across the ring.
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(0, 0, R + seaW * 0.92, 0, Math.PI * 2);
+  ctx.arc(0, 0, R + 4, 0, Math.PI * 2, true);
+  ctx.clip();
+  ctx.lineWidth = 0.9;
+  ctx.strokeStyle = `${INK}0.22)`;
+  const outer = R + seaW;
+  for (let y = -outer; y < outer; y += 7) {
+    ctx.beginPath();
+    for (let x = -outer; x <= outer; x += 12) {
+      const yy = y + Math.sin(x * 0.045 + y * 0.3) * 1.6;
+      if (x === -outer) ctx.moveTo(x, yy);
+      else ctx.lineTo(x, yy);
+    }
+    ctx.stroke();
+  }
+  ctx.restore();
   const lines = 5;
   for (let i = 1; i <= lines; i++) {
     const t = i / (lines + 1);
@@ -316,12 +339,12 @@ function paintRoads(ctx: CanvasRenderingContext2D, map: MapDef, seed: number, te
   const capitals = map.sites.filter((o) => o.kind === 'capital');
   const shrines = map.sites.filter((o) => o.kind === 'shrine');
   const links: [number, number, number, number, number][] = [];
-  for (const c of capitals) links.push([c.x, c.y, 0, 0, 0]);
-  for (const s of shrines) {
+  // Capitals reach the Heart by way of their shrines; only every other shrine keeps a road inward.
+  shrines.forEach((s, i) => {
     const near = [...capitals].sort((a, b) => Math.hypot(a.x - s.x, a.y - s.y) - Math.hypot(b.x - s.x, b.y - s.y));
     for (const c of near.slice(0, 2)) links.push([s.x, s.y, c.x, c.y, 60]);
-    links.push([s.x, s.y, 0, 0, 40]);
-  }
+    if (i % 2 === 0) links.push([s.x, s.y, 0, 0, 40]);
+  });
   const paths: [number, number][][] = [];
   for (const [x0, y0, x1, y1, wander] of links) {
     const len = Math.hypot(x1 - x0, y1 - y0);
@@ -534,11 +557,12 @@ function paintFrame(ctx: CanvasRenderingContext2D, half: number, seed: number): 
 }
 
 /** A compass rose in ink, gold leaf and vermilion, in the sheet's north-east margin. */
-function paintCompass(ctx: CanvasRenderingContext2D, half: number, R: number): void {
-  const r = Math.min(110, (half - R * 0.72) * 0.55);
-  if (r < 30) return;
-  const cx = half - r * 1.35;
-  const cy = -half + r * 1.35;
+function paintCompass(ctx: CanvasRenderingContext2D, half: number, R: number, seaW: number): void {
+  // In the north-east margin, just off the sea, where a wide view still shows it.
+  const r = Math.max(40, Math.min(140, R * 0.11));
+  const d = Math.min((half - r * 1.25) * Math.SQRT2, R + seaW + r * 1.25);
+  const cx = d * Math.SQRT1_2;
+  const cy = -d * Math.SQRT1_2;
   ctx.save();
   ctx.translate(cx, cy);
   ctx.beginPath();
@@ -605,13 +629,14 @@ function paintCompass(ctx: CanvasRenderingContext2D, half: number, R: number): v
 }
 
 /** The chart's title in a scrolled cartouche in the south-west margin. */
-function paintCartouche(ctx: CanvasRenderingContext2D, half: number, R: number, text: ChartText): void {
-  const room = half - R * 0.72;
-  if (room < 120) return;
-  const w = Math.min(520, room * 2.2);
+function paintCartouche(ctx: CanvasRenderingContext2D, half: number, R: number, seaW: number, text: ChartText): void {
+  const w = Math.max(240, Math.min(600, R * 0.48));
   const h = w * 0.27;
-  const cx = -half + w * 0.62;
-  const cy = half - h * 1.25;
+  // South-west margin: slide out along the diagonal until the scroll clears the sea.
+  let c = (R + seaW) * Math.SQRT1_2;
+  while (Math.hypot(-c + w / 2, c - h / 2) < R + seaW * 0.75 && c < half - w / 2) c += 8;
+  const cx = -c;
+  const cy = c;
   ctx.save();
   ctx.translate(cx, cy);
   // Scroll body with curled ends.
@@ -658,12 +683,12 @@ function paintCartouche(ctx: CanvasRenderingContext2D, half: number, R: number, 
 function paintShrineNotes(ctx: CanvasRenderingContext2D, map: MapDef, R: number, seaW: number): void {
   const shrines = map.sites.filter((s) => s.kind === 'shrine');
   ctx.save();
-  ctx.font = `italic 22px ${SCRIPT_FONT}`;
+  ctx.font = `italic ${Math.round(Math.max(26, R * 0.026))}px ${SCRIPT_FONT}`;
   ctx.fillStyle = `${INK}0.78)`;
   ctx.textBaseline = 'middle';
   shrines.forEach((s, i) => {
     const a = Math.atan2(s.y, s.x);
-    const r = R + seaW + 34;
+    const r = R + seaW + 30;
     const x = Math.cos(a) * r;
     const y = Math.sin(a) * r;
     const name = `the ${SHRINE_NAMES[i % SHRINE_NAMES.length]} Shrine`;

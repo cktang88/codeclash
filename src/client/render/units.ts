@@ -33,6 +33,8 @@ interface View {
   pip: Sprite;
   body: Sprite;
   mask: Sprite;
+  /** Veteran gilding or a ragged army's tears, laid over the pigment. */
+  trim: Sprite;
   dot: Sprite;
   kind: Kind;
   facing: number;
@@ -98,6 +100,8 @@ export class UnitLayer {
   }
 
   flash(unitId: number, now: number): void {
+    // A soldier under a hail of blows blinks, rather than staying a white ghost.
+    if (now - (this.flashes.get(unitId) ?? -1e9) < FLASH_MS * 3) return;
     this.flashes.set(unitId, now);
   }
 
@@ -171,13 +175,13 @@ export class UnitLayer {
       pose.p = u.p;
       const visible = bounds.contains(x, y);
       if (!visible) {
-        v.pip.visible = v.halo.visible = v.shadow.visible = v.body.visible = v.mask.visible = v.dot.visible = false;
+        v.pip.visible = v.halo.visible = v.shadow.visible = v.body.visible = v.mask.visible = v.trim.visible = v.dot.visible = false;
         continue;
       }
       const ragged = this.raggedTint[u.p] ?? -1;
       const tint = ragged >= 0 ? ragged : (this.tints[u.p] ?? 0xcccccc);
       if (far) {
-        v.pip.visible = v.halo.visible = v.shadow.visible = v.body.visible = v.mask.visible = false;
+        v.pip.visible = v.halo.visible = v.shadow.visible = v.body.visible = v.mask.visible = v.trim.visible = false;
         v.dot.visible = true;
         v.dot.position.set(x, y);
         v.dot.tint = tint;
@@ -270,7 +274,7 @@ export class UnitLayer {
         v.pip.scale.set(Math.max(0.2, 13 / zoom / 32));
       }
       const layer = flying ? this.air : this.bodies;
-      if (v.body.parent !== layer) layer.addChild(v.body, v.mask);
+      if (v.body.parent !== layer) layer.addChild(v.body, v.mask, v.trim);
       const flashing = now - (this.flashes.get(u.id) ?? -1e9) < FLASH_MS;
       v.body.texture = flashing ? frame.sil : frame.body;
       v.mask.texture = frame.mask;
@@ -278,6 +282,12 @@ export class UnitLayer {
       place(v.body, anchorY, px, py - altitude, size * v.facing, size, lean, py);
       place(v.mask, anchorY, px, py - altitude, size * v.facing, size, lean, py + 0.001);
       v.mask.visible = !flashing;
+      const trim = flashing ? undefined : ragged >= 0 ? frame.torn : rank > 0 ? frame.gild?.[rank - 1] : undefined;
+      v.trim.visible = trim !== undefined;
+      if (trim) {
+        v.trim.texture = trim;
+        place(v.trim, anchorY, px, py - altitude, size * v.facing, size, lean, py + 0.002);
+      }
       const cry = this.cryTint[u.p];
       v.mask.tint = cry !== undefined && cry !== this.tints[u.p] ? cry : tint;
       const wounded = u.hp / u.maxHp;
@@ -299,7 +309,7 @@ export class UnitLayer {
     v.kind = kind;
     v.facing = 1;
     v.speed = 0;
-    v.pip.visible = v.halo.visible = v.shadow.visible = v.body.visible = v.mask.visible = v.dot.visible = false;
+    v.pip.visible = v.halo.visible = v.shadow.visible = v.body.visible = v.mask.visible = v.trim.visible = v.dot.visible = false;
     return v;
   }
 
@@ -315,16 +325,18 @@ export class UnitLayer {
     pip.visible = false;
     const body = new Sprite();
     const mask = new Sprite();
+    const trim = new Sprite();
+    trim.visible = false;
     const dot = new Sprite(this.tex.dot);
     dot.anchor.set(0.5);
     this.shadows.addChild(shadow, halo, pip);
-    this.bodies.addChild(body, mask);
+    this.bodies.addChild(body, mask, trim);
     this.dots.addChild(dot);
-    return { shadow, halo, pip, body, mask, dot, kind: 0, facing: 1, x: 0, y: 0, speed: 0, phase: 0, seen: 0, pose: { x: 0, y: 0, facing: 1, kind: 0, p: 0 } };
+    return { shadow, halo, pip, body, mask, trim, dot, kind: 0, facing: 1, x: 0, y: 0, speed: 0, phase: 0, seen: 0, pose: { x: 0, y: 0, facing: 1, kind: 0, p: 0 } };
   }
 
   private release(v: View): void {
-    v.pip.visible = v.halo.visible = v.shadow.visible = v.body.visible = v.mask.visible = v.dot.visible = false;
+    v.pip.visible = v.halo.visible = v.shadow.visible = v.body.visible = v.mask.visible = v.trim.visible = v.dot.visible = false;
     this.pool.push(v);
   }
 

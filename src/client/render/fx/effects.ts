@@ -197,12 +197,13 @@ export class Effects {
   shake = 0;
   /** World height of a flying kind's body above its ground point. Replace to match the unit art. */
   flyHeight: (kind: Kind) => number = (kind) => FLY_HEIGHT[kind] ?? 0;
+  // Hooks the renderer fills in. Declared, not initialized, so `'cinematic' in fx` stays false until wired.
   /** Sound cues, wired by the renderer to the audio engine. */
-  sound: SoundCue | null = null;
+  declare sound?: SoundCue;
   /** Asks the renderer's camera for a set-piece shot. */
-  cinematic: ((shot: CinematicShot) => void) | null = null;
+  declare cinematic?: (shot: CinematicShot) => void;
   /** Swings a capital's gates open as a platoon marches out. */
-  openGate: ((site: number) => void) | null = null;
+  declare openGate?: (site: number) => void;
   /** The watching player, whose own pushes get the grand treatment. */
   viewerP: number | null = null;
 
@@ -238,6 +239,8 @@ export class Effects {
   /** Structures whose walls have begun to crack. */
   private readonly cracking = new Set<number>();
   private monolithFlaring = false;
+  /** Night strength 0..1 from the renderer's daylight: fire and embers bloom brighter in the dark. */
+  private night = 0;
   private world: World | null = null;
   // Where every soldier stood at the last step, so those who vanish can be shown leaving.
   private prevN = 0;
@@ -504,6 +507,11 @@ export class Effects {
 
   // ------------------------------------------------------- public extras
 
+  /** The hour's light, every frame. */
+  setDaylight(light: { lights: number }): void {
+    this.night = Math.max(0, Math.min(1, light.lights));
+  }
+
   /** New chronicle lines: muster entries carry the commit message for the herald's scroll. */
   onChronicle(entries: readonly ChronicleEntry[], world: World): void {
     for (const e of entries) {
@@ -523,19 +531,20 @@ export class Effects {
   }
 
   /** The war's end: the sun sets in crimson, then night ink washes across the map. */
-  dayEnd(world: World): void {
+  dayEnd(world: World | null = this.world): void {
+    if (!world) return;
     const R = world.map.radius;
     this.cue('day-end', 0, 0, 1);
     const hold = 9;
     this.sweep(this.tex.soft, 0, 0, 0, 0, R * 3.2, R * 3.2, { tint: VERMILION, peak: 0.34, life: hold + 3, fadeIn: 1.6, fadeOut: 2.5 });
     this.sweep(Texture.WHITE, 0, 0, 0, 0, R * 4, R * 4, { tint: 0x5a1a10, peak: 0.16, life: hold + 3, fadeIn: 1.4, fadeOut: 2.5 });
     // Ink washes in from the west, blot by blot, then lifts for the dawn.
-    const blots = this.reduced ? 6 : 16;
+    const blots = this.reduced ? 5 : 8;
     for (let i = 0; i < blots; i++) {
       const t = i / (blots - 1);
-      const x = -R + t * R * 2 + (rand() - 0.5) * R * 0.3;
-      const y = (rand() - 0.5) * R * 1.6;
-      const size = R * (0.9 + rand() * 0.5);
+      const x = -R + t * R * 2 + (rand() - 0.5) * R * 0.2;
+      const y = (i % 2 ? 0.45 : -0.45) * R + (rand() - 0.5) * R * 0.3;
+      const size = R * (1.5 + rand() * 0.4);
       this.sweep(this.tex.inkWash, x - R * 0.2, y, x, y, size, size, { tint: INK_NIGHT, peak: 0.85, delay: 1.4 + t * 1.8, life: hold - t * 1.8, fadeIn: 0.9, fadeOut: 2, k0: 0.6, k1: 1.15 });
     }
   }
@@ -720,9 +729,11 @@ export class Effects {
     const d = Math.hypot(x, y) || 1;
     const dx = x / d;
     const dy = y / d;
-    for (let k = 0; k < this.n(7); k++) {
-      const t = k / 7;
-      this.dust.spawn({ texture: this.tex.inkSmoke[(rand() * 3) | 0]!, x: x + (rand() - 0.5) * 5, y: y - 2, z: 2 + t * 14, vx: dx * 16 + (rand() - 0.5) * 6, vy: dy * 8, vz: 6 + rand() * 6, drag: 0.6, life: 1.4 + rand() * 0.6, size: 7 + rand() * 4, grow: 1.8, alpha: 0.7, tint: 0x3a2c20, tintTo: 0xc8b89a, spin: (rand() - 0.5) * 0.4, delay: t * 0.25, fadeIn: 0.1 });
+    // An ink figure walks off and comes apart into dust as it goes.
+    this.dust.spawn({ texture: this.tex.wisp, x, y, z: 2, vx: dx * 14, vy: dy * 7, life: 1.3, size: 16, grow: 1.25, alpha: 0.8, tint: INK, tintTo: 0x6a5a48, anchorY: 1, fadeIn: 0 });
+    for (let k = 0; k < this.n(8); k++) {
+      const t = k / 8;
+      this.dust.spawn({ texture: this.tex.inkSmoke[(rand() * 3) | 0]!, x: x + (rand() - 0.5) * 6, y: y - 2, z: 2 + t * 16, vx: dx * 18 + (rand() - 0.5) * 8, vy: dy * 9, vz: 5 + rand() * 6, drag: 0.6, life: 1.5 + rand() * 0.6, size: 10 + rand() * 6, grow: 1.8, alpha: 0.85, tint: 0x2a2018, tintTo: 0xb9a477, spin: (rand() - 0.5) * 0.4, delay: 0.3 + t * 0.5, fadeIn: 0.15 });
     }
     for (let k = 0; k < 3; k++) this.dust.spawn({ texture: this.tex.droplet, x, y: y - 6, vx: dx * 20 + (rand() - 0.5) * 20, vy: dy * 10, vz: 10 + rand() * 20, gravity: 40, life: 1, size: 2.5, alpha: 0.8, delay: rand() * 0.3 });
     this.footprints(x, y, dx, dy, 5, 7);
@@ -793,6 +804,7 @@ export class Effects {
     sheet.rect(-w / 2, h / 2 - 6, w, 5).fill({ color: 0xb9a477, alpha: 0.35 });
     sheet.rect(-w / 2 + 6, -h / 2 + 4, w - 12, h - 8).stroke({ color: grand ? GOLD : 0xb9a477, width: 1 });
     paper.addChild(sheet, text);
+
     const mask = new Graphics().rect(-w / 2 - 2, -h / 2 - 4, w + 4, h + 8).fill(0xffffff);
     paper.mask = mask;
     const roller = () => {
@@ -812,6 +824,13 @@ export class Effects {
     seal.circle(-1.5, h / 2 + 0.5, 2).fill({ color: 0xffffff, alpha: 0.25 });
     const c = new Container();
     c.addChild(seal, paper, mask, left, right);
+    if (grand) {
+      // Your own push gets a rubricated heading, as a herald would cry it.
+      const title = new Text({ text: 'Your banner rises', style: { fontFamily: '"IM Fell English SC", "Alegreya SC", Georgia, serif', fontSize: 18, fill: VERMILION, stroke: { color: VELLUM, width: 4, join: 'round' } }, resolution: 2 });
+      title.anchor.set(0.5, 1);
+      title.y = -h / 2 - 6;
+      c.addChild(title);
+    }
     c.pivot.set(0, 74 + h / 2);
     c.position.set(x, y);
     c.scale.set(1 / this.zoom);
@@ -1483,17 +1502,18 @@ export class Effects {
   private ember(x: number, y: number, speed: number, up: number): void {
     const a = rand() * Math.PI * 2;
     const sp = speed * (0.3 + rand() * 0.7);
-    this.glowSpawn({ texture: this.tex.ember, x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp * 0.5, vz: up * (0.4 + rand()), gravity: 70, drag: 1.4, life: 0.9 + rand() * 0.9, size: 5 + rand() * 4, alpha: 0.85, tint: 0xffc870, tintTo: 0xff3a10, fadeIn: 0 });
+    this.glowSpawn({ texture: this.tex.ember, x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp * 0.5, vz: up * (0.4 + rand()), gravity: 70, drag: 1.4, life: 0.9 + rand() * 0.9, size: (5 + rand() * 4) * (1 + this.night * 0.4), alpha: 0.85, tint: 0xffc870, tintTo: 0xff3a10, fadeIn: 0 });
   }
 
   private flame(x: number, y: number, vx: number, vy: number, size: number, life: number, delay = 0): void {
+    if (this.night > 0.2 && rand() < 0.35) this.glowSpawn({ texture: this.tex.soft, x, y: y - size * 0.3, life: life * 0.8, size: size * 2.2, alpha: 0.18 * this.night, tint: EMBER, delay, fadeIn: 0.1 });
     this.flames.spawn({ texture: this.tex.flame[0]!, frames: this.tex.flame, x, y, vx, vy, vz: 14, life, size, grow: 1.4, tint: 0xffffff, tintTo: 0x7a3a26, alpha: 0.95, anchorY: 0.85, delay, fadeIn: 0.05 });
   }
 
   /** The instant of impact: an inked starburst in pigment, with a faint warm bloom beneath. */
   private flash(x: number, y: number, size: number, tint: number, life: number): void {
     this.flames.spawn({ texture: this.tex.burst, x, y, life: Math.min(0.22, life), size: size * 0.7, grow: 1.5, alpha: 0.95, tint, rotation: rand() * 6.28, fadeIn: 0 });
-    this.glowSpawn({ texture: this.tex.soft, x, y, life, size, grow: 1.2, alpha: 0.2, tint, fadeIn: 0 }, GLOW_PER_CELL * 4);
+    this.glowSpawn({ texture: this.tex.soft, x, y, life, size: size * (1 + this.night * 0.5), grow: 1.2, alpha: 0.2 + this.night * 0.25, tint, fadeIn: 0 }, GLOW_PER_CELL * 4);
   }
 
   /** A hand-inked ring of pigment spreading over the ground. */

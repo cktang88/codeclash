@@ -11,7 +11,7 @@ export interface BattlefieldHandle {
 
 interface RenderModule {
   Battlefield: {
-    create(host: HTMLElement, store: GameStore, getRunner: () => Runner | null, opts?: { reducedMotion?: boolean }): Promise<BattlefieldHandle>;
+    create(host: HTMLElement, store: GameStore, getRunner: () => Runner | null, opts?: { reducedMotion?: boolean; signal?: AbortSignal }): Promise<BattlefieldHandle>;
   };
 }
 
@@ -36,6 +36,8 @@ export function BattlefieldView({ store, getRunner, onReady }: { store: GameStor
     let handle: BattlefieldHandle | null = null;
     let cancelled = false;
     let raf = 0;
+    // StrictMode mounts twice in development: abort the first start before it bakes WebGL.
+    const abort = new AbortController();
     const fallbackPump = () => {
       getRunner()?.frame();
       store.pump();
@@ -52,7 +54,7 @@ export function BattlefieldView({ store, getRunner, onReady }: { store: GameStor
       fail('The battlefield renderer is not available.');
     } else {
       load()
-        .then((m) => m.Battlefield.create(host.current!, store, getRunner, { reducedMotion: prefersReducedMotion() }))
+        .then((m) => m.Battlefield.create(host.current!, store, getRunner, { reducedMotion: prefersReducedMotion(), signal: abort.signal }))
         .then((h) => {
           if (cancelled) {
             h.destroy();
@@ -61,10 +63,14 @@ export function BattlefieldView({ store, getRunner, onReady }: { store: GameStor
           handle = h;
           ready.current(h);
         })
-        .catch((err: unknown) => fail(err instanceof Error ? err.message : 'The battlefield could not start.'));
+        .catch((err: unknown) => {
+          if (cancelled || (err instanceof Error && err.name === 'AbortError')) return;
+          fail(err instanceof Error ? err.message : 'The battlefield could not start.');
+        });
     }
     return () => {
       cancelled = true;
+      abort.abort();
       cancelAnimationFrame(raf);
       handle?.destroy();
       ready.current(null);
