@@ -11,7 +11,11 @@ import {
   EMOTES,
   WS_CLOSE_FORBIDDEN,
   WS_CLOSE_NOT_FOUND,
+  type ArmoryResponse,
   type DigestResponse,
+  type LegendsResponse,
+  type OrdersResponse,
+  type SeasonResponse,
   type HookResponse,
   type KeyframeResponse,
   type LobbyResponse,
@@ -26,6 +30,9 @@ import { decodeInput, type Replay } from '../sim/replay.ts';
 import { registerAuth, type AuthDeps } from './auth.ts';
 import type { RoomRow, Store, UserRow, WarRow } from './db.ts';
 import { registerHooks } from './hooks.ts';
+import type { Meta } from './meta.ts';
+import { DEFAULT_HERALDRY, FANFARES, KEEPS, TRIMS } from '../rules/meta.ts';
+import { EMBLEMS, PATTERNS } from '../rules/heraldry.ts';
 import type { Hub } from './hub.ts';
 import type { GithubClient } from './github.ts';
 import type { PushReport } from './poller.ts';
@@ -39,6 +46,7 @@ export interface HttpDeps extends AuthDeps {
   rooms: Rooms;
   github: GithubClient | null;
   onPush: (report: PushReport) => void;
+  meta?: Meta;
 }
 
 const Name = z.string().trim().min(2).max(48);
@@ -60,6 +68,17 @@ const Command = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('rally'), site: z.number().int().min(0).max(64) }),
   z.object({ kind: z.literal('cry') }),
 ]);
+const ArmoryRequest = z
+  .object({
+    pattern: z.enum(PATTERNS),
+    emblem: z.enum(EMBLEMS),
+    keep: z.enum(KEEPS),
+    trim: z.enum(TRIMS),
+    fanfare: z.enum(FANFARES),
+    tassel: z.boolean(),
+    title: z.string().max(60).nullable(),
+  })
+  .partial();
 const SlugParams = z.object({ slug: z.string().regex(/^[a-z0-9-]{3,48}$/) });
 const WarParams = SlugParams.extend({ warId: z.coerce.number().int().positive() });
 const ClientMessage = z.discriminatedUnion('type', [
@@ -146,7 +165,12 @@ export async function buildHttp(deps: HttpDeps): Promise<FastifyInstance> {
     const room = store.room(roomId);
     const war = room ? rooms.war(roomId) : null;
     if (!room || !war) return null;
-    return war.hello(rooms.detail(room, user?.id ?? null), user?.id ?? null, { chat: store.chat(roomId, 50), presence: hub.presence(roomId) }, clock());
+    return war.hello(
+      rooms.detail(room, user?.id ?? null),
+      user?.id ?? null,
+      { chat: store.chat(roomId, 50), presence: hub.presence(roomId), monuments: deps.meta?.monuments(room, war) ?? [] },
+      clock(),
+    );
   });
 
   app.get('/ws', { websocket: true }, (socket, req) => {
@@ -242,7 +266,73 @@ export async function buildHttp(deps: HttpDeps): Promise<FastifyInstance> {
     const titles = [...totals.entries()]
       .sort((a, b) => b[1] - a[1])
       .map(([id, n]) => `${n > 1 ? `${n}× ` : ''}${AWARDS.find((a) => a.id === id)?.title ?? id}`);
-    return { user: userRef(user), records, titles };
+    const meta = deps.meta;
+    if (!meta) return { user: userRef(user), records, titles };
+    const visible = (roomId: number) => {
+      const room = store.room(roomId);
+      return room !== null && rooms.canView(room, viewer?.id ?? null, null);
+    };
+    return {
+      user: userRef(user),
+      records,
+      titles,
+      rank: meta.rank(user.id),
+      deeds: meta.deeds(user.id, visible),
+      rivalries: meta.rivalries(user.id, visible),
+      heraldry: meta.heraldryOf(user.id) ?? DEFAULT_HERALDRY,
+    };
+  });
+
+  // ------------------------------------------------------- the long loops
+
+  app.get('/api/me/armory', async (req, reply): Promise<ArmoryResponse | void> => {
+    const user = viewerOf(req);
+    if (!user) return fail(reply, 401, 'signed_out', 'Sign in to visit your Armory.');
+    if (!deps.meta) return fail(reply, 404, 'not_found', 'The Armory is closed.');
+    return deps.meta.armory(user.id);
+  });
+
+  app.post('/api/me/armory', async (req, reply) => {
+    const user = viewerOf(req);
+    if (!user) return fail(reply, 401, 'signed_out', 'Sign in to visit your Armory.');
+    if (!deps.meta) return fail(reply, 404, 'not_found', 'The Armory is closed.');
+    const body = ArmoryRequest.safeParse(req.body);
+    if (!body.success) return fail(reply, 400, 'invalid', 'Choose a pattern, emblem, keep, trim, fanfare, tassel or title.');
+    const { armory, refused } = deps.meta.setArmory(user.id, body.data);
+    if (refused.length > 0) return reply.code(409).send({ error: 'locked', message: `Not yet unlocked: ${refused.join(', ')}.`, armory });
+    return armory;
+  });
+
+  app.get('/api/rooms/:slug/legends', async (req, reply): Promise<LegendsResponse | void> => {
+    try {
+      const { slug } = SlugParams.parse(req.params);
+      const { room } = viewable(req, slug);
+      return deps.meta?.legends(room.id) ?? { legends: [] };
+    } catch (err) {
+      return failure(reply, err);
+    }
+  });
+
+  app.get('/api/rooms/:slug/season', async (req, reply): Promise<SeasonResponse | void> => {
+    try {
+      const { slug } = SlugParams.parse(req.params);
+      const { room } = viewable(req, slug);
+      const day = rooms.war(room.id)?.meta.day ?? isoDay(clock());
+      return deps.meta?.season(room, day) ?? { season: day, standings: [], champion: null };
+    } catch (err) {
+      return failure(reply, err);
+    }
+  });
+
+  app.get('/api/rooms/:slug/orders', async (req, reply): Promise<OrdersResponse | void> => {
+    try {
+      const { slug } = SlugParams.parse(req.params);
+      const { room } = viewable(req, slug);
+      const war = rooms.war(room.id);
+      return war && deps.meta ? deps.meta.orders(war) : { orders: [] };
+    } catch (err) {
+      return failure(reply, err);
+    }
   });
 
   // ------------------------------------------------------------- rooms
@@ -302,6 +392,7 @@ export async function buildHttp(deps: HttpDeps): Promise<FastifyInstance> {
       const { room } = ownerOf(req, slug);
       if (room.slug === 'commons') return fail(reply, 400, 'invalid', 'The Commons cannot be deleted.');
       rooms.delete(room);
+      deps.meta?.deleteRoom(room.id);
       hub.closeRoom(room.id, WS_CLOSE_NOT_FOUND, 'room deleted');
       return reply.code(204).send();
     } catch (err) {

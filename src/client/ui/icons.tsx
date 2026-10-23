@@ -1,3 +1,8 @@
+/**
+ * One woodcut icon set for the whole codex (docs/art-direction.md §4): ink linework on a
+ * transparent ground, a 2px stroke at 24px, and hatched shading on the side away from the
+ * candle (light from the upper left).
+ */
 import type { ReactNode, SVGProps } from 'react';
 import type { ChronicleKind } from '../../sim/chronicle.ts';
 import { STATS } from '../../sim/stats.ts';
@@ -14,7 +19,7 @@ function Svg({ size = 18, title, children, className, ...rest }: IconProps & { c
       className={`icon${className ? ` ${className}` : ''}`}
       fill="none"
       stroke="currentColor"
-      strokeWidth={1.8}
+      strokeWidth={2}
       strokeLinecap="round"
       strokeLinejoin="round"
       role={title ? 'img' : undefined}
@@ -26,6 +31,16 @@ function Svg({ size = 18, title, children, className, ...rest }: IconProps & { c
       {children}
     </svg>
   );
+}
+
+/** Engraver's hatching: thin parallel strokes for the shaded side of a shape. */
+function H({ d }: { d: string }) {
+  return <path d={d} strokeWidth={1} opacity={0.85} />;
+}
+
+/** A solid ink mass (eye sockets, keyholes, gems). */
+function Ink({ d }: { d: string }) {
+  return <path d={d} fill="currentColor" stroke="none" />;
 }
 
 /** A unit's silhouette, the same art as its battlefield sprite. Decorative when `title` is empty. */
@@ -45,98 +60,328 @@ export function UnitIcon({ kind, size = 18, title, className }: { kind: number; 
   );
 }
 
-const EVENT_PATHS: Partial<Record<ChronicleKind | 'desert', ReactNode>> = {
-  join: <path d="M6 21V3m0 1h11l-2.5 4L17 12H6" />,
+const BANNER = 'M5.5 21.5V2.5M5.5 3.5h12.5l-2.8 4.2 2.8 4.3H5.5';
+const SWORD = 'M4 3.5 15 14.5M3.5 3.5h3l9.8 9.8M12.7 17.3l4.6-4.6M15.6 16.1l3.6 3.6M18.3 21.2l2.9-2.9';
+const SKULL = 'M12 3c-4.3 0-7.2 3-7.2 6.9 0 2.4 1 4.2 2.7 5.4V19h9v-3.7c1.7-1.2 2.7-3 2.7-5.4C19.2 6 16.3 3 12 3Z';
+const CROWN = 'M4 18 2.8 7.5l5 4L12 4l4.2 7.5 5-4L20 18Z';
+
+const EVENT_PATHS: Record<ChronicleKind | 'order', ReactNode> = {
+  // A banner raised on its staff.
+  join: (
+    <>
+      <path d={BANNER} />
+      <H d="M8 9.5h7.5M8 7h8" />
+      <path d="M3 21.5h5" />
+    </>
+  ),
+  // A gate thrown open, soldiers marching out.
   muster: (
     <>
-      <path d="M12 5v14M5 12h14" />
-      <circle cx="12" cy="12" r="9" />
+      <path d="M3 21V9.5L12 4l9 5.5V21" />
+      <path d="M8 21v-6a4 4 0 0 1 8 0v6" />
+      <H d="M9.5 21v-5M12 21v-6.5M14.5 21v-5" />
+      <path d="M2 21h20" />
     </>
   ),
-  rout: <path d="M13 4a1.5 1.5 0 1 0 0 .01M9 21l2.5-6.5L14 17v4M7 12l3-4 4 1 2.5 3.5M11.5 14.5 10 8" />,
+  // A broken blade: soldiers leaving because their work was undone.
+  desert: (
+    <>
+      <path d="M4 20 9.5 14.5M3.5 15.5l5 5M11.5 12.5l1.8-1.8" />
+      <path d="m15.2 9 5.3-5.3v2.6L17 9.8" />
+      <H d="m13.5 10.8 1.3-1.3" />
+    </>
+  ),
+  // A white flag carried in flight.
+  rout: (
+    <>
+      <path d="M7 22 9 2.5" />
+      <path d="M8.9 3.5c3 1.6 5.4-1 9.6.6l-1.4 7.4c-4-1.5-6.4 1-9 0" />
+      <H d="M10.5 7.5c2 .6 3.8-.6 6-.2M10.3 9.5c2 .6 3.7-.6 6-.2" />
+    </>
+  ),
   wiped: (
     <>
-      <path d="M12 3a7 7 0 0 0-4 12.7V19h8v-3.3A7 7 0 0 0 12 3z" />
-      <path d="M9.5 11h.01M14.5 11h.01M10 19v2M14 19v2" />
+      <path d={SKULL} />
+      <Ink d="M8.3 10.3a1.7 1.9 0 1 0 3.4 0 1.7 1.9 0 1 0-3.4 0ZM12.3 10.3a1.7 1.9 0 1 0 3.4 0 1.7 1.9 0 1 0-3.4 0Z" />
+      <path d="M10 19v2.5M14 19v2.5M12 13.5l-.8 1.8h1.6Z" strokeWidth={1.4} />
+      <H d="M16.5 12.5v3M15 14v3" />
     </>
   ),
-  champion: <path d="m5 10 2.5-5 2.5 3L12 4l2 4 2.5-3L19 10zM5 10h14v3l-3 3-4-3-3 4-4-4z" />,
+  // A champion's helm with its crest.
+  champion: (
+    <>
+      <path d="M5.5 20.5V12a6.5 6.5 0 0 1 13 0v8.5Z" />
+      <path d="M12 5.5V2.5M9 3.2c1-.9 5-.9 6 0" />
+      <path d="M8 13.5h8M12 13.5V19" />
+      <H d="M15.5 15v4.5M17 14v5.5" />
+    </>
+  ),
+  // A banner planted on a captured hill.
   capture: (
     <>
-      <path d="M6 21V3m0 1h11l-2.5 4L17 12H6" />
-      <path d="m3 21h6" />
+      <path d={BANNER} />
+      <path d="M2.5 21.5c3-3.2 7-4 10-2.2 2.3 1.3 5.4 1.4 9 .2" />
+      <H d="M8 9.5h7.5" />
     </>
   ),
-  sack: <path d="M12 21c4 0 7-2.6 7-6.5C19 10 15 8.5 14.5 3 12 5 9.5 7 9.5 10.5 8 9.5 7.5 8 7.5 7 5.8 8.6 5 11 5 14.5 5 18.4 8 21 12 21z" />,
-  rebuilt: <path d="M3 21h18M5 21V10l4-3 3 2 3-2 4 3v11M9 21v-5h6v5" />,
+  // A burning keep.
+  sack: (
+    <>
+      <path d="M4 21.5V12h3v2h2.5v-2h3v2H15v-2h3v9.5Z" />
+      <path d="M11.5 10c-2-2-1.4-4.6 1-7 .3 2 2.6 2.7 2.6 5 0 1.4-.8 2.3-1.8 2.8" />
+      <H d="M8 21.5v-4.5h3v4.5M15 17v4.5M16.5 15.5v6" />
+    </>
+  ),
+  // Walls rebuilt: a trowel over stones.
+  rebuilt: (
+    <>
+      <path d="M3 21.5h18M4 21.5V13h16v8.5M4 17h16M9 13v4M15 13v4M12 17v4.5M7 17v4.5M17 17v4.5" />
+      <path d="M13 9.5 18.5 4l2 2L15 11.5ZM13 9.5l-2 2" />
+      <H d="M16 18.5h4M16 20h4" />
+    </>
+  ),
+  // The Legacy Monolith, cracked.
   monolith: (
     <>
-      <path d="M9 21 10 4l2-1.5L14 4l1 17z" />
-      <path d="m10.5 9 3 2m-3.2 3.5 3.4 1.5" />
-      <path d="M5 21h14" />
+      <path d="M8.5 21.5 9.8 4.2 12 2.5l2.2 1.7 1.3 17.3Z" />
+      <path d="m10.8 8.5 2.4 1.5-1.6 2 1.8 2" strokeWidth={1.4} />
+      <H d="M13.6 6v14M14.8 9v12" />
+      <path d="M4 21.5h16" />
     </>
   ),
-  cry: <path d="M4 10v4l9 5V5zM16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12" />,
-  doctrine: <path d="M7 3h10a2 2 0 0 1 2 2v14l-3-2-3 2-3-2-3 2V5a2 2 0 0 1 0-2zM9 8h6M9 12h6" />,
+  // A war horn sounding.
+  cry: (
+    <>
+      <path d="M3 9.5c4.5 0 9-2 12.5-6v15c-3.5-4-8-6-12.5-6Z" />
+      <path d="M6 12.5 7.5 20h2.5l-1-7" />
+      <path d="M18.5 8a5 5 0 0 1 0 6M20.5 6a8 8 0 0 1 0 10" />
+      <H d="M12 6.5v8.6M13.6 5.2v11.6" />
+    </>
+  ),
+  // A sealed order of doctrine.
+  doctrine: (
+    <>
+      <path d="M6 3.5h11.5v13.5a3 3 0 0 1-3 3H5" />
+      <path d="M6 3.5a2.5 2.5 0 0 0 0 5h2V3.5M5 20a2 2 0 0 0 2-2v-1.5H3V18a2 2 0 0 0 2 2" />
+      <H d="M10.5 8h4.5M10.5 10.5h4.5M10.5 13h3" />
+    </>
+  ),
+  // A rallying horn over a target.
   rally: (
     <>
-      <circle cx="12" cy="12" r="8" />
-      <circle cx="12" cy="12" r="4" />
-      <circle cx="12" cy="12" r="0.5" fill="currentColor" />
+      <circle cx="12" cy="12" r="8.5" />
+      <circle cx="12" cy="12" r="4.5" />
+      <Ink d="M10.6 12a1.4 1.4 0 1 0 2.8 0 1.4 1.4 0 1 0-2.8 0Z" />
+      <H d="M17 15.5l1.6 1.2M15.5 17.5l1 1.5" />
     </>
   ),
-  leader: <path d="m3 8 4.5 4L12 5l4.5 7L21 8l-2 11H5z" />,
-  dragon: <path d="M3 14c3-6 7-9 12-9l2-2 1 3c2 1 3 3 3 5l-4-1-2 3 3 3c-2 2-5 3-8 2l-1 4-2-4c-2 0-3-2-4-4z" />,
-  clash: <path d="m4 4 11 11M20 4 9 15M13 17l4-4M11 17l-4-4" />,
-  // A broken blade: soldiers leaving because their work was undone.
-  desert: <path d="M5 19 11 13M13 11l6-6M16 5h3v3M9 9l2 2M13 13l2 2M4 4l16 16" />,
+  leader: (
+    <>
+      <path d={CROWN} />
+      <path d="M4 18h16v3H4Z" />
+      <Ink d="M11 11.5a1 1 0 1 0 2 0 1 1 0 1 0-2 0Z" />
+      <H d="M16 19.5h3M15 14.5l1.5-.5" />
+    </>
+  ),
+  dragon: (
+    <>
+      <path d="M2.5 15.5c2.5-5 6.5-8.5 11.5-8.5l2.2-3 1 3.4c2.4.8 3.8 2.8 4 5l-4-.8-2.1 3 3 3c-2.3 2-5.3 2.8-8.3 1.8l-1 3.6-2-3.8c-2 0-3.3-1.4-4.3-3.7Z" />
+      <path d="M8.5 12.5c2-1 4-1.2 6-.6" strokeWidth={1.4} />
+      <Ink d="M16.6 9.4a.8.8 0 1 0 1.6 0 .8.8 0 1 0-1.6 0Z" />
+      <H d="M9 16.5l1-2M11 17l1-2.2M13 17.2l.9-2" />
+    </>
+  ),
+  // Crossed swords.
+  clash: (
+    <>
+      <path d="M4 4l11.5 11.5M20 4 8.5 15.5" />
+      <path d="M13 18l5-5M11 18l-5-5M17 19.5l2.5 2.5M7 19.5 4.5 22" />
+      <H d="M6.5 4.5l9.5 9.5" />
+    </>
+  ),
+  // A fulfilled Order: a wax seal with ribbon tails.
+  order: (
+    <>
+      <path d="M9 14.5 6.5 22l3-1.6 1.8 2.6 1-7M15 14.5l2.5 7.5-3-1.6-1.8 2.6-1-7" />
+      <circle cx="12" cy="9.5" r="6.5" />
+      <path d="M9.5 9.5l1.8 1.8 3.3-3.6" />
+      <H d="M16 12l1.2.8M15 13.5l.9 1" />
+    </>
+  ),
 };
 
-export function EventIcon({ kind, ...props }: IconProps & { kind: ChronicleKind }) {
+export function EventIcon({ kind, ...props }: IconProps & { kind: ChronicleKind | 'order' }) {
   return <Svg {...props}>{EVENT_PATHS[kind] ?? <circle cx="12" cy="12" r="5" />}</Svg>;
 }
 
 const DOCTRINE_PATHS: ReactNode[] = [
   // Balanced: scales
-  <path d="M12 3v18M6 21h12M5 7h14M5 7l-2.5 6a2.8 2.8 0 0 0 5 0zM19 7l-2.5 6a2.8 2.8 0 0 0 5 0z" />,
-  // Assault: arrowhead charge
-  <path d="M4 12h12M11 6l6 6-6 6M19 5v14" />,
-  // Hold: shield
-  <path d="M12 3 19 6v6c0 4.3-3 7.6-7 9-4-1.4-7-4.7-7-9V6z" />,
-  // Siege: tower
-  <path d="M6 21V8h12v13M6 8V4h2v2h3V4h2v2h3V4h2v4M10 21v-4a2 2 0 0 1 4 0v4" />,
-  // Skirmish: wind
-  <path d="M3 8h11a3 3 0 1 0-3-3M3 12h15a3 3 0 1 1-3 3M3 16h8" />,
+  <>
+    <path d="M12 3v17.5M7 20.5h10M4.5 6.5h15" />
+    <path d="M4.5 6.5 2 13a2.6 2.6 0 0 0 5 0ZM19.5 6.5 17 13a2.6 2.6 0 0 0 5 0Z" />
+    <H d="M2.6 13.8h3.8M17.6 13.8h3.8" />
+  </>,
+  // Assault: a lance couched for the charge
+  <>
+    <path d="M2.5 12h13M15.5 8.5l6 3.5-6 3.5Z" />
+    <path d="M6 9.5v5M8 9v6" />
+    <H d="M17 12.6l2.2-.5" />
+  </>,
+  // Hold: a kite shield
+  <>
+    <path d="M12 2.5 19.5 5v6.5c0 4.6-3.2 8.2-7.5 10-4.3-1.8-7.5-5.4-7.5-10V5Z" />
+    <path d="M12 2.5v19" />
+    <H d="M14 7.5h3.5M14 10h4M14 12.5h3.8M14 15h3" />
+  </>,
+  // Siege: a battering tower
+  <>
+    <path d="M6 21.5V8h12v13.5M6 8V3.5h2.4v2h2.4v-2h2.4v2h2.4v-2H18V8" />
+    <path d="M10 21.5v-4a2 2 0 0 1 4 0v4" />
+    <H d="M15.5 10v10M17 10v10" />
+  </>,
+  // Skirmish: arrows on the wind
+  <>
+    <path d="M3 7.5h11a3 3 0 1 0-3-3M3 12h15a3 3 0 1 1-3 3M3 16.5h7" />
+    <H d="M5 9.5h7M5 14h8" />
+  </>,
 ];
 
 export function DoctrineIcon({ doctrine, ...props }: IconProps & { doctrine: number }) {
   return <Svg {...props}>{DOCTRINE_PATHS[doctrine] ?? DOCTRINE_PATHS[0]}</Svg>;
 }
 
-export function Icon({ name, ...props }: IconProps & { name: 'crown' | 'eye' | 'lock' | 'share' | 'gear' | 'history' | 'help' | 'chat' | 'close' | 'play' | 'pause' | 'github' | 'clock' | 'users' | 'download' | 'chevron' | 'copy' | 'sword' | 'target' | 'bolt' | 'skull' | 'flag' }) {
+export type IconName =
+  | 'crown'
+  | 'eye'
+  | 'lock'
+  | 'share'
+  | 'gear'
+  | 'history'
+  | 'help'
+  | 'chat'
+  | 'close'
+  | 'play'
+  | 'pause'
+  | 'github'
+  | 'clock'
+  | 'users'
+  | 'download'
+  | 'chevron'
+  | 'copy'
+  | 'sword'
+  | 'target'
+  | 'bolt'
+  | 'skull'
+  | 'flag'
+  | 'horn'
+  | 'horn-off'
+  | 'quill'
+  | 'book'
+  | 'map'
+  | 'shield'
+  | 'compass'
+  | 'plus'
+  | 'follow'
+  | 'scroll'
+  | 'seal'
+  | 'up'
+  | 'down';
+
+export function Icon({ name, ...props }: IconProps & { name: IconName }) {
   switch (name) {
     case 'crown':
-      return <Svg {...props}><path d="m3 8 4.5 4L12 5l4.5 7L21 8l-2 11H5z" fill="currentColor" fillOpacity={0.3} /></Svg>;
+      return (
+        <Svg {...props}>
+          <path d={CROWN} />
+          <path d="M4 18h16v3H4Z" />
+          <Ink d="M11 12a1 1 0 1 0 2 0 1 1 0 1 0-2 0ZM2 7.5a.9.9 0 1 0 1.8 0 .9.9 0 1 0-1.8 0ZM20.2 7.5a.9.9 0 1 0 1.8 0 .9.9 0 1 0-1.8 0Z" />
+          <H d="M16 19.5h3M15.4 15.5l2.6-1.8M16.5 17l2.3-1.6" />
+        </Svg>
+      );
     case 'eye':
-      return <Svg {...props}><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z" /><circle cx="12" cy="12" r="3" /></Svg>;
+      return (
+        <Svg {...props}>
+          <path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12Z" />
+          <circle cx="12" cy="12" r="3.2" />
+          <Ink d="M11 12a1 1 0 1 0 2 0 1 1 0 1 0-2 0Z" />
+          <H d="M15.5 16l1-1.3M17.5 15l.8-1.2" />
+        </Svg>
+      );
     case 'lock':
-      return <Svg {...props}><rect x="5" y="11" width="14" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" /></Svg>;
+      return (
+        <Svg {...props}>
+          <path d="M4.5 11h15v10.5h-15Z" />
+          <path d="M7.5 11V7.5a4.5 4.5 0 0 1 9 0V11" />
+          <Ink d="M10.6 15a1.4 1.4 0 1 1 2 1.3l.5 2.7h-2.2l.5-2.7a1.4 1.4 0 0 1-.8-1.3Z" />
+          <H d="M15.5 13v6.5M17.5 13v6.5" />
+        </Svg>
+      );
     case 'share':
-      return <Svg {...props}><path d="M4 12v7a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7M16 6l-4-4-4 4M12 2v13" /></Svg>;
+      // A herald's scroll sent forth.
+      return (
+        <Svg {...props}>
+          <path d="M4 12.5v8h16v-8" />
+          <path d="M12 15V2.5M7.5 7 12 2.5 16.5 7" />
+          <H d="M15.5 17.5h3M14 19h4.5" />
+        </Svg>
+      );
     case 'gear':
-      return <Svg {...props}><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 0 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 0 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 0 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 0 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" /></Svg>;
+      return (
+        <Svg {...props}>
+          <path d="M10.3 2.5h3.4l.5 2.6 1.9.8 2.2-1.5 2.4 2.4-1.5 2.2.8 1.9 2.5.4v3.4l-2.5.5-.8 1.9 1.5 2.2-2.4 2.4-2.2-1.5-1.9.8-.5 2.5h-3.4l-.5-2.5-1.9-.8-2.2 1.5-2.4-2.4 1.5-2.2-.8-1.9-2.5-.5v-3.4l2.5-.4.8-1.9-1.5-2.2 2.4-2.4 2.2 1.5 1.9-.8Z" />
+          <circle cx="12" cy="12" r="3.2" />
+          <H d="M14.5 15.8l1.6 1.6M16 14.4l1.6 1.4" />
+        </Svg>
+      );
     case 'history':
-      return <Svg {...props}><path d="M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5M12 7v5l3 3" /></Svg>;
+    case 'clock':
+      // An hourglass: the war's day running out.
+      return (
+        <Svg {...props}>
+          <path d="M5 2.5h14M5 21.5h14" />
+          <path d="M6.5 2.5c0 5 5.5 6.5 5.5 9.5s-5.5 4.5-5.5 9.5M17.5 2.5c0 5-5.5 6.5-5.5 9.5s5.5 4.5 5.5 9.5" />
+          <Ink d="M8.6 21c.6-2.6 2.2-3.6 3.4-4.4 1.2.8 2.8 1.8 3.4 4.4ZM9.6 6.8h4.8c-.7 1-1.6 1.7-2.4 2.3-.8-.6-1.7-1.3-2.4-2.3Z" />
+        </Svg>
+      );
     case 'help':
-      return <Svg {...props}><circle cx="12" cy="12" r="9" /><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .9-1 1.7M12 17h.01" /></Svg>;
+    case 'book':
+      // The Articles of War: a bound book with a ribbon.
+      return (
+        <Svg {...props}>
+          <path d="M4 4.5c3-1.4 5.6-1.4 8 .6 2.4-2 5-2 8-.6v15c-3-1.4-5.6-1.4-8 .6-2.4-2-5-2-8-.6Z" />
+          <path d="M12 5.1v15" />
+          <path d="M16 4v8l1.5-1.4L19 12V4.2" strokeWidth={1.5} />
+          <H d="M6 8h4M6 10.5h4M6 13h4M14 14.5h4M14 17h4" />
+        </Svg>
+      );
     case 'chat':
-      return <Svg {...props}><path d="M21 12a8 8 0 0 1-11.7 7.1L4 20l1-4.6A8 8 0 1 1 21 12z" /></Svg>;
+      // A speech banderole.
+      return (
+        <Svg {...props}>
+          <path d="M3.5 5.5h17v10H11l-5 4.5v-4.5H3.5Z" />
+          <H d="M7 9h10M7 12h7" />
+        </Svg>
+      );
     case 'close':
-      return <Svg {...props}><path d="M6 6l12 12M18 6 6 18" /></Svg>;
+      return (
+        <Svg {...props}>
+          <path d="M6 6l12 12M18 6 6 18" strokeWidth={2.2} />
+        </Svg>
+      );
     case 'play':
-      return <Svg {...props}><path d="M7 4v16l13-8z" fill="currentColor" /></Svg>;
+      return (
+        <Svg {...props}>
+          <path d="M6.5 3.5v17l14-8.5Z" />
+          <H d="M9 9.5v5M11 10.5v3.2M13 11.2v1.6" />
+        </Svg>
+      );
     case 'pause':
-      return <Svg {...props}><path d="M7 4h3v16H7zM14 4h3v16h-3z" fill="currentColor" /></Svg>;
+      return (
+        <Svg {...props}>
+          <path d="M6 3.5h4v17H6ZM14 3.5h4v17h-4Z" />
+          <H d="M8 6v12M16 6v12" />
+        </Svg>
+      );
     case 'github':
       return (
         <Svg {...props} stroke="none">
@@ -146,25 +391,163 @@ export function Icon({ name, ...props }: IconProps & { name: 'crown' | 'eye' | '
           />
         </Svg>
       );
-    case 'clock':
-      return <Svg {...props}><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></Svg>;
     case 'users':
-      return <Svg {...props}><circle cx="9" cy="8" r="3.5" /><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M18 14a6 6 0 0 1 3.5 6" /></Svg>;
+      return (
+        <Svg {...props}>
+          <circle cx="9" cy="7.5" r="3.5" />
+          <path d="M2.5 20.5c0-4 2.8-6.5 6.5-6.5s6.5 2.5 6.5 6.5Z" />
+          <path d="M15.5 4.3a3.5 3.5 0 0 1 0 6.4M18 14.3c2 .9 3.5 3 3.5 6.2" />
+          <H d="M11 16.5l2 2M12.5 15.5l1.7 2" />
+        </Svg>
+      );
     case 'download':
-      return <Svg {...props}><path d="M12 3v12m0 0 5-5m-5 5-5-5M4 21h16" /></Svg>;
+      return (
+        <Svg {...props}>
+          <path d="M12 2.5v12.5M7.5 10.5 12 15l4.5-4.5" />
+          <path d="M3.5 15v5.5h17V15" />
+          <H d="M15 18h3.5" />
+        </Svg>
+      );
     case 'chevron':
-      return <Svg {...props}><path d="m9 6 6 6-6 6" /></Svg>;
+      return (
+        <Svg {...props}>
+          <path d="m9 5.5 6.5 6.5L9 18.5" strokeWidth={2.2} />
+        </Svg>
+      );
     case 'copy':
-      return <Svg {...props}><rect x="8" y="8" width="13" height="13" rx="2" /><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3" /></Svg>;
+      return (
+        <Svg {...props}>
+          <path d="M8.5 8.5h12v13h-12Z" />
+          <path d="M15.5 8.5V3.5h-12v13h5" />
+          <H d="M11 12h7M11 14.5h7M11 17h5" />
+        </Svg>
+      );
     case 'sword':
-      return <Svg {...props}><path d="M14.5 17.5 3 6V3h3l11.5 11.5M13 19l6-6M16 16l4 4M19 21l2-2" /></Svg>;
+      return (
+        <Svg {...props}>
+          <path d={SWORD} />
+          <H d="M6.5 5.2l7.5 7.5" />
+        </Svg>
+      );
     case 'target':
-      return <Svg {...props}><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="4" /></Svg>;
+      return (
+        <Svg {...props}>
+          <circle cx="12" cy="12" r="8.5" />
+          <circle cx="12" cy="12" r="4" />
+          <path d="M12 1.5v4M12 18.5v4M1.5 12h4M18.5 12h4" />
+          <H d="M16.5 15.5l1 1" />
+        </Svg>
+      );
     case 'bolt':
-      return <Svg {...props}><path d="M13 2 4 14h7l-1 8 9-12h-7z" fill="currentColor" fillOpacity={0.3} /></Svg>;
+      return (
+        <Svg {...props}>
+          <path d="M13.5 2 4 14h7l-1.5 8L20 9.5h-7Z" />
+          <H d="M12.5 15.5l2.5-3M11.8 18.3l2.6-3.2" />
+        </Svg>
+      );
     case 'skull':
-      return <Svg {...props}><path d="M12 3a7 7 0 0 0-4 12.7V19h8v-3.3A7 7 0 0 0 12 3zM9.5 11h.01M14.5 11h.01" /></Svg>;
+      return (
+        <Svg {...props}>
+          <path d={SKULL} />
+          <Ink d="M8.3 10.3a1.7 1.9 0 1 0 3.4 0 1.7 1.9 0 1 0-3.4 0ZM12.3 10.3a1.7 1.9 0 1 0 3.4 0 1.7 1.9 0 1 0-3.4 0Z" />
+          <path d="M10 19v2.5M14 19v2.5" />
+        </Svg>
+      );
     case 'flag':
-      return <Svg {...props}><path d="M6 21V3m0 1h11l-2.5 4L17 12H6" /></Svg>;
+      return (
+        <Svg {...props}>
+          <path d={BANNER} />
+          <H d="M8 9.5h7.5M8 7h8" />
+        </Svg>
+      );
+    case 'horn':
+      return (
+        <Svg {...props}>
+          <path d="M3 9.5c4.5 0 9-2 12.5-6v15c-3.5-4-8-6-12.5-6Z" />
+          <path d="M18.5 8a5 5 0 0 1 0 6M20.5 6a8 8 0 0 1 0 10" />
+          <H d="M12 6.5v8.6M13.6 5.2v11.6" />
+        </Svg>
+      );
+    case 'horn-off':
+      return (
+        <Svg {...props}>
+          <path d="M3 9.5c4.5 0 9-2 12.5-6v15c-3.5-4-8-6-12.5-6Z" />
+          <path d="M18 9l4 4M22 9l-4 4" />
+          <H d="M12 6.5v8.6" />
+        </Svg>
+      );
+    case 'quill':
+      return (
+        <Svg {...props}>
+          <path d="M4 20.5C7 13 12 5.5 21 3c-1 7-6.5 13-14 15" />
+          <path d="M4 20.5 12 12" />
+          <H d="M11 10l1.6 2.3M13.5 8l1.8 2.3M16 6l1.8 2.2" />
+        </Svg>
+      );
+    case 'map':
+      return (
+        <Svg {...props}>
+          <path d="M2.5 5.5 8.5 3l7 2.5 6-2.5v15.5l-6 2.5-7-2.5-6 2.5Z" />
+          <path d="M8.5 3v15.5M15.5 5.5V21" />
+          <H d="M17.5 8v10M19.5 7.3v10" />
+        </Svg>
+      );
+    case 'shield':
+      return (
+        <Svg {...props}>
+          <path d="M12 2.5 19.5 5v6.5c0 4.6-3.2 8.2-7.5 10-4.3-1.8-7.5-5.4-7.5-10V5Z" />
+          <H d="M14 7.5h3.5M14 10h4M14 12.5h3.8M14 15h3" />
+        </Svg>
+      );
+    case 'compass':
+      return (
+        <Svg {...props}>
+          <circle cx="12" cy="12" r="9.5" />
+          <path d="M12 3.5 14 12l-2 8.5-2-8.5ZM3.5 12 12 10l8.5 2-8.5 2Z" />
+          <Ink d="M12 3.5 14 12h-4Z" />
+        </Svg>
+      );
+    case 'plus':
+      return (
+        <Svg {...props}>
+          <path d="M12 4v16M4 12h16" strokeWidth={2.2} />
+        </Svg>
+      );
+    case 'follow':
+      // An eye over a banner: the camera follows your colours.
+      return (
+        <Svg {...props}>
+          <path d="M5.5 21.5V9.5M5.5 10.5h10l-2 3 2 3h-10" />
+          <path d="M3 5.5S6 1.5 12 1.5s9 4 9 4-3 4-9 4-9-4-9-4Z" strokeWidth={1.6} />
+          <Ink d="M10.6 5.5a1.4 1.4 0 1 0 2.8 0 1.4 1.4 0 1 0-2.8 0Z" />
+        </Svg>
+      );
+    case 'scroll':
+      return (
+        <Svg {...props}>
+          <path d="M6 4.5h12.5a2 2 0 0 1 0 4H17v10a3 3 0 0 1-3 3H5.5a2 2 0 0 1 0-4H7v-10A3 3 0 0 0 6 4.5Zm0 0a3 3 0 0 0-3 3" />
+          <H d="M10 9.5h4.5M10 12h4.5M10 14.5h3" />
+        </Svg>
+      );
+    case 'seal':
+      return (
+        <Svg {...props}>
+          <circle cx="12" cy="10" r="7" />
+          <path d="M9 16 7 22l2.5-1.3L11 23l1-6.5M15 16l2 6-2.5-1.3L13 23" />
+          <path d="M12 6.5 13 9h2.6l-2.1 1.6.8 2.6-2.3-1.6-2.3 1.6.8-2.6L8.4 9H11Z" strokeWidth={1.3} />
+        </Svg>
+      );
+    case 'up':
+      return (
+        <Svg {...props} stroke="none">
+          <path d="M12 5 20 18H4Z" fill="currentColor" />
+        </Svg>
+      );
+    case 'down':
+      return (
+        <Svg {...props} stroke="none">
+          <path d="M12 19 4 6h16Z" fill="currentColor" />
+        </Svg>
+      );
   }
 }

@@ -103,7 +103,9 @@ describe('Poller', () => {
     await t.poller.pollUser(7);
     expect(t.reports).toHaveLength(2);
     expect(t.reports[1]!.commits).toBe(2);
-    expect(t.reports[1]!.lines[Cat.Code]).toBe(4);
+    // The second branch's compare shows the first two lines again; they were already paid for,
+    // so only the six new lines count, at the user's half share.
+    expect(t.reports[1]!.lines[Cat.Code]).toBe(3);
   });
 
   it('cancels work a later push undoes, through the stored ledger', async () => {

@@ -156,7 +156,10 @@ describe('gaming line counts', () => {
     const ts = measure([file('src/story.ts', ['export const STORY = `', ...prose, '`;'])]);
     const py = measure([file('app/story.py', ['STORY = """', ...prose, '"""'])]);
     const b64 = measure([file('src/asset.ts', ['export const ASSET = `', ...blob, '`;'])]);
-    for (const d of [ts, py, b64]) {
+    // A tag makes the template's lines code in another language, so the prose test applies to them.
+    const tagged = measure([file('src/page.ts', ['export const PAGE = html`', ...prose.map((l) => `<p>${l}</p>`), '`;'])]);
+    const taggedBlob = measure([file('src/style.ts', ['export const FONT = css`', ...blob, '`;'])]);
+    for (const d of [ts, py, b64, tagged, taggedBlob]) {
       expect(d.lines[Cat.Code]).toBeLessThanOrEqual(3);
       expect(d.branches).toBeLessThanOrEqual(3);
     }
@@ -324,9 +327,12 @@ describe('honest work', () => {
     expect(day.lines[Cat.Code]).toBeGreaterThan(1200);
     expect(q.notes.filter((n) => n.effect < 0)).toEqual([]);
     expect(q.quality).toBeGreaterThanOrEqual(1);
-    expect(q.veterancy).toBeGreaterThanOrEqual(2);
-    // Split into six pushes, the day is worth what one squashed push would be.
+    expect(day.files).toBe(10);
+    expect(q.veterancy).toBeGreaterThanOrEqual(1);
+    // Closing braces and the like are filler, but little else of honest work is.
     expect(day.filler).toBeLessThan(0.3 * day.lines[Cat.Code]!);
+    // A bigger day across more files earns the next rank.
+    expect(armyQuality({ ...day, files: 12 }).veterancy).toBe(2);
   });
 
   it('honest multi-line object construction and type declarations still count as code', () => {

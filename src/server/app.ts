@@ -4,6 +4,7 @@ import { openDb, Store } from './db.ts';
 import { createGithubClient } from './github.ts';
 import { buildHttp } from './http.ts';
 import { Hub } from './hub.ts';
+import { Meta } from './meta.ts';
 import { consoleLogger, errorMessage, type Logger } from './log.ts';
 import { Poller, type PushReport } from './poller.ts';
 import { Rooms } from './rooms.ts';
@@ -19,6 +20,7 @@ export interface Server {
   scheduler: Scheduler;
   store: Store;
   hub: Hub;
+  meta: Meta;
   listen(): Promise<string>;
   shutdown(): Promise<void>;
 }
@@ -33,6 +35,7 @@ export async function createServer(
   const db = openDb(config.databasePath);
   const store = new Store(db);
   const hub = new Hub();
+  const meta = new Meta({ store, log, channelFor: (roomId) => hub.channel(roomId) });
   const rooms = new Rooms({
     store,
     log,
@@ -41,6 +44,7 @@ export async function createServer(
     config: { dayMs: config.dayMs, maxRoomsPerUser: config.maxRoomsPerUser, maxLiveRooms: config.maxLiveRooms, publicUrl: config.publicUrl },
     random: opts.random,
     fetchImpl: opts.fetchImpl,
+    meta,
   });
   const scheduler = new Scheduler(rooms, log);
   const github = config.githubToken ? createGithubClient(config.githubToken, opts.fetchImpl) : null;
@@ -65,7 +69,7 @@ export async function createServer(
   prune();
 
   const app = await buildHttp({
-    config, store, log, clock, fetchImpl: opts.fetchImpl, hub, rooms, github, onPush,
+    config, store, log, clock, fetchImpl: opts.fetchImpl, hub, rooms, github, onPush, meta,
     onSignIn: (userId) => {
       poller?.pollUser(userId).catch((err: unknown) => log.warn('first poll failed', { user: userId, error: errorMessage(err) }));
     },
@@ -80,6 +84,7 @@ export async function createServer(
     scheduler,
     store,
     hub,
+    meta,
     async listen() {
       if (background) {
         scheduler.start(clock);

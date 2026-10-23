@@ -1,6 +1,9 @@
 import { CAT_COUNT, Cat, Kind, KIND_COUNT, PURPOSES, type Ledger, type Purpose } from './api.ts';
 import { STATS } from './stats.ts';
 
+const sq = Math.sqrt;
+const fl = Math.floor;
+
 /**
  * A push's line deltas as the simulation sees them: nine whole numbers within
  * ±1e6. Live inputs and replayed ones pass through this, so a stray fraction,
@@ -90,13 +93,38 @@ export interface QualityNote {
 const ramp = (x: number, from: number, to: number) => Math.max(0, Math.min(1, (x - from) / (to - from)));
 
 /**
+ * Code (and removed) lines one war's ledger counts. Ingestion caps each UTC day
+ * at the same amount; this cap keeps a war that spans UTC midnight from
+ * counting two days of pasting.
+ */
+export const CODE_CAP = 5000;
+/** Code lines per credited file: one line in each of two hundred files is not a sweeping change. */
+const LINES_PER_FILE = 20;
+/** Removed lines per credited file. */
+const REMOVED_PER_FILE = 100;
+/** Code lines per credited branch point: denser than this is padding (`if (true)`, `&&` chains). */
+const LINES_PER_BRANCH = 3;
+
+/**
+ * The parts of a ledger that count, each bounded by the real code behind it so
+ * that no single metric can be pumped on its own.
+ */
+export function effectiveLedger(ledger: Ledger): { code: number; removed: number; files: number; branches: number } {
+  const code = Math.min(CODE_CAP, ledger.lines[Cat.Code]!);
+  const removed = Math.min(CODE_CAP, ledger.lines[Cat.Removed]!);
+  const files = Math.min(ledger.files, 1 + fl(code / LINES_PER_FILE) + fl(removed / REMOVED_PER_FILE));
+  const branches = Math.min(ledger.branches, fl(code / LINES_PER_BRANCH));
+  return { code, removed, files, branches };
+}
+
+/**
  * How good a player's soldiers are today. Real code that touches many files
  * earns veteran ranks; drowning a little code in tests, comments or filler
  * makes a ragged army. Depends only on the ledger, so it is the same however
  * the work was split into pushes.
  */
 export function armyQuality(ledger: Ledger): { quality: number; veterancy: number; power: number; notes: QualityNote[] } {
-  const code = ledger.lines[Cat.Code]!;
+  const { code, files } = effectiveLedger(ledger);
   const notes: QualityNote[] = [];
   let quality = 1;
   const testRatio = ledger.lines[Cat.Test]! / (code + 20);
@@ -114,13 +142,11 @@ export function armyQuality(ledger: Ledger): { quality: number; veterancy: numbe
   if (filler < 0) notes.push({ kind: 'filler', effect: filler, text: `${Math.round(fillerRatio * 100)}% of lines were filler` });
   quality = Math.max(0.7, quality + tests + comments + filler);
   let veterancy = 0;
-  while (veterancy < VETERAN_CODE.length && code >= VETERAN_CODE[veterancy]! && ledger.files >= VETERAN_FILES[veterancy]!) veterancy++;
+  while (veterancy < VETERAN_CODE.length && code >= VETERAN_CODE[veterancy]! && files >= VETERAN_FILES[veterancy]!) veterancy++;
   if (veterancy > 0) notes.push({ kind: 'veteran', effect: veterancy * VETERAN_BONUS, text: `Veteran rank ${veterancy}` });
   return { quality, veterancy, power: quality * (1 + VETERAN_BONUS * veterancy), notes };
 }
 
-const sq = Math.sqrt;
-const fl = Math.floor;
 
 /**
  * The army a ledger is worth, as total soldiers by kind. Contribution sets a
@@ -133,10 +159,7 @@ export function armyFor(ledger: Ledger, pushes: number): number[] {
   const counts = new Array<number>(KIND_COUNT).fill(0);
   if (pushes <= 0) return counts;
   const L = ledger.lines;
-  const code = L[Cat.Code]!;
-  const removed = L[Cat.Removed]!;
-  const files = ledger.files;
-  const branches = ledger.branches;
+  const { code, removed, files, branches } = effectiveLedger(ledger);
   const pc = (p: Purpose) => ledger.purposeCode[PURPOSES.indexOf(p)]!;
   const pr = (p: Purpose) => ledger.purposeRemoved[PURPOSES.indexOf(p)]!;
 
@@ -176,10 +199,11 @@ export function armyFor(ledger: Ledger, pushes: number): number[] {
     spent += n * per;
   }
   counts[Kind.Footman] = budget - spent;
-  // Untested, uncommented code fights recklessly.
+  // Untested, uncommented code fights recklessly. A Berserker outfights a Footman, so each
+  // takes the place of two: skipping tests and comments must never make an army stronger.
   if (code >= 50 && L[Cat.Test] === 0 && L[Cat.Comment] === 0) {
-    const berserk = fl(counts[Kind.Footman]! / 2);
-    counts[Kind.Footman]! -= berserk;
+    const berserk = fl(counts[Kind.Footman]! / 3);
+    counts[Kind.Footman]! -= 2 * berserk;
     counts[Kind.Berserker] = berserk;
   }
 

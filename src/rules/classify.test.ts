@@ -85,8 +85,21 @@ describe('classifyLine', () => {
 
   it('reads hash comments and Python docstrings', () => {
     expect(run('a.py', ['# hi', 'def f():', '    """Summary.', '', '    More."""', '    return 1', '    """one-liner"""', 'x = """not a docstring', 'y = 2'])).toEqual([
-      'comment', 'code', 'comment', 'blank', 'comment', 'code', 'comment', 'code', 'code',
+      // The unclosed triple quote opens a multi-line string, so the line after it is text.
+      'comment', 'code', 'comment', 'blank', 'comment', 'code', 'comment', 'code', 'data',
     ]);
+  });
+
+  it('reads the inside of multi-line strings as data, not code', () => {
+    expect(run('a.ts', ['const q = `', 'SELECT id FROM t', '`;', 'run(q);', "const s = 'a`b'; const t = `x`;", 'next();'])).toEqual([
+      'code', 'data', 'data', 'code', 'code', 'code',
+    ]);
+    expect(run('a.go', ['var s = `', 'raw text', '`', 'f()'])).toEqual(['code', 'data', 'data', 'code']);
+    // A tagged template holds code in another language.
+    expect(run('a.ts', ['const view = html`', '<ul>', '', '${items.map((i) => html`<li>${i}</li>`)}', '</ul>`;', 'f();'])).toEqual(['code', 'code', 'blank', 'code', 'code', 'code']);
+    expect(run('A.kt', ['val s = """', 'text', '""".trimIndent()', 'g()'])).toEqual(['code', 'data', 'data', 'code']);
+    expect(run('a.ts', ['x(); // a stray ` in a comment', 'y();'])).toEqual(['code', 'code']);
+    expect(run('a.ts', ["const s = `a ${ok ? `b${c}` : '`'} d`;", 'y();', 'const t = `${', 'one}', 'two`;', 'z();'])).toEqual(['code', 'code', 'code', 'data', 'data', 'code']);
   });
 
   it('reads Ruby =begin blocks, Lua and Haskell comments', () => {

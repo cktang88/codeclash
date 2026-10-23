@@ -236,13 +236,19 @@ describe('world', () => {
     expect(w.players[0]!.cryUntil).toBe(until);
   });
 
-  it('holds soldiers in the muster queue beyond the per-player cap', () => {
-    const w = newWorld(2);
-    step(w, [{ kind: 'join', p: 0, slot: 0, hue: 1 }]);
-    const push: SimInput = { kind: 'push', p: 0, repo: 0, commits: 1, files: 3, branches: 10, churn: 0, filler: 0, msg: 'x', lines: lines({ Code: 4000, Test: 400, Comment: 100 }) };
-    for (let i = 0; i < 30; i++) step(w, [push]);
-    expect(slotsOf(w.units.filter((u) => u.p === 0).map((u) => u.kind).reduce((c, k) => (c[k]!++, c), new Array<number>(20).fill(0)))).toBeLessThanOrEqual(160);
-    expect(w.players[0]!.queue.length).toBeGreaterThan(0);
+  it('keeps every army under the per-player cap and the room under its cap, however much is pushed', () => {
+    // One war's ledger is capped (CODE_CAP), so even a full room of maximal days fits under
+    // both caps; the muster queue remains as a safety net for them.
+    const w = newWorld(16);
+    step(w, Array.from({ length: 16 }, (_, p): SimInput => ({ kind: 'join', p, slot: p, hue: p * 20 })));
+    const push = (p: number): SimInput => ({ kind: 'push', p, repo: 0, commits: 1, files: 300, branches: 1700, churn: 0, filler: 0, msg: 'x', lines: lines({ Code: 40_000, Removed: 40_000, Test: 4000, Comment: 1000, Docs: 3000, Config: 3000 }) });
+    for (let i = 0; i < 5; i++) step(w, Array.from({ length: 16 }, (_, p) => push(p)));
+    for (let p = 0; p < 16; p++) {
+      const slots = slotsOf(w.units.filter((u) => u.p === p).map((u) => u.kind).reduce((c, k) => (c[k]!++, c), new Array<number>(20).fill(0)));
+      expect(slots).toBeGreaterThan(100);
+      expect(slots).toBeLessThanOrEqual(160);
+    }
+    expect(w.units.length).toBeLessThanOrEqual(2000);
   });
 });
 

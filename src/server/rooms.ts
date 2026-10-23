@@ -2,6 +2,7 @@ import { randomBytes, randomInt } from 'node:crypto';
 import type { CreateRoomRequest, RoomCard, RoomDetail, UpdateRoomRequest, UserRef } from '../protocol.ts';
 import { BOTS, botPush } from '../rules/bots.ts';
 import type { Digest } from '../rules/digest.ts';
+import type { Heraldry } from '../rules/meta.ts';
 import { NEUTRAL } from '../sim/api.ts';
 import { MAX_SLOTS, slotsFor } from '../sim/mapgen.ts';
 import type { RoomRow, Store, UserRow } from './db.ts';
@@ -25,6 +26,14 @@ export interface RoomsDeps {
   config: { dayMs: number | null; maxRoomsPerUser: number; maxLiveRooms: number; publicUrl: string };
   random?: () => number;
   fetchImpl?: typeof fetch;
+  meta?: MetaHooks;
+}
+
+/** What the long loops need from a room's day: heraldry to enlist with, Orders to watch, and the day's end. */
+export interface MetaHooks {
+  heraldryOf(userId: number): Heraldry | undefined;
+  watch(roomId: number, war: War, now: number): void;
+  warFinished(room: RoomRow, war: War, digest: Digest, now: number): void;
 }
 
 export type RoomError = 'not_found' | 'forbidden' | 'invalid' | 'full' | 'limit' | 'signed_out';
@@ -99,6 +108,7 @@ export class Rooms {
         const war = this.live.get(room.id);
         if (war && war.over(now)) this.finish(room, war, now);
         else if (!war) this.ensureWar(room, now);
+        else this.deps.meta?.watch(room.id, war, now);
       } catch (err) {
         this.deps.log.error('room lifecycle failed', { room: room.slug, error: err instanceof Error ? err.message : String(err) });
       }
@@ -192,7 +202,7 @@ export class Rooms {
     if (room.visibility === 'private' && invite !== room.invite) throw new RoomFailure('forbidden', 'This room is private. You need a current invite link.');
     if (store.members(room.id).length + room.bots >= MAX_SLOTS) throw new RoomFailure('full', 'This room is full.');
     store.addMember(room.id, user.id, 'member', now);
-    this.live.get(room.id)?.enlist(now, enlistee(user));
+    this.live.get(room.id)?.enlist(now, enlistee(user, this.deps.meta?.heraldryOf(user.id)));
     this.broadcastRoom(room);
   }
 
@@ -281,7 +291,7 @@ export class Rooms {
       endsAt = nextReset(startsAt, room.resetHour);
       if (previousEnd === null && endsAt - startsAt < MIN_FIRST_WAR_MS) endsAt += DAY_MS;
     }
-    const enlist: Enlistee[] = store.members(room.id).map((m) => enlistee(m.user));
+    const enlist: Enlistee[] = store.members(room.id).map((m) => enlistee(m.user, this.deps.meta?.heraldryOf(m.user.id)));
     for (let b = 0; b < room.bots && b < BOTS.length; b++) enlist.push({ userId: -(b + 1), login: BOTS[b]!.login, avatarUrl: '', bot: true });
     const war = War.open(this.warDeps(room.id), {
       roomId: room.id,
@@ -301,6 +311,12 @@ export class Rooms {
   private finish(room: RoomRow, war: War, now: number): void {
     const digest = war.conclude(now);
     this.recordLifetime(room, war, digest);
+    try {
+      this.deps.meta?.watch(room.id, war, now);
+      this.deps.meta?.warFinished(room, war, digest, now);
+    } catch (err) {
+      this.deps.log.error('day-end honours failed', { room: room.slug, error: err instanceof Error ? err.message : String(err) });
+    }
     this.deps.channelFor(room.id).send({ type: 'war', war: war.meta, digestReady: true });
     if (room.webhookUrl) {
       postDigest(room.webhookUrl, room, war.meta, digest, this.deps.config.publicUrl, this.deps.fetchImpl).catch((err: unknown) =>
@@ -360,8 +376,8 @@ export function restedDuring(restingDay: string | null, war: { startsAt: number;
   return restingDay !== null && (restingDay === isoDay(war.startsAt) || restingDay === isoDay(war.endsAt - 1));
 }
 
-export function enlistee(user: UserRow): Enlistee {
-  return { userId: user.id, login: user.login, avatarUrl: user.avatarUrl, bot: user.bot };
+export function enlistee(user: UserRow, heraldry?: Heraldry): Enlistee {
+  return { userId: user.id, login: user.login, avatarUrl: user.avatarUrl, bot: user.bot, ...(heraldry ? { heraldry } : {}) };
 }
 
 export function userRef(user: UserRow | null): UserRef {

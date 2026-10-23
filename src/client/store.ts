@@ -29,7 +29,8 @@ export type Selection =
 export interface Toast {
   id: number;
   at: number;
-  kind: ChronicleEntry['kind'];
+  /** A chronicle kind, or 'order' for a fulfilled Order (pushed by meta via addToast). */
+  kind: ChronicleEntry['kind'] | 'order';
   p: number;
   title: string;
   x: number;
@@ -94,6 +95,8 @@ export class GameStore {
   viewerP: number | null = null;
   selection: Selection = null;
   following = true;
+  /** The camera rides with the viewer's own freshest platoon (key F). */
+  followMine = false;
   replay = false;
   digestReady = false;
   endedWar: WarMeta | null = null;
@@ -193,6 +196,13 @@ export class GameStore {
     this.dirty = true;
   }
 
+  /** A toast that is not a chronicle line, e.g. a fulfilled Order. x/y NaN means no map location. */
+  addToast(kind: Toast['kind'], p: number, title: string, x = NaN, y = NaN): void {
+    this.toasts.push({ id: this.nextId++, at: Date.now(), kind, p, title, x, y });
+    if (this.toasts.length > 4) this.toasts.splice(0, this.toasts.length - 4);
+    this.dirty = true;
+  }
+
   addChat(msg: ChatMessage): void {
     this.chat.push(msg);
     if (this.chat.length > CHAT_KEEP) this.chat.splice(0, this.chat.length - CHAT_KEEP);
@@ -205,6 +215,13 @@ export class GameStore {
     if (this.emotes.length > 30) this.emotes.shift();
     for (const fn of this.emoteListeners) fn(e);
     this.dirty = true;
+  }
+
+  setFollowMine(on: boolean): void {
+    if (this.followMine === on) return;
+    this.followMine = on;
+    if (on) this.following = false;
+    this.publish();
   }
 
   select(selection: Selection): void {

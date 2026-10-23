@@ -279,6 +279,8 @@ export interface PlayerState {
   routs: number;
   /** Pushes by purpose, indexed like PURPOSES. */
   purposes: number[];
+  /** Feats for the day's Orders. */
+  feats: Feats;
   /** This player's deadliest platoon today: [repo, ordinal, kills], or null. */
   best: [number, number, number] | null;
   /** Platoon ids waiting at the capital, in order. */
@@ -292,6 +294,27 @@ export interface SiteState {
   owner: number;
   capturer: number;
   progress: number;
+  /** Tick its current owner took it, or -1. */
+  heldSince: number;
+}
+
+/** Battlefield feats tracked for the day's Orders. Deterministic like everything else in the world. */
+export interface Feats {
+  /** Longest unbroken hold of any one shrine or the Heart, in ticks. */
+  holdBest: number;
+  /** Enemy platoons that broke with this player's soldiers nearest. */
+  routsCaused: number;
+  /** Kills while this player's War Cry sounded. */
+  cryKills: number;
+  /** Routed platoons that made it home and rallied. */
+  returns: number;
+  heartCaptures: number;
+  /** Sites taken from the player then leading in renown. */
+  leaderTakes: number;
+  /** Kills within reach of this player's own capital. */
+  homeKills: number;
+  /** Ticks spent leading in renown. */
+  ledTicks: number;
 }
 
 export interface World {

@@ -92,6 +92,15 @@ export function checksum(world: World): number {
     int(p.doctrine);
     int(p.rallySite);
     num(p.cryUntil);
+    const f = p.feats;
+    num(f.holdBest);
+    num(f.routsCaused);
+    num(f.cryKills);
+    num(f.returns);
+    num(f.heartCaptures);
+    num(f.leaderTakes);
+    num(f.homeKills);
+    num(f.ledTicks);
     num(p.monolithDamage);
     num(p.structureDamage);
     int(p.queue.length);
@@ -99,6 +108,7 @@ export function checksum(world: World): number {
   for (const s of world.sites) {
     int(s.owner);
     int(s.capturer);
+    num(s.heldSince);
     num(s.progress);
   }
   h ^= h >>> 16;

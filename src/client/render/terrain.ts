@@ -1,13 +1,33 @@
 import { Terrain, type MapDef } from '../../sim/api.ts';
+import { SHRINE_NAMES } from '../../sim/chronicle.ts';
 import { canvas2d, fbm, noise, seeded, smoothstep } from './paint.ts';
 
-export const SEA_MARGIN = 320;
+// The battlefield is a painted chart: a disc of land washed in pigment on a sheet
+// of vellum, ringed by an inked sea, framed by a deckled edge on a walnut table.
+// Everything here is painted once per war into one large canvas.
 
 export interface TerrainArt {
   canvas: HTMLCanvasElement;
   thumb: HTMLCanvasElement;
+  /** Alpha: where water is. Red: how deep (1 = open sea). Same extent as `canvas`. */
+  water: HTMLCanvasElement;
   extent: number;
   pxPerUnit: number;
+  /** Width of the inked sea ring beyond the coast, for marginalia that sail in it. */
+  sea: number;
+}
+
+export interface ChartText {
+  title: string;
+  subtitle: string;
+}
+
+export const DISPLAY_FONT = '"IM Fell English SC", "IM Fell English", Georgia, serif';
+export const SCRIPT_FONT = '"IM Fell English", Georgia, serif';
+
+/** Margin of sheet beyond the coast, scaled with the map so marginalia always have room. */
+export function seaMargin(radius: number): number {
+  return Math.max(340, radius * 0.42);
 }
 
 function mask(map: MapDef, kind: number): Float32Array {
@@ -43,6 +63,7 @@ function sampler(map: MapDef, field: Float32Array): (x: number, y: number) => nu
   return (x, y) => {
     const fx = (x - originX) / navCell - 0.5;
     const fy = (y - originY) / navCell - 0.5;
+    if (fx < -1 || fy < -1 || fx > w || fy > h) return 0;
     const x0 = Math.max(0, Math.min(w - 2, Math.floor(fx)));
     const y0 = Math.max(0, Math.min(h - 2, Math.floor(fy)));
     const tx = Math.max(0, Math.min(1, fx - x0));
@@ -58,80 +79,104 @@ function sampler(map: MapDef, field: Float32Array): (x: number, y: number) => nu
 
 type Rgb = [number, number, number];
 const mix = (a: Rgb, b: Rgb, t: number): Rgb => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+const mul = (a: Rgb, k: number): Rgb => [a[0] * k, a[1] * k, a[2] * k];
 
-const GRASS_DARK: Rgb = [58, 66, 38];
-const GRASS: Rgb = [84, 92, 54];
-const GRASS_LIGHT: Rgb = [108, 112, 66];
-const GRASS_DRY: Rgb = [122, 112, 70];
-const FOREST_FLOOR: Rgb = [42, 50, 30];
-const ROCK: Rgb = [112, 108, 100];
-const ROCK_DARK: Rgb = [70, 67, 62];
-const MUD: Rgb = [86, 80, 54];
-const SHALLOW: Rgb = [64, 116, 110];
-const DEEP: Rgb = [20, 56, 64];
-const FOAM: Rgb = [150, 176, 162];
-const SEA: Rgb = [12, 22, 28];
-const SEA_NEAR: Rgb = [24, 50, 56];
-const CLIFF: Rgb = [64, 58, 40];
+// Pigments laid on vellum. Land is sap green and terre verte, dry ground yellow
+// ochre, water ultramarine, all a little muted as if absorbed by the skin.
+const VELLUM: Rgb = [239, 228, 200];
+const VELLUM_SHADE: Rgb = [217, 199, 158];
+const VELLUM_DEEP: Rgb = [185, 164, 119];
+const FOXING: Rgb = [196, 160, 104];
+const TABLE: Rgb = [36, 25, 18];
+const TABLE_GRAIN: Rgb = [58, 40, 27];
+const MEADOW: Rgb = [160, 166, 104];
+const GRASS: Rgb = [134, 146, 88];
+const GRASS_DEEP: Rgb = [104, 120, 70];
+const OCHRE: Rgb = [196, 172, 108];
+const FOREST_FLOOR: Rgb = [92, 106, 62];
+const ROCK: Rgb = [164, 152, 128];
+const ROCK_SHADE: Rgb = [118, 106, 88];
+const MUD: Rgb = [150, 132, 92];
+const SHALLOW: Rgb = [122, 156, 160];
+const DEEP: Rgb = [58, 90, 132];
+const SEA: Rgb = [84, 116, 150];
+const INK = 'rgba(34,24,15,';
 
-export function paintTerrain(map: MapDef, seed: number, maxPx: number): TerrainArt {
+export function paintTerrain(map: MapDef, seed: number, maxPx: number, text: ChartText): TerrainArt {
   const R = map.radius;
-  const extent = R + SEA_MARGIN;
+  const margin = seaMargin(R);
+  const extent = R + margin;
   const world = extent * 2;
   const pxPerUnit = Math.min(1.6, maxPx / world);
   const size = Math.ceil(world * pxPerUnit);
   const [canvas, ctx] = canvas2d(size, size);
+  const seaW = Math.min(margin * 0.55, 90 + R * 0.12);
+  const sheet = extent * 0.975;
 
   const forest = sampler(map, mask(map, Terrain.Forest));
   const water = sampler(map, mask(map, Terrain.Water));
   const rock = sampler(map, mask(map, Terrain.Rock));
 
-  const fw = Math.min(1300, Math.ceil(size * 0.5));
+  // ------------------------------------------------------------ pigment field
+  const fw = Math.min(1400, Math.ceil(size * 0.5));
   const [field, fctx] = canvas2d(fw, fw);
   const img = fctx.createImageData(fw, fw);
   const data = img.data;
+  const wm = 512;
+  const [waterCanvas, wctx] = canvas2d(wm, wm);
+  const wimg = wctx.createImageData(wm, wm);
   const unitPerField = world / fw;
   for (let py = 0; py < fw; py++) {
     const y = -extent + (py + 0.5) * unitPerField;
     for (let px = 0; px < fw; px++) {
       const x = -extent + (px + 0.5) * unitPerField;
       const d = Math.sqrt(x * x + y * y);
+      const grain = noise(x / 3.1, y / 3.1, seed + 101);
+      const mottle = fbm(x / 240, y / 240, seed + 61, 4);
       let c: Rgb;
-      const n1 = fbm(x / 160, y / 160, seed, 4);
-      const n2 = noise(x / 18, y / 18, seed + 7);
-      if (d > R) {
-        const waves = fbm(x / 60, y / 220, seed + 41, 3);
-        c = mix(SEA_NEAR, SEA, smoothstep(R, R + 140, d));
-        c = mix(c, [c[0] + 10, c[1] + 14, c[2] + 16], waves * 0.6);
-        const foam = 1 - smoothstep(0, 9 + n2 * 6, d - R);
-        c = mix(c, FOAM, foam * 0.55);
-        const fade = smoothstep(R + 40, extent, d);
-        c = mix(c, [6, 9, 12], fade * 0.85);
+      // The sheet: a square of vellum with a torn, deckled edge.
+      const edge = Math.max(Math.abs(x), Math.abs(y)) + (fbm(x / 26, y / 26, seed + 9, 3) - 0.5) * 34;
+      if (edge > sheet) {
+        const wood = noise(x / 160, y / 9, seed + 3) * 0.6 + noise(x / 40, y / 3, seed + 5) * 0.4;
+        c = mix(TABLE, TABLE_GRAIN, wood);
+        c = mul(c, 0.85 + 0.25 * smoothstep(sheet + 60, sheet, edge));
+      } else if (d > R) {
+        // Vellum, foxed and darkened toward its edges, with the inked sea laid around the coast.
+        c = mix(VELLUM, VELLUM_SHADE, smoothstep(0.35, 0.75, mottle));
+        c = mix(c, VELLUM_DEEP, smoothstep(sheet - 120, sheet, edge) * 0.65);
+        const fox = smoothstep(0.72, 0.8, fbm(x / 70, y / 70, seed + 17, 3));
+        c = mix(c, FOXING, fox * 0.35);
+        const seaT = 1 - smoothstep(seaW * 0.35, seaW, d - R + (mottle - 0.5) * 40);
+        const swell = fbm(x / 90, y / 260, seed + 41, 3);
+        const sea = mix(SEA, DEEP, smoothstep(0.3, 0.75, swell) * 0.6);
+        c = mix(c, sea, seaT * 0.88);
       } else {
-        c = mix(GRASS, GRASS_LIGHT, smoothstep(0.42, 0.75, n1));
-        c = mix(c, GRASS_DARK, smoothstep(0.5, 0.2, n1) * 0.8);
-        c = mix(c, GRASS_DRY, smoothstep(0.62, 0.8, fbm(x / 300 + 9, y / 300, seed + 3, 3)) * 0.55);
-        c = mix(c, [c[0] * 0.9, c[1] * 0.92, c[2] * 0.86], n2 * 0.6);
-        const fm = forest(x, y) + (n2 - 0.5) * 0.2;
-        c = mix(c, FOREST_FLOOR, smoothstep(0.25, 0.6, fm) * 0.85);
-        const rm = rock(x, y) + (n1 - 0.5) * 0.3 + (n2 - 0.5) * 0.12;
+        // Land.
+        c = mix(GRASS, MEADOW, smoothstep(0.4, 0.72, mottle));
+        c = mix(c, GRASS_DEEP, smoothstep(0.45, 0.2, mottle) * 0.75);
+        c = mix(c, OCHRE, smoothstep(0.62, 0.82, fbm(x / 330 + 9, y / 330, seed + 3, 3)) * 0.6);
+        const fm = forest(x, y) + (grain - 0.5) * 0.18;
+        c = mix(c, FOREST_FLOOR, smoothstep(0.25, 0.62, fm) * 0.8);
+        const rm = rock(x, y) + (mottle - 0.5) * 0.3 + (grain - 0.5) * 0.12;
         const rockT = smoothstep(0.4, 0.5, rm);
         if (rockT > 0) {
-          const rc = mix(ROCK_DARK, ROCK, smoothstep(0.3, 0.75, noise(x / 9, y / 9, seed + 5)));
+          const rc = mix(ROCK_SHADE, ROCK, smoothstep(0.3, 0.75, noise(x / 11, y / 11, seed + 5)));
           c = mix(c, rc, rockT);
-          c = mix(c, [40, 38, 34], (smoothstep(0.38, 0.44, rm) - smoothstep(0.44, 0.5, rm)) * 0.6);
         }
-        const wm = water(x, y) + (n1 - 0.5) * 0.22 + (n2 - 0.5) * 0.05;
-        c = mix(c, MUD, smoothstep(0.3, 0.42, wm) * 0.8);
-        const wt = smoothstep(0.43, 0.47, wm);
-        if (wt > 0) {
-          let wc = mix(SHALLOW, DEEP, smoothstep(0.5, 0.95, wm));
-          wc = mix(wc, FOAM, (smoothstep(0.42, 0.46, wm) - smoothstep(0.47, 0.53, wm)) * 0.45);
-          wc = mix(wc, [wc[0] + 14, wc[1] + 18, wc[2] + 18], noise(x / 30, y / 6, seed + 11) * 0.35);
-          c = mix(c, wc, wt);
-        }
-        c = mix(c, CLIFF, smoothstep(R - 22, R - 2, d) * 0.85);
+        const w = water(x, y) + (mottle - 0.5) * 0.2 + (grain - 0.5) * 0.04;
+        c = mix(c, MUD, smoothstep(0.3, 0.42, w) * 0.7);
+        const wt = smoothstep(0.43, 0.47, w);
+        if (wt > 0) c = mix(c, mix(SHALLOW, DEEP, smoothstep(0.5, 0.95, w)), wt);
+        // Ink contour at the lake shore, and a fainter ripple line just offshore.
+        const shore = smoothstep(0.425, 0.44, w) - smoothstep(0.445, 0.46, w);
+        const ripple = smoothstep(0.54, 0.555, w) - smoothstep(0.56, 0.575, w);
+        c = mix(c, [40, 30, 20], shore * 0.75 + ripple * 0.25);
+        // Hill shading: the coast's south-east rim falls away, so it darkens.
+        const rim = smoothstep(R - 70, R - 4, d) * Math.max(0, (x + y) / (d * 1.414 + 1e-6));
+        c = mix(c, [70, 60, 40], rim * 0.45);
       }
+      // Pigment granulation and the skin's own grain show through every wash.
+      c = mul(c, 0.94 + grain * 0.1);
       const o = (py * fw + px) * 4;
       data[o] = c[0];
       data[o + 1] = c[1];
@@ -140,6 +185,33 @@ export function paintTerrain(map: MapDef, seed: number, maxPx: number): TerrainA
     }
   }
   fctx.putImageData(img, 0, 0);
+
+  // Water mask for the glint shader: lakes and the sea ring.
+  const unitPerMask = world / wm;
+  for (let py = 0; py < wm; py++) {
+    const y = -extent + (py + 0.5) * unitPerMask;
+    for (let px = 0; px < wm; px++) {
+      const x = -extent + (px + 0.5) * unitPerMask;
+      const d = Math.sqrt(x * x + y * y);
+      let a = 0;
+      let depth = 0;
+      if (d > R) {
+        a = 1 - smoothstep(seaW * 0.25, seaW * 0.95, d - R);
+        depth = smoothstep(0, 40, d - R);
+      } else {
+        const w = water(x, y);
+        a = smoothstep(0.45, 0.52, w);
+        depth = smoothstep(0.5, 0.9, w) * 0.7;
+      }
+      const o = (py * wm + px) * 4;
+      wimg.data[o] = Math.round(depth * 255);
+      wimg.data[o + 1] = 0;
+      wimg.data[o + 2] = 0;
+      wimg.data[o + 3] = Math.round(a * 255);
+    }
+  }
+  wctx.putImageData(wimg, 0, 0);
+
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(field, 0, 0, size, size);
@@ -153,111 +225,38 @@ export function paintTerrain(map: MapDef, seed: number, maxPx: number): TerrainA
     return map.terrain[row * map.navCols + col]!;
   };
 
+  paintCoast(ctx, R, seaW, seed);
+
+  // Trodden clearings around every site.
   for (const o of map.sites) {
-    const g = ctx.createRadialGradient(o.x, o.y, 0, o.x, o.y, o.radius * 1.5);
-    g.addColorStop(0, 'rgba(118,100,66,0.55)');
-    g.addColorStop(0.6, 'rgba(110,94,62,0.3)');
-    g.addColorStop(1, 'rgba(110,94,62,0)');
+    const g = ctx.createRadialGradient(o.x, o.y, 0, o.x, o.y, o.radius * 1.55);
+    g.addColorStop(0, 'rgba(176,150,98,0.55)');
+    g.addColorStop(0.65, 'rgba(170,146,96,0.28)');
+    g.addColorStop(1, 'rgba(170,146,96,0)');
     ctx.fillStyle = g;
     ctx.beginPath();
-    ctx.arc(o.x, o.y, o.radius * 1.5, 0, Math.PI * 2);
+    ctx.arc(o.x, o.y, o.radius * 1.55, 0, Math.PI * 2);
     ctx.fill();
   }
 
   paintRoads(ctx, map, seed, terrainAt);
+  paintGrass(ctx, R, rand, terrainAt);
+  paintRocks(ctx, map, rand);
+  paintForests(ctx, map, rand, pxPerUnit, size, extent);
 
-  const area = Math.PI * R * R;
-  for (let i = 0; i < area / 55; i++) {
-    const x = (rand() * 2 - 1) * R;
-    const y = (rand() * 2 - 1) * R;
-    if (x * x + y * y > (R - 24) * (R - 24) || terrainAt(x, y) !== Terrain.Plain) continue;
-    const light = rand() < 0.5;
-    ctx.strokeStyle = light ? 'rgba(150,150,92,0.22)' : 'rgba(34,40,20,0.22)';
-    ctx.lineWidth = 0.7;
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-    ctx.lineTo(x + (rand() - 0.5) * 2, y - 1.5 - rand() * 2.5);
-    ctx.stroke();
-  }
+  // A double ink rule framing the sheet, with fleurons at its corners.
+  paintFrame(ctx, sheet - 34, seed);
+  paintCompass(ctx, sheet - 34, R);
+  paintCartouche(ctx, sheet - 34, R, text);
+  paintShrineNotes(ctx, map, R, seaW);
 
-  for (let row = 0; row < map.navRows; row++) {
-    for (let col = 0; col < map.navCols; col++) {
-      if (map.terrain[row * map.navCols + col] !== Terrain.Rock || rand() < 0.35) continue;
-      const x = map.originX + (col + rand()) * map.navCell;
-      const y = map.originY + (row + rand()) * map.navCell;
-      const r = 2 + rand() * 4;
-      ctx.fillStyle = 'rgba(30,28,26,0.45)';
-      ctx.beginPath();
-      ctx.ellipse(x + 1.2, y + 1.6, r, r * 0.7, rand() * 3, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = `rgba(${150 + rand() * 30},${146 + rand() * 26},${136 + rand() * 20},0.55)`;
-      ctx.beginPath();
-      ctx.moveTo(x - r, y);
-      ctx.lineTo(x - r * 0.2, y - r * 0.8);
-      ctx.lineTo(x + r * 0.9, y - r * 0.2);
-      ctx.lineTo(x + r * 0.3, y + r * 0.6);
-      ctx.closePath();
-      ctx.fill();
-    }
-  }
-
-  const blobs: { x: number; y: number; r: number; tone: number }[] = [];
-  for (let row = 0; row < map.navRows; row++) {
-    for (let col = 0; col < map.navCols; col++) {
-      if (map.terrain[row * map.navCols + col] !== Terrain.Forest) continue;
-      const count = 1 + (rand() < 0.55 ? 1 : 0);
-      for (let k = 0; k < count; k++) {
-        blobs.push({
-          x: map.originX + (col + rand()) * map.navCell,
-          y: map.originY + (row + rand()) * map.navCell,
-          r: 4.5 + rand() * 4.5,
-          tone: rand(),
-        });
-      }
-    }
-  }
-  blobs.sort((a, b) => a.y - b.y);
-
-  const [shadowCanvas, sctx] = canvas2d(size, size);
-  sctx.setTransform(pxPerUnit, 0, 0, pxPerUnit, extent * pxPerUnit, extent * pxPerUnit);
-  sctx.fillStyle = 'rgba(8,12,4,0.75)';
-  for (const b of blobs) {
-    sctx.beginPath();
-    sctx.arc(b.x + 3.2, b.y + 4.2, b.r * 1.08, 0, Math.PI * 2);
-    sctx.fill();
-  }
-  ctx.save();
+  // Paper grain and a candle-lit vignette over the whole sheet.
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.filter = `blur(${Math.max(2, 3 * pxPerUnit)}px)`;
-  ctx.globalAlpha = 0.7;
-  ctx.drawImage(shadowCanvas, 0, 0);
-  ctx.restore();
-
-  for (const b of blobs) {
-    const base = mix([34, 46, 26], [56, 70, 36], b.tone);
-    ctx.fillStyle = `rgb(${base[0]},${base[1]},${base[2]})`;
-    ctx.beginPath();
-    ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
-    ctx.fill();
-    const g = ctx.createRadialGradient(b.x - b.r * 0.35, b.y - b.r * 0.4, 0, b.x - b.r * 0.2, b.y - b.r * 0.2, b.r);
-    g.addColorStop(0, 'rgba(126,140,74,0.55)');
-    g.addColorStop(0.55, 'rgba(90,108,52,0.2)');
-    g.addColorStop(1, 'rgba(20,28,12,0.25)');
-    ctx.fillStyle = g;
-    ctx.fill();
-  }
-
-  ctx.lineWidth = 1.6;
-  ctx.strokeStyle = 'rgba(232,212,160,0.18)';
-  ctx.beginPath();
-  ctx.arc(0, 0, R - 1, 0, Math.PI * 2);
-  ctx.stroke();
-
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  const v = ctx.createRadialGradient(size / 2, size / 2, R * pxPerUnit * 0.45, size / 2, size / 2, size * 0.72);
-  v.addColorStop(0, 'rgba(0,0,0,0)');
-  v.addColorStop(0.6, 'rgba(6,8,10,0.25)');
-  v.addColorStop(1, 'rgba(4,6,8,0.85)');
+  paintGrain(ctx, size, seed);
+  const v = ctx.createRadialGradient(size / 2, size / 2, R * pxPerUnit * 0.7, size / 2, size / 2, size * 0.74);
+  v.addColorStop(0, 'rgba(40,24,10,0)');
+  v.addColorStop(0.7, 'rgba(40,24,10,0.12)');
+  v.addColorStop(1, 'rgba(20,12,6,0.55)');
   ctx.fillStyle = v;
   ctx.fillRect(0, 0, size, size);
 
@@ -265,51 +264,447 @@ export function paintTerrain(map: MapDef, seed: number, maxPx: number): TerrainA
   tctx.imageSmoothingQuality = 'high';
   tctx.drawImage(canvas, 0, 0, 256, 256);
 
-  return { canvas, thumb, extent, pxPerUnit };
+  return { canvas, thumb, water: waterCanvas, extent, pxPerUnit, sea: seaW };
+}
+
+/** The coast: a heavy ink line with the engraver's diminishing contour ripples offshore. */
+function paintCoast(ctx: CanvasRenderingContext2D, R: number, seaW: number, seed: number): void {
+  const wobble = (a: number, k: number) => (noise(Math.cos(a) * 9 + k, Math.sin(a) * 9, seed + 23) - 0.5) * 6;
+  const ring = (r: number, width: number, alpha: number, k: number, dash = 0) => {
+    ctx.beginPath();
+    const steps = 720;
+    for (let i = 0; i <= steps; i++) {
+      const a = (i / steps) * Math.PI * 2;
+      const rr = r + wobble(a, k);
+      const x = Math.cos(a) * rr;
+      const y = Math.sin(a) * rr;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.lineWidth = width;
+    ctx.strokeStyle = `${INK}${alpha})`;
+    ctx.setLineDash(dash > 0 ? [dash, dash * 0.8] : []);
+    ctx.stroke();
+  };
+  ring(R, 3.2, 0.85, 0);
+  ring(R - 3, 1, 0.35, 1);
+  const lines = 5;
+  for (let i = 1; i <= lines; i++) {
+    const t = i / (lines + 1);
+    ring(R + seaW * 0.18 * i * (1 + t * 0.4), 1.4 - t, 0.5 * (1 - t), i * 3, i > 2 ? 10 + i * 4 : 0);
+  }
+  ctx.setLineDash([]);
+  // Wave hatching scattered across the open sea: little inked crests.
+  const rand = seeded(seed + 991);
+  for (let i = 0; i < 260; i++) {
+    const a = rand() * Math.PI * 2;
+    const r = R + seaW * (0.25 + rand() * 0.85);
+    const x = Math.cos(a) * r;
+    const y = Math.sin(a) * r;
+    const w = 6 + rand() * 7;
+    ctx.beginPath();
+    ctx.moveTo(x - w, y);
+    ctx.quadraticCurveTo(x - w / 2, y - w * 0.45, x, y);
+    ctx.quadraticCurveTo(x + w / 2, y - w * 0.45, x + w, y);
+    ctx.lineWidth = 1.1;
+    ctx.strokeStyle = `${INK}${0.18 + rand() * 0.22})`;
+    ctx.stroke();
+  }
 }
 
 function paintRoads(ctx: CanvasRenderingContext2D, map: MapDef, seed: number, terrainAt: (x: number, y: number) => number): void {
   const capitals = map.sites.filter((o) => o.kind === 'capital');
   const shrines = map.sites.filter((o) => o.kind === 'shrine');
   const links: [number, number, number, number, number][] = [];
-  // The lanes mapgen keeps clear: every capital marches straight on the Heart.
   for (const c of capitals) links.push([c.x, c.y, 0, 0, 0]);
-  // Side roads from each shrine to its two neighbouring capitals.
   for (const s of shrines) {
     const near = [...capitals].sort((a, b) => Math.hypot(a.x - s.x, a.y - s.y) - Math.hypot(b.x - s.x, b.y - s.y));
     for (const c of near.slice(0, 2)) links.push([s.x, s.y, c.x, c.y, 60]);
     links.push([s.x, s.y, 0, 0, 40]);
   }
-  for (const [width, style] of [
-    [9, 'rgba(86,70,44,0.45)'],
-    [4, 'rgba(176,154,104,0.34)'],
-  ] as const) {
+  const paths: [number, number][][] = [];
+  for (const [x0, y0, x1, y1, wander] of links) {
+    const len = Math.hypot(x1 - x0, y1 - y0);
+    const steps = Math.max(2, Math.floor(len / 12));
+    const nx = -(y1 - y0) / len;
+    const ny = (x1 - x0) / len;
+    let run: [number, number][] = [];
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const bend = Math.sin(t * Math.PI) * (noise(x0 * 0.01 + t * 3, y0 * 0.01, seed + 77) - 0.5) * wander;
+      const x = x0 + (x1 - x0) * t + nx * bend;
+      const y = y0 + (y1 - y0) * t + ny * bend;
+      const ok = terrainAt(x, y) === Terrain.Plain || terrainAt(x, y) === Terrain.Forest;
+      if (!ok) {
+        if (run.length > 1) paths.push(run);
+        run = [];
+        continue;
+      }
+      run.push([x, y]);
+    }
+    if (run.length > 1) paths.push(run);
+  }
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  const stroke = (width: number, style: string, dash: number[] = []) => {
     ctx.lineWidth = width;
     ctx.strokeStyle = style;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    for (const [x0, y0, x1, y1, wander] of links) {
-      const len = Math.hypot(x1 - x0, y1 - y0);
-      const steps = Math.max(2, Math.floor(len / 14));
-      const nx = -(y1 - y0) / len;
-      const ny = (x1 - x0) / len;
+    ctx.setLineDash(dash);
+    for (const run of paths) {
       ctx.beginPath();
-      let drawing = false;
-      for (let i = 0; i <= steps; i++) {
-        const t = i / steps;
-        const bend = Math.sin(t * Math.PI) * (noise(x0 * 0.01 + t * 3, y0 * 0.01, seed + 77) - 0.5) * wander;
-        const x = x0 + (x1 - x0) * t + nx * bend;
-        const y = y0 + (y1 - y0) * t + ny * bend;
-        const ok = terrainAt(x, y) === Terrain.Plain || terrainAt(x, y) === Terrain.Forest;
-        if (!ok) {
-          drawing = false;
-          continue;
-        }
-        if (drawing) ctx.lineTo(x, y);
-        else ctx.moveTo(x, y);
-        drawing = true;
+      run.forEach(([x, y], i) => (i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y)));
+      ctx.stroke();
+    }
+  };
+  // Ink-edged tracks: a dark border, worn ochre bed, and wheel ruts.
+  stroke(10, `${INK}0.42)`);
+  stroke(7.4, 'rgba(198,170,112,0.92)');
+  stroke(1, 'rgba(120,92,56,0.45)', [3, 5]);
+  ctx.setLineDash([]);
+}
+
+function paintGrass(ctx: CanvasRenderingContext2D, R: number, rand: () => number, terrainAt: (x: number, y: number) => number): void {
+  // Ink ticks of grass, sparse, like a pen idling over the meadows.
+  const count = (Math.PI * R * R) / 70;
+  for (let i = 0; i < count; i++) {
+    const x = (rand() * 2 - 1) * R;
+    const y = (rand() * 2 - 1) * R;
+    if (x * x + y * y > (R - 30) * (R - 30) || terrainAt(x, y) !== Terrain.Plain) continue;
+    const h = 2 + rand() * 2.5;
+    ctx.strokeStyle = `${INK}${0.16 + rand() * 0.14})`;
+    ctx.lineWidth = 0.8;
+    ctx.beginPath();
+    ctx.moveTo(x - 1.4, y);
+    ctx.lineTo(x - 1.9, y - h * 0.8);
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + 0.2, y - h);
+    ctx.moveTo(x + 1.3, y);
+    ctx.lineTo(x + 2, y - h * 0.7);
+    ctx.stroke();
+  }
+}
+
+function paintRocks(ctx: CanvasRenderingContext2D, map: MapDef, rand: () => number): void {
+  for (let row = 0; row < map.navRows; row++) {
+    for (let col = 0; col < map.navCols; col++) {
+      if (map.terrain[row * map.navCols + col] !== Terrain.Rock || rand() < 0.45) continue;
+      const x = map.originX + (col + rand()) * map.navCell;
+      const y = map.originY + (row + rand()) * map.navCell;
+      const r = 4 + rand() * 6;
+      // A crag: lit top-left facet in vellum-grey, a shadow facet hatched in ink.
+      const peak = [x - r * 0.1, y - r * 0.95] as const;
+      ctx.beginPath();
+      ctx.moveTo(x - r, y + r * 0.35);
+      ctx.lineTo(peak[0], peak[1]);
+      ctx.lineTo(x + r, y + r * 0.35);
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(176,164,138,0.95)';
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(peak[0], peak[1]);
+      ctx.lineTo(x + r, y + r * 0.35);
+      ctx.lineTo(x + r * 0.05, y + r * 0.35);
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(112,100,82,0.95)';
+      ctx.fill();
+      ctx.save();
+      ctx.clip();
+      ctx.strokeStyle = `${INK}0.45)`;
+      ctx.lineWidth = 0.7;
+      for (let h = -r; h < r * 2; h += 2.2) {
+        ctx.beginPath();
+        ctx.moveTo(x + h - r, y + r);
+        ctx.lineTo(x + h, y - r);
+        ctx.stroke();
       }
+      ctx.restore();
+      ctx.beginPath();
+      ctx.moveTo(x - r, y + r * 0.35);
+      ctx.lineTo(peak[0], peak[1]);
+      ctx.lineTo(x + r, y + r * 0.35);
+      ctx.strokeStyle = `${INK}0.8)`;
+      ctx.lineWidth = 1.2;
       ctx.stroke();
     }
   }
+}
+
+function paintForests(ctx: CanvasRenderingContext2D, map: MapDef, rand: () => number, pxPerUnit: number, size: number, extent: number): void {
+  const blobs: { x: number; y: number; r: number; tone: number }[] = [];
+  for (let row = 0; row < map.navRows; row++) {
+    for (let col = 0; col < map.navCols; col++) {
+      if (map.terrain[row * map.navCols + col] !== Terrain.Forest) continue;
+      const count = 1 + (rand() < 0.55 ? 1 : 0);
+      for (let k = 0; k < count; k++) {
+        blobs.push({ x: map.originX + (col + rand()) * map.navCell, y: map.originY + (row + rand()) * map.navCell, r: 5 + rand() * 4.5, tone: rand() });
+      }
+    }
+  }
+  blobs.sort((a, b) => a.y - b.y);
+
+  // Cast shadows, softened, falling to the south-east.
+  const [shadowCanvas, sctx] = canvas2d(size, size);
+  sctx.setTransform(pxPerUnit, 0, 0, pxPerUnit, extent * pxPerUnit, extent * pxPerUnit);
+  sctx.fillStyle = 'rgba(30,34,40,0.9)';
+  for (const b of blobs) {
+    sctx.beginPath();
+    sctx.arc(b.x + 3.6, b.y + 4.4, b.r * 1.05, 0, Math.PI * 2);
+    sctx.fill();
+  }
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.filter = `blur(${Math.max(2, 2.5 * pxPerUnit)}px)`;
+  ctx.globalAlpha = 0.42;
+  ctx.drawImage(shadowCanvas, 0, 0);
+  ctx.restore();
+
+  // Each tree: a lobed canopy in terre verte, lit top-left, hatched on its shadow side, outlined in ink.
+  for (const b of blobs) {
+    const lobes = 5;
+    const path = () => {
+      ctx.beginPath();
+      for (let i = 0; i <= lobes * 4; i++) {
+        const a = (i / (lobes * 4)) * Math.PI * 2;
+        const bump = 1 + Math.sin(a * lobes + b.tone * 6) * 0.08;
+        const x = b.x + Math.cos(a) * b.r * bump;
+        const y = b.y + Math.sin(a) * b.r * bump * 0.94;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.closePath();
+    };
+    const base = mix([78, 104, 60], [106, 128, 70], b.tone);
+    path();
+    ctx.fillStyle = `rgb(${base[0]},${base[1]},${base[2]})`;
+    ctx.fill();
+    const g = ctx.createRadialGradient(b.x - b.r * 0.4, b.y - b.r * 0.45, 0, b.x - b.r * 0.2, b.y - b.r * 0.2, b.r * 1.05);
+    g.addColorStop(0, 'rgba(196,204,120,0.75)');
+    g.addColorStop(0.5, 'rgba(150,166,92,0.25)');
+    g.addColorStop(1, 'rgba(40,52,34,0.35)');
+    ctx.fillStyle = g;
+    ctx.fill();
+    ctx.save();
+    path();
+    ctx.clip();
+    ctx.strokeStyle = `${INK}0.32)`;
+    ctx.lineWidth = 0.7;
+    for (let h = 0; h < b.r * 1.6; h += 1.9) {
+      ctx.beginPath();
+      ctx.moveTo(b.x + h - b.r * 0.2, b.y + b.r);
+      ctx.lineTo(b.x + h + b.r * 0.5, b.y - b.r * 0.1 + h * 0.15);
+      ctx.stroke();
+    }
+    ctx.restore();
+    path();
+    ctx.strokeStyle = `${INK}0.62)`;
+    ctx.lineWidth = 0.9;
+    ctx.stroke();
+  }
+}
+
+function paintFrame(ctx: CanvasRenderingContext2D, half: number, seed: number): void {
+  const rule = (inset: number, width: number, alpha: number) => {
+    ctx.lineWidth = width;
+    ctx.strokeStyle = `${INK}${alpha})`;
+    ctx.strokeRect(-half + inset, -half + inset, (half - inset) * 2, (half - inset) * 2);
+  };
+  rule(0, 2.6, 0.8);
+  rule(9, 1, 0.55);
+  // Corner fleurons: a quatrefoil in gold leaf, outlined in ink.
+  const rand = seeded(seed + 5);
+  for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]] as const) {
+    const cx = sx * (half - 4.5);
+    const cy = sy * (half - 4.5);
+    for (let i = 0; i < 4; i++) {
+      const a = (i * Math.PI) / 2 + Math.PI / 4;
+      ctx.beginPath();
+      ctx.ellipse(cx + Math.cos(a) * 11, cy + Math.sin(a) * 11, 9, 5.5, a, 0, Math.PI * 2);
+      ctx.fillStyle = rand() < 0.5 ? 'rgba(212,169,62,0.95)' : 'rgba(196,152,52,0.95)';
+      ctx.fill();
+      ctx.lineWidth = 1.2;
+      ctx.strokeStyle = `${INK}0.85)`;
+      ctx.stroke();
+    }
+    ctx.beginPath();
+    ctx.arc(cx, cy, 5, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(184,50,31,0.95)';
+    ctx.fill();
+    ctx.stroke();
+  }
+}
+
+/** A compass rose in ink, gold leaf and vermilion, in the sheet's north-east margin. */
+function paintCompass(ctx: CanvasRenderingContext2D, half: number, R: number): void {
+  const r = Math.min(110, (half - R * 0.72) * 0.55);
+  if (r < 30) return;
+  const cx = half - r * 1.35;
+  const cy = -half + r * 1.35;
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.beginPath();
+  ctx.arc(0, 0, r * 1.02, 0, Math.PI * 2);
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = `${INK}0.7)`;
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(0, 0, r * 0.92, 0, Math.PI * 2);
+  ctx.lineWidth = 0.8;
+  ctx.stroke();
+  for (let i = 0; i < 32; i++) {
+    const a = (i / 32) * Math.PI * 2;
+    const k = i % 8 === 0 ? 0.8 : i % 4 === 0 ? 0.86 : 0.89;
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(a) * r * k, Math.sin(a) * r * k);
+    ctx.lineTo(Math.cos(a) * r * 0.92, Math.sin(a) * r * 0.92);
+    ctx.stroke();
+  }
+  const point = (a: number, len: number, w: number, light: string, dark: string) => {
+    const ux = Math.cos(a);
+    const uy = Math.sin(a);
+    const px = -uy;
+    const py = ux;
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(ux * len, uy * len);
+    ctx.lineTo(px * w, py * w);
+    ctx.closePath();
+    ctx.fillStyle = light;
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(ux * len, uy * len);
+    ctx.lineTo(-px * w, -py * w);
+    ctx.closePath();
+    ctx.fillStyle = dark;
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(px * w, py * w);
+    ctx.lineTo(ux * len, uy * len);
+    ctx.lineTo(-px * w, -py * w);
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = `${INK}0.85)`;
+    ctx.stroke();
+  };
+  for (let i = 0; i < 4; i++) point((i * Math.PI) / 2 + Math.PI / 4, r * 0.55, r * 0.09, 'rgba(239,228,200,1)', 'rgba(140,120,84,1)');
+  for (let i = 0; i < 4; i++) {
+    const north = i === 3;
+    point((i * Math.PI) / 2, r * 0.86, r * 0.13, north ? 'rgba(212,74,52,1)' : 'rgba(246,220,140,1)', north ? 'rgba(150,36,22,1)' : 'rgba(176,132,40,1)');
+  }
+  ctx.beginPath();
+  ctx.arc(0, 0, r * 0.07, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(212,169,62,1)';
+  ctx.fill();
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.font = `${Math.round(r * 0.3)}px ${DISPLAY_FONT}`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillStyle = `${INK}0.9)`;
+  ctx.fillText('N', 0, -r * 1.1);
+  ctx.restore();
+}
+
+/** The chart's title in a scrolled cartouche in the south-west margin. */
+function paintCartouche(ctx: CanvasRenderingContext2D, half: number, R: number, text: ChartText): void {
+  const room = half - R * 0.72;
+  if (room < 120) return;
+  const w = Math.min(520, room * 2.2);
+  const h = w * 0.27;
+  const cx = -half + w * 0.62;
+  const cy = half - h * 1.25;
+  ctx.save();
+  ctx.translate(cx, cy);
+  // Scroll body with curled ends.
+  ctx.beginPath();
+  ctx.moveTo(-w / 2, -h / 2);
+  ctx.bezierCurveTo(-w * 0.2, -h * 0.62, w * 0.2, -h * 0.38, w / 2, -h / 2);
+  ctx.lineTo(w / 2, h / 2);
+  ctx.bezierCurveTo(w * 0.2, h * 0.38, -w * 0.2, h * 0.62, -w / 2, h / 2);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(244,234,208,0.97)';
+  ctx.fill();
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = `${INK}0.8)`;
+  ctx.stroke();
+  for (const s of [-1, 1]) {
+    ctx.beginPath();
+    ctx.ellipse((s * w) / 2, 0, h * 0.16, h * 0.52, 0, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(217,199,158,1)';
+    ctx.fill();
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.ellipse((s * w) / 2, 0, h * 0.07, h * 0.3, 0, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.beginPath();
+  ctx.moveTo(-w * 0.36, h * 0.06);
+  ctx.lineTo(w * 0.36, h * 0.06);
+  ctx.lineWidth = 0.8;
+  ctx.strokeStyle = 'rgba(184,50,31,0.8)';
+  ctx.stroke();
+  ctx.textAlign = 'center';
+  ctx.fillStyle = 'rgba(184,50,31,0.95)';
+  ctx.font = `${Math.round(h * 0.34)}px ${DISPLAY_FONT}`;
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillText(text.title, 0, -h * 0.02, w * 0.78);
+  ctx.fillStyle = `${INK}0.85)`;
+  ctx.font = `italic ${Math.round(h * 0.2)}px ${SCRIPT_FONT}`;
+  ctx.textBaseline = 'top';
+  ctx.fillText(text.subtitle, 0, h * 0.12, w * 0.78);
+  ctx.restore();
+}
+
+/** Scribe's notes in the margin naming each shrine, with a fine leader line to the coast. */
+function paintShrineNotes(ctx: CanvasRenderingContext2D, map: MapDef, R: number, seaW: number): void {
+  const shrines = map.sites.filter((s) => s.kind === 'shrine');
+  ctx.save();
+  ctx.font = `italic 22px ${SCRIPT_FONT}`;
+  ctx.fillStyle = `${INK}0.78)`;
+  ctx.textBaseline = 'middle';
+  shrines.forEach((s, i) => {
+    const a = Math.atan2(s.y, s.x);
+    const r = R + seaW + 34;
+    const x = Math.cos(a) * r;
+    const y = Math.sin(a) * r;
+    const name = `the ${SHRINE_NAMES[i % SHRINE_NAMES.length]} Shrine`;
+    ctx.textAlign = Math.cos(a) > 0.2 ? 'left' : Math.cos(a) < -0.2 ? 'right' : 'center';
+    ctx.fillText(name, x + Math.cos(a) * 6, y + Math.sin(a) * 6);
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(a) * (R + 10), Math.sin(a) * (R + 10));
+    ctx.lineTo(Math.cos(a) * (r - 8), Math.sin(a) * (r - 8));
+    ctx.lineWidth = 0.9;
+    ctx.setLineDash([2, 4]);
+    ctx.strokeStyle = `${INK}0.45)`;
+    ctx.stroke();
+    ctx.setLineDash([]);
+  });
+  ctx.restore();
+}
+
+/** Vellum grain: fibres and pores multiplied over everything, so pigment sits in the skin. */
+function paintGrain(ctx: CanvasRenderingContext2D, size: number, seed: number): void {
+  const tile = 256;
+  const [g, gctx] = canvas2d(tile, tile);
+  const img = gctx.createImageData(tile, tile);
+  const rand = seeded(seed + 313);
+  for (let i = 0; i < tile * tile; i++) {
+    const x = i % tile;
+    const y = Math.floor(i / tile);
+    const fibre = noise(x / 1.5, y / 9, seed + 2) * 0.5 + noise(x / 7, y / 1.2, seed + 4) * 0.3 + rand() * 0.2;
+    const v = 255 - Math.round(fibre * 34);
+    img.data[i * 4] = v;
+    img.data[i * 4 + 1] = v - 3;
+    img.data[i * 4 + 2] = v - 10;
+    img.data[i * 4 + 3] = 255;
+  }
+  gctx.putImageData(img, 0, 0);
+  ctx.save();
+  ctx.globalCompositeOperation = 'multiply';
+  ctx.globalAlpha = 0.55;
+  const pattern = ctx.createPattern(g, 'repeat');
+  if (pattern) {
+    ctx.fillStyle = pattern;
+    ctx.fillRect(0, 0, size, size);
+  }
+  ctx.restore();
 }

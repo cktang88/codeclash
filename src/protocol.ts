@@ -1,5 +1,6 @@
 import type { Digest } from './rules/digest.ts';
-import type { TimedInput, WorldSnapshot } from './sim/api.ts';
+import type { ArmoryItem, Heraldry, LegendKind, RankInfo } from './rules/meta.ts';
+import type { Kind, TimedInput, WorldSnapshot } from './sim/api.ts';
 import type { ChronicleEntry } from './sim/chronicle.ts';
 import type { RepoRef, ReplayPlayer } from './sim/replay.ts';
 
@@ -61,6 +62,18 @@ export interface WarMeta {
 export interface RosterEntry extends ReplayPlayer {
   p: number;
   avatarUrl: string;
+  /** The player's chosen heraldry for this war; absent for bots and defaults. */
+  heraldry?: Heraldry;
+}
+
+/** A statue on the map: a legend beside its player's capital, or the Season Victor at the Heart. */
+export interface Monument {
+  kind: 'legend' | 'season';
+  /** Player index of the capital it stands beside, or -1 for the Heart. */
+  p: number;
+  name: string;
+  epithet: string;
+  unit: Kind | null;
 }
 
 export interface PresenceEntry {
@@ -96,7 +109,9 @@ export type ServerMessage =
       tickMs: number;
       /** The viewer's player index in this war, if any. */
       viewerP: number | null;
+      monuments?: Monument[];
     }
+  | { type: 'order'; p: number; login: string; order: { id: string; title: string }; glory: number }
   | { type: 'inputs'; inputs: TimedInput[]; roster?: RosterEntry[]; repos?: { index: number; ref: RepoRef }[] }
   | { type: 'check'; tick: number; checksum: number }
   | { type: 'chronicle'; entries: ChronicleEntry[] }
@@ -204,6 +219,64 @@ export interface ProfileResponse {
   user: UserRef;
   records: LifetimeRecord[];
   titles: string[];
+  rank?: RankInfo;
+  deeds?: DeedEarned[];
+  rivalries?: Rivalry[];
+  heraldry?: Heraldry;
+}
+
+export interface DeedEarned {
+  id: string;
+  name: string;
+  text: string;
+  at: number;
+  room: string | null;
+}
+
+export interface Rivalry {
+  rival: UserRef;
+  wins: number;
+  losses: number;
+}
+
+export interface ArmoryResponse {
+  rank: RankInfo;
+  heraldry: Heraldry;
+  catalog: ArmoryItem[];
+  titles: string[];
+}
+
+export interface LegendEntry {
+  name: string;
+  epithet: string;
+  kind: LegendKind;
+  unit: Kind | null;
+  deeds: string[];
+  owner: UserRef;
+  day: string;
+  warId: number;
+}
+
+export interface LegendsResponse {
+  legends: LegendEntry[];
+}
+
+export interface SeasonStanding {
+  user: UserRef;
+  points: number;
+  days: number;
+  wins: number;
+}
+
+export interface SeasonResponse {
+  season: string;
+  standings: SeasonStanding[];
+  /** The previous season's victor, whose monument stands at the Heart. */
+  champion: { season: string; user: UserRef } | null;
+}
+
+export interface OrdersResponse {
+  orders: { p: number; login: string; done: string[]; ids: string[] }[];
 }
 
 export interface HookResponse {

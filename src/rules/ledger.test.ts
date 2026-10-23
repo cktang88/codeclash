@@ -177,10 +177,10 @@ describe('rules', () => {
     expect(d.filler).toBe(2);
   });
 
-  it('caps identical lines at two copies per repository', () => {
+  it('credits identical lines once per user', () => {
     const d = measurePush([file('src/a.ts', '@@\n' + '+callHandler(request, response);\n'.repeat(10))], new MemoryLedger());
-    expect(d.lines[Cat.Code]).toBe(2);
-    expect(d.filler).toBe(8);
+    expect(d.lines[Cat.Code]).toBe(1);
+    expect(d.filler).toBe(9);
   });
 
   it('cancels work that a later push undoes, and reports churn', () => {
@@ -201,18 +201,20 @@ describe('rules', () => {
     const ledger = new MemoryLedger();
     const patch = '@@\n+export function amended(value: number) { return value * factor; }';
     expect(measurePush([file('src/a.ts', patch)], ledger).lines[Cat.Code]).toBe(1);
-    // The rewritten history shows the same line added again; the third copy is past the cap.
-    expect(measurePush([file('src/a.ts', patch)], ledger).lines[Cat.Code]).toBe(1);
+    // The rewritten history shows the same line added again: it was already paid for.
+    expect(measurePush([file('src/a.ts', patch)], ledger).lines[Cat.Code]).toBe(0);
     expect(measurePush([file('src/a.ts', patch)], ledger).lines[Cat.Code]).toBe(0);
   });
 
   it('counts deleting old code as removed, once', () => {
     const d = measurePush([file('src/a.ts', '@@\n-legacyHandler(request, response);\n-legacyHandler(request, response);\n-legacyHandler(request, response);')], new MemoryLedger());
-    expect(d.lines[Cat.Removed]).toBe(2);
+    expect(d.lines[Cat.Removed]).toBe(1);
   });
 
   it('caps code per day as a running total, so splitting cannot beat it', () => {
-    const big = Array.from({ length: DAILY_CODE_CAP + 500 }, (_, i) => `+const value${i} = compute(input${i});`).join('\n');
+    // Distinct lines of distinct shapes (numbered copies would be capped as one shape).
+    const word = (i: number) => Array.from({ length: 4 }, (_, k) => 'abcdefghijklmnopqrstuvwxyz'[Math.floor(i / 26 ** k) % 26]).join('');
+    const big = Array.from({ length: DAILY_CODE_CAP + 500 }, (_, i) => `+const value${word(i)} = compute(input${word(i)});`).join('\n');
     expect(measurePush([file('src/a.ts', `@@\n${big}`)], new MemoryLedger()).lines[Cat.Code]).toBe(DAILY_CODE_CAP);
     const ledger = new MemoryLedger();
     const half = Math.ceil((DAILY_CODE_CAP + 500) / 2);

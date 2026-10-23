@@ -4,6 +4,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { ChatMessage, TimelapseFrame, Visibility, WarStatus } from '../protocol.ts';
 import type { Digest } from '../rules/digest.ts';
+import type { Heraldry } from '../rules/meta.ts';
 import type { LedgerStore } from '../rules/ledger.ts';
 import type { ChronicleEntry } from '../sim/chronicle.ts';
 import type { EncodedInput, RepoRef, ReplayPlayer } from '../sim/replay.ts';
@@ -52,7 +53,7 @@ export interface MemberRow {
 }
 
 export interface WarHeader {
-  players: (ReplayPlayer & { avatarUrl: string; userId: number })[];
+  players: (ReplayPlayer & { avatarUrl: string; userId: number; heraldry?: Heraldry })[];
   repos: RepoRef[];
 }
 
@@ -402,15 +403,18 @@ export class Store {
     const tally = this.db.prepare('SELECT code, branches FROM code_tally WHERE user_id = ? AND day = ?');
     const setTally = this.db.prepare('INSERT INTO code_tally (user_id, day, code, branches) VALUES (?, ?, ?, ?) ON CONFLICT(user_id, day) DO UPDATE SET code = excluded.code, branches = excluded.branches');
     const hash = (text: string) => createHash('sha1').update(text).digest('base64url');
-    const repoKey = repo.toLowerCase();
+    // A file's scope belongs to its repository; every other scope is the user's across all
+    // repositories, so code copied or moved between repositories counts once.
+    const repoOf = (scope: string) => (scope === '' || /^[\u0000-\u001f]/.test(scope) ? '*' : repo.toLowerCase());
     return {
-      balance: (scope, key) => ((get.get(userId, repoKey, hash(scope), hash(key), live) as { balance: number } | undefined)?.balance ?? 0),
+      balance: (scope, key) => ((get.get(userId, repoOf(scope), hash(scope), hash(key), live) as { balance: number } | undefined)?.balance ?? 0),
       setBalance: (scope, key, balance) => {
-        if (balance === 0) drop.run(userId, repoKey, hash(scope), hash(key));
-        else put.run(userId, repoKey, hash(scope), hash(key), balance, now);
+        if (balance === 0) drop.run(userId, repoOf(scope), hash(scope), hash(key));
+        else put.run(userId, repoOf(scope), hash(scope), hash(key), balance, now);
       },
       daily: () => (tally.get(userId, day) as { code: number; branches: number } | undefined) ?? { code: 0, branches: 0 },
       setDaily: (code, branches) => void setTally.run(userId, day, code, branches),
+      day: () => Math.floor(now / 86_400_000),
     };
   }
 

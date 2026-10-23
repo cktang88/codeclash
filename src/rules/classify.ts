@@ -46,7 +46,8 @@ const GENERATED = [
 
 const DOC_NAMES = /^(README|CHANGELOG|CHANGES|HISTORY|LICENSE|LICENCE|COPYING|CONTRIBUTING|AUTHORS|CODE_OF_CONDUCT|SECURITY|INSTALL|CITATION|NOTICE)([.-][^/]*)?$/i;
 const DOC_DIRS = /(^|\/)(docs?|documentation|javadoc)\//;
-const DOC_EXTENSIONS = new Set(['md', 'mdx', 'markdown', 'rst', 'adoc', 'asciidoc', 'txt', 'org']);
+// LaTeX is prose with markup: a paper is docs, not code.
+const DOC_EXTENSIONS = new Set(['md', 'mdx', 'markdown', 'rst', 'adoc', 'asciidoc', 'txt', 'org', 'tex', 'bib']);
 const CONFIG_TEXT = /^(requirements.*\.txt|CMakeLists\.txt|constraints\.txt|robots\.txt)$/i;
 
 const TEST_NAMES = [
@@ -79,7 +80,7 @@ const SOURCE_EXTENSIONS = new Set([
   'cc', 'cpp', 'cxx', 'hpp', 'hh', 'hxx', 'cs', 'fs', 'fsx', 'rb', 'php', 'dart', 'scala', 'sc', 'ex', 'exs', 'erl', 'hrl',
   'hs', 'elm', 'lua', 'sh', 'bash', 'zsh', 'fish', 'ps1', 'html', 'htm', 'css', 'scss', 'sass', 'less', 'vue', 'svelte',
   'astro', 'zig', 'ml', 'mli', 'clj', 'cljs', 'cljc', 'el', 'lisp', 'jl', 'r', 'm', 'mm', 'pl', 'pm', 'groovy', 'nim',
-  'cr', 'sol', 'sql', 'graphql', 'gql', 'proto', 'v', 'sv', 'vhd', 'tex', 'wgsl', 'glsl', 'hlsl', 'cu', 'gd', 'rkt', 'odin',
+  'cr', 'sol', 'sql', 'graphql', 'gql', 'proto', 'v', 'sv', 'vhd', 'vhdl', 'wgsl', 'glsl', 'hlsl', 'cu', 'gd', 'rkt', 'odin',
 ]);
 
 function basename(path: string): string {
@@ -118,21 +119,43 @@ interface Block {
   close: string;
   /** Only opens when the line starts with it (docstrings, =begin). */
   startOnly?: boolean;
+  /** A multi-line string literal rather than a comment: its inner lines are data. */
+  data?: boolean;
+  /** A JavaScript template literal, whose `${…}` may hold nested strings. */
+  template?: boolean;
+  /** A tagged template (html`…`, css`…`, sql`…`): its lines are code in another language. */
+  tagged?: boolean;
 }
 
 interface Syntax {
   line: string[];
   blocks: Block[];
+  /** Delimiters of string literals that may span lines (template literals, triple quotes, raw strings). */
+  strings?: Block[];
 }
 
 const C_BLOCK: Block = { open: '/*', close: '*/' };
 const HTML_BLOCK: Block = { open: '<!--', close: '-->' };
+const BACKTICK: Block = { open: '`', close: '`', data: true, template: true };
+const TAGGED_BACKTICK: Block = { ...BACKTICK, tagged: true };
+const RAW_BACKTICK: Block = { open: '`', close: '`', data: true };
+const TRIPLE_DOUBLE: Block = { open: '"""', close: '"""', data: true };
+const TRIPLE_SINGLE: Block = { open: "'''", close: "'''", data: true };
 const C_LIKE: Syntax = { line: ['//'], blocks: [C_BLOCK] };
+const JS_LIKE: Syntax = { line: ['//'], blocks: [C_BLOCK], strings: [BACKTICK] };
+const TEXT_BLOCKS: Syntax = { line: ['//'], blocks: [C_BLOCK], strings: [TRIPLE_DOUBLE] };
 const HASH: Syntax = { line: ['#'], blocks: [] };
 
 const SYNTAX: Record<string, Syntax> = {
-  py: { line: ['#'], blocks: [{ open: '"""', close: '"""', startOnly: true }, { open: "'''", close: "'''", startOnly: true }] },
-  pyi: { line: ['#'], blocks: [{ open: '"""', close: '"""', startOnly: true }] },
+  py: { line: ['#'], blocks: [{ open: '"""', close: '"""', startOnly: true }, { open: "'''", close: "'''", startOnly: true }], strings: [TRIPLE_DOUBLE, TRIPLE_SINGLE] },
+  pyi: { line: ['#'], blocks: [{ open: '"""', close: '"""', startOnly: true }], strings: [TRIPLE_DOUBLE, TRIPLE_SINGLE] },
+  ts: JS_LIKE, tsx: JS_LIKE, mts: JS_LIKE, cts: JS_LIKE, js: JS_LIKE, jsx: JS_LIKE, mjs: JS_LIKE, cjs: JS_LIKE,
+  go: { line: ['//'], blocks: [C_BLOCK], strings: [RAW_BACKTICK] },
+  java: TEXT_BLOCKS, kt: TEXT_BLOCKS, kts: TEXT_BLOCKS, scala: TEXT_BLOCKS, sc: TEXT_BLOCKS, swift: TEXT_BLOCKS, groovy: TEXT_BLOCKS,
+  dart: { line: ['//'], blocks: [C_BLOCK], strings: [TRIPLE_DOUBLE, TRIPLE_SINGLE] },
+  vhd: { line: ['--'], blocks: [] },
+  vhdl: { line: ['--'], blocks: [] },
+  m: { line: ['//', '%'], blocks: [C_BLOCK] },
   rb: { line: ['#'], blocks: [{ open: '=begin', close: '=end', startOnly: true }] },
   css: { line: [], blocks: [C_BLOCK] },
   scss: C_LIKE,
@@ -141,14 +164,14 @@ const SYNTAX: Record<string, Syntax> = {
   php: { line: ['//', '#'], blocks: [C_BLOCK] },
   html: { line: [], blocks: [HTML_BLOCK] },
   htm: { line: [], blocks: [HTML_BLOCK] },
-  vue: { line: ['//'], blocks: [C_BLOCK, HTML_BLOCK] },
-  svelte: { line: ['//'], blocks: [C_BLOCK, HTML_BLOCK] },
-  astro: { line: ['//'], blocks: [C_BLOCK, HTML_BLOCK] },
+  vue: { line: ['//'], blocks: [C_BLOCK, HTML_BLOCK], strings: [BACKTICK] },
+  svelte: { line: ['//'], blocks: [C_BLOCK, HTML_BLOCK], strings: [BACKTICK] },
+  astro: { line: ['//'], blocks: [C_BLOCK, HTML_BLOCK], strings: [BACKTICK] },
   lua: { line: ['--'], blocks: [{ open: '--[[', close: ']]' }] },
   sql: { line: ['--'], blocks: [C_BLOCK] },
   hs: { line: ['--'], blocks: [{ open: '{-', close: '-}' }] },
   elm: { line: ['--'], blocks: [{ open: '{-', close: '-}' }] },
-  jl: { line: ['#'], blocks: [{ open: '#=', close: '=#' }] },
+  jl: { line: ['#'], blocks: [{ open: '#=', close: '=#' }], strings: [TRIPLE_DOUBLE] },
   ml: { line: [], blocks: [{ open: '(*', close: '*)' }] },
   mli: { line: [], blocks: [{ open: '(*', close: '*)' }] },
   fs: { line: ['//'], blocks: [{ open: '(*', close: '*)' }] },
@@ -161,7 +184,6 @@ const SYNTAX: Record<string, Syntax> = {
   rkt: { line: [';'], blocks: [{ open: '#|', close: '|#' }] },
   erl: { line: ['%'], blocks: [] },
   hrl: { line: ['%'], blocks: [] },
-  tex: { line: ['%'], blocks: [] },
   ps1: { line: ['#'], blocks: [{ open: '<#', close: '#>' }] },
   pl: { line: ['#'], blocks: [{ open: '=pod', close: '=cut', startOnly: true }] },
   pm: { line: ['#'], blocks: [{ open: '=pod', close: '=cut', startOnly: true }] },
@@ -174,11 +196,104 @@ export function syntaxFor(path: string): Syntax {
   return SYNTAX[extension(basename(path))] ?? C_LIKE;
 }
 
-type LineKind = 'code' | 'comment' | 'blank';
+/** `data` is a line inside an untagged multi-line string literal: text, not code. */
+type LineKind = 'code' | 'comment' | 'blank' | 'data';
 
-/** Classifies one source line, updating the open block comment (if any). */
+/** Index of a delimiter not escaped by a backslash, or -1. */
+function unescaped(t: string, d: string, from: number): number {
+  for (let i = t.indexOf(d, from); i >= 0; i = t.indexOf(d, i + 1)) {
+    let slashes = 0;
+    for (let j = i - 1; j >= from && t[j] === '\\'; j--) slashes++;
+    if (slashes % 2 === 0) return i;
+  }
+  return -1;
+}
+
+/** From inside a template literal at `i`, the index just past its closing backtick, or -1. */
+function templateEnd(t: string, i: number): number {
+  while (i < t.length) {
+    const ch = t[i];
+    if (ch === '\\') i += 2;
+    else if (ch === '`') return i + 1;
+    else if (ch === '$' && t[i + 1] === '{') {
+      i = interpolationEnd(t, i + 2);
+      if (i < 0) return -1;
+    } else i++;
+  }
+  return -1;
+}
+
+/** From inside `${`, the index just past its closing brace, or -1. */
+function interpolationEnd(t: string, i: number): number {
+  let depth = 0;
+  while (i < t.length) {
+    const ch = t[i];
+    if (ch === '`') {
+      i = templateEnd(t, i + 1);
+      if (i < 0) return -1;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      const close = unescaped(t, ch, i + 1);
+      if (close < 0) return -1;
+      i = close + 1;
+      continue;
+    }
+    if (ch === '{') depth++;
+    else if (ch === '}' && depth-- === 0) return i + 1;
+    i++;
+  }
+  return -1;
+}
+
+/** Where the string `b`, entered at `i` (just past its opening delimiter), ends: just past its close, or -1. */
+function stringEnd(t: string, b: Block, i: number): number {
+  if (b.template) return templateEnd(t, i);
+  const close = unescaped(t, b.close, i);
+  return close < 0 ? -1 : close + b.close.length;
+}
+
+/** Scans code from `from` and opens a multi-line string if one is left unclosed at the end of the line. */
+function openString(t: string, from: number, syntax: Syntax, state: { block: Block | null }): void {
+  const strings = syntax.strings;
+  if (!strings) return;
+  let i = from;
+  while (i < t.length) {
+    const b = strings.find((s) => t.startsWith(s.open, i));
+    if (b) {
+      const start = i;
+      i = stringEnd(t, b, i + b.open.length);
+      if (i < 0) {
+        state.block = b.template && /[A-Za-z_$][\w$.]*$/.test(t.slice(0, start)) ? TAGGED_BACKTICK : b;
+        return;
+      }
+      continue;
+    }
+    if (syntax.line.some((m) => t.startsWith(m, i))) return;
+    const ch = t[i];
+    if (ch === '"' || ch === "'") {
+      const close = unescaped(t, ch, i + 1);
+      if (close < 0) return;
+      i = close + 1;
+      continue;
+    }
+    i++;
+  }
+}
+
+/** Classifies one source line, updating the open block comment or multi-line string (if any). */
 export function classifyLine(text: string, syntax: Syntax, state: { block: Block | null }): LineKind {
   const t = text.trim();
+  if (state.block?.data) {
+    // A tagged template's lines are code in another language (HTML, CSS, SQL); others are text.
+    const kind = state.block.tagged ? (t === '' ? 'blank' : 'code') : 'data';
+    const end = stringEnd(t, state.block, 0);
+    if (end < 0) return kind;
+    // The string ends here; what follows may open another.
+    state.block = null;
+    openString(t, end, syntax, state);
+    return kind;
+  }
   if (t === '') return 'blank';
   if (state.block) {
     const end = t.indexOf(state.block.close);
@@ -197,6 +312,7 @@ export function classifyLine(text: string, syntax: Syntax, state: { block: Block
     const open = t.lastIndexOf(b.open);
     if (open > 0 && t.indexOf(b.close, open + b.open.length) < 0) state.block = b;
   }
+  if (!state.block) openString(t, 0, syntax, state);
   return 'code';
 }
 
@@ -348,7 +464,7 @@ export function summarizeFiles(files: readonly ChangedFile[]): PushSummary {
           code++;
           branches += branchesIn(l.text, file.filename);
         } else if (kind === 'comment') lines[Cat.Comment]!++;
-        else lines[Cat.Blank]!++;
+        else if (kind === 'blank') lines[Cat.Blank]!++;
       }
       for (const text of patch.removed) if (text.trim() !== '') removed++;
     }

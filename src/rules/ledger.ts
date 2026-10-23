@@ -1,30 +1,54 @@
 // Squash-equivalent measurement of pushes.
 //
 // Every counted line is reduced to a key (its category, language family and
-// whitespace-normalized text) and each push only moves per-key balances: +1 for
-// an added line, -1 for a removed one. A key's contribution is a function of its
+// canonical text) and each push only moves per-key balances: +1 for an added
+// line, -1 for a removed one. A key's contribution is a function of its
 // balance alone, and a push reports the change in contribution it caused. So
 // any sequence of pushes sums to the contribution of the net change, which is
 // exactly what one squashed push would report: reformatting, moves, add-then-
 // delete and delete-then-restore all cancel, and splitting work gains nothing.
+//
+// Three refinements keep that property while closing loopholes (see
+// docs/fair-play.md):
+// - Keys are canonical: spacing, quote style, semicolons, commas, trailing
+//   comments, invisible characters and look-alike letters do not make a line new.
+// - Code lines of the same shape (literals and numbered names blanked out) are
+//   credited at most SHAPE_CAP times, so tables, switch arms and numbered copies
+//   are filler however they are dressed up.
+// - With a day (store.day), work credited on an earlier day is never credited
+//   again: deleting it before a reset and restoring it after earns nothing.
 
 import { Cat, CAT_COUNT } from '../sim/api.ts';
 import { branchesIn, categorizePath, classifyLine, extensionOf, isGeneratedContent, splitPatch, syntaxFor, type ChangedFile, type FileCategory } from './classify.ts';
 import { languageOfPath } from './heraldry.ts';
 
-/** Identical lines beyond this many in one repository count as filler. */
-export const DUPLICATE_CAP = 2;
+/**
+ * Copies of an identical line credited per user. One: a rewritten history
+ * (force-push, amend, the same commits pushed to a second branch) shows the
+ * same lines added again, and must not pay twice.
+ */
+export const DUPLICATE_CAP = 1;
+/** Code lines of one shape (same text once literals and numbered names are blanked) credited per user. */
+export const SHAPE_CAP = 8;
+/** Branch points one line can carry: `a && b && c && …` is one decision, not twenty. */
+export const LINE_BRANCH_CAP = 2;
 /** Code lines one player can be credited with in a day; the rest is treated as a paste. */
 export const DAILY_CODE_CAP = 5000;
 export const DAILY_BRANCH_CAP = 10_000;
 
-/** Per-user, per-repository storage of balances. Scopes: '' for the repository, a path for one file. */
+/**
+ * Per-user storage of balances. Scope '' holds line keys, shared by all of the
+ * user's repositories so copies between them count once; a path scope holds one
+ * file's keys, and other scopes hold bookkeeping.
+ */
 export interface LedgerStore {
   balance(scope: string, key: string): number;
   setBalance(scope: string, key: string, balance: number): void;
   /** Credited code and branches so far today, before the daily caps. */
   daily(): { code: number; branches: number };
   setDaily(code: number, branches: number): void;
+  /** Today as a whole day number. Without it every push falls on the same day. */
+  day?(): number;
 }
 
 export interface PushDelta {
@@ -35,7 +59,7 @@ export interface PushDelta {
   branches: number;
   /** Lines that undid counted work from earlier pushes (both halves of each pair). */
   churn: number;
-  /** Added lines left out as filler: punctuation-only, literal tables, or duplicates. */
+  /** Added lines left out as filler: punctuation-only, literal tables, prose, string contents, or duplicates. */
   filler: number;
   language: string | null;
 }
@@ -44,15 +68,84 @@ type Counted = 'code' | 'comment' | 'test' | 'docs' | 'config';
 
 const COUNTED_CAT: Record<Counted, Cat> = { code: Cat.Code, comment: Cat.Comment, test: Cat.Test, docs: Cat.Docs, config: Cat.Config };
 
-/** Collapses whitespace so reindenting or reformatting changes nothing. */
+// Latin look-alikes from Cyrillic and Greek, which NFKC leaves alone.
+const CONFUSABLES: Record<string, string> = {
+  а: 'a', е: 'e', о: 'o', р: 'p', с: 'c', у: 'y', х: 'x', і: 'i', ј: 'j', ѕ: 's', ԁ: 'd', һ: 'h', ӏ: 'l', ԛ: 'q', ԝ: 'w',
+  А: 'A', В: 'B', Е: 'E', К: 'K', М: 'M', Н: 'H', О: 'O', Р: 'P', С: 'C', Т: 'T', Х: 'X', У: 'Y', І: 'I', Ј: 'J', Ѕ: 'S',
+  α: 'a', ο: 'o', ν: 'v', ρ: 'p', τ: 't', ι: 'i', κ: 'k', υ: 'u', χ: 'x',
+  Α: 'A', Β: 'B', Ε: 'E', Ζ: 'Z', Η: 'H', Ι: 'I', Κ: 'K', Μ: 'M', Ν: 'N', Ο: 'O', Ρ: 'P', Τ: 'T', Χ: 'X', Υ: 'Y',
+};
+const CONFUSABLE = new RegExp(`[${Object.keys(CONFUSABLES).join('')}]`, 'g');
+const STRINGS = /"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`/g;
+const LITERALS = new Set(['true', 'false', 'null', 'undefined', 'None', 'True', 'False', 'nil', 'NaN', 'Infinity']);
+
+/**
+ * Collapses whitespace so reindenting changes nothing, after folding compatibility
+ * forms (NFKC), dropping invisible format characters and combining marks, and
+ * mapping look-alike letters to Latin.
+ */
 export function normalize(text: string): string {
-  return text.trim().replace(/\s+/g, ' ');
+  return text
+    .normalize('NFKC')
+    .replace(/[\p{Cf}\p{M}]/gu, '')
+    .replace(CONFUSABLE, (c) => CONFUSABLES[c]!)
+    .trim()
+    .replace(/\s+/g, ' ');
 }
 
-/** A code line with fewer than two words of two letters or more: `}`, `0x1f, 0x2a,`, `'a', 'b',`. */
+/**
+ * A line with fewer than two words of two letters or more (`}`, `0x1f, 0x2a,`,
+ * `'a', 'b',`), an encoded blob, or a row of literal data whose only words are
+ * keys and literals (`{ id: 7, name: "x", active: true },`).
+ */
 export function isFillerText(normalized: string): boolean {
-  const words = normalized.replace(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`/g, ' ').match(/[A-Za-z_]{2,}/g);
-  return (words?.length ?? 0) < 2;
+  const code = normalized.replace(STRINGS, ' ');
+  // An encoded blob (base64, hex) outside quotes is data, not names.
+  if (/[A-Za-z0-9+/=_-]{40,}/.test(code)) return true;
+  const words = code.match(/[A-Za-z_]{2,}/g);
+  if ((words?.length ?? 0) < 2) return true;
+  const values = code.replace(/[A-Za-z_$][\w$]*\s*:(?!:)/g, ' ').match(/[A-Za-z_$][\w$]*/g) ?? [];
+  return !values.some((w) => !LITERALS.has(w) && /[A-Za-z_]{2,}/.test(w));
+}
+
+/** A run of eight or more words with none of code's brackets, assignments, colons or member access: prose. */
+export function isProse(normalized: string): boolean {
+  const text = normalized.replace(STRINGS, ' ').replace(/<[^>]*>/g, ' ');
+  if (/[(){}[\];=:]|\w\.\w/.test(text) || /^(import|from|export|using|include|require|use)\b/.test(text)) return false;
+  return (text.match(/[A-Za-z_]{2,}/g)?.length ?? 0) >= 8;
+}
+
+/** Index of a line comment marker outside quotes, or -1. */
+function commentAt(text: string, marker: string): number {
+  let quote = '';
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]!;
+    if (quote) {
+      if (ch === '\\') i++;
+      else if (ch === quote) quote = '';
+    } else if (ch === '"' || ch === "'" || ch === '`') quote = ch;
+    else if (text.startsWith(marker, i)) return i;
+  }
+  return -1;
+}
+
+/** Drops inline block comments and a trailing line comment. */
+function stripComments(normalized: string, family: string): string {
+  let s = family === 'c' || family === 'rs' || family === 'none' ? normalized.replace(/\/\*.*?\*\//g, ' ') : normalized;
+  const marker = family === 'c' || family === 'rs' ? '//' : family === 'none' ? '' : '#';
+  const at = marker ? commentAt(s, marker) : -1;
+  if (at > 0) s = s.slice(0, at);
+  return s.trim();
+}
+
+/** A line's identity: no spacing, one quote style, no semicolons or commas, no comments. */
+export function canonical(normalized: string, family: string): string {
+  return stripComments(normalized, family).replace(/['`]/g, '"').replace(/[\s;,]+/g, '');
+}
+
+/** A canonical line with string literals and numbers (and names containing them) blanked out. */
+export function shapeOf(canon: string): string {
+  return canon.replace(/"(?:[^"\\]|\\.)*"/g, 'S').replace(/[A-Za-z_$]*\d[\w$]*/g, 'N');
 }
 
 /** Branch tokens are counted per language family, so a key carries the family. */
@@ -69,12 +162,79 @@ const SAMPLE_PATH: Record<string, string> = { py: 'x.py', rb: 'x.rb', rs: 'x.rs'
 interface KeyInfo {
   kind: Counted;
   branches: number;
+  /** Lines of one group share a cap: a code line's shape, otherwise the key itself. */
+  group: string;
 }
 
 /** Contribution of one key at a balance: credited lines (positive adds, negative removals), capped for duplicates. */
 function credit(balance: number): number {
   return balance > 0 ? Math.min(balance, DUPLICATE_CAP) : -Math.min(-balance, DUPLICATE_CAP);
 }
+
+// ------------------------------------------------------------ what earlier days already paid
+
+/** Per-key memory, packed into one stored number. */
+const MEMORY = '\u0003memory';
+/** Per-shape running credit today, for SHAPE_CAP. */
+const SHAPE_ADDED = '\u0004added';
+const SHAPE_REMOVED = '\u0004removed';
+const BASE = 2 * DUPLICATE_CAP + 1;
+const SHAPE_DAY = 2 ** 24;
+
+/**
+ * What a key has already earned: `paid` and `paidRemoval` are the most credit and
+ * removal credit it reached on any earlier day; `hi` and `lo` its extremes so far
+ * on `day`. Only credit beyond what was paid counts, so work is paid once.
+ */
+interface Memory {
+  day: number;
+  paid: number;
+  paidRemoval: number;
+  hi: number;
+  lo: number;
+}
+
+function readMemory(store: LedgerStore, key: string, balance: number, today: number | null): Memory {
+  const c = credit(balance);
+  const fresh = { day: today ?? 0, paid: 0, paidRemoval: 0, hi: c, lo: c };
+  if (today === null) return fresh;
+  let packed = store.balance(MEMORY, key);
+  if (packed <= 0) return fresh;
+  const lo = (packed % BASE) - DUPLICATE_CAP;
+  packed = Math.floor(packed / BASE);
+  const hi = (packed % BASE) - DUPLICATE_CAP;
+  packed = Math.floor(packed / BASE);
+  const paidRemoval = packed % BASE;
+  packed = Math.floor(packed / BASE);
+  const paid = packed % BASE;
+  const day = Math.floor(packed / BASE) - 1;
+  if (day === today) return { day, paid, paidRemoval, hi, lo };
+  // A new day: whatever the key reached before is paid for.
+  return { day: today, paid: Math.max(paid, hi), paidRemoval: Math.max(paidRemoval, -lo), hi: c, lo: c };
+}
+
+function writeMemory(store: LedgerStore, key: string, m: Memory): void {
+  const empty = m.paid === 0 && m.paidRemoval === 0 && m.hi === 0 && m.lo === 0;
+  store.setBalance(MEMORY, key, empty ? 0 : ((((m.day + 1) * BASE + m.paid) * BASE + m.paidRemoval) * BASE + m.hi + DUPLICATE_CAP) * BASE + m.lo + DUPLICATE_CAP);
+}
+
+/** New code a key is worth today, beyond what earlier days paid. */
+const gain = (balance: number, m: Memory) => Math.max(0, credit(balance) - m.paid);
+/** Removal a key is worth today, beyond what earlier days paid. */
+const loss = (balance: number, m: Memory) => Math.max(0, -credit(balance) - m.paidRemoval);
+
+function readShape(store: LedgerStore, scope: string, shape: string, today: number | null): number {
+  const v = store.balance(scope, shape);
+  if (today === null) return Math.max(0, v);
+  return Math.floor(v / SHAPE_DAY) === today + 1 ? v % SHAPE_DAY : 0;
+}
+
+function writeShape(store: LedgerStore, scope: string, shape: string, today: number | null, n: number): void {
+  const v = Math.max(0, Math.min(SHAPE_DAY - 1, n));
+  store.setBalance(scope, shape, v === 0 ? 0 : today === null ? v : (today + 1) * SHAPE_DAY + v);
+}
+
+// ------------------------------------------------------------ measuring
 
 interface Op {
   key: string;
@@ -89,13 +249,18 @@ function fileOps(file: ChangedFile, category: FileCategory, patch: ReturnType<ty
   const family = familyOf(path);
   const push = (kind: Counted, text: string, sign: 1 | -1) => {
     const normalized = normalize(text);
-    if ((kind === 'code' || kind === 'test') && isFillerText(normalized)) {
+    if ((kind === 'code' || kind === 'test') && (isFillerText(normalized) || (kind === 'code' && isProse(normalized)))) {
       if (sign === 1) counts.filler++;
       return;
     }
-    const key = `${kind}\u0000${family}\u0000${normalized}`;
-    const branches = kind === 'code' ? branchesIn(normalized, SAMPLE_PATH[family]!) : 0;
-    ops.push({ key, path, info: { kind, branches }, sign });
+    const canon = canonical(normalized, family);
+    const key = `${kind}\u0000${family}\u0000${canon}`;
+    if (kind !== 'code') {
+      ops.push({ key, path, info: { kind, branches: 0, group: key }, sign });
+      return;
+    }
+    const branches = Math.min(LINE_BRANCH_CAP, branchesIn(stripComments(normalized, family), SAMPLE_PATH[family]!));
+    ops.push({ key, path, info: { kind, branches, group: `${family}\u0000${branches}\u0000${shapeOf(canon)}` }, sign });
   };
   if (category !== 'source') {
     const kind = category as Counted;
@@ -118,6 +283,8 @@ function fileOps(file: ChangedFile, category: FileCategory, patch: ReturnType<ty
       const kind = classifyLine(l.text, syntax, state);
       if (!l.changed) continue;
       if (kind === 'blank') counts.blank += sign === 1 ? 1 : 0;
+      // The inside of a multi-line string is text, not code.
+      else if (kind === 'data') counts.filler += sign === 1 ? 1 : 0;
       else push(kind, l.text, sign);
     }
   };
@@ -125,7 +292,7 @@ function fileOps(file: ChangedFile, category: FileCategory, patch: ReturnType<ty
   walk(patch.oldFile.map((l) => ({ text: l.text, changed: l.removed, hunk: l.hunk })), -1);
 }
 
-/** Measures one push against the user's ledger for its repository, updating the ledger. */
+/** Measures one push against the user's ledger, updating the ledger. */
 export function measurePush(files: readonly ChangedFile[], store: LedgerStore): PushDelta {
   const lines = new Array<number>(CAT_COUNT).fill(0);
   const ops: Op[] = [];
@@ -157,7 +324,7 @@ export function measurePush(files: readonly ChangedFile[], store: LedgerStore): 
     fileOps(file, category, patch, ops, counts);
   }
 
-  // Net change per key, repository-wide (moves between files cancel) and per file (for files touched).
+  // Net change per key across all files (moves between files cancel) and per file (for files touched).
   const net = new Map<string, { info: KeyInfo; delta: number }>();
   const perFile = new Map<string, Map<string, number>>();
   for (const op of ops) {
@@ -170,30 +337,51 @@ export function measurePush(files: readonly ChangedFile[], store: LedgerStore): 
     f.set(op.key, (f.get(op.key) ?? 0) + op.sign);
   }
 
+  const today = store.day ? store.day() : null;
   let code = estimatedCode;
   let branches = estimatedBranches;
   let churn = 0;
-  const codeByLanguage = new Map<string, number>();
+  // Each key's change in what it is worth today, gathered by group for the shape cap.
+  const groups = new Map<string, { info: KeyInfo; gained: number; lost: number; added: number }>();
   for (const [key, { info, delta }] of net) {
     if (delta === 0) continue;
     const before = store.balance('', key);
     const after = before + delta;
+    const m = readMemory(store, key, before, today);
     store.setBalance('', key, after);
-    const change = credit(after) - credit(before);
-    const cancelled = Math.abs(credit(before)) - (Math.sign(after) === Math.sign(before) ? Math.abs(credit(after)) : 0);
-    if (cancelled > 0) churn += 2 * cancelled;
-    const added = Math.max(0, credit(after)) - Math.max(0, credit(before));
-    const removed = Math.max(0, -credit(after)) - Math.max(0, -credit(before));
+    if (today !== null) {
+      m.hi = Math.max(m.hi, credit(after));
+      m.lo = Math.min(m.lo, credit(after));
+      writeMemory(store, key, m);
+    }
+    const gained = gain(after, m) - gain(before, m);
+    const lost = loss(after, m) - loss(before, m);
+    churn += 2 * (Math.max(0, -gained) + Math.max(0, -lost));
+    const g = groups.get(info.group);
+    if (g) {
+      g.gained += gained;
+      g.lost += lost;
+      g.added += Math.max(0, delta);
+    } else groups.set(info.group, { info, gained, lost, added: Math.max(0, delta) });
+  }
+  for (const [group, { info, gained, lost, added }] of groups) {
+    let credited = gained;
     if (info.kind === 'code') {
-      code += added;
-      branches += added * info.branches;
-      lines[Cat.Removed]! += removed;
-    } else lines[COUNTED_CAT[info.kind]]! += added;
-    if (delta > 0) counts.filler += delta - Math.max(0, change);
+      const a = readShape(store, SHAPE_ADDED, group, today);
+      const r = readShape(store, SHAPE_REMOVED, group, today);
+      if (gained !== 0) writeShape(store, SHAPE_ADDED, group, today, a + gained);
+      if (lost !== 0) writeShape(store, SHAPE_REMOVED, group, today, r + lost);
+      credited = Math.min(SHAPE_CAP, a + gained) - Math.min(SHAPE_CAP, a);
+      code += credited;
+      branches += credited * info.branches;
+      lines[Cat.Removed]! += Math.min(SHAPE_CAP, r + lost) - Math.min(SHAPE_CAP, r);
+    } else lines[COUNTED_CAT[info.kind]]! += gained;
+    counts.filler += Math.max(0, added - Math.max(0, credited));
   }
 
   // A file counts while any of its code keys carries a net change today. Each file keeps a count
   // of such keys under its own scope, so a push only reads the keys it touches.
+  const codeByLanguage = new Map<string, number>();
   let filesDelta = estimatedFiles;
   for (const [path, keys] of perFile) {
     let nonzero = store.balance(path, NONZERO);
@@ -235,10 +423,11 @@ export function measurePush(files: readonly ChangedFile[], store: LedgerStore): 
   return { lines, files: filesDelta, branches: cappedBranches, churn, filler: counts.filler, language };
 }
 
-/** A ledger in memory: for tests, bots and the browser demo. */
+/** A ledger in memory: for tests, bots and the browser demo. Set `today` to move to another day. */
 export class MemoryLedger implements LedgerStore {
   private balances = new Map<string, number>();
-  private day = { code: 0, branches: 0 };
+  private days = new Map<number, { code: number; branches: number }>();
+  today = 0;
 
   balance(scope: string, key: string): number {
     return this.balances.get(`${scope}\u0001${key}`) ?? 0;
@@ -251,10 +440,14 @@ export class MemoryLedger implements LedgerStore {
   }
 
   daily(): { code: number; branches: number } {
-    return { ...this.day };
+    return { ...(this.days.get(this.today) ?? { code: 0, branches: 0 }) };
   }
 
   setDaily(code: number, branches: number): void {
-    this.day = { code, branches };
+    this.days.set(this.today, { code, branches });
+  }
+
+  day(): number {
+    return this.today;
   }
 }

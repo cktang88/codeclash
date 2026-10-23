@@ -1,6 +1,7 @@
 import type { RoomDetail, RosterEntry, ServerMessage, TimelapseFrame, WarMeta } from '../protocol.ts';
 import { buildDigest, type Digest } from '../rules/digest.ts';
 import { nextHue } from '../rules/heraldry.ts';
+import type { Heraldry } from '../rules/meta.ts';
 import { CAT_COUNT, NEUTRAL, PlatoonState, TICK_MS, type SimInput, type TimedInput, type World, type WorldSnapshot } from '../sim/api.ts';
 import { Chronicler, type ChronicleEntry, type Names } from '../sim/chronicle.ts';
 import { checksum, generateMap, restore, snapshot, step, createWorld } from '../sim/index.ts';
@@ -44,6 +45,7 @@ export interface Enlistee {
   login: string;
   avatarUrl: string;
   bot: boolean;
+  heraldry?: Heraldry;
 }
 
 export type CommandError = 'not_in_war' | 'cooldown' | 'used' | 'invalid' | 'ended';
@@ -76,7 +78,7 @@ export class War {
     for (const e of w.enlist.slice(0, w.slots)) {
       const p = header.players.length;
       const hue = nextHue(header.players.map((x) => x.hue));
-      header.players.push({ login: e.login, id: e.userId, userId: e.userId, avatarUrl: e.avatarUrl, hue, slot: p, bot: e.bot });
+      header.players.push({ login: e.login, id: e.userId, userId: e.userId, avatarUrl: e.avatarUrl, hue, slot: p, bot: e.bot, ...(e.heraldry ? { heraldry: e.heraldry } : {}) });
       inputs.push({ tick: 0, seq: inputs.length + 1, input: { kind: 'join', p, slot: p, hue } });
     }
     const members = header.players.length;
@@ -134,7 +136,7 @@ export class War {
   }
 
   roster(): RosterEntry[] {
-    return this.row.header.players.map((pl, p) => ({ p, login: pl.login, id: pl.id, hue: pl.hue, slot: pl.slot, bot: pl.bot, avatarUrl: pl.avatarUrl }));
+    return this.row.header.players.map((pl, p) => ({ p, login: pl.login, id: pl.id, hue: pl.hue, slot: pl.slot, bot: pl.bot, avatarUrl: pl.avatarUrl, ...(pl.heraldry ? { heraldry: pl.heraldry } : {}) }));
   }
 
   behind(now: number): boolean {
@@ -188,7 +190,7 @@ export class War {
     if (slot < 0) return null;
     const p = header.players.length;
     const hue = nextHue(header.players.map((x) => x.hue));
-    header.players.push({ login: e.login, id: e.userId, userId: e.userId, avatarUrl: e.avatarUrl, hue, slot, bot: e.bot });
+    header.players.push({ login: e.login, id: e.userId, userId: e.userId, avatarUrl: e.avatarUrl, hue, slot, bot: e.bot, ...(e.heraldry ? { heraldry: e.heraldry } : {}) });
     this.submit(now, [{ kind: 'join', p, slot, hue }], { roster: [this.roster()[p]!] });
     return p;
   }
@@ -311,7 +313,7 @@ export class War {
     });
   }
 
-  hello(room: RoomDetail, viewerUserId: number | null, extra: Pick<Extract<ServerMessage, { type: 'hello' }>, 'chat' | 'presence'>, now: number): ServerMessage {
+  hello(room: RoomDetail, viewerUserId: number | null, extra: Pick<Extract<ServerMessage, { type: 'hello' }>, 'chat' | 'presence' | 'monuments'>, now: number): ServerMessage {
     return {
       type: 'hello',
       room,

@@ -8,6 +8,7 @@ import {
   ShotKind,
   Terrain,
   TICKS_PER_MINUTE,
+  TICKS_PER_SECOND,
   type MapDef,
   type Platoon,
   type PlayerState,
@@ -41,6 +42,7 @@ import {
   FOREST_SPEED,
   HEART_CAPTURE_TICKS,
   HERALD_HEAL,
+  HOME_TURF,
   MAX_ALIVE,
   MELEE_WINDUP,
   MERCENARY_CONTRACT,
@@ -113,7 +115,7 @@ export function createWorld(params: WarParams, map: MapDef): World {
     structures: [{ site: heart, p: NEUTRAL, hp, maxHp: hp, cooldown: 0, ruinedUntil: -1, sacked: 0 }],
     shots: [],
     players: [],
-    sites: map.sites.map((s) => ({ id: s.id, owner: NEUTRAL, capturer: NEUTRAL, progress: 0 })),
+    sites: map.sites.map((s) => ({ id: s.id, owner: NEUTRAL, capturer: NEUTRAL, progress: 0, heldSince: -1 })),
     leader: NEUTRAL,
     monolithFallen: false,
   };
@@ -149,6 +151,7 @@ export function step(world: World, inputs: readonly SimInput[]): TickEvents {
   regroup(world, s, ev);
   updateCaptures(world, ev);
   if (world.tick > 0 && world.tick % TICKS_PER_MINUTE === 0) awardHoldings(world);
+  if (world.tick % TICKS_PER_SECOND === 0) trackFeats(world);
   updateLeader(world, ev);
   world.tick++;
   return ev;
@@ -218,6 +221,7 @@ function newPlayer(p: number, slot: number, hue: number): PlayerState {
     slain: new Array<number>(KIND_COUNT).fill(0),
     kills: 0, losses: 0, structureDamage: 0, monolithDamage: 0, captures: 0, sacks: 0, routs: 0,
     purposes: new Array<number>(PURPOSES.length).fill(0), best: null,
+    feats: { holdBest: 0, routsCaused: 0, cryKills: 0, returns: 0, heartCaptures: 0, leaderTakes: 0, homeKills: 0, ledTicks: 0 },
     queue: [], battalions: [],
   };
 }
@@ -533,6 +537,7 @@ function updatePlatoons(world: World, s: Scratch, ev: TickEvents): void {
         pl.state = PlatoonState.March;
         pl.morale = MORALE_RALLY;
         pl.site = player.slot;
+        player.feats.returns++;
         s.rallied.push(pl.id);
       }
       continue;
@@ -1110,6 +1115,11 @@ function resolveDamage(world: World, s: Scratch, ev: TickEvents): void {
       const k = world.players[killer]!;
       k.kills++;
       k.slain[u.kind]!++;
+      if (k.cryUntil > world.tick) k.feats.cryKills++;
+      const home = world.map.sites[k.slot]!;
+      const hx = u.x - home.x;
+      const hy = u.y - home.y;
+      if (hx * hx + hy * hy <= HOME_TURF * HOME_TURF) k.feats.homeKills++;
       const value = STATS[u.kind]!.value;
       k.renown += u.p >= 0 && u.p === world.leader && killer !== world.leader ? value * 2 : value;
       creditPlatoonKill(world, s, killer, u.x, u.y);
@@ -1166,6 +1176,7 @@ function updateMorale(world: World, s: Scratch, ev: TickEvents): void {
       pl.morale = 0;
       pl.state = PlatoonState.Rout;
       world.players[pl.p]!.routs++;
+      creditRout(world, pl.p, pl.x, pl.y);
       ev.routs.push({ platoon: pl.id });
     }
   }
@@ -1274,13 +1285,44 @@ function updateCaptures(world: World, ev: TickEvents): void {
       state.owner = only;
       state.capturer = NEUTRAL;
       state.progress = 0;
-      world.players[only]!.captures++;
+      state.heldSince = world.tick;
+      const taker = world.players[only]!;
+      taker.captures++;
+      if (def.kind === 'heart') taker.feats.heartCaptures++;
+      if (previous >= 0 && previous === world.leader) taker.feats.leaderTakes++;
       ev.captures.push({ site: k, p: only, previous });
     }
   }
 }
 
 // Holdings pay in full only while garrisoned, so a leader must spread thin to keep them.
+/** Once a second: the longest hold of any site, and time spent leading. */
+function trackFeats(world: World): void {
+  for (const site of world.sites) {
+    if (site.owner < 0 || site.heldSince < 0) continue;
+    const feats = world.players[site.owner]!.feats;
+    feats.holdBest = Math.max(feats.holdBest, world.tick - site.heldSince);
+  }
+  if (world.leader >= 0) world.players[world.leader]!.feats.ledTicks += TICKS_PER_SECOND;
+}
+
+/** A routed platoon's nearest enemy soldier earns the rout for their player. */
+function creditRout(world: World, victim: number, x: number, y: number): void {
+  let best = -1;
+  let bestD = 150 * 150;
+  for (const u of world.units) {
+    if (u.p < 0 || u.p === victim) continue;
+    const dx = u.x - x;
+    const dy = u.y - y;
+    const d2 = dx * dx + dy * dy;
+    if (d2 < bestD) {
+      bestD = d2;
+      best = u.p;
+    }
+  }
+  if (best >= 0) world.players[best]!.feats.routsCaused++;
+}
+
 function awardHoldings(world: World): void {
   const presence = sitePresence(world);
   const n = world.players.length;
