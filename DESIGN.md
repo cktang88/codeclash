@@ -87,52 +87,69 @@ Each unit takes one or more **slots** in its platoon. Speed is in world units pe
 
 Fliers ignore terrain and the press of ground soldiers. Melee soldiers can still strike them once the flier comes within reach.
 
-### How many soldiers
+### How many soldiers: the day's ledger
 
-Let *code* be added code lines, *removed* deleted source lines, *files* source files touched, and *branches* branch points.
+An army is worth what its player contributed **today as a whole**, not push by push.
 
-**The code itself** (every purpose except revert):
+1. **The ledger.** Each player has a ledger for the day. Ingestion turns every push into signed changes to it: code, tests, comments, docs, config and removed lines; source files touched; branch points; churn; filler. See [docs/fair-play.md](docs/fair-play.md) for how a diff is measured.
+2. **The target army.** The ledger decides the army it is worth, `armyFor(ledger)`. Each push musters only the difference between that target and what the player has already raised.
+3. **Splitting and squashing are equal.** Twenty small pushes and one squashed push of the same work leave the same ledger, so they raise an army of the same size and strength. Only the timing differs.
+4. **Desertion.** When later pushes undo earlier work (deleting code added today, rewriting it back), the ledger shrinks and soldiers **desert**: waiting ones first, then the newest in the field.
 
-- **Footmen:** `min(12, floor(½·√code) + min(6, files))`, at least 1 when there is any code.
-- **Knights:** `min(4, floor(branches / 15))`.
-- **Troll:** 1 with at least 40 branches in at least 200 lines.
-- **Outriders:** 1 per 150 removed lines, up to 3.
-- **Trebuchet:** 1 when a push touches 12 or more files.
-- **Berserkers:** with at least 50 code lines and no test or comment lines (and not a fix), half the Footmen become Berserkers.
+**The budget.** The army's size, in platoon slots, is
 
-**By purpose:**
+`floor(1.1·√code + 1.5·√files + 0.5·√branches + 0.3·√removed)`
 
-| Purpose | Adds |
+where *code* is counted code lines, *files* source files touched, *branches* branch points, and *removed* deleted lines that were not today's own work. The square roots give diminishing returns over the day, so volume alone never wins.
+
+**Specialists come out of the budget.** What the work was for, and how complex it was, spend up to 65% of the budget. Heroes are paid first, and Footmen fill the rest. The commit message therefore changes what the army is made of, never how big it is. All counts below are for the whole day:
+
+| Raised by | Specialists |
 | --- | --- |
-| fix | `min(3, 1 + floor(files / 3))` Clerics. A Paladin when it touches 3+ files or 40+ lines, two when it is 150+ lines over 4+ files. `min(2, floor(code / 60))` Rangers |
-| feature | 25% more Footmen, up to 14 |
-| refactor | half the Footmen. `min(8, floor(½·√(removed + code/2)))` Outriders. A Griffin Rider for 300+ removed lines over 6+ files |
-| perf | `min(3, 1 + floor(branches / 20))` Wizards |
-| revert | no Footmen. `min(8, max(1, floor(√(code + removed) / 2)))` Skeletons, and a Bone Golem at 500+ lines |
-| chore | at most 2 Footmen, plus 1 Mercenary (2 when 4+ files) |
+| fix code *f* | `floor(√f / 2.5)` Clerics, `floor(f / 150)` Paladins, `floor(f / 250)` Rangers |
+| feature code *F* | `min(3, floor(F / 400), floor(files / 5))` Champions |
+| feature and plain work *W* | a Dragon at *W* ≥ 900 with files ≥ 10 and branches ≥ 90; a second at 4000 / 40 / 400 |
+| refactors | `floor(√(removed + code/2) / 1.5)` Outriders; a Griffin Rider per 400 removed lines (up to 3) |
+| perf code *P* | `min(4, floor(√P / 3))` Wizards |
+| reverts *R* | `floor(√R)` Skeletons; a Bone Golem per 600 lines (up to 2) |
+| chore code *C* | `min(3, floor(√C / 2))` Mercenaries |
+| branch points *B* | `floor(2·√(B/10))` Knights; with 200+ code lines, a Troll per 150 branch points (up to 3) |
+| files | a Trebuchet per 15 files (up to 3) |
 
-**Heroes** (not while fatigue applies, and never for chores or reverts):
+If a day's code has no tests and no comments at all, half of its Footmen fight as Berserkers.
 
-- **Champion:** at least 300 code lines over at least 5 files.
-- **Dragon:** a feature (or plain work) of at least 600 code lines, 8 files and 60 branch points. It replaces the Champion.
-
-**Support, kept small:**
+**Support is small and separate.** It does not come out of the budget:
 
 | From | Raises |
 | --- | --- |
-| tests | `min(3, floor(√test / 4))` Wardens |
-| comments | `min(2, floor(comment / 40))` Archers |
-| docs | 1 Herald at 60+ docs lines, or 80+ docs and comment lines together |
-| config | `min(2, floor(config / 50))` Sappers |
+| tests | `min(4, floor(√test / 5))` Wardens |
+| comments | `min(3, floor(√comment / 5))` Archers |
+| docs | `min(2, floor(docs / 120))` Heralds |
+| config | `min(3, floor(config / 80))` Sappers |
 | generated, vendored | nothing |
 
-A platoon holds at most 32 slots. The cheapest soldiers are trimmed first, and heroes are never trimmed.
+The first push of the day always sends at least one Footman. A large muster marches as several platoons of at most 32 slots each.
 
-Fatigue keeps a heavy pusher from flooding the map:
+**Quality and veterans.** Every soldier's HP and damage are multiplied by its army's power, `quality × (1 + 0.1 × veteran rank)`. Power is recomputed from the ledger, so it reaches soldiers already in the field too.
 
-- **Hourly levy.** After 3 pushes in the last hour, further platoons get half the counts.
-- **Daily weariness.** After 12 pushes today, platoons get a third of the counts.
-- Every push still raises at least one Footman.
+- **Veteran ranks** need both code and source files touched:
+
+  | Rank | Code lines | Files |
+  | --- | --- | --- |
+  | 1 | 250 | 5 |
+  | 2 | 800 | 12 |
+  | 3 | 2000 | 25 |
+
+- **Well tested.** Tests worth at least a fifth of the code (with 50+ code lines) add 5% quality.
+- **A ragged army** comes from padding:
+
+  | Padding | Penalty |
+  | --- | --- |
+  | tests outweigh code 3:1 or more | up to −15% at 8:1 |
+  | comments outweigh code 0.5:1 or more | up to −10% at 2:1 |
+  | filler (duplicates, punctuation-only and table lines) is 30% or more of the lines | up to −15% at 80% |
+
+  Quality never drops below 0.7.
 
 **Caps.**
 
