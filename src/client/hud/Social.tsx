@@ -1,13 +1,28 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { CHAT_MAX, EMOTES, type Emote } from '../../protocol.ts';
 import type { HudSnapshot } from '../store.ts';
 import { Avatar } from '../ui/Avatar.tsx';
 import { clock } from '../ui/format.ts';
-import { Icon } from '../ui/icons.tsx';
+import { EventIcon, Icon } from '../ui/icons.tsx';
 import { useHudContext } from './context.ts';
 import { sfx } from '../ui/codex.tsx';
 
 const EMOTE_GAP_MS = 2000;
+
+/**
+ * The emote buttons are chrome, so each is an engraved woodcut on a wax-sealed note; the emoji
+ * itself appears only once a player has sent it (EmoteRain).
+ */
+const EMOTE_ICONS: Record<Emote, { name: string; icon: ReactNode }> = {
+  '⚔️': { name: 'crossed swords', icon: <EventIcon kind="clash" size={22} /> },
+  '🛡️': { name: 'a shield', icon: <Icon name="shield" size={22} /> },
+  '🔥': { name: 'fire', icon: <EventIcon kind="sack" size={22} /> },
+  '🎉': { name: 'a fanfare', icon: <Icon name="horn" size={22} /> },
+  '😱': { name: 'a gasp', icon: <Icon name="eye" size={22} /> },
+  '👑': { name: 'a crown', icon: <Icon name="crown" size={22} /> },
+  '💀': { name: 'a skull', icon: <Icon name="skull" size={22} /> },
+  '🏹': { name: 'a volley', icon: <Icon name="target" size={22} /> },
+};
 
 export function EmoteBar({ canSend }: { canSend: boolean }) {
   const { send, store, mode } = useHudContext();
@@ -24,8 +39,8 @@ export function EmoteBar({ canSend }: { canSend: boolean }) {
   return (
     <div className="emote-bar" role="toolbar" aria-label="Send a cheer">
       {EMOTES.map((e) => (
-        <button key={e} className="emote-btn" onClick={() => fire(e)} disabled={cooling} aria-label={`Send ${e}`}>
-          <span aria-hidden>{e}</span>
+        <button key={e} className="emote-btn" onClick={() => fire(e)} disabled={cooling} aria-label={`Send ${EMOTE_ICONS[e].name}`} title={`Send ${EMOTE_ICONS[e].name}`}>
+          {EMOTE_ICONS[e].icon}
         </button>
       ))}
     </div>

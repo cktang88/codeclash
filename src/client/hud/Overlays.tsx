@@ -37,7 +37,7 @@ export function Toasts({ hud }: { hud: HudSnapshot }) {
               <span className="toast-icon chron-icon">
                 <EventIcon kind={t.kind} size={24} />
               </span>
-              <span className="toast-text">{colorize(t.title, hud.roster, true)}</span>
+              <span className={`toast-text${t.title.startsWith('@') ? '' : ' has-cap'}`}>{colorize(t.title, hud.roster)}</span>
             </span>
           </button>
         );

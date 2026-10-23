@@ -500,7 +500,7 @@
   min-width: 0;
 }
 
-.toast-text::first-letter {
+.toast-text.has-cap::first-letter {
   -webkit-initial-letter: 2;
   initial-letter: 2;
   font-family: var(--display);
@@ -901,8 +901,9 @@ button.chron-btn:hover {
   overflow-wrap: anywhere;
 }
 
-/* Every entry opens with a rubricated initial, sunk two lines deep. */
-.chron-text::first-letter {
+/* Prose entries open with a rubricated initial, sunk two lines deep. A line that opens
+   with a player's name keeps the name whole. */
+.chron-text.has-cap::first-letter {
   -webkit-initial-letter: 2;
   initial-letter: 2;
   font-family: var(--display);
@@ -911,7 +912,7 @@ button.chron-btn:hover {
 }
 
 /* Big moments are illuminated: a vellum initial on a vermilion ground, ruled in gold. */
-.chron.is-big .chron-text::first-letter {
+.chron.is-big .chron-text.has-cap::first-letter {
   padding: 0.04em 0.14em 0;
   margin-right: 0.16em;
   color: var(--vellum);
@@ -1356,10 +1357,14 @@ button.chron-btn:hover {
 .emote-btn {
   position: relative;
   isolation: isolate;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 46px;
   height: 46px;
   border: 0;
   background: none;
+  color: var(--ink);
   font-size: 22px;
   line-height: 1;
   transition: transform var(--t-fast) var(--ease-in), filter var(--t-fast);
