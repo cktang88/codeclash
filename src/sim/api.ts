@@ -198,8 +198,10 @@ export interface Platoon {
   /** What the push that raised this platoon was for. */
   purpose: Purpose;
   state: PlatoonState;
+  /** The banner: the head of a column, the centre of a line. */
   x: number;
   y: number;
+  /** Facing, a unit vector: the march heading in column, toward the threat once deployed. */
   hx: number;
   hy: number;
   site: number;
@@ -215,6 +217,33 @@ export interface Platoon {
   champion: boolean;
   /** Ticks since a member last had an enemy in reach. */
   calm: number;
+  /** How it is drawn up: Form.Column, Deploying, Line or Engaged (formation.ts). */
+  form: number;
+  /** Tick it last changed form. */
+  formAt: number;
+  /** What the line faces: an enemy platoon id (> 0), -(structure index + 1), or 0 for nothing. */
+  threat: number;
+  /** Last tick a threat stood within the stand-down radius. */
+  threatAt: number;
+  /** Soldiers its current layout was drawn up for; -1 when it must be drawn up afresh. */
+  formed: number;
+  /** Width the ground allowed its line when last drawn up, or 0 for its full width. */
+  frontage: number;
+  /** Width (across its facing) and length (along it) of its current layout. */
+  width: number;
+  length: number;
+  /** Lateral shift of its line from the banner, to fit the ground. */
+  offset: number;
+  /** Mean distance of its ground soldiers from their places, last tick. */
+  lag: number;
+  /** Hex ids still to march through toward `routeSite` (hexroute.ts), nearest first. */
+  route: number[];
+  /** The site `route` leads to, or -1 when it must be planned afresh. */
+  routeSite: number;
+  /** Ticks the banner has failed to make headway; past a limit it replans, then follows the flow field. */
+  stuck: number;
+  /** The road behind the banner as x, y pairs TRAIL_STEP apart, newest first: the column follows it. */
+  trail: number[];
 }
 
 export interface Structure {
@@ -364,6 +393,8 @@ export interface TickEvents {
   joins: { p: number }[];
   leader: { p: number; previous: number } | null;
   departures: { unit: number }[];
+  /** A platoon changed form (Form in formation.ts): a drum or horn cue, a banner raised or dipped. */
+  forms: { platoon: number; form: number }[];
 }
 
 export const ShotKind = { Arrow: 0, TowerBolt: 1, Fireball: 2, Boulder: 3, RangerArrow: 4 } as const;

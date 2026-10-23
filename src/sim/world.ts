@@ -1,4 +1,5 @@
 import {
+  Doctrine,
   KIND_COUNT,
   PURPOSES,
   Kind,
@@ -25,9 +26,13 @@ import { attackerMultiplier, computeAuras, enemiesNear, findTarget, structureDam
 import { capitalOwner, runCouncil, sitePresence } from './council.ts';
 import { derived } from './derived.ts';
 import { cellAt } from './flowfield.ts';
+import { dcos, dsin } from './dmath.ts';
+import { Form, columnFormation, extent, lineFormation, type Slot } from './formation.ts';
+import { hexCenterX, hexCenterY, hexRoute } from './hexroute.ts';
+import { Role, cohesion, guardRadius, overCap, pickTarget, roleOf, type Pick } from './tactics.ts';
 import { applyDelta, armyFor, armyQuality, cleanLines, emptyLedger, int, purposeOf, slotsOf, type LedgerDelta } from './muster.ts';
 import { nextRandom, seedRng } from './rng.ts';
-import { AURA_HEAL, indexWorld, scratchFor, type Scratch } from './scratch.ts';
+import { AURA_HEAL, enemyWithin, indexWorld, scratchFor, type Scratch } from './scratch.ts';
 import { bucketX, bucketY, rebuildSpatialHash } from './spatial.ts';
 import {
   ARROW_SPEED,
@@ -86,7 +91,11 @@ const KITE = 0.5;
 const ROUT_SPEED = 1.3;
 const CATCH_UP = 1.35;
 const SLOT_TOLERANCE = 2.5;
-const STRAGGLE = 28;
+const SLOT_GAIN = 0.35;
+/** Mean distance of the ground soldiers from their places past which the banner waits for them. */
+const STRAGGLE = 16;
+/** Siege engines may trail: their distance counts for this much of a soldier's. */
+const SIEGE_TRAIL = 0.3;
 const STRUCTURE_REACH = 0.75;
 const OUTNUMBER_CHECK = 5;
 
@@ -96,7 +105,7 @@ export function emptyEvents(): TickEvents {
   return {
     desertions: [], swings: [], shots: [], breaths: [], blasts: [], heals: [], hits: [], deaths: [], musters: [], marches: [], routs: [], disbands: [],
     captures: [], sacks: [], rebuilt: [], regroups: [], monolith: null, cries: [], doctrines: [], rallies: [], joins: [],
-    leader: null, departures: [],
+    leader: null, departures: [], forms: [],
   };
 }
 
@@ -142,7 +151,9 @@ export function step(world: World, inputs: readonly SimInput[]): TickEvents {
 
   s.rallied.length = 0;
   updatePlatoons(world, s, ev);
+  reformPlatoons(world, s);
   updateUnits(world, s, ev);
+  settleForms(world, s, ev);
   updateStructures(world, s, ev);
   updateShots(world, s, ev);
   resolveDamage(world, s, ev);
@@ -375,6 +386,20 @@ function queuePlatoon(world: World, player: PlayerState, repo: number, purpose: 
     depth: 0,
     champion: counts[Kind.Champion]! + counts[Kind.Dragon]! > 0,
     calm: ENGAGE_CALM_TICKS,
+    form: Form.Column,
+    formAt: world.tick,
+    threat: 0,
+    threatAt: -1,
+    formed: -1,
+    frontage: 0,
+    width: 0,
+    length: 0,
+    offset: 0,
+    lag: 0,
+    route: [],
+    routeSite: -1,
+    stuck: 0,
+    trail: [],
   };
   world.platoons.push(platoon);
   player.queue.push(platoon.id);
@@ -405,55 +430,6 @@ function releaseQueues(world: World, s: Scratch, ev: TickEvents): boolean {
   return marched;
 }
 
-// Bands from front to rear; each band fills rows centered on the banner.
-const BANDS: readonly Kind[][] = [
-  [Kind.Troll, Kind.BoneGolem, Kind.Paladin, Kind.Warden, Kind.Skeleton],
-  [Kind.Champion, Kind.Knight, Kind.Footman, Kind.Mercenary, Kind.Berserker],
-  [Kind.Sapper],
-  [Kind.Wizard, Kind.Ranger, Kind.Archer, Kind.Herald, Kind.Cleric],
-  [Kind.Trebuchet],
-];
-const FLANKS: readonly Kind[] = [Kind.GriffinRider, Kind.Outrider];
-
-/** Formation offsets (forward, lateral) for each soldier. */
-function formation(counts: readonly number[]): { kind: Kind; f: number; l: number }[] {
-  let total = 0;
-  for (const band of BANDS) for (const k of band) total += counts[k]!;
-  const cols = Math.max(3, Math.ceil(Math.sqrt(total * 1.6)));
-  const rows: { kinds: Kind[]; gap: number }[] = [];
-  for (const band of BANDS) {
-    const members: Kind[] = [];
-    for (const k of band) for (let i = 0; i < counts[k]!; i++) members.push(k);
-    if (members.length === 0) continue;
-    let gap = SPACING;
-    for (const k of members) gap = Math.max(gap, STATS[k]!.size * 2 + 2);
-    const perRow = Math.max(1, Math.floor((cols * SPACING) / gap));
-    for (let i = 0; i < members.length; i += perRow) rows.push({ kinds: members.slice(i, i + perRow), gap });
-  }
-  let depth = 0;
-  const forward: number[] = [];
-  for (let r = 0; r < rows.length; r++) {
-    if (r > 0) depth += (rows[r - 1]!.gap + rows[r]!.gap) / 2;
-    forward.push(-depth);
-  }
-  const out: { kind: Kind; f: number; l: number }[] = [];
-  for (let r = 0; r < rows.length; r++) {
-    const row = rows[r]!;
-    const f = forward[r]! + depth / 2;
-    for (let c = 0; c < row.kinds.length; c++) out.push({ kind: row.kinds[c]!, f, l: (c - (row.kinds.length - 1) / 2) * row.gap });
-  }
-  const wing = ((cols - 1) / 2 + 1.8) * SPACING;
-  let n = 0;
-  for (const k of FLANKS) {
-    for (let i = 0; i < counts[k]!; i++, n++) {
-      const side = n % 2 === 0 ? 1 : -1;
-      out.push({ kind: k, f: depth / 2 - Math.floor(n / 2) * SPACING * 1.6, l: side * (wing + STATS[k]!.size) });
-    }
-  }
-  for (let i = 0; i < counts[Kind.Dragon]!; i++) out.push({ kind: Kind.Dragon, f: -depth / 2 - 26, l: 0 });
-  return out;
-}
-
 function deploy(world: World, player: PlayerState, platoon: Platoon): void {
   const capital = world.map.sites[player.slot]!;
   const d = Math.sqrt(capital.x * capital.x + capital.y * capital.y) || 1;
@@ -473,7 +449,16 @@ function deploy(world: World, player: PlayerState, platoon: Platoon): void {
     platoon.mustered[Kind.Dragon]! -= extra;
     platoon.mustered[Kind.Champion]! += extra;
   }
-  for (const slot of formation(platoon.mustered)) {
+  platoon.form = Form.Column;
+  platoon.formAt = world.tick;
+  platoon.route = [];
+  platoon.routeSite = -1;
+  platoon.trail = [];
+  const column = columnFormation(platoon.mustered);
+  const size = extent(column);
+  platoon.width = size.width;
+  platoon.length = size.depth;
+  for (const slot of column) {
     const jx = (nextRandom(world) - 0.5) * 3;
     const jy = (nextRandom(world) - 0.5) * 3;
     let x = platoon.x + platoon.hx * slot.f - platoon.hy * slot.l + jx;
@@ -506,6 +491,7 @@ function deploy(world: World, player: PlayerState, platoon: Platoon): void {
     world.units.push(unit);
     platoon.alive++;
   }
+  platoon.formed = platoon.alive;
 }
 
 // --------------------------------------------------------------- platoons
@@ -513,6 +499,45 @@ function deploy(world: World, player: PlayerState, platoon: Platoon): void {
 const dir: Vec = { x: 0, y: 0 };
 const push: Vec = { x: 0, y: 0 };
 const moved: Vec = { x: 0, y: 0 };
+const point: Vec = { x: 0, y: 0 };
+
+/** Platoons look for threats this often, staggered by id. */
+const THREAT_PERIOD = 5;
+/** An enemy banner this close sends a column into line: about 1.3 times the longest missile reach (a Trebuchet's 170). */
+export const DEPLOY_RADIUS = 220;
+/** The line stands down only once no threat is within this radius... */
+export const STANDDOWN_RADIUS = DEPLOY_RADIUS * 1.25;
+/** ...for this long. */
+export const STANDDOWN_TICKS = 5 * TICKS_PER_SECOND;
+/** Hostile walls count as a threat this far beyond their radius (their towers reach 140 to 160). */
+const WALL_THREAT = 200;
+const DEPLOY_MIN = 2 * TICKS_PER_SECOND;
+const DEPLOY_MAX = 8 * TICKS_PER_SECOND;
+/** Mean distance from their places under which the ranks count as dressed. */
+const DEPLOY_SETTLED = 8;
+/** A line advances at this share of its column's pace, keeping its ranks dressed. */
+const LINE_PACE = 0.6;
+const WALL_PACE = 0.85;
+/** Under the Hold doctrine a deployed line stands this long before it advances. */
+const LINE_HOLD = 15 * TICKS_PER_SECOND;
+/** A line closing with an enemy stops its banner this far from theirs: the front ranks meet. */
+const CLASH = 45;
+/** Fastest a formation wheels, in radians per tick. */
+const MAX_TURN = 0.1;
+const COS_TURN = dcos(MAX_TURN);
+const SIN_TURN = dsin(MAX_TURN);
+/** Spacing of the road the column follows behind its banner, and how much of it is kept. */
+export const TRAIL_STEP = 10;
+const TRAIL_POINTS = 40;
+const WAYPOINT_REACH = 20;
+const STUCK_REPLAN = 8;
+const STUCK_FLOW = 20;
+const REFORM_PERIOD = 10;
+const REFIT_PERIOD = 10;
+const PROBE_STEP = 6;
+const LINE_MARGIN = 8;
+const MIN_FRONTAGE = 36;
+const BLOCK_SPACE = 10;
 
 function holdDistance(world: World, platoon: Platoon): number {
   const def = world.map.sites[platoon.site]!;
@@ -521,11 +546,119 @@ function holdDistance(world: World, platoon: Platoon): number {
   return Math.max(16, def.radius * 0.35);
 }
 
+function setForm(world: World, pl: Platoon, form: Form, ev: TickEvents): void {
+  if (pl.form === form) return;
+  // Column and line are drawn up differently; a line coming out of a fight closes its gaps.
+  if ((pl.form === Form.Column) !== (form === Form.Column) || (pl.form === Form.Engaged && form === Form.Line)) pl.formed = -1;
+  if (form === Form.Column) pl.trail.length = 0;
+  pl.form = form;
+  pl.formAt = world.tick;
+  ev.forms.push({ platoon: pl.id, form });
+}
+
+/** Wheels the formation toward (dx, dy) by at most MAX_TURN; easing in over the last step. */
+function turnToward(pl: Platoon, dx: number, dy: number): void {
+  const m = Math.sqrt(dx * dx + dy * dy);
+  if (m < 1e-9) return;
+  dx /= m;
+  dy /= m;
+  let hx: number;
+  let hy: number;
+  if (pl.hx * dx + pl.hy * dy >= COS_TURN) {
+    hx = pl.hx + (dx - pl.hx) * 0.3;
+    hy = pl.hy + (dy - pl.hy) * 0.3;
+  } else {
+    const sn = pl.hx * dy - pl.hy * dx >= 0 ? SIN_TURN : -SIN_TURN;
+    hx = pl.hx * COS_TURN - pl.hy * sn;
+    hy = pl.hx * sn + pl.hy * COS_TURN;
+  }
+  const n = Math.sqrt(hx * hx + hy * hy);
+  if (n > 1e-9) {
+    pl.hx = hx / n;
+    pl.hy = hy / n;
+  }
+}
+
+function fieldedEnemy(o: Platoon, p: number): boolean {
+  return o.p !== p && o.state !== PlatoonState.Queued && o.state !== PlatoonState.Rout;
+}
+
+/** Where the platoon's threat stands, into `point`. False, and the threat forgotten, if it is gone. */
+function threatPoint(world: World, s: Scratch, pl: Platoon): boolean {
+  if (pl.threat > 0) {
+    const j = s.platoonIndex.get(pl.threat);
+    const o = j === undefined ? undefined : world.platoons[j]!;
+    if (!o || !fieldedEnemy(o, pl.p) || s.members[j!] === 0) {
+      pl.threat = 0;
+      return false;
+    }
+    point.x = o.x;
+    point.y = o.y;
+    return true;
+  }
+  if (pl.threat < 0) {
+    const k = -pl.threat - 1;
+    if (k >= world.structures.length || !attackable(world, k, pl.p)) {
+      pl.threat = 0;
+      return false;
+    }
+    const def = world.map.sites[world.structures[k]!.site]!;
+    point.x = def.x;
+    point.y = def.y;
+    return true;
+  }
+  return false;
+}
+
+/**
+ * The nearest enemy banner, or hostile walls in tower range, decides whether to
+ * deploy. Distances are measured from the platoon's centre of mass (x, y), which
+ * does not jump when a column's leading banner falls back to the middle of its line.
+ */
+function scanThreat(world: World, s: Scratch, pl: Platoon, x: number, y: number, ev: TickEvents): void {
+  let bestD2 = Infinity;
+  let who = 0;
+  for (let j = 0; j < world.platoons.length; j++) {
+    const o = world.platoons[j]!;
+    if (!fieldedEnemy(o, pl.p) || s.members[j] === 0) continue;
+    const dx = o.x - x;
+    const dy = o.y - y;
+    const d2 = dx * dx + dy * dy;
+    if (d2 < bestD2) {
+      bestD2 = d2;
+      who = o.id;
+    }
+  }
+  let best = Math.sqrt(bestD2);
+  // An enemy army close by matters more than walls: face it first.
+  for (let k = 0; k < world.structures.length && best > DEPLOY_RADIUS; k++) {
+    if (!attackable(world, k, pl.p)) continue;
+    const def = world.map.sites[world.structures[k]!.site]!;
+    const dx = def.x - x;
+    const dy = def.y - y;
+    const d = ((Math.sqrt(dx * dx + dy * dy) - def.radius) * DEPLOY_RADIUS) / WALL_THREAT;
+    if (d < best) {
+      best = d;
+      who = -(k + 1);
+    }
+  }
+  if (best > STANDDOWN_RADIUS) {
+    pl.threat = 0;
+    return;
+  }
+  pl.threat = who;
+  pl.threatAt = world.tick;
+  if (best <= DEPLOY_RADIUS && pl.form === Form.Column) setForm(world, pl, Form.Deploying, ev);
+}
+
 function updatePlatoons(world: World, s: Scratch, ev: TickEvents): void {
-  const { map } = world;
-  const flow = derived(map).flow;
+  const { map, tick } = world;
   for (let i = 0; i < world.platoons.length; i++) {
     const pl = world.platoons[i]!;
+    s.ox[i] = pl.x;
+    s.oy[i] = pl.y;
+    s.ohx[i] = pl.hx;
+    s.ohy[i] = pl.hy;
     if (pl.state === PlatoonState.Queued) continue;
     const player = world.players[pl.p]!;
     const members = s.members[i]!;
@@ -546,23 +679,31 @@ function updatePlatoons(world: World, s: Scratch, ev: TickEvents): void {
         pl.state = PlatoonState.March;
         pl.morale = MORALE_RALLY;
         pl.site = player.slot;
+        pl.formed = -1;
+        pl.routeSite = -1;
+        pl.trail.length = 0;
         player.feats.returns++;
         s.rallied.push(pl.id);
       }
       continue;
     }
 
+    const wasColumn = pl.form === Form.Column;
+    if ((tick + pl.id) % THREAT_PERIOD === 0) scanThreat(world, s, pl, cx, cy, ev);
     if (pl.calm === 0 && pl.state !== PlatoonState.Engage) pl.state = PlatoonState.Engage;
+    if (pl.state === PlatoonState.Engage) setForm(world, pl, Form.Engaged, ev);
+    if (wasColumn && pl.form !== Form.Column && passableAt(map, cx, cy)) {
+      // A column's banner leads it; the line it deploys into forms on the column's middle.
+      pl.x = s.ox[i] = cx;
+      pl.y = s.oy[i] = cy;
+    }
     if (pl.state === PlatoonState.Engage) {
-      // Follow the melee: the banner drifts toward where its soldiers are fighting,
-      // but never onto rock or water, where it could not march on from.
-      const nx = pl.x + (cx - pl.x) * 0.08;
-      const ny = pl.y + (cy - pl.y) * 0.08;
-      if (passableAt(map, nx, ny)) {
-        pl.x = nx;
-        pl.y = ny;
+      pl.threatAt = tick;
+      engagedMove(world, s, i, pl, player, cx, cy);
+      if (pl.calm >= ENGAGE_CALM_TICKS) {
+        pl.state = PlatoonState.March;
+        setForm(world, pl, Form.Line, ev);
       }
-      if (pl.calm >= ENGAGE_CALM_TICKS) pl.state = PlatoonState.March;
       continue;
     }
     if (pl.site < 0) pl.site = player.slot;
@@ -571,43 +712,443 @@ function updatePlatoons(world: World, s: Scratch, ev: TickEvents): void {
     const dy = def.y - pl.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
     const hold = holdDistance(world, pl);
-    if (dist <= hold) {
-      pl.state = PlatoonState.Hold;
-      continue;
+    pl.state = dist <= hold ? PlatoonState.Hold : PlatoonState.March;
+    if (pl.form === Form.Column) {
+      // A column that reaches its objective draws up in line to hold it.
+      if (pl.state === PlatoonState.Hold) setForm(world, pl, Form.Line, ev);
+      else marchStep(world, s, i, pl, player, dist, hold, 1, true, true);
+    } else if (pl.form === Form.Deploying) {
+      // Halt and wheel to face the threat while the blocks find their places in the line.
+      if (threatPoint(world, s, pl)) turnToward(pl, point.x - pl.x, point.y - pl.y);
+      if ((tick + pl.id) % REFIT_PERIOD === 0) refitLine(world, pl);
+      dressLines(world, s, pl);
+    } else {
+      if ((tick + pl.id) % REFIT_PERIOD === 0) refitLine(world, pl);
+      dressLines(world, s, pl);
+      const facing = threatPoint(world, s, pl);
+      if (facing) turnToward(pl, point.x - pl.x, point.y - pl.y);
+      if (pl.state === PlatoonState.March) {
+        if (tick - pl.threatAt >= STANDDOWN_TICKS) {
+          // Nothing near for a while: back into column to march on.
+          setForm(world, pl, Form.Column, ev);
+        } else if (!(player.doctrine === Doctrine.Hold && tick - pl.formAt < LINE_HOLD)) {
+          if (facing && pl.threat > 0) advanceLine(world, s, i, pl, player, point.x, point.y);
+          // Facing walls rather than an army, the line presses on toward its objective at near a column's pace.
+          else marchStep(world, s, i, pl, player, dist, hold, facing ? WALL_PACE : LINE_PACE, !facing, false);
+        }
+      }
     }
-    pl.state = PlatoonState.March;
-    // Wait for stragglers so the block stays a block.
-    const sx = cx - pl.x;
-    const sy = cy - pl.y;
-    const lag = Math.sqrt(sx * sx + sy * sy);
-    let speed = s.slowest[i]! * 0.9 * doctrineSpeed(player.doctrine);
-    if (player.cryUntil > world.tick) speed *= CRY_SPEED;
-    if (lag > STRAGGLE) speed *= 0.4;
-    advanceAnchor(world, pl, flow[pl.site]!, def.x, def.y, Math.min(speed, dist - hold + 0.5));
     const capital = map.sites[player.slot]!;
     const ox = pl.x - capital.x;
     const oy = pl.y - capital.y;
     const depth = Math.sqrt(ox * ox + oy * oy);
     if (depth > pl.depth) pl.depth = depth;
+    const mx = pl.x - s.ox[i]!;
+    const my = pl.y - s.oy[i]!;
+    s.moved[i] = Math.sqrt(mx * mx + my * my);
   }
-  void ev;
 }
 
-function advanceAnchor(world: World, pl: Platoon, field: ReturnType<typeof derived>['flow'][number], gx: number, gy: number, speed: number): void {
-  flowDirection(dir, world.map, field, pl.x, pl.y, gx, gy);
-  const cell = cellAt(world.map, pl.x, pl.y);
-  const pace = cell >= 0 && world.map.terrain[cell] === Terrain.Forest ? FOREST_SPEED : 1;
+function marchSpeed(world: World, s: Scratch, i: number, pl: Platoon, player: PlayerState): number {
+  let speed = s.slowest[i]! * 0.9 * doctrineSpeed(player.doctrine);
+  if (player.cryUntil > world.tick) speed *= CRY_SPEED;
+  // Wait for stragglers so the block stays a block.
+  if (pl.lag > STRAGGLE) speed *= 0.4;
+  return speed;
+}
+
+function forestPace(map: MapDef, x: number, y: number): number {
+  const cell = cellAt(map, x, y);
+  return cell >= 0 && map.terrain[cell] === Terrain.Forest ? FOREST_SPEED : 1;
+}
+
+function planRoute(world: World, pl: Platoon): void {
+  const def = world.map.sites[pl.site]!;
+  pl.route = hexRoute(world.map, pl.x, pl.y, def.x, def.y);
+  pl.routeSite = pl.site;
+}
+
+/** Marches the banner along its hex route toward its objective, the flow field taking over when stuck. */
+function marchStep(world: World, s: Scratch, i: number, pl: Platoon, player: PlayerState, dist: number, hold: number, pace: number, turn: boolean, column: boolean): void {
+  const { map } = world;
+  if (pl.routeSite !== pl.site) planRoute(world, pl);
+  const route = pl.route;
+  while (route.length > 0) {
+    const wx = hexCenterX(map, route[0]!);
+    const wy = hexCenterY(map, route[0]!);
+    const dx = wx - pl.x;
+    const dy = wy - pl.y;
+    const d2 = dx * dx + dy * dy;
+    if (d2 < WAYPOINT_REACH * WAYPOINT_REACH) {
+      route.shift();
+      continue;
+    }
+    if (route.length > 1) {
+      // Past this waypoint already: nearer the next one than the waypoint itself is.
+      const nx = hexCenterX(map, route[1]!);
+      const ny = hexCenterY(map, route[1]!);
+      const ax = nx - pl.x;
+      const ay = ny - pl.y;
+      const bx = nx - wx;
+      const by = ny - wy;
+      if (ax * ax + ay * ay < bx * bx + by * by) {
+        route.shift();
+        continue;
+      }
+    }
+    break;
+  }
+  const def = map.sites[pl.site]!;
+  if (route.length > 0 && pl.stuck < STUCK_FLOW) towards(dir, pl.x, pl.y, hexCenterX(map, route[0]!), hexCenterY(map, route[0]!));
+  else flowDirection(dir, map, derived(map).flow[pl.site]!, pl.x, pl.y, def.x, def.y);
+  let speed = marchSpeed(world, s, i, pl, player) * pace;
+  // Keep a column's length from the friendly column ahead on the same road.
+  if (column && closeBehindFriend(world, s, pl)) speed *= 0.3;
+  // A column wheeling round a sharp bend slows to let its tail follow.
+  if (turn && pl.hx * dir.x + pl.hy * dir.y < 0.5) speed *= 0.5;
+  speed = Math.min(speed, dist - hold + 0.5);
+  stepBanner(world, pl, dir.x, dir.y, speed);
+  if (turn) turnToward(pl, dir.x, dir.y);
+  if (column) extendTrail(pl, s.ox[i]!, s.oy[i]!);
+}
+
+/** Space kept between the tail of one friendly column and the head of the next. */
+const ROAD_GAP = 24;
+
+/** Friendly lines drawn up on the same ground side-step apart, so an army stands as one long line, not a pile. */
+function dressLines(world: World, s: Scratch, pl: Platoon): void {
+  const px = -pl.hy;
+  const py = pl.hx;
+  let shift = 0;
+  for (let k = s.pstart[pl.p]!; k < s.pstart[pl.p + 1]!; k++) {
+    const o = world.platoons[s.porder[k]!]!;
+    if (o === pl || o.form === Form.Column || o.state === PlatoonState.Queued || o.state === PlatoonState.Rout) continue;
+    const dx = o.x - pl.x;
+    const dy = o.y - pl.y;
+    const along = dx * pl.hx + dy * pl.hy;
+    if (along > 50 || along < -50) continue;
+    const lateral = dx * px + dy * py;
+    const need = (pl.width + o.width) / 2 + BLOCK_SPACE;
+    const gap = lateral < 0 ? -lateral : lateral;
+    if (gap >= need) continue;
+    const away = lateral > 0 || (lateral === 0 && o.id > pl.id) ? -1 : 1;
+    shift += away * Math.min(1, (need - gap) * 0.1);
+  }
+  if (shift === 0) return;
+  const nx = pl.x + px * shift;
+  const ny = pl.y + py * shift;
+  if (passableAt(world.map, nx, ny)) {
+    pl.x = nx;
+    pl.y = ny;
+  }
+}
+
+function closeBehindFriend(world: World, s: Scratch, pl: Platoon): boolean {
+  for (let k = s.pstart[pl.p]!; k < s.pstart[pl.p + 1]!; k++) {
+    const o = world.platoons[s.porder[k]!]!;
+    if (o === pl || o.form !== Form.Column || o.state === PlatoonState.Queued || o.state === PlatoonState.Rout) continue;
+    const dx = o.x - pl.x;
+    const dy = o.y - pl.y;
+    const gap = o.length + ROAD_GAP;
+    if (dx * dx + dy * dy > gap * gap) continue;
+    const ahead = dx * pl.hx + dy * pl.hy;
+    if (ahead > 0 || (ahead > -10 && o.id < pl.id)) return true;
+  }
+  return false;
+}
+
+/** Moves the banner; counts the ticks it makes no headway, replanning and then falling back on the flow field. */
+function stepBanner(world: World, pl: Platoon, dx: number, dy: number, speed: number): void {
+  const pace = forestPace(world.map, pl.x, pl.y);
+  const want = speed * pace;
   // No deadband: a slow block waiting for stragglers in a forest must still creep on.
-  resolveMove(moved, world.map, pl.x, pl.y, dir.x * speed * pace, dir.y * speed * pace, speed, 0);
+  resolveMove(moved, world.map, pl.x, pl.y, dx * want, dy * want, Math.max(0, speed), 0);
+  const mx = moved.x - pl.x;
+  const my = moved.y - pl.y;
   pl.x = moved.x;
   pl.y = moved.y;
-  // Turn the formation gradually toward the direction of travel.
-  const hx = pl.hx * 0.85 + dir.x * 0.15;
-  const hy = pl.hy * 0.85 + dir.y * 0.15;
-  const m = Math.sqrt(hx * hx + hy * hy);
-  if (m > 1e-6) {
-    pl.hx = hx / m;
-    pl.hy = hy / m;
+  if (want > 0.2 && mx * mx + my * my < want * want * 0.09) {
+    pl.stuck++;
+    if (pl.stuck === STUCK_REPLAN) pl.routeSite = -1;
+    if (pl.stuck === STUCK_FLOW) {
+      // Follow the flow field for a while before trying the route again.
+      pl.stuck = STUCK_FLOW + 25;
+      pl.routeSite = -1;
+    }
+  } else if (pl.stuck > 0) pl.stuck--;
+}
+
+/** A deployed line advancing on an enemy banner, until the front ranks meet. */
+function advanceLine(world: World, s: Scratch, i: number, pl: Platoon, player: PlayerState, tx: number, ty: number): void {
+  const d = towards(dir, pl.x, pl.y, tx, ty);
+  if (d <= CLASH) return;
+  const speed = Math.min(marchSpeed(world, s, i, pl, player) * LINE_PACE, d - CLASH);
+  stepBanner(world, pl, dir.x, dir.y, speed);
+}
+
+function engagedMove(world: World, s: Scratch, i: number, pl: Platoon, player: PlayerState, cx: number, cy: number): void {
+  const facing = threatPoint(world, s, pl);
+  if (facing) turnToward(pl, point.x - pl.x, point.y - pl.y);
+  const holding = player.doctrine === Doctrine.Hold && world.tick - pl.formAt < LINE_HOLD;
+  if (facing && pl.threat > 0 && !holding && pl.state !== PlatoonState.Hold) {
+    const dx = point.x - pl.x;
+    const dy = point.y - pl.y;
+    if (dx * dx + dy * dy > CLASH * CLASH) {
+      // Press the line forward until it meets theirs.
+      advanceLine(world, s, i, pl, player, point.x, point.y);
+      return;
+    }
+  }
+  // Follow the melee: the banner drifts toward where its soldiers are fighting,
+  // but never onto rock or water, where it could not march on from.
+  const nx = pl.x + (cx - pl.x) * 0.08;
+  const ny = pl.y + (cy - pl.y) * 0.08;
+  if (passableAt(world.map, nx, ny)) {
+    pl.x = nx;
+    pl.y = ny;
+  }
+}
+
+/** Lays road behind the banner at TRAIL_STEP spacing for the column to follow. */
+function extendTrail(pl: Platoon, ox: number, oy: number): void {
+  const t = pl.trail;
+  if (t.length === 0) {
+    if (pl.x !== ox || pl.y !== oy) t.push(ox, oy);
+    return;
+  }
+  let lx = t[0]!;
+  let ly = t[1]!;
+  let dx = pl.x - lx;
+  let dy = pl.y - ly;
+  let d = Math.sqrt(dx * dx + dy * dy);
+  while (d >= TRAIL_STEP) {
+    lx += (dx * TRAIL_STEP) / d;
+    ly += (dy * TRAIL_STEP) / d;
+    t.unshift(lx, ly);
+    dx = pl.x - lx;
+    dy = pl.y - ly;
+    d = Math.sqrt(dx * dx + dy * dy);
+  }
+  if (t.length > TRAIL_POINTS * 2) t.length = TRAIL_POINTS * 2;
+}
+
+const along = { x: 0, y: 0, dx: 0, dy: 0 };
+
+/** The point `d` behind the banner along the road it marched, and the way the road runs there. */
+function trailAt(pl: Platoon, d: number): void {
+  const t = pl.trail;
+  const n = t.length / 2;
+  let fx = pl.x;
+  let fy = pl.y;
+  let rem = d;
+  // dx, dy: direction of travel along the current segment.
+  let dx = pl.hx;
+  let dy = pl.hy;
+  for (let k = 0; k < n; k++) {
+    const bx = t[2 * k]!;
+    const by = t[2 * k + 1]!;
+    const sx = fx - bx;
+    const sy = fy - by;
+    const len = k === 0 ? Math.sqrt(sx * sx + sy * sy) : TRAIL_STEP;
+    if (len > 1e-9) {
+      dx = sx / len;
+      dy = sy / len;
+    }
+    if (rem <= len) {
+      along.x = fx - dx * rem;
+      along.y = fy - dy * rem;
+      along.dx = dx;
+      along.dy = dy;
+      return;
+    }
+    rem -= len;
+    fx = bx;
+    fy = by;
+    // Past the first segment every step is TRAIL_STEP long: jump straight to the right one.
+    if (k === 0 && n > 1) {
+      const skip = Math.min(n - 2, Math.floor(rem / TRAIL_STEP));
+      if (skip > 0) {
+        fx = t[2 * skip]!;
+        fy = t[2 * skip + 1]!;
+        rem -= skip * TRAIL_STEP;
+        k = skip;
+      }
+    }
+  }
+  // Beyond the road laid so far: straight on behind it.
+  along.x = fx - dx * rem;
+  along.y = fy - dy * rem;
+  along.dx = dx;
+  along.dy = dy;
+}
+
+const slot = { x: 0, y: 0, vx: 0, vy: 0 };
+
+/** A soldier's place this tick, and how fast that place is moving. */
+function slotOf(s: Scratch, pi: number, pl: Platoon, u: Unit): void {
+  const f = u.fx;
+  const l = u.fy;
+  if (pl.form === Form.Column && f < 0) {
+    trailAt(pl, -f);
+    slot.x = along.x - along.dy * l;
+    slot.y = along.y + along.dx * l;
+    const sp = s.moved[pi]!;
+    slot.vx = along.dx * sp;
+    slot.vy = along.dy * sp;
+    return;
+  }
+  slot.x = pl.x + pl.hx * f - pl.hy * l;
+  slot.y = pl.y + pl.hy * f + pl.hx * l;
+  slot.vx = slot.x - (s.ox[pi]! + s.ohx[pi]! * f - s.ohy[pi]! * l);
+  slot.vy = slot.y - (s.oy[pi]! + s.ohy[pi]! * f + s.ohx[pi]! * l);
+}
+
+/** Exported for tests and the renderer: soldier `u`'s place in its platoon's formation now. */
+export function placeOf(world: World, u: Unit): Vec | null {
+  const pl = world.platoons.find((p) => p.id === u.platoon);
+  if (!pl || pl.state === PlatoonState.Queued || pl.state === PlatoonState.Rout) return null;
+  if (pl.form === Form.Column && u.fx < 0) {
+    trailAt(pl, -u.fx);
+    return { x: along.x - along.dy * u.fy, y: along.y + along.dx * u.fy };
+  }
+  return { x: pl.x + pl.hx * u.fx - pl.hy * u.fy, y: pl.y + pl.hy * u.fx + pl.hx * u.fy };
+}
+
+/** The platoon's remaining march route as world points, for drawing its line of march. */
+export function routePoints(world: World, pl: Platoon): Vec[] {
+  return pl.route.map((h) => ({ x: hexCenterX(world.map, h), y: hexCenterY(world.map, h) }));
+}
+
+/**
+ * Draws platoons up afresh: when they change between column and line, take in
+ * a remnant, lose soldiers (closing the gaps every REFORM_PERIOD ticks, not in
+ * the thick of a fight), or rally. Each kind's soldiers keep their order, front
+ * to back and left to right, so survivors step up into the gaps.
+ */
+function reformPlatoons(world: World, s: Scratch): void {
+  const { platoons, units, tick } = world;
+  let lists: Map<number, number[]> | null = null;
+  for (let i = 0; i < platoons.length; i++) {
+    const pl = platoons[i]!;
+    if (pl.state === PlatoonState.Queued || pl.state === PlatoonState.Rout) continue;
+    const n = s.members[i]!;
+    if (n === 0) continue;
+    if (pl.formed >= 0 && (n === pl.formed || (n < pl.formed && (pl.form === Form.Engaged || (tick + pl.id) % REFORM_PERIOD !== 0)))) continue;
+    (lists ??= new Map()).set(i, []);
+  }
+  if (!lists) return;
+  for (let k = 0; k < units.length; k++) lists.get(s.unitPlatoon[k]!)?.push(k);
+  for (let i = 0; i < platoons.length; i++) {
+    const list = lists.get(i);
+    if (list) drawUp(world, platoons[i]!, units, list);
+  }
+}
+
+const side = { left: 0, right: 0 };
+
+/** Open ground to either side of the banner across the facing, sampled over the depth of a line. */
+function probeWidth(map: MapDef, pl: Platoon, reach: number): void {
+  side.left = reach;
+  side.right = reach;
+  const px = -pl.hy;
+  const py = pl.hx;
+  for (let f = 16; f >= -32; f -= 16) {
+    const x0 = pl.x + pl.hx * f;
+    const y0 = pl.y + pl.hy * f;
+    for (let dirn = 1; dirn >= -1; dirn -= 2) {
+      const limit = dirn > 0 ? side.right : side.left;
+      let free = 0;
+      for (let d = PROBE_STEP; d <= limit; d += PROBE_STEP) {
+        if (!passableAt(map, x0 + px * d * dirn, y0 + py * d * dirn)) break;
+        free = d;
+      }
+      if (free < limit) {
+        if (dirn > 0) side.right = free;
+        else side.left = free;
+      }
+    }
+  }
+}
+
+/** Lays out a line as wide as the ground at the banner allows, shifted to sit between the obstacles. */
+function lineFor(world: World, pl: Platoon, counts: readonly number[]): Slot[] {
+  const natural = lineFormation(counts);
+  const width = extent(natural).width;
+  probeWidth(world.map, pl, width + PROBE_STEP);
+  const room = side.left + side.right - LINE_MARGIN;
+  let slots = natural;
+  pl.frontage = 0;
+  if (room < width) {
+    pl.frontage = Math.max(MIN_FRONTAGE, room);
+    slots = lineFormation(counts, pl.frontage);
+  }
+  const size = extent(slots);
+  pl.width = size.width;
+  pl.length = size.depth;
+  const half = pl.width / 2 + LINE_MARGIN / 2;
+  pl.offset = side.left >= half && side.right >= half ? 0 : (side.right - side.left) / 2;
+  for (const p of slots) p.l += pl.offset;
+  return slots;
+}
+
+/** Every so often a deployed line checks the ground: narrower than its line, or room to open out again. */
+function refitLine(world: World, pl: Platoon): void {
+  probeWidth(world.map, pl, Math.max(pl.width, pl.frontage) + PROBE_STEP);
+  const room = side.left + side.right - LINE_MARGIN;
+  const half = pl.width / 2 + LINE_MARGIN / 2;
+  const offset = side.left >= half && side.right >= half ? 0 : (side.right - side.left) / 2;
+  const cramped = room < pl.width - PROBE_STEP;
+  const opens = pl.frontage > 0 && room >= pl.frontage + 4 * PROBE_STEP;
+  if (cramped || opens || Math.abs(offset - pl.offset) > 2 * PROBE_STEP) pl.formed = -1;
+}
+
+function drawUp(world: World, pl: Platoon, units: readonly Unit[], list: number[]): void {
+  const counts = new Array<number>(KIND_COUNT).fill(0);
+  for (const k of list) counts[units[k]!.kind]!++;
+  const places: Slot[][] = Array.from({ length: KIND_COUNT }, () => []);
+  let layout: Slot[];
+  if (pl.form === Form.Column) {
+    layout = columnFormation(counts);
+    pl.frontage = 0;
+    pl.offset = 0;
+    const size = extent(layout);
+    pl.width = size.width;
+    pl.length = size.depth;
+  } else layout = lineFor(world, pl, counts);
+  for (const p of layout) places[p.kind]!.push(p);
+  const soldiers: Unit[][] = Array.from({ length: KIND_COUNT }, () => []);
+  for (const k of list) soldiers[units[k]!.kind]!.push(units[k]!);
+  for (let kind = 0; kind < KIND_COUNT; kind++) {
+    const ps = places[kind]!;
+    if (ps.length === 0) continue;
+    ps.sort((a, b) => b.f - a.f || a.l - b.l);
+    const us = soldiers[kind]!;
+    us.sort((a, b) => b.fx - a.fx || a.fy - b.fy || a.id - b.id);
+    for (let n = 0; n < us.length; n++) {
+      us[n]!.fx = ps[n]!.f;
+      us[n]!.fy = ps[n]!.l;
+    }
+  }
+  pl.formed = list.length;
+}
+
+/** After the soldiers move: how well each platoon holds its ranks, and whether a deploying one is done. */
+function settleForms(world: World, s: Scratch, ev: TickEvents): void {
+  const { platoons, tick } = world;
+  for (let i = 0; i < platoons.length; i++) {
+    const pl = platoons[i]!;
+    if (pl.state === PlatoonState.Queued) continue;
+    pl.lag = s.errN[i]! > 0 ? s.errSum[i]! / s.errN[i]! : 0;
+    if (pl.form !== Form.Deploying || pl.state === PlatoonState.Rout) continue;
+    const since = tick - pl.formAt;
+    let aligned = true;
+    if (threatPoint(world, s, pl)) {
+      const dx = point.x - pl.x;
+      const dy = point.y - pl.y;
+      const d = Math.sqrt(dx * dx + dy * dy);
+      aligned = d < 1e-6 || (pl.hx * dx + pl.hy * dy) / d >= 0.97;
+    }
+    if ((since >= DEPLOY_MIN && aligned && pl.lag < DEPLOY_SETTLED) || since >= DEPLOY_MAX) setForm(world, pl, Form.Line, ev);
   }
 }
 
@@ -632,18 +1173,71 @@ function attackable(world: World, k: number, p: number): boolean {
   return st.p !== p && st.hp > 0 && st.ruinedUntil < 0;
 }
 
+/** A soldier this badly hurt steps back a rank when a fresh one of its kind can take its place. */
+const WOUNDED = 0.2;
+const FRESH = 0.6;
+/** Cavalry facing an enemy line rides this far out to its flank before turning in. */
+const FLANK = 36;
+/** How far toward its place a soldier checks for rock or water in the way. */
+const CUT_LOOK = 40;
+
+const pick: Pick = { radius: 0, ax: 0, ay: 0, leash: 0, sx: 0, sy: 0, reach: Infinity, hx: 0, hy: 0 };
+
+/** A badly wounded soldier trades places with the nearest fresh one of its kind behind it. */
+function fallBack(world: World, s: Scratch, i: number): boolean {
+  const { units } = world;
+  const hash = s.hash;
+  const u = units[i]!;
+  const bx = bucketX(hash, u.x);
+  const by = bucketY(hash, u.y);
+  let best = -1;
+  let bestD = 40 * 40;
+  for (let y = Math.max(0, by - 2); y <= Math.min(hash.rows - 1, by + 2); y++) {
+    for (let x = Math.max(0, bx - 2); x <= Math.min(hash.cols - 1, bx + 2); x++) {
+      for (let j = hash.head[y * hash.cols + x]!; j >= 0; j = hash.next[j]!) {
+        const v = units[j]!;
+        if (j === i || v.platoon !== u.platoon || v.kind !== u.kind || v.hp < v.maxHp * FRESH || v.fx > u.fx - 1) continue;
+        const dx = v.x - u.x;
+        const dy = v.y - u.y;
+        const d2 = dx * dx + dy * dy;
+        if (d2 < bestD || (d2 === bestD && j < best)) {
+          bestD = d2;
+          best = j;
+        }
+      }
+    }
+  }
+  if (best < 0) return false;
+  const v = units[best]!;
+  const fx = u.fx;
+  const fy = u.fy;
+  u.fx = v.fx;
+  u.fy = v.fy;
+  v.fx = fx;
+  v.fy = fy;
+  return true;
+}
+
 function updateUnits(world: World, s: Scratch, ev: TickEvents): void {
   const { units, map, tick } = world;
-  const hash = s.hash;
   s.damage.fill(0, 0, units.length);
   s.heal.fill(0, 0, units.length);
   s.lastHit.fill(-1, 0, units.length);
   s.lastKind.fill(-1, 0, units.length);
   for (let i = 0; i < world.platoons.length; i++) world.platoons[i]!.calm++;
+  // Melee attackers on each soldier, so the next to choose can pick another foe.
+  s.attackers.fill(0, 0, units.length);
+  for (let i = 0; i < units.length; i++) {
+    const u = units[i]!;
+    if (u.target <= 0 || STATS[u.kind]!.ranged) continue;
+    const t = s.unitIndex.get(u.target);
+    if (t !== undefined) s.attackers[t]!++;
+  }
 
   for (let i = 0; i < units.length; i++) {
     const u = units[i]!;
     const stats = STATS[u.kind]!;
+    const role = roleOf(u.kind);
     const pi = s.unitPlatoon[i]!;
     const pl = pi >= 0 ? world.platoons[pi]! : undefined;
     const player = u.p >= 0 ? world.players[u.p] : undefined;
@@ -677,16 +1271,45 @@ function updateUnits(world: World, s: Scratch, ev: TickEvents): void {
 
     if (stats.heal > 0 && !routing && (tick + u.id) % HEAL_PERIOD === 0) castHeal(world, s, i, stats.heal, u.kind === Kind.Cleric ? CLERIC_REACH : PALADIN_REACH, ev);
 
-    // Targeting: soldiers stay leashed to their banner so platoons fight as blocks.
-    let t = u.target > 0 ? (s.unitIndex.get(u.target) ?? -1) : -1;
+    // This soldier's place in the formation, and whether the platoon stands deployed.
+    const placed = pl !== undefined && !routing;
+    if (placed) slotOf(s, pi, pl, u);
+    const deployed = placed && pl.form !== Form.Column;
+    const wounded = deployed && !stats.ranged && role !== Role.Healer && u.hp < u.maxHp * WOUNDED;
+    let fellBack = false;
+    if (wounded && (tick + u.id) % 5 === 0 && fallBack(world, s, i)) {
+      fellBack = true;
+      slotOf(s, pi, pl, u);
+    }
+
+    // Targeting: soldiers stay leashed to their banner so platoons fight as blocks,
+    // and, once deployed, to their place in the line so the line holds its shape.
+    const old = u.target;
+    let t = u.target > 0 && !fellBack ? (s.unitIndex.get(u.target) ?? -1) : -1;
     const ax = pl ? pl.x : u.x;
     const ay = pl ? pl.y : u.y;
     const leash = stats.aggro * LEASH;
+    const reach = deployed ? cohesion(u.kind) : Infinity;
+    // Healers and the badly wounded strike only at what comes to them.
+    const guard = role === Role.Healer || wounded;
+    const radius = guard ? Math.min(stats.aggro, role === Role.Healer ? guardRadius(u.kind) : stats.range * 1.5 + 6) : stats.aggro;
     if (t >= 0) {
       const v = units[t]!;
-      const dx = v.x - ax;
-      const dy = v.y - ay;
+      let dx = v.x - ax;
+      let dy = v.y - ay;
       if (dx * dx + dy * dy > leash * leash || routing) t = -1;
+      // More attackers on it than it has room for: those not at its side find another foe or hold their place.
+      else if (deployed && overCap(s, u, v, t)) t = -1;
+      else if (deployed) {
+        dx = v.x - slot.x;
+        dy = v.y - slot.y;
+        if (dx * dx + dy * dy > reach * reach * 1.5625) t = -1;
+        else if (guard) {
+          dx = v.x - u.x;
+          dy = v.y - u.y;
+          if (dx * dx + dy * dy > radius * radius * 2.25) t = -1;
+        }
+      }
     }
     let structure = -1;
     if (u.kind === Kind.Trebuchet && !routing) {
@@ -694,34 +1317,50 @@ function updateUnits(world: World, s: Scratch, ev: TickEvents): void {
       structure = nearestStructure(world, u.p, u.x, u.y, stats.range);
       if (structure >= 0 && pl && !withinLeash(map, world.structures[structure]!.site, ax, ay, leash)) structure = -1;
       if (structure >= 0) t = -1;
-    }
-    if (structure < 0 && !routing && (tick + u.id) % (t >= 0 ? 8 : 4) === 0) {
-      const found = findTarget(units, hash, i, stats.aggro);
-      if (found >= 0) {
-        const v = units[found]!;
-        const dx = v.x - ax;
-        const dy = v.y - ay;
-        if (dx * dx + dy * dy <= leash * leash) t = found;
+    } else if (u.kind === Kind.Sapper && !routing && pl) {
+      // Sappers go for the walls of their objective once within their leash of the banner.
+      const goal = structureAt(world, pl.site);
+      if (goal >= 0 && attackable(world, goal, u.p) && withinLeash(map, pl.site, ax, ay, leash)) {
+        structure = goal;
+        t = -1;
       }
+    }
+    // Look for a foe only when the coarse presence grid says one may be in reach.
+    if (structure < 0 && !routing && (tick + u.id) % (t >= 0 ? 8 : 4) === 0 && enemyWithin(world, s, u.p, u.x, u.y, radius)) {
+      pick.radius = radius;
+      pick.ax = ax;
+      pick.ay = ay;
+      pick.leash = leash;
+      pick.sx = placed ? slot.x : u.x;
+      pick.sy = placed ? slot.y : u.y;
+      pick.reach = reach;
+      pick.hx = deployed ? pl.hx : 0;
+      pick.hy = deployed ? pl.hy : 0;
+      const found = pickTarget(world, s, i, pick);
+      if (found >= 0) t = found;
     }
     if (structure < 0 && t < 0 && !routing && pl) {
       structure = u.target < 0 ? -u.target - 1 : -1;
       // Keep battering the same walls only while they stay within the leash of the banner.
       if (structure >= 0 && (!attackable(world, structure, u.p) || !withinLeash(map, world.structures[structure]!.site, ax, ay, leash))) structure = -1;
-      if (structure < 0) {
+      if (structure < 0 && pl.state === PlatoonState.Hold) {
         const goal = structureAt(world, pl.site);
-        // Sappers run ahead to the walls, but only from within their leash of the banner.
-        if (goal >= 0 && attackable(world, goal, u.p) && (pl.state === PlatoonState.Hold || (u.kind === Kind.Sapper && withinLeash(map, pl.site, ax, ay, leash)))) structure = goal;
+        if (goal >= 0 && attackable(world, goal, u.p)) structure = goal;
       }
     }
     u.target = t >= 0 ? units[t]!.id : structure >= 0 ? -(structure + 1) : 0;
+    if (u.target !== old && !stats.ranged) {
+      if (old > 0) {
+        const o = s.unitIndex.get(old);
+        if (o !== undefined && s.attackers[o]! > 0) s.attackers[o]!--;
+      }
+      if (t >= 0) s.attackers[t]!++;
+    }
     if (t >= 0 && pl) {
       pl.calm = 0;
       s.engaged[i] = 1;
     } else s.engaged[i] = 0;
 
-    let pace = 1;
-    let moving = true;
     let speed = stats.speed;
     if (player) {
       speed *= doctrineSpeed(player.doctrine);
@@ -730,23 +1369,41 @@ function updateUnits(world: World, s: Scratch, ev: TickEvents): void {
     const cell = cellAt(map, u.x, u.y);
     if (!stats.flying && cell >= 0 && map.terrain[cell] === Terrain.Forest) speed *= FOREST_SPEED;
 
+    // Desired velocity this tick, and the most the soldier may cover.
+    let wx = 0;
+    let wy = 0;
+    let cap = speed;
+    let follow = false;
     if (routing) {
       const home = map.sites[player!.slot]!;
       if (stats.flying) towards(dir, u.x, u.y, home.x, home.y);
       else flowDirection(dir, map, derived(map).flow[player!.slot]!, u.x, u.y, home.x, home.y);
-      speed *= ROUT_SPEED;
+      cap = speed * ROUT_SPEED;
+      wx = dir.x * cap;
+      wy = dir.y * cap;
     } else if (t >= 0) {
       const v = units[t]!;
       const dist = towards(dir, u.x, u.y, v.x, v.y);
-      const reach = stats.range + STATS[v.kind]!.size * 0.5;
-      if (dist <= reach && u.cooldown === 0 && u.swingAt < 0) strike(world, u, v, i, t, dist, s, ev);
+      const strikeReach = stats.range + STATS[v.kind]!.size * 0.5;
+      if (dist <= strikeReach && u.cooldown === 0 && u.swingAt < 0) strike(world, u, v, i, t, dist, s, ev);
       if (stats.ranged) {
         if (dist < stats.range * KITE && !STATS[v.kind]!.ranged) {
-          dir.x = -dir.x;
-          dir.y = -dir.y;
-          pace = 0.7;
-        } else if (dist <= stats.range * 0.95) moving = false;
-      } else if (dist <= reach * 0.8) moving = false;
+          // Back off a step from the melee, but not out of the line.
+          wx = -dir.x * speed * 0.7;
+          wy = -dir.y * speed * 0.7;
+        } else if (dist > stats.range * 0.95) {
+          // Out of range: hold the rank and let the line carry the archers forward.
+          if (deployed) follow = true;
+          else {
+            wx = dir.x * speed;
+            wy = dir.y * speed;
+          }
+        }
+      } else if (dist > strikeReach * 0.8) {
+        if (role === Role.Cavalry && dist > 30) flankRoute(world, s, u, v, t);
+        wx = dir.x * speed;
+        wy = dir.y * speed;
+      }
     } else if (structure >= 0) {
       const site = world.structures[structure]!.site;
       const def = map.sites[site]!;
@@ -762,41 +1419,60 @@ function updateUnits(world: World, s: Scratch, ev: TickEvents): void {
           ev.swings.push({ from: u.id, to: -(structure + 1) });
         }
       }
-      if (dist <= stats.range * 0.8) moving = false;
-    } else if (pl) {
-      // Return to this soldier's place in the formation.
-      const sx = pl.x + pl.hx * u.fx - pl.hy * u.fy;
-      const sy = pl.y + pl.hy * u.fx + pl.hx * u.fy;
-      const remaining = towards(dir, u.x, u.y, sx, sy);
+      if (dist > stats.range * 0.8) {
+        wx = dir.x * speed;
+        wy = dir.y * speed;
+      }
+    } else if (placed) follow = true;
+
+    if (follow) {
+      // March in step: move with the place, closing on it.
+      const ex = slot.x - u.x;
+      const ey = slot.y - u.y;
+      const remaining = Math.sqrt(ex * ex + ey * ey);
       // A straggler cut off from its place by rock or water follows the banner's road
       // instead of pressing against the far bank forever. One already further along
       // that road than its marching banner waits for it to come by.
-      let cutOff = false;
-      if (remaining > SPACING * 2 && !stats.flying && !clearPath(map, u.x, u.y, sx, sy)) {
-        const site = pl.site >= 0 ? pl.site : player!.slot;
+      // Only the next few strides are looked at: an obstacle further on is met when the soldier gets there.
+      const look = remaining > CUT_LOOK ? CUT_LOOK / remaining : 1;
+      if (remaining > SPACING * 2 && !stats.flying && !clearPath(map, u.x, u.y, u.x + ex * look, u.y + ey * look)) {
+        const site = pl!.site >= 0 ? pl!.site : player!.slot;
         const field = derived(map).flow[site]!;
         const here = cell >= 0 ? field.cost[cell]! : -1;
-        const banner = cellAt(map, pl.x, pl.y);
+        const banner = cellAt(map, pl!.x, pl!.y);
         const there = banner >= 0 ? field.cost[banner]! : -1;
-        cutOff = true;
-        if (pl.state === PlatoonState.March && here >= 0 && there >= 0 && here <= there) moving = false;
-        else flowDirection(dir, map, field, u.x, u.y, map.sites[site]!.x, map.sites[site]!.y);
+        cap = speed * CATCH_UP;
+        if (!(pl!.state === PlatoonState.March && here >= 0 && there >= 0 && here <= there)) {
+          flowDirection(dir, map, field, u.x, u.y, map.sites[site]!.x, map.sites[site]!.y);
+          wx = dir.x * cap;
+          wy = dir.y * cap;
+        }
+      } else if (remaining > SLOT_TOLERANCE || slot.vx * slot.vx + slot.vy * slot.vy > 0.01) {
+        cap = remaining > SPACING * 2 ? speed * CATCH_UP : speed;
+        wx = slot.vx + ex * SLOT_GAIN;
+        wy = slot.vy + ey * SLOT_GAIN;
+        const m2 = wx * wx + wy * wy;
+        if (m2 > cap * cap) {
+          const k = cap / Math.sqrt(m2);
+          wx *= k;
+          wy *= k;
+        }
       }
-      if (cutOff) pace = CATCH_UP;
-      else if (remaining <= SLOT_TOLERANCE) moving = false;
-      else if (remaining > SPACING * 2) pace = CATCH_UP;
-      else pace = Math.min(1, remaining / (SPACING * 1.5) + 0.25);
-    } else moving = false;
-
-    separation(push, units, hash, i);
-    let vx = push.x;
-    let vy = push.y;
-    if (moving) {
-      vx += dir.x * speed * pace;
-      vy += dir.y * speed * pace;
     }
-    if (stats.flying) flyMove(moved, map, u.x, u.y, vx, vy, speed * Math.max(1, pace));
-    else resolveMove(moved, map, u.x, u.y, vx, vy, speed * Math.max(1, pace));
+    // Ranks are judged on the soldiers keeping them, not on those off fighting.
+    if (placed && !stats.flying && t < 0 && structure < 0) {
+      const ex = slot.x - u.x;
+      const ey = slot.y - u.y;
+      const e = Math.sqrt(ex * ex + ey * ey);
+      s.errSum[pi]! += u.kind === Kind.Trebuchet ? e * SIEGE_TRAIL : e;
+      s.errN[pi]!++;
+    }
+
+    separation(push, units, s.hash, i);
+    const vx = push.x + wx;
+    const vy = push.y + wy;
+    if (stats.flying) flyMove(moved, map, u.x, u.y, vx, vy, Math.max(speed, cap));
+    else resolveMove(moved, map, u.x, u.y, vx, vy, Math.max(speed, cap));
     if (u.kind === Kind.Knight && u.run >= 0) {
       const mx = moved.x - u.x;
       const my = moved.y - u.y;
@@ -805,6 +1481,21 @@ function updateUnits(world: World, s: Scratch, ev: TickEvents): void {
     s.nx[i] = moved.x;
     s.ny[i] = moved.y;
   }
+}
+
+/** Cavalry in front of an enemy line rides wide round its flank instead of into its spears. Sets `dir`. */
+function flankRoute(world: World, s: Scratch, u: Unit, v: Unit, t: number): void {
+  const pj = s.unitPlatoon[t]!;
+  if (pj < 0) return;
+  const ep = world.platoons[pj]!;
+  if (ep.form === Form.Column || ep.state === PlatoonState.Rout) return;
+  const rx = u.x - v.x;
+  const ry = u.y - v.y;
+  if (rx * ep.hx + ry * ep.hy <= 8) return;
+  const side = rx * -ep.hy + ry * ep.hx >= 0 ? 1 : -1;
+  const px = v.x - ep.hy * side * FLANK - ep.hx * FLANK * 0.5;
+  const py = v.y + ep.hx * side * FLANK - ep.hy * FLANK * 0.5;
+  towards(dir, u.x, u.y, px, py);
 }
 
 function strike(world: World, u: Unit, v: Unit, i: number, t: number, dist: number, s: Scratch, ev: TickEvents): void {
@@ -1207,6 +1898,13 @@ function updateMorale(world: World, s: Scratch, ev: TickEvents): void {
     if (pl.morale <= 0) {
       pl.morale = 0;
       pl.state = PlatoonState.Rout;
+      // Routed soldiers flee as a rabble; they march off in column again once rallied.
+      pl.form = Form.Column;
+      pl.formAt = world.tick;
+      pl.threat = 0;
+      pl.formed = -1;
+      pl.routeSite = -1;
+      pl.trail.length = 0;
       world.players[pl.p]!.routs++;
       creditRout(world, pl.p, pl.x, pl.y);
       ev.routs.push({ platoon: pl.id });
@@ -1221,24 +1919,6 @@ const REGROUP_PERIOD = 5;
 const REGROUP_REACH = 140;
 const REGROUP_SMALL = 4;
 const REGROUP_STRENGTH = 0.3;
-
-/**
- * Draws a platoon up afresh around its banner, as at muster, so that remnants
- * folded in take their places in the ranks instead of trailing in a column behind.
- */
-function reform(units: readonly Unit[], platoon: number): void {
-  const counts = new Array<number>(KIND_COUNT).fill(0);
-  for (const u of units) if (u.platoon === platoon) counts[u.kind]!++;
-  const places: { f: number; l: number }[][] = Array.from({ length: KIND_COUNT }, () => []);
-  for (const slot of formation(counts)) places[slot.kind]!.push(slot);
-  const taken = new Array<number>(KIND_COUNT).fill(0);
-  for (const u of units) {
-    if (u.platoon !== platoon) continue;
-    const place = places[u.kind]![taken[u.kind]!++]!;
-    u.fx = place.f;
-    u.fy = place.l;
-  }
-}
 
 function fielded(pl: Platoon): boolean {
   return pl.state !== PlatoonState.Queued && pl.state !== PlatoonState.Rout && pl.alive > 0;
@@ -1280,7 +1960,8 @@ function regroup(world: World, s: Scratch, ev: TickEvents): void {
       u.platoon = to.id;
       moved++;
     }
-    reform(units, to.id);
+    // Draw the merged platoon up afresh next tick, the remnant taking its places in the ranks.
+    to.formed = -1;
     to.alive += moved;
     to.size += moved;
     from.alive = 0;

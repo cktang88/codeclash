@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { Kind, PlatoonState, TICKS_PER_MINUTE, type Purpose, type SimInput, type World } from './api.ts';
+import { KIND_COUNT, Kind, PlatoonState, TICKS_PER_MINUTE, type Purpose, type SimInput, type World } from './api.ts';
+import { Form, columnFormation, lineFormation } from './formation.ts';
 import { applyDelta, armyFor, emptyLedger } from './muster.ts';
 import { generateMap, slotsFor } from './mapgen.ts';
 import { SPACING, STATS } from './stats.ts';
@@ -219,7 +220,7 @@ describe('checksum', () => {
 });
 
 describe('regroup formation', () => {
-  it('keeps a platoon that absorbs many remnants centered on its banner', () => {
+  it('draws a platoon that absorbs many remnants up afresh, every remnant in a place of the formation', () => {
     const w = newWorld(1, 2);
     step(w, joins(1));
     // One solid platoon, then a dozen small pushes that each raise a remnant-sized platoon.
@@ -234,10 +235,23 @@ describe('regroup formation', () => {
     let regroups = 0;
     for (let t = 0; t < 40; t++) regroups += step(w, []).regroups.length;
     expect(regroups).toBeGreaterThanOrEqual(8);
+    // One more tick draws the merged platoon up afresh.
+    step(w, []);
     const pl = w.platoons.reduce((a, b) => (b.alive > a.alive ? b : a));
     const mine = w.units.filter((u) => u.platoon === pl.id);
+    // A line is drawn up around its banner; a column files along behind the banner at its head.
     const meanFx = mine.reduce((a, u) => a + u.fx, 0) / mine.length;
-    expect(Math.abs(meanFx)).toBeLessThan(SPACING);
-    expect(Math.min(...mine.map((u) => u.fx))).toBeGreaterThan(-6 * SPACING);
+    const meanFy = mine.reduce((a, u) => a + u.fy, 0) / mine.length;
+    if (pl.form === Form.Column) expect(Math.max(...mine.map((u) => u.fx))).toBeLessThanOrEqual(0);
+    else expect(Math.abs(meanFx)).toBeLessThan(SPACING);
+    expect(Math.abs(meanFy)).toBeLessThan(SPACING);
+    // Every soldier, remnants included, holds a place of its own in the platoon's
+    // formation for its make-up, rather than trailing behind it.
+    const counts = new Array<number>(KIND_COUNT).fill(0);
+    for (const u of mine) counts[u.kind]!++;
+    const layout = pl.form === Form.Column ? columnFormation(counts) : lineFormation(counts, pl.frontage > 0 ? pl.frontage : Infinity);
+    const key = (k: number, f: number, l: number) => `${k}:${f.toFixed(3)}:${l.toFixed(3)}`;
+    const places = layout.map((p) => key(p.kind, p.f, p.l + (pl.form === Form.Column ? 0 : pl.offset))).sort();
+    expect(mine.map((u) => key(u.kind, u.fx, u.fy)).sort()).toEqual(places);
   });
 });

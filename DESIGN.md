@@ -95,7 +95,7 @@ Each unit takes one or more **slots** in its platoon. Speed is in world units pe
 
 Fliers ignore terrain and the press of ground soldiers. Melee soldiers can still strike them once the flier comes within reach.
 
-Soldiers stay leashed to their banner (1.7 × their aggro range), for enemies and walls alike, so platoons fight as blocks. A burst (fireball or stone) is weighed against each soldier it lands on, when it lands: the shooter's bonus against that soldier, then that soldier's own shields, forest cover and home turf. Missiles (arrows, fireballs, stones, tower bolts) do half damage to soldiers in forest.
+Soldiers stay leashed to their banner (1.7 × their aggro range), for enemies and walls alike, and once deployed to their own place in the line, so platoons fight as blocks (see *Formations*). A burst (fireball or stone) is weighed against each soldier it lands on, when it lands: the shooter's bonus against that soldier, then that soldier's own shields, forest cover and home turf. Missiles (arrows, fireballs, stones, tower bolts) do half damage to soldiers in forest.
 
 ### How many soldiers: the day's ledger
 
@@ -167,20 +167,48 @@ An army that would otherwise be empty gets one Footman, so the first push of the
 - A player fields at most 160 slots, and a room at most 2000 soldiers. A platoon that would break either cap waits in its capital's **muster queue** and marches when there is room. The queue holds up to 24 platoons. When it is full, a new push's soldiers fold into the waiting platoons, newest first, up to 32 slots each; any left over are not raised yet, and a later push musters them.
 - An army has at most one Dragon alive. When a platoon marches out with a Dragon while one is already alive (or with two, from one squashed legendary push), each extra Dragon becomes a Champion.
 
-**Regrouping.** Remnants fold into stronger formations of the same army. A platoon qualifies when it has 4 or fewer soldiers left, or less than 30% of its full size. It merges into the nearest platoon of its army in the field, at least as large, within 140 units, and the merged platoon re-forms its ranks. A routed remnant of 4 or fewer that rallies at its capital joins its army's nearest such platoon at any distance.
+**Regrouping.** Remnants fold into stronger formations of the same army. A platoon qualifies when it has 4 or fewer soldiers left, or less than 30% of its full size. It merges into the nearest platoon of its army in the field, at least as large, within 140 units, and the merged platoon is drawn up afresh, the remnant taking places in its ranks. A routed remnant of 4 or fewer that rallies at its capital joins its army's nearest such platoon at any distance.
 
 ## 2. Hierarchy and heraldry
 
 - **Army.** One per player per war. It has one **hue**, assigned from a colorblind-aware wheel so that players in a room are far apart.
 - **Battalion.** One per repository the player pushed to today. Its flag is the army hue in a lightness and saturation step unique to the battalion, plus a **pattern** (plain, chevron, saltire, pale, fess, quarterly, bend, chief), an **emblem** (one of 12), and an accent stripe in the repository's language color. All of these are chosen from a hash of the repo name. The flag shows the repo's initials.
-- **Platoon.** One per push that raises soldiers (a big push raises several). It carries its battalion's flag plus its ordinal number within the battalion (I, II, III …). It marches and fights as a formation, from front to back:
-  - Trolls, Golems, Paladins, Wardens and Skeletons in front
-  - Champions, Knights, Footmen, Mercenaries and Berserkers in the line
-  - Sappers in the middle
-  - Wizards, Rangers, Archers, Heralds and Clerics behind
-  - Trebuchets at the rear
+- **Platoon.** One per push that raises soldiers (a big push raises several). It carries its battalion's flag plus its ordinal number within the battalion (I, II, III …). It marches in column and fights in line (see *Formations* below).
 
-  Outriders and Griffin Riders ride the flanks. A Dragon hovers behind the center.
+### Formations
+
+Every platoon is drawn up as one block per kind of soldier: a rectangle in ranks and files, spaced by the soldiers' size (1.9 × size + 2.5, at least 12 units). Its banner has a **form**, which the client shows:
+
+| Form | Shape | When |
+| --- | --- | --- |
+| **Column** | Narrow and deep: each block at most three files and 48 units wide, the blocks one behind another down the road. Head to tail: the cavalry scouts (Outriders, Knights); the heavy foot (Berserkers, Trolls, Bone Golems, Paladins, Wardens, Footmen, Mercenaries, Skeletons); the Champion with the Heralds, Clerics and Sappers; the missile troops (Archers, Rangers, Wizards); Trebuchets at the tail. Griffin Riders fly in single file over the middle of the column, a Dragon over it too. | Marching |
+| **Deploying** | The column halts and wheels to face the threat while each block walks to its place in the line. | An enemy banner comes within **220** of the platoon's centre (about 1.3 × a Trebuchet's 170 aggro), or hostile walls (an enemy capital, the Monolith) within 200 of their edge |
+| **Line** | Wide and shallow, facing the threat: Trolls, Bone Golems and Berserkers ahead; the heavy foot in the front ranks with the Champion at the centre; Paladins, Heralds, Clerics and Sappers behind the centre; the missile troops two to three ranks back; Trebuchets behind them. Knights ride the inner wings and Outriders the outer ones. Griffin Riders hover over the middle, a Dragon behind the centre. | Deployed: after 2 seconds once the ranks are dressed and the line faces the threat, after 8 seconds at most |
+| **Engaged** | The line, fighting. | Any soldier has an enemy soldier in reach |
+
+- **The column follows its road.** The banner marches at the head and lays a trail behind it; every soldier's place is on that trail, so a column winds through gaps and around bends without anyone cutting a corner. It moves at 90% of its slowest kind's speed, siege engines and fliers aside: Trebuchets may trail, though a column waits for them (and for any stragglers) once its ranks fall more than 16 units behind on average. A column keeps a column's length behind the friendly column ahead on the same road.
+- **Deploying.** The line forms on the column's centre of mass, so no one walks more than half the column. The formation wheels at most 0.1 radians a tick. A line is as wide as the ground allows: it is checked across the facing, and where rock or water is closer, blocks grow deeper, rows that do not fit fall in behind, the cavalry rides behind the foot, and the line shifts sideways to sit between the obstacles. It re-checks the ground every 2 seconds. Friendly lines on the same ground side-step until they stand side by side.
+- **The line advances or holds.** A line facing an enemy army advances on its banner at 60% of the column's pace until the two banners are 45 apart and the front ranks meet; under the **Hold** doctrine it first stands for 15 seconds. A line facing walls presses on toward its objective at 85% pace. A platoon that reaches its objective draws up in line to hold it.
+- **Back to column.** A deployed platoon re-forms in column only when no threat has been within **275** (1.25 × the deploy radius) for 5 seconds, so it never flip-flops at the edge.
+- **Re-forming.** A platoon is drawn up afresh when it changes between column and line, comes out of a fight, takes in a regrouped remnant, rallies, or (every 2 seconds, never mid-fight) loses soldiers. Each kind's soldiers keep their order front to back and left to right, so survivors step up into the gaps and the ranks close.
+
+### Two layers of command
+
+**The platoon** (strategic) gets its objective from the war council (section 4) and plans its road to it over a **hex map** of the battlefield: hexes 52 units apart; a hex is passable if its centre is open ground, and a step between neighbours only if the straight line between their centres stays on open ground; a step into forest costs 17, into the open 10. The route is an A* search with a fixed tie-break (lowest f, then h, then hex id), cached per start and goal hex, and replanned only when the objective changes or the banner is stuck for 8 ticks. A banner stuck for 20 ticks follows the map's flow field for a while instead. The route still to march is part of the platoon's state, so a client can draw it.
+
+**The soldier** (tactical) fights for itself once its platoon has deployed, within the platoon's engagement zone: within its banner's leash (1.7 × its aggro range) and within reach of its own place in the line (52 units for line infantry, 64 for brutes, 84 for a Champion, 160 for cavalry, range + 16 for missile troops). It drops a foe that strays further, and with no foe it returns to its place.
+
+| Role | Kinds | Picks |
+| --- | --- | --- |
+| Line infantry | Footmen, Wardens, Mercenaries, Skeletons, Berserkers, Sappers | The nearest foe in front of it, the ones it beats preferred. A foe already beset by 2 + size ÷ 4 attackers is left alone unless it is at arm's reach, so attackers spread along the enemy line. |
+| Brutes | Trolls, Bone Golems | Foes near the enemy's banner: they push the centre. |
+| Champion | Champion | The enemy's best: a foe's renown value weighs heavily. |
+| Missile troops | Archers, Rangers, Wizards, Trebuchets, Dragon | Foes in range, the wounded and the valuable first. They hold their rank, step back from melee, and do not advance beyond their place. |
+| Cavalry | Knights, Outriders, Griffin Riders | Missile troops, casters, Clerics, Heralds and Sappers first. A rider in front of a deployed enemy line swings wide round its flank before turning in. |
+| Healers | Clerics, Heralds, Paladins | They stay behind the front tending the wounded and strike only at foes that come within 24 (44 for a Paladin). |
+
+Sappers still run for the walls of their objective once within their leash, and Trebuchets prefer walls. A soldier below 20% of its HP steps back a rank, trading places with a fresh soldier (above 60%) of its kind behind it, and then fights only what reaches it.
+
 
 ## 3. The battlefield
 
@@ -280,7 +308,7 @@ Members may switch on **Rest** for a UTC day, which keeps their streak without g
 
 ## 9. Determinism and replay
 
-The simulation is pure. It uses only `+ - * / Math.sqrt Math.floor Math.abs Math.min Math.max`, a seeded PRNG stored in the world, and iteration over arrays in index order. It runs at 5 ticks per second.
+The simulation is pure. It uses only `+ - * / Math.sqrt Math.floor Math.abs Math.min Math.max` (its few sines and cosines come from a series of those, `dmath.ts`), a seeded PRNG stored in the world, and iteration over arrays in index order. Derived data (flow fields, the hex map and its cached routes) is rebuilt identically from the map. It runs at 5 ticks per second.
 
 A war's **replay** is everything needed to rebuild it, and nothing more:
 
@@ -309,7 +337,7 @@ GitHub events/compare ─▶ ingest ─▶ SQLite (users, pushes, seen commits)
 ```
 
 - **One authoritative Node process.** It runs every room's war, the poller, HTTP and WebSockets.
-- **Lockstep spectators.** A client receives one snapshot (the *hello*), then only inputs stamped one second ahead, and simulates locally with interpolation. A checksum every 10 seconds catches divergence. It covers the units, platoons, structures, shots and sites, and each player's renown, commands, ledger, raised army and feats, so a divergence in the books shows before the next push would reveal it.
+- **Lockstep spectators.** A client receives one snapshot (the *hello*), then only inputs stamped one second ahead, and simulates locally with interpolation. A checksum every 10 seconds catches divergence. It covers the units, platoons (their formations, routes and trails included), structures, shots and sites, and each player's renown, commands, ledger, raised army and feats, so a divergence in the books shows before the next push would reveal it.
 - **Hello limits.** A hello carries a full snapshot, so the hub rations them per viewer (the user, or the address for anonymous viewers) across all their sockets: a burst of 8, then one per second. A socket asks to resync at most every 2 seconds; extra asks are folded into one deferred hello rather than dropped. When 4 of a viewer's sockets are already waiting, a new one is turned away with close code `1013` (try again later), and the client backs off and retries, and a socket more than 4 MB behind is dropped. A new war's hello goes to everyone at once.
 - **Client connection.** Reconnects back off from 1 s, doubling to 30 s, with up to 50% jitter so a server restart is not met by every viewer at once; only a session that went live resets the backoff. A watchdog reconnects after 45 seconds without any message, or when a resync is not answered within 10 seconds.
 - **Client presentation.** The sun follows the war's simulated tick, not the wall clock, so a replay, a catch-up or a waking tab shows the hour being watched. Sound is off on every visit until the viewer opts in; sampled cues ship as Ogg Vorbis and AAC, and audio fades and suspends while the tab is hidden.
