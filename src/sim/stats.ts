@@ -81,12 +81,14 @@ export function doctrineStructure(d: Doctrine): number {
 export const HOLD_REDUCTION = 0.2;
 export const HOLD_RADIUS = 200;
 
-export const CAPITAL_HP = 5000;
-export const CAPITAL_TOWER = { damage: 14, range: 150, cooldown: 5 };
+export const CAPITAL_HP = 8000;
+export const CAPITAL_TOWER = { damage: 20, range: 160, cooldown: 4 };
 export const MONOLITH_TOWER = { damage: 30, range: 140, cooldown: 3 };
 export const SACK_RUIN_TICKS = 10 * TICKS_PER_MINUTE;
-export const SACK_REBUILD = 0.6;
-export const SACK_RENOWN = 200;
+export const SACK_REBUILD = 1;
+export const SACK_RENOWN = 120;
+/** Share of a holding's renown paid while its owner has no soldiers near it. */
+export const UNGARRISONED_SHARE = 0.25;
 
 export function monolithHp(members: number): number {
   return 30000 + 10000 * Math.max(1, members);

@@ -87,8 +87,8 @@ A player has at most 160 soldiers alive and a room at most 2000. A platoon that 
 
 The map is a disc with one **capital** per slot, on a ring at 84% of the radius. A war's map is generated at the start of the day with `slots = clamp(members + 2, 4, 16)`, so players who join during the day take a spare slot. Once all slots are taken, a new member starts with tomorrow's war.
 
-- **Capital.** One per player. It has 5000 HP and a tower (14 damage, range 150). Platoons spawn at its gate. Within 220 units of their own capital, a player's units take 20% less damage (home turf).
-- **Sacking.** A capital at 0 HP is **sacked**. The player who dealt the final blow gains 200 renown. The capital lies in ruins for 10 minutes, invulnerable and silent, and then rebuilds at 60% HP.
+- **Capital.** One per player. It has 8000 HP and a tower (20 damage, range 160). Platoons spawn at its gate. Within 220 units of their own capital, a player's units take 20% less damage (home turf).
+- **Sacking.** A capital at 0 HP is **sacked**. The player who dealt the final blow gains 120 renown. The capital lies in ruins for 10 minutes, invulnerable and silent, and then rebuilds at full HP.
 - **Shrines.** One per slot, at 46% of the radius between neighboring capitals. Each is capturable.
 - **The Heart.** It sits at the center and is guarded at dawn by the **Legacy Monolith**, a neutral structure with `30000 + 10000 * members` HP that fires on anyone near it. Everyone attacks it together. The player who dealt the most damage to it gets the Monolith award. The Heart can be captured only after the Monolith falls.
 - **Terrain.** Forest slows movement by 40% and halves arrow damage. Water and rock are impassable. The terrain is generated from seeded noise in one sector and rotated into the others, so every slot sees the same map.
@@ -129,10 +129,13 @@ Renown is the score:
 | --- | --- |
 | Shrine held | 2 per minute |
 | The Heart held | 8 per minute |
+
 | Kill | the victim's value (1 for most units, 2 for Wardens, Heralds, Outriders and Mercenaries, 10 for a Champion) |
 | Kill of a soldier of the renown leader (bounty) | double the victim's value |
 | Monolith damage | 1 per 100 damage |
-| Sacking a capital | 200 |
+| Sacking a capital | 120 |
+
+A holding pays in full only while its owner has soldiers near it. An ungarrisoned holding pays a quarter of its renown, rounded down. A leader therefore has to spread thin to keep everything.
 
 At the reset hour, the player with the most renown wins the day.
 

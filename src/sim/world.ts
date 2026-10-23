@@ -55,6 +55,7 @@ import {
   SACK_RUIN_TICKS,
   SPACING,
   STATS,
+  UNGARRISONED_SHARE,
   doctrineSpeed,
   monolithHp,
 } from './stats.ts';
@@ -827,10 +828,15 @@ function updateCaptures(world: World, ev: TickEvents): void {
   }
 }
 
+// Holdings pay in full only while garrisoned, so a leader must spread thin to keep them.
 function awardHoldings(world: World): void {
+  const presence = sitePresence(world);
+  const n = world.players.length;
   for (let k = 0; k < world.sites.length; k++) {
     const owner = world.sites[k]!.owner;
-    if (owner >= 0) world.players[owner]!.renown += world.map.sites[k]!.renown;
+    if (owner < 0) continue;
+    const full = world.map.sites[k]!.renown;
+    world.players[owner]!.renown += presence[k * n + owner]! > 0 ? full : Math.floor(full * UNGARRISONED_SHARE);
   }
 }
 
