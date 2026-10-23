@@ -54,7 +54,7 @@ function placeSites(slots: number, radius: number): SiteDef[] {
     const a = slotAngle(s + 0.5, slots);
     sites.push({ id: sites.length, kind: 'shrine', x: dcos(a) * radius * SHRINE_RING, y: dsin(a) * radius * SHRINE_RING, radius: 55, slot: -1, renown: 2 });
   }
-  sites.push({ id: sites.length, kind: 'heart', x: 0, y: 0, radius: 85, slot: -1, renown: 8 });
+  sites.push({ id: sites.length, kind: 'heart', x: 0, y: 0, radius: 85, slot: -1, renown: 5 });
   return sites;
 }
 

@@ -109,7 +109,7 @@ export function Inspector({ hud }: { hud: HudSnapshot }) {
           <div className="inspector-title">
             <strong>{siteLabel(world, sel.id, store.names)}</strong>
             <span className="muted">
-              {def.kind === 'capital' ? 'Capital' : def.kind === 'heart' ? 'The Heart · 8 renown a minute' : 'Shrine · 2 renown a minute'}
+              {def.kind === 'capital' ? 'Capital' : `${def.kind === 'heart' ? 'The Heart' : 'Shrine'} · ${def.renown} renown a minute`}
             </span>
           </div>
           {close}

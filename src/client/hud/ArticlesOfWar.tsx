@@ -40,7 +40,7 @@ export function raisedByText(k: number): string {
 
 const RENOWN = [
   ['Shrine held', '2 per minute'],
-  ['The Heart held', '8 per minute'],
+  ['The Heart held', '5 per minute'],
   ['Kill', 'the victim’s worth: 1 for line soldiers, up to 30 for a Dragon'],
   ['Kill a soldier of the leader', 'double: a bounty'],
   ['Monolith damage', '1 per 100 damage'],

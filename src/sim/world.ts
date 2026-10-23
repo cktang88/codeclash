@@ -54,6 +54,7 @@ import {
   QUEUE_LIMIT,
   RALLY_COOLDOWN,
   RALLY_DURATION,
+  SACK_FORTIFY,
   SACK_REBUILD,
   SACK_RENOWN,
   SACK_RUIN_TICKS,
@@ -853,6 +854,8 @@ function updateStructures(world: World, s: Scratch, ev: TickEvents): void {
     if (st.ruinedUntil >= 0) {
       if (tick >= st.ruinedUntil) {
         st.ruinedUntil = -1;
+        // Each sack today rebuilds the walls stronger, so no capital is farmed all day.
+        st.maxHp = CAPITAL_HP * (1 + SACK_FORTIFY * st.sacked);
         st.hp = st.maxHp * SACK_REBUILD;
         ev.rebuilt.push({ site: st.site });
       }
