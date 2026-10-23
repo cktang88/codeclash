@@ -1,104 +1,85 @@
-import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { createGithubClient, fetchViewer, parseContributionsResponse } from './github.ts';
+import { createGithubClient, fetchViewer } from './github.ts';
 
-const fixture = JSON.parse(readFileSync(new URL('./testing/github-fixture.json', import.meta.url), 'utf8'));
+type Route = (url: string, init: RequestInit) => Response;
 
-function parseFixture() {
-  const result = parseContributionsResponse(fixture);
-  if ('notFound' in result) throw new Error('fixture should parse to a user');
-  return result;
+function fakeFetch(route: Route): { fetch: typeof fetch; calls: { url: string; headers: Record<string, string> }[] } {
+  const calls: { url: string; headers: Record<string, string> }[] = [];
+  const impl = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    calls.push({ url, headers: (init?.headers ?? {}) as Record<string, string> });
+    return route(url, init ?? {});
+  }) as typeof fetch;
+  return { fetch: impl, calls };
 }
 
-describe('parseContributionsResponse', () => {
-  it('reads identity and rate limit', () => {
-    const { account, rateLimit } = parseFixture();
-    expect(account).toEqual({
-      databaseId: 1001, nodeId: 'U_alice', login: 'alice', avatarUrl: 'https://avatars.example/1001',
-      createdAtMs: Date.parse('2015-03-01T00:00:00Z'), type: 'User',
+const json = (body: unknown, status = 200, headers: Record<string, string> = {}) =>
+  new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', ...headers } });
+
+describe('createGithubClient', () => {
+  it('maps public push events and skips other event types', async () => {
+    const { fetch, calls } = fakeFetch(() =>
+      json(
+        [
+          { id: '3', type: 'PushEvent', public: true, created_at: '2026-10-23T10:00:00Z', repo: { name: 'ana/parser' }, payload: { push_id: 99, ref: 'refs/heads/main', before: 'a', head: 'b' } },
+          { id: '2', type: 'WatchEvent', public: true, created_at: '2026-10-23T09:00:00Z', repo: { name: 'x/y' }, payload: {} },
+          { id: '1', type: 'PushEvent', public: true, created_at: '2026-10-23T08:00:00Z', repo: { name: 'ana/parser' }, payload: { ref: 'refs/heads/main' } },
+        ],
+        200,
+        { etag: 'W/"abc"', 'x-poll-interval': '90', 'x-ratelimit-remaining': '4321', 'x-ratelimit-reset': '1800000000' },
+      ),
+    );
+    const gh = createGithubClient('tok', fetch);
+    const res = await gh.userEvents('ana', null);
+    expect(res).toEqual({
+      status: 200,
+      etag: 'W/"abc"',
+      pollInterval: 90,
+      events: [{ id: '3', repo: 'ana/parser', createdAt: Date.parse('2026-10-23T10:00:00Z'), pushId: '99', ref: 'refs/heads/main', before: 'a', head: 'b' }],
     });
-    expect(rateLimit).toEqual({ limit: 5000, remaining: 4990, resetAtMs: Date.parse('2026-10-22T13:00:00Z'), cost: 1 });
+    expect(gh.rateLimit()).toEqual({ remaining: 4321, resetAtMs: 1800000000000 });
+    expect(calls[0]!.url).toBe('https://api.github.com/users/ana/events/public?per_page=100');
+    expect(calls[0]!.headers.authorization).toBe('Bearer tok');
   });
 
-  it('keeps exactly the countable public contributions with stable source ids', () => {
-    const ids = parseFixture().contributions.map((c) => c.sourceId).sort();
-    expect(ids).toEqual([
-      'commits:acme/rocket:2026-10-20',
-      'commits:acme/rocket:2026-10-21',
-      'commits:alice/dotfiles:2026-10-21',
-      'pr:PR_good',
-      'review:PRR_good',
-    ]);
+  it('sends the ETag and reports 304', async () => {
+    const { fetch, calls } = fakeFetch(() => new Response(null, { status: 304 }));
+    const res = await createGithubClient('tok', fetch).userEvents('ana', 'W/"abc"');
+    expect(res).toEqual({ status: 304 });
+    expect(calls[0]!.headers['if-none-match']).toBe('W/"abc"');
   });
 
-  it('drops private repos, unmerged, self-merged, own-repo, merger-less PRs, and self reviews', () => {
-    const ids = parseFixture().contributions.map((c) => c.sourceId).join(' ');
-    for (const rejected of ['secretcorp', 'PR_open', 'PR_selfmerge', 'PR_ownrepo', 'PR_private', 'PR_nomerger', 'PRR_self', 'PRR_private']) {
-      expect(ids).not.toContain(rejected);
-    }
+  it('reads compare commits and files, and returns null on 404', async () => {
+    const { fetch, calls } = fakeFetch((url) =>
+      url.includes('missing')
+        ? json({ message: 'Not Found' }, 404)
+        : json({
+            commits: [{ sha: 's1', author: { login: 'ana' }, commit: { message: 'Fix\n\nbody' } }, { sha: 's2', author: null, commit: { message: 'x' } }],
+            files: [{ filename: 'a.ts', status: 'modified', additions: 2, deletions: 1, patch: '@@\n+a' }, { filename: 'b.png', status: 'added', additions: 0, deletions: 0 }],
+          }),
+    );
+    const gh = createGithubClient('tok', fetch);
+    const res = await gh.compare('ana/parser', 'base', 'head');
+    expect(res!.commits).toEqual([{ sha: 's1', authorLogin: 'ana', message: 'Fix\n\nbody' }, { sha: 's2', authorLogin: null, message: 'x' }]);
+    expect(res!.files[1]).toEqual({ filename: 'b.png', status: 'added', additions: 0, deletions: 0, patch: null });
+    expect(calls[0]!.url).toBe('https://api.github.com/repos/ana/parser/compare/base...head');
+    expect(await gh.compare('ana/missing', 'a', 'b')).toBeNull();
   });
 
-  it("dates a merged PR by mergedAt's UTC day", () => {
-    const pr = parseFixture().contributions.find((c) => c.sourceId === 'pr:PR_good')!;
-    expect(pr).toMatchObject({ kind: 'merged_pr', day: '2026-10-19', count: 1, repo: 'acme/rocket', language: 'Rust', title: 'Speed up launch' });
-  });
-
-  it('carries commit counts and languages', () => {
-    const c = parseFixture().contributions.find((x) => x.sourceId === 'commits:acme/rocket:2026-10-20')!;
-    expect(c).toMatchObject({ kind: 'commits', count: 5, language: 'Rust', url: 'https://github.com/acme/rocket' });
-  });
-
-  it('reports a missing or non-user node as not found', () => {
-    const bot = { data: { node: { __typename: 'Bot', login: 'x' }, rateLimit: fixture.data.rateLimit } };
-    expect(parseContributionsResponse(bot)).toMatchObject({ notFound: true });
-    expect(parseContributionsResponse({ data: { node: null, rateLimit: fixture.data.rateLimit } })).toMatchObject({ notFound: true });
-  });
-
-  it('rejects a malformed payload at the boundary', () => {
-    const broken = structuredClone(fixture);
-    delete broken.data.node.databaseId;
-    expect(() => parseContributionsResponse(broken)).toThrow();
+  it('reads a single commit and throws on server errors', async () => {
+    const { fetch } = fakeFetch((url) =>
+      url.endsWith('/boom') ? json({ message: 'oops' }, 502) : json({ sha: 'h', author: { login: 'ana' }, commit: { message: 'init' }, files: [] }),
+    );
+    const gh = createGithubClient(null, fetch);
+    expect(await gh.commit('ana/parser', 'h')).toEqual({ commits: [{ sha: 'h', authorLogin: 'ana', message: 'init' }], files: [] });
+    await expect(gh.commit('ana/parser', 'boom')).rejects.toThrow(/502/);
   });
 });
 
-describe('client', () => {
-  it('sends the server token and a 56 day range', async () => {
-    let seen: { auth: string | null; vars: Record<string, string> } | undefined;
-    const fakeFetch = (async (_url: string, init: RequestInit) => {
-      const body = JSON.parse(String(init.body));
-      seen = { auth: new Headers(init.headers).get('authorization'), vars: body.variables };
-      return new Response(JSON.stringify(fixture), { status: 200 });
-    }) as unknown as typeof fetch;
-    const now = Date.parse('2026-10-22T12:00:00Z');
-    await createGithubClient('srv-token', fakeFetch).fetchContributions('U_alice', now);
-    expect(seen).toEqual({
-      auth: 'Bearer srv-token',
-      vars: { id: 'U_alice', from: '2026-08-27T12:00:00.000Z', to: '2026-10-22T12:00:00.000Z' },
-    });
-  });
-
-  it('looks a user up by login, and reads a missing login as not found despite the GraphQL error', async () => {
-    const vars: Record<string, string>[] = [];
-    const fakeFetch = (async (_url: string, init: RequestInit) => {
-      const body = JSON.parse(String(init.body));
-      vars.push(body.variables);
-      if (body.variables.login === 'ghost') {
-        return new Response(JSON.stringify({ data: { user: null, rateLimit: fixture.data.rateLimit }, errors: [{ type: 'NOT_FOUND', message: 'Could not resolve to a User' }] }));
-      }
-      return new Response(JSON.stringify({ data: { user: fixture.data.node, rateLimit: fixture.data.rateLimit } }));
-    }) as unknown as typeof fetch;
-    const now = Date.parse('2026-10-22T12:00:00Z');
-    const client = createGithubClient('srv-token', fakeFetch);
-    const found = await client.fetchContributionsByLogin('Alice', now);
-    expect('notFound' in found ? null : found.account).toMatchObject({ databaseId: 1001, login: 'alice', type: 'User' });
-    expect('notFound' in found ? [] : found.contributions.map((c) => c.sourceId)).toContain('pr:PR_good');
-    expect(await client.fetchContributionsByLogin('ghost', now)).toMatchObject({ notFound: true });
-    expect(vars[0]).toEqual({ login: 'Alice', from: '2026-08-27T12:00:00.000Z', to: '2026-10-22T12:00:00.000Z' });
-  });
-
-  it('fetchViewer returns only the identity fields', async () => {
-    const fakeFetch = (async () =>
-      new Response(JSON.stringify({ id: 7, node_id: 'U_7', login: 'x', avatar_url: 'a', created_at: '2020-01-01T00:00:00Z', type: 'User', email: 'x@y.z' }))) as unknown as typeof fetch;
-    expect(await fetchViewer('t', fakeFetch)).toEqual({ id: 7, node_id: 'U_7', login: 'x', avatar_url: 'a', created_at: '2020-01-01T00:00:00Z', type: 'User' });
+describe('fetchViewer', () => {
+  it('returns the signed-in account', async () => {
+    const viewer = { id: 7, node_id: 'U_7', login: 'ana', avatar_url: 'https://x/a.png', created_at: '2020-01-01T00:00:00Z', type: 'User' };
+    const { fetch } = fakeFetch(() => json({ ...viewer, name: 'Ana' }));
+    expect(await fetchViewer('tok', fetch)).toEqual(viewer);
   });
 });

@@ -1,119 +1,197 @@
+import type { Digest } from './rules/digest.ts';
 import type { TimedInput, WorldSnapshot } from './sim/api.ts';
-import type { Army, Fielded, LifetimeStats, Medal } from './rules/types.ts';
+import type { ChronicleEntry } from './sim/chronicle.ts';
+import type { RepoRef, ReplayPlayer } from './sim/replay.ts';
 
-export type RoundStatus = 'active' | 'ended';
+export type Visibility = 'public' | 'private';
+export type WarStatus = 'active' | 'ended';
 
-export interface RoundMeta {
+export interface UserRef {
   id: number;
-  name: string;
-  status: RoundStatus;
-  startsAt: number;
-  endsAt: number;
-  intermissionEndsAt: number | null;
-  winnerFaction: number | null;
-  roomSlug: string | null;
-}
-
-export interface FactionMeta {
-  id: number;
-  name: string;
-  color: number;
-  language: string | null;
-}
-
-export interface PlayerMeta {
-  playerId: number;
   login: string;
   avatarUrl: string;
-  faction: number;
-  army: Army;
-  fielded: Fielded;
-  demo: boolean;
 }
 
-export interface FeedItem {
+export interface RoomCard {
+  slug: string;
+  name: string;
+  visibility: Visibility;
+  resetHour: number;
+  members: number;
+  bots: number;
+  viewers: number;
+  owner: UserRef;
+  /** Current war, if one is running. */
+  war: { id: number; endsAt: number; leader: string | null; units: number } | null;
+}
+
+export interface RoomMember extends UserRef {
+  role: 'owner' | 'member';
+  joinedAt: number;
+  resting: boolean;
+}
+
+export interface RoomDetail {
+  slug: string;
+  name: string;
+  visibility: Visibility;
+  resetHour: number;
+  bots: number;
+  owner: UserRef;
+  members: RoomMember[];
+  viewer: { member: boolean; owner: boolean; signedIn: boolean };
+  /** Only for members of a private room and for the owner. */
+  invite: string | null;
+  /** Only for the owner. */
+  webhookUrl: string | null;
+}
+
+export interface WarMeta {
+  id: number;
+  day: string;
+  status: WarStatus;
+  startsAt: number;
+  endsAt: number;
+  seed: number;
+  slots: number;
+  members: number;
+}
+
+/** A war's roster entry: the replay header's player plus display data. */
+export interface RosterEntry extends ReplayPlayer {
+  p: number;
+  avatarUrl: string;
+}
+
+export interface PresenceEntry {
+  id: number | null;
+  login: string | null;
+  avatarUrl: string | null;
+  count: number;
+}
+
+export interface ChatMessage {
   id: number;
   at: number;
-  kind: 'enlist' | 'reinforce' | 'capture' | 'round' | 'domination';
-  playerId: number | null;
-  faction: number | null;
-  message: string;
-  url: string | null;
-  units: Fielded | null;
+  user: UserRef;
+  text: string;
 }
+
+export const EMOTES = ['⚔️', '🛡️', '🔥', '🎉', '😱', '👑', '💀', '🏹'] as const;
+export type Emote = (typeof EMOTES)[number];
 
 export type ServerMessage =
   | {
       type: 'hello';
-      round: RoundMeta;
-      factions: FactionMeta[];
-      players: PlayerMeta[];
+      room: RoomDetail;
+      war: WarMeta;
+      roster: RosterEntry[];
+      repos: RepoRef[];
       snapshot: WorldSnapshot;
       inputs: TimedInput[];
-      feed: FeedItem[];
+      chronicle: ChronicleEntry[];
+      chat: ChatMessage[];
+      presence: PresenceEntry[];
       serverNow: number;
-      roundStartMs: number;
       tickMs: number;
-      viewerPlayerId: number | null;
+      /** The viewer's player index in this war, if any. */
+      viewerP: number | null;
     }
-  | { type: 'inputs'; inputs: TimedInput[] }
+  | { type: 'inputs'; inputs: TimedInput[]; roster?: RosterEntry[]; repos?: { index: number; ref: RepoRef }[] }
   | { type: 'check'; tick: number; checksum: number }
-  | { type: 'player'; player: PlayerMeta }
-  | { type: 'feed'; item: FeedItem }
-  | { type: 'round'; round: RoundMeta };
+  | { type: 'chronicle'; entries: ChronicleEntry[] }
+  | { type: 'presence'; presence: PresenceEntry[] }
+  | { type: 'emote'; login: string; p: number | null; emote: Emote }
+  | { type: 'chat'; message: ChatMessage }
+  | { type: 'war'; war: WarMeta; digestReady: boolean }
+  | { type: 'room'; room: RoomDetail };
 
-export type ClientMessage = { type: 'resync' };
+export type ClientMessage =
+  | { type: 'resync' }
+  | { type: 'emote'; emote: Emote }
+  | { type: 'chat'; text: string };
 
-export interface ProfileResponse {
-  playerId: number;
-  login: string;
-  avatarUrl: string;
-  stats: LifetimeStats;
-  medals: Medal[];
-  history: { roundId: number; roundName: string; faction: string; won: boolean; kills: number; captures: number }[];
+// The client treats close codes 4000-4999 as final and does not reconnect.
+export const WS_CLOSE_NOT_FOUND = 4404;
+export const WS_CLOSE_FORBIDDEN = 4403;
+
+export const CHAT_MAX = 240;
+
+// ------------------------------------------------------------------ REST
+
+export interface MeResponse {
+  user: (UserRef & { resting: boolean; hookUrl: string | null; streak: number }) | null;
+  rooms: RoomCard[];
+  oauth: boolean;
+  devAuth: boolean;
 }
 
-export interface StandingsResponse {
-  lifetime: { playerId: number; login: string; avatarUrl: string; stats: LifetimeStats }[];
+export interface LobbyResponse {
+  rooms: RoomCard[];
 }
-
-export const ROOM_MIN_FIGHTERS = 2;
-export const ROOM_MAX_FIGHTERS = 8;
 
 export interface CreateRoomRequest {
-  logins: string[];
-}
-
-export type FighterRejection = 'not_found' | 'bot' | 'too_new' | 'no_public_activity' | 'duplicate';
-
-export type CreateRoomResponse =
-  | { ok: true; slug: string }
-  | { ok: false; error: 'invalid_request' | 'rate_limited' | 'rooms_full' | 'github_unavailable' | 'internal_error'; message: string }
-  | { ok: false; error: 'rejected_fighters'; rejected: { login: string; reason: FighterRejection }[] };
-
-export interface RoomFighter {
-  login: string;
-  avatarUrl: string;
-  faction: number;
-  color: number;
-  soldiers: number;
-  score: number;
-}
-
-export interface RoomSummary {
-  slug: string;
   name: string;
-  status: RoundStatus;
+  visibility: Visibility;
+  resetHour: number;
+  bots: number;
+}
+
+export interface UpdateRoomRequest {
+  name?: string;
+  visibility?: Visibility;
+  resetHour?: number;
+  bots?: number;
+  webhookUrl?: string | null;
+}
+
+export type CommandRequest =
+  | { kind: 'doctrine'; doctrine: number }
+  | { kind: 'rally'; site: number }
+  | { kind: 'cry' };
+
+export type ApiError = { error: string; message: string };
+
+export interface WarSummary {
+  id: number;
+  day: string;
+  status: WarStatus;
   startsAt: number;
   endsAt: number;
-  winnerLogin: string | null;
-  fighters: RoomFighter[];
+  winner: { login: string; hue: number; renown: number } | null;
+  players: number;
+  pushes: number;
 }
 
-// The client treats any close code from 4000 to 4999 as final and does not reconnect.
-export const WS_CLOSE_ROOM_NOT_FOUND = 4404;
+export interface DigestResponse {
+  room: { slug: string; name: string };
+  war: WarSummary;
+  digest: Digest;
+}
 
-export interface RoomsResponse {
-  live: RoomSummary[];
-  recent: RoomSummary[];
+export interface KeyframeResponse {
+  tick: number;
+  snapshot: WorldSnapshot;
+}
+
+export interface LifetimeRecord {
+  room: { slug: string; name: string };
+  days: number;
+  wins: number;
+  streak: number;
+  bestStreak: number;
+  kills: number;
+  renown: number;
+  awards: Record<string, number>;
+}
+
+export interface ProfileResponse {
+  user: UserRef;
+  records: LifetimeRecord[];
+  titles: string[];
+}
+
+export interface HookResponse {
+  hookUrl: string;
+  secret: string;
 }

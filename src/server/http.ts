@@ -1,109 +1,157 @@
 import cookie from '@fastify/cookie';
 import fastifyStatic from '@fastify/static';
 import websocket from '@fastify/websocket';
-import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify';
+import { randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import type { WebSocket } from 'ws';
+import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import type { CreateRoomResponse, PlayerMeta, ProfileResponse, RoomsResponse, ServerMessage, StandingsResponse } from '../protocol.ts';
-import { medalsFor } from '../rules/medals.ts';
+import {
+  CHAT_MAX,
+  EMOTES,
+  WS_CLOSE_FORBIDDEN,
+  WS_CLOSE_NOT_FOUND,
+  type DigestResponse,
+  type HookResponse,
+  type KeyframeResponse,
+  type LobbyResponse,
+  type MeResponse,
+  type ProfileResponse,
+  type UserRef,
+  type WarSummary,
+} from '../protocol.ts';
+import { AWARDS } from '../rules/digest.ts';
+import { decodeInput, type Replay } from '../sim/replay.ts';
 import { registerAuth, type AuthDeps } from './auth.ts';
-import type { Channel } from './battle.ts';
-import type { Recruiter } from './recruit.ts';
-import { SLUG_PATTERN, type Rooms } from './rooms.ts';
+import type { RoomRow, Store, UserRow, WarRow } from './db.ts';
+import { registerHooks } from './hooks.ts';
+import type { Hub } from './hub.ts';
+import type { GithubClient } from './github.ts';
+import type { PushReport } from './poller.ts';
+import { isoDay, RoomFailure, Rooms, userRef } from './rooms.ts';
 import { readSession, SESSION_COOKIE } from './session.ts';
+import { TICK_MS } from '../sim/api.ts';
+import { validWebhookUrl } from './webhook.ts';
 
-export interface MeResponse {
-  viewer: { playerId: number; login: string; avatarUrl: string } | null;
-  player: PlayerMeta | null;
+export interface HttpDeps extends AuthDeps {
+  hub: Hub;
+  rooms: Rooms;
+  github: GithubClient | null;
+  onPush: (report: PushReport) => void;
 }
 
-const ClientMessageSchema = z.object({ type: z.literal('resync') });
-const PlayerParams = z.object({ id: z.coerce.number().int() });
-const WsQuery = z.object({ room: z.string().optional() });
-const WS_CLOSE_ROOM_MISSING = 4400;
-const WS_CLOSE_ROOM_NOT_FOUND = 4404;
+const Name = z.string().trim().min(2).max(48);
+const CreateRoom = z.object({
+  name: Name,
+  visibility: z.enum(['public', 'private']),
+  resetHour: z.number().int().min(0).max(23),
+  bots: z.number().int().min(0).max(6),
+});
+const UpdateRoom = z.object({
+  name: Name.optional(),
+  visibility: z.enum(['public', 'private']).optional(),
+  resetHour: z.number().int().min(0).max(23).optional(),
+  bots: z.number().int().min(0).max(6).optional(),
+  webhookUrl: z.string().trim().max(500).nullable().optional(),
+});
+const Command = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('doctrine'), doctrine: z.number().int().min(0).max(4) }),
+  z.object({ kind: z.literal('rally'), site: z.number().int().min(0).max(64) }),
+  z.object({ kind: z.literal('cry') }),
+]);
+const SlugParams = z.object({ slug: z.string().regex(/^[a-z0-9-]{3,48}$/) });
+const WarParams = SlugParams.extend({ warId: z.coerce.number().int().positive() });
+const ClientMessage = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('resync') }),
+  z.object({ type: z.literal('emote'), emote: z.enum(EMOTES) }),
+  z.object({ type: z.literal('chat'), text: z.string().trim().min(1).max(CHAT_MAX) }),
+]);
 
-export type ChannelKey = 'campaign' | `room:${string}`;
-
-export class Hub {
-  private channels = new Map<ChannelKey, Map<WebSocket, number | null>>();
-  private helloFor: ((channel: ChannelKey, viewer: number | null) => ServerMessage | null) | null = null;
-
-  setHello(fn: (channel: ChannelKey, viewer: number | null) => ServerMessage | null): void {
-    this.helloFor = fn;
-  }
-
-  add(key: ChannelKey, socket: WebSocket, viewer: number | null): void {
-    const sockets = this.channels.get(key) ?? new Map<WebSocket, number | null>();
-    this.channels.set(key, sockets);
-    sockets.set(socket, viewer);
-    socket.on('close', () => {
-      sockets.delete(socket);
-      if (sockets.size === 0 && this.channels.get(key) === sockets) this.channels.delete(key);
-    });
-    this.sendHello(key, socket);
-  }
-
-  sendHello(key: ChannelKey, socket: WebSocket): void {
-    const hello = this.helloFor?.(key, this.channels.get(key)?.get(socket) ?? null);
-    if (hello) send(socket, hello);
-  }
-
-  channel(key: ChannelKey): Channel {
-    return {
-      send: (msg) => {
-        const sockets = this.channels.get(key);
-        if (!sockets || sockets.size === 0) return;
-        const data = JSON.stringify(msg);
-        for (const socket of sockets.keys()) if (socket.readyState === socket.OPEN) socket.send(data);
-      },
-      reset: () => {
-        for (const socket of this.channels.get(key)?.keys() ?? []) this.sendHello(key, socket);
-      },
-    };
-  }
-
-  closeAll(): void {
-    for (const sockets of this.channels.values()) for (const socket of sockets.keys()) socket.close(1012, 'server restarting');
-  }
-
-  get size(): number {
-    let n = 0;
-    for (const sockets of this.channels.values()) n += sockets.size;
-    return n;
+/** Fixed-window rate limiter keyed by user or address. */
+class Limiter {
+  private hits = new Map<string, { at: number; n: number }>();
+  constructor(
+    private readonly windowMs: number,
+    private readonly max: number,
+  ) {}
+  allow(key: string, now: number): boolean {
+    const h = this.hits.get(key);
+    if (!h || now - h.at >= this.windowMs) {
+      if (this.hits.size > 10_000) this.hits.clear();
+      this.hits.set(key, { at: now, n: 1 });
+      return true;
+    }
+    h.n++;
+    return h.n <= this.max;
   }
 }
 
-function send(socket: WebSocket, msg: ServerMessage): void {
-  if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(msg));
+function fail(reply: FastifyReply, status: number, error: string, message: string) {
+  return reply.code(status).send({ error, message });
 }
 
-export async function buildHttp(
-  deps: AuthDeps & { hub: Hub; rooms: Rooms; recruiter: Recruiter; ingestionEnabled: boolean },
-): Promise<FastifyInstance> {
-  const { store, campaign, rooms, recruiter, hub, config, clock } = deps;
-  const app = Fastify({ logger: false, trustProxy: true });
+function failure(reply: FastifyReply, err: unknown) {
+  if (err instanceof RoomFailure) {
+    const status = { not_found: 404, forbidden: 403, invalid: 400, full: 409, limit: 429, signed_out: 401 }[err.code];
+    return fail(reply, status, err.code, err.message);
+  }
+  throw err;
+}
+
+export async function buildHttp(deps: HttpDeps): Promise<FastifyInstance> {
+  const { store, rooms, hub, config, clock } = deps;
+  const app = Fastify({ logger: false, trustProxy: true, bodyLimit: 64 * 1024 });
   await app.register(cookie);
-  await app.register(websocket, { options: { maxPayload: 1024 } });
+  await app.register(websocket, { options: { maxPayload: 2048 } });
 
-  const viewerOf = (req: FastifyRequest): number | null => {
+  const viewerOf = (req: FastifyRequest): UserRow | null => {
     const id = readSession(req.cookies[SESSION_COOKIE], config.sessionSecret, clock());
-    return id !== null && store.player(id) ? id : null;
+    return id === null ? null : store.user(id);
   };
+  const roomOf = (slug: string): RoomRow => {
+    const room = store.roomBySlug(slug);
+    if (!room) throw new RoomFailure('not_found', 'No such room.');
+    return room;
+  };
+  const viewable = (req: FastifyRequest, slug: string): { room: RoomRow; user: UserRow | null } => {
+    const room = roomOf(slug);
+    const user = viewerOf(req);
+    const invite = typeof (req.query as Record<string, unknown>).invite === 'string' ? ((req.query as Record<string, string>).invite ?? null) : null;
+    if (!rooms.canView(room, user?.id ?? null, invite)) throw new RoomFailure('forbidden', 'This room is private.');
+    return { room, user };
+  };
+  const ownerOf = (req: FastifyRequest, slug: string): { room: RoomRow; user: UserRow } => {
+    const user = viewerOf(req);
+    if (!user) throw new RoomFailure('signed_out', 'Sign in first.');
+    const room = roomOf(slug);
+    if (room.ownerId !== user.id) throw new RoomFailure('forbidden', 'Only the room owner can do that.');
+    return { room, user };
+  };
+  const createLimit = new Limiter(3600_000, 10);
+  const commandLimit = new Limiter(10_000, 6);
+  const chatLimit = new Limiter(10_000, 6);
+  const emoteLimit = new Limiter(10_000, 6);
 
-  hub.setHello((channel, viewer) =>
-    channel === 'campaign' ? campaign.hello(viewer, clock()) : rooms.hello(channel.slice('room:'.length), viewer, clock()),
-  );
+  // ------------------------------------------------------------- socket
+
+  hub.setHello((roomId, _socket, user) => {
+    const room = store.room(roomId);
+    const war = room ? rooms.war(roomId) : null;
+    if (!room || !war) return null;
+    return war.hello(rooms.detail(room, user?.id ?? null), user?.id ?? null, { chat: store.chat(roomId, 50), presence: hub.presence(roomId) }, clock());
+  });
 
   app.get('/ws', { websocket: true }, (socket, req) => {
-    const query = WsQuery.safeParse(req.query);
-    const room = query.success ? query.data.room : '';
-    if (room === '') return socket.close(WS_CLOSE_ROOM_MISSING, 'room slug missing');
-    if (room !== undefined && !(SLUG_PATTERN.test(room) && rooms.has(room))) return socket.close(WS_CLOSE_ROOM_NOT_FOUND, 'room not found');
-    const key: ChannelKey = room === undefined ? 'campaign' : `room:${room}`;
-    hub.add(key, socket, viewerOf(req));
+    const q = req.query as Record<string, unknown>;
+    const slug = typeof q.room === 'string' ? q.room : '';
+    const invite = typeof q.invite === 'string' ? q.invite : null;
+    const room = /^[a-z0-9-]{3,48}$/.test(slug) ? store.roomBySlug(slug) : null;
+    if (!room || !rooms.war(room.id)) return socket.close(WS_CLOSE_NOT_FOUND, 'room not found');
+    const user = viewerOf(req);
+    if (!rooms.canView(room, user?.id ?? null, invite)) return socket.close(WS_CLOSE_FORBIDDEN, 'this room is private');
+    const ref: UserRef | null = user ? { id: user.id, login: user.login, avatarUrl: user.avatarUrl } : null;
+    hub.add(room.id, socket, ref);
+    const key = user ? `u${user.id}` : `ip${req.ip}`;
     socket.on('message', (raw: Buffer) => {
       let parsed: unknown;
       try {
@@ -111,64 +159,317 @@ export async function buildHttp(
       } catch {
         return;
       }
-      if (ClientMessageSchema.safeParse(parsed).success) hub.sendHello(key, socket);
+      const msg = ClientMessage.safeParse(parsed);
+      if (!msg.success) return;
+      const now = clock();
+      if (msg.data.type === 'resync') return hub.sendHello(room.id, socket);
+      if (!user) return;
+      if (msg.data.type === 'emote') {
+        if (!emoteLimit.allow(key, now)) return;
+        const war = rooms.war(room.id);
+        hub.broadcast(room.id, { type: 'emote', login: user.login, p: war?.playerOf(user.id) ?? null, emote: msg.data.emote });
+        return;
+      }
+      if (!store.isMember(room.id, user.id) || !chatLimit.allow(key, now)) return;
+      const text = msg.data.text.replace(/[\u0000-\u001f\u007f]/g, ' ').trim();
+      if (!text) return;
+      const id = store.addChat(room.id, user.id, now, text);
+      hub.broadcast(room.id, { type: 'chat', message: { id, at: now, user: ref!, text } });
     });
   });
 
+  // ---------------------------------------------------------------- me
+
   app.get('/api/me', async (req): Promise<MeResponse> => {
-    const id = viewerOf(req);
-    const player = id === null ? null : store.player(id);
-    if (!player) return { viewer: null, player: null };
-    return { viewer: { playerId: player.id, login: player.login, avatarUrl: player.avatarUrl }, player: campaign.playerMeta(player.id, clock()) };
-  });
-
-  app.get('/api/players/:id', async (req, reply) => {
-    const params = PlayerParams.safeParse(req.params);
-    const player = params.success ? store.player(params.data.id) : null;
-    if (!player) return reply.code(404).send({ error: 'not found' });
-    const stats = store.lifetime(player.id);
-    const profile: ProfileResponse = {
-      playerId: player.id,
-      login: player.login,
-      avatarUrl: player.avatarUrl,
-      stats,
-      medals: medalsFor(stats),
-      history: store.history(player.id),
+    const user = viewerOf(req);
+    const base = { oauth: config.oauth !== null, devAuth: config.devAuth };
+    if (!user) return { user: null, rooms: [], ...base };
+    return {
+      user: {
+        ...userRef(user),
+        resting: user.restingDay === isoDay(clock()),
+        hookUrl: user.hookSecret ? `${config.publicUrl}/hooks/github/${user.id}` : null,
+        streak: store.bestStreak(user.id),
+      },
+      rooms: store.roomsOf(user.id).map((r) => rooms.card(r)),
+      ...base,
     };
-    return profile;
   });
 
-  app.post('/api/rooms', {
-    errorHandler: (err, _req, reply) => {
-      const clientError = err.statusCode !== undefined && err.statusCode >= 400 && err.statusCode < 500;
-      if (!clientError) deps.log.error('room creation failed', { error: err.message });
-      const body: CreateRoomResponse = clientError
-        ? { ok: false, error: 'invalid_request', message: err.message }
-        : { ok: false, error: 'internal_error', message: 'room creation failed, try again shortly' };
-      return reply.code(clientError ? 400 : 503).send(body);
-    },
-  }, async (req, reply) => {
-    const outcome = await recruiter.create(req.body, req.ip);
-    return reply.code(outcome.status).send(outcome.body);
+  app.post('/api/me/rest', async (req, reply) => {
+    const user = viewerOf(req);
+    if (!user) return fail(reply, 401, 'signed_out', 'Sign in first.');
+    const on = z.object({ on: z.boolean() }).safeParse(req.body);
+    if (!on.success) return fail(reply, 400, 'invalid', 'Expected { on: boolean }.');
+    store.setRestingDay(user.id, on.data.on ? isoDay(clock()) : null);
+    return reply.code(204).send();
   });
 
-  app.get('/api/rooms', async (): Promise<RoomsResponse> => rooms.summaries());
-
-  app.get('/api/standings', async (): Promise<StandingsResponse> => ({ lifetime: store.standings(100) }));
-
-  app.get('/api/health', async () => {
-    const s = campaign.status();
-    return { ok: true, round: s.round?.id ?? null, status: s.round?.status ?? null, tick: s.tick, players: s.players, rooms: rooms.battles().length, spectators: hub.size, ingestion: deps.ingestionEnabled };
+  app.post('/api/me/hook', async (req, reply): Promise<HookResponse | void> => {
+    const user = viewerOf(req);
+    if (!user) return fail(reply, 401, 'signed_out', 'Sign in first.');
+    const secret = randomBytes(24).toString('hex');
+    store.setHookSecret(user.id, secret);
+    return { hookUrl: `${config.publicUrl}/hooks/github/${user.id}`, secret };
   });
+
+  app.get('/api/users/:login', async (req, reply): Promise<ProfileResponse | void> => {
+    const login = z.object({ login: z.string().regex(/^[A-Za-z0-9-]{1,39}$/) }).safeParse(req.params);
+    const user = login.success ? store.userByLogin(login.data.login) : null;
+    if (!user || user.bot) return fail(reply, 404, 'not_found', 'No such player.');
+    const viewer = viewerOf(req);
+    const records = store.lifetimesOf(user.id).flatMap((l) => {
+      const room = store.room(l.roomId);
+      if (!room || !rooms.canView(room, viewer?.id ?? null, null)) return [];
+      return [{ room: { slug: room.slug, name: room.name }, days: l.days, wins: l.wins, streak: l.streak, bestStreak: l.bestStreak, kills: l.kills, renown: l.renown, awards: l.awards }];
+    });
+    const totals = new Map<string, number>();
+    for (const r of records) for (const [k, v] of Object.entries(r.awards)) totals.set(k, (totals.get(k) ?? 0) + v);
+    const titles = [...totals.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([id, n]) => `${n > 1 ? `${n}× ` : ''}${AWARDS.find((a) => a.id === id)?.title ?? id}`);
+    return { user: userRef(user), records, titles };
+  });
+
+  // ------------------------------------------------------------- rooms
+
+  app.get('/api/rooms', async (): Promise<LobbyResponse> => ({
+    rooms: store
+      .rooms()
+      .filter((r) => r.visibility === 'public')
+      .map((r) => rooms.card(r))
+      .sort((a, b) => b.viewers - a.viewers || b.members - a.members),
+  }));
+
+  app.post('/api/rooms', async (req, reply) => {
+    const user = viewerOf(req);
+    if (!user) return fail(reply, 401, 'signed_out', 'Sign in to create a room.');
+    const body = CreateRoom.safeParse(req.body);
+    if (!body.success) return fail(reply, 400, 'invalid', 'Give the room a name of 2–48 characters, a visibility, a reset hour 0–23 and 0–6 bots.');
+    if (!createLimit.allow(`u${user.id}`, clock())) return fail(reply, 429, 'limit', 'Too many rooms created. Try again later.');
+    try {
+      const room = rooms.create(user, body.data, clock());
+      return { slug: room.slug };
+    } catch (err) {
+      return failure(reply, err);
+    }
+  });
+
+  app.get('/api/rooms/:slug', async (req, reply) => {
+    try {
+      const { slug } = SlugParams.parse(req.params);
+      const { room, user } = viewable(req, slug);
+      return rooms.detail(room, user?.id ?? null);
+    } catch (err) {
+      if (err instanceof z.ZodError) return fail(reply, 404, 'not_found', 'No such room.');
+      return failure(reply, err);
+    }
+  });
+
+  app.patch('/api/rooms/:slug', async (req, reply) => {
+    try {
+      const { slug } = SlugParams.parse(req.params);
+      const { room, user } = ownerOf(req, slug);
+      const body = UpdateRoom.safeParse(req.body);
+      if (!body.success) return fail(reply, 400, 'invalid', 'Invalid room settings.');
+      const webhookUrl = body.data.webhookUrl === '' ? null : body.data.webhookUrl;
+      if (webhookUrl && !validWebhookUrl(webhookUrl)) return fail(reply, 400, 'invalid', 'Use a Slack (hooks.slack.com/services/…) or Discord (discord.com/api/webhooks/…) webhook URL.');
+      const updated = rooms.update(room, { ...body.data, webhookUrl });
+      return rooms.detail(updated, user.id);
+    } catch (err) {
+      return failure(reply, err);
+    }
+  });
+
+  app.delete('/api/rooms/:slug', async (req, reply) => {
+    try {
+      const { slug } = SlugParams.parse(req.params);
+      const { room } = ownerOf(req, slug);
+      if (room.slug === 'commons') return fail(reply, 400, 'invalid', 'The Commons cannot be deleted.');
+      rooms.delete(room);
+      hub.closeRoom(room.id, WS_CLOSE_NOT_FOUND, 'room deleted');
+      return reply.code(204).send();
+    } catch (err) {
+      return failure(reply, err);
+    }
+  });
+
+  app.post('/api/rooms/:slug/join', async (req, reply) => {
+    try {
+      const { slug } = SlugParams.parse(req.params);
+      const user = viewerOf(req);
+      if (!user) return fail(reply, 401, 'signed_out', 'Sign in to join.');
+      const room = roomOf(slug);
+      const invite = z.object({ invite: z.string().nullable().optional() }).safeParse(req.body).data?.invite ?? null;
+      rooms.join(room, user, invite, clock());
+      return rooms.detail(room, user.id);
+    } catch (err) {
+      return failure(reply, err);
+    }
+  });
+
+  app.post('/api/rooms/:slug/leave', async (req, reply) => {
+    try {
+      const { slug } = SlugParams.parse(req.params);
+      const user = viewerOf(req);
+      if (!user) return fail(reply, 401, 'signed_out', 'Sign in first.');
+      rooms.leave(roomOf(slug), user.id);
+      return reply.code(204).send();
+    } catch (err) {
+      return failure(reply, err);
+    }
+  });
+
+  app.post('/api/rooms/:slug/invite', async (req, reply) => {
+    try {
+      const { slug } = SlugParams.parse(req.params);
+      const { room, user } = ownerOf(req, slug);
+      return rooms.detail(rooms.rotateInvite(room), user.id);
+    } catch (err) {
+      return failure(reply, err);
+    }
+  });
+
+  app.delete('/api/rooms/:slug/members/:userId', async (req, reply) => {
+    try {
+      const { slug } = SlugParams.parse(req.params);
+      const target = z.coerce.number().int().safeParse((req.params as { userId?: string }).userId);
+      const { room, user } = ownerOf(req, slug);
+      if (!target.success || target.data === user.id) return fail(reply, 400, 'invalid', 'You cannot remove yourself.');
+      rooms.leave(room, target.data);
+      return rooms.detail(room, user.id);
+    } catch (err) {
+      return failure(reply, err);
+    }
+  });
+
+  app.post('/api/rooms/:slug/command', async (req, reply) => {
+    try {
+      const { slug } = SlugParams.parse(req.params);
+      const user = viewerOf(req);
+      if (!user) return fail(reply, 401, 'signed_out', 'Sign in first.');
+      const cmd = Command.safeParse(req.body);
+      if (!cmd.success) return fail(reply, 400, 'invalid', 'Unknown command.');
+      if (!commandLimit.allow(`u${user.id}`, clock())) return fail(reply, 429, 'limit', 'Slow down.');
+      const room = roomOf(slug);
+      const war = rooms.war(room.id);
+      if (!war) return fail(reply, 409, 'ended', 'No war is running in this room.');
+      const error = war.command(clock(), user.id, cmd.data);
+      if (error) {
+        const message = {
+          not_in_war: 'You are not fighting in today\'s war. Join the room; you will fight from the next free capital or tomorrow.',
+          cooldown: 'That order is still on cooldown.',
+          used: 'You have already sounded your War Cry today.',
+          invalid: 'That order is not valid now.',
+          ended: 'Today\'s war is over.',
+        }[error];
+        return fail(reply, 409, error, message);
+      }
+      return { tick: war.world.tick };
+    } catch (err) {
+      return failure(reply, err);
+    }
+  });
+
+  app.get('/api/rooms/:slug/chronicle', async (req, reply) => {
+    try {
+      const { slug } = SlugParams.parse(req.params);
+      const { room } = viewable(req, slug);
+      const since = z.coerce.number().int().min(0).catch(0).parse((req.query as { since?: string }).since);
+      const war = rooms.war(room.id);
+      return { entries: war ? war.chronicleSince(since, 500) : [] };
+    } catch (err) {
+      return failure(reply, err);
+    }
+  });
+
+  // -------------------------------------------------------------- wars
+
+  const summary = (w: WarRow): WarSummary => ({
+    id: w.id,
+    day: w.day,
+    status: w.status,
+    startsAt: w.startsAt,
+    endsAt: w.endsAt,
+    winner: w.winnerLogin ? { login: w.winnerLogin, hue: w.winnerHue ?? 0, renown: w.winnerRenown ?? 0 } : null,
+    players: w.header.players.length,
+    pushes: w.pushes,
+  });
+  const warOf = (req: FastifyRequest): { room: RoomRow; war: WarRow } => {
+    const { slug, warId } = WarParams.parse(req.params);
+    const { room } = viewable(req, slug);
+    const war = store.war(warId);
+    if (!war || war.roomId !== room.id) throw new RoomFailure('not_found', 'No such war.');
+    return { room, war };
+  };
+
+  app.get('/api/rooms/:slug/wars', async (req, reply) => {
+    try {
+      const { slug } = SlugParams.parse(req.params);
+      const { room } = viewable(req, slug);
+      return { wars: store.wars(room.id, 60).map(summary) };
+    } catch (err) {
+      return failure(reply, err);
+    }
+  });
+
+  app.get('/api/rooms/:slug/wars/:warId/digest', async (req, reply): Promise<DigestResponse | void> => {
+    try {
+      const { room, war } = warOf(req);
+      if (!war.digest) return fail(reply, 404, 'not_ready', 'This war is still being fought. Its digest is written at the reset hour.');
+      return { room: { slug: room.slug, name: room.name }, war: summary(war), digest: war.digest };
+    } catch (err) {
+      return failure(reply, err);
+    }
+  });
+
+  app.get('/api/rooms/:slug/wars/:warId/replay', async (req, reply): Promise<Replay | void> => {
+    try {
+      const { war } = warOf(req);
+      if (war.status !== 'ended') return fail(reply, 404, 'not_ready', 'Replays are available once the day is over.');
+      const replay: Replay = {
+        v: 1,
+        seed: war.seed,
+        slots: war.slots,
+        members: war.members,
+        tickMs: TICK_MS,
+        startsAt: war.startsAt,
+        endsAt: war.endsAt,
+        players: war.header.players.map(({ login, id, hue, slot, bot }) => ({ login, id, hue, slot, bot })),
+        repos: war.header.repos,
+        inputs: store.inputs(war.id).map((i) => i.data),
+      };
+      // Sanity: every input decodes, so a corrupt row fails here rather than in a viewer's browser.
+      for (const e of replay.inputs) decodeInput(e);
+      reply.header('content-disposition', `inline; filename="pushfront-${war.day}-${war.id}.json"`);
+      return replay;
+    } catch (err) {
+      return failure(reply, err);
+    }
+  });
+
+  app.get('/api/rooms/:slug/wars/:warId/keyframe', async (req, reply): Promise<KeyframeResponse | null | void> => {
+    try {
+      const { war } = warOf(req);
+      const tick = z.coerce.number().int().min(0).catch(0).parse((req.query as { tick?: string }).tick);
+      const snap = store.latestSnapshot(war.id, tick);
+      return snap ? { tick: snap.tick, snapshot: JSON.parse(snap.json) as KeyframeResponse['snapshot'] } : null;
+    } catch (err) {
+      return failure(reply, err);
+    }
+  });
+
+  app.get('/api/health', async () => ({ ok: true, rooms: rooms.wars().length, spectators: hub.size, ingestion: deps.github !== null }));
 
   registerAuth(app, deps);
+  registerHooks(app, { store, github: deps.github, log: deps.log, clock, onPush: deps.onPush });
 
   const clientDir = resolve(config.clientDir);
   if (existsSync(clientDir)) {
     await app.register(fastifyStatic, { root: clientDir, wildcard: false });
     app.setNotFoundHandler((req, reply) => {
       const path = req.url.split('?')[0]!;
-      if (req.method !== 'GET' || /^\/(api|auth|ws)(\/|$)/.test(path)) return reply.code(404).send({ error: 'not found' });
+      if (req.method !== 'GET' || /^\/(api|auth|ws|hooks)(\/|$)/.test(path)) return reply.code(404).send({ error: 'not_found', message: 'Not found.' });
       return reply.type('text/html').sendFile('index.html');
     });
   }

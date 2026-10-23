@@ -1,89 +1,116 @@
-import { NEUTRAL, type PlayerState, type TickEvents, type World } from '../sim/api.ts';
-import type { FactionMeta, FeedItem, PlayerMeta, RoundMeta } from '../protocol.ts';
+import type { ChatMessage, Emote, PresenceEntry, RoomDetail, RosterEntry, WarMeta } from '../protocol.ts';
+import { NEUTRAL, PlatoonState, TICK_MS, type TickEvents, type World } from '../sim/api.ts';
+import type { ChronicleEntry, Names } from '../sim/chronicle.ts';
+import type { RepoRef } from '../sim/replay.ts';
 import { INITIAL_CONN, type ConnState } from './net/connection.ts';
-import { objectiveName } from '../rules/names.ts';
 
-export type Trend = -1 | 0 | 1;
-
-export interface FactionStanding {
-  id: number;
-  name: string;
-  color: number;
-  score: number;
-  territory: number;
-  objectivesHeld: number;
-  holdsCitadel: boolean;
-  trend: Trend;
-  players: number;
+export interface Standing {
+  p: number;
+  login: string;
+  avatarUrl: string;
+  hue: number;
+  bot: boolean;
+  renown: number;
   alive: number;
+  platoons: number;
+  queued: number;
+  doctrine: number;
+  leader: boolean;
+  /** Renown gained in the last minute, for the trend arrow. */
+  trend: number;
 }
 
-export interface BattleLine {
-  id: string;
-  at: number;
-  faction: number;
-  message: string;
-}
+export type Selection =
+  | { kind: 'platoon'; id: number }
+  | { kind: 'site'; id: number }
+  | { kind: 'player'; p: number }
+  | null;
 
 export interface Toast {
   id: number;
   at: number;
-  faction: number;
+  kind: ChronicleEntry['kind'];
+  p: number;
   title: string;
-  subtitle: string;
+  x: number;
+  y: number;
+}
+
+export interface FloatingEmote {
+  id: number;
+  at: number;
+  p: number | null;
+  login: string;
+  emote: Emote;
 }
 
 export interface HudSnapshot {
   conn: ConnState;
-  round: RoundMeta | null;
-  factions: readonly FactionMeta[];
-  players: ReadonlyMap<number, PlayerMeta>;
-  feed: readonly FeedItem[];
-  battle: readonly BattleLine[];
+  room: RoomDetail | null;
+  war: WarMeta | null;
+  roster: readonly RosterEntry[];
+  repos: readonly RepoRef[];
+  standings: readonly Standing[];
+  chronicle: readonly ChronicleEntry[];
+  chat: readonly ChatMessage[];
+  presence: readonly PresenceEntry[];
   toasts: readonly Toast[];
-  standings: readonly FactionStanding[];
-  warStates: ReadonlyMap<number, PlayerState>;
-  alive: ReadonlyMap<number, readonly [number, number, number]>;
+  emotes: readonly FloatingEmote[];
   tick: number;
   serverNow: number;
-  hasWorld: boolean;
-  winner: number;
-  viewerPlayerId: number | null;
-  selectedPlayerId: number | null;
+  viewerP: number | null;
+  selection: Selection;
   following: boolean;
+  monolith: { hp: number; maxHp: number; fallen: boolean };
+  replay: boolean;
+  digestReady: boolean;
 }
 
-const HUD_INTERVAL_MS = 250;
-const TREND_WINDOW = 40;
-const SKIRMISH_WINDOW_MS = 12_000;
-const TOAST_MS = 4200;
+export type StepListener = (events: TickEvents, world: World) => void;
 
-export class Store {
+const HUD_INTERVAL_MS = 250;
+const CHRONICLE_KEEP = 400;
+const CHAT_KEEP = 120;
+const TOAST_MS = 5000;
+const EMOTE_MS = 3500;
+const TOAST_KINDS = new Set<ChronicleEntry['kind']>(['sack', 'monolith', 'champion', 'cry', 'leader', 'clash', 'join']);
+
+/** Everything the client knows about the room it is watching. */
+export class GameStore {
   world: World | null = null;
   conn: ConnState = INITIAL_CONN;
-  round: RoundMeta | null = null;
-  factions: FactionMeta[] = [];
-  players = new Map<number, PlayerMeta>();
-  feed: FeedItem[] = [];
-  viewerPlayerId: number | null = null;
-  selectedPlayerId: number | null = null;
-  following = false;
+  room: RoomDetail | null = null;
+  war: WarMeta | null = null;
+  roster: RosterEntry[] = [];
+  repos: RepoRef[] = [];
+  chronicle: ChronicleEntry[] = [];
+  chat: ChatMessage[] = [];
+  presence: PresenceEntry[] = [];
+  viewerP: number | null = null;
+  selection: Selection = null;
+  following = true;
+  replay = false;
+  digestReady = false;
   serverNow = () => Date.now();
+  /** Wall-clock ms of tick 0, for converting ticks to times. */
+  warStartMs = 0;
 
-  private battle: BattleLine[] = [];
   private toasts: Toast[] = [];
-  private toastId = 0;
-  private hexHistory: number[][] = [];
-  private deathsNear = new Map<number, { count: number; factions: Map<number, number> }>();
-  private skirmishWindowStart = Date.now();
+  private emotes: FloatingEmote[] = [];
+  private nextId = 1;
+  private renownHistory: number[][] = [];
   private listeners = new Set<() => void>();
+  private stepListeners = new Set<StepListener>();
+  private chronicleListeners = new Set<(entries: readonly ChronicleEntry[]) => void>();
+  private emoteListeners = new Set<(e: FloatingEmote) => void>();
   private snap: HudSnapshot = this.build();
-  private timer = setInterval(() => this.publish(), HUD_INTERVAL_MS);
+  private lastBuild = 0;
+  private dirty = false;
 
-  dispose(): void {
-    clearInterval(this.timer);
-    this.listeners.clear();
-  }
+  readonly names: Names = {
+    player: (p) => (this.roster[p] ? `@${this.roster[p]!.login}` : `Player ${p + 1}`),
+    repo: (i) => this.repos[i]?.[0] ?? 'a repository',
+  };
 
   subscribe = (fn: () => void): (() => void) => {
     this.listeners.add(fn);
@@ -92,155 +119,156 @@ export class Store {
 
   getSnapshot = (): HudSnapshot => this.snap;
 
+  /** Rebuilds the HUD snapshot now and notifies React. */
   publish(): void {
     this.snap = this.build();
+    this.lastBuild = performance.now();
+    this.dirty = false;
     for (const fn of this.listeners) fn();
   }
 
-  select(playerId: number | null, follow = playerId !== null): void {
-    this.selectedPlayerId = playerId;
-    this.following = follow;
+  /** Called every animation frame; rebuilds the HUD at most 4 times a second. */
+  pump(): void {
+    const now = Date.now();
+    const before = this.toasts.length + this.emotes.length;
+    this.toasts = this.toasts.filter((t) => now - t.at < TOAST_MS);
+    this.emotes = this.emotes.filter((e) => now - e.at < EMOTE_MS);
+    if (this.toasts.length + this.emotes.length !== before) this.dirty = true;
+    if (this.dirty && performance.now() - this.lastBuild >= HUD_INTERVAL_MS) this.publish();
+  }
+
+  onStep(fn: StepListener): () => void {
+    this.stepListeners.add(fn);
+    return () => this.stepListeners.delete(fn);
+  }
+
+  onChronicle(fn: (entries: readonly ChronicleEntry[]) => void): () => void {
+    this.chronicleListeners.add(fn);
+    return () => this.chronicleListeners.delete(fn);
+  }
+
+  onEmote(fn: (e: FloatingEmote) => void): () => void {
+    this.emoteListeners.add(fn);
+    return () => this.emoteListeners.delete(fn);
+  }
+
+  /** The runner reports every simulated tick it wants rendered. */
+  stepped(events: TickEvents, world: World): void {
+    if (world.tick % 5 === 0) this.recordRenown(world);
+    for (const fn of this.stepListeners) fn(events, world);
+    this.dirty = true;
+  }
+
+  resetWorld(world: World): void {
+    this.world = world;
+    this.renownHistory = [];
+    this.toasts = [];
+    this.dirty = true;
+  }
+
+  addChronicle(entries: readonly ChronicleEntry[], announce = true): void {
+    if (entries.length === 0) return;
+    this.chronicle.push(...entries);
+    if (this.chronicle.length > CHRONICLE_KEEP) this.chronicle.splice(0, this.chronicle.length - CHRONICLE_KEEP);
+    if (announce) {
+      const now = Date.now();
+      for (const e of entries) {
+        if (!TOAST_KINDS.has(e.kind)) continue;
+        if (e.kind === 'join' && this.roster[e.p]?.bot) continue;
+        this.toasts.push({ id: this.nextId++, at: now, kind: e.kind, p: e.p, title: e.text, x: e.x, y: e.y });
+      }
+      if (this.toasts.length > 4) this.toasts.splice(0, this.toasts.length - 4);
+    }
+    for (const fn of this.chronicleListeners) fn(entries);
+    this.dirty = true;
+  }
+
+  addChat(msg: ChatMessage): void {
+    this.chat.push(msg);
+    if (this.chat.length > CHAT_KEEP) this.chat.splice(0, this.chat.length - CHAT_KEEP);
+    this.dirty = true;
+  }
+
+  addEmote(login: string, p: number | null, emote: Emote): void {
+    const e: FloatingEmote = { id: this.nextId++, at: Date.now(), p, login, emote };
+    this.emotes.push(e);
+    if (this.emotes.length > 30) this.emotes.shift();
+    for (const fn of this.emoteListeners) fn(e);
+    this.dirty = true;
+  }
+
+  select(selection: Selection): void {
+    this.selection = selection;
     this.publish();
   }
 
-  setFollowing(following: boolean): void {
-    if (this.following === following) return;
-    this.following = following;
+  setFollowing(on: boolean): void {
+    if (this.following === on) return;
+    this.following = on;
     this.publish();
   }
 
-  resetDerived(): void {
-    this.hexHistory = [];
-    this.deathsNear.clear();
+  /** Wall-clock time at which `tick` happens. */
+  timeOfTick(tick: number): number {
+    return this.warStartMs + tick * TICK_MS;
   }
 
-  addFeed(item: FeedItem): void {
-    if (this.feed.some((f) => f.id === item.id)) return;
-    this.feed.push(item);
-    if (this.feed.length > 120) this.feed.shift();
-  }
-
-  factionName(id: number): string {
-    return this.factions[id]?.name ?? 'Neutral garrison';
-  }
-
-  ingest(events: TickEvents, world: World): void {
-    const defs = world.map.objectives;
-    for (const d of events.deaths) {
-      let nearest = 0;
-      let best = Infinity;
-      for (const o of defs) {
-        const dd = (o.x - d.x) * (o.x - d.x) + (o.y - d.y) * (o.y - d.y);
-        if (dd < best) {
-          best = dd;
-          nearest = o.id;
-        }
-      }
-      let entry = this.deathsNear.get(nearest);
-      if (!entry) this.deathsNear.set(nearest, (entry = { count: 0, factions: new Map() }));
-      entry.count++;
-      entry.factions.set(d.faction, (entry.factions.get(d.faction) ?? 0) + 1);
-    }
-    for (const c of events.captures) {
-      const def = defs[c.objectiveId]!;
-      const where = objectiveName(def);
-      this.toasts.push({
-        id: ++this.toastId,
-        at: Date.now(),
-        faction: c.faction,
-        title: `${where} falls`,
-        subtitle: c.previous === NEUTRAL ? `${this.factionName(c.faction)} broke the garrison` : `${this.factionName(c.faction)} took it from the ${this.factionName(c.previous)}`,
-      });
-    }
-  }
-
-  private flushSkirmishes(now: number): void {
-    if (now - this.skirmishWindowStart < SKIRMISH_WINDOW_MS || !this.world) return;
-    this.skirmishWindowStart = now;
-    let hottest = -1;
-    let count = 0;
-    for (const [id, e] of this.deathsNear) {
-      if (e.count > count) {
-        count = e.count;
-        hottest = id;
-      }
-    }
-    if (hottest >= 0 && count >= 10) {
-      const e = this.deathsNear.get(hottest)!;
-      const sides = [...e.factions.entries()].sort((a, b) => b[1] - a[1]);
-      const heaviest = sides[0]![0];
-      const where = objectiveName(this.world.map.objectives[hottest]!, this.factions[this.world.map.objectives[hottest]!.homeFaction]?.name);
-      this.battle.push({
-        id: `b${now}`,
-        at: now,
-        faction: heaviest,
-        message: `Fierce fighting near ${where} · ${count} fallen, the ${this.factionName(heaviest)} bleeding worst`,
-      });
-      if (this.battle.length > 40) this.battle.shift();
-    }
-    this.deathsNear.clear();
+  private recordRenown(world: World): void {
+    this.renownHistory.push(world.players.map((p) => p.renown));
+    if (this.renownHistory.length > 60) this.renownHistory.shift();
   }
 
   private build(): HudSnapshot {
-    const now = Date.now();
-    this.toasts = this.toasts.filter((t) => now - t.at < TOAST_MS);
-    this.flushSkirmishes(now);
     const world = this.world;
-    const alive = new Map<number, [number, number, number]>();
-    const aliveByFaction = new Map<number, number>();
-    const warStates = new Map<number, PlayerState>();
-    let standings: FactionStanding[] = [];
+    const standings: Standing[] = [];
+    let monolith = { hp: 0, maxHp: 1, fallen: false };
     if (world) {
-      for (const u of world.units) {
-        let a = alive.get(u.playerId);
-        if (!a) alive.set(u.playerId, (a = [0, 0, 0]));
-        a[u.kind]++;
-        aliveByFaction.set(u.faction, (aliveByFaction.get(u.faction) ?? 0) + 1);
+      const alive = new Int32Array(world.players.length);
+      for (const u of world.units) if (u.p >= 0) alive[u.p]!++;
+      const platoons = new Int32Array(world.players.length);
+      for (const pl of world.platoons) if (pl.state !== PlatoonState.Queued) platoons[pl.p]!++;
+      const past = this.renownHistory[0];
+      for (const ps of world.players) {
+        const r = this.roster[ps.p];
+        standings.push({
+          p: ps.p,
+          login: r?.login ?? `player${ps.p}`,
+          avatarUrl: r?.avatarUrl ?? '',
+          hue: ps.hue,
+          bot: r?.bot ?? false,
+          renown: ps.renown,
+          alive: alive[ps.p]!,
+          platoons: platoons[ps.p]!,
+          queued: ps.queue.length,
+          doctrine: ps.doctrine,
+          leader: world.leader === ps.p,
+          trend: past ? ps.renown - (past[ps.p] ?? 0) : 0,
+        });
       }
-      for (const p of world.players) warStates.set(p.playerId, { ...p });
-      const held = world.factions.map((f) => f.hexesHeld);
-      this.hexHistory.push(held);
-      if (this.hexHistory.length > TREND_WINDOW) this.hexHistory.shift();
-      const past = this.hexHistory[0]!;
-      const totalHexes = Math.max(1, world.map.hexes.length);
-      const citadel = world.map.objectives.find((o) => o.kind === 'citadel');
-      const playerCounts = new Map<number, number>();
-      for (const p of this.players.values()) playerCounts.set(p.faction, (playerCounts.get(p.faction) ?? 0) + 1);
-      standings = world.factions.map((f) => {
-        const meta = this.factions[f.id];
-        const delta = f.hexesHeld - (past[f.id] ?? f.hexesHeld);
-        return {
-          id: f.id,
-          name: meta?.name ?? `Faction ${f.id + 1}`,
-          color: meta?.color ?? 0x999999,
-          score: f.score,
-          territory: f.hexesHeld / totalHexes,
-          objectivesHeld: f.objectivesHeld,
-          holdsCitadel: citadel !== undefined && world.objectives[citadel.id]?.owner === f.id,
-          trend: delta > 2 ? 1 : delta < -2 ? -1 : 0,
-          players: playerCounts.get(f.id) ?? 0,
-          alive: aliveByFaction.get(f.id) ?? 0,
-        };
-      });
+      standings.sort((a, b) => b.renown - a.renown || a.p - b.p);
+      const m = world.structures.find((s) => s.p === NEUTRAL);
+      if (m) monolith = { hp: m.hp, maxHp: m.maxHp, fallen: world.monolithFallen };
     }
     return {
       conn: this.conn,
-      round: this.round,
-      factions: this.factions,
-      players: new Map(this.players),
-      feed: this.feed.slice(),
-      battle: this.battle.slice(),
-      toasts: this.toasts.slice(),
+      room: this.room,
+      war: this.war,
+      roster: this.roster,
+      repos: this.repos,
       standings,
-      warStates,
-      alive,
+      chronicle: this.chronicle.slice(),
+      chat: this.chat.slice(),
+      presence: this.presence,
+      toasts: this.toasts.slice(),
+      emotes: this.emotes.slice(),
       tick: world?.tick ?? 0,
       serverNow: this.serverNow(),
-      hasWorld: world !== null,
-      winner: world?.winner ?? NEUTRAL,
-      viewerPlayerId: this.viewerPlayerId,
-      selectedPlayerId: this.selectedPlayerId,
+      viewerP: this.viewerP,
+      selection: this.selection,
       following: this.following,
+      monolith,
+      replay: this.replay,
+      digestReady: this.digestReady,
     };
   }
 }

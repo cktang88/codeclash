@@ -1,91 +1,80 @@
 import type { FastifyInstance } from 'fastify';
-import type { SimModule } from '../sim/api.ts';
-import { Armory } from './armory.ts';
 import type { Config } from './config.ts';
 import { openDb, Store } from './db.ts';
-import { DemoTicker, enlistDemoPlayers, seedDemoPlayers } from './demo.ts';
-import { Campaign } from './campaign.ts';
 import { createGithubClient } from './github.ts';
-import { buildHttp, Hub } from './http.ts';
-import { Ingest } from './ingest.ts';
-import { consoleLogger, type Logger } from './log.ts';
-import { Poller } from './poller.ts';
-import { Recruiter } from './recruit.ts';
+import { buildHttp } from './http.ts';
+import { Hub } from './hub.ts';
+import { consoleLogger, errorMessage, type Logger } from './log.ts';
+import { Poller, type PushReport } from './poller.ts';
 import { Rooms } from './rooms.ts';
 import { Scheduler } from './scheduler.ts';
 
+const SEEN_COMMITS_DAYS = 14;
+
 export interface Server {
   app: FastifyInstance;
-  campaign: Campaign;
   rooms: Rooms;
   scheduler: Scheduler;
   store: Store;
+  hub: Hub;
   listen(): Promise<string>;
   shutdown(): Promise<void>;
 }
 
 export async function createServer(
   config: Config,
-  sim: SimModule,
-  opts: { log?: Logger; clock?: () => number; fetchImpl?: typeof fetch; background?: boolean } = {},
+  opts: { log?: Logger; clock?: () => number; fetchImpl?: typeof fetch; background?: boolean; random?: () => number } = {},
 ): Promise<Server> {
   const log = opts.log ?? consoleLogger;
   const clock = opts.clock ?? Date.now;
   const background = opts.background ?? true;
   const db = openDb(config.databasePath);
   const store = new Store(db);
-  const armory = new Armory(store);
   const hub = new Hub();
-  const campaign = new Campaign({
-    store,
-    sim,
-    armory,
-    config: { roundMs: config.roundMs, intermissionMs: config.intermissionMs },
-    log,
-    channel: hub.channel('campaign'),
-  });
   const rooms = new Rooms({
     store,
-    sim,
-    armory,
     log,
-    config: { roomMs: config.roomMs, maxLive: config.roomMaxLive },
-    channelFor: (slug) => hub.channel(`room:${slug}`),
+    channelFor: (roomId) => hub.channel(roomId),
+    viewersOf: (roomId) => hub.viewers(roomId),
+    config: { dayMs: config.dayMs, maxRoomsPerUser: config.maxRoomsPerUser, maxLiveRooms: config.maxLiveRooms, publicUrl: config.publicUrl },
+    random: opts.random,
+    fetchImpl: opts.fetchImpl,
   });
-  const scheduler = new Scheduler([campaign, rooms], log);
-  const ingest = new Ingest(store, armory, campaign);
+  const scheduler = new Scheduler(rooms, log);
   const github = config.githubToken ? createGithubClient(config.githubToken, opts.fetchImpl) : null;
-  const recruiter = new Recruiter({ store, armory, ingest, rooms, github, log, clock });
-  const poller = github ? new Poller({ store, github, ingest, log, clock }) : null;
+  const onPush = (report: PushReport) => {
+    const raised = rooms.onPush(report, clock());
+    log.info('push', { user: report.userId, repo: report.repo, lines: report.lines, rooms: raised });
+  };
+  const poller = github ? new Poller({ store, github, log, clock, onPush }) : null;
 
-  if (!github) log.warn('GITHUB_TOKEN is not set: GitHub ingestion is disabled, armies only change through demo players');
+  if (!github) log.warn('GITHUB_TOKEN is not set: pushes are not ingested; only sparring bots fight');
   if (config.sessionSecretGenerated) log.warn('SESSION_SECRET is not set: using a random secret, sessions end on restart');
-  if (config.devAuth) log.warn('DEV_AUTH=1: /auth/dev signs in as any GitHub login without OAuth');
+  if (config.devAuth) log.warn('DEV_AUTH=1: /auth/dev signs in as any login without OAuth');
 
   const now = clock();
-  if (config.demoPlayers > 0) {
-    const created = seedDemoPlayers(store, config.demoPlayers, now);
-    log.info('demo players ready', { requested: config.demoPlayers, created: created.length });
-  }
-  campaign.boot(now);
   rooms.boot(now);
-  if (config.demoPlayers > 0) enlistDemoPlayers(store, campaign, now);
-  const ticker = config.demoPlayers > 0 ? new DemoTicker({ store, ingest, campaign, log, clock }) : null;
+  if (config.commons) rooms.seedCommons(now);
+  store.pruneSeenCommits(now - SEEN_COMMITS_DAYS * 86_400_000);
 
-  const app = await buildHttp({ config, store, campaign, github, poller, log, clock, fetchImpl: opts.fetchImpl, hub, rooms, recruiter, ingestionEnabled: github !== null });
+  const app = await buildHttp({
+    config, store, log, clock, fetchImpl: opts.fetchImpl, hub, rooms, github, onPush,
+    onSignIn: (userId) => {
+      poller?.pollUser(userId).catch((err: unknown) => log.warn('first poll failed', { user: userId, error: errorMessage(err) }));
+    },
+  });
 
   let closing = false;
   return {
     app,
-    campaign,
     rooms,
     scheduler,
     store,
+    hub,
     async listen() {
       if (background) {
         scheduler.start(clock);
         poller?.start();
-        ticker?.start();
       }
       const address = await app.listen({ port: config.port, host: config.host });
       log.info('pushfront listening', { address });
@@ -96,8 +85,6 @@ export async function createServer(
       closing = true;
       scheduler.stop();
       poller?.stop();
-      ticker?.stop();
-      campaign.snapshot();
       rooms.snapshotAll();
       hub.closeAll();
       await app.close();

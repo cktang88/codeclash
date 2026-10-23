@@ -1,31 +1,34 @@
 import { z } from 'zod';
-import { DAY_MS, isoDay } from '../rules/days.ts';
-import type { Contribution } from '../rules/types.ts';
+import type { ChangedFile } from '../rules/classify.ts';
 
-export const CONTRIBUTION_LOOKBACK_DAYS = 56;
-const GRAPHQL_URL = 'https://api.github.com/graphql';
+const API = 'https://api.github.com';
 const USER_AGENT = 'pushfront';
+const MAX_FILES = 300;
 
-export interface GithubAccount {
-  databaseId: number;
-  nodeId: string;
-  login: string;
-  avatarUrl: string;
-  createdAtMs: number;
-  type: string;
+export interface PushEventLite {
+  id: string;
+  repo: string;
+  createdAt: number;
+  pushId: string;
+  ref: string;
+  before: string;
+  head: string;
 }
 
-export interface RateLimit {
-  limit: number;
-  remaining: number;
-  resetAtMs: number;
-  cost: number;
+export interface CompareResult {
+  commits: { sha: string; authorLogin: string | null; message: string }[];
+  files: ChangedFile[];
 }
 
-export interface ContributionsResult {
-  account: GithubAccount;
-  contributions: Contribution[];
-  rateLimit: RateLimit;
+export type EventsResult =
+  | { status: 304 }
+  | { status: 200; etag: string | null; pollInterval: number | null; events: PushEventLite[] };
+
+export interface GithubClient {
+  userEvents(login: string, etag: string | null): Promise<EventsResult>;
+  compare(repo: string, base: string, head: string): Promise<CompareResult | null>;
+  commit(repo: string, sha: string): Promise<CompareResult | null>;
+  rateLimit(): { remaining: number; resetAtMs: number };
 }
 
 export class GithubError extends Error {
@@ -37,117 +40,51 @@ export class GithubError extends Error {
   }
 }
 
-const USER_FIELDS = `
-      id databaseId login avatarUrl createdAt
-      contributionsCollection(from: $from, to: $to) {
-        commitContributionsByRepository(maxRepositories: 100) {
-          repository { nameWithOwner isPrivate owner { login } primaryLanguage { name } url }
-          contributions(first: 100) { nodes { occurredAt commitCount } }
-        }
-        pullRequestContributions(first: 100) {
-          nodes { pullRequest {
-            id url title merged mergedAt mergedBy { login } author { login }
-            repository { nameWithOwner isPrivate owner { login } primaryLanguage { name } }
-          } }
-        }
-        pullRequestReviewContributions(first: 100) {
-          nodes {
-            occurredAt
-            pullRequestReview { id url }
-            pullRequest { title author { login } repository { nameWithOwner isPrivate primaryLanguage { name } } }
-          }
-        }
-      }`;
+const EventSchema = z
+  .object({
+    id: z.string(),
+    type: z.string().nullable().optional(),
+    public: z.boolean().optional(),
+    created_at: z.string(),
+    repo: z.object({ name: z.string() }).loose(),
+    payload: z
+      .object({
+        push_id: z.union([z.number(), z.string()]).optional(),
+        ref: z.string().nullable().optional(),
+        before: z.string().nullable().optional(),
+        head: z.string().nullable().optional(),
+      })
+      .loose()
+      .optional(),
+  })
+  .loose();
 
-const RATE_LIMIT_FIELDS = 'rateLimit { limit remaining resetAt cost }';
+const FileSchema = z
+  .object({
+    filename: z.string(),
+    status: z.string().optional().default('modified'),
+    additions: z.number().optional().default(0),
+    deletions: z.number().optional().default(0),
+    patch: z.string().nullable().optional(),
+  })
+  .loose();
 
-const CONTRIBUTIONS_QUERY = `
-query Pushfront($id: ID!, $from: DateTime!, $to: DateTime!) {
-  node(id: $id) {
-    __typename
-    ... on Bot { login }
-    ... on User { ${USER_FIELDS} }
-  }
-  ${RATE_LIMIT_FIELDS}
-}`;
+const CommitSchema = z
+  .object({
+    sha: z.string(),
+    author: z.object({ login: z.string() }).loose().nullable().optional(),
+    commit: z.object({ message: z.string() }).loose(),
+  })
+  .loose();
 
-const LOGIN_QUERY = `
-query PushfrontLogin($login: String!, $from: DateTime!, $to: DateTime!) {
-  user(login: $login) { __typename ${USER_FIELDS} }
-  ${RATE_LIMIT_FIELDS}
-}`;
+const CompareSchema = z
+  .object({
+    commits: z.array(CommitSchema).optional().default([]),
+    files: z.array(FileSchema).optional().default([]),
+  })
+  .loose();
 
-const login = z.object({ login: z.string() });
-const language = z.object({ name: z.string() }).nullable();
-
-const RateLimitSchema = z.object({ limit: z.number(), remaining: z.number(), resetAt: z.string(), cost: z.number() });
-
-const UserSchema = z.object({
-  __typename: z.literal('User'),
-  id: z.string(),
-  databaseId: z.number().int(),
-  login: z.string(),
-  avatarUrl: z.string(),
-  createdAt: z.string(),
-  contributionsCollection: z.object({
-    commitContributionsByRepository: z.array(
-      z.object({
-        repository: z.object({
-          nameWithOwner: z.string(),
-          isPrivate: z.boolean(),
-          owner: login,
-          primaryLanguage: language,
-          url: z.string(),
-        }),
-        contributions: z.object({
-          nodes: z.array(z.object({ occurredAt: z.string(), commitCount: z.number().int() }).nullable()),
-        }),
-      }),
-    ),
-    pullRequestContributions: z.object({
-      nodes: z.array(
-        z
-          .object({
-            pullRequest: z.object({
-              id: z.string(),
-              url: z.string(),
-              title: z.string(),
-              merged: z.boolean(),
-              mergedAt: z.string().nullable(),
-              mergedBy: login.nullable(),
-              author: login.nullable(),
-              repository: z.object({ nameWithOwner: z.string(), isPrivate: z.boolean(), owner: login, primaryLanguage: language }),
-            }),
-          })
-          .nullable(),
-      ),
-    }),
-    pullRequestReviewContributions: z.object({
-      nodes: z.array(
-        z
-          .object({
-            occurredAt: z.string(),
-            pullRequestReview: z.object({ id: z.string(), url: z.string() }),
-            pullRequest: z.object({
-              title: z.string(),
-              author: login.nullable(),
-              repository: z.object({ nameWithOwner: z.string(), isPrivate: z.boolean(), primaryLanguage: language.optional() }),
-            }),
-          })
-          .nullable(),
-      ),
-    }),
-  }),
-});
-
-const OwnerSchema = z.object({ __typename: z.string() }).loose().nullable();
-
-const ContributionsResponseSchema = z.object({
-  data: z.union([
-    z.object({ node: OwnerSchema, rateLimit: RateLimitSchema }),
-    z.object({ user: OwnerSchema, rateLimit: RateLimitSchema }),
-  ]),
-});
+const SingleCommitSchema = CommitSchema.extend({ files: z.array(FileSchema).optional().default([]) });
 
 const ViewerSchema = z.object({
   id: z.number().int(),
@@ -160,143 +97,99 @@ const ViewerSchema = z.object({
 
 export type Viewer = z.infer<typeof ViewerSchema>;
 
-type ParsedUser = z.infer<typeof UserSchema>;
-
-function sameLogin(a: string | undefined | null, b: string | undefined | null): boolean {
-  return a != null && b != null && a.toLowerCase() === b.toLowerCase();
-}
-
-function utcDay(iso: string) {
-  return isoDay(Date.parse(iso));
-}
-
-export type LookupResult = ContributionsResult | { notFound: true; rateLimit: RateLimit };
-
-export function parseContributionsResponse(json: unknown): LookupResult {
-  const { data } = ContributionsResponseSchema.parse(json);
-  const rl = data.rateLimit;
-  const rateLimit: RateLimit = { limit: rl.limit, remaining: rl.remaining, resetAtMs: Date.parse(rl.resetAt), cost: rl.cost };
-  const owner = 'node' in data ? data.node : data.user;
-  if (owner?.__typename !== 'User') return { notFound: true, rateLimit };
-  const user = UserSchema.parse(owner);
+function headers(token: string | null, extra: Record<string, string> = {}): Record<string, string> {
   return {
-    account: {
-      databaseId: user.databaseId,
-      nodeId: user.id,
-      login: user.login,
-      avatarUrl: user.avatarUrl,
-      createdAtMs: Date.parse(user.createdAt),
-      type: 'User',
-    },
-    contributions: contributionsOf(user),
-    rateLimit,
+    accept: 'application/vnd.github+json',
+    'x-github-api-version': '2022-11-28',
+    'user-agent': USER_AGENT,
+    ...(token ? { authorization: `Bearer ${token}` } : {}),
+    ...extra,
   };
 }
 
-function contributionsOf(user: ParsedUser): Contribution[] {
-  const out = new Map<string, Contribution>();
-  const cc = user.contributionsCollection;
-
-  for (const { repository: repo, contributions } of cc.commitContributionsByRepository) {
-    if (repo.isPrivate) continue;
-    for (const node of contributions.nodes) {
-      if (!node || node.commitCount <= 0) continue;
-      const day = utcDay(node.occurredAt);
-      const sourceId = `commits:${repo.nameWithOwner}:${day}`;
-      const existing = out.get(sourceId);
-      if (existing) existing.count += node.commitCount;
-      else {
-        out.set(sourceId, {
-          sourceId,
-          kind: 'commits',
-          day,
-          count: node.commitCount,
-          repo: repo.nameWithOwner,
-          url: repo.url,
-          title: null,
-          language: repo.primaryLanguage?.name ?? null,
-        });
-      }
-    }
-  }
-
-  for (const node of cc.pullRequestContributions.nodes) {
-    const pr = node?.pullRequest;
-    if (!pr || pr.repository.isPrivate || !pr.merged || !pr.mergedAt) continue;
-    const author = pr.author?.login ?? user.login;
-    if (!pr.mergedBy || sameLogin(pr.mergedBy.login, author)) continue;
-    if (sameLogin(pr.repository.owner.login, author)) continue;
-    const sourceId = `pr:${pr.id}`;
-    out.set(sourceId, {
-      sourceId,
-      kind: 'merged_pr',
-      day: utcDay(pr.mergedAt),
-      count: 1,
-      repo: pr.repository.nameWithOwner,
-      url: pr.url,
-      title: pr.title,
-      language: pr.repository.primaryLanguage?.name ?? null,
-    });
-  }
-
-  for (const node of cc.pullRequestReviewContributions.nodes) {
-    if (!node || node.pullRequest.repository.isPrivate) continue;
-    if (sameLogin(node.pullRequest.author?.login, user.login)) continue;
-    const sourceId = `review:${node.pullRequestReview.id}`;
-    out.set(sourceId, {
-      sourceId,
-      kind: 'review',
-      day: utcDay(node.occurredAt),
-      count: 1,
-      repo: node.pullRequest.repository.nameWithOwner,
-      url: node.pullRequestReview.url,
-      title: node.pullRequest.title,
-      language: node.pullRequest.repository.primaryLanguage?.name ?? null,
-    });
-  }
-
-  return [...out.values()];
+function repoPath(repo: string): string {
+  return repo.split('/').map(encodeURIComponent).join('/');
 }
 
-export interface GithubClient {
-  fetchContributions(nodeId: string, nowMs: number): Promise<LookupResult>;
-  fetchContributionsByLogin(login: string, nowMs: number): Promise<LookupResult>;
+function toFiles(files: z.infer<typeof FileSchema>[]): ChangedFile[] {
+  return files.slice(0, MAX_FILES).map((f) => ({
+    filename: f.filename,
+    status: f.status,
+    additions: f.additions,
+    deletions: f.deletions,
+    patch: f.patch ?? null,
+  }));
 }
 
-export function createGithubClient(token: string, fetchImpl: typeof fetch = fetch): GithubClient {
-  async function graphql(query: string, variables: Record<string, unknown>): Promise<unknown> {
-    const res = await fetchImpl(GRAPHQL_URL, {
-      method: 'POST',
-      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', 'user-agent': USER_AGENT },
-      body: JSON.stringify({ query, variables }),
-    });
-    if (!res.ok) throw new GithubError(`GitHub GraphQL ${res.status}`, res.status);
-    const body = (await res.json()) as { errors?: { message: string }[] };
-    if (body.errors?.length && !(body as { data?: unknown }).data) {
-      throw new GithubError(`GitHub GraphQL: ${body.errors.map((e) => e.message).join('; ')}`);
-    }
-    return body;
-  }
+function toCommit(c: z.infer<typeof CommitSchema>): CompareResult['commits'][number] {
+  return { sha: c.sha, authorLogin: c.author?.login ?? null, message: c.commit.message };
+}
 
-  const window = (nowMs: number) => ({
-    from: new Date(nowMs - CONTRIBUTION_LOOKBACK_DAYS * DAY_MS).toISOString(),
-    to: new Date(nowMs).toISOString(),
-  });
+export function createGithubClient(token: string | null, fetchImpl: typeof fetch = fetch): GithubClient {
+  const limit = { remaining: token ? 5000 : 60, resetAtMs: 0 };
+
+  const track = (res: Response) => {
+    const remaining = res.headers.get('x-ratelimit-remaining');
+    const reset = res.headers.get('x-ratelimit-reset');
+    if (remaining !== null && Number.isFinite(Number(remaining))) limit.remaining = Number(remaining);
+    if (reset !== null && Number.isFinite(Number(reset))) limit.resetAtMs = Number(reset) * 1000;
+  };
+
+  const get = async (path: string, extra?: Record<string, string>): Promise<Response> => {
+    const res = await fetchImpl(`${API}${path}`, { headers: headers(token, extra) });
+    track(res);
+    return res;
+  };
+
+  const fail = async (res: Response, what: string): Promise<never> => {
+    const body = await res.text().catch(() => '');
+    throw new GithubError(`${what} failed: ${res.status} ${body.slice(0, 200)}`, res.status);
+  };
 
   return {
-    async fetchContributions(nodeId, nowMs) {
-      return parseContributionsResponse(await graphql(CONTRIBUTIONS_QUERY, { id: nodeId, ...window(nowMs) }));
+    async userEvents(login, etag) {
+      const res = await get(`/users/${encodeURIComponent(login)}/events/public?per_page=100`, etag ? { 'if-none-match': etag } : {});
+      if (res.status === 304) return { status: 304 };
+      if (!res.ok) return fail(res, `events for ${login}`);
+      const raw = z.array(z.unknown()).parse(await res.json());
+      const events: PushEventLite[] = [];
+      for (const item of raw) {
+        const parsed = EventSchema.safeParse(item);
+        if (!parsed.success) continue;
+        const e = parsed.data;
+        if (e.type !== 'PushEvent' || e.public === false || !e.payload) continue;
+        const { ref, before, head, push_id } = e.payload;
+        if (!ref || !before || !head) continue;
+        events.push({ id: e.id, repo: e.repo.name, createdAt: Date.parse(e.created_at), pushId: String(push_id ?? e.id), ref, before, head });
+      }
+      const interval = Number(res.headers.get('x-poll-interval'));
+      return { status: 200, etag: res.headers.get('etag'), pollInterval: Number.isFinite(interval) && interval > 0 ? interval : null, events };
     },
-    async fetchContributionsByLogin(loginName, nowMs) {
-      return parseContributionsResponse(await graphql(LOGIN_QUERY, { login: loginName, ...window(nowMs) }));
+
+    async compare(repo, base, head) {
+      const res = await get(`/repos/${repoPath(repo)}/compare/${encodeURIComponent(base)}...${encodeURIComponent(head)}`);
+      if (res.status === 404 || res.status === 422) return null;
+      if (!res.ok) return fail(res, `compare ${repo}`);
+      const body = CompareSchema.parse(await res.json());
+      return { commits: body.commits.map(toCommit), files: toFiles(body.files) };
+    },
+
+    async commit(repo, sha) {
+      const res = await get(`/repos/${repoPath(repo)}/commits/${encodeURIComponent(sha)}`);
+      if (res.status === 404 || res.status === 422) return null;
+      if (!res.ok) return fail(res, `commit ${repo}@${sha}`);
+      const body = SingleCommitSchema.parse(await res.json());
+      return { commits: [toCommit(body)], files: toFiles(body.files) };
+    },
+
+    rateLimit() {
+      return { ...limit };
     },
   };
 }
 
 export async function fetchViewer(token: string, fetchImpl: typeof fetch = fetch): Promise<Viewer> {
-  const res = await fetchImpl('https://api.github.com/user', {
-    headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json', 'user-agent': USER_AGENT },
-  });
-  if (!res.ok) throw new GithubError(`GitHub /user ${res.status}`, res.status);
+  const res = await fetchImpl(`${API}/user`, { headers: headers(token) });
+  if (!res.ok) throw new GithubError(`viewer lookup failed: ${res.status}`, res.status);
   return ViewerSchema.parse(await res.json());
 }

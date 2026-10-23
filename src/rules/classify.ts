@@ -1,0 +1,307 @@
+import { Cat, CAT_COUNT } from '../sim/api.ts';
+import { languageOfPath } from './heraldry.ts';
+
+export interface ChangedFile {
+  filename: string;
+  status: string;
+  additions: number;
+  deletions: number;
+  patch?: string | null;
+}
+
+export interface PushSummary {
+  lines: number[];
+  language: string | null;
+}
+
+export type FileCategory = 'vendor' | 'generated' | 'docs' | 'test' | 'config' | 'source' | 'ignored';
+
+const VENDOR = [
+  /(^|\/)(node_modules|bower_components|vendors?|[Vv]endor|third[-_]?party|3rd[-_]?party|extern(als)?|Godeps|Carthage)\//,
+  /(\.|-)min\.(js|css)$/,
+];
+
+const LOCKFILES = new Set([
+  'package-lock.json', 'npm-shrinkwrap.json', 'pnpm-lock.yaml', 'yarn.lock', 'bun.lock', 'bun.lockb', 'composer.lock',
+  'Cargo.lock', 'poetry.lock', 'uv.lock', 'pdm.lock', 'pixi.lock', 'Pipfile.lock', 'Gemfile.lock', 'Gopkg.lock',
+  'glide.lock', 'go.sum', 'Package.resolved', 'deno.lock', 'flake.lock', '.terraform.lock.hcl', 'mix.lock',
+  'pubspec.lock', 'Podfile.lock', 'packages.lock.json', 'gradle.lockfile',
+]);
+
+const GENERATED = [
+  /(^|\/)(dist|build|out|target|\.next|\.nuxt|coverage|htmlcov|__pycache__|__snapshots__)\//,
+  /\.map$/,
+  /\.pb\.go$/,
+  /\.pb\.(cc|h)$/,
+  /_pb2(_grpc)?\.pyi?$/,
+  /\.(g|freezed)\.dart$/,
+  /[._]generated\.[^/]+$/,
+  /\.gen\.[^/]+$/,
+  /\.snap$/,
+];
+
+const DOC_NAMES = /^(README|CHANGELOG|CHANGES|HISTORY|LICENSE|LICENCE|COPYING|CONTRIBUTING|AUTHORS|CODE_OF_CONDUCT|SECURITY|INSTALL|CITATION|NOTICE)([.-][^/]*)?$/i;
+const DOC_DIRS = /(^|\/)(docs?|documentation|javadoc)\//;
+const DOC_EXTENSIONS = new Set(['md', 'mdx', 'markdown', 'rst', 'adoc', 'asciidoc', 'txt', 'org']);
+const CONFIG_TEXT = /^(requirements.*\.txt|CMakeLists\.txt|constraints\.txt|robots\.txt)$/i;
+
+const TEST_NAMES = [
+  /\.(test|spec|tests|specs)\.[^/.]+$/,
+  /_test\.(go|py|rb|exs|cc|cpp|c|dart|ts|js)$/,
+  /^test_[^/]*\.(py|c|cc|cpp)$/,
+  /^conftest\.py$/,
+  /_spec\.rb$/,
+  /_unittest\.(cc|cpp)$/,
+  /(Tests?|IT|Spec)\.(java|kt|kts|cs|php|scala|swift|groovy)$/,
+];
+const TEST_DIRS = [
+  /(^|\/)(__tests__|__mocks__|tests?|specs?|e2e|cypress|testdata|fixtures|benches|testing)\//,
+  /(^|\/)src\/(test|androidTest|integrationTest)\//,
+  /(^|\/)[\w.-]*Tests?\//,
+];
+
+const CONFIG_NAMES = new Set([
+  'Dockerfile', 'Containerfile', 'Makefile', 'makefile', 'GNUmakefile', 'Jenkinsfile', 'Procfile', 'Vagrantfile',
+  'Gemfile', 'Rakefile', 'Brewfile', 'Justfile', 'justfile', 'Tiltfile', 'BUILD', 'BUILD.bazel', 'WORKSPACE',
+]);
+const CONFIG_EXTENSIONS = new Set([
+  'yml', 'yaml', 'toml', 'ini', 'cfg', 'conf', 'json', 'jsonc', 'json5', 'tf', 'tfvars', 'hcl', 'nix', 'xml', 'plist',
+  'properties', 'env', 'gradle', 'dockerfile', 'editorconfig', 'lock', 'bzl', 'cmake', 'csproj', 'sln', 'mk',
+]);
+const CONFIG_DIRS = /(^|\/)\.(github|circleci|gitlab|husky|vscode|idea|devcontainer|buildkite)\//;
+
+const SOURCE_EXTENSIONS = new Set([
+  'ts', 'tsx', 'mts', 'cts', 'js', 'jsx', 'mjs', 'cjs', 'py', 'pyi', 'go', 'rs', 'java', 'kt', 'kts', 'swift', 'c', 'h',
+  'cc', 'cpp', 'cxx', 'hpp', 'hh', 'hxx', 'cs', 'fs', 'fsx', 'rb', 'php', 'dart', 'scala', 'sc', 'ex', 'exs', 'erl', 'hrl',
+  'hs', 'elm', 'lua', 'sh', 'bash', 'zsh', 'fish', 'ps1', 'html', 'htm', 'css', 'scss', 'sass', 'less', 'vue', 'svelte',
+  'astro', 'zig', 'ml', 'mli', 'clj', 'cljs', 'cljc', 'el', 'lisp', 'jl', 'r', 'm', 'mm', 'pl', 'pm', 'groovy', 'nim',
+  'cr', 'sol', 'sql', 'graphql', 'gql', 'proto', 'v', 'sv', 'vhd', 'tex', 'wgsl', 'glsl', 'hlsl', 'cu', 'gd', 'rkt', 'odin',
+]);
+
+function basename(path: string): string {
+  return path.slice(path.lastIndexOf('/') + 1);
+}
+
+function extension(name: string): string {
+  const dot = name.lastIndexOf('.');
+  return dot <= 0 ? '' : name.slice(dot + 1).toLowerCase();
+}
+
+export function categorizePath(path: string): FileCategory {
+  const name = basename(path);
+  const ext = extension(name);
+  if (VENDOR.some((re) => re.test(path))) return 'vendor';
+  if (LOCKFILES.has(name) || GENERATED.some((re) => re.test(path))) return 'generated';
+  if (!CONFIG_TEXT.test(name) && (DOC_NAMES.test(name) || DOC_EXTENSIONS.has(ext) || DOC_DIRS.test(path))) return 'docs';
+  if (TEST_NAMES.some((re) => re.test(name)) || TEST_DIRS.some((re) => re.test(path))) {
+    return SOURCE_EXTENSIONS.has(ext) || CONFIG_EXTENSIONS.has(ext) || ext === '' ? 'test' : 'ignored';
+  }
+  if (CONFIG_DIRS.test(path) || CONFIG_NAMES.has(name) || CONFIG_TEXT.test(name) || CONFIG_EXTENSIONS.has(ext)) return 'config';
+  if (name.startsWith('Dockerfile') || (name.startsWith('.') && !SOURCE_EXTENSIONS.has(ext))) return 'config';
+  if (SOURCE_EXTENSIONS.has(ext)) return 'source';
+  return 'ignored';
+}
+
+// ------------------------------------------------------------ comments
+
+interface Block {
+  open: string;
+  close: string;
+  /** Only opens when the line starts with it (docstrings, =begin). */
+  startOnly?: boolean;
+}
+
+interface Syntax {
+  line: string[];
+  blocks: Block[];
+}
+
+const C_BLOCK: Block = { open: '/*', close: '*/' };
+const HTML_BLOCK: Block = { open: '<!--', close: '-->' };
+const C_LIKE: Syntax = { line: ['//'], blocks: [C_BLOCK] };
+const HASH: Syntax = { line: ['#'], blocks: [] };
+
+const SYNTAX: Record<string, Syntax> = {
+  py: { line: ['#'], blocks: [{ open: '"""', close: '"""', startOnly: true }, { open: "'''", close: "'''", startOnly: true }] },
+  pyi: { line: ['#'], blocks: [{ open: '"""', close: '"""', startOnly: true }] },
+  rb: { line: ['#'], blocks: [{ open: '=begin', close: '=end', startOnly: true }] },
+  css: { line: [], blocks: [C_BLOCK] },
+  scss: C_LIKE,
+  sass: C_LIKE,
+  less: C_LIKE,
+  php: { line: ['//', '#'], blocks: [C_BLOCK] },
+  html: { line: [], blocks: [HTML_BLOCK] },
+  htm: { line: [], blocks: [HTML_BLOCK] },
+  vue: { line: ['//'], blocks: [C_BLOCK, HTML_BLOCK] },
+  svelte: { line: ['//'], blocks: [C_BLOCK, HTML_BLOCK] },
+  astro: { line: ['//'], blocks: [C_BLOCK, HTML_BLOCK] },
+  lua: { line: ['--'], blocks: [{ open: '--[[', close: ']]' }] },
+  sql: { line: ['--'], blocks: [C_BLOCK] },
+  hs: { line: ['--'], blocks: [{ open: '{-', close: '-}' }] },
+  elm: { line: ['--'], blocks: [{ open: '{-', close: '-}' }] },
+  jl: { line: ['#'], blocks: [{ open: '#=', close: '=#' }] },
+  ml: { line: [], blocks: [{ open: '(*', close: '*)' }] },
+  mli: { line: [], blocks: [{ open: '(*', close: '*)' }] },
+  fs: { line: ['//'], blocks: [{ open: '(*', close: '*)' }] },
+  fsx: { line: ['//'], blocks: [{ open: '(*', close: '*)' }] },
+  clj: { line: [';'], blocks: [] },
+  cljs: { line: [';'], blocks: [] },
+  cljc: { line: [';'], blocks: [] },
+  el: { line: [';'], blocks: [] },
+  lisp: { line: [';'], blocks: [{ open: '#|', close: '|#' }] },
+  rkt: { line: [';'], blocks: [{ open: '#|', close: '|#' }] },
+  erl: { line: ['%'], blocks: [] },
+  hrl: { line: ['%'], blocks: [] },
+  tex: { line: ['%'], blocks: [] },
+  ps1: { line: ['#'], blocks: [{ open: '<#', close: '#>' }] },
+  pl: { line: ['#'], blocks: [{ open: '=pod', close: '=cut', startOnly: true }] },
+  pm: { line: ['#'], blocks: [{ open: '=pod', close: '=cut', startOnly: true }] },
+  nim: { line: ['#'], blocks: [{ open: '#[', close: ']#' }] },
+  sh: HASH, bash: HASH, zsh: HASH, fish: HASH, r: HASH, ex: HASH, exs: HASH, cr: HASH, gd: HASH,
+  graphql: HASH, gql: HASH,
+};
+
+export function syntaxFor(path: string): Syntax {
+  return SYNTAX[extension(basename(path))] ?? C_LIKE;
+}
+
+type LineKind = 'code' | 'comment' | 'blank';
+
+/** Classifies one source line, updating the open block comment (if any). */
+export function classifyLine(text: string, syntax: Syntax, state: { block: Block | null }): LineKind {
+  const t = text.trim();
+  if (t === '') return 'blank';
+  if (state.block) {
+    const end = t.indexOf(state.block.close);
+    if (end >= 0) state.block = null;
+    return 'comment';
+  }
+  for (const marker of syntax.line) if (t.startsWith(marker) && !opensBlockAt(t, syntax, 0)) return 'comment';
+  for (const b of syntax.blocks) {
+    if (!t.startsWith(b.open)) continue;
+    if (t.indexOf(b.close, b.open.length) < 0) state.block = b;
+    return 'comment';
+  }
+  // A code line may open a block comment that continues on the following lines.
+  for (const b of syntax.blocks) {
+    if (b.startOnly) continue;
+    const open = t.lastIndexOf(b.open);
+    if (open > 0 && t.indexOf(b.close, open + b.open.length) < 0) state.block = b;
+  }
+  return 'code';
+}
+
+function opensBlockAt(t: string, syntax: Syntax, at: number): boolean {
+  return syntax.blocks.some((b) => t.startsWith(b.open, at) && b.open.length > 1);
+}
+
+// ------------------------------------------------------------ summary
+
+const MINIFIED_AVERAGE = 110;
+const GENERATED_MARKER = /@generated|DO NOT EDIT|auto-generated|autogenerated|Code generated by/i;
+const HEADER_LINES = 5;
+
+interface PatchLines {
+  added: string[];
+  /** Added lines with their place in the new file, interleaved with context for comment tracking. */
+  newFile: { text: string; added: boolean; hunk: number }[];
+  removed: string[];
+}
+
+function splitPatch(patch: string): PatchLines {
+  const out: PatchLines = { added: [], newFile: [], removed: [] };
+  let hunk = 0;
+  for (const line of patch.split('\n')) {
+    if (line.startsWith('@@')) {
+      hunk++;
+      continue;
+    }
+    if (line.startsWith('\\')) continue;
+    const mark = line[0];
+    const text = line.slice(1);
+    if (mark === '+') {
+      out.added.push(text);
+      out.newFile.push({ text, added: true, hunk });
+    } else if (mark === '-') {
+      out.removed.push(text);
+    } else {
+      out.newFile.push({ text, added: false, hunk });
+    }
+  }
+  return out;
+}
+
+function isGeneratedContent(category: FileCategory, ext: string, added: readonly string[]): boolean {
+  if (added.slice(0, HEADER_LINES).some((l) => GENERATED_MARKER.test(l))) return true;
+  if (category !== 'source' || added.length === 0) return false;
+  if (!['js', 'mjs', 'cjs', 'css', 'ts', 'jsx', 'tsx', 'html'].includes(ext)) return false;
+  const chars = added.reduce((n, l) => n + l.length, 0);
+  return chars / added.length > MINIFIED_AVERAGE;
+}
+
+const CATEGORY_CAT: Record<Exclude<FileCategory, 'source' | 'ignored'>, Cat> = {
+  vendor: Cat.Vendor,
+  generated: Cat.Generated,
+  docs: Cat.Docs,
+  test: Cat.Test,
+  config: Cat.Config,
+};
+
+export function summarizeFiles(files: readonly ChangedFile[]): PushSummary {
+  const lines = new Array<number>(CAT_COUNT).fill(0);
+  const codeByLanguage = new Map<string, number>();
+  for (const file of files) {
+    let category = categorizePath(file.filename);
+    if (category === 'ignored') continue;
+    const ext = extension(basename(file.filename));
+    const patch = file.patch ? splitPatch(file.patch) : null;
+    if (patch && category !== 'vendor' && category !== 'generated' && isGeneratedContent(category, ext, patch.added)) category = 'generated';
+
+    if (category !== 'source') {
+      const cat = CATEGORY_CAT[category];
+      if (!patch) {
+        lines[cat]! += Math.max(0, file.additions);
+        continue;
+      }
+      for (const text of patch.added) {
+        if (text.trim() !== '') lines[cat]!++;
+        else if (category === 'test') lines[Cat.Blank]!++;
+      }
+      continue;
+    }
+
+    let code = 0;
+    if (!patch) {
+      code = Math.max(0, file.additions);
+      lines[Cat.Removed]! += Math.max(0, file.deletions);
+    } else {
+      const syntax = syntaxFor(file.filename);
+      const state: { block: Block | null } = { block: null };
+      let hunk = -1;
+      for (const l of patch.newFile) {
+        if (l.hunk !== hunk) {
+          hunk = l.hunk;
+          state.block = null;
+        }
+        const kind = classifyLine(l.text, syntax, state);
+        if (!l.added) continue;
+        if (kind === 'code') code++;
+        else if (kind === 'comment') lines[Cat.Comment]!++;
+        else lines[Cat.Blank]!++;
+      }
+      for (const text of patch.removed) if (text.trim() !== '') lines[Cat.Removed]!++;
+    }
+    lines[Cat.Code]! += code;
+    const language = languageOfPath(file.filename);
+    if (language && code > 0) codeByLanguage.set(language, (codeByLanguage.get(language) ?? 0) + code);
+  }
+  let language: string | null = null;
+  let best = 0;
+  for (const [lang, n] of codeByLanguage) {
+    if (n > best || (n === best && language !== null && lang < language)) {
+      language = lang;
+      best = n;
+    }
+  }
+  return { lines, language };
+}

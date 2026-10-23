@@ -1,115 +1,191 @@
-import type { PlayerRow, Store } from './db.ts';
-import type { GithubClient, RateLimit } from './github.ts';
-import type { Ingest } from './ingest.ts';
+import { CAT_COUNT } from '../sim/api.ts';
+import { summarizeFiles } from '../rules/classify.ts';
+import type { Store, UserRow } from './db.ts';
+import type { CompareResult, GithubClient } from './github.ts';
 import { errorMessage, type Logger } from './log.ts';
 
-export const POLL_PERIOD_MS = 10 * 60_000;
-export const BUDGET_FRACTION = 0.6;
-const HOUR_MS = 3_600_000;
-const MIN_GAP_MS = 1000;
-const BACKOFF_BASE_MS = 30_000;
-const BACKOFF_MAX_MS = HOUR_MS;
+export interface PushReport {
+  userId: number;
+  pushId: string;
+  repo: string;
+  language: string | null;
+  lines: number[];
+  commits: number;
+  message: string;
+  at: number;
+}
 
 export interface PollerDeps {
   store: Store;
   github: GithubClient;
-  ingest: Ingest;
   log: Logger;
-  clock?: () => number;
+  clock: () => number;
+  onPush: (report: PushReport) => void;
+}
+
+export const MIN_POLL_MS = 60_000;
+export const FIRST_POLL_WINDOW_MS = 24 * 3_600_000;
+export const TICK_MS = 5_000;
+const BUDGET_SHARE = 0.6;
+const MESSAGE_MAX = 72;
+const ZERO_SHA = /^0+$/;
+
+export interface PushRef {
+  repo: string;
+  ref: string;
+  before: string;
+  head: string;
+  at: number;
+}
+
+export function pushIdOf(repo: string, head: string): string {
+  return `${repo}@${head}`;
+}
+
+function headline(message: string): string {
+  const first = message.split('\n', 1)[0]!.trim();
+  return first.length > MESSAGE_MAX ? `${first.slice(0, MESSAGE_MAX - 1)}…` : first;
+}
+
+function compareIds(a: string, b: string): number {
+  if (/^\d+$/.test(a) && /^\d+$/.test(b)) {
+    const x = BigInt(a);
+    const y = BigInt(b);
+    return x < y ? -1 : x > y ? 1 : 0;
+  }
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+/**
+ * Turns one push into a report, once. Shared by the poller and the webhook so a
+ * push delivered by both counts a single time: both use `${repo}@${head}` as the
+ * push id, and commits already claimed by the user are never counted again.
+ */
+export async function ingestPush(
+  deps: Pick<PollerDeps, 'store' | 'github' | 'clock' | 'onPush'>,
+  user: UserRow,
+  push: PushRef,
+): Promise<PushReport | null> {
+  const { store, github } = deps;
+  if (!push.ref.startsWith('refs/heads/') || ZERO_SHA.test(push.head)) return null;
+  const pushId = pushIdOf(push.repo, push.head);
+  if (store.hasPush(user.id, pushId)) return null;
+
+  let result: CompareResult | null = null;
+  if (!ZERO_SHA.test(push.before)) result = await github.compare(push.repo, push.before, push.head);
+  result ??= await github.commit(push.repo, push.head);
+  if (!result || result.commits.length === 0) return null;
+
+  const login = user.login.toLowerCase();
+  const own = result.commits.filter((c) => c.authorLogin === null || c.authorLogin.toLowerCase() === login);
+  const fresh = new Set(store.claimCommits(user.id, own.map((c) => c.sha), deps.clock()));
+  const counted = own.filter((c) => fresh.has(c.sha));
+  if (counted.length === 0) return null;
+
+  const summary = summarizeFiles(result.files);
+  // Other people's commits in the range (a merged base, a co-worker's work) do not raise soldiers.
+  const share = counted.length / result.commits.length;
+  const lines = summary.lines.map((n) => (share < 1 ? Math.floor(n * share) : n));
+  while (lines.length < CAT_COUNT) lines.push(0);
+
+  const report: PushReport = {
+    userId: user.id,
+    pushId,
+    repo: push.repo,
+    language: summary.language,
+    lines,
+    commits: counted.length,
+    message: headline(counted[counted.length - 1]!.message),
+    at: push.at,
+  };
+  if (!store.recordPush(report)) return null;
+  deps.onPush(report);
+  return report;
 }
 
 export class Poller {
-  private rate: RateLimit | null = null;
-  private failures = new Map<number, { count: number; until: number }>();
-  private inFlight = new Set<number>();
   private timer: NodeJS.Timeout | null = null;
-  private stopped = true;
-  private readonly clock: () => number;
+  private running = false;
+  private pollIntervalMs = MIN_POLL_MS;
+  private inFlight = new Map<number, Promise<void>>();
 
-  constructor(private readonly deps: PollerDeps) {
-    this.clock = deps.clock ?? Date.now;
-  }
+  constructor(private readonly deps: PollerDeps) {}
 
   start(): void {
-    this.stopped = false;
-    this.schedule(0);
+    if (this.timer) return;
+    this.timer = setInterval(() => void this.tick(), TICK_MS);
   }
 
   stop(): void {
-    this.stopped = true;
-    if (this.timer) clearTimeout(this.timer);
+    if (this.timer) clearInterval(this.timer);
+    this.timer = null;
   }
 
-  gapMs(players: number): number {
-    const spread = POLL_PERIOD_MS / Math.max(1, players);
-    if (!this.rate) return Math.max(MIN_GAP_MS, spread);
-    const pollsPerHour = (this.rate.limit * BUDGET_FRACTION) / Math.max(1, this.rate.cost);
-    return Math.max(MIN_GAP_MS, spread, HOUR_MS / pollsPerHour);
+  /** How many users this tick may poll without spending more than our share of the rate limit. */
+  budget(now: number): number {
+    const { remaining, resetAtMs } = this.deps.github.rateLimit();
+    const window = Math.max(60_000, resetAtMs - now);
+    return Math.max(0, Math.floor((remaining * BUDGET_SHARE * TICK_MS) / window));
   }
 
-  nextDue(now: number): PlayerRow | null {
-    const due = this.campaignPlayers()
-      .filter((p) => !this.inFlight.has(p.id))
-      .filter((p) => p.lastPolledAt === null || now - p.lastPolledAt >= POLL_PERIOD_MS)
-      .filter((p) => (this.failures.get(p.id)?.until ?? 0) <= now)
-      .sort((a, b) => (a.lastPolledAt ?? -1) - (b.lastPolledAt ?? -1) || a.id - b.id);
-    return due[0] ?? null;
-  }
-
-  async pollNow(playerId: number): Promise<void> {
-    const player = this.deps.store.player(playerId);
-    if (player && !player.demo && player.enlistedAt !== null) await this.poll(player);
-  }
-
-  private campaignPlayers(): PlayerRow[] {
-    return this.deps.store.enlistedPlayers().filter((p) => !p.demo);
-  }
-
-  private schedule(delay: number): void {
-    if (this.stopped) return;
-    this.timer = setTimeout(() => void this.loop(), delay);
-  }
-
-  private async loop(): Promise<void> {
-    let delay = MIN_GAP_MS;
+  async tick(): Promise<void> {
+    if (this.running) return;
+    this.running = true;
     try {
-      const now = this.clock();
-      const reserve = this.rate ? this.rate.limit * (1 - BUDGET_FRACTION) : 0;
-      if (this.rate && this.rate.remaining <= reserve && now < this.rate.resetAtMs) {
-        delay = this.rate.resetAtMs - now + MIN_GAP_MS;
-        this.deps.log.warn('poller pausing for rate limit reset', { resumeInMs: delay });
-      } else {
-        const player = this.nextDue(now);
-        if (player) {
-          await this.poll(player);
-          delay = this.gapMs(this.campaignPlayers().length);
-        }
-      }
-    } catch (err) {
-      this.deps.log.error('poller loop failed', { error: errorMessage(err) });
-    }
-    this.schedule(delay);
-  }
-
-  private async poll(player: PlayerRow): Promise<void> {
-    if (this.inFlight.has(player.id)) return;
-    this.inFlight.add(player.id);
-    try {
-      const result = await this.deps.github.fetchContributions(player.nodeId, this.clock());
-      this.rate = result.rateLimit;
-      if ('notFound' in result) throw new Error('GitHub user not found');
-      if (result.account.databaseId !== player.id) throw new Error('node id resolved to a different account');
-      this.deps.store.refreshIdentity(player.id, result.account.login, result.account.avatarUrl);
-      this.deps.ingest.apply(player.id, result.contributions, this.clock());
-      this.failures.delete(player.id);
-    } catch (err) {
-      const count = (this.failures.get(player.id)?.count ?? 0) + 1;
-      const backoff = Math.min(BACKOFF_MAX_MS, BACKOFF_BASE_MS * 2 ** (count - 1));
-      this.failures.set(player.id, { count, until: this.clock() + backoff });
-      this.deps.store.markPollError(player.id, errorMessage(err));
-      this.deps.log.warn('poll failed', { player: player.id, login: player.login, error: errorMessage(err), backoffMs: backoff });
+      const now = this.deps.clock();
+      const interval = Math.max(MIN_POLL_MS, this.pollIntervalMs);
+      const due = this.deps.store.pollableUsers().filter((u) => u.lastPolledAt === null || now - u.lastPolledAt >= interval);
+      // At least one user per tick keeps the feed moving, even when the budget rounds down.
+      const budget = Math.max(this.deps.github.rateLimit().remaining > 50 ? 1 : 0, this.budget(now));
+      for (const user of due.slice(0, budget)) await this.pollUser(user.id);
     } finally {
-      this.inFlight.delete(player.id);
+      this.running = false;
+    }
+  }
+
+  pollUser(userId: number): Promise<void> {
+    const pending = this.inFlight.get(userId);
+    if (pending) return pending;
+    const run = this.poll(userId).finally(() => this.inFlight.delete(userId));
+    this.inFlight.set(userId, run);
+    return run;
+  }
+
+  private async poll(userId: number): Promise<void> {
+    const { store, github, log, clock } = this.deps;
+    const user = store.user(userId);
+    if (!user || user.bot) return;
+    const now = clock();
+    let etag = user.eventsEtag;
+    let lastEventId = user.lastEventId;
+    try {
+      const res = await github.userEvents(user.login, etag);
+      if (res.status === 304) {
+        store.setPollState(user.id, { etag, lastEventId, at: now, error: null });
+        return;
+      }
+      if (res.pollInterval) this.pollIntervalMs = res.pollInterval * 1000;
+      const events = res.events.slice().sort((a, b) => compareIds(a.id, b.id));
+      const since = lastEventId;
+      const fresh = events.filter((e) => (since !== null ? compareIds(e.id, since) > 0 : e.createdAt >= now - FIRST_POLL_WINDOW_MS));
+      etag = res.etag;
+      for (const e of fresh) {
+        try {
+          await ingestPush(this.deps, user, { repo: e.repo, ref: e.ref, before: e.before, head: e.head, at: e.createdAt });
+        } catch (err) {
+          // Stop here and refetch next time so this push is retried, not skipped.
+          store.setPollState(user.id, { etag: null, lastEventId, at: now, error: errorMessage(err) });
+          log.warn('push ingestion failed', { user: user.login, repo: e.repo, error: errorMessage(err) });
+          return;
+        }
+        lastEventId = e.id;
+      }
+      const newest = events[events.length - 1];
+      if (newest && (lastEventId === null || compareIds(newest.id, lastEventId) > 0)) lastEventId = newest.id;
+      store.setPollState(user.id, { etag, lastEventId, at: now, error: null });
+    } catch (err) {
+      store.setPollState(user.id, { etag, lastEventId, at: now, error: errorMessage(err) });
+      log.warn('event poll failed', { user: user.login, error: errorMessage(err) });
     }
   }
 }

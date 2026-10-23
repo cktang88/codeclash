@@ -1,20 +1,16 @@
 import { TICK_MS } from '../sim/api.ts';
-import { MAX_STEPS_PER_LOOP, type Battle } from './battle.ts';
 import { errorMessage, type Logger } from './log.ts';
+import type { Rooms } from './rooms.ts';
 
-const RECONCILE_MS = 2000;
+export const MAX_STEPS_PER_LOOP = 60;
+const RECONCILE_MS = 1000;
 
-export interface Lifecycle {
-  readonly name: string;
-  battles(): Battle[];
-  reconcile(now: number): void;
-}
-
+/** Steps every room's war to wall-clock time and runs the daily lifecycle. */
 export class Scheduler {
   private timers: NodeJS.Timeout[] = [];
 
   constructor(
-    private readonly lifecycles: readonly Lifecycle[],
+    private readonly rooms: Rooms,
     private readonly log: Logger,
   ) {}
 
@@ -28,33 +24,31 @@ export class Scheduler {
     this.timers = [];
   }
 
-  // Round-robin one step at a time so a world catching up cannot starve the others,
+  // Round-robin one step at a time so a war catching up cannot starve the others,
   // and the shared budget bounds how long one interval can hold the event loop.
   tick(now: number, budget: number = MAX_STEPS_PER_LOOP): void {
-    let behind = this.lifecycles.flatMap((l) => l.battles()).filter((b) => b.behind(now));
+    let behind = this.rooms.wars().filter((w) => w.behind(now));
     let spent = 0;
     while (spent < budget && behind.length > 0) {
-      for (const b of behind) {
+      for (const w of behind) {
         if (spent >= budget) break;
         spent++;
         try {
-          b.step();
+          w.step();
         } catch (err) {
-          this.log.error('tick failed', { round: b.round.id, room: b.round.roomSlug, error: errorMessage(err) });
-          behind = behind.filter((x) => x !== b);
+          this.log.error('tick failed', { war: w.id, error: errorMessage(err) });
+          behind = behind.filter((x) => x !== w);
         }
       }
-      behind = behind.filter((b) => b.behind(now));
+      behind = behind.filter((w) => w.behind(now));
     }
   }
 
   reconcile(now: number): void {
-    for (const l of this.lifecycles) {
-      try {
-        l.reconcile(now);
-      } catch (err) {
-        this.log.error(`${l.name} reconcile failed`, { error: errorMessage(err) });
-      }
+    try {
+      this.rooms.reconcile(now);
+    } catch (err) {
+      this.log.error('reconcile failed', { error: errorMessage(err) });
     }
   }
 }

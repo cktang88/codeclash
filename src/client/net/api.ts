@@ -1,61 +1,71 @@
-import type { CreateRoomResponse, ProfileResponse, RoomsResponse, StandingsResponse } from '../../protocol.ts';
+import type {
+  CommandRequest,
+  CreateRoomRequest,
+  DigestResponse,
+  HookResponse,
+  KeyframeResponse,
+  LobbyResponse,
+  MeResponse,
+  ProfileResponse,
+  RoomDetail,
+  UpdateRoomRequest,
+  WarSummary,
+} from '../../protocol.ts';
+import type { ChronicleEntry } from '../../sim/chronicle.ts';
+import type { Replay } from '../../sim/replay.ts';
 
-export interface Api {
-  standings(): Promise<StandingsResponse>;
-  profile(playerId: number): Promise<ProfileResponse | null>;
-  rooms(): Promise<RoomsResponse>;
-  createRoom(logins: string[]): Promise<CreateRoomResponse>;
+export class ApiError extends Error {
+  constructor(
+    readonly status: number,
+    readonly code: string,
+    message: string,
+  ) {
+    super(message);
+  }
 }
 
-async function getJson<T>(url: string): Promise<T | null> {
-  const res = await fetch(url, { headers: { accept: 'application/json' } });
-  if (res.status === 404) return null;
-  if (!res.ok) throw new Error(`${url} answered ${res.status}`);
-  return (await res.json()) as T;
+async function call<T>(method: string, url: string, body?: unknown): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method,
+      credentials: 'same-origin',
+      headers: body === undefined ? { accept: 'application/json' } : { accept: 'application/json', 'content-type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  } catch {
+    throw new ApiError(0, 'offline', 'The war office did not answer. Check your connection and try again.');
+  }
+  if (res.status === 204) return undefined as T;
+  const json: unknown = await res.json().catch(() => null);
+  if (!res.ok) {
+    const err = (json ?? {}) as { error?: string; message?: string };
+    throw new ApiError(res.status, err.error ?? 'error', err.message ?? `Request failed (${res.status}).`);
+  }
+  return json as T;
 }
 
-const UNREACHABLE: CreateRoomResponse = { ok: false, error: 'internal_error', message: 'The war office did not answer. Try again in a moment.' };
+const enc = encodeURIComponent;
 
-export const httpApi: Api = {
-  async standings() {
-    return (await getJson<StandingsResponse>('/api/standings')) ?? { lifetime: [] };
-  },
-  profile(playerId) {
-    return getJson<ProfileResponse>(`/api/players/${playerId}`);
-  },
-  async rooms() {
-    return (await getJson<RoomsResponse>('/api/rooms')) ?? { live: [], recent: [] };
-  },
-  async createRoom(logins) {
-    try {
-      const res = await fetch('/api/rooms', {
-        method: 'POST',
-        headers: { accept: 'application/json', 'content-type': 'application/json' },
-        body: JSON.stringify({ logins }),
-      });
-      const body: unknown = await res.json().catch(() => null);
-      if (typeof body === 'object' && body !== null && 'ok' in body) return body as CreateRoomResponse;
-      if (res.status === 429) return { ok: false, error: 'rate_limited', message: 'Too many battles started from here. Wait a minute and try again.' };
-      return UNREACHABLE;
-    } catch {
-      return UNREACHABLE;
-    }
-  },
+export const api = {
+  me: () => call<MeResponse>('GET', '/api/me'),
+  lobby: () => call<LobbyResponse>('GET', '/api/rooms'),
+  createRoom: (req: CreateRoomRequest) => call<{ slug: string }>('POST', '/api/rooms', req),
+  room: (slug: string, invite?: string | null) => call<RoomDetail>('GET', `/api/rooms/${enc(slug)}${invite ? `?invite=${enc(invite)}` : ''}`),
+  updateRoom: (slug: string, req: UpdateRoomRequest) => call<RoomDetail>('PATCH', `/api/rooms/${enc(slug)}`, req),
+  deleteRoom: (slug: string) => call<void>('DELETE', `/api/rooms/${enc(slug)}`),
+  joinRoom: (slug: string, invite?: string | null) => call<RoomDetail>('POST', `/api/rooms/${enc(slug)}/join`, { invite: invite ?? null }),
+  leaveRoom: (slug: string) => call<void>('POST', `/api/rooms/${enc(slug)}/leave`),
+  rotateInvite: (slug: string) => call<RoomDetail>('POST', `/api/rooms/${enc(slug)}/invite`),
+  removeMember: (slug: string, userId: number) => call<RoomDetail>('DELETE', `/api/rooms/${enc(slug)}/members/${userId}`),
+  command: (slug: string, cmd: CommandRequest) => call<{ tick: number }>('POST', `/api/rooms/${enc(slug)}/command`, cmd),
+  wars: (slug: string) => call<{ wars: WarSummary[] }>('GET', `/api/rooms/${enc(slug)}/wars`),
+  digest: (slug: string, warId: number) => call<DigestResponse>('GET', `/api/rooms/${enc(slug)}/wars/${warId}/digest`),
+  replay: (slug: string, warId: number) => call<Replay>('GET', `/api/rooms/${enc(slug)}/wars/${warId}/replay`),
+  keyframe: (slug: string, warId: number, tick: number) => call<KeyframeResponse | null>('GET', `/api/rooms/${enc(slug)}/wars/${warId}/keyframe?tick=${tick}`),
+  chronicleSince: (slug: string, since: number) => call<{ entries: ChronicleEntry[] }>('GET', `/api/rooms/${enc(slug)}/chronicle?since=${since}`),
+  profile: (login: string) => call<ProfileResponse>('GET', `/api/users/${enc(login)}`),
+  setResting: (on: boolean) => call<void>('POST', '/api/me/rest', { on }),
+  rotateHook: () => call<HookResponse>('POST', '/api/me/hook'),
+  logout: () => call<void>('POST', '/auth/logout'),
 };
-
-export interface MockApiSource {
-  standings(): StandingsResponse;
-  profile(playerId: number): ProfileResponse | null;
-  rooms(): RoomsResponse;
-  createRoom(logins: string[]): CreateRoomResponse;
-}
-
-export function mockApi(source: MockApiSource): Api {
-  const later = <T,>(value: T, ms = 180) => new Promise<T>((resolve) => setTimeout(() => resolve(structuredClone(value)), ms));
-  return {
-    standings: () => later(source.standings()),
-    profile: (id) => later(source.profile(id)),
-    rooms: () => later(source.rooms()),
-    createRoom: (logins) => later(source.createRoom(logins), 650),
-  };
-}

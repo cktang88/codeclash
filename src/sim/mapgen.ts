@@ -1,78 +1,71 @@
-import { NEUTRAL, Terrain, type MapDef, type ObjectiveDef, type RoundParams } from './api.ts';
+import { Terrain, type MapDef, type SiteDef, type WarParams } from './api.ts';
+import { dcos, dsin, PI, TAU } from './dmath.ts';
 import { buildFlowField, cellAt, isPassable } from './flowfield.ts';
-import { hexesInDisc } from './hex.ts';
-import { MAX_ALIVE } from './stats.ts';
 
 export const NAV_CELL = 16;
-export const HEX_SIZE = 44;
-const AREA_PER_UNIT = 1100;
-const MIN_RADIUS = 700;
-const BASE_RING = 0.82;
+export const MIN_SLOTS = 4;
+export const MAX_SLOTS = 16;
+const CAPITAL_RING = 0.84;
+const SHRINE_RING = 0.46;
 const MAX_ATTEMPTS = 12;
 
-export function mapRadius(expectedUnits: number): number {
-  const units = Math.min(MAX_ALIVE, Math.max(1, expectedUnits));
-  return Math.max(MIN_RADIUS, Math.sqrt((units * AREA_PER_UNIT) / Math.PI));
+export function mapRadius(slots: number): number {
+  return 420 + 90 * slots;
 }
 
-export function generateMap(params: RoundParams): MapDef {
-  const factions = Math.min(8, Math.max(1, Math.floor(params.factionCount)));
-  const radius = mapRadius(params.expectedUnits);
-  const objectives = placeObjectives(factions, radius, params.expectedUnits);
+export function slotsFor(members: number): number {
+  return Math.min(MAX_SLOTS, Math.max(MIN_SLOTS, members + 2));
+}
+
+export function generateMap(params: WarParams): MapDef {
+  const slots = Math.min(MAX_SLOTS, Math.max(MIN_SLOTS, Math.floor(params.slots)));
+  const radius = mapRadius(slots);
+  const sites = placeSites(slots, radius);
   const navCols = Math.ceil((radius * 2) / NAV_CELL) + 2;
   const base: Omit<MapDef, 'terrain'> = {
     radius,
+    slots,
     navCell: NAV_CELL,
     navCols,
     navRows: navCols,
     originX: -(navCols * NAV_CELL) / 2,
     originY: -(navCols * NAV_CELL) / 2,
-    hexSize: HEX_SIZE,
-    hexes: hexesInDisc(radius, HEX_SIZE),
-    objectives,
+    sites,
   };
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-    const map = { ...base, terrain: paintTerrain(base, factions, mixSeed(params.seed, attempt), true) };
-    if (allObjectivesReachable(map)) return map;
+    const map = { ...base, terrain: paintTerrain(base, mixSeed(params.seed, attempt), true) };
+    if (allSitesReachable(map)) return map;
   }
-  return { ...base, terrain: paintTerrain(base, factions, params.seed, false) };
+  return { ...base, terrain: paintTerrain(base, params.seed, false) };
 }
 
-function placeObjectives(factions: number, radius: number, expectedUnits: number): ObjectiveDef[] {
-  const sector = (Math.PI * 2) / factions;
-  const angle0 = -Math.PI / 2;
-  const objectives: ObjectiveDef[] = [];
-  const at = (a: number, r: number) => ({ x: Math.cos(a) * r * radius, y: Math.sin(a) * r * radius });
-  const strongholdGarrison = Math.max(4, Math.round(expectedUnits / (8 * factions)));
-  const citadelGarrison = Math.max(8, Math.round(expectedUnits / (3 * factions)));
-  for (let f = 0; f < factions; f++) {
-    objectives.push({
-      id: objectives.length, kind: 'base', ...at(angle0 + f * sector, BASE_RING),
-      radius: 80, pointsPerSecond: 0, homeFaction: f, garrison: 0,
-    });
-  }
-  for (let f = 0; f < factions; f++) {
-    objectives.push({
-      id: objectives.length, kind: 'stronghold', ...at(angle0 + f * sector, 0.48),
-      radius: 60, pointsPerSecond: 5, homeFaction: NEUTRAL, garrison: strongholdGarrison,
-    });
-    objectives.push({
-      id: objectives.length, kind: 'stronghold', ...at(angle0 + (f + 0.5) * sector, 0.68),
-      radius: 60, pointsPerSecond: 5, homeFaction: NEUTRAL, garrison: strongholdGarrison,
-    });
-  }
-  objectives.push({
-    id: objectives.length, kind: 'citadel', x: 0, y: 0,
-    radius: 90, pointsPerSecond: 15, homeFaction: NEUTRAL, garrison: citadelGarrison,
-  });
-  return objectives;
+/** Angle of slot `s`; slot 0 sits at the top of the map. */
+export function slotAngle(slot: number, slots: number): number {
+  return -PI / 2 + (slot * TAU) / slots;
 }
 
-function paintTerrain(map: Omit<MapDef, 'terrain'>, factions: number, seed: number, obstacles: boolean): Uint8Array {
-  const { navCols: cols, navRows: rows, navCell, originX, originY, radius, objectives } = map;
+function placeSites(slots: number, radius: number): SiteDef[] {
+  const sites: SiteDef[] = [];
+  for (let s = 0; s < slots; s++) {
+    const a = slotAngle(s, slots);
+    sites.push({ id: sites.length, kind: 'capital', x: dcos(a) * radius * CAPITAL_RING, y: dsin(a) * radius * CAPITAL_RING, radius: 70, slot: s, renown: 0 });
+  }
+  for (let s = 0; s < slots; s++) {
+    const a = slotAngle(s + 0.5, slots);
+    sites.push({ id: sites.length, kind: 'shrine', x: dcos(a) * radius * SHRINE_RING, y: dsin(a) * radius * SHRINE_RING, radius: 55, slot: -1, renown: 2 });
+  }
+  sites.push({ id: sites.length, kind: 'heart', x: 0, y: 0, radius: 85, slot: -1, renown: 8 });
+  return sites;
+}
+
+function paintTerrain(map: Omit<MapDef, 'terrain'>, seed: number, obstacles: boolean): Uint8Array {
+  const { navCols: cols, navRows: rows, navCell, originX, originY, radius, sites, slots } = map;
   const terrain = new Uint8Array(cols * rows);
-  const sector = (Math.PI * 2) / factions;
-  const angle0 = -Math.PI / 2;
+  // Rotations that carry each sector back onto sector 0, so all slots share one terrain.
+  const rot: { c: number; s: number }[] = [];
+  for (let k = 0; k < slots; k++) rot.push({ c: dcos((-k * TAU) / slots), s: dsin((-k * TAU) / slots) });
+  const edge0 = { x: dcos(slotAngle(-0.5, slots)), y: dsin(slotAngle(-0.5, slots)) };
+  const edge1 = { x: dcos(slotAngle(0.5, slots)), y: dsin(slotAngle(0.5, slots)) };
   for (let cy = 0; cy < rows; cy++) {
     for (let cx = 0; cx < cols; cx++) {
       const x = originX + (cx + 0.5) * navCell;
@@ -83,16 +76,23 @@ function paintTerrain(map: Omit<MapDef, 'terrain'>, factions: number, seed: numb
         terrain[i] = Terrain.Void;
         continue;
       }
-      if (nearObjective(objectives, x, y)) continue;
-      let a = (Math.atan2(y, x) - angle0) % sector;
-      if (a < 0) a += sector;
-      const sx = Math.cos(a) * r;
-      const sy = Math.sin(a) * r;
-      const edge = 1 - Math.max(0, (r - radius * 0.93) / (radius * 0.07));
-      const blocker = fbm(seed, sx / 150, sy / 150) * edge;
-      const wood = fbm(seed + 7919, sx / 110, sy / 110);
-      if (obstacles && blocker > 0.625) {
-        terrain[i] = fbm(seed + 104729, sx / 260, sy / 260) > 0.5 ? Terrain.Water : Terrain.Rock;
+      if (nearSite(sites, x, y) || nearLane(sites, slots, x, y)) continue;
+      let sx = x;
+      let sy = y;
+      for (const { c, s } of rot) {
+        const rx = x * c - y * s;
+        const ry = x * s + y * c;
+        if (edge0.x * ry - edge0.y * rx >= 0 && rx * edge1.y - ry * edge1.x > 0) {
+          sx = rx;
+          sy = ry;
+          break;
+        }
+      }
+      const fade = 1 - Math.max(0, (r - radius * 0.93) / (radius * 0.07));
+      const blocker = fbm(seed, sx / 140, sy / 140) * fade;
+      const wood = fbm(seed + 7919, sx / 100, sy / 100);
+      if (obstacles && blocker > 0.64) {
+        terrain[i] = fbm(seed + 104729, sx / 240, sy / 240) > 0.5 ? Terrain.Water : Terrain.Rock;
       } else if (wood > 0.6) {
         terrain[i] = Terrain.Forest;
       }
@@ -101,9 +101,9 @@ function paintTerrain(map: Omit<MapDef, 'terrain'>, factions: number, seed: numb
   return terrain;
 }
 
-function nearObjective(objectives: readonly ObjectiveDef[], x: number, y: number): boolean {
-  for (const o of objectives) {
-    const clear = o.radius + 48;
+function nearSite(sites: readonly SiteDef[], x: number, y: number): boolean {
+  for (const o of sites) {
+    const clear = o.radius + 50;
     const dx = x - o.x;
     const dy = y - o.y;
     if (dx * dx + dy * dy < clear * clear) return true;
@@ -111,9 +111,22 @@ function nearObjective(objectives: readonly ObjectiveDef[], x: number, y: number
   return false;
 }
 
-function allObjectivesReachable(map: MapDef): boolean {
-  const field = buildFlowField(map, cellAt(map, map.objectives[0]!.x, map.objectives[0]!.y));
-  for (const o of map.objectives) {
+// Keep a clear road from each capital toward the Heart so armies always meet in the middle.
+function nearLane(sites: readonly SiteDef[], slots: number, x: number, y: number): boolean {
+  for (let s = 0; s < slots; s++) {
+    const c = sites[s]!;
+    const len2 = c.x * c.x + c.y * c.y;
+    const t = Math.max(0, Math.min(1, (x * c.x + y * c.y) / len2));
+    const dx = x - c.x * t;
+    const dy = y - c.y * t;
+    if (dx * dx + dy * dy < 22 * 22) return true;
+  }
+  return false;
+}
+
+function allSitesReachable(map: MapDef): boolean {
+  const field = buildFlowField(map, cellAt(map, 0, 0));
+  for (const o of map.sites) {
     const c = cellAt(map, o.x, o.y);
     if (c < 0 || !isPassable(map.terrain[c]!) || field.cost[c] === -1) return false;
   }
@@ -147,9 +160,5 @@ function valueNoise(seed: number, x: number, y: number): number {
 }
 
 function fbm(seed: number, x: number, y: number): number {
-  return (
-    valueNoise(seed, x, y) * 0.57 +
-    valueNoise(seed + 1, x * 2.03, y * 2.03) * 0.29 +
-    valueNoise(seed + 2, x * 4.1, y * 4.1) * 0.14
-  );
+  return valueNoise(seed, x, y) * 0.57 + valueNoise(seed + 1, x * 2.03, y * 2.03) * 0.29 + valueNoise(seed + 2, x * 4.1, y * 4.1) * 0.14;
 }

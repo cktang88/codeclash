@@ -1,82 +1,74 @@
-import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
-import { eligibility } from '../rules/eligibility.ts';
 import type { Config } from './config.ts';
 import type { Store } from './db.ts';
-import type { Campaign } from './campaign.ts';
-import { fetchViewer, type GithubAccount, type GithubClient } from './github.ts';
+import { fetchViewer } from './github.ts';
 import { errorMessage, type Logger } from './log.ts';
-import type { Poller } from './poller.ts';
 import { issueSession, SESSION_COOKIE, SESSION_MAX_AGE_S } from './session.ts';
 
-const STATE_COOKIE = 'pf_oauth_state';
+const STATE_COOKIE = 'pf_oauth';
 
 export interface AuthDeps {
   config: Config;
   store: Store;
-  campaign: Campaign;
-  github: GithubClient | null;
-  poller: Poller | null;
   log: Logger;
   clock: () => number;
   fetchImpl?: typeof fetch;
+  /** Called after every sign-in, e.g. to poll the user's pushes at once. */
+  onSignIn?: (userId: number) => void;
 }
 
 const CallbackQuery = z.object({ code: z.string().min(1), state: z.string().min(1) });
 const TokenResponse = z.object({ access_token: z.string().min(1) });
-const DevQuery = z.object({ login: z.string().regex(/^[A-Za-z0-9-]{1,39}$/) });
+const DevQuery = z.object({ login: z.string().regex(/^[A-Za-z0-9-]{1,39}$/), next: z.string().optional() });
+const StartQuery = z.object({ next: z.string().optional() });
 
-export function admit(deps: AuthDeps, account: GithubAccount): void {
-  const now = deps.clock();
-  deps.store.upsertPlayer({
-    id: account.databaseId,
-    nodeId: account.nodeId,
-    login: account.login,
-    avatarUrl: account.avatarUrl,
-    createdAtGithub: account.createdAtMs,
-    enlistedAt: now,
-    demo: false,
-  });
-  const faction = deps.campaign.enlist(account.databaseId, now);
-  if (faction !== null) deps.log.info('player enlisted', { player: account.databaseId, login: account.login, faction });
-  deps.poller?.pollNow(account.databaseId).catch((err) => deps.log.error('first poll failed', { error: errorMessage(err) }));
+/** Only same-origin paths survive as redirect targets. */
+export function safeNext(next: string | undefined): string {
+  if (!next || !next.startsWith('/') || next.startsWith('//') || next.startsWith('/\\')) return '/';
+  return next.slice(0, 300);
 }
 
 export function registerAuth(app: FastifyInstance, deps: AuthDeps): void {
-  const { config } = deps;
+  const { config, store } = deps;
   const secure = config.publicUrl.startsWith('https://');
   const redirectUri = `${config.publicUrl}/auth/github/callback`;
 
-  const signIn = (reply: FastifyReply, account: GithubAccount) => {
-    const verdict = eligibility(account, deps.clock());
-    if (!verdict.ok) return reply.redirect(`${config.publicUrl}/?error=${verdict.reason}`);
-    admit(deps, account);
-    reply.setCookie(SESSION_COOKIE, issueSession(account.databaseId, deps.clock(), config.sessionSecret), {
+  const signIn = (reply: FastifyReply, account: { id: number; nodeId: string; login: string; avatarUrl: string; createdAt: number }, next: string) => {
+    store.upsertUser({ id: account.id, nodeId: account.nodeId, login: account.login, avatarUrl: account.avatarUrl, createdAtGithub: account.createdAt, joinedAt: deps.clock(), bot: false });
+    reply.setCookie(SESSION_COOKIE, issueSession(account.id, deps.clock(), config.sessionSecret), {
       path: '/', httpOnly: true, sameSite: 'lax', secure, maxAge: SESSION_MAX_AGE_S,
     });
-    return reply.redirect(`${config.publicUrl}/`);
+    deps.onSignIn?.(account.id);
+    deps.log.info('signed in', { user: account.id, login: account.login });
+    return reply.redirect(`${config.publicUrl}${next}`);
   };
 
-  app.get('/auth/github', async (_req, reply) => {
-    if (!config.oauth) return reply.code(503).send({ error: 'GitHub sign-in is not configured' });
+  app.get('/auth/github', async (req, reply) => {
+    if (!config.oauth) return reply.code(503).send({ error: 'unavailable', message: 'GitHub sign-in is not configured on this server.' });
+    const next = safeNext(StartQuery.safeParse(req.query).data?.next);
     const state = randomBytes(18).toString('base64url');
-    reply.setCookie(STATE_COOKIE, state, { path: '/auth', httpOnly: true, sameSite: 'lax', secure, maxAge: 600 });
+    reply.setCookie(STATE_COOKIE, `${state}|${next}`, { path: '/auth', httpOnly: true, sameSite: 'lax', secure, maxAge: 600 });
     const url = new URL('https://github.com/login/oauth/authorize');
     url.searchParams.set('client_id', config.oauth.clientId);
     url.searchParams.set('redirect_uri', redirectUri);
     url.searchParams.set('state', state);
     url.searchParams.set('scope', '');
+    url.searchParams.set('allow_signup', 'true');
     return reply.redirect(url.toString());
   });
 
   app.get('/auth/github/callback', async (req, reply) => {
-    if (!config.oauth) return reply.code(503).send({ error: 'GitHub sign-in is not configured' });
+    if (!config.oauth) return reply.code(503).send({ error: 'unavailable', message: 'GitHub sign-in is not configured on this server.' });
     const query = CallbackQuery.safeParse(req.query);
-    const expected = req.cookies[STATE_COOKIE];
+    const cookie = req.cookies[STATE_COOKIE] ?? '';
+    const bar = cookie.indexOf('|');
+    const expected = bar >= 0 ? cookie.slice(0, bar) : '';
+    const next = safeNext(bar >= 0 ? cookie.slice(bar + 1) : undefined);
     reply.clearCookie(STATE_COOKIE, { path: '/auth' });
     if (!query.success || !expected || !sameString(query.data.state, expected)) {
-      return reply.code(400).send({ error: 'invalid OAuth state' });
+      return reply.redirect(`${config.publicUrl}/?error=signin_state`);
     }
     try {
       const fetchImpl = deps.fetchImpl ?? fetch;
@@ -87,23 +79,12 @@ export function registerAuth(app: FastifyInstance, deps: AuthDeps): void {
       });
       const token = TokenResponse.parse(await res.json()).access_token;
       const viewer = await fetchViewer(token, fetchImpl);
-      return signIn(reply, {
-        databaseId: viewer.id,
-        nodeId: viewer.node_id,
-        login: viewer.login,
-        avatarUrl: viewer.avatar_url,
-        createdAtMs: Date.parse(viewer.created_at),
-        type: viewer.type,
-      });
+      if (viewer.type !== 'User') return reply.redirect(`${config.publicUrl}/?error=not_a_user`);
+      return signIn(reply, { id: viewer.id, nodeId: viewer.node_id, login: viewer.login, avatarUrl: viewer.avatar_url, createdAt: Date.parse(viewer.created_at) }, next);
     } catch (err) {
       deps.log.warn('OAuth callback failed', { error: errorMessage(err) });
       return reply.redirect(`${config.publicUrl}/?error=signin_failed`);
     }
-  });
-
-  app.get('/auth/logout', async (_req, reply) => {
-    reply.clearCookie(SESSION_COOKIE, { path: '/' });
-    return reply.redirect(`${config.publicUrl}/`);
   });
 
   app.post('/auth/logout', async (_req, reply) => {
@@ -111,15 +92,29 @@ export function registerAuth(app: FastifyInstance, deps: AuthDeps): void {
     return reply.code(204).send();
   });
 
+  app.get('/auth/logout', async (_req, reply) => {
+    reply.clearCookie(SESSION_COOKIE, { path: '/' });
+    return reply.redirect(`${config.publicUrl}/`);
+  });
+
   if (!config.devAuth) return;
+  // Local development: sign in as any login. Ids are derived from the login so they stay stable.
   app.get('/auth/dev', async (req, reply) => {
     const query = DevQuery.safeParse(req.query);
-    if (!query.success) return reply.code(400).send({ error: 'login required' });
-    if (!deps.github) return reply.code(503).send({ error: 'dev auth needs GITHUB_TOKEN' });
-    const result = await deps.github.fetchContributionsByLogin(query.data.login, deps.clock());
-    if ('notFound' in result) return reply.code(404).send({ error: 'no such GitHub user' });
-    return signIn(reply, result.account);
+    if (!query.success) return reply.code(400).send({ error: 'invalid', message: 'login required' });
+    const login = query.data.login;
+    const existing = store.userByLogin(login);
+    const id = existing && !existing.bot ? existing.id : devId(login);
+    return signIn(
+      reply,
+      { id, nodeId: `dev:${login}`, login, avatarUrl: existing?.avatarUrl || `https://github.com/${login}.png?size=96`, createdAt: 0 },
+      safeNext(query.data.next),
+    );
   });
+}
+
+export function devId(login: string): number {
+  return 1_000_000_000 + (createHash('sha256').update(login.toLowerCase()).digest().readUInt32BE(0) % 1_000_000_000);
 }
 
 function sameString(a: string, b: string): boolean {

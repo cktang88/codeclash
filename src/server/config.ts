@@ -17,11 +17,10 @@ const EnvSchema = z
     GITHUB_CLIENT_SECRET: optionalString,
     SESSION_SECRET: optionalString,
     DEV_AUTH: flag,
-    DEMO_PLAYERS: z.coerce.number().int().min(0).max(5000).default(0),
-    ROUND_HOURS: z.coerce.number().positive().default(168),
-    INTERMISSION_MINUTES: z.coerce.number().min(0).default(60),
-    ROOM_MINUTES: z.coerce.number().positive().default(10),
-    ROOM_MAX_LIVE: z.coerce.number().int().min(0).default(20),
+    COMMONS: z.enum(['0', '1', 'true', 'false']).default('1').transform((v) => v === '1' || v === 'true'),
+    DAY_MINUTES: z.coerce.number().positive().optional().catch(undefined),
+    MAX_ROOMS_PER_USER: z.coerce.number().int().min(1).default(5),
+    MAX_LIVE_ROOMS: z.coerce.number().int().min(1).default(200),
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV !== 'production') return;
@@ -43,11 +42,12 @@ export interface Config {
   sessionSecret: string;
   sessionSecretGenerated: boolean;
   devAuth: boolean;
-  demoPlayers: number;
-  roundMs: number;
-  intermissionMs: number;
-  roomMs: number;
-  roomMaxLive: number;
+  /** Seed a public room with sparring bots at boot. */
+  commons: boolean;
+  /** Overrides the daily cycle with wars of this length, for local testing. */
+  dayMs: number | null;
+  maxRoomsPerUser: number;
+  maxLiveRooms: number;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv): Config {
@@ -64,10 +64,9 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     sessionSecret: e.SESSION_SECRET ?? randomBytes(32).toString('hex'),
     sessionSecretGenerated: !e.SESSION_SECRET,
     devAuth: e.DEV_AUTH,
-    demoPlayers: e.DEMO_PLAYERS,
-    roundMs: Math.round(e.ROUND_HOURS * 3_600_000),
-    intermissionMs: Math.round(e.INTERMISSION_MINUTES * 60_000),
-    roomMs: Math.round(e.ROOM_MINUTES * 60_000),
-    roomMaxLive: e.ROOM_MAX_LIVE,
+    commons: e.COMMONS,
+    dayMs: e.DAY_MINUTES ? Math.round(e.DAY_MINUTES * 60_000) : null,
+    maxRoomsPerUser: e.MAX_ROOMS_PER_USER,
+    maxLiveRooms: e.MAX_LIVE_ROOMS,
   };
 }

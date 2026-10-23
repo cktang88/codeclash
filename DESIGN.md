@@ -1,111 +1,206 @@
 # Pushfront
 
-Pushfront is a persistent war fought by developers' public GitHub activity. You sign in with GitHub once. From then on, your public commits, accepted pull requests, and code reviews raise soldiers who fight on a shared battlefield without any input from you.
+Pushfront is an all-day war fought with your pushes. You sign in with GitHub and join a room (public, or private by invite). Every push you make to a public repository is read, sorted into what kind of code it is, and becomes a **platoon** that marches out of your capital toward the middle of the map. Nobody steers individual soldiers. You make a few scarce decisions, and you watch. Each room's war lasts 24 hours. At the room's reset hour the war ends, a **digest** is written, and a fresh map begins.
 
-This document is the source of truth for the rules and the architecture. The in-game "Articles of War" panel renders the same rules.
+This file is the source of truth for the rules and the architecture.
 
-## What we can observe, and what we refuse to claim
+## 1. From a push to a platoon
 
-Pushfront reads only **public** activity through GitHub's GraphQL `contributionsCollection`, queried with a server token. Players grant no scopes. The sign-in token is used once to read the player's numeric id and is then discarded.
+### What we read
 
-| Signal | Source | What it establishes | What it does not establish |
-| --- | --- | --- | --- |
-| Commits per repo per day | `commitContributionsByRepository` | You pushed code on that day | Code quality, tests, CI |
-| Merged PR, merged by someone else, into a repo you do not own | `pullRequestContributions` | Another person accepted your change | That the change was good |
-| Review of someone else's PR | `pullRequestReviewContributions` | You reviewed a peer's work | Review depth |
+For every member, the server polls `GET /users/{login}/events/public` with an ETag. An unchanged feed answers `304`, which costs no rate limit. For each new `PushEvent` (keyed by `push_id`), it calls `GET /repos/{o}/{r}/compare/{before}...{head}` once. A new branch (`before` is all zeros) falls back to `GET /repos/{o}/{r}/commits/{head}`. A branch deletion is skipped. Only commits authored by the member count, and a commit SHA already seen for that member is never counted twice.
 
-Private repositories, restricted contribution counts, and lines changed are ignored. Lines changed are trivial to inflate and say nothing about value. Pushfront measures public activity, consistency, and peer acceptance. It never claims to measure engineering quality.
+GitHub delivers public events anywhere from 30 seconds to several hours late. A member who wants near-real-time armies can add a repository webhook (push events) pointing at their personal hook URL. The server verifies the HMAC signature and then runs the same compare call.
 
-## Identity
+Only public repositories are read. Lines changed are not quality. Pushfront rewards a healthy *shape* of work (tests, docs, deletions, a balanced push) and uses diminishing returns so volume alone never wins.
 
-A player is keyed by GitHub's immutable numeric `databaseId` and GraphQL node id. Logins can change and are only display data, refreshed on every poll. Accounts younger than 30 days, accounts of type Bot, and logins ending in `[bot]` cannot enlist.
+### Sorting lines into categories
 
-## Articles of War (contributions to soldiers)
+Each changed file is classified by path. The first matching rule wins:
 
-Every soldier serves a 28-day tour. A player's army is computed from the last 28 UTC days, today included. Each day contributes:
+| Category | Matched by |
+| --- | --- |
+| vendor | `node_modules/`, `vendor/`, `third_party/`, `extern/`, `bower_components/`, `Godeps/`, `Carthage/`, `*.min.js` |
+| generated | lockfiles, `dist/`, `build/`, `out/`, `target/`, `.next/`, `coverage/`, `*.map`, `*.pb.go`, `*_pb2.py`, `*.g.dart`, `*_generated.*`, `*.gen.*`, `*.snap`; any file whose patch header says `@generated`, `DO NOT EDIT`, or `auto-generated` |
+| docs | `*.md`, `*.mdx`, `*.rst`, `*.adoc`, `*.txt`, `docs/`, `README`, `CHANGELOG`, `LICENSE`, `CONTRIBUTING` |
+| test | `*.test.*`, `*.spec.*`, `__tests__/`, `test/`, `tests/`, `spec/`, `e2e/`, `*_test.go`, `test_*.py`, `*_test.py`, `conftest.py`, `src/test/`, `*Test.java`, `*Tests.swift`, `*_spec.rb`, `testdata/`, `fixtures/` |
+| config | `.github/`, `Dockerfile`, `Makefile`, `*.yml`, `*.yaml`, `*.toml`, `*.ini`, `*.json`, `*.tf`, `*.nix`, `.gitignore`, `.editorconfig`, dotfiles |
+| source | everything else with a known source extension |
 
-| Unit | Earned by | Per day |
+Files of any other type (images, binaries, data) are ignored.
+
+Inside **source** files, every *added* line from the patch is counted as one of these:
+
+- **code**
+- **comment**: a line comment, or a line inside a block comment, using the file's language syntax
+- **blank**: whitespace only
+
+Deleted source lines are counted as **removed**. Test, docs, config, generated and vendor files count added non-blank lines. When GitHub omits a patch because it is too large, the file's `additions` count is used, and those lines are all treated as code.
+
+The nine line counts are `code, test, comment, docs, config, removed, generated, vendor, blank`. **Blank lines raise nothing.** They are recorded for the digest.
+
+### Units
+
+Every category raises one unit type. A **Champion** is raised by a balanced push.
+
+| Unit | Raised by | Role | HP | Dmg | Range | Speed | Notes |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Legionary | code | line infantry | 100 | 11 | melee | 1.6 | +60% vs Outriders |
+| Warden | test | shield wall | 190 | 6 | melee | 1.3 | allies within 40 take 30% less damage; takes half damage from arrows |
+| Archer | comment | ranged | 55 | 8 | 95 | 1.6 | arrows fly; +40% vs Legionary, Golem, Mercenary |
+| Herald | docs | banner bearer, medic | 80 | 4 | melee | 1.6 | heals allies within 50; slows platoon morale loss |
+| Sapper | config | siege engineer | 90 | 8 | melee | 1.5 | 6x damage to structures |
+| Outrider | removed | fast cavalry | 95 | 13 | melee | 3.2 | +60% vs Archer, Herald, Sapper |
+| Golem | generated | slow fodder | 150 | 5 | melee | 1.0 | cheap and plentiful |
+| Mercenary | vendor | hired blade | 115 | 14 | melee | 1.8 | contract ends 10 minutes after arrival |
+| Champion | a balanced push | hero | 520 | 26 | melee | 1.5 | allies within 60 deal 20% more; its platoon cannot rout while it lives |
+
+Speeds are world units per tick, at 5 ticks per second. Melee range is 12–16 world units.
+
+A push is **balanced** when all three hold: at least 20 code lines, at least 1 test line, and at least 1 comment or docs line.
+
+### How many soldiers
+
+`count[k] = floor(coef[k] * sqrt(lines[k]))`. If `lines[k] >= threshold[k]` and the result is 0, the count is raised to 1.
+
+| | code | test | comment | docs | config | removed | generated | vendor |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| coef | 0.6 | 0.7 | 0.6 | 0.45 | 0.4 | 0.45 | 0.15 | 0.12 |
+| threshold | 1 | 1 | 3 | 5 | 5 | 10 | 50 | 50 |
+| cap | 12 | 10 | 8 | 6 | 6 | 8 | 6 | 4 |
+
+A platoon holds at most 32 soldiers. Fatigue keeps a heavy pusher from flooding the map:
+
+- **Hourly levy.** After 3 pushes in the last hour, further platoons get half the counts.
+- **Daily weariness.** After 12 pushes today, platoons get a third of the counts.
+- Every push still raises at least one Legionary.
+
+A player has at most 160 soldiers alive and a room at most 2000. A platoon that would break either cap waits in its capital's **muster queue**, holding up to 24 platoons, and marches when there is room.
+
+## 2. Hierarchy and heraldry
+
+- **Army.** One per player per war. It has one **hue**, assigned from a colorblind-aware wheel so that players in a room are far apart.
+- **Battalion.** One per repository the player pushed to today. Its flag is the army hue in a lightness and saturation step unique to the battalion, plus a **pattern** (plain, chevron, saltire, pale, fess, quarterly, bend, chief), an **emblem** (one of 12), and an accent stripe in the repository's language color. All of these are chosen from a hash of the repo name. The flag shows the repo's initials.
+- **Platoon.** One per push. It carries its battalion's flag plus its ordinal number within the battalion (I, II, III …). It marches and fights as a formation: wardens and golems in front, legionaries in the line, archers and heralds behind, outriders on the flanks, and the champion at the center.
+
+## 3. The battlefield
+
+The map is a disc with one **capital** per slot, on a ring at 84% of the radius. A war's map is generated at the start of the day with `slots = clamp(members + 2, 4, 16)`, so players who join during the day take a spare slot. Once all slots are taken, a new member starts with tomorrow's war.
+
+- **Capital.** One per player. It has 5000 HP and a tower (14 damage, range 150). Platoons spawn at its gate. Within 220 units of their own capital, a player's units take 20% less damage (home turf).
+- **Sacking.** A capital at 0 HP is **sacked**. The player who dealt the final blow gains 200 renown. The capital lies in ruins for 10 minutes, invulnerable and silent, and then rebuilds at 60% HP.
+- **Shrines.** One per slot, at 46% of the radius between neighboring capitals. Each is capturable.
+- **The Heart.** It sits at the center and is guarded at dawn by the **Legacy Monolith**, a neutral structure with `30000 + 10000 * members` HP that fires on anyone near it. Everyone attacks it together. The player who dealt the most damage to it gets the Monolith award. The Heart can be captured only after the Monolith falls.
+- **Terrain.** Forest slows movement by 40% and halves arrow damage. Water and rock are impassable. The terrain is generated from seeded noise in one sector and rotated into the others, so every slot sees the same map.
+
+### Capture
+
+A shrine or the Heart flips after a single army has held it uncontested for 10 seconds (30 seconds for the Heart).
+
+## 4. Command (the scarce decisions)
+
+| Lever | What it does | Limit |
 | --- | --- | --- |
-| Infantry | commits that day | 1 for 1 commit, 2 for 2-3, 3 for 4-7, 4 for 8+ (that is `min(4, 1 + floor(log2(commits)))`) |
-| Archers | reviews of others' PRs that day | 1 each, at most 3 |
-| Cavalry | PRs merged that day by someone else into a repo you do not own | 1 each, at most 3 |
+| **Doctrine** | Assault: +15% damage, prefers enemy capitals and the Heart. Hold: +20% damage reduction near your shrines, defends. Siege: +50% structure damage, targets capitals. Skirmish: +20% speed, prefers lightly held objectives. | change once per hour |
+| **Rally** | Every platoon marches on one chosen objective | once per 30 minutes, lasts 2 hours |
+| **War Cry** | Your soldiers deal +30% damage and move 25% faster for 60 seconds | once per war |
 
-Daily caps are the anti-spam rule. A thousand commits on one day equals eight. The most a player can field is 280 soldiers, reached only by daily, varied, peer-accepted work.
+All three are deterministic inputs to the simulation, so they appear in the replay.
 
-**Rank** rewards consistency. `rank = floor(activeDays / 7)`, from 0 to 4, where an active day has any counted contribution. Each rank adds 8% health and damage to every unit of that player.
+Each player's **war council** runs every 3 seconds. It gives each platoon an objective, weighing these factors:
 
-All rules are pure functions in `src/rules`. Recomputing an army from the same contributions always yields the same army.
+- the objective's renown
+- distance (supply lines: reinforcements always come from the capital)
+- enemy and friendly strength nearby
+- doctrine
+- rally
 
-## Factions
+## 5. Morale and routs
 
-A round's factions form at round start from the enlisted players.
+Every platoon has morale from 0 to 100. Morale falls by `150 / platoonSize` per soldier lost and drains while the platoon is outnumbered 2 to 1. A Herald halves the loss. Morale recovers slowly out of combat.
 
-- `F = clamp(round(sqrt(N)), min(N, 2), 8)` for `N` players, also capped by base capacity on the map ring. One player plays against neutral garrisons. Faction size grows like `sqrt(N)` as the player base grows.
-- Players are dealt into factions by a balanced greedy partition. Sort by soldiers descending (ties by player id), give each to the faction with the fewest soldiers. When two factions are within 10% of each other, prefer the one whose dominant language matches the player's.
-- A faction is named for its members' dominant language, as in "TypeScript Vanguard". Colors come from a fixed palette chosen for contrast.
-- A player who enlists mid-round joins the faction with the fewest soldiers. Underdogs get the reinforcements.
+At 0 morale the platoon **routs**: it stops fighting and flees to its capital. There it rallies at 60 morale and takes new orders. Routs make fights end and stay readable.
 
-## The battlefield
+## 6. Renown and winning the day
 
-The map is a disc with `F`-fold rotational symmetry, so every faction gets the same terrain and distances.
+Renown is the score:
 
-- **Fielded cap.** At most 2400 units are alive at once. If total soldiers exceed the cap, each player fields `round(soldiers * 2400 / total)` of each kind, at least 1 of any kind they have.
-- **Size.** The disc area is about 1100 square world units per expected unit, with a minimum radius of 700. More players means a bigger world at constant density.
-- **Bases.** One per faction on a ring at 82% of the radius. Units respawn there. Bases cannot be captured.
-- **Strongholds.** `2 * F` strongholds in rotationally symmetric positions, plus one **Citadel** at the center. Each starts with a neutral garrison scaled to the expected army size.
-- **Terrain.** Forest slows movement by 40% and halves incoming arrow damage. Water and rock are impassable. Generated by seeded noise in one sector and rotated into the others.
-- **Territory.** A hex grid covers the disc. A hex flips to a faction when only that faction has units near it. A hex adjacent to a held objective drifts back to that owner when uncontested.
+| Source | Renown |
+| --- | --- |
+| Shrine held | 2 per minute |
+| The Heart held | 8 per minute |
+| Kill | the victim's value (1 for most units, 2 for Wardens, Heralds, Outriders and Mercenaries, 10 for a Champion) |
+| Kill of a soldier of the renown leader (bounty) | double the victim's value |
+| Monolith damage | 1 per 100 damage |
+| Sacking a capital | 200 |
 
-## Combat
+At the reset hour, the player with the most renown wins the day.
 
-Infantry beats cavalry, cavalry beats archers, and archers beat infantry. Each favored matchup deals 1.5x damage.
+## 7. The daily digest
 
-| Unit | HP | Damage | Range | Speed | Cooldown |
-| --- | --- | --- | --- | --- | --- |
-| Infantry | 120 | 12 | melee | slow | 1.0 s |
-| Archer | 70 | 9 | long | medium | 1.4 s |
-| Cavalry | 100 | 15 | melee | fast | 1.2 s |
+When a war ends, the server computes a digest from the final world and the war's inputs. The function is pure and deterministic. The digest contains:
 
-A dead unit respawns at its base 20 seconds later if its player's target count for that kind is still unmet. Surplus units, left over after a player's tour of duty shrinks, are not replaced when they fall.
+- the winner, the final standings, and the renown each player gained
+- the code each player pushed, by category
+- superlatives, so most active players earn one:
 
-## Autonomous command
+| Award | Goes to |
+| --- | --- |
+| Warlord | most kills |
+| Iron Wall | fewest losses per soldier raised |
+| Test Legion | most test lines |
+| Scribe | most docs and comment lines |
+| Demolisher | most removed lines |
+| Siegebreaker | most structure damage |
+| Monolith Slayer | most Monolith damage |
+| Ghost | the highest renown per push |
+| Militia Mob | most generated lines (affectionately) |
+| Standard Bearer | most balanced pushes |
 
-Nobody steers. Each faction runs a war council every 3 seconds that gives each player's warband an objective. It values objectives by points, distance, and the enemy and friendly strength already near them. Warbands of one faction spread across fronts. A warband facing more than 1.6 times its strength falls back to the nearest friendly objective. Cavalry prefers lightly held objectives. Archers stay behind friendly infantry. Movement follows flow fields precomputed per objective at round start, so pathing costs nothing per tick.
+- highlights: the largest clashes, sacks, captures, and the Monolith's fall, each with a tick so the replay can jump there
+- each player's best platoon, with its repo and commit message
+- lifetime progress: days played, days won, the current streak of days with at least one push, and titles earned
 
-## Victory
+Members may switch on **Rest** for a day, which keeps their streak. A room owner may set a Slack or Discord webhook URL, and the digest is posted there.
 
-- Every second, each faction scores 1 point per 10 hexes held, 5 per stronghold, and 15 for the Citadel.
-- A round lasts 7 days, Monday 00:00 UTC to the next Monday. The faction with the most points wins.
-- **Domination.** A faction that holds every stronghold and the Citadel for 6 continuous hours wins at once.
-- After a round, a 1 hour intermission shows the results. The next round re-forms factions on a new map.
-- Lifetime records persist across rounds. They include rounds played and won, kills, losses, captures, peak soldiers, and medals.
+## 8. Rooms
 
-## Rooms
+- **Visibility.** A public room appears in the lobby. Anyone can watch it, and any signed-in player can join. A private room is reachable only through its invite link. Only members and holders of the link can watch it.
+- **Settings.** The owner sets the room's name, its reset hour (in UTC), and how many sparring bots it has (0–6). Bots push synthetic code so that a room is never empty.
+- **Owner tools.** The owner can rename the room, change its settings, remove members, and rotate the invite code.
+- **In the room.** Viewers see presence (who is watching). They can send emotes, which float over the sender's capital, and use a short chat. Chat and emotes are not part of the replay.
 
-A room is a public skirmish anyone can start without signing in. You enter 2 to 8 GitHub usernames and get a shareable link, and those developers' armies fight it out.
+## 9. Determinism and replay
 
-- **Fighters.** Each username is resolved through the server token, checked against the same eligibility rules, and given an army by the same Articles of War. A username with no counted public activity in the last 28 days is rejected, because an empty army cannot fight. Contributions are cached for 10 minutes per user.
-- **One faction per fighter.** A room has `F` equal to its number of fighters, each named `@login`. The map, garrisons, and combat are the campaign's.
-- **Length.** A room lasts 10 minutes and the highest score wins. Holding every stronghold and the Citadel for 60 seconds wins early. Armies are fixed when the room is created.
-- **Bounded cost.** At most 20 live rooms, at most 1200 units per room, and room creation rate-limited per client. An ended room stops simulating and keeps its final snapshot for spectators.
-- **Separate from the campaign.** Adding someone to a room does not enlist them in the campaign, and room results do not change lifetime records. Rooms use the same round storage, input log, snapshots, and lockstep spectating, so they survive restarts.
-- **Privacy.** A room shows only what the campaign shows for any player: login, avatar, and aggregated public contributions.
+The simulation is pure. It uses only `+ - * / Math.sqrt Math.floor Math.abs Math.min Math.max`, a seeded PRNG stored in the world, and iteration over arrays in index order. It runs at 5 ticks per second.
 
-## Architecture
+A war's **replay** is everything needed to rebuild it, and nothing more:
+
+```json
+{
+  "v": 1,
+  "seed": 123, "slots": 6, "members": 4, "tickMs": 200,
+  "startsAt": 1761177600000, "endsAt": 1761264000000,
+  "players": [{ "login": "ana", "id": 1, "hue": 210, "slot": 0, "bot": false }],
+  "repos": ["ana/parser"],
+  "inputs": [[1200, "push", 0, 0, [120, 30, 12, 4, 0, 18, 0, 0, 9], 3, "Fix tokenizer"], [3000, "doc", 0, 2]]
+}
+```
+
+The map, the capitals and everything else derive from `seed`, `slots` and `members`. The chronicle (history log) is a pure function of the simulation's events, so a replay reproduces it too. The server keeps snapshots every 10 minutes only to seek quickly. They are a cache, not a source of truth.
+
+## 10. Architecture
 
 ```
-GitHub GraphQL ──poll──▶ ingest ──▶ SQLite (contributions, players)
-                                      │
-                       rules (pure) ──┘──▶ muster inputs ──▶ round engine ──▶ sim (pure, 10 Hz)
-                                                                  │
-                                           snapshots + input log ─┤──▶ SQLite
-                                                                  └──▶ WebSocket ──▶ clients (same sim)
+GitHub events/compare ─▶ ingest ─▶ SQLite (users, pushes, seen commits)
+                                   │
+              rules (pure) ────────┴─▶ push input ─▶ war (per room) ─▶ sim (pure, 5 Hz)
+                                                       │
+                                  inputs + snapshots ──┼─▶ SQLite
+                                                       └─▶ WebSocket ─▶ clients run the same sim
 ```
 
-- **One authoritative Node process.** One shared world needs one writer. A single process runs the 10 Hz simulation, the poller, the scheduler, HTTP, and WebSockets. Splitting them would buy nothing but coordination.
-- **Lockstep spectators.** The simulation is deterministic, so clients receive one snapshot and then only the inputs, each stamped with the tick it applies at, one second ahead. Every client re-simulates the battle locally at 60 fps with interpolation. Bandwidth per spectator is a few bytes per second instead of tens of kilobytes. The server broadcasts a checksum every 5 seconds. A client that diverges requests a fresh snapshot.
-- **SQLite in WAL mode** (better-sqlite3) holds identity, contributions, round state, the input log, snapshots, and lifetime stats. Every input is written to the log before it is broadcast. A snapshot is taken every minute. On restart, the engine loads the latest snapshot, replays logged inputs, and fast-forwards to the wall-clock tick. Restarts lose no state and the replay is exact.
-- **Idempotent ingestion.** Contributions are upserted by a stable source id (`pr:<node id>`, `review:<node id>`, `commits:<repo>:<day>`). The army is recomputed from the stored set, and a muster input is emitted only when the fielded army differs from the last one emitted. Polling twice, or crashing mid-poll, never double-counts.
-- **Bounded cost.** At most 2400 units, a spatial hash for neighbor queries, and precomputed flow fields. The poller spends at most 60% of the token's GraphQL budget and spreads refreshes evenly. It polls each player at most every 10 minutes and less often as the player count grows.
-- **Stack.** TypeScript throughout. Fastify serves HTTP and WebSockets. PixiJS 8 renders the battlefield in WebGL. React renders the HUD around it. Vite builds the client, and Vitest runs the tests.
-- **Hosting.** One Fly.io machine with a persistent volume for SQLite, and Litestream replicating the database to object storage for disaster recovery. There is no Redis, queue, or separate database server, because the single-writer design does not need them.
+- **One authoritative Node process.** It runs every room's war, the poller, HTTP and WebSockets.
+- **Lockstep spectators.** A client receives one snapshot, then only inputs stamped one second ahead, and simulates locally with interpolation. A checksum every 10 seconds catches divergence.
+- **SQLite in WAL mode.** Every input is written to the log before it is broadcast. On restart, a war loads its latest snapshot, replays the logged inputs, and catches up to wall-clock time.
+- **Stack.** TypeScript everywhere. Fastify and `@fastify/websocket` on the server. PixiJS 8 renders the battlefield and React the HUD. Vite builds the client, and Vitest runs the tests.

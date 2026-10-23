@@ -12,7 +12,7 @@ export interface Transport {
 
 export type Connect = (handlers: TransportHandlers) => Transport;
 
-const SERVER_TYPES = new Set(['hello', 'inputs', 'check', 'player', 'feed', 'round']);
+const SERVER_TYPES = new Set(['hello', 'inputs', 'check', 'chronicle', 'presence', 'emote', 'chat', 'war', 'room']);
 
 function parseServerMessage(raw: unknown): ServerMessage | null {
   if (typeof raw !== 'string') return null;
@@ -32,27 +32,27 @@ function refusalOf(e: CloseEvent): string | null {
 export const connectWebSocket =
   (path: string): Connect =>
   (handlers) => {
-  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const ws = new WebSocket(`${proto}//${location.host}${path}`);
-  let closed = false;
-  const close = (refusal: string | null) => {
-    if (closed) return;
-    closed = true;
-    handlers.onClose(refusal);
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const ws = new WebSocket(`${proto}//${location.host}${path}`);
+    let closed = false;
+    const close = (refusal: string | null) => {
+      if (closed) return;
+      closed = true;
+      handlers.onClose(refusal);
+    };
+    ws.onmessage = (e) => {
+      const msg = parseServerMessage(e.data);
+      if (msg) handlers.onMessage(msg);
+    };
+    ws.onclose = (e) => close(refusalOf(e));
+    ws.onerror = () => ws.close();
+    return {
+      send(msg) {
+        if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
+      },
+      close() {
+        ws.onclose = null;
+        ws.close();
+      },
+    };
   };
-  ws.onmessage = (e) => {
-    const msg = parseServerMessage(e.data);
-    if (msg) handlers.onMessage(msg);
-  };
-  ws.onclose = (e) => close(refusalOf(e));
-  ws.onerror = () => ws.close();
-  return {
-    send(msg) {
-      if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
-    },
-    close() {
-      ws.onclose = null;
-      ws.close();
-    },
-  };
-};

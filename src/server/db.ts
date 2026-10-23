@@ -1,339 +1,291 @@
 import Database from 'better-sqlite3';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import type { FeedItem, RoundStatus } from '../protocol.ts';
-import type { Contribution, ContributionKind, Fielded, IsoDay, LifetimeStats } from '../rules/types.ts';
-import type { SimInput, TimedInput } from '../sim/api.ts';
+import type { ChatMessage, Visibility, WarStatus } from '../protocol.ts';
+import type { Digest } from '../rules/digest.ts';
+import type { ChronicleEntry } from '../sim/chronicle.ts';
+import type { EncodedInput, RepoRef, ReplayPlayer } from '../sim/replay.ts';
 
 export type Db = Database.Database;
 
-export const SNAPSHOTS_KEPT = 3;
+export const SNAPSHOTS_KEPT_LIVE = 3;
 
-export interface Muster extends Fielded {
-  rank: number;
-}
-
-export interface PlayerRow {
+export interface UserRow {
   id: number;
   nodeId: string;
   login: string;
   avatarUrl: string;
   createdAtGithub: number;
-  enlistedAt: number | null;
-  demo: boolean;
+  joinedAt: number;
+  restingDay: string | null;
+  hookSecret: string | null;
+  eventsEtag: string | null;
+  lastEventId: string | null;
   lastPolledAt: number | null;
   pollError: string | null;
+  bot: boolean;
 }
 
-export interface RoundRow {
+export interface RoomRow {
   id: number;
+  slug: string;
   name: string;
-  status: RoundStatus;
+  ownerId: number;
+  visibility: Visibility;
+  invite: string;
+  resetHour: number;
+  bots: number;
+  webhookUrl: string | null;
+  createdAt: number;
+}
+
+export interface MemberRow {
+  roomId: number;
+  userId: number;
+  role: 'owner' | 'member';
+  joinedAt: number;
+}
+
+export interface WarHeader {
+  players: (ReplayPlayer & { avatarUrl: string; userId: number })[];
+  repos: RepoRef[];
+}
+
+export interface WarRow {
+  id: number;
+  roomId: number;
+  day: string;
+  status: WarStatus;
   seed: number;
-  factionCount: number;
-  expectedUnits: number;
+  slots: number;
+  members: number;
   startsAt: number;
   endsAt: number;
-  intermissionEndsAt: number | null;
-  winnerFaction: number | null;
-  finalized: boolean;
-  roomSlug: string | null;
-  dominationTicks: number;
+  header: WarHeader;
+  digest: Digest | null;
   winnerLogin: string | null;
+  winnerHue: number | null;
+  winnerRenown: number | null;
+  pushes: number;
 }
 
-export interface RoundFactionRow {
-  faction: number;
-  name: string;
-  color: number;
+export interface PushRecord {
+  userId: number;
+  pushId: string;
+  repo: string;
   language: string | null;
+  lines: number[];
+  commits: number;
+  message: string;
+  at: number;
 }
 
-export interface RoundPlayerRow {
-  playerId: number;
-  faction: number;
-  lastFielded: Muster | null;
+export interface LifetimeRow {
+  userId: number;
+  roomId: number;
+  days: number;
+  wins: number;
+  streak: number;
+  bestStreak: number;
+  lastDay: string | null;
   kills: number;
-  losses: number;
-  captures: number;
-  peakSoldiers: number;
+  renown: number;
+  awards: Record<string, number>;
 }
 
-export interface CombatStats {
-  playerId: number;
-  kills: number;
-  losses: number;
-  captures: number;
-}
-
-export interface ContributionDelta {
-  contribution: Contribution;
-  added: number;
-}
-
-export interface HistoryRow {
-  roundId: number;
-  roundName: string;
-  faction: string;
-  won: boolean;
-  kills: number;
-  captures: number;
-}
-
-const MIGRATIONS: readonly string[] = [
-  `
-  CREATE TABLE players (
-    id INTEGER PRIMARY KEY,
-    node_id TEXT NOT NULL UNIQUE,
-    login TEXT NOT NULL,
-    avatar_url TEXT NOT NULL,
-    created_at_github INTEGER NOT NULL,
-    enlisted_at INTEGER NOT NULL,
-    demo INTEGER NOT NULL DEFAULT 0,
-    last_polled_at INTEGER,
-    poll_error TEXT
-  );
-  CREATE TABLE contributions (
-    player_id INTEGER NOT NULL REFERENCES players(id),
-    source_id TEXT NOT NULL,
-    kind TEXT NOT NULL,
-    day TEXT NOT NULL,
-    count INTEGER NOT NULL,
-    repo TEXT NOT NULL,
-    url TEXT,
-    title TEXT,
-    language TEXT,
-    first_seen_at INTEGER NOT NULL,
-    PRIMARY KEY (player_id, source_id)
-  );
-  CREATE TABLE rounds (
-    id INTEGER PRIMARY KEY,
-    name TEXT NOT NULL,
-    status TEXT NOT NULL,
-    seed INTEGER NOT NULL,
-    faction_count INTEGER NOT NULL,
-    expected_units INTEGER NOT NULL,
-    starts_at INTEGER NOT NULL,
-    ends_at INTEGER NOT NULL,
-    intermission_ends_at INTEGER,
-    winner_faction INTEGER,
-    finalized INTEGER NOT NULL DEFAULT 0
-  );
-  CREATE TABLE round_factions (
-    round_id INTEGER NOT NULL REFERENCES rounds(id),
-    faction INTEGER NOT NULL,
-    name TEXT NOT NULL,
-    color INTEGER NOT NULL,
-    language TEXT,
-    PRIMARY KEY (round_id, faction)
-  );
-  CREATE TABLE round_players (
-    round_id INTEGER NOT NULL REFERENCES rounds(id),
-    player_id INTEGER NOT NULL REFERENCES players(id),
-    faction INTEGER NOT NULL,
-    last_fielded_json TEXT,
-    kills INTEGER NOT NULL DEFAULT 0,
-    losses INTEGER NOT NULL DEFAULT 0,
-    captures INTEGER NOT NULL DEFAULT 0,
-    peak_soldiers INTEGER NOT NULL DEFAULT 0,
-    PRIMARY KEY (round_id, player_id)
-  );
-  CREATE TABLE round_inputs (
-    round_id INTEGER NOT NULL REFERENCES rounds(id),
-    tick INTEGER NOT NULL,
-    seq INTEGER NOT NULL,
-    json TEXT NOT NULL,
-    PRIMARY KEY (round_id, seq)
-  );
-  CREATE INDEX round_inputs_tick ON round_inputs (round_id, tick);
-  CREATE TABLE round_snapshots (
-    round_id INTEGER NOT NULL REFERENCES rounds(id),
-    tick INTEGER NOT NULL,
-    json TEXT NOT NULL,
-    checksum INTEGER NOT NULL,
-    PRIMARY KEY (round_id, tick)
-  );
-  CREATE TABLE feed (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    round_id INTEGER,
-    at INTEGER NOT NULL,
-    kind TEXT NOT NULL,
-    player_id INTEGER,
-    faction INTEGER,
-    message TEXT NOT NULL,
-    url TEXT,
-    units_json TEXT
-  );
-  CREATE TABLE lifetime (
-    player_id INTEGER PRIMARY KEY REFERENCES players(id),
-    rounds_played INTEGER NOT NULL DEFAULT 0,
-    rounds_won INTEGER NOT NULL DEFAULT 0,
-    kills INTEGER NOT NULL DEFAULT 0,
-    losses INTEGER NOT NULL DEFAULT 0,
-    captures INTEGER NOT NULL DEFAULT 0,
-    peak_soldiers INTEGER NOT NULL DEFAULT 0
-  );
-  `,
-  `
-  ALTER TABLE rounds ADD COLUMN room_slug TEXT;
-  ALTER TABLE rounds ADD COLUMN domination_ticks INTEGER NOT NULL DEFAULT 216000;
-  ALTER TABLE rounds ADD COLUMN ended_at INTEGER;
-  ALTER TABLE rounds ADD COLUMN winner_login TEXT;
-  CREATE UNIQUE INDEX rounds_room_slug ON rounds (room_slug);
-  ALTER TABLE round_factions ADD COLUMN final_score REAL;
-  ALTER TABLE players ADD COLUMN campaign_enlisted_at INTEGER;
-  UPDATE players SET campaign_enlisted_at = enlisted_at;
-  ALTER TABLE players DROP COLUMN enlisted_at;
-  ALTER TABLE players RENAME COLUMN campaign_enlisted_at TO enlisted_at;
-  CREATE INDEX players_login ON players (login COLLATE NOCASE);
-  CREATE INDEX feed_round ON feed (round_id, id);
-  `,
-];
+const SCHEMA = `
+CREATE TABLE IF NOT EXISTS users (
+  id INTEGER PRIMARY KEY,
+  node_id TEXT NOT NULL,
+  login TEXT NOT NULL,
+  avatar_url TEXT NOT NULL,
+  created_at_github INTEGER NOT NULL,
+  joined_at INTEGER NOT NULL,
+  resting_day TEXT,
+  hook_secret TEXT,
+  events_etag TEXT,
+  last_event_id TEXT,
+  last_polled_at INTEGER,
+  poll_error TEXT,
+  bot INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS users_login ON users(lower(login));
+CREATE TABLE IF NOT EXISTS rooms (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  slug TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
+  owner_id INTEGER NOT NULL,
+  visibility TEXT NOT NULL,
+  invite TEXT NOT NULL,
+  reset_hour INTEGER NOT NULL,
+  bots INTEGER NOT NULL,
+  webhook_url TEXT,
+  created_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS room_members (
+  room_id INTEGER NOT NULL,
+  user_id INTEGER NOT NULL,
+  role TEXT NOT NULL,
+  joined_at INTEGER NOT NULL,
+  PRIMARY KEY (room_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS room_members_user ON room_members(user_id);
+CREATE TABLE IF NOT EXISTS wars (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  room_id INTEGER NOT NULL,
+  day TEXT NOT NULL,
+  status TEXT NOT NULL,
+  seed INTEGER NOT NULL,
+  slots INTEGER NOT NULL,
+  members INTEGER NOT NULL,
+  starts_at INTEGER NOT NULL,
+  ends_at INTEGER NOT NULL,
+  header TEXT NOT NULL,
+  digest TEXT,
+  winner_login TEXT,
+  winner_hue INTEGER,
+  winner_renown INTEGER,
+  pushes INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS wars_room ON wars(room_id, starts_at);
+CREATE TABLE IF NOT EXISTS war_inputs (
+  war_id INTEGER NOT NULL,
+  seq INTEGER NOT NULL,
+  tick INTEGER NOT NULL,
+  data TEXT NOT NULL,
+  PRIMARY KEY (war_id, seq)
+);
+CREATE TABLE IF NOT EXISTS war_snapshots (
+  war_id INTEGER NOT NULL,
+  tick INTEGER NOT NULL,
+  json TEXT NOT NULL,
+  checksum INTEGER NOT NULL,
+  PRIMARY KEY (war_id, tick)
+);
+CREATE TABLE IF NOT EXISTS chronicle (
+  war_id INTEGER NOT NULL,
+  seq INTEGER NOT NULL,
+  tick INTEGER NOT NULL,
+  at INTEGER NOT NULL,
+  data TEXT NOT NULL,
+  PRIMARY KEY (war_id, seq)
+);
+CREATE TABLE IF NOT EXISTS pushes (
+  user_id INTEGER NOT NULL,
+  push_id TEXT NOT NULL,
+  repo TEXT NOT NULL,
+  at INTEGER NOT NULL,
+  data TEXT NOT NULL,
+  PRIMARY KEY (user_id, push_id)
+);
+CREATE TABLE IF NOT EXISTS seen_commits (
+  user_id INTEGER NOT NULL,
+  sha TEXT NOT NULL,
+  at INTEGER NOT NULL,
+  PRIMARY KEY (user_id, sha)
+);
+CREATE TABLE IF NOT EXISTS chat (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  room_id INTEGER NOT NULL,
+  user_id INTEGER NOT NULL,
+  at INTEGER NOT NULL,
+  text TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS chat_room ON chat(room_id, id);
+CREATE TABLE IF NOT EXISTS lifetime (
+  user_id INTEGER NOT NULL,
+  room_id INTEGER NOT NULL,
+  days INTEGER NOT NULL DEFAULT 0,
+  wins INTEGER NOT NULL DEFAULT 0,
+  streak INTEGER NOT NULL DEFAULT 0,
+  best_streak INTEGER NOT NULL DEFAULT 0,
+  last_day TEXT,
+  kills INTEGER NOT NULL DEFAULT 0,
+  renown INTEGER NOT NULL DEFAULT 0,
+  awards TEXT NOT NULL DEFAULT '{}',
+  PRIMARY KEY (user_id, room_id)
+);
+`;
 
 export function openDb(path: string): Db {
   if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
   const db = new Database(path);
   db.pragma('journal_mode = WAL');
   db.pragma('synchronous = NORMAL');
-  db.pragma('foreign_keys = ON');
-  migrate(db);
+  db.pragma('foreign_keys = OFF');
+  db.exec(SCHEMA);
   return db;
 }
 
-function migrate(db: Db): void {
-  const current = db.pragma('user_version', { simple: true }) as number;
-  for (let v = current; v < MIGRATIONS.length; v++) {
-    db.transaction(() => {
-      db.exec(MIGRATIONS[v]!);
-      db.pragma(`user_version = ${v + 1}`);
-    })();
-  }
+type Raw = Record<string, unknown>;
+
+function userRow(r: Raw): UserRow {
+  return {
+    id: r.id as number,
+    nodeId: r.node_id as string,
+    login: r.login as string,
+    avatarUrl: r.avatar_url as string,
+    createdAtGithub: r.created_at_github as number,
+    joinedAt: r.joined_at as number,
+    restingDay: (r.resting_day as string | null) ?? null,
+    hookSecret: (r.hook_secret as string | null) ?? null,
+    eventsEtag: (r.events_etag as string | null) ?? null,
+    lastEventId: (r.last_event_id as string | null) ?? null,
+    lastPolledAt: (r.last_polled_at as number | null) ?? null,
+    pollError: (r.poll_error as string | null) ?? null,
+    bot: r.bot === 1,
+  };
 }
 
-interface RawPlayer {
-  id: number;
-  node_id: string;
-  login: string;
-  avatar_url: string;
-  created_at_github: number;
-  enlisted_at: number | null;
-  demo: number;
-  last_polled_at: number | null;
-  poll_error: string | null;
+function roomRow(r: Raw): RoomRow {
+  return {
+    id: r.id as number,
+    slug: r.slug as string,
+    name: r.name as string,
+    ownerId: r.owner_id as number,
+    visibility: r.visibility as Visibility,
+    invite: r.invite as string,
+    resetHour: r.reset_hour as number,
+    bots: r.bots as number,
+    webhookUrl: (r.webhook_url as string | null) ?? null,
+    createdAt: r.created_at as number,
+  };
 }
 
-interface RawRound {
-  id: number;
-  name: string;
-  status: RoundStatus;
-  seed: number;
-  faction_count: number;
-  expected_units: number;
-  starts_at: number;
-  ends_at: number;
-  intermission_ends_at: number | null;
-  winner_faction: number | null;
-  finalized: number;
-  room_slug: string | null;
-  domination_ticks: number;
-  winner_login: string | null;
+function warRow(r: Raw): WarRow {
+  return {
+    id: r.id as number,
+    roomId: r.room_id as number,
+    day: r.day as string,
+    status: r.status as WarStatus,
+    seed: r.seed as number,
+    slots: r.slots as number,
+    members: r.members as number,
+    startsAt: r.starts_at as number,
+    endsAt: r.ends_at as number,
+    header: JSON.parse(r.header as string) as WarHeader,
+    digest: r.digest ? (JSON.parse(r.digest as string) as Digest) : null,
+    winnerLogin: (r.winner_login as string | null) ?? null,
+    winnerHue: (r.winner_hue as number | null) ?? null,
+    winnerRenown: (r.winner_renown as number | null) ?? null,
+    pushes: r.pushes as number,
+  };
 }
 
-interface RawContribution {
-  source_id: string;
-  kind: ContributionKind;
-  day: string;
-  count: number;
-  repo: string;
-  url: string | null;
-  title: string | null;
-  language: string | null;
+function lifetimeRow(r: Raw): LifetimeRow {
+  return {
+    userId: r.user_id as number,
+    roomId: r.room_id as number,
+    days: r.days as number,
+    wins: r.wins as number,
+    streak: r.streak as number,
+    bestStreak: r.best_streak as number,
+    lastDay: (r.last_day as string | null) ?? null,
+    kills: r.kills as number,
+    renown: r.renown as number,
+    awards: JSON.parse(r.awards as string) as Record<string, number>,
+  };
 }
-
-interface RawFeed {
-  id: number;
-  at: number;
-  kind: FeedItem['kind'];
-  player_id: number | null;
-  faction: number | null;
-  message: string;
-  url: string | null;
-  units_json: string | null;
-}
-
-const toPlayer = (r: RawPlayer): PlayerRow => ({
-  id: r.id,
-  nodeId: r.node_id,
-  login: r.login,
-  avatarUrl: r.avatar_url,
-  createdAtGithub: r.created_at_github,
-  enlistedAt: r.enlisted_at,
-  demo: r.demo === 1,
-  lastPolledAt: r.last_polled_at,
-  pollError: r.poll_error,
-});
-
-const toRound = (r: RawRound): RoundRow => ({
-  id: r.id,
-  name: r.name,
-  status: r.status,
-  seed: r.seed,
-  factionCount: r.faction_count,
-  expectedUnits: r.expected_units,
-  startsAt: r.starts_at,
-  endsAt: r.ends_at,
-  intermissionEndsAt: r.intermission_ends_at,
-  winnerFaction: r.winner_faction,
-  finalized: r.finalized === 1,
-  roomSlug: r.room_slug,
-  dominationTicks: r.domination_ticks,
-  winnerLogin: r.winner_login,
-});
-
-const toContribution = (r: RawContribution): Contribution => ({
-  sourceId: r.source_id,
-  kind: r.kind,
-  day: r.day as IsoDay,
-  count: r.count,
-  repo: r.repo,
-  url: r.url,
-  title: r.title,
-  language: r.language,
-});
-
-const toFeed = (r: RawFeed): FeedItem => ({
-  id: r.id,
-  at: r.at,
-  kind: r.kind,
-  playerId: r.player_id,
-  faction: r.faction,
-  message: r.message,
-  url: r.url,
-  units: r.units_json === null ? null : (JSON.parse(r.units_json) as Fielded),
-});
-
-export type NewRound = Omit<RoundRow, 'id' | 'status' | 'intermissionEndsAt' | 'winnerFaction' | 'finalized' | 'winnerLogin'>;
-
-export interface RoundEnd {
-  winnerFaction: number | null;
-  winnerLogin: string | null;
-  intermissionEndsAt: number | null;
-  endedAt: number;
-  finalScores: readonly { faction: number; score: number }[];
-}
-
-export interface RoomFighterRow {
-  faction: number;
-  color: number;
-  playerId: number;
-  login: string;
-  avatarUrl: string;
-  lastFielded: Muster | null;
-  finalScore: number | null;
-}
-
-const CAMPAIGN = 'room_slug IS NULL';
-export type NewFeed = Omit<FeedItem, 'id'> & { roundId: number | null };
 
 export class Store {
   constructor(readonly db: Db) {}
@@ -342,395 +294,288 @@ export class Store {
     return this.db.transaction(fn)();
   }
 
-  upsertPlayer(p: Omit<PlayerRow, 'lastPolledAt' | 'pollError'>): void {
-    if (!Number.isSafeInteger(p.id) || p.id < 0) throw new Error(`player id ${p.id} collides with the sim's neutral range`);
+  // ------------------------------------------------------------ users
+
+  upsertUser(u: Pick<UserRow, 'id' | 'nodeId' | 'login' | 'avatarUrl' | 'createdAtGithub' | 'joinedAt' | 'bot'>): void {
     this.db
       .prepare(
-        `INSERT INTO players (id, node_id, login, avatar_url, created_at_github, enlisted_at, demo)
-         VALUES (@id, @nodeId, @login, @avatarUrl, @createdAtGithub, @enlistedAt, @demo)
-         ON CONFLICT(id) DO UPDATE SET login = excluded.login, avatar_url = excluded.avatar_url, node_id = excluded.node_id,
-           enlisted_at = COALESCE(players.enlisted_at, excluded.enlisted_at)`,
+        `INSERT INTO users (id, node_id, login, avatar_url, created_at_github, joined_at, bot)
+         VALUES (@id, @nodeId, @login, @avatarUrl, @createdAtGithub, @joinedAt, @bot)
+         ON CONFLICT(id) DO UPDATE SET node_id = excluded.node_id, login = excluded.login, avatar_url = excluded.avatar_url`,
       )
-      .run({ ...p, demo: p.demo ? 1 : 0 });
+      .run({ ...u, bot: u.bot ? 1 : 0 });
   }
 
-  refreshIdentity(id: number, login: string, avatarUrl: string): void {
-    this.db.prepare('UPDATE players SET login = ?, avatar_url = ? WHERE id = ?').run(login, avatarUrl, id);
+  user(id: number): UserRow | null {
+    const r = this.db.prepare('SELECT * FROM users WHERE id = ?').get(id) as Raw | undefined;
+    return r ? userRow(r) : null;
   }
 
-  player(id: number): PlayerRow | null {
-    const r = this.db.prepare('SELECT * FROM players WHERE id = ?').get(id) as RawPlayer | undefined;
-    return r ? toPlayer(r) : null;
+  userByLogin(login: string): UserRow | null {
+    const r = this.db.prepare('SELECT * FROM users WHERE lower(login) = lower(?) ORDER BY bot, id LIMIT 1').get(login) as Raw | undefined;
+    return r ? userRow(r) : null;
   }
 
-  players(): PlayerRow[] {
-    return (this.db.prepare('SELECT * FROM players ORDER BY id').all() as RawPlayer[]).map(toPlayer);
+  /** Real users who belong to at least one room: the ones worth polling. */
+  pollableUsers(): UserRow[] {
+    return (this.db
+      .prepare('SELECT u.* FROM users u WHERE u.bot = 0 AND EXISTS (SELECT 1 FROM room_members m WHERE m.user_id = u.id) ORDER BY coalesce(u.last_polled_at, 0), u.id')
+      .all() as Raw[]).map(userRow);
   }
 
-  enlistedPlayers(): PlayerRow[] {
-    return (this.db.prepare('SELECT * FROM players WHERE enlisted_at IS NOT NULL ORDER BY id').all() as RawPlayer[]).map(toPlayer);
+  setPollState(id: number, s: { etag: string | null; lastEventId: string | null; at: number; error: string | null }): void {
+    this.db
+      .prepare('UPDATE users SET events_etag = ?, last_event_id = ?, last_polled_at = ?, poll_error = ? WHERE id = ?')
+      .run(s.etag, s.lastEventId, s.at, s.error, id);
   }
 
-  playerByLogin(login: string): PlayerRow | null {
-    const r = this.db
-      .prepare('SELECT * FROM players WHERE login = ? COLLATE NOCASE ORDER BY last_polled_at DESC LIMIT 1')
-      .get(login) as RawPlayer | undefined;
-    return r ? toPlayer(r) : null;
+  setRestingDay(id: number, day: string | null): void {
+    this.db.prepare('UPDATE users SET resting_day = ? WHERE id = ?').run(day, id);
   }
 
-  markPolled(id: number, at: number, error: string | null): void {
-    this.db.prepare('UPDATE players SET last_polled_at = ?, poll_error = ? WHERE id = ?').run(at, error, id);
+  setHookSecret(id: number, secret: string): void {
+    this.db.prepare('UPDATE users SET hook_secret = ? WHERE id = ?').run(secret, id);
   }
 
-  markPollError(id: number, error: string): void {
-    this.db.prepare('UPDATE players SET poll_error = ? WHERE id = ?').run(error, id);
+  // ----------------------------------------------------------- pushes
+
+  /** Records a push once. Returns false if this push id was already recorded. */
+  recordPush(p: PushRecord): boolean {
+    const res = this.db
+      .prepare('INSERT OR IGNORE INTO pushes (user_id, push_id, repo, at, data) VALUES (?, ?, ?, ?, ?)')
+      .run(p.userId, p.pushId, p.repo, p.at, JSON.stringify(p));
+    return res.changes > 0;
   }
 
-  contributions(playerId: number): Contribution[] {
-    return (
-      this.db.prepare('SELECT * FROM contributions WHERE player_id = ? ORDER BY source_id').all(playerId) as RawContribution[]
-    ).map(toContribution);
+  hasPush(userId: number, pushId: string): boolean {
+    return this.db.prepare('SELECT 1 FROM pushes WHERE user_id = ? AND push_id = ?').get(userId, pushId) !== undefined;
   }
 
-  contribution(playerId: number, sourceId: string): Contribution | null {
-    const r = this.db
-      .prepare('SELECT * FROM contributions WHERE player_id = ? AND source_id = ?')
-      .get(playerId, sourceId) as RawContribution | undefined;
-    return r ? toContribution(r) : null;
+  /** Marks commits as seen and returns the ones that were new. */
+  claimCommits(userId: number, shas: readonly string[], at: number): string[] {
+    const insert = this.db.prepare('INSERT OR IGNORE INTO seen_commits (user_id, sha, at) VALUES (?, ?, ?)');
+    const fresh: string[] = [];
+    this.transaction(() => {
+      for (const sha of shas) if (insert.run(userId, sha, at).changes > 0) fresh.push(sha);
+    });
+    return fresh;
   }
 
-  upsertContributions(playerId: number, contributions: readonly Contribution[], now: number): ContributionDelta[] {
-    const insert = this.db.prepare(
-      `INSERT OR IGNORE INTO contributions (player_id, source_id, kind, day, count, repo, url, title, language, first_seen_at)
-       VALUES (@playerId, @sourceId, @kind, @day, @count, @repo, @url, @title, @language, @now)`,
-    );
-    const select = this.db.prepare('SELECT count FROM contributions WHERE player_id = ? AND source_id = ?');
-    const grow = this.db.prepare(
-      'UPDATE contributions SET count = ?, url = ?, title = ?, language = ? WHERE player_id = ? AND source_id = ?',
-    );
-    const deltas: ContributionDelta[] = [];
-    for (const c of contributions) {
-      if (insert.run({ ...c, playerId, now }).changes === 1) {
-        deltas.push({ contribution: c, added: c.count });
-        continue;
-      }
-      const { count } = select.get(playerId, c.sourceId) as { count: number };
-      if (c.count > count) {
-        grow.run(c.count, c.url, c.title, c.language, playerId, c.sourceId);
-        deltas.push({ contribution: c, added: c.count - count });
-      }
-    }
-    return deltas;
+  pruneSeenCommits(before: number): void {
+    this.db.prepare('DELETE FROM seen_commits WHERE at < ?').run(before);
+    this.db.prepare('DELETE FROM pushes WHERE at < ?').run(before);
   }
 
-  latestCampaignRound(): RoundRow | null {
-    const r = this.db.prepare(`SELECT * FROM rounds WHERE ${CAMPAIGN} ORDER BY id DESC LIMIT 1`).get() as RawRound | undefined;
-    return r ? toRound(r) : null;
-  }
+  // ------------------------------------------------------------ rooms
 
-  campaignRoundCount(): number {
-    return (this.db.prepare(`SELECT COUNT(*) AS n FROM rounds WHERE ${CAMPAIGN}`).get() as { n: number }).n;
-  }
-
-  roomBySlug(slug: string): RoundRow | null {
-    const r = this.db.prepare('SELECT * FROM rounds WHERE room_slug = ?').get(slug) as RawRound | undefined;
-    return r ? toRound(r) : null;
-  }
-
-  liveRooms(): RoundRow[] {
-    return (this.db.prepare(`SELECT * FROM rounds WHERE room_slug IS NOT NULL AND status = 'active' ORDER BY id`).all() as RawRound[]).map(toRound);
-  }
-
-  recentRooms(limit: number): RoundRow[] {
-    return (
-      this.db
-        .prepare(`SELECT * FROM rounds WHERE room_slug IS NOT NULL AND status = 'ended' ORDER BY ended_at DESC, id DESC LIMIT ?`)
-        .all(limit) as RawRound[]
-    ).map(toRound);
-  }
-
-  roomFighters(roundId: number): RoomFighterRow[] {
-    const rows = this.db
+  insertRoom(r: Omit<RoomRow, 'id'>): number {
+    const res = this.db
       .prepare(
-        `SELECT f.faction, f.color, f.final_score, rp.player_id, rp.last_fielded_json, p.login, p.avatar_url
-         FROM round_factions f
-         JOIN round_players rp ON rp.round_id = f.round_id AND rp.faction = f.faction
-         JOIN players p ON p.id = rp.player_id
-         WHERE f.round_id = ? ORDER BY f.faction`,
-      )
-      .all(roundId) as {
-      faction: number;
-      color: number;
-      final_score: number | null;
-      player_id: number;
-      last_fielded_json: string | null;
-      login: string;
-      avatar_url: string;
-    }[];
-    return rows.map((r) => ({
-      faction: r.faction,
-      color: r.color,
-      playerId: r.player_id,
-      login: r.login,
-      avatarUrl: r.avatar_url,
-      lastFielded: r.last_fielded_json === null ? null : (JSON.parse(r.last_fielded_json) as Muster),
-      finalScore: r.final_score,
-    }));
-  }
-
-  round(id: number): RoundRow | null {
-    const r = this.db.prepare('SELECT * FROM rounds WHERE id = ?').get(id) as RawRound | undefined;
-    return r ? toRound(r) : null;
-  }
-
-  insertRound(r: NewRound): number {
-    const { lastInsertRowid } = this.db
-      .prepare(
-        `INSERT INTO rounds (name, status, seed, faction_count, expected_units, domination_ticks, starts_at, ends_at, room_slug)
-         VALUES (@name, 'active', @seed, @factionCount, @expectedUnits, @dominationTicks, @startsAt, @endsAt, @roomSlug)`,
+        `INSERT INTO rooms (slug, name, owner_id, visibility, invite, reset_hour, bots, webhook_url, created_at)
+         VALUES (@slug, @name, @ownerId, @visibility, @invite, @resetHour, @bots, @webhookUrl, @createdAt)`,
       )
       .run(r);
-    return Number(lastInsertRowid);
+    return Number(res.lastInsertRowid);
   }
 
-  endRound(id: number, end: RoundEnd): boolean {
-    return this.transaction(() => {
-      const changed =
-        this.db
-          .prepare(
-            `UPDATE rounds SET status = 'ended', winner_faction = ?, winner_login = ?, intermission_ends_at = ?, ended_at = ?
-             WHERE id = ? AND status = 'active'`,
-          )
-          .run(end.winnerFaction, end.winnerLogin, end.intermissionEndsAt, end.endedAt, id).changes === 1;
-      const score = this.db.prepare('UPDATE round_factions SET final_score = ? WHERE round_id = ? AND faction = ?');
-      if (changed) for (const f of end.finalScores) score.run(f.score, id, f.faction);
-      return changed;
+  updateRoom(id: number, r: Partial<Pick<RoomRow, 'name' | 'visibility' | 'resetHour' | 'bots' | 'webhookUrl' | 'invite'>>): void {
+    const cols: Record<string, string> = { name: 'name', visibility: 'visibility', resetHour: 'reset_hour', bots: 'bots', webhookUrl: 'webhook_url', invite: 'invite' };
+    const sets: string[] = [];
+    const vals: unknown[] = [];
+    for (const [k, v] of Object.entries(r)) {
+      if (v === undefined || !cols[k]) continue;
+      sets.push(`${cols[k]} = ?`);
+      vals.push(v);
+    }
+    if (sets.length === 0) return;
+    this.db.prepare(`UPDATE rooms SET ${sets.join(', ')} WHERE id = ?`).run(...vals, id);
+  }
+
+  deleteRoom(id: number): void {
+    this.transaction(() => {
+      this.db.prepare('DELETE FROM room_members WHERE room_id = ?').run(id);
+      this.db.prepare('DELETE FROM rooms WHERE id = ?').run(id);
     });
   }
 
-  claimFinalize(id: number): boolean {
-    return this.db.prepare(`UPDATE rounds SET finalized = 1 WHERE id = ? AND status = 'ended' AND finalized = 0 AND room_slug IS NULL`).run(id).changes === 1;
+  room(id: number): RoomRow | null {
+    const r = this.db.prepare('SELECT * FROM rooms WHERE id = ?').get(id) as Raw | undefined;
+    return r ? roomRow(r) : null;
   }
 
-  insertFactions(roundId: number, factions: readonly RoundFactionRow[]): void {
-    const stmt = this.db.prepare(
-      'INSERT INTO round_factions (round_id, faction, name, color, language) VALUES (?, ?, ?, ?, ?)',
-    );
-    for (const f of factions) stmt.run(roundId, f.faction, f.name, f.color, f.language);
+  roomBySlug(slug: string): RoomRow | null {
+    const r = this.db.prepare('SELECT * FROM rooms WHERE slug = ?').get(slug) as Raw | undefined;
+    return r ? roomRow(r) : null;
   }
 
-  factions(roundId: number): RoundFactionRow[] {
-    return this.db
-      .prepare('SELECT faction, name, color, language FROM round_factions WHERE round_id = ? ORDER BY faction')
-      .all(roundId) as RoundFactionRow[];
+  rooms(): RoomRow[] {
+    return (this.db.prepare('SELECT * FROM rooms ORDER BY id').all() as Raw[]).map(roomRow);
   }
 
-  insertRoundPlayer(roundId: number, playerId: number, faction: number): boolean {
-    return (
-      this.db
-        .prepare('INSERT OR IGNORE INTO round_players (round_id, player_id, faction) VALUES (?, ?, ?)')
-        .run(roundId, playerId, faction).changes === 1
-    );
+  roomsOf(userId: number): RoomRow[] {
+    return (this.db
+      .prepare('SELECT r.* FROM rooms r JOIN room_members m ON m.room_id = r.id WHERE m.user_id = ? ORDER BY r.id')
+      .all(userId) as Raw[]).map(roomRow);
   }
 
-  roundPlayers(roundId: number): RoundPlayerRow[] {
-    const rows = this.db
-      .prepare(
-        `SELECT player_id, faction, last_fielded_json, kills, losses, captures, peak_soldiers
-         FROM round_players WHERE round_id = ? ORDER BY player_id`,
-      )
-      .all(roundId) as {
-      player_id: number;
-      faction: number;
-      last_fielded_json: string | null;
-      kills: number;
-      losses: number;
-      captures: number;
-      peak_soldiers: number;
-    }[];
-    return rows.map((r) => ({
-      playerId: r.player_id,
-      faction: r.faction,
-      lastFielded: r.last_fielded_json === null ? null : (JSON.parse(r.last_fielded_json) as Muster),
-      kills: r.kills,
-      losses: r.losses,
-      captures: r.captures,
-      peakSoldiers: r.peak_soldiers,
+  addMember(roomId: number, userId: number, role: 'owner' | 'member', at: number): boolean {
+    return this.db.prepare('INSERT OR IGNORE INTO room_members (room_id, user_id, role, joined_at) VALUES (?, ?, ?, ?)').run(roomId, userId, role, at).changes > 0;
+  }
+
+  removeMember(roomId: number, userId: number): boolean {
+    return this.db.prepare('DELETE FROM room_members WHERE room_id = ? AND user_id = ?').run(roomId, userId).changes > 0;
+  }
+
+  members(roomId: number): (MemberRow & { user: UserRow })[] {
+    return (this.db
+      .prepare('SELECT m.room_id, m.user_id, m.role, m.joined_at, u.* FROM room_members m JOIN users u ON u.id = m.user_id WHERE m.room_id = ? ORDER BY m.joined_at, m.user_id')
+      .all(roomId) as Raw[]).map((r) => ({
+      roomId: r.room_id as number,
+      userId: r.user_id as number,
+      role: r.role as 'owner' | 'member',
+      joinedAt: r.joined_at as number,
+      user: userRow(r),
     }));
   }
 
-  setLastFielded(roundId: number, playerId: number, muster: Muster, soldiers: number): void {
+  isMember(roomId: number, userId: number): boolean {
+    return this.db.prepare('SELECT 1 FROM room_members WHERE room_id = ? AND user_id = ?').get(roomId, userId) !== undefined;
+  }
+
+  // ------------------------------------------------------------- wars
+
+  insertWar(w: Omit<WarRow, 'id' | 'digest' | 'winnerLogin' | 'winnerHue' | 'winnerRenown' | 'pushes'>): number {
+    const res = this.db
+      .prepare(
+        `INSERT INTO wars (room_id, day, status, seed, slots, members, starts_at, ends_at, header)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(w.roomId, w.day, w.status, w.seed, w.slots, w.members, w.startsAt, w.endsAt, JSON.stringify(w.header));
+    return Number(res.lastInsertRowid);
+  }
+
+  war(id: number): WarRow | null {
+    const r = this.db.prepare('SELECT * FROM wars WHERE id = ?').get(id) as Raw | undefined;
+    return r ? warRow(r) : null;
+  }
+
+  activeWar(roomId: number): WarRow | null {
+    const r = this.db.prepare("SELECT * FROM wars WHERE room_id = ? AND status = 'active' ORDER BY id DESC LIMIT 1").get(roomId) as Raw | undefined;
+    return r ? warRow(r) : null;
+  }
+
+  wars(roomId: number, limit: number): WarRow[] {
+    return (this.db.prepare('SELECT * FROM wars WHERE room_id = ? ORDER BY starts_at DESC LIMIT ?').all(roomId, limit) as Raw[]).map(warRow);
+  }
+
+  updateWarHeader(id: number, header: WarHeader, pushes: number): void {
+    this.db.prepare('UPDATE wars SET header = ?, pushes = ? WHERE id = ?').run(JSON.stringify(header), pushes, id);
+  }
+
+  endWar(id: number, end: { digest: Digest; winnerLogin: string | null; winnerHue: number | null; winnerRenown: number | null }): void {
+    this.db
+      .prepare("UPDATE wars SET status = 'ended', digest = ?, winner_login = ?, winner_hue = ?, winner_renown = ? WHERE id = ?")
+      .run(JSON.stringify(end.digest), end.winnerLogin, end.winnerHue, end.winnerRenown, id);
+  }
+
+  appendInputs(warId: number, inputs: readonly { seq: number; tick: number; data: EncodedInput }[]): void {
+    const stmt = this.db.prepare('INSERT INTO war_inputs (war_id, seq, tick, data) VALUES (?, ?, ?, ?)');
+    for (const i of inputs) stmt.run(warId, i.seq, i.tick, JSON.stringify(i.data));
+  }
+
+  inputs(warId: number, fromTick = 0): { seq: number; tick: number; data: EncodedInput }[] {
+    return (this.db.prepare('SELECT seq, tick, data FROM war_inputs WHERE war_id = ? AND tick >= ? ORDER BY tick, seq').all(warId, fromTick) as Raw[]).map((r) => ({
+      seq: r.seq as number,
+      tick: r.tick as number,
+      data: JSON.parse(r.data as string) as EncodedInput,
+    }));
+  }
+
+  maxSeq(warId: number): number {
+    const r = this.db.prepare('SELECT max(seq) AS m FROM war_inputs WHERE war_id = ?').get(warId) as { m: number | null };
+    return r.m ?? 0;
+  }
+
+  saveSnapshot(warId: number, tick: number, json: string, checksum: number): void {
+    this.db.prepare('INSERT OR REPLACE INTO war_snapshots (war_id, tick, json, checksum) VALUES (?, ?, ?, ?)').run(warId, tick, json, checksum);
+  }
+
+  latestSnapshot(warId: number, atOrBefore = Number.MAX_SAFE_INTEGER): { tick: number; json: string; checksum: number } | null {
+    const r = this.db.prepare('SELECT tick, json, checksum FROM war_snapshots WHERE war_id = ? AND tick <= ? ORDER BY tick DESC LIMIT 1').get(warId, atOrBefore) as Raw | undefined;
+    return r ? { tick: r.tick as number, json: r.json as string, checksum: r.checksum as number } : null;
+  }
+
+  // ------------------------------------------------------- chronicle
+
+  appendChronicle(warId: number, firstSeq: number, at: (tick: number) => number, entries: readonly ChronicleEntry[]): void {
+    const stmt = this.db.prepare('INSERT OR REPLACE INTO chronicle (war_id, seq, tick, at, data) VALUES (?, ?, ?, ?, ?)');
+    entries.forEach((e, i) => stmt.run(warId, firstSeq + i, e.tick, at(e.tick), JSON.stringify(e)));
+  }
+
+  chronicleCount(warId: number): number {
+    const r = this.db.prepare('SELECT count(*) AS n FROM chronicle WHERE war_id = ?').get(warId) as { n: number };
+    return r.n;
+  }
+
+  chronicleTail(warId: number, limit: number): ChronicleEntry[] {
+    return (this.db.prepare('SELECT data FROM chronicle WHERE war_id = ? ORDER BY seq DESC LIMIT ?').all(warId, limit) as Raw[])
+      .map((r) => JSON.parse(r.data as string) as ChronicleEntry)
+      .reverse();
+  }
+
+  chronicleSince(warId: number, since: number, limit: number): ChronicleEntry[] {
+    return (this.db.prepare('SELECT data FROM chronicle WHERE war_id = ? AND at > ? ORDER BY seq LIMIT ?').all(warId, since, limit) as Raw[]).map(
+      (r) => JSON.parse(r.data as string) as ChronicleEntry,
+    );
+  }
+
+  chronicleAll(warId: number): ChronicleEntry[] {
+    return (this.db.prepare('SELECT data FROM chronicle WHERE war_id = ? ORDER BY seq').all(warId) as Raw[]).map((r) => JSON.parse(r.data as string) as ChronicleEntry);
+  }
+
+  /** Keeps hourly keyframes and the most recent snapshots; older ones are only a cache. */
+  pruneSnapshots(warId: number, keepFromTick: number, keyframeEvery: number): void {
+    this.db.prepare('DELETE FROM war_snapshots WHERE war_id = ? AND tick < ? AND tick % ? != 0').run(warId, keepFromTick, keyframeEvery);
+  }
+
+  // ------------------------------------------------------------- chat
+
+  addChat(roomId: number, userId: number, at: number, text: string): number {
+    return Number(this.db.prepare('INSERT INTO chat (room_id, user_id, at, text) VALUES (?, ?, ?, ?)').run(roomId, userId, at, text).lastInsertRowid);
+  }
+
+  chat(roomId: number, limit: number): ChatMessage[] {
+    return (this.db
+      .prepare('SELECT c.id, c.at, c.text, u.id AS uid, u.login, u.avatar_url FROM chat c JOIN users u ON u.id = c.user_id WHERE c.room_id = ? ORDER BY c.id DESC LIMIT ?')
+      .all(roomId, limit) as Raw[])
+      .map((r) => ({ id: r.id as number, at: r.at as number, text: r.text as string, user: { id: r.uid as number, login: r.login as string, avatarUrl: r.avatar_url as string } }))
+      .reverse();
+  }
+
+  // --------------------------------------------------------- lifetime
+
+  lifetime(userId: number, roomId: number): LifetimeRow | null {
+    const r = this.db.prepare('SELECT * FROM lifetime WHERE user_id = ? AND room_id = ?').get(userId, roomId) as Raw | undefined;
+    return r ? lifetimeRow(r) : null;
+  }
+
+  lifetimesOf(userId: number): LifetimeRow[] {
+    return (this.db.prepare('SELECT * FROM lifetime WHERE user_id = ? ORDER BY room_id').all(userId) as Raw[]).map(lifetimeRow);
+  }
+
+  saveLifetime(l: LifetimeRow): void {
     this.db
       .prepare(
-        `UPDATE round_players SET last_fielded_json = ?, peak_soldiers = MAX(peak_soldiers, ?)
-         WHERE round_id = ? AND player_id = ?`,
+        `INSERT INTO lifetime (user_id, room_id, days, wins, streak, best_streak, last_day, kills, renown, awards)
+         VALUES (@userId, @roomId, @days, @wins, @streak, @bestStreak, @lastDay, @kills, @renown, @awards)
+         ON CONFLICT(user_id, room_id) DO UPDATE SET days = excluded.days, wins = excluded.wins, streak = excluded.streak,
+           best_streak = excluded.best_streak, last_day = excluded.last_day, kills = excluded.kills, renown = excluded.renown, awards = excluded.awards`,
       )
-      .run(JSON.stringify(muster), soldiers, roundId, playerId);
+      .run({ ...l, awards: JSON.stringify(l.awards) });
   }
 
-  flushCombat(roundId: number, stats: readonly CombatStats[]): void {
-    const stmt = this.db.prepare(
-      'UPDATE round_players SET kills = ?, losses = ?, captures = ? WHERE round_id = ? AND player_id = ?',
-    );
-    for (const s of stats) stmt.run(s.kills, s.losses, s.captures, roundId, s.playerId);
-  }
-
-  appendInputs(roundId: number, inputs: readonly TimedInput[]): void {
-    const stmt = this.db.prepare('INSERT INTO round_inputs (round_id, tick, seq, json) VALUES (?, ?, ?, ?)');
-    for (const i of inputs) stmt.run(roundId, i.tick, i.seq, JSON.stringify(i.input));
-  }
-
-  inputsFrom(roundId: number, fromTick: number): TimedInput[] {
-    const rows = this.db
-      .prepare('SELECT tick, seq, json FROM round_inputs WHERE round_id = ? AND tick >= ? ORDER BY tick, seq')
-      .all(roundId, fromTick) as { tick: number; seq: number; json: string }[];
-    return rows.map((r) => ({ tick: r.tick, seq: r.seq, input: JSON.parse(r.json) as SimInput }));
-  }
-
-  maxSeq(roundId: number): number {
-    const r = this.db.prepare('SELECT MAX(seq) AS seq FROM round_inputs WHERE round_id = ?').get(roundId) as { seq: number | null };
-    return r.seq ?? 0;
-  }
-
-  saveSnapshot(roundId: number, tick: number, json: string, checksum: number): void {
-    this.transaction(() => {
-      this.db
-        .prepare('INSERT OR REPLACE INTO round_snapshots (round_id, tick, json, checksum) VALUES (?, ?, ?, ?)')
-        .run(roundId, tick, json, checksum);
-      this.db
-        .prepare(
-          `DELETE FROM round_snapshots WHERE round_id = ? AND tick NOT IN
-           (SELECT tick FROM round_snapshots WHERE round_id = ? ORDER BY tick DESC LIMIT ${SNAPSHOTS_KEPT})`,
-        )
-        .run(roundId, roundId);
-    });
-  }
-
-  latestSnapshot(roundId: number): { tick: number; json: string; checksum: number } | null {
-    const r = this.db
-      .prepare('SELECT tick, json, checksum FROM round_snapshots WHERE round_id = ? ORDER BY tick DESC LIMIT 1')
-      .get(roundId) as { tick: number; json: string; checksum: number } | undefined;
-    return r ?? null;
-  }
-
-  snapshotCount(roundId: number): number {
-    return (this.db.prepare('SELECT COUNT(*) AS n FROM round_snapshots WHERE round_id = ?').get(roundId) as { n: number }).n;
-  }
-
-  addFeed(item: NewFeed): FeedItem {
-    const { lastInsertRowid } = this.db
-      .prepare(
-        `INSERT INTO feed (round_id, at, kind, player_id, faction, message, url, units_json)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(item.roundId, item.at, item.kind, item.playerId, item.faction, item.message, item.url, item.units === null ? null : JSON.stringify(item.units));
-    const { roundId: _, ...rest } = item;
-    return { id: Number(lastInsertRowid), ...rest };
-  }
-
-  lastFeedAt(roundId: number, kinds: readonly FeedItem['kind'][]): number {
-    const r = this.db
-      .prepare(`SELECT MAX(at) AS at FROM feed WHERE round_id = ? AND kind IN (${kinds.map(() => '?').join(',')})`)
-      .get(roundId, ...kinds) as { at: number | null };
-    return r.at ?? Number.NEGATIVE_INFINITY;
-  }
-
-  campaignFeed(limit: number): FeedItem[] {
-    const rows = this.db
-      .prepare(`SELECT * FROM feed WHERE round_id IS NULL OR round_id IN (SELECT id FROM rounds WHERE ${CAMPAIGN}) ORDER BY id DESC LIMIT ?`)
-      .all(limit) as RawFeed[];
-    return rows.map(toFeed).reverse();
-  }
-
-  roundFeed(roundId: number, limit: number): FeedItem[] {
-    const rows = this.db.prepare('SELECT * FROM feed WHERE round_id = ? ORDER BY id DESC LIMIT ?').all(roundId, limit) as RawFeed[];
-    return rows.map(toFeed).reverse();
-  }
-
-  addLifetime(rows: readonly (LifetimeStats & { playerId: number })[]): void {
-    const stmt = this.db.prepare(
-      `INSERT INTO lifetime (player_id, rounds_played, rounds_won, kills, losses, captures, peak_soldiers)
-       VALUES (@playerId, @roundsPlayed, @roundsWon, @kills, @losses, @captures, @peakSoldiers)
-       ON CONFLICT(player_id) DO UPDATE SET
-         rounds_played = rounds_played + excluded.rounds_played,
-         rounds_won = rounds_won + excluded.rounds_won,
-         kills = kills + excluded.kills,
-         losses = losses + excluded.losses,
-         captures = captures + excluded.captures,
-         peak_soldiers = MAX(peak_soldiers, excluded.peak_soldiers)`,
-    );
-    for (const r of rows) stmt.run(r);
-  }
-
-  lifetime(playerId: number): LifetimeStats {
-    const r = this.db
-      .prepare(
-        `SELECT rounds_played AS roundsPlayed, rounds_won AS roundsWon, kills, losses, captures, peak_soldiers AS peakSoldiers
-         FROM lifetime WHERE player_id = ?`,
-      )
-      .get(playerId) as LifetimeStats | undefined;
-    return r ?? { roundsPlayed: 0, roundsWon: 0, kills: 0, losses: 0, captures: 0, peakSoldiers: 0 };
-  }
-
-  standings(limit: number): { playerId: number; login: string; avatarUrl: string; stats: LifetimeStats }[] {
-    const rows = this.db
-      .prepare(
-        `SELECT p.id, p.login, p.avatar_url, l.rounds_played, l.rounds_won, l.kills, l.losses, l.captures, l.peak_soldiers
-         FROM lifetime l JOIN players p ON p.id = l.player_id
-         ORDER BY l.rounds_won DESC, l.kills DESC, l.captures DESC, p.id ASC LIMIT ?`,
-      )
-      .all(limit) as {
-      id: number;
-      login: string;
-      avatar_url: string;
-      rounds_played: number;
-      rounds_won: number;
-      kills: number;
-      losses: number;
-      captures: number;
-      peak_soldiers: number;
-    }[];
-    return rows.map((r) => ({
-      playerId: r.id,
-      login: r.login,
-      avatarUrl: r.avatar_url,
-      stats: {
-        roundsPlayed: r.rounds_played,
-        roundsWon: r.rounds_won,
-        kills: r.kills,
-        losses: r.losses,
-        captures: r.captures,
-        peakSoldiers: r.peak_soldiers,
-      },
-    }));
-  }
-
-  history(playerId: number): HistoryRow[] {
-    const rows = this.db
-      .prepare(
-        `SELECT r.id, r.name, f.name AS faction_name, rp.faction, r.winner_faction, rp.kills, rp.captures
-         FROM round_players rp
-         JOIN rounds r ON r.id = rp.round_id
-         LEFT JOIN round_factions f ON f.round_id = rp.round_id AND f.faction = rp.faction
-         WHERE rp.player_id = ? AND r.finalized = 1 AND r.room_slug IS NULL
-         ORDER BY r.id DESC`,
-      )
-      .all(playerId) as {
-      id: number;
-      name: string;
-      faction_name: string | null;
-      faction: number;
-      winner_faction: number | null;
-      kills: number;
-      captures: number;
-    }[];
-    return rows.map((r) => ({
-      roundId: r.id,
-      roundName: r.name,
-      faction: r.faction_name ?? `Faction ${r.faction + 1}`,
-      won: r.winner_faction === r.faction,
-      kills: r.kills,
-      captures: r.captures,
-    }));
+  bestStreak(userId: number): number {
+    const r = this.db.prepare('SELECT max(streak) AS s FROM lifetime WHERE user_id = ?').get(userId) as { s: number | null };
+    return r.s ?? 0;
   }
 }

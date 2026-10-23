@@ -1,37 +1,78 @@
-import { NEUTRAL, type SimInput, type TickEvents, type TimedInput, type World } from '../../sim/api.ts';
 import type { ServerMessage } from '../../protocol.ts';
-import { sim } from '../simModule.ts';
-import type { Store } from '../store.ts';
+import type { SimInput, TimedInput, World } from '../../sim/api.ts';
+import { checksum, restore, step } from '../../sim/index.ts';
+import type { GameStore } from '../store.ts';
 import { transition, type ConnEvent, type ResyncReason } from './connection.ts';
 import type { Connect, Transport } from './transport.ts';
 
 const MAX_STEPS_PER_FRAME = 30;
-const MAX_BEHIND_TICKS = 600;
+const MAX_BEHIND_TICKS = 300;
 const SYNC_SLICE_MS = 30;
 const CHECKSUM_HISTORY = 128;
 const FX_TAIL_STEPS = 3;
 
-export type StepListener = (events: TickEvents, world: World) => void;
+/** Drives a world forward for the renderer. */
+export interface Runner {
+  /** 0..1 progress between the previous tick and the current one. */
+  alpha: number;
+  frame(): void;
+  previousPosition(unitId: number, out: { x: number; y: number }): boolean;
+  stop(): void;
+}
 
-export class LockstepRunner {
+/** Keeps positions from before the last step so the renderer can interpolate. */
+export class PrevPositions {
+  private index = new Map<number, number>();
+  private xy = new Float64Array(0);
+
+  capture(world: World): void {
+    const n = world.units.length;
+    if (this.xy.length < n * 2) this.xy = new Float64Array(n * 2 + 512);
+    this.index.clear();
+    for (let i = 0; i < n; i++) {
+      const u = world.units[i]!;
+      this.index.set(u.id, i);
+      this.xy[i * 2] = u.x;
+      this.xy[i * 2 + 1] = u.y;
+    }
+  }
+
+  get(unitId: number, out: { x: number; y: number }): boolean {
+    const i = this.index.get(unitId);
+    if (i === undefined) return false;
+    out.x = this.xy[i * 2]!;
+    out.y = this.xy[i * 2 + 1]!;
+    return true;
+  }
+
+  clear(): void {
+    this.index.clear();
+  }
+}
+
+/**
+ * Lockstep spectator: one snapshot from the server, then only inputs, each
+ * stamped with the tick it applies at. The client simulates locally and checks
+ * itself against the server's checksums.
+ */
+export class LockstepRunner implements Runner {
   private transport: Transport | null = null;
   private queue = new Map<number, TimedInput[]>();
   private seenSeq = new Set<number>();
   private localChecksums = new Map<number, number>();
   private pendingChecks = new Map<number, number>();
   private offset = 0;
-  private roundStartMs = 0;
-  private tickMs = 100;
+  private startMs = 0;
+  private tickMs = 200;
+  private endTick = Infinity;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private stopped = false;
-  private stepListeners = new Set<StepListener>();
-  private prevIndex = new Map<number, number>();
-  private prevXY = new Float64Array(0);
+  private prev = new PrevPositions();
   alpha = 1;
 
   constructor(
     private connect: Connect,
-    private store: Store,
+    private store: GameStore,
   ) {
     store.serverNow = () => Date.now() + this.offset;
   }
@@ -48,63 +89,49 @@ export class LockstepRunner {
     this.transport = null;
   }
 
-  onStep(fn: StepListener): () => void {
-    this.stepListeners.add(fn);
-    return () => this.stepListeners.delete(fn);
+  send(msg: Parameters<Transport['send']>[0]): void {
+    this.transport?.send(msg);
   }
 
   previousPosition(unitId: number, out: { x: number; y: number }): boolean {
-    const i = this.prevIndex.get(unitId);
-    if (i === undefined) return false;
-    out.x = this.prevXY[i * 2]!;
-    out.y = this.prevXY[i * 2 + 1]!;
-    return true;
+    return this.prev.get(unitId, out);
   }
 
   frame(): void {
     const world = this.store.world;
     if (!world || this.store.conn.phase !== 'live') return;
-    const exact = (Date.now() + this.offset - this.roundStartMs) / this.tickMs;
-    const target = Math.min(Math.floor(exact), this.lastTick(world));
+    const exact = (Date.now() + this.offset - this.startMs) / this.tickMs;
+    const target = Math.min(Math.floor(exact), this.endTick);
     const behind = target - world.tick;
-
     if (behind > MAX_BEHIND_TICKS) {
       this.requestResync('behind');
       return;
     }
     const steps = Math.min(MAX_STEPS_PER_FRAME, Math.max(0, behind));
     for (let i = 0; i < steps; i++) {
-      if (i === steps - 1) this.capturePrevious(world);
+      if (i === steps - 1) this.prev.capture(world);
       if (this.store.conn.phase !== 'live') return;
       this.advance(world, steps - i <= FX_TAIL_STEPS);
     }
-    this.alpha = world.tick >= target ? Math.min(1, Math.max(0, exact - target)) : 1;
+    this.alpha = world.tick >= target && target < this.endTick ? Math.min(1, Math.max(0, exact - target)) : 1;
   }
 
   private syncSlice = (): void => {
     const world = this.store.world;
     if (!world || this.store.conn.phase !== 'syncing') return;
-    const target = Math.min(Math.floor((Date.now() + this.offset - this.roundStartMs) / this.tickMs), this.lastTick(world));
+    const target = Math.min(Math.floor((Date.now() + this.offset - this.startMs) / this.tickMs), this.endTick);
     const started = performance.now();
     while (world.tick < target && performance.now() - started < SYNC_SLICE_MS) {
       this.advance(world, false);
       if (this.store.conn.phase !== 'syncing') return;
     }
     if (world.tick >= target) {
-      this.capturePrevious(world);
+      this.prev.capture(world);
       this.dispatch({ type: 'caught-up' });
     } else {
       setTimeout(this.syncSlice, 0);
     }
   };
-
-  // A room's battle freezes at its final tick, so every spectator holds the same final field.
-  private lastTick(world: World): number {
-    const round = this.store.round;
-    if (round?.roomSlug == null) return Infinity;
-    if (world.winner !== NEUTRAL) return world.tick;
-    return Math.floor((round.endsAt - this.roundStartMs) / this.tickMs);
-  }
 
   private advance(world: World, emit: boolean): void {
     const due = this.queue.get(world.tick);
@@ -115,8 +142,8 @@ export class LockstepRunner {
       inputs = due.map((t) => t.input);
       for (const t of due) this.seenSeq.delete(t.seq);
     }
-    const events = sim.step(world, inputs);
-    const sum = sim.checksum(world);
+    const events = step(world, inputs);
+    const sum = checksum(world);
     this.localChecksums.set(world.tick, sum);
     this.localChecksums.delete(world.tick - CHECKSUM_HISTORY);
     const expected = this.pendingChecks.get(world.tick);
@@ -127,22 +154,7 @@ export class LockstepRunner {
         return;
       }
     }
-    if (emit) {
-      this.store.ingest(events, world);
-      for (const fn of this.stepListeners) fn(events, world);
-    }
-  }
-
-  private capturePrevious(world: World): void {
-    const n = world.units.length;
-    if (this.prevXY.length < n * 2) this.prevXY = new Float64Array(n * 2 + 512);
-    this.prevIndex.clear();
-    for (let i = 0; i < n; i++) {
-      const u = world.units[i]!;
-      this.prevIndex.set(u.id, i);
-      this.prevXY[i * 2] = u.x;
-      this.prevXY[i * 2 + 1] = u.y;
-    }
+    if (emit) this.store.stepped(events, world);
   }
 
   private open(): void {
@@ -204,30 +216,38 @@ export class LockstepRunner {
     const store = this.store;
     switch (msg.type) {
       case 'hello': {
-        const world = sim.restore(msg.snapshot);
+        const world = restore(msg.snapshot);
         this.queue.clear();
         this.seenSeq.clear();
         this.localChecksums.clear();
         this.pendingChecks.clear();
-        this.prevIndex.clear();
+        this.prev.clear();
         this.offset = msg.serverNow - Date.now();
-        this.roundStartMs = msg.roundStartMs;
+        this.startMs = msg.war.startsAt;
         this.tickMs = msg.tickMs;
+        this.endTick = msg.war.status === 'ended' ? world.tick : Math.floor((msg.war.endsAt - msg.war.startsAt) / msg.tickMs);
         this.enqueue(msg.inputs, world.tick);
-        store.world = world;
-        store.round = msg.round;
-        store.factions = msg.factions;
-        store.players = new Map(msg.players.map((p) => [p.playerId, p]));
-        store.feed = [];
-        for (const item of msg.feed) store.addFeed(item);
-        store.viewerPlayerId = msg.viewerPlayerId;
-        store.resetDerived();
+        store.room = msg.room;
+        store.war = msg.war;
+        store.warStartMs = msg.war.startsAt;
+        store.roster = msg.roster;
+        store.repos = msg.repos;
+        store.viewerP = msg.viewerP;
+        store.presence = msg.presence;
+        store.chronicle = [];
+        store.chat = [];
+        store.digestReady = msg.war.status === 'ended';
+        store.resetWorld(world);
+        store.addChronicle(msg.chronicle, false);
+        for (const c of msg.chat) store.addChat(c);
         this.dispatch({ type: 'hello' });
         store.publish();
         setTimeout(this.syncSlice, 0);
         return;
       }
       case 'inputs': {
+        if (msg.roster) for (const r of msg.roster) store.roster[r.p] = r;
+        if (msg.repos) for (const r of msg.repos) store.repos[r.index] = r.ref;
         const world = store.world;
         if (!world) return;
         if (!this.enqueue(msg.inputs, world.tick)) this.requestResync('late-input');
@@ -244,14 +264,27 @@ export class LockstepRunner {
         if (local !== undefined && local !== msg.checksum) this.requestResync('desync');
         return;
       }
-      case 'player':
-        store.players.set(msg.player.playerId, msg.player);
+      case 'chronicle':
+        store.addChronicle(msg.entries);
         return;
-      case 'feed':
-        store.addFeed(msg.item);
+      case 'presence':
+        store.presence = msg.presence;
+        store.publish();
         return;
-      case 'round':
-        store.round = msg.round;
+      case 'emote':
+        store.addEmote(msg.login, msg.p, msg.emote);
+        return;
+      case 'chat':
+        store.addChat(msg.message);
+        return;
+      case 'war':
+        store.war = msg.war;
+        store.digestReady = msg.digestReady;
+        if (msg.war.status === 'ended' && store.world) this.endTick = store.world.tick;
+        store.publish();
+        return;
+      case 'room':
+        store.room = msg.room;
         store.publish();
         return;
     }

@@ -1,43 +1,16 @@
-import type { MapDef, World, WorldSnapshot } from './api.ts';
+import type { World, WorldSnapshot } from './api.ts';
+import { generateMap } from './mapgen.ts';
 
-interface SerializedWorld extends Omit<World, 'map' | 'territory'> {
-  map: Omit<MapDef, 'terrain'> & { terrain: string };
-  territory: number[];
-}
-
+/** The world without its map; the map is rebuilt from params on restore. */
 export function snapshot(world: World): WorldSnapshot {
-  const plain: SerializedWorld = {
-    ...world,
-    map: { ...world.map, terrain: toBase64(world.map.terrain) },
-    territory: Array.from(world.territory),
-  };
-  return { version: 1, world: JSON.parse(JSON.stringify(plain)) as unknown };
+  const { map: _map, ...rest } = world;
+  return { version: 2, world: JSON.parse(JSON.stringify(rest)) as unknown };
 }
 
 export function restore(snap: WorldSnapshot): World {
-  if (snap.version !== 1) throw new Error(`unsupported snapshot version ${String(snap.version)}`);
-  const w = JSON.parse(JSON.stringify(snap.world)) as SerializedWorld;
-  return {
-    ...w,
-    map: { ...w.map, terrain: fromBase64(w.map.terrain) },
-    territory: Int8Array.from(w.territory),
-  };
-}
-
-function toBase64(bytes: Uint8Array): string {
-  let binary = '';
-  const chunk = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunk) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
-  }
-  return btoa(binary);
-}
-
-function fromBase64(text: string): Uint8Array {
-  const binary = atob(text);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes;
+  if (snap.version !== 2) throw new Error(`unsupported snapshot version ${String(snap.version)}`);
+  const w = JSON.parse(JSON.stringify(snap.world)) as Omit<World, 'map'>;
+  return { ...w, map: generateMap(w.params) };
 }
 
 const f64 = new Float64Array(1);
@@ -59,49 +32,64 @@ export function checksum(world: World): number {
   };
   num(world.tick);
   int(world.rng);
-  num(world.nextUnitId);
+  num(world.nextId);
+  int(world.leader);
+  int(world.monolithFallen ? 1 : 0);
   int(world.units.length);
   for (const u of world.units) {
     num(u.id);
-    num(u.playerId);
-    int(u.faction);
+    int(u.p);
+    num(u.platoon);
     int(u.kind);
     num(u.x);
     num(u.y);
     num(u.hp);
-    num(u.maxHp);
-    num(u.targetUnitId);
+    num(u.target);
     num(u.cooldown);
-    num(u.bornTick);
+    num(u.swingAt);
+    num(u.leavesAt);
+  }
+  int(world.platoons.length);
+  for (const pl of world.platoons) {
+    num(pl.id);
+    int(pl.state);
+    num(pl.x);
+    num(pl.y);
+    num(pl.hx);
+    num(pl.hy);
+    int(pl.site);
+    num(pl.morale);
+    num(pl.alive);
+    num(pl.kills);
+    num(pl.calm);
+  }
+  for (const st of world.structures) {
+    num(st.hp);
+    num(st.cooldown);
+    num(st.ruinedUntil);
+  }
+  int(world.shots.length);
+  for (const sh of world.shots) {
+    num(sh.target);
+    num(sh.landAt);
+    num(sh.damage);
   }
   for (const p of world.players) {
-    num(p.playerId);
-    int(p.faction);
-    for (let k = 0; k < 3; k++) {
-      num(p.target[k]!);
-      num(p.respawnAt[k]!);
-    }
-    num(p.rank);
-    int(p.orderObjectiveId);
+    num(p.renown);
     num(p.kills);
     num(p.losses);
-    num(p.captures);
-    int(p.retreating ? 1 : 0);
+    int(p.doctrine);
+    int(p.rallySite);
+    num(p.cryUntil);
+    num(p.monolithDamage);
+    num(p.structureDamage);
+    int(p.queue.length);
   }
-  for (const o of world.objectives) {
-    int(o.owner);
-    int(o.capturer);
-    num(o.progress);
+  for (const s of world.sites) {
+    int(s.owner);
+    int(s.capturer);
+    num(s.progress);
   }
-  for (let i = 0; i < world.territory.length; i++) int(world.territory[i]!);
-  for (const f of world.factions) {
-    num(f.score);
-    int(f.hexesHeld);
-    int(f.objectivesHeld);
-  }
-  int(world.dominationFaction);
-  num(world.dominationSince);
-  int(world.winner);
   h ^= h >>> 16;
   h = Math.imul(h, 0x85ebca6b);
   h ^= h >>> 13;

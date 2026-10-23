@@ -1,11 +1,33 @@
-export type Route = { kind: 'home' } | { kind: 'campaign' } | { kind: 'room'; slug: string } | { kind: 'lost'; path: string };
+export type Route =
+  | { kind: 'home' }
+  | { kind: 'demo' }
+  | { kind: 'room'; slug: string; invite: string | null }
+  | { kind: 'digest'; slug: string; warId: number }
+  | { kind: 'replay'; slug: string; warId: number; tick: number | null }
+  | { kind: 'history'; slug: string }
+  | { kind: 'profile'; login: string }
+  | { kind: 'lost'; path: string };
 
-export function parseRoute(pathname: string): Route {
+const SLUG = '([a-z0-9-]{3,48})';
+
+export function parseRoute(pathname: string, search = ''): Route {
   const path = pathname.replace(/\/+$/, '') || '/';
+  const q = new URLSearchParams(search);
   if (path === '/') return { kind: 'home' };
-  if (path === '/campaign') return { kind: 'campaign' };
-  const slug = /^\/r\/([A-Za-z0-9_-]{1,64})$/.exec(path)?.[1];
-  if (slug) return { kind: 'room', slug };
+  if (path === '/demo') return { kind: 'demo' };
+  let m = new RegExp(`^/r/${SLUG}$`).exec(path);
+  if (m) return { kind: 'room', slug: m[1]!, invite: q.get('invite') };
+  m = new RegExp(`^/r/${SLUG}/history$`).exec(path);
+  if (m) return { kind: 'history', slug: m[1]! };
+  m = new RegExp(`^/r/${SLUG}/day/(\\d+)$`).exec(path);
+  if (m) return { kind: 'digest', slug: m[1]!, warId: Number(m[2]) };
+  m = new RegExp(`^/r/${SLUG}/replay/(\\d+)$`).exec(path);
+  if (m) {
+    const t = q.get('t');
+    return { kind: 'replay', slug: m[1]!, warId: Number(m[2]), tick: t !== null && /^\d+$/.test(t) ? Number(t) : null };
+  }
+  m = /^\/u\/([A-Za-z0-9-]{1,39})$/.exec(path);
+  if (m) return { kind: 'profile', login: m[1]! };
   return { kind: 'lost', path: pathname };
 }
 
@@ -13,29 +35,27 @@ export function pathFor(route: Route): string {
   switch (route.kind) {
     case 'home':
       return '/';
-    case 'campaign':
-      return '/campaign';
+    case 'demo':
+      return '/demo';
     case 'room':
-      return `/r/${encodeURIComponent(route.slug)}`;
+      return `/r/${route.slug}${route.invite ? `?invite=${encodeURIComponent(route.invite)}` : ''}`;
+    case 'history':
+      return `/r/${route.slug}/history`;
+    case 'digest':
+      return `/r/${route.slug}/day/${route.warId}`;
+    case 'replay':
+      return `/r/${route.slug}/replay/${route.warId}${route.tick !== null ? `?t=${route.tick}` : ''}`;
+    case 'profile':
+      return `/u/${route.login}`;
     case 'lost':
       return route.path;
   }
 }
 
-export type BattleRoute = Extract<Route, { kind: 'campaign' | 'room' }>;
-
-export function streamPathFor(route: BattleRoute): string {
-  return route.kind === 'room' ? `/ws?room=${encodeURIComponent(route.slug)}` : '/ws';
-}
-
-export function hrefFor(route: Route): string {
-  const path = pathFor(route);
-  return new URLSearchParams(location.search).has('mock') ? `${path}?mock` : path;
-}
-
-export function navigate(route: Route): void {
-  const href = hrefFor(route);
+export function navigate(route: Route, replace = false): void {
+  const href = pathFor(route);
   if (href === location.pathname + location.search) return;
-  history.pushState(null, '', href);
+  if (replace) history.replaceState(null, '', href);
+  else history.pushState(null, '', href);
   window.dispatchEvent(new PopStateEvent('popstate'));
 }
