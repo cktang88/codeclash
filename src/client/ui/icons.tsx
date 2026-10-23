@@ -211,6 +211,7 @@ const EVENT_PATHS: Partial<Record<ChronicleKind, ReactNode>> = {
     </>
   ),
   leader: <path d="m3 8 4.5 4L12 5l4.5 7L21 8l-2 11H5z" />,
+  dragon: <path d="M3 14c3-6 7-9 12-9l2-2 1 3c2 1 3 3 3 5l-4-1-2 3 3 3c-2 2-5 3-8 2l-1 4-2-4c-2 0-3-2-4-4z" />,
   clash: <path d="m4 4 11 11M20 4 9 15M13 17l4-4M11 17l-4-4" />,
 };
 

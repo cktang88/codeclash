@@ -130,6 +130,14 @@ export function makeFxTextures(): FxTextures {
       tongue(32, 88, 13, 56, 'rgba(255,190,60,0.95)');
       tongue(32, 86, 7, 34, 'rgba(255,250,220,1)');
       c.filter = 'none';
+      // Fade the base so the tongue never shows a hard edge.
+      c.globalCompositeOperation = 'destination-in';
+      const fade = c.createLinearGradient(0, 96, 0, 60);
+      fade.addColorStop(0, 'rgba(0,0,0,0)');
+      fade.addColorStop(1, 'rgba(0,0,0,1)');
+      c.fillStyle = fade;
+      c.fillRect(0, 0, 64, 96);
+      c.globalCompositeOperation = 'source-over';
     }),
   );
   const fireball = make(48, 48, (c) => {

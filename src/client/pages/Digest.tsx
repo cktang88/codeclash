@@ -30,6 +30,8 @@ const AWARD_ICON: Record<string, () => ReactNode> = {
   'militia-mob': () => <UnitIcon kind={Kind.Skeleton} size={26} title="" />,
   'standard-bearer': () => <UnitIcon kind={Kind.Champion} size={26} title="" />,
   conqueror: () => <Icon name="flag" size={26} />,
+  dragonlord: () => <UnitIcon kind={Kind.Dragon} size={26} title="" />,
+  dragonslayer: () => <EventIcon kind="dragon" size={26} />,
 };
 
 export function LinesBar({ lines }: { lines: readonly number[] }) {

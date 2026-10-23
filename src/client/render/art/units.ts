@@ -2,7 +2,7 @@ import { Kind } from '../../../sim/api.ts';
 import {
   BONE, BONE_DARK, CLOTH, FEATHER, GOLD, HORSE, HORSE_DARK, INK, IRON, LEATHER, LEATHER_DARK, SCALE, SCALE_DARK, SKIN, STEEL, STEEL_DARK,
   TROLL, TROLL_DARK, WOOD, WOOD_DARK,
-  circle, curve, detail, ellipse, glow, pivot, poly, rect, stick, type G,
+  circle, curve, detail, ellipse, glow, part, pivot, poly, rect, stick, type G,
 } from './draw.ts';
 
 export type PoseName = 'idle' | 'walk' | 'attack' | 'die';
@@ -247,44 +247,84 @@ function horse(g: G, p: Pose, o: { barding: boolean; color: string }): void {
 }
 
 function wing(g: G, x: number, y: number, flap: number, len: number, color: string, membrane: boolean, back: boolean): void {
-  // flap 0..1 → angle from raised to lowered.
-  const a = Math.cos(flap * TAU);
-  const lift = a * 0.95 + (back ? 0.15 : 0);
-  const tipX = x - len * 0.55;
-  const tipY = y - len * lift;
-  const midX = x - len * 0.3;
-  const midY = y - len * lift * 0.55 - 6;
-  const col = back ? (membrane ? SCALE_DARK : BONE_DARK) : color;
+  // The span sweeps from raised (up and back) through level to lowered (down and back).
+  const lift = Math.cos(flap * TAU);
+  const t = (1 - lift) / 2;
+  const angle = -2.05 - t * 1.85 + (back ? 0.18 : 0);
+  const span = len * (0.62 + 0.38 * Math.abs(lift));
+  const ux = Math.cos(angle);
+  const uy = Math.sin(angle);
+  // v: toward the trailing edge.
+  const vx = uy;
+  const vy = -ux;
+  const at = (a: number, b: number) => [x + ux * span * a + vx * len * b, y + uy * span * a + vy * len * b] as const;
+  const shade = back ? -0.35 : 0;
+  const fill = shade ? toneHex(color, shade) : color;
+  const bone = back ? SCALE_DARK : '#6e5848';
   if (membrane) {
-    poly(g, [x, y, midX, midY, tipX, tipY, tipX - len * 0.12, tipY + len * 0.35 * (lift > 0 ? 1 : -0.3), x - len * 0.42, y + 4, x - len * 0.2, y + 6], col, {
-      box: [tipX, Math.min(tipY, y), x, y + 6],
-    });
-    stick(g, x, y, midX, midY, 3.5, back ? SCALE_DARK : SCALE, 2);
-    stick(g, midX, midY, tipX, tipY, 2.5, back ? SCALE_DARK : SCALE, 2);
-    detail(g, (ctx) => {
-      ctx.strokeStyle = 'rgba(30,20,15,0.6)';
-      ctx.lineWidth = 1.4;
-      for (const t of [0.35, 0.65]) {
-        ctx.beginPath();
-        ctx.moveTo(midX + (tipX - midX) * t, midY + (tipY - midY) * t);
-        ctx.lineTo(x - len * (0.2 + t * 0.25), y + 5);
-        ctx.stroke();
+    const elbow = at(0.38, -0.06);
+    const wrist = at(0.62, -0.02);
+    const tips = [at(1, 0.04), at(0.86, 0.34), at(0.64, 0.56), at(0.34, 0.62)];
+    const root = at(0.02, 0.42);
+    part(g, () => {
+      const c = g.ctx;
+      c.moveTo(x, y);
+      c.lineTo(elbow[0], elbow[1]);
+      c.lineTo(wrist[0], wrist[1]);
+      c.lineTo(tips[0]![0], tips[0]![1]);
+      let prev = tips[0]!;
+      for (const tip of [...tips.slice(1), root]) {
+        // Scalloped edge: bow each span of membrane toward the bones.
+        const mx = (prev[0] + tip[0]) / 2 + (wrist[0] - (prev[0] + tip[0]) / 2) * 0.28;
+        const my = (prev[1] + tip[1]) / 2 + (wrist[1] - (prev[1] + tip[1]) / 2) * 0.28;
+        c.quadraticCurveTo(mx, my, tip[0], tip[1]);
+        prev = tip;
       }
-    });
-  } else {
-    poly(g, [x, y, midX, midY, tipX, tipY, tipX + 6, tipY + 10 * Math.sign(lift || 1), x - len * 0.25, y + 8], col, { box: [tipX, Math.min(tipY, y), x, y + 8] });
-    detail(g, (ctx) => {
-      ctx.strokeStyle = 'rgba(60,45,30,0.55)';
-      ctx.lineWidth = 1.2;
-      for (let i = 1; i < 5; i++) {
-        const t = i / 5;
-        ctx.beginPath();
-        ctx.moveTo(x + (tipX - x) * t, y + (tipY - y) * t);
-        ctx.lineTo(x + (tipX - x) * t + 4, y + (tipY - y) * t + 9);
-        ctx.stroke();
-      }
-    });
+      c.closePath();
+    }, fill, { box: [Math.min(x, tips[0]![0]), Math.min(y, tips[0]![1]), Math.max(x, tips[0]![0]), Math.max(y, tips[2]![1])] });
+    stick(g, x, y, elbow[0], elbow[1], len * 0.06, bone, 2);
+    stick(g, elbow[0], elbow[1], wrist[0], wrist[1], len * 0.045, bone, 2);
+    for (const tip of tips) stick(g, wrist[0], wrist[1], tip[0], tip[1], len * 0.022, bone, 1.5);
+    poly(g, [wrist[0] - 2, wrist[1], wrist[0] + ux * 9 - vx * 6, wrist[1] + uy * 9 - vy * 6, wrist[0] + 2, wrist[1] + 2], BONE, { outline: 1.5 });
+    return;
   }
+  // Feathered wing: a leading edge, then a fan of long primaries.
+  const wrist = at(0.55, -0.04);
+  const tip = at(1, 0.06);
+  const feathers: (readonly [number, number])[] = [];
+  for (let i = 0; i <= 6; i++) feathers.push(at(1 - i * 0.14, 0.12 + i * 0.07));
+  const root = at(0.05, 0.42);
+  part(g, () => {
+    const c = g.ctx;
+    c.moveTo(x, y);
+    c.quadraticCurveTo(wrist[0], wrist[1] - 2, tip[0], tip[1]);
+    for (let i = 0; i < feathers.length; i++) {
+      const f = feathers[i]!;
+      const inner = at(0.93 - i * 0.14, 0.04 + i * 0.07);
+      c.lineTo(f[0], f[1]);
+      c.lineTo(inner[0], inner[1]);
+    }
+    c.lineTo(root[0], root[1]);
+    c.closePath();
+  }, fill, { box: [Math.min(x, tip[0]), Math.min(y, tip[1]), Math.max(x, tip[0]), Math.max(y, root[1])] });
+  detail(g, (ctx) => {
+    ctx.strokeStyle = back ? 'rgba(40,30,20,0.45)' : 'rgba(110,90,60,0.6)';
+    ctx.lineWidth = 1.2;
+    const coverts = at(0.5, 0.18);
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.quadraticCurveTo(coverts[0], coverts[1], tip[0], tip[1]);
+    ctx.stroke();
+  });
+}
+
+function toneHex(c: string, k: number): string {
+  const n = parseInt(c.slice(1), 16);
+  const f = (v: number) => Math.max(0, Math.min(255, Math.round(k >= 0 ? v + (255 - v) * k : v * (1 + k))));
+  const r = f((n >> 16) & 255);
+  const gg = f((n >> 8) & 255);
+  const b = f(n & 255);
+  return `#${((r << 16) | (gg << 8) | b).toString(16).padStart(6, '0')}`;
 }
 
 // ------------------------------------------------------------ painters
@@ -502,7 +542,7 @@ const PAINTERS: Record<number, Painter> = {
   [Kind.GriffinRider]: (g, p) => {
     // 128 cell; the creature hovers (renderer lifts it), feet line at y=114.
     const y0 = 70;
-    wing(g, 60, y0 - 10, p.flap + 0.08, 52, FEATHER, false, true);
+    wing(g, 62, y0 - 6, p.flap + 0.08, 50, FEATHER, false, true);
     // Lion hindquarters and tail
     curve(g, 34, y0 + 4, 16, y0 + 2, 14, y0 + 16, 3.5, '#b89a68', 2);
     circle(g, 13, y0 + 17, 4, '#6b5435', { outline: 2 });
@@ -532,7 +572,7 @@ const PAINTERS: Record<number, Painter> = {
         poly(g, [92, y0 - 46, 100, y0 - 54, 95, y0 - 42], STEEL, { outline: 2 });
       });
     });
-    wing(g, 66, y0 - 8, p.flap, 58, FEATHER, false, false);
+    wing(g, 68, y0 - 4, p.flap, 58, FEATHER, false, false);
   },
   [Kind.Skeleton]: (g, p) => {
     legs(g, p, 48, 62, BONE, BONE_DARK);
@@ -737,7 +777,7 @@ const PAINTERS: Record<number, Painter> = {
     // 192 cell, hovering; belly line near y=130, feet line 168.
     const y0 = 116;
     const tail = Math.sin(p.stride * 1.4 + p.flap * TAU) * 6;
-    wing(g, 92, y0 - 26, p.flap + 0.06, 108, SCALE, true, true);
+    wing(g, 96, y0 - 14, p.flap + 0.06, 96, '#8f6f5a', true, true);
     // Tail
     curve(g, 62, y0 + 4, 30, y0 + 16 + tail, 8, y0 + 2 - tail, 9, SCALE, 2.5);
     poly(g, [8, y0 - 2 - tail, -2 + 6, y0 - 12 - tail, 4, y0 + 8 - tail], SCALE_DARK, { outline: 2 });
@@ -802,7 +842,7 @@ const PAINTERS: Record<number, Painter> = {
       if (p.jaw > 0.2) glow(g, hx + 26, hy + 3, 12 + p.jaw * 22, '#ff8a2a', 0.9);
       glow(g, hx + 8, hy - 4, 6, '#ffcf4a', 0.5);
     });
-    wing(g, 98, y0 - 20, p.flap, 122, SCALE, true, false);
+    wing(g, 102, y0 - 10, p.flap, 112, '#9b7a62', true, false);
   },
 };
 

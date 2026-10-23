@@ -49,7 +49,7 @@ export const STATS: readonly UnitStats[] = [
   { ...base, name: 'Herald', plural: 'Heralds', role: 'Banner bearer; heals and steadies morale', tier: 'base', hp: 80, damage: 4, range: 13, speed: 1.6, cooldown: 8, aggro: 90, ranged: false, value: 2, rank: 3, raisedBy: Cat.Docs, slots: 1, size: 6 },
   { ...base, name: 'Wizard', plural: 'Wizards', role: 'Hurls fireballs that burst among the enemy', tier: 'elite', hp: 85, damage: 20, range: 120, speed: 1.4, cooldown: 14, aggro: 150, ranged: true, value: 5, rank: 4, raisedBy: Cat.Docs, slots: 2, splash: 28, size: 7 },
   { ...base, name: 'Sapper', plural: 'Sappers', role: 'Siege engineer; wrecks walls and towers', tier: 'base', hp: 90, damage: 10, range: 14, speed: 1.5, cooldown: 8, aggro: 100, ranged: false, value: 1, rank: 2, raisedBy: Cat.Config, slots: 1, size: 6 },
-  { ...base, name: 'Trebuchet', plural: 'Trebuchets', role: 'Siege engine; flings stones across the field', tier: 'elite', hp: 260, damage: 34, range: 230, speed: 0.8, cooldown: 30, aggro: 170, ranged: true, value: 5, rank: 5, raisedBy: Cat.Config, slots: 3, splash: 22, size: 12 },
+  { ...base, name: 'Trebuchet', plural: 'Trebuchets', role: 'Siege engine; flings stones across the field', tier: 'elite', hp: 260, damage: 34, range: 175, speed: 0.8, cooldown: 30, aggro: 170, ranged: true, value: 5, rank: 5, raisedBy: Cat.Config, slots: 3, splash: 22, size: 12 },
   { ...base, name: 'Outrider', plural: 'Outriders', role: 'Light cavalry that hunts archers and casters', tier: 'base', hp: 120, damage: 15, range: 13, speed: 3.2, cooldown: 6, aggro: 160, ranged: false, value: 2, rank: 4, raisedBy: Cat.Removed, slots: 1, size: 8 },
   { ...base, name: 'Griffin Rider', plural: 'Griffin Riders', role: 'Swoops over any terrain onto the backline', tier: 'elite', hp: 200, damage: 20, range: 14, speed: 3.6, cooldown: 6, aggro: 150, ranged: false, value: 5, rank: 5, raisedBy: Cat.Removed, slots: 2, flying: true, size: 11 },
   { ...base, name: 'Skeleton', plural: 'Skeletons', role: 'Raised from generated code; brittle and endless', tier: 'base', hp: 70, damage: 6, range: 13, speed: 1.3, cooldown: 8, aggro: 90, ranged: false, value: 1, rank: 0, raisedBy: Cat.Generated, slots: 1, size: 6 },
@@ -59,7 +59,7 @@ export const STATS: readonly UnitStats[] = [
   { ...base, name: 'Berserker', plural: 'Berserkers', role: 'Untested, uncommented fury; hits hard, dies fast', tier: 'special', hp: 120, damage: 26, range: 13, speed: 2.1, cooldown: 5, aggro: 130, ranged: false, value: 2, rank: 1, raisedBy: -1, slots: 1, size: 6 },
   { ...base, name: 'Cleric', plural: 'Clerics', role: 'Raised by bug fixes; mends the wounded', tier: 'special', hp: 90, damage: 5, range: 13, speed: 1.5, cooldown: 10, aggro: 110, ranged: false, value: 3, rank: 3, raisedBy: -1, slots: 1, heal: 22, size: 6 },
   { ...base, name: 'Champion', plural: 'Champions', role: 'Hero of a balanced push; rallies all around it', tier: 'hero', hp: 520, damage: 26, range: 16, speed: 1.5, cooldown: 7, aggro: 140, ranged: false, value: 10, rank: 2, raisedBy: -1, slots: 2, size: 10 },
-  { ...base, name: 'Dragon', plural: 'Dragons', role: 'Legendary; breathes fire across whole ranks', tier: 'legend', hp: 1800, damage: 16, range: 70, speed: 2.0, cooldown: 12, aggro: 150, ranged: true, value: 30, rank: 6, raisedBy: -1, slots: 6, flying: true, breath: true, size: 22 },
+  { ...base, name: 'Dragon', plural: 'Dragons', role: 'Legendary; breathes fire across whole ranks', tier: 'legend', hp: 2400, damage: 24, range: 70, speed: 2.0, cooldown: 10, aggro: 150, ranged: true, value: 30, rank: 6, raisedBy: -1, slots: 6, flying: true, breath: true, size: 22 },
 ];
 
 /** Bonus multiplier when `attacker` strikes `victim`. */
@@ -100,10 +100,11 @@ export const HERALD_HEAL = 0.5;
 export const CHAMPION_AURA = 60;
 export const CHAMPION_BONUS = 0.2;
 export const SAPPER_STRUCTURE = 6;
-export const TREBUCHET_STRUCTURE = 3;
+export const TREBUCHET_STRUCTURE = 2;
 export const HOME_TURF = 220;
 export const HOME_TURF_REDUCTION = 0.2;
 export const MERCENARY_CONTRACT = 10 * TICKS_PER_MINUTE;
+export const TROLL_CONTRACT = 20 * TICKS_PER_MINUTE;
 
 export const DOCTRINE_COOLDOWN = 60 * TICKS_PER_MINUTE;
 export const RALLY_COOLDOWN = 30 * TICKS_PER_MINUTE;

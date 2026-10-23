@@ -31,6 +31,8 @@ export interface Scratch {
   heralds: Int32Array;
   champions: Int32Array;
   slowest: Float64Array;
+  /** Platoons that rallied at their capital this tick. */
+  rallied: number[];
 }
 
 const cache = new WeakMap<World, Scratch>();
@@ -59,6 +61,7 @@ export function scratchFor(world: World): Scratch {
       heralds: new Int32Array(256),
       champions: new Int32Array(256),
       slowest: new Float64Array(256),
+      rallied: [],
     };
     cache.set(world, s);
   }

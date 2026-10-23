@@ -183,6 +183,21 @@ describe('world', () => {
   });
 });
 
+describe('regroup', () => {
+  it('folds a nearby remnant into a stronger platoon of the same army', () => {
+    const w = newWorld(2);
+    step(w, [{ kind: 'join', p: 0, slot: 0, hue: 1 }]);
+    step(w, [{ kind: 'push', p: 0, repo: 0, commits: 1, msg: 'big', lines: lines({ Code: 100, Test: 30 }) }]);
+    step(w, [{ kind: 'push', p: 0, repo: 1, commits: 1, msg: 'tiny', lines: lines({ Code: 2 }) }]);
+    let regrouped = 0;
+    for (let i = 0; i < 20; i++) regrouped += step(w, []).regroups.length;
+    expect(regrouped).toBe(1);
+    const fielded = w.platoons.filter((p) => p.p === 0 && p.state !== PlatoonState.Queued);
+    expect(fielded).toHaveLength(1);
+    expect(w.units.every((u) => u.platoon === fielded[0]!.id)).toBe(true);
+  });
+});
+
 describe('replay', () => {
   it('round-trips inputs and rebuilds the same world', () => {
     const inputs = script(3, 4, 8);

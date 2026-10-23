@@ -42,6 +42,7 @@ import {
   MAX_ALIVE,
   MELEE_WINDUP,
   MERCENARY_CONTRACT,
+  TROLL_CONTRACT,
   MONOLITH_TOWER,
   MORALE_LOSS,
   MORALE_MAX,
@@ -89,7 +90,7 @@ const speedOf = (kind: number) => STATS[kind]!.speed;
 export function emptyEvents(): TickEvents {
   return {
     swings: [], shots: [], breaths: [], blasts: [], heals: [], hits: [], deaths: [], musters: [], marches: [], routs: [], disbands: [],
-    captures: [], sacks: [], rebuilt: [], monolith: null, cries: [], doctrines: [], rallies: [], joins: [],
+    captures: [], sacks: [], rebuilt: [], regroups: [], monolith: null, cries: [], doctrines: [], rallies: [], joins: [],
     leader: null, departures: [],
   };
 }
@@ -134,6 +135,7 @@ export function step(world: World, inputs: readonly SimInput[]): TickEvents {
     }
   }
 
+  s.rallied.length = 0;
   updatePlatoons(world, s, ev);
   updateUnits(world, s, ev);
   updateStructures(world, s, ev);
@@ -141,6 +143,7 @@ export function step(world: World, inputs: readonly SimInput[]): TickEvents {
   resolveDamage(world, s, ev);
   rebuildSpatialHash(s.hash, world.units);
   updateMorale(world, s, ev);
+  regroup(world, s, ev);
   updateCaptures(world, ev);
   if (world.tick > 0 && world.tick % TICKS_PER_MINUTE === 0) awardHoldings(world);
   updateLeader(world, ev);
@@ -368,7 +371,7 @@ function deploy(world: World, player: PlayerState, platoon: Platoon): void {
       target: 0,
       cooldown: 0,
       swingAt: -1,
-      leavesAt: slot.kind === Kind.Mercenary || slot.kind === Kind.Troll ? world.tick + MERCENARY_CONTRACT : -1,
+      leavesAt: slot.kind === Kind.Mercenary ? world.tick + MERCENARY_CONTRACT : slot.kind === Kind.Troll ? world.tick + TROLL_CONTRACT : -1,
       fx: slot.f,
       fy: slot.l,
       run: 0,
@@ -413,6 +416,7 @@ function updatePlatoons(world: World, s: Scratch, ev: TickEvents): void {
         pl.state = PlatoonState.March;
         pl.morale = MORALE_RALLY;
         pl.site = player.slot;
+        s.rallied.push(pl.id);
       } else {
         advanceAnchor(world, pl, flow[player.slot]!, home.x, home.y, s.slowest[i]! * ROUT_SPEED);
       }
@@ -1028,6 +1032,68 @@ function updateMorale(world: World, s: Scratch, ev: TickEvents): void {
     }
   }
   world.platoons.length = w;
+}
+
+// ---------------------------------------------------------------- regroup
+
+const REGROUP_PERIOD = 5;
+const REGROUP_REACH = 140;
+const REGROUP_SMALL = 4;
+const REGROUP_STRENGTH = 0.3;
+const REAR_COLS = 5;
+
+function fielded(pl: Platoon): boolean {
+  return pl.state !== PlatoonState.Queued && pl.state !== PlatoonState.Rout && pl.alive > 0;
+}
+
+/**
+ * Remnants fold into a nearby platoon of the same army so the field shows a few
+ * strong formations instead of many stragglers. A remnant that has just
+ * rallied at its capital joins its army's nearest fielded platoon at any range.
+ */
+function regroup(world: World, s: Scratch, ev: TickEvents): void {
+  if (world.tick % REGROUP_PERIOD !== 0 && s.rallied.length === 0) return;
+  const { platoons, units } = world;
+  for (let i = 0; i < platoons.length; i++) {
+    const from = platoons[i]!;
+    if (!fielded(from)) continue;
+    const rallied = s.rallied.includes(from.id);
+    if (!rallied && world.tick % REGROUP_PERIOD !== 0) continue;
+    const small = from.alive <= REGROUP_SMALL || from.alive < from.size * REGROUP_STRENGTH;
+    if (!small || (rallied && from.alive > REGROUP_SMALL)) continue;
+    let best = -1;
+    let bestD = rallied ? Infinity : REGROUP_REACH * REGROUP_REACH;
+    for (let j = 0; j < platoons.length; j++) {
+      const to = platoons[j]!;
+      if (j === i || to.p !== from.p || !fielded(to) || to.alive < from.alive || (to.alive === from.alive && j > i)) continue;
+      const dx = to.x - from.x;
+      const dy = to.y - from.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < bestD) {
+        bestD = d2;
+        best = j;
+      }
+    }
+    if (best < 0) continue;
+    const to = platoons[best]!;
+    let rear = 0;
+    for (const u of units) if (u.platoon === to.id && u.fx < rear) rear = u.fx;
+    let moved = 0;
+    for (const u of units) {
+      if (u.platoon !== from.id) continue;
+      u.platoon = to.id;
+      u.fx = rear - SPACING * (1 + Math.floor(moved / REAR_COLS));
+      u.fy = ((moved % REAR_COLS) - (REAR_COLS - 1) / 2) * SPACING;
+      moved++;
+    }
+    to.alive += moved;
+    to.size += moved;
+    from.alive = 0;
+    ev.regroups.push({ from: from.id, to: to.id, moved });
+  }
+  let w = 0;
+  for (const pl of platoons) if (pl.state === PlatoonState.Queued || pl.alive > 0) platoons[w++] = pl;
+  platoons.length = w;
 }
 
 // ---------------------------------------------------------------- capture

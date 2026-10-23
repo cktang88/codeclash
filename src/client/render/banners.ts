@@ -75,6 +75,16 @@ export class BannerLayer {
     this.root.sortableChildren = true;
   }
 
+  private folding: { v: BannerView; into: number; at: number; x: number; y: number }[] = [];
+
+  /** A small platoon merges into another: its banner flies over and folds into the survivor's. */
+  regroup(from: number, into: number, now: number): void {
+    const v = this.views.get(from);
+    if (!v) return;
+    this.views.delete(from);
+    this.folding.push({ v, into, at: now, x: v.x, y: v.y });
+  }
+
   rout(platoon: number, now: number): void {
     const v = this.views.get(platoon);
     if (v) v.routFlash = now;
@@ -135,6 +145,21 @@ export class BannerLayer {
       v.star.visible = pl.champion;
       this.hits.push({ platoon: pl.id, x: v.x, y: v.y - lift - (FLAG_H * 0.9 * scale), r: Math.max(FLAG_W * 0.6 * scale, 10 / zoom) });
     }
+    for (let i = this.folding.length - 1; i >= 0; i--) {
+      const f = this.folding[i]!;
+      const t = Math.min(1, (now - f.at) / 650);
+      const target = this.views.get(f.into);
+      if (t >= 1 || !target) {
+        f.v.root.destroy({ children: true });
+        this.folding.splice(i, 1);
+        continue;
+      }
+      const e = t * t * (3 - 2 * t);
+      f.v.root.position.set(f.x + (target.x - f.x) * e, f.y + (target.y - f.y) * e - 16 / zoom - Math.sin(t * Math.PI) * 30 / zoom);
+      f.v.root.scale.set(scale * (1 - 0.6 * e));
+      f.v.root.alpha = 1 - e * 0.8;
+      f.v.root.rotation = e * 0.6;
+    }
     for (const [id, v] of this.views) {
       if (v.seen === this.frameNo) continue;
       v.root.destroy({ children: true });
@@ -180,6 +205,8 @@ export class BannerLayer {
   }
 
   destroy(): void {
+    for (const f of this.folding) f.v.root.destroy({ children: true });
+    this.folding = [];
     for (const v of this.views.values()) v.root.destroy({ children: true });
     this.views.clear();
   }

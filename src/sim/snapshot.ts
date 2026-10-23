@@ -49,6 +49,8 @@ export function checksum(world: World): number {
     num(u.swingAt);
     num(u.leavesAt);
     num(u.run);
+    num(u.fx);
+    num(u.fy);
     num(u.scorched);
   }
   int(world.platoons.length);
@@ -62,6 +64,7 @@ export function checksum(world: World): number {
     int(pl.site);
     num(pl.morale);
     num(pl.alive);
+    num(pl.size);
     num(pl.kills);
     num(pl.calm);
   }

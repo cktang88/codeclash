@@ -73,7 +73,7 @@ const CHRONICLE_KEEP = 400;
 const CHAT_KEEP = 120;
 const TOAST_MS = 5000;
 const EMOTE_MS = 3500;
-const TOAST_KINDS = new Set<ChronicleEntry['kind']>(['sack', 'monolith', 'champion', 'cry', 'leader', 'clash', 'join']);
+const TOAST_KINDS = new Set<ChronicleEntry['kind']>(['sack', 'monolith', 'dragon', 'champion', 'cry', 'leader', 'clash', 'join']);
 
 /** Everything the client knows about the room it is watching. */
 export class GameStore {

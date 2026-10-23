@@ -8,9 +8,9 @@ const CAT_SOURCE = ['Source code', 'Tests', 'Comments in source', 'Docs and READ
 
 const SHAPE_SOURCE: Record<string, string> = {
   Champion: 'A balanced push: code, tests, and docs or comments',
-  Berserker: 'Untested, uncommented code',
-  Cleric: 'Bug-fix commits',
-  Dragon: 'A legendary push',
+  Berserker: '30+ code lines with no tests and no comments',
+  Cleric: 'A commit message with fix, bug, hotfix or patch',
+  Dragon: 'A legendary push: 150+ code, 50+ test, 30+ docs and comment lines. One per army.',
 };
 
 const TIER_LABEL: Record<Tier, string> = { base: 'Line', elite: 'Elite', special: 'Special', hero: 'Hero', legend: 'Legend' };
@@ -34,7 +34,7 @@ export function unitGroups(): { label: string; kinds: number[] }[] {
 /** What raises unit `k`, in words. */
 export function raisedByText(k: number): string {
   const s = STATS[k]!;
-  if (s.raisedBy >= 0) return CAT_SOURCE[s.raisedBy] ?? 'Code';
+  if (s.raisedBy >= 0) return `${CAT_SOURCE[s.raisedBy] ?? 'Code'}${s.tier === 'elite' ? ': in big pushes, 3 line soldiers become 1 elite' : ''}`;
   return SHAPE_SOURCE[s.name] ?? 'The shape of a push';
 }
 
@@ -121,8 +121,7 @@ export function ArticlesOfWar({ onClose }: { onClose(): void }) {
             </table>
           </div>
           <p className="muted small">
-            After 3 pushes in an hour, platoons arrive at half strength. After 12 pushes in a day, at a third. A player can have 160 soldiers on the field at once. Extra platoons wait at
-            the capital.
+            After 3 pushes in an hour, platoons arrive at half strength. After 12 pushes in a day, at a third. Each army has 160 slots on the field. A line soldier takes 1, an elite 2 or 3, a Dragon 6. Extra platoons wait at the capital.
           </p>
         </>
       )}

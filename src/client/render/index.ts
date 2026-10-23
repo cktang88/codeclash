@@ -325,6 +325,7 @@ export class Battlefield {
       this.fx.ring(pl.x, pl.y, tint, 10, 90, 0.8);
       this.fx.burst({ x: pl.x, y: pl.y - 20, count: 10, texture: 'spark', tint, speed: 80, life: 0.7, size: 10, additive: true });
     }
+    for (const r of ev.regroups) this.banners.regroup(r.from, r.to, now);
     for (const r of ev.routs) {
       this.banners.rout(r.platoon, now);
       const pl = world.platoons.find((x) => x.id === r.platoon);

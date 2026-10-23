@@ -10,7 +10,7 @@ import { useHudContext } from './context.ts';
 
 export type ChronicleFilter = 'all' | 'mine' | 'big';
 
-export const BIG_MOMENTS = new Set<ChronicleKind>(['sack', 'monolith', 'champion', 'clash', 'leader', 'cry', 'capture', 'rebuilt']);
+export const BIG_MOMENTS = new Set<ChronicleKind>(['sack', 'monolith', 'dragon', 'champion', 'clash', 'leader', 'cry', 'capture', 'rebuilt']);
 const SHOWN = 160;
 
 const ids = new WeakMap<ChronicleEntry, number>();

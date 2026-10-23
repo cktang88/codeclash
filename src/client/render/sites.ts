@@ -250,6 +250,32 @@ export class SiteLayer {
       v.label.visible = zoom > 0.16 || def.kind !== 'shrine';
       v.label.alpha = def.kind === 'capital' && title === 'Open slot' ? 0.55 : 1;
     }
+    this.declutter();
+  }
+
+  // Capitals outrank the Heart, which outranks shrines: a label whose screen box
+  // overlaps a higher-priority one drops its subtitle first, then hides.
+  private declutter(): void {
+    const rank = (v: SiteView) => (v.def.kind === 'capital' ? 0 : v.def.kind === 'heart' ? 1 : 2);
+    const order = this.views.slice().sort((a, b) => rank(a) - rank(b) || a.def.id - b.def.id);
+    const placed: { x0: number; y0: number; x1: number; y1: number }[] = [];
+    const hits = (b: { x: number; y: number; width: number; height: number }) =>
+      placed.some((p) => b.x < p.x1 && b.x + b.width > p.x0 && b.y < p.y1 && b.y + b.height > p.y0);
+    const take = (b: { x: number; y: number; width: number; height: number }) => placed.push({ x0: b.x - 2, y0: b.y - 1, x1: b.x + b.width + 2, y1: b.y + b.height + 1 });
+    for (const v of order) {
+      if (!v.label.visible) continue;
+      const lb = v.label.getBounds();
+      if (hits(lb)) {
+        v.label.visible = false;
+        v.sub.visible = false;
+        continue;
+      }
+      take(lb);
+      if (!v.sub.visible) continue;
+      const sb = v.sub.getBounds();
+      if (hits(sb)) v.sub.visible = false;
+      else take(sb);
+    }
   }
 
   private hpBar(v: SiteView, frac: number, width: number, y: number, tint: number): void {

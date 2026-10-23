@@ -16,7 +16,7 @@ export interface AwaySummary {
   moments: ChronicleEntry[];
 }
 
-const MOMENT_KINDS = new Set(['sack', 'monolith', 'clash', 'leader', 'champion', 'cry']);
+const MOMENT_KINDS = new Set(['sack', 'monolith', 'dragon', 'clash', 'leader', 'champion', 'cry']);
 
 /** What happened while the viewer was away, from the chronicle since they left. */
 export function summarizeAway(entries: readonly ChronicleEntry[], viewerP: number | null): AwaySummary {

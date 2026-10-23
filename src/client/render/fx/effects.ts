@@ -544,18 +544,22 @@ export class Effects {
       const life = 0.5;
       const speed = b.range / life;
       b.acc += dt;
-      const rate = this.reduced ? 0.03 : 0.008;
+      const rate = this.reduced ? 0.02 : 0.0045;
       const fading = 1 - b.age / BREATH_LIFE;
       while (b.acc > rate) {
         b.acc -= rate;
-        const spread = (rand() - 0.5) * 2 * BREATH_HALF_ANGLE;
+        const spread = (rand() - 0.5) * 2 * BREATH_HALF_ANGLE * (0.4 + rand() * 0.6);
         const c = Math.cos(spread);
         const s = Math.sin(spread);
-        const vx = (b.dx * c - b.dy * s) * speed * (0.75 + rand() * 0.35);
-        const vy = (b.dy * c + b.dx * s) * speed * (0.75 + rand() * 0.35);
-        this.fire.spawn({ texture: this.tex.flame[0]!, frames: this.tex.flame, x: mouthX, y: mouthY, z: alt, vx, vy, vz: -alt / life, life, size: 10, grow: 3.4, tint: 0xfff2c0, tintTo: 0xc8300a, alpha: 0.95 * (0.5 + fading * 0.5), rotation: angleOf(vx, vy) + Math.PI / 2, fadeIn: 0.02 });
-        if (rand() < 0.35) this.fire.spawn({ texture: this.tex.ember, x: mouthX, y: mouthY, z: alt, vx: vx * 1.1 + (rand() - 0.5) * 40, vy: vy * 1.1 + (rand() - 0.5) * 40, vz: 20 + rand() * 40, gravity: 60, drag: 1.5, life: 0.9, size: 7, tint: 0xffe0a0, tintTo: 0xff4010 });
-        if (rand() < 0.12) this.smoke(mouthX + vx * 0.5, mouthY + vy * 0.5, 14, 0x2e2722, 0.45, 1.6, 3, 22);
+        const sp = speed * (0.85 + rand() * 0.35);
+        const vx = (b.dx * c - b.dy * s) * sp;
+        const vy = (b.dy * c + b.dx * s) * sp;
+        // The jet: soft blobs that swell from white-hot to smoky red as they fly.
+        const core = rand() < 0.25;
+        this.fire.spawn({ texture: core ? this.tex.soft : this.tex.flame[(rand() * 4) | 0]!, x: mouthX, y: mouthY, z: alt, vx, vy, vz: -alt / life, life: life * (0.85 + rand() * 0.3), size: core ? 8 : 10, grow: core ? 3 : 4.5 + rand() * 1.5, tint: core ? 0xfff0c0 : 0xffb040, tintTo: 0x7a1404, alpha: (core ? 0.5 : 0.55) * (0.6 + fading * 0.4), rotation: angleOf(vx, vy) - Math.PI / 2, spin: (rand() - 0.5) * 2, fadeIn: 0.03 });
+        if (rand() < 0.35) this.fire.spawn({ texture: this.tex.flame[0]!, frames: this.tex.flame, x: mouthX + vx * life * 0.9, y: mouthY + vy * life * 0.9, life: 0.5 + rand() * 0.3, size: 16 + rand() * 14, grow: 1.4, tint: 0xffe6a0, tintTo: 0xd0380c, alpha: 0.9, anchorY: 0.85, rotation: (rand() - 0.5) * 0.4, delay: life * 0.7, fadeIn: 0.05 });
+        if (rand() < 0.4) this.fire.spawn({ texture: this.tex.ember, x: mouthX, y: mouthY, z: alt, vx: vx * 1.05 + (rand() - 0.5) * 50, vy: vy * 1.05 + (rand() - 0.5) * 50, vz: 10 + rand() * 50, gravity: 50, drag: 1.2, life: 0.8 + rand() * 0.6, size: 6, tint: 0xffe0a0, tintTo: 0xff4010 });
+        if (rand() < 0.1) this.smoke(mouthX + vx * life, mouthY + vy * life, 14, 0x2e2722, 0.5, 1.8, 3, 26);
       }
       // Heat glow at the jaws.
       if (rand() < 0.5) this.fire.spawn({ texture: this.tex.soft, x: mouthX, y: mouthY - alt, life: 0.12, size: 40, alpha: 0.7, tint: 0xffb050 });

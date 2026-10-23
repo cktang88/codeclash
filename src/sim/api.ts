@@ -278,6 +278,8 @@ export interface TickEvents {
   captures: { site: number; p: number; previous: number }[];
   sacks: { site: number; p: number; victim: number }[];
   rebuilt: { site: number }[];
+  /** A remnant platoon folded into another of the same army; `from` no longer exists. */
+  regroups: { from: number; to: number; moved: number }[];
   monolith: { p: number } | null;
   cries: { p: number }[];
   doctrines: { p: number; doctrine: Doctrine }[];
