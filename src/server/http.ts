@@ -68,6 +68,8 @@ const ClientMessage = z.discriminatedUnion('type', [
   z.object({ type: z.literal('chat'), text: z.string().trim().min(1).max(CHAT_MAX) }),
 ]);
 
+const RESYNC_MIN_MS = 2000;
+
 /** Fixed-window rate limiter keyed by user or address. */
 class Limiter {
   private hits = new Map<string, { at: number; n: number }>();
@@ -128,6 +130,11 @@ export async function buildHttp(deps: HttpDeps): Promise<FastifyInstance> {
     if (room.ownerId !== user.id) throw new RoomFailure('forbidden', 'Only the room owner can do that.');
     return { room, user };
   };
+  /** Drops live sockets that lost access to a room (removed member, now private, rotated invite). */
+  const recheckViewers = (roomId: number) => {
+    const room = store.room(roomId);
+    if (room) hub.revalidate(roomId, (userId, invite) => rooms.canView(room, userId, invite), WS_CLOSE_FORBIDDEN, 'this room is private');
+  };
   const createLimit = new Limiter(3600_000, 10);
   const commandLimit = new Limiter(10_000, 6);
   const chatLimit = new Limiter(10_000, 6);
@@ -151,8 +158,9 @@ export async function buildHttp(deps: HttpDeps): Promise<FastifyInstance> {
     const user = viewerOf(req);
     if (!rooms.canView(room, user?.id ?? null, invite)) return socket.close(WS_CLOSE_FORBIDDEN, 'this room is private');
     const ref: UserRef | null = user ? { id: user.id, login: user.login, avatarUrl: user.avatarUrl } : null;
-    hub.add(room.id, socket, ref);
+    hub.add(room.id, socket, ref, invite);
     const key = user ? `u${user.id}` : `ip${req.ip}`;
+    let lastResync = -Infinity;
     socket.on('message', (raw: Buffer) => {
       let parsed: unknown;
       try {
@@ -163,7 +171,12 @@ export async function buildHttp(deps: HttpDeps): Promise<FastifyInstance> {
       const msg = ClientMessage.safeParse(parsed);
       if (!msg.success) return;
       const now = clock();
-      if (msg.data.type === 'resync') return hub.sendHello(room.id, socket);
+      if (msg.data.type === 'resync') {
+        // A hello carries a full snapshot; anyone, signed in or not, could otherwise flood the event loop with them.
+        if (now - lastResync < RESYNC_MIN_MS) return;
+        lastResync = now;
+        return hub.sendHello(room.id, socket);
+      }
       if (!user) return;
       if (msg.data.type === 'emote') {
         if (!emoteLimit.allow(key, now)) return;
@@ -276,6 +289,7 @@ export async function buildHttp(deps: HttpDeps): Promise<FastifyInstance> {
       const webhookUrl = body.data.webhookUrl === '' ? null : body.data.webhookUrl;
       if (webhookUrl && !validWebhookUrl(webhookUrl)) return fail(reply, 400, 'invalid', 'Use a Slack (hooks.slack.com/services/…) or Discord (discord.com/api/webhooks/…) webhook URL.');
       const updated = rooms.update(room, { ...body.data, webhookUrl });
+      recheckViewers(room.id);
       return rooms.detail(updated, user.id);
     } catch (err) {
       return failure(reply, err);
@@ -314,7 +328,9 @@ export async function buildHttp(deps: HttpDeps): Promise<FastifyInstance> {
       const { slug } = SlugParams.parse(req.params);
       const user = viewerOf(req);
       if (!user) return fail(reply, 401, 'signed_out', 'Sign in first.');
-      rooms.leave(roomOf(slug), user.id);
+      const room = roomOf(slug);
+      rooms.leave(room, user.id);
+      recheckViewers(room.id);
       return reply.code(204).send();
     } catch (err) {
       return failure(reply, err);
@@ -325,7 +341,9 @@ export async function buildHttp(deps: HttpDeps): Promise<FastifyInstance> {
     try {
       const { slug } = SlugParams.parse(req.params);
       const { room, user } = ownerOf(req, slug);
-      return rooms.detail(rooms.rotateInvite(room), user.id);
+      const rotated = rooms.rotateInvite(room);
+      recheckViewers(room.id);
+      return rooms.detail(rotated, user.id);
     } catch (err) {
       return failure(reply, err);
     }
@@ -338,6 +356,7 @@ export async function buildHttp(deps: HttpDeps): Promise<FastifyInstance> {
       const { room, user } = ownerOf(req, slug);
       if (!target.success || target.data === user.id) return fail(reply, 400, 'invalid', 'You cannot remove yourself.');
       rooms.leave(room, target.data);
+      recheckViewers(room.id);
       return rooms.detail(room, user.id);
     } catch (err) {
       return failure(reply, err);
@@ -353,6 +372,8 @@ export async function buildHttp(deps: HttpDeps): Promise<FastifyInstance> {
       if (!cmd.success) return fail(reply, 400, 'invalid', 'Unknown command.');
       if (!commandLimit.allow(`u${user.id}`, clock())) return fail(reply, 429, 'limit', 'Slow down.');
       const room = roomOf(slug);
+      // A removed member keeps their capital for the day but no longer gives orders.
+      if (!store.isMember(room.id, user.id)) return fail(reply, 403, 'forbidden', 'Only members of this room can give orders.');
       const war = rooms.war(room.id);
       if (!war) return fail(reply, 409, 'ended', 'No war is running in this room.');
       const error = war.command(clock(), user.id, cmd.data);

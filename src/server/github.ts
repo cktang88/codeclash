@@ -4,6 +4,8 @@ import type { ChangedFile } from '../rules/classify.ts';
 const API = 'https://api.github.com';
 const USER_AGENT = 'pushfront';
 const MAX_FILES = 300;
+/** A stalled request must not wedge the poller, which polls one user at a time. */
+export const REQUEST_TIMEOUT_MS = 20_000;
 
 export interface PushEventLite {
   id: string;
@@ -136,7 +138,7 @@ export function createGithubClient(token: string | null, fetchImpl: typeof fetch
   };
 
   const get = async (path: string, extra?: Record<string, string>): Promise<Response> => {
-    const res = await fetchImpl(`${API}${path}`, { headers: headers(token, extra) });
+    const res = await fetchImpl(`${API}${path}`, { headers: headers(token, extra), signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
     track(res);
     return res;
   };
@@ -189,7 +191,7 @@ export function createGithubClient(token: string | null, fetchImpl: typeof fetch
 }
 
 export async function fetchViewer(token: string, fetchImpl: typeof fetch = fetch): Promise<Viewer> {
-  const res = await fetchImpl(`${API}/user`, { headers: headers(token) });
+  const res = await fetchImpl(`${API}/user`, { headers: headers(token), signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
   if (!res.ok) throw new GithubError(`viewer lookup failed: ${res.status}`, res.status);
   return ViewerSchema.parse(await res.json());
 }

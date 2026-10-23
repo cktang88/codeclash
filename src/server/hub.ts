@@ -7,6 +7,8 @@ const MAX_PRESENCE = 40;
 
 interface Viewer {
   user: UserRef | null;
+  /** The invite code the socket connected with, if any. */
+  invite: string | null;
 }
 
 /** WebSocket fan-out per room, with presence. */
@@ -19,10 +21,10 @@ export class Hub {
     this.helloFor = fn;
   }
 
-  add(roomId: number, socket: WebSocket, user: UserRef | null): void {
+  add(roomId: number, socket: WebSocket, user: UserRef | null, invite: string | null = null): void {
     const sockets = this.rooms.get(roomId) ?? new Map<WebSocket, Viewer>();
     this.rooms.set(roomId, sockets);
-    sockets.set(socket, { user });
+    sockets.set(socket, { user, invite });
     socket.on('close', () => {
       sockets.delete(socket);
       if (sockets.size === 0 && this.rooms.get(roomId) === sockets) this.rooms.delete(roomId);
@@ -57,6 +59,16 @@ export class Hub {
   /** Closes every socket of a room, e.g. when it is deleted. */
   closeRoom(roomId: number, code: number, reason: string): void {
     for (const socket of this.rooms.get(roomId)?.keys() ?? []) socket.close(code, reason);
+  }
+
+  /**
+   * Closes the sockets that may no longer watch, e.g. after a member is removed,
+   * the room turns private, or its invite is rotated.
+   */
+  revalidate(roomId: number, allowed: (userId: number | null, invite: string | null) => boolean, code: number, reason: string): void {
+    for (const [socket, v] of this.rooms.get(roomId) ?? []) {
+      if (!allowed(v.user?.id ?? null, v.invite)) socket.close(code, reason);
+    }
   }
 
   presence(roomId: number): PresenceEntry[] {

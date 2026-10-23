@@ -3,7 +3,7 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import type { Config } from './config.ts';
 import type { Store } from './db.ts';
-import { fetchViewer } from './github.ts';
+import { fetchViewer, REQUEST_TIMEOUT_MS } from './github.ts';
 import { errorMessage, type Logger } from './log.ts';
 import { issueSession, SESSION_COOKIE, SESSION_MAX_AGE_S } from './session.ts';
 
@@ -76,6 +76,7 @@ export function registerAuth(app: FastifyInstance, deps: AuthDeps): void {
         method: 'POST',
         headers: { accept: 'application/json', 'content-type': 'application/json' },
         body: JSON.stringify({ client_id: config.oauth.clientId, client_secret: config.oauth.clientSecret, code: query.data.code, redirect_uri: redirectUri }),
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });
       const token = TokenResponse.parse(await res.json()).access_token;
       const viewer = await fetchViewer(token, fetchImpl);
