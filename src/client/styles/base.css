@@ -42,7 +42,7 @@
   --leaf-night: url('../ui/art/leaf-night.svg');
   --note: url('../ui/art/note.svg');
   --note-shade: url('../ui/art/note-shade.svg');
-  --table: url('../ui/art/table.svg');
+  --wood: url('../ui/art/table.svg');
   --seal: url('../ui/art/seal.svg');
   --seal-gold: url('../ui/art/seal-gold.svg');
   --seal-blue: url('../ui/art/seal-blue.svg');
@@ -147,7 +147,7 @@ body {
 /* The war table: dark walnut under candlelight. */
 body {
   background-color: var(--table);
-  background-image: radial-gradient(ellipse 80% 70% at 42% 30%, rgba(255, 170, 80, 0.1), transparent 70%), radial-gradient(ellipse at center, transparent 55%, rgba(5, 4, 3, 0.65) 100%), var(--table);
+  background-image: radial-gradient(ellipse 80% 70% at 42% 30%, rgba(255, 170, 80, 0.1), transparent 70%), radial-gradient(ellipse at center, transparent 55%, rgba(5, 4, 3, 0.65) 100%), var(--wood);
   background-size: 100% 100%, 100% 100%, 480px 480px;
   background-attachment: fixed;
 }
@@ -323,6 +323,7 @@ code,
   position: relative;
   isolation: isolate;
   max-width: 1120px;
+  min-height: min(82vh, 780px);
   margin: 18px auto 56px;
   padding: 44px clamp(20px, 5vw, 64px) 56px;
   --leaf-w: 30px;

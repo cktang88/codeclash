@@ -225,11 +225,8 @@ export function paintTerrain(map: MapDef, seed: number, maxPx: number, text: Cha
 
   paintCoast(ctx, R, seaW, seed);
   // Lake shores are inked as vector contours, so they stay crisp however close the camera comes.
-  const T0 = performance.now();
   const lakes = sampleGrid(R, 4, (x, y) => water(x, y) + (fbm(x / 240, y / 240, seed + 61, 4) - 0.5) * 0.2);
-  console.log('PROF sample', performance.now() - T0);
   paintContour(ctx, lakes, 0.45, 1.5, 0.8);
-  console.log('PROF contour', performance.now() - T0);
   paintContour(ctx, lakes, 0.56, 0.8, 0.32);
   paintContour(ctx, lakes, 0.68, 0.7, 0.2);
 
@@ -245,14 +242,10 @@ export function paintTerrain(map: MapDef, seed: number, maxPx: number, text: Cha
     ctx.fill();
   }
 
-  console.log('PROF before roads', performance.now() - T0);
   paintRoads(ctx, map, seed, terrainAt);
-  console.log('PROF roads', performance.now() - T0);
   paintGrass(ctx, R, rand, terrainAt);
   paintRocks(ctx, map, rand);
-  console.log('PROF rocks', performance.now() - T0);
   paintForests(ctx, map, rand, pxPerUnit, size, extent);
-  console.log('PROF forests', performance.now() - T0);
 
   // A double ink rule framing the sheet, with fleurons at its corners.
   paintFrame(ctx, sheet - 34, seed);
@@ -262,9 +255,7 @@ export function paintTerrain(map: MapDef, seed: number, maxPx: number, text: Cha
 
   // Paper grain and a candle-lit vignette over the whole sheet.
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  console.log('PROF frame', performance.now() - T0);
   paintGrain(ctx, size, seed);
-  console.log('PROF grain', performance.now() - T0);
   const v = ctx.createRadialGradient(size / 2, size / 2, R * pxPerUnit * 0.7, size / 2, size / 2, size * 0.74);
   v.addColorStop(0, 'rgba(40,24,10,0)');
   v.addColorStop(0.7, 'rgba(40,24,10,0.12)');

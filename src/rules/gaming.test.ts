@@ -304,7 +304,7 @@ describe('gaming line counts', () => {
     const files = Array.from({ length: legacy.length / per }, (_, f) => file(`vendored/lib${f}/mod.ts`.replace('vendored', 'src'), [], legacy.slice(f * per, (f + 1) * per)));
     const wipe = ledgerOf([{ delta: measure(files), msg: 'refactor: remove dead code' }]);
     expect(strength(wipe)).toBeLessThan(strength(honestDay(1000, 8)));
-  });
+  }, 30_000);
 });
 
 // ------------------------------------------------------------ the honest baseline

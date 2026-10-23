@@ -66,7 +66,7 @@ Each unit takes one or more **slots** in its platoon. Speed is in world units pe
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Footman | any code | 1 | 110 | 11 | melee | 1.6 | Spear and shield. +60% vs Outriders and Knights |
 | Knight | complex code | 2 | 240 | 22 | melee | 2.4 | Charge: the first blow after riding 40 units deals ×1.8 |
-| Troll | very complex code | 3 | 600 | 24 | melee | 1.2 | Regenerates 1.2 HP per tick, a quarter of that while scorched by fire. +30% vs base units |
+| Troll | very complex code | 3 | 600 | 24 | melee | 1.2 | Regenerates 1.2 HP per tick, a quarter of that while scorched by fire. +30% vs base units. Hired for 20 minutes, then lumbers home |
 | Berserker | untested, uncommented code | 1 | 120 | 26 | melee | 2.1 | Hits hard, dies fast |
 | Trebuchet | sweeping changes | 3 | 260 | 34 | 175 | 0.8 | Stones burst over 22 units. Prefers any structure in range. ×2 vs structures |
 | Cleric | bug fixes | 1 | 90 | 5 | melee | 1.5 | Every 2 s, heals the most wounded ally within 80 for 22 |

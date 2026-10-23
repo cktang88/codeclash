@@ -160,7 +160,7 @@ export function resolveMove(out: Vec, map: MapDef, x: number, y: number, vx: num
 export function clearPath(map: MapDef, x0: number, y0: number, x1: number, y1: number): boolean {
   const dx = x1 - x0;
   const dy = y1 - y0;
-  const steps = Math.ceil(Math.sqrt(dx * dx + dy * dy) / (map.navCell * 0.5));
+  const steps = Math.floor(Math.sqrt(dx * dx + dy * dy) / (map.navCell * 0.5)) + 1;
   for (let k = 1; k <= steps; k++) if (!passableAt(map, x0 + (dx * k) / steps, y0 + (dy * k) / steps)) return false;
   return true;
 }
