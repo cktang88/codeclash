@@ -1226,7 +1226,7 @@ const PAINTERS: Record<number, Painter> = {
     rivets(g, [53, 74, 85, 74, 66, 40, 70, 40], 0.8);
     // Arm: cocked back (low), released (thrown up and over).
     const idleSway = p.pose === 'idle' ? wave(p) * 0.04 : p.pose === 'walk' ? Math.sin(p.t * TAU) * 0.05 : 0;
-    const cock = isAttack(p) ? (p.swing < 0 ? 0.55 - p.swing * 0.35 : 0.9 - p.swing * 2.1) : 0.6 + idleSway;
+    const cock = isAttack(p) ? (p.swing < 0 ? 0.55 - p.swing * 0.35 : 0.9 - p.swing * 1.85) : 0.6 + idleSway;
     pivot(g, 67, 40, cock, () => {
       stick(g, 67, 40, 114, 40, 5, WOOD, 1.8);
       stick(g, 67, 40, 46, 40, 6, WOOD, 1.8);
@@ -1291,7 +1291,7 @@ const PAINTERS: Record<number, Painter> = {
     // 128 cell; the creature hovers (renderer lifts it), feet line at y=114.
     const y0 = 70 + Math.sin(p.flap * TAU) * 1.5;
     const ruffle = p.t;
-    wing(g, 62, y0 - 6, p.flap + 0.08, 50, FEATHER, false, true, ruffle);
+    wing(g, 62, y0 - 6, p.flap + 0.08, 50, '#b98a52', false, true, ruffle);
     // Lion hindquarters and tufted tail, flicking.
     const flick = Math.sin(p.t * TAU * 2) * 4;
     curve(g, 34, y0 + 4, 16, y0 + 2 + flick * 0.3, 12, y0 + 14 + flick, 3.4, '#b89a68', 1.8);
@@ -1347,7 +1347,7 @@ const PAINTERS: Record<number, Painter> = {
       pivot(g, 64, y0 - 26, a, () => spear(g, 66, y0 - 24, -0.68, 0, 14, 26, 2.6));
       arm(g, 60, y0 - 30, 66, y0 - 24, STEEL_DARK, STEEL_DARK, 1);
     });
-    wing(g, 68, y0 - 4, p.flap, 58, FEATHER, false, false, ruffle + 0.3);
+    wing(g, 68, y0 - 4, p.flap, 58, '#b98a52', false, false, ruffle + 0.3);
   },
   [Kind.Skeleton]: (g, p) => {
     // A rattle: bones jitter a hair on every frame.

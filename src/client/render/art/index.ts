@@ -38,6 +38,7 @@ const DIE_ANGLES = [0.2, 0.7, 1.28, 1.56];
 /** Anticipation, wind-up, strike (the blow lands here), follow-through. */
 const SWINGS = [-0.6, -1, 1, 0.45];
 const JAWS = [0.25, 0.55, 1, 0.85];
+const WIDE = new Set<number>([Kind.Knight, Kind.Outrider, Kind.Troll, Kind.BoneGolem]);
 
 function isFlyer(kind: number): boolean {
   return STATS[kind]!.flying;
@@ -83,19 +84,21 @@ function canvas(w: number, h: number): [HTMLCanvasElement, CanvasRenderingContex
 type Layer = 'body' | 'mask' | 'gild1' | 'gild2' | 'gild3' | 'torn';
 
 /** Paints one frame of one layer into a cell at the origin, at `res` texture px per logical px. */
-function paintCell(ctx: CanvasRenderingContext2D, kind: number, pose: Pose, dieIndex: number, layer: Layer, res: number): void {
+function paintCell(ctx: CanvasRenderingContext2D, kind: number, pose: Pose, dieIndex: number, layer: Layer, res: number, lift = 0): void {
   const spec = CELLS[kind]!;
   ctx.save();
   ctx.scale(res, res);
+  ctx.translate(0, -lift);
   if (dieIndex >= 0) {
     // Fall over backwards around the feet; flyers tumble forward out of the sky.
-    const a = DIE_ANGLES[dieIndex]!;
+    // Wide bodies keel over less: a horse slumps, an engine sags on a broken wheel.
+    const a = DIE_ANGLES[dieIndex]! * (kind === Kind.Trebuchet ? 0.15 : WIDE.has(kind) ? 0.55 : 1);
     const fx = spec.size / 2;
     const fy = spec.feetY;
     const flyer = isFlyer(kind);
     const sink = dieIndex === 0 ? 1.5 : 0;
     ctx.translate(fx + (flyer ? a * spec.size * 0.05 : a * spec.size * 0.15), fy + sink);
-    ctx.rotate(flyer ? a * 1.15 : -a);
+    ctx.rotate(flyer ? a * 0.45 : -a);
     ctx.scale(0.9, 0.9);
     ctx.translate(-fx, -fy);
   }
@@ -168,13 +171,32 @@ export function makeUnitArt(opts: { resolution?: number } = {}): UnitArt {
   const res = opts.resolution ?? 1.5;
   const packer = new Packer();
   const maxPx = Math.ceil(192 * res);
-  const [scratch, sctx] = canvas(maxPx, maxPx);
+  const [scratch, sctx] = canvas(maxPx, maxPx * 2);
   const sprites: Sprite[] = [];
+  // A fallen body must lie on the ground line, not below the cell: measure each
+  // death frame on a tall canvas and lift it until its lowest point rests there.
+  const lifts = new Map<string, number>();
+  const liftFor = (kind: number, pose: Pose, die: number): number => {
+    if (die < 0) return 0;
+    const key = `${kind}:${die}`;
+    let l = lifts.get(key);
+    if (l === undefined) {
+      const px = Math.ceil(CELLS[kind]!.size * res);
+      sctx.clearRect(0, 0, maxPx, maxPx * 2);
+      paintCell(sctx, kind, pose, die, 'body', res);
+      const b = bounds(sctx, px, Math.min(maxPx * 2, px * 2));
+      const ground = (CELLS[kind]!.feetY + 4) * res;
+      l = b && b[3] > ground ? (b[3] - ground) / res : 0;
+      lifts.set(key, l);
+    }
+    return l;
+  };
 
   const bake = (kind: number, pose: Pose, die: number, layer: Layer | 'sil'): number => {
     const px = Math.ceil(CELLS[kind]!.size * res);
-    sctx.clearRect(0, 0, maxPx, maxPx);
-    paintCell(sctx, kind, pose, die, layer === 'sil' ? 'body' : layer, res);
+    const lift = liftFor(kind, pose, die);
+    sctx.clearRect(0, 0, maxPx, maxPx * 2);
+    paintCell(sctx, kind, pose, die, layer === 'sil' ? 'body' : layer, res, lift);
     if (layer === 'sil') {
       sctx.save();
       sctx.globalCompositeOperation = 'source-in';
