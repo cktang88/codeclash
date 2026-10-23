@@ -49,3 +49,23 @@ describe('commands are validated against the server’s state at the tick they l
     await server.shutdown();
   });
 });
+
+describe('static fallback', () => {
+  it('serves the page for app routes but 404s missing assets', async () => {
+    const { mkdtempSync, writeFileSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const dir = mkdtempSync(join(tmpdir(), 'pf-client-'));
+    writeFileSync(join(dir, 'index.html'), '<!doctype html><title>pf</title>');
+    const config = loadConfig({ NODE_ENV: 'test', DATABASE_PATH: ':memory:', DEV_AUTH: '1', COMMONS: '0', PUBLIC_URL: 'http://pf.test', CLIENT_DIR: dir });
+    const server = await createServer(config, { log: silentLogger, background: false });
+    await server.app.ready();
+    const page = await server.app.inject({ url: '/rooms/some-room' });
+    expect(page.statusCode).toBe(200);
+    expect(page.body).toContain('<title>pf</title>');
+    for (const url of ['/audio/x.ogg', '/art/y.png', '/assets/missing.js?v=1']) {
+      expect((await server.app.inject({ url })).statusCode, url).toBe(404);
+    }
+    await server.shutdown();
+  });
+});

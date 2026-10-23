@@ -129,7 +129,11 @@ export function ReplayPage({ slug, warId, tick, me }: { slug: string; warId: num
     appliedTick.current = tick;
     if (tick !== null && tick > 0) void seek(tick);
     else runner.current.speed = speed;
-    return () => runner.current?.stop();
+    return () => {
+      // Abandon any seek in flight: its keyframe fetch and fast-forward slices would otherwise run on after unmount.
+      seekToken.current++;
+      runner.current?.stop();
+    };
     // Starting a replay is keyed to the file; speed and play state apply through the effect below.
   }, [replay]);
 

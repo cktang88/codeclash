@@ -602,7 +602,10 @@ export async function buildHttp(deps: HttpDeps): Promise<FastifyInstance> {
     await app.register(fastifyStatic, { root: clientDir, wildcard: false });
     app.setNotFoundHandler((req, reply) => {
       const path = req.url.split('?')[0]!;
-      if (req.method !== 'GET' || /^\/(api|auth|ws|hooks)(\/|$)/.test(path)) return reply.code(404).send({ error: 'not_found', message: 'Not found.' });
+      // Only app routes fall back to the page; a missing asset (anything with a file extension) is a 404,
+      // or a browser would try to decode index.html as audio or an image.
+      const asset = /\.[A-Za-z0-9]+$/.test(path.slice(path.lastIndexOf('/') + 1));
+      if (req.method !== 'GET' || asset || /^\/(api|auth|ws|hooks)(\/|$)/.test(path)) return reply.code(404).send({ error: 'not_found', message: 'Not found.' });
       return reply.type('text/html').sendFile('index.html');
     });
   }

@@ -35,4 +35,10 @@ describe('connection lifecycle', () => {
     expect(refused).toEqual({ phase: 'refused', reason: 'room_not_found' });
     expect(run([{ type: 'closed', now: 0 }, { type: 'retry' }, { type: 'hello' }, { type: 'caught-up' }], refused)).toBe(refused);
   });
+
+  it('spreads reconnects with jitter and keeps backing off through a failed sync', () => {
+    expect(run([{ type: 'closed', now: 0, jitter: 0.99 }])).toMatchObject({ attempt: 1, retryAt: 1495 });
+    const second = run([{ type: 'closed', now: 0 }, { type: 'retry' }, { type: 'hello' }, { type: 'closed', now: 0 }]);
+    expect(second).toEqual({ phase: 'offline', attempt: 2, retryAt: 2000 });
+  });
 });

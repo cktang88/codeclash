@@ -118,7 +118,8 @@ export function startDemo(store: GameStore, bots = 5, seed = Date.now() % 100000
       if (repo === undefined) {
         repo = store.repos.length;
         repoIndex.set(push.repo[0], repo);
-        store.repos.push(push.repo);
+        // Copy on write, as the lockstep runner does: HUD snapshots hold this array.
+        store.repos = [...store.repos, push.repo];
       }
       out.push({ kind: 'push', p: r.p, repo, lines: push.lines, files: push.files, branches: push.branches, churn: push.churn, filler: push.filler, commits: 1 + Math.floor(rand() * 4), msg: push.message });
     }
