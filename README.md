@@ -1,67 +1,54 @@
 # Pushfront
 
-Pushfront is a persistent autobattler. Public GitHub commits, accepted pull requests, and code reviews raise soldiers that fight on a shared battlefield. [DESIGN.md](DESIGN.md) holds the rules and the architecture.
+Pushfront is an all-day war fought with your pushes. Sign in with GitHub and join a room. Each push you make to a public repository is read and sorted into the kind of code it is, then marches out of your capital as a platoon. Tests become shield-bearing Wardens, docs become Heralds, and deleted code becomes fast Outriders. A balanced push brings a Champion. The armies meet in the middle and fight slowly enough to watch. At the room's reset hour the day ends, everyone gets a digest, and a new map begins.
+
+[DESIGN.md](DESIGN.md) holds the rules and the architecture.
 
 ## Run locally
 
 Requirements: Node 22 or later, and pnpm.
 
-1. Install dependencies.
+```sh
+pnpm install
+cp .env.example .env
+pnpm dev
+```
 
-   ```sh
-   pnpm install
-   ```
+Open http://localhost:5173. The Vite dev server proxies `/api`, `/auth`, `/hooks`, and `/ws` to the game server on port 8787.
 
-2. Copy the example environment and fill in what you need.
-
-   ```sh
-   cp .env.example .env
-   ```
-
-3. Start the server and the client.
-
-   ```sh
-   pnpm dev
-   ```
-
-   Open http://localhost:5173. The Vite dev server proxies `/api`, `/auth`, and `/ws` to the game server on port 8787.
-
-### Try it without GitHub
-
-Set `DEMO_PLAYERS=40` to seed 40 fictional players with synthetic histories. Every 20 seconds or so, one of them gains a synthetic contribution, so you can watch contributions become reinforcements. Demo players exist only while this variable is set when the database is created.
-
-Set `ROUND_HOURS=0.25` and `INTERMISSION_MINUTES=1` to watch a full round end, finalize, and restart within minutes.
-
-### Try it with real GitHub data
-
-Set `GITHUB_TOKEN` to a token that can read public data. Set `DEV_AUTH=1` and visit `http://localhost:5173/auth/dev?login=<github login>` to sign in as that user through the server token, without OAuth. Dev auth refuses to start in production.
-
-For the real sign-in flow, create a GitHub OAuth app with the callback URL `${PUBLIC_URL}/auth/github/callback` and set `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`. Pushfront requests no scopes. It uses the sign-in token once to read the account id and then discards it.
+- **No setup at all:** open http://localhost:5173/demo. A sparring war runs entirely in your browser.
+- **Without GitHub sign-in:** set `DEV_AUTH=1` and sign in at `http://localhost:5173/auth/dev?login=<any login>`. Set `DAY_MINUTES=10` to watch a whole day end, write its digest, and start again within minutes.
+- **With real pushes:** set `GITHUB_TOKEN` to a token that can read public data. Members' public pushes are polled from the events API. GitHub may deliver those events minutes to hours late. A member who wants near-real-time armies can open Settings, create a personal hook, and add it to a repository as a push webhook.
+- **Real sign-in:** create a GitHub OAuth app with the callback URL `${PUBLIC_URL}/auth/github/callback`, then set `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`. Pushfront requests no scopes.
 
 ## Environment
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `GITHUB_TOKEN` | unset | Server token for GraphQL reads. Without it, ingestion is disabled. |
+| `GITHUB_TOKEN` | unset | Server token for public events and diffs. Without it, only sparring bots fight. |
 | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | unset | OAuth app for sign-in. |
-| `PUBLIC_URL` | `http://localhost:5173` | Origin browsers use. Builds the OAuth callback and redirects. |
-| `SESSION_SECRET` | random per boot | HMAC key for the session cookie. Required, 32+ characters, in production. |
+| `PUBLIC_URL` | `http://localhost:5173` | Origin browsers use. Builds OAuth callbacks, hook URLs, and digest links. |
+| `SESSION_SECRET` | random per boot | HMAC key for the session cookie. Required in production, 32 or more characters. |
 | `PORT`, `HOST` | `8787`, `0.0.0.0` | Listen address. |
 | `DATABASE_PATH` | `data/pushfront.db` | SQLite file. Use a persistent volume in production. |
-| `CLIENT_DIR` | `dist/client` | Built client served with SPA fallback when present. |
-| `DEV_AUTH` | `0` | Enables `/auth/dev?login=`. |
-| `DEMO_PLAYERS` | `0` | Number of synthetic players to seed. |
-| `ROUND_HOURS` | `168` | Round length. |
-| `INTERMISSION_MINUTES` | `60` | Pause between rounds. |
-| `ROOM_MINUTES` | `10` | Length of a public room battle. |
-| `ROOM_MAX_LIVE` | `20` | Live rooms allowed at once. |
+| `CLIENT_DIR` | `dist/client` | Built client, served with SPA fallback when present. |
+| `COMMONS` | `1` | Seeds "The Commons", a public room with sparring bots. |
+| `MAX_ROOMS_PER_USER` | `5` | Rooms one player may own. |
+| `MAX_LIVE_ROOMS` | `200` | Rooms the server will simulate. |
+| `DEV_AUTH` | `0` | Enables `/auth/dev?login=`. Refused in production. |
+| `DAY_MINUTES` | unset | Replaces the daily cycle with wars of this length, for testing. |
 
 ## Test
 
 ```sh
-pnpm vitest run
-pnpm tsc --noEmit
+pnpm test
+pnpm typecheck
+pnpm tsx scripts/diagnose-war.ts 8 30   # a synthetic 8-player, 30-minute war, narrated
 ```
+
+## Replays
+
+Every finished war can be downloaded as a replay from `/api/rooms/<slug>/wars/<id>/replay`. A replay is the war's header (seed, slot count, players, repositories) plus its inputs, and nothing else. Any client rebuilds the same battle from it tick for tick, and the replay viewer in the app does exactly that.
 
 ## Deploy
 
@@ -73,4 +60,4 @@ fly secrets set GITHUB_TOKEN=... GITHUB_CLIENT_ID=... GITHUB_CLIENT_SECRET=... S
 fly deploy
 ```
 
-On `SIGTERM` the server writes a final snapshot and closes the database. On boot it replays the input log from the latest snapshot to the wall-clock tick, so a restart loses no battle state.
+On `SIGTERM` the server writes a snapshot of every war and closes the database. On boot, each war loads its latest snapshot, replays the logged inputs, and catches up to wall-clock time, so a restart loses no battle state.
