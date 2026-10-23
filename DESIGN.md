@@ -162,7 +162,7 @@ The first push of the day always sends at least one Footman. A large muster marc
 
 - **Army.** One per player per war. It has one **hue**, assigned from a colorblind-aware wheel so that players in a room are far apart.
 - **Battalion.** One per repository the player pushed to today. Its flag is the army hue in a lightness and saturation step unique to the battalion, plus a **pattern** (plain, chevron, saltire, pale, fess, quarterly, bend, chief), an **emblem** (one of 12), and an accent stripe in the repository's language color. All of these are chosen from a hash of the repo name. The flag shows the repo's initials.
-- **Platoon.** One per push. It carries its battalion's flag plus its ordinal number within the battalion (I, II, III …). It marches and fights as a formation, from front to back:
+- **Platoon.** One per push that raises soldiers (a big push raises several). It carries its battalion's flag plus its ordinal number within the battalion (I, II, III …). It marches and fights as a formation, from front to back:
   - Trolls, Golems, Paladins, Wardens and Skeletons in front
   - Champions, Knights, Footmen, Mercenaries and Berserkers in the line
   - Sappers in the middle
@@ -243,7 +243,7 @@ When a war ends, the server computes a digest from the final world and the war's
 | Demolisher | most removed lines |
 | Siegebreaker | most structure damage |
 | Monolith Slayer | most Monolith damage |
-| Ghost | the highest renown per push |
+| Ghost | the highest renown per soldier raised |
 | Bugslayer | most bug-fix pushes |
 | Architect | most branch points added |
 

@@ -17,7 +17,7 @@ export const AWARDS: readonly AwardDef[] = [
   { id: 'demolisher', title: 'Demolisher', blurb: 'Most lines deleted' },
   { id: 'siegebreaker', title: 'Siegebreaker', blurb: 'Most damage dealt to capitals' },
   { id: 'monolith-slayer', title: 'Monolith Slayer', blurb: 'Most damage dealt to the Legacy Monolith' },
-  { id: 'ghost', title: 'Ghost', blurb: 'Most renown for every push' },
+  { id: 'ghost', title: 'Ghost', blurb: 'Most renown for every soldier raised' },
   { id: 'bugslayer', title: 'Bugslayer', blurb: 'Most bug fixes pushed' },
   { id: 'architect', title: 'Architect', blurb: 'Most complex code: branch points added' },
   { id: 'conqueror', title: 'Conqueror', blurb: 'Most shrines and Hearts captured' },
@@ -168,7 +168,7 @@ export function buildDigest(world: World, replay: Replay, chronicle: readonly Ch
   give('demolisher', (pl) => pl.lines[Cat.Removed]!);
   give('siegebreaker', (pl) => pl.structureDamage);
   give('monolith-slayer', (pl) => pl.monolithDamage);
-  give('ghost', (pl) => pl.renown / pl.pushes, (pl) => pl.pushes > 0);
+  give('ghost', (pl) => pl.renown / raisedTotal(pl), (pl) => raisedTotal(pl) > 0);
   give('bugslayer', (pl) => pl.fixes);
   give('architect', (pl) => pl.branches);
   give('conqueror', (pl) => pl.captures);
