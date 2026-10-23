@@ -163,10 +163,25 @@ export interface WarSummary {
   pushes: number;
 }
 
+/** One frame of a war's timelapse: site owners and every fielded platoon's banner. */
+export interface TimelapseFrame {
+  t: number;
+  /** Owner player per site, -1 for none. */
+  o: number[];
+  /** [player, x, y, soldiers] per platoon in the field. */
+  a: [number, number, number, number][];
+  /** Monolith HP fraction, 0..1. */
+  m: number;
+}
+
 export interface DigestResponse {
   room: { slug: string; name: string };
   war: WarSummary;
   digest: Digest;
+  /** Map geometry for drawing the timelapse: capital and site positions. */
+  map: { radius: number; sites: { kind: 'capital' | 'shrine' | 'heart'; x: number; y: number; slot: number }[] };
+  players: { p: number; login: string; hue: number; slot: number }[];
+  timelapse: TimelapseFrame[];
 }
 
 export interface KeyframeResponse {

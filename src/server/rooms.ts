@@ -210,7 +210,6 @@ export class Rooms {
     const member = viewerId !== null && members.some((m) => m.userId === viewerId);
     const owner = viewerId !== null && room.ownerId === viewerId;
     const war = this.live.get(room.id);
-    const day = war?.meta.day ?? null;
     return {
       slug: room.slug,
       name: room.name,
@@ -218,7 +217,7 @@ export class Rooms {
       resetHour: room.resetHour,
       bots: room.bots,
       owner: userRef(store.user(room.ownerId)),
-      members: members.map((m) => ({ ...userRef(m.user), role: m.role, joinedAt: m.joinedAt, resting: day !== null && m.user.restingDay === day })),
+      members: members.map((m) => ({ ...userRef(m.user), role: m.role, joinedAt: m.joinedAt, resting: war !== undefined && restedDuring(m.user.restingDay, war.meta) })),
       viewer: { member, owner, signedIn: viewerId !== null },
       invite: owner || (member && room.visibility === 'private') ? room.invite : null,
       webhookUrl: owner ? room.webhookUrl : null,
@@ -313,7 +312,7 @@ export class Rooms {
         const prev = store.lifetime(userId, room.id) ?? {
           userId, roomId: room.id, days: 0, wins: 0, streak: 0, bestStreak: 0, lastDay: null, kills: 0, renown: 0, awards: {},
         };
-        const active = pl.pushes > 0 || user?.restingDay === day;
+        const active = pl.pushes > 0 || restedDuring(user?.restingDay ?? null, war.meta);
         const streak = active ? (prev.lastDay === yesterday ? prev.streak + 1 : 1) : 0;
         const awards = { ...prev.awards };
         for (const a of pl.awards) awards[a] = (awards[a] ?? 0) + 1;
@@ -341,6 +340,11 @@ export class Rooms {
   private warDeps(roomId: number) {
     return { store: this.deps.store, log: this.deps.log, channel: this.deps.channelFor(roomId) };
   }
+}
+
+/** Rest is set per UTC date; it covers a war if that date overlaps the war's day. */
+export function restedDuring(restingDay: string | null, war: { startsAt: number; endsAt: number }): boolean {
+  return restingDay !== null && (restingDay === isoDay(war.startsAt) || restingDay === isoDay(war.endsAt - 1));
 }
 
 export function enlistee(user: UserRow): Enlistee {

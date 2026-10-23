@@ -1,7 +1,7 @@
-import type { RoomDetail, RosterEntry, ServerMessage, WarMeta } from '../protocol.ts';
+import type { RoomDetail, RosterEntry, ServerMessage, TimelapseFrame, WarMeta } from '../protocol.ts';
 import { buildDigest, type Digest } from '../rules/digest.ts';
 import { nextHue } from '../rules/heraldry.ts';
-import { TICK_MS, type SimInput, type TimedInput, type World, type WorldSnapshot } from '../sim/api.ts';
+import { NEUTRAL, PlatoonState, TICK_MS, type SimInput, type TimedInput, type World, type WorldSnapshot } from '../sim/api.ts';
 import { Chronicler, type ChronicleEntry, type Names } from '../sim/chronicle.ts';
 import { checksum, generateMap, restore, snapshot, step, createWorld } from '../sim/index.ts';
 import { decodeInput, encodeInput, type RepoRef, type Replay } from '../sim/replay.ts';
@@ -19,6 +19,16 @@ export interface Channel {
   send(msg: ServerMessage): void;
   /** Re-sends hello to every viewer, e.g. when a new war starts. */
   reset(): void;
+}
+
+export function timelapseFrame(w: World): TimelapseFrame {
+  const monolith = w.structures.find((s) => s.p === NEUTRAL);
+  return {
+    t: w.tick,
+    o: w.sites.map((s) => s.owner),
+    a: w.platoons.filter((pl) => pl.state !== PlatoonState.Queued && pl.alive > 0).map((pl) => [pl.p, Math.round(pl.x), Math.round(pl.y), pl.alive]),
+    m: monolith ? Math.round((monolith.hp / monolith.maxHp) * 1000) / 1000 : 0,
+  };
 }
 
 export interface WarDeps {
@@ -152,6 +162,12 @@ export class War {
     }
     if (w.tick % CHECK_EVERY_TICKS === 0) channel.send({ type: 'check', tick: w.tick, checksum: checksum(w) });
     if (w.tick % SNAPSHOT_EVERY_TICKS === 0) this.persistSnapshot();
+    if (w.tick % this.frameEvery === 0) this.deps.store.saveFrame(this.row.id, timelapseFrame(w));
+  }
+
+  /** About 144 timelapse frames per war, whatever its length. */
+  private get frameEvery(): number {
+    return Math.max(50, Math.floor((this.row.endsAt - this.row.startsAt) / TICK_MS / 144));
   }
 
   /** Adds a member to today's war if a capital is free. Returns their player index. */
@@ -241,6 +257,7 @@ export class War {
   /** Runs the war to its last tick, writes the digest, and marks it ended. */
   conclude(now: number): Digest {
     this.catchUp(Math.max(now, this.row.endsAt));
+    this.deps.store.saveFrame(this.row.id, timelapseFrame(this.world));
     const digest = buildDigest(this.world, this.replay(), this.deps.store.chronicleAll(this.row.id));
     const winner = digest.winner !== null ? digest.players[digest.winner]! : null;
     this.persistSnapshot();

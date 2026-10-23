@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import type { ChatMessage, Visibility, WarStatus } from '../protocol.ts';
+import type { ChatMessage, TimelapseFrame, Visibility, WarStatus } from '../protocol.ts';
 import type { Digest } from '../rules/digest.ts';
 import type { ChronicleEntry } from '../sim/chronicle.ts';
 import type { EncodedInput, RepoRef, ReplayPlayer } from '../sim/replay.ts';
@@ -183,6 +183,12 @@ CREATE TABLE IF NOT EXISTS seen_commits (
   sha TEXT NOT NULL,
   at INTEGER NOT NULL,
   PRIMARY KEY (user_id, sha)
+);
+CREATE TABLE IF NOT EXISTS war_frames (
+  war_id INTEGER NOT NULL,
+  tick INTEGER NOT NULL,
+  data TEXT NOT NULL,
+  PRIMARY KEY (war_id, tick)
 );
 CREATE TABLE IF NOT EXISTS chat (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -536,6 +542,16 @@ export class Store {
   /** Keeps hourly keyframes and the most recent snapshots; older ones are only a cache. */
   pruneSnapshots(warId: number, keepFromTick: number, keyframeEvery: number): void {
     this.db.prepare('DELETE FROM war_snapshots WHERE war_id = ? AND tick < ? AND tick % ? != 0').run(warId, keepFromTick, keyframeEvery);
+  }
+
+  // ----------------------------------------------------------- frames
+
+  saveFrame(warId: number, frame: TimelapseFrame): void {
+    this.db.prepare('INSERT OR REPLACE INTO war_frames (war_id, tick, data) VALUES (?, ?, ?)').run(warId, frame.t, JSON.stringify(frame));
+  }
+
+  frames(warId: number): TimelapseFrame[] {
+    return (this.db.prepare('SELECT data FROM war_frames WHERE war_id = ? ORDER BY tick').all(warId) as Raw[]).map((r) => JSON.parse(r.data as string) as TimelapseFrame);
   }
 
   // ------------------------------------------------------------- chat

@@ -21,6 +21,7 @@ import {
   type WarSummary,
 } from '../protocol.ts';
 import { AWARDS } from '../rules/digest.ts';
+import { generateMap } from '../sim/mapgen.ts';
 import { decodeInput, type Replay } from '../sim/replay.ts';
 import { registerAuth, type AuthDeps } from './auth.ts';
 import type { RoomRow, Store, UserRow, WarRow } from './db.ts';
@@ -417,7 +418,15 @@ export async function buildHttp(deps: HttpDeps): Promise<FastifyInstance> {
     try {
       const { room, war } = warOf(req);
       if (!war.digest) return fail(reply, 404, 'not_ready', 'This war is still being fought. Its digest is written at the reset hour.');
-      return { room: { slug: room.slug, name: room.name }, war: summary(war), digest: war.digest };
+      const map = generateMap({ seed: war.seed, slots: war.slots, members: war.members });
+      return {
+        room: { slug: room.slug, name: room.name },
+        war: summary(war),
+        digest: war.digest,
+        map: { radius: map.radius, sites: map.sites.map((s) => ({ kind: s.kind, x: Math.round(s.x), y: Math.round(s.y), slot: s.slot })) },
+        players: war.header.players.map((pl, p) => ({ p, login: pl.login, hue: pl.hue, slot: pl.slot })),
+        timelapse: store.frames(war.id),
+      };
     } catch (err) {
       return failure(reply, err);
     }
