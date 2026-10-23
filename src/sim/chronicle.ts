@@ -1,4 +1,4 @@
-import { Kind, KIND_COUNT, NEUTRAL, TICKS_PER_SECOND, type SimInput, type TickEvents, type World } from './api.ts';
+import { Kind, KIND_COUNT, NEUTRAL, TICKS_PER_SECOND, type Purpose, type SimInput, type TickEvents, type World } from './api.ts';
 import { DOCTRINE_NAMES, STATS } from './stats.ts';
 
 export type ChronicleKind =
@@ -37,7 +37,21 @@ export interface ChronicleEntry {
   units?: number[];
   /** Repository index for musters. */
   repo?: number;
+  /** For musters: what the push was for, and how many source files and branch points it carried. */
+  purpose?: Purpose;
+  files?: number;
+  branches?: number;
 }
+
+const PURPOSE_PHRASE: Record<Purpose, string> = {
+  fix: 'a bug fix',
+  feature: 'a feature',
+  refactor: 'a refactor',
+  perf: 'a speedup',
+  revert: 'a revert',
+  chore: 'a chore',
+  work: 'work',
+};
 
 export interface Names {
   player(p: number): string;
@@ -119,7 +133,8 @@ export class Chronicler {
       }
       add({
         kind: 'muster', p: pl.p, platoon: pl.id, x: c.x, y: c.y, units: pl.mustered.slice(), repo: pl.repo,
-        text: `${n.player(pl.p)} pushed to ${n.repo(pl.repo)}${msg}. ${platoonLabel(n, pl.repo, pl.ordinal)} musters: ${unitsPhrase(pl.mustered)}.`,
+        purpose: pl.purpose, files: input?.files ?? 0, branches: input?.branches ?? 0,
+        text: `${n.player(pl.p)} pushed ${PURPOSE_PHRASE[pl.purpose]} to ${n.repo(pl.repo)}${msg}. ${platoonLabel(n, pl.repo, pl.ordinal)} musters: ${unitsPhrase(pl.mustered)}.`,
       });
     }
     for (const r of ev.routs) {

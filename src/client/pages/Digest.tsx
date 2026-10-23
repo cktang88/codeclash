@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import type { DigestResponse } from '../../protocol.ts';
 import type { DigestPlayer } from '../../rules/digest.ts';
 import { armyColor } from '../../rules/heraldry.ts';
-import { CAT_NAMES, Kind, TICK_MS } from '../../sim/api.ts';
+import { CAT_NAMES, Kind, PURPOSES, PURPOSE_LABEL, TICK_MS, type Purpose } from '../../sim/api.ts';
 import { ApiError, api } from '../net/api.ts';
 import { UnitChips, colorize } from '../hud/Chronicle.tsx';
 import { Avatar } from '../ui/Avatar.tsx';
@@ -14,8 +14,8 @@ import { Notice } from './Notice.tsx';
 import { Timelapse } from './Timelapse.tsx';
 
 /** Colors for the nine line categories, in Cat order. Paired with labels everywhere they appear. */
-export const CAT_COLORS = ['#e8c15a', '#5fb3e8', '#b48ce8', '#7ed3a1', '#e8955f', '#e86a6a', '#8d939c', '#c58f5a', '#3a4049'];
-export const CAT_LABELS = ['Code', 'Tests', 'Comments', 'Docs', 'Config', 'Deleted', 'Generated', 'Vendored', 'Blank'];
+export const CAT_COLORS = ['#e8c15a', '#5fb3e8', '#b48ce8', '#7ed3a1', '#e8955f', '#e86a6a', '#5c6169', '#4f5359', '#3a4049'];
+export const CAT_LABELS = ['Code', 'Tests', 'Comments', 'Docs', 'Config', 'Deleted', 'Generated (ignored)', 'Vendored (ignored)', 'Blank'];
 
 const AWARD_ICON: Record<string, () => ReactNode> = {
   victor: () => <Icon name="crown" size={26} />,
@@ -27,8 +27,8 @@ const AWARD_ICON: Record<string, () => ReactNode> = {
   siegebreaker: () => <UnitIcon kind={Kind.Trebuchet} size={26} title="" />,
   'monolith-slayer': () => <EventIcon kind="monolith" size={26} />,
   ghost: () => <Icon name="eye" size={26} />,
-  'militia-mob': () => <UnitIcon kind={Kind.Skeleton} size={26} title="" />,
-  'standard-bearer': () => <UnitIcon kind={Kind.Champion} size={26} title="" />,
+  bugslayer: () => <UnitIcon kind={Kind.Cleric} size={26} title="" />,
+  architect: () => <UnitIcon kind={Kind.Knight} size={26} title="" />,
   conqueror: () => <Icon name="flag" size={26} />,
   dragonlord: () => <UnitIcon kind={Kind.Dragon} size={26} title="" />,
   dragonslayer: () => <EventIcon kind="dragon" size={26} />,
@@ -56,6 +56,30 @@ export function LinesBar({ lines }: { lines: readonly number[] }) {
   );
 }
 
+type PurposeCounts = Partial<Record<Purpose, number>> | readonly number[];
+
+/** Pushes by purpose, plus files touched and branch points: what earned this army its soldiers. */
+function PushPurposes({ pl }: { pl: DigestPlayer & { purposes?: PurposeCounts; files?: number; branches?: number } }) {
+  const counts = PURPOSES.map((purpose, i) => [purpose, Array.isArray(pl.purposes) ? (pl.purposes[i] ?? 0) : ((pl.purposes as Partial<Record<Purpose, number>> | undefined)?.[purpose] ?? 0)] as const).filter(
+    ([, n]) => n > 0,
+  );
+  if (counts.length === 0 && !pl.files && !pl.branches) return null;
+  return (
+    <div className="player-card-purposes">
+      {counts.map(([purpose, n]) => (
+        <span key={purpose} className={`purpose-tag p-${purpose}`}>
+          {PURPOSE_LABEL[purpose]} <span className="num">{n}</span>
+        </span>
+      ))}
+      {(pl.files ?? 0) > 0 && (
+        <span className="muted small">
+          {compact(pl.files!)} files · {compact(pl.branches ?? 0)} branch points
+        </span>
+      )}
+    </div>
+  );
+}
+
 function PlayerCard({ pl, repos }: { pl: DigestPlayer; repos: { name: string; language: string | null }[] }) {
   const lang = pl.best ? (repos.find((r) => r.name === pl.best!.repo)?.language ?? null) : null;
   return (
@@ -70,6 +94,7 @@ function PlayerCard({ pl, repos }: { pl: DigestPlayer; repos: { name: string; la
           </div>
         </div>
       </header>
+      <PushPurposes pl={pl} />
       <LinesBar lines={pl.lines} />
       {pl.raised.some((n) => n > 0) && (
         <div className="player-card-units">

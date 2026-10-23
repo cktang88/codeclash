@@ -1,4 +1,4 @@
-import { CAT_COUNT, Cat, Kind, KIND_COUNT, type World } from '../sim/api.ts';
+import { CAT_COUNT, Cat, Kind, KIND_COUNT, PURPOSES, type Purpose, type World } from '../sim/api.ts';
 import type { ChronicleEntry } from '../sim/chronicle.ts';
 import { decodeInput, type Replay } from '../sim/replay.ts';
 
@@ -18,8 +18,8 @@ export const AWARDS: readonly AwardDef[] = [
   { id: 'siegebreaker', title: 'Siegebreaker', blurb: 'Most damage dealt to capitals' },
   { id: 'monolith-slayer', title: 'Monolith Slayer', blurb: 'Most damage dealt to the Legacy Monolith' },
   { id: 'ghost', title: 'Ghost', blurb: 'Most renown for every push' },
-  { id: 'militia-mob', title: 'Militia Mob', blurb: 'Most generated lines pushed (affectionately)' },
-  { id: 'standard-bearer', title: 'Standard Bearer', blurb: 'Most balanced pushes: code, tests and docs together' },
+  { id: 'bugslayer', title: 'Bugslayer', blurb: 'Most bug fixes pushed' },
+  { id: 'architect', title: 'Architect', blurb: 'Most complex code: branch points added' },
   { id: 'conqueror', title: 'Conqueror', blurb: 'Most shrines and Hearts captured' },
   { id: 'dragonlord', title: 'Dragonlord', blurb: 'Summoned the most Dragons with legendary pushes' },
   { id: 'dragonslayer', title: 'Dragonslayer', blurb: 'Brought down the most Dragons' },
@@ -43,7 +43,11 @@ export interface DigestPlayer {
   captures: number;
   sacks: number;
   routs: number;
-  balanced: number;
+  /** Pushes by purpose. */
+  purposes: Record<Purpose, number>;
+  fixes: number;
+  files: number;
+  branches: number;
   structureDamage: number;
   monolithDamage: number;
   best: { repo: string; ordinal: number; kills: number; message: string } | null;
@@ -97,7 +101,10 @@ export function buildDigest(world: World, replay: Replay, chronicle: readonly Ch
       captures: ps.captures,
       sacks: ps.sacks,
       routs: ps.routs,
-      balanced: ps.balanced,
+      purposes: Object.fromEntries(PURPOSES.map((pu, i) => [pu, ps.purposes[i] ?? 0])) as Record<Purpose, number>,
+      fixes: ps.purposes[PURPOSES.indexOf('fix')] ?? 0,
+      files: ps.files,
+      branches: ps.branches,
       structureDamage: Math.round(ps.structureDamage),
       monolithDamage: Math.round(ps.monolithDamage),
       best: null,
@@ -153,8 +160,8 @@ export function buildDigest(world: World, replay: Replay, chronicle: readonly Ch
   give('siegebreaker', (pl) => pl.structureDamage);
   give('monolith-slayer', (pl) => pl.monolithDamage);
   give('ghost', (pl) => pl.renown / pl.pushes, (pl) => pl.pushes > 0);
-  give('militia-mob', (pl) => pl.lines[Cat.Generated]!);
-  give('standard-bearer', (pl) => pl.balanced);
+  give('bugslayer', (pl) => pl.fixes);
+  give('architect', (pl) => pl.branches);
   give('conqueror', (pl) => pl.captures);
   give('dragonlord', (pl) => pl.raised[Kind.Dragon]!);
   give('dragonslayer', (pl) => pl.slain[Kind.Dragon]!);

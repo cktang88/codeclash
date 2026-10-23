@@ -120,7 +120,7 @@ export function startDemo(store: GameStore, bots = 5, seed = Date.now() % 100000
         repoIndex.set(push.repo[0], repo);
         store.repos.push(push.repo);
       }
-      out.push({ kind: 'push', p: r.p, repo, lines: push.lines, commits: 1 + Math.floor(rand() * 4), msg: push.message });
+      out.push({ kind: 'push', p: r.p, repo, lines: push.lines, files: push.files, branches: push.branches, commits: 1 + Math.floor(rand() * 4), msg: push.message });
     }
     return out;
   };

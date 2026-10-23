@@ -15,7 +15,7 @@ if (q.has('stress')) {
   r.inputs = (tick) => {
     const out = base(tick);
     if (tick > 20 && tick % 15 === 0) {
-      for (const p of store.roster) out.push({ kind: 'push', p: p.p, repo: 0, lines: [400, 120, 60, 80, 40, 120, 1500, 400, 30], commits: 3, msg: 'stress' });
+      for (const p of store.roster) out.push({ kind: 'push', p: p.p, repo: 0, lines: [400, 120, 60, 80, 40, 120, 1500, 400, 30], files: 8, branches: 50, commits: 3, msg: 'feat: stress' });
     }
     return out;
   };
@@ -33,7 +33,7 @@ if (q.has('big')) {
   r.inputs = (tick) => {
     const out = base(tick);
     for (const [at, lines] of waves) {
-      if (tick % 1500 === at) for (const p of store.roster) out.push({ kind: 'push', p: p.p, repo: 0, lines, commits: 1, msg: 'big' });
+      if (tick % 1500 === at) for (const p of store.roster) out.push({ kind: 'push', p: p.p, repo: 0, lines, files: 14, branches: 90, commits: 1, msg: 'feat: big' });
     }
     return out;
   };

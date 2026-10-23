@@ -19,8 +19,8 @@ export interface UnitStats {
   value: number;
   /** Formation rank: lower marches in front. */
   rank: number;
-  /** Line category that raises this kind, or -1 for kinds raised by the push's shape. */
-  raisedBy: number;
+  /** How a push raises this kind, for the legend. */
+  source: string;
   /** Platoon slots this kind occupies. */
   slots: number;
   /** Flies over water, rock and the press of soldiers. */
@@ -40,26 +40,26 @@ export interface UnitStats {
 const base = { flying: false, splash: 0, breath: false, regen: 0, heal: 0 };
 
 export const STATS: readonly UnitStats[] = [
-  { ...base, name: 'Footman', plural: 'Footmen', role: 'Spear and shield; the backbone of every army', tier: 'base', hp: 110, damage: 11, range: 13, speed: 1.6, cooldown: 6, aggro: 110, ranged: false, value: 1, rank: 1, raisedBy: Cat.Code, slots: 1, size: 6 },
-  { ...base, name: 'Knight', plural: 'Knights', role: 'Armored lancer; charges and tramples', tier: 'elite', hp: 240, damage: 22, range: 14, speed: 2.4, cooldown: 7, aggro: 140, ranged: false, value: 4, rank: 1, raisedBy: Cat.Code, slots: 2, size: 9 },
-  { ...base, name: 'Warden', plural: 'Wardens', role: 'Tower shield; allies nearby take less damage', tier: 'base', hp: 190, damage: 6, range: 13, speed: 1.3, cooldown: 7, aggro: 100, ranged: false, value: 2, rank: 0, raisedBy: Cat.Test, slots: 1, size: 7 },
-  { ...base, name: 'Paladin', plural: 'Paladins', role: 'Holy guardian; shields and mends the line', tier: 'elite', hp: 320, damage: 14, range: 14, speed: 1.4, cooldown: 7, aggro: 110, ranged: false, value: 5, rank: 0, raisedBy: Cat.Test, slots: 2, heal: 6, size: 9 },
-  { ...base, name: 'Archer', plural: 'Archers', role: 'Longbow volleys from behind the line', tier: 'base', hp: 55, damage: 8, range: 95, speed: 1.6, cooldown: 8, aggro: 125, ranged: true, value: 1, rank: 3, raisedBy: Cat.Comment, slots: 1, size: 5 },
-  { ...base, name: 'Ranger', plural: 'Rangers', role: 'Elven marksman; long range, deadly aim', tier: 'elite', hp: 90, damage: 17, range: 125, speed: 1.9, cooldown: 7, aggro: 145, ranged: true, value: 3, rank: 3, raisedBy: Cat.Comment, slots: 2, size: 6 },
-  { ...base, name: 'Herald', plural: 'Heralds', role: 'Banner bearer; heals and steadies morale', tier: 'base', hp: 80, damage: 4, range: 13, speed: 1.6, cooldown: 8, aggro: 90, ranged: false, value: 2, rank: 3, raisedBy: Cat.Docs, slots: 1, size: 6 },
-  { ...base, name: 'Wizard', plural: 'Wizards', role: 'Hurls fireballs that burst among the enemy', tier: 'elite', hp: 85, damage: 20, range: 120, speed: 1.4, cooldown: 14, aggro: 150, ranged: true, value: 5, rank: 4, raisedBy: Cat.Docs, slots: 2, splash: 28, size: 7 },
-  { ...base, name: 'Sapper', plural: 'Sappers', role: 'Siege engineer; wrecks walls and towers', tier: 'base', hp: 90, damage: 10, range: 14, speed: 1.5, cooldown: 8, aggro: 100, ranged: false, value: 1, rank: 2, raisedBy: Cat.Config, slots: 1, size: 6 },
-  { ...base, name: 'Trebuchet', plural: 'Trebuchets', role: 'Siege engine; flings stones across the field', tier: 'elite', hp: 260, damage: 34, range: 175, speed: 0.8, cooldown: 30, aggro: 170, ranged: true, value: 5, rank: 5, raisedBy: Cat.Config, slots: 3, splash: 22, size: 12 },
-  { ...base, name: 'Outrider', plural: 'Outriders', role: 'Light cavalry that hunts archers and casters', tier: 'base', hp: 120, damage: 15, range: 13, speed: 3.2, cooldown: 6, aggro: 160, ranged: false, value: 2, rank: 4, raisedBy: Cat.Removed, slots: 1, size: 8 },
-  { ...base, name: 'Griffin Rider', plural: 'Griffin Riders', role: 'Swoops over any terrain onto the backline', tier: 'elite', hp: 200, damage: 20, range: 14, speed: 3.6, cooldown: 6, aggro: 150, ranged: false, value: 5, rank: 5, raisedBy: Cat.Removed, slots: 2, flying: true, size: 11 },
-  { ...base, name: 'Skeleton', plural: 'Skeletons', role: 'Raised from generated code; brittle and endless', tier: 'base', hp: 70, damage: 6, range: 13, speed: 1.3, cooldown: 8, aggro: 90, ranged: false, value: 1, rank: 0, raisedBy: Cat.Generated, slots: 1, size: 6 },
-  { ...base, name: 'Bone Golem', plural: 'Bone Golems', role: 'A lumbering heap of bones that soaks up blows', tier: 'elite', hp: 520, damage: 14, range: 16, speed: 0.9, cooldown: 10, aggro: 90, ranged: false, value: 4, rank: 0, raisedBy: Cat.Generated, slots: 3, size: 12 },
-  { ...base, name: 'Mercenary', plural: 'Mercenaries', role: 'Hired blade; leaves when the contract ends', tier: 'base', hp: 130, damage: 16, range: 13, speed: 1.8, cooldown: 6, aggro: 120, ranged: false, value: 2, rank: 1, raisedBy: Cat.Vendor, slots: 1, size: 6 },
-  { ...base, name: 'Troll', plural: 'Trolls', role: 'Hired brute that regenerates its wounds', tier: 'elite', hp: 600, damage: 24, range: 16, speed: 1.2, cooldown: 9, aggro: 110, ranged: false, value: 6, rank: 0, raisedBy: Cat.Vendor, slots: 3, regen: 1.2, size: 13 },
-  { ...base, name: 'Berserker', plural: 'Berserkers', role: 'Untested, uncommented fury; hits hard, dies fast', tier: 'special', hp: 120, damage: 26, range: 13, speed: 2.1, cooldown: 5, aggro: 130, ranged: false, value: 2, rank: 1, raisedBy: -1, slots: 1, size: 6 },
-  { ...base, name: 'Cleric', plural: 'Clerics', role: 'Raised by bug fixes; mends the wounded', tier: 'special', hp: 90, damage: 5, range: 13, speed: 1.5, cooldown: 10, aggro: 110, ranged: false, value: 3, rank: 3, raisedBy: -1, slots: 1, heal: 22, size: 6 },
-  { ...base, name: 'Champion', plural: 'Champions', role: 'Hero of a balanced push; rallies all around it', tier: 'hero', hp: 520, damage: 26, range: 16, speed: 1.5, cooldown: 7, aggro: 140, ranged: false, value: 10, rank: 2, raisedBy: -1, slots: 2, size: 10 },
-  { ...base, name: 'Dragon', plural: 'Dragons', role: 'Legendary; breathes fire across whole ranks', tier: 'legend', hp: 2400, damage: 24, range: 70, speed: 2.0, cooldown: 10, aggro: 150, ranged: true, value: 30, rank: 6, raisedBy: -1, slots: 6, flying: true, breath: true, size: 22 },
+  { ...base, name: 'Footman', plural: 'Footmen', role: 'Spear and shield; the backbone of every army', tier: 'base', hp: 110, damage: 11, range: 13, speed: 1.6, cooldown: 6, aggro: 110, ranged: false, value: 1, rank: 1, source: 'Any code: ½·√(code lines) + 1 per source file touched', slots: 1, size: 6 },
+  { ...base, name: 'Knight', plural: 'Knights', role: 'Armored lancer; charges and tramples', tier: 'elite', hp: 240, damage: 22, range: 14, speed: 2.4, cooldown: 7, aggro: 140, ranged: false, value: 4, rank: 1, source: 'Complex code: one per 15 branch points added', slots: 2, size: 9 },
+  { ...base, name: 'Warden', plural: 'Wardens', role: 'Tower shield; allies nearby take less damage', tier: 'base', hp: 190, damage: 6, range: 13, speed: 1.3, cooldown: 7, aggro: 100, ranged: false, value: 2, rank: 0, source: 'Tests: up to 3, from √(test lines)', slots: 1, size: 7 },
+  { ...base, name: 'Paladin', plural: 'Paladins', role: 'Holy guardian; shields and mends the line', tier: 'elite', hp: 320, damage: 14, range: 14, speed: 1.4, cooldown: 7, aggro: 110, ranged: false, value: 5, rank: 0, source: 'Bug fixes across 3+ files or 40+ lines', slots: 2, heal: 6, size: 9 },
+  { ...base, name: 'Archer', plural: 'Archers', role: 'Longbow volleys from behind the line', tier: 'base', hp: 55, damage: 8, range: 95, speed: 1.6, cooldown: 8, aggro: 125, ranged: true, value: 1, rank: 3, source: 'Comments: up to 2', slots: 1, size: 5 },
+  { ...base, name: 'Ranger', plural: 'Rangers', role: 'Elven marksman; long range, deadly aim', tier: 'elite', hp: 90, damage: 13, range: 125, speed: 1.9, cooldown: 7, aggro: 145, ranged: true, value: 3, rank: 3, source: 'Bug fixes with 60+ lines of code', slots: 2, size: 6 },
+  { ...base, name: 'Herald', plural: 'Heralds', role: 'Banner bearer; heals and steadies morale', tier: 'base', hp: 80, damage: 4, range: 13, speed: 1.6, cooldown: 8, aggro: 90, ranged: false, value: 2, rank: 3, source: 'Docs: 1 for a real docs change', slots: 1, size: 6 },
+  { ...base, name: 'Wizard', plural: 'Wizards', role: 'Hurls fireballs that burst among the enemy', tier: 'elite', hp: 85, damage: 20, range: 120, speed: 1.4, cooldown: 14, aggro: 150, ranged: true, value: 5, rank: 4, source: 'Performance work', slots: 2, splash: 28, size: 7 },
+  { ...base, name: 'Sapper', plural: 'Sappers', role: 'Siege engineer; wrecks walls and towers', tier: 'base', hp: 90, damage: 10, range: 14, speed: 1.5, cooldown: 8, aggro: 100, ranged: false, value: 1, rank: 2, source: 'Config and CI: up to 2', slots: 1, size: 6 },
+  { ...base, name: 'Trebuchet', plural: 'Trebuchets', role: 'Siege engine; flings stones across the field', tier: 'elite', hp: 260, damage: 34, range: 175, speed: 0.8, cooldown: 30, aggro: 170, ranged: true, value: 5, rank: 5, source: 'Sweeping changes across 12+ files', slots: 3, splash: 22, size: 12 },
+  { ...base, name: 'Outrider', plural: 'Outriders', role: 'Light cavalry that hunts archers and casters', tier: 'base', hp: 120, damage: 15, range: 13, speed: 3.2, cooldown: 6, aggro: 160, ranged: false, value: 2, rank: 4, source: 'Refactors and deleted code', slots: 1, size: 8 },
+  { ...base, name: 'Griffin Rider', plural: 'Griffin Riders', role: 'Swoops over any terrain onto the backline', tier: 'elite', hp: 200, damage: 20, range: 14, speed: 3.6, cooldown: 6, aggro: 150, ranged: false, value: 5, rank: 5, source: 'Big refactors: 300+ lines deleted across 6+ files', slots: 2, flying: true, size: 11 },
+  { ...base, name: 'Skeleton', plural: 'Skeletons', role: 'Brittle undead, raised again by reverts', tier: 'base', hp: 70, damage: 6, range: 13, speed: 1.3, cooldown: 8, aggro: 90, ranged: false, value: 1, rank: 0, source: 'Reverts: the undead return', slots: 1, size: 6 },
+  { ...base, name: 'Bone Golem', plural: 'Bone Golems', role: 'A lumbering heap of bones that soaks up blows', tier: 'elite', hp: 520, damage: 14, range: 16, speed: 0.9, cooldown: 10, aggro: 90, ranged: false, value: 4, rank: 0, source: 'Big reverts of 500+ lines', slots: 3, size: 12 },
+  { ...base, name: 'Mercenary', plural: 'Mercenaries', role: 'Hired blade; leaves when the contract ends', tier: 'base', hp: 130, damage: 16, range: 13, speed: 1.8, cooldown: 6, aggro: 120, ranged: false, value: 2, rank: 1, source: 'Chores and dependency bumps', slots: 1, size: 6 },
+  { ...base, name: 'Troll', plural: 'Trolls', role: 'Hulking brute of tangled logic; regenerates its wounds', tier: 'elite', hp: 600, damage: 24, range: 16, speed: 1.2, cooldown: 9, aggro: 110, ranged: false, value: 6, rank: 0, source: 'Very complex code: 40+ branch points in 200+ lines', slots: 3, regen: 1.2, size: 13 },
+  { ...base, name: 'Berserker', plural: 'Berserkers', role: 'Untested, uncommented fury; hits hard, dies fast', tier: 'special', hp: 120, damage: 26, range: 13, speed: 2.1, cooldown: 5, aggro: 130, ranged: false, value: 2, rank: 1, source: 'Untested, uncommented code', slots: 1, size: 6 },
+  { ...base, name: 'Cleric', plural: 'Clerics', role: 'Raised by bug fixes; mends the wounded', tier: 'special', hp: 90, damage: 5, range: 13, speed: 1.5, cooldown: 10, aggro: 110, ranged: false, value: 3, rank: 3, source: 'Bug fixes: more for fixes spanning more files', slots: 1, heal: 22, size: 6 },
+  { ...base, name: 'Champion', plural: 'Champions', role: 'Hero of a big push; rallies all around it', tier: 'hero', hp: 520, damage: 26, range: 16, speed: 1.5, cooldown: 7, aggro: 140, ranged: false, value: 10, rank: 2, source: 'Big work: 300+ lines over 5+ files', slots: 2, size: 10 },
+  { ...base, name: 'Dragon', plural: 'Dragons', role: 'Legendary; breathes fire across whole ranks', tier: 'legend', hp: 2400, damage: 24, range: 70, speed: 2.0, cooldown: 10, aggro: 150, ranged: true, value: 30, rank: 6, source: 'Legendary features: 600+ lines, 8+ files, 60+ branch points', slots: 6, flying: true, breath: true, size: 22 },
 ];
 
 /** Bonus multiplier when `attacker` strikes `victim`. */
@@ -72,7 +72,7 @@ export function matchup(attacker: Kind, victim: Kind): number {
     case Kind.Archer:
     case Kind.Ranger:
       if (v.flying) return 1.8;
-      return victim === Kind.Footman || victim === Kind.Skeleton || victim === Kind.Mercenary || victim === Kind.Berserker ? 1.4 : victim === Kind.Warden || victim === Kind.Paladin ? 0.5 : 1;
+      return victim === Kind.Skeleton || victim === Kind.Mercenary || victim === Kind.Berserker ? 1.4 : victim === Kind.Warden || victim === Kind.Paladin ? 0.5 : 1;
     case Kind.Outrider:
     case Kind.GriffinRider:
       return v.ranged || victim === Kind.Herald || victim === Kind.Sapper || victim === Kind.Cleric ? 1.6 : 1;
@@ -133,7 +133,7 @@ export const MONOLITH_TOWER = { damage: 30, range: 140, cooldown: 3 };
 export const SACK_RUIN_TICKS = 20 * TICKS_PER_MINUTE;
 export const SACK_REBUILD = 1;
 /** Extra max HP per earlier sack today, as a share of CAPITAL_HP. */
-export const SACK_FORTIFY = 0.5;
+export const SACK_FORTIFY = 1;
 export const SACK_RENOWN = 120;
 /** Share of a holding's renown paid while its owner has no soldiers near it. */
 export const UNGARRISONED_SHARE = 0.25;

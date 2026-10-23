@@ -56,11 +56,19 @@ function brokenInvariant(w: World): string | null {
 }
 
 // Pushes shaped to raise every one of the twenty kinds.
-const SHAPES = [
-  [400, 0, 0, 0, 0, 0, 0, 0, 0], [0, 200, 0, 0, 0, 0, 0, 0, 0], [0, 0, 100, 0, 0, 0, 0, 0, 0], [0, 0, 0, 200, 0, 0, 0, 0, 0],
-  [0, 0, 0, 0, 200, 0, 0, 0, 0], [0, 0, 0, 0, 0, 300, 0, 0, 0], [0, 0, 0, 0, 0, 0, 9000, 0, 0], [0, 0, 0, 0, 0, 0, 0, 6000, 0],
-  [200, 80, 40, 10, 0, 0, 0, 0, 0], [60, 0, 0, 0, 0, 50, 0, 0, 0], [40, 5, 5, 0, 0, 0, 0, 0, 0], [30, 2, 2, 2, 30, 20, 100, 100, 0],
-  [0, 0, 0, 0, 0, 0, 800, 0, 0],
+const L = (code: number, test = 0, comment = 0, docs = 0, config = 0, removed = 0) => [code, test, comment, docs, config, removed, 0, 0, 0];
+const SHAPES: { lines: number[]; msg: string; files: number; branches: number }[] = [
+  { lines: L(350, 0, 10), msg: 'feat: sync', files: 6, branches: 30 },
+  { lines: L(700, 50, 20), msg: 'feat: offline mode', files: 9, branches: 80 },
+  { lines: L(100, 0, 5, 0, 0, 900), msg: 'refactor: drop legacy auth', files: 7, branches: 5 },
+  { lines: L(400, 0, 0, 0, 0, 300), msg: 'Revert "feat: sync"', files: 6, branches: 30 },
+  { lines: L(300, 0, 10), msg: 'Update scheduler', files: 4, branches: 60 },
+  { lines: L(150, 0, 5), msg: 'fix: crash on resume', files: 5, branches: 12 },
+  { lines: L(80, 0, 5), msg: 'perf: cache lookups', files: 2, branches: 40 },
+  { lines: L(200, 0, 5), msg: 'Rename everything', files: 14, branches: 20 },
+  { lines: L(0, 200, 100, 200, 200), msg: 'docs: guide', files: 0, branches: 0 },
+  { lines: L(10, 0, 1), msg: 'chore(deps): bump vite', files: 5, branches: 0 },
+  { lines: L(80), msg: 'wip', files: 1, branches: 6 },
 ];
 
 describe('snapshot mid-battle', () => {
@@ -71,22 +79,28 @@ describe('snapshot mid-battle', () => {
     const end = start + 8 * TICKS_PER_MINUTE;
     const inputsAt = (t: number): SimInput[] => {
       const out: SimInput[] = t === 0 ? joins(players) : [];
-      const i = t < 620 ? (t - 20) / 25 : t % 150 === 0 ? 24 + t / 150 : -1;
-      if (i >= 0 && Number.isInteger(i)) out.push({ kind: 'push', p: i % players, repo: i % players, commits: 1, msg: i % 3 ? 'fix bug' : 'work', lines: SHAPES[i % SHAPES.length]! });
-      if (t === start - 300) {
+      // One opening push each, then one every 400 ticks: slow enough that no one tires, so heroes still muster.
+      const i = t < 220 ? (t - 20) / 25 : t % 400 === 0 ? 3 + t / 400 : -1;
+      if (i >= 0 && Number.isInteger(i)) out.push({ kind: 'push', p: i % players, repo: i % players, commits: 1, ...SHAPES[i % SHAPES.length]! });
+      // A siege wave: sweeping changes raise Trebuchets alongside line troops for the march on a capital.
+      if (t === start - 1200) for (let p = 1; p < 6; p++) out.push({ kind: 'push', p, repo: p, commits: 1, ...SHAPES[7]!, lines: L(400, 0, 0, 0, 200) });
+      if (t === start - 1200) {
         for (let p = 1; p < players; p++) out.push({ kind: 'rally', p, site: p < 6 ? 0 : 2 * w.map.slots }, { kind: 'doctrine', p, doctrine: 3 });
       }
       if (t === start + 100) out.push({ kind: 'cry', p: 2 });
       return out;
     };
-    while (w.tick < start) step(w, inputsAt(w.tick));
+    const seen = new Array<number>(KIND_COUNT).fill(0);
+    while (w.tick < start) {
+      step(w, inputsAt(w.tick));
+      for (const u of w.units) seen[u.kind] = 1;
+    }
     // Bring the walls low so a sack and the Monolith's fall land inside the window.
     w.structures[0]!.hp = 1500;
     w.structures[1]!.hp = 200;
 
     const r = restore(snapshot(w));
     expect(checksum(r)).toBe(checksum(w));
-    const seen = new Array<number>(KIND_COUNT).fill(0);
     const tally = { regroups: 0, routs: 0, sacks: 0, breaths: 0, boulders: 0, fireballs: 0, heals: 0, monolith: 0 };
     while (w.tick < end) {
       const inputs = inputsAt(w.tick);
@@ -112,7 +126,7 @@ describe('snapshot mid-battle', () => {
   it('hashes -0 like the 0 it becomes through JSON', () => {
     const w = newWorld(4, 3);
     step(w, joins(4));
-    step(w, [{ kind: 'push', p: 0, repo: 0, commits: 1, msg: '', lines: [50, 0, 0, 0, 0, 0, 0, 0, 0] }]);
+    step(w, [{ kind: 'push', p: 0, repo: 0, commits: 1, files: 3, branches: 10, msg: '', lines: [50, 0, 0, 0, 0, 0, 0, 0, 0] }]);
     w.platoons[0]!.hx = -0;
     expect(checksum(restore(snapshot(w)))).toBe(checksum(w));
   });
@@ -125,16 +139,16 @@ describe('fuzzed inputs', () => {
     { kind: 'join', p: 0, slot: 5, hue: 0 },
     { kind: 'join', p: 4, slot: 1.5, hue: 0 },
     { kind: 'join', p: 4, slot: Number.NaN, hue: 0 },
-    { kind: 'push', p: 99, repo: 0, lines: [10], commits: 1, msg: '' },
-    { kind: 'push', p: -1, repo: 0, lines: [10], commits: 1, msg: '' },
-    { kind: 'push', p: '0', repo: 0, lines: [10], commits: 1, msg: '' },
-    { kind: 'push', p: 0, repo: 2.5, lines: [10], commits: 1, msg: '' },
-    { kind: 'push', p: 0, repo: Number.NaN, lines: [10], commits: 1, msg: '' },
-    { kind: 'push', p: 0, repo: -3, lines: [10], commits: 1, msg: '' },
-    { kind: 'push', p: 1, repo: 1, lines: null, commits: 1, msg: 'fix' },
-    { kind: 'push', p: 1, repo: 1, lines: 'abc', commits: 1, msg: 42 },
-    { kind: 'push', p: 1, repo: 1, lines: [Number.NaN, Infinity, -5, 1.5, '30', null], commits: 1, msg: undefined },
-    { kind: 'push', p: 2, repo: 7, lines: [1e300, 1e300, 1e300, 1e300, 1e300, 1e300, 1e300, 1e300, 1e300, 1e300, 1e300], commits: 1, msg: 'bug' },
+    { kind: 'push', p: 99, repo: 0, lines: [10], commits: 1, files: 3, branches: 10, msg: '' },
+    { kind: 'push', p: -1, repo: 0, lines: [10], commits: 1, files: 3, branches: 10, msg: '' },
+    { kind: 'push', p: '0', repo: 0, lines: [10], commits: 1, files: 3, branches: 10, msg: '' },
+    { kind: 'push', p: 0, repo: 2.5, lines: [10], commits: 1, files: 3, branches: 10, msg: '' },
+    { kind: 'push', p: 0, repo: Number.NaN, lines: [10], commits: 1, files: 3, branches: 10, msg: '' },
+    { kind: 'push', p: 0, repo: -3, lines: [10], commits: 1, files: 3, branches: 10, msg: '' },
+    { kind: 'push', p: 1, repo: 1, lines: null, commits: 1, files: 3, branches: 10, msg: 'fix' },
+    { kind: 'push', p: 1, repo: 1, lines: 'abc', commits: 1, files: 3, branches: 10, msg: 42 },
+    { kind: 'push', p: 1, repo: 1, lines: [Number.NaN, Infinity, -5, 1.5, '30', null], commits: 1, files: 3, branches: 10, msg: undefined },
+    { kind: 'push', p: 2, repo: 7, lines: [1e300, 1e300, 1e300, 1e300, 1e300, 1e300, 1e300, 1e300, 1e300, 1e300, 1e300], commits: 1, files: 3, branches: 10, msg: 'bug' },
     { kind: 'doctrine', p: 0, doctrine: Number.NaN },
     { kind: 'doctrine', p: 0, doctrine: 2.5 },
     { kind: 'doctrine', p: 0, doctrine: 7 },
@@ -157,8 +171,8 @@ describe('fuzzed inputs', () => {
       if (t === 1500) inputs.push({ kind: 'join', p: players, slot: players, hue: 99 });
       if (rand() < 0.03) inputs.push(MALFORMED[pick(MALFORMED.length)] as SimInput);
       if (rand() < 0.02) {
-        const lines = SHAPES[pick(SHAPES.length)]!.map((n) => (rand() < 0.5 ? n : pick(300)));
-        inputs.push({ kind: 'push', p: pick(players + 2), repo: pick(4), commits: 1, msg: rand() < 0.3 ? 'fix' : 'x', lines });
+        const lines = SHAPES[pick(SHAPES.length)]!.lines.map((n) => (rand() < 0.5 ? n : pick(300)));
+        inputs.push({ kind: 'push', p: pick(players + 2), repo: pick(4), commits: 1, files: 3, branches: 10, msg: rand() < 0.3 ? 'fix' : 'x', lines });
       }
       if (rand() < 0.002) inputs.push({ kind: 'rally', p: pick(players), site: pick(w.map.sites.length) });
       if (rand() < 0.002) inputs.push({ kind: 'doctrine', p: pick(players), doctrine: pick(5) as 0 });
@@ -189,8 +203,8 @@ describe('input validation', () => {
       { kind: 'doctrine', p: 0, doctrine: 1.5 },
       { kind: 'join', p: 2, slot: 2.5, hue: 0 },
       { kind: 'join', p: 2, slot: Number.NaN, hue: 0 },
-      { kind: 'push', p: 0, repo: 0.5, lines: [100], commits: 1, msg: '' },
-      { kind: 'push', p: 0, repo: Number.NaN, lines: [100], commits: 1, msg: '' },
+      { kind: 'push', p: 0, repo: 0.5, lines: [100], commits: 1, files: 3, branches: 10, msg: '' },
+      { kind: 'push', p: 0, repo: Number.NaN, lines: [100], commits: 1, files: 3, branches: 10, msg: '' },
       null,
     ];
     for (const input of bad) {
@@ -218,7 +232,7 @@ describe('input validation', () => {
     const replayed = newWorld(2, 4);
     step(live, joins(2));
     step(replayed, joins(2));
-    const push: SimInput = { kind: 'push', p: 0, repo: 0, lines: raw, commits: 1, msg: 'fix' };
+    const push: SimInput = { kind: 'push', p: 0, repo: 0, lines: raw, commits: 1, files: 3, branches: 10, msg: 'fix' };
     const encoded = JSON.parse(JSON.stringify(encodeInput(live.tick, push))) as EncodedInput;
     step(live, [push]);
     step(replayed, [decodeInput(encoded).input]);
@@ -238,7 +252,7 @@ describe('terrain', () => {
       const w = newWorld(players, seed);
       step(w, joins(players));
       const wide = [100, 30, 10, 0, 0, 150, 0, 0, 0];
-      step(w, Array.from({ length: players }, (_, p): SimInput => ({ kind: 'push', p, repo: p, lines: wide, commits: 1, msg: '' })));
+      step(w, Array.from({ length: players }, (_, p): SimInput => ({ kind: 'push', p, repo: p, lines: wide, commits: 1, files: 6, branches: 10, msg: 'refactor: split' })));
       expect(w.units.length).toBeGreaterThan(10 * players);
       for (const u of w.units) if (!STATS[u.kind]!.flying) expect(onGround(w, u.x, u.y), `seed ${seed} ${STATS[u.kind]!.name}`).toBe(true);
     }
@@ -247,7 +261,7 @@ describe('terrain', () => {
   it('rallies a routed platoon whose banner was left over rock or water', () => {
     const w = newWorld(2, 2);
     step(w, joins(2));
-    step(w, [{ kind: 'push', p: 0, repo: 0, lines: [60, 0, 0, 0, 0, 0, 0, 0, 0], commits: 1, msg: '' }]);
+    step(w, [{ kind: 'push', p: 0, repo: 0, lines: [60, 0, 0, 0, 0, 0, 0, 0, 0], commits: 1, files: 3, branches: 10, msg: '' }]);
     const pl = w.platoons[0]!;
     const blocked = w.map.terrain.findIndex((t) => t === Terrain.Rock || t === Terrain.Water);
     expect(blocked).toBeGreaterThanOrEqual(0);
@@ -273,7 +287,7 @@ describe('terrain', () => {
     const w = newWorld(4, 7);
     step(w, joins(4));
     step(w, [
-      { kind: 'push', p: 0, repo: 0, lines: [0, 0, 0, 0, 40, 0, 0, 0, 0], commits: 1, msg: '' },
+      { kind: 'push', p: 0, repo: 0, lines: [0, 0, 0, 0, 100, 0, 0, 0, 0], commits: 1, files: 3, branches: 10, msg: '' },
       { kind: 'rally', p: 0, site: 2 },
     ]);
     const sappers = () => w.units.filter((u) => u.kind === Kind.Sapper);
@@ -295,7 +309,7 @@ describe('replay decoding', () => {
     expect(() => decodeInput(null as unknown as EncodedInput)).toThrow();
     expect(() => decodeInput([-1, 'cry', 0])).toThrow();
     expect(() => decodeInput([5, 'push', 0, 0, null, 1, 'x'] as unknown as EncodedInput)).toThrow();
-    expect(decodeInput([5, 'push', 0, 0, [3, 2], 1, 7 as unknown as string]).input).toMatchObject({ lines: [3, 2, 0, 0, 0, 0, 0, 0, 0], msg: '' });
+    expect(decodeInput([5, 'push', 0, 0, [3, 2], 1, 7 as unknown as string] as unknown as EncodedInput).input).toMatchObject({ lines: [3, 2, 0, 0, 0, 0, 0, 0, 0], msg: '' });
   });
 
   it('applies inputs by tick, then by arrival, as the live war does', () => {

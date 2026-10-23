@@ -7,6 +7,8 @@ import { STATS } from '../../sim/stats.ts';
 import { ago, clock } from '../ui/format.ts';
 import { EventIcon, UnitIcon } from '../ui/icons.tsx';
 import { useHudContext } from './context.ts';
+import { PurposeTag } from '../ui/PurposeTag.tsx';
+import type { Purpose } from '../../sim/api.ts';
 
 export type ChronicleFilter = 'all' | 'mine' | 'big';
 
@@ -109,6 +111,7 @@ export function Chronicle({ entries, viewerP, now }: { entries: readonly Chronic
                 </span>
                 <span className="chron-body">
                   <span className="chron-text">{colorize(entryText(e), roster)}</span>
+                  {e.kind === 'muster' && <MusterFacts entry={e} />}
                   {e.kind === 'muster' && e.units && <UnitChips units={e.units} />}
                   <span className="chron-time" title={new Date(at).toLocaleString()}>
                     {mode === 'live' ? ago(now - at) : clock(at)}
@@ -131,5 +134,21 @@ export function Chronicle({ entries, viewerP, now }: { entries: readonly Chronic
         </ol>
       )}
     </div>
+  );
+}
+
+type MusterEntry = ChronicleEntry & { purpose?: Purpose; files?: number; branches?: number };
+
+/** What the push was for and how big it was: the reasons behind its soldiers. */
+function MusterFacts({ entry }: { entry: MusterEntry }) {
+  const facts: string[] = [];
+  if (entry.files !== undefined && entry.files > 0) facts.push(`${entry.files} file${entry.files === 1 ? '' : 's'}`);
+  if (entry.branches !== undefined && entry.branches > 0) facts.push(`${entry.branches} branch point${entry.branches === 1 ? '' : 's'}`);
+  if (!entry.purpose && facts.length === 0) return null;
+  return (
+    <span className="muster-facts">
+      <PurposeTag purpose={entry.purpose} />
+      {facts.length > 0 && <span className="muted small">{facts.join(' · ')}</span>}
+    </span>
   );
 }

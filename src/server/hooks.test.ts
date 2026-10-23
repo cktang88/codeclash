@@ -72,7 +72,7 @@ describe('registerHooks', () => {
     expect(res.statusCode).toBe(202);
     expect(res.json()).toEqual({ ok: true, counted: true });
     expect(t.reports).toHaveLength(1);
-    expect(t.reports[0]).toMatchObject({ repo: 'ana/parser', message: 'Ship it', commits: 1, at: NOW });
+    expect(t.reports[0]).toMatchObject({ repo: 'ana/parser', message: 'Ship it', commits: 1, files: 1, branches: 0, at: NOW });
   });
 
   it('only credits commits GitHub links to the hook owner', async () => {

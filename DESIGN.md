@@ -12,7 +12,7 @@ For every member, the server polls `GET /users/{login}/events/public` with an ET
 
 GitHub delivers public events anywhere from 30 seconds to several hours late. A member who wants near-real-time armies can add a repository webhook (push events) pointing at their personal hook URL. The server verifies the HMAC signature and then runs the same compare call.
 
-Only public repositories are read. Lines changed are not quality. Pushfront rewards a healthy *shape* of work (tests, docs, deletions, a balanced push) and uses diminishing returns so volume alone never wins.
+Only public repositories are read. Pushfront rewards real code: how much of it, how many files it touches, how complex it is, and what it is for (fixing a bug, shipping a feature, refactoring). Generated and vendored code count for nothing, and diminishing returns keep volume alone from winning.
 
 ### Sorting lines into categories
 
@@ -39,64 +39,94 @@ Deleted source lines are counted as **removed**. Test, docs, config, generated a
 
 The nine line counts are `code, test, comment, docs, config, removed, generated, vendor, blank`. **Blank lines raise nothing.** They are recorded for the digest.
 
+Two more numbers come from the source files:
+
+- **Files touched:** source files with at least one added or removed code line. Test, docs, config, generated and vendored files don't count.
+- **Branch points:** a measure of complexity. Added code lines are scanned for `if`, `for`, `while`, `case`, `catch`, `&&`, `||` and the ternary `?`, with each language's equivalents (`elif`, `and`, `or`, `except` in Python, `unless`, `rescue` in Ruby, `match` arms in Rust). When GitHub omits a patch, the count is estimated as additions ÷ 12.
+
+**Purpose** comes from the first line of the newest counted commit's message. Conventional-commit prefixes come first, then common words. The first match wins:
+
+| Purpose | Matched by |
+| --- | --- |
+| revert | `revert…`, "This reverts commit" |
+| fix | `fix:`, `hotfix:`, `bugfix:`, or the words fix/fixes/fixed, bug, crash, regression, hotfix, patch |
+| perf | `perf:`, or performance, optimize, faster, speed up |
+| refactor | `refactor:`, or refactor, clean up, simplify, restructure, extract, remove, delete, dead code |
+| chore | `chore:`, `ci:`, `build:`, `deps:`, `style:`, or bump, upgrade, dependencies, lockfile, release |
+| feature | `feat:`, or add, implement, introduce, support, new, enable |
+| work | anything else |
+
 ### Units
 
-There are twenty unit kinds.
+**Code is the army.** Footmen come from the size of the code change and how many source files it touches. What the push is *for* (its purpose) and how complex the code is decide the specialists. Tests, comments, docs and config add only a little support. **Generated and vendored code raise nothing.**
 
-- **Base and elite.** Each line category raises a base unit. In a big push, it also raises an elite.
-- **Specials.** Berserkers and Clerics come from the shape of a push, not from one category.
-- **Heroes.** Champions and Dragons crown well-rounded pushes.
+Each unit takes one or more **slots** in its platoon. Speed is in world units per tick, at 5 ticks per second. Melee reach is 13–16 units, plus half the target's size.
 
-Each unit takes one or more **slots** in its platoon. HP, damage and range are listed per unit. Speed is in world units per tick, at 5 ticks per second. Melee reach is 13–16 units, plus half the target's size.
-
-| Unit | Raised by | Tier | Slots | HP | Dmg | Range | Speed | Abilities |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Footman | code | base | 1 | 110 | 11 | melee | 1.6 | Spear and shield. +60% vs Outriders and Knights |
-| Knight | code (elite) | elite | 2 | 240 | 22 | melee | 2.4 | Charge: the first blow after riding 40 units deals ×1.8 |
-| Warden | test | base | 1 | 190 | 6 | melee | 1.3 | Tower shield: allies within 40 take 30% less damage. Arrows deal half damage to it |
-| Paladin | test (elite) | elite | 2 | 320 | 14 | melee | 1.4 | Shield aura like a Warden's. Every 2 s, heals the most wounded ally within 40 for 6. ×2 vs undead |
-| Archer | comment | base | 1 | 55 | 8 | 95 | 1.6 | Arrows in flight. +40% vs Footmen, Skeletons, Mercenaries, Berserkers. +80% vs fliers |
-| Ranger | comment (elite) | elite | 2 | 90 | 17 | 125 | 1.9 | Elven longbow, with the same bonuses as the Archer |
-| Herald | docs | base | 1 | 80 | 4 | melee | 1.6 | Banner aura: heals allies within 50. Halves its platoon's morale loss |
-| Wizard | docs (elite) | elite | 2 | 85 | 20 | 120 | 1.4 | Fireballs burst over 28 units (full damage at the center, half at the edge) |
-| Sapper | config | base | 1 | 90 | 10 | melee | 1.5 | ×6 damage to structures |
-| Trebuchet | config (elite) | elite | 3 | 260 | 34 | 175 | 0.8 | Stones burst over 22 units. Prefers any structure in range. ×2 vs structures |
-| Outrider | removed | base | 1 | 120 | 15 | melee | 3.2 | +60% vs ranged units, Heralds, Sappers, Clerics |
-| Griffin Rider | removed (elite) | elite | 2 | 200 | 20 | melee | 3.6 | Flies over water, rock and crowds. Same bonuses as the Outrider |
-| Skeleton | generated | base | 1 | 70 | 6 | melee | 1.3 | Brittle fodder |
-| Bone Golem | generated (elite) | elite | 3 | 520 | 14 | melee | 0.9 | Lumbering wall. +30% vs base units |
-| Mercenary | vendor | base | 1 | 130 | 16 | melee | 1.8 | Contract ends 10 minutes after marching out |
-| Troll | vendor (elite) | elite | 3 | 600 | 24 | melee | 1.2 | Regenerates 1.2 HP per tick, a quarter of that while scorched by fire. +30% vs base units. Contract of 20 minutes |
-| Berserker | untested, uncommented code | special | 1 | 120 | 26 | melee | 2.1 | Hits hard, dies fast |
-| Cleric | a fix | special | 1 | 90 | 5 | melee | 1.5 | Every 2 s, heals the most wounded ally within 80 for 22 |
-| Champion | a balanced push | hero | 2 | 520 | 26 | melee | 1.5 | Allies within 60 deal 20% more. Its platoon cannot rout while it lives. ×1.5 vs heroes and Dragons |
-| Dragon | a legendary push | legend | 6 | 2400 | 24 | 70 | 2.0 | Flies. Every 2 s breathes fire on every enemy in a 50° cone, and singes structures in it. Valor aura like a Champion's |
+| Unit | Raised by | Slots | HP | Dmg | Range | Speed | Abilities |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Footman | any code | 1 | 110 | 11 | melee | 1.6 | Spear and shield. +60% vs Outriders and Knights |
+| Knight | complex code | 2 | 240 | 22 | melee | 2.4 | Charge: the first blow after riding 40 units deals ×1.8 |
+| Troll | very complex code | 3 | 600 | 24 | melee | 1.2 | Regenerates 1.2 HP per tick, a quarter of that while scorched by fire. +30% vs base units |
+| Berserker | untested, uncommented code | 1 | 120 | 26 | melee | 2.1 | Hits hard, dies fast |
+| Trebuchet | sweeping changes | 3 | 260 | 34 | 175 | 0.8 | Stones burst over 22 units. Prefers any structure in range. ×2 vs structures |
+| Cleric | bug fixes | 1 | 90 | 5 | melee | 1.5 | Every 2 s, heals the most wounded ally within 80 for 22 |
+| Paladin | larger bug fixes | 2 | 320 | 14 | melee | 1.4 | Shield aura like a Warden's. Every 2 s, heals the most wounded ally within 40 for 6. ×2 vs undead |
+| Ranger | bug fixes with real code | 2 | 90 | 13 | 125 | 1.9 | Elven longbow. +40% vs Skeletons, Mercenaries, Berserkers. +80% vs fliers. Half damage to Wardens and Paladins |
+| Champion | big work | 2 | 520 | 26 | melee | 1.5 | Allies within 60 deal 20% more. Its platoon cannot rout while it lives. ×1.5 vs heroes and Dragons |
+| Dragon | legendary features | 6 | 2400 | 24 | 70 | 2.0 | Flies. Every 2 s breathes fire on every enemy in a 50° cone, and singes structures in it. Valor aura like a Champion's |
+| Outrider | refactors, deleted code | 1 | 120 | 15 | melee | 3.2 | +60% vs ranged units, Heralds, Sappers, Clerics |
+| Griffin Rider | big refactors | 2 | 200 | 20 | melee | 3.6 | Flies over water, rock and crowds. Same bonuses as the Outrider |
+| Wizard | performance work | 2 | 85 | 20 | 120 | 1.4 | Fireballs burst over 28 units (full damage at the center, half at the edge) |
+| Skeleton | reverts | 1 | 70 | 6 | melee | 1.3 | Brittle undead |
+| Bone Golem | big reverts | 3 | 520 | 14 | melee | 0.9 | Lumbering wall. +30% vs base units |
+| Mercenary | chores, dependency bumps | 1 | 130 | 16 | melee | 1.8 | Contract ends 10 minutes after marching out |
+| Warden | tests (support) | 1 | 190 | 6 | melee | 1.3 | Tower shield: allies within 40 take 30% less damage. Arrows deal half damage to it |
+| Archer | comments (support) | 1 | 55 | 8 | 95 | 1.6 | Arrows in flight, with the Ranger's bonuses |
+| Herald | docs (support) | 1 | 80 | 4 | melee | 1.6 | Banner aura: heals allies within 50. Halves its platoon's morale loss |
+| Sapper | config (support) | 1 | 90 | 10 | melee | 1.5 | ×6 damage to structures |
 
 Fliers ignore terrain and the press of ground soldiers. Melee soldiers can still strike them once the flier comes within reach.
 
-- **Balanced push:** at least 20 code lines, at least 1 test line, and at least 1 comment or docs line.
-- **Legendary push:** a balanced push with at least 150 code lines, 50 test lines, and 30 comment or docs lines.
-- **Fix:** a commit message containing `fix`, `fixes`, `fixed`, `bug`, `hotfix` or `patch`.
-
 ### How many soldiers
 
-For each line category: `count = floor(coef * sqrt(lines))`. If that is 0 but `lines >= threshold`, the count becomes 1. Counts are capped per category.
+Let *code* be added code lines, *removed* deleted source lines, *files* source files touched, and *branches* branch points.
 
-Once a category's lines reach its **elite** line count, every 3 base soldiers of that category are promoted to 1 elite.
+**The code itself** (every purpose except revert):
 
-| | code | test | comment | docs | config | removed | generated | vendor |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| coef | 0.6 | 0.7 | 0.6 | 0.45 | 0.4 | 0.45 | 0.15 | 0.12 |
-| threshold | 1 | 1 | 3 | 5 | 5 | 10 | 50 | 50 |
-| cap | 12 | 10 | 8 | 6 | 6 | 8 | 6 | 4 |
-| elite at | 120 | 60 | 30 | 60 | 60 | 80 | 5000 | 4000 |
+- **Footmen:** `min(12, floor(½·√code) + min(6, files))`, at least 1 when there is any code.
+- **Knights:** `min(4, floor(branches / 15))`.
+- **Troll:** 1 with at least 40 branches in at least 200 lines.
+- **Outriders:** 1 per 150 removed lines, up to 3.
+- **Trebuchet:** 1 when a push touches 12 or more files.
+- **Berserkers:** with at least 50 code lines and no test or comment lines (and not a fix), half the Footmen become Berserkers.
 
-Then, in order:
+**By purpose:**
 
-1. **Berserkers.** With at least 30 code lines and no test or comment lines, half the Footmen (rounded down) become Berserkers.
-2. **Clerics.** A fix adds 1 Cleric, or 2 if it also removes at least 40 lines.
-3. **Heroes.** A balanced push adds a Champion. A legendary push adds a Dragon instead. Neither comes while fatigue applies.
-4. **Fitting.** A platoon holds at most 32 slots. The cheapest soldiers are trimmed first, and heroes are never trimmed.
+| Purpose | Adds |
+| --- | --- |
+| fix | `min(3, 1 + floor(files / 3))` Clerics. A Paladin when it touches 3+ files or 40+ lines, two when it is 150+ lines over 4+ files. `min(2, floor(code / 60))` Rangers |
+| feature | 25% more Footmen, up to 14 |
+| refactor | half the Footmen. `min(8, floor(½·√(removed + code/2)))` Outriders. A Griffin Rider for 300+ removed lines over 6+ files |
+| perf | `min(3, 1 + floor(branches / 20))` Wizards |
+| revert | no Footmen. `min(8, max(1, floor(√(code + removed) / 2)))` Skeletons, and a Bone Golem at 500+ lines |
+| chore | at most 2 Footmen, plus 1 Mercenary (2 when 4+ files) |
+
+**Heroes** (not while fatigue applies, and never for chores or reverts):
+
+- **Champion:** at least 300 code lines over at least 5 files.
+- **Dragon:** a feature (or plain work) of at least 600 code lines, 8 files and 60 branch points. It replaces the Champion.
+
+**Support, kept small:**
+
+| From | Raises |
+| --- | --- |
+| tests | `min(3, floor(√test / 4))` Wardens |
+| comments | `min(2, floor(comment / 40))` Archers |
+| docs | 1 Herald at 60+ docs lines, or 80+ docs and comment lines together |
+| config | `min(2, floor(config / 50))` Sappers |
+| generated, vendored | nothing |
+
+A platoon holds at most 32 slots. The cheapest soldiers are trimmed first, and heroes are never trimmed.
 
 Fatigue keeps a heavy pusher from flooding the map:
 
@@ -129,7 +159,7 @@ Fatigue keeps a heavy pusher from flooding the map:
 The map is a disc with one **capital** per slot, on a ring at 84% of the radius. A war's map is generated at the start of the day with `slots = clamp(members + 2, 4, 16)`, so players who join during the day take a spare slot. Once all slots are taken, a new member starts with tomorrow's war.
 
 - **Capital.** One per player. It has 8000 HP and a tower (20 damage, range 160). Platoons spawn at its gate. Within 220 units of their own capital, a player's units take 20% less damage (home turf).
-- **Sacking.** A capital at 0 HP is **sacked**. The player who dealt the final blow gains renown: 120 for the first sack of that capital today, 60 for the second, 40 for the third, and so on (`120 / n`, rounded down). The capital lies in ruins for 20 minutes, invulnerable and silent, and then rebuilds at full HP, with 50% more maximum HP for every time it has been sacked that day.
+- **Sacking.** A capital at 0 HP is **sacked**. The player who dealt the final blow gains renown: 120 for the first sack of that capital today, 60 for the second, 40 for the third, and so on (`120 / n`, rounded down). The capital lies in ruins for 20 minutes, invulnerable and silent, and then rebuilds at full HP, with its maximum HP and its tower's damage raised by the base amount again for every time it has been sacked that day.
 - **Shrines.** One per slot, at 46% of the radius between neighboring capitals. Each is capturable.
 - **The Heart.** It sits at the center and is guarded at dawn by the **Legacy Monolith**, a neutral structure with `30000 + 10000 * members` HP that fires on anyone near it. Everyone attacks it together. The player who dealt the most damage to it gets the Monolith award. The Heart can be captured only after the Monolith falls.
 - **Terrain.** Forest slows movement by 40% and halves arrow damage. Water and rock are impassable. The terrain is generated from seeded noise in one sector and rotated into the others, so every slot sees the same map.
@@ -197,8 +227,8 @@ When a war ends, the server computes a digest from the final world and the war's
 | Siegebreaker | most structure damage |
 | Monolith Slayer | most Monolith damage |
 | Ghost | the highest renown per push |
-| Militia Mob | most generated lines (affectionately) |
-| Standard Bearer | most balanced pushes |
+| Bugslayer | most bug-fix pushes |
+| Architect | most branch points added |
 
 - highlights: the largest clashes, sacks, captures, and the Monolith's fall, each with a tick so the replay can jump there
 - each player's best platoon, with its repo and commit message
@@ -226,7 +256,7 @@ A war's **replay** is everything needed to rebuild it, and nothing more:
   "startsAt": 1761177600000, "endsAt": 1761264000000,
   "players": [{ "login": "ana", "id": 1, "hue": 210, "slot": 0, "bot": false }],
   "repos": ["ana/parser"],
-  "inputs": [[1200, "push", 0, 0, [120, 30, 12, 4, 0, 18, 0, 0, 9], 3, "Fix tokenizer"], [3000, "doc", 0, 2]]
+  "inputs": [[1200, "push", 0, 0, [120, 30, 12, 4, 0, 18, 0, 0, 9], 3, "fix: tokenizer", 4, 17], [3000, "doc", 0, 2]]
 }
 ```
 

@@ -23,20 +23,16 @@ const kills = new Array<number>(KIND_COUNT).fill(0);
 const started = performance.now();
 let peak = 0;
 
-/** A developer's push, varied enough to raise every kind now and then. */
+const MESSAGES = ['fix: crash on empty input', 'feat: add export', 'refactor: split parser', 'perf: cache lookups', 'revert: "feat: add export"', 'chore(deps): bump vite', 'Update handler'];
+
+/** A developer's push: mostly code, with the purposes real commits have. */
 function push(p: number): SimInput {
-  const code = pick(260);
-  const style = pick(10);
-  const lines = [code, 0, Math.floor(code * (0.05 + rand() * 0.2)), 0, 0, pick(60), 0, 0, Math.floor(code * 0.12)];
-  if (style < 6) lines[1] = pick(120);
-  if (style === 2 || rand() < 0.2) lines[3] = 20 + pick(120);
-  if (style === 3 || rand() < 0.2) lines[4] = 10 + pick(120);
-  if (style === 4) lines[5] = 80 + pick(300);
-  if (style === 5) lines[6] = 1500 + pick(6000);
-  if (style === 6) lines[7] = 1500 + pick(4000);
-  if (style === 7) lines[1] = lines[2] = 0;
-  const msg = rand() < 0.25 ? 'fix the thing' : 'work';
-  return { kind: 'push', p, repo: p * 2 + pick(2), commits: 1, msg, lines };
+  const code = pick(260) + (rand() < 0.05 ? 500 : 0);
+  const files = 1 + pick(code > 400 ? 14 : 6);
+  const lines = [code, pick(80), Math.floor(code * rand() * 0.15), rand() < 0.2 ? pick(120) : 0, rand() < 0.2 ? pick(80) : 0, pick(120), rand() < 0.1 ? pick(4000) : 0, 0, Math.floor(code * 0.12)];
+  const roll = rand();
+  const msg = MESSAGES[roll < 0.25 ? 0 : roll < 0.5 ? 1 : roll < 0.62 ? 2 : roll < 0.7 ? 3 : roll < 0.73 ? 4 : roll < 0.8 ? 5 : 6]!;
+  return { kind: 'push', p, repo: p * 2 + pick(2), commits: 1, msg, lines, files, branches: Math.floor(code / (5 + pick(6))) };
 }
 
 for (let t = 0; t < minutes * TICKS_PER_MINUTE; t++) {

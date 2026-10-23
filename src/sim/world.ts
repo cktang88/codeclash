@@ -1,5 +1,6 @@
 import {
   KIND_COUNT,
+  PURPOSES,
   Kind,
   NEUTRAL,
   BlastKind,
@@ -22,7 +23,7 @@ import { attackerMultiplier, computeAuras, enemiesNear, findTarget, structureDam
 import { capitalOwner, runCouncil, sitePresence } from './council.ts';
 import { derived } from './derived.ts';
 import { cellAt } from './flowfield.ts';
-import { cleanLines, isBalanced, musterCounts, slotsOf } from './muster.ts';
+import { cleanLines, musterCounts, purposeOf, slotsOf } from './muster.ts';
 import { nextRandom, seedRng } from './rng.ts';
 import { AURA_HEAL, indexWorld, scratchFor, type Scratch } from './scratch.ts';
 import { bucketX, bucketY, rebuildSpatialHash } from './spatial.ts';
@@ -173,7 +174,7 @@ function applyInput(world: World, input: SimInput, ev: TickEvents): void {
   switch (input.kind) {
     case 'push':
       if (!whole(input.repo) || input.repo < 0) return;
-      musterPush(world, player, input.repo, cleanLines(input.lines), typeof input.msg === 'string' ? input.msg : '', ev);
+      musterPush(world, player, input.repo, cleanLines(input.lines), typeof input.msg === 'string' ? input.msg : '', count(input.files), count(input.branches), ev);
       return;
     case 'doctrine':
       if (!whole(input.doctrine) || input.doctrine < 0 || input.doctrine > 4 || input.doctrine === player.doctrine) return;
@@ -209,19 +210,28 @@ function newPlayer(p: number, slot: number, hue: number): PlayerState {
     lines: new Array<number>(9).fill(0),
     raised: new Array<number>(KIND_COUNT).fill(0),
     slain: new Array<number>(KIND_COUNT).fill(0),
-    kills: 0, losses: 0, structureDamage: 0, monolithDamage: 0, captures: 0, sacks: 0, routs: 0, balanced: 0, best: null,
+    kills: 0, losses: 0, structureDamage: 0, monolithDamage: 0, captures: 0, sacks: 0, routs: 0,
+    purposes: new Array<number>(PURPOSES.length).fill(0), files: 0, branches: 0, best: null,
     queue: [], battalions: [],
   };
 }
 
-function musterPush(world: World, player: PlayerState, repo: number, lines: readonly number[], msg: string, ev: TickEvents): void {
+/** A whole, non-negative count from an untrusted input field. */
+function count(n: unknown): number {
+  return typeof n === 'number' && Number.isFinite(n) && n > 0 ? Math.floor(Math.min(n, 1e9)) : 0;
+}
+
+function musterPush(world: World, player: PlayerState, repo: number, lines: readonly number[], msg: string, files: number, branches: number, ev: TickEvents): void {
   const hourAgo = world.tick - 60 * TICKS_PER_MINUTE;
   while (player.recentPushes.length > 0 && player.recentPushes[0]! <= hourAgo) player.recentPushes.shift();
-  const counts = musterCounts(lines, player.recentPushes.length, player.pushes, msg);
+  const counts = musterCounts(lines, player.recentPushes.length, player.pushes, msg, files, branches);
+  const purpose = purposeOf(msg);
   player.pushes++;
   player.recentPushes.push(world.tick);
   for (let c = 0; c < player.lines.length; c++) player.lines[c]! += lines[c]!;
-  if (isBalanced(lines)) player.balanced++;
+  player.purposes[PURPOSES.indexOf(purpose)]!++;
+  player.files += files;
+  player.branches += branches;
   for (let k = 0; k < KIND_COUNT; k++) player.raised[k]! += counts[k]!;
 
   const lastQueued = player.queue.length > 0 ? world.platoons.find((pl) => pl.id === player.queue[player.queue.length - 1]) : undefined;
@@ -251,6 +261,7 @@ function musterPush(world: World, player: PlayerState, repo: number, lines: read
     p: player.p,
     repo,
     ordinal: battalion[1],
+    purpose,
     state: PlatoonState.Queued,
     x: capital.x,
     y: capital.y,
@@ -866,6 +877,7 @@ function updateStructures(world: World, s: Scratch, ev: TickEvents): void {
       st.cooldown--;
       continue;
     }
+    // A capital sacked today mans its towers harder: each sack adds the tower's base damage again.
     const tower = st.p === NEUTRAL ? MONOLITH_TOWER : CAPITAL_TOWER;
     const def = world.map.sites[st.site]!;
     const t = nearestEnemy(world, s, st.p, def.x, def.y, tower.range + def.radius * 0.5);
@@ -874,7 +886,7 @@ function updateStructures(world: World, s: Scratch, ev: TickEvents): void {
     const dx = v.x - def.x;
     const dy = v.y - def.y;
     const flight = Math.max(1, Math.ceil(Math.sqrt(dx * dx + dy * dy) / ARROW_SPEED));
-    world.shots.push({ from: -(k + 1), p: st.p, target: v.id, x: def.x, y: def.y, landAt: tick + flight, damage: tower.damage, kind: ShotKind.TowerBolt, splash: 0, tx: v.x, ty: v.y });
+    world.shots.push({ from: -(k + 1), p: st.p, target: v.id, x: def.x, y: def.y, landAt: tick + flight, damage: tower.damage * (1 + st.sacked), kind: ShotKind.TowerBolt, splash: 0, tx: v.x, ty: v.y });
     ev.shots.push({ from: -(k + 1), to: v.id, x: def.x, y: def.y, land: tick + flight, kind: ShotKind.TowerBolt });
     st.cooldown = tower.cooldown;
   }

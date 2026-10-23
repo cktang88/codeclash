@@ -33,7 +33,7 @@ describe('Poller', () => {
     t.github.addEvent('Ana', pushEvent('100', 'ana/parser', sha(1), sha(2), NOW - HOUR));
     t.github.setCompare('ana/parser', sha(1), sha(2), {
       commits: [commit(2, 'ana', 'Add tokenizer\n\nLong body')],
-      files: [sourceFile('src/tok.ts', ['// lex', 'export const a = 1;', 'export const b = 2;']), sourceFile('src/tok.test.ts', ['it("a", () => {});'])],
+      files: [sourceFile('src/tok.ts', ['// lex', 'export const a = ok ? 1 : 2;', 'if (a && b) run();']), sourceFile('src/tok.test.ts', ['it("a", () => {});'])],
     });
     await t.poller.pollUser(7);
     expect(t.reports).toHaveLength(1);
@@ -43,6 +43,8 @@ describe('Poller', () => {
     expect(r.lines[Cat.Comment]).toBe(1);
     expect(r.lines[Cat.Test]).toBe(1);
     expect(r.lines).toHaveLength(9);
+    expect(r.files).toBe(1);
+    expect(r.branches).toBe(3);
   });
 
   it('on first poll only counts pushes from the last 24 hours, then only newer events', async () => {

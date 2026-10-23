@@ -12,6 +12,10 @@ export interface ChangedFile {
 export interface PushSummary {
   lines: number[];
   language: string | null;
+  /** Source files with at least one added or removed code line. */
+  files: number;
+  /** Branch points in added source code lines: a rough complexity measure. */
+  branches: number;
 }
 
 export type FileCategory = 'vendor' | 'generated' | 'docs' | 'test' | 'config' | 'source' | 'ignored';
@@ -239,6 +243,48 @@ function isGeneratedContent(category: FileCategory, ext: string, added: readonly
   return chars / added.length > MINIFIED_AVERAGE;
 }
 
+// ------------------------------------------------------------ complexity
+
+export const MAX_BRANCHES = 10_000;
+/** Lines of added code per branch point, when the patch is missing and we can only estimate. */
+const LINES_PER_BRANCH = 12;
+
+type Family = 'c' | 'python' | 'ruby' | 'shell' | 'none';
+
+const FAMILY: Record<string, Family> = {
+  py: 'python', pyi: 'python',
+  rb: 'ruby', rake: 'ruby',
+  sh: 'shell', bash: 'shell', zsh: 'shell', fish: 'shell',
+  css: 'none', scss: 'none', sass: 'none', less: 'none', html: 'none', htm: 'none', sql: 'none', md: 'none',
+};
+
+const BRANCH_PATTERNS: Record<Exclude<Family, 'none'>, RegExp[]> = {
+  // `else if` already counts once through its `if`.
+  c: [/\b(if|for|while|case|catch)\b/g, /&&|\|\|/g, /(?<![?.])\?(?![?.:])/g],
+  python: [/\b(if|elif|for|while|except|and|or)\b/g],
+  ruby: [/\b(if|elsif|unless|while|until|when|rescue|and|or)\b/g, /&&|\|\|/g],
+  shell: [/\b(if|elif|for|while|case)\b/g, /&&|\|\|/g],
+};
+
+/** Drops string literals and trailing line comments so their words are not counted. */
+function stripStrings(text: string, family: Family): string {
+  let out = text.replace(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`/g, '""');
+  const comment = family === 'c' ? out.indexOf('//') : family === 'none' ? -1 : out.indexOf('#');
+  if (comment >= 0) out = out.slice(0, comment);
+  return out;
+}
+
+export function branchesIn(text: string, path: string): number {
+  const family = FAMILY[extension(basename(path))] ?? 'c';
+  if (family === 'none') return 0;
+  const code = stripStrings(text, family);
+  let n = 0;
+  for (const re of BRANCH_PATTERNS[family]) n += code.match(re)?.length ?? 0;
+  // A Rust match arm (`pattern => value`) is a branch too.
+  if (path.endsWith('.rs')) n += code.match(/=>/g)?.length ?? 0;
+  return n;
+}
+
 const CATEGORY_CAT: Record<Exclude<FileCategory, 'source' | 'ignored'>, Cat> = {
   vendor: Cat.Vendor,
   generated: Cat.Generated,
@@ -250,6 +296,8 @@ const CATEGORY_CAT: Record<Exclude<FileCategory, 'source' | 'ignored'>, Cat> = {
 export function summarizeFiles(files: readonly ChangedFile[]): PushSummary {
   const lines = new Array<number>(CAT_COUNT).fill(0);
   const codeByLanguage = new Map<string, number>();
+  let touched = 0;
+  let branches = 0;
   for (const file of files) {
     let category = categorizePath(file.filename);
     if (category === 'ignored') continue;
@@ -271,9 +319,11 @@ export function summarizeFiles(files: readonly ChangedFile[]): PushSummary {
     }
 
     let code = 0;
+    let removed = 0;
     if (!patch) {
       code = Math.max(0, file.additions);
-      lines[Cat.Removed]! += Math.max(0, file.deletions);
+      removed = Math.max(0, file.deletions);
+      branches += Math.floor(code / LINES_PER_BRANCH);
     } else {
       const syntax = syntaxFor(file.filename);
       const state: { block: Block | null } = { block: null };
@@ -285,13 +335,17 @@ export function summarizeFiles(files: readonly ChangedFile[]): PushSummary {
         }
         const kind = classifyLine(l.text, syntax, state);
         if (!l.added) continue;
-        if (kind === 'code') code++;
-        else if (kind === 'comment') lines[Cat.Comment]!++;
+        if (kind === 'code') {
+          code++;
+          branches += branchesIn(l.text, file.filename);
+        } else if (kind === 'comment') lines[Cat.Comment]!++;
         else lines[Cat.Blank]!++;
       }
-      for (const text of patch.removed) if (text.trim() !== '') lines[Cat.Removed]!++;
+      for (const text of patch.removed) if (text.trim() !== '') removed++;
     }
     lines[Cat.Code]! += code;
+    lines[Cat.Removed]! += removed;
+    if (code > 0 || removed > 0) touched++;
     const language = languageOfPath(file.filename);
     if (language && code > 0) codeByLanguage.set(language, (codeByLanguage.get(language) ?? 0) + code);
   }
@@ -303,5 +357,5 @@ export function summarizeFiles(files: readonly ChangedFile[]): PushSummary {
       best = n;
     }
   }
-  return { lines, language };
+  return { lines, language, files: touched, branches: Math.min(MAX_BRANCHES, branches) };
 }

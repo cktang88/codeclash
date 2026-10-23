@@ -1,29 +1,8 @@
-import { CAT_COUNT, Cat, Kind, KIND_COUNT, type Lines } from './api.ts';
+import { CAT_COUNT, Cat, Kind, KIND_COUNT, type Lines, type Purpose } from './api.ts';
 import { PLATOON_MAX, STATS } from './stats.ts';
-
-// Per category: coefficient on sqrt(lines), the line count that guarantees one
-// soldier, the per-platoon cap, and the line count at which soldiers start to
-// be promoted to that category's elite. Indexed by Cat; Blank raises nothing.
-const COEF = [0.6, 0.7, 0.6, 0.45, 0.4, 0.45, 0.15, 0.12, 0];
-const THRESHOLD = [1, 1, 3, 5, 5, 10, 50, 50, Infinity];
-const CAP = [12, 10, 8, 6, 6, 8, 6, 4, 0];
-const ELITE = [120, 60, 30, 60, 60, 80, 5000, 4000, Infinity];
-/** Base soldiers given up for one elite. */
-export const PROMOTION = 3;
 
 export const HOURLY_FREE_PUSHES = 3;
 export const DAILY_FREE_PUSHES = 12;
-
-const FIX = /\b(fix(e[sd])?|bug|hotfix|patch)\b/i;
-
-const BASE_OF: number[] = [];
-const ELITE_OF: number[] = [];
-for (let k = 0; k < KIND_COUNT; k++) {
-  const s = STATS[k]!;
-  if (s.raisedBy < 0) continue;
-  if (s.tier === 'base') BASE_OF[s.raisedBy] = k;
-  if (s.tier === 'elite') ELITE_OF[s.raisedBy] = k;
-}
 
 const at = (lines: Lines, c: number) => {
   const n = lines[c];
@@ -48,17 +27,22 @@ export function cleanLines(lines: unknown): number[] {
   return out;
 }
 
-export function isBalanced(lines: Lines): boolean {
-  return at(lines, Cat.Code) >= 20 && at(lines, Cat.Test) >= 1 && at(lines, Cat.Comment) + at(lines, Cat.Docs) >= 1;
-}
+// Conventional-commit prefixes first, then common words. Order matters: a
+// "revert" of a fix is a revert, and "fix typo in docs" is still a fix.
+const PURPOSE_RULES: readonly [Purpose, RegExp][] = [
+  ['revert', /^revert\b|^this reverts commit/i],
+  ['fix', /^(fix|hotfix|bugfix)(\(.*?\))?!?:|\b(fix(e[sd]|ing)?|bug|crash(es|ing)?|regression|hotfix|patch(es|ed)?)\b/i],
+  ['perf', /^perf(\(.*?\))?!?:|\b(perf(ormance)?|optimi[sz](e[sd]?|ation)|faster|speed ?up)\b/i],
+  ['refactor', /^refactor(\(.*?\))?!?:|\b(refactor(ed|ing)?|clean ?up|simplif(y|ied)|restructur(e|ed)|extract(ed)?|remove[sd]?|delete[sd]?|dead code)\b/i],
+  ['chore', /^(chore|ci|build|deps?|style)(\(.*?\))?!?:|\b(bump(s|ed)?|upgrade[sd]?|dependenc(y|ies)|lockfile|release v?\d)\b/i],
+  ['feature', /^feat(ure)?(\(.*?\))?!?:|\b(add(s|ed)?|implement(s|ed)?|introduce[sd]?|support(s|ed)?|new|enable[sd]?)\b/i],
+];
 
-/** A push worthy of a Dragon: large, tested, and explained. */
-export function isLegendary(lines: Lines): boolean {
-  return isBalanced(lines) && at(lines, Cat.Code) >= 150 && at(lines, Cat.Test) >= 50 && at(lines, Cat.Comment) + at(lines, Cat.Docs) >= 30;
-}
-
-export function isFix(msg: string): boolean {
-  return FIX.test(msg);
+/** What a push is for, from the first line of its newest commit message. */
+export function purposeOf(msg: string): Purpose {
+  const head = (msg.split('\n')[0] ?? '').trim();
+  for (const [purpose, re] of PURPOSE_RULES) if (re.test(head)) return purpose;
+  return 'work';
 }
 
 export function slotsOf(counts: readonly number[]): number {
@@ -67,36 +51,83 @@ export function slotsOf(counts: readonly number[]): number {
   return n;
 }
 
+const whole = (n: number) => (Number.isFinite(n) && n > 0 ? Math.floor(Math.min(n, MAX_LINES)) : 0);
+
 /**
- * Soldiers raised by one push, by kind. `pushesLastHour` and `pushesToday`
+ * Soldiers raised by one push, by kind. Code is what raises an army: Footmen
+ * come from code lines and source files touched, and what the push is for
+ * (fix, feature, refactor, perf, revert, chore) and how complex it is decide
+ * the specialists. Tests, comments, docs and config add a little support;
+ * generated and vendored code raise nothing. `pushesLastHour` and `pushesToday`
  * count this player's earlier pushes, excluding this one.
  */
-export function musterCounts(lines: Lines, pushesLastHour: number, pushesToday: number, msg = ''): number[] {
+export function musterCounts(
+  lines: Lines,
+  pushesLastHour: number,
+  pushesToday: number,
+  msg = '',
+  filesTouched = 0,
+  branchPoints = 0,
+): number[] {
   const counts = new Array<number>(KIND_COUNT).fill(0);
-  let factor = 1;
-  if (pushesToday >= DAILY_FREE_PUSHES) factor = 1 / 3;
-  else if (pushesLastHour >= HOURLY_FREE_PUSHES) factor = 0.5;
-  for (let cat = 0; cat < Cat.Blank; cat++) {
-    const n = at(lines, cat);
-    let c = Math.floor(COEF[cat]! * Math.sqrt(n));
-    if (c === 0 && n >= THRESHOLD[cat]!) c = 1;
-    c = Math.floor(Math.min(CAP[cat]!, c) * factor);
-    let elite = 0;
-    if (n >= ELITE[cat]!) {
-      elite = Math.floor(c / PROMOTION);
-      c -= elite * PROMOTION;
-    }
-    counts[BASE_OF[cat]!] = c;
-    counts[ELITE_OF[cat]!] = elite;
-  }
+  const fatigue = pushesToday >= DAILY_FREE_PUSHES ? 1 / 3 : pushesLastHour >= HOURLY_FREE_PUSHES ? 0.5 : 1;
+  const purpose = purposeOf(msg);
   const code = at(lines, Cat.Code);
-  if (code >= 30 && at(lines, Cat.Test) === 0 && at(lines, Cat.Comment) === 0) {
-    const berserk = Math.floor(counts[Kind.Footman]! / 2);
-    counts[Kind.Footman]! -= berserk;
-    counts[Kind.Berserker] = berserk;
+  const removed = at(lines, Cat.Removed);
+  const files = whole(filesTouched);
+  const branches = whole(branchPoints);
+  const set = (k: Kind, n: number) => (counts[k] = Math.max(0, Math.floor(n)));
+
+  if (purpose === 'revert') {
+    set(Kind.Skeleton, Math.min(8, Math.max(1, Math.floor(Math.sqrt(code + removed) / 2))));
+    if (code + removed >= 500) set(Kind.BoneGolem, 1);
+  } else {
+    if (code > 0) set(Kind.Footman, Math.min(12, Math.max(1, Math.floor(0.5 * Math.sqrt(code)) + Math.min(6, files))));
+    set(Kind.Knight, Math.min(4, Math.floor(branches / 15)));
+    if (branches >= 40 && code >= 200) set(Kind.Troll, 1);
+    if (removed > 0) set(Kind.Outrider, Math.min(3, Math.floor(removed / 150)));
+    switch (purpose) {
+      case 'fix':
+        set(Kind.Cleric, Math.min(3, 1 + Math.floor(files / 3)));
+        if (files >= 3 || code >= 40) set(Kind.Paladin, code + removed >= 150 && files >= 4 ? 2 : 1);
+        set(Kind.Ranger, Math.min(2, Math.floor(code / 60)));
+        break;
+      case 'feature':
+        set(Kind.Footman, Math.min(14, Math.round(counts[Kind.Footman]! * 1.25)));
+        break;
+      case 'refactor':
+        set(Kind.Footman, counts[Kind.Footman]! / 2);
+        set(Kind.Outrider, Math.min(8, Math.floor(0.5 * Math.sqrt(removed + code / 2))));
+        if (removed >= 300 && files >= 6) set(Kind.GriffinRider, 1);
+        break;
+      case 'perf':
+        set(Kind.Wizard, Math.min(3, 1 + Math.floor(branches / 20)));
+        break;
+      case 'chore':
+        set(Kind.Footman, Math.min(2, counts[Kind.Footman]!));
+        set(Kind.Mercenary, files > 3 ? 2 : 1);
+        break;
+    }
+    if (files >= 12) set(Kind.Trebuchet, 1);
+    if (purpose !== 'fix' && code >= 50 && at(lines, Cat.Test) === 0 && at(lines, Cat.Comment) === 0) {
+      const berserk = Math.floor(counts[Kind.Footman]! / 2);
+      counts[Kind.Footman]! -= berserk;
+      set(Kind.Berserker, berserk);
+    }
   }
-  if (isFix(msg)) counts[Kind.Cleric] = at(lines, Cat.Removed) >= 40 ? 2 : 1;
-  if (factor === 1 && isBalanced(lines)) counts[isLegendary(lines) ? Kind.Dragon : Kind.Champion] = 1;
+
+  // Support from the rest of the push stays small: code is what wins wars.
+  set(Kind.Warden, Math.min(3, Math.floor(Math.sqrt(at(lines, Cat.Test)) / 4)));
+  set(Kind.Archer, Math.min(2, Math.floor(at(lines, Cat.Comment) / 40)));
+  if (at(lines, Cat.Docs) >= 60 || at(lines, Cat.Docs) + at(lines, Cat.Comment) >= 80) set(Kind.Herald, 1);
+  set(Kind.Sapper, Math.min(2, Math.floor(at(lines, Cat.Config) / 50)));
+
+  if (fatigue < 1) for (let k = 0; k < KIND_COUNT; k++) counts[k] = Math.floor(counts[k]! * fatigue);
+  else if (purpose !== 'chore' && purpose !== 'revert') {
+    const legendary = code >= 600 && files >= 8 && branches >= 60 && (purpose === 'feature' || purpose === 'work');
+    if (legendary) set(Kind.Dragon, 1);
+    else if (code >= 300 && files >= 5) set(Kind.Champion, 1);
+  }
 
   // Trim the cheapest soldiers first until the platoon fits; heroes stay.
   let slots = slotsOf(counts);
@@ -110,6 +141,7 @@ export function musterCounts(lines: Lines, pushesLastHour: number, pushesToday: 
     counts[cheap]!--;
     slots -= STATS[cheap]!.slots;
   }
+  // Every push sends at least a messenger.
   if (slots === 0) counts[Kind.Footman] = 1;
   return counts;
 }

@@ -20,60 +20,116 @@ export const BOTS: readonly BotPersona[] = [
   { login: 'barbara-bot', style: 'vendorer', repos: [['barbara-bot/clu-web', 'JavaScript'], ['barbara-bot/abstractions', 'TypeScript']], rate: 1.6 },
 ];
 
-const MESSAGES: Record<BotPersona['style'], string[]> = {
-  balanced: ['Add retry policy with tests and docs', 'Implement cache layer', 'Parse config v2', 'Expose metrics endpoint'],
-  tester: ['Cover edge cases in tokenizer', 'Add property tests for scheduler', 'Fix flaky integration test', 'Snapshot rendering tests'],
-  refactorer: ['Remove dead code paths', 'Collapse duplicate handlers', 'Inline legacy adapter', 'Delete unused feature flags'],
-  scribe: ['Document the release process', 'Explain orbital mechanics module', 'Add architecture notes', 'Annotate public API'],
-  ops: ['Pin CI images', 'Add staging deploy workflow', 'Tune container limits', 'Terraform the DNS zone'],
-  hacker: ['wip', 'make it fast', 'it compiles', 'try a different allocator', 'yolo'],
-  vendorer: ['Vendor charting library', 'Regenerate API client', 'Bump lockfile', 'Update bundled assets'],
+type Purpose = 'feat' | 'fix' | 'refactor' | 'perf' | 'revert' | 'chore' | 'docs' | 'test';
+
+// Commit headlines per purpose, in conventional-commit style, so the simulation reads each push's intent.
+const MESSAGES: Record<Purpose, string[]> = {
+  feat: ['feat: add retry policy', 'feat(api): expose metrics endpoint', 'feat: parse config v2', 'feat: implement cache layer', 'feat(ui): new settings panel'],
+  fix: ['fix: off-by-one in tokenizer', 'fix(scheduler): race on shutdown', 'fix: crash on empty input', 'hotfix: null session after login', 'fix: flaky integration test'],
+  refactor: ['refactor: remove dead code paths', 'refactor: collapse duplicate handlers', 'refactor(core): inline legacy adapter', 'refactor: delete unused feature flags'],
+  perf: ['perf: cache compiled templates', 'perf(db): batch inserts', 'perf: avoid quadratic scan'],
+  revert: ['revert: "feat: parse config v2"', 'Revert "experimental allocator"'],
+  chore: ['chore(ci): pin runner images', 'build: tune container limits', 'chore(deps): bump lockfile', 'chore(deps): vendor charting library'],
+  docs: ['docs: release process', 'docs: architecture notes', 'docs(api): annotate public types'],
+  test: ['test: property tests for scheduler', 'test: cover tokenizer edge cases', 'test: snapshot rendering'],
 };
 
+/** Weights of each purpose per persona; a persona leans on its style but does a bit of everything. */
+const MIX: Record<BotPersona['style'], Partial<Record<Purpose, number>>> = {
+  balanced: { feat: 5, fix: 2, refactor: 1, perf: 1, test: 1, docs: 1 },
+  tester: { test: 4, fix: 4, feat: 1, refactor: 1 },
+  refactorer: { refactor: 5, fix: 2, perf: 1, feat: 1, revert: 1 },
+  scribe: { docs: 4, feat: 2, fix: 1 },
+  ops: { chore: 5, fix: 2, feat: 1 },
+  hacker: { feat: 6, fix: 2, perf: 2, revert: 1 },
+  vendorer: { chore: 5, feat: 2, fix: 1 },
+};
+
+export interface BotPush {
+  repo: [string, string];
+  lines: number[];
+  files: number;
+  branches: number;
+  message: string;
+}
+
 /** A synthetic push for `bot`, drawn from `rand` (a 0..1 generator). */
-export function botPush(bot: BotPersona, rand: () => number): { repo: [string, string]; lines: number[]; message: string } {
+export function botPush(bot: BotPersona, rand: () => number): BotPush {
   const lines = new Array<number>(CAT_COUNT).fill(0);
   const r = (min: number, max: number) => Math.floor(min + rand() * (max - min));
-  const code = r(10, 220);
-  lines[Cat.Code] = code;
-  lines[Cat.Comment] = Math.floor(code * (0.03 + rand() * 0.12));
-  lines[Cat.Blank] = Math.floor(code * 0.12);
-  if (rand() < 0.45) lines[Cat.Test] = r(5, 80);
-  if (rand() < 0.2) lines[Cat.Docs] = r(5, 60);
-  if (rand() < 0.15) lines[Cat.Config] = r(3, 40);
-  if (rand() < 0.3) lines[Cat.Removed] = r(5, 120);
-  switch (bot.style) {
-    case 'balanced':
-      lines[Cat.Test] = r(20, 90);
-      lines[Cat.Docs] = r(5, 40);
+  const mix = MIX[bot.style];
+  const total = Object.values(mix).reduce((a, b) => a + b, 0);
+  let roll = rand() * total;
+  let purpose: Purpose = 'feat';
+  for (const [k, w] of Object.entries(mix) as [Purpose, number][]) {
+    roll -= w;
+    if (roll < 0) {
+      purpose = k;
       break;
-    case 'tester':
-      lines[Cat.Test] = r(60, 260);
-      lines[Cat.Code] = Math.floor(code / 2);
+    }
+  }
+  let files = 1;
+  switch (purpose) {
+    case 'feat': {
+      // Now and then a big feature lands: the stuff Champions and Dragons are made of.
+      const legendary = (bot.style === 'balanced' || bot.style === 'hacker') && rand() < 0.02;
+      const big = legendary || rand() < 0.12;
+      lines[Cat.Code] = legendary ? r(650, 1200) : big ? r(300, 600) : r(30, 260);
+      files = legendary ? r(9, 16) : big ? r(5, 11) : r(1, 6);
+      if (bot.style !== 'hacker') lines[Cat.Test] = r(10, 90);
       break;
-    case 'refactorer':
-      lines[Cat.Removed] = r(80, 500);
+    }
+    case 'fix':
+      lines[Cat.Code] = rand() < 0.2 ? r(60, 180) : r(3, 50);
+      lines[Cat.Removed] = r(1, 40);
+      files = r(1, lines[Cat.Code]! > 60 ? 7 : 3);
+      if (rand() < 0.6) lines[Cat.Test] = r(5, 40);
       break;
-    case 'scribe':
-      lines[Cat.Docs] = r(40, 300);
-      lines[Cat.Comment] = r(20, 90);
+    case 'refactor':
+      lines[Cat.Code] = r(20, 200);
+      lines[Cat.Removed] = r(80, rand() < 0.2 ? 900 : 300);
+      files = r(2, lines[Cat.Removed]! > 300 ? 12 : 7);
       break;
-    case 'ops':
-      lines[Cat.Config] = r(30, 200);
+    case 'perf':
+      lines[Cat.Code] = r(20, 150);
+      lines[Cat.Removed] = r(5, 60);
+      files = r(1, 4);
       break;
-    case 'hacker':
-      lines[Cat.Code] = r(100, 600);
-      lines[Cat.Comment] = 0;
-      lines[Cat.Test] = 0;
+    case 'revert':
+      lines[Cat.Removed] = r(40, 700);
+      lines[Cat.Code] = r(0, 120);
+      files = r(1, 8);
       break;
-    case 'vendorer':
-      if (rand() < 0.5) lines[Cat.Vendor] = r(500, 5000);
-      else lines[Cat.Generated] = r(800, 9000);
+    case 'chore':
+      lines[Cat.Config] = r(5, 120);
+      if (bot.style === 'vendorer') {
+        if (rand() < 0.5) lines[Cat.Vendor] = r(500, 5000);
+        else lines[Cat.Generated] = r(800, 9000);
+      }
+      lines[Cat.Code] = rand() < 0.3 ? r(1, 30) : 0;
+      files = lines[Cat.Code]! > 0 ? r(1, 3) : 0;
+      break;
+    case 'docs':
+      lines[Cat.Docs] = r(30, 300);
+      lines[Cat.Code] = rand() < 0.4 ? r(5, 60) : 0;
+      files = lines[Cat.Code]! > 0 ? r(1, 3) : 0;
+      break;
+    case 'test':
+      lines[Cat.Test] = r(40, 260);
+      lines[Cat.Code] = r(0, 40);
+      files = lines[Cat.Code]! > 0 ? r(1, 3) : 0;
       break;
   }
+  const code = lines[Cat.Code]!;
+  if (code > 0 && bot.style !== 'hacker') lines[Cat.Comment] = Math.floor(code * (0.03 + rand() * 0.12));
+  lines[Cat.Blank] = Math.floor(code * 0.12);
+  if (bot.style === 'scribe' && code > 0) lines[Cat.Comment]! += r(10, 40);
+  // Branch points scale with code; hackers write denser logic.
+  const density = bot.style === 'hacker' ? 6 : 8;
+  const branches = code > 0 ? Math.max(0, Math.floor((code / density) * (0.6 + rand() * 0.8))) : 0;
   const repo = bot.repos[Math.floor(rand() * bot.repos.length)]!;
-  const pool = MESSAGES[bot.style];
-  return { repo, lines, message: pool[Math.floor(rand() * pool.length)]! };
+  const pool = MESSAGES[purpose];
+  return { repo, lines, files, branches, message: pool[Math.floor(rand() * pool.length)]! };
 }
 
 /** A small seeded generator for bot schedules and demo wars. */

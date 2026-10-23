@@ -1,42 +1,43 @@
 import { Fragment, useState } from 'react';
+import { Kind } from '../../sim/api.ts';
 import { DOCTRINE_NAMES, STATS, type Tier } from '../../sim/stats.ts';
 import { Modal } from '../ui/Modal.tsx';
 import { DoctrineIcon, UnitIcon } from '../ui/icons.tsx';
 import { DOCTRINE_EFFECTS } from './Command.tsx';
 
-const CAT_SOURCE = ['Source code', 'Tests', 'Comments in source', 'Docs and READMEs', 'Config, CI and infra', 'Deleted source lines', 'Generated code, lockfiles', 'Vendored code'];
-
-const SHAPE_SOURCE: Record<string, string> = {
-  Champion: 'A balanced push: code, tests, and docs or comments',
-  Berserker: '30+ code lines with no tests and no comments',
-  Cleric: 'A commit message with fix, bug, hotfix or patch',
-  Dragon: 'A legendary push: 150+ code, 50+ test, 30+ docs and comment lines. One per army.',
-};
-
 const TIER_LABEL: Record<Tier, string> = { base: 'Line', elite: 'Elite', special: 'Special', hero: 'Hero', legend: 'Legend' };
 
-const TIER_ORDER: Record<Tier, number> = { base: 0, elite: 1, special: 2, hero: 3, legend: 4 };
+/** Units grouped by what in a push raises them: the code itself, the commit's purpose, then small support. */
+export const UNIT_GROUPS: readonly { label: string; note: string; kinds: readonly Kind[] }[] = [
+  { label: 'The code itself', note: 'Size, files touched and complexity', kinds: [Kind.Footman, Kind.Knight, Kind.Troll, Kind.Berserker, Kind.Trebuchet] },
+  { label: 'Bug fixes', note: 'Commit messages with fix, bug, hotfix, crash or regression', kinds: [Kind.Cleric, Kind.Paladin, Kind.Ranger] },
+  { label: 'Features', note: 'feat:, add, implement, introduce, support', kinds: [Kind.Champion, Kind.Dragon] },
+  { label: 'Refactors', note: 'refactor:, clean up, simplify, remove, and deleted code', kinds: [Kind.Outrider, Kind.GriffinRider] },
+  { label: 'Performance', note: 'perf:, optimize, faster, cache', kinds: [Kind.Wizard] },
+  { label: 'Reverts', note: 'revert:, the undead return', kinds: [Kind.Skeleton, Kind.BoneGolem] },
+  { label: 'Chores', note: 'chore:, ci:, build:, dependency bumps', kinds: [Kind.Mercenary] },
+  { label: 'Support', note: 'Tests, comments, docs and config add a few helpers, never an army', kinds: [Kind.Warden, Kind.Archer, Kind.Herald, Kind.Sapper] },
+];
 
-/** Units grouped by the line category that raises them (line before elite), then the specials. */
-export function unitGroups(): { label: string; kinds: number[] }[] {
-  const groups: { label: string; kinds: number[] }[] = [];
-  CAT_SOURCE.forEach((label, cat) => {
-    const kinds = STATS.map((_, k) => k).filter((k) => STATS[k]!.raisedBy === cat);
-    kinds.sort((a, b) => TIER_ORDER[STATS[a]!.tier] - TIER_ORDER[STATS[b]!.tier] || a - b);
-    if (kinds.length > 0) groups.push({ label, kinds });
-  });
-  const special = STATS.map((_, k) => k).filter((k) => STATS[k]!.raisedBy < 0);
-  special.sort((a, b) => TIER_ORDER[STATS[a]!.tier] - TIER_ORDER[STATS[b]!.tier] || a - b);
-  if (special.length > 0) groups.push({ label: 'Raised by the shape of a push', kinds: special });
-  return groups;
-}
-
-/** What raises unit `k`, in words. */
-export function raisedByText(k: number): string {
-  const s = STATS[k]!;
-  if (s.raisedBy >= 0) return `${CAT_SOURCE[s.raisedBy] ?? 'Code'}${s.tier === 'elite' ? ': in big pushes, 3 line soldiers become 1 elite' : ''}`;
-  return SHAPE_SOURCE[s.name] ?? 'The shape of a push';
-}
+const HOW_IT_WORKS = [
+  <>
+    <strong>Code is the army.</strong> Footmen come from the size of your change: half the square root of its code lines, plus one for every source file it touches.
+  </>,
+  <>
+    <strong>Purpose picks the specialists.</strong> The commit message decides who joins them: bug fixes bring Clerics and Paladins, features bring Champions, refactors bring cavalry,
+    and reverts raise the dead.
+  </>,
+  <>
+    <strong>Complexity earns heavy units.</strong> Branch points added in the code (if, for, while, case, catch, &amp;&amp;, ||) raise Knights, and very complex code raises a Troll.
+    Truly legendary features summon a Dragon.
+  </>,
+  <>
+    <strong>Tests, comments, docs and config only support.</strong> They add a handful of Wardens, Archers, a Herald or Sappers.
+  </>,
+  <>
+    <strong>Generated and vendored code raise nothing.</strong> Lockfiles, build output and copied libraries don’t fight.
+  </>,
+];
 
 const RENOWN = [
   ['Shrine held', '2 per minute'],
@@ -44,7 +45,7 @@ const RENOWN = [
   ['Kill', 'the victim’s worth: 1 for line soldiers, up to 30 for a Dragon'],
   ['Kill a soldier of the leader', 'double: a bounty'],
   ['Monolith damage', '1 per 100 damage'],
-  ['Sack a capital', '200'],
+  ['Sack a capital', '120, less for each later sack of the same capital that day'],
 ];
 
 type Tab = 'units' | 'command' | 'renown';
@@ -68,10 +69,11 @@ export function ArticlesOfWar({ onClose }: { onClose(): void }) {
       </div>
       {tab === 'units' && (
         <>
-          <p className="lede">
-            Every push to a public repository is read line by line. Each kind of line raises its own kind of soldier, bigger and better-shaped pushes raise elites and heroes, and a push becomes a <strong>platoon</strong> that marches out of your
-            capital. Blank lines raise nothing, and growth slows as a push gets bigger, so steady, healthy work beats sheer volume.
-          </p>
+          <ul className="how-list">
+            {HOW_IT_WORKS.map((item, i) => (
+              <li key={i}>{item}</li>
+            ))}
+          </ul>
           <div className="table-wrap">
             <table className="table units-table">
               <thead>
@@ -89,11 +91,11 @@ export function ArticlesOfWar({ onClose }: { onClose(): void }) {
                 </tr>
               </thead>
               <tbody>
-                {unitGroups().map((g) => (
+                {UNIT_GROUPS.map((g) => (
                   <Fragment key={g.label}>
                     <tr className="group-row">
                       <th colSpan={6} scope="colgroup">
-                        {g.label}
+                        {g.label} <span className="group-note">· {g.note}</span>
                       </th>
                     </tr>
                     {g.kinds.map((k) => {
@@ -105,7 +107,7 @@ export function ArticlesOfWar({ onClose }: { onClose(): void }) {
                               <UnitIcon kind={k} size={22} title="" /> {s.name}
                             </span>
                           </th>
-                          <td>{raisedByText(k)}</td>
+                          <td>{s.source}</td>
                           <td>
                             <span className={`tag tier-${s.tier}`}>{TIER_LABEL[s.tier]}</span>
                           </td>
@@ -168,7 +170,7 @@ export function ArticlesOfWar({ onClose }: { onClose(): void }) {
             </tbody>
           </table>
           <p className="muted small">
-            The Legacy Monolith guards the Heart at dawn, and everyone attacks it together. A sacked capital lies in ruins for 10 minutes and then rebuilds. Near their own capital,
+            The Legacy Monolith guards the Heart at dawn, and everyone attacks it together. A sacked capital lies in ruins for 20 minutes and then rebuilds stronger. Near their own capital,
             soldiers take 20% less damage.
           </p>
         </>

@@ -57,6 +57,19 @@ export const Kind = {
 export type Kind = (typeof Kind)[keyof typeof Kind];
 export const KIND_COUNT = 20;
 
+/** What a push is for, read from its commit message. */
+export const PURPOSES = ['fix', 'feature', 'refactor', 'perf', 'revert', 'chore', 'work'] as const;
+export type Purpose = (typeof PURPOSES)[number];
+export const PURPOSE_LABEL: Record<Purpose, string> = {
+  fix: 'Bug fix',
+  feature: 'Feature',
+  refactor: 'Refactor',
+  perf: 'Performance',
+  revert: 'Revert',
+  chore: 'Chore',
+  work: 'Work',
+};
+
 export const Doctrine = { Balanced: 0, Assault: 1, Hold: 2, Siege: 3, Skirmish: 4 } as const;
 export type Doctrine = (typeof Doctrine)[keyof typeof Doctrine];
 
@@ -106,6 +119,10 @@ export type SimInput =
       lines: Lines;
       commits: number;
       msg: string;
+      /** Source files the push touched. */
+      files: number;
+      /** Branch points (if, for, while, case, catch, &&, ||, ?) in added source lines: a complexity measure. */
+      branches: number;
     }
   | { kind: 'doctrine'; p: number; doctrine: Doctrine }
   | { kind: 'rally'; p: number; site: number }
@@ -152,6 +169,8 @@ export interface Platoon {
   repo: number;
   /** 1-based ordinal within the battalion (player + repo) today. */
   ordinal: number;
+  /** What the push that raised this platoon was for. */
+  purpose: Purpose;
   state: PlatoonState;
   x: number;
   y: number;
@@ -228,7 +247,11 @@ export interface PlayerState {
   captures: number;
   sacks: number;
   routs: number;
-  balanced: number;
+  /** Pushes by purpose, indexed like PURPOSES. */
+  purposes: number[];
+  /** Source files touched and branch points added, summed over today's pushes. */
+  files: number;
+  branches: number;
   /** This player's deadliest platoon today: [repo, ordinal, kills], or null. */
   best: [number, number, number] | null;
   /** Platoon ids waiting at the capital, in order. */

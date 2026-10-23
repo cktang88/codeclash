@@ -10,6 +10,7 @@ import { UnitChips, colorize } from './Chronicle.tsx';
 import { STATE_NAMES } from './Command.tsx';
 import { useHudContext } from './context.ts';
 import { playerInfo } from './names.ts';
+import { PurposeTag } from '../ui/PurposeTag.tsx';
 
 function aliveByKind(world: World, platoonId: number): number[] {
   const counts = new Array<number>(STATS.length).fill(0);
@@ -74,6 +75,7 @@ export function Inspector({ hud }: { hud: HudSnapshot }) {
         </header>
         <div className="inspector-state">
           <span className={`state-pill state-${pl.state}`}>{STATE_NAMES[pl.state]}</span>
+          <PurposeTag purpose={pl.purpose} />
           {pl.state !== PlatoonState.Queued && pl.site >= 0 && (
             <span className="muted">
               → <strong className="text">{siteLabel(world, pl.site, store.names)}</strong>

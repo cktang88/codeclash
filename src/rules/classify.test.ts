@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Cat } from '../sim/api.ts';
-import { categorizePath, classifyLine, summarizeFiles, syntaxFor, type ChangedFile } from './classify.ts';
+import { branchesIn, categorizePath, classifyLine, summarizeFiles, syntaxFor, type ChangedFile } from './classify.ts';
 
 describe('categorizePath', () => {
   const cases: [string, ReturnType<typeof categorizePath>][] = [
@@ -161,5 +161,48 @@ describe('summarizeFiles', () => {
     const s = summarizeFiles([file('logo.png', null, 10), file('main.go', go), file('tool.py', py)]);
     expect(s.lines.reduce((a, b) => a + b, 0)).toBe(4);
     expect(s.language).toBe('Go');
+  });
+});
+
+describe('complexity', () => {
+  const patch = (lines: string[]) => ['@@ -0,0 +1 @@', ...lines.map((l) => `+${l}`)].join('\n');
+
+  it('counts branch points per language family', () => {
+    expect(branchesIn('if (a && b || c) { for (;;) {} }', 'x.ts')).toBe(4);
+    expect(branchesIn('} else if (x) { while (y) {} }', 'x.java')).toBe(2);
+    expect(branchesIn('const v = ok ? 1 : 2;', 'x.js')).toBe(1);
+    expect(branchesIn('const v = a?.b ?? c;', 'x.ts')).toBe(0);
+    expect(branchesIn('function f(x?: number) {}', 'x.ts')).toBe(0);
+    expect(branchesIn('switch (k) { case 1: case 2: }', 'x.go')).toBe(2);
+    expect(branchesIn('Some(x) => 1, None => 2,', 'x.rs')).toBe(2);
+    expect(branchesIn('if a and not b or c:', 'x.py')).toBe(3);
+    expect(branchesIn('ys = [y for y in xs if y]', 'x.py')).toBe(2);
+    expect(branchesIn('return x unless y && z', 'x.rb')).toBe(2);
+    expect(branchesIn('if [ -f x ] && [ -d y ]; then', 'x.sh')).toBe(2);
+  });
+
+  it('ignores words inside strings and trailing comments', () => {
+    expect(branchesIn('log("if this for that && more")', 'x.ts')).toBe(0);
+    expect(branchesIn('run(); // if only', 'x.ts')).toBe(0);
+    expect(branchesIn("print('while') # or else", 'x.py')).toBe(0);
+  });
+
+  it('counts touched source files and branches only in added code lines', () => {
+    const s = summarizeFiles([
+      file('src/a.ts', patch(['// if this is a comment, skip it', 'if (x) y();', 'const z = 1;'])),
+      file('src/b.go', ['@@ -1,2 +1 @@', '-if old {', '-}', '+done()'].join('\n')),
+      file('src/c.ts', patch(['', '   '])),
+      file('src/a.test.ts', patch(['if (t) expect(1);'])),
+      file('docs/guide.md', patch(['if you read this'])),
+      file('package-lock.json', patch(['"if": 1'])),
+    ]);
+    expect(s.files).toBe(2);
+    expect(s.branches).toBe(1);
+  });
+
+  it('estimates branches when the patch is missing', () => {
+    const s = summarizeFiles([file('src/huge.ts', null, 120, 10)]);
+    expect(s.files).toBe(1);
+    expect(s.branches).toBe(10);
   });
 });

@@ -3036,3 +3036,64 @@ button.chron-btn:hover {
   flex: none;
   padding-inline: 4px;
 }
+
+/* Articles of War: how a push becomes an army. */
+.how-list {
+  margin: 14px 0 18px;
+  padding-left: 20px;
+  display: grid;
+  gap: 8px;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.how-list strong {
+  color: var(--gold);
+}
+
+.group-row .group-note {
+  font-family: var(--sans);
+  font-size: 13px;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--muted);
+}
+
+.purpose-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 18px;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.06);
+  white-space: nowrap;
+}
+
+.purpose-tag.p-fix { border-color: #6fc28a; color: #a6e3b8; }
+.purpose-tag.p-feature { border-color: #d4af5f; color: #f0d595; }
+.purpose-tag.p-refactor { border-color: #6aa7e0; color: #a9cdf2; }
+.purpose-tag.p-perf { border-color: #c48ae8; color: #dcbcf3; }
+.purpose-tag.p-revert { border-color: #b8b2a4; color: #d9d4c8; }
+.purpose-tag.p-chore { border-color: #8f8a7c; color: #c9c3b4; }
+
+.muster-facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 2px;
+}
+
+.player-card-purposes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 10px 0 4px;
+}

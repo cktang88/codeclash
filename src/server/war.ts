@@ -192,7 +192,7 @@ export class War {
   }
 
   /** Raises a platoon for `userId`'s push, if they fight in this war. */
-  push(now: number, userId: number, push: { repo: string; language: string | null; lines: number[]; commits: number; message: string }): boolean {
+  push(now: number, userId: number, push: { repo: string; language: string | null; lines: number[]; files?: number; branches?: number; commits: number; message: string }): boolean {
     const p = this.playerOf(userId);
     if (p === null || !this.active) return false;
     const header = this.row.header;
@@ -205,7 +205,10 @@ export class War {
       added.push({ index: repo, ref });
     }
     const msg = push.message.split('\n')[0]!.slice(0, 72);
-    this.submit(now, [{ kind: 'push', p, repo, lines: push.lines, commits: push.commits, msg }], { repos: added });
+    const count = (n: number | undefined) => (n !== undefined && Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0);
+    const files = count(push.files);
+    const branches = count(push.branches);
+    this.submit(now, [{ kind: 'push', p, repo, lines: push.lines, commits: push.commits, msg, files, branches }], { repos: added });
     return true;
   }
 

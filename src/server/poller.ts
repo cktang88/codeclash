@@ -10,6 +10,10 @@ export interface PushReport {
   repo: string;
   language: string | null;
   lines: number[];
+  /** Source files touched. */
+  files: number;
+  /** Branch points added in source code. */
+  branches: number;
   commits: number;
   message: string;
   at: number;
@@ -89,7 +93,8 @@ export async function ingestPush(
   const summary = summarizeFiles(result.files);
   // Other people's commits in the range (a merged base, a co-worker's work) do not raise soldiers.
   const share = counted.length / result.commits.length;
-  const lines = summary.lines.map((n) => (share < 1 ? Math.floor(n * share) : n));
+  const scale = (n: number) => (share < 1 ? Math.floor(n * share) : n);
+  const lines = summary.lines.map(scale);
   while (lines.length < CAT_COUNT) lines.push(0);
 
   const report: PushReport = {
@@ -98,6 +103,8 @@ export async function ingestPush(
     repo: push.repo,
     language: summary.language,
     lines,
+    files: summary.files > 0 ? Math.max(1, scale(summary.files)) : 0,
+    branches: scale(summary.branches),
     commits: counted.length,
     message: headline(counted[counted.length - 1]!.message),
     at: push.at,
