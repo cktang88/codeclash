@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import type { DigestResponse } from '../../protocol.ts';
 import type { DigestPlayer } from '../../rules/digest.ts';
 import { armyColor } from '../../rules/heraldry.ts';
-import { CAT_NAMES, TICK_MS } from '../../sim/api.ts';
+import { CAT_NAMES, Kind, TICK_MS } from '../../sim/api.ts';
 import { ApiError, api } from '../net/api.ts';
 import { UnitChips, colorize } from '../hud/Chronicle.tsx';
 import { Avatar } from '../ui/Avatar.tsx';
@@ -11,6 +11,7 @@ import { Link } from '../ui/Link.tsx';
 import { clock, compact } from '../ui/format.ts';
 import { EventIcon, Icon, UnitIcon } from '../ui/icons.tsx';
 import { Notice } from './Notice.tsx';
+import { Timelapse } from './Timelapse.tsx';
 
 /** Colors for the nine line categories, in Cat order. Paired with labels everywhere they appear. */
 export const CAT_COLORS = ['#e8c15a', '#5fb3e8', '#b48ce8', '#7ed3a1', '#e8955f', '#e86a6a', '#8d939c', '#c58f5a', '#3a4049'];
@@ -19,15 +20,15 @@ export const CAT_LABELS = ['Code', 'Tests', 'Comments', 'Docs', 'Config', 'Delet
 const AWARD_ICON: Record<string, () => ReactNode> = {
   victor: () => <Icon name="crown" size={26} />,
   warlord: () => <Icon name="sword" size={26} />,
-  'iron-wall': () => <UnitIcon kind={1} size={26} title="" />,
-  'test-legion': () => <UnitIcon kind={1} size={26} title="" />,
-  scribe: () => <UnitIcon kind={3} size={26} title="" />,
-  demolisher: () => <UnitIcon kind={5} size={26} title="" />,
-  siegebreaker: () => <UnitIcon kind={4} size={26} title="" />,
+  'iron-wall': () => <UnitIcon kind={Kind.Warden} size={26} title="" />,
+  'test-legion': () => <UnitIcon kind={Kind.Paladin} size={26} title="" />,
+  scribe: () => <UnitIcon kind={Kind.Wizard} size={26} title="" />,
+  demolisher: () => <UnitIcon kind={Kind.Outrider} size={26} title="" />,
+  siegebreaker: () => <UnitIcon kind={Kind.Trebuchet} size={26} title="" />,
   'monolith-slayer': () => <EventIcon kind="monolith" size={26} />,
   ghost: () => <Icon name="eye" size={26} />,
-  'militia-mob': () => <UnitIcon kind={6} size={26} title="" />,
-  'standard-bearer': () => <UnitIcon kind={8} size={26} title="" />,
+  'militia-mob': () => <UnitIcon kind={Kind.Skeleton} size={26} title="" />,
+  'standard-bearer': () => <UnitIcon kind={Kind.Champion} size={26} title="" />,
   conqueror: () => <Icon name="flag" size={26} />,
 };
 
@@ -178,6 +179,13 @@ export function DigestPage({ slug, warId }: { slug: string; warId: number }) {
             </h2>
             <p className="num winner-renown">{compact(winner.renown)} renown</p>
           </div>
+        </section>
+      )}
+
+      {data.timelapse?.length > 0 && (
+        <section className="digest-section">
+          <h2 className="block-title">The day in fifteen seconds</h2>
+          <Timelapse data={data} />
         </section>
       )}
 

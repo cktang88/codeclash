@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { HookResponse, LobbyResponse, MeResponse, RoomCard, Visibility } from '../../protocol.ts';
+import { Kind } from '../../sim/api.ts';
 import { ApiError, api } from '../net/api.ts';
 import { CopyButton } from '../hud/RoomSettings.tsx';
 import { navigate } from '../route.ts';
@@ -263,9 +264,9 @@ function JoinByLink() {
 }
 
 const HOW = [
-  { kind: 0, title: 'Push', text: 'Every push to a public repo is read line by line: code, tests, docs, config, deletions.' },
-  { kind: 1, title: 'Muster', text: 'Each kind of line raises its own soldier. A push becomes a platoon under your repo’s banner.' },
-  { kind: 8, title: 'War', text: 'Platoons march from your capital to fight in the middle. The war resets daily with a digest.' },
+  { kind: Kind.Footman, title: 'Push', text: 'Every push to a public repo is read line by line: code, tests, docs, config, deletions.' },
+  { kind: Kind.Warden, title: 'Muster', text: 'Each kind of line raises its own soldier. A push becomes a platoon under your repo’s banner.' },
+  { kind: Kind.Champion, title: 'War', text: 'Platoons march from your capital to fight in the middle. The war resets daily with a digest.' },
 ];
 
 export function HomePage({ me, meError, onMeChanged }: { me: MeResponse | null; meError: boolean; onMeChanged(): void }) {
@@ -339,7 +340,7 @@ export function HomePage({ me, meError, onMeChanged }: { me: MeResponse | null; 
       <section className="hero">
         <h1 className="hero-title">Your pushes are an army.</h1>
         <p className="hero-lede">
-          Pushfront is an all-day war fought with real code. Your tests become shield walls, your docs become heralds, your deletions become cavalry. Rooms of friends and teams
+          Pushfront is an all-day war fought with real code. Your tests become shield walls, your docs become heralds and wizards, your deletions become cavalry. Rooms of friends and teams
           fight from morning to reset, and every day ends with a digest.
         </p>
         <ol className="how">

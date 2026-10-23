@@ -76,7 +76,8 @@ export function BattlefieldView({ store, getRunner, onReady }: { store: GameStor
       {failed && (
         <div className="stage-fallback" role="status">
           <strong>The map could not be drawn.</strong>
-          <span>{failed} The standings and chronicle still update live.</span>
+          <span>{failed}</span>
+          <span>The standings and chronicle still update live.</span>
         </div>
       )}
     </div>

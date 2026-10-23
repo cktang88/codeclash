@@ -2751,3 +2751,84 @@ button.chron-btn:hover {
     display: none;
   }
 }
+
+/* Digest timelapse */
+
+.timelapse {
+  max-width: 620px;
+  margin: 0 auto;
+  padding: 14px;
+}
+
+.timelapse-map {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1;
+}
+
+.timelapse-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.timelapse-controls input[type='range'] {
+  flex: 1;
+  accent-color: var(--gold);
+  height: 28px;
+}
+
+.timelapse-time {
+  font-weight: 700;
+  min-width: 48px;
+}
+
+.timelapse-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.timelapse-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tier-elite {
+  border-color: #7cc4f0;
+  color: #bfe3fa;
+}
+
+.tier-special {
+  border-color: #b48ce8;
+  color: #dcc8f7;
+}
+
+.tier-hero {
+  border-color: var(--gold);
+  color: var(--gold-bright);
+}
+
+.tier-legend {
+  border-color: #f07a63;
+  color: #ffc9bc;
+  background: rgba(240, 122, 99, 0.14);
+}
+
+.hud.is-narrow .cta-banner {
+  gap: 8px;
+}
+
+.hud.is-narrow .cta-banner .btn {
+  min-height: 38px;
+  padding: 0 14px;
+  font-size: 14px;
+}

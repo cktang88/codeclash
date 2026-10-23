@@ -1,37 +1,31 @@
 import { useState } from 'react';
-import { DOCTRINE_NAMES, STATS } from '../../sim/stats.ts';
+import { DOCTRINE_NAMES, STATS, type Tier } from '../../sim/stats.ts';
 import { Modal } from '../ui/Modal.tsx';
 import { DoctrineIcon, UnitIcon } from '../ui/icons.tsx';
 import { DOCTRINE_EFFECTS } from './Command.tsx';
 
-export const UNIT_SOURCES = [
-  'Source code lines',
-  'Test lines',
-  'Comments in source',
-  'Docs: Markdown, READMEs, docs/',
-  'Config: CI, Docker, YAML, TOML',
-  'Deleted source lines',
-  'Generated code and lockfiles',
-  'Vendored third-party code',
-  'A balanced push: 20+ code lines, tests, and docs or comments',
-];
+const CAT_SOURCE = ['Source code', 'Tests', 'Comments in source', 'Docs and READMEs', 'Config, CI and infra', 'Deleted source lines', 'Generated code, lockfiles', 'Vendored code'];
 
-export const UNIT_ROLES = [
-  'Line infantry. Deals 60% more damage to Outriders.',
-  'Shield wall. Allies nearby take 30% less damage. Arrows do half damage to it.',
-  'Ranged. Arrows arc over the line. Deals 40% more damage to Legionaries, Golems and Mercenaries.',
-  'Banner bearer and medic. Heals allies nearby and halves the platoon’s morale loss.',
-  'Siege engineer. Deals 6× damage to capitals and the Monolith.',
-  'Fast cavalry. Deals 60% more damage to Archers, Heralds and Sappers.',
-  'Slow, sturdy fodder. Cheap and plentiful.',
-  'Hired blade. Hits hard, but leaves 10 minutes after arriving.',
-  'Hero. Allies nearby deal 20% more damage. Its platoon cannot rout while it lives.',
-];
+const SHAPE_SOURCE: Record<string, string> = {
+  Champion: 'A balanced push: code, tests, and docs or comments',
+  Berserker: 'Code with no tests and no comments',
+  Cleric: 'Bug-fix commits',
+  Dragon: 'A legendary push',
+};
+
+const TIER_LABEL: Record<Tier, string> = { base: 'Line', elite: 'Elite', special: 'Special', hero: 'Hero', legend: 'Legend' };
+
+/** What raises unit `k`, in words. */
+export function raisedByText(k: number): string {
+  const s = STATS[k]!;
+  if (s.raisedBy >= 0) return CAT_SOURCE[s.raisedBy] ?? 'Code';
+  return SHAPE_SOURCE[s.name] ?? 'The shape of a push';
+}
 
 const RENOWN = [
   ['Shrine held', '2 per minute'],
   ['The Heart held', '8 per minute'],
-  ['Kill', '1, 2 for elite units, 10 for a Champion'],
+  ['Kill', 'the victim’s worth: 1 for line soldiers, up to 30 for a Dragon'],
   ['Kill a soldier of the leader', 'double: a bounty'],
   ['Monolith damage', '1 per 100 damage'],
   ['Sack a capital', '200'],
@@ -59,7 +53,7 @@ export function ArticlesOfWar({ onClose }: { onClose(): void }) {
       {tab === 'units' && (
         <>
           <p className="lede">
-            Every push to a public repository is read line by line. Each kind of line raises its own kind of soldier, and a push becomes a <strong>platoon</strong> that marches out of your
+            Every push to a public repository is read line by line. Each kind of line raises its own kind of soldier, bigger and better-shaped pushes raise elites and heroes, and a push becomes a <strong>platoon</strong> that marches out of your
             capital. Blank lines raise nothing, and growth slows as a push gets bigger, so steady, healthy work beats sheer volume.
           </p>
           <div className="table-wrap">
@@ -68,6 +62,7 @@ export function ArticlesOfWar({ onClose }: { onClose(): void }) {
                 <tr>
                   <th scope="col">Unit</th>
                   <th scope="col">Raised by</th>
+                  <th scope="col">Tier</th>
                   <th scope="col">Role</th>
                   <th scope="col" className="num">
                     HP
@@ -85,8 +80,11 @@ export function ArticlesOfWar({ onClose }: { onClose(): void }) {
                         <UnitIcon kind={k} size={22} title="" /> {s.name}
                       </span>
                     </th>
-                    <td>{UNIT_SOURCES[k]}</td>
-                    <td>{UNIT_ROLES[k]}</td>
+                    <td>{raisedByText(k)}</td>
+                    <td>
+                      <span className={`tag tier-${s.tier}`}>{TIER_LABEL[s.tier]}</span>
+                    </td>
+                    <td>{s.role}</td>
                     <td className="num">{s.hp}</td>
                     <td className="num">{s.damage}</td>
                   </tr>

@@ -44,4 +44,4 @@ requestAnimationFrame(count);
 document.getElementById('zin')!.onclick = () => field.focus(0, 0, 1.6);
 document.getElementById('zout')!.onclick = () => field.focus(0, 0, 0.3);
 document.getElementById('follow')!.onclick = () => store.setFollowing(!store.following);
-Object.assign(window, { store, runner, field });
+Object.assign(window, { store, runner, battlefield: field });

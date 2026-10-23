@@ -14,12 +14,14 @@ export function Timelapse({ data }: { data: DigestResponse }) {
   const [index, setIndex] = useState(frames.length - 1);
   const [playing, setPlaying] = useState(() => typeof matchMedia !== 'function' || !matchMedia('(prefers-reduced-motion: reduce)').matches);
   const started = useRef<number | null>(null);
+  const indexRef = useRef(index);
+  indexRef.current = index;
 
   useEffect(() => {
     if (!playing || frames.length < 2) return;
     let raf = 0;
-    const offset = (index / (frames.length - 1)) * LOOP_MS;
-    started.current = performance.now() - (index >= frames.length - 1 ? 0 : offset);
+    const from = indexRef.current;
+    started.current = performance.now() - (from >= frames.length - 1 ? 0 : (from / (frames.length - 1)) * LOOP_MS);
     const tick = (now: number) => {
       const elapsed = (now - started.current!) % (LOOP_MS + HOLD_MS);
       setIndex(Math.min(frames.length - 1, Math.floor((elapsed / LOOP_MS) * (frames.length - 1))));
@@ -27,8 +29,7 @@ export function Timelapse({ data }: { data: DigestResponse }) {
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-    // Restarting only on play toggles keeps the scrub position as the resume point.
-  }, [playing, frames.length]); // eslint-disable-line
+  }, [playing, frames.length]);
 
   if (frames.length === 0) return null;
   const f = frames[Math.min(index, frames.length - 1)]!;

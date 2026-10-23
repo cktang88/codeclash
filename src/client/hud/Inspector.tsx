@@ -1,4 +1,4 @@
-import { PlatoonState, TICK_MS, type World } from '../../sim/api.ts';
+import { Kind, PlatoonState, TICK_MS, type World } from '../../sim/api.ts';
 import { platoonLabel, siteLabel } from '../../sim/chronicle.ts';
 import { CAPTURE_TICKS, DOCTRINE_NAMES, HEART_CAPTURE_TICKS, STATS } from '../../sim/stats.ts';
 import type { HudSnapshot } from '../store.ts';
@@ -185,7 +185,7 @@ export function Inspector({ hud }: { hud: HudSnapshot }) {
       </div>
       {ps.best && (
         <p className="inspector-foot">
-          <UnitIcon kind={8} size={14} /> Deadliest: {colorize(platoonLabel(store.names, ps.best[0], ps.best[1]), hud.roster)} with {ps.best[2]} kills
+          <UnitIcon kind={Kind.Champion} size={14} /> Deadliest: {colorize(platoonLabel(store.names, ps.best[0], ps.best[1]), hud.roster)} with {ps.best[2]} kills
         </p>
       )}
     </section>
