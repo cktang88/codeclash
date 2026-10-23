@@ -46,9 +46,9 @@ describe('muster', () => {
   it('raises units from each category with diminishing returns', () => {
     const small = musterCounts(lines({ Code: 25 }), 0, 0);
     const big = musterCounts(lines({ Code: 400 }), 0, 0);
-    expect(small[Kind.Legionary]).toBe(3);
-    expect(big[Kind.Legionary]).toBe(12);
-    expect(musterCounts(lines({ Code: 4000 }), 0, 0)[Kind.Legionary]).toBe(12);
+    expect(small[Kind.Footman]).toBe(3);
+    expect(big[Kind.Footman]).toBe(12);
+    expect(musterCounts(lines({ Code: 4000 }), 0, 0)[Kind.Footman]).toBe(12);
     const mixed = musterCounts(lines({ Code: 100, Test: 49, Comment: 25, Docs: 20, Config: 10, Removed: 64, Generated: 400, Vendor: 900 }), 0, 0);
     expect(mixed).toEqual([6, 4, 3, 2, 1, 3, 3, 3, 1]);
   });
@@ -60,9 +60,9 @@ describe('muster', () => {
   });
 
   it('tires heavy pushers and never raises nothing', () => {
-    const fresh = musterCounts(lines({ Code: 400 }), 0, 0)[Kind.Legionary]!;
-    expect(musterCounts(lines({ Code: 400 }), 3, 3)[Kind.Legionary]).toBe(fresh / 2);
-    expect(musterCounts(lines({ Code: 400 }), 0, 12)[Kind.Legionary]).toBe(4);
+    const fresh = musterCounts(lines({ Code: 400 }), 0, 0)[Kind.Footman]!;
+    expect(musterCounts(lines({ Code: 400 }), 3, 3)[Kind.Footman]).toBe(fresh / 2);
+    expect(musterCounts(lines({ Code: 400 }), 0, 12)[Kind.Footman]).toBe(4);
     expect(musterCounts(lines({ Blank: 500 }), 0, 0)).toEqual([1, 0, 0, 0, 0, 0, 0, 0, 0]);
     const huge = musterCounts(lines({ Code: 1e6, Test: 1e6, Comment: 1e6, Docs: 1e6, Config: 1e6, Removed: 1e6, Generated: 1e6, Vendor: 1e6 }), 0, 0);
     expect(huge.reduce((a, b) => a + b, 0)).toBe(32);

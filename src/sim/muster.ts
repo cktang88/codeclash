@@ -42,6 +42,6 @@ export function musterCounts(lines: Lines, pushesLastHour: number, pushesToday: 
     counts[big]!--;
     total--;
   }
-  if (total === 0) counts[Kind.Legionary] = 1;
+  if (total === 0) counts[Kind.Footman] = 1;
   return counts;
 }

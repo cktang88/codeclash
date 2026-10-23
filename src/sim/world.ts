@@ -75,7 +75,7 @@ const speedOf = (kind: number) => STATS[kind]!.speed;
 
 export function emptyEvents(): TickEvents {
   return {
-    swings: [], shots: [], hits: [], deaths: [], musters: [], marches: [], routs: [], disbands: [],
+    swings: [], shots: [], breaths: [], blasts: [], heals: [], hits: [], deaths: [], musters: [], marches: [], routs: [], disbands: [],
     captures: [], sacks: [], rebuilt: [], monolith: null, cries: [], doctrines: [], rallies: [], joins: [],
     leader: null, departures: [],
   };
@@ -270,7 +270,7 @@ function releaseQueues(world: World, s: Scratch, ev: TickEvents): void {
 function formation(counts: readonly number[]): { kind: Kind; f: number; l: number }[] {
   const line: Kind[] = [];
   const flank: Kind[] = [];
-  const order = [Kind.Warden, Kind.Golem, Kind.Legionary, Kind.Mercenary, Kind.Champion, Kind.Sapper, Kind.Archer, Kind.Herald];
+  const order = [Kind.Warden, Kind.Skeleton, Kind.Footman, Kind.Mercenary, Kind.Champion, Kind.Sapper, Kind.Archer, Kind.Herald];
   for (const k of order) for (let i = 0; i < counts[k]!; i++) line.push(k);
   for (let i = 0; i < counts[Kind.Outrider]!; i++) flank.push(Kind.Outrider);
   const cols = Math.max(3, Math.ceil(Math.sqrt(line.length * 1.6)));

@@ -27,19 +27,35 @@ export const CAT_COUNT = 9;
 export const CAT_NAMES = ['code', 'test', 'comment', 'docs', 'config', 'removed', 'generated', 'vendor', 'blank'] as const;
 export type Lines = readonly number[];
 
+/**
+ * Twenty unit kinds. Each line category raises a base unit and, in larger
+ * pushes, an elite one; Berserkers, Clerics, Champions and Dragons come from
+ * the shape of the push itself. See STATS in stats.ts and DESIGN.md.
+ */
 export const Kind = {
-  Legionary: 0,
-  Warden: 1,
-  Archer: 2,
-  Herald: 3,
-  Sapper: 4,
-  Outrider: 5,
-  Golem: 6,
-  Mercenary: 7,
-  Champion: 8,
+  Footman: 0,
+  Knight: 1,
+  Warden: 2,
+  Paladin: 3,
+  Archer: 4,
+  Ranger: 5,
+  Herald: 6,
+  Wizard: 7,
+  Sapper: 8,
+  Trebuchet: 9,
+  Outrider: 10,
+  GriffinRider: 11,
+  Skeleton: 12,
+  BoneGolem: 13,
+  Mercenary: 14,
+  Troll: 15,
+  Berserker: 16,
+  Cleric: 17,
+  Champion: 18,
+  Dragon: 19,
 } as const;
 export type Kind = (typeof Kind)[keyof typeof Kind];
-export const KIND_COUNT = 9;
+export const KIND_COUNT = 20;
 
 export const Doctrine = { Balanced: 0, Assault: 1, Hold: 2, Siege: 3, Skirmish: 4 } as const;
 export type Doctrine = (typeof Doctrine)[keyof typeof Doctrine];
@@ -234,7 +250,13 @@ export interface World {
 
 export interface TickEvents {
   swings: { from: number; to: number }[];
+  /** Projectiles. kind: ShotKind. `to` is a unit id, or -(structure + 1). */
   shots: { from: number; to: number; x: number; y: number; land: number; kind: number }[];
+  /** A dragon's fire: from the breather toward (tx, ty), reaching `range`. */
+  breaths: { from: number; x: number; y: number; tx: number; ty: number; range: number }[];
+  /** Area damage landing: fireball bursts, boulder impacts, breath scorch. */
+  blasts: { x: number; y: number; radius: number; kind: number }[];
+  heals: { from: number; to: number; amount: number }[];
   hits: { unit: number; damage: number; structure: number }[];
   deaths: { unit: number; p: number; kind: Kind; x: number; y: number; killer: number; platoon: number }[];
   musters: { platoon: number; p: number; queued: boolean }[];
@@ -252,6 +274,9 @@ export interface TickEvents {
   leader: { p: number; previous: number } | null;
   departures: { unit: number }[];
 }
+
+export const ShotKind = { Arrow: 0, TowerBolt: 1, Fireball: 2, Boulder: 3, RangerArrow: 4 } as const;
+export type ShotKind = (typeof ShotKind)[keyof typeof ShotKind];
 
 export interface WorldSnapshot {
   version: 2;
