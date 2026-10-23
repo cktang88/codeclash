@@ -22,7 +22,7 @@ import { attackerMultiplier, computeAuras, enemiesNear, findTarget, structureDam
 import { capitalOwner, runCouncil, sitePresence } from './council.ts';
 import { derived } from './derived.ts';
 import { cellAt } from './flowfield.ts';
-import { isBalanced, musterCounts, slotsOf } from './muster.ts';
+import { cleanLines, isBalanced, musterCounts, slotsOf } from './muster.ts';
 import { nextRandom, seedRng } from './rng.ts';
 import { AURA_HEAL, indexWorld, scratchFor, type Scratch } from './scratch.ts';
 import { bucketX, bucketY, rebuildSpatialHash } from './spatial.ts';
@@ -64,7 +64,7 @@ import {
   doctrineSpeed,
   monolithHp,
 } from './stats.ts';
-import { flowDirection, flyMove, resolveMove, separation, towards, type Vec } from './steering.ts';
+import { flowDirection, flyMove, passableAt, resolveMove, separation, towards, type Vec } from './steering.ts';
 
 const KNIGHT_CHARGE = 1.8;
 const KNIGHT_CHARGE_RUN = 40;
@@ -153,12 +153,16 @@ export function step(world: World, inputs: readonly SimInput[]): TickEvents {
 
 // ---------------------------------------------------------------- inputs
 
+/** Whole numbers only: inputs come from replay files and the network, so they are untrusted. */
+const whole = (n: unknown): n is number => Number.isInteger(n);
+
 function applyInput(world: World, input: SimInput, ev: TickEvents): void {
   const { tick } = world;
+  if (typeof input !== 'object' || input === null || !whole(input.p)) return;
   if (input.kind === 'join') {
-    if (input.p !== world.players.length) return;
+    if (input.p !== world.players.length || !whole(input.slot)) return;
     if (input.slot < 0 || input.slot >= world.map.slots || capitalOwner(world, input.slot) !== NEUTRAL) return;
-    world.players.push(newPlayer(input.p, input.slot, input.hue));
+    world.players.push(newPlayer(input.p, input.slot, Number.isFinite(input.hue) ? input.hue : 0));
     world.structures.push({ site: input.slot, p: input.p, hp: CAPITAL_HP, maxHp: CAPITAL_HP, cooldown: 0, ruinedUntil: -1, sacked: 0 });
     ev.joins.push({ p: input.p });
     return;
@@ -167,17 +171,18 @@ function applyInput(world: World, input: SimInput, ev: TickEvents): void {
   if (!player) return;
   switch (input.kind) {
     case 'push':
-      musterPush(world, player, input.repo, input.lines, input.msg, ev);
+      if (!whole(input.repo) || input.repo < 0) return;
+      musterPush(world, player, input.repo, cleanLines(input.lines), typeof input.msg === 'string' ? input.msg : '', ev);
       return;
     case 'doctrine':
-      if (input.doctrine < 0 || input.doctrine > 4 || input.doctrine === player.doctrine) return;
+      if (!whole(input.doctrine) || input.doctrine < 0 || input.doctrine > 4 || input.doctrine === player.doctrine) return;
       if (player.doctrineAt >= 0 && tick - player.doctrineAt < DOCTRINE_COOLDOWN) return;
       player.doctrine = input.doctrine;
       player.doctrineAt = tick;
       ev.doctrines.push({ p: player.p, doctrine: input.doctrine });
       return;
     case 'rally':
-      if (input.site < 0 || input.site >= world.map.sites.length) return;
+      if (!whole(input.site) || input.site < 0 || input.site >= world.map.sites.length) return;
       if (player.rallyAt >= 0 && tick - player.rallyAt < RALLY_COOLDOWN) return;
       player.rallySite = input.site;
       player.rallyUntil = tick + RALLY_DURATION;
@@ -214,7 +219,7 @@ function musterPush(world: World, player: PlayerState, repo: number, lines: read
   const counts = musterCounts(lines, player.recentPushes.length, player.pushes, msg);
   player.pushes++;
   player.recentPushes.push(world.tick);
-  for (let c = 0; c < player.lines.length; c++) player.lines[c]! += Math.max(0, Math.floor(lines[c] ?? 0));
+  for (let c = 0; c < player.lines.length; c++) player.lines[c]! += lines[c]!;
   if (isBalanced(lines)) player.balanced++;
   for (let k = 0; k < KIND_COUNT; k++) player.raised[k]! += counts[k]!;
 
@@ -356,8 +361,16 @@ function deploy(world: World, player: PlayerState, platoon: Platoon): void {
     platoon.mustered[Kind.Champion]!++;
   }
   for (const slot of formation(platoon.mustered)) {
-    const x = platoon.x + platoon.hx * slot.f - platoon.hy * slot.l + (nextRandom(world) - 0.5) * 3;
-    const y = platoon.y + platoon.hy * slot.f + platoon.hx * slot.l + (nextRandom(world) - 0.5) * 3;
+    const jx = (nextRandom(world) - 0.5) * 3;
+    const jy = (nextRandom(world) - 0.5) * 3;
+    let x = platoon.x + platoon.hx * slot.f - platoon.hy * slot.l + jx;
+    let y = platoon.y + platoon.hy * slot.f + platoon.hx * slot.l + jy;
+    // A wide formation can reach past the cleared ground around the capital;
+    // a soldier whose place is rock or water musters at the gate instead.
+    if (!STATS[slot.kind]!.flying && !passableAt(world.map, x, y)) {
+      x = platoon.x + jx;
+      y = platoon.y + jy;
+    }
     const hp = STATS[slot.kind]!.hp;
     const unit: Unit = {
       id: world.nextId++,
@@ -409,7 +422,11 @@ function updatePlatoons(world: World, s: Scratch, ev: TickEvents): void {
     const cy = s.py[i]! / members;
 
     if (pl.state === PlatoonState.Rout) {
+      // Routed soldiers flee home on their own; the banner goes with them, so a
+      // banner left over rock or water cannot keep the platoon routed forever.
       const home = map.sites[player.slot]!;
+      pl.x = cx;
+      pl.y = cy;
       const dx = home.x - pl.x;
       const dy = home.y - pl.y;
       if (dx * dx + dy * dy < (home.radius + 40) * (home.radius + 40)) {
@@ -417,17 +434,20 @@ function updatePlatoons(world: World, s: Scratch, ev: TickEvents): void {
         pl.morale = MORALE_RALLY;
         pl.site = player.slot;
         s.rallied.push(pl.id);
-      } else {
-        advanceAnchor(world, pl, flow[player.slot]!, home.x, home.y, s.slowest[i]! * ROUT_SPEED);
       }
       continue;
     }
 
     if (pl.calm === 0 && pl.state !== PlatoonState.Engage) pl.state = PlatoonState.Engage;
     if (pl.state === PlatoonState.Engage) {
-      // Follow the melee: the banner drifts toward where its soldiers are fighting.
-      pl.x += (cx - pl.x) * 0.08;
-      pl.y += (cy - pl.y) * 0.08;
+      // Follow the melee: the banner drifts toward where its soldiers are fighting,
+      // but never onto rock or water, where it could not march on from.
+      const nx = pl.x + (cx - pl.x) * 0.08;
+      const ny = pl.y + (cy - pl.y) * 0.08;
+      if (passableAt(map, nx, ny)) {
+        pl.x = nx;
+        pl.y = ny;
+      }
       if (pl.calm >= ENGAGE_CALM_TICKS) pl.state = PlatoonState.March;
       continue;
     }

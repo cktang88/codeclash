@@ -83,3 +83,20 @@ describe('fetchViewer', () => {
     expect(await fetchViewer('tok', fetch)).toEqual(viewer);
   });
 });
+
+describe('request timeouts', () => {
+  it('gives every GitHub request an abort signal so a stalled call cannot wedge the poller', async () => {
+    const signals: (AbortSignal | null | undefined)[] = [];
+    const impl = (async (_url: string | URL | Request, init?: RequestInit) => {
+      signals.push(init?.signal);
+      return json([]);
+    }) as typeof fetch;
+    await createGithubClient('tok', impl).userEvents('ana', null);
+    await fetchViewer('tok', (async (_u: string | URL | Request, init?: RequestInit) => {
+      signals.push(init?.signal);
+      return json({ id: 1, node_id: 'n', login: 'a', avatar_url: '', created_at: '2020-01-01T00:00:00Z', type: 'User' });
+    }) as typeof fetch);
+    expect(signals).toHaveLength(2);
+    for (const s of signals) expect(s).toBeInstanceOf(AbortSignal);
+  });
+});

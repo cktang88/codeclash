@@ -1,7 +1,7 @@
 import Fastify from 'fastify';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openDb, Store } from './db.ts';
-import { registerHooks, signatureOf } from './hooks.ts';
+import { HOOK_LIMIT, registerHooks, signatureOf } from './hooks.ts';
 import { silentLogger } from './log.ts';
 import { Poller, type PushReport } from './poller.ts';
 import { FakeGithub, pushEvent, sha, sourceFile, ZERO } from './testing/fakeGithub.ts';
@@ -102,5 +102,11 @@ describe('registerHooks', () => {
     await t.poller.pollUser(7);
     await signed('push', payload());
     expect(t.reports).toHaveLength(1);
+  });
+
+  it('limits deliveries per hook so one user cannot spend the server’s GitHub budget', async () => {
+    for (let i = 0; i < HOOK_LIMIT.max; i++) expect((await signed('push', payload({ after: sha(100 + i) }))).statusCode).toBe(202);
+    expect((await signed('push', payload({ after: sha(999) }))).statusCode).toBe(429);
+    expect(t.github.calls.compare).toBe(HOOK_LIMIT.max);
   });
 });

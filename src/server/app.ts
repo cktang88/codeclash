@@ -10,6 +10,7 @@ import { Rooms } from './rooms.ts';
 import { Scheduler } from './scheduler.ts';
 
 const SEEN_COMMITS_DAYS = 14;
+const PRUNE_EVERY_MS = 6 * 3_600_000;
 
 export interface Server {
   app: FastifyInstance;
@@ -64,6 +65,8 @@ export async function createServer(
     },
   });
 
+  // seen_commits and pushes only dedupe recent ingestion; keep them bounded on a long-running server too.
+  let pruneTimer: NodeJS.Timeout | null = null;
   let closing = false;
   return {
     app,
@@ -75,6 +78,8 @@ export async function createServer(
       if (background) {
         scheduler.start(clock);
         poller?.start();
+        pruneTimer = setInterval(() => store.pruneSeenCommits(clock() - SEEN_COMMITS_DAYS * 86_400_000), PRUNE_EVERY_MS);
+        pruneTimer.unref();
       }
       const address = await app.listen({ port: config.port, host: config.host });
       log.info('pushfront listening', { address });
@@ -85,6 +90,7 @@ export async function createServer(
       closing = true;
       scheduler.stop();
       poller?.stop();
+      if (pruneTimer) clearInterval(pruneTimer);
       rooms.snapshotAll();
       hub.closeAll();
       await app.close();

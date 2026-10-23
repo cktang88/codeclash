@@ -15,6 +15,8 @@ export interface HookDeps {
 }
 
 const BODY_LIMIT = 5 * 1024 * 1024;
+/** Each delivery spends the server's GitHub budget on a compare, so one hook may not drain it. */
+export const HOOK_LIMIT = { windowMs: 60_000, max: 20 };
 
 const Params = z.object({ userId: z.coerce.number().int() });
 
@@ -49,6 +51,16 @@ function payloadOf(raw: Buffer, contentType: string | undefined): unknown {
 
 /** POST /hooks/github/:userId receives a member's repository push webhooks. */
 export function registerHooks(app: FastifyInstance, deps: HookDeps): void {
+  const hits = new Map<number, { at: number; n: number }>();
+  const allow = (userId: number, now: number): boolean => {
+    const h = hits.get(userId);
+    if (!h || now - h.at >= HOOK_LIMIT.windowMs) {
+      if (hits.size > 10_000) hits.clear();
+      hits.set(userId, { at: now, n: 1 });
+      return true;
+    }
+    return ++h.n <= HOOK_LIMIT.max;
+  };
   app.register(async (scope) => {
     const keepRaw = (_req: unknown, body: Buffer, done: (err: Error | null, body?: Buffer) => void) => done(null, body);
     scope.addContentTypeParser('application/json', { parseAs: 'buffer', bodyLimit: BODY_LIMIT }, keepRaw);
@@ -78,6 +90,7 @@ export function registerHooks(app: FastifyInstance, deps: HookDeps): void {
       const byPusher = parsed.pusher?.name?.toLowerCase() === user.login.toLowerCase();
       if (!bySender && !byPusher) return reply.code(202).send({ ok: true, ignored: 'pusher' });
       if (!deps.github) return reply.code(503).send({ error: 'GitHub ingestion is not configured' });
+      if (!allow(user.id, deps.clock())) return reply.code(429).send({ error: 'too many deliveries' });
 
       try {
         const report = await ingestPush({ ...deps, github: deps.github }, user, {

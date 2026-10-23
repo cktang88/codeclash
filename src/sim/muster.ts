@@ -1,4 +1,4 @@
-import { Cat, Kind, KIND_COUNT, type Lines } from './api.ts';
+import { CAT_COUNT, Cat, Kind, KIND_COUNT, type Lines } from './api.ts';
 import { PLATOON_MAX, STATS } from './stats.ts';
 
 // Per category: coefficient on sqrt(lines), the line count that guarantees one
@@ -25,7 +25,28 @@ for (let k = 0; k < KIND_COUNT; k++) {
   if (s.tier === 'elite') ELITE_OF[s.raisedBy] = k;
 }
 
-const at = (lines: Lines, c: number) => Math.max(0, lines[c] ?? 0);
+const at = (lines: Lines, c: number) => {
+  const n = lines[c];
+  return typeof n === 'number' && n > 0 ? n : 0;
+};
+
+/** Most lines one category of one push can count; keeps arithmetic finite. */
+export const MAX_LINES = 1e9;
+
+/**
+ * A push's line counts as the simulation sees them: nine whole, non-negative,
+ * finite numbers. Live inputs and replayed ones pass through this, so a stray
+ * fraction, NaN or Infinity can never make them disagree.
+ */
+export function cleanLines(lines: unknown): number[] {
+  const out = new Array<number>(CAT_COUNT).fill(0);
+  if (!Array.isArray(lines)) return out;
+  for (let c = 0; c < CAT_COUNT; c++) {
+    const n: unknown = lines[c];
+    if (typeof n === 'number' && n > 0) out[c] = Math.floor(Math.min(n, MAX_LINES));
+  }
+  return out;
+}
 
 export function isBalanced(lines: Lines): boolean {
   return at(lines, Cat.Code) >= 20 && at(lines, Cat.Test) >= 1 && at(lines, Cat.Comment) + at(lines, Cat.Docs) >= 1;

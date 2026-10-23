@@ -94,9 +94,14 @@ export class Rooms {
   /** Ends wars whose day is over, starts the next ones, and lets bots push. */
   reconcile(now: number): void {
     for (const room of this.deps.store.rooms()) {
-      const war = this.live.get(room.id);
-      if (war && war.over(now)) this.finish(room, war, now);
-      else if (!war) this.ensureWar(room, now);
+      // One broken room must not hold back every other room's rollover (or the bots).
+      try {
+        const war = this.live.get(room.id);
+        if (war && war.over(now)) this.finish(room, war, now);
+        else if (!war) this.ensureWar(room, now);
+      } catch (err) {
+        this.deps.log.error('room lifecycle failed', { room: room.slug, error: err instanceof Error ? err.message : String(err) });
+      }
     }
     if (now - this.lastBots >= BOT_TICK_MS) {
       this.botsPush(now, this.lastBots === 0 ? BOT_TICK_MS : now - this.lastBots);
@@ -174,8 +179,6 @@ export class Rooms {
   }
 
   delete(room: RoomRow): void {
-    const war = this.live.get(room.id);
-    war?.persistSnapshot();
     this.live.delete(room.id);
     this.deps.store.deleteRoom(room.id);
     this.deps.log.info('room deleted', { room: room.slug });
@@ -274,7 +277,8 @@ export class Rooms {
     for (let b = 0; b < room.bots && b < BOTS.length; b++) enlist.push({ userId: -(b + 1), login: BOTS[b]!.login, avatarUrl: '', bot: true });
     const war = War.open(this.warDeps(room.id), {
       roomId: room.id,
-      day: isoDay(startsAt),
+      // A first war stretched past 24 hours is named for the day it ends on, so the next war is the next day.
+      day: isoDay(Math.max(startsAt, endsAt - (config.dayMs ?? DAY_MS))),
       seed: randomInt(1, 2 ** 31),
       startsAt,
       endsAt,
@@ -313,7 +317,8 @@ export class Rooms {
           userId, roomId: room.id, days: 0, wins: 0, streak: 0, bestStreak: 0, lastDay: null, kills: 0, renown: 0, awards: {},
         };
         const active = pl.pushes > 0 || restedDuring(user?.restingDay ?? null, war.meta);
-        const streak = active ? (prev.lastDay === yesterday ? prev.streak + 1 : 1) : 0;
+        // Two wars can share a day (the reset hour moved, or short test days): the second one keeps the streak.
+        const streak = active ? (prev.lastDay === day ? Math.max(1, prev.streak) : prev.lastDay === yesterday ? prev.streak + 1 : 1) : 0;
         const awards = { ...prev.awards };
         for (const a of pl.awards) awards[a] = (awards[a] ?? 0) + 1;
         store.saveLifetime({

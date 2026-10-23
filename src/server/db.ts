@@ -397,8 +397,15 @@ export class Store {
     this.db.prepare(`UPDATE rooms SET ${sets.join(', ')} WHERE id = ?`).run(...vals, id);
   }
 
+  /** Deletes a room and everything it owns: wars and their logs, chat, and lifetime records. */
   deleteRoom(id: number): void {
     this.transaction(() => {
+      for (const table of ['war_inputs', 'war_snapshots', 'chronicle', 'war_frames']) {
+        this.db.prepare(`DELETE FROM ${table} WHERE war_id IN (SELECT id FROM wars WHERE room_id = ?)`).run(id);
+      }
+      this.db.prepare('DELETE FROM wars WHERE room_id = ?').run(id);
+      this.db.prepare('DELETE FROM chat WHERE room_id = ?').run(id);
+      this.db.prepare('DELETE FROM lifetime WHERE room_id = ?').run(id);
       this.db.prepare('DELETE FROM room_members WHERE room_id = ?').run(id);
       this.db.prepare('DELETE FROM rooms WHERE id = ?').run(id);
     });

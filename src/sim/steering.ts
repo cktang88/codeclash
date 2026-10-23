@@ -30,7 +30,14 @@ export function towards(out: Vec, fromX: number, fromY: number, toX: number, toY
 
 export function flowDirection(out: Vec, map: MapDef, field: FlowField, x: number, y: number, goalX: number, goalY: number): void {
   const c = cellAt(map, x, y);
-  const n1 = c < 0 || field.cost[c]! < 0 ? -1 : field.next[c]!;
+  if (c >= 0 && field.cost[c]! < 0) {
+    // Off the field (rock, water, or a cut-off pocket): step to the cheapest neighbor on it.
+    const step = escapeCell(map, field, c);
+    if (step >= 0) towards(out, x, y, cellCenterX(map, step), cellCenterY(map, step));
+    else towards(out, x, y, goalX, goalY);
+    return;
+  }
+  const n1 = c < 0 ? -1 : field.next[c]!;
   if (n1 < 0) {
     towards(out, x, y, goalX, goalY);
     return;
@@ -38,6 +45,25 @@ export function flowDirection(out: Vec, map: MapDef, field: FlowField, x: number
   const n2 = field.next[n1]!;
   const aim = n2 >= 0 ? n2 : n1;
   towards(out, x, y, cellCenterX(map, aim), cellCenterY(map, aim));
+}
+
+const NX = [1, -1, 0, 0, 1, 1, -1, -1];
+const NY = [0, 0, 1, -1, 1, -1, 1, -1];
+
+/** The neighboring cell with the lowest path cost, or -1 if none is on the field. */
+function escapeCell(map: MapDef, field: FlowField, c: number): number {
+  const cx = c % map.navCols;
+  const cy = (c - cx) / map.navCols;
+  let best = -1;
+  for (let k = 0; k < 8; k++) {
+    const nx = cx + NX[k]!;
+    const ny = cy + NY[k]!;
+    if (nx < 0 || ny < 0 || nx >= map.navCols || ny >= map.navRows) continue;
+    const n = ny * map.navCols + nx;
+    const cost = field.cost[n]!;
+    if (cost >= 0 && (best < 0 || cost < field.cost[best]!)) best = n;
+  }
+  return best;
 }
 
 /** Pushes soldiers apart in proportion to their sizes; fliers only jostle other fliers. */

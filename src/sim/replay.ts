@@ -1,5 +1,6 @@
-import { CAT_COUNT, TICK_MS, type SimInput, type TimedInput, type WarParams, type World } from './api.ts';
+import { TICK_MS, type SimInput, type TimedInput, type WarParams, type World } from './api.ts';
 import { generateMap } from './mapgen.ts';
+import { cleanLines } from './muster.ts';
 import { createWorld, step } from './world.ts';
 
 export interface ReplayPlayer {
@@ -45,7 +46,7 @@ export function encodeInput(tick: number, input: SimInput): EncodedInput {
     case 'join':
       return [tick, 'join', input.p, input.slot, input.hue];
     case 'push':
-      return [tick, 'push', input.p, input.repo, input.lines.map((n) => Math.max(0, Math.floor(n))), input.commits, input.msg];
+      return [tick, 'push', input.p, input.repo, cleanLines(input.lines), input.commits, input.msg];
     case 'doctrine':
       return [tick, 'doc', input.p, input.doctrine];
     case 'rally':
@@ -55,14 +56,20 @@ export function encodeInput(tick: number, input: SimInput): EncodedInput {
   }
 }
 
+/**
+ * Decodes one replay row. Throws on a row whose shape is wrong (not an array,
+ * a bad tick, an unknown kind) so a corrupt replay fails loudly; the values
+ * inside are still untrusted, and the simulation ignores ones it cannot use.
+ */
 export function decodeInput(e: EncodedInput): { tick: number; input: SimInput } {
+  if (!Array.isArray(e) || !Number.isInteger(e[0]) || e[0] < 0) throw new Error(`malformed replay input ${JSON.stringify(e)}`);
   const tick = e[0];
   switch (e[1]) {
     case 'join':
       return { tick, input: { kind: 'join', p: e[2], slot: e[3], hue: e[4] } };
     case 'push': {
-      const lines = Array.from({ length: CAT_COUNT }, (_, i) => e[4][i] ?? 0);
-      return { tick, input: { kind: 'push', p: e[2], repo: e[3], lines, commits: e[5], msg: e[6] } };
+      if (!Array.isArray(e[4])) throw new Error(`malformed replay push ${JSON.stringify(e)}`);
+      return { tick, input: { kind: 'push', p: e[2], repo: e[3], lines: cleanLines(e[4]), commits: e[5], msg: typeof e[6] === 'string' ? e[6] : '' } };
     }
     case 'doc':
       return { tick, input: { kind: 'doctrine', p: e[2], doctrine: e[3] as 0 } };
@@ -70,6 +77,8 @@ export function decodeInput(e: EncodedInput): { tick: number; input: SimInput } 
       return { tick, input: { kind: 'rally', p: e[2], site: e[3] } };
     case 'cry':
       return { tick, input: { kind: 'cry', p: e[2] } };
+    default:
+      throw new Error(`unknown replay input ${JSON.stringify(e)}`);
   }
 }
 
@@ -77,8 +86,9 @@ export function replayParams(r: Pick<Replay, 'seed' | 'slots' | 'members'>): War
   return { seed: r.seed, slots: r.slots, members: r.members };
 }
 
+/** The replay's inputs in the order the live war applied them: by tick, then by arrival. */
 export function timedInputs(r: Replay): TimedInput[] {
-  return r.inputs.map((e, seq) => ({ ...decodeInput(e), seq: seq + 1 }));
+  return r.inputs.map((e, seq) => ({ ...decodeInput(e), seq: seq + 1 })).sort((a, b) => a.tick - b.tick || a.seq - b.seq);
 }
 
 /** Rebuilds the world of a replay at `tick` from scratch. */

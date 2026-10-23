@@ -24,14 +24,17 @@ export class Scheduler {
     this.timers = [];
   }
 
-  // Round-robin one step at a time so a war catching up cannot starve the others,
-  // and the shared budget bounds how long one interval can hold the event loop.
+  // Round-robin one step at a time so a war catching up cannot starve the others.
+  // Every war that is behind gets at least one step per interval (otherwise, with more
+  // live rooms than the budget, every war would drift further behind wall-clock time
+  // forever); the shared budget only bounds the extra catch-up steps.
   tick(now: number, budget: number = MAX_STEPS_PER_LOOP): void {
     let behind = this.rooms.wars().filter((w) => w.behind(now));
+    const limit = behind.length + budget;
     let spent = 0;
-    while (spent < budget && behind.length > 0) {
+    while (spent < limit && behind.length > 0) {
       for (const w of behind) {
-        if (spent >= budget) break;
+        if (spent >= limit) break;
         spent++;
         try {
           w.step();

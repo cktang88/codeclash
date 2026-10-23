@@ -159,7 +159,6 @@ export async function buildHttp(deps: HttpDeps): Promise<FastifyInstance> {
     if (!rooms.canView(room, user?.id ?? null, invite)) return socket.close(WS_CLOSE_FORBIDDEN, 'this room is private');
     const ref: UserRef | null = user ? { id: user.id, login: user.login, avatarUrl: user.avatarUrl } : null;
     hub.add(room.id, socket, ref, invite);
-    const key = user ? `u${user.id}` : `ip${req.ip}`;
     let lastResync = -Infinity;
     socket.on('message', (raw: Buffer) => {
       let parsed: unknown;
@@ -178,6 +177,7 @@ export async function buildHttp(deps: HttpDeps): Promise<FastifyInstance> {
         return hub.sendHello(room.id, socket);
       }
       if (!user) return;
+      const key = `u${user.id}`;
       if (msg.data.type === 'emote') {
         if (!emoteLimit.allow(key, now)) return;
         const war = rooms.war(room.id);

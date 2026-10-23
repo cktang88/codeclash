@@ -2,7 +2,8 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import type { DigestResponse, MeResponse, RoomDetail } from '../protocol.ts';
+import type { WebSocket } from 'ws';
+import { WS_CLOSE_FORBIDDEN, type DigestResponse, type MeResponse, type RoomDetail } from '../protocol.ts';
 import { Cat } from '../sim/api.ts';
 import { runReplay, type Replay } from '../sim/replay.ts';
 import { checksum } from '../sim/snapshot.ts';
@@ -15,10 +16,11 @@ import { validWebhookUrl } from './webhook.ts';
 
 const DAY = 10 * 60_000;
 
-async function boot(opts: { db?: string; now?: { t: number } } = {}) {
+async function boot(opts: { db?: string; now?: { t: number }; daily?: boolean } = {}) {
   const now = opts.now ?? { t: Date.UTC(2026, 9, 23, 12) };
   const config = loadConfig({
-    NODE_ENV: 'test', DATABASE_PATH: opts.db ?? ':memory:', DEV_AUTH: '1', DAY_MINUTES: String(DAY / 60_000), COMMONS: '0', PUBLIC_URL: 'http://pf.test',
+    NODE_ENV: 'test', DATABASE_PATH: opts.db ?? ':memory:', DEV_AUTH: '1', COMMONS: '0', PUBLIC_URL: 'http://pf.test',
+    ...(opts.daily ? {} : { DAY_MINUTES: String(DAY / 60_000) }),
   });
   const server = await createServer(config, { log: silentLogger, clock: () => now.t, background: false, random: () => 0.99 });
   await server.app.ready();
@@ -130,6 +132,131 @@ describe('rooms and the daily war', () => {
     expect(checksum(after.world)).toBe(sum);
     expect(second.server.store.roomBySlug(slug)).not.toBeNull();
     await second.server.shutdown();
+  });
+});
+
+function closed(ws: WebSocket): Promise<number> {
+  return new Promise((done) => ws.on('close', (code) => done(code)));
+}
+
+const settle = () => new Promise((done) => setTimeout(done, 30));
+
+describe('access changes and abuse', () => {
+  it('disconnects viewers who lose access and stops removed members giving orders', async () => {
+    const { server } = await boot();
+    const owner = await signIn(server, 'owner');
+    const guest = await signIn(server, 'guest');
+    const { slug } = (await server.app.inject({ method: 'POST', url: '/api/rooms', headers: { cookie: owner }, payload: { name: 'Secret', visibility: 'private', resetHour: 0, bots: 0 } })).json<{ slug: string }>();
+    const { invite } = (await server.app.inject({ url: `/api/rooms/${slug}`, headers: { cookie: owner } })).json<RoomDetail>();
+    await server.app.inject({ method: 'POST', url: `/api/rooms/${slug}/join`, headers: { cookie: guest }, payload: { invite } });
+
+    const member = await server.app.injectWS(`/ws?room=${slug}`, { headers: { cookie: guest } });
+    const linkHolder = await server.app.injectWS(`/ws?room=${slug}&invite=${invite}`);
+    const ownerWs = await server.app.injectWS(`/ws?room=${slug}`, { headers: { cookie: owner } });
+    let ownerClosed = false;
+    ownerWs.on('close', () => (ownerClosed = true));
+    const memberClosed = closed(member);
+    const kicked = await server.app.inject({ method: 'DELETE', url: `/api/rooms/${slug}/members/${devId('guest')}`, headers: { cookie: owner } });
+    expect(kicked.statusCode).toBe(200);
+    expect(await memberClosed).toBe(WS_CLOSE_FORBIDDEN);
+
+    const cmd = await server.app.inject({ method: 'POST', url: `/api/rooms/${slug}/command`, headers: { cookie: guest }, payload: { kind: 'cry' } });
+    expect(cmd.statusCode).toBe(403);
+
+    const linkClosed = closed(linkHolder);
+    await server.app.inject({ method: 'POST', url: `/api/rooms/${slug}/invite`, headers: { cookie: owner } });
+    expect(await linkClosed).toBe(WS_CLOSE_FORBIDDEN);
+    await settle();
+    expect(ownerClosed).toBe(false);
+    ownerWs.terminate();
+    await server.shutdown();
+  });
+
+  it('disconnects anonymous viewers when a public room turns private', async () => {
+    const { server } = await boot();
+    const owner = await signIn(server, 'owner');
+    const { slug } = (await server.app.inject({ method: 'POST', url: '/api/rooms', headers: { cookie: owner }, payload: { name: 'Open', visibility: 'public', resetHour: 0, bots: 0 } })).json<{ slug: string }>();
+    const anon = await server.app.injectWS(`/ws?room=${slug}`);
+    const anonClosed = closed(anon);
+    await server.app.inject({ method: 'PATCH', url: `/api/rooms/${slug}`, headers: { cookie: owner }, payload: { visibility: 'private' } });
+    expect(await anonClosed).toBe(WS_CLOSE_FORBIDDEN);
+    await server.shutdown();
+  });
+
+  it('throttles resync so a viewer cannot flood the server with snapshots', async () => {
+    const { server } = await boot();
+    const owner = await signIn(server, 'owner');
+    const { slug } = (await server.app.inject({ method: 'POST', url: '/api/rooms', headers: { cookie: owner }, payload: { name: 'Open', visibility: 'public', resetHour: 0, bots: 0 } })).json<{ slug: string }>();
+    const hellos: unknown[] = [];
+    const ws = await server.app.injectWS(`/ws?room=${slug}`, {}, {
+      onInit: (s) => s.on('message', (raw: Buffer) => (JSON.parse(raw.toString()) as { type: string }).type === 'hello' && hellos.push(1)),
+    });
+    for (let i = 0; i < 20; i++) ws.send(JSON.stringify({ type: 'resync' }));
+    await settle();
+    expect(hellos.length).toBe(2);
+    ws.terminate();
+    await server.shutdown();
+  });
+
+  it('deletes everything a room owns', async () => {
+    const { server, now } = await boot();
+    const ana = await signIn(server, 'ana');
+    const { slug } = (await server.app.inject({ method: 'POST', url: '/api/rooms', headers: { cookie: ana }, payload: { name: 'Gone', visibility: 'public', resetHour: 0, bots: 1 } })).json<{ slug: string }>();
+    const roomId = server.store.roomBySlug(slug)!.id;
+    for (let i = 0; i < 25; i++) advance(server, now, 30_000);
+    server.store.addChat(roomId, devId('ana'), now.t, 'bye');
+    expect((await server.app.inject({ method: 'DELETE', url: `/api/rooms/${slug}`, headers: { cookie: ana } })).statusCode).toBe(204);
+    const count = (sql: string) => (server.store.db.prepare(sql).get() as { n: number }).n;
+    expect(count('SELECT count(*) AS n FROM wars')).toBe(0);
+    expect(count('SELECT count(*) AS n FROM war_inputs')).toBe(0);
+    expect(count('SELECT count(*) AS n FROM war_snapshots')).toBe(0);
+    expect(count('SELECT count(*) AS n FROM war_frames')).toBe(0);
+    expect(count('SELECT count(*) AS n FROM chat')).toBe(0);
+    expect(count('SELECT count(*) AS n FROM lifetime')).toBe(0);
+    await server.shutdown();
+  });
+
+  it('keeps rolling other rooms over when one room fails', async () => {
+    const { server, now } = await boot();
+    const ana = await signIn(server, 'ana');
+    for (const name of ['First', 'Second']) {
+      await server.app.inject({ method: 'POST', url: '/api/rooms', headers: { cookie: ana }, payload: { name, visibility: 'public', resetHour: 0, bots: 0 } });
+    }
+    const [broken, healthy] = server.rooms.wars();
+    broken!.conclude = () => {
+      throw new Error('corrupt');
+    };
+    const before = healthy!.id;
+    for (let i = 0; i < 22; i++) advance(server, now, 30_000);
+    expect(server.rooms.wars().map((w) => w.id)).not.toContain(before);
+    await server.shutdown();
+  });
+});
+
+describe('lifetime streaks', () => {
+  it('names a first war stretched past a day for the day it ends', async () => {
+    const { server } = await boot({ daily: true, now: { t: Date.UTC(2026, 9, 22, 23, 30) } });
+    const ana = await signIn(server, 'ana');
+    await server.app.inject({ method: 'POST', url: '/api/rooms', headers: { cookie: ana }, payload: { name: 'Late', visibility: 'public', resetHour: 0, bots: 0 } });
+    const war = server.rooms.wars()[0]!;
+    expect(war.endsAt).toBe(Date.UTC(2026, 9, 24));
+    // The next war is 2026-10-24, so this one must be 10-23 for the streak to continue.
+    expect(war.meta.day).toBe('2026-10-23');
+    await server.shutdown();
+  });
+
+  it('keeps the streak when a second war falls on the same day', async () => {
+    const { server, now } = await boot();
+    const ana = await signIn(server, 'ana');
+    const { slug } = (await server.app.inject({ method: 'POST', url: '/api/rooms', headers: { cookie: ana }, payload: { name: 'Twice', visibility: 'public', resetHour: 0, bots: 0 } })).json<{ slug: string }>();
+    const roomId = server.store.roomBySlug(slug)!.id;
+    const day = server.rooms.wars()[0]!.meta.day;
+    server.store.saveLifetime({ userId: devId('ana'), roomId, days: 5, wins: 0, streak: 5, bestStreak: 5, lastDay: day, kills: 0, renown: 0, awards: {} });
+    advance(server, now, 30_000);
+    server.rooms.onPush({ userId: devId('ana'), pushId: 'x@1', repo: 'ana/a', language: null, lines: lines(40), commits: 1, message: 'm', at: now.t }, now.t);
+    for (let i = 0; i < 21; i++) advance(server, now, 30_000);
+    expect(server.store.lifetime(devId('ana'), roomId)).toMatchObject({ streak: 5, lastDay: day });
+    await server.shutdown();
   });
 });
 
