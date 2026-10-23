@@ -186,7 +186,7 @@ const GOLD = '#e8c25a';
 function paintGrade(ctx: CanvasRenderingContext2D, w: number, h: number, grade: FlagGrade): void {
   if (grade.ragged) {
     // Faded cloth with patches, and a frayed, notched free edge.
-    ctx.fillStyle = 'rgba(120,112,100,0.38)';
+    ctx.fillStyle = 'rgba(120,112,100,0.45)';
     ctx.fillRect(0, 0, w, h);
     ctx.fillStyle = 'rgba(60,48,36,0.55)';
     ctx.fillRect(w * 0.55, h * 0.58, 12, 10);
@@ -196,12 +196,15 @@ function paintGrade(ctx: CanvasRenderingContext2D, w: number, h: number, grade: 
     ctx.beginPath();
     for (let i = 0; i < 6; i++) {
       const y = (i + 0.5) * (h / 6);
-      const depth = 6 + ((i * 7) % 3) * 5;
+      const depth = 10 + ((i * 7) % 3) * 7;
       ctx.moveTo(w, y - h / 12);
       ctx.lineTo(w - depth, y);
       ctx.lineTo(w, y + h / 12);
     }
-    ctx.arc(w * 0.78, h * 0.3, 3, 0, Math.PI * 2);
+    ctx.moveTo(w * 0.62 + 4, h * 0.3);
+    ctx.arc(w * 0.62, h * 0.3, 4, 0, Math.PI * 2);
+    ctx.moveTo(w * 0.4 + 3, h * 0.78);
+    ctx.arc(w * 0.4, h * 0.78, 3, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
     return;
@@ -210,7 +213,7 @@ function paintGrade(ctx: CanvasRenderingContext2D, w: number, h: number, grade: 
   ctx.strokeStyle = GOLD;
   ctx.lineWidth = 2 + grade.rank;
   ctx.strokeRect(3.5, 3.5, w - 7, h - 7);
-  for (let i = 0; i < grade.rank; i++) star(ctx, w - 10 - i * 12, h - 9, 5);
+  for (let i = 0; i < grade.rank; i++) star(ctx, w - 13 - i * 17, 13, 8);
 }
 
 function star(ctx: CanvasRenderingContext2D, x: number, y: number, r: number): void {

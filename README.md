@@ -61,3 +61,11 @@ fly deploy
 ```
 
 On `SIGTERM` the server writes a snapshot of every war and closes the database. On boot, each war loads its latest snapshot, replays the logged inputs, and catches up to wall-clock time, so a restart loses no battle state.
+
+## Art credits
+
+Units, castles, terrain and most effects are drawn procedurally in `src/client/render`. The explosion clouds in fireballs, sacks and the Monolith's fall use frames from Kenney's Smoke Particles pack. The frames live in `src/client/public/art/kenney-fx/`, with the pack's license file alongside.
+
+| Pack | Author | License | Source |
+| --- | --- | --- | --- |
+| Smoke Particles | Kenney (kenney.nl) | CC0 1.0 | https://kenney.nl/assets/smoke-particles |

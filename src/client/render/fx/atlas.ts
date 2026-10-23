@@ -43,7 +43,7 @@ let loaded: FxArt | null = null;
  * Loads the bundled particle art once. Effects fall back to procedural textures
  * when it is missing, e.g. in tests or if the request fails.
  */
-export async function loadFxArt(base = '/assets/kenney-fx/'): Promise<FxArt | null> {
+export async function loadFxArt(base = '/art/kenney-fx/'): Promise<FxArt | null> {
   if (loaded) return loaded;
   try {
     const [frames, image] = await Promise.all([

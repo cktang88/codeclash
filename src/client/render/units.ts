@@ -267,7 +267,7 @@ export class UnitLayer {
       if (v.pip.visible) {
         v.pip.texture = this.tex.chevrons[rank - 1]!;
         v.pip.position.set(px, py + 2);
-        v.pip.scale.set(Math.max(0.16, 7 / zoom / 32));
+        v.pip.scale.set(Math.max(0.2, 13 / zoom / 32));
       }
       const layer = flying ? this.air : this.bodies;
       if (v.body.parent !== layer) layer.addChild(v.body, v.mask);
@@ -278,7 +278,8 @@ export class UnitLayer {
       place(v.body, anchorY, px, py - altitude, size * v.facing, size, lean, py);
       place(v.mask, anchorY, px, py - altitude, size * v.facing, size, lean, py + 0.001);
       v.mask.visible = !flashing;
-      v.mask.tint = this.cryTint[u.p] ?? tint;
+      const cry = this.cryTint[u.p];
+      v.mask.tint = cry !== undefined && cry !== this.tints[u.p] ? cry : tint;
       const wounded = u.hp / u.maxHp;
       v.body.tint = flashing ? 0xffffff : wounded < 0.35 ? 0xd8b0a8 : 0xffffff;
     }
