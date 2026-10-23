@@ -64,6 +64,7 @@ export class Battlefield {
     private readonly opts: BattlefieldOptions,
   ) {
     this.units = new UnitLayer(tex, art);
+    this.fx = new Effects({ reducedMotion: opts.reducedMotion });
     // Fliers are drawn mid-cell, lifted by their flight height: aim effects at the creature's body.
     this.fx.flyHeight = (kind) => {
       const flight = art.flight(kind);
@@ -71,7 +72,6 @@ export class Battlefield {
       const cell = art.cell(kind);
       return flight.height + ((cell.feetY - cell.h / 2) / cell.h) * art.scale(kind);
     };
-    this.fx = new Effects({ reducedMotion: opts.reducedMotion });
     this.banners = new BannerLayer(this.flags);
     app.stage.addChild(this.scene);
     this.scene.addChild(
