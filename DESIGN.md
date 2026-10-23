@@ -129,7 +129,6 @@ Renown is the score:
 | --- | --- |
 | Shrine held | 2 per minute |
 | The Heart held | 8 per minute |
-
 | Kill | the victim's value (1 for most units, 2 for Wardens, Heralds, Outriders and Mercenaries, 10 for a Champion) |
 | Kill of a soldier of the renown leader (bounty) | double the victim's value |
 | Monolith damage | 1 per 100 damage |
