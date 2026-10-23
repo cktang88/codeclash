@@ -69,3 +69,13 @@ Units, castles, terrain and most effects are drawn procedurally in `src/client/r
 | Pack | Author | License | Source |
 | --- | --- | --- | --- |
 | Smoke Particles | Kenney (kenney.nl) | CC0 1.0 | https://kenney.nl/assets/smoke-particles |
+
+## Sound credits
+
+Sound is off until the player presses the sound seal. Cues are defined in `src/client/audio/catalog.ts`. Sampled cues use clips from three Kenney packs, which are trimmed, made mono and loudness-normalized. The clips live in `src/client/public/audio/kenney/`, with each pack's license file alongside. Every other sound is synthesized with Web Audio in `src/client/audio/synth.ts`: horns, bells, roars, fire, drums, choir and the army's murmur. So is the generative music in `src/client/audio/music.ts`. Any sampled cue falls back to synthesis if its clip fails to load.
+
+| Pack | Author | License | Source |
+| --- | --- | --- | --- |
+| Impact Sounds | Kenney (kenney.nl) | CC0 1.0 | https://kenney.nl/assets/impact-sounds |
+| Interface Sounds | Kenney (kenney.nl) | CC0 1.0 | https://kenney.nl/assets/interface-sounds |
+| RPG Audio | Kenney (kenney.nl) | CC0 1.0 | https://kenney.nl/assets/rpg-audio |
