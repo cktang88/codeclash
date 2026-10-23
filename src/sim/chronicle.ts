@@ -4,6 +4,7 @@ import { DOCTRINE_NAMES, STATS } from './stats.ts';
 export type ChronicleKind =
   | 'join'
   | 'muster'
+  | 'desert'
   | 'rout'
   | 'wiped'
   | 'champion'
@@ -136,6 +137,10 @@ export class Chronicler {
         purpose: pl.purpose, files: input?.files ?? 0, branches: input?.branches ?? 0,
         text: `${n.player(pl.p)} pushed ${PURPOSE_PHRASE[pl.purpose]} to ${n.repo(pl.repo)}${msg}. ${platoonLabel(n, pl.repo, pl.ordinal)} musters: ${unitsPhrase(pl.mustered)}.`,
       });
+    }
+    for (const d of ev.desertions) {
+      const c = world.map.sites[world.players[d.p]!.slot]!;
+      add({ kind: 'desert', p: d.p, x: c.x, y: c.y, text: `${d.count} of ${n.player(d.p)}'s soldiers deserted: the work that raised them was undone.` });
     }
     for (const r of ev.routs) {
       const pl = world.platoons.find((x) => x.id === r.platoon);

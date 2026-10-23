@@ -1,7 +1,7 @@
 import type { RoomDetail, RosterEntry, ServerMessage, TimelapseFrame, WarMeta } from '../protocol.ts';
 import { buildDigest, type Digest } from '../rules/digest.ts';
 import { nextHue } from '../rules/heraldry.ts';
-import { NEUTRAL, PlatoonState, TICK_MS, type SimInput, type TimedInput, type World, type WorldSnapshot } from '../sim/api.ts';
+import { CAT_COUNT, NEUTRAL, PlatoonState, TICK_MS, type SimInput, type TimedInput, type World, type WorldSnapshot } from '../sim/api.ts';
 import { Chronicler, type ChronicleEntry, type Names } from '../sim/chronicle.ts';
 import { checksum, generateMap, restore, snapshot, step, createWorld } from '../sim/index.ts';
 import { decodeInput, encodeInput, type RepoRef, type Replay } from '../sim/replay.ts';
@@ -14,6 +14,8 @@ export const CHECK_EVERY_TICKS = 50;
 export const SNAPSHOT_EVERY_TICKS = 3000;
 export const KEYFRAME_EVERY_TICKS = 18000;
 export const CHRONICLE_IN_HELLO = 200;
+/** Largest magnitude a single push may move any ledger field. */
+export const MAX_DELTA = 1_000_000;
 
 export interface Channel {
   send(msg: ServerMessage): void;
@@ -192,7 +194,11 @@ export class War {
   }
 
   /** Raises a platoon for `userId`'s push, if they fight in this war. */
-  push(now: number, userId: number, push: { repo: string; language: string | null; lines: number[]; files?: number; branches?: number; commits: number; message: string }): boolean {
+  push(
+    now: number,
+    userId: number,
+    push: { repo: string; language: string | null; lines: number[]; files?: number; branches?: number; churn?: number; filler?: number; commits: number; message: string },
+  ): boolean {
     const p = this.playerOf(userId);
     if (p === null || !this.active) return false;
     const header = this.row.header;
@@ -205,10 +211,15 @@ export class War {
       added.push({ index: repo, ref });
     }
     const msg = push.message.split('\n')[0]!.slice(0, 72);
-    const count = (n: number | undefined) => (n !== undefined && Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0);
-    const files = count(push.files);
-    const branches = count(push.branches);
-    this.submit(now, [{ kind: 'push', p, repo, lines: push.lines, commits: push.commits, msg, files, branches }], { repos: added });
+    // Ledger deltas are signed: work undone today arrives negative.
+    const signed = (n: number | undefined) => (n !== undefined && Number.isFinite(n) ? Math.max(-MAX_DELTA, Math.min(MAX_DELTA, Math.trunc(n))) : 0);
+    const count = (n: number | undefined) => Math.max(0, signed(n));
+    const lines = Array.from({ length: CAT_COUNT }, (_, c) => signed(push.lines[c]));
+    this.submit(
+      now,
+      [{ kind: 'push', p, repo, lines, commits: count(push.commits), msg, files: signed(push.files), branches: signed(push.branches), churn: count(push.churn), filler: count(push.filler) }],
+      { repos: added },
+    );
     return true;
   }
 

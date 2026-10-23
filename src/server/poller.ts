@@ -1,5 +1,5 @@
 import { CAT_COUNT } from '../sim/api.ts';
-import { summarizeFiles } from '../rules/classify.ts';
+import { measurePush } from '../rules/ledger.ts';
 import type { Store, UserRow } from './db.ts';
 import type { CompareResult, GithubClient } from './github.ts';
 import { errorMessage, type Logger } from './log.ts';
@@ -9,11 +9,16 @@ export interface PushReport {
   pushId: string;
   repo: string;
   language: string | null;
+  /** Signed change to the user's daily ledger per line category: undone work arrives negative. */
   lines: number[];
-  /** Source files touched. */
+  /** Signed change in source files carrying counted code changes today. */
   files: number;
-  /** Branch points added in source code. */
+  /** Signed change in branch points of counted code. */
   branches: number;
+  /** Lines that undid counted work from earlier pushes. */
+  churn: number;
+  /** Added lines left out as filler: punctuation, literal tables, duplicates, pastes past the daily cap. */
+  filler: number;
   commits: number;
   message: string;
   at: number;
@@ -35,6 +40,7 @@ const BUDGET_SHARE = 0.6;
 export const MAX_PUSH_ATTEMPTS = 5;
 const MESSAGE_MAX = 72;
 const ZERO_SHA = /^0+$/;
+const ALREADY_RECORDED = new Error('push already recorded');
 
 export interface PushRef {
   repo: string;
@@ -90,26 +96,38 @@ export async function ingestPush(
   const counted = own.filter((c) => fresh.has(c.sha));
   if (counted.length === 0) return null;
 
-  const summary = summarizeFiles(result.files);
   // Other people's commits in the range (a merged base, a co-worker's work) do not raise soldiers.
   const share = counted.length / result.commits.length;
-  const scale = (n: number) => (share < 1 ? Math.floor(n * share) : n);
-  const lines = summary.lines.map(scale);
-  while (lines.length < CAT_COUNT) lines.push(0);
-
-  const report: PushReport = {
-    userId: user.id,
-    pushId,
-    repo: push.repo,
-    language: summary.language,
-    lines,
-    files: summary.files > 0 ? Math.max(1, scale(summary.files)) : 0,
-    branches: scale(summary.branches),
-    commits: counted.length,
-    message: headline(counted[counted.length - 1]!.message),
-    at: push.at,
-  };
-  if (!store.recordPush(report)) return null;
+  const changed = result.files;
+  const scale = (n: number) => (share < 1 ? Math.trunc(n * share) : n);
+  let report: PushReport;
+  try {
+    report = store.transaction(() => {
+      // Measuring moves the ledger, so it commits only together with the push record.
+      const delta = measurePush(changed, store.ledgerFor(user.id, push.repo, deps.clock()));
+      const lines = delta.lines.map(scale);
+      while (lines.length < CAT_COUNT) lines.push(0);
+      const r: PushReport = {
+        userId: user.id,
+        pushId,
+        repo: push.repo,
+        language: delta.language,
+        lines,
+        files: scale(delta.files),
+        branches: scale(delta.branches),
+        churn: delta.churn,
+        filler: delta.filler,
+        commits: counted.length,
+        message: headline(counted[counted.length - 1]!.message),
+        at: push.at,
+      };
+      if (!store.recordPush(r)) throw ALREADY_RECORDED;
+      return r;
+    });
+  } catch (err) {
+    if (err === ALREADY_RECORDED) return null;
+    throw err;
+  }
   deps.onPush(report);
   return report;
 }

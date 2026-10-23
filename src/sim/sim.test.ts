@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { Cat, Kind, NEUTRAL, PlatoonState, TICKS_PER_MINUTE, type SimInput, type World } from './api.ts';
+import { Cat, Kind, NEUTRAL, PlatoonState, TICKS_PER_MINUTE, type Ledger, type SimInput, type World } from './api.ts';
 import { Chronicler } from './chronicle.ts';
 import { dcos, dsin } from './dmath.ts';
 import { generateMap, slotsFor } from './mapgen.ts';
-import { musterCounts, purposeOf, slotsOf } from './muster.ts';
+import { applyDelta, armyFor, armyQuality, emptyLedger, purposeOf, slotsOf } from './muster.ts';
 import { STATS } from './stats.ts';
 import { decodeInput, encodeInput, runReplay, type Replay } from './replay.ts';
 import { checksum, restore, snapshot } from './snapshot.ts';
@@ -25,7 +25,7 @@ function script(players: number, minutes: number, seed = 1): Map<number, SimInpu
   for (let t = 1; t < minutes * TICKS_PER_MINUTE; t++) {
     for (let p = 0; p < players; p++) {
       if (rand() < 1 / (2 * TICKS_PER_MINUTE)) {
-        add(t, { kind: 'push', p, repo: p, commits: 1, files: 3, branches: 10, msg: 'm', lines: lines({ Code: Math.floor(rand() * 200), Test: Math.floor(rand() * 60), Comment: 12, Removed: Math.floor(rand() * 40) }) });
+        add(t, { kind: 'push', p, repo: p, commits: 1, files: 3, branches: 10, churn: 0, filler: 0, msg: 'm', lines: lines({ Code: Math.floor(rand() * 200), Test: Math.floor(rand() * 60), Comment: 12, Removed: Math.floor(rand() * 40) }) });
       }
     }
   }
@@ -52,19 +52,14 @@ function named(counts: readonly number[]): Record<string, number> {
   return out;
 }
 
-describe('muster', () => {
-  it('raises Footmen from code size and files touched; generated and vendored code raise nothing', () => {
-    expect(named(musterCounts(lines({ Code: 25 }), 0, 0, 'Update handler', 1))).toEqual({ Footman: 3 });
-    expect(named(musterCounts(lines({ Code: 100, Comment: 5 }), 0, 0, 'Update handler', 4))).toEqual({ Footman: 9 });
-    expect(musterCounts(lines({ Code: 100, Comment: 5 }), 0, 0, 'Update handler', 20)[Kind.Footman]).toBe(11);
-    expect(named(musterCounts(lines({ Generated: 50_000, Vendor: 50_000 }), 0, 0, 'Update handler', 0))).toEqual({ Footman: 1 });
-  });
+function ledgerOf(parts: { lines: Partial<Record<keyof typeof Cat, number>>; files?: number; branches?: number; msg?: string; filler?: number }[]): Ledger {
+  const l = emptyLedger();
+  for (const d of parts) applyDelta(l, { lines: lines(d.lines), files: d.files ?? 0, branches: d.branches ?? 0, churn: 0, filler: d.filler ?? 0, purpose: purposeOf(d.msg ?? '') });
+  return l;
+}
+const total = (counts: readonly number[]) => counts.reduce((a, b) => a + b, 0);
 
-  it('keeps tests, comments, docs and config to a little support', () => {
-    const support = musterCounts(lines({ Test: 10_000, Comment: 10_000, Docs: 10_000, Config: 10_000 }), 0, 0, 'Update handler');
-    expect(named(support)).toEqual({ Warden: 3, Archer: 2, Herald: 1, Sapper: 2 });
-  });
-
+describe('the army a day of work is worth', () => {
   it('reads the purpose from the commit message', () => {
     expect(purposeOf('fix(parser): crash on empty input')).toBe('fix');
     expect(purposeOf('Fixes #12: off by one')).toBe('fix');
@@ -76,45 +71,88 @@ describe('muster', () => {
     expect(purposeOf('wip')).toBe('work');
   });
 
-  it('raises specialists by purpose and complexity', () => {
-    const fix = musterCounts(lines({ Code: 120, Comment: 3 }), 0, 0, 'fix: race in scheduler', 5, 10);
-    expect(fix[Kind.Cleric]).toBe(2);
-    expect(fix[Kind.Paladin]).toBe(1);
-    expect(fix[Kind.Ranger]).toBe(2);
-    expect(musterCounts(lines({ Code: 10, Comment: 1 }), 0, 0, 'fix typo', 1)[Kind.Paladin]).toBe(0);
-    const complex = musterCounts(lines({ Code: 300, Comment: 10 }), 0, 0, 'Update handler', 3, 60);
-    expect(complex[Kind.Knight]).toBe(4);
-    expect(complex[Kind.Troll]).toBe(1);
-    expect(musterCounts(lines({ Code: 80, Removed: 900, Comment: 3 }), 0, 0, 'refactor: drop legacy auth', 7)[Kind.GriffinRider]).toBe(1);
-    expect(musterCounts(lines({ Code: 80, Comment: 3 }), 0, 0, 'perf: cache', 2, 40)[Kind.Wizard]).toBe(3);
-    expect(named(musterCounts(lines({ Code: 400, Removed: 300 }), 0, 0, 'Revert "feat: x"', 9))).toEqual({ Skeleton: 8, 'Bone Golem': 1 });
-    expect(musterCounts(lines({ Code: 5 }), 0, 0, 'chore(deps): bump vite', 5)[Kind.Mercenary]).toBe(2);
-    expect(musterCounts(lines({ Code: 200, Comment: 3 }), 0, 0, 'Update handler', 14)[Kind.Trebuchet]).toBe(1);
+  it('grows with real code and files touched, with diminishing returns', () => {
+    const small = total(armyFor(ledgerOf([{ lines: { Code: 100, Comment: 5 }, files: 2 }]), 1));
+    const big = total(armyFor(ledgerOf([{ lines: { Code: 1600, Comment: 80 }, files: 32 }]), 1));
+    expect(small).toBeGreaterThan(5);
+    expect(big).toBeGreaterThan(small * 2);
+    expect(big).toBeLessThan(small * 16);
   });
 
-  it('raises Berserkers from untested, uncommented code', () => {
-    expect(named(musterCounts(lines({ Code: 60 }), 0, 0, 'wip', 1))).toEqual({ Footman: 2, Berserker: 2 });
-    expect(musterCounts(lines({ Code: 60 }), 0, 0, 'fix: wip', 1)[Kind.Berserker]).toBe(0);
+  it('raises nothing for generated or vendored code, and keeps support small', () => {
+    expect(armyFor(ledgerOf([{ lines: { Generated: 1e6, Vendor: 1e6 } }]), 1)).toEqual([1, ...new Array(19).fill(0)]);
+    const support = armyFor(ledgerOf([{ lines: { Test: 1e6, Comment: 1e6, Docs: 1e6, Config: 1e6 } }]), 1);
+    expect(slotsOf(support)).toBeLessThanOrEqual(12);
   });
 
-  it('gives a Champion to big work and a Dragon to legendary features', () => {
-    expect(musterCounts(lines({ Code: 300, Comment: 5 }), 0, 0, 'feat: sync', 5, 20)[Kind.Champion]).toBe(1);
-    expect(musterCounts(lines({ Code: 300, Comment: 5 }), 0, 0, 'feat: sync', 2, 20)[Kind.Champion]).toBe(0);
-    const legend = musterCounts(lines({ Code: 700, Comment: 5 }), 0, 0, 'feat: offline mode', 9, 80);
-    expect(legend[Kind.Dragon]).toBe(1);
-    expect(legend[Kind.Champion]).toBe(0);
-    expect(musterCounts(lines({ Code: 700, Comment: 5 }), 0, 0, 'chore: vendor sdk', 9, 80)[Kind.Dragon]).toBe(0);
-    expect(musterCounts(lines({ Code: 700, Comment: 5 }), 3, 3, 'feat: offline mode', 9, 80)[Kind.Dragon]).toBe(0);
+  it('lets the commit message choose specialists but never the size of the army', () => {
+    const shapes = ['fix: race', 'feat: sync', 'refactor: split', 'perf: cache', 'chore: tidy', 'wip'].map((msg) =>
+      armyFor(ledgerOf([{ lines: { Code: 600, Removed: 200, Comment: 20 }, files: 10, branches: 60, msg }]), 1),
+    );
+    const sizes = new Set(shapes.map((c) => slotsOf(c)));
+    expect(sizes.size).toBe(1);
+    expect(shapes[0]![Kind.Cleric]).toBeGreaterThan(0);
+    expect(shapes[1]![Kind.Champion]).toBeGreaterThan(0);
+    expect(shapes[2]![Kind.Outrider]).toBeGreaterThan(0);
+    expect(shapes[3]![Kind.Wizard]).toBeGreaterThan(0);
   });
 
-  it('tires heavy pushers, fits the platoon in its slots, and never raises nothing', () => {
-    expect(musterCounts(lines({ Code: 100, Comment: 5 }), 0, 0, 'x', 0)[Kind.Footman]).toBe(5);
-    expect(musterCounts(lines({ Code: 100, Comment: 5 }), 3, 3, 'x', 0)[Kind.Footman]).toBe(2);
-    expect(musterCounts(lines({ Code: 100, Comment: 5 }), 0, 12, 'x', 0)[Kind.Footman]).toBe(1);
-    expect(named(musterCounts(lines({ Blank: 500 }), 0, 0))).toEqual({ Footman: 1 });
-    const huge = musterCounts(lines({ Code: 1e6, Test: 1e6, Comment: 1e6, Docs: 1e6, Config: 1e6, Removed: 1e6 }), 0, 0, 'feat: everything', 1e6, 1e6);
-    expect(slotsOf(huge)).toBeLessThanOrEqual(32);
-    expect(huge[Kind.Dragon]).toBe(1);
+  it('summons a Dragon only for a legendary day of feature work', () => {
+    expect(armyFor(ledgerOf([{ lines: { Code: 1000, Comment: 20 }, files: 12, branches: 100, msg: 'feat: offline' }]), 1)[Kind.Dragon]).toBe(1);
+    expect(armyFor(ledgerOf([{ lines: { Code: 1000, Comment: 20 }, files: 4, branches: 100, msg: 'feat: offline' }]), 1)[Kind.Dragon]).toBe(0);
+  });
+
+  it('makes veterans of big contributors and a ragged army of test, comment and filler spam', () => {
+    expect(armyQuality(ledgerOf([{ lines: { Code: 900, Test: 300, Comment: 60 }, files: 14 }])).veterancy).toBe(2);
+    expect(armyQuality(ledgerOf([{ lines: { Code: 300, Test: 120, Comment: 30 }, files: 6 }])).power).toBeGreaterThan(1);
+    const tests = armyQuality(ledgerOf([{ lines: { Code: 50, Test: 2000 } }]));
+    expect(tests.quality).toBeLessThan(0.9);
+    expect(tests.notes.some((n) => n.kind === 'tests')).toBe(true);
+    expect(armyQuality(ledgerOf([{ lines: { Code: 50, Comment: 400 } }])).quality).toBeLessThan(0.95);
+    expect(armyQuality(ledgerOf([{ lines: { Code: 100 }, filler: 900 }])).quality).toBeLessThan(0.9);
+    expect(armyQuality(ledgerOf([{ lines: { Code: 1e6, Test: 1e9 } }])).quality).toBeGreaterThanOrEqual(0.7);
+  });
+});
+
+describe('fair musters in the world', () => {
+  const push = (p: number, d: Partial<Record<keyof typeof Cat, number>>, extra: Partial<Extract<SimInput, { kind: 'push' }>> = {}): SimInput =>
+    ({ kind: 'push', p, repo: 0, commits: 1, msg: 'feat: work', lines: lines(d), files: 0, branches: 0, churn: 0, filler: 0, ...extra });
+
+  it('raises the same army whether the work arrives in one push or many', () => {
+    const one = newWorld(2, 3);
+    step(one, [{ kind: 'join', p: 0, slot: 0, hue: 1 }]);
+    step(one, [push(0, { Code: 1200, Test: 300, Comment: 60, Removed: 200 }, { files: 18, branches: 140 })]);
+    const many = newWorld(2, 3);
+    step(many, [{ kind: 'join', p: 0, slot: 0, hue: 1 }]);
+    const parts: [number, number, number, number, number, number][] = [[400, 100, 20, 50, 6, 40], [200, 50, 10, 50, 3, 30], [300, 100, 15, 0, 5, 40], [300, 50, 15, 100, 4, 30]];
+    for (const [code, test, comment, removed, files, branches] of parts) {
+      step(many, [push(0, { Code: code, Test: test, Comment: comment, Removed: removed }, { files, branches })]);
+      for (let i = 0; i < 40; i++) step(many, []);
+    }
+    expect(many.players[0]!.raised).toEqual(one.players[0]!.raised);
+    expect(many.players[0]!.ledger).toEqual(one.players[0]!.ledger);
+    expect(many.players[0]!.quality).toBe(one.players[0]!.quality);
+    expect(many.players[0]!.veterancy).toBe(one.players[0]!.veterancy);
+  });
+
+  it('makes soldiers desert when the work that raised them is undone', () => {
+    const w = newWorld(2, 3);
+    step(w, [{ kind: 'join', p: 0, slot: 0, hue: 1 }]);
+    step(w, [push(0, { Code: 800 }, { files: 10, branches: 80 })]);
+    for (let i = 0; i < 20; i++) step(w, []);
+    const before = w.units.filter((u) => u.p === 0).length;
+    const ev = step(w, [push(0, { Code: -800 }, { branches: -80, churn: 1600 })]);
+    expect(ev.desertions[0]?.count).toBeGreaterThan(before / 2);
+    expect(total(w.players[0]!.raised)).toBe(1);
+  });
+
+  it('marches a big day of work as several full platoons', () => {
+    const w = newWorld(2, 3);
+    step(w, [{ kind: 'join', p: 0, slot: 0, hue: 1 }]);
+    step(w, [push(0, { Code: 6000, Comment: 100 }, { files: 60, branches: 600 })]);
+    const platoons = w.platoons.filter((pl) => pl.p === 0);
+    expect(platoons.length).toBeGreaterThan(1);
+    for (const pl of platoons) expect(slotsOf(pl.mustered)).toBeLessThanOrEqual(32);
   });
 });
 
@@ -201,7 +239,7 @@ describe('world', () => {
   it('holds soldiers in the muster queue beyond the per-player cap', () => {
     const w = newWorld(2);
     step(w, [{ kind: 'join', p: 0, slot: 0, hue: 1 }]);
-    const push: SimInput = { kind: 'push', p: 0, repo: 0, commits: 1, files: 3, branches: 10, msg: 'x', lines: lines({ Code: 400, Test: 400, Comment: 100 }) };
+    const push: SimInput = { kind: 'push', p: 0, repo: 0, commits: 1, files: 3, branches: 10, churn: 0, filler: 0, msg: 'x', lines: lines({ Code: 4000, Test: 400, Comment: 100 }) };
     for (let i = 0; i < 30; i++) step(w, [push]);
     expect(slotsOf(w.units.filter((u) => u.p === 0).map((u) => u.kind).reduce((c, k) => (c[k]!++, c), new Array<number>(20).fill(0)))).toBeLessThanOrEqual(160);
     expect(w.players[0]!.queue.length).toBeGreaterThan(0);
@@ -212,8 +250,8 @@ describe('regroup', () => {
   it('folds a nearby remnant into a stronger platoon of the same army', () => {
     const w = newWorld(2);
     step(w, [{ kind: 'join', p: 0, slot: 0, hue: 1 }]);
-    step(w, [{ kind: 'push', p: 0, repo: 0, commits: 1, files: 3, branches: 10, msg: 'big', lines: lines({ Code: 100, Test: 30 }) }]);
-    step(w, [{ kind: 'push', p: 0, repo: 1, commits: 1, files: 3, branches: 10, msg: 'tiny', lines: lines({ Code: 2 }) }]);
+    step(w, [{ kind: 'push', p: 0, repo: 0, commits: 1, files: 3, branches: 10, churn: 0, filler: 0, msg: 'big', lines: lines({ Code: 100, Test: 30 }) }]);
+    step(w, [{ kind: 'push', p: 0, repo: 1, commits: 1, files: 3, branches: 10, churn: 0, filler: 0, msg: 'tiny', lines: lines({ Code: 2 }) }]);
     let regrouped = 0;
     for (let i = 0; i < 20; i++) regrouped += step(w, []).regroups.length;
     expect(regrouped).toBe(1);

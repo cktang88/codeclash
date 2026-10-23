@@ -80,7 +80,29 @@ function PushPurposes({ pl }: { pl: DigestPlayer & { purposes?: PurposeCounts; f
   );
 }
 
-function PlayerCard({ pl, repos }: { pl: DigestPlayer; repos: { name: string; language: string | null }[] }) {
+type FairFields = { quality?: number; veterancy?: number; power?: number; churn?: number; filler?: number };
+const RANKS = ['', 'I', 'II', 'III'];
+
+/** The army's final quality: veteran rank or ragged, and how much work cancelled out or was filler. */
+function ArmyQuality({ pl }: { pl: DigestPlayer & FairFields }) {
+  if (pl.quality === undefined && pl.veterancy === undefined) return null;
+  const vet = pl.veterancy ?? 0;
+  const power = pl.power ?? (pl.quality ?? 1) * (1 + 0.1 * vet);
+  const ragged = (pl.quality ?? 1) < 1;
+  return (
+    <div className="player-card-quality">
+      {vet > 0 && <span className="tag tag-gold">Veteran {RANKS[vet]}</span>}
+      {ragged && <span className="tag tag-ragged">Ragged</span>}
+      <span className="muted small">
+        soldiers at <span className="num">×{power.toFixed(2)}</span>
+        {(pl.churn ?? 0) > 0 && <> · {compact(pl.churn!)} lines undone</>}
+        {(pl.filler ?? 0) > 0 && <> · {compact(pl.filler!)} filler</>}
+      </span>
+    </div>
+  );
+}
+
+function PlayerCard({ pl, repos }: { pl: DigestPlayer & FairFields; repos: { name: string; language: string | null }[] }) {
   const lang = pl.best ? (repos.find((r) => r.name === pl.best!.repo)?.language ?? null) : null;
   return (
     <article className="player-card panel" style={{ borderTopColor: armyColor(pl.hue) }}>
@@ -94,6 +116,7 @@ function PlayerCard({ pl, repos }: { pl: DigestPlayer; repos: { name: string; la
           </div>
         </div>
       </header>
+      <ArmyQuality pl={pl} />
       <PushPurposes pl={pl} />
       <LinesBar lines={pl.lines} />
       {pl.raised.some((n) => n > 0) && (

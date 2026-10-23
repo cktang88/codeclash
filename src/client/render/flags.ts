@@ -166,7 +166,69 @@ function textOutlined(ctx: CanvasRenderingContext2D, text: string, x: number, y:
 }
 
 /** Paints a battalion flag: field, pattern, hoist stripe in the language color, emblem, initials, ordinal. */
-export function paintFlag(flag: Flag, ordinal: number | null): HTMLCanvasElement {
+/**
+ * How a platoon's flag shows its soldiers' quality: veterans fly gilded flags
+ * with a star per rank, ragged armies fly torn and faded ones.
+ */
+export type FlagGrade = { rank: 0 | 1 | 2 | 3; ragged: boolean };
+
+/** An army's grade: its veteran rank, and whether low-quality work has left it ragged. */
+export function gradeOf(player: { quality?: number; veterancy?: number } | undefined): FlagGrade {
+  const rank = Math.max(0, Math.min(3, Math.floor(player?.veterancy ?? 0))) as FlagGrade['rank'];
+  return { rank, ragged: (player?.quality ?? 1) < RAGGED_BELOW };
+}
+
+/** Quality below which an army looks ragged. */
+export const RAGGED_BELOW = 0.95;
+
+const GOLD = '#e8c25a';
+
+function paintGrade(ctx: CanvasRenderingContext2D, w: number, h: number, grade: FlagGrade): void {
+  if (grade.ragged) {
+    // Faded cloth with patches, and a frayed, notched free edge.
+    ctx.fillStyle = 'rgba(120,112,100,0.38)';
+    ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = 'rgba(60,48,36,0.55)';
+    ctx.fillRect(w * 0.55, h * 0.58, 12, 10);
+    ctx.fillRect(w * 0.3, h * 0.12, 9, 8);
+    ctx.save();
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.beginPath();
+    for (let i = 0; i < 6; i++) {
+      const y = (i + 0.5) * (h / 6);
+      const depth = 6 + ((i * 7) % 3) * 5;
+      ctx.moveTo(w, y - h / 12);
+      ctx.lineTo(w - depth, y);
+      ctx.lineTo(w, y + h / 12);
+    }
+    ctx.arc(w * 0.78, h * 0.3, 3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+    return;
+  }
+  if (grade.rank === 0) return;
+  ctx.strokeStyle = GOLD;
+  ctx.lineWidth = 2 + grade.rank;
+  ctx.strokeRect(3.5, 3.5, w - 7, h - 7);
+  for (let i = 0; i < grade.rank; i++) star(ctx, w - 10 - i * 12, h - 9, 5);
+}
+
+function star(ctx: CanvasRenderingContext2D, x: number, y: number, r: number): void {
+  ctx.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const a = -Math.PI / 2 + (i * Math.PI) / 5;
+    const rr = i % 2 === 0 ? r : r * 0.45;
+    ctx.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr);
+  }
+  ctx.closePath();
+  ctx.fillStyle = GOLD;
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(40,28,8,0.9)';
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+}
+
+export function paintFlag(flag: Flag, ordinal: number | null, grade: FlagGrade = { rank: 0, ragged: false }): HTMLCanvasElement {
   const [c, ctx] = canvas2d(FLAG_W, FLAG_H);
   const w = FLAG_W;
   const h = FLAG_H;
@@ -183,6 +245,7 @@ export function paintFlag(flag: Flag, ordinal: number | null): HTMLCanvasElement
   ctx.strokeStyle = 'rgba(0,0,0,0.75)';
   ctx.lineWidth = 3;
   ctx.strokeRect(1.5, 1.5, w - 3, h - 3);
+  paintGrade(ctx, w, h, grade);
   return c;
 }
 
@@ -216,11 +279,11 @@ export class FlagCache {
     return this.blankFlag;
   }
 
-  battalion(hue: number, repo: string, language: string | null, ordinal: number | null): Texture {
-    const key = `${hue}|${repo}|${language ?? ''}|${ordinal ?? ''}`;
+  battalion(hue: number, repo: string, language: string | null, ordinal: number | null, grade: FlagGrade = { rank: 0, ragged: false }): Texture {
+    const key = `${hue}|${repo}|${language ?? ''}|${ordinal ?? ''}|${grade.rank}|${grade.ragged ? 1 : 0}`;
     let t = this.cache.get(key);
     if (!t) {
-      t = new Texture({ source: new CanvasSource({ resource: paintFlag(battalionFlag(hue, repo, language), ordinal), autoGenerateMipmaps: true }) });
+      t = new Texture({ source: new CanvasSource({ resource: paintFlag(battalionFlag(hue, repo, language), ordinal, grade), autoGenerateMipmaps: true }) });
       this.cache.set(key, t);
     }
     return t;

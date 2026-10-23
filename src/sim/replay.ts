@@ -31,12 +31,13 @@ export interface Replay {
 
 /**
  * [tick, 'join', p, slot, hue]
- * [tick, 'push', p, repo, lines[9], commits, message, files, branches]
+ * [tick, 'push', p, repo, lines[9], commits, message, files, branches, churn, filler]
+ *   (lines and branches are signed changes to the player's daily ledger)
  * [tick, 'doc', p, doctrine] · [tick, 'rally', p, site] · [tick, 'cry', p]
  */
 export type EncodedInput =
   | [number, 'join', number, number, number]
-  | [number, 'push', number, number, number[], number, string, number?, number?]
+  | [number, 'push', number, number, number[], number, string, number?, number?, number?, number?]
   | [number, 'doc', number, number]
   | [number, 'rally', number, number]
   | [number, 'cry', number];
@@ -46,7 +47,7 @@ export function encodeInput(tick: number, input: SimInput): EncodedInput {
     case 'join':
       return [tick, 'join', input.p, input.slot, input.hue];
     case 'push':
-      return [tick, 'push', input.p, input.repo, cleanLines(input.lines), input.commits, input.msg, input.files, input.branches];
+      return [tick, 'push', input.p, input.repo, cleanLines(input.lines), input.commits, input.msg, input.files, input.branches, input.churn, input.filler];
     case 'doctrine':
       return [tick, 'doc', input.p, input.doctrine];
     case 'rally':
@@ -69,7 +70,7 @@ export function decodeInput(e: EncodedInput): { tick: number; input: SimInput } 
       return { tick, input: { kind: 'join', p: e[2], slot: e[3], hue: e[4] } };
     case 'push': {
       if (!Array.isArray(e[4])) throw new Error(`malformed replay push ${JSON.stringify(e)}`);
-      return { tick, input: { kind: 'push', p: e[2], repo: e[3], lines: cleanLines(e[4]), commits: e[5], msg: typeof e[6] === 'string' ? e[6] : '', files: e[7] ?? 0, branches: e[8] ?? 0 } };
+      return { tick, input: { kind: 'push', p: e[2], repo: e[3], lines: cleanLines(e[4]), commits: e[5], msg: typeof e[6] === 'string' ? e[6] : '', files: e[7] ?? 0, branches: e[8] ?? 0, churn: e[9] ?? 0, filler: e[10] ?? 0 } };
     }
     case 'doc':
       return { tick, input: { kind: 'doctrine', p: e[2], doctrine: e[3] as 0 } };

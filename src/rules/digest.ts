@@ -48,6 +48,11 @@ export interface DigestPlayer {
   fixes: number;
   files: number;
   branches: number;
+  /** Final army quality and veteran rank. */
+  quality: number;
+  veterancy: number;
+  churn: number;
+  filler: number;
   structureDamage: number;
   monolithDamage: number;
   best: { repo: string; ordinal: number; kills: number; message: string } | null;
@@ -93,7 +98,7 @@ export function buildDigest(world: World, replay: Replay, chronicle: readonly Ch
       place: 0,
       renown: ps.renown,
       pushes: ps.pushes,
-      lines: ps.lines.slice(),
+      lines: ps.ledger.lines.slice(),
       raised: ps.raised.slice(),
       slain: ps.slain.slice(),
       kills: ps.kills,
@@ -103,8 +108,12 @@ export function buildDigest(world: World, replay: Replay, chronicle: readonly Ch
       routs: ps.routs,
       purposes: Object.fromEntries(PURPOSES.map((pu, i) => [pu, ps.purposes[i] ?? 0])) as Record<Purpose, number>,
       fixes: ps.purposes[PURPOSES.indexOf('fix')] ?? 0,
-      files: ps.files,
-      branches: ps.branches,
+      files: ps.ledger.files,
+      branches: ps.ledger.branches,
+      quality: ps.quality,
+      veterancy: ps.veterancy,
+      churn: ps.ledger.churn,
+      filler: ps.ledger.filler,
       structureDamage: Math.round(ps.structureDamage),
       monolithDamage: Math.round(ps.monolithDamage),
       best: null,

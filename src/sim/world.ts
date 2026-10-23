@@ -16,6 +16,7 @@ import {
   type Structure,
   type TickEvents,
   type Unit,
+  type Purpose,
   type WarParams,
   type World,
 } from './api.ts';
@@ -23,7 +24,7 @@ import { attackerMultiplier, computeAuras, enemiesNear, findTarget, structureDam
 import { capitalOwner, runCouncil, sitePresence } from './council.ts';
 import { derived } from './derived.ts';
 import { cellAt } from './flowfield.ts';
-import { cleanLines, musterCounts, purposeOf, slotsOf } from './muster.ts';
+import { applyDelta, armyFor, armyQuality, cleanLines, emptyLedger, int, purposeOf, slotsOf, type LedgerDelta } from './muster.ts';
 import { nextRandom, seedRng } from './rng.ts';
 import { AURA_HEAL, indexWorld, scratchFor, type Scratch } from './scratch.ts';
 import { bucketX, bucketY, rebuildSpatialHash } from './spatial.ts';
@@ -91,7 +92,7 @@ const speedOf = (kind: number) => STATS[kind]!.speed;
 
 export function emptyEvents(): TickEvents {
   return {
-    swings: [], shots: [], breaths: [], blasts: [], heals: [], hits: [], deaths: [], musters: [], marches: [], routs: [], disbands: [],
+    desertions: [], swings: [], shots: [], breaths: [], blasts: [], heals: [], hits: [], deaths: [], musters: [], marches: [], routs: [], disbands: [],
     captures: [], sacks: [], rebuilt: [], regroups: [], monolith: null, cries: [], doctrines: [], rallies: [], joins: [],
     leader: null, departures: [],
   };
@@ -174,7 +175,13 @@ function applyInput(world: World, input: SimInput, ev: TickEvents): void {
   switch (input.kind) {
     case 'push':
       if (!whole(input.repo) || input.repo < 0) return;
-      musterPush(world, player, input.repo, cleanLines(input.lines), typeof input.msg === 'string' ? input.msg : '', count(input.files), count(input.branches), ev);
+      musterPush(world, player, input.repo, typeof input.msg === 'string' ? input.msg : '', {
+        lines: cleanLines(input.lines),
+        files: int(input.files),
+        branches: int(input.branches),
+        churn: int(input.churn, 0),
+        filler: int(input.filler, 0),
+      }, ev);
       return;
     case 'doctrine':
       if (!whole(input.doctrine) || input.doctrine < 0 || input.doctrine > 4 || input.doctrine === player.doctrine) return;
@@ -206,34 +213,115 @@ function newPlayer(p: number, slot: number, hue: number): PlayerState {
     doctrine: 0, doctrineAt: -1,
     rallySite: -1, rallyUntil: -1, rallyAt: -1,
     cryUntil: -1, cryUsed: false,
-    renown: 0, pushes: 0, recentPushes: [],
-    lines: new Array<number>(9).fill(0),
+    renown: 0, pushes: 0, ledger: emptyLedger(), quality: 1, veterancy: 0,
     raised: new Array<number>(KIND_COUNT).fill(0),
     slain: new Array<number>(KIND_COUNT).fill(0),
     kills: 0, losses: 0, structureDamage: 0, monolithDamage: 0, captures: 0, sacks: 0, routs: 0,
-    purposes: new Array<number>(PURPOSES.length).fill(0), files: 0, branches: 0, best: null,
+    purposes: new Array<number>(PURPOSES.length).fill(0), best: null,
     queue: [], battalions: [],
   };
 }
 
-/** A whole, non-negative count from an untrusted input field. */
-function count(n: unknown): number {
-  return typeof n === 'number' && Number.isFinite(n) && n > 0 ? Math.floor(Math.min(n, 1e9)) : 0;
-}
-
-function musterPush(world: World, player: PlayerState, repo: number, lines: readonly number[], msg: string, files: number, branches: number, ev: TickEvents): void {
-  const hourAgo = world.tick - 60 * TICKS_PER_MINUTE;
-  while (player.recentPushes.length > 0 && player.recentPushes[0]! <= hourAgo) player.recentPushes.shift();
-  const counts = musterCounts(lines, player.recentPushes.length, player.pushes, msg, files, branches);
+/**
+ * Adds a push to the player's ledger and musters the difference between the
+ * army the ledger is now worth and what it has already raised. Because the
+ * ledger only sums deltas, splitting or squashing the same work raises the same
+ * army; when work is undone, the difference is negative and soldiers desert.
+ */
+function musterPush(world: World, player: PlayerState, repo: number, msg: string, delta: Omit<LedgerDelta, 'purpose'>, ev: TickEvents): void {
   const purpose = purposeOf(msg);
   player.pushes++;
-  player.recentPushes.push(world.tick);
-  for (let c = 0; c < player.lines.length; c++) player.lines[c]! += lines[c]!;
   player.purposes[PURPOSES.indexOf(purpose)]!++;
-  player.files += files;
-  player.branches += branches;
-  for (let k = 0; k < KIND_COUNT; k++) player.raised[k]! += counts[k]!;
+  applyDelta(player.ledger, { ...delta, purpose });
+  const quality = armyQuality(player.ledger);
+  player.quality = quality.quality;
+  player.veterancy = quality.veterancy;
+  const target = armyFor(player.ledger, player.pushes);
+  const counts = new Array<number>(KIND_COUNT).fill(0);
+  // The army's size in slots always equals what the ledger is worth. Its make-up
+  // follows the target as closely as it can without anyone deserting while the
+  // ledger is growing: soldiers only leave when work is undone.
+  let room = slotsOf(target) - slotsOf(player.raised);
+  if (room < 0) {
+    let deserted = 0;
+    for (const k of desertionOrder(target, player.raised)) {
+      while (room < 0 && player.raised[k]! > 0) {
+        // A soldier already fallen cannot desert, but still leaves the army's books.
+        deserted += desert(world, player, k, 1);
+        player.raised[k]!--;
+        room += STATS[k]!.slots;
+      }
+      if (room >= 0) break;
+    }
+    if (deserted > 0) ev.desertions.push({ p: player.p, count: deserted });
+  }
+  for (const k of MUSTER_ORDER) {
+    const per = STATS[k]!.slots;
+    const n = Math.min(target[k]! - player.raised[k]!, Math.floor(room / per));
+    if (n <= 0) continue;
+    counts[k] = n;
+    player.raised[k]! += n;
+    room -= n * per;
+  }
+  // A large muster marches as several full platoons rather than one oversized one.
+  for (const chunk of platoonsOf(counts)) queuePlatoon(world, player, repo, purpose, chunk, ev);
+}
 
+/** Heroes first, then specialists, so Footmen fill whatever room is left. */
+const MUSTER_ORDER: readonly Kind[] = [
+  Kind.Dragon, Kind.Champion, Kind.Troll, Kind.Trebuchet, Kind.GriffinRider, Kind.BoneGolem, Kind.Paladin, Kind.Ranger, Kind.Wizard,
+  Kind.Knight, Kind.Cleric, Kind.Outrider, Kind.Mercenary, Kind.Skeleton, Kind.Warden, Kind.Archer, Kind.Herald, Kind.Sapper, Kind.Berserker, Kind.Footman,
+];
+
+/** Kinds to let go first when work is undone: those most above their target, Footmen last among equals. */
+function desertionOrder(target: readonly number[], raised: readonly number[]): Kind[] {
+  const kinds = Array.from({ length: KIND_COUNT }, (_, k) => k as Kind);
+  return kinds.sort((a, b) => raised[b]! - target[b]! - (raised[a]! - target[a]!) || MUSTER_ORDER.indexOf(b) - MUSTER_ORDER.indexOf(a));
+}
+
+/** Splits soldiers into platoons of at most PLATOON_MAX slots, heroes first. */
+function platoonsOf(counts: readonly number[]): number[][] {
+  const out: number[][] = [];
+  const left = counts.slice();
+  const order = [Kind.Dragon, Kind.Champion, ...Array.from({ length: KIND_COUNT }, (_, k) => k as Kind).filter((k) => k !== Kind.Dragon && k !== Kind.Champion)];
+  while (left.some((n) => n > 0)) {
+    const chunk = new Array<number>(KIND_COUNT).fill(0);
+    let slots = 0;
+    for (const k of order) {
+      const per = STATS[k]!.slots;
+      const n = Math.min(left[k]!, Math.floor((PLATOON_MAX - slots) / per));
+      if (n <= 0) continue;
+      chunk[k] = n;
+      left[k]! -= n;
+      slots += n * per;
+    }
+    if (slots === 0) break;
+    out.push(chunk);
+  }
+  return out;
+}
+
+/** Removes up to `n` soldiers of `kind`: waiting ones first, then the newest in the field. Returns how many left. */
+function desert(world: World, player: PlayerState, kind: Kind, n: number): number {
+  let left = n;
+  for (let q = player.queue.length - 1; q >= 0 && left > 0; q--) {
+    const pl = world.platoons.find((x) => x.id === player.queue[q]);
+    if (!pl) continue;
+    const take = Math.min(left, pl.mustered[kind]!);
+    pl.mustered[kind]! -= take;
+    pl.size -= take;
+    left -= take;
+  }
+  for (let i = world.units.length - 1; i >= 0 && left > 0; i--) {
+    const u = world.units[i]!;
+    if (u.p !== player.p || u.kind !== kind) continue;
+    world.units.splice(i, 1);
+    left--;
+  }
+  return n - left;
+}
+
+function queuePlatoon(world: World, player: PlayerState, repo: number, purpose: Purpose, counts: number[], ev: TickEvents): void {
   const lastQueued = player.queue.length > 0 ? world.platoons.find((pl) => pl.id === player.queue[player.queue.length - 1]) : undefined;
   if (player.queue.length >= QUEUE_LIMIT && lastQueued) {
     // The muster queue is full: fold this push's soldiers into the last waiting platoon.

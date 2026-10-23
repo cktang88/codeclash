@@ -2,7 +2,7 @@ import { FAR_ZOOM } from './lod.ts';
 import { Container, MeshPlane, Sprite, Text, Texture } from 'pixi.js';
 import { PlatoonState, type Platoon, type World } from '../../sim/api.ts';
 import type { RepoRef } from '../../sim/replay.ts';
-import { FLAG_H, FLAG_W, type FlagCache } from './flags.ts';
+import { FLAG_H, FLAG_W, gradeOf, type FlagCache } from './flags.ts';
 
 const VERTS_X = 10;
 
@@ -119,9 +119,10 @@ export class BannerLayer {
       v.root.visible = true;
       const hue = hues[pl.p] ?? 0;
       const repo = repos[pl.repo] ?? ['unknown/repo', null];
-      const key = `${hue}|${repo[0]}|${pl.ordinal}`;
+      const grade = gradeOf(world.players[pl.p]);
+      const key = `${hue}|${repo[0]}|${pl.ordinal}|${grade.rank}|${grade.ragged ? 1 : 0}`;
       if (key !== v.key) {
-        v.flag.texture = this.flags.battalion(hue, repo[0], repo[1], pl.ordinal);
+        v.flag.texture = this.flags.battalion(hue, repo[0], repo[1], pl.ordinal, grade);
         v.key = key;
       }
       const lift = 16 / zoom;

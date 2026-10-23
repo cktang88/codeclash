@@ -48,8 +48,11 @@ const MIX: Record<BotPersona['style'], Partial<Record<Purpose, number>>> = {
 export interface BotPush {
   repo: [string, string];
   lines: number[];
+  /** Signed ledger deltas, like a real push's: a revert arrives as negative code. */
   files: number;
   branches: number;
+  churn: number;
+  filler: number;
   message: string;
 }
 
@@ -96,9 +99,8 @@ export function botPush(bot: BotPersona, rand: () => number): BotPush {
       files = r(1, 4);
       break;
     case 'revert':
-      lines[Cat.Removed] = r(40, 700);
-      lines[Cat.Code] = r(0, 120);
-      files = r(1, 8);
+      // Undoing an earlier push today: its code leaves the ledger again.
+      files = 0;
       break;
     case 'chore':
       lines[Cat.Config] = r(5, 120);
@@ -129,7 +131,15 @@ export function botPush(bot: BotPersona, rand: () => number): BotPush {
   const branches = code > 0 ? Math.max(0, Math.floor((code / density) * (0.6 + rand() * 0.8))) : 0;
   const repo = bot.repos[Math.floor(rand() * bot.repos.length)]!;
   const pool = MESSAGES[purpose];
-  return { repo, lines, files, branches, message: pool[Math.floor(rand() * pool.length)]! };
+  const message = pool[Math.floor(rand() * pool.length)]!;
+  if (purpose === 'revert') {
+    const undone = r(20, 200);
+    lines.fill(0);
+    lines[Cat.Code] = -undone;
+    return { repo, lines, files: 0, branches: -Math.floor(undone / 8), churn: 2 * undone, filler: 0, message };
+  }
+  // Bots write a little filler, as real code has: closing braces and literal tables.
+  return { repo, lines, files, branches, churn: 0, filler: Math.floor(code * 0.15), message };
 }
 
 /** A small seeded generator for bot schedules and demo wars. */

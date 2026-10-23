@@ -1,29 +1,15 @@
-import { CAT_COUNT, Cat, Kind, KIND_COUNT, type Lines, type Purpose } from './api.ts';
-import { PLATOON_MAX, STATS } from './stats.ts';
-
-export const HOURLY_FREE_PUSHES = 3;
-export const DAILY_FREE_PUSHES = 12;
-
-const at = (lines: Lines, c: number) => {
-  const n = lines[c];
-  return typeof n === 'number' && n > 0 ? n : 0;
-};
-
-/** Most lines one category of one push can count; keeps arithmetic finite. */
-export const MAX_LINES = 1e9;
+import { CAT_COUNT, Cat, Kind, KIND_COUNT, PURPOSES, type Ledger, type Purpose } from './api.ts';
+import { STATS } from './stats.ts';
 
 /**
- * A push's line counts as the simulation sees them: nine whole, non-negative,
- * finite numbers. Live inputs and replayed ones pass through this, so a stray
- * fraction, NaN or Infinity can never make them disagree.
+ * A push's line deltas as the simulation sees them: nine whole numbers within
+ * ±1e6. Live inputs and replayed ones pass through this, so a stray fraction,
+ * NaN or Infinity can never make them disagree.
  */
 export function cleanLines(lines: unknown): number[] {
   const out = new Array<number>(CAT_COUNT).fill(0);
   if (!Array.isArray(lines)) return out;
-  for (let c = 0; c < CAT_COUNT; c++) {
-    const n: unknown = lines[c];
-    if (typeof n === 'number' && n > 0) out[c] = Math.floor(Math.min(n, MAX_LINES));
-  }
+  for (let c = 0; c < CAT_COUNT; c++) out[c] = int(lines[c]);
   return out;
 }
 
@@ -51,97 +37,159 @@ export function slotsOf(counts: readonly number[]): number {
   return n;
 }
 
-const whole = (n: number) => (Number.isFinite(n) && n > 0 ? Math.floor(Math.min(n, MAX_LINES)) : 0);
+const LIMIT = 1e6;
+/** A whole number from an untrusted field, clamped to ±1e6; NaN becomes 0. */
+export function int(n: unknown, min = -LIMIT): number {
+  return typeof n === 'number' && Number.isFinite(n) ? Math.max(min, Math.min(LIMIT, Math.trunc(n))) : 0;
+}
+
+export function emptyLedger(): Ledger {
+  return {
+    lines: new Array<number>(CAT_COUNT).fill(0),
+    files: 0,
+    branches: 0,
+    churn: 0,
+    filler: 0,
+    purposeCode: new Array<number>(PURPOSES.length).fill(0),
+    purposeRemoved: new Array<number>(PURPOSES.length).fill(0),
+  };
+}
+
+export interface LedgerDelta {
+  lines: readonly number[];
+  files: number;
+  branches: number;
+  churn: number;
+  filler: number;
+  purpose: Purpose;
+}
+
+/** Adds one push's change to a ledger. Totals never go below zero. */
+export function applyDelta(ledger: Ledger, d: LedgerDelta): void {
+  for (let c = 0; c < CAT_COUNT; c++) ledger.lines[c] = Math.max(0, ledger.lines[c]! + int(d.lines[c]));
+  ledger.files = Math.max(0, ledger.files + int(d.files));
+  ledger.branches = Math.max(0, ledger.branches + int(d.branches));
+  ledger.churn += int(d.churn, 0);
+  ledger.filler += int(d.filler, 0);
+  const i = PURPOSES.indexOf(d.purpose);
+  ledger.purposeCode[i] = Math.max(0, ledger.purposeCode[i]! + int(d.lines[Cat.Code]));
+  ledger.purposeRemoved[i] = Math.max(0, ledger.purposeRemoved[i]! + int(d.lines[Cat.Removed]));
+}
+
+/** Code lines needed for each veteran rank, with source files touched. */
+export const VETERAN_CODE = [250, 800, 2000];
+export const VETERAN_FILES = [5, 12, 25];
+export const VETERAN_BONUS = 0.1;
+
+export interface QualityNote {
+  kind: 'veteran' | 'tests' | 'comments' | 'filler';
+  effect: number;
+  text: string;
+}
+
+const ramp = (x: number, from: number, to: number) => Math.max(0, Math.min(1, (x - from) / (to - from)));
 
 /**
- * Soldiers raised by one push, by kind. Code is what raises an army: Footmen
- * come from code lines and source files touched, and what the push is for
- * (fix, feature, refactor, perf, revert, chore) and how complex it is decide
- * the specialists. Tests, comments, docs and config add a little support;
- * generated and vendored code raise nothing. `pushesLastHour` and `pushesToday`
- * count this player's earlier pushes, excluding this one.
+ * How good a player's soldiers are today. Real code that touches many files
+ * earns veteran ranks; drowning a little code in tests, comments or filler
+ * makes a ragged army. Depends only on the ledger, so it is the same however
+ * the work was split into pushes.
  */
-export function musterCounts(
-  lines: Lines,
-  pushesLastHour: number,
-  pushesToday: number,
-  msg = '',
-  filesTouched = 0,
-  branchPoints = 0,
-): number[] {
+export function armyQuality(ledger: Ledger): { quality: number; veterancy: number; power: number; notes: QualityNote[] } {
+  const code = ledger.lines[Cat.Code]!;
+  const notes: QualityNote[] = [];
+  let quality = 1;
+  const testRatio = ledger.lines[Cat.Test]! / (code + 20);
+  const commentRatio = ledger.lines[Cat.Comment]! / (code + 20);
+  const fillerRatio = ledger.filler / (code + ledger.filler + 20);
+  const tests = -0.15 * ramp(testRatio, 3, 8);
+  if (tests < 0) notes.push({ kind: 'tests', effect: tests, text: `Tests outweigh the code ${testRatio.toFixed(1)} to 1` });
+  else if (testRatio >= 0.2 && code >= 50) {
+    quality += 0.05;
+    notes.push({ kind: 'tests', effect: 0.05, text: 'Well tested' });
+  }
+  const comments = -0.1 * ramp(commentRatio, 0.5, 2);
+  if (comments < 0) notes.push({ kind: 'comments', effect: comments, text: `Comments outweigh the code ${commentRatio.toFixed(1)} to 1` });
+  const filler = -0.15 * ramp(fillerRatio, 0.3, 0.8);
+  if (filler < 0) notes.push({ kind: 'filler', effect: filler, text: `${Math.round(fillerRatio * 100)}% of lines were filler` });
+  quality = Math.max(0.7, quality + tests + comments + filler);
+  let veterancy = 0;
+  while (veterancy < VETERAN_CODE.length && code >= VETERAN_CODE[veterancy]! && ledger.files >= VETERAN_FILES[veterancy]!) veterancy++;
+  if (veterancy > 0) notes.push({ kind: 'veteran', effect: veterancy * VETERAN_BONUS, text: `Veteran rank ${veterancy}` });
+  return { quality, veterancy, power: quality * (1 + VETERAN_BONUS * veterancy), notes };
+}
+
+const sq = Math.sqrt;
+const fl = Math.floor;
+
+/**
+ * The army a ledger is worth, as total soldiers by kind. Contribution sets a
+ * budget of platoon slots; the purposes of the work spend part of it on
+ * specialists, and Footmen take the rest, so a commit message changes what the
+ * army is made of but never how big it is. Support from tests, comments, docs
+ * and config is small and separate. Generated and vendored code count nothing.
+ */
+export function armyFor(ledger: Ledger, pushes: number): number[] {
   const counts = new Array<number>(KIND_COUNT).fill(0);
-  const fatigue = pushesToday >= DAILY_FREE_PUSHES ? 1 / 3 : pushesLastHour >= HOURLY_FREE_PUSHES ? 0.5 : 1;
-  const purpose = purposeOf(msg);
-  const code = at(lines, Cat.Code);
-  const removed = at(lines, Cat.Removed);
-  const files = whole(filesTouched);
-  const branches = whole(branchPoints);
-  const set = (k: Kind, n: number) => (counts[k] = Math.max(0, Math.floor(n)));
+  if (pushes <= 0) return counts;
+  const L = ledger.lines;
+  const code = L[Cat.Code]!;
+  const removed = L[Cat.Removed]!;
+  const files = ledger.files;
+  const branches = ledger.branches;
+  const pc = (p: Purpose) => ledger.purposeCode[PURPOSES.indexOf(p)]!;
+  const pr = (p: Purpose) => ledger.purposeRemoved[PURPOSES.indexOf(p)]!;
 
-  if (purpose === 'revert') {
-    set(Kind.Skeleton, Math.min(8, Math.max(1, Math.floor(Math.sqrt(code + removed) / 2))));
-    if (code + removed >= 500) set(Kind.BoneGolem, 1);
-  } else {
-    if (code > 0) set(Kind.Footman, Math.min(12, Math.max(1, Math.floor(0.5 * Math.sqrt(code)) + Math.min(6, files))));
-    set(Kind.Knight, Math.min(4, Math.floor(branches / 15)));
-    if (branches >= 40 && code >= 200) set(Kind.Troll, 1);
-    if (removed > 0) set(Kind.Outrider, Math.min(3, Math.floor(removed / 150)));
-    switch (purpose) {
-      case 'fix':
-        set(Kind.Cleric, Math.min(3, 1 + Math.floor(files / 3)));
-        if (files >= 3 || code >= 40) set(Kind.Paladin, code + removed >= 150 && files >= 4 ? 2 : 1);
-        set(Kind.Ranger, Math.min(2, Math.floor(code / 60)));
-        break;
-      case 'feature':
-        set(Kind.Footman, Math.min(14, Math.round(counts[Kind.Footman]! * 1.25)));
-        break;
-      case 'refactor':
-        set(Kind.Footman, counts[Kind.Footman]! / 2);
-        set(Kind.Outrider, Math.min(8, Math.floor(0.5 * Math.sqrt(removed + code / 2))));
-        if (removed >= 300 && files >= 6) set(Kind.GriffinRider, 1);
-        break;
-      case 'perf':
-        set(Kind.Wizard, Math.min(3, 1 + Math.floor(branches / 20)));
-        break;
-      case 'chore':
-        set(Kind.Footman, Math.min(2, counts[Kind.Footman]!));
-        set(Kind.Mercenary, files > 3 ? 2 : 1);
-        break;
-    }
-    if (files >= 12) set(Kind.Trebuchet, 1);
-    if (purpose !== 'fix' && code >= 50 && at(lines, Cat.Test) === 0 && at(lines, Cat.Comment) === 0) {
-      const berserk = Math.floor(counts[Kind.Footman]! / 2);
-      counts[Kind.Footman]! -= berserk;
-      set(Kind.Berserker, berserk);
-    }
+  const budget = code + removed > 0 ? fl(1.1 * sq(code) + 1.5 * sq(files) + 0.5 * sq(branches) + 0.3 * sq(removed)) : 0;
+
+  // What the work's purposes and complexity ask for, before it is fitted to the budget.
+  const want = new Array<number>(KIND_COUNT).fill(0);
+  const fix = pc('fix');
+  want[Kind.Cleric] = fl(sq(fix) / 2.5);
+  want[Kind.Paladin] = fl(fix / 150);
+  want[Kind.Ranger] = fl(fix / 250);
+  const feature = pc('feature') + pc('work');
+  const dragons = feature >= 4000 && files >= 40 && branches >= 400 ? 2 : feature >= 900 && files >= 10 && branches >= 90 ? 1 : 0;
+  want[Kind.Dragon] = dragons;
+  want[Kind.Champion] = Math.max(0, Math.min(3, fl(pc('feature') / 400), fl(files / 5)) - dragons);
+  const refactor = pr('refactor') + pc('refactor') / 2;
+  want[Kind.Outrider] = fl(sq(refactor) / 1.5);
+  want[Kind.GriffinRider] = Math.min(3, fl(pr('refactor') / 400));
+  want[Kind.Wizard] = Math.min(4, fl(sq(pc('perf')) / 3));
+  const revert = pc('revert') + pr('revert');
+  want[Kind.Skeleton] = fl(sq(revert));
+  want[Kind.BoneGolem] = Math.min(2, fl(revert / 600));
+  want[Kind.Mercenary] = Math.min(3, fl(sq(pc('chore')) / 2));
+  want[Kind.Knight] = fl(2 * sq(branches / 10));
+  if (code >= 200) want[Kind.Troll] = Math.min(3, fl(branches / 150));
+  want[Kind.Trebuchet] = Math.min(3, fl(files / 15));
+
+  // Specialists may spend at most 65% of the budget; heroes are paid first.
+  const cap = fl(budget * 0.65);
+  let spent = 0;
+  const order: Kind[] = [Kind.Dragon, Kind.Champion, Kind.Troll, Kind.Trebuchet, Kind.GriffinRider, Kind.BoneGolem, Kind.Paladin, Kind.Ranger, Kind.Wizard, Kind.Knight, Kind.Cleric, Kind.Outrider, Kind.Mercenary, Kind.Skeleton];
+  for (const k of order) {
+    const per = STATS[k]!.slots;
+    const n = Math.min(want[k]!, fl((cap - spent) / per));
+    if (n <= 0) continue;
+    counts[k] = n;
+    spent += n * per;
+  }
+  counts[Kind.Footman] = budget - spent;
+  // Untested, uncommented code fights recklessly.
+  if (code >= 50 && L[Cat.Test] === 0 && L[Cat.Comment] === 0) {
+    const berserk = fl(counts[Kind.Footman]! / 2);
+    counts[Kind.Footman]! -= berserk;
+    counts[Kind.Berserker] = berserk;
   }
 
-  // Support from the rest of the push stays small: code is what wins wars.
-  set(Kind.Warden, Math.min(3, Math.floor(Math.sqrt(at(lines, Cat.Test)) / 4)));
-  set(Kind.Archer, Math.min(2, Math.floor(at(lines, Cat.Comment) / 40)));
-  if (at(lines, Cat.Docs) >= 60 || at(lines, Cat.Docs) + at(lines, Cat.Comment) >= 80) set(Kind.Herald, 1);
-  set(Kind.Sapper, Math.min(2, Math.floor(at(lines, Cat.Config) / 50)));
+  // Support stays small: code is what wins wars.
+  counts[Kind.Warden] = Math.min(4, fl(sq(L[Cat.Test]!) / 5));
+  counts[Kind.Archer] = Math.min(3, fl(sq(L[Cat.Comment]!) / 5));
+  counts[Kind.Herald] = Math.min(2, fl(L[Cat.Docs]! / 120));
+  counts[Kind.Sapper] = Math.min(3, fl(L[Cat.Config]! / 80));
 
-  if (fatigue < 1) for (let k = 0; k < KIND_COUNT; k++) counts[k] = Math.floor(counts[k]! * fatigue);
-  else if (purpose !== 'chore' && purpose !== 'revert') {
-    const legendary = code >= 600 && files >= 8 && branches >= 60 && (purpose === 'feature' || purpose === 'work');
-    if (legendary) set(Kind.Dragon, 1);
-    else if (code >= 300 && files >= 5) set(Kind.Champion, 1);
-  }
-
-  // Trim the cheapest soldiers first until the platoon fits; heroes stay.
-  let slots = slotsOf(counts);
-  while (slots > PLATOON_MAX) {
-    let cheap = -1;
-    for (let k = 0; k < KIND_COUNT; k++) {
-      if (counts[k] === 0 || k === Kind.Champion || k === Kind.Dragon) continue;
-      if (cheap < 0 || STATS[k]!.value < STATS[cheap]!.value || (STATS[k]!.value === STATS[cheap]!.value && counts[k]! > counts[cheap]!)) cheap = k;
-    }
-    if (cheap < 0) break;
-    counts[cheap]!--;
-    slots -= STATS[cheap]!.slots;
-  }
-  // Every push sends at least a messenger.
-  if (slots === 0) counts[Kind.Footman] = 1;
+  // Every day's first push sends at least a messenger.
+  if (slotsOf(counts) === 0) counts[Kind.Footman] = 1;
   return counts;
 }

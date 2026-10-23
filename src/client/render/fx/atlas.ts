@@ -25,9 +25,42 @@ export interface FxTextures {
   cloth: Texture;
   shadow: Texture;
   dust: Texture;
+  /** A painterly explosion cloud in four frames, played over a blast's life. */
+  blast: Texture[];
 }
 
 const SIZE = 1024;
+
+/** A preloaded sprite sheet of hand-made particle art (Kenney, CC0) with named frames. */
+export interface FxArt {
+  image: CanvasImageSource;
+  frames: Record<string, [x: number, y: number, w: number, h: number]>;
+}
+
+let loaded: FxArt | null = null;
+
+/**
+ * Loads the bundled particle art once. Effects fall back to procedural textures
+ * when it is missing, e.g. in tests or if the request fails.
+ */
+export async function loadFxArt(base = '/assets/kenney-fx/'): Promise<FxArt | null> {
+  if (loaded) return loaded;
+  try {
+    const [frames, image] = await Promise.all([
+      fetch(`${base}fx.json`).then((r) => (r.ok ? (r.json() as Promise<FxArt['frames']>) : Promise.reject(new Error(String(r.status))))),
+      new Promise<HTMLImageElement>((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = reject;
+        img.src = `${base}fx.png`;
+      }),
+    ]);
+    loaded = { image, frames };
+  } catch {
+    loaded = null;
+  }
+  return loaded;
+}
 
 interface Packer {
   x: number;
@@ -52,7 +85,7 @@ function radial(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number
   ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
 }
 
-export function makeFxTextures(): FxTextures {
+export function makeFxTextures(art: FxArt | null = loaded): FxTextures {
   const canvas = document.createElement('canvas');
   canvas.width = SIZE;
   canvas.height = SIZE;
@@ -82,6 +115,14 @@ export function makeFxTextures(): FxTextures {
     return frames.length - 1;
   };
 
+  // Paints a named frame of the particle art scaled into the cell, or falls back to the procedural painter.
+  const drawn =
+    (name: string, fallback: (c: CanvasRenderingContext2D, w: number, h: number) => void) =>
+    (c: CanvasRenderingContext2D, w: number, h: number) => {
+      const f = art?.frames[name];
+      if (!art || !f) return fallback(c, w, h);
+      c.drawImage(art.image, f[0], f[1], f[2], f[3], 0, 0, w, h);
+    };
   const soft = make(64, 64, (c) => radial(c, 32, 32, 32, [[0, 'rgba(255,255,255,1)'], [0.35, 'rgba(255,255,255,0.55)'], [1, 'rgba(255,255,255,0)']]));
   const spark = make(32, 32, (c) => {
     radial(c, 16, 16, 16, [[0, 'rgba(255,255,255,1)'], [0.25, 'rgba(255,255,255,0.8)'], [1, 'rgba(255,255,255,0)']]);
@@ -350,6 +391,16 @@ export function makeFxTextures(): FxTextures {
     }
   });
 
+  const blast = [0, 1, 2, 3].map((v) =>
+    make(96, 96, drawn(`blast${v}`, (c) => {
+      const r = rng(211 + v * 13);
+      for (let i = 0; i < 10; i++) {
+        const a = r() * Math.PI * 2;
+        const d = r() * (14 + v * 4);
+        radial(c, 48 + Math.cos(a) * d, 48 + Math.sin(a) * d, 18 + r() * 12, [[0, 'rgba(255,214,120,0.9)'], [0.5, 'rgba(232,110,40,0.55)'], [1, 'rgba(120,40,20,0)']]);
+      }
+    })),
+  );
   const source = new CanvasSource({ resource: canvas, autoGenerateMipmaps: true, scaleMode: 'linear' });
   const textures = frames.map((frame) => new Texture({ source, frame }));
   const t = (i: number) => textures[i]!;
@@ -377,5 +428,6 @@ export function makeFxTextures(): FxTextures {
     cloth: t(cloth),
     shadow: t(shadow),
     dust: t(dust),
+    blast: blast.map(t),
   };
 }

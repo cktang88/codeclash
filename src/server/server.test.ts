@@ -61,8 +61,8 @@ describe('rooms and the daily war', () => {
     expect(me.rooms.map((r) => r.slug)).toEqual([slug]);
 
     advance(server, now, 30_000);
-    server.rooms.onPush({ userId: devId('ana'), pushId: 'x@1', repo: 'ana/parser', language: 'TypeScript', lines: lines(200, 60, 20), files: 3, branches: 12, commits: 2, message: 'Tokenizer', at: now.t }, now.t);
-    server.rooms.onPush({ userId: devId('bo'), pushId: 'y@1', repo: 'bo/site', language: 'CSS', lines: lines(90), files: 3, branches: 12, commits: 1, message: 'Styles', at: now.t }, now.t);
+    server.rooms.onPush({ userId: devId('ana'), pushId: 'x@1', repo: 'ana/parser', language: 'TypeScript', lines: lines(200, 60, 20), files: 3, branches: 12, churn: 0, filler: 0, commits: 2, message: 'Tokenizer', at: now.t }, now.t);
+    server.rooms.onPush({ userId: devId('bo'), pushId: 'y@1', repo: 'bo/site', language: 'CSS', lines: lines(90), files: 3, branches: 12, churn: 0, filler: 0, commits: 1, message: 'Styles', at: now.t }, now.t);
     const cmd = await server.app.inject({ method: 'POST', url: `/api/rooms/${slug}/command`, headers: { cookie: ana }, payload: { kind: 'doctrine', doctrine: 1 } });
     expect(cmd.statusCode).toBe(200);
     const again = await server.app.inject({ method: 'POST', url: `/api/rooms/${slug}/command`, headers: { cookie: ana }, payload: { kind: 'doctrine', doctrine: 2 } });
@@ -117,7 +117,7 @@ describe('rooms and the daily war', () => {
     const ana = await signIn(first.server, 'ana');
     const { slug } = (await first.server.app.inject({ method: 'POST', url: '/api/rooms', headers: { cookie: ana }, payload: { name: 'Durable', visibility: 'public', resetHour: 0, bots: 0 } })).json<{ slug: string }>();
     advance(first.server, now, 20_000);
-    first.server.rooms.onPush({ userId: devId('ana'), pushId: 'z@1', repo: 'ana/x', language: null, lines: lines(150), files: 3, branches: 12, commits: 1, message: 'm', at: now.t }, now.t);
+    first.server.rooms.onPush({ userId: devId('ana'), pushId: 'z@1', repo: 'ana/x', language: null, lines: lines(150), files: 3, branches: 12, churn: 0, filler: 0, commits: 1, message: 'm', at: now.t }, now.t);
     advance(first.server, now, 60_000);
     const before = first.server.rooms.wars()[0]!;
     const units = before.world.units.length;
@@ -261,7 +261,7 @@ describe('lifetime streaks', () => {
     const day = server.rooms.wars()[0]!.meta.day;
     server.store.saveLifetime({ userId: devId('ana'), roomId, days: 5, wins: 0, streak: 5, bestStreak: 5, lastDay: day, kills: 0, renown: 0, awards: {} });
     advance(server, now, 30_000);
-    server.rooms.onPush({ userId: devId('ana'), pushId: 'x@1', repo: 'ana/a', language: null, lines: lines(40), files: 3, branches: 12, commits: 1, message: 'm', at: now.t }, now.t);
+    server.rooms.onPush({ userId: devId('ana'), pushId: 'x@1', repo: 'ana/a', language: null, lines: lines(40), files: 3, branches: 12, churn: 0, filler: 0, commits: 1, message: 'm', at: now.t }, now.t);
     for (let i = 0; i < 21; i++) advance(server, now, 30_000);
     expect(server.store.lifetime(devId('ana'), roomId)).toMatchObject({ streak: 5, lastDay: day });
     await server.shutdown();

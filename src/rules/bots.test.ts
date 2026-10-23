@@ -12,7 +12,9 @@ describe('sparring bots', () => {
         expect(p.lines).toHaveLength(9);
         expect(p.files).toBeGreaterThanOrEqual(0);
         expect(p.files).toBeLessThanOrEqual(16);
-        expect(p.branches).toBeGreaterThanOrEqual(0);
+        // A revert undoes earlier work, so its code and branch deltas are negative.
+        if (p.lines[Cat.Code]! >= 0) expect(p.branches).toBeGreaterThanOrEqual(0);
+        else expect(p.churn).toBe(-2 * p.lines[Cat.Code]!);
         if (p.lines[Cat.Code] === 0) expect(p.branches).toBe(0);
       }
     }

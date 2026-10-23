@@ -1,5 +1,6 @@
 import { Doctrine, Kind, Terrain, type PlayerState, type Unit, type World } from './api.ts';
 import { cellAt } from './flowfield.ts';
+import { VETERAN_BONUS } from './muster.ts';
 import { AURA_HEAL, AURA_SHIELD, AURA_VALOR, type Scratch } from './scratch.ts';
 import { bucketX, bucketY, type SpatialHash } from './spatial.ts';
 import {
@@ -124,7 +125,7 @@ export function computeAuras(world: World, s: Scratch): void {
 
 export function attackerMultiplier(world: World, s: Scratch, i: number, player: PlayerState | undefined): number {
   if (!player) return 1;
-  let m = doctrineDamage(player.doctrine);
+  let m = doctrineDamage(player.doctrine) * powerOf(player);
   if (player.cryUntil > world.tick) m *= CRY_DAMAGE;
   const kind = world.units[i]!.kind;
   if ((s.aura[i]! & AURA_VALOR) !== 0 && kind !== Kind.Champion && kind !== Kind.Dragon) m *= 1 + CHAMPION_BONUS;
@@ -132,9 +133,15 @@ export function attackerMultiplier(world: World, s: Scratch, i: number, player: 
 }
 
 /** Damage taken by unit `j` from a blow of `raw` damage. */
+/** Army quality and veterancy as one multiplier on HP and damage. */
+export function powerOf(player: PlayerState): number {
+  return player.quality * (1 + VETERAN_BONUS * player.veterancy);
+}
+
 export function mitigated(world: World, s: Scratch, j: number, raw: number, ranged: boolean): number {
   const v = world.units[j]!;
-  let d = raw;
+  // A stronger army's soldiers shrug off more: dividing damage by power scales their effective HP.
+  let d = v.p >= 0 ? raw / powerOf(world.players[v.p]!) : raw;
   if ((s.aura[j]! & AURA_SHIELD) !== 0) d *= 1 - WARDEN_REDUCTION;
   if (ranged) {
     const cell = cellAt(world.map, v.x, v.y);

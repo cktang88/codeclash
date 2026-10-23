@@ -2,6 +2,7 @@
 import { Application, Container, Graphics, Texture } from 'pixi.js';
 import { BlastKind, Kind, ShotKind, TICK_MS, type TickEvents, type World } from '../../../sim/api.ts';
 import { emptyEvents } from '../../../sim/world.ts';
+import { loadFxArt } from './atlas.ts';
 import { Effects, FLY_HEIGHT } from './effects.ts';
 
 interface Dummy {
@@ -34,6 +35,7 @@ app.stage.addChild(scene);
 const ground = new Graphics();
 for (let i = 0; i < 40; i++) ground.circle((Math.random() - 0.5) * 1400, (Math.random() - 0.5) * 900, 60 + Math.random() * 120).fill({ color: Math.random() < 0.5 ? 0x333a28 : 0x262b1e, alpha: 0.6 });
 const units = new Container();
+if (!q.has('procedural')) await loadFxArt();
 const fx = new Effects({ reducedMotion: q.has('reduced') });
 scene.addChild(ground, fx.ground, units, fx.air, fx.glow, fx.overlay);
 

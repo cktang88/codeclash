@@ -4,6 +4,8 @@ import { Kind, PlatoonState, type Unit, type World } from '../../sim/api.ts';
 import { STATS } from '../../sim/stats.ts';
 import type { Runner } from '../net/runner.ts';
 import type { UnitArt, UnitFrame } from './art/index.ts';
+import { gradeOf } from './flags.ts';
+import { mixColor } from './paint.ts';
 import type { Textures } from './textures.ts';
 
 const SWING_PULL_MS = 110;
@@ -14,6 +16,8 @@ const KNOCK_MS = 160;
 const STEP_PERIOD_MS = 520;
 const ATTACK_FRAME_MS = 105;
 const IDLE_FRAME_MS = 700;
+/** Rank chevrons show only when soldiers are big enough to carry them. */
+const PIP_ZOOM = 1.1;
 
 interface Swing {
   at: number;
@@ -25,6 +29,8 @@ interface View {
   shadow: Sprite;
   /** Army-colored ring under big units, so a Dragon's side reads at a glance. */
   halo: Sprite;
+  /** Gold chevrons under veterans, at near zoom. */
+  pip: Sprite;
   body: Sprite;
   mask: Sprite;
   dot: Sprite;
@@ -75,6 +81,9 @@ export class UnitLayer {
   private unitIndex = new Map<number, Unit>();
   tints: number[] = [];
   cryTint: number[] = [];
+  /** Per player this frame: veteran rank shown (0-3) and whether the army is ragged. */
+  private ranks: number[] = [];
+  private raggedTint: number[] = [];
 
   constructor(
     private tex: Textures,
@@ -103,6 +112,12 @@ export class UnitLayer {
   }
 
   update(world: World, runner: Runner | null, now: number, zoom: number, bounds: { contains(x: number, y: number): boolean }): void {
+    for (const pl of world.players) {
+      const g = gradeOf(pl);
+      this.ranks[pl.p] = g.rank;
+      // Ragged armies wear faded, patched tabards: their color washes toward grey.
+      this.raggedTint[pl.p] = g.ragged ? mixColor(this.tints[pl.p] ?? 0xcccccc, 0x8a8478, 0.5) : -1;
+    }
     this.frameNo++;
     const far = zoom < FAR_ZOOM;
     const alpha = runner?.alpha ?? 1;
@@ -156,12 +171,13 @@ export class UnitLayer {
       pose.p = u.p;
       const visible = bounds.contains(x, y);
       if (!visible) {
-        v.halo.visible = v.shadow.visible = v.body.visible = v.mask.visible = v.dot.visible = false;
+        v.pip.visible = v.halo.visible = v.shadow.visible = v.body.visible = v.mask.visible = v.dot.visible = false;
         continue;
       }
-      const tint = this.tints[u.p] ?? 0xcccccc;
+      const ragged = this.raggedTint[u.p] ?? -1;
+      const tint = ragged >= 0 ? ragged : (this.tints[u.p] ?? 0xcccccc);
       if (far) {
-        v.halo.visible = v.shadow.visible = v.body.visible = v.mask.visible = false;
+        v.pip.visible = v.halo.visible = v.shadow.visible = v.body.visible = v.mask.visible = false;
         v.dot.visible = true;
         v.dot.position.set(x, y);
         v.dot.tint = tint;
@@ -246,6 +262,13 @@ export class UnitLayer {
         v.halo.tint = tint;
         v.halo.alpha = flying ? 0.6 : 0.85;
       }
+      const rank = this.ranks[u.p] ?? 0;
+      v.pip.visible = rank > 0 && zoom >= PIP_ZOOM && !flying;
+      if (v.pip.visible) {
+        v.pip.texture = this.tex.chevrons[rank - 1]!;
+        v.pip.position.set(px, py + 2);
+        v.pip.scale.set(Math.max(0.16, 7 / zoom / 32));
+      }
       const layer = flying ? this.air : this.bodies;
       if (v.body.parent !== layer) layer.addChild(v.body, v.mask);
       const flashing = now - (this.flashes.get(u.id) ?? -1e9) < FLASH_MS;
@@ -275,7 +298,7 @@ export class UnitLayer {
     v.kind = kind;
     v.facing = 1;
     v.speed = 0;
-    v.halo.visible = v.shadow.visible = v.body.visible = v.mask.visible = v.dot.visible = false;
+    v.pip.visible = v.halo.visible = v.shadow.visible = v.body.visible = v.mask.visible = v.dot.visible = false;
     return v;
   }
 
@@ -286,18 +309,21 @@ export class UnitLayer {
     const halo = new Sprite(this.tex.ring);
     halo.anchor.set(0.5);
     halo.visible = false;
+    const pip = new Sprite(this.tex.chevrons[0]);
+    pip.anchor.set(0.5, 0);
+    pip.visible = false;
     const body = new Sprite();
     const mask = new Sprite();
     const dot = new Sprite(this.tex.dot);
     dot.anchor.set(0.5);
-    this.shadows.addChild(shadow, halo);
+    this.shadows.addChild(shadow, halo, pip);
     this.bodies.addChild(body, mask);
     this.dots.addChild(dot);
-    return { shadow, halo, body, mask, dot, kind: 0, facing: 1, x: 0, y: 0, speed: 0, phase: 0, seen: 0, pose: { x: 0, y: 0, facing: 1, kind: 0, p: 0 } };
+    return { shadow, halo, pip, body, mask, dot, kind: 0, facing: 1, x: 0, y: 0, speed: 0, phase: 0, seen: 0, pose: { x: 0, y: 0, facing: 1, kind: 0, p: 0 } };
   }
 
   private release(v: View): void {
-    v.halo.visible = v.shadow.visible = v.body.visible = v.mask.visible = v.dot.visible = false;
+    v.pip.visible = v.halo.visible = v.shadow.visible = v.body.visible = v.mask.visible = v.dot.visible = false;
     this.pool.push(v);
   }
 

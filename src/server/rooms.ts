@@ -134,7 +134,7 @@ export class Rooms {
         const persona = BOTS.find((b) => b.login === pl.login);
         if (!persona || rand() >= (persona.rate * elapsedMs * dayScale) / 3600_000) continue;
         const push = botPush(persona, rand);
-        war.push(now, pl.userId, { repo: push.repo[0], language: push.repo[1], lines: push.lines, files: push.files, branches: push.branches, commits: 1 + Math.floor(rand() * 3), message: push.message });
+        war.push(now, pl.userId, { repo: push.repo[0], language: push.repo[1], lines: push.lines, files: push.files, branches: push.branches, churn: push.churn, filler: push.filler, commits: 1 + Math.floor(rand() * 3), message: push.message });
       }
     }
   }

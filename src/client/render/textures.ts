@@ -13,6 +13,8 @@ const LAYERS = 3;
 
 export interface Textures {
   dot: Texture;
+  /** Gold rank chevrons for veteran soldiers: one, two and three bars. */
+  chevrons: Texture[];
   shadow: Texture;
   soft: Texture;
   spark: Texture;
@@ -114,8 +116,28 @@ function draw(w: number, h: number, paint: (ctx: CanvasRenderingContext2D) => vo
   return single(c);
 }
 
+function chevron(rank: number): Texture {
+  return draw(32, 32, (ctx) => {
+    for (let i = 0; i < rank; i++) {
+      const y = 22 - i * 7;
+      ctx.beginPath();
+      ctx.moveTo(4, y);
+      ctx.lineTo(16, y - 7);
+      ctx.lineTo(28, y);
+      ctx.lineWidth = 6;
+      ctx.strokeStyle = '#2a1c06';
+      ctx.lineJoin = 'round';
+      ctx.stroke();
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = '#f2cf62';
+      ctx.stroke();
+    }
+  });
+}
+
 export function makeTextures(): Textures {
   return {
+    chevrons: [1, 2, 3].map(chevron),
     dot: draw(32, 32, (ctx) => {
       ctx.fillStyle = '#fff';
       ctx.strokeStyle = 'rgba(10,10,10,0.9)';

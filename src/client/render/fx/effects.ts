@@ -291,6 +291,7 @@ export class Effects {
       const site = world.map.sites[s.site]!;
       const top = site.y - site.radius * 0.6;
       this.flash(site.x, top, site.radius * 2.5, FIRE, 0.4);
+      for (let i = 0; i < 3; i++) this.cloud(site.x + (rand() - 0.5) * site.radius, top + (rand() - 0.5) * site.radius * 0.5, site.radius * (1.2 + rand() * 0.5), 1.4 + rand() * 0.5);
       for (let i = 0; i < this.n(40); i++) this.ember(site.x + (rand() - 0.5) * site.radius, top, 160, 80);
       for (let i = 0; i < this.n(26); i++) this.smoke(site.x + (rand() - 0.5) * site.radius, top, 40, 0x2e2a26, 0.8, 4);
       for (let i = 0; i < this.n(18); i++) this.rockFling(site.x, top, 140, 60);
@@ -309,6 +310,7 @@ export class Effects {
 
     if (ev.monolith) {
       this.flash(0, -80, 420, 0x9fe0ff, 0.6);
+      for (let i = 0; i < 4; i++) this.cloud((rand() - 0.5) * 120, -40 - rand() * 80, 110 + rand() * 50, 1.8);
       for (let i = 0; i < this.n(70); i++) this.smoke((rand() - 0.5) * 160, -30 - rand() * 60, 140, 0x6c6a72, 0.75, 3.5, 2.6);
       for (let i = 0; i < this.n(40); i++) this.rockFling((rand() - 0.5) * 60, -40, 220, 160 + rand() * 200);
       for (let i = 0; i < this.n(50); i++) this.glowSpawn({ texture: this.tex.spark, x: 0, y: -80, vx: (rand() - 0.5) * 520, vy: (rand() - 0.5) * 300, vz: 120 + rand() * 120, gravity: 140, drag: 1.2, life: 1.6, size: 14, tint: 0x9fe0ff, stretch: true });
@@ -628,6 +630,7 @@ export class Effects {
 
   private fireballBurst(x: number, y: number, radius: number): void {
     this.flash(x, y - 10, radius * 2.4, 0xff9a40, 0.22);
+    this.cloud(x, y - 6, radius * 1.5, 0.9);
     this.shockwave(x, y, FIRE, radius * 0.4, radius * 1.9, 0.45, 0.9);
     for (let i = 0; i < this.n(10); i++) {
       const a = rand() * Math.PI * 2;
@@ -650,6 +653,11 @@ export class Effects {
     this.shockwave(x, y, 0xd8c8a8, radius * 0.5, radius * 3, 0.55, 0.7);
     this.decals.spawn({ texture: this.tex.crater, x, y, life: 90, size: radius * 2.4, squash: 0.7, alpha: 0.9, fadeIn: 0.05 });
     if (near) this.kick(0.15);
+  }
+
+  /** A rolling cloud of fire and smoke at the heart of a big blast. */
+  private cloud(x: number, y: number, size: number, life: number): void {
+    this.flames.spawn({ texture: this.tex.blast[0]!, frames: this.tex.blast, x, y, z: size * 0.15, vz: 12, life, size, grow: 1.6, tint: 0xffffff, tintTo: 0x5a4a42, alpha: 0.9, rotation: rand() * Math.PI * 2, spin: (rand() - 0.5) * 0.6, fadeIn: 0.04 });
   }
 
   private scorchMark(x: number, y: number, radius: number): void {

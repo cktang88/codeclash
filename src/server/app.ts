@@ -60,6 +60,7 @@ export async function createServer(
   const prune = () => {
     store.pruneSeenCommits(clock() - SEEN_COMMITS_DAYS * 86_400_000);
     store.pruneChat(clock() - CHAT_DAYS * 86_400_000);
+    store.pruneLedger(clock());
   };
   prune();
 

@@ -3097,3 +3097,118 @@ button.chron-btn:hover {
   gap: 6px;
   margin: 10px 0 4px;
 }
+
+/* ---- Fair play: veterancy, ragged armies, today's ledger ---- */
+.tag-ragged {
+  border-color: rgba(240, 122, 99, 0.55);
+  background: rgba(240, 122, 99, 0.12);
+  color: #f6a493;
+}
+.army-mark {
+  gap: 4px;
+  white-space: nowrap;
+}
+.army-mark .num {
+  font-size: 0.92em;
+  opacity: 0.95;
+}
+.standing-sub {
+  flex-wrap: wrap;
+}
+.ledger {
+  margin: 0 0 14px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel-raised);
+}
+.ledger-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 0 0 10px;
+  font-family: var(--serif);
+  font-size: 15px;
+  letter-spacing: 0.04em;
+  color: var(--gold-bright);
+}
+.ledger-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 14px;
+  margin: 0;
+}
+.ledger-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 0;
+  border-bottom: 1px dashed rgba(226, 189, 104, 0.12);
+  font-size: 14px;
+}
+.ledger-row dt {
+  color: var(--muted);
+}
+.ledger-row dd {
+  margin: 0;
+  color: var(--text);
+}
+.ledger-notes {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 14px;
+}
+.ledger-notes li {
+  padding: 2px 0;
+}
+.ledger-notes .num {
+  display: inline-block;
+  min-width: 3.4em;
+  font-weight: 600;
+}
+.note-good .num {
+  color: var(--good);
+}
+.note-bad .num {
+  color: var(--bad);
+}
+.ledger-foot {
+  margin: 10px 0 0;
+  font-size: 14px;
+  line-height: 1.45;
+}
+.fair-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+}
+.fair-item {
+  padding: 10px 12px;
+  border-left: 3px solid var(--gold-deep);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: var(--panel-raised);
+}
+.fair-item dt {
+  font-weight: 700;
+  color: var(--gold-bright);
+}
+.fair-item dd {
+  margin: 4px 0 0;
+  color: var(--text);
+  line-height: 1.5;
+}
+.chron-k-desert .chron-icon {
+  color: var(--bad) !important;
+}
+.chron-k-desert .chron-text {
+  color: var(--muted);
+}
+.player-card-quality {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 2px 0 8px;
+}

@@ -3,6 +3,7 @@ import { DOCTRINE_NAMES } from '../../sim/stats.ts';
 import type { Standing } from '../store.ts';
 import { Avatar } from '../ui/Avatar.tsx';
 import { compact } from '../ui/format.ts';
+import { ArmyMark } from '../ui/fairPlay.tsx';
 import { DoctrineIcon, Icon } from '../ui/icons.tsx';
 import { useHudContext } from './context.ts';
 
@@ -56,6 +57,7 @@ export function Standings({ standings, viewerP }: { standings: readonly Standing
                 <span title={`${DOCTRINE_NAMES[s.doctrine]} doctrine`} className="doctrine-mini">
                   <DoctrineIcon doctrine={s.doctrine} size={13} /> {DOCTRINE_NAMES[s.doctrine]}
                 </span>
+                {store.world?.players[s.p] && <ArmyMark player={store.world.players[s.p]!} />}
               </span>
             </span>
             <span className="standing-score">

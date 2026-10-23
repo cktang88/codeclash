@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { LedgerPanel } from '../ui/fairPlay.tsx';
 import { PlatoonState, TICK_MS, type World } from '../../sim/api.ts';
 import { roman, siteLabel } from '../../sim/chronicle.ts';
 import { DOCTRINE_COOLDOWN, DOCTRINE_NAMES, RALLY_COOLDOWN } from '../../sim/stats.ts';
@@ -162,11 +163,18 @@ export function ArmyPanel({ hud }: { hud: HudSnapshot }) {
   const hue = world.players[p]!.hue;
   const battalions = platoonsByBattalion(world, p);
   const queue = world.players[p]!.queue.length;
+  const ledger = <LedgerPanel player={world.players[p]!} />;
   if (battalions.length === 0) {
-    return <p className="empty-note">Push to a public repository and your first platoon marches out of your capital.</p>;
+    return (
+      <div className="army">
+        <p className="empty-note">Push to a public repository and your first platoon marches out of your capital.</p>
+        {ledger}
+      </div>
+    );
   }
   return (
     <div className="army">
+      {ledger}
       {queue > 0 && (
         <p className="army-queue">
           <Icon name="clock" size={15} /> {queue} {queue === 1 ? 'platoon waits' : 'platoons wait'} at the capital for room on the field.

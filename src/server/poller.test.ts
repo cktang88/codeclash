@@ -23,6 +23,9 @@ function setup() {
 
 const commit = (n: number, login: string | null, message = `commit ${n}`) => ({ sha: sha(n), authorLogin: login, message });
 
+/** Distinct, meaningful code lines. */
+const calls = (from: number, to: number) => Array.from({ length: to - from }, (_, i) => `handleStep${from + i}(input, output);`);
+
 describe('Poller', () => {
   let t: ReturnType<typeof setup>;
   beforeEach(() => {
@@ -33,7 +36,7 @@ describe('Poller', () => {
     t.github.addEvent('Ana', pushEvent('100', 'ana/parser', sha(1), sha(2), NOW - HOUR));
     t.github.setCompare('ana/parser', sha(1), sha(2), {
       commits: [commit(2, 'ana', 'Add tokenizer\n\nLong body')],
-      files: [sourceFile('src/tok.ts', ['// lex', 'export const a = ok ? 1 : 2;', 'if (a && b) run();']), sourceFile('src/tok.test.ts', ['it("a", () => {});'])],
+      files: [sourceFile('src/tok.ts', ['// lex', 'export const a = ok ? 1 : 2;', 'if (a && b) run();']), sourceFile('src/tok.test.ts', ['it("adds", () => expect(add(1, 2)).toBe(3));'])],
     });
     await t.poller.pollUser(7);
     expect(t.reports).toHaveLength(1);
@@ -71,8 +74,8 @@ describe('Poller', () => {
   it('reads a new branch from its head commit and falls back to it when compare fails', async () => {
     t.github.addEvent('Ana', pushEvent('100', 'ana/parser', ZERO, sha(5), NOW));
     t.github.addEvent('Ana', pushEvent('101', 'ana/parser', sha(8), sha(9), NOW));
-    t.github.setCommit('ana/parser', sha(5), { commits: [commit(5, 'ana')], files: [sourceFile('a.rs', ['fn a() {}'])] });
-    t.github.setCommit('ana/parser', sha(9), { commits: [commit(9, 'ana')], files: [sourceFile('b.rs', ['fn b() {}'])] });
+    t.github.setCommit('ana/parser', sha(5), { commits: [commit(5, 'ana')], files: [sourceFile('a.rs', ['fn alpha() { beta() }'])] });
+    t.github.setCommit('ana/parser', sha(9), { commits: [commit(9, 'ana')], files: [sourceFile('b.rs', ['fn gamma() { delta() }'])] });
     await t.poller.pollUser(7);
     expect(t.reports.map((r) => r.lines[Cat.Code])).toEqual([1, 1]);
     expect(t.github.calls.commit).toBe(2);
@@ -92,15 +95,29 @@ describe('Poller', () => {
   it('counts a commit once even when pushed to two branches, and scales for others’ commits', async () => {
     t.github.addEvent('Ana', pushEvent('100', 'ana/parser', sha(1), sha(2), NOW));
     t.github.addEvent('Ana', pushEvent('101', 'ana/parser', sha(1), sha(3), NOW, 'refs/heads/feature'));
-    t.github.setCompare('ana/parser', sha(1), sha(2), { commits: [commit(2, 'ana')], files: [sourceFile('a.ts', ['a', 'b'])] });
+    t.github.setCompare('ana/parser', sha(1), sha(2), { commits: [commit(2, 'ana')], files: [sourceFile('a.ts', calls(0, 2))] });
     t.github.setCompare('ana/parser', sha(1), sha(3), {
       commits: [commit(2, 'ana'), commit(3, 'ANA'), commit(4, 'bob'), commit(5, null)],
-      files: [sourceFile('a.ts', ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'])],
+      files: [sourceFile('a.ts', calls(0, 8))],
     });
     await t.poller.pollUser(7);
     expect(t.reports).toHaveLength(2);
     expect(t.reports[1]!.commits).toBe(2);
     expect(t.reports[1]!.lines[Cat.Code]).toBe(4);
+  });
+
+  it('cancels work a later push undoes, through the stored ledger', async () => {
+    t.github.addEvent('Ana', pushEvent('100', 'ana/parser', sha(1), sha(2), NOW));
+    t.github.addEvent('Ana', pushEvent('101', 'ana/parser', sha(2), sha(3), NOW));
+    t.github.setCompare('ana/parser', sha(1), sha(2), { commits: [commit(2, 'ana')], files: [sourceFile('a.ts', ['if (ready && armed) fireAll(targets);', ...calls(0, 3)])] });
+    t.github.setCompare('ana/parser', sha(2), sha(3), { commits: [commit(3, 'ana')], files: [sourceFile('a.ts', [], ['if (ready && armed) fireAll(targets);'])] });
+    await t.poller.pollUser(7);
+    const [add, undo] = t.reports;
+    expect(add).toMatchObject({ files: 1, branches: 2, churn: 0 });
+    expect(add!.lines[Cat.Code]).toBe(4);
+    expect(undo).toMatchObject({ files: 0, branches: -2, churn: 2 });
+    expect(undo!.lines[Cat.Code]).toBe(-1);
+    expect(undo!.lines[Cat.Removed]).toBe(0);
   });
 
   it('retries a push whose compare failed instead of skipping it', async () => {

@@ -57,6 +57,24 @@ export const Kind = {
 export type Kind = (typeof Kind)[keyof typeof Kind];
 export const KIND_COUNT = 20;
 
+/**
+ * A player's contribution today, summed over pushes. Every push only adds its
+ * change to this ledger, and the army is a function of the ledger, so splitting
+ * or squashing the same work raises the same army.
+ */
+export interface Ledger {
+  /** Net counted lines by category; never below zero. */
+  lines: number[];
+  files: number;
+  branches: number;
+  churn: number;
+  filler: number;
+  /** Code lines by purpose, indexed like PURPOSES. */
+  purposeCode: number[];
+  /** Removed lines by purpose, for refactors and reverts. */
+  purposeRemoved: number[];
+}
+
 /** What a push is for, read from its commit message. */
 export const PURPOSES = ['fix', 'feature', 'refactor', 'perf', 'revert', 'chore', 'work'] as const;
 export type Purpose = (typeof PURPOSES)[number];
@@ -116,13 +134,21 @@ export type SimInput =
       p: number;
       /** Index into the war's repo table; also the battalion key. */
       repo: number;
+      /**
+       * Change to the player's ledger, by line category. Signed: work that undoes
+       * earlier work today (churn) arrives as a negative code delta.
+       */
       lines: Lines;
       commits: number;
       msg: string;
-      /** Source files the push touched. */
+      /** Change in how many source files carry counted work today. Signed. */
       files: number;
-      /** Branch points (if, for, while, case, catch, &&, ||, ?) in added source lines: a complexity measure. */
+      /** Change in branch points (if, for, while, case, catch, &&, ||, ?) in counted code: a complexity measure. Signed. */
       branches: number;
+      /** Lines that cancelled earlier work today (added then deleted, or rewritten back). */
+      churn: number;
+      /** Lines left out as filler: duplicates, punctuation-only, and literal tables. */
+      filler: number;
     }
   | { kind: 'doctrine'; p: number; doctrine: Doctrine }
   | { kind: 'rally'; p: number; site: number }
@@ -234,9 +260,13 @@ export interface PlayerState {
   cryUsed: boolean;
   renown: number;
   pushes: number;
-  /** Ticks of this player's pushes in the last hour, oldest first. */
-  recentPushes: number[];
-  lines: number[];
+  /** Today's contribution; the army is a function of it. */
+  ledger: Ledger;
+  /** Army quality now, from the ledger: scales the HP and damage of all this player's soldiers. */
+  quality: number;
+  /** Veteran rank now, 0 to 3, from the size of today's contribution. */
+  veterancy: number;
+  /** Soldiers raised today and not deserted, by kind: what the ledger has paid for so far. */
   raised: number[];
   /** Enemy soldiers slain, by kind. */
   slain: number[];
@@ -249,9 +279,6 @@ export interface PlayerState {
   routs: number;
   /** Pushes by purpose, indexed like PURPOSES. */
   purposes: number[];
-  /** Source files touched and branch points added, summed over today's pushes. */
-  files: number;
-  branches: number;
   /** This player's deadliest platoon today: [repo, ordinal, kills], or null. */
   best: [number, number, number] | null;
   /** Platoon ids waiting at the capital, in order. */
@@ -285,6 +312,8 @@ export interface World {
 }
 
 export interface TickEvents {
+  /** Soldiers who left because the work that raised them was undone. */
+  desertions: { p: number; count: number }[];
   swings: { from: number; to: number }[];
   /** Projectiles. kind: ShotKind. `to` is a unit id, or -(structure + 1). */
   shots: { from: number; to: number; x: number; y: number; land: number; kind: number }[];

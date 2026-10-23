@@ -21,7 +21,8 @@ export const UNIT_GROUPS: readonly { label: string; note: string; kinds: readonl
 
 const HOW_IT_WORKS = [
   <>
-    <strong>Code is the army.</strong> Footmen come from the size of your change: half the square root of its code lines, plus one for every source file it touches.
+    <strong>Code is the army.</strong> Your whole day of work sets the size of your army: the code you wrote, the source files you touched and how complex it is. Each push
+    marches out the soldiers your day has earned so far.
   </>,
   <>
     <strong>Purpose picks the specialists.</strong> The commit message decides who joins them: bug fixes bring Clerics and Paladins, features bring Champions, refactors bring cavalry,
@@ -39,6 +40,17 @@ const HOW_IT_WORKS = [
   </>,
 ];
 
+const FAIR_PLAY: readonly [string, string][] = [
+  ['Split or squash, same army', 'Your army comes from your whole day’s ledger, not from each push. Twenty small commits and one squashed commit raise the same soldiers; only the timing differs.'],
+  ['Undone work deserts', 'Lines you add and later delete, or rewrite back, cancel out. Soldiers they raised desert.'],
+  ['Moves and reformatting don’t count', 'Moving code between files, renaming, reindenting and reformatting change nothing real, so they raise nothing.'],
+  ['Filler doesn’t count', 'Duplicated lines, punctuation-only lines and pasted tables of literals are left out.'],
+  ['Generated and vendored code count nothing', 'Lockfiles, build output, minified bundles and copied libraries raise no one.'],
+  ['The message picks specialists, not power', 'Calling every commit a fix changes who marches, never how strong the army is. Your contribution sets the power.'],
+  ['Spam makes a ragged army', 'Floods of tests or comments with little code behind them lower your soldiers’ HP and damage.'],
+  ['Real work makes veterans', 'The more real code you ship in a day, the higher your veteran rank, and every soldier musters stronger.'],
+];
+
 const RENOWN = [
   ['Shrine held', '2 per minute'],
   ['The Heart held', '5 per minute'],
@@ -48,7 +60,7 @@ const RENOWN = [
   ['Sack a capital', '120, less for each later sack of the same capital that day'],
 ];
 
-type Tab = 'units' | 'command' | 'renown';
+type Tab = 'units' | 'fair' | 'command' | 'renown';
 
 export function ArticlesOfWar({ onClose }: { onClose(): void }) {
   const [tab, setTab] = useState<Tab>('units');
@@ -58,6 +70,7 @@ export function ArticlesOfWar({ onClose }: { onClose(): void }) {
         {(
           [
             ['units', 'Units'],
+            ['fair', 'Fair play'],
             ['command', 'Command'],
             ['renown', 'Renown'],
           ] as const
@@ -123,8 +136,21 @@ export function ArticlesOfWar({ onClose }: { onClose(): void }) {
             </table>
           </div>
           <p className="muted small">
-            After 3 pushes in an hour, platoons arrive at half strength. After 12 pushes in a day, at a third. Each army has 160 slots on the field. A line soldier takes 1, an elite 2 or 3, a Dragon 6. Extra platoons wait at the capital.
+            Each army has 160 slots on the field. A line soldier takes 1, an elite 2 or 3, a Dragon 6. Extra platoons wait at the capital.
           </p>
+        </>
+      )}
+      {tab === 'fair' && (
+        <>
+          <p className="lede">Pushfront measures real work and refuses to be gamed. These are the rules that keep it honest.</p>
+          <dl className="fair-list">
+            {FAIR_PLAY.map(([rule, why]) => (
+              <div key={rule} className="fair-item">
+                <dt>{rule}</dt>
+                <dd>{why}</dd>
+              </div>
+            ))}
+          </dl>
         </>
       )}
       {tab === 'command' && (

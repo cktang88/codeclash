@@ -9,6 +9,7 @@ import { Camera } from './camera.ts';
 import { Director } from './director.ts';
 import { FlagCache } from './flags.ts';
 import { Effects } from './fx/index.ts';
+import { loadFxArt } from './fx/atlas.ts';
 import { FAR_ZOOM } from './lod.ts';
 import { InfluenceLayer } from './influence.ts';
 import { hslNumber, hslRgb, mixColor } from './paint.ts';
@@ -120,6 +121,7 @@ export class Battlefield {
     app.canvas.style.touchAction = 'none';
     host.appendChild(app.canvas);
     const reducedMotion = opts.reducedMotion ?? window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+    await loadFxArt();
     return new Battlefield(app, host, store, getRunner, makeTextures(), makeUnitArt(), { ...opts, reducedMotion });
   }
 

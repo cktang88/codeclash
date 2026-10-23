@@ -41,7 +41,7 @@ describe('registerHooks', () => {
   let t: Awaited<ReturnType<typeof setup>>;
   beforeEach(async () => {
     t = await setup();
-    t.github.setCompare('ana/parser', sha(1), sha(2), { commits: [{ sha: sha(2), authorLogin: 'ana', message: 'Ship it' }], files: [sourceFile('a.ts', ['a()', 'b()'])] });
+    t.github.setCompare('ana/parser', sha(1), sha(2), { commits: [{ sha: sha(2), authorLogin: 'ana', message: 'Ship it' }], files: [sourceFile('a.ts', ['startServer(config, logger);', 'stopServer(config, logger);'])] });
   });
   afterEach(async () => {
     await t.app.close();

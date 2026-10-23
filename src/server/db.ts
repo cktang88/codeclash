@@ -1,14 +1,19 @@
 import Database from 'better-sqlite3';
+import { createHash } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { ChatMessage, TimelapseFrame, Visibility, WarStatus } from '../protocol.ts';
 import type { Digest } from '../rules/digest.ts';
+import type { LedgerStore } from '../rules/ledger.ts';
 import type { ChronicleEntry } from '../sim/chronicle.ts';
 import type { EncodedInput, RepoRef, ReplayPlayer } from '../sim/replay.ts';
 
 export type Db = Database.Database;
 
 export const SNAPSHOTS_KEPT_LIVE = 3;
+/** A ledger balance stops counting 36 hours after it last moved, and is deleted after 48. */
+export const LEDGER_LIVE_MS = 36 * 3_600_000;
+export const LEDGER_KEEP_MS = 48 * 3_600_000;
 
 export interface UserRow {
   id: number;
@@ -190,6 +195,23 @@ CREATE TABLE IF NOT EXISTS war_frames (
   data TEXT NOT NULL,
   PRIMARY KEY (war_id, tick)
 );
+CREATE TABLE IF NOT EXISTS line_ledger (
+  user_id INTEGER NOT NULL,
+  repo TEXT NOT NULL,
+  scope TEXT NOT NULL,
+  key TEXT NOT NULL,
+  balance INTEGER NOT NULL,
+  at INTEGER NOT NULL,
+  PRIMARY KEY (user_id, repo, scope, key)
+);
+CREATE INDEX IF NOT EXISTS line_ledger_at ON line_ledger(at);
+CREATE TABLE IF NOT EXISTS code_tally (
+  user_id INTEGER NOT NULL,
+  day TEXT NOT NULL,
+  code INTEGER NOT NULL,
+  branches INTEGER NOT NULL,
+  PRIMARY KEY (user_id, day)
+);
 CREATE TABLE IF NOT EXISTS chat (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   room_id INTEGER NOT NULL,
@@ -365,6 +387,36 @@ export class Store {
       for (const sha of shas) if (insert.run(userId, sha, at).changes > 0) fresh.push(sha);
     });
     return fresh;
+  }
+
+  /**
+   * The user's line ledger for one repository. Balances last 36 hours since they
+   * last moved; the code tally is per UTC day. Keys are hashed to bound row size.
+   */
+  ledgerFor(userId: number, repo: string, now: number): LedgerStore {
+    const live = now - LEDGER_LIVE_MS;
+    const day = new Date(now).toISOString().slice(0, 10);
+    const get = this.db.prepare('SELECT balance FROM line_ledger WHERE user_id = ? AND repo = ? AND scope = ? AND key = ? AND at >= ?');
+    const put = this.db.prepare('INSERT INTO line_ledger (user_id, repo, scope, key, balance, at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(user_id, repo, scope, key) DO UPDATE SET balance = excluded.balance, at = excluded.at');
+    const drop = this.db.prepare('DELETE FROM line_ledger WHERE user_id = ? AND repo = ? AND scope = ? AND key = ?');
+    const tally = this.db.prepare('SELECT code, branches FROM code_tally WHERE user_id = ? AND day = ?');
+    const setTally = this.db.prepare('INSERT INTO code_tally (user_id, day, code, branches) VALUES (?, ?, ?, ?) ON CONFLICT(user_id, day) DO UPDATE SET code = excluded.code, branches = excluded.branches');
+    const hash = (text: string) => createHash('sha1').update(text).digest('base64url');
+    const repoKey = repo.toLowerCase();
+    return {
+      balance: (scope, key) => ((get.get(userId, repoKey, hash(scope), hash(key), live) as { balance: number } | undefined)?.balance ?? 0),
+      setBalance: (scope, key, balance) => {
+        if (balance === 0) drop.run(userId, repoKey, hash(scope), hash(key));
+        else put.run(userId, repoKey, hash(scope), hash(key), balance, now);
+      },
+      daily: () => (tally.get(userId, day) as { code: number; branches: number } | undefined) ?? { code: 0, branches: 0 },
+      setDaily: (code, branches) => void setTally.run(userId, day, code, branches),
+    };
+  }
+
+  pruneLedger(now: number): void {
+    this.db.prepare('DELETE FROM line_ledger WHERE at < ?').run(now - LEDGER_KEEP_MS);
+    this.db.prepare('DELETE FROM code_tally WHERE day < ?').run(new Date(now - LEDGER_KEEP_MS).toISOString().slice(0, 10));
   }
 
   pruneSeenCommits(before: number): void {
