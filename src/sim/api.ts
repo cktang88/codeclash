@@ -181,6 +181,8 @@ export interface Structure {
   cooldown: number;
   /** Tick until which it lies in ruins, or -1. */
   ruinedUntil: number;
+  /** Times sacked today; each sack is worth less renown than the last. */
+  sacked: number;
 }
 
 export interface Shot {

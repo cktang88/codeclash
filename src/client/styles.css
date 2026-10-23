@@ -2883,3 +2883,14 @@ button.chron-btn:hover {
   font-size: 13px;
   white-space: nowrap;
 }
+
+.unit-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.unit-icon > svg {
+  display: block;
+}

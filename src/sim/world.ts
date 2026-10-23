@@ -107,7 +107,7 @@ export function createWorld(params: WarParams, map: MapDef): World {
     nextId: 1,
     units: [],
     platoons: [],
-    structures: [{ site: heart, p: NEUTRAL, hp, maxHp: hp, cooldown: 0, ruinedUntil: -1 }],
+    structures: [{ site: heart, p: NEUTRAL, hp, maxHp: hp, cooldown: 0, ruinedUntil: -1, sacked: 0 }],
     shots: [],
     players: [],
     sites: map.sites.map((s) => ({ id: s.id, owner: NEUTRAL, capturer: NEUTRAL, progress: 0 })),
@@ -159,7 +159,7 @@ function applyInput(world: World, input: SimInput, ev: TickEvents): void {
     if (input.p !== world.players.length) return;
     if (input.slot < 0 || input.slot >= world.map.slots || capitalOwner(world, input.slot) !== NEUTRAL) return;
     world.players.push(newPlayer(input.p, input.slot, input.hue));
-    world.structures.push({ site: input.slot, p: input.p, hp: CAPITAL_HP, maxHp: CAPITAL_HP, cooldown: 0, ruinedUntil: -1 });
+    world.structures.push({ site: input.slot, p: input.p, hp: CAPITAL_HP, maxHp: CAPITAL_HP, cooldown: 0, ruinedUntil: -1, sacked: 0 });
     ev.joins.push({ p: input.p });
     return;
   }
@@ -803,7 +803,8 @@ function damageStructure(world: World, k: number, p: number, amount: number, ev:
   if (st.hp <= 0) {
     st.hp = 0;
     st.ruinedUntil = world.tick + SACK_RUIN_TICKS;
-    player.renown += SACK_RENOWN;
+    st.sacked++;
+    player.renown += Math.floor(SACK_RENOWN / st.sacked);
     player.sacks++;
     ev.sacks.push({ site: st.site, p, victim: st.p });
   }

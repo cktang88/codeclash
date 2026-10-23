@@ -250,7 +250,7 @@ function wing(g: G, x: number, y: number, flap: number, len: number, color: stri
   // The span sweeps from raised (up and back) through level to lowered (down and back).
   const lift = Math.cos(flap * TAU);
   const t = (1 - lift) / 2;
-  const angle = -2.05 - t * 1.85 + (back ? 0.18 : 0);
+  const angle = -2.05 - t * (membrane ? 1.5 : 1.75) + (back ? 0.18 : 0);
   const span = len * (0.62 + 0.38 * Math.abs(lift));
   const ux = Math.cos(angle);
   const uy = Math.sin(angle);
@@ -442,7 +442,9 @@ const PAINTERS: Record<number, Painter> = {
   },
   [Kind.Wizard]: (g, p) => {
     upper(g, { ...p, bob: p.bob * 0.5 }, () => {
-      poly(g, [36, 42, 56, 42, 62, 84, 30, 84], '#999', { team: true });
+      poly(g, [36, 42, 56, 42, 62, 84, 30, 84], '#454a6b');
+      poly(g, [31, 76, 61, 76, 62, 84, 30, 84], '#999', { team: true, outline: 2 });
+      poly(g, [44, 42, 49, 42, 50, 76, 43, 76], '#999', { team: true, outline: 1.5 });
       detail(g, (ctx) => {
         ctx.strokeStyle = 'rgba(255,230,150,0.8)';
         ctx.lineWidth = 1.5;
@@ -672,19 +674,6 @@ const PAINTERS: Record<number, Painter> = {
     upper(g, { ...p, bob: p.bob * 1.4 }, () => {
       ellipse(g, 58, 62, 30, 26, -0.2, TROLL, { box: [28, 36, 88, 88] });
       poly(g, [36, 76, 82, 76, 80, 92, 68, 88, 58, 94, 46, 88, 36, 92], '#999', { team: true });
-      // Head, low and forward
-      circle(g, 86, 46, 12, TROLL);
-      detail(g, (ctx) => {
-        ctx.fillStyle = '#ffde59';
-        ctx.beginPath();
-        ctx.arc(91, 43, 2.2, 0, TAU);
-        ctx.fill();
-        ctx.fillStyle = INK;
-        ctx.fillRect(84, 52, 12, 2.5);
-      });
-      poly(g, [92, 52, 98, 42, 96, 53], BONE, { outline: 1.5 });
-      poly(g, [84, 52, 88, 44, 89, 53], BONE, { outline: 1.5 });
-      stick(g, 74, 50, 80, 46, 3, '#999', 0, true);
       const a = swingAngle(p, 1.3, 1.7);
       pivot(g, 74, 56, a, () => {
         stick(g, 74, 56, 96, 72, 9, TROLL);
@@ -700,6 +689,19 @@ const PAINTERS: Record<number, Painter> = {
           }
         });
       });
+      // Head, low and forward
+      circle(g, 86, 46, 12, TROLL);
+      detail(g, (ctx) => {
+        ctx.fillStyle = '#ffde59';
+        ctx.beginPath();
+        ctx.arc(91, 43, 2.2, 0, TAU);
+        ctx.fill();
+        ctx.fillStyle = INK;
+        ctx.fillRect(84, 52, 12, 2.5);
+      });
+      poly(g, [92, 52, 98, 42, 96, 53], BONE, { outline: 1.5 });
+      poly(g, [84, 52, 88, 44, 89, 53], BONE, { outline: 1.5 });
+      stick(g, 74, 50, 80, 46, 3, '#999', 0, true);
     });
   },
   [Kind.Berserker]: (g, p) => {
@@ -774,10 +776,10 @@ const PAINTERS: Record<number, Painter> = {
     });
   },
   [Kind.Dragon]: (g, p) => {
-    // 192 cell, hovering; belly line near y=130, feet line 168.
-    const y0 = 116;
+    // 192 cell, hovering; belly line near y=122, feet line 168.
+    const y0 = 108;
     const tail = Math.sin(p.stride * 1.4 + p.flap * TAU) * 6;
-    wing(g, 96, y0 - 14, p.flap + 0.06, 96, '#8f6f5a', true, true);
+    wing(g, 96, y0 - 14, p.flap + 0.06, 92, '#7b4d3c', true, true);
     // Tail
     curve(g, 62, y0 + 4, 30, y0 + 16 + tail, 8, y0 + 2 - tail, 9, SCALE, 2.5);
     poly(g, [8, y0 - 2 - tail, -2 + 6, y0 - 12 - tail, 4, y0 + 8 - tail], SCALE_DARK, { outline: 2 });
@@ -810,7 +812,16 @@ const PAINTERS: Record<number, Painter> = {
     poly(g, [114, y0 + 30, 128, y0 + 32, 122, y0 + 37, 114, y0 + 36], BONE_DARK, { outline: 2 });
     // Neck and head, rearing back to breathe
     const rear = p.pose === 'attack' ? (p.swing < 0 ? -p.swing * 10 : -p.swing * 6) : 0;
-    curve(g, 120, y0 - 6, 140 - rear, y0 - 40, 150 - rear, y0 - 52 + rear * 0.4, 14, SCALE, 2.5);
+    curve(g, 116, y0 - 4, 140 - rear, y0 - 36, 150 - rear, y0 - 52 + rear * 0.4, 17, SCALE, 2.5);
+    detail(g, (ctx) => {
+      ctx.strokeStyle = '#c9a46a';
+      ctx.lineWidth = 5;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(122, y0 + 2);
+      ctx.quadraticCurveTo(146 - rear, y0 - 30, 154 - rear, y0 - 46 + rear * 0.4);
+      ctx.stroke();
+    });
     pivot(g, 152 - rear, y0 - 54 + rear * 0.4, -p.jaw * 0.25, () => {
       const hx = 152 - rear;
       const hy = y0 - 54 + rear * 0.4;
@@ -842,7 +853,7 @@ const PAINTERS: Record<number, Painter> = {
       if (p.jaw > 0.2) glow(g, hx + 26, hy + 3, 12 + p.jaw * 22, '#ff8a2a', 0.9);
       glow(g, hx + 8, hy - 4, 6, '#ffcf4a', 0.5);
     });
-    wing(g, 102, y0 - 10, p.flap, 112, '#9b7a62', true, false);
+    wing(g, 102, y0 - 10, p.flap, 106, '#8e5843', true, false);
   },
 };
 

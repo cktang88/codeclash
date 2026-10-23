@@ -72,6 +72,7 @@ export function checksum(world: World): number {
     num(st.hp);
     num(st.cooldown);
     num(st.ruinedUntil);
+    int(st.sacked);
   }
   int(world.shots.length);
   for (const sh of world.shots) {

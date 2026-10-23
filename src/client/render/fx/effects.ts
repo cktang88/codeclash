@@ -253,6 +253,20 @@ export class Effects {
       }
     }
 
+    for (const r of ev.regroups) {
+      const from = world.platoons.find((x) => x.id === r.from);
+      const to = world.platoons.find((x) => x.id === r.to);
+      const a = from ?? to;
+      if (!a || !to || !bounds.contains(a.x, a.y)) continue;
+      // The remnant's banner folds into the larger company: a trail of dust and motes between them.
+      for (let i = 0; i <= 6; i++) {
+        const t = i / 6;
+        this.fire.spawn({ texture: this.tex.mote, x: a.x + (to.x - a.x) * t, y: a.y + (to.y - a.y) * t - 20, vz: 10, life: 0.8, size: 6, tint: tint(to.p), delay: t * 0.4 });
+      }
+      this.puff(a.x, a.y, this.n(5), 0xc8b48c, 14, 16);
+      this.ring(to.x, to.y, tint(to.p), 8, 50, 0.6, 0.7);
+    }
+
     for (const c of ev.captures) {
       const site = world.map.sites[c.site]!;
       const t = tint(c.p);
@@ -383,7 +397,7 @@ export class Effects {
   floatText(text: string, x: number, y: number, life: number, size: number, color = 0xffffff): void {
     const t = new Text({
       text,
-      style: { fontFamily: 'Cinzel, Inter, "Segoe UI Emoji", "Apple Color Emoji", system-ui, sans-serif', fontSize: size, fontWeight: '800', fill: color, stroke: { color: 0x0b0d10, width: 5 }, letterSpacing: 1 },
+      style: { fontFamily: 'Cinzel, Inter, "Segoe UI Emoji", "Apple Color Emoji", system-ui, sans-serif', fontSize: size, fontWeight: '800', fill: color, stroke: { color: 0x0b0d10, width: 5, join: 'round' }, letterSpacing: 1 },
       resolution: 2,
     });
     t.anchor.set(0.5);
@@ -605,13 +619,15 @@ export class Effects {
   }
 
   private boulderImpact(x: number, y: number, radius: number, near: boolean): void {
-    for (let i = 0; i < this.n(14); i++) {
+    for (let i = 0; i < this.n(18); i++) {
       const a = rand() * Math.PI * 2;
-      this.dust.spawn({ texture: this.tex.dust, x, y, vx: Math.cos(a) * 110, vy: Math.sin(a) * 60, drag: 3, life: 1.3, size: 20, grow: 2.4, squash: 0.6, alpha: 0.75, tint: 0xb9a888, spin: (rand() - 0.5) * 2 });
+      const sp = 90 + rand() * 90;
+      this.dust.spawn({ texture: this.tex.dust, x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp * 0.5, vz: 10 + rand() * 30, drag: 3, life: 1.4 + rand() * 0.6, size: 26, grow: 2.8, squash: 0.65, alpha: 0.8, tint: 0xb9a888, spin: (rand() - 0.5) * 2 });
     }
-    for (let i = 0; i < this.n(12); i++) this.rockFling(x, y, 120, 60 + rand() * 80);
-    this.shockwave(x, y, 0xd8c8a8, radius * 0.4, radius * 2, 0.5, 0.6);
-    this.decals.spawn({ texture: this.tex.crater, x, y, life: 90, size: radius * 1.8, squash: 0.7, alpha: 0.85, fadeIn: 0.05 });
+    for (let i = 0; i < this.n(16); i++) this.rockFling(x, y, 150, 80 + rand() * 120);
+    this.flash(x, y - 6, radius * 2.2, 0xfff0d0, 0.12);
+    this.shockwave(x, y, 0xd8c8a8, radius * 0.5, radius * 3, 0.55, 0.7);
+    this.decals.spawn({ texture: this.tex.crater, x, y, life: 90, size: radius * 2.4, squash: 0.7, alpha: 0.9, fadeIn: 0.05 });
     if (near) this.kick(0.15);
   }
 

@@ -1,6 +1,7 @@
 import type { ReactNode, SVGProps } from 'react';
 import type { ChronicleKind } from '../../sim/chronicle.ts';
 import { STATS } from '../../sim/stats.ts';
+import { unitIconSvg } from '../render/art/svg.ts';
 
 type IconProps = { size?: number; title?: string; className?: string } & Omit<SVGProps<SVGSVGElement>, 'children'>;
 
@@ -27,146 +28,20 @@ function Svg({ size = 18, title, children, className, ...rest }: IconProps & { c
   );
 }
 
-// One silhouette per unit, keyed by name so the set survives roster reordering.
-const UNIT_PATHS: Record<string, ReactNode> = {
-  Footman: (
-    <>
-      <path d="M18 2.5 6 20.5" />
-      <path d="m18 2.5-.6 3.4-2.6-1.8z" fill="currentColor" />
-      <circle cx="9.5" cy="13" r="5" fill="currentColor" fillOpacity={0.25} />
-    </>
-  ),
-  Knight: (
-    <>
-      <path d="M3 21 15 9" />
-      <path d="M15 9 21 3l-1.5 5.5z" fill="currentColor" />
-      <path d="M6 12.5a5.5 5.5 0 0 0 5.5 5.5v-3l-2.5-2.5z" fill="currentColor" fillOpacity={0.3} />
-    </>
-  ),
-  Warden: (
-    <>
-      <path d="M12 2.5 19.5 5v7c0 4.6-3.2 8-7.5 9.5C7.7 20 4.5 16.6 4.5 12V5z" fill="currentColor" fillOpacity={0.25} />
-      <path d="M12 6v12M8 10.5h8" />
-    </>
-  ),
-  Paladin: (
-    <>
-      <path d="M12 2.5 19.5 5v7c0 4.6-3.2 8-7.5 9.5C7.7 20 4.5 16.6 4.5 12V5z" fill="currentColor" fillOpacity={0.25} />
-      <path d="M12 7v9M9 10h6" strokeWidth={2.4} />
-      <path d="M4 3.5 6 5M20 3.5 18 5" />
-    </>
-  ),
-  Archer: (
-    <>
-      <path d="M7 3c6 3 6 15 0 18" />
-      <path d="M7 3v18" strokeWidth={1} />
-      <path d="M4 12h16m0 0-3-2.5m3 2.5-3 2.5" />
-    </>
-  ),
-  Ranger: (
-    <>
-      <path d="M6 3c6 3 6 15 0 18" />
-      <path d="M6 3v18" strokeWidth={1} />
-      <path d="M3 12h18m0 0-3-2.5m3 2.5-3 2.5" />
-      <path d="M14 4c3 0 5 2 5 5-3 0-5-2-5-5z" fill="currentColor" fillOpacity={0.35} />
-    </>
-  ),
-  Herald: (
-    <>
-      <path d="M6 21V3" />
-      <path d="M6 4h12l-3 4 3 4H6" fill="currentColor" fillOpacity={0.3} />
-    </>
-  ),
-  Wizard: (
-    <>
-      <path d="M4 20h16L13 3z" fill="currentColor" fillOpacity={0.3} />
-      <path d="m15.5 12 .7 1.6 1.7.2-1.3 1.1.4 1.7-1.5-.9-1.5.9.4-1.7-1.3-1.1 1.7-.2z" fill="currentColor" />
-    </>
-  ),
-  Sapper: (
-    <>
-      <path d="m14 10-9.5 9.5a1.6 1.6 0 0 0 2.3 2.3L16.3 12" />
-      <path d="m12.5 4.5 7 7 2-2-4-4.2c-1.4-1.4-3.4-1.8-5-.8z" fill="currentColor" fillOpacity={0.3} />
-    </>
-  ),
-  Trebuchet: (
-    <>
-      <path d="M4 20h16M7 20l5-12 5 12" />
-      <path d="M3 5l16 6" />
-      <circle cx="19" cy="11" r="1.8" fill="currentColor" />
-      <rect x="2" y="3" width="3" height="4" fill="currentColor" fillOpacity={0.4} />
-    </>
-  ),
-  Outrider: (
-    <>
-      <path d="M7 21v-5c-1.8-1.6-2.5-4-1.6-6.3L8 4l2 2.5 3-.5c3.4.5 5.6 3.1 6 6.6l.5 3.4-2.7.8-2.3-3-1.5 1.4V21" fill="currentColor" fillOpacity={0.25} />
-      <circle cx="13" cy="9" r="0.8" fill="currentColor" />
-    </>
-  ),
-  'Griffin Rider': (
-    <>
-      <path d="M3 9c4-1 6 0 8 3 1-4 4-7 10-8-1 5-3 9-7 11l1 6h-3l-1-4c-3 0-6-3-8-8z" fill="currentColor" fillOpacity={0.3} />
-      <circle cx="18" cy="6.5" r="0.8" fill="currentColor" />
-    </>
-  ),
-  Skeleton: (
-    <>
-      <path d="M12 3a6 6 0 0 0-4 10.5V16h8v-2.5A6 6 0 0 0 12 3z" />
-      <path d="M9.6 9.5h.01M14.4 9.5h.01M10 16v4M14 16v4M8 20h8" />
-    </>
-  ),
-  'Bone Golem': (
-    <>
-      <rect x="4" y="9" width="16" height="10" rx="2" fill="currentColor" fillOpacity={0.25} />
-      <path d="M12 3a4 4 0 0 0-3 6.6V9h6v.6A4 4 0 0 0 12 3zM10.5 6h.01M13.5 6h.01M7 13h10M7 16h10M7 19v2M17 19v2" />
-    </>
-  ),
-  Mercenary: (
-    <>
-      <path d="m4 4 11 11M20 4 9 15" />
-      <path d="m13 17 4-4M11 17l-4-4M15.5 19.5l4-4M8.5 19.5l-4-4" />
-    </>
-  ),
-  Troll: (
-    <>
-      <path d="M15 3c3 1 5 4 4 7l-5 11h-3l2-9c-2-1-3-3-2-6 1-2 2.5-3 4-3z" fill="currentColor" fillOpacity={0.3} />
-      <path d="M4 20 11 12M3.5 15.5l2.5 2.5" />
-    </>
-  ),
-  Berserker: (
-    <>
-      <path d="M5 21 15 7" />
-      <path d="M13 4c3-1 6 1 7 4-2 0-4 1-5 3-1-2-2-4-2-7z" fill="currentColor" fillOpacity={0.35} />
-      <path d="M13 4c-2 1-3 3-2.5 5.5 1.5-.2 3 .5 4 1.5" />
-    </>
-  ),
-  Cleric: (
-    <>
-      <path d="M12 7v14" />
-      <circle cx="12" cy="5" r="2.5" fill="currentColor" fillOpacity={0.3} />
-      <path d="M8 12h8M10 9.5h4" />
-    </>
-  ),
-  Champion: (
-    <>
-      <path d="m5 9 2.5-5 2.5 3L12 3l2 4 2.5-3L19 9z" fill="currentColor" fillOpacity={0.35} />
-      <path d="M5 9h14v4c0 4-3 7.5-7 8.5-4-1-7-4.5-7-8.5z" />
-      <path d="M9 13h6" />
-    </>
-  ),
-  Dragon: (
-    <>
-      <path d="M3 14c3-6 7-9 12-9l2-2 1 3c2 1 3 3 3 5l-4-1-2 3 3 3c-2 2-5 3-8 2l-1 4-2-4c-2 0-3-2-4-4z" fill="currentColor" fillOpacity={0.3} />
-      <circle cx="16" cy="8" r="0.8" fill="currentColor" />
-    </>
-  ),
-};
-
-export function UnitIcon({ kind, ...props }: IconProps & { kind: number }) {
+/** A unit's silhouette, the same art as its battlefield sprite. Decorative when `title` is empty. */
+export function UnitIcon({ kind, size = 18, title, className }: { kind: number; size?: number; title?: string; className?: string }) {
+  const name = title ?? STATS[kind]?.name ?? '';
   return (
-    <Svg title={props.title ?? STATS[kind]?.name} {...props}>
-      {UNIT_PATHS[STATS[kind]?.name ?? ''] ?? <circle cx="12" cy="12" r="6" />}
-    </Svg>
+    <span
+      className={`icon unit-icon${className ? ` ${className}` : ''}`}
+      style={{ fontSize: size, width: size, height: size }}
+      role={name ? 'img' : undefined}
+      aria-label={name || undefined}
+      aria-hidden={name ? undefined : true}
+      title={name || undefined}
+      // Static SVG markup from the art module; no user input reaches it.
+      dangerouslySetInnerHTML={{ __html: unitIconSvg(kind) }}
+    />
   );
 }
 

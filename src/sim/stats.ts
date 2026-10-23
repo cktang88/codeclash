@@ -130,7 +130,7 @@ export const HOLD_RADIUS = 200;
 export const CAPITAL_HP = 8000;
 export const CAPITAL_TOWER = { damage: 20, range: 160, cooldown: 4 };
 export const MONOLITH_TOWER = { damage: 30, range: 140, cooldown: 3 };
-export const SACK_RUIN_TICKS = 10 * TICKS_PER_MINUTE;
+export const SACK_RUIN_TICKS = 20 * TICKS_PER_MINUTE;
 export const SACK_REBUILD = 1;
 export const SACK_RENOWN = 120;
 /** Share of a holding's renown paid while its owner has no soldiers near it. */

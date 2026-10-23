@@ -41,54 +41,95 @@ The nine line counts are `code, test, comment, docs, config, removed, generated,
 
 ### Units
 
-Every category raises one unit type. A **Champion** is raised by a balanced push.
+There are twenty unit kinds.
 
-| Unit | Raised by | Role | HP | Dmg | Range | Speed | Notes |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| Legionary | code | line infantry | 100 | 11 | melee | 1.6 | +60% vs Outriders |
-| Warden | test | shield wall | 190 | 6 | melee | 1.3 | allies within 40 take 30% less damage; takes half damage from arrows |
-| Archer | comment | ranged | 55 | 8 | 95 | 1.6 | arrows fly; +40% vs Legionary, Golem, Mercenary |
-| Herald | docs | banner bearer, medic | 80 | 4 | melee | 1.6 | heals allies within 50; slows platoon morale loss |
-| Sapper | config | siege engineer | 90 | 8 | melee | 1.5 | 6x damage to structures |
-| Outrider | removed | fast cavalry | 95 | 13 | melee | 3.2 | +60% vs Archer, Herald, Sapper |
-| Golem | generated | slow fodder | 150 | 5 | melee | 1.0 | cheap and plentiful |
-| Mercenary | vendor | hired blade | 115 | 14 | melee | 1.8 | contract ends 10 minutes after arrival |
-| Champion | a balanced push | hero | 520 | 26 | melee | 1.5 | allies within 60 deal 20% more; its platoon cannot rout while it lives |
+- **Base and elite.** Each line category raises a base unit. In a big push, it also raises an elite.
+- **Specials.** Berserkers and Clerics come from the shape of a push, not from one category.
+- **Heroes.** Champions and Dragons crown well-rounded pushes.
 
-Speeds are world units per tick, at 5 ticks per second. Melee range is 12–16 world units.
+Each unit takes one or more **slots** in its platoon. HP, damage and range are listed per unit. Speed is in world units per tick, at 5 ticks per second. Melee reach is 13–16 units, plus half the target's size.
 
-A push is **balanced** when all three hold: at least 20 code lines, at least 1 test line, and at least 1 comment or docs line.
+| Unit | Raised by | Tier | Slots | HP | Dmg | Range | Speed | Abilities |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Footman | code | base | 1 | 110 | 11 | melee | 1.6 | Spear and shield. +60% vs Outriders and Knights |
+| Knight | code (elite) | elite | 2 | 240 | 22 | melee | 2.4 | Charge: the first blow after riding 40 units deals ×1.8 |
+| Warden | test | base | 1 | 190 | 6 | melee | 1.3 | Tower shield: allies within 40 take 30% less damage. Arrows deal half damage to it |
+| Paladin | test (elite) | elite | 2 | 320 | 14 | melee | 1.4 | Shield aura like a Warden's. Every 2 s, heals the most wounded ally within 40 for 6. ×2 vs undead |
+| Archer | comment | base | 1 | 55 | 8 | 95 | 1.6 | Arrows in flight. +40% vs Footmen, Skeletons, Mercenaries, Berserkers. +80% vs fliers |
+| Ranger | comment (elite) | elite | 2 | 90 | 17 | 125 | 1.9 | Elven longbow, with the same bonuses as the Archer |
+| Herald | docs | base | 1 | 80 | 4 | melee | 1.6 | Banner aura: heals allies within 50. Halves its platoon's morale loss |
+| Wizard | docs (elite) | elite | 2 | 85 | 20 | 120 | 1.4 | Fireballs burst over 28 units (full damage at the center, half at the edge) |
+| Sapper | config | base | 1 | 90 | 10 | melee | 1.5 | ×6 damage to structures |
+| Trebuchet | config (elite) | elite | 3 | 260 | 34 | 175 | 0.8 | Stones burst over 22 units. Prefers any structure in range. ×2 vs structures |
+| Outrider | removed | base | 1 | 120 | 15 | melee | 3.2 | +60% vs ranged units, Heralds, Sappers, Clerics |
+| Griffin Rider | removed (elite) | elite | 2 | 200 | 20 | melee | 3.6 | Flies over water, rock and crowds. Same bonuses as the Outrider |
+| Skeleton | generated | base | 1 | 70 | 6 | melee | 1.3 | Brittle fodder |
+| Bone Golem | generated (elite) | elite | 3 | 520 | 14 | melee | 0.9 | Lumbering wall. +30% vs base units |
+| Mercenary | vendor | base | 1 | 130 | 16 | melee | 1.8 | Contract ends 10 minutes after marching out |
+| Troll | vendor (elite) | elite | 3 | 600 | 24 | melee | 1.2 | Regenerates 1.2 HP per tick, a quarter of that while scorched by fire. +30% vs base units. Contract of 20 minutes |
+| Berserker | untested, uncommented code | special | 1 | 120 | 26 | melee | 2.1 | Hits hard, dies fast |
+| Cleric | a fix | special | 1 | 90 | 5 | melee | 1.5 | Every 2 s, heals the most wounded ally within 80 for 22 |
+| Champion | a balanced push | hero | 2 | 520 | 26 | melee | 1.5 | Allies within 60 deal 20% more. Its platoon cannot rout while it lives. ×1.5 vs heroes and Dragons |
+| Dragon | a legendary push | legend | 6 | 2400 | 24 | 70 | 2.0 | Flies. Every 2 s breathes fire on every enemy in a 50° cone, and singes structures in it. Valor aura like a Champion's |
+
+Fliers ignore terrain and the press of ground soldiers. Melee soldiers can still strike them once the flier comes within reach.
+
+- **Balanced push:** at least 20 code lines, at least 1 test line, and at least 1 comment or docs line.
+- **Legendary push:** a balanced push with at least 150 code lines, 50 test lines, and 30 comment or docs lines.
+- **Fix:** a commit message containing `fix`, `fixes`, `fixed`, `bug`, `hotfix` or `patch`.
 
 ### How many soldiers
 
-`count[k] = floor(coef[k] * sqrt(lines[k]))`. If `lines[k] >= threshold[k]` and the result is 0, the count is raised to 1.
+For each line category: `count = floor(coef * sqrt(lines))`. If that is 0 but `lines >= threshold`, the count becomes 1. Counts are capped per category.
+
+Once a category's lines reach its **elite** line count, every 3 base soldiers of that category are promoted to 1 elite.
 
 | | code | test | comment | docs | config | removed | generated | vendor |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | coef | 0.6 | 0.7 | 0.6 | 0.45 | 0.4 | 0.45 | 0.15 | 0.12 |
 | threshold | 1 | 1 | 3 | 5 | 5 | 10 | 50 | 50 |
 | cap | 12 | 10 | 8 | 6 | 6 | 8 | 6 | 4 |
+| elite at | 120 | 60 | 30 | 60 | 60 | 80 | 5000 | 4000 |
 
-A platoon holds at most 32 soldiers. Fatigue keeps a heavy pusher from flooding the map:
+Then, in order:
+
+1. **Berserkers.** With at least 30 code lines and no test or comment lines, half the Footmen (rounded down) become Berserkers.
+2. **Clerics.** A fix adds 1 Cleric, or 2 if it also removes at least 40 lines.
+3. **Heroes.** A balanced push adds a Champion. A legendary push adds a Dragon instead. Neither comes while fatigue applies.
+4. **Fitting.** A platoon holds at most 32 slots. The cheapest soldiers are trimmed first, and heroes are never trimmed.
+
+Fatigue keeps a heavy pusher from flooding the map:
 
 - **Hourly levy.** After 3 pushes in the last hour, further platoons get half the counts.
 - **Daily weariness.** After 12 pushes today, platoons get a third of the counts.
-- Every push still raises at least one Legionary.
+- Every push still raises at least one Footman.
 
-A player has at most 160 soldiers alive and a room at most 2000. A platoon that would break either cap waits in its capital's **muster queue**, holding up to 24 platoons, and marches when there is room.
+**Caps.**
+
+- A player fields at most 160 slots, and a room at most 2000 soldiers. A platoon that would break either cap waits in its capital's **muster queue** and marches when there is room. The queue holds up to 24 platoons.
+- An army has at most one Dragon alive. A second legendary push brings a Champion instead.
+
+**Regrouping.** Remnants fold into stronger formations of the same army. A platoon qualifies when it has 4 or fewer soldiers left, or less than 30% of its strength. It merges into a bigger platoon of its army within 140 units. A routed remnant that reaches its capital joins its army's nearest platoon in the field, at any distance.
 
 ## 2. Hierarchy and heraldry
 
 - **Army.** One per player per war. It has one **hue**, assigned from a colorblind-aware wheel so that players in a room are far apart.
 - **Battalion.** One per repository the player pushed to today. Its flag is the army hue in a lightness and saturation step unique to the battalion, plus a **pattern** (plain, chevron, saltire, pale, fess, quarterly, bend, chief), an **emblem** (one of 12), and an accent stripe in the repository's language color. All of these are chosen from a hash of the repo name. The flag shows the repo's initials.
-- **Platoon.** One per push. It carries its battalion's flag plus its ordinal number within the battalion (I, II, III …). It marches and fights as a formation: wardens and golems in front, legionaries in the line, archers and heralds behind, outriders on the flanks, and the champion at the center.
+- **Platoon.** One per push. It carries its battalion's flag plus its ordinal number within the battalion (I, II, III …). It marches and fights as a formation, from front to back:
+  - Trolls, Golems, Paladins, Wardens and Skeletons in front
+  - Champions, Knights, Footmen, Mercenaries and Berserkers in the line
+  - Sappers in the middle
+  - Wizards, Rangers, Archers, Heralds and Clerics behind
+  - Trebuchets at the rear
+
+  Outriders and Griffin Riders ride the flanks. A Dragon hovers behind the center.
 
 ## 3. The battlefield
 
 The map is a disc with one **capital** per slot, on a ring at 84% of the radius. A war's map is generated at the start of the day with `slots = clamp(members + 2, 4, 16)`, so players who join during the day take a spare slot. Once all slots are taken, a new member starts with tomorrow's war.
 
 - **Capital.** One per player. It has 8000 HP and a tower (20 damage, range 160). Platoons spawn at its gate. Within 220 units of their own capital, a player's units take 20% less damage (home turf).
-- **Sacking.** A capital at 0 HP is **sacked**. The player who dealt the final blow gains 120 renown. The capital lies in ruins for 10 minutes, invulnerable and silent, and then rebuilds at full HP.
+- **Sacking.** A capital at 0 HP is **sacked**. The player who dealt the final blow gains renown: 120 for the first sack of that capital today, 60 for the second, 40 for the third, and so on (`120 / n`, rounded down). The capital lies in ruins for 20 minutes, invulnerable and silent, and then rebuilds at full HP.
 - **Shrines.** One per slot, at 46% of the radius between neighboring capitals. Each is capturable.
 - **The Heart.** It sits at the center and is guarded at dawn by the **Legacy Monolith**, a neutral structure with `30000 + 10000 * members` HP that fires on anyone near it. Everyone attacks it together. The player who dealt the most damage to it gets the Monolith award. The Heart can be captured only after the Monolith falls.
 - **Terrain.** Forest slows movement by 40% and halves arrow damage. Water and rock are impassable. The terrain is generated from seeded noise in one sector and rotated into the others, so every slot sees the same map.
@@ -132,7 +173,7 @@ Renown is the score:
 | Kill | the victim's value (1 for most units, 2 for Wardens, Heralds, Outriders and Mercenaries, 10 for a Champion) |
 | Kill of a soldier of the renown leader (bounty) | double the victim's value |
 | Monolith damage | 1 per 100 damage |
-| Sacking a capital | 120 |
+| Sacking a capital | 120 for the first sack of that capital today, then `120 / n` for the n-th |
 
 A holding pays in full only while its owner has soldiers near it. An ungarrisoned holding pays a quarter of its renown, rounded down. A leader therefore has to spread thin to keep everything.
 

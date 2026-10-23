@@ -3,14 +3,17 @@ import { Container, Sprite } from 'pixi.js';
 import { Kind, PlatoonState, type Unit, type World } from '../../sim/api.ts';
 import { STATS } from '../../sim/stats.ts';
 import type { Runner } from '../net/runner.ts';
-import { CELL, FEET_Y, type Textures } from './textures.ts';
+import type { UnitArt, UnitFrame } from './art/index.ts';
+import type { Textures } from './textures.ts';
 
 const SWING_PULL_MS = 110;
 const SWING_LUNGE_MS = 230;
 const SWING_END_MS = 420;
 const FLASH_MS = 90;
 const KNOCK_MS = 160;
-const STEP_PERIOD_MS = 260;
+const STEP_PERIOD_MS = 520;
+const ATTACK_FRAME_MS = 105;
+const IDLE_FRAME_MS = 700;
 
 interface Swing {
   at: number;
@@ -59,7 +62,10 @@ export class UnitLayer {
   tints: number[] = [];
   cryTint: number[] = [];
 
-  constructor(private tex: Textures) {
+  constructor(
+    private tex: Textures,
+    private art: UnitArt,
+  ) {
     this.bodies.sortableChildren = true;
     this.air.sortableChildren = true;
   }
@@ -139,7 +145,14 @@ export class UnitLayer {
         v.dot.position.set(x, y);
         v.dot.tint = tint;
         const big = STATS[u.kind]!.size;
-        v.dot.scale.set(((3 + big * 0.35) / zoom / 32) * Math.min(1, zoom * 3.2));
+        // Elites and legends keep their silhouette even from afar.
+        if (big >= 9) {
+          v.dot.texture = this.art.icon(u.kind);
+          v.dot.scale.set((10 + big * 0.9) / zoom / this.art.cell(u.kind).h);
+        } else {
+          v.dot.texture = this.tex.dot;
+          v.dot.scale.set(((3 + big * 0.35) / zoom / 32) * Math.min(1, zoom * 3.2));
+        }
         continue;
       }
       v.dot.visible = false;
@@ -148,11 +161,13 @@ export class UnitLayer {
       // Swing: wind up away from the victim, then lunge in as the blow lands.
       let ox = 0;
       let oy = 0;
+      let attackFrame = -1;
       const swing = this.swings.get(u.id);
       if (swing) {
         const t = now - swing.at;
         if (t > SWING_END_MS) this.swings.delete(u.id);
         else {
+          attackFrame = Math.min(3, Math.floor(t / ATTACK_FRAME_MS));
           const sx = swing.tx - x;
           const sy = swing.ty - y;
           const d = Math.sqrt(sx * sx + sy * sy) || 1;
@@ -178,29 +193,40 @@ export class UnitLayer {
       const walking = v.speed > 0.12;
       const routing = platoonState.get(u.platoon) === PlatoonState.Rout;
       const stats = STATS[u.kind]!;
-      const flying = stats.flying;
-      const stepMs = STEP_PERIOD_MS * Math.max(0.6, Math.min(1.8, 1.6 / stats.speed + (stats.size >= 12 ? 0.5 : 0)));
-      const cycle = (now / (flying ? 380 : stepMs) + v.phase) % 1;
-      const frame = (walking || flying) && cycle > 0.5 ? 1 : 0;
-      const altitude = flying ? 26 + Math.sin(now / 520 + v.phase * 6) * 3 : 0;
-      const bob = flying ? 0 : walking ? -Math.abs(Math.sin(cycle * Math.PI * 2)) * 1.4 : Math.sin(now / 900 + v.phase * 6) * 0.25;
-      const lean = walking ? (routing ? -0.22 : 0.07) * v.facing : Math.sin(now / 1300 + v.phase * 5) * 0.03;
+      const flight = this.art.flight(u.kind);
+      const flying = flight !== null;
+      let frame: UnitFrame;
+      if (attackFrame >= 0) frame = this.art.frames(u.kind, 'attack')[attackFrame]!;
+      else if (walking || flying) {
+        const frames = this.art.frames(u.kind, 'walk');
+        // Big, slow kinds stride slowly; fliers beat their wings at a steady pace.
+        const period = flying ? 640 : STEP_PERIOD_MS * Math.max(0.6, Math.min(1.8, 1.6 / stats.speed));
+        frame = frames[Math.floor(((now / period + v.phase) % 1) * frames.length)]!;
+      } else {
+        const frames = this.art.frames(u.kind, 'idle');
+        frame = frames[Math.floor(now / IDLE_FRAME_MS + v.phase * 4) % frames.length]!;
+      }
+      const altitude = flying ? flight.height + Math.sin(now / 520 + v.phase * 6) * 3 : 0;
+      const lean = attackFrame >= 0 ? 0 : walking && routing ? -0.2 * v.facing : 0;
 
-      const size = this.tex.unitScale[u.kind]! / CELL;
+      const cell = this.art.cell(u.kind);
+      const worldH = this.art.scale(u.kind);
+      const size = worldH / cell.h;
       const px = x + ox;
       const py = y + oy;
-      const feet = (FEET_Y / CELL - 0.5) * CELL * size;
       v.shadow.position.set(px, py);
-      const wide = stats.slots >= 2 || u.kind === Kind.Outrider ? 1.2 : 0.75;
-      v.shadow.scale.set((this.tex.unitScale[u.kind]! * wide * (flying ? 0.8 : 1)) / 64, (this.tex.unitScale[u.kind]! * 0.3 * (flying ? 0.7 : 1)) / 64);
+      const wide = stats.slots >= 2 || u.kind === Kind.Outrider ? 0.9 : 0.55;
+      v.shadow.scale.set((worldH * wide * (flying ? 0.8 : 1)) / 64, (worldH * 0.22 * (flying ? 0.7 : 1)) / 64);
       v.shadow.alpha = flying ? 0.45 : 0.7;
       const layer = flying ? this.air : this.bodies;
       if (v.body.parent !== layer) layer.addChild(v.body, v.mask);
       const flashing = now - (this.flashes.get(u.id) ?? -1e9) < FLASH_MS;
-      v.body.texture = flashing ? this.tex.units[u.kind]!.sil : this.tex.units[u.kind]!.body[frame]!;
-      v.mask.texture = this.tex.units[u.kind]!.mask[frame]!;
+      v.body.texture = flashing ? frame.sil : frame.body;
+      v.mask.texture = frame.mask;
+      const anchorY = cell.feetY / cell.h;
       for (const s of [v.body, v.mask]) {
-        s.position.set(px, py - feet + bob - altitude);
+        s.anchor.set(0.5, anchorY);
+        s.position.set(px, py - altitude);
         s.scale.set(size * v.facing, size);
         s.rotation = lean;
         s.zIndex = py;
@@ -235,10 +261,8 @@ export class UnitLayer {
     const shadow = new Sprite(this.tex.shadow);
     shadow.anchor.set(0.5);
     shadow.alpha = 0.7;
-    const body = new Sprite(this.tex.units[0]!.body[0]!);
-    body.anchor.set(0.5);
-    const mask = new Sprite(this.tex.units[0]!.mask[0]!);
-    mask.anchor.set(0.5);
+    const body = new Sprite();
+    const mask = new Sprite();
     const dot = new Sprite(this.tex.dot);
     dot.anchor.set(0.5);
     this.shadows.addChild(shadow);
@@ -252,9 +276,11 @@ export class UnitLayer {
     this.pool.push(v);
   }
 
-  /** The kind's sprite size, for effects that mimic a soldier. */
-  scaleOf(kind: Kind): number {
-    return this.tex.unitScale[kind]! / CELL;
+  /** A falling body for this kind, sized and anchored at the feet like the living soldier. */
+  corpse(kind: Kind): { texture: UnitFrame['body']; scale: number; anchorY: number } {
+    const frames = this.art.frames(kind, 'die');
+    const cell = this.art.cell(kind);
+    return { texture: frames[frames.length - 1]!.body, scale: this.art.scale(kind) / cell.h, anchorY: cell.feetY / cell.h };
   }
 
   isRanged(kind: Kind): boolean {

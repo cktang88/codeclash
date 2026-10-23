@@ -41,7 +41,7 @@ function unit(kind: Kind, frame: { body: Sprite['texture']; mask: Sprite['textur
 
 const only = params.get('kinds')?.split(',').map(Number) ?? null;
 const mag = Number(params.get('mag') ?? 1.6);
-let y = 20;
+let y = Number(params.get('top') ?? 20);
 for (let k = 0; k < KIND_COUNT; k++) {
   if (only && !only.includes(k)) continue;
   const kind = k as Kind;

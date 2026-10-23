@@ -21,8 +21,8 @@ export const TROLL_DARK = '#4f6150';
 export const HORSE = '#8a6646';
 export const HORSE_DARK = '#5a3f2a';
 export const FEATHER = '#d9cfb8';
-export const SCALE = '#7d6a5a';
-export const SCALE_DARK = '#4c3e33';
+export const SCALE = '#6e4f42';
+export const SCALE_DARK = '#3f2c25';
 
 export interface G {
   ctx: CanvasRenderingContext2D;

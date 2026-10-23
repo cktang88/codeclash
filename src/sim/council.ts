@@ -80,7 +80,7 @@ function siteScore(world: World, p: number, k: number, x: number, y: number, str
       if (owner === NEUTRAL) return 0;
       const structure = world.structures.find((st) => st.site === k);
       if (!structure || structure.ruinedUntil >= 0) return 0;
-      value = doctrine === Doctrine.Siege ? 7 : doctrine === Doctrine.Assault ? 3.5 : 1.5;
+      value = doctrine === Doctrine.Siege ? 7 : doctrine === Doctrine.Assault ? 3.5 : 1;
       if (owner === world.leader && owner !== p) value *= 1.4;
     }
   } else if (def.kind === 'shrine') {
