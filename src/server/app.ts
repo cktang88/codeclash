@@ -10,6 +10,7 @@ import { Rooms } from './rooms.ts';
 import { Scheduler } from './scheduler.ts';
 
 const SEEN_COMMITS_DAYS = 14;
+const CHAT_DAYS = 30;
 const PRUNE_EVERY_MS = 6 * 3_600_000;
 
 export interface Server {
@@ -56,7 +57,11 @@ export async function createServer(
   const now = clock();
   rooms.boot(now);
   if (config.commons) rooms.seedCommons(now);
-  store.pruneSeenCommits(now - SEEN_COMMITS_DAYS * 86_400_000);
+  const prune = () => {
+    store.pruneSeenCommits(clock() - SEEN_COMMITS_DAYS * 86_400_000);
+    store.pruneChat(clock() - CHAT_DAYS * 86_400_000);
+  };
+  prune();
 
   const app = await buildHttp({
     config, store, log, clock, fetchImpl: opts.fetchImpl, hub, rooms, github, onPush,
@@ -65,7 +70,7 @@ export async function createServer(
     },
   });
 
-  // seen_commits and pushes only dedupe recent ingestion; keep them bounded on a long-running server too.
+  // Dedupe records and chat only matter while recent; keep them bounded on a long-running server too.
   let pruneTimer: NodeJS.Timeout | null = null;
   let closing = false;
   return {
@@ -78,7 +83,7 @@ export async function createServer(
       if (background) {
         scheduler.start(clock);
         poller?.start();
-        pruneTimer = setInterval(() => store.pruneSeenCommits(clock() - SEEN_COMMITS_DAYS * 86_400_000), PRUNE_EVERY_MS);
+        pruneTimer = setInterval(prune, PRUNE_EVERY_MS);
         pruneTimer.unref();
       }
       const address = await app.listen({ port: config.port, host: config.host });

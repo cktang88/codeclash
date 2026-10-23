@@ -200,6 +200,12 @@ export class Rooms {
     this.broadcastRoom(room);
   }
 
+  /** Removes a member. In a private room the invite is rotated too, since members could see it. */
+  kick(room: RoomRow, userId: number): RoomRow {
+    this.leave(room, userId);
+    return room.visibility === 'private' ? this.rotateInvite(room) : room;
+  }
+
   /** Whether a viewer may watch: public rooms, members, and holders of the invite. */
   canView(room: RoomRow, userId: number | null, invite: string | null): boolean {
     if (room.visibility === 'public') return true;

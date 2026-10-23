@@ -75,6 +75,13 @@ describe('registerHooks', () => {
     expect(t.reports[0]).toMatchObject({ repo: 'ana/parser', message: 'Ship it', commits: 1, at: NOW });
   });
 
+  it('only credits commits GitHub links to the hook owner', async () => {
+    t.github.setCompare('ana/parser', sha(1), sha(2), { commits: [{ sha: sha(2), authorLogin: null, message: 'Someone else' }], files: [sourceFile('a.ts', ['a()'])] });
+    const res = await signed('push', payload());
+    expect(res.json()).toEqual({ ok: true, counted: false });
+    expect(t.reports).toHaveLength(0);
+  });
+
   it('accepts form-encoded deliveries', async () => {
     const raw = new URLSearchParams({ payload: JSON.stringify(payload()) }).toString();
     const res = await t.app.inject({

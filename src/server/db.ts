@@ -372,6 +372,10 @@ export class Store {
     this.db.prepare('DELETE FROM pushes WHERE at < ?').run(before);
   }
 
+  pruneChat(before: number): void {
+    this.db.prepare('DELETE FROM chat WHERE at < ?').run(before);
+  }
+
   // ------------------------------------------------------------ rooms
 
   insertRoom(r: Omit<RoomRow, 'id'>): number {

@@ -156,16 +156,24 @@ describe('access changes and abuse', () => {
     let ownerClosed = false;
     ownerWs.on('close', () => (ownerClosed = true));
     const memberClosed = closed(member);
+    // Kicking from a private room rotates the invite, since the kicked member could see it.
+    const linkClosed = closed(linkHolder);
     const kicked = await server.app.inject({ method: 'DELETE', url: `/api/rooms/${slug}/members/${devId('guest')}`, headers: { cookie: owner } });
     expect(kicked.statusCode).toBe(200);
+    expect(kicked.json<RoomDetail>().invite).not.toBe(invite);
     expect(await memberClosed).toBe(WS_CLOSE_FORBIDDEN);
+    expect(await linkClosed).toBe(WS_CLOSE_FORBIDDEN);
 
     const cmd = await server.app.inject({ method: 'POST', url: `/api/rooms/${slug}/command`, headers: { cookie: guest }, payload: { kind: 'cry' } });
     expect(cmd.statusCode).toBe(403);
+    const rejoin = await server.app.inject({ method: 'POST', url: `/api/rooms/${slug}/join`, headers: { cookie: guest }, payload: { invite } });
+    expect(rejoin.statusCode).toBe(403);
 
-    const linkClosed = closed(linkHolder);
+    const { invite: current } = (await server.app.inject({ url: `/api/rooms/${slug}`, headers: { cookie: owner } })).json<RoomDetail>();
+    const second = await server.app.injectWS(`/ws?room=${slug}&invite=${current}`);
+    const secondClosed = closed(second);
     await server.app.inject({ method: 'POST', url: `/api/rooms/${slug}/invite`, headers: { cookie: owner } });
-    expect(await linkClosed).toBe(WS_CLOSE_FORBIDDEN);
+    expect(await secondClosed).toBe(WS_CLOSE_FORBIDDEN);
     await settle();
     expect(ownerClosed).toBe(false);
     ownerWs.terminate();

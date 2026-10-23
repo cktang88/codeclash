@@ -355,9 +355,9 @@ export async function buildHttp(deps: HttpDeps): Promise<FastifyInstance> {
       const target = z.coerce.number().int().safeParse((req.params as { userId?: string }).userId);
       const { room, user } = ownerOf(req, slug);
       if (!target.success || target.data === user.id) return fail(reply, 400, 'invalid', 'You cannot remove yourself.');
-      rooms.leave(room, target.data);
+      const updated = rooms.kick(room, target.data);
       recheckViewers(room.id);
-      return rooms.detail(room, user.id);
+      return rooms.detail(updated, user.id);
     } catch (err) {
       return failure(reply, err);
     }

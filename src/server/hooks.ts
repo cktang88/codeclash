@@ -99,7 +99,7 @@ export function registerHooks(app: FastifyInstance, deps: HookDeps): void {
           before: parsed.before,
           head: parsed.after,
           at: deps.clock(),
-        });
+        }, true);
         return reply.code(202).send({ ok: true, counted: report !== null });
       } catch (err) {
         deps.log.warn('hook push ingestion failed', { user: user.login, repo: parsed.repository.full_name, error: errorMessage(err) });

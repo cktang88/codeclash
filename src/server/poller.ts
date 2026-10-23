@@ -67,6 +67,8 @@ export async function ingestPush(
   deps: Pick<PollerDeps, 'store' | 'github' | 'clock' | 'onPush'>,
   user: UserRow,
   push: PushRef,
+  /** Webhook deliveries are signed by the user themselves, so only commits GitHub links to them count. */
+  strictAuthor = false,
 ): Promise<PushReport | null> {
   const { store, github } = deps;
   if (!push.ref.startsWith('refs/heads/') || ZERO_SHA.test(push.head)) return null;
@@ -79,7 +81,7 @@ export async function ingestPush(
   if (!result || result.commits.length === 0) return null;
 
   const login = user.login.toLowerCase();
-  const own = result.commits.filter((c) => c.authorLogin === null || c.authorLogin.toLowerCase() === login);
+  const own = result.commits.filter((c) => (c.authorLogin === null ? !strictAuthor : c.authorLogin.toLowerCase() === login));
   const fresh = new Set(store.claimCommits(user.id, own.map((c) => c.sha), deps.clock()));
   const counted = own.filter((c) => fresh.has(c.sha));
   if (counted.length === 0) return null;
