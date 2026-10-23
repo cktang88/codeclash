@@ -48,9 +48,19 @@
   margin: -12px 0 14px;
 }
 
+/* Pages print room names, logins and commit messages: an unbroken one wraps instead of running off the leaf. */
+.folio,
+.page,
+.notice {
+  overflow-wrap: break-word;
+}
+
 .crumbs a {
   display: inline-flex;
   align-items: center;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
   min-height: 44px;
   color: var(--link);
   text-decoration: none;
@@ -518,11 +528,13 @@
 }
 
 .room-card-name {
+  min-width: 0;
   margin: 0;
   font-family: var(--display);
   font-size: 24px;
   line-height: 1.1;
   color: var(--ink);
+  overflow-wrap: anywhere;
 }
 
 .live-badge {
