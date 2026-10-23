@@ -224,6 +224,15 @@ describe('rules', () => {
     expect(a.lines[Cat.Code]! + b.lines[Cat.Code]!).toBe(DAILY_CODE_CAP);
   });
 
+  it('counts a file touched on an earlier day again when it changes today', () => {
+    const ledger = new MemoryLedger();
+    expect(measurePush([file('src/a.ts', '@@\n+export const first = compute(input);')], ledger).files).toBe(1);
+    ledger.today = 1;
+    const next = measurePush([file('src/a.ts', '@@\n+export const second = compute(output);')], ledger);
+    expect(next.lines[Cat.Code]).toBe(1);
+    expect(next.files).toBe(1);
+  });
+
   it('counts generated and vendored lines plainly and never as code', () => {
     const d = measurePush([file('dist/app.js', '@@\n+var a=1;'), file('vendor/lib/x.go', '@@\n+func X() { return }')], new MemoryLedger());
     expect(d.lines[Cat.Generated]).toBe(1);

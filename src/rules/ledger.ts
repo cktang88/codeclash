@@ -312,7 +312,7 @@ export function measurePush(files: readonly ChangedFile[], store: LedgerStore): 
     let category = categorizePath(file.filename);
     if (category === 'ignored') continue;
     const patch = file.patch ? splitPatch(file.patch) : null;
-    if (patch && category !== 'vendor' && category !== 'generated' && isGeneratedContent(category, extensionOf(file.filename), patch.added)) category = 'generated';
+    if (patch && category !== 'vendor' && category !== 'generated' && isGeneratedContent(category, extensionOf(file.filename), patch)) category = 'generated';
     if (category === 'vendor' || category === 'generated') {
       // These raise nothing, so they are counted plainly and never cancel.
       const cat = category === 'vendor' ? Cat.Vendor : Cat.Generated;
@@ -388,22 +388,24 @@ export function measurePush(files: readonly ChangedFile[], store: LedgerStore): 
   }
 
   // A file counts while any of its code keys carries a net change today. Each file keeps a count
-  // of such keys under its own scope, so a push only reads the keys it touches.
+  // of such keys under its own scope, so a push only reads the keys it touches. The scope is the
+  // day's, so a file touched yesterday counts again when it is changed today.
   const codeByLanguage = new Map<string, number>();
   let filesDelta = estimatedFiles;
   for (const [path, keys] of perFile) {
-    let nonzero = store.balance(path, NONZERO);
+    const scope = today === null ? path : `${path}\u0005${today}`;
+    let nonzero = store.balance(scope, NONZERO);
     const wasTouched = nonzero > 0;
     let added = 0;
     for (const [key, delta] of keys) {
       if (delta === 0) continue;
-      const before = store.balance(path, key);
+      const before = store.balance(scope, key);
       const after = before + delta;
-      store.setBalance(path, key, after);
+      store.setBalance(scope, key, after);
       nonzero += (after !== 0 ? 1 : 0) - (before !== 0 ? 1 : 0);
       if (delta > 0) added += delta;
     }
-    store.setBalance(path, NONZERO, nonzero);
+    store.setBalance(scope, NONZERO, nonzero);
     filesDelta += (nonzero > 0 ? 1 : 0) - (wasTouched ? 1 : 0);
     const language = languageOfPath(path);
     if (language && added > 0) codeByLanguage.set(language, (codeByLanguage.get(language) ?? 0) + added);

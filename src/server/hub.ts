@@ -4,6 +4,8 @@ import type { Channel } from './war.ts';
 
 const PRESENCE_DEBOUNCE_MS = 1000;
 const MAX_PRESENCE = 40;
+/** A viewer this far behind on its socket is dropped instead of buffering without bound; it reconnects and resyncs. */
+export const MAX_BUFFERED_BYTES = 4 * 1024 * 1024;
 
 interface Viewer {
   user: UserRef | null;
@@ -53,7 +55,7 @@ export class Hub {
     const sockets = this.rooms.get(roomId);
     if (!sockets || sockets.size === 0) return;
     const data = JSON.stringify(msg);
-    for (const socket of sockets.keys()) if (socket.readyState === socket.OPEN) socket.send(data);
+    for (const socket of sockets.keys()) sendRaw(socket, data);
   }
 
   /** Closes every socket of a room, e.g. when it is deleted. */
@@ -118,5 +120,14 @@ export class Hub {
 }
 
 function send(socket: WebSocket, msg: ServerMessage): void {
-  if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(msg));
+  if (socket.readyState === socket.OPEN) sendRaw(socket, JSON.stringify(msg));
+}
+
+function sendRaw(socket: WebSocket, data: string): void {
+  if (socket.readyState !== socket.OPEN) return;
+  if (socket.bufferedAmount > MAX_BUFFERED_BYTES) {
+    socket.terminate();
+    return;
+  }
+  socket.send(data);
 }

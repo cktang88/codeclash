@@ -69,7 +69,7 @@ import {
   doctrineSpeed,
   monolithHp,
 } from './stats.ts';
-import { flowDirection, flyMove, passableAt, resolveMove, separation, towards, type Vec } from './steering.ts';
+import { clearPath, flowDirection, flyMove, passableAt, resolveMove, separation, towards, type Vec } from './steering.ts';
 
 const KNIGHT_CHARGE = 1.8;
 const KNIGHT_CHARGE_RUN = 40;
@@ -757,6 +757,12 @@ function updateUnits(world: World, s: Scratch, ev: TickEvents): void {
       const sx = pl.x + pl.hx * u.fx - pl.hy * u.fy;
       const sy = pl.y + pl.hy * u.fx + pl.hx * u.fy;
       const remaining = towards(dir, u.x, u.y, sx, sy);
+      // A straggler cut off from its place by rock or water follows the banner's road
+      // instead of pressing against the far bank forever.
+      if (remaining > SPACING * 2 && !stats.flying && !clearPath(map, u.x, u.y, sx, sy)) {
+        const site = pl.site >= 0 ? pl.site : player!.slot;
+        flowDirection(dir, map, derived(map).flow[site]!, u.x, u.y, map.sites[site]!.x, map.sites[site]!.y);
+      }
       if (remaining <= SLOT_TOLERANCE) moving = false;
       else if (remaining > SPACING * 2) pace = CATCH_UP;
       else pace = Math.min(1, remaining / (SPACING * 1.5) + 0.25);

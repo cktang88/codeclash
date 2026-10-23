@@ -18,7 +18,15 @@ export interface PushEventLite {
 }
 
 export interface CompareResult {
-  commits: { sha: string; authorLogin: string | null; message: string; /** More than one parent: a merge. */ merge?: boolean }[];
+  commits: {
+    sha: string;
+    authorLogin: string | null;
+    /** The linked author's account id, which survives renames. */
+    authorId?: number | null;
+    message: string;
+    /** More than one parent: a merge. */
+    merge?: boolean;
+  }[];
   files: ChangedFile[];
 }
 
@@ -74,7 +82,7 @@ const FileSchema = z
 const CommitSchema = z
   .object({
     sha: z.string(),
-    author: z.object({ login: z.string() }).loose().nullable().optional(),
+    author: z.object({ login: z.string(), id: z.number().int().optional() }).loose().nullable().optional(),
     commit: z.object({ message: z.string() }).loose(),
     parents: z.array(z.object({ sha: z.string() }).loose()).optional().default([]),
   })
@@ -125,7 +133,13 @@ function toFiles(files: z.infer<typeof FileSchema>[]): ChangedFile[] {
 }
 
 function toCommit(c: z.infer<typeof CommitSchema>): CompareResult['commits'][number] {
-  return { sha: c.sha, authorLogin: c.author?.login ?? null, message: c.commit.message, ...(c.parents.length > 1 ? { merge: true } : {}) };
+  return {
+    sha: c.sha,
+    authorLogin: c.author?.login ?? null,
+    ...(c.author?.id !== undefined ? { authorId: c.author.id } : {}),
+    message: c.commit.message,
+    ...(c.parents.length > 1 ? { merge: true } : {}),
+  };
 }
 
 export function createGithubClient(token: string | null, fetchImpl: typeof fetch = fetch): GithubClient {

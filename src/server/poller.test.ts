@@ -184,6 +184,39 @@ describe('Poller', () => {
     expect(t.github.calls.events).toBe(0);
   });
 
+  it('retries a mixed push whose per-commit fetch failed instead of losing its commits', async () => {
+    t.github.addEvent('Ana', pushEvent('100', 'ana/parser', sha(1), sha(3), NOW));
+    t.github.setCompare('ana/parser', sha(1), sha(3), { commits: [commit(2, 'bob'), commit(3, 'ana')], files: [sourceFile('a.ts', calls(0, 50))] });
+    t.github.setCommit('ana/parser', sha(3), { commits: [commit(3, 'ana')], files: [sourceFile('a.ts', calls(0, 3))] });
+    const single = t.github.commit.bind(t.github);
+    let down = true;
+    t.github.commit = async (repo, s) => {
+      if (down) throw new Error('502 bad gateway');
+      return single(repo, s);
+    };
+    await t.poller.pollUser(7);
+    expect(t.reports).toHaveLength(0);
+    down = false;
+    await t.poller.pollUser(7);
+    expect(t.reports).toHaveLength(1);
+    expect(t.reports[0]!.lines[Cat.Code]).toBe(3);
+  });
+
+  it('matches commit authors by account id, so a renamed or recycled login is handled', async () => {
+    t.github.addEvent('Ana', pushEvent('100', 'ana/parser', sha(1), sha(4), NOW));
+    t.github.setCompare('ana/parser', sha(1), sha(4), {
+      // Ana renamed herself to ana-dev; someone else has since taken the login "ana".
+      commits: [{ ...commit(2, 'ana-dev'), authorId: 7 }, { ...commit(3, 'Ana'), authorId: 99 }, commit(4, 'bob')],
+      files: [],
+    });
+    t.github.setCommit('ana/parser', sha(2), { commits: [commit(2, 'ana-dev')], files: [sourceFile('a.ts', calls(0, 2))] });
+    t.github.setCommit('ana/parser', sha(3), { commits: [commit(3, 'Ana')], files: [sourceFile('b.ts', calls(10, 30))] });
+    await t.poller.pollUser(7);
+    expect(t.reports).toHaveLength(1);
+    expect(t.reports[0]!.commits).toBe(1);
+    expect(t.reports[0]!.lines[Cat.Code]).toBe(2);
+  });
+
   it('ingestPush is idempotent for the same push', async () => {
     t.github.setCompare('ana/parser', sha(1), sha(2), { commits: [commit(2, 'ana')], files: [sourceFile('a.ts', ['a'])] });
     const user = t.store.user(7)!;

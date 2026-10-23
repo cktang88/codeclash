@@ -380,6 +380,12 @@ export class Store {
     return this.db.prepare('SELECT 1 FROM pushes WHERE user_id = ? AND push_id = ?').get(userId, pushId) !== undefined;
   }
 
+  /** The commits not yet seen for this user, without claiming them. */
+  unseenCommits(userId: number, shas: readonly string[]): string[] {
+    const seen = this.db.prepare('SELECT 1 FROM seen_commits WHERE user_id = ? AND sha = ?');
+    return shas.filter((sha) => seen.get(userId, sha) === undefined);
+  }
+
   /** Marks commits as seen and returns the ones that were new. */
   claimCommits(userId: number, shas: readonly string[], at: number): string[] {
     const insert = this.db.prepare('INSERT OR IGNORE INTO seen_commits (user_id, sha, at) VALUES (?, ?, ?)');

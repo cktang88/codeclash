@@ -49,23 +49,26 @@ export class InfluenceLayer {
       if (cx < 0 || cy < 0 || cx >= GRID || cy >= GRID) continue;
       this.counts[(cy * GRID + cx) * n + u.p]! += 1;
     }
-    // A separable box blur spreads each soldier's claim over nearby ground.
+    // A separable box blur (radius 3, sliding sums) spreads each soldier's claim over nearby ground.
+    const R = 3;
+    const inv = 1 / (R * 2 + 1);
     for (let pass = 0; pass < 2; pass++) {
       const src = pass === 0 ? this.counts : this.blur;
       const dst = pass === 0 ? this.blur : this.counts;
-      const stepX = pass === 0 ? 1 : 0;
-      const stepY = pass === 0 ? 0 : 1;
-      for (let y = 0; y < GRID; y++) {
-        for (let x = 0; x < GRID; x++) {
-          for (let p = 0; p < n; p++) {
-            let s = 0;
-            for (let d = -3; d <= 3; d++) {
-              const xx = x + d * stepX;
-              const yy = y + d * stepY;
-              if (xx < 0 || yy < 0 || xx >= GRID || yy >= GRID) continue;
-              s += src[(yy * GRID + xx) * n + p]!;
-            }
-            dst[(y * GRID + x) * n + p] = s / 7;
+      // Pass 0 runs along rows, pass 1 down columns.
+      const step = pass === 0 ? n : GRID * n;
+      const lineStep = pass === 0 ? GRID * n : n;
+      for (let line = 0; line < GRID; line++) {
+        for (let p = 0; p < n; p++) {
+          const base = line * lineStep + p;
+          let sum = 0;
+          for (let d = 0; d <= R; d++) sum += src[base + d * step]!;
+          for (let i = 0; i < GRID; i++) {
+            dst[base + i * step] = sum * inv;
+            const add = i + R + 1;
+            const drop = i - R;
+            if (add < GRID) sum += src[base + add * step]!;
+            if (drop >= 0) sum -= src[base + drop * step]!;
           }
         }
       }

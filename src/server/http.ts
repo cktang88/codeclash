@@ -117,6 +117,8 @@ function failure(reply: FastifyReply, err: unknown) {
     const status = { not_found: 404, forbidden: 403, invalid: 400, full: 409, limit: 429, signed_out: 401 }[err.code];
     return fail(reply, status, err.code, err.message);
   }
+  // A malformed slug or war id in the path names nothing.
+  if (err instanceof z.ZodError) return fail(reply, 404, 'not_found', 'Not found.');
   throw err;
 }
 

@@ -51,12 +51,13 @@ void main() {
   float t = uTime;
   // Sun glints: two drifting noise fields multiplied leave small, scattered
   // sparkles that twinkle as the fields slide past each other.
-  float a1 = vnoise(p * 0.55 + vec2(t * 0.9, t * 0.3));
-  float a2 = vnoise(p * 0.43 + vec2(-t * 0.6, t * 0.8) + 17.0);
+  // Stretched along x, so each sparkle is a short flat fleck on a wave crest.
+  float a1 = vnoise(p * vec2(0.3, 0.9) + vec2(t * 0.9, t * 0.3));
+  float a2 = vnoise(p * vec2(0.25, 0.7) + vec2(-t * 0.6, t * 0.8) + 17.0);
   float swell = vnoise(p * 0.03 + vec2(t * 0.05, -t * 0.03));
   // Too small to see from afar, where they would only alias: fade them with zoom.
   float fade = smoothstep(0.45, 1.1, uZoom);
-  float glint = smoothstep(0.88, 0.97, a1 * a2 * 1.2 + swell * 0.2) * (0.4 + 0.6 * depth) * fade;
+  float glint = smoothstep(0.86, 0.96, a1 * a2 * 1.2) * smoothstep(0.45, 0.7, swell) * (0.4 + 0.6 * depth) * fade;
   // Inked ripple lines: long, slow bands, broken into dashes like an engraver's water hatching.
   float band = sin(p.y * 0.16 + sin(p.x * 0.021 + t * 0.3) * 2.4 + t * 0.4);
   float dash = smoothstep(0.45, 0.6, vnoise(p * vec2(0.045, 0.12) + vec2(t * 0.05, 0.0)));

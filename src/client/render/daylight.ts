@@ -24,8 +24,8 @@ const KEYS: readonly [phase: number, mult: number, screen: number, lights: numbe
   [0.16, 0xffffff, 0x000000, 0, 1],
   [0.5, 0xfffbf2, 0x000000, 0, 1],
   [0.64, 0xffe4bc, 0x140a00, 0, 1],
-  [0.72, 0xfcd0b0, 0x341006, 0.3, 0.65],
-  [0.78, 0xe8acac, 0x40101a, 0.65, 0.3],
+  [0.72, 0xfcd4b4, 0x1e0a04, 0.3, 0.65],
+  [0.78, 0xe4aab0, 0x240a14, 0.65, 0.3],
   [0.85, 0x8a98cc, 0x0c1226, 1, 0],
   [1.0, 0x8090c4, 0x0c1226, 1, 0],
 ];

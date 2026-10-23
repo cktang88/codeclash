@@ -105,6 +105,11 @@ export class Meta implements MetaHooks {
   private readonly db: Store['db'];
   /** War id → users whose fulfilled Orders were already loaded, to avoid a query a second. */
   private readonly done = new Map<number, Set<string>>();
+  /**
+   * `${roomId}:${season}:${lastEndedWar}` → standings. They change only when one of the room's wars ends, but every
+   * hello (each connection, resync, and every viewer at the reset) asks for them via monuments.
+   */
+  private readonly standingsCache = new Map<string, SeasonStanding[]>();
 
   constructor(private readonly deps: MetaDeps) {
     this.db = deps.store.db;
@@ -300,6 +305,22 @@ export class Meta implements MetaHooks {
   }
 
   private standings(roomId: number, season: string): SeasonStanding[] {
+    // Keyed by the room's latest ended war too, so a war that ends makes it stale whatever else fails.
+    const last = this.db.prepare("SELECT max(id) AS id FROM wars WHERE room_id = ? AND status = 'ended'").get(roomId) as { id: number | null };
+    const key = `${roomId}:${season}:${last.id ?? 0}`;
+    const cached = this.standingsCache.get(key);
+    if (cached) return cached;
+    const standings = this.computeStandings(roomId, season);
+    if (this.standingsCache.size >= 1024) this.standingsCache.clear();
+    this.standingsCache.set(key, standings);
+    return standings;
+  }
+
+  private forgetStandings(roomId: number): void {
+    for (const key of this.standingsCache.keys()) if (key.startsWith(`${roomId}:`)) this.standingsCache.delete(key);
+  }
+
+  private computeStandings(roomId: number, season: string): SeasonStanding[] {
     const totals = new Map<number, SeasonStanding>();
     for (const w of this.deps.store.wars(roomId, 60)) {
       if (w.status !== 'ended' || !w.digest || seasonOf(w.day) !== season) continue;
@@ -372,6 +393,7 @@ export class Meta implements MetaHooks {
 
   /** Removes a deleted room's meta records; a user's Glory and Deeds stay theirs. */
   deleteRoom(roomId: number): void {
+    this.forgetStandings(roomId);
     this.db.prepare('DELETE FROM legends WHERE room_id = ?').run(roomId);
     this.db.prepare('DELETE FROM rivalries WHERE room_id = ?').run(roomId);
   }

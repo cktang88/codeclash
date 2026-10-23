@@ -326,14 +326,29 @@ export function classifyLine(text: string, syntax: Syntax, state: { block: Block
     if (t.indexOf(b.close, b.open.length) < 0) state.block = b;
     return 'comment';
   }
-  // A code line may open a block comment that continues on the following lines.
+  // A code line may open a block comment that continues on the following lines, but not
+  // from inside a string (`glob("src/**/*.ts")`) or a trailing line comment.
+  const code = codeOf(t, syntax);
   for (const b of syntax.blocks) {
     if (b.startOnly) continue;
-    const open = t.lastIndexOf(b.open);
-    if (open > 0 && t.indexOf(b.close, open + b.open.length) < 0) state.block = b;
+    const open = code.lastIndexOf(b.open);
+    if (open > 0 && code.indexOf(b.close, open + b.open.length) < 0) state.block = b;
   }
   if (!state.block) openString(t, 0, syntax, state);
   return 'code';
+}
+
+const QUOTED = /"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`/g;
+
+/** A line with its one-line string literals emptied and any trailing line comment cut off. */
+function codeOf(t: string, syntax: Syntax): string {
+  const s = t.replace(QUOTED, '""');
+  for (let i = 0; i < s.length; i++) {
+    const b = syntax.blocks.find((x) => s.startsWith(x.open, i));
+    if (b) i += b.open.length - 1;
+    else if (syntax.line.some((m) => s.startsWith(m, i))) return s.slice(0, i);
+  }
+  return s;
 }
 
 function opensBlockAt(t: string, syntax: Syntax, at: number): boolean {
@@ -349,7 +364,7 @@ const HEADER_LINES = 5;
 export interface PatchLines {
   added: string[];
   /** Added lines with their place in the new file, interleaved with context for comment tracking. */
-  newFile: { text: string; added: boolean; hunk: number }[];
+  newFile: { text: string; added: boolean; hunk: number; /** Line number in the new file. */ line: number }[];
   removed: string[];
   /** Removed lines with their place in the old file, interleaved with context. */
   oldFile: { text: string; removed: boolean; hunk: number }[];
@@ -358,9 +373,12 @@ export interface PatchLines {
 export function splitPatch(patch: string): PatchLines {
   const out: PatchLines = { added: [], newFile: [], removed: [], oldFile: [] };
   let hunk = 0;
+  let next = 1;
   for (const line of patch.split('\n')) {
     if (line.startsWith('@@')) {
       hunk++;
+      const start = /^@@ -\d+(?:,\d+)? \+(\d+)/.exec(line);
+      next = start ? Number(start[1]) : 1;
       continue;
     }
     if (line.startsWith('\\')) continue;
@@ -368,20 +386,23 @@ export function splitPatch(patch: string): PatchLines {
     const text = line.slice(1);
     if (mark === '+') {
       out.added.push(text);
-      out.newFile.push({ text, added: true, hunk });
+      out.newFile.push({ text, added: true, hunk, line: next++ });
     } else if (mark === '-') {
       out.removed.push(text);
       out.oldFile.push({ text, removed: true, hunk });
     } else {
-      out.newFile.push({ text, added: false, hunk });
+      out.newFile.push({ text, added: false, hunk, line: next++ });
       out.oldFile.push({ text, removed: false, hunk });
     }
   }
   return out;
 }
 
-export function isGeneratedContent(category: FileCategory, ext: string, added: readonly string[]): boolean {
-  if (added.slice(0, HEADER_LINES).some((l) => GENERATED_MARKER.test(l))) return true;
+/** Whether a file's patch shows a generated-file marker in its header, or minified source. */
+export function isGeneratedContent(category: FileCategory, ext: string, patch: PatchLines): boolean {
+  // Only the top of the file is a header: "DO NOT EDIT" added further down is just a comment or a string.
+  if (patch.newFile.some((l) => l.line <= HEADER_LINES && GENERATED_MARKER.test(l.text))) return true;
+  const added = patch.added;
   if (category !== 'source' || added.length === 0) return false;
   if (!['js', 'mjs', 'cjs', 'css', 'ts', 'jsx', 'tsx', 'html'].includes(ext)) return false;
   const chars = added.reduce((n, l) => n + l.length, 0);
@@ -448,7 +469,7 @@ export function summarizeFiles(files: readonly ChangedFile[]): PushSummary {
     if (category === 'ignored') continue;
     const ext = extension(basename(file.filename));
     const patch = file.patch ? splitPatch(file.patch) : null;
-    if (patch && category !== 'vendor' && category !== 'generated' && isGeneratedContent(category, ext, patch.added)) category = 'generated';
+    if (patch && category !== 'vendor' && category !== 'generated' && isGeneratedContent(category, ext, patch)) category = 'generated';
 
     if (category !== 'source') {
       const cat = CATEGORY_CAT[category];

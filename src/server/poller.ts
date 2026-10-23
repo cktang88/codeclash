@@ -42,6 +42,7 @@ export const MAX_PUSH_ATTEMPTS = 5;
 const MESSAGE_MAX = 72;
 const ZERO_SHA = /^0+$/;
 const ALREADY_RECORDED = new Error('push already recorded');
+const CLAIMED_ELSEWHERE = new Error('commits claimed by a concurrent ingestion');
 
 export interface PushRef {
   repo: string;
@@ -97,6 +98,23 @@ export async function ingestPush(
   /** Webhook deliveries are signed by the user themselves, so only commits GitHub links to them count. */
   strictAuthor = false,
 ): Promise<PushReport | null> {
+  // A concurrent ingestion (the webhook and the poller, or two branches) may claim some of the
+  // same commits first; then the push is measured again against what is left.
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await ingestOnce(deps, user, push, strictAuthor);
+    } catch (err) {
+      if (err !== CLAIMED_ELSEWHERE || attempt > 0) throw err;
+    }
+  }
+}
+
+async function ingestOnce(
+  deps: Pick<PollerDeps, 'store' | 'github' | 'clock' | 'onPush'>,
+  user: UserRow,
+  push: PushRef,
+  strictAuthor: boolean,
+): Promise<PushReport | null> {
   const { store, github } = deps;
   if (!push.ref.startsWith('refs/heads/') || ZERO_SHA.test(push.head)) return null;
   const pushId = pushIdOf(push.repo, push.head);
@@ -107,10 +125,14 @@ export async function ingestPush(
   result ??= await github.commit(push.repo, push.head);
   if (!result || result.commits.length === 0) return null;
 
+  // GitHub's account id is stable; a login can be renamed and then taken by someone else.
   const login = user.login.toLowerCase();
-  const own = result.commits.filter((c) => !c.merge && (c.authorLogin === null ? !strictAuthor : c.authorLogin.toLowerCase() === login));
-  const fresh = new Set(store.claimCommits(user.id, own.map((c) => c.sha), deps.clock()));
-  const counted = own.filter((c) => fresh.has(c.sha));
+  const isOwn = (c: CompareResult['commits'][number]) =>
+    c.authorId != null ? c.authorId === user.id : c.authorLogin === null ? !strictAuthor : c.authorLogin.toLowerCase() === login;
+  const own = result.commits.filter((c) => !c.merge && isOwn(c));
+  // Commits are claimed only when the push is recorded, so a failed fetch below leaves them to a retry.
+  const unseen = new Set(store.unseenCommits(user.id, own.map((c) => c.sha)));
+  const counted = own.filter((c) => unseen.has(c.sha));
   if (counted.length === 0) return null;
 
   // When the range holds anyone else's commits or merges (a merged base, an upstream sync,
@@ -128,6 +150,8 @@ export async function ingestPush(
   let report: PushReport;
   try {
     report = store.transaction(() => {
+      const shas = counted.map((c) => c.sha);
+      if (store.claimCommits(user.id, shas, deps.clock()).length !== shas.length) throw CLAIMED_ELSEWHERE;
       // Measuring moves the ledger, so it commits only together with the push record.
       const ledger = store.ledgerFor(user.id, push.repo, deps.clock());
       const delta = sumDeltas(diffs.map((files) => measurePush(files, ledger)));

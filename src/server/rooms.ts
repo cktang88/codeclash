@@ -80,7 +80,14 @@ export class Rooms {
     if (!this.deps.store.user(SYSTEM_USER)) {
       this.deps.store.upsertUser({ id: SYSTEM_USER, nodeId: 'system', login: 'pushfront', avatarUrl: '', createdAtGithub: 0, joinedAt: now, bot: true });
     }
-    for (const room of this.deps.store.rooms()) this.ensureWar(room, now);
+    // One broken room must not keep the server from starting; reconcile retries it.
+    for (const room of this.deps.store.rooms()) {
+      try {
+        this.ensureWar(room, now);
+      } catch (err) {
+        this.deps.log.error('room recovery failed', { room: room.slug, error: err instanceof Error ? err.message : String(err) });
+      }
+    }
   }
 
   seedCommons(now: number): void {
@@ -309,13 +316,25 @@ export class Rooms {
   }
 
   private finish(room: RoomRow, war: War, now: number): void {
-    const digest = war.conclude(now);
-    this.recordLifetime(room, war, digest);
+    // The day's end commits as one: a crash or failure part-way leaves the war active,
+    // so it is finished again from scratch rather than ended without its records.
+    let digest: Digest;
     try {
-      this.deps.meta?.watch(room.id, war, now);
-      this.deps.meta?.warFinished(room, war, digest, now);
+      digest = this.deps.store.transaction(() => {
+        const digest = war.conclude(now);
+        this.recordLifetime(room, war, digest);
+        try {
+          this.deps.meta?.watch(room.id, war, now);
+          this.deps.meta?.warFinished(room, war, digest, now);
+        } catch (err) {
+          this.deps.log.error('day-end honours failed', { room: room.slug, error: err instanceof Error ? err.message : String(err) });
+        }
+        return digest;
+      });
     } catch (err) {
-      this.deps.log.error('day-end honours failed', { room: room.slug, error: err instanceof Error ? err.message : String(err) });
+      // The in-memory war believes it ended; drop it so the next reconcile reloads it from the log.
+      this.live.delete(room.id);
+      throw err;
     }
     this.deps.channelFor(room.id).send({ type: 'war', war: war.meta, digestReady: true });
     if (room.webhookUrl) {
@@ -340,9 +359,12 @@ export class Rooms {
         const prev = store.lifetime(userId, room.id) ?? {
           userId, roomId: room.id, days: 0, wins: 0, streak: 0, bestStreak: 0, lastDay: null, kills: 0, renown: 0, awards: {},
         };
-        const active = pl.pushes > 0 || restedDuring(user?.restingDay ?? null, war.meta);
+        const pushed = pl.pushes > 0;
+        const active = pushed || restedDuring(user?.restingDay ?? null, war.meta);
+        const continues = prev.lastDay === day || prev.lastDay === yesterday;
         // Two wars can share a day (the reset hour moved, or short test days): the second one keeps the streak.
-        const streak = active ? (prev.lastDay === day ? Math.max(1, prev.streak) : prev.lastDay === yesterday ? prev.streak + 1 : 1) : 0;
+        // A streak counts days with a push; Rest only keeps it, it does not grow it.
+        const streak = !active ? 0 : !pushed ? (continues ? prev.streak : 0) : prev.lastDay === day ? Math.max(1, prev.streak) : prev.lastDay === yesterday ? prev.streak + 1 : 1;
         const awards = { ...prev.awards };
         for (const a of pl.awards) awards[a] = (awards[a] ?? 0) + 1;
         store.saveLifetime({

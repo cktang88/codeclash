@@ -442,7 +442,7 @@ export class Battlefield {
     if (this.gradeSun.visible) {
       const east = dawn > dusk;
       this.gradeSun.tint = east ? 0x6a4818 : 0x70261a;
-      this.gradeSun.alpha = Math.max(dawn, dusk) * 0.6;
+      this.gradeSun.alpha = Math.max(dawn, dusk) * 0.45;
       this.gradeSun.height = sh;
       this.gradeSun.width = east ? -sw : sw;
       this.gradeSun.x = east ? sw : 0;

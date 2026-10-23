@@ -61,19 +61,32 @@ function art(): AtmosphereArt {
     }),
   ) as [Texture, Texture];
   const butterfly = [0, 1].map((f) =>
-    paint(14, 12, (ctx) => {
-      const spread = f === 0 ? 1 : 0.35;
+    paint(16, 14, (ctx) => {
+      // Forewing and hindwing on each side, inked, with a dark body; closed wings on the second frame.
+      const spread = f === 0 ? 1 : 0.3;
       ctx.fillStyle = '#ffffff';
-      ctx.strokeStyle = 'rgba(34,24,15,0.8)';
-      ctx.lineWidth = 0.8;
+      ctx.strokeStyle = 'rgba(34,24,15,0.85)';
+      ctx.lineWidth = 0.7;
       for (const s of [-1, 1]) {
         ctx.beginPath();
-        ctx.ellipse(7 + s * 3 * spread, 5, 3 * spread + 0.6, 3.4, s * 0.4, 0, Math.PI * 2);
+        ctx.moveTo(8, 6);
+        ctx.quadraticCurveTo(8 + s * 6 * spread, 0, 8 + s * 7 * spread, 4);
+        ctx.quadraticCurveTo(8 + s * 5 * spread, 7, 8, 7);
+        ctx.fill();
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(8, 7);
+        ctx.quadraticCurveTo(8 + s * 5 * spread, 8, 8 + s * 4 * spread, 11);
+        ctx.quadraticCurveTo(8 + s * 1.5 * spread, 11, 8, 8);
         ctx.fill();
         ctx.stroke();
       }
-      ctx.fillStyle = '#22180f';
-      ctx.fillRect(6.5, 3, 1, 6);
+      ctx.strokeStyle = '#22180f';
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.moveTo(8, 4);
+      ctx.lineTo(8, 10);
+      ctx.stroke();
     }),
   ) as [Texture, Texture];
   const mote = paint(16, 16, (ctx) => {
@@ -401,7 +414,7 @@ export class Atmosphere {
       b.y += b.vy * dt * motion;
       b.s.position.set(b.x, b.y - 10 - Math.abs(Math.sin(b.phase * 3)) * 4);
       b.s.texture = this.art.butterfly[Math.floor(t * 14 + b.phase * 7) % 2]!;
-      b.s.scale.set(0.9);
+      b.s.scale.set(0.75);
     }
 
     // Fireflies at night, drifting and blinking; fewer at mid zoom, none far out.
