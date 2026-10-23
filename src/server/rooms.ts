@@ -114,7 +114,11 @@ export class Rooms {
       try {
         const war = this.live.get(room.id);
         if (war && war.over(now)) this.finish(room, war, now);
-        else if (!war) this.ensureWar(room, now);
+        else if (!war) {
+          // A war missing mid-session means a rollover failed and is being retried: move viewers onto it.
+          this.ensureWar(room, now);
+          if (this.live.has(room.id)) this.deps.channelFor(room.id).reset();
+        }
         else this.deps.meta?.watch(room.id, war, now);
       } catch (err) {
         this.deps.log.error('room lifecycle failed', { room: room.slug, error: err instanceof Error ? err.message : String(err) });
