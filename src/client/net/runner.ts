@@ -2,7 +2,7 @@ import type { ServerMessage, WarMeta } from '../../protocol.ts';
 import type { SimInput, TimedInput, World } from '../../sim/api.ts';
 import { checksum, restore, step } from '../../sim/index.ts';
 import type { GameStore } from '../store.ts';
-import { transition, type ConnEvent, type ResyncReason } from './connection.ts';
+import { INITIAL_CONN, transition, type ConnEvent, type ResyncReason } from './connection.ts';
 import type { Connect, Transport } from './transport.ts';
 
 const MAX_STEPS_PER_FRAME = 30;
@@ -10,6 +10,15 @@ const MAX_BEHIND_TICKS = 300;
 const SYNC_SLICE_MS = 30;
 const CHECKSUM_HISTORY = 128;
 const FX_TAIL_STEPS = 3;
+/**
+ * The server sends a checksum every 10 seconds. A socket silent for this long is dead (a laptop
+ * that slept, a NAT that forgot the flow) even if the browser has not noticed: reconnect.
+ */
+export const SILENCE_MS = 45_000;
+/** A resync not answered by a hello within this long is retried on a fresh connection. */
+export const RESYNC_TIMEOUT_MS = 10_000;
+/** A connect attempt that neither opens nor fails within this long is abandoned and retried. */
+export const CONNECT_TIMEOUT_MS = 20_000;
 
 /** The last tick of a war: the server runs every war to exactly this tick. */
 export function finalTick(war: Pick<WarMeta, 'startsAt' | 'endsAt'>, tickMs: number): number {
@@ -74,6 +83,10 @@ export class LockstepRunner implements Runner {
   private stopped = false;
   /** Bumped on every hello so a catch-up loop for an older snapshot stops. */
   private syncGen = 0;
+  /** Wall-clock ms of the last message, connect or resync request, for the watchdogs. */
+  private lastHeard = 0;
+  private resyncAt = 0;
+  private onOnline = (): void => this.retryNow();
   private prev = new PrevPositions();
   alpha = 1;
 
@@ -85,15 +98,51 @@ export class LockstepRunner implements Runner {
   }
 
   start(): void {
+    // The store may outlive an earlier runner (e.g. restarted after joining the room); a refusal
+    // or offline state left by that runner would otherwise stick, since 'refused' is final.
+    this.store.conn = INITIAL_CONN;
+    this.store.publish();
+    if (typeof window !== 'undefined') {
+      window.addEventListener('online', this.onOnline);
+      document.addEventListener('visibilitychange', this.onOnline);
+    }
     this.open();
   }
 
   stop(): void {
     this.stopped = true;
+    this.syncGen++;
     if (this.retryTimer) clearTimeout(this.retryTimer);
     this.retryTimer = null;
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('online', this.onOnline);
+      document.removeEventListener('visibilitychange', this.onOnline);
+    }
     this.transport?.close();
     this.transport = null;
+  }
+
+  /** The network came back or the tab was shown: do not sit out the rest of a long backoff. */
+  private retryNow(): void {
+    if (this.stopped || this.store.conn.phase !== 'offline') return;
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+    if (this.retryTimer) clearTimeout(this.retryTimer);
+    this.retryTimer = null;
+    this.dispatch({ type: 'retry' });
+    this.open();
+  }
+
+  /** Detects a connection that died without a close event (sleep, network change) or a lost resync. */
+  private watchdog(now: number): void {
+    const phase = this.store.conn.phase;
+    if (!this.transport) return;
+    const stuck =
+      (phase === 'connecting' && now - this.lastHeard > CONNECT_TIMEOUT_MS) ||
+      ((phase === 'live' || phase === 'syncing' || phase === 'resyncing') && now - this.lastHeard > SILENCE_MS) ||
+      (phase === 'resyncing' && now - this.resyncAt > RESYNC_TIMEOUT_MS);
+    if (!stuck) return;
+    this.transport.close();
+    this.handleClose(null);
   }
 
   send(msg: Parameters<Transport['send']>[0]): void {
@@ -105,6 +154,7 @@ export class LockstepRunner implements Runner {
   }
 
   frame(): void {
+    this.watchdog(Date.now());
     const world = this.store.world;
     if (!world || this.store.conn.phase !== 'live') return;
     const exact = (Date.now() + this.offset - this.startMs) / this.tickMs;
@@ -167,14 +217,19 @@ export class LockstepRunner implements Runner {
 
   private open(): void {
     this.transport?.close();
-    this.transport = this.connect({
+    this.lastHeard = Date.now();
+    const transport = this.connect({
       onMessage: (msg) => {
-        if (!this.stopped) this.handle(msg);
+        // A message from a socket already replaced (e.g. by the watchdog) belongs to an old session.
+        if (this.stopped || this.transport !== transport) return;
+        this.lastHeard = Date.now();
+        this.handle(msg);
       },
       onClose: (refusal) => {
-        if (!this.stopped) this.handleClose(refusal);
+        if (!this.stopped && this.transport === transport) this.handleClose(refusal);
       },
     });
+    this.transport = transport;
   }
 
   private handleClose(refusal: string | null): void {
@@ -183,7 +238,8 @@ export class LockstepRunner implements Runner {
       this.dispatch({ type: 'refused', reason: refusal });
       return;
     }
-    this.dispatch({ type: 'closed', now: Date.now() });
+    this.syncGen++;
+    this.dispatch({ type: 'closed', now: Date.now(), jitter: Math.random() });
     const conn = this.store.conn;
     if (conn.phase !== 'offline') return;
     if (this.retryTimer) clearTimeout(this.retryTimer);
@@ -198,6 +254,7 @@ export class LockstepRunner implements Runner {
     const phase = this.store.conn.phase;
     if (phase !== 'live' && phase !== 'syncing') return;
     this.dispatch({ type: 'resync', reason });
+    this.resyncAt = Date.now();
     this.transport?.send({ type: 'resync' });
   }
 

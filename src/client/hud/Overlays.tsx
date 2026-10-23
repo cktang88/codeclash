@@ -21,7 +21,7 @@ export function Toasts({ hud }: { hud: HudSnapshot }) {
     rung.current = newest;
     sfx(hud.toasts[hud.toasts.length - 1]?.kind === 'order' ? 'ui.coin' : 'ui.toast');
   }, [newest]);
-  if (hud.toasts.length === 0) return null;
+  // The live region stays mounted while empty: one inserted together with its first toast is often not announced.
   return (
     <div className="toasts" role="status" aria-live="polite">
       {hud.toasts.map((t) => {

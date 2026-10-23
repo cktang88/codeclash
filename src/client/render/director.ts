@@ -20,6 +20,12 @@ export class Director {
 
   constructor(private overviewZoom: () => number) {}
 
+  /** Forget the old field's fights: a new war starts quiet. */
+  reset(): void {
+    this.heat.clear();
+    this.current = null;
+  }
+
   private add(x: number, y: number, h: number): void {
     const key = (Math.floor(x / CELL) + 64) * 128 + (Math.floor(y / CELL) + 64);
     const c = this.heat.get(key);

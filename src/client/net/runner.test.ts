@@ -3,7 +3,7 @@ import type { RoomDetail, ServerMessage, WarMeta } from '../../protocol.ts';
 import { TICK_MS } from '../../sim/api.ts';
 import { createWorld, generateMap, snapshot, step } from '../../sim/index.ts';
 import { GameStore } from '../store.ts';
-import { finalTick, LockstepRunner } from './runner.ts';
+import { finalTick, LockstepRunner, RESYNC_TIMEOUT_MS, SILENCE_MS } from './runner.ts';
 import type { TransportHandlers } from './transport.ts';
 
 const room = { slug: 'test-room', name: 'Test', visibility: 'public', resetHour: 0, bots: 0, members: [], viewer: { member: false, owner: false, signedIn: false }, invite: null, webhookUrl: null } as unknown as RoomDetail;
@@ -15,15 +15,24 @@ function hello(war: WarMeta, ticks: number, now: number): Extract<ServerMessage,
   return { type: 'hello', room, war, roster: [], repos: [], snapshot: snapshot(world), inputs: [], chronicle: [], chat: [], presence: [], serverNow: now, tickMs: TICK_MS, viewerP: null };
 }
 
-function setup() {
+function setup(store = new GameStore()) {
   let handlers: TransportHandlers | null = null;
-  const store = new GameStore();
+  const sent: unknown[] = [];
+  let connects = 0;
   const runner = new LockstepRunner((h) => {
     handlers = h;
-    return { send: () => undefined, close: () => undefined };
+    connects++;
+    return { send: (m) => sent.push(m), close: () => undefined };
   }, store);
   runner.start();
-  return { store, runner, deliver: (msg: ServerMessage) => handlers!.onMessage(msg) };
+  return {
+    store,
+    runner,
+    sent,
+    connects: () => connects,
+    deliver: (msg: ServerMessage) => handlers!.onMessage(msg),
+    close: (refusal: string | null = null) => handlers!.onClose(refusal),
+  };
 }
 
 describe('LockstepRunner', () => {
@@ -94,5 +103,78 @@ describe('LockstepRunner', () => {
     expect(store.roster).not.toBe(before);
     expect(store.roster[0]!.login).toBe('ana');
     runner.stop();
+  });
+
+  it('starts fresh when a new runner reuses a store an earlier runner left refused', () => {
+    const store = new GameStore();
+    const first = setup(store);
+    first.close('this room is private');
+    expect(store.conn.phase).toBe('refused');
+    first.runner.stop();
+    // The viewer joined with an invite; the page restarts the stream on the same store.
+    const second = setup(store);
+    expect(store.conn.phase).toBe('connecting');
+    second.deliver(hello({ id: 1, day: '2026-01-01', status: 'active', startsAt: Date.now(), endsAt: Date.now() + 100 * TICK_MS, seed: 5, slots: 4, members: 2 }, 0, Date.now()));
+    expect(store.conn.phase).toBe('syncing');
+    second.runner.stop();
+  });
+
+  it('reconnects a socket that went silent without a close event (a laptop waking up)', () => {
+    vi.useFakeTimers();
+    const start = Date.now();
+    const war: WarMeta = { id: 1, day: '2026-01-01', status: 'active', startsAt: start, endsAt: start + 100_000 * TICK_MS, seed: 5, slots: 4, members: 2 };
+    const t = setup();
+    t.deliver(hello(war, 0, start));
+    vi.advanceTimersByTime(0);
+    expect(t.store.conn.phase).toBe('live');
+    vi.setSystemTime(start + SILENCE_MS + 1000);
+    t.runner.frame();
+    expect(t.store.conn.phase).toBe('offline');
+    vi.advanceTimersByTime(5000);
+    expect(t.connects()).toBe(2);
+    expect(t.store.conn.phase).toBe('connecting');
+    t.runner.stop();
+  });
+
+  it('does not wait forever for a resync the server never answered', () => {
+    vi.useFakeTimers();
+    const start = Date.now();
+    const war: WarMeta = { id: 1, day: '2026-01-01', status: 'active', startsAt: start, endsAt: start + 100_000 * TICK_MS, seed: 5, slots: 4, members: 2 };
+    const t = setup();
+    t.deliver(hello(war, 0, start));
+    vi.advanceTimersByTime(0);
+    // A tab that slept for ten minutes is far behind and asks for a snapshot.
+    vi.setSystemTime(start + 600_000);
+    t.deliver({ type: 'presence', presence: [] });
+    t.runner.frame();
+    expect(t.store.conn.phase).toBe('resyncing');
+    expect(t.sent).toEqual([{ type: 'resync' }]);
+    // Keep the socket chatty so only the resync timeout can fire.
+    vi.setSystemTime(start + 600_000 + RESYNC_TIMEOUT_MS + 1);
+    t.deliver({ type: 'presence', presence: [] });
+    t.runner.frame();
+    expect(t.store.conn.phase).toBe('offline');
+    vi.advanceTimersByTime(5000);
+    expect(t.connects()).toBe(2);
+    t.runner.stop();
+  });
+
+  it('keeps backing off when the socket keeps dying before the client goes live', () => {
+    vi.useFakeTimers();
+    const start = Date.now();
+    const war: WarMeta = { id: 1, day: '2026-01-01', status: 'active', startsAt: start - 5000 * TICK_MS, endsAt: start + 100_000 * TICK_MS, seed: 5, slots: 4, members: 2 };
+    const t = setup();
+    let attempt = 0;
+    for (let i = 0; i < 4; i++) {
+      t.deliver(hello(war, 0, Date.now()));
+      t.close();
+      expect(t.store.conn.phase).toBe('offline');
+      const conn = t.store.conn as Extract<typeof t.store.conn, { phase: 'offline' }>;
+      expect(conn.attempt).toBeGreaterThan(attempt);
+      attempt = conn.attempt;
+      vi.advanceTimersByTime(conn.retryAt - Date.now());
+    }
+    expect(attempt).toBe(4);
+    t.runner.stop();
   });
 });

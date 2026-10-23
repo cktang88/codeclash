@@ -75,6 +75,7 @@ export class WaterGlints {
   readonly mesh: Mesh<MeshGeometry, Shader>;
   private readonly shader: Shader;
 
+  /** Takes ownership of `mask`: it is destroyed with the glints. */
   constructor(mask: Texture, extent: number) {
     const e = extent;
     const geometry = new MeshGeometry({
@@ -105,6 +106,13 @@ export class WaterGlints {
   }
 
   destroy(): void {
+    // The mask is this map's own (baked with its terrain), and Mesh.destroy frees neither the
+    // geometry, the shader nor its textures: release them all, or every new day leaks a map's worth.
+    const geometry = this.mesh.geometry;
+    const mask = this.shader.resources.uMask as { destroy(): void } | undefined;
     this.mesh.destroy({ children: true });
+    geometry.destroy();
+    this.shader.destroy();
+    mask?.destroy();
   }
 }

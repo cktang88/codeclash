@@ -3,6 +3,18 @@ import type { ArmoryResponse, LegendsResponse, OrdersResponse, ProfileResponse, 
 import type { Heraldry } from '../../rules/meta.ts';
 import { ApiError, api } from '../net/api.ts';
 
+/** An ApiError that keeps the response body, for refusals that still carry a result (a partly saved Armory). */
+export class MetaApiError extends ApiError {
+  constructor(
+    status: number,
+    code: string,
+    message: string,
+    readonly body: unknown,
+  ) {
+    super(status, code, message);
+  }
+}
+
 async function call<T>(method: string, url: string, body?: unknown): Promise<T> {
   let res: Response;
   try {
@@ -18,7 +30,7 @@ async function call<T>(method: string, url: string, body?: unknown): Promise<T> 
   const json: unknown = await res.json().catch(() => null);
   if (!res.ok) {
     const err = (json ?? {}) as { error?: string; message?: string };
-    throw new ApiError(res.status, err.error ?? 'error', err.message ?? `Request failed (${res.status}).`);
+    throw new MetaApiError(res.status, err.error ?? 'error', err.message ?? `Request failed (${res.status}).`, json);
   }
   return json as T;
 }

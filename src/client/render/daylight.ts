@@ -37,7 +37,8 @@ const KEYS: readonly [phase: number, mult: number, screen: number, lights: numbe
 ];
 
 export function daylightAt(phase: number): Daylight {
-  const t = Math.max(0, Math.min(1, phase));
+  // A missing clock reads as mid-morning, never as NaN tints that blank the grade.
+  const t = Number.isFinite(phase) ? Math.max(0, Math.min(1, phase)) : 0.3;
   let i = 0;
   while (i < KEYS.length - 2 && KEYS[i + 1]![0] <= t) i++;
   const a = KEYS[i]!;
@@ -57,14 +58,20 @@ export function daylightAt(phase: number): Daylight {
 const DEMO_DAY_TICKS = 24 * TICKS_PER_MINUTE;
 const DAY_MS = 24 * 3600_000;
 
-/** Where in its day the watched war is: live wars follow the real clock, the demo and replays follow simulated time. */
-export function dayPhase(store: GameStore, tick: number): number {
+/**
+ * Where in its day the watched war is. The sun follows the war's own clock, the simulated tick
+ * (tick 0 is the war's start): a live war's ticks keep pace with the real clock, and when the
+ * client is catching up, resyncing or waking from a sleeping tab the hour stays in step with the
+ * soldiers on screen instead of jumping ahead of them. The demo runs a short day on repeat.
+ */
+export function dayPhase(store: Pick<GameStore, 'war' | 'replay'>, tick: number): number {
   const war = store.war;
+  if (!Number.isFinite(tick) || tick < 0) tick = 0;
   if (store.replay) {
     const length = war ? war.endsAt - war.startsAt : DAY_MS;
     return ((tick * TICK_MS) / Math.max(1, length)) % 1;
   }
   if (!war || war.id === 0) return (tick % DEMO_DAY_TICKS) / DEMO_DAY_TICKS;
   const length = Math.max(1, war.endsAt - war.startsAt);
-  return Math.max(0, Math.min(0.9999, (store.serverNow() - war.startsAt) / length));
+  return Math.max(0, Math.min(0.9999, (tick * TICK_MS) / length));
 }

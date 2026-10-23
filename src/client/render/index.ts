@@ -8,7 +8,7 @@ import type { Runner } from '../net/runner.ts';
 import type { FloatingEmote, GameStore } from '../store.ts';
 import { sound } from '../audio/index.ts';
 import { Atmosphere } from './atmosphere.ts';
-import { BannerLayer, platoonCentroids } from './banners.ts';
+import { BannerLayer } from './banners.ts';
 import { Camera } from './camera.ts';
 import { dayPhase, daylightAt, type Daylight } from './daylight.ts';
 import { Director } from './director.ts';
@@ -58,6 +58,8 @@ interface FxHooks {
 
 const GOLD = 0xf2cf5b;
 const MAX_TORCHES = 220;
+/** How often unused flag textures are swept from the cache. */
+const FLAG_PRUNE_MS = 15_000;
 
 interface MapLayers {
   map: MapDef;
@@ -135,6 +137,8 @@ export class Battlefield {
   private readonly top = new Container();
   private readonly lights = new Container();
   private readonly actors = new Container();
+  /** Fliers soar over the banners; they take the same share of the hour's colour as the soldiers. */
+  private readonly sky = new Container();
   private readonly torches: Sprite[] = [];
   private readonly camera: Camera;
   private readonly units: UnitLayer;
@@ -161,6 +165,11 @@ export class Battlefield {
   private audioAt = 0;
   private fires: { x: number; y: number }[] = [];
   private warStatus = '';
+  /** The last sim tick drawn: a step back in time means a new war or a rewound replay. */
+  private lastTick = -1;
+  private flagPruneAt = 0;
+  private readonly flagsInUse = new Set<Texture>();
+  private detachEnv: (() => void)[] = [];
   private drawnResolve: () => void = () => {};
   private drawnOnce = false;
   /** Resolves once the painted map has reached the screen, so the page can lift its loading leaf. */
@@ -220,13 +229,19 @@ export class Battlefield {
     );
     // Soldiers ride above the grade with only part of the hour's colour, so dark ink
     // silhouettes never sink into the night ground.
-    this.actors.addChild(this.units.bodies, this.units.dots, this.fx.air, this.units.air);
-    this.top.addChild(this.lights, torchLayer, this.actors, this.fx.glow, this.banners.root, this.fx.overlay);
+    this.actors.addChild(this.units.bodies, this.units.dots, this.fx.air);
+    this.sky.addChild(this.units.air);
+    this.top.addChild(this.lights, torchLayer, this.actors, this.fx.glow, this.banners.root, this.sky, this.fx.overlay);
     this.camera = new Camera(app.canvas, {
       onClick: (sx, sy) => this.click(sx, sy),
       onUserPan: () => {
         store.setFollowing(false);
         store.setFollowMine(false);
+        this.cine = null;
+      },
+      // Zooming while riding with your own banner keeps the ride; it ends a set piece and the director's tour.
+      onUserZoom: () => {
+        store.setFollowing(false);
         this.cine = null;
       },
       onFollowKey: () => this.toggleFollowMine(),
@@ -249,6 +264,66 @@ export class Battlefield {
       sound.play(name, { x, y, gain });
     };
     app.ticker.add(this.tick);
+    this.watchEnvironment();
+  }
+
+  /**
+   * Things the page can change under a running field: the host's size (Pixi only watches the
+   * window), the screen's pixel density (a window dragged to another monitor), the reduced-motion
+   * preference, and a lost WebGL context.
+   */
+  private watchEnvironment(): void {
+    const off = this.detachEnv;
+    if (typeof ResizeObserver === 'function') {
+      const ro = new ResizeObserver(() => this.app.queueResize?.());
+      ro.observe(this.host);
+      off.push(() => ro.disconnect());
+    }
+    const mm = typeof window !== 'undefined' ? window.matchMedia?.bind(window) : undefined;
+    if (mm) {
+      let dpr: MediaQueryList | null = null;
+      const onDpr = () => {
+        const res = Math.min(2, window.devicePixelRatio || 1);
+        if (res !== this.app.renderer.resolution) this.app.renderer.resize(this.app.screen.width, this.app.screen.height, res);
+        watchDpr();
+      };
+      const watchDpr = () => {
+        dpr?.removeEventListener('change', onDpr);
+        dpr = mm(`(resolution: ${window.devicePixelRatio || 1}dppx)`);
+        dpr.addEventListener?.('change', onDpr);
+      };
+      watchDpr();
+      off.push(() => dpr?.removeEventListener('change', onDpr));
+      const rm = mm('(prefers-reduced-motion: reduce)');
+      const onRm = () => this.setReducedMotion(rm.matches);
+      rm.addEventListener?.('change', onRm);
+      off.push(() => rm.removeEventListener?.('change', onRm));
+    }
+    // Pixi restores a lost context itself and re-uploads every canvas-backed texture; meanwhile
+    // nothing is drawn, so skip the frame work until it is back.
+    const canvas = this.app.canvas;
+    const lost = () => {
+      this.contextLost = true;
+    };
+    const restored = () => {
+      this.contextLost = false;
+      this.last = performance.now();
+    };
+    canvas.addEventListener('webglcontextlost', lost);
+    canvas.addEventListener('webglcontextrestored', restored);
+    off.push(() => {
+      canvas.removeEventListener('webglcontextlost', lost);
+      canvas.removeEventListener('webglcontextrestored', restored);
+    });
+  }
+
+  private contextLost = false;
+
+  /** Follows the viewer's reduced-motion setting as it changes. */
+  setReducedMotion(on: boolean): void {
+    this.opts.reducedMotion = on;
+    this.fx.setReducedMotion(on);
+    if (on) this.shake = 0;
   }
 
   /**
@@ -300,6 +375,10 @@ export class Battlefield {
     this.app.ticker.stop();
     for (const u of this.unsubscribe) u();
     this.unsubscribe = [];
+    for (const off of this.detachEnv) off();
+    this.detachEnv = [];
+    // The battle's murmur belongs to the field: leaving it should not leave the din playing.
+    sound.setBattleIntensity?.(0);
     this.camera.destroy();
     this.dropMap();
     this.banners.destroy();
@@ -364,6 +443,13 @@ export class Battlefield {
 
   private tick = (): void => {
     if (this.destroyed) return;
+    if (this.contextLost) {
+      // Keep the war and the HUD moving while the GPU is away.
+      this.getRunner()?.frame();
+      this.store.pump();
+      this.last = performance.now();
+      return;
+    }
     const started = performance.now();
     this.draw();
     this.frameMs = this.frameMs * 0.95 + (performance.now() - started) * 0.05;
@@ -398,8 +484,14 @@ export class Battlefield {
     // camera. Only a different war (rollover) needs a new map.
     if (!this.layers || this.layers.key !== mapKey(world)) {
       this.buildMap(world);
+      this.resetTransient();
       mark = performance.now();
+    } else if (world.tick < this.lastTick) {
+      // Same map, earlier hour (a rewound replay, a war restarted on the same seed): soldier and
+      // platoon ids now name others, so nothing may glide over from where the old ones stood.
+      this.resetTransient();
     }
+    this.lastTick = world.tick;
     const layers = this.layers!;
     this.refreshColors(world);
     const monuments = this.store.monuments;
@@ -419,7 +511,7 @@ export class Battlefield {
     }
     if (this.store.followMine && !this.camera.busy && !this.cine) {
       const target = this.myBanner(world);
-      if (target) this.camera.drift(target.x, target.y, Math.max(0.95, Math.min(this.camera.zoom, 1.8)), dtMs * 1.6);
+      if (target) this.camera.drift(target.x, target.y, Math.max(0.6, Math.min(this.camera.zoom, 2.4)), dtMs * 1.6);
       this.director.next(dtMs, now);
     } else if (this.store.following && !this.camera.busy && !this.cine) {
       const shot = this.director.next(dtMs, now);
@@ -475,13 +567,25 @@ export class Battlefield {
     time('camera');
     this.units.update(world, runner, now, zoom, bounds);
     time('units');
-    const centroids = platoonCentroids(world);
+    // Interpolated, as the soldiers are drawn: banners, torches and the selection ride with them.
+    const centroids = this.units.centroids;
     const sel = this.store.selection;
     for (const r of this.store.roster) this.trims[r.p] = r.heraldry?.trim;
-    this.banners.update(world, this.store.repos, this.hues, now, zoom, centroids, bounds, sel?.kind === 'platoon' ? sel.id : null, this.trims);
+    this.banners.update(world, this.store.repos, this.hues, now, zoom, centroids, bounds, sel?.kind === 'platoon' ? sel.id : null, this.trims, dtMs, !!this.opts.reducedMotion);
+    this.sky.tint = this.actors.tint;
+    if (now >= this.flagPruneAt) {
+      this.flagPruneAt = now + FLAG_PRUNE_MS;
+      const inUse = this.flagsInUse;
+      inUse.clear();
+      this.banners.texturesInUse(inUse);
+      layers.sites.texturesInUse(inUse);
+      this.flags.prune(inUse);
+      inUse.clear();
+    }
     time('banners');
     const near = zoom >= FAR_ZOOM;
     layers.sites.compact = Math.min(sw, sh) < 600;
+    layers.sites.reducedMotion = !!this.opts.reducedMotion;
     layers.sites.update(
       world,
       this.store.roster,
@@ -594,6 +698,15 @@ export class Battlefield {
     sound.setTimeOfDay?.(light.phase);
   }
 
+  /** Forget everything tied to the old field's soldiers, platoons and set pieces. */
+  private resetTransient(): void {
+    this.units.reset();
+    this.banners.reset();
+    this.fx.reset();
+    this.director.reset();
+    this.shake = 0;
+  }
+
   private dropMap(): void {
     if (!this.layers) return;
     const { terrain, influence, water, sites, atmosphere } = this.layers;
@@ -702,7 +815,8 @@ export class Battlefield {
         const p = this.units.pose(d.unit);
         const x = p?.x ?? d.x;
         const y = p?.y ?? d.y;
-        if (!bounds.contains(x, y)) continue;
+        // A kind still baking was drawn as a token: no body to fall, and no synchronous bake mid-step.
+        if (!bounds.contains(x, y) || !this.units.artReady(d.kind)) continue;
         const c = this.units.corpse(d.kind);
         this.fx.corpse(c.texture, x, y, p?.facing ?? 1, c.scale, 0xd0d0d0, c.altitude, c.anchorY);
       }

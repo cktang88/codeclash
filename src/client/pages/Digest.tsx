@@ -1,13 +1,14 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import type { DigestResponse } from '../../protocol.ts';
 import type { DigestPlayer } from '../../rules/digest.ts';
-import { CAT_NAMES, Kind, PURPOSES, PURPOSE_LABEL, TICK_MS, type Purpose } from '../../sim/api.ts';
+import { Kind, PURPOSES, PURPOSE_LABEL, TICK_MS, type Purpose } from '../../sim/api.ts';
 import { ApiError, api } from '../net/api.ts';
 import { UnitChips, colorize } from '../hud/Chronicle.tsx';
 import { Avatar } from '../ui/Avatar.tsx';
 import { BattalionFlag } from '../ui/Flag.tsx';
 import { Link } from '../ui/Link.tsx';
 import { clock, compact } from '../ui/format.ts';
+import { GROUP_LABEL, groupLines } from '../ui/lines.ts';
 import { EventIcon, Icon, UnitIcon } from '../ui/icons.tsx';
 import { Notice } from './Notice.tsx';
 import { DropCap, Fleuron, Tally, hueVar } from '../ui/codex.tsx';
@@ -16,7 +17,7 @@ import { Timelapse } from './Timelapse.tsx';
 /** Colors for the nine line categories, in Cat order. Paired with labels everywhere they appear. */
 // Pigments from the palette: gold leaf, ultramarine, umber, verdigris, ochre, vermilion, and greys of old vellum.
 export const CAT_COLORS = ['#d4a93e', '#2c4a9a', '#7b5a2e', '#2f7f6f', '#b9a477', '#b8321f', '#8e8269', '#a39880', '#c9bc9b'];
-export const CAT_LABELS = ['Code', 'Tests', 'Comments', 'Docs', 'Config', 'Deleted', 'Generated (ignored)', 'Vendored (ignored)', 'Blank'];
+export const CAT_LABELS = ['Code', 'Tests', 'Comments', 'Docs', 'Config', 'Deleted', 'Generated', 'Vendored', 'Blank'];
 
 const AWARD_ICON: Record<string, () => ReactNode> = {
   victor: () => <Icon name="crown" size={26} />,
@@ -35,24 +36,36 @@ const AWARD_ICON: Record<string, () => ReactNode> = {
   dragonslayer: () => <EventIcon kind="dragon" size={26} />,
 };
 
+/**
+ * Lines pushed, code first: code (and deletions) is the army at full height; tests, comments, docs and config are
+ * drawn as the small support they are; generated, vendored and blank lines raised nothing.
+ */
 export function LinesBar({ lines }: { lines: readonly number[] }) {
-  const total = lines.reduce((a, b) => a + b, 0);
-  if (total === 0) return <p className="muted small">No lines pushed.</p>;
+  const groups = groupLines(lines);
+  if (groups.length === 0) return <p className="muted small">No lines pushed.</p>;
+  const label = groups.map((g) => `${GROUP_LABEL[g.group]}: ${g.cats.map(({ cat, n }) => `${CAT_LABELS[cat]} ${n.toLocaleString()}`).join(', ')}`).join('; ');
   return (
     <div className="lines">
-      <div className="lines-bar" role="img" aria-label={CAT_NAMES.map((_, c) => `${CAT_LABELS[c]} ${lines[c] ?? 0}`).join(', ')}>
-        {lines.map((n, c) => (n > 0 ? <span key={c} style={{ flexGrow: n, background: CAT_COLORS[c] }} title={`${CAT_LABELS[c]}: ${n.toLocaleString()} lines`} /> : null))}
-      </div>
-      <ul className="lines-legend">
-        {lines.map((n, c) =>
-          n > 0 ? (
-            <li key={c}>
-              <span className="swatch" style={{ background: CAT_COLORS[c] }} aria-hidden />
-              {CAT_LABELS[c]} <span className="num">{compact(n)}</span>
-            </li>
-          ) : null,
+      <div className="lines-bar" role="img" aria-label={label}>
+        {groups.flatMap((g) =>
+          g.cats.map(({ cat, n }) => (
+            <span key={cat} className={`is-${g.group}`} style={{ flexGrow: n, background: CAT_COLORS[cat] }} title={`${CAT_LABELS[cat]} (${GROUP_LABEL[g.group].toLowerCase()}): ${n.toLocaleString()} lines`} />
+          )),
         )}
-      </ul>
+      </div>
+      <dl className="lines-legend">
+        {groups.map((g) => (
+          <div key={g.group} className={`lines-group is-${g.group}`}>
+            <dt>{GROUP_LABEL[g.group]}</dt>
+            {g.cats.map(({ cat, n }) => (
+              <dd key={cat}>
+                <span className="swatch" style={{ background: CAT_COLORS[cat] }} aria-hidden />
+                {CAT_LABELS[cat]} <span className="num">{compact(n)}</span>
+              </dd>
+            ))}
+          </div>
+        ))}
+      </dl>
     </div>
   );
 }
@@ -324,7 +337,7 @@ export function DigestPage({ slug, warId }: { slug: string; warId: number }) {
               <dd>{d.monolith.fallen ? `fell at ${at(d.monolith.tick ?? 0)}` : 'stood'}</dd>
             </div>
           </dl>
-          <h3 className="section-label">Code pushed, by kind</h3>
+          <h3 className="section-label">Lines pushed, code first</h3>
           <LinesBar lines={d.totals.lines} />
           <h3 className="section-label">Soldiers raised</h3>
           <UnitChips units={d.totals.raised} size={18} />

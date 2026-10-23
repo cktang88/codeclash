@@ -252,6 +252,8 @@ export interface ArmoryResponse {
   heraldry: Heraldry;
   catalog: ArmoryItem[];
   titles: string[];
+  /** The hue the player's army flew in their latest war, or null before their first war. */
+  hue: number | null;
 }
 
 export interface LegendEntry {

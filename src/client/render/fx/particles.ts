@@ -79,6 +79,8 @@ export class ParticlePool {
   constructor(
     readonly budget: number,
     additive: boolean,
+    /** When full, retire the oldest live particle for a new one instead of refusing it. */
+    private readonly evict = false,
   ) {
     this.container = new ParticleContainer({
       dynamicProperties: { position: true, rotation: true, vertex: true, uvs: true, color: true },
@@ -123,7 +125,13 @@ export class ParticlePool {
   }
 
   spawn(s: Spawn): void {
-    if (this.live.length >= this.budget) return;
+    if (this.live.length >= this.budget) {
+      if (!this.evict || this.live.length === 0) return;
+      // Spawns append, and update compacts in order: the first entry is the oldest.
+      const old = this.live.shift()!;
+      this.free.push(old.p);
+      this.dirty = true;
+    }
     const tex = s.frames ? s.frames[0]! : s.texture;
     const p = this.free.pop() ?? new Particle({ texture: tex });
     p.texture = tex;

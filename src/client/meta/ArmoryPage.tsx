@@ -6,7 +6,7 @@ import { ApiError } from '../net/api.ts';
 import { Notice } from '../pages/Notice.tsx';
 import { InkLink, VellumPanel, sfx } from '../ui/codex.tsx';
 import { FlagSvg } from '../ui/Flag.tsx';
-import { metaApi, useLoad } from './api.ts';
+import { MetaApiError, metaApi, useLoad } from './api.ts';
 import { RankBadge } from './RankBadge.tsx';
 
 const SLOTS: readonly { slot: ArmoryItem['slot']; label: string; hint: string }[] = [
@@ -20,8 +20,11 @@ const SLOTS: readonly { slot: ArmoryItem['slot']; label: string; hint: string }[
 
 const label = (value: string) => (value === 'true' ? 'Yes' : value === 'false' ? 'No' : value[0]!.toUpperCase() + value.slice(1));
 
+/** Shown before a player's first war, when no army hue has been assigned yet. */
+export const PREVIEW_HUE = 212;
+
 /** A preview of the chosen standard in the player's own hue, mixed as a pigment (never raw). */
-export function StandardPreview({ heraldry, hue = 212, size = 96 }: { heraldry: Pick<Heraldry, 'pattern' | 'emblem'>; hue?: number; size?: number }) {
+export function StandardPreview({ heraldry, hue = PREVIEW_HUE, size = 96 }: { heraldry: Pick<Heraldry, 'pattern' | 'emblem'>; hue?: number; size?: number }) {
   return (
     <FlagSvg
       size={size}
@@ -68,6 +71,9 @@ export function ArmoryPage({ me }: { me: MeResponse | null }) {
       setArmory(await metaApi.setArmory(req));
       sfx('ui.seal');
     } catch (err) {
+      // A locked choice is refused, but the rest of the request was saved: show what is now worn.
+      const saved = err instanceof MetaApiError ? (err.body as { armory?: ArmoryResponse } | null)?.armory : undefined;
+      if (saved) setArmory(saved);
       setMessage(err instanceof ApiError ? err.message : 'The herald could not record that.');
     } finally {
       setSaving(false);
@@ -75,17 +81,19 @@ export function ArmoryPage({ me }: { me: MeResponse | null }) {
   };
 
   const h = current.heraldry;
+  const hue = current.hue ?? PREVIEW_HUE;
   return (
     <main className="page meta-armory">
       <nav className="crumbs">
         <InkLink to={{ kind: 'home' }}>← Lobby</InkLink>
       </nav>
       <header className="meta-armory-head">
-        <StandardPreview heraldry={h} size={128} />
+        <StandardPreview heraldry={h} hue={hue} size={128} />
         <div>
           <h1 className="page-title">The Armory</h1>
           <RankBadge rank={current.rank} />
           <p className="muted">Heraldry is for show. It never changes how your soldiers fight. Changes take effect in tomorrow’s war.</p>
+          {current.hue === null && <p className="muted">Your army’s colour is assigned when you first take the field; the preview uses a stand-in.</p>}
         </div>
       </header>
       {message && (
@@ -115,8 +123,8 @@ export function ArmoryPage({ me }: { me: MeResponse | null }) {
                     title={i.unlocked ? undefined : `Unlocks at ${RANKS[i.rank]!.title}`}
                     onClick={() => !on && void wear({ [slot]: slot === 'tassel' ? i.value === 'true' : i.value } as Partial<Heraldry>)}
                   >
-                    {slot === 'pattern' && <StandardPreview heraldry={{ pattern: i.value as Pattern, emblem: h.emblem }} size={40} />}
-                    {slot === 'emblem' && <StandardPreview heraldry={{ pattern: h.pattern, emblem: i.value as Emblem }} size={40} />}
+                    {slot === 'pattern' && <StandardPreview heraldry={{ pattern: i.value as Pattern, emblem: h.emblem }} hue={hue} size={40} />}
+                    {slot === 'emblem' && <StandardPreview heraldry={{ pattern: h.pattern, emblem: i.value as Emblem }} hue={hue} size={40} />}
                     <span className="meta-choice-name">{label(i.value)}</span>
                     {!i.unlocked && <span className="meta-choice-lock muted">{RANKS[i.rank]!.title}</span>}
                   </button>

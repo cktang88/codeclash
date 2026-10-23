@@ -529,6 +529,14 @@
   width: min(580px, 100%);
 }
 
+/* Kept mounted for screen readers, but out of the flow while there is nothing to announce. */
+.toasts:empty {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+
 .toast {
   position: relative;
   display: block;

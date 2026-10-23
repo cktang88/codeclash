@@ -34,7 +34,7 @@ import { registerHooks } from './hooks.ts';
 import type { Meta } from './meta.ts';
 import { DEFAULT_HERALDRY, FANFARES, KEEPS, TRIMS } from '../rules/meta.ts';
 import { EMBLEMS, PATTERNS } from '../rules/heraldry.ts';
-import type { Hub } from './hub.ts';
+import { WS_CLOSE_TRY_LATER, type Hub } from './hub.ts';
 import type { GithubClient } from './github.ts';
 import type { PushReport } from './poller.ts';
 import { isoDay, RoomFailure, Rooms, userRef } from './rooms.ts';
@@ -88,7 +88,6 @@ const ClientMessage = z.discriminatedUnion('type', [
   z.object({ type: z.literal('chat'), text: z.string().trim().min(1).max(CHAT_MAX) }),
 ]);
 
-const RESYNC_MIN_MS = 2000;
 
 /** Fixed-window rate limiter keyed by user or address. */
 class Limiter {
@@ -106,6 +105,15 @@ class Limiter {
     }
     h.n++;
     return h.n <= this.max;
+  }
+}
+
+/** The client's address for rate limits; injected test requests have no socket to read it from. */
+function addressOf(req: FastifyRequest): string {
+  try {
+    return req.ip ?? 'unknown';
+  } catch {
+    return 'unknown';
   }
 }
 
@@ -181,12 +189,14 @@ export async function buildHttp(deps: HttpDeps): Promise<FastifyInstance> {
     const slug = typeof q.room === 'string' ? q.room : '';
     const invite = typeof q.invite === 'string' ? q.invite : null;
     const room = /^[a-z0-9-]{3,48}$/.test(slug) ? store.roomBySlug(slug) : null;
-    if (!room || !rooms.war(room.id)) return socket.close(WS_CLOSE_NOT_FOUND, 'room not found');
+    if (!room) return socket.close(WS_CLOSE_NOT_FOUND, 'room not found');
     const user = viewerOf(req);
     if (!rooms.canView(room, user?.id ?? null, invite)) return socket.close(WS_CLOSE_FORBIDDEN, 'this room is private');
+    // The room exists but its war is between days (a failed rollover is retried within a second):
+    // a 4xxx close is final for the client, so ask it to come back instead.
+    if (!rooms.war(room.id)) return socket.close(WS_CLOSE_TRY_LATER, 'the war is being prepared');
     const ref: UserRef | null = user ? { id: user.id, login: user.login, avatarUrl: user.avatarUrl } : null;
-    hub.add(room.id, socket, ref, invite);
-    let lastResync = -Infinity;
+    hub.add(room.id, socket, ref, invite, `ip:${addressOf(req)}`);
     socket.on('message', (raw: Buffer) => {
       let parsed: unknown;
       try {
@@ -198,10 +208,9 @@ export async function buildHttp(deps: HttpDeps): Promise<FastifyInstance> {
       if (!msg.success) return;
       const now = clock();
       if (msg.data.type === 'resync') {
-        // A hello carries a full snapshot; anyone, signed in or not, could otherwise flood the event loop with them.
-        if (now - lastResync < RESYNC_MIN_MS) return;
-        lastResync = now;
-        return hub.sendHello(room.id, socket);
+        // A hello carries a full snapshot; the hub rate-limits them per socket and per viewer, deferring rather
+        // than dropping so a client that asks twice in quick succession is not left waiting forever.
+        return hub.resync(room.id, socket);
       }
       if (!user) return;
       const key = `u${user.id}`;

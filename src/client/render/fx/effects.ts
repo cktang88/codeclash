@@ -211,7 +211,9 @@ export class Effects {
   viewerP: number | null = null;
 
   private readonly tex: FxTextures;
-  private readonly decals = new ParticlePool(900, false);
+  // Decals are marks left on the world: when full, the oldest gives way, so a capture's ring is never
+  // refused because the ground is already covered in two minutes of corpse dust.
+  private readonly decals = new ParticlePool(900, false, true);
   private readonly corpseLayer = new Container();
   private readonly dust = new ParticlePool(5000, false);
   private readonly fire = new ParticlePool(6000, true);
@@ -226,7 +228,7 @@ export class Effects {
   private corpses: Corpse[] = [];
   private floats: Float[] = [];
   private zoom = 1;
-  private readonly reduced: boolean;
+  private reduced: boolean;
   private clock = 0;
   private readonly lastCue = new Map<string, number>();
   private scrolls: Scroll[] = [];
@@ -258,6 +260,42 @@ export class Effects {
     this.ground.addChild(this.decals.container, this.corpseLayer);
     this.air.addChild(this.dust.container);
     this.glow.addChild(this.flames.container, this.fire.container);
+  }
+
+  /** Follows the viewer's reduced-motion preference as it changes. */
+  setReducedMotion(on: boolean): void {
+    this.reduced = on;
+    if (on) this.shake = 0;
+  }
+
+  /**
+   * A new war (or a jump back in time): everything tied to soldiers, platoons and places of the
+   * old field goes. Washes across the whole map (the day-end ink) are left to finish.
+   */
+  reset(): void {
+    for (const f of this.floats) f.t.destroy();
+    this.floats = [];
+    for (const sc of this.scrolls) sc.c.destroy({ children: true });
+    this.scrolls = [];
+    for (const c of this.corpses) c.s.destroy();
+    this.corpses = [];
+    this.projectiles = [];
+    this.breaths = [];
+    this.burners = [];
+    this.trails = [];
+    this.decals.clear();
+    this.dust.clear();
+    this.flames.clear();
+    this.fire.clear();
+    this.glowCells.clear();
+    this.messages.clear();
+    this.awaiting.clear();
+    this.cracking.clear();
+    this.vet = [];
+    this.monolithFlaring = false;
+    this.prevN = 0;
+    this.world = null;
+    this.shake = 0;
   }
 
   get counts(): { particles: number; projectiles: number; decals: number; corpses: number } {

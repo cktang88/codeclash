@@ -231,8 +231,12 @@ export class War {
     if (p === null) return 'not_in_war';
     const player = this.world.players[p];
     if (!player) return 'not_in_war';
-    // Validate against the state the input will meet; the simulation re-checks deterministically.
-    const tick = this.world.tick + INPUT_LEAD_TICKS;
+    // Validate against the server's state at the tick the input will actually be stamped with
+    // (the world may lag wall-clock time under load, and the client's view may be older still);
+    // the simulation re-checks deterministically.
+    const tick = this.inputTick(now);
+    // An input stamped at or past the last tick is never simulated: refuse it rather than report success.
+    if (tick >= this.lastTick) return 'ended';
     let input: SimInput;
     switch (cmd.kind) {
       case 'doctrine':
@@ -257,7 +261,7 @@ export class War {
 
   private submit(now: number, inputs: readonly SimInput[], extra: { roster?: RosterEntry[]; repos?: { index: number; ref: RepoRef }[] } = {}): void {
     const { store, channel } = this.deps;
-    const tick = Math.max(this.world.tick, this.wallTick(now)) + INPUT_LEAD_TICKS;
+    const tick = this.inputTick(now);
     const timed = inputs.map((input) => ({ tick, seq: ++this.seq, input }));
     const pushes = this.row.pushes + inputs.filter((i) => i.kind === 'push').length;
     store.transaction(() => {
@@ -347,7 +351,17 @@ export class War {
   }
 
   private targetTick(now: number): number {
-    return Math.min(this.wallTick(now), Math.floor((this.row.endsAt - this.row.startsAt) / TICK_MS));
+    return Math.min(this.wallTick(now), this.lastTick);
+  }
+
+  /** The war's final tick: the world is run to exactly this tick and no further. */
+  private get lastTick(): number {
+    return Math.floor((this.row.endsAt - this.row.startsAt) / TICK_MS);
+  }
+
+  /** The tick an input submitted now is stamped with. */
+  private inputTick(now: number): number {
+    return Math.max(this.world.tick, this.wallTick(now)) + INPUT_LEAD_TICKS;
   }
 
   private wallTick(now: number): number {

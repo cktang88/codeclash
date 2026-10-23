@@ -35,7 +35,7 @@ export async function createServer(
   const background = opts.background ?? true;
   const db = openDb(config.databasePath);
   const store = new Store(db);
-  const hub = new Hub();
+  const hub = new Hub(clock);
   const meta = new Meta({ store, log, channelFor: (roomId) => hub.channel(roomId) });
   const rooms = new Rooms({
     store,

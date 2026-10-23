@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { LedgerPanel } from '../ui/fairPlay.tsx';
 import { PlatoonState, TICK_MS, type World } from '../../sim/api.ts';
 import { roman, siteLabel } from '../../sim/chronicle.ts';
@@ -25,17 +25,32 @@ function cooldownLeft(at: number, cooldown: number, tick: number): number {
   return at < 0 ? 0 : Math.max(0, (at + cooldown - tick) * TICK_MS);
 }
 
-function useCommand(slug: string | null) {
+type CommandKind = 'doctrine' | 'rally' | 'cry';
+/** How long an accepted order may take to show up in the world before its control unlocks anyway. */
+const PENDING_MS = 8_000;
+
+/**
+ * Whether an accepted order is still on its way: the server stamps it a few ticks ahead, so until the world shows
+ * it (its cooldown stamp moves) the control would look ready and invite a second, refused order.
+ */
+export function orderPending(sent: { stamp: number | boolean; at: number } | undefined, stamp: number | boolean, now: number): boolean {
+  return !!sent && sent.stamp === stamp && now - sent.at < PENDING_MS;
+}
+
+function useCommand(slug: string | null, stampOf: (kind: CommandKind) => number | boolean) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [sent, setSent] = useState<Partial<Record<CommandKind, { stamp: number | boolean; at: number }>>>({});
   const run = async (label: string, cmd: Parameters<typeof api.command>[1]) => {
-    if (!slug) return;
+    if (!slug || busy) return;
     setBusy(true);
     setError(null);
     setNotice(null);
+    const stamp = stampOf(cmd.kind);
     try {
       await api.command(slug, cmd);
+      setSent((s) => ({ ...s, [cmd.kind]: { stamp, at: Date.now() } }));
       setNotice(`${label} ordered. It takes effect in a moment.`);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'The order did not reach the field. Try again.');
@@ -43,7 +58,8 @@ function useCommand(slug: string | null) {
       setBusy(false);
     }
   };
-  return { busy, error, notice, run };
+  const pending = (kind: CommandKind) => orderPending(sent[kind], stampOf(kind), Date.now());
+  return { busy, error, notice, run, pending };
 }
 
 /** The viewer's three scarce levers: doctrine, rally and war cry. */
@@ -52,19 +68,33 @@ export function CommandBar({ hud }: { hud: HudSnapshot }) {
   const world = store.world;
   const p = hud.viewerP;
   const [rallyPick, setRallyPick] = useState(false);
-  const { busy, error, notice, run } = useCommand(slug);
   const player = world && p !== null ? world.players[p] : undefined;
+  const { busy, error, notice, run, pending } = useCommand(slug, (kind) =>
+    !player ? -1 : kind === 'doctrine' ? player.doctrineAt : kind === 'rally' ? player.rallyAt : player.cryUsed,
+  );
+  // The selection when "Pick on map" was armed: only a site chosen after that is a rally order.
+  const armedOn = useRef<HudSnapshot['selection']>(null);
 
   useEffect(() => {
-    if (!rallyPick || hud.selection?.kind !== 'site') return;
+    if (!rallyPick || hud.selection?.kind !== 'site' || hud.selection === armedOn.current) return;
     setRallyPick(false);
     void run('Rally', { kind: 'rally', site: hud.selection.id });
   }, [hud.selection, rallyPick]);
+
+  useEffect(() => {
+    if (!rallyPick) return;
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setRallyPick(false);
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [rallyPick]);
 
   if (!world || !player) return null;
   const tick = world.tick;
   const doctrineWait = cooldownLeft(player.doctrineAt, DOCTRINE_COOLDOWN, tick);
   const rallyWait = cooldownLeft(player.rallyAt, RALLY_COOLDOWN, tick);
+  const doctrineSent = pending('doctrine');
+  const rallySent = pending('rally');
+  const crySent = pending('cry');
   const rallying = player.rallySite >= 0 && player.rallyUntil > tick;
   const crying = player.cryUntil > tick;
 
@@ -79,7 +109,7 @@ export function CommandBar({ hud }: { hud: HudSnapshot }) {
               role="radio"
               aria-checked={player.doctrine === d}
               className={`doctrine${player.doctrine === d ? ' is-on' : ''}`}
-              disabled={busy || player.doctrine === d || doctrineWait > 0}
+              disabled={busy || doctrineSent || player.doctrine === d || doctrineWait > 0}
               onClick={() => {
                 sfx('ui.seal');
                 void run(`${name} doctrine`, { kind: 'doctrine', doctrine: d });
@@ -101,7 +131,7 @@ export function CommandBar({ hud }: { hud: HudSnapshot }) {
           <select
             className="select"
             aria-label="Rally every platoon on"
-            disabled={busy || rallyWait > 0}
+            disabled={busy || rallySent || rallyWait > 0}
             value=""
             onChange={(e) => {
               const site = Number(e.target.value);
@@ -120,7 +150,15 @@ export function CommandBar({ hud }: { hud: HudSnapshot }) {
               ),
             )}
           </select>
-          <button className={`btn${rallyPick ? ' is-on' : ''}`} disabled={busy || rallyWait > 0} onClick={() => setRallyPick((v) => !v)} aria-pressed={rallyPick}>
+          <button
+            className={`btn${rallyPick ? ' is-on' : ''}`}
+            disabled={busy || rallySent || rallyWait > 0}
+            onClick={() => {
+              armedOn.current = hud.selection;
+              setRallyPick((v) => !v);
+            }}
+            aria-pressed={rallyPick}
+          >
             <Icon name="target" size={16} /> {rallyPick ? 'Click a site…' : 'Pick on map'}
           </button>
         </div>
@@ -139,13 +177,13 @@ export function CommandBar({ hud }: { hud: HudSnapshot }) {
         <h3 className="command-label">War Cry</h3>
         <button
           className="btn btn-cry"
-          disabled={busy || player.cryUsed}
+          disabled={busy || crySent || player.cryUsed}
           onClick={() => {
             sfx('ui.seal');
             void run('War Cry', { kind: 'cry' });
           }}
         >
-          <Icon name="horn" size={20} /> {crying ? `Sounding! ${duration((player.cryUntil - tick) * TICK_MS)}` : player.cryUsed ? 'Used today' : 'Sound the War Cry'}
+          <Icon name="horn" size={20} /> {crying ? `Sounding! ${duration((player.cryUntil - tick) * TICK_MS)}` : player.cryUsed ? 'Used today' : crySent ? 'Sounding…' : 'Sound the War Cry'}
         </button>
         <p className="command-hint">+30% damage and +25% speed for 60 seconds. Once per war.</p>
       </div>

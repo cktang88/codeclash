@@ -7,7 +7,7 @@ import { navigate } from '../route.ts';
 import { Avatar } from '../ui/Avatar.tsx';
 import { Link } from '../ui/Link.tsx';
 import { Modal } from '../ui/Modal.tsx';
-import { duration, hourLabel, parseInvite, utcHourOfLocal } from '../ui/format.ts';
+import { duration, localMidnightUtcHour, parseInvite, resetHourOptions } from '../ui/format.ts';
 import { Icon, UnitIcon } from '../ui/icons.tsx';
 import { BrandMark, DropCap, SealButton, SoundSeal } from '../ui/codex.tsx';
 import { MiniMap } from '../ui/MiniMap.tsx';
@@ -76,7 +76,7 @@ function hash(text: string): number {
 function CreateRoomModal({ onClose }: { onClose(): void }) {
   const [name, setName] = useState('');
   const [visibility, setVisibility] = useState<Visibility>('private');
-  const [localHour, setLocalHour] = useState(0);
+  const [resetHour, setResetHour] = useState(() => localMidnightUtcHour());
   const [bots, setBots] = useState(2);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -84,7 +84,7 @@ function CreateRoomModal({ onClose }: { onClose(): void }) {
     setBusy(true);
     setError(null);
     try {
-      const { slug } = await api.createRoom({ name: name.trim(), visibility, resetHour: utcHourOfLocal(localHour), bots });
+      const { slug } = await api.createRoom({ name: name.trim(), visibility, resetHour, bots });
       navigate({ kind: 'room', slug, invite: null });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'The room could not be created.');
@@ -92,8 +92,19 @@ function CreateRoomModal({ onClose }: { onClose(): void }) {
     }
   };
   return (
-    <Modal title="A charter for a new room" subtitle="Be it known: this room shall fight one war each day, for all who hold its seal." onClose={onClose} variant="scroll">
+    <Modal title="A charter for a new room" subtitle="Be it known: this room shall fight one war each day, for all who hold its seal." onClose={onClose} variant="scroll"
+      footer={
+        // In the footer, the seal and its caption stay in view on a phone however long the charter runs.
+        <div className="form-actions charter-sign">
+          <button className="btn btn-ghost" type="button" onClick={onClose}>
+            Cancel
+          </button>
+          <SealButton type="submit" form="charter-form" size="lg" sigil={<Icon name="seal" size={30} />} caption={busy ? 'Raising banners…' : 'Seal the charter'} disabled={busy || name.trim().length < 2} />
+        </div>
+      }
+    >
       <form
+        id="charter-form"
         className="form"
         onSubmit={(e) => {
           e.preventDefault();
@@ -102,7 +113,7 @@ function CreateRoomModal({ onClose }: { onClose(): void }) {
       >
         <label className="field">
           <span>Name</span>
-          <input className="input" value={name} maxLength={48} minLength={3} required autoFocus placeholder="Night Owls Guild" onChange={(e) => setName(e.target.value)} />
+          <input className="input" value={name} maxLength={48} minLength={2} required autoFocus placeholder="Night Owls Guild" onChange={(e) => setName(e.target.value)} />
         </label>
         <fieldset className="field">
           <legend>Who can find it</legend>
@@ -117,10 +128,10 @@ function CreateRoomModal({ onClose }: { onClose(): void }) {
         <div className="field-row">
           <label className="field">
             <span>Daily reset, your time</span>
-            <select className="select" value={localHour} onChange={(e) => setLocalHour(Number(e.target.value))}>
-              {Array.from({ length: 24 }, (_, h) => (
-                <option key={h} value={h}>
-                  {hourLabel(h)} ({hourLabel(utcHourOfLocal(h))} UTC)
+            <select className="select" value={resetHour} onChange={(e) => setResetHour(Number(e.target.value))}>
+              {resetHourOptions().map((o) => (
+                <option key={o.utc} value={o.utc}>
+                  {o.label}
                 </option>
               ))}
             </select>
@@ -142,12 +153,6 @@ function CreateRoomModal({ onClose }: { onClose(): void }) {
             {error}
           </p>
         )}
-        <div className="form-actions charter-sign">
-          <button className="btn btn-ghost" type="button" onClick={onClose}>
-            Cancel
-          </button>
-          <SealButton type="submit" size="lg" sigil={<Icon name="seal" size={30} />} caption={busy ? 'Raising banners…' : 'Seal the charter'} disabled={busy || name.trim().length < 3} />
-        </div>
       </form>
     </Modal>
   );

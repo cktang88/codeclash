@@ -1,6 +1,6 @@
 import { FAR_ZOOM } from './lod.ts';
 import { Container, Sprite } from 'pixi.js';
-import { Kind, PlatoonState, type Unit, type World } from '../../sim/api.ts';
+import { Kind, PlatoonState, TICK_MS, type Unit, type World } from '../../sim/api.ts';
 import { STATS } from '../../sim/stats.ts';
 import type { Runner } from '../net/runner.ts';
 import type { UnitArt, UnitFrame } from './art/index.ts';
@@ -18,6 +18,10 @@ const ATTACK_FRAME_MS = 105;
 const IDLE_FRAME_MS = 700;
 /** Rank chevrons show only when soldiers are big enough to carry them. */
 const PIP_ZOOM = 1.1;
+/** Speeds below are in world units per sim tick (200ms), measured from the interpolated motion. */
+const WALK_SPEED = 0.25;
+/** Horizontal travel needed before a soldier turns to face its way. */
+const TURN_SPEED = 0.3;
 /** Below this zoom soldiers are drawn up to 1.45x larger than life, so silhouettes stay legible. */
 const MID_ZOOM = 1.4;
 
@@ -44,12 +48,21 @@ interface View {
   facing: number;
   x: number;
   y: number;
-  /** Smoothed speed, for the walk cycle. */
+  /** Smoothed speed in world units per tick, for the walk cycle. */
   speed: number;
+  /** Smoothed horizontal velocity in world units per tick, for facing the way of travel. */
+  vx: number;
   phase: number;
   seen: number;
   /** Where this soldier was drawn this frame; reused, never reallocated. */
   pose: UnitPose;
+}
+
+/** A platoon's interpolated centre this frame: where its soldiers are drawn, not where the last tick left them. */
+export interface Centroid {
+  x: number;
+  y: number;
+  n: number;
 }
 
 export interface UnitPose {
@@ -85,6 +98,12 @@ export class UnitLayer {
   // Rebuilt every frame; kept as fields and cleared so the hot loop allocates nothing.
   private platoonState = new Map<number, number>();
   private unitIndex = new Map<number, Unit>();
+  /** The soldier who carries each platoon's rank chevrons: its first in line. */
+  private leaders = new Map<number, number>();
+  private centroidPool: Centroid[] = [];
+  /** Each platoon's interpolated centre this frame, rebuilt in `update`; entries are reused. */
+  readonly centroids = new Map<number, Centroid>();
+  private lastNow = -1;
   tints: number[] = [];
   cryTint: number[] = [];
   /** Per player this frame: veteran rank shown (0-3) and whether the army is ragged. */
@@ -127,6 +146,11 @@ export class UnitLayer {
       this.raggedTint[pl.p] = g.ragged ? mixColor(this.tints[pl.p] ?? 0xcccccc, 0x8a8478, 0.5) : -1;
     }
     this.frameNo++;
+    const dtMs = this.lastNow < 0 ? 16.67 : Math.max(1, Math.min(100, now - this.lastNow));
+    this.lastNow = now;
+    // Frame-rate independent smoothing of measured speeds.
+    const ease = 1 - Math.pow(0.85, dtMs / 16.67);
+    const perTick = TICK_MS / dtMs;
     const far = zoom < FAR_ZOOM;
     const boost = zoom < MID_ZOOM ? Math.min(1.45, Math.pow(MID_ZOOM / zoom, 0.55)) : 1;
     // Bases carry the side most when soldiers are small; up close the cloth does it.
@@ -137,7 +161,15 @@ export class UnitLayer {
     for (const pl of world.platoons) platoonState.set(pl.id, pl.state);
     const unitIndex = this.unitIndex;
     unitIndex.clear();
-    for (const u of world.units) unitIndex.set(u.id, u);
+    const leaders = this.leaders;
+    leaders.clear();
+    for (const u of world.units) {
+      unitIndex.set(u.id, u);
+      if (!leaders.has(u.platoon)) leaders.set(u.platoon, u.id);
+    }
+    const centroids = this.centroids;
+    for (const c of centroids.values()) this.centroidPool.push(c);
+    centroids.clear();
 
     for (const u of world.units) {
       let v = this.views.get(u.id);
@@ -155,12 +187,27 @@ export class UnitLayer {
         x = this.tmp.x + (u.x - this.tmp.x) * alpha;
         y = this.tmp.y + (u.y - this.tmp.y) * alpha;
       }
+      if (!Number.isFinite(x) || !Number.isFinite(y)) {
+        // A soldier with no valid position is not drawn at all, rather than poisoning bounds and centroids.
+        v.pip.visible = v.base.visible = v.halo.visible = v.shadow.visible = v.body.visible = v.mask.visible = v.trim.visible = v.dot.visible = false;
+        continue;
+      }
       const dx = x - v.x;
       const dy = y - v.y;
-      const moved = Math.sqrt(dx * dx + dy * dy);
-      v.speed = v.speed * 0.85 + moved * 0.15;
+      // Measured per sim tick, not per frame, so the walk cycle and facing do not depend on the display's refresh rate.
+      v.speed += (Math.sqrt(dx * dx + dy * dy) * perTick - v.speed) * ease;
+      v.vx += (dx * perTick - v.vx) * ease;
       v.x = x;
       v.y = y;
+      let c = centroids.get(u.platoon);
+      if (!c) {
+        c = this.centroidPool.pop() ?? { x: 0, y: 0, n: 0 };
+        c.x = c.y = c.n = 0;
+        centroids.set(u.platoon, c);
+      }
+      c.x += x;
+      c.y += y;
+      c.n++;
 
       // Face the enemy when fighting, otherwise the direction of travel.
       let face = 0;
@@ -171,8 +218,8 @@ export class UnitLayer {
         const st = world.structures[-u.target - 1];
         if (st) face = world.map.sites[st.site]!.x - x;
       }
-      if (face === 0 && Math.abs(dx) > 0.02) face = dx;
       if (Math.abs(face) > 0.5) v.facing = face > 0 ? 1 : -1;
+      else if (Math.abs(v.vx) > TURN_SPEED) v.facing = v.vx > 0 ? 1 : -1;
 
       const pose = v.pose;
       pose.x = x;
@@ -241,7 +288,7 @@ export class UnitLayer {
         }
       }
 
-      const walking = v.speed > 0.12;
+      const walking = v.speed > WALK_SPEED;
       const routing = platoonState.get(u.platoon) === PlatoonState.Rout;
       const stats = STATS[u.kind]!;
       const flight = this.art.flight(u.kind);
@@ -285,7 +332,8 @@ export class UnitLayer {
         v.halo.alpha = flying ? 0.6 : 0.85;
       }
       const rank = this.ranks[u.p] ?? 0;
-      v.pip.visible = rank > 0 && zoom >= PIP_ZOOM && !flying;
+      // Rank is gold on the banner; among the soldiers only the platoon's leader wears the chevrons.
+      v.pip.visible = rank > 0 && zoom >= PIP_ZOOM && !flying && this.leaders.get(u.platoon) === u.id;
       if (v.pip.visible) {
         v.pip.texture = this.tex.chevrons[rank - 1]!;
         v.pip.position.set(px, py + 2);
@@ -312,6 +360,11 @@ export class UnitLayer {
       v.body.tint = flashing ? 0xffffff : wounded < 0.35 ? 0xd8b0a8 : 0xffffff;
     }
 
+    for (const c of centroids.values()) {
+      c.x /= c.n;
+      c.y /= c.n;
+    }
+
     for (const [id, v] of this.views) {
       if (v.seen === this.frameNo) continue;
       this.views.delete(id);
@@ -322,11 +375,23 @@ export class UnitLayer {
     }
   }
 
+  /** Forget every soldier: a new war (or a jump back in time) reuses ids that mean someone else now. */
+  reset(): void {
+    for (const v of this.views.values()) this.release(v);
+    this.views.clear();
+    this.swings.clear();
+    this.flashes.clear();
+    this.knocks.clear();
+    for (const c of this.centroids.values()) this.centroidPool.push(c);
+    this.centroids.clear();
+  }
+
   private acquire(kind: Kind): View {
     const v = this.pool.pop() ?? this.create();
     v.kind = kind;
     v.facing = 1;
     v.speed = 0;
+    v.vx = 0;
     v.pip.visible = v.base.visible = v.halo.visible = v.shadow.visible = v.body.visible = v.mask.visible = v.trim.visible = v.dot.visible = false;
     return v;
   }
@@ -353,7 +418,7 @@ export class UnitLayer {
     this.shadows.addChild(shadow, base, halo, pip);
     this.bodies.addChild(body, mask, trim);
     this.dots.addChild(dot);
-    return { shadow, halo, base, pip, body, mask, trim, dot, kind: 0, facing: 1, x: 0, y: 0, speed: 0, phase: 0, seen: 0, pose: { x: 0, y: 0, facing: 1, kind: 0, p: 0 } };
+    return { shadow, halo, base, pip, body, mask, trim, dot, kind: 0, facing: 1, x: 0, y: 0, speed: 0, vx: 0, phase: 0, seen: 0, pose: { x: 0, y: 0, facing: 1, kind: 0, p: 0 } };
   }
 
   private release(v: View): void {
@@ -366,6 +431,11 @@ export class UnitLayer {
     const frames = this.art.frames(kind, 'die');
     const cell = this.art.cell(kind);
     return { texture: frames[frames.length - 1]!.body, scale: this.art.scale(kind) / cell.h, anchorY: cell.feetY / cell.h, altitude: this.art.flight(kind)?.height ?? 0 };
+  }
+
+  /** Whether this kind's art is baked: until it is, the kind draws as a token. */
+  artReady(kind: Kind): boolean {
+    return this.art.ready(kind);
   }
 
   isRanged(kind: Kind): boolean {

@@ -76,6 +76,9 @@ describe('the long loops', () => {
     expect(status.orders).toEqual([{ p: 0, login: 'ana', ids: drawn, done: expect.arrayContaining(drawn) }]);
     const armory = (await server.app.inject({ url: '/api/me/armory', headers: { cookie: ana } })).json<ArmoryResponse>();
     expect(armory.rank.glory).toBe(3 * ORDER_GLORY);
+    expect(armory.hue).toBe(war.header.players[0]!.hue);
+    const bo = await signIn(server, 'bo');
+    expect((await server.app.inject({ url: '/api/me/armory', headers: { cookie: bo } })).json<ArmoryResponse>().hue).toBeNull();
     await server.shutdown();
   });
 

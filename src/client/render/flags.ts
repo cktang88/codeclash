@@ -2,6 +2,7 @@ import { CanvasSource, Texture } from 'pixi.js';
 import { armyColor, battalionFlag, type Emblem, type Flag, type Pattern } from '../../rules/heraldry.ts';
 import { roman } from '../../sim/chronicle.ts';
 import { canvas2d } from './paint.ts';
+import { pruneLru, touch } from './lru.ts';
 
 export const FLAG_W = 96;
 export const FLAG_H = 64;
@@ -456,6 +457,9 @@ function paintToken(flag: Flag, grade: FlagGrade): HTMLCanvasElement {
   return c;
 }
 
+/** Flags kept painted beyond those in use: a few screens' worth of battalions. */
+export const FLAG_CACHE_MAX = 160;
+
 /** Caches flag textures by battalion and ordinal. */
 export class FlagCache {
   private cache = new Map<string, Texture>();
@@ -473,7 +477,8 @@ export class FlagCache {
   battalion(hue: number, repo: string, language: string | null, ordinal: number | null, grade: FlagGrade = { rank: 0, ragged: false }, trim?: FlagTrim): Texture {
     const key = `${hue}|${repo}|${language ?? ''}|${ordinal ?? ''}|${grade.rank}|${grade.ragged ? 1 : 0}|${trim ?? ''}`;
     let t = this.cache.get(key);
-    if (!t) {
+    if (t) touch(this.cache, key, t);
+    else {
       t = new Texture({ source: new CanvasSource({ resource: paintFlag(battalionFlag(hue, repo, language), ordinal, grade, trim), autoGenerateMipmaps: true }) });
       this.cache.set(key, t);
     }
@@ -483,7 +488,8 @@ export class FlagCache {
   token(hue: number, repo: string, language: string | null, grade: FlagGrade): Texture {
     const key = `tok|${hue}|${repo}|${language ?? ''}|${grade.rank}|${grade.ragged ? 1 : 0}`;
     let t = this.cache.get(key);
-    if (!t) {
+    if (t) touch(this.cache, key, t);
+    else {
       t = new Texture({ source: new CanvasSource({ resource: paintToken(battalionFlag(hue, repo, language), grade), resolution: 2, autoGenerateMipmaps: true }) });
       this.cache.set(key, t);
     }
@@ -493,15 +499,30 @@ export class FlagCache {
   standard(hue: number, login: string, arms?: { pattern: Pattern; emblem: Emblem; trim?: FlagTrim }): Texture {
     const key = `std|${hue}|${login}|${arms?.pattern ?? ''}|${arms?.emblem ?? ''}|${arms?.trim ?? ''}`;
     let t = this.cache.get(key);
-    if (!t) {
+    if (t) touch(this.cache, key, t);
+    else {
       t = new Texture({ source: new CanvasSource({ resource: paintStandard(hue, login, arms), autoGenerateMipmaps: true }) });
       this.cache.set(key, t);
     }
     return t;
   }
 
+  get size(): number {
+    return this.cache.size;
+  }
+
+  /**
+   * Every push paints a new numbered flag, so over a whole day the cache would grow without
+   * bound: free the least recently used flags beyond `max`, never one still flying.
+   */
+  prune(inUse: ReadonlySet<Texture>, max = FLAG_CACHE_MAX): number {
+    return pruneLru(this.cache, max, (t) => inUse.has(t), (t) => t.destroy(true));
+  }
+
   destroy(): void {
     for (const t of this.cache.values()) t.destroy(true);
     this.cache.clear();
+    this.blankFlag?.destroy(true);
+    this.blankFlag = null;
   }
 }

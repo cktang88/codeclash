@@ -51,6 +51,36 @@ export function utcHourOfLocal(localHour: number, now = new Date()): number {
   return d.getUTCHours();
 }
 
+/** Viewer-local minutes after midnight at which a whole UTC hour falls (zones like +5:30 land on the half hour). */
+export function localMinutesOfUtcHour(utcHour: number, now = new Date()): number {
+  const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), utcHour));
+  return d.getHours() * 60 + d.getMinutes();
+}
+
+/** Minutes after midnight as "5am" or "5:30am". */
+export function timeLabel(minutes: number): string {
+  const m = ((Math.round(minutes) % 1440) + 1440) % 1440;
+  const mm = m % 60;
+  const label = hourLabel(Math.floor(m / 60));
+  return mm === 0 ? label : label.replace(/(am|pm)$/, `:${String(mm).padStart(2, '0')}$1`);
+}
+
+/**
+ * Choices for a room's daily reset. Rooms reset on a whole UTC hour, so the value is the UTC hour and the label is
+ * when that falls for the viewer, sorted by local time. Choosing by local hour instead would round a half-hour
+ * zone's choice and drift the reset by an hour on every save.
+ */
+export function resetHourOptions(now = new Date()): { utc: number; label: string }[] {
+  return Array.from({ length: 24 }, (_, utc) => ({ utc, local: localMinutesOfUtcHour(utc, now) }))
+    .sort((a, b) => a.local - b.local)
+    .map(({ utc, local }) => ({ utc, label: `${timeLabel(local)} (${hourLabel(utc)} UTC)` }));
+}
+
+/** The UTC hour whose local time is nearest the viewer's midnight: the default reset for a new room. */
+export function localMidnightUtcHour(now = new Date()): number {
+  return resetHourOptions(now)[0]!.utc;
+}
+
 export function hourLabel(hour: number): string {
   const h = ((hour % 24) + 24) % 24;
   const suffix = h < 12 ? 'am' : 'pm';

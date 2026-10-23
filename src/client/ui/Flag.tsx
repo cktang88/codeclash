@@ -28,7 +28,7 @@ function patternShape(p: Pattern, fill: string): ReactNode {
   }
 }
 
-const EMBLEM_PATHS: Record<Emblem, string> = {
+export const EMBLEM_PATHS: Record<Emblem, string> = {
   star: 'M0-5 1.5-1.5 5-1.5 2.2.8 3.2 4.5 0 2.3-3.2 4.5-2.2.8-5-1.5-1.5-1.5z',
   tower: 'M-3.5 4.5v-7h1.4v1.3h1.4v-1.3h1.4v1.3h1.4v-1.3h1.4v7z',
   key: 'M-1-4.5a2 2 0 1 1 2 0V4.5h2v-1.2h-1.2v-1.2H3V.9H1V-4.5z',

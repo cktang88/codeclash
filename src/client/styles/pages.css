@@ -638,6 +638,13 @@
   border-top: 1px solid var(--rule-soft);
 }
 
+.modal-foot .charter-sign {
+  flex: 1;
+  margin: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
 .modal-scroll .modal-head {
   text-align: center;
 }
@@ -1010,6 +1017,7 @@
 
 .lines-bar {
   display: flex;
+  align-items: flex-end;
   height: 14px;
   gap: 1px;
   background: var(--ink);
@@ -1018,23 +1026,68 @@
 
 .lines-bar > span {
   min-width: 3px;
+  height: 100%;
   background-image: repeating-linear-gradient(-55deg, rgba(255, 255, 255, 0.12) 0 2px, transparent 2px 5px);
+}
+
+/* Support is drawn small and set apart: it adds a little, the code is the army. */
+.lines-bar > .is-support {
+  height: 50%;
+}
+
+.lines-bar > .is-inert {
+  height: 22%;
+  opacity: 0.6;
+}
+
+.lines-bar > .is-army + .is-support,
+.lines-bar > .is-army + .is-inert,
+.lines-bar > .is-support + .is-inert {
+  margin-left: 3px;
 }
 
 .lines-legend {
   display: flex;
-  flex-wrap: wrap;
-  gap: 4px 14px;
-  list-style: none;
+  flex-direction: column;
+  gap: 3px;
   margin: 0;
-  padding: 0;
   font-size: 14px;
 }
 
-.lines-legend li {
+.lines-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 12px;
+}
+
+.lines-group dt {
+  font-family: var(--sc);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-soft);
+  min-width: 7.5em;
+}
+
+.lines-group dd {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  margin: 0;
+}
+
+.lines-group.is-army dd {
+  font-weight: 600;
+}
+
+.lines-group.is-support,
+.lines-group.is-inert {
+  font-size: 13px;
+}
+
+.lines-group.is-inert dd {
+  opacity: 0.75;
 }
 
 .swatch {
@@ -1700,6 +1753,7 @@
 
   .modal-foot {
     margin: 0 16px;
+    padding: 8px 4px 16px;
   }
 
   .notice-board {

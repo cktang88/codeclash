@@ -62,7 +62,10 @@ export class SiteLayer {
   readonly labels = new LabelLayer();
   /** Phone-sized screen: labels letter a size smaller (never below the 15px floor). */
   compact = false;
+  /** Under reduced motion struck walls do not shudder. */
+  reducedMotion = false;
   private readonly art: SiteArt = siteArt();
+  private readonly ownerOfSlot = new Map<number, number>();
   private views: SiteView[] = [];
   private monuments: MonumentView[] = [];
   private monolithFallAt = -1;
@@ -259,13 +262,14 @@ export class SiteLayer {
     this.world = world;
     const tick = world.tick;
     const lights = light.lights;
-    const ownerOfSlot = new Map<number, number>();
+    const ownerOfSlot = this.ownerOfSlot;
+    ownerOfSlot.clear();
     for (const p of world.players) ownerOfSlot.set(p.slot, p.p);
     for (const v of this.views) {
       const { def } = v;
       const state = world.sites[def.id]!;
       v.shake = Math.max(0, v.shake - dt * 5);
-      const jitter = v.shake > 0 ? (Math.random() - 0.5) * v.shake * 2.5 : 0;
+      const jitter = v.shake > 0 && !this.reducedMotion ? (Math.random() - 0.5) * v.shake * 2.5 : 0;
       v.root.position.set(def.x + jitter, def.y);
       v.ring.clear();
       v.bar.clear();
@@ -358,7 +362,8 @@ export class SiteLayer {
       } else {
         const st = world.structures.find((s) => s.site === def.id);
         const fallen = world.monolithFallen;
-        const fallT = this.monolithFallAt < 0 ? 0 : Math.min(1, (now - this.monolithFallAt) / 1600);
+        // Fallen with no fall seen (joined late, resynced, or caught up without effects): already rubble.
+        const fallT = fallen && this.monolithFallAt < 0 ? 1 : this.monolithFallAt < 0 ? 0 : Math.min(1, (now - this.monolithFallAt) / 1600);
         if (!fallen || fallT < 1) {
           const m = this.art.monolith;
           v.body.texture = m.body;
@@ -490,7 +495,13 @@ export class SiteLayer {
     return this.views.find((v) => v.def.kind === 'capital' && v.def.slot === slot)?.def;
   }
 
+  /** Standards flying over the keeps, so the flag cache keeps them painted. */
+  texturesInUse(out: Set<Texture>): void {
+    for (const v of this.views) for (const f of v.flags) out.add(f.mesh.texture);
+  }
+
   destroy(): void {
+    for (const v of this.views) for (const f of v.flags) f.destroy();
     // Site sprites share the painted site art, which outlives any one map.
     this.ground.destroy({ children: true });
     this.root.destroy({ children: true });

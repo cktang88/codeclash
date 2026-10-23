@@ -4,7 +4,7 @@ import { ApiError, api } from '../net/api.ts';
 import { navigate } from '../route.ts';
 import { Avatar } from '../ui/Avatar.tsx';
 import { Modal } from '../ui/Modal.tsx';
-import { hourLabel, localHourOfUtc, utcHourOfLocal } from '../ui/format.ts';
+import { resetHourOptions } from '../ui/format.ts';
 import { Icon } from '../ui/icons.tsx';
 
 export function inviteLink(room: Pick<RoomDetail, 'slug' | 'invite' | 'visibility'>): string {
@@ -46,33 +46,44 @@ export function ShareModal({ room, onClose }: { room: RoomDetail; onClose(): voi
   );
 }
 
+type Section = 'save' | 'invite' | 'members' | 'delete' | 'leave';
+
 /** Owner settings, and leaving the room for everyone else. */
 export function RoomSettings({ room, onClose, onChanged }: { room: RoomDetail; onClose(): void; onChanged(room: RoomDetail): void }) {
   const owner = room.viewer.owner;
   const [name, setName] = useState(room.name);
   const [visibility, setVisibility] = useState<Visibility>(room.visibility);
-  const [localHour, setLocalHour] = useState(() => localHourOfUtc(room.resetHour));
+  // The UTC hour itself: converting through a local hour would round half-hour zones and drift it on each save.
+  const [resetHour, setResetHour] = useState(room.resetHour);
   const [bots, setBots] = useState(room.bots);
   const [webhook, setWebhook] = useState(room.webhookUrl ?? '');
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // Each error is shown beside the control that caused it: this modal scrolls, and a message at its foot goes unseen.
+  const [error, setError] = useState<{ at: Section; text: string } | null>(null);
   const [saved, setSaved] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
-  const act = async (fn: () => Promise<RoomDetail | void>) => {
+  const act = async (at: Section, fn: () => Promise<RoomDetail | void>) => {
+    if (busy) return;
     setBusy(true);
     setError(null);
     setSaved(false);
     try {
       const r = await fn();
       if (r) onChanged(r);
-      setSaved(true);
+      if (at === 'save') setSaved(true);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Something went wrong. Try again.');
+      setError({ at, text: err instanceof ApiError ? err.message : 'Something went wrong. Try again.' });
     } finally {
       setBusy(false);
     }
   };
+  const errorAt = (at: Section) =>
+    error?.at === at ? (
+      <p className="form-error" role="alert">
+        {error.text}
+      </p>
+    ) : null;
 
   if (!owner) {
     return (
@@ -80,14 +91,14 @@ export function RoomSettings({ room, onClose, onChanged }: { room: RoomDetail; o
         {room.viewer.member ? (
           <>
             <p>You fight in this room. Leaving takes effect at the next reset. Today’s army stays on the field.</p>
-            <button className="btn btn-danger" disabled={busy} onClick={() => void act(async () => { await api.leaveRoom(room.slug); navigate({ kind: 'home' }); })}>
+            <button className="btn btn-danger" disabled={busy} onClick={() => void act('leave', async () => { await api.leaveRoom(room.slug); navigate({ kind: 'home' }); })}>
               Leave this room
             </button>
           </>
         ) : (
           <p>You are watching this room.</p>
         )}
-        {error && <p className="form-error" role="alert">{error}</p>}
+        {errorAt('leave')}
       </Modal>
     );
   }
@@ -96,13 +107,14 @@ export function RoomSettings({ room, onClose, onChanged }: { room: RoomDetail; o
     <Modal title="Room settings" subtitle={room.name} onClose={onClose} wide>
       <form
         className="form"
+        onChange={() => setSaved(false)}
         onSubmit={(e) => {
           e.preventDefault();
-          void act(() =>
+          void act('save', () =>
             api.updateRoom(room.slug, {
               name: name.trim(),
               visibility,
-              resetHour: utcHourOfLocal(localHour),
+              resetHour,
               bots,
               webhookUrl: webhook.trim() === '' ? null : webhook.trim(),
             }),
@@ -111,13 +123,13 @@ export function RoomSettings({ room, onClose, onChanged }: { room: RoomDetail; o
       >
         <label className="field">
           <span>Name</span>
-          <input className="input" value={name} maxLength={48} required onChange={(e) => setName(e.target.value)} />
+          <input className="input" value={name} maxLength={48} minLength={2} required onChange={(e) => setName(e.target.value)} />
         </label>
         <fieldset className="field">
           <legend>Visibility</legend>
           <div className="segmented">
             {(['public', 'private'] as const).map((v) => (
-              <button key={v} type="button" className={visibility === v ? 'is-on' : ''} aria-pressed={visibility === v} onClick={() => setVisibility(v)}>
+              <button key={v} type="button" className={visibility === v ? 'is-on' : ''} aria-pressed={visibility === v} onClick={() => { setVisibility(v); setSaved(false); }}>
                 {v === 'public' ? 'Public: listed in the lobby' : 'Private: invite link only'}
               </button>
             ))}
@@ -126,10 +138,10 @@ export function RoomSettings({ room, onClose, onChanged }: { room: RoomDetail; o
         <div className="field-row">
           <label className="field">
             <span>Daily reset (your time)</span>
-            <select className="select" value={localHour} onChange={(e) => setLocalHour(Number(e.target.value))}>
-              {Array.from({ length: 24 }, (_, h) => (
-                <option key={h} value={h}>
-                  {hourLabel(h)} ({hourLabel(utcHourOfLocal(h))} UTC)
+            <select className="select" value={resetHour} onChange={(e) => setResetHour(Number(e.target.value))}>
+              {resetHourOptions().map((o) => (
+                <option key={o.utc} value={o.utc}>
+                  {o.label}
                 </option>
               ))}
             </select>
@@ -151,11 +163,16 @@ export function RoomSettings({ room, onClose, onChanged }: { room: RoomDetail; o
           <input className="input mono" type="url" placeholder="https://hooks.slack.com/services/…" value={webhook} onChange={(e) => setWebhook(e.target.value)} />
         </label>
         <div className="form-actions">
-          <button className="btn btn-primary" type="submit" disabled={busy}>
+          <button className="btn btn-primary" type="submit" disabled={busy || name.trim().length < 2}>
             Save settings
           </button>
-          {saved && <span className="form-ok">Saved.</span>}
+          {saved && (
+            <span className="form-ok" role="status">
+              Saved.
+            </span>
+          )}
         </div>
+        {errorAt('save')}
       </form>
 
       {room.invite && (
@@ -165,10 +182,11 @@ export function RoomSettings({ room, onClose, onChanged }: { room: RoomDetail; o
             <input className="input mono" readOnly value={inviteLink(room)} aria-label="Invite link" />
             <CopyButton text={inviteLink(room)} />
           </div>
-          <button className="btn btn-sm" disabled={busy} onClick={() => void act(() => api.rotateInvite(room.slug))}>
+          <button className="btn btn-sm" disabled={busy} onClick={() => void act('invite', () => api.rotateInvite(room.slug))}>
             New invite code
           </button>
           <span className="muted small"> The old link stops working.</span>
+          {errorAt('invite')}
         </section>
       )}
 
@@ -182,13 +200,14 @@ export function RoomSettings({ room, onClose, onChanged }: { room: RoomDetail; o
               {m.role === 'owner' ? (
                 <span className="tag tag-gold">Owner</span>
               ) : (
-                <button className="btn btn-sm btn-ghost" disabled={busy} onClick={() => void act(() => api.removeMember(room.slug, m.id))}>
+                <button className="btn btn-sm btn-ghost" disabled={busy} onClick={() => void act('members', () => api.removeMember(room.slug, m.id))} aria-label={`Remove @${m.login}`}>
                   Remove
                 </button>
               )}
             </li>
           ))}
         </ul>
+        {errorAt('members')}
       </section>
 
       <section className="settings-block danger-zone">
@@ -196,7 +215,7 @@ export function RoomSettings({ room, onClose, onChanged }: { room: RoomDetail; o
         {confirmDelete ? (
           <div className="form-actions">
             <span>This deletes the room and its history for everyone.</span>
-            <button className="btn btn-danger" disabled={busy} onClick={() => void act(async () => { await api.deleteRoom(room.slug); navigate({ kind: 'home' }); })}>
+            <button className="btn btn-danger" disabled={busy} onClick={() => void act('delete', async () => { await api.deleteRoom(room.slug); navigate({ kind: 'home' }); })}>
               Delete forever
             </button>
             <button className="btn btn-ghost" onClick={() => setConfirmDelete(false)}>
@@ -208,12 +227,8 @@ export function RoomSettings({ room, onClose, onChanged }: { room: RoomDetail; o
             Delete room…
           </button>
         )}
+        {errorAt('delete')}
       </section>
-      {error && (
-        <p className="form-error" role="alert">
-          {error}
-        </p>
-      )}
     </Modal>
   );
 }

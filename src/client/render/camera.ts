@@ -3,10 +3,22 @@ export const MAX_ZOOM = 4.5;
 const FRICTION_PER_FRAME = 0.9;
 const KEY_PAN_PX_PER_S = 900;
 const CLICK_SLOP_PX = 5;
+/** The widest view allowed, as a fraction of the zoom that just fits the map: a little table around it, never a speck. */
+const MIN_FIT_FRACTION = 0.45;
+
+/** The furthest out the camera may zoom for a map of `radius` on a `width` x `height` screen. */
+export function zoomFloor(radius: number, width: number, height: number): number {
+  if (!(radius > 0) || !(width > 0) || !(height > 0)) return MIN_ZOOM;
+  return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, (Math.min(width, height) / (radius * 2.25)) * MIN_FIT_FRACTION));
+}
+
+const finite = (...v: number[]) => v.every(Number.isFinite);
 
 export interface CameraHooks {
   onClick(screenX: number, screenY: number): void;
   onUserPan(): void;
+  /** Wheel, pinch or +/- keys: the viewer took the zoom; set pieces and the director let go. */
+  onUserZoom?(): void;
   /** Key F: ride along with the viewer's own banner. */
   onFollowKey?(): void;
 }
@@ -35,6 +47,7 @@ export class Camera {
   private pinchDist = 0;
   private keys = new Set<string>();
   private limit = 1000;
+  private radius = 0;
   private detach: () => void;
 
   constructor(
@@ -61,8 +74,8 @@ export class Camera {
         this.shotMove = null;
         this.hooks.onUserPan();
       }
-      if (k === '=' || k === '+') this.zoomBy(1.25);
-      if (k === '-') this.zoomBy(0.8);
+      if (k === '=' || k === '+') this.userZoom(1.25);
+      if (k === '-') this.userZoom(0.8);
       if (k === 'f' && !e.repeat) this.hooks.onFollowKey?.();
     };
     const ku = (e: KeyboardEvent) => this.keys.delete(e.key.toLowerCase());
@@ -111,6 +124,7 @@ export class Camera {
 
   fit(radius: number): void {
     this.limit = radius * 1.08;
+    this.radius = radius;
     const { top, bottom } = this.insets();
     this.zoom = this.zoomTarget = this.fitZoom(radius);
     // Centre the map in the part of the screen the HUD leaves open.
@@ -119,8 +133,14 @@ export class Camera {
   }
 
   resize(width: number, height: number): void {
+    if (!(width > 0) || !(height > 0)) return;
     this.width = width;
     this.height = height;
+  }
+
+  /** The zoom range for this map on this screen. */
+  clampZoom(z: number): number {
+    return Math.max(zoomFloor(this.radius, this.width, this.height), Math.min(MAX_ZOOM, z));
   }
 
   toWorld(sx: number, sy: number): { x: number; y: number } {
@@ -142,20 +162,28 @@ export class Camera {
   }
 
   panTo(x: number, y: number, zoom = this.zoom): void {
-    this.glide = { x, y, zoom: Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom)) };
+    if (!finite(x, y, zoom)) return;
+    this.glide = { x, y, zoom: this.clampZoom(zoom) };
     this.shotMove = null;
     this.vx = this.vy = 0;
   }
 
   /** Unhurried approach toward a shot, for the director camera. */
   drift(x: number, y: number, zoom: number, dtMs: number): void {
-    if (this.pointers.size || this.glide || this.shotMove) return;
+    if (this.pointers.size || this.glide || this.shotMove || !finite(x, y, zoom)) return;
     const k = 1 - Math.pow(0.35, Math.min(64, dtMs) / 1000);
     this.x += (x - this.x) * k;
     this.y += (y - this.y) * k;
-    const z = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom));
+    // While the viewer's own wheel zoom is still easing in, leave the zoom to them.
+    if (this.zooming) return;
+    const z = this.clampZoom(zoom);
     this.zoom += (z - this.zoom) * k * 0.8;
     this.zoomTarget = this.zoom;
+  }
+
+  /** A wheel or key zoom is still easing toward its target. */
+  get zooming(): boolean {
+    return this.zoomAnchor !== null && Math.abs(this.zoomTarget - this.zoom) > 1e-4;
   }
 
   /**
@@ -163,9 +191,10 @@ export class Camera {
    * scale change feels even, the way a camera operator would pull focus.
    */
   shot(x: number, y: number, zoom: number, ms: number): void {
+    if (!finite(x, y, zoom)) return;
     this.glide = null;
     this.vx = this.vy = 0;
-    this.shotMove = { x0: this.x, y0: this.y, z0: this.zoom, x, y, zoom: Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom)), t: 0, ms: Math.max(1, ms) };
+    this.shotMove = { x0: this.x, y0: this.y, z0: this.zoom, x, y, zoom: this.clampZoom(zoom), t: 0, ms: Math.max(1, Number.isFinite(ms) ? ms : 1) };
   }
 
   get busy(): boolean {
@@ -173,10 +202,17 @@ export class Camera {
   }
 
   zoomBy(factor: number, sx = this.width / 2, sy = this.height / 2): void {
+    if (!finite(factor, sx, sy) || factor <= 0) return;
     this.glide = null;
     this.shotMove = null;
-    this.zoomTarget = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, this.zoomTarget * factor));
+    this.zoomTarget = this.clampZoom(this.zoomTarget * factor);
     this.zoomAnchor = { sx, sy };
+  }
+
+  /** A zoom the viewer asked for (wheel, keys): it also interrupts set pieces and the director. */
+  private userZoom(factor: number, sx?: number, sy?: number): void {
+    this.zoomBy(factor, sx, sy);
+    this.hooks.onUserZoom?.();
   }
 
   update(dtMs: number): void {
@@ -207,7 +243,7 @@ export class Camera {
       const after = this.toWorld(anchor.sx, anchor.sy);
       this.x += before.x - after.x;
       this.y += before.y - after.y;
-    }
+    } else this.zoomAnchor = null;
     if (!this.pointers.size && (this.vx || this.vy)) {
       this.x += this.vx * frames;
       this.y += this.vy * frames;
@@ -223,6 +259,11 @@ export class Camera {
       if (this.keys.has('a') || this.keys.has('arrowleft')) this.x -= step;
       if (this.keys.has('d') || this.keys.has('arrowright')) this.x += step;
     }
+    // Never let one bad number (a NaN target, a zero-size screen) strand the camera for good.
+    if (!finite(this.x, this.y, this.vx, this.vy)) {
+      this.x = this.y = this.vx = this.vy = 0;
+    }
+    if (!(this.zoom > 0) || !Number.isFinite(this.zoom)) this.zoom = this.zoomTarget = zoomFloor(this.radius, this.width, this.height);
     const d = Math.hypot(this.x, this.y);
     if (d > this.limit) {
       this.x *= this.limit / d;
@@ -283,13 +324,14 @@ export class Camera {
       const my = (a!.y + b!.y) / 2;
       if (this.pinchDist > 0) {
         const before = this.toWorld(mx, my);
-        this.zoom = this.zoomTarget = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, (this.zoom * dist) / this.pinchDist));
+        this.zoom = this.zoomTarget = this.clampZoom((this.zoom * dist) / this.pinchDist);
         const after = this.toWorld(mx, my);
         this.x += before.x - after.x;
         this.y += before.y - after.y;
       }
       this.pinchDist = dist;
       this.hooks.onUserPan();
+      this.hooks.onUserZoom?.();
       return;
     }
     this.pointers.set(e.pointerId, p);
@@ -323,6 +365,6 @@ export class Camera {
     e.preventDefault();
     const p = { x: e.offsetX, y: e.offsetY };
     const scale = e.deltaMode === 1 ? 40 : 1;
-    this.zoomBy(Math.exp(-e.deltaY * scale * 0.0016), p.x, p.y);
+    this.userZoom(Math.exp(-e.deltaY * scale * 0.0016), p.x, p.y);
   }
 }

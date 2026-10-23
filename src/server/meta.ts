@@ -130,7 +130,21 @@ export class Meta implements MetaHooks {
       heraldry: this.heraldryOf(userId) ?? parseHeraldry(null),
       catalog: armoryCatalog(rank.rank),
       titles: titlesFor(rank.rank, this.deedIds(userId)),
+      hue: this.latestHue(userId),
     };
+  }
+
+  /** The hue of the player's army in the latest war they fought, across their rooms (hues are assigned per war). */
+  latestHue(userId: number): number | null {
+    let best: { startsAt: number; hue: number } | null = null;
+    for (const room of this.deps.store.roomsOf(userId)) {
+      for (const w of this.deps.store.wars(room.id, 3)) {
+        const pl = w.header.players.find((x) => x.userId === userId && !x.bot);
+        if (pl && (!best || w.startsAt > best.startsAt)) best = { startsAt: w.startsAt, hue: pl.hue };
+        if (pl) break;
+      }
+    }
+    return best?.hue ?? null;
   }
 
   setArmory(userId: number, request: Partial<Heraldry>): { armory: ArmoryResponse; refused: string[] } {
