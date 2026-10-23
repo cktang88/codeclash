@@ -27,9 +27,20 @@ export interface UnitArt {
   flight(kind: Kind): { height: number } | null;
   /** White silhouette for far-zoom glyphs; tint it. */
   icon(kind: Kind): Texture;
+  /**
+   * Whether a kind's frames are baked. `frames` and `icon` bake an unready kind on the
+   * spot; the renderer asks first and draws a pigment token meanwhile, so the first frame
+   * never waits on the whole army's art.
+   */
+  ready(kind: Kind): boolean;
+  /** Moves a kind to the front of the background bake. */
+  want(kind: Kind): void;
+  /** Bakes the kinds still pending, one per slice of idle time. Resolves when all are done. */
+  warm(): Promise<void>;
 }
 
-const PAGE = 4096;
+/** Each kind packs onto its own atlas pages, this wide, trimmed to the rows it uses. */
+const PAGE = 2048;
 /** Gap between packed sprites, so mipmaps do not bleed. */
 const GAP = 4;
 const POSES: readonly PoseName[] = ['idle', 'walk', 'attack', 'die'];
@@ -166,120 +177,164 @@ interface Sprite {
   trim: Rectangle;
 }
 
-/** Builds every unit's frames, cropped and packed into atlas pages. */
+/** The order kinds are warmed in: the line infantry every army fields first, legends last. */
+const WARM_ORDER: readonly number[] = [
+  Kind.Footman, Kind.Archer, Kind.Knight, Kind.Herald, Kind.Outrider, Kind.Wizard, Kind.Mercenary, Kind.Berserker,
+  Kind.Champion, Kind.Troll, Kind.Trebuchet, Kind.BoneGolem, Kind.GriffinRider, Kind.Dragon,
+];
+
+/**
+ * Builds every unit's frames, cropped and packed into per-kind atlas pages. Nothing is
+ * painted up front: each kind bakes the first time it is asked for, or in the background
+ * through `warm`, so the battlefield's first frame does not wait for twenty kinds of art.
+ */
 export function makeUnitArt(opts: { resolution?: number } = {}): UnitArt {
   const res = opts.resolution ?? 1.5;
-  const packer = new Packer();
   const maxPx = Math.ceil(192 * res);
-  const [scratch, sctx] = canvas(maxPx, maxPx * 2);
-  const sprites: Sprite[] = [];
-  // A fallen body must lie on the ground line, not below the cell: measure each
-  // death frame on a tall canvas and lift it until its lowest point rests there.
-  const lifts = new Map<string, number>();
-  const liftFor = (kind: number, pose: Pose, die: number): number => {
-    if (die < 0) return 0;
-    const key = `${kind}:${die}`;
-    let l = lifts.get(key);
-    if (l === undefined) {
-      const px = Math.ceil(CELLS[kind]!.size * res);
+  let scratchPair: [HTMLCanvasElement, CanvasRenderingContext2D] | null = null;
+  const scratchCtx = () => (scratchPair ??= canvas(maxPx, maxPx * 2));
+  const cellPx = (kind: number) => Math.ceil(CELLS[kind]!.size * res);
+  const baked: (UnitFrame[][] | undefined)[] = [];
+  const icons: (Texture | undefined)[] = [];
+
+  const bakeKind = (kind: number): UnitFrame[][] => {
+    const [scratch, sctx] = scratchCtx();
+    const packer = new Packer();
+    const sprites: Sprite[] = [];
+    // A fallen body must lie on the ground line, not below the cell: measure each
+    // death frame on a tall canvas and lift it until its lowest point rests there.
+    const lifts = new Map<number, number>();
+    const liftFor = (pose: Pose, die: number): number => {
+      if (die < 0) return 0;
+      let l = lifts.get(die);
+      if (l === undefined) {
+        const px = cellPx(kind);
+        sctx.clearRect(0, 0, maxPx, maxPx * 2);
+        paintCell(sctx, kind, pose, die, 'body', res);
+        const b = bounds(sctx, px, Math.min(maxPx * 2, px * 2));
+        const ground = (CELLS[kind]!.feetY + 4) * res;
+        l = b && b[3] > ground ? (b[3] - ground) / res : 0;
+        lifts.set(die, l);
+      }
+      return l;
+    };
+    const bake = (pose: Pose, die: number, layer: Layer | 'sil'): number => {
+      const px = cellPx(kind);
+      const lift = liftFor(pose, die);
       sctx.clearRect(0, 0, maxPx, maxPx * 2);
-      paintCell(sctx, kind, pose, die, 'body', res);
-      const b = bounds(sctx, px, Math.min(maxPx * 2, px * 2));
-      const ground = (CELLS[kind]!.feetY + 4) * res;
-      l = b && b[3] > ground ? (b[3] - ground) / res : 0;
-      lifts.set(key, l);
-    }
-    return l;
-  };
+      paintCell(sctx, kind, pose, die, layer === 'sil' ? 'body' : layer, res, lift);
+      if (layer === 'sil') {
+        sctx.save();
+        sctx.globalCompositeOperation = 'source-in';
+        sctx.fillStyle = '#fff';
+        sctx.fillRect(0, 0, px, px);
+        sctx.restore();
+      }
+      const b = bounds(sctx, px, px) ?? [0, 0, 1, 1];
+      const w = b[2] - b[0];
+      const h = b[3] - b[1];
+      const at = packer.place(w, h);
+      packer.pages[at.page]!.ctx.drawImage(scratch, b[0], b[1], w, h, at.x, at.y, w, h);
+      sprites.push({ page: at.page, frame: new Rectangle(at.x, at.y, w, h), trim: new Rectangle(b[0], b[1], w, h) });
+      return sprites.length - 1;
+    };
 
-  const bake = (kind: number, pose: Pose, die: number, layer: Layer | 'sil'): number => {
-    const px = Math.ceil(CELLS[kind]!.size * res);
-    const lift = liftFor(kind, pose, die);
-    sctx.clearRect(0, 0, maxPx, maxPx * 2);
-    paintCell(sctx, kind, pose, die, layer === 'sil' ? 'body' : layer, res, lift);
-    if (layer === 'sil') {
-      sctx.save();
-      sctx.globalCompositeOperation = 'source-in';
-      sctx.fillStyle = '#fff';
-      sctx.fillRect(0, 0, px, px);
-      sctx.restore();
+    interface Entry {
+      body: number;
+      mask: number;
+      gild: [number, number, number] | null;
+      torn: number | null;
     }
-    const b = bounds(sctx, px, px) ?? [0, 0, 1, 1];
-    const w = b[2] - b[0];
-    const h = b[3] - b[1];
-    const at = packer.place(w, h);
-    packer.pages[at.page]!.ctx.drawImage(scratch, b[0], b[1], w, h, at.x, at.y, w, h);
-    sprites.push({ page: at.page, frame: new Rectangle(at.x, at.y, w, h), trim: new Rectangle(b[0], b[1], w, h) });
-    return sprites.length - 1;
-  };
-
-  interface Entry {
-    body: number;
-    mask: number;
-    gild: [number, number, number] | null;
-    torn: number | null;
-  }
-  const table: Entry[][][] = [];
-  const sils: number[][] = [];
-  for (let kind = 0; kind < KIND_COUNT; kind++) {
-    table.push([]);
-    sils.push([]);
+    const table: Entry[][] = [];
+    const sils: number[] = [];
     for (const name of POSES) {
       const list: Entry[] = [];
       const poses = posesFor(kind, name);
       poses.forEach((pose, i) => {
         const die = name === 'die' ? i : -1;
         list.push({
-          body: bake(kind, pose, die, 'body'),
-          mask: bake(kind, pose, die, 'mask'),
-          gild: die < 0 ? [bake(kind, pose, die, 'gild1'), bake(kind, pose, die, 'gild2'), bake(kind, pose, die, 'gild3')] : null,
-          torn: die < 0 ? bake(kind, pose, die, 'torn') : null,
+          body: bake(pose, die, 'body'),
+          mask: bake(pose, die, 'mask'),
+          gild: die < 0 ? [bake(pose, die, 'gild1'), bake(pose, die, 'gild2'), bake(pose, die, 'gild3')] : null,
+          torn: die < 0 ? bake(pose, die, 'torn') : null,
         });
       });
-      table[kind]!.push(list);
-      sils[kind]!.push(bake(kind, poses[0]!, name === 'die' ? 0 : -1, 'sil'));
+      table.push(list);
+      sils.push(bake(poses[0]!, name === 'die' ? 0 : -1, 'sil'));
     }
-  }
 
-  // Trim each page to the rows it uses, then wrap them for the GPU.
-  const sources = packer.pages.map((pg) => {
-    let resource = pg.canvas;
-    if (pg.used < PAGE) {
-      const [c, ctx] = canvas(PAGE, Math.max(1, pg.used));
-      ctx.drawImage(pg.canvas, 0, 0);
-      resource = c;
-      pg.canvas.width = pg.canvas.height = 0;
-    }
-    return new CanvasSource({ resource, autoGenerateMipmaps: true, scaleMode: 'linear' });
-  });
-  const cellPx = (kind: number) => Math.ceil(CELLS[kind]!.size * res);
-  const texOf = (kind: number, index: number): Texture => {
-    const s = sprites[index]!;
+    // Trim each page to the rows it uses, then wrap them for the GPU.
+    const sources = packer.pages.map((pg) => {
+      let resource = pg.canvas;
+      if (pg.used < PAGE) {
+        const [c, ctx] = canvas(PAGE, Math.max(1, pg.used));
+        ctx.drawImage(pg.canvas, 0, 0);
+        resource = c;
+        pg.canvas.width = pg.canvas.height = 0;
+      }
+      return new CanvasSource({ resource, autoGenerateMipmaps: true, scaleMode: 'linear' });
+    });
     const px = cellPx(kind);
-    return new Texture({ source: sources[s.page]!, frame: s.frame, orig: new Rectangle(0, 0, px, px), trim: s.trim });
-  };
-  const frames: UnitFrame[][][] = table.map((poses, kind) =>
-    poses.map((list, pi) => {
-      const sil = texOf(kind, sils[kind]![pi]!);
+    const texOf = (index: number): Texture => {
+      const s = sprites[index]!;
+      return new Texture({ source: sources[s.page]!, frame: s.frame, orig: new Rectangle(0, 0, px, px), trim: s.trim });
+    };
+    const frames = table.map((list, pi) => {
+      const sil = texOf(sils[pi]!);
       return list.map((e) => {
-        const f: UnitFrame = { body: texOf(kind, e.body), mask: texOf(kind, e.mask), sil };
-        if (e.gild) f.gild = [texOf(kind, e.gild[0]), texOf(kind, e.gild[1]), texOf(kind, e.gild[2])];
-        if (e.torn !== null) f.torn = texOf(kind, e.torn);
+        const f: UnitFrame = { body: texOf(e.body), mask: texOf(e.mask), sil };
+        if (e.gild) f.gild = [texOf(e.gild[0]), texOf(e.gild[1]), texOf(e.gild[2])];
+        if (e.torn !== null) f.torn = texOf(e.torn);
         return f;
       });
-    }),
-  );
-  const icons = frames.map((poses) => poses[0]![0]!.sil);
+    });
+    icons[kind] = frames[0]![0]!.sil;
+    return frames;
+  };
+  const framesOf = (kind: number): UnitFrame[][] => (baked[kind] ??= bakeKind(kind));
+
+  const queue: number[] = [...WARM_ORDER];
+  for (let k = 0; k < KIND_COUNT; k++) if (!queue.includes(k)) queue.push(k);
+  let warming: Promise<void> | null = null;
+  const idle = (): Promise<void> =>
+    new Promise((resolve) => {
+      const ric = (globalThis as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number }).requestIdleCallback;
+      if (ric) ric(() => resolve(), { timeout: 120 });
+      else setTimeout(resolve, 16);
+    });
 
   return {
-    frames: (kind, pose) => frames[kind]![POSES.indexOf(pose)]!,
+    frames: (kind, pose) => framesOf(kind)[POSES.indexOf(pose)]!,
     cell: (kind) => {
       const px = cellPx(kind);
       return { w: px, h: px, feetY: CELLS[kind]!.feetY * res };
     },
     scale: (kind) => worldHeight(kind),
     flight: (kind) => (isFlyer(kind) ? { height: worldHeight(kind) * (kind === Kind.Dragon ? 0.55 : 0.45) } : null),
-    icon: (kind) => icons[kind]!,
+    icon: (kind) => {
+      framesOf(kind);
+      return icons[kind]!;
+    },
+    ready: (kind) => baked[kind] !== undefined,
+    want: (kind) => {
+      if (baked[kind]) return;
+      const i = queue.indexOf(kind);
+      if (i > 0) {
+        queue.splice(i, 1);
+        queue.unshift(kind);
+      }
+    },
+    warm() {
+      // Shared by every mount on the page, so an unmount does not stop it: the art outlives the field.
+      warming ??= (async () => {
+        while (queue.length > 0) {
+          await idle();
+          const kind = queue.shift()!;
+          if (!baked[kind]) framesOf(kind);
+        }
+      })();
+      return warming;
+    },
   };
 }
 

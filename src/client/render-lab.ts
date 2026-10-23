@@ -46,6 +46,8 @@ const field = await Battlefield.create(document.getElementById('field')!, store,
 if (q.has('tod')) field.setTimeOverride(Number(q.get('tod')));
 // ?zoom=…&x=…&y=… frames a shot, for screenshots.
 if (q.has('zoom')) field.focus(Number(q.get('x') ?? 0), Number(q.get('y') ?? 0), Number(q.get('zoom')));
+// The diagnostics bar is for development only: ?debug shows it, so captures stay clean.
+if (q.has('debug')) document.getElementById('panel')!.hidden = false;
 const stats = document.getElementById('stats')!;
 let frames = 0;
 let last = performance.now();

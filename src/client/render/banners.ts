@@ -43,9 +43,16 @@ interface BannerView {
   pole: Sprite;
   finial: Sprite;
   flag: WavingFlag;
-  barBg: Sprite;
+  /** The strength and morale gauge: a carved channel, counter-scaled so it stays legible far out. */
+  gauge: Container;
   strength: Sprite;
+  /** The pale lagging wound left behind when the platoon loses soldiers; drains after 400ms. */
+  wound: Sprite;
+  /** A gilded tick riding the leading edge of the strength fill. */
+  edge: Sprite;
   morale: Sprite;
+  woundW: number;
+  woundAt: number;
   /** The far-zoom heraldic token: the battalion's arms on a shield. */
   token: Sprite;
   tokenKey: string;
@@ -59,7 +66,18 @@ interface BannerView {
 }
 
 const BAR_W = FLAG_W;
-const BAR_H = 9;
+const BAR_H = 10;
+const MORALE_H = 6;
+/** Width of the gilded end caps on the gauge channel. */
+const CAP = 8;
+/** Gauge layout, in flag pixels below the staff foot. */
+const GAUGE_Y = 6;
+const STRENGTH_Y = 3;
+const MORALE_Y = STRENGTH_Y + BAR_H + 3;
+const GAUGE_H = MORALE_Y + MORALE_H + 3;
+/** The lagging wound holds this long before it drains. */
+const WOUND_HOLD_MS = 400;
+const WOUND_DRAIN_MS = 380;
 
 export interface BannerHit {
   platoon: number;
@@ -159,10 +177,22 @@ export class BannerLayer {
       const flash = now - v.routFlash < 900 ? 1 - (now - v.routFlash) / 900 : 0;
       v.flag.mesh.tint = flash > 0 && Math.floor(now / 90) % 2 === 0 ? 0xffffff : routing ? 0xb8b8b8 : 0xffffff;
       v.flag.mesh.alpha = 1;
-      v.strength.width = BAR_W * Math.max(0, Math.min(1, pl.alive / Math.max(1, pl.size)));
+      // The gauge is counter-scaled so it never shrinks to a hairline at far zoom.
+      v.gauge.scale.set(Math.max(1, 42 / flagPx));
+      const hp = BAR_W * Math.max(0, Math.min(1, pl.alive / Math.max(1, pl.size)));
+      if (hp < v.strength.width - 0.01) v.woundAt = now;
+      if (hp > v.woundW) v.woundW = hp;
+      else if (v.woundW > hp && now - v.woundAt > WOUND_HOLD_MS) {
+        const k = Math.min(1, (now - v.woundAt - WOUND_HOLD_MS) / WOUND_DRAIN_MS);
+        v.woundW = k >= 1 ? hp : v.woundW + (hp - v.woundW) * k * k;
+      }
+      v.strength.width = hp;
+      v.wound.width = Math.max(0, v.woundW);
+      v.wound.visible = v.woundW - hp > 0.5;
+      v.edge.visible = hp > 2 && hp < BAR_W - 1;
+      v.edge.x = -BAR_W / 2 + hp;
       v.morale.width = BAR_W * Math.max(0, Math.min(1, pl.morale / 100));
-      v.morale.tint = pl.morale < 30 ? 0xb8321f : pl.morale < 60 ? 0xd4a93e : 0x5a7fc4;
-      v.strength.tint = 0x3f9a84;
+      v.morale.tint = pl.morale < 30 ? 0xd04a32 : pl.morale < 60 ? 0xe2b84e : 0x5a78c8;
       v.count.visible = far || pl.id === selected;
       if (v.count.visible) v.count.text = String(pl.alive);
       v.star.visible = pl.champion;
@@ -205,19 +235,33 @@ export class BannerLayer {
     finial.position.set(0, -FLAG_H * 1.9 + 2);
     const flag = new WavingFlag(this.flags.blank());
     flag.mesh.position.set(2, -FLAG_H * 1.85);
-    // Carved channels: an ink trough holding the pigment fill.
-    const barBg = new Sprite(Texture.WHITE);
-    barBg.tint = 0x22180f;
-    barBg.alpha = 0.92;
-    barBg.width = BAR_W + 4;
-    barBg.height = BAR_H * 2 + 6;
-    barBg.position.set(-BAR_W / 2 - 2, 4);
-    const strength = new Sprite(Texture.WHITE);
+    // Carved channels: an ink trough holding the pigment fill, capped in gold leaf.
+    const gauge = new Container();
+    gauge.position.set(0, GAUGE_Y);
+    const channel = new Sprite(this.channelTexture());
+    channel.position.set(-BAR_W / 2 - CAP, 0);
+    channel.width = BAR_W + CAP * 2;
+    channel.height = GAUGE_H;
+    const wound = new Sprite(Texture.WHITE);
+    wound.tint = 0xf3e2bc;
+    wound.alpha = 0.92;
+    wound.height = BAR_H;
+    wound.position.set(-BAR_W / 2, STRENGTH_Y);
+    wound.visible = false;
+    const strength = new Sprite(this.fillTexture('strength'));
     strength.height = BAR_H;
-    strength.position.set(-BAR_W / 2, 6);
-    const morale = new Sprite(Texture.WHITE);
-    morale.height = BAR_H - 2;
-    morale.position.set(-BAR_W / 2, 7 + BAR_H);
+    strength.width = BAR_W;
+    strength.position.set(-BAR_W / 2, STRENGTH_Y);
+    const edge = new Sprite(this.fillTexture('edge'));
+    edge.anchor.set(0.5, 0);
+    edge.width = 4;
+    edge.height = BAR_H;
+    edge.position.set(BAR_W / 2, STRENGTH_Y);
+    const morale = new Sprite(this.fillTexture('morale'));
+    morale.height = MORALE_H;
+    morale.width = BAR_W;
+    morale.position.set(-BAR_W / 2, MORALE_Y);
+    gauge.addChild(channel, wound, strength, edge, morale);
     const token = new Sprite();
     token.anchor.set(0.5, 1);
     token.width = TOKEN_W * 1.05;
@@ -226,17 +270,110 @@ export class BannerLayer {
     token.visible = false;
     const count = new Text({ text: '', style: { fontFamily: '"Alegreya SC", Alegreya, Georgia, serif', fontSize: 30, fontWeight: '700', fill: 0xefe4c8, stroke: { color: 0x22180f, width: 7, join: 'round' } }, resolution: 2 });
     count.anchor.set(0, 0.5);
-    count.position.set(BAR_W / 2 + 8, 4 + BAR_H + 3);
+    count.position.set(BAR_W / 2 + CAP + 5, GAUGE_H / 2);
     const star = new Text({ text: '✦', style: { fontFamily: 'Alegreya, Georgia, serif', fontSize: 38, fill: 0xf6dc8c, stroke: { color: 0x22180f, width: 6, join: 'round' } }, resolution: 2 });
     star.anchor.set(0.5);
     star.position.set(FLAG_W + 18, -FLAG_H * 1.6);
-    root.addChild(pole, flag.mesh, finial, token, barBg, strength, morale, count, star);
+    gauge.addChild(count);
+    root.addChild(pole, flag.mesh, finial, token, gauge, star);
     this.root.addChild(root);
-    return { root, pole, finial, flag, barBg, strength, morale, token, tokenKey: '', count, star, seen: 0, key: '', routFlash: -1e9, x: 0, y: 0 };
+    return { root, pole, finial, flag, gauge, strength, wound, edge, morale, woundW: BAR_W, woundAt: -1e9, token, tokenKey: '', count, star, seen: 0, key: '', routFlash: -1e9, x: 0, y: 0 };
   }
 
   private staff: Texture | null = null;
   private finialTex: Texture | null = null;
+  private channelTex: Texture | null = null;
+  private fills = new Map<string, Texture>();
+
+  /**
+   * The gauge's carved channel, baked at 3x: an ink-rimmed trough cut into the wood, a pale
+   * lip catching the upper-left light, and gilded end caps that hold both rows.
+   */
+  private channelTexture(): Texture {
+    if (this.channelTex) return this.channelTex;
+    const k = 3;
+    const w = BAR_W + CAP * 2;
+    const [c, ctx] = canvas2d(w * k, GAUGE_H * k);
+    ctx.scale(k, k);
+    const trough = (y: number, h: number) => {
+      ctx.fillStyle = '#22180f';
+      ctx.fillRect(CAP - 1.5, y - 1.5, BAR_W + 3, h + 3);
+      const g = ctx.createLinearGradient(0, y, 0, y + h);
+      g.addColorStop(0, '#120c07');
+      g.addColorStop(0.45, '#2e2116');
+      g.addColorStop(1, '#3d2c1c');
+      ctx.fillStyle = g;
+      ctx.fillRect(CAP, y, BAR_W, h);
+      // The cut's lower lip catches the light.
+      ctx.fillStyle = 'rgba(217,199,158,0.55)';
+      ctx.fillRect(CAP - 1.5, y + h + 1.5, BAR_W + 3, 0.8);
+    };
+    trough(STRENGTH_Y, BAR_H);
+    trough(MORALE_Y, MORALE_H);
+    const cap = (x0: number, flip: boolean) => {
+      ctx.save();
+      ctx.translate(flip ? w : 0, 0);
+      ctx.scale(flip ? -1 : 1, 1);
+      ctx.beginPath();
+      ctx.moveTo(x0 + CAP + 0.5, 0.8);
+      ctx.lineTo(x0 + 2.4, 0.8);
+      ctx.quadraticCurveTo(x0 + 0.6, GAUGE_H / 2, x0 + 2.4, GAUGE_H - 0.8);
+      ctx.lineTo(x0 + CAP + 0.5, GAUGE_H - 0.8);
+      ctx.closePath();
+      const g = ctx.createLinearGradient(x0, 0, x0 + CAP, GAUGE_H);
+      g.addColorStop(0, '#f6dc8c');
+      g.addColorStop(0.5, '#d4a93e');
+      g.addColorStop(1, '#8a6418');
+      ctx.fillStyle = g;
+      ctx.fill();
+      ctx.lineWidth = 1.4;
+      ctx.strokeStyle = '#22180f';
+      ctx.stroke();
+      // A punched rivet in the leaf.
+      ctx.fillStyle = '#8a6418';
+      ctx.beginPath();
+      ctx.arc(x0 + CAP * 0.52, GAUGE_H / 2, 1.3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(246,220,140,0.9)';
+      ctx.fillRect(x0 + CAP * 0.52 - 1, GAUGE_H / 2 - 1.2, 0.8, 0.8);
+      ctx.restore();
+    };
+    cap(0, false);
+    cap(0, true);
+    this.channelTex = new Texture({ source: new CanvasSource({ resource: c, scaleMode: 'linear' }) });
+    return this.channelTex;
+  }
+
+  /** Pigment fills: verdigris strength with a lit top and a hatched shade, a white morale fill to tint, a gold edge tick. */
+  private fillTexture(kind: 'strength' | 'morale' | 'edge'): Texture {
+    const hit = this.fills.get(kind);
+    if (hit) return hit;
+    const [c, ctx] = canvas2d(8, 24);
+    const g = ctx.createLinearGradient(0, 0, 0, 24);
+    if (kind === 'strength') {
+      g.addColorStop(0, '#8fd0b8');
+      g.addColorStop(0.22, '#4fa58c');
+      g.addColorStop(0.6, '#2f7f6f');
+      g.addColorStop(1, '#1b4f45');
+    } else if (kind === 'morale') {
+      g.addColorStop(0, '#ffffff');
+      g.addColorStop(0.5, '#e4e4e4');
+      g.addColorStop(1, '#a8a8a8');
+    } else {
+      g.addColorStop(0, '#fff3c4');
+      g.addColorStop(0.5, '#f6dc8c');
+      g.addColorStop(1, '#b8892a');
+    }
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 8, 24);
+    if (kind === 'edge') {
+      ctx.fillStyle = '#22180f';
+      ctx.fillRect(7, 0, 1, 24);
+    }
+    const t = new Texture({ source: new CanvasSource({ resource: c, scaleMode: 'linear' }) });
+    this.fills.set(kind, t);
+    return t;
+  }
 
   private staffTexture(): Texture {
     if (!this.staff) {
@@ -282,6 +419,9 @@ export class BannerLayer {
   destroy(): void {
     this.staff?.destroy(true);
     this.finialTex?.destroy(true);
+    this.channelTex?.destroy(true);
+    for (const t of this.fills.values()) t.destroy(true);
+    this.fills.clear();
     for (const f of this.folding) f.v.root.destroy({ children: true });
     this.folding = [];
     for (const v of this.views.values()) v.root.destroy({ children: true });

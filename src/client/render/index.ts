@@ -161,6 +161,12 @@ export class Battlefield {
   private audioAt = 0;
   private fires: { x: number; y: number }[] = [];
   private warStatus = '';
+  private drawnResolve: () => void = () => {};
+  private drawnOnce = false;
+  /** Resolves once the painted map has reached the screen, so the page can lift its loading leaf. */
+  readonly drawn: Promise<void> = new Promise((resolve) => {
+    this.drawnResolve = resolve;
+  });
   /** Smoothed milliseconds of JavaScript per frame, for diagnostics. */
   frameMs = 0;
   /** Smoothed milliseconds per stage of the last frames, for diagnostics. */
@@ -282,6 +288,8 @@ export class Battlefield {
     sharedUnitArt ??= makeUnitArt();
     const field = new Battlefield(app, host, store, getRunner, sharedTextures, sharedUnitArt, { reducedMotion });
     if (signal) signal.addEventListener('abort', () => field.destroy(), { once: true });
+    // The first frame draws at once; soldiers' art bakes kind by kind in idle time behind it.
+    void sharedUnitArt.warm();
     return field;
   }
 
@@ -437,14 +445,17 @@ export class Battlefield {
     this.gradeMult.visible = light.mult !== 0xffffff;
     this.gradeLift.tint = light.screen;
     this.gradeLift.visible = light.screen !== 0;
-    this.gradeVignette.alpha = 0.25 + light.lights * 0.55;
-    const dawn = 1 - Math.min(1, light.phase / 0.12);
-    const dusk = Math.max(0, 1 - Math.abs(light.phase - 0.75) / 0.08);
+    // The vignette deepens only with the night; dawn's lit windows must not darken the page edge.
+    const night = light.phase >= 0.7 ? light.lights : 0;
+    this.gradeVignette.alpha = 0.18 + night * 0.6;
+    const dawn = 1 - Math.min(1, light.phase / 0.14);
+    const dusk = Math.max(0, 1 - Math.abs(light.phase - 0.76) / 0.08);
     this.gradeSun.visible = dawn + dusk > 0.01;
     if (this.gradeSun.visible) {
+      // A luminous gold sunrise from the east; a crimson sunset from the west.
       const east = dawn > dusk;
-      this.gradeSun.tint = east ? 0x6a4818 : 0x70261a;
-      this.gradeSun.alpha = Math.max(dawn, dusk) * 0.45;
+      this.gradeSun.tint = east ? 0xb07a1c : 0x8a2a18;
+      this.gradeSun.alpha = Math.max(dawn, dusk) * (east ? 0.5 : 0.42);
       this.gradeSun.height = sh;
       this.gradeSun.width = east ? -sw : sw;
       this.gradeSun.x = east ? sw : 0;
@@ -455,7 +466,7 @@ export class Battlefield {
     this.gradeDim.visible = this.dim > 0.01;
     // Banners and labels stay readable at night, but still take a little of the hour's colour.
     this.banners.root.tint = mixColor(0xffffff, light.mult, 0.35);
-    this.actors.tint = mixColor(0xffffff, light.mult, 0.6);
+    this.actors.tint = mixColor(0xffffff, light.mult, 0.38);
 
     const bounds = this.camera.bounds(60);
     const cry = world.players.map((p) => p.cryUntil > world.tick);
@@ -502,6 +513,11 @@ export class Battlefield {
     if (!this.opts.reducedMotion) this.shake = Math.max(this.shake, this.fx.shake);
     time('fx');
     this.feedAudio(now, world, light);
+    if (!this.drawnOnce) {
+      this.drawnOnce = true;
+      // The renderer paints after this tick: the frame after next has the map on screen.
+      requestAnimationFrame(() => requestAnimationFrame(() => this.drawnResolve()));
+    }
   }
 
   /** The platoon the "Follow my banner" camera rides with: the viewer's newest one in the field. */

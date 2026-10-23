@@ -18,16 +18,22 @@ export interface Daylight {
 
 // The war's clock is the sun: dawn gold at the reset, a neutral noon, a warm
 // afternoon, crimson dusk, and an ultramarine night that runs into the next reset.
+//
+// The multiply wash stays light by day (every channel above ~0xd8) so pigments keep
+// their saturation: the hour's colour comes mostly from the raking sun glow added in
+// the renderer, never from a heavy tint that drags greens to olive or brown. Only the
+// night wash is deep, and its screen lift is a cool blue, never a warm grey that would
+// muddy the ink.
 const KEYS: readonly [phase: number, mult: number, screen: number, lights: number, day: number][] = [
-  [0.0, 0xf2c99a, 0x3c2610, 0.55, 0.4],
-  [0.06, 0xfbe2bf, 0x1e1206, 0.15, 0.85],
+  [0.0, 0xffeccc, 0x000000, 0.4, 0.55],
+  [0.06, 0xfff4e0, 0x000000, 0.1, 0.9],
   [0.16, 0xffffff, 0x000000, 0, 1],
-  [0.5, 0xfffbf2, 0x000000, 0, 1],
-  [0.64, 0xffe4bc, 0x140a00, 0, 1],
-  [0.72, 0xfcd4b4, 0x1e0a04, 0.3, 0.65],
-  [0.78, 0xe4aab0, 0x240a14, 0.65, 0.3],
-  [0.85, 0x8a98cc, 0x0c1226, 1, 0],
-  [1.0, 0x8090c4, 0x0c1226, 1, 0],
+  [0.5, 0xfffcf4, 0x000000, 0, 1],
+  [0.64, 0xfff0d8, 0x000000, 0, 1],
+  [0.72, 0xffe0cc, 0x000000, 0.3, 0.65],
+  [0.78, 0xfccacc, 0x0a0208, 0.65, 0.3],
+  [0.85, 0x8a9cd6, 0x0a1430, 1, 0],
+  [1.0, 0x8496d2, 0x0a1430, 1, 0],
 ];
 
 export function daylightAt(phase: number): Daylight {

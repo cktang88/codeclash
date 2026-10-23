@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from 'react';
 import type { RoomDetail } from '../../protocol.ts';
 import type { HudSnapshot } from '../store.ts';
 import { Link } from '../ui/Link.tsx';
@@ -94,10 +94,50 @@ export interface RoomHudProps {
   onRoomChanged?(room: RoomDetail): void;
 }
 
+/**
+ * Tells the camera how much of the screen the HUD covers above and below, measured from
+ * the live layout (banner, Monolith bar, dock, the phone's book tabs) rather than guessed,
+ * so the opening fit never tucks a capital under a bar. Transient toasts are left out.
+ */
+function useFitInsets(hud: RefObject<HTMLDivElement | null>, narrow: boolean): void {
+  useLayoutEffect(() => {
+    const root = hud.current;
+    const stage = root?.closest('.battle')?.querySelector<HTMLElement>('.stage');
+    if (!root || !stage || typeof ResizeObserver === 'undefined') return;
+    const measure = () => {
+      const h = root.clientHeight || window.innerHeight;
+      let top = 0;
+      root.querySelectorAll<HTMLElement>('.topbar, .hud-top-center > :not(.toasts)').forEach((el) => {
+        const r = el.getBoundingClientRect();
+        if (r.height > 0) top = Math.max(top, r.bottom);
+      });
+      let bottom = h;
+      root.querySelectorAll<HTMLElement>('.hud-dock > *, .sheet-tabs').forEach((el) => {
+        const r = el.getBoundingClientRect();
+        if (r.height > 0) bottom = Math.min(bottom, r.top);
+      });
+      if (top > 0) stage.style.setProperty('--fit-top', `${Math.round(top + 8)}px`);
+      if (bottom < h) stage.style.setProperty('--fit-bottom', `${Math.round(h - bottom + 8)}px`);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    root.querySelectorAll<HTMLElement>('.topbar, .hud-top-center, .hud-dock, .sheet-tabs').forEach((el) => ro.observe(el));
+    window.addEventListener('resize', measure);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', measure);
+      stage.style.removeProperty('--fit-top');
+      stage.style.removeProperty('--fit-bottom');
+    };
+  }, [hud, narrow]);
+}
+
 /** Everything drawn over the battlefield. */
 export function RoomHud({ hud, title, subtitle, banner, dock, room, onRoomChanged }: RoomHudProps) {
   const { mode, slug, me } = useHudContext();
   const narrow = useNarrow();
+  const root = useRef<HTMLDivElement>(null);
+  useFitInsets(root, narrow);
   const inWar = mode === 'live' && hud.viewerP !== null && hud.war?.status === 'active';
   const [left, setLeft] = useState<LeftTab>('standings');
   const [right, setRight] = useState<RightTab>('chronicle');
@@ -156,7 +196,7 @@ export function RoomHud({ hud, title, subtitle, banner, dock, room, onRoomChange
   const rightBody = (tab: RightTab) => (tab === 'chronicle' ? <Chronicle entries={hud.chronicle} viewerP={hud.viewerP} now={hud.serverNow} /> : <Chat hud={hud} canSend={canChat} />);
 
   return (
-    <div className={`hud${narrow ? ' is-narrow' : ''}`}>
+    <div className={`hud${narrow ? ' is-narrow' : ''}`} ref={root}>
       <header className="topbar night-band">
         <Link to={{ kind: 'home' }} className="brand" aria-label="Pushfront home">
           <BrandMark />

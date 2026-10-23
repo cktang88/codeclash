@@ -422,7 +422,10 @@ export class SiteLayer {
       v.label.set(title, subtitle, rubric);
       v.label.x = def.x;
       v.label.y = def.y - top;
-      v.label.wanted = def.kind !== 'shrine' || zoom > 0.16;
+      // An empty slot's ruin is scenery, not news: it yields to everything and only names itself up close.
+      const openSlot = def.kind === 'capital' && title === 'Open slot';
+      v.label.priority = openSlot ? 2 : def.kind === 'capital' ? 10 : def.kind === 'heart' ? 8 : 5;
+      v.label.wanted = openSlot ? zoom > 0.7 : def.kind !== 'shrine' || zoom > 0.16;
     }
     for (const m of this.monuments) m.label.wanted = zoom > 1.1;
     this.labels.layout(zoom, (l) => l.priority >= 10 || zoom > 0.75);

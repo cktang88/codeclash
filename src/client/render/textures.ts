@@ -12,6 +12,11 @@ export interface Textures {
   soft: Texture;
   spark: Texture;
   ring: Texture;
+  /**
+   * A painted miniature's base: a pigment rim (white, to tint) between two ink rules over a
+   * faint pigment wash. Seen from above as an ellipse, it tells the side under every soldier.
+   */
+  base: Texture;
   arrow: Texture;
   bolt: Texture;
   smoke: Texture;
@@ -95,6 +100,27 @@ export function makeTextures(): Textures {
       ctx.lineWidth = 6;
       ctx.beginPath();
       ctx.arc(64, 64, 58, 0, Math.PI * 2);
+      ctx.stroke();
+    }),
+    base: draw(128, 128, (ctx) => {
+      ctx.fillStyle = 'rgba(255,255,255,0.28)';
+      ctx.beginPath();
+      ctx.arc(64, 64, 52, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 13;
+      ctx.beginPath();
+      ctx.arc(64, 64, 52, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.strokeStyle = '#22180f';
+      ctx.lineWidth = 3.5;
+      ctx.beginPath();
+      ctx.arc(64, 64, 59.5, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.lineWidth = 2;
+      ctx.globalAlpha = 0.7;
+      ctx.beginPath();
+      ctx.arc(64, 64, 44.5, 0, Math.PI * 2);
       ctx.stroke();
     }),
     arrow: draw(32, 8, (ctx) => {

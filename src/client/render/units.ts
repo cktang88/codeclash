@@ -18,6 +18,8 @@ const ATTACK_FRAME_MS = 105;
 const IDLE_FRAME_MS = 700;
 /** Rank chevrons show only when soldiers are big enough to carry them. */
 const PIP_ZOOM = 1.1;
+/** Below this zoom soldiers are drawn up to 1.45x larger than life, so silhouettes stay legible. */
+const MID_ZOOM = 1.4;
 
 interface Swing {
   at: number;
@@ -29,6 +31,8 @@ interface View {
   shadow: Sprite;
   /** Army-colored ring under big units, so a Dragon's side reads at a glance. */
   halo: Sprite;
+  /** A miniature's pigment-rimmed base under every soldier: the side reads even at night. */
+  base: Sprite;
   /** Gold chevrons under veterans, at near zoom. */
   pip: Sprite;
   body: Sprite;
@@ -124,6 +128,9 @@ export class UnitLayer {
     }
     this.frameNo++;
     const far = zoom < FAR_ZOOM;
+    const boost = zoom < MID_ZOOM ? Math.min(1.45, Math.pow(MID_ZOOM / zoom, 0.55)) : 1;
+    // Bases carry the side most when soldiers are small; up close the cloth does it.
+    const baseAlpha = zoom < 1.2 ? 0.95 : Math.max(0.5, 0.95 - (zoom - 1.2) * 0.4);
     const alpha = runner?.alpha ?? 1;
     const platoonState = this.platoonState;
     platoonState.clear();
@@ -175,24 +182,27 @@ export class UnitLayer {
       pose.p = u.p;
       const visible = bounds.contains(x, y);
       if (!visible) {
-        v.pip.visible = v.halo.visible = v.shadow.visible = v.body.visible = v.mask.visible = v.trim.visible = v.dot.visible = false;
+        v.pip.visible = v.base.visible = v.halo.visible = v.shadow.visible = v.body.visible = v.mask.visible = v.trim.visible = v.dot.visible = false;
         continue;
       }
       const ragged = this.raggedTint[u.p] ?? -1;
       const tint = ragged >= 0 ? ragged : (this.tints[u.p] ?? 0xcccccc);
-      if (far) {
-        v.pip.visible = v.halo.visible = v.shadow.visible = v.body.visible = v.mask.visible = v.trim.visible = false;
+      // A kind whose art is still baking stands in as a pigment token until it is ready.
+      const baking = !this.art.ready(u.kind);
+      if (baking) this.art.want(u.kind);
+      if (far || baking) {
+        v.pip.visible = v.base.visible = v.halo.visible = v.shadow.visible = v.body.visible = v.mask.visible = v.trim.visible = false;
         v.dot.visible = true;
         v.dot.position.set(x, y);
         v.dot.tint = tint;
         const big = STATS[u.kind]!.size;
         // Elites and legends keep their silhouette even from afar.
-        if (big >= 9) {
+        if (big >= 9 && !baking) {
           v.dot.texture = this.art.icon(u.kind);
           v.dot.scale.set((10 + big * 0.9) / zoom / this.art.cell(u.kind).h);
         } else {
           v.dot.texture = this.tex.dot;
-          v.dot.scale.set(((3 + big * 0.35) / zoom / 32) * Math.min(1, zoom * 3.2));
+          v.dot.scale.set(((3 + big * 0.35) / zoom / 32) * (far ? Math.min(1, zoom * 3.2) : 1));
         }
         continue;
       }
@@ -251,7 +261,8 @@ export class UnitLayer {
       const lean = attackFrame >= 0 ? 0 : walking && routing ? -0.2 * v.facing : 0;
 
       const cell = this.art.cell(u.kind);
-      const worldH = this.art.scale(u.kind);
+      // Soldiers are painted a little larger than life at mid zoom, so kinds still read by silhouette.
+      const worldH = this.art.scale(u.kind) * boost;
       const size = worldH / cell.h;
       const px = x + ox;
       const py = y + oy;
@@ -259,6 +270,13 @@ export class UnitLayer {
       const wide = stats.slots >= 2 || u.kind === Kind.Outrider ? 0.9 : 0.55;
       v.shadow.scale.set((worldH * wide * (flying ? 0.8 : 1)) / 64, (worldH * 0.22 * (flying ? 0.7 : 1)) / 64);
       v.shadow.alpha = flying ? 0.45 : 0.7;
+      v.base.visible = stats.size < 9;
+      if (v.base.visible) {
+        v.base.position.set(px, py);
+        v.base.scale.set((worldH * wide * 0.95) / 128, (worldH * 0.3) / 128);
+        v.base.tint = tint;
+        v.base.alpha = baseAlpha * (flying ? 0.5 : 1);
+      }
       v.halo.visible = stats.size >= 9;
       if (v.halo.visible) {
         v.halo.position.set(px, py);
@@ -309,7 +327,7 @@ export class UnitLayer {
     v.kind = kind;
     v.facing = 1;
     v.speed = 0;
-    v.pip.visible = v.halo.visible = v.shadow.visible = v.body.visible = v.mask.visible = v.trim.visible = v.dot.visible = false;
+    v.pip.visible = v.base.visible = v.halo.visible = v.shadow.visible = v.body.visible = v.mask.visible = v.trim.visible = v.dot.visible = false;
     return v;
   }
 
@@ -320,6 +338,9 @@ export class UnitLayer {
     const halo = new Sprite(this.tex.ring);
     halo.anchor.set(0.5);
     halo.visible = false;
+    const base = new Sprite(this.tex.base);
+    base.anchor.set(0.5);
+    base.visible = false;
     const pip = new Sprite(this.tex.chevrons[0]);
     pip.anchor.set(0.5, 0);
     pip.visible = false;
@@ -329,14 +350,14 @@ export class UnitLayer {
     trim.visible = false;
     const dot = new Sprite(this.tex.dot);
     dot.anchor.set(0.5);
-    this.shadows.addChild(shadow, halo, pip);
+    this.shadows.addChild(shadow, base, halo, pip);
     this.bodies.addChild(body, mask, trim);
     this.dots.addChild(dot);
-    return { shadow, halo, pip, body, mask, trim, dot, kind: 0, facing: 1, x: 0, y: 0, speed: 0, phase: 0, seen: 0, pose: { x: 0, y: 0, facing: 1, kind: 0, p: 0 } };
+    return { shadow, halo, base, pip, body, mask, trim, dot, kind: 0, facing: 1, x: 0, y: 0, speed: 0, phase: 0, seen: 0, pose: { x: 0, y: 0, facing: 1, kind: 0, p: 0 } };
   }
 
   private release(v: View): void {
-    v.pip.visible = v.halo.visible = v.shadow.visible = v.body.visible = v.mask.visible = v.trim.visible = v.dot.visible = false;
+    v.pip.visible = v.base.visible = v.halo.visible = v.shadow.visible = v.body.visible = v.mask.visible = v.trim.visible = v.dot.visible = false;
     this.pool.push(v);
   }
 
