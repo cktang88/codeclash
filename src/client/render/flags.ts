@@ -244,7 +244,77 @@ function star(ctx: CanvasRenderingContext2D, x: number, y: number, r: number): v
   ctx.stroke();
 }
 
-export function paintFlag(flag: Flag, ordinal: number | null, grade: FlagGrade = { rank: 0, ragged: false }): HTMLCanvasElement {
+/** An Armory trim the player chose: drawn on their battalion flags and capital standards. */
+export type FlagTrim = 'none' | 'studs' | 'filigree' | 'ermine';
+
+function paintTrim(ctx: CanvasRenderingContext2D, w: number, h: number, trim: FlagTrim | undefined): void {
+  if (!trim || trim === 'none') return;
+  ctx.save();
+  if (trim === 'studs') {
+    // Iron studs along every edge, each with a pinpoint of light on its upper left.
+    for (let x = 8; x < w - 4; x += 9) for (const y of [5, h - 5]) stud(ctx, x, y);
+    for (let y = 14; y < h - 10; y += 9) stud(ctx, w - 5, y);
+  } else if (trim === 'filigree') {
+    // Gold thread worked in running scrolls along the top and bottom hems.
+    ctx.lineWidth = 1.6;
+    ctx.strokeStyle = '#d4a93e';
+    for (const y of [6, h - 6]) {
+      ctx.beginPath();
+      ctx.moveTo(12, y);
+      for (let x = 12; x < w - 6; x += 10) {
+        ctx.bezierCurveTo(x + 2, y - 4, x + 7, y - 4, x + 6, y);
+        ctx.bezierCurveTo(x + 5, y + 3, x + 2, y + 2, x + 4, y - 1);
+        ctx.moveTo(x + 10, y);
+      }
+      ctx.stroke();
+    }
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = '#f6dc8c';
+    ctx.beginPath();
+    ctx.moveTo(12, 10.5);
+    ctx.lineTo(w - 6, 10.5);
+    ctx.moveTo(12, h - 10.5);
+    ctx.lineTo(w - 6, h - 10.5);
+    ctx.stroke();
+  } else {
+    // An ermine hem: white fur along the foot, powdered with black tails.
+    const top = h - 13;
+    ctx.fillStyle = '#f4eee0';
+    ctx.fillRect(10, top, w - 10, 13);
+    ctx.strokeStyle = INK;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(10, top);
+    ctx.lineTo(w, top);
+    ctx.stroke();
+    ctx.fillStyle = '#22180f';
+    for (let x = 16, i = 0; x < w - 4; x += 11, i++) {
+      const y = top + (i % 2 ? 8 : 4);
+      ctx.beginPath();
+      ctx.moveTo(x, y - 2.5);
+      ctx.lineTo(x + 1.6, y + 2.5);
+      ctx.lineTo(x - 1.6, y + 2.5);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillRect(x - 0.5, y - 4, 1, 1.5);
+    }
+  }
+  ctx.restore();
+}
+
+function stud(ctx: CanvasRenderingContext2D, x: number, y: number): void {
+  ctx.beginPath();
+  ctx.arc(x, y, 2.4, 0, Math.PI * 2);
+  ctx.fillStyle = '#5a554e';
+  ctx.fill();
+  ctx.lineWidth = 0.8;
+  ctx.strokeStyle = INK;
+  ctx.stroke();
+  ctx.fillStyle = '#d8d2c4';
+  ctx.fillRect(x - 1.2, y - 1.2, 1, 1);
+}
+
+export function paintFlag(flag: Flag, ordinal: number | null, grade: FlagGrade = { rank: 0, ragged: false }, trim?: FlagTrim): HTMLCanvasElement {
   const [c, ctx] = canvas2d(FLAG_W, FLAG_H);
   const w = FLAG_W;
   const h = FLAG_H;
@@ -258,6 +328,7 @@ export function paintFlag(flag: Flag, ordinal: number | null, grade: FlagGrade =
   paintEmblem(ctx, flag.emblem, 28, 18, 10);
   textOutlined(ctx, flag.initials, 58, ordinal === null ? 34 : 29, 28);
   if (ordinal !== null) textOutlined(ctx, roman(ordinal), 58, 52, 15, '#f6dc8c', NUMBER_FONT);
+  paintTrim(ctx, w, h, trim);
   cloth(ctx, w, h);
   ctx.strokeStyle = INK;
   ctx.lineWidth = 3;
@@ -267,7 +338,7 @@ export function paintFlag(flag: Flag, ordinal: number | null, grade: FlagGrade =
 }
 
 /** The army standard flown over a capital: the plain army hue with the player's initial. */
-export function paintStandard(hue: number, login: string, arms?: { pattern: Pattern; emblem: Emblem }): HTMLCanvasElement {
+export function paintStandard(hue: number, login: string, arms?: { pattern: Pattern; emblem: Emblem; trim?: FlagTrim }): HTMLCanvasElement {
   const [c, ctx] = canvas2d(FLAG_W, FLAG_H);
   ctx.fillStyle = armyColor(hue, 46);
   ctx.fillRect(0, 0, FLAG_W, FLAG_H);
@@ -282,6 +353,7 @@ export function paintStandard(hue: number, login: string, arms?: { pattern: Patt
   }
   if (arms) paintEmblem(ctx, arms.emblem, FLAG_W / 2, FLAG_H * 0.42, 17);
   else textOutlined(ctx, (login[0] ?? '?').toUpperCase(), FLAG_W / 2, FLAG_H * 0.38, 36);
+  paintTrim(ctx, FLAG_W, FLAG_H, arms?.trim);
   cloth(ctx, FLAG_W, FLAG_H);
   ctx.strokeStyle = INK;
   ctx.lineWidth = 3;
@@ -398,11 +470,11 @@ export class FlagCache {
     return this.blankFlag;
   }
 
-  battalion(hue: number, repo: string, language: string | null, ordinal: number | null, grade: FlagGrade = { rank: 0, ragged: false }): Texture {
-    const key = `${hue}|${repo}|${language ?? ''}|${ordinal ?? ''}|${grade.rank}|${grade.ragged ? 1 : 0}`;
+  battalion(hue: number, repo: string, language: string | null, ordinal: number | null, grade: FlagGrade = { rank: 0, ragged: false }, trim?: FlagTrim): Texture {
+    const key = `${hue}|${repo}|${language ?? ''}|${ordinal ?? ''}|${grade.rank}|${grade.ragged ? 1 : 0}|${trim ?? ''}`;
     let t = this.cache.get(key);
     if (!t) {
-      t = new Texture({ source: new CanvasSource({ resource: paintFlag(battalionFlag(hue, repo, language), ordinal, grade), autoGenerateMipmaps: true }) });
+      t = new Texture({ source: new CanvasSource({ resource: paintFlag(battalionFlag(hue, repo, language), ordinal, grade, trim), autoGenerateMipmaps: true }) });
       this.cache.set(key, t);
     }
     return t;
@@ -418,8 +490,8 @@ export class FlagCache {
     return t;
   }
 
-  standard(hue: number, login: string, arms?: { pattern: Pattern; emblem: Emblem }): Texture {
-    const key = `std|${hue}|${login}|${arms?.pattern ?? ''}|${arms?.emblem ?? ''}`;
+  standard(hue: number, login: string, arms?: { pattern: Pattern; emblem: Emblem; trim?: FlagTrim }): Texture {
+    const key = `std|${hue}|${login}|${arms?.pattern ?? ''}|${arms?.emblem ?? ''}|${arms?.trim ?? ''}`;
     let t = this.cache.get(key);
     if (!t) {
       t = new Texture({ source: new CanvasSource({ resource: paintStandard(hue, login, arms), autoGenerateMipmaps: true }) });

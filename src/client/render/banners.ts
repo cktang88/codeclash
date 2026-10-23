@@ -3,7 +3,7 @@ import { CanvasSource, Container, MeshPlane, Sprite, Text, Texture } from 'pixi.
 import { canvas2d } from './paint.ts';
 import { PlatoonState, type Platoon, type World } from '../../sim/api.ts';
 import type { RepoRef } from '../../sim/replay.ts';
-import { FLAG_H, FLAG_W, TOKEN_H, TOKEN_W, gradeOf, type FlagCache } from './flags.ts';
+import { FLAG_H, FLAG_W, TOKEN_H, TOKEN_W, gradeOf, type FlagCache, type FlagTrim } from './flags.ts';
 
 const VERTS_X = 10;
 
@@ -94,7 +94,17 @@ export class BannerLayer {
     if (v) v.routFlash = now;
   }
 
-  update(world: World, repos: readonly RepoRef[], hues: readonly number[], now: number, zoom: number, centroid: Map<number, { x: number; y: number; n: number }>, bounds: { contains(x: number, y: number): boolean }, selected: number | null): void {
+  update(
+    world: World,
+    repos: readonly RepoRef[],
+    hues: readonly number[],
+    now: number,
+    zoom: number,
+    centroid: Map<number, { x: number; y: number; n: number }>,
+    bounds: { contains(x: number, y: number): boolean },
+    selected: number | null,
+    trims: readonly (FlagTrim | undefined)[] = [],
+  ): void {
     this.frameNo++;
     this.hits = [];
     const far = zoom < FAR_ZOOM;
@@ -124,9 +134,10 @@ export class BannerLayer {
       const hue = hues[pl.p] ?? 0;
       const repo = repos[pl.repo] ?? ['unknown/repo', null];
       const grade = gradeOf(world.players[pl.p]);
-      const key = `${hue}|${repo[0]}|${pl.ordinal}|${grade.rank}|${grade.ragged ? 1 : 0}`;
+      const trim = trims[pl.p];
+      const key = `${hue}|${repo[0]}|${pl.ordinal}|${grade.rank}|${grade.ragged ? 1 : 0}|${trim ?? ''}`;
       if (key !== v.key) {
-        v.flag.texture = this.flags.battalion(hue, repo[0], repo[1], pl.ordinal, grade);
+        v.flag.texture = this.flags.battalion(hue, repo[0], repo[1], pl.ordinal, grade, trim);
         v.key = key;
       }
       // Far out, every platoon becomes a heraldic token; close in, a banner on its staff.

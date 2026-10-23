@@ -12,7 +12,7 @@ import { BannerLayer, platoonCentroids } from './banners.ts';
 import { Camera } from './camera.ts';
 import { dayPhase, daylightAt, type Daylight } from './daylight.ts';
 import { Director } from './director.ts';
-import { FlagCache } from './flags.ts';
+import { FlagCache, type FlagTrim } from './flags.ts';
 import { Effects } from './fx/index.ts';
 import { loadFxArt } from './fx/atlas.ts';
 import { FAR_ZOOM } from './lod.ts';
@@ -150,6 +150,8 @@ export class Battlefield {
   private tints: number[] = [];
   private rgb: [number, number, number][] = [];
   private hues: number[] = [];
+  /** Each player's Armory trim, sewn onto their flags. */
+  private trims: (FlagTrim | undefined)[] = [];
   private destroyed = false;
   private timeOverride: number | null = null;
   private light: Daylight = daylightAt(0.3);
@@ -464,7 +466,8 @@ export class Battlefield {
     time('units');
     const centroids = platoonCentroids(world);
     const sel = this.store.selection;
-    this.banners.update(world, this.store.repos, this.hues, now, zoom, centroids, bounds, sel?.kind === 'platoon' ? sel.id : null);
+    for (const r of this.store.roster) this.trims[r.p] = r.heraldry?.trim;
+    this.banners.update(world, this.store.repos, this.hues, now, zoom, centroids, bounds, sel?.kind === 'platoon' ? sel.id : null, this.trims);
     time('banners');
     const near = zoom >= FAR_ZOOM;
     layers.sites.update(

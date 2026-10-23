@@ -4,7 +4,8 @@ const FIBRES = 'M702.7 8.0l3.3 0.9M728.0 8.7l2.1 0.2M753.3 8.3l3.8 -1.9M776.0 17
 
 export function TornMap({ className }: { className?: string }) {
   return (
-    <svg className={className} viewBox="0 0 900 560" aria-hidden>
+    <div className={className}>
+      <svg className="torn-map-sheet" viewBox="0 0 900 560" aria-hidden>
       <defs>
         <filter id="tm-grain" x="0" y="0" width="100%" height="100%">
           <feTurbulence type="fractalNoise" baseFrequency=".8" numOctaves="2" seed="4" />
@@ -96,8 +97,37 @@ export function TornMap({ className }: { className?: string }) {
           <path d="M-5 18V6a5 5 0 0 1 10 0v12" fill="#22180f" />
           <path d="M0-13v-18M0-31h16l-4 4 4 4H0" fill="#f6dc8c" stroke="#22180f" strokeWidth="1.5" />
         </g>
+        <text x="628" y="64" textAnchor="middle" transform="rotate(-4 628 64)" fontFamily="'IM Fell English', serif" fontStyle="italic" fontSize="32" fill="#22180f">
+          Here be dragons
+        </text>
+        <text x="230" y="470" fontFamily="'IM Fell English', serif" fontStyle="italic" fontSize="18" fill="#4a3a28">
+          the known lands
+        </text>
+        {/* A sea serpent in the margin. */}
+        <g transform="translate(110 70)" fill="none" stroke="#22180f" strokeWidth="2.2" strokeLinecap="round">
+          <path d="M-30 8c6-16 16-16 20 0s14 16 20 0 14-16 20 0" />
+          <path d="M30 8c4-10 12-12 16-7l-5 4" />
+        </g>
+        {/* Age: toning at the edges, and the grain of the skin. */}
+        <path d={PAPER} fill="none" stroke="#b9a477" strokeWidth="30" opacity=".55" filter="url(#tm-tone)" />
+        <path d={PAPER} fill="#000" filter="url(#tm-grain)" />
+      </g>
+      {/* The torn edge: fibres and a pale core. */}
+      <path d={PAPER} fill="none" stroke="#b9a477" strokeWidth="1.2" />
+      <path d={FIBRES} stroke="#f7efd9" strokeWidth="1.6" strokeLinecap="round" />
+      <path d="M18 18H708M18 18V542M18 542H690" fill="none" stroke="#22180f" strokeWidth="2" />
+      <path d="M26 26H702M26 26V534M26 534H684" fill="none" stroke="#22180f" strokeWidth=".8" />
+      </svg>
+      {/* The wyvern hovers on its own layer, so the inked sheet below is drawn only once. */}
+      <svg className="torn-map-dragon" viewBox="0 0 900 560" aria-hidden>
+        <defs>
+          <clipPath id="tm-dragon-paper">
+            <path d={PAPER} />
+          </clipPath>
+        </defs>
+        <g clipPath="url(#tm-dragon-paper)">
         {/* A wyvern guarding the unknown sea, its tail running off the torn edge. */}
-        <g className="lost-dragon" transform="translate(712 196)">
+        <g transform="translate(712 196)">
           <path
             d="M-30 4C-40-24-30-52-8-78L10-90C10-70 16-60 24-54L36-68C36-50 42-42 50-38L52-36C36-28 20-12 2 14Z"
             fill="#22594d"
@@ -133,26 +163,8 @@ export function TornMap({ className }: { className?: string }) {
           </path>
           <path d="M-104-10C-118-14-128-10-140-14" fill="none" stroke="#f6dc8c" strokeWidth="2" strokeLinecap="round" />
         </g>
-        <text x="628" y="64" textAnchor="middle" transform="rotate(-4 628 64)" fontFamily="'IM Fell English', serif" fontStyle="italic" fontSize="32" fill="#22180f">
-          Here be dragons
-        </text>
-        <text x="230" y="470" fontFamily="'IM Fell English', serif" fontStyle="italic" fontSize="18" fill="#4a3a28">
-          the known lands
-        </text>
-        {/* A sea serpent in the margin. */}
-        <g transform="translate(110 70)" fill="none" stroke="#22180f" strokeWidth="2.2" strokeLinecap="round">
-          <path d="M-30 8c6-16 16-16 20 0s14 16 20 0 14-16 20 0" />
-          <path d="M30 8c4-10 12-12 16-7l-5 4" />
         </g>
-        {/* Age: toning at the edges, and the grain of the skin. */}
-        <path d={PAPER} fill="none" stroke="#b9a477" strokeWidth="30" opacity=".55" filter="url(#tm-tone)" />
-        <path d={PAPER} fill="#000" filter="url(#tm-grain)" />
-      </g>
-      {/* The torn edge: fibres and a pale core. */}
-      <path d={PAPER} fill="none" stroke="#b9a477" strokeWidth="1.2" />
-      <path d={FIBRES} stroke="#f7efd9" strokeWidth="1.6" strokeLinecap="round" />
-      <path d="M18 18H708M18 18V542M18 542H690" fill="none" stroke="#22180f" strokeWidth="2" />
-      <path d="M26 26H702M26 26V534M26 534H684" fill="none" stroke="#22180f" strokeWidth=".8" />
-    </svg>
+      </svg>
+    </div>
   );
 }

@@ -305,7 +305,7 @@ export class SiteLayer {
           if (i === 0) {
             const r = roster[owner];
             const arms = r?.heraldry;
-            const key = `${world.players[owner]!.hue}|${r?.login ?? ''}|${arms?.pattern ?? ''}|${arms?.emblem ?? ''}`;
+            const key = `${world.players[owner]!.hue}|${r?.login ?? ''}|${arms?.pattern ?? ''}|${arms?.emblem ?? ''}|${arms?.trim ?? ''}`;
             if (key !== v.flagKey) {
               const std = this.flags.standard(world.players[owner]!.hue, r?.login ?? '?', arms);
               for (const ff of v.flags) ff.texture = std;

@@ -326,17 +326,23 @@ function desert(world: World, player: PlayerState, kind: Kind, n: number): numbe
 }
 
 function queuePlatoon(world: World, player: PlayerState, repo: number, purpose: Purpose, counts: number[], ev: TickEvents): void {
-  const lastQueued = player.queue.length > 0 ? world.platoons.find((pl) => pl.id === player.queue[player.queue.length - 1]) : undefined;
-  if (player.queue.length >= QUEUE_LIMIT && lastQueued) {
-    // The muster queue is full: fold this push's soldiers into the last waiting platoon.
-    let slots = slotsOf(lastQueued.mustered);
-    for (let k = 0; k < KIND_COUNT; k++) {
-      const add = Math.min(counts[k]!, Math.floor((PLATOON_MAX - slots) / STATS[k]!.slots));
-      lastQueued.mustered[k]! += add;
-      lastQueued.size += add;
-      slots += add * STATS[k]!.slots;
+  if (player.queue.length >= QUEUE_LIMIT) {
+    // The muster queue is full: fold this push's soldiers into the waiting platoons,
+    // newest first. Whoever still has no place is not raised yet; a later push musters them.
+    for (let q = player.queue.length - 1; q >= 0; q--) {
+      const waiting = world.platoons.find((pl) => pl.id === player.queue[q]);
+      if (!waiting) continue;
+      let slots = slotsOf(waiting.mustered);
+      for (let k = 0; k < KIND_COUNT; k++) {
+        const add = Math.max(0, Math.min(counts[k]!, Math.floor((PLATOON_MAX - slots) / STATS[k]!.slots)));
+        waiting.mustered[k]! += add;
+        waiting.size += add;
+        counts[k]! -= add;
+        slots += add * STATS[k]!.slots;
+      }
+      waiting.champion = waiting.mustered[Kind.Champion]! + waiting.mustered[Kind.Dragon]! > 0;
     }
-    lastQueued.champion = lastQueued.mustered[Kind.Champion]! + lastQueued.mustered[Kind.Dragon]! > 0;
+    for (let k = 0; k < KIND_COUNT; k++) player.raised[k]! -= counts[k]!;
     return;
   }
   let battalion = player.battalions.find((b) => b[0] === repo);
@@ -459,10 +465,13 @@ function deploy(world: World, player: PlayerState, platoon: Platoon): void {
   platoon.state = PlatoonState.March;
   platoon.arrivedTick = world.tick;
   platoon.alive = 0;
-  // One Dragon per army: a second legendary push sends a Champion instead.
-  if (platoon.mustered[Kind.Dragon]! > 0 && world.units.some((u) => u.p === player.p && u.kind === Kind.Dragon)) {
-    platoon.mustered[Kind.Dragon]!--;
-    platoon.mustered[Kind.Champion]!++;
+  // One Dragon per army: a second legendary push sends a Champion instead, even
+  // when one squashed push raised both Dragons into this very platoon.
+  if (platoon.mustered[Kind.Dragon]! > 0) {
+    const allowed = world.units.some((u) => u.p === player.p && u.kind === Kind.Dragon) ? 0 : 1;
+    const extra = Math.max(0, platoon.mustered[Kind.Dragon]! - allowed);
+    platoon.mustered[Kind.Dragon]! -= extra;
+    platoon.mustered[Kind.Champion]! += extra;
   }
   for (const slot of formation(platoon.mustered)) {
     const jx = (nextRandom(world) - 0.5) * 3;
@@ -683,6 +692,7 @@ function updateUnits(world: World, s: Scratch, ev: TickEvents): void {
     if (u.kind === Kind.Trebuchet && !routing) {
       // Siege engines would rather batter walls than soldiers.
       structure = nearestStructure(world, u.p, u.x, u.y, stats.range);
+      if (structure >= 0 && pl && !withinLeash(map, world.structures[structure]!.site, ax, ay, leash)) structure = -1;
       if (structure >= 0) t = -1;
     }
     if (structure < 0 && !routing && (tick + u.id) % (t >= 0 ? 8 : 4) === 0) {
@@ -696,7 +706,8 @@ function updateUnits(world: World, s: Scratch, ev: TickEvents): void {
     }
     if (structure < 0 && t < 0 && !routing && pl) {
       structure = u.target < 0 ? -u.target - 1 : -1;
-      if (structure >= 0 && !attackable(world, structure, u.p)) structure = -1;
+      // Keep battering the same walls only while they stay within the leash of the banner.
+      if (structure >= 0 && (!attackable(world, structure, u.p) || !withinLeash(map, world.structures[structure]!.site, ax, ay, leash))) structure = -1;
       if (structure < 0) {
         const goal = structureAt(world, pl.site);
         // Sappers run ahead to the walls, but only from within their leash of the banner.
@@ -758,12 +769,21 @@ function updateUnits(world: World, s: Scratch, ev: TickEvents): void {
       const sy = pl.y + pl.hy * u.fx + pl.hx * u.fy;
       const remaining = towards(dir, u.x, u.y, sx, sy);
       // A straggler cut off from its place by rock or water follows the banner's road
-      // instead of pressing against the far bank forever.
+      // instead of pressing against the far bank forever. One already further along
+      // that road than its marching banner waits for it to come by.
+      let cutOff = false;
       if (remaining > SPACING * 2 && !stats.flying && !clearPath(map, u.x, u.y, sx, sy)) {
         const site = pl.site >= 0 ? pl.site : player!.slot;
-        flowDirection(dir, map, derived(map).flow[site]!, u.x, u.y, map.sites[site]!.x, map.sites[site]!.y);
+        const field = derived(map).flow[site]!;
+        const here = cell >= 0 ? field.cost[cell]! : -1;
+        const banner = cellAt(map, pl.x, pl.y);
+        const there = banner >= 0 ? field.cost[banner]! : -1;
+        cutOff = true;
+        if (pl.state === PlatoonState.March && here >= 0 && there >= 0 && here <= there) moving = false;
+        else flowDirection(dir, map, field, u.x, u.y, map.sites[site]!.x, map.sites[site]!.y);
       }
-      if (remaining <= SLOT_TOLERANCE) moving = false;
+      if (cutOff) pace = CATCH_UP;
+      else if (remaining <= SLOT_TOLERANCE) moving = false;
       else if (remaining > SPACING * 2) pace = CATCH_UP;
       else pace = Math.min(1, remaining / (SPACING * 1.5) + 0.25);
     } else moving = false;
@@ -791,7 +811,11 @@ function strike(world: World, u: Unit, v: Unit, i: number, t: number, dist: numb
   const stats = STATS[u.kind]!;
   u.cooldown = stats.cooldown;
   if (stats.breath) breathe(world, s, i, v.x, v.y, ev);
-  else if (stats.ranged) fire(world, s, i, v.id, v.x, v.y, unitDamage(world, s, i, t), ev);
+  else if (stats.ranged) {
+    // A burst is weighed against each soldier it lands on, so it carries its raw force.
+    const damage = stats.splash > 0 ? stats.damage * attackerMultiplier(world, s, i, u.p >= 0 ? world.players[u.p] : undefined) : unitDamage(world, s, i, t);
+    fire(world, s, i, v.id, v.x, v.y, damage, ev);
+  }
   else {
     if (u.kind === Kind.Knight && u.run >= KNIGHT_CHARGE_RUN) u.run = -1;
     u.swingAt = world.tick + MELEE_WINDUP;
@@ -1058,6 +1082,7 @@ function splash(world: World, s: Scratch, shot: Shot, x: number, y: number, ev: 
   const bx = bucketX(hash, x);
   const by = bucketY(hash, y);
   const fiery = shot.kind === ShotKind.Fireball;
+  const shooter = SHOOTER[shot.kind];
   for (let cy = Math.max(0, by - reach); cy <= Math.min(hash.rows - 1, by + reach); cy++) {
     for (let cx = Math.max(0, bx - reach); cx <= Math.min(hash.cols - 1, bx + reach); cx++) {
       for (let j = hash.head[cy * hash.cols + cx]!; j >= 0; j = hash.next[j]!) {
@@ -1067,7 +1092,8 @@ function splash(world: World, s: Scratch, shot: Shot, x: number, y: number, ev: 
         const dy = v.y - y;
         const d = Math.sqrt(dx * dx + dy * dy);
         if (d > r) continue;
-        const dmg = mitigated(world, s, j, shot.damage * (1 - 0.5 * (d / r)), true);
+        const bonus = shooter !== undefined ? matchup(shooter, v.kind) : 1;
+        const dmg = mitigated(world, s, j, shot.damage * bonus * (1 - 0.5 * (d / r)), true);
         s.damage[j]! += dmg;
         if (shot.p >= 0) {
           s.lastHit[j] = shot.p;

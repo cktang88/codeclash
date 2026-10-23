@@ -98,8 +98,8 @@ const ROCK: Rgb = [164, 152, 128];
 const ROCK_SHADE: Rgb = [118, 106, 88];
 const MUD: Rgb = [150, 132, 92];
 const SHALLOW: Rgb = [122, 156, 160];
-const DEEP: Rgb = [58, 90, 132];
-const SEA: Rgb = [84, 116, 150];
+const DEEP: Rgb = [46, 80, 138];
+const SEA: Rgb = [80, 118, 164];
 const INK = 'rgba(34,24,15,';
 
 export function paintTerrain(map: MapDef, seed: number, maxPx: number, text: ChartText): TerrainArt {

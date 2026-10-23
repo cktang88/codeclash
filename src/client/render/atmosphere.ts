@@ -414,7 +414,7 @@ export class Atmosphere {
       b.y += b.vy * dt * motion;
       b.s.position.set(b.x, b.y - 10 - Math.abs(Math.sin(b.phase * 3)) * 4);
       b.s.texture = this.art.butterfly[Math.floor(t * 14 + b.phase * 7) % 2]!;
-      b.s.scale.set(0.75);
+      b.s.scale.set(0.75 * Math.min(1, 1.6 / zoom));
     }
 
     // Fireflies at night, drifting and blinking; fewer at mid zoom, none far out.
