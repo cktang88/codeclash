@@ -251,7 +251,7 @@ function stage(name: Scene, t0: number): void {
       break;
     case 'dragon':
       at(t + 1, (ev) => {
-        world.platoons = [platoon(92, 0, home.x + 40, home.y)];
+        world.platoons = [platoon(92, 0, home.x + 40, home.y, true)];
         fx.onChronicle([muster(world.platoons[0]!, 'perf: summon the wyrm')], asWorld);
         ev.marches.push({ platoon: 92 });
       });
@@ -290,9 +290,13 @@ const hud = document.createElement('pre');
 hud.style.cssText = 'position:fixed;left:8px;top:8px;margin:0;color:#f4e9cc;font:13px/1.35 ui-monospace,monospace;background:rgba(0,0,0,.6);padding:6px 9px;border-radius:6px';
 document.body.appendChild(hud);
 
+// With ?fixed every frame advances a virtual clock by 1/60 s, so captures are deterministic on slow GPUs.
+const fixed = q.has('fixed');
+let vt = 0;
+const clock = () => (fixed ? vt : performance.now());
 let tick = 0;
-let tickStart = performance.now();
-let last = performance.now();
+let tickStart = clock();
+let last = clock();
 let sceneIndex = 0;
 let frameMs = 0;
 let fps = 60;
@@ -326,7 +330,8 @@ function stepTick(): void {
 }
 
 app.ticker.add(() => {
-  const now = performance.now();
+  vt += 1000 / 60;
+  const now = clock();
   const dt = now - last;
   last = now;
   while (now - tickStart >= TICK_MS) {
@@ -351,4 +356,4 @@ app.ticker.add(() => {
   hud.textContent = `scene ${hud.dataset.scene ?? ''}  fps ${fps.toFixed(0)}  fx ${frameMs.toFixed(2)} ms\nparticles ${c.particles}  projectiles ${c.projectiles}  decals ${c.decals}  corpses ${c.corpses}\n${cues.slice(-6).join('\n')}`;
 });
 
-(window as unknown as { fxLab: unknown }).fxLab = { fx, get frameMs() { return frameMs; }, get fps() { return fps; } };
+(window as unknown as { fxLab: unknown }).fxLab = { fx, get frameMs() { return frameMs; }, get fps() { return fps; }, get vt() { return vt; } };

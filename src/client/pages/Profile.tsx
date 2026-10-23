@@ -6,6 +6,8 @@ import { Avatar } from '../ui/Avatar.tsx';
 import { Link } from '../ui/Link.tsx';
 import { compact } from '../ui/format.ts';
 import { Notice } from './Notice.tsx';
+import { DeedsSection, ProfileRank, RivalriesSection } from '../meta/index.ts';
+import { DropCap, Fleuron, Tally } from '../ui/codex.tsx';
 
 export function ProfilePage({ login }: { login: string }) {
   const [profile, setProfile] = useState<ProfileResponse | null>(null);
@@ -32,7 +34,7 @@ export function ProfilePage({ login }: { login: string }) {
   }
   if (!profile) {
     return (
-      <main className="page page-center" role="status">
+      <main className="page-center" role="status">
         <span className="spinner" aria-hidden /> Fetching the service record…
       </main>
     );
@@ -42,14 +44,18 @@ export function ProfilePage({ login }: { login: string }) {
     { days: 0, wins: 0, kills: 0, best: 0 },
   );
   return (
-    <main className="page profile">
+    <main className="folio profile">
       <nav className="crumbs">
         <Link to={{ kind: 'home' }}>← Lobby</Link>
       </nav>
       <header className="profile-head">
-        <Avatar login={profile.user.login} url={profile.user.avatarUrl} size={88} />
-        <div>
+        <span className="profile-medal">
+          <Avatar login={profile.user.login} url={profile.user.avatarUrl} size={96} />
+        </span>
+        <div className="profile-titles">
+          <p className="eyebrow">The codex of deeds of</p>
           <h1 className="page-title page-title-login">@{profile.user.login}</h1>
+          <ProfileRank login={profile.user.login} />
           {profile.titles.length > 0 && (
             <ul className="titles">
               {profile.titles.map((t) => (
@@ -61,27 +67,46 @@ export function ProfilePage({ login }: { login: string }) {
           )}
         </div>
       </header>
-      <dl className="stat-grid stat-grid-big panel">
+      <Fleuron />
+      <DropCap
+        className="profile-opening"
+        text={
+          totals.days === 0
+            ? `No war has yet been written under this name. The first push of a day in any room begins the record.`
+            : `In ${totals.days} ${totals.days === 1 ? 'day' : 'days'} of war across ${profile.records.length} ${profile.records.length === 1 ? 'room' : 'rooms'}, this house has carried the field ${totals.wins} ${totals.wins === 1 ? 'time' : 'times'} and put ${compact(totals.kills)} foes to flight or the sword.`
+        }
+      />
+      <dl className="stat-grid stat-grid-big">
         <div>
           <dt>Days fought</dt>
-          <dd className="num">{totals.days}</dd>
+          <dd>
+            <Tally value={totals.days} start={0} duration={900} />
+          </dd>
         </div>
         <div>
           <dt>Days won</dt>
-          <dd className="num">{totals.wins}</dd>
+          <dd>
+            <Tally value={totals.wins} start={0} duration={900} />
+          </dd>
         </div>
         <div>
           <dt>Kills</dt>
-          <dd className="num">{compact(totals.kills)}</dd>
+          <dd>
+            <Tally value={totals.kills} format={compact} start={0} duration={900} />
+          </dd>
         </div>
         <div>
           <dt>Best streak</dt>
-          <dd className="num">{totals.best}</dd>
+          <dd>
+            <Tally value={totals.best} start={0} duration={900} />
+          </dd>
         </div>
       </dl>
+      <DeedsSection login={profile.user.login} />
+      <RivalriesSection login={profile.user.login} />
       <h2 className="block-title">Rooms</h2>
       {profile.records.length === 0 ? (
-        <p className="empty-card panel">No wars fought yet.</p>
+        <p className="empty-note">No wars fought yet.</p>
       ) : (
         <div className="records">
           {profile.records.map((r) => (

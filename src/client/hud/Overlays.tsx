@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react';
-import { armyColor } from '../../rules/heraldry.ts';
 import type { HudSnapshot } from '../store.ts';
 import { Link } from '../ui/Link.tsx';
 import { Modal } from '../ui/Modal.tsx';
@@ -9,11 +8,19 @@ import { api } from '../net/api.ts';
 import { summarizeAway, lastSeenKey, readNumber, writeNumber, type AwaySummary } from './away.ts';
 import { colorize } from './Chronicle.tsx';
 import { useHudContext } from './context.ts';
-import { sfxCue } from '../ui/codex.tsx';
+import { CarvedBar, hueVar, sfx, sfxCue } from '../ui/codex.tsx';
 
 /** Big moments, announced across the top of the map. */
 export function Toasts({ hud }: { hud: HudSnapshot }) {
   const { field } = useHudContext();
+  // A soft bell as each new scroll unrolls.
+  const newest = hud.toasts[hud.toasts.length - 1]?.id ?? null;
+  const rung = useRef<number | null>(newest);
+  useEffect(() => {
+    if (newest === null || newest === rung.current) return;
+    rung.current = newest;
+    sfx(hud.toasts[hud.toasts.length - 1]?.kind === 'order' ? 'ui.coin' : 'ui.toast');
+  }, [newest]);
   if (hud.toasts.length === 0) return null;
   return (
     <div className="toasts" role="status" aria-live="polite">
@@ -23,13 +30,15 @@ export function Toasts({ hud }: { hud: HudSnapshot }) {
           <button
             key={t.id}
             className={`toast toast-${t.kind}`}
-            style={actor ? { borderColor: armyColor(actor.hue, 55) } : undefined}
-            onClick={() => (t.x !== 0 || t.y !== 0 || t.kind === 'monolith') && field()?.focus(t.x, t.y, 1.2)}
+            style={hueVar(actor?.hue)}
+            onClick={() => Number.isFinite(t.x) && (t.x !== 0 || t.y !== 0 || t.kind === 'monolith') && field()?.focus(t.x, t.y, 1.2)}
           >
-            <span className="toast-icon" style={actor ? { color: armyColor(actor.hue, 66) } : undefined}>
-              <EventIcon kind={t.kind} size={22} />
+            <span className="toast-paper">
+              <span className="toast-icon chron-icon">
+                <EventIcon kind={t.kind} size={24} />
+              </span>
+              <span className="toast-text">{colorize(t.title, hud.roster)}</span>
             </span>
-            <span className="toast-text">{colorize(t.title, hud.roster)}</span>
           </button>
         );
       })}
@@ -47,9 +56,7 @@ export function MonolithBar({ hud }: { hud: HudSnapshot }) {
       <span className="monolith-label">
         <EventIcon kind="monolith" size={16} /> Legacy Monolith
       </span>
-      <span className="bar bar-lg" role="progressbar" aria-valuemin={0} aria-valuemax={m.maxHp} aria-valuenow={Math.round(m.hp)} aria-label="Monolith health">
-        <span className="bar-fill bar-hp" style={{ width: `${pct}%` }} />
-      </span>
+      <CarvedBar value={m.hp} max={m.maxHp} kind="hp" size="lg" label="Monolith health" valueText={`${pct}%`} />
       <span className="num">
         {compact(m.hp)} <span className="muted">/ {compact(m.maxHp)}</span>
       </span>
@@ -71,7 +78,7 @@ export function DayOverBanner({ hud }: { hud: HudSnapshot }) {
       <strong>{ended === hud.war ? 'The day is done.' : 'The last war is over. A new one has begun.'}</strong>
       <span>{ready ? 'The chroniclers have written the digest.' : 'The chroniclers are writing the digest…'}</span>
       {ready && (
-        <Link className="btn btn-primary" to={{ kind: 'digest', slug, warId: ended.id }}>
+        <Link className="btn btn-gilt" to={{ kind: 'digest', slug, warId: ended.id }}>
           Read the digest
         </Link>
       )}
@@ -157,7 +164,7 @@ export function AwayModal({ hud }: { hud: HudSnapshot }) {
           {prevRank !== null && prevRank !== myRank && (
             <span className={prevRank > myRank ? 'good' : 'bad'}>
               {' '}
-              ({prevRank > myRank ? '▲ up' : '▼ down'} from #{prevRank})
+              (<Icon name={prevRank > myRank ? 'up' : 'down'} size={11} /> {prevRank > myRank ? 'up' : 'down'} from #{prevRank})
             </span>
           )}
           .

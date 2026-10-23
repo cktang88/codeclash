@@ -1,4 +1,5 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { prefersReducedMotion, sfx } from './codex.tsx';
 import { Icon } from './icons.tsx';
 
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -10,6 +11,9 @@ export function Modal({
   children,
   wide,
   footer,
+  variant = 'page',
+  night,
+  className,
 }: {
   title: string;
   subtitle?: ReactNode;
@@ -17,10 +21,26 @@ export function Modal({
   children: ReactNode;
   wide?: boolean;
   footer?: ReactNode;
+  /** A page turning in from the spine, or a scroll unrolling (charters, proclamations). */
+  variant?: 'page' | 'scroll';
+  night?: boolean;
+  className?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  const close = useRef(onClose);
-  close.current = onClose;
+  const [closing, setClosing] = useState(false);
+  // Closing from inside the dialog plays the page leaving before the parent unmounts it.
+  const requestClose = () => {
+    if (closing) return;
+    sfx('ui.close');
+    if (prefersReducedMotion()) {
+      onClose();
+      return;
+    }
+    setClosing(true);
+    setTimeout(onClose, 170);
+  };
+  const close = useRef(requestClose);
+  close.current = requestClose;
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
     const onKey = (e: KeyboardEvent) => {
@@ -44,6 +64,7 @@ export function Modal({
       }
     };
     window.addEventListener('keydown', onKey);
+    sfx(variant === 'scroll' ? 'ui.page' : 'ui.open');
     // Respect a child's autoFocus (e.g. the primary action); otherwise focus the dialog itself.
     if (!ref.current?.contains(document.activeElement)) ref.current?.focus();
     return () => {
@@ -52,14 +73,14 @@ export function Modal({
     };
   }, []);
   return (
-    <div className="modal-backdrop" onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className={`panel modal${wide ? ' modal-wide' : ''}`} role="dialog" aria-modal="true" aria-label={title} ref={ref} tabIndex={-1}>
+    <div className={`modal-backdrop${closing ? ' is-closing' : ''}`} onPointerDown={(e) => e.target === e.currentTarget && requestClose()}>
+      <div className={`panel modal${wide ? ' modal-wide' : ''}${variant === 'scroll' ? ' modal-scroll' : ''}${night ? ' panel-night' : ''}${className ? ` ${className}` : ''}`} role="dialog" aria-modal="true" aria-label={title} ref={ref} tabIndex={-1}>
         <header className="modal-head">
           <div className="modal-titles">
             <h2 className="modal-title">{title}</h2>
             {subtitle && <div className="modal-sub">{subtitle}</div>}
           </div>
-          <button className="icon-btn" onClick={onClose} aria-label="Close">
+          <button className="icon-btn" onClick={requestClose} aria-label="Close">
             <Icon name="close" size={20} />
           </button>
         </header>

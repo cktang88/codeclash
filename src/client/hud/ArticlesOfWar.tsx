@@ -2,6 +2,7 @@ import { Fragment, useState } from 'react';
 import { Kind } from '../../sim/api.ts';
 import { DOCTRINE_NAMES, STATS, type Tier } from '../../sim/stats.ts';
 import { Modal } from '../ui/Modal.tsx';
+import { Ribbons } from '../ui/codex.tsx';
 import { DoctrineIcon, UnitIcon } from '../ui/icons.tsx';
 import { DOCTRINE_EFFECTS } from './Command.tsx';
 
@@ -65,21 +66,19 @@ type Tab = 'units' | 'fair' | 'command' | 'renown';
 export function ArticlesOfWar({ onClose }: { onClose(): void }) {
   const [tab, setTab] = useState<Tab>('units');
   return (
-    <Modal title="Articles of War" subtitle="How your pushes become an army" onClose={onClose} wide>
-      <div className="segmented" role="tablist">
-        {(
-          [
-            ['units', 'Units'],
-            ['fair', 'Fair play'],
-            ['command', 'Command'],
-            ['renown', 'Renown'],
-          ] as const
-        ).map(([t, label]) => (
-          <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? 'is-on' : ''} onClick={() => setTab(t)}>
-            {label}
-          </button>
-        ))}
-      </div>
+    <Modal title="Articles of War" subtitle="Being the rules by which pushes become armies" onClose={onClose} wide className="rulebook">
+      <Ribbons
+        className="book-ribbons"
+        label="Chapters"
+        value={tab}
+        onChange={setTab}
+        items={[
+          ['units', 'Units'],
+          ['fair', 'Fair play'],
+          ['command', 'Command'],
+          ['renown', 'Renown'],
+        ]}
+      />
       {tab === 'units' && (
         <>
           <ul className="how-list">

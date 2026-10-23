@@ -1,7 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import type { DigestResponse } from '../../protocol.ts';
 import type { DigestPlayer } from '../../rules/digest.ts';
-import { armyColor } from '../../rules/heraldry.ts';
 import { CAT_NAMES, Kind, PURPOSES, PURPOSE_LABEL, TICK_MS, type Purpose } from '../../sim/api.ts';
 import { ApiError, api } from '../net/api.ts';
 import { UnitChips, colorize } from '../hud/Chronicle.tsx';
@@ -11,10 +10,12 @@ import { Link } from '../ui/Link.tsx';
 import { clock, compact } from '../ui/format.ts';
 import { EventIcon, Icon, UnitIcon } from '../ui/icons.tsx';
 import { Notice } from './Notice.tsx';
+import { DropCap, Fleuron, Tally, hueVar } from '../ui/codex.tsx';
 import { Timelapse } from './Timelapse.tsx';
 
 /** Colors for the nine line categories, in Cat order. Paired with labels everywhere they appear. */
-export const CAT_COLORS = ['#e8c15a', '#5fb3e8', '#b48ce8', '#7ed3a1', '#e8955f', '#e86a6a', '#5c6169', '#4f5359', '#3a4049'];
+// Pigments from the palette: gold leaf, ultramarine, umber, verdigris, ochre, vermilion, and greys of old vellum.
+export const CAT_COLORS = ['#d4a93e', '#2c4a9a', '#7b5a2e', '#2f7f6f', '#b9a477', '#b8321f', '#8e8269', '#a39880', '#c9bc9b'];
 export const CAT_LABELS = ['Code', 'Tests', 'Comments', 'Docs', 'Config', 'Deleted', 'Generated (ignored)', 'Vendored (ignored)', 'Blank'];
 
 const AWARD_ICON: Record<string, () => ReactNode> = {
@@ -82,6 +83,7 @@ function PushPurposes({ pl }: { pl: DigestPlayer & { purposes?: PurposeCounts; f
 
 type FairFields = { quality?: number; veterancy?: number; power?: number; churn?: number; filler?: number };
 const RANKS = ['', 'I', 'II', 'III'];
+const ROMAN = ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII'];
 
 /** The army's final quality: veteran rank or ragged, and how much work cancelled out or was filler. */
 function ArmyQuality({ pl }: { pl: DigestPlayer & FairFields }) {
@@ -105,12 +107,12 @@ function ArmyQuality({ pl }: { pl: DigestPlayer & FairFields }) {
 function PlayerCard({ pl, repos }: { pl: DigestPlayer & FairFields; repos: { name: string; language: string | null }[] }) {
   const lang = pl.best ? (repos.find((r) => r.name === pl.best!.repo)?.language ?? null) : null;
   return (
-    <article className="player-card panel" style={{ borderTopColor: armyColor(pl.hue) }}>
+    <article className="player-card panel" style={hueVar(pl.hue)}>
       <header className="player-card-head">
-        <span className="place num">#{pl.place}</span>
+        <span className="place" aria-label={`Place ${pl.place}`}>{ROMAN[pl.place] ?? pl.place}</span>
         <Avatar login={pl.login} url={pl.bot ? null : `https://avatars.githubusercontent.com/u/${pl.id}?s=80`} hue={pl.hue} size={40} bot={pl.bot} />
         <div>
-          <strong style={{ color: armyColor(pl.hue, 70) }}>@{pl.login}</strong>
+          <strong className="who">@{pl.login}</strong>
           <div className="muted small">
             {compact(pl.renown)} renown · {pl.pushes} {pl.pushes === 1 ? 'push' : 'pushes'}
           </div>
@@ -184,7 +186,7 @@ export function DigestPage({ slug, warId }: { slug: string; warId: number }) {
   }
   if (!data) {
     return (
-      <main className="page page-center" role="status">
+      <main className="page-center" role="status">
         <span className="spinner" aria-hidden /> Reading the chronicle…
       </main>
     );
@@ -199,7 +201,7 @@ export function DigestPage({ slug, warId }: { slug: string; warId: number }) {
   const at = (tick: number) => clock(d.startsAt + tick * TICK_MS);
 
   return (
-    <main className="page digest">
+    <main className="folio digest">
       <nav className="crumbs">
         <Link to={{ kind: 'room', slug, invite: null }}>
           ← {room.name}
@@ -210,8 +212,9 @@ export function DigestPage({ slug, warId }: { slug: string; warId: number }) {
       <header className="digest-head">
         <p className="eyebrow">The Daily Digest · {date}</p>
         <h1 className="digest-title">{colorize(d.headline, roster)}</h1>
+        <Fleuron />
         <div className="digest-actions">
-          <Link className="btn btn-primary" to={{ kind: 'replay', slug, warId: war.id, tick: null }}>
+          <Link className="btn btn-gilt" to={{ kind: 'replay', slug, warId: war.id, tick: null }}>
             <Icon name="play" size={16} /> Watch the replay
           </Link>
           <button className="btn" onClick={() => navigator.clipboard?.writeText(location.href).catch(() => undefined)}>
@@ -221,18 +224,25 @@ export function DigestPage({ slug, warId }: { slug: string; warId: number }) {
       </header>
 
       {winner && (
-        <section className="winner panel" style={{ borderColor: armyColor(winner.hue, 55) }}>
-          <Icon name="crown" size={40} className="winner-crown" />
-          <Avatar login={winner.login} url={winner.bot ? null : `https://avatars.githubusercontent.com/u/${winner.id}?s=128`} hue={winner.hue} size={72} bot={winner.bot} />
+        <section className="winner" style={hueVar(winner.hue)}>
+          <span className="winner-medal">
+            <Icon name="crown" size={40} className="winner-crown" />
+            <Avatar login={winner.login} url={winner.bot ? null : `https://avatars.githubusercontent.com/u/${winner.id}?s=128`} hue={winner.hue} size={84} bot={winner.bot} />
+          </span>
           <div>
             <p className="eyebrow">Victor of the day</p>
-            <h2 className="winner-name" style={{ color: armyColor(winner.hue, 70) }}>
-              @{winner.login}
-            </h2>
-            <p className="num winner-renown">{compact(winner.renown)} renown</p>
+            <h2 className="winner-name who">@{winner.login}</h2>
+            <p className="winner-renown">
+              <Tally value={winner.renown} format={compact} start={0} duration={1400} /> renown
+            </p>
           </div>
         </section>
       )}
+
+      <DropCap
+        className="digest-opening"
+        text={`Here is set down the chronicle of the war of ${date}, fought in ${room.name} by ${d.players.length} ${d.players.length === 1 ? 'army' : 'armies'} raised from ${d.totals.pushes} ${d.totals.pushes === 1 ? 'push' : 'pushes'}. ${d.monolith.fallen ? `The Legacy Monolith fell at ${at(d.monolith.tick ?? 0)}.` : 'The Legacy Monolith stood to the end.'} ${winner ? `When the sun went down, @${winner.login} held the field.` : 'No banner held the field at sundown.'}`}
+      />
 
       {data.timelapse?.length > 0 && (
         <section className="digest-section">
@@ -245,7 +255,7 @@ export function DigestPage({ slug, warId }: { slug: string; warId: number }) {
         <div className="panel digest-block">
           <h2 className="block-title">Final standings</h2>
           <div className="table-wrap">
-            <table className="table">
+            <table className="table codex-table">
               <thead>
                 <tr>
                   <th scope="col">#</th>
@@ -270,8 +280,10 @@ export function DigestPage({ slug, warId }: { slug: string; warId: number }) {
                     <td className="num">{pl.place}</td>
                     <th scope="row">
                       <span className="who-cell">
-                        <span className="standing-swatch" style={{ background: armyColor(pl.hue) }} aria-hidden />
-                        <span style={{ color: armyColor(pl.hue, 70) }}>@{pl.login}</span>
+                        <span className="standing-swatch" style={hueVar(pl.hue)} aria-hidden />
+                        <span className="who" style={hueVar(pl.hue)}>
+                          @{pl.login}
+                        </span>
                         {pl.bot && <span className="tag">bot</span>}
                       </span>
                     </th>
@@ -291,15 +303,21 @@ export function DigestPage({ slug, warId }: { slug: string; warId: number }) {
           <dl className="stat-grid stat-grid-big">
             <div>
               <dt>Pushes</dt>
-              <dd className="num">{d.totals.pushes}</dd>
+              <dd>
+                <Tally value={d.totals.pushes} start={0} duration={1200} />
+              </dd>
             </div>
             <div>
               <dt>Soldiers raised</dt>
-              <dd className="num">{compact(d.totals.raised.reduce((a, b) => a + b, 0))}</dd>
+              <dd>
+                <Tally value={d.totals.raised.reduce((a, b) => a + b, 0)} format={compact} start={0} duration={1200} />
+              </dd>
             </div>
             <div>
               <dt>Fallen</dt>
-              <dd className="num">{compact(d.totals.kills)}</dd>
+              <dd>
+                <Tally value={d.totals.kills} format={compact} start={0} duration={1200} />
+              </dd>
             </div>
             <div>
               <dt>Monolith</dt>
@@ -326,7 +344,7 @@ export function DigestPage({ slug, warId }: { slug: string; warId: number }) {
                   </span>
                   <div>
                     <h3 className="award-title">{a.title}</h3>
-                    <p className="award-who" style={pl ? { color: armyColor(pl.hue, 70) } : undefined}>
+                    <p className="award-who who" style={hueVar(pl?.hue)}>
                       @{pl?.login ?? '?'}
                     </p>
                     <p className="muted small">{a.blurb}</p>

@@ -4,7 +4,8 @@ import { CAPTURE_TICKS, DOCTRINE_NAMES, HEART_CAPTURE_TICKS, STATS } from '../..
 import type { HudSnapshot } from '../store.ts';
 import { Avatar } from '../ui/Avatar.tsx';
 import { BattalionFlag } from '../ui/Flag.tsx';
-import { compact, duration, percent } from '../ui/format.ts';
+import { compact, duration } from '../ui/format.ts';
+import { CarvedBar, hueVar } from '../ui/codex.tsx';
 import { Icon, UnitIcon } from '../ui/icons.tsx';
 import { UnitChips, colorize } from './Chronicle.tsx';
 import { STATE_NAMES } from './Command.tsx';
@@ -18,13 +19,11 @@ function aliveByKind(world: World, platoonId: number): number[] {
   return counts;
 }
 
-function Meter({ label, value, max, kind }: { label: string; value: number; max: number; kind: string }) {
+function Meter({ label, value, max, kind }: { label: string; value: number; max: number; kind: 'hp' | 'strength' | 'morale' | 'capture' }) {
   return (
     <div className="meter">
       <span className="meter-label">{label}</span>
-      <span className="bar bar-lg">
-        <span className={`bar-fill bar-${kind}`} style={{ width: `${percent(value, max)}%` }} />
-      </span>
+      <CarvedBar value={value} max={max} kind={kind} size="lg" />
       <span className="num">
         {compact(value)}
         <span className="muted">/{compact(max)}</span>
@@ -68,7 +67,9 @@ export function Inspector({ hud }: { hud: HudSnapshot }) {
           <div className="inspector-title">
             <strong>{platoonLabel(store.names, pl.repo, pl.ordinal)}</strong>
             <span>
-              <span style={{ color: owner.color }}>@{owner.login}</span> · {ref?.[0]}
+              <span className="who" style={hueVar(owner.hue)}>
+                @{owner.login}
+              </span> · {ref?.[0]}
             </span>
           </div>
           {close}
@@ -119,7 +120,7 @@ export function Inspector({ hud }: { hud: HudSnapshot }) {
         <p>
           {owner >= 0 ? (
             <>
-              Held by <strong style={{ color: info.color }}>@{info.login}</strong>
+              Held by <strong className="who" style={hueVar(info.hue)}>@{info.login}</strong>
             </>
           ) : def.kind === 'capital' ? (
             'An empty slot, waiting for a new member.'
@@ -148,7 +149,9 @@ export function Inspector({ hud }: { hud: HudSnapshot }) {
       <header className="inspector-head">
         <Avatar login={info.login} url={info.avatarUrl} hue={info.hue} size={40} bot={info.bot} />
         <div className="inspector-title">
-          <strong style={{ color: info.color }}>@{info.login}</strong>
+          <strong className="who" style={hueVar(info.hue)}>
+            @{info.login}
+          </strong>
           <span className="muted">
             {DOCTRINE_NAMES[ps.doctrine]} doctrine · {compact(ps.renown)} renown
           </span>

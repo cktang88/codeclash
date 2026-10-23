@@ -6,7 +6,8 @@ import { DOCTRINE_COOLDOWN, DOCTRINE_NAMES, RALLY_COOLDOWN } from '../../sim/sta
 import { ApiError, api } from '../net/api.ts';
 import type { HudSnapshot } from '../store.ts';
 import { BattalionFlag } from '../ui/Flag.tsx';
-import { duration, percent } from '../ui/format.ts';
+import { duration } from '../ui/format.ts';
+import { CarvedBar, sfx } from '../ui/codex.tsx';
 import { DoctrineIcon, Icon } from '../ui/icons.tsx';
 import { useHudContext } from './context.ts';
 
@@ -79,10 +80,13 @@ export function CommandBar({ hud }: { hud: HudSnapshot }) {
               aria-checked={player.doctrine === d}
               className={`doctrine${player.doctrine === d ? ' is-on' : ''}`}
               disabled={busy || player.doctrine === d || doctrineWait > 0}
-              onClick={() => void run(`${name} doctrine`, { kind: 'doctrine', doctrine: d })}
+              onClick={() => {
+                sfx('ui.seal');
+                void run(`${name} doctrine`, { kind: 'doctrine', doctrine: d });
+              }}
               title={`${name}: ${DOCTRINE_EFFECTS[d]}`}
             >
-              <DoctrineIcon doctrine={d} size={18} />
+              <DoctrineIcon doctrine={d} size={22} />
               <span>{name}</span>
             </button>
           ))}
@@ -101,7 +105,10 @@ export function CommandBar({ hud }: { hud: HudSnapshot }) {
             value=""
             onChange={(e) => {
               const site = Number(e.target.value);
-              if (Number.isInteger(site) && e.target.value !== '') void run('Rally', { kind: 'rally', site });
+              if (Number.isInteger(site) && e.target.value !== '') {
+                sfx('ui.quill');
+                void run('Rally', { kind: 'rally', site });
+              }
             }}
           >
             <option value="">Choose an objective…</option>
@@ -130,8 +137,15 @@ export function CommandBar({ hud }: { hud: HudSnapshot }) {
       </div>
       <div className="command-group">
         <h3 className="command-label">War Cry</h3>
-        <button className="btn btn-cry" disabled={busy || player.cryUsed} onClick={() => void run('War Cry', { kind: 'cry' })}>
-          <Icon name="bolt" size={18} /> {crying ? `Sounding! ${duration((player.cryUntil - tick) * TICK_MS)}` : player.cryUsed ? 'Used today' : 'Sound the War Cry'}
+        <button
+          className="btn btn-cry"
+          disabled={busy || player.cryUsed}
+          onClick={() => {
+            sfx('ui.seal');
+            void run('War Cry', { kind: 'cry' });
+          }}
+        >
+          <Icon name="horn" size={20} /> {crying ? `Sounding! ${duration((player.cryUntil - tick) * TICK_MS)}` : player.cryUsed ? 'Used today' : 'Sound the War Cry'}
         </button>
         <p className="command-hint">+30% damage and +25% speed for 60 seconds. Once per war.</p>
       </div>
@@ -208,12 +222,8 @@ export function ArmyPanel({ hud }: { hud: HudSnapshot }) {
                       <span className="platoon-num">{roman(pl.ordinal)}</span>
                       <span className="platoon-state">{STATE_NAMES[pl.state]}</span>
                       <span className="bars">
-                        <span className="bar" title={`Strength ${pl.alive}/${pl.size}`}>
-                          <span className="bar-fill bar-strength" style={{ width: `${percent(pl.alive, pl.size)}%` }} />
-                        </span>
-                        <span className="bar" title={`Morale ${Math.max(0, Math.round(pl.morale))}`}>
-                          <span className="bar-fill bar-morale" style={{ width: `${percent(pl.morale, 100)}%` }} />
-                        </span>
+                        <CarvedBar value={pl.alive} max={pl.size} kind="strength" />
+                        <CarvedBar value={Math.max(0, pl.morale)} max={100} kind="morale" />
                       </span>
                       <span className="num muted">
                         {pl.state === PlatoonState.Queued ? pl.size : pl.alive}/{pl.size}

@@ -5,6 +5,7 @@ import { Avatar } from '../ui/Avatar.tsx';
 import { clock } from '../ui/format.ts';
 import { Icon } from '../ui/icons.tsx';
 import { useHudContext } from './context.ts';
+import { sfx } from '../ui/codex.tsx';
 
 const EMOTE_GAP_MS = 2000;
 
@@ -13,6 +14,7 @@ export function EmoteBar({ canSend }: { canSend: boolean }) {
   const [cooling, setCooling] = useState(false);
   const fire = (emote: Emote) => {
     if (cooling) return;
+    sfx('ui.click');
     if (mode === 'live') send({ type: 'emote', emote });
     else store.addEmote('you', store.viewerP, emote);
     setCooling(true);
@@ -55,6 +57,7 @@ export function Chat({ hud, canSend }: { hud: HudSnapshot; canSend: boolean }) {
   const submit = () => {
     const t = text.trim().slice(0, CHAT_MAX);
     if (!t) return;
+    sfx('ui.quill');
     send({ type: 'chat', text: t });
     setText('');
   };

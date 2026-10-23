@@ -1,14 +1,16 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import type { RoomDetail } from '../../protocol.ts';
 import type { HudSnapshot } from '../store.ts';
 import { Link } from '../ui/Link.tsx';
 import { Icon } from '../ui/icons.tsx';
+import { BrandMark, Ribbons, SoundSeal, sfx } from '../ui/codex.tsx';
+import { OrdersCard } from '../meta/index.ts';
 import { ArticlesOfWar } from './ArticlesOfWar.tsx';
 import { Chronicle } from './Chronicle.tsx';
 import { ArmyPanel, CommandBar } from './Command.tsx';
 import { useHudContext } from './context.ts';
 import { Inspector } from './Inspector.tsx';
-import { AwayModal, Countdown, DayOverBanner, MonolithBar, Toasts } from './Overlays.tsx';
+import { AwayModal, Countdown, DayOverBanner, MonolithBar, Toasts, VictoryFanfare } from './Overlays.tsx';
 import { RoomSettings, ShareModal } from './RoomSettings.tsx';
 import { Chat, EmoteBar, EmoteRain, Presence } from './Social.tsx';
 import { Standings } from './Standings.tsx';
@@ -54,6 +56,32 @@ function ConnPill({ hud, compact }: { hud: HudSnapshot; compact?: boolean }) {
   );
 }
 
+/** "Follow my banner": the camera rides with your freshest platoon (F on the keyboard). */
+function FollowToggle() {
+  const { store } = useHudContext();
+  const [, bump] = useState(0);
+  const s = store as typeof store & { followMine?: boolean; setFollowMine?(on: boolean): void };
+  if (typeof s.setFollowMine !== 'function') return null;
+  const on = !!s.followMine;
+  return (
+    <button
+      className={`icon-btn${on ? ' is-on' : ''}`}
+      aria-pressed={on}
+      onClick={() => {
+        sfx('ui.click');
+        s.setFollowMine!(!on);
+        bump((n) => n + 1);
+      }}
+      aria-label="Follow my banner"
+      title="Follow my banner (F)"
+    >
+      <Icon name="follow" size={20} />
+    </button>
+  );
+}
+
+const PAGE_SWIPE = 56;
+
 export interface RoomHudProps {
   hud: HudSnapshot;
   title: string;
@@ -76,6 +104,8 @@ export function RoomHud({ hud, title, subtitle, banner, dock, room, onRoomChange
   const [leftOpen, setLeftOpen] = useState(true);
   const [rightOpen, setRightOpen] = useState(true);
   const [sheet, setSheet] = useState<SheetTab | null>(null);
+  const [turn, setTurn] = useState<'next' | 'prev' | null>(null);
+  const swipe = useRef<{ x: number; y: number } | null>(null);
   const [modal, setModal] = useState<'help' | 'share' | 'settings' | null>(null);
   const member = room?.viewer.member ?? false;
   const canChat = mode === 'live' && member;
@@ -88,16 +118,48 @@ export function RoomHud({ hud, title, subtitle, banner, dock, room, onRoomChange
   if (mode === 'live') rightTabs.push(['chat', 'Chat']);
 
   const leftBody = (tab: LeftTab) =>
-    tab === 'standings' ? <Standings standings={hud.standings} viewerP={hud.viewerP} /> : tab === 'orders' ? <CommandBar hud={hud} /> : <ArmyPanel hud={hud} />;
+    tab === 'standings' ? (
+      <Standings standings={hud.standings} viewerP={hud.viewerP} />
+    ) : tab === 'orders' ? (
+      <>
+        <OrdersCard hud={hud} />
+        <CommandBar hud={hud} />
+      </>
+    ) : (
+      <ArmyPanel hud={hud} />
+    );
+  const sheetTabs = [...leftTabs, ...rightTabs];
+  // The book on a phone: swipe across a page to turn it, pull it down by its grip to close.
+  const turnPage = (dir: 1 | -1) => {
+    if (sheet === null) return;
+    const i = sheetTabs.findIndex(([t]) => t === sheet);
+    const next = sheetTabs[i + dir];
+    if (!next) return;
+    sfx('ui.page');
+    setTurn(dir > 0 ? 'next' : 'prev');
+    setSheet(next[0]);
+  };
+  const onSwipeStart = (e: ReactPointerEvent) => {
+    swipe.current = { x: e.clientX, y: e.clientY };
+  };
+  const onSwipeEnd = (e: ReactPointerEvent, closeOnPull: boolean) => {
+    const from = swipe.current;
+    swipe.current = null;
+    if (!from) return;
+    const dx = e.clientX - from.x;
+    const dy = e.clientY - from.y;
+    if (closeOnPull && dy > PAGE_SWIPE && Math.abs(dy) > Math.abs(dx)) {
+      sfx('ui.close');
+      setSheet(null);
+    } else if (Math.abs(dx) > PAGE_SWIPE && Math.abs(dx) > Math.abs(dy) * 1.4) turnPage(dx < 0 ? 1 : -1);
+  };
   const rightBody = (tab: RightTab) => (tab === 'chronicle' ? <Chronicle entries={hud.chronicle} viewerP={hud.viewerP} now={hud.serverNow} /> : <Chat hud={hud} canSend={canChat} />);
 
   return (
     <div className={`hud${narrow ? ' is-narrow' : ''}`}>
-      <header className="topbar">
+      <header className="topbar night-band">
         <Link to={{ kind: 'home' }} className="brand" aria-label="Pushfront home">
-          <span className="brand-mark" aria-hidden>
-            ⛨
-          </span>
+          <BrandMark />
           {!narrow && <span className="brand-name">Pushfront</span>}
         </Link>
         <div className="topbar-title">
@@ -112,13 +174,19 @@ export function RoomHud({ hud, title, subtitle, banner, dock, room, onRoomChange
           <ConnPill hud={hud} compact={narrow} />
         </div>
         <nav className="topbar-actions" aria-label="Room">
-          <button className="icon-btn" onClick={() => setModal('help')} aria-label="Articles of War: how it works" title="How it works">
-            <Icon name="help" size={20} />
+          {(inWar || mode === 'demo') && <FollowToggle />}
+          <button className="icon-btn" onClick={() => setModal('help')} aria-label="Articles of War: how it works" title="Articles of War">
+            <Icon name="book" size={20} />
           </button>
           {slug && mode === 'live' && !narrow && (
-            <Link className="icon-btn" to={{ kind: 'history', slug }} aria-label="Past wars" title="Past wars">
-              <Icon name="history" size={20} />
-            </Link>
+            <>
+              <Link className="icon-btn" to={{ kind: 'history', slug }} aria-label="Past wars" title="Past wars">
+                <Icon name="history" size={20} />
+              </Link>
+              <Link className="icon-btn" to={{ kind: 'hall', slug }} aria-label="Hall of Legends" title="Hall of Legends">
+                <Icon name="crown" size={20} />
+              </Link>
+            </>
           )}
           {room && (
             <button className="icon-btn" onClick={() => setModal('share')} aria-label="Share" title="Share">
@@ -130,6 +198,7 @@ export function RoomHud({ hud, title, subtitle, banner, dock, room, onRoomChange
               <Icon name="gear" size={20} />
             </button>
           )}
+          <SoundSeal />
         </nav>
       </header>
 
@@ -144,15 +213,7 @@ export function RoomHud({ hud, title, subtitle, banner, dock, room, onRoomChange
         <>
           <aside className={`side side-left panel${leftOpen ? '' : ' is-collapsed'}`} aria-label="Standings and orders">
             <div className="side-head">
-              {leftOpen && (
-                <div className="tabs" role="tablist">
-                  {leftTabs.map(([t, label]) => (
-                    <button key={t} role="tab" aria-selected={left === t} className={left === t ? 'is-on' : ''} onClick={() => setLeft(t)}>
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              )}
+              {leftOpen && <Ribbons items={leftTabs} value={leftTabs.some(([t]) => t === left) ? left : 'standings'} onChange={setLeft} label="Standings and orders" />}
               <button className="icon-btn icon-btn-sm" onClick={() => setLeftOpen((v) => !v)} aria-expanded={leftOpen} aria-label={leftOpen ? 'Collapse panel' : 'Expand standings'}>
                 <Icon name="chevron" size={16} className={leftOpen ? 'flip' : ''} />
               </button>
@@ -164,15 +225,7 @@ export function RoomHud({ hud, title, subtitle, banner, dock, room, onRoomChange
               <button className="icon-btn icon-btn-sm" onClick={() => setRightOpen((v) => !v)} aria-expanded={rightOpen} aria-label={rightOpen ? 'Collapse panel' : 'Expand chronicle'}>
                 <Icon name="chevron" size={16} className={rightOpen ? '' : 'flip'} />
               </button>
-              {rightOpen && (
-                <div className="tabs" role="tablist">
-                  {rightTabs.map(([t, label]) => (
-                    <button key={t} role="tab" aria-selected={right === t} className={right === t ? 'is-on' : ''} onClick={() => setRight(t)}>
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              )}
+              {rightOpen && <Ribbons items={rightTabs} value={right} onChange={setRight} label="Chronicle and chat" />}
             </div>
             {rightOpen && <div className="side-body">{rightBody(right)}</div>}
           </aside>
@@ -188,15 +241,48 @@ export function RoomHud({ hud, title, subtitle, banner, dock, room, onRoomChange
       </div>
 
       {narrow && (
-        <div className={`sheet panel${sheet ? ' is-open' : ''}`}>
+        <div className="sheet">
           {sheet && (
-            <div className="sheet-body">
-              {sheet === 'chronicle' || sheet === 'chat' ? rightBody(sheet) : leftBody(sheet)}
+            <div
+              key={sheet}
+              className={`sheet-page panel${turn ? ` is-turn-${turn}` : ''}`}
+              role="tabpanel"
+              aria-label={sheetTabs.find(([t]) => t === sheet)?.[1]}
+              onPointerDown={onSwipeStart}
+              onPointerUp={(e) => onSwipeEnd(e, false)}
+              onAnimationEnd={() => setTurn(null)}
+            >
+              <button
+                className="sheet-grip"
+                onPointerDown={(e) => {
+                  e.stopPropagation();
+                  onSwipeStart(e);
+                }}
+                onPointerUp={(e) => {
+                  e.stopPropagation();
+                  onSwipeEnd(e, true);
+                }}
+                onClick={() => setSheet(null)}
+                aria-label="Close the book"
+              >
+                {sheetTabs.findIndex(([t]) => t === sheet) + 1} / {sheetTabs.length}
+              </button>
+              <div className="sheet-body">{sheet === 'chronicle' || sheet === 'chat' ? rightBody(sheet) : leftBody(sheet)}</div>
             </div>
           )}
-          <div className="sheet-tabs" role="tablist" aria-label="Panels">
-            {[...leftTabs, ...rightTabs].map(([t, label]) => (
-              <button key={t} role="tab" aria-selected={sheet === t} className={sheet === t ? 'is-on' : ''} onClick={() => setSheet((s) => (s === t ? null : t))}>
+          <div className="sheet-tabs night-band" role="tablist" aria-label="Panels">
+            {sheetTabs.map(([t, label]) => (
+              <button
+                key={t}
+                role="tab"
+                aria-selected={sheet === t}
+                className={sheet === t ? 'is-on' : ''}
+                onClick={() => {
+                  sfx(sheet === t ? 'ui.close' : 'ui.page');
+                  setTurn(null);
+                  setSheet((s) => (s === t ? null : t));
+                }}
+              >
                 {label}
               </button>
             ))}
@@ -205,6 +291,7 @@ export function RoomHud({ hud, title, subtitle, banner, dock, room, onRoomChange
       )}
 
       <EmoteRain hud={hud} />
+      {mode === 'live' && <VictoryFanfare hud={hud} />}
       {ready && hud.war && <AwayModal hud={hud} />}
       {modal === 'help' && <ArticlesOfWar onClose={() => setModal(null)} />}
       {modal === 'share' && room && <ShareModal room={room} onClose={() => setModal(null)} />}

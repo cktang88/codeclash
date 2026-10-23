@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
 import type { RoomDetail, WarSummary } from '../../protocol.ts';
-import { armyColor } from '../../rules/heraldry.ts';
 import { ApiError, api } from '../net/api.ts';
 import { Link } from '../ui/Link.tsx';
 import { compact } from '../ui/format.ts';
 import { Icon } from '../ui/icons.tsx';
 import { Notice } from './Notice.tsx';
+import { hueVar } from '../ui/codex.tsx';
 
 export function HistoryPage({ slug }: { slug: string }) {
   const [wars, setWars] = useState<WarSummary[] | null>(null);
@@ -37,21 +37,24 @@ export function HistoryPage({ slug }: { slug: string }) {
     );
   }
   return (
-    <main className="page history">
+    <main className="folio history">
       <nav className="crumbs">
         <Link to={{ kind: 'room', slug, invite: null }}>← {room?.name ?? 'Back to the room'}</Link>
+        <Link to={{ kind: 'season', slug }}>The season</Link>
+        <Link to={{ kind: 'hall', slug }}>Hall of Legends</Link>
       </nav>
+      <p className="eyebrow">The annals</p>
       <h1 className="page-title">Past wars{room ? ` of ${room.name}` : ''}</h1>
       {wars === null ? (
         <p className="muted" role="status">
           Opening the archive…
         </p>
       ) : wars.length === 0 ? (
-        <p className="empty-card panel">No wars yet. The first one ends at this room’s next reset.</p>
+        <p className="empty-note">No wars yet. The first one ends at this room’s next reset.</p>
       ) : (
         <ol className="war-list">
           {wars.map((w) => (
-            <li key={w.id} className="war-row panel">
+            <li key={w.id} className="war-row">
               <div className="war-date">
                 <strong>{new Date(w.startsAt).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}</strong>
                 <span className="muted small">{w.status === 'active' ? 'In progress' : `${w.players} ${w.players === 1 ? 'army' : 'armies'} · ${w.pushes} ${w.pushes === 1 ? 'push' : 'pushes'}`}</span>
@@ -60,7 +63,9 @@ export function HistoryPage({ slug }: { slug: string }) {
                 {w.winner ? (
                   <>
                     <Icon name="crown" size={18} />
-                    <span style={{ color: armyColor(w.winner.hue, 70) }}>@{w.winner.login}</span>
+                    <span className="who" style={hueVar(w.winner.hue)}>
+                      @{w.winner.login}
+                    </span>
                     <span className="num muted">{compact(w.winner.renown)}</span>
                   </>
                 ) : (

@@ -58,13 +58,13 @@ export function FlagSvg({ flag, size = 40, ordinal }: { flag: FlagSpec; size?: n
         <path d="M0 0h40v28H0z" fill={flag.field} />
         <g clipPath={`url(#${clip})`}>{patternShape(flag.pattern, flag.charge)}</g>
         <rect x="0" y="25" width="40" height="3" fill={flag.accent} />
-        <rect x="0" y="0" width="40" height="28" fill="none" stroke="rgba(0,0,0,0.55)" strokeWidth={1.2} />
-        <path d={EMBLEM_PATHS[flag.emblem]} transform="translate(8 7.5) scale(0.9)" fill="#fff" fillOpacity={0.85} stroke="#141414" strokeWidth={0.6} />
-        <text x="26" y="17.5" textAnchor="middle" fontFamily="Inter, sans-serif" fontWeight={800} fontSize={11} fill="#fff" stroke="#141414" strokeWidth={2.4} paintOrder="stroke">
+        <rect x="0" y="0" width="40" height="28" fill="none" stroke="#22180f" strokeWidth={1.4} />
+        <path d={EMBLEM_PATHS[flag.emblem]} transform="translate(8 7.5) scale(0.9)" fill="#efe4c8" fillOpacity={0.9} stroke="#22180f" strokeWidth={0.6} />
+        <text x="26" y="17.5" textAnchor="middle" fontFamily="'Alegreya SC', Georgia, serif" fontWeight={800} fontSize={11} fill="#efe4c8" stroke="#22180f" strokeWidth={2.4} paintOrder="stroke">
           {flag.initials}
         </text>
         {ordinal !== undefined && (
-          <text x="36" y="7" textAnchor="end" fontFamily="Cinzel, serif" fontWeight={800} fontSize={6.5} fill="#fff" stroke="#141414" strokeWidth={1.6} paintOrder="stroke">
+          <text x="36" y="7" textAnchor="end" fontFamily="'IM Fell English SC', Georgia, serif" fontWeight={400} fontSize={6.5} fill="#efe4c8" stroke="#22180f" strokeWidth={1.6} paintOrder="stroke">
             {roman(ordinal)}
           </text>
         )}

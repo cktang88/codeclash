@@ -4,6 +4,7 @@ import { armyColor } from '../../rules/heraldry.ts';
 import { TICK_MS } from '../../sim/api.ts';
 import { clock } from '../ui/format.ts';
 import { Icon } from '../ui/icons.tsx';
+import { hueVar } from '../ui/codex.tsx';
 
 const LOOP_MS = 15_000;
 const HOLD_MS = 1200;
@@ -42,36 +43,46 @@ export function Timelapse({ data }: { data: DigestResponse }) {
   const startsAt = data.digest.startsAt;
 
   return (
-    <figure className="timelapse panel">
+    <figure className="timelapse map-plate">
       <svg viewBox={`${-r - pad} ${-r - pad} ${2 * (r + pad)} ${2 * (r + pad)}`} className="timelapse-map" role="img" aria-label={`The battlefield at ${clock(startsAt + f.t * TICK_MS)}`}>
         <defs>
-          <radialGradient id="tl-ground">
-            <stop offset="0%" stopColor="#2a3326" />
-            <stop offset="100%" stopColor="#151b16" />
+          <radialGradient id="tl-ground" cx="0.4" cy="0.35" r="0.75">
+            <stop offset="0%" stopColor="#d9cf9a" />
+            <stop offset="65%" stopColor="#bfb27a" />
+            <stop offset="100%" stopColor="#9c9160" />
           </radialGradient>
+          <clipPath id="tl-land">
+            <circle r={r} />
+          </clipPath>
+          <pattern id="tl-hatch" width={r * 0.03} height={r * 0.03} patternUnits="userSpaceOnUse" patternTransform="rotate(-40)">
+            <path d={`M0 0v${r * 0.03}`} stroke="rgba(34,24,15,.22)" strokeWidth={r * 0.004} />
+          </pattern>
         </defs>
-        <circle r={r} fill="url(#tl-ground)" stroke="rgba(226,189,104,0.45)" strokeWidth={r * 0.008} />
+        <circle r={r + pad * 0.9} fill="rgba(44,74,154,.12)" />
+        <circle r={r} fill="url(#tl-ground)" />
+        <circle r={r} cx={r * 0.35} cy={r * 0.4} fill="url(#tl-hatch)" opacity={0.7} clipPath="url(#tl-land)" />
+        <circle r={r} fill="none" stroke="#22180f" strokeWidth={r * 0.012} />
         {data.map.sites.map((s, k) => {
           const owner = s.kind === 'capital' ? capitalOwner(s.slot) : (f.o[k] ?? -1);
           const hue = owner >= 0 ? hueOf(owner) : null;
-          const fill = hue === null ? '#4a4f55' : armyColor(hue, s.kind === 'capital' ? 45 : 55);
+          const fill = hue === null ? '#8e8269' : armyColor(hue, s.kind === 'capital' ? 38 : 44);
           if (s.kind === 'capital') {
             const size = r * 0.07;
-            return <rect key={k} x={s.x - size / 2} y={s.y - size / 2} width={size} height={size} rx={size * 0.2} fill={fill} stroke="#0a0d10" strokeWidth={r * 0.008} opacity={owner < 0 ? 0.35 : 1} />;
+            return <rect key={k} x={s.x - size / 2} y={s.y - size / 2} width={size} height={size} fill={fill} stroke="#22180f" strokeWidth={r * 0.008} opacity={owner < 0 ? 0.35 : 1} />;
           }
           const size = s.kind === 'heart' ? r * 0.07 : r * 0.045;
           return (
             <g key={k}>
-              <path d={`M${s.x} ${s.y - size} L${s.x + size} ${s.y} L${s.x} ${s.y + size} L${s.x - size} ${s.y}Z`} fill={fill} stroke="#f1e7cf" strokeOpacity={0.6} strokeWidth={r * 0.006} />
+              <path d={`M${s.x} ${s.y - size} L${s.x + size} ${s.y} L${s.x} ${s.y + size} L${s.x - size} ${s.y}Z`} fill={fill} stroke="#22180f" strokeWidth={r * 0.007} />
               {s.kind === 'heart' && f.m > 0 && (
-                <circle r={size * 1.6} cx={s.x} cy={s.y} fill="none" stroke="#f07a63" strokeWidth={r * 0.012} strokeDasharray={`${f.m * 2 * Math.PI * size * 1.6} 9999`} transform={`rotate(-90 ${s.x} ${s.y})`} />
+                <circle r={size * 1.6} cx={s.x} cy={s.y} fill="none" stroke="#b8321f" strokeWidth={r * 0.014} strokeDasharray={`${f.m * 2 * Math.PI * size * 1.6} 9999`} transform={`rotate(-90 ${s.x} ${s.y})`} />
               )}
             </g>
           );
         })}
         {f.a.map(([p, x, y, n], i) => {
           const hue = hueOf(p);
-          return <circle key={i} cx={x} cy={y} r={r * (0.012 + 0.03 * Math.sqrt(n / maxSoldiers))} fill={hue === null ? '#aaa' : armyColor(hue, 62)} stroke="#0a0d10" strokeWidth={r * 0.004} opacity={0.92} />;
+          return <circle key={i} cx={x} cy={y} r={r * (0.012 + 0.03 * Math.sqrt(n / maxSoldiers))} fill={hue === null ? '#8e8269' : armyColor(hue, 46)} stroke="#22180f" strokeWidth={r * 0.004} opacity={0.92} />;
         })}
       </svg>
       <figcaption className="timelapse-controls">
@@ -95,7 +106,10 @@ export function Timelapse({ data }: { data: DigestResponse }) {
       <ul className="timelapse-legend">
         {data.players.map((pl) => (
           <li key={pl.p}>
-            <span className="swatch" style={{ background: armyColor(pl.hue) }} aria-hidden />@{pl.login}
+            <span className="swatch" style={{ background: armyColor(pl.hue, 42) }} aria-hidden />
+            <span className="who" style={hueVar(pl.hue)}>
+              @{pl.login}
+            </span>
           </li>
         ))}
       </ul>

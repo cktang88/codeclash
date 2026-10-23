@@ -1,12 +1,12 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import type { RosterEntry } from '../../protocol.ts';
-import { armyColor } from '../../rules/heraldry.ts';
 import { KIND_COUNT } from '../../sim/api.ts';
 import type { ChronicleEntry, ChronicleKind } from '../../sim/chronicle.ts';
 import { STATS } from '../../sim/stats.ts';
 import { ago, clock } from '../ui/format.ts';
 import { EventIcon, UnitIcon } from '../ui/icons.tsx';
 import { useHudContext } from './context.ts';
+import { hueVar } from '../ui/codex.tsx';
 import { PurposeTag } from '../ui/PurposeTag.tsx';
 import type { Purpose } from '../../sim/api.ts';
 
@@ -45,7 +45,7 @@ export function colorize(text: string, roster: readonly RosterEntry[]): ReactNod
     const r = roster.find((x) => x.login.toLowerCase() === part.slice(1).toLowerCase());
     if (!r) return part;
     return (
-      <strong key={i} className="who" style={{ color: armyColor(r.hue, 68) }}>
+      <strong key={i} className="who" style={hueVar(r.hue)}>
         {part}
       </strong>
     );
@@ -106,7 +106,7 @@ export function Chronicle({ entries, viewerP, now }: { entries: readonly Chronic
             const located = e.x !== 0 || e.y !== 0 || e.kind === 'monolith';
             const body = (
               <>
-                <span className={`chron-icon chron-${e.kind}`} style={actor ? { color: armyColor(actor.hue, 66) } : undefined}>
+                <span className={`chron-icon chron-${e.kind}`} style={hueVar(actor?.hue)}>
                   <EventIcon kind={e.kind} size={18} />
                 </span>
                 <span className="chron-body">

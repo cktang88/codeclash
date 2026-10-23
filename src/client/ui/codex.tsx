@@ -314,9 +314,22 @@ export function Fleuron({ className }: { className?: string }) {
 /* ---------------------------------------------------------------- numbers */
 
 /** A number that ticks to its new value like a scribe tallying. */
-export function Tally({ value, format = (n) => String(Math.round(n)), duration = 420, className }: { value: number; format?: (n: number) => string; duration?: number; className?: string }) {
-  const [shown, setShown] = useState(value);
-  const from = useRef(value);
+export function Tally({
+  value,
+  format = (n) => String(Math.round(n)),
+  duration = 420,
+  start,
+  className,
+}: {
+  value: number;
+  format?: (n: number) => string;
+  duration?: number;
+  /** Count up from here on first show (a digest's totals); otherwise the first value shows as is. */
+  start?: number;
+  className?: string;
+}) {
+  const [shown, setShown] = useState(start ?? value);
+  const from = useRef(start ?? value);
   const [bump, setBump] = useState(0);
   useEffect(() => {
     const start = from.current;

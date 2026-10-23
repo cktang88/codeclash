@@ -1,4 +1,3 @@
-import { armyColor } from '../../rules/heraldry.ts';
 import { DOCTRINE_NAMES } from '../../sim/stats.ts';
 import type { Standing } from '../store.ts';
 import { Avatar } from '../ui/Avatar.tsx';
@@ -6,12 +5,19 @@ import { compact } from '../ui/format.ts';
 import { ArmyMark } from '../ui/fairPlay.tsx';
 import { DoctrineIcon, Icon } from '../ui/icons.tsx';
 import { useHudContext } from './context.ts';
+import { Tally, hueVar } from '../ui/codex.tsx';
 
 function Trend({ value }: { value: number }) {
-  if (value <= 0) return <span className="trend trend-flat" aria-label="no change">–</span>;
+  if (value <= 0)
+    return (
+      <span className="trend trend-flat" aria-label="no change">
+        —
+      </span>
+    );
   return (
     <span className="trend trend-up" aria-label={`up ${value} in the last minute`}>
-      ▲{value}
+      <Icon name="up" size={10} />
+      {value}
     </span>
   );
 }
@@ -24,7 +30,7 @@ export function Standings({ standings, viewerP }: { standings: readonly Standing
   return (
     <ol className="standings" aria-label="Standings by renown">
       {standings.map((s, i) => (
-        <li key={s.p} className={`standing${s.p === viewerP ? ' is-me' : ''}`}>
+        <li key={s.p} className={`standing${s.p === viewerP ? ' is-me' : ''}`} style={hueVar(s.hue)}>
           <button
             className="standing-btn"
             onClick={() => {
@@ -34,18 +40,19 @@ export function Standings({ standings, viewerP }: { standings: readonly Standing
             aria-label={`${s.login}, rank ${i + 1}, ${s.renown} renown. Show on map.`}
           >
             <span className="standing-rank num">{i + 1}</span>
-            <span className="standing-swatch" style={{ background: armyColor(s.hue) }} aria-hidden />
+            <span className="standing-swatch" aria-hidden />
             <Avatar login={s.login} url={s.avatarUrl} hue={s.hue} size={30} bot={s.bot} />
             <span className="standing-main">
               <span className="standing-name">
-                <span className="truncate">{s.login}</span>
+                <span className="truncate who">{s.login}</span>
                 {s.leader && (
-                  <span className="tag tag-gold tag-bounty" title="Bounty: leader in renown. Kills on their soldiers count double." aria-label="Bounty">
+                  <span className="tag tag-bounty" title="Bounty: leader in renown. Kills on their soldiers count double." aria-label="Bounty">
                     <Icon name="crown" size={13} />
                   </span>
                 )}
                 {s.p === viewerP && <span className="tag">You</span>}
               </span>
+              {store.roster[s.p]?.heraldry?.title && <span className="standing-title">{store.roster[s.p]!.heraldry!.title}</span>}
               <span className="standing-sub">
                 <span title="Soldiers alive">
                   <Icon name="sword" size={13} /> {s.alive}
@@ -61,7 +68,7 @@ export function Standings({ standings, viewerP }: { standings: readonly Standing
               </span>
             </span>
             <span className="standing-score">
-              <span className="num renown">{compact(s.renown)}</span>
+              <Tally className="renown" value={s.renown} format={compact} />
               <Trend value={s.trend} />
             </span>
           </button>
