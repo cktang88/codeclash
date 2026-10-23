@@ -541,9 +541,10 @@ export class Store {
   }
 
   chronicleSince(warId: number, since: number, limit: number): ChronicleEntry[] {
-    return (this.db.prepare('SELECT data FROM chronicle WHERE war_id = ? AND at > ? ORDER BY seq LIMIT ?').all(warId, since, limit) as Raw[]).map(
-      (r) => JSON.parse(r.data as string) as ChronicleEntry,
-    );
+    // The newest entries matter most to a returning viewer; return them in order.
+    return (this.db.prepare('SELECT data FROM chronicle WHERE war_id = ? AND at > ? ORDER BY seq DESC LIMIT ?').all(warId, since, limit) as Raw[])
+      .map((r) => JSON.parse(r.data as string) as ChronicleEntry)
+      .reverse();
   }
 
   chronicleAll(warId: number): ChronicleEntry[] {
