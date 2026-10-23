@@ -8,7 +8,6 @@ import leaf from './art/leaf.svg?url';
 import leafNight from './art/leaf-night.svg?url';
 import note from './art/note.svg?url';
 import noteShade from './art/note-shade.svg?url';
-import table from './art/table.svg?url';
 import seal from './art/seal.svg?url';
 import sealGold from './art/seal-gold.svg?url';
 import sealBlue from './art/seal-blue.svg?url';
@@ -19,7 +18,6 @@ const TEXTURES: Record<string, string> = {
   '--leaf-night': leafNight,
   '--note': note,
   '--note-shade': noteShade,
-  '--table': table,
   '--seal': seal,
   '--seal-gold': sealGold,
   '--seal-blue': sealBlue,

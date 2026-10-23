@@ -13,7 +13,7 @@ const SLOTS: readonly { slot: ArmoryItem['slot']; label: string; hint: string }[
   { slot: 'pattern', label: 'Standard', hint: 'The division of your army standard.' },
   { slot: 'emblem', label: 'Emblem', hint: 'The charge upon it.' },
   { slot: 'keep', label: 'Keep', hint: 'How your capital is built.' },
-  { slot: 'trim', label: 'Trim', hint: 'Edging on your soldiers’ tabards. Recorded now; not yet drawn on the battlefield.' },
+  { slot: 'trim', label: 'Trim', hint: 'Edging on your battalion flags and capital standards.' },
   { slot: 'fanfare', label: 'Fanfare', hint: 'What sounds when you win the day.' },
   { slot: 'tassel', label: 'Tassel', hint: 'A tassel on your banner.' },
 ];

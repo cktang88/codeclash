@@ -169,10 +169,6 @@ export function paintTerrain(map: MapDef, seed: number, maxPx: number, text: Cha
         c = mix(c, MUD, smoothstep(0.3, 0.42, w) * 0.7);
         const wt = smoothstep(0.43, 0.47, w);
         if (wt > 0) c = mix(c, mix(SHALLOW, DEEP, smoothstep(0.5, 0.95, w)), wt);
-        // Ink contour at the lake shore, and a fainter ripple line just offshore.
-        const shore = smoothstep(0.425, 0.44, w) - smoothstep(0.445, 0.46, w);
-        const ripple = smoothstep(0.54, 0.555, w) - smoothstep(0.56, 0.575, w);
-        c = mix(c, [40, 30, 20], shore * 0.75 + ripple * 0.25);
         // Hill shading: the coast's south-east rim falls away, so it darkens.
         const rim = smoothstep(R - 70, R - 4, d) * Math.max(0, (x + y) / (d * 1.414 + 1e-6));
         c = mix(c, [70, 60, 40], rim * 0.45);
@@ -228,6 +224,14 @@ export function paintTerrain(map: MapDef, seed: number, maxPx: number, text: Cha
   };
 
   paintCoast(ctx, R, seaW, seed);
+  // Lake shores are inked as vector contours, so they stay crisp however close the camera comes.
+  const T0 = performance.now();
+  const lakes = sampleGrid(R, 4, (x, y) => water(x, y) + (fbm(x / 240, y / 240, seed + 61, 4) - 0.5) * 0.2);
+  console.log('PROF sample', performance.now() - T0);
+  paintContour(ctx, lakes, 0.45, 1.5, 0.8);
+  console.log('PROF contour', performance.now() - T0);
+  paintContour(ctx, lakes, 0.56, 0.8, 0.32);
+  paintContour(ctx, lakes, 0.68, 0.7, 0.2);
 
   // Trodden clearings around every site.
   for (const o of map.sites) {
@@ -241,10 +245,14 @@ export function paintTerrain(map: MapDef, seed: number, maxPx: number, text: Cha
     ctx.fill();
   }
 
+  console.log('PROF before roads', performance.now() - T0);
   paintRoads(ctx, map, seed, terrainAt);
+  console.log('PROF roads', performance.now() - T0);
   paintGrass(ctx, R, rand, terrainAt);
   paintRocks(ctx, map, rand);
+  console.log('PROF rocks', performance.now() - T0);
   paintForests(ctx, map, rand, pxPerUnit, size, extent);
+  console.log('PROF forests', performance.now() - T0);
 
   // A double ink rule framing the sheet, with fleurons at its corners.
   paintFrame(ctx, sheet - 34, seed);
@@ -254,7 +262,9 @@ export function paintTerrain(map: MapDef, seed: number, maxPx: number, text: Cha
 
   // Paper grain and a candle-lit vignette over the whole sheet.
   ctx.setTransform(1, 0, 0, 1, 0, 0);
+  console.log('PROF frame', performance.now() - T0);
   paintGrain(ctx, size, seed);
+  console.log('PROF grain', performance.now() - T0);
   const v = ctx.createRadialGradient(size / 2, size / 2, R * pxPerUnit * 0.7, size / 2, size / 2, size * 0.74);
   v.addColorStop(0, 'rgba(40,24,10,0)');
   v.addColorStop(0.7, 'rgba(40,24,10,0.12)');
@@ -267,6 +277,78 @@ export function paintTerrain(map: MapDef, seed: number, maxPx: number, text: Cha
   tctx.drawImage(canvas, 0, 0, 256, 256);
 
   return { canvas, thumb, water: waterCanvas, extent, pxPerUnit, sea: seaW };
+}
+
+interface Grid {
+  x0: number;
+  step: number;
+  n: number;
+  v: Float32Array;
+}
+
+function sampleGrid(R: number, step: number, f: (x: number, y: number) => number): Grid {
+  const n = Math.ceil((R * 2) / step) + 1;
+  const v = new Float32Array(n * n);
+  for (let j = 0; j < n; j++) {
+    const y = -R + j * step;
+    for (let i = 0; i < n; i++) {
+      const x = -R + i * step;
+      // Only lakes inside the disc matter; skip the dry corners cheaply.
+      v[j * n + i] = x * x + y * y < R * R ? f(x, y) : 0;
+    }
+  }
+  return { x0: -R, step, n, v };
+}
+
+/** Marching squares over a sampled field, stroking the iso-line at `level` in ink. */
+function paintContour(ctx: CanvasRenderingContext2D, g: Grid, level: number, width: number, alpha: number): void {
+  const { x0, step, n, v } = g;
+  ctx.lineWidth = width;
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = `${INK}${alpha})`;
+  ctx.beginPath();
+  let segments = 0;
+  const cross = (a: number, b: number) => (a - level) / (a - b);
+  for (let j = 0; j < n - 1; j++) {
+    for (let i = 0; i < n - 1; i++) {
+      const a = v[j * n + i]!;
+      const b = v[j * n + i + 1]!;
+      const c = v[(j + 1) * n + i + 1]!;
+      const d = v[(j + 1) * n + i]!;
+      const ia = a > level;
+      const ib = b > level;
+      const ic = c > level;
+      const id = d > level;
+      if (ia === ib && ib === ic && ic === id) continue;
+      const x = x0 + i * step;
+      const y = x0 + j * step;
+      let px = 0;
+      let py = 0;
+      let have = false;
+      const point = (qx: number, qy: number) => {
+        if (have) {
+          ctx.moveTo(px, py);
+          ctx.lineTo(qx, qy);
+          segments++;
+          have = false;
+        } else {
+          px = qx;
+          py = qy;
+          have = true;
+        }
+      };
+      if (ia !== ib) point(x + cross(a, b) * step, y);
+      if (ib !== ic) point(x + step, y + cross(b, c) * step);
+      if (id !== ic) point(x + cross(d, c) * step, y + step);
+      if (ia !== id) point(x, y + cross(a, d) * step);
+      if (segments > 4000) {
+        ctx.stroke();
+        ctx.beginPath();
+        segments = 0;
+      }
+    }
+  }
+  ctx.stroke();
 }
 
 /** The coast: a heavy ink line with the engraver's diminishing contour ripples offshore. */

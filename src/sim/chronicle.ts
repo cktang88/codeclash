@@ -38,6 +38,9 @@ export interface ChronicleEntry {
   units?: number[];
   /** Repository index for musters. */
   repo?: number;
+  /** For musters: the platoon's ordinal in its battalion, and the commit message that raised it. */
+  ordinal?: number;
+  msg?: string;
   /** For musters: what the push was for, and how many source files and branch points it carried. */
   purpose?: Purpose;
   files?: number;
@@ -133,7 +136,7 @@ export class Chronicler {
         add({ kind: 'dragon', p: pl.p, platoon: pl.id, x: c.x, y: c.y, repo: pl.repo, text: `A Dragon takes wing over ${n.player(pl.p)}'s capital, summoned by a legendary push to ${n.repo(pl.repo)}!` });
       }
       add({
-        kind: 'muster', p: pl.p, platoon: pl.id, x: c.x, y: c.y, units: pl.mustered.slice(), repo: pl.repo,
+        kind: 'muster', p: pl.p, platoon: pl.id, x: c.x, y: c.y, units: pl.mustered.slice(), repo: pl.repo, ordinal: pl.ordinal, msg: input?.msg ?? '',
         purpose: pl.purpose, files: input?.files ?? 0, branches: input?.branches ?? 0,
         text: `${n.player(pl.p)} pushed ${PURPOSE_PHRASE[pl.purpose]} to ${n.repo(pl.repo)}${msg}. ${platoonLabel(n, pl.repo, pl.ordinal)} musters: ${unitsPhrase(pl.mustered)}.`,
       });
@@ -150,11 +153,11 @@ export class Chronicler {
     for (const d of ev.deaths) {
       if (d.kind === Kind.Dragon && d.p >= 0) {
         const by = d.killer >= 0 ? `, brought down by ${n.player(d.killer)}` : '';
-        add({ kind: 'dragon', p: d.killer, q: d.p, x: d.x, y: d.y, text: `${n.player(d.p)}'s Dragon falls from the sky${by}!` });
+        add({ kind: 'dragon', p: Math.max(NEUTRAL, d.killer), q: d.p, x: d.x, y: d.y, text: `${n.player(d.p)}'s Dragon falls from the sky${by}!` });
       }
       if (d.kind === Kind.Champion && d.p >= 0) {
         const by = d.killer >= 0 ? ` by ${n.player(d.killer)}` : '';
-        add({ kind: 'champion', p: d.killer, q: d.p, x: d.x, y: d.y, text: `${n.player(d.p)}'s Champion was slain${by}.` });
+        add({ kind: 'champion', p: Math.max(NEUTRAL, d.killer), q: d.p, x: d.x, y: d.y, text: `${n.player(d.p)}'s Champion was slain${by}.` });
       }
       this.recordDeath(tick, d.x, d.y);
     }

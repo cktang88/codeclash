@@ -93,7 +93,8 @@
   --rule: var(--ink);
   --rule-soft: rgba(34, 24, 15, 0.26);
   --rubric: var(--vermilion);
-  --gilt: var(--gold-lo);
+  /* Gold leaf burnished dark enough to read on vellum (5.3:1). */
+  --gilt: #7a5512;
   --link: var(--ultramarine);
   --good: var(--verdigris-ink);
   --bad: var(--vermilion);

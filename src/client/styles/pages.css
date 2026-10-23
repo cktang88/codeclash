@@ -1851,3 +1851,21 @@
   color: var(--gilt) !important;
   font-weight: 700;
 }
+
+@media (max-width: 560px) {
+  .home-nav .brand-name {
+    font-size: 21px;
+  }
+
+  .home-nav-actions {
+    gap: 2px;
+  }
+
+  .nav-user > span {
+    display: none;
+  }
+
+  .home-nav .btn-sm {
+    padding: 0 8px;
+  }
+}

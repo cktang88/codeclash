@@ -1,4 +1,4 @@
-import { CAT_COUNT, Cat, Kind, KIND_COUNT, PURPOSES, type Purpose, type World } from '../sim/api.ts';
+import { CAT_COUNT, Cat, Kind, KIND_COUNT, PURPOSES, type Purpose, type SimInput, type World } from '../sim/api.ts';
 import type { ChronicleEntry } from '../sim/chronicle.ts';
 import { decodeInput, type Replay } from '../sim/replay.ts';
 
@@ -126,11 +126,12 @@ export function buildDigest(world: World, replay: Replay, chronicle: readonly Ch
   const winner = ranked[0] && ranked[0].renown > 0 ? ranked[0].p : null;
 
   // Best platoons: recover the commit message of the push that raised them.
+  // Only pushes the simulation accepted count: a known player and a valid repository.
+  const accepted = replay.inputs.map((e) => decodeInput(e).input).filter(
+    (input): input is Extract<SimInput, { kind: 'push' }> => input.kind === 'push' && !!world.players[input.p] && Number.isInteger(input.repo) && input.repo >= 0,
+  );
   const pushesBy = new Map<string, string[]>();
-  for (const e of replay.inputs) {
-    const { input } = decodeInput(e);
-    // Only pushes the simulation accepted raised a platoon and took an ordinal.
-    if (input.kind !== 'push' || !world.players[input.p] || !Number.isInteger(input.repo) || input.repo < 0) continue;
+  for (const input of accepted) {
     const key = `${input.p}:${input.repo}`;
     const list = pushesBy.get(key) ?? [];
     list.push(input.msg);
@@ -139,7 +140,11 @@ export function buildDigest(world: World, replay: Replay, chronicle: readonly Ch
   for (const ps of world.players) {
     if (!ps.best) continue;
     const [repo, ordinal, kills] = ps.best;
-    players[ps.p]!.best = { repo: replay.repos[repo]?.[0] ?? '?', ordinal, kills, message: pushesBy.get(`${ps.p}:${repo}`)?.[ordinal - 1] ?? '' };
+    // Ordinals count platoons, not pushes: a big push raises several and a push that raises
+    // nobody takes none, so the muster that named the platoon is the authority.
+    const muster = chronicle.find((e) => e.kind === 'muster' && e.p === ps.p && e.repo === repo && e.ordinal === ordinal);
+    const message = muster?.msg ?? pushesBy.get(`${ps.p}:${repo}`)?.[ordinal - 1] ?? '';
+    players[ps.p]!.best = { repo: replay.repos[repo]?.[0] ?? '?', ordinal, kills, message };
   }
 
   const awards: DigestAward[] = [];
@@ -192,9 +197,7 @@ export function buildDigest(world: World, replay: Replay, chronicle: readonly Ch
   }
 
   const repoPushes = new Map<number, { p: number; pushes: number }>();
-  for (const e of replay.inputs) {
-    const { input } = decodeInput(e);
-    if (input.kind !== 'push') continue;
+  for (const input of accepted) {
     const r = repoPushes.get(input.repo) ?? { p: input.p, pushes: 0 };
     r.pushes++;
     repoPushes.set(input.repo, r);

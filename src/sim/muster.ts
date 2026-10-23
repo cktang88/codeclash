@@ -75,8 +75,27 @@ export function applyDelta(ledger: Ledger, d: LedgerDelta): void {
   ledger.churn += int(d.churn, 0);
   ledger.filler += int(d.filler, 0);
   const i = PURPOSES.indexOf(d.purpose);
-  ledger.purposeCode[i] = Math.max(0, ledger.purposeCode[i]! + int(d.lines[Cat.Code]));
-  ledger.purposeRemoved[i] = Math.max(0, ledger.purposeRemoved[i]! + int(d.lines[Cat.Removed]));
+  byPurpose(ledger.purposeCode, i, int(d.lines[Cat.Code]));
+  byPurpose(ledger.purposeRemoved, i, int(d.lines[Cat.Removed]));
+}
+
+/**
+ * Credits a change to one purpose. Undone work comes off that purpose first and
+ * then off the others in order, so the purposes always sum to the category's
+ * total: writing a feature and deleting it under another message leaves nothing.
+ */
+function byPurpose(tally: number[], i: number, change: number): void {
+  if (change >= 0) {
+    tally[i]! += change;
+    return;
+  }
+  let owed = -change;
+  for (let k = -1; k < tally.length && owed > 0; k++) {
+    const j = k < 0 ? i : k;
+    const take = Math.min(owed, tally[j]!);
+    tally[j]! -= take;
+    owed -= take;
+  }
 }
 
 /** Code lines needed for each veteran rank, with source files touched. */

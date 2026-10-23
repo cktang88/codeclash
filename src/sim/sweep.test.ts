@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { Kind, PlatoonState, TICKS_PER_MINUTE, type SimInput, type World } from './api.ts';
+import { Kind, PlatoonState, TICKS_PER_MINUTE, type Purpose, type SimInput, type World } from './api.ts';
+import { applyDelta, armyFor, emptyLedger } from './muster.ts';
 import { generateMap, slotsFor } from './mapgen.ts';
-import { STATS } from './stats.ts';
+import { SPACING, STATS } from './stats.ts';
+import { checksum, restore, snapshot } from './snapshot.ts';
 import { passableAt } from './steering.ts';
-import { createWorld, step } from './world.ts';
+import { Chronicler } from './chronicle.ts';
+import { createWorld, emptyEvents, step } from './world.ts';
 
 function newWorld(players: number, seed: number): World {
   const params = { seed, slots: slotsFor(players), members: players };
@@ -154,5 +157,87 @@ describe('siege leash', () => {
       step(w, []);
       expect(treb.target).not.toBe(-(k + 1));
     }
+  });
+});
+
+describe('chronicle', () => {
+  it('names no acting player when a tower, not a player, slays a hero', () => {
+    const w = newWorld(4, 1);
+    step(w, joins(4));
+    const ev = emptyEvents();
+    ev.deaths.push({ unit: 5, p: 1, kind: Kind.Dragon, x: 0, y: 0, killer: -2, by: -1, platoon: 3 });
+    ev.deaths.push({ unit: 6, p: 1, kind: Kind.Champion, x: 0, y: 0, killer: -2, by: -1, platoon: 3 });
+    const entries = new Chronicler({ player: (p) => `p${p}`, repo: () => 'r' }).narrate(w, [], ev);
+    expect(entries.map((e) => e.p)).toEqual([-1, -1]);
+  });
+});
+
+describe('purpose ledger', () => {
+  const delta = (code: number, purpose: Purpose, removed = 0) => ({ lines: [code, 0, 0, 0, 0, removed, 0, 0, 0], files: 0, branches: 0, churn: 0, filler: 0, purpose });
+
+  it('undoes work from the purposes that raised it, whatever the undoing push was called', () => {
+    // Write a feature, delete it again under another message, five times over; then do 1000 lines of plain work.
+    const gamed = emptyLedger();
+    for (let i = 0; i < 5; i++) {
+      applyDelta(gamed, { ...delta(900, 'feature'), files: 12, branches: 100 });
+      applyDelta(gamed, { ...delta(-900, 'fix'), files: -12, branches: -100 });
+    }
+    applyDelta(gamed, { ...delta(1000, 'work'), files: 12, branches: 100 });
+    const honest = emptyLedger();
+    applyDelta(honest, { ...delta(1000, 'work'), files: 12, branches: 100 });
+    expect(gamed.purposeCode.reduce((a, b) => a + b, 0)).toBe(gamed.lines[0]);
+    expect(armyFor(gamed, 11)).toEqual(armyFor(honest, 1));
+  });
+});
+
+describe('checksum', () => {
+  it('notices divergence in the books, timers and fortifications, not only in positions', () => {
+    const w = newWorld(4, 1);
+    step(w, joins(4));
+    step(w, [push(0, 400)]);
+    const base = checksum(w);
+    const tweaks: [string, (x: World) => void][] = [
+      ['ledger', (x) => x.players[0]!.ledger.lines[1]!++],
+      ['raised', (x) => x.players[0]!.raised[Kind.Footman]!++],
+      ['pushes', (x) => x.players[0]!.pushes++],
+      ['rally timer', (x) => (x.players[0]!.rallyAt = 7)],
+      ['rally until', (x) => (x.players[0]!.rallyUntil = 7)],
+      ['doctrine timer', (x) => (x.players[0]!.doctrineAt = 7)],
+      ['war cry spent', (x) => (x.players[0]!.cryUsed = true)],
+      ['quality', (x) => (x.players[0]!.quality = 0.9)],
+      ['veterancy', (x) => (x.players[0]!.veterancy = 1)],
+      ['walls', (x) => (x.structures[1]!.maxHp = 16000)],
+      ['muster', (x) => x.platoons[0]!.mustered[Kind.Knight]!++],
+      ['soldier max hp', (x) => (x.units[0]!.maxHp = 1)],
+    ];
+    for (const [name, tweak] of tweaks) {
+      const copy = restore(snapshot(w));
+      tweak(copy);
+      expect(checksum(copy), name).not.toBe(base);
+    }
+  });
+});
+
+describe('regroup formation', () => {
+  it('keeps a platoon that absorbs many remnants centered on its banner', () => {
+    const w = newWorld(1, 2);
+    step(w, joins(1));
+    // One solid platoon, then a dozen small pushes that each raise a remnant-sized platoon.
+    const inputs: SimInput[] = [{ ...push(0, 900, 'Update', 10), lines: [900, 1, 0, 0, 0, 0, 0, 0, 0] } as SimInput];
+    let code = 900;
+    for (let k = 31; k <= 42; k++) {
+      const next = k * k;
+      inputs.push(push(0, next - code, 'Update', 0, 0));
+      code = next;
+    }
+    step(w, inputs);
+    let regroups = 0;
+    for (let t = 0; t < 40; t++) regroups += step(w, []).regroups.length;
+    expect(regroups).toBeGreaterThanOrEqual(8);
+    const pl = w.platoons.reduce((a, b) => (b.alive > a.alive ? b : a));
+    const mine = w.units.filter((u) => u.platoon === pl.id);
+    const meanFx = mine.reduce((a, u) => a + u.fx, 0) / mine.length;
+    expect(Math.abs(meanFx)).toBeLessThan(SPACING);
+    expect(Math.min(...mine.map((u) => u.fx))).toBeGreaterThan(-6 * SPACING);
   });
 });

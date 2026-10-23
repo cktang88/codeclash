@@ -23,9 +23,9 @@ export function LostPage({ path }: { path: string }) {
       <div className="torn-map">
         <TornMap className="torn-map-art" />
         <div className="torn-map-text note">
-          <h1 className="notice-title">Here be dragons</h1>
+          <h1 className="notice-title">Off the edge of the map</h1>
           <p>
-            The road to <code>{path}</code> runs off the edge of the map.
+            No road leads to <code>{path}</code>. Past this point the chart shows only sea, and something with wings.
           </p>
           <Link className="btn btn-primary" to={{ kind: 'home' }}>
             Back to the war table

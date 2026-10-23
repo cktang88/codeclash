@@ -45,6 +45,7 @@ export function checksum(world: World): number {
     num(u.x);
     num(u.y);
     num(u.hp);
+    num(u.maxHp);
     num(u.target);
     num(u.cooldown);
     num(u.swingAt);
@@ -68,9 +69,11 @@ export function checksum(world: World): number {
     num(pl.size);
     num(pl.kills);
     num(pl.calm);
+    for (const n of pl.mustered) num(n);
   }
   for (const st of world.structures) {
     num(st.hp);
+    num(st.maxHp);
     num(st.cooldown);
     num(st.ruinedUntil);
     int(st.sacked);
@@ -91,7 +94,21 @@ export function checksum(world: World): number {
     num(p.losses);
     int(p.doctrine);
     int(p.rallySite);
+    num(p.rallyUntil);
+    num(p.rallyAt);
+    num(p.doctrineAt);
     num(p.cryUntil);
+    int(p.cryUsed ? 1 : 0);
+    num(p.pushes);
+    num(p.quality);
+    num(p.veterancy);
+    // The books: a divergence here shows in the army only at the next push.
+    for (const n of p.ledger.lines) num(n);
+    num(p.ledger.files);
+    num(p.ledger.branches);
+    for (const n of p.ledger.purposeCode) num(n);
+    for (const n of p.ledger.purposeRemoved) num(n);
+    for (const n of p.raised) num(n);
     const f = p.feats;
     num(f.holdBest);
     num(f.routsCaused);

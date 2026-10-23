@@ -1221,7 +1221,24 @@ const REGROUP_PERIOD = 5;
 const REGROUP_REACH = 140;
 const REGROUP_SMALL = 4;
 const REGROUP_STRENGTH = 0.3;
-const REAR_COLS = 5;
+
+/**
+ * Draws a platoon up afresh around its banner, as at muster, so that remnants
+ * folded in take their places in the ranks instead of trailing in a column behind.
+ */
+function reform(units: readonly Unit[], platoon: number): void {
+  const counts = new Array<number>(KIND_COUNT).fill(0);
+  for (const u of units) if (u.platoon === platoon) counts[u.kind]!++;
+  const places: { f: number; l: number }[][] = Array.from({ length: KIND_COUNT }, () => []);
+  for (const slot of formation(counts)) places[slot.kind]!.push(slot);
+  const taken = new Array<number>(KIND_COUNT).fill(0);
+  for (const u of units) {
+    if (u.platoon !== platoon) continue;
+    const place = places[u.kind]![taken[u.kind]!++]!;
+    u.fx = place.f;
+    u.fy = place.l;
+  }
+}
 
 function fielded(pl: Platoon): boolean {
   return pl.state !== PlatoonState.Queued && pl.state !== PlatoonState.Rout && pl.alive > 0;
@@ -1257,16 +1274,13 @@ function regroup(world: World, s: Scratch, ev: TickEvents): void {
     }
     if (best < 0) continue;
     const to = platoons[best]!;
-    let rear = 0;
-    for (const u of units) if (u.platoon === to.id && u.fx < rear) rear = u.fx;
     let moved = 0;
     for (const u of units) {
       if (u.platoon !== from.id) continue;
       u.platoon = to.id;
-      u.fx = rear - SPACING * (1 + Math.floor(moved / REAR_COLS));
-      u.fy = ((moved % REAR_COLS) - (REAR_COLS - 1) / 2) * SPACING;
       moved++;
     }
+    reform(units, to.id);
     to.alive += moved;
     to.size += moved;
     from.alive = 0;

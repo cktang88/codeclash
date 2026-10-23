@@ -163,7 +163,7 @@ export function ReplayPage({ slug, warId, tick, me }: { slug: string; warId: num
   const startsAt = replay?.startsAt ?? 0;
   const markers = digest?.digest.highlights ?? [];
   const dock = replay && (
-    <div className="replay-dock panel">
+    <div className="replay-dock panel panel-night">
       <button className="icon-btn" onClick={() => setPlaying((p) => !p)} aria-label={playing ? 'Pause' : 'Play'} disabled={!!seeking}>
         <Icon name={playing ? 'pause' : 'play'} size={20} />
       </button>
