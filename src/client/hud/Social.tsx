@@ -61,19 +61,50 @@ export function EmoteRain({ hud }: { hud: HudSnapshot }) {
   );
 }
 
+/** How long a sent message may take to come back from the room before it is treated as dropped. */
+const CHAT_ECHO_MS = 5_000;
+
 export function Chat({ hud, canSend }: { hud: HudSnapshot; canSend: boolean }) {
-  const { send } = useHudContext();
+  const { send, me } = useHudContext();
   const [text, setText] = useState('');
+  // The server drops a message silently (sending too fast, no longer a member, socket gone), so a sent message
+  // is held until the room echoes it back; if it never does, it is restored to the input with a note.
+  const [pending, setPending] = useState<{ text: string; seen: number } | null>(null);
+  const [failed, setFailed] = useState(false);
   const list = useRef<HTMLOListElement>(null);
+  const live = hud.conn.phase === 'live';
+  const down = hud.conn.phase === 'offline' || hud.conn.phase === 'refused';
+  const lastId = hud.chat[hud.chat.length - 1]?.id ?? 0;
+  useEffect(() => {
+    const el = list.current;
+    // Follow new messages only when the reader is already at the bottom, not while they scroll back.
+    if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 80) el.scrollTop = el.scrollHeight;
+  }, [lastId]);
   useEffect(() => {
     const el = list.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [hud.chat.length]);
+  }, []);
+  useEffect(() => {
+    if (!pending) return;
+    const mine = me?.user?.login;
+    if (hud.chat.some((m) => m.id > pending.seen && m.user.login === mine && m.text === pending.text)) setPending(null);
+  }, [lastId, pending]);
+  useEffect(() => {
+    if (!pending) return;
+    const t = setTimeout(() => {
+      setPending(null);
+      setFailed(true);
+      setText((cur) => cur || pending.text);
+    }, CHAT_ECHO_MS);
+    return () => clearTimeout(t);
+  }, [pending]);
   const submit = () => {
     const t = text.trim().slice(0, CHAT_MAX);
-    if (!t) return;
+    if (!t || !live || pending) return;
     sfx('ui.quill');
     send({ type: 'chat', text: t });
+    setPending({ text: t, seen: lastId });
+    setFailed(false);
     setText('');
   };
   return (
@@ -108,13 +139,21 @@ export function Chat({ hud, canSend }: { hud: HudSnapshot; canSend: boolean }) {
             className="input"
             value={text}
             maxLength={CHAT_MAX}
-            onChange={(e) => setText(e.target.value)}
+            onChange={(e) => {
+              setText(e.target.value);
+              setFailed(false);
+            }}
             placeholder="Say something to the room…"
             aria-label="Chat message"
           />
-          <button className="btn" type="submit" disabled={!text.trim()}>
-            Send
+          <button className="btn" type="submit" disabled={!text.trim() || !live || !!pending}>
+            {pending ? 'Sending…' : 'Send'}
           </button>
+          {(failed || down) && (
+            <p className="form-error chat-error" role="alert">
+              {down ? 'Reconnecting. Your message will wait here.' : 'That message did not reach the room. Wait a moment and send it again.'}
+            </p>
+          )}
         </form>
       ) : (
         <p className="muted small">Members of this room can chat.</p>

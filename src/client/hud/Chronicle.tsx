@@ -76,7 +76,9 @@ export function UnitChips({ units, size = 15 }: { units: readonly number[]; size
 
 export function Chronicle({ entries, viewerP, now }: { entries: readonly ChronicleEntry[]; viewerP: number | null; now: number }) {
   const { store, field, mode } = useHudContext();
-  const [filter, setFilter] = useState<ChronicleFilter>('all');
+  const [chosen, setFilter] = useState<ChronicleFilter>('all');
+  // "Mine" means nothing once the viewer has no army (a war ended, or they left): fall back to everything.
+  const filter = chosen === 'mine' && viewerP === null ? 'all' : chosen;
   const shown = useMemo(() => filterChronicle(entries, filter, viewerP), [entries, filter, viewerP]);
   const roster = store.roster;
   return (

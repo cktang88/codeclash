@@ -261,7 +261,12 @@ export class Battlefield {
     // Effects name a capital by its slot; capitals are the first sites, one per slot.
     hooks.openGate = (slot) => this.layers?.sites.openGate(slot, performance.now());
     hooks.sound = (name, x, y, gain) => {
-      sound.play(name, { x, y, gain });
+      // Audio is a garnish: a failing sound must never break the frame that asked for it.
+      try {
+        sound.play(name, { x, y, gain });
+      } catch {
+        /* ignored */
+      }
     };
     app.ticker.add(this.tick);
     this.watchEnvironment();
@@ -378,7 +383,11 @@ export class Battlefield {
     for (const off of this.detachEnv) off();
     this.detachEnv = [];
     // The battle's murmur belongs to the field: leaving it should not leave the din playing.
-    sound.setBattleIntensity?.(0);
+    try {
+      sound.setBattleIntensity?.(0);
+    } catch {
+      /* ignored */
+    }
     this.camera.destroy();
     this.dropMap();
     this.banners.destroy();
@@ -546,8 +555,8 @@ export class Battlefield {
     if (this.gradeSun.visible) {
       // A luminous gold sunrise from the east; a crimson sunset from the west.
       const east = dawn > dusk;
-      this.gradeSun.tint = east ? 0xb07a1c : 0x8a2a18;
-      this.gradeSun.alpha = Math.max(dawn, dusk) * (east ? 0.5 : 0.42);
+      this.gradeSun.tint = east ? 0xb07a1c : 0xb01430;
+      this.gradeSun.alpha = Math.max(dawn, dusk) * (east ? 0.5 : 0.5);
       this.gradeSun.height = sh;
       this.gradeSun.width = east ? -sw : sw;
       this.gradeSun.x = east ? sw : 0;
@@ -689,13 +698,17 @@ export class Battlefield {
   }
 
   private feedAudio(now: number, world: World, light: Daylight): void {
-    sound.setListener?.(this.camera.x, this.camera.y, this.camera.zoom);
-    if (now < this.audioAt) return;
-    this.audioAt = now + 250;
-    let engaged = 0;
-    for (const pl of world.platoons) if (pl.state === PlatoonState.Engage) engaged += pl.alive;
-    sound.setBattleIntensity?.(Math.min(1, engaged / 400));
-    sound.setTimeOfDay?.(light.phase);
+    try {
+      sound.setListener?.(this.camera.x, this.camera.y, this.camera.zoom);
+      if (now < this.audioAt) return;
+      this.audioAt = now + 250;
+      let engaged = 0;
+      for (const pl of world.platoons) if (pl.state === PlatoonState.Engage) engaged += pl.alive;
+      sound.setBattleIntensity?.(Math.min(1, engaged / 400));
+      sound.setTimeOfDay?.(light.phase);
+    } catch {
+      // Same rule as cues: the audio engine can never stop the render tick.
+    }
   }
 
   /** Forget everything tied to the old field's soldiers, platoons and set pieces. */

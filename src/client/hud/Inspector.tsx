@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { Kind, PlatoonState, TICK_MS, type World } from '../../sim/api.ts';
 import { platoonLabel, siteLabel } from '../../sim/chronicle.ts';
 import { CAPTURE_TICKS, DOCTRINE_NAMES, HEART_CAPTURE_TICKS, STATS } from '../../sim/stats.ts';
@@ -37,6 +38,20 @@ export function Inspector({ hud }: { hud: HudSnapshot }) {
   const { store } = useHudContext();
   const world = store.world;
   const sel = hud.selection;
+  const open = !!sel;
+  // Escape puts the details away, unless it belongs to a dialog or a field being typed in.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      const t = e.target;
+      if (t instanceof HTMLElement && (t.closest('input, textarea, select, [contenteditable="true"]') || t.closest('[aria-modal="true"]'))) return;
+      if (document.querySelector('[aria-modal="true"]')) return;
+      store.select(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, store]);
   if (!world || !sel) return null;
   const close = (
     <button className="icon-btn icon-btn-sm" onClick={() => store.select(null)} aria-label="Close details">

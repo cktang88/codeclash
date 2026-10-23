@@ -37,7 +37,15 @@ export function Root() {
 
   useEffect(() => {
     const titles: Record<string, string> = { home: 'Pushfront', demo: 'Demo war · Pushfront', lost: 'Lost · Pushfront', armory: 'Armory · Pushfront', hall: 'Hall of Legends · Pushfront', season: 'Season · Pushfront' };
-    if (titles[route.kind]) document.title = titles[route.kind]!;
+    // Every route sets a title, so one page's never lingers on the next; pages refine theirs once data arrives.
+    const named: Partial<Record<string, string>> = {
+      room: route.kind === 'room' ? route.slug : undefined,
+      digest: 'Daily digest',
+      replay: 'Replay',
+      history: 'Past wars',
+      profile: route.kind === 'profile' ? `@${route.login}` : undefined,
+    };
+    document.title = titles[route.kind] ?? (named[route.kind] ? `${named[route.kind]} · Pushfront` : 'Pushfront');
     window.scrollTo(0, 0);
   }, [href, route.kind]);
 

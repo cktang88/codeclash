@@ -37,7 +37,7 @@ export function orderPending(sent: { stamp: number | boolean; at: number } | und
   return !!sent && sent.stamp === stamp && now - sent.at < PENDING_MS;
 }
 
-function useCommand(slug: string | null, stampOf: (kind: CommandKind) => number | boolean) {
+function useCommand(slug: string | null, stampOf: (kind: CommandKind) => number | boolean, onEnded: () => void) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -53,6 +53,8 @@ function useCommand(slug: string | null, stampOf: (kind: CommandKind) => number 
       setSent((s) => ({ ...s, [cmd.kind]: { stamp, at: Date.now() } }));
       setNotice(`${label} ordered. It takes effect in a moment.`);
     } catch (err) {
+      // The war's last second: the panel is about to close with the war, so say so where it will still be seen.
+      if (err instanceof ApiError && err.code === 'ended') onEnded();
       setError(err instanceof ApiError ? err.message : 'The order did not reach the field. Try again.');
     } finally {
       setBusy(false);
@@ -69,9 +71,14 @@ export function CommandBar({ hud }: { hud: HudSnapshot }) {
   const p = hud.viewerP;
   const [rallyPick, setRallyPick] = useState(false);
   const player = world && p !== null ? world.players[p] : undefined;
-  const { busy, error, notice, run, pending } = useCommand(slug, (kind) =>
-    !player ? -1 : kind === 'doctrine' ? player.doctrineAt : kind === 'rally' ? player.rallyAt : player.cryUsed,
+  const { busy: sending, error, notice, run, pending } = useCommand(
+    slug,
+    (kind) => (!player ? -1 : kind === 'doctrine' ? player.doctrineAt : kind === 'rally' ? player.rallyAt : player.cryUsed),
+    () => store.addToast('leader', -1, 'The day is done. Your order came too late for today’s war.'),
   );
+  // Cooldowns are read from the local world; while it is catching up with the server they would be stale.
+  const catchingUp = hud.conn.phase !== 'live';
+  const busy = sending || catchingUp;
   // The selection when "Pick on map" was armed: only a site chosen after that is a rally order.
   const armedOn = useRef<HudSnapshot['selection']>(null);
 
@@ -187,6 +194,11 @@ export function CommandBar({ hud }: { hud: HudSnapshot }) {
         </button>
         <p className="command-hint">+30% damage and +25% speed for 60 seconds. Once per war.</p>
       </div>
+      {catchingUp && (
+        <p className="command-hint" role="status">
+          Catching up with the field… orders open again in a moment.
+        </p>
+      )}
       {(error || notice) && (
         <p className={error ? 'form-error' : 'form-ok'} role={error ? 'alert' : 'status'}>
           {error ?? notice}

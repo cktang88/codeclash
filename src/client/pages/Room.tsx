@@ -63,6 +63,11 @@ export function RoomPage({ slug, invite, me, onMeChanged }: { slug: string; invi
     };
   }, [hud.room, slug, invite]);
 
+  const roomName = room?.name ?? hud.room?.name ?? null;
+  useEffect(() => {
+    if (roomName) document.title = `${roomName} · Pushfront`;
+  }, [roomName]);
+
   const getRunner = useCallback(() => runner.current, []);
   const send = useCallback((msg: Parameters<LockstepRunner['send']>[0]) => runner.current?.send(msg), []);
 
@@ -86,9 +91,19 @@ export function RoomPage({ slug, invite, me, onMeChanged }: { slug: string; invi
     return (
       <Notice title={forbidden ? 'This room is private' : 'No such room'} icon="lock">
         <p>{forbidden ? 'You need an invite link from one of its members to watch this war.' : 'This room does not exist, or it was deleted.'}</p>
-        <Link className="btn btn-primary" to={{ kind: 'home' }}>
-          Back to the lobby
-        </Link>
+        {forbidden && !me?.user && (
+          <p className="muted">Already a member? Sign in to see it.</p>
+        )}
+        <div className="form-actions">
+          {forbidden && !me?.user && (
+            <a className="btn btn-primary" href={`/auth/github?next=${encodeURIComponent(location.pathname + location.search)}`}>
+              <Icon name="github" size={18} /> Sign in with GitHub
+            </a>
+          )}
+          <Link className={`btn${forbidden && !me?.user ? '' : ' btn-primary'}`} to={{ kind: 'home' }}>
+            Back to the lobby
+          </Link>
+        </div>
       </Notice>
     );
   }

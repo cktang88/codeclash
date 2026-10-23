@@ -169,10 +169,12 @@ export function RoomHud({ hud, title, subtitle, banner, dock, room, onRoomChange
       <ArmyPanel hud={hud} />
     );
   const sheetTabs = [...leftTabs, ...rightTabs];
+  // A page whose tab is gone (the war ended, so no Orders or army) closes rather than lingering stale.
+  const page = sheet !== null && sheetTabs.some(([t]) => t === sheet) ? sheet : null;
   // The book on a phone: swipe across a page to turn it, pull it down by its grip to close.
   const turnPage = (dir: 1 | -1) => {
-    if (sheet === null) return;
-    const i = sheetTabs.findIndex(([t]) => t === sheet);
+    if (page === null) return;
+    const i = sheetTabs.findIndex(([t]) => t === page);
     const next = sheetTabs[i + dir];
     if (!next) return;
     sfx('ui.page');
@@ -282,12 +284,12 @@ export function RoomHud({ hud, title, subtitle, banner, dock, room, onRoomChange
 
       {narrow && (
         <div className="sheet">
-          {sheet && (
+          {page && (
             <div
-              key={sheet}
+              key={page}
               className={`sheet-page panel${turn ? ` is-turn-${turn}` : ''}`}
               role="tabpanel"
-              aria-label={sheetTabs.find(([t]) => t === sheet)?.[1]}
+              aria-label={sheetTabs.find(([t]) => t === page)?.[1]}
               onPointerDown={onSwipeStart}
               onPointerUp={(e) => onSwipeEnd(e, false)}
               onAnimationEnd={() => setTurn(null)}
@@ -305,9 +307,9 @@ export function RoomHud({ hud, title, subtitle, banner, dock, room, onRoomChange
                 onClick={() => setSheet(null)}
                 aria-label="Close the book"
               >
-                {sheetTabs.findIndex(([t]) => t === sheet) + 1} / {sheetTabs.length}
+                {sheetTabs.findIndex(([t]) => t === page) + 1} / {sheetTabs.length}
               </button>
-              <div className="sheet-body">{sheet === 'chronicle' || sheet === 'chat' ? rightBody(sheet) : leftBody(sheet)}</div>
+              <div className="sheet-body">{page === 'chronicle' || page === 'chat' ? rightBody(page) : leftBody(page)}</div>
             </div>
           )}
           <div className="sheet-tabs night-band" role="tablist" aria-label="Panels">
@@ -315,12 +317,12 @@ export function RoomHud({ hud, title, subtitle, banner, dock, room, onRoomChange
               <button
                 key={t}
                 role="tab"
-                aria-selected={sheet === t}
-                className={sheet === t ? 'is-on' : ''}
+                aria-selected={page === t}
+                className={page === t ? 'is-on' : ''}
                 onClick={() => {
-                  sfx(sheet === t ? 'ui.close' : 'ui.page');
+                  sfx(page === t ? 'ui.close' : 'ui.page');
                   setTurn(null);
-                  setSheet((s) => (s === t ? null : t));
+                  setSheet(page === t ? null : t);
                 }}
               >
                 {label}
@@ -335,7 +337,7 @@ export function RoomHud({ hud, title, subtitle, banner, dock, room, onRoomChange
       {ready && hud.war && <AwayModal hud={hud} />}
       {modal === 'help' && <ArticlesOfWar onClose={() => setModal(null)} />}
       {modal === 'share' && room && <ShareModal room={room} onClose={() => setModal(null)} />}
-      {modal === 'settings' && room && <RoomSettings room={room} onClose={() => setModal(null)} onChanged={(r) => onRoomChanged?.(r)} />}
+      {modal === 'settings' && room && member && <RoomSettings room={room} onClose={() => setModal(null)} onChanged={(r) => onRoomChanged?.(r)} />}
     </div>
   );
 }

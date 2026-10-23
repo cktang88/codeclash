@@ -1656,8 +1656,18 @@ button.chron-btn:hover {
 
 .chat-form {
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
   align-items: flex-end;
+}
+
+.chat-form .input {
+  flex: 1 1 0;
+}
+
+.chat-error {
+  flex-basis: 100%;
+  margin: 0;
 }
 
 /* ------------------------------------- replay: the scribe's instrument bar */

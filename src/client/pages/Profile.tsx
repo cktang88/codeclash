@@ -4,7 +4,7 @@ import { AWARDS } from '../../rules/digest.ts';
 import { ApiError, api } from '../net/api.ts';
 import { Avatar } from '../ui/Avatar.tsx';
 import { Link } from '../ui/Link.tsx';
-import { compact } from '../ui/format.ts';
+import { compact, plural } from '../ui/format.ts';
 import { Notice } from './Notice.tsx';
 import { DeedsSection, ProfileRank, RivalriesSection } from '../meta/index.ts';
 import { DropCap, Fleuron, Tally } from '../ui/codex.tsx';
@@ -117,7 +117,7 @@ export function ProfilePage({ login }: { login: string }) {
                 <Link to={{ kind: 'room', slug: r.room.slug, invite: null }}>{r.room.name}</Link>
               </h3>
               <p className="muted small">
-                {r.days} days · {r.wins} won · streak {r.streak} (best {r.bestStreak}) · {compact(r.renown)} renown
+                {plural(r.days, 'day')} · {r.wins} won · streak {r.streak} (best {r.bestStreak}) · {compact(r.renown)} renown
               </p>
               {Object.keys(r.awards).length > 0 && (
                 <ul className="award-counts">
