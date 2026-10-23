@@ -1,4 +1,5 @@
 import { useEffect, useRef, type ReactNode } from 'react';
+import { Icon } from './icons.tsx';
 
 export function Modal({
   title,
@@ -39,7 +40,7 @@ export function Modal({
             {subtitle && <div className="modal-sub">{subtitle}</div>}
           </div>
           <button className="icon-btn" onClick={onClose} aria-label="Close">
-            <span aria-hidden>×</span>
+            <Icon name="close" size={20} />
           </button>
         </header>
         <div className="modal-body">{children}</div>

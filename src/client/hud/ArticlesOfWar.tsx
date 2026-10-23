@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { DOCTRINE_NAMES, STATS, type Tier } from '../../sim/stats.ts';
 import { Modal } from '../ui/Modal.tsx';
 import { DoctrineIcon, UnitIcon } from '../ui/icons.tsx';
@@ -8,12 +8,28 @@ const CAT_SOURCE = ['Source code', 'Tests', 'Comments in source', 'Docs and READ
 
 const SHAPE_SOURCE: Record<string, string> = {
   Champion: 'A balanced push: code, tests, and docs or comments',
-  Berserker: 'Code with no tests and no comments',
+  Berserker: 'Untested, uncommented code',
   Cleric: 'Bug-fix commits',
   Dragon: 'A legendary push',
 };
 
 const TIER_LABEL: Record<Tier, string> = { base: 'Line', elite: 'Elite', special: 'Special', hero: 'Hero', legend: 'Legend' };
+
+const TIER_ORDER: Record<Tier, number> = { base: 0, elite: 1, special: 2, hero: 3, legend: 4 };
+
+/** Units grouped by the line category that raises them (line before elite), then the specials. */
+export function unitGroups(): { label: string; kinds: number[] }[] {
+  const groups: { label: string; kinds: number[] }[] = [];
+  CAT_SOURCE.forEach((label, cat) => {
+    const kinds = STATS.map((_, k) => k).filter((k) => STATS[k]!.raisedBy === cat);
+    kinds.sort((a, b) => TIER_ORDER[STATS[a]!.tier] - TIER_ORDER[STATS[b]!.tier] || a - b);
+    if (kinds.length > 0) groups.push({ label, kinds });
+  });
+  const special = STATS.map((_, k) => k).filter((k) => STATS[k]!.raisedBy < 0);
+  special.sort((a, b) => TIER_ORDER[STATS[a]!.tier] - TIER_ORDER[STATS[b]!.tier] || a - b);
+  if (special.length > 0) groups.push({ label: 'Raised by the shape of a push', kinds: special });
+  return groups;
+}
 
 /** What raises unit `k`, in words. */
 export function raisedByText(k: number): string {
@@ -73,21 +89,33 @@ export function ArticlesOfWar({ onClose }: { onClose(): void }) {
                 </tr>
               </thead>
               <tbody>
-                {STATS.map((s, k) => (
-                  <tr key={s.name}>
-                    <th scope="row">
-                      <span className="unit-name">
-                        <UnitIcon kind={k} size={22} title="" /> {s.name}
-                      </span>
-                    </th>
-                    <td>{raisedByText(k)}</td>
-                    <td>
-                      <span className={`tag tier-${s.tier}`}>{TIER_LABEL[s.tier]}</span>
-                    </td>
-                    <td>{s.role}</td>
-                    <td className="num">{s.hp}</td>
-                    <td className="num">{s.damage}</td>
-                  </tr>
+                {unitGroups().map((g) => (
+                  <Fragment key={g.label}>
+                    <tr className="group-row">
+                      <th colSpan={6} scope="colgroup">
+                        {g.label}
+                      </th>
+                    </tr>
+                    {g.kinds.map((k) => {
+                      const s = STATS[k]!;
+                      return (
+                        <tr key={s.name}>
+                          <th scope="row">
+                            <span className="unit-name">
+                              <UnitIcon kind={k} size={22} title="" /> {s.name}
+                            </span>
+                          </th>
+                          <td>{raisedByText(k)}</td>
+                          <td>
+                            <span className={`tag tier-${s.tier}`}>{TIER_LABEL[s.tier]}</span>
+                          </td>
+                          <td>{s.role}</td>
+                          <td className="num">{s.hp}</td>
+                          <td className="num">{s.damage}</td>
+                        </tr>
+                      );
+                    })}
+                  </Fragment>
                 ))}
               </tbody>
             </table>

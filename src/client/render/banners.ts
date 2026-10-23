@@ -121,7 +121,8 @@ export class BannerLayer {
       const routing = pl.state === PlatoonState.Rout;
       const engaged = pl.state === PlatoonState.Engage;
       v.root.rotation = routing ? -0.35 + Math.sin(now / 120) * 0.08 : 0;
-      v.flag.update(now / 1000, routing ? 3 : engaged ? 7 : 4.5);
+      // Cloth only ripples where it can be seen; far tokens stay still.
+      if (!far || pl.id === selected) v.flag.update(now / 1000, routing ? 3 : engaged ? 7 : 4.5);
       const flash = now - v.routFlash < 900 ? 1 - (now - v.routFlash) / 900 : 0;
       v.flag.mesh.tint = flash > 0 && Math.floor(now / 90) % 2 === 0 ? 0xffffff : routing ? 0xb8b8b8 : 0xffffff;
       v.flag.mesh.alpha = 1;
@@ -130,7 +131,7 @@ export class BannerLayer {
       v.morale.tint = pl.morale < 30 ? 0xe0603a : pl.morale < 60 ? 0xe8c25a : 0x7fc6ff;
       v.strength.tint = 0x8be38b;
       v.count.visible = far || pl.id === selected;
-      v.count.text = String(pl.alive);
+      if (v.count.visible) v.count.text = String(pl.alive);
       v.star.visible = pl.champion;
       this.hits.push({ platoon: pl.id, x: v.x, y: v.y - lift - (FLAG_H * 0.9 * scale), r: Math.max(FLAG_W * 0.6 * scale, 10 / zoom) });
     }

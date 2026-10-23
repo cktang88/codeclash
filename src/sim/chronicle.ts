@@ -15,7 +15,8 @@ export type ChronicleKind =
   | 'doctrine'
   | 'rally'
   | 'leader'
-  | 'clash';
+  | 'clash'
+  | 'dragon';
 
 /** One line of a war's history. Derived from the simulation, so replays reproduce it. */
 export interface ChronicleEntry {
@@ -113,6 +114,9 @@ export class Chronicler {
       const input = pushInputs.find((i) => i.p === pl.p && i.repo === pl.repo);
       const msg = input?.msg ? ` "${input.msg}"` : '';
       const c = world.map.sites[world.players[pl.p]!.slot]!;
+      if (pl.mustered[Kind.Dragon]! > 0) {
+        add({ kind: 'dragon', p: pl.p, platoon: pl.id, x: c.x, y: c.y, repo: pl.repo, text: `A Dragon takes wing over ${n.player(pl.p)}'s capital, summoned by a legendary push to ${n.repo(pl.repo)}!` });
+      }
       add({
         kind: 'muster', p: pl.p, platoon: pl.id, x: c.x, y: c.y, units: pl.mustered.slice(), repo: pl.repo,
         text: `${n.player(pl.p)} pushed to ${n.repo(pl.repo)}${msg}. ${platoonLabel(n, pl.repo, pl.ordinal)} musters: ${unitsPhrase(pl.mustered)}.`,
@@ -124,6 +128,10 @@ export class Chronicler {
       add({ kind: 'rout', p: pl.p, platoon: pl.id, x: pl.x, y: pl.y, text: `${n.player(pl.p)}'s ${platoonLabel(n, pl.repo, pl.ordinal)} broke and fled.` });
     }
     for (const d of ev.deaths) {
+      if (d.kind === Kind.Dragon && d.p >= 0) {
+        const by = d.killer >= 0 ? `, brought down by ${n.player(d.killer)}` : '';
+        add({ kind: 'dragon', p: d.killer, q: d.p, x: d.x, y: d.y, text: `${n.player(d.p)}'s Dragon falls from the sky${by}!` });
+      }
       if (d.kind === Kind.Champion && d.p >= 0) {
         const by = d.killer >= 0 ? ` by ${n.player(d.killer)}` : '';
         add({ kind: 'champion', p: d.killer, q: d.p, x: d.x, y: d.y, text: `${n.player(d.p)}'s Champion was slain${by}.` });

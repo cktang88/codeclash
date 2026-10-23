@@ -1,5 +1,6 @@
 import { CanvasSource, Rectangle, Texture } from 'pixi.js';
 import { Kind, KIND_COUNT } from '../../sim/api.ts';
+import { STATS } from '../../sim/stats.ts';
 import { canvas2d } from './paint.ts';
 
 // Soldiers are drawn side-on, facing right, feet near the bottom of a square cell.
@@ -103,8 +104,46 @@ function head(ctx: CanvasRenderingContext2D, x: number, y: number, helmet: strin
   if (helmet) blob(ctx, () => ctx.arc(x, y - 1, 8.5, Math.PI, 0), helmet);
 }
 
+const BONE = '#e6dfc8';
+const BONE_DARK = '#b3a988';
+const TROLL = '#7d9468';
+const TROLL_DARK = '#56684a';
+const ROBE = '#d8d2c2';
+const FIRE = '#ffb347';
+
+function horse(ctx: CanvasRenderingContext2D, stride: number, coat: string, heavy: boolean): void {
+  const s = stride * 4;
+  const leg = heavy ? 6 : 5;
+  line(ctx, 30, 62, 26 + s, FEET_Y - 1, leg, '#4a3c30');
+  line(ctx, 38, 62, 40 - s, FEET_Y - 1, leg, '#4a3c30');
+  line(ctx, 60, 62, 56 - s, FEET_Y - 1, leg, '#4a3c30');
+  line(ctx, 68, 62, 72 + s, FEET_Y - 1, leg, '#4a3c30');
+  blob(ctx, () => ctx.ellipse(48, 56, heavy ? 29 : 27, heavy ? 14 : 12, 0, 0, Math.PI * 2), coat);
+  blob(ctx, () => {
+    ctx.moveTo(66, 52);
+    ctx.lineTo(80, 34);
+    ctx.lineTo(90, 38);
+    ctx.lineTo(86, 44);
+    ctx.lineTo(74, 56);
+    ctx.closePath();
+  }, coat);
+  line(ctx, 22, 52, 14, 64, 4, '#3d3026');
+}
+
+function wing(ctx: CanvasRenderingContext2D, x: number, y: number, span: number, lift: number, fill: string): void {
+  blob(ctx, () => {
+    ctx.moveTo(x, y);
+    ctx.quadraticCurveTo(x - span * 0.3, y - lift * 1.1, x - span, y - lift);
+    ctx.lineTo(x - span * 0.75, y - lift * 0.45);
+    ctx.lineTo(x - span * 0.85, y - lift * 0.1);
+    ctx.lineTo(x - span * 0.5, y - lift * 0.15);
+    ctx.lineTo(x - span * 0.55, y + lift * 0.15);
+    ctx.closePath();
+  }, fill);
+}
+
 const PAINTERS: Record<Kind, Painter> = {
-  [Kind.Legionary]: (ctx, layer, stride) => {
+  [Kind.Footman]: (ctx, layer, stride) => {
     if (layer === 'body') {
       legs(ctx, stride);
       line(ctx, 30, 74, 70, 14, 3.5, WOOD);
@@ -123,6 +162,35 @@ const PAINTERS: Record<Kind, Painter> = {
       circle(ctx, 40, 54, 3.5, '#5a5a5a', 0);
     }
   },
+  [Kind.Knight]: (ctx, layer, stride) => {
+    if (layer === 'body') {
+      horse(ctx, stride, '#7d6a58', true);
+      rrect(ctx, 66, 34, 18, 10, 3, STEEL, 2);
+      rrect(ctx, 39, 22, 16, 22, 4, STEEL);
+      head(ctx, 47, 15, STEEL);
+      rrect(ctx, 41, 12, 12, 4, 1, STEEL_DARK, 2);
+      line(ctx, 26, 40, 94, 18, 3.5, '#d9d2c0');
+      circle(ctx, 36, 36, 9, STEEL);
+    } else {
+      blob(ctx, () => {
+        ctx.moveTo(26, 46);
+        ctx.lineTo(70, 46);
+        ctx.lineTo(66, 70);
+        ctx.lineTo(56, 64);
+        ctx.lineTo(46, 70);
+        ctx.lineTo(36, 64);
+        ctx.lineTo(28, 70);
+        ctx.closePath();
+      }, '#fff', 0);
+      blob(ctx, () => {
+        ctx.moveTo(46, 10);
+        ctx.quadraticCurveTo(38, -2, 28, 8);
+        ctx.quadraticCurveTo(38, 8, 42, 14);
+        ctx.closePath();
+      }, '#fff', 0);
+      circle(ctx, 36, 36, 6.5, '#fff', 0);
+    }
+  },
   [Kind.Warden]: (ctx, layer, stride) => {
     if (layer === 'body') {
       legs(ctx, stride * 0.6, 62, STEEL_DARK);
@@ -136,6 +204,29 @@ const PAINTERS: Record<Kind, Painter> = {
       rrect(ctx, 57, 46.5, 12, 3, 1, '#9a9a9a', 0);
     }
   },
+  [Kind.Paladin]: (ctx, layer, stride) => {
+    if (layer === 'body') {
+      ctx.strokeStyle = 'rgba(255,230,140,0.9)';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.ellipse(46, 18, 12, 4, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      legs(ctx, stride * 0.7, 64, STEEL_DARK);
+      line(ctx, 60, 60, 72, 22, 4, WOOD);
+      rrect(ctx, 64, 12, 18, 14, 3, '#e8dcb0');
+      rrect(ctx, 34, 38, 26, 30, 6, '#d6dce2');
+      head(ctx, 46, 30, '#e3e7eb');
+      circle(ctx, 36, 54, 15, '#d6dce2');
+    } else {
+      rrect(ctx, 38, 44, 18, 20, 3, '#fff', 0);
+      circle(ctx, 36, 54, 11.5, '#fff', 0);
+      for (let i = 0; i < 8; i++) {
+        const a = (i * Math.PI) / 4;
+        line(ctx, 36, 54, 36 + Math.cos(a) * 8, 54 + Math.sin(a) * 8, 1, '#c8a840');
+      }
+      circle(ctx, 36, 54, 3.5, '#e8c25a', 0);
+    }
+  },
   [Kind.Archer]: (ctx, layer, stride) => {
     if (layer === 'body') {
       legs(ctx, stride);
@@ -144,24 +235,36 @@ const PAINTERS: Record<Kind, Painter> = {
       line(ctx, 36, 34, 37, 27, 2, '#ddd');
       rrect(ctx, 40, 42, 15, 22, 5, LEATHER);
       head(ctx, 47, 33, null);
-      ctx.strokeStyle = INK;
-      ctx.lineWidth = 6;
-      ctx.beginPath();
-      ctx.arc(52, 48, 22, -1.15, 1.15);
-      ctx.stroke();
-      ctx.strokeStyle = WOOD;
-      ctx.lineWidth = 3.5;
-      ctx.stroke();
-      ctx.strokeStyle = '#e8e2d0';
-      ctx.lineWidth = 1.2;
-      ctx.beginPath();
-      ctx.moveTo(52 + 22 * Math.cos(-1.15), 48 + 22 * Math.sin(-1.15));
-      ctx.lineTo(52 + 22 * Math.cos(1.15), 48 + 22 * Math.sin(1.15));
-      ctx.stroke();
+      bow(ctx, 52, 48, 22);
       line(ctx, 50, 50, 64, 46, 2.5, SKIN);
     } else {
       blob(ctx, () => ctx.arc(47, 32, 9.5, Math.PI * 0.95, Math.PI * 2.05), '#fff', 0);
       rrect(ctx, 42, 46, 11, 15, 3, '#fff', 0);
+    }
+  },
+  [Kind.Ranger]: (ctx, layer, stride) => {
+    if (layer === 'body') {
+      legs(ctx, stride, 62, '#3e4a32');
+      rrect(ctx, 40, 40, 14, 24, 5, '#4f5e3c');
+      head(ctx, 47, 31, null);
+      blob(ctx, () => {
+        ctx.moveTo(41, 30);
+        ctx.lineTo(34, 24);
+        ctx.lineTo(40, 34);
+        ctx.closePath();
+      }, SKIN, 2);
+      bow(ctx, 54, 44, 30);
+      line(ctx, 50, 48, 66, 42, 2.5, SKIN);
+    } else {
+      blob(ctx, () => {
+        ctx.moveTo(38, 24);
+        ctx.quadraticCurveTo(47, 16, 56, 26);
+        ctx.lineTo(54, 40);
+        ctx.quadraticCurveTo(36, 50, 28, 76);
+        ctx.lineTo(38, 76);
+        ctx.lineTo(42, 42);
+        ctx.closePath();
+      }, '#fff', 0);
     }
   },
   [Kind.Herald]: (ctx, layer, stride) => {
@@ -191,6 +294,37 @@ const PAINTERS: Record<Kind, Painter> = {
       rrect(ctx, 42, 46, 10, 20, 2, '#fff', 0);
     }
   },
+  [Kind.Wizard]: (ctx, layer, stride) => {
+    if (layer === 'body') {
+      blob(ctx, () => {
+        ctx.moveTo(36, 40);
+        ctx.lineTo(56, 40);
+        ctx.lineTo(62, FEET_Y);
+        ctx.lineTo(30, FEET_Y);
+        ctx.closePath();
+      }, '#5b5f8a');
+      line(ctx, 62, FEET_Y, 66, 14 + stride, 3, WOOD);
+      circle(ctx, 66, 12, 6, '#9fe0ff', 2);
+      head(ctx, 46, 33, null);
+      blob(ctx, () => {
+        ctx.moveTo(44, 36);
+        ctx.lineTo(48, 52);
+        ctx.lineTo(52, 36);
+        ctx.closePath();
+      }, '#eeeeee', 2);
+      line(ctx, 50, 48, 62, 44, 3, '#5b5f8a');
+    } else {
+      blob(ctx, () => {
+        ctx.moveTo(34, 30);
+        ctx.lineTo(58, 30);
+        ctx.lineTo(50, 24);
+        ctx.lineTo(42, 0);
+        ctx.lineTo(40, 24);
+        ctx.closePath();
+      }, '#fff', 0);
+      rrect(ctx, 32, 70, 30, 6, 2, '#fff', 0);
+    }
+  },
   [Kind.Sapper]: (ctx, layer, stride) => {
     if (layer === 'body') {
       legs(ctx, stride);
@@ -204,24 +338,33 @@ const PAINTERS: Record<Kind, Painter> = {
       rrect(ctx, 39.5, 28, 17, 3, 1, '#fff', 0);
     }
   },
+  [Kind.Trebuchet]: (ctx, layer, stride) => {
+    void stride;
+    if (layer === 'body') {
+      circle(ctx, 22, 78, 9, '#5a4630');
+      circle(ctx, 74, 78, 9, '#5a4630');
+      rrect(ctx, 10, 66, 76, 8, 2, WOOD);
+      line(ctx, 30, 70, 46, 30, 5, WOOD);
+      line(ctx, 66, 70, 50, 30, 5, WOOD);
+      line(ctx, 18, 12, 70, 44, 4, '#7a5a34');
+      rrect(ctx, 62, 38, 16, 18, 3, STONE_DARK);
+      line(ctx, 18, 12, 14, 30, 1.5, '#ccc');
+      circle(ctx, 14, 32, 4, STONE, 2);
+    } else {
+      blob(ctx, () => {
+        ctx.moveTo(48, 30);
+        ctx.lineTo(48, 4);
+        ctx.lineTo(64, 9);
+        ctx.lineTo(48, 14);
+        ctx.closePath();
+      }, '#fff', 0);
+      rrect(ctx, 14, 67, 68, 3, 1, '#fff', 0);
+    }
+  },
   [Kind.Outrider]: (ctx, layer, stride) => {
     if (layer === 'body') {
-      const s = stride * 4;
-      line(ctx, 30, 62, 26 + s, FEET_Y - 1, 5, '#5b4a3a');
-      line(ctx, 38, 62, 40 - s, FEET_Y - 1, 5, '#5b4a3a');
-      line(ctx, 60, 62, 56 - s, FEET_Y - 1, 5, '#5b4a3a');
-      line(ctx, 68, 62, 72 + s, FEET_Y - 1, 5, '#5b4a3a');
-      blob(ctx, () => ctx.ellipse(48, 56, 27, 12, 0, 0, Math.PI * 2), '#8a735a');
-      blob(ctx, () => {
-        ctx.moveTo(66, 52);
-        ctx.lineTo(80, 34);
-        ctx.lineTo(90, 38);
-        ctx.lineTo(86, 44);
-        ctx.lineTo(74, 56);
-        ctx.closePath();
-      }, '#8a735a');
-      line(ctx, 22, 52, 14, 64, 4, '#3d3026');
-      rrect(ctx, 40, 26, 14, 20, 4, STEEL_DARK);
+      horse(ctx, stride, '#8a735a', false);
+      rrect(ctx, 40, 26, 14, 20, 4, LEATHER);
       head(ctx, 47, 19, STEEL);
       line(ctx, 30, 44, 92, 26, 2.5, WOOD);
     } else {
@@ -235,18 +378,78 @@ const PAINTERS: Record<Kind, Painter> = {
       rrect(ctx, 42, 29, 10, 14, 2, '#fff', 0);
     }
   },
-  [Kind.Golem]: (ctx, layer, stride) => {
+  [Kind.GriffinRider]: (ctx, layer, stride) => {
+    const flap = stride > 0 ? 1 : 0.55;
     if (layer === 'body') {
-      line(ctx, 38, 68, 36 + stride * 3, FEET_Y - 2, 10, STONE_DARK);
-      line(ctx, 58, 68, 60 - stride * 3, FEET_Y - 2, 10, STONE_DARK);
-      rrect(ctx, 24, 26, 48, 46, 10, STONE);
-      rrect(ctx, 40, 14, 18, 15, 5, STONE_DARK);
-      circle(ctx, 54, 21, 2.5, '#ffd27a', 1.5);
-      line(ctx, 22, 34, 18, 66, 9, STONE_DARK);
-      line(ctx, 74, 34, 78, 66, 9, STONE_DARK);
+      line(ctx, 40, 60, 36, 74, 5, '#8a6a3a');
+      line(ctx, 58, 60, 62, 74, 5, '#d8c890');
+      blob(ctx, () => ctx.ellipse(48, 54, 24, 11, -0.1, 0, Math.PI * 2), '#a8834a');
+      blob(ctx, () => {
+        ctx.moveTo(24, 52);
+        ctx.quadraticCurveTo(10, 50, 8, 62);
+        ctx.quadraticCurveTo(16, 56, 26, 58);
+        ctx.closePath();
+      }, '#a8834a');
+      blob(ctx, () => ctx.arc(74, 44, 9, 0, Math.PI * 2), '#f2ecdc');
+      blob(ctx, () => {
+        ctx.moveTo(81, 42);
+        ctx.lineTo(92, 47);
+        ctx.lineTo(81, 49);
+        ctx.closePath();
+      }, GOLD, 2);
+      rrect(ctx, 42, 28, 12, 18, 4, STEEL_DARK);
+      head(ctx, 48, 22, STEEL);
+      line(ctx, 54, 34, 80, 20, 2.5, WOOD);
+    }
+    wing(ctx, 46, 48, 44, 40 * flap, layer === 'body' ? '#f0e6cc' : 'rgba(0,0,0,0)');
+    if (layer === 'mask') {
+      blob(ctx, () => {
+        ctx.moveTo(38, 46);
+        ctx.lineTo(58, 46);
+        ctx.lineTo(56, 60);
+        ctx.lineTo(40, 60);
+        ctx.closePath();
+      }, '#fff', 0);
+      rrect(ctx, 44, 31, 8, 12, 2, '#fff', 0);
+    }
+  },
+  [Kind.Skeleton]: (ctx, layer, stride) => {
+    if (layer === 'body') {
+      line(ctx, 46, 62, 42 + stride * 5, FEET_Y - 2, 3, BONE);
+      line(ctx, 50, 62, 54 - stride * 5, FEET_Y - 2, 3, BONE);
+      for (let i = 0; i < 4; i++) line(ctx, 41, 44 + i * 5, 55, 44 + i * 5, 2.2, BONE);
+      line(ctx, 48, 40, 48, 64, 3, BONE_DARK);
+      circle(ctx, 48, 32, 8, BONE);
+      ctx.fillStyle = INK;
+      ctx.fillRect(48, 29, 3, 3);
+      ctx.fillRect(53, 29, 2.5, 3);
+      line(ctx, 54, 50, 72, 28, 3, '#8a7a5e');
+      line(ctx, 50, 50, 56, 50, 2.5, BONE);
     } else {
-      rrect(ctx, 30, 40, 36, 7, 2, '#fff', 0);
-      rrect(ctx, 44, 49, 8, 18, 2, '#fff', 0);
+      blob(ctx, () => {
+        ctx.moveTo(30, 44);
+        ctx.lineTo(42, 46);
+        ctx.lineTo(40, 64);
+        ctx.lineTo(32, 60);
+        ctx.closePath();
+      }, '#fff', 0);
+    }
+  },
+  [Kind.BoneGolem]: (ctx, layer, stride) => {
+    if (layer === 'body') {
+      line(ctx, 38, 68, 36 + stride * 3, FEET_Y - 2, 10, BONE_DARK);
+      line(ctx, 58, 68, 60 - stride * 3, FEET_Y - 2, 10, BONE_DARK);
+      rrect(ctx, 22, 28, 52, 44, 14, '#cfc6a8');
+      for (let i = 0; i < 5; i++) line(ctx, 28 + i * 10, 36, 32 + i * 9, 64, 3, BONE_DARK);
+      circle(ctx, 52, 20, 11, BONE);
+      ctx.fillStyle = '#ff5a3a';
+      ctx.fillRect(52, 17, 4, 4);
+      ctx.fillRect(58, 17, 3, 4);
+      line(ctx, 20, 34, 12, 68, 9, BONE_DARK);
+      line(ctx, 76, 34, 84, 66, 9, BONE_DARK);
+    } else {
+      rrect(ctx, 30, 44, 34, 6, 2, '#fff', 0);
+      circle(ctx, 48, 58, 5, '#fff', 0);
     }
   },
   [Kind.Mercenary]: (ctx, layer, stride) => {
@@ -274,11 +477,85 @@ const PAINTERS: Record<Kind, Painter> = {
       }, '#fff', 0);
     }
   },
+  [Kind.Troll]: (ctx, layer, stride) => {
+    if (layer === 'body') {
+      line(ctx, 38, 66, 34 + stride * 3, FEET_Y - 2, 11, TROLL_DARK);
+      line(ctx, 56, 66, 60 - stride * 3, FEET_Y - 2, 11, TROLL_DARK);
+      blob(ctx, () => ctx.ellipse(46, 48, 24, 22, 0.2, 0, Math.PI * 2), TROLL);
+      circle(ctx, 62, 30, 10, TROLL);
+      blob(ctx, () => {
+        ctx.moveTo(66, 34);
+        ctx.lineTo(70, 28);
+        ctx.lineTo(70, 36);
+        ctx.closePath();
+      }, BONE, 1.5);
+      line(ctx, 66, 46, 84, 18, 9, '#6b4b2a');
+      circle(ctx, 84, 16, 9, '#6b4b2a');
+      line(ctx, 28, 44, 24, 68, 8, TROLL_DARK);
+    } else {
+      blob(ctx, () => {
+        ctx.moveTo(26, 58);
+        ctx.lineTo(64, 58);
+        ctx.lineTo(60, 72);
+        ctx.lineTo(48, 66);
+        ctx.lineTo(34, 72);
+        ctx.closePath();
+      }, '#fff', 0);
+    }
+  },
+  [Kind.Berserker]: (ctx, layer, stride) => {
+    if (layer === 'body') {
+      legs(ctx, stride * 1.3, 62, '#5a3c2c');
+      rrect(ctx, 39, 40, 18, 24, 6, SKIN);
+      head(ctx, 48, 31, STEEL);
+      blob(ctx, () => {
+        ctx.moveTo(40, 28);
+        ctx.quadraticCurveTo(30, 24, 32, 12);
+        ctx.quadraticCurveTo(36, 22, 42, 24);
+        ctx.closePath();
+      }, BONE, 2);
+      blob(ctx, () => {
+        ctx.moveTo(56, 28);
+        ctx.quadraticCurveTo(66, 24, 64, 12);
+        ctx.quadraticCurveTo(60, 22, 54, 24);
+        ctx.closePath();
+      }, BONE, 2);
+      line(ctx, 38, 50, 22, 26, 3, WOOD);
+      blob(ctx, () => ctx.arc(22, 26, 9, Math.PI * 0.9, Math.PI * 1.9), STEEL, 2);
+      line(ctx, 58, 50, 74, 26, 3, WOOD);
+      blob(ctx, () => ctx.arc(74, 26, 9, Math.PI * 1.1, Math.PI * 2.1), STEEL, 2);
+    } else {
+      rrect(ctx, 40, 58, 16, 10, 2, '#fff', 0);
+      line(ctx, 42, 44, 54, 52, 2.5, '#fff');
+      line(ctx, 54, 44, 42, 52, 2.5, '#fff');
+    }
+  },
+  [Kind.Cleric]: (ctx, layer, stride) => {
+    if (layer === 'body') {
+      blob(ctx, () => {
+        ctx.moveTo(38, 40);
+        ctx.lineTo(56, 40);
+        ctx.lineTo(60 + stride, FEET_Y);
+        ctx.lineTo(34 - stride, FEET_Y);
+        ctx.closePath();
+      }, ROBE);
+      head(ctx, 47, 32, null);
+      line(ctx, 54, 50, 66, 34, 3, WOOD);
+      circle(ctx, 67, 31, 5, GOLD, 2);
+      ctx.fillStyle = 'rgba(160,255,170,0.55)';
+      ctx.beginPath();
+      ctx.arc(67, 31, 9, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      rrect(ctx, 44, 40, 7, 40, 2, '#fff', 0);
+      blob(ctx, () => ctx.arc(47, 31, 9.5, Math.PI * 0.95, Math.PI * 2.05), '#fff', 0);
+    }
+  },
   [Kind.Champion]: (ctx, layer, stride) => {
     if (layer === 'body') {
       legs(ctx, stride, 62, STEEL_DARK);
       line(ctx, 58, 56, 80, 6, 5, '#e6ebf0');
-      rrect(ctx, 75, 30, 12, 4, 1, GOLD, 2);
+      line(ctx, 54, 52, 64, 58, 3, GOLD);
       rrect(ctx, 37, 38, 22, 28, 6, STEEL);
       head(ctx, 48, 29, STEEL);
       blob(ctx, () => {
@@ -303,10 +580,74 @@ const PAINTERS: Record<Kind, Painter> = {
       rrect(ctx, 41, 44, 14, 16, 3, '#fff', 0);
     }
   },
+  [Kind.Dragon]: (ctx, layer, stride) => {
+    const flap = stride > 0 ? 1 : 0.5;
+    if (layer === 'body') {
+      blob(ctx, () => {
+        ctx.moveTo(20, 56);
+        ctx.quadraticCurveTo(4, 64, 2, 48);
+        ctx.quadraticCurveTo(10, 58, 22, 50);
+        ctx.closePath();
+      }, '#5a3a3a');
+      line(ctx, 40, 62, 38, 76, 6, '#4a2e2e');
+      line(ctx, 58, 62, 60, 76, 6, '#4a2e2e');
+      blob(ctx, () => ctx.ellipse(44, 54, 26, 13, -0.1, 0, Math.PI * 2), '#6a4040');
+      blob(ctx, () => {
+        ctx.moveTo(62, 48);
+        ctx.quadraticCurveTo(74, 30, 80, 30);
+        ctx.lineTo(94, 34);
+        ctx.lineTo(84, 40);
+        ctx.quadraticCurveTo(76, 44, 68, 58);
+        ctx.closePath();
+      }, '#6a4040');
+      blob(ctx, () => {
+        ctx.moveTo(80, 28);
+        ctx.lineTo(74, 18);
+        ctx.lineTo(84, 26);
+        ctx.closePath();
+      }, BONE, 1.5);
+      circle(ctx, 84, 33, 1.8, FIRE, 0);
+      for (let i = 0; i < 5; i++) blob(ctx, () => {
+        ctx.moveTo(30 + i * 7, 42);
+        ctx.lineTo(33 + i * 7, 36);
+        ctx.lineTo(36 + i * 7, 42);
+        ctx.closePath();
+      }, BONE_DARK, 1.5);
+    }
+    wing(ctx, 50, 46, 48, 44 * flap, layer === 'body' ? '#6a4040' : 'rgba(0,0,0,0)');
+    if (layer === 'mask') {
+      blob(ctx, () => {
+        ctx.moveTo(48, 44);
+        ctx.quadraticCurveTo(26, 46 - 40 * flap, 6, 46 - 42 * flap);
+        ctx.lineTo(16, 46 - 22 * flap);
+        ctx.lineTo(10, 46 - 6 * flap);
+        ctx.lineTo(26, 46 - 8 * flap);
+        ctx.closePath();
+      }, '#fff', 0);
+      blob(ctx, () => ctx.ellipse(46, 60, 14, 4, -0.1, 0, Math.PI * 2), '#fff', 0);
+    }
+  },
 };
 
-/** World units of sprite height (the whole cell) per kind; three size tiers. */
-const UNIT_SCALE: number[] = [31, 33, 30, 31, 31, 38, 46, 31, 46];
+function bow(ctx: CanvasRenderingContext2D, x: number, y: number, r: number): void {
+  ctx.strokeStyle = INK;
+  ctx.lineWidth = 6;
+  ctx.beginPath();
+  ctx.arc(x, y, r, -1.15, 1.15);
+  ctx.stroke();
+  ctx.strokeStyle = WOOD;
+  ctx.lineWidth = 3.5;
+  ctx.stroke();
+  ctx.strokeStyle = '#e8e2d0';
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  ctx.moveTo(x + r * Math.cos(-1.15), y + r * Math.sin(-1.15));
+  ctx.lineTo(x + r * Math.cos(1.15), y + r * Math.sin(1.15));
+  ctx.stroke();
+}
+
+/** World height of each kind's sprite cell, grown from the simulation's render size. */
+const UNIT_SCALE: number[] = STATS.map((s) => 31 * Math.pow(s.size / 6, 0.8) * (s.flying ? 1.15 : 1));
 
 function soft(size: number, stops: [number, string][]): HTMLCanvasElement {
   const [c, ctx] = canvas2d(size, size);
@@ -550,6 +891,17 @@ function shrine(): { body: Texture; mask: Texture } {
         ctx.closePath();
       }, '#e6e4dc', 4);
     } else {
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 2;
+      for (const [x, y, h] of [[34, 100, 34], [126, 100, 34], [56, 92, 40], [104, 92, 40]] as const) {
+        ctx.beginPath();
+        ctx.moveTo(x - 2, y - h + 8);
+        ctx.lineTo(x + 2, y - h + 14);
+        ctx.lineTo(x - 2, y - h + 20);
+        ctx.moveTo(x, y - h + 24);
+        ctx.lineTo(x, y - h + 30);
+        ctx.stroke();
+      }
       ctx.fillStyle = '#fff';
       ctx.beginPath();
       ctx.moveTo(80, 36);

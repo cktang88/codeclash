@@ -13,6 +13,7 @@ import {
   HOME_TURF,
   HOME_TURF_REDUCTION,
   SAPPER_STRUCTURE,
+  TREBUCHET_STRUCTURE,
   STATS,
   WARDEN_AURA,
   WARDEN_REDUCTION,
@@ -93,13 +94,13 @@ export function computeAuras(world: World, s: Scratch): void {
     const u = units[i]!;
     let bit = 0;
     let radius = 0;
-    if (u.kind === Kind.Warden) {
+    if (u.kind === Kind.Warden || u.kind === Kind.Paladin) {
       bit = AURA_SHIELD;
       radius = WARDEN_AURA;
     } else if (u.kind === Kind.Herald) {
       bit = AURA_HEAL;
       radius = HERALD_AURA;
-    } else if (u.kind === Kind.Champion) {
+    } else if (u.kind === Kind.Champion || u.kind === Kind.Dragon) {
       bit = AURA_VALOR;
       radius = CHAMPION_AURA;
     } else continue;
@@ -125,7 +126,8 @@ export function attackerMultiplier(world: World, s: Scratch, i: number, player: 
   if (!player) return 1;
   let m = doctrineDamage(player.doctrine);
   if (player.cryUntil > world.tick) m *= CRY_DAMAGE;
-  if ((s.aura[i]! & AURA_VALOR) !== 0 && world.units[i]!.kind !== Kind.Champion) m *= 1 + CHAMPION_BONUS;
+  const kind = world.units[i]!.kind;
+  if ((s.aura[i]! & AURA_VALOR) !== 0 && kind !== Kind.Champion && kind !== Kind.Dragon) m *= 1 + CHAMPION_BONUS;
   return m;
 }
 
@@ -174,6 +176,7 @@ export function structureDamage(world: World, s: Scratch, i: number): number {
   const player = u.p >= 0 ? world.players[u.p] : undefined;
   let d = STATS[u.kind]!.damage * attackerMultiplier(world, s, i, player);
   if (u.kind === Kind.Sapper) d *= SAPPER_STRUCTURE;
+  else if (u.kind === Kind.Trebuchet) d *= TREBUCHET_STRUCTURE;
   if (player) d *= doctrineStructure(player.doctrine);
   return d;
 }

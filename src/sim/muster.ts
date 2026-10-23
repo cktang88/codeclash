@@ -7,7 +7,7 @@ import { PLATOON_MAX, STATS } from './stats.ts';
 const COEF = [0.6, 0.7, 0.6, 0.45, 0.4, 0.45, 0.15, 0.12, 0];
 const THRESHOLD = [1, 1, 3, 5, 5, 10, 50, 50, Infinity];
 const CAP = [12, 10, 8, 6, 6, 8, 6, 4, 0];
-const ELITE = [120, 60, 30, 60, 60, 80, 1500, 1500, Infinity];
+const ELITE = [120, 60, 30, 60, 60, 80, 5000, 4000, Infinity];
 /** Base soldiers given up for one elite. */
 export const PROMOTION = 3;
 

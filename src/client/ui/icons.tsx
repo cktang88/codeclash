@@ -170,7 +170,7 @@ export function UnitIcon({ kind, ...props }: IconProps & { kind: number }) {
   );
 }
 
-const EVENT_PATHS: Record<ChronicleKind, ReactNode> = {
+const EVENT_PATHS: Partial<Record<ChronicleKind, ReactNode>> = {
   join: <path d="M6 21V3m0 1h11l-2.5 4L17 12H6" />,
   muster: (
     <>
@@ -215,7 +215,7 @@ const EVENT_PATHS: Record<ChronicleKind, ReactNode> = {
 };
 
 export function EventIcon({ kind, ...props }: IconProps & { kind: ChronicleKind }) {
-  return <Svg {...props}>{EVENT_PATHS[kind]}</Svg>;
+  return <Svg {...props}>{EVENT_PATHS[kind] ?? <circle cx="12" cy="12" r="5" />}</Svg>;
 }
 
 const DOCTRINE_PATHS: ReactNode[] = [

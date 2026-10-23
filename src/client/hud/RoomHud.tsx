@@ -30,7 +30,7 @@ function useNarrow(): boolean {
   return narrow;
 }
 
-function ConnPill({ hud }: { hud: HudSnapshot }) {
+function ConnPill({ hud, compact }: { hud: HudSnapshot; compact?: boolean }) {
   const { mode } = useHudContext();
   if (mode !== 'live') return null;
   const c = hud.conn;
@@ -47,9 +47,9 @@ function ConnPill({ hud }: { hud: HudSnapshot }) {
               ? ['Offline, retrying', 'is-bad']
               : ['Closed', 'is-bad'];
   return (
-    <span className={`conn-pill ${cls}`} role="status">
+    <span className={`conn-pill ${cls}${compact ? ' is-compact' : ''}`} role="status" title={label}>
       <span className="conn-dot" aria-hidden />
-      {label}
+      {compact ? <span className="sr-only">{label}</span> : label}
     </span>
   );
 }
@@ -109,13 +109,13 @@ export function RoomHud({ hud, title, subtitle, banner, dock, room, onRoomChange
         <div className="topbar-meta">
           {hud.war && hud.war.status === 'active' && mode !== 'replay' && <Countdown endsAt={hud.war.endsAt} now={hud.serverNow} />}
           {!narrow && <Presence hud={hud} />}
-          <ConnPill hud={hud} />
+          <ConnPill hud={hud} compact={narrow} />
         </div>
         <nav className="topbar-actions" aria-label="Room">
           <button className="icon-btn" onClick={() => setModal('help')} aria-label="Articles of War: how it works" title="How it works">
             <Icon name="help" size={20} />
           </button>
-          {slug && mode === 'live' && (
+          {slug && mode === 'live' && !narrow && (
             <Link className="icon-btn" to={{ kind: 'history', slug }} aria-label="Past wars" title="Past wars">
               <Icon name="history" size={20} />
             </Link>

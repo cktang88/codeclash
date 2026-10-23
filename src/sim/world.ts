@@ -2,12 +2,15 @@ import {
   KIND_COUNT,
   Kind,
   NEUTRAL,
+  BlastKind,
   PlatoonState,
+  ShotKind,
   Terrain,
   TICKS_PER_MINUTE,
   type MapDef,
   type Platoon,
   type PlayerState,
+  type Shot,
   type SimInput,
   type Structure,
   type TickEvents,
@@ -15,11 +18,11 @@ import {
   type WarParams,
   type World,
 } from './api.ts';
-import { computeAuras, enemiesNear, findTarget, structureDamage, unitDamage, mitigated } from './combat.ts';
+import { attackerMultiplier, computeAuras, enemiesNear, findTarget, structureDamage, unitDamage, mitigated } from './combat.ts';
 import { capitalOwner, runCouncil, sitePresence } from './council.ts';
 import { derived } from './derived.ts';
 import { cellAt } from './flowfield.ts';
-import { isBalanced, musterCounts } from './muster.ts';
+import { isBalanced, musterCounts, slotsOf } from './muster.ts';
 import { nextRandom, seedRng } from './rng.ts';
 import { AURA_HEAL, indexWorld, scratchFor, type Scratch } from './scratch.ts';
 import { bucketX, bucketY, rebuildSpatialHash } from './spatial.ts';
@@ -56,10 +59,20 @@ import {
   SPACING,
   STATS,
   UNGARRISONED_SHARE,
+  matchup,
   doctrineSpeed,
   monolithHp,
 } from './stats.ts';
-import { flowDirection, resolveMove, separation, towards, type Vec } from './steering.ts';
+import { flowDirection, flyMove, resolveMove, separation, towards, type Vec } from './steering.ts';
+
+const KNIGHT_CHARGE = 1.8;
+const KNIGHT_CHARGE_RUN = 40;
+const HEAL_PERIOD = 10;
+const PALADIN_REACH = 40;
+const CLERIC_REACH = 80;
+const BREATH_COS = 0.9;
+const BREATH_STRUCTURE = 0.3;
+const SCORCH_TICKS = 15;
 
 const ENGAGE_CALM_TICKS = 10;
 const LEASH = 1.7;
@@ -107,8 +120,7 @@ export function step(world: World, inputs: readonly SimInput[]): TickEvents {
   const s = scratchFor(world);
   for (const input of inputs) applyInput(world, input, ev);
   indexWorld(world, s, speedOf);
-  releaseQueues(world, s, ev);
-  indexWorld(world, s, speedOf);
+  if (releaseQueues(world, s, ev)) indexWorld(world, s, speedOf);
   computeAuras(world, s);
 
   const n = world.players.length;
@@ -152,7 +164,7 @@ function applyInput(world: World, input: SimInput, ev: TickEvents): void {
   if (!player) return;
   switch (input.kind) {
     case 'push':
-      musterPush(world, player, input.repo, input.lines, ev);
+      musterPush(world, player, input.repo, input.lines, input.msg, ev);
       return;
     case 'doctrine':
       if (input.doctrine < 0 || input.doctrine > 4 || input.doctrine === player.doctrine) return;
@@ -187,15 +199,16 @@ function newPlayer(p: number, slot: number, hue: number): PlayerState {
     renown: 0, pushes: 0, recentPushes: [],
     lines: new Array<number>(9).fill(0),
     raised: new Array<number>(KIND_COUNT).fill(0),
+    slain: new Array<number>(KIND_COUNT).fill(0),
     kills: 0, losses: 0, structureDamage: 0, monolithDamage: 0, captures: 0, sacks: 0, routs: 0, balanced: 0, best: null,
     queue: [], battalions: [],
   };
 }
 
-function musterPush(world: World, player: PlayerState, repo: number, lines: readonly number[], ev: TickEvents): void {
+function musterPush(world: World, player: PlayerState, repo: number, lines: readonly number[], msg: string, ev: TickEvents): void {
   const hourAgo = world.tick - 60 * TICKS_PER_MINUTE;
   while (player.recentPushes.length > 0 && player.recentPushes[0]! <= hourAgo) player.recentPushes.shift();
-  const counts = musterCounts(lines, player.recentPushes.length, player.pushes);
+  const counts = musterCounts(lines, player.recentPushes.length, player.pushes, msg);
   player.pushes++;
   player.recentPushes.push(world.tick);
   for (let c = 0; c < player.lines.length; c++) player.lines[c]! += Math.max(0, Math.floor(lines[c] ?? 0));
@@ -205,11 +218,14 @@ function musterPush(world: World, player: PlayerState, repo: number, lines: read
   const lastQueued = player.queue.length > 0 ? world.platoons.find((pl) => pl.id === player.queue[player.queue.length - 1]) : undefined;
   if (player.queue.length >= QUEUE_LIMIT && lastQueued) {
     // The muster queue is full: fold this push's soldiers into the last waiting platoon.
-    for (let k = 0; k < KIND_COUNT && lastQueued.size < PLATOON_MAX; k++) {
-      const add = Math.min(counts[k]!, PLATOON_MAX - lastQueued.size);
+    let slots = slotsOf(lastQueued.mustered);
+    for (let k = 0; k < KIND_COUNT; k++) {
+      const add = Math.min(counts[k]!, Math.floor((PLATOON_MAX - slots) / STATS[k]!.slots));
       lastQueued.mustered[k]! += add;
       lastQueued.size += add;
+      slots += add * STATS[k]!.slots;
     }
+    lastQueued.champion = lastQueued.mustered[Kind.Champion]! + lastQueued.mustered[Kind.Dragon]! > 0;
     return;
   }
   let battalion = player.battalions.find((b) => b[0] === repo);
@@ -239,7 +255,7 @@ function musterPush(world: World, player: PlayerState, repo: number, lines: read
     arrivedTick: world.tick,
     kills: 0,
     depth: 0,
-    champion: counts[Kind.Champion]! > 0,
+    champion: counts[Kind.Champion]! + counts[Kind.Dragon]! > 0,
     calm: ENGAGE_CALM_TICKS,
   };
   world.platoons.push(platoon);
@@ -249,7 +265,9 @@ function musterPush(world: World, player: PlayerState, repo: number, lines: read
 
 // ------------------------------------------------------------- mustering
 
-function releaseQueues(world: World, s: Scratch, ev: TickEvents): void {
+/** Marches waiting platoons out while there is room. Returns whether any marched. */
+function releaseQueues(world: World, s: Scratch, ev: TickEvents): boolean {
+  let marched = false;
   for (const player of world.players) {
     while (player.queue.length > 0) {
       const platoon = world.platoons.find((pl) => pl.id === player.queue[0]);
@@ -257,38 +275,64 @@ function releaseQueues(world: World, s: Scratch, ev: TickEvents): void {
         player.queue.shift();
         continue;
       }
-      if (s.alive[player.p]! + platoon.size > PLAYER_ALIVE || world.units.length + platoon.size > MAX_ALIVE) break;
+      const slots = slotsOf(platoon.mustered);
+      if (s.alive[player.p]! + slots > PLAYER_ALIVE || world.units.length + platoon.size > MAX_ALIVE) break;
       player.queue.shift();
       deploy(world, player, platoon);
-      s.alive[player.p]! += platoon.size;
+      s.alive[player.p]! += slots;
       ev.marches.push({ platoon: platoon.id });
+      marched = true;
     }
   }
+  return marched;
 }
 
-/** Formation offsets (forward, lateral) for each soldier, by kind order. */
+// Bands from front to rear; each band fills rows centered on the banner.
+const BANDS: readonly Kind[][] = [
+  [Kind.Troll, Kind.BoneGolem, Kind.Paladin, Kind.Warden, Kind.Skeleton],
+  [Kind.Champion, Kind.Knight, Kind.Footman, Kind.Mercenary, Kind.Berserker],
+  [Kind.Sapper],
+  [Kind.Wizard, Kind.Ranger, Kind.Archer, Kind.Herald, Kind.Cleric],
+  [Kind.Trebuchet],
+];
+const FLANKS: readonly Kind[] = [Kind.GriffinRider, Kind.Outrider];
+
+/** Formation offsets (forward, lateral) for each soldier. */
 function formation(counts: readonly number[]): { kind: Kind; f: number; l: number }[] {
-  const line: Kind[] = [];
-  const flank: Kind[] = [];
-  const order = [Kind.Warden, Kind.Skeleton, Kind.Footman, Kind.Mercenary, Kind.Champion, Kind.Sapper, Kind.Archer, Kind.Herald];
-  for (const k of order) for (let i = 0; i < counts[k]!; i++) line.push(k);
-  for (let i = 0; i < counts[Kind.Outrider]!; i++) flank.push(Kind.Outrider);
-  const cols = Math.max(3, Math.ceil(Math.sqrt(line.length * 1.6)));
-  const rows = Math.ceil(line.length / cols);
+  let total = 0;
+  for (const band of BANDS) for (const k of band) total += counts[k]!;
+  const cols = Math.max(3, Math.ceil(Math.sqrt(total * 1.6)));
+  const rows: { kinds: Kind[]; gap: number }[] = [];
+  for (const band of BANDS) {
+    const members: Kind[] = [];
+    for (const k of band) for (let i = 0; i < counts[k]!; i++) members.push(k);
+    if (members.length === 0) continue;
+    let gap = SPACING;
+    for (const k of members) gap = Math.max(gap, STATS[k]!.size * 2 + 2);
+    const perRow = Math.max(1, Math.floor((cols * SPACING) / gap));
+    for (let i = 0; i < members.length; i += perRow) rows.push({ kinds: members.slice(i, i + perRow), gap });
+  }
+  let depth = 0;
+  const forward: number[] = [];
+  for (let r = 0; r < rows.length; r++) {
+    if (r > 0) depth += (rows[r - 1]!.gap + rows[r]!.gap) / 2;
+    forward.push(-depth);
+  }
   const out: { kind: Kind; f: number; l: number }[] = [];
-  const depth = (rows - 1) * SPACING;
-  for (let i = 0; i < line.length; i++) {
-    const row = Math.floor(i / cols);
-    const inRow = Math.min(cols, line.length - row * cols);
-    const col = i % cols;
-    out.push({ kind: line[i]!, f: depth / 2 - row * SPACING, l: (col - (inRow - 1) / 2) * SPACING });
+  for (let r = 0; r < rows.length; r++) {
+    const row = rows[r]!;
+    const f = forward[r]! + depth / 2;
+    for (let c = 0; c < row.kinds.length; c++) out.push({ kind: row.kinds[c]!, f, l: (c - (row.kinds.length - 1) / 2) * row.gap });
   }
-  const wing = ((cols - 1) / 2 + 1.6) * SPACING;
-  for (let i = 0; i < flank.length; i++) {
-    const side = i % 2 === 0 ? 1 : -1;
-    const row = Math.floor(i / 2);
-    out.push({ kind: Kind.Outrider, f: depth / 2 - row * SPACING, l: side * wing });
+  const wing = ((cols - 1) / 2 + 1.8) * SPACING;
+  let n = 0;
+  for (const k of FLANKS) {
+    for (let i = 0; i < counts[k]!; i++, n++) {
+      const side = n % 2 === 0 ? 1 : -1;
+      out.push({ kind: k, f: depth / 2 - Math.floor(n / 2) * SPACING * 1.6, l: side * (wing + STATS[k]!.size) });
+    }
   }
+  for (let i = 0; i < counts[Kind.Dragon]!; i++) out.push({ kind: Kind.Dragon, f: -depth / 2 - 26, l: 0 });
   return out;
 }
 
@@ -303,6 +347,11 @@ function deploy(world: World, player: PlayerState, platoon: Platoon): void {
   platoon.state = PlatoonState.March;
   platoon.arrivedTick = world.tick;
   platoon.alive = 0;
+  // One Dragon per army: a second legendary push sends a Champion instead.
+  if (platoon.mustered[Kind.Dragon]! > 0 && world.units.some((u) => u.p === player.p && u.kind === Kind.Dragon)) {
+    platoon.mustered[Kind.Dragon]!--;
+    platoon.mustered[Kind.Champion]!++;
+  }
   for (const slot of formation(platoon.mustered)) {
     const x = platoon.x + platoon.hx * slot.f - platoon.hy * slot.l + (nextRandom(world) - 0.5) * 3;
     const y = platoon.y + platoon.hy * slot.f + platoon.hx * slot.l + (nextRandom(world) - 0.5) * 3;
@@ -319,9 +368,11 @@ function deploy(world: World, player: PlayerState, platoon: Platoon): void {
       target: 0,
       cooldown: 0,
       swingAt: -1,
-      leavesAt: slot.kind === Kind.Mercenary ? world.tick + MERCENARY_CONTRACT : -1,
+      leavesAt: slot.kind === Kind.Mercenary || slot.kind === Kind.Troll ? world.tick + MERCENARY_CONTRACT : -1,
       fx: slot.f,
       fy: slot.l,
+      run: 0,
+      scorched: -1,
     };
     world.units.push(unit);
     platoon.alive++;
@@ -437,7 +488,9 @@ function updateUnits(world: World, s: Scratch, ev: TickEvents): void {
   const { units, map, tick } = world;
   const hash = s.hash;
   s.damage.fill(0, 0, units.length);
+  s.heal.fill(0, 0, units.length);
   s.lastHit.fill(-1, 0, units.length);
+  s.lastKind.fill(-1, 0, units.length);
   for (let i = 0; i < world.platoons.length; i++) world.platoons[i]!.calm++;
 
   for (let i = 0; i < units.length; i++) {
@@ -452,24 +505,29 @@ function updateUnits(world: World, s: Scratch, ev: TickEvents): void {
     // A wound-up blow lands this tick if the victim is still within reach.
     if (u.swingAt === tick) {
       u.swingAt = -1;
+      const charged = u.run < 0;
+      u.run = 0;
       if (u.target > 0) {
         const t = s.unitIndex.get(u.target);
         if (t !== undefined) {
           const v = units[t]!;
-          const reach = stats.range * 1.6;
+          const reach = stats.range * 1.6 + STATS[v.kind]!.size * 0.5;
           const dx = v.x - u.x;
           const dy = v.y - u.y;
           if (dx * dx + dy * dy <= reach * reach) {
-            const dmg = unitDamage(world, s, i, t);
+            const dmg = unitDamage(world, s, i, t) * (charged ? KNIGHT_CHARGE : 1);
             s.damage[t]! += dmg;
             s.lastHit[t] = u.p;
+            s.lastKind[t] = u.kind;
             ev.hits.push({ unit: v.id, damage: dmg, structure: -1 });
           }
         }
       } else if (u.target < 0) {
-        hitStructure(world, s, i, -u.target - 1, ev);
+        damageStructure(world, -u.target - 1, u.p, structureDamage(world, s, i), ev);
       }
     }
+
+    if (stats.heal > 0 && !routing && (tick + u.id) % HEAL_PERIOD === 0) castHeal(world, s, i, stats.heal, u.kind === Kind.Cleric ? CLERIC_REACH : PALADIN_REACH, ev);
 
     // Targeting: soldiers stay leashed to their banner so platoons fight as blocks.
     let t = u.target > 0 ? (s.unitIndex.get(u.target) ?? -1) : -1;
@@ -482,7 +540,13 @@ function updateUnits(world: World, s: Scratch, ev: TickEvents): void {
       const dy = v.y - ay;
       if (dx * dx + dy * dy > leash * leash || routing) t = -1;
     }
-    if (!routing && (tick + u.id) % (t >= 0 ? 8 : 3) === 0) {
+    let structure = -1;
+    if (u.kind === Kind.Trebuchet && !routing) {
+      // Siege engines would rather batter walls than soldiers.
+      structure = nearestStructure(world, u.p, u.x, u.y, stats.range);
+      if (structure >= 0) t = -1;
+    }
+    if (structure < 0 && !routing && (tick + u.id) % (t >= 0 ? 8 : 4) === 0) {
       const found = findTarget(units, hash, i, stats.aggro);
       if (found >= 0) {
         const v = units[found]!;
@@ -491,8 +555,7 @@ function updateUnits(world: World, s: Scratch, ev: TickEvents): void {
         if (dx * dx + dy * dy <= leash * leash) t = found;
       }
     }
-    let structure = -1;
-    if (t < 0 && !routing && pl) {
+    if (structure < 0 && t < 0 && !routing && pl) {
       structure = u.target < 0 ? -u.target - 1 : -1;
       if (structure >= 0 && !attackable(world, structure, u.p)) structure = -1;
       if (structure < 0) {
@@ -514,32 +577,33 @@ function updateUnits(world: World, s: Scratch, ev: TickEvents): void {
       if (player.cryUntil > tick) speed *= CRY_SPEED;
     }
     const cell = cellAt(map, u.x, u.y);
-    if (cell >= 0 && map.terrain[cell] === Terrain.Forest) speed *= FOREST_SPEED;
+    if (!stats.flying && cell >= 0 && map.terrain[cell] === Terrain.Forest) speed *= FOREST_SPEED;
 
     if (routing) {
       const home = map.sites[player!.slot]!;
-      flowDirection(dir, map, derived(map).flow[player!.slot]!, u.x, u.y, home.x, home.y);
+      if (stats.flying) towards(dir, u.x, u.y, home.x, home.y);
+      else flowDirection(dir, map, derived(map).flow[player!.slot]!, u.x, u.y, home.x, home.y);
       speed *= ROUT_SPEED;
     } else if (t >= 0) {
       const v = units[t]!;
       const dist = towards(dir, u.x, u.y, v.x, v.y);
-      if (dist <= stats.range && u.cooldown === 0 && u.swingAt < 0) strike(world, u, v, i, t, dist, s, ev);
+      const reach = stats.range + STATS[v.kind]!.size * 0.5;
+      if (dist <= reach && u.cooldown === 0 && u.swingAt < 0) strike(world, u, v, i, t, dist, s, ev);
       if (stats.ranged) {
         if (dist < stats.range * KITE && !STATS[v.kind]!.ranged) {
           dir.x = -dir.x;
           dir.y = -dir.y;
           pace = 0.7;
         } else if (dist <= stats.range * 0.95) moving = false;
-      } else if (dist <= stats.range * 0.8) moving = false;
+      } else if (dist <= reach * 0.8) moving = false;
     } else if (structure >= 0) {
       const def = map.sites[world.structures[structure]!.site]!;
       const dist = towards(dir, u.x, u.y, def.x, def.y) - def.radius * STRUCTURE_REACH;
       if (dist <= stats.range && u.cooldown === 0 && u.swingAt < 0) {
         u.cooldown = stats.cooldown;
-        if (stats.ranged) {
-          hitStructure(world, s, i, structure, ev);
-          ev.shots.push({ from: u.id, to: -(structure + 1), x: u.x, y: u.y, land: tick + 2, kind: 0 });
-        } else {
+        if (stats.breath) breathe(world, s, i, def.x, def.y, ev);
+        else if (stats.ranged) fire(world, s, i, -(structure + 1), def.x, def.y, structureDamage(world, s, i), ev);
+        else {
           u.swingAt = tick + MELEE_WINDUP;
           ev.swings.push({ from: u.id, to: -(structure + 1) });
         }
@@ -562,7 +626,13 @@ function updateUnits(world: World, s: Scratch, ev: TickEvents): void {
       vx += dir.x * speed * pace;
       vy += dir.y * speed * pace;
     }
-    resolveMove(moved, map, u.x, u.y, vx, vy, speed * Math.max(1, pace));
+    if (stats.flying) flyMove(moved, map, u.x, u.y, vx, vy, speed * Math.max(1, pace));
+    else resolveMove(moved, map, u.x, u.y, vx, vy, speed * Math.max(1, pace));
+    if (u.kind === Kind.Knight && u.run >= 0) {
+      const mx = moved.x - u.x;
+      const my = moved.y - u.y;
+      u.run = Math.min(KNIGHT_CHARGE_RUN, u.run + Math.sqrt(mx * mx + my * my));
+    }
     s.nx[i] = moved.x;
     s.ny[i] = moved.y;
   }
@@ -571,24 +641,149 @@ function updateUnits(world: World, s: Scratch, ev: TickEvents): void {
 function strike(world: World, u: Unit, v: Unit, i: number, t: number, dist: number, s: Scratch, ev: TickEvents): void {
   const stats = STATS[u.kind]!;
   u.cooldown = stats.cooldown;
-  if (stats.ranged) {
-    const flight = Math.max(1, Math.ceil(dist / ARROW_SPEED));
-    world.shots.push({ from: u.id, p: u.p, target: v.id, x: u.x, y: u.y, landAt: world.tick + flight, damage: unitDamage(world, s, i, t), kind: 0 });
-    ev.shots.push({ from: u.id, to: v.id, x: u.x, y: u.y, land: world.tick + flight, kind: 0 });
-  } else {
+  if (stats.breath) breathe(world, s, i, v.x, v.y, ev);
+  else if (stats.ranged) fire(world, s, i, v.id, v.x, v.y, unitDamage(world, s, i, t), ev);
+  else {
+    if (u.kind === Kind.Knight && u.run >= KNIGHT_CHARGE_RUN) u.run = -1;
     u.swingAt = world.tick + MELEE_WINDUP;
     ev.swings.push({ from: u.id, to: v.id });
   }
+  void dist;
 }
 
-function hitStructure(world: World, s: Scratch, i: number, k: number, ev: TickEvents): void {
-  if (!attackable(world, k, world.units[i]!.p)) return;
-  const st = world.structures[k]!;
+const SHOT_OF: Partial<Record<Kind, ShotKind>> = {
+  [Kind.Ranger]: ShotKind.RangerArrow,
+  [Kind.Wizard]: ShotKind.Fireball,
+  [Kind.Trebuchet]: ShotKind.Boulder,
+};
+/** Which kind looses each projectile, for crediting kills. */
+const SHOOTER: Record<number, Kind> = {
+  [ShotKind.Arrow]: Kind.Archer,
+  [ShotKind.RangerArrow]: Kind.Ranger,
+  [ShotKind.Fireball]: Kind.Wizard,
+  [ShotKind.Boulder]: Kind.Trebuchet,
+};
+const SHOT_SPEED: Record<number, number> = { [ShotKind.Fireball]: 30, [ShotKind.Boulder]: 26 };
+
+/** Looses a projectile at a unit (`target` > 0) or a structure (`target` < 0). */
+function fire(world: World, s: Scratch, i: number, target: number, tx: number, ty: number, damage: number, ev: TickEvents): void {
   const u = world.units[i]!;
-  const dmg = Math.min(st.hp, structureDamage(world, s, i));
+  const kind = SHOT_OF[u.kind] ?? ShotKind.Arrow;
+  const dx = tx - u.x;
+  const dy = ty - u.y;
+  const flight = Math.max(1, Math.ceil(Math.sqrt(dx * dx + dy * dy) / (SHOT_SPEED[kind] ?? ARROW_SPEED)));
+  world.shots.push({ from: u.id, p: u.p, target, x: u.x, y: u.y, landAt: world.tick + flight, damage, kind, splash: STATS[u.kind]!.splash, tx, ty });
+  ev.shots.push({ from: u.id, to: target, x: u.x, y: u.y, land: world.tick + flight, kind });
+  void s;
+}
+
+/** A dragon's fire: every enemy in a cone toward (tx, ty) burns at once. */
+function breathe(world: World, s: Scratch, i: number, tx: number, ty: number, ev: TickEvents): void {
+  const u = world.units[i]!;
+  const stats = STATS[u.kind]!;
+  const range = stats.range;
+  let dx = tx - u.x;
+  let dy = ty - u.y;
+  const d = Math.sqrt(dx * dx + dy * dy) || 1;
+  dx /= d;
+  dy /= d;
+  const ex = u.x + dx * range;
+  const ey = u.y + dy * range;
+  const hash = s.hash;
+  const reach = Math.floor(range / hash.cell) + 1;
+  const bx = bucketX(hash, u.x);
+  const by = bucketY(hash, u.y);
+  const player = u.p >= 0 ? world.players[u.p] : undefined;
+  const raw = stats.damage * attackerMultiplier(world, s, i, player);
+  for (let cy = Math.max(0, by - reach); cy <= Math.min(hash.rows - 1, by + reach); cy++) {
+    for (let cx = Math.max(0, bx - reach); cx <= Math.min(hash.cols - 1, bx + reach); cx++) {
+      for (let j = hash.head[cy * hash.cols + cx]!; j >= 0; j = hash.next[j]!) {
+        const v = world.units[j]!;
+        if (v.p === u.p) continue;
+        const vx = v.x - u.x;
+        const vy = v.y - u.y;
+        const dist = Math.sqrt(vx * vx + vy * vy);
+        if (dist > range + STATS[v.kind]!.size * 0.5) continue;
+        if (dist > 1e-6 && (vx * dx + vy * dy) / dist < BREATH_COS) continue;
+        const dmg = mitigated(world, s, j, raw * matchup(u.kind, v.kind), false);
+        s.damage[j]! += dmg;
+        s.lastHit[j] = u.p;
+        s.lastKind[j] = u.kind;
+        v.scorched = world.tick + SCORCH_TICKS;
+        ev.hits.push({ unit: v.id, damage: dmg, structure: -1 });
+      }
+    }
+  }
+  for (let k = 0; k < world.structures.length; k++) {
+    if (!attackable(world, k, u.p)) continue;
+    const def = world.map.sites[world.structures[k]!.site]!;
+    const vx = def.x - u.x;
+    const vy = def.y - u.y;
+    const dist = Math.sqrt(vx * vx + vy * vy);
+    if (dist > range + def.radius) continue;
+    if (dist > def.radius && (vx * dx + vy * dy) / dist < BREATH_COS) continue;
+    damageStructure(world, k, u.p, raw * BREATH_STRUCTURE, ev);
+  }
+  ev.breaths.push({ from: u.id, x: u.x, y: u.y, tx: ex, ty: ey, range });
+  ev.blasts.push({ x: u.x + dx * range * 0.6, y: u.y + dy * range * 0.6, radius: 25, kind: BlastKind.Scorch });
+}
+
+/** Heals the most wounded friend within reach. */
+function castHeal(world: World, s: Scratch, i: number, amount: number, reach: number, ev: TickEvents): void {
+  const u = world.units[i]!;
+  const hash = s.hash;
+  const cells = Math.floor(reach / hash.cell) + 1;
+  const bx = bucketX(hash, u.x);
+  const by = bucketY(hash, u.y);
+  let best = -1;
+  let bestMissing = 0;
+  for (let cy = Math.max(0, by - cells); cy <= Math.min(hash.rows - 1, by + cells); cy++) {
+    for (let cx = Math.max(0, bx - cells); cx <= Math.min(hash.cols - 1, bx + cells); cx++) {
+      for (let j = hash.head[cy * hash.cols + cx]!; j >= 0; j = hash.next[j]!) {
+        const v = world.units[j]!;
+        if (v.p !== u.p) continue;
+        const missing = v.maxHp - v.hp - s.heal[j]!;
+        if (missing < amount * 0.25) continue;
+        const dx = v.x - u.x;
+        const dy = v.y - u.y;
+        if (dx * dx + dy * dy > reach * reach) continue;
+        if (missing > bestMissing || (missing === bestMissing && j < best)) {
+          best = j;
+          bestMissing = missing;
+        }
+      }
+    }
+  }
+  if (best < 0) return;
+  const healed = Math.min(amount, bestMissing);
+  s.heal[best]! += healed;
+  ev.heals.push({ from: u.id, to: world.units[best]!.id, amount: healed });
+}
+
+function nearestStructure(world: World, p: number, x: number, y: number, range: number): number {
+  let best = -1;
+  let bestD = Infinity;
+  for (let k = 0; k < world.structures.length; k++) {
+    if (!attackable(world, k, p)) continue;
+    const def = world.map.sites[world.structures[k]!.site]!;
+    const dx = def.x - x;
+    const dy = def.y - y;
+    const d = Math.sqrt(dx * dx + dy * dy) - def.radius * STRUCTURE_REACH;
+    if (d <= range && d < bestD) {
+      bestD = d;
+      best = k;
+    }
+  }
+  return best;
+}
+
+function damageStructure(world: World, k: number, p: number, amount: number, ev: TickEvents): void {
+  if (!attackable(world, k, p)) return;
+  const st = world.structures[k]!;
+  const dmg = Math.min(st.hp, amount);
   st.hp -= dmg;
   ev.hits.push({ unit: -1, damage: dmg, structure: k });
-  const player = world.players[u.p];
+  const player = world.players[p];
   if (!player) return;
   if (st.p === NEUTRAL) {
     const before = Math.floor(player.monolithDamage / 100);
@@ -596,7 +791,7 @@ function hitStructure(world: World, s: Scratch, i: number, k: number, ev: TickEv
     player.renown += Math.floor(player.monolithDamage / 100) - before;
     if (st.hp <= 0) {
       world.monolithFallen = true;
-      ev.monolith = { p: u.p };
+      ev.monolith = { p };
     }
     return;
   }
@@ -606,7 +801,7 @@ function hitStructure(world: World, s: Scratch, i: number, k: number, ev: TickEv
     st.ruinedUntil = world.tick + SACK_RUIN_TICKS;
     player.renown += SACK_RENOWN;
     player.sacks++;
-    ev.sacks.push({ site: st.site, p: u.p, victim: st.p });
+    ev.sacks.push({ site: st.site, p, victim: st.p });
   }
 }
 
@@ -637,8 +832,8 @@ function updateStructures(world: World, s: Scratch, ev: TickEvents): void {
     const dx = v.x - def.x;
     const dy = v.y - def.y;
     const flight = Math.max(1, Math.ceil(Math.sqrt(dx * dx + dy * dy) / ARROW_SPEED));
-    world.shots.push({ from: -(k + 1), p: st.p, target: v.id, x: def.x, y: def.y, landAt: tick + flight, damage: tower.damage, kind: 1 });
-    ev.shots.push({ from: -(k + 1), to: v.id, x: def.x, y: def.y, land: tick + flight, kind: 1 });
+    world.shots.push({ from: -(k + 1), p: st.p, target: v.id, x: def.x, y: def.y, landAt: tick + flight, damage: tower.damage, kind: ShotKind.TowerBolt, splash: 0, tx: v.x, ty: v.y });
+    ev.shots.push({ from: -(k + 1), to: v.id, x: def.x, y: def.y, land: tick + flight, kind: ShotKind.TowerBolt });
     st.cooldown = tower.cooldown;
   }
 }
@@ -676,15 +871,61 @@ function updateShots(world: World, s: Scratch, ev: TickEvents): void {
       world.shots[w++] = shot;
       continue;
     }
+    if (shot.target < 0) {
+      const k = -shot.target - 1;
+      const def = world.map.sites[world.structures[k]!.site]!;
+      damageStructure(world, k, shot.p, shot.damage, ev);
+      if (shot.splash > 0) ev.blasts.push({ x: def.x, y: def.y, radius: shot.splash, kind: shot.kind });
+      continue;
+    }
     const t = s.unitIndex.get(shot.target);
+    if (shot.splash > 0) {
+      const x = t !== undefined ? world.units[t]!.x : shot.tx;
+      const y = t !== undefined ? world.units[t]!.y : shot.ty;
+      splash(world, s, shot, x, y, ev);
+      continue;
+    }
     if (t === undefined) continue;
-    const dmg = shot.kind === 1 ? mitigated(world, s, t, shot.damage, true) : shot.damage;
+    const dmg = shot.kind === ShotKind.TowerBolt ? mitigated(world, s, t, shot.damage, true) : shot.damage;
     s.damage[t]! += dmg;
-    if (shot.p >= 0) s.lastHit[t] = shot.p;
-    else if (s.lastHit[t]! < 0) s.lastHit[t] = -2;
+    if (shot.p >= 0) {
+      s.lastHit[t] = shot.p;
+      s.lastKind[t] = SHOOTER[shot.kind] ?? -1;
+    } else if (s.lastHit[t]! < 0) s.lastHit[t] = -2;
     ev.hits.push({ unit: shot.target, damage: dmg, structure: -1 });
   }
   world.shots.length = w;
+}
+
+/** Area damage: full at the center, half at the edge. */
+function splash(world: World, s: Scratch, shot: Shot, x: number, y: number, ev: TickEvents): void {
+  const hash = s.hash;
+  const r = shot.splash;
+  const reach = Math.floor(r / hash.cell) + 1;
+  const bx = bucketX(hash, x);
+  const by = bucketY(hash, y);
+  const fiery = shot.kind === ShotKind.Fireball;
+  for (let cy = Math.max(0, by - reach); cy <= Math.min(hash.rows - 1, by + reach); cy++) {
+    for (let cx = Math.max(0, bx - reach); cx <= Math.min(hash.cols - 1, bx + reach); cx++) {
+      for (let j = hash.head[cy * hash.cols + cx]!; j >= 0; j = hash.next[j]!) {
+        const v = world.units[j]!;
+        if (v.p === shot.p) continue;
+        const dx = v.x - x;
+        const dy = v.y - y;
+        const d = Math.sqrt(dx * dx + dy * dy);
+        if (d > r) continue;
+        const dmg = mitigated(world, s, j, shot.damage * (1 - 0.5 * (d / r)), true);
+        s.damage[j]! += dmg;
+        if (shot.p >= 0) {
+          s.lastHit[j] = shot.p;
+          s.lastKind[j] = SHOOTER[shot.kind] ?? -1;
+        }
+        if (fiery) v.scorched = world.tick + SCORCH_TICKS;
+        ev.hits.push({ unit: v.id, damage: dmg, structure: -1 });
+      }
+    }
+  }
+  ev.blasts.push({ x, y, radius: r, kind: shot.kind });
 }
 
 // ----------------------------------------------------------------- damage
@@ -697,7 +938,13 @@ function resolveDamage(world: World, s: Scratch, ev: TickEvents): void {
     u.x = s.nx[i]!;
     u.y = s.ny[i]!;
     u.hp -= s.damage[i]!;
-    if (u.hp > 0 && (s.aura[i]! & AURA_HEAL) !== 0 && u.hp < u.maxHp) u.hp = Math.min(u.maxHp, u.hp + HERALD_HEAL);
+    if (u.hp > 0) {
+      let mend = s.heal[i]!;
+      if ((s.aura[i]! & AURA_HEAL) !== 0) mend += HERALD_HEAL;
+      const regen = STATS[u.kind]!.regen;
+      if (regen > 0) mend += u.scorched > tick ? regen * 0.25 : regen;
+      if (mend > 0 && u.hp < u.maxHp) u.hp = Math.min(u.maxHp, u.hp + mend);
+    }
     const pi = s.unitPlatoon[i]!;
     const pl = pi >= 0 ? world.platoons[pi] : undefined;
     if (u.hp > 0 && u.leavesAt >= 0 && tick >= u.leavesAt && (pl === undefined || pl.state !== PlatoonState.Engage)) {
@@ -710,7 +957,7 @@ function resolveDamage(world: World, s: Scratch, ev: TickEvents): void {
       continue;
     }
     const killer = s.lastHit[i]!;
-    ev.deaths.push({ unit: u.id, p: u.p, kind: u.kind, x: u.x, y: u.y, killer, platoon: u.platoon });
+    ev.deaths.push({ unit: u.id, p: u.p, kind: u.kind, x: u.x, y: u.y, killer, by: s.lastKind[i]!, platoon: u.platoon });
     if (pl) {
       pl.alive--;
       const loss = MORALE_LOSS / Math.max(1, pl.size);
@@ -720,6 +967,7 @@ function resolveDamage(world: World, s: Scratch, ev: TickEvents): void {
     if (killer >= 0) {
       const k = world.players[killer]!;
       k.kills++;
+      k.slain[u.kind]!++;
       const value = STATS[u.kind]!.value;
       k.renown += u.p >= 0 && u.p === world.leader && killer !== world.leader ? value * 2 : value;
       creditPlatoonKill(world, s, killer, u.x, u.y);

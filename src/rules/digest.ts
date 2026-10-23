@@ -1,4 +1,4 @@
-import { CAT_COUNT, Cat, KIND_COUNT, type World } from '../sim/api.ts';
+import { CAT_COUNT, Cat, Kind, KIND_COUNT, type World } from '../sim/api.ts';
 import type { ChronicleEntry } from '../sim/chronicle.ts';
 import { decodeInput, type Replay } from '../sim/replay.ts';
 
@@ -21,6 +21,8 @@ export const AWARDS: readonly AwardDef[] = [
   { id: 'militia-mob', title: 'Militia Mob', blurb: 'Most generated lines pushed (affectionately)' },
   { id: 'standard-bearer', title: 'Standard Bearer', blurb: 'Most balanced pushes: code, tests and docs together' },
   { id: 'conqueror', title: 'Conqueror', blurb: 'Most shrines and Hearts captured' },
+  { id: 'dragonlord', title: 'Dragonlord', blurb: 'Summoned the most Dragons with legendary pushes' },
+  { id: 'dragonslayer', title: 'Dragonslayer', blurb: 'Brought down the most Dragons' },
 ];
 
 export interface DigestPlayer {
@@ -34,6 +36,8 @@ export interface DigestPlayer {
   pushes: number;
   lines: number[];
   raised: number[];
+  /** Enemy soldiers slain, by kind. */
+  slain: number[];
   kills: number;
   losses: number;
   captures: number;
@@ -68,8 +72,8 @@ export interface Digest {
   headline: string;
 }
 
-const HIGHLIGHT_KINDS = new Set(['monolith', 'sack', 'clash', 'champion', 'capture', 'leader', 'cry']);
-const HIGHLIGHT_WEIGHT: Record<string, number> = { monolith: 100, sack: 80, clash: 60, champion: 40, cry: 30, leader: 25, capture: 10 };
+const HIGHLIGHT_KINDS = new Set(['monolith', 'dragon', 'sack', 'clash', 'champion', 'capture', 'leader', 'cry']);
+const HIGHLIGHT_WEIGHT: Record<string, number> = { monolith: 100, dragon: 90, sack: 80, clash: 60, champion: 40, cry: 30, leader: 25, capture: 10 };
 const MAX_HIGHLIGHTS = 12;
 
 /** The day's recap. Pure: the same war always yields the same digest. */
@@ -87,6 +91,7 @@ export function buildDigest(world: World, replay: Replay, chronicle: readonly Ch
       pushes: ps.pushes,
       lines: ps.lines.slice(),
       raised: ps.raised.slice(),
+      slain: ps.slain.slice(),
       kills: ps.kills,
       losses: ps.losses,
       captures: ps.captures,
@@ -150,6 +155,8 @@ export function buildDigest(world: World, replay: Replay, chronicle: readonly Ch
   give('militia-mob', (pl) => pl.lines[Cat.Generated]!);
   give('standard-bearer', (pl) => pl.balanced);
   give('conqueror', (pl) => pl.captures);
+  give('dragonlord', (pl) => pl.raised[Kind.Dragon]!);
+  give('dragonslayer', (pl) => pl.slain[Kind.Dragon]!);
 
   const highlights = chronicle
     .filter((e) => HIGHLIGHT_KINDS.has(e.kind))

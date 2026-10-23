@@ -50,6 +50,13 @@ export function colorize(text: string, roster: readonly RosterEntry[]): ReactNod
   });
 }
 
+/** Muster lines spell out the platoon's soldiers; the chips show them, so the list is trimmed from the text. */
+export function entryText(e: ChronicleEntry): string {
+  if (e.kind !== 'muster' || !e.units) return e.text;
+  const cut = e.text.lastIndexOf(' musters: ');
+  return cut < 0 ? e.text : `${e.text.slice(0, cut)} musters:`;
+}
+
 export function UnitChips({ units, size = 15 }: { units: readonly number[]; size?: number }) {
   const chips = [];
   for (let k = 0; k < KIND_COUNT; k++) {
@@ -101,7 +108,7 @@ export function Chronicle({ entries, viewerP, now }: { entries: readonly Chronic
                   <EventIcon kind={e.kind} size={18} />
                 </span>
                 <span className="chron-body">
-                  <span className="chron-text">{colorize(e.text, roster)}</span>
+                  <span className="chron-text">{colorize(entryText(e), roster)}</span>
                   {e.kind === 'muster' && e.units && <UnitChips units={e.units} />}
                   <span className="chron-time" title={new Date(at).toLocaleString()}>
                     {mode === 'live' ? ago(now - at) : clock(at)}

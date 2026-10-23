@@ -56,6 +56,8 @@ export class Battlefield {
   private destroyed = false;
   /** Smoothed milliseconds of JavaScript per frame, for diagnostics. */
   frameMs = 0;
+  /** Smoothed milliseconds per stage of the last frames, for diagnostics. */
+  readonly timings: Record<string, number> = {};
 
   private constructor(
     private readonly app: Application,
@@ -82,6 +84,7 @@ export class Battlefield {
       this.fx.above,
       this.fx.additive,
       this.banners.root,
+      this.units.air,
       this.fx.texts,
     );
     this.camera = new Camera(app.canvas, {
@@ -151,8 +154,16 @@ export class Battlefield {
     const dtMs = Math.min(100, now - this.last);
     this.last = now;
     const runner = this.getRunner();
+    let mark = performance.now();
+    const time = (name: string) => {
+      const t = performance.now();
+      this.timings[name] = (this.timings[name] ?? 0) * 0.95 + (t - mark) * 0.05;
+      mark = t;
+    };
     runner?.frame();
+    time('sim');
     this.store.pump();
+    time('hud');
     const world = this.store.world;
     this.camera.resize(this.app.screen.width, this.app.screen.height);
     if (!world) {
@@ -160,7 +171,10 @@ export class Battlefield {
       return;
     }
     this.scene.visible = true;
-    if (!this.layers || this.layers.map !== world.map) this.buildMap(world);
+    if (!this.layers || this.layers.map !== world.map) {
+      this.buildMap(world);
+      mark = performance.now();
+    }
     const layers = this.layers!;
     this.refreshColors(world);
 
@@ -188,16 +202,22 @@ export class Battlefield {
     const cry = world.players.map((p) => p.cryUntil > world.tick);
     this.units.tints = this.tints;
     this.units.cryTint = this.tints.map((t, p) => (cry[p] ? mixColor(t, GOLD, 0.45 + Math.sin(now / 140) * 0.3) : t));
+    time('camera');
     this.units.update(world, runner, now, zoom, bounds);
+    time('units');
     const centroids = platoonCentroids(world);
     const sel = this.store.selection;
     this.banners.update(world, this.store.repos, world.players.map((p) => p.hue), now, zoom, centroids, bounds, sel?.kind === 'platoon' ? sel.id : null);
+    time('banners');
     layers.sites.update(world, this.store.roster, this.store.names, this.tints, now, dtMs / 1000, zoom, sel?.kind === 'site' ? sel.id : null, {
       smoke: (x, y) => this.fx.burst({ x, y, count: 1, texture: 'smoke', tint: 0x3a3632, speed: 6, life: 3.2, size: 26, grow: 2.6, alpha: 0.6, rise: 14 }),
     });
+    time('sites');
     layers.influence.update(world, this.rgb, now);
+    time('influence');
     this.drawSelection(world, centroids, now, zoom);
     this.fx.update(dtMs / 1000, now, zoom);
+    time('fx');
   }
 
   private buildMap(world: World): void {
@@ -262,7 +282,7 @@ export class Battlefield {
       if (!target) continue;
       if (!bounds.contains(target.x, target.y) && !bounds.contains(s.x, s.y)) continue;
       const flight = Math.max(1, s.land - tickAt) * TICK_MS;
-      this.fx.arrow(s.x, s.y, target.x, target.y, flight, now, s.kind === 1);
+      this.fx.arrow(s.x, s.y, target.x, target.y, flight, now, s.kind === 1 || s.kind === 2);
     }
     for (const h of ev.hits) {
       if (h.structure >= 0) {

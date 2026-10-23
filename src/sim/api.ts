@@ -137,6 +137,10 @@ export interface Unit {
   /** Place in the platoon's formation: forward and lateral offset from the banner. */
   fx: number;
   fy: number;
+  /** Distance moved since the last blow; a Knight's charge, or -1 while a charged blow is wound up. */
+  run: number;
+  /** Tick until which fire slows this unit's regeneration, or -1. */
+  scorched: number;
 }
 
 export const PlatoonState = { Queued: 0, March: 1, Engage: 2, Hold: 3, Rout: 4 } as const;
@@ -187,8 +191,13 @@ export interface Shot {
   y: number;
   landAt: number;
   damage: number;
-  /** 0 arrow, 1 tower bolt. */
+  /** ShotKind. */
   kind: number;
+  /** Area-damage radius at impact, or 0. */
+  splash: number;
+  /** Aim point: where splash lands if the target is gone. */
+  tx: number;
+  ty: number;
 }
 
 export interface PlayerState {
@@ -208,6 +217,8 @@ export interface PlayerState {
   recentPushes: number[];
   lines: number[];
   raised: number[];
+  /** Enemy soldiers slain, by kind. */
+  slain: number[];
   kills: number;
   losses: number;
   structureDamage: number;
@@ -258,7 +269,8 @@ export interface TickEvents {
   blasts: { x: number; y: number; radius: number; kind: number }[];
   heals: { from: number; to: number; amount: number }[];
   hits: { unit: number; damage: number; structure: number }[];
-  deaths: { unit: number; p: number; kind: Kind; x: number; y: number; killer: number; platoon: number }[];
+  /** `killer` is the slaying player (-1 none, -2 a neutral tower); `by` the slaying kind, or -1. */
+  deaths: { unit: number; p: number; kind: Kind; x: number; y: number; killer: number; by: number; platoon: number }[];
   musters: { platoon: number; p: number; queued: boolean }[];
   marches: { platoon: number }[];
   routs: { platoon: number }[];
@@ -277,6 +289,9 @@ export interface TickEvents {
 
 export const ShotKind = { Arrow: 0, TowerBolt: 1, Fireball: 2, Boulder: 3, RangerArrow: 4 } as const;
 export type ShotKind = (typeof ShotKind)[keyof typeof ShotKind];
+
+export const BlastKind = { Fireball: 2, Boulder: 3, Scorch: 5 } as const;
+export type BlastKind = (typeof BlastKind)[keyof typeof BlastKind];
 
 export interface WorldSnapshot {
   version: 2;

@@ -48,6 +48,8 @@ export function checksum(world: World): number {
     num(u.cooldown);
     num(u.swingAt);
     num(u.leavesAt);
+    num(u.run);
+    num(u.scorched);
   }
   int(world.platoons.length);
   for (const pl of world.platoons) {
@@ -73,6 +75,10 @@ export function checksum(world: World): number {
     num(sh.target);
     num(sh.landAt);
     num(sh.damage);
+    int(sh.kind);
+    num(sh.splash);
+    num(sh.tx);
+    num(sh.ty);
   }
   for (const p of world.players) {
     num(p.renown);

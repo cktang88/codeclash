@@ -1,6 +1,6 @@
-import type { World } from './api.ts';
+import { Kind, type World } from './api.ts';
 import { createSpatialHash, rebuildSpatialHash, type SpatialHash } from './spatial.ts';
-import { MAX_ALIVE } from './stats.ts';
+import { MAX_ALIVE, STATS } from './stats.ts';
 
 export const AURA_SHIELD = 1;
 export const AURA_HEAL = 2;
@@ -16,10 +16,13 @@ export interface Scratch {
   nx: Float64Array;
   ny: Float64Array;
   damage: Float64Array;
+  heal: Float64Array;
   lastHit: Int32Array;
+  /** Kind of the soldier that struck last, or -1. */
+  lastKind: Int32Array;
   aura: Uint8Array;
   engaged: Uint8Array;
-  /** Per player: soldiers alive. */
+  /** Per player: platoon slots alive (big soldiers count for more). */
   alive: Int32Array;
   /** Per platoon: centroid sums, members, heralds, champions. */
   px: Float64Array;
@@ -44,7 +47,9 @@ export function scratchFor(world: World): Scratch {
       nx: new Float64Array(cap),
       ny: new Float64Array(cap),
       damage: new Float64Array(cap),
+      heal: new Float64Array(cap),
       lastHit: new Int32Array(cap),
+      lastKind: new Int32Array(cap),
       aura: new Uint8Array(cap),
       engaged: new Uint8Array(cap),
       alive: new Int32Array(64),
@@ -92,13 +97,13 @@ export function indexWorld(world: World, s: Scratch, speedOf: (kind: number) => 
     s.unitIndex.set(u.id, i);
     const pl = s.platoonIndex.get(u.platoon) ?? -1;
     s.unitPlatoon[i] = pl;
-    if (u.p >= 0) s.alive[u.p]!++;
+    if (u.p >= 0) s.alive[u.p]! += STATS[u.kind]!.slots;
     if (pl < 0) continue;
     s.px[pl]! += u.x;
     s.py[pl]! += u.y;
     s.members[pl]!++;
-    if (u.kind === 3) s.heralds[pl]!++;
-    if (u.kind === 8) s.champions[pl]!++;
+    if (u.kind === Kind.Herald) s.heralds[pl]!++;
+    if (u.kind === Kind.Champion || u.kind === Kind.Dragon) s.champions[pl]!++;
     const sp = speedOf(u.kind);
     if (sp < s.slowest[pl]!) s.slowest[pl] = sp;
   }

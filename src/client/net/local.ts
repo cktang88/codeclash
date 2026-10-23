@@ -106,7 +106,7 @@ export function startDemo(store: GameStore, bots = 5, seed = Date.now() % 100000
   store.viewerP = null;
   store.chronicle = [];
   // Demo bots push far more often than real developers so there is always something to watch.
-  const perTick = 1 / (1.2 * TICKS_PER_MINUTE);
+  const perTick = 1 / (3.5 * TICKS_PER_MINUTE);
   const source: InputSource = (tick) => {
     const out: SimInput[] = [];
     if (tick === 0) for (const r of roster) out.push({ kind: 'join', p: r.p, slot: r.slot, hue: r.hue });

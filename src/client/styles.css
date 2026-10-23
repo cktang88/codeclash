@@ -2832,3 +2832,54 @@ button.chron-btn:hover {
   padding: 0 14px;
   font-size: 14px;
 }
+
+.group-row th {
+  padding-top: 16px;
+  font-family: var(--serif);
+  font-size: 13px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--gold);
+  border-bottom-color: var(--line-strong);
+}
+
+.command-row {
+  flex-wrap: wrap;
+}
+
+.command-row .select {
+  flex: 1 1 100%;
+}
+
+.conn-pill.is-compact {
+  padding: 0;
+  width: 28px;
+  height: 28px;
+  justify-content: center;
+}
+
+.hud.is-narrow .icon-btn {
+  width: 40px;
+  height: 40px;
+}
+
+.hud.is-narrow .topbar-meta {
+  gap: 6px;
+}
+
+.hud.is-narrow .countdown {
+  padding: 3px 8px;
+  font-size: 13px;
+}
+
+.hud.is-narrow .topbar-actions {
+  gap: 0;
+}
+
+.sheet-tabs > button {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0 6px;
+  font-size: 13px;
+  white-space: nowrap;
+}

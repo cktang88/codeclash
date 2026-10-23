@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ChronicleEntry } from '../../sim/chronicle.ts';
 import { summarizeAway } from './away.ts';
-import { filterChronicle } from './Chronicle.tsx';
+import { entryText, filterChronicle } from './Chronicle.tsx';
 
 function entry(kind: ChronicleEntry['kind'], p: number, q = -1, units?: number[]): ChronicleEntry {
   return { tick: 0, kind, p, q, site: -1, platoon: -1, x: 0, y: 0, text: kind, units };
@@ -45,5 +45,13 @@ describe('filterChronicle', () => {
   });
   it('keeps big moments', () => {
     expect(filterChronicle(log, 'big', null).map((e) => e.kind)).toEqual(['sack', 'capture']);
+  });
+});
+
+describe('entryText', () => {
+  it('trims the soldier list from musters that carry unit counts', () => {
+    const e = { ...entry('muster', 0, -1, [1]), text: '@a pushed to a/b "fix". Platoon I, b Battalion musters: 1 Footman.' };
+    expect(entryText(e)).toBe('@a pushed to a/b "fix". Platoon I, b Battalion musters:');
+    expect(entryText({ ...e, units: undefined })).toBe(e.text);
   });
 });

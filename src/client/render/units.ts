@@ -46,6 +46,8 @@ export class UnitLayer {
   readonly shadows = new Container();
   readonly bodies = new Container();
   readonly dots = new Container();
+  /** Flyers soar above banners; their shadows stay on the ground. */
+  readonly air = new Container();
   private views = new Map<number, View>();
   private pool: View[] = [];
   private swings = new Map<number, Swing>();
@@ -59,6 +61,7 @@ export class UnitLayer {
 
   constructor(private tex: Textures) {
     this.bodies.sortableChildren = true;
+    this.air.sortableChildren = true;
   }
 
   swing(unitId: number, tx: number, ty: number, now: number): void {
@@ -135,8 +138,8 @@ export class UnitLayer {
         v.dot.visible = true;
         v.dot.position.set(x, y);
         v.dot.tint = tint;
-        const big = u.kind === Kind.Champion || u.kind === Kind.Golem;
-        v.dot.scale.set(((big ? 7 : 4.5) / zoom / 32) * Math.min(1, zoom * 3.2));
+        const big = STATS[u.kind]!.size;
+        v.dot.scale.set(((3 + big * 0.35) / zoom / 32) * Math.min(1, zoom * 3.2));
         continue;
       }
       v.dot.visible = false;
@@ -174,10 +177,13 @@ export class UnitLayer {
 
       const walking = v.speed > 0.12;
       const routing = platoonState.get(u.platoon) === PlatoonState.Rout;
-      const stepMs = u.kind === Kind.Outrider ? STEP_PERIOD_MS * 0.7 : u.kind === Kind.Golem ? STEP_PERIOD_MS * 1.6 : STEP_PERIOD_MS;
-      const cycle = (now / stepMs + v.phase) % 1;
-      const frame = walking && cycle > 0.5 ? 1 : 0;
-      const bob = walking ? -Math.abs(Math.sin(cycle * Math.PI * 2)) * 1.4 : Math.sin(now / 900 + v.phase * 6) * 0.25;
+      const stats = STATS[u.kind]!;
+      const flying = stats.flying;
+      const stepMs = STEP_PERIOD_MS * Math.max(0.6, Math.min(1.8, 1.6 / stats.speed + (stats.size >= 12 ? 0.5 : 0)));
+      const cycle = (now / (flying ? 380 : stepMs) + v.phase) % 1;
+      const frame = (walking || flying) && cycle > 0.5 ? 1 : 0;
+      const altitude = flying ? 26 + Math.sin(now / 520 + v.phase * 6) * 3 : 0;
+      const bob = flying ? 0 : walking ? -Math.abs(Math.sin(cycle * Math.PI * 2)) * 1.4 : Math.sin(now / 900 + v.phase * 6) * 0.25;
       const lean = walking ? (routing ? -0.22 : 0.07) * v.facing : Math.sin(now / 1300 + v.phase * 5) * 0.03;
 
       const size = this.tex.unitScale[u.kind]! / CELL;
@@ -185,12 +191,16 @@ export class UnitLayer {
       const py = y + oy;
       const feet = (FEET_Y / CELL - 0.5) * CELL * size;
       v.shadow.position.set(px, py);
-      v.shadow.scale.set((this.tex.unitScale[u.kind]! * (u.kind === Kind.Outrider ? 1.3 : 0.75)) / 64, (this.tex.unitScale[u.kind]! * 0.3) / 64);
+      const wide = stats.slots >= 2 || u.kind === Kind.Outrider ? 1.2 : 0.75;
+      v.shadow.scale.set((this.tex.unitScale[u.kind]! * wide * (flying ? 0.8 : 1)) / 64, (this.tex.unitScale[u.kind]! * 0.3 * (flying ? 0.7 : 1)) / 64);
+      v.shadow.alpha = flying ? 0.45 : 0.7;
+      const layer = flying ? this.air : this.bodies;
+      if (v.body.parent !== layer) layer.addChild(v.body, v.mask);
       const flashing = now - (this.flashes.get(u.id) ?? -1e9) < FLASH_MS;
       v.body.texture = flashing ? this.tex.units[u.kind]!.sil : this.tex.units[u.kind]!.body[frame]!;
       v.mask.texture = this.tex.units[u.kind]!.mask[frame]!;
       for (const s of [v.body, v.mask]) {
-        s.position.set(px, py - feet + bob);
+        s.position.set(px, py - feet + bob - altitude);
         s.scale.set(size * v.facing, size);
         s.rotation = lean;
         s.zIndex = py;
