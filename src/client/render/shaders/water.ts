@@ -111,7 +111,7 @@ export class WaterGlints {
     const geometry = this.mesh.geometry;
     const mask = this.shader.resources.uMask as { destroy(): void } | undefined;
     this.mesh.destroy({ children: true });
-    geometry.destroy();
+    geometry.destroy(true);
     this.shader.destroy();
     mask?.destroy();
   }

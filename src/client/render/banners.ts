@@ -29,7 +29,7 @@ export class WavingFlag {
   destroy(): void {
     const geometry = this.mesh.geometry;
     this.mesh.destroy();
-    geometry.destroy();
+    geometry.destroy(true);
   }
 
   update(time: number, strength: number): void {
@@ -329,7 +329,7 @@ export class BannerLayer {
     const g = this.tethers;
     g.clear();
     if (!this.crowd.length) return;
-    declutter(this.crowd, 6, this.crowdOrder);
+    declutter(this.crowd, 20, this.crowdOrder);
     const lift = 16 / zoom;
     for (let i = 0; i < this.crowdViews.length; i++) {
       const v = this.crowdViews[i]!;

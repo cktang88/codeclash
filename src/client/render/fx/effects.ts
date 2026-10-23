@@ -501,6 +501,41 @@ export class Effects {
       this.cue('war-cry', site.x, site.y, 1);
     }
 
+    // A platoon disbanded (spent, or its push withdrawn): the banner is furled where it stood.
+    for (const d of ev.disbands) {
+      if (!bounds.contains(d.x, d.y)) continue;
+      this.puff(d.x, d.y, this.n(6), 0xc8b48c, 14, 18);
+      this.ring(d.x, d.y, tint(d.p), 6, 40, 0.7, 0.6);
+      for (let i = 0; i < this.n(3); i++) {
+        this.dust.spawn({ texture: this.tex.cloth, x: d.x + (rand() - 0.5) * 12, y: d.y, z: 24, vx: (rand() - 0.5) * 30, vz: 30 + rand() * 20, gravity: 90, life: 1.2, size: 8, tint: tint(d.p), spin: (rand() - 0.5) * 6 });
+      }
+    }
+
+    // A rally order: the army's colour rings the site its banners will gather to.
+    for (const r of ev.rallies) {
+      const site = world.map.sites[r.site];
+      if (!site || !bounds.contains(site.x, site.y)) continue;
+      this.ring(site.x, site.y, tint(r.p), site.radius * 0.8, site.radius * 2, 1, 0.8);
+      for (let i = 0; i < this.n(6); i++) this.glowSpawn({ texture: this.tex.mote, x: site.x + (rand() - 0.5) * site.radius, y: site.y, vz: 26 + rand() * 20, life: 1, size: 6, tint: tint(r.p), delay: rand() * 0.3 });
+    }
+
+    // A new player takes up an empty slot: their keep is raised in a puff of mortar dust.
+    for (const j of ev.joins) {
+      const site = world.map.sites[world.players[j.p]?.slot ?? -1];
+      if (!site || !bounds.contains(site.x, site.y)) continue;
+      this.puff(site.x, site.y, this.n(14), 0xcab89a, 24, site.radius);
+      this.ring(site.x, site.y, tint(j.p), site.radius, site.radius * 2.2, 1.1);
+    }
+
+    // The lead changes hands: gold leaf rises over the new leader's keep.
+    if (ev.leader && ev.leader.p >= 0) {
+      const site = world.map.sites[world.players[ev.leader.p]?.slot ?? -1];
+      if (site && bounds.contains(site.x, site.y)) {
+        this.ring(site.x, site.y, GOLD, site.radius, site.radius * 2.4, 1.2, 0.7);
+        this.sparks(site.x, site.y - site.radius, this.n(12), GOLD_HI, 90, 30);
+      }
+    }
+
     this.watchWalls(world, bounds);
     this.watchRanks(world, bounds, tint);
 

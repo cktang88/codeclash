@@ -26,7 +26,7 @@ const GAP = 2;
  * Relaxes `boxes` in place. `order` is scratch space (reused to avoid allocating per frame).
  * Runs a sweep over x so dense crowds cost about n log n per pass, not n squared.
  */
-export function declutter(boxes: DeclutterBox[], passes = 6, order: number[] = []): void {
+export function declutter(boxes: DeclutterBox[], passes = 20, order: number[] = []): void {
   const n = boxes.length;
   for (const b of boxes) {
     b.ox = Number.isFinite(b.ox) ? b.ox * RETURN : 0;
@@ -51,7 +51,7 @@ export function declutter(boxes: DeclutterBox[], passes = 6, order: number[] = [
         const by = b.y + b.cy + b.oy;
         const px = (a.w + b.w) / 2 + GAP - Math.abs(bx - ax);
         const py = (a.h + b.h) / 2 + GAP - Math.abs(by - ay);
-        if (px <= 0 || py <= 0) continue;
+        if (px <= 0.25 || py <= 0.25) continue;
         moved = true;
         // Prefer a vertical stack: it reads as a column of tokens, and keeps the front line's x.
         if (py <= px * 1.6) {

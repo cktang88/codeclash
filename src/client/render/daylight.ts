@@ -30,11 +30,11 @@ const KEYS: readonly [phase: number, mult: number, screen: number, lights: numbe
   [0.16, 0xffffff, 0x000000, 0, 1],
   [0.5, 0xfffcf4, 0x000000, 0, 1],
   [0.64, 0xfff0d8, 0x000000, 0, 1],
-  // Dusk is crimson, not rose: the wash takes green and blue together (blue a touch less, so
-  // reds lean crimson rather than orange) and a red lift glows into the shadows, while the
-  // green channel stays high enough that meadows darken rather than turn to mud.
+  // Dusk is crimson, not rose or sepia: the wash takes green and blue together (so reds lean
+  // crimson, not orange) but stays light, and the crimson itself comes from the low sun raking
+  // in from the west. No red screen lift: red added over green reads as olive mud.
   [0.72, 0xffe2d4, 0x000000, 0.3, 0.65],
-  [0.78, 0xffd8d6, 0x1c0208, 0.65, 0.3],
+  [0.78, 0xffdad8, 0x0a0106, 0.65, 0.3],
   [0.85, 0x8a9cd6, 0x0a1430, 1, 0],
   [1.0, 0x8496d2, 0x0a1430, 1, 0],
 ];
