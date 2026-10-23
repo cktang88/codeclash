@@ -1,0 +1,1948 @@
+/* The battle: the painted map is the table, and the panels are pages laid on it. */
+
+.battle {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background: var(--ink-night);
+}
+
+.stage {
+  position: absolute;
+  inset: 0;
+  cursor: grab;
+  touch-action: none;
+  /* HUD cover the camera's opening fit keeps clear: top bar + objective bar, emote dock. */
+  --fit-top: 120px;
+  --fit-bottom: 84px;
+}
+
+.battle:has(.cta-banner) .stage {
+  --fit-top: 204px;
+}
+
+@media (max-width: 900px) {
+  .stage,
+  .battle:has(.cta-banner) .stage {
+    --fit-top: 190px;
+    --fit-bottom: 140px;
+  }
+}
+
+.stage:active {
+  cursor: grabbing;
+}
+
+.stage-fallback {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: center;
+  color: var(--fg-soft);
+  padding: 20px;
+}
+
+.hud {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.hud > *,
+.hud-top-center > *,
+.hud-bottom > *,
+.hud-dock > * {
+  pointer-events: auto;
+}
+
+.hud-top-center,
+.hud-bottom,
+.hud-dock {
+  pointer-events: none;
+}
+
+/* Night vellum: a dark band with gold tooling. */
+.night-band {
+  background-color: var(--ink-night);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .94 0 0 0 0 .88 0 0 0 0 .76 0 0 0 .09 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E"),
+    linear-gradient(180deg, #1a2030, var(--ink-night) 70%);
+}
+
+/* ---------------------------------------------------------------- top bar */
+
+.topbar {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: var(--topbar-h);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 12px 0 14px;
+  z-index: 10;
+  color: var(--fg);
+  filter: drop-shadow(0 6px 10px rgba(0, 0, 0, 0.45));
+}
+
+.topbar::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -5px;
+  height: 5px;
+  border-top: 1.5px solid var(--gold);
+  border-bottom: 1px solid rgba(212, 169, 62, 0.5);
+  pointer-events: none;
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+  color: var(--gold);
+  flex: none;
+  padding: 4px 6px 4px 2px;
+}
+
+.brand:hover .brand-mark {
+  transform: rotate(-4deg);
+}
+
+.brand-mark {
+  display: inline-flex;
+  width: 36px;
+  height: 40px;
+  transition: transform var(--t) var(--ease-in);
+}
+
+.brand-name {
+  font-family: var(--display);
+  font-size: 24px;
+  line-height: 1;
+  color: var(--gold);
+  text-shadow: 0 1px 0 #000;
+}
+
+.topbar-title {
+  min-width: 0;
+  flex: 1;
+  padding-left: 14px;
+  border-left: 1px solid rgba(212, 169, 62, 0.35);
+}
+
+.room-name {
+  margin: 0;
+  font-family: var(--display);
+  font-size: 23px;
+  line-height: 1.1;
+  color: var(--vellum);
+}
+
+.room-name .icon {
+  color: var(--gold);
+}
+
+.room-sub {
+  font-size: 14px;
+  font-style: italic;
+  color: var(--fg-soft);
+}
+
+.topbar-meta {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex: none;
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+}
+
+/* The day running out. */
+.countdown {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 4px;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--gold);
+  border-top: 1px solid rgba(212, 169, 62, 0.4);
+  border-bottom: 1px solid rgba(212, 169, 62, 0.4);
+}
+
+.countdown.is-soon {
+  color: var(--vermilion-night);
+}
+
+.countdown.is-soon .icon {
+  animation: hourglass 4s var(--ease-in) infinite;
+}
+
+@keyframes hourglass {
+  0%,
+  80% {
+    transform: none;
+  }
+  100% {
+    transform: rotate(180deg);
+  }
+}
+
+.presence {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--fg-soft);
+  font-family: var(--sc);
+  font-size: 15px;
+}
+
+.presence-faces {
+  display: inline-flex;
+}
+
+.presence-faces .avatar + .avatar {
+  margin-left: -8px;
+}
+
+/* A lamp: lit while live, guttering while it reconnects. */
+.conn-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--sc);
+  font-size: 15px;
+  color: var(--fg-soft);
+}
+
+.conn-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--verdigris-night);
+  box-shadow: 0 0 0 1.5px var(--ink-night), 0 0 10px 1px rgba(132, 205, 185, 0.7);
+}
+
+.conn-pill.is-warn .conn-dot {
+  background: var(--gold-hi);
+  box-shadow: 0 0 0 1.5px var(--ink-night), 0 0 10px 1px rgba(246, 220, 140, 0.7);
+}
+
+.conn-pill.is-bad .conn-dot {
+  background: var(--vermilion-night);
+  box-shadow: 0 0 0 1.5px var(--ink-night), 0 0 10px 1px rgba(236, 122, 94, 0.7);
+}
+
+.conn-pill.is-live .conn-dot,
+.live-badge .conn-dot {
+  animation: lamp 2.6s ease-in-out infinite;
+}
+
+@keyframes lamp {
+  50% {
+    opacity: 0.6;
+    transform: scale(0.85);
+  }
+}
+
+.conn-pill.is-compact {
+  width: 24px;
+  height: 24px;
+  justify-content: center;
+}
+
+/* ---------------------------------------------------------- top centre */
+
+.hud-top-center {
+  position: absolute;
+  top: calc(var(--topbar-h) + 14px);
+  left: calc(var(--side-w) + 30px);
+  right: calc(var(--side-w) + 30px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  z-index: 6;
+}
+
+.hud.is-narrow .hud-top-center {
+  left: 8px;
+  right: 8px;
+}
+
+/* Banners over the map are night vellum leaves. */
+.cta-banner,
+.day-over {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  justify-content: center;
+  max-width: 780px;
+  padding: 14px 18px 14px 26px;
+  color: var(--vellum);
+  font-size: 16px;
+  animation: leaf-in var(--t-slow) var(--ease-in) both;
+}
+
+.cta-banner::before,
+.day-over::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border: 22px solid transparent;
+  border-image: var(--leaf-night) 30 fill / 22px round;
+  filter: var(--cast);
+  transform: rotate(-0.2deg);
+}
+
+.cta-banner > .btn,
+.day-over > .btn {
+  flex: none;
+}
+
+.cta-banner strong {
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: 19px;
+  color: var(--gold);
+}
+
+.cta-banner.is-quiet strong {
+  color: var(--vellum);
+}
+
+.day-over:has(.btn) > span {
+  display: none;
+}
+
+.day-over strong {
+  font-family: var(--display);
+  font-weight: 400;
+  color: var(--gold);
+  font-size: 21px;
+}
+
+.hud.is-narrow .cta-banner,
+.hud.is-narrow .day-over {
+  gap: 10px;
+  padding: 10px 12px 10px 16px;
+  font-size: 14px;
+  line-height: 1.3;
+  text-align: left;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.hud.is-narrow .cta-banner strong,
+.hud.is-narrow .day-over strong {
+  font-size: 16px;
+  line-height: 1.15;
+}
+
+.hud.is-narrow .cta-banner .btn,
+.hud.is-narrow .day-over .btn {
+  min-height: 40px;
+  padding: 0 14px;
+  font-size: 15px;
+}
+
+/* The Legacy Monolith: obsidian, with a molten channel. */
+.monolith-bar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: min(480px, 100%);
+  padding: 9px 16px;
+  border: 0;
+  color: var(--vellum);
+  font-size: 15px;
+  background: linear-gradient(180deg, #1d212b, #090b10);
+  box-shadow: inset 0 0 0 1px rgba(212, 169, 62, 0.55), inset 0 0 0 3px #0a0c11, inset 0 0 0 3.6px rgba(212, 169, 62, 0.3), 0 8px 16px rgba(5, 6, 10, 0.5);
+  clip-path: polygon(8px 0, calc(100% - 8px) 0, 100% 8px, 100% calc(100% - 8px), calc(100% - 8px) 100%, 8px 100%, 0 calc(100% - 8px), 0 8px);
+  animation: leaf-in var(--t-slow) var(--ease-in) both;
+  transition: transform var(--t-fast) var(--ease-in);
+}
+
+.monolith-bar:hover {
+  transform: translateY(-1px);
+}
+
+.monolith-bar:active {
+  transform: translateY(1px);
+}
+
+.monolith-bar:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--gold-hi), inset 0 0 0 5px #0a0c11, 0 0 0 4px rgba(212, 169, 62, 0.4);
+}
+
+.monolith-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--display);
+  font-size: 18px;
+  color: var(--gold);
+  white-space: nowrap;
+}
+
+.monolith-bar .bar {
+  height: 12px;
+}
+
+.monolith-bar .bar-hp {
+  background-color: var(--vermilion);
+  background-image: linear-gradient(90deg, rgba(0, 0, 0, 0.25), transparent 40%), repeating-linear-gradient(100deg, transparent 0 9px, rgba(255, 154, 60, 0.8) 9px 10px, transparent 10px 17px), linear-gradient(180deg, var(--ember), var(--vermilion) 70%);
+  box-shadow: 0 0 10px rgba(255, 154, 60, 0.55), inset -3px 0 0 var(--gold-hi);
+}
+
+.monolith-bar .num {
+  color: var(--vellum);
+}
+
+.monolith-bar .muted {
+  color: #c7b994;
+}
+
+/* --------------------------------------------------------------- toasts */
+
+/* Big moments unroll as herald's scrolls across the top of the map. */
+.toasts {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: min(580px, 100%);
+}
+
+.toast {
+  position: relative;
+  display: block;
+  width: 100%;
+  padding: 0 14px;
+  border: 0;
+  background: none;
+  text-align: left;
+  color: var(--ink);
+  filter: drop-shadow(0 8px 10px rgba(10, 12, 20, 0.45));
+}
+
+/* The rolled ends of the scroll. */
+.toast::before,
+.toast::after {
+  content: '';
+  position: absolute;
+  top: -4px;
+  bottom: -4px;
+  width: 16px;
+  z-index: 2;
+  background: linear-gradient(90deg, #8f7a50, var(--vellum-shade) 30%, var(--vellum) 50%, var(--vellum-shade) 70%, #7d6a44);
+  box-shadow: inset 0 0 0 1.2px var(--ink);
+  border-radius: 8px / 4px;
+  animation: rod-left var(--t-slow) var(--ease-in) both;
+}
+
+.toast::before {
+  left: 0;
+}
+
+.toast::after {
+  right: 0;
+  animation-name: rod-right;
+}
+
+.toast-paper {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 48px;
+  padding: 8px 18px;
+  background-color: var(--vellum);
+  background-image: var(--note);
+  background-size: 100% 100%;
+  box-shadow: inset 0 1.5px 0 rgba(34, 24, 15, 0.35), inset 0 -1.5px 0 rgba(34, 24, 15, 0.35);
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.3;
+  animation: unroll 360ms var(--ease-in) both;
+  transition: background-color var(--t-fast);
+}
+
+.toast:hover .toast-paper {
+  background-color: #f6edd6;
+}
+
+.toast-sack .toast-paper,
+.toast-monolith .toast-paper,
+.toast-dragon .toast-paper,
+.toast-leader .toast-paper {
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.toast-text {
+  min-width: 0;
+}
+
+.toast-text::first-letter {
+  font-family: var(--display);
+  font-size: 1.5em;
+  color: var(--vermilion);
+}
+
+.toast-icon {
+  flex: none;
+  display: inline-flex;
+}
+
+.toast-order .toast-icon {
+  width: 34px;
+  height: 34px;
+  align-items: center;
+  justify-content: center;
+  background: url('../ui/art/seal-gold.svg') center / 100% 100% no-repeat;
+  color: var(--ink) !important;
+}
+
+@keyframes unroll {
+  from {
+    clip-path: inset(0 50% 0 50%);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+@keyframes rod-left {
+  from {
+    left: calc(50% - 16px);
+  }
+}
+
+@keyframes rod-right {
+  from {
+    right: calc(50% - 16px);
+  }
+}
+
+/* -------------------------------------------------------- side pages */
+
+.side {
+  position: absolute;
+  top: calc(var(--topbar-h) + 22px);
+  bottom: 100px;
+  width: var(--side-w);
+  display: flex;
+  flex-direction: column;
+  z-index: 5;
+  animation: leaf-in var(--t-slow) var(--ease-in) both;
+}
+
+.side-left {
+  left: 14px;
+  --tilt: -0.4deg;
+}
+
+.side-right {
+  right: 14px;
+  --tilt: 0.4deg;
+}
+
+.side.is-collapsed {
+  width: auto;
+  bottom: auto;
+}
+
+.side-head {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  min-height: 56px;
+  padding: 0 12px 0 18px;
+}
+
+.side-right .side-head {
+  padding: 0 18px 0 12px;
+}
+
+.side-head > .icon-btn {
+  margin-top: 10px;
+}
+
+.side.is-collapsed .side-head {
+  min-height: 0;
+  padding: 10px;
+}
+
+.side.is-collapsed .side-head > .icon-btn {
+  margin-top: 0;
+}
+
+/* Ribbon bookmarks hanging from the page's top edge. */
+.tabs {
+  display: flex;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  margin-top: -6px;
+}
+
+.tabs > button {
+  position: relative;
+  isolation: isolate;
+  flex: 0 1 auto;
+  min-width: 0;
+  min-height: 46px;
+  padding: 10px 12px 15px;
+  border: 0;
+  background: none;
+  color: var(--vellum);
+  font-family: var(--sc);
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: 0.02em;
+  line-height: 1.1;
+  white-space: nowrap;
+  text-shadow: 0 1px 0 rgba(18, 22, 31, 0.45);
+  filter: drop-shadow(1px 2px 1px rgba(18, 22, 31, 0.3));
+  transition: transform var(--t) var(--ease-in), filter var(--t-fast);
+  transform: translateY(-4px);
+}
+
+.tabs > button::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-color: var(--silk, var(--vermilion));
+  background-image: repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.07) 0 1px, transparent 1px 3px), linear-gradient(90deg, rgba(0, 0, 0, 0.22), transparent 25%, transparent 70%, rgba(0, 0, 0, 0.25));
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 50% calc(100% - 8px), 0 100%);
+}
+
+.tabs > button[data-ribbon='1'],
+.tabs > button:nth-child(4n + 2):not([data-ribbon]) {
+  --silk: var(--ultramarine);
+}
+
+.tabs > button[data-ribbon='2'],
+.tabs > button:nth-child(4n + 3):not([data-ribbon]) {
+  --silk: #25685b;
+}
+
+.tabs > button[data-ribbon='3'],
+.tabs > button:nth-child(4n + 4):not([data-ribbon]) {
+  --silk: var(--ink-soft);
+}
+
+.tabs > button:not(.is-on) {
+  filter: drop-shadow(1px 2px 1px rgba(18, 22, 31, 0.3)) saturate(0.6) brightness(0.92);
+}
+
+.tabs > button:hover:not(.is-on) {
+  transform: translateY(0);
+  filter: drop-shadow(1px 2px 1px rgba(18, 22, 31, 0.3)) saturate(0.85);
+}
+
+.tabs > button.is-on {
+  transform: translateY(0);
+  padding-bottom: 20px;
+}
+
+.tabs > button.is-on::before {
+  box-shadow: inset 2px 0 0 rgba(246, 220, 140, 0.55), inset -2px 0 0 rgba(246, 220, 140, 0.55);
+}
+
+.tabs > button:active {
+  transform: translateY(2px);
+}
+
+.side-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 20px 22px;
+  margin-bottom: 10px;
+  overscroll-behavior: contain;
+}
+
+/* --------------------------------------------- standings: a heraldic roll */
+
+.standings {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.standing {
+  animation: ink-in var(--t-slow) var(--ease-in) both;
+}
+
+.standing + .standing {
+  border-top: 1px solid var(--rule-soft);
+}
+
+.standing-btn {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 60px;
+  padding: 7px 4px;
+  border: 0;
+  background: transparent;
+  color: var(--fg);
+  text-align: left;
+  transition: background-color var(--t-fast);
+}
+
+.standing-btn:hover {
+  background-color: var(--recess);
+}
+
+.standing.is-me .standing-btn {
+  background-image: linear-gradient(90deg, rgba(212, 169, 62, 0.28), rgba(212, 169, 62, 0.06) 70%, transparent);
+  box-shadow: inset 3px 0 0 var(--gold-lo);
+}
+
+.standing-rank {
+  width: 24px;
+  flex: none;
+  text-align: center;
+  font-family: var(--display);
+  font-size: 21px;
+  line-height: 1;
+  color: var(--fg-soft);
+}
+
+.standing:first-child .standing-rank {
+  color: var(--gilt);
+  font-size: 26px;
+}
+
+/* The army's pennant. */
+.standing-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 38px;
+  flex: none;
+  background-color: hsl(var(--h, 35) 52% 42%);
+  background-image: linear-gradient(90deg, rgba(255, 255, 255, 0.18), transparent 50%, rgba(0, 0, 0, 0.18));
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 80%, 0 100%);
+}
+
+.standing-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.standing-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+  font-size: 17px;
+  line-height: 1.2;
+  min-width: 0;
+}
+
+.standing-sub {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  font-size: 14px;
+  color: var(--fg-soft);
+}
+
+.standing-sub > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  white-space: nowrap;
+}
+
+.standing-score {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  flex: none;
+}
+
+.renown {
+  font-size: 21px;
+  font-weight: 800;
+  color: var(--gilt);
+  line-height: 1.1;
+}
+
+.standing:first-child .renown {
+  text-shadow: 0 0 12px rgba(212, 169, 62, 0.35);
+}
+
+.trend {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  font-family: var(--sc);
+  font-variant-numeric: lining-nums tabular-nums;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.trend-up {
+  color: var(--good);
+}
+
+.trend-flat {
+  color: var(--fg-soft);
+}
+
+/* A tally that just changed flashes like wet ink. */
+.tally[data-bump='1'],
+.tally[data-bump='0'] {
+  animation: none;
+}
+
+/* ------------------------------------------- chronicle: drop caps, rubrics */
+
+.chronicle {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.chronicle .segmented {
+  position: sticky;
+  top: -4px;
+  z-index: 1;
+  background-color: #ece0c2;
+}
+
+.chronicle-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.chron {
+  animation: ink-in 420ms var(--ease-in) both;
+}
+
+.chron + .chron {
+  border-top: 1px solid var(--rule-soft);
+}
+
+.chron-btn {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 4px;
+  border: 0;
+  background: transparent;
+  color: var(--fg);
+  text-align: left;
+  font-size: 15px;
+  line-height: 1.4;
+}
+
+button.chron-btn:hover {
+  background-color: var(--recess);
+}
+
+.chron-icon {
+  flex: none;
+  display: inline-flex;
+  align-items: flex-start;
+  justify-content: center;
+  width: 24px;
+  padding-top: 2px;
+  color: hsl(var(--h, 30) 45% 30%);
+}
+
+.chron-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+
+.chron-text {
+  display: block;
+  color: var(--fg);
+  overflow-wrap: anywhere;
+}
+
+/* Every entry opens with a rubricated initial. */
+.chron-text::first-letter {
+  font-family: var(--display);
+  font-size: 1.75em;
+  line-height: 0.8;
+  float: left;
+  margin: 0.1em 0.12em 0 0;
+  color: var(--vermilion);
+}
+
+/* Big moments are illuminated: a gilded initial on a vermilion ground. */
+.chron.is-big .chron-text::first-letter {
+  font-size: 2.1em;
+  padding: 0.08em 0.12em 0;
+  margin: 0.02em 0.14em 0 0;
+  color: var(--vellum);
+  background: var(--vermilion);
+  box-shadow: inset 0 0 0 1px var(--ink), inset 0 0 0 2.5px var(--gold);
+}
+
+.chron.is-big .chron-btn {
+  background-image: linear-gradient(90deg, rgba(212, 169, 62, 0.18), transparent 70%);
+}
+
+.chron-k-sack .chron-btn,
+.chron-k-monolith .chron-btn,
+.chron-k-dragon .chron-btn {
+  background-image: linear-gradient(90deg, rgba(184, 50, 31, 0.13), transparent 75%);
+}
+
+.chron-time {
+  font-family: var(--sc);
+  font-size: 13px;
+  color: var(--rubric);
+  letter-spacing: 0.03em;
+}
+
+.chron-k-desert .chron-icon {
+  color: var(--bad) !important;
+}
+
+.chron-k-desert .chron-text {
+  color: var(--fg-soft);
+  font-style: italic;
+}
+
+.unit-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+
+.unit-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-family: var(--sc);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--fg);
+}
+
+.unit-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.unit-icon > svg {
+  display: block;
+}
+
+.muster-facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 0;
+}
+
+/* --------------------------------------------- command: a commander's writ */
+
+.command {
+  display: flex;
+  flex-direction: column;
+}
+
+.command-group {
+  padding: 10px 0 16px;
+}
+
+.command-group + .command-group {
+  border-top: 1px solid var(--rule-soft);
+  box-shadow: inset 0 3px 0 -2px var(--rule-soft);
+}
+
+.command-label {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 10px;
+  font-family: var(--display);
+  font-size: 21px;
+  line-height: 1.1;
+  color: var(--rubric);
+}
+
+.command-label::first-letter {
+  font-size: 1.35em;
+}
+
+.doctrines {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+  gap: 6px;
+}
+
+/* A doctrine is a shield; the one in force has the seal pressed on it. */
+.doctrine {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-height: 74px;
+  padding: 8px 4px 6px;
+  border: 0;
+  background: transparent;
+  color: var(--fg);
+  font-family: var(--sc);
+  font-size: 14px;
+  font-weight: 700;
+  transition: background-color var(--t-fast), transform var(--t-fast) var(--ease-in);
+}
+
+.doctrine > .icon {
+  width: 36px;
+  height: 36px;
+  padding: 6px;
+  background: var(--recess);
+  box-shadow: inset 0 0 0 1.5px var(--rule);
+  border-radius: 0 0 50% 50% / 0 0 38% 38%;
+}
+
+.doctrine:hover:not(:disabled) {
+  background-color: var(--recess);
+}
+
+.doctrine:active:not(:disabled) {
+  transform: translateY(2px);
+}
+
+.doctrine.is-on {
+  color: var(--rubric);
+}
+
+.doctrine.is-on > .icon {
+  background: url('../ui/art/seal.svg') center / 100% 100% no-repeat;
+  box-shadow: none;
+  color: var(--gold-hi);
+  border-radius: 0;
+  animation: stamp 320ms var(--ease-in);
+}
+
+.doctrine:disabled:not(.is-on) {
+  opacity: 0.5;
+}
+
+@keyframes stamp {
+  0% {
+    transform: scale(1.5) rotate(-12deg);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(0.94) rotate(2deg);
+    opacity: 1;
+  }
+}
+
+.command-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.command-row .select {
+  flex: 1 1 100%;
+}
+
+.command-hint {
+  margin: 8px 0 0;
+  font-size: 14px;
+  font-style: italic;
+  color: var(--fg-soft);
+}
+
+.command-hint strong {
+  font-style: normal;
+  color: var(--rubric);
+}
+
+/* --------------------------------------------------------------- army */
+
+.army {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.army-queue {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 6px 2px;
+  border-top: 1px solid var(--rule-soft);
+  border-bottom: 1px solid var(--rule-soft);
+  color: var(--warn);
+  font-weight: 700;
+  font-size: 15px;
+}
+
+.battalion {
+  padding: 8px 0 4px;
+  border-top: 1.5px solid var(--rule);
+}
+
+.battalion-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.battalion-title {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  font-size: 14px;
+  color: var(--fg-soft);
+}
+
+.battalion-title strong {
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: 18px;
+  color: var(--fg);
+}
+
+.platoons {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.platoon-row {
+  display: grid;
+  grid-template-columns: 34px 1fr 90px auto;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 42px;
+  padding: 4px 4px;
+  border: 0;
+  border-bottom: 1px dotted var(--rule-soft);
+  background: transparent;
+  color: var(--fg);
+  font-size: 14px;
+  text-align: left;
+}
+
+.platoon-row:hover,
+.platoon-row.is-on {
+  background-color: var(--recess);
+}
+
+.platoon-num {
+  font-family: var(--display);
+  font-size: 17px;
+  color: var(--gilt);
+}
+
+.platoon-state {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bars {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* ------------------------------------ bottom: the regiment card and dock */
+
+.hud-bottom {
+  position: absolute;
+  left: calc(var(--side-w) + 28px);
+  right: calc(var(--side-w) + 28px);
+  bottom: 14px;
+  display: flex;
+  align-items: flex-end;
+  gap: 14px;
+  z-index: 6;
+}
+
+.hud.is-narrow .hud-bottom {
+  left: 8px;
+  right: 8px;
+  bottom: 76px;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.inspector {
+  width: 360px;
+  max-width: 100%;
+  padding: 22px 24px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  --tilt: 0.3deg;
+  animation: leaf-in var(--t-slow) var(--ease-in) both;
+}
+
+.inspector p {
+  margin: 0;
+}
+
+.inspector-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1.5px solid var(--rule);
+  box-shadow: 0 3px 0 -2px var(--rule-soft);
+}
+
+.inspector-title {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  color: var(--fg-soft);
+}
+
+.inspector-title strong {
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: 22px;
+  line-height: 1.1;
+  color: var(--fg);
+}
+
+.inspector-state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 15px;
+}
+
+.state-pill {
+  font-family: var(--sc);
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--fg);
+}
+
+.state-pill::before {
+  content: '❧ ';
+  color: var(--rubric);
+}
+
+.state-2 {
+  color: var(--bad);
+}
+
+.state-4 {
+  color: var(--warn);
+}
+
+.meter {
+  display: grid;
+  grid-template-columns: 82px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  font-size: 15px;
+}
+
+.inspector-units {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.inspector-foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--rule-soft);
+  font-size: 14px;
+  font-style: italic;
+  color: var(--fg-soft);
+}
+
+.hud-dock {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.dock-group {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px 8px 18px;
+  color: var(--vellum);
+}
+
+.dock-group::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border: 16px solid transparent;
+  border-image: var(--leaf-night) 30 fill / 16px round;
+  filter: var(--cast);
+}
+
+.dock-label {
+  font-family: var(--sc);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--fg-soft);
+}
+
+/* Emotes: each a little note with a wax drop, ready to be thrown onto the table. */
+.emote-bar {
+  display: flex;
+  gap: 4px;
+  padding: 6px;
+}
+
+.emote-btn {
+  position: relative;
+  isolation: isolate;
+  width: 46px;
+  height: 46px;
+  border: 0;
+  background: none;
+  font-size: 22px;
+  line-height: 1;
+  transition: transform var(--t-fast) var(--ease-in), filter var(--t-fast);
+}
+
+.emote-btn::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border: 10px solid transparent;
+  border-image: var(--note) 30 fill / 10px round;
+  filter: drop-shadow(0 3px 3px rgba(10, 12, 20, 0.45));
+}
+
+.emote-btn:nth-child(odd) {
+  transform: rotate(-2deg);
+}
+
+.emote-btn:nth-child(even) {
+  transform: rotate(2deg);
+}
+
+.emote-btn::after {
+  content: '';
+  position: absolute;
+  top: -3px;
+  right: -2px;
+  width: 11px;
+  height: 11px;
+  background: url('../ui/art/seal.svg') center / 100% 100% no-repeat;
+}
+
+.emote-btn:hover:not(:disabled) {
+  transform: translateY(-4px) rotate(-4deg) scale(1.08);
+}
+
+.emote-btn:active:not(:disabled) {
+  transform: translateY(1px) scale(0.95);
+}
+
+.emote-btn:disabled {
+  filter: grayscale(0.8) opacity(0.6);
+}
+
+.emote-rain {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 4;
+}
+
+.emote-float {
+  position: absolute;
+  bottom: 96px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  animation: float-up 3.4s var(--ease-in) forwards;
+}
+
+.emote-glyph {
+  position: relative;
+  isolation: isolate;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  font-size: 36px;
+}
+
+.emote-glyph::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border: 14px solid transparent;
+  border-image: var(--note) 30 fill / 14px round;
+  transform: rotate(-3deg);
+  filter: var(--cast);
+}
+
+.emote-glyph::after {
+  content: '';
+  position: absolute;
+  top: -6px;
+  left: 50%;
+  width: 18px;
+  height: 18px;
+  margin-left: -9px;
+  background: url('../ui/art/seal.svg') center / 100% 100% no-repeat;
+}
+
+.emote-who {
+  padding: 0 10px;
+  background: var(--vellum);
+  color: var(--ink);
+  font-family: var(--sc);
+  font-size: 14px;
+  font-weight: 700;
+  clip-path: polygon(6px 0, calc(100% - 6px) 0, 100% 50%, calc(100% - 6px) 100%, 6px 100%, 0 50%);
+}
+
+@keyframes float-up {
+  0% {
+    opacity: 0;
+    transform: translateY(20px) scale(0.6) rotate(-8deg);
+  }
+  12% {
+    opacity: 1;
+    transform: translateY(0) scale(1.08) rotate(2deg);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-260px) scale(1) rotate(-3deg);
+  }
+}
+
+/* ---------------------------------------------------------------- chat */
+
+.chat {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  height: 100%;
+}
+
+.chat-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.chat-msg {
+  display: flex;
+  gap: 8px;
+  padding: 7px 0;
+  font-size: 15px;
+  animation: ink-in 360ms var(--ease-in) both;
+}
+
+.chat-msg + .chat-msg {
+  border-top: 1px solid var(--rule-soft);
+}
+
+.chat-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 6px;
+  min-width: 0;
+}
+
+.chat-time {
+  font-family: var(--sc);
+  font-size: 13px;
+  color: var(--rubric);
+}
+
+.chat-text {
+  flex-basis: 100%;
+  overflow-wrap: anywhere;
+}
+
+.chat-form {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+}
+
+/* ------------------------------------- replay: the scribe's instrument bar */
+
+.replay-dock {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: min(860px, 100%);
+  padding: 12px 20px 12px 14px;
+  flex-wrap: wrap;
+}
+
+.replay-dock > .icon-btn:first-child {
+  width: 50px;
+  height: 50px;
+  border: 0;
+  background: url('../ui/art/seal-gold.svg') center / 100% 100% no-repeat;
+  color: var(--ink);
+}
+
+.replay-dock > .icon-btn:first-child:hover:not(:disabled) {
+  transform: rotate(-6deg);
+  color: var(--ink);
+}
+
+.replay-time {
+  font-size: 20px;
+  font-weight: 700;
+  min-width: 56px;
+  color: var(--gold);
+}
+
+.scrubber {
+  position: relative;
+  flex: 1;
+  min-width: 160px;
+  padding-top: 24px;
+}
+
+input[type='range'] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  height: 30px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+input[type='range']::-webkit-slider-runnable-track {
+  height: 8px;
+  background: linear-gradient(180deg, #05070b, #151925);
+  border: 1px solid var(--gold-lo);
+  box-shadow: inset 0 1px 2px #000, 0 1px 0 rgba(212, 169, 62, 0.25);
+}
+
+input[type='range']::-moz-range-track {
+  height: 8px;
+  background: linear-gradient(180deg, #05070b, #151925);
+  border: 1px solid var(--gold-lo);
+}
+
+.panel input[type='range']::-webkit-slider-runnable-track,
+.folio input[type='range']::-webkit-slider-runnable-track {
+  background: linear-gradient(180deg, rgba(34, 24, 15, 0.55), rgba(34, 24, 15, 0.25));
+  border-color: var(--ink);
+}
+
+.panel-night input[type='range']::-webkit-slider-runnable-track {
+  background: linear-gradient(180deg, #05070b, #151925);
+  border-color: var(--gold-lo);
+}
+
+/* A brass slider, like a scribe's rule. */
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 26px;
+  margin-top: -10px;
+  background: linear-gradient(90deg, var(--gold-lo), var(--gold-hi) 40%, var(--gold) 60%, var(--gold-lo));
+  border: 1px solid var(--ink);
+  box-shadow: 0 2px 3px rgba(0, 0, 0, 0.5);
+}
+
+input[type='range']::-moz-range-thumb {
+  width: 14px;
+  height: 26px;
+  border-radius: 0;
+  background: linear-gradient(90deg, var(--gold-lo), var(--gold-hi) 40%, var(--gold) 60%, var(--gold-lo));
+  border: 1px solid var(--ink);
+}
+
+input[type='range']:focus-visible {
+  outline-offset: 1px;
+}
+
+.scrub-markers {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 22px;
+}
+
+/* Bookmarks along the rule: one per highlight. */
+.scrub-marker {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  width: 20px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 0 4px;
+  border: 0;
+  background: var(--vellum);
+  color: var(--ink);
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 80%, 0 100%);
+  transition: transform var(--t-fast) var(--ease-in), background-color var(--t-fast);
+}
+
+.scrub-marker.chron-sack,
+.scrub-marker.chron-monolith,
+.scrub-marker.chron-dragon {
+  background: var(--vermilion);
+  color: var(--vellum);
+}
+
+.scrub-marker:hover {
+  transform: translateX(-50%) translateY(-3px);
+  background-color: var(--gold-hi);
+  color: var(--ink);
+}
+
+.seek-progress {
+  font-family: var(--sc);
+  font-size: 15px;
+  color: var(--gold-hi);
+}
+
+/* ----------------------------------------- phone: a book from the bottom */
+
+.sheet {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 8;
+  display: flex;
+  flex-direction: column;
+  pointer-events: none;
+}
+
+.sheet > * {
+  pointer-events: auto;
+}
+
+.sheet-page {
+  margin: 0 6px -8px;
+  padding: 6px 4px 14px;
+  display: flex;
+  flex-direction: column;
+  --tilt: -0.3deg;
+  animation: page-rise var(--t-slow) var(--ease-in) both;
+}
+
+.sheet-page.is-turn-next {
+  animation: turn-next var(--t-slow) var(--ease-in) both;
+}
+
+.sheet-page.is-turn-prev {
+  animation: turn-prev var(--t-slow) var(--ease-in) both;
+}
+
+@keyframes page-rise {
+  from {
+    transform: translateY(40%) rotate(1deg);
+    opacity: 0;
+  }
+}
+
+@keyframes turn-next {
+  from {
+    transform: perspective(1200px) rotateY(-40deg) translateX(30%);
+    transform-origin: 0 50%;
+    opacity: 0;
+  }
+}
+
+@keyframes turn-prev {
+  from {
+    transform: perspective(1200px) rotateY(40deg) translateX(-30%);
+    transform-origin: 100% 50%;
+    opacity: 0;
+  }
+}
+
+/* The grip: pull the page down to close the book. */
+.sheet-grip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 34px;
+  border: 0;
+  background: none;
+  color: var(--fg-soft);
+  font-family: var(--sc);
+  font-size: 14px;
+  touch-action: none;
+}
+
+.sheet-grip::before,
+.sheet-grip::after {
+  content: '';
+  width: 48px;
+  border-top: 1.5px solid var(--rule);
+  box-shadow: 0 3px 0 -2px var(--rule-soft);
+}
+
+.sheet-body {
+  max-height: 50vh;
+  max-height: 50dvh;
+  overflow-y: auto;
+  padding: 2px 18px 6px;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+}
+
+/* The book's cover edge, with ribbon bookmarks rising from it. */
+.sheet-tabs {
+  position: relative;
+  display: flex;
+  gap: 4px;
+  padding: 8px 6px calc(6px + env(safe-area-inset-bottom));
+  margin: 0;
+  border-top: 1.5px solid var(--gold);
+  box-shadow: 0 -1px 0 rgba(212, 169, 62, 0.4), 0 -8px 16px rgba(0, 0, 0, 0.4);
+}
+
+.sheet-tabs > button {
+  position: relative;
+  isolation: isolate;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 46px;
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  color: var(--fg-soft);
+  font-family: var(--sc);
+  font-weight: 700;
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: color var(--t-fast), transform var(--t) var(--ease-in);
+}
+
+.sheet-tabs > button::before {
+  content: '';
+  position: absolute;
+  inset: -16px 6px 0;
+  z-index: -1;
+  background-color: var(--vermilion);
+  background-image: repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.07) 0 1px, transparent 1px 3px);
+  clip-path: polygon(0 8px, 50% 0, 100% 8px, 100% 100%, 0 100%);
+  transform: translateY(100%);
+  transition: transform var(--t) var(--ease-in);
+}
+
+.sheet-tabs > button.is-on {
+  color: var(--vellum);
+}
+
+.sheet-tabs > button.is-on::before {
+  transform: none;
+}
+
+.sheet-tabs > button:active {
+  transform: translateY(1px);
+}
+
+.hud.is-narrow .topbar {
+  gap: 8px;
+  padding: 0 4px 0 8px;
+}
+
+.hud.is-narrow .topbar-title {
+  padding-left: 8px;
+}
+
+.hud.is-narrow .room-name {
+  font-size: 18px;
+}
+
+.hud.is-narrow .room-sub {
+  display: none;
+}
+
+.hud.is-narrow .inspector {
+  width: auto;
+  padding: 18px 20px 16px;
+}
+
+.hud.is-narrow .icon-btn {
+  width: 40px;
+  height: 40px;
+}
+
+.hud.is-narrow .topbar-meta {
+  gap: 8px;
+}
+
+.hud.is-narrow .countdown {
+  font-size: 15px;
+  padding: 2px 2px;
+}
+
+.hud.is-narrow .topbar-actions {
+  gap: 0;
+}
+
+.hud.is-narrow .brand-mark {
+  width: 30px;
+  height: 34px;
+}
+
+.loading-veil {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  background: radial-gradient(ellipse at center, rgba(18, 22, 31, 0.6), rgba(10, 12, 18, 0.88));
+  color: var(--vellum);
+  font-family: var(--display);
+  font-size: 22px;
+  animation: veil-in var(--t-slow) var(--ease-in) both;
+}
+
+/* -------------------------------------------------------- away modal */
+
+.away-rank {
+  font-size: 19px;
+  margin: 0 0 10px;
+}
+
+.away-rank strong {
+  font-family: var(--sc);
+  color: var(--gilt);
+  font-size: 1.2em;
+}
+
+.away-list {
+  margin: 0;
+  padding-left: 20px;
+  font-size: 16px;
+}
+
+.away-list li {
+  margin-bottom: 6px;
+}
+
+.away-list li::marker {
+  content: '❧  ';
+  color: var(--rubric);
+}
+
+.away-moments {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.away-moments li {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 6px 0;
+  border-top: 1px solid var(--rule-soft);
+}
+
+/* ------------------------------------------------------ responsive HUD */
+
+@media (max-width: 1180px) {
+  :root {
+    --side-w: 300px;
+  }
+}
+
+@media (max-width: 520px) {
+  .meter {
+    grid-template-columns: 70px 1fr auto;
+  }
+
+  .emote-btn {
+    width: 40px;
+    height: 40px;
+    font-size: 19px;
+  }
+
+  .replay-dock .segmented-sm > button {
+    padding: 0 7px;
+  }
+
+  .replay-dock {
+    gap: 8px;
+    padding: 10px 14px 10px 10px;
+  }
+}

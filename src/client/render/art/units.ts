@@ -787,6 +787,13 @@ function wing(g: G, x: number, y: number, flap: number, len: number, color: stri
 
 // ------------------------------------------------------------ painters
 
+/** Rotates (x, y) about (cx, cy): where a hand on a pivoting weapon ends up. */
+function rot(x: number, y: number, cx: number, cy: number, a: number): [number, number] {
+  const c = Math.cos(a);
+  const s = Math.sin(a);
+  return [cx + (x - cx) * c - (y - cy) * s, cy + (x - cx) * s + (y - cy) * c];
+}
+
 /** Weapon rotation for an overhead or sweeping attack. */
 function swingAngle(p: Pose, back = 1.1, fwd = 1.2): number {
   if (p.pose === 'idle') return wave(p) * 0.03;
@@ -958,7 +965,7 @@ const PAINTERS: Record<number, Painter> = {
         ctx.fillRect(44.5, 49, 9.2, 2.6);
       });
       head(g, 48, 31, 'great');
-      arm(g, 52, 44, 54 + Math.sin(a) * 2, 48, STEEL, STEEL_DARK, 1);
+      arm(g, 45, 44, ...rot(56.6, 46, 54, 46, a), STEEL, STEEL_DARK, 1.6);
       // Kite shield on the near arm.
       shield(g, 36, 55, 0.68, 'pale');
     });
@@ -1029,7 +1036,7 @@ const PAINTERS: Record<number, Painter> = {
     legs(g, p, { color: '#6b5236' });
     upper(g, p, () => {
       const atk = isAttack(p);
-      const raise = atk ? (p.swing < 0 ? p.swing * 3 : -p.swing * 4) : 0;
+      const raise = 5 + (atk ? (p.swing < 0 ? p.swing * 3 : -p.swing * 4) : 0);
       const sway = (p.pose === 'walk' ? Math.sin(p.t * TAU) * 1.5 : 0) + (atk ? p.swing * 2.5 : 0);
       const px = 61 + sway * 0.3;
       // Banner pole and finial.
@@ -1139,7 +1146,7 @@ const PAINTERS: Record<number, Painter> = {
         }
       });
       head(g, 46, 34, 'wizard', p);
-      arm(g, 50, 46, 60 + Math.sin(a) * 4, 50 - Math.sin(a) * 2, ROBE_BLUE, SKIN, 1);
+      arm(g, 47, 45, ...rot(60, 50, 54, 48, a), ROBE_BLUE, SKIN, 1.6);
       if (atk && p.swing >= 0.95) glow(g, 76, 20, 16, EMBER, 0.9);
     });
   },
@@ -1180,7 +1187,7 @@ const PAINTERS: Record<number, Painter> = {
         }, STEEL_DARK, { outline: 1.7, box: [55, 15, 82, 29] });
         glint(g, 60, 23, 70, 18, 0.8);
       });
-      arm(g, 51, 44, 55 + Math.sin(a) * 3, 46, LEATHER, SKIN, 1);
+      arm(g, 45, 44, ...rot(58, 46, 54, 46, a), LEATHER, SKIN, 1.6);
     });
   },
   [Kind.Trebuchet]: (g, p) => {
@@ -1277,7 +1284,7 @@ const PAINTERS: Record<number, Painter> = {
         });
         stick(g, 65, 43, 67, 52, 2.2, BRASS, 1);
       });
-      arm(g, 62, 46, 66, 48, LEATHER, SKIN, 1);
+      arm(g, 59, 45, ...rot(66.5, 47.5, 66, 48, a), LEATHER, SKIN, 1.4);
     });
   },
   [Kind.GriffinRider]: (g, p) => {
@@ -1517,7 +1524,7 @@ const PAINTERS: Record<number, Painter> = {
         });
         glow(g, 60, cy, 3, GOLD_HI, 0.6);
       } else {
-        arm(g, 50, 46, 55 + Math.sin(a) * 2, 49, CLOTH, SKIN, 1);
+        arm(g, 46, 45, ...rot(56, 49.5, 54, 48, a), CLOTH, SKIN, 1.6);
       }
     });
   },
@@ -1659,7 +1666,7 @@ const PAINTERS: Record<number, Painter> = {
       });
       strikeSmear(g, p, 54, 46, 30, -1.9, 0.6, 6);
       pivot(g, 54, 46, a, () => axe(g, 54, 48, 76, 26));
-      arm(g, 52, 44, 54 + Math.sin(a) * 2, 48, SKIN, SKIN, 1);
+      arm(g, 46, 44, ...rot(58, 44.5, 54, 46, a), SKIN, SKIN, 1.6);
       g.ctx.restore();
     });
   },
@@ -1740,7 +1747,7 @@ const PAINTERS: Record<number, Painter> = {
         circle(g, 51, 53, 2.2, GOLD, { outline: 1.2, flat: true });
         glow(g, 80, 14, 12, '#fff3c2', 0.5);
       });
-      arm(g, 52, 45, 55 + Math.sin(a) * 2, 48, STEEL, STEEL_DARK, 1);
+      arm(g, 46, 45, ...rot(57, 48, 55, 46, a), STEEL, STEEL_DARK, 1.6);
     });
   },
   [Kind.Dragon]: (g, p) => {

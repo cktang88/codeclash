@@ -186,6 +186,16 @@ export const CUES: Record<string, Cue> = {
     bell(v, D4, 0.08, 5, v.t + 3.2);
     return 6;
   }, 6000, false, 10_000),
+  // Victory fanfares, chosen in the Armory and played for the day's winner.
+  'fanfare-horn': set((v) => horn(v, [[D4, 0, 0.3], [F4, 0.3, 0.3], [A4, 0.6, 0.45], [D5, 1.05, 1.4]], 0.1), 2600, false, 8000),
+  'fanfare-drums': set((v) => {
+    for (let i = 0; i < 8; i++) drum(v, i % 4 === 3 ? 70 : 95, i === 7 ? 0.7 : 0.45, v.t + i * 0.18);
+    return horn(v, [[A3, 1.45, 0.3], [D4, 1.7, 1.1]], 0.1) + 1.45;
+  }, 3000, false, 8000),
+  'fanfare-choir': set((v) => {
+    choir(v, [D3, A3, D4, F4, A4], 3.2, 0.07);
+    return bell(v, D5, 0.06, 2.4, v.t + 1.2) + 1.2;
+  }, 3600, false, 8000),
   'march-drum': combat((v) => drum(v, 90, 0.5), 300, 1, 400),
 };
 

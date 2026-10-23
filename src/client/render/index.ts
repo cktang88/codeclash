@@ -1,18 +1,24 @@
-import { Application, Container, Graphics, Sprite, Texture, CanvasSource } from 'pixi.js';
+import { Application, CanvasSource, Container, Graphics, Sprite, Texture } from 'pixi.js';
+import type { Monument } from '../../protocol.ts';
 import { PlatoonState, type MapDef, type TickEvents, type World } from '../../sim/api.ts';
+import type { ChronicleEntry } from '../../sim/chronicle.ts';
 import { derived } from '../../sim/derived.ts';
 import { cellAt, cellCenterX, cellCenterY } from '../../sim/flowfield.ts';
 import type { Runner } from '../net/runner.ts';
 import type { FloatingEmote, GameStore } from '../store.ts';
+import { Atmosphere } from './atmosphere.ts';
 import { BannerLayer, platoonCentroids } from './banners.ts';
 import { Camera } from './camera.ts';
+import { dayPhase, daylightAt, type Daylight } from './daylight.ts';
 import { Director } from './director.ts';
 import { FlagCache } from './flags.ts';
 import { Effects } from './fx/index.ts';
 import { loadFxArt } from './fx/atlas.ts';
 import { FAR_ZOOM } from './lod.ts';
 import { InfluenceLayer } from './influence.ts';
-import { hslNumber, hslRgb, mixColor } from './paint.ts';
+import { canvas2d, hslNumber, hslRgb, mixColor } from './paint.ts';
+import { WaterGlints } from './shaders/water.ts';
+import { siteArt } from './siteart.ts';
 import { SiteLayer } from './sites.ts';
 import { paintTerrain } from './terrain.ts';
 import { makeTextures, type Textures } from './textures.ts';
@@ -23,15 +29,41 @@ export interface BattlefieldOptions {
   reducedMotion?: boolean;
 }
 
+/** A choreographed camera move, for set pieces: glide to a point, hold, then hand the camera back. */
+export interface CinematicShot {
+  x: number;
+  y: number;
+  zoom?: number;
+  /** How long to hold on the subject once there. */
+  holdMs?: number;
+  /** 0..1: how far to dim the world around the subject. */
+  dim?: number;
+  /** Travel time; defaults by distance. */
+  travelMs?: number;
+}
+
+/** Optional hooks the effects layer may expose. Read loosely so either side can land first. */
+interface FxHooks {
+  onChronicle?(entries: readonly ChronicleEntry[], world: World): void;
+  dayEnd?(): void;
+  viewerP?: number | null;
+  cinematic?: (shot: CinematicShot) => void;
+  openGate?: (site: number) => void;
+  setDaylight?(light: Daylight): void;
+}
+
 const GOLD = 0xf2cf5b;
+const MAX_TORCHES = 220;
 
 interface MapLayers {
   map: MapDef;
   /** The war parameters the map was generated from. */
   key: string;
   terrain: Sprite;
+  water: WaterGlints;
   sites: SiteLayer;
   influence: InfluenceLayer;
+  atmosphere: Atmosphere;
 }
 
 function mapKey(world: World): string {
@@ -39,11 +71,48 @@ function mapKey(world: World): string {
   return `${seed}:${slots}:${members}`;
 }
 
+/** Army colours as pigments: the hue mixed toward a warm earth, never raw neon. */
+export function pigmentOf(hue: number): number {
+  return mixColor(hslNumber(hue, 66, 50), 0x9a7a4e, 0.16);
+}
+
+// A page's fonts must be ready before anything is lettered onto a canvas.
+async function fontsReady(): Promise<void> {
+  if (typeof document === 'undefined' || !document.fonts) return;
+  const faces = ['20px "IM Fell English SC"', 'italic 20px "IM Fell English"', '20px "IM Fell English"', 'italic 15px Alegreya', '15px "Alegreya SC"', '700 13px "JetBrains Mono"'];
+  const timeout = new Promise<void>((r) => setTimeout(r, 2500));
+  await Promise.race([Promise.all(faces.map((f) => document.fonts.load(f).catch(() => []))).then(() => undefined), timeout]);
+}
+
+let vignetteTex: Texture | null = null;
+function vignette(): Texture {
+  if (vignetteTex) return vignetteTex;
+  const [c, ctx] = canvas2d(256, 256);
+  const g = ctx.createRadialGradient(128, 128, 60, 128, 128, 182);
+  g.addColorStop(0, 'rgba(255,255,255,1)');
+  g.addColorStop(1, 'rgba(70,80,120,1)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 256, 256);
+  vignetteTex = new Texture({ source: new CanvasSource({ resource: c, scaleMode: 'linear' }) });
+  return vignetteTex;
+}
+
 /** The battlefield: owns the Pixi application, the camera and every visual layer. */
 export class Battlefield {
-  private readonly scene = new Container();
+  /** The painted world, under the day–night grade. */
+  private readonly world = new Container();
   private readonly groundLayer = new Container();
   private readonly selection = new Graphics();
+  /** Screen-space grade: a multiply wash for the hour, a screen lift so the night stays legible. */
+  private readonly grade = new Container();
+  private readonly gradeMult = new Sprite(Texture.WHITE);
+  private readonly gradeLift = new Sprite(Texture.WHITE);
+  private readonly gradeVignette: Sprite;
+  private readonly gradeDim = new Sprite(Texture.WHITE);
+  /** Emissive lights and the readable overlays, above the grade with the same camera transform. */
+  private readonly top = new Container();
+  private readonly lights = new Container();
+  private readonly torches: Sprite[] = [];
   private readonly camera: Camera;
   private readonly units: UnitLayer;
   private readonly fx: Effects;
@@ -53,10 +122,20 @@ export class Battlefield {
   private layers: MapLayers | null = null;
   private unsubscribe: (() => void)[] = [];
   private last = performance.now();
+  private started = performance.now();
   private shake = 0;
   private tints: number[] = [];
   private rgb: [number, number, number][] = [];
+  private hues: number[] = [];
   private destroyed = false;
+  private timeOverride: number | null = null;
+  private light: Daylight = daylightAt(0.3);
+  private cine: { until: number; dim: number; resume: boolean } | null = null;
+  private dim = 0;
+  private monumentKey = '';
+  private audioAt = 0;
+  private fires: { x: number; y: number }[] = [];
+  private warStatus = '';
   /** Smoothed milliseconds of JavaScript per frame, for diagnostics. */
   frameMs = 0;
   /** Smoothed milliseconds per stage of the last frames, for diagnostics. */
@@ -81,8 +160,26 @@ export class Battlefield {
       return flight.height + ((cell.feetY - cell.h / 2) / cell.h) * art.scale(kind);
     };
     this.banners = new BannerLayer(this.flags);
-    app.stage.addChild(this.scene);
-    this.scene.addChild(
+    this.gradeVignette = new Sprite(vignette());
+    this.gradeMult.blendMode = 'multiply';
+    this.gradeLift.blendMode = 'screen';
+    this.gradeVignette.blendMode = 'multiply';
+    this.gradeDim.tint = 0x0c1020;
+    this.gradeDim.alpha = 0;
+    this.grade.addChild(this.gradeMult, this.gradeVignette, this.gradeLift, this.gradeDim);
+    this.lights.blendMode = 'add';
+    for (let i = 0; i < MAX_TORCHES; i++) {
+      const s = new Sprite(tex.soft);
+      s.anchor.set(0.5);
+      s.blendMode = 'add';
+      s.tint = 0xffa448;
+      s.visible = false;
+      this.torches.push(s);
+    }
+    const torchLayer = new Container();
+    torchLayer.addChild(...this.torches);
+    app.stage.addChild(this.world, this.grade, this.top);
+    this.world.addChild(
       this.groundLayer,
       this.selection,
       this.fx.ground,
@@ -90,55 +187,92 @@ export class Battlefield {
       this.units.bodies,
       this.units.dots,
       this.fx.air,
-      this.fx.glow,
-      this.banners.root,
       this.units.air,
-      this.fx.overlay,
     );
+    this.top.addChild(this.lights, torchLayer, this.fx.glow, this.banners.root, this.fx.overlay);
     this.camera = new Camera(app.canvas, {
       onClick: (sx, sy) => this.click(sx, sy),
-      onUserPan: () => store.setFollowing(false),
+      onUserPan: () => {
+        store.setFollowing(false);
+        store.setFollowMine(false);
+        this.cine = null;
+      },
+      onFollowKey: () => this.toggleFollowMine(),
     });
     this.director = new Director(() => (this.layers ? this.camera.fitZoom(this.layers.map.radius) : 0.5));
+    const hooks = this.fx as unknown as FxHooks;
     this.unsubscribe.push(
       store.onStep((ev, world) => this.onStep(ev, world)),
       store.onEmote((e) => this.onEmote(e)),
+      store.onChronicle((entries) => {
+        const world = store.world;
+        if (world) hooks.onChronicle?.(entries, world);
+      }),
     );
-    app.ticker.add(() => this.frame());
+    // Effects may ask the camera for a set-piece shot, or a capital to open its gates.
+    if (!('cinematic' in hooks)) hooks.cinematic = (shot) => this.cinematic(shot);
+    if (!('openGate' in hooks)) hooks.openGate = (site) => this.layers?.sites.openGate(site, performance.now());
+    app.ticker.add(this.tick);
   }
 
-  static async create(host: HTMLElement, store: GameStore, getRunner: () => Runner | null, opts: BattlefieldOptions = {}): Promise<Battlefield> {
+  /**
+   * Starts the renderer. Safe against being torn down mid-start (React StrictMode
+   * mounts, unmounts and remounts): pass a signal, and an aborted start cleans up
+   * after itself and rejects with an AbortError instead of leaking a WebGL context.
+   */
+  static async create(host: HTMLElement, store: GameStore, getRunner: () => Runner | null, opts: BattlefieldOptions & { signal?: AbortSignal } = {}): Promise<Battlefield> {
+    const { signal } = opts;
+    const aborted = () => signal?.aborted || !host.isConnected;
+    const abort = () => new DOMException('The battlefield was unmounted while starting.', 'AbortError');
+    // Paint shared art and load fonts before touching WebGL, so an early unmount costs nothing.
+    await fontsReady();
+    await loadFxArt();
+    if (aborted()) throw abort();
     const app = new Application();
     await app.init({
       resizeTo: host,
-      background: 0x06090c,
+      background: 0x1a120b,
       antialias: true,
       resolution: Math.min(2, window.devicePixelRatio || 1),
       autoDensity: true,
       preference: 'webgl',
     });
+    if (aborted()) {
+      // Nothing of ours was added yet: drop the context and the canvas, keep shared textures.
+      app.destroy({ removeView: true }, { children: true, texture: false, textureSource: false });
+      throw abort();
+    }
     app.canvas.style.display = 'block';
     app.canvas.style.touchAction = 'none';
     host.appendChild(app.canvas);
     const reducedMotion = opts.reducedMotion ?? window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
-    await loadFxArt();
-    return new Battlefield(app, host, store, getRunner, makeTextures(), makeUnitArt(), { ...opts, reducedMotion });
+    siteArt();
+    const field = new Battlefield(app, host, store, getRunner, makeTextures(), makeUnitArt(), { reducedMotion });
+    if (signal) signal.addEventListener('abort', () => field.destroy(), { once: true });
+    return field;
   }
 
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
+    this.app.ticker.remove(this.tick);
+    this.app.ticker.stop();
     for (const u of this.unsubscribe) u();
+    this.unsubscribe = [];
     this.camera.destroy();
+    this.dropMap();
     this.banners.destroy();
     this.fx.destroy();
     this.flags.destroy();
-    this.app.destroy({ removeView: true }, { children: true, texture: false });
+    // Shared atlases (unit art, site art, fx sheets) outlive this field: never destroy texture
+    // sources from here, or a remount would draw from (and hang on) freed GPU resources.
+    this.app.destroy({ removeView: true }, { children: true, texture: false, textureSource: false });
     void this.host;
   }
 
   focus(x: number, y: number, zoom?: number): void {
     this.store.setFollowing(false);
+    this.store.setFollowMine(false);
     this.camera.panTo(x, y, zoom ?? Math.max(this.camera.zoom, 1.1));
   }
 
@@ -150,13 +284,47 @@ export class Battlefield {
     this.focus(site.x * 0.85, site.y * 0.85, 0.9);
   }
 
+  /**
+   * A set-piece camera move: ease to the subject, optionally dim the world around it,
+   * hold, then give the camera back to whoever had it (the director or the player).
+   */
+  cinematic(shot: CinematicShot): void {
+    if (this.destroyed) return;
+    const zoom = shot.zoom ?? Math.max(this.camera.zoom, 1.2);
+    const dist = Math.hypot(shot.x - this.camera.x, shot.y - this.camera.y) * Math.min(this.camera.zoom, zoom);
+    const travel = this.opts.reducedMotion ? 1 : shot.travelMs ?? Math.max(700, Math.min(1800, 500 + dist * 1.1));
+    const resume = this.cine?.resume ?? this.store.following;
+    this.store.setFollowing(false);
+    this.camera.shot(shot.x, shot.y, zoom, travel);
+    this.cine = { until: performance.now() + travel + (shot.holdMs ?? 2200), dim: Math.max(0, Math.min(1, shot.dim ?? 0)), resume };
+  }
+
+  /** Force the hour (0 dawn … 1 night), for previews and tests; null follows the war clock. */
+  setTimeOverride(phase: number | null): void {
+    this.timeOverride = phase === null ? null : ((phase % 1) + 1) % 1;
+  }
+
+  /** Statues of named legends and the Season Victor's obelisk. */
+  setMonuments(list: readonly Monument[]): void {
+    const world = this.store.world;
+    if (!world || !this.layers) return;
+    this.layers.sites.setMonuments(list, world, this.store.names);
+    this.monumentKey = monumentKey(list);
+  }
+
+  /** Ride along with the viewer's freshest platoon (key F). */
+  toggleFollowMine(): void {
+    this.store.setFollowMine(!this.store.followMine);
+  }
+
   // ---------------------------------------------------------------- frame
 
-  private frame(): void {
+  private tick = (): void => {
+    if (this.destroyed) return;
     const started = performance.now();
     this.draw();
     this.frameMs = this.frameMs * 0.95 + (performance.now() - started) * 0.05;
-  }
+  };
 
   private draw(): void {
     const now = performance.now();
@@ -173,13 +341,16 @@ export class Battlefield {
     time('sim');
     this.store.pump();
     time('hud');
+    if (this.destroyed) return;
     const world = this.store.world;
-    this.camera.resize(this.app.screen.width, this.app.screen.height);
+    const sw = this.app.screen.width;
+    const sh = this.app.screen.height;
+    this.camera.resize(sw, sh);
     if (!world) {
-      this.scene.visible = false;
+      this.world.visible = this.top.visible = this.grade.visible = false;
       return;
     }
-    this.scene.visible = true;
+    this.world.visible = this.top.visible = this.grade.visible = true;
     // A resync restores a new world object with an identical map: keep the painted terrain and the
     // camera. Only a different war (rollover) needs a new map.
     if (!this.layers || this.layers.key !== mapKey(world)) {
@@ -188,9 +359,26 @@ export class Battlefield {
     }
     const layers = this.layers!;
     this.refreshColors(world);
+    const monuments = this.store.monuments;
+    if (monumentKey(monuments) !== this.monumentKey) this.setMonuments(monuments);
+    this.watchWar();
 
+    // ---- the hour
+    const phase = this.timeOverride ?? dayPhase(this.store, world.tick);
+    this.light = daylightAt(phase);
+    const light = this.light;
+    (this.fx as unknown as FxHooks).setDaylight?.(light);
 
-    if (this.store.following && !this.camera.busy) {
+    // ---- camera
+    if (this.cine && now >= this.cine.until && !this.camera.busy) {
+      if (this.cine.resume) this.store.setFollowing(true);
+      this.cine = null;
+    }
+    if (this.store.followMine && !this.camera.busy && !this.cine) {
+      const target = this.myBanner(world);
+      if (target) this.camera.drift(target.x, target.y, Math.max(0.95, Math.min(this.camera.zoom, 1.8)), dtMs * 1.6);
+      this.director.next(dtMs, now);
+    } else if (this.store.following && !this.camera.busy && !this.cine) {
       const shot = this.director.next(dtMs, now);
       this.camera.drift(shot.x, shot.y, shot.zoom, dtMs);
     } else this.director.next(dtMs, now);
@@ -200,8 +388,27 @@ export class Battlefield {
     this.shake = Math.max(0, this.shake - dtMs / 600);
     const jx = this.shake > 0 ? (Math.random() - 0.5) * this.shake * 10 : 0;
     const jy = this.shake > 0 ? (Math.random() - 0.5) * this.shake * 10 : 0;
-    this.scene.scale.set(zoom);
-    this.scene.position.set(this.camera.width / 2 - this.camera.x * zoom + jx, this.camera.height / 2 - this.camera.y * zoom + jy);
+    const px = sw / 2 - this.camera.x * zoom + jx;
+    const py = sh / 2 - this.camera.y * zoom + jy;
+    this.world.scale.set(zoom);
+    this.world.position.set(px, py);
+    this.top.scale.set(zoom);
+    this.top.position.set(px, py);
+
+    // ---- grade: multiply wash, night vignette, a cool screen lift, and the cinematic dim
+    this.gradeMult.width = this.gradeLift.width = this.gradeVignette.width = this.gradeDim.width = sw;
+    this.gradeMult.height = this.gradeLift.height = this.gradeVignette.height = this.gradeDim.height = sh;
+    this.gradeMult.tint = light.mult;
+    this.gradeMult.visible = light.mult !== 0xffffff;
+    this.gradeLift.tint = light.screen;
+    this.gradeLift.visible = light.screen !== 0;
+    this.gradeVignette.alpha = 0.25 + light.lights * 0.55;
+    const dimTarget = this.cine ? this.cine.dim : 0;
+    this.dim += (dimTarget - this.dim) * (1 - Math.pow(0.02, dtMs / 1000));
+    this.gradeDim.alpha = this.dim * 0.55;
+    this.gradeDim.visible = this.dim > 0.01;
+    // Banners and labels stay readable at night, but still take a little of the hour's colour.
+    this.banners.root.tint = mixColor(0xffffff, light.mult, 0.35);
 
     const bounds = this.camera.bounds(60);
     const cry = world.players.map((p) => p.cryUntil > world.tick);
@@ -212,50 +419,163 @@ export class Battlefield {
     time('units');
     const centroids = platoonCentroids(world);
     const sel = this.store.selection;
-    this.banners.update(world, this.store.repos, world.players.map((p) => p.hue), now, zoom, centroids, bounds, sel?.kind === 'platoon' ? sel.id : null);
+    this.banners.update(world, this.store.repos, this.hues, now, zoom, centroids, bounds, sel?.kind === 'platoon' ? sel.id : null);
     time('banners');
-    layers.sites.update(world, this.store.roster, this.store.names, this.tints, now, dtMs / 1000, zoom, sel?.kind === 'site' ? sel.id : null, {
-      smoke: (x, y) => this.fx.burst({ x, y, count: 1, texture: 'smoke', tint: 0x3a3632, speed: 6, life: 3.2, size: 26, grow: 2.6, alpha: 0.6, rise: 14 }),
-    });
+    const near = zoom >= FAR_ZOOM;
+    layers.sites.update(
+      world,
+      this.store.roster,
+      this.store.names,
+      this.tints,
+      now,
+      dtMs / 1000,
+      zoom,
+      sel?.kind === 'site' ? sel.id : null,
+      {
+        smoke: (x, y, heavy) =>
+          heavy
+            ? this.fx.burst({ x, y, count: 1, texture: 'smoke', tint: 0x3a3230, speed: 6, life: 3.4, size: 30, grow: 2.8, alpha: 0.6, rise: 16 })
+            : this.fx.burst({ x, y, count: 1, texture: 'smoke', tint: 0x9a9286, speed: 3, life: 3.6, size: 9, grow: 3.2, alpha: 0.42, rise: 12, spread: 2 }),
+      },
+      { lights: light.lights, leader: world.leader, near, inView: (x, y) => bounds.contains(x, y) },
+    );
     time('sites');
     layers.influence.update(world, this.rgb, now);
-    time('influence');
+    layers.water.update((now - this.started) / 1000, light.day);
+    const view = { x: bounds.minX, y: bounds.minY, width: bounds.maxX - bounds.minX, height: bounds.maxY - bounds.minY };
+    this.collectFires(world);
+    layers.atmosphere.update(dtMs, now, zoom, view, light, !!this.opts.reducedMotion);
+    this.updateTorches(world, centroids, zoom, bounds, now);
+    time('world');
     this.drawSelection(world, centroids, now, zoom);
     this.fx.update(dtMs, world.tick - 1 + (runner?.alpha ?? 1), this.posOf, zoom, bounds);
     if (!this.opts.reducedMotion) this.shake = Math.max(this.shake, this.fx.shake);
     time('fx');
+    this.feedAudio(now, world, light);
+  }
+
+  /** The platoon the "Follow my banner" camera rides with: the viewer's newest one in the field. */
+  private myBanner(world: World): { x: number; y: number } | null {
+    const p = this.store.viewerP ?? (this.store.war && this.store.war.id !== 0 ? null : world.leader);
+    if (p === null || p < 0) return null;
+    let best: { x: number; y: number } | null = null;
+    let bestId = -1;
+    for (const pl of world.platoons) {
+      if (pl.p !== p || pl.state === PlatoonState.Queued || pl.alive <= 0) continue;
+      if (pl.id > bestId) {
+        bestId = pl.id;
+        best = pl;
+      }
+    }
+    if (best) return { x: best.x, y: best.y };
+    const site = world.map.sites[world.players[p]?.slot ?? -1];
+    return site ? { x: site.x, y: site.y } : null;
+  }
+
+  /** Fires for night embers: sacked capitals smoulder, held ones keep their hearths lit. */
+  private collectFires(world: World): void {
+    this.fires.length = 0;
+    for (const st of world.structures) {
+      const s = world.map.sites[st.site];
+      if (!s || s.kind !== 'capital') continue;
+      this.fires.push({ x: s.x, y: s.y - s.radius * (st.ruinedUntil >= 0 ? 0.4 : 1.2) });
+    }
+  }
+
+  /** At night every platoon in the field carries torches: a warm pool of light over the block. */
+  private updateTorches(world: World, centroids: Map<number, { x: number; y: number; n: number }>, zoom: number, bounds: { contains(x: number, y: number): boolean }, now: number): void {
+    const strength = this.light.lights;
+    let used = 0;
+    if (strength > 0.04) {
+      for (const pl of world.platoons) {
+        if (used >= MAX_TORCHES) break;
+        if (pl.state === PlatoonState.Queued || pl.alive <= 0) continue;
+        const c = centroids.get(pl.id);
+        if (!c || !bounds.contains(c.x, c.y)) continue;
+        const s = this.torches[used++]!;
+        s.visible = true;
+        const r = 26 + Math.sqrt(c.n) * 9;
+        s.position.set(c.x, c.y - 6);
+        s.scale.set(r / 32, (r * 0.7) / 32);
+        const flicker = 0.88 + Math.sin(now / 90 + pl.id * 1.3) * 0.06 + Math.sin(now / 37 + pl.id) * 0.04;
+        s.alpha = strength * 0.42 * flicker * (zoom < FAR_ZOOM ? 0.7 : 1);
+      }
+    }
+    for (let i = used; i < MAX_TORCHES; i++) {
+      const s = this.torches[i]!;
+      if (!s.visible) break;
+      s.visible = false;
+    }
+  }
+
+  private watchWar(): void {
+    const status = `${this.store.war?.id ?? -1}:${this.store.war?.status ?? ''}:${this.store.digestReady ? 1 : 0}`;
+    if (status === this.warStatus) return;
+    const ended = this.warStatus !== '' && (this.store.war?.status === 'ended' || this.store.digestReady);
+    this.warStatus = status;
+    if (ended) (this.fx as unknown as FxHooks).dayEnd?.();
+    (this.fx as unknown as FxHooks).viewerP = this.store.viewerP;
+  }
+
+  private feedAudio(now: number, world: World, light: Daylight): void {
+    const fx = this.fx as unknown as { sound?: { setListener?(x: number, y: number, zoom: number): void; setBattleIntensity?(x: number): void; setTimeOfDay?(t: number): void } };
+    const sound = fx.sound;
+    if (!sound) return;
+    sound.setListener?.(this.camera.x, this.camera.y, this.camera.zoom);
+    if (now < this.audioAt) return;
+    this.audioAt = now + 250;
+    let engaged = 0;
+    for (const pl of world.platoons) if (pl.state === PlatoonState.Engage) engaged += pl.alive;
+    sound.setBattleIntensity?.(Math.min(1, engaged / 400));
+    sound.setTimeOfDay?.(light.phase);
+  }
+
+  private dropMap(): void {
+    if (!this.layers) return;
+    const { terrain, influence, water, sites, atmosphere } = this.layers;
+    this.groundLayer.removeChildren();
+    // The terrain canvas and influence textures belong to this map alone; the site
+    // sprites share the painted site art, so only their display objects are destroyed.
+    terrain.destroy({ texture: true, textureSource: true });
+    influence.sprite.destroy({ texture: true, textureSource: true });
+    water.destroy();
+    sites.destroy();
+    atmosphere.destroy();
+    this.layers = null;
   }
 
   private buildMap(world: World): void {
-    if (this.layers) {
-      const { terrain, influence } = this.layers;
-      this.groundLayer.removeChildren();
-      // The terrain (3072² canvas) and influence textures belong to this map alone; the site
-      // sprites share the atlas textures, so only their display objects are destroyed.
-      terrain.destroy({ texture: true, textureSource: true });
-      influence.sprite.destroy({ texture: true, textureSource: true });
-      this.layers.sites.ground.destroy({ children: true });
-      this.layers.sites.root.destroy({ children: true });
-      this.layers.sites.labels.destroy({ children: true });
-    }
+    this.dropMap();
     const map = world.map;
-    const art = paintTerrain(map, world.params.seed, 3072);
+    const day = this.store.war?.day;
+    const art = paintTerrain(map, world.params.seed, 3072, {
+      title: 'The Field of Pushes',
+      subtitle: day ? `as the war stood on ${day}` : 'a sparring war, in the scribe’s hand',
+    });
     const terrain = new Sprite(new Texture({ source: new CanvasSource({ resource: art.canvas, autoGenerateMipmaps: true, scaleMode: 'linear' }) }));
     terrain.anchor.set(0.5);
     terrain.width = terrain.height = art.extent * 2;
+    const water = new WaterGlints(new Texture({ source: new CanvasSource({ resource: art.water, scaleMode: 'linear' }) }), art.extent);
     const influence = new InfluenceLayer(map.radius);
     const sites = new SiteLayer(this.tex, this.flags, world);
-    this.groundLayer.addChild(terrain, influence.sprite, sites.ground, sites.root);
-    this.scene.addChild(sites.labels);
-    this.layers = { map, key: mapKey(world), terrain, sites, influence };
+    const atmosphere = new Atmosphere(map, art.sea, () => this.fires);
+    this.groundLayer.addChild(terrain, water.mesh, atmosphere.ground, influence.sprite, sites.ground, sites.root);
+    // Cloud shadows and birds pass over everything on the ground; their glow joins the lights.
+    this.world.addChild(atmosphere.air);
+    this.lights.addChild(sites.lights, atmosphere.glow);
+    this.top.addChild(sites.labels.root);
+    this.top.setChildIndex(sites.labels.root, this.top.children.indexOf(this.fx.overlay));
+    this.layers = { map, key: mapKey(world), terrain, water, sites, influence, atmosphere };
+    this.monumentKey = '';
     this.camera.fit(map.radius);
   }
 
   private refreshColors(world: World): void {
     for (const p of world.players) {
-      if (this.tints[p.p] !== undefined && this.rgb[p.p]) continue;
-      this.tints[p.p] = hslNumber(p.hue, 72, 54);
-      this.rgb[p.p] = hslRgb(p.hue, 80, 50);
+      if (this.tints[p.p] !== undefined && this.hues[p.p] === p.hue) continue;
+      this.hues[p.p] = p.hue;
+      this.tints[p.p] = pigmentOf(p.hue);
+      this.rgb[p.p] = hslRgb(p.hue, 62, 46);
     }
   }
 
@@ -275,13 +595,24 @@ export class Battlefield {
   };
 
   private onStep(ev: TickEvents, world: World): void {
-    if (!this.layers) return;
+    if (!this.layers || this.destroyed) return;
     this.director.observe(ev, world);
     const now = performance.now();
     const near = this.camera.zoom >= FAR_ZOOM;
     const bounds = this.camera.bounds(120);
     this.fx.onStep(ev, world, { posOf: this.posOf, tints: this.tints, near, bounds });
 
+    // A muster swings its capital's gates open as the column marches out.
+    for (const m of ev.musters) {
+      if (m.queued) continue;
+      const slot = world.players[m.p]?.slot;
+      if (slot !== undefined) this.layers.sites.openGate(slot, now);
+    }
+    for (const m of ev.marches) {
+      const pl = world.platoons.find((x) => x.id === m.platoon);
+      const slot = pl ? world.players[pl.p]?.slot : undefined;
+      if (slot !== undefined) this.layers.sites.openGate(slot, now);
+    }
     for (const s of ev.swings) {
       const target = this.posOf(s.to);
       if (target) this.units.swing(s.from, target.x, target.y, now);
@@ -329,10 +660,6 @@ export class Battlefield {
     this.fx.floatText(e.emote, site.x + (Math.random() - 0.5) * 50, site.y - site.radius * 2.6, 3.5, 30);
   }
 
-  private kick(amount: number): void {
-    if (!this.opts.reducedMotion) this.shake = Math.max(this.shake, amount);
-  }
-
   // ------------------------------------------------------------ selection
 
   private drawSelection(world: World, centroids: Map<number, { x: number; y: number; n: number }>, now: number, zoom: number): void {
@@ -345,7 +672,10 @@ export class Battlefield {
       for (const pl of world.platoons) {
         if (pl.p !== sel.p || pl.state === PlatoonState.Queued) continue;
         const c = centroids.get(pl.id);
-        if (c) g.circle(c.x, c.y, 26).stroke({ width: 2.5 / zoom, color: 0xffffff, alpha: 0.6 });
+        if (c) {
+          g.circle(c.x, c.y, 26).stroke({ width: 4 / zoom, color: 0x22180f, alpha: 0.5 });
+          g.circle(c.x, c.y, 26).stroke({ width: 2 / zoom, color: 0xf6dc8c, alpha: 0.9 });
+        }
       }
       return;
     }
@@ -361,7 +691,8 @@ export class Battlefield {
     r = Math.min(r + 10, 160);
     const pulse = 1 + Math.sin(now / 220) * 0.05;
     const tint = this.tints[pl.p] ?? 0xffffff;
-    g.ellipse(c.x, c.y, r * pulse, r * 0.7 * pulse).fill({ color: tint, alpha: 0.12 }).stroke({ width: 3 / zoom, color: 0xffffff, alpha: 0.95 });
+    g.ellipse(c.x, c.y, r * pulse, r * 0.7 * pulse).fill({ color: tint, alpha: 0.14 }).stroke({ width: 5 / zoom, color: 0x22180f, alpha: 0.55 });
+    g.ellipse(c.x, c.y, r * pulse, r * 0.7 * pulse).stroke({ width: 2.5 / zoom, color: 0xf6dc8c, alpha: 0.95 });
     if (pl.site < 0 || pl.state === PlatoonState.Engage) return;
     const goal = pl.state === PlatoonState.Rout ? world.players[pl.p]!.slot : pl.site;
     const field = derived(world.map).flow[goal];
@@ -376,6 +707,7 @@ export class Battlefield {
     }
     const target = world.map.sites[goal]!;
     pts.push([target.x, target.y]);
+    // The route is inked on the chart like a cartographer's dotted march line.
     const dash = 10 / zoom;
     const offset = ((now / 40) % 20) / zoom;
     let carry = -offset;
@@ -392,8 +724,8 @@ export class Battlefield {
       }
       carry = t - len - dash * 2;
     }
-    g.stroke({ width: 3 / zoom, color: 0xffffff, alpha: 0.85 });
-    g.ellipse(target.x, target.y, target.radius * 1.1, target.radius * 0.7).stroke({ width: 2 / zoom, color: tint, alpha: 0.9 });
+    g.stroke({ width: 3.4 / zoom, color: 0x22180f, alpha: 0.85 });
+    g.ellipse(target.x, target.y, target.radius * 1.1, target.radius * 0.7).stroke({ width: 2.5 / zoom, color: tint, alpha: 0.9 });
   }
 
   // ---------------------------------------------------------------- input
@@ -411,7 +743,7 @@ export class Battlefield {
       }
     }
     let best = -1;
-    let bestD = (Math.max(9, 14 / this.camera.zoom)) ** 2;
+    let bestD = Math.max(9, 14 / this.camera.zoom) ** 2;
     for (const u of world.units) {
       const pose = this.units.pose(u.id);
       const ux = pose?.x ?? u.x;
@@ -429,4 +761,8 @@ export class Battlefield {
     const site = this.layers.sites.hit(p.x, p.y);
     this.store.select(site === null ? null : { kind: 'site', id: site });
   }
+}
+
+function monumentKey(list: readonly Monument[] | undefined): string {
+  return list?.map((m) => `${m.kind}:${m.p}:${m.name}`).join('|') ?? '';
 }

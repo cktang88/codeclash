@@ -28,6 +28,7 @@ type Scene = (typeof SCENES)[number];
 const SCENE_TICKS = Number(q.get('ticks') ?? 18);
 const TINTS = [0x3d7fd9, 0xd9483d, 0x4cc26a];
 
+await Promise.all(['24px "IM Fell English SC"', '15px "JetBrains Mono"', '15px "Alegreya SC"'].map((f) => document.fonts.load(f).catch(() => null)));
 const app = new Application();
 await app.init({ resizeTo: window, background: 0x7d8452, antialias: true, resolution: Math.min(2, devicePixelRatio || 1), autoDensity: true, preference: 'webgl' });
 document.body.style.margin = '0';

@@ -774,15 +774,15 @@ export class Effects {
       const old = this.scrolls.shift()!;
       old.c.destroy({ children: true });
     }
-    const clipped = msg.length > 54 ? `${msg.slice(0, 52).trimEnd()}…` : msg;
+    const clipped = msg.length > 64 ? `${msg.slice(0, 62).trimEnd()}…` : msg;
     const text = new Text({
       text: clipped,
-      style: { fontFamily: '"JetBrains Mono", ui-monospace, monospace', fontSize: grand ? 16 : 15, fill: INK, fontWeight: '500' },
+      style: { fontFamily: '"JetBrains Mono", ui-monospace, monospace', fontSize: 15, fill: INK, fontWeight: '500', wordWrap: true, breakWords: true, wordWrapWidth: grand ? 320 : 290, align: 'center', lineHeight: 18 },
       resolution: 2,
     });
     text.anchor.set(0.5);
     const w = Math.ceil(text.width) + 40;
-    const h = grand ? 34 : 30;
+    const h = Math.ceil(text.height) + (grand ? 18 : 14);
     const paper = new Container();
     const sheet = new Graphics();
     // Vellum with deckled top and bottom edges, an ink rule inset, and a cool shade along the bottom.
@@ -1044,7 +1044,7 @@ export class Effects {
     for (let i = 0; i < this.n(56); i++) {
       const a = rand() * Math.PI * 2;
       const sp = 120 + rand() * 280;
-      this.dust.spawn({ texture: glyphs[i % glyphs.length]!, x, y, z: radius * (0.3 + rand() * 1.4), vx: Math.cos(a) * sp, vy: Math.sin(a) * sp * 0.55, vz: 80 + rand() * 160, gravity: 160, drag: 1.1, life: 2.2 + rand() * 1.2, size: 18 + rand() * 10, tint: i % 3 === 0 ? GOLD_HI : i % 3 === 1 ? EMBER : VELLUM, tintTo: INK, spin: (rand() - 0.5) * 4, delay: 0.3 * rand(), fadeIn: 0 });
+      this.dust.spawn({ texture: glyphs[i % glyphs.length]!, x, y, z: radius * (0.3 + rand() * 1.4), vx: Math.cos(a) * sp, vy: Math.sin(a) * sp * 0.55, vz: 80 + rand() * 160, gravity: 160, drag: 1.1, life: 2.2 + rand() * 1.2, size: 28 + rand() * 14, tint: i % 3 === 0 ? GOLD_HI : i % 3 === 1 ? EMBER : VELLUM, spin: (rand() - 0.5) * 3, delay: 0.3 * rand(), fadeIn: 0 });
     }
     this.shockwave(x, y, GOLD_HI, 40, 560, 1.8);
     this.shockwave(x, y, 0xffffff, 30, 340, 1.2, 0.6);
@@ -1069,7 +1069,7 @@ export class Effects {
       if (bounds.contains(site.x, site.y)) {
         this.ring(site.x, site.y, GOLD, site.radius, site.radius * 2.4, 1.2, 0.8);
         for (let i = 0; i < this.n(30); i++) this.dust.spawn({ texture: this.tex.goldLeaf[i % 3]!, x: site.x + (rand() - 0.5) * site.radius * 2, y: site.y, z: site.radius * (1 + rand() * 1.5), vx: (rand() - 0.5) * 30, vz: -10 - rand() * 20, gravity: 10, drag: 0.8, life: 2.4, size: 5, spin: (rand() - 0.5) * 8, delay: rand() * 0.5, fadeIn: 0.1 });
-        for (let k = 0; k < rank; k++) this.dust.spawn({ texture: this.tex.chevron, x: site.x, y: site.y, z: site.radius * 2 + k * 11, vz: 8, life: 2.6, size: 20, delay: 0.3 + k * 0.18, fadeIn: 0.15 });
+        for (let k = 0; k < rank; k++) this.dust.spawn({ texture: this.tex.chevron, x: site.x, y: site.y, z: site.radius * 1.6 + k * 16, vz: 8, life: 2.6, size: 34, delay: 0.3 + k * 0.18, fadeIn: 0.15 });
       }
     }
     let shown = 0;
@@ -1082,7 +1082,10 @@ export class Effects {
       for (let i = 0; i < this.n(9); i++) {
         this.dust.spawn({ texture: this.tex.goldLeaf[i % 3]!, x: pl.x - 14 + (rand() - 0.5) * 4, y: pl.y, z: 30 + (rand() - 0.5) * 14, vx: 70 + rand() * 30, vz: (rand() - 0.5) * 10, drag: 1.2, life: 0.7, size: 4, spin: (rand() - 0.5) * 8, delay: d + 0.25 + i * 0.03, fadeIn: 0 });
       }
-      this.dust.spawn({ texture: this.tex.chevron, x: pl.x, y: pl.y, z: 52, vz: 6, life: 1.4, size: 13, delay: d + 0.45, fadeIn: 0.1 });
+      for (let k = 0; k < rank; k++) {
+        this.glowSpawn({ texture: this.tex.mote, x: pl.x, y: pl.y - 54 - k * 10, life: 1.2, size: 26, alpha: 0.35, tint: GOLD, delay: d + 0.45 + k * 0.12, fadeIn: 0.1 });
+        this.dust.spawn({ texture: this.tex.chevron, x: pl.x, y: pl.y, z: 54 + k * 10, vz: 5, life: 1.6, size: 22, delay: d + 0.45 + k * 0.12, fadeIn: 0.1 });
+      }
       this.glowSpawn({ texture: this.tex.spark, x: pl.x + 5, y: pl.y - 54, life: 0.4, size: 16, grow: 0.4, tint: GOLD_HI, delay: d + 0.6, rotation: 0.4, fadeIn: 0.05 });
     }
   }
@@ -1250,7 +1253,7 @@ export class Effects {
         // The jet: soft blobs that swell from white-hot to smoky red as they fly.
         this.flames.spawn({ texture: this.tex.firePuff[(rand() * 3) | 0]!, x: mouthX, y: mouthY, z: alt, vx, vy, vz: -alt / life, life: life * (0.85 + rand() * 0.3), size: 9, grow: 4.5 + rand() * 1.5, tint: 0xffffff, tintTo: 0x6a3424, alpha: 0.85 * (0.6 + fading * 0.4), rotation: rand() * 6.28, spin: (rand() - 0.5) * 2, fadeIn: 0.03 });
         if (rand() < 0.2) this.glowSpawn({ texture: this.tex.soft, x: mouthX, y: mouthY, z: alt, vx: vx * 0.8, vy: vy * 0.8, vz: -alt / life, life: life * 0.6, size: 8, grow: 2.5, tint: 0xffa830, tintTo: 0x802008, alpha: 0.3, fadeIn: 0.03 });
-        if (rand() < 0.35) this.flames.spawn({ texture: this.tex.flame[0]!, frames: this.tex.flame, x: mouthX + vx * life * 0.9, y: mouthY + vy * life * 0.9, life: 0.5 + rand() * 0.3, size: 16 + rand() * 14, grow: 1.4, tint: 0xffffff, tintTo: 0x6a3020, alpha: 0.8, anchorY: 0.85, rotation: (rand() - 0.5) * 0.4, delay: life * 0.7, fadeIn: 0.05 });
+        if (rand() < 0.16) this.flames.spawn({ texture: this.tex.flame[0]!, frames: this.tex.flame, x: mouthX + vx * life * 0.9, y: mouthY + vy * life * 0.9, life: 0.5 + rand() * 0.3, size: 16 + rand() * 14, grow: 1.4, tint: 0xffffff, tintTo: 0x6a3020, alpha: 0.8, anchorY: 0.85, rotation: (rand() - 0.5) * 0.4, delay: life * 0.7, fadeIn: 0.05 });
         if (rand() < 0.4) this.glowSpawn({ texture: this.tex.ember, x: mouthX, y: mouthY, z: alt, vx: vx * 1.05 + (rand() - 0.5) * 50, vy: vy * 1.05 + (rand() - 0.5) * 50, vz: 10 + rand() * 50, gravity: 50, drag: 1.2, life: 0.8 + rand() * 0.6, size: 6, tint: 0xffe0a0, tintTo: 0xff4010 });
         if (rand() < 0.1) this.smoke(mouthX + vx * life, mouthY + vy * life, 14, 0x2e2722, 0.5, 1.8, 3, 26);
       }
@@ -1493,12 +1496,14 @@ export class Effects {
     this.glowSpawn({ texture: this.tex.soft, x, y, life, size, grow: 1.2, alpha: 0.2, tint, fadeIn: 0 }, GLOW_PER_CELL * 4);
   }
 
+  /** A hand-inked ring of pigment spreading over the ground. */
   private ring(x: number, y: number, tint: number, from: number, to: number, life: number, alpha = 0.9): void {
-    this.glowSpawn({ texture: this.tex.ring, x, y, life, size: from, grow: to / from, squash: 0.62, alpha, tint, fadeIn: 0 });
+    this.decals.spawn({ texture: this.tex.ring, x, y, life, size: from, grow: to / from, squash: 0.62, alpha: alpha * 0.85, tint, rotation: rand() * 6.28, fadeIn: 0 });
   }
 
+  /** Dust thrown outward with a dry-brushed ink edge. */
   private shockwave(x: number, y: number, tint: number, from: number, to: number, life: number, alpha = 0.95): void {
-    this.glowSpawn({ texture: this.tex.shockwave, x, y, life, size: from, grow: to / from, squash: 0.62, alpha, tint, fadeIn: 0 });
+    this.decals.spawn({ texture: this.tex.shockwave, x, y, life, size: from, grow: to / from, squash: 0.62, alpha: alpha * 0.8, tint, rotation: rand() * 6.28, fadeIn: 0 });
   }
 
   private pillar(x: number, y: number, tint: number, width: number, life: number): void {

@@ -7,6 +7,8 @@ const CLICK_SLOP_PX = 5;
 export interface CameraHooks {
   onClick(screenX: number, screenY: number): void;
   onUserPan(): void;
+  /** Key F: ride along with the viewer's own banner. */
+  onFollowKey?(): void;
 }
 
 interface Glide {
@@ -26,6 +28,7 @@ export class Camera {
   private zoomTarget = this.zoom;
   private zoomAnchor: { sx: number; sy: number } | null = null;
   private glide: Glide | null = null;
+  private shotMove: { x0: number; y0: number; z0: number; x: number; y: number; zoom: number; t: number; ms: number } | null = null;
   private pointers = new Map<number, { x: number; y: number }>();
   private dragTrail: { x: number; y: number; t: number }[] = [];
   private downAt: { x: number; y: number } | null = null;
@@ -55,10 +58,12 @@ export class Camera {
       if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) {
         this.keys.add(k);
         this.glide = null;
+        this.shotMove = null;
         this.hooks.onUserPan();
       }
       if (k === '=' || k === '+') this.zoomBy(1.25);
       if (k === '-') this.zoomBy(0.8);
+      if (k === 'f' && !e.repeat) this.hooks.onFollowKey?.();
     };
     const ku = (e: KeyboardEvent) => this.keys.delete(e.key.toLowerCase());
     const blur = () => this.keys.clear();
@@ -137,12 +142,13 @@ export class Camera {
 
   panTo(x: number, y: number, zoom = this.zoom): void {
     this.glide = { x, y, zoom: Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom)) };
+    this.shotMove = null;
     this.vx = this.vy = 0;
   }
 
   /** Unhurried approach toward a shot, for the director camera. */
   drift(x: number, y: number, zoom: number, dtMs: number): void {
-    if (this.pointers.size || this.glide) return;
+    if (this.pointers.size || this.glide || this.shotMove) return;
     const k = 1 - Math.pow(0.35, Math.min(64, dtMs) / 1000);
     this.x += (x - this.x) * k;
     this.y += (y - this.y) * k;
@@ -151,12 +157,23 @@ export class Camera {
     this.zoomTarget = this.zoom;
   }
 
+  /**
+   * A choreographed move: ease in and out over `ms`, zooming in log space so the
+   * scale change feels even, the way a camera operator would pull focus.
+   */
+  shot(x: number, y: number, zoom: number, ms: number): void {
+    this.glide = null;
+    this.vx = this.vy = 0;
+    this.shotMove = { x0: this.x, y0: this.y, z0: this.zoom, x, y, zoom: Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom)), t: 0, ms: Math.max(1, ms) };
+  }
+
   get busy(): boolean {
-    return this.pointers.size > 0 || this.glide !== null;
+    return this.pointers.size > 0 || this.glide !== null || this.shotMove !== null;
   }
 
   zoomBy(factor: number, sx = this.width / 2, sy = this.height / 2): void {
     this.glide = null;
+    this.shotMove = null;
     this.zoomTarget = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, this.zoomTarget * factor));
     this.zoomAnchor = { sx, sy };
   }
@@ -164,7 +181,18 @@ export class Camera {
   update(dtMs: number): void {
     const dt = Math.min(64, dtMs);
     const frames = dt / 16.67;
-    if (this.glide) {
+    if (this.shotMove && this.pointers.size) this.shotMove = null;
+    if (this.shotMove) {
+      const m = this.shotMove;
+      m.t += dt;
+      const k = Math.min(1, m.t / m.ms);
+      const e = k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
+      this.x = m.x0 + (m.x - m.x0) * e;
+      this.y = m.y0 + (m.y - m.y0) * e;
+      this.zoom = Math.exp(Math.log(m.z0) + (Math.log(m.zoom) - Math.log(m.z0)) * e);
+      this.zoomTarget = this.zoom;
+      if (k >= 1) this.shotMove = null;
+    } else if (this.glide) {
       const k = 1 - Math.pow(0.0025, dt / 1000);
       this.x += (this.glide.x - this.x) * k;
       this.y += (this.glide.y - this.y) * k;
@@ -218,6 +246,7 @@ export class Camera {
     this.pointers.set(e.pointerId, p);
     this.el.setPointerCapture?.(e.pointerId);
     this.glide = null;
+    this.shotMove = null;
     this.vx = this.vy = 0;
     if (this.pointers.size === 1) {
       this.downAt = p;

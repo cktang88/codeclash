@@ -283,13 +283,28 @@ export function makeFxTextures(art: FxArt | null = loaded): FxTextures {
     }
   });
   const shockwave = make(160, 160, (c) => {
-    const g = c.createRadialGradient(80, 80, 40, 80, 80, 80);
+    // A ring of blown dust with an inked leading edge broken like a dry brush.
+    const g = c.createRadialGradient(80, 80, 44, 80, 80, 76);
     g.addColorStop(0, 'rgba(255,255,255,0)');
-    g.addColorStop(0.72, 'rgba(255,255,255,0.15)');
-    g.addColorStop(0.9, 'rgba(255,255,255,0.95)');
-    g.addColorStop(1, 'rgba(255,255,255,0)');
+    g.addColorStop(0.7, 'rgba(255,255,255,0.35)');
+    g.addColorStop(1, 'rgba(255,255,255,0.8)');
     c.fillStyle = g;
-    c.fillRect(0, 0, 160, 160);
+    c.beginPath();
+    c.arc(80, 80, 76, 0, Math.PI * 2);
+    c.arc(80, 80, 44, 0, Math.PI * 2, true);
+    c.fill();
+    const r = rng(229);
+    c.strokeStyle = 'rgba(34,24,15,0.7)';
+    c.lineCap = 'round';
+    let a = 0;
+    while (a < Math.PI * 2) {
+      const len = 0.3 + r() * 0.7;
+      c.lineWidth = 1.2 + r() * 1.6;
+      c.beginPath();
+      c.arc(80, 80, 76 - r() * 1.5, a, Math.min(Math.PI * 2, a + len));
+      c.stroke();
+      a += len + 0.04 + r() * 0.12;
+    }
   });
   const scorch = make(128, 96, (c) => {
     const r = rng(5);
@@ -562,14 +577,23 @@ export function makeFxTextures(art: FxArt | null = loaded): FxTextures {
           c.arc(x, y, rad, 0, Math.PI * 2);
         }
       };
-      // Wash, then engraved hatching on the shadowed lower right, then a soft ink rim.
+      // An ink rim on the outline of the whole cloud only: stroke every lobe, then cut away the inside.
+      path();
+      c.strokeStyle = 'rgba(60,52,44,0.5)';
+      c.lineWidth = 2.6;
+      c.stroke();
+      c.globalCompositeOperation = 'destination-out';
+      path();
+      c.fill();
+      c.globalCompositeOperation = 'source-over';
+      // Wash, then engraved hatching on the shadowed lower right.
       path();
       c.fillStyle = 'rgba(255,255,255,0.5)';
       c.fill();
       c.save();
       path();
       c.clip();
-      c.strokeStyle = 'rgba(70,64,58,0.45)';
+      c.strokeStyle = 'rgba(70,64,58,0.4)';
       c.lineWidth = 1;
       for (let k = -80; k < 80; k += 5) {
         c.beginPath();
@@ -580,10 +604,6 @@ export function makeFxTextures(art: FxArt | null = loaded): FxTextures {
       c.globalCompositeOperation = 'destination-out';
       radial(c, 32, 34, 30, [[0, 'rgba(0,0,0,1)'], [0.7, 'rgba(0,0,0,0.6)'], [1, 'rgba(0,0,0,0)']]);
       c.restore();
-      path();
-      c.strokeStyle = 'rgba(60,52,44,0.45)';
-      c.lineWidth = 1.4;
-      c.stroke();
     }),
   );
   const burst = make(64, 64, (c) => {

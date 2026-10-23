@@ -69,11 +69,11 @@ export function tone(c: string, k: number): string {
 }
 
 export function shadeOf(c: string): string {
-  return tone(c, -0.42);
+  return tone(c, -0.5);
 }
 
 export function lightOf(c: string): string {
-  return tone(c, 0.38);
+  return tone(c, 0.45);
 }
 
 export interface PartOptions {
@@ -102,8 +102,8 @@ function shaded(ctx: CanvasRenderingContext2D, path: () => void, box: [number, n
   const w = Math.max(1, box[2] - box[0]);
   const h = Math.max(1, box[3] - box[1]);
   const m = Math.min(w, h);
-  const rim = Math.max(0.6, Math.min(1.8, m * 0.09));
-  const dark = Math.max(1.2, Math.min(5, m * 0.2));
+  const rim = Math.max(0.7, Math.min(2.6, m * 0.12));
+  const dark = Math.max(1.4, Math.min(7, m * 0.3));
   const pad = 8;
   ctx.save();
   ctx.globalAlpha = alpha;

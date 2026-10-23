@@ -4,6 +4,7 @@
  * keyed to the same class names the rest of the client already uses.
  */
 import { useEffect, useRef, useState, useSyncExternalStore, type ButtonHTMLAttributes, type CSSProperties, type ElementType, type KeyboardEvent, type ReactNode } from 'react';
+import { Icon } from './icons.tsx';
 import { Link } from './Link.tsx';
 import type { Route } from '../route.ts';
 
@@ -39,6 +40,15 @@ export function sfx(name: UiSound): void {
     sound?.play(name);
   } catch {
     // Sound is garnish; never let it break a click.
+  }
+}
+
+/** Any cue from the audio catalog by name (fanfares, set pieces). */
+export function sfxCue(name: string): void {
+  try {
+    sound?.play(name);
+  } catch {
+    // As above.
   }
 }
 
@@ -335,5 +345,42 @@ export function Tally({ value, format = (n) => String(Math.round(n)), duration =
     <span className={`num tally${className ? ` ${className}` : ''}`} data-bump={bump % 2}>
       {format(shown)}
     </span>
+  );
+}
+
+/* ------------------------------------------------------------------ marks */
+
+/** Pushfront's arms: a vermilion shield charged with a gilded P and a sword. */
+export function BrandMark({ className }: { className?: string }) {
+  return (
+    <svg className={`brand-mark${className ? ` ${className}` : ''}`} viewBox="0 0 36 40" aria-hidden>
+      <path d="M18 1.5c6.5 0 15 2 15 2v14c0 9.5-6.6 16-15 20.5C9.6 33.5 3 27 3 17.5v-14s8.5-2 15-2Z" fill="#b8321f" stroke="#22180f" strokeWidth="1.6" />
+      <path d="M18 4.2c5 0 11.8 1.5 11.8 1.5v11.8c0 7.8-5.2 13.3-11.8 17.2-6.6-3.9-11.8-9.4-11.8-17.2V5.7S13 4.2 18 4.2Z" fill="none" stroke="#d4a93e" strokeWidth="1" />
+      <path d="M22 6v24M19.5 9.5h5" stroke="#efe4c8" strokeWidth="1.4" strokeLinecap="round" opacity=".75" />
+      <path d="M12.5 29V10.5h6.2a5.2 5.2 0 0 1 0 10.4h-6.2" fill="none" stroke="#f6dc8c" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M12.5 29V10.5h6.2a5.2 5.2 0 0 1 0 10.4h-6.2" fill="none" stroke="#8a6418" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" opacity=".6" transform="translate(.6 .6)" />
+      <path d="M26 12c1.6 2.6 1.6 7-1 9.6" fill="none" stroke="#22180f" strokeWidth="1" opacity=".45" />
+    </svg>
+  );
+}
+
+/** The sound seal: pressed into the wax to let the war be heard. Off until the player opts in. */
+export function SoundSeal({ className }: { className?: string }) {
+  const s = useSound();
+  if (!s.available) return null;
+  return (
+    <button
+      type="button"
+      className={`icon-btn sound-seal${s.on ? ' is-on' : ''}${className ? ` ${className}` : ''}`}
+      aria-pressed={s.on}
+      aria-label={s.on ? 'Sound on. Press to silence the war' : 'Sound off. Press to hear the war'}
+      title={s.on ? 'Silence' : 'Hear the war'}
+      onClick={() => {
+        s.set(!s.on);
+        if (!s.on) setTimeout(() => sfx('ui.seal'), 30);
+      }}
+    >
+      <Icon name={s.on ? 'horn' : 'horn-off'} size={20} />
+    </button>
   );
 }

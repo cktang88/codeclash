@@ -42,6 +42,10 @@ const skip = Number(q.get('skip') ?? 0);
 if (skip > 0) runner.fastForward(skip);
 
 const field = await Battlefield.create(document.getElementById('field')!, store, () => runner);
+// ?tod=0..1 pins the hour: 0 dawn, 0.35 noon, 0.6 afternoon, 0.76 dusk, 0.9 night.
+if (q.has('tod')) field.setTimeOverride(Number(q.get('tod')));
+// ?zoom=…&x=…&y=… frames a shot, for screenshots.
+if (q.has('zoom')) field.focus(Number(q.get('x') ?? 0), Number(q.get('y') ?? 0), Number(q.get('zoom')));
 const stats = document.getElementById('stats')!;
 let frames = 0;
 let last = performance.now();

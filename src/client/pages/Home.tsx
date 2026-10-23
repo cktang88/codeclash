@@ -9,10 +9,14 @@ import { Link } from '../ui/Link.tsx';
 import { Modal } from '../ui/Modal.tsx';
 import { duration, hourLabel, parseInvite, utcHourOfLocal } from '../ui/format.ts';
 import { Icon, UnitIcon } from '../ui/icons.tsx';
+import { BrandMark, DropCap, SealButton, SoundSeal } from '../ui/codex.tsx';
+import { MiniMap } from '../ui/MiniMap.tsx';
 
-export function RoomCardView({ room, now }: { room: RoomCard; now: number }) {
+export function RoomCardView({ room, now, pinned }: { room: RoomCard; now: number; pinned?: boolean }) {
+  // Each letter lies at its own angle, as if dropped on the table by hand.
+  const tilt = ((hash(room.slug) % 7) - 3) * 0.35;
   return (
-    <Link className="room-card panel" to={{ kind: 'room', slug: room.slug, invite: null }}>
+    <Link className={`room-card note${pinned ? ' is-pinned' : ' is-letter'}`} to={{ kind: 'room', slug: room.slug, invite: null }} style={{ ['--tilt' as string]: `${tilt}deg` }}>
       <div className="room-card-head">
         <h3 className="room-card-name">
           {room.visibility === 'private' && <Icon name="lock" size={15} title="Private" />} {room.name}
@@ -45,11 +49,20 @@ export function RoomCardView({ room, now }: { room: RoomCard; now: number }) {
         </div>
       </dl>
       <div className="room-card-foot">
-        <Avatar login={room.owner.login} url={room.owner.avatarUrl} size={20} />
+        <Avatar login={room.owner.login} url={room.owner.avatarUrl} size={22} />
         <span className="muted small">Hosted by @{room.owner.login}</span>
       </div>
+      <span className="room-card-seal" aria-hidden>
+        {room.name.trim().slice(0, 1).toUpperCase()}
+      </span>
     </Link>
   );
+}
+
+function hash(text: string): number {
+  let h = 0;
+  for (let i = 0; i < text.length; i++) h = (h * 31 + text.charCodeAt(i)) | 0;
+  return Math.abs(h);
 }
 
 function CreateRoomModal({ onClose }: { onClose(): void }) {
@@ -71,7 +84,7 @@ function CreateRoomModal({ onClose }: { onClose(): void }) {
     }
   };
   return (
-    <Modal title="Raise a new room" subtitle="A room runs one war a day for its members." onClose={onClose}>
+    <Modal title="A charter for a new room" subtitle="Be it known: this room shall fight one war each day, for all who hold its seal." onClose={onClose} variant="scroll">
       <form
         className="form"
         onSubmit={(e) => {
@@ -121,13 +134,11 @@ function CreateRoomModal({ onClose }: { onClose(): void }) {
             {error}
           </p>
         )}
-        <div className="form-actions">
-          <button className="btn btn-primary" type="submit" disabled={busy || name.trim().length < 3}>
-            {busy ? 'Raising banners…' : 'Create room'}
-          </button>
+        <div className="form-actions charter-sign">
           <button className="btn btn-ghost" type="button" onClick={onClose}>
             Cancel
           </button>
+          <SealButton type="submit" size="lg" sigil={<Icon name="seal" size={30} />} caption={busy ? 'Raising banners…' : 'Seal the charter'} disabled={busy || name.trim().length < 3} />
         </div>
       </form>
     </Modal>
@@ -308,17 +319,19 @@ export function HomePage({ me, meError, onMeChanged }: { me: MeResponse | null; 
   const publicRooms = (lobby?.rooms ?? []).filter((r) => !mine.some((m) => m.slug === r.slug));
 
   return (
-    <main className="page home">
+    <main className="home">
       <header className="home-nav">
         <span className="brand">
-          <span className="brand-mark" aria-hidden>
-            ⛨
-          </span>
+          <BrandMark />
           <span className="brand-name">Pushfront</span>
         </span>
         <nav className="home-nav-actions">
+          <SoundSeal />
           {user ? (
             <>
+              <Link className="btn btn-sm btn-ghost" to={{ kind: 'armory' }}>
+                Armory
+              </Link>
               <Link className="nav-user" to={{ kind: 'profile', login: user.login }}>
                 <Avatar login={user.login} url={user.avatarUrl} size={28} />
                 <span>@{user.login}</span>
@@ -337,56 +350,66 @@ export function HomePage({ me, meError, onMeChanged }: { me: MeResponse | null; 
         </nav>
       </header>
 
-      <section className="hero">
-        <h1 className="hero-title">Your pushes are an army.</h1>
-        <p className="hero-lede">
-          Pushfront is an all-day war fought with real code. Your tests become shield walls, your docs become heralds and wizards, your deletions become cavalry. Rooms of friends and teams
-          fight from morning to reset, and every day ends with a digest.
-        </p>
-        <ol className="how">
-          {HOW.map((h, i) => (
-            <li key={h.title} className="how-step panel">
-              <span className="how-num num">{i + 1}</span>
-              <UnitIcon kind={h.kind} size={28} title="" />
-              <strong>{h.title}</strong>
-              <span>{h.text}</span>
-            </li>
-          ))}
-        </ol>
-        <div className="hero-actions">
-          {!user && !offline && (
-            <a className="btn btn-primary btn-lg" href="/auth/github">
-              <Icon name="github" size={20} /> Sign in with GitHub
-            </a>
+      <section className="war-table">
+        <div className="hero">
+          <p className="eyebrow">An all-day war, fought with your pushes</p>
+          <h1 className="hero-title">Your pushes are an army.</h1>
+          <DropCap
+            className="hero-lede"
+            text="Every push you make to a public repository is read line by line and mustered into soldiers. Your tests become shield walls, your docs become heralds and wizards, your deletions become cavalry. Rooms of friends and teams fight from dawn to the daily reset, and every day ends in an illuminated chronicle."
+          />
+          <div className="hero-actions">
+            {!user && !offline && (
+              <a className="btn btn-primary btn-lg" href="/auth/github">
+                <Icon name="github" size={20} /> Sign in with GitHub
+              </a>
+            )}
+            {user && (
+              <button className="btn btn-primary btn-lg" onClick={() => setModal('create')}>
+                Draw up a room
+              </button>
+            )}
+            <Link className="btn btn-lg" to={{ kind: 'demo' }}>
+              Watch a demo war
+            </Link>
+          </div>
+          {signInError && (
+            <p className="form-error" role="alert">
+              {signInError === 'too_new'
+                ? 'GitHub accounts must be at least 30 days old to enlist.'
+                : signInError === 'bot'
+                  ? 'Bot accounts cannot enlist.'
+                  : 'Sign-in did not complete. Please try again.'}
+            </p>
           )}
-          {user && (
-            <button className="btn btn-primary btn-lg" onClick={() => setModal('create')}>
-              Create a room
-            </button>
+          {me?.devAuth && !user && (
+            <form className="dev-login" action="/auth/dev" method="get">
+              <label htmlFor="dev-login">Dev sign-in as</label>
+              <input id="dev-login" className="input" name="login" placeholder="github-login" value={devLogin} onChange={(e) => setDevLogin(e.target.value)} pattern="[A-Za-z0-9-]{1,39}" required />
+              <button className="btn btn-sm" type="submit">
+                Sign in
+              </button>
+            </form>
           )}
-          <Link className="btn btn-lg" to={{ kind: 'demo' }}>
-            Watch a demo war
-          </Link>
         </div>
-        {signInError && (
-          <p className="form-error" role="alert">
-            {signInError === 'too_new'
-              ? 'GitHub accounts must be at least 30 days old to enlist.'
-              : signInError === 'bot'
-                ? 'Bot accounts cannot enlist.'
-                : 'Sign-in did not complete. Please try again.'}
-          </p>
-        )}
-        {me?.devAuth && !user && (
-          <form className="dev-login" action="/auth/dev" method="get">
-            <label htmlFor="dev-login">Dev sign-in as</label>
-            <input id="dev-login" className="input" name="login" placeholder="github-login" value={devLogin} onChange={(e) => setDevLogin(e.target.value)} pattern="[A-Za-z0-9-]{1,39}" required />
-            <button className="btn btn-sm" type="submit">
-              Sign in
-            </button>
-          </form>
-        )}
+        <Link className="map-plate note" to={{ kind: 'demo' }} aria-label="Watch a demo war">
+          <MiniMap className="mini-map" />
+          <span className="map-plate-caption cartouche">Today on the field · watch a demo</span>
+        </Link>
       </section>
+
+      <ol className="how">
+        {HOW.map((h, i) => (
+          <li key={h.title} className="how-step panel" style={{ ['--tilt' as string]: `${(i - 1) * 0.4}deg` }}>
+            <span className="how-num" aria-hidden>
+              {['I', 'II', 'III'][i]}
+            </span>
+            <UnitIcon kind={h.kind} size={34} title="" />
+            <strong>{h.title}</strong>
+            <span>{h.text}</span>
+          </li>
+        ))}
+      </ol>
 
       {offline && (
         <section className="panel offline-note" role="status">
@@ -398,13 +421,14 @@ export function HomePage({ me, meError, onMeChanged }: { me: MeResponse | null; 
         <section className="home-section">
           <div className="section-head">
             <h2>Your rooms</h2>
+            <p className="section-sub">Sealed letters from the wars you fight in.</p>
             <JoinByLink />
           </div>
           {mine.length === 0 ? (
             <div className="empty-card panel">
-              <p>You’re not in any room yet. Create one for your team, join a public room below, or open an invite link.</p>
+              <p>No letters yet. Draw up a room for your team, answer a notice on the board below, or open an invite link.</p>
               <button className="btn btn-primary" onClick={() => setModal('create')}>
-                Create a room
+                Draw up a room
               </button>
             </div>
           ) : (
@@ -420,20 +444,27 @@ export function HomePage({ me, meError, onMeChanged }: { me: MeResponse | null; 
       {!offline && (
         <section className="home-section">
           <div className="section-head">
-            <h2>Public rooms</h2>
+            <h2>The notice board</h2>
+            <p className="section-sub">Public wars, pinned up for anyone to watch or join.</p>
             {!user && <JoinByLink />}
           </div>
           {lobby === null && !lobbyError ? (
-            <p className="muted">Scouting the lobby…</p>
+            <p className="muted" role="status">
+              <span className="spinner" aria-hidden /> Scouting the lobby…
+            </p>
           ) : publicRooms.length === 0 ? (
-            <div className="empty-card panel">
-              <p>No public wars right now. {user ? 'Start one and invite your friends.' : 'Sign in to start the first one.'}</p>
+            <div className="notice-board">
+              <div className="empty-card note is-pinned">
+                <p>The board is bare. {user ? 'Pin up the first public war and invite your friends.' : 'Sign in to pin up the first one.'}</p>
+              </div>
             </div>
           ) : (
-            <div className="room-grid">
-              {publicRooms.map((r) => (
-                <RoomCardView key={r.slug} room={r} now={now} />
-              ))}
+            <div className="notice-board">
+              <div className="room-grid">
+                {publicRooms.map((r) => (
+                  <RoomCardView key={r.slug} room={r} now={now} pinned />
+                ))}
+              </div>
             </div>
           )}
         </section>

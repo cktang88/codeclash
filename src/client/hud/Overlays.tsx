@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { armyColor } from '../../rules/heraldry.ts';
 import type { HudSnapshot } from '../store.ts';
 import { Link } from '../ui/Link.tsx';
@@ -9,6 +9,7 @@ import { api } from '../net/api.ts';
 import { summarizeAway, lastSeenKey, readNumber, writeNumber, type AwaySummary } from './away.ts';
 import { colorize } from './Chronicle.tsx';
 import { useHudContext } from './context.ts';
+import { sfxCue } from '../ui/codex.tsx';
 
 /** Big moments, announced across the top of the map. */
 export function Toasts({ hud }: { hud: HudSnapshot }) {
@@ -198,4 +199,28 @@ export function Countdown({ endsAt }: { endsAt: number }) {
       <span className="num">{left > 0 ? duration(left) : 'ended'}</span>
     </span>
   );
+}
+
+/**
+ * Sounds the day's winner's chosen fanfare when a war ends while the viewer is watching.
+ * A war that had already ended when the page opened stays quiet.
+ */
+export function VictoryFanfare({ hud }: { hud: HudSnapshot }) {
+  const leader = useRef<number | null>(null);
+  const heard = useRef<number | null | undefined>(undefined);
+  const ended = hud.war?.status === 'ended' ? hud.war : hud.endedWar;
+  if (hud.war?.status === 'active' && hud.standings[0]) leader.current = hud.standings[0].p;
+  if (hud.war?.status === 'ended' && hud.standings[0]) leader.current = hud.standings[0].p;
+  useEffect(() => {
+    const id = ended?.id ?? null;
+    if (heard.current === undefined) {
+      heard.current = id;
+      return;
+    }
+    if (id === null || id === heard.current) return;
+    heard.current = id;
+    const winner = leader.current === null ? undefined : hud.roster[leader.current];
+    sfxCue(`fanfare-${winner?.heraldry?.fanfare ?? 'horn'}`);
+  }, [ended?.id]);
+  return null;
 }
