@@ -47,9 +47,21 @@ export function RoomPage({ slug, invite, me, onMeChanged }: { slug: string; invi
   }, [slug, invite, store, epoch]);
 
   // The server pushes room changes (renames, new members) over the socket.
+  // The broadcast strips viewer-specific fields (membership, owner tools, invite), so keep ours
+  // until a refetch brings this viewer's own copy; adopting it raw showed the owner a Join banner.
   useEffect(() => {
-    if (hud.room) setRoom(hud.room);
-  }, [hud.room]);
+    const next = hud.room;
+    if (!next) return;
+    let cancelled = false;
+    setRoom((prev) => (prev ? { ...next, viewer: prev.viewer, invite: prev.invite, webhookUrl: prev.webhookUrl } : next));
+    api.room(slug, invite).then(
+      (r) => !cancelled && setRoom(r),
+      () => {},
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [hud.room, slug, invite]);
 
   const getRunner = useCallback(() => runner.current, []);
   const send = useCallback((msg: Parameters<LockstepRunner['send']>[0]) => runner.current?.send(msg), []);

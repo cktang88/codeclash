@@ -203,7 +203,7 @@ export function ArmyPanel({ hud }: { hud: HudSnapshot }) {
                         <span className="bar" title={`Strength ${pl.alive}/${pl.size}`}>
                           <span className="bar-fill bar-strength" style={{ width: `${percent(pl.alive, pl.size)}%` }} />
                         </span>
-                        <span className="bar" title={`Morale ${Math.round(pl.morale)}`}>
+                        <span className="bar" title={`Morale ${Math.max(0, Math.round(pl.morale))}`}>
                           <span className="bar-fill bar-morale" style={{ width: `${percent(pl.morale, 100)}%` }} />
                         </span>
                       </span>

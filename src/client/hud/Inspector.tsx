@@ -82,7 +82,7 @@ export function Inspector({ hud }: { hud: HudSnapshot }) {
           {pl.champion && <span className="tag tag-gold">Champion leads</span>}
         </div>
         <Meter label="Strength" value={pl.state === PlatoonState.Queued ? pl.size : pl.alive} max={pl.size} kind="strength" />
-        <Meter label="Morale" value={Math.round(pl.morale)} max={100} kind="morale" />
+        <Meter label="Morale" value={Math.max(0, Math.round(pl.morale))} max={100} kind="morale" />
         <div className="inspector-units">
           <span className="meter-label">{pl.state === PlatoonState.Queued ? 'Mustered' : 'Standing'}</span>
           <UnitChips units={pl.state === PlatoonState.Queued ? pl.mustered : alive} size={17} />
@@ -107,9 +107,9 @@ export function Inspector({ hud }: { hud: HudSnapshot }) {
       <section className="panel inspector" aria-label="Selected objective">
         <header className="inspector-head">
           <div className="inspector-title">
-            <strong>{siteLabel(world, sel.id, store.names)}</strong>
+            <strong>{def.kind === 'heart' ? 'The Heart' : siteLabel(world, sel.id, store.names)}</strong>
             <span className="muted">
-              {def.kind === 'capital' ? 'Capital' : `${def.kind === 'heart' ? 'The Heart' : 'Shrine'} · ${def.renown} renown a minute`}
+              {def.kind === 'capital' ? 'Capital' : `${def.kind === 'heart' ? 'Center of the map' : 'Shrine'} · ${def.renown} renown a minute`}
             </span>
           </div>
           {close}

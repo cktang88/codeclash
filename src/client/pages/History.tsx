@@ -54,7 +54,7 @@ export function HistoryPage({ slug }: { slug: string }) {
             <li key={w.id} className="war-row panel">
               <div className="war-date">
                 <strong>{new Date(w.startsAt).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}</strong>
-                <span className="muted small">{w.status === 'active' ? 'In progress' : `${w.players} armies · ${w.pushes} pushes`}</span>
+                <span className="muted small">{w.status === 'active' ? 'In progress' : `${w.players} ${w.players === 1 ? 'army' : 'armies'} · ${w.pushes} ${w.pushes === 1 ? 'push' : 'pushes'}`}</span>
               </div>
               <div className="war-winner">
                 {w.winner ? (

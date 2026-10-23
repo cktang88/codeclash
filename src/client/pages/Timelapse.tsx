@@ -32,7 +32,8 @@ export function Timelapse({ data }: { data: DigestResponse }) {
   }, [playing, frames.length]);
 
   if (frames.length === 0) return null;
-  const f = frames[Math.min(index, frames.length - 1)]!;
+  // index starts at -1 when the first data had no frames yet; clamp both ends.
+  const f = frames[Math.max(0, Math.min(index, frames.length - 1))]!;
   const r = data.map.radius;
   const pad = r * 0.06;
   const hueOf = (p: number) => data.players.find((pl) => pl.p === p)?.hue ?? null;

@@ -49,7 +49,7 @@ export function ProfilePage({ login }: { login: string }) {
       <header className="profile-head">
         <Avatar login={profile.user.login} url={profile.user.avatarUrl} size={88} />
         <div>
-          <h1 className="page-title">@{profile.user.login}</h1>
+          <h1 className="page-title page-title-login">@{profile.user.login}</h1>
           {profile.titles.length > 0 && (
             <ul className="titles">
               {profile.titles.map((t) => (

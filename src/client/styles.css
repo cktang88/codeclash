@@ -7,7 +7,7 @@
   --ink-2: #171e25;
   --ink-3: #212a33;
   --ink-4: #2c3742;
-  --panel: rgba(16, 21, 26, 0.95);
+  --panel: rgba(16, 21, 26, 0.975);
   --panel-raised: #1a2129;
   --line: rgba(226, 189, 104, 0.22);
   --line-strong: rgba(226, 189, 104, 0.5);
@@ -17,7 +17,7 @@
   --parchment: #f1e7cf;
   --text: #ece6d6;
   --muted: #b3ab97;
-  --faint: #8c8573;
+  --faint: #a19a86;
   --good: #8fd16a;
   --bad: #f07a63;
   --warn: #f0b94e;
@@ -699,8 +699,14 @@ code,
   --fit-bottom: 72px;
 }
 
+/* A watcher also has the join banner above the objective bar. */
+.battle:has(.cta-banner) .stage {
+  --fit-top: 196px;
+}
+
 @media (max-width: 900px) {
-  .stage {
+  .stage,
+  .battle:has(.cta-banner) .stage {
     --fit-top: 190px;
     --fit-bottom: 130px;
   }
@@ -913,7 +919,7 @@ code,
   display: flex;
   align-items: center;
   gap: 14px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   justify-content: center;
   max-width: 760px;
   padding: 10px 12px 10px 18px;
@@ -922,6 +928,10 @@ code,
   border: 1px solid var(--gold);
   box-shadow: var(--shadow);
   font-size: 15px;
+}
+
+.cta-banner > .btn {
+  flex: none;
 }
 
 .cta-banner.is-quiet {
@@ -950,6 +960,35 @@ code,
   font-family: var(--serif);
   color: var(--gold-bright);
   font-size: 17px;
+}
+
+/* On a phone the banners sit over the map, so they stay to one or two short lines. */
+.hud.is-narrow .cta-banner,
+.hud.is-narrow .day-over {
+  flex-wrap: nowrap;
+  gap: 10px;
+  padding: 8px 8px 8px 12px;
+  font-size: 13px;
+  line-height: 1.35;
+  text-align: left;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.hud.is-narrow .cta-banner .btn,
+.hud.is-narrow .day-over .btn {
+  min-height: 36px;
+  padding: 0 12px;
+  font-size: 14px;
+}
+
+.hud.is-narrow .day-over strong {
+  font-size: 15px;
+  line-height: 1.2;
+}
+
+.hud.is-narrow .day-over > span {
+  display: none;
 }
 
 .monolith-bar {
@@ -1919,6 +1958,70 @@ button.chron-btn:hover {
   color: var(--text);
 }
 
+/* On a phone the six-column unit table becomes one card per unit. */
+@media (max-width: 600px) {
+  .units-table thead {
+    display: none;
+  }
+
+  .units-table,
+  .units-table tbody {
+    display: block;
+  }
+
+  .units-table tbody tr {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 2px 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid rgba(226, 189, 104, 0.12);
+  }
+
+  .units-table tbody tr.group-row {
+    display: block;
+    padding: 14px 0 0;
+  }
+
+  .units-table th,
+  .units-table td {
+    padding: 0;
+    border: 0;
+  }
+
+  .units-table tbody tr > th[scope='row'] {
+    flex: 1;
+  }
+
+  .units-table td:nth-child(2),
+  .units-table td:nth-child(4) {
+    order: 2;
+    flex-basis: 100%;
+    font-size: 13px;
+  }
+
+  .units-table td:nth-child(2) {
+    color: var(--muted);
+  }
+
+  .units-table td.num {
+    order: 1;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .units-table td.num:nth-child(5)::before {
+    content: 'HP ';
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  .units-table td.num:nth-child(6)::before {
+    content: 'Dmg ';
+    color: var(--muted);
+    font-size: 12px;
+  }
+}
+
 .unit-name {
   display: inline-flex;
   align-items: center;
@@ -2315,6 +2418,19 @@ button.chron-btn:hover {
   margin: 0 auto 16px;
   max-width: 900px;
   color: var(--parchment);
+}
+
+.page-title-login {
+  font-family: var(--sans);
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+/* Cinzel has only capitals and draws @ as a circled a, so GitHub handles stay in the sans face. */
+.digest-title .who {
+  font-family: var(--sans);
+  font-weight: 800;
+  letter-spacing: -0.01em;
 }
 
 .digest-actions {

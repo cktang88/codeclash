@@ -71,10 +71,12 @@ function PlayerCard({ pl, repos }: { pl: DigestPlayer; repos: { name: string; la
         </div>
       </header>
       <LinesBar lines={pl.lines} />
-      <div className="player-card-units">
-        <span className="meter-label">Raised</span>
-        <UnitChips units={pl.raised} size={16} />
-      </div>
+      {pl.raised.some((n) => n > 0) && (
+        <div className="player-card-units">
+          <span className="meter-label">Raised</span>
+          <UnitChips units={pl.raised} size={16} />
+        </div>
+      )}
       <dl className="stat-grid">
         <div>
           <dt>Kills</dt>
