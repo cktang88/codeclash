@@ -6,6 +6,39 @@ export interface Voice {
   out: AudioNode;
   t: number;
   rand: () => number;
+  /** Collects every node a recipe makes and when its last source stops, so the caller can disconnect them all. */
+  sink?: Sink;
+}
+
+/** The nodes of one sounding voice, and the context time its last source stops. */
+export interface Sink {
+  nodes: AudioNode[];
+  end: number;
+}
+
+export const newSink = (): Sink => ({ nodes: [], end: 0 });
+
+/** Records a node made for `v`, so it can be disconnected when the voice has rung out. */
+export function track<T extends AudioNode>(v: Voice, node: T): T {
+  v.sink?.nodes.push(node);
+  return node;
+}
+
+/** Notes that something of `v` sounds until context time `end`. */
+export function until(v: Voice, end: number): void {
+  if (v.sink && end > v.sink.end) v.sink.end = end;
+}
+
+/** Disconnects every node of a voice. Safe to call more than once. */
+export function release(sink: Sink): void {
+  for (const n of sink.nodes) {
+    try {
+      n.disconnect();
+    } catch {
+      // Already disconnected.
+    }
+  }
+  sink.nodes.length = 0;
 }
 
 const noiseCache = new WeakMap<BaseAudioContext, AudioBuffer>();
@@ -28,7 +61,7 @@ export function noise(ctx: BaseAudioContext): AudioBuffer {
 
 /** A gain node with an attack-decay envelope that ends at t + attack + decay. */
 export function envelope(v: Voice, peak: number, attack: number, decay: number, at = v.t): GainNode {
-  const g = v.ctx.createGain();
+  const g = track(v, v.ctx.createGain());
   g.gain.setValueAtTime(0.0001, at);
   g.gain.exponentialRampToValueAtTime(Math.max(0.0002, peak), at + Math.max(0.002, attack));
   g.gain.exponentialRampToValueAtTime(0.0001, at + attack + decay);
@@ -36,24 +69,26 @@ export function envelope(v: Voice, peak: number, attack: number, decay: number, 
   return g;
 }
 
-function stopAfter(node: AudioScheduledSourceNode, at: number, end: number): void {
+/** Starts a source at `at`, stops it just after `end`, and disconnects it once it has ended. */
+export function stopAfter(v: Voice, node: AudioScheduledSourceNode, at: number, end: number): void {
   node.start(at);
   node.stop(end + 0.05);
+  until(v, end + 0.05);
   node.onended = () => node.disconnect();
 }
 
 export function osc(v: Voice, type: OscillatorType, freq: number, dest: AudioNode, at: number, end: number, glideTo?: number): OscillatorNode {
-  const o = v.ctx.createOscillator();
+  const o = track(v, v.ctx.createOscillator());
   o.type = type;
   o.frequency.setValueAtTime(freq, at);
   if (glideTo !== undefined) o.frequency.exponentialRampToValueAtTime(Math.max(1, glideTo), end);
   o.connect(dest);
-  stopAfter(o, at, end);
+  stopAfter(v, o, at, end);
   return o;
 }
 
 export function noiseSource(v: Voice, dest: AudioNode, at: number, end: number): AudioBufferSourceNode {
-  const n = v.ctx.createBufferSource();
+  const n = track(v, v.ctx.createBufferSource());
   n.buffer = noise(v.ctx);
   n.loop = true;
   n.playbackRate.value = 0.9 + v.rand() * 0.2;
@@ -61,12 +96,13 @@ export function noiseSource(v: Voice, dest: AudioNode, at: number, end: number):
   // Start at a random offset so repeated bursts don't share a waveform.
   n.start(at, v.rand() * 1.5);
   n.stop(end + 0.05);
+  until(v, end + 0.05);
   n.onended = () => n.disconnect();
   return n;
 }
 
 export function filter(v: Voice, type: BiquadFilterType, freq: number, q: number, dest: AudioNode, at = v.t, sweepTo?: number, sweepEnd?: number): BiquadFilterNode {
-  const f = v.ctx.createBiquadFilter();
+  const f = track(v, v.ctx.createBiquadFilter());
   f.type = type;
   f.frequency.setValueAtTime(freq, at);
   if (sweepTo !== undefined && sweepEnd !== undefined) f.frequency.exponentialRampToValueAtTime(Math.max(10, sweepTo), sweepEnd);
@@ -100,7 +136,7 @@ export function horn(v: Voice, notes: [freq: number, start: number, dur: number]
   let end = 0;
   for (const [freq, start, dur] of notes) {
     const at = v.t + start;
-    const g = v.ctx.createGain();
+    const g = track(v, v.ctx.createGain());
     g.gain.setValueAtTime(0.0001, at);
     g.gain.exponentialRampToValueAtTime(gain, at + 0.09);
     g.gain.setValueAtTime(gain, at + dur * 0.75);
@@ -111,13 +147,13 @@ export function horn(v: Voice, notes: [freq: number, start: number, dur: number]
       const o = osc(v, 'sawtooth', freq, tone, at, at + dur);
       o.detune.value = detune;
       // A little vibrato after the attack.
-      const lfo = v.ctx.createOscillator();
+      const lfo = track(v, v.ctx.createOscillator());
       lfo.frequency.value = 5.2;
-      const depth = v.ctx.createGain();
+      const depth = track(v, v.ctx.createGain());
       depth.gain.setValueAtTime(0, at);
       depth.gain.linearRampToValueAtTime(7, at + dur * 0.6);
       lfo.connect(depth).connect(o.detune);
-      stopAfter(lfo, at, at + dur);
+      stopAfter(v, lfo, at, at + dur);
     }
     end = Math.max(end, start + dur);
   }
@@ -126,7 +162,7 @@ export function horn(v: Voice, notes: [freq: number, start: number, dur: number]
 
 /** Air moving: wings, flying stones, a fireball's rush. */
 export function whoosh(v: Voice, dur: number, from: number, to: number, gain: number, at = v.t): number {
-  const g = v.ctx.createGain();
+  const g = track(v, v.ctx.createGain());
   g.gain.setValueAtTime(0.0001, at);
   g.gain.exponentialRampToValueAtTime(gain, at + dur * 0.45);
   g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
@@ -144,22 +180,22 @@ export function boom(v: Voice, f0: number, dur: number, gain: number, at = v.t):
 
 /** Fire: lowpassed noise that flutters. */
 export function fire(v: Voice, dur: number, gain: number, at = v.t): number {
-  const g = v.ctx.createGain();
+  const g = track(v, v.ctx.createGain());
   g.gain.setValueAtTime(0.0001, at);
   g.gain.exponentialRampToValueAtTime(gain, at + 0.12);
   g.gain.setValueAtTime(gain, at + dur * 0.6);
   g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
   g.connect(v.out);
-  const flutter = v.ctx.createGain();
+  const flutter = track(v, v.ctx.createGain());
   flutter.gain.value = 0.6;
   flutter.connect(g);
-  const lfo = v.ctx.createOscillator();
+  const lfo = track(v, v.ctx.createOscillator());
   lfo.type = 'square';
   lfo.frequency.value = 13 + v.rand() * 9;
-  const depth = v.ctx.createGain();
+  const depth = track(v, v.ctx.createGain());
   depth.gain.value = 0.35;
   lfo.connect(depth).connect(flutter.gain);
-  stopAfter(lfo, at, at + dur);
+  stopAfter(v, lfo, at, at + dur);
   noiseSource(v, filter(v, 'lowpass', 2400, 0.8, flutter, at, 900, at + dur), at, at + dur);
   noiseSource(v, filter(v, 'bandpass', 180, 1.2, envelope(v, gain * 0.8, 0.08, dur, at), at), at, at + dur);
   return dur;
@@ -167,20 +203,20 @@ export function fire(v: Voice, dur: number, gain: number, at = v.t): number {
 
 /** A great beast's roar: a growling sawtooth through sweeping vocal formants. */
 export function roar(v: Voice, f0: number, dur: number, gain: number, at = v.t): number {
-  const g = v.ctx.createGain();
+  const g = track(v, v.ctx.createGain());
   g.gain.setValueAtTime(0.0001, at);
   g.gain.exponentialRampToValueAtTime(gain, at + dur * 0.18);
   g.gain.setValueAtTime(gain, at + dur * 0.55);
   g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
   g.connect(v.out);
-  const shaper = v.ctx.createWaveShaper();
+  const shaper = track(v, v.ctx.createWaveShaper());
   const curve = new Float32Array(256);
   for (let i = 0; i < 256; i++) {
     const x = (i / 255) * 2 - 1;
     curve[i] = Math.tanh(x * 3.2);
   }
   shaper.curve = curve;
-  const mix = v.ctx.createGain();
+  const mix = track(v, v.ctx.createGain());
   mix.gain.value = 0.5;
   mix.connect(shaper);
   for (const [lo, hi, q] of [[620, 360, 6], [1300, 880, 7], [2500, 1900, 5]] as const) {
@@ -222,7 +258,7 @@ export function sparkle(v: Voice, gain: number, count = 5, at = v.t): number {
 
 /** Voices singing "ah": sawtooth through two vowel formants. Holy heals, the day's end. */
 export function choir(v: Voice, freqs: number[], dur: number, gain: number, at = v.t): number {
-  const g = v.ctx.createGain();
+  const g = track(v, v.ctx.createGain());
   g.gain.setValueAtTime(0.0001, at);
   g.gain.exponentialRampToValueAtTime(gain, at + dur * 0.35);
   g.gain.setValueAtTime(gain, at + dur * 0.7);

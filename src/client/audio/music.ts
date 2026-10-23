@@ -1,5 +1,5 @@
-import { approach } from './mixer.ts';
-import { choir, drum, type Voice } from './synth.ts';
+import { approach, clamp01 } from './mixer.ts';
+import { choir, drum, newSink, release, stopAfter, track, type Sink, type Voice } from './synth.ts';
 
 // Modes as semitone steps from the root.
 const DORIAN = [0, 2, 3, 5, 7, 9, 10];
@@ -45,6 +45,9 @@ export class Music {
   private motifUses = 0;
   private degree = 2;
   private lastTick = 0;
+  /** Notes and chords scheduled but not yet released, oldest first. */
+  private sinks: Sink[] = [];
+  private drainTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     private readonly ctx: BaseAudioContext,
@@ -69,6 +72,11 @@ export class Music {
     return this.timer !== null;
   }
 
+  /** Voices still holding nodes, for tests and the lab. */
+  get pending(): number {
+    return this.sinks.length;
+  }
+
   start(): void {
     if (this.timer) return;
     const t = this.ctx.currentTime + 0.1;
@@ -80,10 +88,16 @@ export class Music {
       const g = this.ctx.createGain();
       g.gain.value = level;
       o.connect(g).connect(this.droneFilter);
+      o.onended = () => {
+        o.disconnect();
+        g.disconnect();
+      };
       o.start(t);
       this.droneOscs.push(o);
     }
     this.next = t;
+    if (this.drainTimer) clearTimeout(this.drainTimer);
+    this.drainTimer = null;
     this.lastTick = performance.now();
     this.timer = setInterval(() => this.tick(), TICK_MS);
     this.tick();
@@ -98,17 +112,36 @@ export class Music {
       layer.gain.gain.setTargetAtTime(0, t, 0.4);
       layer.level = 0;
     }
-    for (const o of this.droneOscs) o.stop(t + 2);
+    // By t + 3 the layers have fallen ~65 dB (seven time constants): no click when the drone stops.
+    for (const o of this.droneOscs) o.stop(t + 3);
     this.droneOscs = [];
+    this.drain();
+  }
+
+  /** Releases the nodes of every note that has rung out; while stopped, keeps checking until all have. */
+  private sweep(): void {
+    const t = this.ctx.currentTime;
+    let w = 0;
+    for (const sink of this.sinks) {
+      if (sink.end + 0.1 < t) release(sink);
+      else this.sinks[w++] = sink;
+    }
+    this.sinks.length = w;
+  }
+
+  private drain(): void {
+    this.sweep();
+    if (this.timer || this.sinks.length === 0) return;
+    this.drainTimer = setTimeout(() => this.drain(), 1000);
   }
 
   setIntensity(x: number): void {
-    this.targetIntensity = Math.max(0, Math.min(1, x));
+    this.targetIntensity = clamp01(x, this.targetIntensity);
   }
 
   /** 0 at the war's dawn, 1 at the next reset. */
   setTimeOfDay(t: number): void {
-    this.time = Math.max(0, Math.min(1, t));
+    this.time = clamp01(t, this.time);
   }
 
   /** How bright the day is: 0 at night, 1 at noon. The war's day maps dawn → noon → dusk → night. */
@@ -136,6 +169,10 @@ export class Music {
     const now = performance.now();
     const dt = Math.min(1000, now - this.lastTick);
     this.lastTick = now;
+    // A suspended or interrupted context has a frozen clock: scheduling against it would pile
+    // automation events at one instant and a backlog of notes that all sound on resume.
+    if ((this.ctx as Partial<AudioContext>).state !== undefined && this.ctx.state !== 'running') return;
+    this.sweep();
     this.intensity = approach(this.intensity, this.targetIntensity, dt, 4000);
     const t = this.ctx.currentTime;
     const targets = this.targets();
@@ -220,30 +257,30 @@ export class Music {
 
   /** A plucked lute string: bright attack, darkening fast. */
   private pluck(v: Voice, freq: number, dur: number): void {
-    const g = v.ctx.createGain();
+    const g = track(v, v.ctx.createGain());
     g.gain.setValueAtTime(0.0001, v.t);
     g.gain.exponentialRampToValueAtTime(0.09, v.t + 0.004);
     g.gain.exponentialRampToValueAtTime(0.0001, v.t + dur);
     g.connect(v.out);
-    const f = v.ctx.createBiquadFilter();
+    const f = track(v, v.ctx.createBiquadFilter());
     f.type = 'lowpass';
     f.frequency.setValueAtTime(3200, v.t);
     f.frequency.exponentialRampToValueAtTime(500, v.t + dur * 0.6);
     f.connect(g);
     for (const [type, ratio, level] of [['triangle', 1, 1], ['sawtooth', 1.002, 0.35], ['triangle', 2, 0.25]] as const) {
-      const o = v.ctx.createOscillator();
+      const o = track(v, v.ctx.createOscillator());
       o.type = type;
       o.frequency.value = freq * ratio;
-      const lg = v.ctx.createGain();
+      const lg = track(v, v.ctx.createGain());
       lg.gain.value = level;
       o.connect(lg).connect(f);
-      o.start(v.t);
-      o.stop(v.t + dur + 0.05);
-      o.onended = () => o.disconnect();
+      stopAfter(v, o, v.t, v.t + dur);
     }
   }
 
   private voice(out: AudioNode, t: number): Voice {
-    return { ctx: this.ctx, out, t, rand: this.rand };
+    const sink = newSink();
+    this.sinks.push(sink);
+    return { ctx: this.ctx, out, t, rand: this.rand, sink };
   }
 }

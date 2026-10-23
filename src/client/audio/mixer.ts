@@ -22,6 +22,11 @@ const PAN_SPAN_PX = 760;
  * the whole map is in view, individual blows are softened to a wash.
  */
 export function spatial(listener: Listener, x: number, y: number): { gain: number; pan: number } {
+  // A sound or camera with no real position (a unit not yet drawn, a camera mid-reset) can't be
+  // placed; silence it rather than hand NaN to an AudioParam, which throws.
+  if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(listener.x) || !Number.isFinite(listener.y) || !Number.isFinite(listener.zoom)) {
+    return { gain: 0, pan: 0 };
+  }
   const zoom = Math.max(0.05, listener.zoom);
   const dx = (x - listener.x) * zoom;
   const dy = (y - listener.y) * zoom;
@@ -65,7 +70,9 @@ export class VoiceLimiter {
     this.voices = this.voices.filter((v) => v.endsAt > now);
     const last = this.lastStart.get(cue);
     if (limits.priority === 'combat' && last !== undefined && now - last < limits.cooldownMs) return false;
-    if (limits.priority !== 'combat' && last !== undefined && now - last < Math.min(limits.cooldownMs, 60)) return false;
+    // UI sounds answer every click, so their cooldown is capped; a set piece keeps its own (one fanfare per victory).
+    if (limits.priority === 'ui' && last !== undefined && now - last < Math.min(limits.cooldownMs, 60)) return false;
+    if (limits.priority === 'set' && last !== undefined && now - last < limits.cooldownMs) return false;
     let same = 0;
     for (const v of this.voices) if (v.cue === cue) same++;
     if (same >= limits.maxVoices) return false;
@@ -88,6 +95,11 @@ export class VoiceLimiter {
   active(now: number): number {
     return this.voices.filter((v) => v.endsAt > now).length;
   }
+}
+
+/** Clamps to 0..1; anything not a finite number becomes `fallback`. */
+export function clamp01(x: number, fallback = 0): number {
+  return Number.isFinite(x) ? Math.max(0, Math.min(1, x)) : fallback;
 }
 
 /** Smooths a control value toward a target, e.g. battle intensity from noisy samples. */

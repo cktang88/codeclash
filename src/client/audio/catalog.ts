@@ -1,5 +1,5 @@
 import type { CueLimits } from './mixer.ts';
-import { bell, boom, bowstring, choir, clatter, crack, drum, fire, horn, roar, shout, sparkle, tick, whoosh, type Voice } from './synth.ts';
+import { bell, boom, bowstring, choir, clatter, crack, drum, fire, horn, roar, shout, sparkle, stopAfter, tick, track, whoosh, type Voice } from './synth.ts';
 
 /** Plays a bundled sample; returns its length in seconds, or 0 if it has not loaded. */
 export type SamplePlayer = (name: string, opts?: { gain?: number; rate?: number; delay?: number }) => number;
@@ -201,18 +201,16 @@ export const CUES: Record<string, Cue> = {
 
 /** A plain soft tone, for small sad or sweet notes. */
 function osc2(v: Voice, freq: number, dur: number, gain: number, at = v.t): number {
-  const g = v.ctx.createGain();
+  const g = track(v, v.ctx.createGain());
   g.gain.setValueAtTime(0.0001, at);
   g.gain.exponentialRampToValueAtTime(gain, at + 0.04);
   g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
   g.connect(v.out);
-  const o = v.ctx.createOscillator();
+  const o = track(v, v.ctx.createOscillator());
   o.type = 'triangle';
   o.frequency.value = freq;
   o.connect(g);
-  o.start(at);
-  o.stop(at + dur + 0.05);
-  o.onended = () => o.disconnect();
+  stopAfter(v, o, at, at + dur);
   return dur;
 }
 
@@ -223,4 +221,11 @@ export const SAMPLES = [
   'stone-1', 'stone-2', 'stone-3', 'bell-1', 'bell-2', 'step-1', 'step-2', 'step-3', 'cloth-1', 'cloth-2', 'creak-1', 'door-1',
 ] as const;
 
-export const SAMPLE_URL = (name: string) => `/audio/kenney/${name}.ogg`;
+/** Each sample ships as Ogg Vorbis and as AAC (.m4a), which Safari before 18.4 needs; there is no format every browser decodes. */
+export const SAMPLE_FORMATS = ['ogg', 'm4a'] as const;
+
+/** Where a sample may be fetched, in the order to try: the browser's preferred format first, the other as a fallback. */
+export function sampleUrls(name: string, preferOgg = true): string[] {
+  const formats = preferOgg ? SAMPLE_FORMATS : [...SAMPLE_FORMATS].reverse();
+  return formats.map((ext) => `/audio/kenney/${name}.${ext}`);
+}

@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { CUES, SAMPLES } from './catalog.ts';
+import { existsSync, statSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { FANFARES } from '../../rules/meta.ts';
+import { CUES, SAMPLES, sampleUrls } from './catalog.ts';
 import { SoundEngine } from './engine.ts';
-import { CULL_GAIN, HALF_GAIN_PX, VoiceLimiter, seeded, spatial } from './mixer.ts';
+import { CULL_GAIN, HALF_GAIN_PX, VoiceLimiter, clamp01, seeded, spatial } from './mixer.ts';
 import { Music } from './music.ts';
 
 // ------------------------------------------------------------ a fake WebAudio
@@ -9,7 +12,9 @@ import { Music } from './music.ts';
 class Param {
   value = 0;
   peak = 0;
+  events = 0;
   private set(v: number) {
+    this.events++;
     this.value = v;
     this.peak = Math.max(this.peak, v);
     return this;
@@ -36,33 +41,56 @@ class Node {
   connections = 0;
   /** Set when this node drives a parameter (an LFO depth), so its gain is not an audio level. */
   modulates = false;
-  constructor(readonly fake: FakeContext) {}
+  disconnected = false;
+  constructor(readonly fake: FakeContext) {
+    fake.nodes.push(this);
+  }
   connect<T>(n: T): T {
     this.connections++;
     if (n instanceof Param) this.modulates = true;
     return n;
   }
-  disconnect() {}
+  disconnect() {
+    this.disconnected = true;
+  }
 }
 
 class Source extends Node {
   onended: (() => void) | null = null;
   started = false;
-  start() {
+  start(at = 0) {
     this.started = true;
     this.fake.started++;
+    // A note scheduled in the past plays at once: a backlog would sound as a burst.
+    if (at < this.fake.currentTime - 1e-9) this.fake.late++;
   }
   stop() {}
 }
 
 class FakeContext {
   started = 0;
+  late = 0;
+  nodes: Node[] = [];
+  private listeners: Record<string, (() => void)[]> = {};
   gains: { gain: Param; node: Node }[] = [];
   currentTime = 1;
   sampleRate = 8000;
   state: AudioContextState = 'running';
   destination = new Node(this);
-  resume = vi.fn(async () => undefined);
+  resume = vi.fn(async () => {
+    this.setState('running');
+  });
+  suspend = vi.fn(async () => {
+    this.setState('suspended');
+  });
+  setState(s: string) {
+    if (this.state === s) return;
+    this.state = s as AudioContextState;
+    for (const fn of this.listeners.statechange ?? []) fn();
+  }
+  addEventListener(type: string, fn: () => void) {
+    (this.listeners[type] ??= []).push(fn);
+  }
   createGain() {
     const n = Object.assign(new Node(this), { gain: new Param() });
     n.gain.value = 1;
@@ -95,7 +123,22 @@ class FakeContext {
   }
 }
 
-function engine(opts: { samples?: boolean; stored?: string | null; clock?: { t: number } } = {}) {
+class FakePage {
+  visibilityState: DocumentVisibilityState = 'visible';
+  private listeners: Record<string, (() => void)[]> = {};
+  addEventListener(type: string, fn: () => void) {
+    (this.listeners[type] ??= []).push(fn);
+  }
+  fire(type: string) {
+    for (const fn of this.listeners[type] ?? []) fn();
+  }
+  setVisible(on: boolean) {
+    this.visibilityState = on ? 'visible' : 'hidden';
+    this.fire('visibilitychange');
+  }
+}
+
+function engine(opts: { samples?: boolean; stored?: string | null; clock?: { t: number }; page?: FakePage } = {}) {
   const fake = new FakeContext();
   const store = new Map<string, string>();
   if (opts.stored) store.set('pf:sound', opts.stored);
@@ -106,6 +149,7 @@ function engine(opts: { samples?: boolean; stored?: string | null; clock?: { t: 
     storage: { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => void store.set(k, v) },
     now: () => clock.t,
     rand: seeded(7),
+    page: opts.page ?? null,
   });
   return { e, fake, store, clock };
 }
@@ -274,5 +318,250 @@ describe('music', () => {
     m.stop();
     expect(m.running).toBe(false);
     vi.useRealTimers();
+  });
+});
+
+// ---------------------------------------------------------------- catalog
+
+describe('catalog', () => {
+  const PUBLIC = resolve(__dirname, '../public');
+
+  it('ships every sample in both formats, non-empty, at the URL the engine fetches', () => {
+    for (const name of SAMPLES) {
+      for (const url of sampleUrls(name)) {
+        const file = resolve(PUBLIC, `.${url}`);
+        expect(existsSync(file), url).toBe(true);
+        expect(statSync(file).size, url).toBeGreaterThan(500);
+      }
+    }
+    expect(sampleUrls('bell-1', false)[0]).toMatch(/\.m4a$/);
+    expect(sampleUrls('bell-1', true)[0]).toMatch(/\.ogg$/);
+  });
+
+  it('names only bundled samples in its recipes, and has a cue for every Armory fanfare', () => {
+    const fake = new FakeContext();
+    const asked = new Set<string>();
+    for (const [name, cue] of Object.entries(CUES)) {
+      for (let i = 0; i < 12; i++) {
+        cue.recipe({ ctx: fake as unknown as AudioContext, out: fake.createGain() as unknown as AudioNode, t: 1, rand: seeded(i) }, (sample) => {
+          asked.add(sample);
+          return 0.3;
+        });
+      }
+      expect(cue.durationMs, name).toBeGreaterThan(0);
+    }
+    for (const sample of asked) expect(SAMPLES as readonly string[], sample).toContain(sample);
+    for (const f of FANFARES) expect(CUES[`fanfare-${f}`], f).toBeDefined();
+  });
+});
+
+describe('robustness', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it('never hands NaN to an AudioParam: unplaceable sounds are culled, bad controls ignored', () => {
+    expect(spatial({ x: 0, y: 0, zoom: 1 }, NaN, 0)).toEqual({ gain: 0, pan: 0 });
+    expect(spatial({ x: NaN, y: 0, zoom: Infinity }, 0, 0)).toEqual({ gain: 0, pan: 0 });
+    expect(clamp01(NaN, 0.4)).toBe(0.4);
+    const { e, fake } = engine();
+    e.setEnabled(true);
+    expect(e.play('hit-steel', { x: NaN, y: 3 })).toBe(false);
+    expect(e.play('ui.click', { gain: NaN })).toBe(false);
+    e.setListener(NaN, 0, 1);
+    expect(e.play('hit-steel', { x: 0, y: 0 })).toBe(false);
+    expect(() => {
+      e.setBattleIntensity(NaN);
+      e.setTimeOfDay(Infinity);
+      e.setVolume(NaN);
+    }).not.toThrow();
+    expect(e.volume()).toBe(0.7);
+    for (const { gain } of fake.gains) expect(Number.isFinite(gain.value)).toBe(true);
+  });
+
+  it('holds a set piece to its cooldown: one fanfare per victory, not one per re-render', () => {
+    const { e, clock } = engine();
+    e.setEnabled(true);
+    clock.t = 1000;
+    expect(e.play('fanfare-horn')).toBe(true);
+    clock.t = 1500;
+    expect(e.play('fanfare-horn')).toBe(false);
+    clock.t = 10_000;
+    expect(e.play('fanfare-horn')).toBe(true);
+    // UI clicks still answer quick hands.
+    expect(e.play('ui.click')).toBe(true);
+    clock.t += 70;
+    expect(e.play('ui.click')).toBe(true);
+  });
+
+  it('disconnects every node a cue makes once its tail has rung out, waiting out a suspended clock', async () => {
+    const { e, fake, clock } = engine();
+    e.setEnabled(true);
+    e.setMusicEnabled(false);
+    await vi.advanceTimersByTimeAsync(0);
+    const from = fake.nodes.length;
+    for (const name of Object.keys(CUES)) {
+      clock.t += 10_000;
+      e.play(name, { x: 0, y: 0 });
+    }
+    const made = fake.nodes.slice(from);
+    expect(made.length).toBeGreaterThan(100);
+    // The clock stalls (a tab put to sleep): nothing may be cut early.
+    fake.state = 'suspended';
+    vi.advanceTimersByTime(20_000);
+    expect(made.filter((n) => n.disconnected).length).toBeLessThan(made.length / 2);
+    fake.state = 'running';
+    fake.currentTime += 20;
+    vi.advanceTimersByTime(20_000);
+    expect(made.filter((n) => !n.disconnected)).toEqual([]);
+  });
+
+  it('keeps a late tail (the day-end bell) connected until it has finished', () => {
+    const { e, fake } = engine({ samples: false });
+    e.setEnabled(true);
+    e.setMusicEnabled(false);
+    const from = fake.nodes.length;
+    e.play('day-end');
+    const made = fake.nodes.slice(from);
+    // The recipe claims 6 s, but its bell rings to ~8.2 s.
+    fake.currentTime += 7;
+    vi.advanceTimersByTime(7000);
+    expect(made.some((n) => !n.disconnected)).toBe(true);
+    fake.currentTime += 2;
+    vi.advanceTimersByTime(2000);
+    expect(made.every((n) => n.disconnected)).toBe(true);
+  });
+
+  it('goes quiet and suspends while the page is hidden, and comes back when shown', async () => {
+    const page = new FakePage();
+    const { e, fake, clock } = engine({ page });
+    e.setEnabled(true);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fake.state).toBe('running');
+    page.setVisible(false);
+    expect(e.play('ui.click')).toBe(false);
+    await vi.advanceTimersByTimeAsync(400);
+    expect(fake.suspend).toHaveBeenCalled();
+    expect(fake.state).toBe('suspended');
+    page.setVisible(true);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fake.state).toBe('running');
+    clock.t += 100;
+    expect(e.play('ui.click')).toBe(true);
+  });
+
+  it('turning sound off fades, then suspends; turning it straight back on cancels the suspend', async () => {
+    const { e, fake } = engine();
+    e.setEnabled(true);
+    await vi.advanceTimersByTimeAsync(0);
+    e.setEnabled(false);
+    e.setEnabled(true);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(fake.suspend).not.toHaveBeenCalled();
+    e.setEnabled(false);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(fake.suspend).toHaveBeenCalledTimes(1);
+  });
+
+  it('after an interruption (iOS call), queues nothing for a burst on resume and wakes on a gesture', async () => {
+    const page = new FakePage();
+    const { e, fake, clock } = engine({ page });
+    e.setEnabled(true);
+    await vi.advanceTimersByTimeAsync(0);
+    // The OS takes the audio; resume is refused until the player touches the page.
+    fake.resume.mockImplementation(async () => undefined);
+    fake.setState('interrupted');
+    clock.t += 5000;
+    const before = fake.started;
+    for (let i = 0; i < 50; i++) e.play('ui.click');
+    expect(fake.started).toBe(before);
+    fake.resume.mockImplementation(async () => fake.setState('running'));
+    page.fire('pointerdown');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fake.state).toBe('running');
+    expect(e.play('ui.click')).toBe(true);
+  });
+
+  it('falls back to the other format when the preferred one will not decode', async () => {
+    const fake = new FakeContext();
+    const urls: string[] = [];
+    const e = new SoundEngine({
+      createContext: () => fake as unknown as AudioContext,
+      fetchSample: async (url) => {
+        urls.push(url);
+        if (url.endsWith('.ogg')) throw new Error('Safari: no Vorbis');
+        return new ArrayBuffer(8);
+      },
+      canPlayOgg: () => true,
+      storage: null,
+      page: null,
+    });
+    e.setEnabled(true);
+    e.setMusicEnabled(false);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(e.loaded).toBe(SAMPLES.length);
+    expect(urls.filter((u) => u.endsWith('.m4a'))).toHaveLength(SAMPLES.length);
+  });
+});
+
+describe('music scheduler', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  const make = () => {
+    const fake = new FakeContext();
+    const m = new Music(fake as unknown as AudioContext, fake.createGain() as unknown as AudioNode, seeded(9));
+    return { fake, m };
+  };
+
+  it('keeps time by the audio clock: a late or jittery timer never schedules notes in the past', () => {
+    const { fake, m } = make();
+    m.setIntensity(1);
+    m.start();
+    for (let i = 0; i < 400; i++) {
+      // Timers fire late and unevenly; the context clock is the truth.
+      const step = i % 25 === 0 ? 1.5 : 0.08 + (i % 7) * 0.02;
+      fake.currentTime += step;
+      vi.advanceTimersByTime(120);
+    }
+    expect(fake.started).toBeGreaterThan(100);
+    expect(fake.late).toBe(0);
+    m.stop();
+  });
+
+  it('holds a bounded number of voices over a long session and releases them all after stopping', () => {
+    const { fake, m } = make();
+    m.setIntensity(1);
+    m.setTimeOfDay(0.3);
+    m.start();
+    let most = 0;
+    // An hour of music, in 120 ms ticks.
+    for (let i = 0; i < 30_000; i++) {
+      fake.currentTime += 0.12;
+      vi.advanceTimersByTime(120);
+      most = Math.max(most, m.pending);
+    }
+    expect(most).toBeLessThan(120);
+    m.stop();
+    fake.currentTime += 30;
+    vi.advanceTimersByTime(30_000);
+    expect(m.pending).toBe(0);
+    const sources = fake.nodes.filter((n) => n instanceof Source) as Source[];
+    for (const s of sources) s.onended?.();
+    expect(fake.nodes.filter((n) => n instanceof Source && !n.disconnected)).toEqual([]);
+  });
+
+  it('schedules nothing against a frozen clock', () => {
+    const { fake, m } = make();
+    m.setIntensity(1);
+    fake.state = 'suspended';
+    m.start();
+    const before = fake.started;
+    const events = () => fake.gains.reduce((n, g) => n + g.gain.events, 0);
+    const automation = events();
+    vi.advanceTimersByTime(10_000);
+    // No notes queued to burst out on resume, and no automation piling up at one frozen instant.
+    expect(fake.started - before).toBe(0);
+    expect(events() - automation).toBe(0);
+    m.stop();
   });
 });
