@@ -26,7 +26,8 @@ export function checksum(world: World): number {
     h = (Math.imul(h, 5) + 0xe6546b64) | 0;
   };
   const num = (v: number) => {
-    f64[0] = v;
+    // -0 survives in memory but becomes 0 through JSON; hash both alike so a restored world matches.
+    f64[0] = v === 0 ? 0 : v;
     int(u32[0]!);
     int(u32[1]!);
   };

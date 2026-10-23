@@ -79,12 +79,12 @@ const MAX_HIGHLIGHTS = 12;
 /** The day's recap. Pure: the same war always yields the same digest. */
 export function buildDigest(world: World, replay: Replay, chronicle: readonly ChronicleEntry[]): Digest {
   const players = world.players.map((ps): DigestPlayer => {
-    const meta = replay.players[ps.p]!;
+    const meta = replay.players[ps.p];
     return {
       p: ps.p,
-      login: meta.login,
-      id: meta.id,
-      bot: meta.bot,
+      login: meta?.login ?? `player${ps.p}`,
+      id: meta?.id ?? 0,
+      bot: meta?.bot ?? false,
       hue: ps.hue,
       place: 0,
       renown: ps.renown,
@@ -184,7 +184,8 @@ export function buildDigest(world: World, replay: Replay, chronicle: readonly Ch
   }
   const repos = [...repoPushes.entries()]
     .map(([i, r]) => ({ name: replay.repos[i]?.[0] ?? '?', language: replay.repos[i]?.[1] ?? null, pushes: r.pushes, p: r.p }))
-    .sort((a, b) => b.pushes - a.pushes || a.name.localeCompare(b.name));
+    // Plain code-unit order: localeCompare depends on the runtime's ICU data.
+    .sort((a, b) => b.pushes - a.pushes || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
 
   const fall = chronicle.find((e) => e.kind === 'monolith');
   return {

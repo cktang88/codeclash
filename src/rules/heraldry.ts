@@ -88,7 +88,7 @@ const LANGUAGE_COLORS: Record<string, string> = {
 };
 
 export function languageColor(language: string | null): string | null {
-  return language ? (LANGUAGE_COLORS[language] ?? null) : null;
+  return language && Object.hasOwn(LANGUAGE_COLORS, language) ? LANGUAGE_COLORS[language]! : null;
 }
 
 const EXTENSION_LANGUAGES: Record<string, string> = {
@@ -102,5 +102,6 @@ const EXTENSION_LANGUAGES: Record<string, string> = {
 export function languageOfPath(path: string): string | null {
   const dot = path.lastIndexOf('.');
   if (dot < 0 || dot < path.lastIndexOf('/')) return null;
-  return EXTENSION_LANGUAGES[path.slice(dot + 1).toLowerCase()] ?? null;
+  const ext = path.slice(dot + 1).toLowerCase();
+  return Object.hasOwn(EXTENSION_LANGUAGES, ext) ? EXTENSION_LANGUAGES[ext]! : null;
 }
