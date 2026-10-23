@@ -10,6 +10,8 @@ export class FakeGithub implements GithubClient {
   remaining = 5000;
   calls = { events: 0, notModified: 0, compare: 0, commit: 0 };
   failCompare = false;
+  /** Events per page, as GitHub serves them (100). */
+  pageSize = 100;
 
   private etagOf(login: string): string {
     return `"${login}:${(this.events.get(login) ?? []).map((e) => e.id).join(',')}"`;
@@ -29,15 +31,17 @@ export class FakeGithub implements GithubClient {
     this.commits.set(`${repo}:${sha}`, result);
   }
 
-  async userEvents(login: string, etag: string | null): Promise<EventsResult> {
+  async userEvents(login: string, etag: string | null, page = 1): Promise<EventsResult> {
     this.calls.events++;
     const current = this.etagOf(login);
-    if (etag === current) {
+    if (etag === current && page === 1) {
       this.calls.notModified++;
       return { status: 304 };
     }
     this.remaining--;
-    return { status: 200, etag: current, pollInterval: this.pollInterval, events: (this.events.get(login) ?? []).slice() };
+    const events = (this.events.get(login) ?? []).slice((page - 1) * this.pageSize, page * this.pageSize);
+    const last = events[events.length - 1];
+    return { status: 200, etag: current, pollInterval: this.pollInterval, events, ...(events.length >= this.pageSize && last ? { more: { id: last.id, createdAt: last.createdAt } } : {}) };
   }
 
   async compare(repo: string, base: string, head: string): Promise<CompareResult | null> {

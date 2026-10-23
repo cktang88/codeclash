@@ -2,7 +2,7 @@ import { CAT_COUNT } from '../sim/api.ts';
 import type { ChangedFile } from '../rules/classify.ts';
 import { measurePush, type PushDelta } from '../rules/ledger.ts';
 import type { Store, UserRow } from './db.ts';
-import type { CompareResult, GithubClient } from './github.ts';
+import { EVENT_PAGES, GithubError, type CompareResult, type GithubClient } from './github.ts';
 import { errorMessage, type Logger } from './log.ts';
 
 export interface PushReport {
@@ -246,9 +246,24 @@ export class Poller {
         return;
       }
       if (res.pollInterval) this.pollIntervalMs = res.pollInterval * 1000;
-      const events = res.events.slice().sort((a, b) => compareIds(a.id, b.id));
       const since = lastEventId;
-      const fresh = events.filter((e) => (since !== null ? compareIds(e.id, since) > 0 : e.createdAt >= now - FIRST_POLL_WINDOW_MS));
+      // A busy user, or a long pause in polling, can leave more new events than one page holds.
+      const all = res.events.slice();
+      let more = res.more;
+      for (let page = 2; more && page <= EVENT_PAGES; page++) {
+        if (since !== null ? compareIds(more.id, since) <= 0 : more.createdAt < now - FIRST_POLL_WINDOW_MS) break;
+        const next = await github.userEvents(user.login, null, page);
+        if (next.status !== 200) break;
+        all.push(...next.events);
+        more = next.more;
+      }
+      const events = all.sort((a, b) => compareIds(a.id, b.id));
+      const fresh = events.filter(
+        (e) =>
+          (since !== null ? compareIds(e.id, since) > 0 : e.createdAt >= now - FIRST_POLL_WINDOW_MS) &&
+          // A renamed login can be taken by someone else: only this account's own pushes count.
+          (e.actorId === undefined || e.actorId === user.id),
+      );
       etag = res.etag;
       for (const e of fresh) {
         const key = `${user.id}:${e.id}`;
@@ -256,7 +271,9 @@ export class Poller {
           await ingestPush(this.deps, user, { repo: e.repo, ref: e.ref, before: e.before, head: e.head, at: e.createdAt });
           this.attempts.delete(key);
         } catch (err) {
-          const tries = (this.attempts.get(key) ?? 0) + 1;
+          // Being rate limited says nothing about the push itself, so it does not use up its tries.
+          const limited = err instanceof GithubError && (err.status === 429 || (err.status === 403 && /rate limit/i.test(err.message)));
+          const tries = (this.attempts.get(key) ?? 0) + (limited ? 0 : 1);
           if (tries < MAX_PUSH_ATTEMPTS) {
             if (this.attempts.size > 10_000) this.attempts.clear();
             this.attempts.set(key, tries);

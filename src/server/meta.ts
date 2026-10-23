@@ -254,6 +254,8 @@ export class Meta implements MetaHooks {
         for (let j = i + 1; j < fought.length; j++) {
           const a = fought[i]!;
           const b = fought[j]!;
+          // A shared place is a draw: neither side takes the bout.
+          if (a.place === b.place) continue;
           this.recordRivalry(room.id, header[a.p]!.userId, header[b.p]!.userId, a.place < b.place);
         }
       }

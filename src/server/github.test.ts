@@ -42,6 +42,26 @@ describe('createGithubClient', () => {
     expect(calls[0]!.headers.authorization).toBe('Bearer tok');
   });
 
+  it('reports the pushing account and commit authors by id', async () => {
+    const { fetch } = fakeFetch((url) =>
+      url.includes('/events/')
+        ? json([{ id: '5', type: 'PushEvent', created_at: '2026-10-23T10:00:00Z', actor: { id: 7, login: 'ana' }, repo: { name: 'ana/p' }, payload: { ref: 'refs/heads/main', before: 'a', head: 'b' } }])
+        : json({ commits: [{ sha: 's1', author: { login: 'ana', id: 7 }, commit: { message: 'm' } }], files: [] }),
+    );
+    const gh = createGithubClient('tok', fetch);
+    const res = await gh.userEvents('ana', null);
+    expect(res.status === 200 && res.events[0]!.actorId).toBe(7);
+    expect((await gh.compare('ana/p', 'a', 'b'))!.commits[0]!.authorId).toBe(7);
+  });
+
+  it('treats a spent rate limit as whole again once its reset time has passed', async () => {
+    const past = Math.floor(Date.now() / 1000) - 60;
+    const { fetch } = fakeFetch(() => json([], 200, { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': String(past), 'x-ratelimit-limit': '5000' }));
+    const gh = createGithubClient('tok', fetch);
+    await gh.userEvents('ana', null);
+    expect(gh.rateLimit().remaining).toBe(5000);
+  });
+
   it('sends the ETag and reports 304', async () => {
     const { fetch, calls } = fakeFetch(() => new Response(null, { status: 304 }));
     const res = await createGithubClient('tok', fetch).userEvents('ana', 'W/"abc"');

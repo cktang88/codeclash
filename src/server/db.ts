@@ -12,7 +12,7 @@ import type { EncodedInput, RepoRef, ReplayPlayer } from '../sim/replay.ts';
 export type Db = Database.Database;
 
 export const SNAPSHOTS_KEPT_LIVE = 3;
-/** A ledger balance stops counting 36 hours after it last moved, and is deleted after 48. */
+/** A ledger balance stops counting 7 days after it last moved, and is deleted after 8. */
 export const LEDGER_LIVE_MS = 7 * 24 * 3_600_000;
 export const LEDGER_KEEP_MS = 8 * 24 * 3_600_000;
 
@@ -397,7 +397,7 @@ export class Store {
   }
 
   /**
-   * The user's line ledger for one repository. Balances last 36 hours since they
+   * The user's line ledger for one repository. Balances last LEDGER_LIVE_MS since they
    * last moved; the code tally is per UTC day. Keys are hashed to bound row size.
    */
   ledgerFor(userId: number, repo: string, now: number): LedgerStore {
@@ -616,6 +616,16 @@ export class Store {
   /** Keeps hourly keyframes and the most recent snapshots; older ones are only a cache. */
   pruneSnapshots(warId: number, keepFromTick: number, keyframeEvery: number): void {
     this.db.prepare('DELETE FROM war_snapshots WHERE war_id = ? AND tick < ? AND tick % ? != 0').run(warId, keepFromTick, keyframeEvery);
+  }
+
+  /** Drops all but the final snapshot of wars that ended before `before`; replays reseek from the inputs. */
+  pruneEndedSnapshots(before: number): void {
+    this.db
+      .prepare(
+        `DELETE FROM war_snapshots WHERE war_id IN (SELECT id FROM wars WHERE status = 'ended' AND ends_at < ?)
+         AND tick < (SELECT MAX(s.tick) FROM war_snapshots s WHERE s.war_id = war_snapshots.war_id)`,
+      )
+      .run(before);
   }
 
   // ----------------------------------------------------------- frames

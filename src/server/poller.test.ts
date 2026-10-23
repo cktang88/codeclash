@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { Cat } from '../sim/api.ts';
 import { openDb, Store } from './db.ts';
+import { GithubError } from './github.ts';
 import { silentLogger } from './log.ts';
 import { ingestPush, MAX_PUSH_ATTEMPTS, Poller, pushIdOf, type PushReport } from './poller.ts';
 import { FakeGithub, pushEvent, sha, sourceFile, ZERO } from './testing/fakeGithub.ts';
@@ -215,6 +216,47 @@ describe('Poller', () => {
     expect(t.reports).toHaveLength(1);
     expect(t.reports[0]!.commits).toBe(1);
     expect(t.reports[0]!.lines[Cat.Code]).toBe(2);
+  });
+
+  it('skips pushes by another account that now holds the login', async () => {
+    t.github.addEvent('Ana', { ...pushEvent('100', 'ana/parser', sha(1), sha(2), NOW), actorId: 99 });
+    t.github.addEvent('Ana', { ...pushEvent('101', 'ana/parser', sha(3), sha(4), NOW), actorId: 7 });
+    t.github.setCompare('ana/parser', sha(1), sha(2), { commits: [commit(2, null)], files: [sourceFile('a.ts', calls(0, 5))] });
+    t.github.setCompare('ana/parser', sha(3), sha(4), { commits: [commit(4, null)], files: [sourceFile('b.ts', calls(10, 12))] });
+    await t.poller.pollUser(7);
+    expect(t.reports.map((r) => r.pushId)).toEqual([pushIdOf('ana/parser', sha(4))]);
+    expect(t.store.user(7)!.lastEventId).toBe('101');
+  });
+
+  it('does not give up on a push while GitHub is only rate limiting', async () => {
+    t.github.addEvent('Ana', pushEvent('100', 'ana/parser', sha(1), sha(2), NOW));
+    t.github.setCompare('ana/parser', sha(1), sha(2), { commits: [commit(2, 'ana')], files: [sourceFile('a.ts', calls(0, 2))] });
+    const compare = t.github.compare.bind(t.github);
+    let limited = true;
+    t.github.compare = async (repo, base, head) => {
+      if (limited) throw new GithubError('compare failed: 403 {"message":"API rate limit exceeded"}', 403);
+      return compare(repo, base, head);
+    };
+    for (let i = 0; i < MAX_PUSH_ATTEMPTS + 2; i++) await t.poller.pollUser(7);
+    expect(t.store.user(7)!.lastEventId).toBeNull();
+    limited = false;
+    await t.poller.pollUser(7);
+    expect(t.reports).toHaveLength(1);
+  });
+
+  it('reads further pages when more new events arrived than one page holds', async () => {
+    await t.poller.pollUser(7);
+    t.github.addEvent('Ana', pushEvent('100', 'ana/parser', sha(1), sha(2), NOW));
+    await t.poller.pollUser(7);
+    expect(t.store.user(7)!.lastEventId).toBe('100');
+    t.github.pageSize = 2;
+    for (let n = 101; n <= 105; n++) {
+      t.github.addEvent('Ana', pushEvent(String(n), 'ana/parser', sha(n), sha(n + 1000), NOW));
+      t.github.setCompare('ana/parser', sha(n), sha(n + 1000), { commits: [commit(n + 1000, 'ana')], files: [sourceFile('a.ts', calls(n * 10, n * 10 + 1))] });
+    }
+    await t.poller.pollUser(7);
+    expect(t.reports).toHaveLength(5);
+    expect(t.store.user(7)!.lastEventId).toBe('105');
   });
 
   it('ingestPush is idempotent for the same push', async () => {

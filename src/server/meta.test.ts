@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { ArmoryResponse, LegendsResponse, OrdersResponse, ProfileResponse, SeasonResponse, ServerMessage } from '../protocol.ts';
 import { drawOrders, ORDER_GLORY } from '../rules/meta.ts';
 import { Cat, Kind } from '../sim/api.ts';
@@ -116,6 +116,29 @@ describe('the long loops', () => {
     const glory = profile.rank!.glory;
     advance(server, now, 30_000);
     expect((await server.app.inject({ url: '/api/users/ana' })).json<ProfileResponse>().rank!.glory).toBe(glory);
+    await server.shutdown();
+  });
+
+  it('does not rebuild the season table for every hello, yet refreshes it when a war ends', async () => {
+    const { server, now } = await boot();
+    const ana = await signIn(server, 'ana');
+    const slug = await room(server, ana, []);
+    const day = async () => {
+      advance(server, now, 20_000);
+      server.rooms.onPush({ userId: devId('ana'), pushId: `a@${now.t}`, repo: 'ana/parser', language: 'TypeScript', lines: code(200), files: 4, branches: 20, churn: 0, filler: 0, commits: 1, message: 'feat: x', at: now.t }, now.t);
+      for (let i = 0; i < 22; i++) advance(server, now, 30_000);
+    };
+    await day();
+    const roomRow = server.store.roomBySlug(slug)!;
+    const wars = vi.spyOn(server.store, 'wars');
+    const first = server.meta.season(roomRow, server.rooms.wars()[0]!.meta.day);
+    expect(first.standings[0]).toMatchObject({ days: 1 });
+    const calls = wars.mock.calls.length;
+    for (let i = 0; i < 10; i++) server.meta.monuments(roomRow, server.rooms.wars()[0]!);
+    // monuments reads the last few wars for legends, but never the whole season again.
+    expect(wars.mock.calls.filter((c) => c[1] > 3).length).toBe(calls);
+    await day();
+    expect(server.meta.season(roomRow, server.rooms.wars()[0]!.meta.day).standings[0]).toMatchObject({ days: 2 });
     await server.shutdown();
   });
 

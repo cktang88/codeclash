@@ -12,6 +12,7 @@ import { Scheduler } from './scheduler.ts';
 
 const SEEN_COMMITS_DAYS = 14;
 const CHAT_DAYS = 30;
+const SNAPSHOT_DAYS = 14;
 const PRUNE_EVERY_MS = 6 * 3_600_000;
 
 export interface Server {
@@ -62,9 +63,15 @@ export async function createServer(
   rooms.boot(now);
   if (config.commons) rooms.seedCommons(now);
   const prune = () => {
-    store.pruneSeenCommits(clock() - SEEN_COMMITS_DAYS * 86_400_000);
-    store.pruneChat(clock() - CHAT_DAYS * 86_400_000);
-    store.pruneLedger(clock());
+    // Runs from a timer: a throw here would be an uncaught exception and take the whole server down.
+    try {
+      store.pruneSeenCommits(clock() - SEEN_COMMITS_DAYS * 86_400_000);
+      store.pruneChat(clock() - CHAT_DAYS * 86_400_000);
+      store.pruneLedger(clock());
+      store.pruneEndedSnapshots(clock() - SNAPSHOT_DAYS * 86_400_000);
+    } catch (err) {
+      log.error('prune failed', { error: errorMessage(err) });
+    }
   };
   prune();
 

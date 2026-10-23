@@ -1,7 +1,7 @@
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { WebSocket } from 'ws';
 import { WS_CLOSE_FORBIDDEN, type DigestResponse, type MeResponse, type RoomDetail } from '../protocol.ts';
 import { Cat } from '../sim/api.ts';
@@ -12,7 +12,7 @@ import { devId } from './auth.ts';
 import { loadConfig } from './config.ts';
 import { silentLogger } from './log.ts';
 import { nextReset } from './rooms.ts';
-import { validWebhookUrl } from './webhook.ts';
+import { postDigest, validWebhookUrl } from './webhook.ts';
 
 const DAY = 10 * 60_000;
 
@@ -81,6 +81,11 @@ describe('rooms and the daily war', () => {
     const replay = (await server.app.inject({ url: `/api/rooms/${slug}/wars/${warId}/replay` })).json<Replay>();
     const final = server.store.latestSnapshot(warId)!;
     expect(checksum(runReplay(replay, digest.digest.ticks))).toBe(final.checksum);
+
+    // Long after the war, only its final snapshot survives pruning; replays still check out.
+    server.store.pruneEndedSnapshots(Number.MAX_SAFE_INTEGER);
+    expect(server.store.latestSnapshot(warId, final.tick - 1)).toBeNull();
+    expect(server.store.latestSnapshot(warId)).toEqual(final);
 
     const lifetime = server.store.lifetime(devId('ana'), server.store.roomBySlug(slug)!.id)!;
     expect(lifetime).toMatchObject({ days: 1, streak: 1 });
@@ -241,7 +246,65 @@ describe('access changes and abuse', () => {
   });
 });
 
+describe('the day\'s end survives failures', () => {
+  it('ends a war only together with its lifetime records, and retries a failed finish', async () => {
+    const { server, now } = await boot();
+    const ana = await signIn(server, 'ana');
+    const { slug } = (await server.app.inject({ method: 'POST', url: '/api/rooms', headers: { cookie: ana }, payload: { name: 'Fragile', visibility: 'public', resetHour: 0, bots: 0 } })).json<{ slug: string }>();
+    const roomId = server.store.roomBySlug(slug)!.id;
+    const warId = server.rooms.wars()[0]!.id;
+    advance(server, now, 30_000);
+    server.rooms.onPush({ userId: devId('ana'), pushId: 'x@1', repo: 'ana/a', language: null, lines: lines(80), files: 3, branches: 12, churn: 0, filler: 0, commits: 1, message: 'm', at: now.t }, now.t);
+    const save = server.store.saveLifetime.bind(server.store);
+    server.store.saveLifetime = () => {
+      throw new Error('disk I/O error');
+    };
+    for (let i = 0; i < 21; i++) advance(server, now, 30_000);
+    // Nothing of the day's end was kept: the war is still active, not ended without its records.
+    expect(server.store.war(warId)!.status).toBe('active');
+    expect(server.store.lifetime(devId('ana'), roomId)).toBeNull();
+    server.store.saveLifetime = save;
+    advance(server, now, 1_000);
+    advance(server, now, 1_000);
+    expect(server.store.war(warId)!.status).toBe('ended');
+    expect(server.store.lifetime(devId('ana'), roomId)).toMatchObject({ days: 1, streak: 1 });
+    expect(server.rooms.war(roomId)!.id).not.toBe(warId);
+    await server.shutdown();
+  });
+
+  it('starts the server when one room cannot be recovered', async () => {
+    const db = join(mkdtempSync(join(tmpdir(), 'pf-')), 'pf.db');
+    const now = { t: Date.UTC(2026, 9, 23, 12) };
+    const first = await boot({ db, now });
+    const ana = await signIn(first.server, 'ana');
+    for (const name of ['Broken', 'Healthy']) {
+      await first.server.app.inject({ method: 'POST', url: '/api/rooms', headers: { cookie: ana }, payload: { name, visibility: 'public', resetHour: 0, bots: 0 } });
+    }
+    const [broken, healthy] = first.server.rooms.wars();
+    first.server.store.db.prepare("UPDATE wars SET header = '{corrupt' WHERE id = ?").run(broken!.id);
+    await first.server.shutdown();
+
+    const second = await boot({ db, now });
+    expect(second.server.rooms.wars().map((w) => w.id)).toEqual([healthy!.id]);
+    await second.server.shutdown();
+  });
+});
+
 describe('lifetime streaks', () => {
+  it('keeps a streak on a day of Rest without growing it', async () => {
+    const { server, now } = await boot();
+    const ana = await signIn(server, 'ana');
+    const { slug } = (await server.app.inject({ method: 'POST', url: '/api/rooms', headers: { cookie: ana }, payload: { name: 'Resting', visibility: 'public', resetHour: 0, bots: 0 } })).json<{ slug: string }>();
+    const roomId = server.store.roomBySlug(slug)!.id;
+    const day = server.rooms.wars()[0]!.meta.day;
+    const yesterday = new Date(Date.parse(`${day}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
+    server.store.saveLifetime({ userId: devId('ana'), roomId, days: 3, wins: 0, streak: 3, bestStreak: 3, lastDay: yesterday, kills: 0, renown: 0, awards: {} });
+    expect((await server.app.inject({ method: 'POST', url: '/api/me/rest', headers: { cookie: ana }, payload: { on: true } })).statusCode).toBe(204);
+    for (let i = 0; i < 22; i++) advance(server, now, 30_000);
+    expect(server.store.lifetime(devId('ana'), roomId)).toMatchObject({ streak: 3, bestStreak: 3, lastDay: day, days: 3 });
+    await server.shutdown();
+  });
+
   it('names a first war stretched past a day for the day it ends', async () => {
     const { server } = await boot({ daily: true, now: { t: Date.UTC(2026, 9, 22, 23, 30) } });
     const ana = await signIn(server, 'ana');
@@ -265,6 +328,56 @@ describe('lifetime streaks', () => {
     for (let i = 0; i < 21; i++) advance(server, now, 30_000);
     expect(server.store.lifetime(devId('ana'), roomId)).toMatchObject({ streak: 5, lastDay: day });
     await server.shutdown();
+  });
+});
+
+describe('input validation', () => {
+  it('answers 404, not 500, for malformed room slugs and war ids', async () => {
+    const { server } = await boot();
+    const owner = await signIn(server, 'owner');
+    const { slug } = (await server.app.inject({ method: 'POST', url: '/api/rooms', headers: { cookie: owner }, payload: { name: 'Open', visibility: 'public', resetHour: 0, bots: 0 } })).json<{ slug: string }>();
+    for (const url of ['/api/rooms/A!/legends', '/api/rooms/x/season', '/api/rooms/A_B/wars', `/api/rooms/${slug}/wars/abc/digest`, `/api/rooms/${slug}/wars/-1/replay`, '/api/rooms/x/chronicle']) {
+      expect((await server.app.inject({ url })).statusCode, url).toBe(404);
+    }
+    expect((await server.app.inject({ method: 'POST', url: '/api/rooms/x/join', headers: { cookie: owner }, payload: {} })).statusCode).toBe(404);
+    await server.shutdown();
+  });
+});
+
+describe('configuration', () => {
+  it('refuses a production server without its public URL', () => {
+    const secret = 'x'.repeat(32);
+    expect(() => loadConfig({ NODE_ENV: 'production', SESSION_SECRET: secret })).toThrow(/PUBLIC_URL/);
+    expect(loadConfig({ NODE_ENV: 'production', SESSION_SECRET: secret, PUBLIC_URL: 'https://pushfront.example/' }).publicUrl).toBe('https://pushfront.example');
+    expect(() => loadConfig({ PUBLIC_URL: 'not a url' })).toThrow();
+  });
+
+  it('reads an empty flag as unset', () => {
+    const config = loadConfig({ DEV_AUTH: '', COMMONS: '' });
+    expect(config.devAuth).toBe(false);
+    expect(config.commons).toBe(true);
+    expect(config.publicUrl).toBe('http://localhost:5173');
+  });
+});
+
+describe('digest webhook', () => {
+  const room = { name: 'R', slug: 'r-abcd' } as Parameters<typeof postDigest>[1];
+  const war = { id: 1, day: '2026-10-23' } as Parameters<typeof postDigest>[2];
+  const digest = { headline: 'h', players: [], awards: [] } as unknown as Parameters<typeof postDigest>[3];
+  const url = 'https://discord.com/api/webhooks/1/abc';
+
+  it('retries a transient failure and refuses redirects', async () => {
+    const answers = [new Response('', { status: 502 }), new Response(null, { status: 204 })];
+    const fetchImpl = vi.fn(async () => answers.shift()!);
+    await postDigest(url, room, war, digest, 'https://pf.test', fetchImpl as unknown as typeof fetch, 1);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect((fetchImpl.mock.calls[0] as unknown as [string, RequestInit])[1].redirect).toBe('error');
+  });
+
+  it('does not retry a rejected webhook', async () => {
+    const fetchImpl = vi.fn(async () => new Response('', { status: 404 }));
+    await expect(postDigest(url, room, war, digest, 'https://pf.test', fetchImpl as unknown as typeof fetch, 1)).rejects.toThrow(/404/);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 });
 

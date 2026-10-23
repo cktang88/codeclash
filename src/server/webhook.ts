@@ -28,10 +28,28 @@ export function digestText(room: Pick<RoomRow, 'name' | 'slug'>, war: WarMeta, d
   return lines.join('\n');
 }
 
-export async function postDigest(url: string, room: RoomRow, war: WarMeta, digest: Digest, publicUrl: string, fetchImpl: typeof fetch = fetch): Promise<void> {
+const WEBHOOK_ATTEMPTS = 3;
+
+export async function postDigest(
+  url: string, room: RoomRow, war: WarMeta, digest: Digest, publicUrl: string, fetchImpl: typeof fetch = fetch, retryDelayMs = 5_000,
+): Promise<void> {
   if (!validWebhookUrl(url)) return;
   const text = digestText(room, war, digest, publicUrl);
   const body = new URL(url).hostname === 'hooks.slack.com' ? { text: text.replace(/\*\*/g, '*') } : { content: text.slice(0, 1990) };
-  const res = await fetchImpl(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(10_000) });
-  if (!res.ok) throw new Error(`webhook answered ${res.status}`);
+  // The digest is posted once a day: retry a blip (network, 429, 5xx) rather than lose it.
+  for (let attempt = 1; ; attempt++) {
+    let res: Response | null = null;
+    let error: unknown;
+    try {
+      // A redirect would leave the allow-listed hosts, so it is refused rather than followed.
+      res = await fetchImpl(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), redirect: 'error', signal: AbortSignal.timeout(10_000) });
+    } catch (err) {
+      error = err;
+    }
+    if (res?.ok) return;
+    if (res) error = new Error(`webhook answered ${res.status}`);
+    const transient = !res || res.status === 429 || res.status >= 500;
+    if (!transient || attempt >= WEBHOOK_ATTEMPTS) throw error;
+    await new Promise((done) => setTimeout(done, retryDelayMs * attempt).unref());
+  }
 }
