@@ -1,6 +1,6 @@
 # Pushfront
 
-Pushfront is an all-day war fought with your pushes. Sign in with GitHub and join a room. Each push you make to a public repository is read and sorted into the kind of code it is, then marches out of your capital as a platoon. Tests become shield-bearing Wardens, docs become Heralds, and deleted code becomes fast Outriders. A balanced push brings a Champion. The armies meet in the middle and fight slowly enough to watch. At the room's reset hour the day ends, everyone gets a digest, and a new map begins.
+Pushfront is an all-day war fought with your pushes. Sign in with GitHub and join a room. Each push you make to a public repository is read and sorted into the kind of code it is, then marches out of your capital as a platoon. Tests become shield-bearing Wardens, docs become Heralds, and refactors that delete code become fast Outriders. A big feature brings a Champion. The armies meet in the middle and fight slowly enough to watch. At the room's reset hour the day ends, everyone gets a digest, and a new map begins.
 
 [DESIGN.md](DESIGN.md) holds the rules and the architecture.
 
@@ -27,7 +27,7 @@ Open http://localhost:5173. The Vite dev server proxies `/api`, `/auth`, `/hooks
 | --- | --- | --- |
 | `GITHUB_TOKEN` | unset | Server token for public events and diffs. Without it, only sparring bots fight. |
 | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | unset | OAuth app for sign-in. |
-| `PUBLIC_URL` | `http://localhost:5173` | Origin browsers use. Builds OAuth callbacks, hook URLs, and digest links. |
+| `PUBLIC_URL` | `http://localhost:5173` | Origin browsers use. Builds OAuth callbacks, hook URLs, and digest links. Required in production. |
 | `SESSION_SECRET` | random per boot | HMAC key for the session cookie. Required in production, 32 or more characters. |
 | `PORT`, `HOST` | `8787`, `0.0.0.0` | Listen address. |
 | `DATABASE_PATH` | `data/pushfront.db` | SQLite file. Use a persistent volume in production. |
@@ -48,7 +48,7 @@ pnpm tsx scripts/diagnose-war.ts 8 30   # a synthetic 8-player, 30-minute war, n
 
 ## Replays
 
-Every finished war can be downloaded as a replay from `/api/rooms/<slug>/wars/<id>/replay`. A replay is the war's header (seed, slot count, players, repositories) plus its inputs, and nothing else. Any client rebuilds the same battle from it tick for tick, and the replay viewer in the app does exactly that.
+Every finished war can be downloaded as a replay from `/api/rooms/<slug>/wars/<id>/replay`. A replay is the war's header (seed, slot count, players, repositories with their languages) plus its inputs, and nothing else. Any client rebuilds the same battle from it tick for tick, and the replay viewer in the app does exactly that.
 
 ## Deploy
 
@@ -72,7 +72,7 @@ Units, castles, terrain and most effects are drawn procedurally in `src/client/r
 
 ## Sound credits
 
-Sound is off until the player presses the sound seal. Cues are defined in `src/client/audio/catalog.ts`. Sampled cues use clips from three Kenney packs, which are trimmed, made mono and loudness-normalized. The clips live in `src/client/public/audio/kenney/`, with each pack's license file alongside. Every other sound is synthesized with Web Audio in `src/client/audio/synth.ts`: horns, bells, roars, fire, drums, choir and the army's murmur. So is the generative music in `src/client/audio/music.ts`. Any sampled cue falls back to synthesis if its clip fails to load.
+Sound is off until the player presses the sound seal, on every visit, and it suspends while the tab is hidden. Cues are defined in `src/client/audio/catalog.ts`. Sampled cues use clips from three Kenney packs, which are trimmed, made mono and loudness-normalized. Each clip ships as Ogg Vorbis and as AAC (`.m4a`, for Safari before 18.4); the browser fetches the format it prefers and falls back to the other. The clips live in `src/client/public/audio/kenney/`, with each pack's license file alongside. Every other sound is synthesized with Web Audio in `src/client/audio/synth.ts`: horns, bells, roars, fire, drums, choir and the army's murmur. So is the generative music in `src/client/audio/music.ts`. Any sampled cue falls back to synthesis if its clip fails to load.
 
 | Pack | Author | License | Source |
 | --- | --- | --- | --- |

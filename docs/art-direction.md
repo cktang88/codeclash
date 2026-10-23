@@ -106,7 +106,7 @@ Dark variants for night and overlays are "night vellum": `ink-night` with gold r
 
 Terrain is painted with ink hatching on its shadow sides. Forests are clustered canopy blobs with a highlight on the top-left edge. Water is ultramarine with an animated glint shader and ink ripple lines at the shore. Rock gets angular hatched facets.
 
-**Light and time.** The war's clock is the sun.
+**Light and time.** The war's clock is the sun. It follows the war's simulated tick, not the wall clock, so a replay, a client catching up, or a tab waking from sleep shows the hour being watched. The night runs into the next reset.
 
 | Time | Light |
 | --- | --- |
@@ -165,7 +165,7 @@ The battle has distant drums whose tempo follows how intense the fight is, along
 
 The music is generative and modal (Dorian and Phrygian), made of drone, hand drum, lute and low choir. Its intensity layers follow the battle.
 
-Sound is off until the player opts in with the sound seal. The volume setting persists.
+Sound is off until the player opts in with the sound seal, and every visit starts silent (browsers allow sound only after a gesture); the volume setting persists. Sound fades out and the audio clock suspends while the tab is hidden.
 
 ## 8. Quality bar checklist (every screen and every entity)
 

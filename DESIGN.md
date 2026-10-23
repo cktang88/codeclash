@@ -1,6 +1,6 @@
 # Pushfront
 
-Pushfront is an all-day war fought with your pushes. You sign in with GitHub and join a room (public, or private by invite). Every push you make to a public repository is read, sorted into what kind of code it is, and becomes a **platoon** that marches out of your capital toward the middle of the map. Nobody steers individual soldiers. You make a few scarce decisions, and you watch. Each room's war lasts 24 hours. At the room's reset hour the war ends, a **digest** is written, and a fresh map begins.
+Pushfront is an all-day war fought with your pushes. You sign in with GitHub and join a room (public, or private by invite). Every push you make to a public repository is read, sorted into what kind of code it is, and becomes a **platoon** that marches out of your capital toward the middle of the map. Nobody steers individual soldiers. You make a few scarce decisions, and you watch. Each room's war lasts a day, from one reset hour to the next (a new room's first war runs to the next reset, or to the one after if that is less than an hour away). At the room's reset hour the war ends, a **digest** is written, and a fresh map begins.
 
 This file is the source of truth for the rules and the architecture.
 
@@ -8,9 +8,15 @@ This file is the source of truth for the rules and the architecture.
 
 ### What we read
 
-For every member, the server polls `GET /users/{login}/events/public` with an ETag. An unchanged feed answers `304`, which costs no rate limit. For each new `PushEvent` (keyed by `push_id`), it calls `GET /repos/{o}/{r}/compare/{before}...{head}` once. A new branch (`before` is all zeros) falls back to `GET /repos/{o}/{r}/commits/{head}`. A branch deletion is skipped. Only commits authored by the member count, and a commit SHA already seen for that member is never counted twice.
+For every member, the server polls `GET /users/{login}/events/public` with an ETag, no more often than once a minute (or GitHub's `X-Poll-Interval`, if longer). An unchanged feed answers `304`, which costs no rate limit. A busy feed is read up to 3 pages of 100 events deep; a member's first poll looks back 24 hours. The poller wakes every 5 seconds and polls only as many members as keep it within 60% of the remaining rate limit until the limit resets (at least one while more than 50 requests remain). Events whose actor is another account (a renamed login taken by someone else) are skipped.
 
-GitHub delivers public events anywhere from 30 seconds to several hours late. A member who wants near-real-time armies can add a repository webhook (push events) pointing at their personal hook URL. The server verifies the HMAC signature and then runs the same compare call.
+For each new `PushEvent` to a branch (keyed by `{repo}@{head}`), it calls `GET /repos/{o}/{r}/compare/{before}...{head}` once. A new branch (`before` is all zeros) falls back to `GET /repos/{o}/{r}/commits/{head}`. A branch deletion or a tag is skipped. A push that keeps failing is skipped after 5 tries; failures from GitHub's rate limit do not use up its tries.
+
+- **Own commits only.** A commit is the member's when GitHub links its author to the member's account id; with no linked account, the author login is compared instead. Merge commits never count.
+- **Mixed pushes.** When the range holds anyone else's commits or any merge (a `git pull`, an upstream sync), only the member's own commits are measured, one by one through `GET /commits/{sha}`, the newest 20 at most.
+- **Once per commit.** A commit SHA already counted for that member is never counted again, whichever path (poller, webhook, another branch) brings it.
+
+GitHub delivers public events anywhere from 30 seconds to several hours late. A member who wants near-real-time armies can add a repository webhook (push events) pointing at their personal hook URL. The server verifies the HMAC signature, ignores private repositories and pushes the member did not make, allows 20 deliveries a minute per hook, and then runs the same ingestion. Webhooks are strict: a commit with no GitHub-linked author does not count.
 
 Only public repositories are read. Pushfront rewards real code: how much of it, how many files it touches, how complex it is, and what it is for (fixing a bug, shipping a feature, refactoring). Generated and vendored code count for nothing, and diminishing returns keep volume alone from winning.
 
@@ -20,9 +26,9 @@ Each changed file is classified by path. The first matching rule wins:
 
 | Category | Matched by |
 | --- | --- |
-| vendor | `node_modules/`, `vendor/`, `third_party/`, `extern/`, `bower_components/`, `Godeps/`, `Carthage/`, `*.min.js` |
-| generated | lockfiles, `dist/`, `build/`, `out/`, `target/`, `.next/`, `coverage/`, `*.map`, `*.pb.go`, `*_pb2.py`, `*.g.dart`, `*_generated.*`, `*.gen.*`, `*.snap`; any file whose patch header says `@generated`, `DO NOT EDIT`, or `auto-generated` |
-| docs | `*.md`, `*.mdx`, `*.rst`, `*.adoc`, `*.txt`, `docs/`, `README`, `CHANGELOG`, `LICENSE`, `CONTRIBUTING` |
+| vendor | `node_modules/`, `vendor/`, `third_party/`, `extern/`, `bower_components/`, `Godeps/`, `Carthage/`, `*.min.js`, `*.min.css` |
+| generated | lockfiles, `dist/`, `build/`, `out/`, `target/`, `.next/`, `coverage/`, `__snapshots__/`, `*.map`, `*.pb.go`, `*_pb2.py`, `*.g.dart`, `*_generated.*`, `*.gen.*`, `*.snap`; any file whose first 5 lines say `@generated`, `DO NOT EDIT`, `auto-generated` or `Code generated by`; minified source (JS, TS, CSS or HTML additions averaging over 110 characters a line) |
+| docs | `*.md`, `*.mdx`, `*.rst`, `*.adoc`, `*.txt`, `*.tex`, `*.bib`, `docs/`, `README`, `CHANGELOG`, `LICENSE`, `CONTRIBUTING` |
 | test | `*.test.*`, `*.spec.*`, `__tests__/`, `test/`, `tests/`, `spec/`, `e2e/`, `*_test.go`, `test_*.py`, `*_test.py`, `conftest.py`, `src/test/`, `*Test.java`, `*Tests.swift`, `*_spec.rb`, `testdata/`, `fixtures/` |
 | config | `.github/`, `Dockerfile`, `Makefile`, `*.yml`, `*.yaml`, `*.toml`, `*.ini`, `*.json`, `*.tf`, `*.nix`, `.gitignore`, `.editorconfig`, dotfiles |
 | source | everything else with a known source extension |
@@ -37,12 +43,14 @@ Inside **source** files, every *added* line from the patch is counted as one of 
 
 Deleted source lines are counted as **removed**. Test, docs, config, generated and vendor files count added non-blank lines. When GitHub omits a patch because it is too large, the file's `additions` count is used, and those lines are all treated as code.
 
+Every line then passes through the player's ledger (see *How many soldiers* below and [docs/fair-play.md](docs/fair-play.md)), which credits each distinct line once, leaves filler out, and caps code at 5000 lines per UTC day.
+
 The nine line counts are `code, test, comment, docs, config, removed, generated, vendor, blank`. **Blank lines raise nothing.** They are recorded for the digest.
 
 Two more numbers come from the source files:
 
-- **Files touched:** source files with at least one added or removed code line. Test, docs, config, generated and vendored files don't count.
-- **Branch points:** a measure of complexity. Added code lines are scanned for `if`, `for`, `while`, `case`, `catch`, `&&`, `||` and the ternary `?`, with each language's equivalents (`elif`, `and`, `or`, `except` in Python, `unless`, `rescue` in Ruby, `match` arms in Rust). When GitHub omits a patch, the count is estimated as additions ÷ 12.
+- **Files touched:** source files where at least one code line carries a net change today. Test, docs, config, generated and vendored files don't count. The count is kept per UTC day, so a file touched yesterday counts again when it is changed today, and a file whose changes are all undone stops counting.
+- **Branch points:** a measure of complexity. Added code lines are scanned for `if`, `for`, `while`, `case`, `catch`, `&&`, `||` and the ternary `?`, with each language's equivalents (`elif`, `and`, `or`, `except` in Python, `unless`, `rescue` in Ruby, `match` arms in Rust). CSS, HTML and SQL have none. A line carries at most 2. When GitHub omits a patch, the count is estimated as additions ÷ 12.
 
 **Purpose** comes from the first line of the newest counted commit's message. Conventional-commit prefixes come first, then common words. The first match wins:
 
@@ -65,27 +73,29 @@ Each unit takes one or more **slots** in its platoon. Speed is in world units pe
 | Unit | Raised by | Slots | HP | Dmg | Range | Speed | Abilities |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Footman | any code | 1 | 110 | 11 | melee | 1.6 | Spear and shield. +60% vs Outriders and Knights |
-| Knight | complex code | 2 | 240 | 22 | melee | 2.4 | Charge: the first blow after riding 40 units deals ×1.8 |
-| Troll | very complex code | 3 | 600 | 24 | melee | 1.2 | Regenerates 1.2 HP per tick, a quarter of that while scorched by fire. +30% vs base units. Hired for 20 minutes, then lumbers home |
+| Knight | complex code | 2 | 240 | 22 | melee | 2.4 | Charge: the first blow after riding 40 units deals ×1.8. +60% vs Outriders and Knights |
+| Troll | very complex code | 3 | 600 | 24 | melee | 1.2 | Regenerates 1.2 HP per tick, a quarter of that while scorched by fire. +30% vs base units. Hired for 20 minutes, then lumbers home once its platoon is out of combat |
 | Berserker | untested, uncommented code | 1 | 120 | 26 | melee | 2.1 | Hits hard, dies fast |
-| Trebuchet | sweeping changes | 3 | 260 | 34 | 175 | 0.8 | Stones burst over 22 units. Prefers any structure in range. ×2 vs structures |
+| Trebuchet | sweeping changes | 3 | 260 | 34 | 175 | 0.8 | Stones burst over 22 units. Prefers any structure in range whose walls lie within its banner's leash. ×2 vs structures |
 | Cleric | bug fixes | 1 | 90 | 5 | melee | 1.5 | Every 2 s, heals the most wounded ally within 80 for 22 |
 | Paladin | larger bug fixes | 2 | 320 | 14 | melee | 1.4 | Shield aura like a Warden's. Every 2 s, heals the most wounded ally within 40 for 6. ×2 vs undead |
 | Ranger | bug fixes with real code | 2 | 90 | 13 | 125 | 1.9 | Elven longbow. +40% vs Skeletons, Mercenaries, Berserkers. +80% vs fliers. Half damage to Wardens and Paladins |
 | Champion | big work | 2 | 520 | 26 | melee | 1.5 | Allies within 60 deal 20% more. Its platoon cannot rout while it lives. ×1.5 vs heroes and Dragons |
-| Dragon | legendary features | 6 | 2400 | 24 | 70 | 2.0 | Flies. Every 2 s breathes fire on every enemy in a 50° cone, and singes structures in it. Valor aura like a Champion's |
-| Outrider | refactors, deleted code | 1 | 120 | 15 | melee | 3.2 | +60% vs ranged units, Heralds, Sappers, Clerics |
+| Dragon | legendary features | 6 | 2400 | 24 | 70 | 2.0 | Flies. Every 2 s breathes fire on every enemy in a 50° cone, scorching them, and singes structures in it for 30%. Valor aura like a Champion's, and its platoon cannot rout while it lives |
+| Outrider | refactors, especially deleted code | 1 | 120 | 15 | melee | 3.2 | +60% vs ranged units, Heralds, Sappers, Clerics |
 | Griffin Rider | big refactors | 2 | 200 | 20 | melee | 3.6 | Flies over water, rock and crowds. Same bonuses as the Outrider |
-| Wizard | performance work | 2 | 85 | 20 | 120 | 1.4 | Fireballs burst over 28 units (full damage at the center, half at the edge) |
+| Wizard | performance work | 2 | 85 | 20 | 120 | 1.4 | Fireballs burst over 28 units (full damage at the center, half at the edge) and scorch |
 | Skeleton | reverts | 1 | 70 | 6 | melee | 1.3 | Brittle undead |
 | Bone Golem | big reverts | 3 | 520 | 14 | melee | 0.9 | Lumbering wall. +30% vs base units |
-| Mercenary | chores, dependency bumps | 1 | 130 | 16 | melee | 1.8 | Contract ends 10 minutes after marching out |
+| Mercenary | chores, dependency bumps | 1 | 130 | 16 | melee | 1.8 | Contract ends 10 minutes after marching out; it leaves once its platoon is out of combat |
 | Warden | tests (support) | 1 | 190 | 6 | melee | 1.3 | Tower shield: allies within 40 take 30% less damage. Arrows deal half damage to it |
 | Archer | comments (support) | 1 | 55 | 8 | 95 | 1.6 | Arrows in flight, with the Ranger's bonuses |
-| Herald | docs (support) | 1 | 80 | 4 | melee | 1.6 | Banner aura: heals allies within 50. Halves its platoon's morale loss |
-| Sapper | config (support) | 1 | 90 | 10 | melee | 1.5 | ×6 damage to structures |
+| Herald | docs (support) | 1 | 80 | 4 | melee | 1.6 | Banner aura: allies within 50 heal 0.5 HP per tick. Halves its platoon's morale loss |
+| Sapper | config (support) | 1 | 90 | 10 | melee | 1.5 | ×6 damage to structures. Runs ahead to the walls of its platoon's objective once within its leash |
 
 Fliers ignore terrain and the press of ground soldiers. Melee soldiers can still strike them once the flier comes within reach.
+
+Soldiers stay leashed to their banner (1.7 × their aggro range), for enemies and walls alike, so platoons fight as blocks. A burst (fireball or stone) is weighed against each soldier it lands on, when it lands: the shooter's bonus against that soldier, then that soldier's own shields, forest cover and home turf. Missiles (arrows, fireballs, stones, tower bolts) do half damage to soldiers in forest.
 
 ### How many soldiers: the day's ledger
 
@@ -94,29 +104,30 @@ An army is worth what its player contributed **today as a whole**, not push by p
 1. **The ledger.** Each player has a ledger for the day. Ingestion turns every push into signed changes to it: code, tests, comments, docs, config and removed lines; source files touched; branch points; churn; filler. See [docs/fair-play.md](docs/fair-play.md) for how a diff is measured.
 2. **The target army.** The ledger decides the army it is worth, `armyFor(ledger)`. Each push musters only the difference between that target and what the player has already raised.
 3. **Splitting and squashing are equal.** Twenty small pushes and one squashed push of the same work leave the same ledger, so they raise an army of the same size and strength. Only the timing differs.
-4. **Desertion.** When later pushes undo earlier work (deleting code added today, rewriting it back), the ledger shrinks and soldiers **desert**: waiting ones first, then the newest in the field.
+4. **Desertion.** When later pushes undo earlier work (deleting code added today, rewriting it back), the ledger shrinks and soldiers **desert**: the kinds furthest above their target first, and of each kind the waiting ones first, then the newest in the field. Soldiers never desert while the ledger is growing.
+5. **Purpose follows the work.** The ledger also tallies code and removed lines by purpose. Undone lines come off the undoing push's own purpose first, then off the others in order, so the purposes always add up to the total: writing a feature and deleting it under a `fix:` message leaves nothing behind.
 
 **The budget.** The army's size, in platoon slots, is
 
 `floor(1.1·√code + 1.5·√files + 0.5·√branches + 0.3·√removed)`
 
-where *code* is counted code lines, *files* source files touched, *branches* branch points, and *removed* deleted lines that were not today's own work. The square roots give diminishing returns over the day, so volume alone never wins.
+(0 when there are no code or removed lines), where *code* is counted code lines, *files* source files touched, *branches* branch points, and *removed* deleted lines the ledger had not credited to the player as their own recent work. Each is first bounded by the real code behind it (`effectiveLedger`): code and removed at most 5000 per war, files at most `1 + code/20 + removed/100`, branches at most `code/3`. The square roots give diminishing returns over the day, so volume alone never wins.
 
-**Specialists come out of the budget.** What the work was for, and how complex it was, spend up to 65% of the budget. Heroes are paid first, and Footmen fill the rest. The commit message therefore changes what the army is made of, never how big it is. All counts below are for the whole day:
+**Specialists come out of the budget.** What the work was for, and how complex it was, spend up to 65% of the budget. They are paid in this order while the share lasts: Dragon, Champion, Troll, Trebuchet, Griffin Rider, Bone Golem, Paladin, Ranger, Wizard, Knight, Cleric, Outrider, Mercenary, Skeleton. Footmen fill the rest. The commit message therefore changes what the army is made of, never how big it is. All counts below are for the whole day:
 
 | Raised by | Specialists |
 | --- | --- |
 | fix code *f* | `floor(√f / 2.5)` Clerics, `floor(f / 150)` Paladins, `floor(f / 250)` Rangers |
-| feature code *F* | `min(3, floor(F / 400), floor(files / 5))` Champions |
+| feature code *F* | `min(3, floor(F / 400), floor(files / 5))` Champions, less one for each Dragon |
 | feature and plain work *W* | a Dragon at *W* ≥ 900 with files ≥ 10 and branches ≥ 90; a second at 4000 / 40 / 400 |
-| refactors | `floor(√(removed + code/2) / 1.5)` Outriders; a Griffin Rider per 400 removed lines (up to 3) |
+| refactors | `floor(√(removed + code/2) / 1.5)` Outriders, from refactor lines; a Griffin Rider per 400 refactor lines removed (up to 3) |
 | perf code *P* | `min(4, floor(√P / 3))` Wizards |
-| reverts *R* | `floor(√R)` Skeletons; a Bone Golem per 600 lines (up to 2) |
+| reverts *R* (code and removed) | `floor(√R)` Skeletons; a Bone Golem per 600 lines (up to 2) |
 | chore code *C* | `min(3, floor(√C / 2))` Mercenaries |
 | branch points *B* | `floor(2·√(B/10))` Knights; with 200+ code lines, a Troll per 150 branch points (up to 3) |
 | files | a Trebuchet per 15 files (up to 3) |
 
-If a day's code has no tests and no comments at all, half of its Footmen fight as Berserkers.
+If a day has 50 or more code lines and no test or comment lines at all, a third of its Footmen (rounded down) become Berserkers, and each Berserker takes the place of two Footmen: skipping tests never makes an army stronger.
 
 **Support is small and separate.** It does not come out of the budget:
 
@@ -128,9 +139,9 @@ If a day's code has no tests and no comments at all, half of its Footmen fight a
 | config | `min(3, floor(config / 80))` Sappers |
 | generated, vendored | nothing |
 
-The first push of the day always sends at least one Footman. A large muster marches as several platoons of at most 32 slots each.
+An army that would otherwise be empty gets one Footman, so the first push of the day always sends someone. A large muster marches as several platoons of at most 32 slots each, heroes first.
 
-**Quality and veterans.** Every soldier's HP and damage are multiplied by its army's power, `quality × (1 + 0.1 × veteran rank)`. Power is recomputed from the ledger, so it reaches soldiers already in the field too.
+**Quality and veterans.** Every soldier's HP and damage are multiplied by its army's power, `quality × (1 + 0.1 × veteran rank)`: its blows are multiplied by power, and the damage it takes is divided by it. Power is recomputed from the ledger at every push, so it reaches soldiers already in the field too.
 
 - **Veteran ranks** need both code and source files touched:
 
@@ -140,7 +151,7 @@ The first push of the day always sends at least one Footman. A large muster marc
   | 2 | 800 | 12 |
   | 3 | 2000 | 25 |
 
-- **Well tested.** Tests worth at least a fifth of the code (with 50+ code lines) add 5% quality.
+- **Well tested.** Tests worth at least a fifth of the code (with 50+ code lines) add 5% quality. Ratios here are measured against code + 20 lines.
 - **A ragged army** comes from padding:
 
   | Padding | Penalty |
@@ -153,10 +164,10 @@ The first push of the day always sends at least one Footman. A large muster marc
 
 **Caps.**
 
-- A player fields at most 160 slots, and a room at most 2000 soldiers. A platoon that would break either cap waits in its capital's **muster queue** and marches when there is room. The queue holds up to 24 platoons.
-- An army has at most one Dragon alive. A second legendary push brings a Champion instead.
+- A player fields at most 160 slots, and a room at most 2000 soldiers. A platoon that would break either cap waits in its capital's **muster queue** and marches when there is room. The queue holds up to 24 platoons. When it is full, a new push's soldiers fold into the waiting platoons, newest first, up to 32 slots each; any left over are not raised yet, and a later push musters them.
+- An army has at most one Dragon alive. When a platoon marches out with a Dragon while one is already alive (or with two, from one squashed legendary push), each extra Dragon becomes a Champion.
 
-**Regrouping.** Remnants fold into stronger formations of the same army. A platoon qualifies when it has 4 or fewer soldiers left, or less than 30% of its strength. It merges into a bigger platoon of its army within 140 units. A routed remnant that reaches its capital joins its army's nearest platoon in the field, at any distance.
+**Regrouping.** Remnants fold into stronger formations of the same army. A platoon qualifies when it has 4 or fewer soldiers left, or less than 30% of its full size. It merges into the nearest platoon of its army in the field, at least as large, within 140 units, and the merged platoon re-forms its ranks. A routed remnant of 4 or fewer that rallies at its capital joins its army's nearest such platoon at any distance.
 
 ## 2. Hierarchy and heraldry
 
@@ -173,31 +184,31 @@ The first push of the day always sends at least one Footman. A large muster marc
 
 ## 3. The battlefield
 
-The map is a disc with one **capital** per slot, on a ring at 84% of the radius. A war's map is generated at the start of the day with `slots = clamp(members + 2, 4, 16)`, so players who join during the day take a spare slot. Once all slots are taken, a new member starts with tomorrow's war.
+The map is a disc with one **capital** per slot, on a ring at 84% of the radius. A war's map is generated at the start of the day with `slots = clamp(players + 2, 4, 16)`, where *players* counts members and sparring bots, so players who join during the day take a spare slot. Once all slots are taken, a new member starts with tomorrow's war. A room is full at 16 members and bots.
 
-- **Capital.** One per player. It has 8000 HP and a tower (20 damage, range 160). Platoons spawn at its gate. Within 220 units of their own capital, a player's units take 20% less damage (home turf).
-- **Sacking.** A capital at 0 HP is **sacked**. The player who dealt the final blow gains renown: 120 for the first sack of that capital today, 60 for the second, 40 for the third, and so on (`120 / n`, rounded down). The capital lies in ruins for 20 minutes, invulnerable and silent, and then rebuilds at full HP, with its maximum HP and its tower's damage raised by the base amount again for every time it has been sacked that day.
+- **Capital.** One per player. It has 8000 HP and a tower (20 damage, range 160, a bolt every second). Platoons spawn at its gate. Within 220 units of their own capital, a player's units take 20% less damage (home turf).
+- **Sacking.** A capital at 0 HP is **sacked**. The player who dealt the final blow gains renown: 120 for the first sack of that capital today, 60 for the second, 40 for the third, and so on (`120 / n`, rounded down). The capital lies in ruins for 20 minutes, invulnerable and silent, and then rebuilds at full HP, with its maximum HP and its tower's damage raised by the base amount again for every time it has been sacked that day (16000 HP and 40 damage after one sack).
 - **Shrines.** One per slot, at 46% of the radius between neighboring capitals. Each is capturable.
-- **The Heart.** It sits at the center and is guarded at dawn by the **Legacy Monolith**, a neutral structure with `30000 + 10000 * members` HP that fires on anyone near it. Everyone attacks it together. The player who dealt the most damage to it gets the Monolith award. The Heart can be captured only after the Monolith falls.
-- **Terrain.** Forest slows movement by 40% and halves arrow damage. Water and rock are impassable. The terrain is generated from seeded noise in one sector and rotated into the others, so every slot sees the same map.
+- **The Heart.** It sits at the center and is guarded at dawn by the **Legacy Monolith**, a neutral structure with `30000 + 10000 × players` HP (members and bots) that fires on anyone near it (30 damage, range 140, a bolt every 0.8 s). Everyone attacks it together. The player who dealt the most damage to it gets the Monolith award. The Heart can be captured only after the Monolith falls.
+- **Terrain.** Forest slows ground movement by 40% and halves missile damage. Water and rock are impassable. The terrain is generated from seeded noise in one sector and rotated into the others, so every slot sees the same map.
 
 ### Capture
 
-A shrine or the Heart flips after a single army has held it uncontested for 10 seconds (30 seconds for the Heart).
+A shrine or the Heart flips after a single army has held it uncontested for 10 seconds (30 seconds for the Heart). Progress drains back while the site is contested or empty.
 
 ## 4. Command (the scarce decisions)
 
 | Lever | What it does | Limit |
 | --- | --- | --- |
-| **Doctrine** | Assault: +15% damage, prefers enemy capitals and the Heart. Hold: +20% damage reduction near your shrines, defends. Siege: +50% structure damage, targets capitals. Skirmish: +20% speed, prefers lightly held objectives. | change once per hour |
+| **Doctrine** | Balanced (the default): no modifiers. Assault: +15% damage, prefers enemy capitals and the Heart. Hold: 20% damage reduction within 200 of your shrines, defends. Siege: +50% structure damage, targets capitals. Skirmish: +20% speed, prefers lightly held objectives. | change once per hour |
 | **Rally** | Every platoon marches on one chosen objective | once per 30 minutes, lasts 2 hours |
 | **War Cry** | Your soldiers deal +30% damage and move 25% faster for 60 seconds | once per war |
 
-All three are deterministic inputs to the simulation, so they appear in the replay.
+All three are deterministic inputs to the simulation, so they appear in the replay. The server checks a command against the world at the tick it will be stamped with (one second ahead) and refuses one that is cooling down, already queued, or would land in the war's last second (`ended`); the simulation checks again when it applies it.
 
 Each player's **war council** runs every 3 seconds. It gives each platoon an objective, weighing these factors:
 
-- the objective's renown
+- the objective's renown (the renown leader's capital draws more)
 - distance (supply lines: reinforcements always come from the capital)
 - enemy and friendly strength nearby
 - doctrine
@@ -205,7 +216,7 @@ Each player's **war council** runs every 3 seconds. It gives each platoon an obj
 
 ## 5. Morale and routs
 
-Every platoon has morale from 0 to 100. Morale falls by `150 / platoonSize` per soldier lost and drains while the platoon is outnumbered 2 to 1. A Herald halves the loss. Morale recovers slowly out of combat.
+Every platoon has morale from 0 to 100. Morale falls by `150 / platoonSize` per soldier lost and drains (2 per second) while the platoon is engaged and outnumbered 2 to 1 within 90 units. A Herald halves both. Morale recovers slowly out of combat. A platoon with a living Champion or Dragon never drops below 1.
 
 At 0 morale the platoon **routs**: it stops fighting and flees to its capital. There it rallies at 60 morale and takes new orders. Routs make fights end and stay readable.
 
@@ -217,14 +228,14 @@ Renown is the score:
 | --- | --- |
 | Shrine held | 2 per minute |
 | The Heart held | 5 per minute |
-| Kill | the victim's value (1 for most units, 2 for Wardens, Heralds, Outriders and Mercenaries, 10 for a Champion) |
+| Kill | the victim's value: 1 for Footmen, Archers, Sappers and Skeletons; 2 for Wardens, Heralds, Outriders, Mercenaries and Berserkers; 3 for Rangers and Clerics; 4 for Knights and Bone Golems; 5 for Paladins, Wizards, Trebuchets and Griffin Riders; 6 for a Troll; 10 for a Champion; 30 for a Dragon |
 | Kill of a soldier of the renown leader (bounty) | double the victim's value |
 | Monolith damage | 1 per 100 damage |
 | Sacking a capital | 120 for the first sack of that capital today, then `120 / n` for the n-th |
 
 A holding pays in full only while its owner has soldiers near it. An ungarrisoned holding pays a quarter of its renown, rounded down. A leader therefore has to spread thin to keep everything.
 
-At the reset hour, the player with the most renown wins the day.
+At the reset hour, the player with the most renown wins the day (nobody wins if no one earned any; a tie goes to the player who joined first).
 
 ## 7. The daily digest
 
@@ -236,29 +247,36 @@ When a war ends, the server computes a digest from the final world and the war's
 
 | Award | Goes to |
 | --- | --- |
+| Victor of the Day | the winner |
 | Warlord | most kills |
-| Iron Wall | fewest losses per soldier raised |
+| Iron Wall | most soldiers raised per loss (20+ raised) |
 | Test Legion | most test lines |
 | Scribe | most docs and comment lines |
 | Demolisher | most removed lines |
-| Siegebreaker | most structure damage |
+| Siegebreaker | most damage to capitals |
 | Monolith Slayer | most Monolith damage |
 | Ghost | the highest renown per soldier raised |
 | Bugslayer | most bug-fix pushes |
 | Architect | most branch points added |
+| Conqueror | most shrines and Hearts captured |
+| Dragonlord | most Dragons raised |
+| Dragonslayer | most Dragons felled |
+
+An award needs a score above zero; a tie goes to the player who joined first.
 
 - highlights: the largest clashes, sacks, captures, and the Monolith's fall, each with a tick so the replay can jump there
 - each player's best platoon, with its repo and commit message
-- lifetime progress: days played, days won, the current streak of days with at least one push, and titles earned
+- lifetime progress: days played (days with a push), days won, the current streak of days with at least one push, and titles earned
 
-Members may switch on **Rest** for a day, which keeps their streak. A room owner may set a Slack or Discord webhook URL, and the digest is posted there.
+Members may switch on **Rest** for a UTC day, which keeps their streak without growing it. A room owner may set a Slack or Discord incoming-webhook URL (https only, those hosts only), and the digest is posted there, with up to 3 tries on a network error, 429 or 5xx.
 
 ## 8. Rooms
 
 - **Visibility.** A public room appears in the lobby. Anyone can watch it, and any signed-in player can join. A private room is reachable only through its invite link. Only members and holders of the link can watch it.
 - **Settings.** The owner sets the room's name, its reset hour (in UTC), and how many sparring bots it has (0–6). Bots push synthetic code so that a room is never empty.
 - **Owner tools.** The owner can rename the room, change its settings, remove members, and rotate the invite code.
-- **In the room.** Viewers see presence (who is watching). They can send emotes, which float over the sender's capital, and use a short chat. Chat and emotes are not part of the replay.
+- **In the room.** Viewers see presence (who is watching). Signed-in viewers can send emotes, which float over the sender's capital, and members can use a short chat (240 characters, 6 messages per 10 seconds). Chat and emotes are not part of the replay.
+- **Rollover.** At the reset the war is run to its last tick, its digest and lifetime records are written in one transaction, and the next war starts where the last one ended (or at the latest reset boundary, if the server was down past it). Every viewer gets the new war's hello at once. If any step fails, the war stays active and the whole rollover is retried.
 
 ## 9. Determinism and replay
 
@@ -272,12 +290,12 @@ A war's **replay** is everything needed to rebuild it, and nothing more:
   "seed": 123, "slots": 6, "members": 4, "tickMs": 200,
   "startsAt": 1761177600000, "endsAt": 1761264000000,
   "players": [{ "login": "ana", "id": 1, "hue": 210, "slot": 0, "bot": false }],
-  "repos": ["ana/parser"],
-  "inputs": [[1200, "push", 0, 0, [120, 30, 12, 4, 0, 18, 0, 0, 9], 3, "fix: tokenizer", 4, 17], [3000, "doc", 0, 2]]
+  "repos": [["ana/parser", "TypeScript"]],
+  "inputs": [[0, "join", 0, 0, 210], [1200, "push", 0, 0, [120, 30, 12, 4, 0, 18, 0, 0, 9], 3, "fix: tokenizer", 4, 17, 0, 2], [3000, "doc", 0, 2]]
 }
 ```
 
-The map, the capitals and everything else derive from `seed`, `slots` and `members`. The chronicle (history log) is a pure function of the simulation's events, so a replay reproduces it too. The server keeps snapshots every 10 minutes only to seek quickly. They are a cache, not a source of truth.
+`repos` holds `[name, language]` pairs. A push input is `[tick, "push", p, repo, lines, commits, message, files, branches, churn, filler]`; its lines, files and branches are signed changes to the player's ledger. The map, the capitals and everything else derive from `seed`, `slots` and `members`. The chronicle (history log) is a pure function of the simulation's events, so a replay reproduces it too. The server keeps a snapshot every 10 minutes only to seek quickly, thins older ones to one an hour, and 14 days after a war ends keeps only its final one. They are a cache, not a source of truth.
 
 ## 10. Architecture
 
@@ -291,6 +309,17 @@ GitHub events/compare ─▶ ingest ─▶ SQLite (users, pushes, seen commits)
 ```
 
 - **One authoritative Node process.** It runs every room's war, the poller, HTTP and WebSockets.
-- **Lockstep spectators.** A client receives one snapshot, then only inputs stamped one second ahead, and simulates locally with interpolation. A checksum every 10 seconds catches divergence.
+- **Lockstep spectators.** A client receives one snapshot (the *hello*), then only inputs stamped one second ahead, and simulates locally with interpolation. A checksum every 10 seconds catches divergence. It covers the units, platoons, structures, shots and sites, and each player's renown, commands, ledger, raised army and feats, so a divergence in the books shows before the next push would reveal it.
+- **Hello limits.** A hello carries a full snapshot, so the hub rations them per viewer (the user, or the address for anonymous viewers) across all their sockets: a burst of 8, then one per second. A socket asks to resync at most every 2 seconds; extra asks are folded into one deferred hello rather than dropped. When 4 of a viewer's sockets are already waiting, a new one is turned away with close code `1013` (try again later), and the client backs off and retries, and a socket more than 4 MB behind is dropped. A new war's hello goes to everyone at once.
+- **Client connection.** Reconnects back off from 1 s, doubling to 30 s, with up to 50% jitter so a server restart is not met by every viewer at once; only a session that went live resets the backoff. A watchdog reconnects after 45 seconds without any message, or when a resync is not answered within 10 seconds.
+- **Client presentation.** The sun follows the war's simulated tick, not the wall clock, so a replay, a catch-up or a waking tab shows the hour being watched. Sound is off on every visit until the viewer opts in; sampled cues ship as Ogg Vorbis and AAC, and audio fades and suspends while the tab is hidden.
 - **SQLite in WAL mode.** Every input is written to the log before it is broadcast. On restart, a war loads its latest snapshot, replays the logged inputs, and catches up to wall-clock time.
+- **Retention.** Pruned every 6 hours:
+
+  | Data | Kept |
+  | --- | --- |
+  | ledger balances | count for 7 days after they last moved; deleted after 8 |
+  | seen commits and push records | 14 days |
+  | chat | 30 days |
+  | snapshots of ended wars | the final one only, after 14 days |
 - **Stack.** TypeScript everywhere. Fastify and `@fastify/websocket` on the server. PixiJS 8 renders the battlefield and React the HUD. Vite builds the client, and Vitest runs the tests.
