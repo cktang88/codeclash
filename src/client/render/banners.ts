@@ -3,6 +3,7 @@ import { CanvasSource, Container, Graphics, MeshPlane, Sprite, Text, Texture } f
 import { declutter, type DeclutterBox } from './declutter.ts';
 import { canvas2d } from './paint.ts';
 import { PlatoonState, type Platoon, type World } from '../../sim/api.ts';
+import { Form } from '../../sim/formation.ts';
 import type { RepoRef } from '../../sim/replay.ts';
 import { FLAG_H, FLAG_W, TOKEN_H, TOKEN_W, gradeOf, type FlagCache, type FlagTrim } from './flags.ts';
 
@@ -69,6 +70,9 @@ interface BannerView {
   seen: number;
   key: string;
   routFlash: number;
+  /** How high the banner is held, 0 dipped to 1 raised, and where it is easing to. */
+  raise: number;
+  raiseTarget: number;
   x: number;
   y: number;
   /** The platoon's anchor, eased: the sim moves it in 5Hz steps. */
@@ -218,6 +222,7 @@ export class BannerLayer {
       if (!v) {
         v = this.create();
         v.platoon = pl.id;
+        v.raise = v.raiseTarget = pl.form === Form.Column ? 0.65 : 1;
         v.ax = pl.x;
         v.ay = pl.y;
         v.x = c ? c.x * 0.6 + pl.x * 0.4 : pl.x;
@@ -260,7 +265,13 @@ export class BannerLayer {
       v.root.zIndex = v.y + (pl.id === selected ? 1e6 : 0);
       const routing = pl.state === PlatoonState.Rout;
       const engaged = pl.state === PlatoonState.Engage;
-      v.root.rotation = routing ? -0.35 + (reducedMotion ? 0 : Math.sin(now / 120) * 0.08) : 0;
+      // Held by form: dipped on the march, rising as the line deploys, high once formed.
+      v.raiseTarget = pl.form === Form.Column ? 0.65 : pl.form === Form.Deploying ? 0.9 : 1;
+      v.raise += (v.raiseTarget - v.raise) * (reducedMotion ? 1 : 1 - Math.pow(0.9, dtMs / 16.67));
+      const dip = far ? 0 : 1 - v.raise;
+      // A dipped banner is carried lower and tilted forward; raised, it stands straight.
+      if (dip > 0.01) v.root.position.y += dip * FLAG_H * 0.5 * scale;
+      v.root.rotation = routing ? -0.35 + (reducedMotion ? 0 : Math.sin(now / 120) * 0.08) : dip * 0.35;
       // Cloth only ripples where it can be seen; far tokens stay still. Reduced motion: a breath of wind.
       if (!far || pl.id === selected) v.flag.update(now / 1000, (routing ? 3 : engaged ? 7 : 4.5) * (reducedMotion ? 0.25 : 1));
       const flash = now - v.routFlash < 900 ? 1 - (now - v.routFlash) / 900 : 0;
@@ -405,7 +416,7 @@ export class BannerLayer {
     gauge.addChild(count);
     root.addChild(pole, flag.mesh, finial, token, gauge, star);
     this.root.addChild(root);
-    return { root, pole, finial, flag, gauge, strength, wound, edge, morale, woundW: BAR_W, woundAt: -1e9, token, tokenKey: '', count, star, seen: 0, key: '', routFlash: -1e9, x: 0, y: 0, ax: 0, ay: 0, platoon: -1, box: { x: 0, y: 0, ox: 0, oy: 0, ...TOKEN_BOX } };
+    return { root, pole, finial, flag, gauge, strength, wound, edge, morale, woundW: BAR_W, woundAt: -1e9, token, tokenKey: '', count, star, seen: 0, key: '', routFlash: -1e9, raise: 1, raiseTarget: 1, x: 0, y: 0, ax: 0, ay: 0, platoon: -1, box: { x: 0, y: 0, ox: 0, oy: 0, ...TOKEN_BOX } };
   }
 
   private staff: Texture | null = null;

@@ -4,6 +4,8 @@ import { BlastKind, Kind, PlatoonState, type MapDef, type TickEvents, type World
 import { STATS } from '../../sim/stats.ts';
 import type { ChronicleEntry } from '../../sim/chronicle.ts';
 import { derived } from '../../sim/derived.ts';
+import { Form } from '../../sim/formation.ts';
+import { routePoints } from '../../sim/world.ts';
 import { cellAt, cellCenterX, cellCenterY } from '../../sim/flowfield.ts';
 import type { Runner } from '../net/runner.ts';
 import type { FloatingEmote, GameStore } from '../store.ts';
@@ -706,6 +708,17 @@ export class Battlefield {
   }
 
   /** The platoon the "Follow my banner" camera rides with: the viewer's newest one in the field. */
+  private myPlatoon(world: World): World['platoons'][number] | null {
+    const p = this.store.viewerP ?? (this.store.war && this.store.war.id !== 0 ? null : world.leader);
+    if (p === null || p < 0) return null;
+    let best: World['platoons'][number] | null = null;
+    for (const pl of world.platoons) {
+      if (pl.p !== p || pl.state === PlatoonState.Queued || pl.alive <= 0) continue;
+      if (!best || pl.id > best.id) best = pl;
+    }
+    return best;
+  }
+
   private myBanner(world: World): { x: number; y: number } | null {
     const p = this.store.viewerP ?? (this.store.war && this.store.war.id !== 0 ? null : world.leader);
     if (p === null || p < 0) return null;
@@ -916,6 +929,7 @@ export class Battlefield {
       if (target) this.units.swing(s.from, target.x, target.y);
     }
     this.impacts(ev, world, now, bounds);
+    this.formCues(ev, world, bounds);
     if (near) {
       for (const d of ev.deaths) {
         const p = this.units.pose(d.unit);
@@ -934,6 +948,44 @@ export class Battlefield {
       if (pl && bounds.contains(pl.x, pl.y)) this.fx.floatText('ROUT!', pl.x, pl.y - 36, 1.6, 15, 0xffe0d0);
     }
     if (ev.monolith) this.layers.sites.monolithFell(now);
+  }
+
+  /**
+   * A platoon changing form: a horn as it deploys, the banner raised with a small gold flourish
+   * once the line is formed, a drum as it closes with the enemy. The banner itself dips and rises
+   * with the form in BannerLayer.
+   */
+  private formCues(ev: TickEvents, world: World, bounds: { contains(x: number, y: number): boolean }): void {
+    const forms = ev.forms;
+    if (!forms || forms.length === 0 || this.stepsThisFrame > 1) return;
+    const zoom = this.camera.zoom;
+    let cues = 0;
+    for (const f of forms) {
+      if (cues >= 4) break;
+      const pl = world.platoons.find((x) => x.id === f.platoon);
+      if (!pl || !bounds.contains(pl.x, pl.y)) continue;
+      cues++;
+      if (f.form === Form.Deploying) this.cue('muster-horn', pl.x, pl.y, 0.3);
+      else if (f.form === Form.Engaged) this.cue('march-drum', pl.x, pl.y, 0.55);
+      else if (f.form === Form.Line) {
+        this.cue('banner-unfurl', pl.x, pl.y, 0.35);
+        if (zoom >= FAR_ZOOM) {
+          const c = this.units.centroids.get(pl.id);
+          const x = c ? c.x * 0.6 + pl.x * 0.4 : pl.x;
+          const y = (c ? c.y * 0.6 + pl.y * 0.4 : pl.y) - 56 / Math.max(0.6, zoom);
+          this.fx.burst({ x, y, count: 7, texture: 'spark', tint: 0xf6dc8c, speed: 34, life: 0.7, size: 7, alpha: 0.95, rise: 14, additive: true });
+        }
+      }
+    }
+  }
+
+  /** A sound at a place on the map; sound is a garnish and never breaks the frame. */
+  private cue(name: string, x: number, y: number, gain: number): void {
+    try {
+      sound.play(name, { x, y, gain });
+    } catch {
+      /* ignored */
+    }
   }
 
   /**
@@ -1063,6 +1115,9 @@ export class Battlefield {
     const g = this.selection;
     g.clear();
     const sel = this.store.selection;
+    // Riding with your own banner: its march line is drawn too.
+    const mine = this.store.followMine ? this.myPlatoon(world) : null;
+    if (mine) this.drawRoute(g, world, mine, now, zoom);
     if (sel?.kind === 'player') {
       const p = world.players[sel.p];
       if (!p) return;
@@ -1090,39 +1145,80 @@ export class Battlefield {
     const tint = this.tints[pl.p] ?? 0xffffff;
     g.ellipse(c.x, c.y, r * pulse, r * 0.7 * pulse).fill({ color: tint, alpha: 0.14 }).stroke({ width: 5 / zoom, color: 0x22180f, alpha: 0.55 });
     g.ellipse(c.x, c.y, r * pulse, r * 0.7 * pulse).stroke({ width: 2.5 / zoom, color: 0xf6dc8c, alpha: 0.95 });
-    if (pl.site < 0 || pl.state === PlatoonState.Engage) return;
+    if (this.store.followMine && this.myPlatoon(world)?.id === pl.id) return;
+    this.drawRoute(g, world, pl, now, zoom);
+  }
+
+  /** The march route still ahead of a platoon, from the sim's waypoints or its flow field. */
+  private routeOf(world: World, pl: World['platoons'][number]): { x: number; y: number }[] | null {
+    if (pl.state === PlatoonState.Engage || pl.state === PlatoonState.Queued) return null;
+    const pts: { x: number; y: number }[] = [{ x: pl.x, y: pl.y }];
+    if (pl.route && pl.route.length > 0) {
+      for (const p of routePoints(world, pl)) pts.push(p);
+      return pts;
+    }
+    if (pl.site < 0) return null;
     const goal = pl.state === PlatoonState.Rout ? world.players[pl.p]!.slot : pl.site;
     const field = derived(world.map).flow[goal];
-    if (!field) return;
+    if (!field) return null;
     let cell = cellAt(world.map, pl.x, pl.y);
-    const pts: [number, number][] = [[pl.x, pl.y]];
     for (let i = 0; i < 400 && cell >= 0; i++) {
       const next = field.next[cell]!;
       if (next < 0) break;
       cell = next;
-      if (i % 2 === 0) pts.push([cellCenterX(world.map, cell), cellCenterY(world.map, cell)]);
+      if (i % 2 === 0) pts.push({ x: cellCenterX(world.map, cell), y: cellCenterY(world.map, cell) });
     }
     const target = world.map.sites[goal]!;
-    pts.push([target.x, target.y]);
-    // The route is inked on the chart like a cartographer's dotted march line.
+    pts.push({ x: target.x, y: target.y });
+    return pts;
+  }
+
+  /**
+   * The route inked on the chart as a cartographer's dotted march line: dashes of the army's
+   * pigment with an ink outline, marching forward and fading toward the end.
+   */
+  private drawRoute(g: Graphics, world: World, pl: World['platoons'][number], now: number, zoom: number): void {
+    const pts = this.routeOf(world, pl);
+    if (!pts || pts.length < 2) return;
+    const tint = this.actorTints[pl.p] ?? this.tints[pl.p] ?? 0xffffff;
+    let total = 0;
+    for (let i = 1; i < pts.length; i++) total += Math.hypot(pts[i]!.x - pts[i - 1]!.x, pts[i]!.y - pts[i - 1]!.y);
+    if (total < 1) return;
     const dash = 10 / zoom;
     const offset = ((now / 40) % 20) / zoom;
-    let carry = -offset;
-    for (let i = 1; i < pts.length; i++) {
-      const [x0, y0] = pts[i - 1]!;
-      const [x1, y1] = pts[i]!;
-      const len = Math.hypot(x1 - x0, y1 - y0);
-      let t = carry;
-      while (t < len) {
-        const a = Math.max(0, t);
-        const b = Math.min(len, t + dash);
-        if (b > a) g.moveTo(x0 + ((x1 - x0) * a) / len, y0 + ((y1 - y0) * a) / len).lineTo(x0 + ((x1 - x0) * b) / len, y0 + ((y1 - y0) * b) / len);
-        t += dash * 2;
+    const BANDS = 6;
+    for (let band = 0; band < BANDS; band++) {
+      const from = (band / BANDS) * total;
+      const to = ((band + 1) / BANDS) * total;
+      const fade = 1 - (band / BANDS) * 0.8;
+      for (const pass of [0, 1]) {
+        let along = 0;
+        let carry = -offset;
+        let any = false;
+        for (let i = 1; i < pts.length; i++) {
+          const p0 = pts[i - 1]!;
+          const p1 = pts[i]!;
+          const len = Math.hypot(p1.x - p0.x, p1.y - p0.y);
+          let t = carry;
+          while (t < len) {
+            const a = Math.max(0, t);
+            const b = Math.min(len, t + dash);
+            const mid = along + (a + b) / 2;
+            if (b > a && mid >= from && mid < to) {
+              g.moveTo(p0.x + ((p1.x - p0.x) * a) / len, p0.y + ((p1.y - p0.y) * a) / len).lineTo(p0.x + ((p1.x - p0.x) * b) / len, p0.y + ((p1.y - p0.y) * b) / len);
+              any = true;
+            }
+            t += dash * 2;
+          }
+          carry = t - len - dash * 2;
+          along += len;
+        }
+        if (any) g.stroke(pass === 0 ? { width: 5.2 / zoom, color: 0x1a120b, alpha: 0.85 * fade, cap: 'round' } : { width: 2.6 / zoom, color: tint, alpha: fade, cap: 'round' });
       }
-      carry = t - len - dash * 2;
     }
-    g.stroke({ width: 3.4 / zoom, color: 0x22180f, alpha: 0.85 });
-    g.ellipse(target.x, target.y, target.radius * 1.1, target.radius * 0.7).stroke({ width: 2.5 / zoom, color: tint, alpha: 0.9 });
+    const end = pts[pts.length - 1]!;
+    const goal = world.map.sites.find((o) => Math.hypot(o.x - end.x, o.y - end.y) < o.radius * 1.5);
+    if (goal) g.ellipse(goal.x, goal.y, goal.radius * 1.1, goal.radius * 0.7).stroke({ width: 2.5 / zoom, color: tint, alpha: 0.6 });
   }
 
   // ---------------------------------------------------------------- input

@@ -144,6 +144,8 @@ export class UnitLayer {
   private tmp = { x: 0, y: 0 };
   // Rebuilt every frame; kept as fields and cleared so the hot loop allocates nothing.
   private platoonState = new Map<number, number>();
+  /** Each platoon's heading (or the threat it faces), x component: a battle line faces the front. */
+  private platoonHx = new Map<number, number>();
   private unitIndex = new Map<number, Unit>();
   /** The soldier who carries each platoon's rank chevrons: its first in line. */
   private leaders = new Map<number, number>();
@@ -250,7 +252,12 @@ export class UnitLayer {
     const alpha = runner?.alpha ?? 1;
     const platoonState = this.platoonState;
     platoonState.clear();
-    for (const pl of world.platoons) platoonState.set(pl.id, pl.state);
+    const platoonHx = this.platoonHx;
+    platoonHx.clear();
+    for (const pl of world.platoons) {
+      platoonState.set(pl.id, pl.state);
+      platoonHx.set(pl.id, pl.hx ?? 0);
+    }
     const unitIndex = this.unitIndex;
     unitIndex.clear();
     const leaders = this.leaders;
@@ -313,7 +320,13 @@ export class UnitLayer {
         if (st) face = world.map.sites[st.site]!.x - x;
       }
       if (Math.abs(face) > 0.5) v.facing = face > 0 ? 1 : -1;
-      else if (Math.abs(v.vx) > TURN_SPEED) v.facing = v.vx > 0 ? 1 : -1;
+      else {
+        // No foe in hand: a formed platoon faces its heading or the threat (pl.hx), so a battle
+        // line visibly faces the front; a routing one faces the way it runs.
+        const hx = u.target === 0 && platoonState.get(u.platoon) !== PlatoonState.Rout ? (platoonHx.get(u.platoon) ?? 0) : 0;
+        if (Math.abs(hx) > 0.05) v.facing = hx > 0 ? 1 : -1;
+        else if (Math.abs(v.vx) > TURN_SPEED) v.facing = v.vx > 0 ? 1 : -1;
+      }
 
       const pose = v.pose;
       pose.x = x;
