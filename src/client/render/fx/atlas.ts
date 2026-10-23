@@ -47,6 +47,8 @@ export interface FxTextures {
   wingShadow: Texture;
   /** The same painted tongues without their ink rim, for dense jets where outlines would pile up. */
   flameWash: Texture[];
+  /** Ragged painted fireballs with no direction, for the body of a dragon's jet. */
+  firePuff: Texture[];
   /** A blot of ink with a feathered edge, for washes across the map. */
   inkWash: Texture;
   /** Branching cracks: an ink rim around a white core, tinted ember for molten stone or ink for walls. */
@@ -229,6 +231,33 @@ export function makeFxTextures(art: FxArt | null = loaded): FxTextures {
       c.filter = 'none';
     });
   const flame = [0, 1, 2, 3].map((v) => flamePainter(v, true));
+  const firePuff = [0, 1, 2].map((v) =>
+    make(64, 64, (c) => {
+      const r = rng(907 + v * 13);
+      // A ragged ball of painted fire: vermilion rim, ember body, gold heart; no outline, no direction.
+      const blob = (rad: number, wob: number, color: string) => {
+        c.beginPath();
+        const n = 16;
+        for (let i = 0; i <= n; i++) {
+          const a = (i / n) * Math.PI * 2;
+          const d = rad * (1 - wob + r() * wob * 2);
+          const x = 32 + Math.cos(a) * d;
+          const y = 32 + Math.sin(a) * d;
+          if (i === 0) c.moveTo(x, y);
+          else c.lineTo(x, y);
+        }
+        c.closePath();
+        c.fillStyle = color;
+        c.fill();
+      };
+      c.filter = 'blur(1.2px)';
+      blob(28, 0.18, 'rgba(184,50,31,0.85)');
+      blob(21, 0.2, 'rgba(255,154,60,0.95)');
+      blob(13, 0.22, 'rgba(246,220,140,1)');
+      blob(6, 0.3, 'rgba(255,248,224,1)');
+      c.filter = 'none';
+    }),
+  );
   const flameWash = [0, 1, 2, 3].map((v) => flamePainter(v, false));
   const fireball = make(48, 48, (c) => {
     radial(c, 24, 24, 24, [[0, 'rgba(255,236,170,1)'], [0.25, 'rgba(255,200,90,1)'], [0.55, 'rgba(255,120,30,0.8)'], [1, 'rgba(200,40,10,0)']]);
@@ -785,6 +814,7 @@ export function makeFxTextures(art: FxArt | null = loaded): FxTextures {
     inkWash: t(inkWash),
     crack: crack.map(t),
     flameWash: flameWash.map(t),
+    firePuff: firePuff.map(t),
     lance: t(lance),
   };
 }
