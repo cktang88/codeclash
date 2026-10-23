@@ -694,6 +694,16 @@ code,
   inset: 0;
   cursor: grab;
   touch-action: none;
+  /* HUD cover the camera's opening fit keeps clear: top bar + objective bar, emote dock. */
+  --fit-top: 112px;
+  --fit-bottom: 72px;
+}
+
+@media (max-width: 900px) {
+  .stage {
+    --fit-top: 190px;
+    --fit-bottom: 130px;
+  }
 }
 
 .stage:active {
@@ -2893,4 +2903,10 @@ button.chron-btn:hover {
 
 .unit-icon > svg {
   display: block;
+}
+
+/* POLISH: the leader's bounty tag is an icon only, so long logins stay readable. */
+.tag.tag-bounty {
+  flex: none;
+  padding-inline: 4px;
 }

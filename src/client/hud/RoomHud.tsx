@@ -107,7 +107,7 @@ export function RoomHud({ hud, title, subtitle, banner, dock, room, onRoomChange
           {subtitle && <div className="room-sub">{subtitle}</div>}
         </div>
         <div className="topbar-meta">
-          {hud.war && hud.war.status === 'active' && mode !== 'replay' && <Countdown endsAt={hud.war.endsAt} now={hud.serverNow} />}
+          {hud.war && hud.war.status === 'active' && mode !== 'replay' && <Countdown endsAt={hud.war.endsAt} />}
           {!narrow && <Presence hud={hud} />}
           <ConnPill hud={hud} compact={narrow} />
         </div>

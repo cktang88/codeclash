@@ -88,15 +88,28 @@ export class Camera {
     this.detach();
   }
 
+  /** Screen pixels the HUD covers at the top and bottom (CSS --fit-top / --fit-bottom on the stage). */
+  private insets(): { top: number; bottom: number } {
+    const cs = getComputedStyle(this.el);
+    const top = parseFloat(cs.getPropertyValue('--fit-top')) || 0;
+    const bottom = parseFloat(cs.getPropertyValue('--fit-bottom')) || 0;
+    // Never let the HUD shrink the map below 70% of the screen height.
+    const spare = Math.max(0, top + bottom - this.height * 0.3);
+    return { top: top - spare / 2, bottom: bottom - spare / 2 };
+  }
+
   fitZoom(radius: number): number {
-    return Math.max(MIN_ZOOM, Math.min(this.width, this.height) / (radius * 2.25));
+    const { top, bottom } = this.insets();
+    return Math.max(MIN_ZOOM, Math.min(this.width, this.height - top - bottom) / (radius * 2.25));
   }
 
   fit(radius: number): void {
     this.limit = radius * 1.08;
-    this.x = 0;
-    this.y = 0;
+    const { top, bottom } = this.insets();
     this.zoom = this.zoomTarget = this.fitZoom(radius);
+    // Centre the map in the part of the screen the HUD leaves open.
+    this.x = 0;
+    this.y = -(top - bottom) / 2 / this.zoom;
   }
 
   resize(width: number, height: number): void {

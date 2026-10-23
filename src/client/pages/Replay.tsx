@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { DigestResponse, MeResponse } from '../../protocol.ts';
 import { TICK_MS } from '../../sim/api.ts';
+import { restore } from '../../sim/index.ts';
 import type { Replay } from '../../sim/replay.ts';
 import { RoomHud } from '../hud/RoomHud.tsx';
 import { ApiError, api } from '../net/api.ts';
@@ -18,6 +19,8 @@ const SPEEDS = [1, 4, 16, 64, 256] as const;
 const SEEK_SLICE_TICKS = 25;
 /** Main-thread budget per seek slice; a busy war can take milliseconds per tick. */
 const SEEK_SLICE_MS = 40;
+/** Jumps further ahead than this (ten minutes of war) start from a server keyframe. */
+const KEYFRAME_JUMP_TICKS = 3000;
 
 export function downloadJson(name: string, data: unknown): void {
   const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
@@ -41,6 +44,9 @@ export function ReplayPage({ slug, warId, tick, me }: { slug: string; warId: num
   const [seeking, setSeeking] = useState<{ to: number; at: number } | null>(null);
   const [scrub, setScrub] = useState<number | null>(null);
   const seekToken = useRef(0);
+  const appliedTick = useRef<number | null>(null);
+  const playingRef = useRef(playing);
+  const speedRef = useRef(speed);
   const hud = useHud(store);
 
   useEffect(() => {
@@ -60,19 +66,42 @@ export function ReplayPage({ slug, warId, tick, me }: { slug: string; warId: num
 
   const endTick = replay ? Math.floor((replay.endsAt - replay.startsAt) / replay.tickMs) : 0;
 
+  const keyframeFrom = useCallback(
+    async (to: number) => {
+      try {
+        const kf = await api.keyframe(slug, warId, to);
+        return kf && kf.tick <= to ? { tick: kf.tick, world: restore(kf.snapshot) } : null;
+      } catch {
+        return null;
+      }
+    },
+    [slug, warId],
+  );
+
   const seek = useCallback(
-    (target: number) => {
+    async (target: number) => {
       if (!replay) return;
       const token = ++seekToken.current;
       const to = Math.max(0, Math.min(endTick, Math.round(target)));
       let r = runner.current;
-      if (!r || r.tick > to) {
-        r?.stop();
-        r = startReplay(store, replay);
-        runner.current = r;
+      if (r) r.speed = 0;
+      const rewinding = !r || r.tick > to;
+      // Long jumps start from the server's nearest keyframe instead of re-simulating the whole day.
+      if (rewinding || to - r!.tick > KEYFRAME_JUMP_TICKS) {
+        setSeeking({ to, at: r?.tick ?? 0 });
+        const kf = await keyframeFrom(to);
+        if (token !== seekToken.current) return;
+        if (kf && (rewinding || kf.tick > r!.tick)) {
+          r?.stop();
+          r = startReplay(store, replay, kf.world);
+        } else if (rewinding) {
+          r?.stop();
+          r = startReplay(store, replay);
+        }
+        runner.current = r!;
+        r!.speed = 0;
       }
-      r.speed = 0;
-      const run = r;
+      const run = r!;
       const stepChunk = () => {
         if (token !== seekToken.current) return;
         const started = performance.now();
@@ -85,25 +114,35 @@ export function ReplayPage({ slug, warId, tick, me }: { slug: string; warId: num
           return;
         }
         setSeeking(null);
-        run.speed = playing ? speed : 0;
+        run.speed = playingRef.current ? speedRef.current : 0;
         store.publish();
       };
       stepChunk();
     },
-    [replay, endTick, store, playing, speed],
+    [replay, endTick, store, keyframeFrom],
   );
 
   useEffect(() => {
     if (!replay) return;
     runner.current = startReplay(store, replay);
     store.publish();
-    if (tick !== null && tick > 0) seek(tick);
+    appliedTick.current = tick;
+    if (tick !== null && tick > 0) void seek(tick);
     else runner.current.speed = speed;
     return () => runner.current?.stop();
     // Starting a replay is keyed to the file; speed and play state apply through the effect below.
   }, [replay]);
 
+  // Back/forward between two times of the same replay changes ?t= without remounting.
   useEffect(() => {
+    if (!replay || tick === appliedTick.current) return;
+    appliedTick.current = tick;
+    if (tick !== null) void seek(tick);
+  }, [tick, replay, seek]);
+
+  useEffect(() => {
+    playingRef.current = playing;
+    speedRef.current = speed;
     if (runner.current && !seeking) runner.current.speed = playing ? speed : 0;
   }, [playing, speed, seeking]);
 
@@ -140,11 +179,11 @@ export function ReplayPage({ slug, warId, tick, me }: { slug: string; warId: num
           aria-valuetext={clock(startsAt + current * TICK_MS)}
           onChange={(e) => setScrub(Number(e.target.value))}
           onPointerUp={() => {
-            if (scrub !== null) seek(scrub);
+            if (scrub !== null) void seek(scrub);
             setScrub(null);
           }}
           onKeyUp={() => {
-            if (scrub !== null) seek(scrub);
+            if (scrub !== null) void seek(scrub);
             setScrub(null);
           }}
         />
@@ -154,7 +193,7 @@ export function ReplayPage({ slug, warId, tick, me }: { slug: string; warId: num
               key={i}
               className={`scrub-marker chron-${m.kind}`}
               style={{ left: `${(m.tick / Math.max(1, endTick)) * 100}%` }}
-              onClick={() => seek(Math.max(0, m.tick - 50))}
+              onClick={() => void seek(Math.max(0, m.tick - 50))}
               title={`${clock(startsAt + m.tick * TICK_MS)}: ${m.text}`}
               aria-label={`Jump to ${m.text}`}
             >

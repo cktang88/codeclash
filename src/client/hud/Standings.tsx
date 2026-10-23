@@ -39,8 +39,8 @@ export function Standings({ standings, viewerP }: { standings: readonly Standing
               <span className="standing-name">
                 <span className="truncate">{s.login}</span>
                 {s.leader && (
-                  <span className="tag tag-gold" title="Leader in renown. Kills on their soldiers count double.">
-                    <Icon name="crown" size={13} /> Bounty
+                  <span className="tag tag-gold tag-bounty" title="Bounty: leader in renown. Kills on their soldiers count double." aria-label="Bounty">
+                    <Icon name="crown" size={13} />
                   </span>
                 )}
                 {s.p === viewerP && <span className="tag">You</span>}

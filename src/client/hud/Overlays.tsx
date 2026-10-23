@@ -183,8 +183,14 @@ export function AwayModal({ hud }: { hud: HudSnapshot }) {
   );
 }
 
-/** Countdown to the room's daily reset. */
-export function Countdown({ endsAt, now }: { endsAt: number; now: number }) {
+/** Countdown to the room's daily reset. Ticks on its own, whatever the HUD's refresh rate. */
+export function Countdown({ endsAt }: { endsAt: number }) {
+  const { store } = useHudContext();
+  const [now, setNow] = useState(() => store.serverNow());
+  useEffect(() => {
+    const id = setInterval(() => setNow(store.serverNow()), 1000);
+    return () => clearInterval(id);
+  }, [store]);
   const left = endsAt - now;
   return (
     <span className={`countdown${left < 3600_000 ? ' is-soon' : ''}`} title={`The war ends at ${new Date(endsAt).toLocaleTimeString()}`}>

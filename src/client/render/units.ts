@@ -34,6 +34,8 @@ interface View {
   speed: number;
   phase: number;
   seen: number;
+  /** Where this soldier was drawn this frame; reused, never reallocated. */
+  pose: UnitPose;
 }
 
 export interface UnitPose {
@@ -42,6 +44,14 @@ export interface UnitPose {
   facing: number;
   kind: Kind;
   p: number;
+}
+
+function place(s: Sprite, anchorY: number, x: number, y: number, sx: number, sy: number, rotation: number, z: number): void {
+  s.anchor.set(0.5, anchorY);
+  s.position.set(x, y);
+  s.scale.set(sx, sy);
+  s.rotation = rotation;
+  s.zIndex = z;
 }
 
 /** Soldiers: interpolated, facing their work, bobbing as they walk. */
@@ -58,7 +68,9 @@ export class UnitLayer {
   private knocks = new Map<number, { at: number; dx: number; dy: number }>();
   private frameNo = 0;
   private tmp = { x: 0, y: 0 };
-  private lastPose = new Map<number, UnitPose>();
+  // Rebuilt every frame; kept as fields and cleared so the hot loop allocates nothing.
+  private platoonState = new Map<number, number>();
+  private unitIndex = new Map<number, Unit>();
   tints: number[] = [];
   cryTint: number[] = [];
 
@@ -84,18 +96,20 @@ export class UnitLayer {
 
   /** Where a soldier was last drawn: for effects that start at a soldier. */
   pose(unitId: number): UnitPose | undefined {
-    return this.lastPose.get(unitId);
+    const v = this.views.get(unitId);
+    return v && v.seen === this.frameNo ? v.pose : undefined;
   }
 
   update(world: World, runner: Runner | null, now: number, zoom: number, bounds: { contains(x: number, y: number): boolean }): void {
     this.frameNo++;
     const far = zoom < FAR_ZOOM;
     const alpha = runner?.alpha ?? 1;
-    const platoonState = new Map<number, number>();
+    const platoonState = this.platoonState;
+    platoonState.clear();
     for (const pl of world.platoons) platoonState.set(pl.id, pl.state);
-    const unitIndex = new Map<number, Unit>();
+    const unitIndex = this.unitIndex;
+    unitIndex.clear();
     for (const u of world.units) unitIndex.set(u.id, u);
-    this.lastPose.clear();
 
     for (const u of world.units) {
       let v = this.views.get(u.id);
@@ -132,7 +146,12 @@ export class UnitLayer {
       if (face === 0 && Math.abs(dx) > 0.02) face = dx;
       if (Math.abs(face) > 0.5) v.facing = face > 0 ? 1 : -1;
 
-      this.lastPose.set(u.id, { x, y, facing: v.facing, kind: u.kind, p: u.p });
+      const pose = v.pose;
+      pose.x = x;
+      pose.y = y;
+      pose.facing = v.facing;
+      pose.kind = u.kind;
+      pose.p = u.p;
       const visible = bounds.contains(x, y);
       if (!visible) {
         v.shadow.visible = v.body.visible = v.mask.visible = v.dot.visible = false;
@@ -224,14 +243,8 @@ export class UnitLayer {
       v.body.texture = flashing ? frame.sil : frame.body;
       v.mask.texture = frame.mask;
       const anchorY = cell.feetY / cell.h;
-      for (const s of [v.body, v.mask]) {
-        s.anchor.set(0.5, anchorY);
-        s.position.set(px, py - altitude);
-        s.scale.set(size * v.facing, size);
-        s.rotation = lean;
-        s.zIndex = py;
-      }
-      v.mask.zIndex = py + 0.001;
+      place(v.body, anchorY, px, py - altitude, size * v.facing, size, lean, py);
+      place(v.mask, anchorY, px, py - altitude, size * v.facing, size, lean, py + 0.001);
       v.mask.visible = !flashing;
       v.mask.tint = this.cryTint[u.p] ?? tint;
       const wounded = u.hp / u.maxHp;
@@ -268,7 +281,7 @@ export class UnitLayer {
     this.shadows.addChild(shadow);
     this.bodies.addChild(body, mask);
     this.dots.addChild(dot);
-    return { shadow, body, mask, dot, kind: 0, facing: 1, x: 0, y: 0, speed: 0, phase: 0, seen: 0 };
+    return { shadow, body, mask, dot, kind: 0, facing: 1, x: 0, y: 0, speed: 0, phase: 0, seen: 0, pose: { x: 0, y: 0, facing: 1, kind: 0, p: 0 } };
   }
 
   private release(v: View): void {

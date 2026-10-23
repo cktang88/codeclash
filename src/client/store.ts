@@ -75,6 +75,9 @@ const CHRONICLE_KEEP = 400;
 const CHAT_KEEP = 120;
 const TOAST_MS = 5000;
 const EMOTE_MS = 3500;
+const RENOWN_SAMPLE_TICKS = 5;
+/** Samples spanning one minute of war, for the trend arrows. */
+const RENOWN_SAMPLES = 60;
 const TOAST_KINDS = new Set<ChronicleEntry['kind']>(['sack', 'monolith', 'dragon', 'champion', 'cry', 'leader', 'clash', 'join']);
 
 /** Everything the client knows about the room it is watching. */
@@ -155,9 +158,13 @@ export class GameStore {
     return () => this.emoteListeners.delete(fn);
   }
 
+  /** The runner reports every simulated tick, rendered or not, so trends hold through catch-up and fast play. */
+  ticked(world: World): void {
+    if (world.tick % RENOWN_SAMPLE_TICKS === 0) this.recordRenown(world);
+  }
+
   /** The runner reports every simulated tick it wants rendered. */
   stepped(events: TickEvents, world: World): void {
-    if (world.tick % 5 === 0) this.recordRenown(world);
     for (const fn of this.stepListeners) fn(events, world);
     this.dirty = true;
   }
@@ -218,7 +225,7 @@ export class GameStore {
 
   private recordRenown(world: World): void {
     this.renownHistory.push(world.players.map((p) => p.renown));
-    if (this.renownHistory.length > 60) this.renownHistory.shift();
+    if (this.renownHistory.length > RENOWN_SAMPLES) this.renownHistory.shift();
   }
 
   private build(): HudSnapshot {

@@ -20,6 +20,24 @@ if (q.has('stress')) {
     return out;
   };
 }
+if (q.has('big')) {
+  // ?big=1: every bot raises the big elites early (Dragon, Troll, Bone Golem, Trebuchet,
+  // Griffin Rider) and again every five minutes, so they can be inspected up close.
+  const r = runner as unknown as { inputs: (tick: number) => import('../sim/api.ts').SimInput[] };
+  const base = r.inputs;
+  const waves: [number, number[]][] = [
+    [25, [200, 80, 40, 20, 0, 0, 0, 0, 0]], // legendary: Dragon
+    [45, [0, 0, 0, 0, 0, 0, 9000, 9000, 0]], // Bone Golems and a Troll
+    [65, [0, 0, 0, 0, 900, 900, 0, 0, 0]], // Trebuchets and Griffin Riders
+  ];
+  r.inputs = (tick) => {
+    const out = base(tick);
+    for (const [at, lines] of waves) {
+      if (tick % 1500 === at) for (const p of store.roster) out.push({ kind: 'push', p: p.p, repo: 0, lines, commits: 1, msg: 'big' });
+    }
+    return out;
+  };
+}
 const skip = Number(q.get('skip') ?? 0);
 if (skip > 0) runner.fastForward(skip);
 

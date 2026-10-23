@@ -81,6 +81,7 @@ export class LocalRunner implements Runner {
     const due = this.inputs(this.world.tick);
     const events = step(this.world, due);
     this.store.addChronicle(this.chronicler.narrate(this.world, due, events), emit);
+    this.store.ticked(this.world);
     if (emit) this.store.stepped(events, this.world);
   }
 }
@@ -126,10 +127,13 @@ export function startDemo(store: GameStore, bots = 5, seed = Date.now() % 100000
   return new LocalRunner(store, world, source);
 }
 
-/** A runner that replays a recorded war from its start. */
-export function startReplay(store: GameStore, replay: Replay): LocalRunner {
+/**
+ * A runner that replays a recorded war, from its start or from `from`, a world
+ * restored from one of the war's keyframes. Inputs before the world's tick are skipped.
+ */
+export function startReplay(store: GameStore, replay: Replay, from?: World): LocalRunner {
   const params = replayParams(replay);
-  const world = createWorld(params, generateMap(params));
+  const world = from ?? createWorld(params, generateMap(params));
   store.roster = replay.players.map((pl, p) => ({ ...pl, p, avatarUrl: pl.bot ? '' : `https://avatars.githubusercontent.com/u/${pl.id}?s=64` }));
   store.repos = replay.repos;
   store.warStartMs = replay.startsAt;

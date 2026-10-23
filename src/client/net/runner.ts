@@ -161,6 +161,7 @@ export class LockstepRunner implements Runner {
         return;
       }
     }
+    this.store.ticked(world);
     if (emit) this.store.stepped(events, world);
   }
 
