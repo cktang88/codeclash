@@ -901,6 +901,7 @@ export class Effects {
       style: { fontFamily: '"JetBrains Mono", ui-monospace, monospace', fontSize: 15, fill: INK, fontWeight: '500', wordWrap: true, breakWords: true, wordWrapWidth: wrap, align: 'center', lineHeight: 18 },
       resolution: 2,
     });
+    text.anchor.set(0.5);
     while (text.height > SCROLL_MAX_LINES * 18 + 2 && clipped.length > 8) {
       clipped = clipScroll(clipped.slice(0, -1), clipped.length - 4);
       text.text = clipped;
