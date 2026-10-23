@@ -64,6 +64,13 @@ export class Battlefield {
     private readonly opts: BattlefieldOptions,
   ) {
     this.units = new UnitLayer(tex, art);
+    // Fliers are drawn mid-cell, lifted by their flight height: aim effects at the creature's body.
+    this.fx.flyHeight = (kind) => {
+      const flight = art.flight(kind);
+      if (!flight) return 0;
+      const cell = art.cell(kind);
+      return flight.height + ((cell.feetY - cell.h / 2) / cell.h) * art.scale(kind);
+    };
     this.fx = new Effects({ reducedMotion: opts.reducedMotion });
     this.banners = new BannerLayer(this.flags);
     app.stage.addChild(this.scene);
@@ -284,10 +291,7 @@ export class Battlefield {
         const y = p?.y ?? d.y;
         if (!bounds.contains(x, y)) continue;
         const c = this.units.corpse(d.kind);
-        const cell = c.texture.frame.height;
-        // Effects anchor corpses by a fixed feet line; shift so this kind's feet land on the ground.
-        const shift = (c.anchorY - 84 / 96) * cell * c.scale;
-        this.fx.corpse(c.texture, x, y - shift, p?.facing ?? 1, c.scale, 0xd0d0d0, c.altitude);
+        this.fx.corpse(c.texture, x, y, p?.facing ?? 1, c.scale, 0xd0d0d0, c.altitude, c.anchorY);
       }
     }
     for (const r of ev.regroups) this.banners.regroup(r.from, r.to, now);
