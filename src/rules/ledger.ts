@@ -143,9 +143,17 @@ export function canonical(normalized: string, family: string): string {
   return stripComments(normalized, family).replace(/['`]/g, '"').replace(/[\s;,]+/g, '');
 }
 
-/** A canonical line with string literals and numbers (and names containing them) blanked out. */
-export function shapeOf(canon: string): string {
-  return canon.replace(/"(?:[^"\\]|\\.)*"/g, 'S').replace(/[A-Za-z_$]*\d[\w$]*/g, 'N');
+/**
+ * A line's shape: its canonical form with string literals and numbers (and names
+ * containing digits) blanked out. A template literal keeps its interpolations,
+ * which are code.
+ */
+export function shapeOf(normalized: string, family: string): string {
+  return stripComments(normalized, family)
+    .replace(/`(?:[^`\\]|\\.)*`/g, (m) => `T${(m.match(/\$\{[^}]*\}/g) ?? []).join('')}`)
+    .replace(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g, 'S')
+    .replace(/[A-Za-z_$]*\d[\w$]*/g, 'N')
+    .replace(/[\s;,]+/g, '');
 }
 
 /** Branch tokens are counted per language family, so a key carries the family. */
@@ -260,7 +268,7 @@ function fileOps(file: ChangedFile, category: FileCategory, patch: ReturnType<ty
       return;
     }
     const branches = Math.min(LINE_BRANCH_CAP, branchesIn(stripComments(normalized, family), SAMPLE_PATH[family]!));
-    ops.push({ key, path, info: { kind, branches, group: `${family}\u0000${branches}\u0000${shapeOf(canon)}` }, sign });
+    ops.push({ key, path, info: { kind, branches, group: `${family}\u0000${branches}\u0000${shapeOf(normalized, family)}` }, sign });
   };
   if (category !== 'source') {
     const kind = category as Counted;

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import type { MeResponse } from '../protocol.ts';
+import { ArmoryPage, HallPage, SeasonPage } from './meta/index.ts';
 import { api } from './net/api.ts';
 import { DemoPage } from './pages/Demo.tsx';
 import { DigestPage } from './pages/Digest.tsx';
@@ -35,7 +36,7 @@ export function Root() {
   useEffect(loadMe, [loadMe]);
 
   useEffect(() => {
-    const titles: Record<string, string> = { home: 'Pushfront', demo: 'Demo war · Pushfront', lost: 'Lost · Pushfront' };
+    const titles: Record<string, string> = { home: 'Pushfront', demo: 'Demo war · Pushfront', lost: 'Lost · Pushfront', armory: 'Armory · Pushfront', hall: 'Hall of Legends · Pushfront', season: 'Season · Pushfront' };
     if (titles[route.kind]) document.title = titles[route.kind]!;
     window.scrollTo(0, 0);
   }, [href, route.kind]);
@@ -55,6 +56,12 @@ export function Root() {
       return <HistoryPage key={route.slug} slug={route.slug} />;
     case 'profile':
       return <ProfilePage key={route.login} login={route.login} />;
+    case 'armory':
+      return <ArmoryPage me={me} />;
+    case 'hall':
+      return <HallPage key={route.slug} slug={route.slug} />;
+    case 'season':
+      return <SeasonPage key={route.slug} slug={route.slug} />;
     case 'lost':
       return <LostPage path={route.path} />;
   }

@@ -1,4 +1,4 @@
-import type { ChatMessage, Emote, PresenceEntry, RoomDetail, RosterEntry, WarMeta } from '../protocol.ts';
+import type { ChatMessage, Emote, Monument, PresenceEntry, RoomDetail, RosterEntry, WarMeta } from '../protocol.ts';
 import { NEUTRAL, PlatoonState, TICK_MS, type TickEvents, type World } from '../sim/api.ts';
 import type { ChronicleEntry, Names } from '../sim/chronicle.ts';
 import type { RepoRef } from '../sim/replay.ts';
@@ -100,6 +100,8 @@ export class GameStore {
   replay = false;
   digestReady = false;
   endedWar: WarMeta | null = null;
+  /** Statues for this war's map: yesterday's legends at their owners' capitals, the Season Victor at the Heart. */
+  monuments: Monument[] = [];
   serverNow = () => Date.now();
   /** Wall-clock ms of tick 0, for converting ticks to times. */
   warStartMs = 0;

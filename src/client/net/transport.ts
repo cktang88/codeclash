@@ -12,7 +12,7 @@ export interface Transport {
 
 export type Connect = (handlers: TransportHandlers) => Transport;
 
-const SERVER_TYPES = new Set(['hello', 'inputs', 'check', 'chronicle', 'presence', 'emote', 'chat', 'war', 'room']);
+const SERVER_TYPES = new Set(['hello', 'inputs', 'check', 'chronicle', 'presence', 'emote', 'chat', 'war', 'room', 'order']);
 
 function parseServerMessage(raw: unknown): ServerMessage | null {
   if (typeof raw !== 'string') return null;

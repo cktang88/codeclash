@@ -45,6 +45,8 @@ export interface FxTextures {
   chevron: Texture;
   /** A dragon's silhouette, soft-edged, for its vast shadow sweeping over the land. */
   wingShadow: Texture;
+  /** The same painted tongues without their ink rim, for dense jets where outlines would pile up. */
+  flameWash: Texture[];
   /** A blot of ink with a feathered edge, for washes across the map. */
   inkWash: Texture;
   /** Branching cracks: an ink rim around a white core, tinted ember for molten stone or ink for walls. */
@@ -180,7 +182,7 @@ export function makeFxTextures(art: FxArt | null = loaded): FxTextures {
       }
     }),
   );
-  const flame = [0, 1, 2, 3].map((v) =>
+  const flamePainter = (v: number, inked: boolean) =>
     make(64, 96, (c) => {
       const r = rng(101 + v * 7);
       // A painted tongue of fire in flat pigment bands, with a wobbly ink edge on its outer shape:
@@ -196,12 +198,15 @@ export function makeFxTextures(art: FxArt | null = loaded): FxTextures {
         c.closePath();
       };
       c.lineJoin = 'round';
+      if (!inked) c.filter = 'blur(1.5px)';
       tongue(88, 24, 84);
       c.fillStyle = '#b8321f';
       c.fill();
-      c.strokeStyle = 'rgba(34,24,15,0.9)';
-      c.lineWidth = 2.2;
-      c.stroke();
+      if (inked) {
+        c.strokeStyle = 'rgba(34,24,15,0.9)';
+        c.lineWidth = 2.2;
+        c.stroke();
+      }
       tongue(86, 17, 66);
       c.fillStyle = '#ff9a3c';
       c.fill();
@@ -221,8 +226,10 @@ export function makeFxTextures(art: FxArt | null = loaded): FxTextures {
         c.quadraticCurveTo(x + (r() - 0.5) * 10, 60, x + lean * 0.4 + (r() - 0.5) * 6, 40 + r() * 10);
         c.stroke();
       }
-    }),
-  );
+      c.filter = 'none';
+    });
+  const flame = [0, 1, 2, 3].map((v) => flamePainter(v, true));
+  const flameWash = [0, 1, 2, 3].map((v) => flamePainter(v, false));
   const fireball = make(48, 48, (c) => {
     radial(c, 24, 24, 24, [[0, 'rgba(255,236,170,1)'], [0.25, 'rgba(255,200,90,1)'], [0.55, 'rgba(255,120,30,0.8)'], [1, 'rgba(200,40,10,0)']]);
   });
@@ -777,6 +784,7 @@ export function makeFxTextures(art: FxArt | null = loaded): FxTextures {
     wingShadow: t(wingShadow),
     inkWash: t(inkWash),
     crack: crack.map(t),
+    flameWash: flameWash.map(t),
     lance: t(lance),
   };
 }

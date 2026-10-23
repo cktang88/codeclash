@@ -249,6 +249,7 @@ export class LockstepRunner implements Runner {
         store.resetWorld(world);
         store.addChronicle(msg.chronicle, false);
         for (const c of msg.chat) store.addChat(c);
+        store.monuments = msg.monuments ?? [];
         this.dispatch({ type: 'hello' });
         store.publish();
         setTimeout(this.syncSlice, 0, ++this.syncGen);
@@ -307,6 +308,9 @@ export class LockstepRunner implements Runner {
       case 'room':
         store.room = msg.room;
         store.publish();
+        return;
+      case 'order':
+        store.addToast('order', msg.p, `${msg.order.title} — +${msg.glory} Glory`);
         return;
     }
   }

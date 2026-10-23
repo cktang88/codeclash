@@ -99,6 +99,7 @@ describe('classifyLine', () => {
     expect(run('a.ts', ['const view = html`', '<ul>', '', '${items.map((i) => html`<li>${i}</li>`)}', '</ul>`;', 'f();'])).toEqual(['code', 'code', 'blank', 'code', 'code', 'code']);
     expect(run('A.kt', ['val s = """', 'text', '""".trimIndent()', 'g()'])).toEqual(['code', 'data', 'data', 'code']);
     expect(run('a.ts', ['x(); // a stray ` in a comment', 'y();'])).toEqual(['code', 'code']);
+    expect(run('a.ts', ["s.replace(/`[^`]*`/g, '');", "const re = /['\"`]/;", 'y();'])).toEqual(['code', 'code', 'code']);
     expect(run('a.ts', ["const s = `a ${ok ? `b${c}` : '`'} d`;", 'y();', 'const t = `${', 'one}', 'two`;', 'z();'])).toEqual(['code', 'code', 'code', 'data', 'data', 'code']);
   });
 

@@ -1,6 +1,7 @@
 // Effects lab: plays every effect in a loop against dummy soldiers. Open /render/fx/lab.html?scene=breath&zoom=1.6&stress=300.
 import { Application, Container, Graphics, Texture } from 'pixi.js';
-import { BlastKind, Kind, ShotKind, TICK_MS, type TickEvents, type World } from '../../../sim/api.ts';
+import { BlastKind, Kind, NEUTRAL, ShotKind, TICK_MS, type TickEvents, type World } from '../../../sim/api.ts';
+import type { ChronicleEntry } from '../../../sim/chronicle.ts';
 import { emptyEvents } from '../../../sim/world.ts';
 import { loadFxArt } from './atlas.ts';
 import { Effects, FLY_HEIGHT } from './effects.ts';
@@ -20,23 +21,33 @@ const q = new URLSearchParams(location.search);
 const only = q.get('scene');
 const zoom = Number(q.get('zoom') ?? 1.4);
 const stress = Number(q.get('stress') ?? 0);
-const SCENES = ['volley', 'fireball', 'boulder', 'breath', 'heal', 'deaths', 'site', 'sack', 'monolith'] as const;
+const cx = Number(q.get('x') ?? 0);
+const cy = Number(q.get('y') ?? 0);
+const SCENES = ['combat', 'volley', 'fireball', 'boulder', 'breath', 'heal', 'deaths', 'muster', 'rank', 'dragon', 'site', 'desert', 'crack', 'sack', 'monolith', 'dayend'] as const;
 type Scene = (typeof SCENES)[number];
-const SCENE_TICKS = 18;
+const SCENE_TICKS = Number(q.get('ticks') ?? 18);
 const TINTS = [0x3d7fd9, 0xd9483d, 0x4cc26a];
 
 const app = new Application();
-await app.init({ resizeTo: window, background: 0x2a2f22, antialias: true, resolution: Math.min(2, devicePixelRatio || 1), autoDensity: true, preference: 'webgl' });
+await app.init({ resizeTo: window, background: 0x7d8452, antialias: true, resolution: Math.min(2, devicePixelRatio || 1), autoDensity: true, preference: 'webgl' });
 document.body.style.margin = '0';
 document.body.appendChild(app.canvas);
 
 const scene = new Container();
 app.stage.addChild(scene);
 const ground = new Graphics();
-for (let i = 0; i < 40; i++) ground.circle((Math.random() - 0.5) * 1400, (Math.random() - 0.5) * 900, 60 + Math.random() * 120).fill({ color: Math.random() < 0.5 ? 0x333a28 : 0x262b1e, alpha: 0.6 });
+for (let i = 0; i < 40; i++) ground.circle((Math.random() - 0.5) * 1400, (Math.random() - 0.5) * 900, 60 + Math.random() * 120).fill({ color: Math.random() < 0.5 ? 0x6c7444 : 0x8f945e, alpha: 0.6 });
 const units = new Container();
 if (!q.has('procedural')) await loadFxArt();
 const fx = new Effects({ reducedMotion: q.has('reduced') });
+const cues: string[] = [];
+fx.sound = (name, _x, _y, gain) => {
+  cues.push(`${name} ${gain.toFixed(1)}`);
+  if (cues.length > 6) cues.shift();
+};
+fx.cinematic = (shot) => cues.push(`camera: ${shot.reason} @${shot.x | 0},${shot.y | 0} x${shot.zoom}`);
+fx.openGate = (site) => cues.push(`gate ${site}`);
+fx.viewerP = 0;
 scene.addChild(ground, fx.ground, units, fx.air, fx.glow, fx.overlay);
 
 const dummies: Dummy[] = [];
@@ -66,19 +77,45 @@ for (let i = 0; i < 18; i++) right.push(dummy(Kind.Footman, 1, 120 + (i % 6) * 1
 const casualties: Kind[] = [Kind.Footman, Kind.Skeleton, Kind.BoneGolem, Kind.Troll, Kind.Champion, Kind.Knight, Kind.GriffinRider, Kind.Dragon];
 const victims = casualties.map((k, i) => dummy(k, 1, 40 + i * 50, 200));
 
-const capital = { id: 0, kind: 'capital' as const, x: 380, y: -40, radius: 70, slot: 1, renown: 0 };
-const shrine = { id: 1, kind: 'shrine' as const, x: 0, y: -250, radius: 55, slot: -1, renown: 2 };
-const heart = { id: 2, kind: 'heart' as const, x: 0, y: 0, radius: 85, slot: -1, renown: 8 };
+const home = { id: 0, kind: 'capital' as const, x: -560, y: 40, radius: 70, slot: 0, renown: 0 };
+const capital = { id: 1, kind: 'capital' as const, x: 380, y: -40, radius: 70, slot: 1, renown: 0 };
+const shrine = { id: 2, kind: 'shrine' as const, x: 0, y: -250, radius: 55, slot: -1, renown: 2 };
+const heart = { id: 3, kind: 'heart' as const, x: 0, y: 0, radius: 45, slot: -1, renown: 8 };
+interface FakePlatoon {
+  id: number;
+  p: number;
+  x: number;
+  y: number;
+  mustered: number[];
+}
 const world = {
   tick: 0,
   units: [] as { id: number; kind: Kind; x: number; y: number; p: number }[],
-  structures: [{ site: 0, p: 1, hp: 8000, maxHp: 8000, cooldown: 0, ruinedUntil: -1 }],
-  map: { sites: [capital, shrine, heart], radius: 700 },
-  platoons: [] as { id: number; p: number; x: number; y: number }[],
-  players: [{ p: 0, slot: 0 }, { p: 1, slot: 1 }],
+  structures: [
+    { site: 1, p: 1, hp: 8000, maxHp: 8000, cooldown: 0, ruinedUntil: -1 },
+    { site: 3, p: NEUTRAL, hp: 20000, maxHp: 20000, cooldown: 0, ruinedUntil: -1 },
+  ],
+  map: { sites: [home, capital, shrine, heart], radius: 700 },
+  platoons: [] as FakePlatoon[],
+  players: [
+    { p: 0, slot: 0, veterancy: 0 },
+    { p: 1, slot: 1, veterancy: 0 },
+  ],
+  monolithFallen: false,
 };
+const platoon = (id: number, p: number, x: number, y: number, dragon = false): FakePlatoon => {
+  const mustered = new Array<number>(24).fill(0);
+  if (dragon) mustered[Kind.Dragon] = 1;
+  return { id, p, x, y, mustered };
+};
+const muster = (pl: FakePlatoon, msg: string): ChronicleEntry => ({
+  tick: world.tick, kind: 'muster', p: pl.p, q: -1, site: -1, platoon: pl.id, x: pl.x, y: pl.y,
+  text: `ada pushed a bug fix to parser "${msg}". Parser's 3rd Platoon musters: 6 Footmen, 2 Archers.`,
+});
 const asWorld = world as unknown as World;
 const capitalG = new Graphics().rect(capital.x - 40, capital.y - 80, 80, 80).fill(0x6b5f50).stroke({ color: 0x111111, width: 2 });
+capitalG.rect(home.x - 40, home.y - 80, 80, 80).fill(0x5b6f90).stroke({ color: 0x111111, width: 2 });
+capitalG.poly([heart.x - 18, heart.y, heart.x - 10, heart.y - 110, heart.x + 12, heart.y - 100, heart.x + 18, heart.y]).fill(0x1c1a22).stroke({ color: 0x111111, width: 2 });
 units.addChild(capitalG);
 
 const posOf = (id: number): { x: number; y: number } | null => {
@@ -155,28 +192,82 @@ function stage(name: Scene, t0: number): void {
       break;
     case 'site':
       at(t + 1, (ev) => {
-        world.platoons = [{ id: 99, p: 0, x: -360, y: -230 }];
+        world.platoons = [platoon(99, 0, -360, -230)];
         ev.marches.push({ platoon: 99 });
       });
-      at(t + 5, (ev) => ev.captures.push({ site: 1, p: 0, previous: -1 }));
+      at(t + 5, (ev) => ev.captures.push({ site: 2, p: 0, previous: -1 }));
       at(t + 9, (ev) => {
-        world.platoons = [{ id: 98, p: 1, x: 200, y: 120 }];
+        world.platoons = [platoon(98, 1, 200, 120)];
         ev.routs.push({ platoon: 98 });
       });
       at(t + 12, (ev) => ev.cries.push({ p: 1 }));
       break;
     case 'sack':
       at(t + 1, (ev) => {
-        ev.sacks.push({ site: 0, p: 0, victim: 1 });
+        ev.sacks.push({ site: 1, p: 0, victim: 1 });
         world.structures[0]!.ruinedUntil = 999999;
       });
       at(t + SCENE_TICKS - 1, (ev) => {
         world.structures[0]!.ruinedUntil = -1;
-        ev.rebuilt.push({ site: 0 });
+        ev.rebuilt.push({ site: 1 });
       });
       break;
     case 'monolith':
-      at(t + 2, (ev) => (ev.monolith = { p: 0 }));
+      at(t + 1, () => (world.structures[1]!.hp = 1500));
+      at(t + 8, (ev) => {
+        ev.monolith = { p: 0 };
+        world.monolithFallen = true;
+      });
+      at(t + SCENE_TICKS - 1, () => {
+        world.monolithFallen = false;
+        world.structures[1]!.hp = 20000;
+      });
+      break;
+    case 'combat':
+      for (let k = 0; k < 4; k++) {
+        at(t + k * 4, (ev) => right.slice(0, 12).forEach((v, i) => ev.swings.push({ from: v.id, to: left[i % left.length]!.id })));
+        at(t + k * 4 + 1, (ev) => left.forEach((v, i) => ev.hits.push({ unit: v.id, damage: i % 4 === 0 ? 24 : 9, structure: -1 })));
+      }
+      break;
+    case 'muster': {
+      const a = platoon(97, 0, -480, 60);
+      const b = platoon(96, 1, 300, 20);
+      at(t + 1, (ev) => {
+        world.platoons = [a, b];
+        fx.onChronicle([muster(a, 'fix: off-by-one in the tokenizer lookahead')], asWorld);
+        ev.marches.push({ platoon: 97 });
+      });
+      // A march that arrives before its chronicle line.
+      at(t + 3, (ev) => ev.marches.push({ platoon: 96 }));
+      at(t + 4, () => fx.onChronicle([muster(b, 'feat(render): ink-and-pigment smoke, hatched like an engraving')], asWorld));
+      break;
+    }
+    case 'rank':
+      at(t + 1, () => {
+        world.platoons = [platoon(95, 0, -300, -40), platoon(94, 0, -220, 80), platoon(93, 1, 220, 0)];
+      });
+      at(t + 3, () => (world.players[0]!.veterancy += 1));
+      break;
+    case 'dragon':
+      at(t + 1, (ev) => {
+        world.platoons = [platoon(92, 0, home.x + 40, home.y)];
+        fx.onChronicle([muster(world.platoons[0]!, 'perf: summon the wyrm')], asWorld);
+        ev.marches.push({ platoon: 92 });
+      });
+      break;
+    case 'desert':
+      at(t + 2, (ev) => {
+        for (const v of right.slice(6, 12)) v.g.visible = false;
+        ev.desertions.push({ p: 1, count: 6 });
+        setTimeout(() => right.slice(6, 12).forEach((v) => (v.g.visible = true)), 3000);
+      });
+      break;
+    case 'crack':
+      at(t + 1, () => (world.structures[0]!.hp = 900));
+      at(t + SCENE_TICKS - 1, () => (world.structures[0]!.hp = 8000));
+      break;
+    case 'dayend':
+      at(t + 1, () => fx.dayEnd(asWorld));
       break;
   }
 }
@@ -229,7 +320,7 @@ function stepTick(): void {
   }
   tick++;
   world.tick = tick;
-  world.units = dummies.map((d) => ({ id: d.id, kind: d.kind, x: d.x, y: d.y, p: d.p }));
+  world.units = dummies.filter((d) => d.g.visible).map((d) => ({ id: d.id, kind: d.kind, x: d.x, y: d.y, p: d.p }));
   fx.onStep(ev, asWorld, { posOf, tints: TINTS, near: zoom >= 0.7, bounds: { contains: () => true } });
 }
 
@@ -254,9 +345,9 @@ app.ticker.add(() => {
   const jx = (Math.random() - 0.5) * fx.shake * 10;
   const jy = (Math.random() - 0.5) * fx.shake * 10;
   scene.scale.set(zoom);
-  scene.position.set(app.screen.width / 2 + jx, app.screen.height / 2 + jy);
+  scene.position.set(app.screen.width / 2 - cx * zoom + jx, app.screen.height / 2 - cy * zoom + jy);
   const c = fx.counts;
-  hud.textContent = `scene ${hud.dataset.scene ?? ''}  fps ${fps.toFixed(0)}  fx ${frameMs.toFixed(2)} ms\nparticles ${c.particles}  projectiles ${c.projectiles}  decals ${c.decals}  corpses ${c.corpses}`;
+  hud.textContent = `scene ${hud.dataset.scene ?? ''}  fps ${fps.toFixed(0)}  fx ${frameMs.toFixed(2)} ms\nparticles ${c.particles}  projectiles ${c.projectiles}  decals ${c.decals}  corpses ${c.corpses}\n${cues.slice(-6).join('\n')}`;
 });
 
 (window as unknown as { fxLab: unknown }).fxLab = { fx, get frameMs() { return frameMs; }, get fps() { return fps; } };

@@ -277,8 +277,28 @@ function openString(t: string, from: number, syntax: Syntax, state: { block: Blo
       i = close + 1;
       continue;
     }
+    // A JavaScript regex literal may hold quotes and backticks of its own.
+    if (ch === '/' && strings.some((s) => s.template) && /(^|[(,=:[!&|?{};+\-*%<>~^]|\b(return|typeof|case|of|in))\s*$/.test(t.slice(0, i))) {
+      const end = regexEnd(t, i + 1);
+      if (end < 0) return;
+      i = end;
+      continue;
+    }
     i++;
   }
+}
+
+/** From just inside a regex literal, the index just past its closing slash, or -1. */
+function regexEnd(t: string, i: number): number {
+  let inClass = false;
+  for (; i < t.length; i++) {
+    const c = t[i];
+    if (c === '\\') i++;
+    else if (c === '[') inClass = true;
+    else if (c === ']') inClass = false;
+    else if (c === '/' && !inClass) return i + 1;
+  }
+  return -1;
 }
 
 /** Classifies one source line, updating the open block comment or multi-line string (if any). */

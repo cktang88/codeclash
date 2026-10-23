@@ -62,8 +62,8 @@ function paintPattern(ctx: CanvasRenderingContext2D, flag: Flag, w: number, h: n
 function paintEmblem(ctx: CanvasRenderingContext2D, emblem: Emblem, x: number, y: number, r: number): void {
   ctx.save();
   ctx.translate(x, y);
-  ctx.fillStyle = '#fff';
-  ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+  ctx.fillStyle = '#f4ead0';
+  ctx.strokeStyle = INK;
   ctx.lineWidth = 2;
   ctx.beginPath();
   switch (emblem) {
@@ -145,7 +145,7 @@ function paintEmblem(ctx: CanvasRenderingContext2D, emblem: Emblem, x: number, y
   ctx.stroke();
   ctx.fill();
   if (emblem === 'eye') {
-    ctx.fillStyle = 'rgba(0,0,0,0.75)';
+    ctx.fillStyle = INK;
     ctx.beginPath();
     ctx.arc(0, 0, r * 0.3, 0, Math.PI * 2);
     ctx.fill();
@@ -153,13 +153,17 @@ function paintEmblem(ctx: CanvasRenderingContext2D, emblem: Emblem, x: number, y
   ctx.restore();
 }
 
-function textOutlined(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, size: number, fill = '#fff'): void {
-  ctx.font = `800 ${size}px Inter, "Segoe UI", system-ui, sans-serif`;
+const TITLE_FONT = '"IM Fell English SC", "IM Fell English", Georgia, serif';
+const NUMBER_FONT = '"Alegreya SC", Alegreya, Georgia, serif';
+const INK = 'rgba(34,24,15,0.92)';
+
+function textOutlined(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, size: number, fill = '#f4ead0', font = TITLE_FONT): void {
+  ctx.font = `${size}px ${font}`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.lineJoin = 'round';
-  ctx.lineWidth = Math.max(3, size * 0.22);
-  ctx.strokeStyle = 'rgba(8,8,10,0.9)';
+  ctx.lineWidth = Math.max(3, size * 0.2);
+  ctx.strokeStyle = INK;
   ctx.strokeText(text, x, y);
   ctx.fillStyle = fill;
   ctx.fillText(text, x, y);
@@ -210,9 +214,18 @@ function paintGrade(ctx: CanvasRenderingContext2D, w: number, h: number, grade: 
     return;
   }
   if (grade.rank === 0) return;
-  ctx.strokeStyle = GOLD;
-  ctx.lineWidth = 2 + grade.rank;
+  // Gold leaf laid along the edges, uneven as if burnished by hand.
+  const leaf = ctx.createLinearGradient(0, 0, w, h);
+  leaf.addColorStop(0, '#f6dc8c');
+  leaf.addColorStop(0.45, '#d4a93e');
+  leaf.addColorStop(0.7, '#f6dc8c');
+  leaf.addColorStop(1, '#8a6418');
+  ctx.strokeStyle = leaf;
+  ctx.lineWidth = 2.5 + grade.rank * 1.2;
   ctx.strokeRect(3.5, 3.5, w - 7, h - 7);
+  ctx.strokeStyle = INK;
+  ctx.lineWidth = 1;
+  ctx.strokeRect(5 + grade.rank * 0.8, 5 + grade.rank * 0.8, w - 10 - grade.rank * 1.6, h - 10 - grade.rank * 1.6);
   for (let i = 0; i < grade.rank; i++) star(ctx, w - 13 - i * 17, 13, 8);
 }
 
@@ -226,7 +239,7 @@ function star(ctx: CanvasRenderingContext2D, x: number, y: number, r: number): v
   ctx.closePath();
   ctx.fillStyle = GOLD;
   ctx.fill();
-  ctx.strokeStyle = 'rgba(40,28,8,0.9)';
+  ctx.strokeStyle = INK;
   ctx.lineWidth = 1.2;
   ctx.stroke();
 }
@@ -243,9 +256,10 @@ export function paintFlag(flag: Flag, ordinal: number | null, grade: FlagGrade =
   ctx.fillStyle = 'rgba(0,0,0,0.35)';
   ctx.fillRect(10, 0, 2, h);
   paintEmblem(ctx, flag.emblem, 28, 18, 10);
-  textOutlined(ctx, flag.initials, 58, ordinal === null ? 34 : 28, 26);
-  if (ordinal !== null) textOutlined(ctx, roman(ordinal), 58, 52, 15, '#f4e6b8');
-  ctx.strokeStyle = 'rgba(0,0,0,0.75)';
+  textOutlined(ctx, flag.initials, 58, ordinal === null ? 34 : 29, 28);
+  if (ordinal !== null) textOutlined(ctx, roman(ordinal), 58, 52, 15, '#f6dc8c', NUMBER_FONT);
+  cloth(ctx, w, h);
+  ctx.strokeStyle = INK;
   ctx.lineWidth = 3;
   ctx.strokeRect(1.5, 1.5, w - 3, h - 3);
   paintGrade(ctx, w, h, grade);
@@ -261,10 +275,106 @@ export function paintStandard(hue: number, login: string): HTMLCanvasElement {
   ctx.fillRect(0, FLAG_H * 0.72, FLAG_W, FLAG_H * 0.28);
   ctx.fillStyle = '#f4e6b8';
   ctx.fillRect(0, FLAG_H * 0.7, FLAG_W, 3);
-  textOutlined(ctx, (login[0] ?? '?').toUpperCase(), FLAG_W / 2, FLAG_H * 0.38, 34, '#fff');
-  ctx.strokeStyle = 'rgba(0,0,0,0.75)';
+  textOutlined(ctx, (login[0] ?? '?').toUpperCase(), FLAG_W / 2, FLAG_H * 0.38, 36);
+  cloth(ctx, FLAG_W, FLAG_H);
+  ctx.strokeStyle = INK;
   ctx.lineWidth = 3;
   ctx.strokeRect(1.5, 1.5, FLAG_W - 3, FLAG_H - 3);
+  return c;
+}
+
+/**
+ * Turns flat colour into dyed cloth: the dye is muted toward earth, the weave
+ * shows, and light falls from the upper left.
+ */
+function cloth(ctx: CanvasRenderingContext2D, w: number, h: number): void {
+  ctx.save();
+  ctx.globalCompositeOperation = 'multiply';
+  ctx.fillStyle = 'rgba(214,190,140,0.35)';
+  ctx.fillRect(0, 0, w, h);
+  const light = ctx.createLinearGradient(0, 0, w, h);
+  light.addColorStop(0, 'rgba(255,250,235,1)');
+  light.addColorStop(1, 'rgba(150,150,180,1)');
+  ctx.globalAlpha = 0.45;
+  ctx.fillStyle = light;
+  ctx.fillRect(0, 0, w, h);
+  ctx.globalAlpha = 1;
+  ctx.strokeStyle = 'rgba(120,100,80,0.18)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let y = 2; y < h; y += 3) {
+    ctx.moveTo(0, y);
+    ctx.lineTo(w, y);
+  }
+  ctx.stroke();
+  ctx.restore();
+}
+
+/**
+ * The far-zoom token: the battalion's arms on a heater shield, with a gold rim
+ * for veterans and a notched edge for ragged armies.
+ */
+export const TOKEN_W = 64;
+export const TOKEN_H = 74;
+
+function paintToken(flag: Flag, grade: FlagGrade): HTMLCanvasElement {
+  const res = 2;
+  const [c, ctx] = canvas2d(TOKEN_W * res, TOKEN_H * res);
+  ctx.scale(res, res);
+  const w = TOKEN_W;
+  const shield = () => {
+    ctx.beginPath();
+    ctx.moveTo(6, 6);
+    ctx.lineTo(w - 6, 6);
+    ctx.lineTo(w - 6, 36);
+    ctx.quadraticCurveTo(w - 8, 58, w / 2, 70);
+    ctx.quadraticCurveTo(8, 58, 6, 36);
+    ctx.closePath();
+  };
+  ctx.save();
+  ctx.translate(2.5, 3);
+  shield();
+  ctx.fillStyle = 'rgba(20,24,44,0.45)';
+  ctx.fill();
+  ctx.restore();
+  ctx.save();
+  shield();
+  ctx.clip();
+  ctx.fillStyle = flag.field;
+  ctx.fillRect(0, 0, w, TOKEN_H);
+  paintPattern(ctx, flag, w, TOKEN_H);
+  paintEmblem(ctx, flag.emblem, w / 2, 32, 15);
+  cloth(ctx, w, TOKEN_H);
+  ctx.restore();
+  shield();
+  if (grade.rank > 0) {
+    const leaf = ctx.createLinearGradient(0, 0, w, TOKEN_H);
+    leaf.addColorStop(0, '#f6dc8c');
+    leaf.addColorStop(0.5, '#d4a93e');
+    leaf.addColorStop(1, '#8a6418');
+    ctx.strokeStyle = leaf;
+    ctx.lineWidth = 3 + grade.rank * 1.4;
+    ctx.stroke();
+  }
+  ctx.strokeStyle = INK;
+  ctx.lineWidth = 2.2;
+  ctx.stroke();
+  if (grade.ragged) {
+    ctx.save();
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.beginPath();
+    ctx.moveTo(w - 6, 14);
+    ctx.lineTo(w - 16, 20);
+    ctx.lineTo(w - 6, 26);
+    ctx.moveTo(14, 54);
+    ctx.lineTo(22, 50);
+    ctx.lineTo(20, 60);
+    ctx.fill();
+    ctx.restore();
+    ctx.fillStyle = 'rgba(120,112,100,0.35)';
+    shield();
+    ctx.fill();
+  }
   return c;
 }
 
@@ -287,6 +397,16 @@ export class FlagCache {
     let t = this.cache.get(key);
     if (!t) {
       t = new Texture({ source: new CanvasSource({ resource: paintFlag(battalionFlag(hue, repo, language), ordinal, grade), autoGenerateMipmaps: true }) });
+      this.cache.set(key, t);
+    }
+    return t;
+  }
+
+  token(hue: number, repo: string, language: string | null, grade: FlagGrade): Texture {
+    const key = `tok|${hue}|${repo}|${language ?? ''}|${grade.rank}|${grade.ragged ? 1 : 0}`;
+    let t = this.cache.get(key);
+    if (!t) {
+      t = new Texture({ source: new CanvasSource({ resource: paintToken(battalionFlag(hue, repo, language), grade), resolution: 2, autoGenerateMipmaps: true }) });
       this.cache.set(key, t);
     }
     return t;

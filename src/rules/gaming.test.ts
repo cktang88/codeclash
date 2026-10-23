@@ -87,7 +87,7 @@ function ledgerOf(pushes: readonly { delta: PushDelta; msg: string }[]): Ledger 
 }
 
 /** Fighting strength: quality times Σ count·√(hp·damage), a Lanchester-style measure. */
-export function strength(ledger: Ledger): number {
+function strength(ledger: Ledger): number {
   const counts = armyFor(ledger, 1);
   let s = 0;
   for (let k = 0; k < KIND_COUNT; k++) s += counts[k]! * Math.sqrt(STATS[k]!.hp * STATS[k]!.damage);
@@ -116,6 +116,29 @@ describe('gaming line counts', () => {
     const d = measure([file('src/legacy.ts', reformatted, old)]);
     expect(d.lines[Cat.Code]).toBeLessThanOrEqual(4);
     expect(d.lines[Cat.Removed]).toBeLessThanOrEqual(4);
+  });
+
+  it('re-wrapping code to another line width pays at most once, however often it is flipped', () => {
+    const one = honestCode(400, 12).filter((l) => l.includes('(') && !l.startsWith('export'));
+    // Wrap each call's arguments onto their own lines, as a formatter with a narrow width would.
+    const wrapped = one.flatMap((l) => {
+      const open = l.indexOf('(');
+      const close = l.lastIndexOf(')');
+      if (close < open) return [l];
+      return [l.slice(0, open + 1), ...l.slice(open + 1, close).split(', ').map((a) => `    ${a},`), `  ${l.slice(close)}`];
+    });
+    const ledger = new MemoryLedger();
+    measure([file('src/app.ts', one)], ledger);
+    const gains: number[] = [];
+    for (let day = 1; day <= 6; day++) {
+      ledger.today = day;
+      const d = measure([file('src/app.ts', day % 2 ? wrapped : one, day % 2 ? one : wrapped)], ledger);
+      gains.push(d.lines[Cat.Code]! + d.lines[Cat.Removed]!);
+    }
+    // The first re-wrap is new text to the ledger (a known residual, see docs/fair-play.md);
+    // flipping back, or wrapping again, earns nothing more.
+    expect(gains[0]).toBeLessThanOrEqual(2 * one.length);
+    expect(gains.slice(1).every((g) => g <= 0)).toBe(true);
   });
 
   it('a trailing comment or inline comment does not make a duplicate line new', () => {

@@ -1,0 +1,45 @@
+/* Meta: layout and structure only. Codex kit supplies the panels, type and colour; UI owns the finish.
+   No rounded corners, pills or box-shadows here. */
+
+.meta-rank { display: inline-grid; grid-template-columns: auto auto; gap: 2px 10px; align-items: baseline; min-width: 180px; }
+.meta-rank .bar { grid-column: 1 / -1; }
+.meta-rank-glory { color: var(--fg-soft); font-size: 0.85em; }
+
+.meta-orders-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.meta-order { display: grid; grid-template-columns: 18px 1fr auto; grid-template-areas: 'seal title amount' 'seal bar bar'; gap: 2px 8px; align-items: center; }
+.meta-order-seal { grid-area: seal; width: 16px; height: 16px; border: 1px solid var(--rule); display: grid; place-items: center; font-size: 11px; line-height: 1; }
+.meta-order.is-done .meta-order-seal { background: var(--vermilion, #a3301f); color: var(--gold-bright); border-color: transparent; }
+.meta-order-title { grid-area: title; color: var(--fg); }
+.meta-order.is-done .meta-order-title { text-decoration: line-through; text-decoration-color: var(--rule); color: var(--fg-soft); }
+.meta-order-amount { grid-area: amount; font-size: 0.85em; }
+.meta-order .bar { grid-area: bar; }
+
+.meta-armory-head { display: flex; gap: 20px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
+.meta-armory-slot { margin-bottom: 14px; }
+.meta-armory-choices { display: flex; flex-wrap: wrap; gap: 8px; }
+.meta-choice { display: grid; justify-items: center; gap: 4px; min-width: 72px; padding: 8px; background: none; border: 1px solid var(--rule); color: var(--fg); font: inherit; cursor: pointer; }
+.meta-choice.is-on { border-color: var(--gold); outline: 1px solid var(--gold); outline-offset: 2px; }
+.meta-choice.is-locked { opacity: 0.45; cursor: not-allowed; }
+.meta-choice:focus-visible { outline: 2px solid var(--gold-bright); outline-offset: 2px; }
+.meta-choice-lock { font-size: 0.75em; }
+.meta-armory-message { color: var(--bad); }
+
+.meta-hall-day { margin-bottom: 24px; }
+.meta-hall-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+.meta-legend-name { margin: 0 0 4px; }
+.meta-legend-deeds { margin: 6px 0; padding-left: 18px; }
+.meta-legend-owner { display: flex; align-items: center; gap: 6px; margin: 0; }
+
+.meta-season-champion { margin-bottom: 16px; }
+.meta-season-table { width: 100%; }
+.meta-season-table tr.is-first td { color: var(--gold-bright); }
+
+.meta-deeds-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.meta-deed { display: grid; grid-template-columns: 28px 1fr; grid-template-areas: 'seal name' 'seal text'; gap: 0 8px; align-items: start; opacity: 0.5; }
+.meta-deed.is-earned { opacity: 1; }
+.meta-deed-seal { grid-area: seal; width: 26px; height: 26px; border: 1px dashed var(--rule); clip-path: polygon(50% 0, 100% 38%, 82% 100%, 18% 100%, 0 38%); }
+.meta-deed.is-earned .meta-deed-seal { border: none; background: var(--vermilion, #a3301f); }
+.meta-deed-name { grid-area: name; color: var(--fg); }
+.meta-deed-text { grid-area: text; font-size: 0.8em; }
+
+.meta-rivals-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
