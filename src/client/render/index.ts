@@ -1,5 +1,5 @@
 import { Application, Container, Graphics, Sprite, Texture, CanvasSource } from 'pixi.js';
-import { PlatoonState, TICK_MS, type MapDef, type TickEvents, type World } from '../../sim/api.ts';
+import { PlatoonState, type MapDef, type TickEvents, type World } from '../../sim/api.ts';
 import { derived } from '../../sim/derived.ts';
 import { cellAt, cellCenterX, cellCenterY } from '../../sim/flowfield.ts';
 import type { Runner } from '../net/runner.ts';
@@ -31,11 +31,6 @@ interface MapLayers {
   influence: InfluenceLayer;
 }
 
-interface Delayed {
-  at: number;
-  run: () => void;
-}
-
 /** The battlefield: owns the Pixi application, the camera and every visual layer. */
 export class Battlefield {
   private readonly scene = new Container();
@@ -51,7 +46,6 @@ export class Battlefield {
   private unsubscribe: (() => void)[] = [];
   private last = performance.now();
   private shake = 0;
-  private delayed: Delayed[] = [];
   private tints: number[] = [];
   private rgb: [number, number, number][] = [];
   private destroyed = false;
@@ -177,12 +171,6 @@ export class Battlefield {
     const layers = this.layers!;
     this.refreshColors(world);
 
-    for (let i = this.delayed.length - 1; i >= 0; i--) {
-      if (this.delayed[i]!.at <= now) {
-        this.delayed[i]!.run();
-        this.delayed.splice(i, 1);
-      }
-    }
 
     if (this.store.following && !this.camera.busy) {
       const shot = this.director.next(dtMs, now);

@@ -121,6 +121,8 @@ export class Effects {
   readonly overlay = new Container();
   /** Camera shake intensity, ~0..1.5. Always 0 under reduced motion. */
   shake = 0;
+  /** World height of a flying kind's body above its ground point. Replace to match the unit art. */
+  flyHeight: (kind: Kind) => number = (kind) => FLY_HEIGHT[kind] ?? 0;
 
   private readonly tex: FxTextures;
   private readonly decals = new ParticlePool(900, false);
@@ -172,8 +174,8 @@ export class Effects {
       const target = posOf(s.to);
       if (!target) continue;
       if (!bounds.contains(target.x, target.y) && !bounds.contains(s.x, s.y)) continue;
-      const shooterAlt = s.from > 0 ? (FLY_HEIGHT[flyerKind(s.from) ?? Kind.Footman] ?? 0) : 0;
-      const targetAlt = s.to > 0 ? (FLY_HEIGHT[flyerKind(s.to) ?? Kind.Footman] ?? 0) : 0;
+      const shooterAlt = s.from > 0 ? this.altOf(flyerKind(s.from)) : 0;
+      const targetAlt = s.to > 0 ? this.altOf(flyerKind(s.to)) : 0;
       this.launch(s.kind, s.x, s.y, shooterAlt, target.x, target.y, targetAlt, tick, Math.max(tick + 1, s.land), s.to);
     }
 
@@ -208,7 +210,7 @@ export class Effects {
       const p = posOf(h.to);
       if (!p || !bounds.contains(p.x, p.y)) continue;
       const healer = world.units.find((u) => u.id === h.from);
-      this.heal(p.x, p.y - (FLY_HEIGHT[flyerKind(h.to) ?? Kind.Footman] ?? 0), healer?.kind === Kind.Paladin);
+      this.heal(p.x, p.y - this.altOf(flyerKind(h.to)), healer?.kind === Kind.Paladin);
     }
 
     if (near) {
@@ -226,7 +228,7 @@ export class Effects {
         }
         const p = posOf(h.unit);
         if (!p || !bounds.contains(p.x, p.y)) continue;
-        const alt = FLY_HEIGHT[flyerKind(h.unit) ?? Kind.Footman] ?? 0;
+        const alt = this.altOf(flyerKind(h.unit));
         this.sparks(p.x, p.y - 8 - alt, h.damage > 18 ? 4 : 2, h.damage > 18 ? 0xffe08a : 0xffffff, 60);
         if (rand() < 0.4 && alt === 0) this.puff(p.x, p.y - 2, 1, 0xb7a888, 8);
       }
@@ -392,14 +394,17 @@ export class Effects {
     }
   }
 
-  /** A soldier falls and fades. `scale` is world units per texture pixel; feet sit at (x, y). */
-  corpse(texture: Texture, x: number, y: number, facing: number, scale: number, tint: number, altitude = 0): void {
+  /**
+   * A soldier falls and fades. `scale` is world units per texture pixel; feet sit at (x, y).
+   * `anchorY` is the feet's fraction of the texture height; without it feet are assumed at 84/96.
+   */
+  corpse(texture: Texture, x: number, y: number, facing: number, scale: number, tint: number, altitude = 0, anchorY?: number): void {
     if (this.corpses.length >= MAX_CORPSES) this.dropCorpse(0);
     const s = new Sprite(texture);
-    s.anchor.set(0.5);
+    s.anchor.set(0.5, anchorY ?? 0.5);
     s.tint = tint;
     s.scale.set(scale * facing, scale);
-    const feet = (FEET_FRAC - 0.5) * texture.frame.height * scale;
+    const feet = anchorY === undefined ? (FEET_FRAC - 0.5) * texture.frame.height * scale : 0;
     s.position.set(x, y - feet - altitude);
     this.corpseLayer.addChild(s);
     this.corpses.push({ s, age: 0, facing: facing >= 0 ? 1 : -1, x, y: y - feet, drop: altitude });
@@ -567,7 +572,7 @@ export class Effects {
       }
       const mouthX = b.x + b.dx * 12;
       const mouthY = b.y + b.dy * 12;
-      const alt = FLY_HEIGHT[Kind.Dragon]!;
+      const alt = this.flyHeight(Kind.Dragon);
       const life = 0.5;
       const speed = b.range / life;
       b.acc += dt;
@@ -663,7 +668,7 @@ export class Effects {
   // -------------------------------------------------------------- deaths
 
   private death(kind: Kind, x: number, y: number, tint: number, near: boolean): void {
-    const alt = FLY_HEIGHT[kind] ?? 0;
+    const alt = this.altOf(kind);
     if (kind === Kind.Dragon) {
       this.flash(x, y - 20, 200, 0xff8a30, 0.4);
       for (let i = 0; i < this.n(30); i++) this.ember(x, y - 20, 220, 120);
@@ -747,6 +752,10 @@ export class Effects {
   }
 
   // -------------------------------------------------------- primitives
+
+  private altOf(kind: Kind | undefined): number {
+    return kind === undefined || !STATS[kind]!.flying ? 0 : this.flyHeight(kind);
+  }
 
   /** Additive spawn, refused once its 32-unit cell has had its share this quarter second. */
   private glowSpawn(sp: Spawn, budget = GLOW_PER_CELL): void {
