@@ -27,6 +27,8 @@ export const MIN_POLL_MS = 60_000;
 export const FIRST_POLL_WINDOW_MS = 24 * 3_600_000;
 export const TICK_MS = 5_000;
 const BUDGET_SHARE = 0.6;
+/** A push that keeps failing (a blocked repo, a diff GitHub cannot compute) is skipped after this many tries. */
+export const MAX_PUSH_ATTEMPTS = 5;
 const MESSAGE_MAX = 72;
 const ZERO_SHA = /^0+$/;
 
@@ -108,6 +110,8 @@ export class Poller {
   private running = false;
   private pollIntervalMs = MIN_POLL_MS;
   private inFlight = new Map<number, Promise<void>>();
+  /** Failed attempts per `${userId}:${eventId}`, so one poisoned event cannot stall a user's feed forever. */
+  private attempts = new Map<string, number>();
 
   constructor(private readonly deps: PollerDeps) {}
 
@@ -170,13 +174,22 @@ export class Poller {
       const fresh = events.filter((e) => (since !== null ? compareIds(e.id, since) > 0 : e.createdAt >= now - FIRST_POLL_WINDOW_MS));
       etag = res.etag;
       for (const e of fresh) {
+        const key = `${user.id}:${e.id}`;
         try {
           await ingestPush(this.deps, user, { repo: e.repo, ref: e.ref, before: e.before, head: e.head, at: e.createdAt });
+          this.attempts.delete(key);
         } catch (err) {
-          // Stop here and refetch next time so this push is retried, not skipped.
-          store.setPollState(user.id, { etag: null, lastEventId, at: now, error: errorMessage(err) });
-          log.warn('push ingestion failed', { user: user.login, repo: e.repo, error: errorMessage(err) });
-          return;
+          const tries = (this.attempts.get(key) ?? 0) + 1;
+          if (tries < MAX_PUSH_ATTEMPTS) {
+            if (this.attempts.size > 10_000) this.attempts.clear();
+            this.attempts.set(key, tries);
+            // Stop here and refetch next time so this push is retried, not skipped.
+            store.setPollState(user.id, { etag: null, lastEventId, at: now, error: errorMessage(err) });
+            log.warn('push ingestion failed', { user: user.login, repo: e.repo, error: errorMessage(err) });
+            return;
+          }
+          this.attempts.delete(key);
+          log.warn('push ingestion gave up', { user: user.login, repo: e.repo, tries, error: errorMessage(err) });
         }
         lastEventId = e.id;
       }

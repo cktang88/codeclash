@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { Cat } from '../sim/api.ts';
 import { openDb, Store } from './db.ts';
 import { silentLogger } from './log.ts';
-import { ingestPush, Poller, pushIdOf, type PushReport } from './poller.ts';
+import { ingestPush, MAX_PUSH_ATTEMPTS, Poller, pushIdOf, type PushReport } from './poller.ts';
 import { FakeGithub, pushEvent, sha, sourceFile, ZERO } from './testing/fakeGithub.ts';
 
 const NOW = Date.parse('2026-10-23T12:00:00Z');
@@ -112,6 +112,22 @@ describe('Poller', () => {
     await t.poller.pollUser(7);
     expect(t.reports).toHaveLength(1);
     expect(t.store.user(7)!.pollError).toBeNull();
+  });
+
+  it('gives up on a push that keeps failing so later pushes still count', async () => {
+    t.github.addEvent('Ana', pushEvent('100', 'ana/blocked', sha(1), sha(2), NOW));
+    t.github.addEvent('Ana', pushEvent('101', 'ana/parser', sha(3), sha(4), NOW));
+    t.github.setCompare('ana/parser', sha(3), sha(4), { commits: [commit(4, 'ana')], files: [sourceFile('a.ts', ['a'])] });
+    const compare = t.github.compare.bind(t.github);
+    t.github.compare = async (repo, base, head) => {
+      if (repo === 'ana/blocked') throw new Error('451 unavailable for legal reasons');
+      return compare(repo, base, head);
+    };
+    for (let i = 0; i < MAX_PUSH_ATTEMPTS - 1; i++) await t.poller.pollUser(7);
+    expect(t.reports).toHaveLength(0);
+    await t.poller.pollUser(7);
+    expect(t.reports.map((r) => r.repo)).toEqual(['ana/parser']);
+    expect(t.store.user(7)!.lastEventId).toBe('101');
   });
 
   it('paces polling per user and honours X-Poll-Interval', async () => {
