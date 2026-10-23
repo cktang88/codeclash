@@ -5,6 +5,7 @@ import { dayPhase, daylightAt } from './daylight.ts';
 import { declutter, overlapping, type DeclutterBox } from './declutter.ts';
 import { clampShift, clipScroll } from './fx/scrollfit.ts';
 import { pruneLru, touch } from './lru.ts';
+import { KNOCK_OUT, hitstopMs, knockCurve, knockDistance, knockMs } from './impact.ts';
 
 const box = (x: number, y: number): DeclutterBox => ({ x, y, w: 54, h: 34, cx: 6, cy: -6, ox: 0, oy: 0 });
 
@@ -127,5 +128,41 @@ describe("herald's scroll fitting", () => {
     expect(clampShift(300, 420, 8, 382)).toBe(-38);
     expect(clampShift(-50, 60, 8, 382)).toBe(58);
     expect(clampShift(0, 500, 8, 382)).toBe(-55);
+  });
+});
+
+describe('combat impact (render-only knockback)', () => {
+  it('shoves light soldiers further than heavy ones, and heavy blows further than light ones', () => {
+    expect(knockDistance(0.2, 1, 6)).toBeGreaterThan(knockDistance(0.2, 1, 13));
+    expect(knockDistance(0.2, 2.2, 6)).toBeGreaterThan(knockDistance(0.2, 1, 6));
+    expect(knockDistance(0.05, 1, 22)).toBeLessThan(1);
+  });
+
+  it('stays within a few world units, and never NaN', () => {
+    for (const share of [0, 0.01, 0.3, 1, 5, Number.NaN]) {
+      for (const size of [5, 6, 13, 22]) {
+        const d = knockDistance(share, 2.2, size);
+        expect(Number.isFinite(d)).toBe(true);
+        expect(d).toBeGreaterThanOrEqual(0.6);
+        expect(d).toBeLessThanOrEqual(12);
+      }
+    }
+  });
+
+  it('pushes out fast, peaks, and eases home to exactly the sim position', () => {
+    expect(knockCurve(0)).toBe(0);
+    expect(knockCurve(KNOCK_OUT)).toBeCloseTo(1, 5);
+    expect(knockCurve(KNOCK_OUT * 0.5)).toBeGreaterThan(0.7);
+    expect(knockCurve(0.6)).toBeLessThan(1);
+    expect(knockCurve(0.999)).toBeLessThan(0.001);
+    expect(knockCurve(1)).toBe(0);
+    expect(knockCurve(Number.NaN)).toBe(0);
+  });
+
+  it('holds melee hitstop to 40-100 ms and the shove to 150-250 ms', () => {
+    expect(hitstopMs(0, false)).toBe(40);
+    expect(hitstopMs(10, true)).toBe(100);
+    expect(knockMs(0)).toBe(150);
+    expect(knockMs(1)).toBe(250);
   });
 });

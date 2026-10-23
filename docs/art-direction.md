@@ -41,6 +41,14 @@ Touchstones (study them, never copy them):
 
 Gold is reserved for value: rank, renown, victory and the best of anything. Never use it for plain decoration.
 
+**Saturation and the HDR look.** The field is a stage with actors on it, and colour follows that split:
+
+- **Actors are vivid.** Soldiers, banners, tokens, site glows and effects carry the strongest saturation and the brightest values on screen. Soldiers wear an *actor pigment*: the army hue at 80% saturation and 52% lightness, mixed only 6% toward earth (the map's own pigment is 66%/50% mixed 16%). It is still a pigment, never neon.
+- **The stage is rich but calm.** Terrain keeps deep, saturated greens, ultramarines and earths, with a deep ink floor. It is calmer than the actors because it has less detail and a narrower *local* value range (fewer ticks and lighter hatching), never because it was lightened, greyed or pushed toward pastel. No screen lifts, white fog or low-contrast vellum washes over the field: the old dawn "warm-grey lift" is the failure to avoid.
+- **Emissives bloom.** Fire, fireballs, dragon breath, embers, gold motes, torches, window lights and shrine glows are drawn a second time into a half-resolution target, blurred and added back. Nothing else is drawn into that target, so ordinary terrain, vellum and soldiers never bloom.
+- **A filmic finish.** A final pass over the field applies a gentle filmic S-curve (deeper ink floor, highlights that roll off instead of clipping) and vibrance (saturation added most where colour is weakest, least to warm skin-like hues) rather than flat saturation. It is off under reduced motion, with `?lowfx`, on software renderers, and when frames run slow; `?hdr` forces it on for captures.
+- **Guard.** Mean terrain saturation and its L\* value range (p5 to p95) must not drop below the measured baseline at any time of day, and the pass must never reduce unit-against-terrain contrast. Both are checked with the legibility measurement (see §5).
+
 ## 3. Typography
 
 | Face | Use |
@@ -126,16 +134,22 @@ Cloud shadows drift across the map. Ambient life follows the hour: birds and but
 
 **Units.** Painted miniatures with inked outlines.
 
-- Team pigment is on the cloth: tabard, shield field, plume, banner. It covers 20–30% of the sprite.
+- Team pigment is on the cloth: tabard, shield field, plume, banner. Shields are a broad pigment field with an argent (light) charge, so the arms read. Under every soldier a bold pigment ring between ink rules (the miniature's base) carries the side at mid zoom; elites stand on a wider ring.
 - Steel, leather and bone are shared materials, drawn the same way for every army.
 - Rank shows as gold: chevrons, trims and gilded banner edges.
 - Ragged armies have faded pigment, patched and torn cloth, and dented shields.
 
-**Readability rules.**
+**Readability rules.** Legibility wins every conflict with painterly richness. The battlefield is a *stage* (terrain: calm, rich, lower in detail) and *actors* (soldiers, banners, tokens, projectiles, site markers: crisp, vivid, high contrast).
 
-- Never encode unit kind in hue.
-- At far zoom every platoon becomes a heraldic token.
-- Labels sit on vellum cartouches with ink text, and collide politely: lower-priority labels hide first.
+- Never encode unit kind in hue. Kinds differ by silhouette; below zoom 1.4 soldiers are drawn up to 1.6× life size so silhouettes stay distinct at mid zoom.
+- **Every figure is cut out.** Each soldier frame is baked with a rim drawn under it: an ink band 2.2 art-px outside its own outline, and outside that a light halo out to 7 art-px, tinted 62% from the army pigment toward vellum light. The ink band separates the figure from light ground (road, ochre, vellum); the halo separates it from dark ground (forest, deep water, night). The rim stays on during hit flashes.
+- **The stage dims under the actors.** At mid and close zoom a soft, cool ink-blue multiply pool lies under each platoon. It darkens the ground and quiets its detail without greying it.
+- **Terrain detail is quiet.** Grass ticks are sparse and faint (alpha ≤ 0.18), forest canopies are hatched lightly (alpha ≤ 0.15, every 3.2px) with a soft top-left light and an ink edge at ≤ 0.45, and rock hatching is at most 0.22. Roads keep their ink edges at 0.3 so they read as roads but stay quieter than any soldier.
+- **The hour darkens the stage, not the actors.** Soldiers, bases and banners take only 14% of the time-of-day grade; terrain takes all of it. At night every platoon carries a torch pool.
+- **At far zoom every platoon becomes a heraldic token**: a 40px shield in the battalion's arms with a vellum rim outside a heavy ink rule, so it stands off forest, road and night alike. Elites keep their silhouette as a pigment glyph.
+- Labels sit on vellum cartouches with ink text (12:1, secondary 7:1, never under 4.5:1), and collide politely: lower-priority labels hide first.
+- **Combat impact stays readable**: a hit flash is one frame of light over the figure and an 80ms fade, capped at 28 at once; knockback is capped at 60 at once; heavy blows take priority.
+- **Targets, measured.** Silhouette contrast (the darker or lighter side of a soldier's outer 3px contour against the terrain 1–7px around it, WCAG ratio) is at least 3:1 on grass, forest, road, water and rock at dawn, noon, dusk and night, at mid and close zoom; at far zoom it is measured on the tokens and dots. The measurement is `scripts/legibility/` (Playwright captures with and without soldiers, then pixel sampling) and is re-run with the filmic pass on.
 
 ## 6. Set pieces
 

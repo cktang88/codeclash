@@ -89,11 +89,11 @@ const VELLUM_DEEP: Rgb = [185, 164, 119];
 const FOXING: Rgb = [196, 160, 104];
 const TABLE: Rgb = [36, 25, 18];
 const TABLE_GRAIN: Rgb = [58, 40, 27];
-const MEADOW: Rgb = [170, 178, 106];
-const GRASS: Rgb = [130, 152, 86];
-const GRASS_DEEP: Rgb = [104, 120, 70];
+const MEADOW: Rgb = [156, 172, 90];
+const GRASS: Rgb = [116, 146, 72];
+const GRASS_DEEP: Rgb = [90, 116, 56];
 const OCHRE: Rgb = [196, 172, 108];
-const FOREST_FLOOR: Rgb = [92, 106, 62];
+const FOREST_FLOOR: Rgb = [80, 104, 52];
 const ROCK: Rgb = [164, 152, 128];
 const ROCK_SHADE: Rgb = [118, 106, 88];
 const MUD: Rgb = [150, 132, 92];
@@ -453,21 +453,21 @@ function paintRoads(ctx: CanvasRenderingContext2D, map: MapDef, seed: number, te
     }
   };
   // Ink-edged tracks: a dark border, worn ochre bed, and wheel ruts.
-  stroke(10, `${INK}0.42)`);
-  stroke(7.4, 'rgba(198,170,112,0.92)');
-  stroke(1, 'rgba(120,92,56,0.45)', [3, 5]);
+  stroke(10, `${INK}0.3)`);
+  stroke(7.4, 'rgba(188,158,100,0.9)');
+  stroke(1, 'rgba(120,92,56,0.25)', [3, 5]);
   ctx.setLineDash([]);
 }
 
 function paintGrass(ctx: CanvasRenderingContext2D, R: number, rand: () => number, terrainAt: (x: number, y: number) => number): void {
   // Ink ticks of grass, sparse, like a pen idling over the meadows.
-  const count = (Math.PI * R * R) / 70;
+  const count = (Math.PI * R * R) / 160;
   for (let i = 0; i < count; i++) {
     const x = (rand() * 2 - 1) * R;
     const y = (rand() * 2 - 1) * R;
     if (x * x + y * y > (R - 30) * (R - 30) || terrainAt(x, y) !== Terrain.Plain) continue;
     const h = 2 + rand() * 2.5;
-    ctx.strokeStyle = `${INK}${0.16 + rand() * 0.14})`;
+    ctx.strokeStyle = `${INK}${0.1 + rand() * 0.08})`;
     ctx.lineWidth = 0.8;
     ctx.beginPath();
     ctx.moveTo(x - 1.4, y);
@@ -505,9 +505,9 @@ function paintRocks(ctx: CanvasRenderingContext2D, map: MapDef, rand: () => numb
       ctx.fill();
       ctx.save();
       ctx.clip();
-      ctx.strokeStyle = `${INK}0.45)`;
+      ctx.strokeStyle = `${INK}0.22)`;
       ctx.lineWidth = 0.7;
-      for (let h = -r; h < r * 2; h += 2.2) {
+      for (let h = -r; h < r * 2; h += 3.4) {
         ctx.beginPath();
         ctx.moveTo(x + h - r, y + r);
         ctx.lineTo(x + h, y - r);
@@ -518,7 +518,7 @@ function paintRocks(ctx: CanvasRenderingContext2D, map: MapDef, rand: () => numb
       ctx.moveTo(x - r, y + r * 0.35);
       ctx.lineTo(peak[0], peak[1]);
       ctx.lineTo(x + r, y + r * 0.35);
-      ctx.strokeStyle = `${INK}0.8)`;
+      ctx.strokeStyle = `${INK}0.6)`;
       ctx.lineWidth = 1.2;
       ctx.stroke();
     }
@@ -569,22 +569,22 @@ function paintForests(ctx: CanvasRenderingContext2D, map: MapDef, rand: () => nu
       }
       ctx.closePath();
     };
-    const base = mix([78, 104, 60], [106, 128, 70], b.tone);
+    const base = mix([66, 98, 50], [84, 116, 56], b.tone);
     path();
     ctx.fillStyle = `rgb(${base[0]},${base[1]},${base[2]})`;
     ctx.fill();
     const g = ctx.createRadialGradient(b.x - b.r * 0.4, b.y - b.r * 0.45, 0, b.x - b.r * 0.2, b.y - b.r * 0.2, b.r * 1.05);
-    g.addColorStop(0, 'rgba(196,204,120,0.75)');
-    g.addColorStop(0.5, 'rgba(150,166,92,0.25)');
-    g.addColorStop(1, 'rgba(40,52,34,0.35)');
+    g.addColorStop(0, 'rgba(160,190,90,0.5)');
+    g.addColorStop(0.5, 'rgba(120,156,72,0.16)');
+    g.addColorStop(1, 'rgba(30,48,30,0.25)');
     ctx.fillStyle = g;
     ctx.fill();
     ctx.save();
     path();
     ctx.clip();
-    ctx.strokeStyle = `${INK}0.32)`;
+    ctx.strokeStyle = `${INK}0.15)`;
     ctx.lineWidth = 0.7;
-    for (let h = 0; h < b.r * 1.6; h += 1.9) {
+    for (let h = 0; h < b.r * 1.6; h += 3.2) {
       ctx.beginPath();
       ctx.moveTo(b.x + h - b.r * 0.2, b.y + b.r);
       ctx.lineTo(b.x + h + b.r * 0.5, b.y - b.r * 0.1 + h * 0.15);
@@ -592,7 +592,7 @@ function paintForests(ctx: CanvasRenderingContext2D, map: MapDef, rand: () => nu
     }
     ctx.restore();
     path();
-    ctx.strokeStyle = `${INK}0.62)`;
+    ctx.strokeStyle = `${INK}0.45)`;
     ctx.lineWidth = 0.9;
     ctx.stroke();
   }

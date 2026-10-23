@@ -9,6 +9,12 @@ export type { PoseName } from './units.ts';
 
 export interface UnitFrame {
   body: Texture;
+  /**
+   * The figure's cut-out rim, drawn under the body: a crisp ink band hugging the silhouette and,
+   * outside it, a white halo to tint (light, toward the army's pigment). Ink pops the figure on
+   * light ground, the halo on dark forest and at night: it reads on every terrain.
+   */
+  rim: Texture;
   mask: Texture;
   sil: Texture;
   /** Veteran trim for rank 1..3 (show only the army's rank); absent on death frames. */
@@ -121,6 +127,50 @@ function paintCell(ctx: CanvasRenderingContext2D, kind: number, pose: Pose, dieI
   ctx.restore();
 }
 
+/** Rim widths in logical art pixels beyond the figure's own outline: the ink band, then the halo. */
+const RIM_INK = 2.2;
+const RIM_HALO = 7;
+let rimScratch: [HTMLCanvasElement, CanvasRenderingContext2D, HTMLCanvasElement, CanvasRenderingContext2D] | null = null;
+
+/**
+ * Replaces the figure painted at the cell origin of `ctx` with its rim: the silhouette dilated
+ * by the halo width in white, then by the ink width in ink. The body is drawn over it at runtime.
+ */
+function rimInto(ctx: CanvasRenderingContext2D, px: number, res: number): void {
+  if (!rimScratch || rimScratch[0].width < px) {
+    const [a, actx] = canvas(px, px);
+    const [b, bctx] = canvas(px, px);
+    rimScratch = [a, actx, b, bctx];
+  }
+  const [sil, silCtx, out, outCtx] = rimScratch;
+  silCtx.clearRect(0, 0, sil.width, sil.height);
+  silCtx.drawImage(ctx.canvas, 0, 0, px, px, 0, 0, px, px);
+  silCtx.globalCompositeOperation = 'source-in';
+  silCtx.fillStyle = '#fff';
+  silCtx.fillRect(0, 0, px, px);
+  silCtx.globalCompositeOperation = 'source-over';
+  outCtx.clearRect(0, 0, out.width, out.height);
+  const stamp = (r: number, n: number) => {
+    for (const k of [1, 0.5]) {
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * Math.PI * 2 + k * 0.4;
+        outCtx.drawImage(sil, Math.cos(a) * r * k, Math.sin(a) * r * k);
+      }
+    }
+  };
+  stamp(RIM_HALO * res, 20);
+  // Recolour the silhouette ink, then stamp the inner band.
+  silCtx.globalCompositeOperation = 'source-in';
+  silCtx.fillStyle = INK_RIM;
+  silCtx.fillRect(0, 0, px, px);
+  silCtx.globalCompositeOperation = 'source-over';
+  stamp(RIM_INK * res, 12);
+  outCtx.drawImage(sil, 0, 0);
+  ctx.clearRect(0, 0, px, px);
+  ctx.drawImage(out, 0, 0, px, px, 0, 0, px, px);
+}
+const INK_RIM = '#1a120b';
+
 /** Tight bounds of the painted pixels, or null if the cell is empty. */
 function bounds(ctx: CanvasRenderingContext2D, w: number, h: number): [number, number, number, number] | null {
   const data = ctx.getImageData(0, 0, w, h).data;
@@ -218,11 +268,12 @@ export function makeUnitArt(opts: { resolution?: number } = {}): UnitArt {
       }
       return l;
     };
-    const bake = (pose: Pose, die: number, layer: Layer | 'sil'): number => {
+    const bake = (pose: Pose, die: number, layer: Layer | 'sil' | 'rim'): number => {
       const px = cellPx(kind);
       const lift = liftFor(pose, die);
       sctx.clearRect(0, 0, maxPx, maxPx * 2);
-      paintCell(sctx, kind, pose, die, layer === 'sil' ? 'body' : layer, res, lift);
+      paintCell(sctx, kind, pose, die, layer === 'sil' || layer === 'rim' ? 'body' : layer, res, lift);
+      if (layer === 'rim') rimInto(sctx, px, res);
       if (layer === 'sil') {
         sctx.save();
         sctx.globalCompositeOperation = 'source-in';
@@ -241,12 +292,13 @@ export function makeUnitArt(opts: { resolution?: number } = {}): UnitArt {
 
     interface Entry {
       body: number;
+      rim: number;
+      sil: number;
       mask: number;
       gild: [number, number, number] | null;
       torn: number | null;
     }
     const table: Entry[][] = [];
-    const sils: number[] = [];
     for (const name of POSES) {
       const list: Entry[] = [];
       const poses = posesFor(kind, name);
@@ -254,13 +306,14 @@ export function makeUnitArt(opts: { resolution?: number } = {}): UnitArt {
         const die = name === 'die' ? i : -1;
         list.push({
           body: bake(pose, die, 'body'),
+          rim: bake(pose, die, 'rim'),
+          sil: bake(pose, die, 'sil'),
           mask: bake(pose, die, 'mask'),
           gild: die < 0 ? [bake(pose, die, 'gild1'), bake(pose, die, 'gild2'), bake(pose, die, 'gild3')] : null,
           torn: die < 0 ? bake(pose, die, 'torn') : null,
         });
       });
       table.push(list);
-      sils.push(bake(poses[0]!, name === 'die' ? 0 : -1, 'sil'));
     }
 
     // Trim each page to the rows it uses, then wrap them for the GPU.
@@ -279,10 +332,9 @@ export function makeUnitArt(opts: { resolution?: number } = {}): UnitArt {
       const s = sprites[index]!;
       return new Texture({ source: sources[s.page]!, frame: s.frame, orig: new Rectangle(0, 0, px, px), trim: s.trim });
     };
-    const frames = table.map((list, pi) => {
-      const sil = texOf(sils[pi]!);
+    const frames = table.map((list) => {
       return list.map((e) => {
-        const f: UnitFrame = { body: texOf(e.body), mask: texOf(e.mask), sil };
+        const f: UnitFrame = { body: texOf(e.body), rim: texOf(e.rim), mask: texOf(e.mask), sil: texOf(e.sil) };
         if (e.gild) f.gild = [texOf(e.gild[0]), texOf(e.gild[1]), texOf(e.gild[2])];
         if (e.torn !== null) f.torn = texOf(e.torn);
         return f;

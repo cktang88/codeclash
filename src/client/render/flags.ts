@@ -435,8 +435,16 @@ function paintToken(flag: Flag, grade: FlagGrade): HTMLCanvasElement {
     ctx.lineWidth = 3 + grade.rank * 1.4;
     ctx.stroke();
   }
+  // Far out the token is the platoon: a light vellum rim outside a heavy ink rule, so it
+  // stands off dark forest, light road and the night alike.
+  ctx.save();
+  ctx.globalCompositeOperation = 'destination-over';
+  ctx.strokeStyle = '#fff4dc';
+  ctx.lineWidth = 9;
+  ctx.stroke();
+  ctx.restore();
   ctx.strokeStyle = INK;
-  ctx.lineWidth = 2.2;
+  ctx.lineWidth = 3.2;
   ctx.stroke();
   if (grade.ragged) {
     ctx.save();

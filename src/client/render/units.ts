@@ -5,14 +5,21 @@ import { STATS } from '../../sim/stats.ts';
 import type { Runner } from '../net/runner.ts';
 import type { UnitArt, UnitFrame } from './art/index.ts';
 import { gradeOf } from './flags.ts';
+import { knockCurve, knockDistance, knockMs } from './impact.ts';
 import { mixColor } from './paint.ts';
 import type { Textures } from './textures.ts';
 
 const SWING_PULL_MS = 110;
 const SWING_LUNGE_MS = 230;
 const SWING_END_MS = 420;
-const FLASH_MS = 90;
-const KNOCK_MS = 160;
+/** After its first rendered frame of solid light, a hit flash fades over this long. */
+const FLASH_FADE_MS = 80;
+/** A soldier under a hail of blows flashes at most this often, rather than strobing. */
+const FLASH_GAP_MS = 220;
+/** At most this many flashes and knockbacks at once, so a great melee never turns to strobe. */
+const MAX_FLASHES = 28;
+const MAX_KNOCKS = 60;
+
 const STEP_PERIOD_MS = 520;
 const ATTACK_FRAME_MS = 105;
 const IDLE_FRAME_MS = 700;
@@ -24,11 +31,22 @@ const WALK_SPEED = 0.25;
 const TURN_SPEED = 0.3;
 /** Below this zoom soldiers are drawn up to 1.45x larger than life, so silhouettes stay legible. */
 const MID_ZOOM = 1.4;
+/** The largest mid-zoom enlargement. */
+const MAX_BOOST = 1.6;
+/** Vellum light the figure halo is mixed toward. */
+const HALO_LIGHT = 0xfff6e2;
 
-interface Swing {
-  at: number;
-  tx: number;
-  ty: number;
+/** How hard a blow lands, for `impact`. */
+export interface Blow {
+  /** Direction the victim is pushed (need not be normalised; 0,0 picks one). */
+  dx: number;
+  dy: number;
+  /** Damage over the victim's max hp. */
+  share: number;
+  /** The attacker's heft: 1 a line soldier; ~1.8 a Troll, a Knight's charge, a Champion; ~2.2 a blast. */
+  power: number;
+  /** Heavy blows flash ember-gold instead of white. */
+  heavy: boolean;
 }
 
 interface View {
@@ -39,6 +57,8 @@ interface View {
   base: Sprite;
   /** Gold chevrons under veterans, at near zoom. */
   pip: Sprite;
+  /** The figure's cut-out: an ink band and a light halo, so it reads on any ground at any hour. */
+  rim: Sprite;
   body: Sprite;
   mask: Sprite;
   /** Veteran gilding or a ragged army's tears, laid over the pigment. */
@@ -56,6 +76,24 @@ interface View {
   seen: number;
   /** Where this soldier was drawn this frame; reused, never reallocated. */
   pose: UnitPose;
+  /** Solid light silhouette over the figure for a hit flash. */
+  glow: Sprite;
+  /** This soldier's own animation clock (ms): it stands still while the soldier is in hitstop. */
+  clock: number;
+  freezeUntil: number;
+  /** Melee swing, on the soldier's clock; -1 none. */
+  swingAt: number;
+  stx: number;
+  sty: number;
+  /** Hit flash, on the layer clock; -1 none. `flashFrame` is the frame it was first drawn. */
+  flashAt: number;
+  flashFrame: number;
+  flashTint: number;
+  /** Knockback, on the soldier's clock; -1 none. */
+  knockAt: number;
+  kdx: number;
+  kdy: number;
+  kms: number;
 }
 
 /** A platoon's interpolated centre this frame: where its soldiers are drawn, not where the last tick left them. */
@@ -84,15 +122,24 @@ function place(s: Sprite, anchorY: number, x: number, y: number, sx: number, sy:
 /** Soldiers: interpolated, facing their work, bobbing as they walk. */
 export class UnitLayer {
   readonly shadows = new Container();
+  /** Miniature bases and elite halos: the army's pigment on the ground, drawn above the hour's grade. */
+  readonly bases = new Container();
   readonly bodies = new Container();
   readonly dots = new Container();
   /** Flyers soar above banners; their shadows stay on the ground. */
   readonly air = new Container();
   private views = new Map<number, View>();
   private pool: View[] = [];
-  private swings = new Map<number, Swing>();
-  private flashes = new Map<number, number>();
-  private knocks = new Map<number, { at: number; dx: number; dy: number }>();
+  /** Render time (ms): runs slow during a set piece's micro-pause, never touches the sim. */
+  private clock = 0;
+  /** Multiplier on render time this frame (1 normal, ~0.1 in a micro-pause). */
+  timeScale = 1;
+  /** 0 by day to 1 at deep night: how strongly emissive lights show. */
+  night = 0;
+  /** Reduced motion: flashes become a gentle tint, no knockback squash. */
+  reduced = false;
+  private flashing = 0;
+  private knocking = 0;
   private frameNo = 0;
   private tmp = { x: 0, y: 0 };
   // Rebuilt every frame; kept as fields and cleared so the hot loop allocates nothing.
@@ -106,6 +153,8 @@ export class UnitLayer {
   private lastNow = -1;
   tints: number[] = [];
   cryTint: number[] = [];
+  /** Per player: the light, pigment-touched halo around each figure. */
+  private haloTint: number[] = [];
   /** Per player this frame: veteran rank shown (0-3) and whether the army is ragged. */
   private ranks: number[] = [];
   private raggedTint: number[] = [];
@@ -118,18 +167,54 @@ export class UnitLayer {
     this.air.sortableChildren = true;
   }
 
-  swing(unitId: number, tx: number, ty: number, now: number): void {
-    this.swings.set(unitId, { at: now, tx, ty });
+  /** A soldier winds up and lunges at (tx, ty). */
+  swing(unitId: number, tx: number, ty: number): void {
+    const v = this.views.get(unitId);
+    if (!v) return;
+    v.swingAt = v.clock;
+    v.stx = tx;
+    v.sty = ty;
   }
 
-  flash(unitId: number, now: number): void {
-    // A soldier under a hail of blows blinks, rather than staying a white ghost.
-    if (now - (this.flashes.get(unitId) ?? -1e9) < FLASH_MS * 3) return;
-    this.flashes.set(unitId, now);
+  /** Hitstop: this soldier's animation (and any knockback) holds still for `ms`. */
+  freeze(unitId: number, ms: number): void {
+    const v = this.views.get(unitId);
+    if (v) v.freezeUntil = Math.max(v.freezeUntil, this.clock + ms);
   }
 
-  knock(unitId: number, dx: number, dy: number, now: number): void {
-    this.knocks.set(unitId, { at: now, dx, dy });
+  /**
+   * A blow lands: the victim flashes, then is knocked back from the attacker and eased home.
+   * Render-only: an offset on the sprite that decays to the sim position. Returns the push in
+   * world units (0 if none), for the caller's spark and shake.
+   */
+  impact(unitId: number, b: Blow): number {
+    const v = this.views.get(unitId);
+    if (!v || v.seen !== this.frameNo) return 0;
+    if ((b.heavy || this.flashing < MAX_FLASHES) && (v.flashAt < 0 || this.clock - v.flashAt > FLASH_GAP_MS)) {
+      if (v.flashAt < 0) this.flashing++;
+      v.flashAt = this.clock;
+      v.flashFrame = -1;
+      v.flashTint = b.heavy ? 0xffc46a : 0xfff8ea;
+    }
+    if (this.reduced || (!b.heavy && this.knocking >= MAX_KNOCKS)) return 0;
+    // Light soldiers fly further; a Golem, Troll or Dragon barely budges.
+    const dist = knockDistance(b.share, b.power, STATS[v.kind]!.size);
+    let dx = b.dx;
+    let dy = b.dy;
+    let d = Math.sqrt(dx * dx + dy * dy);
+    if (d < 1e-3) {
+      const a = ((unitId * 2.399) % 6.283) - 3.14;
+      dx = Math.cos(a);
+      dy = Math.sin(a);
+      d = 1;
+    }
+    if (v.knockAt < 0) this.knocking++;
+    v.kdx = (dx / d) * dist;
+    v.kdy = (dy / d) * dist * 0.7;
+    v.kms = knockMs(b.share);
+    // On the soldier's own clock: if it is in hitstop, the shove waits for the hold to end.
+    v.knockAt = v.clock;
+    return dist;
   }
 
   /** Where a soldier was last drawn: for effects that start at a soldier. */
@@ -144,17 +229,24 @@ export class UnitLayer {
       this.ranks[pl.p] = g.rank;
       // Ragged armies wear faded, patched tabards: their color washes toward grey.
       this.raggedTint[pl.p] = g.ragged ? mixColor(this.tints[pl.p] ?? 0xcccccc, 0x8a8478, 0.5) : -1;
+      // The halo burns a little brighter as the night comes on, while the ground darkens.
+      this.haloTint[pl.p] = mixColor(this.tints[pl.p] ?? 0xcccccc, HALO_LIGHT, 0.62 + 0.16 * this.night);
     }
     this.frameNo++;
     const dtMs = this.lastNow < 0 ? 16.67 : Math.max(1, Math.min(100, now - this.lastNow));
     this.lastNow = now;
+    const dtRender = dtMs * this.timeScale;
+    this.clock += dtRender;
+    const clock = this.clock;
+    this.flashing = 0;
+    this.knocking = 0;
     // Frame-rate independent smoothing of measured speeds.
     const ease = 1 - Math.pow(0.85, dtMs / 16.67);
     const perTick = TICK_MS / dtMs;
     const far = zoom < FAR_ZOOM;
-    const boost = zoom < MID_ZOOM ? Math.min(1.45, Math.pow(MID_ZOOM / zoom, 0.55)) : 1;
+    const boost = zoom < MID_ZOOM ? Math.min(MAX_BOOST, Math.pow(MID_ZOOM / zoom, 0.6)) : 1;
     // Bases carry the side most when soldiers are small; up close the cloth does it.
-    const baseAlpha = zoom < 1.2 ? 0.95 : Math.max(0.5, 0.95 - (zoom - 1.2) * 0.4);
+    const baseAlpha = zoom < 1.2 ? 1 : Math.max(0.75, 1 - (zoom - 1.2) * 0.3);
     const alpha = runner?.alpha ?? 1;
     const platoonState = this.platoonState;
     platoonState.clear();
@@ -181,6 +273,8 @@ export class UnitLayer {
         v.phase = (u.id * 0.618) % 1;
       }
       v.seen = this.frameNo;
+      // Hitstop: a soldier's own clock stands still while it holds.
+      if (clock >= v.freezeUntil) v.clock += dtRender;
       let x = u.x;
       let y = u.y;
       if (runner && runner.previousPosition(u.id, this.tmp)) {
@@ -189,7 +283,7 @@ export class UnitLayer {
       }
       if (!Number.isFinite(x) || !Number.isFinite(y)) {
         // A soldier with no valid position is not drawn at all, rather than poisoning bounds and centroids.
-        v.pip.visible = v.base.visible = v.halo.visible = v.shadow.visible = v.body.visible = v.mask.visible = v.trim.visible = v.dot.visible = false;
+        v.glow.visible = v.rim.visible = v.pip.visible = v.base.visible = v.halo.visible = v.shadow.visible = v.body.visible = v.mask.visible = v.trim.visible = v.dot.visible = false;
         continue;
       }
       const dx = x - v.x;
@@ -229,7 +323,7 @@ export class UnitLayer {
       pose.p = u.p;
       const visible = bounds.contains(x, y);
       if (!visible) {
-        v.pip.visible = v.base.visible = v.halo.visible = v.shadow.visible = v.body.visible = v.mask.visible = v.trim.visible = v.dot.visible = false;
+        v.glow.visible = v.rim.visible = v.pip.visible = v.base.visible = v.halo.visible = v.shadow.visible = v.body.visible = v.mask.visible = v.trim.visible = v.dot.visible = false;
         continue;
       }
       const ragged = this.raggedTint[u.p] ?? -1;
@@ -238,7 +332,7 @@ export class UnitLayer {
       const baking = !this.art.ready(u.kind);
       if (baking) this.art.want(u.kind);
       if (far || baking) {
-        v.pip.visible = v.base.visible = v.halo.visible = v.shadow.visible = v.body.visible = v.mask.visible = v.trim.visible = false;
+        v.glow.visible = v.rim.visible = v.pip.visible = v.base.visible = v.halo.visible = v.shadow.visible = v.body.visible = v.mask.visible = v.trim.visible = false;
         v.dot.visible = true;
         v.dot.position.set(x, y);
         v.dot.tint = tint;
@@ -246,28 +340,47 @@ export class UnitLayer {
         // Elites and legends keep their silhouette even from afar.
         if (big >= 9 && !baking) {
           v.dot.texture = this.art.icon(u.kind);
-          v.dot.scale.set((10 + big * 0.9) / zoom / this.art.cell(u.kind).h);
+          const k = (10 + big * 0.9) / zoom / this.art.cell(u.kind).h;
+          v.dot.scale.set(k);
+          // The glyph keeps its cut-out rim: an ink band and a light halo around the pigment.
+          v.rim.visible = true;
+          v.rim.texture = this.art.frames(u.kind, 'idle')[0]!.rim;
+          v.rim.tint = this.haloTint[u.p] ?? HALO_LIGHT;
+          v.rim.anchor.set(0.5);
+          v.rim.position.set(x, y);
+          v.rim.rotation = 0;
+          v.rim.scale.set(k);
+          v.rim.zIndex = y - 0.001;
         } else {
           v.dot.texture = this.tex.dot;
-          v.dot.scale.set(((3 + big * 0.35) / zoom / 32) * (far ? Math.min(1, zoom * 3.2) : 1));
+          const k = ((5 + big * 0.45) / zoom / 32) * (far ? Math.min(1, zoom * 3.2) : 1);
+          v.dot.scale.set(k);
+          // A light halo behind the bead, so it stands off dark forest and night ground too.
+          v.rim.visible = true;
+          v.rim.texture = this.tex.dotHalo;
+          v.rim.tint = this.haloTint[u.p] ?? HALO_LIGHT;
+          v.rim.anchor.set(0.5);
+          v.rim.position.set(x, y);
+          v.rim.rotation = 0;
+          v.rim.scale.set(k);
+          v.rim.zIndex = y - 0.001;
         }
         continue;
       }
       v.dot.visible = false;
-      v.shadow.visible = v.body.visible = v.mask.visible = true;
+      v.shadow.visible = v.rim.visible = v.body.visible = v.mask.visible = true;
 
       // Swing: wind up away from the victim, then lunge in as the blow lands.
       let ox = 0;
       let oy = 0;
       let attackFrame = -1;
-      const swing = this.swings.get(u.id);
-      if (swing) {
-        const t = now - swing.at;
-        if (t > SWING_END_MS) this.swings.delete(u.id);
+      if (v.swingAt >= 0) {
+        const t = v.clock - v.swingAt;
+        if (t > SWING_END_MS) v.swingAt = -1;
         else {
           attackFrame = Math.min(3, Math.floor(t / ATTACK_FRAME_MS));
-          const sx = swing.tx - x;
-          const sy = swing.ty - y;
+          const sx = v.stx - x;
+          const sy = v.sty - y;
           const d = Math.sqrt(sx * sx + sy * sy) || 1;
           let k: number;
           if (t < SWING_PULL_MS) k = -2.2 * (t / SWING_PULL_MS);
@@ -277,15 +390,18 @@ export class UnitLayer {
           oy += (sy / d) * k;
         }
       }
-      const knock = this.knocks.get(u.id);
-      if (knock) {
-        const t = now - knock.at;
-        if (t > KNOCK_MS) this.knocks.delete(u.id);
-        else {
-          const k = 1 - t / KNOCK_MS;
-          ox += knock.dx * k;
-          oy += knock.dy * k;
-        }
+      // Knockback: a fast shove away from the blow, then an eased return to the sim position.
+      let squash = 0;
+      if (v.knockAt >= 0) {
+        const t = (v.clock - v.knockAt) / v.kms;
+        if (t >= 1) v.knockAt = -1;
+        else if (t > 0) {
+          this.knocking++;
+          const e = knockCurve(t);
+          ox += v.kdx * e;
+          oy += v.kdy * e;
+          squash = e * Math.min(1, Math.abs(v.kdx) / 6 + 0.25);
+        } else this.knocking++;
       }
 
       const walking = v.speed > WALK_SPEED;
@@ -299,12 +415,12 @@ export class UnitLayer {
         const frames = this.art.frames(u.kind, 'walk');
         // Big, slow kinds stride slowly; fliers beat their wings at a steady pace.
         const period = flying ? 640 : STEP_PERIOD_MS * Math.max(0.6, Math.min(1.8, 1.6 / stats.speed));
-        frame = frames[Math.floor(((now / period + v.phase) % 1) * frames.length)]!;
+        frame = frames[Math.floor(((v.clock / period + v.phase) % 1) * frames.length)]!;
       } else {
         const frames = this.art.frames(u.kind, 'idle');
-        frame = frames[Math.floor(now / IDLE_FRAME_MS + v.phase * 4) % frames.length]!;
+        frame = frames[Math.floor(v.clock / IDLE_FRAME_MS + v.phase * 4) % frames.length]!;
       }
-      const altitude = flying ? flight.height + Math.sin(now / 520 + v.phase * 6) * 3 : 0;
+      const altitude = flying ? flight.height + Math.sin(v.clock / 520 + v.phase * 6) * 3 : 0;
       const lean = attackFrame >= 0 ? 0 : walking && routing ? -0.2 * v.facing : 0;
 
       const cell = this.art.cell(u.kind);
@@ -329,7 +445,7 @@ export class UnitLayer {
         v.halo.position.set(px, py);
         v.halo.scale.set((worldH * wide * 1.15) / 128, (worldH * 0.3) / 128);
         v.halo.tint = tint;
-        v.halo.alpha = flying ? 0.6 : 0.85;
+        v.halo.alpha = flying ? 0.8 : 1;
       }
       const rank = this.ranks[u.p] ?? 0;
       // Rank is gold on the banner; among the soldiers only the platoon's leader wears the chevrons.
@@ -340,24 +456,47 @@ export class UnitLayer {
         v.pip.scale.set(Math.max(0.2, 13 / zoom / 32));
       }
       const layer = flying ? this.air : this.bodies;
-      if (v.body.parent !== layer) layer.addChild(v.body, v.mask, v.trim);
-      const flashing = now - (this.flashes.get(u.id) ?? -1e9) < FLASH_MS;
-      v.body.texture = flashing ? frame.sil : frame.body;
+      if (v.body.parent !== layer) layer.addChild(v.rim, v.body, v.mask, v.trim, v.glow);
+      // Hit flash: one rendered frame of solid light over the figure, then a short fade. The rim
+      // (ink band and halo) stays, so the soldier never loses its outline.
+      let flash = 0;
+      if (v.flashAt >= 0) {
+        if (v.flashFrame < 0) v.flashFrame = this.frameNo;
+        if (this.frameNo === v.flashFrame) flash = 1;
+        else flash = Math.max(0, 1 - (clock - v.flashAt - 16) / FLASH_FADE_MS);
+        if (flash <= 0 && this.frameNo !== v.flashFrame) v.flashAt = -1;
+        else this.flashing++;
+        if (this.reduced) flash *= 0.35;
+      }
+      const sqx = 1 + 0.14 * squash;
+      const sqy = 1 - 0.12 * squash;
+      v.body.texture = frame.body;
       v.mask.texture = frame.mask;
       const anchorY = cell.feetY / cell.h;
-      place(v.body, anchorY, px, py - altitude, size * v.facing, size, lean, py);
-      place(v.mask, anchorY, px, py - altitude, size * v.facing, size, lean, py + 0.001);
-      v.mask.visible = !flashing;
-      const trim = flashing ? undefined : ragged >= 0 ? frame.torn : rank > 0 ? frame.gild?.[rank - 1] : undefined;
+      v.rim.texture = frame.rim;
+      v.rim.tint = this.haloTint[u.p] ?? HALO_LIGHT;
+      place(v.rim, anchorY, px, py - altitude, size * v.facing * sqx, size * sqy, lean, py - 0.001);
+      place(v.body, anchorY, px, py - altitude, size * v.facing * sqx, size * sqy, lean, py);
+      place(v.mask, anchorY, px, py - altitude, size * v.facing * sqx, size * sqy, lean, py + 0.001);
+      v.mask.visible = true;
+      const trim = ragged >= 0 ? frame.torn : rank > 0 ? frame.gild?.[rank - 1] : undefined;
       v.trim.visible = trim !== undefined;
       if (trim) {
         v.trim.texture = trim;
-        place(v.trim, anchorY, px, py - altitude, size * v.facing, size, lean, py + 0.002);
+        place(v.trim, anchorY, px, py - altitude, size * v.facing * sqx, size * sqy, lean, py + 0.002);
+      }
+      v.glow.visible = flash > 0.01;
+      if (v.glow.visible) {
+        if (v.glow.parent !== layer) layer.addChild(v.glow);
+        v.glow.texture = frame.sil;
+        v.glow.tint = v.flashTint;
+        v.glow.alpha = flash;
+        place(v.glow, anchorY, px, py - altitude, size * v.facing * sqx, size * sqy, lean, py + 0.003);
       }
       const cry = this.cryTint[u.p];
       v.mask.tint = cry !== undefined && cry !== this.tints[u.p] ? cry : tint;
       const wounded = u.hp / u.maxHp;
-      v.body.tint = flashing ? 0xffffff : wounded < 0.35 ? 0xd8b0a8 : 0xffffff;
+      v.body.tint = wounded < 0.35 ? 0xd8b0a8 : 0xffffff;
     }
 
     for (const c of centroids.values()) {
@@ -368,9 +507,6 @@ export class UnitLayer {
     for (const [id, v] of this.views) {
       if (v.seen === this.frameNo) continue;
       this.views.delete(id);
-      this.swings.delete(id);
-      this.flashes.delete(id);
-      this.knocks.delete(id);
       this.release(v);
     }
   }
@@ -379,9 +515,6 @@ export class UnitLayer {
   reset(): void {
     for (const v of this.views.values()) this.release(v);
     this.views.clear();
-    this.swings.clear();
-    this.flashes.clear();
-    this.knocks.clear();
     for (const c of this.centroids.values()) this.centroidPool.push(c);
     this.centroids.clear();
   }
@@ -392,7 +525,11 @@ export class UnitLayer {
     v.facing = 1;
     v.speed = 0;
     v.vx = 0;
-    v.pip.visible = v.base.visible = v.halo.visible = v.shadow.visible = v.body.visible = v.mask.visible = v.trim.visible = v.dot.visible = false;
+    v.clock = 0;
+    v.freezeUntil = -1;
+    v.swingAt = v.flashAt = v.knockAt = -1;
+    v.flashFrame = -1;
+    v.glow.visible = v.rim.visible = v.pip.visible = v.base.visible = v.halo.visible = v.shadow.visible = v.body.visible = v.mask.visible = v.trim.visible = v.dot.visible = false;
     return v;
   }
 
@@ -409,20 +546,24 @@ export class UnitLayer {
     const pip = new Sprite(this.tex.chevrons[0]);
     pip.anchor.set(0.5, 0);
     pip.visible = false;
+    const rim = new Sprite();
     const body = new Sprite();
     const mask = new Sprite();
     const trim = new Sprite();
     trim.visible = false;
+    const glow = new Sprite();
+    glow.visible = false;
     const dot = new Sprite(this.tex.dot);
     dot.anchor.set(0.5);
-    this.shadows.addChild(shadow, base, halo, pip);
-    this.bodies.addChild(body, mask, trim);
+    this.shadows.addChild(shadow, pip);
+    this.bases.addChild(base, halo);
+    this.bodies.addChild(rim, body, mask, trim, glow);
     this.dots.addChild(dot);
-    return { shadow, halo, base, pip, body, mask, trim, dot, kind: 0, facing: 1, x: 0, y: 0, speed: 0, vx: 0, phase: 0, seen: 0, pose: { x: 0, y: 0, facing: 1, kind: 0, p: 0 } };
+    return { shadow, halo, base, pip, rim, body, mask, trim, dot, kind: 0, facing: 1, x: 0, y: 0, speed: 0, vx: 0, phase: 0, seen: 0, pose: { x: 0, y: 0, facing: 1, kind: 0, p: 0 }, glow, clock: 0, freezeUntil: -1, swingAt: -1, stx: 0, sty: 0, flashAt: -1, flashFrame: -1, flashTint: 0xffffff, knockAt: -1, kdx: 0, kdy: 0, kms: 1 };
   }
 
   private release(v: View): void {
-    v.pip.visible = v.base.visible = v.halo.visible = v.shadow.visible = v.body.visible = v.mask.visible = v.trim.visible = v.dot.visible = false;
+    v.glow.visible = v.rim.visible = v.pip.visible = v.base.visible = v.halo.visible = v.shadow.visible = v.body.visible = v.mask.visible = v.trim.visible = v.dot.visible = false;
     this.pool.push(v);
   }
 

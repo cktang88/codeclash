@@ -773,6 +773,8 @@ export class Effects {
   /** A blow lands: an inked starburst, flung droplets of ink, and a splatter left on the ground. */
   private impact(x: number, y: number, alt: number, heavy: boolean): void {
     const hy = y - 8 - alt;
+    // A sharp ink spark at the contact point, under the flash of light: reads on any ground.
+    this.dust.spawn({ texture: this.tex.burst, x: x + (rand() - 0.5) * 3, y: hy + 1, life: heavy ? 0.12 : 0.08, size: heavy ? 14 : 9, grow: 0.7, alpha: 0.9, tint: 0x1a120b, rotation: rand() * 6.28, fadeIn: 0 });
     this.flames.spawn({ texture: this.tex.burst, x: x + (rand() - 0.5) * 4, y: hy, life: heavy ? 0.16 : 0.11, size: heavy ? 15 : 9, grow: 1.5, tint: heavy ? GOLD_HI : 0xfff6dc, rotation: rand() * 6.28, fadeIn: 0 });
     for (let i = 0; i < (heavy ? 3 : 2); i++) {
       this.dust.spawn({ texture: this.tex.droplet, x, y: y, z: 8 + alt, vx: (rand() - 0.5) * 90, vy: (rand() - 0.5) * 30, vz: 30 + rand() * 50, gravity: 300, life: 0.45, size: heavy ? 4 : 3, stretch: true, fadeIn: 0 });

@@ -93,7 +93,7 @@ const GAUGE_H = MORALE_Y + MORALE_H + 3;
 const WOUND_HOLD_MS = 400;
 const WOUND_DRAIN_MS = 380;
 /** Screen size of the far-zoom flag: the token and its gauge are laid out in these pixels. */
-const FAR_FLAG_PX = 30;
+const FAR_FLAG_PX = 40;
 /** Offsets below this many screen pixels draw no tether back to the platoon. */
 const TETHER_PX = 6;
 /** The far token's footprint in screen pixels around its anchor: shield above, gauge and count below. */

@@ -1,6 +1,7 @@
 import { Application, CanvasSource, Container, Graphics, Sprite, Texture } from 'pixi.js';
 import type { Monument } from '../../protocol.ts';
-import { PlatoonState, type MapDef, type TickEvents, type World } from '../../sim/api.ts';
+import { BlastKind, Kind, PlatoonState, type MapDef, type TickEvents, type World } from '../../sim/api.ts';
+import { STATS } from '../../sim/stats.ts';
 import type { ChronicleEntry } from '../../sim/chronicle.ts';
 import { derived } from '../../sim/derived.ts';
 import { cellAt, cellCenterX, cellCenterY } from '../../sim/flowfield.ts';
@@ -21,9 +22,11 @@ import { canvas2d, hslNumber, hslRgb, mixColor } from './paint.ts';
 import { WaterGlints } from './shaders/water.ts';
 import { siteArt } from './siteart.ts';
 import { SiteLayer } from './sites.ts';
+import { hitstopMs } from './impact.ts';
+import { PostFx, postAllowed } from './post.ts';
 import { paintTerrain } from './terrain.ts';
 import { makeTextures, type Textures } from './textures.ts';
-import { UnitLayer } from './units.ts';
+import { UnitLayer, type Blow } from './units.ts';
 import { makeUnitArt, type UnitArt } from './art/index.ts';
 
 export interface BattlefieldOptions {
@@ -57,6 +60,28 @@ interface FxHooks {
 }
 
 const GOLD = 0xf2cf5b;
+/** Render time runs this slow during a big blow's micro-pause. */
+const PAUSE_SCALE = 0.1;
+/** At most one micro-pause in this long. */
+const PAUSE_GAP_MS = 1500;
+/** How hard each kind hits, for knockback: heavy hitters shove further. */
+const HEFT: Partial<Record<number, number>> = {
+  [Kind.Troll]: 1.9,
+  [Kind.Knight]: 1.6,
+  [Kind.Champion]: 1.8,
+  [Kind.BoneGolem]: 1.6,
+  [Kind.Berserker]: 1.4,
+  [Kind.Dragon]: 2,
+  [Kind.Trebuchet]: 2.2,
+  [Kind.Wizard]: 1.8,
+};
+/** Multiply tint of the ground pool under platoons: a cool ink-blue shade, never grey. */
+const POOL_TINT = 0x5a6684;
+/**
+ * How much of the hour's colour the actors (soldiers, bases, banners) take. Low, so a unit at
+ * night or dusk keeps near-day contrast while the stage around it darkens.
+ */
+const ACTOR_GRADE = 0.14;
 const MAX_TORCHES = 220;
 /** How often unused flag textures are swept from the cache. */
 const FLAG_PRUNE_MS = 15_000;
@@ -80,6 +105,11 @@ function mapKey(world: World): string {
 /** Army colours as pigments: the hue mixed toward a warm earth, never raw neon. */
 export function pigmentOf(hue: number): number {
   return mixColor(hslNumber(hue, 66, 50), 0x9a7a4e, 0.16);
+}
+
+/** The pigment the actors wear: the same hue as the map's, bolder and closer to pure, still not neon. */
+export function actorPigmentOf(hue: number): number {
+  return mixColor(hslNumber(hue, 80, 52), 0x9a7a4e, 0.06);
 }
 
 // A page's fonts must be ready before anything is lettered onto a canvas.
@@ -140,12 +170,18 @@ export class Battlefield {
   /** Fliers soar over the banners; they take the same share of the hour's colour as the soldiers. */
   private readonly sky = new Container();
   private readonly torches: Sprite[] = [];
+  /** A soft cool shade pooled on the ground under each platoon: the stage dims where the actors stand. */
+  private readonly pools: Sprite[] = [];
+  /** Army pigments as worn by the actors: the same hue, more vivid than the map's pigment. */
+  private actorTints: number[] = [];
   private readonly camera: Camera;
   private readonly units: UnitLayer;
   private readonly fx: Effects;
   private readonly banners: BannerLayer;
   private readonly flags = new FlagCache();
   private readonly director: Director;
+  /** Emissive bloom, filmic tone and vibrance over the finished field. */
+  private readonly post: PostFx;
   private layers: MapLayers | null = null;
   private unsubscribe: (() => void)[] = [];
   private last = performance.now();
@@ -221,8 +257,19 @@ export class Battlefield {
     const torchLayer = new Container();
     torchLayer.addChild(...this.torches);
     app.stage.addChild(this.world, this.grade, this.top);
+    for (let i = 0; i < MAX_TORCHES; i++) {
+      const s = new Sprite(tex.soft);
+      s.anchor.set(0.5);
+      s.blendMode = 'multiply';
+      s.tint = POOL_TINT;
+      s.visible = false;
+      this.pools.push(s);
+    }
+    const poolLayer = new Container();
+    poolLayer.addChild(...this.pools);
     this.world.addChild(
       this.groundLayer,
+      poolLayer,
       this.selection,
       this.fx.ground,
       this.units.shadows,
@@ -231,7 +278,7 @@ export class Battlefield {
     // silhouettes never sink into the night ground.
     this.actors.addChild(this.units.bodies, this.units.dots, this.fx.air);
     this.sky.addChild(this.units.air);
-    this.top.addChild(this.lights, torchLayer, this.actors, this.fx.glow, this.banners.root, this.sky, this.fx.overlay);
+    this.top.addChild(this.lights, torchLayer, this.units.bases, this.actors, this.fx.glow, this.banners.root, this.sky, this.fx.overlay);
     this.camera = new Camera(app.canvas, {
       onClick: (sx, sy) => this.click(sx, sy),
       onUserPan: () => {
@@ -246,6 +293,8 @@ export class Battlefield {
       },
       onFollowKey: () => this.toggleFollowMine(),
     });
+    const post = postAllowed(app.renderer, !!opts.reducedMotion);
+    this.post = new PostFx(app.renderer, app.stage, [this.lights, this.fx.glow], post.allowed, post.forced);
     this.director = new Director(() => (this.layers ? this.camera.fitZoom(this.layers.map.radius) : 0.5));
     const hooks = this.fx as unknown as FxHooks;
     this.unsubscribe.push(
@@ -323,11 +372,22 @@ export class Battlefield {
   }
 
   private contextLost = false;
+  /** Who swung at whom, this step and the step before (a melee blow lands a tick after its swing). */
+  private swungNow = new Map<number, number>();
+  private swungPrev = new Map<number, number>();
+  private readonly byId = new Map<number, World['units'][number]>();
+  private readonly blow: Blow = { dx: 0, dy: 0, share: 0, power: 1, heavy: false };
+  /** Sim steps applied since the last frame: more than one means catch-up or a seek. */
+  private stepsThisFrame = 0;
+  /** A big blow's micro-pause: render time runs at a tenth until then. */
+  private pauseUntil = 0;
+  private pausedAt = -1e9;
 
   /** Follows the viewer's reduced-motion setting as it changes. */
   setReducedMotion(on: boolean): void {
     this.opts.reducedMotion = on;
     this.fx.setReducedMotion(on);
+    this.post.setAllowed(postAllowed(this.app.renderer, on).allowed);
     if (on) this.shake = 0;
   }
 
@@ -391,6 +451,7 @@ export class Battlefield {
     this.camera.destroy();
     this.dropMap();
     this.banners.destroy();
+    this.post.destroy();
     this.fx.destroy();
     this.flags.destroy();
     // Shared atlases (unit art, site art, fx sheets) outlive this field: never destroy texture
@@ -475,6 +536,7 @@ export class Battlefield {
       this.timings[name] = (this.timings[name] ?? 0) * 0.95 + (t - mark) * 0.05;
       mark = t;
     };
+    this.stepsThisFrame = 0;
     runner?.frame();
     time('sim');
     this.store.pump();
@@ -566,14 +628,19 @@ export class Battlefield {
     this.gradeDim.alpha = this.dim * 0.55;
     this.gradeDim.visible = this.dim > 0.01;
     // Banners and labels stay readable at night, but still take a little of the hour's colour.
-    this.banners.root.tint = mixColor(0xffffff, light.mult, 0.35);
-    this.actors.tint = mixColor(0xffffff, light.mult, 0.38);
+    this.banners.root.tint = mixColor(0xffffff, light.mult, ACTOR_GRADE);
+    this.actors.tint = mixColor(0xffffff, light.mult, ACTOR_GRADE);
+    this.units.bases.tint = this.actors.tint;
 
     const bounds = this.camera.bounds(60);
     const cry = world.players.map((p) => p.cryUntil > world.tick);
-    this.units.tints = this.tints;
-    this.units.cryTint = this.tints.map((t, p) => (cry[p] ? mixColor(t, GOLD, 0.45 + Math.sin(now / 140) * 0.3) : t));
+    this.units.tints = this.actorTints;
+    this.units.cryTint = this.actorTints.map((t, p) => (cry[p] ? mixColor(t, GOLD, 0.45 + Math.sin(now / 140) * 0.3) : t));
     time('camera');
+    const timeScale = now < this.pauseUntil ? PAUSE_SCALE : 1;
+    this.units.timeScale = timeScale;
+    this.units.reduced = !!this.opts.reducedMotion;
+    this.units.night = light.lights;
     this.units.update(world, runner, now, zoom, bounds);
     time('units');
     // Interpolated, as the soldiers are drawn: banners, torches and the selection ride with them.
@@ -625,10 +692,12 @@ export class Battlefield {
     this.drawSelection(world, centroids, now, zoom);
     const hud = this.camera.hudInsets();
     this.fx.view = { ox: px, oy: py, width: sw, height: sh, top: hud.top, bottom: hud.bottom };
-    this.fx.update(dtMs, world.tick - 1 + (runner?.alpha ?? 1), this.posOf, zoom, bounds);
+    this.fx.update(dtMs * (now < this.pauseUntil ? PAUSE_SCALE : 1), world.tick - 1 + (runner?.alpha ?? 1), this.posOf, zoom, bounds);
     if (!this.opts.reducedMotion) this.shake = Math.max(this.shake, this.fx.shake);
     time('fx');
     this.feedAudio(now, world, light);
+    this.post.update(dtMs, sw, sh, zoom, px, py);
+    time('post');
     if (!this.drawnOnce) {
       this.drawnOnce = true;
       // The renderer paints after this tick: the frame after next has the map on screen.
@@ -667,6 +736,29 @@ export class Battlefield {
   /** At night every platoon in the field carries torches: a warm pool of light over the block. */
   private updateTorches(world: World, centroids: Map<number, { x: number; y: number; n: number }>, zoom: number, bounds: { contains(x: number, y: number): boolean }, now: number): void {
     const strength = this.light.lights;
+    // The stage dims under the actors: a soft cool pool of shade below every platoon in view, so
+    // the light figure halos stand out from busy grass, forest and road alike.
+    let pooled = 0;
+    if (zoom >= FAR_ZOOM) {
+      const fade = Math.min(1, (zoom - FAR_ZOOM) / 0.25);
+      for (const pl of world.platoons) {
+        if (pooled >= MAX_TORCHES) break;
+        if (pl.state === PlatoonState.Queued || pl.alive <= 0) continue;
+        const c = centroids.get(pl.id);
+        if (!c || !bounds.contains(c.x, c.y)) continue;
+        const s = this.pools[pooled++]!;
+        s.visible = true;
+        const r = 30 + Math.sqrt(c.n) * 11;
+        s.position.set(c.x, c.y - 4);
+        s.scale.set(r / 32, (r * 0.72) / 32);
+        s.alpha = 0.42 * fade;
+      }
+    }
+    for (let i = pooled; i < MAX_TORCHES; i++) {
+      const s = this.pools[i]!;
+      if (!s.visible) break;
+      s.visible = false;
+    }
     let used = 0;
     if (strength > 0.04) {
       for (const pl of world.platoons) {
@@ -680,7 +772,7 @@ export class Battlefield {
         s.position.set(c.x, c.y - 6);
         s.scale.set(r / 32, (r * 0.7) / 32);
         const flicker = 0.88 + Math.sin(now / 90 + pl.id * 1.3) * 0.06 + Math.sin(now / 37 + pl.id) * 0.04;
-        s.alpha = strength * 0.42 * flicker * (zoom < FAR_ZOOM ? 0.7 : 1);
+        s.alpha = strength * 0.46 * flicker * (zoom < FAR_ZOOM ? 0.7 : 1);
       }
     }
     for (let i = used; i < MAX_TORCHES; i++) {
@@ -767,6 +859,7 @@ export class Battlefield {
       if (this.tints[p.p] !== undefined && this.hues[p.p] === p.hue) continue;
       this.hues[p.p] = p.hue;
       this.tints[p.p] = pigmentOf(p.hue);
+      this.actorTints[p.p] = actorPigmentOf(p.hue);
       this.rgb[p.p] = hslRgb(p.hue, 62, 46);
     }
   }
@@ -788,6 +881,7 @@ export class Battlefield {
 
   private onStep(ev: TickEvents, world: World): void {
     if (!this.layers || this.destroyed) return;
+    this.stepsThisFrame++;
     this.director.observe(ev, world);
     const now = performance.now();
     const near = this.camera.zoom >= FAR_ZOOM;
@@ -805,26 +899,23 @@ export class Battlefield {
       const slot = pl ? world.players[pl.p]?.slot : undefined;
       if (slot !== undefined) this.layers.sites.openGate(slot, now);
     }
+    // A melee blow winds up one tick and lands the next: remember who swung at whom.
+    const swung = this.swungPrev;
+    this.swungPrev = this.swungNow;
+    this.swungNow = swung;
+    swung.clear();
     for (const s of ev.swings) {
+      swung.set(s.to, s.from);
       const target = this.posOf(s.to);
-      if (target) this.units.swing(s.from, target.x, target.y, now);
+      if (target) this.units.swing(s.from, target.x, target.y);
     }
     // Archers, wizards and trebuchets play their attack pose as they loose.
     for (const s of ev.shots) {
       if (s.from <= 0) continue;
       const target = this.posOf(s.to);
-      if (target) this.units.swing(s.from, target.x, target.y, now);
+      if (target) this.units.swing(s.from, target.x, target.y);
     }
-    for (const h of ev.hits) {
-      if (h.structure >= 0) {
-        const st = world.structures[h.structure];
-        if (st) this.layers.sites.structureHit(st.site);
-        continue;
-      }
-      this.units.flash(h.unit, now);
-      const a = Math.random() * Math.PI * 2;
-      this.units.knock(h.unit, Math.cos(a) * 1.6, Math.sin(a) * 1.0, now);
-    }
+    this.impacts(ev, world, now, bounds);
     if (near) {
       for (const d of ev.deaths) {
         const p = this.units.pose(d.unit);
@@ -843,6 +934,119 @@ export class Battlefield {
       if (pl && bounds.contains(pl.x, pl.y)) this.fx.floatText('ROUT!', pl.x, pl.y - 36, 1.6, 15, 0xffe0d0);
     }
     if (ev.monolith) this.layers.sites.monolithFell(now);
+  }
+
+  /**
+   * Combat impact, render-only: hit flashes, knockback, per-soldier hitstop, a rare global
+   * micro-pause and camera shake on the biggest blows. Nothing here touches the sim.
+   */
+  private impacts(ev: TickEvents, world: World, now: number, bounds: { contains(x: number, y: number): boolean }): void {
+    // Several steps in one frame means catch-up, fast-forward or a seek: no pauses, no shake.
+    const live = this.stepsThisFrame <= 1;
+    const reduced = !!this.opts.reducedMotion;
+    const byId = this.byId;
+    if (ev.hits.length || ev.blasts.length) {
+      byId.clear();
+      for (const u of world.units) byId.set(u.id, u);
+    }
+    let big = 0;
+    let bigX = 0;
+    let bigY = 0;
+    const blow = this.blow;
+    for (const h of ev.hits) {
+      if (h.structure >= 0) {
+        const st = world.structures[h.structure];
+        if (!st) continue;
+        this.layers?.sites.structureHit(st.site);
+        const site = world.map.sites[st.site];
+        // A capital or the Monolith taking a real blow is a big moment.
+        if (site && (site.kind === 'capital' || site.kind === 'heart') && h.damage >= 30 && bounds.contains(site.x, site.y) && h.damage > big) {
+          big = h.damage;
+          bigX = site.x;
+          bigY = site.y;
+        }
+        continue;
+      }
+      const v = byId.get(h.unit);
+      const vp = this.units.pose(h.unit);
+      if (!v || !vp || !bounds.contains(vp.x, vp.y)) continue;
+      const from = this.swungPrev.get(h.unit) ?? this.swungNow.get(h.unit) ?? 0;
+      const a = from > 0 ? byId.get(from) : v.target > 0 ? byId.get(v.target) : undefined;
+      const ap = a ? this.units.pose(a.id) : undefined;
+      const akind = a?.kind ?? -1;
+      const power = HEFT[akind] ?? 1;
+      const share = h.damage / Math.max(1, v.maxHp);
+      const charge = akind === Kind.Knight && h.damage > STATS[Kind.Knight]!.damage * 1.3;
+      blow.dx = ap ? vp.x - ap.x : 0;
+      blow.dy = ap ? vp.y - ap.y : 0;
+      blow.share = share;
+      blow.power = charge ? 2.2 : power;
+      blow.heavy = charge || power >= 1.6 || h.damage > 18;
+      this.units.impact(h.unit, blow);
+      if (from > 0) {
+        // Hitstop: attacker and victim hold for a beat, scaled by the blow.
+        const hold = hitstopMs(share, blow.heavy);
+        this.units.freeze(h.unit, hold);
+        this.units.freeze(from, hold);
+      }
+      const weight = charge ? 60 : akind === Kind.Champion || akind === Kind.Troll ? h.damage * 0.8 : 0;
+      if (weight > big) {
+        big = weight;
+        bigX = vp.x;
+        bigY = vp.y;
+      }
+    }
+    // Bursts throw everyone near them outward.
+    for (const b of ev.blasts) {
+      if (!bounds.contains(b.x, b.y)) continue;
+      const r = b.radius + 6;
+      let n = 0;
+      for (const u of world.units) {
+        const p = this.units.pose(u.id);
+        if (!p) continue;
+        const dx = p.x - b.x;
+        const dy = p.y - b.y;
+        const d2 = dx * dx + dy * dy;
+        if (d2 > r * r) continue;
+        if (++n > 40) break;
+        blow.dx = dx;
+        blow.dy = dy;
+        blow.share = 0.25 * (1 - Math.sqrt(d2) / r) + 0.08;
+        blow.power = 2.2;
+        blow.heavy = true;
+        this.units.impact(u.id, blow);
+      }
+      if (b.kind === BlastKind.Fireball || b.kind === BlastKind.Boulder) {
+        const w = b.kind === BlastKind.Boulder ? 70 : 55;
+        if (w > big) {
+          big = w;
+          bigX = b.x;
+          bigY = b.y;
+        }
+      }
+    }
+    for (const d of ev.deaths) {
+      if (d.kind !== Kind.Champion && d.kind !== Kind.Dragon) continue;
+      const p = this.units.pose(d.unit);
+      const x = p?.x ?? d.x;
+      const y = p?.y ?? d.y;
+      if (!bounds.contains(x, y)) continue;
+      big = 100;
+      bigX = x;
+      bigY = y;
+    }
+    if (big <= 0 || !live || reduced) return;
+    // The camera kicks on the biggest blows, less when far out or when the blow is off-centre.
+    const s = this.camera.toScreen(bigX, bigY);
+    const half = Math.hypot(this.camera.width, this.camera.height) / 2;
+    const off = Math.hypot(s.x - this.camera.width / 2, s.y - this.camera.height / 2) / half;
+    const zoomK = Math.max(0.35, Math.min(1, this.camera.zoom / 1.2));
+    this.shake = Math.max(this.shake, Math.min(1, big / 100) * 0.9 * zoomK / (1 + off * 2));
+    // A micro-pause only for the rarest blows, at most one every 1.5s.
+    if (big >= 55 && now - this.pausedAt > PAUSE_GAP_MS) {
+      this.pausedAt = now;
+      this.pauseUntil = now + 60 + Math.min(1, big / 100) * 60;
+    }
   }
 
   private onEmote(e: FloatingEmote): void {

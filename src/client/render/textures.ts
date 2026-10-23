@@ -6,6 +6,8 @@ import { canvas2d } from './paint.ts';
 
 export interface Textures {
   dot: Texture;
+  /** A soft-edged light disc a little larger than `dot`, laid behind it as its halo. */
+  dotHalo: Texture;
   /** Gold rank chevrons for veteran soldiers: one, two and three bars. */
   chevrons: Texture[];
   shadow: Texture;
@@ -70,13 +72,20 @@ function chevron(rank: number): Texture {
 export function makeTextures(): Textures {
   return {
     chevrons: [1, 2, 3].map(chevron),
+    // A soldier at far zoom: a pigment bead in a heavy ink ring, so it reads on light road and dark forest.
     dot: draw(32, 32, (ctx) => {
       ctx.fillStyle = '#fff';
-      ctx.strokeStyle = 'rgba(34,24,15,0.9)';
-      ctx.lineWidth = 4;
+      ctx.strokeStyle = '#1a120b';
+      ctx.lineWidth = 6;
       ctx.beginPath();
-      ctx.arc(16, 16, 12, 0, Math.PI * 2);
+      ctx.arc(16, 16, 11.5, 0, Math.PI * 2);
       ctx.stroke();
+      ctx.fill();
+    }),
+    dotHalo: draw(32, 32, (ctx) => {
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      ctx.arc(16, 16, 15.5, 0, Math.PI * 2);
       ctx.fill();
     }),
     shadow: single(soft(64, [[0, 'rgba(0,0,0,0.55)'], [0.6, 'rgba(0,0,0,0.25)'], [1, 'rgba(0,0,0,0)']])),
@@ -96,31 +105,35 @@ export function makeTextures(): Textures {
       ctx.fill();
     }),
     ring: draw(128, 128, (ctx) => {
-      ctx.strokeStyle = '#fff';
-      ctx.lineWidth = 6;
+      ctx.strokeStyle = '#1a120b';
+      ctx.lineWidth = 12;
       ctx.beginPath();
-      ctx.arc(64, 64, 58, 0, Math.PI * 2);
+      ctx.arc(64, 64, 56, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 7;
       ctx.stroke();
     }),
     base: draw(128, 128, (ctx) => {
-      ctx.fillStyle = 'rgba(255,255,255,0.28)';
+      // A bold pigment rim between ink rules, over a pigment wash: the side, legible at a glance.
+      ctx.fillStyle = 'rgba(255,255,255,0.42)';
       ctx.beginPath();
-      ctx.arc(64, 64, 52, 0, Math.PI * 2);
+      ctx.arc(64, 64, 50, 0, Math.PI * 2);
       ctx.fill();
       ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = 13;
+      ctx.lineWidth = 17;
       ctx.beginPath();
-      ctx.arc(64, 64, 52, 0, Math.PI * 2);
+      ctx.arc(64, 64, 51, 0, Math.PI * 2);
       ctx.stroke();
-      ctx.strokeStyle = '#22180f';
-      ctx.lineWidth = 3.5;
+      ctx.strokeStyle = '#1a120b';
+      ctx.lineWidth = 4.5;
       ctx.beginPath();
-      ctx.arc(64, 64, 59.5, 0, Math.PI * 2);
+      ctx.arc(64, 64, 60.5, 0, Math.PI * 2);
       ctx.stroke();
-      ctx.lineWidth = 2;
-      ctx.globalAlpha = 0.7;
+      ctx.lineWidth = 2.5;
+      ctx.globalAlpha = 0.8;
       ctx.beginPath();
-      ctx.arc(64, 64, 44.5, 0, Math.PI * 2);
+      ctx.arc(64, 64, 41.5, 0, Math.PI * 2);
       ctx.stroke();
     }),
     arrow: draw(32, 8, (ctx) => {

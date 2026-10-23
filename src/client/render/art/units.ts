@@ -454,9 +454,10 @@ function shield(g: G, x: number, y: number, s: number, charge: 'cross' | 'bend' 
     c.closePath();
   };
   part(g, shape(1), STEEL_DARK, { box: [x - 9 * s, y - 10 * s, x + 9 * s, y + 13 * s] });
-  part(g, shape(0.78), CLOTH, { team: true, outline: 1.2, box: [x - 7 * s, y - 8 * s, x + 7 * s, y + 10 * s] });
+  // The field is the army's pigment, broad and bold; the charge is argent (light), so the arms read.
+  part(g, shape(0.86), CLOTH, { team: true, outline: 1.2, box: [x - 7.7 * s, y - 8.6 * s, x + 7.7 * s, y + 11 * s] });
   detail(g, (ctx) => {
-    ctx.fillStyle = 'rgba(34,24,15,0.82)';
+    ctx.fillStyle = 'rgba(246,236,212,0.92)';
     if (charge === 'cross') {
       ctx.fillRect(x - 1.3 * s, y - 7.4 * s, 2.6 * s, 16 * s);
       ctx.fillRect(x - 6.6 * s, y - 2.6 * s, 13.2 * s, 2.6 * s);
