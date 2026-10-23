@@ -70,6 +70,34 @@ export function useSound(): { available: boolean; on: boolean; set(on: boolean):
  * An army's hue as a CSS variable. Styles mix it to a pigment that reads on the surface it
  * sits on: dark ink on vellum, a lighter wash on night vellum.
  */
+function hslRgb(h: number, s: number, l: number): [number, number, number] {
+  const a = s * Math.min(l, 1 - l);
+  const f = (n: number) => {
+    const k = (n + h / 30) % 12;
+    return l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1));
+  };
+  return [f(0) * 255, f(8) * 255, f(4) * 255];
+}
+
+const EARTH: [number, number, number] = [0x9a, 0x7a, 0x4e];
+const INK_RGB: [number, number, number] = [0x22, 0x18, 0x0f];
+const VELLUM_RGB: [number, number, number] = [0xef, 0xe4, 0xc8];
+
+function mixRgb(a: readonly number[], b: readonly number[], t: number): [number, number, number] {
+  return [0, 1, 2].map((i) => a[i]! + (b[i]! - a[i]!) * t) as [number, number, number];
+}
+
+/**
+ * An army hue as a pigment (docs/art-direction.md §2): the hue mixed toward a warm earth, in
+ * three values. Matches the battlefield's `pigmentOf`, for SVG fills that cannot use color-mix.
+ */
+export function pigment(hue: number, tone: 'light' | 'base' | 'shade' = 'base'): string {
+  let c = mixRgb(hslRgb(((hue % 360) + 360) % 360, 0.66, 0.5), EARTH, 0.16);
+  if (tone === 'light') c = mixRgb(c, VELLUM_RGB, 0.38);
+  if (tone === 'shade') c = mixRgb(c, INK_RGB, 0.38);
+  return `#${c.map((v) => Math.round(Math.max(0, Math.min(255, v))).toString(16).padStart(2, '0')).join('')}`;
+}
+
 export function hueVar(hue: number | null | undefined, extra?: CSSProperties): CSSProperties | undefined {
   if (hue == null) return extra;
   return { ...extra, ['--h' as string]: String(Math.round(hue)) } as CSSProperties;
@@ -307,6 +335,58 @@ export function Fleuron({ className }: { className?: string }) {
         <path d="M17 8c-3.5-4-8-4.5-13-1.5 5 1.4 9 1.6 13 1.5ZM31 8c3.5-4 8-4.5 13-1.5-5 1.4-9 1.6-13 1.5Z" fill="currentColor" opacity=".8" />
         <circle cx="24" cy="8" r="1.4" fill="var(--vermilion)" />
       </svg>
+    </div>
+  );
+}
+
+/**
+ * An engraved vignette for a page that has nothing written on it yet: an empty plinth, a
+ * closed ledger or a cold brazier, inked as a woodcut, with the reason set beneath in italic.
+ */
+export function EmptyVignette({ kind, title, children }: { kind: 'plinth' | 'ledger' | 'brazier'; title: string; children?: ReactNode }) {
+  return (
+    <div className="empty-vignette">
+      <svg viewBox="-60 -60 120 100" width="150" height="125" aria-hidden className="empty-vignette-art">
+        <defs>
+          <pattern id={`ev-hatch-${kind}`} width="3.2" height="3.2" patternUnits="userSpaceOnUse" patternTransform="rotate(-40)">
+            <path d="M0 0v3.2" stroke="rgba(34,24,15,.42)" strokeWidth=".8" />
+          </pattern>
+        </defs>
+        <ellipse cx="2" cy="33" rx="46" ry="5" fill="rgba(18,22,31,.18)" />
+        {kind === 'plinth' && (
+          <g stroke="#22180f" strokeWidth="1.5" strokeLinejoin="round">
+            <path d="M-30 32h60l-4-8h-52Z" fill="#d9c79e" />
+            <path d="M-22 24V-6h44v30" fill="#e6d8b4" />
+            <path d="M8-6h14v30H8Z" fill={`url(#ev-hatch-${kind})`} stroke="none" />
+            <path d="M-26-6h52l-3-7h-46Z" fill="#d9c79e" />
+            <path d="M-12 8c6 6 18 6 24 0M-14 2c2-4 4-5 7-5M14 2c-2-4-4-5-7-5" fill="none" stroke="#8a6418" strokeWidth="1.2" />
+            <path d="M-18-13c-8-10-6-26 4-34M18-13c8-10 6-26-4-34" fill="none" stroke="#8a6418" strokeWidth="1.3" strokeDasharray="5 3" />
+          </g>
+        )}
+        {kind === 'ledger' && (
+          <g stroke="#22180f" strokeWidth="1.5" strokeLinejoin="round">
+            <path d="M-40 30 0 22 40 30V-14L0-22-40-14Z" fill="#e6d8b4" />
+            <path d="M0-22V22" />
+            <path d="M14-10 30-7M14-2 30 1M14 6 26 8" stroke="rgba(34,24,15,.3)" strokeWidth="1" />
+            <path d="M-30-7-14-10M-30 1-14-2" stroke="rgba(34,24,15,.3)" strokeWidth="1" />
+            <path d="M0 22 40 30V-14L0-22Z" fill={`url(#ev-hatch-${kind})`} stroke="none" opacity=".45" />
+            <path d="M22-48 6 6" stroke="#22180f" strokeWidth="1.3" />
+            <path d="M22-48c6 6 8 16 2 26-3-2-6-4-8-8" fill="#efe4c8" />
+            <circle cx="-22" cy="16" r="6" fill="#b8321f" />
+          </g>
+        )}
+        {kind === 'brazier' && (
+          <g stroke="#22180f" strokeWidth="1.5" strokeLinejoin="round">
+            <path d="M-26-4h52l-8 18h-36Z" fill="#7a5512" />
+            <path d="M6-4h20l-8 18H4Z" fill={`url(#ev-hatch-${kind})`} stroke="none" />
+            <path d="M-10 14-18 32M10 14 18 32M0 14v18" fill="none" />
+            <path d="M-14-4c2-6 6-8 10-6 2-6 8-6 10 0 4-2 8 0 8 6" fill="#4a3a28" />
+            <path d="M-4-16c-4-6 4-10 0-18M6-14c-3-5 3-8 0-14" fill="none" stroke="rgba(74,58,40,.5)" strokeWidth="1.1" strokeLinecap="round" />
+          </g>
+        )}
+      </svg>
+      <p className="empty-vignette-title">{title}</p>
+      {children && <div className="empty-vignette-text">{children}</div>}
     </div>
   );
 }

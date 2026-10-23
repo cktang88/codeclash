@@ -11,12 +11,14 @@ import { DropCap, Fleuron, Tally } from '../ui/codex.tsx';
 
 export function ProfilePage({ login }: { login: string }) {
   const [profile, setProfile] = useState<ProfileResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ missing: boolean; message: string } | null>(null);
   useEffect(() => {
     let cancelled = false;
     api.profile(login).then(
       (p) => !cancelled && setProfile(p),
-      (err: unknown) => !cancelled && setError(err instanceof ApiError ? err.message : 'This profile could not be loaded.'),
+      (err: unknown) =>
+        !cancelled &&
+        setError(err instanceof ApiError && err.status === 404 ? { missing: true, message: '' } : { missing: false, message: err instanceof ApiError ? err.message : 'This profile could not be loaded.' }),
     );
     return () => {
       cancelled = true;
@@ -24,8 +26,8 @@ export function ProfilePage({ login }: { login: string }) {
   }, [login]);
   if (error) {
     return (
-      <Notice title="No such soldier" icon="users">
-        <p>{error}</p>
+      <Notice title={error.missing ? 'No such soldier' : 'The codex is shut'} icon="users">
+        <p>{error.missing ? <>No one has enlisted as @{login}. Sparring bots keep no codex of deeds.</> : error.message}</p>
         <Link className="btn btn-primary" to={{ kind: 'home' }}>
           Back to the lobby
         </Link>

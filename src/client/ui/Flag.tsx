@@ -43,6 +43,9 @@ const EMBLEM_PATHS: Record<Emblem, string> = {
   flame: 'M0 5c2.5 0 4-1.6 4-3.8C4-1.5 1.5-2.5 1.2-5 0-3.7-1.4-2.4-1.4-.4c-.8-.6-1.1-1.4-1.1-2C-3.6-1.4-4-.1-4 1.2-4 3.4-2.5 5 0 5z',
 };
 
+/** Cloth is dyed, never neon: every army colour is mixed toward a warm earth (docs/art-direction.md §2). */
+const dyed = (color: string) => ({ fill: `color-mix(in srgb, ${color} 74%, #9a7a4e)` });
+
 /** A battalion banner as SVG: field, pattern, accent stripe, emblem and initials. */
 export function FlagSvg({ flag, size = 40, ordinal }: { flag: FlagSpec; size?: number; ordinal?: number }) {
   const clip = `flag${useId().replace(/[^a-zA-Z0-9]/g, '')}`;
@@ -55,7 +58,7 @@ export function FlagSvg({ flag, size = 40, ordinal }: { flag: FlagSpec; size?: n
         <clipPath id={clip}>
           <rect width="40" height="28" />
         </clipPath>
-        <path d="M0 0h40v28H0z" fill={flag.field} />
+        <path d="M0 0h40v28H0z" fill={flag.field} style={dyed(flag.field)} />
         <g clipPath={`url(#${clip})`}>{patternShape(flag.pattern, flag.charge)}</g>
         <rect x="0" y="25" width="40" height="3" fill={flag.accent} />
         <rect x="0" y="0" width="40" height="28" fill="none" stroke="#22180f" strokeWidth={1.4} />

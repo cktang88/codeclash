@@ -2,7 +2,7 @@ import { Kind } from '../../sim/api.ts';
 import type { LegendEntry } from '../../protocol.ts';
 import { Notice } from '../pages/Notice.tsx';
 import { Avatar } from '../ui/Avatar.tsx';
-import { InkLink, VellumPanel } from '../ui/codex.tsx';
+import { EmptyVignette, InkLink, VellumPanel } from '../ui/codex.tsx';
 import { metaApi, useLoad } from './api.ts';
 
 const KIND_TEXT: Record<LegendEntry['kind'], string> = {
@@ -39,7 +39,11 @@ export function HallPage({ slug }: { slug: string }) {
         <InkLink to={{ kind: 'room', slug, invite: null }}>← Back to the war</InkLink>
       </nav>
       <h1 className="page-title">The Hall of Legends</h1>
-      {days.length === 0 && <p className="muted">No legend has been named yet. Keep a Champion or Dragon alive to the end of the day, or let it do great deeds.</p>}
+      {days.length === 0 && (
+        <EmptyVignette kind="plinth" title="The plinths stand empty">
+          <p>No legend has been named yet. Keep a Champion or Dragon alive to the end of the day, or let it do great deeds, and its name is carved here.</p>
+        </EmptyVignette>
+      )}
       {days.map((day) => (
         <section key={day} className="meta-hall-day" aria-label={day}>
           <h2 className="block-title">

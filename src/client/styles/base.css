@@ -144,17 +144,34 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
-/* The war table: dark walnut under candlelight. */
-body {
+/* The war table: dark walnut under candlelight. The walnut colour sits on the root so the
+   canvas is never bare (overscroll, tall pages, mobile toolbars); the grain and candlelight
+   are a fixed layer behind everything, which unlike background-attachment: fixed is honoured
+   by every mobile browser and never stops short of the scroll height. */
+html {
   background-color: var(--table);
+}
+
+/* No body background: it would paint over the fixed table layer below. */
+body {
+  min-height: 100%;
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
   background-image: radial-gradient(ellipse 80% 70% at 42% 30%, rgba(255, 170, 80, 0.1), transparent 70%), radial-gradient(ellipse at center, transparent 55%, rgba(5, 4, 3, 0.65) 100%), var(--wood);
   background-size: 100% 100%, 100% 100%, 480px 480px;
-  background-attachment: fixed;
+  pointer-events: none;
 }
 
 #root {
   min-height: 100vh;
   min-height: 100dvh;
+  /* A leaf laid by hand at an angle must never widen the page. */
+  overflow-x: clip;
 }
 
 a {
@@ -1097,6 +1114,13 @@ code,
   display: flex;
   gap: 16px;
   flex-wrap: wrap;
+  align-items: flex-end;
+}
+
+/* Paired fields share the line evenly, and their ruled inputs sit on one baseline. */
+.field-row > .field {
+  flex: 1 1 180px;
+  min-width: 0;
 }
 
 .form-actions {

@@ -21,9 +21,9 @@ export const CAT_LABELS = ['Code', 'Tests', 'Comments', 'Docs', 'Config', 'Delet
 const AWARD_ICON: Record<string, () => ReactNode> = {
   victor: () => <Icon name="crown" size={26} />,
   warlord: () => <Icon name="sword" size={26} />,
-  'iron-wall': () => <UnitIcon kind={Kind.Warden} size={26} title="" />,
-  'test-legion': () => <UnitIcon kind={Kind.Paladin} size={26} title="" />,
-  scribe: () => <UnitIcon kind={Kind.Wizard} size={26} title="" />,
+  'iron-wall': () => <UnitIcon kind={Kind.Paladin} size={26} title="" />,
+  'test-legion': () => <UnitIcon kind={Kind.Warden} size={26} title="" />,
+  scribe: () => <UnitIcon kind={Kind.Herald} size={26} title="" />,
   demolisher: () => <UnitIcon kind={Kind.Outrider} size={26} title="" />,
   siegebreaker: () => <UnitIcon kind={Kind.Trebuchet} size={26} title="" />,
   'monolith-slayer': () => <EventIcon kind="monolith" size={26} />,
@@ -263,13 +263,13 @@ export function DigestPage({ slug, warId }: { slug: string; warId: number }) {
                   <th scope="col" className="num">
                     Renown
                   </th>
-                  <th scope="col" className="num">
+                  <th scope="col" className="num col-opt">
                     Pushes
                   </th>
                   <th scope="col" className="num">
                     Kills
                   </th>
-                  <th scope="col" className="num">
+                  <th scope="col" className="num col-opt">
                     Losses
                   </th>
                 </tr>
@@ -288,9 +288,9 @@ export function DigestPage({ slug, warId }: { slug: string; warId: number }) {
                       </span>
                     </th>
                     <td className="num">{compact(pl.renown)}</td>
-                    <td className="num">{pl.pushes}</td>
+                    <td className="num col-opt">{pl.pushes}</td>
                     <td className="num">{pl.kills}</td>
-                    <td className="num">{pl.losses}</td>
+                    <td className="num col-opt">{pl.losses}</td>
                   </tr>
                 ))}
               </tbody>

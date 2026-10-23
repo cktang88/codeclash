@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { prefersReducedMotion } from './codex.tsx';
+import { pigment as dye, prefersReducedMotion } from './codex.tsx';
 
 /** Four sample armies for the preview: pigment hues, not live data. */
 const ARMIES = [
@@ -10,7 +10,8 @@ const ARMIES = [
 ];
 
 const R = 150;
-const pigment = (h: number, l = 40) => `hsl(${h} 52% ${l}%)`;
+/** Army pigments in the bible's three values; a lightness above 50 reads as the light wash. */
+const pigment = (h: number, l = 46) => dye(h, l >= 54 ? 'light' : l <= 40 ? 'shade' : 'base');
 
 function capitalAt(angle: number, r = R * 0.78): [number, number] {
   return [Math.cos(angle) * r, Math.sin(angle) * r];

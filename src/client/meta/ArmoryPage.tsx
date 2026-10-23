@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { ArmoryResponse, MeResponse } from '../../protocol.ts';
 import { RANKS, type ArmoryItem, type Heraldry } from '../../rules/meta.ts';
-import { armyColor, hsl, type Emblem, type Pattern } from '../../rules/heraldry.ts';
+import { hsl, type Emblem, type Pattern } from '../../rules/heraldry.ts';
 import { ApiError } from '../net/api.ts';
 import { Notice } from '../pages/Notice.tsx';
 import { InkLink, VellumPanel, sfx } from '../ui/codex.tsx';
@@ -20,12 +20,12 @@ const SLOTS: readonly { slot: ArmoryItem['slot']; label: string; hint: string }[
 
 const label = (value: string) => (value === 'true' ? 'Yes' : value === 'false' ? 'No' : value[0]!.toUpperCase() + value.slice(1));
 
-/** A preview of the chosen standard in the player's own hue. */
+/** A preview of the chosen standard in the player's own hue, mixed as a pigment (never raw). */
 export function StandardPreview({ heraldry, hue = 212, size = 96 }: { heraldry: Pick<Heraldry, 'pattern' | 'emblem'>; hue?: number; size?: number }) {
   return (
     <FlagSvg
       size={size}
-      flag={{ hue, field: armyColor(hue), charge: hsl(hue, 60, 32), accent: hsl(45, 70, 55), pattern: heraldry.pattern as Pattern, emblem: heraldry.emblem as Emblem, initials: '' }}
+      flag={{ hue, field: hsl(hue, 56, 46), charge: hsl(hue, 50, 28), accent: '#d4a93e', pattern: heraldry.pattern as Pattern, emblem: heraldry.emblem as Emblem, initials: '' }}
     />
   );
 }

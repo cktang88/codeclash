@@ -31,8 +31,16 @@ export function RoomCardView({ room, now, pinned }: { room: RoomCard; now: numbe
         <div>
           <dt>Members</dt>
           <dd className="num">
-            {room.members}
-            {room.bots > 0 && <span className="muted"> +{room.bots} bots</span>}
+            {room.members === 0 && room.bots > 0 ? (
+              <span className="muted">
+                {room.bots} {room.bots === 1 ? 'bot' : 'bots'}
+              </span>
+            ) : (
+              <>
+                {room.members}
+                {room.bots > 0 && <span className="muted"> +{room.bots} {room.bots === 1 ? 'bot' : 'bots'}</span>}
+              </>
+            )}
           </dd>
         </div>
         <div>
@@ -275,9 +283,9 @@ function JoinByLink() {
 }
 
 const HOW = [
-  { kind: Kind.Footman, title: 'Push', text: 'Every push to a public repo is read line by line: code, tests, docs, config, deletions.' },
-  { kind: Kind.Warden, title: 'Muster', text: 'Each kind of line raises its own soldier. A push becomes a platoon under your repo’s banner.' },
-  { kind: Kind.Champion, title: 'War', text: 'Platoons march from your capital to fight in the middle. The war resets daily with a digest.' },
+  { kind: Kind.Footman, title: 'Push', text: 'Every push to a public repo is weighed for its code: how much, how many files, how tangled. Generated code weighs nothing.' },
+  { kind: Kind.Cleric, title: 'Muster', text: 'What the code is for picks the specialists: fixes bring clerics, features champions, refactors outriders. Spam musters a ragged rabble.' },
+  { kind: Kind.Champion, title: 'War', text: 'Platoons march from your capital to fight for the Heart. At the daily reset the war ends and its chronicle is written.' },
 ];
 
 export function HomePage({ me, meError, onMeChanged }: { me: MeResponse | null; meError: boolean; onMeChanged(): void }) {
@@ -356,7 +364,7 @@ export function HomePage({ me, meError, onMeChanged }: { me: MeResponse | null; 
           <h1 className="hero-title">Your pushes are an army.</h1>
           <DropCap
             className="hero-lede"
-            text="Every push you make to a public repository is read line by line and mustered into soldiers. Your tests become shield walls, your docs become heralds and wizards, your deletions become cavalry. Rooms of friends and teams fight from dawn to the daily reset, and every day ends in an illuminated chronicle."
+            text="Every push you make to a public repository is read for its code and mustered into soldiers. What the code is for decides who marches: fixes send clerics, features raise champions, refactors loose outriders, and a legendary feature wakes a dragon. Padding earns only a ragged rabble. Friends and teams fight from dawn to the daily reset, and each day ends in an illuminated chronicle."
           />
           <div className="hero-actions">
             {!user && !offline && (
@@ -382,7 +390,7 @@ export function HomePage({ me, meError, onMeChanged }: { me: MeResponse | null; 
                   : 'Sign-in did not complete. Please try again.'}
             </p>
           )}
-          {me?.devAuth && !user && (
+          {import.meta.env.DEV && me?.devAuth && !user && (
             <form className="dev-login" action="/auth/dev" method="get">
               <label htmlFor="dev-login">Dev sign-in as</label>
               <input id="dev-login" className="input" name="login" placeholder="github-login" value={devLogin} onChange={(e) => setDevLogin(e.target.value)} pattern="[A-Za-z0-9-]{1,39}" required />
@@ -471,7 +479,7 @@ export function HomePage({ me, meError, onMeChanged }: { me: MeResponse | null; 
       )}
 
       <footer className="home-foot muted small">
-        Pushfront reads only public activity. Lines changed are not quality. The game rewards a healthy shape of work and slows down as volume grows.
+        Pushfront reads only public activity. It rewards real code, not volume: returns diminish as lines pile up, and one squashed push or twenty small ones raise the same army.
       </footer>
 
       {modal === 'create' && <CreateRoomModal onClose={() => setModal(null)} />}

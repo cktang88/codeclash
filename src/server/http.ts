@@ -26,6 +26,7 @@ import {
 } from '../protocol.ts';
 import { AWARDS } from '../rules/digest.ts';
 import { generateMap } from '../sim/mapgen.ts';
+import type { MapDef } from '../sim/api.ts';
 import { decodeInput, type Replay } from '../sim/replay.ts';
 import { registerAuth, type AuthDeps } from './auth.ts';
 import type { RoomRow, Store, UserRow, WarRow } from './db.ts';
@@ -537,7 +538,7 @@ export async function buildHttp(deps: HttpDeps): Promise<FastifyInstance> {
         room: { slug: room.slug, name: room.name },
         war: summary(war),
         digest: war.digest,
-        map: { radius: map.radius, sites: map.sites.map((s) => ({ kind: s.kind, x: Math.round(s.x), y: Math.round(s.y), slot: s.slot })) },
+        map: { radius: map.radius, sites: map.sites.map((s) => ({ kind: s.kind, x: Math.round(s.x), y: Math.round(s.y), slot: s.slot })), terrain: coarseTerrain(map, 2) },
         players: war.header.players.map((pl, p) => ({ p, login: pl.login, hue: pl.hue, slot: pl.slot })),
         timelapse: store.frames(war.id),
       };
@@ -597,4 +598,20 @@ export async function buildHttp(deps: HttpDeps): Promise<FastifyInstance> {
     });
   }
   return app;
+}
+
+/** The nav grid sampled every `step` cells, for the digest's painted timelapse. */
+export function coarseTerrain(map: MapDef, step: number): NonNullable<DigestResponse['map']['terrain']> {
+  const cols = Math.ceil(map.navCols / step);
+  const rows = Math.ceil(map.navRows / step);
+  let cells = '';
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const col = Math.min(map.navCols - 1, c * step + (step >> 1));
+      const row = Math.min(map.navRows - 1, r * step + (step >> 1));
+      const t = map.terrain[row * map.navCols + col] ?? 255;
+      cells += t === 255 ? '.' : String(Math.min(3, t));
+    }
+  }
+  return { cols, cell: map.navCell * step, originX: map.originX, originY: map.originY, cells };
 }

@@ -5,7 +5,7 @@ import { Link } from '../ui/Link.tsx';
 import { compact } from '../ui/format.ts';
 import { Icon } from '../ui/icons.tsx';
 import { Notice } from './Notice.tsx';
-import { hueVar } from '../ui/codex.tsx';
+import { EmptyVignette, hueVar } from '../ui/codex.tsx';
 
 export function HistoryPage({ slug }: { slug: string }) {
   const [wars, setWars] = useState<WarSummary[] | null>(null);
@@ -50,7 +50,9 @@ export function HistoryPage({ slug }: { slug: string }) {
           Opening the archive…
         </p>
       ) : wars.length === 0 ? (
-        <p className="empty-note">No wars yet. The first one ends at this room’s next reset.</p>
+        <EmptyVignette kind="brazier" title="No war has yet been written">
+          <p>The first one ends at this room’s next reset.</p>
+        </EmptyVignette>
       ) : (
         <ol className="war-list">
           {wars.map((w) => (

@@ -744,9 +744,49 @@
 
 .digest-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(340px, 100%), 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 22px;
   margin-top: 30px;
+}
+
+/* The standings ledger needs the wider column; the day in numbers sits beside it. */
+@media (min-width: 980px) {
+  .digest-grid {
+    grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+  }
+}
+
+.digest-block .codex-table .tag {
+  white-space: nowrap;
+}
+
+/* Four figures on one ruled line, never three and an orphan. */
+.player-card .stat-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.player-card .stat-grid > div {
+  padding: 6px 6px 8px;
+}
+
+.player-card .stat-grid dt {
+  letter-spacing: 0.01em;
+}
+
+@media (max-width: 520px) {
+  .codex-table .col-opt,
+  .digest-block .who-cell .tag {
+    display: none;
+  }
+
+  .digest-block .codex-table th,
+  .digest-block .codex-table td {
+    padding: 8px 6px;
+  }
+
+  .digest-block {
+    padding: 20px 16px;
+  }
 }
 
 .digest-block {
@@ -855,6 +895,16 @@
 
 .timeline-item:hover {
   background-color: var(--recess);
+}
+
+.timeline-item:hover .timeline-go {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.timeline-item:active {
+  background-color: var(--field);
+  transform: translateY(1px);
 }
 
 .timeline-time {
@@ -1070,6 +1120,17 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
+}
+
+.timelapse-shield {
+  flex: none;
+}
+
+/* Shrine names are scribe's notes; on a phone they would letter smaller than the 13px floor. */
+@media (max-width: 600px) {
+  .timelapse-site-name {
+    display: none;
+  }
 }
 
 /* History: a ruled register of wars. */
@@ -1489,6 +1550,16 @@
 /* ---------------------------------------------------------- responsive */
 
 @media (max-width: 900px) {
+  /* A narrow folio runs many screens tall. A filtered, rotated layer that size is more than
+     some phone GPUs will paint, which leaves the page bare; lay it square and unshadowed. */
+  .folio::before,
+  .page.meta-armory::before,
+  .page.meta-hall::before,
+  .page.meta-season::before {
+    transform: none;
+    filter: none;
+  }
+
   .war-table {
     grid-template-columns: 1fr;
     padding-top: 28px;
@@ -1659,7 +1730,8 @@
   .room-card,
   .how-step,
   .award,
-  .war-row {
+  .war-row,
+  .empty-vignette {
     animation-name: veil-in !important;
   }
 
@@ -1675,9 +1747,14 @@
 }
 
 @media print {
+  html,
   body {
     background: #fff;
     color: #000;
+  }
+
+  body::before {
+    display: none;
   }
 
   .panel::before,
@@ -1835,6 +1912,12 @@
   outline: 2px solid var(--focus) !important;
 }
 
+/* While the herald writes a choice down, the rest wait without looking locked. */
+.meta-choice:disabled:not(.is-locked) {
+  cursor: progress;
+  opacity: 0.75;
+}
+
 .meta-legend {
   position: relative;
   padding: 20px 22px;
@@ -1895,4 +1978,36 @@
 
 .profile-opening {
   min-height: 3.4em;
+}
+
+/* An empty page: an engraved vignette and the reason beneath, set in the middle of the leaf. */
+.empty-vignette {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  max-width: 460px;
+  margin: 40px auto 24px;
+  text-align: center;
+  animation: ink-in 600ms var(--ease-in) both;
+}
+
+.empty-vignette-art {
+  max-width: 100%;
+  height: auto;
+}
+
+.empty-vignette-title {
+  margin: 4px 0 0;
+  font-family: var(--display);
+  font-size: 24px;
+  color: var(--rubric);
+}
+
+.empty-vignette-text {
+  color: var(--fg-soft);
+  font-style: italic;
+}
+
+.empty-vignette-text p {
+  margin: 0;
 }

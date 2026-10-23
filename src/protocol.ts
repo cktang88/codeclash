@@ -194,7 +194,15 @@ export interface DigestResponse {
   war: WarSummary;
   digest: Digest;
   /** Map geometry for drawing the timelapse: capital and site positions. */
-  map: { radius: number; sites: { kind: 'capital' | 'shrine' | 'heart'; x: number; y: number; slot: number }[] };
+  map: {
+    radius: number;
+    sites: { kind: 'capital' | 'shrine' | 'heart'; x: number; y: number; slot: number }[];
+    /**
+     * The land at a coarse scale, for painting the timelapse as a miniature of the map: one
+     * character per cell, row by row ('0' plain, '1' forest, '2' water, '3' rock, '.' off the map).
+     */
+    terrain?: { cols: number; cell: number; originX: number; originY: number; cells: string };
+  };
   players: { p: number; login: string; hue: number; slot: number }[];
   timelapse: TimelapseFrame[];
 }

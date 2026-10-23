@@ -1,7 +1,7 @@
 import { SEASON_POINTS } from '../../rules/meta.ts';
 import { Notice } from '../pages/Notice.tsx';
 import { Avatar } from '../ui/Avatar.tsx';
-import { InkLink, VellumPanel } from '../ui/codex.tsx';
+import { EmptyVignette, InkLink, VellumPanel } from '../ui/codex.tsx';
 import { metaApi, useLoad } from './api.ts';
 
 /** This week's Season table for the room, and last week's Victor. */
@@ -41,7 +41,9 @@ export function SeasonPage({ slug }: { slug: string }) {
         Seven days make a season. Each day pays {SEASON_POINTS.join(', ')} points to the first five, and 1 to everyone else who fought.
       </p>
       {data.standings.length === 0 ? (
-        <p className="muted">No day of this season has ended yet.</p>
+        <EmptyVignette kind="ledger" title="The ledger is open, and blank">
+          <p>No day of this season has ended yet. The first reset writes the first line.</p>
+        </EmptyVignette>
       ) : (
         <table className="codex-table meta-season-table">
           <thead>
