@@ -8,7 +8,7 @@
 .meta-orders-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .meta-order { display: grid; grid-template-columns: 18px 1fr auto; grid-template-areas: 'seal title amount' 'seal bar bar'; gap: 2px 8px; align-items: center; }
 .meta-order-seal { grid-area: seal; width: 16px; height: 16px; border: 1px solid var(--rule); display: grid; place-items: center; font-size: 11px; line-height: 1; }
-.meta-order.is-done .meta-order-seal { background: var(--vermilion, #a3301f); color: var(--gold-bright); border-color: transparent; }
+.meta-order.is-done .meta-order-seal { background: var(--vermilion, #a3301f); color: var(--gold-hi); border-color: transparent; }
 .meta-order-title { grid-area: title; color: var(--fg); }
 .meta-order.is-done .meta-order-title { text-decoration: line-through; text-decoration-color: var(--rule); color: var(--fg-soft); }
 .meta-order-amount { grid-area: amount; font-size: 0.85em; }
@@ -19,8 +19,11 @@
 .meta-armory-choices { display: flex; flex-wrap: wrap; gap: 8px; }
 .meta-choice { display: grid; justify-items: center; gap: 4px; min-width: 72px; padding: 8px; background: none; border: 1px solid var(--rule); color: var(--fg); font: inherit; cursor: pointer; }
 .meta-choice.is-on { border-color: var(--gold); outline: 1px solid var(--gold); outline-offset: 2px; }
-.meta-choice.is-locked { opacity: 0.45; cursor: not-allowed; }
-.meta-choice:focus-visible { outline: 2px solid var(--gold-bright); outline-offset: 2px; }
+.meta-choice.is-locked { cursor: not-allowed; }
+/* The choice itself is faded; the rank that unlocks it stays readable. */
+.meta-choice.is-locked > :not(.meta-choice-lock) { opacity: 0.45; }
+.meta-choice.is-locked .meta-choice-lock { color: var(--fg-soft); opacity: 1; }
+.meta-choice:focus-visible { outline: 2px solid var(--gold-hi); outline-offset: 2px; }
 .meta-choice-lock { font-size: 0.75em; }
 .meta-armory-message { color: var(--bad); }
 
@@ -32,7 +35,7 @@
 
 .meta-season-champion { margin-bottom: 16px; }
 .meta-season-table { width: 100%; }
-.meta-season-table tr.is-first td { color: var(--gold-bright); }
+.meta-season-table tr.is-first td { color: var(--gold-hi); }
 
 .meta-deeds-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
 .meta-deed { display: grid; grid-template-columns: 28px 1fr; grid-template-areas: 'seal name' 'seal text'; gap: 0 8px; align-items: start; opacity: 0.5; }

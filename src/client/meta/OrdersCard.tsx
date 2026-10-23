@@ -2,6 +2,7 @@ import { drawOrders, orderProgress, type OrderProgress } from '../../rules/meta.
 import { useHudContext } from '../hud/context.ts';
 import type { HudSnapshot } from '../store.ts';
 import { CarvedBar } from '../ui/codex.tsx';
+import { compact } from '../ui/format.ts';
 
 /** The viewer's three Orders for today, measured live from the battlefield, or null for spectators. */
 export function useOrders(hud: HudSnapshot): OrderProgress[] | null {
@@ -14,7 +15,7 @@ export function useOrders(hud: HudSnapshot): OrderProgress[] | null {
 }
 
 function amount(o: OrderProgress): string {
-  return o.unit === 'minutes' ? `${o.value} / ${o.goal} min` : `${o.value} / ${o.goal}`;
+  return o.unit === 'minutes' ? `${compact(o.value)} / ${compact(o.goal)} min` : `${compact(o.value)} / ${compact(o.goal)}`;
 }
 
 export function OrdersCard({ hud }: { hud: HudSnapshot }) {

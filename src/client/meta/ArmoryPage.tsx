@@ -53,6 +53,9 @@ export function ArmoryPage({ me }: { me: MeResponse | null }) {
     return (
       <Notice title="The Armory is closed">
         <p>{load.error}</p>
+        <button type="button" className="btn btn-primary" onClick={load.reload}>
+          Try again
+        </button>
       </Notice>
     );
   }

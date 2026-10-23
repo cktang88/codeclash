@@ -11,6 +11,7 @@ export function SeasonPage({ slug }: { slug: string }) {
     return (
       <Notice title="No season here">
         <p>{error}</p>
+        <InkLink to={{ kind: 'home' }}>← Back to the lobby</InkLink>
       </Notice>
     );
   }
@@ -45,31 +46,33 @@ export function SeasonPage({ slug }: { slug: string }) {
           <p>No day of this season has ended yet. The first reset writes the first line.</p>
         </EmptyVignette>
       ) : (
-        <table className="codex-table meta-season-table">
-          <thead>
-            <tr>
-              <th scope="col">#</th>
-              <th scope="col">Player</th>
-              <th scope="col" className="num">Points</th>
-              <th scope="col" className="num">Days won</th>
-              <th scope="col" className="num">Days fought</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.standings.map((s, i) => (
-              <tr key={s.user.id} className={i === 0 ? 'is-first' : undefined}>
-                <td className="num">{i + 1}</td>
-                <td>
-                  <Avatar login={s.user.login} url={s.user.avatarUrl} size={20} />{' '}
-                  <InkLink to={{ kind: 'profile', login: s.user.login }}>@{s.user.login}</InkLink>
-                </td>
-                <td className="num">{s.points}</td>
-                <td className="num">{s.wins}</td>
-                <td className="num">{s.days}</td>
+        <div className="table-wrap">
+          <table className="codex-table meta-season-table">
+            <thead>
+              <tr>
+                <th scope="col">#</th>
+                <th scope="col">Player</th>
+                <th scope="col" className="num">Points</th>
+                <th scope="col" className="num">Days won</th>
+                <th scope="col" className="num">Days fought</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {data.standings.map((s, i) => (
+                <tr key={s.user.id} className={i === 0 ? 'is-first' : undefined}>
+                  <td className="num">{i + 1}</td>
+                  <td>
+                    <Avatar login={s.user.login} url={s.user.avatarUrl} size={20} />{' '}
+                    <InkLink to={{ kind: 'profile', login: s.user.login }}>@{s.user.login}</InkLink>
+                  </td>
+                  <td className="num">{s.points}</td>
+                  <td className="num">{s.wins}</td>
+                  <td className="num">{s.days}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </main>
   );

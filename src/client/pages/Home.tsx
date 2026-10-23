@@ -92,7 +92,11 @@ function CreateRoomModal({ onClose }: { onClose(): void }) {
     }
   };
   return (
-    <Modal title="A charter for a new room" subtitle="Be it known: this room shall fight one war each day, for all who hold its seal." onClose={onClose} variant="scroll"
+    <Modal
+      title="A charter for a new room"
+      subtitle="Be it known: this room shall fight one war each day, for all who hold its seal."
+      onClose={onClose}
+      variant="scroll"
       footer={
         // In the footer, the seal and its caption stay in view on a phone however long the charter runs.
         <div className="form-actions charter-sign">
@@ -274,12 +278,19 @@ function JoinByLink() {
       <label className="sr-only" htmlFor="invite-link">
         Invite link
       </label>
-      <input id="invite-link" className="input" placeholder="Paste an invite link" value={text} onChange={(e) => setText(e.target.value)} />
+      <input id="invite-link" className="input" placeholder="Paste an invite link" value={text}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={error ? 'invite-link-error' : undefined}
+        onChange={(e) => {
+          setText(e.target.value);
+          setError(null);
+        }}
+      />
       <button className="btn" type="submit" disabled={!text.trim()}>
         Open
       </button>
       {error && (
-        <span className="form-error" role="alert">
+        <span className="form-error" role="alert" id="invite-link-error">
           {error}
         </span>
       )}
@@ -301,6 +312,11 @@ export function HomePage({ me, meError, onMeChanged }: { me: MeResponse | null; 
   const [now, setNow] = useState(Date.now());
   const params = new URLSearchParams(location.search);
   const signInError = params.get('error');
+
+  // Back in the lobby after leaving, deleting or creating a room elsewhere: the room list held since sign-in is stale.
+  useEffect(() => {
+    if (me) onMeChanged();
+  }, []);
 
   useEffect(() => {
     let cancelled = false;

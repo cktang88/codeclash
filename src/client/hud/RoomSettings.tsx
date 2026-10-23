@@ -28,7 +28,7 @@ export function CopyButton({ text, label = 'Copy' }: { text: string; label?: str
         );
       }}
     >
-      <Icon name="copy" size={15} /> {done ? 'Copied' : label}
+      <Icon name="copy" size={15} /> <span aria-live="polite">{done ? 'Copied' : label}</span>
     </button>
   );
 }

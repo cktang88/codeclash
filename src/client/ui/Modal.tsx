@@ -39,10 +39,12 @@ export function Modal({
     setClosing(true);
     setTimeout(onClose, 170);
   };
+  // Whatever had focus before the dialog, captured while rendering: by the time an effect runs, a child's autoFocus
+  // has already moved focus inside, and restoring to that would drop focus on the page body when the dialog closes.
+  const [opener] = useState(() => (typeof document === 'undefined' ? null : (document.activeElement as HTMLElement | null)));
   const close = useRef(requestClose);
   close.current = requestClose;
   useEffect(() => {
-    const previous = document.activeElement as HTMLElement | null;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') close.current();
       if (e.key !== 'Tab' || !ref.current) return;
@@ -69,7 +71,14 @@ export function Modal({
     if (!ref.current?.contains(document.activeElement)) ref.current?.focus();
     return () => {
       window.removeEventListener('keydown', onKey);
-      previous?.focus?.();
+      // After the dialog has left the page (not on a StrictMode re-run, which keeps it), and only if the opener remains.
+      const dialog = ref.current;
+      setTimeout(() => {
+        if (dialog?.isConnected || !opener?.isConnected) return;
+        // Something else already took focus (a navigation, another dialog): leave it there.
+        if (document.activeElement && document.activeElement !== document.body) return;
+        opener.focus?.();
+      }, 0);
     };
   }, []);
   return (

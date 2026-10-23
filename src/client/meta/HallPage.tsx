@@ -22,6 +22,7 @@ export function HallPage({ slug }: { slug: string }) {
     return (
       <Notice title="The Hall is barred">
         <p>{error}</p>
+        <InkLink to={{ kind: 'home' }}>← Back to the lobby</InkLink>
       </Notice>
     );
   }

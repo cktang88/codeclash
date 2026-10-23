@@ -1920,10 +1920,13 @@ input[type='range']:focus-visible {
   color: var(--fg-soft);
   font-family: var(--sc);
   font-weight: 700;
-  font-size: 14px;
-  white-space: nowrap;
+  font-size: 13px;
+  letter-spacing: 0;
+  line-height: 1.05;
+  /* Five ribbons share 390px: let a two-word label take two lines rather than end in an ellipsis. */
+  white-space: normal;
   overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: normal;
   transition: color var(--t-fast), transform var(--t) var(--ease-in);
 }
 
@@ -1951,13 +1954,27 @@ input[type='range']:focus-visible {
   transform: translateY(1px);
 }
 
+/* On a phone the room's name gets a line of its own under the controls; beside them it was squeezed to nothing. */
+.hud.is-narrow {
+  --topbar-h: 94px;
+}
+
 .hud.is-narrow .topbar {
-  gap: 8px;
-  padding: 0 4px 0 8px;
+  flex-wrap: wrap;
+  align-content: center;
+  gap: 0 8px;
+  padding: 2px 4px 6px 8px;
+}
+
+.hud.is-narrow .topbar-meta {
+  margin-left: auto;
 }
 
 .hud.is-narrow .topbar-title {
-  padding-left: 8px;
+  order: 5;
+  flex: 1 0 100%;
+  padding-left: 2px;
+  border-left: 0;
 }
 
 .hud.is-narrow .room-name {

@@ -1278,6 +1278,21 @@ code,
   font-size: 30px;
 }
 
+/* Four big figures fit three to a row on a phone and orphan the fourth: lay them two by two. */
+@media (max-width: 600px) {
+  .stat-grid-big {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .stat-grid-big > div:nth-child(2n) {
+    box-shadow: none;
+  }
+
+  .stat-grid-big > div:nth-child(n + 3) {
+    border-top: 1px solid var(--rule-soft);
+  }
+}
+
 /* ------------------------------------------------------------------ modals */
 
 .modal-backdrop {

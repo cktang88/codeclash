@@ -4,6 +4,7 @@ import type { DigestPlayer } from '../../rules/digest.ts';
 import { Kind, PURPOSES, PURPOSE_LABEL, TICK_MS, type Purpose } from '../../sim/api.ts';
 import { ApiError, api } from '../net/api.ts';
 import { UnitChips, colorize } from '../hud/Chronicle.tsx';
+import { CopyButton } from '../hud/RoomSettings.tsx';
 import { Avatar } from '../ui/Avatar.tsx';
 import { BattalionFlag } from '../ui/Flag.tsx';
 import { Link } from '../ui/Link.tsx';
@@ -230,9 +231,7 @@ export function DigestPage({ slug, warId }: { slug: string; warId: number }) {
           <Link className="btn btn-gilt" to={{ kind: 'replay', slug, warId: war.id, tick: null }}>
             <Icon name="play" size={16} /> Watch the replay
           </Link>
-          <button className="btn" onClick={() => navigator.clipboard?.writeText(location.href).catch(() => undefined)}>
-            <Icon name="share" size={16} /> Copy link
-          </button>
+          <CopyButton text={location.href} label="Copy link" />
         </div>
       </header>
 
