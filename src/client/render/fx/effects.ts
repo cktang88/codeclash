@@ -17,6 +17,8 @@ export interface StepContext {
   /** True when zoomed in enough for small, per-soldier effects. */
   near: boolean;
   bounds: Bounds;
+  /** Optional override of `Effects.flyHeight`. */
+  flyHeight?: (kind: Kind) => number;
 }
 
 /** The old FxLayer burst shape, kept for callers like site smoke. */
@@ -158,6 +160,7 @@ export class Effects {
 
   onStep(ev: TickEvents, world: World, ctx: StepContext): void {
     const { posOf, tints, near, bounds } = ctx;
+    if (ctx.flyHeight) this.flyHeight = ctx.flyHeight;
     const tick = world.tick - 1;
     const tint = (p: number) => tints[p] ?? 0xe8dcc0;
 
