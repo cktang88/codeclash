@@ -1,5 +1,6 @@
 import { CAT_COUNT } from '../sim/api.ts';
-import { measurePush } from '../rules/ledger.ts';
+import type { ChangedFile } from '../rules/classify.ts';
+import { measurePush, type PushDelta } from '../rules/ledger.ts';
 import type { Store, UserRow } from './db.ts';
 import type { CompareResult, GithubClient } from './github.ts';
 import { errorMessage, type Logger } from './log.ts';
@@ -73,6 +74,22 @@ function compareIds(a: string, b: string): number {
  * push delivered by both counts a single time: both use `${repo}@${head}` as the
  * push id, and commits already claimed by the user are never counted again.
  */
+/** Most of a user's own commits measured one by one in a push mixed with others' work. */
+export const MAX_OWN_COMMITS = 20;
+
+function sumDeltas(deltas: readonly PushDelta[]): PushDelta {
+  const out: PushDelta = { lines: new Array<number>(CAT_COUNT).fill(0), files: 0, branches: 0, churn: 0, filler: 0, language: null };
+  for (const d of deltas) {
+    d.lines.forEach((n, c) => (out.lines[c]! += n));
+    out.files += d.files;
+    out.branches += d.branches;
+    out.churn += d.churn;
+    out.filler += d.filler;
+    out.language ??= d.language;
+  }
+  return out;
+}
+
 export async function ingestPush(
   deps: Pick<PollerDeps, 'store' | 'github' | 'clock' | 'onPush'>,
   user: UserRow,
@@ -91,21 +108,30 @@ export async function ingestPush(
   if (!result || result.commits.length === 0) return null;
 
   const login = user.login.toLowerCase();
-  const own = result.commits.filter((c) => (c.authorLogin === null ? !strictAuthor : c.authorLogin.toLowerCase() === login));
+  const own = result.commits.filter((c) => !c.merge && (c.authorLogin === null ? !strictAuthor : c.authorLogin.toLowerCase() === login));
   const fresh = new Set(store.claimCommits(user.id, own.map((c) => c.sha), deps.clock()));
   const counted = own.filter((c) => fresh.has(c.sha));
   if (counted.length === 0) return null;
 
-  // Other people's commits in the range (a merged base, a co-worker's work) do not raise soldiers.
-  const share = counted.length / result.commits.length;
-  const changed = result.files;
-  const scale = (n: number) => (share < 1 ? Math.trunc(n * share) : n);
+  // When the range holds anyone else's commits or merges (a merged base, an upstream sync,
+  // a co-worker's work), measure only this user's own commits, one by one, so a large
+  // merge never rides on a tiny commit. The ledger sums them exactly as a squash would.
+  let diffs: (readonly ChangedFile[])[] = [result.files];
+  if (counted.length < result.commits.length) {
+    diffs = [];
+    for (const c of counted.slice(-MAX_OWN_COMMITS)) {
+      const single = await github.commit(push.repo, c.sha);
+      if (single) diffs.push(single.files);
+    }
+    if (diffs.length === 0) return null;
+  }
   let report: PushReport;
   try {
     report = store.transaction(() => {
       // Measuring moves the ledger, so it commits only together with the push record.
-      const delta = measurePush(changed, store.ledgerFor(user.id, push.repo, deps.clock()));
-      const lines = delta.lines.map(scale);
+      const ledger = store.ledgerFor(user.id, push.repo, deps.clock());
+      const delta = sumDeltas(diffs.map((files) => measurePush(files, ledger)));
+      const lines = delta.lines.slice();
       while (lines.length < CAT_COUNT) lines.push(0);
       const r: PushReport = {
         userId: user.id,
@@ -113,8 +139,8 @@ export async function ingestPush(
         repo: push.repo,
         language: delta.language,
         lines,
-        files: scale(delta.files),
-        branches: scale(delta.branches),
+        files: delta.files,
+        branches: delta.branches,
         churn: delta.churn,
         filler: delta.filler,
         commits: counted.length,

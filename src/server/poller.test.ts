@@ -92,20 +92,33 @@ describe('Poller', () => {
     expect(t.reports).toHaveLength(0);
   });
 
-  it('counts a commit once even when pushed to two branches, and scales for others’ commits', async () => {
+  it('counts a commit once even when pushed to two branches, and measures only the user’s own commits in a mixed push', async () => {
     t.github.addEvent('Ana', pushEvent('100', 'ana/parser', sha(1), sha(2), NOW));
     t.github.addEvent('Ana', pushEvent('101', 'ana/parser', sha(1), sha(3), NOW, 'refs/heads/feature'));
     t.github.setCompare('ana/parser', sha(1), sha(2), { commits: [commit(2, 'ana')], files: [sourceFile('a.ts', calls(0, 2))] });
     t.github.setCompare('ana/parser', sha(1), sha(3), {
       commits: [commit(2, 'ana'), commit(3, 'ANA'), commit(4, 'bob'), commit(5, null)],
-      files: [sourceFile('a.ts', calls(0, 8))],
+      files: [sourceFile('a.ts', calls(0, 400))],
     });
+    // Ana's own new commits, fetched one by one: three lines and two lines.
+    t.github.setCommit('ana/parser', sha(3), { commits: [commit(3, 'ana')], files: [sourceFile('a.ts', calls(2, 5))] });
+    t.github.setCommit('ana/parser', sha(5), { commits: [commit(5, null)], files: [sourceFile('b.ts', calls(10, 12))] });
     await t.poller.pollUser(7);
     expect(t.reports).toHaveLength(2);
     expect(t.reports[1]!.commits).toBe(2);
-    // The second branch's compare shows the first two lines again; they were already paid for,
-    // so only the six new lines count, at the user's half share.
-    expect(t.reports[1]!.lines[Cat.Code]).toBe(3);
+    // Bob's 400-line merge rides along in the compare but raises nothing: only Ana's 5 lines count.
+    expect(t.reports[1]!.lines[Cat.Code]).toBe(5);
+  });
+
+  it('ignores merge commits even when the user made them', async () => {
+    t.github.addEvent('Ana', pushEvent('100', 'ana/parser', sha(1), sha(2), NOW));
+    t.github.setCompare('ana/parser', sha(1), sha(2), {
+      commits: [commit(2, 'ana'), { ...commit(3, 'ana'), merge: true }],
+      files: [sourceFile('a.ts', calls(0, 300))],
+    });
+    t.github.setCommit('ana/parser', sha(2), { commits: [commit(2, 'ana')], files: [sourceFile('a.ts', calls(0, 4))] });
+    await t.poller.pollUser(7);
+    expect(t.reports[0]!.lines[Cat.Code]).toBe(4);
   });
 
   it('cancels work a later push undoes, through the stored ledger', async () => {

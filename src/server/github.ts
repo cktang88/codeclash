@@ -18,7 +18,7 @@ export interface PushEventLite {
 }
 
 export interface CompareResult {
-  commits: { sha: string; authorLogin: string | null; message: string }[];
+  commits: { sha: string; authorLogin: string | null; message: string; /** More than one parent: a merge. */ merge?: boolean }[];
   files: ChangedFile[];
 }
 
@@ -76,6 +76,7 @@ const CommitSchema = z
     sha: z.string(),
     author: z.object({ login: z.string() }).loose().nullable().optional(),
     commit: z.object({ message: z.string() }).loose(),
+    parents: z.array(z.object({ sha: z.string() }).loose()).optional().default([]),
   })
   .loose();
 
@@ -124,7 +125,7 @@ function toFiles(files: z.infer<typeof FileSchema>[]): ChangedFile[] {
 }
 
 function toCommit(c: z.infer<typeof CommitSchema>): CompareResult['commits'][number] {
-  return { sha: c.sha, authorLogin: c.author?.login ?? null, message: c.commit.message };
+  return { sha: c.sha, authorLogin: c.author?.login ?? null, message: c.commit.message, ...(c.parents.length > 1 ? { merge: true } : {}) };
 }
 
 export function createGithubClient(token: string | null, fetchImpl: typeof fetch = fetch): GithubClient {

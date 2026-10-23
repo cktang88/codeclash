@@ -13,8 +13,8 @@ export type Db = Database.Database;
 
 export const SNAPSHOTS_KEPT_LIVE = 3;
 /** A ledger balance stops counting 36 hours after it last moved, and is deleted after 48. */
-export const LEDGER_LIVE_MS = 36 * 3_600_000;
-export const LEDGER_KEEP_MS = 48 * 3_600_000;
+export const LEDGER_LIVE_MS = 7 * 24 * 3_600_000;
+export const LEDGER_KEEP_MS = 8 * 24 * 3_600_000;
 
 export interface UserRow {
   id: number;
