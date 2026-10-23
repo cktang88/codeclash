@@ -501,8 +501,10 @@
 }
 
 .toast-text::first-letter {
+  -webkit-initial-letter: 2;
+  initial-letter: 2;
   font-family: var(--display);
-  font-size: 1.5em;
+  margin-right: 0.06em;
   color: var(--vermilion);
 }
 
@@ -849,6 +851,9 @@
 
 .chron {
   animation: ink-in 420ms var(--ease-in) backwards;
+  /* A long day's chronicle: entries scrolled out of view are not laid out or painted. */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 72px;
 }
 
 .chron + .chron {
@@ -896,21 +901,19 @@ button.chron-btn:hover {
   overflow-wrap: anywhere;
 }
 
-/* Every entry opens with a rubricated initial. */
+/* Every entry opens with a rubricated initial, sunk two lines deep. */
 .chron-text::first-letter {
+  -webkit-initial-letter: 2;
+  initial-letter: 2;
   font-family: var(--display);
-  font-size: 1.75em;
-  line-height: 0.8;
-  float: left;
-  margin: 0.1em 0.12em 0 0;
+  margin-right: 0.08em;
   color: var(--vermilion);
 }
 
-/* Big moments are illuminated: a gilded initial on a vermilion ground. */
+/* Big moments are illuminated: a vellum initial on a vermilion ground, ruled in gold. */
 .chron.is-big .chron-text::first-letter {
-  font-size: 2.1em;
-  padding: 0.08em 0.12em 0;
-  margin: 0.02em 0.14em 0 0;
+  padding: 0.04em 0.14em 0;
+  margin-right: 0.16em;
   color: var(--vellum);
   background: var(--vermilion);
   box-shadow: inset 0 0 0 1px var(--ink), inset 0 0 0 2.5px var(--gold);
@@ -1946,4 +1949,11 @@ input[type='range']:focus-visible {
     gap: 8px;
     padding: 10px 14px 10px 10px;
   }
+}
+
+/* GitHub handles keep their own letters; the display face is small capitals only. */
+.inspector-title strong.who,
+.winner-name.who {
+  font-family: var(--body);
+  font-weight: 800;
 }
