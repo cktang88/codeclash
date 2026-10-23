@@ -57,19 +57,19 @@ export function Root() {
     case 'room':
       return <RoomPage key={route.slug} slug={route.slug} invite={route.invite} me={me} onMeChanged={loadMe} />;
     case 'digest':
-      return <DigestPage key={`${route.slug}:${route.warId}`} slug={route.slug} warId={route.warId} />;
+      return <DigestPage key={`${route.slug}:${route.warId}`} slug={route.slug} warId={route.warId} invite={route.invite ?? null} />;
     case 'replay':
-      return <ReplayPage key={`${route.slug}:${route.warId}`} slug={route.slug} warId={route.warId} tick={route.tick} me={me} />;
+      return <ReplayPage key={`${route.slug}:${route.warId}`} slug={route.slug} warId={route.warId} tick={route.tick} invite={route.invite ?? null} me={me} />;
     case 'history':
-      return <HistoryPage key={route.slug} slug={route.slug} />;
+      return <HistoryPage key={route.slug} slug={route.slug} invite={route.invite ?? null} />;
     case 'profile':
       return <ProfilePage key={route.login} login={route.login} />;
     case 'armory':
       return <ArmoryPage me={me} />;
     case 'hall':
-      return <HallPage key={route.slug} slug={route.slug} />;
+      return <HallPage key={route.slug} slug={route.slug} invite={route.invite ?? null} />;
     case 'season':
-      return <SeasonPage key={route.slug} slug={route.slug} />;
+      return <SeasonPage key={route.slug} slug={route.slug} invite={route.invite ?? null} />;
     case 'lost':
       return <LostPage path={route.path} />;
   }

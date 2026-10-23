@@ -623,6 +623,8 @@ export class Battlefield {
     this.updateTorches(world, centroids, zoom, bounds, now);
     time('world');
     this.drawSelection(world, centroids, now, zoom);
+    const hud = this.camera.hudInsets();
+    this.fx.view = { ox: px, oy: py, width: sw, height: sh, top: hud.top, bottom: hud.bottom };
     this.fx.update(dtMs, world.tick - 1 + (runner?.alpha ?? 1), this.posOf, zoom, bounds);
     if (!this.opts.reducedMotion) this.shake = Math.max(this.shake, this.fx.shake);
     time('fx');

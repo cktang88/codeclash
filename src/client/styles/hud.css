@@ -1897,6 +1897,44 @@ input[type='range']:focus-visible {
   touch-action: pan-y;
 }
 
+/* The annals (past wars, season, hall), lettered at the foot of every page of the phone's book. */
+.sheet-annals {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 2px 6px;
+  margin: 6px 14px 0;
+  padding-top: 6px;
+  border-top: 1px solid var(--rule-soft);
+  font-family: var(--sc);
+  font-size: 14px;
+}
+
+.sheet-annals > a {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 36px;
+  padding: 0 6px;
+  color: var(--link);
+  font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.sheet-annals > a + a::before {
+  content: '·';
+  margin-right: 6px;
+  color: var(--fg-soft);
+  font-weight: 400;
+}
+
+.sheet-annals > a:hover,
+.sheet-annals > a:focus-visible {
+  text-decoration: underline;
+}
+
 /* The book's cover edge, with ribbon bookmarks rising from it. */
 .sheet-tabs {
   position: relative;

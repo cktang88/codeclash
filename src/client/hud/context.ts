@@ -9,6 +9,8 @@ export interface HudContext {
   store: GameStore;
   mode: HudMode;
   slug: string | null;
+  /** A private room's invite code from the link the viewer arrived by; carried on links to the room's other pages. */
+  invite: string | null;
   me: MeResponse | null;
   field(): BattlefieldHandle | null;
   send(msg: ClientMessage): void;

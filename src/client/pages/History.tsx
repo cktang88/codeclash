@@ -7,24 +7,24 @@ import { Icon } from '../ui/icons.tsx';
 import { Notice } from './Notice.tsx';
 import { EmptyVignette, hueVar } from '../ui/codex.tsx';
 
-export function HistoryPage({ slug }: { slug: string }) {
+export function HistoryPage({ slug, invite }: { slug: string; invite: string | null }) {
   const [wars, setWars] = useState<WarSummary[] | null>(null);
   const [room, setRoom] = useState<RoomDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;
-    api.wars(slug).then(
+    api.wars(slug, invite).then(
       (r) => !cancelled && setWars(r.wars),
       (err: unknown) => !cancelled && setError(err instanceof ApiError ? err.message : 'The war records could not be loaded.'),
     );
-    api.room(slug).then(
+    api.room(slug, invite).then(
       (r) => !cancelled && setRoom(r),
       () => undefined,
     );
     return () => {
       cancelled = true;
     };
-  }, [slug]);
+  }, [slug, invite]);
 
   if (error) {
     return (
@@ -39,9 +39,9 @@ export function HistoryPage({ slug }: { slug: string }) {
   return (
     <main className="folio history">
       <nav className="crumbs">
-        <Link to={{ kind: 'room', slug, invite: null }}>← {room?.name ?? 'Back to the room'}</Link>
-        <Link to={{ kind: 'season', slug }}>The season</Link>
-        <Link to={{ kind: 'hall', slug }}>Hall of Legends</Link>
+        <Link to={{ kind: 'room', slug, invite }}>← {room?.name ?? 'Back to the room'}</Link>
+        <Link to={{ kind: 'season', slug, invite }}>The season</Link>
+        <Link to={{ kind: 'hall', slug, invite }}>Hall of Legends</Link>
       </nav>
       <p className="eyebrow">The annals</p>
       <h1 className="page-title">Past wars{room ? ` of ${room.name}` : ''}</h1>
@@ -76,15 +76,15 @@ export function HistoryPage({ slug }: { slug: string }) {
               </div>
               <div className="war-links">
                 {w.status === 'active' ? (
-                  <Link className="btn btn-sm btn-primary" to={{ kind: 'room', slug, invite: null }}>
+                  <Link className="btn btn-sm btn-primary" to={{ kind: 'room', slug, invite }}>
                     Watch live
                   </Link>
                 ) : (
                   <>
-                    <Link className="btn btn-sm" to={{ kind: 'digest', slug, warId: w.id }}>
+                    <Link className="btn btn-sm" to={{ kind: 'digest', slug, warId: w.id, invite }}>
                       Digest
                     </Link>
-                    <Link className="btn btn-sm" to={{ kind: 'replay', slug, warId: w.id, tick: null }}>
+                    <Link className="btn btn-sm" to={{ kind: 'replay', slug, warId: w.id, tick: null, invite }}>
                       <Icon name="play" size={14} /> Replay
                     </Link>
                   </>

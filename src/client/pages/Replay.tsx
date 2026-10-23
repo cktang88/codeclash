@@ -33,7 +33,7 @@ export function downloadJson(name: string, data: unknown): void {
 }
 
 /** Plays a finished war back from its replay file: the seed plus every input. */
-export function ReplayPage({ slug, warId, tick, me }: { slug: string; warId: number; tick: number | null; me: MeResponse | null }) {
+export function ReplayPage({ slug, warId, tick, invite = null, me }: { slug: string; warId: number; tick: number | null; invite?: string | null; me: MeResponse | null }) {
   const [store] = useState(() => new GameStore());
   const runner = useRef<LocalRunner | null>(null);
   const [replay, setReplay] = useState<Replay | null>(null);
@@ -51,31 +51,31 @@ export function ReplayPage({ slug, warId, tick, me }: { slug: string; warId: num
 
   useEffect(() => {
     let cancelled = false;
-    api.replay(slug, warId).then(
+    api.replay(slug, warId, invite).then(
       (r) => !cancelled && setReplay(r),
       (err: unknown) => !cancelled && setError(err instanceof ApiError ? err.message : 'The replay could not be loaded.'),
     );
-    api.digest(slug, warId).then(
+    api.digest(slug, warId, invite).then(
       (d) => !cancelled && setDigest(d),
       () => undefined,
     );
     return () => {
       cancelled = true;
     };
-  }, [slug, warId]);
+  }, [slug, warId, invite]);
 
   const endTick = replay ? Math.floor((replay.endsAt - replay.startsAt) / replay.tickMs) : 0;
 
   const keyframeFrom = useCallback(
     async (to: number) => {
       try {
-        const kf = await api.keyframe(slug, warId, to);
+        const kf = await api.keyframe(slug, warId, to, invite);
         return kf && kf.tick <= to ? { tick: kf.tick, world: restore(kf.snapshot) } : null;
       } catch {
         return null;
       }
     },
-    [slug, warId],
+    [slug, warId, invite],
   );
 
   const seek = useCallback(
@@ -156,7 +156,7 @@ export function ReplayPage({ slug, warId, tick, me }: { slug: string; warId: num
     return (
       <Notice title="Replay unavailable" icon="history">
         <p>{error}</p>
-        <Link className="btn btn-primary" to={{ kind: 'history', slug }}>
+        <Link className="btn btn-primary" to={{ kind: 'history', slug, invite }}>
           Past wars
         </Link>
       </Notice>
@@ -219,7 +219,7 @@ export function ReplayPage({ slug, warId, tick, me }: { slug: string; warId: num
   );
 
   return (
-    <BattleShell store={store} runner={getRunner} mode="replay" slug={slug} me={me}>
+    <BattleShell store={store} runner={getRunner} mode="replay" slug={slug} invite={invite} me={me}>
       <RoomHud
         hud={hud}
         title={digest?.room.name ?? 'Replay'}
@@ -229,7 +229,7 @@ export function ReplayPage({ slug, warId, tick, me }: { slug: string; warId: num
             <span>
               <strong>Replay.</strong> Rebuilt in your browser from the war’s seed and its {replay?.inputs.length ?? '…'} recorded inputs.
             </span>
-            <Link className="btn btn-sm" to={{ kind: 'digest', slug, warId }}>
+            <Link className="btn btn-sm" to={{ kind: 'digest', slug, warId, invite }}>
               Digest
             </Link>
           </div>

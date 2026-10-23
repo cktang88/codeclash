@@ -102,6 +102,13 @@ describe('rooms and the daily war', () => {
     expect((await server.app.inject({ url: `/api/rooms/${slug}` })).statusCode).toBe(403);
     expect((await server.app.inject({ url: `/api/rooms/${slug}`, headers: { cookie: stranger } })).statusCode).toBe(403);
     expect((await server.app.inject({ url: `/api/rooms/${slug}?invite=${detail.invite}` })).statusCode).toBe(200);
+    // The room's other pages (past wars, Season, Hall, the away recap) take the invite the same way.
+    for (const path of ['wars', 'season', 'legends', 'chronicle?since=0']) {
+      const url = `/api/rooms/${slug}/${path}`;
+      expect((await server.app.inject({ url, headers: { cookie: stranger } })).statusCode, url).toBe(403);
+      expect((await server.app.inject({ url: `${url}${url.includes('?') ? '&' : '?'}invite=${detail.invite}`, headers: { cookie: stranger } })).statusCode, url).toBe(200);
+      expect((await server.app.inject({ url: `${url}${url.includes('?') ? '&' : '?'}invite=wrong` })).statusCode, url).toBe(403);
+    }
     expect((await server.app.inject({ url: '/api/rooms' })).json<{ rooms: unknown[] }>().rooms).toHaveLength(0);
     expect((await server.app.inject({ method: 'POST', url: `/api/rooms/${slug}/join`, headers: { cookie: stranger }, payload: {} })).statusCode).toBe(403);
     expect((await server.app.inject({ method: 'POST', url: `/api/rooms/${slug}/join`, headers: { cookie: stranger }, payload: { invite: detail.invite } })).statusCode).toBe(200);

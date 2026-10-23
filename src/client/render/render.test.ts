@@ -3,6 +3,7 @@ import { TICK_MS } from '../../sim/api.ts';
 import { MAX_ZOOM, MIN_ZOOM, zoomFloor } from './camera.ts';
 import { dayPhase, daylightAt } from './daylight.ts';
 import { declutter, overlapping, type DeclutterBox } from './declutter.ts';
+import { clampShift, clipScroll } from './fx/scrollfit.ts';
 import { pruneLru, touch } from './lru.ts';
 
 const box = (x: number, y: number): DeclutterBox => ({ x, y, w: 54, h: 34, cx: 6, cy: -6, ox: 0, oy: 0 });
@@ -109,5 +110,22 @@ describe('camera zoom floor', () => {
     expect(zoomFloor(0, 1280, 800)).toBe(MIN_ZOOM);
     expect(zoomFloor(1000, 0, 0)).toBe(MIN_ZOOM);
     expect(zoomFloor(NaN, 1280, 800)).toBe(MIN_ZOOM);
+  });
+});
+
+describe("herald's scroll fitting", () => {
+  it('cuts long commit messages with an ellipsis and leaves short ones be', () => {
+    expect(clipScroll('fix: typo', 64)).toBe('fix: typo');
+    const long = clipScroll('x'.repeat(200), 64);
+    expect(long.length).toBe(64);
+    expect(long.endsWith('…')).toBe(true);
+    expect(clipScroll('a\n\n  b', 64)).toBe('a b');
+  });
+
+  it('nudges a box back inside the open screen, or centres one too big for it', () => {
+    expect(clampShift(10, 100, 8, 382)).toBe(0);
+    expect(clampShift(300, 420, 8, 382)).toBe(-38);
+    expect(clampShift(-50, 60, 8, 382)).toBe(58);
+    expect(clampShift(0, 500, 8, 382)).toBe(-55);
   });
 });

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { ArmoryResponse, LegendsResponse, OrdersResponse, ProfileResponse, SeasonResponse } from '../../protocol.ts';
 import type { Heraldry } from '../../rules/meta.ts';
-import { ApiError, api } from '../net/api.ts';
+import { ApiError, api, inviteQuery } from '../net/api.ts';
 
 /** An ApiError that keeps the response body, for refusals that still carry a result (a partly saved Armory). */
 export class MetaApiError extends ApiError {
@@ -41,8 +41,8 @@ export const metaApi = {
   armory: () => call<ArmoryResponse>('GET', '/api/me/armory'),
   /** Wears what the rank allows. A locked choice comes back as ApiError 'locked'; the rest is saved. */
   setArmory: (req: Partial<Heraldry>) => call<ArmoryResponse>('POST', '/api/me/armory', req),
-  legends: (slug: string) => call<LegendsResponse>('GET', `/api/rooms/${enc(slug)}/legends`),
-  season: (slug: string) => call<SeasonResponse>('GET', `/api/rooms/${enc(slug)}/season`),
+  legends: (slug: string, invite?: string | null) => call<LegendsResponse>('GET', `/api/rooms/${enc(slug)}/legends${inviteQuery(invite)}`),
+  season: (slug: string, invite?: string | null) => call<SeasonResponse>('GET', `/api/rooms/${enc(slug)}/season${inviteQuery(invite)}`),
   orders: (slug: string) => call<OrdersResponse>('GET', `/api/rooms/${enc(slug)}/orders`),
 };
 

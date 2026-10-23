@@ -134,7 +134,7 @@ function useFitInsets(hud: RefObject<HTMLDivElement | null>, narrow: boolean): v
 
 /** Everything drawn over the battlefield. */
 export function RoomHud({ hud, title, subtitle, banner, dock, room, onRoomChanged }: RoomHudProps) {
-  const { mode, slug, me } = useHudContext();
+  const { mode, slug, invite, me } = useHudContext();
   const narrow = useNarrow();
   const root = useRef<HTMLDivElement>(null);
   useFitInsets(root, narrow);
@@ -222,10 +222,10 @@ export function RoomHud({ hud, title, subtitle, banner, dock, room, onRoomChange
           </button>
           {slug && mode === 'live' && !narrow && (
             <>
-              <Link className="icon-btn" to={{ kind: 'history', slug }} aria-label="Past wars" title="Past wars">
+              <Link className="icon-btn" to={{ kind: 'history', slug, invite }} aria-label="Past wars" title="Past wars">
                 <Icon name="history" size={20} />
               </Link>
-              <Link className="icon-btn" to={{ kind: 'hall', slug }} aria-label="Hall of Legends" title="Hall of Legends">
+              <Link className="icon-btn" to={{ kind: 'hall', slug, invite }} aria-label="Hall of Legends" title="Hall of Legends">
                 <Icon name="crown" size={20} />
               </Link>
             </>
@@ -310,6 +310,18 @@ export function RoomHud({ hud, title, subtitle, banner, dock, room, onRoomChange
                 {sheetTabs.findIndex(([t]) => t === page) + 1} / {sheetTabs.length}
               </button>
               <div className="sheet-body">{page === 'chronicle' || page === 'chat' ? rightBody(page) : leftBody(page)}</div>
+              {slug && mode === 'live' && (
+                // The topbar has no room for the annals on a phone; they are lettered at the foot of every page.
+                <nav className="sheet-annals" aria-label="The room's annals">
+                  <Link to={{ kind: 'history', slug, invite }}>
+                    <Icon name="history" size={16} /> Past wars
+                  </Link>
+                  <Link to={{ kind: 'season', slug, invite }}>Season</Link>
+                  <Link to={{ kind: 'hall', slug, invite }}>
+                    <Icon name="crown" size={16} /> Hall of Legends
+                  </Link>
+                </nav>
+              )}
             </div>
           )}
           <div className="sheet-tabs night-band" role="tablist" aria-label="Panels">

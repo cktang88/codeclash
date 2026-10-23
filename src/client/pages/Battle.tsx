@@ -14,6 +14,7 @@ export function BattleShell({
   runner,
   mode,
   slug,
+  invite = null,
   me,
   send,
   children,
@@ -22,6 +23,7 @@ export function BattleShell({
   runner: () => Runner | null;
   mode: HudMode;
   slug: string | null;
+  invite?: string | null;
   me: MeResponse | null;
   send?: (msg: ClientMessage) => void;
   children: ReactNode;
@@ -35,8 +37,8 @@ export function BattleShell({
   const sendRef = useRef(send);
   sendRef.current = send;
   const ctx = useMemo(
-    () => ({ store, mode, slug, me, field: () => field.current, send: (msg: ClientMessage) => sendRef.current?.(msg) }),
-    [store, mode, slug, me],
+    () => ({ store, mode, slug, invite, me, field: () => field.current, send: (msg: ClientMessage) => sendRef.current?.(msg) }),
+    [store, mode, slug, invite, me],
   );
   return (
     <Hud.Provider value={ctx}>

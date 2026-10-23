@@ -146,7 +146,7 @@ export function RoomPage({ slug, invite, me, onMeChanged }: { slug: string; invi
   const war = hud.war;
   const subtitle = war ? `Day of ${new Date(war.startsAt).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}` : 'Connecting…';
   return (
-    <BattleShell store={store} runner={getRunner} mode="live" slug={slug} me={me} send={send}>
+    <BattleShell store={store} runner={getRunner} mode="live" slug={slug} invite={invite} me={me} send={send}>
       <RoomHud hud={hud} title={room?.name ?? hud.room?.name ?? slug} subtitle={subtitle} banner={banner} room={room} onRoomChanged={setRoom} />
       {!hud.war && hud.conn.phase !== 'live' && (
         <div className="loading-veil" role="status">

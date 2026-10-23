@@ -4,12 +4,34 @@ import type { ChronicleEntry } from '../../../sim/chronicle.ts';
 import { STATS } from '../../../sim/stats.ts';
 import { makeFxTextures, type FxTextures } from './atlas.ts';
 import { ParticlePool, type Spawn } from './particles.ts';
+import { clampShift, clipScroll } from './scrollfit.ts';
 
 export type PositionOf = (id: number) => { x: number; y: number } | null;
 
 export interface Bounds {
   contains(x: number, y: number): boolean;
 }
+
+/**
+ * The screen as the renderer last drew it: where world (0,0) lands in screen pixels, the screen's
+ * size, and the HUD's cover at the top and bottom. Screen-space overlays (the herald's scrolls)
+ * keep inside the part the HUD leaves open.
+ */
+export interface FxView {
+  ox: number;
+  oy: number;
+  width: number;
+  height: number;
+  top: number;
+  bottom: number;
+}
+
+/** Margin, in screen pixels, a herald's scroll keeps from the screen edge and the HUD. */
+const SCROLL_MARGIN = 8;
+/** A herald's scroll never runs wider than this share of the screen. */
+const SCROLL_MAX_SHARE = 0.9;
+/** Nor longer than this many lines of type. */
+const SCROLL_MAX_LINES = 3;
 
 export interface StepContext {
   posOf: PositionOf;
@@ -140,6 +162,12 @@ interface Scroll {
   y: number;
   /** Screen pixels this scroll is lifted so it does not cover an older one; eased. */
   stack: number;
+  /** Screen pixels above the anchor to the top of the heading (or the sheet) and below it to the seal. */
+  above: number;
+  below: number;
+  /** Screen-pixel nudge that keeps the scroll inside the open screen; eased. */
+  nx: number;
+  ny: number;
 }
 
 /** A full-size sprite eased along a path with an alpha envelope: dims, shadows, washes. */
@@ -232,6 +260,8 @@ export class Effects {
   private clock = 0;
   private readonly lastCue = new Map<string, number>();
   private scrolls: Scroll[] = [];
+  /** The screen as last drawn, set by the renderer each frame; null keeps scrolls unclamped. */
+  view: FxView | null = null;
   /** Commit messages from the chronicle, by platoon, until the platoon marches. */
   private readonly messages = new Map<number, string>();
   /** Platoons that marched before their chronicle entry arrived, with the time they marched. */
@@ -861,13 +891,20 @@ export class Effects {
       const old = this.scrolls.shift()!;
       old.c.destroy({ children: true });
     }
-    const clipped = msg.length > 64 ? `${msg.slice(0, 62).trimEnd()}…` : msg;
+    // The sheet is the type plus 40px of margin and the rollers' 6px either side; keep it within
+    // 90% of a phone's screen, and cut very long messages short with an ellipsis.
+    const screenW = this.view?.width ?? 1280;
+    const wrap = Math.max(120, Math.min(grand ? 320 : 290, Math.floor(screenW * SCROLL_MAX_SHARE) - 52));
+    let clipped = clipScroll(msg, 64);
     const text = new Text({
       text: clipped,
-      style: { fontFamily: '"JetBrains Mono", ui-monospace, monospace', fontSize: 15, fill: INK, fontWeight: '500', wordWrap: true, breakWords: true, wordWrapWidth: grand ? 320 : 290, align: 'center', lineHeight: 18 },
+      style: { fontFamily: '"JetBrains Mono", ui-monospace, monospace', fontSize: 15, fill: INK, fontWeight: '500', wordWrap: true, breakWords: true, wordWrapWidth: wrap, align: 'center', lineHeight: 18 },
       resolution: 2,
     });
-    text.anchor.set(0.5);
+    while (text.height > SCROLL_MAX_LINES * 18 + 2 && clipped.length > 8) {
+      clipped = clipScroll(clipped.slice(0, -1), clipped.length - 4);
+      text.text = clipped;
+    }
     const w = Math.ceil(text.width) + 40;
     const h = Math.ceil(text.height) + (grand ? 18 : 14);
     const paper = new Container();
@@ -912,7 +949,7 @@ export class Effects {
     c.scale.set(1 / this.zoom);
     c.alpha = 0;
     this.overlay.addChild(c);
-    this.scrolls.push({ c, paper, mask, left, right, platoon, width: w, height: h + (grand ? 30 : 12), age: 0, x, y, stack: 0 });
+    this.scrolls.push({ c, paper, mask, left, right, platoon, width: w, height: h + (grand ? 30 : 12), age: 0, x, y, stack: 0, above: 74 + h + (grand ? 30 : 6), below: 54, nx: 0, ny: 0 });
     this.cue('scroll-unroll', x, y, grand ? 0.9 : 0.5);
   }
 
@@ -955,7 +992,22 @@ export class Effects {
         if (myBottom > oTop - 6 && sc.y * this.zoom - want - sc.height < o.y * this.zoom - o.stack + 6) want = sc.y * this.zoom - oTop + 6;
       }
       sc.stack += (want - sc.stack) * Math.min(1, dt * 10);
-      sc.c.position.set(sc.x, sc.y - (lift + sc.stack) / this.zoom);
+      // Keep the whole scroll (rollers, heading and seal) on the part of the screen the HUD leaves open.
+      let tx = 0;
+      let ty = 0;
+      const v = this.view;
+      const sx = v ? v.ox + sc.x * this.zoom : 0;
+      const sy = v ? v.oy + sc.y * this.zoom - sc.stack : 0;
+      // A platoon off the screen keeps its scroll with it; one on screen keeps its scroll in view.
+      if (v && sx >= 0 && sx <= v.width && sy >= 0 && sy <= v.height + sc.below) {
+        const half = sc.width / 2 + 8;
+        tx = clampShift(sx - half, sx + half, SCROLL_MARGIN, v.width - SCROLL_MARGIN);
+        ty = clampShift(sy - sc.above, sy - sc.below, v.top + SCROLL_MARGIN, v.height - v.bottom - SCROLL_MARGIN);
+      }
+      const ease = sc.age < 0.05 ? 1 : Math.min(1, dt * 12);
+      sc.nx += (tx - sc.nx) * ease;
+      sc.ny += (ty - sc.ny) * ease;
+      sc.c.position.set(sc.x + sc.nx / this.zoom, sc.y + (sc.ny - lift - sc.stack) / this.zoom);
       sc.c.scale.set(1 / this.zoom);
       this.scrolls[w++] = sc;
     }

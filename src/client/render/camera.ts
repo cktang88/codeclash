@@ -106,11 +106,27 @@ export class Camera {
     this.detach();
   }
 
-  /** Screen pixels the HUD covers at the top and bottom (CSS --fit-top / --fit-bottom on the stage). */
-  private insets(): { top: number; bottom: number } {
+  private hudCache: { top: number; bottom: number; at: number } | null = null;
+
+  /**
+   * Screen pixels the HUD covers at the top and bottom (CSS --fit-top / --fit-bottom on the stage),
+   * as measured. Read at most twice a second, so per-frame callers (the herald's scrolls) may ask freely.
+   */
+  hudInsets(): { top: number; bottom: number } {
+    const now = performance.now();
+    const c = this.hudCache;
+    if (c && now - c.at < 500) return c;
     const cs = getComputedStyle(this.el);
     const top = parseFloat(cs.getPropertyValue('--fit-top')) || 0;
     const bottom = parseFloat(cs.getPropertyValue('--fit-bottom')) || 0;
+    this.hudCache = { top, bottom, at: now };
+    return this.hudCache;
+  }
+
+  /** Screen pixels the HUD covers at the top and bottom (CSS --fit-top / --fit-bottom on the stage). */
+  private insets(): { top: number; bottom: number } {
+    this.hudCache = null;
+    const { top, bottom } = this.hudInsets();
     // The HUD's measured cover is respected so no capital opens tucked under a bar, but it
     // may never shrink the map's opening frame below 55% of the screen height.
     const spare = Math.max(0, top + bottom - this.height * 0.45);

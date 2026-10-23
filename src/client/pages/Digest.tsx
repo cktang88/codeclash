@@ -173,26 +173,26 @@ function PlayerCard({ pl, repos }: { pl: DigestPlayer & FairFields; repos: { nam
   );
 }
 
-export function DigestPage({ slug, warId }: { slug: string; warId: number }) {
+export function DigestPage({ slug, warId, invite = null }: { slug: string; warId: number; invite?: string | null }) {
   const [data, setData] = useState<DigestResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    api.digest(slug, warId).then(
+    api.digest(slug, warId, invite).then(
       (d) => !cancelled && setData(d),
       (err: unknown) => !cancelled && setError(err instanceof ApiError ? err.message : 'The digest could not be loaded.'),
     );
     return () => {
       cancelled = true;
     };
-  }, [slug, warId]);
+  }, [slug, warId, invite]);
 
   if (error) {
     return (
       <Notice title="No digest here" icon="history">
         <p>{error}</p>
-        <Link className="btn btn-primary" to={{ kind: 'room', slug, invite: null }}>
+        <Link className="btn btn-primary" to={{ kind: 'room', slug, invite }}>
           Back to the room
         </Link>
       </Notice>
@@ -217,10 +217,10 @@ export function DigestPage({ slug, warId }: { slug: string; warId: number }) {
   return (
     <main className="folio digest">
       <nav className="crumbs">
-        <Link to={{ kind: 'room', slug, invite: null }}>
+        <Link to={{ kind: 'room', slug, invite }}>
           ← {room.name}
         </Link>
-        <Link to={{ kind: 'history', slug }}>Past wars</Link>
+        <Link to={{ kind: 'history', slug, invite }}>Past wars</Link>
       </nav>
 
       <header className="digest-head">
@@ -228,7 +228,7 @@ export function DigestPage({ slug, warId }: { slug: string; warId: number }) {
         <h1 className="digest-title">{colorize(d.headline, roster)}</h1>
         <Fleuron />
         <div className="digest-actions">
-          <Link className="btn btn-gilt" to={{ kind: 'replay', slug, warId: war.id, tick: null }}>
+          <Link className="btn btn-gilt" to={{ kind: 'replay', slug, warId: war.id, tick: null, invite }}>
             <Icon name="play" size={16} /> Watch the replay
           </Link>
           <CopyButton text={location.href} label="Copy link" />
@@ -374,7 +374,7 @@ export function DigestPage({ slug, warId }: { slug: string; warId: number }) {
           <ol className="timeline">
             {d.highlights.map((h, i) => (
               <li key={i}>
-                <Link className="timeline-item" to={{ kind: 'replay', slug, warId: war.id, tick: Math.max(0, h.tick - 75) }}>
+                <Link className="timeline-item" to={{ kind: 'replay', slug, warId: war.id, tick: Math.max(0, h.tick - 75), invite }}>
                   <span className="timeline-time num">{at(h.tick)}</span>
                   <span className={`chron-icon chron-${h.kind}`}>
                     <EventIcon kind={h.kind} size={18} />

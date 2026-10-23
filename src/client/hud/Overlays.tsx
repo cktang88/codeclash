@@ -65,7 +65,7 @@ export function MonolithBar({ hud }: { hud: HudSnapshot }) {
 }
 
 export function DayOverBanner({ hud }: { hud: HudSnapshot }) {
-  const { slug } = useHudContext();
+  const { slug, invite } = useHudContext();
   const [dismissed, setDismissed] = useState<number | null>(null);
   if (!hud.war || !slug) return null;
   // The server opens the next war right after ending one, so the ended war usually lives on only
@@ -78,7 +78,7 @@ export function DayOverBanner({ hud }: { hud: HudSnapshot }) {
       <strong>{ended === hud.war ? 'The day is done.' : 'The last war is over. A new one has begun.'}</strong>
       <span>{ready ? 'The chroniclers have written the digest.' : 'The chroniclers are writing the digest…'}</span>
       {ready && (
-        <Link className="btn btn-gilt" to={{ kind: 'digest', slug, warId: ended.id }}>
+        <Link className="btn btn-gilt" to={{ kind: 'digest', slug, warId: ended.id, invite }}>
           Read the digest
         </Link>
       )}
@@ -95,7 +95,7 @@ const AWAY_MS = 10 * 60_000;
 
 /** "While you were away": a recap of the chronicle since the viewer last looked. */
 export function AwayModal({ hud }: { hud: HudSnapshot }) {
-  const { slug, mode } = useHudContext();
+  const { slug, invite, mode } = useHudContext();
   const [summary, setSummary] = useState<{ since: number; s: AwaySummary } | null>(null);
   const rankKey = slug ? `pf:lastRank:${slug}` : '';
   const myRank = hud.viewerP === null ? null : hud.standings.findIndex((s) => s.p === hud.viewerP) + 1 || null;
@@ -112,7 +112,7 @@ export function AwayModal({ hud }: { hud: HudSnapshot }) {
     let cancelled = false;
     if (since !== null && Date.now() - since > AWAY_MS) {
       api
-        .chronicleSince(slug, since)
+        .chronicleSince(slug, since, invite)
         .then((r) => {
           if (!cancelled && r.entries.length > 0) setSummary({ since, s: summarizeAway(r.entries, hud.viewerP) });
         })
@@ -125,7 +125,7 @@ export function AwayModal({ hud }: { hud: HudSnapshot }) {
       mark();
     };
     // Only on entering the room; the HUD mounts this after the first hello, so viewerP is settled.
-  }, [slug, mode]);
+  }, [slug, invite, mode]);
 
   useEffect(() => {
     if (rankKey && myRank !== null) writeNumber(rankKey, myRank);

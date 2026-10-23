@@ -16,8 +16,8 @@ function unitName(unit: Kind | null): string {
 }
 
 /** The room's Hall of Legends: named Champions and Dragons, newest day first. */
-export function HallPage({ slug }: { slug: string }) {
-  const { data, error } = useLoad(`legends:${slug}`, () => metaApi.legends(slug));
+export function HallPage({ slug, invite = null }: { slug: string; invite?: string | null }) {
+  const { data, error } = useLoad(`legends:${slug}`, () => metaApi.legends(slug, invite));
   if (error) {
     return (
       <Notice title="The Hall is barred">
@@ -37,7 +37,7 @@ export function HallPage({ slug }: { slug: string }) {
   return (
     <main className="page meta-hall">
       <nav className="crumbs">
-        <InkLink to={{ kind: 'room', slug, invite: null }}>← Back to the war</InkLink>
+        <InkLink to={{ kind: 'room', slug, invite }}>← Back to the war</InkLink>
       </nav>
       <h1 className="page-title">The Hall of Legends</h1>
       {days.length === 0 && (
@@ -48,7 +48,7 @@ export function HallPage({ slug }: { slug: string }) {
       {days.map((day) => (
         <section key={day} className="meta-hall-day" aria-label={day}>
           <h2 className="block-title">
-            <InkLink to={{ kind: 'digest', slug, warId: data.legends.find((l) => l.day === day)!.warId }}>{day}</InkLink>
+            <InkLink to={{ kind: 'digest', slug, warId: data.legends.find((l) => l.day === day)!.warId, invite }}>{day}</InkLink>
           </h2>
           <ul className="meta-hall-list">
             {data.legends

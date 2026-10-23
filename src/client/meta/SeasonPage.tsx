@@ -5,8 +5,8 @@ import { EmptyVignette, InkLink, VellumPanel } from '../ui/codex.tsx';
 import { metaApi, useLoad } from './api.ts';
 
 /** This week's Season table for the room, and last week's Victor. */
-export function SeasonPage({ slug }: { slug: string }) {
-  const { data, error } = useLoad(`season:${slug}`, () => metaApi.season(slug));
+export function SeasonPage({ slug, invite = null }: { slug: string; invite?: string | null }) {
+  const { data, error } = useLoad(`season:${slug}`, () => metaApi.season(slug, invite));
   if (error) {
     return (
       <Notice title="No season here">
@@ -25,7 +25,7 @@ export function SeasonPage({ slug }: { slug: string }) {
   return (
     <main className="page meta-season">
       <nav className="crumbs">
-        <InkLink to={{ kind: 'room', slug, invite: null }}>← Back to the war</InkLink>
+        <InkLink to={{ kind: 'room', slug, invite }}>← Back to the war</InkLink>
       </nav>
       <h1 className="page-title">Season {data.season}</h1>
       {data.champion && (
