@@ -277,10 +277,10 @@ export class UnitLayer {
   }
 
   /** A falling body for this kind, sized and anchored at the feet like the living soldier. */
-  corpse(kind: Kind): { texture: UnitFrame['body']; scale: number; anchorY: number } {
+  corpse(kind: Kind): { texture: UnitFrame['body']; scale: number; anchorY: number; altitude: number } {
     const frames = this.art.frames(kind, 'die');
     const cell = this.art.cell(kind);
-    return { texture: frames[frames.length - 1]!.body, scale: this.art.scale(kind) / cell.h, anchorY: cell.feetY / cell.h };
+    return { texture: frames[frames.length - 1]!.body, scale: this.art.scale(kind) / cell.h, anchorY: cell.feetY / cell.h, altitude: this.art.flight(kind)?.height ?? 0 };
   }
 
   isRanged(kind: Kind): boolean {

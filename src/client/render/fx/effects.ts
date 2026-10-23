@@ -41,6 +41,7 @@ export interface Burst {
 export const FLY_HEIGHT: Partial<Record<Kind, number>> = { [Kind.GriffinRider]: 18, [Kind.Dragon]: 34 };
 
 const GOLD = 0xf2cf5b;
+const GLOW_PER_CELL = 10;
 const FIRE = 0xff8a2a;
 const FEET_FRAC = 84 / 96;
 const CORPSE_LIFE = 1.4;
@@ -125,7 +126,12 @@ export class Effects {
   private readonly decals = new ParticlePool(900, false);
   private readonly corpseLayer = new Container();
   private readonly dust = new ParticlePool(5000, false);
-  private readonly fire = new ParticlePool(7000, true);
+  private readonly fire = new ParticlePool(6000, true);
+  /** Flame bodies and fire clouds: normal blending, so overlapping fire stays orange instead of blowing out to white. */
+  private readonly flames = new ParticlePool(5000, false);
+  /** Additive spawns per 32-unit cell in the current window, so dense fights cannot saturate to white. */
+  private glowCells = new Map<number, number>();
+  private glowWindow = 0;
   private projectiles: Projectile[] = [];
   private breaths: Breath[] = [];
   private burners: Burner[] = [];
@@ -139,11 +145,11 @@ export class Effects {
     this.tex = makeFxTextures();
     this.ground.addChild(this.decals.container, this.corpseLayer);
     this.air.addChild(this.dust.container);
-    this.glow.addChild(this.fire.container);
+    this.glow.addChild(this.flames.container, this.fire.container);
   }
 
   get counts(): { particles: number; projectiles: number; decals: number; corpses: number } {
-    return { particles: this.dust.count + this.fire.count, projectiles: this.projectiles.length, decals: this.decals.count, corpses: this.corpses.length };
+    return { particles: this.dust.count + this.fire.count + this.flames.count, projectiles: this.projectiles.length, decals: this.decals.count, corpses: this.corpses.length };
   }
 
   // ------------------------------------------------------------- events
@@ -261,7 +267,7 @@ export class Effects {
       // The remnant's banner folds into the larger company: a trail of dust and motes between them.
       for (let i = 0; i <= 6; i++) {
         const t = i / 6;
-        this.fire.spawn({ texture: this.tex.mote, x: a.x + (to.x - a.x) * t, y: a.y + (to.y - a.y) * t - 20, vz: 10, life: 0.8, size: 6, tint: tint(to.p), delay: t * 0.4 });
+        this.glowSpawn({ texture: this.tex.mote, x: a.x + (to.x - a.x) * t, y: a.y + (to.y - a.y) * t - 20, vz: 10, life: 0.8, size: 6, tint: tint(to.p), delay: t * 0.4 });
       }
       this.puff(a.x, a.y, this.n(5), 0xc8b48c, 14, 16);
       this.ring(to.x, to.y, tint(to.p), 8, 50, 0.6, 0.7);
@@ -279,7 +285,7 @@ export class Effects {
     for (const s of ev.sacks) {
       const site = world.map.sites[s.site]!;
       const top = site.y - site.radius * 0.6;
-      this.flash(site.x, top, site.radius * 3, FIRE, 0.4);
+      this.flash(site.x, top, site.radius * 2.5, FIRE, 0.4);
       for (let i = 0; i < this.n(40); i++) this.ember(site.x + (rand() - 0.5) * site.radius, top, 160, 80);
       for (let i = 0; i < this.n(26); i++) this.smoke(site.x + (rand() - 0.5) * site.radius, top, 40, 0x2e2a26, 0.8, 4);
       for (let i = 0; i < this.n(18); i++) this.rockFling(site.x, top, 140, 60);
@@ -300,7 +306,7 @@ export class Effects {
       this.flash(0, -80, 420, 0x9fe0ff, 0.6);
       for (let i = 0; i < this.n(70); i++) this.smoke((rand() - 0.5) * 160, -30 - rand() * 60, 140, 0x6c6a72, 0.75, 3.5, 2.6);
       for (let i = 0; i < this.n(40); i++) this.rockFling((rand() - 0.5) * 60, -40, 220, 160 + rand() * 200);
-      for (let i = 0; i < this.n(50); i++) this.fire.spawn({ texture: this.tex.spark, x: 0, y: -80, vx: (rand() - 0.5) * 520, vy: (rand() - 0.5) * 300, vz: 120 + rand() * 120, gravity: 140, drag: 1.2, life: 1.6, size: 14, tint: 0x9fe0ff, stretch: true });
+      for (let i = 0; i < this.n(50); i++) this.glowSpawn({ texture: this.tex.spark, x: 0, y: -80, vx: (rand() - 0.5) * 520, vy: (rand() - 0.5) * 300, vz: 120 + rand() * 120, gravity: 140, drag: 1.2, life: 1.6, size: 14, tint: 0x9fe0ff, stretch: true });
       this.shockwave(0, 0, 0x9fe0ff, 40, 520, 1.8);
       this.shockwave(0, 0, 0xffffff, 30, 340, 1.2);
       this.floatText('THE MONOLITH FALLS', 0, -220, 3.5, 24, 0xbfe9ff);
@@ -346,7 +352,13 @@ export class Effects {
     this.updateFloats(dt);
     this.decals.update(dt);
     this.dust.update(dt);
+    this.flames.update(dt);
     this.fire.update(dt);
+    this.glowWindow += dt;
+    if (this.glowWindow >= 0.25) {
+      this.glowWindow = 0;
+      this.glowCells.clear();
+    }
   }
 
   // ------------------------------------------------------- public extras
@@ -415,6 +427,7 @@ export class Effects {
     }
     this.decals.clear();
     this.dust.clear();
+    this.flames.clear();
     this.fire.clear();
     this.ground.destroy({ children: true });
     this.air.destroy({ children: true });
@@ -500,7 +513,7 @@ export class Effects {
         p.trail += dt;
         while (p.trail > 0.016) {
           p.trail -= 0.016;
-          this.fire.spawn({ texture: this.tex.ember, x: gx + (rand() - 0.5) * 3, y: gy - z + (rand() - 0.5) * 3, vx: (rand() - 0.5) * 20, vy: -10 - rand() * 10, life: 0.35, size: 9, grow: 0.3, tint: 0xffd070, tintTo: 0xc0300a });
+          this.glowSpawn({ texture: this.tex.ember, x: gx + (rand() - 0.5) * 3, y: gy - z + (rand() - 0.5) * 3, vx: (rand() - 0.5) * 20, vy: -10 - rand() * 10, life: 0.35, size: 9, grow: 0.3, tint: 0xffd070, tintTo: 0xc0300a });
           if (rand() < 0.3) this.smoke(gx, gy - z, 6, 0x3a332c, 0.35, 0.7, 1.8, 8);
         }
       } else {
@@ -513,7 +526,7 @@ export class Effects {
           p.trail += dt;
           while (p.trail > 0.03) {
             p.trail -= 0.03;
-            this.fire.spawn({ texture: this.tex.soft, x: gx, y: gy - z, life: 0.3, size: 5, grow: 0.2, alpha: 0.6, tint: 0x6fe08a });
+            this.glowSpawn({ texture: this.tex.soft, x: gx, y: gy - z, life: 0.3, size: 5, grow: 0.2, alpha: 0.6, tint: 0x6fe08a });
           }
         }
       }
@@ -569,14 +582,14 @@ export class Effects {
         const vx = (b.dx * c - b.dy * s) * sp;
         const vy = (b.dy * c + b.dx * s) * sp;
         // The jet: soft blobs that swell from white-hot to smoky red as they fly.
-        const core = rand() < 0.25;
-        this.fire.spawn({ texture: core ? this.tex.soft : this.tex.flame[(rand() * 4) | 0]!, x: mouthX, y: mouthY, z: alt, vx, vy, vz: -alt / life, life: life * (0.85 + rand() * 0.3), size: core ? 8 : 10, grow: core ? 3 : 4.5 + rand() * 1.5, tint: core ? 0xfff0c0 : 0xffb040, tintTo: 0x7a1404, alpha: (core ? 0.5 : 0.55) * (0.6 + fading * 0.4), rotation: angleOf(vx, vy) - Math.PI / 2, spin: (rand() - 0.5) * 2, fadeIn: 0.03 });
-        if (rand() < 0.35) this.fire.spawn({ texture: this.tex.flame[0]!, frames: this.tex.flame, x: mouthX + vx * life * 0.9, y: mouthY + vy * life * 0.9, life: 0.5 + rand() * 0.3, size: 16 + rand() * 14, grow: 1.4, tint: 0xffe6a0, tintTo: 0xd0380c, alpha: 0.9, anchorY: 0.85, rotation: (rand() - 0.5) * 0.4, delay: life * 0.7, fadeIn: 0.05 });
-        if (rand() < 0.4) this.fire.spawn({ texture: this.tex.ember, x: mouthX, y: mouthY, z: alt, vx: vx * 1.05 + (rand() - 0.5) * 50, vy: vy * 1.05 + (rand() - 0.5) * 50, vz: 10 + rand() * 50, gravity: 50, drag: 1.2, life: 0.8 + rand() * 0.6, size: 6, tint: 0xffe0a0, tintTo: 0xff4010 });
+        this.flames.spawn({ texture: this.tex.flame[(rand() * 4) | 0]!, x: mouthX, y: mouthY, z: alt, vx, vy, vz: -alt / life, life: life * (0.85 + rand() * 0.3), size: 10, grow: 4.5 + rand() * 1.5, tint: 0xffc23a, tintTo: 0x4a1a0c, alpha: 0.62 * (0.6 + fading * 0.4), rotation: angleOf(vx, vy) - Math.PI / 2, spin: (rand() - 0.5) * 2, fadeIn: 0.03 });
+        if (rand() < 0.2) this.glowSpawn({ texture: this.tex.soft, x: mouthX, y: mouthY, z: alt, vx: vx * 0.8, vy: vy * 0.8, vz: -alt / life, life: life * 0.6, size: 8, grow: 2.5, tint: 0xffa830, tintTo: 0x802008, alpha: 0.3, fadeIn: 0.03 });
+        if (rand() < 0.35) this.flames.spawn({ texture: this.tex.flame[0]!, frames: this.tex.flame, x: mouthX + vx * life * 0.9, y: mouthY + vy * life * 0.9, life: 0.5 + rand() * 0.3, size: 16 + rand() * 14, grow: 1.4, tint: 0xffb838, tintTo: 0x6a1c08, alpha: 0.8, anchorY: 0.85, rotation: (rand() - 0.5) * 0.4, delay: life * 0.7, fadeIn: 0.05 });
+        if (rand() < 0.4) this.glowSpawn({ texture: this.tex.ember, x: mouthX, y: mouthY, z: alt, vx: vx * 1.05 + (rand() - 0.5) * 50, vy: vy * 1.05 + (rand() - 0.5) * 50, vz: 10 + rand() * 50, gravity: 50, drag: 1.2, life: 0.8 + rand() * 0.6, size: 6, tint: 0xffe0a0, tintTo: 0xff4010 });
         if (rand() < 0.1) this.smoke(mouthX + vx * life, mouthY + vy * life, 14, 0x2e2722, 0.5, 1.8, 3, 26);
       }
       // Heat glow at the jaws.
-      if (rand() < 0.5) this.fire.spawn({ texture: this.tex.soft, x: mouthX, y: mouthY - alt, life: 0.12, size: 40, alpha: 0.7, tint: 0xffb050 });
+      if (rand() < 0.5) this.glowSpawn({ texture: this.tex.soft, x: mouthX, y: mouthY - alt, life: 0.12, size: 30, alpha: 0.35, tint: 0xff9a30 });
       this.breaths[w++] = b;
     }
     this.breaths.length = w;
@@ -606,7 +619,7 @@ export class Effects {
   // ---------------------------------------------------------- explosions
 
   private fireballBurst(x: number, y: number, radius: number): void {
-    this.flash(x, y - 10, radius * 3.2, 0xffd890, 0.25);
+    this.flash(x, y - 10, radius * 2.4, 0xff9a40, 0.22);
     this.shockwave(x, y, FIRE, radius * 0.4, radius * 1.9, 0.45, 0.9);
     for (let i = 0; i < this.n(10); i++) {
       const a = rand() * Math.PI * 2;
@@ -641,7 +654,7 @@ export class Effects {
   private heal(x: number, y: number, holy: boolean): void {
     const tint = holy ? 0xffe9a0 : 0xd8ffd0;
     for (let i = 0; i < this.n(holy ? 10 : 6); i++) {
-      this.fire.spawn({ texture: this.tex.mote, x: x + (rand() - 0.5) * 14, y: y - rand() * 6, vz: 30 + rand() * 30, vx: (rand() - 0.5) * 8, life: 0.9 + rand() * 0.4, size: 7, tint, spin: (rand() - 0.5) * 3, delay: rand() * 0.2 });
+      this.glowSpawn({ texture: this.tex.mote, x: x + (rand() - 0.5) * 14, y: y - rand() * 6, vz: 30 + rand() * 30, vx: (rand() - 0.5) * 8, life: 0.9 + rand() * 0.4, size: 7, tint, spin: (rand() - 0.5) * 3, delay: rand() * 0.2 });
     }
     this.ring(x, y, tint, 4, 22, 0.5, 0.8);
     if (holy) this.pillar(x, y, 0xffe9a0, 16, 0.7);
@@ -652,7 +665,7 @@ export class Effects {
   private death(kind: Kind, x: number, y: number, tint: number, near: boolean): void {
     const alt = FLY_HEIGHT[kind] ?? 0;
     if (kind === Kind.Dragon) {
-      this.flash(x, y - 20, 260, 0xffa040, 0.4);
+      this.flash(x, y - 20, 200, 0xff8a30, 0.4);
       for (let i = 0; i < this.n(30); i++) this.ember(x, y - 20, 220, 120);
       for (let i = 0; i < this.n(16); i++) this.smoke(x + (rand() - 0.5) * 60, y, 50, 0x3a3028, 0.75, 3, 2.6, 40);
       this.shockwave(x, y, 0xffb070, 30, 220, 1, 0.8);
@@ -683,7 +696,7 @@ export class Effects {
     if (alt > 0) this.puff(x, y, this.n(8), 0xb7a888, 16, 12);
     // A faint soul rises from the fallen.
     if (near || STATS[kind]!.tier !== 'base') {
-      this.fire.spawn({ texture: this.tex.wisp, x, y: y - 10 - alt, vz: 26, vx: (rand() - 0.5) * 6, life: 1.6, size: 12, grow: 1.4, alpha: 0.45, tint: 0xcfe6ff, delay: 0.25, fadeIn: 0.3 });
+      this.glowSpawn({ texture: this.tex.wisp, x, y: y - 10 - alt, vz: 26, vx: (rand() - 0.5) * 6, life: 1.6, size: 12, grow: 1.4, alpha: 0.45, tint: 0xcfe6ff, delay: 0.25, fadeIn: 0.3 });
     }
   }
 
@@ -735,9 +748,18 @@ export class Effects {
 
   // -------------------------------------------------------- primitives
 
+  /** Additive spawn, refused once its 32-unit cell has had its share this quarter second. */
+  private glowSpawn(sp: Spawn, budget = GLOW_PER_CELL): void {
+    const key = (Math.floor(sp.x / 32) + 4096) * 8192 + Math.floor((sp.y - (sp.z ?? 0)) / 32) + 4096;
+    const used = this.glowCells.get(key) ?? 0;
+    if (used >= budget) return;
+    this.glowCells.set(key, used + 1);
+    this.fire.spawn(sp);
+  }
+
   /** Scales a particle count by reduced motion and current load. */
   private n(base: number): number {
-    const load = Math.min(1, Math.min(this.fire.headroom, this.dust.headroom) * 1.6);
+    const load = Math.min(1, Math.min(this.fire.headroom, this.dust.headroom, this.flames.headroom) * 1.6);
     return Math.max(1, Math.round(base * load * (this.reduced ? 0.35 : 1)));
   }
 
@@ -749,7 +771,7 @@ export class Effects {
     for (let i = 0; i < count; i++) {
       const a = rand() * Math.PI * 2;
       const sp = speed * (0.4 + rand() * 0.6);
-      this.fire.spawn({ texture: this.tex.streak, x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp * 0.6, vz: rise * rand(), gravity: rise ? 80 : 0, drag: 3, life: 0.25 + rand() * 0.2, size: 9, tint, stretch: true, fadeIn: 0 });
+      this.glowSpawn({ texture: this.tex.streak, x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp * 0.6, vz: rise * rand(), gravity: rise ? 80 : 0, drag: 3, life: 0.25 + rand() * 0.2, size: 9, tint, stretch: true, fadeIn: 0 });
     }
   }
 
@@ -777,26 +799,26 @@ export class Effects {
   private ember(x: number, y: number, speed: number, up: number): void {
     const a = rand() * Math.PI * 2;
     const sp = speed * (0.3 + rand() * 0.7);
-    this.fire.spawn({ texture: this.tex.ember, x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp * 0.5, vz: up * (0.4 + rand()), gravity: 70, drag: 1.4, life: 0.9 + rand() * 0.9, size: 5 + rand() * 4, tint: 0xffe2a0, tintTo: 0xff3a10, fadeIn: 0 });
+    this.glowSpawn({ texture: this.tex.ember, x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp * 0.5, vz: up * (0.4 + rand()), gravity: 70, drag: 1.4, life: 0.9 + rand() * 0.9, size: 5 + rand() * 4, alpha: 0.85, tint: 0xffc870, tintTo: 0xff3a10, fadeIn: 0 });
   }
 
   private flame(x: number, y: number, vx: number, vy: number, size: number, life: number, delay = 0): void {
-    this.fire.spawn({ texture: this.tex.flame[0]!, frames: this.tex.flame, x, y, vx, vy, vz: 14, life, size, grow: 1.5, tint: 0xfff0b0, tintTo: 0xd0380c, alpha: 0.95, anchorY: 0.85, delay, fadeIn: 0.05 });
+    this.flames.spawn({ texture: this.tex.flame[0]!, frames: this.tex.flame, x, y, vx, vy, vz: 14, life, size, grow: 1.5, tint: 0xffbe40, tintTo: 0x5a1a0a, alpha: 0.85, anchorY: 0.85, delay, fadeIn: 0.05 });
   }
 
   private flash(x: number, y: number, size: number, tint: number, life: number): void {
-    this.fire.spawn({ texture: this.tex.soft, x, y, life, size, grow: 1.3, alpha: 0.9, tint, fadeIn: 0 });
+    this.glowSpawn({ texture: this.tex.soft, x, y, life, size, grow: 1.3, alpha: 0.45, tint, fadeIn: 0 }, GLOW_PER_CELL * 4);
   }
 
   private ring(x: number, y: number, tint: number, from: number, to: number, life: number, alpha = 0.9): void {
-    this.fire.spawn({ texture: this.tex.ring, x, y, life, size: from, grow: to / from, squash: 0.62, alpha, tint, fadeIn: 0 });
+    this.glowSpawn({ texture: this.tex.ring, x, y, life, size: from, grow: to / from, squash: 0.62, alpha, tint, fadeIn: 0 });
   }
 
   private shockwave(x: number, y: number, tint: number, from: number, to: number, life: number, alpha = 0.95): void {
-    this.fire.spawn({ texture: this.tex.shockwave, x, y, life, size: from, grow: to / from, squash: 0.62, alpha, tint, fadeIn: 0 });
+    this.glowSpawn({ texture: this.tex.shockwave, x, y, life, size: from, grow: to / from, squash: 0.62, alpha, tint, fadeIn: 0 });
   }
 
   private pillar(x: number, y: number, tint: number, width: number, life: number): void {
-    this.fire.spawn({ texture: this.tex.pillar, x, y: y + 4, life, size: width, grow: 1.1, alpha: 0.75, tint, anchorY: 1, fadeIn: 0.08 });
+    this.glowSpawn({ texture: this.tex.pillar, x, y: y + 4, life, size: width, grow: 1.1, alpha: 0.75, tint, anchorY: 1, fadeIn: 0.08 });
   }
 }

@@ -8,7 +8,7 @@ import { BannerLayer, platoonCentroids } from './banners.ts';
 import { Camera } from './camera.ts';
 import { Director } from './director.ts';
 import { FlagCache } from './flags.ts';
-import { FxLayer } from './fx.ts';
+import { Effects } from './fx/index.ts';
 import { FAR_ZOOM } from './lod.ts';
 import { InfluenceLayer } from './influence.ts';
 import { hslNumber, hslRgb, mixColor } from './paint.ts';
@@ -43,7 +43,7 @@ export class Battlefield {
   private readonly selection = new Graphics();
   private readonly camera: Camera;
   private readonly units: UnitLayer;
-  private readonly fx: FxLayer;
+  private readonly fx: Effects;
   private readonly banners: BannerLayer;
   private readonly flags = new FlagCache();
   private readonly director: Director;
@@ -70,24 +70,21 @@ export class Battlefield {
     private readonly opts: BattlefieldOptions,
   ) {
     this.units = new UnitLayer(tex, art);
-    this.fx = new FxLayer(tex);
-    this.fx.reduced = opts.reducedMotion ?? false;
+    this.fx = new Effects({ reducedMotion: opts.reducedMotion });
     this.banners = new BannerLayer(this.flags);
     app.stage.addChild(this.scene);
     this.scene.addChild(
       this.groundLayer,
       this.selection,
-      this.fx.decals,
+      this.fx.ground,
       this.units.shadows,
-      this.fx.below,
-      this.fx.corpses,
       this.units.bodies,
       this.units.dots,
-      this.fx.above,
-      this.fx.additive,
+      this.fx.air,
+      this.fx.glow,
       this.banners.root,
       this.units.air,
-      this.fx.texts,
+      this.fx.overlay,
     );
     this.camera = new Camera(app.canvas, {
       onClick: (sx, sy) => this.click(sx, sy),
@@ -218,7 +215,8 @@ export class Battlefield {
     layers.influence.update(world, this.rgb, now);
     time('influence');
     this.drawSelection(world, centroids, now, zoom);
-    this.fx.update(dtMs / 1000, now, zoom);
+    this.fx.update(dtMs, world.tick - 1 + (runner?.alpha ?? 1), this.posOf, zoom, bounds);
+    if (!this.opts.reducedMotion) this.shake = Math.max(this.shake, this.fx.shake);
     time('fx');
   }
 
@@ -250,132 +248,67 @@ export class Battlefield {
 
   // ---------------------------------------------------------------- events
 
+  /** Ground position of a soldier as last drawn, or the top of a structure (id < 0). */
+  private posOf = (id: number): { x: number; y: number } | null => {
+    const world = this.store.world;
+    if (!world) return null;
+    if (id < 0) {
+      const st = world.structures[-id - 1];
+      if (!st) return null;
+      const s = world.map.sites[st.site]!;
+      return { x: s.x, y: s.y - s.radius * 0.6 };
+    }
+    return this.units.pose(id) ?? null;
+  };
+
   private onStep(ev: TickEvents, world: World): void {
     if (!this.layers) return;
     this.director.observe(ev, world);
     const now = performance.now();
-    const tickAt = world.tick - 1;
     const near = this.camera.zoom >= FAR_ZOOM;
     const bounds = this.camera.bounds(120);
-    const posOf = (id: number): { x: number; y: number } | null => {
-      if (id < 0) {
-        const st = world.structures[-id - 1];
-        if (!st) return null;
-        const s = world.map.sites[st.site]!;
-        return { x: s.x, y: s.y - s.radius * 0.6 };
-      }
-      return this.units.pose(id) ?? world.units.find((u) => u.id === id) ?? null;
-    };
+    this.fx.onStep(ev, world, { posOf: this.posOf, tints: this.tints, near, bounds });
 
     for (const s of ev.swings) {
-      const target = posOf(s.to);
-      if (!target) continue;
-      this.units.swing(s.from, target.x, target.y, now);
-      if (near && bounds.contains(target.x, target.y)) {
-        // The blow lands one tick after the wind-up: a glint where steel meets.
-        this.delayed.push({
-          at: now + TICK_MS,
-          run: () => this.fx.burst({ x: target.x, y: target.y - 8, count: 1, texture: 'spark', tint: 0xffffff, speed: 0, life: 0.16, size: 14, additive: true }),
-        });
-      }
+      const target = this.posOf(s.to);
+      if (target) this.units.swing(s.from, target.x, target.y, now);
     }
+    // Archers, wizards and trebuchets play their attack pose as they loose.
     for (const s of ev.shots) {
-      const target = posOf(s.to);
-      if (!target) continue;
-      if (!bounds.contains(target.x, target.y) && !bounds.contains(s.x, s.y)) continue;
-      if (s.from > 0) this.units.swing(s.from, target.x, target.y, now);
-      const flight = Math.max(1, s.land - tickAt) * TICK_MS;
-      this.fx.arrow(s.x, s.y, target.x, target.y, flight, now, s.kind === 1 || s.kind === 2);
+      if (s.from <= 0) continue;
+      const target = this.posOf(s.to);
+      if (target) this.units.swing(s.from, target.x, target.y, now);
     }
     for (const h of ev.hits) {
       if (h.structure >= 0) {
         const st = world.structures[h.structure];
-        if (!st) continue;
-        this.layers.sites.structureHit(st.site);
-        const site = world.map.sites[st.site]!;
-        if (near && bounds.contains(site.x, site.y) && Math.random() < 0.35) {
-          this.fx.burst({ x: site.x + (Math.random() - 0.5) * site.radius, y: site.y - site.radius * (0.3 + Math.random() * 0.8), count: 3, texture: 'spark', tint: 0xffd890, speed: 60, life: 0.35, size: 9, additive: true });
-        }
+        if (st) this.layers.sites.structureHit(st.site);
         continue;
       }
-      const p = this.units.pose(h.unit);
-      if (!p) continue;
       this.units.flash(h.unit, now);
       const a = Math.random() * Math.PI * 2;
       this.units.knock(h.unit, Math.cos(a) * 1.6, Math.sin(a) * 1.0, now);
-      if (near && bounds.contains(p.x, p.y) && Math.random() < 0.5) {
-        this.fx.burst({ x: p.x, y: p.y - 2, count: 2, texture: 'smoke', tint: 0xb7a888, speed: 14, life: 0.5, size: 8, grow: 1.8, alpha: 0.5 });
-      }
     }
-    for (const d of ev.deaths) {
-      const p = this.units.pose(d.unit);
-      const x = p?.x ?? d.x;
-      const y = p?.y ?? d.y;
-      if (!bounds.contains(x, y)) continue;
-      if (near) {
+    if (near) {
+      for (const d of ev.deaths) {
+        const p = this.units.pose(d.unit);
+        const x = p?.x ?? d.x;
+        const y = p?.y ?? d.y;
+        if (!bounds.contains(x, y)) continue;
         const c = this.units.corpse(d.kind);
-        this.fx.corpse(c.texture, x, y, p?.facing ?? 1, c.scale, c.anchorY, 0x9a9a9a);
+        const cell = c.texture.frame.height;
+        // Effects anchor corpses by a fixed feet line; shift so this kind's feet land on the ground.
+        const shift = (c.anchorY - 84 / 96) * cell * c.scale;
+        this.fx.corpse(c.texture, x, y - shift, p?.facing ?? 1, c.scale, 0xd0d0d0, c.altitude);
       }
-      this.fx.burst({ x, y: y - 3, count: near ? 4 : 2, texture: 'smoke', tint: 0x9c8f78, speed: 18, life: 0.7, size: 10, grow: 2, alpha: 0.55 });
-      if (d.kind === 8) {
-        this.fx.ring(x, y, this.tints[d.p] ?? 0xffffff, 10, 120, 0.9);
-        this.fx.burst({ x, y: y - 10, count: 18, texture: 'spark', tint: GOLD, speed: 120, life: 0.8, size: 12, additive: true });
-      }
-    }
-    for (const m of ev.marches) {
-      const pl = world.platoons.find((x) => x.id === m.platoon);
-      if (!pl) continue;
-      const tint = this.tints[pl.p] ?? 0xffffff;
-      this.fx.burst({ x: pl.x, y: pl.y, count: 14, texture: 'smoke', tint: 0xc8b48c, speed: 40, life: 1.2, size: 16, grow: 2.2, alpha: 0.5, spread: 30 });
-      this.fx.ring(pl.x, pl.y, tint, 10, 90, 0.8);
-      this.fx.burst({ x: pl.x, y: pl.y - 20, count: 10, texture: 'spark', tint, speed: 80, life: 0.7, size: 10, additive: true });
     }
     for (const r of ev.regroups) this.banners.regroup(r.from, r.to, now);
     for (const r of ev.routs) {
       this.banners.rout(r.platoon, now);
       const pl = world.platoons.find((x) => x.id === r.platoon);
-      if (pl && bounds.contains(pl.x, pl.y)) {
-        this.fx.ring(pl.x, pl.y, 0xffffff, 10, 70, 0.6, 0.7);
-        this.fx.floatText('ROUT!', pl.x, pl.y - 36, 1.6, 15, 0xffe0d0);
-      }
+      if (pl && bounds.contains(pl.x, pl.y)) this.fx.floatText('ROUT!', pl.x, pl.y - 36, 1.6, 15, 0xffe0d0);
     }
-    for (const c of ev.captures) {
-      const site = world.map.sites[c.site]!;
-      const tint = this.tints[c.p] ?? 0xffffff;
-      this.fx.ring(site.x, site.y, tint, site.radius, site.radius * 2.6, 1.2);
-      this.fx.ring(site.x, site.y, 0xffffff, site.radius * 0.6, site.radius * 1.8, 0.8, 0.6);
-      this.fx.burst({ x: site.x, y: site.y - 20, count: 26, texture: 'spark', tint, speed: 140, life: 1.1, size: 12, additive: true, rise: 40, gravity: 60 });
-    }
-    for (const s of ev.sacks) {
-      const site = world.map.sites[s.site]!;
-      this.fx.burst({ x: site.x, y: site.y - site.radius * 0.6, count: 40, texture: 'ember', tint: 0xff9a40, speed: 160, life: 1.4, size: 18, additive: true, rise: 80, gravity: 90, spread: site.radius });
-      this.fx.burst({ x: site.x, y: site.y - site.radius * 0.6, count: 30, texture: 'smoke', tint: 0x2e2a26, speed: 50, life: 4, size: 40, grow: 3, alpha: 0.8, rise: 20, spread: site.radius });
-      this.fx.ring(site.x, site.y, 0xff8a3a, site.radius, site.radius * 4, 1.2);
-      this.fx.floatText('SACKED!', site.x, site.y - site.radius * 2.4, 2.6, 22, 0xffb070);
-      this.kick(0.8);
-    }
-    for (const r of ev.rebuilt) {
-      const site = world.map.sites[r.site]!;
-      this.fx.burst({ x: site.x, y: site.y, count: 20, texture: 'smoke', tint: 0xcab89a, speed: 60, life: 1.6, size: 26, grow: 2, alpha: 0.5, spread: site.radius });
-      this.fx.ring(site.x, site.y, this.tints[world.players.find((p) => p.slot === site.slot)?.p ?? -1] ?? 0xffffff, site.radius, site.radius * 2.2, 1.2);
-    }
-    if (ev.monolith) {
-      this.layers.sites.monolithFell(now);
-      this.fx.burst({ x: 0, y: -40, count: 60, texture: 'smoke', tint: 0x6c6a72, speed: 140, life: 3.5, size: 48, grow: 2.4, alpha: 0.7, spread: 80 });
-      this.fx.burst({ x: 0, y: -80, count: 50, texture: 'spark', tint: 0x9fe0ff, speed: 260, life: 1.6, size: 14, additive: true, rise: 120, gravity: 140 });
-      this.fx.ring(0, 0, 0x9fe0ff, 40, 500, 1.8);
-      this.fx.floatText('THE MONOLITH FALLS', 0, -220, 3.5, 24, 0xbfe9ff);
-      this.kick(1.2);
-    }
-    for (const c of ev.cries) {
-      const p = world.players[c.p];
-      if (!p) continue;
-      const site = world.map.sites[p.slot]!;
-      this.fx.ring(site.x, site.y, GOLD, 30, 600, 1.8);
-      this.fx.ring(site.x, site.y, 0xffffff, 20, 380, 1.2, 0.6);
-      this.fx.burst({ x: site.x, y: site.y - 40, count: 40, texture: 'spark', tint: GOLD, speed: 220, life: 1.4, size: 14, additive: true, rise: 60 });
-      this.fx.floatText('WAR CRY!', site.x, site.y - site.radius * 2.5, 2.6, 22, GOLD);
-    }
+    if (ev.monolith) this.layers.sites.monolithFell(now);
   }
 
   private onEmote(e: FloatingEmote): void {

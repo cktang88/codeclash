@@ -127,8 +127,8 @@ export function makeFxTextures(): FxTextures {
       c.filter = 'blur(2px)';
       tongue(32, 92, 26, 88, 'rgba(200,40,10,0.55)');
       tongue(32, 90, 20, 74, 'rgba(255,110,20,0.85)');
-      tongue(32, 88, 13, 56, 'rgba(255,190,60,0.95)');
-      tongue(32, 86, 7, 34, 'rgba(255,250,220,1)');
+      tongue(32, 88, 13, 56, 'rgba(255,170,50,0.95)');
+      tongue(32, 86, 7, 34, 'rgba(255,224,130,1)');
       c.filter = 'none';
       // Fade the base so the tongue never shows a hard edge.
       c.globalCompositeOperation = 'destination-in';
@@ -141,7 +141,7 @@ export function makeFxTextures(): FxTextures {
     }),
   );
   const fireball = make(48, 48, (c) => {
-    radial(c, 24, 24, 24, [[0, 'rgba(255,255,235,1)'], [0.25, 'rgba(255,230,140,1)'], [0.55, 'rgba(255,120,30,0.8)'], [1, 'rgba(200,40,10,0)']]);
+    radial(c, 24, 24, 24, [[0, 'rgba(255,236,170,1)'], [0.25, 'rgba(255,200,90,1)'], [0.55, 'rgba(255,120,30,0.8)'], [1, 'rgba(200,40,10,0)']]);
   });
   const ring = make(128, 128, (c) => {
     c.strokeStyle = 'rgba(255,255,255,1)';
