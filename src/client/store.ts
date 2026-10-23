@@ -64,6 +64,8 @@ export interface HudSnapshot {
   monolith: { hp: number; maxHp: number; fallen: boolean };
   replay: boolean;
   digestReady: boolean;
+  /** The war that just ended, kept after the server rolls the room into the next one. */
+  endedWar: WarMeta | null;
 }
 
 export type StepListener = (events: TickEvents, world: World) => void;
@@ -91,6 +93,7 @@ export class GameStore {
   following = true;
   replay = false;
   digestReady = false;
+  endedWar: WarMeta | null = null;
   serverNow = () => Date.now();
   /** Wall-clock ms of tick 0, for converting ticks to times. */
   warStartMs = 0;
@@ -269,6 +272,7 @@ export class GameStore {
       monolith,
       replay: this.replay,
       digestReady: this.digestReady,
+      endedWar: this.endedWar,
     };
   }
 }

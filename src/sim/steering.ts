@@ -127,10 +127,11 @@ export function flyMove(out: Vec, map: MapDef, x: number, y: number, vx: number,
   out.y = ny;
 }
 
-export function resolveMove(out: Vec, map: MapDef, x: number, y: number, vx: number, vy: number, speed: number): void {
+/** `deadband2`: squared step below which a soldier stands still rather than jitter; banners pass 0. */
+export function resolveMove(out: Vec, map: MapDef, x: number, y: number, vx: number, vy: number, speed: number, deadband2 = DEADBAND2): void {
   const max = speed * MAX_PUSH_FACTOR;
   const m2 = vx * vx + vy * vy;
-  if (m2 < DEADBAND2) {
+  if (m2 < deadband2 || m2 === 0) {
     out.x = x;
     out.y = y;
     return;

@@ -113,7 +113,8 @@ export function buildDigest(world: World, replay: Replay, chronicle: readonly Ch
   const pushesBy = new Map<string, string[]>();
   for (const e of replay.inputs) {
     const { input } = decodeInput(e);
-    if (input.kind !== 'push') continue;
+    // Only pushes the simulation accepted raised a platoon and took an ordinal.
+    if (input.kind !== 'push' || !world.players[input.p] || !Number.isInteger(input.repo) || input.repo < 0) continue;
     const key = `${input.p}:${input.repo}`;
     const list = pushesBy.get(key) ?? [];
     list.push(input.msg);

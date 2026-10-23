@@ -45,7 +45,12 @@ export class Camera {
     const wheel = (e: WheelEvent) => this.wheel(e);
     const dbl = (e: MouseEvent) => this.focusAt(e.offsetX, e.offsetY);
     const kd = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      // Leave keys to form controls (arrows change a <select>), browser shortcuts (Ctrl+- zooms the
+      // page) and open dialogs.
+      const t = e.target;
+      if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement) return;
+      if (t instanceof HTMLElement && (t.isContentEditable || t.closest('[aria-modal="true"]'))) return;
+      if (e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return;
       const k = e.key.toLowerCase();
       if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) {
         this.keys.add(k);

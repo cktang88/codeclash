@@ -483,7 +483,8 @@ function advanceAnchor(world: World, pl: Platoon, field: ReturnType<typeof deriv
   flowDirection(dir, world.map, field, pl.x, pl.y, gx, gy);
   const cell = cellAt(world.map, pl.x, pl.y);
   const pace = cell >= 0 && world.map.terrain[cell] === Terrain.Forest ? FOREST_SPEED : 1;
-  resolveMove(moved, world.map, pl.x, pl.y, dir.x * speed * pace, dir.y * speed * pace, speed);
+  // No deadband: a slow block waiting for stragglers in a forest must still creep on.
+  resolveMove(moved, world.map, pl.x, pl.y, dir.x * speed * pace, dir.y * speed * pace, speed, 0);
   pl.x = moved.x;
   pl.y = moved.y;
   // Turn the formation gradually toward the direction of travel.
@@ -501,6 +502,15 @@ function advanceAnchor(world: World, pl: Platoon, field: ReturnType<typeof deriv
 function structureAt(world: World, site: number): number {
   for (let k = 0; k < world.structures.length; k++) if (world.structures[k]!.site === site) return k;
   return -1;
+}
+
+/** Whether a site's walls lie within `leash` of a banner at (x, y). */
+function withinLeash(map: MapDef, site: number, x: number, y: number, leash: number): boolean {
+  const def = map.sites[site]!;
+  const dx = def.x - x;
+  const dy = def.y - y;
+  const reach = leash + def.radius;
+  return dx * dx + dy * dy <= reach * reach;
 }
 
 function attackable(world: World, k: number, p: number): boolean {
@@ -584,7 +594,8 @@ function updateUnits(world: World, s: Scratch, ev: TickEvents): void {
       if (structure >= 0 && !attackable(world, structure, u.p)) structure = -1;
       if (structure < 0) {
         const goal = structureAt(world, pl.site);
-        if (goal >= 0 && attackable(world, goal, u.p) && (pl.state === PlatoonState.Hold || u.kind === Kind.Sapper)) structure = goal;
+        // Sappers run ahead to the walls, but only from within their leash of the banner.
+        if (goal >= 0 && attackable(world, goal, u.p) && (pl.state === PlatoonState.Hold || (u.kind === Kind.Sapper && withinLeash(map, pl.site, ax, ay, leash)))) structure = goal;
       }
     }
     u.target = t >= 0 ? units[t]!.id : structure >= 0 ? -(structure + 1) : 0;
@@ -621,8 +632,11 @@ function updateUnits(world: World, s: Scratch, ev: TickEvents): void {
         } else if (dist <= stats.range * 0.95) moving = false;
       } else if (dist <= reach * 0.8) moving = false;
     } else if (structure >= 0) {
-      const def = map.sites[world.structures[structure]!.site]!;
+      const site = world.structures[structure]!.site;
+      const def = map.sites[site]!;
       const dist = towards(dir, u.x, u.y, def.x, def.y) - def.radius * STRUCTURE_REACH;
+      // Walk around rock and water to reach the walls; fliers go straight.
+      if (dist > stats.range && !stats.flying) flowDirection(dir, map, derived(map).flow[site]!, u.x, u.y, def.x, def.y);
       if (dist <= stats.range && u.cooldown === 0 && u.swingAt < 0) {
         u.cooldown = stats.cooldown;
         if (stats.breath) breathe(world, s, i, def.x, def.y, ev);

@@ -15,7 +15,9 @@ import { SpeedPicker } from './Demo.tsx';
 import { Notice } from './Notice.tsx';
 
 const SPEEDS = [1, 4, 16, 64, 256] as const;
-const SEEK_CHUNK_TICKS = 1500;
+const SEEK_SLICE_TICKS = 25;
+/** Main-thread budget per seek slice; a busy war can take milliseconds per tick. */
+const SEEK_SLICE_MS = 40;
 
 export function downloadJson(name: string, data: unknown): void {
   const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
@@ -73,7 +75,10 @@ export function ReplayPage({ slug, warId, tick, me }: { slug: string; warId: num
       const run = r;
       const stepChunk = () => {
         if (token !== seekToken.current) return;
-        run.fastForward(Math.min(to, run.tick + SEEK_CHUNK_TICKS));
+        const started = performance.now();
+        do {
+          run.fastForward(Math.min(to, run.tick + SEEK_SLICE_TICKS));
+        } while (run.tick < to && performance.now() - started < SEEK_SLICE_MS);
         setSeeking({ to, at: run.tick });
         if (run.tick < to) {
           setTimeout(stepChunk, 0);

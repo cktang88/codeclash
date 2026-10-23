@@ -48,13 +48,13 @@ export function Root() {
     case 'room':
       return <RoomPage key={route.slug} slug={route.slug} invite={route.invite} me={me} onMeChanged={loadMe} />;
     case 'digest':
-      return <DigestPage slug={route.slug} warId={route.warId} />;
+      return <DigestPage key={`${route.slug}:${route.warId}`} slug={route.slug} warId={route.warId} />;
     case 'replay':
       return <ReplayPage key={`${route.slug}:${route.warId}`} slug={route.slug} warId={route.warId} tick={route.tick} me={me} />;
     case 'history':
-      return <HistoryPage slug={route.slug} />;
+      return <HistoryPage key={route.slug} slug={route.slug} />;
     case 'profile':
-      return <ProfilePage login={route.login} />;
+      return <ProfilePage key={route.login} login={route.login} />;
     case 'lost':
       return <LostPage path={route.path} />;
   }

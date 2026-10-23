@@ -26,9 +26,16 @@ const GOLD = 0xf2cf5b;
 
 interface MapLayers {
   map: MapDef;
+  /** The war parameters the map was generated from. */
+  key: string;
   terrain: Sprite;
   sites: SiteLayer;
   influence: InfluenceLayer;
+}
+
+function mapKey(world: World): string {
+  const { seed, slots, members } = world.params;
+  return `${seed}:${slots}:${members}`;
 }
 
 /** The battlefield: owns the Pixi application, the camera and every visual layer. */
@@ -171,7 +178,9 @@ export class Battlefield {
       return;
     }
     this.scene.visible = true;
-    if (!this.layers || this.layers.map !== world.map) {
+    // A resync restores a new world object with an identical map: keep the painted terrain and the
+    // camera. Only a different war (rollover) needs a new map.
+    if (!this.layers || this.layers.key !== mapKey(world)) {
       this.buildMap(world);
       mark = performance.now();
     }
@@ -217,7 +226,14 @@ export class Battlefield {
 
   private buildMap(world: World): void {
     if (this.layers) {
-      this.groundLayer.removeChildren().forEach((c) => c.destroy({ children: true }));
+      const { terrain, influence } = this.layers;
+      this.groundLayer.removeChildren();
+      // The terrain (3072² canvas) and influence textures belong to this map alone; the site
+      // sprites share the atlas textures, so only their display objects are destroyed.
+      terrain.destroy({ texture: true, textureSource: true });
+      influence.sprite.destroy({ texture: true, textureSource: true });
+      this.layers.sites.ground.destroy({ children: true });
+      this.layers.sites.root.destroy({ children: true });
       this.layers.sites.labels.destroy({ children: true });
     }
     const map = world.map;
@@ -229,7 +245,7 @@ export class Battlefield {
     const sites = new SiteLayer(this.tex, this.flags, world);
     this.groundLayer.addChild(terrain, influence.sprite, sites.ground, sites.root);
     this.scene.addChild(sites.labels);
-    this.layers = { map, terrain, sites, influence };
+    this.layers = { map, key: mapKey(world), terrain, sites, influence };
     this.camera.fit(map.radius);
   }
 

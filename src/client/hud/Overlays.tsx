@@ -58,15 +58,26 @@ export function MonolithBar({ hud }: { hud: HudSnapshot }) {
 
 export function DayOverBanner({ hud }: { hud: HudSnapshot }) {
   const { slug } = useHudContext();
-  if (!hud.war || hud.war.status !== 'ended' || !slug) return null;
+  const [dismissed, setDismissed] = useState<number | null>(null);
+  if (!hud.war || !slug) return null;
+  // The server opens the next war right after ending one, so the ended war usually lives on only
+  // in `endedWar` while the new day is already being fought.
+  const ended = hud.war.status === 'ended' ? hud.war : hud.endedWar;
+  if (!ended || ended.id === dismissed) return null;
+  const ready = ended === hud.war ? hud.digestReady : true;
   return (
     <div className="day-over" role="status">
-      <strong>The day is done.</strong>
-      <span>{hud.digestReady ? 'The chroniclers have written the digest.' : 'The chroniclers are writing the digest…'}</span>
-      {hud.digestReady && (
-        <Link className="btn btn-primary" to={{ kind: 'digest', slug, warId: hud.war.id }}>
+      <strong>{ended === hud.war ? 'The day is done.' : 'The last war is over. A new one has begun.'}</strong>
+      <span>{ready ? 'The chroniclers have written the digest.' : 'The chroniclers are writing the digest…'}</span>
+      {ready && (
+        <Link className="btn btn-primary" to={{ kind: 'digest', slug, warId: ended.id }}>
           Read the digest
         </Link>
+      )}
+      {ended !== hud.war && (
+        <button className="icon-btn icon-btn-sm" onClick={() => setDismissed(ended.id)} aria-label="Dismiss">
+          <Icon name="close" size={16} />
+        </button>
       )}
     </div>
   );

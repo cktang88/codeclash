@@ -1,4 +1,4 @@
-import type { ServerMessage } from '../../protocol.ts';
+import type { ServerMessage, WarMeta } from '../../protocol.ts';
 import type { SimInput, TimedInput, World } from '../../sim/api.ts';
 import { checksum, restore, step } from '../../sim/index.ts';
 import type { GameStore } from '../store.ts';
@@ -10,6 +10,11 @@ const MAX_BEHIND_TICKS = 300;
 const SYNC_SLICE_MS = 30;
 const CHECKSUM_HISTORY = 128;
 const FX_TAIL_STEPS = 3;
+
+/** The last tick of a war: the server runs every war to exactly this tick. */
+export function finalTick(war: Pick<WarMeta, 'startsAt' | 'endsAt'>, tickMs: number): number {
+  return Math.floor((war.endsAt - war.startsAt) / tickMs);
+}
 
 /** Drives a world forward for the renderer. */
 export interface Runner {
@@ -67,6 +72,8 @@ export class LockstepRunner implements Runner {
   private endTick = Infinity;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private stopped = false;
+  /** Bumped on every hello so a catch-up loop for an older snapshot stops. */
+  private syncGen = 0;
   private prev = new PrevPositions();
   alpha = 1;
 
@@ -116,9 +123,9 @@ export class LockstepRunner implements Runner {
     this.alpha = world.tick >= target && target < this.endTick ? Math.min(1, Math.max(0, exact - target)) : 1;
   }
 
-  private syncSlice = (): void => {
+  private syncSlice = (gen: number): void => {
     const world = this.store.world;
-    if (!world || this.store.conn.phase !== 'syncing') return;
+    if (this.stopped || gen !== this.syncGen || !world || this.store.conn.phase !== 'syncing') return;
     const target = Math.min(Math.floor((Date.now() + this.offset - this.startMs) / this.tickMs), this.endTick);
     const started = performance.now();
     while (world.tick < target && performance.now() - started < SYNC_SLICE_MS) {
@@ -129,7 +136,7 @@ export class LockstepRunner implements Runner {
       this.prev.capture(world);
       this.dispatch({ type: 'caught-up' });
     } else {
-      setTimeout(this.syncSlice, 0);
+      setTimeout(this.syncSlice, 0, gen);
     }
   };
 
@@ -225,8 +232,9 @@ export class LockstepRunner implements Runner {
         this.offset = msg.serverNow - Date.now();
         this.startMs = msg.war.startsAt;
         this.tickMs = msg.tickMs;
-        this.endTick = msg.war.status === 'ended' ? world.tick : Math.floor((msg.war.endsAt - msg.war.startsAt) / msg.tickMs);
+        this.endTick = msg.war.status === 'ended' ? world.tick : finalTick(msg.war, msg.tickMs);
         this.enqueue(msg.inputs, world.tick);
+        if (store.war?.id !== msg.war.id) store.selection = null;
         store.room = msg.room;
         store.war = msg.war;
         store.warStartMs = msg.war.startsAt;
@@ -242,12 +250,19 @@ export class LockstepRunner implements Runner {
         for (const c of msg.chat) store.addChat(c);
         this.dispatch({ type: 'hello' });
         store.publish();
-        setTimeout(this.syncSlice, 0);
+        setTimeout(this.syncSlice, 0, ++this.syncGen);
         return;
       }
       case 'inputs': {
-        if (msg.roster) for (const r of msg.roster) store.roster[r.p] = r;
-        if (msg.repos) for (const r of msg.repos) store.repos[r.index] = r.ref;
+        // Copy on write: HUD snapshots hold these arrays, so they must change identity to update.
+        if (msg.roster) {
+          store.roster = store.roster.slice();
+          for (const r of msg.roster) store.roster[r.p] = r;
+        }
+        if (msg.repos) {
+          store.repos = store.repos.slice();
+          for (const r of msg.repos) store.repos[r.index] = r.ref;
+        }
         const world = store.world;
         if (!world) return;
         if (!this.enqueue(msg.inputs, world.tick)) this.requestResync('late-input');
@@ -278,9 +293,14 @@ export class LockstepRunner implements Runner {
         store.addChat(msg.message);
         return;
       case 'war':
+        if (store.war && msg.war.id !== store.war.id) return;
         store.war = msg.war;
         store.digestReady = msg.digestReady;
-        if (msg.war.status === 'ended' && store.world) this.endTick = store.world.tick;
+        // The server ran the war to its last tick before announcing the end. Stopping at our own
+        // tick would freeze a lagging client a few ticks short, missing the final checks and score.
+        if (msg.war.status === 'ended') this.endTick = finalTick(msg.war, this.tickMs);
+        // The next war's hello follows at once; remember this one so the HUD can link its digest.
+        if (msg.war.status === 'ended' && msg.digestReady) store.endedWar = msg.war;
         store.publish();
         return;
       case 'room':
