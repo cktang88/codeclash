@@ -1,6 +1,5 @@
 import { Container, Sprite, Text, type Texture } from 'pixi.js';
-import type { Kind } from '../../sim/api.ts';
-import { CELL, FEET_Y, type Textures } from './textures.ts';
+import type { Textures } from './textures.ts';
 
 interface Particle {
   s: Sprite;
@@ -173,18 +172,17 @@ export class FxLayer {
     this.arrows.push({ s, shadow, x0, y0: y0 - (bolt ? 40 : 10), tx, ty: ty - 6, t0: now, t1: now + flightMs, height: bolt ? d * 0.12 : Math.min(60, 10 + d * 0.28), stuck: 0, bolt });
   }
 
-  /** A falling, fading body that leaves a faint decal behind. */
-  corpse(texture: Texture, kind: Kind, x: number, y: number, facing: number, size: number, tint: number): void {
-    void kind;
+  /** A fallen body that fades, leaving a faint decal behind. */
+  corpse(texture: Texture, x: number, y: number, facing: number, scale: number, anchorY: number, tint: number): void {
     const s = this.sprite(texture, this.corpses);
     s.tint = tint;
-    const feet = (FEET_Y / CELL - 0.5) * CELL * size;
-    s.position.set(x, y - feet);
-    s.scale.set(size * facing, size);
+    s.anchor.set(0.5, anchorY);
+    s.position.set(x, y);
+    s.scale.set(scale * facing, scale);
     this.corpseList.push({ s, age: 0, fall: facing });
     const d = this.sprite(this.tex.decal, this.decals);
     d.position.set(x, y + 1);
-    d.scale.set((size * CELL) / 70);
+    d.scale.set((scale * texture.frame.height) / 70);
     d.rotation = (Math.random() - 0.5) * 0.6;
     d.alpha = 0.75;
     this.decalList.push({ s: d, age: 0 });
@@ -271,8 +269,8 @@ export class FxLayer {
         this.free(c.s);
         continue;
       }
-      const fallT = Math.min(1, c.age / 0.35);
-      c.s.rotation = c.fall * 1.45 * fallT * fallT;
+      const fallT = Math.min(1, c.age / 0.3);
+      c.s.rotation = c.fall * 0.15 * fallT;
       c.s.alpha = Math.min(1, 2.2 * (1 - c.age / CORPSE_LIFE));
       this.corpseList[w++] = c;
     }

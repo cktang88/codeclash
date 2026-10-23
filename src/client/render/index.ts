@@ -16,6 +16,7 @@ import { SiteLayer } from './sites.ts';
 import { paintTerrain } from './terrain.ts';
 import { makeTextures, type Textures } from './textures.ts';
 import { UnitLayer } from './units.ts';
+import { makeUnitArt, type UnitArt } from './art/index.ts';
 
 export interface BattlefieldOptions {
   reducedMotion?: boolean;
@@ -65,9 +66,10 @@ export class Battlefield {
     private readonly store: GameStore,
     private readonly getRunner: () => Runner | null,
     private readonly tex: Textures,
+    art: UnitArt,
     private readonly opts: BattlefieldOptions,
   ) {
-    this.units = new UnitLayer(tex);
+    this.units = new UnitLayer(tex, art);
     this.fx = new FxLayer(tex);
     this.fx.reduced = opts.reducedMotion ?? false;
     this.banners = new BannerLayer(this.flags);
@@ -113,7 +115,7 @@ export class Battlefield {
     app.canvas.style.touchAction = 'none';
     host.appendChild(app.canvas);
     const reducedMotion = opts.reducedMotion ?? window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
-    return new Battlefield(app, host, store, getRunner, makeTextures(), { ...opts, reducedMotion });
+    return new Battlefield(app, host, store, getRunner, makeTextures(), makeUnitArt(), { ...opts, reducedMotion });
   }
 
   destroy(): void {
@@ -281,6 +283,7 @@ export class Battlefield {
       const target = posOf(s.to);
       if (!target) continue;
       if (!bounds.contains(target.x, target.y) && !bounds.contains(s.x, s.y)) continue;
+      if (s.from > 0) this.units.swing(s.from, target.x, target.y, now);
       const flight = Math.max(1, s.land - tickAt) * TICK_MS;
       this.fx.arrow(s.x, s.y, target.x, target.y, flight, now, s.kind === 1 || s.kind === 2);
     }
@@ -309,8 +312,10 @@ export class Battlefield {
       const x = p?.x ?? d.x;
       const y = p?.y ?? d.y;
       if (!bounds.contains(x, y)) continue;
-      const tex = this.tex.units[d.kind]!;
-      if (near) this.fx.corpse(tex.body[0]!, d.kind, x, y, p?.facing ?? 1, this.units.scaleOf(d.kind), 0x8a8a8a);
+      if (near) {
+        const c = this.units.corpse(d.kind);
+        this.fx.corpse(c.texture, x, y, p?.facing ?? 1, c.scale, c.anchorY, 0x9a9a9a);
+      }
       this.fx.burst({ x, y: y - 3, count: near ? 4 : 2, texture: 'smoke', tint: 0x9c8f78, speed: 18, life: 0.7, size: 10, grow: 2, alpha: 0.55 });
       if (d.kind === 8) {
         this.fx.ring(x, y, this.tints[d.p] ?? 0xffffff, 10, 120, 0.9);
