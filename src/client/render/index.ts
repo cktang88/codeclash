@@ -481,6 +481,7 @@ export class Battlefield {
     this.banners.update(world, this.store.repos, this.hues, now, zoom, centroids, bounds, sel?.kind === 'platoon' ? sel.id : null, this.trims);
     time('banners');
     const near = zoom >= FAR_ZOOM;
+    layers.sites.compact = Math.min(sw, sh) < 600;
     layers.sites.update(
       world,
       this.store.roster,

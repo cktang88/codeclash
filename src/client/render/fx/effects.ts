@@ -134,9 +134,12 @@ interface Scroll {
   right: Graphics;
   platoon: number;
   width: number;
+  height: number;
   age: number;
   x: number;
   y: number;
+  /** Screen pixels this scroll is lifted so it does not cover an older one; eased. */
+  stack: number;
 }
 
 /** A full-size sprite eased along a path with an alpha envelope: dims, shadows, washes. */
@@ -836,7 +839,7 @@ export class Effects {
     c.scale.set(1 / this.zoom);
     c.alpha = 0;
     this.overlay.addChild(c);
-    this.scrolls.push({ c, paper, mask, left, right, platoon, width: w, age: 0, x, y });
+    this.scrolls.push({ c, paper, mask, left, right, platoon, width: w, height: h + (grand ? 30 : 12), age: 0, x, y, stack: 0 });
     this.cue('scroll-unroll', x, y, grand ? 0.9 : 0.5);
   }
 
@@ -868,7 +871,18 @@ export class Effects {
       sc.right.x = half + 2;
       sc.c.alpha = Math.min(1, sc.age / 0.12, (life - sc.age) / 0.3);
       const lift = sc.age > life - 0.4 ? (sc.age - (life - 0.4)) * 30 : 0;
-      sc.c.position.set(sc.x, sc.y - lift / this.zoom);
+      // Scrolls give way politely: a newer one rises above any older one it would cover.
+      let want = 0;
+      for (let i = 0; i < w; i++) {
+        const o = this.scrolls[i]!;
+        const dx = Math.abs(o.x - sc.x) * this.zoom;
+        if (dx >= (o.width + sc.width) / 2 + 8) continue;
+        const oTop = o.y * this.zoom - o.stack - o.height;
+        const myBottom = sc.y * this.zoom - want;
+        if (myBottom > oTop - 6 && sc.y * this.zoom - want - sc.height < o.y * this.zoom - o.stack + 6) want = sc.y * this.zoom - oTop + 6;
+      }
+      sc.stack += (want - sc.stack) * Math.min(1, dt * 10);
+      sc.c.position.set(sc.x, sc.y - (lift + sc.stack) / this.zoom);
       sc.c.scale.set(1 / this.zoom);
       this.scrolls[w++] = sc;
     }

@@ -178,7 +178,7 @@ export class BannerLayer {
       v.flag.mesh.tint = flash > 0 && Math.floor(now / 90) % 2 === 0 ? 0xffffff : routing ? 0xb8b8b8 : 0xffffff;
       v.flag.mesh.alpha = 1;
       // The gauge is counter-scaled so it never shrinks to a hairline at far zoom.
-      v.gauge.scale.set(Math.max(1, 42 / flagPx));
+      v.gauge.scale.set(Math.max(1, 34 / flagPx));
       const hp = BAR_W * Math.max(0, Math.min(1, pl.alive / Math.max(1, pl.size)));
       if (hp < v.strength.width - 0.01) v.woundAt = now;
       if (hp > v.woundW) v.woundW = hp;

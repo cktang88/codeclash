@@ -98,8 +98,9 @@ export class Camera {
     const cs = getComputedStyle(this.el);
     const top = parseFloat(cs.getPropertyValue('--fit-top')) || 0;
     const bottom = parseFloat(cs.getPropertyValue('--fit-bottom')) || 0;
-    // Never let the HUD shrink the map below 70% of the screen height.
-    const spare = Math.max(0, top + bottom - this.height * 0.3);
+    // The HUD's measured cover is respected so no capital opens tucked under a bar, but it
+    // may never shrink the map's opening frame below 55% of the screen height.
+    const spare = Math.max(0, top + bottom - this.height * 0.45);
     return { top: top - spare / 2, bottom: bottom - spare / 2 };
   }
 

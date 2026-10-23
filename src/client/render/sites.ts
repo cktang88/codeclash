@@ -60,6 +60,8 @@ export class SiteLayer {
   /** Additive emissive layer: windows, runes, molten cracks, halos. Drawn above the day–night grade. */
   readonly lights = new Container();
   readonly labels = new LabelLayer();
+  /** Phone-sized screen: labels letter a size smaller (never below the 15px floor). */
+  compact = false;
   private readonly art: SiteArt = siteArt();
   private views: SiteView[] = [];
   private monuments: MonumentView[] = [];
@@ -428,7 +430,7 @@ export class SiteLayer {
       v.label.wanted = openSlot ? zoom > 0.7 : def.kind !== 'shrine' || zoom > 0.16;
     }
     for (const m of this.monuments) m.label.wanted = zoom > 1.1;
-    this.labels.layout(zoom, (l) => l.priority >= 10 || zoom > 0.75);
+    this.labels.layout(zoom, (l) => l.priority >= 10 || zoom > 0.75, this.compact);
   }
 
   /** A carved channel with a pigment fill, gilded end caps and a pale wound that drains behind damage. */

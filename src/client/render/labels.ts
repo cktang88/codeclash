@@ -39,8 +39,10 @@ export class MapLabel {
   wanted = true;
   /** Ink colour of the title: plain ink, or vermilion for rubricated names (the leader). */
   private rubric = false;
+  readonly titleSize: number;
 
   constructor(titleSize = 18) {
+    this.titleSize = titleSize;
     const art = siteArt();
     this.bg = new NineSliceSprite({ texture: art.cartouche, leftWidth: art.cartoucheSlice.left, rightWidth: art.cartoucheSlice.right, topHeight: art.cartoucheSlice.top, bottomHeight: art.cartoucheSlice.bottom });
     this.title = new Text({ text: '', style: { ...TITLE, fontSize: titleSize }, resolution: 2 });
@@ -133,10 +135,14 @@ export class LabelLayer {
     label.destroy();
   }
 
-  layout(zoom: number, wantSub: (l: MapLabel) => boolean): void {
-    const k = 1 / zoom;
+  /**
+   * @param compact on a phone-sized screen labels letter a size smaller, but never below the
+   * 15px floor for world labels.
+   */
+  layout(zoom: number, wantSub: (l: MapLabel) => boolean, compact = false): void {
     this.order.length = 0;
     for (const l of this.labels) {
+      const k = (compact ? Math.min(1, Math.max(0.82, 15 / l.titleSize)) : 1) / zoom;
       l.root.scale.set(k);
       l.root.position.set(l.x, l.y);
       l.root.visible = false;
@@ -148,11 +154,12 @@ export class LabelLayer {
       l.setSub(wantSub(l));
       const cx = l.x * zoom;
       const cy = l.y * zoom;
-      let box = this.box(cx - l.width / 2, cy - l.height, cx + l.width / 2, cy);
+      const u = l.root.scale.x * zoom;
+      let box = this.box(cx - (l.width * u) / 2, cy - l.height * u, cx + (l.width * u) / 2, cy);
       if (this.hits(box)) {
         if (!l.hasSub) continue;
         l.setSub(false);
-        box = this.box(cx - l.width / 2, cy - l.height, cx + l.width / 2, cy);
+        box = this.box(cx - (l.width * u) / 2, cy - l.height * u, cx + (l.width * u) / 2, cy);
         if (this.hits(box)) continue;
       }
       this.used++;
