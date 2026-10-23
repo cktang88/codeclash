@@ -126,11 +126,13 @@ export class Rooms {
 
   private botsPush(now: number, elapsedMs: number): void {
     const rand = this.deps.random ?? Math.random;
+    // Short test days compress a whole day of pushes into their length.
+    const dayScale = this.deps.config.dayMs !== null ? DAY_MS / this.deps.config.dayMs : 1;
     for (const war of this.live.values()) {
       for (const pl of war.header.players) {
         if (!pl.bot) continue;
         const persona = BOTS.find((b) => b.login === pl.login);
-        if (!persona || rand() >= (persona.rate * elapsedMs) / 3600_000) continue;
+        if (!persona || rand() >= (persona.rate * elapsedMs * dayScale) / 3600_000) continue;
         const push = botPush(persona, rand);
         war.push(now, pl.userId, { repo: push.repo[0], language: push.repo[1], lines: push.lines, commits: 1 + Math.floor(rand() * 3), message: push.message });
       }

@@ -1003,7 +1003,7 @@ function resolveDamage(world: World, s: Scratch, ev: TickEvents): void {
     if (pl) {
       pl.alive--;
       const loss = MORALE_LOSS / Math.max(1, pl.size);
-      pl.morale -= s.heralds[pi]! > 0 ? loss * 0.5 : loss;
+      pl.morale = Math.max(0, pl.morale - (s.heralds[pi]! > 0 ? loss * 0.5 : loss));
     }
     if (u.p >= 0) world.players[u.p]!.losses++;
     if (killer >= 0) {
@@ -1055,7 +1055,7 @@ function updateMorale(world: World, s: Scratch, ev: TickEvents): void {
     if (pl.state === PlatoonState.Queued || pl.state === PlatoonState.Rout) continue;
     if (pl.state === PlatoonState.Engage && (world.tick + pl.id) % OUTNUMBER_CHECK === 0) {
       const enemies = enemiesNear(world.units, s.hash, pl.p, pl.x, pl.y, 90);
-      if (enemies > pl.alive * 2) pl.morale -= OUTNUMBERED_DRAIN * OUTNUMBER_CHECK * (s.heralds[i]! > 0 ? 0.5 : 1);
+      if (enemies > pl.alive * 2) pl.morale = Math.max(0, pl.morale - OUTNUMBERED_DRAIN * OUTNUMBER_CHECK * (s.heralds[i]! > 0 ? 0.5 : 1));
     } else if (pl.calm > ENGAGE_CALM_TICKS) {
       pl.morale = Math.min(MORALE_MAX, pl.morale + MORALE_RECOVER);
     }

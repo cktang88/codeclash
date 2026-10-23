@@ -23,6 +23,8 @@ interface Swing {
 
 interface View {
   shadow: Sprite;
+  /** Army-colored ring under big units, so a Dragon's side reads at a glance. */
+  halo: Sprite;
   body: Sprite;
   mask: Sprite;
   dot: Sprite;
@@ -154,12 +156,12 @@ export class UnitLayer {
       pose.p = u.p;
       const visible = bounds.contains(x, y);
       if (!visible) {
-        v.shadow.visible = v.body.visible = v.mask.visible = v.dot.visible = false;
+        v.halo.visible = v.shadow.visible = v.body.visible = v.mask.visible = v.dot.visible = false;
         continue;
       }
       const tint = this.tints[u.p] ?? 0xcccccc;
       if (far) {
-        v.shadow.visible = v.body.visible = v.mask.visible = false;
+        v.halo.visible = v.shadow.visible = v.body.visible = v.mask.visible = false;
         v.dot.visible = true;
         v.dot.position.set(x, y);
         v.dot.tint = tint;
@@ -237,6 +239,13 @@ export class UnitLayer {
       const wide = stats.slots >= 2 || u.kind === Kind.Outrider ? 0.9 : 0.55;
       v.shadow.scale.set((worldH * wide * (flying ? 0.8 : 1)) / 64, (worldH * 0.22 * (flying ? 0.7 : 1)) / 64);
       v.shadow.alpha = flying ? 0.45 : 0.7;
+      v.halo.visible = stats.size >= 9;
+      if (v.halo.visible) {
+        v.halo.position.set(px, py);
+        v.halo.scale.set((worldH * wide * 1.15) / 128, (worldH * 0.3) / 128);
+        v.halo.tint = tint;
+        v.halo.alpha = flying ? 0.6 : 0.85;
+      }
       const layer = flying ? this.air : this.bodies;
       if (v.body.parent !== layer) layer.addChild(v.body, v.mask);
       const flashing = now - (this.flashes.get(u.id) ?? -1e9) < FLASH_MS;
@@ -266,7 +275,7 @@ export class UnitLayer {
     v.kind = kind;
     v.facing = 1;
     v.speed = 0;
-    v.shadow.visible = v.body.visible = v.mask.visible = v.dot.visible = false;
+    v.halo.visible = v.shadow.visible = v.body.visible = v.mask.visible = v.dot.visible = false;
     return v;
   }
 
@@ -274,18 +283,21 @@ export class UnitLayer {
     const shadow = new Sprite(this.tex.shadow);
     shadow.anchor.set(0.5);
     shadow.alpha = 0.7;
+    const halo = new Sprite(this.tex.ring);
+    halo.anchor.set(0.5);
+    halo.visible = false;
     const body = new Sprite();
     const mask = new Sprite();
     const dot = new Sprite(this.tex.dot);
     dot.anchor.set(0.5);
-    this.shadows.addChild(shadow);
+    this.shadows.addChild(shadow, halo);
     this.bodies.addChild(body, mask);
     this.dots.addChild(dot);
-    return { shadow, body, mask, dot, kind: 0, facing: 1, x: 0, y: 0, speed: 0, phase: 0, seen: 0, pose: { x: 0, y: 0, facing: 1, kind: 0, p: 0 } };
+    return { shadow, halo, body, mask, dot, kind: 0, facing: 1, x: 0, y: 0, speed: 0, phase: 0, seen: 0, pose: { x: 0, y: 0, facing: 1, kind: 0, p: 0 } };
   }
 
   private release(v: View): void {
-    v.shadow.visible = v.body.visible = v.mask.visible = v.dot.visible = false;
+    v.halo.visible = v.shadow.visible = v.body.visible = v.mask.visible = v.dot.visible = false;
     this.pool.push(v);
   }
 

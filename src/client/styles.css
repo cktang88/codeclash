@@ -956,6 +956,16 @@ code,
   box-shadow: var(--shadow);
 }
 
+/* Once the digest link is there, the sentence about the chroniclers only adds height over the map. */
+.day-over:has(.btn) {
+  flex-wrap: nowrap;
+  padding: 8px 10px 8px 16px;
+}
+
+.day-over:has(.btn) > span {
+  display: none;
+}
+
 .day-over strong {
   font-family: var(--serif);
   color: var(--gold-bright);
