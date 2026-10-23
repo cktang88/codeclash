@@ -1216,7 +1216,7 @@ code,
 /* A ledger of figures. */
 .stat-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(88px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(88px, 100%), 1fr));
   gap: 0;
   margin: 10px 0;
   border-top: 1.5px solid var(--rule);
