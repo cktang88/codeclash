@@ -205,22 +205,13 @@ function stage(name: Scene, t0: number): void {
       break;
     case 'sack':
       at(t + 1, (ev) => {
-        ev.sacks.push({ site: 1, p: 0, victim: 1 });
-        world.structures[0]!.ruinedUntil = 999999;
-      });
-      at(t + SCENE_TICKS - 1, (ev) => {
-        world.structures[0]!.ruinedUntil = -1;
-        ev.rebuilt.push({ site: 1 });
+        ev.conquests.push({ site: 1, p: 0, previous: 1, retake: false });
       });
       break;
     case 'monolith':
       at(t + 1, () => (world.structures[1]!.hp = 1500));
-      at(t + 8, (ev) => {
-        ev.monolith = { p: 0 };
-        world.monolithFallen = true;
-      });
+      // TODO client: the Monolith is gone from the sim; this scene now only wears down walls.
       at(t + SCENE_TICKS - 1, () => {
-        world.monolithFallen = false;
         world.structures[1]!.hp = 20000;
       });
       break;

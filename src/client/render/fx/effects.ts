@@ -507,24 +507,10 @@ export class Effects {
       this.cue('capture', site.x, site.y, 1);
     }
 
-    for (const s of ev.sacks) {
+    // A capital stormed: the old sack effect stands in until the client gets a conquest effect.
+    for (const s of ev.conquests) {
       const site = world.map.sites[s.site]!;
-      this.sack(site.x, site.y, site.radius, s.p === this.viewerP || s.victim === this.viewerP);
-    }
-
-    for (const r of ev.rebuilt) {
-      const site = world.map.sites[r.site]!;
-      const owner = world.players.find((p) => p.slot === site.slot);
-      this.puff(site.x, site.y, this.n(20), 0xcab89a, 26, site.radius);
-      this.ring(site.x, site.y, owner ? tint(owner.p) : 0xffffff, site.radius, site.radius * 2.2, 1.2);
-      this.sparks(site.x, site.y - site.radius, this.n(16), GOLD, 100, 30);
-      this.cue('rebuilt', site.x, site.y, 1);
-    }
-
-    if (ev.monolith) {
-      const st = world.structures.find((x) => x.p === NEUTRAL);
-      const site = st ? world.map.sites[st.site] : undefined;
-      this.monolithFalls(site?.x ?? 0, site?.y ?? 0, site?.radius ?? 40);
+      this.sack(site.x, site.y, site.radius, s.p === this.viewerP || s.previous === this.viewerP);
     }
 
     for (const c of ev.cries) {
@@ -577,10 +563,10 @@ export class Effects {
     this.watchWalls(world, bounds);
     this.watchRanks(world, bounds, tint);
 
-    // Ruined capitals burn for as long as they lie in ruins.
+    // Besieged capitals burn while the siege lasts. (TODO client: siege visuals.)
     if (world.tick % 2 === 0) {
       for (const st of world.structures) {
-        if (st.ruinedUntil < 0 || st.p < 0) continue;
+        if (st.siegeSince < 0 || st.hp > st.maxHp * 0.5) continue;
         const site = world.map.sites[st.site]!;
         if (!bounds.contains(site.x, site.y)) continue;
         const x = site.x + (rand() - 0.5) * site.radius * 1.2;
@@ -1163,7 +1149,6 @@ export class Effects {
       const site = world.map.sites[st.site]!;
       const frac = st.maxHp > 0 ? st.hp / st.maxHp : 1;
       if (st.p === NEUTRAL) {
-        if (world.monolithFallen) continue;
         if (frac < GLYPH_FLARE_AT && !this.monolithFlaring) {
           this.monolithFlaring = true;
           this.cue('monolith-crack', site.x, site.y, 0.8);
@@ -1175,7 +1160,7 @@ export class Effects {
         }
         continue;
       }
-      if (st.ruinedUntil >= 0 || frac >= 0.3) {
+      if (frac >= 0.3) {
         this.cracking.delete(i);
         continue;
       }

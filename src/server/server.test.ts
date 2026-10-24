@@ -75,7 +75,8 @@ describe('rooms and the daily war', () => {
 
     const digest = (await server.app.inject({ url: `/api/rooms/${slug}/wars/${warId}/digest` })).json<DigestResponse>();
     expect(digest.digest.totals.pushes).toBeGreaterThanOrEqual(2);
-    expect(digest.digest.players.map((p) => p.login)).toEqual(['ana', 'ada-bot', 'bo']);
+    // The room asked for one bot; a second fills the ring to three seats before bo joins.
+    expect(digest.digest.players.map((p) => p.login)).toEqual(['ana', 'ada-bot', 'grace-bot', 'bo']);
     expect(digest.digest.awards.length).toBeGreaterThan(0);
 
     const replay = (await server.app.inject({ url: `/api/rooms/${slug}/wars/${warId}/replay` })).json<Replay>();
@@ -120,6 +121,50 @@ describe('rooms and the daily war', () => {
     const bad = await server.app.inject({ method: 'PATCH', url: `/api/rooms/${slug}`, headers: { cookie: owner }, payload: { webhookUrl: 'https://evil.example/hook' } });
     expect(bad.statusCode).toBe(400);
     await server.shutdown();
+  });
+
+  it('ends a war won by conquest early, writes its digest, stays locked, and starts the next war at the reset', async () => {
+    const db = join(mkdtempSync(join(tmpdir(), 'pf-')), 'pf.db');
+    const now = { t: Date.UTC(2026, 9, 23, 12) };
+    const first = await boot({ db, now, daily: true });
+    const ana = await signIn(first.server, 'ana');
+    const { slug } = (await first.server.app.inject({ method: 'POST', url: '/api/rooms', headers: { cookie: ana }, payload: { name: 'Ring', visibility: 'public', resetHour: 0, bots: 0 } })).json<{ slug: string }>();
+    const war = first.server.rooms.wars()[0]!;
+    // Bots fill the ring to three seats.
+    expect(war.header.players.map((p) => p.bot)).toEqual([false, true, true]);
+    advance(first.server, now, 20_000);
+    first.server.rooms.onPush({ userId: devId('ana'), pushId: 'r@1', repo: 'ana/x', language: null, lines: lines(150), files: 3, branches: 12, churn: 0, filler: 0, commits: 1, message: 'm', at: now.t }, now.t);
+    advance(first.server, now, 5_000);
+    // The whole ring falls to ana: every capital changes hands at once.
+    for (const st of war.world.structures) st.p = 0;
+    advance(first.server, now, 5_000);
+    expect(war.world.victor).toBe(0);
+    expect(war.active).toBe(false);
+    const row = first.server.store.war(war.id)!;
+    expect(row.status).toBe('ended');
+    expect(row.digest!.victory).toEqual({ p: 0, tick: war.world.victoryTick });
+    expect(row.digest!.winner).toBe(0);
+    // Locked until the reset: no new war, no pushes, no orders.
+    const tick = war.world.tick;
+    advance(first.server, now, 3_600_000);
+    expect(first.server.rooms.wars()[0]!.id).toBe(war.id);
+    expect(war.world.tick).toBe(tick);
+    expect(war.push(now.t, devId('ana'), { repo: 'ana/x', language: null, lines: lines(10), commits: 1, message: 'm' })).toBe(false);
+    expect(war.command(now.t, devId('ana'), { kind: 'cry' })).toBe('ended');
+    const digest = (await first.server.app.inject({ url: `/api/rooms/${slug}/wars/${war.id}/digest` })).json<DigestResponse>();
+    expect(digest.digest.victory?.p).toBe(0);
+    await first.server.shutdown();
+
+    // A restart before the reset finds the room still standing on its won war.
+    const second = await boot({ db, now, daily: true });
+    expect(second.server.rooms.wars().map((w) => w.id)).toEqual([war.id]);
+    now.t = war.endsAt + 1_000;
+    second.server.rooms.reconcile(now.t);
+    const next = second.server.rooms.wars()[0]!;
+    expect(next.id).not.toBe(war.id);
+    expect(next.active).toBe(true);
+    expect(next.meta.startsAt).toBe(war.endsAt);
+    await second.server.shutdown();
   });
 
   it('recovers a war after a restart without losing inputs', async () => {

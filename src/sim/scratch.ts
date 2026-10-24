@@ -55,6 +55,8 @@ export interface Scratch {
   attackers: Int32Array;
   /** Platoons that rallied at their capital this tick. */
   rallied: number[];
+  /** Per structure: damage its walls have taken this tick, against the breach cap. */
+  wallHit: Float64Array;
   /** Who holds which capital and who fights whom, as of the start of this tick. */
   ring: Ring;
 }
@@ -135,6 +137,7 @@ export function scratchFor(world: World): Scratch {
       presenceCols: 0,
       presenceMissed: 0,
       rallied: [],
+      wallHit: new Float64Array(64),
       ring: computeRing(world),
     };
     cache.set(world, s);

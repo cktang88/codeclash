@@ -3,7 +3,7 @@
 // capitals. A pure function of the world (which player holds which capital), recomputed each
 // tick, so every client agrees on it without it being stored.
 
-import { NEUTRAL, type World } from './api.ts';
+import { NEUTRAL, type PlayerState, type World } from './api.ts';
 import { fortBetween } from './mapgen.ts';
 
 /** One front of a player's realm: the road from one of its capitals to the next foe's. */
@@ -134,4 +134,14 @@ export function frontOf(ring: Ring, world: World, p: number, site: number): Fron
     if (def.kind === 'capital' ? def.slot === f.to : f.forts.includes(site)) return f;
   }
   return null;
+}
+
+/**
+ * Whether a player is still in the war: it holds a capital, or it has raised soldiers today (a
+ * rising fights on from outside its lost home's walls). A player with neither is out until it pushes.
+ */
+export function stillIn(player: PlayerState): boolean {
+  if (player.capitals > 0) return true;
+  for (const n of player.raised) if (n > 0) return true;
+  return false;
 }

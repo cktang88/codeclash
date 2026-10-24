@@ -23,11 +23,11 @@ import {
   type World,
 } from './api.ts';
 import { attackerMultiplier, computeAuras, enemiesNear, onHomeTurf, structureDamage, unitDamage, mitigated } from './combat.ts';
-import { breachable, capitalOwner, musterFront, runCouncil, sitePresence } from './council.ts';
+import { besieging, breachable, capitalOwner, musterFront, runCouncil, sitePresence } from './council.ts';
 import { computeRing, hostile, type Front } from './ring.ts';
 import { derived, flowTo } from './derived.ts';
 import { cellAt } from './flowfield.ts';
-import { fortBetween } from './mapgen.ts';
+import { fortBetween, slotAngle } from './mapgen.ts';
 import { dcos, dsin } from './dmath.ts';
 import { Form, columnFormation, extent, lineFormation, type Slot } from './formation.ts';
 import { hexCenterX, hexCenterY, hexRoute } from './hexroute.ts';
@@ -68,6 +68,7 @@ import {
   RALLY_COOLDOWN,
   RALLY_DURATION,
   SIEGE_QUIET,
+  BREACH_TICKS,
   SPACING,
   TOWER_PER,
   WALL_PER_SLOT,
@@ -141,6 +142,8 @@ export function step(world: World, inputs: readonly SimInput[]): TickEvents {
   const s = scratchFor(world);
   for (const input of inputs) applyInput(world, input, ev);
   s.ring = computeRing(world);
+  if (s.wallHit.length < world.structures.length) s.wallHit = new Float64Array(world.structures.length * 2);
+  s.wallHit.fill(0);
   indexWorld(world, s, speedOf);
   if (releaseQueues(world, s, ev)) indexWorld(world, s, speedOf);
   computeAuras(world, s);
@@ -499,24 +502,29 @@ function musterSeat(world: World, player: PlayerState): number {
  * lost home's walls, facing them.
  */
 function deploy(world: World, player: PlayerState, platoon: Platoon, front: Front | null): void {
+  const { map } = world;
   const seat = front ? (front.from >= 0 ? front.from : front.to) : musterSeat(world, player);
-  const capital = world.map.sites[seat]!;
-  const d = Math.sqrt(capital.x * capital.x + capital.y * capital.y) || 1;
-  // Along the ring: (-y, x) runs clockwise, toward higher slots.
-  const side = front && front.dir !== 0 ? front.dir : platoon.id % 2 === 0 ? 1 : -1;
-  const tx = (-capital.y / d) * side;
-  const ty = (capital.x / d) * side;
+  const capital = map.sites[seat]!;
   const rising = !front ? player.capitals === 0 : front.from < 0;
+  // A rising's platoons gather on either side of its lost home in turn.
+  const side = front && front.dir !== 0 ? front.dir : rising && platoon.id % 2 === 1 ? -1 : 1;
   platoon.front = front ? front.dir : 0;
   platoon.rising = rising;
-  platoon.home = rising ? fortBetween(world.map.slots, seat) : seat;
+  // A rising falls back to the fort on the side of its lost home it musters on.
+  platoon.home = rising ? fortBetween(map.slots, side > 0 ? seat : seat - 1) : seat;
   platoon.site = rising ? seat : -1;
-  // A rising gathers on the ring road beyond bowshot of the walls it means to retake.
+  // The gate on the ring road facing the front; a rising gathers further along it, beyond bowshot
+  // of the walls it means to retake. Along the ring, angles climb clockwise, toward higher slots.
   const gate = rising ? capital.radius + RISING_GATE : capital.radius + 24;
-  platoon.x = capital.x + tx * gate;
-  platoon.y = capital.y + ty * gate;
-  platoon.hx = rising ? -tx : tx;
-  platoon.hy = rising ? -ty : ty;
+  const a = slotAngle(capital.slot, map.slots) + (side * gate) / map.ring;
+  const ca = dcos(a);
+  const sa = dsin(a);
+  platoon.x = ca * map.ring;
+  platoon.y = sa * map.ring;
+  // The road runs along (-sin, cos) clockwise; a rising faces back toward the walls.
+  const face = rising ? -side : side;
+  platoon.hx = -sa * face;
+  platoon.hy = ca * face;
   platoon.state = PlatoonState.March;
   platoon.arrivedTick = world.tick;
   platoon.alive = 0;
@@ -1249,7 +1257,7 @@ function withinLeash(map: MapDef, site: number, x: number, y: number, leash: num
 /** Whether player `p` may batter structure `k`: a capital held by one of its foes. */
 function attackable(world: World, s: Scratch, k: number, p: number): boolean {
   const st = world.structures[k]!;
-  return st.p !== p && st.hp > 0 && hostile(s.ring, p, st.p) && breachable(world, st);
+  return st.p !== p && st.hp > 0 && hostile(s.ring, p, st.p) && breachable(world, st) && besieging(world, s.ring, p, world.map.sites[st.site]!.slot);
 }
 
 /** A soldier this badly hurt steps back a rank when a fresh one of its kind can take its place. */
@@ -1723,8 +1731,11 @@ function nearestStructure(world: World, s: Scratch, p: number, x: number, y: num
 function damageStructure(world: World, s: Scratch, k: number, p: number, amount: number, ev: TickEvents): void {
   if (!attackable(world, s, k, p)) return;
   const st = world.structures[k]!;
-  const dmg = Math.min(st.hp, amount);
+  // Walls come down no faster than over BREACH_TICKS of siege, however many strike them.
+  const room = Math.max(0, st.maxHp / BREACH_TICKS - s.wallHit[k]!);
+  const dmg = Math.min(st.hp, amount, room);
   st.hp -= dmg;
+  s.wallHit[k]! += dmg;
   ev.hits.push({ unit: -1, damage: dmg, structure: k });
   const player = world.players[p];
   if (!player) return;

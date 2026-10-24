@@ -99,23 +99,35 @@ describe('formations', () => {
 });
 
 describe('the hex road map', () => {
-  it('finds the same route every time, over open ground only', () => {
+  it('finds the same route every time, over open ground only, around the ring and never across its centre', () => {
     for (const [players, seed] of [[4, 2], [8, 42], [14, 7]] as const) {
       const w = newWorld(players, seed);
       const grid = hexGrid(w.map);
       for (let slot = 0; slot < w.map.slots; slot++) {
         const from = w.map.sites[slot]!;
-        const heart = w.map.sites[w.map.sites.length - 1]!;
-        const route = hexRoute(w.map, from.x, from.y, heart.x, heart.y);
+        // The capital across the ring: the road to it runs the long way round the centre.
+        const far = w.map.sites[(slot + Math.floor(w.map.slots / 2)) % w.map.slots]!;
+        const route = hexRoute(w.map, from.x, from.y, far.x, far.y);
         expect(route.length).toBeGreaterThan(3);
         grid.routes.clear();
-        expect(hexRoute(w.map, from.x, from.y, heart.x, heart.y)).toEqual(route);
+        expect(hexRoute(w.map, from.x, from.y, far.x, far.y)).toEqual(route);
+        let length = 0;
         for (let k = 0; k < route.length; k++) {
+          const x = hexCenterX(w.map, route[k]!);
+          const y = hexCenterY(w.map, route[k]!);
           expect(hexPassable(w.map, route[k]!)).toBe(true);
-          if (k > 0) expect(clearPath(w.map, hexCenterX(w.map, route[k - 1]!), hexCenterY(w.map, route[k - 1]!), hexCenterX(w.map, route[k]!), hexCenterY(w.map, route[k]!))).toBe(true);
+          expect(Math.hypot(x, y)).toBeGreaterThan(w.map.centre);
+          if (k > 0) {
+            const px = hexCenterX(w.map, route[k - 1]!);
+            const py = hexCenterY(w.map, route[k - 1]!);
+            expect(clearPath(w.map, px, py, x, y)).toBe(true);
+            length += Math.hypot(x - px, y - py);
+          }
         }
+        // Around, not across: at least as long as the shorter arc's chord-free path along the ring.
+        expect(length).toBeGreaterThan(Math.hypot(far.x - from.x, far.y - from.y) * 1.2);
         const last = route[route.length - 1]!;
-        expect(Math.hypot(hexCenterX(w.map, last) - heart.x, hexCenterY(w.map, last) - heart.y)).toBeLessThan(HEX_STEP);
+        expect(Math.hypot(hexCenterX(w.map, last) - far.x, hexCenterY(w.map, last) - far.y)).toBeLessThan(HEX_STEP);
       }
     }
   });
@@ -138,13 +150,14 @@ function toPolyline(x: number, y: number, pts: { x: number; y: number }[]): numb
 describe('the march', () => {
   it('follows its hex route, the column filing along behind the banner', () => {
     const w = newWorld(2, 42);
-    step(w, joins(1));
-    const heart = w.map.sites.length - 1;
-    step(w, [push(0, L(500, 40)), { kind: 'rally', p: 0, site: heart }]);
+    step(w, joins(2));
+    // The border fort on the road past the empty seat.
+    const fort = w.map.slots + 2;
+    step(w, [push(0, L(500, 40)), { kind: 'rally', p: 0, site: fort }]);
     const pl = w.platoons.find((p) => p.p === 0)!;
     // The war council hands out the rally within a few seconds.
-    for (let t = 0; t < 20 && pl.routeSite !== heart; t++) step(w, []);
-    expect(pl.routeSite).toBe(heart);
+    for (let t = 0; t < 20 && pl.routeSite !== fort; t++) step(w, []);
+    expect(pl.routeSite).toBe(fort);
     const road = [{ x: pl.x, y: pl.y }, ...pl.route.map((h) => ({ x: hexCenterX(w.map, h), y: hexCenterY(w.map, h) }))];
     let worst = 0;
     let worstLag = 0;
@@ -345,12 +358,13 @@ describe('soldiers in the fight', () => {
   it('fight line against line: attackers spread, healers stay behind the front, cavalry rides round the flank', () => {
     const w = newWorld(2, 42);
     step(w, joins(2));
-    const heart = w.map.sites.length - 1;
+    // The border fort on the road between the two capitals: the natural battleground.
+    const fort = w.map.slots;
     step(w, [
       push(0, L(700, 80, 40), 'fix: crash on resume', 8, 30),
       push(1, L(700, 80, 40, 0, 0, 900), 'refactor: drop legacy auth', 8, 120),
-      { kind: 'rally', p: 0, site: heart },
-      { kind: 'rally', p: 1, site: heart },
+      { kind: 'rally', p: 0, site: fort },
+      { kind: 'rally', p: 1, site: fort },
     ]);
     let melee = 0;
     let piled = 0;
@@ -467,7 +481,7 @@ describe('snapshots from before formations', () => {
     step(w, joins(2));
     step(w, [push(0, L(300, 30)), push(1, L(300, 30))]);
     for (let t = 0; t < 30; t++) step(w, []);
-    const snap = JSON.parse(JSON.stringify(snapshot(w))) as { version: 2; world: { platoons: Record<string, unknown>[] } };
+    const snap = JSON.parse(JSON.stringify(snapshot(w))) as { version: 3; world: { platoons: Record<string, unknown>[] } };
     for (const pl of snap.world.platoons) for (const k of ['form', 'formAt', 'threat', 'threatAt', 'formed', 'frontage', 'width', 'length', 'offset', 'lag', 'route', 'routeSite', 'stuck', 'trail']) delete pl[k];
     const old = restore(snap);
     for (let t = 0; t < 60; t++) step(old, []);

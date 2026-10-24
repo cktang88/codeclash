@@ -1,5 +1,5 @@
 import { Terrain, type MapDef } from '../../sim/api.ts';
-import { SHRINE_NAMES } from '../../sim/chronicle.ts';
+import { FORT_NAMES } from '../../sim/chronicle.ts';
 import { canvas2d, fbm, noise, seeded, smoothstep } from './paint.ts';
 
 // The battlefield is a painted chart: a disc of land washed in pigment on a sheet
@@ -444,13 +444,12 @@ function paintCoast(ctx: CanvasRenderingContext2D, R: number, seaW: number, seed
 
 function paintRoads(ctx: CanvasRenderingContext2D, map: MapDef, seed: number, terrainAt: (x: number, y: number) => number): void {
   const capitals = map.sites.filter((o) => o.kind === 'capital');
-  const shrines = map.sites.filter((o) => o.kind === 'shrine');
+  const forts = map.sites.filter((o) => o.kind === 'fort');
   const links: [number, number, number, number, number][] = [];
-  // Capitals reach the Heart by way of their shrines; only every other shrine keeps a road inward.
-  shrines.forEach((s, i) => {
+  // The front road: each border fort to the two capitals either side of it. (TODO client: follow the ring's arc.)
+  forts.forEach((s) => {
     const near = [...capitals].sort((a, b) => Math.hypot(a.x - s.x, a.y - s.y) - Math.hypot(b.x - s.x, b.y - s.y));
     for (const c of near.slice(0, 2)) links.push([s.x, s.y, c.x, c.y, 60]);
-    if (i % 2 === 0) links.push([s.x, s.y, 0, 0, 40]);
   });
   const paths: [number, number][][] = [];
   for (const [x0, y0, x1, y1, wander] of links) {
@@ -788,7 +787,7 @@ function paintCartouche(ctx: CanvasRenderingContext2D, half: number, R: number, 
 
 /** Scribe's notes in the margin naming each shrine, with a fine leader line to the coast. */
 function paintShrineNotes(ctx: CanvasRenderingContext2D, map: MapDef, R: number, seaW: number): void {
-  const shrines = map.sites.filter((s) => s.kind === 'shrine');
+  const shrines = map.sites.filter((s) => s.kind === 'fort');
   ctx.save();
   ctx.font = `italic ${Math.round(Math.max(26, R * 0.026))}px ${SCRIPT_FONT}`;
   ctx.fillStyle = `${INK}0.78)`;
@@ -798,7 +797,7 @@ function paintShrineNotes(ctx: CanvasRenderingContext2D, map: MapDef, R: number,
     const r = R + seaW + 30;
     const x = Math.cos(a) * r;
     const y = Math.sin(a) * r;
-    const name = `the ${SHRINE_NAMES[i % SHRINE_NAMES.length]} Shrine`;
+    const name = `the ${FORT_NAMES[i % FORT_NAMES.length]} Fort`;
     ctx.textAlign = Math.cos(a) > 0.2 ? 'left' : Math.cos(a) < -0.2 ? 'right' : 'center';
     ctx.fillText(name, x + Math.cos(a) * 6, y + Math.sin(a) * 6);
     ctx.beginPath();

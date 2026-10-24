@@ -31,15 +31,15 @@ function digestPlayer(over: Partial<DigestPlayer> = {}): DigestPlayer {
   return {
     p: 0, login: 'ana', id: 1, bot: false, hue: 0, place: 1, renown: 100, pushes: 3,
     lines: new Array(9).fill(0), raised: new Array(KIND_COUNT).fill(0), slain: new Array(KIND_COUNT).fill(0),
-    kills: 10, losses: 5, captures: 0, sacks: 0, routs: 1, structureDamage: 0, monolithDamage: 0, best: null, awards: [],
+    kills: 10, losses: 5, captures: 0, conquests: 0, capitals: 1, fallen: 0, rising: false, retakes: 0, standBest: 0, routs: 1, structureDamage: 0, best: null, awards: [],
     purposes: { fix: 0, feature: 0, refactor: 0, perf: 0, revert: 0, chore: 0, work: 0 }, fixes: 0, files: 0, branches: 0,
     quality: 1, veterancy: 0, churn: 0, filler: 0,
     ...over,
   } as DigestPlayer;
 }
 
-function digest(players: DigestPlayer[], monolithBy: number | null = null): Digest {
-  return { players, monolith: { fallen: monolithBy !== null, by: monolithBy, tick: monolithBy === null ? null : 100 } } as unknown as Digest;
+function digest(players: DigestPlayer[], conqueror: number | null = null, winner: number | null = conqueror): Digest {
+  return { players, winner, victory: conqueror === null ? null : { p: conqueror, tick: 100 }, ring: [0, 0, 0, -1] } as unknown as Digest;
 }
 
 describe('orders', () => {
@@ -68,7 +68,7 @@ describe('orders', () => {
 
   it('tracks feats deterministically in the sim', () => {
     const p = player();
-    expect(p.feats).toEqual({ holdBest: 0, routsCaused: 0, cryKills: 0, returns: 0, heartCaptures: 0, leaderTakes: 0, homeKills: 0, ledTicks: 0 });
+    expect(p.feats).toEqual({ holdBest: 0, routsCaused: 0, cryKills: 0, returns: 0, standBest: 0, retakes: 0, homeKills: 0, ledTicks: 0 });
   });
 });
 
@@ -107,10 +107,11 @@ describe('the armory', () => {
 });
 
 describe('legends', () => {
-  it('names survivors, great captains and the Monolith-breaker deterministically', () => {
+  it('names survivors, great captains and the ring’s conqueror deterministically', () => {
     const d = digest([digestPlayer({ best: { repo: 'ana/parser', ordinal: 2, kills: 25, message: 'x' } }), digestPlayer({ p: 1, login: 'bo', place: 2, bot: true })], 0);
     const legends = chooseLegends(9, [{ p: 0, unitId: 77, kind: Kind.Dragon, platoonKills: 12, repo: 'ana/parser' }], d);
-    expect(legends.map((l) => l.kind)).toEqual(['survivor', 'captain', 'monolith']);
+    expect(legends.map((l) => l.kind)).toEqual(['survivor', 'captain', 'conqueror']);
+    expect(legends[2]!.deeds[0]).toContain('all 3 capitals');
     expect(legends[0]!.name).toBe(legendName(9 ^ 77, true).name);
     expect(chooseLegends(9, [{ p: 0, unitId: 77, kind: Kind.Dragon, platoonKills: 12, repo: 'ana/parser' }], d)).toEqual(legends);
   });
@@ -144,9 +145,9 @@ describe('deeds', () => {
   it('awards new deeds once', () => {
     const slain = new Array(KIND_COUNT).fill(0);
     slain[Kind.Dragon] = 1;
-    const ctx = { pl: digestPlayer({ kills: 120, slain, routs: 0 }), digest: digest([]), ordersDone: 3, streak: 7, wins: 1, days: 10, legendsNamed: 0 };
+    const ctx = { pl: digestPlayer({ kills: 120, slain, routs: 0, conquests: 2, retakes: 1 }), digest: digest([], 0), ordersDone: 3, streak: 7, wins: 1, days: 10, legendsNamed: 0 };
     const ids = newDeeds(ctx, new Set()).map((d) => d.id);
-    for (const id of ['first-blood', 'centurion', 'victor', 'dragonslayer', 'unbroken', 'orders-3', 'streak-7', 'days-10']) expect(ids).toContain(id);
+    for (const id of ['first-blood', 'centurion', 'victor', 'ringholder', 'siegebreaker', 'phoenix', 'dragonslayer', 'unbroken', 'orders-3', 'streak-7', 'days-10']) expect(ids).toContain(id);
     expect(newDeeds(ctx, new Set(ids))).toEqual([]);
   });
 });

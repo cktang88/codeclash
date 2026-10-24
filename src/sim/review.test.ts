@@ -5,7 +5,7 @@ import { generateMap, slotsFor } from './mapgen.ts';
 import { applyDelta, armyFor, cleanLines, emptyLedger } from './muster.ts';
 import { decodeInput, encodeInput, timedInputs, type EncodedInput, type Replay } from './replay.ts';
 import { checksum, restore, snapshot } from './snapshot.ts';
-import { MAX_ALIVE, QUEUE_LIMIT, STATS } from './stats.ts';
+import { BARRED_UNTIL, MAX_ALIVE, QUEUE_LIMIT, STATS } from './stats.ts';
 import { resolveMove } from './steering.ts';
 import { createWorld, step } from './world.ts';
 
@@ -72,22 +72,27 @@ const SHAPES: { lines: number[]; msg: string; files: number; branches: number }[
 ];
 
 describe('snapshot mid-battle', () => {
-  it('continues bit-for-bit with every kind fighting, dragons breathing, sieges, routs, regroups, a sack and the Monolith falling', () => {
+  it('continues bit-for-bit with every kind fighting, dragons breathing, sieges, routs, regroups and a capital stormed', () => {
     const players = 8;
     const w = newWorld(players, 5);
-    const start = 8 * TICKS_PER_MINUTE;
+    // The war's afternoon: every gate is open, so the sieges in the window can carry the walls.
+    const t0 = BARRED_UNTIL;
+    w.tick = t0;
+    const start = t0 + 8 * TICKS_PER_MINUTE;
     const end = start + 8 * TICKS_PER_MINUTE;
-    const inputsAt = (t: number): SimInput[] => {
+    const inputsAt = (tick: number): SimInput[] => {
+      const t = tick - t0;
       const out: SimInput[] = t === 0 ? joins(players) : [];
       // One opening push each, then one every 400 ticks: slow enough that no one tires, so heroes still muster.
       const i = t < 220 ? (t - 20) / 25 : t % 400 === 0 ? 3 + t / 400 : -1;
       if (i >= 0 && Number.isInteger(i)) out.push({ kind: 'push', p: i % players, repo: i % players, commits: 1, churn: 0, filler: 0, ...SHAPES[i % SHAPES.length]! });
       // A siege wave: sweeping changes raise Trebuchets alongside line troops for the march on a capital.
-      if (t === start - 1200) for (let p = 1; p < 6; p++) out.push({ kind: 'push', p, repo: p, commits: 1, churn: 0, filler: 0, ...SHAPES[7]!, lines: L(400, 0, 0, 0, 200) });
-      if (t === start - 1200) {
-        for (let p = 1; p < players; p++) out.push({ kind: 'rally', p, site: p < 6 ? 0 : 2 * w.map.slots }, { kind: 'doctrine', p, doctrine: 3 });
+      if (t === 8 * TICKS_PER_MINUTE - 1200) for (let p = 1; p < 6; p++) out.push({ kind: 'push', p, repo: p, commits: 1, churn: 0, filler: 0, ...SHAPES[7]!, lines: L(400, 0, 0, 0, 200) });
+      if (t === 8 * TICKS_PER_MINUTE - 1200) {
+        // Capital 0's neighbours march on it; the others pair off over the fort between them.
+        for (let p = 1; p < players; p++) out.push({ kind: 'rally', p, site: p === 1 || p === 7 ? 0 : w.map.slots + p - (p % 2) }, { kind: 'doctrine', p, doctrine: 3 });
       }
-      if (t === start + 100) out.push({ kind: 'cry', p: 2 });
+      if (t === 8 * TICKS_PER_MINUTE + 100) out.push({ kind: 'cry', p: 2 });
       return out;
     };
     const seen = new Array<number>(KIND_COUNT).fill(0);
@@ -95,16 +100,16 @@ describe('snapshot mid-battle', () => {
       step(w, inputsAt(w.tick));
       for (const u of w.units) seen[u.kind] = 1;
     }
-    // Bring the walls low so a sack and the Monolith's fall land inside the window.
-    w.structures[0]!.hp = 1500;
-    w.structures[1]!.hp = 200;
+    // Bring the walls low so a capital falls inside the window, and hand its neighbour the approach.
+    w.structures[0]!.hp = 300;
+    w.sites[w.map.slots]!.owner = 1;
     // And break one platoon's nerve so a rout lands inside the window too.
     const shaken = w.platoons.find((pl) => !pl.champion && (pl.state === PlatoonState.March || pl.state === PlatoonState.Hold || pl.state === PlatoonState.Engage));
     if (shaken) shaken.morale = -5;
 
     const r = restore(snapshot(w));
     expect(checksum(r)).toBe(checksum(w));
-    const tally = { regroups: 0, routs: 0, sacks: 0, breaths: 0, boulders: 0, fireballs: 0, heals: 0, monolith: 0 };
+    const tally = { regroups: 0, routs: 0, conquests: 0, breaths: 0, boulders: 0, fireballs: 0, heals: 0 };
     while (w.tick < end) {
       const inputs = inputsAt(w.tick);
       const ev = step(w, inputs);
@@ -113,18 +118,18 @@ describe('snapshot mid-battle', () => {
       for (const u of w.units) seen[u.kind] = 1;
       tally.regroups += ev.regroups.length;
       tally.routs += ev.routs.length;
-      tally.sacks += ev.sacks.length;
+      tally.conquests += ev.conquests.length;
       tally.breaths += ev.breaths.length;
       tally.boulders += ev.shots.filter((s) => s.kind === 3).length;
       tally.fireballs += ev.shots.filter((s) => s.kind === 2).length;
       tally.heals += ev.heals.length;
-      if (ev.monolith) tally.monolith++;
     }
     expect(seen.join('')).toBe('1'.repeat(KIND_COUNT));
     // The window must be busy for the determinism check to mean much; which events land in it shifts with balance.
     const busy = Object.entries(tally).filter(([, n]) => n > 0).map(([k]) => k);
     expect(busy.length, `events seen: ${busy.join(', ')}`).toBeGreaterThanOrEqual(6);
-    expect(w.monolithFallen).toBe(true);
+    expect(tally.conquests).toBeGreaterThan(0);
+    expect(w.structures[0]!.p).not.toBe(0);
     expect(JSON.stringify(snapshot(r))).toBe(JSON.stringify(snapshot(w)));
   }, 60_000);
 

@@ -31,7 +31,7 @@ export function Toasts({ hud }: { hud: HudSnapshot }) {
             key={t.id}
             className={`toast toast-${t.kind}`}
             style={hueVar(actor?.hue)}
-            onClick={() => Number.isFinite(t.x) && (t.x !== 0 || t.y !== 0 || t.kind === 'monolith') && field()?.focus(t.x, t.y, 1.2)}
+            onClick={() => Number.isFinite(t.x) && (t.x !== 0 || t.y !== 0) && field()?.focus(t.x, t.y, 1.2)}
           >
             <span className="toast-paper">
               <span className="toast-icon chron-icon">
@@ -54,7 +54,7 @@ export function MonolithBar({ hud }: { hud: HudSnapshot }) {
   return (
     <button className="monolith-bar" onClick={() => field()?.focus(0, 0, 1)} title="The Legacy Monolith guards the Heart. Everyone attacks it together.">
       <span className="monolith-label">
-        <EventIcon kind="monolith" size={16} /> Legacy Monolith
+        <EventIcon kind="victory" size={16} /> Legacy Monolith
       </span>
       <CarvedBar value={m.hp} max={m.maxHp} kind="hp" size="lg" label="Monolith health" valueText={`${pct}%`} />
       <span className="num">

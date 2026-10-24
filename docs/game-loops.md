@@ -11,13 +11,13 @@ No loop may reward gaming the code metrics. Every reward comes either from real 
 **Payoff, in order:**
 
 1. A toast: *"Your banner rises."* It names the repo and shows the commit message as a herald's scroll.
-2. A horn sounds and your capital's gates open.
-3. The platoon unfurls its battalion flag and marches out. The camera can follow it, and the "Follow my banner" control is one key.
+2. A horn sounds and the gate facing your busier front opens.
+3. The platoon unfurls its battalion flag and marches out along the ring road toward a neighbour. The camera can follow it, and the "Follow my banner" control is one key.
 4. Every 1–3 minutes your soldiers meet the enemy. Each clash brings kills, a rout, a Champion's last stand, or a fireball. Every death adds to your tally, and every rout or capture is a chronicle line with your name in ink.
 
 **Your inputs in this loop:**
 
-- **Rally** your platoons onto a site. One rally every 30 minutes, with a satisfying stamp.
+- **Rally** your platoons onto a site: a border fort or a neighbour's capital picks the front your army fights on. One rally every 30 minutes, with a satisfying stamp.
 - Send **emotes** to the room.
 - **Inspect** a platoon to read its regiment's story: repo, commit, kills, morale.
 
@@ -27,36 +27,38 @@ No loop may reward gaming the code metrics. Every reward comes either from real 
 
 Each player gets three **Orders** for the day, drawn from a deck of battlefield objectives. Examples:
 
-- *Hold a shrine for 10 minutes*
+- *Hold a border fort for 10 minutes*
 - *Your soldiers slay 40 foes*
-- *Strike the Monolith for 3,000 damage*
+- *Hold your walls through a 20-minute siege*
 - *Rout three enemy platoons*
-- *Sack a capital*
+- *Storm a capital*
+- *Retake a fallen home*
 - *Slay 15 foes under your War Cry*
 - *Field a veteran army*
 - *Bring a broken platoon home alive*
 
 The deck holds 17 Orders. The three are drawn from the war's seed and your account, so they are fixed for the day, and two of the same kind (say, two slaying goals) never pair up. Orders depend on battle outcomes and can't be completed by pushing differently. Each fulfilled Order stamps a wax seal on your page and pays 50 **Glory**, the lifetime currency.
 
-**The shared rhythm of the day:**
+**The shared rhythm of the day: a campaign around the ring.** The capitals stand on a ring around a lake or a massif, seats shuffled each day, and every army fights only the two beside it.
 
-1. **Dawn.** Everyone strikes the Monolith together, and the room cooperates.
-2. **Late morning.** The Monolith falls, the Heart opens, and the first betrayal follows.
-3. **Afternoon.** The bounty on the leader turns the room against them.
-4. **Dusk.** Last pushes and War Cries.
-5. **The reset hour.** The digest, and a new dawn.
+1. **Dawn.** Banners rise. The first pushes march out along the front roads and skirmish for the border forts between neighbours. Every gate is barred, so the morning is about renown, forts and building the day's army.
+2. **Late morning.** The fort lines settle. Armies mass at the forts they hold, and a quiet player's gates stay barred until two hours after their first push.
+3. **Mid-afternoon (the war's 14th hour).** The siege trains arrive: walls can be stormed from a fort you hold, and no wall falls in less than half an hour of unbroken siege while its tower bleeds the besiegers. Defenders come home, neighbours strike at the besieger's other flank, and every push still counts. A capital taken becomes its captor's gate, and every capital held beyond home swells the captor's army by a quarter.
+4. **Late afternoon.** The fallen fight on as **risings** outside their old walls, and retake them if the conqueror's front runs thin. Two owners left share both fronts; the ring narrows.
+5. **Evening.** One banner over every capital ends the war on the spot, and the room waits for the reset. Otherwise the last pushes and War Cries decide who holds the most capitals.
+6. **The reset hour.** The digest (the most capitals, then renown), and a new ring in a new order.
 
 **Spectator hooks:**
 
 - the hottest-fight director camera
-- a "since you looked away" summary of what happened while you were gone
+- a "since you looked away" summary of what happened while you were gone (forts lost, capitals stormed, risings)
 - a highlight toast for every set piece
-- a renown race with trend arrows and a crown that changes hands
+- the ring itself: who holds which capital, and a renown race with trend arrows for the tiebreak
 
 **Choices that matter by the hour:**
 
 - **Doctrine** (once an hour) counters what your rivals pick.
-- **Rally** concentrates your force.
+- **Rally** picks the front you push on.
 - The **War Cry** is a once-a-day trump card.
 
 ## The 10+ hour loop: "My house's legend"
@@ -101,16 +103,16 @@ It raises a lifetime **Rank**:
 - a banner tassel
 - a herald's title shown beside your name: a Rank title you have reached, or one a Deed grants
 
-**The Hall of Legends.** Champions and Dragons still standing at the day's end, the captain of a platoon with 20+ kills, and whoever struck the Monolith's killing blow are **named**, for example "Brannoc the Unbowed, of the parser Battalion" (at most three a player a day). They are enshrined in the room's Hall with their deeds, and a legend's statue stands at your capital in the next day's war.
+**The Hall of Legends.** Champions and Dragons still standing at the day's end, the captain of a platoon with 20+ kills, and the general who took the whole ring are **named**, for example "Brannoc the Unbowed, of the parser Battalion" (at most three a player a day). They are enshrined in the room's Hall with their deeds, and a legend's statue stands at your capital in the next day's war.
 
-**Seasons.** A room's **Season** is a calendar week (an ISO week) of its daily wars. Season standings sum each day's placing points: 10, 6, 4, 3 and 2 for first to fifth, and 1 for anyone else who fought. The Season Victor's monument is raised at the Heart of the next season's maps, and the season gets its own illuminated recap.
+**Seasons.** A room's **Season** is a calendar week (an ISO week) of its daily wars. Season standings sum each day's placing points: 10, 6, 4, 3 and 2 for first to fifth, and 1 for anyone else who fought. The Season Victor's monument is raised at the centre of the next season's rings, and the season gets its own illuminated recap.
 
 **Deeds.** About 30 achievements, for example:
 
 - First Blood
 - Dragonslayer
 - Unbroken: a day of 20+ kills with no routs
-- Siegebreaker
+- Siegebreaker (storm a capital), Ringholder (take every capital), Phoenix (retake your home)
 - Iron Streak: seven days fighting
 
 Each is shown as a seal in your profile's codex.
@@ -122,6 +124,6 @@ Each is shown as a seal in your profile's codex.
 ## Why players return
 
 - **Every session:** their own push becomes visible and consequential.
-- **Every day:** new Orders, a new map, a new digest, and a chance at the crown.
+- **Every day:** new Orders, a new ring and new neighbours, a new digest, and a chance to hold the whole ring.
 - **Every week:** a season to win and a monument to raise.
 - **Long term:** Rank, heraldry, the Hall of Legends, Deeds and rivalries. Their house grows a history in the room.

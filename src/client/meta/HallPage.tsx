@@ -8,7 +8,7 @@ import { metaApi, useLoad } from './api.ts';
 const KIND_TEXT: Record<LegendEntry['kind'], string> = {
   survivor: 'Survived the day',
   captain: 'A great captain',
-  monolith: 'Broke the Monolith',
+  conqueror: 'Took the whole ring',
 };
 
 function unitName(unit: Kind | null): string {

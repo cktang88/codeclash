@@ -124,24 +124,24 @@ const EVENT_PATHS: Record<ChronicleKind | 'order', ReactNode> = {
       <H d="M8 9.5h7.5" />
     </>
   ),
-  // A burning keep.
-  sack: (
+  // A burning keep: a capital stormed. (TODO client: a conquest glyph.)
+  conquest: (
     <>
       <path d="M4 21.5V12h3v2h2.5v-2h3v2H15v-2h3v9.5Z" />
       <path d="M11.5 10c-2-2-1.4-4.6 1-7 .3 2 2.6 2.7 2.6 5 0 1.4-.8 2.3-1.8 2.8" />
       <H d="M8 21.5v-4.5h3v4.5M15 17v4.5M16.5 15.5v6" />
     </>
   ),
-  // Walls rebuilt: a trowel over stones.
-  rebuilt: (
+  // Walls and a trowel: a rising outside a lost home. (TODO client: a rising glyph.)
+  rising: (
     <>
       <path d="M3 21.5h18M4 21.5V13h16v8.5M4 17h16M9 13v4M15 13v4M12 17v4.5M7 17v4.5M17 17v4.5" />
       <path d="M13 9.5 18.5 4l2 2L15 11.5ZM13 9.5l-2 2" />
       <H d="M16 18.5h4M16 20h4" />
     </>
   ),
-  // The Legacy Monolith, cracked.
-  monolith: (
+  // A standing stone: the ring won. (TODO client: a victory glyph.)
+  victory: (
     <>
       <path d="M8.5 21.5 9.8 4.2 12 2.5l2.2 1.7 1.3 17.3Z" />
       <path d="m10.8 8.5 2.4 1.5-1.6 2 1.8 2" strokeWidth={1.4} />

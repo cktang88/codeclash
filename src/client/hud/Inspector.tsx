@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { Kind, PlatoonState, TICK_MS, type World } from '../../sim/api.ts';
 import { platoonLabel, siteLabel } from '../../sim/chronicle.ts';
-import { CAPTURE_TICKS, DOCTRINE_NAMES, HEART_CAPTURE_TICKS, STATS } from '../../sim/stats.ts';
+import { CAPTURE_TICKS, DOCTRINE_NAMES, STATS } from '../../sim/stats.ts';
 import type { HudSnapshot } from '../store.ts';
 import { Avatar } from '../ui/Avatar.tsx';
 import { BattalionFlag } from '../ui/Flag.tsx';
@@ -117,17 +117,18 @@ export function Inspector({ hud }: { hud: HudSnapshot }) {
     const st = world.sites[sel.id];
     if (!def || !st) return null;
     const structure = world.structures.find((s) => s.site === sel.id);
-    const owner = def.kind === 'capital' ? world.players.find((pl) => pl.slot === def.slot)?.p ?? -1 : st.owner;
+    // Capitals and forts alike: the site's owner is who holds it now (a capital may have been captured).
+    const owner = st.owner;
     const info = playerInfo(hud.roster, owner);
     const capturer = playerInfo(hud.roster, st.capturer);
-    const need = def.kind === 'heart' ? HEART_CAPTURE_TICKS : CAPTURE_TICKS;
+    const need = CAPTURE_TICKS;
     return (
       <section className="panel inspector" aria-label="Selected objective">
         <header className="inspector-head">
           <div className="inspector-title">
-            <strong>{def.kind === 'heart' ? 'The Heart' : siteLabel(world, sel.id, store.names)}</strong>
+            <strong>{siteLabel(world, sel.id, store.names)}</strong>
             <span className="muted">
-              {def.kind === 'capital' ? 'Capital' : `${def.kind === 'heart' ? 'Center of the map' : 'Shrine'} · ${def.renown} renown a minute`}
+              {def.kind === 'capital' ? 'Capital' : `Border fort · ${def.renown} renown a minute`}
             </span>
           </div>
           {close}
@@ -143,14 +144,12 @@ export function Inspector({ hud }: { hud: HudSnapshot }) {
             'Unclaimed.'
           )}
         </p>
-        {def.kind === 'heart' && !world.monolithFallen && <p className="muted">The Legacy Monolith guards the Heart. It must fall before anyone can capture it.</p>}
         {st.capturer >= 0 && st.progress > 0 && (
           <Meter label={`@${capturer.login} capturing`} value={Math.round((st.progress * TICK_MS) / 1000)} max={Math.round((need * TICK_MS) / 1000)} kind="capture" />
         )}
-        {structure && structure.maxHp > 0 && (structure.p >= 0 || !world.monolithFallen) && (
-          <Meter label={structure.p < 0 ? 'Monolith' : 'Walls'} value={Math.round(structure.hp)} max={structure.maxHp} kind="hp" />
+        {structure && structure.maxHp > 0 && (
+          <Meter label="Walls" value={Math.round(structure.hp)} max={structure.maxHp} kind="hp" />
         )}
-        {structure && structure.ruinedUntil >= 0 && <p className="form-error">In ruins. Rebuilds in {duration((structure.ruinedUntil - world.tick) * TICK_MS)}.</p>}
       </section>
     );
   }
@@ -195,8 +194,8 @@ export function Inspector({ hud }: { hud: HudSnapshot }) {
           <dd className="num">{ps.captures}</dd>
         </div>
         <div>
-          <dt>Sacks</dt>
-          <dd className="num">{ps.sacks}</dd>
+          <dt>Capitals stormed</dt>
+          <dd className="num">{ps.conquests}</dd>
         </div>
       </dl>
       <div className="inspector-units">

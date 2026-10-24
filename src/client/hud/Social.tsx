@@ -16,7 +16,7 @@ const EMOTE_GAP_MS = 2000;
 const EMOTE_ICONS: Record<Emote, { name: string; icon: ReactNode }> = {
   '⚔️': { name: 'crossed swords', icon: <EventIcon kind="clash" size={22} /> },
   '🛡️': { name: 'a shield', icon: <Icon name="shield" size={22} /> },
-  '🔥': { name: 'fire', icon: <EventIcon kind="sack" size={22} /> },
+  '🔥': { name: 'fire', icon: <EventIcon kind="conquest" size={22} /> },
   '🎉': { name: 'a fanfare', icon: <Icon name="horn" size={22} /> },
   '😱': { name: 'a gasp', icon: <Icon name="eye" size={22} /> },
   '👑': { name: 'a crown', icon: <Icon name="crown" size={22} /> },

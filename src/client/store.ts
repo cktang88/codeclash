@@ -79,7 +79,7 @@ const EMOTE_MS = 3500;
 const RENOWN_SAMPLE_TICKS = 5;
 /** Samples spanning one minute of war, for the trend arrows. */
 const RENOWN_SAMPLES = 60;
-const TOAST_KINDS = new Set<ChronicleEntry['kind']>(['sack', 'monolith', 'dragon', 'champion', 'cry', 'leader', 'clash', 'join']);
+const TOAST_KINDS = new Set<ChronicleEntry['kind']>(['conquest', 'rising', 'victory', 'dragon', 'champion', 'cry', 'leader', 'clash', 'join']);
 
 /** Everything the client knows about the room it is watching. */
 export class GameStore {
@@ -250,7 +250,8 @@ export class GameStore {
   private build(): HudSnapshot {
     const world = this.world;
     const standings: Standing[] = [];
-    let monolith = { hp: 0, maxHp: 1, fallen: false };
+    // The Legacy Monolith is gone from the ring map; the bar stays hidden (TODO client: replace with a ring-of-capitals bar).
+    const monolith = { hp: 0, maxHp: 1, fallen: true };
     if (world) {
       const alive = new Int32Array(world.players.length);
       for (const u of world.units) if (u.p >= 0) alive[u.p]!++;
@@ -275,8 +276,6 @@ export class GameStore {
         });
       }
       standings.sort((a, b) => b.renown - a.renown || a.p - b.p);
-      const m = world.structures.find((s) => s.p === NEUTRAL);
-      if (m) monolith = { hp: m.hp, maxHp: m.maxHp, fallen: world.monolithFallen };
     }
     return {
       conn: this.conn,

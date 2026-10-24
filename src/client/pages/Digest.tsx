@@ -28,11 +28,13 @@ const AWARD_ICON: Record<string, () => ReactNode> = {
   scribe: () => <UnitIcon kind={Kind.Herald} size={26} title="" />,
   demolisher: () => <UnitIcon kind={Kind.Outrider} size={26} title="" />,
   siegebreaker: () => <UnitIcon kind={Kind.Trebuchet} size={26} title="" />,
-  'monolith-slayer': () => <EventIcon kind="monolith" size={26} />,
+  conqueror: () => <EventIcon kind="conquest" size={26} />,
+  'last-stand': () => <Icon name="shield" size={26} />,
+  phoenix: () => <EventIcon kind="rising" size={26} />,
+  marcher: () => <EventIcon kind="capture" size={26} />,
   ghost: () => <Icon name="eye" size={26} />,
   bugslayer: () => <UnitIcon kind={Kind.Cleric} size={26} title="" />,
   architect: () => <UnitIcon kind={Kind.Knight} size={26} title="" />,
-  conqueror: () => <Icon name="flag" size={26} />,
   dragonlord: () => <UnitIcon kind={Kind.Dragon} size={26} title="" />,
   dragonslayer: () => <EventIcon kind="dragon" size={26} />,
 };
@@ -155,8 +157,8 @@ function PlayerCard({ pl, repos }: { pl: DigestPlayer & FairFields; repos: { nam
           <dd className="num">{pl.captures}</dd>
         </div>
         <div>
-          <dt>Sacks</dt>
-          <dd className="num">{pl.sacks}</dd>
+          <dt>Capitals stormed</dt>
+          <dd className="num">{pl.conquests}</dd>
         </div>
       </dl>
       {pl.best && (
@@ -253,7 +255,7 @@ export function DigestPage({ slug, warId, invite = null }: { slug: string; warId
 
       <DropCap
         className="digest-opening"
-        text={`Here is set down the chronicle of the war of ${date}, fought in ${room.name} by ${d.players.length} ${d.players.length === 1 ? 'army' : 'armies'} raised from ${d.totals.pushes} ${d.totals.pushes === 1 ? 'push' : 'pushes'}. ${d.monolith.fallen ? `The Legacy Monolith fell at ${at(d.monolith.tick ?? 0)}.` : 'The Legacy Monolith stood to the end.'} ${winner ? `When the sun went down, @${winner.login} held the field.` : 'No banner held the field at sundown.'}`}
+        text={`Here is set down the chronicle of the war of ${date}, fought in ${room.name} by ${d.players.length} ${d.players.length === 1 ? 'army' : 'armies'} raised from ${d.totals.pushes} ${d.totals.pushes === 1 ? 'push' : 'pushes'}. ${d.victory ? `The whole ring fell to one banner at ${at(d.victory.tick)}.` : 'No one held the whole ring when the reset came.'} ${winner ? `When the sun went down, @${winner.login} held the field.` : 'No banner held the field at sundown.'}`}
       />
 
       {data.timelapse?.length > 0 && (
@@ -332,8 +334,8 @@ export function DigestPage({ slug, warId, invite = null }: { slug: string; warId
               </dd>
             </div>
             <div>
-              <dt>Monolith</dt>
-              <dd>{d.monolith.fallen ? `fell at ${at(d.monolith.tick ?? 0)}` : 'stood'}</dd>
+              <dt>The ring</dt>
+              <dd>{d.victory ? `won at ${at(d.victory.tick)}` : 'unconquered at the reset'}</dd>
             </div>
           </dl>
           <h3 className="section-label">Lines pushed, code first</h3>

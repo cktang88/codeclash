@@ -355,7 +355,7 @@ export class Meta implements MetaHooks {
     return [...totals.values()].sort((a, b) => b.points - a.points || b.wins - a.wins || a.user.login.localeCompare(b.user.login));
   }
 
-  /** Statues for a war: the last finished war's legends beside their players' capitals, and last season's victor at the Heart. */
+  /** Statues for a war: the last finished war's legends beside their players' capitals, and last season's victor at the centre of the ring. */
   monuments(room: RoomRow, war: War): Monument[] {
     const out: Monument[] = [];
     const previous = this.deps.store.wars(room.id, 3).find((w) => w.id !== war.id && w.status === 'ended');

@@ -8,8 +8,9 @@ export const MAX_SLOTS = 16;
 /** Length of the front road between two neighbouring capitals, along the ring. */
 const RING_SPACING = 700;
 const MIN_RING = 440;
-/** Half the width of the band the war is fought in: from the centre's shore to the map's rim. */
-const BAND = 260;
+/** The band the war is fought in: from the centre's shore to the ring road, and from it to the map's rim. */
+const INNER = 160;
+const OUTER = 230;
 /** Half the width of the front road kept clear around the ring. */
 const ROAD = 22;
 const MAX_ATTEMPTS = 12;
@@ -20,7 +21,7 @@ export function ringRadius(slots: number): number {
 }
 
 export function mapRadius(slots: number): number {
-  return ringRadius(slots) + BAND;
+  return ringRadius(slots) + OUTER;
 }
 
 /** Seats for a war of `members` players and bots: one spare for a late joiner, at least three. */
@@ -80,8 +81,8 @@ export function sharedMap(params: WarParams): MapDef {
 export function generateMap(params: WarParams): MapDef {
   const slots = Math.min(MAX_SLOTS, Math.max(MIN_SLOTS, Math.floor(params.slots)));
   const ring = ringRadius(slots);
-  const radius = ring + BAND;
-  const centre = ring - BAND;
+  const radius = ring + OUTER;
+  const centre = ring - INNER;
   const sites = placeSites(slots, ring);
   const navCols = Math.ceil((radius * 2) / NAV_CELL) + 2;
   const base: Omit<MapDef, 'terrain'> = {
@@ -157,7 +158,7 @@ function paintTerrain(map: Omit<MapDef, 'terrain'>, seed: number, obstacles: boo
         }
       }
       // The centre: a lake or a massif with a ragged shore, never reaching the front road.
-      const shore = centre + (fbm(seed + 31337, sx / 90, sy / 90) - 0.5) * 70;
+      const shore = centre + (fbm(seed + 31337, sx / 90, sy / 90) - 0.5) * 50;
       if (r < shore) {
         terrain[i] = centreKind;
         continue;

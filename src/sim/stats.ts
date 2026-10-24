@@ -127,32 +127,40 @@ export function doctrineStructure(d: Doctrine): number {
 export const HOLD_REDUCTION = 0.2;
 export const HOLD_RADIUS = 200;
 
+const HOUR = 60 * TICKS_PER_MINUTE;
+
 /** A capital's walls before its holder's work today raises them. */
-export const CAPITAL_HP = Number(process.env.T_HP ?? 12000);
+export const CAPITAL_HP = 12000;
 /** Wall HP added for every platoon slot of army its holder's work has raised today. */
-export const WALL_PER_SLOT = Number(process.env.T_WALL ?? 150);
-export const CAPITAL_TOWER = { damage: Number(process.env.T_TOWER ?? 20), range: 160, cooldown: 4 };
+export const WALL_PER_SLOT = 150;
+/** A capital's tower: a volley every 4 s; see TOWER_PER. */
+export const CAPITAL_TOWER = { damage: 20, range: 160, cooldown: 20 };
 /** A capital's tower looses one more bolt each volley for every this many foes within its reach. */
-export const TOWER_PER = Number(process.env.T_PER ?? 8);
-/** A captured capital's walls stand again at this share of CAPITAL_HP under their new owner. */
-export const CAPTURE_HP = Number(process.env.T_CAP ?? 0.5);
+export const TOWER_PER = 8;
+/** A captured capital's walls stand again at this share of their new holder's full walls. */
+export const CAPTURE_HP = 0.5;
 /** Renown for capturing a capital: this for its first capture today, then `CAPTURE_RENOWN / n` for the n-th. */
 export const CAPTURE_RENOWN = 120;
 /** Each capital held beyond your own home multiplies your army's budget (and its field cap) by this much more. */
-export const CONQUEST_BONUS = Number(process.env.T_BONUS ?? 0.25);
+export const CONQUEST_BONUS = 0.25;
+/** No walls can be breached before this tick, fourteen hours into the war: the morning is for the border forts. */
+export const SIEGE_OPENS = 14 * HOUR;
 /**
  * A capital keeps its gates barred, unbreachable, until its founder has had BARRED_GRACE since its
- * first push today to raise a levy, or until BARRED_UNTIL (twelve hours into the war), whichever
+ * first push today to raise a levy, or until BARRED_UNTIL (sixteen hours into the war), whichever
  * comes first: no one is conquered in their sleep. A capital that has changed hands is never barred.
  */
-export const BARRED_UNTIL = Number(process.env.T_UNTIL ?? 15) * 60 * TICKS_PER_MINUTE;
-/** No walls can be breached before this tick: the morning is for the border forts. */
-export const SIEGE_OPENS = Number(process.env.T_OPENS ?? 12) * 60 * TICKS_PER_MINUTE;
-export const BARRED_GRACE = Number(process.env.T_GRACE ?? 60) * TICKS_PER_MINUTE;
+export const BARRED_GRACE = 2 * HOUR;
+export const BARRED_UNTIL = 16 * HOUR;
+/**
+ * Walls fall no faster than this, however many strike them: a full capital holds out for thirty
+ * minutes of unbroken siege, a captured one (at half its walls) for fifteen.
+ */
+export const BREACH_TICKS = 30 * TICKS_PER_MINUTE;
 /** A siege ends once no foe has stood at the walls for this long. */
 export const SIEGE_QUIET = 30 * TICKS_PER_SECOND;
 /** HP a capital's masons restore per second once no siege is on. */
-export const CAPITAL_REPAIR = Number(process.env.T_REPAIR ?? 10);
+export const CAPITAL_REPAIR = 10;
 /** Share of a holding's renown paid while its owner has no soldiers near it. */
 export const UNGARRISONED_SHARE = 0.25;
 

@@ -2,7 +2,7 @@ import { Container, Graphics, Sprite, type Texture } from 'pixi.js';
 import type { Monument, RosterEntry } from '../../protocol.ts';
 import { NEUTRAL, type SiteDef, type World } from '../../sim/api.ts';
 import { siteLabel, type Names } from '../../sim/chronicle.ts';
-import { CAPTURE_TICKS, HEART_CAPTURE_TICKS } from '../../sim/stats.ts';
+import { CAPTURE_TICKS } from '../../sim/stats.ts';
 import { WavingFlag } from './banners.ts';
 import { FLAG_W, type FlagCache } from './flags.ts';
 import { LabelLayer, MapLabel } from './labels.ts';
@@ -77,7 +77,6 @@ export class SiteLayer {
   ) {
     this.root.sortableChildren = true;
     for (const def of world.map.sites) this.views.push(this.create(def));
-    if (world.monolithFallen) this.monolithFallAt = -1e9;
   }
 
   monolithFell(now: number): void {
@@ -109,12 +108,12 @@ export class SiteLayer {
       let tex: Texture;
       let size: number;
       if (m.kind === 'season' || m.p < 0) {
-        const heart = world.map.sites.find((s) => s.kind === 'heart');
-        if (!heart) continue;
-        x = heart.x + heart.radius * 1.25;
-        y = heart.y + heart.radius * 0.35;
+        // TODO client: the Season Victor's obelisk belongs on the shore of the ring's centre.
+        const centre = world.map.centre;
+        x = 0;
+        y = -centre;
         tex = this.art.obelisk;
-        size = heart.radius * 1.5;
+        size = 120;
       } else {
         const player = world.players[m.p];
         const site = player ? world.map.sites[player.slot] : undefined;
@@ -207,7 +206,8 @@ export class SiteLayer {
       emissive = place(new Sprite(c.windows), c.feet, c.w, c.h);
       halo.scale.set((def.radius * 4) / 64, (def.radius * 2.6) / 64);
       halo.tint = 0xffb060;
-    } else if (def.kind === 'shrine') {
+    } else if (def.kind === 'fort') {
+      // TODO client: border fort art; the shrine stands in for now.
       const s = this.art.shrine;
       scale = (def.radius * 2.1) / 168;
       body = place(new Sprite(s.body), s.feet, s.w, s.h);
@@ -242,8 +242,8 @@ export class SiteLayer {
     const bar = new Graphics();
     root.addChild(bar);
     this.root.addChild(root);
-    const label = this.labels.add(new MapLabel(def.kind === 'shrine' ? 16 : 19));
-    label.priority = def.kind === 'capital' ? 10 : def.kind === 'heart' ? 8 : 5;
+    const label = this.labels.add(new MapLabel(def.kind === 'fort' ? 16 : 19));
+    label.priority = def.kind === 'capital' ? 10 : 5;
     return { def, root, art, body, pigment, cracks, doors, ring, bar, label, flags, flagKey: '', halo, emissive, scale, lastHp: -1, wound: 1, shake: 0, gateAt: -1e9, nextSmoke: 0 };
   }
 
@@ -264,7 +264,8 @@ export class SiteLayer {
     const lights = light.lights;
     const ownerOfSlot = this.ownerOfSlot;
     ownerOfSlot.clear();
-    for (const p of world.players) ownerOfSlot.set(p.slot, p.p);
+    // A capital's holder, which a capture changes, not its founder.
+    for (const st of world.structures) ownerOfSlot.set(world.map.sites[st.site]!.slot, st.p);
     for (const v of this.views) {
       const { def } = v;
       const state = world.sites[def.id]!;
@@ -280,7 +281,7 @@ export class SiteLayer {
       if (def.kind === 'capital') {
         const owner = ownerOfSlot.get(def.slot) ?? NEUTRAL;
         const st = world.structures.find((s) => s.site === def.id);
-        const ruined = !st || st.ruinedUntil >= 0;
+        const ruined = !st;
         const c = this.art.castle;
         v.body.texture = ruined ? c.ruins : c.body;
         const heraldry = owner !== NEUTRAL ? roster[owner]?.heraldry : undefined;
@@ -327,10 +328,7 @@ export class SiteLayer {
           rubric = owner === light.leader;
           const r = roster[owner];
           if (r?.heraldry?.title) subtitle = r.heraldry.title;
-          if (st && st.ruinedUntil >= 0) {
-            const secs = Math.max(0, Math.ceil(((st.ruinedUntil - tick) * 200) / 1000));
-            subtitle = `sacked · rebuilt in ${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
-          }
+          if (st && st.siegeSince >= 0) subtitle = 'besieged';
           if (visible && now >= v.nextSmoke) {
             if (ruined) {
               v.nextSmoke = now + 260;
@@ -341,10 +339,10 @@ export class SiteLayer {
               fx.smoke(def.x + (ch.x - c.feet.x) * v.scale, def.y + (ch.y - c.feet.y) * v.scale, false);
             }
           }
-          if (st && st.ruinedUntil < 0 && st.hp < st.maxHp) this.hpBar(v, st.hp / st.maxHp, def.radius * 1.5, -def.radius * 2.3, tint, dt);
+          if (st && st.hp < st.maxHp) this.hpBar(v, st.hp / st.maxHp, def.radius * 1.5, -def.radius * 2.3, tint, dt);
           else v.wound = 1;
         }
-      } else if (def.kind === 'shrine') {
+      } else if (def.kind === 'fort') {
         const held = state.owner !== NEUTRAL;
         const tint = held ? tints[state.owner]! : NEUTRAL_TINT;
         const pulse = 0.5 + Math.sin(now / 700 + def.id) * 0.5;
@@ -359,80 +357,20 @@ export class SiteLayer {
         title = siteLabel(world, def.id, names).replace(/^the /, '');
         subtitle = held ? `held by ${names.player(state.owner)} · +${def.renown}/min` : `unclaimed · +${def.renown}/min`;
         this.captureRing(v, state.owner, state.capturer, state.progress / CAPTURE_TICKS, tints, zoom);
-      } else {
-        const st = world.structures.find((s) => s.site === def.id);
-        const fallen = world.monolithFallen;
-        // Fallen with no fall seen (joined late, resynced, or caught up without effects): already rubble.
-        const fallT = fallen && this.monolithFallAt < 0 ? 1 : this.monolithFallAt < 0 ? 0 : Math.min(1, (now - this.monolithFallAt) / 1600);
-        if (!fallen || fallT < 1) {
-          const m = this.art.monolith;
-          v.body.texture = m.body;
-          v.body.anchor.set(m.feet.x / m.w, m.feet.y / m.h);
-          v.art.scale.set(v.scale);
-          v.art.alpha = 1 - fallT;
-          v.art.rotation = fallT * fallT * 0.5;
-          v.art.y = fallT * fallT * def.radius * 0.6;
-          const dmg = st ? 1 - st.hp / st.maxHp : 1;
-          // The cracks widen in three stages; each stage glows in as it opens.
-          const throb = 0.8 + Math.sin(now / 240) * 0.2;
-          v.cracks[0]!.alpha = Math.min(1, dmg / 0.15) * throb;
-          v.cracks[1]!.alpha = clamp01((dmg - 0.35) / 0.15) * throb;
-          v.cracks[2]!.alpha = clamp01((dmg - 0.7) / 0.15) * throb;
-          v.emissive!.visible = true;
-          v.emissive!.texture = m.cracks[dmg > 0.7 ? 2 : dmg > 0.35 ? 1 : 0];
-          v.emissive!.alpha = (lights * 0.8 + 0.1) * Math.min(1, dmg * 3) * throb * (1 - fallT);
-          v.emissive!.rotation = v.art.rotation;
-          v.emissive!.position.set(def.x, def.y + v.art.y);
-          v.halo.tint = EMBER;
-          v.halo.alpha = (0.1 + dmg * 0.35) * (0.4 + lights * 0.6) * throb;
-          title = 'The Legacy Monolith';
-          subtitle = 'everyone against the past';
-          if (st && !fallen) this.hpBar(v, st.hp / st.maxHp, def.radius * 1.7, -def.radius * 3.25, EMBER, dt);
-        } else {
-          const h = this.art.heart;
-          if (v.body.texture !== h.body) {
-            v.body.texture = h.body;
-            v.body.anchor.set(h.feet.x / h.w, h.feet.y / h.h);
-            v.pigment ??= new Sprite(h.pigment);
-            v.pigment.anchor.set(h.feet.x / h.w, h.feet.y / h.h);
-            v.art.addChild(v.pigment);
-            v.art.scale.set((def.radius * 2.1) / 180);
-            for (const cr of v.cracks) cr.visible = false;
-            v.emissive!.texture = h.pigment;
-            v.emissive!.anchor.set(h.feet.x / h.w, h.feet.y / h.h);
-            v.emissive!.scale.set((def.radius * 2.1) / 180);
-            v.emissive!.rotation = 0;
-            v.emissive!.position.set(def.x, def.y);
-          }
-          v.art.rotation = 0;
-          v.art.y = 0;
-          v.art.alpha = 1;
-          const tint = state.owner !== NEUTRAL ? tints[state.owner]! : 0xf4e6b8;
-          const pulse = 0.5 + Math.sin(now / 500) * 0.5;
-          v.pigment!.tint = tint;
-          v.emissive!.tint = mixColor(tint, 0xffffff, 0.4);
-          v.emissive!.alpha = (0.25 + lights * 0.5) * (0.7 + pulse * 0.3);
-          v.halo.tint = tint;
-          v.halo.alpha = (0.2 + lights * 0.4) * (0.8 + pulse * 0.2);
-          v.halo.position.set(def.x, def.y - def.radius * 0.6);
-          title = 'The Heart';
-          subtitle = state.owner !== NEUTRAL ? `held by ${names.player(state.owner)} · +${def.renown}/min` : `unclaimed · +${def.renown}/min`;
-          this.captureRing(v, state.owner, state.capturer, state.progress / HEART_CAPTURE_TICKS, tints, zoom);
-        }
       }
       if (selectedSite === def.id) {
         const pulse = 1 + Math.sin(now / 250) * 0.04;
         v.ring.ellipse(0, 0, def.radius * 1.3 * pulse, def.radius * 0.82 * pulse).stroke({ width: 4 / zoom, color: INK, alpha: 0.6 });
         v.ring.ellipse(0, 0, def.radius * 1.3 * pulse, def.radius * 0.82 * pulse).stroke({ width: 2 / zoom, color: GOLD, alpha: 0.95 });
       }
-      const top = def.kind === 'capital' ? def.radius * 2.3 : def.kind === 'shrine' ? def.radius * 1.45 : world.monolithFallen ? def.radius * 1.3 : def.radius * 3.4;
+      const top = def.kind === 'capital' ? def.radius * 2.3 : def.radius * 1.45;
       v.label.set(title, subtitle, rubric);
       v.label.x = def.x;
       v.label.y = def.y - top;
       // An empty slot's ruin is scenery, not news: it yields to everything and only names itself up close.
       const openSlot = def.kind === 'capital' && title === 'Open slot';
-      v.label.priority = openSlot ? 2 : def.kind === 'capital' ? 10 : def.kind === 'heart' ? 8 : 5;
-      v.label.wanted = openSlot ? zoom > 0.7 : def.kind !== 'shrine' || zoom > 0.16;
+      v.label.priority = openSlot ? 2 : def.kind === 'capital' ? 10 : 5;
+      v.label.wanted = openSlot ? zoom > 0.7 : def.kind !== 'fort' || zoom > 0.16;
     }
     for (const m of this.monuments) m.label.wanted = zoom > 1.1;
     this.labels.layout(zoom, (l) => l.priority >= 10 || zoom > 0.75, this.compact);
@@ -482,10 +420,10 @@ export class SiteLayer {
     for (const v of this.views) {
       const dx = x - v.def.x;
       const dy = (y - v.def.y) / 0.8;
-      const r = v.def.radius * (v.def.kind === 'shrine' ? 1 : 1.15);
+      const r = v.def.radius * (v.def.kind === 'fort' ? 1 : 1.15);
       if (dx * dx + dy * dy <= r * r) return v.def.id;
       // The keep and the Monolith rise above their footprint.
-      if (v.def.kind !== 'shrine' && Math.abs(dx) < v.def.radius * 0.9 && y < v.def.y && y > v.def.y - v.def.radius * 2.2) return v.def.id;
+      if (v.def.kind !== 'fort' && Math.abs(dx) < v.def.radius * 0.9 && y < v.def.y && y > v.def.y - v.def.radius * 2.2) return v.def.id;
     }
     return null;
   }

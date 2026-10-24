@@ -810,7 +810,7 @@ export class Battlefield {
     for (const st of world.structures) {
       const s = world.map.sites[st.site];
       if (!s || s.kind !== 'capital') continue;
-      this.fires.push({ x: s.x, y: s.y - s.radius * (st.ruinedUntil >= 0 ? 0.4 : 1.2) });
+      this.fires.push({ x: s.x, y: s.y - s.radius * 1.2 });
     }
   }
 
@@ -1025,7 +1025,6 @@ export class Battlefield {
       const pl = world.platoons.find((x) => x.id === r.platoon);
       if (pl && bounds.contains(pl.x, pl.y)) this.fx.floatText('ROUT!', pl.x, pl.y - 36, 1.6, 15, 0xffe0d0);
     }
-    if (ev.monolith) this.layers.sites.monolithFell(now);
   }
 
   /**
@@ -1090,7 +1089,7 @@ export class Battlefield {
         this.layers?.sites.structureHit(st.site);
         const site = world.map.sites[st.site];
         // A capital or the Monolith taking a real blow is a big moment.
-        if (site && (site.kind === 'capital' || site.kind === 'heart') && h.damage >= 30 && bounds.contains(site.x, site.y) && h.damage > big) {
+        if (site && site.kind === 'capital' && h.damage >= 30 && bounds.contains(site.x, site.y) && h.damage > big) {
           big = h.damage;
           bigX = site.x;
           bigY = site.y;
@@ -1183,7 +1182,8 @@ export class Battlefield {
     const world = this.store.world;
     if (!world) return;
     const player = e.p !== null ? world.players[e.p] : undefined;
-    const site = player ? world.map.sites[player.slot]! : world.map.sites.find((s) => s.kind === 'heart')!;
+    // A spectator's emote floats over the first capital. (TODO client: over the centre of the ring.)
+    const site = player ? world.map.sites[player.slot]! : world.map.sites[0]!;
     this.fx.floatText(e.emote, site.x + (Math.random() - 0.5) * 50, site.y - site.radius * 2.6, 3.5, 30);
   }
 

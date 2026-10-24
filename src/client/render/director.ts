@@ -51,11 +51,10 @@ export class Director {
       const site = st ? world.map.sites[st.site] : undefined;
       if (site) this.add(site.x, site.y, 0.6);
     }
-    for (const s of ev.sacks) {
+    for (const s of ev.conquests) {
       const site = world.map.sites[s.site]!;
       this.add(site.x, site.y, 40);
     }
-    if (ev.monolith) this.add(0, 0, 60);
     for (const c of ev.captures) {
       const site = world.map.sites[c.site]!;
       this.add(site.x, site.y, 12);

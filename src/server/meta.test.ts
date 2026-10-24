@@ -58,10 +58,10 @@ describe('the long loops', () => {
     // Fulfil every order by hand: the counters are the sim's own.
     const player = war.world.players[0]!;
     player.kills = 500;
-    player.feats = { holdBest: 1e6, routsCaused: 99, cryKills: 99, returns: 9, heartCaptures: 9, leaderTakes: 9, homeKills: 99, ledTicks: 1e6 };
-    player.monolithDamage = 1e6;
+    player.feats = { holdBest: 1e6, routsCaused: 99, cryKills: 99, returns: 9, standBest: 1e6, retakes: 9, homeKills: 99, ledTicks: 1e6 };
     player.structureDamage = 1e6;
-    player.sacks = 9;
+    player.conquests = 9;
+    player.capitals = 9;
     player.captures = 9;
     player.veterancy = 3;
     player.slain[Kind.Dragon] = 1;

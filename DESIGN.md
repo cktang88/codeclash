@@ -1,6 +1,6 @@
 # Pushfront
 
-Pushfront is an all-day war fought with your pushes. You sign in with GitHub and join a room (public, or private by invite). Every push you make to a public repository is read, sorted into what kind of code it is, and becomes a **platoon** that marches out of your capital toward the middle of the map. Nobody steers individual soldiers. You make a few scarce decisions, and you watch. Each room's war lasts a day, from one reset hour to the next (a new room's first war runs to the next reset, or to the one after if that is less than an hour away). At the room's reset hour the war ends, a **digest** is written, and a fresh map begins.
+Pushfront is an all-day war fought with your pushes. You sign in with GitHub and join a room (public, or private by invite). Every push you make to a public repository is read, sorted into what kind of code it is, and becomes a **platoon** that marches out of your capital against your neighbours. The capitals stand on a ring around an impassable lake or massif, and every army fights only the two armies beside it: take a neighbour's capital and its gates muster for you, and your army grows. The war is won when one player holds the whole ring. Nobody steers individual soldiers. You make a few scarce decisions, and you watch. Each room's war lasts a day, from one reset hour to the next (a new room's first war runs to the next reset, or to the one after if that is less than an hour away). At the room's reset hour (or as soon as one player holds every capital) the war ends and a **digest** is written; a fresh map begins at the reset.
 
 This file is the source of truth for the rules and the architecture.
 
@@ -109,9 +109,9 @@ An army is worth what its player contributed **today as a whole**, not push by p
 
 **The budget.** The army's size, in platoon slots, is
 
-`floor(1.1·√code + 1.5·√files + 0.5·√branches + 0.3·√removed)`
+`floor((1.1·√code + 1.5·√files + 0.5·√branches + 0.3·√removed) × (1 + 0.25 × conquered))`
 
-(0 when there are no code or removed lines), where *code* is counted code lines, *files* source files touched, *branches* branch points, and *removed* deleted lines the ledger had not credited to the player as their own recent work. Each is first bounded by the real code behind it (`effectiveLedger`): code and removed at most 5000 per war, files at most `1 + code/20 + removed/100`, branches at most `code/3`. The square roots give diminishing returns over the day, so volume alone never wins.
+(0 when there are no code or removed lines), where *conquered* is how many capitals the player holds beyond its own home (see *Capture*), where *code* is counted code lines, *files* source files touched, *branches* branch points, and *removed* deleted lines the ledger had not credited to the player as their own recent work. Each is first bounded by the real code behind it (`effectiveLedger`): code and removed at most 5000 per war, files at most `1 + code/20 + removed/100`, branches at most `code/3`. The square roots give diminishing returns over the day, so volume alone never wins.
 
 **Specialists come out of the budget.** What the work was for, and how complex it was, spend up to 65% of the budget. They are paid in this order while the share lasts: Dragon, Champion, Troll, Trebuchet, Griffin Rider, Bone Golem, Paladin, Ranger, Wizard, Knight, Cleric, Outrider, Mercenary, Skeleton. Footmen fill the rest. The commit message therefore changes what the army is made of, never how big it is. All counts below are for the whole day:
 
@@ -164,7 +164,7 @@ An army that would otherwise be empty gets one Footman, so the first push of the
 
 **Caps.**
 
-- A player fields at most 160 slots, and a room at most 2000 soldiers. A platoon that would break either cap waits in its capital's **muster queue** and marches when there is room. The queue holds up to 24 platoons. When it is full, a new push's soldiers fold into the waiting platoons, newest first, up to 32 slots each; any left over are not raised yet, and a later push musters them.
+- A player fields at most `160 × (1 + 0.25 × conquered)` slots, and a room at most 2000 soldiers. A platoon that would break either cap waits in its capital's **muster queue** and marches when there is room. The queue holds up to 24 platoons. When it is full, a new push's soldiers fold into the waiting platoons, newest first, up to 32 slots each; any left over are not raised yet, and a later push musters them.
 - An army has at most one Dragon alive. When a platoon marches out with a Dragon while one is already alive (or with two, from one squashed legendary push), each extra Dragon becomes a Champion.
 
 **Regrouping.** Remnants fold into stronger formations of the same army. A platoon qualifies when it has 4 or fewer soldiers left, or less than 30% of its full size. It merges into the nearest platoon of its army in the field, at least as large, within 140 units, and the merged platoon is drawn up afresh, the remnant taking places in its ranks. A routed remnant of 4 or fewer that rallies at its capital joins its army's nearest such platoon at any distance.
@@ -182,7 +182,7 @@ Every platoon is drawn up as one block per kind of soldier: a rectangle in ranks
 | Form | Shape | When |
 | --- | --- | --- |
 | **Column** | Narrow and deep: each block at most three files and 48 units wide, the blocks one behind another down the road. Head to tail: the cavalry scouts (Outriders, Knights); the heavy foot (Berserkers, Trolls, Bone Golems, Paladins, Wardens, Footmen, Mercenaries, Skeletons); the Champion with the Heralds, Clerics and Sappers; the missile troops (Archers, Rangers, Wizards); Trebuchets at the tail. Griffin Riders fly in single file over the middle of the column, a Dragon over it too. | Marching |
-| **Deploying** | The column halts and wheels to face the threat while each block walks to its place in the line. | An enemy banner comes within **220** of the platoon's centre (about 1.3 × a Trebuchet's 170 aggro), or hostile walls (an enemy capital, the Monolith) within 200 of their edge |
+| **Deploying** | The column halts and wheels to face the threat while each block walks to its place in the line. | An enemy banner comes within **220** of the platoon's centre (about 1.3 × a Trebuchet's 170 aggro), or a foe's walls within 200 of their edge |
 | **Line** | Wide and shallow, facing the threat: Trolls, Bone Golems and Berserkers ahead; the heavy foot in the front ranks with the Champion at the centre; Paladins, Heralds, Clerics and Sappers behind the centre; the missile troops two to three ranks back; Trebuchets behind them. Knights ride the inner wings and Outriders the outer ones. Griffin Riders hover over the middle, a Dragon behind the centre. | Deployed: after 2 seconds once the ranks are dressed and the line faces the threat, after 8 seconds at most |
 | **Engaged** | The line, fighting. | Any soldier has an enemy soldier in reach |
 
@@ -210,60 +210,93 @@ Every platoon is drawn up as one block per kind of soldier: a rectangle in ranks
 Sappers still run for the walls of their objective once within their leash, and Trebuchets prefer walls. A soldier below 20% of its HP steps back a rank, trading places with a fresh soldier (above 60%) of its kind behind it, and then fights only what reaches it.
 
 
-## 3. The battlefield
+## 3. The battlefield: a ring of capitals
 
-The map is a disc with one **capital** per slot, on a ring at 84% of the radius. A war's map is generated at the start of the day with `slots = clamp(players + 2, 4, 16)`, where *players* counts members and sparring bots, so players who join during the day take a spare slot. Once all slots are taken, a new member starts with tomorrow's war. A room is full at 16 members and bots.
+### The map
 
-- **Capital.** One per player. It has 8000 HP and a tower (20 damage, range 160, a bolt every second). Platoons spawn at its gate. Within 220 units of their own capital, a player's units take 20% less damage (home turf).
-- **Sacking.** A capital at 0 HP is **sacked**. The player who dealt the final blow gains renown: 120 for the first sack of that capital today, 60 for the second, 40 for the third, and so on (`120 / n`, rounded down). The capital lies in ruins for 20 minutes, invulnerable and silent, and then rebuilds at full HP, with its maximum HP and its tower's damage raised by the base amount again for every time it has been sacked that day (16000 HP and 40 damage after one sack).
-- **Shrines.** One per slot, at 46% of the radius between neighboring capitals. Each is capturable.
-- **The Heart.** It sits at the center and is guarded at dawn by the **Legacy Monolith**, a neutral structure with `30000 + 10000 × players` HP (members and bots) that fires on anyone near it (30 damage, range 140, a bolt every 0.8 s). Everyone attacks it together. The player who dealt the most damage to it gets the Monolith award. The Heart can be captured only after the Monolith falls.
-- **Terrain.** Forest slows ground movement by 40% and halves missile damage. Water and rock are impassable. The terrain is generated from seeded noise in one sector and rotated into the others, so every slot sees the same map.
+The capitals stand evenly spaced on a **ring**, one per seat, slot 0 at the top and slots climbing clockwise. The ring's radius is `max(440, 700 × slots / 2π)`, so neighbouring capitals are about 700 units apart along it however many seats there are; the map is a disc reaching 230 beyond the ring.
+
+- **The centre** is impassable: a great lake (two maps in three) or a mountain massif, with a ragged shore 160 inside the ring. No army cuts across; every road runs around the ring. Fliers still fly over it.
+- **The front road.** The ring itself is kept clear as a road. Between each pair of neighbouring capitals, at the road's midpoint, stands a **border fort** (site `slots + s` lies between capital `s` and capital `s + 1`). It pays 2 renown a minute while held and is where neighbours meet.
+- **Terrain.** Forests, rocks and pools are painted in the band either side of the road from seeded noise in one sector and rotated into the others, so every seat sees the same map. Forest slows ground movement by 40% and halves missile damage; water and rock are impassable.
+
+**Seats.** A war is generated with `slots = clamp(seats + 1, 3, 16)`, where *seats* counts members and sparring bots, leaving a spare seat for someone who joins during the day. Seats are handed out in a seeded shuffle of the slots drawn from the war's seed (`seatOrder`), so who neighbours whom changes every day; a late joiner takes the next free seat in that order. A spare seat is open ground: the front road simply runs past it, with both its forts on that front. Sparring bots fill every war to at least 3 seats.
+
+### Fronts
+
+The **ring of owners** is the claimed capitals in clockwise order, each with the player who holds it. A player's capitals form runs around it; each run has a **front** at either end, toward the nearest other owner clockwise and counter-clockwise. A player's **neighbours** are the owners its fronts face. Normally that is two; with two owners left they share both fronts; with one, the war is won. (A realm split by a rising's retake has a pair of fronts for each piece.) The ring is recomputed every tick from who holds which capital, so it is never stored, and every client derives the same one.
+
+Soldiers fight only **foes**: their neighbours, a rising at the gates of a capital they hold, and anyone who counts them as such. Everyone else passes by unharmed, and towers, fireballs and dragon fire spare them too.
+
+### Capitals and sieges
+
+- **Capital.** It has walls and a tower (20 damage, reach 160 plus half the walls' radius, a volley every 4 s of one bolt, and one more for every 8 foes within reach, up to 12). Its walls are `12000 + 150 × slots` HP, where *slots* is the army its holder's work has raised today, so a busy player's walls need a bigger storming party. **Walls come down no faster than over 30 minutes of siege**, however many strike them (at most `maxHp / 9000` a tick): a full capital holds out for half an hour, a captured one (at half its walls) for a quarter of an hour, and the tower bleeds the besiegers all the while, so a siege is a stand that the defender, its other neighbour and every push can still turn. Masons restore 10 HP a second while no siege is on; a capital is **besieged** while its holder's foes stand at the walls, and the siege lifts 30 seconds after the last of them leaves.
+- **Home turf.** Within 220 units of any capital they hold, a player's soldiers take 20% less damage.
+- **When walls can be stormed.** No walls can be breached before the war's 14th hour: the morning is for the border forts. A founder's gates stay barred, besides, until 2 hours after its first push of the day, or until the 16th hour, whichever comes first, so no one is conquered in their sleep. A capital that has changed hands is never barred.
+- **The approach.** An army can storm a foe's walls only while it holds the border fort beside them on its front (a rising: either fort beside its lost home). Every siege begins with a field battle for the fort, and the war council masses its army there before it storms: it sends platoons at the walls only once `10 + 15 × (walls HP / full walls)` of its soldiers have gathered on the front.
 
 ### Capture
 
-A shrine or the Heart flips after a single army has held it uncontested for 10 seconds (30 seconds for the Heart). Progress drains back while the site is contested or empty.
+A capital at 0 HP is **captured** by the player who struck the last blow:
+
+- It changes hands, its walls stand again at half of its new holder's full walls, and it is the new holder's **muster gate** from then on.
+- The captor gains renown: 120 for the first capture of that capital today, then `120 / n` (rounded down) for the n-th.
+- The garrison inside the walls is cut down, and the loser's platoons within 220 of the walls break and fall back to the nearest capital it still holds.
+- **Production.** Every capital a player holds beyond its own home multiplies its army's budget and its field cap by another 25% (`1 + 0.25 × conquered`). The bonus counts toward the target army, so the next push musters the difference for the whole day's ledger, splitting and squashing stay equal, and the telescoping muster works as before. A player that loses a captured capital keeps the soldiers it raised; it musters again only once its ledger is worth more than it has.
+
+**Muster gates.** Each capital has a gate on the road either side of it. A new platoon is assigned a front (the one a rally names, else the one under the most pressure for the strength already sent there, so quiet fronts alternate) and marches out of the gate of its player's capital at that end of its realm, along the road.
+
+### Risings
+
+A player who loses its last capital is not out. It keeps its ledger and keeps pushing; its musters appear as a **rising**: platoons flagged `rising` that gather on the ring road just past bowshot of its lost home's walls, take the forts beside it, and storm the walls to retake it. A rising is a foe only of whoever holds its home. Retaking the home makes the player a ring owner again, with its fronts recomputed. A player with no capital who has raised soldiers today is still in the war (`stillIn`).
+
+### Victory
+
+When one player holds every claimed capital (risings in the field do not count), the war is **won**: a `victory` event, and the field stands still from that tick. The server concludes the war at once (the digest and lifetime records are written as at a reset) and the room stays locked on the finished war, refusing pushes, joins and orders, until its reset, when the next war begins as usual. If the reset comes first, the winner is the player holding the most capitals, then the most renown, then the one who joined first.
+
+### Border forts
+
+A border fort flips after a single army has held it uncontested for 10 seconds. Progress drains back while the fort is contested or empty.
 
 ## 4. Command (the scarce decisions)
 
 | Lever | What it does | Limit |
 | --- | --- | --- |
-| **Doctrine** | Balanced (the default): no modifiers. Assault: +15% damage, prefers enemy capitals and the Heart. Hold: 20% damage reduction within 200 of your shrines, defends. Siege: +50% structure damage, targets capitals. Skirmish: +20% speed, prefers lightly held objectives. | change once per hour |
-| **Rally** | Every platoon marches on one chosen objective | once per 30 minutes, lasts 2 hours |
+| **Doctrine** | Balanced (the default): no modifiers. Assault: +15% damage, prefers foes' capitals. Hold: 20% damage reduction within 200 of your border forts, defends. Siege: +50% structure damage, targets capitals. Skirmish: +20% speed, prefers lightly held objectives. | change once per hour |
+| **Rally** | Every platoon marches on one chosen objective. Rallying on a border fort or a neighbour's capital picks that front: every platoon takes it and new musters march to it (a rally on walls whose approach is not yet won takes the fort before them first). A rally on a site on no front of yours, other than your own capital, waits until it is one. | once per 30 minutes, lasts 2 hours |
 | **War Cry** | Your soldiers deal +30% damage and move 25% faster for 60 seconds | once per war |
 
 All three are deterministic inputs to the simulation, so they appear in the replay. The server checks a command against the world at the tick it will be stamped with (one second ahead) and refuses one that is cooling down, already queued, or would land in the war's last second (`ended`); the simulation checks again when it applies it.
 
-Each player's **war council** runs every 3 seconds. It gives each platoon an objective, weighing these factors:
+Each player's **war council** runs every 3 seconds. It gives each platoon an objective on its front: the front in its direction nearest it (a rising's: the march on its lost home). The candidates are the front's border forts, the foe's capital at its far end, the player's own capital at this end, every capital it holds, and any fort between two of its own capitals. It weighs:
 
-- the objective's renown (the renown leader's capital draws more)
-- distance (supply lines: reinforcements always come from the capital)
+- the objective's renown and kind (forts to take or hold; a foe's walls once the approach is won and enough soldiers have massed; its own walls, urgently, while they are under siege)
+- distance (supply lines)
 - enemy and friendly strength nearby
 - doctrine
 - rally
+
+Platoons already sent somewhere make that site less attractive to the next. Routing on the hex roads (section 2) runs around the ring band.
 
 ## 5. Morale and routs
 
 Every platoon has morale from 0 to 100. Morale falls by `150 / platoonSize` per soldier lost and drains (2 per second) while the platoon is engaged and outnumbered 2 to 1 within 90 units. A Herald halves both. Morale recovers slowly out of combat. A platoon with a living Champion or Dragon never drops below 1.
 
-At 0 morale the platoon **routs**: it stops fighting and flees to its capital. There it rallies at 60 morale and takes new orders. Routs make fights end and stay readable.
+At 0 morale the platoon **routs**: it stops fighting and flees to the nearest capital its player holds (a rising's, to the fort beside its lost home). There it rallies at 60 morale and takes new orders. Routs make fights end and stay readable.
 
-## 6. Renown and winning the day
+## 6. Winning the day, and renown
 
-Renown is the score:
+**The ring is the prize.** A player who holds every capital wins the war on the spot (section 3, *Victory*). If the reset comes first, the winner is the player holding the most capitals, then the most renown, then the one who joined first (nobody wins a day no one fought: no renown and no capital taken).
+
+**Renown is the secondary score**, the tiebreak and the race the HUD shows:
 
 | Source | Renown |
 | --- | --- |
-| Shrine held | 2 per minute |
-| The Heart held | 5 per minute |
+| Border fort held | 2 per minute |
 | Kill | the victim's value: 1 for Footmen, Archers, Sappers and Skeletons; 2 for Wardens, Heralds, Outriders, Mercenaries and Berserkers; 3 for Rangers and Clerics; 4 for Knights and Bone Golems; 5 for Paladins, Wizards, Trebuchets and Griffin Riders; 6 for a Troll; 10 for a Champion; 30 for a Dragon |
-| Kill of a soldier of the renown leader (bounty) | double the victim's value |
-| Monolith damage | 1 per 100 damage |
-| Sacking a capital | 120 for the first sack of that capital today, then `120 / n` for the n-th |
+| Capturing a capital | 120 for the first capture of that capital today, then `120 / n` for the n-th |
 
-A holding pays in full only while its owner has soldiers near it. An ungarrisoned holding pays a quarter of its renown, rounded down. A leader therefore has to spread thin to keep everything.
-
-At the reset hour, the player with the most renown wins the day (nobody wins if no one earned any; a tie goes to the player who joined first).
+A fort pays in full only while its owner has soldiers near it; an ungarrisoned fort pays a quarter of its renown, rounded down. Nothing singles out the leader: there is no bounty on the leader's soldiers and its capital draws no one more than any other. The ring itself makes the leader face only its two neighbours.
 
 ## 7. The daily digest
 
@@ -275,24 +308,27 @@ When a war ends, the server computes a digest from the final world and the war's
 
 | Award | Goes to |
 | --- | --- |
-| Victor of the Day | the winner |
+| Victor of the Day | the winner (the ring's conqueror, or the most capitals at the reset) |
 | Warlord | most kills |
 | Iron Wall | most soldiers raised per loss (20+ raised) |
 | Test Legion | most test lines |
 | Scribe | most docs and comment lines |
 | Demolisher | most removed lines |
 | Siegebreaker | most damage to capitals |
-| Monolith Slayer | most Monolith damage |
+| Conqueror | most capitals stormed |
+| Last Stand | the longest siege held through by a capital's holder |
+| Phoenix | most times retaking its own home after it fell |
+| Lord of the Marches | most border forts taken |
 | Ghost | the highest renown per soldier raised |
 | Bugslayer | most bug-fix pushes |
 | Architect | most branch points added |
-| Conqueror | most shrines and Hearts captured |
 | Dragonlord | most Dragons raised |
 | Dragonslayer | most Dragons felled |
 
 An award needs a score above zero; a tie goes to the player who joined first.
 
-- highlights: the largest clashes, sacks, captures, and the Monolith's fall, each with a tick so the replay can jump there
+- highlights: the victory, capitals stormed, risings, Dragons, the largest clashes and fort captures, each with a tick so the replay can jump there
+- `victory` (who took the whole ring, and at which tick) or null, and `ring`: who held each seat's capital at the end
 - each player's best platoon, with its repo and commit message
 - lifetime progress: days played (days with a push), days won, the current streak of days with at least one push, and titles earned
 
@@ -301,10 +337,11 @@ Members may switch on **Rest** for a UTC day, which keeps their streak without g
 ## 8. Rooms
 
 - **Visibility.** A public room appears in the lobby. Anyone can watch it, and any signed-in player can join. A private room is reachable only through its invite link. Only members and holders of the link can watch it.
-- **Settings.** The owner sets the room's name, its reset hour (in UTC), and how many sparring bots it has (0–6). Bots push synthetic code so that a room is never empty.
+- **Settings.** The owner sets the room's name, its reset hour (in UTC), and how many sparring bots it has (0–6). Bots push synthetic code so that a room is never empty, and a war always has at least three seats: bots beyond the setting fill a smaller ring.
 - **Owner tools.** The owner can rename the room, change its settings, remove members, and rotate the invite code.
 - **In the room.** Viewers see presence (who is watching). Signed-in viewers can send emotes, which float over the sender's capital, and members can use a short chat (240 characters, 6 messages per 10 seconds). Chat and emotes are not part of the replay.
 - **Rollover.** At the reset the war is run to its last tick, its digest and lifetime records are written in one transaction, and the next war starts where the last one ended (or at the latest reset boundary, if the server was down past it). Every viewer gets the new war's hello at once. If any step fails, the war stays active and the whole rollover is retried.
+- **A war won early.** When one player takes the whole ring, the server stops stepping it at the tick it was won, finishes it the same way (digest and lifetime records in one transaction; viewers get a `war` message with the digest ready), and keeps the finished war live, locked to pushes, joins and orders, until the reset; then the next war starts at the reset boundary as usual. A restart in between finds the room standing on its finished war.
 
 ## 9. Determinism and replay
 
@@ -323,7 +360,7 @@ A war's **replay** is everything needed to rebuild it, and nothing more:
 }
 ```
 
-`repos` holds `[name, language]` pairs. A push input is `[tick, "push", p, repo, lines, commits, message, files, branches, churn, filler]`; its lines, files and branches are signed changes to the player's ledger. The map, the capitals and everything else derive from `seed`, `slots` and `members`. The chronicle (history log) is a pure function of the simulation's events, so a replay reproduces it too. The server keeps a snapshot every 10 minutes only to seek quickly, thins older ones to one an hour, and 14 days after a war ends keeps only its final one. They are a cache, not a source of truth.
+`repos` holds `[name, language]` pairs. A join's `slot` is the seat the server drew from the war's seeded shuffle. A push input is `[tick, "push", p, repo, lines, commits, message, files, branches, churn, filler]`; its lines, files and branches are signed changes to the player's ledger. The map, the capitals and everything else derive from `seed`, `slots` and `members`. The chronicle (history log) is a pure function of the simulation's events, so a replay reproduces it too. The server keeps a snapshot every 10 minutes only to seek quickly, thins older ones to one an hour, and 14 days after a war ends keeps only its final one. They are a cache, not a source of truth.
 
 ## 10. Architecture
 
@@ -338,7 +375,7 @@ GitHub events/compare ─▶ ingest ─▶ SQLite (users, pushes, seen commits)
 
 - **One authoritative Node process.** It runs every room's war, the poller, HTTP and WebSockets. The scheduler steps the wars every 200 ms in slices of about 8 ms, yielding to sockets and HTTP between them, so a request waits about one slice however many rooms are busy (a room fighting with ~1,600 soldiers costs about 3 ms a tick, chronicle included, so one core can step some 65 such rooms flat out, about 35 at half load). A field with no soldiers costs microseconds a tick. A room nobody watches still simulates every tick exactly (outcomes never depend on spectators); it only skips the checksums sent to viewers.
 - **Derived data.** Flow fields are built per site the first time one is needed, and a restored world shares the map (and every cache derived from it) with recent worlds of the same seed, so a resync or a recovered war does not rebuild them.
-- **Lockstep spectators.** A client receives one snapshot (the *hello*), then only inputs stamped one second ahead, and simulates locally with interpolation. A checksum every 10 seconds catches divergence. It covers the units, platoons (their formations, routes and trails included), structures, shots and sites, and each player's renown, commands, ledger, raised army and feats, so a divergence in the books shows before the next push would reveal it.
+- **Lockstep spectators.** A client receives one snapshot (the *hello*), then only inputs stamped one second ahead, and simulates locally with interpolation. A checksum every 10 seconds catches divergence. It covers the units, platoons (their formations, routes, trails, fronts and rising flags included), structures (holders, walls and sieges), shots and sites, the victor, and each player's renown, commands, ledger, raised army, capitals and feats, so a divergence in the books shows before the next push would reveal it.
 - **Hello limits.** A hello carries a full snapshot, so the hub rations them per viewer (the user, or the address for anonymous viewers) across all their sockets: a burst of 8, then one per second. A socket asks to resync at most every 2 seconds; extra asks are folded into one deferred hello rather than dropped. When 4 of a viewer's sockets are already waiting, a new one is turned away with close code `1013` (try again later), and the client backs off and retries, and a socket more than 4 MB behind is dropped. A new war's hello goes to everyone at once.
 - **Client connection.** Reconnects back off from 1 s, doubling to 30 s, with up to 50% jitter so a server restart is not met by every viewer at once; only a session that went live resets the backoff. A watchdog reconnects after 45 seconds without any message, or when a resync is not answered within 10 seconds.
 - **Hidden and background tabs.** A hidden tab draws nothing and simulates nothing; after 30 seconds hidden it lets its socket go. Shown again, it reconnects for a fresh snapshot, and a tab that comes back (or wakes) more than 25 ticks behind asks for one rather than replaying the gap. Catching up never takes more than about 8 ms of simulation per frame. A visible but unfocused window draws at 30 fps.

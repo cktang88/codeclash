@@ -12,7 +12,7 @@ import type { Purpose } from '../../sim/api.ts';
 
 export type ChronicleFilter = 'all' | 'mine' | 'big';
 
-export const BIG_MOMENTS = new Set<ChronicleKind>(['sack', 'monolith', 'dragon', 'champion', 'clash', 'leader', 'cry', 'capture', 'rebuilt']);
+export const BIG_MOMENTS = new Set<ChronicleKind>(['conquest', 'rising', 'victory', 'dragon', 'champion', 'clash', 'leader', 'cry', 'capture']);
 const SHOWN = 160;
 
 const ids = new WeakMap<ChronicleEntry, number>();
@@ -105,7 +105,7 @@ export function Chronicle({ entries, viewerP, now }: { entries: readonly Chronic
           {shown.map((e) => {
             const at = store.timeOfTick(e.tick);
             const actor = e.p >= 0 ? roster[e.p] : undefined;
-            const located = e.x !== 0 || e.y !== 0 || e.kind === 'monolith';
+            const located = e.x !== 0 || e.y !== 0;
             const body = (
               <>
                 <span className={`chron-icon chron-${e.kind}`} style={hueVar(actor?.hue)}>

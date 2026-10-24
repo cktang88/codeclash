@@ -3,9 +3,11 @@ import { KIND_COUNT, Kind, PlatoonState, TICKS_PER_MINUTE, type Purpose, type Si
 import { Form, columnFormation, lineFormation } from './formation.ts';
 import { applyDelta, armyFor, emptyLedger } from './muster.ts';
 import { generateMap, slotsFor } from './mapgen.ts';
-import { SPACING, STATS } from './stats.ts';
+import { BARRED_UNTIL, SPACING, STATS } from './stats.ts';
 import { checksum, restore, snapshot } from './snapshot.ts';
-import { passableAt } from './steering.ts';
+import { clearPath, passableAt } from './steering.ts';
+import { flowTo } from './derived.ts';
+import { cellAt } from './flowfield.ts';
 import { Chronicler } from './chronicle.ts';
 import { createWorld, emptyEvents, step } from './world.ts';
 
@@ -21,18 +23,28 @@ const push = (p: number, code: number, msg = 'Update', files = 4, branches = 10)
 
 describe('stragglers', () => {
   it('finds its way back to the banner around water instead of pressing against the far bank', () => {
-    // On this map a band of rock and water lies between (1023, 148) and capital 4.
     const w = newWorld(8, 42);
     step(w, joins(8));
     step(w, [push(4, 200)]);
     for (let t = 0; t < 40; t++) step(w, []);
     const pl = w.platoons.find((x) => x.p === 4 && x.state !== PlatoonState.Queued)!;
     const u = w.units.find((x) => x.platoon === pl.id)!;
-    expect(passableAt(w.map, 1023, 148)).toBe(true);
-    u.x = 1023;
-    u.y = 148;
-    let closest = Infinity;
     const home = w.map.sites[4]!;
+    // Open ground within reach of capital 4 from which rock or water blocks the straight way back.
+    const field = flowTo(w.map, 4);
+    let spot: { x: number; y: number } | null = null;
+    for (let r = 180; r <= 320 && !spot; r += 20) {
+      for (let k = 0; k < 72 && !spot; k++) {
+        const x = home.x + Math.cos((k * Math.PI) / 36) * r;
+        const y = home.y + Math.sin((k * Math.PI) / 36) * r;
+        const c = cellAt(w.map, x, y);
+        if (c >= 0 && passableAt(w.map, x, y) && field.cost[c]! > 0 && !clearPath(w.map, x, y, home.x, home.y)) spot = { x, y };
+      }
+    }
+    expect(spot).not.toBeNull();
+    u.x = spot!.x;
+    u.y = spot!.y;
+    let closest = Infinity;
     for (let t = 0; t < 4 * TICKS_PER_MINUTE; t++) {
       // Pin the banner at its own capital, across the water from the straggler.
       pl.site = 4;
@@ -110,19 +122,22 @@ describe('splash damage', () => {
 describe('siege leash', () => {
   it('calls soldiers off enemy walls once their banner has marched away', () => {
     const w = newWorld(4, 7);
+    // The afternoon, with the fort before capital 1 in player 0's hands: its walls can be stormed.
+    w.tick = BARRED_UNTIL;
     step(w, joins(4));
+    w.sites[w.map.slots]!.owner = 0;
     step(w, [push(0, 100)]);
     step(w, []);
     const pl = w.platoons.find((x) => x.p === 0)!;
-    const walls = w.map.sites[2]!;
-    const k = w.structures.findIndex((st) => st.site === 2);
+    const walls = w.map.sites[1]!;
+    const k = w.structures.findIndex((st) => st.site === 1);
     const mine = () => w.units.filter((u) => u.platoon === pl.id);
     for (const u of mine()) {
       u.x = walls.x + (walls.x > 0 ? -90 : 90);
       u.y = walls.y;
     }
     for (let t = 0; t < 30; t++) {
-      pl.site = 2;
+      pl.site = 1;
       pl.x = walls.x + (walls.x > 0 ? -90 : 90);
       pl.y = walls.y;
       step(w, []);
@@ -142,12 +157,14 @@ describe('siege leash', () => {
   it('keeps a Trebuchet with its banner rather than shelling any wall it passes', () => {
     const w = newWorld(4, 7);
     step(w, joins(4));
+    w.tick = BARRED_UNTIL;
+    w.sites[w.map.slots]!.owner = 0;
     step(w, [push(0, 400, 'Update', 15, 20)]);
     step(w, []);
     const treb = w.units.find((u) => u.p === 0 && u.kind === Kind.Trebuchet)!;
     const pl = w.platoons.find((x) => x.id === treb.platoon)!;
-    const walls = w.map.sites[2]!;
-    const k = w.structures.findIndex((st) => st.site === 2);
+    const walls = w.map.sites[1]!;
+    const k = w.structures.findIndex((st) => st.site === 1);
     treb.x = walls.x + (walls.x > 0 ? -150 : 150);
     treb.y = walls.y;
     const home = w.map.sites[0]!;

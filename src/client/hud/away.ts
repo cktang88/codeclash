@@ -16,7 +16,7 @@ export interface AwaySummary {
   moments: ChronicleEntry[];
 }
 
-const MOMENT_KINDS = new Set(['sack', 'monolith', 'dragon', 'clash', 'leader', 'champion', 'cry']);
+const MOMENT_KINDS = new Set(['conquest', 'rising', 'victory', 'dragon', 'clash', 'leader', 'champion', 'cry']);
 
 /** What happened while the viewer was away, from the chronicle since they left. */
 export function summarizeAway(entries: readonly ChronicleEntry[], viewerP: number | null): AwaySummary {
@@ -44,14 +44,14 @@ export function summarizeAway(entries: readonly ChronicleEntry[], viewerP: numbe
         if (mine) s.captured++;
         if (againstMe) s.lost++;
         break;
-      case 'sack':
+      case 'conquest':
         if (mine) s.sacked++;
         if (againstMe) s.sackedBy++;
         break;
       case 'leader':
         s.leaderChanges++;
         break;
-      case 'monolith':
+      case 'victory':
         s.monolithFell = true;
         break;
     }

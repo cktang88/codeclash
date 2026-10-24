@@ -1,6 +1,6 @@
 import { memo, useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { DigestResponse } from '../../protocol.ts';
-import { SHRINE_NAMES } from '../../sim/chronicle.ts';
+import { FORT_NAMES } from '../../sim/chronicle.ts';
 import { TICK_MS } from '../../sim/api.ts';
 import { clock } from '../ui/format.ts';
 import { Icon } from '../ui/icons.tsx';
@@ -222,7 +222,6 @@ export function Timelapse({ data }: { data: DigestResponse }) {
   const r = data.map.radius;
   const pad = r * 0.16;
   const hueOf = (p: number) => data.players.find((pl) => pl.p === p)?.hue ?? null;
-  const capitalOwner = (slot: number) => data.players.find((pl) => pl.slot === slot)?.p ?? -1;
   const maxSoldiers = Math.max(1, ...frames.flatMap((fr) => fr.a.map((a) => a[3])));
   const startsAt = data.digest.startsAt;
   const capitals = data.map.sites.filter((s) => s.kind === 'capital').length;
@@ -252,11 +251,11 @@ export function Timelapse({ data }: { data: DigestResponse }) {
         <Land map={data.map} ids={ids} />
 
         {data.map.sites.map((s, k) => {
-          const owner = s.kind === 'capital' ? capitalOwner(s.slot) : (f.o[k] ?? -1);
+          const owner = f.o[k] ?? -1;
           const hue = owner >= 0 ? hueOf(owner) : null;
           if (s.kind === 'capital') return <Castle key={k} x={s.x} y={s.y} k={unit * 1.35} hue={hue} />;
-          if (s.kind === 'shrine') return <Shrine key={k} x={s.x} y={s.y} k={unit * 1.1} hue={hue} name={SHRINE_NAMES[(k - capitals) % SHRINE_NAMES.length] ?? ''} />;
-          return <Monolith key={k} x={s.x} y={s.y} k={unit * 1.5} hp={f.m} />;
+          // TODO client: draw border forts as forts, and the centre's lake or massif.
+          return <Shrine key={k} x={s.x} y={s.y} k={unit * 1.1} hue={hue} name={FORT_NAMES[(k - capitals) % FORT_NAMES.length] ?? ''} />;
         })}
 
         {/* Trails: where each army's platoons stood in the frames just before. */}

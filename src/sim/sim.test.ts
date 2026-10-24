@@ -166,12 +166,22 @@ describe('deterministic trigonometry', () => {
 });
 
 describe('map', () => {
-  it('places a capital and a shrine per slot plus the Heart, all reachable', () => {
-    for (const slots of [4, 7, 16]) {
+  it('places a capital per slot on the ring and a border fort between each pair of neighbours, all reachable', () => {
+    for (const slots of [3, 4, 7, 16]) {
       const map = generateMap({ seed: 5, slots, members: slots });
-      expect(map.sites.filter((s) => s.kind === 'capital')).toHaveLength(slots);
-      expect(map.sites.filter((s) => s.kind === 'shrine')).toHaveLength(slots);
-      expect(map.sites.filter((s) => s.kind === 'heart')).toHaveLength(1);
+      const capitals = map.sites.filter((s) => s.kind === 'capital');
+      const forts = map.sites.filter((s) => s.kind === 'fort');
+      expect(capitals).toHaveLength(slots);
+      expect(forts).toHaveLength(slots);
+      expect(map.sites).toHaveLength(2 * slots);
+      for (const s of map.sites) expect(Math.hypot(s.x, s.y)).toBeCloseTo(map.ring, 6);
+      // Fort slots + s stands midway along the road between capital s and capital s + 1.
+      for (let s = 0; s < slots; s++) {
+        const a = capitals[s]!;
+        const b = capitals[(s + 1) % slots]!;
+        const f = map.sites[slots + s]!;
+        expect(Math.hypot(f.x - a.x, f.y - a.y)).toBeCloseTo(Math.hypot(f.x - b.x, f.y - b.y), 6);
+      }
     }
   });
 

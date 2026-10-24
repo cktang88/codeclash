@@ -8,7 +8,7 @@ const DISTANCE_SCALE = 450;
 const CROWD_PENALTY = 0.7;
 const OUTMATCHED = 1.6;
 /** Soldiers massed on a front before its foe's full-strength walls are stormed; fewer for walls already breached. */
-export const SIEGE_MASS = Number(process.env.T_MASS ?? 25);
+export const SIEGE_MASS = 25;
 const SIEGE_MIN = 10;
 
 /**
@@ -107,6 +107,20 @@ export function rallyFront(world: World, ring: Ring, p: number): { ok: boolean; 
   return { ok: !!def && def.kind === 'capital' && ring.owner[def.slot] === p, front: null };
 }
 
+/**
+ * Where a rally on `site` sends the platoons: the site itself, except that walls cannot be stormed
+ * before the approach is won, so a rally on a foe's capital first takes the fort beside it.
+ */
+function rallyTarget(world: World, ring: Ring, p: number, site: number, front: Front | null): number {
+  const def = world.map.sites[site]!;
+  if (!front || def.kind !== 'capital' || besieging(world, ring, p, def.slot)) return site;
+  const { slots } = world.map;
+  if (front.forts.length > 0) return front.forts[front.forts.length - 1]!;
+  // A rising's approach: the fort beside its lost home that it does not hold yet, nearer side first.
+  const cw = slots + def.slot;
+  return world.sites[cw]!.owner !== p ? cw : slots + ((def.slot - 1 + slots) % slots);
+}
+
 /** The front a platoon fights on: the nearest of its player's fronts in its direction, else the nearest at all. */
 function frontFor(world: World, ring: Ring, p: number, pl: Platoon): Front | null {
   const sites = world.map.sites;
@@ -175,13 +189,14 @@ export function runCouncil(world: World, s: Scratch, p: number, presence: Int32A
   const n = world.players.length;
   const assigned = new Int32Array(defs.length);
   const rally = rallyFront(world, ring, p);
+  const rallySite = rally.ok ? rallyTarget(world, ring, p, player.rallySite, rally.front) : -1;
   const held = ring.capitals[p] ?? [];
   const candidates: number[] = [];
   for (const pl of world.platoons) {
     if (pl.p !== p || pl.state === PlatoonState.Queued || pl.state === PlatoonState.Rout) continue;
     pl.rising = held.length === 0;
     if (rally.ok) {
-      pl.site = player.rallySite;
+      pl.site = rallySite;
       if (rally.front) pl.front = rally.front.dir;
       continue;
     }
@@ -226,7 +241,7 @@ export function runCouncil(world: World, s: Scratch, p: number, presence: Int32A
       }
     }
     // Nothing worth marching on: hold the nearest capital it holds (or keep marching home).
-    if (bestScore <= 0) best = nearestHeld(world, held, pl) ?? (f ? f.to : player.slot);
+    if (bestScore <= 0) best = nearestHeld(world, held, pl) ?? pl.home;
     // Stick with the current objective unless the new one is clearly better.
     if (pl.site >= 0 && pl.site !== best && candidates.includes(pl.site)) {
       const current = siteScore(world, ring, p, pl.site, pl.x, pl.y, pl.alive, massed, presence, n) / (1 + assigned[pl.site]! * CROWD_PENALTY);
@@ -280,7 +295,7 @@ function siteScore(world: World, ring: Ring, p: number, k: number, x: number, y:
     } else {
       if (owner === NEUTRAL || !hostile(ring, p, owner)) return 0;
       const walls = world.structures.find((st) => st.site === k);
-      if (!walls || !breachable(world, walls)) return 0;
+      if (!walls || !breachable(world, walls) || !besieging(world, ring, p, def.slot)) return 0;
       value = doctrine === Doctrine.Siege ? 7 : doctrine === Doctrine.Assault ? 3.5 : 1;
       // A rising has one aim: its lost home.
       if (player.rising && def.slot === player.slot) value = Math.max(value, 5);
@@ -306,6 +321,22 @@ function siteScore(world: World, ring: Ring, p: number, k: number, x: number, y:
 export function capitalOwner(world: World, slot: number): number {
   for (const st of world.structures) if (world.map.sites[st.site]?.slot === slot && world.map.sites[st.site]!.kind === 'capital') return st.p;
   return NEUTRAL;
+}
+
+/**
+ * Whether player `p` holds the approach to the capital of seat `slot`: the border fort beside it on
+ * one of p's fronts (for a rising, either fort beside its lost home). Walls can be stormed only from
+ * a held approach, so every siege begins with a field battle for the fort.
+ */
+export function besieging(world: World, ring: Ring, p: number, slot: number): boolean {
+  const { slots } = world.map;
+  for (const f of ring.fronts[p] ?? []) {
+    if (f.to !== slot) continue;
+    if (f.forts.length === 0) {
+      if (world.sites[slots + slot]!.owner === p || world.sites[slots + ((slot - 1 + slots) % slots)]!.owner === p) return true;
+    } else if (world.sites[f.forts[f.forts.length - 1]!]!.owner === p) return true;
+  }
+  return false;
 }
 
 /**

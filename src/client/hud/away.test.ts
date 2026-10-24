@@ -15,15 +15,15 @@ describe('summarizeAway', () => {
         entry('muster', 1, -1, [5]),
         entry('capture', 0, 1),
         entry('capture', 1, 0),
-        entry('sack', 2, 0),
+        entry('conquest', 2, 0),
         entry('wiped', 0),
         entry('leader', 2, 0),
-        entry('monolith', 1),
+        entry('victory', 1),
       ],
       0,
     );
     expect(s).toMatchObject({ mustered: 1, musteredSoldiers: 6, captured: 1, lost: 1, sackedBy: 1, sacked: 0, wiped: 1, leaderChanges: 1, monolithFell: true });
-    expect(s.moments.map((e) => e.kind)).toEqual(['sack', 'leader', 'monolith']);
+    expect(s.moments.map((e) => e.kind)).toEqual(['conquest', 'leader', 'victory']);
   });
 
   it('only counts war-wide events for a spectator', () => {
@@ -35,16 +35,16 @@ describe('summarizeAway', () => {
 });
 
 describe('filterChronicle', () => {
-  const log = [entry('muster', 0), entry('capture', 1, 0), entry('rout', 1), entry('sack', 2, 1)];
+  const log = [entry('muster', 0), entry('capture', 1, 0), entry('rout', 1), entry('conquest', 2, 1)];
   it('returns newest first', () => {
-    expect(filterChronicle(log, 'all', null).map((e) => e.kind)).toEqual(['sack', 'rout', 'capture', 'muster']);
+    expect(filterChronicle(log, 'all', null).map((e) => e.kind)).toEqual(['conquest', 'rout', 'capture', 'muster']);
   });
   it('keeps the viewer as actor or target for "mine"', () => {
     expect(filterChronicle(log, 'mine', 0).map((e) => e.kind)).toEqual(['capture', 'muster']);
     expect(filterChronicle(log, 'mine', null)).toEqual([]);
   });
   it('keeps big moments', () => {
-    expect(filterChronicle(log, 'big', null).map((e) => e.kind)).toEqual(['sack', 'capture']);
+    expect(filterChronicle(log, 'big', null).map((e) => e.kind)).toEqual(['conquest', 'capture']);
   });
 });
 
