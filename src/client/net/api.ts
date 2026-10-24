@@ -5,6 +5,7 @@ import type {
   KeyframeResponse,
   LobbyResponse,
   MeResponse,
+  PreviewResponse,
   ProfileResponse,
   RoomDetail,
   UpdateRoomRequest,
@@ -51,6 +52,8 @@ export const inviteQuery = (invite: string | null | undefined, sep: '?' | '&' = 
 export const api = {
   me: () => call<MeResponse>('GET', '/api/me'),
   lobby: () => call<LobbyResponse>('GET', '/api/rooms'),
+  preview: (owner: string, repo: string, branch: string | null) =>
+    call<PreviewResponse>('GET', `/api/preview/${enc(owner)}/${enc(repo)}${branch ? `?branch=${enc(branch)}` : ''}`),
   createRoom: (req: CreateRoomRequest) => call<{ slug: string }>('POST', '/api/rooms', req),
   room: (slug: string, invite?: string | null) => call<RoomDetail>('GET', `/api/rooms/${enc(slug)}${inviteQuery(invite)}`),
   updateRoom: (slug: string, req: UpdateRoomRequest) => call<RoomDetail>('PATCH', `/api/rooms/${enc(slug)}`, req),

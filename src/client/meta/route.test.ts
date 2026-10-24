@@ -29,3 +29,16 @@ describe('meta routes', () => {
     expect(pathFor({ kind: 'history', slug: 'night-shift' })).toBe('/r/night-shift/history');
   });
 });
+
+describe('army preview route', () => {
+  it('round-trips the empty page, a repository and a branch', () => {
+    const routes: Route[] = [
+      { kind: 'preview', owner: null, repo: null, branch: null },
+      { kind: 'preview', owner: 'vercel', repo: 'next.js', branch: null },
+      { kind: 'preview', owner: 'ironquill', repo: 'siegeworks', branch: 'release/1.x' },
+    ];
+    for (const r of routes) expect(roundTrip(r)).toEqual(r);
+    expect(pathFor({ kind: 'preview', owner: 'a', repo: 'b', branch: null })).toBe('/preview/a/b');
+    expect(parseRoute('/preview/a')).toEqual({ kind: 'lost', path: '/preview/a' });
+  });
+});

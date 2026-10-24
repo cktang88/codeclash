@@ -296,3 +296,62 @@ export function bakeKindPages(kind: number, res: number, mk: MakeCanvas): KindBa
   });
   return { kind, pages, sprites, table };
 }
+
+/** How one standing figure is dressed for a portrait. */
+export interface PortraitLook {
+  /** The army's actor pigment, for the cloth (CSS color). */
+  tint: string;
+  /** The rim's halo, the pigment mixed toward light (CSS color). */
+  halo: string;
+  /** Veteran rank shown as gilding, 0–3. */
+  rank: number;
+  /** A ragged army's faded, torn cloth instead of gilding. */
+  ragged: boolean;
+}
+
+/** Multiplies the painted pixels of `canvas` by `color`, keeping their alpha (a Pixi tint, on a 2D canvas). */
+function tintInto(canvas: Canvas2D, ctx: Ctx2D, color: string, mk: MakeCanvas): void {
+  const { width: w, height: h } = canvas;
+  const [keep, keepCtx] = mk(w, h);
+  keepCtx.drawImage(canvas, 0, 0);
+  ctx.save();
+  ctx.globalCompositeOperation = 'multiply';
+  ctx.fillStyle = color;
+  ctx.fillRect(0, 0, w, h);
+  ctx.globalCompositeOperation = 'destination-in';
+  ctx.drawImage(keep, 0, 0);
+  ctx.restore();
+}
+
+/**
+ * One standing figure as the battlefield draws it, flattened onto a single 2D canvas for pages
+ * and the HUD: the cut-out rim (ink band, halo tinted toward the pigment), the body, the cloth in
+ * the army's pigment, and a veteran's gilding or a ragged army's wear over it, cropped to the
+ * figure. The same layers the field stacks as sprites, so a portrait is the soldier in the field.
+ */
+export function paintPortrait(kind: number, look: PortraitLook, res: number, mk: MakeCanvas): Canvas2D {
+  const px = cellPx(kind, res);
+  const pose = posesFor(kind, 'idle')[0]!;
+  const layer = (name: Layer | 'rim', color?: string): Canvas2D => {
+    const [c, ctx] = mk(px, px);
+    paintCell(ctx, kind, pose, -1, name === 'rim' ? 'body' : name, res);
+    if (name === 'rim') {
+      const [ra, ractx] = mk(px, px);
+      const [rb, rbctx] = mk(px, px);
+      rimInto(ctx, px, res, [ra, ractx, rb, rbctx]);
+    }
+    if (color) tintInto(c, ctx, color, mk);
+    return c;
+  };
+  const [out, octx] = mk(px, px);
+  octx.drawImage(layer('rim', look.halo), 0, 0);
+  octx.drawImage(layer('body'), 0, 0);
+  octx.drawImage(layer('mask', look.tint), 0, 0);
+  const rank = Math.max(0, Math.min(3, Math.floor(look.rank)));
+  if (look.ragged) octx.drawImage(layer('torn'), 0, 0);
+  else if (rank > 0) octx.drawImage(layer(`gild${rank}` as Layer), 0, 0);
+  const b = bounds(octx, px, px) ?? [0, 0, px, px];
+  const [crop, cctx] = mk(b[2] - b[0], b[3] - b[1]);
+  cctx.drawImage(out, b[0], b[1], b[2] - b[0], b[3] - b[1], 0, 0, b[2] - b[0], b[3] - b[1]);
+  return crop;
+}

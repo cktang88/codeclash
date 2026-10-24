@@ -1,0 +1,786 @@
+/* The army preview: a muster roll on a codex page (docs/art-direction.md §4). Each commit is
+   a herald's scroll beside a small stacked bar of its lines and the army it raises, drawn with
+   the battlefield's own unit art. `--army` is the viewer's would-be pigment. */
+
+.preview-page {
+  --army: #3f5aa8;
+  max-width: 1180px;
+}
+
+.preview-head {
+  margin-bottom: 8px;
+}
+
+.preview-head .page-title {
+  overflow-wrap: anywhere;
+}
+
+.preview-lede {
+  max-width: 68ch;
+  margin: 0 0 18px;
+  font-size: 17px;
+}
+
+/* ------------------------------------------------------------------ the form */
+
+.preview-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px 18px;
+  margin: 8px 0 4px;
+}
+
+.preview-field {
+  position: relative;
+  flex: 1 1 300px;
+  min-width: 0;
+}
+
+.preview-quill {
+  position: absolute;
+  left: 2px;
+  bottom: 12px;
+  color: var(--fg-soft);
+  pointer-events: none;
+}
+
+.preview-input {
+  padding-left: 28px;
+  font-family: var(--mono);
+  font-size: 16px;
+}
+
+.preview-branch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 1 220px;
+  min-width: 150px;
+  color: var(--fg-soft);
+}
+
+.preview-branch .select {
+  font-family: var(--mono);
+  font-size: 14px;
+}
+
+.preview-seal {
+  flex: none;
+}
+
+.preview-examples {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 14px;
+  margin: 10px 0 0;
+}
+
+.preview-example {
+  min-height: 36px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-family: var(--mono);
+  font-size: 14px;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: var(--rule-soft);
+  text-underline-offset: 4px;
+}
+
+.preview-example:hover {
+  text-decoration-color: currentColor;
+}
+
+.preview-pigment {
+  margin: 8px 0 0;
+}
+
+/* ------------------------------------------------------------ loading, errors */
+
+.ink-writing {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  margin: 36px auto;
+  text-align: center;
+}
+
+.ink-writing-art {
+  max-width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.ink-line {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 900;
+  stroke-dashoffset: 900;
+  animation: ink-write 2.4s cubic-bezier(0.45, 0.1, 0.4, 1) infinite;
+}
+
+.ink-quill {
+  offset-path: path('M8 40c10-14 18-18 22-8s-6 16 2 10 12-22 20-14-4 18 4 14 10-18 18-12 0 14 8 10 14-20 22-12-2 14 6 10 10-16 18-10-2 12 6 8 14-18 22-10-2 12 6 8 12-14 20-8 0 10 8 6 14-16 22-8-2 10 6 6 12-12 20-6 2 8 10 4 14-12 22-6');
+  offset-rotate: 0deg;
+  animation: quill-ride 2.4s cubic-bezier(0.45, 0.1, 0.4, 1) infinite;
+}
+
+.ink-writing-text {
+  margin: 0;
+  font-family: var(--script);
+  font-style: italic;
+  font-size: 18px;
+  color: var(--fg-soft);
+}
+
+@keyframes ink-write {
+  0% {
+    stroke-dashoffset: 900;
+    opacity: 1;
+  }
+  80% {
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+  100% {
+    stroke-dashoffset: 0;
+    opacity: 0;
+  }
+}
+
+@keyframes quill-ride {
+  0% {
+    offset-distance: 0%;
+    opacity: 1;
+  }
+  80% {
+    offset-distance: 100%;
+    opacity: 1;
+  }
+  100% {
+    offset-distance: 100%;
+    opacity: 0;
+  }
+}
+
+/* A note torn from the ledger: a ragged bottom edge, a pin of wax, rubricated title. */
+.torn-note {
+  position: relative;
+  max-width: 560px;
+  margin: 28px auto;
+  padding: 22px 26px 34px;
+  background:
+    repeating-linear-gradient(-35deg, transparent 0 7px, rgba(34, 24, 15, 0.04) 7px 8px),
+    var(--vellum-shade);
+  box-shadow: inset 0 0 0 1.5px rgba(34, 24, 15, 0.55), inset 0 0 0 5px rgba(239, 228, 200, 0.4);
+  clip-path: polygon(0 0, 100% 0, 100% 86%, 95% 92%, 90% 87%, 83% 95%, 77% 89%, 70% 97%, 62% 90%, 55% 96%, 48% 89%, 40% 98%, 33% 91%, 26% 96%, 19% 89%, 12% 95%, 6% 88%, 0 94%);
+  transform: rotate(-0.6deg);
+  filter: drop-shadow(0 6px 8px rgba(10, 12, 20, 0.3));
+  animation: ink-in 420ms var(--ease-in) both;
+}
+
+.torn-note::before {
+  content: '';
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  width: 18px;
+  height: 18px;
+  margin-left: -9px;
+  background: var(--seal) center / 100% 100% no-repeat;
+}
+
+.torn-note-title {
+  margin: 10px 0 8px;
+  font-family: var(--display);
+  font-size: 23px;
+  color: var(--vermilion);
+  text-align: center;
+}
+
+.torn-note p {
+  margin: 6px 0 0;
+}
+
+/* ---------------------------------------------------------- the combined card */
+
+.combined {
+  margin: 22px 0 6px;
+  padding: 22px clamp(16px, 3vw, 30px) 18px;
+  animation: ink-in 520ms var(--ease-in) both;
+}
+
+.combined .block-title {
+  margin-bottom: 10px;
+}
+
+.combined-totals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 30px;
+  margin: 0 0 12px;
+}
+
+.combined-totals > div {
+  display: grid;
+}
+
+.combined-totals dt {
+  font-family: var(--sc);
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  color: var(--fg-soft);
+}
+
+.combined-totals dd {
+  margin: 0;
+  font-size: 26px;
+  line-height: 1.1;
+}
+
+.vet-mark {
+  font-size: 15px;
+  color: var(--gilt);
+}
+
+.combined .muster {
+  margin: 10px 0 12px;
+}
+
+.combined-note {
+  max-width: 78ch;
+  margin: 12px 0 4px;
+  font-style: italic;
+  color: var(--fg-soft);
+}
+
+/* --------------------------------------------------------------- the roll */
+
+.preview-roll-title {
+  margin: 6px 0 2px;
+}
+
+.preview-roll-sub {
+  margin: 0 0 14px;
+}
+
+.muster-roll {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0;
+}
+
+.muster-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.8fr) minmax(0, 1.5fr);
+  gap: 12px 26px;
+  align-items: start;
+  padding: 18px 0 16px;
+  border-top: 1.5px solid var(--rule-soft);
+  animation: ink-in 420ms var(--ease-in) both;
+  animation-delay: calc(min(var(--n, 0), 10) * 45ms);
+}
+
+.muster-row:first-child {
+  border-top: 0;
+}
+
+/* The herald's scroll: rolled ends either side of the proclamation. */
+.herald-scroll {
+  position: relative;
+  min-width: 0;
+  padding: 10px 18px 10px;
+  background: linear-gradient(180deg, rgba(239, 228, 200, 0.9), rgba(229, 214, 178, 0.92));
+  box-shadow: inset 0 0 0 1px rgba(34, 24, 15, 0.42), 0 2px 0 rgba(34, 24, 15, 0.12);
+}
+
+.herald-scroll::before,
+.herald-scroll::after {
+  content: '';
+  position: absolute;
+  top: -4px;
+  bottom: -4px;
+  width: 9px;
+  background: linear-gradient(90deg, #b9a477, #efe4c8 45%, #9c875c);
+  box-shadow: inset 0 0 0 1px rgba(34, 24, 15, 0.6);
+}
+
+.herald-scroll::before {
+  left: -5px;
+}
+
+.herald-scroll::after {
+  right: -5px;
+}
+
+.herald-message {
+  display: block;
+  font-family: var(--script);
+  font-style: italic;
+  font-size: 18px;
+  line-height: 1.3;
+  color: var(--ink);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.herald-message:hover,
+.herald-message:focus-visible {
+  color: var(--link);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+.herald-out {
+  margin-left: 6px;
+  vertical-align: -1px;
+  opacity: 0.55;
+}
+
+.herald-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  margin-top: 8px;
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+
+.herald-meta .sha {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.herald-meta .sha:hover {
+  color: var(--link);
+}
+
+.herald-author {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* ------------------------------------------------------------ the line bar */
+
+.linebar {
+  margin: 4px 0 0;
+}
+
+.linebar-channel {
+  display: flex;
+  height: 14px;
+  gap: 1px;
+  padding: 2px;
+  background: rgba(185, 164, 119, 0.35);
+  box-shadow: inset 0 0 0 1.5px var(--ink), inset 0 2px 3px rgba(34, 24, 15, 0.3);
+}
+
+.linebar-empty {
+  flex: 1;
+  font-size: 12px;
+  line-height: 10px;
+  text-align: center;
+  font-style: italic;
+  color: var(--fg-soft);
+}
+
+.linebar-seg,
+.linebar-swatch {
+  display: block;
+  background: var(--army);
+}
+
+.linebar-seg {
+  flex-basis: 0;
+}
+
+/* Code dominates in the army's pigment; removed lines are inked hatching; support takes muted
+   washes of the pigment; inert lines are pale vellum. */
+.seg-code {
+  background: var(--army);
+  box-shadow: inset 0 1px 0 rgba(255, 246, 226, 0.35);
+}
+
+.seg-removed {
+  background: repeating-linear-gradient(-45deg, var(--ink-soft) 0 2px, rgba(74, 58, 40, 0.35) 2px 4px);
+}
+
+.seg-test {
+  background: color-mix(in srgb, var(--army) 45%, #d9c79e);
+}
+
+.seg-comment {
+  background: color-mix(in srgb, var(--army) 32%, #d9c79e);
+}
+
+.seg-docs {
+  background: color-mix(in srgb, var(--verdigris) 40%, #d9c79e);
+}
+
+.seg-config {
+  background: color-mix(in srgb, var(--gold) 45%, #d9c79e);
+}
+
+.seg-generated,
+.seg-vendor {
+  background: repeating-linear-gradient(45deg, #efe4c8 0 3px, #d9c79e 3px 5px);
+}
+
+.seg-blank {
+  background: #e6d9b8;
+}
+
+.linebar-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+.linebar-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.linebar-key.tone-code {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.linebar-swatch {
+  width: 10px;
+  height: 10px;
+  box-shadow: inset 0 0 0 1px rgba(34, 24, 15, 0.6);
+}
+
+.muster-row-stats {
+  margin: 6px 0 0;
+}
+
+/* --------------------------------------------------------------- the army */
+
+.muster-row-army {
+  min-width: 0;
+}
+
+.muster {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px 14px;
+  margin: 0;
+  padding: 0;
+}
+
+.muster-block {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  min-width: 52px;
+  padding: 4px 6px 2px;
+  border-bottom: 1.5px solid var(--rule-soft);
+}
+
+.muster-rank {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  min-height: 40px;
+  padding: 0 4px;
+}
+
+.muster-fig {
+  display: block;
+  flex: none;
+  /* Overlapped like a rank seen from the front, each figure a little out of line. */
+  margin-left: -10px;
+  transform: translateY(var(--jit, 0));
+  image-rendering: auto;
+  filter: drop-shadow(0 2px 1px rgba(18, 22, 31, 0.28));
+  animation: ink-in 360ms var(--ease-in) both;
+  animation-delay: calc(var(--i, 0) * 40ms);
+}
+
+.muster-fig:first-child {
+  margin-left: 0;
+}
+
+.muster-fig-icon {
+  color: var(--ink);
+}
+
+.muster-count {
+  font-size: 13px;
+  white-space: nowrap;
+  color: var(--ink-soft);
+}
+
+.muster-count .num {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.is-compact .muster-name {
+  display: none;
+}
+
+.muster-block.mb-support {
+  border-bottom-style: dashed;
+}
+
+.muster-block.mb-support .muster-count .num {
+  color: var(--ink-soft);
+}
+
+/* Heroes stand on a gilded rule; the Dragon on a vermilion one. */
+.muster-block.mb-hero {
+  border-bottom: 2.5px solid var(--gold);
+}
+
+.muster-block.mb-legend {
+  border-bottom: 3px double var(--vermilion);
+}
+
+.muster-block.mb-legend .muster-count .num,
+.muster-block.mb-hero .muster-count .num {
+  color: var(--vermilion);
+}
+
+/* A ragged army looks it: faded cloth, a torn rule, figures that sag. */
+.muster.is-ragged .muster-fig {
+  filter: saturate(0.6) sepia(0.25) drop-shadow(0 2px 1px rgba(18, 22, 31, 0.2));
+  opacity: 0.88;
+}
+
+.muster.is-ragged .muster-block {
+  border-bottom: 0;
+  background: linear-gradient(transparent calc(100% - 3px), rgba(74, 58, 40, 0.5) calc(100% - 3px)) no-repeat;
+  clip-path: polygon(0 0, 100% 0, 100% 96%, 86% 100%, 70% 95%, 52% 100%, 36% 94%, 18% 100%, 0 95%);
+}
+
+.muster-row.is-ragged .herald-scroll {
+  background: repeating-linear-gradient(-35deg, transparent 0 6px, rgba(34, 24, 15, 0.05) 6px 7px), #ddcca4;
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 92% 96%, 80% 100%, 66% 95%, 50% 100%, 34% 96%, 18% 100%, 0 97%);
+}
+
+.muster.is-veteran .muster-count .num {
+  color: var(--gilt);
+}
+
+/* Callouts: heraldic labels with notched ends, never chips. */
+.callouts {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 8px;
+  padding: 0;
+}
+
+.callout {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 12px;
+  font-family: var(--sc);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 20px;
+  color: var(--vellum);
+  background: var(--ink-soft);
+  clip-path: polygon(0 0, 100% 0, calc(100% - 6px) 50%, 100% 100%, 0 100%, 6px 50%);
+}
+
+.callout.tone-legend {
+  background: var(--vermilion);
+  box-shadow: inset 0 0 0 1.5px var(--gold);
+}
+
+.callout.tone-hero,
+.callout.tone-veteran {
+  background: linear-gradient(170deg, var(--gold-hi), var(--gold) 45%, #b8892c);
+  color: var(--ink);
+}
+
+.callout.tone-berserk {
+  background: #6a2414;
+}
+
+.callout.tone-ragged {
+  background: repeating-linear-gradient(-35deg, transparent 0 5px, rgba(34, 24, 15, 0.08) 5px 6px), #cdb994;
+  color: #6a2414;
+  clip-path: polygon(0 8%, 12% 0, 26% 10%, 41% 0, 58% 8%, 73% 0, 88% 9%, 100% 2%, 97% 50%, 100% 96%, 84% 90%, 66% 100%, 50% 91%, 33% 100%, 18% 92%, 4% 100%, 3% 50%);
+}
+
+/* --------------------------------------------------------------- reasons */
+
+.reasons {
+  margin-top: 8px;
+  font-size: 14px;
+}
+
+.reasons summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 10px;
+  min-height: 32px;
+  padding: 4px 0;
+  cursor: pointer;
+  list-style: none;
+}
+
+.reasons summary::-webkit-details-marker {
+  display: none;
+}
+
+.reasons-what {
+  font-family: var(--sc);
+  font-weight: 700;
+  color: var(--link);
+}
+
+.reasons-what::before {
+  content: '';
+  display: inline-block;
+  width: 0;
+  height: 0;
+  margin-right: 6px;
+  border-left: 6px solid currentColor;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  vertical-align: 1px;
+  transition: transform var(--t-fast) var(--ease-in);
+}
+
+.reasons[open] .reasons-what::before {
+  transform: rotate(90deg);
+}
+
+.reasons-sum {
+  color: var(--ink-soft);
+}
+
+.reasons ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  animation: ink-in 260ms var(--ease-in) both;
+}
+
+.reasons li {
+  margin: 2px 0;
+}
+
+.reasons li::marker {
+  color: var(--vermilion);
+}
+
+.preview-foot {
+  margin-top: 36px;
+  padding-top: 14px;
+  border-top: 1.5px solid var(--rule-soft);
+  max-width: 82ch;
+}
+
+/* ---------------------------------------------------------------- phones */
+
+@media (max-width: 900px) {
+  .muster-row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .muster-row .herald-scroll {
+    grid-column: 1 / -1;
+  }
+
+  .muster-row-army {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 560px) {
+  .preview-page.folio {
+    padding-left: 22px;
+    padding-right: 22px;
+  }
+
+  .muster-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .preview-form {
+    align-items: stretch;
+  }
+
+  .preview-branch {
+    flex: 1 1 100%;
+  }
+
+  .preview-seal {
+    margin-left: auto;
+  }
+
+  .muster {
+    gap: 8px 8px;
+  }
+
+  .muster-block {
+    min-width: 44px;
+    padding: 2px 3px;
+  }
+
+  /* Figures stand a size smaller on a phone, so a big army still fits a few blocks a row. */
+  .muster-fig {
+    zoom: 0.72;
+  }
+
+  .combined-totals {
+    gap: 4px 22px;
+  }
+
+  .combined-totals dd {
+    font-size: 22px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ink-line {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+
+  .ink-quill {
+    animation: none;
+    offset-distance: 100%;
+  }
+
+  .muster-row,
+  .muster-fig,
+  .combined,
+  .torn-note,
+  .reasons ul {
+    animation: veil-in 160ms linear both !important;
+    animation-delay: 0ms !important;
+  }
+}

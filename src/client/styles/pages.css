@@ -267,6 +267,21 @@
   align-items: center;
 }
 
+.hero-preview {
+  margin: 16px 0 0;
+}
+
+.hero-preview .ink-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  font-family: var(--sc);
+  font-size: 17px;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+  text-decoration-thickness: 1px;
+}
+
 .dev-login {
   display: inline-flex;
   align-items: center;

@@ -15,6 +15,7 @@ const ProfilePage = page(() => import('./pages/Profile.tsx').then((m) => m.Profi
 const ReplayPage = page(() => import('./pages/Replay.tsx').then((m) => m.ReplayPage));
 const ArmoryPage = page(() => import('./meta/ArmoryPage.tsx').then((m) => m.ArmoryPage));
 const HallPage = page(() => import('./meta/HallPage.tsx').then((m) => m.HallPage));
+const PreviewPage = page(() => import('./pages/Preview.tsx').then((m) => m.PreviewPage));
 const SeasonPage = page(() => import('./meta/SeasonPage.tsx').then((m) => m.SeasonPage));
 
 /**
@@ -70,7 +71,7 @@ export function Root() {
   useEffect(loadMe, [loadMe]);
 
   useEffect(() => {
-    const titles: Record<string, string> = { home: 'Pushfront', demo: 'Demo war · Pushfront', lost: 'Lost · Pushfront', armory: 'Armory · Pushfront', hall: 'Hall of Legends · Pushfront', season: 'Season · Pushfront' };
+    const titles: Record<string, string> = { home: 'Pushfront', demo: 'Demo war · Pushfront', lost: 'Lost · Pushfront', armory: 'Armory · Pushfront', hall: 'Hall of Legends · Pushfront', season: 'Season · Pushfront', preview: 'Army preview · Pushfront' };
     // Every route sets a title, so one page's never lingers on the next; pages refine theirs once data arrives.
     const named: Partial<Record<string, string>> = {
       room: route.kind === 'room' ? route.slug : undefined,
@@ -104,6 +105,8 @@ export function Root() {
       return <Paged><HallPage key={route.slug} slug={route.slug} invite={route.invite ?? null} /></Paged>;
     case 'season':
       return <Paged><SeasonPage key={route.slug} slug={route.slug} invite={route.invite ?? null} /></Paged>;
+    case 'preview':
+      return <Paged><PreviewPage owner={route.owner} repo={route.repo} branch={route.branch} me={me} /></Paged>;
     case 'lost':
       return <LostPage path={route.path} />;
   }

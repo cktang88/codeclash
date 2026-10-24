@@ -1,6 +1,7 @@
 import { Fragment, useState, type ReactNode } from 'react';
 import { Kind } from '../../sim/api.ts';
 import { STATS, type Tier } from '../../sim/stats.ts';
+import { Link } from '../ui/Link.tsx';
 import { Modal } from '../ui/Modal.tsx';
 import { Ribbons } from '../ui/codex.tsx';
 import { UnitIcon } from '../ui/icons.tsx';
@@ -142,6 +143,12 @@ export function ArticlesOfWar({ onClose }: { onClose(): void }) {
       )}
       {tab === 'units' && (
         <>
+          <p className="lede">
+            <Link className="ink-link" to={{ kind: 'preview', owner: null, repo: null, branch: null }}>
+              See what your code would raise
+            </Link>
+            : name any public repository and the army preview draws up what each of its latest commits would muster, and why.
+          </p>
           <ul className="how-list">
             {HOW_IT_WORKS.map((item, i) => (
               <li key={i}>{item}</li>

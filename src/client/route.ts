@@ -9,6 +9,7 @@ export type Route =
   | { kind: 'armory' }
   | { kind: 'hall'; slug: string; invite?: string | null }
   | { kind: 'season'; slug: string; invite?: string | null }
+  | { kind: 'preview'; owner: string | null; repo: string | null; branch: string | null }
   | { kind: 'lost'; path: string };
 
 const SLUG = '([a-z0-9-]{3,48})';
@@ -28,10 +29,14 @@ export function parseRoute(pathname: string, search = ''): Route {
   const path = pathname.replace(/\/+$/, '') || '/';
   const q = new URLSearchParams(search);
   const invite = q.get('invite') || null;
+  let m: RegExpExecArray | null;
   if (path === '/') return { kind: 'home' };
   if (path === '/demo') return { kind: 'demo' };
   if (path === '/armory') return { kind: 'armory' };
-  let m = new RegExp(`^/r/${SLUG}$`).exec(path);
+  if (path === '/preview') return { kind: 'preview', owner: null, repo: null, branch: null };
+  m = /^\/preview\/([A-Za-z0-9-]{1,39})\/([A-Za-z0-9._-]{1,100})$/.exec(path);
+  if (m) return { kind: 'preview', owner: m[1]!, repo: m[2]!, branch: q.get('branch') || null };
+  m = new RegExp(`^/r/${SLUG}$`).exec(path);
   if (m) return { kind: 'room', slug: m[1]!, invite };
   m = new RegExp(`^/r/${SLUG}/history$`).exec(path);
   if (m) return { kind: 'history', slug: m[1]!, invite };
@@ -73,6 +78,8 @@ export function pathFor(route: Route): string {
       return `/r/${route.slug}/hall${query({ invite: route.invite })}`;
     case 'season':
       return `/r/${route.slug}/season${query({ invite: route.invite })}`;
+    case 'preview':
+      return route.owner && route.repo ? `/preview/${route.owner}/${route.repo}${query({ branch: route.branch })}` : '/preview';
     case 'lost':
       return route.path;
   }

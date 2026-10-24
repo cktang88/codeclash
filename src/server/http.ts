@@ -39,6 +39,7 @@ import { EMBLEMS, PATTERNS } from '../rules/heraldry.ts';
 import { WS_CLOSE_TRY_LATER, type Hub } from './hub.ts';
 import type { GithubClient } from './github.ts';
 import type { PushReport } from './poller.ts';
+import { PREVIEW_STATUS, PreviewFailure, type Preview } from './preview.ts';
 import { isoDay, RoomFailure, Rooms, userRef } from './rooms.ts';
 import { readSession, SESSION_COOKIE } from './session.ts';
 import { TICK_MS } from '../sim/api.ts';
@@ -50,7 +51,12 @@ export interface HttpDeps extends AuthDeps {
   github: GithubClient | null;
   onPush: (report: PushReport) => void;
   meta?: Meta;
+  /** The army preview; absent, its endpoint answers 503. */
+  preview?: Preview | null;
 }
+
+/** Army previews one address may ask for a minute. */
+export const PREVIEW_PER_MINUTE = 10;
 
 const Name = z.string().trim().min(2).max(48);
 const CreateRoom = z.object({
@@ -165,6 +171,7 @@ export async function buildHttp(deps: HttpDeps): Promise<FastifyInstance> {
   const createLimit = new Limiter(3600_000, 10);
   const chatLimit = new Limiter(10_000, 6);
   const emoteLimit = new Limiter(10_000, 6);
+  const previewLimit = new Limiter(60_000, PREVIEW_PER_MINUTE);
 
   // ------------------------------------------------------------- socket
 
@@ -564,6 +571,32 @@ export async function buildHttp(deps: HttpDeps): Promise<FastifyInstance> {
     }
   });
 
+  // The army preview: what a public repository's latest commits would raise. Anyone may ask,
+  // signed in or not; it reads only public data, with the server's token, never a user's.
+  app.get('/api/preview/:owner/:repo', async (req, reply) => {
+    const { owner, repo } = req.params as { owner: string; repo: string };
+    const q = req.query as Record<string, unknown>;
+    const branch = typeof q.branch === 'string' && q.branch.trim() !== '' ? q.branch.trim() : null;
+    if (!deps.preview) return fail(reply, 503, 'unavailable', 'The scouts are not posted on this server.');
+    if (!previewLimit.allow(`ip:${addressOf(req)}`, clock())) {
+      reply.header('retry-after', '60');
+      return fail(reply, 429, 'rate_limited', `Ten musters a minute is the most the scouts can ride. Rest them a moment and try again.`);
+    }
+    try {
+      const { body, cached } = await deps.preview.preview(owner, repo, branch);
+      const user = viewerOf(req);
+      reply.header('cache-control', 'private, max-age=60');
+      reply.header('x-preview-cache', cached ? 'hit' : 'miss');
+      return { ...body, viewerHue: user ? (deps.meta?.latestHue(user.id) ?? null) : null };
+    } catch (err) {
+      if (err instanceof PreviewFailure) {
+        if (err.code === 'github_limited') reply.header('retry-after', '300');
+        return fail(reply, PREVIEW_STATUS[err.code], err.code, err.message);
+      }
+      throw err;
+    }
+  });
+
   app.get('/api/health', async () => ({ ok: true, rooms: rooms.wars().length, spectators: hub.size, ingestion: deps.github !== null }));
 
   // The version handshake: a page whose build differs from the server's simulation reloads, so an
@@ -601,7 +634,8 @@ export async function buildHttp(deps: HttpDeps): Promise<FastifyInstance> {
       const path = req.url.split('?')[0]!;
       // Only app routes fall back to the page; a missing asset (anything with a file extension) is a 404,
       // or a browser would try to decode index.html as audio or an image.
-      const asset = /\.[A-Za-z0-9]+$/.test(path.slice(path.lastIndexOf('/') + 1));
+      // A previewed repository's name may end like a file (`/preview/vercel/next.js`): those are pages.
+      const asset = !path.startsWith('/preview/') && /\.[A-Za-z0-9]+$/.test(path.slice(path.lastIndexOf('/') + 1));
       if (req.method !== 'GET' || asset || /^\/(api|auth|ws|hooks)(\/|$)/.test(path)) return reply.code(404).send({ error: 'not_found', message: 'Not found.' });
       return reply.type('text/html').sendFile('index.html');
     });

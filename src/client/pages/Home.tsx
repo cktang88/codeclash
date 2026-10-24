@@ -402,6 +402,12 @@ export function HomePage({ me, meError, onMeChanged }: { me: MeResponse | null; 
               Watch a demo war
             </Link>
           </div>
+          <p className="hero-preview">
+            <Link className="ink-link" to={{ kind: 'preview', owner: null, repo: null, branch: null }}>
+              See what your code would raise
+            </Link>{' '}
+            <span className="muted">· paste any public repository and see the army its latest commits muster</span>
+          </p>
           {signInError && (
             <p className="form-error" role="alert">
               {signInError === 'too_new'

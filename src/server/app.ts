@@ -1,12 +1,13 @@
 import type { FastifyInstance } from 'fastify';
 import type { Config } from './config.ts';
 import { openDb, Store } from './db.ts';
-import { createGithubClient } from './github.ts';
+import { createGithubClient, type GithubClient } from './github.ts';
 import { buildHttp } from './http.ts';
 import { Hub } from './hub.ts';
 import { Meta } from './meta.ts';
 import { consoleLogger, errorMessage, type Logger } from './log.ts';
 import { Poller, type PushReport } from './poller.ts';
+import { Preview } from './preview.ts';
 import { Rooms } from './rooms.ts';
 import { Scheduler } from './scheduler.ts';
 
@@ -14,6 +15,8 @@ const SEEN_COMMITS_DAYS = 14;
 const CHAT_DAYS = 30;
 const SNAPSHOT_DAYS = 14;
 const PRUNE_EVERY_MS = 6 * 3_600_000;
+/** GitHub requests the army preview leaves to ingestion when it shares the server's token. */
+const PREVIEW_RESERVE = 1500;
 
 export interface Server {
   app: FastifyInstance;
@@ -28,7 +31,15 @@ export interface Server {
 
 export async function createServer(
   config: Config,
-  opts: { log?: Logger; clock?: () => number; fetchImpl?: typeof fetch; background?: boolean; random?: () => number } = {},
+  opts: {
+    log?: Logger;
+    clock?: () => number;
+    fetchImpl?: typeof fetch;
+    background?: boolean;
+    random?: () => number;
+    /** GitHub for the army preview only (tests, fixtures); by default the server's own client. */
+    previewGithub?: GithubClient;
+  } = {},
 ): Promise<Server> {
   const log = opts.log ?? consoleLogger;
   const clock = opts.clock ?? Date.now;
@@ -49,6 +60,13 @@ export async function createServer(
   });
   const scheduler = new Scheduler(rooms, log);
   const github = config.githubToken ? createGithubClient(config.githubToken, opts.fetchImpl) : null;
+  // The preview reads with the server's token and leaves ingestion a fair share of its rate limit;
+  // with no token it reads anonymously (60 requests an hour, about four uncached previews).
+  const preview = new Preview({
+    github: opts.previewGithub ?? github ?? createGithubClient(null, opts.fetchImpl),
+    clock,
+    reserve: !opts.previewGithub && github ? PREVIEW_RESERVE : 0,
+  });
   const onPush = (report: PushReport) => {
     const raised = rooms.onPush(report, clock());
     log.info('push', { user: report.userId, repo: report.repo, lines: report.lines, rooms: raised });
@@ -76,7 +94,7 @@ export async function createServer(
   prune();
 
   const app = await buildHttp({
-    config, store, log, clock, fetchImpl: opts.fetchImpl, hub, rooms, github, onPush, meta,
+    config, store, log, clock, fetchImpl: opts.fetchImpl, hub, rooms, github, onPush, meta, preview,
     onSignIn: (userId) => {
       poller?.pollUser(userId).catch((err: unknown) => log.warn('first poll failed', { user: userId, error: errorMessage(err) }));
     },

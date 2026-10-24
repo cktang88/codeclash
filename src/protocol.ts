@@ -302,3 +302,95 @@ export interface VersionResponse {
   sim: string;
   sw: boolean;
 }
+
+// ------------------------------------------------------------------ army preview
+
+/** Lines of one diff by category, as the ledger counts them (DESIGN.md §1). */
+export interface PreviewLines {
+  code: number;
+  test: number;
+  comment: number;
+  docs: number;
+  config: number;
+  removed: number;
+  generated: number;
+  vendor: number;
+  blank: number;
+}
+
+export interface PreviewArmy {
+  /** Soldiers by kind, indexed by `Kind`. */
+  counts: number[];
+  /** Platoon slots the soldiers fill (support included). */
+  slots: number;
+  /** The budget in slots before specialists are chosen (`budgetOf`). */
+  budget: number;
+  quality: number;
+  veterancy: number;
+  power: number;
+  /** Quality below 0.95: the army marches in faded, torn cloth. */
+  ragged: boolean;
+  notes: { kind: 'veteran' | 'tests' | 'comments' | 'filler'; effect: number; text: string }[];
+}
+
+export interface PreviewCommit {
+  sha: string;
+  shortSha: string;
+  /** The message's first line. */
+  message: string;
+  author: { login: string | null; name: string | null; avatarUrl: string | null };
+  /** ISO date the commit was authored. */
+  date: string | null;
+  htmlUrl: string;
+  purpose: 'fix' | 'feature' | 'refactor' | 'perf' | 'revert' | 'chore' | 'work';
+  lines: PreviewLines;
+  /** Files in the diff (at most 300 are read). */
+  filesChanged: number;
+  /** Source files carrying counted code. */
+  files: number;
+  branches: number;
+  /** Added lines left out as filler. */
+  filler: number;
+  army: PreviewArmy;
+  /** Why it raised what it raised, one short line each. */
+  reasons: string[];
+  /** GitHub would not give this commit's diff: nothing was measured. */
+  unread?: boolean;
+  /** The diff had more files than ingestion reads (300). */
+  truncated?: boolean;
+  /** Files whose patch GitHub omitted, counted from their additions alone. */
+  estimated?: number;
+}
+
+export interface PreviewCombined {
+  commits: number;
+  lines: PreviewLines;
+  files: number;
+  branches: number;
+  filler: number;
+  army: PreviewArmy;
+  /** Slots of the commits' armies mustered one by one, each on a fresh day, summed. */
+  separateSlots: number;
+  reasons: string[];
+}
+
+export interface PreviewResponse {
+  /** `owner/name` as GitHub spells it. */
+  repo: string;
+  htmlUrl: string;
+  /** The branch, tag or sha the history was read from. */
+  branch: string;
+  defaultBranch: string;
+  /** Some of the repository's branches, the default first. */
+  branches: string[];
+  /** Newest non-merge commits first, at most 10. */
+  commits: PreviewCommit[];
+  /** Merge commits passed over among the ones read (merges never count). */
+  skippedMerges: number;
+  /** All the commits pushed together on one day, oldest first; null when there are none. */
+  combined: PreviewCombined | null;
+  /** When this history was read from GitHub (it is cached for 5 minutes). */
+  fetchedAt: number;
+  /** The signed-in viewer's latest army hue, or null. */
+  viewerHue: number | null;
+}
