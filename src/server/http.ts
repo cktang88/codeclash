@@ -549,7 +549,7 @@ export async function buildHttp(deps: HttpDeps): Promise<FastifyInstance> {
         room: { slug: room.slug, name: room.name },
         war: summary(war),
         digest: war.digest,
-        map: { radius: map.radius, sites: map.sites.map((s) => ({ kind: s.kind, x: Math.round(s.x), y: Math.round(s.y), slot: s.slot })), terrain: coarseTerrain(map, 2) },
+        map: { radius: map.radius, ring: map.ring, centre: map.centre, centreKind: map.centreKind, seed: war.seed, sites: map.sites.map((s) => ({ kind: s.kind, x: Math.round(s.x), y: Math.round(s.y), slot: s.slot })), terrain: coarseTerrain(map, 2) },
         players: war.header.players.map((pl, p) => ({ p, login: pl.login, hue: pl.hue, slot: pl.slot })),
         timelapse: store.frames(war.id),
       };

@@ -3,6 +3,7 @@ import type { LegendEntry } from '../../protocol.ts';
 import { Notice } from '../pages/Notice.tsx';
 import { Avatar } from '../ui/Avatar.tsx';
 import { EmptyVignette, InkLink, VellumPanel } from '../ui/codex.tsx';
+import { EventIcon } from '../ui/icons.tsx';
 import { metaApi, useLoad } from './api.ts';
 
 const KIND_TEXT: Record<LegendEntry['kind'], string> = {
@@ -11,11 +12,15 @@ const KIND_TEXT: Record<LegendEntry['kind'], string> = {
   conqueror: 'Took the whole ring',
 };
 
-function unitName(unit: Kind | null): string {
-  return unit === Kind.Dragon ? 'Dragon' : unit === Kind.Champion ? 'Champion' : 'Soldier';
+function unitName(unit: Kind | null, kind: LegendEntry['kind']): string {
+  if (kind === 'conqueror') return 'General';
+  return unit === Kind.Dragon ? 'Dragon' : unit === Kind.Champion ? 'Champion' : kind === 'captain' ? 'Captain' : 'Soldier';
 }
 
-/** The room's Hall of Legends: named Champions and Dragons, newest day first. */
+/** The day's conqueror of the ring heads its list; then the others as they were named. */
+const ORDER: Record<LegendEntry['kind'], number> = { conqueror: 0, captain: 1, survivor: 2 };
+
+/** The room's Hall of Legends: generals who took the whole ring, great captains, and named Champions and Dragons, newest day first. */
 export function HallPage({ slug, invite = null }: { slug: string; invite?: string | null }) {
   const { data, error } = useLoad(`legends:${slug}`, () => metaApi.legends(slug, invite));
   if (error) {
@@ -42,7 +47,9 @@ export function HallPage({ slug, invite = null }: { slug: string; invite?: strin
       <h1 className="page-title">The Hall of Legends</h1>
       {days.length === 0 && (
         <EmptyVignette kind="plinth" title="The plinths stand empty">
-          <p>No legend has been named yet. Keep a Champion or Dragon alive to the end of the day, or let it do great deeds, and its name is carved here.</p>
+          <p>
+            No legend has been named yet. Take the whole ring, lead a platoon to great deeds, or keep a Champion or Dragon alive to the end of the day, and a name is carved here.
+          </p>
         </EmptyVignette>
       )}
       {days.map((day) => (
@@ -53,14 +60,20 @@ export function HallPage({ slug, invite = null }: { slug: string; invite?: strin
           <ul className="meta-hall-list">
             {data.legends
               .filter((l) => l.day === day)
+              .sort((a, b) => ORDER[a.kind] - ORDER[b.kind])
               .map((l, i) => (
                 <li key={i}>
                   <VellumPanel as="article" className="meta-legend" data-kind={l.kind}>
+                    {l.kind === 'conqueror' && (
+                      <span className="meta-legend-crest" aria-hidden>
+                        <EventIcon kind="victory" size={34} />
+                      </span>
+                    )}
                     <h3 className="meta-legend-name">
                       {l.name} <span className="gilt">{l.epithet}</span>
                     </h3>
                     <p className="rubric">
-                      {unitName(l.unit)} · {KIND_TEXT[l.kind]}
+                      {unitName(l.unit, l.kind)} · {KIND_TEXT[l.kind]}
                     </p>
                     {l.deeds.length > 0 && (
                       <ul className="meta-legend-deeds">

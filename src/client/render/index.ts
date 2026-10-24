@@ -20,6 +20,7 @@ import { Effects } from './fx/index.ts';
 import { loadFxArt } from './fx/atlas.ts';
 import { FAR_ZOOM, initialLod, stepLod, type LodState } from './lod.ts';
 import { BlockLayer } from './blocks.ts';
+import { BorderLayer } from './borders.ts';
 import { InfluenceLayer } from './influence.ts';
 import { canvas2d, hslNumber, hslRgb, mixColor } from './paint.ts';
 import { WaterGlints } from './shaders/water.ts';
@@ -48,7 +49,7 @@ export interface CinematicShot {
   dim?: number;
   /** Travel time; defaults by distance. */
   travelMs?: number;
-  /** Why the shot was called (muster, dragon, sack, monolith…). */
+  /** Why the shot was called (muster, dragon, conquest, rising, victory…). */
   reason?: string;
 }
 
@@ -61,7 +62,13 @@ interface FxHooks {
   cinematic?: (shot: CinematicShot) => void;
   openGate?: (site: number) => void;
   setDaylight?(light: Daylight): void;
+  risingAt?: (p: number) => { x: number; y: number } | null;
+  hailRing?(x: number, y: number, radius: number, tint: number): void;
+  ringWon?(world: World, tint: number, fanfare: string): void;
 }
+
+/** How dark the world dims around each kind of set piece. */
+const SHOT_DIM: Record<string, number> = { conquest: 0.45, rising: 0.3, victory: 0.25 };
 
 const GOLD = 0xf2cf5b;
 /** Largest side of the painted chart, in canvas pixels. */
@@ -102,6 +109,7 @@ interface MapLayers {
   water: WaterGlints;
   sites: SiteLayer;
   influence: InfluenceLayer;
+  borders: BorderLayer;
   atmosphere: Atmosphere;
 }
 
@@ -212,6 +220,14 @@ export class Battlefield {
   private monumentKey = '';
   private audioAt = 0;
   private fires: { x: number; y: number }[] = [];
+  /**
+   * Steps of a set piece still to play (the victory's tour of the ring), on the frame clock: it
+   * advances with each frame's capped time, as the camera does, so a slow machine sees every beat.
+   */
+  private tour: { at: number; run: () => void }[] = [];
+  private tourClock = 0;
+  /** 0..1: how far the field has stilled since the ring was won. */
+  private stillness = 0;
   private warStatus = '';
   /** The last sim tick drawn: a step back in time means a new war or a rewound replay. */
   private lastTick = -1;
@@ -322,7 +338,8 @@ export class Battlefield {
     // Effects may ask the camera for a set-piece shot, or a capital to open its gates.
     hooks.cinematic = (shot) => this.cinematic(shot);
     // Effects name a capital by its slot; capitals are the first sites, one per slot.
-    hooks.openGate = (slot) => this.layers?.sites.openGate(slot, performance.now());
+    hooks.openGate = (site) => this.layers?.sites.openGate(site, performance.now());
+    hooks.risingAt = (p) => this.layers?.sites.risingAt(p) ?? null;
     hooks.sound = (name, x, y, gain) => {
       // Audio is a garnish: a failing sound must never break the frame that asked for it.
       try {
@@ -514,8 +531,25 @@ export class Battlefield {
     const world = this.store.world;
     const player = world?.players[p];
     if (!world || !player) return;
-    const site = world.map.sites[player.slot]!;
-    this.focus(site.x * 0.85, site.y * 0.85, 0.9);
+    // Its home while it holds it, else the nearest capital it holds, else the lost home it rises against.
+    const site = this.seatOf(world, p);
+    if (site) this.focus(site.x * 0.92, site.y * 0.92, 0.9);
+  }
+
+  private seatOf(world: World, p: number): { x: number; y: number } | undefined {
+    const home = world.map.sites[world.players[p]?.slot ?? -1];
+    let best: { x: number; y: number } | undefined;
+    let bestD = Infinity;
+    for (const st of world.structures) {
+      if (st.p !== p) continue;
+      const def = world.map.sites[st.site]!;
+      const d = home ? Math.hypot(def.x - home.x, def.y - home.y) : 0;
+      if (d < bestD) {
+        bestD = d;
+        best = def;
+      }
+    }
+    return best ?? home;
   }
 
   /**
@@ -531,7 +565,7 @@ export class Battlefield {
     this.store.setFollowing(false);
     this.camera.shot(shot.x, shot.y, zoom, travel);
     // The dragon's summoning paints its own dimming and wing shadow: don't double it.
-    const dim = shot.reason === 'dragon' ? 0 : Math.max(0, Math.min(1, shot.dim ?? (shot.reason === 'monolith' || shot.reason === 'sack' ? 0.5 : 0)));
+    const dim = shot.reason === 'dragon' ? 0 : Math.max(0, Math.min(1, shot.dim ?? SHOT_DIM[shot.reason ?? ''] ?? 0));
     this.cine = { until: performance.now() + travel + (shot.holdMs ?? 2200), dim, resume };
   }
 
@@ -635,6 +669,12 @@ export class Battlefield {
     const light = this.light;
     (this.fx as unknown as FxHooks).setDaylight?.(light);
 
+    // ---- set pieces still playing, and the stillness that settles once the ring is won
+    this.tourClock += dtMs;
+    while (this.tour.length > 0 && this.tour[0]!.at <= this.tourClock) this.tour.shift()!.run();
+    const won = world.victor >= 0;
+    this.stillness = won ? Math.min(1, this.stillness + dtMs / (this.opts.reducedMotion ? 300 : 3500)) : 0;
+
     // ---- camera
     if (this.cine && now >= this.cine.until && !this.camera.busy) {
       if (this.cine.resume) this.store.setFollowing(true);
@@ -697,7 +737,9 @@ export class Battlefield {
     this.units.tints = this.actorTints;
     this.units.cryTint = this.actorTints.map((t, p) => (cry[p] ? mixColor(t, GOLD, 0.45 + Math.sin(now / 140) * 0.3) : t));
     time('camera');
-    const timeScale = now < this.pauseUntil ? PAUSE_SCALE : 1;
+    // Once the ring is won the soldiers slow to a painted stillness, as if the page were finished;
+    // banners, water and smoke stay alive.
+    const timeScale = (now < this.pauseUntil ? PAUSE_SCALE : 1) * (1 - easeInOut(this.stillness) * 0.97);
     this.units.timeScale = timeScale;
     this.units.reduced = !!this.opts.reducedMotion;
     this.units.night = light.lights;
@@ -746,6 +788,7 @@ export class Battlefield {
     );
     time('sites');
     layers.influence.update(world, this.rgb, now);
+    layers.borders.update(world, this.tints, zoom);
     time('influence');
     layers.water.update((now - this.started) / 1000, light.day, zoom);
     const view = { x: bounds.minX, y: bounds.minY, width: bounds.maxX - bounds.minX, height: bounds.maxY - bounds.minY };
@@ -800,11 +843,64 @@ export class Battlefield {
       }
     }
     if (best) return { x: best.x, y: best.y, id: bestId };
-    const site = world.map.sites[world.players[p]?.slot ?? -1];
+    const site = this.seatOf(world, p);
     return site ? { x: site.x, y: site.y, id: null } : null;
   }
 
-  /** Fires for night embers: sacked capitals smoulder, held ones keep their hearths lit. */
+  /**
+   * The victory set piece. Anticipation: the camera sets out from the conqueror's home and tours
+   * the ring, and each capital raises the conqueror's banners in gold leaf as it passes. Impact:
+   * the camera pulls back over the whole ring, the bells peal and the conqueror's fanfare sounds.
+   * Aftermath: the field stills (see `stillness`) and the HUD's overlay leads to the digest.
+   * Caught up on (a seek, a resync) or under reduced motion, the banners simply stand raised.
+   */
+  private victoryTour(world: World, p: number, now: number, catchingUp: boolean): void {
+    const sites = this.layers?.sites;
+    if (!sites) return;
+    const tint = this.tints[p] ?? GOLD;
+    const fanfare = `fanfare-${this.store.roster[p]?.heraldry?.fanfare ?? 'horn'}`;
+    const hooks = this.fx as unknown as FxHooks;
+    const home = world.players[p]?.slot ?? 0;
+    const seats = world.structures
+      .map((st) => world.map.sites[st.site]!)
+      .filter((d) => d.kind === 'capital')
+      .sort((a, b) => ((a.slot - home + world.map.slots) % world.map.slots) - ((b.slot - home + world.map.slots) % world.map.slots));
+    if (catchingUp || this.opts.reducedMotion) {
+      for (const d of seats) sites.raiseBanners(d.id, now);
+      if (!catchingUp) hooks.ringWon?.(world, tint, fanfare);
+      this.store.ceremonyUntil = Date.now() + (catchingUp ? 0 : 1500);
+      return;
+    }
+    const beat = Math.max(1000, Math.min(1700, 10_000 / Math.max(1, seats.length)));
+    const fit = this.camera.fitZoom(world.map.radius);
+    const start = this.tourClock;
+    // The HUD's proclamation waits for the tour's end (set again when it comes).
+    this.store.ceremonyUntil = Date.now() + 120_000;
+    seats.forEach((d, i) => {
+      this.tour.push({
+        at: start + i * beat,
+        run: () => this.cinematic({ x: d.x, y: d.y - d.radius * 0.8, zoom: Math.max(fit * 2, 1.05), travelMs: beat * 0.55, holdMs: beat * 0.45, reason: 'victory' }),
+      });
+      this.tour.push({
+        at: start + i * beat + beat * 0.55,
+        run: () => {
+          sites.raiseBanners(d.id, performance.now());
+          hooks.hailRing?.(d.x, d.y, d.radius, tint);
+        },
+      });
+    });
+    const end = start + seats.length * beat;
+    this.tour.push({
+      at: end,
+      run: () => {
+        this.cinematic({ x: 0, y: 0, zoom: fit, travelMs: 1600, holdMs: 5200, reason: 'victory', dim: 0 });
+        hooks.ringWon?.(world, tint, fanfare);
+      },
+    });
+    this.tour.push({ at: end + 4200, run: () => (this.store.ceremonyUntil = Date.now()) });
+  }
+
+  /** Fires for night embers: every capital keeps its hearths lit. */
   private collectFires(world: World): void {
     this.fires.length = 0;
     for (const st of world.structures) {
@@ -893,16 +989,20 @@ export class Battlefield {
     this.fx.reset();
     this.director.reset();
     this.shake = 0;
+    if (this.tour.length > 0) this.store.ceremonyUntil = 0;
+    this.tour = [];
+    this.stillness = this.store.world && this.store.world.victor >= 0 ? 1 : 0;
   }
 
   private dropMap(): void {
     if (!this.layers) return;
-    const { terrain, influence, water, sites, atmosphere } = this.layers;
+    const { terrain, influence, water, sites, atmosphere, borders } = this.layers;
     this.groundLayer.removeChildren();
     // The terrain canvas and influence textures belong to this map alone; the site
     // sprites share the painted site art, so only their display objects are destroyed.
     terrain.destroy({ texture: true, textureSource: true });
     influence.sprite.destroy({ texture: true, textureSource: true });
+    borders.g.destroy();
     water.destroy();
     sites.destroy();
     atmosphere.destroy();
@@ -931,15 +1031,16 @@ export class Battlefield {
     terrain.width = terrain.height = art.extent * 2;
     const water = new WaterGlints(new Texture({ source: new CanvasSource({ resource: art.water, scaleMode: 'linear' }) }), art.extent);
     const influence = new InfluenceLayer(map.radius);
+    const borders = new BorderLayer();
     const sites = new SiteLayer(this.tex, this.flags, world);
     const atmosphere = new Atmosphere(map, art.sea, () => this.fires);
-    this.groundLayer.addChild(terrain, water.mesh, atmosphere.ground, influence.sprite, sites.ground, sites.root);
+    this.groundLayer.addChild(terrain, water.mesh, atmosphere.ground, influence.sprite, borders.g, sites.ground, sites.root);
     // Cloud shadows and birds pass over the ground; their glow joins the lights.
     this.world.addChild(atmosphere.air);
     this.lights.addChild(sites.lights, atmosphere.glow);
     this.top.addChild(sites.labels.root);
     this.top.setChildIndex(sites.labels.root, this.top.children.indexOf(this.fx.overlay));
-    this.layers = { map, key: mapKey(world), terrain, water, sites, influence, atmosphere };
+    this.layers = { map, key: mapKey(world), terrain, water, sites, influence, borders, atmosphere };
     this.monumentKey = '';
     this.camera.fit(map.radius);
   }
@@ -979,17 +1080,9 @@ export class Battlefield {
     // Mid zoom thins the minor sparks and glints; far zoom (blocks) has none.
     this.fx.onStep(ev, world, { posOf: this.posOf, tints: this.tints, near, bounds, detail: this.lod.mid ? 0.5 : 1 });
 
-    // A muster swings its capital's gates open as the column marches out.
-    for (const m of ev.musters) {
-      if (m.queued) continue;
-      const slot = world.players[m.p]?.slot;
-      if (slot !== undefined) this.layers.sites.openGate(slot, now);
-    }
-    for (const m of ev.marches) {
-      const pl = world.platoons.find((x) => x.id === m.platoon);
-      const slot = pl ? world.players[pl.p]?.slot : undefined;
-      if (slot !== undefined) this.layers.sites.openGate(slot, now);
-    }
+    // The ring is won: the camera tours the conqueror's capitals as each raises its banners.
+    // (A runner renders the last few steps of a frame; more than that is a seek or a catch-up.)
+    if (ev.victory) this.victoryTour(world, ev.victory.p, now, this.stepsThisFrame > 3);
     // A melee blow winds up one tick and lands the next: remember who swung at whom.
     const swung = this.swungPrev;
     this.swungPrev = this.swungNow;
@@ -1088,7 +1181,7 @@ export class Battlefield {
         if (!st) continue;
         this.layers?.sites.structureHit(st.site);
         const site = world.map.sites[st.site];
-        // A capital or the Monolith taking a real blow is a big moment.
+        // A capital taking a real blow is a big moment.
         if (site && site.kind === 'capital' && h.damage >= 30 && bounds.contains(site.x, site.y) && h.damage > big) {
           big = h.damage;
           bigX = site.x;
@@ -1181,10 +1274,10 @@ export class Battlefield {
   private onEmote(e: FloatingEmote): void {
     const world = this.store.world;
     if (!world) return;
-    const player = e.p !== null ? world.players[e.p] : undefined;
-    // A spectator's emote floats over the first capital. (TODO client: over the centre of the ring.)
-    const site = player ? world.map.sites[player.slot]! : world.map.sites[0]!;
-    this.fx.floatText(e.emote, site.x + (Math.random() - 0.5) * 50, site.y - site.radius * 2.6, 3.5, 30);
+    // A player's emote floats over its seat; a spectator's over the centre of the ring.
+    const site = e.p !== null ? this.seatOf(world, e.p) : undefined;
+    if (site) this.fx.floatText(e.emote, site.x + (Math.random() - 0.5) * 50, site.y - 160, 3.5, 30);
+    else this.fx.floatText(e.emote, (Math.random() - 0.5) * world.map.centre * 0.6, (Math.random() - 0.5) * world.map.centre * 0.3, 3.5, 30);
   }
 
   // ------------------------------------------------------------ selection
@@ -1236,7 +1329,7 @@ export class Battlefield {
       return pts;
     }
     if (pl.site < 0) return null;
-    const goal = pl.state === PlatoonState.Rout ? world.players[pl.p]!.slot : pl.site;
+    const goal = pl.state === PlatoonState.Rout ? pl.home : pl.site;
     if (goal < 0 || goal >= world.map.sites.length) return null;
     const field = flowTo(world.map, goal);
     let cell = cellAt(world.map, pl.x, pl.y);
@@ -1336,4 +1429,9 @@ export class Battlefield {
 
 function monumentKey(list: readonly Monument[] | undefined): string {
   return list?.map((m) => `${m.kind}:${m.p}:${m.name}`).join('|') ?? '';
+}
+
+function easeInOut(t: number): number {
+  const k = Math.max(0, Math.min(1, t));
+  return k * k * (3 - 2 * k);
 }

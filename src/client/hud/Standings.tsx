@@ -28,7 +28,7 @@ export function Standings({ standings, viewerP }: { standings: readonly Standing
     return <p className="empty-note">No armies yet. The first push of the day raises the first banner.</p>;
   }
   return (
-    <ol className="standings" aria-label="Standings by renown">
+    <ol className="standings" aria-label="Standings: capitals held, then renown">
       {standings.map((s, i) => (
         <li key={s.p} className={`standing${s.p === viewerP ? ' is-me' : ''}`} style={hueVar(s.hue)}>
           <button
@@ -37,7 +37,7 @@ export function Standings({ standings, viewerP }: { standings: readonly Standing
               field()?.focusPlayer(s.p);
               store.select({ kind: 'player', p: s.p });
             }}
-            aria-label={`${s.login}, rank ${i + 1}, ${s.renown} renown. Show on map.`}
+            aria-label={`${s.login}, rank ${i + 1}, ${s.capitals} ${s.capitals === 1 ? 'capital' : 'capitals'}, ${s.renown} renown${s.rising ? ', rising' : ''}. Show on map.`}
           >
             <span className="standing-rank num">{i + 1}</span>
             <span className="standing-swatch" aria-hidden />
@@ -45,9 +45,14 @@ export function Standings({ standings, viewerP }: { standings: readonly Standing
             <span className="standing-main">
               <span className="standing-name">
                 <span className="truncate who">{s.login}</span>
-                {s.leader && (
-                  <span className="tag tag-bounty" title="Bounty: leader in renown. Kills on their soldiers count double." aria-label="Bounty">
+                {store.world && store.world.victor === s.p && (
+                  <span className="tag tag-victor" title="Holds the whole ring: the war is won" aria-label="Conqueror of the ring">
                     <Icon name="crown" size={13} />
+                  </span>
+                )}
+                {s.rising && (
+                  <span className="tag tag-rising" title="Lost every capital: fights on outside its home to retake it">
+                    Rising
                   </span>
                 )}
                 {s.p === viewerP && <span className="tag">You</span>}
@@ -68,8 +73,14 @@ export function Standings({ standings, viewerP }: { standings: readonly Standing
               </span>
             </span>
             <span className="standing-score">
-              <Tally className="renown" value={s.renown} format={compact} />
-              <Trend value={s.trend} />
+              <span className={`capitals${s.capitals === 0 ? ' is-none' : ''}`} title={`${s.capitals} ${s.capitals === 1 ? 'capital' : 'capitals'} held${s.conquests > 0 ? `, ${s.conquests} stormed today` : ''}`}>
+                <Icon name="keep" size={16} />
+                <Tally value={s.capitals} />
+              </span>
+              <span className="renown-line">
+                <Tally className="renown" value={s.renown} format={compact} />
+                <Trend value={s.trend} />
+              </span>
             </span>
           </button>
         </li>

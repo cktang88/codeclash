@@ -1,5 +1,5 @@
 import { Terrain, type MapDef } from '../../sim/api.ts';
-import { FORT_NAMES } from '../../sim/chronicle.ts';
+import { centreName, isLake } from './centre.ts';
 import { canvas2d, fbm, noise, seeded, smoothstep } from './paint.ts';
 
 // The battlefield is a painted chart: a disc of land washed in pigment on a sheet
@@ -100,6 +100,10 @@ const MUD: Rgb = [150, 132, 92];
 const SHALLOW: Rgb = [122, 156, 160];
 const DEEP: Rgb = [46, 80, 138];
 const SEA: Rgb = [80, 118, 164];
+/** The great lake's deep water, darker than any pool: the ring's centre reads as one grand feature. */
+const ABYSS: Rgb = [30, 54, 112];
+const MASSIF_HI: Rgb = [178, 166, 140];
+const MASSIF_LO: Rgb = [104, 94, 80];
 const INK = 'rgba(34,24,15,';
 
 /**
@@ -133,6 +137,10 @@ function layout(map: MapDef, maxPx: number) {
 
 export function terrainPixels(map: MapDef, seed: number, maxPx: number): TerrainPixels {
   const { R, extent, world, size, seaW, sheet } = layout(map, maxPx);
+  // The ring's centre: a great lake or a mountain massif, inside its ragged shore.
+  const C = map.centre ?? 0;
+  const lake = C > 0 && isLake(map.centreKind);
+  const massif = C > 0 && !lake;
   const forest = sampler(map, mask(map, Terrain.Forest));
   const water = sampler(map, mask(map, Terrain.Water));
   const rock = sampler(map, mask(map, Terrain.Rock));
@@ -179,13 +187,30 @@ export function terrainPixels(map: MapDef, seed: number, maxPx: number): Terrain
         const rm = rock(x, y) + (mottle - 0.5) * 0.3 + (grain - 0.5) * 0.12;
         const rockT = smoothstep(0.4, 0.5, rm);
         if (rockT > 0) {
-          const rc = mix(ROCK_SHADE, ROCK, smoothstep(0.3, 0.75, noise(x / 11, y / 11, seed + 5)));
+          let rc = mix(ROCK_SHADE, ROCK, smoothstep(0.3, 0.75, noise(x / 11, y / 11, seed + 5)));
+          if (massif && d < C + 60) {
+            // The massif's flanks: lit toward the upper left, falling into cool shade toward the
+            // lower right, darkening as they climb toward the summit.
+            const up = smoothstep(C + 40, C * 0.25, d);
+            const facing = (x + y) / (d * 1.414 + 1e-6);
+            rc = mix(mix(MASSIF_HI, MASSIF_LO, 0.35 + facing * 0.35 + up * 0.25), rc, 0.3);
+          }
           c = mix(c, rc, rockT);
         }
         const w = water(x, y) + (mottle - 0.5) * 0.2 + (grain - 0.5) * 0.04;
         c = mix(c, MUD, smoothstep(0.3, 0.42, w) * 0.7);
         const wt = smoothstep(0.43, 0.47, w);
-        if (wt > 0) c = mix(c, mix(SHALLOW, DEEP, smoothstep(0.5, 0.95, w)), wt);
+        if (wt > 0) {
+          let wc = mix(SHALLOW, DEEP, smoothstep(0.5, 0.95, w));
+          if (lake && d < C + 60) {
+            // The great lake shelves fast from its shore into deep ultramarine, with slow swell bands.
+            const deep = smoothstep(C + 10, C - 260, d);
+            const swell = fbm(x / 140, y / 300, seed + 47, 3);
+            wc = mix(wc, mix(DEEP, ABYSS, smoothstep(0.2, 1, deep)), deep);
+            wc = mix(wc, SEA, smoothstep(0.58, 0.82, swell) * 0.22 * deep);
+          }
+          c = mix(c, wc, wt);
+        }
         // Hill shading: the coast's south-east rim falls away, so it darkens.
         const rim = smoothstep(R - 70, R - 4, d) * Math.max(0, (x + y) / (d * 1.414 + 1e-6));
         c = mix(c, [70, 60, 40], rim * 0.45);
@@ -216,6 +241,8 @@ export function terrainPixels(map: MapDef, seed: number, maxPx: number): Terrain
         const w = water(x, y);
         a = smoothstep(0.45, 0.52, w);
         depth = smoothstep(0.5, 0.9, w) * 0.7;
+        // The great lake runs deep: its glints roll slow and broad like the open sea's.
+        if (lake) depth = Math.max(depth, smoothstep(C, C - 220, d) * a);
       }
       const o = (py * wm + px) * 4;
       wdata[o] = Math.round(depth * 255);
@@ -276,16 +303,18 @@ export function paintTerrain(map: MapDef, seed: number, maxPx: number, text: Cha
     ctx.fill();
   }
 
+  if (map.centre > 0 && isLake(map.centreKind)) paintLake(ctx, map, seed);
   paintRoads(ctx, map, seed, terrainAt);
   paintGrass(ctx, R, rand, terrainAt);
   paintRocks(ctx, map, rand);
   paintForests(ctx, map, rand, pxPerUnit, size, extent);
+  if (map.centre > 0 && !isLake(map.centreKind)) paintMassif(ctx, map, seed, terrainAt);
+  if (map.centre > 0) paintCentreName(ctx, map, seed);
 
   // A double ink rule framing the sheet, with fleurons at its corners.
   paintFrame(ctx, sheet - 34, seed);
   paintCompass(ctx, sheet - 34, R, seaW);
   paintCartouche(ctx, sheet - 34, R, seaW, text);
-  paintShrineNotes(ctx, map, R, seaW);
 
   // Paper grain and a candle-lit vignette over the whole sheet.
   ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -442,36 +471,39 @@ function paintCoast(ctx: CanvasRenderingContext2D, R: number, seaW: number, seed
   }
 }
 
+/**
+ * The front road: the ring itself, kept clear by the map, running round the centre through every
+ * capital and border fort. It wanders a little, as a hand-ruled road does, but never off its band.
+ */
 function paintRoads(ctx: CanvasRenderingContext2D, map: MapDef, seed: number, terrainAt: (x: number, y: number) => number): void {
-  const capitals = map.sites.filter((o) => o.kind === 'capital');
-  const forts = map.sites.filter((o) => o.kind === 'fort');
-  const links: [number, number, number, number, number][] = [];
-  // The front road: each border fort to the two capitals either side of it. (TODO client: follow the ring's arc.)
-  forts.forEach((s) => {
-    const near = [...capitals].sort((a, b) => Math.hypot(a.x - s.x, a.y - s.y) - Math.hypot(b.x - s.x, b.y - s.y));
-    for (const c of near.slice(0, 2)) links.push([s.x, s.y, c.x, c.y, 60]);
-  });
+  const r0 = map.ring;
+  if (!(r0 > 0)) return;
+  const steps = Math.max(240, Math.ceil((Math.PI * 2 * r0) / 10));
   const paths: [number, number][][] = [];
-  for (const [x0, y0, x1, y1, wander] of links) {
-    const len = Math.hypot(x1 - x0, y1 - y0);
-    const steps = Math.max(2, Math.floor(len / 12));
-    const nx = -(y1 - y0) / len;
-    const ny = (x1 - x0) / len;
-    let run: [number, number][] = [];
-    for (let i = 0; i <= steps; i++) {
-      const t = i / steps;
-      const bend = Math.sin(t * Math.PI) * (noise(x0 * 0.01 + t * 3, y0 * 0.01, seed + 77) - 0.5) * wander;
-      const x = x0 + (x1 - x0) * t + nx * bend;
-      const y = y0 + (y1 - y0) * t + ny * bend;
-      const ok = terrainAt(x, y) === Terrain.Plain || terrainAt(x, y) === Terrain.Forest;
-      if (!ok) {
-        if (run.length > 1) paths.push(run);
-        run = [];
-        continue;
-      }
-      run.push([x, y]);
+  let run: [number, number][] = [];
+  for (let i = 0; i <= steps; i++) {
+    const a = (i / steps) * Math.PI * 2;
+    // Wander that closes on itself: sampled on a circle in noise space.
+    const wander = (noise(Math.cos(a) * 6 + 40, Math.sin(a) * 6, seed + 77) - 0.5) * 9;
+    const r = r0 + wander;
+    const x = Math.cos(a) * r;
+    const y = Math.sin(a) * r;
+    const t = terrainAt(x, y);
+    if (t !== Terrain.Plain && t !== Terrain.Forest) {
+      if (run.length > 1) paths.push(run);
+      run = [];
+      continue;
     }
-    if (run.length > 1) paths.push(run);
+    run.push([x, y]);
+  }
+  if (run.length > 1) paths.push(run);
+  // Each capital's gate road: a short spur out of the gatehouse (which faces south) onto the ring.
+  for (const s of map.sites) {
+    if (s.kind !== 'capital') continue;
+    paths.push([
+      [s.x, s.y + s.radius * 0.05],
+      [s.x + (noise(s.x * 0.01, s.y * 0.01, seed + 5) - 0.5) * 6, s.y + s.radius * 0.45],
+    ]);
   }
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
@@ -486,10 +518,230 @@ function paintRoads(ctx: CanvasRenderingContext2D, map: MapDef, seed: number, te
     }
   };
   // Ink-edged tracks: a dark border, worn ochre bed, and wheel ruts.
-  stroke(10, `${INK}0.3)`);
-  stroke(7.4, 'rgba(188,158,100,0.9)');
+  stroke(12, `${INK}0.3)`);
+  stroke(9, 'rgba(188,158,100,0.9)');
   stroke(1, 'rgba(120,92,56,0.25)', [3, 5]);
   ctx.setLineDash([]);
+  // Milestones every so often along the outer verge, tiny and quiet.
+  const rand = seeded(seed + 61);
+  const stones = Math.floor((Math.PI * 2 * r0) / 180);
+  for (let i = 0; i < stones; i++) {
+    const a = ((i + 0.5 + (rand() - 0.5) * 0.3) / stones) * Math.PI * 2;
+    const x = Math.cos(a) * (r0 + 11);
+    const y = Math.sin(a) * (r0 + 11);
+    if (terrainAt(x, y) !== Terrain.Plain || map.sites.some((o) => Math.hypot(o.x - x, o.y - y) < o.radius + 40)) continue;
+    ctx.beginPath();
+    ctx.rect(x - 1.4, y - 3.6, 2.8, 3.8);
+    ctx.fillStyle = 'rgba(206,196,170,0.95)';
+    ctx.fill();
+    ctx.lineWidth = 0.7;
+    ctx.strokeStyle = `${INK}0.5)`;
+    ctx.stroke();
+  }
+}
+
+/**
+ * The great lake at the ring's centre, engraved like the open sea: long calm strokes across the
+ * water, and shore ripples ringing in from the coast.
+ */
+function paintLake(ctx: CanvasRenderingContext2D, map: MapDef, seed: number): void {
+  const C = map.centre;
+  const wobble = (a: number, k: number) => (noise(Math.cos(a) * 5 + k, Math.sin(a) * 5, seed + 29) - 0.5) * 22;
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(0, 0, C - 40, 0, Math.PI * 2);
+  ctx.clip();
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = 'rgba(214,226,236,0.13)';
+  for (let y = -C; y < C; y += 9) {
+    ctx.beginPath();
+    for (let x = -C; x <= C; x += 14) {
+      const yy = y + Math.sin(x * 0.03 + y * 0.21) * 2.2;
+      if (x === -C) ctx.moveTo(x, yy);
+      else ctx.lineTo(x, yy);
+    }
+    ctx.stroke();
+  }
+  ctx.restore();
+  // Ripple rings following the shore inward, each fainter and broken into longer dashes.
+  for (let i = 1; i <= 4; i++) {
+    const r = C - 40 - i * (18 + i * 8);
+    if (r < C * 0.3) break;
+    ctx.beginPath();
+    const steps = 360;
+    for (let k = 0; k <= steps; k++) {
+      const a = (k / steps) * Math.PI * 2;
+      const rr = r + wobble(a, 0) * (1 - i * 0.18);
+      if (k === 0) ctx.moveTo(Math.cos(a) * rr, Math.sin(a) * rr);
+      else ctx.lineTo(Math.cos(a) * rr, Math.sin(a) * rr);
+    }
+    ctx.lineWidth = 1.5 - i * 0.2;
+    ctx.strokeStyle = `${INK}${0.34 - i * 0.06})`;
+    ctx.setLineDash(i > 1 ? [14 + i * 8, 9 + i * 4] : []);
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+  // Little inked wave crests scattered on the deep.
+  const rand = seeded(seed + 707);
+  const crests = Math.floor((C * C) / 5200);
+  for (let i = 0; i < crests; i++) {
+    const a = rand() * Math.PI * 2;
+    const r = Math.sqrt(rand()) * (C - 90);
+    const x = Math.cos(a) * r;
+    const y = Math.sin(a) * r;
+    const w = 7 + rand() * 8;
+    ctx.beginPath();
+    ctx.moveTo(x - w, y);
+    ctx.quadraticCurveTo(x - w / 2, y - w * 0.45, x, y);
+    ctx.quadraticCurveTo(x + w / 2, y - w * 0.45, x + w, y);
+    ctx.lineWidth = 1.2;
+    ctx.strokeStyle = `rgba(226,234,240,${0.12 + rand() * 0.14})`;
+    ctx.stroke();
+  }
+}
+
+/**
+ * The mountain massif at the ring's centre: hundreds of engraved peaks in the old cartographer's
+ * manner, each lit on its upper-left face and hatched in cool ink on the other, the tallest
+ * capped with snow toward the summit.
+ */
+function paintMassif(ctx: CanvasRenderingContext2D, map: MapDef, seed: number, terrainAt: (x: number, y: number) => number): void {
+  const C = map.centre;
+  const rand = seeded(seed + 4111);
+  const peaks: { x: number; y: number; s: number; snow: boolean; lean: number }[] = [];
+  const step = Math.max(40, C / 9);
+  for (let y = -C; y <= C + step; y += step * 0.55) {
+    const row = Math.round(y / (step * 0.55));
+    for (let x = -C; x <= C; x += step) {
+      const px = x + (row % 2 ? step * 0.5 : 0) + (rand() - 0.5) * step * 0.6;
+      const py = y + (rand() - 0.5) * step * 0.3;
+      const d = Math.hypot(px, py);
+      if (d > C + 6 || terrainAt(px, py) !== Terrain.Rock) continue;
+      const up = Math.max(0, 1 - d / (C + 6));
+      // Foothills at the shore, great peaks toward the summit.
+      const s = step * (0.38 + up * up * 1.05 + rand() * 0.18);
+      peaks.push({ x: px, y: py, s, snow: up > 0.42 + rand() * 0.18, lean: (rand() - 0.5) * 0.35 });
+    }
+  }
+  peaks.sort((a, b) => a.y - b.y);
+  for (const pk of peaks) {
+    const { x, y, s, lean } = pk;
+    const h = s * 1.15;
+    const tipX = x + lean * s;
+    const tipY = y - h;
+    const left = x - s;
+    const right = x + s;
+    // A second, lower shoulder on the right gives each peak a ridge, not a cone.
+    const shX = x + s * 0.48;
+    const shY = y - h * 0.52;
+    const body = () => {
+      ctx.beginPath();
+      ctx.moveTo(left, y);
+      ctx.lineTo(tipX - s * 0.18, tipY + h * 0.22);
+      ctx.lineTo(tipX, tipY);
+      ctx.lineTo(shX - s * 0.06, shY - h * 0.04);
+      ctx.lineTo(shX + s * 0.12, shY + h * 0.06);
+      ctx.lineTo(right, y);
+      ctx.quadraticCurveTo(x, y + s * 0.16, left, y);
+      ctx.closePath();
+    };
+    body();
+    ctx.fillStyle = 'rgb(186,166,124)';
+    ctx.fill();
+    // The lit face falls from the tip toward the lower left, warm as the candle light.
+    const g = ctx.createLinearGradient(left, tipY, right, y);
+    g.addColorStop(0, 'rgba(240,224,182,0.85)');
+    g.addColorStop(0.45, 'rgba(206,182,132,0.3)');
+    g.addColorStop(1, 'rgba(90,82,70,0)');
+    ctx.fillStyle = g;
+    ctx.fill();
+    // The shadow face: from the ridge line down to the right, hatched in cool ink.
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(tipX, tipY);
+    ctx.lineTo(shX - s * 0.06, shY - h * 0.04);
+    ctx.lineTo(shX + s * 0.12, shY + h * 0.06);
+    ctx.lineTo(right, y);
+    ctx.quadraticCurveTo(x + s * 0.4, y + s * 0.12, x + s * 0.12, y + s * 0.02);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(70,76,104,0.62)';
+    ctx.fill();
+    ctx.clip();
+    ctx.strokeStyle = 'rgba(24,28,52,0.34)';
+    ctx.lineWidth = 0.8;
+    for (let k = -h; k < s * 2; k += 3.2) {
+      ctx.beginPath();
+      ctx.moveTo(x + k - s * 0.4, y + 2);
+      ctx.lineTo(x + k + h * 0.35, tipY);
+      ctx.stroke();
+    }
+    ctx.restore();
+    if (pk.snow) {
+      ctx.beginPath();
+      ctx.moveTo(tipX, tipY);
+      ctx.lineTo(tipX - s * 0.3, tipY + h * 0.3);
+      ctx.lineTo(tipX - s * 0.12, tipY + h * 0.24);
+      ctx.lineTo(tipX - s * 0.02, tipY + h * 0.36);
+      ctx.lineTo(tipX + s * 0.14, tipY + h * 0.22);
+      ctx.lineTo(tipX + s * 0.26, tipY + h * 0.3);
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(246,242,232,0.95)';
+      ctx.fill();
+      ctx.lineWidth = 0.8;
+      ctx.strokeStyle = `${INK}0.45)`;
+      ctx.stroke();
+    }
+    // The ridge in heavy ink; the foot left open, as an engraver leaves it.
+    ctx.beginPath();
+    ctx.moveTo(left, y);
+    ctx.lineTo(tipX - s * 0.18, tipY + h * 0.22);
+    ctx.lineTo(tipX, tipY);
+    ctx.lineTo(shX - s * 0.06, shY - h * 0.04);
+    ctx.lineTo(shX + s * 0.12, shY + h * 0.06);
+    ctx.lineTo(right, y);
+    ctx.lineWidth = 1.6;
+    ctx.strokeStyle = `${INK}0.78)`;
+    ctx.stroke();
+    // A few scree ticks at the foot.
+    ctx.lineWidth = 0.8;
+    ctx.strokeStyle = `${INK}0.3)`;
+    for (let k = 0; k < 3; k++) {
+      const tx = left + s * (0.3 + k * 0.5);
+      ctx.beginPath();
+      ctx.moveTo(tx, y + 1);
+      ctx.lineTo(tx + 2, y - 3);
+      ctx.stroke();
+    }
+  }
+}
+
+/** The centre's name lettered across it in spaced capitals, pale on the deep, outlined in ink. */
+function paintCentreName(ctx: CanvasRenderingContext2D, map: MapDef, seed: number): void {
+  const C = map.centre;
+  const name = centreName(seed, map.centreKind).toUpperCase().split('').join('\u2009');
+  const size = Math.max(34, Math.min(96, C * 0.1));
+  ctx.save();
+  ctx.font = `${Math.round(size)}px ${DISPLAY_FONT}`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const y = isLake(map.centreKind) ? 0 : C * 0.05;
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = size * 0.16;
+  ctx.strokeStyle = `${INK}0.72)`;
+  ctx.strokeText(name, 0, y, C * 1.5);
+  ctx.fillStyle = 'rgba(239,228,200,0.92)';
+  ctx.fillText(name, 0, y, C * 1.5);
+  // A rubricated flourish under the name.
+  ctx.beginPath();
+  ctx.moveTo(-C * 0.32, y + size * 0.7);
+  ctx.quadraticCurveTo(0, y + size * 0.95, C * 0.32, y + size * 0.7);
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = `${INK}0.6)`;
+  ctx.stroke();
+  ctx.lineWidth = 1.6;
+  ctx.strokeStyle = 'rgba(184,50,31,0.9)';
+  ctx.stroke();
+  ctx.restore();
 }
 
 function paintGrass(ctx: CanvasRenderingContext2D, R: number, rand: () => number, terrainAt: (x: number, y: number) => number): void {
@@ -519,6 +771,8 @@ function paintRocks(ctx: CanvasRenderingContext2D, map: MapDef, rand: () => numb
       if (map.terrain[row * map.navCols + col] !== Terrain.Rock || rand() < 0.45) continue;
       const x = map.originX + (col + rand()) * map.navCell;
       const y = map.originY + (row + rand()) * map.navCell;
+      // The massif is engraved as whole peaks (paintMassif), not crags.
+      if (map.centre > 0 && !isLake(map.centreKind) && x * x + y * y < (map.centre + 30) ** 2) continue;
       const r = 4 + rand() * 6;
       // A crag: lit top-left facet in vellum-grey, a shadow facet hatched in ink.
       const peak = [x - r * 0.1, y - r * 0.95] as const;
@@ -782,33 +1036,6 @@ function paintCartouche(ctx: CanvasRenderingContext2D, half: number, R: number, 
   ctx.font = `italic ${Math.round(h * 0.2)}px ${SCRIPT_FONT}`;
   ctx.textBaseline = 'top';
   ctx.fillText(text.subtitle, 0, h * 0.12, w * 0.78);
-  ctx.restore();
-}
-
-/** Scribe's notes in the margin naming each shrine, with a fine leader line to the coast. */
-function paintShrineNotes(ctx: CanvasRenderingContext2D, map: MapDef, R: number, seaW: number): void {
-  const shrines = map.sites.filter((s) => s.kind === 'fort');
-  ctx.save();
-  ctx.font = `italic ${Math.round(Math.max(26, R * 0.026))}px ${SCRIPT_FONT}`;
-  ctx.fillStyle = `${INK}0.78)`;
-  ctx.textBaseline = 'middle';
-  shrines.forEach((s, i) => {
-    const a = Math.atan2(s.y, s.x);
-    const r = R + seaW + 30;
-    const x = Math.cos(a) * r;
-    const y = Math.sin(a) * r;
-    const name = `the ${FORT_NAMES[i % FORT_NAMES.length]} Fort`;
-    ctx.textAlign = Math.cos(a) > 0.2 ? 'left' : Math.cos(a) < -0.2 ? 'right' : 'center';
-    ctx.fillText(name, x + Math.cos(a) * 6, y + Math.sin(a) * 6);
-    ctx.beginPath();
-    ctx.moveTo(Math.cos(a) * (R + 10), Math.sin(a) * (R + 10));
-    ctx.lineTo(Math.cos(a) * (r - 8), Math.sin(a) * (r - 8));
-    ctx.lineWidth = 0.9;
-    ctx.setLineDash([2, 4]);
-    ctx.strokeStyle = `${INK}0.45)`;
-    ctx.stroke();
-    ctx.setLineDash([]);
-  });
   ctx.restore();
 }
 

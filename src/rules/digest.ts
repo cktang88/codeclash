@@ -268,5 +268,8 @@ function headline(players: readonly DigestPlayer[], winner: number | null, world
     return `@${w.login} and @${second.login} each held ${w.capitals === 1 ? 'a capital' : `${w.capitals} capitals`} at the reset; @${w.login} won it on renown by ${margin}.`;
   }
   if (w.conquests > 0) return `@${w.login} held ${w.capitals} of ${seats} capitals when the reset came, storming ${w.conquests === 1 ? 'one' : w.conquests} on the way.`;
-  return `@${w.login} won the day with ${w.renown} renown, every capital still in its founder's hands.`;
+  const changed = world.structures.some((st) => st.taken > 0);
+  return changed
+    ? `@${w.login} won the day on renown, ${w.renown}, holding ${w.capitals === 1 ? 'its own capital' : `${w.capitals} capitals`} when the reset came.`
+    : `@${w.login} won the day with ${w.renown} renown, every capital still in its founder's hands.`;
 }

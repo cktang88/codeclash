@@ -22,7 +22,7 @@ describe('summarizeAway', () => {
       ],
       0,
     );
-    expect(s).toMatchObject({ mustered: 1, musteredSoldiers: 6, captured: 1, lost: 1, sackedBy: 1, sacked: 0, wiped: 1, leaderChanges: 1, monolithFell: true });
+    expect(s).toMatchObject({ mustered: 1, musteredSoldiers: 6, captured: 1, lost: 1, lostCapitals: 1, stormed: 0, wiped: 1, leaderChanges: 1, ringWon: true });
     expect(s.moments.map((e) => e.kind)).toEqual(['conquest', 'leader', 'victory']);
   });
 

@@ -1,5 +1,5 @@
 import { CanvasSource, Container, Sprite, Texture } from 'pixi.js';
-import type { MapDef } from '../../sim/api.ts';
+import { Terrain, type MapDef } from '../../sim/api.ts';
 import type { Daylight } from './daylight.ts';
 import { canvas2d, seeded } from './paint.ts';
 
@@ -269,6 +269,8 @@ export class Atmosphere {
   private serpent: Sprite[] = [];
   private serpentAt = 0;
   private serpentAngle = 0;
+  /** Surfacing in the great lake at the ring's centre this time, not the sea. */
+  private serpentInLake = false;
   private readonly extent: number;
   private readonly rand = seeded(4242);
 
@@ -436,7 +438,7 @@ export class Atmosphere {
       b.s.scale.set(Math.max(0.5, 0.65 / Math.sqrt(zoom)));
     }
 
-    // Ember motes rising from capital fires and sacked ruins at night.
+    // Ember motes rising from capital hearths and siege fires at night.
     const fires = this.fires();
     const showMotes = night > 0.1 && zoom > 0.25 && fires.length > 0;
     for (let i = 0; i < MOTES; i++) {
@@ -483,10 +485,11 @@ export class Atmosphere {
     if (this.serpentAt < -cycle) {
       this.serpentAt = 9000 + this.rand() * 14000;
       this.serpentAngle = this.rand() * Math.PI * 2;
+      this.serpentInLake = this.map.centre > 0 && this.map.centreKind === Terrain.Water && this.rand() < 0.5;
     }
     const show = this.serpentAt < 0 && !reducedMotion;
     const st = -this.serpentAt / cycle;
-    const serpR = R + this.sea * (0.35 + 0.25 * Math.sin(this.serpentAngle * 3));
+    const serpR = this.serpentInLake ? this.map.centre * (0.45 + 0.15 * Math.sin(this.serpentAngle * 3)) : R + this.sea * (0.35 + 0.25 * Math.sin(this.serpentAngle * 3));
     const serpScale = Math.max(1, 0.8 / Math.max(zoom, 0.25));
     for (let i = 0; i < this.serpent.length; i++) {
       const s = this.serpent[i]!;

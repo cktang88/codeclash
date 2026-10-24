@@ -2,21 +2,22 @@ import { useEffect, useRef, useState } from 'react';
 import { LedgerPanel } from '../ui/fairPlay.tsx';
 import { PlatoonState, TICK_MS, type World } from '../../sim/api.ts';
 import { roman, siteLabel } from '../../sim/chronicle.ts';
+import { computeRing, frontOf } from '../../sim/ring.ts';
 import { DOCTRINE_COOLDOWN, DOCTRINE_NAMES, RALLY_COOLDOWN } from '../../sim/stats.ts';
 import { ApiError, api } from '../net/api.ts';
 import type { HudSnapshot } from '../store.ts';
 import { BattalionFlag } from '../ui/Flag.tsx';
 import { duration } from '../ui/format.ts';
 import { CarvedBar, sfx } from '../ui/codex.tsx';
-import { DoctrineIcon, Icon } from '../ui/icons.tsx';
+import { DoctrineIcon, EventIcon, Icon } from '../ui/icons.tsx';
 import { useHudContext } from './context.ts';
 
 export const DOCTRINE_EFFECTS = [
-  'No modifiers. The war council weighs every objective evenly.',
-  '+15% damage. Marches on enemy capitals and the Heart.',
-  '20% less damage taken near your shrines. Defends what you hold.',
-  '+50% damage to structures. Targets enemy capitals.',
-  '+20% speed. Picks lightly held objectives.',
+  'No modifiers. The war council weighs every objective on your fronts evenly.',
+  '+15% damage. Presses on to your neighbours’ capitals.',
+  '20% less damage taken near the border forts you hold. Defends what you hold.',
+  '+50% damage to walls. Lays siege to your neighbours’ capitals.',
+  '+20% speed. Picks the lightly held forts and walls on your fronts.',
 ];
 
 export const STATE_NAMES = ['Waiting at the capital', 'Marching', 'Fighting', 'Holding', 'Routing'];
@@ -70,6 +71,7 @@ export function CommandBar({ hud }: { hud: HudSnapshot }) {
   const world = store.world;
   const p = hud.viewerP;
   const [rallyPick, setRallyPick] = useState(false);
+  const [rallyPickError, setRallyPickError] = useState<string | null>(null);
   const player = world && p !== null ? world.players[p] : undefined;
   const { busy: sending, error, notice, run, pending } = useCommand(
     slug,
@@ -85,7 +87,18 @@ export function CommandBar({ hud }: { hud: HudSnapshot }) {
   useEffect(() => {
     if (!rallyPick || hud.selection?.kind !== 'site' || hud.selection === armedOn.current) return;
     setRallyPick(false);
-    void run('Rally', { kind: 'rally', site: hud.selection.id });
+    const w = store.world;
+    const site = hud.selection.id;
+    const def = w?.map.sites[site];
+    if (!w || !def || p === null) return;
+    const r = computeRing(w);
+    const ok = (def.kind === 'capital' && r.owner[def.slot] === p) || frontOf(r, w, p, site) !== null;
+    if (!ok) {
+      setRallyPickError(`${siteLabel(w, site, store.names)} is not on your fronts. Rally on a border fort between you and a neighbour, a neighbour’s capital, or a capital you hold.`);
+      return;
+    }
+    setRallyPickError(null);
+    void run('Rally', { kind: 'rally', site });
   }, [hud.selection, rallyPick]);
 
   useEffect(() => {
@@ -97,6 +110,34 @@ export function CommandBar({ hud }: { hud: HudSnapshot }) {
 
   if (!world || !player) return null;
   const tick = world.tick;
+  if (world.victor >= 0) {
+    return (
+      <section className="command" aria-label="Your orders">
+        <p className="command-locked">
+          <Icon name="lock" size={16} /> The ring is won and the war is locked until the reset. Doctrine, rallies and the War Cry wait for the next war.
+        </p>
+      </section>
+    );
+  }
+  // A rally holds only on a site on one of your fronts (a border fort on the road, or the foe's
+  // capital at its end) or on a capital you hold; anything else would wait, so it is not offered.
+  const ring = computeRing(world);
+  const rallyable = (site: number) => {
+    const def = world.map.sites[site];
+    if (!def) return false;
+    if (def.kind === 'capital' && ring.owner[def.slot] === p) return true;
+    return frontOf(ring, world, p!, site) !== null;
+  };
+  const frontSites: { site: number; note: string }[] = [];
+  for (const f of ring.fronts[p!] ?? []) {
+    const foe = store.names.player(f.foe);
+    for (const k of f.forts) if (!frontSites.some((x) => x.site === k)) frontSites.push({ site: k, note: `on your front with ${foe}` });
+    const cap = world.map.sites.findIndex((d) => d.kind === 'capital' && d.slot === f.to);
+    if (cap >= 0 && !frontSites.some((x) => x.site === cap)) frontSites.push({ site: cap, note: f.dir === 0 ? 'your lost home: retake it' : `${foe}’s walls` });
+  }
+  const ownCapitals = world.map.sites.filter((d) => d.kind === 'capital' && ring.owner[d.slot] === p);
+  const beyond = world.map.sites.filter((d) => !rallyable(d.id) && (d.kind === 'fort' || ring.owner[d.slot]! >= 0));
+  const rallyError = rallyPickError;
   const doctrineWait = cooldownLeft(player.doctrineAt, DOCTRINE_COOLDOWN, tick);
   const rallyWait = cooldownLeft(player.rallyAt, RALLY_COOLDOWN, tick);
   const doctrineSent = pending('doctrine');
@@ -142,19 +183,40 @@ export function CommandBar({ hud }: { hud: HudSnapshot }) {
             value=""
             onChange={(e) => {
               const site = Number(e.target.value);
-              if (Number.isInteger(site) && e.target.value !== '') {
+              if (Number.isInteger(site) && e.target.value !== '' && rallyable(site)) {
                 sfx('ui.quill');
+                setRallyPickError(null);
                 void run('Rally', { kind: 'rally', site });
               }
             }}
           >
-            <option value="">Choose an objective…</option>
-            {world.map.sites.map((s) =>
-              s.kind === 'capital' && !world.players.some((pl) => pl.slot === s.slot) ? null : (
-                <option key={s.id} value={s.id}>
-                  {siteLabel(world, s.id, store.names)}
-                </option>
-              ),
+            <option value="">{frontSites.length > 0 ? 'Choose an objective on your fronts…' : 'No front to rally on yet…'}</option>
+            {frontSites.length > 0 && (
+              <optgroup label="Your fronts">
+                {frontSites.map(({ site, note }) => (
+                  <option key={site} value={site}>
+                    {siteLabel(world, site, store.names)} · {note}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+            {ownCapitals.length > 0 && (
+              <optgroup label="Capitals you hold">
+                {ownCapitals.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {siteLabel(world, d.id, store.names)} · defend
+                  </option>
+                ))}
+              </optgroup>
+            )}
+            {beyond.length > 0 && (
+              <optgroup label="Beyond your fronts (cannot rally)">
+                {beyond.map((d) => (
+                  <option key={d.id} value={d.id} disabled>
+                    {siteLabel(world, d.id, store.names)}
+                  </option>
+                ))}
+              </optgroup>
             )}
           </select>
           <button
@@ -175,10 +237,15 @@ export function CommandBar({ hud }: { hud: HudSnapshot }) {
               Rallying on <strong>{siteLabel(world, player.rallySite, store.names)}</strong> for {duration((player.rallyUntil - tick) * TICK_MS)}.{' '}
             </>
           ) : (
-            'Every platoon marches on one objective for 2 hours. '
+            'Every platoon marches on one objective on your fronts for 2 hours. '
           )}
           {rallyWait > 0 && <strong>Ready in {duration(rallyWait)}.</strong>}
         </p>
+        {rallyError && (
+          <p className="form-error" role="alert">
+            {rallyError}
+          </p>
+        )}
       </div>
       <div className="command-group">
         <h3 className="command-label">War Cry</h3>
@@ -228,9 +295,24 @@ export function ArmyPanel({ hud }: { hud: HudSnapshot }) {
   const battalions = platoonsByBattalion(world, p);
   const queue = world.players[p]!.queue.length;
   const ledger = <LedgerPanel player={world.players[p]!} />;
+  const me = world.players[p]!;
+  const home = world.map.sites[me.slot];
+  const rising = me.rising && home ? (
+    <div className="rising-note" role="status">
+      <EventIcon kind="rising" size={26} />
+      <p>
+        <strong>Rise and retake your home.</strong> {store.names.player(world.structures.find((st) => st.site === home.id)?.p ?? -1)} holds your capital. Every push you make now
+        musters on the road outside its walls; take the forts beside it and storm it back.{' '}
+        <button className="btn btn-sm btn-ghost" onClick={() => field()?.focus(home.x, home.y, 1.1)}>
+          Show it
+        </button>
+      </p>
+    </div>
+  ) : null;
   if (battalions.length === 0) {
     return (
       <div className="army">
+        {rising}
         <p className="empty-note">Push to a public repository and your first platoon marches out of your capital.</p>
         {ledger}
       </div>
@@ -238,6 +320,7 @@ export function ArmyPanel({ hud }: { hud: HudSnapshot }) {
   }
   return (
     <div className="army">
+      {rising}
       {ledger}
       {queue > 0 && (
         <p className="army-queue">

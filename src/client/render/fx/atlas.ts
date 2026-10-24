@@ -37,8 +37,6 @@ export interface FxTextures {
   inkSmoke: Texture[];
   /** A jagged, inked starburst for the instant of impact. */
   burst: Texture;
-  /** Glyphs of old code, carved on the Monolith; scattered when it falls. */
-  glyphs: Texture[];
   footprint: Texture;
   /** A white flag of surrender on its pole. */
   whiteFlag: Texture;
@@ -628,20 +626,6 @@ export function makeFxTextures(art: FxArt | null = loaded): FxTextures {
     c.lineJoin = 'round';
     c.stroke();
   });
-  const GLYPHS = ['{', '}', ';', '</>', '=>', '&&', '0', '1', '#', '*/', 'NULL', 'goto'];
-  const glyphs = GLYPHS.map((g) =>
-    make(48, 24, (c) => {
-      c.font = `700 ${g.length > 2 ? 13 : 18}px "JetBrains Mono", ui-monospace, monospace`;
-      c.textAlign = 'center';
-      c.textBaseline = 'middle';
-      c.lineJoin = 'round';
-      c.strokeStyle = INK;
-      c.lineWidth = 4;
-      c.strokeText(g, 24, 13);
-      c.fillStyle = '#ffffff';
-      c.fillText(g, 24, 13);
-    }),
-  );
   const footprint = make(12, 10, (c) => {
     c.fillStyle = 'rgba(34,24,15,0.8)';
     c.beginPath();
@@ -827,7 +811,6 @@ export function makeFxTextures(art: FxArt | null = loaded): FxTextures {
     goldLeaf: goldLeaf.map(t),
     inkSmoke: inkSmoke.map(t),
     burst: t(burst),
-    glyphs: glyphs.map(t),
     footprint: t(footprint),
     whiteFlag: t(whiteFlag),
     chevron: t(chevron),

@@ -34,7 +34,7 @@ export function SeasonPage({ slug, invite = null }: { slug: string; invite?: str
           <p>
             <Avatar login={data.champion.user.login} url={data.champion.user.avatarUrl} size={32} />{' '}
             <InkLink to={{ kind: 'profile', login: data.champion.user.login }}>@{data.champion.user.login}</InkLink>
-            <span className="muted"> · their monument stands at the Heart</span>
+            <span className="muted"> · their monument stands on the shore of the ring’s centre</span>
           </p>
         </VellumPanel>
       )}

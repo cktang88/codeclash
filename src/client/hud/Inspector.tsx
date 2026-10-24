@@ -2,6 +2,9 @@ import { useEffect } from 'react';
 import { Kind, PlatoonState, TICK_MS, type World } from '../../sim/api.ts';
 import { platoonLabel, siteLabel } from '../../sim/chronicle.ts';
 import { CAPTURE_TICKS, DOCTRINE_NAMES, STATS } from '../../sim/stats.ts';
+import { besieging } from '../../sim/council.ts';
+import { computeRing, frontOf } from '../../sim/ring.ts';
+import { founderOf, gatesUnbarAt, siegesOpenAt } from '../ringinfo.ts';
 import type { HudSnapshot } from '../store.ts';
 import { Avatar } from '../ui/Avatar.tsx';
 import { BattalionFlag } from '../ui/Flag.tsx';
@@ -139,7 +142,7 @@ export function Inspector({ hud }: { hud: HudSnapshot }) {
               Held by <strong className="who" style={hueVar(info.hue)}>@{info.login}</strong>
             </>
           ) : def.kind === 'capital' ? (
-            'An empty slot, waiting for a new member.'
+            'An open seat, waiting for a new member.'
           ) : (
             'Unclaimed.'
           )}
@@ -150,6 +153,8 @@ export function Inspector({ hud }: { hud: HudSnapshot }) {
         {structure && structure.maxHp > 0 && (
           <Meter label="Walls" value={Math.round(structure.hp)} max={structure.maxHp} kind="hp" />
         )}
+        {def.kind === 'capital' && structure && <CapitalNotes world={world} site={sel.id} viewerP={hud.viewerP} />}
+        {def.kind === 'fort' && <FortNotes world={world} site={sel.id} viewerP={hud.viewerP} />}
       </section>
     );
   }
@@ -190,14 +195,20 @@ export function Inspector({ hud }: { hud: HudSnapshot }) {
           <dd className="num">{ps.losses}</dd>
         </div>
         <div>
-          <dt>Captures</dt>
+          <dt>Forts taken</dt>
           <dd className="num">{ps.captures}</dd>
+        </div>
+        <div>
+          <dt>Capitals held</dt>
+          <dd className="num">{ps.capitals}</dd>
         </div>
         <div>
           <dt>Capitals stormed</dt>
           <dd className="num">{ps.conquests}</dd>
         </div>
       </dl>
+      {ps.rising && <p className="inspector-notes">Rising: it lost every capital and fights on outside its home to retake it.</p>}
+      {world.victor === ps.p && <p className="inspector-notes">Holds the whole ring: the war is won.</p>}
       <div className="inspector-units">
         <span className="meter-label">Raised today</span>
         <UnitChips units={ps.raised} size={17} />
@@ -209,4 +220,42 @@ export function Inspector({ hud }: { hud: HudSnapshot }) {
       )}
     </section>
   );
+}
+
+/** A capital's story for the inspector: whose home it is, its gates, its siege, and how it stands to the viewer. */
+function CapitalNotes({ world, site, viewerP }: { world: World; site: number; viewerP: number | null }) {
+  const { store } = useHudContext();
+  const def = world.map.sites[site]!;
+  const st = world.structures.find((x) => x.site === site);
+  if (!st) return null;
+  const founder = founderOf(world, def.slot);
+  const notes: string[] = [];
+  if (founder >= 0 && founder !== st.p) notes.push(`Home of ${store.names.player(founder)}, taken ${st.taken === 1 ? 'once' : `${st.taken} times`} today. Its founder's architecture stands under the conqueror's banners.`);
+  else if (founder >= 0) notes.push(`Home of ${store.names.player(founder)}${st.taken > 0 ? `, retaken after it fell` : ''}.`);
+  const unbar = gatesUnbarAt(world, st);
+  const opens = siegesOpenAt(world);
+  if (world.tick < opens) notes.push(`No walls can fall until the sieges open, in ${duration((opens - world.tick) * TICK_MS)}.`);
+  else if (unbar > world.tick) notes.push(`Its gates are barred for ${duration((unbar - world.tick) * TICK_MS)}: no one is conquered in their sleep.`);
+  if (st.siegeSince >= 0) notes.push(`Besieged for ${duration((world.tick - st.siegeSince) * TICK_MS)}.`);
+  if (viewerP !== null && viewerP >= 0 && st.p !== viewerP) {
+    const ring = computeRing(world);
+    const front = frontOf(ring, world, viewerP, site);
+    notes.push(front ? (besieging(world, ring, viewerP, def.slot) ? 'On your front, and you hold its approach: your platoons can storm it.' : 'On your front. Hold the border fort beside it to lay siege.') : 'Not on your fronts: you can only fight your ring neighbours.');
+  }
+  return (
+    <ul className="inspector-notes">
+      {notes.map((n) => (
+        <li key={n}>{n}</li>
+      ))}
+    </ul>
+  );
+}
+
+/** A border fort: which front it lies on for the viewer. */
+function FortNotes({ world, site, viewerP }: { world: World; site: number; viewerP: number | null }) {
+  const { store } = useHudContext();
+  if (viewerP === null || viewerP < 0) return null;
+  const ring = computeRing(world);
+  const front = frontOf(ring, world, viewerP, site);
+  return <p className="inspector-notes muted">{front ? `On your front with ${store.names.player(front.foe)}.` : 'Not on your fronts: a quarrel between others.'}</p>;
 }

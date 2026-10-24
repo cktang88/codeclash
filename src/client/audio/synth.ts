@@ -121,7 +121,7 @@ export function tick(v: Voice, gain = 0.5): number {
   return 0.08;
 }
 
-/** Struck bell: inharmonic partials. Low for the sack toll, high and soft for toasts. */
+/** Struck bell: inharmonic partials. Low for a fallen capital's toll, high and soft for toasts. */
 export function bell(v: Voice, freq: number, gain: number, decay: number, at = v.t): number {
   const partials: [number, number][] = [[0.5, 0.35], [1, 1], [2.0, 0.45], [2.76, 0.4], [5.4, 0.18], [8.9, 0.07]];
   for (const [ratio, level] of partials) {

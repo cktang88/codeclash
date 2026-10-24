@@ -48,32 +48,21 @@ const setup = await p.evaluate(async () => {
     return best;
   };
   const { noise } = await import('/render/paint.ts');
-  // A point on a road, recomputed exactly as paintRoads lays it.
-  const caps = m.sites.filter((o) => o.kind === 'capital');
-  const shr = m.sites.filter((o) => o.kind === 'shrine');
-  const sh = shr[0];
-  const cap = [...caps].sort((a, b2) => Math.hypot(a.x - sh.x, a.y - sh.y) - Math.hypot(b2.x - sh.x, b2.y - sh.y))[0];
+  // A point on the ring road, recomputed exactly as paintRoads lays it, clear of every site.
   const seed = w.params.seed;
-  const road = (t) => {
-    const [x0, y0, x1, y1] = [sh.x, sh.y, cap.x, cap.y];
-    const len = Math.hypot(x1 - x0, y1 - y0); const nx = -(y1 - y0) / len, ny = (x1 - x0) / len;
-    const bend = Math.sin(t * Math.PI) * (noise(x0 * 0.01 + t * 3, y0 * 0.01, seed + 77) - 0.5) * 60;
-    return { x: x0 + (x1 - x0) * t + nx * bend, y: y0 + (y1 - y0) * t + ny * bend, dx: (x1 - x0) / len, dy: (y1 - y0) / len };
-  };
-  let rd = null;
   const cellAtXY = (x, y) => at(Math.floor((x - m.originX) / m.navCell), Math.floor((y - m.originY) / m.navCell));
-  for (const s2 of shr) {
-    for (const t of [0.5, 0.4, 0.6, 0.3, 0.7]) {
-      const shBackup = sh;
-      const q = (() => { const [x0, y0] = [s2.x, s2.y]; const c2 = [...caps].sort((a, b2) => Math.hypot(a.x - s2.x, a.y - s2.y) - Math.hypot(b2.x - s2.x, b2.y - s2.y))[0]; const [x1, y1] = [c2.x, c2.y]; const len = Math.hypot(x1 - x0, y1 - y0); const nx = -(y1 - y0) / len, ny = (x1 - x0) / len; const bend = Math.sin(t * Math.PI) * (noise(x0 * 0.01 + t * 3, y0 * 0.01, seed + 77) - 0.5) * 60; return { x: x0 + (x1 - x0) * t + nx * bend, y: y0 + (y1 - y0) * t + ny * bend, dx: (x1 - x0) / len, dy: (y1 - y0) / len }; })();
-      let ok = true;
-      for (let k = -60; k <= 60 && ok; k += 6) if (cellAtXY(q.x + q.dx * k, q.y + q.dy * k) !== T.Plain) ok = false;
-      let near = 1e9; for (const o of m.sites) near = Math.min(near, Math.hypot(o.x - q.x, o.y - q.y) - o.radius);
-      if (ok && near > 120) { rd = q; break; }
-    }
-    if (rd) break;
+  let rd = null;
+  for (let k = 0; k < 720 && !rd; k++) {
+    const a = (k / 720) * Math.PI * 2;
+    const r = m.ring + (noise(Math.cos(a) * 6 + 40, Math.sin(a) * 6, seed + 77) - 0.5) * 9;
+    const q = { x: Math.cos(a) * r, y: Math.sin(a) * r, dx: -Math.sin(a), dy: Math.cos(a) };
+    let ok = true;
+    // The ring road is kept clear between sites only 350 apart: a shorter clear stretch will do.
+    for (let t = -40; t <= 40 && ok; t += 6) if (cellAtXY(q.x + q.dx * t, q.y + q.dy * t) !== T.Plain) ok = false;
+    let near = 1e9; for (const o of m.sites) near = Math.min(near, Math.hypot(o.x - q.x, o.y - q.y) - o.radius);
+    if (ok && near > 80) rd = q;
   }
-  const spots = { grass: deep(T.Plain, 3), forest: deep(T.Forest, 2), water: deep(T.Water, 2), rock: deep(T.Rock, 1) ?? deep(T.Rock, 1, 80) ?? deep(T.Rock, 0, 60), road: rd };
+  const spots = { grass: deep(T.Plain, 3) ?? deep(T.Plain, 2, 100), forest: deep(T.Forest, 2) ?? deep(T.Forest, 2, 100) ?? deep(T.Forest, 1, 80), water: deep(T.Water, 2), rock: deep(T.Rock, 1) ?? deep(T.Rock, 1, 80) ?? deep(T.Rock, 0, 60), road: rd };
   // The squad: one soldier of each kind, from as many armies as possible.
   const squad = [];
   const usedP = new Map();

@@ -23,7 +23,7 @@ const zoom = Number(q.get('zoom') ?? 1.4);
 const stress = Number(q.get('stress') ?? 0);
 const cx = Number(q.get('x') ?? 0);
 const cy = Number(q.get('y') ?? 0);
-const SCENES = ['combat', 'volley', 'fireball', 'boulder', 'breath', 'heal', 'deaths', 'muster', 'rank', 'dragon', 'site', 'desert', 'crack', 'sack', 'monolith', 'dayend'] as const;
+const SCENES = ['combat', 'volley', 'fireball', 'boulder', 'breath', 'heal', 'deaths', 'muster', 'rank', 'dragon', 'site', 'desert', 'crack', 'siege', 'conquest', 'rising', 'victory', 'dayend'] as const;
 type Scene = (typeof SCENES)[number];
 const SCENE_TICKS = Number(q.get('ticks') ?? 18);
 const TINTS = [0x3d7fd9, 0xd9483d, 0x4cc26a];
@@ -66,7 +66,7 @@ function dummy(kind: Kind, p: number, x: number, y: number): Dummy {
   return d;
 }
 
-// Two armies facing each other, a capital on the right and the Monolith at the center.
+// Two armies facing each other, a capital on either side and a border fort between them.
 const left: Dummy[] = [];
 const right: Dummy[] = [];
 for (let i = 0; i < 12; i++) left.push(dummy(Kind.Archer, 0, -330 + (i % 3) * 18, -110 + Math.floor(i / 3) * 40));
@@ -80,8 +80,7 @@ const victims = casualties.map((k, i) => dummy(k, 1, 40 + i * 50, 200));
 
 const home = { id: 0, kind: 'capital' as const, x: -560, y: 40, radius: 70, slot: 0, renown: 0 };
 const capital = { id: 1, kind: 'capital' as const, x: 380, y: -40, radius: 70, slot: 1, renown: 0 };
-const shrine = { id: 2, kind: 'shrine' as const, x: 0, y: -250, radius: 55, slot: -1, renown: 2 };
-const heart = { id: 3, kind: 'heart' as const, x: 0, y: 0, radius: 45, slot: -1, renown: 8 };
+const fort = { id: 2, kind: 'fort' as const, x: 0, y: -250, radius: 55, slot: -1, renown: 2 };
 interface FakePlatoon {
   id: number;
   p: number;
@@ -93,16 +92,16 @@ const world = {
   tick: 0,
   units: [] as { id: number; kind: Kind; x: number; y: number; p: number }[],
   structures: [
-    { site: 1, p: 1, hp: 8000, maxHp: 8000, cooldown: 0, ruinedUntil: -1 },
-    { site: 3, p: NEUTRAL, hp: 20000, maxHp: 20000, cooldown: 0, ruinedUntil: -1 },
+    { site: 1, p: 1, hp: 8000, maxHp: 8000, cooldown: 0, taken: 0, siegeSince: -1, siegeSeen: -1 },
+    { site: 0, p: 0, hp: 8000, maxHp: 8000, cooldown: 0, taken: 0, siegeSince: -1, siegeSeen: -1 },
   ],
-  map: { sites: [home, capital, shrine, heart], radius: 700 },
+  map: { sites: [home, capital, fort], radius: 700, ring: 520, centre: 300, slots: 2 },
   platoons: [] as FakePlatoon[],
   players: [
     { p: 0, slot: 0, veterancy: 0 },
     { p: 1, slot: 1, veterancy: 0 },
   ],
-  monolithFallen: false,
+  victor: NEUTRAL,
 };
 const platoon = (id: number, p: number, x: number, y: number, dragon = false): FakePlatoon => {
   const mustered = new Array<number>(24).fill(0);
@@ -116,7 +115,7 @@ const muster = (pl: FakePlatoon, msg: string): ChronicleEntry => ({
 const asWorld = world as unknown as World;
 const capitalG = new Graphics().rect(capital.x - 40, capital.y - 80, 80, 80).fill(0x6b5f50).stroke({ color: 0x111111, width: 2 });
 capitalG.rect(home.x - 40, home.y - 80, 80, 80).fill(0x5b6f90).stroke({ color: 0x111111, width: 2 });
-capitalG.poly([heart.x - 18, heart.y, heart.x - 10, heart.y - 110, heart.x + 12, heart.y - 100, heart.x + 18, heart.y]).fill(0x1c1a22).stroke({ color: 0x111111, width: 2 });
+capitalG.rect(fort.x - 26, fort.y - 52, 52, 52).fill(0x8a7f68).stroke({ color: 0x111111, width: 2 });
 units.addChild(capitalG);
 
 const posOf = (id: number): { x: number; y: number } | null => {
@@ -203,17 +202,26 @@ function stage(name: Scene, t0: number): void {
       });
       at(t + 12, (ev) => ev.cries.push({ p: 1 }));
       break;
-    case 'sack':
-      at(t + 1, (ev) => {
-        ev.conquests.push({ site: 1, p: 0, previous: 1, retake: false });
+    case 'siege':
+      at(t + 1, () => {
+        world.structures[0]!.siegeSince = t;
+        world.structures[0]!.hp = 3500;
+      });
+      at(t + SCENE_TICKS - 1, () => {
+        world.structures[0]!.siegeSince = -1;
+        world.structures[0]!.hp = 8000;
       });
       break;
-    case 'monolith':
-      at(t + 1, () => (world.structures[1]!.hp = 1500));
-      // TODO client: the Monolith is gone from the sim; this scene now only wears down walls.
-      at(t + SCENE_TICKS - 1, () => {
-        world.structures[1]!.hp = 20000;
-      });
+    case 'conquest':
+      at(t + 1, (ev) => ev.conquests.push({ site: 1, p: 0, previous: 1, retake: false }));
+      break;
+    case 'rising':
+      at(t + 1, (ev) => ev.risings.push({ p: 1 }));
+      break;
+    case 'victory':
+      at(t + 1, () => fx.hailRing(home.x, home.y, home.radius, TINTS[0]!));
+      at(t + 5, () => fx.hailRing(capital.x, capital.y, capital.radius, TINTS[0]!));
+      at(t + 9, () => fx.ringWon(asWorld, TINTS[0]!, 'fanfare-horn'));
       break;
     case 'combat':
       for (let k = 0; k < 4; k++) {

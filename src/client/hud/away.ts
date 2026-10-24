@@ -8,10 +8,15 @@ export interface AwaySummary {
   routed: number;
   captured: number;
   lost: number;
-  sacked: number;
-  sackedBy: number;
+  /** Capitals the viewer's army stormed. */
+  stormed: number;
+  /** The viewer's capitals stormed by others. */
+  lostCapitals: number;
+  /** The viewer lost its last capital and rose. */
+  rose: boolean;
   leaderChanges: number;
-  monolithFell: boolean;
+  /** Someone took the whole ring: the war is won. */
+  ringWon: boolean;
   /** The few biggest moments, oldest first. */
   moments: ChronicleEntry[];
 }
@@ -22,7 +27,7 @@ const MOMENT_KINDS = new Set(['conquest', 'rising', 'victory', 'dragon', 'clash'
 export function summarizeAway(entries: readonly ChronicleEntry[], viewerP: number | null): AwaySummary {
   const s: AwaySummary = {
     entries: entries.length, mustered: 0, musteredSoldiers: 0, wiped: 0, routed: 0, captured: 0, lost: 0,
-    sacked: 0, sackedBy: 0, leaderChanges: 0, monolithFell: false, moments: [],
+    stormed: 0, lostCapitals: 0, rose: false, leaderChanges: 0, ringWon: false, moments: [],
   };
   for (const e of entries) {
     const mine = viewerP !== null && e.p === viewerP;
@@ -45,14 +50,17 @@ export function summarizeAway(entries: readonly ChronicleEntry[], viewerP: numbe
         if (againstMe) s.lost++;
         break;
       case 'conquest':
-        if (mine) s.sacked++;
-        if (againstMe) s.sackedBy++;
+        if (mine) s.stormed++;
+        if (againstMe) s.lostCapitals++;
+        break;
+      case 'rising':
+        if (mine) s.rose = true;
         break;
       case 'leader':
         s.leaderChanges++;
         break;
       case 'victory':
-        s.monolithFell = true;
+        s.ringWon = true;
         break;
     }
   }

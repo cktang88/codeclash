@@ -1,0 +1,95 @@
+import { Graphics } from 'pixi.js';
+import { NEUTRAL, type World } from '../../sim/api.ts';
+import { fortBetween, slotAngle } from '../../sim/mapgen.ts';
+import { noise } from './paint.ts';
+
+const INK = 0x22180f;
+/** How far a border leans from its fort toward the side that does not hold it, as a share of half a sector. */
+const LEAN = 0.32;
+
+/**
+ * The fronts, drawn the way a cartographer draws a realm's edge: a dashed ink border across the
+ * band of land from the centre's shore to the coast wherever two holders' territories meet,
+ * edged on either side by a thin band of each realm's pigment. A realm runs from its capitals
+ * to the border forts beside them; a fort a neighbour holds pushes the border back past it.
+ * Quiet by design: thinner and paler than any road, so it never competes with the actors.
+ */
+export class BorderLayer {
+  readonly g = new Graphics();
+  private key = '';
+
+  update(world: World, tints: readonly number[], zoom: number): void {
+    const { map } = world;
+    const slots = map.slots;
+    const holder = new Int32Array(slots).fill(NEUTRAL);
+    for (const st of world.structures) {
+      const def = map.sites[st.site];
+      if (def && def.kind === 'capital') holder[def.slot] = st.p;
+    }
+    const claimed: number[] = [];
+    for (let s = 0; s < slots; s++) if (holder[s]! >= 0) claimed.push(s);
+    let key = `${Math.round(Math.log2(Math.max(0.05, zoom)) * 4)}|`;
+    for (let s = 0; s < slots; s++) key += `${holder[s]},${world.sites[fortBetween(slots, s)]?.owner ?? -1};`;
+    for (const p of world.players) key += `${p.hue},`;
+    if (key === this.key) return;
+    this.key = key;
+    const g = this.g;
+    g.clear();
+    if (claimed.length < 2) return;
+    const inner = map.centre > 0 ? map.centre + 24 : map.ring * 0.5;
+    const outer = map.radius - 14;
+    const half = Math.PI / slots;
+    const width = Math.max(2, 1.1 / zoom);
+    for (let i = 0; i < claimed.length; i++) {
+      const a = claimed[i]!;
+      const b = claimed[(i + 1) % claimed.length]!;
+      const left = holder[a]!;
+      const right = holder[b]!;
+      if (left === right) continue;
+      // The forts between the two capitals, clockwise; the border stands at the middle one.
+      const forts: number[] = [];
+      for (let s = a; forts.length < slots && s !== b; s = (s + 1) % slots) forts.push(s);
+      const mid = forts[Math.floor((forts.length - 1) / 2)]!;
+      const fort = world.sites[fortBetween(slots, mid)];
+      let angle = slotAngle(mid + 0.5, slots);
+      if (fort && fort.owner === left) angle += half * LEAN;
+      else if (fort && fort.owner === right) angle -= half * LEAN;
+      this.border(g, angle, inner, outer, width, tints[left] ?? 0xc9bea2, tints[right] ?? 0xc9bea2, a * 31 + b);
+    }
+  }
+
+  /** One border: pigment edges either side of a dashed ink line with a cross at every other dash. */
+  private border(g: Graphics, angle: number, inner: number, outer: number, width: number, before: number, after: number, seed: number): void {
+    const steps = 40;
+    const pts: [number, number][] = [];
+    for (let i = 0; i <= steps; i++) {
+      const r = inner + ((outer - inner) * i) / steps;
+      const wob = (noise(r / 60, seed, 211) - 0.5) * 0.05;
+      pts.push([Math.cos(angle + wob) * r, Math.sin(angle + wob) * r]);
+    }
+    // The perpendicular, toward the clockwise side.
+    const nx = -Math.sin(angle);
+    const ny = Math.cos(angle);
+    const edge = width * 2.2;
+    for (const [side, tint] of [[-1, before], [1, after]] as const) {
+      pts.forEach(([x, y], i) => (i === 0 ? g.moveTo(x + nx * edge * side, y + ny * edge * side) : g.lineTo(x + nx * edge * side, y + ny * edge * side)));
+      g.stroke({ width: width * 2.2, color: tint, alpha: 0.42, cap: 'round', join: 'round' });
+    }
+    // Dashes, with a small cross on every other gap, as old charts mark a march.
+    let dash = 0;
+    for (let i = 0; i < steps; i++) {
+      const [x0, y0] = pts[i]!;
+      const [x1, y1] = pts[i + 1]!;
+      if (i % 3 !== 2) {
+        g.moveTo(x0, y0).lineTo(x1, y1);
+      } else if (dash++ % 2 === 0) {
+        const cx = (x0 + x1) / 2;
+        const cy = (y0 + y1) / 2;
+        const k = width * 1.6;
+        g.moveTo(cx - nx * k - ny * k, cy - ny * k + nx * k).lineTo(cx + nx * k + ny * k, cy + ny * k - nx * k);
+        g.moveTo(cx - nx * k + ny * k, cy - ny * k - nx * k).lineTo(cx + nx * k - ny * k, cy + ny * k + nx * k);
+      }
+    }
+    g.stroke({ width, color: INK, alpha: 0.62, cap: 'round' });
+  }
+}

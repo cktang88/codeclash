@@ -31,9 +31,16 @@ export function DemoPage({ me }: { me: MeResponse | null }) {
   const hud = useHud(store);
 
   useEffect(() => {
-    const r = startDemo(store);
+    // ?seed= replays the same sparring war (shareable), ?skip= starts it that many ticks in.
+    const q = new URLSearchParams(location.search);
+    const seed = q.has('seed') ? Number(q.get('seed')) : undefined;
+    const r = startDemo(store, undefined, Number.isFinite(seed) ? seed : undefined);
+    const skip = Number(q.get('skip') ?? 0);
+    if (skip > 0) r.fastForward(skip);
     r.speed = speedRef.current;
     runner.current = r;
+    // Development captures (scripts/legibility, screenshots) drive the demo from the console.
+    if (import.meta.env.DEV) Object.assign(window, { store, runner: r });
     store.publish();
     return () => r.stop();
   }, [store]);

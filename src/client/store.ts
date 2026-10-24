@@ -1,5 +1,8 @@
 import type { ChatMessage, Emote, Monument, PresenceEntry, RoomDetail, RosterEntry, WarMeta } from '../protocol.ts';
 import { NEUTRAL, PlatoonState, TICK_MS, type TickEvents, type World } from '../sim/api.ts';
+import { computeRing, type Front } from '../sim/ring.ts';
+import { fortBetween } from '../sim/mapgen.ts';
+import { founderOf, gatesUnbarAt, siegesOpenAt } from './ringinfo.ts';
 import type { ChronicleEntry, Names } from '../sim/chronicle.ts';
 import type { RepoRef } from '../sim/replay.ts';
 import { INITIAL_CONN, type ConnState } from './net/connection.ts';
@@ -18,6 +21,45 @@ export interface Standing {
   leader: boolean;
   /** Renown gained in the last minute, for the trend arrow. */
   trend: number;
+  /** Capitals held now: the first measure of the war. */
+  capitals: number;
+  /** Holds no capital and fights on as a rising, to retake its home. */
+  rising: boolean;
+  /** Capitals stormed today. */
+  conquests: number;
+}
+
+/** One seat of the ring, as the HUD's ring diagram draws it. */
+export interface RingSeat {
+  slot: number;
+  /** Site id of its capital. */
+  site: number;
+  /** Who holds it now, or NEUTRAL for an open seat. */
+  holder: number;
+  /** Whose home it is, or NEUTRAL. */
+  founder: number;
+  hp: number;
+  maxHp: number;
+  besieged: boolean;
+  /** Tick its gates unbar, or -1 when they are not barred. */
+  barredUntil: number;
+}
+
+/** The ring of capitals for the HUD: seats in slot order, the forts between them, the fronts and the victory. */
+export interface RingSummary {
+  slots: number;
+  seats: RingSeat[];
+  /** The fort between seat s and seat s + 1: its holder, or NEUTRAL. */
+  forts: { site: number; owner: number; capturer: number }[];
+  /** The viewer's fronts (none for a spectator). */
+  fronts: Front[];
+  /** Tick the sieges open. */
+  siegesOpen: number;
+  victor: number;
+  victoryTick: number;
+  /** Lake (2) or massif (3) at the centre. */
+  centreKind: number;
+  seed: number;
 }
 
 export type Selection =
@@ -62,7 +104,7 @@ export interface HudSnapshot {
   viewerP: number | null;
   selection: Selection;
   following: boolean;
-  monolith: { hp: number; maxHp: number; fallen: boolean };
+  ring: RingSummary | null;
   replay: boolean;
   digestReady: boolean;
   /** The war that just ended, kept after the server rolls the room into the next one. */
@@ -100,7 +142,12 @@ export class GameStore {
   replay = false;
   digestReady = false;
   endedWar: WarMeta | null = null;
-  /** Statues for this war's map: yesterday's legends at their owners' capitals, the Season Victor at the Heart. */
+  /**
+   * Wall-clock ms until which the field is still playing the victory's set piece; the HUD's victory
+   * overlay waits for it.
+   */
+  ceremonyUntil = 0;
+  /** Statues for this war's map: yesterday's legends at their owners' capitals, the Season Victor on the centre's shore. */
   monuments: Monument[] = [];
   serverNow = () => Date.now();
   /** Wall-clock ms of tick 0, for converting ticks to times. */
@@ -242,6 +289,44 @@ export class GameStore {
     return this.warStartMs + tick * TICK_MS;
   }
 
+  private ringOf(world: World): RingSummary {
+    const { map } = world;
+    const r = computeRing(world);
+    const seats: RingSeat[] = [];
+    for (let slot = 0; slot < map.slots; slot++) {
+      const site = map.sites.findIndex((d) => d.kind === 'capital' && d.slot === slot);
+      const st = world.structures.find((x) => x.site === site);
+      seats.push({
+        slot,
+        site,
+        holder: st ? st.p : NEUTRAL,
+        founder: founderOf(world, slot),
+        hp: st?.hp ?? 0,
+        maxHp: st?.maxHp ?? 0,
+        besieged: !!st && st.siegeSince >= 0 && world.victor < 0,
+        barredUntil: st ? gatesUnbarAt(world, st) : -1,
+      });
+    }
+    const forts = [];
+    for (let s = 0; s < map.slots; s++) {
+      const site = fortBetween(map.slots, s);
+      const state = world.sites[site];
+      forts.push({ site, owner: state?.owner ?? NEUTRAL, capturer: state && state.progress > 0 ? state.capturer : NEUTRAL });
+    }
+    const viewer = this.viewerP;
+    return {
+      slots: map.slots,
+      seats,
+      forts,
+      fronts: viewer !== null && viewer >= 0 ? (r.fronts[viewer] ?? []) : [],
+      siegesOpen: siegesOpenAt(world),
+      victor: world.victor,
+      victoryTick: world.victoryTick,
+      centreKind: map.centreKind,
+      seed: world.params.seed,
+    };
+  }
+
   private recordRenown(world: World): void {
     this.renownHistory.push(world.players.map((p) => p.renown));
     if (this.renownHistory.length > RENOWN_SAMPLES) this.renownHistory.shift();
@@ -250,9 +335,9 @@ export class GameStore {
   private build(): HudSnapshot {
     const world = this.world;
     const standings: Standing[] = [];
-    // The Legacy Monolith is gone from the ring map; the bar stays hidden (TODO client: replace with a ring-of-capitals bar).
-    const monolith = { hp: 0, maxHp: 1, fallen: true };
+    let ring: RingSummary | null = null;
     if (world) {
+      ring = this.ringOf(world);
       const alive = new Int32Array(world.players.length);
       for (const u of world.units) if (u.p >= 0) alive[u.p]!++;
       const platoons = new Int32Array(world.players.length);
@@ -273,9 +358,13 @@ export class GameStore {
           doctrine: ps.doctrine,
           leader: world.leader === ps.p,
           trend: past ? ps.renown - (past[ps.p] ?? 0) : 0,
+          capitals: ps.capitals,
+          rising: ps.rising,
+          conquests: ps.conquests,
         });
       }
-      standings.sort((a, b) => b.renown - a.renown || a.p - b.p);
+      // The ring's conqueror first, then the most capitals held, then renown, then who joined first.
+      standings.sort((a, b) => (b.p === world.victor ? 1 : 0) - (a.p === world.victor ? 1 : 0) || b.capitals - a.capitals || b.renown - a.renown || a.p - b.p);
     }
     return {
       conn: this.conn,
@@ -294,7 +383,7 @@ export class GameStore {
       viewerP: this.viewerP,
       selection: this.selection,
       following: this.following,
-      monolith,
+      ring,
       replay: this.replay,
       digestReady: this.digestReady,
       endedWar: this.endedWar,

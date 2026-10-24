@@ -3,6 +3,7 @@ import type { DigestResponse } from '../../protocol.ts';
 import { FORT_NAMES } from '../../sim/chronicle.ts';
 import { TICK_MS } from '../../sim/api.ts';
 import { clock } from '../ui/format.ts';
+import { centreName, isLake } from '../render/centre.ts';
 import { Icon } from '../ui/icons.tsx';
 import { hueVar, pigment } from '../ui/codex.tsx';
 
@@ -63,6 +64,10 @@ function terrainCells(map: MapData): { forest: Cell[]; water: Cell[]; rock: Cell
 const Land = memo(function Land({ map, ids }: { map: MapData; ids: { land: string; hatch: string; waves: string; clip: string } }) {
   const r = map.radius;
   const t = useMemo(() => terrainCells(map), [map]);
+  const C = map.centre ?? 0;
+  const lake = isLake(map.centreKind);
+  // The centre is drawn whole (Centre below); its cells are left out of the scattered lakes and crags.
+  const inCentre = (c: Cell) => C > 0 && c.x * c.x + c.y * c.y < (C + t.size) * (C + t.size);
   const s = t.size || r * 0.04;
   const shore = coast(r, r * 0.025, 1.3);
   return (
@@ -77,22 +82,22 @@ const Land = memo(function Land({ map, ids }: { map: MapData; ids: { land: strin
         <circle cx={r * 0.45} cy={r * 0.5} r={r} fill={`url(#${ids.hatch})`} opacity={0.75} />
         {/* Lakes and rivers: an ink shore drawn under an ultramarine wash. */}
         <g fill="none" stroke={INK} strokeWidth={s * 0.28}>
-          {t.water.map((c, i) => (
+          {t.water.filter((c) => !inCentre(c)).map((c, i) => (
             <circle key={i} cx={c.x} cy={c.y} r={s * 0.8} />
           ))}
         </g>
         <g fill="#4d69a6">
-          {t.water.map((c, i) => (
+          {t.water.filter((c) => !inCentre(c)).map((c, i) => (
             <circle key={i} cx={c.x} cy={c.y} r={s * 0.8} />
           ))}
         </g>
         <g fill="none" stroke="rgba(239,228,200,.55)" strokeWidth={s * 0.08} strokeLinecap="round">
-          {t.water.filter((c) => c.j > 0.72).map((c, i) => (
+          {t.water.filter((c) => c.j > 0.72 && !inCentre(c)).map((c, i) => (
             <path key={i} d={`M${c.x - s * 0.3} ${c.y} q${s * 0.15} ${-s * 0.14} ${s * 0.3} 0`} />
           ))}
         </g>
         {/* Rock: angular facets, lit top-left. */}
-        {t.rock.map((c, i) => {
+        {t.rock.filter((c) => !inCentre(c)).map((c, i) => {
           const k = s * (0.55 + c.j * 0.35);
           return (
             <g key={i} transform={`translate(${c.x} ${c.y})`}>
@@ -112,14 +117,101 @@ const Land = memo(function Land({ map, ids }: { map: MapData; ids: { land: strin
             <circle key={i} cx={c.x + (c.j - 0.5) * s * 0.4 - s * 0.2} cy={c.y + (c.j - 0.5) * s * 0.3 - s * 0.24} r={s * 0.26} />
           ))}
         </g>
+        {C > 0 && <Centre r={C} lake={lake} unit={r / 210} />}
+        {/* The front road round the ring. */}
+        {(map.ring ?? 0) > 0 && (
+          <g fill="none">
+            <circle r={map.ring} stroke={INK} strokeWidth={r * 0.016} opacity={0.4} />
+            <circle r={map.ring} stroke="#c9a868" strokeWidth={r * 0.01} />
+          </g>
+        )}
       </g>
       <path d={shore} fill="none" stroke={INK} strokeWidth={r * 0.009} strokeLinejoin="round" />
     </g>
   );
 });
 
-/** A capital: an inked keep in its army's pigment, with a banner on its tower. */
-function Castle({ x, y, k, hue }: { x: number; y: number; k: number; hue: number | null }) {
+/** The ring's centre: a great lake rippled in ink, or a massif of engraved peaks, lettered with its name. */
+function Centre({ r, lake, unit }: { r: number; lake: boolean; unit: number }) {
+  const peaks = useMemo(() => {
+    if (lake) return [];
+    const out: { x: number; y: number; k: number }[] = [];
+    const step = r / 4.2;
+    for (let y = -r; y <= r; y += step * 0.6) {
+      for (let x = -r; x <= r; x += step) {
+        const px = x + (jitter(x, y) - 0.5) * step * 0.6 + (Math.round(y / (step * 0.6)) % 2 ? step / 2 : 0);
+        const py = y + (jitter(y, x) - 0.5) * step * 0.3;
+        const d = Math.hypot(px, py);
+        if (d > r * 0.9) continue;
+        out.push({ x: px, y: py, k: step * (0.45 + (1 - d / r) * 0.55) });
+      }
+    }
+    return out.sort((a, b) => a.y - b.y);
+  }, [r, lake]);
+  return (
+    <g>
+      <circle r={r} fill={lake ? '#2c4a9a' : '#a29178'} stroke={INK} strokeWidth={unit * 2.2} />
+      {lake ? (
+        <g fill="none" stroke="rgba(239,228,200,.4)" strokeWidth={unit * 0.9}>
+          <circle r={r * 0.82} strokeDasharray={`${unit * 10} ${unit * 6}`} />
+          <circle r={r * 0.6} strokeDasharray={`${unit * 14} ${unit * 9}`} />
+        </g>
+      ) : (
+        peaks.map((p, i) => (
+          <g key={i} transform={`translate(${p.x.toFixed(1)} ${p.y.toFixed(1)})`} strokeLinejoin="round">
+            <path d={`M${-p.k} 0 L0 ${-p.k * 1.15} L${p.k} 0Z`} fill="#c4b48e" stroke={INK} strokeWidth={unit * 0.9} />
+            <path d={`M0 ${-p.k * 1.15} L${p.k} 0 L${p.k * 0.1} 0Z`} fill="rgba(40,46,74,.42)" />
+            {p.k > r * 0.17 && <path d={`M0 ${-p.k * 1.15} L${-p.k * 0.3} ${-p.k * 0.8} L${p.k * 0.26} ${-p.k * 0.82}Z`} fill={VELLUM} stroke={INK} strokeWidth={unit * 0.5} />}
+          </g>
+        ))
+      )}
+    </g>
+  );
+}
+
+/** A border fort: a small stone keep on its mound, flying its holder's pennant. */
+function Fort({ x, y, k, hue, contested, name }: { x: number; y: number; k: number; hue: number | null; contested: boolean; name: string }) {
+  return (
+    <g transform={`translate(${x} ${y})`}>
+      {hue !== null && <circle r={k * 13} fill={pigment(hue, 'light')} opacity={0.5} />}
+      {contested && <circle r={k * 15} fill="none" stroke="#b8321f" strokeWidth={k * 1.6} />}
+      <g transform={`scale(${k})`}>
+        <ellipse cx="1" cy="8" rx="10" ry="3" fill="#7d8650" stroke={INK} strokeWidth="1" />
+        <path d="M-4.5 7V-5h2v-2h2v2h1v-2h2v2h2V7Z" fill="#b5a78a" stroke={INK} strokeWidth="1.2" strokeLinejoin="round" />
+        <path d="M2 -5V7h2.5V-5Z" fill="rgba(30,32,58,.35)" />
+        <path d="M-1 -7v-8" stroke={INK} strokeWidth="1" />
+        <path d="M-1 -15h7l-2 2 2 2h-7" fill={hue === null ? VELLUM : pigment(hue)} stroke={INK} strokeWidth="0.9" />
+      </g>
+      <text className="timelapse-site-name" y={k * 21} textAnchor="middle" fontFamily="'IM Fell English', serif" fontStyle="italic" fontSize={k * 9} fill={INK} stroke={VELLUM} strokeWidth={k * 2.6} paintOrder="stroke">
+        {name}
+      </text>
+    </g>
+  );
+}
+
+/**
+ * The walls' strength round a capital: the holder's pigment for what stands, cracked open where
+ * they have fallen. Hidden while the walls are whole.
+ */
+function WallRing({ x, y, k, frac, hue }: { x: number; y: number; k: number; frac: number; hue: number | null }) {
+  if (!(frac >= 0) || frac >= 0.995) return null;
+  const R = k * 15;
+  const end = -Math.PI / 2 + Math.PI * 2 * Math.max(0.001, frac);
+  const large = frac > 0.5 ? 1 : 0;
+  const ex = Math.cos(end) * R;
+  const ey = Math.sin(end) * R;
+  return (
+    <g transform={`translate(${x} ${y + k * 2})`} fill="none" strokeLinecap="round">
+      <circle r={R} stroke={INK} strokeWidth={k * 4} opacity={0.75} />
+      <circle r={R} stroke="#3a2c1c" strokeWidth={k * 2.6} />
+      {frac > 0 && <path d={`M0 ${-R} A${R} ${R} 0 ${large} 1 ${ex.toFixed(2)} ${ey.toFixed(2)}`} stroke={hue === null ? SHADE : pigment(hue)} strokeWidth={k * 2.4} />}
+      <path d={`M${ex.toFixed(2)} ${ey.toFixed(2)} l${k * 2} ${k * -2.4} l${k * 1.4} ${k * 1.6}`} stroke={INK} strokeWidth={k * 0.8} />
+    </g>
+  );
+}
+
+/** A capital: an inked keep in its holder's pigment, with a banner on its tower; scorched once it has been stormed. */
+function Castle({ x, y, k, hue, scorched }: { x: number; y: number; k: number; hue: number | null; scorched?: boolean }) {
   const wall = hue === null ? '#cdbd95' : pigment(hue);
   const flag = hue === null ? SHADE : pigment(hue, 'light');
   return (
@@ -130,51 +222,7 @@ function Castle({ x, y, k, hue }: { x: number; y: number; k: number; hue: number
       <path d="M-3 10V3a3 3 0 0 1 6 0v7" fill={INK} />
       <path d="M0 -8v-10" stroke={INK} strokeWidth="1.2" />
       <path d="M0 -18h9l-2.4 2.6L9 -13H0" fill={flag} stroke={INK} strokeWidth="1" />
-    </g>
-  );
-}
-
-/** A shrine: a standing stone cut with code runes, glowing in its holder's pigment. */
-function Shrine({ x, y, k, hue, name }: { x: number; y: number; k: number; hue: number | null; name: string }) {
-  return (
-    <g transform={`translate(${x} ${y})`}>
-      {hue !== null && <circle r={k * 15} fill={pigment(hue, 'light')} opacity={0.55} />}
-      <g transform={`scale(${k})`}>
-        <ellipse cx="1.5" cy="9" rx="8" ry="2.4" fill="rgba(18,22,31,.32)" />
-        <path d="M-5 9-6-5Q-5-11 0-11T6-5L5 9Z" fill="#8c8576" stroke={INK} strokeWidth="1.3" strokeLinejoin="round" />
-        <path d="M2-10Q6-9 6-5L5 9H2Z" fill="#5f594d" />
-        <text y="2" textAnchor="middle" fontFamily="'JetBrains Mono', monospace" fontSize="6.5" fontWeight="700" fill={hue === null ? '#3b352c' : pigment(hue, 'light')} stroke={hue === null ? 'none' : INK} strokeWidth="0.5">
-          {'{}'}
-        </text>
-      </g>
-      <text className="timelapse-site-name" y={k * 22} textAnchor="middle" fontFamily="'IM Fell English', serif" fontStyle="italic" fontSize={k * 9} fill={INK} stroke={VELLUM} strokeWidth={k * 2.6} paintOrder="stroke">
-        {name}
-      </text>
-    </g>
-  );
-}
-
-/** The Legacy Monolith in obsidian. Its molten cracks widen as it is worn down; fallen, it lies in shards over the glowing Heart. */
-function Monolith({ x, y, k, hp }: { x: number; y: number; k: number; hp: number }) {
-  const wear = 1 - Math.max(0, Math.min(1, hp));
-  if (hp <= 0) {
-    return (
-      <g transform={`translate(${x} ${y}) scale(${k})`}>
-        <circle r="16" fill="#ff9a3c" opacity="0.35" />
-        <circle r="7" fill="#ff9a3c" opacity="0.7" />
-        <path d="M-14 6-9-2-5 7Z M6 8 11-3 15 6Z M-4-8 1-15 4-6Z" fill="#1a1d26" stroke={INK} strokeWidth="1.2" strokeLinejoin="round" />
-      </g>
-    );
-  }
-  return (
-    <g transform={`translate(${x} ${y}) scale(${k})`}>
-      <circle r={10 + wear * 10} fill="#ff9a3c" opacity={0.18 + wear * 0.3} />
-      <ellipse cx="2" cy="13" rx="12" ry="3" fill="rgba(18,22,31,.4)" />
-      <path d="M-7 12-5-16 0-24 5-16 7 12Z" fill="#1a1d26" stroke={INK} strokeWidth="1.5" strokeLinejoin="round" />
-      <path d="M0-24 5-16 7 12H2Z" fill="#2a2f3d" />
-      <path d="M-1-14 2-6-2 1 1 9" fill="none" stroke="#ff9a3c" strokeWidth={0.8 + wear * 2.4} strokeLinecap="round" />
-      {wear > 0.35 && <path d="M3-12 0-4 4 4" fill="none" stroke="#ff9a3c" strokeWidth={0.6 + wear * 1.6} strokeLinecap="round" />}
-      {wear > 0.65 && <path d="M-4 5-1 10M-3-8-5-2" fill="none" stroke="#f6dc8c" strokeWidth={0.6 + wear} strokeLinecap="round" />}
+      {scorched && <path d="M-9 9c1-4 3-6 2-9 2 2 3 4 3 7M5 9c0-3 2-5 1-8 2 2 3 5 2 8" fill="rgba(22,16,12,.55)" />}
     </g>
   );
 }
@@ -189,7 +237,7 @@ function Token({ x, y, k, hue }: { x: number; y: number; k: number; hue: number 
   );
 }
 
-/** The whole day as a miniature of the painted map in fifteen seconds: holdings, platoons and the Monolith. */
+/** The whole day as a miniature of the painted map in fifteen seconds: the ring's holdings, its walls and the platoons. */
 export function Timelapse({ data }: { data: DigestResponse }) {
   const frames = data.timelapse;
   const [index, setIndex] = useState(frames.length - 1);
@@ -227,6 +275,8 @@ export function Timelapse({ data }: { data: DigestResponse }) {
   const capitals = data.map.sites.filter((s) => s.kind === 'capital').length;
   const unit = r / 210; // one miniature-unit, so site art keeps its size on every map
   const tokenScale = (n: number) => unit * (0.8 + 1.1 * Math.sqrt(n / maxSoldiers));
+  const victory = data.digest.victory;
+  const won = !!victory && f.t >= victory.tick;
 
   return (
     <figure className="timelapse map-plate">
@@ -250,13 +300,29 @@ export function Timelapse({ data }: { data: DigestResponse }) {
 
         <Land map={data.map} ids={ids} />
 
+        {won && <circle r={data.map.ring ?? r * 0.8} fill="none" stroke="#d4a93e" strokeWidth={unit * 3} strokeDasharray={`${unit * 8} ${unit * 4}`} />}
+
         {data.map.sites.map((s, k) => {
           const owner = f.o[k] ?? -1;
           const hue = owner >= 0 ? hueOf(owner) : null;
-          if (s.kind === 'capital') return <Castle key={k} x={s.x} y={s.y} k={unit * 1.35} hue={hue} />;
-          // TODO client: draw border forts as forts, and the centre's lake or massif.
-          return <Shrine key={k} x={s.x} y={s.y} k={unit * 1.1} hue={hue} name={FORT_NAMES[(k - capitals) % FORT_NAMES.length] ?? ''} />;
+          if (s.kind === 'capital') {
+            const founder = data.players.find((pl) => pl.slot === s.slot)?.p ?? -1;
+            return (
+              <g key={k}>
+                <WallRing x={s.x} y={s.y} k={unit * 1.35} frac={f.w?.[s.slot] ?? -1} hue={hue} />
+                <Castle x={s.x} y={s.y} k={unit * 1.35} hue={hue} scorched={owner >= 0 && founder >= 0 && owner !== founder} />
+              </g>
+            );
+          }
+          const prev = frames[at - 1]?.o[k];
+          return <Fort key={k} x={s.x} y={s.y} k={unit * 1.1} hue={hue} contested={prev !== undefined && prev !== owner} name={FORT_NAMES[(k - capitals) % FORT_NAMES.length] ?? ''} />;
         })}
+
+        {(data.map.centre ?? 0) > 0 && (
+          <text y={unit * 4} textAnchor="middle" fontFamily="'IM Fell English SC', serif" fontSize={unit * 12} letterSpacing={unit * 1.5} fill={VELLUM} stroke={INK} strokeWidth={unit * 2} paintOrder="stroke">
+            {centreName(data.map.seed ?? 0, data.map.centreKind).toUpperCase()}
+          </text>
+        )}
 
         {/* Trails: where each army's platoons stood in the frames just before. */}
         {Array.from({ length: TRAIL }, (_, back) => {

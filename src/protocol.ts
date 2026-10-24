@@ -198,6 +198,12 @@ export interface DigestResponse {
   /** Map geometry for drawing the timelapse: capital and site positions. */
   map: {
     radius: number;
+    /** The ring road's radius, the impassable centre's radius and kind (2 lake, 3 massif); absent in digests from before the ring. */
+    ring?: number;
+    centre?: number;
+    centreKind?: number;
+    /** The war's seed, for naming the centre as the battlefield names it. */
+    seed?: number;
     sites: { kind: SiteKind; x: number; y: number; slot: number }[];
     /**
      * The land at a coarse scale, for painting the timelapse as a miniature of the map: one

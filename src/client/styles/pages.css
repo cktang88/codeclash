@@ -1191,7 +1191,7 @@
   flex: none;
 }
 
-/* Shrine names are scribe's notes; on a phone they would letter smaller than the 13px floor. */
+/* Fort names are scribe's notes; on a phone they would letter smaller than the 13px floor. */
 @media (max-width: 600px) {
   .timelapse-site-name {
     display: none;
@@ -1996,6 +1996,19 @@
   color: var(--rubric);
 }
 
+/* The general who took the whole ring: gilded, with the ring's crest. */
+.meta-legend[data-kind='conqueror'] {
+  padding-right: 64px;
+  box-shadow: inset 0 0 0 2px var(--gold), inset 0 0 0 4px rgba(212, 169, 62, 0.25);
+}
+
+.meta-legend-crest {
+  position: absolute;
+  top: 16px;
+  right: 18px;
+  color: var(--gold-lo);
+}
+
 .meta-season-table tr.is-first td {
   color: var(--gilt) !important;
   font-weight: 700;
@@ -2081,4 +2094,87 @@
 /* A lazily loaded page's place while its code arrives (Root.tsx): just the paper. */
 .page-loading {
   min-height: 100dvh;
+}
+
+/* How the ring fell: the final ring beside the war's turning points. */
+.ring-story-body {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 18px 26px;
+  align-items: start;
+  padding: 20px 22px;
+}
+
+.ring-story-figure {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  margin: 0;
+  max-width: 240px;
+  text-align: center;
+}
+
+.ring-story-figure .ring-figure {
+  width: 220px;
+  height: 220px;
+  filter: drop-shadow(0 6px 8px rgba(18, 22, 31, 0.3));
+}
+
+.ring-story-turns {
+  margin: 0;
+}
+
+.ring-story-quiet {
+  margin: 0;
+  align-self: center;
+}
+
+@media (max-width: 700px) {
+  .ring-story-body {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    padding: 16px 12px;
+  }
+
+  .ring-story-figure .ring-figure {
+    width: 190px;
+    height: 190px;
+  }
+}
+
+.player-card-rising {
+  margin: 6px 0 0;
+  font-size: 14px;
+  font-style: italic;
+  color: var(--bad);
+}
+
+/* The Hall's plinths: a column of legends per day, two abreast where there is room. */
+.meta-hall-day + .meta-hall-day {
+  margin-top: 28px;
+}
+
+.meta-hall-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 360px), 1fr));
+  gap: 16px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meta-legend .rubric {
+  margin: 4px 0 8px;
+}
+
+.meta-legend-deeds {
+  margin: 0 0 10px;
+  padding-left: 18px;
+}
+
+.meta-legend-owner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
 }

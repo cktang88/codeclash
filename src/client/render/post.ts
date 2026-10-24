@@ -2,7 +2,7 @@ import { BlurFilter, Container, type Rectangle, Filter, GlProgram, Matrix, Rende
 
 // The field's final pass, after docs/art-direction.md §2 and §5 ("the HDR look"):
 //
-// - Bloom on emissives only. The emissive layers (torches, window and shrine lights, fire,
+// - Bloom on emissives only. The emissive layers (torches, window and fort lights, fire,
 //   fireballs, breath, sparks, gold motes) are rendered a second time into a half-resolution
 //   target, blurred and added back over the field. Ordinary terrain, units and vellum never
 //   bloom, because they are never drawn into that target: no bright-pass threshold to tune.

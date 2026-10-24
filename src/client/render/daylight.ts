@@ -10,7 +10,7 @@ export interface Daylight {
   mult: number;
   /** Added (screen blend) over the world: warm haze at dawn, a cold lift at night so ink stays legible. */
   screen: number;
-  /** 0..1 strength of emissive lights: windows, shrine glow, torches, fireflies. */
+  /** 0..1 strength of emissive lights: windows, fort braziers, torches, fireflies. */
   lights: number;
   /** 0..1 how much daytime life is about: birds, butterflies, cloud shadows. */
   day: number;

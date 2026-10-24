@@ -42,37 +42,27 @@ export interface CastleArt {
   chimneys: Anchor[];
 }
 
-export interface ShrineArt {
+/** A border fort: a small stone keep on a motte, with a low curtain and two turrets. */
+export interface FortArt {
   body: Texture;
-  /** The carved code-glyph runes: tinted in the holder's hue, and drawn again additively as glow. */
-  runes: Texture;
-  w: number;
-  h: number;
-  feet: Anchor;
-}
-
-export interface MonolithArt {
-  body: Texture;
-  /** Molten cracks at three stages of ruin. */
-  cracks: [Texture, Texture, Texture];
-  w: number;
-  h: number;
-  feet: Anchor;
-}
-
-export interface HeartArt {
-  body: Texture;
+  /** Turret roofs and the hanging banner, tinted with the holder's pigment. */
   pigment: Texture;
+  /** Arrow-slit light and the brazier on the keep: drawn additively, brightest while contested. */
+  windows: Texture;
   w: number;
   h: number;
   feet: Anchor;
+  /** The keep's flag pole tip. */
+  pole: Anchor;
+  /** The brazier on the keep's roof. */
+  brazier: Anchor;
 }
 
 export interface SiteArt {
   castle: CastleArt;
-  shrine: ShrineArt;
-  monolith: MonolithArt;
-  heart: HeartArt;
+  /** Soot, broken merlons and a scorched yard laid over a captured capital's walls. */
+  scorch: Texture;
+  fort: FortArt;
   /** A legend's statue on its plinth, in gilded bronze. */
   statue: Texture;
   /** The Season Victor's obelisk. */
@@ -613,300 +603,229 @@ function castle(): CastleArt {
   };
 }
 
-const GLYPHS = ['{ }', '=>', 'λ', '&&', '</>', '::', '#!', '[ ]', '!=', '>>'];
-
-function stone(ctx: CanvasRenderingContext2D, x: number, base: number, w: number, h: number, lean: number): void {
-  const path = () => {
+/**
+ * The marks a storming leaves on a capital that changed hands: soot licking up from the gate and
+ * the windows, merlons knocked from the curtain, cracks, and a scorched yard. Laid over the
+ * founder's own architecture, which stands; only the banners are the conqueror's.
+ */
+function scorch(): Texture {
+  return paint(CW, CH, (ctx) => {
+    const rand = seeded(913);
+    // Scorched ground before the walls.
+    const sg = ctx.createRadialGradient(150, 252, 6, 150, 252, 150);
+    sg.addColorStop(0, 'rgba(34,22,14,0.5)');
+    sg.addColorStop(0.6, 'rgba(34,22,14,0.22)');
+    sg.addColorStop(1, 'rgba(34,22,14,0)');
+    ctx.fillStyle = sg;
     ctx.beginPath();
-    ctx.moveTo(x - w / 2, base);
-    ctx.lineTo(x - w / 2 + lean - 1, base - h * 0.82);
-    ctx.quadraticCurveTo(x + lean, base - h * 1.04, x + w / 2 + lean, base - h * 0.86);
-    ctx.lineTo(x + w / 2, base);
-    ctx.quadraticCurveTo(x, base + 3, x - w / 2, base);
-    ctx.closePath();
-  };
-  path();
-  const g = ctx.createLinearGradient(x - w / 2, 0, x + w / 2, 0);
-  g.addColorStop(0, '#b9b4a4');
-  g.addColorStop(0.35, '#d6d0bc');
-  g.addColorStop(0.7, '#9d9888');
-  g.addColorStop(1, '#6b6858');
-  ctx.fillStyle = g;
-  ctx.fill();
-  // Lichen speckles in verdigris, and the shadow side hatched.
-  path();
-  ctx.save();
-  ctx.clip();
-  const rand = seeded(Math.round(x * 13 + h));
-  for (let i = 0; i < 6; i++) {
-    ctx.beginPath();
-    ctx.arc(x + (rand() - 0.5) * w, base - rand() * h, 1 + rand() * 1.6, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(70,120,96,0.45)';
+    ctx.ellipse(150, 252, 150, 30, 0, 0, Math.PI * 2);
     ctx.fill();
-  }
-  ctx.restore();
-  path();
-  hatch(ctx, x + w * 0.1, base - h * 1.1, x + w / 2 + lean + 2, base + 2, 2.6);
-  path();
-  outline(ctx, 2);
+    // Soot licking up from the gate, the slits and the keep's windows.
+    const soot = (x: number, y: number, w: number, h: number, a: number) => {
+      const g = ctx.createLinearGradient(0, y, 0, y - h);
+      g.addColorStop(0, `rgba(22,16,12,${a})`);
+      g.addColorStop(1, 'rgba(22,16,12,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.moveTo(x - w / 2, y);
+      ctx.quadraticCurveTo(x - w * 0.7, y - h * 0.6, x - w * 0.1, y - h);
+      ctx.quadraticCurveTo(x + w * 0.5, y - h * 0.5, x + w / 2, y);
+      ctx.closePath();
+      ctx.fill();
+    };
+    soot(150, 214, 46, 70, 0.62);
+    for (const [x, y] of [[139, 124], [160, 124], [150, 151], [46, 179], [254, 179], [46, 211], [254, 211]] as const) soot(x, y, 16, 34, 0.5);
+    for (let i = 0; i < 6; i++) soot(60 + rand() * 180, 250, 14 + rand() * 12, 40 + rand() * 30, 0.35);
+    // Merlons knocked from the curtain: dark gaps with a jagged break.
+    for (const x of [78, 196, 228, 112]) {
+      ctx.beginPath();
+      ctx.moveTo(x, 168);
+      ctx.lineTo(x + 3, 176 + rand() * 4);
+      ctx.lineTo(x + 8, 172 + rand() * 4);
+      ctx.lineTo(x + 13, 178);
+      ctx.lineTo(x + 13, 168);
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(40,30,22,0.85)';
+      ctx.fill();
+      outline(ctx, 1.1);
+    }
+    // Cracks in the curtain and the keep.
+    ctx.strokeStyle = 'rgba(34,24,15,0.75)';
+    ctx.lineWidth = 1.2;
+    for (const [x0, y0, len] of [[96, 182, 40], [204, 186, 36], [180, 102, 44], [70, 222, 26]] as const) {
+      let x = x0;
+      let y = y0;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      for (let k = 0; k < 6; k++) {
+        x += (rand() - 0.5) * 9;
+        y += len / 6;
+        ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+    // Rubble fallen at the foot of the walls.
+    for (let i = 0; i < 18; i++) {
+      const x = 50 + rand() * 200;
+      const y = 252 + rand() * 10;
+      const r = 2.5 + rand() * 3.5;
+      ctx.beginPath();
+      ctx.moveTo(x - r, y + r * 0.4);
+      ctx.lineTo(x - r * 0.3, y - r * 0.6);
+      ctx.lineTo(x + r * 0.7, y - r * 0.3);
+      ctx.lineTo(x + r, y + r * 0.4);
+      ctx.closePath();
+      ctx.fillStyle = rand() < 0.5 ? STONE_MID : STONE_LO;
+      ctx.fill();
+      outline(ctx, 0.9);
+    }
+  });
 }
 
-function shrine(): ShrineArt {
-  const W = 200;
-  const H = 190;
-  const feet = { x: 100, y: 156 };
-  // Back row first, then the menhir, then the front row: painter's order.
-  const ring: [number, number, number, number, number][] = [
-    [46, 140, 16, 40, -1],
-    [72, 132, 15, 34, 1],
-    [128, 132, 15, 36, -1],
-    [154, 140, 16, 42, 1],
+const FW = 200;
+const FH = 200;
+
+function fort(): FortArt {
+  const feet = { x: 100, y: 176 };
+  const keep = { x0: 76, x1: 122, top: 62, bottom: 150 };
+  const turrets = [44, 156];
+  const slits: [number, number, number, number][] = [
+    [96, 82, 5, 12],
+    [96, 108, 5, 12],
+    [40, 132, 4, 9],
+    [152, 132, 4, 9],
   ];
-  const front: [number, number, number, number, number][] = [
-    [58, 166, 17, 30, 1],
-    [142, 166, 17, 32, -1],
-  ];
-  const menhir = { x: 100, base: 160, w: 30, h: 112 };
-  const glyphAt = (i: number) => GLYPHS[i % GLYPHS.length]!;
-  const body = paint(W, H, (ctx) => {
-    groundShadow(ctx, 110, 160, 92, 26);
-    // A worn stone platform.
+  const body = paint(FW, FH, (ctx) => {
+    const rand = seeded(57);
+    groundShadow(ctx, 112, 176, 96, 22);
+    // The motte: a low earthen mound, grassed, its south face in shade.
     ctx.beginPath();
-    ctx.ellipse(100, 154, 84, 22, 0, 0, Math.PI * 2);
-    ctx.fillStyle = '#a99d82';
+    ctx.ellipse(100, 170, 90, 20, 0, 0, Math.PI * 2);
+    const mg = ctx.createLinearGradient(10, 150, 190, 190);
+    mg.addColorStop(0, '#9aa064');
+    mg.addColorStop(0.6, '#7d8650');
+    mg.addColorStop(1, '#58603c');
+    ctx.fillStyle = mg;
     ctx.fill();
     outline(ctx, 1.8);
+    // The keep: a square stone tower with a shaded right face.
     ctx.beginPath();
-    ctx.ellipse(100, 150, 62, 14, 0, 0, Math.PI * 2);
-    ctx.fillStyle = '#c4b89a';
+    ctx.rect(keep.x0, keep.top, keep.x1 - keep.x0, keep.bottom - keep.top);
+    const kg = ctx.createLinearGradient(keep.x0, 0, keep.x1, 0);
+    kg.addColorStop(0, STONE_HI);
+    kg.addColorStop(0.55, STONE);
+    kg.addColorStop(1, STONE_MID);
+    ctx.fillStyle = kg;
     ctx.fill();
-    outline(ctx, 1.2, INK_SOFT);
-    for (const [x, b, w, h, l] of ring) stone(ctx, x, b, w, h, l);
-    stone(ctx, menhir.x, menhir.base, menhir.w, menhir.h, 0);
-    // Carved grooves where the runes are cut.
-    ctx.font = `700 13px "JetBrains Mono", monospace`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillStyle = 'rgba(46,38,30,0.7)';
-    for (let i = 0; i < 5; i++) ctx.fillText(glyphAt(i), menhir.x + 0.6, menhir.base - 22 - i * 17 + 0.6);
-    for (const [x, b, w, h, l] of front) stone(ctx, x, b, w, h, l);
-  });
-  const runes = paint(W, H, (ctx) => {
-    ctx.font = `700 13px "JetBrains Mono", monospace`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillStyle = '#ffffff';
-    for (let i = 0; i < 5; i++) ctx.fillText(glyphAt(i), menhir.x, menhir.base - 22 - i * 17);
-    ctx.font = `700 9px "JetBrains Mono", monospace`;
-    ring.forEach(([x, b, , h], i) => ctx.fillText(glyphAt(i + 5), x, b - h * 0.55));
-    front.forEach(([x, b, , h], i) => ctx.fillText(glyphAt(i + 7), x, b - h * 0.5));
-  });
-  return { body, runes, w: W, h: H, feet };
-}
-
-function monolith(): MonolithArt {
-  const W = 180;
-  const H = 320;
-  const feet = { x: 90, y: 300 };
-  const shard = (ctx: CanvasRenderingContext2D) => {
+    courses(ctx, keep.x0, keep.top, keep.x1, keep.bottom, rand);
     ctx.beginPath();
-    ctx.moveTo(52, 286);
-    ctx.lineTo(60, 120);
-    ctx.lineTo(78, 30);
-    ctx.lineTo(96, 12);
-    ctx.lineTo(108, 40);
-    ctx.lineTo(124, 132);
-    ctx.lineTo(130, 286);
+    ctx.rect(keep.x0, keep.top, keep.x1 - keep.x0, keep.bottom - keep.top);
+    outline(ctx);
+    ctx.beginPath();
+    ctx.moveTo(keep.x1, keep.top);
+    ctx.lineTo(keep.x1 + 12, keep.top - 6);
+    ctx.lineTo(keep.x1 + 12, keep.bottom - 6);
+    ctx.lineTo(keep.x1, keep.bottom);
     ctx.closePath();
-  };
-  const body = paint(W, H, (ctx) => {
-    groundShadow(ctx, 104, 298, 96, 22);
-    // Plinth of three worn steps.
-    for (const [w, y, h, c] of [[150, 300, 12, '#5d5662'], [124, 289, 10, '#4b4552'], [100, 280, 8, '#3c3744']] as const) {
+    ctx.fillStyle = STONE_LO;
+    ctx.fill();
+    hatch(ctx, keep.x1, keep.top - 6, keep.x1 + 12, keep.bottom, 2.6, 'rgba(30,32,58,0.5)');
+    ctx.beginPath();
+    ctx.moveTo(keep.x1, keep.top);
+    ctx.lineTo(keep.x1 + 12, keep.top - 6);
+    ctx.lineTo(keep.x1 + 12, keep.bottom - 6);
+    ctx.lineTo(keep.x1, keep.bottom);
+    outline(ctx);
+    merlons(ctx, keep.x0, keep.x1, keep.top, STONE_HI, 8, 5);
+    // The brazier's iron basket on the roof, by the pole.
+    ctx.beginPath();
+    ctx.moveTo(110, keep.top - 9);
+    ctx.lineTo(120, keep.top - 9);
+    ctx.lineTo(117, keep.top - 2);
+    ctx.lineTo(113, keep.top - 2);
+    ctx.closePath();
+    ctx.fillStyle = '#3a342e';
+    ctx.fill();
+    outline(ctx, 1.1);
+    for (const [x, y, w, h] of slits) {
       ctx.beginPath();
-      ctx.rect(90 - w / 2, y - h, w, h);
-      ctx.fillStyle = c;
+      ctx.rect(x, y, w, h);
+      ctx.fillStyle = '#2b1d12';
       ctx.fill();
-      hatch(ctx, 90, y - h, 90 + w / 2, y, 3);
-      ctx.beginPath();
-      ctx.rect(90 - w / 2, y - h, w, h);
-      outline(ctx, 1.8, '#1a1420');
     }
-    // The obsidian shard: a lit facet on the left, glassy black on the right.
-    shard(ctx);
-    ctx.fillStyle = '#17121c';
-    ctx.fill();
+    // The low curtain on the motte, with a gate passage, and two turrets at its ends.
     ctx.beginPath();
-    ctx.moveTo(52, 286);
-    ctx.lineTo(60, 120);
-    ctx.lineTo(78, 30);
-    ctx.lineTo(96, 12);
-    ctx.lineTo(90, 150);
-    ctx.lineTo(86, 286);
+    ctx.rect(44, 136, 112, 30);
+    const wg = ctx.createLinearGradient(44, 136, 156, 166);
+    wg.addColorStop(0, STONE_HI);
+    wg.addColorStop(0.6, STONE);
+    wg.addColorStop(1, STONE_MID);
+    ctx.fillStyle = wg;
+    ctx.fill();
+    courses(ctx, 44, 136, 156, 166, rand);
+    const sg = ctx.createLinearGradient(0, 136, 0, 146);
+    sg.addColorStop(0, 'rgba(30,36,66,0.32)');
+    sg.addColorStop(1, 'rgba(30,36,66,0)');
+    ctx.fillStyle = sg;
+    ctx.fillRect(44, 136, 112, 10);
+    ctx.beginPath();
+    ctx.rect(44, 136, 112, 30);
+    outline(ctx);
+    merlons(ctx, 46, 154, 136, STONE_HI, 7, 5);
+    ctx.beginPath();
+    ctx.moveTo(91, 166);
+    ctx.lineTo(91, 152);
+    ctx.arc(100, 152, 9, Math.PI, 0);
+    ctx.lineTo(109, 166);
     ctx.closePath();
-    const lg = ctx.createLinearGradient(52, 0, 96, 0);
-    lg.addColorStop(0, '#4a3f5a');
-    lg.addColorStop(0.5, '#2d2638');
-    lg.addColorStop(1, '#201a28');
-    ctx.fillStyle = lg;
-    ctx.fill();
-    // A glassy specular streak down the ridge, and a cool rim on the far edge.
-    ctx.beginPath();
-    ctx.moveTo(95, 16);
-    ctx.lineTo(89, 150);
-    ctx.lineTo(86, 284);
-    ctx.lineWidth = 1.6;
-    ctx.strokeStyle = 'rgba(190,180,220,0.55)';
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(66, 100);
-    ctx.lineTo(80, 36);
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = 'rgba(220,210,240,0.35)';
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(108, 42);
-    ctx.lineTo(124, 132);
-    ctx.lineTo(129, 284);
-    ctx.lineWidth = 1.2;
-    ctx.strokeStyle = 'rgba(110,130,190,0.45)';
-    ctx.stroke();
-    shard(ctx);
-    outline(ctx, 2.6, '#140f18');
-    // Ancient syntax, carved and dim.
-    ctx.font = '600 11px "JetBrains Mono", monospace';
-    ctx.textAlign = 'center';
-    ctx.fillStyle = 'rgba(150,136,170,0.55)';
-    const lines = ['goto', 'NULL', '/* */', '0xDEAD', ';;', 'GOSUB', '#if 0', 'eval'];
-    lines.forEach((t, i) => ctx.fillText(t, 92 - (i % 2) * 4, 70 + i * 26, 50));
-  });
-  const crackPaths: [number, number][][][] = [
-    [
-      [[96, 26], [92, 60], [99, 92]],
-      [[74, 250], [80, 222], [74, 200]],
-    ],
-    [
-      [[96, 26], [92, 60], [99, 92], [90, 128], [96, 160]],
-      [[74, 278], [80, 222], [74, 200], [82, 176]],
-      [[118, 210], [110, 182], [116, 160]],
-      [[68, 128], [78, 110], [72, 88]],
-    ],
-    [
-      [[96, 18], [92, 60], [99, 92], [90, 128], [96, 160], [88, 196], [94, 236], [86, 282]],
-      [[74, 282], [80, 222], [74, 200], [82, 176], [72, 150]],
-      [[124, 250], [110, 182], [116, 160], [106, 130], [112, 100]],
-      [[62, 150], [78, 110], [72, 88], [80, 60]],
-      [[96, 160], [110, 170], [122, 168]],
-      [[90, 128], [76, 136], [62, 134]],
-    ],
-  ];
-  const cracks = crackPaths.map((paths, stage) =>
-    paint(W, H, (ctx) => {
-      const width = 2 + stage * 1.6;
-      ctx.save();
-      shard(ctx);
-      ctx.clip();
-      for (const [w, color] of [[width * 4, 'rgba(255,110,30,0.22)'], [width * 2, 'rgba(255,140,50,0.55)'], [width, 'rgba(255,200,110,0.95)'], [width * 0.4, 'rgba(255,245,210,1)']] as const) {
-        ctx.lineWidth = w;
-        ctx.strokeStyle = color;
-        for (const p of paths) {
-          ctx.beginPath();
-          p.forEach(([x, y], i) => (i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y)));
-          ctx.stroke();
-        }
-      }
-      ctx.restore();
-    }),
-  ) as [Texture, Texture, Texture];
-  return { body, cracks, w: W, h: H, feet };
-}
-
-function heart(): HeartArt {
-  const W = 220;
-  const H = 200;
-  const feet = { x: 110, y: 160 };
-  const crystal = (ctx: CanvasRenderingContext2D) => {
-    ctx.beginPath();
-    ctx.moveTo(110, 40);
-    ctx.lineTo(132, 86);
-    ctx.lineTo(110, 132);
-    ctx.lineTo(88, 86);
-    ctx.closePath();
-  };
-  const body = paint(W, H, (ctx) => {
-    groundShadow(ctx, 120, 160, 104, 28);
-    ctx.beginPath();
-    ctx.ellipse(110, 150, 90, 28, 0, 0, Math.PI * 2);
-    ctx.fillStyle = '#8e8270';
-    ctx.fill();
-    hatch(ctx, 110, 120, 200, 180, 3);
-    ctx.beginPath();
-    ctx.ellipse(110, 150, 90, 28, 0, 0, Math.PI * 2);
-    outline(ctx, 2);
-    ctx.beginPath();
-    ctx.ellipse(110, 142, 66, 18, 0, 0, Math.PI * 2);
-    ctx.fillStyle = '#b3a68c';
+    const dg = ctx.createLinearGradient(0, 143, 0, 166);
+    dg.addColorStop(0, '#1f150d');
+    dg.addColorStop(1, '#4a3622');
+    ctx.fillStyle = dg;
     ctx.fill();
     outline(ctx, 1.6);
-    // The broken stump of the Monolith, obsidian shards at the rim.
-    const rand = seeded(5);
-    for (let i = 0; i < 9; i++) {
-      const a = Math.PI * (0.05 + (i / 8) * 0.9) + Math.PI;
-      const x = 110 + Math.cos(a) * 70;
-      const y = 146 + Math.sin(a) * 20;
-      const h = 10 + rand() * 18;
+    for (const cx of turrets) tower(ctx, cx, 116, 168, 13, rand);
+    for (const [x, y, w, h] of slits.slice(2)) {
       ctx.beginPath();
-      ctx.moveTo(x - 5, y + 2);
-      ctx.lineTo(x - 1 + (rand() - 0.5) * 6, y - h);
-      ctx.lineTo(x + 5, y + 2);
-      ctx.closePath();
-      ctx.fillStyle = '#251e2c';
+      ctx.rect(x, y, w, h);
+      ctx.fillStyle = '#2b1d12';
       ctx.fill();
-      outline(ctx, 1.4, '#140f18');
     }
-    // Pedestal under the crystal.
-    ctx.beginPath();
-    ctx.moveTo(94, 146);
-    ctx.lineTo(98, 120);
-    ctx.lineTo(122, 120);
-    ctx.lineTo(126, 146);
-    ctx.closePath();
-    ctx.fillStyle = STONE;
-    ctx.fill();
-    hatch(ctx, 110, 118, 128, 148, 2.6);
-    ctx.beginPath();
-    ctx.moveTo(94, 146);
-    ctx.lineTo(98, 120);
-    ctx.lineTo(122, 120);
-    ctx.lineTo(126, 146);
-    outline(ctx, 1.8);
   });
-  const pigment = paint(W, H, (ctx) => {
-    crystal(ctx);
-    const g = ctx.createLinearGradient(88, 40, 132, 132);
-    g.addColorStop(0, '#ffffff');
-    g.addColorStop(0.5, '#d0d0d0');
-    g.addColorStop(1, '#7c7c7c');
+  const pigment = paint(FW, FH, (ctx) => {
+    for (const cx of turrets) cone(ctx, cx, 118, 84, 14, 'pigment');
+    hanging(ctx, 84, 86, 14, 26);
+    hanging(ctx, 120, 140, 12, 20);
+  });
+  const windows = paint(FW, FH, (ctx) => {
+    for (const [x, y, w, h] of slits) {
+      const g = ctx.createRadialGradient(x + w / 2, y + h / 2, 0, x + w / 2, y + h / 2, h * 1.3);
+      g.addColorStop(0, 'rgba(255,190,110,0.55)');
+      g.addColorStop(1, 'rgba(255,140,60,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(x - h, y - h, w + h * 2, h * 3);
+      ctx.fillStyle = '#ffcf7a';
+      ctx.fillRect(x + 0.8, y + 0.8, w - 1.6, h - 1.6);
+    }
+    // The brazier's flame.
+    const g = ctx.createRadialGradient(115, keepTop() - 12, 0, 115, keepTop() - 12, 16);
+    g.addColorStop(0, 'rgba(255,214,140,0.95)');
+    g.addColorStop(0.4, 'rgba(255,150,60,0.6)');
+    g.addColorStop(1, 'rgba(255,110,40,0)');
     ctx.fillStyle = g;
+    ctx.fillRect(95, keepTop() - 32, 40, 34);
+    ctx.beginPath();
+    ctx.moveTo(111, keepTop() - 9);
+    ctx.quadraticCurveTo(112, keepTop() - 18, 115, keepTop() - 24);
+    ctx.quadraticCurveTo(118, keepTop() - 17, 119, keepTop() - 9);
+    ctx.closePath();
+    ctx.fillStyle = '#ffd88a';
     ctx.fill();
-    ctx.beginPath();
-    ctx.moveTo(110, 40);
-    ctx.lineTo(110, 132);
-    ctx.moveTo(88, 86);
-    ctx.lineTo(132, 86);
-    ctx.lineWidth = 1;
-    ctx.strokeStyle = 'rgba(60,50,40,0.45)';
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(98, 70);
-    ctx.lineTo(108, 48);
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = 'rgba(255,255,255,0.9)';
-    ctx.stroke();
-    crystal(ctx);
-    outline(ctx, 2, '#2a2420');
   });
-  return { body, pigment, w: W, h: H, feet };
+  function keepTop(): number {
+    return keep.top;
+  }
+  return { body, pigment, windows, w: FW, h: FH, feet, pole: { x: 90, y: keep.top - 8 }, brazier: { x: 115, y: keep.top - 12 } };
 }
 
 function statue(): Texture {
@@ -1107,9 +1026,8 @@ let cached: SiteArt | null = null;
 export function siteArt(): SiteArt {
   cached ??= {
     castle: castle(),
-    shrine: shrine(),
-    monolith: monolith(),
-    heart: heart(),
+    scorch: scorch(),
+    fort: fort(),
     statue: statue(),
     obelisk: obelisk(),
     cartouche: cartouche(),

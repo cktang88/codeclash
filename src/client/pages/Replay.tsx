@@ -26,6 +26,8 @@ const KEYFRAME_JUMP_TICKS = 3000;
 const OFF_THREAD_SEEK_TICKS = 150;
 /** Chronicle lines a seek keeps, as the store does. */
 const CHRONICLE_KEEP = 400;
+/** Ticks the replay plays on after the ring is won: a minute, for the set piece and the stilled field. */
+const VICTORY_TAIL_TICKS = 300;
 
 export function downloadJson(name: string, data: unknown): void {
   const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
@@ -69,7 +71,25 @@ export function ReplayPage({ slug, warId, tick, invite = null, me }: { slug: str
     };
   }, [slug, warId, invite]);
 
-  const endTick = replay ? Math.floor((replay.endsAt - replay.startsAt) / replay.tickMs) : 0;
+  // A war won by taking the whole ring stands still from that tick: the scrubber ends a minute after
+  // it, long enough for the victory's set piece, rather than running on over a frozen field to the reset.
+  const fullTick = replay ? Math.floor((replay.endsAt - replay.startsAt) / replay.tickMs) : 0;
+  const victoryTick = digest?.digest.victory?.tick;
+  const endTick = victoryTick !== undefined && victoryTick >= 0 ? Math.min(fullTick, victoryTick + VICTORY_TAIL_TICKS) : fullTick;
+  const endRef = useRef(endTick);
+  endRef.current = endTick;
+  /** Starts a replay runner that stops where the scrubber ends. */
+  const begin = useCallback(
+    (from?: Parameters<typeof startReplay>[2]) => {
+      const r = startReplay(store, replay!, from);
+      r.endTick = Math.min(r.endTick, endRef.current);
+      return r;
+    },
+    [store, replay],
+  );
+  useEffect(() => {
+    if (runner.current) runner.current.endTick = endTick;
+  }, [endTick]);
 
   const keyframeFrom = useCallback(
     async (to: number) => {
@@ -98,10 +118,10 @@ export function ReplayPage({ slug, warId, tick, invite = null, me }: { slug: str
         if (token !== seekToken.current) return;
         if (kf && (rewinding || kf.tick > r!.tick)) {
           r?.stop();
-          r = startReplay(store, replay, kf.world);
+          r = begin(kf.world);
         } else if (rewinding) {
           r?.stop();
-          r = startReplay(store, replay);
+          r = begin();
         }
         runner.current = r!;
         r!.speed = 0;
@@ -120,7 +140,7 @@ export function ReplayPage({ slug, warId, tick, invite = null, me }: { slug: str
         if (token !== seekToken.current) return;
         if (done) {
           run.stop();
-          run = startReplay(store, replay, done.world);
+          run = begin(done.world);
           runner.current = run;
           if (earlier.length > 0) store.addChronicle(earlier, false);
           store.addChronicle(done.chronicle, false);
@@ -148,12 +168,12 @@ export function ReplayPage({ slug, warId, tick, invite = null, me }: { slug: str
       };
       stepChunk();
     },
-    [replay, endTick, store, keyframeFrom],
+    [replay, endTick, store, keyframeFrom, begin],
   );
 
   useEffect(() => {
     if (!replay) return;
-    runner.current = startReplay(store, replay);
+    runner.current = begin();
     store.publish();
     appliedTick.current = tick;
     if (tick !== null && tick > 0) void seek(tick);
@@ -221,7 +241,7 @@ export function ReplayPage({ slug, warId, tick, invite = null, me }: { slug: str
           }}
         />
         <div className="scrub-markers" aria-hidden={markers.length === 0}>
-          {markers.map((m, i) => (
+          {markers.filter((m) => m.tick <= endTick).map((m, i) => (
             <button
               key={i}
               className={`scrub-marker chron-${m.kind}`}
@@ -264,6 +284,7 @@ export function ReplayPage({ slug, warId, tick, invite = null, me }: { slug: str
           </div>
         }
         dock={dock}
+        digestWar={warId}
       />
       {!replay && (
         <div className="loading-veil" role="status">

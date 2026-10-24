@@ -10,7 +10,8 @@ import { Chronicle } from './Chronicle.tsx';
 import { ArmyPanel, CommandBar } from './Command.tsx';
 import { useHudContext } from './context.ts';
 import { Inspector } from './Inspector.tsx';
-import { AwayModal, Countdown, DayOverBanner, MonolithBar, Toasts, VictoryFanfare } from './Overlays.tsx';
+import { AwayModal, Countdown, DayOverBanner, Toasts, VictoryFanfare } from './Overlays.tsx';
+import { RingBar, VictoryOverlay } from './Ring.tsx';
 import { RoomSettings, ShareModal } from './RoomSettings.tsx';
 import { Chat, EmoteBar, EmoteRain, Presence } from './Social.tsx';
 import { Standings } from './Standings.tsx';
@@ -92,11 +93,13 @@ export interface RoomHudProps {
   dock?: ReactNode;
   room?: RoomDetail | null;
   onRoomChanged?(room: RoomDetail): void;
+  /** The war whose digest the victory overlay leads to, when it is not the live room's (a replay). */
+  digestWar?: number;
 }
 
 /**
  * Tells the camera how much of the screen the HUD covers above and below, measured from
- * the live layout (banner, Monolith bar, dock, the phone's book tabs) rather than guessed,
+ * the live layout (banner, ring bar, dock, the phone's book tabs) rather than guessed,
  * so the opening fit never tucks a capital under a bar. Transient toasts are left out.
  */
 function useFitInsets(hud: RefObject<HTMLDivElement | null>, narrow: boolean): void {
@@ -133,7 +136,7 @@ function useFitInsets(hud: RefObject<HTMLDivElement | null>, narrow: boolean): v
 }
 
 /** Everything drawn over the battlefield. */
-export function RoomHud({ hud, title, subtitle, banner, dock, room, onRoomChanged }: RoomHudProps) {
+export function RoomHud({ hud, title, subtitle, banner, dock, room, onRoomChanged, digestWar }: RoomHudProps) {
   const { mode, slug, invite, me } = useHudContext();
   const narrow = useNarrow();
   const root = useRef<HTMLDivElement>(null);
@@ -247,7 +250,7 @@ export function RoomHud({ hud, title, subtitle, banner, dock, room, onRoomChange
       <div className="hud-top-center">
         {banner}
         <DayOverBanner hud={hud} />
-        <MonolithBar hud={hud} />
+        <RingBar hud={hud} />
         <Toasts hud={hud} />
       </div>
 
@@ -346,6 +349,7 @@ export function RoomHud({ hud, title, subtitle, banner, dock, room, onRoomChange
 
       <EmoteRain hud={hud} />
       {mode === 'live' && <VictoryFanfare hud={hud} />}
+      <VictoryOverlay hud={hud} digestWar={digestWar} />
       {ready && hud.war && <AwayModal hud={hud} />}
       {modal === 'help' && <ArticlesOfWar onClose={() => setModal(null)} />}
       {modal === 'share' && room && <ShareModal room={room} onClose={() => setModal(null)} />}

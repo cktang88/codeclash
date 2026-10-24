@@ -1,6 +1,6 @@
 # Pushfront art direction: *The Illuminated War*
 
-Every pixel in Pushfront belongs to one world: a medieval war chronicle being written and illuminated as the battle happens. The battlefield is a living painted map on vellum. The interface is the codex that records it, with ink, pigment, gold leaf and wax. Code is the magic of this world. The Legacy Monolith is carved with syntax, shrine runes are glyphs of code, and a commit message is a herald's proclamation.
+Every pixel in Pushfront belongs to one world: a medieval war chronicle being written and illuminated as the battle happens. The battlefield is a living painted map on vellum: a ring of capitals around a great lake or a mountain massif. The interface is the codex that records it, with ink, pigment, gold leaf and wax. Code is the magic of this world, and a commit message is a herald's proclamation.
 
 If an element would look at home in a SaaS dashboard, it is wrong. If it would look at home in a lavish illuminated manuscript that has come alive, it is right.
 
@@ -45,7 +45,7 @@ Gold is reserved for value: rank, renown, victory and the best of anything. Neve
 
 - **Actors are vivid.** Soldiers, banners, tokens, site glows and effects carry the strongest saturation and the brightest values on screen. Soldiers wear an *actor pigment*: the army hue at 80% saturation and 52% lightness, mixed only 6% toward earth (the map's own pigment is 66%/50% mixed 16%). It is still a pigment, never neon.
 - **The stage is rich but calm.** Terrain keeps deep, saturated greens, ultramarines and earths, with a deep ink floor. It is calmer than the actors because it has less detail and a narrower *local* value range (fewer ticks and lighter hatching), never because it was lightened, greyed or pushed toward pastel. No screen lifts, white fog or low-contrast vellum washes over the field: the old dawn "warm-grey lift" is the failure to avoid.
-- **Emissives bloom.** Fire, fireballs, dragon breath, embers, gold motes, torches, window lights and shrine glows are drawn a second time into a half-resolution target, blurred and added back. Nothing else is drawn into that target, so ordinary terrain, vellum and soldiers never bloom.
+- **Emissives bloom.** Fire, fireballs, dragon breath, embers, gold motes, torches, window lights, fort braziers and siege campfires are drawn a second time into a half-resolution target, blurred and added back. Nothing else is drawn into that target, so ordinary terrain, vellum and soldiers never bloom.
 - **A filmic finish.** A final pass over the field applies a gentle filmic S-curve (deeper ink floor, highlights that roll off instead of clipping) and vibrance (saturation added most where colour is weakest, least to warm skin-like hues) rather than flat saturation. It is off under reduced motion, with `?lowfx`, on software renderers, and when frames run slow; `?hdr` forces it on for captures.
 - **Guard.** Mean terrain saturation and its L\* value range (p5 to p95) must not drop below the measured baseline at any time of day, and the pass must never reduce unit-against-terrain contrast. Both are checked with the legibility measurement (see §5).
 
@@ -91,7 +91,8 @@ Dark variants for night and overlays are "night vellum": `ink-night` with gold r
 - **Toggles.** A brass lever or a wax seal with on/off states.
 - **Inputs.** A ruled line on vellum with a quill caret.
 - **Badges and tags.** Small heraldic shields or wax seals, never rounded chips.
-- **Bars** (HP, morale, Monolith). A carved channel with a pigment fill and a gilded end cap. Damage leaves a lagging pale "wound" that drains after 400ms.
+- **Bars** (HP, morale, walls). A carved channel with a pigment fill and a gilded end cap. Damage leaves a lagging pale "wound" that drains after 400ms.
+- **The ring diagram.** The ring of capitals as a small engraved figure: the centre's lake or massif, the ring road, each seat's keep in its holder's pigment, the border forts as lozenges, crossed blades where two holders meet, and the viewer's seats ringed in gold leaf (a dashed vermilion ring for a lost home). It sits on a night-vellum plaque over the map with one line of standing beside it; it never covers the centre of the map.
 
 **Icons.** Use one woodcut or engraving icon set throughout: ink linework on transparent ground, 2px stroke at 24px, with hatched shading. Unit icons share their silhouettes with the battlefield sprites. Emoji appear only in user-sent emotes, and even there they are framed as a wax-sealed note.
 
@@ -106,11 +107,21 @@ Dark variants for night and overlays are "night vellum": `ink-night` with gold r
 
 ## 5. The battlefield
 
-**The map.** A painted disc of land on a vellum sheet. Beyond its edge are:
+**The map.** A painted disc of land on a vellum sheet, with the ring of capitals on it. Beyond its edge are:
 
 - a hand-inked coastline
 - a compass rose
-- marginalia: tiny animated sea serpents, a sailing ship, and a scribe's notes naming the shrines
+- marginalia: tiny animated sea serpents and a sailing ship
+
+**The centre** is the map's grand feature, painted once and never fought over:
+
+- **A great lake:** deep ultramarine shelving fast from a ragged inked shore, with engraved calm strokes across the water, ripple rings following the shore inward, and the glint shader rolling slow and broad on it as on the open sea. A serpent sometimes surfaces in it.
+- **A mountain massif:** hundreds of engraved peaks in the old cartographer's manner, foothills at the shore rising to great peaks at the summit, each lit warm on its upper-left face and hatched in cool ink on the other, the tallest capped with snow.
+- Its name is lettered across it in spaced display capitals, pale on the deep and outlined in ink, with a rubricated flourish beneath: *The Inkwell*, *The Greyspine*.
+
+**The front road** is the ring itself: an ink-edged ochre track running round the centre through every capital and fort, wandering a little as a hand-ruled road does, with tiny milestones on its outer verge.
+
+**Fronts** are drawn as a cartographer draws a realm's edge: wherever two holders' territories meet, a dashed ink border with a small cross on every other gap runs from the shore to the coast, edged on either side by a thin band of each realm's pigment. A fort a neighbour holds pushes the border back past it. Borders are thinner and paler than any road; they belong to the stage, not the actors.
 
 Terrain is painted with ink hatching on its shadow sides. Forests are clustered canopy blobs with a highlight on the top-left edge. Water is ultramarine with an animated glint shader and ink ripple lines at the shore. Rock gets angular hatched facets.
 
@@ -122,15 +133,16 @@ Terrain is painted with ink hatching on its shadow sides. Forests are clustered 
 | midday | neutral |
 | afternoon | warm |
 | dusk | crimson |
-| night | ultramarine wash; capitals, shrines, campfires and fire glow as emissive points |
+| night | ultramarine wash; capitals, fort braziers, siege campfires and fire glow as emissive points |
 
 Cloud shadows drift across the map. Ambient life follows the hour: birds and butterflies by day, fireflies and ember motes by night.
 
 **Sites.**
 
-- **Capitals:** inked castles in their army's pigment, with banners on every tower, smoking chimneys, and gates that open on a muster.
-- **Shrines:** standing stones with runes made of code glyphs, glowing in the holder's hue.
-- **The Legacy Monolith:** obsidian, carved with ancient syntax (`goto`, `NULL`, `/* */`), with molten cracks that widen as it takes damage.
+- **Capitals:** inked castles with roofs and hangings in the holder's pigment, the holder's standard on every tower, smoking chimneys, and gates that open on a muster. A captured capital keeps its founder's architecture (the keep style its founder chose); only the pigment and the banners are the conqueror's, and the storming leaves its mark: soot licking up from the gate and windows, merlons knocked from the curtain, cracks, and a scorched yard.
+- **Border forts:** a small stone keep on a grassed motte, a low curtain with two pigment-roofed turrets, the holder's standard on the keep and its banner on the wall. By night the arrow slits and the roof brazier glow; while the fort is contested the brazier flares in the attackers' pigment and a ring of their pigment fills round it. Its name is lettered on a vellum cartouche.
+- **Sieges:** while foes stand at a capital's walls, an earthwork bank in the besiegers' pigment curves round the side they press from, with a palisade of stakes, their pennants and campfires behind it; the walls smoke and, as they weaken, burn. A carved wall ring round the capital shows what stands in the holder's pigment, with a pale wound draining behind fresh damage and cracks spreading from the broken end. The capital's cartouche says what the walls can expect: *breach in ~12 min*, *gates barred for 1h 20m*, *sieges open in 3h*.
+- **A rising's standard:** a crooked pole lashed upright in a cairn of soot-black stones on the ring road outside the lost home, flying the fallen player's arms, for as long as the rising lasts.
 
 **Units.** Painted miniatures with inked outlines.
 
@@ -157,11 +169,13 @@ Each set piece has anticipation, impact, aftermath and a mark left on the world.
 
 | Moment | Anticipation | Impact | Aftermath and mark |
 | --- | --- | --- | --- |
-| A push musters | Horn call. The capital gates swing open | The battalion banner unfurls, and the commit message appears above the platoon as a herald's scroll for 4s | Dust on the road. The platoon's name enters the chronicle with a drop cap |
+| A push musters | Horn call. The gates of its muster gate (the capital it holds at that end of its realm) swing open; a rising's column gathers on the road instead | The battalion banner unfurls, and the commit message appears above the platoon as a herald's scroll for 4s | Dust on the road. The platoon's name enters the chronicle with a drop cap |
 | Veteran rank up | The banner shimmers | Gold leaf sweeps across the flag, chevrons glint, a bright chime | The flag keeps its gilded edge |
 | Dragon summoned | The map dims and a vast shadow sweeps across it | A roar, and the dragon dives in from the map's edge, wings beating | Scorched earth wherever it breathes |
-| Capital sacked | The walls crack and the bell tolls | Fire, collapse, embers | The ruin smokes until it is rebuilt |
-| The Monolith falls | Cracks race across it and the glyphs flare | It shatters into scattering glyph particles, with a deep boom and a shockwave | The Heart is revealed, glowing |
+| A fort changes hands | The capture ring fills in the attackers' pigment and the brazier flares | A horn; a pillar of pigment light and a ring spreading over the ground | The new holder's standard flies over the keep |
+| A capital captured | The walls crack, the wall ring empties, and the bell tolls three times | Dust and fire burst from the breach; the old banners are torn down and their cloth scatters in the old pigment | The new holder's banners run up the poles tower by tower in a fall of gold leaf and a bright bell; the line enters the chronicle; the scorch stays on the walls all day |
+| A rising | The last walls fall and the lost home's banners come down | Low drums: smoke boils up on the road outside the walls and the rebel standard rises out of it | The standard stays planted, smoking, until the home is retaken |
+| The ring is won | The camera sets out from the conqueror's home and tours the ring; each capital raises the conqueror's banners in gold leaf as it passes | The camera pulls back over the whole ring: every bell peals, a gilded ring is laid along the road and the conqueror's own fanfare sounds | The soldiers slow to a painted stillness while banners, water and smoke stay alive; a proclamation unrolls naming the conqueror and leads to the digest |
 | Rout | The banner trembles | Soldiers scatter, and a white flag puffs up | Footprints of the flight |
 | The day ends | The sun sets in crimson | Night ink washes across the map, the chronicle page turns, and the digest is gilded | Dawn rises on a new map |
 
@@ -175,7 +189,7 @@ Sound is diegetic and restrained, and every UI sound is tactile:
 - the clink of a gold coin
 - a soft bell for toasts
 
-The battle has distant drums whose tempo follows how intense the fight is, along with horns, steel clashes, bowstrings, fire whooshes and the dragon's roar.
+The battle has distant drums whose tempo follows how intense the fight is, along with horns, steel clashes, bowstrings, fire whooshes and the dragon's roar. A captured capital's bell tolls three times; a ring won peals every bell over a held choir before the conqueror's fanfare.
 
 The music is generative and modal (Dorian and Phrygian), made of drone, hand drum, lute and low choir. Its intensity layers follow the battle.
 

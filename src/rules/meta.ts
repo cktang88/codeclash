@@ -374,7 +374,8 @@ export const DEEDS: readonly DeedDef[] = [
   { id: 'siegebreaker', name: 'Siegebreaker', text: 'Storm a capital', title: 'Siegebreaker', earned: (c) => c.pl.conquests >= 1 },
   { id: 'ringholder', name: 'Ringholder', text: 'Take every capital on the ring', title: 'the Ringholder', earned: (c) => c.digest.victory?.p === c.pl.p },
   { id: 'phoenix', name: 'Phoenix', text: 'Lose your home and retake it', title: 'the Phoenix', earned: (c) => c.pl.retakes >= 1 },
-  { id: 'conqueror', name: 'Conqueror', text: 'Take five border forts in a day', earned: (c) => c.pl.captures >= 5 },
+  // The id predates the ring (Deeds earned are stored by id); the name now says what it is for.
+  { id: 'conqueror', name: 'Warden of the Marches', text: 'Take five border forts in a day', earned: (c) => c.pl.captures >= 5 },
   { id: 'unbroken', name: 'Unbroken', text: 'Fight a day without a single rout', title: 'the Unbroken', earned: (c) => c.pl.pushes > 0 && c.pl.kills >= 20 && c.pl.routs === 0 },
   { id: 'iron-wall', name: 'Iron Wall', text: 'Earn the Iron Wall award', earned: (c) => award(c, 'iron-wall') },
   { id: 'bugslayer', name: 'Bugslayer', text: 'Earn the Bugslayer award', title: 'Bugslayer', earned: (c) => award(c, 'bugslayer') },

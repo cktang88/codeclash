@@ -132,15 +132,15 @@ export const CUES: Record<string, Cue> = {
     roar(v, 58, 1.8, 0.35);
     return boom(v, 48, 2.4, 0.6, v.t + 1.2) + 1.2;
   }, 3800, true, 2000),
-  'sack-bell': set((v, s) => {
-    // Three tolls, the last fading long.
+  'conquest-bell': set((v, s) => {
+    // A capital falls: three tolls of its bell, the last fading long.
     const first = s('bell-1', { gain: 0.8, rate: 0.55 });
     if (!first) bell(v, 196, 0.25, 3);
     s('bell-2', { gain: 0.7, rate: 0.5, delay: 1.3 }) || bell(v, 185, 0.22, 3, v.t + 1.3);
     s('bell-1', { gain: 0.6, rate: 0.48, delay: 2.6 }) || bell(v, 175, 0.2, 4, v.t + 2.6);
     return 5;
   }, 5000, false, 4000),
-  'sack-collapse': set((v, s) => {
+  'walls-breach': set((v, s) => {
     boom(v, 55, 2.2, 0.7);
     s('stone-1', { gain: 0.7, rate: 0.6 });
     s('stone-2', { gain: 0.6, rate: 0.5, delay: 0.3 });
@@ -148,24 +148,28 @@ export const CUES: Record<string, Cue> = {
     fire(v, 2.5, 0.25, v.t + 0.3);
     return 2.8;
   }, 3000),
-  'monolith-crack': set((v, s) => {
-    s(pick(v, 'stone', 3), { gain: 0.5, rate: 1.4 });
+  'wall-crack': set((v, s) => {
+    s(pick(v, 'stone', 3), { gain: 0.5, rate: 1.2 });
     return crack(v, 0.4);
   }, 600, true, 400),
-  'monolith-fall': set((v, s) => {
-    crack(v, 0.5);
-    boom(v, 42, 3.5, 0.85, v.t + 0.35);
-    s('stone-1', { gain: 0.8, rate: 0.45, delay: 0.4 });
-    s('stone-3', { gain: 0.7, rate: 0.4, delay: 0.9 });
-    choir(v, [D3, A3, D4], 3.4, 0.05, v.t + 0.8);
-    return 4.2;
-  }, 4300, false, 3000),
+  // New banners run up the poles: cloth snapping, and a bright bell as they reach the top.
+  'banner-raise': set((v, s) => {
+    s(pick(v, 'cloth', 2), { gain: 0.6, rate: 0.9 });
+    whoosh(v, 0.7, 600, 2400, 0.12);
+    return bell(v, D5, 0.08, 1.6, v.t + 0.6) + 0.6;
+  }, 2200, true, 600),
+  // A rising: low drums from the smoke, and a defiant horn in the minor.
+  rising: set((v) => {
+    for (let i = 0; i < 4; i++) drum(v, 70, 0.5, v.t + i * 0.32);
+    return horn(v, [[D3, 1.2, 0.5], [F4 / 2, 1.7, 1.2]], 0.12) + 1.2;
+  }, 3000, true, 2000),
+  // The ring is won: every capital's bell pealing together over a held choir.
+  'ring-won': set((v) => {
+    choir(v, [D3, A3, D4, F4, A4], 4.2, 0.07);
+    for (let i = 0; i < 6; i++) bell(v, [D5, A4, F4 * 2, D5, A4 * 2, D5 * 1.5][i]!, 0.08, 2.2, v.t + 0.25 * i);
+    return 4.4;
+  }, 4500, false, 10_000),
   capture: set((v) => horn(v, [[A3, 0, 0.35], [D4, 0.3, 0.9]], 0.11), 1300),
-  rebuilt: set((v, s) => {
-    s(pick(v, 'thud', 3), { gain: 0.4, rate: 0.9 });
-    s(pick(v, 'thud', 3), { gain: 0.35, rate: 1.05, delay: 0.25 });
-    return bell(v, A4, 0.06, 1.2, v.t + 0.5) + 0.5;
-  }, 1800),
   'war-cry': set((v) => {
     shout(v, 1.6, 0.35);
     return horn(v, [[D4, 0, 1.6], [F4, 0, 1.6], [A4, 0, 1.6]], 0.08);

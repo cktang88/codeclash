@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import type { DigestResponse } from '../../protocol.ts';
 import type { DigestPlayer } from '../../rules/digest.ts';
-import { Kind, PURPOSES, PURPOSE_LABEL, TICK_MS, type Purpose } from '../../sim/api.ts';
+import { Kind, PURPOSES, PURPOSE_LABEL, TICK_MS, TICKS_PER_MINUTE, type Purpose } from '../../sim/api.ts';
 import { ApiError, api } from '../net/api.ts';
 import { UnitChips, colorize } from '../hud/Chronicle.tsx';
 import { CopyButton } from '../hud/RoomSettings.tsx';
@@ -14,6 +14,8 @@ import { EventIcon, Icon, UnitIcon } from '../ui/icons.tsx';
 import { Notice } from './Notice.tsx';
 import { DropCap, Fleuron, Tally, hueVar } from '../ui/codex.tsx';
 import { Timelapse } from './Timelapse.tsx';
+import { RingFigure } from '../ui/RingFigure.tsx';
+import { centreName } from '../render/centre.ts';
 
 /** Colors for the nine line categories, in Cat order. Paired with labels everywhere they appear. */
 // Pigments from the palette: gold leaf, ultramarine, umber, verdigris, ochre, vermilion, and greys of old vellum.
@@ -153,14 +155,35 @@ function PlayerCard({ pl, repos }: { pl: DigestPlayer & FairFields; repos: { nam
           <dd className="num">{pl.losses}</dd>
         </div>
         <div>
-          <dt>Captures</dt>
+          <dt>Forts taken</dt>
           <dd className="num">{pl.captures}</dd>
         </div>
         <div>
           <dt>Capitals stormed</dt>
-          <dd className="num">{pl.conquests}</dd>
+          <dd className="num">{pl.conquests ?? 0}</dd>
         </div>
+        <div>
+          <dt>Capitals held</dt>
+          <dd className="num">{pl.capitals ?? 0}</dd>
+        </div>
+        <div>
+          <dt>Capitals lost</dt>
+          <dd className="num">{pl.fallen ?? 0}</dd>
+        </div>
+        {(pl.retakes ?? 0) > 0 && (
+          <div>
+            <dt>Homes retaken</dt>
+            <dd className="num">{pl.retakes}</dd>
+          </div>
+        )}
+        {(pl.standBest ?? 0) >= TICKS_PER_MINUTE && (
+          <div>
+            <dt>Longest stand</dt>
+            <dd className="num">{Math.floor(pl.standBest / TICKS_PER_MINUTE)} min</dd>
+          </div>
+        )}
       </dl>
+      {pl.rising && <p className="player-card-rising">Ended the war as a rising, fighting to retake its home.</p>}
       {pl.best && (
         <div className="best-platoon">
           <BattalionFlag hue={pl.hue} repo={pl.best.repo} language={lang} size={36} ordinal={pl.best.ordinal} />
@@ -244,10 +267,19 @@ export function DigestPage({ slug, warId, invite = null }: { slug: string; warId
             <Avatar login={winner.login} url={winner.bot ? null : `https://avatars.githubusercontent.com/u/${winner.id}?s=128`} hue={winner.hue} size={84} bot={winner.bot} />
           </span>
           <div>
-            <p className="eyebrow">Victor of the day</p>
+            <p className="eyebrow">{d.victory?.p === winner.p ? 'Conqueror of the ring' : 'Victor of the day'}</p>
             <h2 className="winner-name who">@{winner.login}</h2>
             <p className="winner-renown">
-              <Tally value={winner.renown} format={compact} start={0} duration={1400} /> renown
+              {d.victory?.p === winner.p ? (
+                <>
+                  took all <Tally value={(d.ring ?? []).filter((o) => o >= 0).length} start={0} duration={1000} /> capitals at {at(d.victory.tick)}
+                </>
+              ) : (
+                <>
+                  <Tally value={winner.capitals ?? 0} start={0} duration={1000} /> {winner.capitals === 1 ? 'capital' : 'capitals'} held ·{' '}
+                  <Tally value={winner.renown} format={compact} start={0} duration={1400} /> renown
+                </>
+              )}
             </p>
           </div>
         </section>
@@ -255,8 +287,10 @@ export function DigestPage({ slug, warId, invite = null }: { slug: string; warId
 
       <DropCap
         className="digest-opening"
-        text={`Here is set down the chronicle of the war of ${date}, fought in ${room.name} by ${d.players.length} ${d.players.length === 1 ? 'army' : 'armies'} raised from ${d.totals.pushes} ${d.totals.pushes === 1 ? 'push' : 'pushes'}. ${d.victory ? `The whole ring fell to one banner at ${at(d.victory.tick)}.` : 'No one held the whole ring when the reset came.'} ${winner ? `When the sun went down, @${winner.login} held the field.` : 'No banner held the field at sundown.'}`}
+        text={`Here is set down the chronicle of the war of ${date}, fought in ${room.name} by ${d.players.length} ${d.players.length === 1 ? 'army' : 'armies'} raised from ${d.totals.pushes} ${d.totals.pushes === 1 ? 'push' : 'pushes'}. ${d.victory ? `At ${at(d.victory.tick)} the last of the ring's capitals fell to @${byP(d.victory.p)?.login ?? '?'}, and the field stood still.` : `No one held the whole ring when the reset came. ${winner ? `@${winner.login} ended the day holding the most of it.` : 'No banner held the field at sundown.'}`}`}
       />
+
+      {(d.ring?.length ?? 0) > 0 && <RingStory data={data} at={at} roster={roster} invite={invite} />}
 
       {data.timelapse?.length > 0 && (
         <section className="digest-section">
@@ -274,6 +308,9 @@ export function DigestPage({ slug, warId, invite = null }: { slug: string; warId
                 <tr>
                   <th scope="col">#</th>
                   <th scope="col">Player</th>
+                  <th scope="col" className="num">
+                    Capitals
+                  </th>
                   <th scope="col" className="num">
                     Renown
                   </th>
@@ -299,8 +336,10 @@ export function DigestPage({ slug, warId, invite = null }: { slug: string; warId
                           @{pl.login}
                         </span>
                         {pl.bot && <span className="tag">bot</span>}
+                        {pl.rising && <span className="tag tag-rising">rising</span>}
                       </span>
                     </th>
+                    <td className="num">{pl.capitals ?? '—'}</td>
                     <td className="num">{compact(pl.renown)}</td>
                     <td className="num col-opt">{pl.pushes}</td>
                     <td className="num">{pl.kills}</td>
@@ -422,5 +461,50 @@ export function DigestPage({ slug, warId, invite = null }: { slug: string; warId
         </section>
       )}
     </main>
+  );
+}
+
+/**
+ * How the ring fell: the ring as it stood at the end, beside the war's turning points in order:
+ * every capital stormed, every rising, and the victory if there was one.
+ */
+function RingStory({ data, at, roster, invite }: { data: DigestResponse; at(tick: number): string; roster: Parameters<typeof colorize>[1]; invite: string | null }) {
+  const d = data.digest;
+  const ring = d.ring ?? [];
+  const slots = ring.length;
+  const hueOf = (p: number) => d.players.find((pl) => pl.p === p)?.hue ?? null;
+  const loginOf = (p: number) => `@${d.players.find((pl) => pl.p === p)?.login ?? '?'}`;
+  const seats = ring.map((holder, slot) => ({ holder, founder: data.players.find((pl) => pl.slot === slot)?.p ?? -1 }));
+  const turns = d.highlights.filter((h) => h.kind === 'conquest' || h.kind === 'rising' || h.kind === 'victory');
+  const changed = seats.filter((s) => s.holder >= 0 && s.founder >= 0 && s.holder !== s.founder).length;
+  return (
+    <section className="digest-section ring-story">
+      <h2 className="block-title">{d.victory ? 'How the ring fell' : 'The ring at the reset'}</h2>
+      <div className="ring-story-body panel">
+        <figure className="ring-story-figure">
+          <RingFigure slots={slots} seats={seats} hueOf={hueOf} nameOf={loginOf} centreKind={data.map.centreKind} victor={d.victory?.p ?? -1} size={220} />
+          <figcaption className="muted small">
+            {slots} seats round {centreName(data.map.seed ?? 0, data.map.centreKind)}. {changed === 0 ? 'Every capital ended in its founder’s hands.' : `${changed} ${changed === 1 ? 'capital ended' : 'capitals ended'} under a conqueror’s banners.`}
+          </figcaption>
+        </figure>
+        {turns.length > 0 ? (
+          <ol className="timeline ring-story-turns">
+            {turns.map((h, i) => (
+              <li key={i}>
+                <Link className="timeline-item" to={{ kind: 'replay', slug: data.room.slug, warId: data.war.id, tick: Math.max(0, h.tick - 75), invite }}>
+                  <span className="timeline-time num">{at(h.tick)}</span>
+                  <span className={`chron-icon chron-${h.kind}`}>
+                    <EventIcon kind={h.kind} size={18} />
+                  </span>
+                  <span className="timeline-text">{colorize(h.text, roster)}</span>
+                </Link>
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <p className="muted ring-story-quiet">No walls fell today. The armies fought for the border forts, and every banner flew over its own keep at the reset.</p>
+        )}
+      </div>
+    </section>
   );
 }

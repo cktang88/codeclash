@@ -124,29 +124,33 @@ const EVENT_PATHS: Record<ChronicleKind | 'order', ReactNode> = {
       <H d="M8 9.5h7.5" />
     </>
   ),
-  // A burning keep: a capital stormed. (TODO client: a conquest glyph.)
+  // A keep stormed: the conqueror's banner planted on its battlements, the old one falling torn.
   conquest: (
     <>
-      <path d="M4 21.5V12h3v2h2.5v-2h3v2H15v-2h3v9.5Z" />
-      <path d="M11.5 10c-2-2-1.4-4.6 1-7 .3 2 2.6 2.7 2.6 5 0 1.4-.8 2.3-1.8 2.8" />
-      <H d="M8 21.5v-4.5h3v4.5M15 17v4.5M16.5 15.5v6" />
+      <path d="M3.5 21.5V12h2.6v2h2.3v-2h2.6v2h2.3v-2h2.6v9.5Z" />
+      <path d="M8.5 21.5v-3.2a1.9 1.9 0 0 1 3.8 0v3.2" />
+      <path d="M10.4 12V2.5h7.5l-1.7 2.4 1.7 2.5h-7.5" />
+      <path d="M19.5 12.5c.8.9.6 2.2 1.6 3.1M18.2 14.4l2.2 3.4" strokeWidth={1.4} />
+      <H d="M14.5 14.8v6.2M16 14v7.5M12 3.8h3.6" />
     </>
   ),
-  // Walls and a trowel: a rising outside a lost home. (TODO client: a rising glyph.)
+  // A rising: a banner climbing out of curling smoke.
   rising: (
     <>
-      <path d="M3 21.5h18M4 21.5V13h16v8.5M4 17h16M9 13v4M15 13v4M12 17v4.5M7 17v4.5M17 17v4.5" />
-      <path d="M13 9.5 18.5 4l2 2L15 11.5ZM13 9.5l-2 2" />
-      <H d="M16 18.5h4M16 20h4" />
+      <path d="M11 21.5V3.5" />
+      <path d="M11 4h8.5l-2.2 2.8 2.2 2.9H11" />
+      <path d="M4 21c-1.6-1.4-.6-3.6 1.4-3.3-.1-2 2.6-2.6 3.4-.8M18 21c1.6-1.4.6-3.6-1.4-3.3.1-2-2.6-2.6-3.4-.8" />
+      <path d="M2.5 21.5h19" />
+      <H d="M13 6h4M5.5 19.5l1.5-1M16.5 19.5l1.5-1" />
     </>
   ),
-  // A standing stone: the ring won. (TODO client: a victory glyph.)
+  // The ring won: a crown over the ring of capitals.
   victory: (
     <>
-      <path d="M8.5 21.5 9.8 4.2 12 2.5l2.2 1.7 1.3 17.3Z" />
-      <path d="m10.8 8.5 2.4 1.5-1.6 2 1.8 2" strokeWidth={1.4} />
-      <H d="M13.6 6v14M14.8 9v12" />
-      <path d="M4 21.5h16" />
+      <path d="M6.5 9 5.8 3.6l3 2.4L12 1.8 15.2 6l3-2.4L17.5 9Z" />
+      <circle cx="12" cy="15.5" r="6" />
+      <path d="M12 8.6v1.4M12 21v1.4M5.1 15.5h1.4M17.5 15.5h1.4" strokeWidth={2.6} />
+      <H d="M14 13.5c.8.6 1.3 1.5 1.3 2.6M9.8 7.8h4.4" />
     </>
   ),
   // A war horn sounding.
@@ -285,10 +289,21 @@ export type IconName =
   | 'scroll'
   | 'seal'
   | 'up'
-  | 'down';
+  | 'down'
+  | 'keep';
 
 export function Icon({ name, ...props }: IconProps & { name: IconName }) {
   switch (name) {
+    case 'keep':
+      // A small keep: a capital held.
+      return (
+        <Svg {...props}>
+          <path d="M3.5 21.5V9h3v2.5h3V9h5v2.5h3V9h3v12.5Z" />
+          <path d="M9.5 21.5v-4a2.5 2.5 0 0 1 5 0v4" />
+          <path d="M12 9V2.5h5l-1.4 1.7L17 6h-5" />
+          <H d="M16.5 13v7M18 12.5v8" />
+        </Svg>
+      );
     case 'crown':
       return (
         <Svg {...props}>

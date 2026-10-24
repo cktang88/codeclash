@@ -301,7 +301,7 @@ function JoinByLink() {
 const HOW = [
   { kind: Kind.Footman, title: 'Push', text: 'Every push to a public repo is weighed for its code: how much, how many files, how tangled. Generated code weighs nothing.' },
   { kind: Kind.Cleric, title: 'Muster', text: 'What the code is for picks the specialists: fixes bring clerics, features champions, refactors outriders. Spam musters a ragged rabble.' },
-  { kind: Kind.Champion, title: 'War', text: 'Platoons march from your capital to fight for the Heart. At the daily reset the war ends and its chronicle is written.' },
+  { kind: Kind.Champion, title: 'War', text: 'Capitals stand on a ring and you fight your two neighbours. Take their forts, storm their walls, hold the whole ring to win. At the reset its chronicle is written.' },
 ];
 
 export function HomePage({ me, meError, onMeChanged }: { me: MeResponse | null; meError: boolean; onMeChanged(): void }) {
@@ -385,7 +385,7 @@ export function HomePage({ me, meError, onMeChanged }: { me: MeResponse | null; 
           <h1 className="hero-title">Your pushes are an army.</h1>
           <DropCap
             className="hero-lede"
-            text="Every push you make to a public repository is read for its code and mustered into soldiers. What the code is for decides who marches: fixes send clerics, features raise champions, refactors loose outriders, and a legendary feature wakes a dragon. Padding earns only a ragged rabble. Friends and teams fight from dawn to the daily reset, and each day ends in an illuminated chronicle."
+            text="Every push you make to a public repository is read for its code and mustered into soldiers. What the code is for decides who marches: fixes send clerics, features raise champions, refactors loose outriders, and a legendary feature wakes a dragon. Padding earns only a ragged rabble. Your capital stands on a ring with your friends’ and teammates’; you fight the two beside you, storm their walls and take their gates for your own. Hold the whole ring and the day is yours, and every day ends in an illuminated chronicle."
           />
           <div className="hero-actions">
             {!user && !offline && (

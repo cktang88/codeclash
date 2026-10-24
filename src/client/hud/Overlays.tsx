@@ -2,13 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import type { HudSnapshot } from '../store.ts';
 import { Link } from '../ui/Link.tsx';
 import { Modal } from '../ui/Modal.tsx';
-import { compact, duration, percent } from '../ui/format.ts';
+import { duration } from '../ui/format.ts';
 import { EventIcon, Icon } from '../ui/icons.tsx';
 import { api } from '../net/api.ts';
 import { summarizeAway, lastSeenKey, readNumber, writeNumber, type AwaySummary } from './away.ts';
 import { colorize } from './Chronicle.tsx';
 import { useHudContext } from './context.ts';
-import { CarvedBar, hueVar, sfx, sfxCue } from '../ui/codex.tsx';
+import { hueVar, sfx, sfxCue } from '../ui/codex.tsx';
 
 /** Big moments, announced across the top of the map. */
 export function Toasts({ hud }: { hud: HudSnapshot }) {
@@ -43,24 +43,6 @@ export function Toasts({ hud }: { hud: HudSnapshot }) {
         );
       })}
     </div>
-  );
-}
-
-export function MonolithBar({ hud }: { hud: HudSnapshot }) {
-  const { field } = useHudContext();
-  const m = hud.monolith;
-  if (m.fallen || m.maxHp <= 1 || !hud.war) return null;
-  const pct = percent(m.hp, m.maxHp);
-  return (
-    <button className="monolith-bar" onClick={() => field()?.focus(0, 0, 1)} title="The Legacy Monolith guards the Heart. Everyone attacks it together.">
-      <span className="monolith-label">
-        <EventIcon kind="victory" size={16} /> Legacy Monolith
-      </span>
-      <CarvedBar value={m.hp} max={m.maxHp} kind="hp" size="lg" label="Monolith health" valueText={`${pct}%`} />
-      <span className="num">
-        {compact(m.hp)} <span className="muted">/ {compact(m.maxHp)}</span>
-      </span>
-    </button>
   );
 }
 
@@ -141,10 +123,11 @@ export function AwayModal({ hud }: { hud: HudSnapshot }) {
   if (s.mustered > 0) lines.push(`${s.mustered} of your pushes raised ${s.musteredSoldiers} soldiers.`);
   if (s.captured > 0) lines.push(`Your army captured ${s.captured} ${s.captured === 1 ? 'objective' : 'objectives'}.`);
   if (s.lost > 0) lines.push(`You lost ${s.lost} ${s.lost === 1 ? 'objective' : 'objectives'} to rivals.`);
-  if (s.sacked > 0) lines.push(`You sacked ${s.sacked} ${s.sacked === 1 ? 'capital' : 'capitals'}!`);
-  if (s.sackedBy > 0) lines.push(`Your capital was sacked ${s.sackedBy === 1 ? 'once' : `${s.sackedBy} times`}.`);
+  if (s.stormed > 0) lines.push(`Your army stormed ${s.stormed === 1 ? 'a capital' : `${s.stormed} capitals`}!`);
+  if (s.lostCapitals > 0) lines.push(`${s.lostCapitals === 1 ? 'A capital you held was' : `${s.lostCapitals} capitals you held were`} stormed.`);
+  if (s.rose) lines.push('You lost your last capital. Your pushes now muster as a rising outside your home: retake it.');
   if (s.wiped > 0 || s.routed > 0) lines.push(`${s.wiped} of your platoons fell and ${s.routed} broke and fled.`);
-  if (s.monolithFell) lines.push('The Legacy Monolith fell. The Heart is open.');
+  if (s.ringWon) lines.push('One banner took the whole ring. The war is won and locked until the reset.');
   if (s.leaderChanges > 0) lines.push(`The lead changed hands ${s.leaderChanges === 1 ? 'once' : `${s.leaderChanges} times`}.`);
   if (lines.length === 0) lines.push(`${s.entries} things happened on the field.`);
   return (
@@ -226,6 +209,8 @@ export function VictoryFanfare({ hud }: { hud: HudSnapshot }) {
     }
     if (id === null || id === heard.current) return;
     heard.current = id;
+    // A war won by taking the whole ring has its fanfare in the field's own set piece.
+    if (hud.ring && hud.ring.victor >= 0) return;
     const winner = leader.current === null ? undefined : hud.roster[leader.current];
     sfxCue(`fanfare-${winner?.heraldry?.fanfare ?? 'horn'}`);
   }, [ended?.id]);

@@ -1,4 +1,4 @@
-import { Fragment, useState } from 'react';
+import { Fragment, useState, type ReactNode } from 'react';
 import { Kind } from '../../sim/api.ts';
 import { DOCTRINE_NAMES, STATS, type Tier } from '../../sim/stats.ts';
 import { Modal } from '../ui/Modal.tsx';
@@ -53,18 +53,67 @@ const FAIR_PLAY: readonly [string, string][] = [
 ];
 
 const RENOWN = [
-  ['Shrine held', '2 per minute'],
-  ['The Heart held', '5 per minute'],
+  ['Border fort held', '2 per minute while your soldiers garrison it, a quarter of that while it stands empty'],
   ['Kill', 'the victim’s worth: 1 for line soldiers, up to 30 for a Dragon'],
-  ['Kill a soldier of the leader', 'double: a bounty'],
-  ['Monolith damage', '1 per 100 damage'],
-  ['Sack a capital', '120, less for each later sack of the same capital that day'],
+  ['Storm a capital', '120 for its first fall of the day, then 120 ÷ n for its n-th'],
 ];
 
-type Tab = 'units' | 'fair' | 'command' | 'renown';
+/** The ring, in the order a player meets it. */
+const THE_RING: readonly [string, ReactNode][] = [
+  [
+    'A ring of capitals',
+    <>
+      Every army’s capital stands on a ring around an impassable centre, a great lake or a mountain massif. The road runs round the ring, and a <strong>border fort</strong> stands
+      midway between each pair of neighbours. Seats are shuffled every day, so your neighbours change.
+    </>,
+  ],
+  [
+    'Two fronts',
+    <>
+      You fight only your two neighbours on the ring, one on each side. Everyone else passes your soldiers by unharmed. Your platoons march out to whichever front is pressed hardest,
+      or to the one you rally on.
+    </>,
+  ],
+  [
+    'Forts first, then walls',
+    <>
+      A fort flips to whoever holds it alone for 10 seconds. You can storm a neighbour’s walls only while you hold the fort beside them, and no walls can fall until the sieges open, some
+      hours into the war (the ring over the map counts down to it). A founder’s gates also stay barred for a while after its first push, so no one is conquered in their sleep.
+    </>,
+  ],
+  [
+    'Sieges',
+    <>
+      Walls fall slowly however many strike them, so a siege is a stand: the defender, its other neighbour and every fresh push can still turn it. Near a capital they hold, soldiers take
+      20% less damage, and the tower bleeds the besiegers all the while.
+    </>,
+  ],
+  [
+    'Capture',
+    <>
+      A capital at zero walls changes hands. Its founder’s keep stands under the conqueror’s banners, it becomes the conqueror’s <strong>muster gate</strong>, and every capital held beyond
+      your own home adds <strong>25%</strong> to your army.
+    </>,
+  ],
+  [
+    'Rising',
+    <>
+      Lose every capital and you are not out. Your pushes muster as a <strong>rising</strong> on the road outside your lost home: take the forts beside it and storm it back.
+    </>,
+  ],
+  [
+    'Victory',
+    <>
+      Hold the whole ring and the war is won on the spot: the field stands still and the room is locked until the reset. If the reset comes first, the most capitals wins, then the most
+      renown.
+    </>,
+  ],
+];
+
+type Tab = 'ring' | 'units' | 'fair' | 'command' | 'renown';
 
 export function ArticlesOfWar({ onClose }: { onClose(): void }) {
-  const [tab, setTab] = useState<Tab>('units');
+  const [tab, setTab] = useState<Tab>('ring');
   return (
     <Modal title="Articles of War" subtitle="Being the rules by which pushes become armies" onClose={onClose} wide className="rulebook">
       <Ribbons
@@ -73,12 +122,26 @@ export function ArticlesOfWar({ onClose }: { onClose(): void }) {
         value={tab}
         onChange={setTab}
         items={[
+          ['ring', 'The ring'],
           ['units', 'Units'],
           ['fair', 'Fair play'],
           ['command', 'Command'],
           ['renown', 'Renown'],
         ]}
       />
+      {tab === 'ring' && (
+        <>
+          <p className="lede">Every push you make to a public repository becomes a platoon. The war is for the ring of capitals; it lasts a day, from one reset to the next.</p>
+          <dl className="fair-list">
+            {THE_RING.map(([rule, why]) => (
+              <div key={rule} className="fair-item">
+                <dt>{rule}</dt>
+                <dd>{why}</dd>
+              </div>
+            ))}
+          </dl>
+        </>
+      )}
       {tab === 'units' && (
         <>
           <ul className="how-list">
@@ -135,7 +198,7 @@ export function ArticlesOfWar({ onClose }: { onClose(): void }) {
             </table>
           </div>
           <p className="muted small">
-            Each army has 160 slots on the field. A line soldier takes 1, an elite 2 or 3, a Dragon 6. Extra platoons wait at the capital.
+            Each army has 160 slots on the field, and 25% more for every capital it holds beyond its home. A line soldier takes 1, an elite 2 or 3, a Dragon 6. Extra platoons wait at the capital.
           </p>
         </>
       )}
@@ -169,20 +232,24 @@ export function ArticlesOfWar({ onClose }: { onClose(): void }) {
             ))}
           </ul>
           <h3 className="section-label">Rally · every 30 minutes</h3>
-          <p>Every platoon marches on one objective you choose, for 2 hours.</p>
+          <p>
+            Every platoon marches on one objective on your fronts, for 2 hours: a border fort, a neighbour’s capital (its fort first, if you do not hold the approach), or a capital you hold.
+            New musters march to that front too.
+          </p>
           <h3 className="section-label">War Cry · once per war</h3>
           <p>Your soldiers deal 30% more damage and move 25% faster for 60 seconds.</p>
           <h3 className="section-label">Morale</h3>
           <p>
-            Platoons lose morale as soldiers fall or when they are outnumbered two to one. At zero morale a platoon breaks and runs home to regroup. Heralds steady them, and a
-            Champion never lets its platoon break.
+            Platoons lose morale as soldiers fall or when they are outnumbered two to one. At zero morale a platoon breaks and runs to the nearest capital you hold to regroup (a rising’s,
+            to the fort beside its lost home). Heralds steady them, and a Champion never lets its platoon break.
           </p>
         </>
       )}
       {tab === 'renown' && (
         <>
           <p className="lede">
-            The player with the most renown at the room’s reset hour wins the day. Then the map is redrawn, a digest is written, and the war begins again.
+            Hold the whole ring and you win outright. If the reset comes first, the player holding the most capitals wins the day, and renown breaks the tie. Then the map is redrawn, a
+            digest is written, and the war begins again.
           </p>
           <table className="table">
             <tbody>
@@ -195,8 +262,7 @@ export function ArticlesOfWar({ onClose }: { onClose(): void }) {
             </tbody>
           </table>
           <p className="muted small">
-            The Legacy Monolith guards the Heart at dawn, and everyone attacks it together. A sacked capital lies in ruins for 20 minutes and then rebuilds stronger. Near their own capital,
-            soldiers take 20% less damage.
+            Nothing singles out the leader: there is no bounty on its soldiers, and the ring itself makes it face only its two neighbours.
           </p>
         </>
       )}

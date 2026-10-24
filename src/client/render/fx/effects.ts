@@ -1,5 +1,5 @@
 import { Container, Graphics, Sprite, Text, Texture, type Particle } from 'pixi.js';
-import { BlastKind, Kind, NEUTRAL, ShotKind, type TickEvents, type World } from '../../../sim/api.ts';
+import { BlastKind, Kind, ShotKind, type TickEvents, type World } from '../../../sim/api.ts';
 import type { ChronicleEntry } from '../../../sim/chronicle.ts';
 import { STATS } from '../../../sim/stats.ts';
 import { makeFxTextures, type FxTextures } from './atlas.ts';
@@ -73,7 +73,11 @@ export interface CinematicShot {
   y: number;
   zoom: number;
   holdMs: number;
-  reason: 'dragon' | 'sack' | 'monolith' | 'muster';
+  reason: 'dragon' | 'conquest' | 'rising' | 'victory' | 'muster';
+  /** 0..1: how far to dim the world around the subject; the renderer picks one by reason otherwise. */
+  dim?: number;
+  /** Travel time, for a tour that must keep its beat. */
+  travelMs?: number;
 }
 
 /** Plays a named, positioned sound cue at a relative gain. */
@@ -93,8 +97,6 @@ const MAX_SCROLLS = 4;
 const SCROLL_HOLD = 4;
 /** Fraction of a capital's walls left at which they begin to crack. */
 const CRACK_AT = 0.15;
-/** Fraction of the Monolith left at which its glyphs flare. */
-const GLYPH_FLARE_AT = 0.1;
 const GLOW_PER_CELL = 10;
 const FIRE = 0xff8a2a;
 const FEET_FRAC = 84 / 96;
@@ -238,6 +240,8 @@ export class Effects {
   declare sound?: SoundCue;
   /** Asks the renderer's camera for a set-piece shot. */
   declare cinematic?: (shot: CinematicShot) => void;
+  /** Where a rising's standard stands, so its set piece plays there. */
+  declare risingAt?: (p: number) => { x: number; y: number } | null;
   /** Swings a capital's gates open as a platoon marches out. */
   declare openGate?: (site: number) => void;
   /** The watching player, whose own pushes get the grand treatment. */
@@ -278,7 +282,6 @@ export class Effects {
   private vet: number[] = [];
   /** Structures whose walls have begun to crack. */
   private readonly cracking = new Set<number>();
-  private monolithFlaring = false;
   /** Night strength 0..1 from the renderer's daylight: fire and embers bloom brighter in the dark. */
   private night = 0;
   private world: World | null = null;
@@ -327,7 +330,6 @@ export class Effects {
     this.awaiting.clear();
     this.cracking.clear();
     this.vet = [];
-    this.monolithFlaring = false;
     this.prevN = 0;
     this.world = null;
     this.shake = 0;
@@ -479,7 +481,7 @@ export class Effects {
     for (const r of ev.routs) {
       const pl = world.platoons.find((x) => x.id === r.platoon);
       if (!pl || !bounds.contains(pl.x, pl.y)) continue;
-      this.rout(pl.x, pl.y, world.map.sites[world.players[pl.p]?.slot ?? -1]);
+      this.rout(pl.x, pl.y, world.map.sites[pl.home]);
     }
 
     for (const r of ev.regroups) {
@@ -507,16 +509,22 @@ export class Effects {
       this.cue('capture', site.x, site.y, 1);
     }
 
-    // A capital stormed: the old sack effect stands in until the client gets a conquest effect.
     for (const s of ev.conquests) {
       const site = world.map.sites[s.site]!;
-      this.sack(site.x, site.y, site.radius, s.p === this.viewerP || s.previous === this.viewerP);
+      this.conquest(site.x, site.y, site.radius, tint(s.p), s.previous >= 0 ? tint(s.previous) : 0xc9bea2, s.retake, s.p === this.viewerP || s.previous === this.viewerP);
+    }
+
+    for (const r of ev.risings) {
+      const home = world.map.sites[world.players[r.p]?.slot ?? -1];
+      if (!home) continue;
+      const at = this.risingAt?.(r.p) ?? { x: home.x, y: home.y + home.radius };
+      // A beat after the walls fall, so the bell and the banners come first.
+      this.after(this.reduced ? 0 : 2.4, () => this.rising(at.x, at.y, tint(r.p), r.p === this.viewerP));
     }
 
     for (const c of ev.cries) {
-      const p = world.players[c.p];
-      if (!p) continue;
-      const site = world.map.sites[p.slot]!;
+      const site = seatOf(world, c.p);
+      if (!site) continue;
       this.shockwave(site.x, site.y, GOLD, 30, 620, 1.8);
       this.shockwave(site.x, site.y, 0xffffff, 20, 380, 1.2, 0.6);
       this.pillar(site.x, site.y, GOLD, site.radius, 1.6);
@@ -553,7 +561,7 @@ export class Effects {
 
     // The lead changes hands: gold leaf rises over the new leader's keep.
     if (ev.leader && ev.leader.p >= 0) {
-      const site = world.map.sites[world.players[ev.leader.p]?.slot ?? -1];
+      const site = seatOf(world, ev.leader.p);
       if (site && bounds.contains(site.x, site.y)) {
         this.ring(site.x, site.y, GOLD, site.radius, site.radius * 2.4, 1.2, 0.7);
         this.sparks(site.x, site.y - site.radius, this.n(12), GOLD_HI, 90, 30);
@@ -563,15 +571,18 @@ export class Effects {
     this.watchWalls(world, bounds);
     this.watchRanks(world, bounds, tint);
 
-    // Besieged capitals burn while the siege lasts. (TODO client: siege visuals.)
+    // Besieged walls burn: fire takes the roofs as they weaken, and the smoke of the siege hangs over them.
     if (world.tick % 2 === 0) {
       for (const st of world.structures) {
-        if (st.siegeSince < 0 || st.hp > st.maxHp * 0.5) continue;
+        if (st.siegeSince < 0 || world.victor >= 0) continue;
         const site = world.map.sites[st.site]!;
         if (!bounds.contains(site.x, site.y)) continue;
+        const frac = st.maxHp > 0 ? st.hp / st.maxHp : 1;
+        if (rand() < 0.35) this.smoke(site.x + (rand() - 0.5) * site.radius * 1.6, site.y - site.radius * (0.4 + rand() * 0.6), 10, 0x3a332c, 0.45, 5, 3, 22);
+        if (frac > 0.7 || rand() > 1.2 - frac) continue;
         const x = site.x + (rand() - 0.5) * site.radius * 1.2;
         const y = site.y - site.radius * (0.1 + rand() * 0.4);
-        this.flame(x, y, 0, 0, 20 + rand() * 14, 0.9);
+        this.flame(x, y, 0, 0, 16 + (1 - frac) * 18 + rand() * 10, 0.9);
         this.ember(x, y - 10, 40, 60);
         this.smoke(x, y - 20, 12, 0x2a2622, 0.7, 4.5, 3.2, 26);
       }
@@ -852,10 +863,10 @@ export class Effects {
   /** A platoon marches out: horn, gates, banner unfurled, the herald's scroll, dust on the road. */
   private muster(id: number, p: number, x: number, y: number, dragon: boolean, world: World, bounds: Bounds, t: number): void {
     const own = p === this.viewerP;
-    const slot = world.players[p]?.slot ?? -1;
-    const gate = world.map.sites[slot];
+    // The muster gate: the capital of this army's that the column marches out of (a rising has none).
+    const gate = gateOf(world, p, x, y);
     if (gate) {
-      this.openGate?.(slot);
+      this.openGate?.(gate.id);
       this.cue('muster-horn', gate.x, gate.y, own ? 1 : 0.6);
       this.cue('gate-open', gate.x, gate.y, own ? 0.9 : 0.5);
     }
@@ -878,7 +889,7 @@ export class Effects {
       this.awaiting.set(id, this.clock);
     }
     if (own) this.cinematic?.({ x, y, zoom: 1.35, holdMs: 2400, reason: 'muster' });
-    if (dragon && gate) this.dragonSummon(gate.x, gate.y, world.map.radius);
+    if (dragon) this.dragonSummon(gate?.x ?? x, gate?.y ?? y, world.map.radius);
   }
 
   /** The commit message, proclaimed on a herald's scroll above the platoon. */
@@ -1121,45 +1132,94 @@ export class Effects {
     for (let i = 0; i < 3; i++) this.footprints(x + (i - 1) * 10, y + (i - 1) * 4, dx / d, dy / d, 7, 8);
   }
 
-  /** A capital falls: the bell, fire, collapse, embers and a pall of smoke. */
-  private sack(x: number, y: number, radius: number, ours: boolean): void {
+  /**
+   * A capital stormed. Anticipation: the bell tolls and the walls give. Impact: dust and fire burst
+   * from the breach, the old banners are torn down and their cloth scatters in the old pigment.
+   * Aftermath: the new holder's banners run up the poles (SiteLayer) in a fall of gold leaf; the
+   * scorch stays on the walls for the rest of the day.
+   */
+  private conquest(x: number, y: number, radius: number, t: number, old: number, retake: boolean, ours: boolean): void {
     const top = y - radius * 0.6;
-    this.cue('sack-bell', x, y, 1);
-    this.after(0.45, () => this.cue('sack-collapse', x, y, 1));
-    this.cinematic?.({ x, y, zoom: ours ? 1.1 : 0.95, holdMs: 2600, reason: 'sack' });
-    this.flash(x, top, radius * 1.4, EMBER, 0.3);
-    for (let i = 0; i < 5; i++) this.crackAt(x, y, radius, 0x3a2616, 20);
-    for (let i = 0; i < 3; i++) this.cloud(x + (rand() - 0.5) * radius, top + (rand() - 0.5) * radius * 0.5, radius * (1.2 + rand() * 0.5), 1.4 + rand() * 0.5);
-    for (let i = 0; i < this.n(40); i++) this.ember(x + (rand() - 0.5) * radius, top, 160, 80);
-    for (let i = 0; i < this.n(26); i++) this.smoke(x + (rand() - 0.5) * radius, top, 40, 0x2e2a26, 0.8, 4);
-    for (let i = 0; i < this.n(18); i++) this.rockFling(x, top, 140, 60);
-    this.shockwave(x, y, EMBER, radius, radius * 4, 1.2);
-    this.floatText('Sacked!', x, y - radius * 2.4, 2.6, 26, 0xffb070);
-    this.kick(0.8);
+    this.cue('conquest-bell', x, y, 1);
+    this.after(0.25, () => this.cue('walls-breach', x, y, 1));
+    this.cinematic?.({ x, y, zoom: ours ? 1.15 : 1, holdMs: 3400, reason: 'conquest' });
+    this.flash(x, top, radius * 1.2, EMBER, 0.3);
+    for (let i = 0; i < 4; i++) this.crackAt(x, y, radius, 0x3a2616, 24);
+    for (let i = 0; i < 2; i++) this.cloud(x + (rand() - 0.5) * radius, top + (rand() - 0.5) * radius * 0.4, radius * (1 + rand() * 0.4), 1.2 + rand() * 0.4);
+    for (let i = 0; i < this.n(24); i++) this.ember(x + (rand() - 0.5) * radius, top, 140, 70);
+    for (let i = 0; i < this.n(16); i++) this.smoke(x + (rand() - 0.5) * radius, top, 36, 0x2e2a26, 0.7, 3.6);
+    for (let i = 0; i < this.n(10); i++) this.rockFling(x, top, 120, 50);
+    this.shockwave(x, y, EMBER, radius, radius * 3.4, 1.1);
+    // The old banners are torn down: shreds of the old pigment flutter from the towers.
+    for (let i = 0; i < this.n(26); i++) {
+      const tx = x + (rand() - 0.5) * radius * 2.2;
+      this.dust.spawn({ texture: this.tex.cloth, x: tx, y, z: radius * (1.2 + rand() * 1.4), vx: (rand() - 0.5) * 70, vz: 10 + rand() * 40, gravity: 55, drag: 1.1, life: 2.2 + rand(), size: 7 + rand() * 5, tint: old, spin: (rand() - 0.5) * 7, delay: 0.3 + rand() * 0.6, fadeIn: 0 });
+    }
+    // The new banners rise (SiteLayer) in a fall of gold leaf and a ring of the new pigment.
+    this.after(1.0, () => {
+      this.cue('banner-raise', x, y, 1);
+      this.ring(x, y, t, radius, radius * 2.8, 1.4);
+      this.pillar(x, y, t, radius * 0.9, 1.4);
+      for (let i = 0; i < this.n(40); i++) this.dust.spawn({ texture: this.tex.goldLeaf[i % 3]!, x: x + (rand() - 0.5) * radius * 2.4, y, z: radius * (1.6 + rand() * 1.4), vx: (rand() - 0.5) * 30, vz: -8 - rand() * 18, gravity: 10, drag: 0.8, life: 2.6, size: 5, spin: (rand() - 0.5) * 8, delay: rand() * 0.6, fadeIn: 0.1 });
+      this.sparks(x, y - radius, this.n(18), GOLD_HI, 90, 30);
+    });
+    this.floatText(retake ? 'Retaken!' : 'Taken!', x, y - radius * 2.7, 2.8, 28, retake ? GOLD_HI : 0xffd0a0);
+    this.kick(0.7);
+  }
+
+  /** A rising: smoke boils up on the ring road outside the lost home, and the rebel banner rises from it. */
+  private rising(x: number, y: number, t: number, ours: boolean): void {
+    this.cue('rising', x, y, 1);
+    if (ours) this.cinematic?.({ x, y, zoom: 1.2, holdMs: 2600, reason: 'rising' });
+    for (let i = 0; i < this.n(22); i++) this.smoke(x + (rand() - 0.5) * 50, y - rand() * 20, 30, 0x2a2622, 0.8, 3.2 + rand(), 2.8, 30);
+    for (let i = 0; i < 2; i++) this.cloud(x + (rand() - 0.5) * 30, y - 20, 70, 1.5);
+    for (let i = 0; i < this.n(16); i++) this.ember(x + (rand() - 0.5) * 40, y - 10, 90, 90);
+    this.after(0.7, () => {
+      this.ring(x, y, t, 20, 150, 1.4);
+      this.ring(x, y, INK, 14, 110, 1.2, 0.5);
+      this.sparks(x, y - 64, this.n(14), t, 70, 40);
+      this.floatText('The rising!', x, y - 110, 2.6, 24, 0xffd8c0);
+    });
+  }
+
+  /**
+   * One capital of the conqueror's ring hails its lord as the camera passes: a ring of gold, gold
+   * leaf over the towers and a bell. The banners themselves are raised by the SiteLayer.
+   */
+  hailRing(x: number, y: number, radius: number, t: number): void {
+    this.cue('banner-raise', x, y, 0.8);
+    this.ring(x, y, GOLD, radius, radius * 2.6, 1.6);
+    this.ring(x, y, t, radius * 0.8, radius * 2, 1.2, 0.7);
+    for (let i = 0; i < this.n(30); i++) this.dust.spawn({ texture: this.tex.goldLeaf[i % 3]!, x: x + (rand() - 0.5) * radius * 2.4, y, z: radius * (1.6 + rand() * 1.6), vx: (rand() - 0.5) * 30, vz: -8 - rand() * 18, gravity: 10, drag: 0.8, life: 2.8, size: 5, spin: (rand() - 0.5) * 8, delay: rand() * 0.4, fadeIn: 0.1 });
+  }
+
+  /** The ring is won: a fanfare, gold leaf over the whole centre, and a great gilded ring on the land. */
+  ringWon(world: World, t: number, fanfare: string): void {
+    const R = world.map.ring;
+    this.cue('ring-won', 0, 0, 1);
+    this.after(1.4, () => this.cue(fanfare, 0, 0, 1));
+    // A gilded ring laid along the ring road itself (the map is seen from above: no squash), and a
+    // wave of gold dust rolling out from the centre to meet it.
+    this.decals.spawn({ texture: this.tex.shockwave, x: 0, y: 0, life: 2.6, size: R * 0.4, grow: 5.2, squash: 1, alpha: 0.6, tint: GOLD_HI, fadeIn: 0 });
+    this.decals.spawn({ texture: this.tex.ring, x: 0, y: 0, life: 4.2, size: R * 2.1, grow: 1.08, squash: 1, alpha: 0.9, tint: GOLD, rotation: 0, fadeIn: 0.3 });
+    this.decals.spawn({ texture: this.tex.ring, x: 0, y: 0, life: 3.4, size: R * 2.2, grow: 1.1, squash: 1, alpha: 0.6, tint: t, rotation: 2.1, fadeIn: 0.3, delay: 0.4 });
+    for (let i = 0; i < this.n(120); i++) {
+      const a = rand() * Math.PI * 2;
+      const r = R * (0.85 + rand() * 0.3);
+      this.dust.spawn({ texture: this.tex.goldLeaf[i % 3]!, x: Math.cos(a) * r, y: Math.sin(a) * r, z: 80 + rand() * 160, vx: (rand() - 0.5) * 30, vz: -10 - rand() * 20, gravity: 8, drag: 0.7, life: 3.4, size: 7, spin: (rand() - 0.5) * 8, delay: rand() * 1.4, fadeIn: 0.1 });
+    }
   }
 
   private crackAt(x: number, y: number, radius: number, tint: number, life: number, delay = 0): void {
     this.decals.spawn({ texture: this.tex.crack[(rand() * 2) | 0]!, x: x + (rand() - 0.5) * radius * 1.2, y: y - radius * (0.1 + rand() * 0.6), life, size: radius * (0.35 + rand() * 0.3), alpha: 0.85, tint, rotation: rand() * 6.28, delay, fadeIn: 0.12 });
   }
 
-  /** Walls about to fall crack and shed dust; the Monolith's glyphs flare as it nears its end. */
+  /** Walls about to fall crack and shed dust. */
   private watchWalls(world: World, bounds: Bounds): void {
     for (let i = 0; i < world.structures.length; i++) {
       const st = world.structures[i]!;
       const site = world.map.sites[st.site]!;
       const frac = st.maxHp > 0 ? st.hp / st.maxHp : 1;
-      if (st.p === NEUTRAL) {
-        if (frac < GLYPH_FLARE_AT && !this.monolithFlaring) {
-          this.monolithFlaring = true;
-          this.cue('monolith-crack', site.x, site.y, 0.8);
-          for (let k = 0; k < 4; k++) this.crackAt(site.x, site.y, site.radius, EMBER, 600, k * 0.15);
-        }
-        if (this.monolithFlaring && bounds.contains(site.x, site.y) && world.tick % 2 === 0) {
-          this.dust.spawn({ texture: this.tex.glyphs[(rand() * this.tex.glyphs.length) | 0]!, x: site.x + (rand() - 0.5) * site.radius, y: site.y, z: site.radius * (0.3 + rand() * 1.2), vz: 18 + rand() * 14, vx: (rand() - 0.5) * 10, life: 1.4, size: 16, grow: 1.2, tint: rand() < 0.5 ? EMBER : GOLD_HI, fadeIn: 0.2 });
-          this.ember(site.x + (rand() - 0.5) * site.radius, site.y - site.radius * rand(), 30, 40);
-        }
-        continue;
-      }
       if (frac >= 0.3) {
         this.cracking.delete(i);
         continue;
@@ -1167,7 +1227,7 @@ export class Effects {
       if (frac >= CRACK_AT) continue;
       if (!this.cracking.has(i)) {
         this.cracking.add(i);
-        this.cue('sack-bell', site.x, site.y, 0.5);
+        this.cue('wall-crack', site.x, site.y, 0.7);
         for (let k = 0; k < 3; k++) this.crackAt(site.x, site.y, site.radius, 0x3a2616, 30, k * 0.2);
       }
       if (!bounds.contains(site.x, site.y) || world.tick % 3 !== 0) continue;
@@ -1175,35 +1235,6 @@ export class Effects {
       this.chips(site.x + (rand() - 0.5) * site.radius, site.y - site.radius * rand() * 0.6, 2);
       this.puff(site.x + (rand() - 0.5) * site.radius, site.y - 4, 1, 0xb7a888, 14, site.radius * 0.5);
     }
-  }
-
-  /** The Monolith shatters: cracks race, glyphs scatter, a deep boom and a shockwave. */
-  private monolithFalls(x: number, y: number, radius: number): void {
-    this.monolithFlaring = false;
-    this.cue('monolith-crack', x, y, 1);
-    this.after(0.35, () => this.cue('monolith-fall', x, y, 1));
-    this.cinematic?.({ x, y, zoom: 0.9, holdMs: 3000, reason: 'monolith' });
-    for (let k = 0; k < 10; k++) {
-      const a = (k / 10) * Math.PI * 2;
-      const d = radius * (0.3 + (k % 3) * 0.5);
-      this.decals.spawn({ texture: this.tex.crack[k % 2]!, x: x + Math.cos(a) * d, y: y + Math.sin(a) * d * 0.6, life: 40, size: radius * (0.8 + rand() * 0.5), alpha: 0.9, tint: EMBER, tintTo: INK, rotation: a, delay: (k % 3) * 0.1, fadeIn: 0.08 });
-    }
-    const top = y - radius * 1.6;
-    this.flash(x, top, radius * 3, GOLD_HI, 0.35);
-    for (let i = 0; i < 4; i++) this.cloud(x + (rand() - 0.5) * radius * 2, y - rand() * radius * 2, radius * (2.4 + rand()), 1.8);
-    for (let i = 0; i < this.n(60); i++) this.smoke(x + (rand() - 0.5) * radius * 3, y - rand() * radius * 1.5, 140, 0x4a4650, 0.75, 3.5, 2.6);
-    for (let i = 0; i < this.n(36); i++) this.rockFling(x + (rand() - 0.5) * radius, y - radius * 0.5, 220, 160 + rand() * 200);
-    // The ancient syntax carved on it scatters across the field.
-    const glyphs = this.tex.glyphs;
-    for (let i = 0; i < this.n(56); i++) {
-      const a = rand() * Math.PI * 2;
-      const sp = 120 + rand() * 280;
-      this.dust.spawn({ texture: glyphs[i % glyphs.length]!, x, y, z: radius * (0.3 + rand() * 1.4), vx: Math.cos(a) * sp, vy: Math.sin(a) * sp * 0.55, vz: 80 + rand() * 160, gravity: 160, drag: 1.1, life: 2.2 + rand() * 1.2, size: 28 + rand() * 14, tint: i % 3 === 0 ? GOLD_HI : i % 3 === 1 ? EMBER : VELLUM, spin: (rand() - 0.5) * 3, delay: 0.3 * rand(), fadeIn: 0 });
-    }
-    this.shockwave(x, y, GOLD_HI, 40, 560, 1.8);
-    this.shockwave(x, y, 0xffffff, 30, 340, 1.2, 0.6);
-    this.floatText('The Monolith Falls', x, y - radius * 4.5, 3.5, 28, GOLD_HI);
-    this.kick(1.2);
   }
 
   /** A player's veteran rank rises: gold leaf sweeps across their banners and chevrons glint. */
@@ -1217,7 +1248,7 @@ export class Effects {
   }
 
   private rankUp(p: number, rank: number, world: World, bounds: Bounds, t: number): void {
-    const site = world.map.sites[world.players[p]?.slot ?? -1];
+    const site = seatOf(world, p);
     if (site) {
       this.cue('rank-up', site.x, site.y, p === this.viewerP ? 1 : 0.6);
       if (bounds.contains(site.x, site.y)) {
@@ -1664,4 +1695,31 @@ export class Effects {
   private pillar(x: number, y: number, tint: number, width: number, life: number): void {
     this.glowSpawn({ texture: this.tex.pillar, x, y: y + 4, life, size: width, grow: 1.1, alpha: 0.75, tint, anchorY: 1, fadeIn: 0.08 });
   }
+}
+
+/** The capital a player holds nearest its home (its home itself while it holds it), or its lost home. */
+function seatOf(world: World, p: number): { id: number; x: number; y: number; radius: number } | undefined {
+  const home = world.map.sites[world.players[p]?.slot ?? -1];
+  let best: (typeof world.map.sites)[number] | undefined;
+  let bestD = Infinity;
+  for (const st of world.structures) {
+    if (st.p !== p) continue;
+    const def = world.map.sites[st.site]!;
+    const d = home ? Math.hypot(def.x - home.x, def.y - home.y) : 0;
+    if (d < bestD) {
+      bestD = d;
+      best = def;
+    }
+  }
+  return best ?? home;
+}
+
+/** The muster gate a column marched out of: the capital of its army's beside where it stands, or none (a rising). */
+function gateOf(world: World, p: number, x: number, y: number): { id: number; x: number; y: number } | undefined {
+  for (const st of world.structures) {
+    if (st.p !== p) continue;
+    const def = world.map.sites[st.site]!;
+    if (Math.hypot(def.x - x, def.y - y) < def.radius + 120) return def;
+  }
+  return undefined;
 }
