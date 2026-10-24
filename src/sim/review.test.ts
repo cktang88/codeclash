@@ -5,9 +5,12 @@ import { generateMap, slotsFor } from './mapgen.ts';
 import { applyDelta, armyFor, cleanLines, emptyLedger } from './muster.ts';
 import { decodeInput, encodeInput, timedInputs, type EncodedInput, type Replay } from './replay.ts';
 import { checksum, restore, snapshot } from './snapshot.ts';
-import { BARRED_UNTIL, MAX_ALIVE, QUEUE_LIMIT, STATS } from './stats.ts';
+import { MAX_ALIVE, QUEUE_LIMIT, STATS, pacing } from './stats.ts';
 import { resolveMove } from './steering.ts';
 import { createWorld, step } from './world.ts';
+
+/** The tick every gate is open and walls fall at full pace, in a day-long war. */
+const FULL_PACE = pacing(undefined).full;
 
 function newWorld(players: number, seed: number): World {
   const params = { seed, slots: slotsFor(players), members: players };
@@ -76,7 +79,7 @@ describe('snapshot mid-battle', () => {
     const players = 8;
     const w = newWorld(players, 5);
     // The war's afternoon: every gate is open, so the sieges in the window can carry the walls.
-    const t0 = BARRED_UNTIL;
+    const t0 = FULL_PACE;
     w.tick = t0;
     const start = t0 + 8 * TICKS_PER_MINUTE;
     const end = start + 8 * TICKS_PER_MINUTE;

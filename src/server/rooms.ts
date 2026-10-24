@@ -1,6 +1,6 @@
 import { randomBytes, randomInt } from 'node:crypto';
 import type { CreateRoomRequest, RoomCard, RoomDetail, UpdateRoomRequest, UserRef } from '../protocol.ts';
-import { BOTS, botPush } from '../rules/bots.ts';
+import { BOTS, botDay, botPush, botRateAt } from '../rules/bots.ts';
 import type { Digest } from '../rules/digest.ts';
 import type { Heraldry } from '../rules/meta.ts';
 import { NEUTRAL } from '../sim/api.ts';
@@ -153,12 +153,18 @@ export class Rooms {
   private botsPush(now: number, elapsedMs: number): void {
     const rand = this.deps.random ?? Math.random;
     // Short test days compress a whole day of pushes into their length.
-    const dayScale = this.deps.config.dayMs !== null ? DAY_MS / this.deps.config.dayMs : 1;
+    const dayMs = this.deps.config.dayMs ?? DAY_MS;
+    const dayScale = DAY_MS / dayMs;
     for (const war of this.live.values()) {
+      // Room-local time of day: hours since the room's last reset (a first war may start mid-day).
+      const hour = ((now - (war.endsAt - dayMs)) / dayMs) * 24;
       for (const pl of war.header.players) {
         if (!pl.bot) continue;
-        const persona = BOTS.find((b) => b.login === pl.login);
-        if (!persona || rand() >= (persona.rate * elapsedMs * dayScale) / 3600_000) continue;
+        const b = BOTS.findIndex((x) => x.login === pl.login);
+        const persona = BOTS[b];
+        // Each bot keeps office hours, drawn afresh from the war's seed every day.
+        const rate = persona ? botRateAt(botDay(war.meta.seed, b), hour) : 0;
+        if (!persona || rate <= 0 || rand() >= (rate * elapsedMs * dayScale) / 3600_000) continue;
         const push = botPush(persona, rand);
         war.push(now, pl.userId, { repo: push.repo[0], language: push.repo[1], lines: push.lines, files: push.files, branches: push.branches, churn: push.churn, filler: push.filler, commits: 1 + Math.floor(rand() * 3), message: push.message });
       }

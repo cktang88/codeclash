@@ -3,13 +3,16 @@ import { KIND_COUNT, Kind, PlatoonState, TICKS_PER_MINUTE, type Purpose, type Si
 import { Form, columnFormation, lineFormation } from './formation.ts';
 import { applyDelta, armyFor, emptyLedger } from './muster.ts';
 import { generateMap, slotsFor } from './mapgen.ts';
-import { BARRED_UNTIL, SPACING, STATS } from './stats.ts';
+import { SPACING, STATS, pacing } from './stats.ts';
 import { checksum, restore, snapshot } from './snapshot.ts';
 import { clearPath, passableAt } from './steering.ts';
 import { flowTo } from './derived.ts';
 import { cellAt } from './flowfield.ts';
 import { Chronicler } from './chronicle.ts';
 import { createWorld, emptyEvents, step } from './world.ts';
+
+/** The tick every gate is open and walls fall at full pace, in a day-long war. */
+const FULL_PACE = pacing(undefined).full;
 
 function newWorld(players: number, seed: number): World {
   const params = { seed, slots: slotsFor(players), members: players };
@@ -123,7 +126,7 @@ describe('siege leash', () => {
   it('calls soldiers off enemy walls once their banner has marched away', () => {
     const w = newWorld(4, 7);
     // The afternoon, with the fort before capital 1 in player 0's hands: its walls can be stormed.
-    w.tick = BARRED_UNTIL;
+    w.tick = FULL_PACE;
     step(w, joins(4));
     w.sites[w.map.slots]!.owner = 0;
     step(w, [push(0, 100)]);
@@ -157,7 +160,7 @@ describe('siege leash', () => {
   it('keeps a Trebuchet with its banner rather than shelling any wall it passes', () => {
     const w = newWorld(4, 7);
     step(w, joins(4));
-    w.tick = BARRED_UNTIL;
+    w.tick = FULL_PACE;
     w.sites[w.map.slots]!.owner = 0;
     step(w, [push(0, 400, 'Update', 15, 20)]);
     step(w, []);

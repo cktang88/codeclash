@@ -285,7 +285,7 @@ describe('replay', () => {
     const encoded = [...inputs.entries()].sort((a, b) => a[0] - b[0]).flatMap(([t, list]) => list.map((i) => encodeInput(t, i)));
     for (const e of encoded) expect(encodeInput(decodeInput(e).tick, decodeInput(e).input)).toEqual(e);
     const replay: Replay = {
-      v: 1, seed: 13, slots: slotsFor(3), members: 3, tickMs: 200, startsAt: 0, endsAt: 4 * 60_000,
+      v: 1, seed: 13, slots: slotsFor(3), members: 3, tickMs: 200, startsAt: 0, endsAt: 24 * 3600_000,
       players: [0, 1, 2].map((p) => ({ login: `p${p}`, id: p + 1, hue: p * 50, slot: p, bot: false })),
       repos: [['a/b', null], ['c/d', 'Go'], ['e/f', null]],
       inputs: JSON.parse(JSON.stringify(encoded)),

@@ -6,7 +6,7 @@ import { CAT_COUNT, PlatoonState, TICK_MS, type SimInput, type TimedInput, type 
 import { Chronicler, type ChronicleEntry, type Names } from '../sim/chronicle.ts';
 import { checksum, generateMap, restore, snapshot, step, createWorld } from '../sim/index.ts';
 import { seatOrder } from '../sim/mapgen.ts';
-import { decodeInput, encodeInput, type RepoRef, type Replay } from '../sim/replay.ts';
+import { decodeInput, encodeInput, warTicks, type RepoRef, type Replay } from '../sim/replay.ts';
 import { DOCTRINE_COOLDOWN, RALLY_COOLDOWN } from '../sim/stats.ts';
 import { SIM_VERSION } from '../version.ts';
 import type { Store, WarHeader, WarRow } from './db.ts';
@@ -96,7 +96,8 @@ export class War {
       inputs.push({ tick: 0, seq: inputs.length + 1, input: { kind: 'join', p, slot, hue } });
     }
     const members = header.players.length;
-    const params = { seed: w.seed, slots: w.slots, members };
+    // The war's length paces its sieges, so it is part of the world's params (a replay derives it from startsAt and endsAt).
+    const params = { seed: w.seed, slots: w.slots, members, ticks: warTicks(w.startsAt, w.endsAt) };
     const id = store.transaction(() => {
       const id = store.insertWar({ roomId: w.roomId, day: w.day, status: 'active', seed: w.seed, slots: w.slots, members, startsAt: w.startsAt, endsAt: w.endsAt, header });
       store.appendInputs(id, inputs.map((t) => ({ seq: t.seq, tick: t.tick, data: encodeInput(t.tick, t.input) })));
@@ -111,7 +112,7 @@ export class War {
     const { store, log } = deps;
     const started = performance.now();
     const snap = store.latestSnapshot(row.id);
-    const params = { seed: row.seed, slots: row.slots, members: row.members };
+    const params = { seed: row.seed, slots: row.slots, members: row.members, ticks: warTicks(row.startsAt, row.endsAt) };
     let world: World | null = null;
     try {
       if (snap) world = restore(JSON.parse(snap.json) as WorldSnapshot);
@@ -119,6 +120,8 @@ export class War {
       // A snapshot from an older simulation: rebuild the war from its inputs instead.
       log.warn('snapshot unusable, replaying from the start', { war: row.id, error: err instanceof Error ? err.message : String(err) });
     }
+    // A snapshot from before wars knew their length: it ran as long as its row says.
+    if (world && world.params.ticks === undefined) world.params = { ...world.params, ticks: params.ticks };
     world ??= createWorld(params, generateMap(params));
     const pending = store.inputs(row.id, world.tick).map((r) => ({ seq: r.seq, ...decodeInput(r.data) }));
     const war = new War(deps, row, world, pending, store.maxSeq(row.id));
@@ -391,7 +394,7 @@ export class War {
 
   /** The war's final tick: the world is run to exactly this tick and no further. */
   private get lastTick(): number {
-    return Math.floor((this.row.endsAt - this.row.startsAt) / TICK_MS);
+    return warTicks(this.row.startsAt, this.row.endsAt);
   }
 
   /** The tick an input submitted now is stamped with. */

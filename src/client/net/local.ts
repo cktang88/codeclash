@@ -94,10 +94,14 @@ export class LocalRunner implements Runner {
   }
 }
 
+/** The demo war's length: three hours, so a sped-up session sees its sieges, a capture and often a victory. */
+export const DEMO_WAR_MS = 3 * 3600_000;
+
 /** A sparring war that runs entirely in the browser, for /demo. */
 export function startDemo(store: GameStore, bots = 5, seed = Date.now() % 100000): LocalRunner {
   const rand = mulberry(seed);
-  const params = { seed, slots: slotsFor(bots), members: bots };
+  // The sieges are paced by the war's length, so the demo's short war opens them early too.
+  const params = { seed, slots: slotsFor(bots), members: bots, ticks: DEMO_WAR_MS / TICK_MS };
   const world = createWorld(params, generateMap(params));
   const hues: number[] = [];
   const roster: RosterEntry[] = BOTS.slice(0, bots).map((b, p) => {
@@ -109,7 +113,7 @@ export function startDemo(store: GameStore, bots = 5, seed = Date.now() % 100000
   store.roster = roster;
   store.repos = [];
   const now = Date.now();
-  const war: WarMeta = { id: 0, day: new Date(now).toISOString().slice(0, 10), status: 'active', startsAt: now, endsAt: now + 24 * 3600_000, seed, slots: params.slots, members: bots };
+  const war: WarMeta = { id: 0, day: new Date(now).toISOString().slice(0, 10), status: 'active', startsAt: now, endsAt: now + DEMO_WAR_MS, seed, slots: params.slots, members: bots };
   store.war = war;
   store.warStartMs = now;
   store.viewerP = null;
@@ -133,7 +137,9 @@ export function startDemo(store: GameStore, bots = 5, seed = Date.now() % 100000
     }
     return out;
   };
-  return new LocalRunner(store, world, source);
+  const runner = new LocalRunner(store, world, source);
+  runner.endTick = params.ticks;
+  return runner;
 }
 
 /**

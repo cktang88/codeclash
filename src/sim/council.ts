@@ -1,5 +1,5 @@
 import { Doctrine, NEUTRAL, PlatoonState, type Platoon, type Structure, type World } from './api.ts';
-import { BARRED_GRACE, BARRED_UNTIL, SIEGE_OPENS } from './stats.ts';
+import { pacing } from './stats.ts';
 import { frontOf, hostile, type Front, type Ring } from './ring.ts';
 import type { Scratch } from './scratch.ts';
 
@@ -340,13 +340,15 @@ export function besieging(world: World, ring: Ring, p: number, slot: number): bo
 }
 
 /**
- * Whether a capital's walls can be stormed now. Its gates stay barred until its founder has had
- * BARRED_GRACE since its first push to raise a levy, or until BARRED_UNTIL, so an early riser
- * cannot take the ring while its neighbours sleep.
+ * Whether a capital's walls can be stormed now. None can before the sieges open; a founder's gates
+ * stay barred until it has had a grace since its first push to raise a levy, or until the barred
+ * gates open for all, so an early riser cannot take the ring while its neighbours sleep. All of it
+ * is paced by the war's length (`pacing`).
  */
 export function breachable(world: World, st: Structure): boolean {
-  if (world.tick < SIEGE_OPENS) return false;
-  if (world.tick >= BARRED_UNTIL || st.taken > 0) return true;
+  const pc = pacing(world.params.ticks);
+  if (world.tick < pc.opens) return false;
+  if (world.tick >= pc.barredUntil || st.taken > 0) return true;
   const owner = world.players[st.p];
-  return !owner || (owner.firstPushAt >= 0 && world.tick >= owner.firstPushAt + BARRED_GRACE);
+  return !owner || (owner.firstPushAt >= 0 && world.tick >= owner.firstPushAt + pc.grace);
 }

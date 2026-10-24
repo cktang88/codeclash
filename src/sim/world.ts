@@ -68,7 +68,8 @@ import {
   RALLY_COOLDOWN,
   RALLY_DURATION,
   SIEGE_QUIET,
-  BREACH_TICKS,
+  breachPace,
+  pacing,
   SPACING,
   TOWER_PER,
   WALL_PER_SLOT,
@@ -1731,8 +1732,10 @@ function nearestStructure(world: World, s: Scratch, p: number, x: number, y: num
 function damageStructure(world: World, s: Scratch, k: number, p: number, amount: number, ev: TickEvents): void {
   if (!attackable(world, s, k, p)) return;
   const st = world.structures[k]!;
-  // Walls come down no faster than over BREACH_TICKS of siege, however many strike them.
-  const room = Math.max(0, st.maxHp / BREACH_TICKS - s.wallHit[k]!);
+  // Walls come down no faster than over the war's breach time, however many strike them, and
+  // slower still while the siege pace ramps up after the sieges open.
+  const pc = pacing(world.params.ticks);
+  const room = Math.max(0, (st.maxHp / pc.breach) * breachPace(pc, world.tick) - s.wallHit[k]!);
   const dmg = Math.min(st.hp, amount, room);
   st.hp -= dmg;
   s.wallHit[k]! += dmg;

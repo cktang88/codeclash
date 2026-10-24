@@ -136,6 +136,11 @@ export interface WarParams {
   slots: number;
   /** Seats filled at the start of the war (members and bots); part of the map's key. */
   members: number;
+  /**
+   * The war's length in ticks, from its start to its reset (`(endsAt - startsAt) / tickMs`); the
+   * sieges are paced by it (see `pacing`). Absent: a day.
+   */
+  ticks?: number;
 }
 
 export type SimInput =
@@ -315,7 +320,7 @@ export interface PlayerState {
   cryUsed: boolean;
   renown: number;
   pushes: number;
-  /** Tick of its first push today, or -1: its gates stay barred until BARRED_GRACE after it. */
+  /** Tick of its first push today, or -1: its gates stay barred for a while after it (see `pacing`). */
   firstPushAt: number;
   /** Today's contribution; the army is a function of it. */
   ledger: Ledger;

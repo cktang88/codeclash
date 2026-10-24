@@ -83,8 +83,13 @@ export function decodeInput(e: EncodedInput): { tick: number; input: SimInput } 
   }
 }
 
-export function replayParams(r: Pick<Replay, 'seed' | 'slots' | 'members'>): WarParams {
-  return { seed: r.seed, slots: r.slots, members: r.members };
+/** A war's length in ticks, from its start to its reset: what paces its sieges. */
+export function warTicks(startsAt: number, endsAt: number, tickMs = TICK_MS): number {
+  return Math.max(0, Math.floor((endsAt - startsAt) / tickMs));
+}
+
+export function replayParams(r: Pick<Replay, 'seed' | 'slots' | 'members' | 'startsAt' | 'endsAt' | 'tickMs'>): WarParams {
+  return { seed: r.seed, slots: r.slots, members: r.members, ticks: warTicks(r.startsAt, r.endsAt, r.tickMs) };
 }
 
 /** The replay's inputs in the order the live war applied them: by tick, then by arrival. */

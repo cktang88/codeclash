@@ -9,10 +9,17 @@ import { applyDelta, armyFor, emptyLedger, purposeOf, slotsOf } from './muster.t
 import { computeRing, hostile, neighbours, stillIn } from './ring.ts';
 import { scratchFor } from './scratch.ts';
 import { checksum, restore, snapshot } from './snapshot.ts';
-import { BARRED_UNTIL, BREACH_TICKS, CAPITAL_TOWER, CONQUEST_BONUS, SIEGE_OPENS } from './stats.ts';
+import { CAPITAL_TOWER, CONQUEST_BONUS, breachPace, pacing } from './stats.ts';
+import { mulberry } from '../rules/bots.ts';
 import { clearPath } from './steering.ts';
 import { createWorld, fieldCap, step, wallsFor } from './world.ts';
-import type { Replay } from './replay.ts';
+import { encodeInput, replayParams, runReplay, type EncodedInput, type Replay } from './replay.ts';
+import { breachable } from './council.ts';
+
+/** A day-long war's siege timetable. */
+const DAY = pacing(undefined);
+/** The tick every gate is open and walls fall at full pace. */
+const FULL_PACE = DAY.full;
 
 function ringWorld(seats: number, seed = 7): World {
   const params = { seed, slots: slotsFor(seats), members: seats };
@@ -157,7 +164,7 @@ describe('fighting only neighbours', () => {
     for (const seats of [3, 4, 8, 16]) {
       const w = ringWorld(seats, 21);
       step(w, seat(w, seats));
-      w.tick = BARRED_UNTIL;
+      w.tick = FULL_PACE;
       let r = 9;
       const rand = () => ((r = (Math.imul(r, 1103515245) + 12345) >>> 0) / 4294967296);
       let deaths = 0;
@@ -186,7 +193,7 @@ describe('fighting only neighbours', () => {
       }
       expect(deaths).toBeGreaterThan(10);
     }
-  });
+  }, 30_000);
 
   it('musters toward the front under more pressure, alternating between quiet ones', () => {
     const w = ringWorld(4, 5);
@@ -233,7 +240,7 @@ describe('conquest', () => {
   /** A war at the hour sieges open, with player 0 holding the approach to seat 1. */
   function siege(seats = 3) {
     const w = ringWorld(seats, 4);
-    w.tick = BARRED_UNTIL;
+    w.tick = FULL_PACE;
     step(w, Array.from({ length: seats }, (_, p): SimInput => ({ kind: 'join', p, slot: p, hue: p * 40 })));
     w.sites[fortBetween(w.map.slots, 0)]!.owner = 0;
     return w;
@@ -299,7 +306,7 @@ describe('conquest', () => {
     expect(computeRing(w).fronts[0]!.some((f) => f.from === 1)).toBe(true);
   });
 
-  it('brings walls down no faster than BREACH_TICKS allow, however many strike them', () => {
+  it('brings walls down no faster than the breach time allows, however many strike them', () => {
     const w = siege();
     step(w, [push(0, 3000, 'feat: siege', 40, 300, 240), { kind: 'rally', p: 0, site: 1 }]);
     for (let t = 0; t < 20; t++) step(w, []);
@@ -310,7 +317,7 @@ describe('conquest', () => {
     for (; ticks < 3 * TICKS_PER_MINUTE; ticks++) step(w, []);
     expect(st.p).toBe(1);
     expect(start - st.hp).toBeGreaterThan(0);
-    expect(start - st.hp).toBeLessThanOrEqual((st.maxHp * ticks) / BREACH_TICKS + 1e-6);
+    expect(start - st.hp).toBeLessThanOrEqual((st.maxHp * ticks) / DAY.breach + 1e-6);
   });
 
   it('keeps its walls barred until the sieges open and its founder has had time to raise a levy', () => {
@@ -320,7 +327,7 @@ describe('conquest', () => {
     step(w, [push(0, 600), { kind: 'rally', p: 0, site: 1 }]);
     for (let t = 0; t < 4 * TICKS_PER_MINUTE; t++) step(w, []);
     expect(w.structures[1]!.hp).toBe(w.structures[1]!.maxHp);
-    expect(w.tick).toBeLessThan(SIEGE_OPENS);
+    expect(w.tick).toBeLessThan(DAY.opens);
   });
 
   it('multiplies the army budget by each capital held beyond home, splits and squashes alike', () => {
@@ -438,6 +445,100 @@ describe('conquest', () => {
     expect(a.sums).toEqual(b.sums);
     expect(a.w.players.some((p) => p.conquests > 0)).toBe(true);
   });
+});
+
+describe('the siege timetable', () => {
+  const HOUR = 60 * TICKS_PER_MINUTE;
+
+  it('scales with the war’s length: a day opens its sieges at 09:36, a short war just as far in', () => {
+    const day = pacing(undefined);
+    expect(day).toEqual(pacing(24 * HOUR));
+    expect(day.opens).toBe(Math.floor(9.6 * HOUR));
+    expect(day.full).toBe(Math.floor(16.8 * HOUR));
+    expect(day.barredUntil).toBe(Math.floor(15.6 * HOUR));
+    expect(day.breach).toBe(30 * TICKS_PER_MINUTE);
+    for (const ticks of [24 * HOUR, 25 * HOUR, 5 * HOUR, 10 * TICKS_PER_MINUTE]) {
+      const pc = pacing(ticks);
+      expect(pc.opens / ticks).toBeCloseTo(0.4, 3);
+      expect(pc.full / ticks).toBeCloseTo(0.7, 3);
+      expect(pc.barredUntil / ticks).toBeCloseTo(0.65, 3);
+      expect(pc.grace / ticks).toBeCloseTo(0.08, 3);
+      expect(pc.breach / ticks).toBeCloseTo(1 / 48, 2);
+      // The breach ramps up from nothing when the sieges open, as a square, to full pace.
+      expect(breachPace(pc, pc.opens - 1)).toBe(0);
+      expect(breachPace(pc, Math.floor((pc.opens + pc.full) / 2))).toBeCloseTo(0.25, 2);
+      expect(breachPace(pc, pc.full)).toBe(1);
+    }
+  });
+
+  it('bars a founder’s gates by the war’s length: until a grace after its first push, or for all at 65%', () => {
+    for (const ticks of [24 * HOUR, 4 * HOUR]) {
+      const params = { seed: 5, slots: 4, members: 3, ticks };
+      const w = createWorld(params, generateMap(params));
+      step(w, Array.from({ length: 3 }, (_, p): SimInput => ({ kind: 'join', p, slot: p, hue: p * 40 })));
+      const pc = pacing(ticks);
+      // Founder 1 pushes at a fifth of the war; founder 2 never does.
+      w.tick = Math.floor(ticks * 0.2);
+      step(w, [push(1, 100)]);
+      const walls = (p: number) => w.structures.find((st) => st.p === p)!;
+      const at = (tick: number, p: number) => {
+        w.tick = tick;
+        return breachable(w, walls(p));
+      };
+      expect(at(pc.opens - 1, 1)).toBe(false);
+      const graceEnds = w.players[1]!.firstPushAt + pc.grace;
+      expect(graceEnds).toBeLessThan(pc.opens);
+      expect(at(pc.opens, 1)).toBe(true);
+      expect(at(pc.opens, 2)).toBe(false);
+      expect(at(pc.barredUntil - 1, 2)).toBe(false);
+      expect(at(pc.barredUntil, 2)).toBe(true);
+      // A late riser has its grace, but no longer than the gates stay barred for all.
+      w.players[2]!.firstPushAt = pc.opens;
+      expect(at(pc.opens + pc.grace - 1, 2)).toBe(false);
+      expect(at(pc.opens + pc.grace, 2)).toBe(true);
+    }
+  });
+
+  it('lets a short war be conquered, the same live and in its replay', () => {
+    const minutes = 60;
+    const ticks = minutes * TICKS_PER_MINUTE;
+    const params = { seed: 2, slots: slotsFor(3), members: 3, ticks };
+    const order = seatOrder(params.seed, params.slots);
+    const run = () => {
+      const w = createWorld(params, generateMap(params));
+      const rand = mulberry(params.seed);
+      const log: EncodedInput[] = [];
+      let first = -1;
+      while (w.tick < ticks && w.victor < 0) {
+        const inputs: SimInput[] = [];
+        if (w.tick === 0) for (let p = 0; p < 3; p++) inputs.push({ kind: 'join', p, slot: order[p]!, hue: p * 50 });
+        // One busy developer, two quiet ones.
+        for (let p = 0; p < 3; p++) {
+          if (rand() >= 1 / ((p === 0 ? 1 : 5) * TICKS_PER_MINUTE)) continue;
+          const code = 40 + Math.floor(rand() * 200);
+          inputs.push({ kind: 'push', p, repo: p, commits: 1, msg: 'feat: x', lines: [code, Math.floor(code / 5), 5, 0, 0, 0, 0, 0, 0], files: 3, branches: Math.floor(code / 8), churn: 0, filler: 0 });
+        }
+        for (const input of inputs) log.push(encodeInput(w.tick, input));
+        const ev = step(w, inputs);
+        if (ev.conquests.length > 0 && first < 0) first = w.tick;
+      }
+      return { w, log, first };
+    };
+    const a = run();
+    // Nothing falls before the sieges open; the ring falls before the war's end.
+    expect(a.first).toBeGreaterThanOrEqual(pacing(ticks).opens);
+    expect(a.w.victor).toBe(0);
+    expect(a.w.victoryTick).toBeLessThan(ticks);
+    // A replay carries the war's length in its start and end, and rebuilds the same war.
+    const replay: Replay = {
+      v: 1, seed: params.seed, slots: params.slots, members: 3, tickMs: 200, startsAt: 1_000_000, endsAt: 1_000_000 + minutes * 60_000,
+      players: [0, 1, 2].map((p) => ({ login: `p${p}`, id: p + 1, hue: p * 50, slot: order[p]!, bot: false })), repos: [], inputs: a.log,
+    };
+    expect(replayParams(replay).ticks).toBe(ticks);
+    expect(checksum(runReplay(replay, a.w.tick))).toBe(checksum(a.w));
+    // The same war under a day's timetable would still be waiting for its sieges to open.
+    expect(a.w.tick).toBeLessThan(pacing(undefined).opens);
+  }, 60_000);
 });
 
 describe('the winner', () => {

@@ -6,8 +6,8 @@
 // Whole seeded days, for balance: `DAYS=<n> pnpm tsx scripts/diagnose-war.ts [humans] [bots]` with
 // FROM=<first day seed> (default 1). Each human gets a working window (starting within SPREAD hours
 // around 09:00, default 2, and 7 to 11 hours long) and a push rate from 0.8 to 6 an hour
-// (log-uniform), drawn per day; bots push all day at their
-// persona's rate, as the server's do. Prints one JSON line per day, then a summary: how often the
+// (log-uniform), drawn per day; bots keep the office hours the server gives them (`botDay`: a 7 to 10
+// hour window from 08:00-10:00, a rate from 0.8 to 6 an hour, now and then an evening session). Prints one JSON line per day, then a summary: how often the
 // day's top committer (most code pushed) won, when the ring fell, how often anyone fell before noon,
 // and the cost of a tick.
 import { KIND_COUNT, TICKS_PER_MINUTE, type SimInput, type World } from '../src/sim/api.ts';
@@ -15,7 +15,7 @@ import { Chronicler } from '../src/sim/chronicle.ts';
 import { generateMap, seatOrder, slotsFor } from '../src/sim/mapgen.ts';
 import { STATS } from '../src/sim/stats.ts';
 import { createWorld, step } from '../src/sim/world.ts';
-import { BOTS, botPush, mulberry } from '../src/rules/bots.ts';
+import { BOTS, botDay, botPush, botPushesPerDay, botRateAt, mulberry, type BotDay } from '../src/rules/bots.ts';
 
 const MESSAGES = ['fix: crash on empty input', 'feat: add export', 'refactor: split parser', 'perf: cache lookups', 'revert: "feat: add export"', 'chore(deps): bump vite', 'Update handler'];
 
@@ -82,6 +82,7 @@ interface DayResult {
   topWon: boolean;
   victoryHour: number | null;
   firstFallHour: number | null;
+  firstCaptureHour: number | null;
   falls: number;
   capitals: number[];
   code: number[];
@@ -115,11 +116,12 @@ function runDay(day: number, humans: number, bots: number): DayResult {
   const world = createWorld(params, generateMap(params));
   const seats = seatOrder(params.seed, params.slots);
   const hour = 60 * TICKS_PER_MINUTE;
-  // Per human: a working window and a rate; per bot: its persona's rate, all day.
+  // Per human: a working window and a rate; per bot: its persona and the server's office hours for it.
   const from: number[] = [];
   const until: number[] = [];
   const rates: number[] = [];
   const persona: (typeof BOTS)[number][] = [];
+  const schedule: BotDay[] = [];
   for (let p = 0; p < players; p++) {
     if (p < humans) {
       const start = 9 - SPREAD / 2 + rand() * SPREAD;
@@ -127,16 +129,19 @@ function runDay(day: number, humans: number, bots: number): DayResult {
       until.push(Math.floor((start + 7 + rand() * 4) * hour));
       rates.push(+(0.8 * Math.pow(6 / 0.8, rand())).toFixed(2));
     } else {
-      const bot = BOTS[(p - humans) % BOTS.length]!;
-      persona[p] = bot;
-      from.push(0);
-      until.push(24 * hour);
-      rates.push(bot.rate);
+      const b = (p - humans) % BOTS.length;
+      persona[p] = BOTS[b]!;
+      const sched = botDay(params.seed, b);
+      schedule[p] = sched;
+      from.push(Math.floor(sched.windows[0]![0] * hour));
+      until.push(Math.floor(sched.windows[0]![1] * hour));
+      rates.push(+sched.rate.toFixed(2));
     }
   }
   const code = new Array<number>(players).fill(0);
   let raised12: number[] = [];
   let firstFall: number | null = null;
+  let firstCapture: number | null = null;
   let falls = 0;
   let peak = 0;
   const started = performance.now();
@@ -146,7 +151,8 @@ function runDay(day: number, humans: number, bots: number): DayResult {
     const inputs: SimInput[] = [];
     if (t === 0) for (let p = 0; p < players; p++) inputs.push({ kind: 'join', p, slot: seats[p]!, hue: p * 40 });
     for (let p = 0; p < players; p++) {
-      if (t < from[p]! || t >= until[p]! || rand() >= rates[p]! / hour) continue;
+      const rate = p < humans ? (t >= from[p]! && t < until[p]! ? rates[p]! : 0) : botRateAt(schedule[p]!, t / hour);
+      if (rate <= 0 || rand() >= rate / hour) continue;
       let push: Extract<SimInput, { kind: 'push' }>;
       if (p < humans) push = devPush(p, rand);
       else {
@@ -172,6 +178,7 @@ function runDay(day: number, humans: number, bots: number): DayResult {
       console.error('   at walls:', JSON.stringify(kinds), 'siege since', (world.structures.find((st) => st.site === c.site)!.siegeSince / hour).toFixed(2));
     }
     if (process.env.TRACE) for (const c of ev.conquests) console.error(`  ${(world.tick / hour).toFixed(2)}h p${c.p} took slot ${world.map.sites[c.site]!.slot} from p${c.previous}${c.retake ? ' (retake)' : ''}; alive ${world.units.filter((u) => u.p === c.p).length}`);
+    if (ev.conquests.length > 0) firstCapture ??= world.tick;
     if (ev.risings.length > 0) {
       falls += ev.risings.length;
       firstFall ??= world.tick;
@@ -181,7 +188,7 @@ function runDay(day: number, humans: number, bots: number): DayResult {
   const ms = performance.now() - started;
   const winner = winnerOf(world);
   // The day's top committer: the player expected to push the most (rate times working hours).
-  const expected = rates.map((r, p) => r * (until[p]! - from[p]!));
+  const expected = rates.map((r, p) => (p < humans ? r * (until[p]! - from[p]!) : botPushesPerDay(schedule[p]!) * hour));
   let top = 0;
   for (let p = 1; p < players; p++) if (expected[p]! > expected[top]!) top = p;
   return {
@@ -192,6 +199,7 @@ function runDay(day: number, humans: number, bots: number): DayResult {
     topWon: winner === top,
     victoryHour: world.victoryTick >= 0 ? +(world.victoryTick / hour).toFixed(2) : null,
     firstFallHour: firstFall !== null ? +(firstFall / hour).toFixed(2) : null,
+    firstCaptureHour: firstCapture !== null ? +(firstCapture / hour).toFixed(2) : null,
     falls,
     capitals: world.players.map((p) => p.capitals),
     code,
@@ -217,6 +225,10 @@ function days(): void {
     console.log(JSON.stringify(r));
   }
   const share = (f: (r: DayResult) => boolean) => `${Math.round((100 * results.filter(f).length) / results.length)}%`;
+  const median = (xs: (number | null)[]) => {
+    const v = xs.filter((x): x is number => x !== null).sort((a, b) => a - b);
+    return v.length > 0 ? v[v.length >> 1]! : null;
+  };
   const won = results.filter((r) => r.victoryHour !== null).map((r) => r.victoryHour!).sort((a, b) => a - b);
   console.log(JSON.stringify({
     days: results.length,
@@ -226,7 +238,21 @@ function days(): void {
     conquered: share((r) => r.victoryHour !== null),
     conquestBefore15h: share((r) => r.victoryHour !== null && r.victoryHour < 15),
     conquestHourMedian: won.length > 0 ? won[won.length >> 1] : null,
+    firstCaptureHourMedian: median(results.map((r) => r.firstCaptureHour)),
     fallBeforeNoon: share((r) => r.firstFallHour !== null && r.firstFallHour < 12),
+    // Against bots: how often a human won, overall and by the push rate it drew that day (a fair share is humans / seats).
+    ...(bots > 0 && humans > 0
+      ? {
+          humansWin: share((r) => r.winner < humans),
+          fairShare: `${Math.round((100 * humans) / (humans + bots))}%`,
+          humansWinByRate: Object.fromEntries(
+            ([['<1.5', 0, 1.5], ['1.5-3', 1.5, 3], ['>=3', 3, 99]] as const).map(([k, lo, hi]) => {
+              const days = results.filter((r) => r.rates[0]! >= lo && r.rates[0]! < hi);
+              return [k, days.length > 0 ? `${Math.round((100 * days.filter((r) => r.winner === 0).length) / days.length)}% of ${days.length}` : '-'];
+            }),
+          ),
+        }
+      : {}),
     msPerTick: +(results.reduce((a, r) => a + r.msPerTick, 0) / results.length).toFixed(4),
   }));
 }

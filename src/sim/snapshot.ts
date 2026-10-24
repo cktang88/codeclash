@@ -1,5 +1,6 @@
 import type { Platoon, World, WorldSnapshot } from './api.ts';
 import { sharedMap } from './mapgen.ts';
+import { pacing } from './stats.ts';
 
 /** The world without its map; the map is rebuilt from params on restore. */
 export function snapshot(world: World): WorldSnapshot {
@@ -62,6 +63,8 @@ export function checksum(world: World): number {
   int(world.leader);
   int(world.victor);
   num(world.victoryTick);
+  // The war's length paces its sieges (absent: a day).
+  num(pacing(world.params.ticks).ticks);
   int(world.units.length);
   for (const u of world.units) {
     num(u.id);

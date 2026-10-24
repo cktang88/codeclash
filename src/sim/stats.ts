@@ -143,20 +143,67 @@ export const CAPTURE_HP = 0.5;
 export const CAPTURE_RENOWN = 120;
 /** Each capital held beyond your own home multiplies your army's budget (and its field cap) by this much more. */
 export const CONQUEST_BONUS = 0.25;
-/** No walls can be breached before this tick, fourteen hours into the war: the morning is for the border forts. */
-export const SIEGE_OPENS = 14 * HOUR;
+/** A war's length when its params name none: a day. */
+export const DAY_TICKS = 24 * HOUR;
 /**
- * A capital keeps its gates barred, unbreachable, until its founder has had BARRED_GRACE since its
- * first push today to raise a levy, or until BARRED_UNTIL (sixteen hours into the war), whichever
- * comes first: no one is conquered in their sleep. A capital that has changed hands is never barred.
+ * The pace of the sieges, as shares of the war's length (its `ticks`), so a short war (a new room's
+ * first, a test day, the demo) paces like a full day. No walls can be breached before SIEGE_OPENS of
+ * the war (09:36 of a day): the morning is for the border forts. Walls then fall no faster than over
+ * BREACH of the war (thirty minutes of a day) times a ramp that grows from nothing when the sieges
+ * open, as the square of the time since, to full at SIEGE_FULL (16:48), so the earliest a full
+ * capital can fall to an unbroken siege is about 58% of the way through the war (14:00), and a siege
+ * laid later falls sooner after it is laid. A founder's home is barred besides, until BARRED_GRACE
+ * after its founder's first push or BARRED_UNTIL, whichever comes first: no one is conquered in
+ * their sleep. A capital that has changed hands is never barred.
  */
-export const BARRED_GRACE = 2 * HOUR;
-export const BARRED_UNTIL = 16 * HOUR;
-/**
- * Walls fall no faster than this, however many strike them: a full capital holds out for thirty
- * minutes of unbroken siege, a captured one (at half its walls) for fifteen.
- */
-export const BREACH_TICKS = 30 * TICKS_PER_MINUTE;
+export const SIEGE_OPENS = 0.4;
+export const SIEGE_FULL = 0.7;
+export const BREACH = 1 / 48;
+export const BARRED_GRACE = 0.08;
+export const BARRED_UNTIL = 0.65;
+
+/** The siege timetable of a war `ticks` long, in ticks. */
+export interface Pacing {
+  ticks: number;
+  /** No walls fall before this tick. */
+  opens: number;
+  /** The ramp on breaching is full from this tick. */
+  full: number;
+  /** At full pace, walls fall no faster than over this many ticks. */
+  breach: number;
+  /** A founder's gates stay barred until this long after its first push... */
+  grace: number;
+  /** ...or until this tick, whichever comes first. */
+  barredUntil: number;
+}
+
+const pacings = new Map<number, Pacing>();
+
+export function pacing(ticks: number | undefined): Pacing {
+  const t = ticks !== undefined && Number.isFinite(ticks) && ticks >= 1 ? Math.floor(ticks) : DAY_TICKS;
+  let p = pacings.get(t);
+  if (!p) {
+    p = {
+      ticks: t,
+      opens: Math.floor(t * SIEGE_OPENS),
+      full: Math.floor(t * SIEGE_FULL),
+      breach: Math.max(1, Math.floor(t * BREACH)),
+      grace: Math.floor(t * BARRED_GRACE),
+      barredUntil: Math.floor(t * BARRED_UNTIL),
+    };
+    if (pacings.size > 16) pacings.clear();
+    pacings.set(t, p);
+  }
+  return p;
+}
+
+/** The share of full pace walls may fall at, at `tick`: 0 before the sieges open, rising as a square to 1 at `full`. */
+export function breachPace(pc: Pacing, tick: number): number {
+  if (tick < pc.opens) return 0;
+  if (tick >= pc.full || pc.full <= pc.opens) return 1;
+  const r = (tick - pc.opens) / (pc.full - pc.opens);
+  return r * r;
+}
 /** A siege ends once no foe has stood at the walls for this long. */
 export const SIEGE_QUIET = 30 * TICKS_PER_SECOND;
 /** HP a capital's masons restore per second once no siege is on. */
