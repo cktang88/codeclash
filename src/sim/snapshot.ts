@@ -4,11 +4,11 @@ import { sharedMap } from './mapgen.ts';
 /** The world without its map; the map is rebuilt from params on restore. */
 export function snapshot(world: World): WorldSnapshot {
   const { map: _map, ...rest } = world;
-  return { version: 2, world: JSON.parse(JSON.stringify(rest)) as unknown };
+  return { version: 3, world: JSON.parse(JSON.stringify(rest)) as unknown };
 }
 
 export function restore(snap: WorldSnapshot): World {
-  if (snap.version !== 2) throw new Error(`unsupported snapshot version ${String(snap.version)}`);
+  if (snap.version !== 3) throw new Error(`unsupported snapshot version ${String(snap.version)}`);
   const w = JSON.parse(JSON.stringify(snap.world)) as Omit<World, 'map'>;
   for (const pl of w.platoons) drawnUpFresh(pl);
   return { ...w, map: sharedMap(w.params) };
@@ -60,7 +60,8 @@ export function checksum(world: World): number {
   int(world.rng);
   num(world.nextId);
   int(world.leader);
-  int(world.monolithFallen ? 1 : 0);
+  int(world.victor);
+  num(world.victoryTick);
   int(world.units.length);
   for (const u of world.units) {
     num(u.id);
@@ -112,13 +113,21 @@ export function checksum(world: World): number {
     for (const h of pl.route) num(h);
     int(pl.trail.length);
     for (const n of pl.trail) num(n);
+    // The ring: which front it fights on, where it falls back to, and whether it rose from a lost home.
+    int(pl.front);
+    int(pl.home);
+    int(pl.rising ? 1 : 0);
   }
+  int(world.structures.length);
   for (const st of world.structures) {
+    int(st.site);
+    int(st.p);
     num(st.hp);
     num(st.maxHp);
     num(st.cooldown);
-    num(st.ruinedUntil);
-    int(st.sacked);
+    int(st.taken);
+    num(st.siegeSince);
+    num(st.siegeSeen);
   }
   int(world.shots.length);
   for (const sh of world.shots) {
@@ -142,6 +151,7 @@ export function checksum(world: World): number {
     num(p.cryUntil);
     int(p.cryUsed ? 1 : 0);
     num(p.pushes);
+    num(p.firstPushAt);
     num(p.quality);
     num(p.veterancy);
     // The books: a divergence here shows in the army only at the next push.
@@ -156,12 +166,17 @@ export function checksum(world: World): number {
     num(f.routsCaused);
     num(f.cryKills);
     num(f.returns);
-    num(f.heartCaptures);
-    num(f.leaderTakes);
+    num(f.standBest);
+    num(f.retakes);
     num(f.homeKills);
     num(f.ledTicks);
-    num(p.monolithDamage);
     num(p.structureDamage);
+    num(p.captures);
+    num(p.conquests);
+    num(p.capitals);
+    num(p.fallen);
+    int(p.rising ? 1 : 0);
+    num(p.fallenAt);
     int(p.queue.length);
   }
   for (const s of world.sites) {

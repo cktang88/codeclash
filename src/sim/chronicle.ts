@@ -9,9 +9,9 @@ export type ChronicleKind =
   | 'wiped'
   | 'champion'
   | 'capture'
-  | 'sack'
-  | 'rebuilt'
-  | 'monolith'
+  | 'conquest'
+  | 'rising'
+  | 'victory'
   | 'cry'
   | 'doctrine'
   | 'rally'
@@ -89,13 +89,13 @@ export function platoonLabel(names: Names, repo: number, ordinal: number): strin
 export function siteLabel(world: World, site: number, names: Names): string {
   const def = world.map.sites[site];
   if (!def) return 'the field';
-  if (def.kind === 'heart') return 'the Heart';
-  if (def.kind === 'shrine') return `the ${SHRINE_NAMES[(site - world.map.slots) % SHRINE_NAMES.length]} Shrine`;
+  if (def.kind === 'fort') return `the ${FORT_NAMES[(site - world.map.slots) % FORT_NAMES.length]} Fort`;
   for (const p of world.players) if (p.slot === def.slot) return `${names.player(p.p)}'s capital`;
   return 'an empty capital';
 }
 
-export const SHRINE_NAMES = ['Ember', 'Tide', 'Thorn', 'Gale', 'Ash', 'Frost', 'Dusk', 'Dawn', 'Iron', 'Moss', 'Salt', 'Storm', 'Hollow', 'Lantern', 'Raven', 'Copper'];
+/** Border forts are named by their place on the ring: fort `slots + s` is FORT_NAMES[s]. */
+export const FORT_NAMES = ['Ember', 'Tide', 'Thorn', 'Gale', 'Ash', 'Frost', 'Dusk', 'Dawn', 'Iron', 'Moss', 'Salt', 'Storm', 'Hollow', 'Lantern', 'Raven', 'Copper'];
 
 export function unitsPhrase(units: readonly number[]): string {
   const parts: string[] = [];
@@ -131,7 +131,7 @@ export class Chronicler {
       if (!pl) continue;
       const input = pushInputs.find((i) => i.p === pl.p && i.repo === pl.repo);
       const msg = input?.msg ? ` "${input.msg}"` : '';
-      const c = world.map.sites[world.players[pl.p]!.slot]!;
+      const c = world.map.sites[pl.home] ?? world.map.sites[world.players[pl.p]!.slot]!;
       if (pl.mustered[Kind.Dragon]! > 0) {
         add({ kind: 'dragon', p: pl.p, platoon: pl.id, x: c.x, y: c.y, repo: pl.repo, text: `A Dragon takes wing over ${n.player(pl.p)}'s capital, summoned by a legendary push to ${n.repo(pl.repo)}!` });
       }
@@ -172,16 +172,20 @@ export class Chronicler {
       const from = c.previous !== NEUTRAL ? ` from ${n.player(c.previous)}` : '';
       add({ kind: 'capture', p: c.p, q: c.previous, site: c.site, x: def.x, y: def.y, text: `${n.player(c.p)} took ${siteLabel(world, c.site, n)}${from}.` });
     }
-    for (const s of ev.sacks) {
-      const def = world.map.sites[s.site]!;
-      add({ kind: 'sack', p: s.p, q: s.victim, site: s.site, x: def.x, y: def.y, text: `${n.player(s.p)} sacked ${n.player(s.victim)}'s capital!` });
+    for (const c of ev.conquests) {
+      const def = world.map.sites[c.site]!;
+      const label = siteLabel(world, c.site, n);
+      const text = c.retake
+        ? `${n.player(c.p)} has retaken their home! The banners fly again over ${label}.`
+        : `${n.player(c.p)} stormed ${label}${c.previous >= 0 && world.players[c.previous]?.slot !== def.slot ? ` from ${n.player(c.previous)}` : ''}! Its gates now muster for them.`;
+      add({ kind: 'conquest', p: c.p, q: c.previous, site: c.site, x: def.x, y: def.y, text });
     }
-    for (const r of ev.rebuilt) {
-      const def = world.map.sites[r.site]!;
-      add({ kind: 'rebuilt', p: -1, site: r.site, x: def.x, y: def.y, text: `${siteLabel(world, r.site, n)} rises from its ruins.` });
+    for (const r of ev.risings) {
+      const home = world.map.sites[world.players[r.p]!.slot]!;
+      add({ kind: 'rising', p: r.p, site: home.id, x: home.x, y: home.y, text: `${n.player(r.p)} has lost their last capital, but fights on: their pushes now rise outside the walls of home.` });
     }
-    if (ev.monolith) {
-      add({ kind: 'monolith', p: ev.monolith.p, x: 0, y: 0, text: `The Legacy Monolith has fallen! ${n.player(ev.monolith.p)} struck the final blow. The Heart is open.` });
+    if (ev.victory) {
+      add({ kind: 'victory', p: ev.victory.p, text: `${n.player(ev.victory.p)} holds every capital on the ring. The war is won!` });
     }
     for (const c of ev.cries) add({ kind: 'cry', p: c.p, text: `${n.player(c.p)} sounds the War Cry!` });
     for (const d of ev.doctrines) add({ kind: 'doctrine', p: d.p, text: `${n.player(d.p)} adopts the ${DOCTRINE_NAMES[d.doctrine]} doctrine.` });
@@ -191,7 +195,7 @@ export class Chronicler {
     }
     if (ev.leader) {
       const prev = ev.leader.previous >= 0 ? `, overtaking ${n.player(ev.leader.previous)}` : '';
-      add({ kind: 'leader', p: ev.leader.p, q: ev.leader.previous, text: `${n.player(ev.leader.p)} leads in renown${prev}. A bounty is on their soldiers.` });
+      add({ kind: 'leader', p: ev.leader.p, q: ev.leader.previous, text: `${n.player(ev.leader.p)} leads in renown${prev}.` });
     }
     this.detectClashes(tick, out);
     return out;

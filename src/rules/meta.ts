@@ -23,18 +23,18 @@ const minutes = (ticks: number) => Math.floor(ticks / TICKS_PER_MINUTE);
 export const ORDERS: readonly OrderDef[] = [
   { id: 'slay-40', title: 'Your soldiers slay 40 foes', measure: (p) => p.kills, goal: 40, unit: 'count' },
   { id: 'slay-120', title: 'Your soldiers slay 120 foes', measure: (p) => p.kills, goal: 120, unit: 'count' },
-  { id: 'hold-10', title: 'Hold a shrine for 10 minutes', measure: (p) => minutes(p.feats.holdBest), goal: 10, unit: 'minutes' },
-  { id: 'hold-45', title: 'Hold a shrine for 45 minutes', measure: (p) => minutes(p.feats.holdBest), goal: 45, unit: 'minutes' },
-  { id: 'monolith', title: 'Strike the Monolith for 3,000 damage', measure: (p) => Math.floor(p.monolithDamage), goal: 3000, unit: 'count' },
+  { id: 'hold-10', title: 'Hold a border fort for 10 minutes', measure: (p) => minutes(p.feats.holdBest), goal: 10, unit: 'minutes' },
+  { id: 'hold-45', title: 'Hold a border fort for 45 minutes', measure: (p) => minutes(p.feats.holdBest), goal: 45, unit: 'minutes' },
+  { id: 'stand', title: 'Hold your walls through a 20-minute siege', measure: (p) => minutes(p.feats.standBest), goal: 20, unit: 'minutes' },
   { id: 'rout-3', title: 'Rout three enemy platoons', measure: (p) => p.feats.routsCaused, goal: 3, unit: 'count' },
-  { id: 'sack', title: 'Sack a capital', measure: (p) => p.sacks, goal: 1, unit: 'count' },
+  { id: 'conquer', title: 'Storm a capital', measure: (p) => p.conquests, goal: 1, unit: 'count' },
   { id: 'cry', title: 'Slay 15 foes under your War Cry', measure: (p) => p.feats.cryKills, goal: 15, unit: 'count' },
   { id: 'veteran', title: 'Field a veteran army', measure: (p) => p.veterancy, goal: 1, unit: 'count' },
   { id: 'return', title: 'Bring a broken platoon home alive', measure: (p) => p.feats.returns, goal: 1, unit: 'count' },
-  { id: 'heart', title: 'Take the Heart', measure: (p) => p.feats.heartCaptures, goal: 1, unit: 'count' },
-  { id: 'usurp', title: 'Take a site from the leader', measure: (p) => p.feats.leaderTakes, goal: 1, unit: 'count' },
+  { id: 'two-capitals', title: 'Hold two capitals at once', measure: (p) => p.capitals, goal: 2, unit: 'count' },
+  { id: 'retake', title: 'Retake a fallen home', measure: (p) => p.feats.retakes, goal: 1, unit: 'count' },
   { id: 'defend', title: 'Slay 20 foes beneath your own walls', measure: (p) => p.feats.homeKills, goal: 20, unit: 'count' },
-  { id: 'shrines-3', title: 'Capture three sites', measure: (p) => p.captures, goal: 3, unit: 'count' },
+  { id: 'forts-3', title: 'Take three border forts', measure: (p) => p.captures, goal: 3, unit: 'count' },
   { id: 'giant', title: 'Fell a Champion or a Dragon', measure: (p) => p.slain[Kind.Champion]! + p.slain[Kind.Dragon]!, goal: 1, unit: 'count' },
   { id: 'lead', title: 'Lead in renown for 15 minutes', measure: (p) => minutes(p.feats.ledTicks), goal: 15, unit: 'minutes' },
   { id: 'siege', title: 'Deal 8,000 damage to walls', measure: (p) => Math.floor(p.structureDamage), goal: 8000, unit: 'count' },
@@ -264,7 +264,7 @@ export function legendName(seed: number, dragon: boolean): { name: string; epith
   return { name: names[h % names.length]!, epithet: epithets[(h >>> 8) % epithets.length]! };
 }
 
-export type LegendKind = 'survivor' | 'captain' | 'monolith';
+export type LegendKind = 'survivor' | 'captain' | 'conqueror';
 
 export interface LegendRecord {
   p: number;
@@ -280,7 +280,7 @@ const MAX_LEGENDS_PER_PLAYER = 3;
 
 /**
  * Who the day's war remembers by name: Champions and Dragons still standing at
- * the end, captains of platoons with 20+ kills, and whoever felled the Monolith.
+ * the end, captains of platoons with 20+ kills, and the general who took the whole ring.
  */
 export function chooseLegends(
   warSeed: number,
@@ -307,9 +307,9 @@ export function chooseLegends(
     const named = legendName(warSeed ^ (pl.p * 7919 + pl.best.ordinal), false);
     push({ p: pl.p, kind: 'captain', unit: null, ...named, deeds: [`Led a platoon of the ${short(pl.best.repo)} Battalion to ${pl.best.kills} kills`] });
   }
-  if (digest.monolith.fallen && digest.monolith.by !== null) {
+  if (digest.victory) {
     const named = legendName(warSeed ^ 0x6d0, false);
-    push({ p: digest.monolith.by, kind: 'monolith', unit: null, ...named, deeds: ['Struck the blow that felled the Legacy Monolith'] });
+    push({ p: digest.victory.p, kind: 'conqueror', unit: null, ...named, deeds: [`Led the march that took all ${digest.ring.filter((o) => o >= 0).length} capitals of the ring`] });
   }
   return out;
 }
@@ -365,15 +365,16 @@ export const DEEDS: readonly DeedDef[] = [
   { id: 'first-blood', name: 'First Blood', text: 'Slay your first foe', earned: (c) => c.pl.kills >= 1 },
   { id: 'centurion', name: 'Centurion', text: 'Slay 100 foes in one day', title: 'Centurion', earned: (c) => c.pl.kills >= 100 },
   { id: 'reaper', name: 'The Reaper', text: 'Slay 300 foes in one day', title: 'the Reaper', earned: (c) => c.pl.kills >= 300 },
-  { id: 'victor', name: 'Victor', text: 'Win a day', earned: (c) => c.pl.place === 1 && c.pl.renown > 0 },
+  { id: 'victor', name: 'Victor', text: 'Win a day', earned: (c) => c.digest.winner === c.pl.p },
   { id: 'triple-crown', name: 'Triple Crown', text: 'Win three days', title: 'Thrice-Crowned', earned: (c) => c.wins >= 3 },
   { id: 'dynasty', name: 'Dynasty', text: 'Win ten days', title: 'the Dynast', earned: (c) => c.wins >= 10 },
   { id: 'dragonlord', name: 'Dragonlord', text: 'Summon a Dragon', title: 'Dragonlord', earned: (c) => c.pl.raised[Kind.Dragon]! > 0 },
   { id: 'dragonslayer', name: 'Dragonslayer', text: 'Fell a Dragon', title: 'Dragonslayer', earned: (c) => c.pl.slain[Kind.Dragon]! > 0 },
   { id: 'giantkiller', name: 'Giantkiller', text: 'Fell a Champion', earned: (c) => c.pl.slain[Kind.Champion]! > 0 },
-  { id: 'siegebreaker', name: 'Siegebreaker', text: 'Sack a capital', title: 'Siegebreaker', earned: (c) => c.pl.sacks >= 1 },
-  { id: 'monolith-breaker', name: 'Monolith-Breaker', text: 'Strike the blow that fells the Monolith', title: 'Monolith-Breaker', earned: (c) => c.digest.monolith.by === c.pl.p },
-  { id: 'conqueror', name: 'Conqueror', text: 'Capture five sites in a day', earned: (c) => c.pl.captures >= 5 },
+  { id: 'siegebreaker', name: 'Siegebreaker', text: 'Storm a capital', title: 'Siegebreaker', earned: (c) => c.pl.conquests >= 1 },
+  { id: 'ringholder', name: 'Ringholder', text: 'Take every capital on the ring', title: 'the Ringholder', earned: (c) => c.digest.victory?.p === c.pl.p },
+  { id: 'phoenix', name: 'Phoenix', text: 'Lose your home and retake it', title: 'the Phoenix', earned: (c) => c.pl.retakes >= 1 },
+  { id: 'conqueror', name: 'Conqueror', text: 'Take five border forts in a day', earned: (c) => c.pl.captures >= 5 },
   { id: 'unbroken', name: 'Unbroken', text: 'Fight a day without a single rout', title: 'the Unbroken', earned: (c) => c.pl.pushes > 0 && c.pl.kills >= 20 && c.pl.routs === 0 },
   { id: 'iron-wall', name: 'Iron Wall', text: 'Earn the Iron Wall award', earned: (c) => award(c, 'iron-wall') },
   { id: 'bugslayer', name: 'Bugslayer', text: 'Earn the Bugslayer award', title: 'Bugslayer', earned: (c) => award(c, 'bugslayer') },

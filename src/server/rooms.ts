@@ -14,6 +14,8 @@ import { postDigest } from './webhook.ts';
 export const DAY_MS = 24 * 3600_000;
 const MIN_FIRST_WAR_MS = 3600_000;
 const BOT_TICK_MS = 2000;
+/** A ring needs at least this many seats: sparring bots fill a smaller room up to it. */
+export const MIN_SEATS = 3;
 const BASE32 = 'abcdefghijklmnopqrstuvwxyz234567';
 export const COMMONS_SLUG = 'commons';
 export const SYSTEM_USER = 0;
@@ -113,8 +115,11 @@ export class Rooms {
       // One broken room must not hold back every other room's rollover (or the bots).
       try {
         const war = this.live.get(room.id);
-        if (war && war.over(now)) this.finish(room, war, now);
-        else if (!war) {
+        if (war && (war.over(now) || war.won)) this.finish(room, war, now);
+        else if (war && !war.active) {
+          // A war won early stands finished until its reset; then the next war begins.
+          if (now >= war.endsAt) this.next(room, war, now);
+        } else if (!war) {
           // A war missing mid-session means a rollover failed and is being retried: move viewers onto it.
           this.ensureWar(room, now);
           if (this.live.has(room.id)) this.deps.channelFor(room.id).reset();
@@ -282,10 +287,16 @@ export class Rooms {
     if (row) {
       const war = War.load(this.warDeps(room.id), row, now);
       this.live.set(room.id, war);
-      if (war.over(now)) this.finish(room, war, now);
+      if (war.over(now) || war.won) this.finish(room, war, now);
       return;
     }
-    this.startWar(room, now, null);
+    // The last war was won early and its reset has not come yet: the room stands idle on it.
+    const last = store.wars(room.id, 1)[0];
+    if (last && last.status === 'ended' && last.endsAt > now) {
+      this.live.set(room.id, War.load(this.warDeps(room.id), last, now));
+      return;
+    }
+    this.startWar(room, now, last && last.status === 'ended' ? last.endsAt : null);
   }
 
   private startWar(room: RoomRow, now: number, previousEnd: number | null): War {
@@ -303,7 +314,9 @@ export class Rooms {
       if (previousEnd === null && endsAt - startsAt < MIN_FIRST_WAR_MS) endsAt += DAY_MS;
     }
     const enlist: Enlistee[] = store.members(room.id).map((m) => enlistee(m.user, this.deps.meta?.heraldryOf(m.user.id)));
-    for (let b = 0; b < room.bots && b < BOTS.length; b++) enlist.push({ userId: -(b + 1), login: BOTS[b]!.login, avatarUrl: '', bot: true });
+    // Sparring bots: as many as the room asks for, and enough to make a ring of MIN_SEATS.
+    const bots = Math.min(BOTS.length, Math.max(room.bots, MIN_SEATS - enlist.length));
+    for (let b = 0; b < bots; b++) enlist.push({ userId: -(b + 1), login: BOTS[b]!.login, avatarUrl: '', bot: true });
     const war = War.open(this.warDeps(room.id), {
       roomId: room.id,
       // A first war stretched past 24 hours is named for the day it ends on, so the next war is the next day.
@@ -346,6 +359,13 @@ export class Rooms {
         this.deps.log.warn('digest webhook failed', { room: room.slug, error: err instanceof Error ? err.message : String(err) }),
       );
     }
+    // A war won before its reset stays live, finished and locked, until the reset comes.
+    if (now < war.endsAt) return;
+    this.next(room, war, now);
+  }
+
+  /** Retires a finished war and starts the room's next one at its reset. */
+  private next(room: RoomRow, war: War, now: number): void {
     this.live.delete(room.id);
     this.startWar(room, now, war.endsAt);
     this.deps.channelFor(room.id).reset();

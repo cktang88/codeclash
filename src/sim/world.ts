@@ -22,10 +22,12 @@ import {
   type WarParams,
   type World,
 } from './api.ts';
-import { attackerMultiplier, computeAuras, enemiesNear, findTarget, structureDamage, unitDamage, mitigated } from './combat.ts';
-import { capitalOwner, runCouncil, sitePresence } from './council.ts';
+import { attackerMultiplier, computeAuras, enemiesNear, onHomeTurf, structureDamage, unitDamage, mitigated } from './combat.ts';
+import { breachable, capitalOwner, musterFront, runCouncil, sitePresence } from './council.ts';
+import { computeRing, hostile, type Front } from './ring.ts';
 import { derived, flowTo } from './derived.ts';
 import { cellAt } from './flowfield.ts';
+import { fortBetween } from './mapgen.ts';
 import { dcos, dsin } from './dmath.ts';
 import { Form, columnFormation, extent, lineFormation, type Slot } from './formation.ts';
 import { hexCenterX, hexCenterY, hexRoute } from './hexroute.ts';
@@ -37,22 +39,24 @@ import { bucketX, bucketY, rebuildSpatialHash } from './spatial.ts';
 import {
   ARROW_SPEED,
   CAPITAL_HP,
+  CAPITAL_REPAIR,
   CAPITAL_TOWER,
+  CAPTURE_HP,
+  CAPTURE_RENOWN,
   CAPTURE_TICKS,
+  CONQUEST_BONUS,
   CHAMPION_MORALE_FLOOR,
   COUNCIL_PERIOD,
   CRY_DURATION,
   CRY_SPEED,
   DOCTRINE_COOLDOWN,
   FOREST_SPEED,
-  HEART_CAPTURE_TICKS,
   HERALD_HEAL,
   HOME_TURF,
   MAX_ALIVE,
   MELEE_WINDUP,
   MERCENARY_CONTRACT,
   TROLL_CONTRACT,
-  MONOLITH_TOWER,
   MORALE_LOSS,
   MORALE_MAX,
   MORALE_RALLY,
@@ -63,16 +67,14 @@ import {
   QUEUE_LIMIT,
   RALLY_COOLDOWN,
   RALLY_DURATION,
-  SACK_FORTIFY,
-  SACK_REBUILD,
-  SACK_RENOWN,
-  SACK_RUIN_TICKS,
+  SIEGE_QUIET,
   SPACING,
+  TOWER_PER,
+  WALL_PER_SLOT,
   STATS,
   UNGARRISONED_SHARE,
   matchup,
   doctrineSpeed,
-  monolithHp,
 } from './stats.ts';
 import { clearPath, flowDirection, flyMove, passableAt, resolveMove, separation, towards, type Vec } from './steering.ts';
 
@@ -104,15 +106,13 @@ const speedOf = (kind: number) => STATS[kind]!.speed;
 export function emptyEvents(): TickEvents {
   return {
     desertions: [], swings: [], shots: [], breaths: [], blasts: [], heals: [], hits: [], deaths: [], musters: [], marches: [], routs: [], disbands: [],
-    captures: [], sacks: [], rebuilt: [], regroups: [], monolith: null, cries: [], doctrines: [], rallies: [], joins: [],
+    captures: [], conquests: [], risings: [], regroups: [], victory: null, cries: [], doctrines: [], rallies: [], joins: [],
     leader: null, departures: [], forms: [],
   };
 }
 
 export function createWorld(params: WarParams, map: MapDef): World {
   derived(map);
-  const heart = map.sites.findIndex((s) => s.kind === 'heart');
-  const hp = monolithHp(params.members);
   return {
     tick: 0,
     params,
@@ -121,19 +121,26 @@ export function createWorld(params: WarParams, map: MapDef): World {
     nextId: 1,
     units: [],
     platoons: [],
-    structures: [{ site: heart, p: NEUTRAL, hp, maxHp: hp, cooldown: 0, ruinedUntil: -1, sacked: 0 }],
+    structures: [],
     shots: [],
     players: [],
     sites: map.sites.map((s) => ({ id: s.id, owner: NEUTRAL, capturer: NEUTRAL, progress: 0, heldSince: -1 })),
     leader: NEUTRAL,
-    monolithFallen: false,
+    victor: NEUTRAL,
+    victoryTick: -1,
   };
 }
 
 export function step(world: World, inputs: readonly SimInput[]): TickEvents {
   const ev = emptyEvents();
+  // The ring has fallen to one player: the war is over and the field stands still.
+  if (world.victor !== NEUTRAL) {
+    world.tick++;
+    return ev;
+  }
   const s = scratchFor(world);
   for (const input of inputs) applyInput(world, input, ev);
+  s.ring = computeRing(world);
   indexWorld(world, s, speedOf);
   if (releaseQueues(world, s, ev)) indexWorld(world, s, speedOf);
   computeAuras(world, s);
@@ -162,8 +169,9 @@ export function step(world: World, inputs: readonly SimInput[]): TickEvents {
   regroup(world, s, ev);
   updateCaptures(world, ev);
   if (world.tick > 0 && world.tick % TICKS_PER_MINUTE === 0) awardHoldings(world);
-  if (world.tick % TICKS_PER_SECOND === 0) trackFeats(world);
+  if (world.tick % TICKS_PER_SECOND === 0) trackFeats(world, s);
   updateLeader(world, ev);
+  checkVictory(world, ev);
   world.tick++;
   return ev;
 }
@@ -179,8 +187,13 @@ function applyInput(world: World, input: SimInput, ev: TickEvents): void {
   if (input.kind === 'join') {
     if (input.p !== world.players.length || !whole(input.slot)) return;
     if (input.slot < 0 || input.slot >= world.map.slots || capitalOwner(world, input.slot) !== NEUTRAL) return;
-    world.players.push(newPlayer(input.p, input.slot, Number.isFinite(input.hue) ? input.hue : 0));
-    world.structures.push({ site: input.slot, p: input.p, hp: CAPITAL_HP, maxHp: CAPITAL_HP, cooldown: 0, ruinedUntil: -1, sacked: 0 });
+    const player = newPlayer(input.p, input.slot, Number.isFinite(input.hue) ? input.hue : 0);
+    world.players.push(player);
+    world.structures.push({ site: input.slot, p: input.p, hp: CAPITAL_HP, maxHp: CAPITAL_HP, cooldown: 0, taken: 0, siegeSince: -1, siegeSeen: -1 });
+    const site = world.sites[input.slot]!;
+    site.owner = input.p;
+    site.heldSince = world.tick;
+    player.capitals = 1;
     ev.joins.push({ p: input.p });
     return;
   }
@@ -227,12 +240,12 @@ function newPlayer(p: number, slot: number, hue: number): PlayerState {
     doctrine: 0, doctrineAt: -1,
     rallySite: -1, rallyUntil: -1, rallyAt: -1,
     cryUntil: -1, cryUsed: false,
-    renown: 0, pushes: 0, ledger: emptyLedger(), quality: 1, veterancy: 0,
+    renown: 0, pushes: 0, firstPushAt: -1, ledger: emptyLedger(), quality: 1, veterancy: 0,
     raised: new Array<number>(KIND_COUNT).fill(0),
     slain: new Array<number>(KIND_COUNT).fill(0),
-    kills: 0, losses: 0, structureDamage: 0, monolithDamage: 0, captures: 0, sacks: 0, routs: 0,
+    kills: 0, losses: 0, structureDamage: 0, captures: 0, conquests: 0, capitals: 0, fallen: 0, rising: false, fallenAt: -1, routs: 0,
     purposes: new Array<number>(PURPOSES.length).fill(0), best: null,
-    feats: { holdBest: 0, routsCaused: 0, cryKills: 0, returns: 0, heartCaptures: 0, leaderTakes: 0, homeKills: 0, ledTicks: 0 },
+    feats: { holdBest: 0, routsCaused: 0, cryKills: 0, returns: 0, standBest: 0, retakes: 0, homeKills: 0, ledTicks: 0 },
     queue: [], battalions: [],
   };
 }
@@ -245,18 +258,25 @@ function newPlayer(p: number, slot: number, hue: number): PlayerState {
  */
 function musterPush(world: World, player: PlayerState, repo: number, msg: string, delta: Omit<LedgerDelta, 'purpose'>, ev: TickEvents): void {
   const purpose = purposeOf(msg);
+  // Conquest feeds the army: every capital held beyond its own home multiplies the budget.
+  const bonus = conquered(world, player);
+  const before = slotsOf(armyFor(player.ledger, player.pushes, bonus));
   player.pushes++;
+  if (player.firstPushAt < 0) player.firstPushAt = world.tick;
   player.purposes[PURPOSES.indexOf(purpose)]!++;
   applyDelta(player.ledger, { ...delta, purpose });
   const quality = armyQuality(player.ledger);
   player.quality = quality.quality;
   player.veterancy = quality.veterancy;
-  const target = armyFor(player.ledger, player.pushes);
+  const target = armyFor(player.ledger, player.pushes, bonus);
   const counts = new Array<number>(KIND_COUNT).fill(0);
   // The army's size in slots always equals what the ledger is worth. Its make-up
   // follows the target as closely as it can without anyone deserting while the
-  // ledger is growing: soldiers only leave when work is undone.
+  // ledger is growing: soldiers only leave when work is undone. An army that
+  // outgrew its target when a captured capital was lost keeps its soldiers, and
+  // musters again only once the ledger is worth more than it has.
   let room = slotsOf(target) - slotsOf(player.raised);
+  if (room < 0 && slotsOf(target) >= before) room = 0;
   if (room < 0) {
     let deserted = 0;
     for (const k of desertionOrder(target, player.raised)) {
@@ -280,6 +300,33 @@ function musterPush(world: World, player: PlayerState, repo: number, msg: string
   }
   // A large muster marches as several full platoons rather than one oversized one.
   for (const chunk of platoonsOf(counts)) queuePlatoon(world, player, repo, purpose, chunk, ev);
+  fortify(world, player);
+}
+
+/** A capital's full walls under player `player`: CAPITAL_HP, raised by the army its work has paid for today. */
+export function wallsFor(player: PlayerState): number {
+  return CAPITAL_HP + WALL_PER_SLOT * slotsOf(player.raised);
+}
+
+/** The day's work raises the walls of every capital the player holds (and undone work lowers them). */
+function fortify(world: World, player: PlayerState): void {
+  const full = wallsFor(player);
+  for (const st of world.structures) {
+    if (st.p !== player.p || st.hp <= 0 || st.maxHp === full) continue;
+    const gain = full - st.maxHp;
+    st.maxHp = full;
+    st.hp = Math.max(1, Math.min(full, st.hp + Math.max(0, gain)));
+  }
+}
+
+/** Capitals a player holds beyond its own home seat: each raises its army's budget and field cap by CONQUEST_BONUS. */
+export function conquered(world: World, player: PlayerState): number {
+  return Math.max(0, player.capitals - (capitalOwner(world, player.slot) === player.p ? 1 : 0));
+}
+
+/** Most platoon slots a player may field at once: PLAYER_ALIVE, raised by its conquests. */
+export function fieldCap(world: World, player: PlayerState): number {
+  return Math.floor(PLAYER_ALIVE * (1 + CONQUEST_BONUS * conquered(world, player)));
 }
 
 /** Heroes first, then specialists, so Footmen fill whatever room is left. */
@@ -362,7 +409,7 @@ function queuePlatoon(world: World, player: PlayerState, repo: number, purpose: 
     player.battalions.push(battalion);
   }
   battalion[1]++;
-  const capital = world.map.sites[player.slot]!;
+  const capital = world.map.sites[musterSeat(world, player)]!;
   let size = 0;
   for (const c of counts) size += c;
   const platoon: Platoon = {
@@ -400,6 +447,9 @@ function queuePlatoon(world: World, player: PlayerState, repo: number, purpose: 
     routeSite: -1,
     stuck: 0,
     trail: [],
+    front: 0,
+    home: capital.slot,
+    rising: player.capitals === 0,
   };
   world.platoons.push(platoon);
   player.queue.push(platoon.id);
@@ -411,7 +461,9 @@ function queuePlatoon(world: World, player: PlayerState, repo: number, purpose: 
 /** Marches waiting platoons out while there is room. Returns whether any marched. */
 function releaseQueues(world: World, s: Scratch, ev: TickEvents): boolean {
   let marched = false;
+  let presence: Int32Array | null = null;
   for (const player of world.players) {
+    const cap = fieldCap(world, player);
     while (player.queue.length > 0) {
       const platoon = world.platoons.find((pl) => pl.id === player.queue[0]);
       if (!platoon) {
@@ -419,9 +471,10 @@ function releaseQueues(world: World, s: Scratch, ev: TickEvents): boolean {
         continue;
       }
       const slots = slotsOf(platoon.mustered);
-      if (s.alive[player.p]! + slots > PLAYER_ALIVE || world.units.length + platoon.size > MAX_ALIVE) break;
+      if (s.alive[player.p]! + slots > cap || world.units.length + platoon.size > MAX_ALIVE) break;
       player.queue.shift();
-      deploy(world, player, platoon);
+      presence ??= sitePresence(world);
+      deploy(world, player, platoon, musterFront(world, s, player.p, presence));
       s.alive[player.p]! += slots;
       ev.marches.push({ platoon: platoon.id });
       marched = true;
@@ -430,14 +483,40 @@ function releaseQueues(world: World, s: Scratch, ev: TickEvents): boolean {
   return marched;
 }
 
-function deploy(world: World, player: PlayerState, platoon: Platoon): void {
-  const capital = world.map.sites[player.slot]!;
+/** How far beyond a lost home's walls a rising musters: just past its tower's reach. */
+const RISING_GATE = CAPITAL_TOWER.range;
+
+/** The seat a player's waiting platoons gather at: its home if it holds it, else its first capital held, else its lost home. */
+function musterSeat(world: World, player: PlayerState): number {
+  if (capitalOwner(world, player.slot) === player.p) return player.slot;
+  for (const st of world.structures) if (st.p === player.p) return world.map.sites[st.site]!.slot;
+  return player.slot;
+}
+
+/**
+ * Marches a waiting platoon out of the gate facing its front: the gate of its player's capital at
+ * that end of its realm, on the road around the ring. A rising's platoon musters just outside its
+ * lost home's walls, facing them.
+ */
+function deploy(world: World, player: PlayerState, platoon: Platoon, front: Front | null): void {
+  const seat = front ? (front.from >= 0 ? front.from : front.to) : musterSeat(world, player);
+  const capital = world.map.sites[seat]!;
   const d = Math.sqrt(capital.x * capital.x + capital.y * capital.y) || 1;
-  platoon.hx = -capital.x / d;
-  platoon.hy = -capital.y / d;
-  const gate = capital.radius + 24;
-  platoon.x = capital.x + platoon.hx * gate;
-  platoon.y = capital.y + platoon.hy * gate;
+  // Along the ring: (-y, x) runs clockwise, toward higher slots.
+  const side = front && front.dir !== 0 ? front.dir : platoon.id % 2 === 0 ? 1 : -1;
+  const tx = (-capital.y / d) * side;
+  const ty = (capital.x / d) * side;
+  const rising = !front ? player.capitals === 0 : front.from < 0;
+  platoon.front = front ? front.dir : 0;
+  platoon.rising = rising;
+  platoon.home = rising ? fortBetween(world.map.slots, seat) : seat;
+  platoon.site = rising ? seat : -1;
+  // A rising gathers on the ring road beyond bowshot of the walls it means to retake.
+  const gate = rising ? capital.radius + RISING_GATE : capital.radius + 24;
+  platoon.x = capital.x + tx * gate;
+  platoon.y = capital.y + ty * gate;
+  platoon.hx = rising ? -tx : tx;
+  platoon.hy = rising ? -ty : ty;
   platoon.state = PlatoonState.March;
   platoon.arrivedTick = world.tick;
   platoon.alive = 0;
@@ -539,10 +618,9 @@ const LINE_MARGIN = 8;
 const MIN_FRONTAGE = 36;
 const BLOCK_SPACE = 10;
 
-function holdDistance(world: World, platoon: Platoon): number {
+function holdDistance(world: World, s: Scratch, platoon: Platoon): number {
   const def = world.map.sites[platoon.site]!;
-  if (def.kind === 'capital' && def.slot !== world.players[platoon.p]!.slot) return def.radius + 34;
-  if (def.kind === 'heart' && !world.monolithFallen) return def.radius + 34;
+  if (def.kind === 'capital' && s.ring.owner[def.slot] !== platoon.p) return def.radius + 34;
   return Math.max(16, def.radius * 0.35);
 }
 
@@ -579,8 +657,8 @@ function turnToward(pl: Platoon, dx: number, dy: number): void {
   }
 }
 
-function fieldedEnemy(o: Platoon, p: number): boolean {
-  return o.p !== p && o.state !== PlatoonState.Queued && o.state !== PlatoonState.Rout;
+function fieldedEnemy(s: Scratch, o: Platoon, p: number): boolean {
+  return o.p !== p && o.state !== PlatoonState.Queued && o.state !== PlatoonState.Rout && hostile(s.ring, p, o.p);
 }
 
 /** Where the platoon's threat stands, into `point`. False, and the threat forgotten, if it is gone. */
@@ -588,7 +666,7 @@ function threatPoint(world: World, s: Scratch, pl: Platoon): boolean {
   if (pl.threat > 0) {
     const j = s.platoonIndex.get(pl.threat);
     const o = j === undefined ? undefined : world.platoons[j]!;
-    if (!o || !fieldedEnemy(o, pl.p) || s.members[j!] === 0) {
+    if (!o || !fieldedEnemy(s, o, pl.p) || s.members[j!] === 0) {
       pl.threat = 0;
       return false;
     }
@@ -598,7 +676,7 @@ function threatPoint(world: World, s: Scratch, pl: Platoon): boolean {
   }
   if (pl.threat < 0) {
     const k = -pl.threat - 1;
-    if (k >= world.structures.length || !attackable(world, k, pl.p)) {
+    if (k >= world.structures.length || !attackable(world, s, k, pl.p)) {
       pl.threat = 0;
       return false;
     }
@@ -620,7 +698,7 @@ function scanThreat(world: World, s: Scratch, pl: Platoon, x: number, y: number,
   let who = 0;
   for (let j = 0; j < world.platoons.length; j++) {
     const o = world.platoons[j]!;
-    if (!fieldedEnemy(o, pl.p) || s.members[j] === 0) continue;
+    if (!fieldedEnemy(s, o, pl.p) || s.members[j] === 0) continue;
     const dx = o.x - x;
     const dy = o.y - y;
     const d2 = dx * dx + dy * dy;
@@ -632,7 +710,7 @@ function scanThreat(world: World, s: Scratch, pl: Platoon, x: number, y: number,
   let best = Math.sqrt(bestD2);
   // An enemy army close by matters more than walls: face it first.
   for (let k = 0; k < world.structures.length && best > DEPLOY_RADIUS; k++) {
-    if (!attackable(world, k, pl.p)) continue;
+    if (!attackable(world, s, k, pl.p)) continue;
     const def = world.map.sites[world.structures[k]!.site]!;
     const dx = def.x - x;
     const dy = def.y - y;
@@ -670,7 +748,7 @@ function updatePlatoons(world: World, s: Scratch, ev: TickEvents): void {
     if (pl.state === PlatoonState.Rout) {
       // Routed soldiers flee home on their own; the banner goes with them, so a
       // banner left over rock or water cannot keep the platoon routed forever.
-      const home = map.sites[player.slot]!;
+      const home = map.sites[pl.home]!;
       pl.x = cx;
       pl.y = cy;
       const dx = home.x - pl.x;
@@ -678,7 +756,7 @@ function updatePlatoons(world: World, s: Scratch, ev: TickEvents): void {
       if (dx * dx + dy * dy < (home.radius + 40) * (home.radius + 40)) {
         pl.state = PlatoonState.March;
         pl.morale = MORALE_RALLY;
-        pl.site = player.slot;
+        pl.site = pl.home;
         pl.formed = -1;
         pl.routeSite = -1;
         pl.trail.length = 0;
@@ -706,12 +784,12 @@ function updatePlatoons(world: World, s: Scratch, ev: TickEvents): void {
       }
       continue;
     }
-    if (pl.site < 0) pl.site = player.slot;
+    if (pl.site < 0) pl.site = pl.home;
     const def = map.sites[pl.site]!;
     const dx = def.x - pl.x;
     const dy = def.y - pl.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
-    const hold = holdDistance(world, pl);
+    const hold = holdDistance(world, s, pl);
     pl.state = dist <= hold ? PlatoonState.Hold : PlatoonState.March;
     if (pl.form === Form.Column) {
       // A column that reaches its objective draws up in line to hold it.
@@ -1168,9 +1246,10 @@ function withinLeash(map: MapDef, site: number, x: number, y: number, leash: num
   return dx * dx + dy * dy <= reach * reach;
 }
 
-function attackable(world: World, k: number, p: number): boolean {
+/** Whether player `p` may batter structure `k`: a capital held by one of its foes. */
+function attackable(world: World, s: Scratch, k: number, p: number): boolean {
   const st = world.structures[k]!;
-  return st.p !== p && st.hp > 0 && st.ruinedUntil < 0;
+  return st.p !== p && st.hp > 0 && hostile(s.ring, p, st.p) && breachable(world, st);
 }
 
 /** A soldier this badly hurt steps back a rank when a fresh one of its kind can take its place. */
@@ -1265,7 +1344,7 @@ function updateUnits(world: World, s: Scratch, ev: TickEvents): void {
           }
         }
       } else if (u.target < 0) {
-        damageStructure(world, -u.target - 1, u.p, structureDamage(world, s, i), ev);
+        damageStructure(world, s, -u.target - 1, u.p, structureDamage(world, s, i), ev);
       }
     }
 
@@ -1314,13 +1393,13 @@ function updateUnits(world: World, s: Scratch, ev: TickEvents): void {
     let structure = -1;
     if (u.kind === Kind.Trebuchet && !routing) {
       // Siege engines would rather batter walls than soldiers.
-      structure = nearestStructure(world, u.p, u.x, u.y, stats.range);
+      structure = nearestStructure(world, s, u.p, u.x, u.y, stats.range);
       if (structure >= 0 && pl && !withinLeash(map, world.structures[structure]!.site, ax, ay, leash)) structure = -1;
       if (structure >= 0) t = -1;
     } else if (u.kind === Kind.Sapper && !routing && pl) {
       // Sappers go for the walls of their objective once within their leash of the banner.
       const goal = structureAt(world, pl.site);
-      if (goal >= 0 && attackable(world, goal, u.p) && withinLeash(map, pl.site, ax, ay, leash)) {
+      if (goal >= 0 && attackable(world, s, goal, u.p) && withinLeash(map, pl.site, ax, ay, leash)) {
         structure = goal;
         t = -1;
       }
@@ -1342,10 +1421,10 @@ function updateUnits(world: World, s: Scratch, ev: TickEvents): void {
     if (structure < 0 && t < 0 && !routing && pl) {
       structure = u.target < 0 ? -u.target - 1 : -1;
       // Keep battering the same walls only while they stay within the leash of the banner.
-      if (structure >= 0 && (!attackable(world, structure, u.p) || !withinLeash(map, world.structures[structure]!.site, ax, ay, leash))) structure = -1;
+      if (structure >= 0 && (!attackable(world, s, structure, u.p) || !withinLeash(map, world.structures[structure]!.site, ax, ay, leash))) structure = -1;
       if (structure < 0 && pl.state === PlatoonState.Hold) {
         const goal = structureAt(world, pl.site);
-        if (goal >= 0 && attackable(world, goal, u.p)) structure = goal;
+        if (goal >= 0 && attackable(world, s, goal, u.p)) structure = goal;
       }
     }
     u.target = t >= 0 ? units[t]!.id : structure >= 0 ? -(structure + 1) : 0;
@@ -1375,9 +1454,9 @@ function updateUnits(world: World, s: Scratch, ev: TickEvents): void {
     let cap = speed;
     let follow = false;
     if (routing) {
-      const home = map.sites[player!.slot]!;
+      const home = map.sites[pl.home]!;
       if (stats.flying) towards(dir, u.x, u.y, home.x, home.y);
-      else flowDirection(dir, map, flowTo(map, player!.slot), u.x, u.y, home.x, home.y);
+      else flowDirection(dir, map, flowTo(map, pl.home), u.x, u.y, home.x, home.y);
       cap = speed * ROUT_SPEED;
       wx = dir.x * cap;
       wy = dir.y * cap;
@@ -1436,7 +1515,7 @@ function updateUnits(world: World, s: Scratch, ev: TickEvents): void {
       // Only the next few strides are looked at: an obstacle further on is met when the soldier gets there.
       const look = remaining > CUT_LOOK ? CUT_LOOK / remaining : 1;
       if (remaining > SPACING * 2 && !stats.flying && !clearPath(map, u.x, u.y, u.x + ex * look, u.y + ey * look)) {
-        const site = pl!.site >= 0 ? pl!.site : player!.slot;
+        const site = pl!.site >= 0 ? pl!.site : pl!.home;
         const field = flowTo(map, site);
         const here = cell >= 0 ? field.cost[cell]! : -1;
         const banner = cellAt(map, pl!.x, pl!.y);
@@ -1563,7 +1642,7 @@ function breathe(world: World, s: Scratch, i: number, tx: number, ty: number, ev
     for (let cx = Math.max(0, bx - reach); cx <= Math.min(hash.cols - 1, bx + reach); cx++) {
       for (let j = hash.head[cy * hash.cols + cx]!; j >= 0; j = hash.next[j]!) {
         const v = world.units[j]!;
-        if (v.p === u.p) continue;
+        if (!hostile(s.ring, u.p, v.p)) continue;
         const vx = v.x - u.x;
         const vy = v.y - u.y;
         const dist = Math.sqrt(vx * vx + vy * vy);
@@ -1579,14 +1658,14 @@ function breathe(world: World, s: Scratch, i: number, tx: number, ty: number, ev
     }
   }
   for (let k = 0; k < world.structures.length; k++) {
-    if (!attackable(world, k, u.p)) continue;
+    if (!attackable(world, s, k, u.p)) continue;
     const def = world.map.sites[world.structures[k]!.site]!;
     const vx = def.x - u.x;
     const vy = def.y - u.y;
     const dist = Math.sqrt(vx * vx + vy * vy);
     if (dist > range + def.radius) continue;
     if (dist > def.radius && (vx * dx + vy * dy) / dist < BREATH_COS) continue;
-    damageStructure(world, k, u.p, raw * BREATH_STRUCTURE, ev);
+    damageStructure(world, s, k, u.p, raw * BREATH_STRUCTURE, ev);
   }
   ev.breaths.push({ from: u.id, x: u.x, y: u.y, tx: ex, ty: ey, range });
   ev.blasts.push({ x: u.x + dx * range * 0.6, y: u.y + dy * range * 0.6, radius: 25, kind: BlastKind.Scorch });
@@ -1624,11 +1703,11 @@ function castHeal(world: World, s: Scratch, i: number, amount: number, reach: nu
   ev.heals.push({ from: u.id, to: world.units[best]!.id, amount: healed });
 }
 
-function nearestStructure(world: World, p: number, x: number, y: number, range: number): number {
+function nearestStructure(world: World, s: Scratch, p: number, x: number, y: number, range: number): number {
   let best = -1;
   let bestD = Infinity;
   for (let k = 0; k < world.structures.length; k++) {
-    if (!attackable(world, k, p)) continue;
+    if (!attackable(world, s, k, p)) continue;
     const def = world.map.sites[world.structures[k]!.site]!;
     const dx = def.x - x;
     const dy = def.y - y;
@@ -1641,33 +1720,117 @@ function nearestStructure(world: World, p: number, x: number, y: number, range: 
   return best;
 }
 
-function damageStructure(world: World, k: number, p: number, amount: number, ev: TickEvents): void {
-  if (!attackable(world, k, p)) return;
+function damageStructure(world: World, s: Scratch, k: number, p: number, amount: number, ev: TickEvents): void {
+  if (!attackable(world, s, k, p)) return;
   const st = world.structures[k]!;
   const dmg = Math.min(st.hp, amount);
   st.hp -= dmg;
   ev.hits.push({ unit: -1, damage: dmg, structure: k });
   const player = world.players[p];
   if (!player) return;
-  if (st.p === NEUTRAL) {
-    const before = Math.floor(player.monolithDamage / 100);
-    player.monolithDamage += dmg;
-    player.renown += Math.floor(player.monolithDamage / 100) - before;
-    if (st.hp <= 0) {
-      world.monolithFallen = true;
-      ev.monolith = { p };
-    }
-    return;
-  }
   player.structureDamage += dmg;
-  if (st.hp <= 0) {
-    st.hp = 0;
-    st.ruinedUntil = world.tick + SACK_RUIN_TICKS;
-    st.sacked++;
-    player.renown += Math.floor(SACK_RENOWN / st.sacked);
-    player.sacks++;
-    ev.sacks.push({ site: st.site, p, victim: st.p });
+  if (st.hp <= 0) captureCapital(world, s, k, p, ev);
+}
+
+/**
+ * A capital whose walls fall is captured by the player who struck the last blow. It changes owner,
+ * stands again at CAPTURE_HP of its walls under them, and is their muster gate from now on. The
+ * garrison inside the walls is cut down and the loser's platoons near them break. A player who
+ * loses its last capital fights on as a rising; one who retakes its home is a ring owner again.
+ */
+function captureCapital(world: World, s: Scratch, k: number, p: number, ev: TickEvents): void {
+  const st = world.structures[k]!;
+  const def = world.map.sites[st.site]!;
+  const previous = st.p;
+  const taker = world.players[p]!;
+  const loser = world.players[previous];
+  st.p = p;
+  st.taken++;
+  st.maxHp = wallsFor(taker);
+  st.hp = st.maxHp * CAPTURE_HP;
+  st.cooldown = 0;
+  st.siegeSince = -1;
+  st.siegeSeen = -1;
+  const site = world.sites[st.site]!;
+  site.owner = p;
+  site.capturer = NEUTRAL;
+  site.progress = 0;
+  site.heldSince = world.tick;
+  taker.renown += Math.floor(CAPTURE_RENOWN / st.taken);
+  taker.conquests++;
+  taker.capitals++;
+  const retake = def.slot === taker.slot;
+  if (retake) taker.feats.retakes++;
+  if (taker.rising) {
+    taker.rising = false;
+    taker.fallenAt = -1;
   }
+  ev.conquests.push({ site: st.site, p, previous, retake });
+  if (!loser) return;
+  loser.capitals--;
+  loser.fallen++;
+  // The garrison inside the walls is put to the sword.
+  const { units } = world;
+  const inner = def.radius * def.radius;
+  for (let i = 0; i < units.length; i++) {
+    const u = units[i]!;
+    if (u.p !== previous) continue;
+    const dx = u.x - def.x;
+    const dy = u.y - def.y;
+    if (dx * dx + dy * dy > inner) continue;
+    s.damage[i]! += u.hp + u.maxHp;
+    s.lastHit[i] = p;
+    s.lastKind[i] = -1;
+  }
+  // Its platoons beneath the walls break, and fall back to another capital if one is left.
+  const reach = def.radius + HOME_TURF;
+  for (const pl of world.platoons) {
+    if (pl.p !== previous || pl.state === PlatoonState.Queued || pl.state === PlatoonState.Rout) continue;
+    const dx = pl.x - def.x;
+    const dy = pl.y - def.y;
+    if (dx * dx + dy * dy <= reach * reach) breakPlatoon(world, s, pl, ev);
+  }
+  if (loser.capitals <= 0) {
+    loser.capitals = 0;
+    loser.rising = true;
+    loser.fallenAt = world.tick;
+    ev.risings.push({ p: previous });
+  }
+}
+
+/** The site a platoon falls back to: the nearest capital its player holds, or, for a rising, the fort beside its lost home. */
+function fallbackSeat(world: World, pl: Platoon): number {
+  let best = -1;
+  let bestD = Infinity;
+  for (const st of world.structures) {
+    if (st.p !== pl.p) continue;
+    const def = world.map.sites[st.site]!;
+    const dx = def.x - pl.x;
+    const dy = def.y - pl.y;
+    const d = dx * dx + dy * dy;
+    if (d < bestD) {
+      bestD = d;
+      best = def.slot;
+    }
+  }
+  return best >= 0 ? best : fortBetween(world.map.slots, world.players[pl.p]!.slot);
+}
+
+/** The platoon routs: it stops fighting and flees to the nearest capital its player holds. */
+function breakPlatoon(world: World, s: Scratch, pl: Platoon, ev: TickEvents): void {
+  pl.morale = 0;
+  pl.state = PlatoonState.Rout;
+  pl.home = fallbackSeat(world, pl);
+  // Routed soldiers flee as a rabble; they march off in column again once rallied.
+  pl.form = Form.Column;
+  pl.formAt = world.tick;
+  pl.threat = 0;
+  pl.formed = -1;
+  pl.routeSite = -1;
+  pl.trail.length = 0;
+  world.players[pl.p]!.routs++;
+  creditRout(world, s, pl.p, pl.x, pl.y);
+  ev.routs.push({ platoon: pl.id });
 }
 
 // ------------------------------------------------------------- structures
@@ -1676,64 +1839,81 @@ function updateStructures(world: World, s: Scratch, ev: TickEvents): void {
   const { tick, units } = world;
   for (let k = 0; k < world.structures.length; k++) {
     const st = world.structures[k]!;
-    if (st.ruinedUntil >= 0) {
-      if (tick >= st.ruinedUntil) {
-        st.ruinedUntil = -1;
-        // Each sack today rebuilds the walls stronger, so no capital is farmed all day.
-        st.maxHp = CAPITAL_HP * (1 + SACK_FORTIFY * st.sacked);
-        st.hp = st.maxHp * SACK_REBUILD;
-        ev.rebuilt.push({ site: st.site });
-      }
-      continue;
-    }
     if (st.hp <= 0) continue;
+    // Masons mend the walls once no siege is on.
+    if (st.siegeSince < 0 && st.hp < st.maxHp && tick % TICKS_PER_SECOND === 0) st.hp = Math.min(st.maxHp, st.hp + CAPITAL_REPAIR);
     if (st.cooldown > 0) {
       st.cooldown--;
       continue;
     }
-    // A capital sacked today mans its towers harder: each sack adds the tower's base damage again.
-    const tower = st.p === NEUTRAL ? MONOLITH_TOWER : CAPITAL_TOWER;
+    const tower = CAPITAL_TOWER;
     const def = world.map.sites[st.site]!;
     const range = tower.range + def.radius * 0.5;
     // Most ticks no foe is anywhere near the walls: the coarse presence grid (a superset, widened
     // by 1 against rounding) says so without scanning hundreds of buckets. It cannot see soldiers
     // it does not mark, so with any of those on the field the full scan decides.
     if (s.presenceMissed === 0 && !enemyWithin(world, s, st.p, def.x, def.y, range + 1)) continue;
-    const t = nearestEnemy(world, s, st.p, def.x, def.y, range);
-    if (t < 0) continue;
-    const v = units[t]!;
-    const dx = v.x - def.x;
-    const dy = v.y - def.y;
-    const flight = Math.max(1, Math.ceil(Math.sqrt(dx * dx + dy * dy) / ARROW_SPEED));
-    world.shots.push({ from: -(k + 1), p: st.p, target: v.id, x: def.x, y: def.y, landAt: tick + flight, damage: tower.damage * (1 + st.sacked), kind: ShotKind.TowerBolt, splash: 0, tx: v.x, ty: v.y });
-    ev.shots.push({ from: -(k + 1), to: v.id, x: def.x, y: def.y, land: tick + flight, kind: ShotKind.TowerBolt });
+    // The walls are manned as hard as they are pressed: a bolt for every TOWER_PER foes in reach,
+    // so storming a capital costs much the same blood whether it comes in one wave or many.
+    const foes = nearestFoes(world, s, st.p, def.x, def.y, range, MAX_VOLLEY);
+    if (foes === 0) continue;
+    const volley = Math.min(kept, 1 + Math.floor(foes / TOWER_PER));
+    for (let m = 0; m < volley; m++) {
+      const v = units[foeIdx[m]!]!;
+      const dx = v.x - def.x;
+      const dy = v.y - def.y;
+      const flight = Math.max(1, Math.ceil(Math.sqrt(dx * dx + dy * dy) / ARROW_SPEED));
+      world.shots.push({ from: -(k + 1), p: st.p, target: v.id, x: def.x, y: def.y, landAt: tick + flight, damage: tower.damage, kind: ShotKind.TowerBolt, splash: 0, tx: v.x, ty: v.y });
+      ev.shots.push({ from: -(k + 1), to: v.id, x: def.x, y: def.y, land: tick + flight, kind: ShotKind.TowerBolt });
+    }
     st.cooldown = tower.cooldown;
   }
 }
 
-function nearestEnemy(world: World, s: Scratch, p: number, x: number, y: number, radius: number): number {
+const MAX_VOLLEY = 12;
+const foeIdx = new Int32Array(MAX_VOLLEY);
+const foeD = new Float64Array(MAX_VOLLEY);
+
+/** How many of the nearest foes nearestFoes left in foeIdx. */
+let kept = 0;
+/**
+ * Player `p`'s foes within `radius` of (x, y): returns how many there are, and leaves the `max`
+ * nearest in foeIdx (nearest first, ties to the lower index), `kept` of them.
+ */
+function nearestFoes(world: World, s: Scratch, p: number, x: number, y: number, radius: number, max: number): number {
   const hash = s.hash;
   const reach = Math.floor(radius / hash.cell) + 1;
   const bx = bucketX(hash, x);
   const by = bucketY(hash, y);
-  let best = -1;
-  let bestD = radius * radius;
+  const r2 = radius * radius;
+  let count = 0;
+  kept = 0;
   for (let cy = Math.max(0, by - reach); cy <= Math.min(hash.rows - 1, by + reach); cy++) {
     for (let cx = Math.max(0, bx - reach); cx <= Math.min(hash.cols - 1, bx + reach); cx++) {
       for (let j = hash.head[cy * hash.cols + cx]!; j >= 0; j = hash.next[j]!) {
         const v = world.units[j]!;
-        if (v.p === p) continue;
+        if (!hostile(s.ring, p, v.p)) continue;
         const dx = v.x - x;
         const dy = v.y - y;
         const d2 = dx * dx + dy * dy;
-        if (d2 < bestD || (d2 === bestD && j < best)) {
-          bestD = d2;
-          best = j;
+        if (d2 >= r2) continue;
+        count++;
+        // Insert into the short list of the nearest, kept sorted by distance, then index.
+        let at = kept;
+        while (at > 0 && (foeD[at - 1]! > d2 || (foeD[at - 1] === d2 && foeIdx[at - 1]! > j))) at--;
+        if (at >= max) continue;
+        const end = Math.min(kept, max - 1);
+        for (let m = end; m > at; m--) {
+          foeD[m] = foeD[m - 1]!;
+          foeIdx[m] = foeIdx[m - 1]!;
         }
+        foeD[at] = d2;
+        foeIdx[at] = j;
+        if (kept < max) kept++;
       }
     }
   }
-  return best;
+  return count;
 }
 
 function updateShots(world: World, s: Scratch, ev: TickEvents): void {
@@ -1747,7 +1927,7 @@ function updateShots(world: World, s: Scratch, ev: TickEvents): void {
     if (shot.target < 0) {
       const k = -shot.target - 1;
       const def = world.map.sites[world.structures[k]!.site]!;
-      damageStructure(world, k, shot.p, shot.damage, ev);
+      damageStructure(world, s, k, shot.p, shot.damage, ev);
       if (shot.splash > 0) ev.blasts.push({ x: def.x, y: def.y, radius: shot.splash, kind: shot.kind });
       continue;
     }
@@ -1783,7 +1963,7 @@ function splash(world: World, s: Scratch, shot: Shot, x: number, y: number, ev: 
     for (let cx = Math.max(0, bx - reach); cx <= Math.min(hash.cols - 1, bx + reach); cx++) {
       for (let j = hash.head[cy * hash.cols + cx]!; j >= 0; j = hash.next[j]!) {
         const v = world.units[j]!;
-        if (v.p === shot.p) continue;
+        if (!hostile(s.ring, shot.p, v.p)) continue;
         const dx = v.x - x;
         const dy = v.y - y;
         const d = Math.sqrt(dx * dx + dy * dy);
@@ -1844,12 +2024,8 @@ function resolveDamage(world: World, s: Scratch, ev: TickEvents): void {
       k.kills++;
       k.slain[u.kind]!++;
       if (k.cryUntil > world.tick) k.feats.cryKills++;
-      const home = world.map.sites[k.slot]!;
-      const hx = u.x - home.x;
-      const hy = u.y - home.y;
-      if (hx * hx + hy * hy <= HOME_TURF * HOME_TURF) k.feats.homeKills++;
-      const value = STATS[u.kind]!.value;
-      k.renown += u.p >= 0 && u.p === world.leader && killer !== world.leader ? value * 2 : value;
+      if (onHomeTurf(world, s, killer, u.x, u.y)) k.feats.homeKills++;
+      k.renown += STATS[u.kind]!.value;
       creditPlatoonKill(world, s, killer, u.x, u.y);
     }
   }
@@ -1892,7 +2068,7 @@ function updateMorale(world: World, s: Scratch, ev: TickEvents): void {
     world.platoons[w++] = pl;
     if (pl.state === PlatoonState.Queued || pl.state === PlatoonState.Rout) continue;
     if (pl.state === PlatoonState.Engage && (world.tick + pl.id) % OUTNUMBER_CHECK === 0) {
-      const enemies = enemiesNear(world.units, s.hash, pl.p, pl.x, pl.y, 90);
+      const enemies = enemiesNear(world.units, s.hash, s.ring.foes[pl.p] ?? 0, pl.x, pl.y, 90);
       if (enemies > pl.alive * 2) pl.morale = Math.max(0, pl.morale - OUTNUMBERED_DRAIN * OUTNUMBER_CHECK * (s.heralds[i]! > 0 ? 0.5 : 1));
     } else if (pl.calm > ENGAGE_CALM_TICKS) {
       pl.morale = Math.min(MORALE_MAX, pl.morale + MORALE_RECOVER);
@@ -1900,20 +2076,7 @@ function updateMorale(world: World, s: Scratch, ev: TickEvents): void {
     const hasChampion = s.champions[i]! > 0;
     pl.champion = hasChampion;
     if (hasChampion && pl.morale < CHAMPION_MORALE_FLOOR) pl.morale = CHAMPION_MORALE_FLOOR;
-    if (pl.morale <= 0) {
-      pl.morale = 0;
-      pl.state = PlatoonState.Rout;
-      // Routed soldiers flee as a rabble; they march off in column again once rallied.
-      pl.form = Form.Column;
-      pl.formAt = world.tick;
-      pl.threat = 0;
-      pl.formed = -1;
-      pl.routeSite = -1;
-      pl.trail.length = 0;
-      world.players[pl.p]!.routs++;
-      creditRout(world, pl.p, pl.x, pl.y);
-      ev.routs.push({ platoon: pl.id });
-    }
+    if (pl.morale <= 0) breakPlatoon(world, s, pl, ev);
   }
   world.platoons.length = w;
 }
@@ -1979,13 +2142,13 @@ function regroup(world: World, s: Scratch, ev: TickEvents): void {
 
 // ---------------------------------------------------------------- capture
 
+/** Border forts flip to a single army that holds one uncontested; capitals fall only to siege. */
 function updateCaptures(world: World, ev: TickEvents): void {
   if (world.tick % 5 !== 0) return;
   const { sites: defs } = world.map;
   for (let k = 0; k < defs.length; k++) {
     const def = defs[k]!;
-    if (def.kind === 'capital') continue;
-    if (def.kind === 'heart' && !world.monolithFallen) continue;
+    if (def.kind !== 'fort') continue;
     const state = world.sites[k]!;
     let only = NEUTRAL;
     let contested = false;
@@ -2001,7 +2164,7 @@ function updateCaptures(world: World, ev: TickEvents): void {
         break;
       }
     }
-    const need = def.kind === 'heart' ? HEART_CAPTURE_TICKS : CAPTURE_TICKS;
+    const need = CAPTURE_TICKS;
     if (contested || only === NEUTRAL || only === state.owner) {
       state.progress = Math.max(0, state.progress - 5);
       if (state.progress === 0) state.capturer = NEUTRAL;
@@ -2018,32 +2181,51 @@ function updateCaptures(world: World, ev: TickEvents): void {
       state.capturer = NEUTRAL;
       state.progress = 0;
       state.heldSince = world.tick;
-      const taker = world.players[only]!;
-      taker.captures++;
-      if (def.kind === 'heart') taker.feats.heartCaptures++;
-      if (previous >= 0 && previous === world.leader) taker.feats.leaderTakes++;
+      world.players[only]!.captures++;
       ev.captures.push({ site: k, p: only, previous });
     }
   }
 }
 
-// Holdings pay in full only while garrisoned, so a leader must spread thin to keep them.
-/** Once a second: the longest hold of any site, and time spent leading. */
-function trackFeats(world: World): void {
-  for (const site of world.sites) {
+/**
+ * Once a second: the longest hold of any border fort, time spent leading, and sieges. A capital is
+ * besieged while its owner's foes stand at its walls; the siege lifts after SIEGE_QUIET without them.
+ * Its owner's Last Stand is the longest siege it has held through.
+ */
+function trackFeats(world: World, s: Scratch): void {
+  const { slots } = world.map;
+  for (let k = slots; k < world.sites.length; k++) {
+    const site = world.sites[k]!;
     if (site.owner < 0 || site.heldSince < 0) continue;
     const feats = world.players[site.owner]!.feats;
     feats.holdBest = Math.max(feats.holdBest, world.tick - site.heldSince);
   }
   if (world.leader >= 0) world.players[world.leader]!.feats.ledTicks += TICKS_PER_SECOND;
+  if (world.structures.length === 0) return;
+  const presence = sitePresence(world);
+  const n = world.players.length;
+  for (const st of world.structures) {
+    let foes = 0;
+    for (let q = 0; q < n; q++) if (hostile(s.ring, st.p, q)) foes += presence[st.site * n + q]!;
+    if (foes > 0) {
+      if (st.siegeSince < 0) st.siegeSince = world.tick;
+      st.siegeSeen = world.tick;
+    } else if (st.siegeSince >= 0 && world.tick - st.siegeSeen > SIEGE_QUIET) {
+      st.siegeSince = -1;
+    }
+    if (st.siegeSince >= 0) {
+      const feats = world.players[st.p]!.feats;
+      feats.standBest = Math.max(feats.standBest, st.siegeSeen - st.siegeSince);
+    }
+  }
 }
 
 /** A routed platoon's nearest enemy soldier earns the rout for their player. */
-function creditRout(world: World, victim: number, x: number, y: number): void {
+function creditRout(world: World, s: Scratch, victim: number, x: number, y: number): void {
   let best = -1;
   let bestD = 150 * 150;
   for (const u of world.units) {
-    if (u.p < 0 || u.p === victim) continue;
+    if (u.p < 0 || u.p === victim || !hostile(s.ring, victim, u.p)) continue;
     const dx = u.x - x;
     const dy = u.y - y;
     const d2 = dx * dx + dy * dy;
@@ -2079,4 +2261,14 @@ function updateLeader(world: World, ev: TickEvents): void {
     ev.leader = { p: best, previous: world.leader };
     world.leader = best;
   }
+}
+
+/** One player holds every claimed capital (risings in the field do not count): the war is won. */
+function checkVictory(world: World, ev: TickEvents): void {
+  if (world.players.length < 2 || world.structures.length < 2) return;
+  const p = world.structures[0]!.p;
+  for (const st of world.structures) if (st.p !== p) return;
+  world.victor = p;
+  world.victoryTick = world.tick;
+  ev.victory = { p };
 }

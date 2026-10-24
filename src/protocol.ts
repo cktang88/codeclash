@@ -1,6 +1,6 @@
 import type { Digest } from './rules/digest.ts';
 import type { ArmoryItem, Heraldry, LegendKind, RankInfo } from './rules/meta.ts';
-import type { Kind, TimedInput, WorldSnapshot } from './sim/api.ts';
+import type { Kind, SiteKind, TimedInput, WorldSnapshot } from './sim/api.ts';
 import type { ChronicleEntry } from './sim/chronicle.ts';
 import type { RepoRef, ReplayPlayer } from './sim/replay.ts';
 
@@ -66,10 +66,10 @@ export interface RosterEntry extends ReplayPlayer {
   heraldry?: Heraldry;
 }
 
-/** A statue on the map: a legend beside its player's capital, or the Season Victor at the Heart. */
+/** A statue on the map: a legend beside its player's capital, or the Season Victor at the centre of the ring. */
 export interface Monument {
   kind: 'legend' | 'season';
-  /** Player index of the capital it stands beside, or -1 for the Heart. */
+  /** Player index of the capital it stands beside, or -1 for the centre of the ring (on the lake shore or the massif). */
   p: number;
   name: string;
   epithet: string;
@@ -183,12 +183,12 @@ export interface WarSummary {
 /** One frame of a war's timelapse: site owners and every fielded platoon's banner. */
 export interface TimelapseFrame {
   t: number;
-  /** Owner player per site, -1 for none. */
+  /** Owner player per site (capitals and border forts), -1 for none. */
   o: number[];
   /** [player, x, y, soldiers] per platoon in the field. */
   a: [number, number, number, number][];
-  /** Monolith HP fraction, 0..1. */
-  m: number;
+  /** Walls per seat (by slot): the capital's HP fraction, 0..1, or -1 for an unclaimed seat. */
+  w: number[];
 }
 
 export interface DigestResponse {
@@ -198,7 +198,7 @@ export interface DigestResponse {
   /** Map geometry for drawing the timelapse: capital and site positions. */
   map: {
     radius: number;
-    sites: { kind: 'capital' | 'shrine' | 'heart'; x: number; y: number; slot: number }[];
+    sites: { kind: SiteKind; x: number; y: number; slot: number }[];
     /**
      * The land at a coarse scale, for painting the timelapse as a miniature of the map: one
      * character per cell, row by row ('0' plain, '1' forest, '2' water, '3' rock, '.' off the map).
@@ -283,7 +283,7 @@ export interface SeasonStanding {
 export interface SeasonResponse {
   season: string;
   standings: SeasonStanding[];
-  /** The previous season's victor, whose monument stands at the Heart. */
+  /** The previous season's victor, whose monument stands at the centre of the ring. */
   champion: { season: string; user: UserRef } | null;
 }
 

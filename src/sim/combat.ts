@@ -23,50 +23,8 @@ import {
   matchup,
 } from './stats.ts';
 
-const FAVORED_PULL = 0.65;
-
-/** Nearest enemy within `radius`, favoring soldiers this kind beats. Index or -1. */
-export function findTarget(units: readonly Unit[], hash: SpatialHash, i: number, radius: number): number {
-  const u = units[i]!;
-  const bx = bucketX(hash, u.x);
-  const by = bucketY(hash, u.y);
-  const rings = Math.floor(radius / hash.cell) + 1;
-  const r2 = radius * radius;
-  let best = -1;
-  let bestScore = Infinity;
-  for (let k = 0; k <= rings; k++) {
-    if (best >= 0) {
-      const floor = (k - 1) * hash.cell * FAVORED_PULL;
-      if (floor > 0 && floor * floor >= bestScore) break;
-    }
-    const y0 = by - k;
-    const y1 = by + k;
-    for (let y = y0; y <= y1; y++) {
-      if (y < 0 || y >= hash.rows) continue;
-      const step = y === y0 || y === y1 ? 1 : 2 * k;
-      for (let x = bx - k; x <= bx + k; x += step === 0 ? 1 : step) {
-        if (x < 0 || x >= hash.cols) continue;
-        for (let j = hash.head[y * hash.cols + x]!; j >= 0; j = hash.next[j]!) {
-          const v = units[j]!;
-          if (v.p === u.p) continue;
-          const dx = v.x - u.x;
-          const dy = v.y - u.y;
-          const d2 = dx * dx + dy * dy;
-          if (d2 > r2) continue;
-          const score = matchup(u.kind, v.kind) > 1 ? d2 * FAVORED_PULL * FAVORED_PULL : d2;
-          if (score < bestScore || (score === bestScore && j < best)) {
-            bestScore = score;
-            best = j;
-          }
-        }
-      }
-    }
-  }
-  return best;
-}
-
-/** Counts enemies of player `p` within `radius` of a point. */
-export function enemiesNear(units: readonly Unit[], hash: SpatialHash, p: number, x: number, y: number, radius: number): number {
+/** Counts soldiers of player `p`'s foes (bit q of `foes`) within `radius` of a point. */
+export function enemiesNear(units: readonly Unit[], hash: SpatialHash, foes: number, x: number, y: number, radius: number): number {
   const reach = Math.floor(radius / hash.cell) + 1;
   const bx = bucketX(hash, x);
   const by = bucketY(hash, y);
@@ -76,7 +34,7 @@ export function enemiesNear(units: readonly Unit[], hash: SpatialHash, p: number
     for (let cx = Math.max(0, bx - reach); cx <= Math.min(hash.cols - 1, bx + reach); cx++) {
       for (let j = hash.head[cy * hash.cols + cx]!; j >= 0; j = hash.next[j]!) {
         const v = units[j]!;
-        if (v.p === p) continue;
+        if (v.p < 0 || ((foes >>> v.p) & 1) === 0) continue;
         const dx = v.x - x;
         const dy = v.y - y;
         if (dx * dx + dy * dy <= r2) n++;
@@ -166,18 +124,28 @@ export function mitigated(world: World, s: Scratch, j: number, raw: number, rang
   }
   if (v.p >= 0) {
     const owner = world.players[v.p]!;
-    const capital = world.map.sites[owner.slot]!;
-    const dx = v.x - capital.x;
-    const dy = v.y - capital.y;
-    if (dx * dx + dy * dy <= HOME_TURF * HOME_TURF) d *= 1 - HOME_TURF_REDUCTION;
-    else if (owner.doctrine === Doctrine.Hold && nearOwnShrine(world, v.p, v.x, v.y)) d *= 1 - HOLD_REDUCTION;
+    if (onHomeTurf(world, s, v.p, v.x, v.y)) d *= 1 - HOME_TURF_REDUCTION;
+    else if (owner.doctrine === Doctrine.Hold && nearOwnFort(world, v.p, v.x, v.y)) d *= 1 - HOLD_REDUCTION;
   }
   return d;
 }
 
-function nearOwnShrine(world: World, p: number, x: number, y: number): boolean {
+/** Within HOME_TURF of any capital player `p` holds. */
+export function onHomeTurf(world: World, s: Scratch, p: number, x: number, y: number): boolean {
+  const held = s.ring.capitals[p];
+  if (!held) return false;
+  for (let k = 0; k < held.length; k++) {
+    const capital = world.map.sites[held[k]!]!;
+    const dx = x - capital.x;
+    const dy = y - capital.y;
+    if (dx * dx + dy * dy <= HOME_TURF * HOME_TURF) return true;
+  }
+  return false;
+}
+
+function nearOwnFort(world: World, p: number, x: number, y: number): boolean {
   const { sites } = world;
-  for (let k = 0; k < sites.length; k++) {
+  for (let k = world.map.slots; k < sites.length; k++) {
     if (sites[k]!.owner !== p) continue;
     const def = world.map.sites[k]!;
     const dx = x - def.x;

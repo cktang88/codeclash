@@ -1,4 +1,5 @@
 import { Kind, type World } from './api.ts';
+import { computeRing, type Ring } from './ring.ts';
 import { createSpatialHash, rebuildSpatialHash, type SpatialHash } from './spatial.ts';
 import { MAX_ALIVE, STATS } from './stats.ts';
 
@@ -54,6 +55,8 @@ export interface Scratch {
   attackers: Int32Array;
   /** Platoons that rallied at their capital this tick. */
   rallied: number[];
+  /** Who holds which capital and who fights whom, as of the start of this tick. */
+  ring: Ring;
 }
 
 /**
@@ -132,6 +135,7 @@ export function scratchFor(world: World): Scratch {
       presenceCols: 0,
       presenceMissed: 0,
       rallied: [],
+      ring: computeRing(world),
     };
     cache.set(world, s);
   }
@@ -238,7 +242,7 @@ function markPresence(world: World, s: Scratch): void {
   }
 }
 
-/** Whether any soldier not of player `p` may stand within `r` of (x, y). Conservative: whole cells. */
+/** Whether any soldier of a foe of player `p` may stand within `r` of (x, y). Conservative: whole cells. */
 export function enemyWithin(world: World, s: Scratch, p: number, x: number, y: number, r: number): boolean {
   const { map } = world;
   const cols = s.presenceCols;
@@ -246,7 +250,7 @@ export function enemyWithin(world: World, s: Scratch, p: number, x: number, y: n
   const x1 = Math.min(cols - 1, Math.floor((x + r - map.originX) / PRESENCE_CELL));
   const y0 = Math.max(0, Math.floor((y - r - map.originY) / PRESENCE_CELL));
   const y1 = Math.min(cols - 1, Math.floor((y + r - map.originY) / PRESENCE_CELL));
-  const others = p >= 0 && p <= 30 ? ~(1 << p) : -1;
+  const others = p >= 0 && p < s.ring.foes.length ? s.ring.foes[p]! : -1;
   for (let cy = y0; cy <= y1; cy++) for (let cx = x0; cx <= x1; cx++) if ((s.presence[cy * cols + cx]! & others) !== 0) return true;
   return false;
 }

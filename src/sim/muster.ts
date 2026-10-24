@@ -1,5 +1,5 @@
 import { CAT_COUNT, Cat, Kind, KIND_COUNT, PURPOSES, type Ledger, type Purpose } from './api.ts';
-import { STATS } from './stats.ts';
+import { CONQUEST_BONUS, STATS } from './stats.ts';
 
 const sq = Math.sqrt;
 const fl = Math.floor;
@@ -173,8 +173,9 @@ export function armyQuality(ledger: Ledger): { quality: number; veterancy: numbe
  * specialists, and Footmen take the rest, so a commit message changes what the
  * army is made of but never how big it is. Support from tests, comments, docs
  * and config is small and separate. Generated and vendored code count nothing.
+ * `conquered` is how many capitals the player holds beyond its own home.
  */
-export function armyFor(ledger: Ledger, pushes: number): number[] {
+export function armyFor(ledger: Ledger, pushes: number, conquered = 0): number[] {
   const counts = new Array<number>(KIND_COUNT).fill(0);
   if (pushes <= 0) return counts;
   const L = ledger.lines;
@@ -182,7 +183,9 @@ export function armyFor(ledger: Ledger, pushes: number): number[] {
   const pc = (p: Purpose) => ledger.purposeCode[PURPOSES.indexOf(p)]!;
   const pr = (p: Purpose) => ledger.purposeRemoved[PURPOSES.indexOf(p)]!;
 
-  const budget = code + removed > 0 ? fl(1.1 * sq(code) + 1.5 * sq(files) + 0.5 * sq(branches) + 0.3 * sq(removed)) : 0;
+  // Every capital held beyond its own home multiplies the budget (CONQUEST_BONUS each): conquest snowballs.
+  const conquest = 1 + CONQUEST_BONUS * Math.max(0, Math.floor(conquered));
+  const budget = code + removed > 0 ? fl((1.1 * sq(code) + 1.5 * sq(files) + 0.5 * sq(branches) + 0.3 * sq(removed)) * conquest) : 0;
 
   // What the work's purposes and complexity ask for, before it is fitted to the budget.
   const want = new Array<number>(KIND_COUNT).fill(0);

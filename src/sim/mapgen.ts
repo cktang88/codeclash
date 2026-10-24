@@ -3,18 +3,46 @@ import { dcos, dsin, PI, TAU } from './dmath.ts';
 import { buildFlowField, cellAt, isPassable } from './flowfield.ts';
 
 export const NAV_CELL = 16;
-export const MIN_SLOTS = 4;
+export const MIN_SLOTS = 3;
 export const MAX_SLOTS = 16;
-const CAPITAL_RING = 0.84;
-const SHRINE_RING = 0.46;
+/** Length of the front road between two neighbouring capitals, along the ring. */
+const RING_SPACING = 700;
+const MIN_RING = 440;
+/** Half the width of the band the war is fought in: from the centre's shore to the map's rim. */
+const BAND = 260;
+/** Half the width of the front road kept clear around the ring. */
+const ROAD = 22;
 const MAX_ATTEMPTS = 12;
 
-export function mapRadius(slots: number): number {
-  return 420 + 90 * slots;
+/** Radius of the ring the capitals and front roads lie on. */
+export function ringRadius(slots: number): number {
+  return Math.max(MIN_RING, (slots * RING_SPACING) / TAU);
 }
 
+export function mapRadius(slots: number): number {
+  return ringRadius(slots) + BAND;
+}
+
+/** Seats for a war of `members` players and bots: one spare for a late joiner, at least three. */
 export function slotsFor(members: number): number {
-  return Math.min(MAX_SLOTS, Math.max(MIN_SLOTS, members + 2));
+  return Math.min(MAX_SLOTS, Math.max(MIN_SLOTS, members + 1));
+}
+
+/**
+ * The order seats are handed out in for a war: a seeded shuffle of the slots, so who neighbours
+ * whom around the ring changes every day. Pure: the server and any replay agree.
+ */
+export function seatOrder(seed: number, slots: number): number[] {
+  const order = Array.from({ length: slots }, (_, s) => s);
+  let h = mixSeed(seed, 0x5eed);
+  for (let i = slots - 1; i > 0; i--) {
+    h = mixSeed(h, i);
+    const j = h % (i + 1);
+    const t = order[i]!;
+    order[i] = order[j]!;
+    order[j] = t;
+  }
+  return order;
 }
 
 /**
@@ -43,13 +71,24 @@ export function sharedMap(params: WarParams): MapDef {
   return map;
 }
 
+/**
+ * A ring conquest map: one capital per slot evenly spaced on a ring, an impassable centre (a great
+ * lake or a mountain massif) so no army cuts across, and a front road around the ring with a border
+ * fort midway between each pair of neighbouring capitals. Forests, rocks and pools are painted in
+ * the band from the centre's shore to the rim, the same in every sector.
+ */
 export function generateMap(params: WarParams): MapDef {
   const slots = Math.min(MAX_SLOTS, Math.max(MIN_SLOTS, Math.floor(params.slots)));
-  const radius = mapRadius(slots);
-  const sites = placeSites(slots, radius);
+  const ring = ringRadius(slots);
+  const radius = ring + BAND;
+  const centre = ring - BAND;
+  const sites = placeSites(slots, ring);
   const navCols = Math.ceil((radius * 2) / NAV_CELL) + 2;
   const base: Omit<MapDef, 'terrain'> = {
     radius,
+    ring,
+    centre,
+    centreKind: mixSeed(params.seed, 0x1a4e) % 3 === 0 ? Terrain.Rock : Terrain.Water,
     slots,
     navCell: NAV_CELL,
     navCols,
@@ -65,27 +104,31 @@ export function generateMap(params: WarParams): MapDef {
   return { ...base, terrain: paintTerrain(base, params.seed, false) };
 }
 
-/** Angle of slot `s`; slot 0 sits at the top of the map. */
+/** Angle of slot `s`; slot 0 sits at the top of the map, and slots climb clockwise. */
 export function slotAngle(slot: number, slots: number): number {
   return -PI / 2 + (slot * TAU) / slots;
 }
 
-function placeSites(slots: number, radius: number): SiteDef[] {
+/** The fort on the front road between capital `slot` and capital `slot + 1` (wrapping). */
+export function fortBetween(slots: number, slot: number): number {
+  return slots + (((slot % slots) + slots) % slots);
+}
+
+function placeSites(slots: number, ring: number): SiteDef[] {
   const sites: SiteDef[] = [];
   for (let s = 0; s < slots; s++) {
     const a = slotAngle(s, slots);
-    sites.push({ id: sites.length, kind: 'capital', x: dcos(a) * radius * CAPITAL_RING, y: dsin(a) * radius * CAPITAL_RING, radius: 70, slot: s, renown: 0 });
+    sites.push({ id: sites.length, kind: 'capital', x: dcos(a) * ring, y: dsin(a) * ring, radius: 70, slot: s, renown: 0 });
   }
   for (let s = 0; s < slots; s++) {
     const a = slotAngle(s + 0.5, slots);
-    sites.push({ id: sites.length, kind: 'shrine', x: dcos(a) * radius * SHRINE_RING, y: dsin(a) * radius * SHRINE_RING, radius: 55, slot: -1, renown: 2 });
+    sites.push({ id: sites.length, kind: 'fort', x: dcos(a) * ring, y: dsin(a) * ring, radius: 55, slot: -1, renown: 2 });
   }
-  sites.push({ id: sites.length, kind: 'heart', x: 0, y: 0, radius: 85, slot: -1, renown: 5 });
   return sites;
 }
 
 function paintTerrain(map: Omit<MapDef, 'terrain'>, seed: number, obstacles: boolean): Uint8Array {
-  const { navCols: cols, navRows: rows, navCell, originX, originY, radius, sites, slots } = map;
+  const { navCols: cols, navRows: rows, navCell, originX, originY, radius, ring, centre, centreKind, sites, slots } = map;
   const terrain = new Uint8Array(cols * rows);
   // Rotations that carry each sector back onto sector 0, so all slots share one terrain.
   const rot: { c: number; s: number }[] = [];
@@ -102,7 +145,6 @@ function paintTerrain(map: Omit<MapDef, 'terrain'>, seed: number, obstacles: boo
         terrain[i] = Terrain.Void;
         continue;
       }
-      if (nearSite(sites, x, y) || nearLane(sites, slots, x, y)) continue;
       let sx = x;
       let sy = y;
       for (const { c, s } of rot) {
@@ -114,12 +156,20 @@ function paintTerrain(map: Omit<MapDef, 'terrain'>, seed: number, obstacles: boo
           break;
         }
       }
+      // The centre: a lake or a massif with a ragged shore, never reaching the front road.
+      const shore = centre + (fbm(seed + 31337, sx / 90, sy / 90) - 0.5) * 70;
+      if (r < shore) {
+        terrain[i] = centreKind;
+        continue;
+      }
+      const dr = r - ring;
+      if ((dr < 0 ? -dr : dr) < ROAD || nearSite(sites, x, y)) continue;
       const fade = 1 - Math.max(0, (r - radius * 0.93) / (radius * 0.07));
       const blocker = fbm(seed, sx / 140, sy / 140) * fade;
       const wood = fbm(seed + 7919, sx / 100, sy / 100);
       if (obstacles && blocker > 0.64) {
         terrain[i] = fbm(seed + 104729, sx / 240, sy / 240) > 0.5 ? Terrain.Water : Terrain.Rock;
-      } else if (wood > 0.6) {
+      } else if (wood > 0.6 || (r < shore + 40 && wood > 0.5)) {
         terrain[i] = Terrain.Forest;
       }
     }
@@ -137,21 +187,9 @@ function nearSite(sites: readonly SiteDef[], x: number, y: number): boolean {
   return false;
 }
 
-// Keep a clear road from each capital toward the Heart so armies always meet in the middle.
-function nearLane(sites: readonly SiteDef[], slots: number, x: number, y: number): boolean {
-  for (let s = 0; s < slots; s++) {
-    const c = sites[s]!;
-    const len2 = c.x * c.x + c.y * c.y;
-    const t = Math.max(0, Math.min(1, (x * c.x + y * c.y) / len2));
-    const dx = x - c.x * t;
-    const dy = y - c.y * t;
-    if (dx * dx + dy * dy < 22 * 22) return true;
-  }
-  return false;
-}
-
 function allSitesReachable(map: MapDef): boolean {
-  const field = buildFlowField(map, cellAt(map, 0, 0));
+  const home = map.sites[0]!;
+  const field = buildFlowField(map, cellAt(map, home.x, home.y));
   for (const o of map.sites) {
     const c = cellAt(map, o.x, o.y);
     if (c < 0 || !isPassable(map.terrain[c]!) || field.cost[c] === -1) return false;

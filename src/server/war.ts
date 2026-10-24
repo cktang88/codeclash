@@ -2,9 +2,10 @@ import type { RoomDetail, RosterEntry, ServerMessage, TimelapseFrame, WarMeta } 
 import { buildDigest, type Digest } from '../rules/digest.ts';
 import { nextHue } from '../rules/heraldry.ts';
 import type { Heraldry } from '../rules/meta.ts';
-import { CAT_COUNT, NEUTRAL, PlatoonState, TICK_MS, type SimInput, type TimedInput, type World, type WorldSnapshot } from '../sim/api.ts';
+import { CAT_COUNT, PlatoonState, TICK_MS, type SimInput, type TimedInput, type World, type WorldSnapshot } from '../sim/api.ts';
 import { Chronicler, type ChronicleEntry, type Names } from '../sim/chronicle.ts';
 import { checksum, generateMap, restore, snapshot, step, createWorld } from '../sim/index.ts';
+import { seatOrder } from '../sim/mapgen.ts';
 import { decodeInput, encodeInput, type RepoRef, type Replay } from '../sim/replay.ts';
 import { DOCTRINE_COOLDOWN, RALLY_COOLDOWN } from '../sim/stats.ts';
 import { SIM_VERSION } from '../version.ts';
@@ -31,12 +32,16 @@ export interface Channel {
 }
 
 export function timelapseFrame(w: World): TimelapseFrame {
-  const monolith = w.structures.find((s) => s.p === NEUTRAL);
+  const walls = new Array<number>(w.map.slots).fill(-1);
+  for (const st of w.structures) {
+    const def = w.map.sites[st.site];
+    if (def && def.kind === 'capital') walls[def.slot] = Math.round((st.hp / st.maxHp) * 1000) / 1000;
+  }
   return {
     t: w.tick,
     o: w.sites.map((s) => s.owner),
     a: w.platoons.filter((pl) => pl.state !== PlatoonState.Queued && pl.alive > 0).map((pl) => [pl.p, Math.round(pl.x), Math.round(pl.y), pl.alive]),
-    m: monolith ? Math.round((monolith.hp / monolith.maxHp) * 1000) / 1000 : 0,
+    w: walls,
   };
 }
 
@@ -81,11 +86,14 @@ export class War {
     const { store } = deps;
     const header: WarHeader = { players: [], repos: [] };
     const inputs: TimedInput[] = [];
+    // Seats around the ring are a seeded shuffle, so who neighbours whom changes every day.
+    const seats = seatOrder(w.seed, w.slots);
     for (const e of w.enlist.slice(0, w.slots)) {
       const p = header.players.length;
+      const slot = seats[p]!;
       const hue = nextHue(header.players.map((x) => x.hue));
-      header.players.push({ login: e.login, id: e.userId, userId: e.userId, avatarUrl: e.avatarUrl, hue, slot: p, bot: e.bot, ...(e.heraldry ? { heraldry: e.heraldry } : {}) });
-      inputs.push({ tick: 0, seq: inputs.length + 1, input: { kind: 'join', p, slot: p, hue } });
+      header.players.push({ login: e.login, id: e.userId, userId: e.userId, avatarUrl: e.avatarUrl, hue, slot, bot: e.bot, ...(e.heraldry ? { heraldry: e.heraldry } : {}) });
+      inputs.push({ tick: 0, seq: inputs.length + 1, input: { kind: 'join', p, slot, hue } });
     }
     const members = header.players.length;
     const params = { seed: w.seed, slots: w.slots, members };
@@ -104,7 +112,14 @@ export class War {
     const started = performance.now();
     const snap = store.latestSnapshot(row.id);
     const params = { seed: row.seed, slots: row.slots, members: row.members };
-    const world = snap ? restore(JSON.parse(snap.json) as WorldSnapshot) : createWorld(params, generateMap(params));
+    let world: World | null = null;
+    try {
+      if (snap) world = restore(JSON.parse(snap.json) as WorldSnapshot);
+    } catch (err) {
+      // A snapshot from an older simulation: rebuild the war from its inputs instead.
+      log.warn('snapshot unusable, replaying from the start', { war: row.id, error: err instanceof Error ? err.message : String(err) });
+    }
+    world ??= createWorld(params, generateMap(params));
     const pending = store.inputs(row.id, world.tick).map((r) => ({ seq: r.seq, ...decodeInput(r.data) }));
     const war = new War(deps, row, world, pending, store.maxSeq(row.id));
     if (row.status === 'active') {
@@ -136,6 +151,16 @@ export class War {
     return this.row.status === 'active';
   }
 
+  /** One player holds the whole ring: the war is over early, waiting to be concluded. */
+  get won(): boolean {
+    return this.active && this.world.victor >= 0;
+  }
+
+  /** Whether the war takes pushes, joins and commands: active, and not yet won. */
+  private get open(): boolean {
+    return this.active && this.world.victor < 0;
+  }
+
   playerOf(userId: number): number | null {
     const p = this.row.header.players.findIndex((x) => x.userId === userId);
     return p >= 0 ? p : null;
@@ -146,7 +171,7 @@ export class War {
   }
 
   behind(now: number): boolean {
-    return this.active && this.world.tick < this.targetTick(now);
+    return this.open && this.world.tick < this.targetTick(now);
   }
 
   over(now: number): boolean {
@@ -183,11 +208,11 @@ export class War {
   /** Adds a member to today's war if a capital is free. Returns their player index. */
   enlist(now: number, e: Enlistee): number | null {
     const existing = this.playerOf(e.userId);
-    if (existing !== null || !this.active) return existing;
+    if (existing !== null || !this.open) return existing;
     const header = this.row.header;
     const taken = new Set(header.players.map((x) => x.slot));
     let slot = -1;
-    for (let s = 0; s < this.row.slots; s++) {
+    for (const s of seatOrder(this.row.seed, this.row.slots)) {
       if (!taken.has(s)) {
         slot = s;
         break;
@@ -208,7 +233,7 @@ export class War {
     push: { repo: string; language: string | null; lines: number[]; files?: number; branches?: number; churn?: number; filler?: number; commits: number; message: string },
   ): boolean {
     const p = this.playerOf(userId);
-    if (p === null || !this.active) return false;
+    if (p === null || !this.open) return false;
     const header = this.row.header;
     let repo = header.repos.findIndex((r) => r[0].toLowerCase() === push.repo.toLowerCase());
     const added: { index: number; ref: RepoRef }[] = [];
@@ -232,7 +257,7 @@ export class War {
   }
 
   command(now: number, userId: number, cmd: { kind: 'doctrine'; doctrine: number } | { kind: 'rally'; site: number } | { kind: 'cry' }): CommandError | null {
-    if (!this.active || now >= this.row.endsAt) return 'ended';
+    if (!this.open || now >= this.row.endsAt) return 'ended';
     const p = this.playerOf(userId);
     if (p === null) return 'not_in_war';
     const player = this.world.players[p];
@@ -280,9 +305,12 @@ export class War {
     channel.send({ type: 'inputs', inputs: timed, ...(extra.roster ? { roster: extra.roster } : {}), ...(extra.repos && extra.repos.length > 0 ? { repos: extra.repos } : {}) });
   }
 
-  /** Runs the war to its last tick, writes the digest, and marks it ended. */
+  /**
+   * Runs the war to its last tick (or, once the ring has fallen to one player, stops where it was
+   * won), writes the digest, and marks it ended.
+   */
   conclude(now: number): Digest {
-    this.catchUp(Math.max(now, this.row.endsAt));
+    if (!this.won) this.catchUp(Math.max(now, this.row.endsAt));
     this.deps.store.saveFrame(this.row.id, timelapseFrame(this.world));
     const digest = buildDigest(this.world, this.replay(), this.deps.store.chronicleAll(this.row.id));
     const winner = digest.winner !== null ? digest.players[digest.winner]! : null;
@@ -294,7 +322,7 @@ export class War {
       winnerRenown: winner?.renown ?? null,
     });
     this.row = { ...this.row, status: 'ended', digest };
-    this.deps.log.info('war ended', { war: this.row.id, winner: winner?.login ?? null, tick: this.world.tick, pushes: digest.totals.pushes });
+    this.deps.log.info('war ended', { war: this.row.id, winner: winner?.login ?? null, tick: this.world.tick, pushes: digest.totals.pushes, conquered: digest.victory !== null });
     return digest;
   }
 

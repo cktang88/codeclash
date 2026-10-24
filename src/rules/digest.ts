@@ -1,4 +1,4 @@
-import { CAT_COUNT, Cat, Kind, KIND_COUNT, PURPOSES, type Purpose, type SimInput, type World } from '../sim/api.ts';
+import { CAT_COUNT, Cat, Kind, KIND_COUNT, PURPOSES, TICKS_PER_MINUTE, type Purpose, type SimInput, type World } from '../sim/api.ts';
 import type { ChronicleEntry } from '../sim/chronicle.ts';
 import { decodeInput, type Replay } from '../sim/replay.ts';
 
@@ -9,18 +9,20 @@ export interface AwardDef {
 }
 
 export const AWARDS: readonly AwardDef[] = [
-  { id: 'victor', title: 'Victor of the Day', blurb: 'Most renown when the war ended' },
+  { id: 'victor', title: 'Victor of the Day', blurb: 'Held the whole ring, or the most of it when the war ended' },
   { id: 'warlord', title: 'Warlord', blurb: 'Most enemy soldiers slain' },
   { id: 'iron-wall', title: 'Iron Wall', blurb: 'Fewest losses for every soldier raised' },
   { id: 'test-legion', title: 'Test Legion', blurb: 'Most lines of tests pushed' },
   { id: 'scribe', title: 'Scribe', blurb: 'Most docs and comment lines pushed' },
   { id: 'demolisher', title: 'Demolisher', blurb: 'Most lines deleted' },
   { id: 'siegebreaker', title: 'Siegebreaker', blurb: 'Most damage dealt to capitals' },
-  { id: 'monolith-slayer', title: 'Monolith Slayer', blurb: 'Most damage dealt to the Legacy Monolith' },
+  { id: 'conqueror', title: 'Conqueror', blurb: 'Most capitals stormed' },
+  { id: 'last-stand', title: 'Last Stand', blurb: 'Held a besieged capital the longest' },
+  { id: 'phoenix', title: 'Phoenix', blurb: 'Rose from a lost home and retook it' },
+  { id: 'marcher', title: 'Lord of the Marches', blurb: 'Most border forts taken' },
   { id: 'ghost', title: 'Ghost', blurb: 'Most renown for every soldier raised' },
   { id: 'bugslayer', title: 'Bugslayer', blurb: 'Most bug fixes pushed' },
   { id: 'architect', title: 'Architect', blurb: 'Most complex code: branch points added' },
-  { id: 'conqueror', title: 'Conqueror', blurb: 'Most shrines and Hearts captured' },
   { id: 'dragonlord', title: 'Dragonlord', blurb: 'Summoned the most Dragons with legendary pushes' },
   { id: 'dragonslayer', title: 'Dragonslayer', blurb: 'Brought down the most Dragons' },
 ];
@@ -40,8 +42,20 @@ export interface DigestPlayer {
   slain: number[];
   kills: number;
   losses: number;
+  /** Border forts taken. */
   captures: number;
-  sacks: number;
+  /** Capitals stormed (retaking your own home counts). */
+  conquests: number;
+  /** Capitals held when the war ended. */
+  capitals: number;
+  /** Capitals lost. */
+  fallen: number;
+  /** Ended the war holding no capital, fighting on as a rising. */
+  rising: boolean;
+  /** Times the player retook its own home. */
+  retakes: number;
+  /** Longest siege of a capital it held through, in ticks. */
+  standBest: number;
   routs: number;
   /** Pushes by purpose. */
   purposes: Record<Purpose, number>;
@@ -54,7 +68,6 @@ export interface DigestPlayer {
   churn: number;
   filler: number;
   structureDamage: number;
-  monolithDamage: number;
   best: { repo: string; ordinal: number; kills: number; message: string } | null;
   awards: string[];
 }
@@ -77,12 +90,15 @@ export interface Digest {
   highlights: ChronicleEntry[];
   totals: { lines: number[]; raised: number[]; pushes: number; kills: number };
   repos: { name: string; language: string | null; pushes: number; p: number }[];
-  monolith: { fallen: boolean; by: number | null; tick: number | null };
+  /** The ring conquered: who took every capital and when, or null when the reset came first. */
+  victory: { p: number; tick: number } | null;
+  /** Who held each seat's capital at the end, by slot (-1 for an unclaimed seat). */
+  ring: number[];
   headline: string;
 }
 
-const HIGHLIGHT_KINDS = new Set(['monolith', 'dragon', 'sack', 'clash', 'champion', 'capture', 'leader', 'cry']);
-const HIGHLIGHT_WEIGHT: Record<string, number> = { monolith: 100, dragon: 90, sack: 80, clash: 60, champion: 40, cry: 30, leader: 25, capture: 10 };
+const HIGHLIGHT_KINDS = new Set(['victory', 'conquest', 'rising', 'dragon', 'clash', 'champion', 'capture', 'leader', 'cry']);
+const HIGHLIGHT_WEIGHT: Record<string, number> = { victory: 120, conquest: 95, dragon: 90, rising: 70, clash: 60, champion: 40, cry: 30, leader: 25, capture: 10 };
 const MAX_HIGHLIGHTS = 12;
 
 /** The day's recap. Pure: the same war always yields the same digest. */
@@ -104,7 +120,12 @@ export function buildDigest(world: World, replay: Replay, chronicle: readonly Ch
       kills: ps.kills,
       losses: ps.losses,
       captures: ps.captures,
-      sacks: ps.sacks,
+      conquests: ps.conquests,
+      capitals: ps.capitals,
+      fallen: ps.fallen,
+      rising: ps.rising,
+      retakes: ps.feats.retakes,
+      standBest: ps.feats.standBest,
       routs: ps.routs,
       purposes: Object.fromEntries(PURPOSES.map((pu, i) => [pu, ps.purposes[i] ?? 0])) as Record<Purpose, number>,
       fixes: ps.purposes[PURPOSES.indexOf('fix')] ?? 0,
@@ -115,15 +136,18 @@ export function buildDigest(world: World, replay: Replay, chronicle: readonly Ch
       churn: ps.ledger.churn,
       filler: ps.ledger.filler,
       structureDamage: Math.round(ps.structureDamage),
-      monolithDamage: Math.round(ps.monolithDamage),
       best: null,
       awards: [],
     };
   });
 
-  const ranked = players.slice().sort((a, b) => b.renown - a.renown || a.p - b.p);
+  // The ring's conqueror wins outright. If the reset came first: the most capitals held, then
+  // renown, then whoever joined first. Nobody wins a day no one fought.
+  const victor = world.victor >= 0 && world.players[world.victor] ? world.victor : null;
+  const ranked = players.slice().sort((a, b) => (b.p === victor ? 1 : 0) - (a.p === victor ? 1 : 0) || b.capitals - a.capitals || b.renown - a.renown || a.p - b.p);
   ranked.forEach((pl, i) => (pl.place = i + 1));
-  const winner = ranked[0] && ranked[0].renown > 0 ? ranked[0].p : null;
+  const top = ranked[0];
+  const winner = victor ?? (top && (top.renown > 0 || top.conquests > 0) ? top.p : null);
 
   // Best platoons: recover the commit message of the push that raised them.
   // Only pushes the simulation accepted count: a known player and a valid repository.
@@ -165,18 +189,20 @@ export function buildDigest(world: World, replay: Replay, chronicle: readonly Ch
     best.awards.push(id);
   };
   const raisedTotal = (pl: DigestPlayer) => pl.raised.reduce((a, b) => a + b, 0);
-  if (winner !== null) give('victor', (pl) => (pl.p === winner ? pl.renown : 0));
+  if (winner !== null) give('victor', (pl) => (pl.p === winner ? Math.max(1, pl.capitals) : 0));
   give('warlord', (pl) => pl.kills);
   give('iron-wall', (pl) => raisedTotal(pl) / (1 + pl.losses), (pl) => raisedTotal(pl) >= 20);
   give('test-legion', (pl) => pl.lines[Cat.Test]!);
   give('scribe', (pl) => pl.lines[Cat.Docs]! + pl.lines[Cat.Comment]!);
   give('demolisher', (pl) => pl.lines[Cat.Removed]!);
   give('siegebreaker', (pl) => pl.structureDamage);
-  give('monolith-slayer', (pl) => pl.monolithDamage);
+  give('conqueror', (pl) => pl.conquests);
+  give('last-stand', (pl) => Math.floor(pl.standBest / TICKS_PER_MINUTE));
+  give('phoenix', (pl) => pl.retakes);
+  give('marcher', (pl) => pl.captures);
   give('ghost', (pl) => pl.renown / raisedTotal(pl), (pl) => raisedTotal(pl) > 0);
   give('bugslayer', (pl) => pl.fixes);
   give('architect', (pl) => pl.branches);
-  give('conqueror', (pl) => pl.captures);
   give('dragonlord', (pl) => pl.raised[Kind.Dragon]!);
   give('dragonslayer', (pl) => pl.slain[Kind.Dragon]!);
 
@@ -207,7 +233,11 @@ export function buildDigest(world: World, replay: Replay, chronicle: readonly Ch
     // Plain code-unit order: localeCompare depends on the runtime's ICU data.
     .sort((a, b) => b.pushes - a.pushes || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
 
-  const fall = chronicle.find((e) => e.kind === 'monolith');
+  const ring = new Array<number>(world.map.slots).fill(-1);
+  for (const st of world.structures) {
+    const def = world.map.sites[st.site];
+    if (def && def.kind === 'capital') ring[def.slot] = st.p;
+  }
   return {
     startsAt: replay.startsAt,
     endsAt: replay.endsAt,
@@ -218,18 +248,25 @@ export function buildDigest(world: World, replay: Replay, chronicle: readonly Ch
     highlights,
     totals,
     repos,
-    monolith: { fallen: world.monolithFallen, by: fall ? fall.p : null, tick: fall ? fall.tick : null },
+    victory: victor !== null ? { p: victor, tick: world.victoryTick } : null,
+    ring,
     headline: headline(players, winner, world, totals.pushes),
   };
 }
 
 function headline(players: readonly DigestPlayer[], winner: number | null, world: World, pushes: number): string {
-  if (pushes === 0 || winner === null) return 'A quiet day. No banners were raised and the Monolith stood unchallenged.';
+  if (pushes === 0 || winner === null) return 'A quiet day. No banners were raised and every capital stood untouched.';
   const w = players[winner]!;
+  const seats = world.structures.length;
+  if (world.victor === winner) {
+    const at = Math.floor(world.victoryTick / TICKS_PER_MINUTE);
+    return `@${w.login} conquered the whole ring of ${seats} capitals in ${Math.floor(at / 60)}h ${String(at % 60).padStart(2, '0')}m.`;
+  }
   const second = players.find((pl) => pl.place === 2);
-  const margin = second ? w.renown - second.renown : w.renown;
-  const fallen = world.monolithFallen ? ' after the Monolith fell' : ' while the Monolith still stood';
-  if (second && margin <= Math.max(5, w.renown * 0.05)) return `@${w.login} edged out @${second.login} by ${margin} renown${fallen}.`;
-  if (w.sacks > 0) return `@${w.login} won the day, sacking ${w.sacks === 1 ? 'a capital' : `${w.sacks} capitals`}${fallen}.`;
-  return `@${w.login} won the day with ${w.renown} renown${fallen}.`;
+  if (second && second.capitals === w.capitals) {
+    const margin = w.renown - second.renown;
+    return `@${w.login} and @${second.login} each held ${w.capitals === 1 ? 'a capital' : `${w.capitals} capitals`} at the reset; @${w.login} won it on renown by ${margin}.`;
+  }
+  if (w.conquests > 0) return `@${w.login} held ${w.capitals} of ${seats} capitals when the reset came, storming ${w.conquests === 1 ? 'one' : w.conquests} on the way.`;
+  return `@${w.login} won the day with ${w.renown} renown, every capital still in its founder's hands.`;
 }

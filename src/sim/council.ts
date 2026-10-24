@@ -1,10 +1,15 @@
-import { Doctrine, NEUTRAL, PlatoonState, type World } from './api.ts';
+import { Doctrine, NEUTRAL, PlatoonState, type Platoon, type Structure, type World } from './api.ts';
+import { BARRED_GRACE, BARRED_UNTIL, SIEGE_OPENS } from './stats.ts';
+import { frontOf, hostile, type Front, type Ring } from './ring.ts';
 import type { Scratch } from './scratch.ts';
 
 const PRESENCE_REACH = 130;
 const DISTANCE_SCALE = 450;
 const CROWD_PENALTY = 0.7;
 const OUTMATCHED = 1.6;
+/** Soldiers massed on a front before its foe's full-strength walls are stormed; fewer for walls already breached. */
+export const SIEGE_MASS = Number(process.env.T_MASS ?? 25);
+const SIEGE_MIN = 10;
 
 /**
  * Per presence cell, the sites whose reach could cover a point in it, so each soldier is tested
@@ -92,42 +97,169 @@ function countIfNear(presence: Int32Array, def: { x: number; y: number; radius: 
   if (dx * dx + dy * dy <= reach * reach) presence[k * n + p]!++;
 }
 
+/** Whether player `p`'s rally on its rally site holds now: a site on one of its fronts, or a capital it holds. */
+export function rallyFront(world: World, ring: Ring, p: number): { ok: boolean; front: Front | null } {
+  const player = world.players[p]!;
+  if (player.rallySite < 0 || player.rallyUntil <= world.tick) return { ok: false, front: null };
+  const front = frontOf(ring, world, p, player.rallySite);
+  if (front) return { ok: true, front };
+  const def = world.map.sites[player.rallySite];
+  return { ok: !!def && def.kind === 'capital' && ring.owner[def.slot] === p, front: null };
+}
+
+/** The front a platoon fights on: the nearest of its player's fronts in its direction, else the nearest at all. */
+function frontFor(world: World, ring: Ring, p: number, pl: Platoon): Front | null {
+  const sites = world.map.sites;
+  let best: Front | null = null;
+  let bestD = Infinity;
+  let bestMatch = false;
+  for (const f of ring.fronts[p] ?? []) {
+    const at = sites[f.from >= 0 ? f.from : f.to]!;
+    const dx = at.x - pl.x;
+    const dy = at.y - pl.y;
+    const d = dx * dx + dy * dy;
+    const match = f.dir === pl.front;
+    if ((match && !bestMatch) || (match === bestMatch && d < bestD)) {
+      best = f;
+      bestD = d;
+      bestMatch = match;
+    }
+  }
+  return best;
+}
+
 /**
- * The war council of player `p`: hands every marching or holding platoon an
- * objective. A rally overrides it. Otherwise each site is scored by renown,
- * distance from the platoon (supply lines), nearby strength, and doctrine, and
- * platoons already sent somewhere make that site less attractive to the next.
+ * Which front a new platoon of player `p` marches to: the one a rally names, else the one under
+ * the most pressure for the strength already sent there, so musters alternate between two quiet
+ * fronts and lean toward the one the foe is pressing.
+ */
+export function musterFront(world: World, s: Scratch, p: number, presence: Int32Array): Front | null {
+  const ring = s.ring;
+  const fronts = ring.fronts[p] ?? [];
+  if (fronts.length === 0) return null;
+  const rally = rallyFront(world, ring, p);
+  if (rally.ok && rally.front) return rally.front;
+  const n = world.players.length;
+  let best: Front | null = null;
+  let bestScore = -Infinity;
+  for (const f of fronts) {
+    let foes = 0;
+    const count = (k: number) => {
+      for (let q = 0; q < n; q++) if (q !== p && hostile(ring, p, q)) foes += presence[k * n + q]!;
+    };
+    if (f.from >= 0) count(f.from);
+    for (const k of f.forts) count(k);
+    let mine = 0;
+    for (const pl of world.platoons) if (pl.p === p && pl.state !== PlatoonState.Queued && pl.front === f.dir) mine += pl.alive;
+    const score = (1 + foes / 10) / (1 + mine / 24);
+    if (score > bestScore) {
+      bestScore = score;
+      best = f;
+    }
+  }
+  return best;
+}
+
+/**
+ * The war council of player `p`: hands every marching or holding platoon an objective on its
+ * front. A rally on a front's site (or one of its own capitals) overrides it. Otherwise each
+ * site of the platoon's front (its forts, the foe's capital at the far end, its own capital at
+ * this end) and every capital it holds is scored by renown, distance (supply lines), nearby
+ * strength and doctrine; platoons already sent somewhere make that site less attractive to the
+ * next. A rising's platoons march on its lost home.
  */
 export function runCouncil(world: World, s: Scratch, p: number, presence: Int32Array): void {
   const player = world.players[p]!;
-  const { sites: defs } = world.map;
+  const ring = s.ring;
+  const { sites: defs, slots } = world.map;
   const n = world.players.length;
   const assigned = new Int32Array(defs.length);
-  const rallying = player.rallySite >= 0 && player.rallyUntil > world.tick;
+  const rally = rallyFront(world, ring, p);
+  const held = ring.capitals[p] ?? [];
+  const candidates: number[] = [];
   for (const pl of world.platoons) {
     if (pl.p !== p || pl.state === PlatoonState.Queued || pl.state === PlatoonState.Rout) continue;
-    if (rallying) {
+    pl.rising = held.length === 0;
+    if (rally.ok) {
       pl.site = player.rallySite;
+      if (rally.front) pl.front = rally.front.dir;
       continue;
     }
-    let best = player.slot;
+    const f = frontFor(world, ring, p, pl);
+    candidates.length = 0;
+    let massed = 0;
+    if (f) {
+      pl.front = f.dir;
+      for (const k of f.forts) {
+        candidates.push(k);
+        massed += presence[k * n + p]!;
+      }
+      candidates.push(f.to);
+      massed += presence[f.to * n + p]!;
+      if (f.from >= 0) candidates.push(f.from);
+      else {
+        // A rising gathers at the forts either side of its lost home before it storms the walls.
+        for (const k of [slots + f.to, slots + ((f.to - 1 + slots) % slots)]) {
+          candidates.push(k);
+          massed += presence[k * n + p]!;
+        }
+      }
+    }
+    for (const c of held) {
+      if (!candidates.includes(c)) candidates.push(c);
+      // A fort between two of its own capitals is its to keep.
+      const next = (c + 1) % slots;
+      const fort = slots + c;
+      if (ring.owner[next] === p && world.sites[fort]!.owner !== p && !candidates.includes(fort)) candidates.push(fort);
+    }
+    if (candidates.length === 0) {
+      pl.site = player.slot;
+      continue;
+    }
+    let best = -1;
     let bestScore = 0;
-    for (let k = 0; k < defs.length; k++) {
-      const score = siteScore(world, p, k, pl.x, pl.y, pl.alive, presence, n) / (1 + assigned[k]! * CROWD_PENALTY);
-      if (score > bestScore || (score === bestScore && k < best)) {
+    for (const k of candidates) {
+      const score = siteScore(world, ring, p, k, pl.x, pl.y, pl.alive, massed, presence, n) / (1 + assigned[k]! * CROWD_PENALTY);
+      if (best < 0 || score > bestScore || (score === bestScore && k < best)) {
         bestScore = score;
         best = k;
       }
     }
+    // Nothing worth marching on: hold the nearest capital it holds (or keep marching home).
+    if (bestScore <= 0) best = nearestHeld(world, held, pl) ?? (f ? f.to : player.slot);
     // Stick with the current objective unless the new one is clearly better.
-    const current = pl.site >= 0 ? siteScore(world, p, pl.site, pl.x, pl.y, pl.alive, presence, n) / (1 + assigned[pl.site]! * CROWD_PENALTY) : 0;
-    if (pl.site >= 0 && current * 1.25 >= bestScore) best = pl.site;
+    if (pl.site >= 0 && pl.site !== best && candidates.includes(pl.site)) {
+      const current = siteScore(world, ring, p, pl.site, pl.x, pl.y, pl.alive, massed, presence, n) / (1 + assigned[pl.site]! * CROWD_PENALTY);
+      if (current * 1.25 >= bestScore && current > 0) best = pl.site;
+    }
     pl.site = best;
     assigned[best]!++;
   }
 }
 
-function siteScore(world: World, p: number, k: number, x: number, y: number, strength: number, presence: Int32Array, n: number): number {
+function nearestHeld(world: World, held: readonly number[], pl: Platoon): number | null {
+  let best: number | null = null;
+  let bestD = Infinity;
+  for (const c of held) {
+    const def = world.map.sites[c]!;
+    const dx = def.x - pl.x;
+    const dy = def.y - pl.y;
+    const d = dx * dx + dy * dy;
+    if (d < bestD) {
+      bestD = d;
+      best = c;
+    }
+  }
+  return best;
+}
+
+/**
+ * How much player `p`'s platoon at (x, y), `strength` strong, wants site `k`. `massed` counts p's
+ * soldiers already gathered on the platoon's front (at its forts and the foe's walls): walls are
+ * stormed only once enough have gathered, so an army masses at the border fort and then goes in
+ * together rather than feeding the tower one platoon at a time.
+ */
+function siteScore(world: World, ring: Ring, p: number, k: number, x: number, y: number, strength: number, massed: number, presence: Int32Array, n: number): number {
   const player = world.players[p]!;
   const def = world.map.sites[k]!;
   const state = world.sites[k]!;
@@ -137,33 +269,32 @@ function siteScore(world: World, p: number, k: number, x: number, y: number, str
   for (let q = 0; q < n; q++) {
     const c = presence[k * n + q]!;
     if (q === p) mine += c;
-    else enemy += c;
+    else if (hostile(ring, p, q)) enemy += c;
   }
   let value = 0;
   if (def.kind === 'capital') {
-    if (def.slot === player.slot) {
-      value = enemy > 0 ? 3 + enemy * 0.05 : 0;
+    const owner = ring.owner[def.slot]!;
+    if (owner === p) {
+      // Walls under siege call every platoon on the front home: a capital lost is a front lost.
+      value = enemy > 0 ? 9 + enemy * 0.1 : 0;
     } else {
-      const owner = capitalOwner(world, def.slot);
-      if (owner === NEUTRAL) return 0;
-      const structure = world.structures.find((st) => st.site === k);
-      if (!structure || structure.ruinedUntil >= 0) return 0;
+      if (owner === NEUTRAL || !hostile(ring, p, owner)) return 0;
+      const walls = world.structures.find((st) => st.site === k);
+      if (!walls || !breachable(world, walls)) return 0;
       value = doctrine === Doctrine.Siege ? 7 : doctrine === Doctrine.Assault ? 3.5 : 1;
-      if (owner === world.leader && owner !== p) value *= 1.4;
+      // A rising has one aim: its lost home.
+      if (player.rising && def.slot === player.slot) value = Math.max(value, 5);
+      const need = SIEGE_MIN + (SIEGE_MASS - SIEGE_MIN) * (walls.hp / walls.maxHp);
+      if (strength + massed < need) value *= 0.1;
     }
-  } else if (def.kind === 'shrine') {
+  } else {
     if (state.owner === p) value = enemy > 0 ? (doctrine === Doctrine.Hold ? 7 : 4) : 0.4;
     else value = state.owner === NEUTRAL ? 4 : 3.5;
     if (doctrine === Doctrine.Hold && state.owner !== p) value *= 0.7;
-  } else {
-    if (!world.monolithFallen) value = 3.5;
-    else if (state.owner === p) value = enemy > 0 ? 8 : 1;
-    else value = 7;
-    if (doctrine === Doctrine.Assault) value *= 1.5;
   }
   if (value <= 0) return 0;
   if (doctrine === Doctrine.Skirmish) value /= 1 + enemy / 12;
-  else if (enemy > (strength + mine) * OUTMATCHED && def.kind !== 'heart') value *= 0.35;
+  else if (enemy > (strength + mine) * OUTMATCHED) value *= 0.35;
   const dx = def.x - x;
   const dy = def.y - y;
   const dist = Math.sqrt(dx * dx + dy * dy);
@@ -171,7 +302,20 @@ function siteScore(world: World, p: number, k: number, x: number, y: number, str
   return value / (1 + dist / scale);
 }
 
+/** The player holding the capital of seat `slot`, or NEUTRAL if no one has claimed it. */
 export function capitalOwner(world: World, slot: number): number {
-  for (const pl of world.players) if (pl.slot === slot) return pl.p;
+  for (const st of world.structures) if (world.map.sites[st.site]?.slot === slot && world.map.sites[st.site]!.kind === 'capital') return st.p;
   return NEUTRAL;
+}
+
+/**
+ * Whether a capital's walls can be stormed now. Its gates stay barred until its founder has had
+ * BARRED_GRACE since its first push to raise a levy, or until BARRED_UNTIL, so an early riser
+ * cannot take the ring while its neighbours sleep.
+ */
+export function breachable(world: World, st: Structure): boolean {
+  if (world.tick < SIEGE_OPENS) return false;
+  if (world.tick >= BARRED_UNTIL || st.taken > 0) return true;
+  const owner = world.players[st.p];
+  return !owner || (owner.firstPushAt >= 0 && world.tick >= owner.firstPushAt + BARRED_GRACE);
 }

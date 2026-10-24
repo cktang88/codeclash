@@ -106,7 +106,8 @@ export function pickTarget(world: World, s: Scratch, i: number, q: Pick): number
   const { head, next, cols, ux, uy, up } = hash;
   const ox = u.x;
   const oy = u.y;
-  const p = u.p;
+  // Only the soldiers of this army's foes on the ring: its neighbours (and the rising at its gates).
+  const foes = u.p >= 0 && u.p < s.ring.foes.length ? s.ring.foes[u.p]! : 0;
   const bx = bucketX(hash, ox);
   const by = bucketY(hash, oy);
   const rings = Math.floor(q.radius / hash.cell) + 1;
@@ -133,7 +134,8 @@ export function pickTarget(world: World, s: Scratch, i: number, q: Pick): number
       for (let x = bx - k; x <= bx + k; x += step === 0 ? 1 : step) {
         if (x < 0 || x >= hash.cols) continue;
         for (let j = head[y * cols + x]!; j >= 0; j = next[j]!) {
-          if (up[j] === p) continue;
+          const side = up[j]!;
+          if (side < 0 || ((foes >>> side) & 1) === 0) continue;
           const vx = ux[j]!;
           const vy = uy[j]!;
           const dx = vx - ox;

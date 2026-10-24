@@ -94,7 +94,12 @@ export type Doctrine = (typeof Doctrine)[keyof typeof Doctrine];
 export const Terrain = { Plain: 0, Forest: 1, Water: 2, Rock: 3, Void: 255 } as const;
 export type Terrain = (typeof Terrain)[keyof typeof Terrain];
 
-export type SiteKind = 'capital' | 'shrine' | 'heart';
+/**
+ * Capitals sit on a ring around an impassable centre; a border fort stands on the front road
+ * midway between each pair of neighbouring capitals (site `slots + s` lies between capital `s`
+ * and capital `s + 1`).
+ */
+export type SiteKind = 'capital' | 'fort';
 
 export interface SiteDef {
   id: number;
@@ -102,7 +107,7 @@ export interface SiteDef {
   x: number;
   y: number;
   radius: number;
-  /** Slot of the capital, or -1. */
+  /** Slot of the capital, or -1 for a fort. */
   slot: number;
   /** Renown per minute to the holder. */
   renown: number;
@@ -110,6 +115,12 @@ export interface SiteDef {
 
 export interface MapDef {
   radius: number;
+  /** Radius of the ring the capitals and the front roads lie on. */
+  ring: number;
+  /** Radius of the impassable centre (a great lake or a mountain massif). */
+  centre: number;
+  /** Which the centre is: Terrain.Water or Terrain.Rock. */
+  centreKind: number;
   slots: number;
   navCell: number;
   navCols: number;
@@ -123,7 +134,7 @@ export interface MapDef {
 export interface WarParams {
   seed: number;
   slots: number;
-  /** Members at the start of the war; scales the Monolith. */
+  /** Seats filled at the start of the war (members and bots); part of the map's key. */
   members: number;
 }
 
@@ -162,7 +173,7 @@ export interface TimedInput {
 
 export interface Unit {
   id: number;
-  /** Player index, or NEUTRAL for monolith guards. */
+  /** Player index. */
   p: number;
   platoon: number;
   kind: Kind;
@@ -240,23 +251,38 @@ export interface Platoon {
   route: number[];
   /** The site `route` leads to, or -1 when it must be planned afresh. */
   routeSite: number;
+  /**
+   * The front it fights on: +1 clockwise (toward higher slots), -1 counter-clockwise, 0 for a
+   * rising's platoon, which marches on its player's lost home capital.
+   */
+  front: number;
+  /**
+   * The site it falls back to when it routs (set when it musters and when it breaks): the nearest
+   * capital its player holds, or for a player holding none, the border fort beside its lost home.
+   */
+  home: number;
+  /** Mustered by a player who held no capital: it marches on their lost home to retake it. */
+  rising: boolean;
   /** Ticks the banner has failed to make headway; past a limit it replans, then follows the flow field. */
   stuck: number;
   /** The road behind the banner as x, y pairs TRAIL_STEP apart, newest first: the column follows it. */
   trail: number[];
 }
 
+/** A capital's walls and tower. One per claimed seat; the ring of owners is read from these. */
 export interface Structure {
   site: number;
-  /** Owning player, or NEUTRAL for the Monolith. */
+  /** The player who holds it now: its founder, or whoever captured it last. */
   p: number;
   hp: number;
   maxHp: number;
   cooldown: number;
-  /** Tick until which it lies in ruins, or -1. */
-  ruinedUntil: number;
-  /** Times sacked today; each sack is worth less renown than the last. */
-  sacked: number;
+  /** Times captured today; each capture of it is worth less renown than the last. */
+  taken: number;
+  /** Tick the current siege began (foes at the walls), or -1. */
+  siegeSince: number;
+  /** Last tick foes stood at the walls, or -1. */
+  siegeSeen: number;
 }
 
 export interface Shot {
@@ -289,6 +315,8 @@ export interface PlayerState {
   cryUsed: boolean;
   renown: number;
   pushes: number;
+  /** Tick of its first push today, or -1: its gates stay barred until BARRED_GRACE after it. */
+  firstPushAt: number;
   /** Today's contribution; the army is a function of it. */
   ledger: Ledger;
   /** Army quality now, from the ledger: scales the HP and damage of all this player's soldiers. */
@@ -302,9 +330,18 @@ export interface PlayerState {
   kills: number;
   losses: number;
   structureDamage: number;
-  monolithDamage: number;
+  /** Border forts taken. */
   captures: number;
-  sacks: number;
+  /** Capitals captured (retaking your own home counts). */
+  conquests: number;
+  /** Capitals held now. */
+  capitals: number;
+  /** Capitals lost. */
+  fallen: number;
+  /** Holds no capital: its musters rise outside its lost home's walls to retake it. */
+  rising: boolean;
+  /** Tick it lost its last capital, or -1. */
+  fallenAt: number;
   routs: number;
   /** Pushes by purpose, indexed like PURPOSES. */
   purposes: number[];
@@ -329,7 +366,7 @@ export interface SiteState {
 
 /** Battlefield feats tracked for the day's Orders. Deterministic like everything else in the world. */
 export interface Feats {
-  /** Longest unbroken hold of any one shrine or the Heart, in ticks. */
+  /** Longest unbroken hold of any one border fort, in ticks. */
   holdBest: number;
   /** Enemy platoons that broke with this player's soldiers nearest. */
   routsCaused: number;
@@ -337,10 +374,11 @@ export interface Feats {
   cryKills: number;
   /** Routed platoons that made it home and rallied. */
   returns: number;
-  heartCaptures: number;
-  /** Sites taken from the player then leading in renown. */
-  leaderTakes: number;
-  /** Kills within reach of this player's own capital. */
+  /** Longest siege of a capital this player held through, in ticks (foes at the walls, walls still standing). */
+  standBest: number;
+  /** Capitals retaken: a rising's, or one captured back from the foe who took it. */
+  retakes: number;
+  /** Kills within reach of a capital this player holds. */
   homeKills: number;
   /** Ticks spent leading in renown. */
   ledTicks: number;
@@ -360,7 +398,10 @@ export interface World {
   sites: SiteState[];
   /** Player with the most renown, or NEUTRAL. */
   leader: number;
-  monolithFallen: boolean;
+  /** The player who holds every capital, or NEUTRAL while the war goes on. Once set, the war is over. */
+  victor: number;
+  /** Tick the ring fell to the victor, or -1. */
+  victoryTick: number;
 }
 
 export interface TickEvents {
@@ -381,12 +422,16 @@ export interface TickEvents {
   marches: { platoon: number }[];
   routs: { platoon: number }[];
   disbands: { platoon: number; p: number; repo: number; ordinal: number; x: number; y: number }[];
+  /** A border fort changed hands. */
   captures: { site: number; p: number; previous: number }[];
-  sacks: { site: number; p: number; victim: number }[];
-  rebuilt: { site: number }[];
+  /** A capital fell to `p` (it struck the last blow); `retake` when it is `p`'s own home seat, or one `p` held before. */
+  conquests: { site: number; p: number; previous: number; retake: boolean }[];
+  /** Player `p` lost its last capital and fights on as a rising. */
+  risings: { p: number }[];
   /** A remnant platoon folded into another of the same army; `from` no longer exists. */
   regroups: { from: number; to: number; moved: number }[];
-  monolith: { p: number } | null;
+  /** One player holds every capital: the war is won. */
+  victory: { p: number } | null;
   cries: { p: number }[];
   doctrines: { p: number; doctrine: Doctrine }[];
   rallies: { p: number; site: number }[];
@@ -404,6 +449,6 @@ export const BlastKind = { Fireball: 2, Boulder: 3, Scorch: 5 } as const;
 export type BlastKind = (typeof BlastKind)[keyof typeof BlastKind];
 
 export interface WorldSnapshot {
-  version: 2;
+  version: 3;
   world: unknown;
 }

@@ -127,20 +127,34 @@ export function doctrineStructure(d: Doctrine): number {
 export const HOLD_REDUCTION = 0.2;
 export const HOLD_RADIUS = 200;
 
-export const CAPITAL_HP = 8000;
-export const CAPITAL_TOWER = { damage: 20, range: 160, cooldown: 4 };
-export const MONOLITH_TOWER = { damage: 30, range: 140, cooldown: 3 };
-export const SACK_RUIN_TICKS = 20 * TICKS_PER_MINUTE;
-export const SACK_REBUILD = 1;
-/** Extra max HP per earlier sack today, as a share of CAPITAL_HP. */
-export const SACK_FORTIFY = 1;
-export const SACK_RENOWN = 120;
+/** A capital's walls before its holder's work today raises them. */
+export const CAPITAL_HP = Number(process.env.T_HP ?? 12000);
+/** Wall HP added for every platoon slot of army its holder's work has raised today. */
+export const WALL_PER_SLOT = Number(process.env.T_WALL ?? 150);
+export const CAPITAL_TOWER = { damage: Number(process.env.T_TOWER ?? 20), range: 160, cooldown: 4 };
+/** A capital's tower looses one more bolt each volley for every this many foes within its reach. */
+export const TOWER_PER = Number(process.env.T_PER ?? 8);
+/** A captured capital's walls stand again at this share of CAPITAL_HP under their new owner. */
+export const CAPTURE_HP = Number(process.env.T_CAP ?? 0.5);
+/** Renown for capturing a capital: this for its first capture today, then `CAPTURE_RENOWN / n` for the n-th. */
+export const CAPTURE_RENOWN = 120;
+/** Each capital held beyond your own home multiplies your army's budget (and its field cap) by this much more. */
+export const CONQUEST_BONUS = Number(process.env.T_BONUS ?? 0.25);
+/**
+ * A capital keeps its gates barred, unbreachable, until its founder has had BARRED_GRACE since its
+ * first push today to raise a levy, or until BARRED_UNTIL (twelve hours into the war), whichever
+ * comes first: no one is conquered in their sleep. A capital that has changed hands is never barred.
+ */
+export const BARRED_UNTIL = Number(process.env.T_UNTIL ?? 15) * 60 * TICKS_PER_MINUTE;
+/** No walls can be breached before this tick: the morning is for the border forts. */
+export const SIEGE_OPENS = Number(process.env.T_OPENS ?? 12) * 60 * TICKS_PER_MINUTE;
+export const BARRED_GRACE = Number(process.env.T_GRACE ?? 60) * TICKS_PER_MINUTE;
+/** A siege ends once no foe has stood at the walls for this long. */
+export const SIEGE_QUIET = 30 * TICKS_PER_SECOND;
+/** HP a capital's masons restore per second once no siege is on. */
+export const CAPITAL_REPAIR = Number(process.env.T_REPAIR ?? 10);
 /** Share of a holding's renown paid while its owner has no soldiers near it. */
 export const UNGARRISONED_SHARE = 0.25;
-
-export function monolithHp(members: number): number {
-  return 30000 + 10000 * Math.max(1, members);
-}
 
 export const MAX_ALIVE = 2000;
 export const PLAYER_ALIVE = 160;
@@ -155,6 +169,5 @@ export const OUTNUMBERED_DRAIN = 0.4;
 export const CHAMPION_MORALE_FLOOR = 1;
 
 export const CAPTURE_TICKS = 10 * TICKS_PER_SECOND;
-export const HEART_CAPTURE_TICKS = 30 * TICKS_PER_SECOND;
 export const COUNCIL_PERIOD = 3 * TICKS_PER_SECOND;
 export const SPACING = 11;
