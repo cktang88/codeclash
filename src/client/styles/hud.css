@@ -1541,6 +1541,21 @@ button.chron-btn:hover {
   font-size: 15px;
 }
 
+/* What the platoon is about, in a sentence: a rubricated paragraph mark, then italic ink. */
+.inspector-status {
+  margin: 6px 0 2px;
+  font-style: italic;
+  font-size: 15px;
+  line-height: 1.4;
+  color: var(--fg);
+}
+
+.inspector-status::before {
+  content: '¶ ';
+  font-style: normal;
+  color: var(--rubric);
+}
+
 .state-pill {
   font-family: var(--sc);
   font-weight: 700;

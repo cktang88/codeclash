@@ -23,7 +23,8 @@ import {
   type World,
 } from './api.ts';
 import { attackerMultiplier, computeAuras, enemiesNear, onHomeTurf, structureDamage, unitDamage, mitigated } from './combat.ts';
-import { besieging, breachable, capitalOwner, musterFront, runCouncil, sitePresence } from './council.ts';
+import { capitalOwner, musterFront, runCouncil, sitePresence, stormable } from './council.ts';
+import { HUNT_REACH, STAGING_MARGIN, keepOut, sheltered, towerReach, underFire, zoneAt } from './stance.ts';
 import { computeRing, hostile, type Front } from './ring.ts';
 import { derived, flowTo } from './derived.ts';
 import { cellAt } from './flowfield.ts';
@@ -31,7 +32,7 @@ import { fortBetween, slotAngle } from './mapgen.ts';
 import { dcos, dsin } from './dmath.ts';
 import { Form, columnFormation, extent, lineFormation, type Slot } from './formation.ts';
 import { hexCenterX, hexCenterY, hexRoute } from './hexroute.ts';
-import { Role, cohesion, guardRadius, overCap, pickTarget, roleOf, type Pick } from './tactics.ts';
+import { Role, attackerCap, cohesion, guardRadius, overCap, pickTarget, roleOf, type Pick } from './tactics.ts';
 import { applyDelta, armyFor, armyQuality, cleanLines, emptyLedger, int, purposeOf, slotsOf, type LedgerDelta } from './muster.ts';
 import { nextRandom, seedRng } from './rng.ts';
 import { AURA_HEAL, enemyWithin, indexWorld, scratchFor, type Scratch } from './scratch.ts';
@@ -451,6 +452,10 @@ function queuePlatoon(world: World, player: PlayerState, repo: number, purpose: 
     routeSite: -1,
     stuck: 0,
     trail: [],
+    hitBy: 0,
+    hitAt: -1,
+    towerBy: 0,
+    towerAt: -1,
     front: 0,
     home: capital.slot,
     rising: player.capitals === 0,
@@ -487,8 +492,6 @@ function releaseQueues(world: World, s: Scratch, ev: TickEvents): boolean {
   return marched;
 }
 
-/** How far beyond a lost home's walls a rising musters: just past its tower's reach. */
-const RISING_GATE = CAPITAL_TOWER.range;
 
 /** The seat a player's waiting platoons gather at: its home if it holds it, else its first capital held, else its lost home. */
 function musterSeat(world: World, player: PlayerState): number {
@@ -516,7 +519,7 @@ function deploy(world: World, player: PlayerState, platoon: Platoon, front: Fron
   platoon.site = rising ? seat : -1;
   // The gate on the ring road facing the front; a rising gathers further along it, beyond bowshot
   // of the walls it means to retake. Along the ring, angles climb clockwise, toward higher slots.
-  const gate = rising ? capital.radius + RISING_GATE : capital.radius + 24;
+  const gate = rising ? keepOut(capital.radius) : capital.radius + 24;
   const a = slotAngle(capital.slot, map.slots) + (side * gate) / map.ring;
   const ca = dcos(a);
   const sa = dsin(a);
@@ -671,7 +674,17 @@ function fieldedEnemy(s: Scratch, o: Platoon, p: number): boolean {
 }
 
 /** Where the platoon's threat stands, into `point`. False, and the threat forgotten, if it is gone. */
-function threatPoint(world: World, s: Scratch, pl: Platoon): boolean {
+function threatPoint(world: World, s: Scratch, pl: Platoon, i = -1): boolean {
+  // Going after a shooter: the line makes for the shooter itself, not its banner.
+  const h = i >= 0 ? s.hunt[i]! : -1;
+  if (h >= 0 && pl.threat > 0) {
+    const pj = s.unitPlatoon[h]!;
+    if (pj >= 0 && world.platoons[pj]!.id === pl.threat) {
+      point.x = world.units[h]!.x;
+      point.y = world.units[h]!.y;
+      return true;
+    }
+  }
   if (pl.threat > 0) {
     const j = s.platoonIndex.get(pl.threat);
     const o = j === undefined ? undefined : world.platoons[j]!;
@@ -702,12 +715,26 @@ function threatPoint(world: World, s: Scratch, pl: Platoon): boolean {
  * deploy. Distances are measured from the platoon's centre of mass (x, y), which
  * does not jump when a column's leading banner falls back to the middle of its line.
  */
-function scanThreat(world: World, s: Scratch, pl: Platoon, x: number, y: number, ev: TickEvents): void {
+function scanThreat(world: World, s: Scratch, i: number, pl: Platoon, x: number, y: number, ev: TickEvents): void {
+  // Under fire from a shooter it can reach: wheel toward it and go after it.
+  const h = s.hunt[i]!;
+  if (h >= 0) {
+    const pj = s.unitPlatoon[h]!;
+    if (pj >= 0) {
+      pl.threat = world.platoons[pj]!.id;
+      pl.threatAt = world.tick;
+      if (pl.form === Form.Column) setForm(world, pl, Form.Deploying, ev);
+      return;
+    }
+  }
   let bestD2 = Infinity;
   let who = 0;
+  const noGo = s.noGo[i]!;
   for (let j = 0; j < world.platoons.length; j++) {
     const o = world.platoons[j]!;
     if (!fieldedEnemy(s, o, pl.p) || s.members[j] === 0) continue;
+    // A foe sheltering under walls it may not storm yet is no threat to march on.
+    if (noGo !== 0 && zoneAt(world, noGo, o.x, o.y) >= 0) continue;
     const dx = o.x - x;
     const dy = o.y - y;
     const d2 = dx * dx + dy * dy;
@@ -738,14 +765,52 @@ function scanThreat(world: World, s: Scratch, pl: Platoon, x: number, y: number,
   if (best <= DEPLOY_RADIUS && pl.form === Form.Column) setForm(world, pl, Form.Deploying, ev);
 }
 
+/** Per player this tick: foes' standing walls (as structure bits), and those of them it may storm. */
+let noGoBase = new Int32Array(0);
+let noGoStorm = new Int32Array(0);
+
+/**
+ * The keep-out mask of each player's platoons, worked out once a tick per player rather than per
+ * platoon: the same answer as stance.ts noGoMask, which the client uses.
+ */
+function prepareNoGo(world: World, s: Scratch): void {
+  const n = world.players.length;
+  if (noGoBase.length < n) {
+    noGoBase = new Int32Array(n);
+    noGoStorm = new Int32Array(n);
+  }
+  for (let p = 0; p < n; p++) {
+    let base = 0;
+    let storm = 0;
+    for (let k = 0; k < world.structures.length && k < 31; k++) {
+      const st = world.structures[k]!;
+      if (st.hp <= 0 || st.p === p || !hostile(s.ring, p, st.p)) continue;
+      base |= 1 << k;
+      if (stormable(world, s.ring, k, p)) storm |= 1 << k;
+    }
+    noGoBase[p] = base;
+    noGoStorm[p] = storm;
+  }
+}
+
+function noGoOf(world: World, pl: Platoon): number {
+  const base = noGoBase[pl.p] ?? 0;
+  if (base === 0) return 0;
+  for (let k = 0; k < world.structures.length && k < 31; k++) if (world.structures[k]!.site === pl.site) return base & ~((noGoStorm[pl.p] ?? 0) & (1 << k));
+  return base;
+}
+
 function updatePlatoons(world: World, s: Scratch, ev: TickEvents): void {
   const { map, tick } = world;
+  prepareNoGo(world, s);
   for (let i = 0; i < world.platoons.length; i++) {
     const pl = world.platoons[i]!;
     s.ox[i] = pl.x;
     s.oy[i] = pl.y;
     s.ohx[i] = pl.hx;
     s.ohy[i] = pl.hy;
+    s.noGo[i] = 0;
+    s.hunt[i] = -1;
     if (pl.state === PlatoonState.Queued) continue;
     const player = world.players[pl.p]!;
     const members = s.members[i]!;
@@ -775,8 +840,17 @@ function updatePlatoons(world: World, s: Scratch, ev: TickEvents): void {
       continue;
     }
 
+    s.noGo[i] = noGoOf(world, pl);
+    // Struck from walls (or from soldiers sheltering under them) it may not storm yet: back out of reach.
+    if (pullBack(world, s, i, pl, player, cx, cy, ev)) {
+      const mx = pl.x - s.ox[i]!;
+      const my = pl.y - s.oy[i]!;
+      s.moved[i] = Math.sqrt(mx * mx + my * my);
+      continue;
+    }
+    s.hunt[i] = huntTarget(world, s, i, pl);
     const wasColumn = pl.form === Form.Column;
-    if ((tick + pl.id) % THREAT_PERIOD === 0) scanThreat(world, s, pl, cx, cy, ev);
+    if ((tick + pl.id) % THREAT_PERIOD === 0) scanThreat(world, s, i, pl, cx, cy, ev);
     if (pl.calm === 0 && pl.state !== PlatoonState.Engage) pl.state = PlatoonState.Engage;
     if (pl.state === PlatoonState.Engage) setForm(world, pl, Form.Engaged, ev);
     if (wasColumn && pl.form !== Form.Column && passableAt(map, cx, cy)) {
@@ -806,15 +880,19 @@ function updatePlatoons(world: World, s: Scratch, ev: TickEvents): void {
       else marchStep(world, s, i, pl, player, dist, hold, 1, true, true);
     } else if (pl.form === Form.Deploying) {
       // Halt and wheel to face the threat while the blocks find their places in the line.
-      if (threatPoint(world, s, pl)) turnToward(pl, point.x - pl.x, point.y - pl.y);
+      if (threatPoint(world, s, pl, i)) turnToward(pl, point.x - pl.x, point.y - pl.y);
       if ((tick + pl.id) % REFIT_PERIOD === 0) refitLine(world, pl);
-      dressLines(world, s, pl);
+      dressLines(world, s, pl, i);
     } else {
       if ((tick + pl.id) % REFIT_PERIOD === 0) refitLine(world, pl);
-      dressLines(world, s, pl);
-      const facing = threatPoint(world, s, pl);
+      dressLines(world, s, pl, i);
+      const facing = threatPoint(world, s, pl, i);
       if (facing) turnToward(pl, point.x - pl.x, point.y - pl.y);
-      if (pl.state === PlatoonState.March) {
+      else if (pl.state === PlatoonState.Hold && def.kind === 'fort') faceFoe(world, s, pl);
+      if (s.hunt[i]! >= 0 && facing) {
+        // Going after a shooter: advance on it at a column's pace, whatever the doctrine or the objective.
+        advanceLine(world, s, i, pl, player, point.x, point.y, 1);
+      } else if (pl.state === PlatoonState.March) {
         if (tick - pl.threatAt >= STANDDOWN_TICKS) {
           // Nothing near for a while: back into column to march on.
           setForm(world, pl, Form.Column, ev);
@@ -903,7 +981,7 @@ function marchStep(world: World, s: Scratch, i: number, pl: Platoon, player: Pla
 const ROAD_GAP = 24;
 
 /** Friendly lines drawn up on the same ground side-step apart, so an army stands as one long line, not a pile. */
-function dressLines(world: World, s: Scratch, pl: Platoon): void {
+function dressLines(world: World, s: Scratch, pl: Platoon, i: number): void {
   const px = -pl.hy;
   const py = pl.hx;
   let shift = 0;
@@ -924,7 +1002,7 @@ function dressLines(world: World, s: Scratch, pl: Platoon): void {
   if (shift === 0) return;
   const nx = pl.x + px * shift;
   const ny = pl.y + py * shift;
-  if (passableAt(world.map, nx, ny)) {
+  if (passableAt(world.map, nx, ny) && mayStep(world, s, i, pl, nx, ny)) {
     pl.x = nx;
     pl.y = ny;
   }
@@ -966,23 +1044,126 @@ function stepBanner(world: World, pl: Platoon, dx: number, dy: number, speed: nu
 }
 
 /** A deployed line advancing on an enemy banner, until the front ranks meet. */
-function advanceLine(world: World, s: Scratch, i: number, pl: Platoon, player: PlayerState, tx: number, ty: number): void {
+function advanceLine(world: World, s: Scratch, i: number, pl: Platoon, player: PlayerState, tx: number, ty: number, pace = LINE_PACE): void {
   const d = towards(dir, pl.x, pl.y, tx, ty);
   if (d <= CLASH) return;
-  const speed = Math.min(marchSpeed(world, s, i, pl, player) * LINE_PACE, d - CLASH);
+  const speed = Math.min(marchSpeed(world, s, i, pl, player) * pace, d - CLASH);
+  // Never into the reach of walls it may not storm yet (going after a shooter, up to the tower's own reach).
+  if (!mayStep(world, s, i, pl, pl.x + dir.x * speed, pl.y + dir.y * speed, s.hunt[i]! >= 0 ? SHELTER_EDGE : 0)) return;
   stepBanner(world, pl, dir.x, dir.y, speed);
 }
 
+/**
+ * Whether the banner may move to (x, y): not into the keep-out ring of walls it may not storm yet,
+ * grown by half its depth so its front rank stays out too. A banner already inside may still move
+ * outward.
+ */
+function mayStep(world: World, s: Scratch, i: number, pl: Platoon, x: number, y: number, grow = 0): boolean {
+  const mask = s.noGo[i]!;
+  if (mask === 0) return true;
+  const k = zoneAt(world, mask, x, y, grow === 0 ? pl.length * 0.5 : grow);
+  if (k < 0) return true;
+  const def = world.map.sites[world.structures[k]!.site]!;
+  return (x - def.x) ** 2 + (y - def.y) ** 2 > (pl.x - def.x) ** 2 + (pl.y - def.y) ** 2;
+}
+
+/** How far into a keep-out ring a line going after a shooter may press: to just short of the tower's reach. */
+const SHELTER_EDGE = 10 - STAGING_MARGIN;
+
+/** A line holding a border fort with nothing near faces the foe's walls down the road. */
+function faceFoe(world: World, s: Scratch, pl: Platoon): void {
+  for (const f of s.ring.fronts[pl.p] ?? []) {
+    if (f.dir !== pl.front) continue;
+    const def = world.map.sites[f.to];
+    if (def) turnToward(pl, def.x - pl.x, def.y - pl.y);
+    return;
+  }
+}
+
+/**
+ * The shooter a platoon goes after this tick, as an index into world.units, or -1: the foe whose
+ * missile last struck it, while that was recent, the shooter stands within reach of its banner, and
+ * not under walls it may not storm yet.
+ */
+function huntTarget(world: World, s: Scratch, i: number, pl: Platoon): number {
+  if (pl.hitBy <= 0 || !underFire(world.tick, pl.hitAt)) return -1;
+  const a = s.unitIndex.get(pl.hitBy);
+  if (a === undefined) return -1;
+  const v = world.units[a]!;
+  if (!hostile(s.ring, pl.p, v.p)) return -1;
+  const dx = v.x - pl.x;
+  const dy = v.y - pl.y;
+  if (dx * dx + dy * dy > HUNT_REACH * HUNT_REACH) return -1;
+  if (sheltered(world, s.noGo[i]!, v.x, v.y)) return -1;
+  return a;
+}
+
+/**
+ * Backs a platoon out of reach of fire it cannot answer: a tower on walls it may not storm yet, or a
+ * shooter sheltering under such walls. The line keeps facing the threat as it withdraws. True while
+ * it is pulling back (it does nothing else this tick).
+ */
+function pullBack(world: World, s: Scratch, i: number, pl: Platoon, player: PlayerState, cx: number, cy: number, ev: TickEvents): boolean {
+  const mask = s.noGo[i]!;
+  if (mask === 0) return false;
+  let fx = 0;
+  let fy = 0;
+  let fr = 0;
+  if (pl.towerBy < 0 && underFire(world.tick, pl.towerAt)) {
+    const k = -pl.towerBy - 1;
+    if (k < 31 && ((mask >>> k) & 1) === 1) {
+      const def = world.map.sites[world.structures[k]!.site]!;
+      fx = def.x;
+      fy = def.y;
+      fr = keepOut(def.radius) + pl.length * 0.5;
+    }
+  }
+  if (fr === 0 && pl.hitBy > 0 && underFire(world.tick, pl.hitAt)) {
+    const a = s.unitIndex.get(pl.hitBy);
+    const v = a === undefined ? undefined : world.units[a]!;
+    if (v && hostile(s.ring, pl.p, v.p) && sheltered(world, mask, v.x, v.y)) {
+      fx = v.x;
+      fy = v.y;
+      fr = STATS[v.kind]!.range + STAGING_MARGIN * 0.5 + pl.length * 0.5;
+    }
+  }
+  if (fr === 0) return false;
+  let dx = cx - fx;
+  let dy = cy - fy;
+  const d = Math.sqrt(dx * dx + dy * dy);
+  if (d >= fr) return false;
+  if (d > 1e-6) {
+    dx /= d;
+    dy /= d;
+  } else {
+    dx = -pl.hx;
+    dy = -pl.hy;
+  }
+  pl.state = PlatoonState.March;
+  if (pl.form === Form.Engaged || pl.form === Form.Deploying) setForm(world, pl, Form.Line, ev);
+  pl.threatAt = world.tick;
+  // A line backs away still facing the walls; a column turns and marches off, its tail following.
+  const column = pl.form === Form.Column;
+  if (column) turnToward(pl, dx, dy);
+  else turnToward(pl, -dx, -dy);
+  // No waiting for stragglers: everyone is hurrying the same way.
+  let speed = s.slowest[i]! * 0.9 * doctrineSpeed(player.doctrine);
+  if (player.cryUntil > world.tick) speed *= CRY_SPEED;
+  stepBanner(world, pl, dx, dy, Math.min(speed, fr - d + 1));
+  if (column) extendTrail(pl, s.ox[i]!, s.oy[i]!);
+  return true;
+}
+
 function engagedMove(world: World, s: Scratch, i: number, pl: Platoon, player: PlayerState, cx: number, cy: number): void {
-  const facing = threatPoint(world, s, pl);
+  const facing = threatPoint(world, s, pl, i);
   if (facing) turnToward(pl, point.x - pl.x, point.y - pl.y);
   const holding = player.doctrine === Doctrine.Hold && world.tick - pl.formAt < LINE_HOLD;
   if (facing && pl.threat > 0 && !holding && pl.state !== PlatoonState.Hold) {
     const dx = point.x - pl.x;
     const dy = point.y - pl.y;
     if (dx * dx + dy * dy > CLASH * CLASH) {
-      // Press the line forward until it meets theirs.
-      advanceLine(world, s, i, pl, player, point.x, point.y);
+      // Press the line forward until it meets theirs (at a run, going after a shooter).
+      advanceLine(world, s, i, pl, player, point.x, point.y, s.hunt[i]! >= 0 ? 1 : LINE_PACE);
       return;
     }
   }
@@ -990,7 +1171,7 @@ function engagedMove(world: World, s: Scratch, i: number, pl: Platoon, player: P
   // but never onto rock or water, where it could not march on from.
   const nx = pl.x + (cx - pl.x) * 0.08;
   const ny = pl.y + (cy - pl.y) * 0.08;
-  if (passableAt(world.map, nx, ny)) {
+  if (passableAt(world.map, nx, ny) && mayStep(world, s, i, pl, nx, ny)) {
     pl.x = nx;
     pl.y = ny;
   }
@@ -1257,8 +1438,7 @@ function withinLeash(map: MapDef, site: number, x: number, y: number, leash: num
 
 /** Whether player `p` may batter structure `k`: a capital held by one of its foes. */
 function attackable(world: World, s: Scratch, k: number, p: number): boolean {
-  const st = world.structures[k]!;
-  return st.p !== p && st.hp > 0 && hostile(s.ring, p, st.p) && breachable(world, st) && besieging(world, s.ring, p, world.map.sites[st.site]!.slot);
+  return stormable(world, s.ring, k, p);
 }
 
 /** A soldier this badly hurt steps back a rank when a fresh one of its kind can take its place. */
@@ -1426,6 +1606,23 @@ function updateUnits(world: World, s: Scratch, ev: TickEvents): void {
       pick.hy = deployed ? pl.hy : 0;
       const found = pickTarget(world, s, i, pick);
       if (found >= 0) t = found;
+    }
+    if (pl && !routing && structure < 0) {
+      // Never after a foe sheltering under walls the platoon may not storm yet.
+      const mask = s.noGo[pi]!;
+      if (t >= 0 && mask !== 0 && sheltered(world, mask, units[t]!.x, units[t]!.y)) t = -1;
+      // Under fire from a shooter the platoon is going after: riders ride it down, missile troops
+      // shoot back once in range, and the rest close on it once it is near.
+      const h = s.hunt[pi]!;
+      if (h >= 0 && !guard && t !== h) {
+        const v = units[h]!;
+        const dx = v.x - u.x;
+        const dy = v.y - u.y;
+        const d2 = dx * dx + dy * dy;
+        if (stats.ranged) {
+          if (d2 <= stats.range * stats.range * 1.1) t = h;
+        } else if (s.attackers[h]! < attackerCap(v.kind) && (role === Role.Cavalry || d2 <= stats.aggro * stats.aggro)) t = h;
+      }
     }
     if (structure < 0 && t < 0 && !routing && pl) {
       structure = u.target < 0 ? -u.target - 1 : -1;
@@ -1862,7 +2059,7 @@ function updateStructures(world: World, s: Scratch, ev: TickEvents): void {
     }
     const tower = CAPITAL_TOWER;
     const def = world.map.sites[st.site]!;
-    const range = tower.range + def.radius * 0.5;
+    const range = towerReach(def.radius);
     // Most ticks no foe is anywhere near the walls: the coarse presence grid (a superset, widened
     // by 1 against rounding) says so without scanning hundreds of buckets. It cannot see soldiers
     // it does not mark, so with any of those on the field the full scan decides.
@@ -1953,6 +2150,7 @@ function updateShots(world: World, s: Scratch, ev: TickEvents): void {
       continue;
     }
     if (t === undefined) continue;
+    noteHit(world, s, t, shot.from);
     const dmg = shot.kind === ShotKind.TowerBolt ? mitigated(world, s, t, shot.damage, true) : shot.damage;
     s.damage[t]! += dmg;
     if (shot.p >= 0) {
@@ -1962,6 +2160,20 @@ function updateShots(world: World, s: Scratch, ev: TickEvents): void {
     ev.hits.push({ unit: shot.target, damage: dmg, structure: -1 });
   }
   world.shots.length = w;
+}
+
+/** A missile from `from` (a soldier's id, or -(structure + 1) for a tower) struck soldier `t`: its platoon remembers. */
+function noteHit(world: World, s: Scratch, t: number, from: number): void {
+  const pi = s.unitPlatoon[t]!;
+  if (pi < 0) return;
+  const pl = world.platoons[pi]!;
+  if (from < 0) {
+    pl.towerBy = from;
+    pl.towerAt = world.tick;
+  } else if (from > 0) {
+    pl.hitBy = from;
+    pl.hitAt = world.tick;
+  }
 }
 
 /** Area damage: full at the center, half at the edge. */
@@ -1990,6 +2202,7 @@ function splash(world: World, s: Scratch, shot: Shot, x: number, y: number, ev: 
           s.lastKind[j] = SHOOTER[shot.kind] ?? -1;
         }
         if (fiery) v.scorched = world.tick + SCORCH_TICKS;
+        noteHit(world, s, j, shot.from);
         ev.hits.push({ unit: v.id, damage: dmg, structure: -1 });
       }
     }

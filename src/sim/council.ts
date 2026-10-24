@@ -9,7 +9,12 @@ const CROWD_PENALTY = 0.7;
 const OUTMATCHED = 1.6;
 /** Soldiers massed on a front before its foe's full-strength walls are stormed; fewer for walls already breached. */
 export const SIEGE_MASS = 25;
-const SIEGE_MIN = 10;
+export const SIEGE_MIN = 10;
+
+/** Soldiers that must have massed on the front before walls at this strength are stormed. */
+export function siegeNeed(walls: Structure): number {
+  return SIEGE_MIN + (SIEGE_MASS - SIEGE_MIN) * (walls.hp / walls.maxHp);
+}
 
 /**
  * Per presence cell, the sites whose reach could cover a point in it, so each soldier is tested
@@ -109,11 +114,14 @@ export function rallyFront(world: World, ring: Ring, p: number): { ok: boolean; 
 
 /**
  * Where a rally on `site` sends the platoons: the site itself, except that walls cannot be stormed
- * before the approach is won, so a rally on a foe's capital first takes the fort beside it.
+ * before the approach is won or before they are breachable, so a rally on a foe's capital first
+ * takes (or holds) the fort beside it, out of reach of the walls' tower.
  */
-function rallyTarget(world: World, ring: Ring, p: number, site: number, front: Front | null): number {
+export function rallyTarget(world: World, ring: Ring, p: number, site: number, front: Front | null): number {
   const def = world.map.sites[site]!;
-  if (!front || def.kind !== 'capital' || besieging(world, ring, p, def.slot)) return site;
+  if (!front || def.kind !== 'capital') return site;
+  const walls = world.structures.find((st) => st.site === site);
+  if (besieging(world, ring, p, def.slot) && (!walls || breachable(world, walls))) return site;
   const { slots } = world.map;
   if (front.forts.length > 0) return front.forts[front.forts.length - 1]!;
   // A rising's approach: the fort beside its lost home that it does not hold yet, nearer side first.
@@ -299,8 +307,8 @@ function siteScore(world: World, ring: Ring, p: number, k: number, x: number, y:
       value = doctrine === Doctrine.Siege ? 7 : doctrine === Doctrine.Assault ? 3.5 : 1;
       // A rising has one aim: its lost home.
       if (player.rising && def.slot === player.slot) value = Math.max(value, 5);
-      const need = SIEGE_MIN + (SIEGE_MASS - SIEGE_MIN) * (walls.hp / walls.maxHp);
-      if (strength + massed < need) value *= 0.1;
+      // Too few gathered yet: hold the approach (a held fort is worth 0.4) and mass there, whatever the doctrine.
+      if (strength + massed < siegeNeed(walls)) value = Math.min(value * 0.1, 0.3);
     }
   } else {
     if (state.owner === p) value = enemy > 0 ? (doctrine === Doctrine.Hold ? 7 : 4) : 0.4;
@@ -346,9 +354,25 @@ export function besieging(world: World, ring: Ring, p: number, slot: number): bo
  * is paced by the war's length (`pacing`).
  */
 export function breachable(world: World, st: Structure): boolean {
+  return world.tick >= gatesOpenAt(world, st);
+}
+
+/**
+ * The tick from which a capital's walls can be stormed: when the sieges open, or later while a
+ * founder's gates stay barred (until a grace after its first push, or the hour all gates open; a
+ * founder that has not pushed yet keeps them barred until that hour).
+ */
+export function gatesOpenAt(world: World, st: Structure): number {
   const pc = pacing(world.params.ticks);
-  if (world.tick < pc.opens) return false;
-  if (world.tick >= pc.barredUntil || st.taken > 0) return true;
+  if (st.taken > 0) return pc.opens;
   const owner = world.players[st.p];
-  return !owner || (owner.firstPushAt >= 0 && world.tick >= owner.firstPushAt + pc.grace);
+  if (!owner) return pc.opens;
+  const grace = owner.firstPushAt >= 0 ? owner.firstPushAt + pc.grace : Infinity;
+  return Math.max(pc.opens, Math.min(pc.barredUntil, grace));
+}
+
+/** Whether player `p` may storm structure `k` now: a foe's capital, standing, breachable, its approach won. */
+export function stormable(world: World, ring: Ring, k: number, p: number): boolean {
+  const st = world.structures[k]!;
+  return st.p !== p && st.hp > 0 && hostile(ring, p, st.p) && breachable(world, st) && besieging(world, ring, p, world.map.sites[st.site]!.slot);
 }

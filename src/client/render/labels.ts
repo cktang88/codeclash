@@ -1,4 +1,4 @@
-import { Container, NineSliceSprite, Text, type TextStyleOptions } from 'pixi.js';
+import { Container, Graphics, NineSliceSprite, Text, type TextStyleOptions } from 'pixi.js';
 import { siteArt } from './siteart.ts';
 import { DISPLAY_FONT } from './terrain.ts';
 
@@ -19,8 +19,18 @@ const SUB: TextStyleOptions = {
   fontSize: 15,
   fill: 0x4a3a28,
 };
+/** A commander's bark: a spoken line, lettered in italic ink on a small scroll with a tail to the speaker. */
+const BARK: TextStyleOptions = {
+  fontFamily: 'Alegreya, Georgia, serif',
+  fontStyle: 'italic',
+  fontWeight: '700',
+  fontSize: 15,
+  fill: 0x22180f,
+};
 const PAD_X = 16;
 const PAD_Y = 5;
+/** Height of a bark's tail below its scroll, in screen pixels. */
+export const TAIL_H = 9;
 
 export class MapLabel {
   readonly root = new Container();
@@ -40,16 +50,24 @@ export class MapLabel {
   /** Ink colour of the title: plain ink, or vermilion for rubricated names (the leader). */
   private rubric = false;
   readonly titleSize: number;
+  /** A bark's tail, pointing down at whoever speaks; absent on plain labels. */
+  private readonly tail: Graphics | null;
 
-  constructor(titleSize = 18) {
+  constructor(titleSize = 18, kind: 'label' | 'bark' = 'label') {
     this.titleSize = titleSize;
     const art = siteArt();
     this.bg = new NineSliceSprite({ texture: art.cartouche, leftWidth: art.cartoucheSlice.left, rightWidth: art.cartoucheSlice.right, topHeight: art.cartoucheSlice.top, bottomHeight: art.cartoucheSlice.bottom });
-    this.title = new Text({ text: '', style: { ...TITLE, fontSize: titleSize }, resolution: 2 });
+    this.title = new Text({ text: '', style: kind === 'bark' ? { ...BARK, fontSize: titleSize } : { ...TITLE, fontSize: titleSize }, resolution: 2 });
+    this.tail = kind === 'bark' ? new Graphics() : null;
     this.sub = new Text({ text: '', style: SUB, resolution: 2 });
     this.title.anchor.set(0.5, 0);
     this.sub.anchor.set(0.5, 0);
-    this.root.addChild(this.bg, this.title, this.sub);
+    if (this.tail) {
+      // An ink-edged vellum tail, its tip at the anchor: the scroll sits just above it.
+      this.tail.poly([-7, -TAIL_H - 2, 7, -TAIL_H - 2, 0, 0]).fill(0xefe4c8).stroke({ width: 1.6, color: 0x22180f, alpha: 0.85 });
+      this.tail.moveTo(-6.2, -TAIL_H - 2.2).lineTo(6.2, -TAIL_H - 2.2).stroke({ width: 2.4, color: 0xefe4c8 });
+      this.root.addChild(this.bg, this.tail, this.title, this.sub);
+    } else this.root.addChild(this.bg, this.title, this.sub);
   }
 
   set(title: string, sub: string, rubric = false): void {
@@ -77,12 +95,15 @@ export class MapLabel {
     const sw = sub ? this.sub.width : 0;
     this.w = Math.max(tw, sw) + PAD_X * 2;
     this.h = this.title.height + (sub ? this.sub.height - 2 : 0) + PAD_Y * 2;
+    // A bark's scroll stands on its tail.
+    const lift = this.tail ? TAIL_H : 0;
     this.bg.width = this.w;
     this.bg.height = this.h;
-    this.bg.position.set(-this.w / 2, -this.h);
-    this.title.position.set(0, -this.h + PAD_Y);
-    this.sub.position.set(0, -this.h + PAD_Y + this.title.height - 3);
+    this.bg.position.set(-this.w / 2, -this.h - lift);
+    this.title.position.set(0, -this.h - lift + PAD_Y);
+    this.sub.position.set(0, -this.h - lift + PAD_Y + this.title.height - 3);
     this.sub.visible = sub;
+    this.h += lift;
   }
 
   setSub(on: boolean): void {

@@ -68,6 +68,8 @@ export function BattlefieldView({ store, getRunner, onReady }: { store: GameStor
           }
           handle = h;
           ready.current(h);
+          // Development captures (screenshots, legibility) drive the camera from the console.
+          if (import.meta.env.DEV) Object.assign(window, { battlefield: h });
           void (h.drawn ?? Promise.resolve()).then(() => {
             if (cancelled) return;
             setLoading('leaving');

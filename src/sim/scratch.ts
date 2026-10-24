@@ -43,6 +43,10 @@ export interface Scratch {
   /** Per platoon: summed distance of ground soldiers from their places, and how many. */
   errSum: Float64Array;
   errN: Int32Array;
+  /** Per platoon: walls whose tower's reach it keeps out of (stance.ts noGoMask), as structure bits. */
+  noGo: Int32Array;
+  /** Per platoon: index into world.units of the shooter it is going after this tick, or -1. */
+  hunt: Int32Array;
   /** Platoon indices grouped by player: player p's are porder[pstart[p] .. pstart[p + 1]). */
   porder: Int32Array;
   pstart: Int32Array;
@@ -130,6 +134,8 @@ export function scratchFor(world: World): Scratch {
       moved: new Float64Array(256),
       errSum: new Float64Array(256),
       errN: new Int32Array(256),
+      noGo: new Int32Array(256),
+      hunt: new Int32Array(256),
       porder: new Int32Array(256),
       pstart: new Int32Array(65),
       attackers: new Int32Array(cap),
@@ -162,6 +168,8 @@ function ensurePlatoonCapacity(s: Scratch, n: number): void {
   s.moved = new Float64Array(size);
   s.errSum = new Float64Array(size);
   s.errN = new Int32Array(size);
+  s.noGo = new Int32Array(size);
+  s.hunt = new Int32Array(size);
   s.porder = new Int32Array(size);
 }
 

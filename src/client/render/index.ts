@@ -28,6 +28,11 @@ import { siteArt } from './siteart.ts';
 import { SiteLayer } from './sites.ts';
 import { hitstopMs } from './impact.ts';
 import { PostFx, postAllowed } from './post.ts';
+import { StanceLayer } from './stances.ts';
+import { BarkLayer, platoonName } from './barkview.ts';
+import { platoonWait, waitContext, type WaitInfo } from '../../sim/stance.ts';
+import { siteLabel } from '../../sim/chronicle.ts';
+import type { BarkNames } from '../barks.ts';
 import { paintTerrain, type TerrainPixels } from './terrain.ts';
 import { terrainPixelsFor } from './terrainjob.ts';
 import { makeTextures, type Textures } from './textures.ts';
@@ -196,6 +201,18 @@ export class Battlefield {
   private readonly banners: BannerLayer;
   /** Far zoom: each platoon's kind-blocks instead of its soldiers. */
   private readonly blocks = new BlockLayer();
+  /** What each platoon is about, on the chart: camps, siege lines, pickets, chevrons, banner tags. */
+  private readonly stances: StanceLayer;
+  /** Commander barks and the state scroll of the hovered or selected platoon. */
+  private barks: BarkLayer | null = null;
+  /** Why each platoon does what it does (sim/stance.ts), refreshed a few times a second. */
+  private waits = new Map<number, WaitInfo>();
+  private waitsAt = -1e9;
+  private waitsTick = -1;
+  /** The pointer over the canvas, in canvas pixels, for hovering a platoon; null when it is away. */
+  private pointer: { x: number; y: number } | null = null;
+  private hovered: number | null = null;
+  private barkNames: BarkNames | null = null;
   /** The level of detail for this frame's zoom (lod.ts). */
   private lod: LodState = initialLod(1);
   private readonly flags = new FlagCache();
@@ -266,6 +283,7 @@ export class Battlefield {
       return flight.height + ((cell.feetY - cell.h / 2) / cell.h) * art.scale(kind);
     };
     this.banners = new BannerLayer(this.flags);
+    this.stances = new StanceLayer(tex.soft);
     this.gradeVignette = new Sprite(vignette());
     this.gradeSun = new Sprite(sunGradient());
     this.gradeSun.blendMode = 'screen';
@@ -285,7 +303,7 @@ export class Battlefield {
       this.torches.push(s);
     }
     const torchLayer = new Container();
-    torchLayer.addChild(...this.torches);
+    torchLayer.addChild(...this.torches, this.stances.glow);
     app.stage.addChild(this.world, this.grade, this.top);
     for (let i = 0; i < MAX_TORCHES; i++) {
       const s = new Sprite(tex.soft);
@@ -301,6 +319,7 @@ export class Battlefield {
       this.groundLayer,
       poolLayer,
       this.selection,
+      this.stances.ground,
       this.fx.ground,
       this.units.shadows,
     );
@@ -308,7 +327,7 @@ export class Battlefield {
     // silhouettes never sink into the night ground.
     this.actors.addChild(this.units.bodies, this.units.dots, this.fx.air);
     this.sky.addChild(this.units.air);
-    this.top.addChild(this.lights, torchLayer, this.units.bases, this.blocks.root, this.actors, this.fx.glow, this.banners.root, this.sky, this.fx.overlay);
+    this.top.addChild(this.lights, torchLayer, this.units.bases, this.blocks.root, this.actors, this.fx.glow, this.banners.root, this.stances.marks, this.sky, this.fx.overlay);
     this.camera = new Camera(app.canvas, {
       onClick: (sx, sy) => this.click(sx, sy),
       onUserPan: () => {
@@ -322,6 +341,20 @@ export class Battlefield {
         this.cine = null;
       },
       onFollowKey: () => this.toggleFollowMine(),
+    });
+    // Hovering a platoon names what it is doing.
+    const hover = (e: PointerEvent) => {
+      const r = app.canvas.getBoundingClientRect();
+      this.pointer = e.pointerType === 'touch' ? null : { x: e.clientX - r.left, y: e.clientY - r.top };
+    };
+    const away = () => {
+      this.pointer = null;
+    };
+    app.canvas.addEventListener('pointermove', hover);
+    app.canvas.addEventListener('pointerleave', away);
+    this.detachEnv.push(() => {
+      app.canvas.removeEventListener('pointermove', hover);
+      app.canvas.removeEventListener('pointerleave', away);
     });
     const post = postAllowed(app.renderer, !!opts.reducedMotion);
     this.post = new PostFx(app.renderer, app.stage, [this.lights, this.fx.glow], post.allowed, post.forced);
@@ -511,6 +544,7 @@ export class Battlefield {
     this.camera.destroy();
     this.dropMap();
     this.banners.destroy();
+    this.stances.destroy();
     this.blocks.destroy();
     this.post.destroy();
     this.fx.destroy();
@@ -755,6 +789,28 @@ export class Battlefield {
     for (const r of this.store.roster) this.trims[r.p] = r.heraldry?.trim;
     const followed = this.store.followMine ? this.myBanner(world)?.id ?? null : null;
     this.banners.update(world, this.store.repos, this.hues, now, zoom, centroids, bounds, sel?.kind === 'platoon' ? sel.id : null, this.trims, dtMs, !!this.opts.reducedMotion, lod.far, followed);
+    this.refreshWaits(world, now);
+    this.hovered = this.hoverAt();
+    const top = (id: number) => this.banners.top(id);
+    const inView = (x: number, y: number) => bounds.contains(x, y);
+    this.stances.update({ world, waits: this.waits, centroids, top, tints: this.actorTints, zoom, now, lights: light.lights, far: lod.far, reducedMotion: !!this.opts.reducedMotion, inView });
+    this.barks?.update({
+      world,
+      waits: this.waits,
+      centroids,
+      top,
+      names: this.namesForBarks(world),
+      platoonName: (pl) => platoonName(this.store.names, pl),
+      now,
+      zoom,
+      far: lod.far,
+      reducedMotion: !!this.opts.reducedMotion,
+      selected: sel?.kind === 'platoon' ? sel.id : null,
+      followed,
+      hovered: this.hovered,
+      viewer: this.store.viewerP,
+      inView,
+    });
     this.sky.tint = this.actors.tint;
     if (now >= this.flagPruneAt) {
       this.flagPruneAt = now + FLAG_PRUNE_MS;
@@ -816,6 +872,43 @@ export class Battlefield {
       // The renderer paints after this tick: the frame after next has the map on screen.
       requestAnimationFrame(() => requestAnimationFrame(() => this.drawnResolve()));
     }
+  }
+
+  /** Why each fielded platoon does what it does: derived from the world a few times a second. */
+  private refreshWaits(world: World, now: number): void {
+    if (now - this.waitsAt < 400 && world.tick - this.waitsTick < 10 && world.tick >= this.waitsTick) return;
+    this.waitsAt = now;
+    this.waitsTick = world.tick;
+    this.waits.clear();
+    if (world.platoons.length === 0) return;
+    const ctx = waitContext(world);
+    for (const pl of world.platoons) {
+      if (pl.state === PlatoonState.Queued || pl.alive <= 0) continue;
+      this.waits.set(pl.id, platoonWait(ctx, pl));
+    }
+  }
+
+  private namesForBarks(world: World): BarkNames {
+    const store = this.store;
+    this.barkNames ??= {
+      player: (p) => store.names.player(p),
+      site: (k) => (store.world ? siteLabel(store.world, k, store.names) : 'the field'),
+      clock: (tick) => new Date(store.timeOfTick(tick)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    };
+    void world;
+    return this.barkNames;
+  }
+
+  /** The platoon whose banner the pointer is over, if any. */
+  private hoverAt(): number | null {
+    if (!this.pointer) return null;
+    const p = this.camera.toWorld(this.pointer.x, this.pointer.y);
+    for (const h of this.banners.hits) {
+      const dx = p.x - h.x;
+      const dy = p.y - h.y;
+      if (dx * dx + dy * dy <= h.r * h.r) return h.platoon;
+    }
+    return null;
   }
 
   /** The platoon the "Follow my banner" camera rides with: the viewer's newest one in the field. */
@@ -986,6 +1079,9 @@ export class Battlefield {
   private resetTransient(): void {
     this.units.reset();
     this.banners.reset();
+    this.barks?.reset();
+    this.waits.clear();
+    this.waitsAt = -1e9;
     this.fx.reset();
     this.director.reset();
     this.shake = 0;
@@ -997,6 +1093,8 @@ export class Battlefield {
   private dropMap(): void {
     if (!this.layers) return;
     const { terrain, influence, water, sites, atmosphere, borders } = this.layers;
+    this.barks?.destroy();
+    this.barks = null;
     this.groundLayer.removeChildren();
     // The terrain canvas and influence textures belong to this map alone; the site
     // sprites share the painted site art, so only their display objects are destroyed.
@@ -1040,6 +1138,7 @@ export class Battlefield {
     this.lights.addChild(sites.lights, atmosphere.glow);
     this.top.addChild(sites.labels.root);
     this.top.setChildIndex(sites.labels.root, this.top.children.indexOf(this.fx.overlay));
+    this.barks = new BarkLayer(sites.labels);
     this.layers = { map, key: mapKey(world), terrain, water, sites, influence, borders, atmosphere };
     this.monumentKey = '';
     this.camera.fit(map.radius);

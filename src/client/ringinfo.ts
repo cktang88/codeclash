@@ -1,5 +1,5 @@
 import { NEUTRAL, type Structure, type World } from '../sim/api.ts';
-import { breachable } from '../sim/council.ts';
+import { breachable, gatesOpenAt } from '../sim/council.ts';
 import { pacing } from '../sim/stats.ts';
 
 // What the client tells players about the ring's sieges, read from the world: when the walls can
@@ -17,12 +17,8 @@ export function siegesOpenAt(world: World): number {
  */
 export function gatesUnbarAt(world: World, st: Structure): number {
   if (breachable(world, st)) return -1;
-  const pc = pacing(world.params.ticks);
-  if (st.taken > 0) return -1;
-  const holder = world.players[st.p];
-  const grace = holder && holder.firstPushAt >= 0 ? holder.firstPushAt + pc.grace : Infinity;
-  const until = Math.min(pc.barredUntil, grace);
-  return until > Math.max(world.tick, pc.opens) ? until : -1;
+  const at = gatesOpenAt(world, st);
+  return at > Math.max(world.tick, pacing(world.params.ticks).opens) ? at : -1;
 }
 
 /** The player whose home seat this is, or NEUTRAL for an open seat. */

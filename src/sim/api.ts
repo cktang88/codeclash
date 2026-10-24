@@ -272,6 +272,12 @@ export interface Platoon {
   stuck: number;
   /** The road behind the banner as x, y pairs TRAIL_STEP apart, newest first: the column follows it. */
   trail: number[];
+  /** The enemy soldier (unit id) whose missile last struck one of its soldiers, or 0; and the tick it landed, or -1. */
+  hitBy: number;
+  hitAt: number;
+  /** The capital tower, -(structure index + 1), whose bolt last struck one of its soldiers, or 0; and the tick, or -1. */
+  towerBy: number;
+  towerAt: number;
 }
 
 /** A capital's walls and tower. One per claimed seat; the ring of owners is read from these. */

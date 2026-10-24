@@ -86,6 +86,9 @@ interface BannerView {
   /** Far-zoom placement: the marker's footprint and screen-pixel offset from its platoon. */
   box: MarkerBox;
   platoon: number;
+  /** The top of the staff in world units, where a commander's bark points; NaN while hidden. */
+  topX: number;
+  topY: number;
 }
 
 const BAR_W = FLAG_W;
@@ -247,6 +250,13 @@ export class BannerLayer {
     this.folding.push({ v, into, at: now, x: v.x, y: v.y });
   }
 
+  /** Where platoon `id`'s banner stands this frame, its staff's top in world units; null while not drawn. */
+  top(id: number): { x: number; y: number } | null {
+    const v = this.views.get(id);
+    if (!v || !v.root.visible || !Number.isFinite(v.topY)) return null;
+    return { x: v.topX, y: v.topY };
+  }
+
   rout(platoon: number, now: number): void {
     const v = this.views.get(platoon);
     if (v) v.routFlash = now;
@@ -348,6 +358,7 @@ export class BannerLayer {
       const ty = c ? c.y * (1 - front) + v.ay * front : v.ay;
       v.x += (tx - v.x) * followK;
       v.y += (ty - v.y) * followK;
+      v.topX = v.topY = NaN;
       if (!bounds.contains(v.x, v.y) || this.home.has(pl.id)) {
         v.root.visible = false;
         v.box.ox = v.box.oy = 0;
@@ -390,6 +401,8 @@ export class BannerLayer {
         b.w = sized.w;
         b.cx = sized.cx;
         b.must = pl.id === followed;
+        v.topX = v.x;
+        v.topY = v.y - (MARK_H + 6) / zoom;
         // Who keeps a marker when there is no room: fighting first, then the largest.
         b.priority = (engaged ? 20000 : routing ? 8000 : pl.state === PlatoonState.March ? 4000 : 0) + Math.min(3000, pl.alive * 10) + (pl.champion ? 2000 : 0);
         this.crowd.push(b);
@@ -451,6 +464,8 @@ export class BannerLayer {
         this.crowdViews.push(v);
       }
       this.hit(pl.id, v.x, v.y - lift - FLAG_H * 0.9 * scale, Math.max(FLAG_W * 0.6 * scale, 10 / zoom));
+      v.topX = v.x;
+      v.topY = v.root.position.y - FLAG_H * 1.55 * scale;
     }
     if (far) this.gatherBadges(world, repos, hues, zoom, bounds);
     else for (const b of this.badges.values()) b.root.visible = false;
@@ -721,7 +736,7 @@ export class BannerLayer {
     gauge.addChild(count);
     root.addChild(pole, flag.mesh, finial, token, markBack, markBar, markCount, gauge, star);
     this.root.addChild(root);
-    return { root, pole, finial, flag, gauge, strength, wound, edge, morale, woundW: BAR_W, woundAt: -1e9, token, tokenKey: '', markBack, markBar, markCount, markAlpha: 0, count, star, seen: 0, key: '', routFlash: -1e9, raise: 1, raiseTarget: 1, x: 0, y: 0, ax: 0, ay: 0, platoon: -1, box: markerBox(2) };
+    return { root, pole, finial, flag, gauge, strength, wound, edge, morale, woundW: BAR_W, woundAt: -1e9, token, tokenKey: '', markBack, markBar, markCount, markAlpha: 0, count, star, seen: 0, key: '', routFlash: -1e9, raise: 1, raiseTarget: 1, x: 0, y: 0, ax: 0, ay: 0, platoon: -1, box: markerBox(2), topX: NaN, topY: NaN };
   }
 
   private staff: Texture | null = null;

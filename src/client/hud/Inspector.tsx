@@ -16,6 +16,8 @@ import { STATE_NAMES } from './Command.tsx';
 import { useHudContext } from './context.ts';
 import { playerInfo } from './names.ts';
 import { PurposeTag } from '../ui/PurposeTag.tsx';
+import { platoonWait, waitContext } from '../../sim/stance.ts';
+import { statusLine, type BarkNames } from '../barks.ts';
 
 function aliveByKind(world: World, platoonId: number): number[] {
   const counts = new Array<number>(STATS.length).fill(0);
@@ -78,6 +80,12 @@ export function Inspector({ hud }: { hud: HudSnapshot }) {
     const owner = playerInfo(hud.roster, pl.p);
     const ref = hud.repos[pl.repo];
     const alive = aliveByKind(world, pl.id);
+    const names: BarkNames = {
+      player: (p) => store.names.player(p),
+      site: (k) => siteLabel(world, k, store.names),
+      clock: (tick) => new Date(store.timeOfTick(tick)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    };
+    const status = pl.state === PlatoonState.Queued ? 'Waiting at the gate to march out.' : statusLine(platoonWait(waitContext(world), pl), names);
     return (
       <section className="panel inspector" aria-label="Selected platoon">
         <header className="inspector-head">
@@ -102,6 +110,7 @@ export function Inspector({ hud }: { hud: HudSnapshot }) {
           )}
           {pl.champion && <span className="tag tag-gold">Champion leads</span>}
         </div>
+        <p className="inspector-status" aria-live="polite">{status}</p>
         <Meter label="Strength" value={pl.state === PlatoonState.Queued ? pl.size : pl.alive} max={pl.size} kind="strength" />
         <Meter label="Morale" value={Math.max(0, Math.round(pl.morale))} max={100} kind="morale" />
         <div className="inspector-units">

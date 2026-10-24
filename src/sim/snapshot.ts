@@ -11,7 +11,14 @@ export function snapshot(world: World): WorldSnapshot {
 export function restore(snap: WorldSnapshot): World {
   if (snap.version !== 3) throw new Error(`unsupported snapshot version ${String(snap.version)}`);
   const w = JSON.parse(JSON.stringify(snap.world)) as Omit<World, 'map'>;
-  for (const pl of w.platoons) drawnUpFresh(pl);
+  for (const pl of w.platoons) {
+    drawnUpFresh(pl);
+    // Snapshots from before platoons remembered who shot at them: nothing has, yet.
+    pl.hitBy ??= 0;
+    pl.hitAt ??= -1;
+    pl.towerBy ??= 0;
+    pl.towerAt ??= -1;
+  }
   return { ...w, map: sharedMap(w.params) };
 }
 
@@ -120,6 +127,11 @@ export function checksum(world: World): number {
     int(pl.front);
     int(pl.home);
     int(pl.rising ? 1 : 0);
+    // Who last shot at it: what it answers, or pulls back from.
+    num(pl.hitBy);
+    num(pl.hitAt);
+    num(pl.towerBy);
+    num(pl.towerAt);
   }
   int(world.structures.length);
   for (const st of world.structures) {
