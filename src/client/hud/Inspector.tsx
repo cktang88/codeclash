@@ -17,7 +17,7 @@ import { useHudContext } from './context.ts';
 import { playerInfo } from './names.ts';
 import { PurposeTag } from '../ui/PurposeTag.tsx';
 import { platoonWait, waitContext } from '../../sim/stance.ts';
-import { statusLine, type BarkNames } from '../barks.ts';
+import { stateWord, statusLine, type BarkNames } from '../barks.ts';
 
 function aliveByKind(world: World, platoonId: number): number[] {
   const counts = new Array<number>(STATS.length).fill(0);
@@ -85,7 +85,8 @@ export function Inspector({ hud }: { hud: HudSnapshot }) {
       site: (k) => siteLabel(world, k, store.names),
       clock: (tick) => new Date(store.timeOfTick(tick)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     };
-    const status = pl.state === PlatoonState.Queued ? 'Waiting at the gate to march out.' : statusLine(platoonWait(waitContext(world), pl), names);
+    const wait = pl.state === PlatoonState.Queued ? null : platoonWait(waitContext(world), pl);
+    const status = wait ? statusLine(wait, names) : 'Waiting at the gate to march out.';
     return (
       <section className="panel inspector" aria-label="Selected platoon">
         <header className="inspector-head">
@@ -101,7 +102,7 @@ export function Inspector({ hud }: { hud: HudSnapshot }) {
           {close}
         </header>
         <div className="inspector-state">
-          <span className={`state-pill state-${pl.state}`}>{STATE_NAMES[pl.state]}</span>
+          <span className={`state-pill state-${pl.state}`}>{wait ? stateWord(wait, names) : STATE_NAMES[pl.state]}</span>
           <PurposeTag purpose={pl.purpose} />
           {pl.state !== PlatoonState.Queued && pl.site >= 0 && (
             <span className="muted">
