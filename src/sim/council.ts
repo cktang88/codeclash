@@ -1,4 +1,4 @@
-import { Doctrine, NEUTRAL, PlatoonState, type Platoon, type Structure, type World } from './api.ts';
+import { NEUTRAL, PlatoonState, type Platoon, type Structure, type World } from './api.ts';
 import { pacing } from './stats.ts';
 import { frontOf, hostile, type Front, type Ring } from './ring.ts';
 import type { Scratch } from './scratch.ts';
@@ -102,33 +102,6 @@ function countIfNear(presence: Int32Array, def: { x: number; y: number; radius: 
   if (dx * dx + dy * dy <= reach * reach) presence[k * n + p]!++;
 }
 
-/** Whether player `p`'s rally on its rally site holds now: a site on one of its fronts, or a capital it holds. */
-export function rallyFront(world: World, ring: Ring, p: number): { ok: boolean; front: Front | null } {
-  const player = world.players[p]!;
-  if (player.rallySite < 0 || player.rallyUntil <= world.tick) return { ok: false, front: null };
-  const front = frontOf(ring, world, p, player.rallySite);
-  if (front) return { ok: true, front };
-  const def = world.map.sites[player.rallySite];
-  return { ok: !!def && def.kind === 'capital' && ring.owner[def.slot] === p, front: null };
-}
-
-/**
- * Where a rally on `site` sends the platoons: the site itself, except that walls cannot be stormed
- * before the approach is won or before they are breachable, so a rally on a foe's capital first
- * takes (or holds) the fort beside it, out of reach of the walls' tower.
- */
-export function rallyTarget(world: World, ring: Ring, p: number, site: number, front: Front | null): number {
-  const def = world.map.sites[site]!;
-  if (!front || def.kind !== 'capital') return site;
-  const walls = world.structures.find((st) => st.site === site);
-  if (besieging(world, ring, p, def.slot) && (!walls || breachable(world, walls))) return site;
-  const { slots } = world.map;
-  if (front.forts.length > 0) return front.forts[front.forts.length - 1]!;
-  // A rising's approach: the fort beside its lost home that it does not hold yet, nearer side first.
-  const cw = slots + def.slot;
-  return world.sites[cw]!.owner !== p ? cw : slots + ((def.slot - 1 + slots) % slots);
-}
-
 /** The front a platoon fights on: the nearest of its player's fronts in its direction, else the nearest at all. */
 function frontFor(world: World, ring: Ring, p: number, pl: Platoon): Front | null {
   const sites = world.map.sites;
@@ -151,16 +124,13 @@ function frontFor(world: World, ring: Ring, p: number, pl: Platoon): Front | nul
 }
 
 /**
- * Which front a new platoon of player `p` marches to: the one a rally names, else the one under
- * the most pressure for the strength already sent there, so musters alternate between two quiet
+ * Which front a new platoon of player `p` marches to: the one under the most pressure for the strength already sent there, so musters alternate between two quiet
  * fronts and lean toward the one the foe is pressing.
  */
 export function musterFront(world: World, s: Scratch, p: number, presence: Int32Array): Front | null {
   const ring = s.ring;
   const fronts = ring.fronts[p] ?? [];
   if (fronts.length === 0) return null;
-  const rally = rallyFront(world, ring, p);
-  if (rally.ok && rally.front) return rally.front;
   const n = world.players.length;
   let best: Front | null = null;
   let bestScore = -Infinity;
@@ -184,10 +154,9 @@ export function musterFront(world: World, s: Scratch, p: number, presence: Int32
 
 /**
  * The war council of player `p`: hands every marching or holding platoon an objective on its
- * front. A rally on a front's site (or one of its own capitals) overrides it. Otherwise each
- * site of the platoon's front (its forts, the foe's capital at the far end, its own capital at
+ * front. Each site of the platoon's front (its forts, the foe's capital at the far end, its own capital at
  * this end) and every capital it holds is scored by renown, distance (supply lines), nearby
- * strength and doctrine; platoons already sent somewhere make that site less attractive to the
+ * strength; platoons already sent somewhere make that site less attractive to the
  * next. A rising's platoons march on its lost home.
  */
 export function runCouncil(world: World, s: Scratch, p: number, presence: Int32Array): void {
@@ -196,18 +165,11 @@ export function runCouncil(world: World, s: Scratch, p: number, presence: Int32A
   const { sites: defs, slots } = world.map;
   const n = world.players.length;
   const assigned = new Int32Array(defs.length);
-  const rally = rallyFront(world, ring, p);
-  const rallySite = rally.ok ? rallyTarget(world, ring, p, player.rallySite, rally.front) : -1;
   const held = ring.capitals[p] ?? [];
   const candidates: number[] = [];
   for (const pl of world.platoons) {
     if (pl.p !== p || pl.state === PlatoonState.Queued || pl.state === PlatoonState.Rout) continue;
     pl.rising = held.length === 0;
-    if (rally.ok) {
-      pl.site = rallySite;
-      if (rally.front) pl.front = rally.front.dir;
-      continue;
-    }
     const f = frontFor(world, ring, p, pl);
     candidates.length = 0;
     let massed = 0;
@@ -286,7 +248,6 @@ function siteScore(world: World, ring: Ring, p: number, k: number, x: number, y:
   const player = world.players[p]!;
   const def = world.map.sites[k]!;
   const state = world.sites[k]!;
-  const doctrine = player.doctrine;
   let mine = 0;
   let enemy = 0;
   for (let q = 0; q < n; q++) {
@@ -304,25 +265,22 @@ function siteScore(world: World, ring: Ring, p: number, k: number, x: number, y:
       if (owner === NEUTRAL || !hostile(ring, p, owner)) return 0;
       const walls = world.structures.find((st) => st.site === k);
       if (!walls || !breachable(world, walls) || !besieging(world, ring, p, def.slot)) return 0;
-      value = doctrine === Doctrine.Siege ? 7 : doctrine === Doctrine.Assault ? 3.5 : 1;
+      value = 1;
       // A rising has one aim: its lost home.
       if (player.rising && def.slot === player.slot) value = Math.max(value, 5);
-      // Too few gathered yet: hold the approach (a held fort is worth 0.4) and mass there, whatever the doctrine.
+      // Too few gathered yet: hold the approach (a held fort is worth 0.4) and mass there.
       if (strength + massed < siegeNeed(walls)) value = Math.min(value * 0.1, 0.3);
     }
   } else {
-    if (state.owner === p) value = enemy > 0 ? (doctrine === Doctrine.Hold ? 7 : 4) : 0.4;
+    if (state.owner === p) value = enemy > 0 ? 4 : 0.4;
     else value = state.owner === NEUTRAL ? 4 : 3.5;
-    if (doctrine === Doctrine.Hold && state.owner !== p) value *= 0.7;
   }
   if (value <= 0) return 0;
-  if (doctrine === Doctrine.Skirmish) value /= 1 + enemy / 12;
-  else if (enemy > (strength + mine) * OUTMATCHED) value *= 0.35;
+  if (enemy > (strength + mine) * OUTMATCHED) value *= 0.35;
   const dx = def.x - x;
   const dy = def.y - y;
   const dist = Math.sqrt(dx * dx + dy * dy);
-  const scale = doctrine === Doctrine.Hold ? DISTANCE_SCALE * 0.6 : DISTANCE_SCALE;
-  return value / (1 + dist / scale);
+  return value / (1 + dist / DISTANCE_SCALE);
 }
 
 /** The player holding the capital of seat `slot`, or NEUTRAL if no one has claimed it. */

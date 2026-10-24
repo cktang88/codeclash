@@ -1,10 +1,9 @@
 import { Fragment, useState, type ReactNode } from 'react';
 import { Kind } from '../../sim/api.ts';
-import { DOCTRINE_NAMES, STATS, type Tier } from '../../sim/stats.ts';
+import { STATS, type Tier } from '../../sim/stats.ts';
 import { Modal } from '../ui/Modal.tsx';
 import { Ribbons } from '../ui/codex.tsx';
-import { DoctrineIcon, UnitIcon } from '../ui/icons.tsx';
-import { DOCTRINE_EFFECTS } from './Command.tsx';
+import { UnitIcon } from '../ui/icons.tsx';
 
 const TIER_LABEL: Record<Tier, string> = { base: 'Line', elite: 'Elite', special: 'Special', hero: 'Hero', legend: 'Legend' };
 
@@ -70,8 +69,7 @@ const THE_RING: readonly [string, ReactNode][] = [
   [
     'Two fronts',
     <>
-      You fight only your two neighbours on the ring, one on each side. Everyone else passes your soldiers by unharmed. Your platoons march out to whichever front is pressed hardest,
-      or to the one you rally on.
+      You fight only your two neighbours on the ring, one on each side. Everyone else passes your soldiers by unharmed. Your platoons march out to whichever front is pressed hardest.
     </>,
   ],
   [
@@ -110,7 +108,7 @@ const THE_RING: readonly [string, ReactNode][] = [
   ],
 ];
 
-type Tab = 'ring' | 'units' | 'fair' | 'command' | 'renown';
+type Tab = 'ring' | 'units' | 'fair' | 'council' | 'renown';
 
 export function ArticlesOfWar({ onClose }: { onClose(): void }) {
   const [tab, setTab] = useState<Tab>('ring');
@@ -125,7 +123,7 @@ export function ArticlesOfWar({ onClose }: { onClose(): void }) {
           ['ring', 'The ring'],
           ['units', 'Units'],
           ['fair', 'Fair play'],
-          ['command', 'Command'],
+          ['council', 'The council'],
           ['renown', 'Renown'],
         ]}
       />
@@ -215,29 +213,23 @@ export function ArticlesOfWar({ onClose }: { onClose(): void }) {
           </dl>
         </>
       )}
-      {tab === 'command' && (
+      {tab === 'council' && (
         <>
           <p className="lede">
-            Nobody steers individual soldiers. Your war council sends each platoon to an objective. You get three levers, and each is scarce.
+            <strong>No manual control: your code is your only command.</strong> Nobody steers the armies, not even you. Every push you make raises soldiers, and your war council
+            leads them.
           </p>
-          <h3 className="section-label">Doctrine · change once an hour</h3>
-          <ul className="doctrine-list">
-            {DOCTRINE_NAMES.map((name, d) => (
-              <li key={name}>
-                <DoctrineIcon doctrine={d} size={22} />
-                <span>
-                  <strong>{name}</strong> {DOCTRINE_EFFECTS[d]}
-                </span>
-              </li>
-            ))}
-          </ul>
-          <h3 className="section-label">Rally · every 30 minutes</h3>
+          <h3 className="section-label">The war council</h3>
           <p>
-            Every platoon marches on one objective on your fronts, for 2 hours: a border fort, a neighbour’s capital (its fort first, if you do not hold the approach), or a capital you hold.
-            New musters march to that front too.
+            Every few seconds your council sends each platoon to an objective on its front: a border fort to take or hold, a neighbour’s walls once the fort beside them is won and enough
+            soldiers have massed, or your own walls when they are under siege. New platoons march to the front pressed hardest. It is the same council for everyone, so the armies differ
+            only by the work behind them.
           </p>
-          <h3 className="section-label">War Cry · once per war</h3>
-          <p>Your soldiers deal 30% more damage and move 25% faster for 60 seconds.</p>
+          <h3 className="section-label">What you can do</h3>
+          <p>
+            Push real work. Watch, follow your banner, and inspect a platoon to read its story. Cheers are just for show: they float over your capital for everyone to see and change
+            nothing on the field.
+          </p>
           <h3 className="section-label">Morale</h3>
           <p>
             Platoons lose morale as soldiers fall or when they are outnumbered two to one. At zero morale a platoon breaks and runs to the nearest capital you hold to regroup (a rising’s,

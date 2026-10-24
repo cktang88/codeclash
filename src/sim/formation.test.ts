@@ -151,13 +151,12 @@ describe('the march', () => {
   it('follows its hex route, the column filing along behind the banner', () => {
     const w = newWorld(2, 42);
     step(w, joins(2));
-    // The border fort on the road past the empty seat.
-    const fort = w.map.slots + 2;
-    step(w, [push(0, L(500, 40)), { kind: 'rally', p: 0, site: fort }]);
+    step(w, [push(0, L(500, 40))]);
     const pl = w.platoons.find((p) => p.p === 0)!;
-    // The war council hands out the rally within a few seconds.
-    for (let t = 0; t < 20 && pl.routeSite !== fort; t++) step(w, []);
-    expect(pl.routeSite).toBe(fort);
+    // The war council hands out an objective on the front within a few seconds (a border fort), and the platoon plans its road there.
+    for (let t = 0; t < 20 && (pl.site === pl.home || pl.routeSite !== pl.site); t++) step(w, []);
+    expect(w.map.sites[pl.site]!.kind).toBe('fort');
+    expect(pl.routeSite).toBe(pl.site);
     const road = [{ x: pl.x, y: pl.y }, ...pl.route.map((h) => ({ x: hexCenterX(w.map, h), y: hexCenterY(w.map, h) }))];
     let worst = 0;
     let worstLag = 0;
@@ -183,16 +182,25 @@ interface Standoff {
 }
 
 /** Two armies; B is held in place wherever a test puts it. */
-function standoff(aLines = L(300, 30), aMsg = 'wip', seed = 42): Standoff {
+function standoff(aLines = L(300, 30), aMsg = 'wip', seed = 42, objective?: number): Standoff {
   const w = newWorld(2, seed);
   step(w, joins(2));
-  step(w, [push(0, aLines, aMsg), push(1, L(80, 10)), { kind: 'rally', p: 0, site: w.map.sites.length - 1 }]);
-  for (let t = 0; t < 20; t++) step(w, []);
+  step(w, [push(0, aLines, aMsg), push(1, L(80, 10))]);
+  // `objective` (a site, or -1 for the last) holds A's platoons on one objective whatever their war council says.
+  const site = objective === undefined ? -1 : objective < 0 ? w.map.sites.length + objective : objective;
+  const hold = () => {
+    if (site >= 0) for (const pl of w.platoons) if (pl.p === 0) pl.site = site;
+  };
+  for (let t = 0; t < 20; t++) {
+    hold();
+    step(w, []);
+  }
   const a = w.platoons.find((p) => p.p === 0 && p.state !== PlatoonState.Queued)!;
   const b = w.platoons.find((p) => p.p === 1 && p.state !== PlatoonState.Queued)!;
   let fx = a.hx;
   let fy = a.hy;
   const pin = (d: number, side = 0) => {
+    hold();
     // Ahead of A along its facing when first pinned, or square to its right with `side`.
     if (side === 0) {
       fx = a.hx;
@@ -288,7 +296,9 @@ describe('deployment', () => {
 
 describe('after combat', () => {
   it('re-forms its ranks over the survivors, closing the gaps', () => {
-    const { w, a, pin } = standoff(L(500, 60));
+    // A marches on the border fort past the empty seat throughout, as if its war council never wavered: here
+    // B pinned beside A's own walls would otherwise call it home, and this is about the ranks, not the council.
+    const { w, a, pin } = standoff(L(500, 60), 'wip', 42, -1);
     for (let t = 0; t < 80; t++) {
       pin(DEPLOY_RADIUS - 40);
       step(w, []);
@@ -363,8 +373,6 @@ describe('soldiers in the fight', () => {
     step(w, [
       push(0, L(700, 80, 40), 'fix: crash on resume', 8, 30),
       push(1, L(700, 80, 40, 0, 0, 900), 'refactor: drop legacy auth', 8, 120),
-      { kind: 'rally', p: 0, site: fort },
-      { kind: 'rally', p: 1, site: fort },
     ]);
     let melee = 0;
     let piled = 0;

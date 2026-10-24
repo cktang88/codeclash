@@ -97,8 +97,8 @@ export interface Digest {
   headline: string;
 }
 
-const HIGHLIGHT_KINDS = new Set(['victory', 'conquest', 'rising', 'dragon', 'clash', 'champion', 'capture', 'leader', 'cry']);
-const HIGHLIGHT_WEIGHT: Record<string, number> = { victory: 120, conquest: 95, dragon: 90, rising: 70, clash: 60, champion: 40, cry: 30, leader: 25, capture: 10 };
+const HIGHLIGHT_KINDS = new Set(['victory', 'conquest', 'rising', 'dragon', 'clash', 'champion', 'capture', 'leader']);
+const HIGHLIGHT_WEIGHT: Record<string, number> = { victory: 120, conquest: 95, dragon: 90, rising: 70, clash: 60, champion: 40, leader: 25, capture: 10 };
 const MAX_HIGHLIGHTS = 12;
 
 /** The day's recap. Pure: the same war always yields the same digest. */
@@ -151,8 +151,8 @@ export function buildDigest(world: World, replay: Replay, chronicle: readonly Ch
 
   // Best platoons: recover the commit message of the push that raised them.
   // Only pushes the simulation accepted count: a known player and a valid repository.
-  const accepted = replay.inputs.map((e) => decodeInput(e).input).filter(
-    (input): input is Extract<SimInput, { kind: 'push' }> => input.kind === 'push' && !!world.players[input.p] && Number.isInteger(input.repo) && input.repo >= 0,
+  const accepted = replay.inputs.map((e) => decodeInput(e)?.input).filter(
+    (input): input is Extract<SimInput, { kind: 'push' }> => input?.kind === 'push' && !!world.players[input.p] && Number.isInteger(input.repo) && input.repo >= 0,
   );
   const pushesBy = new Map<string, string[]>();
   for (const input of accepted) {

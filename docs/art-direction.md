@@ -94,7 +94,7 @@ Dark variants for night and overlays are "night vellum": `ink-night` with gold r
 - **Bars** (HP, morale, walls). A carved channel with a pigment fill and a gilded end cap. Damage leaves a lagging pale "wound" that drains after 400ms.
 - **The ring diagram.** The ring of capitals as a small engraved figure: the centre's lake or massif, the ring road, each seat's keep in its holder's pigment, the border forts as lozenges, crossed blades where two holders meet, and the viewer's seats ringed in gold leaf (a dashed vermilion ring for a lost home). It sits on a night-vellum plaque over the map with one line of standing beside it; it never covers the centre of the map.
 
-**Icons.** Use one woodcut or engraving icon set throughout: ink linework on transparent ground, 2px stroke at 24px, with hatched shading. Unit icons share their silhouettes with the battlefield sprites. Emoji appear only in user-sent emotes, and even there they are framed as a wax-sealed note.
+**Icons.** Use one woodcut or engraving icon set throughout: ink linework on transparent ground, 2px stroke at 24px, with hatched shading. Unit icons share their silhouettes with the battlefield sprites. Emoji appear only in user-sent cheers, and even there they are framed as a note with the cheer's word beside them.
 
 **Layout.** The battlefield is the table, and the panels are pages laid on it, slightly rotated (±0.4°) as if placed by hand. Panels never cover the center of the map. On a phone, pages become a book you swipe through from the bottom edge.
 

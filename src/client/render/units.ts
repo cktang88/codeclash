@@ -165,7 +165,6 @@ export class UnitLayer {
   readonly blocks = new Map<number, BlockAcc>();
   private blockPool: BlockAcc[] = [];
   tints: number[] = [];
-  cryTint: number[] = [];
   /** Per player: the light, pigment-touched halo around each figure. */
   private haloTint: number[] = [];
   /** Per player this frame: veteran rank shown (0-3) and whether the army is ragged. */
@@ -559,8 +558,7 @@ export class UnitLayer {
         v.glow.alpha = flash;
         place(v.glow, anchorY, px, py - altitude, size * v.facing * sqx, size * sqy, lean, py + 0.003);
       }
-      const cry = this.cryTint[u.p];
-      v.mask.tint = cry !== undefined && cry !== this.tints[u.p] ? cry : tint;
+      v.mask.tint = tint;
       const wounded = u.hp / u.maxHp;
       v.body.tint = wounded < 0.35 ? 0xd8b0a8 : 0xffffff;
     }

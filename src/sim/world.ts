@@ -1,5 +1,4 @@
 import {
-  Doctrine,
   KIND_COUNT,
   PURPOSES,
   Kind,
@@ -48,9 +47,6 @@ import {
   CONQUEST_BONUS,
   CHAMPION_MORALE_FLOOR,
   COUNCIL_PERIOD,
-  CRY_DURATION,
-  CRY_SPEED,
-  DOCTRINE_COOLDOWN,
   FOREST_SPEED,
   HERALD_HEAL,
   HOME_TURF,
@@ -66,8 +62,6 @@ import {
   PLATOON_MAX,
   PLAYER_ALIVE,
   QUEUE_LIMIT,
-  RALLY_COOLDOWN,
-  RALLY_DURATION,
   SIEGE_QUIET,
   breachPace,
   pacing,
@@ -77,7 +71,6 @@ import {
   STATS,
   UNGARRISONED_SHARE,
   matchup,
-  doctrineSpeed,
 } from './stats.ts';
 import { clearPath, flowDirection, flyMove, passableAt, resolveMove, separation, towards, type Vec } from './steering.ts';
 
@@ -109,7 +102,7 @@ const speedOf = (kind: number) => STATS[kind]!.speed;
 export function emptyEvents(): TickEvents {
   return {
     desertions: [], swings: [], shots: [], breaths: [], blasts: [], heals: [], hits: [], deaths: [], musters: [], marches: [], routs: [], disbands: [],
-    captures: [], conquests: [], risings: [], regroups: [], victory: null, cries: [], doctrines: [], rallies: [], joins: [],
+    captures: [], conquests: [], risings: [], regroups: [], victory: null, joins: [],
     leader: null, departures: [], forms: [],
   };
 }
@@ -186,8 +179,11 @@ export function step(world: World, inputs: readonly SimInput[]): TickEvents {
 /** Whole numbers only: inputs come from replay files and the network, so they are untrusted. */
 const whole = (n: unknown): n is number => Number.isInteger(n);
 
+/**
+ * Applies one input: a player joining, or a push. There is no manual control: any other kind
+ * (such as the doctrine, rally and war-cry commands of older wars) is ignored.
+ */
 function applyInput(world: World, input: SimInput, ev: TickEvents): void {
-  const { tick } = world;
   if (typeof input !== 'object' || input === null || !whole(input.p)) return;
   if (input.kind === 'join') {
     if (input.p !== world.players.length || !whole(input.slot)) return;
@@ -203,54 +199,25 @@ function applyInput(world: World, input: SimInput, ev: TickEvents): void {
     return;
   }
   const player = world.players[input.p];
-  if (!player) return;
-  switch (input.kind) {
-    case 'push':
-      if (!whole(input.repo) || input.repo < 0) return;
-      musterPush(world, player, input.repo, typeof input.msg === 'string' ? input.msg : '', {
-        lines: cleanLines(input.lines),
-        files: int(input.files),
-        branches: int(input.branches),
-        churn: int(input.churn, 0),
-        filler: int(input.filler, 0),
-      }, ev);
-      return;
-    case 'doctrine':
-      if (!whole(input.doctrine) || input.doctrine < 0 || input.doctrine > 4 || input.doctrine === player.doctrine) return;
-      if (player.doctrineAt >= 0 && tick - player.doctrineAt < DOCTRINE_COOLDOWN) return;
-      player.doctrine = input.doctrine;
-      player.doctrineAt = tick;
-      ev.doctrines.push({ p: player.p, doctrine: input.doctrine });
-      return;
-    case 'rally':
-      if (!whole(input.site) || input.site < 0 || input.site >= world.map.sites.length) return;
-      if (player.rallyAt >= 0 && tick - player.rallyAt < RALLY_COOLDOWN) return;
-      player.rallySite = input.site;
-      player.rallyUntil = tick + RALLY_DURATION;
-      player.rallyAt = tick;
-      ev.rallies.push({ p: player.p, site: input.site });
-      return;
-    case 'cry':
-      if (player.cryUsed) return;
-      player.cryUsed = true;
-      player.cryUntil = tick + CRY_DURATION;
-      ev.cries.push({ p: player.p });
-      return;
-  }
+  if (!player || input.kind !== 'push' || !whole(input.repo) || input.repo < 0) return;
+  musterPush(world, player, input.repo, typeof input.msg === 'string' ? input.msg : '', {
+    lines: cleanLines(input.lines),
+    files: int(input.files),
+    branches: int(input.branches),
+    churn: int(input.churn, 0),
+    filler: int(input.filler, 0),
+  }, ev);
 }
 
 function newPlayer(p: number, slot: number, hue: number): PlayerState {
   return {
     p, slot, hue,
-    doctrine: 0, doctrineAt: -1,
-    rallySite: -1, rallyUntil: -1, rallyAt: -1,
-    cryUntil: -1, cryUsed: false,
     renown: 0, pushes: 0, firstPushAt: -1, ledger: emptyLedger(), quality: 1, veterancy: 0,
     raised: new Array<number>(KIND_COUNT).fill(0),
     slain: new Array<number>(KIND_COUNT).fill(0),
     kills: 0, losses: 0, structureDamage: 0, captures: 0, conquests: 0, capitals: 0, fallen: 0, rising: false, fallenAt: -1, routs: 0,
     purposes: new Array<number>(PURPOSES.length).fill(0), best: null,
-    feats: { holdBest: 0, routsCaused: 0, cryKills: 0, returns: 0, standBest: 0, retakes: 0, homeKills: 0, ledTicks: 0 },
+    feats: { holdBest: 0, routsCaused: 0, returns: 0, standBest: 0, retakes: 0, homeKills: 0, ledTicks: 0 },
     queue: [], battalions: [],
   };
 }
@@ -609,8 +576,6 @@ const DEPLOY_SETTLED = 8;
 /** A line advances at this share of its column's pace, keeping its ranks dressed. */
 const LINE_PACE = 0.6;
 const WALL_PACE = 0.85;
-/** Under the Hold doctrine a deployed line stands this long before it advances. */
-const LINE_HOLD = 15 * TICKS_PER_SECOND;
 /** A line closing with an enemy stops its banner this far from theirs: the front ranks meet. */
 const CLASH = 45;
 /** Fastest a formation wheels, in radians per tick. */
@@ -890,13 +855,13 @@ function updatePlatoons(world: World, s: Scratch, ev: TickEvents): void {
       if (facing) turnToward(pl, point.x - pl.x, point.y - pl.y);
       else if (pl.state === PlatoonState.Hold && def.kind === 'fort') faceFoe(world, s, pl);
       if (s.hunt[i]! >= 0 && facing) {
-        // Going after a shooter: advance on it at a column's pace, whatever the doctrine or the objective.
+        // Going after a shooter: advance on it at a column's pace, whatever the objective.
         advanceLine(world, s, i, pl, player, point.x, point.y, 1);
       } else if (pl.state === PlatoonState.March) {
         if (tick - pl.threatAt >= STANDDOWN_TICKS) {
           // Nothing near for a while: back into column to march on.
           setForm(world, pl, Form.Column, ev);
-        } else if (!(player.doctrine === Doctrine.Hold && tick - pl.formAt < LINE_HOLD)) {
+        } else {
           if (facing && pl.threat > 0) advanceLine(world, s, i, pl, player, point.x, point.y);
           // Facing walls rather than an army, the line presses on toward its objective at near a column's pace.
           else marchStep(world, s, i, pl, player, dist, hold, facing ? WALL_PACE : LINE_PACE, !facing, false);
@@ -915,8 +880,7 @@ function updatePlatoons(world: World, s: Scratch, ev: TickEvents): void {
 }
 
 function marchSpeed(world: World, s: Scratch, i: number, pl: Platoon, player: PlayerState): number {
-  let speed = s.slowest[i]! * 0.9 * doctrineSpeed(player.doctrine);
-  if (player.cryUntil > world.tick) speed *= CRY_SPEED;
+  let speed = s.slowest[i]! * 0.9;
   // Wait for stragglers so the block stays a block.
   if (pl.lag > STRAGGLE) speed *= 0.4;
   return speed;
@@ -1147,8 +1111,7 @@ function pullBack(world: World, s: Scratch, i: number, pl: Platoon, player: Play
   if (column) turnToward(pl, dx, dy);
   else turnToward(pl, -dx, -dy);
   // No waiting for stragglers: everyone is hurrying the same way.
-  let speed = s.slowest[i]! * 0.9 * doctrineSpeed(player.doctrine);
-  if (player.cryUntil > world.tick) speed *= CRY_SPEED;
+  const speed = s.slowest[i]! * 0.9;
   stepBanner(world, pl, dx, dy, Math.min(speed, fr - d + 1));
   if (column) extendTrail(pl, s.ox[i]!, s.oy[i]!);
   return true;
@@ -1157,8 +1120,7 @@ function pullBack(world: World, s: Scratch, i: number, pl: Platoon, player: Play
 function engagedMove(world: World, s: Scratch, i: number, pl: Platoon, player: PlayerState, cx: number, cy: number): void {
   const facing = threatPoint(world, s, pl, i);
   if (facing) turnToward(pl, point.x - pl.x, point.y - pl.y);
-  const holding = player.doctrine === Doctrine.Hold && world.tick - pl.formAt < LINE_HOLD;
-  if (facing && pl.threat > 0 && !holding && pl.state !== PlatoonState.Hold) {
+  if (facing && pl.threat > 0 && pl.state !== PlatoonState.Hold) {
     const dx = point.x - pl.x;
     const dy = point.y - pl.y;
     if (dx * dx + dy * dy > CLASH * CLASH) {
@@ -1290,7 +1252,7 @@ export function routePoints(world: World, pl: Platoon): Vec[] {
 /**
  * Draws platoons up afresh: when they change between column and line, take in
  * a remnant, lose soldiers (closing the gaps every REFORM_PERIOD ticks, not in
- * the thick of a fight), or rally. Each kind's soldiers keep their order, front
+ * the thick of a fight), or regroup after a rout. Each kind's soldiers keep their order, front
  * to back and left to right, so survivors step up into the gaps.
  */
 function reformPlatoons(world: World, s: Scratch): void {
@@ -1647,10 +1609,6 @@ function updateUnits(world: World, s: Scratch, ev: TickEvents): void {
     } else s.engaged[i] = 0;
 
     let speed = stats.speed;
-    if (player) {
-      speed *= doctrineSpeed(player.doctrine);
-      if (player.cryUntil > tick) speed *= CRY_SPEED;
-    }
     const cell = cellAt(map, u.x, u.y);
     if (!stats.flying && cell >= 0 && map.terrain[cell] === Terrain.Forest) speed *= FOREST_SPEED;
 
@@ -2250,7 +2208,6 @@ function resolveDamage(world: World, s: Scratch, ev: TickEvents): void {
       const k = world.players[killer]!;
       k.kills++;
       k.slain[u.kind]!++;
-      if (k.cryUntil > world.tick) k.feats.cryKills++;
       if (onHomeTurf(world, s, killer, u.x, u.y)) k.feats.homeKills++;
       k.renown += STATS[u.kind]!.value;
       creditPlatoonKill(world, s, killer, u.x, u.y);

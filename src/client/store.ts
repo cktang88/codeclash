@@ -17,7 +17,6 @@ export interface Standing {
   alive: number;
   platoons: number;
   queued: number;
-  doctrine: number;
   leader: boolean;
   /** Renown gained in the last minute, for the trend arrow. */
   trend: number;
@@ -121,7 +120,7 @@ const EMOTE_MS = 3500;
 const RENOWN_SAMPLE_TICKS = 5;
 /** Samples spanning one minute of war, for the trend arrows. */
 const RENOWN_SAMPLES = 60;
-const TOAST_KINDS = new Set<ChronicleEntry['kind']>(['conquest', 'rising', 'victory', 'dragon', 'champion', 'cry', 'leader', 'clash', 'join']);
+const TOAST_KINDS = new Set<ChronicleEntry['kind']>(['conquest', 'rising', 'victory', 'dragon', 'champion', 'leader', 'clash', 'join']);
 
 /** Everything the client knows about the room it is watching. */
 export class GameStore {
@@ -355,7 +354,6 @@ export class GameStore {
           alive: alive[ps.p]!,
           platoons: platoons[ps.p]!,
           queued: ps.queue.length,
-          doctrine: ps.doctrine,
           leader: world.leader === ps.p,
           trend: past ? ps.renown - (past[ps.p] ?? 0) : 0,
           capitals: ps.capitals,

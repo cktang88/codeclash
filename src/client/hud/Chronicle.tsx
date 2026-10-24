@@ -12,7 +12,7 @@ import type { Purpose } from '../../sim/api.ts';
 
 export type ChronicleFilter = 'all' | 'mine' | 'big';
 
-export const BIG_MOMENTS = new Set<ChronicleKind>(['conquest', 'rising', 'victory', 'dragon', 'champion', 'clash', 'leader', 'cry', 'capture']);
+export const BIG_MOMENTS = new Set<ChronicleKind>(['conquest', 'rising', 'victory', 'dragon', 'champion', 'clash', 'leader', 'capture']);
 const SHOWN = 160;
 
 const ids = new WeakMap<ChronicleEntry, number>();

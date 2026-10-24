@@ -153,32 +153,6 @@ const EVENT_PATHS: Record<ChronicleKind | 'order', ReactNode> = {
       <H d="M14 13.5c.8.6 1.3 1.5 1.3 2.6M9.8 7.8h4.4" />
     </>
   ),
-  // A war horn sounding.
-  cry: (
-    <>
-      <path d="M3 9.5c4.5 0 9-2 12.5-6v15c-3.5-4-8-6-12.5-6Z" />
-      <path d="M6 12.5 7.5 20h2.5l-1-7" />
-      <path d="M18.5 8a5 5 0 0 1 0 6M20.5 6a8 8 0 0 1 0 10" />
-      <H d="M12 6.5v8.6M13.6 5.2v11.6" />
-    </>
-  ),
-  // A sealed order of doctrine.
-  doctrine: (
-    <>
-      <path d="M6 3.5h11.5v13.5a3 3 0 0 1-3 3H5" />
-      <path d="M6 3.5a2.5 2.5 0 0 0 0 5h2V3.5M5 20a2 2 0 0 0 2-2v-1.5H3V18a2 2 0 0 0 2 2" />
-      <H d="M10.5 8h4.5M10.5 10.5h4.5M10.5 13h3" />
-    </>
-  ),
-  // A rallying horn over a target.
-  rally: (
-    <>
-      <circle cx="12" cy="12" r="8.5" />
-      <circle cx="12" cy="12" r="4.5" />
-      <Ink d="M10.6 12a1.4 1.4 0 1 0 2.8 0 1.4 1.4 0 1 0-2.8 0Z" />
-      <H d="M17 15.5l1.6 1.2M15.5 17.5l1 1.5" />
-    </>
-  ),
   leader: (
     <>
       <path d={CROWN} />
@@ -216,42 +190,6 @@ const EVENT_PATHS: Record<ChronicleKind | 'order', ReactNode> = {
 
 export function EventIcon({ kind, ...props }: IconProps & { kind: ChronicleKind | 'order' }) {
   return <Svg {...props}>{EVENT_PATHS[kind] ?? <circle cx="12" cy="12" r="5" />}</Svg>;
-}
-
-const DOCTRINE_PATHS: ReactNode[] = [
-  // Balanced: scales
-  <>
-    <path d="M12 3v17.5M7 20.5h10M4.5 6.5h15" />
-    <path d="M4.5 6.5 2 13a2.6 2.6 0 0 0 5 0ZM19.5 6.5 17 13a2.6 2.6 0 0 0 5 0Z" />
-    <H d="M2.6 13.8h3.8M17.6 13.8h3.8" />
-  </>,
-  // Assault: a lance couched for the charge
-  <>
-    <path d="M2.5 12h13M15.5 8.5l6 3.5-6 3.5Z" />
-    <path d="M6 9.5v5M8 9v6" />
-    <H d="M17 12.6l2.2-.5" />
-  </>,
-  // Hold: a kite shield
-  <>
-    <path d="M12 2.5 19.5 5v6.5c0 4.6-3.2 8.2-7.5 10-4.3-1.8-7.5-5.4-7.5-10V5Z" />
-    <path d="M12 2.5v19" />
-    <H d="M14 7.5h3.5M14 10h4M14 12.5h3.8M14 15h3" />
-  </>,
-  // Siege: a battering tower
-  <>
-    <path d="M6 21.5V8h12v13.5M6 8V3.5h2.4v2h2.4v-2h2.4v2h2.4v-2H18V8" />
-    <path d="M10 21.5v-4a2 2 0 0 1 4 0v4" />
-    <H d="M15.5 10v10M17 10v10" />
-  </>,
-  // Skirmish: arrows on the wind
-  <>
-    <path d="M3 7.5h11a3 3 0 1 0-3-3M3 12h15a3 3 0 1 1-3 3M3 16.5h7" />
-    <H d="M5 9.5h7M5 14h8" />
-  </>,
-];
-
-export function DoctrineIcon({ doctrine, ...props }: IconProps & { doctrine: number }) {
-  return <Svg {...props}>{DOCTRINE_PATHS[doctrine] ?? DOCTRINE_PATHS[0]}</Svg>;
 }
 
 export type IconName =

@@ -65,7 +65,7 @@ describe('digest', () => {
     const world = createWorld(replayParams(r), generateMap(replayParams(r)));
     const chronicler = new Chronicler({ player: (p) => `u${p}`, repo: (i) => r.repos[i]![0] });
     const chronicle: ChronicleEntry[] = [];
-    const inputs = r.inputs.map((e) => decodeInput(e));
+    const inputs = r.inputs.map((e) => decodeInput(e)!);
     while (world.tick < 10) {
       const due = inputs.filter((x) => x.tick === world.tick).map((x) => x.input);
       chronicle.push(...chronicler.narrate(world, due, step(world, due)));

@@ -767,9 +767,7 @@ export class Battlefield {
     this.units.bases.tint = this.actors.tint;
 
     const bounds = this.camera.bounds(60);
-    const cry = world.players.map((p) => p.cryUntil > world.tick);
     this.units.tints = this.actorTints;
-    this.units.cryTint = this.actorTints.map((t, p) => (cry[p] ? mixColor(t, GOLD, 0.45 + Math.sin(now / 140) * 0.3) : t));
     time('camera');
     // Once the ring is won the soldiers slow to a painted stillness, as if the page were finished;
     // banners, water and smoke stay alive.

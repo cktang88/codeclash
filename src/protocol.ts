@@ -162,11 +162,6 @@ export interface UpdateRoomRequest {
   webhookUrl?: string | null;
 }
 
-export type CommandRequest =
-  | { kind: 'doctrine'; doctrine: number }
-  | { kind: 'rally'; site: number }
-  | { kind: 'cry' };
-
 export type ApiError = { error: string; message: string };
 
 export interface WarSummary {

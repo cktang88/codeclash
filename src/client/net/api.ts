@@ -1,5 +1,4 @@
 import type {
-  CommandRequest,
   CreateRoomRequest,
   DigestResponse,
   HookResponse,
@@ -60,7 +59,6 @@ export const api = {
   leaveRoom: (slug: string) => call<void>('POST', `/api/rooms/${enc(slug)}/leave`),
   rotateInvite: (slug: string) => call<RoomDetail>('POST', `/api/rooms/${enc(slug)}/invite`),
   removeMember: (slug: string, userId: number) => call<RoomDetail>('DELETE', `/api/rooms/${enc(slug)}/members/${userId}`),
-  command: (slug: string, cmd: CommandRequest) => call<{ tick: number }>('POST', `/api/rooms/${enc(slug)}/command`, cmd),
   wars: (slug: string, invite?: string | null) => call<{ wars: WarSummary[] }>('GET', `/api/rooms/${enc(slug)}/wars${inviteQuery(invite)}`),
   digest: (slug: string, warId: number, invite?: string | null) => call<DigestResponse>('GET', `/api/rooms/${enc(slug)}/wars/${warId}/digest${inviteQuery(invite)}`),
   replay: (slug: string, warId: number, invite?: string | null) => call<Replay>('GET', `/api/rooms/${enc(slug)}/wars/${warId}/replay${inviteQuery(invite)}`),

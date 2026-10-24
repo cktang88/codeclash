@@ -49,7 +49,6 @@ function narrate(): void {
   for (let t = 0; t < minutes * TICKS_PER_MINUTE && world.victor < 0; t++) {
     const inputs: SimInput[] = [];
     if (t === 0) for (let p = 0; p < players; p++) inputs.push({ kind: 'join', p, slot: seats[p]!, hue: p * 60 });
-    if (t === 10) for (let p = 0; p < players; p++) if (p % 5 !== 0) inputs.push({ kind: 'doctrine', p, doctrine: ((p % 4) + 1) as 1 });
     for (let p = 0; p < players; p++) if (rand() < rate / (60 * TICKS_PER_MINUTE)) inputs.push(devPush(p, rand));
     const ev = step(world, inputs);
     peak = Math.max(peak, world.units.length);

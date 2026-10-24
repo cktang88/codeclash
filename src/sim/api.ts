@@ -88,9 +88,6 @@ export const PURPOSE_LABEL: Record<Purpose, string> = {
   work: 'Work',
 };
 
-export const Doctrine = { Balanced: 0, Assault: 1, Hold: 2, Siege: 3, Skirmish: 4 } as const;
-export type Doctrine = (typeof Doctrine)[keyof typeof Doctrine];
-
 export const Terrain = { Plain: 0, Forest: 1, Water: 2, Rock: 3, Void: 255 } as const;
 export type Terrain = (typeof Terrain)[keyof typeof Terrain];
 
@@ -165,10 +162,7 @@ export type SimInput =
       churn: number;
       /** Lines left out as filler: duplicates, punctuation-only, and literal tables. */
       filler: number;
-    }
-  | { kind: 'doctrine'; p: number; doctrine: Doctrine }
-  | { kind: 'rally'; p: number; site: number }
-  | { kind: 'cry'; p: number };
+    };
 
 export interface TimedInput {
   tick: number;
@@ -317,13 +311,6 @@ export interface PlayerState {
   p: number;
   slot: number;
   hue: number;
-  doctrine: Doctrine;
-  doctrineAt: number;
-  rallySite: number;
-  rallyUntil: number;
-  rallyAt: number;
-  cryUntil: number;
-  cryUsed: boolean;
   renown: number;
   pushes: number;
   /** Tick of its first push today, or -1: its gates stay barred for a while after it (see `pacing`). */
@@ -381,8 +368,6 @@ export interface Feats {
   holdBest: number;
   /** Enemy platoons that broke with this player's soldiers nearest. */
   routsCaused: number;
-  /** Kills while this player's War Cry sounded. */
-  cryKills: number;
   /** Routed platoons that made it home and rallied. */
   returns: number;
   /** Longest siege of a capital this player held through, in ticks (foes at the walls, walls still standing). */
@@ -443,9 +428,6 @@ export interface TickEvents {
   regroups: { from: number; to: number; moved: number }[];
   /** One player holds every capital: the war is won. */
   victory: { p: number } | null;
-  cries: { p: number }[];
-  doctrines: { p: number; doctrine: Doctrine }[];
-  rallies: { p: number; site: number }[];
   joins: { p: number }[];
   leader: { p: number; previous: number } | null;
   departures: { unit: number }[];

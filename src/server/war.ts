@@ -7,7 +7,6 @@ import { Chronicler, type ChronicleEntry, type Names } from '../sim/chronicle.ts
 import { checksum, generateMap, restore, snapshot, step, createWorld } from '../sim/index.ts';
 import { seatOrder } from '../sim/mapgen.ts';
 import { decodeInput, encodeInput, warTicks, type RepoRef, type Replay } from '../sim/replay.ts';
-import { DOCTRINE_COOLDOWN, RALLY_COOLDOWN } from '../sim/stats.ts';
 import { SIM_VERSION } from '../version.ts';
 import type { Store, WarHeader, WarRow } from './db.ts';
 import type { Logger } from './log.ts';
@@ -58,8 +57,6 @@ export interface Enlistee {
   bot: boolean;
   heraldry?: Heraldry;
 }
-
-export type CommandError = 'not_in_war' | 'cooldown' | 'used' | 'invalid' | 'ended';
 
 /** One room's war for one day: the world, its input log, its chronicle. */
 export class War {
@@ -123,7 +120,11 @@ export class War {
     // A snapshot from before wars knew their length: it ran as long as its row says.
     if (world && world.params.ticks === undefined) world.params = { ...world.params, ticks: params.ticks };
     world ??= createWorld(params, generateMap(params));
-    const pending = store.inputs(row.id, world.tick).map((r) => ({ seq: r.seq, ...decodeInput(r.data) }));
+    // Retired manual commands stored by an older server decode to nothing and are dropped.
+    const pending = store.inputs(row.id, world.tick).flatMap((r) => {
+      const d = decodeInput(r.data);
+      return d ? [{ seq: r.seq, ...d }] : [];
+    });
     const war = new War(deps, row, world, pending, store.maxSeq(row.id));
     if (row.status === 'active') {
       const from = world.tick;
@@ -257,40 +258,6 @@ export class War {
       { repos: added },
     );
     return true;
-  }
-
-  command(now: number, userId: number, cmd: { kind: 'doctrine'; doctrine: number } | { kind: 'rally'; site: number } | { kind: 'cry' }): CommandError | null {
-    if (!this.open || now >= this.row.endsAt) return 'ended';
-    const p = this.playerOf(userId);
-    if (p === null) return 'not_in_war';
-    const player = this.world.players[p];
-    if (!player) return 'not_in_war';
-    // Validate against the server's state at the tick the input will actually be stamped with
-    // (the world may lag wall-clock time under load, and the client's view may be older still);
-    // the simulation re-checks deterministically.
-    const tick = this.inputTick(now);
-    // An input stamped at or past the last tick is never simulated: refuse it rather than report success.
-    if (tick >= this.lastTick) return 'ended';
-    let input: SimInput;
-    switch (cmd.kind) {
-      case 'doctrine':
-        if (!Number.isInteger(cmd.doctrine) || cmd.doctrine < 0 || cmd.doctrine > 4 || cmd.doctrine === player.doctrine) return 'invalid';
-        if (player.doctrineAt >= 0 && tick - player.doctrineAt < DOCTRINE_COOLDOWN) return 'cooldown';
-        input = { kind: 'doctrine', p, doctrine: cmd.doctrine as 0 };
-        break;
-      case 'rally':
-        if (!Number.isInteger(cmd.site) || cmd.site < 0 || cmd.site >= this.world.map.sites.length) return 'invalid';
-        if (player.rallyAt >= 0 && tick - player.rallyAt < RALLY_COOLDOWN) return 'cooldown';
-        input = { kind: 'rally', p, site: cmd.site };
-        break;
-      case 'cry':
-        if (player.cryUsed) return 'used';
-        input = { kind: 'cry', p };
-        break;
-    }
-    if (this.pending.some((t) => t.input.kind === input.kind && 'p' in t.input && t.input.p === p)) return input.kind === 'cry' ? 'used' : 'cooldown';
-    this.submit(now, [input]);
-    return null;
   }
 
   private submit(now: number, inputs: readonly SimInput[], extra: { roster?: RosterEntry[]; repos?: { index: number; ref: RepoRef }[] } = {}): void {

@@ -157,9 +157,9 @@ describe('staging', () => {
     expect(STATS[Kind.Trebuchet]!.range + r * 0.75).toBeLessThan(keepOut(r));
   });
 
-  it('a rally on walls that cannot be stormed yet holds the fort before them', () => {
+  it('the war council takes the fort, not walls that cannot be stormed yet', () => {
     const w = duel();
-    muster(w, [push(0, 600, 4, 120), push(1, 200), { kind: 'rally', p: 0, site: 1 }]);
+    muster(w, [push(0, 600, 4, 120), push(1, 200)]);
     for (let t = 0; t < 4 * TICKS_PER_SECOND; t++) step(w, []);
     for (const pl of mine(w, 0)) expect(site(w, pl.site).kind).toBe('fort');
   });

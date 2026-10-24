@@ -33,14 +33,22 @@ export interface Replay {
  * [tick, 'join', p, slot, hue]
  * [tick, 'push', p, repo, lines[9], commits, message, files, branches, churn, filler]
  *   (lines and branches are signed changes to the player's daily ledger)
- * [tick, 'doc', p, doctrine] · [tick, 'rally', p, site] · [tick, 'cry', p]
+ *
+ * Replays of older wars may also hold the retired manual commands (see RetiredInput).
  */
 export type EncodedInput =
   | [number, 'join', number, number, number]
   | [number, 'push', number, number, number[], number, string, number?, number?, number?, number?]
-  | [number, 'doc', number, number]
-  | [number, 'rally', number, number]
-  | [number, 'cry', number];
+  | RetiredInput;
+
+/**
+ * The manual commands wars once took: [tick, 'doc', p, doctrine] · [tick, 'rally', p, site] ·
+ * [tick, 'cry', p]. There is no manual control now (your code is your only command), so these
+ * rows are still accepted from old replays and stored wars but decode to nothing and change nothing.
+ */
+export type RetiredInput = [number, 'doc', number, number] | [number, 'rally', number, number] | [number, 'cry', number];
+
+const RETIRED = new Set(['doc', 'rally', 'cry']);
 
 export function encodeInput(tick: number, input: SimInput): EncodedInput {
   switch (input.kind) {
@@ -48,12 +56,6 @@ export function encodeInput(tick: number, input: SimInput): EncodedInput {
       return [tick, 'join', input.p, input.slot, input.hue];
     case 'push':
       return [tick, 'push', input.p, input.repo, cleanLines(input.lines), input.commits, input.msg, input.files, input.branches, input.churn, input.filler];
-    case 'doctrine':
-      return [tick, 'doc', input.p, input.doctrine];
-    case 'rally':
-      return [tick, 'rally', input.p, input.site];
-    case 'cry':
-      return [tick, 'cry', input.p];
   }
 }
 
@@ -61,8 +63,10 @@ export function encodeInput(tick: number, input: SimInput): EncodedInput {
  * Decodes one replay row. Throws on a row whose shape is wrong (not an array,
  * a bad tick, an unknown kind) so a corrupt replay fails loudly; the values
  * inside are still untrusted, and the simulation ignores ones it cannot use.
+ * A retired manual command (an old war's doctrine, rally or War Cry) decodes to
+ * null: it is skipped.
  */
-export function decodeInput(e: EncodedInput): { tick: number; input: SimInput } {
+export function decodeInput(e: EncodedInput): { tick: number; input: SimInput } | null {
   if (!Array.isArray(e) || !Number.isInteger(e[0]) || e[0] < 0) throw new Error(`malformed replay input ${JSON.stringify(e)}`);
   const tick = e[0];
   switch (e[1]) {
@@ -72,13 +76,8 @@ export function decodeInput(e: EncodedInput): { tick: number; input: SimInput } 
       if (!Array.isArray(e[4])) throw new Error(`malformed replay push ${JSON.stringify(e)}`);
       return { tick, input: { kind: 'push', p: e[2], repo: e[3], lines: cleanLines(e[4]), commits: e[5], msg: typeof e[6] === 'string' ? e[6] : '', files: e[7] ?? 0, branches: e[8] ?? 0, churn: e[9] ?? 0, filler: e[10] ?? 0 } };
     }
-    case 'doc':
-      return { tick, input: { kind: 'doctrine', p: e[2], doctrine: e[3] as 0 } };
-    case 'rally':
-      return { tick, input: { kind: 'rally', p: e[2], site: e[3] } };
-    case 'cry':
-      return { tick, input: { kind: 'cry', p: e[2] } };
     default:
+      if (RETIRED.has(e[1])) return null;
       throw new Error(`unknown replay input ${JSON.stringify(e)}`);
   }
 }
@@ -92,9 +91,14 @@ export function replayParams(r: Pick<Replay, 'seed' | 'slots' | 'members' | 'sta
   return { seed: r.seed, slots: r.slots, members: r.members, ticks: warTicks(r.startsAt, r.endsAt, r.tickMs) };
 }
 
-/** The replay's inputs in the order the live war applied them: by tick, then by arrival. */
+/** The replay's inputs in the order the live war applied them: by tick, then by arrival. Retired commands are skipped. */
 export function timedInputs(r: Replay): TimedInput[] {
-  return r.inputs.map((e, seq) => ({ ...decodeInput(e), seq: seq + 1 })).sort((a, b) => a.tick - b.tick || a.seq - b.seq);
+  const out: TimedInput[] = [];
+  r.inputs.forEach((e, seq) => {
+    const d = decodeInput(e);
+    if (d) out.push({ ...d, seq: seq + 1 });
+  });
+  return out.sort((a, b) => a.tick - b.tick || a.seq - b.seq);
 }
 
 /** Rebuilds the world of a replay at `tick` from scratch. */

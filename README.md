@@ -1,6 +1,6 @@
 # Pushfront
 
-Pushfront is an all-day war fought with your pushes. Sign in with GitHub and join a room. Each push you make to a public repository is read and sorted into the kind of code it is, then marches out of your capital as a platoon. Tests become shield-bearing Wardens, docs become Heralds, and refactors that delete code become fast Outriders. A big feature brings a Champion. The armies meet in the middle and fight slowly enough to watch. At the room's reset hour the day ends, everyone gets a digest, and a new map begins.
+Pushfront is an all-day war fought with your pushes. Sign in with GitHub and join a room. Each push you make to a public repository is read and sorted into the kind of code it is, then marches out of your capital as a platoon. Tests become shield-bearing Wardens, docs become Heralds, and refactors that delete code become fast Outriders. A big feature brings a Champion. The armies meet in the middle and fight slowly enough to watch. There is no manual control: your code is your only command. At the room's reset hour the day ends, everyone gets a digest, and a new map begins.
 
 [DESIGN.md](DESIGN.md) holds the rules and the architecture.
 

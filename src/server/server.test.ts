@@ -63,10 +63,6 @@ describe('rooms and the daily war', () => {
     advance(server, now, 30_000);
     server.rooms.onPush({ userId: devId('ana'), pushId: 'x@1', repo: 'ana/parser', language: 'TypeScript', lines: lines(200, 60, 20), files: 3, branches: 12, churn: 0, filler: 0, commits: 2, message: 'Tokenizer', at: now.t }, now.t);
     server.rooms.onPush({ userId: devId('bo'), pushId: 'y@1', repo: 'bo/site', language: 'CSS', lines: lines(90), files: 3, branches: 12, churn: 0, filler: 0, commits: 1, message: 'Styles', at: now.t }, now.t);
-    const cmd = await server.app.inject({ method: 'POST', url: `/api/rooms/${slug}/command`, headers: { cookie: ana }, payload: { kind: 'doctrine', doctrine: 1 } });
-    expect(cmd.statusCode).toBe(200);
-    const again = await server.app.inject({ method: 'POST', url: `/api/rooms/${slug}/command`, headers: { cookie: ana }, payload: { kind: 'doctrine', doctrine: 2 } });
-    expect(again.json()).toMatchObject({ error: 'cooldown' });
 
     const war = server.rooms.wars()[0]!;
     const warId = war.id;
@@ -150,7 +146,6 @@ describe('rooms and the daily war', () => {
     expect(first.server.rooms.wars()[0]!.id).toBe(war.id);
     expect(war.world.tick).toBe(tick);
     expect(war.push(now.t, devId('ana'), { repo: 'ana/x', language: null, lines: lines(10), commits: 1, message: 'm' })).toBe(false);
-    expect(war.command(now.t, devId('ana'), { kind: 'cry' })).toBe('ended');
     const digest = (await first.server.app.inject({ url: `/api/rooms/${slug}/wars/${war.id}/digest` })).json<DigestResponse>();
     expect(digest.digest.victory?.p).toBe(0);
     await first.server.shutdown();
@@ -199,7 +194,7 @@ function closed(ws: WebSocket): Promise<number> {
 const settle = () => new Promise((done) => setTimeout(done, 30));
 
 describe('access changes and abuse', () => {
-  it('disconnects viewers who lose access and stops removed members giving orders', async () => {
+  it('disconnects viewers who lose access and keeps removed members out', async () => {
     const { server } = await boot();
     const owner = await signIn(server, 'owner');
     const guest = await signIn(server, 'guest');
@@ -221,8 +216,6 @@ describe('access changes and abuse', () => {
     expect(await memberClosed).toBe(WS_CLOSE_FORBIDDEN);
     expect(await linkClosed).toBe(WS_CLOSE_FORBIDDEN);
 
-    const cmd = await server.app.inject({ method: 'POST', url: `/api/rooms/${slug}/command`, headers: { cookie: guest }, payload: { kind: 'cry' } });
-    expect(cmd.statusCode).toBe(403);
     const rejoin = await server.app.inject({ method: 'POST', url: `/api/rooms/${slug}/join`, headers: { cookie: guest }, payload: { invite } });
     expect(rejoin.statusCode).toBe(403);
 

@@ -29,7 +29,7 @@ export const BARK_LINES: Readonly<Record<Wait, readonly string[]>> = {
   [Wait.NeedFort]: ['Take {site} first!', 'No siege without the fort, lads.', '{site} first, then the walls!'],
   [Wait.Holding]: ['Hold the fort, lads.', 'Nobody takes {site} from us.', 'Eyes on the road.', 'Dig in and keep watch.'],
   [Wait.PullBack]: ['Back! Out of the tower’s reach!', 'Withdraw — those walls can’t be touched yet!', 'Fall back, out of bowshot!', 'Back to the road, and dress the line!'],
-  [Wait.Rallying]: ['Rally to the banner!', 'Form up, form up!', 'To the colours!'],
+  [Wait.Regrouping]: ['Back to the banner!', 'Form up, form up!', 'To the colours!'],
   [Wait.Rising]: ['Home or the grave!', 'We take back {site}!', 'Our walls, our hearths!'],
   [Wait.Besieging]: ['The walls crack — press on!', 'Breach in {eta}! Keep at it!', 'Rams forward!', 'Bring them down, stone by stone!'],
   [Wait.Routing]: ['Run for it!', 'Every man for himself!', 'Back to the walls!'],
@@ -107,8 +107,8 @@ export function stateWord(w: WaitInfo, names: BarkNames): string {
       return 'Pulling back';
     case Wait.Fighting:
       return w.by >= 0 ? `Charging the ${STATS[w.by]!.name}` : w.foe >= 0 ? `Fighting ${names.player(w.foe)}` : 'Fighting';
-    case Wait.Rallying:
-      return 'Rallying';
+    case Wait.Regrouping:
+      return 'Regrouping';
     case Wait.Rising:
       return 'Rising';
     case Wait.Routing:
@@ -138,8 +138,8 @@ export function statusLine(w: WaitInfo, names: BarkNames): string {
       return w.by >= 0 ? `Under fire from a ${STATS[w.by]!.name} it cannot reach: pulling back out of range.` : `Under fire from ${site}’s tower: pulling back out of its reach.`;
     case Wait.Fighting:
       return w.by >= 0 ? `Shot at by a ${STATS[w.by]!.name}: going after it.` : `Fighting ${foe}.`;
-    case Wait.Rallying:
-      return `Rallying on ${site}.`;
+    case Wait.Regrouping:
+      return `Regrouping at ${site} after a rout.`;
     case Wait.Rising:
       return `Rising: marching on ${site} to retake it.`;
     case Wait.Besieging:

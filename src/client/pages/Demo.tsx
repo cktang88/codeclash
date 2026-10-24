@@ -10,7 +10,7 @@ import { BattleShell } from './Battle.tsx';
 
 const SPEEDS = [1, 4, 16] as const;
 
-export function SpeedPicker({ speeds, value, onChange, label = 'Speed' }: { speeds: readonly number[]; value: number; onChange(v: number): void; label?: string }) {
+export function SpeedPicker({ speeds, value, onChange, label = 'Playback speed' }: { speeds: readonly number[]; value: number; onChange(v: number): void; label?: string }) {
   return (
     <div className="segmented segmented-sm" role="radiogroup" aria-label={label}>
       {speeds.map((s) => (
@@ -82,7 +82,7 @@ export function DemoPage({ me }: { me: MeResponse | null }) {
         banner={banner}
         dock={
           <div className="dock-group">
-            <span className="dock-label">Speed</span>
+            <span className="dock-label">Playback speed</span>
             <SpeedPicker speeds={SPEEDS} value={speed} onChange={setSpeed} />
           </div>
         }

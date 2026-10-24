@@ -219,21 +219,6 @@ describe('fighting only neighbours', () => {
     const s = scratchFor(w);
     expect(musterFront(w, s, 0, sitePresence(w))!.dir).toBe(-1);
   });
-
-  it('lets a rally on a border fort or a neighbour’s capital choose the front', () => {
-    const w = ringWorld(4, 5);
-    step(w, Array.from({ length: 4 }, (_, p): SimInput => ({ kind: 'join', p, slot: p, hue: p })));
-    step(w, [{ kind: 'rally', p: 0, site: 3 }]);
-    step(w, [push(0, 400), push(0, 400)]);
-    for (let t = 0; t < 20; t++) step(w, []);
-    const mine = w.platoons.filter((pl) => pl.p === 0 && pl.state !== PlatoonState.Queued);
-    expect(mine.length).toBeGreaterThanOrEqual(2);
-    // Every platoon takes the counter-clockwise front, toward seat 3, and goes first for the fort before its walls.
-    for (const pl of mine) {
-      expect(pl.front).toBe(-1);
-      expect(pl.site).toBe(fortBetween(w.map.slots, 3));
-    }
-  });
 });
 
 describe('conquest', () => {
@@ -245,13 +230,14 @@ describe('conquest', () => {
     w.sites[fortBetween(w.map.slots, 0)]!.owner = 0;
     return w;
   }
-  /** Brings player p's fielded army up under the walls of seat `slot`, on the road outside them. */
+  /** Brings player p's fielded army up under the walls of seat `slot`, on the road outside them, sent to storm them. */
   function atWalls(w: World, p: number, slot: number): void {
     const c = w.map.sites[slot]!;
     const d = Math.hypot(c.x, c.y);
     const x = c.x - (c.y / d) * (c.radius + 40);
     const y = c.y + (c.x / d) * (c.radius + 40);
     for (const pl of w.platoons) if (pl.p === p && pl.state !== PlatoonState.Queued) {
+      pl.site = c.id;
       pl.x = x;
       pl.y = y;
       pl.trail.length = 0;
@@ -275,7 +261,7 @@ describe('conquest', () => {
 
   it('captures a capital at 0 HP for the last blow: it changes hands, stands again, and its garrison dies', () => {
     const w = siege();
-    step(w, [push(1, 60), push(0, 600, 'feat: siege', 8, 60, 160), { kind: 'rally', p: 0, site: 1 }]);
+    step(w, [push(1, 60), push(0, 600, 'feat: siege', 8, 60, 160)]);
     for (let t = 0; t < 20; t++) step(w, []);
     w.structures[1]!.hp = 1;
     // Player 1's soldiers stand inside their walls as the last blow falls.
@@ -308,7 +294,7 @@ describe('conquest', () => {
 
   it('brings walls down no faster than the breach time allows, however many strike them', () => {
     const w = siege();
-    step(w, [push(0, 3000, 'feat: siege', 40, 300, 240), { kind: 'rally', p: 0, site: 1 }]);
+    step(w, [push(0, 3000, 'feat: siege', 40, 300, 240)]);
     for (let t = 0; t < 20; t++) step(w, []);
     const st = w.structures[1]!;
     atWalls(w, 0, 1);
@@ -324,7 +310,7 @@ describe('conquest', () => {
     const w = ringWorld(3, 4);
     step(w, Array.from({ length: 3 }, (_, p): SimInput => ({ kind: 'join', p, slot: p, hue: p * 40 })));
     w.sites[fortBetween(w.map.slots, 0)]!.owner = 0;
-    step(w, [push(0, 600), { kind: 'rally', p: 0, site: 1 }]);
+    step(w, [push(0, 600)]);
     for (let t = 0; t < 4 * TICKS_PER_MINUTE; t++) step(w, []);
     expect(w.structures[1]!.hp).toBe(w.structures[1]!.maxHp);
     expect(w.tick).toBeLessThan(DAY.opens);
@@ -369,7 +355,7 @@ describe('conquest', () => {
 
   it('raises a rising outside its lost home that retakes it and rejoins the ring', () => {
     const w = siege();
-    step(w, [push(0, 600, 'feat: siege', 8, 60, 160), { kind: 'rally', p: 0, site: 1 }]);
+    step(w, [push(0, 600, 'feat: siege', 8, 60, 160)]);
     for (let t = 0; t < 20; t++) step(w, []);
     w.structures[1]!.hp = 300;
     storm(w, 0, 1);
@@ -402,7 +388,7 @@ describe('conquest', () => {
 
   it('ends the war when one player holds every capital, and the field stands still after', () => {
     const w = siege(3);
-    step(w, [push(0, 600, 'feat: siege', 8, 60, 160), { kind: 'rally', p: 0, site: 1 }]);
+    step(w, [push(0, 600, 'feat: siege', 8, 60, 160)]);
     cede(w, 2, 0);
     for (let t = 0; t < 20; t++) step(w, []);
     w.structures[1]!.hp = 300;
@@ -423,14 +409,15 @@ describe('conquest', () => {
     const run = () => {
       const w = siege(4);
       const inputs = (t: number): SimInput[] =>
-        t === 2 ? [push(0, 600, 'feat: siege', 8, 60, 160), { kind: 'rally', p: 0, site: 1 }] : t % 300 === 1 ? [push(Math.floor(t / 300) % 4, 300, 'feat: x', 6, 30, 80)] : [];
+        t === 2 ? [push(0, 600, 'feat: siege', 8, 60, 160)] : t % 300 === 1 ? [push(Math.floor(t / 300) % 4, 300, 'feat: x', 6, 30, 80)] : [];
       w.structures[1]!.hp = 500;
       const sums: number[] = [];
       let copy: World | null = null;
       for (let t = 0; t < 5 * TICKS_PER_MINUTE; t++) {
         if (t === 200) {
+          // The war council sends only the platoons it can spare at the walls, so bring them to the last stone.
           atWalls(w, 0, 1);
-          w.structures[1]!.hp = 60;
+          w.structures[1]!.hp = 1;
         }
         step(w, inputs(t));
         if (copy) step(copy, inputs(t));

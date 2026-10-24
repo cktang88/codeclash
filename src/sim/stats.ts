@@ -1,4 +1,4 @@
-import { Cat, Doctrine, Kind, TICKS_PER_SECOND, TICKS_PER_MINUTE } from './api.ts';
+import { Cat, Kind, TICKS_PER_SECOND, TICKS_PER_MINUTE } from './api.ts';
 
 export type Tier = 'base' | 'elite' | 'special' | 'hero' | 'legend';
 
@@ -58,7 +58,7 @@ export const STATS: readonly UnitStats[] = [
   { ...base, name: 'Troll', plural: 'Trolls', role: 'Hulking brute of tangled logic; regenerates its wounds', tier: 'elite', hp: 600, damage: 24, range: 16, speed: 1.2, cooldown: 9, aggro: 110, ranged: false, value: 6, rank: 0, source: 'Very complex code: one per 150 branch points once past 200 code lines, up to 3', slots: 3, regen: 1.2, size: 13 },
   { ...base, name: 'Berserker', plural: 'Berserkers', role: 'Untested, uncommented fury; hits hard, dies fast', tier: 'special', hp: 120, damage: 26, range: 13, speed: 2.1, cooldown: 5, aggro: 130, ranged: false, value: 2, rank: 1, source: 'Untested, uncommented code: a third of the Footmen, each taking two places', slots: 1, size: 6 },
   { ...base, name: 'Cleric', plural: 'Clerics', role: 'Raised by bug fixes; mends the wounded', tier: 'special', hp: 90, damage: 5, range: 13, speed: 1.5, cooldown: 10, aggro: 110, ranged: false, value: 3, rank: 3, source: 'Bug fixes: √(fix code) ÷ 2.5', slots: 1, heal: 22, size: 6 },
-  { ...base, name: 'Champion', plural: 'Champions', role: 'Hero of a big push; rallies all around it', tier: 'hero', hp: 520, damage: 26, range: 16, speed: 1.5, cooldown: 7, aggro: 140, ranged: false, value: 10, rank: 2, source: 'Big features: one per 400 feature lines and 5 files, up to 3', slots: 2, size: 10 },
+  { ...base, name: 'Champion', plural: 'Champions', role: 'Hero of a big push; steadies all around it', tier: 'hero', hp: 520, damage: 26, range: 16, speed: 1.5, cooldown: 7, aggro: 140, ranged: false, value: 10, rank: 2, source: 'Big features: one per 400 feature lines and 5 files, up to 3', slots: 2, size: 10 },
   { ...base, name: 'Dragon', plural: 'Dragons', role: 'Legendary; breathes fire across whole ranks', tier: 'legend', hp: 2400, damage: 24, range: 70, speed: 2.0, cooldown: 10, aggro: 150, ranged: true, value: 30, rank: 6, source: 'Legendary features: 900+ lines, 10+ files, 90+ branch points', slots: 6, flying: true, breath: true, size: 22 },
 ];
 
@@ -105,27 +105,6 @@ export const HOME_TURF = 220;
 export const HOME_TURF_REDUCTION = 0.2;
 export const MERCENARY_CONTRACT = 10 * TICKS_PER_MINUTE;
 export const TROLL_CONTRACT = 20 * TICKS_PER_MINUTE;
-
-export const DOCTRINE_COOLDOWN = 60 * TICKS_PER_MINUTE;
-export const RALLY_COOLDOWN = 30 * TICKS_PER_MINUTE;
-export const RALLY_DURATION = 120 * TICKS_PER_MINUTE;
-export const CRY_DURATION = 60 * TICKS_PER_SECOND;
-export const CRY_DAMAGE = 1.3;
-export const CRY_SPEED = 1.25;
-
-export const DOCTRINE_NAMES = ['Balanced', 'Assault', 'Hold', 'Siege', 'Skirmish'] as const;
-
-export function doctrineDamage(d: Doctrine): number {
-  return d === Doctrine.Assault ? 1.15 : 1;
-}
-export function doctrineSpeed(d: Doctrine): number {
-  return d === Doctrine.Skirmish ? 1.2 : 1;
-}
-export function doctrineStructure(d: Doctrine): number {
-  return d === Doctrine.Siege ? 1.5 : 1;
-}
-export const HOLD_REDUCTION = 0.2;
-export const HOLD_RADIUS = 200;
 
 const HOUR = 60 * TICKS_PER_MINUTE;
 

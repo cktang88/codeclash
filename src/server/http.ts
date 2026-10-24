@@ -66,11 +66,6 @@ const UpdateRoom = z.object({
   bots: z.number().int().min(0).max(6).optional(),
   webhookUrl: z.string().trim().max(500).nullable().optional(),
 });
-const Command = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('doctrine'), doctrine: z.number().int().min(0).max(4) }),
-  z.object({ kind: z.literal('rally'), site: z.number().int().min(0).max(64) }),
-  z.object({ kind: z.literal('cry') }),
-]);
 const ArmoryRequest = z
   .object({
     pattern: z.enum(PATTERNS),
@@ -168,7 +163,6 @@ export async function buildHttp(deps: HttpDeps): Promise<FastifyInstance> {
     if (room) hub.revalidate(roomId, (userId, invite) => rooms.canView(room, userId, invite), WS_CLOSE_FORBIDDEN, 'this room is private');
   };
   const createLimit = new Limiter(3600_000, 10);
-  const commandLimit = new Limiter(10_000, 6);
   const chatLimit = new Limiter(10_000, 6);
   const emoteLimit = new Limiter(10_000, 6);
 
@@ -468,35 +462,11 @@ export async function buildHttp(deps: HttpDeps): Promise<FastifyInstance> {
     }
   });
 
-  app.post('/api/rooms/:slug/command', async (req, reply) => {
-    try {
-      const { slug } = SlugParams.parse(req.params);
-      const user = viewerOf(req);
-      if (!user) return fail(reply, 401, 'signed_out', 'Sign in first.');
-      const cmd = Command.safeParse(req.body);
-      if (!cmd.success) return fail(reply, 400, 'invalid', 'Unknown command.');
-      if (!commandLimit.allow(`u${user.id}`, clock())) return fail(reply, 429, 'limit', 'Slow down.');
-      const room = roomOf(slug);
-      // A removed member keeps their capital for the day but no longer gives orders.
-      if (!store.isMember(room.id, user.id)) return fail(reply, 403, 'forbidden', 'Only members of this room can give orders.');
-      const war = rooms.war(room.id);
-      if (!war) return fail(reply, 409, 'ended', 'No war is running in this room.');
-      const error = war.command(clock(), user.id, cmd.data);
-      if (error) {
-        const message = {
-          not_in_war: 'You are not fighting in today\'s war. Join the room; you will fight from the next free capital or tomorrow.',
-          cooldown: 'That order is still on cooldown.',
-          used: 'You have already sounded your War Cry today.',
-          invalid: 'That order is not valid now.',
-          ended: 'Today\'s war is over.',
-        }[error];
-        return fail(reply, 409, error, message);
-      }
-      return { tick: war.world.tick };
-    } catch (err) {
-      return failure(reply, err);
-    }
-  });
+  // There is no manual control: armies answer only to their players' pushes and the war council.
+  // Doctrine, rally and the War Cry are gone; a client from before then gets a clean refusal.
+  app.post('/api/rooms/:slug/command', async (_req, reply) =>
+    fail(reply, 410, 'gone', 'There is no manual control any more: your code is your only command.'),
+  );
 
   app.get('/api/rooms/:slug/chronicle', async (req, reply) => {
     try {

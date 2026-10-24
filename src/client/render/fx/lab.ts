@@ -200,7 +200,6 @@ function stage(name: Scene, t0: number): void {
         world.platoons = [platoon(98, 1, 200, 120)];
         ev.routs.push({ platoon: 98 });
       });
-      at(t + 12, (ev) => ev.cries.push({ p: 1 }));
       break;
     case 'siege':
       at(t + 1, () => {

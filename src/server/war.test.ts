@@ -1,11 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { TICK_MS } from '../sim/api.ts';
-import { RALLY_COOLDOWN } from '../sim/stats.ts';
+import { checksum } from '../sim/snapshot.ts';
 import { createServer } from './app.ts';
 import { devId } from './auth.ts';
 import { loadConfig } from './config.ts';
 import { silentLogger } from './log.ts';
-import { INPUT_LEAD_TICKS } from './war.ts';
 
 async function boot() {
   const now = { t: Date.UTC(2026, 9, 23, 12) };
@@ -14,38 +12,32 @@ async function boot() {
   await server.app.ready();
   const res = await server.app.inject({ method: 'GET', url: '/auth/dev?login=ana' });
   const cookie = [res.headers['set-cookie']].flat().find((c) => c?.startsWith('pf_session='))!.split(';')[0]!;
-  await server.app.inject({ method: 'POST', url: '/api/rooms', headers: { cookie }, payload: { name: 'Orders', visibility: 'public', resetHour: 0, bots: 0 } });
+  const created = await server.app.inject({ method: 'POST', url: '/api/rooms', headers: { cookie }, payload: { name: 'Orders', visibility: 'public', resetHour: 0, bots: 0 } });
   const war = server.rooms.wars()[0]!;
-  return { server, now, war, ana: devId('ana') };
+  return { server, now, war, cookie, slug: created.json<{ slug: string }>().slug, ana: devId('ana') };
 }
 
-describe('commands are validated against the server’s state at the tick they land', () => {
-  it('accepts an order whose cooldown has run out by its stamped tick even while the world lags wall-clock time', async () => {
-    const { server, now, war, ana } = await boot();
-    now.t += 60_000;
-    war.catchUp(now.t);
-    expect(war.command(now.t, ana, { kind: 'rally', site: 0 })).toBeNull();
+describe('there is no manual control', () => {
+  it('answers an old client’s command with 410 Gone and leaves the war untouched', async () => {
+    const { server, now, war, cookie, slug } = await boot();
     now.t += 2_000;
     war.catchUp(now.t);
-    const rallyAt = war.world.players[0]!.rallyAt;
-    expect(rallyAt).toBeGreaterThan(0);
-    // Wall-clock time moves past the cooldown, but the (busy) server has not stepped the world yet.
-    now.t = war.meta.startsAt + (rallyAt + RALLY_COOLDOWN - INPUT_LEAD_TICKS + 1) * TICK_MS;
-    expect(war.world.tick).toBeLessThan(rallyAt + 20);
-    expect(war.command(now.t, ana, { kind: 'rally', site: 1 })).toBeNull();
+    const before = checksum(war.world);
+    const payloads = [{ kind: 'rally', site: 0 }, { kind: 'cry' }, { kind: 'doctrine', doctrine: 2 }, {}];
+    for (const payload of payloads) {
+      const res = await server.app.inject({ method: 'POST', url: `/api/rooms/${slug}/command`, headers: { cookie }, payload });
+      expect(res.statusCode).toBe(410);
+      expect(res.json()).toMatchObject({ error: 'gone' });
+    }
+    // Signed out, or naming a room that does not exist: the same clean answer.
+    expect((await server.app.inject({ method: 'POST', url: `/api/rooms/${slug}/command`, payload: { kind: 'cry' } })).statusCode).toBe(410);
+    expect((await server.app.inject({ method: 'POST', url: '/api/rooms/no-such-room/command', headers: { cookie }, payload: { kind: 'cry' } })).statusCode).toBe(410);
+    // Nothing reached the war: no input was recorded, and the world runs on exactly as it would have.
+    expect(server.store.inputs(war.id, 0).every((r) => r.data[1] === 'join' || r.data[1] === 'push')).toBe(true);
+    expect(checksum(war.world)).toBe(before);
     now.t += 2_000;
     war.catchUp(now.t);
-    expect(war.world.players[0]!.rallySite).toBe(1);
-    expect(war.world.players[0]!.rallyAt).toBeGreaterThan(rallyAt);
-    await server.shutdown();
-  });
-
-  it('refuses an order that would land after the war’s last tick instead of reporting success', async () => {
-    const { server, now, war, ana } = await boot();
-    now.t += 2_000;
-    war.catchUp(now.t);
-    now.t = war.meta.endsAt - 100;
-    expect(war.command(now.t, ana, { kind: 'cry' })).toBe('ended');
+    expect(war.world.players[0]).not.toHaveProperty('rallySite');
     await server.shutdown();
   });
 });

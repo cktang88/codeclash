@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { Kind, PlatoonState, TICK_MS, type World } from '../../sim/api.ts';
 import { platoonLabel, siteLabel } from '../../sim/chronicle.ts';
-import { CAPTURE_TICKS, DOCTRINE_NAMES, STATS } from '../../sim/stats.ts';
+import { CAPTURE_TICKS, STATS } from '../../sim/stats.ts';
 import { besieging } from '../../sim/council.ts';
 import { computeRing, frontOf } from '../../sim/ring.ts';
 import { founderOf, gatesUnbarAt, siegesOpenAt } from '../ringinfo.ts';
@@ -12,7 +12,7 @@ import { compact, duration } from '../ui/format.ts';
 import { CarvedBar, hueVar } from '../ui/codex.tsx';
 import { Icon, UnitIcon } from '../ui/icons.tsx';
 import { UnitChips, colorize } from './Chronicle.tsx';
-import { STATE_NAMES } from './Command.tsx';
+import { STATE_NAMES } from './Army.tsx';
 import { useHudContext } from './context.ts';
 import { playerInfo } from './names.ts';
 import { PurposeTag } from '../ui/PurposeTag.tsx';
@@ -182,7 +182,7 @@ export function Inspector({ hud }: { hud: HudSnapshot }) {
             @{info.login}
           </strong>
           <span className="muted">
-            {DOCTRINE_NAMES[ps.doctrine]} doctrine · {compact(ps.renown)} renown
+            {compact(ps.renown)} renown
           </span>
         </div>
         {close}

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { CHAT_MAX, EMOTES, type Emote } from '../../protocol.ts';
+import { CHAT_MAX, type Emote } from '../../protocol.ts';
 import type { HudSnapshot } from '../store.ts';
 import { Avatar } from '../ui/Avatar.tsx';
 import { clock } from '../ui/format.ts';
@@ -7,54 +7,97 @@ import { EventIcon, Icon } from '../ui/icons.tsx';
 import { useHudContext } from './context.ts';
 import { sfx } from '../ui/codex.tsx';
 
-const EMOTE_GAP_MS = 2000;
+const CHEER_GAP_MS = 2000;
 
 /**
- * The emote buttons are chrome, so each is an engraved woodcut on a wax-sealed note; the emoji
- * itself appears only once a player has sent it (EmoteRain).
+ * Cheers: reactions for the room, nothing more. Each has a word on it so nobody mistakes it for an
+ * order (there are none: your code is your only command). The glyph floats over the sender's
+ * capital and up the screen with the word and the sender's name.
  */
-const EMOTE_ICONS: Record<Emote, { name: string; icon: ReactNode }> = {
-  '⚔️': { name: 'crossed swords', icon: <EventIcon kind="clash" size={22} /> },
-  '🛡️': { name: 'a shield', icon: <Icon name="shield" size={22} /> },
-  '🔥': { name: 'fire', icon: <EventIcon kind="conquest" size={22} /> },
-  '🎉': { name: 'a fanfare', icon: <Icon name="horn" size={22} /> },
-  '😱': { name: 'a gasp', icon: <Icon name="eye" size={22} /> },
-  '👑': { name: 'a crown', icon: <Icon name="crown" size={22} /> },
-  '💀': { name: 'a skull', icon: <Icon name="skull" size={22} /> },
-  '🏹': { name: 'a volley', icon: <Icon name="target" size={22} /> },
+export const CHEERS: Record<Emote, { label: string; icon: ReactNode }> = {
+  '🎉': { label: 'Huzzah!', icon: <Icon name="horn" size={18} /> },
+  '⚔️': { label: 'What a fight!', icon: <EventIcon kind="clash" size={18} /> },
+  '🛡️': { label: 'Well held!', icon: <Icon name="shield" size={18} /> },
+  '🏹': { label: 'Nice shot!', icon: <Icon name="target" size={18} /> },
+  '🔥': { label: 'On fire!', icon: <EventIcon kind="conquest" size={18} /> },
+  '👑': { label: 'All hail!', icon: <Icon name="crown" size={18} /> },
+  '😱': { label: 'Gasp!', icon: <Icon name="eye" size={18} /> },
+  '💀': { label: 'Ouch!', icon: <Icon name="skull" size={18} /> },
 };
 
-export function EmoteBar({ canSend }: { canSend: boolean }) {
+const CHEER_ORDER = Object.keys(CHEERS) as Emote[];
+
+/**
+ * The Cheer button at the foot of the chronicle and chat: it opens a small palette of labelled
+ * cheers. Purely social; it sends nothing to the armies.
+ */
+export function Cheers({ canSend }: { canSend: boolean }) {
   const { send, store, mode } = useHudContext();
+  const [open, setOpen] = useState(false);
   const [cooling, setCooling] = useState(false);
-  const fire = (emote: Emote) => {
+  const root = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
+    const onDown = (e: PointerEvent) => {
+      if (root.current && !root.current.contains(e.target as Node)) setOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('pointerdown', onDown);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('pointerdown', onDown);
+    };
+  }, [open]);
+  if (!canSend) return null;
+  const cheer = (emote: Emote) => {
     if (cooling) return;
     sfx('ui.click');
     if (mode === 'live') send({ type: 'emote', emote });
     else store.addEmote('you', store.viewerP, emote);
+    setOpen(false);
     setCooling(true);
-    setTimeout(() => setCooling(false), EMOTE_GAP_MS);
+    setTimeout(() => setCooling(false), CHEER_GAP_MS);
   };
-  if (!canSend) return null;
   return (
-    <div className="emote-bar" role="toolbar" aria-label="Send a cheer">
-      {EMOTES.map((e) => (
-        <button key={e} className="emote-btn" onClick={() => fire(e)} disabled={cooling} aria-label={`Send ${EMOTE_ICONS[e].name}`} title={`Send ${EMOTE_ICONS[e].name}`}>
-          {EMOTE_ICONS[e].icon}
-        </button>
-      ))}
+    <div className="cheers" ref={root}>
+      {open && (
+        <div className="cheer-palette" id="cheer-palette" role="group" aria-label="Cheers, just for show">
+          {CHEER_ORDER.map((e) => (
+            <button key={e} className="cheer" onClick={() => cheer(e)} disabled={cooling}>
+              {CHEERS[e].icon}
+              <span>{CHEERS[e].label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      <button
+        className={`btn btn-sm cheer-toggle${open ? ' is-on' : ''}`}
+        aria-expanded={open}
+        aria-controls="cheer-palette"
+        disabled={cooling && !open}
+        onClick={() => {
+          sfx(open ? 'ui.close' : 'ui.click');
+          setOpen((v) => !v);
+        }}
+      >
+        <Icon name="horn" size={16} /> Cheer
+      </button>
+      <span className="cheer-hint">Cheer your armies — just for show</span>
     </div>
   );
 }
 
-/** Emotes float up from the bottom of the screen for a few seconds. */
+/** Cheers float up from the bottom of the screen for a few seconds, with their word and who sent them. */
 export function EmoteRain({ hud }: { hud: HudSnapshot }) {
   return (
     <div className="emote-rain" aria-hidden>
       {hud.emotes.map((e) => (
         <span key={e.id} className="emote-float" style={{ left: `${12 + ((e.id * 37) % 76)}%` }}>
           <span className="emote-glyph">{e.emote}</span>
-          <span className="emote-who">@{e.login}</span>
+          <span className="emote-who">
+            {CHEERS[e.emote]?.label ?? ''} @{e.login}
+          </span>
         </span>
       ))}
     </div>
@@ -110,7 +153,7 @@ export function Chat({ hud, canSend }: { hud: HudSnapshot; canSend: boolean }) {
   return (
     <div className="chat">
       {hud.chat.length === 0 ? (
-        <p className="empty-note">No messages yet. Cheer your platoons on.</p>
+        <p className="empty-note">No messages yet. Say hello to the room.</p>
       ) : (
         <ol className="chat-list" ref={list} aria-live="polite">
           {hud.chat.map((m) => {

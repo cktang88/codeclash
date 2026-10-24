@@ -4,7 +4,7 @@
 // client agree on it without it being stored.
 
 import { Kind, NEUTRAL, PlatoonState, TICKS_PER_SECOND, type Platoon, type Structure, type Unit, type World } from './api.ts';
-import { besieging, breachable, gatesOpenAt, rallyFront, rallyTarget, sitePresence, siegeNeed, stormable } from './council.ts';
+import { besieging, breachable, gatesOpenAt, sitePresence, siegeNeed, stormable } from './council.ts';
 import { computeRing, hostile, type Front, type Ring } from './ring.ts';
 import { CAPITAL_TOWER, MORALE_RALLY, STATS, breachPace, pacing } from './stats.ts';
 
@@ -85,7 +85,8 @@ export const Wait = {
   Holding: 6,
   /** Under fire from walls (or soldiers behind them) it may not storm yet: backing out of reach. */
   PullBack: 7,
-  Rallying: 8,
+  /** Routed and back at the colours: re-forming at home. */
+  Regrouping: 8,
   Rising: 9,
   /** Storming walls; `eta` ticks until they could fall at the siege's pace, or -1. */
   Besieging: 10,
@@ -93,7 +94,7 @@ export const Wait = {
 } as const;
 export type Wait = (typeof Wait)[keyof typeof Wait];
 
-export const WAIT_NAMES: readonly string[] = ['Marching', 'Fighting', 'Waiting for sieges', 'Gates barred', 'Massing', 'Need the fort first', 'Holding the fort', 'Under fire, pulling back', 'Rallying', 'Rising', 'Besieging', 'Routing'];
+export const WAIT_NAMES: readonly string[] = ['Marching', 'Fighting', 'Waiting for sieges', 'Gates barred', 'Massing', 'Need the fort first', 'Holding the fort', 'Under fire, pulling back', 'Regrouping', 'Rising', 'Besieging', 'Routing'];
 
 export interface WaitInfo {
   kind: Wait;
@@ -246,14 +247,9 @@ export function platoonWait(ctx: WaitContext, pl: Platoon): WaitInfo {
       return out;
     }
   }
-  // Marching on a rally, or back to the colours after a rout.
-  const rally = rallyFront(world, ring, pl.p);
-  if (!near && rally.ok && pl.site === rallyTarget(world, ring, pl.p, world.players[pl.p]!.rallySite, rally.front)) {
-    out.kind = Wait.Rallying;
-    return out;
-  }
+  // Back to the colours after a rout.
   if (!near && pl.site === pl.home && pl.morale < MORALE_RALLY + 5 && def.kind === 'capital' && ring.owner[def.slot] === pl.p) {
-    out.kind = Wait.Rallying;
+    out.kind = Wait.Regrouping;
     return out;
   }
   // What stands between the front and the foe's walls.

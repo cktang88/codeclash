@@ -1,5 +1,5 @@
 import type { CueLimits } from './mixer.ts';
-import { bell, boom, bowstring, choir, clatter, crack, drum, fire, horn, roar, shout, sparkle, stopAfter, tick, track, whoosh, type Voice } from './synth.ts';
+import { bell, boom, bowstring, choir, clatter, crack, drum, fire, horn, roar, sparkle, stopAfter, tick, track, whoosh, type Voice } from './synth.ts';
 
 /** Plays a bundled sample; returns its length in seconds, or 0 if it has not loaded. */
 export type SamplePlayer = (name: string, opts?: { gain?: number; rate?: number; delay?: number }) => number;
@@ -170,10 +170,6 @@ export const CUES: Record<string, Cue> = {
     return 4.4;
   }, 4500, false, 10_000),
   capture: set((v) => horn(v, [[A3, 0, 0.35], [D4, 0.3, 0.9]], 0.11), 1300),
-  'war-cry': set((v) => {
-    shout(v, 1.6, 0.35);
-    return horn(v, [[D4, 0, 1.6], [F4, 0, 1.6], [A4, 0, 1.6]], 0.08);
-  }, 1800, true, 1000),
   rout: set((v, s) => {
     for (let i = 0; i < 6; i++) s(pick(v, 'step', 3), { gain: 0.3, rate: 1.3 * vary(v, 0.1), delay: i * 0.09 });
     return horn(v, [[A3, 0.1, 0.25], [F4 / 2, 0.35, 0.5]], 0.06) + 0.1;

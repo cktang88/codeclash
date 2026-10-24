@@ -7,13 +7,13 @@ import { BrandMark, Ribbons, SoundSeal, sfx } from '../ui/codex.tsx';
 import { OrdersCard } from '../meta/OrdersCard.tsx';
 import { ArticlesOfWar } from './ArticlesOfWar.tsx';
 import { Chronicle } from './Chronicle.tsx';
-import { ArmyPanel, CommandBar } from './Command.tsx';
+import { ArmyPanel } from './Army.tsx';
 import { useHudContext } from './context.ts';
 import { Inspector } from './Inspector.tsx';
 import { AwayModal, Countdown, DayOverBanner, Toasts, VictoryFanfare } from './Overlays.tsx';
 import { RingBar, VictoryOverlay } from './Ring.tsx';
 import { RoomSettings, ShareModal } from './RoomSettings.tsx';
-import { Chat, EmoteBar, EmoteRain, Presence } from './Social.tsx';
+import { Chat, Cheers, EmoteRain, Presence } from './Social.tsx';
 import { Standings } from './Standings.tsx';
 
 type LeftTab = 'standings' | 'orders' | 'army';
@@ -164,10 +164,7 @@ export function RoomHud({ hud, title, subtitle, banner, dock, room, onRoomChange
     tab === 'standings' ? (
       <Standings standings={hud.standings} viewerP={hud.viewerP} />
     ) : tab === 'orders' ? (
-      <>
-        <OrdersCard hud={hud} />
-        <CommandBar hud={hud} />
-      </>
+      <OrdersCard hud={hud} />
     ) : (
       <ArmyPanel hud={hud} />
     );
@@ -273,16 +270,18 @@ export function RoomHud({ hud, title, subtitle, banner, dock, room, onRoomChange
               {rightOpen && <Ribbons items={rightTabs} value={right} onChange={setRight} label="Chronicle and chat" />}
             </div>
             {rightOpen && <div className="side-body">{rightBody(right)}</div>}
+            {rightOpen && canEmote && (
+              <div className="side-foot">
+                <Cheers canSend={canEmote} />
+              </div>
+            )}
           </aside>
         </>
       )}
 
       <div className="hud-bottom">
         <Inspector hud={hud} />
-        <div className="hud-dock">
-          {dock}
-          <EmoteBar canSend={canEmote} />
-        </div>
+        {dock && <div className="hud-dock">{dock}</div>}
       </div>
 
       {narrow && (
@@ -313,6 +312,11 @@ export function RoomHud({ hud, title, subtitle, banner, dock, room, onRoomChange
                 {sheetTabs.findIndex(([t]) => t === page) + 1} / {sheetTabs.length}
               </button>
               <div className="sheet-body">{page === 'chronicle' || page === 'chat' ? rightBody(page) : leftBody(page)}</div>
+              {(page === 'chronicle' || page === 'chat') && canEmote && (
+                <div className="sheet-foot">
+                  <Cheers canSend={canEmote} />
+                </div>
+              )}
               {slug && mode === 'live' && (
                 // The topbar has no room for the annals on a phone; they are lettered at the foot of every page.
                 <nav className="sheet-annals" aria-label="The room's annals">

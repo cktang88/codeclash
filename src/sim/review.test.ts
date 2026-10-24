@@ -91,11 +91,6 @@ describe('snapshot mid-battle', () => {
       if (i >= 0 && Number.isInteger(i)) out.push({ kind: 'push', p: i % players, repo: i % players, commits: 1, churn: 0, filler: 0, ...SHAPES[i % SHAPES.length]! });
       // A siege wave: sweeping changes raise Trebuchets alongside line troops for the march on a capital.
       if (t === 8 * TICKS_PER_MINUTE - 1200) for (let p = 1; p < 6; p++) out.push({ kind: 'push', p, repo: p, commits: 1, churn: 0, filler: 0, ...SHAPES[7]!, lines: L(400, 0, 0, 0, 200) });
-      if (t === 8 * TICKS_PER_MINUTE - 1200) {
-        // Capital 0's neighbours march on it; the others pair off over the fort between them.
-        for (let p = 1; p < players; p++) out.push({ kind: 'rally', p, site: p === 1 || p === 7 ? 0 : w.map.slots + p - (p % 2) }, { kind: 'doctrine', p, doctrine: 3 });
-      }
-      if (t === 8 * TICKS_PER_MINUTE + 100) out.push({ kind: 'cry', p: 2 });
       return out;
     };
     const seen = new Array<number>(KIND_COUNT).fill(0);
@@ -103,9 +98,30 @@ describe('snapshot mid-battle', () => {
       step(w, inputsAt(w.tick));
       for (const u of w.units) seen[u.kind] = 1;
     }
-    // Bring the walls low so a capital falls inside the window, and hand its neighbour the approach.
+    // Bring the walls low so a capital falls inside the window, hand both its neighbours the approach (the
+    // fort beside the walls on each front), and bring their armies up under the walls, sent to storm them.
     w.structures[0]!.hp = 300;
     w.sites[w.map.slots]!.owner = 1;
+    w.sites[w.map.slots + w.map.slots - 1]!.owner = players - 1;
+    const walls = w.map.sites[0]!;
+    const out = Math.hypot(walls.x, walls.y);
+    for (const pl of w.platoons) if ((pl.p === 1 || pl.p === players - 1) && pl.state !== PlatoonState.Queued && pl.state !== PlatoonState.Rout) {
+      // Clockwise neighbour on the road past the walls' clockwise side, the other on the counter-clockwise side.
+      const side = pl.p === 1 ? 1 : -1;
+      const wx = walls.x - side * (walls.y / out) * (walls.radius + 40);
+      const wy = walls.y + side * (walls.x / out) * (walls.radius + 40);
+      const dx = wx - pl.x;
+      const dy = wy - pl.y;
+      pl.x = wx;
+      pl.y = wy;
+      pl.site = walls.id;
+      pl.trail.length = 0;
+      pl.routeSite = -1;
+      for (const u of w.units) if (u.platoon === pl.id) {
+        u.x += dx;
+        u.y += dy;
+      }
+    }
     // And break one platoon's nerve so a rout lands inside the window too.
     const shaken = w.platoons.find((pl) => !pl.champion && (pl.state === PlatoonState.March || pl.state === PlatoonState.Hold || pl.state === PlatoonState.Engage));
     if (shaken) shaken.morale = -5;
@@ -113,8 +129,15 @@ describe('snapshot mid-battle', () => {
     const r = restore(snapshot(w));
     expect(checksum(r)).toBe(checksum(w));
     const tally = { regroups: 0, routs: 0, conquests: 0, breaths: 0, boulders: 0, fireballs: 0, heals: 0 };
+    // The neighbours' few survivors would mass at their forts first; keep them at the walls, the same in both worlds.
+    const storm = (x: World) => {
+      if (x.structures[0]!.p !== 0) return;
+      for (const pl of x.platoons) if ((pl.p === 1 || pl.p === players - 1) && pl.state !== PlatoonState.Queued && pl.state !== PlatoonState.Rout) pl.site = walls.id;
+    };
     while (w.tick < end) {
       const inputs = inputsAt(w.tick);
+      storm(w);
+      storm(r);
       const ev = step(w, inputs);
       step(r, inputs);
       if (checksum(r) !== checksum(w)) expect.fail(`diverged at tick ${w.tick}`);
@@ -187,9 +210,10 @@ describe('fuzzed inputs', () => {
         const lines = SHAPES[pick(SHAPES.length)]!.lines.map((n) => (rand() < 0.5 ? n : pick(300)));
         inputs.push({ kind: 'push', p: pick(players + 2), repo: pick(4), commits: 1, files: 3, branches: 10, churn: 0, filler: 0, msg: rand() < 0.3 ? 'fix' : 'x', lines });
       }
-      if (rand() < 0.002) inputs.push({ kind: 'rally', p: pick(players), site: pick(w.map.sites.length) });
-      if (rand() < 0.002) inputs.push({ kind: 'doctrine', p: pick(players), doctrine: pick(5) as 0 });
-      if (rand() < 0.001) inputs.push({ kind: 'cry', p: pick(players) });
+      // The retired manual commands, as an old client might still send them: always ignored.
+      if (rand() < 0.002) inputs.push({ kind: 'rally', p: pick(players), site: pick(w.map.sites.length) } as unknown as SimInput);
+      if (rand() < 0.002) inputs.push({ kind: 'doctrine', p: pick(players), doctrine: pick(5) } as unknown as SimInput);
+      if (rand() < 0.001) inputs.push({ kind: 'cry', p: pick(players) } as unknown as SimInput);
       step(w, inputs);
       if (check) {
         const broken = brokenInvariant(w);
@@ -208,7 +232,7 @@ describe('fuzzed inputs', () => {
 });
 
 describe('input validation', () => {
-  it('ignores malformed commands without touching the world', () => {
+  it('ignores malformed inputs and retired commands without touching the world', () => {
     const bad: unknown[] = [
       { kind: 'rally', p: 0, site: 1.5 },
       { kind: 'rally', p: 0, site: Number.NaN },
@@ -250,7 +274,7 @@ describe('input validation', () => {
     const push: SimInput = { kind: 'push', p: 0, repo: 0, lines: raw, commits: 1, files: 3, branches: 10, churn: 0, filler: 0, msg: 'fix' };
     const encoded = JSON.parse(JSON.stringify(encodeInput(live.tick, push))) as EncodedInput;
     step(live, [push]);
-    step(replayed, [decodeInput(encoded).input]);
+    step(replayed, [decodeInput(encoded)!.input]);
     for (let i = 0; i < 50; i++) {
       step(live, []);
       step(replayed, []);
@@ -303,7 +327,6 @@ describe('terrain', () => {
     step(w, joins(4));
     step(w, [
       { kind: 'push', p: 0, repo: 0, lines: [0, 0, 0, 0, 100, 0, 0, 0, 0], commits: 1, files: 3, branches: 10, churn: 0, filler: 0, msg: '' },
-      { kind: 'rally', p: 0, site: 2 },
     ]);
     const sappers = () => w.units.filter((u) => u.kind === Kind.Sapper);
     expect(sappers().length).toBeGreaterThan(0);
@@ -324,11 +347,14 @@ describe('replay decoding', () => {
     expect(() => decodeInput(null as unknown as EncodedInput)).toThrow();
     expect(() => decodeInput([-1, 'cry', 0])).toThrow();
     expect(() => decodeInput([5, 'push', 0, 0, null, 1, 'x'] as unknown as EncodedInput)).toThrow();
-    expect(decodeInput([5, 'push', 0, 0, [3, 2], 1, 7 as unknown as string] as unknown as EncodedInput).input).toMatchObject({ lines: [3, 2, 0, 0, 0, 0, 0, 0, 0], msg: '' });
+    expect(decodeInput([5, 'push', 0, 0, [3, 2], 1, 7 as unknown as string] as unknown as EncodedInput)!.input).toMatchObject({ lines: [3, 2, 0, 0, 0, 0, 0, 0, 0], msg: '' });
   });
 
   it('applies inputs by tick, then by arrival, as the live war does', () => {
-    const replay = { inputs: [[10, 'cry', 0], [3, 'cry', 1], [3, 'doc', 0, 1]] } as unknown as Replay;
+    const replay = { inputs: [[10, 'push', 0, 0, [5], 1, 'a'], [3, 'push', 1, 0, [5], 1, 'b'], [3, 'join', 2, 2, 0]] } as unknown as Replay;
     expect(timedInputs(replay).map((t) => [t.tick, t.seq])).toEqual([[3, 2], [3, 3], [10, 1]]);
+    // A retired manual command keeps its place in the arrival order but is skipped.
+    const old = { inputs: [[10, 'push', 0, 0, [5], 1, 'a'], [3, 'cry', 1], [3, 'join', 2, 2, 0]] } as unknown as Replay;
+    expect(timedInputs(old).map((t) => [t.tick, t.seq])).toEqual([[3, 3], [10, 1]]);
   });
 });

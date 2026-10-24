@@ -1,6 +1,6 @@
 # Fair play: how the army could be gamed, and what stops it
 
-The goal: **a bigger contribution makes a better army, and nothing else does.** Many small commits and one squashed commit give the same army, apart from timing. This page lists every gaming vector we could think of. For each one it gives the defense, the risk that remains, and what to do next.
+The goal: **a bigger contribution makes a better army, and nothing else does.** That includes play: there is **no manual control: your code is your only command.** Nobody can steer an army or time a buff to make up for less work; the same war council leads every army, and cheers in the room are just for show. Many small commits and one squashed commit give the same army, apart from timing. This page lists every gaming vector we could think of. For each one it gives the defense, the risk that remains, and what to do next.
 
 The tests are in [`src/rules/gaming.test.ts`](../src/rules/gaming.test.ts), which runs crafted diffs through `measurePush` the way the poller does, and [`src/sim/gaming.test.ts`](../src/sim/gaming.test.ts), which runs crafted ledgers through `armyFor` and `armyQuality`. A test passes when the gamed army is at most 10% stronger than the honest one. Strength is `quality × Σ count·√(hp·damage)`.
 

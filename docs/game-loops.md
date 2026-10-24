@@ -1,6 +1,6 @@
 # Pushfront game loops
 
-Pushfront is played two ways at once. You *build* your army by doing your real work, and you *command and watch* it. The loops below make both satisfying over minutes, hours, and weeks.
+Pushfront is played two ways at once. You *build* your army by doing your real work, and you *watch* it fight. **No manual control: your code is your only command.** Your war council leads your army; you never steer it. The loops below make both satisfying over minutes, hours, and weeks.
 
 No loop may reward gaming the code metrics. Every reward comes either from real contribution, measured by the ledger (see [fair-play.md](fair-play.md)), or from play on the battlefield. Unlocks are cosmetic and social, never power.
 
@@ -17,8 +17,8 @@ No loop may reward gaming the code metrics. Every reward comes either from real 
 
 **Your inputs in this loop:**
 
-- **Rally** your platoons onto a site: a border fort or a neighbour's capital picks the front your army fights on. One rally every 30 minutes, with a satisfying stamp.
-- Send **emotes** to the room.
+- **Push.** Your next push is the only way to send more soldiers, and the only way to change the war.
+- **Cheer** in the room: a labelled reaction (*Huzzah!*, *What a fight!*, *Ouch!*) floats over your capital. Cheers are just for show.
 - **Inspect** a platoon to read its regiment's story: repo, commit, kills, morale.
 
 **The dopamine beat.** Push, then *see it*, then watch it matter. The delay between pushing and seeing must feel like a fanfare, not a lag.
@@ -33,7 +33,7 @@ Each player gets three **Orders** for the day, drawn from a deck of battlefield 
 - *Rout three enemy platoons*
 - *Storm a capital*
 - *Retake a fallen home*
-- *Slay 15 foes under your War Cry*
+- *One platoon of yours slays 20 foes*
 - *Field a veteran army*
 - *Bring a broken platoon home alive*
 
@@ -45,7 +45,7 @@ The deck holds 17 Orders. The three are drawn from the war's seed and your accou
 2. **Late morning.** The fort lines settle. Armies mass at the forts they hold. At 40% of the war (09:36 of a day) the siege trains arrive and walls can be stormed from a fort you hold, but slowly at first, while a quiet player's gates stay barred for about two hours after their first push (8% of the war).
 3. **Afternoon.** The sieges gather pace, slowly at first, until 70% of the war (16:48), when no wall falls in less than half an hour of unbroken siege while its tower bleeds the besiegers; every barred gate is open from 65% (15:36). No capital falls before about 14:00, and the first ones fall through the afternoon as soon as an army can hold the walls long enough. Defenders come home, neighbours strike at the besieger's other flank, and every push still counts. A capital taken becomes its captor's gate, and every capital held beyond home swells the captor's army by a quarter.
 4. **Late afternoon.** The fallen fight on as **risings** outside their old walls, and retake them if the conqueror's front runs thin. Two owners left share both fronts; the ring narrows.
-5. **Evening.** One banner over every capital ends the war on the spot, and the room waits for the reset. Otherwise the last pushes and War Cries decide who holds the most capitals.
+5. **Evening.** One banner over every capital ends the war on the spot, and the room waits for the reset. Otherwise the last pushes decide who holds the most capitals.
 6. **The reset hour.** The digest (the most capitals, then renown), and a new ring in a new order.
 
 **Spectator hooks:**
@@ -55,11 +55,7 @@ The deck holds 17 Orders. The three are drawn from the war's seed and your accou
 - a highlight toast for every set piece
 - the ring itself: who holds which capital, and a renown race with trend arrows for the tiebreak
 
-**Choices that matter by the hour:**
-
-- **Doctrine** (once an hour) counters what your rivals pick.
-- **Rally** picks the front you push on.
-- The **War Cry** is a once-a-day trump card.
+**What matters by the hour:** only your work. There are no levers to pull: when you push, how much real code it carries and what kind of work it is decide the army, and the war council decides where it marches. A push late in the afternoon can still break a siege.
 
 ## The 10+ hour loop: "My house's legend"
 

@@ -1,4 +1,4 @@
-import type { Platoon, World, WorldSnapshot } from './api.ts';
+import type { Feats, Platoon, PlayerState, World, WorldSnapshot } from './api.ts';
 import { sharedMap } from './mapgen.ts';
 import { pacing } from './stats.ts';
 
@@ -19,7 +19,18 @@ export function restore(snap: WorldSnapshot): World {
     pl.towerBy ??= 0;
     pl.towerAt ??= -1;
   }
+  for (const p of w.players) retireCommands(p);
   return { ...w, map: sharedMap(w.params) };
+}
+
+/** Fields of the manual commands (doctrine, rally, War Cry) that wars once had; snapshots from then carry them. */
+const RETIRED_PLAYER = ['doctrine', 'doctrineAt', 'rallySite', 'rallyUntil', 'rallyAt', 'cryUntil', 'cryUsed'] as const;
+
+/** Drops the retired command state from a player restored from an older snapshot: there is no manual control. */
+function retireCommands(p: PlayerState): void {
+  const old = p as PlayerState & Partial<Record<(typeof RETIRED_PLAYER)[number], unknown>>;
+  for (const k of RETIRED_PLAYER) delete old[k];
+  delete (p.feats as Feats & { cryKills?: number }).cryKills;
 }
 
 /**
@@ -158,13 +169,6 @@ export function checksum(world: World): number {
     num(p.renown);
     num(p.kills);
     num(p.losses);
-    int(p.doctrine);
-    int(p.rallySite);
-    num(p.rallyUntil);
-    num(p.rallyAt);
-    num(p.doctrineAt);
-    num(p.cryUntil);
-    int(p.cryUsed ? 1 : 0);
     num(p.pushes);
     num(p.firstPushAt);
     num(p.quality);
@@ -179,7 +183,6 @@ export function checksum(world: World): number {
     const f = p.feats;
     num(f.holdBest);
     num(f.routsCaused);
-    num(f.cryKills);
     num(f.returns);
     num(f.standBest);
     num(f.retakes);

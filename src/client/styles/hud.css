@@ -12,7 +12,7 @@
   inset: 0;
   cursor: grab;
   touch-action: none;
-  /* HUD cover the camera's opening fit keeps clear: top bar + objective bar, emote dock. */
+  /* HUD cover the camera's opening fit keeps clear: top bar + objective bar, playback dock. */
   --fit-top: 120px;
   --fit-bottom: 84px;
 }
@@ -776,7 +776,7 @@
 .side {
   position: absolute;
   top: calc(var(--topbar-h) + 22px);
-  bottom: 100px;
+  bottom: 14px;
   width: var(--side-w);
   display: flex;
   flex-direction: column;
@@ -1256,94 +1256,7 @@ button.chron-btn:hover {
   margin: 2px 0;
 }
 
-/* --------------------------------------------- command: a commander's writ */
-
-.command {
-  display: flex;
-  flex-direction: column;
-}
-
-.command-group {
-  padding: 10px 0 16px;
-}
-
-.command-group + .command-group {
-  border-top: 1px solid var(--rule-soft);
-  box-shadow: inset 0 3px 0 -2px var(--rule-soft);
-}
-
-.command-label {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  margin: 0 0 10px;
-  font-family: var(--display);
-  font-size: 21px;
-  line-height: 1.1;
-  color: var(--rubric);
-}
-
-.command-label::first-letter {
-  font-size: 1.35em;
-}
-
-.doctrines {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(88px, 100%), 1fr));
-  gap: 6px;
-}
-
-/* A doctrine is a shield; the one in force has the seal pressed on it. */
-.doctrine {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  min-height: 74px;
-  padding: 8px 4px 6px;
-  border: 0;
-  background: transparent;
-  color: var(--fg);
-  font-family: var(--sc);
-  font-size: 14px;
-  font-weight: 700;
-  transition: background-color var(--t-fast), transform var(--t-fast) var(--ease-in);
-}
-
-.doctrine > .icon {
-  width: 36px;
-  height: 36px;
-  padding: 6px;
-  background: var(--recess);
-  box-shadow: inset 0 0 0 1.5px var(--rule);
-  border-radius: 0 0 50% 50% / 0 0 38% 38%;
-}
-
-.doctrine:hover:not(:disabled) {
-  background-color: var(--recess);
-}
-
-.doctrine:active:not(:disabled) {
-  transform: translateY(2px);
-}
-
-.doctrine.is-on {
-  color: var(--rubric);
-}
-
-.doctrine.is-on > .icon {
-  background: var(--seal) center / 100% 100% no-repeat;
-  box-shadow: none;
-  color: var(--gold-hi);
-  border-radius: 0;
-  animation: stamp 320ms var(--ease-in);
-}
-
-.doctrine:disabled:not(.is-on) {
-  opacity: 0.5;
-}
-
+/* A seal pressed into wax (also the Armory's chosen pieces). */
 @keyframes stamp {
   0% {
     transform: scale(1.5) rotate(-12deg);
@@ -1353,28 +1266,6 @@ button.chron-btn:hover {
     transform: scale(0.94) rotate(2deg);
     opacity: 1;
   }
-}
-
-.command-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-.command-row .select {
-  flex: 1 1 100%;
-}
-
-.command-hint {
-  margin: 8px 0 0;
-  font-size: 14px;
-  font-style: italic;
-  color: var(--fg-soft);
-}
-
-.command-hint strong {
-  font-style: normal;
-  color: var(--rubric);
 }
 
 /* --------------------------------------------------------------- army */
@@ -1637,79 +1528,79 @@ button.chron-btn:hover {
   color: var(--fg-soft);
 }
 
-/* Emotes: each a little note with a wax drop, ready to be thrown onto the table. */
-.emote-bar {
-  display: flex;
-  gap: 4px;
-  padding: 6px;
+/* Cheers: a Cheer button at the foot of the chronicle and chat opens a small palette of labelled
+   reactions. They are social only, so they live with the chat, never in the battle chrome. */
+.side-foot {
+  padding: 0 20px 14px;
 }
 
-.emote-btn {
+.sheet-foot {
+  padding: 4px 18px 0;
+}
+
+.cheers {
   position: relative;
-  isolation: isolate;
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  justify-content: center;
-  width: 46px;
-  height: 46px;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--rule-soft);
+}
+
+.cheer-toggle {
+  gap: 6px;
+}
+
+.cheer-hint {
+  font-size: 14px;
+  font-style: italic;
+  color: var(--fg-soft);
+}
+
+.cheer-palette {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 6px);
+  z-index: 2;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  padding: 10px;
+  background: var(--vellum);
+  box-shadow: inset 0 0 0 1.5px var(--rule), 0 6px 18px rgba(10, 12, 20, 0.35);
+  animation: ink-in var(--t-fast) var(--ease-in) backwards;
+}
+
+.cheer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 10px;
   border: 0;
-  background: none;
+  background: transparent;
   color: var(--ink);
-  font-size: 22px;
-  line-height: 1;
-  transition: transform var(--t-fast) var(--ease-in), filter var(--t-fast);
+  font-family: var(--body);
+  font-size: 15px;
+  font-weight: 700;
+  text-align: left;
+  transition: background-color var(--t-fast);
 }
 
-.emote-btn::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  border: 10px solid transparent;
-  border-image: var(--note) 25% fill / 10px round;
-  filter: drop-shadow(0 3px 3px rgba(10, 12, 20, 0.45));
+.cheer > .icon {
+  flex: none;
+  color: var(--rubric);
 }
 
-.emote-btn:nth-child(odd) {
-  transform: rotate(-2deg);
+.cheer:hover:not(:disabled),
+.cheer:focus-visible {
+  background: var(--recess);
 }
 
-.emote-btn:nth-child(even) {
-  transform: rotate(2deg);
-}
-
-/* The wax drop is pressed only when the note is picked up: at rest a row of red drops
-   reads as unread-notification badges, which these are not. */
-.emote-btn::after {
-  content: '';
-  position: absolute;
-  top: -4px;
-  left: 50%;
-  width: 12px;
-  height: 12px;
-  margin-left: -6px;
-  background: var(--seal) center / 100% 100% no-repeat;
-  opacity: 0;
-  transform: scale(1.6);
-  transition: opacity var(--t-fast) var(--ease-in), transform var(--t-fast) var(--ease-in);
-}
-
-.emote-btn:hover:not(:disabled)::after,
-.emote-btn:focus-visible::after {
-  opacity: 1;
-  transform: scale(1);
-}
-
-.emote-btn:hover:not(:disabled) {
-  transform: translateY(-4px) rotate(-4deg) scale(1.08);
-}
-
-.emote-btn:active:not(:disabled) {
-  transform: translateY(1px) scale(0.95);
-}
-
-.emote-btn:disabled {
-  filter: grayscale(0.8) opacity(0.6);
+.cheer:disabled {
+  opacity: 0.5;
 }
 
 .emote-rain {
@@ -1750,17 +1641,6 @@ button.chron-btn:hover {
   border-image: var(--note) 25% fill / 14px round;
   transform: rotate(-3deg);
   filter: var(--cast);
-}
-
-.emote-glyph::after {
-  content: '';
-  position: absolute;
-  top: -6px;
-  left: 50%;
-  width: 18px;
-  height: 18px;
-  margin-left: -9px;
-  background: var(--seal) center / 100% 100% no-repeat;
 }
 
 .emote-who {
@@ -2307,12 +2187,6 @@ input[type='range']:focus-visible {
     grid-template-columns: 70px 1fr auto;
   }
 
-  .emote-btn {
-    width: 40px;
-    height: 40px;
-    font-size: 19px;
-  }
-
   .replay-dock .segmented-sm > button {
     padding: 0 7px;
   }
@@ -2328,19 +2202,6 @@ input[type='range']:focus-visible {
 .winner-name.who {
   font-family: var(--body);
   font-weight: 800;
-}
-
-/* The war is won: the levers are laid down. */
-.command-locked {
-  display: flex;
-  gap: 8px;
-  align-items: baseline;
-  margin: 0;
-  padding: 10px 12px;
-  font-size: 15px;
-  color: var(--fg);
-  background: var(--recess);
-  box-shadow: inset 3px 0 0 var(--gilt);
 }
 
 /* A fallen player's call to rise. */

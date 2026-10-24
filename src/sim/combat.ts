@@ -1,4 +1,4 @@
-import { Doctrine, Kind, Terrain, type PlayerState, type Unit, type World } from './api.ts';
+import { Kind, Terrain, type PlayerState, type Unit, type World } from './api.ts';
 import { cellAt } from './flowfield.ts';
 import { VETERAN_BONUS } from './muster.ts';
 import { AURA_HEAL, AURA_SHIELD, AURA_VALOR, type Scratch } from './scratch.ts';
@@ -6,11 +6,8 @@ import { bucketX, bucketY, type SpatialHash } from './spatial.ts';
 import {
   CHAMPION_AURA,
   CHAMPION_BONUS,
-  CRY_DAMAGE,
   FOREST_ARROW_FACTOR,
   HERALD_AURA,
-  HOLD_RADIUS,
-  HOLD_REDUCTION,
   HOME_TURF,
   HOME_TURF_REDUCTION,
   SAPPER_STRUCTURE,
@@ -18,8 +15,6 @@ import {
   STATS,
   WARDEN_AURA,
   WARDEN_REDUCTION,
-  doctrineDamage,
-  doctrineStructure,
   matchup,
 } from './stats.ts';
 
@@ -100,8 +95,7 @@ export function computeAuras(world: World, s: Scratch): void {
 
 export function attackerMultiplier(world: World, s: Scratch, i: number, player: PlayerState | undefined): number {
   if (!player) return 1;
-  let m = doctrineDamage(player.doctrine) * powerOf(player);
-  if (player.cryUntil > world.tick) m *= CRY_DAMAGE;
+  let m = powerOf(player);
   const kind = world.units[i]!.kind;
   if ((s.aura[i]! & AURA_VALOR) !== 0 && kind !== Kind.Champion && kind !== Kind.Dragon) m *= 1 + CHAMPION_BONUS;
   return m;
@@ -122,11 +116,7 @@ export function mitigated(world: World, s: Scratch, j: number, raw: number, rang
     const cell = cellAt(world.map, v.x, v.y);
     if (cell >= 0 && world.map.terrain[cell] === Terrain.Forest) d *= FOREST_ARROW_FACTOR;
   }
-  if (v.p >= 0) {
-    const owner = world.players[v.p]!;
-    if (onHomeTurf(world, s, v.p, v.x, v.y)) d *= 1 - HOME_TURF_REDUCTION;
-    else if (owner.doctrine === Doctrine.Hold && nearOwnFort(world, v.p, v.x, v.y)) d *= 1 - HOLD_REDUCTION;
-  }
+  if (v.p >= 0 && onHomeTurf(world, s, v.p, v.x, v.y)) d *= 1 - HOME_TURF_REDUCTION;
   return d;
 }
 
@@ -139,18 +129,6 @@ export function onHomeTurf(world: World, s: Scratch, p: number, x: number, y: nu
     const dx = x - capital.x;
     const dy = y - capital.y;
     if (dx * dx + dy * dy <= HOME_TURF * HOME_TURF) return true;
-  }
-  return false;
-}
-
-function nearOwnFort(world: World, p: number, x: number, y: number): boolean {
-  const { sites } = world;
-  for (let k = world.map.slots; k < sites.length; k++) {
-    if (sites[k]!.owner !== p) continue;
-    const def = world.map.sites[k]!;
-    const dx = x - def.x;
-    const dy = y - def.y;
-    if (dx * dx + dy * dy <= HOLD_RADIUS * HOLD_RADIUS) return true;
   }
   return false;
 }
@@ -169,6 +147,5 @@ export function structureDamage(world: World, s: Scratch, i: number): number {
   let d = STATS[u.kind]!.damage * attackerMultiplier(world, s, i, player);
   if (u.kind === Kind.Sapper) d *= SAPPER_STRUCTURE;
   else if (u.kind === Kind.Trebuchet) d *= TREBUCHET_STRUCTURE;
-  if (player) d *= doctrineStructure(player.doctrine);
   return d;
 }

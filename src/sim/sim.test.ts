@@ -5,7 +5,7 @@ import { dcos, dsin } from './dmath.ts';
 import { generateMap, slotsFor } from './mapgen.ts';
 import { applyDelta, armyFor, armyQuality, emptyLedger, purposeOf, slotsOf } from './muster.ts';
 import { STATS } from './stats.ts';
-import { decodeInput, encodeInput, runReplay, type Replay } from './replay.ts';
+import { decodeInput, encodeInput, runReplay, timedInputs, type EncodedInput, type Replay } from './replay.ts';
 import { checksum, restore, snapshot } from './snapshot.ts';
 import { createWorld, step } from './world.ts';
 
@@ -29,8 +29,6 @@ function script(players: number, minutes: number, seed = 1): Map<number, SimInpu
       }
     }
   }
-  add(30, { kind: 'doctrine', p: 0, doctrine: 3 });
-  add(40, { kind: 'cry', p: 1 });
   return out;
 }
 
@@ -233,17 +231,23 @@ describe('world', () => {
     expect(w.sites.some((s) => s.owner !== NEUTRAL)).toBe(true);
   });
 
-  it('rejects invalid and premature commands', () => {
+  it('rejects invalid joins, and ignores the retired manual commands', () => {
     const w = newWorld(2);
-    step(w, [{ kind: 'join', p: 0, slot: 0, hue: 1 }, { kind: 'join', p: 0, slot: 1, hue: 2 }, { kind: 'join', p: 1, slot: 0, hue: 2 }]);
-    expect(w.players).toHaveLength(1);
-    step(w, [{ kind: 'doctrine', p: 0, doctrine: 1 }]);
-    step(w, [{ kind: 'doctrine', p: 0, doctrine: 2 }]);
-    expect(w.players[0]!.doctrine).toBe(1);
-    step(w, [{ kind: 'cry', p: 0 }]);
-    const until = w.players[0]!.cryUntil;
-    step(w, [{ kind: 'cry', p: 0 }]);
-    expect(w.players[0]!.cryUntil).toBe(until);
+    const twin = newWorld(2);
+    for (const x of [w, twin]) {
+      step(x, [{ kind: 'join', p: 0, slot: 0, hue: 1 }, { kind: 'join', p: 0, slot: 1, hue: 2 }, { kind: 'join', p: 1, slot: 0, hue: 2 }]);
+      step(x, [{ kind: 'join', p: 1, slot: 1, hue: 2 }, { kind: 'push', p: 0, repo: 0, commits: 1, files: 3, branches: 10, churn: 0, filler: 0, msg: 'm', lines: lines({ Code: 200 }) }]);
+    }
+    expect(w.players).toHaveLength(2);
+    // There is no manual control: doctrine, rally and War Cry inputs (from an old client or replay) change nothing.
+    const retired = [{ kind: 'doctrine', p: 0, doctrine: 3 }, { kind: 'rally', p: 0, site: 2 }, { kind: 'cry', p: 1 }] as unknown as SimInput[];
+    for (let t = 0; t < 600; t++) {
+      step(w, t % 100 === 0 ? retired : []);
+      step(twin, []);
+    }
+    expect(checksum(w)).toBe(checksum(twin));
+    expect(w.players[0]).not.toHaveProperty('doctrine');
+    expect(w.players[1]).not.toHaveProperty('cryUntil');
   });
 
   it('keeps every army under the per-player cap and the room under its cap, however much is pushed', () => {
@@ -283,7 +287,7 @@ describe('replay', () => {
     const world = newWorld(3, 13);
     run(world, inputs, 4 * TICKS_PER_MINUTE);
     const encoded = [...inputs.entries()].sort((a, b) => a[0] - b[0]).flatMap(([t, list]) => list.map((i) => encodeInput(t, i)));
-    for (const e of encoded) expect(encodeInput(decodeInput(e).tick, decodeInput(e).input)).toEqual(e);
+    for (const e of encoded) expect(encodeInput(decodeInput(e)!.tick, decodeInput(e)!.input)).toEqual(e);
     const replay: Replay = {
       v: 1, seed: 13, slots: slotsFor(3), members: 3, tickMs: 200, startsAt: 0, endsAt: 24 * 3600_000,
       players: [0, 1, 2].map((p) => ({ login: `p${p}`, id: p + 1, hue: p * 50, slot: p, bot: false })),
@@ -292,6 +296,27 @@ describe('replay', () => {
     };
     expect(checksum(runReplay(replay, 4 * TICKS_PER_MINUTE))).toBe(checksum(world));
     expect(JSON.stringify(replay).length).toBeLessThan(40_000);
+  });
+
+  it('accepts an old replay that holds manual commands, and ignores them', () => {
+    const inputs = script(3, 4, 8);
+    const encoded = [...inputs.entries()].sort((a, b) => a[0] - b[0]).flatMap(([t, list]) => list.map((i) => encodeInput(t, i)));
+    const base = {
+      v: 1 as const, seed: 13, slots: slotsFor(3), members: 3, tickMs: 200, startsAt: 0, endsAt: 24 * 3600_000,
+      players: [0, 1, 2].map((p) => ({ login: `p${p}`, id: p + 1, hue: p * 50, slot: p, bot: false })),
+      repos: [['a/b', null], ['c/d', 'Go'], ['e/f', null]] as Replay['repos'],
+    };
+    // Rows exactly as wars recorded them while there was still manual control: doctrine, rally, War Cry.
+    const old: EncodedInput[] = [[30, 'doc', 0, 3], [35, 'rally', 1, 4], [40, 'cry', 2], [600, 'cry', 0], [900, 'doc', 1, 2]];
+    const withCommands: Replay = { ...base, inputs: JSON.parse(JSON.stringify([...encoded, ...old].sort((a, b) => a[0] - b[0]))) };
+    const without: Replay = { ...base, inputs: JSON.parse(JSON.stringify(encoded)) };
+    for (const e of old) expect(decodeInput(e)).toBeNull();
+    expect(timedInputs(withCommands)).toHaveLength(timedInputs(without).length);
+    expect(timedInputs(withCommands).every((t) => t.input.kind === 'join' || t.input.kind === 'push')).toBe(true);
+    const tick = 4 * TICKS_PER_MINUTE;
+    expect(checksum(runReplay(withCommands, tick))).toBe(checksum(runReplay(without, tick)));
+    // A row of a kind that never existed is still a corrupt replay.
+    expect(() => decodeInput([5, 'charge', 0] as unknown as EncodedInput)).toThrow();
   });
 });
 
@@ -305,6 +330,6 @@ describe('chronicle', () => {
       const due = inputs.get(w.tick) ?? [];
       for (const e of ch.narrate(w, due, step(w, due))) kinds.add(e.kind);
     }
-    for (const k of ['join', 'muster', 'capture', 'leader', 'doctrine', 'cry']) expect(kinds).toContain(k);
+    for (const k of ['join', 'muster', 'capture', 'leader']) expect(kinds).toContain(k);
   });
 });

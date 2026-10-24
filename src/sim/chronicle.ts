@@ -1,5 +1,5 @@
 import { Kind, KIND_COUNT, NEUTRAL, TICKS_PER_SECOND, type Purpose, type SimInput, type TickEvents, type World } from './api.ts';
-import { DOCTRINE_NAMES, STATS } from './stats.ts';
+import { STATS } from './stats.ts';
 
 export type ChronicleKind =
   | 'join'
@@ -12,9 +12,6 @@ export type ChronicleKind =
   | 'conquest'
   | 'rising'
   | 'victory'
-  | 'cry'
-  | 'doctrine'
-  | 'rally'
   | 'leader'
   | 'clash'
   | 'dragon';
@@ -186,12 +183,6 @@ export class Chronicler {
     }
     if (ev.victory) {
       add({ kind: 'victory', p: ev.victory.p, text: `${n.player(ev.victory.p)} holds every capital on the ring. The war is won!` });
-    }
-    for (const c of ev.cries) add({ kind: 'cry', p: c.p, text: `${n.player(c.p)} sounds the War Cry!` });
-    for (const d of ev.doctrines) add({ kind: 'doctrine', p: d.p, text: `${n.player(d.p)} adopts the ${DOCTRINE_NAMES[d.doctrine]} doctrine.` });
-    for (const r of ev.rallies) {
-      const def = world.map.sites[r.site]!;
-      add({ kind: 'rally', p: r.p, site: r.site, x: def.x, y: def.y, text: `${n.player(r.p)} rallies every platoon on ${siteLabel(world, r.site, n)}.` });
     }
     if (ev.leader) {
       const prev = ev.leader.previous >= 0 ? `, overtaking ${n.player(ev.leader.previous)}` : '';

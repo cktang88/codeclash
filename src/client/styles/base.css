@@ -550,8 +550,7 @@ code,
 
 /* Primary action: a bar of vermilion wax with embossed lettering. */
 .btn-primary,
-.btn-gilt,
-.btn-cry {
+.btn-gilt {
   border: 0;
   box-shadow: none;
   padding: 0 22px;
@@ -559,8 +558,7 @@ code,
 }
 
 .btn-primary::before,
-.btn-gilt::before,
-.btn-cry::before {
+.btn-gilt::before {
   content: '';
   position: absolute;
   inset: -2px -1px;
@@ -571,37 +569,31 @@ code,
   transition: filter var(--t-fast) var(--ease-in);
 }
 
-.btn-primary,
-.btn-cry {
+.btn-primary {
   color: var(--vellum);
   text-shadow: 0 -1px 0 rgba(70, 12, 4, 0.75), 0 1px 0 rgba(255, 200, 170, 0.22);
 }
 
-.btn-primary::after,
-.btn-cry::after {
+.btn-primary::after {
   background: var(--gilt);
 }
 
 .btn-primary:hover:not(:disabled),
-.btn-gilt:hover:not(:disabled),
-.btn-cry:hover:not(:disabled) {
+.btn-gilt:hover:not(:disabled) {
   background-color: transparent;
 }
 
-.btn-primary:hover:not(:disabled)::before,
-.btn-cry:hover:not(:disabled)::before {
+.btn-primary:hover:not(:disabled)::before {
   filter: drop-shadow(0 3px 2px rgba(18, 22, 31, 0.45)) brightness(1.1);
 }
 
 .btn-primary:active:not(:disabled),
-.btn-gilt:active:not(:disabled),
-.btn-cry:active:not(:disabled) {
+.btn-gilt:active:not(:disabled) {
   transform: translateY(2px);
   box-shadow: none;
 }
 
-.btn-primary:active:not(:disabled)::before,
-.btn-cry:active:not(:disabled)::before {
+.btn-primary:active:not(:disabled)::before {
   border-image-source: url('../ui/art/wax-bar-down.svg');
   filter: none;
 }
@@ -642,12 +634,6 @@ code,
 
 .btn-danger {
   font-weight: 800;
-}
-
-.btn-cry {
-  width: 100%;
-  min-height: 52px;
-  font-size: 18px;
 }
 
 /* An icon action: a bare woodcut that gains an inked frame under the hand. */

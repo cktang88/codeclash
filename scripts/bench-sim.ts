@@ -29,7 +29,6 @@ let chain = 0;
 for (let t = 0; t < total; t++) {
   const inputs: SimInput[] = [];
   if (t === 0) for (let p = 0; p < players; p++) inputs.push({ kind: 'join', p, slot: p, hue: p * 22 });
-  if (t === 10) for (let p = 0; p < players; p++) if (p % 5 !== 0) inputs.push({ kind: 'doctrine', p, doctrine: ((p % 4) + 1) as 1 });
   for (let p = 0; p < players; p++) if (rand() < rate / (60 * TICKS_PER_MINUTE)) inputs.push(push(p));
   const t0 = performance.now();
   step(world, inputs);
