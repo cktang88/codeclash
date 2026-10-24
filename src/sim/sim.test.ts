@@ -3,7 +3,7 @@ import { Cat, Kind, NEUTRAL, PlatoonState, TICKS_PER_MINUTE, type Ledger, type S
 import { Chronicler } from './chronicle.ts';
 import { dcos, dsin } from './dmath.ts';
 import { generateMap, slotsFor } from './mapgen.ts';
-import { applyDelta, armyFor, armyQuality, emptyLedger, purposeOf, slotsOf } from './muster.ts';
+import { applyDelta, armyFor, armyQuality, budgetOf, CODE_CAP, CODE_CREDIT_MAX, CODE_KNEE, credited, effectiveLedger, emptyLedger, purposeOf, slotsOf } from './muster.ts';
 import { STATS } from './stats.ts';
 import { decodeInput, encodeInput, runReplay, timedInputs, type EncodedInput, type Replay } from './replay.ts';
 import { checksum, restore, snapshot } from './snapshot.ts';
@@ -25,7 +25,7 @@ function script(players: number, minutes: number, seed = 1): Map<number, SimInpu
   for (let t = 1; t < minutes * TICKS_PER_MINUTE; t++) {
     for (let p = 0; p < players; p++) {
       if (rand() < 1 / (2 * TICKS_PER_MINUTE)) {
-        add(t, { kind: 'push', p, repo: p, commits: 1, files: 3, branches: 10, churn: 0, filler: 0, msg: 'm', lines: lines({ Code: Math.floor(rand() * 200), Test: Math.floor(rand() * 60), Comment: 12, Removed: Math.floor(rand() * 40) }) });
+        add(t, { kind: 'push', p, repo: p, commits: 1, files: 3, branches: 10, churn: 0, filler: 0, msg: 'm', lines: lines({ Code: Math.floor(rand() * 400), Test: Math.floor(rand() * 60), Comment: 12, Removed: Math.floor(rand() * 40) }) });
       }
     }
   }
@@ -69,12 +69,43 @@ describe('the army a day of work is worth', () => {
     expect(purposeOf('wip')).toBe('work');
   });
 
-  it('grows with real code and files touched, with diminishing returns', () => {
+  it('grows linearly with real code: twice the work raises about twice the army', () => {
+    // A day's work, scaled: code, files, branch points and removed lines all grow together.
+    const day = (k: number, msg = 'feat: sync') => ledgerOf([{ lines: { Code: 1000 * k, Removed: 300 * k, Test: 200, Comment: 40 }, files: 25 * k, branches: 150 * k, msg }]);
+    for (const k of [0.5, 1, 2]) {
+      const ratio = budgetOf(day(2 * k)) / budgetOf(day(k));
+      expect(ratio, `${k}`).toBeGreaterThanOrEqual(1.9);
+      expect(ratio, `${k}`).toBeLessThanOrEqual(2.1);
+    }
+    // The whole army, support and specialists included, follows the budget.
+    expect(slotsOf(armyFor(day(2), 1)) / slotsOf(armyFor(day(1), 1))).toBeGreaterThan(1.75);
+    // A typical honest day is about the size it was under the old square-root budget (some 80 slots).
+    const typical = ledgerOf([{ lines: { Code: 2000, Removed: 750, Test: 400, Comment: 100 }, files: 60, branches: 400, msg: 'feat: sync' }]);
+    expect(budgetOf(typical)).toBeGreaterThanOrEqual(70);
+    expect(budgetOf(typical)).toBeLessThanOrEqual(85);
+    // Code is most of it.
+    expect(budgetOf(ledgerOf([{ lines: { Code: 2000 } }]))).toBeGreaterThan(0.8 * budgetOf(typical));
+    // A small day raises a small army, but never nothing.
     const small = total(armyFor(ledgerOf([{ lines: { Code: 100, Comment: 5 }, files: 2 }]), 1));
     const big = total(armyFor(ledgerOf([{ lines: { Code: 1600, Comment: 80 }, files: 32 }]), 1));
-    expect(small).toBeGreaterThan(5);
-    expect(big).toBeGreaterThan(small * 2);
-    expect(big).toBeLessThan(small * 16);
+    expect(small).toBeGreaterThanOrEqual(3);
+    expect(big).toBeGreaterThan(small * 8);
+  });
+
+  it('counts code past the knee at half value and nothing past the cap', () => {
+    expect(credited(CODE_KNEE)).toBe(CODE_KNEE);
+    expect(credited(CODE_KNEE + 1000)).toBe(CODE_KNEE + 500);
+    expect(credited(CODE_CAP)).toBe(CODE_CREDIT_MAX);
+    expect(credited(10 * CODE_CAP)).toBe(CODE_CREDIT_MAX);
+    expect(credited(-5)).toBe(0);
+    const code = (n: number) => budgetOf(ledgerOf([{ lines: { Code: n }, msg: 'feat: x' }]));
+    // Below the knee each 1000 lines is worth the same; above it, half as much; past the cap, nothing.
+    const below = code(3000) - code(2000);
+    const above = code(5000) - code(4000);
+    expect(Math.abs(above - below / 2)).toBeLessThanOrEqual(1);
+    expect(code(CODE_CAP + 5000)).toBe(code(CODE_CAP));
+    // Removed lines stop at the knee.
+    expect(effectiveLedger(ledgerOf([{ lines: { Removed: 1e6 } }])).removed).toBe(CODE_KNEE);
   });
 
   it('raises nothing for generated or vendored code, and keeps support small', () => {
@@ -251,8 +282,8 @@ describe('world', () => {
   });
 
   it('keeps every army under the per-player cap and the room under its cap, however much is pushed', () => {
-    // One war's ledger is capped (CODE_CAP), so even a full room of maximal days fits under
-    // both caps; the muster queue remains as a safety net for them.
+    // One war's ledger is capped (CODE_CAP), but a full room of maximal days is worth more than the
+    // room's cap: each player fields its even share of the room, and the muster queue holds the rest.
     const w = newWorld(16);
     step(w, Array.from({ length: 16 }, (_, p): SimInput => ({ kind: 'join', p, slot: p, hue: p * 20 })));
     const push = (p: number): SimInput => ({ kind: 'push', p, repo: 0, commits: 1, files: 300, branches: 1700, churn: 0, filler: 0, msg: 'x', lines: lines({ Code: 40_000, Removed: 40_000, Test: 4000, Comment: 1000, Docs: 3000, Config: 3000 }) });
@@ -260,7 +291,8 @@ describe('world', () => {
     for (let p = 0; p < 16; p++) {
       const slots = slotsOf(w.units.filter((u) => u.p === p).map((u) => u.kind).reduce((c, k) => (c[k]!++, c), new Array<number>(20).fill(0)));
       expect(slots).toBeGreaterThan(100);
-      expect(slots).toBeLessThanOrEqual(160);
+      expect(slots).toBeLessThanOrEqual(Math.floor(2000 / 16));
+      expect(w.players[p]!.queue.length).toBeGreaterThan(0);
     }
     expect(w.units.length).toBeLessThanOrEqual(2000);
   });
@@ -270,14 +302,34 @@ describe('regroup', () => {
   it('folds a nearby remnant into a stronger platoon of the same army', () => {
     const w = newWorld(2);
     step(w, [{ kind: 'join', p: 0, slot: 0, hue: 1 }]);
-    step(w, [{ kind: 'push', p: 0, repo: 0, commits: 1, files: 3, branches: 10, churn: 0, filler: 0, msg: 'big', lines: lines({ Code: 100, Test: 30 }) }]);
-    step(w, [{ kind: 'push', p: 0, repo: 1, commits: 1, files: 3, branches: 10, churn: 0, filler: 0, msg: 'tiny', lines: lines({ Code: 2 }) }]);
+    step(w, [{ kind: 'push', p: 0, repo: 0, commits: 1, files: 3, branches: 10, churn: 0, filler: 0, msg: 'big', lines: lines({ Code: 300, Test: 30 }) }]);
+    step(w, [{ kind: 'push', p: 0, repo: 1, commits: 1, files: 3, branches: 10, churn: 0, filler: 0, msg: 'tiny', lines: lines({ Code: 40 }) }]);
     let regrouped = 0;
     for (let i = 0; i < 20; i++) regrouped += step(w, []).regroups.length;
     expect(regrouped).toBe(1);
     const fielded = w.platoons.filter((p) => p.p === 0 && p.state !== PlatoonState.Queued);
     expect(fielded).toHaveLength(1);
     expect(w.units.every((u) => u.platoon === fielded[0]!.id)).toBe(true);
+  });
+});
+
+describe('determinism of the linear budget', () => {
+  it('two runs of the same inputs, with days past the knee and the cap, end on the same checksum', () => {
+    const inputs = script(4, 6, 77);
+    // Big days crossing CODE_KNEE and CODE_CAP, and one undone, land mid-war.
+    const big = (p: number, code: number): SimInput => ({ kind: 'push', p, repo: p, commits: 1, files: 40, branches: Math.floor(code / 7), churn: 0, filler: 0, msg: 'feat: big', lines: lines({ Code: code, Test: 600, Removed: 900 }) });
+    inputs.set(400, [...(inputs.get(400) ?? []), big(0, CODE_KNEE + 777), big(1, CODE_CAP * 3), big(2, 2500)]);
+    inputs.set(900, [...(inputs.get(900) ?? []), big(2, -2500), big(3, 1234)]);
+    const a = newWorld(4, 31);
+    const b = newWorld(4, 31);
+    run(a, inputs, 6 * TICKS_PER_MINUTE);
+    run(b, inputs, 3 * TICKS_PER_MINUTE);
+    const mid = restore(snapshot(b));
+    run(mid, inputs, 6 * TICKS_PER_MINUTE);
+    expect(checksum(mid)).toBe(checksum(a));
+    expect(a.players[1]!.raised).toEqual(mid.players[1]!.raised);
+    // The capped day counts as the cap.
+    expect(effectiveLedger(a.players[1]!.ledger).code).toBe(CODE_CREDIT_MAX);
   });
 });
 

@@ -32,7 +32,7 @@ import { dcos, dsin } from './dmath.ts';
 import { Form, columnFormation, extent, lineFormation, type Slot } from './formation.ts';
 import { hexCenterX, hexCenterY, hexRoute } from './hexroute.ts';
 import { Role, attackerCap, cohesion, guardRadius, overCap, pickTarget, roleOf, type Pick } from './tactics.ts';
-import { applyDelta, armyFor, armyQuality, cleanLines, emptyLedger, int, purposeOf, slotsOf, type LedgerDelta } from './muster.ts';
+import { applyDelta, armyFor, armyQuality, cleanLines, effectiveLedger, emptyLedger, int, purposeOf, slotsOf, type LedgerDelta } from './muster.ts';
 import { nextRandom, seedRng } from './rng.ts';
 import { AURA_HEAL, enemyWithin, indexWorld, scratchFor, type Scratch } from './scratch.ts';
 import { bucketX, bucketY, rebuildSpatialHash } from './spatial.ts';
@@ -296,9 +296,47 @@ export function conquered(world: World, player: PlayerState): number {
   return Math.max(0, player.capitals - (capitalOwner(world, player.slot) === player.p ? 1 : 0));
 }
 
-/** Most platoon slots a player may field at once: PLAYER_ALIVE, raised by its conquests. */
+/**
+ * A player's contribution to the day: the code its ledger counts (`effectiveLedger`). Its
+ * share of the room's total ranks players who hold as many capitals at the reset.
+ */
+export function contribution(player: { ledger: PlayerState['ledger'] }): number {
+  return effectiveLedger(player.ledger).code;
+}
+
+/** The fields the standings are ranked by. */
+export interface StandingKey {
+  p: number;
+  capitals: number;
+  contribution: number;
+  renown: number;
+}
+
+/**
+ * The standings order, and so the winner at the reset: the ring's conqueror first, then the
+ * most capitals held, then the largest share of the day's code, then renown, then whoever
+ * joined first. Negative when `a` ranks above `b`.
+ */
+export function compareStandings(victor: number, a: StandingKey, b: StandingKey): number {
+  return (b.p === victor ? 1 : 0) - (a.p === victor ? 1 : 0) || b.capitals - a.capitals || b.contribution - a.contribution || b.renown - a.renown || a.p - b.p;
+}
+
+/** Who won the day: the ring's conqueror, else the top of the standings, if anyone fought at all (renown or a capital taken). */
+export function dayWinner(world: World): number | null {
+  if (world.victor >= 0 && world.players[world.victor]) return world.victor;
+  const keys = world.players.map((ps) => ({ p: ps.p, capitals: ps.capitals, contribution: contribution(ps), renown: ps.renown, conquests: ps.conquests }));
+  const top = keys.sort((a, b) => compareStandings(world.victor, a, b))[0];
+  return top && (top.renown > 0 || top.conquests > 0) ? top.p : null;
+}
+
+/**
+ * Most platoon slots a player may field at once: PLAYER_ALIVE, or its even share of the room's
+ * MAX_ALIVE when that is smaller (a room of more than 12), raised by its conquests. The share keeps a
+ * full room of big days from filling the field with the first armies to push.
+ */
 export function fieldCap(world: World, player: PlayerState): number {
-  return Math.floor(PLAYER_ALIVE * (1 + CONQUEST_BONUS * conquered(world, player)));
+  const share = Math.min(PLAYER_ALIVE, Math.floor(MAX_ALIVE / Math.max(1, world.players.length)));
+  return Math.floor(share * (1 + CONQUEST_BONUS * conquered(world, player)));
 }
 
 /** Heroes first, then specialists, so Footmen fill whatever room is left. */

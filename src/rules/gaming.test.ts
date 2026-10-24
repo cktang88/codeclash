@@ -141,6 +141,15 @@ describe('gaming line counts', () => {
     expect(gains.slice(1).every((g) => g <= 0)).toBe(true);
   });
 
+  it('a style sheet of one rule per class, copied for every icon, counts as filler', () => {
+    const words = NOUNS.flatMap((n) => VERBS.map((v) => `${v}-${n}`));
+    const css = Array.from({ length: 2000 }, (_, i) => `.icon-${words[i % words.length]} { background-position: ${-(i % 40) * 16}px ${-Math.floor(i / 40) * 16}px; }`);
+    const ids = Array.from({ length: 400 }, (_, i) => `#panel-${words[i]} .title { color: var(--accent); }`);
+    // A few shapes (signed and unsigned offsets) at SHAPE_CAP each, out of 2000 lines.
+    expect(measure([file('src/sprites.css', css)]).lines[Cat.Code]).toBeLessThanOrEqual(40);
+    expect(measure([file('src/panels.scss', ids)]).lines[Cat.Code]).toBeLessThanOrEqual(10);
+  });
+
   it('a trailing comment or inline comment does not make a duplicate line new', () => {
     const lines = Array.from({ length: 500 }, (_, i) => `registerHandler(router, paymentHandler); // ${['alpha', 'beta', 'gamma', 'delta'][i % 4]} ${i}`);
     const inline = Array.from({ length: 500 }, (_, i) => `registerHandler(router, /* ${i} */ paymentHandler);`);
@@ -297,6 +306,19 @@ describe('gaming line counts', () => {
     const capped = ledgerOf([{ delta: measure([file('src/paste.ts', paste.slice(0, DAILY_CODE_CAP))]), msg: 'feat: import' }]);
     expect(strength(war)).toBeLessThanOrEqual(1.1 * strength(capped));
   });
+
+  it('pasted code that passes for real is bounded by the cap: never more than a real day at the cap', () => {
+    // Undetectable copied code pays like real code (the budget is linear), so the daily cap and its
+    // knee are what bound it: a modest day plus a 50k-line paste is worth no more than a real day of
+    // DAILY_CODE_CAP lines.
+    const store = new MemoryLedger();
+    const real = honestCode(1500, 82);
+    const day = [
+      { delta: measure([file('src/billing.ts', real), file('src/billing.test.ts', honestTests(400, 83))], store), msg: 'feat: billing' },
+      { delta: measure([file('src/imported.ts', honestCode(50_000, 84))], store), msg: 'feat: import' },
+    ];
+    expect(strength(ledgerOf(day))).toBeLessThanOrEqual(1.05 * strength(honestDay(DAILY_CODE_CAP, 40)));
+  }, 30_000);
 
   it('a mass deletion (say, in a fork) earns less than a modest day of real code', () => {
     const legacy = honestCode(30_000, 91);

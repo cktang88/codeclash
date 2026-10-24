@@ -12,7 +12,7 @@ import { checksum, restore, snapshot } from './snapshot.ts';
 import { CAPITAL_TOWER, CONQUEST_BONUS, breachPace, pacing } from './stats.ts';
 import { mulberry } from '../rules/bots.ts';
 import { clearPath } from './steering.ts';
-import { createWorld, fieldCap, step, wallsFor } from './world.ts';
+import { compareStandings, contribution, createWorld, dayWinner, fieldCap, step, wallsFor } from './world.ts';
 import { encodeInput, replayParams, runReplay, type EncodedInput, type Replay } from './replay.ts';
 import { breachable } from './council.ts';
 
@@ -534,7 +534,47 @@ describe('the winner', () => {
     players: w.players.map((p) => ({ login: `p${p.p}`, id: p.p + 1, hue: p.hue, slot: p.slot, bot: false })), repos: [], inputs: [],
   });
 
-  it('is the conqueror; at the reset, the most capitals, then renown, then first joined', () => {
+  it('at the reset, breaks a tie on capitals by the share of the day\'s code, then renown, then first joined', () => {
+    const w = ringWorld(4, 1);
+    step(w, Array.from({ length: 4 }, (_, p): SimInput => ({ kind: 'join', p, slot: p, hue: p })));
+    for (const pl of w.players) pl.pushes = 1;
+    const code = [1200, 2600, 2600, 400];
+    w.players.forEach((pl, p) => (pl.ledger.lines[Cat.Code] = code[p]!));
+    w.players[0]!.renown = 5000;
+    w.players[1]!.renown = 300;
+    w.players[2]!.renown = 900;
+    w.players[3]!.renown = 10;
+    expect(w.players.map(contribution)).toEqual(code);
+    // Every capital still with its founder: code decides before renown, and renown splits equal code.
+    let d = buildDigest(w, replay(w), []);
+    expect(d.winner).toBe(2);
+    expect(d.players.map((p) => p.place)).toEqual([3, 2, 1, 4]);
+    expect(d.players.map((p) => p.contribution)).toEqual(code);
+    expect(d.headline).toContain('won it on renown');
+    expect(dayWinner(w)).toBe(2);
+    // Equal code and renown: whoever joined first.
+    w.players[1]!.renown = 900;
+    expect(buildDigest(w, replay(w), []).winner).toBe(1);
+    // Code past the cap counts as the cap: two capped days tie on code.
+    w.players[1]!.ledger.lines[Cat.Code] = 50_000;
+    w.players[2]!.ledger.lines[Cat.Code] = 9000;
+    w.players[2]!.renown = 901;
+    expect(contribution(w.players[1]!)).toBe(contribution(w.players[2]!));
+    expect(buildDigest(w, replay(w), []).winner).toBe(2);
+    // A lead in code is named in the headline.
+    w.players[2]!.ledger.lines[Cat.Code] = 1800;
+    d = buildDigest(w, replay(w), []);
+    expect(d.winner).toBe(1);
+    expect(d.headline).toMatch(/won it on the day's code, 6,000 lines to 1,800 lines/);
+    // Capitals still come first.
+    cede(w, 0, 3);
+    expect(buildDigest(w, replay(w), []).winner).toBe(3);
+    // The HUD ranks by the same comparison.
+    const keys = w.players.map((pl) => ({ p: pl.p, capitals: pl.capitals, contribution: contribution(pl), renown: pl.renown }));
+    expect(keys.sort((a, b) => compareStandings(w.victor, a, b)).map((k) => k.p)).toEqual(buildDigest(w, replay(w), []).players.slice().sort((a, b) => a.place - b.place).map((p) => p.p));
+  });
+
+  it('is the conqueror; at the reset, the most capitals, then (with equal code) renown, then first joined', () => {
     const w = ringWorld(4, 1);
     step(w, Array.from({ length: 4 }, (_, p): SimInput => ({ kind: 'join', p, slot: p, hue: p })));
     for (const pl of w.players) pl.pushes = 1;

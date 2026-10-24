@@ -21,6 +21,7 @@
 import { Cat, CAT_COUNT } from '../sim/api.ts';
 import { branchesIn, categorizePath, classifyLine, extensionOf, isGeneratedContent, splitPatch, syntaxFor, type ChangedFile, type FileCategory } from './classify.ts';
 import { languageOfPath } from './heraldry.ts';
+import { CODE_CAP } from '../sim/muster.ts';
 
 /**
  * Copies of an identical line credited per user. One: a rewritten history
@@ -32,8 +33,11 @@ export const DUPLICATE_CAP = 1;
 export const SHAPE_CAP = 8;
 /** Branch points one line can carry: `a && b && c && …` is one decision, not twenty. */
 export const LINE_BRANCH_CAP = 2;
-/** Code lines one player can be credited with in a day; the rest is treated as a paste. */
-export const DAILY_CODE_CAP = 5000;
+/**
+ * Code lines one player can be credited with in a day; the rest is treated as a paste. The
+ * simulation counts the last third of them at half value (`credited` in sim/muster.ts).
+ */
+export const DAILY_CODE_CAP = CODE_CAP;
 export const DAILY_BRANCH_CAP = 10_000;
 
 /**
@@ -145,11 +149,14 @@ export function canonical(normalized: string, family: string): string {
 
 /**
  * A line's shape: its canonical form with string literals and numbers (and names
- * containing digits) blanked out. A template literal keeps its interpolations,
+ * containing digits, and selectors in style sheets) blanked out. A template literal keeps its interpolations,
  * which are code.
  */
 export function shapeOf(normalized: string, family: string): string {
-  return stripComments(normalized, family)
+  const code = stripComments(normalized, family);
+  // In style sheets (and markup and SQL), class and id selectors are names too: `.icon-a { … }`
+  // and `.icon-b { … }` are one rule copied, however many icons there are.
+  return (family === 'none' ? code.replace(/[.#][A-Za-z_-][\w-]*/g, 'N') : code)
     .replace(/`(?:[^`\\]|\\.)*`/g, (m) => `T${(m.match(/\$\{[^}]*\}/g) ?? []).join('')}`)
     .replace(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g, 'S')
     .replace(/[A-Za-z_$]*\d[\w$]*/g, 'N')

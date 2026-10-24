@@ -46,7 +46,7 @@ The deck holds 17 Orders. The three are drawn from the war's seed and your accou
 3. **Afternoon.** The sieges gather pace, slowly at first, until 70% of the war (16:48), when no wall falls in less than half an hour of unbroken siege while its tower bleeds the besiegers; every barred gate is open from 65% (15:36). No capital falls before about 14:00, and the first ones fall through the afternoon as soon as an army can hold the walls long enough. Defenders come home, neighbours strike at the besieger's other flank, and every push still counts. A capital taken becomes its captor's gate, and every capital held beyond home swells the captor's army by a quarter.
 4. **Late afternoon.** The fallen fight on as **risings** outside their old walls, and retake them if the conqueror's front runs thin. Two owners left share both fronts; the ring narrows.
 5. **Evening.** One banner over every capital ends the war on the spot, and the room waits for the reset. Otherwise the last pushes decide who holds the most capitals.
-6. **The reset hour.** The digest (the most capitals, then renown), and a new ring in a new order.
+6. **The reset hour.** The digest (the most capitals, then the share of the day's code, then renown), and a new ring in a new order.
 
 **Spectator hooks:**
 

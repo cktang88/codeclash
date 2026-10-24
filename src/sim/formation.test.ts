@@ -273,7 +273,7 @@ describe('deployment', () => {
   });
 
   it('gets every soldier to its place in the line and back into column, nobody stuck', () => {
-    const { w, a, pin } = standoff(L(500, 60, 40), 'fix: crash');
+    const { w, a, pin } = standoff(L(1000, 60, 40), 'fix: crash');
     const places = () => w.units.filter((u) => u.platoon === a.id).map((u) => {
       const p = placeOf(w, u)!;
       return Math.hypot(p.x - u.x, p.y - u.y);
@@ -371,8 +371,8 @@ describe('soldiers in the fight', () => {
     // The border fort on the road between the two capitals: the natural battleground.
     const fort = w.map.slots;
     step(w, [
-      push(0, L(700, 80, 40), 'fix: crash on resume', 8, 30),
-      push(1, L(700, 80, 40, 0, 0, 900), 'refactor: drop legacy auth', 8, 120),
+      push(0, L(1100, 80, 40), 'fix: crash on resume', 8, 30),
+      push(1, L(1300, 80, 40, 0, 0, 1200), 'refactor: drop legacy auth', 8, 90),
     ]);
     let melee = 0;
     let piled = 0;

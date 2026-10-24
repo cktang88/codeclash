@@ -1,6 +1,7 @@
 import { CAT_COUNT, Cat, Kind, KIND_COUNT, PURPOSES, TICKS_PER_MINUTE, type Purpose, type SimInput, type World } from '../sim/api.ts';
 import type { ChronicleEntry } from '../sim/chronicle.ts';
 import { decodeInput, type Replay } from '../sim/replay.ts';
+import { compareStandings, contribution, dayWinner } from '../sim/world.ts';
 
 export interface AwardDef {
   id: string;
@@ -35,6 +36,8 @@ export interface DigestPlayer {
   hue: number;
   place: number;
   renown: number;
+  /** Code lines the day's ledger counted (`effectiveLedger`): the contribution that breaks a tie on capitals. Absent from older digests. */
+  contribution?: number;
   pushes: number;
   lines: number[];
   raised: number[];
@@ -113,6 +116,7 @@ export function buildDigest(world: World, replay: Replay, chronicle: readonly Ch
       hue: ps.hue,
       place: 0,
       renown: ps.renown,
+      contribution: contribution(ps),
       pushes: ps.pushes,
       lines: ps.ledger.lines.slice(),
       raised: ps.raised.slice(),
@@ -141,13 +145,13 @@ export function buildDigest(world: World, replay: Replay, chronicle: readonly Ch
     };
   });
 
-  // The ring's conqueror wins outright. If the reset came first: the most capitals held, then
-  // renown, then whoever joined first. Nobody wins a day no one fought.
+  // The ring's conqueror wins outright. If the reset came first: the most capitals held, then the
+  // largest share of the day's code, then renown, then whoever joined first (the simulation's
+  // `compareStandings`, which the HUD ranks by too). Nobody wins a day no one fought.
   const victor = world.victor >= 0 && world.players[world.victor] ? world.victor : null;
-  const ranked = players.slice().sort((a, b) => (b.p === victor ? 1 : 0) - (a.p === victor ? 1 : 0) || b.capitals - a.capitals || b.renown - a.renown || a.p - b.p);
+  const ranked = players.slice().sort((a, b) => compareStandings(world.victor, { ...a, contribution: a.contribution ?? 0 }, { ...b, contribution: b.contribution ?? 0 }));
   ranked.forEach((pl, i) => (pl.place = i + 1));
-  const top = ranked[0];
-  const winner = victor ?? (top && (top.renown > 0 || top.conquests > 0) ? top.p : null);
+  const winner = dayWinner(world);
 
   // Best platoons: recover the commit message of the push that raised them.
   // Only pushes the simulation accepted count: a known player and a valid repository.
@@ -254,6 +258,8 @@ export function buildDigest(world: World, replay: Replay, chronicle: readonly Ch
   };
 }
 
+const lines = (n: number) => `${n.toLocaleString('en-US')} ${n === 1 ? 'line' : 'lines'}`;
+
 function headline(players: readonly DigestPlayer[], winner: number | null, world: World, pushes: number): string {
   if (pushes === 0 || winner === null) return 'A quiet day. No banners were raised and every capital stood untouched.';
   const w = players[winner]!;
@@ -264,8 +270,10 @@ function headline(players: readonly DigestPlayer[], winner: number | null, world
   }
   const second = players.find((pl) => pl.place === 2);
   if (second && second.capitals === w.capitals) {
-    const margin = w.renown - second.renown;
-    return `@${w.login} and @${second.login} each held ${w.capitals === 1 ? 'a capital' : `${w.capitals} capitals`} at the reset; @${w.login} won it on renown by ${margin}.`;
+    const held = `@${w.login} and @${second.login} each held ${w.capitals === 1 ? 'a capital' : `${w.capitals} capitals`} at the reset`;
+    const [mine, theirs] = [w.contribution ?? 0, second.contribution ?? 0];
+    if (mine !== theirs) return `${held}; @${w.login} won it on the day's code, ${lines(mine)} to ${lines(theirs)}.`;
+    return `${held}; @${w.login} won it on renown by ${w.renown - second.renown}.`;
   }
   if (w.conquests > 0) return `@${w.login} held ${w.capitals} of ${seats} capitals when the reset came, storming ${w.conquests === 1 ? 'one' : w.conquests} on the way.`;
   const changed = world.structures.some((st) => st.taken > 0);

@@ -500,7 +500,7 @@ export function HomePage({ me, meError, onMeChanged }: { me: MeResponse | null; 
       )}
 
       <footer className="home-foot muted small">
-        Pushfront reads only public activity. It rewards real code, not volume: returns diminish as lines pile up, and one squashed push or twenty small ones raise the same army.
+        Pushfront reads only public activity. It rewards real code, not padding: twice the real work raises twice the army up to a daily cap, filler and copies count for nothing, and one squashed push or twenty small ones raise the same army.
       </footer>
 
       {modal === 'create' && <CreateRoomModal onClose={() => setModal(null)} />}

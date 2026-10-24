@@ -21,8 +21,8 @@ export const UNIT_GROUPS: readonly { label: string; note: string; kinds: readonl
 
 const HOW_IT_WORKS = [
   <>
-    <strong>Code is the army.</strong> Your whole day of work sets the size of your army: the code you wrote, the source files you touched and how complex it is. Each push
-    marches out the soldiers your day has earned so far.
+    <strong>Code is the army.</strong> Your whole day of work sets the size of your army: the code you wrote, the source files you touched and how complex it is. Twice the real
+    code raises about twice the army, up to 4,000 lines a day; past that each line counts half, and nothing past 8,000. Each push marches out the soldiers your day has earned so far.
   </>,
   <>
     <strong>Purpose picks the specialists.</strong> The commit message decides who joins them: bug fixes bring Clerics and Paladins, features bring Champions, refactors bring cavalry,
@@ -102,8 +102,8 @@ const THE_RING: readonly [string, ReactNode][] = [
   [
     'Victory',
     <>
-      Hold the whole ring and the war is won on the spot: the field stands still and the room is locked until the reset. If the reset comes first, the most capitals wins, then the most
-      renown.
+      Hold the whole ring and the war is won on the spot: the field stands still and the room is locked until the reset. If the reset comes first, the most capitals wins, then the
+      larger share of the day’s code, then the most renown.
     </>,
   ],
 ];
@@ -196,7 +196,8 @@ export function ArticlesOfWar({ onClose }: { onClose(): void }) {
             </table>
           </div>
           <p className="muted small">
-            Each army has 160 slots on the field, and 25% more for every capital it holds beyond its home. A line soldier takes 1, an elite 2 or 3, a Dragon 6. Extra platoons wait at the capital.
+            Each army has 160 slots on the field (its even share of 2,000 in a room of more than 12), and 25% more for every capital it holds beyond its home. A line soldier takes 1, an
+            elite 2 or 3, a Dragon 6. Extra platoons wait at the capital.
           </p>
         </>
       )}
@@ -240,8 +241,8 @@ export function ArticlesOfWar({ onClose }: { onClose(): void }) {
       {tab === 'renown' && (
         <>
           <p className="lede">
-            Hold the whole ring and you win outright. If the reset comes first, the player holding the most capitals wins the day, and renown breaks the tie. Then the map is redrawn, a
-            digest is written, and the war begins again.
+            Hold the whole ring and you win outright. If the reset comes first, the player holding the most capitals wins the day; with capitals level, the larger share of the day’s
+            code wins, and then renown. Then the map is redrawn, a digest is written, and the war begins again.
           </p>
           <table className="table">
             <tbody>

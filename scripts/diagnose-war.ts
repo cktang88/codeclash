@@ -8,13 +8,14 @@
 // around 09:00, default 2, and 7 to 11 hours long) and a push rate from 0.8 to 6 an hour
 // (log-uniform), drawn per day; bots keep the office hours the server gives them (`botDay`: a 7 to 10
 // hour window from 08:00-10:00, a rate from 0.8 to 6 an hour, now and then an evening session). Prints one JSON line per day, then a summary: how often the
-// day's top committer (most code pushed) won, when the ring fell, how often anyone fell before noon,
+// day's top committer (most pushes expected) won, when the ring fell, how often anyone fell before noon,
 // and the cost of a tick.
-import { KIND_COUNT, TICKS_PER_MINUTE, type SimInput, type World } from '../src/sim/api.ts';
+import { KIND_COUNT, TICKS_PER_MINUTE, type SimInput } from '../src/sim/api.ts';
 import { Chronicler } from '../src/sim/chronicle.ts';
 import { generateMap, seatOrder, slotsFor } from '../src/sim/mapgen.ts';
+import { armyFor, effectiveLedger, slotsOf } from '../src/sim/muster.ts';
 import { STATS } from '../src/sim/stats.ts';
-import { createWorld, step } from '../src/sim/world.ts';
+import { createWorld, dayWinner, step } from '../src/sim/world.ts';
 import { BOTS, botDay, botPush, botPushesPerDay, botRateAt, mulberry, type BotDay } from '../src/rules/bots.ts';
 
 const MESSAGES = ['fix: crash on empty input', 'feat: add export', 'refactor: split parser', 'perf: cache lookups', 'revert: "feat: add export"', 'chore(deps): bump vite', 'Update handler'];
@@ -90,19 +91,16 @@ interface DayResult {
   expected: number[];
   raised12: number[];
   raised: number[];
+  /** The day's army at the end, in slots, without conquest bonuses: what each player's work was worth. */
+  budget: number[];
+  /** Effective code: the code the budget counted. */
+  effCode: number[];
+  /** The top committer's budget over the best other player's. */
+  topRatio: number;
+  /** The largest budget over the second largest. */
+  leadRatio: number;
   msPerTick: number;
   peakUnits: number;
-}
-
-/** The day's winner as the digest names it: the ring's conqueror, else most capitals, renown, first joined. */
-function winnerOf(world: World): number {
-  if (world.victor >= 0) return world.victor;
-  let best = 0;
-  for (const p of world.players) {
-    const b = world.players[best]!;
-    if (p.capitals > b.capitals || (p.capitals === b.capitals && p.renown > b.renown)) best = p.p;
-  }
-  return best;
 }
 
 /** Hours over which humans' working days start, centred on 09:00 (SPREAD=5 spreads them from 06:30 to 11:30). */
@@ -185,11 +183,15 @@ function runDay(day: number, humans: number, bots: number): DayResult {
     if (world.units.length > peak) peak = world.units.length;
   }
   const ms = performance.now() - started;
-  const winner = winnerOf(world);
+  // The digest's winner; a day no one fought goes to the first seat, as before.
+  const winner = dayWinner(world) ?? 0;
   // The day's top committer: the player expected to push the most (rate times working hours).
   const expected = rates.map((r, p) => (p < humans ? r * (until[p]! - from[p]!) : botPushesPerDay(schedule[p]!) * hour));
   let top = 0;
   for (let p = 1; p < players; p++) if (expected[p]! > expected[top]!) top = p;
+  const budget = world.players.map((p) => slotsOf(armyFor(p.ledger, p.pushes, 0)));
+  const sorted = budget.slice().sort((a, b) => b - a);
+  const others = Math.max(1, ...budget.filter((_, p) => p !== top));
   return {
     day,
     seats: players,
@@ -207,6 +209,10 @@ function runDay(day: number, humans: number, bots: number): DayResult {
     expected: expected.map((e) => Math.round(e / hour)),
     raised12,
     raised: world.players.map((p) => p.raised.reduce((a, b) => a + b, 0)),
+    budget,
+    effCode: world.players.map((p) => effectiveLedger(p.ledger).code),
+    topRatio: +(budget[top]! / others).toFixed(2),
+    leadRatio: +(sorted[0]! / Math.max(1, sorted[1] ?? 1)).toFixed(2),
     msPerTick: +(ms / world.tick).toFixed(4),
     peakUnits: peak,
   };
@@ -252,6 +258,12 @@ function days(): void {
           ),
         }
       : {}),
+    topRatioMedian: median(results.map((r) => r.topRatio)),
+    leadRatioMedian: median(results.map((r) => r.leadRatio)),
+    budgetMedian: median(results.flatMap((r) => r.budget)),
+    budgetMax: Math.max(...results.flatMap((r) => r.budget)),
+    peakUnitsMedian: median(results.map((r) => r.peakUnits)),
+    peakUnitsMax: Math.max(...results.map((r) => r.peakUnits)),
     msPerTick: +(results.reduce((a, r) => a + r.msPerTick, 0) / results.length).toFixed(4),
   }));
 }

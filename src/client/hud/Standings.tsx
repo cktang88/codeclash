@@ -21,13 +21,15 @@ function Trend({ value }: { value: number }) {
   );
 }
 
+const linesToday = (n: number) => `${n.toLocaleString('en-US')} ${n === 1 ? 'line' : 'lines'} today`;
+
 export function Standings({ standings, viewerP }: { standings: readonly Standing[]; viewerP: number | null }) {
   const { field, store } = useHudContext();
   if (standings.length === 0) {
     return <p className="empty-note">No armies yet. The first push of the day raises the first banner.</p>;
   }
   return (
-    <ol className="standings" aria-label="Standings: capitals held, then renown">
+    <ol className="standings" aria-label="Standings: capitals held, then the day's code, then renown">
       {standings.map((s, i) => (
         <li key={s.p} className={`standing${s.p === viewerP ? ' is-me' : ''}`} style={hueVar(s.hue)}>
           <button
@@ -36,7 +38,7 @@ export function Standings({ standings, viewerP }: { standings: readonly Standing
               field()?.focusPlayer(s.p);
               store.select({ kind: 'player', p: s.p });
             }}
-            aria-label={`${s.login}, rank ${i + 1}, ${s.capitals} ${s.capitals === 1 ? 'capital' : 'capitals'}, ${s.renown} renown${s.rising ? ', rising' : ''}. Show on map.`}
+            aria-label={`${s.login}, rank ${i + 1}, ${s.capitals} ${s.capitals === 1 ? 'capital' : 'capitals'}, ${linesToday(s.contribution)}, ${s.renown} renown${s.rising ? ', rising' : ''}. Show on map.`}
           >
             <span className="standing-rank num">{i + 1}</span>
             <span className="standing-swatch" aria-hidden />
@@ -66,6 +68,11 @@ export function Standings({ standings, viewerP }: { standings: readonly Standing
                   {s.queued > 0 && <span className="muted"> +{s.queued} queued</span>}
                 </span>
                 {store.world?.players[s.p] && <ArmyMark player={store.world.players[s.p]!} />}
+                {s.contribution > 0 && (
+                  <span className="muted standing-lines" title="Code lines counted today: with capitals level, the larger share of the day's code ranks higher">
+                    {linesToday(s.contribution)}
+                  </span>
+                )}
               </span>
             </span>
             <span className="standing-score">

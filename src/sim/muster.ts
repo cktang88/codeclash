@@ -112,11 +112,18 @@ export interface QualityNote {
 const ramp = (x: number, from: number, to: number) => Math.max(0, Math.min(1, (x - from) / (to - from)));
 
 /**
- * Code (and removed) lines one war's ledger counts. Ingestion caps each UTC day
- * at the same amount; this cap keeps a war that spans UTC midnight from
+ * Code lines count in full up to CODE_KNEE a war, and at half value from there up
+ * to CODE_CAP, where they stop: at most 6000 lines' worth. With a linear budget the
+ * cap is what stops runaway volume; a knee rather than a cliff, so a big honest day
+ * is not cut flat at one line and padding toward the cap pays half. Removed lines
+ * stop at CODE_KNEE: they are seasoning, and deleting is cheap. Ingestion caps each
+ * UTC day at CODE_CAP lines; this cap keeps a war that spans UTC midnight from
  * counting two days of pasting.
  */
-export const CODE_CAP = 5000;
+export const CODE_KNEE = 4000;
+export const CODE_CAP = 8000;
+/** The most lines' worth `credited` can return: CODE_KNEE plus half the stretch above it. */
+export const CODE_CREDIT_MAX = CODE_KNEE + (CODE_CAP - CODE_KNEE) / 2;
 /** Code lines per credited file: one line in each of two hundred files is not a sweeping change. */
 const LINES_PER_FILE = 20;
 /** Removed lines per credited file. */
@@ -124,16 +131,42 @@ const REMOVED_PER_FILE = 100;
 /** Code lines per credited branch point: denser than this is padding (`if (true)`, `&&` chains). */
 const LINES_PER_BRANCH = 3;
 
+/** Lines' worth of `n` code lines: in full to the knee, half beyond, nothing past the cap. */
+export function credited(n: number): number {
+  const x = Math.max(0, Math.min(CODE_CAP, Math.floor(n)));
+  return x <= CODE_KNEE ? x : CODE_KNEE + fl((x - CODE_KNEE) / 2);
+}
+
 /**
  * The parts of a ledger that count, each bounded by the real code behind it so
  * that no single metric can be pumped on its own.
  */
 export function effectiveLedger(ledger: Ledger): { code: number; removed: number; files: number; branches: number } {
-  const code = Math.min(CODE_CAP, ledger.lines[Cat.Code]!);
-  const removed = Math.min(CODE_CAP, ledger.lines[Cat.Removed]!);
+  const code = credited(ledger.lines[Cat.Code]!);
+  const removed = Math.max(0, Math.min(CODE_KNEE, ledger.lines[Cat.Removed]!));
   const files = Math.min(ledger.files, 1 + fl(code / LINES_PER_FILE) + fl(removed / REMOVED_PER_FILE));
   const branches = Math.min(ledger.branches, fl(code / LINES_PER_BRANCH));
   return { code, removed, files, branches };
+}
+
+/**
+ * Platoon slots per 10,000 of each effective metric. The budget is linear: twice
+ * the real code raises twice the army. Code is most of it; files touched and
+ * branch points season it, and removed lines count a little (a typical day of
+ * 2000 code lines, 60 files, 400 branch points and 750 removed lines is worth 75
+ * slots, of which code is 64).
+ */
+export const BUDGET_PER_10K = { code: 320, files: 700, branches: 100, removed: 40 } as const;
+
+/** The army's size in platoon slots before specialists are chosen, with CONQUEST_BONUS per capital held beyond home. */
+export function budgetOf(ledger: Ledger, conquered = 0): number {
+  const { code, removed, files, branches } = effectiveLedger(ledger);
+  if (code + removed <= 0) return 0;
+  const w = BUDGET_PER_10K;
+  // Whole numbers until the end, and the conquest factor is a multiple of 1/4, so the product is exact.
+  const sum = w.code * code + w.files * files + w.branches * branches + w.removed * removed;
+  const conquest = 1 + CONQUEST_BONUS * Math.max(0, Math.floor(conquered));
+  return fl((sum * conquest) / 10_000);
 }
 
 /**
@@ -179,20 +212,19 @@ export function armyFor(ledger: Ledger, pushes: number, conquered = 0): number[]
   const counts = new Array<number>(KIND_COUNT).fill(0);
   if (pushes <= 0) return counts;
   const L = ledger.lines;
-  const { code, removed, files, branches } = effectiveLedger(ledger);
+  const { code, files, branches } = effectiveLedger(ledger);
   const pc = (p: Purpose) => ledger.purposeCode[PURPOSES.indexOf(p)]!;
   const pr = (p: Purpose) => ledger.purposeRemoved[PURPOSES.indexOf(p)]!;
 
   // Every capital held beyond its own home multiplies the budget (CONQUEST_BONUS each): conquest snowballs.
-  const conquest = 1 + CONQUEST_BONUS * Math.max(0, Math.floor(conquered));
-  const budget = code + removed > 0 ? fl((1.1 * sq(code) + 1.5 * sq(files) + 0.5 * sq(branches) + 0.3 * sq(removed)) * conquest) : 0;
+  const budget = budgetOf(ledger, conquered);
 
   // What the work's purposes and complexity ask for, before it is fitted to the budget.
   const want = new Array<number>(KIND_COUNT).fill(0);
   const fix = pc('fix');
   want[Kind.Cleric] = fl(sq(fix) / 2.5);
-  want[Kind.Paladin] = fl(fix / 150);
-  want[Kind.Ranger] = fl(fix / 250);
+  want[Kind.Paladin] = fl(fix / 300);
+  want[Kind.Ranger] = fl(fix / 500);
   const feature = pc('feature') + pc('work');
   const dragons = feature >= 4000 && files >= 40 && branches >= 400 ? 2 : feature >= 900 && files >= 10 && branches >= 90 ? 1 : 0;
   want[Kind.Dragon] = dragons;

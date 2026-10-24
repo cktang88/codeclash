@@ -311,6 +311,9 @@ export function DigestPage({ slug, warId, invite = null }: { slug: string; warId
                   <th scope="col" className="num">
                     Capitals
                   </th>
+                  <th scope="col" className="num col-opt" title="Code lines the day counted: with capitals level, the larger share ranks higher">
+                    Code
+                  </th>
                   <th scope="col" className="num">
                     Renown
                   </th>
@@ -340,6 +343,7 @@ export function DigestPage({ slug, warId, invite = null }: { slug: string; warId
                       </span>
                     </th>
                     <td className="num">{pl.capitals ?? '—'}</td>
+                    <td className="num col-opt">{pl.contribution !== undefined ? pl.contribution.toLocaleString('en-US') : '—'}</td>
                     <td className="num">{compact(pl.renown)}</td>
                     <td className="num col-opt">{pl.pushes}</td>
                     <td className="num">{pl.kills}</td>

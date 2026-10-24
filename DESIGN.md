@@ -18,7 +18,7 @@ For each new `PushEvent` to a branch (keyed by `{repo}@{head}`), it calls `GET /
 
 GitHub delivers public events anywhere from 30 seconds to several hours late. A member who wants near-real-time armies can add a repository webhook (push events) pointing at their personal hook URL. The server verifies the HMAC signature, ignores private repositories and pushes the member did not make, allows 20 deliveries a minute per hook, and then runs the same ingestion. Webhooks are strict: a commit with no GitHub-linked author does not count.
 
-Only public repositories are read. Pushfront rewards real code: how much of it, how many files it touches, how complex it is, and what it is for (fixing a bug, shipping a feature, refactoring). Generated and vendored code count for nothing, and diminishing returns keep volume alone from winning.
+Only public repositories are read. Pushfront rewards real code: how much of it, how many files it touches, how complex it is, and what it is for (fixing a bug, shipping a feature, refactoring). The army grows in proportion to the real code: twice the work, twice the army, up to a daily cap. Generated and vendored code count for nothing, and the ledger's filters (duplicates, filler, shapes, canonical keys) keep padding from passing for work.
 
 ### Sorting lines into categories
 
@@ -43,7 +43,7 @@ Inside **source** files, every *added* line from the patch is counted as one of 
 
 Deleted source lines are counted as **removed**. Test, docs, config, generated and vendor files count added non-blank lines. When GitHub omits a patch because it is too large, the file's `additions` count is used, and those lines are all treated as code.
 
-Every line then passes through the player's ledger (see *How many soldiers* below and [docs/fair-play.md](docs/fair-play.md)), which credits each distinct line once, leaves filler out, and caps code at 5000 lines per UTC day.
+Every line then passes through the player's ledger (see *How many soldiers* below and [docs/fair-play.md](docs/fair-play.md)), which credits each distinct line once, leaves filler out, and caps code at 8000 lines per UTC day.
 
 The nine line counts are `code, test, comment, docs, config, removed, generated, vendor, blank`. **Blank lines raise nothing.** They are recorded for the digest.
 
@@ -107,17 +107,25 @@ An army is worth what its player contributed **today as a whole**, not push by p
 4. **Desertion.** When later pushes undo earlier work (deleting code added today, rewriting it back), the ledger shrinks and soldiers **desert**: the kinds furthest above their target first, and of each kind the waiting ones first, then the newest in the field. Soldiers never desert while the ledger is growing.
 5. **Purpose follows the work.** The ledger also tallies code and removed lines by purpose. Undone lines come off the undoing push's own purpose first, then off the others in order, so the purposes always add up to the total: writing a feature and deleting it under a `fix:` message leaves nothing behind.
 
-**The budget.** The army's size, in platoon slots, is
+**The budget.** The army's size, in platoon slots, is **linear** in the day's contribution:
 
-`floor((1.1·√code + 1.5·√files + 0.5·√branches + 0.3·√removed) × (1 + 0.25 × conquered))`
+`floor((0.032·code + 0.07·files + 0.01·branches + 0.004·removed) × (1 + 0.25 × conquered))`
 
-(0 when there are no code or removed lines), where *conquered* is how many capitals the player holds beyond its own home (see *Capture*), where *code* is counted code lines, *files* source files touched, *branches* branch points, and *removed* deleted lines the ledger had not credited to the player as their own recent work. Each is first bounded by the real code behind it (`effectiveLedger`): code and removed at most 5000 per war, files at most `1 + code/20 + removed/100`, branches at most `code/3`. The square roots give diminishing returns over the day, so volume alone never wins.
+(0 when there are no code or removed lines; computed in whole numbers as `BUDGET_PER_10K`), where *conquered* is how many capitals the player holds beyond its own home (see *Capture*), *code* is counted code lines, *files* source files touched, *branches* branch points, and *removed* deleted lines the ledger had not credited to the player as their own recent work. Twice the real code raises about twice the army. Code is most of it; files and branch points season it, and removed lines count a little. A typical day (2000 code lines, 60 files, 400 branch points, 750 removed) is worth 75 slots, 64 of them from code.
 
-**Specialists come out of the budget.** What the work was for, and how complex it was, spend up to 65% of the budget. They are paid in this order while the share lasts: Dragon, Champion, Troll, Trebuchet, Griffin Rider, Bone Golem, Paladin, Ranger, Wizard, Knight, Cleric, Outrider, Mercenary, Skeleton. Footmen fill the rest. The commit message therefore changes what the army is made of, never how big it is. All counts below are for the whole day:
+Each metric is first bounded by the real code behind it (`effectiveLedger`):
+
+- **Code has a knee.** It counts in full up to 4000 lines a war (`CODE_KNEE`), at half value from there to 8000 (`CODE_CAP`), and not at all beyond: at most 6000 lines' worth (`credited`). Removed lines count up to 4000 a war, with no half-value stretch. With a linear budget the cap is what stops runaway volume. A knee rather than a cliff: a big honest day is not cut flat at one line, and padding toward the cap earns half. The ingestion cap (8000 a UTC day) matches, and the war's cap keeps a war that spans UTC midnight from counting two days.
+- files at most `1 + code/20 + removed/100`
+- branches at most `code/3`
+
+Because the budget is a function of the day's ledger, many small pushes and one squashed push still raise exactly the same army.
+
+**Specialists come out of the budget.** What the work was for, and how complex it was, spend up to 65% of the budget. They are paid in this order while the share lasts: Dragon, Champion, Troll, Trebuchet, Griffin Rider, Bone Golem, Paladin, Ranger, Wizard, Knight, Cleric, Outrider, Mercenary, Skeleton. Footmen fill the rest. The commit message therefore changes what the army is made of, never how big it is. Specialists counted per so many lines (Paladins, Rangers, Champions, Griffin Riders, Bone Golems, Trolls, Trebuchets) keep a steady share of the linear budget; those counted by a square root (Clerics, Outriders, Knights, Skeletons) take a smaller share of a bigger day, and Footmen make up the difference. All counts below are for the whole day:
 
 | Raised by | Specialists |
 | --- | --- |
-| fix code *f* | `floor(√f / 2.5)` Clerics, `floor(f / 150)` Paladins, `floor(f / 250)` Rangers |
+| fix code *f* | `floor(√f / 2.5)` Clerics, `floor(f / 300)` Paladins, `floor(f / 500)` Rangers |
 | feature code *F* | `min(3, floor(F / 400), floor(files / 5))` Champions, less one for each Dragon |
 | feature and plain work *W* | a Dragon at *W* ≥ 900 with files ≥ 10 and branches ≥ 90; a second at 4000 / 40 / 400 |
 | refactors | `floor(√(removed + code/2) / 1.5)` Outriders, from refactor lines; a Griffin Rider per 400 refactor lines removed (up to 3) |
@@ -164,7 +172,7 @@ An army that would otherwise be empty gets one Footman, so the first push of the
 
 **Caps.**
 
-- A player fields at most `160 × (1 + 0.25 × conquered)` slots, and a room at most 2000 soldiers. A platoon that would break either cap waits in its capital's **muster queue** and marches when there is room. The queue holds up to 24 platoons. When it is full, a new push's soldiers fold into the waiting platoons, newest first, up to 32 slots each; any left over are not raised yet, and a later push musters them.
+- A player fields at most `min(160, floor(2000 / players)) × (1 + 0.25 × conquered)` slots (`fieldCap`: 160, or its even share of the room in a room of more than 12), and a room at most 2000 soldiers. A platoon that would break either cap waits in its capital's **muster queue** and marches when there is room. The queue holds up to 24 platoons. When it is full, a new push's soldiers fold into the waiting platoons, newest first, up to 32 slots each; any left over are not raised yet, and a later push musters them.
 - An army has at most one Dragon alive. When a platoon marches out with a Dragon while one is already alive (or with two, from one squashed legendary push), each extra Dragon becomes a Champion.
 
 **Regrouping.** Remnants fold into stronger formations of the same army. A platoon qualifies when it has 4 or fewer soldiers left, or less than 30% of its full size. It merges into the nearest platoon of its army in the field, at least as large, within 140 units, and the merged platoon is drawn up afresh, the remnant taking places in its ranks. A routed remnant of 4 or fewer that regroups at its capital joins its army's nearest such platoon at any distance.
@@ -268,7 +276,7 @@ A player who loses its last capital is not out. It keeps its ledger and keeps pu
 
 ### Victory
 
-When one player holds every claimed capital (risings in the field do not count), the war is **won**: a `victory` event, and the field stands still from that tick. The server concludes the war at once (the digest and lifetime records are written as at a reset) and the room stays locked on the finished war, refusing pushes and joins, until its reset, when the next war begins as usual. If the reset comes first, the winner is the player holding the most capitals, then the most renown, then the one who joined first.
+When one player holds every claimed capital (risings in the field do not count), the war is **won**: a `victory` event, and the field stands still from that tick. The server concludes the war at once (the digest and lifetime records are written as at a reset) and the room stays locked on the finished war, refusing pushes and joins, until its reset, when the next war begins as usual. If the reset comes first, the winner is the player holding the most capitals, then the one with the largest share of the day's code (its *contribution*: the code lines its ledger counts, after the knee), then the most renown, then the one who joined first (`compareStandings`; the HUD's standings and the digest use the same order).
 
 ### Border forts
 
@@ -294,9 +302,9 @@ At 0 morale the platoon **routs**: it stops fighting and flees to the nearest ca
 
 ## 6. Winning the day, and renown
 
-**The ring is the prize.** A player who holds every capital wins the war on the spot (section 3, *Victory*). If the reset comes first, the winner is the player holding the most capitals, then the most renown, then the one who joined first (nobody wins a day no one fought: no renown and no capital taken).
+**The ring is the prize.** A player who holds every capital wins the war on the spot (section 3, *Victory*). If the reset comes first, the winner is the player holding the most capitals, then the largest share of the day's code, then the most renown, then the one who joined first (nobody wins a day no one fought: no renown and no capital taken). The standings show each player's lines counted today beside its army.
 
-**Renown is the secondary score**, the tiebreak and the race the HUD shows:
+**Renown is the running score**, the last tiebreak (after capitals and the day's code) and the race the HUD shows:
 
 | Source | Renown |
 | --- | --- |
@@ -316,7 +324,7 @@ When a war ends, the server computes a digest from the final world and the war's
 
 | Award | Goes to |
 | --- | --- |
-| Victor of the Day | the winner (the ring's conqueror, or the most capitals at the reset) |
+| Victor of the Day | the winner (the ring's conqueror, or the most capitals at the reset, then the day's code) |
 | Warlord | most kills |
 | Iron Wall | most soldiers raised per loss (20+ raised) |
 | Test Legion | most test lines |

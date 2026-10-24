@@ -2,6 +2,7 @@ import type { ChatMessage, Emote, Monument, PresenceEntry, RoomDetail, RosterEnt
 import { NEUTRAL, PlatoonState, TICK_MS, type TickEvents, type World } from '../sim/api.ts';
 import { computeRing, type Front } from '../sim/ring.ts';
 import { fortBetween } from '../sim/mapgen.ts';
+import { compareStandings, contribution } from '../sim/world.ts';
 import { founderOf, gatesUnbarAt, siegesOpenAt } from './ringinfo.ts';
 import type { ChronicleEntry, Names } from '../sim/chronicle.ts';
 import type { RepoRef } from '../sim/replay.ts';
@@ -26,6 +27,8 @@ export interface Standing {
   rising: boolean;
   /** Capitals stormed today. */
   conquests: number;
+  /** Code lines the day's ledger counts: the tiebreak after capitals. */
+  contribution: number;
 }
 
 /** One seat of the ring, as the HUD's ring diagram draws it. */
@@ -359,10 +362,11 @@ export class GameStore {
           capitals: ps.capitals,
           rising: ps.rising,
           conquests: ps.conquests,
+          contribution: contribution(ps),
         });
       }
-      // The ring's conqueror first, then the most capitals held, then renown, then who joined first.
-      standings.sort((a, b) => (b.p === world.victor ? 1 : 0) - (a.p === world.victor ? 1 : 0) || b.capitals - a.capitals || b.renown - a.renown || a.p - b.p);
+      // The digest's order: the ring's conqueror, the most capitals, the day's code, renown, who joined first.
+      standings.sort((a, b) => compareStandings(world.victor, a, b));
     }
     return {
       conn: this.conn,

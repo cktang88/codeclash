@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { Cat, Kind, KIND_COUNT, type Ledger } from './api.ts';
-import { applyDelta, armyFor, armyQuality, CODE_CAP, emptyLedger, purposeOf } from './muster.ts';
+import { applyDelta, armyFor, armyQuality, budgetOf, CODE_CAP, CODE_KNEE, emptyLedger, purposeOf } from './muster.ts';
 import { STATS } from './stats.ts';
 
 type Part = { lines: Partial<Record<keyof typeof Cat, number>>; files?: number; branches?: number; msg?: string; filler?: number };
@@ -95,6 +95,30 @@ describe('gaming the army a ledger is worth', () => {
     const wipe = (removed: number) => strength(ledgerOf([{ lines: { Removed: removed }, files: 300, msg: 'refactor: remove dead code' }]));
     expect(wipe(1_000_000)).toBeLessThanOrEqual(1.1 * wipe(CODE_CAP));
     expect(wipe(1_000_000)).toBeLessThan(strength(ledgerOf([{ lines: { Code: 1000, Test: 200 }, files: 8, branches: 150, msg: 'feat: x' }])));
+  });
+
+  it('many tiny pushes and one squashed push raise exactly the same army', () => {
+    // Each part of the day split into ten pushes with the same messages: the ledger, and so the army, is identical.
+    const split = HONEST.flatMap((p) => Array.from({ length: 10 }, (_, i): Part => ({
+      ...p,
+      lines: Object.fromEntries(Object.entries(p.lines).map(([k, v]) => [k, Math.floor((v * (i + 1)) / 10) - Math.floor((v * i) / 10)])),
+      files: Math.floor(((p.files ?? 0) * (i + 1)) / 10) - Math.floor(((p.files ?? 0) * i) / 10),
+      branches: Math.floor(((p.branches ?? 0) * (i + 1)) / 10) - Math.floor(((p.branches ?? 0) * i) / 10),
+    })));
+    expect(armyFor(ledgerOf(split), split.length)).toEqual(armyFor(ledgerOf(HONEST), HONEST.length));
+    expect(armyQuality(ledgerOf(split))).toEqual(armyQuality(ledgerOf(HONEST)));
+    // Undone work in between changes nothing either.
+    const churned = [...HONEST, { lines: { Code: 3000 }, files: 10, branches: 300, msg: 'feat: x' }, { lines: { Code: -3000 }, files: -10, branches: -300, msg: 'revert: x' }];
+    expect(budgetOf(ledgerOf(churned))).toBe(budgetOf(ledgerOf(HONEST)));
+  });
+
+  it('padding toward the cap pays half past the knee and nothing past the cap', () => {
+    const day = (code: number) => strength(ledgerOf([{ lines: { Code: code, Test: 400 }, files: 60, branches: Math.min(code, CODE_CAP) / 6, msg: 'feat: x' }]));
+    const below = day(CODE_KNEE) - day(CODE_KNEE - 1000);
+    const above = day(CODE_KNEE + 1000) - day(CODE_KNEE);
+    expect(above).toBeLessThan(0.6 * below);
+    expect(above).toBeGreaterThan(0.3 * below);
+    expect(day(10 * CODE_CAP)).toBeLessThanOrEqual(day(CODE_CAP));
   });
 
   it('an honest day is not ragged, and a large one earns veteran rank', () => {

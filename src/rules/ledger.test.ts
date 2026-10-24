@@ -152,6 +152,74 @@ describe('squash equivalence', () => {
   });
 });
 
+describe('squash equivalence with wrapped statements', () => {
+  // Every line is its own key, so histories that edit, split, join and move the pieces of wrapped
+  // statements still add up to the squash, line for line. (Keying a wrapped statement whole would
+  // close the re-wrap residual, but a patch's three lines of context cannot always show a whole
+  // statement, and the squash would no longer be exact; see docs/fair-play.md, vector 5.)
+  const pool = [
+    'const total = sumAmounts(',
+    '  orders.map((order) => order.amount),',
+    '  currencyOf(orders),',
+    ');',
+    'const label =',
+    '  user.first + " " + user.last;',
+    'if (ready &&',
+    '    user.isAdmin) grantAccess(user, resource);',
+    'emitRow(row, writer);',
+    'logger.info("started worker", workerId);',
+    'items.forEach((item) => {',
+    '  // handles the retry path',
+    '}',
+    'return cache.get(key) ??',
+    '  loadFromDisk(key, options.timeout);',
+  ];
+  it('holds for random edit histories', () => {
+    let r = 17;
+    const rand = () => ((r = (Math.imul(r, 1103515245) + 12345) >>> 0) / 4294967296);
+    const pick = <T,>(xs: readonly T[]) => xs[Math.floor(rand() * xs.length)]!;
+    const paths = ['src/a.ts', 'src/b.ts', 'src/c.py'];
+    for (let trial = 0; trial < 60; trial++) {
+      const h: Tree[] = [{ 'src/a.ts': pool.slice(0, 4), 'src/b.ts': pool.slice(4, 8) }];
+      for (let k = 0; k < 14; k++) {
+        const t = structuredClone(h[h.length - 1]!);
+        const path = pick(paths);
+        const lines = (t[path] ??= []);
+        const op = rand();
+        if (op < 0.35 || lines.length === 0) lines.splice(Math.floor(rand() * (lines.length + 1)), 0, pick(pool));
+        else if (op < 0.55) lines.splice(Math.floor(rand() * lines.length), 1);
+        else if (op < 0.7) {
+          // Join two neighbouring lines, or split one at a space.
+          const i = Math.floor(rand() * lines.length);
+          if (i + 1 < lines.length && rand() < 0.5) lines.splice(i, 2, `${lines[i]!} ${lines[i + 1]!.trim()}`);
+          else {
+            const at = lines[i]!.indexOf(' ', 4);
+            if (at > 0) lines.splice(i, 1, lines[i]!.slice(0, at), `    ${lines[i]!.slice(at + 1)}`);
+          }
+        } else if (op < 0.85) {
+          const other = pick(paths);
+          const at = Math.floor(rand() * lines.length);
+          const moved = lines.splice(at, Math.min(lines.length - at, 1 + Math.floor(rand() * 3)));
+          (t[other] ??= []).push(...moved);
+        } else lines[Math.floor(rand() * lines.length)] = pick(pool);
+        for (const p of Object.keys(t)) if (t[p]!.length === 0) delete t[p];
+        h.push(t);
+      }
+      const { split, squash } = both(h);
+      expect(split, `trial ${trial}`).toEqual(squash);
+    }
+  });
+
+  it('a wrapped call written, edited in the middle and deleted leaves nothing', () => {
+    const call = ['const total = sumAmounts(', '  orders.map((order) => order.amount),', '  currencyOf(orders),', '  options.rounding,', ');'];
+    const edited = call.map((l, i) => (i === 2 ? '  currencyOf(orders, locale),' : l));
+    const { split, squash } = both([{ 'src/a.ts': ['start();'] }, { 'src/a.ts': ['start();', ...call] }, { 'src/a.ts': ['start();', ...edited] }, { 'src/a.ts': ['start();'] }]);
+    expect(split).toEqual(squash);
+    expect(split.code).toBe(0);
+    expect(split.removed).toBe(0);
+  });
+});
+
 describe('rules', () => {
   const file = (filename: string, patch: string): ChangedFile => ({ filename, status: 'modified', additions: 0, deletions: 0, patch });
 

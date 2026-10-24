@@ -1012,6 +1012,11 @@
   white-space: nowrap;
 }
 
+.standing-sub > .standing-lines {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
 .standing-score {
   display: flex;
   flex-direction: column;

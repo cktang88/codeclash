@@ -61,17 +61,17 @@ function brokenInvariant(w: World): string | null {
 // Pushes shaped to raise every one of the twenty kinds.
 const L = (code: number, test = 0, comment = 0, docs = 0, config = 0, removed = 0) => [code, test, comment, docs, config, removed, 0, 0, 0];
 const SHAPES: { lines: number[]; msg: string; files: number; branches: number }[] = [
-  { lines: L(350, 0, 10), msg: 'feat: sync', files: 6, branches: 30 },
-  { lines: L(700, 50, 20), msg: 'feat: offline mode', files: 9, branches: 80 },
-  { lines: L(100, 0, 5, 0, 0, 900), msg: 'refactor: drop legacy auth', files: 7, branches: 5 },
-  { lines: L(400, 0, 0, 0, 0, 300), msg: 'Revert "feat: sync"', files: 6, branches: 30 },
-  { lines: L(300, 0, 10), msg: 'Update scheduler', files: 4, branches: 60 },
-  { lines: L(150, 0, 5), msg: 'fix: crash on resume', files: 5, branches: 12 },
-  { lines: L(80, 0, 5), msg: 'perf: cache lookups', files: 2, branches: 40 },
-  { lines: L(200, 0, 5), msg: 'Rename everything', files: 14, branches: 20 },
+  { lines: L(700, 0, 10), msg: 'feat: sync', files: 6, branches: 30 },
+  { lines: L(1400, 50, 20), msg: 'feat: offline mode', files: 9, branches: 80 },
+  { lines: L(200, 0, 5, 0, 0, 1800), msg: 'refactor: drop legacy auth', files: 7, branches: 5 },
+  { lines: L(800, 0, 0, 0, 0, 600), msg: 'Revert "feat: sync"', files: 6, branches: 30 },
+  { lines: L(600, 0, 10), msg: 'Update scheduler', files: 4, branches: 60 },
+  { lines: L(550, 0, 5), msg: 'fix: crash on resume', files: 5, branches: 12 },
+  { lines: L(160, 0, 5), msg: 'perf: cache lookups', files: 2, branches: 40 },
+  { lines: L(400, 0, 5), msg: 'Rename everything', files: 14, branches: 20 },
   { lines: L(0, 200, 100, 200, 200), msg: 'docs: guide', files: 0, branches: 0 },
-  { lines: L(10, 0, 1), msg: 'chore(deps): bump vite', files: 5, branches: 0 },
-  { lines: L(80), msg: 'wip', files: 1, branches: 6 },
+  { lines: L(20, 0, 1), msg: 'chore(deps): bump vite', files: 5, branches: 0 },
+  { lines: L(160), msg: 'wip', files: 1, branches: 6 },
 ];
 
 describe('snapshot mid-battle', () => {
@@ -290,7 +290,7 @@ describe('terrain', () => {
     for (const [players, seed] of [[2, 4], [2, 10], [4, 2]] as const) {
       const w = newWorld(players, seed);
       step(w, joins(players));
-      const wide = [100, 30, 10, 0, 0, 150, 0, 0, 0];
+      const wide = [400, 30, 10, 0, 0, 400, 0, 0, 0];
       step(w, Array.from({ length: players }, (_, p): SimInput => ({ kind: 'push', p, repo: p, lines: wide, commits: 1, files: 6, branches: 10, churn: 0, filler: 0, msg: 'refactor: split' })));
       expect(w.units.length).toBeGreaterThan(10 * players);
       for (const u of w.units) if (!STATS[u.kind]!.flying) expect(onGround(w, u.x, u.y), `seed ${seed} ${STATS[u.kind]!.name}`).toBe(true);
