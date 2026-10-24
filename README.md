@@ -6,13 +6,16 @@ Pushfront is an all-day war fought with your pushes. Sign in with GitHub and joi
 
 ## Run locally
 
-Requirements: Node 22 or later, and pnpm.
+Requirements: Node 22 or later, and pnpm (`corepack enable` provides the pinned version).
 
 ```sh
+corepack enable
 pnpm install
 cp .env.example .env
 pnpm dev
 ```
+
+Use pnpm, not npm: the lockfile is `pnpm-lock.yaml`, and running `npm i` over a pnpm-made `node_modules` fails with `ERESOLVE … Found: vite@undefined`. If that happens, `rm -rf node_modules` and run `pnpm install`.
 
 Open http://localhost:5173. The Vite dev server proxies `/api`, `/auth`, `/hooks`, and `/ws` to the game server on port 8787.
 
