@@ -1,11 +1,11 @@
-import { FAR_ZOOM } from './lod.ts';
+import { FADE_MS, FAR_ZOOM } from './lod.ts';
 import { CanvasSource, Container, Graphics, MeshPlane, Sprite, Text, Texture } from 'pixi.js';
-import { declutter, type DeclutterBox } from './declutter.ts';
+import { placeMarkers, type MarkerBox } from './declutter.ts';
 import { canvas2d } from './paint.ts';
 import { PlatoonState, type Platoon, type World } from '../../sim/api.ts';
 import { Form } from '../../sim/formation.ts';
 import type { RepoRef } from '../../sim/replay.ts';
-import { FLAG_H, FLAG_W, TOKEN_H, TOKEN_W, gradeOf, type FlagCache, type FlagTrim } from './flags.ts';
+import { FLAG_H, FLAG_W, gradeOf, type FlagCache, type FlagTrim } from './flags.ts';
 
 const VERTS_X = 10;
 
@@ -62,9 +62,14 @@ interface BannerView {
   morale: Sprite;
   woundW: number;
   woundAt: number;
-  /** The far-zoom heraldic token: the battalion's arms on a shield. */
+  /** The far-zoom marker: the battalion's arms on a small shield, its headcount and a strength bar. */
   token: Sprite;
   tokenKey: string;
+  markBack: Sprite;
+  markBar: Sprite;
+  markCount: Text;
+  /** The marker's opacity, easing as it finds or loses room. */
+  markAlpha: number;
   count: Text;
   star: Text;
   seen: number;
@@ -78,8 +83,8 @@ interface BannerView {
   /** The platoon's anchor, eased: the sim moves it in 5Hz steps. */
   ax: number;
   ay: number;
-  /** Far-zoom room-making: screen-pixel offset of the token from its true place. */
-  box: DeclutterBox;
+  /** Far-zoom placement: the marker's footprint and screen-pixel offset from its platoon. */
+  box: MarkerBox;
   platoon: number;
 }
 
@@ -96,21 +101,65 @@ const GAUGE_H = MORALE_Y + MORALE_H + 3;
 /** The lagging wound holds this long before it drains. */
 const WOUND_HOLD_MS = 400;
 const WOUND_DRAIN_MS = 380;
-/** Screen size of the far-zoom flag: the token and its gauge are laid out in these pixels. */
+/** Screen size of the selected platoon's flag at far zoom: it keeps its full banner there. */
 const FAR_FLAG_PX = 40;
+/**
+ * The far-zoom marker, in screen pixels around its platoon's centre: a small shield planted on
+ * the platoon's blocks (its tip just above their middle), the headcount to its right and a thin
+ * strength bar under the count. The blocks carry the platoon's colour and shape; the marker
+ * only names it.
+ */
+const MARK_W = 20;
+const MARK_H = 23;
+const MARK_Y = -MARK_H / 2 - 3;
+const MARK_TEXT_X = MARK_W / 2 + 3;
+const MARK_TEXT_Y = MARK_Y - 4;
+const MARK_BAR_Y = MARK_Y + 5;
+const MARK_BAR_W = 16;
+const MARK_BAR_H = 3.5;
+/** Headcount glyph width in screen pixels, for the marker's footprint. */
+const DIGIT_PX = 7;
+/** The farthest a marker may stray from its platoon, in screen pixels; beyond it, it hides instead. */
+const MARK_REACH = 40;
 /** Offsets below this many screen pixels draw no tether back to the platoon. */
-const TETHER_PX = 6;
-/** The far token's footprint in screen pixels around its anchor: shield above, gauge and count below. */
-const TOKEN_BOX = (() => {
-  const k = FAR_FLAG_PX / FLAG_W;
-  const gs = Math.max(1, 34 / FAR_FLAG_PX);
-  const x0 = -(BAR_W / 2 + CAP) * gs * k;
-  // The strength count, two or three figures, rides to the right of the gauge.
-  const x1 = (BAR_W / 2 + CAP + 5 + 44) * gs * k;
-  const y0 = (2 - TOKEN_H * 1.05) * k;
-  const y1 = (GAUGE_Y + GAUGE_H * gs) * k;
-  return { w: x1 - x0, h: y1 - y0, cx: (x0 + x1) / 2, cy: (y0 + y1) / 2 };
-})();
+const TETHER_PX = 7;
+/** How fast a marker fades in or out as room is made or lost. */
+const MARK_FADE_MS = 140;
+/**
+ * Platoons standing (not fighting) within this many world units of their own capital's walls
+ * fold into one capital badge at far zoom.
+ */
+const HOME_REACH = 110;
+
+function markerBox(digits: number, must = false): MarkerBox {
+  const x0 = -MARK_W / 2 - 1;
+  const x1 = MARK_TEXT_X + Math.max(MARK_BAR_W, digits * DIGIT_PX) + 1;
+  const y0 = MARK_Y - MARK_H / 2 - 1;
+  const y1 = MARK_BAR_Y + MARK_BAR_H + 1;
+  return { x: 0, y: 0, w: x1 - x0, h: y1 - y0, cx: (x0 + x1) / 2, cy: (y0 + y1) / 2, ox: 0, oy: 0, priority: 0, must, shown: false };
+}
+
+/** Marker footprints by headcount digits, made once. */
+const MARKER_SIZES = Array.from({ length: 6 }, (_, d) => markerBox(d));
+const markerSize = (digits: number): MarkerBox => MARKER_SIZES[Math.min(5, digits)]!;
+
+/** Far out, a capital's idle platoons show as one badge: a stack of its shields, the platoons and the soldiers. */
+interface CapitalBadge {
+  root: Container;
+  back: Sprite[];
+  front: Sprite;
+  count: Text;
+  platoons: Text;
+  tokenKey: string;
+  box: MarkerBox;
+  /** The site the badge sits by, in world units. */
+  x: number;
+  y: number;
+  /** Its largest platoon: what a click on the badge selects. */
+  lead: number;
+  alpha: number;
+  seen: number;
+}
 
 export interface BannerHit {
   platoon: number;
@@ -119,18 +168,29 @@ export interface BannerHit {
   r: number;
 }
 
-/** One banner per platoon, carried over its formation; doubles as the far-zoom token. */
+const vellumText = (size: number) => ({ fontFamily: '"Alegreya SC", Alegreya, Georgia, serif', fontSize: size, fontWeight: '700' as const, fill: 0xefe4c8, stroke: { color: 0x22180f, width: size * 0.26, join: 'round' as const } });
+
+/** One banner per platoon, carried over its formation; far out, a small heraldic marker on its blocks. */
 export class BannerLayer {
   readonly root = new Container();
   private views = new Map<number, BannerView>();
+  private badges = new Map<number, CapitalBadge>();
   private frameNo = 0;
   hits: BannerHit[] = [];
   private hitPool: BannerHit[] = [];
-  /** Ink tethers from a displaced far-zoom token back to its platoon. */
+  /** Ink tethers from a nudged far-zoom marker back to its platoon. */
   private readonly tethers = new Graphics();
-  private crowd: DeclutterBox[] = [];
+  private crowd: MarkerBox[] = [];
   private crowdOrder: number[] = [];
   private crowdViews: BannerView[] = [];
+  private crowdBadges: CapitalBadge[] = [];
+  /** Platoon id -> player, for platoons folded into their capital's badge this frame. */
+  private home = new Map<number, number>();
+  private homeCount: number[] = [];
+  private lastFar: boolean | null = null;
+  private modeAt = -1e9;
+  /** Markers shown at far zoom in the last frame, for diagnostics. */
+  shownMarkers = 0;
 
   constructor(private flags: FlagCache) {
     this.root.sortableChildren = true;
@@ -148,6 +208,7 @@ export class BannerLayer {
       out.add(f.v.flag.mesh.texture);
       if (f.v.token.texture) out.add(f.v.token.texture);
     }
+    for (const b of this.badges.values()) if (b.front.texture) out.add(b.front.texture);
   }
 
   /** Drop every banner: a new war reuses platoon ids for other companies. */
@@ -156,6 +217,8 @@ export class BannerLayer {
     this.folding = [];
     for (const v of this.views.values()) this.dispose(v);
     this.views.clear();
+    for (const b of this.badges.values()) b.root.destroy({ children: true });
+    this.badges.clear();
     this.hits.length = 0;
     this.tethers.clear();
   }
@@ -189,6 +252,38 @@ export class BannerLayer {
     if (v) v.routFlash = now;
   }
 
+  /**
+   * Which platoons fold into their capital's badge: those standing (not fighting or fleeing)
+   * by their own capital, when there are at least two of them. The selected and followed
+   * platoons never fold.
+   */
+  private foldHome(world: World, centroid: Map<number, { x: number; y: number; n: number }>, selected: number | null, followed: number | null): void {
+    const home = this.home;
+    home.clear();
+    const count = this.homeCount;
+    count.length = world.players.length;
+    count.fill(0);
+    const sites = world.map.sites;
+    const capOf = (p: number) => {
+      const slot = world.players[p]?.slot ?? -1;
+      for (const s of sites) if (s.kind === 'capital' && s.slot === slot) return s;
+      return undefined;
+    };
+    const caps = world.players.map((pl) => capOf(pl.p));
+    for (const pl of world.platoons) {
+      if (pl.state === PlatoonState.Queued || pl.alive <= 0 || pl.state === PlatoonState.Engage || pl.state === PlatoonState.Rout) continue;
+      if (pl.id === selected || pl.id === followed) continue;
+      const cap = caps[pl.p];
+      if (!cap) continue;
+      const c = centroid.get(pl.id) ?? pl;
+      const r = cap.radius + HOME_REACH;
+      if ((c.x - cap.x) ** 2 + (c.y - cap.y) ** 2 > r * r) continue;
+      home.set(pl.id, pl.p);
+      count[pl.p]!++;
+    }
+    for (const [id, p] of home) if (count[p]! < 2) home.delete(id);
+  }
+
   update(
     world: World,
     repos: readonly RepoRef[],
@@ -203,15 +298,27 @@ export class BannerLayer {
     reducedMotion = false,
     /** Whether the view is in far zoom; the renderer passes its level, with hysteresis. */
     farLevel?: boolean,
+    /** The platoon the camera follows, if any: its marker always shows. */
+    followed: number | null = null,
   ): void {
     this.frameNo++;
     for (const h of this.hits) this.hitPool.push(h);
     this.hits.length = 0;
     this.crowd.length = 0;
     this.crowdViews.length = 0;
+    this.crowdBadges.length = 0;
     const far = farLevel ?? zoom < FAR_ZOOM;
+    if (far !== this.lastFar) {
+      // Crossing between banners and markers: the new set fades in while blocks and soldiers cross-fade.
+      if (this.lastFar !== null) this.modeAt = now;
+      this.lastFar = far;
+    }
+    const modeFade = reducedMotion ? 1 : Math.min(1, (now - this.modeAt) / FADE_MS);
+    const markFade = reducedMotion ? 1 : Math.min(1, dtMs / MARK_FADE_MS);
     const flagPx = far ? FAR_FLAG_PX : Math.max(26, Math.min(46, 34 * Math.pow(zoom, 0.35)));
     const scale = flagPx / FLAG_W / zoom;
+    if (far) this.foldHome(world, centroid, selected, followed);
+    else this.home.clear();
     // Frame-rate independent easing: the anchor smooths the sim's 5Hz steps; the banner then
     // follows the (already interpolated) soldiers closely instead of trailing behind them.
     const anchorK = 1 - Math.pow(0.8, dtMs / 16.67);
@@ -234,14 +341,18 @@ export class BannerLayer {
       v.seen = this.frameNo;
       v.ax += (pl.x - v.ax) * anchorK;
       v.ay += (pl.y - v.ay) * anchorK;
-      // Carry the banner at the front of the block, over the soldiers.
-      const tx = c ? c.x * 0.6 + v.ax * 0.4 : v.ax;
-      const ty = c ? c.y * 0.6 + v.ay * 0.4 : v.ay;
+      // Close in, the banner is carried at the front of the block, over the soldiers; far out, the
+      // marker is planted on the middle of its blocks.
+      const front = far && pl.id !== selected ? 0 : 0.4;
+      const tx = c ? c.x * (1 - front) + v.ax * front : v.ax;
+      const ty = c ? c.y * (1 - front) + v.ay * front : v.ay;
       v.x += (tx - v.x) * followK;
       v.y += (ty - v.y) * followK;
-      if (!bounds.contains(v.x, v.y)) {
+      if (!bounds.contains(v.x, v.y) || this.home.has(pl.id)) {
         v.root.visible = false;
         v.box.ox = v.box.oy = 0;
+        v.box.shown = false;
+        v.markAlpha = 0;
         continue;
       }
       v.root.visible = true;
@@ -254,19 +365,46 @@ export class BannerLayer {
         v.flag.texture = this.flags.battalion(hue, repo[0], repo[1], pl.ordinal, grade, trim);
         v.key = key;
       }
-      // Far out, every platoon becomes a heraldic token; close in, a banner on its staff.
-      v.token.visible = far && pl.id !== selected;
-      v.pole.visible = v.finial.visible = v.flag.mesh.visible = !v.token.visible;
-      if (v.token.visible && v.tokenKey !== key) {
-        v.token.texture = this.flags.token(hue, repo[0], repo[1], grade);
-        v.tokenKey = key;
+      const routing = pl.state === PlatoonState.Rout;
+      const engaged = pl.state === PlatoonState.Engage;
+      const hpFrac = Math.max(0, Math.min(1, pl.alive / Math.max(1, pl.size)));
+      // Far out, every platoon but the selected one becomes a small marker on its blocks.
+      if (far && pl.id !== selected) {
+        this.showMarker(v, true);
+        if (v.tokenKey !== key) {
+          v.token.texture = this.flags.token(hue, repo[0], repo[1], grade);
+          v.tokenKey = key;
+        }
+        v.root.scale.set(1 / zoom);
+        v.root.rotation = 0;
+        v.token.tint = routing ? 0xb8b8b8 : 0xffffff;
+        v.markBar.width = MARK_BAR_W * hpFrac;
+        v.markBar.tint = hpFrac < 0.34 ? 0xc8503a : 0x3f9a84;
+        const text = String(pl.alive);
+        if (v.markCount.text !== text) v.markCount.text = text;
+        v.star.visible = pl.champion;
+        const b = v.box;
+        b.x = v.x * zoom;
+        b.y = v.y * zoom;
+        const sized = markerSize(text.length);
+        b.w = sized.w;
+        b.cx = sized.cx;
+        b.must = pl.id === followed;
+        // Who keeps a marker when there is no room: fighting first, then the largest.
+        b.priority = (engaged ? 20000 : routing ? 8000 : pl.state === PlatoonState.March ? 4000 : 0) + Math.min(3000, pl.alive * 10) + (pl.champion ? 2000 : 0);
+        this.crowd.push(b);
+        this.crowdViews.push(v);
+        continue;
       }
+      this.showMarker(v, false);
+      v.root.alpha = modeFade;
+      v.box.ox = v.box.oy = 0;
+      v.box.shown = false;
+      v.markAlpha = 0;
       const lift = 16 / zoom;
       v.root.position.set(v.x, v.y - lift);
       v.root.scale.set(scale);
       v.root.zIndex = v.y + (pl.id === selected ? 1e6 : 0);
-      const routing = pl.state === PlatoonState.Rout;
-      const engaged = pl.state === PlatoonState.Engage;
       // Held by form: dipped on the march, rising as the line deploys, high once formed.
       v.raiseTarget = pl.form === Form.Column ? 0.65 : pl.form === Form.Deploying ? 0.9 : 1;
       v.raise += (v.raiseTarget - v.raise) * (reducedMotion ? 1 : 1 - Math.pow(0.9, dtMs / 16.67));
@@ -274,14 +412,14 @@ export class BannerLayer {
       // A dipped banner is carried lower and tilted forward; raised, it stands straight.
       if (dip > 0.01) v.root.position.y += dip * FLAG_H * 0.5 * scale;
       v.root.rotation = routing ? -0.35 + (reducedMotion ? 0 : Math.sin(now / 120) * 0.08) : dip * 0.35;
-      // Cloth only ripples where it can be seen; far tokens stay still. Reduced motion: a breath of wind.
-      if (!far || pl.id === selected) v.flag.update(now / 1000, (routing ? 3 : engaged ? 7 : 4.5) * (reducedMotion ? 0.25 : 1));
+      // Cloth only ripples where it can be seen. Reduced motion: a breath of wind.
+      v.flag.update(now / 1000, (routing ? 3 : engaged ? 7 : 4.5) * (reducedMotion ? 0.25 : 1));
       const flash = now - v.routFlash < 900 ? 1 - (now - v.routFlash) / 900 : 0;
       v.flag.mesh.tint = flash > 0 && Math.floor(now / 90) % 2 === 0 ? 0xffffff : routing ? 0xb8b8b8 : 0xffffff;
       v.flag.mesh.alpha = 1;
-      // The gauge is counter-scaled so it never shrinks to a hairline at far zoom.
+      // The gauge is counter-scaled so it never shrinks to a hairline when zoomed out.
       v.gauge.scale.set(Math.max(1, 34 / flagPx));
-      const hp = BAR_W * Math.max(0, Math.min(1, pl.alive / Math.max(1, pl.size)));
+      const hp = BAR_W * hpFrac;
       if (hp < v.strength.width - 0.01) v.woundAt = now;
       if (hp > v.woundW) v.woundW = hp;
       else if (v.woundW > hp && now - v.woundAt > WOUND_HOLD_MS) {
@@ -298,19 +436,25 @@ export class BannerLayer {
       v.count.visible = far || pl.id === selected;
       if (v.count.visible) v.count.text = String(pl.alive);
       v.star.visible = pl.champion;
-      if (v.token.visible) {
-        // Far tokens make room for each other below; the hit area follows once they have moved.
+      if (far) {
+        // The selected platoon keeps its full banner far out: markers make room around it.
         const b = v.box;
         b.x = v.x * zoom;
         b.y = (v.y - lift) * zoom;
+        b.w = FAR_FLAG_PX * 1.25;
+        b.h = FAR_FLAG_PX * 1.9;
+        b.cx = FAR_FLAG_PX * 0.45;
+        b.cy = -FAR_FLAG_PX * 0.75;
+        b.must = true;
+        b.priority = 0;
         this.crowd.push(b);
         this.crowdViews.push(v);
-        continue;
       }
-      v.box.ox = v.box.oy = 0;
       this.hit(pl.id, v.x, v.y - lift - FLAG_H * 0.9 * scale, Math.max(FLAG_W * 0.6 * scale, 10 / zoom));
     }
-    this.placeTokens(zoom, scale);
+    if (far) this.gatherBadges(world, repos, hues, zoom, bounds);
+    else for (const b of this.badges.values()) b.root.visible = false;
+    this.placeMarkers(zoom, modeFade, markFade, selected);
     for (let i = this.folding.length - 1; i >= 0; i--) {
       const f = this.folding[i]!;
       const t = Math.min(1, (now - f.at) / 650);
@@ -331,35 +475,179 @@ export class BannerLayer {
       this.dispose(v);
       this.views.delete(id);
     }
+    for (const [p, b] of this.badges) {
+      if (b.seen === this.frameNo) continue;
+      b.root.destroy({ children: true });
+      this.badges.delete(p);
+    }
+  }
+
+  /** Switches a view between its close-in banner and its far marker. */
+  private showMarker(v: BannerView, on: boolean): void {
+    v.token.visible = v.markBack.visible = v.markBar.visible = v.markCount.visible = on;
+    v.pole.visible = v.finial.visible = v.flag.mesh.visible = v.gauge.visible = !on;
+    if (on) {
+      v.star.position.set(MARK_W / 2 - 1, MARK_Y - MARK_H / 2 + 2);
+      v.star.scale.set(0.34);
+    } else {
+      v.star.position.set(FLAG_W + 18, -FLAG_H * 1.6);
+      v.star.scale.set(1);
+    }
+  }
+
+  /** One badge per capital whose idle platoons were folded, beside its keep. */
+  private gatherBadges(world: World, repos: readonly RepoRef[], hues: readonly number[], zoom: number, bounds: { contains(x: number, y: number): boolean }): void {
+    if (!this.home.size) {
+      for (const b of this.badges.values()) b.root.visible = false;
+      return;
+    }
+    const soldiers = new Map<number, number>();
+    const lead = new Map<number, Platoon>();
+    for (const pl of world.platoons) {
+      const p = this.home.get(pl.id);
+      if (p === undefined) continue;
+      soldiers.set(p, (soldiers.get(p) ?? 0) + pl.alive);
+      const l = lead.get(p);
+      if (!l || pl.alive > l.alive) lead.set(p, pl);
+    }
+    for (const [p, l] of lead) {
+      const slot = world.players[p]?.slot ?? -1;
+      const site = world.map.sites.find((s) => s.kind === 'capital' && s.slot === slot);
+      if (!site) continue;
+      // Beside the keep, low on its right, clear of the name cartouche above it.
+      const x = site.x + site.radius * 0.95;
+      const y = site.y + site.radius * 0.35;
+      let b = this.badges.get(p);
+      if (!b) {
+        b = this.createBadge();
+        this.badges.set(p, b);
+      }
+      b.seen = this.frameNo;
+      if (!bounds.contains(x, y)) {
+        b.root.visible = false;
+        b.box.shown = false;
+        b.alpha = 0;
+        continue;
+      }
+      b.root.visible = true;
+      b.x = x;
+      b.y = y;
+      b.lead = l.id;
+      const repo = repos[l.repo] ?? ['unknown/repo', null];
+      const grade = gradeOf(world.players[p]);
+      const key = `${hues[p] ?? 0}|${repo[0]}|${grade.rank}|${grade.ragged ? 1 : 0}`;
+      if (key !== b.tokenKey) {
+        const t = this.flags.token(hues[p] ?? 0, repo[0], repo[1], grade);
+        b.front.texture = t;
+        for (const s of b.back) s.texture = t;
+        b.tokenKey = key;
+      }
+      const n = this.homeCount[p] ?? 0;
+      const total = String(soldiers.get(p) ?? 0);
+      if (b.count.text !== total) b.count.text = total;
+      const plText = `×${n}`;
+      if (b.platoons.text !== plText) b.platoons.text = plText;
+      b.root.scale.set(1 / zoom);
+      const box = b.box;
+      const sized = markerSize(Math.max(total.length, plText.length));
+      box.x = x * zoom;
+      box.y = y * zoom;
+      box.w = sized.w + 6;
+      box.cx = sized.cx + 3;
+      box.h = sized.h + 3;
+      box.cy = sized.cy - 1.5;
+      box.must = false;
+      box.priority = 50000 + n;
+      this.crowd.push(box);
+      this.crowdBadges.push(b);
+    }
   }
 
   /**
-   * Far out, tokens of nearby platoons would pile on one another: push them apart in screen
-   * space (a short column where they crowd), and ink a fine tether from each displaced token
-   * back to where its platoon really stands.
+   * Far out, markers of nearby platoons would pile on one another: each takes the nearest free
+   * spot within a short reach of its platoon, most important first, and a marker with no room
+   * fades out rather than wandering off. A nudged marker keeps a short ink tether to its blocks.
    */
-  private placeTokens(zoom: number, scale: number): void {
+  private placeMarkers(zoom: number, modeFade: number, markFade: number, selected: number | null): void {
     const g = this.tethers;
     g.clear();
+    this.shownMarkers = 0;
     if (!this.crowd.length) return;
-    declutter(this.crowd, 20, this.crowdOrder);
-    const lift = 16 / zoom;
+    placeMarkers(this.crowd, MARK_REACH, this.crowdOrder);
+    let tethers = 0;
     for (let i = 0; i < this.crowdViews.length; i++) {
       const v = this.crowdViews[i]!;
+      if (v.platoon === selected) continue;
       const b = v.box;
+      v.markAlpha += ((b.shown ? 1 : 0) - v.markAlpha) * markFade;
+      if (!b.shown && v.markAlpha < 0.03) {
+        v.root.visible = false;
+        v.markAlpha = 0;
+        continue;
+      }
+      v.root.alpha = v.markAlpha * modeFade;
       const x = v.x + b.ox / zoom;
-      const y = v.y - lift + b.oy / zoom;
+      const y = v.y + b.oy / zoom;
       v.root.position.set(x, y);
-      // The token's own number decides a crowd's stacking order: lower on screen draws in front.
-      v.root.zIndex = y;
-      this.hit(v.platoon, x, y - (TOKEN_H * 0.5 * scale), Math.max(TOKEN_W * 0.6 * scale, 10 / zoom));
+      // Lower on screen draws in front; the followed platoon over all.
+      v.root.zIndex = y + (b.must ? 1e6 : 0);
+      if (!b.shown) continue;
+      this.shownMarkers++;
+      this.hit(v.platoon, x, y + MARK_Y / zoom, Math.max(MARK_W * 0.6, 8) / zoom);
       if (Math.hypot(b.ox, b.oy) < TETHER_PX) continue;
-      g.moveTo(v.x, v.y - lift * 0.4).lineTo(x, y);
-      g.circle(v.x, v.y - lift * 0.4, 1.6 / zoom);
+      // From the middle of the blocks to the shield's tip.
+      g.moveTo(v.x, v.y).lineTo(x, y + (MARK_Y + MARK_H / 2) / zoom);
+      g.circle(v.x, v.y, 1.5 / zoom);
+      tethers++;
     }
-    g.stroke({ width: 1.2 / zoom, color: 0x22180f, alpha: 0.75 });
+    for (const bd of this.crowdBadges) {
+      const b = bd.box;
+      bd.alpha += ((b.shown ? 1 : 0) - bd.alpha) * markFade;
+      bd.root.visible = b.shown || bd.alpha > 0.03;
+      bd.root.alpha = bd.alpha * modeFade;
+      const x = bd.x + b.ox / zoom;
+      const y = bd.y + b.oy / zoom;
+      bd.root.position.set(x, y);
+      bd.root.zIndex = y + 5e5;
+      if (b.shown) {
+        this.shownMarkers++;
+        this.hit(bd.lead, x, y + MARK_Y / zoom, Math.max(MARK_W * 0.7, 9) / zoom);
+      }
+    }
+    if (tethers) g.stroke({ width: 1.1 / zoom, color: 0x22180f, alpha: 0.7 * modeFade });
   }
 
+  private createBadge(): CapitalBadge {
+    const root = new Container();
+    // Two shields behind the front one, stepped up and right: a stack of platoons at home.
+    const back = [2, 1].map((i) => {
+      const s = new Sprite();
+      s.anchor.set(0.5);
+      s.width = MARK_W;
+      s.height = MARK_H;
+      s.position.set(i * 3.5, MARK_Y - i * 3.5);
+      s.tint = i === 2 ? 0x8f8a80 : 0xb7b1a5;
+      root.addChild(s);
+      return s;
+    });
+    const front = new Sprite();
+    front.anchor.set(0.5);
+    front.width = MARK_W + 2;
+    front.height = MARK_H + 2;
+    front.position.set(0, MARK_Y);
+    const count = new Text({ text: '', style: vellumText(26), resolution: 2 });
+    count.anchor.set(0, 0.5);
+    count.scale.set(0.5);
+    count.position.set(MARK_TEXT_X + 6, MARK_TEXT_Y);
+    const platoons = new Text({ text: '', style: { ...vellumText(20), fontStyle: 'italic' as const, fontWeight: '400' as const, fill: 0xf6dc8c }, resolution: 2 });
+    platoons.anchor.set(0, 0.5);
+    platoons.scale.set(0.5);
+    platoons.position.set(MARK_TEXT_X + 6, MARK_TEXT_Y + 11);
+    root.addChild(front, count, platoons);
+    root.visible = false;
+    this.root.addChild(root);
+    return { root, back, front, count, platoons, tokenKey: '', box: markerBox(3), x: 0, y: 0, lead: -1, alpha: 0, seen: 0 };
+  }
 
   private create(): BannerView {
     const root = new Container();
@@ -403,12 +691,27 @@ export class BannerLayer {
     morale.width = BAR_W;
     morale.position.set(-BAR_W / 2, MORALE_Y);
     gauge.addChild(channel, wound, strength, edge, morale);
+    // The far marker, laid out in screen pixels (the root is scaled to 1 / zoom far out).
     const token = new Sprite();
-    token.anchor.set(0.5, 1);
-    token.width = TOKEN_W * 1.05;
-    token.height = TOKEN_H * 1.05;
-    token.position.set(0, 2);
+    token.anchor.set(0.5);
+    token.width = MARK_W;
+    token.height = MARK_H;
+    token.position.set(0, MARK_Y);
     token.visible = false;
+    const markBack = new Sprite(Texture.WHITE);
+    markBack.tint = 0x22180f;
+    markBack.position.set(MARK_TEXT_X - 1, MARK_BAR_Y - 1);
+    markBack.width = MARK_BAR_W + 2;
+    markBack.height = MARK_BAR_H + 2;
+    const markBar = new Sprite(this.fillTexture('morale'));
+    markBar.position.set(MARK_TEXT_X, MARK_BAR_Y);
+    markBar.width = MARK_BAR_W;
+    markBar.height = MARK_BAR_H;
+    const markCount = new Text({ text: '', style: vellumText(25), resolution: 2 });
+    markCount.anchor.set(0, 0.5);
+    markCount.scale.set(0.5);
+    markCount.position.set(MARK_TEXT_X - 1, MARK_TEXT_Y);
+    markBack.visible = markBar.visible = markCount.visible = false;
     const count = new Text({ text: '', style: { fontFamily: '"Alegreya SC", Alegreya, Georgia, serif', fontSize: 30, fontWeight: '700', fill: 0xefe4c8, stroke: { color: 0x22180f, width: 7, join: 'round' } }, resolution: 2 });
     count.anchor.set(0, 0.5);
     count.position.set(BAR_W / 2 + CAP + 5, GAUGE_H / 2);
@@ -416,9 +719,9 @@ export class BannerLayer {
     star.anchor.set(0.5);
     star.position.set(FLAG_W + 18, -FLAG_H * 1.6);
     gauge.addChild(count);
-    root.addChild(pole, flag.mesh, finial, token, gauge, star);
+    root.addChild(pole, flag.mesh, finial, token, markBack, markBar, markCount, gauge, star);
     this.root.addChild(root);
-    return { root, pole, finial, flag, gauge, strength, wound, edge, morale, woundW: BAR_W, woundAt: -1e9, token, tokenKey: '', count, star, seen: 0, key: '', routFlash: -1e9, raise: 1, raiseTarget: 1, x: 0, y: 0, ax: 0, ay: 0, platoon: -1, box: { x: 0, y: 0, ox: 0, oy: 0, ...TOKEN_BOX } };
+    return { root, pole, finial, flag, gauge, strength, wound, edge, morale, woundW: BAR_W, woundAt: -1e9, token, tokenKey: '', markBack, markBar, markCount, markAlpha: 0, count, star, seen: 0, key: '', routFlash: -1e9, raise: 1, raiseTarget: 1, x: 0, y: 0, ax: 0, ay: 0, platoon: -1, box: markerBox(2) };
   }
 
   private staff: Texture | null = null;

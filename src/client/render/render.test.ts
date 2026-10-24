@@ -2,53 +2,82 @@ import { describe, expect, it } from 'vitest';
 import { TICK_MS } from '../../sim/api.ts';
 import { MAX_ZOOM, MIN_ZOOM, zoomFloor } from './camera.ts';
 import { dayPhase, daylightAt } from './daylight.ts';
-import { declutter, overlapping, type DeclutterBox } from './declutter.ts';
+import { counterPaint } from './blocks.ts';
+import { overlapping, placeMarkers, type MarkerBox } from './declutter.ts';
 import { clampShift, clipScroll } from './fx/scrollfit.ts';
 import { pruneLru, touch } from './lru.ts';
 import { KNOCK_OUT, hitstopMs, knockCurve, knockDistance, knockMs } from './impact.ts';
 
-const box = (x: number, y: number): DeclutterBox => ({ x, y, w: 54, h: 34, cx: 6, cy: -6, ox: 0, oy: 0 });
+const box = (x: number, y: number, priority = 0, must = false): MarkerBox => ({ x, y, w: 44, h: 26, cx: 8, cy: -14, ox: 0, oy: 0, priority, must, shown: false });
+const REACH = 40;
 
-describe('declutter (far-zoom tokens)', () => {
-  it('leaves lone tokens exactly where their platoons are', () => {
+describe('placeMarkers (far-zoom platoon markers)', () => {
+  it('leaves lone markers exactly on their platoons', () => {
     const boxes = [box(0, 0), box(200, 0), box(0, 200)];
-    declutter(boxes);
-    for (const b of boxes) expect([b.ox, b.oy]).toEqual([0, 0]);
+    placeMarkers(boxes, REACH);
+    for (const b of boxes) {
+      expect(b.shown).toBe(true);
+      expect([b.ox, b.oy]).toEqual([0, 0]);
+    }
   });
 
-  it('pulls apart a pile of tokens on one spot within a few frames', () => {
-    const boxes = Array.from({ length: 12 }, (_, i) => box(100 + (i % 3), 100));
-    for (let frame = 0; frame < 30; frame++) declutter(boxes);
-    expect(overlapping(boxes, 1.5)).toBe(false);
-    // Stacked as a column: the crowd keeps roughly its x.
-    for (const b of boxes) expect(Math.abs(b.ox)).toBeLessThan(60);
+  it('never stacks a crowd far away: markers with no room nearby hide instead', () => {
+    const boxes = Array.from({ length: 16 }, (_, i) => box(100 + (i % 3), 100, i));
+    for (let frame = 0; frame < 5; frame++) placeMarkers(boxes, REACH);
+    expect(overlapping(boxes, 0.5)).toBe(false);
+    for (const b of boxes) if (b.shown) expect(Math.hypot(b.ox, b.oy)).toBeLessThanOrEqual(REACH + 0.01);
+    const shown = boxes.filter((b) => b.shown);
+    expect(shown.length).toBeGreaterThan(2);
+    expect(shown.length).toBeLessThan(16);
+    // The most important keep their markers.
+    expect(boxes[15]!.shown).toBe(true);
+    expect(boxes[14]!.shown).toBe(true);
   });
 
-  it('settles a dense front line without overlaps and stays put frame to frame', () => {
-    const boxes = Array.from({ length: 40 }, (_, i) => box((i * 37) % 300, ((i * 53) % 120) * 0.5));
-    for (let frame = 0; frame < 60; frame++) declutter(boxes);
-    expect(overlapping(boxes, 1.5)).toBe(false);
-    const before = boxes.map((b) => [b.ox, b.oy]);
-    declutter(boxes);
-    boxes.forEach((b, i) => {
-      expect(Math.abs(b.ox - before[i]![0]!)).toBeLessThan(8);
-      expect(Math.abs(b.oy - before[i]![1]!)).toBeLessThan(8);
-    });
+  it('always shows a marker that must show, even buried in a crowd', () => {
+    const boxes = Array.from({ length: 12 }, (_, i) => box(50, 50, 1000 + i));
+    boxes.push(box(50, 50, 0, true));
+    placeMarkers(boxes, REACH);
+    expect(boxes[12]!.shown).toBe(true);
+    expect([boxes[12]!.ox, boxes[12]!.oy]).toEqual([0, 0]);
   });
 
-  it('drifts a token home once its neighbour has gone', () => {
-    const a = box(0, 0);
-    const b = box(0, 0);
-    for (let f = 0; f < 10; f++) declutter([a, b]);
-    expect(Math.hypot(a.ox, a.oy)).toBeGreaterThan(5);
-    for (let f = 0; f < 80; f++) declutter([a]);
-    expect(Math.hypot(a.ox, a.oy)).toBeLessThan(0.1);
+  it('is stable frame to frame, and a marker goes home once its neighbour has gone', () => {
+    const boxes = Array.from({ length: 30 }, (_, i) => box((i * 37) % 300, ((i * 53) % 120) * 0.5, i));
+    placeMarkers(boxes, REACH);
+    const before = boxes.map((b) => [b.shown, b.ox, b.oy]);
+    placeMarkers(boxes, REACH);
+    expect(boxes.map((b) => [b.shown, b.ox, b.oy])).toEqual(before);
+    const a = box(0, 0, 1);
+    const b = box(0, 0, 2);
+    placeMarkers([a, b], REACH);
+    expect(a.shown && Math.hypot(a.ox, a.oy) > 5).toBe(true);
+    placeMarkers([a], REACH);
+    expect([a.ox, a.oy]).toEqual([0, 0]);
   });
 
   it('survives NaN offsets', () => {
-    const a = { ...box(0, 0), ox: NaN, oy: NaN };
-    declutter([a, box(0, 0)]);
+    const a = { ...box(0, 0), ox: NaN, oy: NaN, shown: true };
+    placeMarkers([a, box(0, 0)], REACH);
     expect(Number.isFinite(a.ox) && Number.isFinite(a.oy)).toBe(true);
+  });
+});
+
+describe('counter paint (far-zoom blocks)', () => {
+  const sat = (c: number) => {
+    const r = (c >> 16) & 255, g = (c >> 8) & 255, b = c & 255;
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+    return mx ? (mx - mn) / mx : 0;
+  };
+  it('paints every hue as a pigment, not neon, with a darker shade and a lighter rim', () => {
+    for (let hue = 0; hue < 360; hue += 15) {
+      const p = counterPaint(hue);
+      const lum = (c: number) => 0.2126 * ((c >> 16) & 255) + 0.7152 * ((c >> 8) & 255) + 0.0722 * (c & 255);
+      expect(sat(p.base)).toBeLessThan(0.82);
+      expect(sat(p.base)).toBeGreaterThan(0.45);
+      expect(lum(p.shade)).toBeLessThan(lum(p.base));
+      expect(lum(p.rim)).toBeGreaterThan(lum(p.base));
+    }
   });
 });
 

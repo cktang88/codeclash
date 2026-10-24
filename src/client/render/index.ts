@@ -705,13 +705,14 @@ export class Battlefield {
     this.units.mid = lod.mid;
     this.units.update(world, runner, now, zoom, bounds, lod.farMix);
     this.blocks.root.tint = this.actors.tint;
-    this.blocks.update(world, this.units.blocks.values(), this.units.centroids, this.actorTints, zoom, bounds, lod.farMix, now);
+    this.blocks.update(world, this.units.blocks.values(), this.units.centroids, this.hues, zoom, bounds, lod.farMix, now);
     time('units');
     // Interpolated, as the soldiers are drawn: banners, torches and the selection ride with them.
     const centroids = this.units.centroids;
     const sel = this.store.selection;
     for (const r of this.store.roster) this.trims[r.p] = r.heraldry?.trim;
-    this.banners.update(world, this.store.repos, this.hues, now, zoom, centroids, bounds, sel?.kind === 'platoon' ? sel.id : null, this.trims, dtMs, !!this.opts.reducedMotion, lod.far);
+    const followed = this.store.followMine ? this.myBanner(world)?.id ?? null : null;
+    this.banners.update(world, this.store.repos, this.hues, now, zoom, centroids, bounds, sel?.kind === 'platoon' ? sel.id : null, this.trims, dtMs, !!this.opts.reducedMotion, lod.far, followed);
     this.sky.tint = this.actors.tint;
     if (now >= this.flagPruneAt) {
       this.flagPruneAt = now + FLAG_PRUNE_MS;
@@ -786,7 +787,7 @@ export class Battlefield {
     return best;
   }
 
-  private myBanner(world: World): { x: number; y: number } | null {
+  private myBanner(world: World): { x: number; y: number; id: number | null } | null {
     const p = this.store.viewerP ?? (this.store.war && this.store.war.id !== 0 ? null : world.leader);
     if (p === null || p < 0) return null;
     let best: { x: number; y: number } | null = null;
@@ -798,9 +799,9 @@ export class Battlefield {
         best = pl;
       }
     }
-    if (best) return { x: best.x, y: best.y };
+    if (best) return { x: best.x, y: best.y, id: bestId };
     const site = world.map.sites[world.players[p]?.slot ?? -1];
-    return site ? { x: site.x, y: site.y } : null;
+    return site ? { x: site.x, y: site.y, id: null } : null;
   }
 
   /** Fires for night embers: sacked capitals smoulder, held ones keep their hearths lit. */
