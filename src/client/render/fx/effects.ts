@@ -517,9 +517,13 @@ export class Effects {
     for (const r of ev.risings) {
       const home = world.map.sites[world.players[r.p]?.slot ?? -1];
       if (!home) continue;
-      const at = this.risingAt?.(r.p) ?? { x: home.x, y: home.y + home.radius };
-      // A beat after the walls fall, so the bell and the banners come first.
-      this.after(this.reduced ? 0 : 2.4, () => this.rising(at.x, at.y, tint(r.p), r.p === this.viewerP));
+      // A beat after the walls fall, so the bell and the banners come first; by then the rebel
+      // standard stands on the road outside (SiteLayer plants it), and the smoke boils up there.
+      const t = tint(r.p);
+      this.after(this.reduced ? 0 : 2.4, () => {
+        const at = this.risingAt?.(r.p) ?? { x: home.x, y: home.y + home.radius * 2 };
+        this.rising(at.x, at.y, t, r.p === this.viewerP);
+      });
     }
 
     for (const c of ev.cries) {
@@ -1178,7 +1182,7 @@ export class Effects {
       this.ring(x, y, t, 20, 150, 1.4);
       this.ring(x, y, INK, 14, 110, 1.2, 0.5);
       this.sparks(x, y - 64, this.n(14), t, 70, 40);
-      this.floatText('The rising!', x, y - 110, 2.6, 24, 0xffd8c0);
+      this.floatText('The rising!', x, y - 150, 2.6, 24, 0xffd8c0);
     });
   }
 
@@ -1200,7 +1204,7 @@ export class Effects {
     this.after(1.4, () => this.cue(fanfare, 0, 0, 1));
     // A gilded ring laid along the ring road itself (the map is seen from above: no squash), and a
     // wave of gold dust rolling out from the centre to meet it.
-    this.decals.spawn({ texture: this.tex.shockwave, x: 0, y: 0, life: 2.6, size: R * 0.4, grow: 5.2, squash: 1, alpha: 0.6, tint: GOLD_HI, fadeIn: 0 });
+    this.decals.spawn({ texture: this.tex.shockwave, x: 0, y: 0, life: 2.6, size: R * 1.1, grow: 2, squash: 1, alpha: 0.5, tint: GOLD_HI, fadeIn: 0.2 });
     this.decals.spawn({ texture: this.tex.ring, x: 0, y: 0, life: 4.2, size: R * 2.1, grow: 1.08, squash: 1, alpha: 0.9, tint: GOLD, rotation: 0, fadeIn: 0.3 });
     this.decals.spawn({ texture: this.tex.ring, x: 0, y: 0, life: 3.4, size: R * 2.2, grow: 1.1, squash: 1, alpha: 0.6, tint: t, rotation: 2.1, fadeIn: 0.3, delay: 0.4 });
     for (let i = 0; i < this.n(120); i++) {

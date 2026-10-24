@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { MeResponse } from '../../protocol.ts';
 import { RoomHud } from '../hud/RoomHud.tsx';
+import { TICK_MS } from '../../sim/api.ts';
 import { startDemo, type LocalRunner } from '../net/local.ts';
 import { GameStore } from '../store.ts';
 import { useHud } from '../ui/store.ts';
@@ -36,7 +37,13 @@ export function DemoPage({ me }: { me: MeResponse | null }) {
     const seed = q.has('seed') ? Number(q.get('seed')) : undefined;
     const r = startDemo(store, undefined, Number.isFinite(seed) ? seed : undefined);
     const skip = Number(q.get('skip') ?? 0);
-    if (skip > 0) r.fastForward(skip);
+    if (skip > 0) {
+      r.fastForward(skip);
+      // The war began that long ago: its clock, countdown and hour of day agree with the field.
+      const back = skip * TICK_MS;
+      store.warStartMs -= back;
+      if (store.war) store.war = { ...store.war, startsAt: store.war.startsAt - back, endsAt: store.war.endsAt - back };
+    }
     r.speed = speedRef.current;
     runner.current = r;
     // Development captures (scripts/legibility, screenshots) drive the demo from the console.

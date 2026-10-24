@@ -609,19 +609,28 @@ function paintMassif(ctx: CanvasRenderingContext2D, map: MapDef, seed: number, t
   const C = map.centre;
   const rand = seeded(seed + 4111);
   const peaks: { x: number; y: number; s: number; snow: boolean; lean: number }[] = [];
-  const step = Math.max(40, C / 9);
-  for (let y = -C; y <= C + step; y += step * 0.55) {
-    const row = Math.round(y / (step * 0.55));
-    for (let x = -C; x <= C; x += step) {
-      const px = x + (row % 2 ? step * 0.5 : 0) + (rand() - 0.5) * step * 0.6;
-      const py = y + (rand() - 0.5) * step * 0.3;
-      const d = Math.hypot(px, py);
-      if (d > C + 6 || terrainAt(px, py) !== Terrain.Rock) continue;
-      const up = Math.max(0, 1 - d / (C + 6));
-      // Foothills at the shore, great peaks toward the summit.
-      const s = step * (0.38 + up * up * 1.05 + rand() * 0.18);
-      peaks.push({ x: px, y: py, s, snow: up > 0.42 + rand() * 0.18, lean: (rand() - 0.5) * 0.35 });
+  // Peaks are laid in rings from the summit outward, spaced by their own size, so the great peaks
+  // at the heart stand clear instead of being buried under rows of foothills.
+  const base = Math.max(30, C / 11);
+  const sizeAt = (d: number) => {
+    const up = Math.max(0, 1 - d / (C + 6));
+    return base * (0.6 + up * up * 1.9);
+  };
+  for (let r = 0; r < C + 10; ) {
+    const sz = sizeAt(r);
+    const n = r < 1 ? 1 : Math.max(3, Math.floor((Math.PI * 2 * r) / (sz * 1.6)));
+    const phase = rand() * Math.PI * 2;
+    for (let i = 0; i < n; i++) {
+      const a = phase + (i / n) * Math.PI * 2 + (rand() - 0.5) * (1.2 / n);
+      const rr = r + (rand() - 0.5) * sz * 0.4;
+      const px = Math.cos(a) * rr;
+      const py = Math.sin(a) * rr;
+      if (Math.hypot(px, py) > C + 6 || terrainAt(px, py) !== Terrain.Rock) continue;
+      const up = Math.max(0, 1 - Math.hypot(px, py) / (C + 6));
+      const s = sizeAt(rr) * (0.85 + rand() * 0.3);
+      peaks.push({ x: px, y: py, s, snow: up > 0.5 + rand() * 0.15, lean: (rand() - 0.5) * 0.35 });
     }
+    r += Math.max(base * 0.6, sz * 0.72);
   }
   peaks.sort((a, b) => a.y - b.y);
   for (const pk of peaks) {

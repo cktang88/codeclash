@@ -739,9 +739,9 @@ export class SiteLayer {
         v.flag.texture = this.flags.standard(pl.hue, r?.login ?? '?', r?.heraldry);
       }
       const t = (now - v.at) / 1000;
-      // It rises out of the smoke over two seconds, a beat after the walls fall.
-      const k = easeOut(clamp01((t - 0.6) / 1.8));
-      v.root.alpha = clamp01((t - 0.3) / 0.6);
+      // It rises out of the smoke (Effects.rising, 2.4s after the walls fall) over two seconds.
+      const k = easeOut(clamp01((t - 2.7) / 1.8));
+      v.root.alpha = clamp01((t - 2.5) / 0.5);
       v.root.scale.set(1, 0.2 + k * 0.8);
       v.label.set(`${names.player(pl.p)} rises`, 'to retake their home');
       v.label.wanted = zoom > 0.55;
