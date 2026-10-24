@@ -3,7 +3,7 @@ import type { Monument } from '../../protocol.ts';
 import { BlastKind, Kind, PlatoonState, type MapDef, type TickEvents, type World } from '../../sim/api.ts';
 import { STATS } from '../../sim/stats.ts';
 import type { ChronicleEntry } from '../../sim/chronicle.ts';
-import { derived } from '../../sim/derived.ts';
+import { flowTo } from '../../sim/derived.ts';
 import { Form } from '../../sim/formation.ts';
 import { routePoints } from '../../sim/world.ts';
 import { cellAt, cellCenterX, cellCenterY } from '../../sim/flowfield.ts';
@@ -18,7 +18,8 @@ import { Director } from './director.ts';
 import { FlagCache, type FlagTrim } from './flags.ts';
 import { Effects } from './fx/index.ts';
 import { loadFxArt } from './fx/atlas.ts';
-import { FAR_ZOOM } from './lod.ts';
+import { FAR_ZOOM, initialLod, stepLod, type LodState } from './lod.ts';
+import { BlockLayer } from './blocks.ts';
 import { InfluenceLayer } from './influence.ts';
 import { canvas2d, hslNumber, hslRgb, mixColor } from './paint.ts';
 import { WaterGlints } from './shaders/water.ts';
@@ -26,7 +27,8 @@ import { siteArt } from './siteart.ts';
 import { SiteLayer } from './sites.ts';
 import { hitstopMs } from './impact.ts';
 import { PostFx, postAllowed } from './post.ts';
-import { paintTerrain } from './terrain.ts';
+import { paintTerrain, type TerrainPixels } from './terrain.ts';
+import { terrainPixelsFor } from './terrainjob.ts';
 import { makeTextures, type Textures } from './textures.ts';
 import { UnitLayer, type Blow } from './units.ts';
 import { makeUnitArt, type UnitArt } from './art/index.ts';
@@ -62,6 +64,8 @@ interface FxHooks {
 }
 
 const GOLD = 0xf2cf5b;
+/** Largest side of the painted chart, in canvas pixels. */
+const TERRAIN_PX = 3072;
 /** Render time runs this slow during a big blow's micro-pause. */
 const PAUSE_SCALE = 0.1;
 /** At most one micro-pause in this long. */
@@ -85,6 +89,8 @@ const POOL_TINT = 0x5a6684;
  */
 const ACTOR_GRADE = 0.14;
 const MAX_TORCHES = 220;
+/** Frame-rate cap while the window is visible but not focused. */
+const UNFOCUSED_FPS = 30;
 /** How often unused flag textures are swept from the cache. */
 const FLAG_PRUNE_MS = 15_000;
 
@@ -180,6 +186,10 @@ export class Battlefield {
   private readonly units: UnitLayer;
   private readonly fx: Effects;
   private readonly banners: BannerLayer;
+  /** Far zoom: each platoon's kind-blocks instead of its soldiers. */
+  private readonly blocks = new BlockLayer();
+  /** The level of detail for this frame's zoom (lod.ts). */
+  private lod: LodState = initialLod(1);
   private readonly flags = new FlagCache();
   private readonly director: Director;
   /** Emissive bloom, filmic tone and vibrance over the finished field. */
@@ -216,6 +226,8 @@ export class Battlefield {
   });
   /** Smoothed milliseconds of JavaScript per frame, for diagnostics. */
   frameMs = 0;
+  /** Tooling only (scripts/legibility): hide soldiers, blocks and banners, to frame the ground alone. */
+  debugHideActors = false;
   /** Smoothed milliseconds per stage of the last frames, for diagnostics. */
   readonly timings: Record<string, number> = {};
 
@@ -280,7 +292,7 @@ export class Battlefield {
     // silhouettes never sink into the night ground.
     this.actors.addChild(this.units.bodies, this.units.dots, this.fx.air);
     this.sky.addChild(this.units.air);
-    this.top.addChild(this.lights, torchLayer, this.units.bases, this.actors, this.fx.glow, this.banners.root, this.sky, this.fx.overlay);
+    this.top.addChild(this.lights, torchLayer, this.units.bases, this.blocks.root, this.actors, this.fx.glow, this.banners.root, this.sky, this.fx.overlay);
     this.camera = new Camera(app.canvas, {
       onClick: (sx, sy) => this.click(sx, sy),
       onUserPan: () => {
@@ -355,6 +367,33 @@ export class Battlefield {
       rm.addEventListener?.('change', onRm);
       off.push(() => rm.removeEventListener?.('change', onRm));
     }
+    // A hidden tab draws nothing and runs nothing: the ticker (which also drives the runner) stops
+    // outright rather than relying on the browser to starve requestAnimationFrame. A visible but
+    // unfocused window (a second monitor, a side-by-side window) still draws, at half rate.
+    if (typeof document !== 'undefined' && typeof window !== 'undefined') {
+      const pace = () => {
+        if (this.destroyed) return;
+        const hidden = document.visibilityState === 'hidden';
+        if (hidden) {
+          if (this.app.ticker.started) this.app.ticker.stop();
+          return;
+        }
+        this.app.ticker.maxFPS = document.hasFocus() ? 0 : UNFOCUSED_FPS;
+        if (!this.app.ticker.started) {
+          this.last = performance.now();
+          this.app.ticker.start();
+        }
+      };
+      document.addEventListener('visibilitychange', pace);
+      window.addEventListener('focus', pace);
+      window.addEventListener('blur', pace);
+      pace();
+      off.push(() => {
+        document.removeEventListener('visibilitychange', pace);
+        window.removeEventListener('focus', pace);
+        window.removeEventListener('blur', pace);
+      });
+    }
     // Pixi restores a lost context itself and re-uploads every canvas-backed texture; meanwhile
     // nothing is drawn, so skip the frame work until it is back.
     const canvas = this.app.canvas;
@@ -400,6 +439,8 @@ export class Battlefield {
    */
   static async create(host: HTMLElement, store: GameStore, getRunner: () => Runner | null, opts: BattlefieldOptions & { signal?: AbortSignal } = {}): Promise<Battlefield> {
     const { signal } = opts;
+    // The chart's pixels start computing in a worker at once, alongside fonts, WebGL and sprites.
+    if (store.world) void terrainPixelsFor(store.world.map, store.world.params.seed, TERRAIN_PX);
     const aborted = () => signal?.aborted || !host.isConnected;
     const abort = () => new DOMException('The battlefield was unmounted while starting.', 'AbortError');
     // Paint shared art and load fonts before touching WebGL, so an early unmount costs nothing.
@@ -453,6 +494,7 @@ export class Battlefield {
     this.camera.destroy();
     this.dropMap();
     this.banners.destroy();
+    this.blocks.destroy();
     this.post.destroy();
     this.fx.destroy();
     this.flags.destroy();
@@ -556,7 +598,23 @@ export class Battlefield {
     // A resync restores a new world object with an identical map: keep the painted terrain and the
     // camera. Only a different war (rollover) needs a new map.
     if (!this.layers || this.layers.key !== mapKey(world)) {
-      this.buildMap(world);
+      // Wait for the chart's pixels (a worker): until they come, the loading leaf stays up.
+      const key = mapKey(world);
+      if (this.terrainFor?.key !== key) {
+        const job = { key, px: undefined as TerrainPixels | null | undefined };
+        this.terrainFor = job;
+        void terrainPixelsFor(world.map, world.params.seed, TERRAIN_PX).then((px) => {
+          job.px = px;
+        });
+      }
+      if (this.terrainFor.px === undefined) {
+        // First map: nothing to show yet. A new war's map: the last frame holds meanwhile, as it
+        // did while the chart was painted on this thread.
+        if (!this.layers) this.world.visible = this.top.visible = this.grade.visible = false;
+        return;
+      }
+      this.buildMap(world, this.terrainFor.px);
+      this.terrainFor = null;
       this.resetTransient();
       mark = performance.now();
     } else if (world.tick < this.lastTick) {
@@ -643,13 +701,17 @@ export class Battlefield {
     this.units.timeScale = timeScale;
     this.units.reduced = !!this.opts.reducedMotion;
     this.units.night = light.lights;
-    this.units.update(world, runner, now, zoom, bounds);
+    const lod = stepLod(this.lod, zoom, dtMs, !!this.opts.reducedMotion);
+    this.units.mid = lod.mid;
+    this.units.update(world, runner, now, zoom, bounds, lod.farMix);
+    this.blocks.root.tint = this.actors.tint;
+    this.blocks.update(world, this.units.blocks.values(), this.units.centroids, this.actorTints, zoom, bounds, lod.farMix, now);
     time('units');
     // Interpolated, as the soldiers are drawn: banners, torches and the selection ride with them.
     const centroids = this.units.centroids;
     const sel = this.store.selection;
     for (const r of this.store.roster) this.trims[r.p] = r.heraldry?.trim;
-    this.banners.update(world, this.store.repos, this.hues, now, zoom, centroids, bounds, sel?.kind === 'platoon' ? sel.id : null, this.trims, dtMs, !!this.opts.reducedMotion);
+    this.banners.update(world, this.store.repos, this.hues, now, zoom, centroids, bounds, sel?.kind === 'platoon' ? sel.id : null, this.trims, dtMs, !!this.opts.reducedMotion, lod.far);
     this.sky.tint = this.actors.tint;
     if (now >= this.flagPruneAt) {
       this.flagPruneAt = now + FLAG_PRUNE_MS;
@@ -700,6 +762,11 @@ export class Battlefield {
     this.feedAudio(now, world, light);
     this.post.update(dtMs, sw, sh, zoom, px, py);
     time('post');
+    if (this.debugHideActors) {
+      const u = this.units;
+      u.shadows.visible = u.bases.visible = u.bodies.visible = u.dots.visible = u.air.visible = false;
+      this.blocks.root.visible = this.banners.root.visible = false;
+    }
     if (!this.drawnOnce) {
       this.drawnOnce = true;
       // The renderer paints after this tick: the frame after next has the map on screen.
@@ -841,14 +908,23 @@ export class Battlefield {
     this.layers = null;
   }
 
-  private buildMap(world: World): void {
+  /** The chart being computed for the map about to be built, and its pixels once they come. */
+  private terrainFor: { key: string; px: TerrainPixels | null | undefined } | null = null;
+
+  private buildMap(world: World, pixels: TerrainPixels | null): void {
     this.dropMap();
     const map = world.map;
     const day = this.store.war?.day;
-    const art = paintTerrain(map, world.params.seed, 3072, {
-      title: 'The Field of Pushes',
-      subtitle: day ? `as the war stood on ${day}` : 'a sparring war, in the scribe’s hand',
-    });
+    const art = paintTerrain(
+      map,
+      world.params.seed,
+      TERRAIN_PX,
+      {
+        title: 'The Field of Pushes',
+        subtitle: day ? `as the war stood on ${day}` : 'a sparring war, in the scribe’s hand',
+      },
+      pixels ?? undefined,
+    );
     const terrain = new Sprite(new Texture({ source: new CanvasSource({ resource: art.canvas, autoGenerateMipmaps: true, scaleMode: 'linear' }) }));
     terrain.anchor.set(0.5);
     terrain.width = terrain.height = art.extent * 2;
@@ -899,7 +975,8 @@ export class Battlefield {
     const now = performance.now();
     const near = this.camera.zoom >= FAR_ZOOM;
     const bounds = this.camera.bounds(120);
-    this.fx.onStep(ev, world, { posOf: this.posOf, tints: this.tints, near, bounds });
+    // Mid zoom thins the minor sparks and glints; far zoom (blocks) has none.
+    this.fx.onStep(ev, world, { posOf: this.posOf, tints: this.tints, near, bounds, detail: this.lod.mid ? 0.5 : 1 });
 
     // A muster swings its capital's gates open as the column marches out.
     for (const m of ev.musters) {
@@ -1159,8 +1236,8 @@ export class Battlefield {
     }
     if (pl.site < 0) return null;
     const goal = pl.state === PlatoonState.Rout ? world.players[pl.p]!.slot : pl.site;
-    const field = derived(world.map).flow[goal];
-    if (!field) return null;
+    if (goal < 0 || goal >= world.map.sites.length) return null;
+    const field = flowTo(world.map, goal);
     let cell = cellAt(world.map, pl.x, pl.y);
     for (let i = 0; i < 400 && cell >= 0; i++) {
       const next = field.next[cell]!;

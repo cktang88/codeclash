@@ -9,7 +9,7 @@
     "dev": "concurrently -k -n server,client \"pnpm dev:server\" \"pnpm dev:client\"",
     "dev:server": "tsx watch src/server/main.ts",
     "dev:client": "vite",
-    "build": "vite build && esbuild src/server/main.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/server/main.js",
+    "build": "vite build && esbuild src/server/main.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/server/main.js --define:__SIM_VERSION__=\\\"$(tsx scripts/sim-version.ts)\\\"",
     "start": "node dist/server/main.js",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"

@@ -9,8 +9,8 @@ export const AURA_VALOR = 4;
 /** Per-tick working memory. Rebuilt from World every tick, never serialized. */
 export interface Scratch {
   hash: SpatialHash;
-  unitIndex: Map<number, number>;
-  platoonIndex: Map<number, number>;
+  unitIndex: IdIndex;
+  platoonIndex: IdIndex;
   /** Per unit: index of its platoon in world.platoons. */
   unitPlatoon: Int32Array;
   nx: Float64Array;
@@ -48,10 +48,47 @@ export interface Scratch {
   /** Coarse grid of which players have soldiers in each PRESENCE_CELL square, as bit masks. */
   presence: Int32Array;
   presenceCols: number;
+  /** Soldiers whose owner the presence grid cannot mark (neutral, or past bit 30). */
+  presenceMissed: number;
   /** Per unit: melee soldiers striking at it, so attackers spread across the enemy line. */
   attackers: Int32Array;
   /** Platoons that rallied at their capital this tick. */
   rallied: number[];
+}
+
+/**
+ * Id to array index, for ids handed out by world.nextId (small, increasing integers). A flat
+ * table instead of a Map: the per-tick rebuild was a large share of indexing a busy world.
+ * Only lookups are offered, never iteration, so it cannot leak an order into the simulation.
+ */
+export class IdIndex {
+  /** index + 1 per id; 0 means absent. */
+  private slots = new Int32Array(1024);
+  private keys: number[] = [];
+
+  clear(): void {
+    const { slots, keys } = this;
+    for (let k = 0; k < keys.length; k++) slots[keys[k]!] = 0;
+    keys.length = 0;
+  }
+
+  set(id: number, index: number): void {
+    if (!(id >= 0 && id <= 0x3fffffff && Number.isInteger(id))) throw new RangeError(`bad id ${id}`);
+    if (id >= this.slots.length) {
+      let n = this.slots.length;
+      while (n <= id) n *= 2;
+      const grown = new Int32Array(n);
+      grown.set(this.slots);
+      this.slots = grown;
+    }
+    if (this.slots[id] === 0) this.keys.push(id);
+    this.slots[id] = index + 1;
+  }
+
+  get(id: number): number | undefined {
+    const v = id >= 0 && id < this.slots.length ? (this.slots[id] ?? 0) : 0;
+    return v === 0 ? undefined : v - 1;
+  }
 }
 
 const cache = new WeakMap<World, Scratch>();
@@ -62,8 +99,8 @@ export function scratchFor(world: World): Scratch {
     const cap = MAX_ALIVE + 64;
     s = {
       hash: createSpatialHash(world.map, cap),
-      unitIndex: new Map(),
-      platoonIndex: new Map(),
+      unitIndex: new IdIndex(),
+      platoonIndex: new IdIndex(),
       unitPlatoon: new Int32Array(cap),
       nx: new Float64Array(cap),
       ny: new Float64Array(cap),
@@ -93,6 +130,7 @@ export function scratchFor(world: World): Scratch {
       attackers: new Int32Array(cap),
       presence: new Int32Array(0),
       presenceCols: 0,
+      presenceMissed: 0,
       rallied: [],
     };
     cache.set(world, s);
@@ -187,9 +225,13 @@ function markPresence(world: World, s: Scratch): void {
   }
   const cols = s.presenceCols;
   s.presence.fill(0);
+  s.presenceMissed = 0;
   for (let i = 0; i < units.length; i++) {
     const u = units[i]!;
-    if (u.p < 0 || u.p > 30) continue;
+    if (u.p < 0 || u.p > 30) {
+      s.presenceMissed++;
+      continue;
+    }
     const cx = Math.min(cols - 1, Math.max(0, Math.floor((u.x - map.originX) / PRESENCE_CELL)));
     const cy = Math.min(cols - 1, Math.max(0, Math.floor((u.y - map.originY) / PRESENCE_CELL)));
     s.presence[cy * cols + cx]! |= 1 << u.p;

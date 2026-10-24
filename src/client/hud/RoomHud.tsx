@@ -4,7 +4,7 @@ import type { HudSnapshot } from '../store.ts';
 import { Link } from '../ui/Link.tsx';
 import { Icon } from '../ui/icons.tsx';
 import { BrandMark, Ribbons, SoundSeal, sfx } from '../ui/codex.tsx';
-import { OrdersCard } from '../meta/index.ts';
+import { OrdersCard } from '../meta/OrdersCard.tsx';
 import { ArticlesOfWar } from './ArticlesOfWar.tsx';
 import { Chronicle } from './Chronicle.tsx';
 import { ArmyPanel, CommandBar } from './Command.tsx';

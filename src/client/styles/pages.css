@@ -2077,3 +2077,8 @@
 .empty-vignette-text p {
   margin: 0;
 }
+
+/* A lazily loaded page's place while its code arrives (Root.tsx): just the paper. */
+.page-loading {
+  min-height: 100dvh;
+}

@@ -66,36 +66,63 @@ function escapeCell(map: MapDef, field: FlowField, c: number): number {
   return best;
 }
 
+/**
+ * Per pair of kinds (u's kind * KINDS + v's kind): the separation radius, its square, and how much
+ * u gives way to v. Each is computed with exactly the expression the scan used inline, so the
+ * table holds the same doubles.
+ */
+const KINDS = STATS.length;
+const SEP_RADIUS = new Float64Array(KINDS * KINDS);
+const SEP_RADIUS2 = new Float64Array(KINDS * KINDS);
+const SEP_GIVE = new Float64Array(KINDS * KINDS);
+/** 1 where the two kinds jostle at all (fliers only jostle fliers). */
+const SEP_MEET = new Uint8Array(KINDS * KINDS);
+for (let a = 0; a < KINDS; a++) {
+  for (let b = 0; b < KINDS; b++) {
+    const sa = STATS[a]!;
+    const sb = STATS[b]!;
+    const radius = Math.max(SEPARATION_RADIUS, (sa.size + sb.size) * SIZE_SPACING);
+    SEP_RADIUS[a * KINDS + b] = radius;
+    SEP_RADIUS2[a * KINDS + b] = radius * radius;
+    SEP_GIVE[a * KINDS + b] = (2 * sb.size) / (sa.size + sb.size);
+    SEP_MEET[a * KINDS + b] = sa.flying === sb.flying ? 1 : 0;
+  }
+}
+
 /** Pushes soldiers apart in proportion to their sizes; fliers only jostle other fliers. */
 export function separation(out: Vec, units: readonly Unit[], hash: SpatialHash, i: number): void {
-  const u = units[i]!;
-  const su = STATS[u.kind]!;
+  const { ux, uy, uk, head, next, cols } = hash;
+  const x0 = ux[i]!;
+  const y0 = uy[i]!;
+  const row = uk[i]! * KINDS;
   let px = 0;
   let py = 0;
-  const bx = bucketX(hash, u.x);
-  const by = bucketY(hash, u.y);
-  const reach = su.size > 9 ? 2 : 1;
+  const bx = bucketX(hash, x0);
+  const by = bucketY(hash, y0);
+  const reach = STATS[uk[i]!]!.size > 9 ? 2 : 1;
+  const xa = Math.max(0, bx - reach);
+  const xb = Math.min(cols - 1, bx + reach);
   for (let y = Math.max(0, by - reach); y <= Math.min(hash.rows - 1, by + reach); y++) {
-    for (let x = Math.max(0, bx - reach); x <= Math.min(hash.cols - 1, bx + reach); x++) {
-      for (let j = hash.head[y * hash.cols + x]!; j >= 0; j = hash.next[j]!) {
+    for (let x = xa; x <= xb; x++) {
+      for (let j = head[y * cols + x]!; j >= 0; j = next[j]!) {
         if (j === i) continue;
-        const v = units[j]!;
-        const sv = STATS[v.kind]!;
-        if (sv.flying !== su.flying) continue;
-        const radius = Math.max(SEPARATION_RADIUS, (su.size + sv.size) * SIZE_SPACING);
-        const dx = u.x - v.x;
-        const dy = u.y - v.y;
+        const pair = row + uk[j]!;
+        if (SEP_MEET[pair] === 0) continue;
+        const dx = x0 - ux[j]!;
+        const dy = y0 - uy[j]!;
         const d2 = dx * dx + dy * dy;
-        if (d2 >= radius * radius) continue;
+        if (d2 >= SEP_RADIUS2[pair]!) continue;
         if (d2 < 1e-6) {
+          const u = units[i]!;
+          const v = units[j]!;
           px += u.id < v.id ? 0.5 : -0.5;
           py += (u.id & 1) === 0 ? 0.3 : -0.3;
           continue;
         }
+        const radius = SEP_RADIUS[pair]!;
         const d = Math.sqrt(d2);
         // Small soldiers give way to big ones more than the other way round.
-        const give = (2 * sv.size) / (su.size + sv.size);
-        const w = ((radius - d) / (radius * d)) * give;
+        const w = ((radius - d) / (radius * d)) * SEP_GIVE[pair]!;
         px += dx * w;
         py += dy * w;
       }

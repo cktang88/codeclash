@@ -24,7 +24,7 @@ import {
 } from './api.ts';
 import { attackerMultiplier, computeAuras, enemiesNear, findTarget, structureDamage, unitDamage, mitigated } from './combat.ts';
 import { capitalOwner, runCouncil, sitePresence } from './council.ts';
-import { derived } from './derived.ts';
+import { derived, flowTo } from './derived.ts';
 import { cellAt } from './flowfield.ts';
 import { dcos, dsin } from './dmath.ts';
 import { Form, columnFormation, extent, lineFormation, type Slot } from './formation.ts';
@@ -800,7 +800,7 @@ function marchStep(world: World, s: Scratch, i: number, pl: Platoon, player: Pla
   }
   const def = map.sites[pl.site]!;
   if (route.length > 0 && pl.stuck < STUCK_FLOW) towards(dir, pl.x, pl.y, hexCenterX(map, route[0]!), hexCenterY(map, route[0]!));
-  else flowDirection(dir, map, derived(map).flow[pl.site]!, pl.x, pl.y, def.x, def.y);
+  else flowDirection(dir, map, flowTo(map, pl.site), pl.x, pl.y, def.x, def.y);
   let speed = marchSpeed(world, s, i, pl, player) * pace;
   // Keep a column's length from the friendly column ahead on the same road.
   if (column && closeBehindFriend(world, s, pl)) speed *= 0.3;
@@ -1377,7 +1377,7 @@ function updateUnits(world: World, s: Scratch, ev: TickEvents): void {
     if (routing) {
       const home = map.sites[player!.slot]!;
       if (stats.flying) towards(dir, u.x, u.y, home.x, home.y);
-      else flowDirection(dir, map, derived(map).flow[player!.slot]!, u.x, u.y, home.x, home.y);
+      else flowDirection(dir, map, flowTo(map, player!.slot), u.x, u.y, home.x, home.y);
       cap = speed * ROUT_SPEED;
       wx = dir.x * cap;
       wy = dir.y * cap;
@@ -1409,7 +1409,7 @@ function updateUnits(world: World, s: Scratch, ev: TickEvents): void {
       const def = map.sites[site]!;
       const dist = towards(dir, u.x, u.y, def.x, def.y) - def.radius * STRUCTURE_REACH;
       // Walk around rock and water to reach the walls; fliers go straight.
-      if (dist > stats.range && !stats.flying) flowDirection(dir, map, derived(map).flow[site]!, u.x, u.y, def.x, def.y);
+      if (dist > stats.range && !stats.flying) flowDirection(dir, map, flowTo(map, site), u.x, u.y, def.x, def.y);
       if (dist <= stats.range && u.cooldown === 0 && u.swingAt < 0) {
         u.cooldown = stats.cooldown;
         if (stats.breath) breathe(world, s, i, def.x, def.y, ev);
@@ -1437,7 +1437,7 @@ function updateUnits(world: World, s: Scratch, ev: TickEvents): void {
       const look = remaining > CUT_LOOK ? CUT_LOOK / remaining : 1;
       if (remaining > SPACING * 2 && !stats.flying && !clearPath(map, u.x, u.y, u.x + ex * look, u.y + ey * look)) {
         const site = pl!.site >= 0 ? pl!.site : player!.slot;
-        const field = derived(map).flow[site]!;
+        const field = flowTo(map, site);
         const here = cell >= 0 ? field.cost[cell]! : -1;
         const banner = cellAt(map, pl!.x, pl!.y);
         const there = banner >= 0 ? field.cost[banner]! : -1;
@@ -1694,7 +1694,12 @@ function updateStructures(world: World, s: Scratch, ev: TickEvents): void {
     // A capital sacked today mans its towers harder: each sack adds the tower's base damage again.
     const tower = st.p === NEUTRAL ? MONOLITH_TOWER : CAPITAL_TOWER;
     const def = world.map.sites[st.site]!;
-    const t = nearestEnemy(world, s, st.p, def.x, def.y, tower.range + def.radius * 0.5);
+    const range = tower.range + def.radius * 0.5;
+    // Most ticks no foe is anywhere near the walls: the coarse presence grid (a superset, widened
+    // by 1 against rounding) says so without scanning hundreds of buckets. It cannot see soldiers
+    // it does not mark, so with any of those on the field the full scan decides.
+    if (s.presenceMissed === 0 && !enemyWithin(world, s, st.p, def.x, def.y, range + 1)) continue;
+    const t = nearestEnemy(world, s, st.p, def.x, def.y, range);
     if (t < 0) continue;
     const v = units[t]!;
     const dx = v.x - def.x;

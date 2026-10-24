@@ -23,6 +23,8 @@ const EnvSchema = z
     DAY_MINUTES: z.coerce.number().positive().optional().catch(undefined),
     MAX_ROOMS_PER_USER: z.coerce.number().int().min(1).default(5),
     MAX_LIVE_ROOMS: z.coerce.number().int().min(1).default(200),
+    /** 0 is the service worker's kill switch: pages unregister it and drop its caches. */
+    SERVICE_WORKER: flag('1'),
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV !== 'production') return;
@@ -52,6 +54,8 @@ export interface Config {
   dayMs: number | null;
   maxRoomsPerUser: number;
   maxLiveRooms: number;
+  /** Offer the service worker; false serves a self-unregistering one instead (the kill switch). */
+  serviceWorker: boolean;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv): Config {
@@ -72,5 +76,6 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     dayMs: e.DAY_MINUTES ? Math.round(e.DAY_MINUTES * 60_000) : null,
     maxRoomsPerUser: e.MAX_ROOMS_PER_USER,
     maxLiveRooms: e.MAX_LIVE_ROOMS,
+    serviceWorker: e.SERVICE_WORKER,
   };
 }

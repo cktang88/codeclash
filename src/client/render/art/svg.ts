@@ -3,7 +3,7 @@
 // codex draws every icon (docs/art-direction.md §4): a 2px ink line, engraver's
 // hatching on the shaded (lower-right) side, and small solid ink masses.
 
-interface Glyph {
+export interface Glyph {
   /** Outline strokes, 2px. */
   s: string;
   /** Hatching, 1px. */
@@ -131,6 +131,11 @@ const ICONS: readonly Glyph[] = [
     i: 'M19.8 7a.8.8 0 1 1 0 1.6.8.8 0 0 1 0-1.6z',
   },
 ];
+
+/** The woodcut glyph of a unit kind in a 24x24 box: outline strokes (2px), hatching (1px), solid ink. */
+export function unitGlyph(kind: number): Readonly<Glyph> {
+  return ICONS[kind] ?? ICONS[0]!;
+}
 
 /** Inline SVG markup for a unit kind, sized by CSS (defaults to 1em). */
 export function unitIconSvg(kind: number, title?: string): string {

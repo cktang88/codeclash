@@ -8,10 +8,19 @@
     <title>Pushfront</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <!-- Fonts load without holding up the first paint (they swap in); the battlefield waits for them itself. -->
     <link
       href="https://fonts.googleapis.com/css2?family=Alegreya:ital,wght@0,400;0,500;0,700;0,800;1,400;1,500&family=Alegreya+SC:wght@400;500;700;800&family=IM+Fell+English+SC&family=IM+Fell+English:ital@0;1&family=JetBrains+Mono:wght@500;600&display=swap"
       rel="stylesheet"
+      media="print"
+      onload="this.media='all'"
     />
+    <noscript>
+      <link
+        href="https://fonts.googleapis.com/css2?family=Alegreya:ital,wght@0,400;0,500;0,700;0,800;1,400;1,500&family=Alegreya+SC:wght@400;500;700;800&family=IM+Fell+English+SC&family=IM+Fell+English:ital@0;1&family=JetBrains+Mono:wght@500;600&display=swap"
+        rel="stylesheet"
+      />
+    </noscript>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 2.5c5.5 0 11 1.6 11 1.6v11.4c0 7.2-5.2 11.8-11 14-5.8-2.2-11-6.8-11-14V4.1S10.5 2.5 16 2.5z' fill='%23b8321f' stroke='%2322180f' stroke-width='1.6'/%3E%3Cpath d='M12 23V9h5.2a4.2 4.2 0 0 1 0 8.4H12' fill='none' stroke='%23f6dc8c' stroke-width='2.6' stroke-linecap='round'/%3E%3C/svg%3E" />
   </head>
   <body>

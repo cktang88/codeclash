@@ -6,7 +6,7 @@ import { Avatar } from '../ui/Avatar.tsx';
 import { Link } from '../ui/Link.tsx';
 import { compact, plural } from '../ui/format.ts';
 import { Notice } from './Notice.tsx';
-import { DeedsSection, ProfileRank, RivalriesSection } from '../meta/index.ts';
+import { DeedsSection, ProfileRank, RivalriesSection } from '../meta/ProfileSections.tsx';
 import { DropCap, Fleuron, Tally } from '../ui/codex.tsx';
 
 export function ProfilePage({ login }: { login: string }) {

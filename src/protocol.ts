@@ -110,6 +110,8 @@ export type ServerMessage =
       /** The viewer's player index in this war, if any. */
       viewerP: number | null;
       monuments?: Monument[];
+      /** The server's simulation version (src/version.ts): a client built from another reloads. */
+      simVersion?: string;
     }
   | { type: 'order'; p: number; login: string; order: { id: string; title: string }; glory: number }
   | { type: 'inputs'; inputs: TimedInput[]; roster?: RosterEntry[]; repos?: { index: number; ref: RepoRef }[] }
@@ -292,4 +294,10 @@ export interface OrdersResponse {
 export interface HookResponse {
   hookUrl: string;
   secret: string;
+}
+
+/** GET /api/version: the version handshake and the service worker's kill switch. */
+export interface VersionResponse {
+  sim: string;
+  sw: boolean;
 }

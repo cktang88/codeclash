@@ -403,3 +403,28 @@ describe('helpers', () => {
     expect(validWebhookUrl('https://169.254.169.254/latest')).toBe(false);
   });
 });
+
+describe('version handshake and the service worker kill switch', () => {
+  it('reports the simulation version, uncached, and offers the worker by default', async () => {
+    const { server } = await boot();
+    const res = await server.app.inject({ method: 'GET', url: '/api/version' });
+    expect(res.headers['cache-control']).toBe('no-store');
+    const body = res.json() as { sim: string; sw: boolean };
+    expect(body.sim).toMatch(/^([0-9a-f]{12}|dev)$/);
+    expect(body.sw).toBe(true);
+    await server.shutdown();
+  });
+
+  it('switched off, tells pages to drop the worker and serves one that removes itself', async () => {
+    const config = loadConfig({ NODE_ENV: 'test', DATABASE_PATH: ':memory:', COMMONS: '0', PUBLIC_URL: 'http://pf.test', SERVICE_WORKER: '0' });
+    const server = await createServer(config, { log: silentLogger, clock: () => Date.UTC(2026, 9, 23, 12), background: false });
+    await server.app.ready();
+    expect((await server.app.inject({ method: 'GET', url: '/api/version' })).json()).toMatchObject({ sw: false });
+    const sw = await server.app.inject({ method: 'GET', url: '/sw.js' });
+    expect(sw.statusCode).toBe(200);
+    expect(sw.headers['content-type']).toContain('javascript');
+    expect(sw.body).toContain('registration.unregister()');
+    expect(sw.body).toContain('caches.delete');
+    await server.shutdown();
+  });
+});

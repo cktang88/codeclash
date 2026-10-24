@@ -1,16 +1,50 @@
-import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useState, useSyncExternalStore, type ComponentType, type ReactNode } from 'react';
 import type { MeResponse } from '../protocol.ts';
-import { ArmoryPage, HallPage, SeasonPage } from './meta/index.ts';
 import { api } from './net/api.ts';
-import { DemoPage } from './pages/Demo.tsx';
-import { DigestPage } from './pages/Digest.tsx';
-import { HistoryPage } from './pages/History.tsx';
 import { HomePage } from './pages/Home.tsx';
 import { LostPage } from './pages/Notice.tsx';
-import { ProfilePage } from './pages/Profile.tsx';
-import { ReplayPage } from './pages/Replay.tsx';
 import { RoomPage } from './pages/Room.tsx';
 import { parseRoute } from './route.ts';
+
+// The front page and the live room ship in the first bundle; every other page loads on its first
+// visit, so a viewer opening a room does not download the digest, the replay and the Hall too.
+const DemoPage = page(() => import('./pages/Demo.tsx').then((m) => m.DemoPage));
+const DigestPage = page(() => import('./pages/Digest.tsx').then((m) => m.DigestPage));
+const HistoryPage = page(() => import('./pages/History.tsx').then((m) => m.HistoryPage));
+const ProfilePage = page(() => import('./pages/Profile.tsx').then((m) => m.ProfilePage));
+const ReplayPage = page(() => import('./pages/Replay.tsx').then((m) => m.ReplayPage));
+const ArmoryPage = page(() => import('./meta/ArmoryPage.tsx').then((m) => m.ArmoryPage));
+const HallPage = page(() => import('./meta/HallPage.tsx').then((m) => m.HallPage));
+const SeasonPage = page(() => import('./meta/SeasonPage.tsx').then((m) => m.SeasonPage));
+
+/**
+ * A lazily loaded page. A page from an older build (a cached shell after a deploy) may ask for a
+ * chunk the server no longer has: reload once for the current build rather than show nothing.
+ */
+function page<P extends object>(load: () => Promise<ComponentType<P>>) {
+  return lazy(() =>
+    load().then(
+      (c) => ({ default: c }),
+      (err: unknown) => {
+        const key = 'pf:chunk-reload';
+        let reloaded = false;
+        try {
+          reloaded = sessionStorage.getItem(key) === location.pathname;
+          sessionStorage.setItem(key, location.pathname);
+        } catch {
+          /* storage blocked: reload at most this once anyway */
+        }
+        if (!reloaded) location.reload();
+        throw err;
+      },
+    ),
+  );
+}
+
+/** While a page's code arrives: the page's paper, without a flash of anything else. */
+function Paged({ children }: { children: ReactNode }) {
+  return <Suspense fallback={<div className="page-loading" aria-busy="true" />}>{children}</Suspense>;
+}
 
 const subscribeLocation = (fn: () => void) => {
   window.addEventListener('popstate', fn);
@@ -53,23 +87,23 @@ export function Root() {
     case 'home':
       return <HomePage me={me} meError={meError} onMeChanged={loadMe} />;
     case 'demo':
-      return <DemoPage me={me} />;
+      return <Paged><DemoPage me={me} /></Paged>;
     case 'room':
       return <RoomPage key={route.slug} slug={route.slug} invite={route.invite} me={me} onMeChanged={loadMe} />;
     case 'digest':
-      return <DigestPage key={`${route.slug}:${route.warId}`} slug={route.slug} warId={route.warId} invite={route.invite ?? null} />;
+      return <Paged><DigestPage key={`${route.slug}:${route.warId}`} slug={route.slug} warId={route.warId} invite={route.invite ?? null} /></Paged>;
     case 'replay':
-      return <ReplayPage key={`${route.slug}:${route.warId}`} slug={route.slug} warId={route.warId} tick={route.tick} invite={route.invite ?? null} me={me} />;
+      return <Paged><ReplayPage key={`${route.slug}:${route.warId}`} slug={route.slug} warId={route.warId} tick={route.tick} invite={route.invite ?? null} me={me} /></Paged>;
     case 'history':
-      return <HistoryPage key={route.slug} slug={route.slug} invite={route.invite ?? null} />;
+      return <Paged><HistoryPage key={route.slug} slug={route.slug} invite={route.invite ?? null} /></Paged>;
     case 'profile':
-      return <ProfilePage key={route.login} login={route.login} />;
+      return <Paged><ProfilePage key={route.login} login={route.login} /></Paged>;
     case 'armory':
-      return <ArmoryPage me={me} />;
+      return <Paged><ArmoryPage me={me} /></Paged>;
     case 'hall':
-      return <HallPage key={route.slug} slug={route.slug} invite={route.invite ?? null} />;
+      return <Paged><HallPage key={route.slug} slug={route.slug} invite={route.invite ?? null} /></Paged>;
     case 'season':
-      return <SeasonPage key={route.slug} slug={route.slug} invite={route.invite ?? null} />;
+      return <Paged><SeasonPage key={route.slug} slug={route.slug} invite={route.invite ?? null} /></Paged>;
     case 'lost':
       return <LostPage path={route.path} />;
   }

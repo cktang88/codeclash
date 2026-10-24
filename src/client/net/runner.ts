@@ -4,8 +4,14 @@ import { checksum, restore, step } from '../../sim/index.ts';
 import type { GameStore } from '../store.ts';
 import { INITIAL_CONN, transition, type ConnEvent, type ResyncReason } from './connection.ts';
 import type { Connect, Transport } from './transport.ts';
+import { noteServerVersion } from '../sw/register.ts';
 
 const MAX_STEPS_PER_FRAME = 30;
+/**
+ * Most simulation time one frame may take while catching up: steps are sized from the measured
+ * cost of a step, so a busy war catches up over a few smooth frames instead of one long stall.
+ */
+export const FRAME_SIM_BUDGET_MS = 8;
 const MAX_BEHIND_TICKS = 300;
 const SYNC_SLICE_MS = 30;
 const CHECKSUM_HISTORY = 128;
@@ -19,6 +25,36 @@ export const SILENCE_MS = 45_000;
 export const RESYNC_TIMEOUT_MS = 10_000;
 /** A connect attempt that neither opens nor fails within this long is abandoned and retried. */
 export const CONNECT_TIMEOUT_MS = 20_000;
+/**
+ * A tab hidden this long lets its socket go and stops simulating altogether: nobody is watching,
+ * and replaying the hours it missed would only stall its return. Shown again, it reconnects and
+ * starts from a fresh snapshot.
+ */
+export const HIDDEN_PARK_MS = 30_000;
+/**
+ * Shown again (or resumed from sleep) this many ticks behind, the client asks for a fresh
+ * snapshot rather than replaying them: restoring one costs about what a few ticks of a busy war do.
+ */
+export const RESUME_RESYNC_TICKS = 25;
+/** Frames this far apart mean the page was asleep or throttled, not merely slow. */
+const RESUME_GAP_MS = 5_000;
+
+/** The page's visibility, injectable for tests. */
+export interface PageSignals {
+  hidden(): boolean;
+  onChange(fn: () => void): () => void;
+}
+
+export function browserPage(): PageSignals | null {
+  if (typeof document === 'undefined' || typeof window === 'undefined') return null;
+  return {
+    hidden: () => document.visibilityState === 'hidden',
+    onChange: (fn) => {
+      document.addEventListener('visibilitychange', fn);
+      return () => document.removeEventListener('visibilitychange', fn);
+    },
+  };
+}
 
 /** The last tick of a war: the server runs every war to exactly this tick. */
 export function finalTick(war: Pick<WarMeta, 'startsAt' | 'endsAt'>, tickMs: number): number {
@@ -88,13 +124,63 @@ export class LockstepRunner implements Runner {
   private resyncAt = 0;
   private onOnline = (): void => this.retryNow();
   private prev = new PrevPositions();
+  /** Hidden long enough that the socket was let go (HIDDEN_PARK_MS); nothing runs until shown. */
+  private parked = false;
+  private parkTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Set when the page is shown again: the next frame decides between catching up and a fresh snapshot. */
+  private resumed = false;
+  private detachPage: (() => void) | null = null;
   alpha = 1;
 
   constructor(
     private connect: Connect,
     private store: GameStore,
+    private page: PageSignals | null = browserPage(),
   ) {
     store.serverNow = () => Date.now() + this.offset;
+  }
+
+  /** Whether the runner let its socket go while the page was hidden. */
+  get isParked(): boolean {
+    return this.parked;
+  }
+
+  private onVisibility = (): void => {
+    if (this.stopped || !this.page) return;
+    if (this.page.hidden()) {
+      if (!this.parkTimer && !this.parked) this.parkTimer = setTimeout(() => this.park(), HIDDEN_PARK_MS);
+      return;
+    }
+    if (this.parkTimer) clearTimeout(this.parkTimer);
+    this.parkTimer = null;
+    if (this.parked) {
+      this.parked = false;
+      this.store.conn = INITIAL_CONN;
+      this.store.publish();
+      this.open();
+      return;
+    }
+    this.resumed = true;
+    this.retryNow();
+  };
+
+  /** Lets the socket go while hidden: no inputs pile up, no catch-up runs, nothing is simulated. */
+  private park(): void {
+    this.parkTimer = null;
+    if (this.stopped || !this.page?.hidden() || this.parked) return;
+    this.parked = true;
+    this.syncGen++;
+    if (this.retryTimer) clearTimeout(this.retryTimer);
+    this.retryTimer = null;
+    const t = this.transport;
+    this.transport = null;
+    t?.close();
+    this.queue.clear();
+    this.seenSeq.clear();
+    this.pendingChecks.clear();
+    // Not 'offline': this is no failure, and nothing should retry until the page is shown.
+    this.store.conn = INITIAL_CONN;
+    this.store.publish();
   }
 
   start(): void {
@@ -102,11 +188,11 @@ export class LockstepRunner implements Runner {
     // or offline state left by that runner would otherwise stick, since 'refused' is final.
     this.store.conn = INITIAL_CONN;
     this.store.publish();
-    if (typeof window !== 'undefined') {
-      window.addEventListener('online', this.onOnline);
-      document.addEventListener('visibilitychange', this.onOnline);
-    }
+    if (typeof window !== 'undefined') window.addEventListener('online', this.onOnline);
+    this.detachPage = this.page?.onChange(this.onVisibility) ?? null;
     this.open();
+    // Opened in a background tab: start the park clock now.
+    if (this.page?.hidden()) this.onVisibility();
   }
 
   stop(): void {
@@ -114,18 +200,19 @@ export class LockstepRunner implements Runner {
     this.syncGen++;
     if (this.retryTimer) clearTimeout(this.retryTimer);
     this.retryTimer = null;
-    if (typeof window !== 'undefined') {
-      window.removeEventListener('online', this.onOnline);
-      document.removeEventListener('visibilitychange', this.onOnline);
-    }
+    if (this.parkTimer) clearTimeout(this.parkTimer);
+    this.parkTimer = null;
+    if (typeof window !== 'undefined') window.removeEventListener('online', this.onOnline);
+    this.detachPage?.();
+    this.detachPage = null;
     this.transport?.close();
     this.transport = null;
   }
 
   /** The network came back or the tab was shown: do not sit out the rest of a long backoff. */
   private retryNow(): void {
-    if (this.stopped || this.store.conn.phase !== 'offline') return;
-    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+    if (this.stopped || this.parked || this.store.conn.phase !== 'offline') return;
+    if (this.page?.hidden()) return;
     if (this.retryTimer) clearTimeout(this.retryTimer);
     this.retryTimer = null;
     this.dispatch({ type: 'retry' });
@@ -153,23 +240,38 @@ export class LockstepRunner implements Runner {
     return this.prev.get(unitId, out);
   }
 
+  /** Smoothed cost of one simulation step on this machine, for sizing catch-up per frame. */
+  private stepMs = 0;
+  /** Wall-clock ms of the last frame: a long gap (sleep, a throttled window) counts as a resume. */
+  private lastFrameAt = 0;
+
   frame(): void {
-    this.watchdog(Date.now());
+    const wall = Date.now();
+    if (this.lastFrameAt > 0 && wall - this.lastFrameAt > RESUME_GAP_MS) this.resumed = true;
+    this.lastFrameAt = wall;
+    this.watchdog(wall);
     const world = this.store.world;
     if (!world || this.store.conn.phase !== 'live') return;
     const exact = (Date.now() + this.offset - this.startMs) / this.tickMs;
     const target = Math.min(Math.floor(exact), this.endTick);
     const behind = target - world.tick;
-    if (behind > MAX_BEHIND_TICKS) {
+    // Back from a hidden tab or a sleeping laptop with a gap to fill: a fresh snapshot is cheaper
+    // than replaying it, and the frames meanwhile are not stalled by catch-up steps.
+    const resumed = this.resumed;
+    this.resumed = false;
+    if (behind > MAX_BEHIND_TICKS || (resumed && behind > RESUME_RESYNC_TICKS)) {
       this.requestResync('behind');
       return;
     }
-    const steps = Math.min(MAX_STEPS_PER_FRAME, Math.max(0, behind));
+    const affordable = this.stepMs > 0 ? Math.max(1, Math.floor(FRAME_SIM_BUDGET_MS / this.stepMs)) : MAX_STEPS_PER_FRAME;
+    const steps = Math.min(MAX_STEPS_PER_FRAME, affordable, Math.max(0, behind));
+    const t0 = steps > 0 ? performance.now() : 0;
     for (let i = 0; i < steps; i++) {
       if (i === steps - 1) this.prev.capture(world);
       if (this.store.conn.phase !== 'live') return;
       this.advance(world, steps - i <= FX_TAIL_STEPS);
     }
+    if (steps > 0) this.stepMs = this.stepMs * 0.8 + ((performance.now() - t0) / steps) * 0.2;
     this.alpha = world.tick >= target && target < this.endTick ? Math.min(1, Math.max(0, exact - target)) : 1;
   }
 
@@ -281,6 +383,8 @@ export class LockstepRunner implements Runner {
     const store = this.store;
     switch (msg.type) {
       case 'hello': {
+        // A server running another simulation: this build can never stay in step with it.
+        noteServerVersion(msg.simVersion);
         const world = restore(msg.snapshot);
         this.queue.clear();
         this.seenSeq.clear();

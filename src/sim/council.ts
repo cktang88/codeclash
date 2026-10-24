@@ -6,22 +6,90 @@ const DISTANCE_SCALE = 450;
 const CROWD_PENALTY = 0.7;
 const OUTMATCHED = 1.6;
 
+/**
+ * Per presence cell, the sites whose reach could cover a point in it, so each soldier is tested
+ * against a few nearby sites instead of all of them. Built once per map. A cell lists a site when
+ * the site's reach circle, grown by a cell's diagonal, contains the cell's centre: a superset, so
+ * the exact distance test below still decides every count.
+ */
+const SITE_GRID = 64;
+interface SiteGrid {
+  cols: number;
+  rows: number;
+  ox: number;
+  oy: number;
+  start: Int32Array;
+  list: Int32Array;
+}
+const siteGrids = new WeakMap<object, SiteGrid>();
+
+function siteGrid(world: World): SiteGrid {
+  const map = world.map;
+  let g = siteGrids.get(map);
+  if (g) return g;
+  const { sites } = map;
+  const cols = Math.ceil((map.navCols * map.navCell) / SITE_GRID) + 1;
+  const rows = Math.ceil((map.navRows * map.navCell) / SITE_GRID) + 1;
+  const start = new Int32Array(cols * rows + 1);
+  const lists: number[][] = [];
+  const half = SITE_GRID * 0.75;
+  for (let cy = 0; cy < rows; cy++) {
+    for (let cx = 0; cx < cols; cx++) {
+      const x = map.originX + (cx + 0.5) * SITE_GRID;
+      const y = map.originY + (cy + 0.5) * SITE_GRID;
+      const here: number[] = [];
+      for (let k = 0; k < sites.length; k++) {
+        const def = sites[k]!;
+        const reach = def.radius + PRESENCE_REACH + half;
+        const dx = x - def.x;
+        const dy = y - def.y;
+        if (dx * dx + dy * dy <= reach * reach) here.push(k);
+      }
+      lists.push(here);
+    }
+  }
+  let n = 0;
+  for (let c = 0; c < lists.length; c++) {
+    start[c] = n;
+    n += lists[c]!.length;
+  }
+  start[lists.length] = n;
+  const list = new Int32Array(n);
+  for (let c = 0, o = 0; c < lists.length; c++) for (const k of lists[c]!) list[o++] = k;
+  g = { cols, rows, ox: map.originX, oy: map.originY, start, list };
+  siteGrids.set(map, g);
+  return g;
+}
+
 /** Per site: soldiers of each player within reach. presence[site * players + p]. */
 export function sitePresence(world: World): Int32Array {
   const { sites } = world.map;
   const n = world.players.length;
   const presence = new Int32Array(sites.length * Math.max(1, n));
+  const g = siteGrid(world);
   for (const u of world.units) {
     if (u.p < 0) continue;
-    for (let k = 0; k < sites.length; k++) {
-      const def = sites[k]!;
-      const reach = def.radius + PRESENCE_REACH;
-      const dx = u.x - def.x;
-      const dy = u.y - def.y;
-      if (dx * dx + dy * dy <= reach * reach) presence[k * n + u.p]!++;
+    const cx = Math.floor((u.x - g.ox) / SITE_GRID);
+    const cy = Math.floor((u.y - g.oy) / SITE_GRID);
+    if (cx < 0 || cy < 0 || cx >= g.cols || cy >= g.rows) {
+      // Off the grid (never on a real map): test every site.
+      for (let k = 0; k < sites.length; k++) countIfNear(presence, sites[k]!, k, n, u.x, u.y, u.p);
+      continue;
+    }
+    const c = cy * g.cols + cx;
+    for (let o = g.start[c]!; o < g.start[c + 1]!; o++) {
+      const k = g.list[o]!;
+      countIfNear(presence, sites[k]!, k, n, u.x, u.y, u.p);
     }
   }
   return presence;
+}
+
+function countIfNear(presence: Int32Array, def: { x: number; y: number; radius: number }, k: number, n: number, x: number, y: number, p: number): void {
+  const reach = def.radius + PRESENCE_REACH;
+  const dx = x - def.x;
+  const dy = y - def.y;
+  if (dx * dx + dy * dy <= reach * reach) presence[k * n + p]!++;
 }
 
 /**

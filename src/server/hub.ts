@@ -131,6 +131,7 @@ export class Hub {
   channel(roomId: number): Channel {
     return {
       send: (msg) => this.broadcast(roomId, msg),
+      watched: () => (this.rooms.get(roomId)?.size ?? 0) > 0,
       // A new war: everyone gets its hello at once, whatever their limits; it replaces any deferred one.
       reset: () => {
         for (const [socket, viewer] of this.rooms.get(roomId) ?? []) {

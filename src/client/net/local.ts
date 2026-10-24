@@ -7,7 +7,7 @@ import { generateMap, slotsFor } from '../../sim/mapgen.ts';
 import { decodeInput, replayParams, type Replay } from '../../sim/replay.ts';
 import { createWorld, step } from '../../sim/world.ts';
 import type { GameStore } from '../store.ts';
-import { PrevPositions, type Runner } from './runner.ts';
+import { FRAME_SIM_BUDGET_MS, PrevPositions, type Runner } from './runner.ts';
 
 const MAX_STEPS_PER_FRAME = 40;
 const FX_TAIL_STEPS = 3;
@@ -26,6 +26,8 @@ export class LocalRunner implements Runner {
   private carry = 0;
   private last = performance.now();
   private chronicler: Chronicler;
+  /** Smoothed cost of one step on this machine, for sizing a frame's steps. */
+  private stepMs = 0;
   /** Highest tick the runner may reach, e.g. the end of a replay. */
   endTick = Infinity;
 
@@ -47,15 +49,21 @@ export class LocalRunner implements Runner {
     this.carry += (dt / TICK_MS) * this.speed;
     let steps = Math.floor(this.carry);
     this.carry -= steps;
-    if (steps > MAX_STEPS_PER_FRAME) {
-      steps = MAX_STEPS_PER_FRAME;
+    // At high speed a busy war cannot be stepped as fast as asked without stalling frames: play
+    // back as fast as a frame's budget allows instead.
+    const affordable = this.stepMs > 0 ? Math.max(1, Math.floor(FRAME_SIM_BUDGET_MS / this.stepMs)) : MAX_STEPS_PER_FRAME;
+    const cap = Math.min(MAX_STEPS_PER_FRAME, affordable);
+    if (steps > cap) {
+      steps = cap;
       this.carry = 0;
     }
     steps = Math.min(steps, Math.max(0, this.endTick - this.world.tick));
+    const t0 = steps > 0 ? performance.now() : 0;
     for (let i = 0; i < steps; i++) {
       if (i === steps - 1) this.prev.capture(this.world);
       this.advance(steps - i <= FX_TAIL_STEPS);
     }
+    if (steps > 0) this.stepMs = this.stepMs * 0.8 + ((performance.now() - t0) / steps) * 0.2;
     this.alpha = this.speed > 0 && this.world.tick < this.endTick ? Math.min(1, this.carry) : 1;
   }
 

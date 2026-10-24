@@ -102,29 +102,46 @@ const DEEP: Rgb = [46, 80, 138];
 const SEA: Rgb = [80, 118, 164];
 const INK = 'rgba(34,24,15,';
 
-export function paintTerrain(map: MapDef, seed: number, maxPx: number, text: ChartText): TerrainArt {
+/**
+ * The pure-number part of the chart: the pigment field, the water mask, the lake-shore grid and the
+ * vellum grain tile. Most of the painting time, and no canvas needed, so it runs in a worker
+ * (terrain.worker.ts) while the page starts; paintTerrain lays the ink over it.
+ */
+export interface TerrainPixels {
+  /** The size of the canvas these were computed for (it depends on maxPx and the map). */
+  size: number;
+  fw: number;
+  field: Uint8ClampedArray;
+  wm: number;
+  water: Uint8ClampedArray;
+  lakes: Grid;
+  grainTile: number;
+  grain: Uint8ClampedArray;
+}
+
+function layout(map: MapDef, maxPx: number) {
   const R = map.radius;
   const margin = seaMargin(R);
   const extent = R + margin;
   const world = extent * 2;
   const pxPerUnit = Math.min(1.6, maxPx / world);
   const size = Math.ceil(world * pxPerUnit);
-  const [canvas, ctx] = canvas2d(size, size);
   const seaW = Math.min(margin * 0.55, 90 + R * 0.12);
   const sheet = extent * 0.975;
+  return { R, margin, extent, world, pxPerUnit, size, seaW, sheet };
+}
 
+export function terrainPixels(map: MapDef, seed: number, maxPx: number): TerrainPixels {
+  const { R, extent, world, size, seaW, sheet } = layout(map, maxPx);
   const forest = sampler(map, mask(map, Terrain.Forest));
   const water = sampler(map, mask(map, Terrain.Water));
   const rock = sampler(map, mask(map, Terrain.Rock));
 
   // ------------------------------------------------------------ pigment field
   const fw = Math.min(1400, Math.ceil(size * 0.5));
-  const [field, fctx] = canvas2d(fw, fw);
-  const img = fctx.createImageData(fw, fw);
-  const data = img.data;
+  const data = new Uint8ClampedArray(fw * fw * 4);
   const wm = 512;
-  const [waterCanvas, wctx] = canvas2d(wm, wm);
-  const wimg = wctx.createImageData(wm, wm);
+  const wdata = new Uint8ClampedArray(wm * wm * 4);
   const unitPerField = world / fw;
   for (let py = 0; py < fw; py++) {
     const y = -extent + (py + 0.5) * unitPerField;
@@ -182,7 +199,6 @@ export function paintTerrain(map: MapDef, seed: number, maxPx: number, text: Cha
       data[o + 3] = 255;
     }
   }
-  fctx.putImageData(img, 0, 0);
 
   // Water mask for the glint shader: lakes and the sea ring.
   const unitPerMask = world / wm;
@@ -202,12 +218,31 @@ export function paintTerrain(map: MapDef, seed: number, maxPx: number, text: Cha
         depth = smoothstep(0.5, 0.9, w) * 0.7;
       }
       const o = (py * wm + px) * 4;
-      wimg.data[o] = Math.round(depth * 255);
-      wimg.data[o + 1] = 0;
-      wimg.data[o + 2] = 0;
-      wimg.data[o + 3] = Math.round(a * 255);
+      wdata[o] = Math.round(depth * 255);
+      wdata[o + 1] = 0;
+      wdata[o + 2] = 0;
+      wdata[o + 3] = Math.round(a * 255);
     }
   }
+  // Lake shores are inked as vector contours, so they stay crisp however close the camera comes.
+  const lakes = sampleGrid(R, 4, (x, y) => water(x, y) + (fbm(x / 240, y / 240, seed + 61, 4) - 0.5) * 0.2);
+  const grainTile = 256;
+  return { size, fw, field: data, wm, water: wdata, lakes, grainTile, grain: grainPixels(grainTile, seed) };
+}
+
+export function paintTerrain(map: MapDef, seed: number, maxPx: number, text: ChartText, pixels?: TerrainPixels): TerrainArt {
+  const { R, extent, pxPerUnit, size, seaW, sheet } = layout(map, maxPx);
+  // Computed elsewhere (a worker) for this very canvas, or here and now.
+  const px = pixels && pixels.size === size ? pixels : terrainPixels(map, seed, maxPx);
+  const [canvas, ctx] = canvas2d(size, size);
+  const { fw, wm } = px;
+  const [field, fctx] = canvas2d(fw, fw);
+  const img = fctx.createImageData(fw, fw);
+  img.data.set(px.field);
+  fctx.putImageData(img, 0, 0);
+  const [waterCanvas, wctx] = canvas2d(wm, wm);
+  const wimg = wctx.createImageData(wm, wm);
+  wimg.data.set(px.water);
   wctx.putImageData(wimg, 0, 0);
 
   ctx.imageSmoothingEnabled = true;
@@ -224,8 +259,7 @@ export function paintTerrain(map: MapDef, seed: number, maxPx: number, text: Cha
   };
 
   paintCoast(ctx, R, seaW, seed);
-  // Lake shores are inked as vector contours, so they stay crisp however close the camera comes.
-  const lakes = sampleGrid(R, 4, (x, y) => water(x, y) + (fbm(x / 240, y / 240, seed + 61, 4) - 0.5) * 0.2);
+  const lakes = px.lakes;
   paintContour(ctx, lakes, 0.45, 1.5, 0.8);
   paintContour(ctx, lakes, 0.56, 0.8, 0.32);
   paintContour(ctx, lakes, 0.68, 0.7, 0.2);
@@ -255,7 +289,7 @@ export function paintTerrain(map: MapDef, seed: number, maxPx: number, text: Cha
 
   // Paper grain and a candle-lit vignette over the whole sheet.
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  paintGrain(ctx, size, seed);
+  paintGrain(ctx, size, px.grainTile, px.grain);
   const v = ctx.createRadialGradient(size / 2, size / 2, R * pxPerUnit * 0.7, size / 2, size / 2, size * 0.74);
   v.addColorStop(0, 'rgba(40,24,10,0)');
   v.addColorStop(0.7, 'rgba(40,24,10,0.12)');
@@ -779,22 +813,28 @@ function paintShrineNotes(ctx: CanvasRenderingContext2D, map: MapDef, R: number,
   ctx.restore();
 }
 
-/** Vellum grain: fibres and pores multiplied over everything, so pigment sits in the skin. */
-function paintGrain(ctx: CanvasRenderingContext2D, size: number, seed: number): void {
-  const tile = 256;
-  const [g, gctx] = canvas2d(tile, tile);
-  const img = gctx.createImageData(tile, tile);
+/** Vellum grain's tile: fibres and pores, as RGBA. */
+function grainPixels(tile: number, seed: number): Uint8ClampedArray {
+  const data = new Uint8ClampedArray(tile * tile * 4);
   const rand = seeded(seed + 313);
   for (let i = 0; i < tile * tile; i++) {
     const x = i % tile;
     const y = Math.floor(i / tile);
     const fibre = noise(x / 1.5, y / 9, seed + 2) * 0.5 + noise(x / 7, y / 1.2, seed + 4) * 0.3 + rand() * 0.2;
     const v = 255 - Math.round(fibre * 34);
-    img.data[i * 4] = v;
-    img.data[i * 4 + 1] = v - 3;
-    img.data[i * 4 + 2] = v - 10;
-    img.data[i * 4 + 3] = 255;
+    data[i * 4] = v;
+    data[i * 4 + 1] = v - 3;
+    data[i * 4 + 2] = v - 10;
+    data[i * 4 + 3] = 255;
   }
+  return data;
+}
+
+/** Vellum grain: fibres and pores multiplied over everything, so pigment sits in the skin. */
+function paintGrain(ctx: CanvasRenderingContext2D, size: number, tile: number, pixels: Uint8ClampedArray): void {
+  const [g, gctx] = canvas2d(tile, tile);
+  const img = gctx.createImageData(tile, tile);
+  img.data.set(pixels);
   gctx.putImageData(img, 0, 0);
   ctx.save();
   ctx.globalCompositeOperation = 'multiply';

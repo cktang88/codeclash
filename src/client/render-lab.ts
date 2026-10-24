@@ -1,13 +1,27 @@
 // Development harness for the battlefield renderer: a browser-only sparring war.
 // Open /render-lab.html?speed=8&bots=6&seed=7
-import { startDemo, type LocalRunner } from './net/local.ts';
+// ?snap=<url of a WorldSnapshot JSON> starts from that world instead (no new inputs), and ?fixed
+// freezes the simulation and the director, so captures and frame timings are repeatable.
+import type { WorldSnapshot } from '../sim/api.ts';
+import { restore } from '../sim/snapshot.ts';
+import { LocalRunner, startDemo } from './net/local.ts';
 import { Battlefield } from './render/index.ts';
 import { GameStore } from './store.ts';
 
 const q = new URLSearchParams(location.search);
 const store = new GameStore();
-const runner: LocalRunner = startDemo(store, Number(q.get('bots') ?? 6), Number(q.get('seed') ?? 7));
-runner.speed = Number(q.get('speed') ?? 4);
+async function fromSnapshot(url: string): Promise<LocalRunner> {
+  const world = restore((await (await fetch(url)).json()) as WorldSnapshot);
+  store.roster = world.players.map((pl) => ({ p: pl.p, login: `army-${pl.p + 1}`, id: -(pl.p + 1), hue: pl.hue, slot: pl.slot, bot: true, avatarUrl: '' }));
+  store.repos = [];
+  const now = Date.now();
+  store.war = { id: 0, day: new Date(now).toISOString().slice(0, 10), status: 'active', startsAt: now, endsAt: now + 24 * 3600_000, ...world.params };
+  store.warStartMs = now;
+  store.viewerP = null;
+  return new LocalRunner(store, world, () => []);
+}
+const runner: LocalRunner = q.has('snap') ? await fromSnapshot(q.get('snap')!) : startDemo(store, Number(q.get('bots') ?? 6), Number(q.get('seed') ?? 7));
+runner.speed = q.has('fixed') ? 0 : Number(q.get('speed') ?? 4);
 if (q.has('stress')) {
   // Every bot pushes a large, varied commit every few seconds, to fill the field.
   const r = runner as unknown as { inputs: (tick: number) => import('../sim/api.ts').SimInput[] };
@@ -46,6 +60,7 @@ const field = await Battlefield.create(document.getElementById('field')!, store,
 if (q.has('tod')) field.setTimeOverride(Number(q.get('tod')));
 // ?zoom=…&x=…&y=… frames a shot, for screenshots.
 if (q.has('zoom')) field.focus(Number(q.get('x') ?? 0), Number(q.get('y') ?? 0), Number(q.get('zoom')));
+if (q.has('fixed')) store.setFollowing(false);
 // The diagnostics bar is for development only: ?debug shows it, so captures stay clean.
 if (q.has('debug')) document.getElementById('panel')!.hidden = false;
 const stats = document.getElementById('stats')!;

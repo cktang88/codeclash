@@ -166,3 +166,51 @@ describe('combat impact (render-only knockback)', () => {
     expect(knockMs(1)).toBe(250);
   });
 });
+
+describe('levels of detail', () => {
+  it('switches to far below FAR_IN and back only above FAR_OUT, fading over FADE_MS', async () => {
+    const { initialLod, stepLod, FAR_IN, FAR_OUT, FADE_MS } = await import('./lod.ts');
+    const s = initialLod(1);
+    expect(s.far).toBe(false);
+    stepLod(s, (FAR_IN + FAR_OUT) / 2, 16);
+    expect(s.far).toBe(false);
+    stepLod(s, FAR_IN - 0.01, FADE_MS / 2);
+    expect(s.far).toBe(true);
+    expect(s.farMix).toBeCloseTo(0.5);
+    // Inside the band the level holds: no flicker for a camera resting near the threshold.
+    stepLod(s, (FAR_IN + FAR_OUT) / 2, FADE_MS);
+    expect(s.far).toBe(true);
+    expect(s.farMix).toBe(1);
+    stepLod(s, FAR_OUT + 0.01, 1);
+    expect(s.far).toBe(false);
+    expect(stepLod(s, FAR_OUT + 0.01, 0, true).farMix).toBe(0);
+  });
+
+  it('lays a block over its soldiers, along its line, sized by their spread and capped by headcount', async () => {
+    const { blockShape, resetAcc, addToAcc } = await import('./blocks.ts');
+    const { Form, pitch } = await import('../../sim/formation.ts');
+    const a = {} as import('./blocks.ts').BlockAcc;
+    const g = pitch(0);
+    resetAcc(a, 1, 0, 0, 100, 100);
+    // Two ranks of four Footmen a pitch apart, facing +x.
+    for (let r = 0; r < 2; r++) for (let c = 0; c < 4; c++) addToAcc(a, 100 - r * g, 100 + c * g);
+    const out = { x: 0, y: 0, ax: 0, ay: 0, length: 0, width: 0 };
+    blockShape(a, { form: Form.Line, hx: 1, hy: 0 }, out);
+    expect(out.ax).toBe(1);
+    expect(out.x).toBeCloseTo(100 - g / 2);
+    expect(out.y).toBeCloseTo(100 + 1.5 * g);
+    // Two pitches deep and four wide.
+    expect(out.length).toBeCloseTo(2 * g);
+    expect(out.width).toBeCloseTo(4 * g);
+    // In column the block follows its soldiers' own road, whatever the banner's heading.
+    resetAcc(a, 1, 0, 0, 0, 0);
+    for (let i = 0; i < 6; i++) addToAcc(a, 0, -i * g);
+    blockShape(a, { form: Form.Column, hx: 1, hy: 0 }, out);
+    expect(Math.abs(out.ay)).toBeCloseTo(1);
+    // Scattered far and wide, three soldiers still make a small block.
+    resetAcc(a, 1, 0, 0, 0, 0);
+    for (const [x, y] of [[0, 0], [300, 0], [0, 300]]) addToAcc(a, x!, y!);
+    blockShape(a, { form: Form.Engaged, hx: 1, hy: 0 }, out);
+    expect(out.length * out.width).toBeLessThanOrEqual(2.2 * 3 * g * g + 1e-6);
+  });
+});

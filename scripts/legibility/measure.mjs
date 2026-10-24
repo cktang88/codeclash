@@ -99,17 +99,28 @@ for (const tod of tods) {
         const ids = window.__squad;
         const n = ids.length;
         const cols = 5;
-        const sp = zoom < 0.55 ? 16 : 34; // world units between soldiers
+        // Far zoom draws platoons (blocks, or the dots of older builds), not soldiers: each squad
+        // soldier's whole platoon moves with it, its shape kept, so what is measured is how the
+        // platoon reads. Nearer, one soldier of each kind stands at its place.
+        const far = zoom < 0.55;
+        const sp = far ? 70 : 34; // world units between soldiers (far: between platoons)
         const placed = [];
         ids.forEach((id, i) => {
           const u = w.units.find((x) => x.id === id);
           if (!u) return;
           const c = i % cols, r = Math.floor(i / cols);
           let x = spot.x + (c - (cols - 1) / 2) * sp * (STATS_BIG(u.kind) ? 1 : 1);
-          let y = spot.y + (r - (Math.ceil(n / cols) - 1) / 2) * sp * 1.4;
+          let y = spot.y + (r - (Math.ceil(n / cols) - 1) / 2) * sp * (far ? 1 : 1.4);
           if (name === 'road') { // string them along the road
             const t = (i - (n - 1) / 2) * sp * 0.6;
             x = spot.x + spot.dx * t * 1.4; y = spot.y + spot.dy * t * 1.4;
+          }
+          if (far) {
+            const mates = w.units.filter((m) => m.platoon === u.platoon);
+            const dx = x - u.x, dy = y - u.y;
+            for (const m of mates) { m.x += dx; m.y += dy; m.target = 0; }
+            const pl = w.platoons.find((q) => q.id === u.platoon);
+            if (pl) { pl.x += dx; pl.y += dy; }
           }
           u.x = x; u.y = y; u.target = 0;
           placed.push(id);
@@ -118,6 +129,7 @@ for (const tod of tods) {
         const cam = f.camera;
         cam.glide = null; cam.shotMove = null; cam.x = spot.x; cam.y = spot.y; cam.zoom = zoom; cam.zoomTarget = zoom;
         s.setFollowing(false);
+        f.debugHideActors = false;
         f.units.shadows.visible = f.units.bodies.visible = f.units.dots.visible = f.units.air.visible = true;
         if (f.units.rims) f.units.rims.visible = true;
         f.banners.root.visible = zoom < 0.55; // far: the platoon token is the soldier
@@ -131,6 +143,7 @@ for (const tod of tods) {
       await p.screenshot({ path: `${out}/${tag}-A.png`, timeout: 180000 });
       await p.evaluate(() => {
         const f = window.battlefield;
+        f.debugHideActors = true;
         f.units.shadows.visible = f.units.bodies.visible = f.units.dots.visible = f.units.air.visible = false;
         if (f.units.rims) f.units.rims.visible = false;
         f.banners.root.visible = false;

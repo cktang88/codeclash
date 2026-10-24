@@ -6,6 +6,7 @@ import type { Replay } from '../../sim/replay.ts';
 import { RoomHud } from '../hud/RoomHud.tsx';
 import { ApiError, api } from '../net/api.ts';
 import { startReplay, type LocalRunner } from '../net/local.ts';
+import { seekOffThread } from '../net/seek.ts';
 import { GameStore } from '../store.ts';
 import { useHud } from '../ui/store.ts';
 import { clock } from '../ui/format.ts';
@@ -21,6 +22,10 @@ const SEEK_SLICE_TICKS = 25;
 const SEEK_SLICE_MS = 40;
 /** Jumps further ahead than this (ten minutes of war) start from a server keyframe. */
 const KEYFRAME_JUMP_TICKS = 3000;
+/** Seeks longer than this many ticks run in a worker (seek.ts); shorter ones are quicker here. */
+const OFF_THREAD_SEEK_TICKS = 150;
+/** Chronicle lines a seek keeps, as the store does. */
+const CHRONICLE_KEEP = 400;
 
 export function downloadJson(name: string, data: unknown): void {
   const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
@@ -101,7 +106,31 @@ export function ReplayPage({ slug, warId, tick, invite = null, me }: { slug: str
         runner.current = r!;
         r!.speed = 0;
       }
-      const run = r!;
+      let run = r!;
+      // A long way to go: run it in a worker at full speed while the page keeps drawing.
+      if (to - run.tick > OFF_THREAD_SEEK_TICKS && store.world) {
+        const continuing = run.tick > 0;
+        const earlier = continuing ? store.chronicle.slice() : [];
+        setSeeking({ to, at: run.tick });
+        const done = await seekOffThread(
+          { replay, from: store.world, to, players: replay.players.map((pl) => pl.login), repos: replay.repos.map((rr) => rr[0]), keep: CHRONICLE_KEEP },
+          (at) => token === seekToken.current && setSeeking({ to, at }),
+          () => token !== seekToken.current,
+        );
+        if (token !== seekToken.current) return;
+        if (done) {
+          run.stop();
+          run = startReplay(store, replay, done.world);
+          runner.current = run;
+          if (earlier.length > 0) store.addChronicle(earlier, false);
+          store.addChronicle(done.chronicle, false);
+          setSeeking(null);
+          run.speed = playingRef.current ? speedRef.current : 0;
+          store.publish();
+          return;
+        }
+        // No worker here (or it failed): step on this thread, in slices, as below.
+      }
       const stepChunk = () => {
         if (token !== seekToken.current) return;
         const started = performance.now();

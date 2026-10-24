@@ -39,6 +39,11 @@ export interface StepContext {
   tints: readonly number[];
   /** True when zoomed in enough for small, per-soldier effects. */
   near: boolean;
+  /**
+   * Share of the minor per-soldier effects (steel glints, light hit sparks) to show: 1 up close,
+   * less at mid zoom (lod.ts), where they are a few pixels across. Big blows always show.
+   */
+  detail?: number;
   bounds: Bounds;
   /** Optional override of `Effects.flyHeight`. */
   flyHeight?: (kind: Kind) => number;
@@ -336,6 +341,7 @@ export class Effects {
 
   onStep(ev: TickEvents, world: World, ctx: StepContext): void {
     const { posOf, tints, near, bounds } = ctx;
+    const detail = Math.max(0, Math.min(1, ctx.detail ?? 1));
     if (ctx.flyHeight) this.flyHeight = ctx.flyHeight;
     this.world = world;
     const tick = world.tick - 1;
@@ -369,7 +375,7 @@ export class Effects {
     if (near) {
       let swings = 0;
       for (const sw of ev.swings) {
-        if (swings >= 40) break;
+        if (swings >= 40 * detail) break;
         const p = posOf(sw.from);
         if (!p || !bounds.contains(p.x, p.y)) continue;
         const alt = this.altOf(flyerKind(sw.from));
@@ -443,9 +449,11 @@ export class Effects {
         if (++hits > 80) break;
         const p = posOf(h.unit);
         if (!p || !bounds.contains(p.x, p.y)) continue;
+        const heavy = h.damage > 18;
+        this.cue(heavy ? 'hit-heavy' : 'hit-steel', p.x, p.y, 0.5);
+        if (!heavy && detail < 1 && rand() >= detail) continue;
         const alt = this.altOf(flyerKind(h.unit));
-        this.impact(p.x, p.y, alt, h.damage > 18);
-        this.cue(h.damage > 18 ? 'hit-heavy' : 'hit-steel', p.x, p.y, 0.5);
+        this.impact(p.x, p.y, alt, heavy);
       }
     }
 

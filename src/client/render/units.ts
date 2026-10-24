@@ -8,6 +8,7 @@ import { gradeOf } from './flags.ts';
 import { knockCurve, knockDistance, knockMs } from './impact.ts';
 import { mixColor } from './paint.ts';
 import type { Textures } from './textures.ts';
+import { addToAcc, blockKey, resetAcc, type BlockAcc } from './blocks.ts';
 
 const SWING_PULL_MS = 110;
 const SWING_LUNGE_MS = 230;
@@ -33,6 +34,8 @@ const TURN_SPEED = 0.3;
 const MID_ZOOM = 1.4;
 /** The largest mid-zoom enlargement. */
 const MAX_BOOST = 1.6;
+/** At mid zoom, soldiers walk only within this share of the view's half-size (squared) from its centre. */
+const WALK_CORE = 0.45 * 0.45;
 /** Vellum light the figure halo is mixed toward. */
 const HALO_LIGHT = 0xfff6e2;
 
@@ -138,6 +141,11 @@ export class UnitLayer {
   night = 0;
   /** Reduced motion: flashes become a gentle tint, no knockback squash. */
   reduced = false;
+  /**
+   * Mid zoom (lod.ts): soldiers away from the middle of the view stand in their rest pose
+   * instead of stepping through the walk cycle; up close, and near the centre, they all walk.
+   */
+  mid = false;
   private flashing = 0;
   private knocking = 0;
   private frameNo = 0;
@@ -153,6 +161,9 @@ export class UnitLayer {
   /** Each platoon's interpolated centre this frame, rebuilt in `update`; entries are reused. */
   readonly centroids = new Map<number, Centroid>();
   private lastNow = -1;
+  /** Per (platoon, kind) sums for the far-zoom blocks, rebuilt while blocks show; entries are reused. */
+  readonly blocks = new Map<number, BlockAcc>();
+  private blockPool: BlockAcc[] = [];
   tints: number[] = [];
   cryTint: number[] = [];
   /** Per player: the light, pigment-touched halo around each figure. */
@@ -225,7 +236,12 @@ export class UnitLayer {
     return v && v.seen === this.frameNo ? v.pose : undefined;
   }
 
-  update(world: World, runner: Runner | null, now: number, zoom: number, bounds: { contains(x: number, y: number): boolean }): void {
+  /**
+   * `farMix` (0..1) is how far the view has faded into far zoom, where platoons draw as blocks.
+   * At 1 no soldier is drawn: only the interpolated positions are kept (for banners, torches and
+   * effects) and summed into `blocks`, so the frame no longer grows with the armies.
+   */
+  update(world: World, runner: Runner | null, now: number, zoom: number, bounds: { contains(x: number, y: number): boolean }, farMix = 0): void {
     for (const pl of world.players) {
       const g = gradeOf(pl);
       this.ranks[pl.p] = g.rank;
@@ -246,6 +262,13 @@ export class UnitLayer {
     const ease = 1 - Math.pow(0.85, dtMs / 16.67);
     const perTick = TICK_MS / dtMs;
     const far = zoom < FAR_ZOOM;
+    // The middle of the view, and how far out (as a share of its half-size, squared) soldiers still walk.
+    const b = bounds as { minX?: number; minY?: number; maxX?: number; maxY?: number };
+    const midX = b.minX !== undefined && b.maxX !== undefined ? (b.minX + b.maxX) / 2 : 0;
+    const midY = b.minY !== undefined && b.maxY !== undefined ? (b.minY + b.maxY) / 2 : 0;
+    const halfW = b.minX !== undefined && b.maxX !== undefined ? Math.max(1, (b.maxX - b.minX) / 2) : Infinity;
+    const halfH = b.minY !== undefined && b.maxY !== undefined ? Math.max(1, (b.maxY - b.minY) / 2) : Infinity;
+    const thin = this.mid && halfW !== Infinity;
     const boost = zoom < MID_ZOOM ? Math.min(MAX_BOOST, Math.pow(MID_ZOOM / zoom, 0.6)) : 1;
     // Bases carry the side most when soldiers are small; up close the cloth does it.
     const baseAlpha = zoom < 1.2 ? 1 : Math.max(0.75, 1 - (zoom - 1.2) * 0.3);
@@ -262,13 +285,23 @@ export class UnitLayer {
     unitIndex.clear();
     const leaders = this.leaders;
     leaders.clear();
-    for (const u of world.units) {
-      unitIndex.set(u.id, u);
-      if (!leaders.has(u.platoon)) leaders.set(u.platoon, u.id);
+    // Facing foes and rank chevrons are only drawn on soldiers; blocks need neither.
+    if (farMix < 1) {
+      for (const u of world.units) {
+        unitIndex.set(u.id, u);
+        if (!leaders.has(u.platoon)) leaders.set(u.platoon, u.id);
+      }
     }
     const centroids = this.centroids;
     for (const c of centroids.values()) this.centroidPool.push(c);
     centroids.clear();
+    const blocksOn = farMix > 0;
+    const soldiersOn = farMix < 1;
+    const blocks = this.blocks;
+    for (const a of blocks.values()) this.blockPool.push(a);
+    blocks.clear();
+    this.shadows.visible = this.bases.visible = this.bodies.visible = this.dots.visible = this.air.visible = soldiersOn;
+    this.shadows.alpha = this.bases.alpha = this.bodies.alpha = this.dots.alpha = this.air.alpha = 1 - farMix;
 
     for (const u of world.units) {
       let v = this.views.get(u.id);
@@ -295,9 +328,6 @@ export class UnitLayer {
       }
       const dx = x - v.x;
       const dy = y - v.y;
-      // Measured per sim tick, not per frame, so the walk cycle and facing do not depend on the display's refresh rate.
-      v.speed += (Math.sqrt(dx * dx + dy * dy) * perTick - v.speed) * ease;
-      v.vx += (dx * perTick - v.vx) * ease;
       v.x = x;
       v.y = y;
       let c = centroids.get(u.platoon);
@@ -309,6 +339,28 @@ export class UnitLayer {
       c.x += x;
       c.y += y;
       c.n++;
+      if (blocksOn) {
+        const key = blockKey(u.platoon, u.kind);
+        let a = blocks.get(key);
+        if (!a) {
+          a = this.blockPool.pop() ?? ({} as BlockAcc);
+          resetAcc(a, u.platoon, u.kind, u.p, x, y);
+          blocks.set(key, a);
+        }
+        addToAcc(a, x, y);
+      }
+      if (!soldiersOn) {
+        // Fully into far zoom: the soldier is part of its block, and nothing of it is drawn.
+        // Effects still start from where it stands.
+        v.pose.x = x;
+        v.pose.y = y;
+        v.pose.kind = u.kind;
+        v.pose.p = u.p;
+        continue;
+      }
+      // Measured per sim tick, not per frame, so the walk cycle and facing do not depend on the display's refresh rate.
+      v.speed += (Math.sqrt(dx * dx + dy * dy) * perTick - v.speed) * ease;
+      v.vx += (dx * perTick - v.vx) * ease;
 
       // Face the enemy when fighting, otherwise the direction of travel.
       let face = 0;
@@ -424,6 +476,7 @@ export class UnitLayer {
       const flying = flight !== null;
       let frame: UnitFrame;
       if (attackFrame >= 0) frame = this.art.frames(u.kind, 'attack')[attackFrame]!;
+      else if (thin && walking && !flying && ((x - midX) / halfW) ** 2 + ((y - midY) / halfH) ** 2 > WALK_CORE) frame = this.art.frames(u.kind, 'idle')[0]!;
       else if (walking || flying) {
         const frames = this.art.frames(u.kind, 'walk');
         // Big, slow kinds stride slowly; fliers beat their wings at a steady pace.

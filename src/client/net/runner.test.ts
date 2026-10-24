@@ -178,3 +178,96 @@ describe('LockstepRunner', () => {
     t.runner.stop();
   });
 });
+
+describe('hidden tabs', () => {
+  afterEach(() => vi.useRealTimers());
+
+  function fakePage() {
+    let hidden = false;
+    const fns = new Set<() => void>();
+    return {
+      page: { hidden: () => hidden, onChange: (fn: () => void) => (fns.add(fn), () => fns.delete(fn)) },
+      set(h: boolean) {
+        hidden = h;
+        for (const f of fns) f();
+      },
+    };
+  }
+
+  function setupWithPage() {
+    const store = new GameStore();
+    const vis = fakePage();
+    let handlers: TransportHandlers | null = null;
+    const sent: unknown[] = [];
+    let connects = 0;
+    let closes = 0;
+    const runner = new LockstepRunner((h) => {
+      handlers = h;
+      connects++;
+      return { send: (m) => sent.push(m), close: () => void closes++ };
+    }, store, vis.page);
+    runner.start();
+    return { store, runner, sent, vis, connects: () => connects, closes: () => closes, deliver: (m: ServerMessage) => handlers!.onMessage(m) };
+  }
+
+  const warAt = (start: number): WarMeta => ({ id: 3, day: '2026-01-01', status: 'active', startsAt: start, endsAt: start + 3600_000, seed: 2, slots: 4, members: 2 });
+
+  it('lets the socket go after a while hidden, simulates nothing, and starts from a fresh snapshot when shown', async () => {
+    const { HIDDEN_PARK_MS } = await import('./runner.ts');
+    vi.useFakeTimers();
+    const start = Date.now();
+    const war = warAt(start);
+    const t = setupWithPage();
+    t.deliver(hello(war, 0, start));
+    vi.runOnlyPendingTimers();
+    expect(t.store.conn.phase).toBe('live');
+    t.vis.set(true);
+    vi.advanceTimersByTime(HIDDEN_PARK_MS + 10);
+    expect(t.runner.isParked).toBe(true);
+    expect(t.closes()).toBe(1);
+    // Hours pass; nothing runs, nothing reconnects.
+    vi.advanceTimersByTime(3 * 3600_000);
+    const tick = t.store.world!.tick;
+    t.runner.frame();
+    expect(t.store.world!.tick).toBe(tick);
+    expect(t.connects()).toBe(1);
+    t.vis.set(false);
+    expect(t.runner.isParked).toBe(false);
+    expect(t.connects()).toBe(2);
+    expect(t.store.conn.phase).toBe('connecting');
+    t.deliver(hello(war, 50, Date.now()));
+    expect(t.store.conn.phase).toBe('syncing');
+  });
+
+  it('asks for a fresh snapshot when shown again far enough behind, rather than replaying the gap', async () => {
+    const { RESUME_RESYNC_TICKS } = await import('./runner.ts');
+    vi.useFakeTimers();
+    const start = Date.now();
+    const t = setupWithPage();
+    t.deliver(hello(warAt(start), 0, start));
+    vi.runOnlyPendingTimers();
+    t.runner.frame();
+    t.vis.set(true);
+    vi.advanceTimersByTime((RESUME_RESYNC_TICKS + 10) * TICK_MS);
+    t.vis.set(false);
+    const before = t.store.world!.tick;
+    t.runner.frame();
+    expect(t.sent).toContainEqual({ type: 'resync' });
+    expect(t.store.world!.tick).toBe(before);
+  });
+
+  it('just catches up after a short glance away', () => {
+    vi.useFakeTimers();
+    const start = Date.now();
+    const t = setupWithPage();
+    t.deliver(hello(warAt(start), 0, start));
+    vi.runOnlyPendingTimers();
+    t.runner.frame();
+    t.vis.set(true);
+    vi.advanceTimersByTime(5 * TICK_MS);
+    t.vis.set(false);
+    t.runner.frame();
+    expect(t.sent).not.toContainEqual({ type: 'resync' });
+    expect(t.store.conn.phase).toBe('live');
+  });
+});

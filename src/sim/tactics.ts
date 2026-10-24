@@ -103,8 +103,12 @@ export function pickTarget(world: World, s: Scratch, i: number, q: Pick): number
   const u = units[i]!;
   const role = ROLE[u.kind]!;
   const st = STATS[u.kind]!;
-  const bx = bucketX(hash, u.x);
-  const by = bucketY(hash, u.y);
+  const { head, next, cols, ux, uy, up } = hash;
+  const ox = u.x;
+  const oy = u.y;
+  const p = u.p;
+  const bx = bucketX(hash, ox);
+  const by = bucketY(hash, oy);
   const rings = Math.floor(q.radius / hash.cell) + 1;
   const r2 = q.radius * q.radius;
   const leash2 = q.leash * q.leash;
@@ -128,21 +132,23 @@ export function pickTarget(world: World, s: Scratch, i: number, q: Pick): number
       const step = y === y0 || y === y1 ? 1 : 2 * k;
       for (let x = bx - k; x <= bx + k; x += step === 0 ? 1 : step) {
         if (x < 0 || x >= hash.cols) continue;
-        for (let j = hash.head[y * hash.cols + x]!; j >= 0; j = hash.next[j]!) {
-          const v = units[j]!;
-          if (v.p === u.p) continue;
-          const dx = v.x - u.x;
-          const dy = v.y - u.y;
+        for (let j = head[y * cols + x]!; j >= 0; j = next[j]!) {
+          if (up[j] === p) continue;
+          const vx = ux[j]!;
+          const vy = uy[j]!;
+          const dx = vx - ox;
+          const dy = vy - oy;
           const d2 = dx * dx + dy * dy;
           if (d2 > r2) continue;
-          const lx = v.x - q.ax;
-          const ly = v.y - q.ay;
+          const lx = vx - q.ax;
+          const ly = vy - q.ay;
           if (lx * lx + ly * ly > leash2) continue;
           if (reach2 !== Infinity) {
-            const sx = v.x - q.sx;
-            const sy = v.y - q.sy;
+            const sx = vx - q.sx;
+            const sy = vy - q.sy;
             if (sx * sx + sy * sy > reach2) continue;
           }
+          const v = units[j]!;
           const vs = STATS[v.kind]!;
           let m = matchup(u.kind, v.kind) > 1 ? FAVORED : 1;
           switch (role) {

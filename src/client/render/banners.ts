@@ -201,13 +201,15 @@ export class BannerLayer {
     trims: readonly (FlagTrim | undefined)[] = [],
     dtMs = 16.67,
     reducedMotion = false,
+    /** Whether the view is in far zoom; the renderer passes its level, with hysteresis. */
+    farLevel?: boolean,
   ): void {
     this.frameNo++;
     for (const h of this.hits) this.hitPool.push(h);
     this.hits.length = 0;
     this.crowd.length = 0;
     this.crowdViews.length = 0;
-    const far = zoom < FAR_ZOOM;
+    const far = farLevel ?? zoom < FAR_ZOOM;
     const flagPx = far ? FAR_FLAG_PX : Math.max(26, Math.min(46, 34 * Math.pow(zoom, 0.35)));
     const scale = flagPx / FLAG_W / zoom;
     // Frame-rate independent easing: the anchor smooths the sim's 5Hz steps; the banner then

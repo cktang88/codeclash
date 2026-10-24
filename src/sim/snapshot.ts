@@ -1,5 +1,5 @@
 import type { Platoon, World, WorldSnapshot } from './api.ts';
-import { generateMap } from './mapgen.ts';
+import { sharedMap } from './mapgen.ts';
 
 /** The world without its map; the map is rebuilt from params on restore. */
 export function snapshot(world: World): WorldSnapshot {
@@ -11,7 +11,7 @@ export function restore(snap: WorldSnapshot): World {
   if (snap.version !== 2) throw new Error(`unsupported snapshot version ${String(snap.version)}`);
   const w = JSON.parse(JSON.stringify(snap.world)) as Omit<World, 'map'>;
   for (const pl of w.platoons) drawnUpFresh(pl);
-  return { ...w, map: generateMap(w.params) };
+  return { ...w, map: sharedMap(w.params) };
 }
 
 /**

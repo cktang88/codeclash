@@ -86,37 +86,54 @@ export function enemiesNear(units: readonly Unit[], hash: SpatialHash, p: number
   return n;
 }
 
+/** Aura per kind: [bit, radius], or none. */
+const AURA_BIT = new Int32Array(STATS.length);
+const AURA_RADIUS = new Float64Array(STATS.length);
+for (let k = 0; k < STATS.length; k++) {
+  if (k === Kind.Warden || k === Kind.Paladin) {
+    AURA_BIT[k] = AURA_SHIELD;
+    AURA_RADIUS[k] = WARDEN_AURA;
+  } else if (k === Kind.Herald) {
+    AURA_BIT[k] = AURA_HEAL;
+    AURA_RADIUS[k] = HERALD_AURA;
+  } else if (k === Kind.Champion || k === Kind.Dragon) {
+    AURA_BIT[k] = AURA_VALOR;
+    AURA_RADIUS[k] = CHAMPION_AURA;
+  }
+}
+
 /** Marks every soldier standing in a friendly Warden's, Herald's or Champion's aura. */
 export function computeAuras(world: World, s: Scratch): void {
   const { units } = world;
   const hash = s.hash;
-  s.aura.fill(0, 0, units.length);
+  const { ux, uy, up, uk, head, next, cols, rows } = hash;
+  const aura = s.aura;
+  aura.fill(0, 0, units.length);
   for (let i = 0; i < units.length; i++) {
-    const u = units[i]!;
-    let bit = 0;
-    let radius = 0;
-    if (u.kind === Kind.Warden || u.kind === Kind.Paladin) {
-      bit = AURA_SHIELD;
-      radius = WARDEN_AURA;
-    } else if (u.kind === Kind.Herald) {
-      bit = AURA_HEAL;
-      radius = HERALD_AURA;
-    } else if (u.kind === Kind.Champion || u.kind === Kind.Dragon) {
-      bit = AURA_VALOR;
-      radius = CHAMPION_AURA;
-    } else continue;
+    const kind = uk[i]!;
+    const bit = AURA_BIT[kind]!;
+    if (bit === 0) continue;
+    const radius = AURA_RADIUS[kind]!;
+    const x0 = ux[i]!;
+    const y0 = uy[i]!;
+    const p = up[i]!;
     const reach = Math.floor(radius / hash.cell) + 1;
-    const bx = bucketX(hash, u.x);
-    const by = bucketY(hash, u.y);
+    const bx = bucketX(hash, x0);
+    const by = bucketY(hash, y0);
     const r2 = radius * radius;
-    for (let cy = Math.max(0, by - reach); cy <= Math.min(hash.rows - 1, by + reach); cy++) {
-      for (let cx = Math.max(0, bx - reach); cx <= Math.min(hash.cols - 1, bx + reach); cx++) {
-        for (let j = hash.head[cy * hash.cols + cx]!; j >= 0; j = hash.next[j]!) {
-          const v = units[j]!;
-          if (v.p !== u.p) continue;
-          const dx = v.x - u.x;
-          const dy = v.y - u.y;
-          if (dx * dx + dy * dy <= r2) s.aura[j]! |= bit;
+    // Only the cells the aura's bounding box (grown by 1 for rounding) touches can hold a soldier
+    // within it; bucketing is monotonic, so this skips no one the full square would have found.
+    const xa = Math.max(0, bx - reach, bucketX(hash, x0 - radius - 1));
+    const xb = Math.min(cols - 1, bx + reach, bucketX(hash, x0 + radius + 1));
+    const ya = Math.max(0, by - reach, bucketY(hash, y0 - radius - 1));
+    const yb = Math.min(rows - 1, by + reach, bucketY(hash, y0 + radius + 1));
+    for (let cy = ya; cy <= yb; cy++) {
+      for (let cx = xa; cx <= xb; cx++) {
+        for (let j = head[cy * cols + cx]!; j >= 0; j = next[j]!) {
+          if (up[j] !== p) continue;
+          const dx = ux[j]! - x0;
+          const dy = uy[j]! - y0;
+          if (dx * dx + dy * dy <= r2) aura[j]! |= bit;
         }
       }
     }

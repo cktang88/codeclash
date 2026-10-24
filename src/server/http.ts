@@ -22,9 +22,11 @@ import {
   type MeResponse,
   type ProfileResponse,
   type UserRef,
+  type VersionResponse,
   type WarSummary,
 } from '../protocol.ts';
 import { AWARDS } from '../rules/digest.ts';
+import { SIM_VERSION } from '../version.ts';
 import { generateMap } from '../sim/mapgen.ts';
 import type { MapDef } from '../sim/api.ts';
 import { decodeInput, type Replay } from '../sim/replay.ts';
@@ -594,12 +596,37 @@ export async function buildHttp(deps: HttpDeps): Promise<FastifyInstance> {
 
   app.get('/api/health', async () => ({ ok: true, rooms: rooms.wars().length, spectators: hub.size, ingestion: deps.github !== null }));
 
+  // The version handshake: a page whose build differs from the server's simulation reloads, so an
+  // old cached build never lingers; `sw: false` is the service worker's kill switch.
+  app.get('/api/version', async (_req, reply) => {
+    reply.header('cache-control', 'no-store');
+    return { sim: SIM_VERSION, sw: config.serviceWorker } satisfies VersionResponse;
+  });
+  if (!config.serviceWorker) {
+    // Browsers re-fetch /sw.js on their own; a byte-different worker replaces the old one, and this
+    // one only clears its caches, unregisters itself and reloads the pages it controlled.
+    app.addHook('onRequest', async (req, reply) => {
+      if (req.method !== 'GET' || req.url.split('?')[0] !== '/sw.js') return;
+      return reply.header('cache-control', 'no-store').type('text/javascript').send(KILL_SW);
+    });
+  }
+
   registerAuth(app, deps);
   registerHooks(app, { store, github: deps.github, log: deps.log, clock, onPush: deps.onPush });
 
   const clientDir = resolve(config.clientDir);
   if (existsSync(clientDir)) {
-    await app.register(fastifyStatic, { root: clientDir, wildcard: false });
+    await app.register(fastifyStatic, {
+      root: clientDir,
+      wildcard: false,
+      // Hashed build assets never change: cache them for good. The page and the worker must be
+      // revalidated every time, or a deploy would not reach returning viewers.
+      setHeaders: (res, path) => {
+        const p = path.replace(/\\/g, '/');
+        if (p.includes('/assets/')) res.header('cache-control', 'public, max-age=31536000, immutable');
+        else if (p.endsWith('/index.html') || p.endsWith('/sw.js')) res.header('cache-control', 'no-cache');
+      },
+    });
     app.setNotFoundHandler((req, reply) => {
       const path = req.url.split('?')[0]!;
       // Only app routes fall back to the page; a missing asset (anything with a file extension) is a 404,
@@ -611,6 +638,17 @@ export async function buildHttp(deps: HttpDeps): Promise<FastifyInstance> {
   }
   return app;
 }
+
+/** The service worker served while it is switched off: it removes itself and everything it cached. */
+export const KILL_SW = `self.addEventListener('install', () => self.skipWaiting());
+self.addEventListener('activate', (event) => {
+  event.waitUntil((async () => {
+    for (const key of await caches.keys()) await caches.delete(key);
+    await self.registration.unregister();
+    for (const client of await self.clients.matchAll({ type: 'window' })) client.navigate(client.url);
+  })());
+});
+`;
 
 /** The nav grid sampled every `step` cells, for the digest's painted timelapse. */
 export function coarseTerrain(map: MapDef, step: number): NonNullable<DigestResponse['map']['terrain']> {

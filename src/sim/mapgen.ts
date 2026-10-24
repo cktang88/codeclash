@@ -17,6 +17,32 @@ export function slotsFor(members: number): number {
   return Math.min(MAX_SLOTS, Math.max(MIN_SLOTS, members + 2));
 }
 
+/**
+ * The map for these params, shared with recent worlds built from the same params. A map is
+ * never modified once made, so a restored world (a resync, a replay keyframe, a recovered war)
+ * may share it, and with it every cache derived from it (flow fields, hex roads), which would
+ * otherwise be rebuilt for each restore.
+ */
+const recentMaps: { key: string; map: MapDef }[] = [];
+const RECENT_MAPS = 4;
+
+export function sharedMap(params: WarParams): MapDef {
+  const key = `${params.seed}:${params.slots}:${params.members}`;
+  const i = recentMaps.findIndex((m) => m.key === key);
+  if (i >= 0) {
+    const hit = recentMaps[i]!;
+    if (i > 0) {
+      recentMaps.splice(i, 1);
+      recentMaps.unshift(hit);
+    }
+    return hit.map;
+  }
+  const map = generateMap(params);
+  recentMaps.unshift({ key, map });
+  if (recentMaps.length > RECENT_MAPS) recentMaps.length = RECENT_MAPS;
+  return map;
+}
+
 export function generateMap(params: WarParams): MapDef {
   const slots = Math.min(MAX_SLOTS, Math.max(MIN_SLOTS, Math.floor(params.slots)));
   const radius = mapRadius(slots);

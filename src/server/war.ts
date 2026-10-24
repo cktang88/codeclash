@@ -7,6 +7,7 @@ import { Chronicler, type ChronicleEntry, type Names } from '../sim/chronicle.ts
 import { checksum, generateMap, restore, snapshot, step, createWorld } from '../sim/index.ts';
 import { decodeInput, encodeInput, type RepoRef, type Replay } from '../sim/replay.ts';
 import { DOCTRINE_COOLDOWN, RALLY_COOLDOWN } from '../sim/stats.ts';
+import { SIM_VERSION } from '../version.ts';
 import type { Store, WarHeader, WarRow } from './db.ts';
 import type { Logger } from './log.ts';
 
@@ -22,6 +23,11 @@ export interface Channel {
   send(msg: ServerMessage): void;
   /** Re-sends hello to every viewer, e.g. when a new war starts. */
   reset(): void;
+  /**
+   * Whether anyone is watching. With no one, the war skips work only viewers use (the periodic
+   * checksum); it still simulates every tick exactly, so no outcome depends on spectators.
+   */
+  watched?(): boolean;
 }
 
 export function timelapseFrame(w: World): TimelapseFrame {
@@ -164,7 +170,7 @@ export class War {
       this.narratedThrough = entries[0]!.tick;
       channel.send({ type: 'chronicle', entries });
     }
-    if (w.tick % CHECK_EVERY_TICKS === 0) channel.send({ type: 'check', tick: w.tick, checksum: checksum(w) });
+    if (w.tick % CHECK_EVERY_TICKS === 0 && channel.watched?.() !== false) channel.send({ type: 'check', tick: w.tick, checksum: checksum(w) });
     if (w.tick % SNAPSHOT_EVERY_TICKS === 0) this.persistSnapshot();
     if (w.tick % this.frameEvery === 0) this.deps.store.saveFrame(this.row.id, timelapseFrame(w));
   }
@@ -332,6 +338,7 @@ export class War {
       serverNow: now,
       tickMs: TICK_MS,
       viewerP: viewerUserId === null ? null : this.playerOf(viewerUserId),
+      simVersion: SIM_VERSION,
     };
   }
 
