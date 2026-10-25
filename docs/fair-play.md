@@ -214,7 +214,7 @@ Three rules, from the effort credit's worst cases (rows 67 and 71): a fork's bon
 |---|---|---|---|---|
 | Maintainer, before this pass | 13% | 14% | 0.83 | 1,981 |
 | Maintainer, with repeat-target dampening | **5%** | 2% | **0.53** | 942 |
-| Maintainer, dampening off (`DAMPEN=0`, check) | MND_W | MND_N | MND_B | MND_X |
+| Maintainer, dampening off (`DAMPEN=0`, check) | 13% | 14% | 0.83 | 1,981 (identical to before: the script change alone moves nothing) |
 | Fork contributor: the same work in a fork, 70% of pull requests merged after 1–3 days (dampening on) | **4%** | 0% | **0.46** | 600 received (962 a day left pending) |
 
 The dampening is the costly rule. The maintainer persona returns to a pool of 25 core files and touches most of them every few days, as real maintainers do, so the effort credit pays about half as often: its bonus halves and its wins fall from 13% to 5%. It closes only the repeat-target farm (row 77), which rotating three sets of files escapes anyway. Options, not built: dampen only token edits (a file paid in the window earns again with, say, 10 or more modified lines), or shorten the window to 2 days, or raise FILE_CREDIT to compensate.
