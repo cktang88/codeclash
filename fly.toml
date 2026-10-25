@@ -7,6 +7,8 @@ swap_size_mb = 512
 
 [build]
 
+# Secrets (GITHUB_TOKEN, GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, SESSION_SECRET, TOKEN_KEY) go in
+# `fly secrets set`, never here. TOKEN_KEY encrypts players' stored GitHub tokens and must stay stable.
 [env]
   NODE_ENV = "production"
   PORT = "8080"

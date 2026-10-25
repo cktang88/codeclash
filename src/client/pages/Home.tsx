@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { HookResponse, LobbyResponse, MeResponse, RoomCard, Visibility } from '../../protocol.ts';
 import { Kind } from '../../sim/api.ts';
 import { ApiError, api } from '../net/api.ts';
+import { GithubLinkSection } from '../ui/GithubLink.tsx';
 import { CopyButton } from '../hud/RoomSettings.tsx';
 import { navigate } from '../route.ts';
 import { Avatar } from '../ui/Avatar.tsx';
@@ -236,6 +237,7 @@ function SettingsModal({ me, onClose, onChanged }: { me: NonNullable<MeResponse[
         )}
         {me.hookUrl && !hook && <p className="muted small">You already have a webhook. A new secret replaces the old one.</p>}
       </section>
+      <GithubLinkSection link={me.github} onChanged={onChanged} />
       {error && (
         <p className="form-error" role="alert">
           {error}
@@ -253,6 +255,20 @@ function SettingsModal({ me, onClose, onChanged }: { me: NonNullable<MeResponse[
           }
         >
           Sign out
+        </button>
+        <button
+          className="btn btn-ghost"
+          disabled={busy}
+          onClick={() => {
+            if (!confirm('Delete your Code Clash account? Your records, stored GitHub token and memberships are deleted. This cannot be undone.')) return;
+            void act(async () => {
+              await api.deleteAccount();
+              onChanged();
+              onClose();
+            });
+          }}
+        >
+          Delete my account
         </button>
       </div>
     </Modal>

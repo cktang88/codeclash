@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { ChangedFile } from '../rules/classify.ts';
 import type { RepoFacts } from '../rules/difficulty.ts';
+import { redactTokens } from './log.ts';
 
 const API = 'https://api.github.com';
 const USER_AGENT = 'codeclash';
@@ -111,6 +112,16 @@ export interface GithubClient {
   /** Bytes per language; null when missing. */
   languages?(repo: string): Promise<Record<string, number> | null>;
   /**
+   * A repository's branches and their heads (`GET /repos/{o}/{r}/branches`, the first 100), revalidated with
+   * `etag`: an unchanged list is a free 304. `repo` is the name GitHub answered for (a renamed repository
+   * redirects). 404: missing, or not visible to the token (a repository made private reads as missing).
+   */
+  branchHeads?(repo: string, etag: string | null): Promise<BranchHeads>;
+  /** The token owner's public repositories, most recently pushed first (`GET /user/repos?sort=pushed`, at most 20). */
+  viewerRepos?(): Promise<ViewerRepo[]>;
+  /** Requests sent, and how many GitHub answered 304 (free), since the client was made. */
+  usage?(): { requests: number; notModified: number };
+  /**
    * How `head` stands against `base` in `repo` (`GET /compare/{base}...{head}`, one commit asked for):
    * `behind` or `identical` means `head` is already in `base`. Null when either is missing.
    */
@@ -122,6 +133,21 @@ export interface GithubClient {
 }
 
 export type CompareStatus = 'ahead' | 'behind' | 'identical' | 'diverged';
+
+export type BranchHeads =
+  | { status: 304; /** Set when the repository was renamed (GitHub redirected). */ repo?: string }
+  | { status: 404 }
+  | { status: 200; repo: string; etag: string | null; branches: { name: string; sha: string }[] };
+
+/** One of the token owner's repositories, as `/user/repos` lists it. */
+export interface ViewerRepo {
+  fullName: string;
+  private: boolean;
+  fork: boolean;
+  /** ms since the epoch, 0 when GitHub gives none. */
+  pushedAt: number;
+  defaultBranch: string | null;
+}
 
 /** A pull request as the upstream check needs it. */
 export interface PullSummary {
@@ -242,7 +268,18 @@ const RepoSchema = z
   })
   .loose();
 
-const BranchSchema = z.object({ name: z.string() }).loose();
+const BranchSchema = z.object({ name: z.string(), commit: z.object({ sha: z.string() }).loose().optional() }).loose();
+
+const ViewerRepoSchema = z
+  .object({
+    full_name: z.string(),
+    private: z.boolean().optional().default(false),
+    visibility: z.string().optional(),
+    fork: z.boolean().optional().default(false),
+    pushed_at: z.string().nullable().optional(),
+    default_branch: z.string().nullable().optional(),
+  })
+  .loose();
 
 const ListedCommitSchema = z
   .object({
@@ -329,8 +366,11 @@ export function createGithubClient(token: string | null, fetchImpl: typeof fetch
   const whole = (b: { remaining: number; resetAtMs: number; total: number }) =>
     b.resetAtMs > 0 && Date.now() >= b.resetAtMs ? { remaining: Math.max(b.remaining, b.total), resetAtMs: b.resetAtMs } : { remaining: b.remaining, resetAtMs: b.resetAtMs };
 
+  const used = { requests: 0, notModified: 0 };
   const get = async (path: string, extra?: Record<string, string>): Promise<Response> => {
+    used.requests++;
     const res = await fetchImpl(`${API}${path}`, { headers: headers(token, extra), signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+    if (res.status === 304) used.notModified++;
     track(res);
     return res;
   };
@@ -355,10 +395,10 @@ export function createGithubClient(token: string | null, fetchImpl: typeof fetch
 
   const fail = async (res: Response, what: string): Promise<never> => {
     const body = await res.text().catch(() => '');
-    throw new GithubError(`${what} failed: ${res.status} ${body.slice(0, 200)}`, res.status);
+    throw new GithubError(redactTokens(`${what} failed: ${res.status} ${body.slice(0, 200)}`), res.status);
   };
 
-  return {
+  const client: GithubClient = {
     async userEvents(login, etag, page = 1) {
       const query = page > 1 ? `per_page=${EVENTS_PER_PAGE}&page=${page}` : `per_page=${EVENTS_PER_PAGE}`;
       const res = await get(`/users/${encodeURIComponent(login)}/events/public?${query}`, etag && page === 1 ? { 'if-none-match': etag } : {});
@@ -445,6 +485,40 @@ export function createGithubClient(token: string | null, fetchImpl: typeof fetch
       });
     },
 
+    async branchHeads(repo, etag) {
+      const res = await get(`/repos/${repoPath(repo)}/branches?per_page=100`, etag ? { 'if-none-match': etag } : {});
+      if (res.status === 404 || res.status === 451) return { status: 404 };
+      if (res.status !== 304 && !res.ok) return fail(res, `branches of ${repo}`);
+      // A renamed repository redirects to `/repositories/{id}/…`, which names no repository: ask its name.
+      let name = repo;
+      if (res.redirected) {
+        const info = await client.repo(repo);
+        if (!info || info.private) return { status: 404 };
+        name = info.fullName;
+      }
+      if (res.status === 304) return name === repo ? { status: 304 } : { status: 304, repo: name };
+      const branches = z.array(z.unknown()).parse(await res.json()).flatMap((b) => {
+        const parsed = BranchSchema.safeParse(b);
+        return parsed.success && parsed.data.commit ? [{ name: parsed.data.name, sha: parsed.data.commit.sha }] : [];
+      });
+      return { status: 200, repo: name, etag: res.headers.get('etag'), branches };
+    },
+
+    async viewerRepos() {
+      const r = await getJson('/user/repos?sort=pushed&direction=desc&per_page=20&visibility=public&affiliation=owner,collaborator');
+      if (r.status !== 200) return fail(r.res, 'repositories of the token owner');
+      return z.array(z.unknown()).parse(r.body).flatMap((x) => {
+        const p = ViewerRepoSchema.safeParse(x);
+        if (!p.success) return [];
+        const d = p.data;
+        return [{ fullName: d.full_name, private: d.private || (d.visibility !== undefined && d.visibility !== 'public'), fork: d.fork, pushedAt: parseDate(d.pushed_at), defaultBranch: d.default_branch ?? null }];
+      });
+    },
+
+    usage() {
+      return { ...used };
+    },
+
     rateLimit() {
       // Past the reset the quota is whole again, even if no response has said so yet:
       // a spent budget must not stop the poller (its only caller) from ever asking again.
@@ -457,6 +531,7 @@ export function createGithubClient(token: string | null, fetchImpl: typeof fetch
 
     async graphql(query, variables, timeoutMs = GRAPHQL_TIMEOUT_MS) {
       if (!token) throw new GithubError('GraphQL needs a token', 401);
+      used.requests++;
       const res = await fetchImpl(`${API}/graphql`, {
         method: 'POST',
         headers: headers(token, { 'content-type': 'application/json' }),
@@ -519,6 +594,7 @@ export function createGithubClient(token: string | null, fetchImpl: typeof fetch
       return out;
     },
   };
+  return client;
 }
 
 export async function fetchViewer(token: string, fetchImpl: typeof fetch = fetch): Promise<Viewer> {

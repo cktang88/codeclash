@@ -145,4 +145,43 @@ describe('createGithubClient for the difficulty bonus', () => {
     await expect(createGithubClient(null, fetch).graphql!('query { x }', {})).rejects.toThrow(/token/);
     expect(calls).toHaveLength(0);
   });
+
+  it('reads branch heads with an ETag, follows a rename, and reads a missing or private repository as 404', async () => {
+    const redirected = (res: Response) => Object.defineProperty(res, 'redirected', { value: true });
+    const { fetch, calls } = fakeFetch((url, init) => {
+      const h = (init.headers ?? {}) as Record<string, string>;
+      if (url.includes('/repos/ana/gone/')) return json({ message: 'Not Found' }, 404);
+      if (url.includes('/repos/ana/old/branches')) return redirected(json([{ name: 'main', commit: { sha: 's9' } }], 200, { etag: '"r"' }));
+      if (url.endsWith('/repos/ana/old')) return json({ full_name: 'ana/new', private: false, default_branch: 'main' });
+      if (h['if-none-match'] === '"b1"') return new Response(null, { status: 304 });
+      return json([{ name: 'main', commit: { sha: 's1' } }, { name: 'dev', commit: { sha: 's2' } }, { name: 'odd' }], 200, { etag: '"b1"' });
+    });
+    const gh = createGithubClient('tok', fetch);
+    expect(await gh.branchHeads!('ana/p', null)).toEqual({ status: 200, repo: 'ana/p', etag: '"b1"', branches: [{ name: 'main', sha: 's1' }, { name: 'dev', sha: 's2' }] });
+    expect(calls[0]!.url).toBe('https://api.github.com/repos/ana/p/branches?per_page=100');
+    expect(await gh.branchHeads!('ana/p', '"b1"')).toEqual({ status: 304 });
+    expect(await gh.branchHeads!('ana/gone', null)).toEqual({ status: 404 });
+    expect(await gh.branchHeads!('ana/old', null)).toEqual({ status: 200, repo: 'ana/new', etag: '"r"', branches: [{ name: 'main', sha: 's9' }] });
+    expect(gh.usage!()).toEqual({ requests: 5, notModified: 1 });
+  });
+
+  it('lists the token owner’s public repositories, most recently pushed first', async () => {
+    const { fetch, calls } = fakeFetch(() =>
+      json([
+        { full_name: 'ana/a', private: false, fork: false, pushed_at: '2026-10-23T10:00:00Z', default_branch: 'main' },
+        { full_name: 'ana/b', private: false, visibility: 'internal', fork: true, pushed_at: null, default_branch: 'dev' },
+      ]),
+    );
+    const gh = createGithubClient('tok', fetch);
+    expect(await gh.viewerRepos!()).toEqual([
+      { fullName: 'ana/a', private: false, fork: false, pushedAt: Date.parse('2026-10-23T10:00:00Z'), defaultBranch: 'main' },
+      { fullName: 'ana/b', private: true, fork: true, pushedAt: 0, defaultBranch: 'dev' },
+    ]);
+    expect(calls[0]!.url).toBe('https://api.github.com/user/repos?sort=pushed&direction=desc&per_page=20&visibility=public&affiliation=owner,collaborator');
+  });
+
+  it('never echoes a token in an error', async () => {
+    const { fetch } = fakeFetch(() => new Response('bad token gho_abcdefghijklmnopqrstuvwxyz0123', { status: 500 }));
+    await expect(createGithubClient('tok', fetch).compare('a/b', 'x', 'y')).rejects.toThrow('compare a/b failed: 500 bad token [redacted]');
+  });
 });

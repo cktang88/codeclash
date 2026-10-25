@@ -46,6 +46,25 @@ export function Toasts({ hud }: { hud: HudSnapshot }) {
   );
 }
 
+/** The player's stored GitHub token was refused: their pushes now ride on the server's shared budget. */
+export function GithubLinkBanner() {
+  const { me } = useHudContext();
+  const [dismissed, setDismissed] = useState(false);
+  if (dismissed || me?.user?.github?.status !== 'invalid') return null;
+  const next = encodeURIComponent(location.pathname + location.search);
+  return (
+    <div className="day-over" role="status">
+      <span>GitHub no longer accepts your sign-in.</span>
+      <a className="btn btn-gilt" href={`/auth/github?next=${next}`}>
+        Sign in again to keep your own GitHub budget
+      </a>
+      <button className="icon-btn icon-btn-sm" onClick={() => setDismissed(true)} aria-label="Dismiss">
+        <Icon name="close" size={16} />
+      </button>
+    </div>
+  );
+}
+
 export function DayOverBanner({ hud }: { hud: HudSnapshot }) {
   const { slug, invite } = useHudContext();
   const [dismissed, setDismissed] = useState<number | null>(null);

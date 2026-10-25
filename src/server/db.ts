@@ -30,6 +30,48 @@ export interface UserRow {
   lastPolledAt: number | null;
   pollError: string | null;
   bot: boolean;
+  /**
+   * The player's stored GitHub sign-in token, described: never the token itself, which only
+   * `Store.sealedToken` reads (encrypted) for the GitHub pool. Null: none stored.
+   */
+  token: TokenState | null;
+}
+
+export interface TokenState {
+  /** False once GitHub refused it (401): the player must sign in again. */
+  valid: boolean;
+  /** The scopes GitHub granted (none is asked for: an empty string). */
+  scopes: string;
+  storedAt: number;
+  invalidAt: number | null;
+}
+
+/** A repository the discovery poller watches for a player (server/discovery.ts). */
+export interface WatchedRepo {
+  userId: number;
+  /** `owner/name` as last seen. */
+  repo: string;
+  /** Latest sign of the player's activity there (ms). */
+  activeAt: number;
+  source: 'push' | 'contrib' | 'repos';
+  etag: string | null;
+  /** Branch heads as last read; null until the first read (a baseline, nothing is synthesised from it). */
+  heads: Record<string, string> | null;
+  defaultBranch: string | null;
+  checkedAt: number | null;
+}
+
+export interface DiscoveryState {
+  userId: number;
+  /** When `/user/repos` and the contributions query were last read. */
+  reposAt: number | null;
+  contribAt: number | null;
+  /** The newest push of the player's we know of (events or discovery). */
+  pushedAt: number | null;
+  polledAt: number | null;
+  /** The hour (ms / 3,600,000) the spend counter is for, and requests GitHub charged in it. */
+  hour: number;
+  spent: number;
 }
 
 export interface RoomRow {
@@ -116,6 +158,27 @@ CREATE TABLE IF NOT EXISTS users (
   bot INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS users_login ON users(lower(login));
+CREATE TABLE IF NOT EXISTS watched_repos (
+  user_id INTEGER NOT NULL,
+  repo_key TEXT NOT NULL,
+  repo TEXT NOT NULL,
+  active_at INTEGER NOT NULL,
+  source TEXT NOT NULL,
+  etag TEXT,
+  heads TEXT,
+  default_branch TEXT,
+  checked_at INTEGER,
+  PRIMARY KEY (user_id, repo_key)
+);
+CREATE TABLE IF NOT EXISTS discovery (
+  user_id INTEGER PRIMARY KEY,
+  repos_at INTEGER,
+  contrib_at INTEGER,
+  pushed_at INTEGER,
+  polled_at INTEGER,
+  hour INTEGER NOT NULL DEFAULT 0,
+  spent INTEGER NOT NULL DEFAULT 0
+);
 CREATE TABLE IF NOT EXISTS rooms (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   slug TEXT NOT NULL UNIQUE,
@@ -281,7 +344,26 @@ export function openDb(path: string): Db {
   db.pragma('synchronous = NORMAL');
   db.pragma('foreign_keys = OFF');
   db.exec(SCHEMA);
+  migrate(db);
   return db;
+}
+
+/** Columns added after a table first shipped; CREATE TABLE IF NOT EXISTS leaves older files without them. */
+const ADDED_COLUMNS: Record<string, [string, string][]> = {
+  users: [
+    // The player's sign-in token, AES-256-GCM sealed (server/tokens.ts); never selected into a UserRow.
+    ['token_enc', 'TEXT'],
+    ['token_scopes', 'TEXT'],
+    ['token_stored_at', 'INTEGER'],
+    ['token_invalid_at', 'INTEGER'],
+  ],
+};
+
+function migrate(db: Db): void {
+  for (const [table, columns] of Object.entries(ADDED_COLUMNS)) {
+    const have = new Set((db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name));
+    for (const [name, type] of columns) if (!have.has(name)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`);
+  }
 }
 
 type Raw = Record<string, unknown>;
@@ -355,6 +437,23 @@ function userRow(r: Raw): UserRow {
     lastPolledAt: (r.last_polled_at as number | null) ?? null,
     pollError: (r.poll_error as string | null) ?? null,
     bot: r.bot === 1,
+    token:
+      r.token_enc != null
+        ? { valid: r.token_invalid_at == null, scopes: (r.token_scopes as string | null) ?? '', storedAt: (r.token_stored_at as number | null) ?? 0, invalidAt: (r.token_invalid_at as number | null) ?? null }
+        : null,
+  };
+}
+
+function watchedRow(r: Raw): WatchedRepo {
+  return {
+    userId: r.user_id as number,
+    repo: r.repo as string,
+    activeAt: r.active_at as number,
+    source: r.source as WatchedRepo['source'],
+    etag: (r.etag as string | null) ?? null,
+    heads: r.heads ? (JSON.parse(r.heads as string) as Record<string, string>) : null,
+    defaultBranch: (r.default_branch as string | null) ?? null,
+    checkedAt: (r.checked_at as number | null) ?? null,
   };
 }
 
@@ -456,6 +555,123 @@ export class Store {
 
   setHookSecret(id: number, secret: string): void {
     this.db.prepare('UPDATE users SET hook_secret = ? WHERE id = ?').run(secret, id);
+  }
+
+  // ------------------------------------------------------------ players' GitHub tokens
+
+  /** Stores a player's sealed sign-in token (server/tokens.ts), replacing any earlier one, valid again. */
+  setToken(id: number, sealed: string, scopes: string, at: number): void {
+    this.db.prepare('UPDATE users SET token_enc = ?, token_scopes = ?, token_stored_at = ?, token_invalid_at = NULL WHERE id = ?').run(sealed, scopes, at, id);
+  }
+
+  /** The player's sealed token while GitHub still accepts it; null when none is stored or it was refused. */
+  sealedToken(id: number): string | null {
+    const r = this.db.prepare('SELECT token_enc FROM users WHERE id = ? AND token_invalid_at IS NULL').get(id) as { token_enc: string | null } | undefined;
+    return r?.token_enc ?? null;
+  }
+
+  /** GitHub refused the token (401): it is kept only as a flag for the player, never used again. */
+  invalidateToken(id: number, at: number): void {
+    this.db.prepare('UPDATE users SET token_invalid_at = coalesce(token_invalid_at, ?), token_enc = CASE WHEN token_enc IS NULL THEN NULL ELSE \'\' END WHERE id = ?').run(at, id);
+  }
+
+  /** Disconnect: the token and everything discovery kept with it are deleted. */
+  deleteToken(id: number): void {
+    this.transaction(() => {
+      this.db.prepare('UPDATE users SET token_enc = NULL, token_scopes = NULL, token_stored_at = NULL, token_invalid_at = NULL WHERE id = ?').run(id);
+      this.db.prepare('DELETE FROM watched_repos WHERE user_id = ?').run(id);
+      this.db.prepare('DELETE FROM discovery WHERE user_id = ?').run(id);
+    });
+  }
+
+  /**
+   * Deletes a player's account: their token, discovery state, memberships, push records, seen commits,
+   * ledger, forks' pending rows and lifetime records, then the user row. Wars already fought keep their
+   * headers (the room's history), where the player then reads as unknown.
+   */
+  deleteUser(id: number): void {
+    this.transaction(() => {
+      for (const table of ['watched_repos', 'discovery', 'room_members', 'pushes', 'seen_commits', 'line_ledger', 'code_tally', 'upstream_pending', 'upstream_days', 'upstream_paid', 'lifetime', 'chat']) {
+        this.db.prepare(`DELETE FROM ${table} WHERE user_id = ?`).run(id);
+      }
+      this.db.prepare('DELETE FROM users WHERE id = ?').run(id);
+    });
+  }
+
+  // ------------------------------------------------------------ discovery (server/discovery.ts)
+
+  /** Notes the player's activity in a repository; the newest sign wins, and the row keeps its read state. */
+  noteRepo(userId: number, repo: string, at: number, source: WatchedRepo['source'], defaultBranch: string | null = null): void {
+    this.db
+      .prepare(
+        `INSERT INTO watched_repos (user_id, repo_key, repo, active_at, source, default_branch) VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(user_id, repo_key) DO UPDATE SET active_at = max(active_at, excluded.active_at),
+           source = CASE WHEN excluded.active_at > active_at THEN excluded.source ELSE source END,
+           default_branch = coalesce(excluded.default_branch, default_branch)`,
+      )
+      .run(userId, repo.toLowerCase(), repo, at, source, defaultBranch);
+  }
+
+  /** The player's watched repositories, most recently active first. */
+  watchedRepos(userId: number): WatchedRepo[] {
+    return (this.db.prepare('SELECT * FROM watched_repos WHERE user_id = ? ORDER BY active_at DESC, repo_key').all(userId) as Raw[]).map(watchedRow);
+  }
+
+  /** Records a read of a watched repository; `repo` may be its new name after a rename. */
+  setWatchedState(userId: number, repoKey: string, s: { repo: string; etag: string | null; heads: Record<string, string> | null; defaultBranch: string | null; checkedAt: number }): void {
+    const key = s.repo.toLowerCase();
+    this.transaction(() => {
+      if (key !== repoKey.toLowerCase()) {
+        // Renamed: the row moves to the new name (merging into it if the new name is watched already).
+        const old = this.db.prepare('SELECT active_at, source FROM watched_repos WHERE user_id = ? AND repo_key = ?').get(userId, repoKey.toLowerCase()) as Raw | undefined;
+        this.db.prepare('DELETE FROM watched_repos WHERE user_id = ? AND repo_key = ?').run(userId, repoKey.toLowerCase());
+        if (old) this.noteRepo(userId, s.repo, old.active_at as number, old.source as WatchedRepo['source'], s.defaultBranch);
+      }
+      this.db
+        .prepare('UPDATE watched_repos SET repo = ?, etag = ?, heads = ?, default_branch = ?, checked_at = ? WHERE user_id = ? AND repo_key = ?')
+        .run(s.repo, s.etag, s.heads ? JSON.stringify(s.heads) : null, s.defaultBranch, s.checkedAt, userId, key);
+    });
+  }
+
+  unwatchRepo(userId: number, repo: string): void {
+    this.db.prepare('DELETE FROM watched_repos WHERE user_id = ? AND repo_key = ?').run(userId, repo.toLowerCase());
+  }
+
+  /** Keeps the player's `keep` most recently active repositories, and none quiet since `before`. */
+  trimWatched(userId: number, keep: number, before: number): void {
+    this.db
+      .prepare('DELETE FROM watched_repos WHERE user_id = ? AND (active_at < ? OR repo_key NOT IN (SELECT repo_key FROM watched_repos WHERE user_id = ? ORDER BY active_at DESC, repo_key LIMIT ?))')
+      .run(userId, before, userId, keep);
+  }
+
+  discoveryState(userId: number): DiscoveryState {
+    const r = this.db.prepare('SELECT * FROM discovery WHERE user_id = ?').get(userId) as Raw | undefined;
+    return {
+      userId,
+      reposAt: (r?.repos_at as number | null | undefined) ?? null,
+      contribAt: (r?.contrib_at as number | null | undefined) ?? null,
+      pushedAt: (r?.pushed_at as number | null | undefined) ?? null,
+      polledAt: (r?.polled_at as number | null | undefined) ?? null,
+      hour: (r?.hour as number | undefined) ?? 0,
+      spent: (r?.spent as number | undefined) ?? 0,
+    };
+  }
+
+  setDiscoveryState(s: DiscoveryState): void {
+    this.db
+      .prepare(
+        `INSERT INTO discovery (user_id, repos_at, contrib_at, pushed_at, polled_at, hour, spent) VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(user_id) DO UPDATE SET repos_at = excluded.repos_at, contrib_at = excluded.contrib_at, pushed_at = excluded.pushed_at,
+           polled_at = excluded.polled_at, hour = excluded.hour, spent = excluded.spent`,
+      )
+      .run(s.userId, s.reposAt, s.contribAt, s.pushedAt, s.polledAt, s.hour, s.spent);
+  }
+
+  /** Notes a push of the player's (from any path), so discovery polls faster while they are at work. */
+  notePushedAt(userId: number, at: number): void {
+    this.db
+      .prepare('INSERT INTO discovery (user_id, pushed_at) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET pushed_at = max(coalesce(pushed_at, 0), excluded.pushed_at)')
+      .run(userId, at);
   }
 
   // ----------------------------------------------------------- pushes

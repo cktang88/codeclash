@@ -10,7 +10,7 @@ import { Chronicle } from './Chronicle.tsx';
 import { ArmyPanel } from './Army.tsx';
 import { useHudContext } from './context.ts';
 import { Inspector } from './Inspector.tsx';
-import { AwayModal, Countdown, DayOverBanner, Toasts, VictoryFanfare } from './Overlays.tsx';
+import { AwayModal, Countdown, DayOverBanner, GithubLinkBanner, Toasts, VictoryFanfare } from './Overlays.tsx';
 import { RingBar, VictoryOverlay } from './Ring.tsx';
 import { RoomSettings, ShareModal } from './RoomSettings.tsx';
 import { Chat, Cheers, EmoteRain, Presence } from './Social.tsx';
@@ -246,6 +246,7 @@ export function RoomHud({ hud, title, subtitle, banner, dock, room, onRoomChange
 
       <div className="hud-top-center">
         {banner}
+        {mode === 'live' && <GithubLinkBanner />}
         <DayOverBanner hud={hud} />
         <RingBar hud={hud} />
         <Toasts hud={hud} />

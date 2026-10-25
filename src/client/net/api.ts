@@ -73,4 +73,7 @@ export const api = {
   setResting: (on: boolean) => call<void>('POST', '/api/me/rest', { on }),
   rotateHook: () => call<HookResponse>('POST', '/api/me/hook'),
   logout: () => call<void>('POST', '/auth/logout'),
+  /** Deletes the stored GitHub sign-in token (signing out keeps it). */
+  disconnectGithub: () => call<void>('DELETE', '/api/me/github'),
+  deleteAccount: () => call<void>('DELETE', '/api/me'),
 };

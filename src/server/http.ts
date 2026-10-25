@@ -13,6 +13,7 @@ import {
   WS_CLOSE_NOT_FOUND,
   type ArmoryResponse,
   type DigestResponse,
+  type GithubLink,
   type LegendsResponse,
   type OrdersResponse,
   type SeasonResponse,
@@ -42,7 +43,7 @@ import type { GithubClient } from './github.ts';
 import type { Parser } from './parsePool.ts';
 import type { PushReport } from './poller.ts';
 import type { UpstreamWatcher } from './upstream.ts';
-import { PREVIEW_STATUS, PreviewFailure, type Preview } from './preview.ts';
+import { PREVIEW_COST, PREVIEW_STATUS, PreviewFailure, type Preview } from './preview.ts';
 import { isoDay, RoomFailure, Rooms, userRef } from './rooms.ts';
 import { readSession, SESSION_COOKIE } from './session.ts';
 import { TICK_MS } from '../sim/api.ts';
@@ -61,6 +62,14 @@ export interface HttpDeps extends AuthDeps {
   parser?: Parser | null;
   /** Forks' deferred bonus: a webhook's merged pull request wakes its checks. */
   upstream?: UpstreamWatcher | null;
+}
+
+/** GitHub requests a viewer's own token keeps back for their ingestion when it reads a preview. */
+export const VIEWER_PREVIEW_RESERVE = 1_000;
+
+/** What the client may know of a player's stored token: whether there is one, never the token. */
+export function githubLink(user: UserRow): GithubLink {
+  return { status: !user.token ? 'none' : user.token.valid ? 'ok' : 'invalid', storedAt: user.token?.storedAt ?? null };
 }
 
 /** Army previews one address may ask for a minute. */
@@ -251,6 +260,7 @@ export async function buildHttp(deps: HttpDeps): Promise<FastifyInstance> {
         resting: user.restingDay === isoDay(clock()),
         hookUrl: user.hookSecret ? `${config.publicUrl}/hooks/github/${user.id}` : null,
         streak: store.bestStreak(user.id),
+        github: githubLink(user),
       },
       rooms: store.roomsOf(user.id).map((r) => rooms.card(r)),
       ...base,
@@ -263,6 +273,35 @@ export async function buildHttp(deps: HttpDeps): Promise<FastifyInstance> {
     const on = z.object({ on: z.boolean() }).safeParse(req.body);
     if (!on.success) return fail(reply, 400, 'invalid', 'Expected { on: boolean }.');
     store.setRestingDay(user.id, on.data.on ? isoDay(clock()) : null);
+    return reply.code(204).send();
+  });
+
+  // Disconnect GitHub: the stored sign-in token is deleted (signing out keeps it). Ingestion falls back
+  // to the server's token; the player can revoke the grant itself at github.com/settings/applications.
+  app.delete('/api/me/github', async (req, reply) => {
+    const user = viewerOf(req);
+    if (!user) return fail(reply, 401, 'signed_out', 'Sign in first.');
+    store.deleteToken(user.id);
+    deps.pool?.forget(user.id);
+    deps.log.info('github disconnected', { user: user.id });
+    return reply.code(204).send();
+  });
+
+  // Deleting an account deletes the stored token with everything else the server keeps of the player.
+  app.delete('/api/me', async (req, reply) => {
+    const user = viewerOf(req);
+    if (!user) return fail(reply, 401, 'signed_out', 'Sign in first.');
+    const owned = store.roomsOf(user.id).filter((r) => r.ownerId === user.id);
+    if (owned.length > 0) return fail(reply, 409, 'owns_rooms', `Delete the rooms you own first (${owned.map((r) => r.name).join(', ')}).`);
+    for (const room of store.roomsOf(user.id)) {
+      rooms.leave(room, user.id);
+      recheckViewers(room.id);
+    }
+    store.deleteUser(user.id);
+    deps.meta?.deleteUser(user.id);
+    deps.pool?.forget(user.id);
+    reply.clearCookie(SESSION_COOKIE, { path: '/' });
+    deps.log.info('account deleted', { user: user.id });
     return reply.code(204).send();
   });
 
@@ -289,14 +328,16 @@ export async function buildHttp(deps: HttpDeps): Promise<FastifyInstance> {
     const titles = [...totals.entries()]
       .sort((a, b) => b[1] - a[1])
       .map(([id, n]) => `${n > 1 ? `${n}× ` : ''}${AWARDS.find((a) => a.id === id)?.title ?? id}`);
+    const own = viewer?.id === user.id ? { own: { github: githubLink(user) } } : {};
     const meta = deps.meta;
-    if (!meta) return { user: userRef(user), records, titles };
+    if (!meta) return { user: userRef(user), ...own, records, titles };
     const visible = (roomId: number) => {
       const room = store.room(roomId);
       return room !== null && rooms.canView(room, viewer?.id ?? null, null);
     };
     return {
       user: userRef(user),
+      ...own,
       records,
       titles,
       rank: meta.rank(user.id),
@@ -579,8 +620,9 @@ export async function buildHttp(deps: HttpDeps): Promise<FastifyInstance> {
     }
   });
 
-  // The army preview: what a public repository's latest commits would raise. Anyone may ask,
-  // signed in or not; it reads only public data, with the server's token, never a user's.
+  // The army preview: what a public repository's latest commits would raise. Anyone may ask, signed in
+  // or not; it reads only public data. A signed-in viewer with a usable token of their own reads on it
+  // (their bucket, keeping VIEWER_PREVIEW_RESERVE for their ingestion); everyone else on the server's.
   app.get('/api/preview/:owner/:repo', async (req, reply) => {
     const { owner, repo } = req.params as { owner: string; repo: string };
     const q = req.query as Record<string, unknown>;
@@ -591,8 +633,9 @@ export async function buildHttp(deps: HttpDeps): Promise<FastifyInstance> {
       return fail(reply, 429, 'rate_limited', `Ten musters a minute is the most the scouts can ride. Rest them a moment and try again.`);
     }
     try {
-      const { body, cached } = await deps.preview.preview(owner, repo, branch);
       const user = viewerOf(req);
+      const own = user?.token?.valid && deps.pool?.hasBudget(user.id, VIEWER_PREVIEW_RESERVE + PREVIEW_COST) ? deps.pool.own(user.id) : null;
+      const { body, cached } = await deps.preview.preview(owner, repo, branch, own ? { github: own, reserve: VIEWER_PREVIEW_RESERVE } : undefined);
       reply.header('cache-control', 'private, max-age=60');
       reply.header('x-preview-cache', cached ? 'hit' : 'miss');
       return { ...body, viewerHue: user ? (deps.meta?.latestHue(user.id) ?? null) : null };
@@ -623,7 +666,7 @@ export async function buildHttp(deps: HttpDeps): Promise<FastifyInstance> {
   }
 
   registerAuth(app, deps);
-  registerHooks(app, { store, github: deps.github, log: deps.log, clock, onPush: deps.onPush, context: deps.context ?? null, parser: deps.parser ?? null, upstream: deps.upstream ?? null });
+  registerHooks(app, { store, github: deps.github, log: deps.log, clock, onPush: deps.onPush, context: deps.context ?? null, parser: deps.parser ?? null, upstream: deps.upstream ?? null, pool: deps.pool ?? null });
 
   const clientDir = resolve(config.clientDir);
   if (existsSync(clientDir)) {

@@ -708,8 +708,12 @@ export class Preview {
 
   constructor(private readonly deps: PreviewDeps) {}
 
-  /** A repository's latest commits and the armies they raise, from cache when fresh. */
-  async preview(owner: string, repo: string, ref: string | null): Promise<{ body: PreviewBody; cached: boolean }> {
+  /**
+   * A repository's latest commits and the armies they raise, from cache when fresh. `via` reads with
+   * another client than the server's (a signed-in viewer's own token) and keeps its own headroom; the
+   * answer is public data either way, so it is cached for everyone.
+   */
+  async preview(owner: string, repo: string, ref: string | null, via?: { github: GithubClient; reserve: number }): Promise<{ body: PreviewBody; cached: boolean }> {
     if (!validRepo(owner, repo)) throw new PreviewFailure('invalid', 'That is not an owner/repository name.');
     if (ref !== null && !validRef(ref)) throw new PreviewFailure('invalid', 'That is not a branch name.');
     const key = `${owner}/${repo}#${ref ?? ''}`.toLowerCase();
@@ -722,7 +726,7 @@ export class Preview {
     }
     let run = this.inflight.get(key);
     if (!run) {
-      run = this.read(`${owner}/${repo}`, ref).then(
+      run = this.read(`${owner}/${repo}`, ref, via?.github ?? this.deps.github, via ? via.reserve : (this.deps.reserve ?? 0)).then(
         (body) => {
           this.heads.set(key, { at: this.deps.clock(), body });
           return body;
@@ -740,9 +744,8 @@ export class Preview {
     return { body: await run, cached: false };
   }
 
-  private async read(full: string, ref: string | null): Promise<PreviewBody> {
-    const { github } = this.deps;
-    if (github.rateLimit().remaining < (this.deps.reserve ?? 0) + PREVIEW_COST) {
+  private async read(full: string, ref: string | null, github: GithubClient, reserve: number): Promise<PreviewBody> {
+    if (github.rateLimit().remaining < reserve + PREVIEW_COST) {
       throw new PreviewFailure('github_limited', 'GitHub’s scouts are spent for the hour. Try again later.');
     }
     const info = await github.repo(full);
@@ -767,9 +770,9 @@ export class Preview {
       if (c.merge) skippedMerges++;
       else chosen.push(c);
     }
-    const diffs = await this.fetchDiffs(name, chosen);
+    const diffs = await this.fetchDiffs(name, chosen, github);
     await loadGrammars(diffs.flatMap((d) => d ?? []));
-    const contexts = await this.fetchContexts(name, chosen, diffs);
+    const contexts = await this.fetchContexts(name, chosen, diffs, github);
 
     const commits: PreviewCommit[] = chosen.map((c, i) => {
       const files = diffs[i]!;
@@ -820,7 +823,7 @@ export class Preview {
    * Each commit's difficulty context, read against its parent and for its author exactly as ingestion
    * reads a push's, kept by sha for the day (a commit's history does not change; its age does).
    */
-  private async fetchContexts(repo: string, commits: readonly CommitMeta[], diffs: readonly (ChangedFile[] | null)[]): Promise<(PushContext | null)[]> {
+  private async fetchContexts(repo: string, commits: readonly CommitMeta[], diffs: readonly (ChangedFile[] | null)[], github: GithubClient): Promise<(PushContext | null)[]> {
     const out: (PushContext | null)[] = new Array(commits.length).fill(null);
     const context = this.deps.context;
     if (!context) return out;
@@ -839,7 +842,7 @@ export class Preview {
           continue;
         }
         const pusher = pusherOf(c.authorId ?? -1, c.authorLogin ?? '', []);
-        const ctx = await context.forDiff(repo, { base: c.parent, files }, pusher);
+        const ctx = await context.forDiff(repo, { base: c.parent, files }, pusher, github);
         this.contexts.set(key, { context: ctx });
         out[i] = ctx;
       }
@@ -849,7 +852,7 @@ export class Preview {
   }
 
   /** Each commit's files, from the sha cache or GitHub, a few at a time. Null for a commit GitHub would not give. */
-  private async fetchDiffs(repo: string, commits: readonly CommitMeta[]): Promise<(ChangedFile[] | null)[]> {
+  private async fetchDiffs(repo: string, commits: readonly CommitMeta[], github: GithubClient): Promise<(ChangedFile[] | null)[]> {
     const out: (ChangedFile[] | null)[] = new Array(commits.length).fill(null);
     let next = 0;
     const worker = async () => {
@@ -864,7 +867,7 @@ export class Preview {
           continue;
         }
         this.stats.diffFetches++;
-        const result = await this.deps.github.commit(repo, sha);
+        const result = await github.commit(repo, sha);
         const files = result ? result.files : null;
         const bytes = 256 + (files ?? []).reduce((n, f) => n + f.filename.length + (f.patch?.length ?? 0) + 64, 0);
         if (files) this.diffs.set(key, { files, bytes });

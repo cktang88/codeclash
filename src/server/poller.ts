@@ -5,6 +5,7 @@ import { applyPush, dayBonusTotals, type PushDelta } from '../rules/ledger.ts';
 import type { Store, UserRow } from './db.ts';
 import type { DifficultyContext } from './difficulty.ts';
 import { EVENT_PAGES, GithubError, type CompareResult, type GithubClient } from './github.ts';
+import type { GithubPool } from './githubPool.ts';
 import { errorMessage, type Logger } from './log.ts';
 import { inlineParser, type Parser } from './parsePool.ts';
 import { firstCheckAt, patchId } from './upstream.ts';
@@ -45,7 +46,17 @@ export interface PollerDeps {
   context?: DifficultyContext | null;
   /** Parses diffs (off the main thread in production); none: inline. */
   parser?: Parser | null;
+  /**
+   * Players' own tokens (server/githubPool.ts): a player's polls, diffs and context run on their own
+   * buckets while they can, and on `github` (the server's) otherwise. None: everything on `github`.
+   */
+  pool?: GithubPool | null;
+  /** Told of each new push event in a player's feed (discovery watches those repositories). */
+  onPushEvent?: (userId: number, repo: string, at: number) => void;
 }
+
+/** Players polled on their own tokens per tick at most (each is still polled at most once a minute). */
+export const MAX_OWN_PER_TICK = 20;
 
 /** Diffs of one push that get difficulty context (a mixed push is measured commit by commit): the newest. */
 export const MAX_CONTEXT_DIFFS = 5;
@@ -175,7 +186,7 @@ async function ingestOnce(
   // worker thread). Applying the result to the ledger is then synchronous, inside the transaction.
   const pusher = pusherOf(user.id, user.login, counted.map((c) => c.authorEmail));
   const fetchContext = deps.context
-    ? Promise.all(diffs.map((d, i) => (i >= diffs.length - MAX_CONTEXT_DIFFS ? deps.context!.forDiff(push.repo, d, pusher) : Promise.resolve(null))))
+    ? Promise.all(diffs.map((d, i) => (i >= diffs.length - MAX_CONTEXT_DIFFS ? deps.context!.forDiff(push.repo, d, pusher, github) : Promise.resolve(null))))
     : Promise.resolve(diffs.map((): PushContext | null => null));
   const [contexts, prepared] = await Promise.all([fetchContext, (deps.parser ?? INLINE).prepare(diffs.map((d) => d.files))]);
   let report: PushReport;
@@ -267,9 +278,14 @@ export class Poller {
       const now = this.deps.clock();
       const interval = Math.max(MIN_POLL_MS, this.pollIntervalMs);
       const due = this.deps.store.pollableUsers().filter((u) => u.lastPolledAt === null || now - u.lastPolledAt >= interval);
+      // Players with a usable token of their own are polled on their own bucket, outside the server's budget.
+      const pool = this.deps.pool;
+      const own = pool ? due.filter((u) => u.token?.valid && pool.hasBudget(u.id)) : [];
+      const ownIds = new Set(own.map((u) => u.id));
+      const shared = due.filter((u) => !ownIds.has(u.id));
       // At least one user per tick keeps the feed moving, even when the budget rounds down.
       const budget = Math.max(this.deps.github.rateLimit().remaining > 50 ? 1 : 0, this.budget(now));
-      for (const user of due.slice(0, budget)) await this.pollUser(user.id);
+      for (const user of [...own.slice(0, MAX_OWN_PER_TICK), ...shared.slice(0, budget)]) await this.pollUser(user.id);
     } finally {
       this.running = false;
     }
@@ -284,9 +300,11 @@ export class Poller {
   }
 
   private async poll(userId: number): Promise<void> {
-    const { store, github, log, clock } = this.deps;
+    const { store, log, clock } = this.deps;
     const user = store.user(userId);
     if (!user || user.bot) return;
+    const github = this.deps.pool?.forUser(user.id) ?? this.deps.github;
+    const deps = { ...this.deps, github };
     const now = clock();
     let etag = user.eventsEtag;
     let lastEventId = user.lastEventId;
@@ -316,10 +334,11 @@ export class Poller {
           (e.actorId === undefined || e.actorId === user.id),
       );
       etag = res.etag;
+      for (const e of fresh) this.deps.onPushEvent?.(user.id, e.repo, e.createdAt);
       for (const e of fresh) {
         const key = `${user.id}:${e.id}`;
         try {
-          await ingestPush(this.deps, user, { repo: e.repo, ref: e.ref, before: e.before, head: e.head, at: e.createdAt });
+          await ingestPush(deps, user, { repo: e.repo, ref: e.ref, before: e.before, head: e.head, at: e.createdAt });
           this.attempts.delete(key);
         } catch (err) {
           // Being rate limited says nothing about the push itself, so it does not use up its tries.

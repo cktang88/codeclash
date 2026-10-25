@@ -28,6 +28,7 @@ import type { ChangedFile } from '../rules/classify.ts';
 import { UPSTREAM_GIVE_UP_DAYS, UPSTREAM_PER_DAY, upstreamReward } from '../rules/difficulty.ts';
 import type { Store, UpstreamPending } from './db.ts';
 import { GithubError, type GithubClient, type PullSummary } from './github.ts';
+import type { GithubPool } from './githubPool.ts';
 import { errorMessage, type Logger } from './log.ts';
 
 const DAY_MS = 86_400_000;
@@ -93,6 +94,8 @@ export interface UpstreamDeps {
   log?: Logger;
   /** Credits a settled reward to the player's current wars. */
   onReward: (r: UpstreamRewardEvent) => void;
+  /** Players' own tokens: a row is checked on its player's own bucket when it can be, outside the server's budget. */
+  pool?: GithubPool | null;
 }
 
 export interface UpstreamStats {
@@ -180,11 +183,16 @@ export class UpstreamWatcher {
         store.updateUpstream(r.id, { status: 'expired', checks: r.checks, nextCheckAt: r.nextCheckAt });
         this.stats.expired++;
       }
-      const live = due.filter((r) => now - r.at < GIVE_UP_MS).slice(0, this.budget(now));
+      const fresh = due.filter((r) => now - r.at < GIVE_UP_MS);
+      // Rows whose player has a usable token of their own are checked on it, outside the server's budget.
+      const pool = this.deps.pool;
+      const own = pool ? fresh.filter((r) => pool.hasBudget(r.userId)) : [];
+      const ownRows = new Set(own);
+      const live = [...own.slice(0, MAX_CHECKS_PER_RUN), ...fresh.filter((r) => !ownRows.has(r)).slice(0, this.budget(now))];
       for (const r of live) {
         let found: boolean;
         try {
-          found = await this.check(r, now);
+          found = await this.check(r, now, (ownRows.has(r) ? pool?.forUser(r.userId) : null) ?? this.deps.github);
         } catch (err) {
           if (rateLimited(err)) break;
           log?.warn('upstream check failed', { user: r.userId, repo: r.repo, upstream: r.upstream, error: errorMessage(err) });
@@ -234,8 +242,7 @@ export class UpstreamWatcher {
   }
 
   /** Whether the row's diff is in the upstream's default branch. */
-  async check(r: UpstreamPending, now: number): Promise<boolean> {
-    const { github } = this.deps;
+  async check(r: UpstreamPending, now: number, github: GithubClient = this.deps.github): Promise<boolean> {
     if (!r.upstream || !r.branch) return false;
     if (github.compareStatus) {
       this.stats.requests++;

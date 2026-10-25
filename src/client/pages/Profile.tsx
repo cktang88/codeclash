@@ -8,10 +8,12 @@ import { compact, plural } from '../ui/format.ts';
 import { Notice } from './Notice.tsx';
 import { DeedsSection, ProfileRank, RivalriesSection } from '../meta/ProfileSections.tsx';
 import { DropCap, Fleuron, Tally } from '../ui/codex.tsx';
+import { GithubLinkSection } from '../ui/GithubLink.tsx';
 
 export function ProfilePage({ login }: { login: string }) {
   const [profile, setProfile] = useState<ProfileResponse | null>(null);
   const [error, setError] = useState<{ missing: boolean; message: string } | null>(null);
+  const [reload, setReload] = useState(0);
   useEffect(() => {
     let cancelled = false;
     api.profile(login).then(
@@ -23,7 +25,7 @@ export function ProfilePage({ login }: { login: string }) {
     return () => {
       cancelled = true;
     };
-  }, [login]);
+  }, [login, reload]);
   if (error) {
     return (
       <Notice title={error.missing ? 'No such soldier' : 'The codex is shut'} icon="users">
@@ -70,6 +72,7 @@ export function ProfilePage({ login }: { login: string }) {
         </div>
       </header>
       <Fleuron />
+      {profile.own && <GithubLinkSection link={profile.own.github} onChanged={() => setReload((n) => n + 1)} />}
       <DropCap
         className="profile-opening"
         text={

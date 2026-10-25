@@ -136,8 +136,18 @@ export const CHAT_MAX = 240;
 
 // ------------------------------------------------------------------ REST
 
+/**
+ * Whether the server holds the player's own GitHub sign-in token (never the token itself): `ok` reads
+ * their public activity on their own rate limit; `invalid` means GitHub refused it and they should sign
+ * in again; `none` means the server's token is used.
+ */
+export interface GithubLink {
+  status: 'none' | 'ok' | 'invalid';
+  storedAt: number | null;
+}
+
 export interface MeResponse {
-  user: (UserRef & { resting: boolean; hookUrl: string | null; streak: number }) | null;
+  user: (UserRef & { resting: boolean; hookUrl: string | null; streak: number; github: GithubLink }) | null;
   rooms: RoomCard[];
   oauth: boolean;
   devAuth: boolean;
@@ -228,6 +238,8 @@ export interface LifetimeRecord {
 
 export interface ProfileResponse {
   user: UserRef;
+  /** Only on the viewer's own profile. */
+  own?: { github: GithubLink };
   records: LifetimeRecord[];
   titles: string[];
   rank?: RankInfo;

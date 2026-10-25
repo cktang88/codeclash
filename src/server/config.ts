@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
+import { TOKEN_KEY_MIN_BYTES } from './tokens.ts';
 
 // An empty value (`DEV_AUTH=` in a .env file) means unset, not a boot failure.
 const flag = (fallback: '0' | '1') =>
@@ -18,6 +19,8 @@ const EnvSchema = z
     GITHUB_CLIENT_ID: optionalString,
     GITHUB_CLIENT_SECRET: optionalString,
     SESSION_SECRET: optionalString,
+    /** Key material for players' stored GitHub tokens (AES-256-GCM, HKDF-derived); 32+ bytes. */
+    TOKEN_KEY: optionalString,
     DEV_AUTH: flag('0'),
     COMMONS: flag('1'),
     DAY_MINUTES: z.coerce.number().positive().optional().catch(undefined),
@@ -31,7 +34,14 @@ const EnvSchema = z
     PARSE_WORKERS: z.coerce.number().int().min(0).max(16).optional().catch(undefined),
   })
   .superRefine((env, ctx) => {
+    if (env.TOKEN_KEY && Buffer.byteLength(env.TOKEN_KEY, 'utf8') < TOKEN_KEY_MIN_BYTES) {
+      ctx.addIssue({ code: 'custom', path: ['TOKEN_KEY'], message: `must be at least ${TOKEN_KEY_MIN_BYTES} bytes` });
+    }
     if (env.NODE_ENV !== 'production') return;
+    // Players' sign-in tokens are stored encrypted; a production key must survive restarts and be its own secret.
+    if (env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET && !env.TOKEN_KEY) {
+      ctx.addIssue({ code: 'custom', path: ['TOKEN_KEY'], message: `must be set (${TOKEN_KEY_MIN_BYTES}+ bytes) in production when GitHub sign-in is configured` });
+    }
     if (!env.SESSION_SECRET || env.SESSION_SECRET.length < 32) {
       ctx.addIssue({ code: 'custom', path: ['SESSION_SECRET'], message: 'must be at least 32 characters in production' });
     }
@@ -51,6 +61,8 @@ export interface Config {
   oauth: { clientId: string; clientSecret: string } | null;
   sessionSecret: string;
   sessionSecretGenerated: boolean;
+  /** TOKEN_KEY; null: derived from SESSION_SECRET (when set) or random per boot, outside production only. */
+  tokenKey: string | null;
   devAuth: boolean;
   /** Seed a public room with sparring bots at boot. */
   commons: boolean;
@@ -79,6 +91,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     oauth: e.GITHUB_CLIENT_ID && e.GITHUB_CLIENT_SECRET ? { clientId: e.GITHUB_CLIENT_ID, clientSecret: e.GITHUB_CLIENT_SECRET } : null,
     sessionSecret: e.SESSION_SECRET ?? randomBytes(32).toString('hex'),
     sessionSecretGenerated: !e.SESSION_SECRET,
+    tokenKey: e.TOKEN_KEY ?? null,
     devAuth: e.DEV_AUTH,
     commons: e.COMMONS,
     dayMs: e.DAY_MINUTES ? Math.round(e.DAY_MINUTES * 60_000) : null,

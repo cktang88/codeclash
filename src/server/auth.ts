@@ -4,7 +4,9 @@ import { z } from 'zod';
 import type { Config } from './config.ts';
 import type { Store } from './db.ts';
 import { fetchViewer, REQUEST_TIMEOUT_MS } from './github.ts';
+import type { GithubPool } from './githubPool.ts';
 import { errorMessage, type Logger } from './log.ts';
+import type { TokenVault } from './tokens.ts';
 import { issueSession, SESSION_COOKIE, SESSION_MAX_AGE_S } from './session.ts';
 
 const STATE_COOKIE = 'pf_oauth';
@@ -17,10 +19,14 @@ export interface AuthDeps {
   fetchImpl?: typeof fetch;
   /** Called after every sign-in, e.g. to poll the user's pushes at once. */
   onSignIn?: (userId: number) => void;
+  /** Seals players' sign-in tokens for storage (server/tokens.ts); none: tokens are not kept. */
+  vault?: TokenVault | null;
+  /** Players' GitHub clients: a new token replaces the old client. */
+  pool?: GithubPool | null;
 }
 
 const CallbackQuery = z.object({ code: z.string().min(1), state: z.string().min(1) });
-const TokenResponse = z.object({ access_token: z.string().min(1) });
+const TokenResponse = z.object({ access_token: z.string().min(1), scope: z.string().optional() });
 const DevQuery = z.object({ login: z.string().regex(/^[A-Za-z0-9-]{1,39}$/), next: z.string().optional() });
 const StartQuery = z.object({ next: z.string().optional() });
 
@@ -35,8 +41,18 @@ export function registerAuth(app: FastifyInstance, deps: AuthDeps): void {
   const secure = config.publicUrl.startsWith('https://');
   const redirectUri = `${config.publicUrl}/auth/github/callback`;
 
-  const signIn = (reply: FastifyReply, account: { id: number; nodeId: string; login: string; avatarUrl: string; createdAt: number }, next: string) => {
+  const signIn = (
+    reply: FastifyReply,
+    account: { id: number; nodeId: string; login: string; avatarUrl: string; createdAt: number },
+    next: string,
+    grant?: { token: string; scopes: string },
+  ) => {
     store.upsertUser({ id: account.id, nodeId: account.nodeId, login: account.login, avatarUrl: account.avatarUrl, createdAtGithub: account.createdAt, joinedAt: deps.clock(), bot: false });
+    // The sign-in token reads the player's public activity on their own rate limit: kept sealed, never shown.
+    if (grant && deps.vault) {
+      store.setToken(account.id, deps.vault.seal(grant.token, account.id), grant.scopes, deps.clock());
+      deps.pool?.forget(account.id);
+    }
     reply.setCookie(SESSION_COOKIE, issueSession(account.id, deps.clock(), config.sessionSecret), {
       path: '/', httpOnly: true, sameSite: 'lax', secure, maxAge: SESSION_MAX_AGE_S,
     });
@@ -78,10 +94,13 @@ export function registerAuth(app: FastifyInstance, deps: AuthDeps): void {
         body: JSON.stringify({ client_id: config.oauth.clientId, client_secret: config.oauth.clientSecret, code: query.data.code, redirect_uri: redirectUri }),
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });
-      const token = TokenResponse.parse(await res.json()).access_token;
+      // Parsed quietly: a schema error must not echo the answer (and its token) into a log line.
+      const parsed = TokenResponse.safeParse(await res.json().catch(() => null));
+      if (!parsed.success) throw new Error(`token exchange failed: ${res.status}`);
+      const { access_token: token, scope } = parsed.data;
       const viewer = await fetchViewer(token, fetchImpl);
       if (viewer.type !== 'User') return reply.redirect(`${config.publicUrl}/?error=not_a_user`);
-      return signIn(reply, { id: viewer.id, nodeId: viewer.node_id, login: viewer.login, avatarUrl: viewer.avatar_url, createdAt: Date.parse(viewer.created_at) }, next);
+      return signIn(reply, { id: viewer.id, nodeId: viewer.node_id, login: viewer.login, avatarUrl: viewer.avatar_url, createdAt: Date.parse(viewer.created_at) }, next, { token, scopes: scope ?? '' });
     } catch (err) {
       deps.log.warn('OAuth callback failed', { error: errorMessage(err) });
       return reply.redirect(`${config.publicUrl}/?error=signin_failed`);

@@ -4,6 +4,7 @@ import { z } from 'zod';
 import type { Store } from './db.ts';
 import type { DifficultyContext } from './difficulty.ts';
 import type { GithubClient } from './github.ts';
+import type { GithubPool } from './githubPool.ts';
 import { errorMessage, type Logger } from './log.ts';
 import type { Parser } from './parsePool.ts';
 import { ingestPush, type PushReport } from './poller.ts';
@@ -19,6 +20,8 @@ export interface HookDeps {
   parser?: Parser | null;
   /** Forks' deferred bonus: a merged pull request makes the member's pending rows there due now. */
   upstream?: UpstreamWatcher | null;
+  /** Players' own tokens: a delivery's compare runs on the member's own bucket when it can. */
+  pool?: GithubPool | null;
 }
 
 const BODY_LIMIT = 5 * 1024 * 1024;
@@ -126,13 +129,15 @@ export function registerHooks(app: FastifyInstance, deps: HookDeps): void {
       if (!allow(user.id, deps.clock())) return reply.code(429).send({ error: 'too many deliveries' });
 
       try {
-        const report = await ingestPush({ ...deps, github: deps.github }, user, {
+        const report = await ingestPush({ ...deps, github: deps.pool?.forUser(user.id) ?? deps.github }, user, {
           repo: parsed.repository.full_name,
           ref: parsed.ref,
           before: parsed.before,
           head: parsed.after,
           at: deps.clock(),
         }, true);
+        // The member is at work: discovery polls their repositories faster for the next hour.
+        if (report) deps.store.notePushedAt(user.id, deps.clock());
         return reply.code(202).send({ ok: true, counted: report !== null });
       } catch (err) {
         deps.log.warn('hook push ingestion failed', { user: user.login, repo: parsed.repository.full_name, error: errorMessage(err) });

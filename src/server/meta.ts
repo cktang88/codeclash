@@ -408,6 +408,11 @@ export class Meta implements MetaHooks {
   }
 
   /** Removes a deleted room's meta records; a user's Glory and Deeds stay theirs. */
+  /** A deleted account: the player's glory, orders, deeds and heraldry go (rooms' legends and rivalries are their history). */
+  deleteUser(userId: number): void {
+    for (const table of ['glory', 'orders_done', 'deeds', 'armory']) this.db.prepare(`DELETE FROM ${table} WHERE user_id = ?`).run(userId);
+  }
+
   deleteRoom(roomId: number): void {
     this.forgetStandings(roomId);
     this.db.prepare('DELETE FROM legends WHERE room_id = ?').run(roomId);

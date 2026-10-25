@@ -122,23 +122,24 @@ export class DifficultyContext {
 
   /**
    * Context for one diff of `repo` read against `base`, for the push of `pusher`, or null when
-   * nothing could be read (the bonus is then 0). Never throws.
+   * nothing could be read (the bonus is then 0). Never throws. `github` overrides the client for this
+   * read (a player's own token, server/githubPool.ts); facts are public, so the caches are shared.
    */
-  async forDiff(repo: string, diff: { base?: string | null; files: readonly ChangedFile[] }, pusher: Pusher): Promise<PushContext | null> {
+  async forDiff(repo: string, diff: { base?: string | null; files: readonly ChangedFile[] }, pusher: Pusher, github?: GithubClient): Promise<PushContext | null> {
     try {
-      return await this.read(repo, diff, pusher);
+      return await this.read(repo, diff, pusher, github ?? this.deps.github);
     } catch (err) {
       this.deps.log?.warn('difficulty context failed', { repo, error: err instanceof Error ? err.message : String(err) });
       return null;
     }
   }
 
-  private async read(repo: string, diff: { base?: string | null; files: readonly ChangedFile[] }, pusher: Pusher): Promise<PushContext | null> {
+  private async read(repo: string, diff: { base?: string | null; files: readonly ChangedFile[] }, pusher: Pusher, github: GithubClient): Promise<PushContext | null> {
     const base = diff.base ?? null;
     if (!base || !/^[0-9a-f]{40}$/.test(base)) return null;
     const candidates = contextCandidates(diff.files, isSource);
     if (candidates.length === 0) return null;
-    const facts = await this.repoFacts(repo);
+    const facts = await this.repoFacts(repo, github);
     if (!facts) return null;
     if (facts.languages) {
       const bytes = Object.values(facts.languages).reduce((a, b) => a + b, 0);
@@ -146,7 +147,7 @@ export class DifficultyContext {
     }
     const paths = candidates.map((f) => f.filename);
     const raw = new Map<string, { facts: RawFileFacts; source: ContextSource }>();
-    for (const [path, f] of await this.viaGraphql(repo, base, paths)) raw.set(path, { facts: f, source: 'graphql' });
+    for (const [path, f] of await this.viaGraphql(repo, base, paths, github)) raw.set(path, { facts: f, source: 'graphql' });
     const unread = paths.filter((p) => !raw.has(p));
     if (unread.length > 0 && this.deps.mirror) {
       this.prune();
@@ -171,9 +172,8 @@ export class DifficultyContext {
   }
 
   /** Blame and history for `paths` at `base`: one batched query, then one per file for any it did not answer. */
-  private async viaGraphql(repo: string, base: string, paths: readonly string[]): Promise<Map<string, RawFileFacts>> {
+  private async viaGraphql(repo: string, base: string, paths: readonly string[], github: GithubClient): Promise<Map<string, RawFileFacts>> {
     const out = new Map<string, RawFileFacts>();
-    const { github } = this.deps;
     if (!github.graphql) return out;
     if (github.graphqlRateLimit && github.graphqlRateLimit().remaining < GRAPHQL_RESERVE) return out;
     const [owner, name] = repo.split('/') as [string, string];
@@ -213,8 +213,7 @@ export class DifficultyContext {
   }
 
   /** A repository's facts and languages, read once per UTC day (ETags make the next day's read free when unchanged). */
-  async repoFacts(repo: string): Promise<RepoFacts | null> {
-    const { github } = this.deps;
+  async repoFacts(repo: string, github: GithubClient = this.deps.github): Promise<RepoFacts | null> {
     if (!github.repoFacts) return null;
     const day = Math.floor(this.deps.clock() / DAY_MS);
     const key = `${repo.toLowerCase()}#${day}`;
