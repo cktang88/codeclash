@@ -2,6 +2,7 @@ import { CAT_COUNT, Cat, Kind, KIND_COUNT, PURPOSES, TICKS_PER_MINUTE, type Purp
 import type { ChronicleEntry } from '../sim/chronicle.ts';
 import { decodeInput, type Replay } from '../sim/replay.ts';
 import { compareStandings, contribution, dayWinner } from '../sim/world.ts';
+import { effectiveLedger } from '../sim/muster.ts';
 
 export interface AwardDef {
   id: string;
@@ -23,7 +24,7 @@ export const AWARDS: readonly AwardDef[] = [
   { id: 'marcher', title: 'Lord of the Marches', blurb: 'Most border forts taken' },
   { id: 'ghost', title: 'Ghost', blurb: 'Most renown for every soldier raised' },
   { id: 'bugslayer', title: 'Bugslayer', blurb: 'Most bug fixes pushed' },
-  { id: 'architect', title: 'Architect', blurb: 'Most complex code: branch points added' },
+  { id: 'architect', title: 'Architect', blurb: 'Most complex code: decisions, new functions and linked modules' },
   { id: 'dragonlord', title: 'Dragonlord', blurb: 'Summoned the most Dragons with legendary pushes' },
   { id: 'dragonslayer', title: 'Dragonslayer', blurb: 'Brought down the most Dragons' },
 ];
@@ -65,6 +66,8 @@ export interface DigestPlayer {
   fixes: number;
   files: number;
   branches: number;
+  /** Complexity as the army counted it: branch points, function points and half the linked names, after its caps. */
+  complexity?: number;
   /** Final army quality and veteran rank. */
   quality: number;
   veterancy: number;
@@ -135,6 +138,7 @@ export function buildDigest(world: World, replay: Replay, chronicle: readonly Ch
       fixes: ps.purposes[PURPOSES.indexOf('fix')] ?? 0,
       files: ps.ledger.files,
       branches: ps.ledger.branches,
+      complexity: effectiveLedger(ps.ledger).complexity,
       quality: ps.quality,
       veterancy: ps.veterancy,
       churn: ps.ledger.churn,
@@ -206,7 +210,7 @@ export function buildDigest(world: World, replay: Replay, chronicle: readonly Ch
   give('marcher', (pl) => pl.captures);
   give('ghost', (pl) => pl.renown / raisedTotal(pl), (pl) => raisedTotal(pl) > 0);
   give('bugslayer', (pl) => pl.fixes);
-  give('architect', (pl) => pl.branches);
+  give('architect', (pl) => pl.complexity ?? pl.branches);
   give('dragonlord', (pl) => pl.raised[Kind.Dragon]!);
   give('dragonslayer', (pl) => pl.slain[Kind.Dragon]!);
 

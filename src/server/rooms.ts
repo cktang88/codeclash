@@ -166,7 +166,7 @@ export class Rooms {
         const rate = persona ? botRateAt(botDay(war.meta.seed, b), hour) : 0;
         if (!persona || rate <= 0 || rand() >= (rate * elapsedMs * dayScale) / 3600_000) continue;
         const push = botPush(persona, rand);
-        war.push(now, pl.userId, { repo: push.repo[0], language: push.repo[1], lines: push.lines, files: push.files, branches: push.branches, churn: push.churn, filler: push.filler, commits: 1 + Math.floor(rand() * 3), message: push.message });
+        war.push(now, pl.userId, { repo: push.repo[0], language: push.repo[1], lines: push.lines, files: push.files, branches: push.branches, functions: push.functions, links: push.links, churn: push.churn, filler: push.filler, commits: 1 + Math.floor(rand() * 3), message: push.message });
       }
     }
   }

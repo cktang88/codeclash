@@ -5,10 +5,11 @@
 
 import type { PreviewArmy, PreviewCombined, PreviewCommit, PreviewLines, PreviewResponse } from '../protocol.ts';
 import type { ChangedFile } from '../rules/classify.ts';
+import { loadGrammars } from '../rules/complexity.ts';
 import { DAILY_CODE_CAP, measurePush, MemoryLedger, SHAPE_CAP, type LedgerStore, type PushDelta, type Uncounted, type UncountedKind } from '../rules/ledger.ts';
 import { validRef, validRepo } from '../rules/repoRef.ts';
 import { CAT_NAMES, Cat, Kind, type Ledger, type Purpose } from '../sim/api.ts';
-import { applyDelta, armyFor, armyQuality, BUDGET_PER_10K, budgetOf, cleanLines, CODE_KNEE, effectiveLedger, emptyLedger, int, purposeOf, slotsOf } from '../sim/muster.ts';
+import { applyDelta, armyFor, armyQuality, BUDGET_PER_10K, budgetOf, cleanLines, CODE_KNEE, complexityOf, credited, DRAGON_COMPLEXITY, effectiveLedger, emptyLedger, int, LINK_SHARE, purposeOf, slotsOf } from '../sim/muster.ts';
 import { STATS } from '../sim/stats.ts';
 import { GithubError, MAX_FILES, type CommitMeta, type GithubClient } from './github.ts';
 
@@ -121,7 +122,12 @@ function armyOf(ledger: Ledger, pushes: number): PreviewArmy {
 
 /** Applies one measured push to a ledger exactly as the war does (`musterPush` in sim/world.ts). */
 function credit(ledger: Ledger, delta: PushDelta, purpose: Purpose): void {
-  applyDelta(ledger, { lines: cleanLines(delta.lines), files: int(delta.files), branches: int(delta.branches), churn: int(delta.churn, 0), filler: int(delta.filler, 0), purpose });
+  applyDelta(ledger, { lines: cleanLines(delta.lines), files: int(delta.files), branches: int(delta.branches), functions: int(delta.functions), links: int(delta.links), churn: int(delta.churn, 0), filler: int(delta.filler, 0), purpose });
+}
+
+/** A ledger's complexity parts, and the complexity the army counts from them. */
+function complexityFields(ledger: Ledger): { branches: number; functions: number; links: number; complexity: number } {
+  return { branches: ledger.branches, functions: ledger.functions, links: ledger.links, complexity: effectiveLedger(ledger).complexity };
 }
 
 /** What one commit alone raises: a standalone push measured on a fresh ledger. */
@@ -136,6 +142,8 @@ export function musterCommit(files: readonly ChangedFile[], message: string, sto
 // ------------------------------------------------------------------ explaining
 
 const fmt = (n: number) => Math.round(n).toLocaleString('en-US');
+/** A count of points, which may end in a half. */
+const pts = (n: number) => n.toLocaleString('en-US', { maximumFractionDigits: 1 });
 const plural = (n: number, one: string, many = `${one}s`) => `${fmt(n)} ${n === 1 ? one : many}`;
 const unit = (kind: number, n: number) => (n === 1 && (kind === Kind.Dragon || kind === Kind.Troll) ? `a ${STATS[kind]!.name}` : `${fmt(n)} ${n === 1 ? STATS[kind]!.name : STATS[kind]!.plural}`);
 const units = (counts: readonly number[], kinds: readonly number[]) => kinds.filter((k) => counts[k]! > 0).map((k) => unit(k, counts[k]!)).join(', ');
@@ -143,7 +151,7 @@ const units = (counts: readonly number[], kinds: readonly number[]) => kinds.fil
 /** What each purpose raises, and what a commit must be to raise it. */
 const PURPOSE_SPECIALISTS: Record<Exclude<Purpose, 'work'>, string> = {
   fix: 'Bug fix too small for Clerics',
-  feature: 'Feature too small for a Champion (400 lines across 5 files)',
+  feature: 'Feature too small for Champions (400 lines across 5 files)',
   refactor: 'Refactor too small for Outriders',
   perf: 'Performance work too small for Wizards',
   revert: 'Revert too small to raise the dead',
@@ -204,7 +212,28 @@ export function mergeUncounted(all: readonly (readonly Uncounted[] | undefined)[
 }
 
 /** Short lines saying why a ledger raised the army it did. */
-export function explain(ledger: Ledger, army: PreviewArmy, purpose: Purpose | null, extra: { filesChanged: number; estimated: number; truncated: boolean; unread?: boolean; uncounted?: readonly Uncounted[] }): string[] {
+/**
+ * "Complexity 182: 120 branch points, 14 new functions (+42), 9 imported names used from 4 local
+ * modules (+4.5)", and what held it back, or null when there is none.
+ */
+export function complexityText(ledger: Ledger, modules?: number): string | null {
+  const code = credited(ledger.lines[Cat.Code]!);
+  const cx = complexityOf(ledger, code);
+  const raw = ledger.branches + ledger.functions + ledger.links / 2;
+  if (raw <= 0) return null;
+  const parts = [plural(ledger.branches, 'branch point')];
+  if (ledger.functions > 0) parts.push(`${plural(Math.max(1, Math.round(ledger.functions / 3)), 'new function')} (+${fmt(ledger.functions)})`);
+  if (ledger.links > 0) {
+    const from = modules && modules > 0 ? ` from ${plural(modules, 'local module')}` : ' from local modules';
+    parts.push(`${plural(ledger.links, 'imported name')} used${from} (+${pts(ledger.links / 2)})`);
+  }
+  const held: string[] = [];
+  if (cx.links < ledger.links) held.push(`imported names count for at most ${Math.round(LINK_SHARE * 100)}% of it`);
+  if (cx.half < 2 * cx.branches + 2 * cx.functions + cx.links) held.push(`held to ${pts(cx.half / 2)}, one point per 2 lines of code`);
+  return `Complexity ${pts(raw)}: ${parts.join(', ')}${held.length ? `; ${held.join(', and ')}` : ''}`;
+}
+
+export function explain(ledger: Ledger, army: PreviewArmy, purpose: Purpose | null, extra: { filesChanged: number; estimated: number; truncated: boolean; unread?: boolean; uncounted?: readonly Uncounted[]; modules?: number }): string[] {
   const out: string[] = [];
   const L = ledger.lines;
   const c = army.counts;
@@ -213,12 +242,12 @@ export function explain(ledger: Ledger, army: PreviewArmy, purpose: Purpose | nu
   // How big the army is, and what each part of the work added to it.
   if (army.budget > 0) {
     const w = BUDGET_PER_10K;
-    const raw = [(w.code * eff.code) / 10_000, (w.files * eff.files) / 10_000, (w.branches * eff.branches) / 10_000, (w.removed * eff.removed) / 10_000];
-    const [code, files, branches, removed] = apportion(raw, army.budget) as [number, number, number, number];
+    const raw = [(w.code * eff.code) / 10_000, (w.files * eff.files) / 10_000, (w.complexity * eff.complexity) / 10_000, (w.removed * eff.removed) / 10_000];
+    const [code, files, complexity, removed] = apportion(raw, army.budget) as [number, number, number, number];
     const knee = L[Cat.Code]! > CODE_KNEE ? `; past ${fmt(CODE_KNEE)} a line counts half` : '';
     const rest = [
       files > 0 ? `${plural(eff.files, 'file')} (+${files})` : '',
-      branches > 0 ? `${plural(eff.branches, 'branch point')} of logic (+${branches})` : '',
+      complexity > 0 ? `complexity ${pts(eff.complexity)} (+${complexity})` : '',
       removed > 0 ? `${plural(eff.removed, 'removed line')} of cleanup (+${removed})` : '',
     ].filter(Boolean);
     const lead = `${plural(L[Cat.Code]!, 'line')} of code (+${code}${knee})`;
@@ -227,21 +256,23 @@ export function explain(ledger: Ledger, army: PreviewArmy, purpose: Purpose | nu
   } else if (L[Cat.Code]! > 0) {
     out.push(`${plural(L[Cat.Code]!, 'line')} of code: too few for a soldier (about ${Math.ceil(10_000 / BUDGET_PER_10K.code)} lines each)`);
   }
+  const cxText = complexityText(ledger, extra.modules);
+  if (cxText && L[Cat.Code]! > 0) out.push(cxText);
   // How the army size was spent: specialists by what raised them, Footmen for the rest.
   const specialists: string[] = [];
   const fixers = units(c, [Kind.Cleric, Kind.Paladin, Kind.Ranger]);
   if (fixers) specialists.push(`${purpose ? 'bug fix' : 'bug fixes'} → ${fixers}`);
-  if (c[Kind.Dragon]! > 0) specialists.push(`legendary ${purpose === 'work' ? 'work' : 'feature'} (900+ lines, 10+ files, 90+ branch points) → ${unit(Kind.Dragon, c[Kind.Dragon]!)}`);
-  if (c[Kind.Champion]! > 0) specialists.push(`big feature (400 feature lines and 5 files each) → ${unit(Kind.Champion, c[Kind.Champion]!)}`);
+  if (c[Kind.Dragon]! > 0) specialists.push(`legendary ${purpose === 'work' ? 'work' : 'feature'} (900+ lines, 10+ files, complexity ${DRAGON_COMPLEXITY[0]}+) → ${unit(Kind.Dragon, c[Kind.Dragon]!)}`);
+  if (c[Kind.Champion]! > 0) specialists.push(`big feature (two per 400 feature lines and 5 files) → ${unit(Kind.Champion, c[Kind.Champion]!)}`);
   const refactor = units(c, [Kind.Outrider, Kind.GriffinRider]);
   if (refactor) specialists.push(`refactor → ${refactor}`);
   if (c[Kind.Wizard]! > 0) specialists.push(`performance work → ${unit(Kind.Wizard, c[Kind.Wizard]!)}`);
   const undead = units(c, [Kind.Skeleton, Kind.BoneGolem]);
   if (undead) specialists.push(`revert → ${undead}`);
   if (c[Kind.Mercenary]! > 0) specialists.push(`chore → ${unit(Kind.Mercenary, c[Kind.Mercenary]!)}`);
-  if (c[Kind.Knight]! > 0) specialists.push(`${plural(eff.branches, 'branch point')} → ${unit(Kind.Knight, c[Kind.Knight]!)}`);
+  if (c[Kind.Knight]! > 0) specialists.push(`complexity ${pts(eff.complexity)} → ${unit(Kind.Knight, c[Kind.Knight]!)}`);
   if (c[Kind.Troll]! > 0) specialists.push(`very complex code → ${unit(Kind.Troll, c[Kind.Troll]!)}`);
-  if (c[Kind.Trebuchet]! > 0) specialists.push(`sweeping change (15 files each) → ${unit(Kind.Trebuchet, c[Kind.Trebuchet]!)}`);
+  if (c[Kind.Trebuchet]! > 0) specialists.push(`sweeping change (two per 15 files) → ${unit(Kind.Trebuchet, c[Kind.Trebuchet]!)}`);
   if (army.budget > 0) {
     // Each Berserker took the place of two Footmen, so the specialists spent the rest.
     const spent = army.budget - c[Kind.Footman]! - 2 * c[Kind.Berserker]!;
@@ -374,6 +405,7 @@ export class Preview {
       else chosen.push(c);
     }
     const diffs = await this.fetchDiffs(name, chosen);
+    await loadGrammars(diffs.flatMap((d) => d ?? []));
 
     const commits: PreviewCommit[] = chosen.map((c, i) => {
       const files = diffs[i]!;
@@ -393,10 +425,10 @@ export class Preview {
         lines: linesOf(ledger.lines),
         filesChanged: files?.length ?? 0,
         files: ledger.files,
-        branches: ledger.branches,
+        ...complexityFields(ledger),
         filler: ledger.filler,
         army,
-        reasons: explain(ledger, army, purpose, { filesChanged: files?.length ?? 0, ...shape, unread: files === null, uncounted: delta.uncounted }),
+        reasons: explain(ledger, army, purpose, { filesChanged: files?.length ?? 0, ...shape, unread: files === null, uncounted: delta.uncounted, modules: delta.modules }),
         ...(files === null ? { unread: true } : {}),
         ...(shape.truncated ? { truncated: true } : {}),
         ...(shape.estimated > 0 ? { estimated: shape.estimated } : {}),
@@ -457,11 +489,13 @@ export function combine(chosen: readonly CommitMeta[], diffs: readonly (ChangedF
   let filesChanged = 0;
   let estimated = 0;
   const uncounted: (readonly Uncounted[] | undefined)[] = [];
+  let modules = 0;
   for (let i = chosen.length - 1; i >= 0; i--) {
     const files = diffs[i];
     if (!files) continue;
     const delta = measurePush(files, store);
     uncounted.push(delta.uncounted);
+    modules += delta.modules ?? 0;
     credit(ledger, delta, purposeOf(chosen[i]!.message));
     pushes++;
     filesChanged += files.length;
@@ -471,14 +505,14 @@ export function combine(chosen: readonly CommitMeta[], diffs: readonly (ChangedF
   const separateSlots = commits.reduce((n, c) => n + c.army.slots, 0);
   const reasons = [
     `${plural(pushes, 'commit')} pushed on one day, oldest first`,
-    ...explain(ledger, army, null, { filesChanged, estimated, truncated: false, uncounted: mergeUncounted(uncounted) }),
+    ...explain(ledger, army, null, { filesChanged, estimated, truncated: false, uncounted: mergeUncounted(uncounted), modules }),
     `One by one, each on a fresh day, their armies would add up to a size of ${fmt(separateSlots)}; together, ${fmt(army.slots)}`,
   ];
   return {
     commits: pushes,
     lines: linesOf(ledger.lines),
     files: ledger.files,
-    branches: ledger.branches,
+    ...complexityFields(ledger),
     filler: ledger.filler,
     army,
     separateSlots,

@@ -50,9 +50,9 @@ function named(counts: readonly number[]): Record<string, number> {
   return out;
 }
 
-function ledgerOf(parts: { lines: Partial<Record<keyof typeof Cat, number>>; files?: number; branches?: number; msg?: string; filler?: number }[]): Ledger {
+function ledgerOf(parts: { lines: Partial<Record<keyof typeof Cat, number>>; files?: number; branches?: number; functions?: number; links?: number; msg?: string; filler?: number }[]): Ledger {
   const l = emptyLedger();
-  for (const d of parts) applyDelta(l, { lines: lines(d.lines), files: d.files ?? 0, branches: d.branches ?? 0, churn: 0, filler: d.filler ?? 0, purpose: purposeOf(d.msg ?? '') });
+  for (const d of parts) applyDelta(l, { lines: lines(d.lines), files: d.files ?? 0, branches: d.branches ?? 0, functions: d.functions ?? 0, links: d.links ?? 0, churn: 0, filler: d.filler ?? 0, purpose: purposeOf(d.msg ?? '') });
   return l;
 }
 const total = (counts: readonly number[]) => counts.reduce((a, b) => a + b, 0);
@@ -70,8 +70,8 @@ describe('the army a day of work is worth', () => {
   });
 
   it('grows linearly with real code: twice the work raises about twice the army', () => {
-    // A day's work, scaled: code, files, branch points and removed lines all grow together.
-    const day = (k: number, msg = 'feat: sync') => ledgerOf([{ lines: { Code: 1000 * k, Removed: 300 * k, Test: 200, Comment: 40 }, files: 25 * k, branches: 150 * k, msg }]);
+    // A day's work, scaled: code, files, complexity and removed lines all grow together.
+    const day = (k: number, msg = 'feat: sync') => ledgerOf([{ lines: { Code: 1000 * k, Removed: 300 * k, Test: 200, Comment: 40 }, files: 25 * k, branches: 150 * k, functions: 60 * k, links: 12 * k, msg }]);
     for (const k of [0.5, 1, 2]) {
       const ratio = budgetOf(day(2 * k)) / budgetOf(day(k));
       expect(ratio, `${k}`).toBeGreaterThanOrEqual(1.9);
@@ -79,16 +79,19 @@ describe('the army a day of work is worth', () => {
     }
     // The whole army, support and specialists included, follows the budget.
     expect(slotsOf(armyFor(day(2), 1)) / slotsOf(armyFor(day(1), 1))).toBeGreaterThan(1.75);
-    // A typical honest day is about the size it was under the old square-root budget (some 80 slots).
-    const typical = ledgerOf([{ lines: { Code: 2000, Removed: 750, Test: 400, Comment: 100 }, files: 60, branches: 400, msg: 'feat: sync' }]);
-    expect(budgetOf(typical)).toBeGreaterThanOrEqual(70);
-    expect(budgetOf(typical)).toBeLessThanOrEqual(85);
+    // A typical honest day raises about 150 slots (twice the 75 it raised before armies were doubled).
+    const typical = ledgerOf([{ lines: { Code: 2000, Removed: 750, Test: 400, Comment: 100 }, files: 60, branches: 400, functions: 160, links: 32, msg: 'feat: sync' }]);
+    expect(budgetOf(typical)).toBeGreaterThanOrEqual(140);
+    expect(budgetOf(typical)).toBeLessThanOrEqual(160);
+    // About 6 slots for 100 lines.
+    expect(budgetOf(ledgerOf([{ lines: { Code: 100 }, files: 3, branches: 24, functions: 9 }]))).toBeGreaterThanOrEqual(6);
+    expect(budgetOf(ledgerOf([{ lines: { Code: 100 }, files: 3, branches: 24, functions: 9 }]))).toBeLessThanOrEqual(8);
     // Code is most of it.
     expect(budgetOf(ledgerOf([{ lines: { Code: 2000 } }]))).toBeGreaterThan(0.8 * budgetOf(typical));
     // A small day raises a small army, but never nothing.
     const small = total(armyFor(ledgerOf([{ lines: { Code: 100, Comment: 5 }, files: 2 }]), 1));
     const big = total(armyFor(ledgerOf([{ lines: { Code: 1600, Comment: 80 }, files: 32 }]), 1));
-    expect(small).toBeGreaterThanOrEqual(3);
+    expect(small).toBeGreaterThanOrEqual(6);
     expect(big).toBeGreaterThan(small * 8);
   });
 
@@ -111,12 +114,12 @@ describe('the army a day of work is worth', () => {
   it('raises nothing for generated or vendored code, and keeps support small', () => {
     expect(armyFor(ledgerOf([{ lines: { Generated: 1e6, Vendor: 1e6 } }]), 1)).toEqual([1, ...new Array(19).fill(0)]);
     const support = armyFor(ledgerOf([{ lines: { Test: 1e6, Comment: 1e6, Docs: 1e6, Config: 1e6 } }]), 1);
-    expect(slotsOf(support)).toBeLessThanOrEqual(12);
+    expect(slotsOf(support)).toBeLessThanOrEqual(24);
   });
 
   it('lets the commit message choose specialists but never the size of the army', () => {
     const shapes = ['fix: race', 'feat: sync', 'refactor: split', 'perf: cache', 'chore: tidy', 'wip'].map((msg) =>
-      armyFor(ledgerOf([{ lines: { Code: 600, Removed: 200, Comment: 20 }, files: 10, branches: 60, msg }]), 1),
+      armyFor(ledgerOf([{ lines: { Code: 600, Removed: 200, Comment: 20 }, files: 7, branches: 30, msg }]), 1),
     );
     const sizes = new Set(shapes.map((c) => slotsOf(c)));
     expect(sizes.size).toBe(1);
@@ -127,8 +130,10 @@ describe('the army a day of work is worth', () => {
   });
 
   it('summons a Dragon only for a legendary day of feature work', () => {
-    expect(armyFor(ledgerOf([{ lines: { Code: 1000, Comment: 20 }, files: 12, branches: 100, msg: 'feat: offline' }]), 1)[Kind.Dragon]).toBe(1);
-    expect(armyFor(ledgerOf([{ lines: { Code: 1000, Comment: 20 }, files: 4, branches: 100, msg: 'feat: offline' }]), 1)[Kind.Dragon]).toBe(0);
+    expect(armyFor(ledgerOf([{ lines: { Code: 1000, Comment: 20 }, files: 12, branches: 100, functions: 36, msg: 'feat: offline' }]), 1)[Kind.Dragon]).toBe(1);
+    expect(armyFor(ledgerOf([{ lines: { Code: 1000, Comment: 20 }, files: 4, branches: 100, functions: 36, msg: 'feat: offline' }]), 1)[Kind.Dragon]).toBe(0);
+    // Complexity is part of it: plain code without decisions or functions is not legendary.
+    expect(armyFor(ledgerOf([{ lines: { Code: 1000, Comment: 20 }, files: 12, branches: 100, msg: 'feat: offline' }]), 1)[Kind.Dragon]).toBe(0);
   });
 
   it('makes veterans of big contributors and a ragged army of test, comment and filler spam', () => {
@@ -291,10 +296,10 @@ describe('world', () => {
     for (let p = 0; p < 16; p++) {
       const slots = slotsOf(w.units.filter((u) => u.p === p).map((u) => u.kind).reduce((c, k) => (c[k]!++, c), new Array<number>(20).fill(0)));
       expect(slots).toBeGreaterThan(100);
-      expect(slots).toBeLessThanOrEqual(Math.floor(2000 / 16));
+      expect(slots).toBeLessThanOrEqual(Math.floor(4000 / 16));
       expect(w.players[p]!.queue.length).toBeGreaterThan(0);
     }
-    expect(w.units.length).toBeLessThanOrEqual(2000);
+    expect(w.units.length).toBeLessThanOrEqual(4000);
   });
 });
 

@@ -19,6 +19,7 @@
 //   again: deleting it before a reset and restoring it after earns nothing.
 
 import { Cat, CAT_COUNT } from '../sim/api.ts';
+import { analyzeFile, FUNCTION_STATEMENTS, lineBranches, LINK_NAMES_PER_IMPORT, parseBudget, type ParseBudget } from './complexity.ts';
 import { branchesIn, categorizePath, classifyLine, extensionOf, isGeneratedContent, splitPatch, syntaxFor, type ChangedFile, type FileCategory } from './classify.ts';
 import { languageOfPath } from './heraldry.ts';
 import { CODE_CAP } from '../sim/muster.ts';
@@ -60,7 +61,18 @@ export interface PushDelta {
   lines: number[];
   /** Signed change in source files carrying counted code changes. */
   files: number;
+  /** Signed change in decision points (from the syntax tree, or keywords where it cannot be parsed) on credited code. */
   branches: number;
+  /**
+   * Signed change in function points: a new function, method or class with FUNCTION_STATEMENTS or more
+   * credited statement lines is worth FUNCTION_POINTS (3), carried by three of its lines and undone when any
+   * of them is; complexity adds this as is.
+   */
+  functions: number;
+  /** Signed change in names used from newly imported local modules (half a point each, at most 6 an import). */
+  links: number;
+  /** Signed change in local modules linked (those names come from), for explaining. */
+  modules?: number;
   /** Lines that undid counted work from earlier pushes (both halves of each pair). */
   churn: number;
   /**
@@ -262,6 +274,33 @@ function credit(balance: number): number {
 
 // ------------------------------------------------------------ what earlier days already paid
 
+/** Complexity a credited code key carries (its branch points and linked names), packed. */
+const WEIGHT = '\u0007weight';
+/** Which function (by id) a credited code key carries, if any. */
+const FUNCTION_OF = '\u0009fnof';
+/** Functions alive: their three carrying lines all still credited. */
+const FUNCTION = '\u0009fn';
+/** Local modules already linked today. */
+const LINKS = '\u0008links';
+/** Function points a function is worth: complexity counts a new function as 3. */
+export const FUNCTION_POINTS = 3;
+
+function packWeight(w: { branches: number; links: number }): number {
+  return w.branches + (LINE_BRANCH_CAP + 1) * w.links;
+}
+
+function unpackWeight(v: number): { branches: number; links: number } {
+  const x = Math.max(0, Math.floor(v));
+  return { branches: x % (LINE_BRANCH_CAP + 1), links: Math.floor(x / (LINE_BRANCH_CAP + 1)) };
+}
+
+/** A function's id: a hash of the keys carrying it (never 0). */
+function functionId(keys: readonly string[]): number {
+  let h = 0x811c9dc5;
+  for (const ch of keys.join('\u0000')) h = Math.imul(h ^ ch.charCodeAt(0), 16777619) >>> 0;
+  return h === 0 ? 1 : h;
+}
+
 /** Per-key memory, packed into one stored number. */
 const MEMORY = '\u0003memory';
 /** Per-shape running credit today, for SHAPE_CAP. */
@@ -345,9 +384,24 @@ function tally(t: Tally, kind: UncountedKind, path: string, n = 1): void {
   m.set(path, (m.get(path) ?? 0) + n);
 }
 
-function fileOps(file: ChangedFile, category: FileCategory, patch: ReturnType<typeof splitPatch>, ops: Op[], counts: { uncounted: Tally; blank: number }): void {
+/** What a push's parsed files say about complexity, gathered by line key before the ledger is consulted. */
+interface ComplexityFacts {
+  budget: ParseBudget;
+  /** Decision points each added code key carries (its first added line's), capped per line. */
+  branches: Map<string, number>;
+  /** Definitions wholly added: the key of the first line (if it is code) and the keys of their statement lines. */
+  functions: { header: string | undefined; keys: string[] }[];
+  /** Local imports on added lines: the import line's key, the module and the names used. */
+  imports: { key: string; module: string; used: number }[];
+}
+
+function fileOps(file: ChangedFile, category: FileCategory, patch: ReturnType<typeof splitPatch>, ops: Op[], counts: { uncounted: Tally; blank: number }, cx: ComplexityFacts): void {
   const path = file.filename;
   const family = familyOf(path);
+  // Which line key each added line of the new side became, for attaching complexity to it.
+  const rowKey = new Map<number, string>();
+  const facts = category === 'source' ? analyzeFile(path, patch.newFile, cx.budget) : null;
+  let row = -1;
   const push = (kind: Counted, text: string, sign: 1 | -1) => {
     const normalized = normalize(text);
     if (kind === 'code' || kind === 'test') {
@@ -370,6 +424,16 @@ function fileOps(file: ChangedFile, category: FileCategory, patch: ReturnType<ty
     }
     const branches = Math.min(LINE_BRANCH_CAP, branchesIn(stripComments(normalized, family), SAMPLE_PATH[family]!));
     ops.push({ key, path, info: { kind, branches, group: `${family}\u0000${branches}\u0000${shapeOf(normalized, family)}` }, sign });
+    if (sign === 1 && row >= 0) {
+      rowKey.set(row, key);
+      // Decision points from the syntax tree when the file parsed; otherwise today's keyword count.
+      if (!cx.branches.has(key)) {
+        // Decision points from the line's syntax tree (a function of its text, like the key);
+        // keywords where the language has no grammar or the line will not parse.
+        const parsed = lineBranches(path, stripComments(normalized, family));
+        cx.branches.set(key, parsed === null ? branches : Math.min(LINE_BRANCH_CAP, parsed));
+      }
+    }
   };
   if (category !== 'source') {
     const kind = category as Counted;
@@ -384,13 +448,15 @@ function fileOps(file: ChangedFile, category: FileCategory, patch: ReturnType<ty
   const walk = (lines: readonly { text: string; changed: boolean; hunk: number }[], sign: 1 | -1) => {
     const state: { block: Parameters<typeof classifyLine>[2]['block'] } = { block: null };
     let hunk = -1;
-    for (const l of lines) {
+    for (let i = 0; i < lines.length; i++) {
+      const l = lines[i]!;
       if (l.hunk !== hunk) {
         hunk = l.hunk;
         state.block = null;
       }
       const kind = classifyLine(l.text, syntax, state);
       if (!l.changed) continue;
+      row = sign === 1 ? i : -1;
       if (kind === 'blank') counts.blank += sign === 1 ? 1 : 0;
       // The inside of a multi-line string is text, not code.
       else if (kind === 'data') {
@@ -401,6 +467,15 @@ function fileOps(file: ChangedFile, category: FileCategory, patch: ReturnType<ty
   };
   walk(patch.newFile.map((l) => ({ text: l.text, changed: l.added, hunk: l.hunk })), 1);
   walk(patch.oldFile.map((l) => ({ text: l.text, changed: l.removed, hunk: l.hunk })), -1);
+  if (!facts) return;
+  for (const f of facts.functions) {
+    const keys = f.rows.map((r) => rowKey.get(r)).filter((k): k is string => k !== undefined);
+    if (keys.length >= FUNCTION_STATEMENTS) cx.functions.push({ header: rowKey.get(f.header), keys });
+  }
+  for (const imp of facts.imports) {
+    const key = rowKey.get(imp.row);
+    if (key && imp.used > 0) cx.imports.push({ key, module: imp.module, used: imp.used });
+  }
 }
 
 /** Measures one push against the user's ledger, updating the ledger. */
@@ -408,6 +483,7 @@ export function measurePush(files: readonly ChangedFile[], store: LedgerStore): 
   const lines = new Array<number>(CAT_COUNT).fill(0);
   const ops: Op[] = [];
   const counts = { uncounted: new Map() as Tally, blank: 0 };
+  const cx: ComplexityFacts = { budget: parseBudget(), branches: new Map(), functions: [], imports: [] };
   let estimatedCode = 0;
   let estimatedBranches = 0;
   let estimatedFiles = 0;
@@ -432,7 +508,7 @@ export function measurePush(files: readonly ChangedFile[], store: LedgerStore): 
       } else lines[COUNTED_CAT[category as Counted]]! += Math.max(0, file.additions);
       continue;
     }
-    fileOps(file, category, patch, ops, counts);
+    fileOps(file, category, patch, ops, counts, cx);
   }
 
   // Net change per key across all files (moves between files cancel) and per file (for files touched).
@@ -453,9 +529,12 @@ export function measurePush(files: readonly ChangedFile[], store: LedgerStore): 
   let code = estimatedCode;
   let style = 0;
   let branches = estimatedBranches;
+  let functions = 0;
+  let links = 0;
+  let modules = 0;
   let churn = 0;
   // Each key's change in what it is worth today, gathered by group for the shape cap.
-  const groups = new Map<string, { info: KeyInfo; gained: number; lost: number; added: number; paths: string[] }>();
+  const groups = new Map<string, { info: KeyInfo; gained: number; lost: number; added: number; paths: string[]; gainers: string[]; losers: string[] }>();
   for (const [key, { info, delta, paths }] of net) {
     if (delta === 0) continue;
     const before = store.balance('', key);
@@ -473,16 +552,20 @@ export function measurePush(files: readonly ChangedFile[], store: LedgerStore): 
     // The copies past what this key is credited with are repeats, in the files that added them last.
     const added = Math.max(0, delta);
     for (const path of paths.slice(paths.length - Math.max(0, added - Math.max(0, gained)))) tally(counts.uncounted, 'repeat', path);
-    const g = groups.get(info.group);
+    let g = groups.get(info.group);
     const credits = Math.max(0, gained) > 0 ? paths.slice(0, Math.max(0, gained)) : [];
-    if (g) {
-      g.gained += gained;
-      g.lost += lost;
-      g.added += added;
-      g.paths.push(...credits);
-    } else groups.set(info.group, { info, gained, lost, added, paths: credits });
+    if (!g) groups.set(info.group, (g = { info, gained: 0, lost: 0, added: 0, paths: [], gainers: [], losers: [] }));
+    g.gained += gained;
+    g.lost += lost;
+    g.added += added;
+    g.paths.push(...credits);
+    if (gained > 0) g.gainers.push(key);
+    else if (gained < 0) g.losers.push(key);
   }
-  for (const [group, { info, gained, lost, paths }] of groups) {
+  // Complexity rides on credited code keys: each key that gains credit stores what it carries, and
+  // each key that loses credit gives back exactly what it stored, so any history adds up.
+  const carrying = new Set<string>();
+  for (const [group, { info, gained, lost, paths, gainers, losers }] of groups) {
     let credited = gained;
     if (info.kind === 'code') {
       const a = readShape(store, SHAPE_ADDED, group, today);
@@ -492,12 +575,59 @@ export function measurePush(files: readonly ChangedFile[], store: LedgerStore): 
       credited = Math.min(SHAPE_CAP, a + gained) - Math.min(SHAPE_CAP, a);
       code += credited;
       if (group.startsWith('none\u0000')) style += credited;
-      branches += credited * info.branches;
+      for (const key of losers) {
+        const w = unpackWeight(store.balance(WEIGHT, key));
+        branches -= w.branches;
+        links -= w.links;
+        if (w.links > 0) modules--;
+        store.setBalance(WEIGHT, key, 0);
+        // A function lives while all three of the lines carrying it do: losing any one undoes it.
+        const fn = store.balance(FUNCTION_OF, key);
+        if (fn !== 0) {
+          if (store.balance(FUNCTION, String(fn)) !== 0) functions -= FUNCTION_POINTS;
+          store.setBalance(FUNCTION, String(fn), 0);
+          store.setBalance(FUNCTION_OF, key, 0);
+        }
+      }
+      // Only as many of the group's new keys carry complexity as the shape cap credits.
+      for (const key of gainers.slice(0, Math.max(0, SHAPE_CAP - Math.max(0, a - losers.length)))) carrying.add(key);
       lines[Cat.Removed]! += Math.min(SHAPE_CAP, r + lost) - Math.min(SHAPE_CAP, r);
       // Lines of this shape gained past the cap are near-duplicates.
       const near = Math.max(0, gained - Math.max(0, credited));
       for (const path of paths.slice(paths.length - near)) tally(counts.uncounted, 'shape', path);
     } else lines[COUNTED_CAT[info.kind]]! += gained;
+  }
+
+  const weights = new Map<string, { branches: number; links: number }>();
+  for (const key of carrying) weights.set(key, { branches: cx.branches.get(key) ?? 0, links: 0 });
+  // A definition counts when at least FUNCTION_STATEMENTS of its statement lines are newly credited.
+  // Three newly credited lines carry it (its first line when that is new, then statements); a line
+  // carries one function only, and the function is undone as soon as any of the three is.
+  const carriers = new Map<string, number>();
+  for (const f of cx.functions) {
+    const free = [...new Set(f.keys)].filter((k) => carrying.has(k) && !carriers.has(k) && k !== f.header);
+    if (free.length < FUNCTION_STATEMENTS) continue;
+    const head = f.header !== undefined && carrying.has(f.header) && !carriers.has(f.header) ? [f.header] : [];
+    const chosen = [...head, ...free].slice(0, FUNCTION_STATEMENTS);
+    const id = functionId(chosen);
+    for (const k of chosen) carriers.set(k, id);
+    store.setBalance(FUNCTION, String(id), 1);
+    functions += FUNCTION_POINTS;
+  }
+  for (const key of carrying) store.setBalance(FUNCTION_OF, key, carriers.get(key) ?? 0);
+  // A local module links once a day: the first credited import of it carries the names it uses.
+  const linkScope = today === null ? LINKS : `${LINKS}\u0005${today}`;
+  for (const imp of cx.imports) {
+    const w = weights.get(imp.key);
+    if (!w || w.links > 0 || store.balance(linkScope, imp.module) !== 0) continue;
+    w.links = Math.min(LINK_NAMES_PER_IMPORT, imp.used);
+    store.setBalance(linkScope, imp.module, 1);
+  }
+  for (const [key, w] of weights) {
+    branches += w.branches;
+    links += w.links;
+    if (w.links > 0) modules++;
+    store.setBalance(WEIGHT, key, packWeight(w));
   }
 
   // A file counts while any of its code keys carries a net change today. Each file keeps a count
@@ -560,7 +690,7 @@ export function measurePush(files: readonly ChangedFile[], store: LedgerStore): 
     files: [...m].filter(([path]) => path !== '').sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)).slice(0, 3).map(([path, n]) => ({ path, lines: n })),
   }));
   uncounted.sort((a, b) => b.lines - a.lines || (a.kind < b.kind ? -1 : 1));
-  return { lines, files: filesDelta, branches: cappedBranches, churn, filler, language, uncounted };
+  return { lines, files: filesDelta, branches: cappedBranches, functions, links, modules, churn, filler, language, uncounted };
 }
 
 /** A ledger in memory: for tests, bots and the browser demo. Set `today` to move to another day. */

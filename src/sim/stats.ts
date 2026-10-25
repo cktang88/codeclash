@@ -41,25 +41,25 @@ const base = { flying: false, splash: 0, breath: false, regen: 0, heal: 0 };
 
 export const STATS: readonly UnitStats[] = [
   { ...base, name: 'Footman', plural: 'Footmen', role: 'Spear and shield; the backbone of every army', tier: 'base', hp: 110, damage: 11, range: 13, speed: 1.6, cooldown: 6, aggro: 110, ranged: false, value: 1, rank: 1, source: 'Any code: whatever of the budget the specialists leave (more code and more files touched)', slots: 1, size: 6 },
-  { ...base, name: 'Knight', plural: 'Knights', role: 'Armored lancer; charges and tramples', tier: 'elite', hp: 240, damage: 22, range: 14, speed: 2.4, cooldown: 7, aggro: 140, ranged: false, value: 4, rank: 1, source: 'Complex code: 2·√(branch points ÷ 10)', slots: 2, size: 9 },
-  { ...base, name: 'Warden', plural: 'Wardens', role: 'Tower shield; allies nearby take less damage', tier: 'base', hp: 190, damage: 6, range: 13, speed: 1.3, cooldown: 7, aggro: 100, ranged: false, value: 2, rank: 0, source: 'Tests (support): up to 4, from √(test lines)', slots: 1, size: 7 },
-  { ...base, name: 'Paladin', plural: 'Paladins', role: 'Holy guardian; shields and mends the line', tier: 'elite', hp: 320, damage: 14, range: 14, speed: 1.4, cooldown: 7, aggro: 110, ranged: false, value: 5, rank: 0, source: 'Bug fixes: one per 300 lines of fix code', slots: 2, heal: 6, size: 9 },
-  { ...base, name: 'Archer', plural: 'Archers', role: 'Longbow volleys from behind the line', tier: 'base', hp: 55, damage: 8, range: 95, speed: 1.6, cooldown: 8, aggro: 125, ranged: true, value: 1, rank: 3, source: 'Comments (support): up to 3, from √(comment lines)', slots: 1, size: 5 },
-  { ...base, name: 'Ranger', plural: 'Rangers', role: 'Elven marksman; long range, deadly aim', tier: 'elite', hp: 90, damage: 13, range: 125, speed: 1.9, cooldown: 7, aggro: 145, ranged: true, value: 3, rank: 3, source: 'Bug fixes: one per 500 lines of fix code', slots: 2, size: 6 },
-  { ...base, name: 'Herald', plural: 'Heralds', role: 'Banner bearer; heals and steadies morale', tier: 'base', hp: 80, damage: 4, range: 13, speed: 1.6, cooldown: 8, aggro: 90, ranged: false, value: 2, rank: 3, source: 'Docs (support): one per 120 lines, up to 2', slots: 1, size: 6 },
-  { ...base, name: 'Wizard', plural: 'Wizards', role: 'Hurls fireballs that burst among the enemy', tier: 'elite', hp: 85, damage: 20, range: 120, speed: 1.4, cooldown: 14, aggro: 150, ranged: true, value: 5, rank: 4, source: 'Performance work: up to 4, from √(perf code)', slots: 2, splash: 28, size: 7 },
-  { ...base, name: 'Sapper', plural: 'Sappers', role: 'Siege engineer; wrecks walls and towers', tier: 'base', hp: 90, damage: 10, range: 14, speed: 1.5, cooldown: 8, aggro: 100, ranged: false, value: 1, rank: 2, source: 'Config and CI (support): one per 80 lines, up to 3', slots: 1, size: 6 },
-  { ...base, name: 'Trebuchet', plural: 'Trebuchets', role: 'Siege engine; flings stones across the field', tier: 'elite', hp: 260, damage: 34, range: 175, speed: 0.8, cooldown: 30, aggro: 170, ranged: true, value: 5, rank: 5, source: 'Sweeping changes: one per 15 files touched, up to 3', slots: 3, splash: 22, size: 12 },
+  { ...base, name: 'Knight', plural: 'Knights', role: 'Armored lancer; charges and tramples', tier: 'elite', hp: 240, damage: 22, range: 14, speed: 2.4, cooldown: 7, aggro: 140, ranged: false, value: 4, rank: 1, source: 'Complex code: 2·√(complexity ÷ 14), in pairs; complexity is branch points, 3 per new function and ½ per name used from a local module', slots: 2, size: 9 },
+  { ...base, name: 'Warden', plural: 'Wardens', role: 'Tower shield; allies nearby take less damage', tier: 'base', hp: 190, damage: 6, range: 13, speed: 1.3, cooldown: 7, aggro: 100, ranged: false, value: 2, rank: 0, source: 'Tests (support): √(test lines) ÷ 5, in pairs, up to 8', slots: 1, size: 7 },
+  { ...base, name: 'Paladin', plural: 'Paladins', role: 'Holy guardian; shields and mends the line', tier: 'elite', hp: 320, damage: 14, range: 14, speed: 1.4, cooldown: 7, aggro: 110, ranged: false, value: 5, rank: 0, source: 'Bug fixes: two per 300 lines of fix code', slots: 2, heal: 6, size: 9 },
+  { ...base, name: 'Archer', plural: 'Archers', role: 'Longbow volleys from behind the line', tier: 'base', hp: 55, damage: 8, range: 95, speed: 1.6, cooldown: 8, aggro: 125, ranged: true, value: 1, rank: 3, source: 'Comments (support): √(comment lines) ÷ 5, in pairs, up to 6', slots: 1, size: 5 },
+  { ...base, name: 'Ranger', plural: 'Rangers', role: 'Elven marksman; long range, deadly aim', tier: 'elite', hp: 90, damage: 13, range: 125, speed: 1.9, cooldown: 7, aggro: 145, ranged: true, value: 3, rank: 3, source: 'Bug fixes: two per 500 lines of fix code', slots: 2, size: 6 },
+  { ...base, name: 'Herald', plural: 'Heralds', role: 'Banner bearer; heals and steadies morale', tier: 'base', hp: 80, damage: 4, range: 13, speed: 1.6, cooldown: 8, aggro: 90, ranged: false, value: 2, rank: 3, source: 'Docs (support): two per 120 lines, up to 4', slots: 1, size: 6 },
+  { ...base, name: 'Wizard', plural: 'Wizards', role: 'Hurls fireballs that burst among the enemy', tier: 'elite', hp: 85, damage: 20, range: 120, speed: 1.4, cooldown: 14, aggro: 150, ranged: true, value: 5, rank: 4, source: 'Performance work: √(perf code) ÷ 3, in pairs, up to 8', slots: 2, splash: 28, size: 7 },
+  { ...base, name: 'Sapper', plural: 'Sappers', role: 'Siege engineer; wrecks walls and towers', tier: 'base', hp: 90, damage: 10, range: 14, speed: 1.5, cooldown: 8, aggro: 100, ranged: false, value: 1, rank: 2, source: 'Config and CI (support): two per 80 lines, up to 6', slots: 1, size: 6 },
+  { ...base, name: 'Trebuchet', plural: 'Trebuchets', role: 'Siege engine; flings stones across the field', tier: 'elite', hp: 260, damage: 34, range: 175, speed: 0.8, cooldown: 30, aggro: 170, ranged: true, value: 5, rank: 5, source: 'Sweeping changes: two per 15 files touched, up to 6', slots: 3, splash: 22, size: 12 },
   { ...base, name: 'Outrider', plural: 'Outriders', role: 'Light cavalry that hunts archers and casters', tier: 'base', hp: 120, damage: 15, range: 13, speed: 3.2, cooldown: 6, aggro: 160, ranged: false, value: 2, rank: 4, source: 'Refactors, especially deleted code', slots: 1, size: 8 },
-  { ...base, name: 'Griffin Rider', plural: 'Griffin Riders', role: 'Swoops over any terrain onto the backline', tier: 'elite', hp: 200, damage: 20, range: 14, speed: 3.6, cooldown: 6, aggro: 150, ranged: false, value: 5, rank: 5, source: 'Big refactors: one per 400 refactor lines removed, up to 3', slots: 2, flying: true, size: 11 },
-  { ...base, name: 'Skeleton', plural: 'Skeletons', role: 'Brittle undead, raised again by reverts', tier: 'base', hp: 70, damage: 6, range: 13, speed: 1.3, cooldown: 8, aggro: 90, ranged: false, value: 1, rank: 0, source: 'Reverts: √(reverted lines); the undead return', slots: 1, size: 6 },
-  { ...base, name: 'Bone Golem', plural: 'Bone Golems', role: 'A lumbering heap of bones that soaks up blows', tier: 'elite', hp: 520, damage: 14, range: 16, speed: 0.9, cooldown: 10, aggro: 90, ranged: false, value: 4, rank: 0, source: 'Big reverts: one per 600 lines, up to 2', slots: 3, size: 12 },
-  { ...base, name: 'Mercenary', plural: 'Mercenaries', role: 'Hired blade; leaves when the contract ends', tier: 'base', hp: 130, damage: 16, range: 13, speed: 1.8, cooldown: 6, aggro: 120, ranged: false, value: 2, rank: 1, source: 'Chores and dependency bumps: up to 3', slots: 1, size: 6 },
-  { ...base, name: 'Troll', plural: 'Trolls', role: 'Hulking brute of tangled logic; regenerates its wounds', tier: 'elite', hp: 600, damage: 24, range: 16, speed: 1.2, cooldown: 9, aggro: 110, ranged: false, value: 6, rank: 0, source: 'Very complex code: one per 150 branch points once past 200 code lines, up to 3', slots: 3, regen: 1.2, size: 13 },
+  { ...base, name: 'Griffin Rider', plural: 'Griffin Riders', role: 'Swoops over any terrain onto the backline', tier: 'elite', hp: 200, damage: 20, range: 14, speed: 3.6, cooldown: 6, aggro: 150, ranged: false, value: 5, rank: 5, source: 'Big refactors: two per 400 refactor lines removed, up to 6', slots: 2, flying: true, size: 11 },
+  { ...base, name: 'Skeleton', plural: 'Skeletons', role: 'Brittle undead, raised again by reverts', tier: 'base', hp: 70, damage: 6, range: 13, speed: 1.3, cooldown: 8, aggro: 90, ranged: false, value: 1, rank: 0, source: 'Reverts: √(reverted lines), in pairs; the undead return', slots: 1, size: 6 },
+  { ...base, name: 'Bone Golem', plural: 'Bone Golems', role: 'A lumbering heap of bones that soaks up blows', tier: 'elite', hp: 520, damage: 14, range: 16, speed: 0.9, cooldown: 10, aggro: 90, ranged: false, value: 4, rank: 0, source: 'Big reverts: two per 600 lines, up to 4', slots: 3, size: 12 },
+  { ...base, name: 'Mercenary', plural: 'Mercenaries', role: 'Hired blade; leaves when the contract ends', tier: 'base', hp: 130, damage: 16, range: 13, speed: 1.8, cooldown: 6, aggro: 120, ranged: false, value: 2, rank: 1, source: 'Chores and dependency bumps: in pairs, up to 6', slots: 1, size: 6 },
+  { ...base, name: 'Troll', plural: 'Trolls', role: 'Hulking brute of tangled logic; regenerates its wounds', tier: 'elite', hp: 600, damage: 24, range: 16, speed: 1.2, cooldown: 9, aggro: 110, ranged: false, value: 6, rank: 0, source: 'Very complex code: two per 215 points of complexity once past 200 code lines, up to 6', slots: 3, regen: 1.2, size: 13 },
   { ...base, name: 'Berserker', plural: 'Berserkers', role: 'Untested, uncommented fury; hits hard, dies fast', tier: 'special', hp: 120, damage: 26, range: 13, speed: 2.1, cooldown: 5, aggro: 130, ranged: false, value: 2, rank: 1, source: 'Untested, uncommented code: a third of the Footmen, each taking two places', slots: 1, size: 6 },
-  { ...base, name: 'Cleric', plural: 'Clerics', role: 'Raised by bug fixes; mends the wounded', tier: 'special', hp: 90, damage: 5, range: 13, speed: 1.5, cooldown: 10, aggro: 110, ranged: false, value: 3, rank: 3, source: 'Bug fixes: √(fix code) ÷ 2.5', slots: 1, heal: 22, size: 6 },
-  { ...base, name: 'Champion', plural: 'Champions', role: 'Hero of a big push; steadies all around it', tier: 'hero', hp: 520, damage: 26, range: 16, speed: 1.5, cooldown: 7, aggro: 140, ranged: false, value: 10, rank: 2, source: 'Big features: one per 400 feature lines and 5 files, up to 3', slots: 2, size: 10 },
-  { ...base, name: 'Dragon', plural: 'Dragons', role: 'Legendary; breathes fire across whole ranks', tier: 'legend', hp: 2400, damage: 24, range: 70, speed: 2.0, cooldown: 10, aggro: 150, ranged: true, value: 30, rank: 6, source: 'Legendary features: 900+ lines, 10+ files, 90+ branch points', slots: 6, flying: true, breath: true, size: 22 },
+  { ...base, name: 'Cleric', plural: 'Clerics', role: 'Raised by bug fixes; mends the wounded', tier: 'special', hp: 90, damage: 5, range: 13, speed: 1.5, cooldown: 10, aggro: 110, ranged: false, value: 3, rank: 3, source: 'Bug fixes: √(fix code) ÷ 2.5, in pairs', slots: 1, heal: 22, size: 6 },
+  { ...base, name: 'Champion', plural: 'Champions', role: 'Hero of a big push; steadies all around it', tier: 'hero', hp: 520, damage: 26, range: 16, speed: 1.5, cooldown: 7, aggro: 140, ranged: false, value: 10, rank: 2, source: 'Big features: two per 400 feature lines and 5 files, up to 6', slots: 2, size: 10 },
+  { ...base, name: 'Dragon', plural: 'Dragons', role: 'Legendary; breathes fire across whole ranks', tier: 'legend', hp: 2400, damage: 24, range: 70, speed: 2.0, cooldown: 10, aggro: 150, ranged: true, value: 30, rank: 6, source: 'Legendary features: 900+ lines, 10+ files, complexity 130+', slots: 6, flying: true, breath: true, size: 22 },
 ];
 
 /** Bonus multiplier when `attacker` strikes `victim`. */
@@ -110,8 +110,8 @@ const HOUR = 60 * TICKS_PER_MINUTE;
 
 /** A capital's walls before its holder's work today raises them. */
 export const CAPITAL_HP = 12000;
-/** Wall HP added for every platoon slot of army its holder's work has raised today. */
-export const WALL_PER_SLOT = 150;
+/** Wall HP added for every platoon slot of army its holder's work has raised today (150 when armies were half the size). */
+export const WALL_PER_SLOT = 75;
 /** A capital's tower: a volley every 4 s; see TOWER_PER. */
 export const CAPITAL_TOWER = { damage: 20, range: 160, cooldown: 20 };
 /** A capital's tower looses one more bolt each volley for every this many foes within its reach. */
@@ -190,8 +190,8 @@ export const CAPITAL_REPAIR = 10;
 /** Share of a holding's renown paid while its owner has no soldiers near it. */
 export const UNGARRISONED_SHARE = 0.25;
 
-export const MAX_ALIVE = 2000;
-export const PLAYER_ALIVE = 160;
+export const MAX_ALIVE = 4000;
+export const PLAYER_ALIVE = 320;
 export const QUEUE_LIMIT = 24;
 export const PLATOON_MAX = 32;
 

@@ -342,7 +342,7 @@ describe('conquest', () => {
     expect(slotsOf(a.raised)).toBe(slotsOf(armyFor(a.ledger, a.pushes, 2)));
     expect(slotsOf(b.raised)).toBe(slotsOf(armyFor(b.ledger, b.pushes, 2)));
     expect(slotsOf(a.raised)).toBe(slotsOf(b.raised));
-    expect(fieldCap(split, a)).toBe(Math.floor(160 * (1 + 2 * CONQUEST_BONUS)));
+    expect(fieldCap(split, a)).toBe(Math.floor(320 * (1 + 2 * CONQUEST_BONUS)));
     // Losing a captured capital does not make soldiers desert while the ledger grows.
     const before = slotsOf(a.raised);
     const st = split.structures.find((x) => x.site === 3)!;

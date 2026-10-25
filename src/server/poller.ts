@@ -1,5 +1,6 @@
 import { CAT_COUNT } from '../sim/api.ts';
 import type { ChangedFile } from '../rules/classify.ts';
+import { loadGrammars } from '../rules/complexity.ts';
 import { measurePush, type PushDelta } from '../rules/ledger.ts';
 import type { Store, UserRow } from './db.ts';
 import { EVENT_PAGES, GithubError, type CompareResult, type GithubClient } from './github.ts';
@@ -14,8 +15,12 @@ export interface PushReport {
   lines: number[];
   /** Signed change in source files carrying counted code changes today. */
   files: number;
-  /** Signed change in branch points of counted code. */
+  /** Signed change in decision points of counted code. */
   branches: number;
+  /** Signed change in function points (3 per new function with a real body); absent in pushes recorded before. */
+  functions?: number;
+  /** Signed change in names used from newly imported local modules; absent in pushes recorded before. */
+  links?: number;
   /** Lines that undid counted work from earlier pushes. */
   churn: number;
   /** Filler: uncounted lines (punctuation, literal tables, duplicates) beyond what the push's code carries, plus pastes past the daily cap. */
@@ -79,11 +84,13 @@ function compareIds(a: string, b: string): number {
 export const MAX_OWN_COMMITS = 20;
 
 function sumDeltas(deltas: readonly PushDelta[]): PushDelta {
-  const out: PushDelta = { lines: new Array<number>(CAT_COUNT).fill(0), files: 0, branches: 0, churn: 0, filler: 0, language: null };
+  const out: PushDelta = { lines: new Array<number>(CAT_COUNT).fill(0), files: 0, branches: 0, functions: 0, links: 0, churn: 0, filler: 0, language: null };
   for (const d of deltas) {
     d.lines.forEach((n, c) => (out.lines[c]! += n));
     out.files += d.files;
     out.branches += d.branches;
+    out.functions += d.functions;
+    out.links += d.links;
     out.churn += d.churn;
     out.filler += d.filler;
     out.language ??= d.language;
@@ -147,6 +154,8 @@ async function ingestOnce(
     }
     if (diffs.length === 0) return null;
   }
+  // Grammars load once, outside the ledger's transaction; measuring itself is synchronous.
+  await loadGrammars(diffs.flat());
   let report: PushReport;
   try {
     report = store.transaction(() => {
@@ -165,6 +174,8 @@ async function ingestOnce(
         lines,
         files: delta.files,
         branches: delta.branches,
+        functions: delta.functions,
+        links: delta.links,
         churn: delta.churn,
         filler: delta.filler,
         commits: counted.length,

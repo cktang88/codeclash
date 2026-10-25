@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
+import { loadAllGrammars } from '../rules/complexity.ts';
 import type { PreviewResponse } from '../protocol.ts';
 import { measurePush, MemoryLedger } from '../rules/ledger.ts';
 import { Cat, CAT_NAMES, Kind } from '../sim/api.ts';
@@ -12,6 +13,9 @@ import { PREVIEW_PER_MINUTE } from './http.ts';
 import { explain, HEAD_TTL_MS, musterCommit, PREVIEW_COMMITS } from './preview.ts';
 import { commitMeta, FakeGithub } from './testing/fakeGithub.ts';
 import { diff, FIXTURE_REPO, fixtureCommits, fixtureSha, previewFixture, Scribe } from './testing/previewFixtures.ts';
+
+// Ingestion loads the grammars before it measures a push; so do these tests.
+beforeAll(() => loadAllGrammars());
 
 async function boot(github: FakeGithub, now = { t: Date.UTC(2026, 9, 24, 12) }) {
   const config = loadConfig({ NODE_ENV: 'test', DATABASE_PATH: ':memory:', COMMONS: '0', PUBLIC_URL: 'http://pf.test' });
@@ -238,7 +242,7 @@ describe('GET /api/preview/:owner/:repo', () => {
 describe('preview reasons', () => {
   const reasons = (files: ChangedFile[], message = 'feat: work') => {
     const { ledger, army, purpose, delta } = musterCommit(files, message);
-    return { army, delta, reasons: explain(ledger, army, purpose, { filesChanged: files.length, estimated: 0, truncated: false, uncounted: delta.uncounted }) };
+    return { army, delta, reasons: explain(ledger, army, purpose, { filesChanged: files.length, estimated: 0, truncated: false, uncounted: delta.uncounted, modules: delta.modules }) };
   };
   const patch = (filename: string, lines: readonly string[]): ChangedFile => ({ filename, status: 'added', additions: lines.length, deletions: 0, patch: ['@@ -0,0 +1,' + lines.length + ' @@', ...lines.map((l) => `+${l}`)].join('\n') });
 
@@ -246,12 +250,32 @@ describe('preview reasons', () => {
     const c = fixtureCommits().find((x) => x.message.startsWith('feat: add the siege planner'))!;
     const { army, reasons: r } = reasons(c.files, c.message);
     const size = r[0]!;
-    expect(size).toMatch(/^Army size: 51 — mostly from 1,420 lines of code \(\+45\), plus 14 files \(\+1\) and 473 branch points of logic \(\+5\)$/);
+    expect(size).toMatch(/^Army size: 101 — mostly from 1,420 lines of code \(\+90\), plus 14 files \(\+2\) and complexity 654 \(\+9\)$/);
     const parts = [...size.matchAll(/\(\+(\d+)/g)].map((m) => Number(m[1]));
     expect(parts.reduce((a, b) => a + b, 0)).toBe(army.budget);
+    // What the complexity is made of.
+    expect(r[1]).toBe('Complexity 654: 654 branch points');
     // Then how the size was spent.
-    expect(r[1]).toMatch(/^Specialists: 33 of 51 \(.*a Dragon.*\); the rest are 18 Footmen$/);
+    expect(r[2]).toMatch(/^Specialists: 62 of 101 \(.*a Dragon.*\); the rest are 39 Footmen$/);
     expect(r.join('\n')).not.toMatch(/[Bb]udget|slot/);
+  });
+
+  it('says what the complexity is made of: branch points, new functions and names used from local modules', () => {
+    const code = [
+      "import { loadOrder, formatTotal } from './orders';",
+      "import { notify } from '../mail/send';",
+      "import { readFile } from 'node:fs';",
+      'export async function settle(id: string, options: Options) {',
+      '  const order = await loadOrder(id);',
+      '  if (!order || order.void) throw new Error(`no order ${id}`);',
+      '  const total = formatTotal(order.items, options.currency);',
+      '  for (const item of order.items) if (item.gift && options.wrap) wrapGift(item);',
+      '  return notify(order.owner, total);',
+      '}',
+    ];
+    const { reasons: r } = reasons([patch('src/billing/settle.ts', code)]);
+    // Each line carries at most 2 decision points; and nine lines of code carry at most 4.5 points.
+    expect(r, r.join('\n')).toContain('Complexity 8.5: 4 branch points, 1 new function (+3), 3 imported names used from 2 local modules (+1.5); held to 4.5, one point per 2 lines of code');
   });
 
   it('says no filler for honest structure, and names the kind and file of real filler', () => {

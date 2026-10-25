@@ -348,7 +348,14 @@ export interface PreviewCommit {
   filesChanged: number;
   /** Source files carrying counted code. */
   files: number;
+  /** Decision points in counted code. */
   branches: number;
+  /** Function points: 3 for each new function, method or class with a real body. */
+  functions: number;
+  /** Names used from newly imported local modules (half a point each). */
+  links: number;
+  /** Complexity as the army counts it: branches + function points + links ÷ 2, after its caps. */
+  complexity: number;
   /** Filler: uncounted lines beyond what the commit's code carries, plus lines past the daily cap. */
   filler: number;
   army: PreviewArmy;
@@ -367,6 +374,9 @@ export interface PreviewCombined {
   lines: PreviewLines;
   files: number;
   branches: number;
+  functions: number;
+  links: number;
+  complexity: number;
   filler: number;
   army: PreviewArmy;
   /** Slots of the commits' armies mustered one by one, each on a fresh day, summed. */

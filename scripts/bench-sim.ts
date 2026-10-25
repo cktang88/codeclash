@@ -19,7 +19,8 @@ const MESSAGES = ['fix: crash on empty input', 'feat: add export', 'refactor: sp
 function push(p: number): SimInput {
   const code = pick(260) + (rand() < 0.05 ? 500 : 0);
   const lines = [code, pick(80), Math.floor(code * rand() * 0.15), rand() < 0.2 ? pick(120) : 0, rand() < 0.2 ? pick(80) : 0, pick(120), 0, 0, Math.floor(code * 0.12)];
-  return { kind: 'push', p, repo: p * 2 + pick(2), commits: 1, msg: MESSAGES[pick(MESSAGES.length)]!, lines, files: 1 + pick(6), branches: Math.floor(code / (5 + pick(6))), churn: 0, filler: 0 };
+  const branches = Math.floor(code / (5 + pick(6)));
+  return { kind: 'push', p, repo: p * 2 + pick(2), commits: 1, msg: MESSAGES[pick(MESSAGES.length)]!, lines, files: 1 + pick(6), branches, functions: Math.floor(branches * 0.4), links: Math.floor(branches * 0.08), churn: 0, filler: 0 };
 }
 const total = minutes * TICKS_PER_MINUTE;
 const times = new Float64Array(total);

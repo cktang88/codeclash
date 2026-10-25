@@ -131,7 +131,7 @@ function CommitRow({ c, hue, now, index }: { c: PreviewCommit; hue: number | nul
         <LineBar lines={c.lines} hue={hue} />
         <p className="muster-row-stats muted small">
           {plural(c.filesChanged, 'file')} changed{c.files > 0 ? ` · ${plural(c.files, 'source file')} counted` : ''}
-          {c.branches > 0 ? ` · ${plural(c.branches, 'branch point')}` : ''}
+          {c.complexity > 0 ? ` · complexity ${c.complexity.toLocaleString('en-US', { maximumFractionDigits: 1 })}` : ''}
         </p>
       </div>
       <div className="muster-row-army">

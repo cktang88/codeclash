@@ -139,13 +139,14 @@ export function Chronicle({ entries, viewerP, now }: { entries: readonly Chronic
   );
 }
 
-type MusterEntry = ChronicleEntry & { purpose?: Purpose; files?: number; branches?: number };
+type MusterEntry = ChronicleEntry & { purpose?: Purpose; files?: number; branches?: number; complexity?: number };
 
 /** What the push was for and how big it was: the reasons behind its soldiers. */
 function MusterFacts({ entry }: { entry: MusterEntry }) {
   const facts: string[] = [];
   if (entry.files !== undefined && entry.files > 0) facts.push(`${entry.files} file${entry.files === 1 ? '' : 's'}`);
-  if (entry.branches !== undefined && entry.branches > 0) facts.push(`${entry.branches} branch point${entry.branches === 1 ? '' : 's'}`);
+  if (entry.complexity !== undefined && entry.complexity > 0) facts.push(`complexity ${entry.complexity.toLocaleString('en-US', { maximumFractionDigits: 1 })}`);
+  else if (entry.branches !== undefined && entry.branches > 0) facts.push(`${entry.branches} branch point${entry.branches === 1 ? '' : 's'}`);
   if (!entry.purpose && facts.length === 0) return null;
   return (
     <span className="muster-facts">

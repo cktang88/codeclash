@@ -78,7 +78,7 @@ export function LinesBar({ lines }: { lines: readonly number[] }) {
 type PurposeCounts = Partial<Record<Purpose, number>> | readonly number[];
 
 /** Pushes by purpose, plus files touched and branch points: what earned this army its soldiers. */
-function PushPurposes({ pl }: { pl: DigestPlayer & { purposes?: PurposeCounts; files?: number; branches?: number } }) {
+function PushPurposes({ pl }: { pl: DigestPlayer & { purposes?: PurposeCounts; files?: number; branches?: number; complexity?: number } }) {
   const counts = PURPOSES.map((purpose, i) => [purpose, Array.isArray(pl.purposes) ? (pl.purposes[i] ?? 0) : ((pl.purposes as Partial<Record<Purpose, number>> | undefined)?.[purpose] ?? 0)] as const).filter(
     ([, n]) => n > 0,
   );
@@ -92,7 +92,7 @@ function PushPurposes({ pl }: { pl: DigestPlayer & { purposes?: PurposeCounts; f
       ))}
       {(pl.files ?? 0) > 0 && (
         <span className="muted small">
-          {compact(pl.files!)} files · {compact(pl.branches ?? 0)} branch points
+          {compact(pl.files!)} files · {pl.complexity !== undefined ? `complexity ${compact(pl.complexity)}` : `${compact(pl.branches ?? 0)} branch points`}
         </span>
       )}
     </div>

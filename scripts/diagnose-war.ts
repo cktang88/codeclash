@@ -16,7 +16,7 @@ import { generateMap, seatOrder, slotsFor } from '../src/sim/mapgen.ts';
 import { armyFor, effectiveLedger, slotsOf } from '../src/sim/muster.ts';
 import { STATS } from '../src/sim/stats.ts';
 import { createWorld, dayWinner, step } from '../src/sim/world.ts';
-import { BOTS, botDay, botPush, botPushesPerDay, botRateAt, mulberry, type BotDay } from '../src/rules/bots.ts';
+import { BOTS, botDay, botPush, botPushesPerDay, botRateAt, FUNCTIONS_PER_BRANCH, LINKS_PER_BRANCH, mulberry, type BotDay } from '../src/rules/bots.ts';
 
 const MESSAGES = ['fix: crash on empty input', 'feat: add export', 'refactor: split parser', 'perf: cache lookups', 'revert: "feat: add export"', 'chore(deps): bump vite', 'Update handler'];
 
@@ -28,7 +28,9 @@ function devPush(p: number, rand: () => number): Extract<SimInput, { kind: 'push
   const lines = [code, pick(80), Math.floor(code * rand() * 0.15), rand() < 0.2 ? pick(120) : 0, rand() < 0.2 ? pick(80) : 0, pick(120), rand() < 0.1 ? pick(4000) : 0, 0, Math.floor(code * 0.12)];
   const roll = rand();
   const msg = MESSAGES[roll < 0.25 ? 0 : roll < 0.5 ? 1 : roll < 0.62 ? 2 : roll < 0.7 ? 3 : roll < 0.73 ? 4 : roll < 0.8 ? 5 : 6]!;
-  return { kind: 'push', p, repo: p * 2 + pick(2), commits: 1, msg, lines, files, branches: Math.floor(code / (5 + pick(6))), churn: 0, filler: 0 };
+  const branches = Math.floor(code / (5 + pick(6)));
+  // Function points and linked names in the proportion this repository's own commits carry them.
+  return { kind: 'push', p, repo: p * 2 + pick(2), commits: 1, msg, lines, files, branches, functions: Math.floor(branches * FUNCTIONS_PER_BRANCH), links: Math.floor(branches * LINKS_PER_BRANCH), churn: 0, filler: 0 };
 }
 
 function narrate(): void {
@@ -154,7 +156,7 @@ function runDay(day: number, humans: number, bots: number): DayResult {
       if (p < humans) push = devPush(p, rand);
       else {
         const b = botPush(persona[p]!, rand);
-        push = { kind: 'push', p, repo: p * 2, commits: 1, msg: b.message, lines: b.lines, files: b.files, branches: b.branches, churn: b.churn, filler: b.filler };
+        push = { kind: 'push', p, repo: p * 2, commits: 1, msg: b.message, lines: b.lines, files: b.files, branches: b.branches, functions: b.functions, links: b.links, churn: b.churn, filler: b.filler };
       }
       code[p]! += Math.max(0, push.lines[0]!);
       inputs.push(push);

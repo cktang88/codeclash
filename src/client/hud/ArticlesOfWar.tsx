@@ -30,8 +30,9 @@ const HOW_IT_WORKS = [
     and reverts raise the dead.
   </>,
   <>
-    <strong>Complexity earns heavy units.</strong> Branch points added in the code (if, for, while, case, catch, &amp;&amp;, ||) raise Knights, and very complex code raises a Troll.
-    Truly legendary features summon a Dragon.
+    <strong>Complexity earns heavy units.</strong> Complexity is read from the code’s syntax: each decision (if, loops, case arms, catch, &amp;&amp;, ||) is a point, each new
+    function with a real body is three, and each name you use from a newly imported module of your own repository is half a point. Strings, comments, stubs and unused imports
+    count for nothing. Complexity raises Knights, very complex code raises Trolls, and truly legendary features summon a Dragon.
   </>,
   <>
     <strong>Tests, comments, docs and config only support.</strong> They add a handful of Wardens, Archers, a Herald or Sappers.
@@ -46,6 +47,7 @@ const FAIR_PLAY: readonly [string, string][] = [
   ['Undone work deserts', 'Lines you add and later delete, or rewrite back, cancel out. Soldiers they raised desert.'],
   ['Moves and reformatting don’t count', 'Moving code between files, renaming, reindenting and reformatting change nothing real, so they raise nothing.'],
   ['Filler doesn’t count', 'Duplicated lines, punctuation-only lines and pasted tables of literals are left out.'],
+  ['Complexity is real syntax', 'Decisions are read from the syntax tree, so keywords in strings or comments, `if (true)` and long && chains add nothing. Empty, one-line and forwarding functions earn no function points, a function counts only while the lines carrying it stand, and an import counts only for the names its code uses, once a day per module.'],
   ['Generated and vendored code count nothing', 'Lockfiles, build output, minified bundles and copied libraries raise no one.'],
   ['The message picks specialists, not power', 'Calling every commit a fix changes who marches, never how strong the army is. Your contribution sets the power.'],
   ['Spam makes a ragged army', 'Floods of tests or comments with little code behind them lower your soldiers’ HP and damage.'],
@@ -203,7 +205,7 @@ export function ArticlesOfWar({ onClose }: { onClose(): void }) {
             </table>
           </div>
           <p className="muted small">
-            Each army has 160 slots on the field (its even share of 2,000 in a room of more than 12), and 25% more for every capital it holds beyond its home. A line soldier takes 1, an
+            Each army has 320 slots on the field (its even share of 4,000 in a room of more than 12), and 25% more for every capital it holds beyond its home. A line soldier takes 1, an
             elite 2 or 3, a Dragon 6. Extra platoons wait at the capital.
           </p>
         </>

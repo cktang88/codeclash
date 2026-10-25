@@ -234,7 +234,7 @@ export class War {
   push(
     now: number,
     userId: number,
-    push: { repo: string; language: string | null; lines: number[]; files?: number; branches?: number; churn?: number; filler?: number; commits: number; message: string },
+    push: { repo: string; language: string | null; lines: number[]; files?: number; branches?: number; functions?: number; links?: number; churn?: number; filler?: number; commits: number; message: string },
   ): boolean {
     const p = this.playerOf(userId);
     if (p === null || !this.open) return false;
@@ -254,7 +254,7 @@ export class War {
     const lines = Array.from({ length: CAT_COUNT }, (_, c) => signed(push.lines[c]));
     this.submit(
       now,
-      [{ kind: 'push', p, repo, lines, commits: count(push.commits), msg, files: signed(push.files), branches: signed(push.branches), churn: count(push.churn), filler: count(push.filler) }],
+      [{ kind: 'push', p, repo, lines, commits: count(push.commits), msg, files: signed(push.files), branches: signed(push.branches), functions: signed(push.functions), links: signed(push.links), churn: count(push.churn), filler: count(push.filler) }],
       { repos: added },
     );
     return true;

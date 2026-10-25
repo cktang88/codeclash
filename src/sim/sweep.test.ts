@@ -241,11 +241,12 @@ describe('regroup formation', () => {
     const w = newWorld(1, 2);
     step(w, joins(1));
     // One solid platoon, then a dozen small pushes that each raise a remnant-sized platoon.
-    const inputs: SimInput[] = [{ ...push(0, 900, 'Update', 10), lines: [900, 1, 0, 0, 0, 0, 0, 0, 0] } as SimInput];
+    // Half the code these platoons once took: armies are twice the size they were.
+    const inputs: SimInput[] = [{ ...push(0, 450, 'Update', 10), lines: [450, 1, 0, 0, 0, 0, 0, 0, 0] } as SimInput];
     let code = 900;
     for (let k = 31; k <= 42; k++) {
       const next = k * k;
-      inputs.push(push(0, next - code, 'Update', 0, 0));
+      inputs.push(push(0, Math.floor((next - code) / 2), 'Update', 0, 0));
       code = next;
     }
     step(w, inputs);

@@ -1,7 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
+import { loadAllGrammars } from './complexity.ts';
 import { Cat } from '../sim/api.ts';
 import type { ChangedFile } from './classify.ts';
 import { DAILY_CODE_CAP, fillerKind, FREE_PER_CODE, isFillerText, measurePush, MemoryLedger, normalize, type PushDelta } from './ledger.ts';
+
+// Ingestion loads the grammars before it measures a push; so do these tests.
+beforeAll(() => loadAllGrammars());
 
 type Tree = Record<string, string[]>;
 
@@ -48,12 +52,16 @@ function sum(deltas: readonly PushDelta[]) {
   const lines = new Array<number>(9).fill(0);
   let files = 0;
   let branches = 0;
+  let functions = 0;
+  let links = 0;
   for (const d of deltas) {
     d.lines.forEach((n, c) => (lines[c]! += n));
     files += d.files;
     branches += d.branches;
+    functions += d.functions;
+    links += d.links;
   }
-  return { code: lines[Cat.Code], removed: lines[Cat.Removed], test: lines[Cat.Test], comment: lines[Cat.Comment], docs: lines[Cat.Docs], config: lines[Cat.Config], files, branches };
+  return { code: lines[Cat.Code], removed: lines[Cat.Removed], test: lines[Cat.Test], comment: lines[Cat.Comment], docs: lines[Cat.Docs], config: lines[Cat.Config], files, branches, functions, links };
 }
 
 /** Runs a history push by push, and as one squashed push, and returns both totals. */

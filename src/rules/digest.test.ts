@@ -70,7 +70,8 @@ describe('digest', () => {
       const due = inputs.filter((x) => x.tick === world.tick).map((x) => x.input);
       chronicle.push(...chronicler.narrate(world, due, step(world, due)));
     }
-    const last = world.players[0]!.battalions[0]![1];
+    // The last platoon that marched (a tiny remainder can fold into another before it musters).
+    const last = Math.max(...chronicle.filter((e) => e.kind === 'muster').map((e) => e.ordinal!));
     expect(last).toBeGreaterThanOrEqual(3);
     world.players[0]!.best = [0, last, 5];
     expect(buildDigest(world, r, chronicle).players[0]!.best).toMatchObject({ ordinal: last, message: 'second' });

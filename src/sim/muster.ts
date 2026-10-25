@@ -51,6 +51,8 @@ export function emptyLedger(): Ledger {
     lines: new Array<number>(CAT_COUNT).fill(0),
     files: 0,
     branches: 0,
+    functions: 0,
+    links: 0,
     churn: 0,
     filler: 0,
     purposeCode: new Array<number>(PURPOSES.length).fill(0),
@@ -62,6 +64,10 @@ export interface LedgerDelta {
   lines: readonly number[];
   files: number;
   branches: number;
+  /** Function points (3 per new function with a real body); absent in older inputs. */
+  functions?: number;
+  /** Names used from newly imported local modules; absent in older inputs. */
+  links?: number;
   churn: number;
   filler: number;
   purpose: Purpose;
@@ -72,6 +78,8 @@ export function applyDelta(ledger: Ledger, d: LedgerDelta): void {
   for (let c = 0; c < CAT_COUNT; c++) ledger.lines[c] = Math.max(0, ledger.lines[c]! + int(d.lines[c]));
   ledger.files = Math.max(0, ledger.files + int(d.files));
   ledger.branches = Math.max(0, ledger.branches + int(d.branches));
+  ledger.functions = Math.max(0, (ledger.functions || 0) + int(d.functions));
+  ledger.links = Math.max(0, (ledger.links || 0) + int(d.links));
   ledger.churn += int(d.churn, 0);
   ledger.filler += int(d.filler, 0);
   const i = PURPOSES.indexOf(d.purpose);
@@ -134,8 +142,14 @@ export const CODE_CREDIT_MAX = CODE_KNEE + (CODE_CAP - CODE_KNEE) / 2;
 const LINES_PER_FILE = 20;
 /** Removed lines per credited file. */
 const REMOVED_PER_FILE = 100;
-/** Code lines per credited branch point: denser than this is padding (`if (true)`, `&&` chains). */
-const LINES_PER_BRANCH = 3;
+/**
+ * Code lines per point of complexity: denser than this is padding. Honest work in this repository
+ * runs at about one point per three lines (b0f0ae9: 622 points over 1770 lines), the densest real
+ * commits at about one per two.
+ */
+const LINES_PER_COMPLEXITY = 2;
+/** Links (names used from local modules) make at most this share of complexity: branches and functions dominate. */
+export const LINK_SHARE = 0.25;
 
 /** Lines' worth of `n` code lines: in full to the knee, half beyond, nothing past the cap. */
 export function credited(n: number): number {
@@ -144,33 +158,49 @@ export function credited(n: number): number {
 }
 
 /**
- * The parts of a ledger that count, each bounded by the real code behind it so
- * that no single metric can be pumped on its own.
+ * Complexity in half points: decision points, plus function points (3 per new function with a
+ * real body), plus half a point per name used from a newly imported local module. Links are held
+ * to LINK_SHARE of the whole, and the whole to one point per LINES_PER_COMPLEXITY lines of code.
  */
-export function effectiveLedger(ledger: Ledger): { code: number; removed: number; files: number; branches: number } {
+export function complexityOf(ledger: Ledger, code: number): { half: number; branches: number; functions: number; links: number } {
+  const branches = Math.max(0, ledger.branches);
+  const functions = Math.max(0, ledger.functions || 0);
+  // links ≤ LINK_SHARE of (2·branches + 2·functions + links), in half points.
+  const links = Math.min(Math.max(0, ledger.links || 0), fl((2 * (branches + functions) * LINK_SHARE) / (1 - LINK_SHARE)));
+  const half = Math.min(2 * branches + 2 * functions + links, fl((2 * code) / LINES_PER_COMPLEXITY));
+  return { half, branches, functions, links };
+}
+
+/**
+ * The parts of a ledger that count, each bounded by the real code behind it so
+ * that no single metric can be pumped on its own. `complexity` is in points (it may end in .5).
+ */
+export function effectiveLedger(ledger: Ledger): { code: number; removed: number; files: number; complexity: number } {
   const code = credited(ledger.lines[Cat.Code]!);
   const removed = Math.max(0, Math.min(CODE_KNEE, ledger.lines[Cat.Removed]!));
   const files = Math.min(ledger.files, 1 + fl(code / LINES_PER_FILE) + fl(removed / REMOVED_PER_FILE));
-  const branches = Math.min(ledger.branches, fl(code / LINES_PER_BRANCH));
-  return { code, removed, files, branches };
+  return { code, removed, files, complexity: complexityOf(ledger, code).half / 2 };
 }
 
 /**
  * Platoon slots per 10,000 of each effective metric. The budget is linear: twice
  * the real code raises twice the army. Code is most of it; files touched and
- * branch points season it, and removed lines count a little (a typical day of
- * 2000 code lines, 60 files, 400 branch points and 750 removed lines is worth 75
- * slots, of which code is 64).
+ * complexity season it, and removed lines count a little (a typical day of 2000
+ * code lines, 60 files, 570 points of complexity and 750 removed lines is worth
+ * 150 slots, of which code is 128). A point of complexity is worth 0.014 slots:
+ * honest code carries about 1.4 points for every branch point the keyword count
+ * found, so the complexity term raises what the branch term (0.01 a point, at
+ * half today's army size) did.
  */
-export const BUDGET_PER_10K = { code: 320, files: 700, branches: 100, removed: 40 } as const;
+export const BUDGET_PER_10K = { code: 640, files: 1400, complexity: 140, removed: 80 } as const;
 
 /** The army's size in platoon slots before specialists are chosen, with CONQUEST_BONUS per capital held beyond home. */
 export function budgetOf(ledger: Ledger, conquered = 0): number {
-  const { code, removed, files, branches } = effectiveLedger(ledger);
+  const { code, removed, files } = effectiveLedger(ledger);
   if (code + removed <= 0) return 0;
   const w = BUDGET_PER_10K;
-  // Whole numbers until the end, and the conquest factor is a multiple of 1/4, so the product is exact.
-  const sum = w.code * code + w.files * files + w.branches * branches + w.removed * removed;
+  // Whole numbers until the end (complexity in half points), and the conquest factor is a multiple of 1/4, so the product is exact.
+  const sum = w.code * code + w.files * files + (w.complexity / 2) * complexityOf(ledger, code).half + w.removed * removed;
   const conquest = 1 + CONQUEST_BONUS * Math.max(0, Math.floor(conquered));
   return fl((sum * conquest) / 10_000);
 }
@@ -207,6 +237,18 @@ export function armyQuality(ledger: Ledger): { quality: number; veterancy: numbe
 
 
 /**
+ * Honest code carries about 1.42 points of complexity for every branch point the keyword count
+ * found (this repository's last 80 commits: 7651 points, 5371 keyword branch points), so the
+ * thresholds that were in branch points are those times 1.42.
+ */
+/** Knights: twice `2·√(complexity / KNIGHT_COMPLEXITY)` (was `2·√(branches / 10)`). */
+export const KNIGHT_COMPLEXITY = 14;
+/** Trolls, with 200+ code lines: two per TROLL_COMPLEXITY points, up to 6 (was one per 150 branch points, up to 3). */
+export const TROLL_COMPLEXITY = 215;
+/** Complexity the first and the second Dragon need (were 90 and 400 branch points). */
+export const DRAGON_COMPLEXITY = [130, 570] as const;
+
+/**
  * The army a ledger is worth, as total soldiers by kind. Contribution sets a
  * budget of platoon slots; the purposes of the work spend part of it on
  * specialists, and Footmen take the rest, so a commit message changes what the
@@ -218,7 +260,7 @@ export function armyFor(ledger: Ledger, pushes: number, conquered = 0): number[]
   const counts = new Array<number>(KIND_COUNT).fill(0);
   if (pushes <= 0) return counts;
   const L = ledger.lines;
-  const { code, files, branches } = effectiveLedger(ledger);
+  const { code, files, complexity } = effectiveLedger(ledger);
   const pc = (p: Purpose) => ledger.purposeCode[PURPOSES.indexOf(p)]!;
   const pr = (p: Purpose) => ledger.purposeRemoved[PURPOSES.indexOf(p)]!;
 
@@ -227,25 +269,29 @@ export function armyFor(ledger: Ledger, pushes: number, conquered = 0): number[]
 
   // What the work's purposes and complexity ask for, before it is fitted to the budget.
   const want = new Array<number>(KIND_COUNT).fill(0);
+  // Armies are twice the size they were, and so is every count: each kind comes in pairs where
+  // one came before, so the make-up of an army (and the share each kind takes) is what it was.
   const fix = pc('fix');
-  want[Kind.Cleric] = fl(sq(fix) / 2.5);
-  want[Kind.Paladin] = fl(fix / 300);
-  want[Kind.Ranger] = fl(fix / 500);
+  want[Kind.Cleric] = 2 * fl(sq(fix) / 2.5);
+  want[Kind.Paladin] = 2 * fl(fix / 300);
+  want[Kind.Ranger] = 2 * fl(fix / 500);
   const feature = pc('feature') + pc('work');
-  const dragons = feature >= 4000 && files >= 40 && branches >= 400 ? 2 : feature >= 900 && files >= 10 && branches >= 90 ? 1 : 0;
+  // At most one Dragon per 900 feature lines. A second still needs 4000 (twice that would be the
+  // cap, out of reach), and only one lives at a time: an extra marches as a Champion.
+  const dragons = feature >= 4000 && files >= 40 && complexity >= DRAGON_COMPLEXITY[1] ? 2 : feature >= 900 && files >= 10 && complexity >= DRAGON_COMPLEXITY[0] ? 1 : 0;
   want[Kind.Dragon] = dragons;
-  want[Kind.Champion] = Math.max(0, Math.min(3, fl(pc('feature') / 400), fl(files / 5)) - dragons);
+  want[Kind.Champion] = Math.max(0, 2 * Math.min(3, fl(pc('feature') / 400), fl(files / 5)) - dragons);
   const refactor = pr('refactor') + pc('refactor') / 2;
-  want[Kind.Outrider] = fl(sq(refactor) / 1.5);
-  want[Kind.GriffinRider] = Math.min(3, fl(pr('refactor') / 400));
-  want[Kind.Wizard] = Math.min(4, fl(sq(pc('perf')) / 3));
+  want[Kind.Outrider] = 2 * fl(sq(refactor) / 1.5);
+  want[Kind.GriffinRider] = 2 * Math.min(3, fl(pr('refactor') / 400));
+  want[Kind.Wizard] = 2 * Math.min(4, fl(sq(pc('perf')) / 3));
   const revert = pc('revert') + pr('revert');
-  want[Kind.Skeleton] = fl(sq(revert));
-  want[Kind.BoneGolem] = Math.min(2, fl(revert / 600));
-  want[Kind.Mercenary] = Math.min(3, fl(sq(pc('chore')) / 2));
-  want[Kind.Knight] = fl(2 * sq(branches / 10));
-  if (code >= 200) want[Kind.Troll] = Math.min(3, fl(branches / 150));
-  want[Kind.Trebuchet] = Math.min(3, fl(files / 15));
+  want[Kind.Skeleton] = 2 * fl(sq(revert));
+  want[Kind.BoneGolem] = 2 * Math.min(2, fl(revert / 600));
+  want[Kind.Mercenary] = 2 * Math.min(3, fl(sq(pc('chore')) / 2));
+  want[Kind.Knight] = 2 * fl(2 * sq(complexity / KNIGHT_COMPLEXITY));
+  if (code >= 200) want[Kind.Troll] = 2 * Math.min(3, fl(complexity / TROLL_COMPLEXITY));
+  want[Kind.Trebuchet] = 2 * Math.min(3, fl(files / 15));
 
   // Specialists may spend at most 65% of the budget; heroes are paid first.
   const cap = fl(budget * 0.65);
@@ -253,7 +299,8 @@ export function armyFor(ledger: Ledger, pushes: number, conquered = 0): number[]
   const order: Kind[] = [Kind.Dragon, Kind.Champion, Kind.Troll, Kind.Trebuchet, Kind.GriffinRider, Kind.BoneGolem, Kind.Paladin, Kind.Ranger, Kind.Wizard, Kind.Knight, Kind.Cleric, Kind.Outrider, Kind.Mercenary, Kind.Skeleton];
   for (const k of order) {
     const per = STATS[k]!.slots;
-    const n = Math.min(want[k]!, fl((cap - spent) / per));
+    // Paid in pairs, as they are counted (the Dragon alone), so the share left to each kind is what it was.
+    const n = k === Kind.Dragon ? Math.min(want[k]!, fl((cap - spent) / per)) : Math.min(want[k]!, 2 * fl((cap - spent) / (2 * per)));
     if (n <= 0) continue;
     counts[k] = n;
     spent += n * per;
@@ -268,10 +315,10 @@ export function armyFor(ledger: Ledger, pushes: number, conquered = 0): number[]
   }
 
   // Support stays small: code is what wins wars.
-  counts[Kind.Warden] = Math.min(4, fl(sq(L[Cat.Test]!) / 5));
-  counts[Kind.Archer] = Math.min(3, fl(sq(L[Cat.Comment]!) / 5));
-  counts[Kind.Herald] = Math.min(2, fl(L[Cat.Docs]! / 120));
-  counts[Kind.Sapper] = Math.min(3, fl(L[Cat.Config]! / 80));
+  counts[Kind.Warden] = 2 * Math.min(4, fl(sq(L[Cat.Test]!) / 5));
+  counts[Kind.Archer] = 2 * Math.min(3, fl(sq(L[Cat.Comment]!) / 5));
+  counts[Kind.Herald] = 2 * Math.min(2, fl(L[Cat.Docs]! / 120));
+  counts[Kind.Sapper] = 2 * Math.min(3, fl(L[Cat.Config]! / 80));
 
   // Every day's first push sends at least a messenger.
   if (slotsOf(counts) === 0) counts[Kind.Footman] = 1;

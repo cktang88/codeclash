@@ -133,7 +133,7 @@ export function startDemo(store: GameStore, bots = 5, seed = Date.now() % 100000
         // Copy on write, as the lockstep runner does: HUD snapshots hold this array.
         store.repos = [...store.repos, push.repo];
       }
-      out.push({ kind: 'push', p: r.p, repo, lines: push.lines, files: push.files, branches: push.branches, churn: push.churn, filler: push.filler, commits: 1 + Math.floor(rand() * 4), msg: push.message });
+      out.push({ kind: 'push', p: r.p, repo, lines: push.lines, files: push.files, branches: push.branches, functions: push.functions, links: push.links, churn: push.churn, filler: push.filler, commits: 1 + Math.floor(rand() * 4), msg: push.message });
     }
     return out;
   };

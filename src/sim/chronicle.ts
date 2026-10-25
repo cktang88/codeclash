@@ -38,10 +38,11 @@ export interface ChronicleEntry {
   /** For musters: the platoon's ordinal in its battalion, and the commit message that raised it. */
   ordinal?: number;
   msg?: string;
-  /** For musters: what the push was for, and how many source files and branch points it carried. */
+  /** For musters: what the push was for, and how many source files, branch points and points of complexity it carried. */
   purpose?: Purpose;
   files?: number;
   branches?: number;
+  complexity?: number;
 }
 
 const PURPOSE_PHRASE: Record<Purpose, string> = {
@@ -135,6 +136,7 @@ export class Chronicler {
       add({
         kind: 'muster', p: pl.p, platoon: pl.id, x: c.x, y: c.y, units: pl.mustered.slice(), repo: pl.repo, ordinal: pl.ordinal, msg: input?.msg ?? '',
         purpose: pl.purpose, files: input?.files ?? 0, branches: input?.branches ?? 0,
+        complexity: (input?.branches ?? 0) + (input?.functions ?? 0) + (input?.links ?? 0) / 2,
         text: `${n.player(pl.p)} pushed ${PURPOSE_PHRASE[pl.purpose]} to ${n.repo(pl.repo)}${msg}. ${platoonLabel(n, pl.repo, pl.ordinal)} musters: ${unitsPhrase(pl.mustered)}.`,
       });
     }

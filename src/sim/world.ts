@@ -204,6 +204,8 @@ function applyInput(world: World, input: SimInput, ev: TickEvents): void {
     lines: cleanLines(input.lines),
     files: int(input.files),
     branches: int(input.branches),
+    functions: int(input.functions),
+    links: int(input.links),
     churn: int(input.churn, 0),
     filler: int(input.filler, 0),
   }, ev);

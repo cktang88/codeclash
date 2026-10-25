@@ -57,10 +57,21 @@ export interface BotPush {
   /** Signed ledger deltas, like a real push's: a revert arrives as negative code. */
   files: number;
   branches: number;
+  /** Function points and linked names, in the proportion honest code carries them to branch points. */
+  functions: number;
+  links: number;
   churn: number;
   filler: number;
   message: string;
 }
+
+/**
+ * Function points and linked names per branch point, as this repository's own last 80 commits
+ * measure them (5317 branch points, 2103 function points, 446 names): together about 0.44 points
+ * of complexity for each branch point.
+ */
+export const FUNCTIONS_PER_BRANCH = 0.4;
+export const LINKS_PER_BRANCH = 0.08;
 
 /** A synthetic push for `bot`, drawn from `rand` (a 0..1 generator). */
 export function botPush(bot: BotPersona, rand: () => number): BotPush {
@@ -144,10 +155,11 @@ export function botPush(bot: BotPersona, rand: () => number): BotPush {
     const undone = Math.floor(r(20, 200) * bot.volume);
     lines.fill(0);
     lines[Cat.Code] = -undone;
-    return { repo, lines, files: 0, branches: -Math.floor(undone / 8), churn: 2 * undone, filler: 0, message };
+    const b = -Math.floor(undone / 8);
+    return { repo, lines, files: 0, branches: b, functions: -Math.floor(-b * FUNCTIONS_PER_BRANCH), links: -Math.floor(-b * LINKS_PER_BRANCH), churn: 2 * undone, filler: 0, message };
   }
   // Bots write a little filler, as real code has: closing braces and literal tables.
-  return { repo, lines, files, branches, churn: 0, filler: Math.floor(code * 0.15), message };
+  return { repo, lines, files, branches, functions: Math.floor(branches * FUNCTIONS_PER_BRANCH), links: Math.floor(branches * LINKS_PER_BRANCH), churn: 0, filler: Math.floor(code * 0.15), message };
 }
 
 /** A bot's working day: when it pushes, and how often, in room-local hours (0 at the room's reset). */

@@ -66,7 +66,12 @@ export interface Ledger {
   /** Net counted lines by category; never below zero. */
   lines: number[];
   files: number;
+  /** Decision points in counted code. */
   branches: number;
+  /** Function points: 3 for each new function, method or class with a real body. */
+  functions: number;
+  /** Names used from newly imported local modules: half a point of complexity each. */
+  links: number;
   churn: number;
   filler: number;
   /** Code lines by purpose, indexed like PURPOSES. */
@@ -156,8 +161,12 @@ export type SimInput =
       msg: string;
       /** Change in how many source files carry counted work today. Signed. */
       files: number;
-      /** Change in branch points (if, for, while, case, catch, &&, ||, ?) in counted code: a complexity measure. Signed. */
+      /** Change in decision points (if, loops, case arms, catch, ternaries, &&, ||) in counted code. Signed. */
       branches: number;
+      /** Change in function points (3 per new function with a real body). Signed; absent in older replays. */
+      functions?: number;
+      /** Change in names used from newly imported local modules. Signed; absent in older replays. */
+      links?: number;
       /** Lines that cancelled earlier work today (added then deleted, or rewritten back). */
       churn: number;
       /** Filler: uncounted lines (duplicates, punctuation, literal tables) beyond what the push's code carries, plus lines past the daily cap. */

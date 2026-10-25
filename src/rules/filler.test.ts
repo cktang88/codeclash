@@ -8,11 +8,15 @@
 // in about 650 added lines.
 
 import { readFileSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
+import { loadAllGrammars } from './complexity.ts';
 import { Cat } from '../sim/api.ts';
 import { applyDelta, armyQuality, emptyLedger } from '../sim/muster.ts';
 import type { ChangedFile } from './classify.ts';
 import { fillerKind, measurePush, MemoryLedger, normalize } from './ledger.ts';
+
+// Ingestion loads the grammars before it measures a push; so do these tests.
+beforeAll(() => loadAllGrammars());
 
 const FIXTURE: Record<string, string> = {
   'borders.ts.patch': 'src/client/render/borders.ts',

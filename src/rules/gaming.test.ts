@@ -3,13 +3,17 @@
 // poller uses, and checks the gamed army is no meaningfully stronger. See
 // docs/fair-play.md for the survey these come from.
 
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
+import { loadAllGrammars } from './complexity.ts';
 import { Cat, KIND_COUNT, type Ledger } from '../sim/api.ts';
 import { applyDelta, armyFor, armyQuality, emptyLedger, purposeOf } from '../sim/muster.ts';
 import { STATS } from '../sim/stats.ts';
 import { openDb, Store } from '../server/db.ts';
 import type { ChangedFile } from './classify.ts';
 import { DAILY_CODE_CAP, measurePush, MemoryLedger, type LedgerStore, type PushDelta } from './ledger.ts';
+
+// Ingestion loads the grammars before it measures a push; so do these tests.
+beforeAll(() => loadAllGrammars());
 
 // ------------------------------------------------------------ helpers
 
@@ -360,6 +364,193 @@ describe('gaming line counts', () => {
 });
 
 // ------------------------------------------------------------ the honest baseline
+
+// ------------------------------------------------------------ attacks on complexity
+
+/** Complexity as the army counts it before its caps: branch points + function points + names ÷ 2. */
+const complexity = (d: { branches: number; functions: number; links: number }) => d.branches + d.functions + d.links / 2;
+
+/** Imports of `n` local modules, each name used in the code that follows. */
+function honestImports(n: number, seed: number): { imports: string[]; uses: string[] } {
+  const rand = rng(seed);
+  const pick = <T,>(xs: readonly T[]) => xs[Math.floor(rand() * xs.length)]!;
+  const imports: string[] = [];
+  const uses: string[] = [];
+  // Names without digits, so the shape cap (numbered names) leaves them alone.
+  const offset = Math.floor(rand() * 400);
+  for (let i = 0; i < n; i++) {
+    const k = (offset + 2 * i) % 400;
+    const names = [`${VERBS[k % 20]}${cap(NOUNS[Math.floor(k / 20)]!)}`, `${VERBS[(k + 1) % 20]}${cap(NOUNS[Math.floor((k + 1) / 20) % 20]!)}`];
+    imports.push(`import { ${names.join(', ')} } from './${NOUNS[i % 20]}${cap(FIELDS[Math.floor(i / 20) % 12]!)}';`);
+    for (const name of names) uses.push(`  const ${name}Result = ${name}(${pick(NOUNS)}, options.${pick(FIELDS)});`);
+  }
+  return { imports, uses };
+}
+
+/** The honest day plus an attack, as strength over the honest day plus the same code written plainly. */
+function advantage(attack: ChangedFile[], plain: ChangedFile[], msg = 'feat: billing'): number {
+  const day = (extra: ChangedFile[]) => {
+    const code = honestCode(1500, 1);
+    const changed = Array.from({ length: 30 }, (_, f) => file(`src/mod${f}/index.ts`, code.slice(f * 50, (f + 1) * 50)));
+    changed.push(file('src/billing.test.ts', honestTests(375, 2)), file('src/notes.ts', honestComments(100, 3)));
+    return strength(ledgerOf([{ delta: measure([...changed, ...extra]), msg }]));
+  };
+  return day(attack) / day(plain);
+}
+
+describe('gaming complexity', () => {
+  it('counts decisions from the syntax: not in strings or comments, not identifiers named like keywords, not constant conditions', () => {
+    const d = measure([file('src/a.ts', [
+      'log.info("if this for that && more || less", caseCount);',
+      'const caseLabel = options.case ?? item.if;',
+      'run(handler); // if only, && never',
+      'if (true) startEngine(options);',
+      'while (1) pollQueue(queue, worker);',
+      'if (ready && armed) fireAll(targets);',
+    ])]);
+    // Only the last line decides anything: its `if` and its `&&`.
+    expect(d.branches).toBe(2);
+  });
+
+  it('stub, empty and one-line functions earn no function points', () => {
+    const stubs = Array.from({ length: 200 }, (_, i) => [
+      `export function ${VERBS[i % 20]}${cap(NOUNS[Math.floor(i / 20) % 20]!)}Stub${i}(input: Input) {`,
+      i % 3 === 0 ? `  throw new Error("not implemented: ${i}");` : i % 3 === 1 ? '  // TODO' : `  return null;`,
+      '}',
+    ]).flat();
+    const oneLiners = Array.from({ length: 200 }, (_, i) => `export const ${VERBS[i % 20]}${cap(NOUNS[Math.floor(i / 20) % 20]!)}Of${i} = (x: Item) => x.${FIELDS[i % 12]};`);
+    const d = measure([file('src/stubs.ts', stubs), file('src/short.ts', oneLiners)]);
+    expect(d.functions).toBe(0);
+    expect(advantage([file('src/stubs.ts', stubs)], [file('src/stubs.ts', stubs.filter((l) => !l.startsWith('export') && l !== '}'))])).toBeLessThanOrEqual(1.1);
+  });
+
+  it('wrappers that only forward their arguments earn no function points', () => {
+    const wrappers = Array.from({ length: 150 }, (_, i) => [
+      `export function ${VERBS[i % 20]}${cap(NOUNS[Math.floor(i / 20) % 20]!)}Via${i}(a: A, b: B) {`,
+      `  return ${VERBS[(i + 3) % 20]}${cap(NOUNS[(i + 7) % 20]!)}Impl${i}(`,
+      '    a,',
+      '    b,',
+      '  );',
+      '}',
+    ]).flat();
+    expect(measure([file('src/wrap.ts', wrappers)]).functions).toBe(0);
+  });
+
+  it('splitting one function into many tiny ones earns no more than the one', () => {
+    const body = honestCode(400, 61).filter((l) => l.startsWith('  ') && !l.includes('return'));
+    const one = ['export async function runEverything(order: Order, options: Options) {', ...body, '}'];
+    const tiny = body.flatMap((l, i) => [`export async function step${i}(order: Order, options: Options) {`, l, '}']);
+    const a = measure([file('src/one.ts', one)]);
+    const b = measure([file('src/tiny.ts', tiny)]);
+    expect(a.functions).toBe(3);
+    expect(b.functions).toBe(0);
+    expect(advantage([file('src/tiny.ts', tiny)], [file('src/one.ts', one)])).toBeLessThanOrEqual(1.1);
+  });
+
+  it('imports earn names only when the names are used in code, not when unused or only in comments and strings', () => {
+    const { imports, uses } = honestImports(40, 71);
+    const unused = measure([file('src/unused.ts', imports)]);
+    expect(unused.links).toBe(0);
+    const names = imports.flatMap((l) => /\{ (.*) \}/.exec(l)![1]!.split(', '));
+    const mentioned = measure([file('src/said.ts', [...imports, ...names.map((n, i) => (i % 2 ? `  // ${n} is called later on` : `  log.info("calls ${n} for the ${NOUNS[i % 20]}", step);`))])]);
+    expect(mentioned.links).toBe(0);
+    const used = measure([file('src/used.ts', [...imports, ...uses])]);
+    expect(used.links).toBe(80);
+    expect(used.modules).toBe(40);
+    // Links are held to a quarter of complexity.
+    expect(advantage([file('src/used.ts', [...imports, ...uses])], [file('src/used.ts', uses)])).toBeLessThanOrEqual(1.1);
+  });
+
+  it('importing the same module from many files counts it once a day, and re-export barrels count nothing', () => {
+    const files = Array.from({ length: 30 }, (_, i) => file(`src/views/v${i}.ts`, [`import { formatTotal, loadOrder${i} } from '../orders';`, `  const shown${i} = formatTotal(loadOrder${i}(id${i}), options.currency);`]));
+    const d = measure(files);
+    expect(d.modules).toBe(1);
+    expect(d.links).toBe(2);
+    const ledger = new MemoryLedger();
+    measure([files[0]!], ledger);
+    expect(measure([files[1]!], ledger).links).toBe(0);
+    ledger.today = 1;
+    expect(measure([files[2]!], ledger).links).toBe(2);
+    const barrel = measure([file('src/index.ts', [...Array.from({ length: 50 }, (_, i) => `export { ${VERBS[i % 20]}${i}, ${NOUNS[i % 20]}${i} } from './part${i}';`), "export * from './more';"])]);
+    expect(barrel.links + barrel.functions).toBe(0);
+  });
+
+  it('`if (true)` stuffing and long && chains add no more than plain code', () => {
+    const code = honestCode(1500, 55);
+    const ifs = code.map((l) => (l.trim() === '}' || l.startsWith('export') ? l : `  if (true) ${l.trim()}`));
+    const chains = code.map((l, i) => (l.trim() === '}' ? l : `  if (${Array.from({ length: 20 }, (_, j) => `flag${(i + j) % 50}`).join(' && ')}) ${l.trim()}`));
+    expect(measure([file('src/app.ts', ifs)]).branches).toBeLessThanOrEqual(measure([file('src/app.ts', code)]).branches);
+    expect(advantage([file('src/app2.ts', ifs)], [file('src/app2.ts', code)])).toBeLessThanOrEqual(1.1);
+    expect(advantage([file('src/app2.ts', chains)], [file('src/app2.ts', code)])).toBeLessThanOrEqual(1.1);
+  });
+
+  it('generated and vendored code raise no complexity', () => {
+    const { imports, uses } = honestImports(20, 81);
+    const code = [...imports, ...honestCode(2000, 82), ...uses];
+    const d = measure([file('src/api.generated.ts', code), file('vendor/lib/index.ts', code), file('src/client.ts', ['// Code generated by protoc. DO NOT EDIT.', ...code])]);
+    expect(complexity(d)).toBe(0);
+    expect(d.lines[Cat.Code]).toBe(0);
+  });
+
+  it('adding then deleting functions, imports and branches leaves nothing, in any order', () => {
+    const { imports, uses } = honestImports(10, 91);
+    const code = [...imports, ...honestCode(600, 92), ...uses];
+    const ledger = new MemoryLedger();
+    const add = measure([file('src/a.ts', code)], ledger);
+    expect(add.functions).toBeGreaterThan(0);
+    expect(add.links).toBeGreaterThan(0);
+    // Delete it in three pieces, from the middle out.
+    const parts = [code.slice(200, 400), code.slice(0, 200), code.slice(400)];
+    const dels = parts.map((p) => measure([file('src/a.ts', [], p)], ledger));
+    const total = [add, ...dels].reduce((t, d) => ({ branches: t.branches + d.branches, functions: t.functions + d.functions, links: t.links + d.links }), { branches: 0, functions: 0, links: 0 });
+    expect(total).toEqual({ branches: 0, functions: 0, links: 0 });
+  });
+
+  it('gutting a function after it is credited undoes it', () => {
+    const fns = honestCode(300, 101);
+    const ledger = new MemoryLedger();
+    const add = measure([file('src/g.ts', fns)], ledger);
+    // Delete the bodies' statements, keeping each header, first statement and brace.
+    const gut = fns.filter((l, i) => l.startsWith('  ') && !fns[i - 1]!.startsWith('export'));
+    const after = measure([file('src/g.ts', [], gut)], ledger);
+    expect(add.functions + after.functions).toBe(0);
+  });
+
+  it('a day split into twenty pushes of whole functions equals its squash, parts and all', () => {
+    const { imports, uses } = honestImports(20, 111);
+    const code = honestCode(2000, 112);
+    const chunks: string[][] = [];
+    for (let at = 0; at < code.length; ) {
+      // Cut only between functions (a closing brace ends one).
+      let end = Math.min(code.length, at + 100);
+      while (end < code.length && code[end - 1] !== '}') end++;
+      chunks.push(code.slice(at, end));
+      at = end;
+    }
+    const pushes = chunks.map((c, i) => [file(`src/f${i}.ts`, [imports[i % 20]!, ...c, uses[2 * (i % 20)]!, uses[2 * (i % 20) + 1]!])]);
+    const split = new MemoryLedger();
+    const parts = pushes.map((p) => measure(p, split));
+    const squash = measure(pushes.flat(), new MemoryLedger());
+    const sum = (k: 'branches' | 'functions' | 'links') => parts.reduce((n, d) => n + d[k], 0);
+    expect({ branches: sum('branches'), functions: sum('functions'), links: sum('links') }).toEqual({ branches: squash.branches, functions: squash.functions, links: squash.links });
+    expect(squash.functions).toBeGreaterThan(0);
+    expect(strength(ledgerOf(parts.map((delta) => ({ delta, msg: 'feat: x' }))))).toBe(strength(ledgerOf([{ delta: squash, msg: 'feat: x' }])));
+  });
+
+  it('a function built up over several pushes earns no more than written at once', () => {
+    const fn = honestCode(40, 121).slice(0, 9);
+    const at = (n: number) => [...fn.slice(0, n), '}'];
+    const split = new MemoryLedger();
+    let total = 0;
+    let prev: string[] = [];
+    for (const n of [2, 4, 6, 9]) {
+      const next = at(n);
+      total += measure([file('src/grow.ts', next.slice(prev.length - 1, -1).concat('}'), prev.slice(-1))], split).functions;
+      prev = next;
+    }
+    expect(total).toBeLessThanOrEqual(measure([file('src/grow.ts', at(9))], new MemoryLedger()).functions);
+  });
+});
 
 describe('honest work', () => {
   it('a realistic day of features, fixes, tests, comments and a refactor is not ragged and earns veteran rank', () => {

@@ -67,7 +67,8 @@ describe('under fire', () => {
   it('a platoon shelled by a trebuchet in the field goes after it', () => {
     const w = duel();
     // p0: a company of foot and riders; p1: a sweeping change, its Trebuchets alone in the field.
-    muster(w, [push(0, 600, 4, 120), push(1, 300, 45, 10)]);
+    // p0's company is one platoon, as it was before armies were twice the size: half the code it once took.
+    muster(w, [push(0, 300, 4, 60), push(1, 300, 45, 10)]);
     const ours = mine(w, 0)[0]!;
     const theirs = mine(w, 1)[0]!;
     for (const u of w.units) if (u.platoon === theirs.id && u.kind !== Kind.Trebuchet) u.hp = 0.0001;

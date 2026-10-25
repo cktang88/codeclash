@@ -19,7 +19,12 @@ export function restore(snap: WorldSnapshot): World {
     pl.towerBy ??= 0;
     pl.towerAt ??= -1;
   }
-  for (const p of w.players) retireCommands(p);
+  for (const p of w.players) {
+    retireCommands(p);
+    // Snapshots from before complexity was parsed: no function or link points yet.
+    p.ledger.functions ??= 0;
+    p.ledger.links ??= 0;
+  }
   return { ...w, map: sharedMap(w.params) };
 }
 
@@ -177,6 +182,8 @@ export function checksum(world: World): number {
     for (const n of p.ledger.lines) num(n);
     num(p.ledger.files);
     num(p.ledger.branches);
+    num(p.ledger.functions);
+    num(p.ledger.links);
     for (const n of p.ledger.purposeCode) num(n);
     for (const n of p.ledger.purposeRemoved) num(n);
     for (const n of p.raised) num(n);
