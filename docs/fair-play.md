@@ -191,6 +191,38 @@ With the effort credit (FILE_CREDIT 120, FILE_CAP 15), the same attacks:
 | For scale: an honest day at the code cap | — | — | 4.6 | — |
 | Own lines rewritten, today's or older | — | — | 0 |
 
+## The fork and repeat-target pass, measured
+
+Three rules, from the effort credit's worst cases (rows 67 and 71): a fork's bonus pays only once its commits are upstream (rows 60, 71–76), the same file earns the effort credit at most once per player per 3 days (row 77), and edits must survive, which the same-day clawback already decides (row 78).
+
+**Attacks** (`src/rules/gaming.test.ts`, `GAMING_REPORT=1` prints them): strength over an honest 1,500-line day, as in the tables above.
+
+| Attack | Before this pass | Now | Bonus lines |
+|---|---|---|---|
+| Tiny 3-line edits across 40 core files, in a fork, not merged (row 67) | 2.477 | **1.113** | 0 |
+| The same with push rights to the big project, first day | 2.477 | 2.477 | 2,026 |
+| The same 40 files again every day, mean of 6 days | 2.48 every day | **1.69** (2.51, 1.28, 1.28, 2.49, 1.28, 1.28) | 2,064 one day in three, else 264 |
+| Rotating three sets of 40 core files, mean of 6 days | 2.48 | 2.50 | 2,064 a day |
+| Fork farming, 40 files replaced, not merged (rows 60, 71) | 3.471 | **2.020** | 0 |
+| Fork farming, merged upstream every day, mean of 6 days (each war carries the day before's bonus) | 3.47 every day | **2.97** (2.16, 3.49, 2.94, 2.93, 3.42, 2.90) | 0, then 3,800 one day in three, else 2,000 |
+| A fork whose pull request is never merged | as farmed | as the code alone | 0, given up after 14 days |
+| Edit, earn, revert the same day | 0 | 0 | +2,064 then −2,064 |
+
+**Maintainers and fork contributors** (`DAYS=128 pnpm tsx scripts/diagnose-war.ts 4 0 MAINTAINERS=1`, and `FORKS=1` for a fork contributor; the maintainer's repository is not a fork, so the upstream rule does not touch it; fair share 25%):
+
+| | Wins | 2–4 pushes/h | Budget / greenfield median | Bonus a day |
+|---|---|---|---|---|
+| Maintainer, before this pass | 13% | 14% | 0.83 | 1,981 |
+| Maintainer, with repeat-target dampening | **5%** | 2% | **0.53** | 942 |
+| Maintainer, dampening off (`DAMPEN=0`, check) | MND_W | MND_N | MND_B | MND_X |
+| Fork contributor: the same work in a fork, 70% of pull requests merged after 1–3 days (dampening on) | **4%** | 0% | **0.46** | 600 received (962 a day left pending) |
+
+The dampening is the costly rule. The maintainer persona returns to a pool of 25 core files and touches most of them every few days, as real maintainers do, so the effort credit pays about half as often: its bonus halves and its wins fall from 13% to 5%. It closes only the repeat-target farm (row 77), which rotating three sets of files escapes anyway. Options, not built: dampen only token edits (a file paid in the window earns again with, say, 10 or more modified lines), or shorten the window to 2 days, or raise FILE_CREDIT to compensate.
+
+**Survival or clawback.** The clawback was already built: the effort credit is a function of the file's day state, so a same-day revert takes it back exactly, and the day's final credit is the credit of the edits that survived the day. A survive-the-day rule (paying at the day's close, recorded as an input) would decide the same final amount. What it would add is only timing: a revert later the same day no longer leaves the soldiers it had raised in the field until then, the same window every line of code already has (write, then delete). It would cost a day's lag for every honest maintainer (the credit would land in the next war), a new per-player day-close input, and wars that reset off UTC midnight would see it mid-war. A next-day revert is free either way (day memory), and the edit survived its day. So survival is not built: the upstream rule and the repeat-target rule address what survival was meant to.
+
+**API cost of the upstream checks.** A pending fork diff costs one request (`compare/{default}...{head}`) a day while pending, first right after its day closes; when that does not find it, one more for the fork branch's closed pull requests (once a day per branch, shared by its diffs), one per merged pull request's commits (cached for good) and at most one merge commit for its patch id (cached for good). A diff merged after 1–3 days costs about 2–6 requests; one never merged at most 28 over its 14 days. The checks run every minute, at most 25 rows a run, and spend at most 10% of the REST budget above a 2,000-request reserve until the limit resets (the poller takes 60%, the preview leaves 1,500); a webhook's merged pull request only makes rows due early. A fork contributor pushing 5 diffs a day, none merged, keeps about 70 rows pending: about 85 requests a day against 120,000.
+
 ## The complexity pass, measured
 
 Branch points were a keyword count; now complexity is `branch points + 3 × new functions + ½ × imported names used`, read from syntax trees (DESIGN.md, *Sorting lines*). At the same time armies became twice the size (every budget weight and every unit count doubled; DESIGN.md, *How many soldiers*), so "before" and "now" below are each strength over the same honest day under its own rules.
@@ -304,6 +336,15 @@ On this repository's own source plus zod and rxjs, honest code keeps about **92%
 - long runs of JSX text, which read as prose
 
 All players are measured the same way. A realistic day of features, fixes, tests, comments and a refactor (1400 lines over 10 files) gets no negative quality notes, earns *Well tested* and veteran rank 1, and reaches rank 2 at 12 files (test "a realistic day…").
+
+## Changes in the fork and repeat-target pass
+
+- `src/rules/difficulty.ts`: `EFFORT_REPEAT_DAYS`, `UPSTREAM_GIVE_UP_DAYS`, `UPSTREAM_PER_DAY`; `PushContext.upstream`, `upstreamOf`, `upstreamReward`; `RepoFacts.parent`
+- `src/rules/ledger.ts`: a fork's files are frozen as deferred with their multiplier, their bonus and effort credit go to `PushDelta.pending` instead of `bonus`; per-file effort history (repeat-target dampening); `dayBonusTotals`
+- `src/server/upstream.ts` (new): `patchId`, the daily checks, settling closed days into rewards; `src/server/db.ts`: `upstream_pending`, `upstream_days`, `upstream_paid`; `src/server/poller.ts` records pending rows and the day's immediate totals with the push; `src/server/hooks.ts` accepts `pull_request` closed-and-merged deliveries as a wake-up; `src/server/war.ts`, `rooms.ts`, `app.ts`: the reward as an `upstream` input to the player's current wars
+- `src/server/github.ts`: `compareStatus`, `closedPulls`, `pullCommits`, a fork's `parent` and default branches; `src/server/preview.ts`: "×3.2 pending upstream merge"
+- `src/sim/api.ts`, `replay.ts`, `world.ts`: the `upstream` input, `[tick, 'upstream', p, repo, bonus, day]`: bonus lines added to the war's ledger without counting as a push (old replays decode as before)
+- `scripts/diagnose-war.ts`: dampening for maintainers (`DAMPEN=0` turns it off), the fork contributor persona (`FORKS`, `MERGE_RATE`), settings as `KEY=VALUE` arguments
 
 ## Changes in the difficulty-bonus pass
 
