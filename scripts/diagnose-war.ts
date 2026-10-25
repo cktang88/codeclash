@@ -21,7 +21,7 @@ import { generateMap, seatOrder, slotsFor } from '../src/sim/mapgen.ts';
 import { armyFor, effectiveLedger, slotsOf } from '../src/sim/muster.ts';
 import { STATS } from '../src/sim/stats.ts';
 import { createWorld, dayWinner, step } from '../src/sim/world.ts';
-import { bonusMilli, DAILY_BONUS_CAP } from '../src/rules/difficulty.ts';
+import { bonusMilli, DAILY_BONUS_CAP, FILE_CAP, FILE_CREDIT, fileCreditMilli } from '../src/rules/difficulty.ts';
 import { BOTS, botDay, botPush, botPushesPerDay, botRateAt, FUNCTIONS_PER_BRANCH, LINKS_PER_BRANCH, mulberry, type BotDay } from '../src/rules/bots.ts';
 
 const MESSAGES = ['fix: crash on empty input', 'feat: add export', 'refactor: split parser', 'perf: cache lookups', 'revert: "feat: add export"', 'chore(deps): bump vite', 'Update handler'];
@@ -43,15 +43,22 @@ const MAINTAINERS = Number(process.env.MAINTAINERS ?? 0);
 const BONUS = process.env.BONUS !== '0';
 /** Sensitivity only: scales each file's (M − 1), to see what multiplier a maintainer would need. 1 is the rule as built. */
 const BONUS_SCALE = Number(process.env.BONUS_SCALE ?? 1);
+/** The effort credit's constants, overridable for tuning (FILE_CREDIT=0 turns it off). */
+const EFFORT_CREDIT = Number(process.env.FILE_CREDIT ?? FILE_CREDIT);
+const EFFORT_CAP = Number(process.env.FILE_CAP ?? FILE_CAP);
+
+type MaintainerDay = { files: Map<number, { modified: number; m: number; bonus: number; effort: number }>; bonus: number; effort: number };
 
 /**
  * A maintainer's push: a small fix (median about 15 lines, now and then 100-200) to 1-4 files of a
  * big, much-worked repository, most of it replacing other people's lines. Each file has a multiplier
  * drawn from what such files measure (×2.2 to ×3.2, the vite fixture's range), and the day's bonus
  * per file follows the ledger's rule: the first 40 modified lines in full, then a square root, the
- * day's total at most DAILY_BONUS_CAP. `day` carries the per-file state across the day's pushes.
+ * day's total at most DAILY_BONUS_CAP; a file that reaches 3 modified lines earns the effort credit
+ * (FILE_CREDIT × (M − 1) / 2.2, at most FILE_CAP files' worth a day). `day` carries the per-file state
+ * across the day's pushes.
  */
-function maintainerPush(p: number, rand: () => number, day: { files: Map<number, { modified: number; m: number; bonus: number }>; bonus: number }): Extract<SimInput, { kind: 'push' }> {
+function maintainerPush(p: number, rand: () => number, day: MaintainerDay): Extract<SimInput, { kind: 'push' }> {
   const pick = (n: number) => Math.floor(rand() * n);
   const big = rand() < 0.1;
   const code = big ? 100 + pick(100) : 3 + Math.floor(Math.pow(rand(), 1.6) * 57);
@@ -63,6 +70,8 @@ function maintainerPush(p: number, rand: () => number, day: { files: Map<number,
   const lines = [code, rand() < 0.5 ? pick(30) : 0, Math.floor(code * rand() * 0.1), 0, 0, removed, 0, 0, Math.floor(code * 0.1)];
   let before = 0;
   let after = 0;
+  let effortBefore = 0;
+  let effortAfter = 0;
   // The day's files: a maintainer returns to the same core files (a pool of 25).
   let left = Math.floor(Math.min(code, removed) * 0.8);
   for (let f = 0; f < nFiles && left > 0; f++) {
@@ -70,16 +79,23 @@ function maintainerPush(p: number, rand: () => number, day: { files: Map<number,
     const share = f === nFiles - 1 ? left : Math.max(1, Math.floor(left / (nFiles - f)));
     left -= share;
     let state = day.files.get(id);
-    if (!state) day.files.set(id, (state = { modified: 0, m: Math.round(1000 + BONUS_SCALE * (1200 + rand() * 1000)), bonus: 0 }));
+    if (!state) day.files.set(id, (state = { modified: 0, m: Math.round(1000 + BONUS_SCALE * (1200 + rand() * 1000)), bonus: 0, effort: 0 }));
     state.modified += share;
     const now = bonusMilli(state.modified, state.m);
     before += state.bonus;
     after += now;
     state.bonus = now;
+    const effort = fileCreditMilli(state.modified, state.m, EFFORT_CREDIT);
+    effortBefore += state.effort;
+    effortAfter += effort;
+    state.effort = effort;
   }
-  const capped = (x: number) => Math.floor(Math.max(0, Math.min(x, DAILY_BONUS_CAP * 1000)) / 1000);
-  const bonus = BONUS ? capped(day.bonus + after - before) - capped(day.bonus) : 0;
+  const capped = (x: number, cap: number) => Math.floor(Math.max(0, Math.min(x, cap * 1000)) / 1000);
+  const bonus = BONUS
+    ? capped(day.bonus + after - before, DAILY_BONUS_CAP) - capped(day.bonus, DAILY_BONUS_CAP) + capped(day.effort + effortAfter - effortBefore, EFFORT_CAP * EFFORT_CREDIT) - capped(day.effort, EFFORT_CAP * EFFORT_CREDIT)
+    : 0;
   day.bonus += after - before;
+  day.effort += effortAfter - effortBefore;
   const branches = Math.floor(code / (5 + pick(4)));
   return { kind: 'push', p, repo: p * 2, commits: 1, msg, lines, files: nFiles, branches, functions: Math.floor(branches * FUNCTIONS_PER_BRANCH * 0.3), links: 0, churn: 0, filler: 0, bonus };
 }
@@ -191,7 +207,7 @@ function runDay(day: number, humans: number, bots: number): DayResult {
   }
   const code = new Array<number>(players).fill(0);
   const bonus = new Array<number>(players).fill(0);
-  const maintainerDays = Array.from({ length: players }, () => ({ files: new Map<number, { modified: number; m: number; bonus: number }>(), bonus: 0 }));
+  const maintainerDays = Array.from({ length: players }, (): MaintainerDay => ({ files: new Map(), bonus: 0, effort: 0 }));
   let raised12: number[] = [];
   let firstFall: number | null = null;
   let firstCapture: number | null = null;
@@ -324,12 +340,20 @@ function days(): void {
             maintainers: MAINTAINERS,
             bonus: BONUS,
             bonusScale: BONUS_SCALE,
+            fileCredit: EFFORT_CREDIT,
+            fileCap: EFFORT_CAP,
             maintainerWins: share((r) => r.winner < MAINTAINERS),
             maintainerFairShare: `${Math.round((100 * MAINTAINERS) / (humans + bots))}%`,
             maintainerBudgetVsGreenfieldMedian: median(results.map((r) => +(r.budget[0]! / Math.max(1, greenBudget(r))).toFixed(2))),
             maintainerCodePerDayMedian: median(results.map((r) => r.code[0]!)),
             maintainerBonusPerDayMedian: median(results.map((r) => r.bonus[0]!)),
             greenfieldCodePerDayMedian: median(results.flatMap((r) => r.code.slice(MAINTAINERS, humans))),
+            maintainerWinsByRate: Object.fromEntries(
+              ([['<1.5', 0, 1.5], ['1.5-3', 1.5, 3], ['>=3', 3, 99]] as const).map(([k, lo, hi]) => {
+                const days = results.filter((r) => r.rates[0]! >= lo && r.rates[0]! < hi);
+                return [k, days.length > 0 ? `${Math.round((100 * days.filter((r) => r.winner === 0).length) / days.length)}% of ${days.length}` : '-'];
+              }),
+            ),
             // A maintainer with a normal workday: 2 to 4 pushes an hour.
             maintainerWinsAtNormalRate: (() => {
               const days = results.filter((r) => r.rates[0]! >= 2 && r.rates[0]! < 4);

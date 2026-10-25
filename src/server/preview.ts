@@ -248,6 +248,7 @@ export function difficultyOf(n: DifficultyNote): PreviewDifficulty {
     modified: n.modified,
     multiplier: n.mMilli / 1000,
     extra: Math.round(n.extraMilli / 100) / 10,
+    ...(n.creditMilli ? { credit: Math.round(n.creditMilli / 100) / 10 } : {}),
     lines: c?.lines ?? 0,
     authors: c?.authorsOthers ?? 0,
     commits: c?.fileCommits ?? 0,
@@ -265,7 +266,17 @@ export function difficultyText(d: PreviewDifficulty): string {
   return `Edited ${plural(d.modified, 'line')} of others’ code in ${fileName(d.path)}${facts ? ` (${facts})` : ''} ×${d.multiplier.toFixed(1)}${held} → +${extra} ${d.extra === 1 ? 'line' : 'lines'} of credit`;
 }
 
-export function explain(ledger: Ledger, army: PreviewArmy, purpose: Purpose | null, extra: { filesChanged: number; estimated: number; truncated: boolean; unread?: boolean; uncounted?: readonly Uncounted[]; modules?: number; difficulty?: readonly PreviewDifficulty[] }): string[] {
+/** "Fixed 3 hard files in vite (css.ts ×3.2, build.ts ×3.2, asset.ts ×2.9) → +172 lines of effort credit", or null. */
+export function effortText(files: readonly PreviewDifficulty[], repo?: string): string | null {
+  const hard = files.filter((d) => (d.credit ?? 0) > 0).sort((a, b) => b.multiplier - a.multiplier || (a.path < b.path ? -1 : 1));
+  if (hard.length === 0) return null;
+  const total = Math.floor(hard.reduce((n, d) => n + (d.credit ?? 0), 0));
+  const named = hard.slice(0, 3).map((d) => `${fileName(d.path)} ×${d.multiplier.toFixed(1)}`).join(', ');
+  const where = repo ? ` in ${repo.slice(repo.indexOf('/') + 1)}` : '';
+  return `Fixed ${plural(hard.length, 'hard file')}${where} (${named}${hard.length > 3 ? ', …' : ''}) → +${plural(total, 'line')} of effort credit`;
+}
+
+export function explain(ledger: Ledger, army: PreviewArmy, purpose: Purpose | null, extra: { filesChanged: number; estimated: number; truncated: boolean; unread?: boolean; uncounted?: readonly Uncounted[]; modules?: number; difficulty?: readonly PreviewDifficulty[]; repo?: string }): string[] {
   const out: string[] = [];
   const L = ledger.lines;
   const c = army.counts;
@@ -295,6 +306,8 @@ export function explain(ledger: Ledger, army: PreviewArmy, purpose: Purpose | nu
   const hard = (extra.difficulty ?? []).filter((d) => d.modified > 0).sort((a, b) => b.extra - a.extra || (a.path < b.path ? -1 : 1));
   for (const d of hard.slice(0, 3)) out.push(difficultyText(d));
   if (hard.length > 3) out.push(`…and ${plural(hard.length - 3, 'more file')} of others’ code`);
+  const effort = effortText(extra.difficulty ?? [], extra.repo);
+  if (effort) out.push(effort);
   if ((ledger.bonus ?? 0) > eff.bonus) out.push(`The difficulty bonus counts at most ${BONUS_PER_CODE}× the code (and ${fmt(DAILY_BONUS_CAP)} lines a day)`);
   // How the army size was spent: specialists by what raised them, Footmen for the rest.
   const specialists: string[] = [];
@@ -471,7 +484,7 @@ export class Preview {
         ...(ledger.bonus ? { bonus: ledger.bonus } : {}),
         ...(difficulty.length > 0 ? { difficulty } : {}),
         army,
-        reasons: explain(ledger, army, purpose, { filesChanged: files?.length ?? 0, ...shape, unread: files === null, uncounted: delta.uncounted, modules: delta.modules, difficulty }),
+        reasons: explain(ledger, army, purpose, { filesChanged: files?.length ?? 0, ...shape, unread: files === null, uncounted: delta.uncounted, modules: delta.modules, difficulty, repo: name }),
         ...(files === null ? { unread: true } : {}),
         ...(shape.truncated ? { truncated: true } : {}),
         ...(shape.estimated > 0 ? { estimated: shape.estimated } : {}),
@@ -570,8 +583,11 @@ export function combine(chosen: readonly CommitMeta[], diffs: readonly (ChangedF
     const files = diffs[i];
     if (!files) continue;
     const delta = measurePush(files, store, contexts[i] ?? null);
-    // A file's latest note carries the day's state (modified lines so far); its extra credit adds up.
-    for (const n of delta.difficulty ?? []) notes.set(n.path, { ...n, extraMilli: (notes.get(n.path)?.extraMilli ?? 0) + n.extraMilli, context: n.context ?? notes.get(n.path)?.context ?? null });
+    // A file's latest note carries the day's state (modified lines so far); its extra and effort credit add up.
+    for (const n of delta.difficulty ?? []) {
+      const was = notes.get(n.path);
+      notes.set(n.path, { ...n, extraMilli: (was?.extraMilli ?? 0) + n.extraMilli, creditMilli: (was?.creditMilli ?? 0) + (n.creditMilli ?? 0), context: n.context ?? was?.context ?? null });
+    }
     uncounted.push(delta.uncounted);
     modules += delta.modules ?? 0;
     credit(ledger, delta, purposeOf(chosen[i]!.message));

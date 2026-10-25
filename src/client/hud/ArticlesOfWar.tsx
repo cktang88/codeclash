@@ -1,4 +1,5 @@
 import { Fragment, useState, type ReactNode } from 'react';
+import { DAILY_BONUS_CAP, FILE_CAP, FILE_CREDIT, GATE_CAP, MEANINGFUL_LINES } from '../../rules/difficulty.ts';
 import { Kind } from '../../sim/api.ts';
 import { STATS, type Tier } from '../../sim/stats.ts';
 import { Link } from '../ui/Link.tsx';
@@ -26,6 +27,13 @@ const HOW_IT_WORKS = [
     code raises about twice the army, up to 4,000 lines a day; past that each line counts half, and nothing past 8,000. Each push marches out the soldiers your day has earned so far.
   </>,
   <>
+    <strong>Hard edits count for more.</strong> Changing other people’s established code in a big, much-worked repository is harder than writing new lines, so it earns a
+    difficulty bonus: each line of others’ code you replace counts up to 3.2 times (the first 40 in a file in full, fewer after), by how big, old, central and shared the file
+    is. And each such file you meaningfully change in a day ({MEANINGFUL_LINES}+ of its lines) earns a fixed effort credit of up to {FILE_CREDIT} lines, for at most{' '}
+    {FILE_CAP} files a day. New lines are never multiplied, your own code never counts as others’, and a young repository without stars, forks and other contributors is held to ×
+    {GATE_CAP}. The bonus counts as code, up to {DAILY_BONUS_CAP.toLocaleString('en-US')} lines a day.
+  </>,
+  <>
     <strong>Purpose picks the specialists.</strong> The commit message decides who joins them: bug fixes bring Clerics and Paladins, features bring Champions, refactors bring cavalry,
     and reverts raise the dead.
   </>,
@@ -48,6 +56,7 @@ const FAIR_PLAY: readonly [string, string][] = [
   ['Moves and reformatting don’t count', 'Moving code between files, renaming, reindenting and reformatting change nothing real, so they raise nothing.'],
   ['Filler doesn’t count', 'Duplicated lines, punctuation-only lines and pasted tables of literals are left out.'],
   ['Complexity is real syntax', 'Decisions are read from the syntax tree, so keywords in strings or comments, `if (true)` and long && chains add nothing. Empty, one-line and forwarding functions earn no function points, a function counts only while the lines carrying it stand, and an import counts only for the names its code uses, once a day per module.'],
+  ['Hard edits are checked', 'The difficulty bonus comes from GitHub’s blame of the file before your push: lines you wrote yourself, whitespace and comment edits earn nothing, backdated history counts from the day the repository was made, fresh accounts are not contributors, and undoing an edit the same day takes its bonus back.'],
   ['Generated and vendored code count nothing', 'Lockfiles, build output, minified bundles and copied libraries raise no one.'],
   ['The message picks specialists, not power', 'Calling every commit a fix changes who marches, never how strong the army is. Your contribution sets the power.'],
   ['Spam makes a ragged army', 'Floods of tests or comments with little code behind them lower your soldiers’ HP and damage.'],

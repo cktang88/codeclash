@@ -151,3 +151,27 @@ export function installGreenfield(github: FakeGithub): { repo: string; base: str
   });
   return { repo: FRESH_REPO, base: FRESH_BASE, head: FRESH_HEAD, files };
 }
+
+export const VITE_DAY_HEAD = 'a1'.repeat(20);
+
+/**
+ * A maintainer's harder commit on the same base: three or more lines of others' code reworked in each
+ * of css.ts, build.ts and asset.ts (enough for the effort credit), installed as a single commit.
+ */
+export function installViteDay(github: FakeGithub): { repo: string; base: string; head: string; files: ChangedFile[] } {
+  installVite(github);
+  const rework = (path: string, at: number, n: number): ChangedFile => {
+    const tag = path.slice(path.lastIndexOf('/') + 1).replace(/\W.*$/, '');
+    const removed = Array.from({ length: n }, (_, i) => `    const ${tag}${['Chunk', 'Asset', 'Entry', 'Module', 'Bundle'][i]}Map = config.build.sourcemap ? load${['Chunk', 'Asset', 'Entry', 'Module', 'Bundle'][i]}Map(${tag}Id) : null`);
+    const added = removed.map((l) => l.replace('config.build.sourcemap', 'resolveSourcemap(environment.config.build)'));
+    return modified(path, hunk(at, ['  const id = normalizePath(file)', '  const environment = this.environment', '  if (!environment) return'], removed, added, ['  return result', '}', '']));
+  };
+  const files = [rework('packages/vite/src/node/plugins/css.ts', 2304, 4), rework('packages/vite/src/node/build.ts', 611, 3), rework('packages/vite/src/node/plugins/asset.ts', 214, 3)];
+  github.setCompare(VITE_REPO, VITE_BASE, VITE_DAY_HEAD, {
+    commits: [{ sha: VITE_DAY_HEAD, authorLogin: MAINTAINER.login, authorId: MAINTAINER.id, message: 'fix: resolve build.sourcemap per environment', authorEmail: 'mara@example.com' }],
+    files,
+    base: VITE_BASE,
+  });
+  github.setCommit(VITE_REPO, VITE_DAY_HEAD, { commits: [{ sha: VITE_DAY_HEAD, authorLogin: MAINTAINER.login, message: 'fix' }], files, base: VITE_BASE });
+  return { repo: VITE_REPO, base: VITE_BASE, head: VITE_DAY_HEAD, files };
+}

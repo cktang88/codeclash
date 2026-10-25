@@ -158,10 +158,13 @@ export const LINES_PER_FUNCTION_POINT = 8;
 export const LINK_SHARE = 0.25;
 
 /**
- * Difficulty bonus lines count at most this many times the day's code lines: the bonus is
- * `(M − 1)` per modified line and M is at most 4, so more would be bonus without the code behind it.
+ * Difficulty bonus lines count at most this many times the day's code lines, so a tiny day cannot
+ * explode. The bonus has two parts (rules/difficulty.ts): `(M − 1)` per modified line (at most 2.2),
+ * and the effort credit, a fixed 60 lines for each hard file meaningfully modified, which needs at
+ * least 3 modified lines: at most 20 a line. Together at most about 22 per code line; honest days sit
+ * far below, and ingestion's own caps (2,000 bonus lines and 15 files' effort a day) bind first.
  */
-export const BONUS_PER_CODE = 3;
+export const BONUS_PER_CODE = 23;
 
 /** Lines' worth of `n` code lines: in full to the knee, half beyond, nothing past the cap. */
 export function credited(n: number): number {

@@ -380,8 +380,10 @@ export interface PreviewDifficulty {
   modified: number;
   /** The file's multiplier, after the repository gate. */
   multiplier: number;
-  /** Extra lines of credit the file adds. */
+  /** Extra lines of credit the file adds for its modified lines. */
   extra: number;
+  /** Effort credit the file adds: a fixed credit for a meaningfully modified hard file (3+ lines of others' code). */
+  credit?: number;
   /** The file's lines before the change, and its other authors. */
   lines: number;
   authors: number;

@@ -10,7 +10,7 @@ import { applyDelta, armyFor, armyQuality, emptyLedger, purposeOf } from '../sim
 import { STATS } from '../sim/stats.ts';
 import { openDb, Store } from '../server/db.ts';
 import type { ChangedFile } from './classify.ts';
-import { DAILY_BONUS_CAP, type PushContext } from './difficulty.ts';
+import { DAILY_BONUS_CAP, FILE_CAP, FILE_CREDIT, type PushContext } from './difficulty.ts';
 import { DAILY_CODE_CAP, measurePush, MemoryLedger, type LedgerStore, type PushDelta } from './ledger.ts';
 
 // Ingestion loads the grammars before it measures a push; so do these tests.
@@ -658,7 +658,7 @@ describe('gaming the difficulty bonus', () => {
   const per = Math.ceil(old.length / 5);
   const slice = (xs: readonly string[], f: number, n = per) => xs.slice(f * n, (f + 1) * n);
   /** Most bonus five core files can carry in a day: (40 + √(n − 40)) × 2.2 lines each. */
-  const perFileMax = (n: number) => Math.floor((40 + Math.sqrt(Math.max(0, n - 40))) * 2.2);
+  const perFileMax = (n: number) => Math.floor((40 + Math.sqrt(Math.max(0, n - 40))) * 2.2) + FILE_CREDIT;
 
   it('re-wrapping others’ old code in core files adds at most the per-file square root on top of what re-wrapping already paid', () => {
     const wrapped = (l: string) => l.replace(/\(([^()]*), ([^()]*)\)/, '(\n    $1,\n    $2,\n  )').split('\n');
@@ -666,14 +666,15 @@ describe('gaming the difficulty bonus', () => {
     const r = bonusAdvantage(rewrap, coreContext(CORE));
     expect(r.before).toBeGreaterThan(1.4);
     expect(r.bonus).toBeLessThanOrEqual(5 * perFileMax(per));
-    expect(r.now).toBeLessThan(r.before + 0.3);
+    // What the bonus adds is bounded by five files' worth: the line rule plus one effort credit each.
+    expect(r.now - r.before).toBeLessThan(0.1 + (5 * perFileMax(per)) / 1500);
   });
 
   it('a mass rename across others’ code is bounded per file by the square root past 40 lines', () => {
     const rename = CORE.map((p, f) => file(p, slice(old, f).map((l) => l.replace(/options/g, 'settings')), slice(old, f)));
     const r = bonusAdvantage(rename, coreContext(CORE));
     expect(r.bonus).toBeLessThanOrEqual(5 * perFileMax(per));
-    expect(r.now).toBeLessThan(r.before + 0.3);
+    expect(r.now - r.before).toBeLessThan(0.1 + (5 * perFileMax(per)) / 1500);
   });
 
   it('replacing others’ code with copies of one line earns no bonus without code behind it', () => {
@@ -687,10 +688,18 @@ describe('gaming the difficulty bonus', () => {
     const files = Array.from({ length: 40 }, (_, f) => `src/fork/part${f.toString(36)}x.ts`);
     const farm = files.map((p, f) => file(p, slice(fresh, f, 40), old.slice((f * 30) % 1000, ((f * 30) % 1000) + 40)));
     const r = bonusAdvantage(farm, coreContext(files));
-    expect(r.bonus).toBe(DAILY_BONUS_CAP);
+    expect(r.bonus).toBe(DAILY_BONUS_CAP + FILE_CAP * FILE_CREDIT);
     // The same code written in a greenfield repository is r.before; an honest day at the code cap is ×4.6.
-    expect(r.now).toBeLessThan(r.before * 1.5);
-    expect(r.now).toBeLessThan(3.2);
+    expect(r.now).toBeLessThan(4.6);
+  });
+
+  it('tiny 3-line edits across 40 core files are held to the effort cap', () => {
+    const files = Array.from({ length: 40 }, (_, f) => `src/core/hub${f.toString(36)}z.ts`);
+    const tiny = files.map((p, f) => file(p, slice(fresh, f, 3), old.slice(f * 3, f * 3 + 3)));
+    const r = bonusAdvantage(tiny, coreContext(files));
+    expect(r.bonus).toBeLessThanOrEqual(FILE_CAP * FILE_CREDIT + Math.floor(120 * 2.2));
+    // Below an honest day at the code cap (×4.6), whatever the credit is tuned to.
+    expect(r.now).toBeLessThan(4.6);
   });
 
   it('deleting others’ lines in one place and adding code in another place of the same file pays as an in-place edit (pairing is per file and day)', () => {

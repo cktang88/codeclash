@@ -21,7 +21,7 @@
 import { Cat, CAT_COUNT } from '../sim/api.ts';
 import { analyzeFile, FUNCTION_STATEMENTS, lineBranches, LINK_NAMES_PER_IMPORT, parseBudget, type ParseBudget } from './complexity.ts';
 import { branchesIn, categorizePath, classifyLine, extensionOf, isGeneratedContent, splitPatch, syntaxFor, type ChangedFile, type FileCategory } from './classify.ts';
-import { bonusMilli, DAILY_BONUS_CAP, type DifficultyNote, type PushContext } from './difficulty.ts';
+import { bonusMilli, DAILY_BONUS_CAP, FILE_CAP, FILE_CREDIT, fileCreditMilli, type DifficultyNote, type PushContext } from './difficulty.ts';
 import { languageOfPath } from './heraldry.ts';
 import { CODE_CAP } from '../sim/muster.ts';
 
@@ -554,10 +554,14 @@ const MODIFIED_ADDED = '\u000badded';
 const MODIFIED_REMOVED = '\u000bremoved';
 const MULTIPLIER = '\u000bm';
 const FILE_BONUS = '\u000bbonus';
+/** The file's effort credit today (a fixed credit once it is meaningfully modified), in thousandths of a line. */
+const FILE_EFFORT = '\u000beffort';
 /** Prefix of the per-key mark: this key's removal today was of someone else's line. */
 const OTHERS = '\u000bothers\u0000';
 /** The user's raw bonus today, in thousandths of a line, before DAILY_BONUS_CAP. */
 const DAY_BONUS = '\u000ebonus';
+/** The user's effort credit today, in thousandths of a line, before the FILE_CAP files' worth. */
+const DAY_EFFORT = '\u000eeffort';
 
 /** Applies a prepared push to the user's ledger: the second half of `measurePush`. A prepared push is applied once. */
 export function applyPush(prepared: PreparedPush, store: LedgerStore, context?: PushContext | null): PushDelta {
@@ -718,6 +722,7 @@ export function applyPush(prepared: PreparedPush, store: LedgerStore, context?: 
   const codeByLanguage = new Map<string, number>();
   let filesDelta = estimatedFiles;
   let bonusDelta = 0;
+  let effortDelta = 0;
   const notes: DifficultyNote[] = [];
   for (const [path, keys] of perFile) {
     const scope = today === null ? path : `${path}\u0005${today}`;
@@ -767,18 +772,30 @@ export function applyPush(prepared: PreparedPush, store: LedgerStore, context?: 
       store.setBalance(scope, FILE_BONUS, now);
       bonusDelta += now - was;
     }
-    if (m > 1000 && (now !== was || (fc && fc.others.length > 0))) notes.push({ path, modified: Math.max(0, Math.min(a, r)), mMilli: m, extraMilli: now - was, context: fc });
+    // The effort credit: a function of (modified, frozen multiplier) like the bonus, so it is awarded
+    // by the push that takes the file to MEANINGFUL_LINES and taken back by one that drops it below.
+    const hadEffort = store.balance(scope, FILE_EFFORT);
+    const effort = fileCreditMilli(Math.min(a, r), m);
+    if (effort !== hadEffort) {
+      store.setBalance(scope, FILE_EFFORT, effort);
+      effortDelta += effort - hadEffort;
+    }
+    if (m > 1000 && (now !== was || effort !== hadEffort || (fc && fc.others.length > 0))) notes.push({ path, modified: Math.max(0, Math.min(a, r)), mMilli: m, extraMilli: now - was, creditMilli: effort - hadEffort, context: fc });
   }
   // The day's bonus telescopes like the code cap: credit only what the running total gains below DAILY_BONUS_CAP.
+  // So does the effort credit, held to FILE_CAP files' worth; both fold into the bonus lines.
   let bonus = 0;
-  if (bonusDelta !== 0) {
-    const scope = today === null ? DAY_BONUS : `${DAY_BONUS}\u0005${today}`;
+  const daily = (key: string, delta: number, cap: number) => {
+    if (delta === 0) return 0;
+    const scope = today === null ? key : `${key}\u0005${today}`;
     const before = store.balance(scope, '');
-    const after = before + bonusDelta;
+    const after = before + delta;
     store.setBalance(scope, '', after);
-    const capped = (x: number) => Math.floor(Math.max(0, Math.min(x, DAILY_BONUS_CAP * 1000)) / 1000);
-    bonus = capped(after) - capped(before);
-  }
+    const capped = (x: number) => Math.floor(Math.max(0, Math.min(x, cap * 1000)) / 1000);
+    return capped(after) - capped(before);
+  };
+  bonus += daily(DAY_BONUS, bonusDelta, DAILY_BONUS_CAP);
+  bonus += daily(DAY_EFFORT, effortDelta, FILE_CAP * FILE_CREDIT);
 
   // Daily caps telescope too: credit only what the running total gains below the cap.
   const day = store.daily();

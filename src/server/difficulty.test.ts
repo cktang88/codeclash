@@ -14,9 +14,10 @@ import { openDb, Store } from './db.ts';
 import { contextQuery, DifficultyContext } from './difficulty.ts';
 import { Mirror, readablePath, validRepoName } from './mirror.ts';
 import { ingestPush, type PushReport } from './poller.ts';
-import { difficultyOf, difficultyText, Preview } from './preview.ts';
+import { difficultyOf, difficultyText, effortText, Preview } from './preview.ts';
+import { FILE_CREDIT } from '../rules/difficulty.ts';
 import { blameOf, commitMeta, FakeGithub } from './testing/fakeGithub.ts';
-import { FIXTURE_NOW, installGreenfield, installVite, MAINTAINER, VITE_BASE, VITE_FACTS, VITE_HEAD, VITE_REPO, viteFiles } from './testing/difficultyFixtures.ts';
+import { FIXTURE_NOW, installGreenfield, installVite, installViteDay, MAINTAINER, VITE_BASE, VITE_DAY_HEAD, VITE_FACTS, VITE_HEAD, VITE_REPO, viteFiles } from './testing/difficultyFixtures.ts';
 
 beforeAll(() => loadAllGrammars());
 
@@ -318,5 +319,22 @@ describe('the preview and replays', () => {
     expect(replayed.players[0]!.ledger.bonus).toBe(300);
     // The bonus is worth more army than the same push without it.
     expect(replayed.players[0]!.raised.reduce((a, b) => a + b, 0)).toBeGreaterThan(replayed.players[1]!.raised.reduce((a, b) => a + b, 0));
+  });
+
+  it('the preview names the hard files a commit meaningfully modified, and their effort credit', async () => {
+    const github = new FakeGithub();
+    installViteDay(github);
+    github.addRepo(VITE_REPO, [commitMeta(VITE_DAY_HEAD, 'fix: resolve build.sourcemap per environment', { authorLogin: MAINTAINER.login, authorId: MAINTAINER.id, parent: VITE_BASE })]);
+    const clock = () => FIXTURE_NOW;
+    const preview = new Preview({ github, clock, context: new DifficultyContext({ github, clock }) });
+    const { body } = await preview.preview('vitejs', 'vite', null);
+    const c = body.commits[0]!;
+    const credit = Math.floor(c.difficulty!.reduce((sum, d) => sum + (d.credit ?? 0), 0));
+    expect(credit).toBeGreaterThanOrEqual(3 * FILE_CREDIT - 1);
+    expect(c.reasons.find((r) => r.startsWith('Fixed 3 hard files in vite ('))).toMatch(new RegExp(`^Fixed 3 hard files in vite \\((css|build|asset)\\.ts ×3\\.2, .*\\) → \\+${credit} lines of effort credit$`));
+    expect(c.lines.code).toBe(10);
+    // 10 lines at about ×3.2 and three hard files' credit, each part floored in thousandths of a line.
+    expect(Math.abs(c.bonus! - (Math.floor((4 + 3 + 3) * 2.2) + 3 * FILE_CREDIT))).toBeLessThanOrEqual(2);
+    expect(effortText([])).toBeNull();
   });
 });

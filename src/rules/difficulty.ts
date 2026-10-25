@@ -45,6 +45,20 @@ export const GATE = { contributors: 2, stars: 5, forks: 2 } as const;
  */
 export const DAILY_BONUS_CAP = 2000;
 
+/**
+ * Effort credit: a fixed credit, in lines of code, for each established file of others' code the
+ * player meaningfully modifies in a UTC day, scaled by how hard the file is: `FILE_CREDIT × (M − 1) /
+ * (M_MAX − 1)`. Lines are a poor measure of a hard fix in a big file, so this part of the bonus is
+ * deliberately not proportional to them.
+ */
+export const FILE_CREDIT = 60;
+/** Modified lines of others' code (the file's day pairing) that make a file's edit meaningful. */
+export const MEANINGFUL_LINES = 3;
+/** Effort credit a day is held to: FILE_CAP files at the full credit (about 15 of the hardest files). */
+export const FILE_CAP = 15;
+/** The largest multiplier the weights allow (all four signals saturated): the hardest file earns the full credit. */
+export const M_MAX = 1 + WEIGHTS.lines + WEIGHTS.authors + WEIGHTS.age + WEIGHTS.commits;
+
 const DAY_MS = 86_400_000;
 
 export const s = (x: number): number => Math.min(1, Math.log2(1 + Math.max(0, x)));
@@ -77,6 +91,13 @@ export function modifiedCredit(n: number): number {
 export function bonusMilli(modified: number, mMilli: number): number {
   if (mMilli <= 1000) return 0;
   return Math.floor(modifiedCredit(modified) * (mMilli - 1000));
+}
+
+/** A file's effort credit for the day, in thousandths of a line: nothing below MEANINGFUL_LINES modified lines. */
+export function fileCreditMilli(modified: number, mMilli: number, credit = FILE_CREDIT): number {
+  if (modified < MEANINGFUL_LINES || mMilli <= 1000) return 0;
+  const hard = Math.min(1, (mMilli - 1000) / Math.round((M_MAX - 1) * 1000));
+  return Math.floor(credit * 1000 * hard);
 }
 
 // ------------------------------------------------------------------ the repository gate
@@ -353,5 +374,7 @@ export interface DifficultyNote {
   mMilli: number;
   /** Change in the file's extra credit, in thousandths of a line. */
   extraMilli: number;
+  /** Change in the file's effort credit (a fixed credit per meaningfully modified hard file), in thousandths of a line. */
+  creditMilli?: number;
   context: FileContext | null;
 }

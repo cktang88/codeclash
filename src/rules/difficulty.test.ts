@@ -7,7 +7,12 @@ import {
   bonusMilli,
   changedLinesOf,
   DAILY_BONUS_CAP,
+  FILE_CAP,
+  FILE_CREDIT,
   fileContext,
+  fileCreditMilli,
+  M_MAX,
+  MEANINGFUL_LINES,
   FULL_LINES,
   GATE_CAP,
   independentAuthors,
@@ -168,7 +173,8 @@ describe('the bonus in the ledger', () => {
     const after = code(5, 'fix');
     const fix = measurePush([edit(CORE, 100, before, after)], new MemoryLedger(), contextOf(ctx(CORE, 3.2, range(100, 5))));
     expect(fix.lines[Cat.Code]).toBe(5);
-    expect(fix.bonus).toBe(11);
+    // 5 × 2.2 for the lines, and the hardest file's full effort credit.
+    expect(fix.bonus).toBe(11 + FILE_CREDIT);
     // The same multiplier on a file the push only adds to.
     const add: ChangedFile = { filename: CORE, status: 'modified', additions: 200, deletions: 0, patch: ['@@ -100,0 +100,200 @@', ...code(200, 'new').map((l) => `+${l}`)].join('\n') };
     const pure = measurePush([add], new MemoryLedger(), contextOf(ctx(CORE, 3.2, [])));
@@ -176,13 +182,14 @@ describe('the bonus in the ledger', () => {
     expect(pure.bonus).toBe(0);
     // A big feature beside a two-line fix in the same file: only the two lines are multiplied.
     const both = measurePush([edit(CORE, 100, code(2, 'old'), [...code(2, 'fix'), ...code(300, 'feat')])], new MemoryLedger(), contextOf(ctx(CORE, 3.2, range(100, 2))));
+    // (2 lines: below the effort credit's threshold.)
     expect(both.bonus).toBe(4);
   });
 
   it('applies the first-40-lines-then-square-root rule per file', () => {
     const d = measurePush([edit(CORE, 10, code(140, 'old'), code(140, 'new'))], new MemoryLedger(), contextOf(ctx(CORE, 3.2, range(10, 140))));
     expect(d.lines[Cat.Code]).toBe(140);
-    expect(d.bonus).toBe(110);
+    expect(d.bonus).toBe(110 + FILE_CREDIT);
   });
 
   it('gives the pusher’s own lines nothing: blamed to them, or written by them today', () => {
@@ -239,12 +246,14 @@ describe('the bonus in the ledger', () => {
     const a = measurePush([edit(CORE, 10, code(10, 'a'), code(10, 'b'))], store, contextOf(ctx(CORE, 2, range(10, 10))));
     // A later push brings a different context for the same file: the day keeps the first.
     const b = measurePush([edit(CORE, 50, code(10, 'c'), code(10, 'd'))], store, contextOf(ctx(CORE, 3.2, range(50, 10))));
-    expect(a.bonus).toBe(10);
-    expect(bonusOf([a, b])).toBe(20);
+    // ×2: 1.0 a line, and 60 × 1 / 2.2 of effort credit.
+    const effort = Math.floor((FILE_CREDIT * 1000) / 2200);
+    expect(a.bonus).toBe(10 + effort);
+    expect(bonusOf([a, b])).toBe(20 + effort);
     // The next day the file is seen afresh.
     store.today++;
     const c = measurePush([edit(CORE, 90, code(10, 'e'), code(10, 'f'))], store, contextOf(ctx(CORE, 3.2, range(90, 10))));
-    expect(c.bonus).toBe(22);
+    expect(c.bonus).toBe(22 + FILE_CREDIT);
   });
 
   it('a modification reverted the same day takes its bonus back exactly', () => {
@@ -253,28 +262,29 @@ describe('the bonus in the ledger', () => {
     const after = code(25, 'patched');
     const context = contextOf(ctx(CORE, 3.2, range(10, 25)));
     const fix = measurePush([edit(CORE, 10, before, after)], store, context);
-    expect(fix.bonus).toBe(55);
+    expect(fix.bonus).toBe(55 + FILE_CREDIT);
     // The revert removes the pusher's own lines of today and restores the originals.
     const revert = measurePush([edit(CORE, 10, after, before)], store, contextOf(ctx(CORE, 3.2, [])));
-    expect(revert.bonus).toBe(-55);
+    expect(revert.bonus).toBe(-55 - FILE_CREDIT);
     expect(fix.lines[Cat.Code]! + revert.lines[Cat.Code]!).toBe(0);
     // A partial revert takes back its part.
     const store2 = new MemoryLedger();
     measurePush([edit(CORE, 10, before, after)], store2, context);
     const part = measurePush([edit(CORE, 10, after.slice(0, 5), before.slice(0, 5))], store2, contextOf(ctx(CORE, 3.2, [])));
     expect(part.bonus).toBe(Math.floor(20 * 2.2) - 55);
+    expect(MEANINGFUL_LINES).toBe(3);
   });
 
-  it('caps the day’s bonus at DAILY_BONUS_CAP lines, and the army counts it at most 3× the code', () => {
+  it('caps the day’s bonus at DAILY_BONUS_CAP lines plus FILE_CAP files of effort, and the army counts it at most BONUS_PER_CODE × the code', () => {
     const store = new MemoryLedger();
     let total = 0;
     for (let f = 0; f < 40; f++) {
       const path = `src/m${f}.ts`;
       total += measurePush([edit(path, 10, code(40, `o${f}x`), code(40, `n${f}y`))], store, contextOf(ctx(path, 3.2, range(10, 40)))).bonus ?? 0;
     }
-    expect(total).toBe(DAILY_BONUS_CAP);
+    expect(total).toBe(DAILY_BONUS_CAP + FILE_CAP * FILE_CREDIT);
     const ledger = emptyLedger();
-    applyDelta(ledger, { lines: [100, 0, 0, 0, 0, 100, 0, 0, 0], files: 3, branches: 0, churn: 0, filler: 0, bonus: 5000, purpose: 'fix' });
+    applyDelta(ledger, { lines: [100, 0, 0, 0, 0, 100, 0, 0, 0], files: 3, branches: 0, churn: 0, filler: 0, bonus: 50_000, purpose: 'fix' });
     expect(effectiveLedger(ledger).bonus).toBe(BONUS_PER_CODE * 100);
     // Code and bonus share the knee: 3000 code + 3000 bonus is 4000 + 1000.
     const big = emptyLedger();
@@ -283,5 +293,69 @@ describe('the bonus in the ledger', () => {
     const plain = emptyLedger();
     applyDelta(plain, { lines: [3000, 0, 0, 0, 0, 0, 0, 0, 0], files: 1, branches: 0, churn: 0, filler: 0, purpose: 'fix' });
     expect(budgetOf(big)).toBeGreaterThan(budgetOf(plain));
+  });
+});
+
+describe('the effort credit', () => {
+  const CORE = 'src/core.ts';
+  const add = (path: string, lines: readonly string[]): ChangedFile => ({ filename: path, status: 'modified', additions: lines.length, deletions: 0, patch: ['@@ -500,0 +500,' + lines.length + ' @@', ...lines.map((l) => `+${l}`)].join('\n') });
+
+  it('scales with the file’s multiplier, so a gated file earns proportionally little', () => {
+    expect(M_MAX).toBeCloseTo(3.2, 10);
+    expect(fileCreditMilli(3, 3200)).toBe(FILE_CREDIT * 1000);
+    expect(fileCreditMilli(2, 3200)).toBe(0);
+    expect(fileCreditMilli(3, 1000)).toBe(0);
+    expect(fileCreditMilli(3, 2100)).toBe(30_000);
+    // The gate holds M to ×1.5: a quarter or so of the credit.
+    const gated = measurePush([edit(CORE, 10, code(5, 'old'), code(5, 'new'))], new MemoryLedger(), contextOf(ctx(CORE, 1.5, range(10, 5))));
+    expect(gated.bonus).toBe(Math.floor(5 * 0.5) + Math.floor((FILE_CREDIT * 500) / 2200));
+  });
+
+  it('is awarded by the push that reaches 3 modified lines, and a revert below 3 takes it back exactly', () => {
+    const store = new MemoryLedger();
+    const lines = code(4, 'theirs');
+    const mine = code(4, 'mine');
+    const c = (from: number, n: number) => contextOf(ctx(CORE, 3.2, range(from, n)));
+    const one = measurePush([edit(CORE, 10, lines.slice(0, 2), mine.slice(0, 2))], store, c(10, 2));
+    expect(one.bonus).toBe(4);
+    const two = measurePush([edit(CORE, 40, lines.slice(2, 3), mine.slice(2, 3))], store, c(40, 1));
+    expect(two.bonus).toBe(2 + FILE_CREDIT);
+    // A fourth line adds only its line bonus.
+    const three = measurePush([edit(CORE, 60, lines.slice(3), mine.slice(3))], store, c(60, 1));
+    expect(three.bonus).toBe(Math.floor(4 * 2.2) - 6);
+    // Reverting two of them drops the file to 2 lines: the credit goes back.
+    const back = measurePush([edit(CORE, 10, mine.slice(0, 2), lines.slice(0, 2))], store, contextOf(ctx(CORE, 3.2, [])));
+    expect(back.bonus).toBe(Math.floor(2 * 2.2) - Math.floor(4 * 2.2) - FILE_CREDIT);
+    expect(bonusOf([one, two, three, back])).toBe(4);
+  });
+
+  it('split = squash across the threshold', () => {
+    const lines = code(3, 'theirs');
+    const mine = code(3, 'mine');
+    const squash = measurePush([edit(CORE, 10, lines, mine)], new MemoryLedger(), contextOf(ctx(CORE, 2.6, range(10, 3))));
+    const store = new MemoryLedger();
+    // The removals first, one by one, then the replacements in one push with no context at all.
+    const parts = [0, 1, 2].map((i) => measurePush([edit(CORE, 10 + i, lines.slice(i, i + 1), [])], store, contextOf(ctx(CORE, 2.6, [10 + i]))));
+    parts.push(measurePush([add(CORE, mine)], store));
+    expect(bonusOf(parts)).toBe(squash.bonus);
+    expect(squash.bonus).toBeGreaterThan(FILE_CREDIT / 2);
+  });
+
+  it('is held to FILE_CAP files’ worth a day: spreading 3-line edits over 40 core files', () => {
+    const store = new MemoryLedger();
+    let total = 0;
+    for (let f = 0; f < 40; f++) {
+      const path = `src/core${f.toString(36)}x.ts`;
+      total += measurePush([edit(path, 10, code(3, `o${f}q`), code(3, `n${f}r`))], store, contextOf(ctx(path, 3.2, range(10, 3)))).bonus ?? 0;
+    }
+    expect(total).toBe(FILE_CAP * FILE_CREDIT + Math.floor(40 * 3 * 2.2));
+  });
+
+  it('whitespace-only edits and one’s own files earn none', () => {
+    const lines = code(10, 'core');
+    const ws = measurePush([edit(CORE, 10, lines, lines.map((l) => `  ${l}  `))], new MemoryLedger(), contextOf(ctx(CORE, 3.2, range(10, 10))));
+    expect(ws.bonus).toBe(0);
+    const own = measurePush([edit(CORE, 10, lines, code(10, 'mine'))], new MemoryLedger(), contextOf(ctx(CORE, 3.2, [])));
+    expect(own.bonus).toBe(0);
   });
 });
