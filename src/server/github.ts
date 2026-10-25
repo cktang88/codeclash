@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { ChangedFile } from '../rules/classify.ts';
+import type { RepoFacts } from '../rules/difficulty.ts';
 
 const API = 'https://api.github.com';
 const USER_AGENT = 'pushfront';
@@ -7,6 +8,8 @@ const USER_AGENT = 'pushfront';
 export const MAX_FILES = 300;
 /** A stalled request must not wedge the poller, which polls one user at a time. */
 export const REQUEST_TIMEOUT_MS = 20_000;
+/** A GraphQL query for a push's context must answer within the push's latency budget (1–3 s). */
+export const GRAPHQL_TIMEOUT_MS = 2_500;
 
 export interface PushEventLite {
   id: string;
@@ -29,8 +32,12 @@ export interface CompareResult {
     message: string;
     /** More than one parent: a merge. */
     merge?: boolean;
+    /** The commit's author email, as git recorded it: it names the pusher in a local mirror's blame. */
+    authorEmail?: string | null;
   }[];
   files: ChangedFile[];
+  /** The commit the files' old side is: a compare's merge base, a single commit's first parent. */
+  base?: string | null;
 }
 
 export type EventsResult =
@@ -68,6 +75,16 @@ export interface CommitMeta {
   /** ISO date the commit was authored. */
   date: string | null;
   merge: boolean;
+  /** The linked author's account id, when GitHub links one. */
+  authorId?: number | null;
+  /** The first parent's sha: the base its diff is read against. */
+  parent?: string | null;
+}
+
+/** A GraphQL answer: its data, and the errors GitHub reported beside it (a partial answer has both). */
+export interface GraphqlResult {
+  data: unknown;
+  errors: { message: string; path?: (string | number)[] }[];
 }
 
 export interface GithubClient {
@@ -82,6 +99,17 @@ export interface GithubClient {
   /** The newest `limit` commits reachable from `ref`, newest first; null when the repository or ref is missing, [] when the repository is empty. */
   commits(repo: string, ref: string, limit: number): Promise<CommitMeta[] | null>;
   rateLimit(): { remaining: number; resetAtMs: number };
+  /**
+   * A GraphQL query (needs a token). Throws on a transport failure, a timeout or a non-200 answer;
+   * a partial answer comes back with its errors.
+   */
+  graphql?(query: string, variables: Record<string, unknown>, timeoutMs?: number): Promise<GraphqlResult>;
+  /** GraphQL's own rate-limit bucket (points per hour), tracked apart from REST's. */
+  graphqlRateLimit?(): { remaining: number; resetAtMs: number };
+  /** What the difficulty bonus needs about a repository (fork, source, age, stars, forks, size); null when missing. */
+  repoFacts?(repo: string): Promise<RepoFacts | null>;
+  /** Bytes per language; null when missing. */
+  languages?(repo: string): Promise<Record<string, number> | null>;
 }
 
 export class GithubError extends Error {
@@ -127,7 +155,7 @@ const CommitSchema = z
   .object({
     sha: z.string(),
     author: z.object({ login: z.string(), id: z.number().int().optional() }).loose().nullable().optional(),
-    commit: z.object({ message: z.string() }).loose(),
+    commit: z.object({ message: z.string(), author: z.object({ email: z.string().nullable().optional() }).loose().nullable().optional() }).loose(),
     parents: z.array(z.object({ sha: z.string() }).loose()).optional().default([]),
   })
   .loose();
@@ -136,6 +164,35 @@ const CompareSchema = z
   .object({
     commits: z.array(CommitSchema).optional().default([]),
     files: z.array(FileSchema).optional().default([]),
+    merge_base_commit: z.object({ sha: z.string() }).loose().nullable().optional(),
+  })
+  .loose();
+
+const SourceSchema = z
+  .object({
+    full_name: z.string(),
+    created_at: z.string().nullable().optional(),
+    stargazers_count: z.number().optional().default(0),
+    forks_count: z.number().optional().default(0),
+  })
+  .loose();
+
+const RepoFactsSchema = z
+  .object({
+    full_name: z.string(),
+    fork: z.boolean().optional().default(false),
+    created_at: z.string().nullable().optional(),
+    stargazers_count: z.number().optional().default(0),
+    forks_count: z.number().optional().default(0),
+    size: z.number().optional().default(0),
+    source: SourceSchema.nullable().optional(),
+  })
+  .loose();
+
+const GraphqlSchema = z
+  .object({
+    data: z.unknown().optional(),
+    errors: z.array(z.object({ message: z.string(), path: z.array(z.union([z.string(), z.number()])).optional() }).loose()).optional(),
   })
   .loose();
 
@@ -155,7 +212,7 @@ const BranchSchema = z.object({ name: z.string() }).loose();
 const ListedCommitSchema = z
   .object({
     sha: z.string(),
-    author: z.object({ login: z.string(), avatar_url: z.string().optional() }).loose().nullable().optional(),
+    author: z.object({ login: z.string(), avatar_url: z.string().optional(), id: z.number().int().optional() }).loose().nullable().optional(),
     commit: z
       .object({
         message: z.string(),
@@ -208,20 +265,34 @@ function toCommit(c: z.infer<typeof CommitSchema>): CompareResult['commits'][num
     ...(c.author?.id !== undefined ? { authorId: c.author.id } : {}),
     message: c.commit.message,
     ...(c.parents.length > 1 ? { merge: true } : {}),
+    ...(c.commit.author?.email ? { authorEmail: c.commit.author.email } : {}),
   };
 }
 
+const parseDate = (iso: string | null | undefined): number => {
+  const t = iso ? Date.parse(iso) : NaN;
+  return Number.isFinite(t) ? t : 0;
+};
+
 export function createGithubClient(token: string | null, fetchImpl: typeof fetch = fetch): GithubClient {
   const limit = { remaining: token ? 5000 : 60, resetAtMs: 0, total: token ? 5000 : 60 };
+  // GraphQL has its own bucket (points, not requests); without a token it is closed.
+  const gql = { remaining: token ? 5000 : 0, resetAtMs: 0, total: token ? 5000 : 0 };
 
   const track = (res: Response) => {
+    // Each answer says which bucket it was charged to: REST's core, GraphQL's, or another (search, …).
+    const resource = res.headers.get('x-ratelimit-resource');
+    const bucket = resource === 'graphql' ? gql : resource === null || resource === 'core' ? limit : null;
+    if (!bucket) return;
     const remaining = res.headers.get('x-ratelimit-remaining');
     const reset = res.headers.get('x-ratelimit-reset');
     const total = res.headers.get('x-ratelimit-limit');
-    if (remaining !== null && Number.isFinite(Number(remaining))) limit.remaining = Number(remaining);
-    if (reset !== null && Number.isFinite(Number(reset))) limit.resetAtMs = Number(reset) * 1000;
-    if (total !== null && Number(total) > 0) limit.total = Number(total);
+    if (remaining !== null && Number.isFinite(Number(remaining))) bucket.remaining = Number(remaining);
+    if (reset !== null && Number.isFinite(Number(reset))) bucket.resetAtMs = Number(reset) * 1000;
+    if (total !== null && Number(total) > 0) bucket.total = Number(total);
   };
+  const whole = (b: { remaining: number; resetAtMs: number; total: number }) =>
+    b.resetAtMs > 0 && Date.now() >= b.resetAtMs ? { remaining: Math.max(b.remaining, b.total), resetAtMs: b.resetAtMs } : { remaining: b.remaining, resetAtMs: b.resetAtMs };
 
   const get = async (path: string, extra?: Record<string, string>): Promise<Response> => {
     const res = await fetchImpl(`${API}${path}`, { headers: headers(token, extra), signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
@@ -286,7 +357,7 @@ export function createGithubClient(token: string | null, fetchImpl: typeof fetch
       if (res.status === 404 || res.status === 422) return null;
       if (!res.ok) return fail(res, `compare ${repo}`);
       const body = CompareSchema.parse(await res.json());
-      return { commits: body.commits.map(toCommit), files: toFiles(body.files) };
+      return { commits: body.commits.map(toCommit), files: toFiles(body.files), base: body.merge_base_commit?.sha ?? base };
     },
 
     async commit(repo, sha) {
@@ -294,7 +365,7 @@ export function createGithubClient(token: string | null, fetchImpl: typeof fetch
       if (res.status === 404 || res.status === 422) return null;
       if (!res.ok) return fail(res, `commit ${repo}@${sha}`);
       const body = SingleCommitSchema.parse(await res.json());
-      return { commits: [toCommit(body)], files: toFiles(body.files) };
+      return { commits: [toCommit(body)], files: toFiles(body.files), base: body.parents[0]?.sha ?? null };
     },
 
     async repo(repo) {
@@ -333,6 +404,8 @@ export function createGithubClient(token: string | null, fetchImpl: typeof fetch
           avatarUrl: d.author?.avatar_url ?? null,
           date: d.commit.author?.date ?? null,
           merge: d.parents.length > 1,
+          authorId: d.author?.id ?? null,
+          parent: d.parents[0]?.sha ?? null,
         }];
       });
     },
@@ -340,8 +413,44 @@ export function createGithubClient(token: string | null, fetchImpl: typeof fetch
     rateLimit() {
       // Past the reset the quota is whole again, even if no response has said so yet:
       // a spent budget must not stop the poller (its only caller) from ever asking again.
-      if (limit.resetAtMs > 0 && Date.now() >= limit.resetAtMs) return { remaining: Math.max(limit.remaining, limit.total), resetAtMs: limit.resetAtMs };
-      return { remaining: limit.remaining, resetAtMs: limit.resetAtMs };
+      return whole(limit);
+    },
+
+    graphqlRateLimit() {
+      return whole(gql);
+    },
+
+    async graphql(query, variables, timeoutMs = GRAPHQL_TIMEOUT_MS) {
+      if (!token) throw new GithubError('GraphQL needs a token', 401);
+      const res = await fetchImpl(`${API}/graphql`, {
+        method: 'POST',
+        headers: headers(token, { 'content-type': 'application/json' }),
+        body: JSON.stringify({ query, variables }),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      track(res);
+      if (!res.ok) return fail(res, 'graphql');
+      const body = GraphqlSchema.parse(await res.json());
+      return { data: body.data ?? null, errors: (body.errors ?? []).map((e) => ({ message: e.message, ...(e.path ? { path: e.path } : {}) })) };
+    },
+
+    async repoFacts(repo) {
+      // The same path as `repo()`: its ETag is shared, so an unchanged repository is a free 304.
+      const r = await getJson(`/repos/${repoPath(repo)}`);
+      if (r.status === 404 || r.status === 451) return null;
+      if (r.status !== 200) return fail(r.res, `repo ${repo}`);
+      const b = RepoFactsSchema.parse(r.body);
+      const source = b.fork && b.source ? { fullName: b.source.full_name, createdAt: parseDate(b.source.created_at), stars: b.source.stargazers_count, forks: b.source.forks_count } : null;
+      return { fullName: b.full_name, fork: b.fork, createdAt: parseDate(b.created_at), stars: b.stargazers_count, forks: b.forks_count, sizeKb: b.size, source };
+    },
+
+    async languages(repo) {
+      const r = await getJson(`/repos/${repoPath(repo)}/languages`);
+      if (r.status === 404 || r.status === 451) return null;
+      if (r.status !== 200) return fail(r.res, `languages of ${repo}`);
+      const out: Record<string, number> = {};
+      for (const [k, v] of Object.entries(z.record(z.string(), z.unknown()).parse(r.body))) if (typeof v === 'number' && Number.isFinite(v)) out[k] = v;
+      return out;
     },
   };
 }
