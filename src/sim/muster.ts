@@ -233,7 +233,7 @@ export function budgetOf(ledger: Ledger, conquered = 0): number {
  * the work was split into pushes.
  */
 export function armyQuality(ledger: Ledger): { quality: number; veterancy: number; power: number; notes: QualityNote[] } {
-  const { code, files } = effectiveLedger(ledger);
+  const { code, bonus, files } = effectiveLedger(ledger);
   const notes: QualityNote[] = [];
   let quality = 1;
   const testRatio = ledger.lines[Cat.Test]! / (code + 20);
@@ -251,7 +251,8 @@ export function armyQuality(ledger: Ledger): { quality: number; veterancy: numbe
   if (filler < 0) notes.push({ kind: 'filler', effect: filler, text: `${Math.round(fillerRatio * 100)}% of lines were filler` });
   quality = Math.max(0.7, quality + tests + comments + filler);
   let veterancy = 0;
-  while (veterancy < VETERAN_CODE.length && code >= VETERAN_CODE[veterancy]! && files >= VETERAN_FILES[veterancy]!) veterancy++;
+  // The difficulty bonus is code credit, so it counts toward a veteran's lines (the files must still be real).
+  while (veterancy < VETERAN_CODE.length && code + bonus >= VETERAN_CODE[veterancy]! && files >= VETERAN_FILES[veterancy]!) veterancy++;
   if (veterancy > 0) notes.push({ kind: 'veteran', effect: veterancy * VETERAN_BONUS, text: `Veteran rank ${veterancy}` });
   return { quality, veterancy, power: quality * (1 + VETERAN_BONUS * veterancy), notes };
 }

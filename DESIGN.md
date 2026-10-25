@@ -72,7 +72,7 @@ Credit is linear in new lines, so without help a greenfield repository outearns 
 
 Each signal saturates (500 lines, 5 authors, a year, 50 commits), so M reaches at most **3.2** (the clamp at 4 never binds with these weights). The vite-like fixture's `css.ts` (3,688 lines, 127 authors, lines from 2021, 519 commits) is ×3.2; a 212-line utility with 9 authors and lines from 2025 is ×2.6.
 
-**The credit.** A file's extra credit is `f(modified) × (M − 1)` lines, where `f(n) = n` up to 40 and `40 + √(n − 40)` beyond, so a file's first 40 modified lines pay in full and a sweeping rewrite of one file pays little more. It is code credit: it joins the code term of the budget and goes through the knee and the cap with the code lines (`effectiveLedger`), and the line bonus is at most **2,000 lines a UTC day** (`DAILY_BONUS_CAP`). Files, complexity and veteran ranks stay with the real lines.
+**The credit.** A file's extra credit is `f(modified) × (M − 1)` lines, where `f(n) = n` up to 40 and `40 + √(n − 40)` beyond, so a file's first 40 modified lines pay in full and a sweeping rewrite of one file pays little more. It is code credit: it joins the code term of the budget and goes through the knee and the cap with the code lines (`effectiveLedger`), and the line bonus is at most **2,000 lines a UTC day** (`DAILY_BONUS_CAP`). Files and complexity stay with the real lines; veteran ranks count the bonus as code (their file thresholds still need real files).
 
 **The effort credit.** Lines are a poor measure of a hard fix in a big file: a maintainer's day of small, careful edits is a fraction of a greenfield day's lines, and a multiplier on those lines cannot close that gap. So each established file of others' code that the player **meaningfully modifies** in a UTC day (at least `MEANINGFUL_LINES` = 3 modified lines, by the same pairing as below, so whitespace, comment-only and one's own changes never qualify) also earns a fixed credit of `FILE_CREDIT × (M − 1) / (M_max − 1)` lines, where `M_max` = 3.2: the hardest file earns the full `FILE_CREDIT` (FILE_CREDIT_VALUE lines), an easy one little, and a file the repository gate holds to ×1.5 about a fifth. The day's effort credit is held to `FILE_CAP` (FILE_CAP_VALUE) files' worth. It is folded into the bonus, so it is code credit through the knee and the cap. With it, the bonus is held to `BONUS_PER_CODE` = 23 × the day's code lines (the line bonus is at most 2.2 a line, the effort credit at most FILE_CREDIT_VALUE per 3 lines), so a tiny day cannot explode.
 
@@ -204,7 +204,7 @@ An army that would otherwise be empty gets one Footman, so the first push of the
 
 **Quality and veterans.** Every soldier's HP and damage are multiplied by its army's power, `quality × (1 + 0.1 × veteran rank)`: its blows are multiplied by power, and the damage it takes is divided by it. Power is recomputed from the ledger at every push, so it reaches soldiers already in the field too.
 
-- **Veteran ranks** need both code and source files touched:
+- **Veteran ranks** need both code and source files touched (the difficulty bonus counts as code here, as it does in the budget; the files must be real):
 
   | Rank | Code lines | Files |
   | --- | --- | --- |
