@@ -1376,7 +1376,7 @@ export class Effects {
         }
       } else {
         b.rotation = angleOf(p.tx - p.x0, p.ty - p.y0 - dz);
-        b.scaleX = b.scaleY = p.kind === ShotKind.TowerBolt ? 0.55 : p.kind === ShotKind.Bolt ? 0.5 : p.kind === ShotKind.Smite ? 0.4 + Math.sin(simTime * 20) * 0.06 : 0.42;
+        b.scaleX = b.scaleY = p.kind === ShotKind.TowerBolt ? 0.55 : p.kind === ShotKind.Bolt ? 0.5 : p.kind === ShotKind.Smite ? 0.75 + Math.sin(simTime * 20) * 0.1 : 0.42;
         if (p.kind === ShotKind.Smite) b.tint = GOLD_HI;
         s.rotation = angleOf(p.tx - p.x0, p.ty - p.y0);
         s.scaleX = p.kind === ShotKind.TowerBolt ? 0.2 : p.kind === ShotKind.Bolt ? 0.45 : 0.35;
@@ -1392,7 +1392,8 @@ export class Effects {
           p.trail += dt;
           while (p.trail > 0.025) {
             p.trail -= 0.025;
-            this.glowSpawn({ texture: this.tex.soft, x: gx, y: gy - z, life: 0.28, size: 7, grow: 0.3, alpha: 0.7, tint: GOLD_HI });
+            this.glowSpawn({ texture: this.tex.soft, x: gx, y: gy - z, life: 0.32, size: 10, grow: 0.3, alpha: 0.8, tint: GOLD_HI });
+            if (rand() < 0.4) this.glowSpawn({ texture: this.tex.spark, x: gx + (rand() - 0.5) * 4, y: gy - z + (rand() - 0.5) * 4, life: 0.25, size: 6, alpha: 0.9, tint: 0xfff6dc, rotation: rand() * 6.28, fadeIn: 0 });
           }
         } else if (p.kind === ShotKind.TowerBolt) {
           // A gilded lance sheds gold leaf as it flies.
@@ -1439,8 +1440,10 @@ export class Effects {
       this.cue('ballista-thunk', x, y, 0.7);
     } else if (p.kind === ShotKind.Smite) {
       // A radiant smite: a gold flash, a ring of light, motes rising.
-      this.flash(x, y, 20, GOLD_HI, 0.18);
-      this.ring(p.tx, p.ty, GOLD_HI, 4, 26, 0.45, 0.85);
+      this.flash(x, y, 26, GOLD_HI, 0.2);
+      this.ring(p.tx, p.ty, GOLD, 4, 30, 0.5, 1);
+      this.ring(p.tx, p.ty, GOLD_HI, 2, 18, 0.35, 0.9);
+      this.sparks(x, y, 4, GOLD_HI, 70, 20);
       for (let i = 0; i < this.n(4); i++) this.glowSpawn({ texture: this.tex.mote, x: x + (rand() - 0.5) * 10, y: y + (rand() - 0.5) * 6, vz: 25 + rand() * 25, life: 0.6, size: 5, tint: GOLD_HI, delay: rand() * 0.1 });
     } else if (p.kind === ShotKind.TowerBolt) {
       this.sparks(x, y, 5, GOLD_HI, 80);

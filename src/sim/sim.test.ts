@@ -294,7 +294,7 @@ describe('world', () => {
     const push = (p: number): SimInput => ({ kind: 'push', p, repo: 0, commits: 1, files: 300, branches: 1700, churn: 0, filler: 0, msg: 'x', lines: lines({ Code: 40_000, Removed: 40_000, Test: 4000, Comment: 1000, Docs: 3000, Config: 3000 }) });
     for (let i = 0; i < 5; i++) step(w, Array.from({ length: 16 }, (_, p) => push(p)));
     for (let p = 0; p < 16; p++) {
-      const slots = slotsOf(w.units.filter((u) => u.p === p).map((u) => u.kind).reduce((c, k) => (c[k]!++, c), new Array<number>(20).fill(0)));
+      const slots = slotsOf(w.units.filter((u) => u.p === p).map((u) => u.kind).reduce((c, k) => (c[k]!++, c), new Array<number>(KIND_COUNT).fill(0)));
       expect(slots).toBeGreaterThan(100);
       expect(slots).toBeLessThanOrEqual(Math.floor(4000 / 16));
       expect(w.players[p]!.queue.length).toBeGreaterThan(0);
