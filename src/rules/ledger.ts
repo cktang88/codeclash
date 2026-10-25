@@ -99,7 +99,13 @@ export interface Uncounted {
  * in three, rarely more than one per two credited lines. Padding brings none of the code that
  * would earn the allowance, so it stays filler.
  */
-export const FREE_PER_CODE = 0.6;
+export const FREE_PER_CODE = 0.5;
+/**
+ * More per credited line of a style sheet (or markup or SQL): declarations repeat from rule to
+ * rule (`display: flex;`), every rule closes with `}`, and selectors past the shape cap are not
+ * credited, so a hand-written style sheet leaves about three lines uncounted for each it is credited.
+ */
+export const FREE_PER_STYLE = 2.5;
 
 type Counted = 'code' | 'comment' | 'test' | 'docs' | 'config';
 
@@ -445,6 +451,7 @@ export function measurePush(files: readonly ChangedFile[], store: LedgerStore): 
 
   const today = store.day ? store.day() : null;
   let code = estimatedCode;
+  let style = 0;
   let branches = estimatedBranches;
   let churn = 0;
   // Each key's change in what it is worth today, gathered by group for the shape cap.
@@ -484,6 +491,7 @@ export function measurePush(files: readonly ChangedFile[], store: LedgerStore): 
       if (lost !== 0) writeShape(store, SHAPE_REMOVED, group, today, r + lost);
       credited = Math.min(SHAPE_CAP, a + gained) - Math.min(SHAPE_CAP, a);
       code += credited;
+      if (group.startsWith('none\u0000')) style += credited;
       branches += credited * info.branches;
       lines[Cat.Removed]! += Math.min(SHAPE_CAP, r + lost) - Math.min(SHAPE_CAP, r);
       // Lines of this shape gained past the cap are near-duplicates.
@@ -531,7 +539,8 @@ export function measurePush(files: readonly ChangedFile[], store: LedgerStore): 
   if (codeAfter > high) writeShape(store, HIGH_WATER, '', today, codeAfter);
   let free = 0;
   for (const m of counts.uncounted.values()) for (const n of m.values()) free += n;
-  const filler = overCap + Math.max(0, free - Math.floor(FREE_PER_CODE * (fresh + Math.max(0, lines[Cat.Test]!))));
+  const allowance = FREE_PER_CODE * (fresh + Math.max(0, lines[Cat.Test]!)) + FREE_PER_STYLE * Math.min(fresh, Math.max(0, style));
+  const filler = overCap + Math.max(0, free - Math.floor(allowance));
   if (overCap > 0) tally(counts.uncounted, 'cap', '', overCap);
   lines[Cat.Code] = cappedCode;
   lines[Cat.Blank] = counts.blank;
