@@ -69,13 +69,16 @@ Every finished war can be downloaded as a replay from `/api/rooms/<slug>/wars/<i
 
 ## Deploy
 
-Pushfront runs as one Fly.io machine with a volume mounted at `/data`.
+Pushfront runs as one Fly.io machine (`fly.toml`: region `iad`, `shared-cpu-2x`, 512 MB plus 512 MB swap) with a volume mounted at `/data` for the SQLite database and the local mirrors.
 
 ```sh
-fly volumes create pushfront_data --size 1
-fly secrets set GITHUB_TOKEN=... GITHUB_CLIENT_ID=... GITHUB_CLIENT_SECRET=... SESSION_SECRET=... PUBLIC_URL=https://<app>.fly.dev
+fly launch --no-deploy --copy-config      # or: fly apps create <app>, then set `app` in fly.toml
+fly volumes create pushfront_data --region iad --size 3
+fly secrets set GITHUB_TOKEN=... GITHUB_CLIENT_ID=... GITHUB_CLIENT_SECRET=... SESSION_SECRET=$(openssl rand -hex 32)
 fly deploy
 ```
+
+If your app isn't named `pushfront`, change `app` and `PUBLIC_URL` in `fly.toml` (and the OAuth app's callback URL to `${PUBLIC_URL}/auth/github/callback`). At 512 MB the config runs one parse worker (`PARSE_WORKERS=1`) and caps the V8 heap at 320 MB; with many busy rooms, raise the machine to 1 GB and drop both.
 
 On `SIGTERM` the server writes a snapshot of every war and closes the database. On boot, each war loads its latest snapshot, replays the logged inputs, and catches up to wall-clock time, so a restart loses no battle state.
 

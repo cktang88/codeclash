@@ -2,6 +2,8 @@ app = "pushfront"
 primary_region = "iad"
 kill_signal = "SIGTERM"
 kill_timeout = "30s"
+# 512 MB is tight next to tree-sitter workers and busy rooms; swap absorbs spikes instead of an OOM kill.
+swap_size_mb = 512
 
 [build]
 
@@ -10,6 +12,12 @@ kill_timeout = "30s"
   PORT = "8080"
   DATABASE_PATH = "/data/pushfront.db"
   PUBLIC_URL = "https://pushfront.fly.dev"
+  # One parse worker instead of two: each loads its own copy of the grammars.
+  PARSE_WORKERS = "1"
+  # Leave headroom under 512 MB for the worker, SQLite and native buffers.
+  NODE_OPTIONS = "--max-old-space-size=320"
+  # The difficulty bonus's local-mirror fallback lives on the volume (source files only, ≤ 50 MB per repo).
+  MIRROR_DIR = "/data/mirrors"
 
 [[mounts]]
   source = "pushfront_data"
@@ -31,4 +39,4 @@ kill_timeout = "30s"
 
 [[vm]]
   size = "shared-cpu-2x"
-  memory = "1gb"
+  memory = "512mb"
