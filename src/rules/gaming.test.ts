@@ -33,7 +33,7 @@ const FIELDS = ['id', 'name', 'total', 'status', 'owner', 'createdAt', 'items', 
 const cap = (s: string) => s[0]!.toUpperCase() + s.slice(1);
 
 /** Realistic TypeScript: functions of varied statements, about one decision every six or seven lines. */
-function honestCode(n: number, seed: number): string[] {
+function honestCode(n: number, seed: number, statements = [3, 6]): string[] {
   const rand = rng(seed);
   const pick = <T,>(xs: readonly T[]) => xs[Math.floor(rand() * xs.length)]!;
   const seen = new Set<string>();
@@ -53,7 +53,7 @@ function honestCode(n: number, seed: number): string[] {
     if (seen.has(header)) continue;
     seen.add(header);
     out.push(header);
-    const len = 3 + Math.floor(rand() * 6);
+    const len = statements[0]! + Math.floor(rand() * statements[1]!);
     for (let i = 0; i < len; i++) {
       const line = pick(body)();
       if (seen.has(line)) continue;
@@ -387,10 +387,14 @@ function honestImports(n: number, seed: number): { imports: string[]; uses: stri
   return { imports, uses };
 }
 
-/** The honest day plus an attack, as strength over the honest day plus the same code written plainly. */
+/**
+ * The honest day plus an attack, as strength over the honest day plus the same code written plainly.
+ * The honest day has functions of 10 to 40 statements (one about every 27 lines; this repository
+ * has one every 32), so its complexity sits below the cap and an attack's gain shows.
+ */
 function advantage(attack: ChangedFile[], plain: ChangedFile[], msg = 'feat: billing'): number {
   const day = (extra: ChangedFile[]) => {
-    const code = honestCode(1500, 1);
+    const code = honestCode(1500, 1, [10, 30]);
     const changed = Array.from({ length: 30 }, (_, f) => file(`src/mod${f}/index.ts`, code.slice(f * 50, (f + 1) * 50)));
     changed.push(file('src/billing.test.ts', honestTests(375, 2)), file('src/notes.ts', honestComments(100, 3)));
     return strength(ledgerOf([{ delta: measure([...changed, ...extra]), msg }]));

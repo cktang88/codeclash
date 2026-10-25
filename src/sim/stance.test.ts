@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Cat, Kind, PlatoonState, TICKS_PER_SECOND, type Platoon, type SimInput, type World } from './api.ts';
+import { SIEGE_MASS } from './council.ts';
 import { generateMap, slotAngle, slotsFor } from './mapgen.ts';
 import { computeRing } from './ring.ts';
 import { checksum, restore, snapshot } from './snapshot.ts';
@@ -204,7 +205,7 @@ describe('why a platoon waits', () => {
     why = platoonWait(waitContext(w), pl);
     expect(why.kind).toBe(Wait.Massing);
     expect(why.n).toBeLessThan(why.m);
-    expect(why.m).toBe(25);
+    expect(why.m).toBe(SIEGE_MASS);
   });
 
   it('besieges walls it was sent to storm, with a breach time; routs; pulls back', () => {

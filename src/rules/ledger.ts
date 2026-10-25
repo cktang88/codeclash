@@ -430,7 +430,7 @@ function fileOps(file: ChangedFile, category: FileCategory, patch: ReturnType<ty
       if (!cx.branches.has(key)) {
         // Decision points from the line's syntax tree (a function of its text, like the key);
         // keywords where the language has no grammar or the line will not parse.
-        const parsed = lineBranches(path, stripComments(normalized, family));
+        const parsed = lineBranches(path, stripComments(normalized, family), cx.budget);
         cx.branches.set(key, parsed === null ? branches : Math.min(LINE_BRANCH_CAP, parsed));
       }
     }
@@ -580,7 +580,7 @@ export function measurePush(files: readonly ChangedFile[], store: LedgerStore): 
         branches -= w.branches;
         links -= w.links;
         if (w.links > 0) modules--;
-        store.setBalance(WEIGHT, key, 0);
+        if (w.branches !== 0 || w.links !== 0) store.setBalance(WEIGHT, key, 0);
         // A function lives while all three of the lines carrying it do: losing any one undoes it.
         const fn = store.balance(FUNCTION_OF, key);
         if (fn !== 0) {
@@ -614,7 +614,9 @@ export function measurePush(files: readonly ChangedFile[], store: LedgerStore): 
     store.setBalance(FUNCTION, String(id), 1);
     functions += FUNCTION_POINTS;
   }
-  for (const key of carrying) store.setBalance(FUNCTION_OF, key, carriers.get(key) ?? 0);
+  // Only what a key carries is written: a key that lost its credit was cleared then, and one whose
+  // credit lapsed with the day cannot be credited again before its rows expire.
+  for (const [key, id] of carriers) store.setBalance(FUNCTION_OF, key, id);
   // A local module links once a day: the first credited import of it carries the names it uses.
   const linkScope = today === null ? LINKS : `${LINKS}\u0005${today}`;
   for (const imp of cx.imports) {
@@ -627,7 +629,8 @@ export function measurePush(files: readonly ChangedFile[], store: LedgerStore): 
     branches += w.branches;
     links += w.links;
     if (w.links > 0) modules++;
-    store.setBalance(WEIGHT, key, packWeight(w));
+    const packed = packWeight(w);
+    if (packed !== 0) store.setBalance(WEIGHT, key, packed);
   }
 
   // A file counts while any of its code keys carries a net change today. Each file keeps a count

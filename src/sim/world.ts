@@ -2079,7 +2079,8 @@ function updateStructures(world: World, s: Scratch, ev: TickEvents): void {
   }
 }
 
-const MAX_VOLLEY = 12;
+/** Most bolts a tower looses in one volley (12 when armies were half the size). */
+const MAX_VOLLEY = 24;
 const foeIdx = new Int32Array(MAX_VOLLEY);
 const foeD = new Float64Array(MAX_VOLLEY);
 

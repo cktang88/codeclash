@@ -7,9 +7,13 @@ const PRESENCE_REACH = 130;
 const DISTANCE_SCALE = 450;
 const CROWD_PENALTY = 0.7;
 const OUTMATCHED = 1.6;
-/** Soldiers massed on a front before its foe's full-strength walls are stormed; fewer for walls already breached. */
-export const SIEGE_MASS = 25;
-export const SIEGE_MIN = 10;
+/**
+ * Soldiers massed on a front before its foe's full-strength walls are stormed; fewer for walls
+ * already breached. Twice what they were (25 and 10) when armies were half the size, so a siege
+ * waits for the same share of an army.
+ */
+export const SIEGE_MASS = 50;
+export const SIEGE_MIN = 20;
 
 /** Soldiers that must have massed on the front before walls at this strength are stormed. */
 export function siegeNeed(walls: Structure): number {

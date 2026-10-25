@@ -27,19 +27,26 @@ The tests are in [`src/rules/gaming.test.ts`](../src/rules/gaming.test.ts), whic
     - A line with two names or values and some code around them counts, however short its names: `label.x = x;`, `y += len / 6;`, `x: number;`, `return 0;`. Style-sheet declarations such as `margin: 0;` count too. Comment frames (`/**`, ` *`, `*/`) count as blank lines, a comment is keyed by its text (single-line `/** … */` doc comments were all one key before), and `{/* … */}` in JSX is a comment.
   - **Filler.** Honest code leaves about one line in three uncounted, nearly all of it structure and repeated idioms (`ctx.beginPath();`, `display: flex;`). So a push may leave uncounted up to **0.5 lines per new credited code or test line, plus 2.5 per credited style-sheet line** (`FREE_PER_CODE`, `FREE_PER_STYLE`). Only what goes beyond that, plus everything past the daily cap, is *filler*, which frays the army. "New" means beyond the day's high-water mark of credited code, so writing, deleting and rewriting the same lines earns the allowance once. Padding pushed alone brings no code, so all of it is filler.
 - **Ragged armies (simulation, `armyQuality`).** Quality falls by up to 15% as filler goes from 15% to 50% of lines (`FILLER_RAMP`; it was 30% to 80% when every uncounted line was filler).
+- **Complexity rides on credited lines (ingestion, `rules/complexity.ts`).** Complexity is `branch points + function points + names ÷ 2`, read from syntax trees (DESIGN.md, *Sorting lines*), and every point of it is carried by a code key the push newly credits:
+  - A line's **branch points** are parsed from the line alone, in the smallest code that completes it, so they are a function of its text, like its key. A key stores what it carries when it is credited and gives exactly that back when it loses the credit, so any history telescopes to its squash, as the lines themselves do.
+  - A **function** (3 points) needs 3 statement lines newly credited in the push, each serving one function only. Three of its credited lines carry it (its first line when new, then statements), and deleting any one of them undoes the whole function, so gutting a function after it is counted pays nothing.
+  - A **link** (half a point per imported name the file's added code uses, at most 3 an import) is carried by the import's own line; each local module links once a day per player.
+  - Lines that are repeats, near-duplicates past the shape cap, filler, generated or vendored carry nothing.
 - **Day memory (ingestion).** Each key remembers the most credit and the most removal credit it reached on earlier days. Only credit beyond that counts, so the same work is never paid twice across resets. Within one day, squash equivalence holds exactly. Balances and memory count for 7 days after they last moved (`LEDGER_LIVE_MS`) and are deleted after 8 (`LEDGER_KEEP_MS`).
 - **Purpose tallies (simulation, `applyDelta`).** Code and removed lines are also tallied by purpose. Undone lines come off the undoing push's own purpose first, then the others in order, so the tallies always sum to the totals: a feature written and then deleted under a `fix:` message leaves no Clerics behind.
 - **Effective ledger (simulation, `effectiveLedger`).** Each metric is bounded by the real code behind it:
   - code lines: in full to 4000 per war, at half value from 4000 to 8000, nothing beyond (at most 6000 lines' worth)
   - removed lines: at most 4000 per war
   - files: at most `1 + code/20 + removed/100`
-  - branch points: at most `code/3` (and 2 per line at ingestion)
+  - function points: at most `code/8` (one function per 24 lines; this repository has one per 32)
+  - links: at most a quarter of complexity
+  - complexity: at most `code/2` (2 branch points per line at ingestion; honest code here runs at about one point per three lines)
 
 ## Vectors
 
 | # | Vector | How it would work | Defense now | Risk | Recommendation / test |
 |---|---|---|---|---|---|
-| 1 | Split vs squash | Many tiny pushes for per-push bonuses | Balances telescope; the army is a function of the day's ledger. Linear pass: 20 pushes / 1 squash = 1.000 exactly | Low | `ledger.test.ts` squash equivalence; sim test "many tiny pushes and one squashed push" |
+| 1 | Split vs squash | Many tiny pushes for per-push bonuses | Balances telescope; the army is a function of the day's ledger. Linear pass: 20 pushes / 1 squash = 1.000 exactly. Complexity: branch points are exact (a function of each line's text); functions and links are exact when each lands whole in one push (row 53) | Low | `ledger.test.ts` squash equivalence; sim test "many tiny pushes and one squashed push" |
 | 2 | Add-then-delete churn | Write lines, delete them, repeat | Deleting cancels the credit; churn is reported | Low | existing |
 | 3 | Reindent / whitespace | Run a formatter that only changes spacing | Spacing is removed from keys | Low | existing |
 | 4 | Style reformat of old code | Change quotes and semicolons on legacy code to get removed + new credit | Canonical keys (quotes, `;`, `,`, spacing). Before: 346 credited lines out of 400; now ≤4 | Low | test "reformatting old code" |
@@ -57,8 +64,8 @@ The tests are in [`src/rules/gaming.test.ts`](../src/rules/gaming.test.ts), whic
 | 16 | Minified code | One huge line | An average above 110 characters per line counts as generated; a line counts once | Low | existing |
 | 17 | Generated or vendored code without markers | Codegen output or a vendored library under `src/` | Duplicates, shape and data filters; daily cap and knee. Whatever passes for code pays like code | **Medium** (linear: what passes pays in full, up to the cap) | Recommend fingerprinting known open-source files (hash of canonical lines) |
 | 18 | Paste an open-source project | 50k real lines | 8000 code lines a UTC day and per war, the last 4000 at half value; the overflow is filler (a ragged army). Bounded by the cap: never more than a real day at the cap. Before: ×1.61 over a 1300-line day; now ×3.65, below a real day at the cap (×4.62) | **Medium–High** (one capped day for zero work; the linear budget makes the cap worth about 3 typical days instead of 1.6) | Recommend a rolling 7-day cap, or crediting nothing for lines already in another member's ledger. Tests "huge paste", "pasted code that passes for real is bounded by the cap" |
-| 19 | `&&` / `\|\|` chains | 20 conditions per line | At most 2 branch points per line; at most code/3 overall | Low | test "branch stuffing" |
-| 20 | `if (true)` on every line | One fake branch per line | Branch points at most code/3; within 10% of honest | Low | tests "branch stuffing", "inflated branch points" |
+| 19 | `&&` / `\|\|` chains | 20 conditions per line | At most 2 branch points per line; complexity at most code/2 overall. ×0.546 (the chains are one line of code per condition-laden line, and long lines read as less code) | Low | tests "branch stuffing", "`if (true)` stuffing and long && chains…" |
+| 20 | `if (true)` on every line | One fake branch per line | A constant condition is not a decision in the syntax tree: 0 points. Before: ×1.032 (keywords counted it); now ×1.005 | Low | tests "branch stuffing", "counts decisions from the syntax…" |
 | 21 | Many tiny files | 1 line in each of 200 files | Effective files at most 1 + code/20 + removed/100; files weigh 0.07 slots each. Before this: 1.6×; square-root pass ×1.083; linear ×1.060 | Low | tests "many tiny files" (both) |
 | 22 | Mass deletion | Delete 30k lines, for example in a fork | Removed lines count at most 4000 a war and weigh an eighth of code (0.004 slots a line); files bounded. Square-root pass ×1.474 on a 1300-line day; linear ×1.358 | Low–Med (deleting someone else's code in a fork still pays, up to the cap) | tests "mass deletion" (both) |
 | 23 | Delete before reset, restore after | Revert at 23:59, re-revert at 00:01, every day | Day memory: work credited on an earlier day is never credited again. Before: full credit every day | Low: ledger rows count for 7 days after they last move (`LEDGER_LIVE_MS`), so alternate-day farming no longer pays | Test "deleting work before the daily reset" |
@@ -80,8 +87,52 @@ The tests are in [`src/rules/gaming.test.ts`](../src/rules/gaming.test.ts), whic
 | 39 | Unusual extensions as source | `.sql`, `.css` or `.html` used as a data store | Shape cap, data-row and prose filters; selectors are blanked from style-sheet shapes, so one rule per class counts 8 times a day. Before: 2000 sprite rules ×1.43 (×2.26 under the linear budget); now ×0.91 (≤ 40 lines credited) | Low–Med (varied hand-written declarations still count) | Test "a style sheet of one rule per class" |
 | 40 | Extremely long lines | Pack logic into 2000-character lines | A line counts once; branches capped per line; minified detection | Low | — |
 | 41 | Trivial line splits | Split every `a = f(x)` after the `=` to gain a line per statement | One-name fragments are not credited; day memory pays each split once | **Medium** (same mechanism and fix as 5). Splitting 1200 old lines: ×1.12 under the square roots, **×1.35** linear (+681 lines) | Statement keys, as for 5 |
-
 | 42 | Padding hidden next to real code | Push braces, tables or copies with honest code so its allowance absorbs them | The allowance is at most 0.5 lines per new credited line (2.5 more per style-sheet line), and only code beyond the day's high-water mark earns it. Padding never earns anything; what fits in the allowance only escapes the ragged-army penalty. 650 brace lines or 600 table rows next to a 1500-line day: ×1.000 (before ×0.974 and ×0.978, when braces were always filler). 3000 braces in the same push: ×0.857 (before ×0.884) | Low (a small amount of padding is no longer penalised, but it still earns nothing) | Tests "padding pushed with honest code, or alone…", "writing, deleting and rewriting the same code earns the filler allowance once a day" |
+| 43 | Keywords where there is no decision | `case` and `if` as identifiers or properties, keywords in strings and comments | Parsed, not matched: an identifier, a string or a comment is not a decision. ×1.000 (before ×1.022) | Low | test "counts decisions from the syntax…" |
+| 44 | Stub and empty functions | 200 `function f() {}`, `throw "todo"`, `return null` bodies | A function needs 3 statement lines of credited code: 0 points. ×1.111 against the same bodies without the headers (before ×1.102); the gain is the header lines as code | Low | test "stub, empty and one-line functions…" |
+| 45 | One function split into many tiny ones | 400 statements as 400 one-statement functions | Tiny functions have too few statements: 0 points. ×1.061 against one big function (before ×1.053: header lines) | Low | test "splitting one function into many tiny ones…" |
+| 46 | One function split into 3-statement ones | 400 statements as 133 functions of 3 | Each is a real function (3 points), so this pays some; function points are held to code/8. ×1.053 (before ×1.030) | **Low–Med** (an honest refactor looks the same; bounded by the density cap and the complexity cap) | Consider grading points by body size, or a higher statement threshold. Test "splitting one function…" |
+| 47 | Wrappers that only forward | `function f(a, b) { return g(a, b); }`, wrapped over several lines | One statement: 0 points | Low | test "wrappers that only forward…" |
+| 48 | Unused imports, names only in comments or strings | 60 imports from local modules, never called | A name scores only where the syntax uses it on added lines (calls, member access, JSX tags, types): 0 | Low | test "imports earn names only when…" |
+| 49 | The same module imported from many files | 60 files each importing `../orders` | A module links once a day per player: 2 names, not 120 | Low | test "importing the same module…" |
+| 50 | Re-export barrels | `export { a, b } from './x'`, `export * from` | Not imports: 0 | Low | same test |
+| 51 | Importing, then deleting the uses | Import and use 60 names, then delete the uses the same day | The import line carries the names and stays: the 60 names keep 30 points. ×1.008, as links are at most a quarter of complexity | Low | Carry links on the use lines too |
+| 52 | Gutting a credited function | Write functions, then delete their bodies | Losing any of a function's three carrying lines undoes it: ×1.000 | Low | test "gutting a function…" |
+| 53 | Functions and imports across split pushes | Twenty pushes of whole functions vs one squash | Branch points are exact (a function of the line). Functions and links count only what one push shows whole, so pushes of whole functions equal their squash exactly (×1.000), and a function built up over several pushes counts less, never more | Low (undercounts work built up across pushes) | tests "a day split into twenty pushes…", "a function built up over several pushes…" |
+| 54 | Generated code with functions and imports | Codegen output | Generated and vendored lines carry nothing: 0 | Low | test "generated and vendored code raise no complexity" |
+
+## The complexity pass, measured
+
+Branch points were a keyword count; now complexity is `branch points + 3 × new functions + ½ × imported names used`, read from syntax trees (DESIGN.md, *Sorting lines*). At the same time armies became twice the size (every budget weight and every unit count doubled; DESIGN.md, *How many soldiers*), so "before" and "now" below are each strength over the same honest day under its own rules.
+
+**On this repository's last 81 commits** (`git show -U3` per commit through `measurePush`, each on a fresh ledger): 23,134 code lines; the keyword count found 5,636 branch points and the syntax tree 5,580; 729 new functions (2,187 points); 454 imported names used from local modules (227 points). Complexity 7,994, or 7,727 after the caps (0.33 a line). That is 1.42 points for each keyword branch point, so the budget's complexity term and the Knight, Troll and Dragon thresholds are the old branch ones × 1.42. Links are 2.8% of complexity. b0f0ae9 (ring conquest visuals and HUD): 1,770 lines, 510 → 507 branch points, 32 functions (+96), 29 names from 19 local modules (+14.5): complexity 617.5.
+
+Each row is an honest day (1500 lines in 30 files, with tests and comments; its functions run 10 to 40 statements, about one every 27 lines, as in real code) plus the attack, as strength over the honest day plus the reference (the same code written plainly, or nothing). On a denser synthetic day (functions of 3 to 8 statements) complexity already sits at its cap, so none of these attacks adds any; only their extra lines of code count.
+
+| Attack | Before | Now | Complexity, attack vs reference (branches / function points / names) |
+|---|---|---|---|
+| 200 stub and empty functions (vs the bodies alone) | 1.102 | 1.111 | 356 / 96 / 0 vs the same |
+| One function split into 400 one-statement ones | 1.053 | 1.061 | 356 / 96 / 0 vs 356 / 99 / 0 |
+| One function split into 133 three-statement ones | 1.030 | **1.053** | 356 / 324 / 0 vs 356 / 99 / 0 |
+| 150 forwarding wrappers | 1.044 | 1.035 | 356 / 96 / 0 |
+| 60 unused imports | 1.035 | 1.035 | 0 names |
+| Imported names only in comments and strings | 1.035 | 1.035 | 0 names |
+| The same module imported from 60 files | 1.048 | 1.032 | 2 names |
+| 60 imports whose names are used (honest) | 1.033 | 1.041 | 120 names |
+| A re-export barrel of 50 modules | 1.035 | 1.035 | 0 names |
+| `if (true)` on 1500 lines (vs the same lines plain) | 1.032 | 1.005 | equal |
+| 20-term `&&` chains on 1500 lines | 0.550 | 0.546 | — |
+| Identifiers named `case`, `if`, `while` on 1500 lines | 1.022 | 1.000 | equal |
+| Generated code with functions and imports | 1.000 | 1.000 | 0 |
+| Add then delete 2000 lines with imports, three times | 0.953 | 0.953 | 0 |
+| Functions gutted after they were credited | 1.000 | 1.000 | undone |
+| Imports credited, their uses deleted after | 1.000 | 1.008 | 120 names stay |
+| 20 pushes of whole functions vs their squash | 1.000 | 1.000 | equal |
+| For scale: 1500 more honest lines; an honest day at the cap | 1.819, 3.835 | 1.832, 3.819 | — |
+
+The older vectors, on the same honest day, move by at most about 1% either way (the doubled army rounds to pairs): rewrapping 1200 old lines 1.519 → 1.531, splitting them after `=` 1.439 → 1.450, a 50k paste 3.318 → 3.320, many tiny files 1.066 → 1.045, mass deletion 1.346 → 1.350, duplicates, tables, switch arms, style sheets, spam and churn within ±0.01.
+
+Two residuals: splitting code into functions of exactly three statements pays (each is a real function), held to one function per 24 lines (`code/8` function points), and an import keeps its names after its uses are deleted (links are at most a quarter of complexity). Both stay under the complexity cap of one point per two lines.
 
 ## The filler pass, measured
 
@@ -163,6 +214,17 @@ On this repository's own source plus zod and rxjs, honest code keeps about **92%
 - long runs of JSX text, which read as prose
 
 All players are measured the same way. A realistic day of features, fixes, tests, comments and a refactor (1400 lines over 10 files) gets no negative quality notes, earns *Well tested* and veteran rank 1, and reaches rank 2 at 12 files (test "a realistic day…").
+
+## Changes in the complexity pass
+
+- `src/rules/complexity.ts` (new, server only): tree-sitter parsing (`web-tree-sitter` and the grammars' `.wasm`, loaded lazily) for JavaScript, TypeScript, TSX, Python, Go, Rust, Java, Kotlin and Ruby:
+  - `lineBranches`: a line's decision points from its own syntax tree, set in the smallest code that completes it; constant conditions, strings, comments and identifiers do not count
+  - `analyzeFile`: each hunk's new side parsed as a fragment; definitions wholly on added lines with their statement lines, and local imports with the names the added code uses
+  - budgets: 1 MB of parsed text a push (hunks and lines), 250 ms a file; past them, keywords
+- `src/rules/ledger.ts`: complexity rides on credited code keys (`WEIGHT`, `FUNCTION_OF`, `FUNCTION` and the day's `LINKS` scopes); `PushDelta` gains `functions`, `links` and `modules`
+- `src/sim/muster.ts`: `complexityOf` (links at most a quarter, function points at most `code/8`, the whole at most `code/2`); the budget's complexity term; Knights, Trolls and Dragons from complexity; armies twice the size, counts in pairs and paid in pairs
+- `src/sim/stats.ts`, `src/sim/world.ts`, `src/sim/council.ts`: the room holds 4000 soldiers and an army 320 slots; walls 75 HP a slot; a tower looses up to 24 bolts; sieges wait for 50 soldiers (20 for breached walls)
+- push inputs, replays and snapshots carry `functions` and `links` (older ones decode with none); the preview, the chronicle, the digest's Architect and the HUD's ledger show complexity and its parts
 
 ## Changes in the filler pass
 

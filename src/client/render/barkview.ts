@@ -6,7 +6,7 @@ import { MapLabel, type LabelLayer } from './labels.ts';
 
 // Commander barks on the chart: a small vellum speech scroll over a platoon's banner with a line in
 // its commander's voice (barks.ts decides who speaks and when), and a name scroll under the hovered
-// or selected platoon saying what it is doing ("Besieging @grace-bot", "Massing 12/25"). Both are
+// or selected platoon saying what it is doing ("Besieging @grace-bot", "Massing 24/50"). Both are
 // map labels: counter-scaled, lettered in ink, and giving way to each other and to the sites'
 // names through the label layer's collision.
 

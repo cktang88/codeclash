@@ -144,10 +144,12 @@ const LINES_PER_FILE = 20;
 const REMOVED_PER_FILE = 100;
 /**
  * Code lines per point of complexity: denser than this is padding. Honest work in this repository
- * runs at about one point per three lines (b0f0ae9: 622 points over 1770 lines), the densest real
+ * runs at about one point per three lines (b0f0ae9: 617.5 points over 1770 lines), the densest real
  * commits at about one per two.
  */
 const LINES_PER_COMPLEXITY = 2;
+/** Code lines per function point (3 per function): denser than this is code split up to farm functions. */
+export const LINES_PER_FUNCTION_POINT = 8;
 /** Links (names used from local modules) make at most this share of complexity: branches and functions dominate. */
 export const LINK_SHARE = 0.25;
 
@@ -164,7 +166,9 @@ export function credited(n: number): number {
  */
 export function complexityOf(ledger: Ledger, code: number): { half: number; branches: number; functions: number; links: number } {
   const branches = Math.max(0, ledger.branches);
-  const functions = Math.max(0, ledger.functions || 0);
+  // Splitting code into many small functions must not pay: function points are held to one per
+  // LINES_PER_FUNCTION_POINT lines of code (a function every 24 lines; honest code here has one every 32).
+  const functions = Math.min(Math.max(0, ledger.functions || 0), fl(code / LINES_PER_FUNCTION_POINT));
   // links ≤ LINK_SHARE of (2·branches + 2·functions + links), in half points.
   const links = Math.min(Math.max(0, ledger.links || 0), fl((2 * (branches + functions) * LINK_SHARE) / (1 - LINK_SHARE)));
   const half = Math.min(2 * branches + 2 * functions + links, fl((2 * code) / LINES_PER_COMPLEXITY));
@@ -236,11 +240,10 @@ export function armyQuality(ledger: Ledger): { quality: number; veterancy: numbe
 }
 
 
-/**
- * Honest code carries about 1.42 points of complexity for every branch point the keyword count
- * found (this repository's last 80 commits: 7651 points, 5371 keyword branch points), so the
- * thresholds that were in branch points are those times 1.42.
- */
+// Honest code carries about 1.42 points of complexity for every branch point the keyword count
+// found (this repository's last 81 commits: 7994 points, 5636 keyword branch points), so the
+// thresholds that were in branch points are those times 1.42.
+
 /** Knights: twice `2·√(complexity / KNIGHT_COMPLEXITY)` (was `2·√(branches / 10)`). */
 export const KNIGHT_COMPLEXITY = 14;
 /** Trolls, with 200+ code lines: two per TROLL_COMPLEXITY points, up to 6 (was one per 150 branch points, up to 3). */

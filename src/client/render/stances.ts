@@ -8,7 +8,7 @@ import { Wait, type WaitInfo } from '../../sim/stance.ts';
 //
 //  - waiting or massing: a camp behind its line (two tents, a campfire, a stack of spears), and on
 //    its banner a vellum tag with an hourglass when it waits on the siege clock and its muster
-//    count ("12/25");
+//    count ("24/50");
 //  - holding a fort: its standard planted at the fort's edge and sentry pickets round its side;
 //  - besieging: a dashed siege line in its pigment from the line to the walls it batters;
 //  - pulling back: chevrons in its pigment trailing the way it withdraws.

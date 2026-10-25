@@ -66,8 +66,8 @@ export interface BotPush {
 }
 
 /**
- * Function points and linked names per branch point, as this repository's own last 80 commits
- * measure them (5317 branch points, 2103 function points, 446 names): together about 0.44 points
+ * Function points and linked names per branch point, as this repository's own last 81 commits
+ * measure them (5580 branch points, 2187 function points, 454 names): together about 0.43 points
  * of complexity for each branch point.
  */
 export const FUNCTIONS_PER_BRANCH = 0.4;

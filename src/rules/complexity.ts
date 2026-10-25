@@ -114,8 +114,12 @@ export function grammarReady(g: Grammar): boolean {
 
 // ------------------------------------------------------------ budget
 
-/** Bytes of fragment text one push may parse; the rest falls back to keywords. */
-export const PARSE_BYTES_PER_PUSH = 1_500_000;
+/**
+ * Bytes of text one push may parse, hunks and lines together (charged whether or not a line's
+ * count is cached, so a push measures the same in any process); the rest falls back to keywords.
+ * About a second of parsing at worst; this repository's largest commit of the last 80 uses a third.
+ */
+export const PARSE_BYTES_PER_PUSH = 1_000_000;
 /** Milliseconds one file may spend parsing before it falls back to keywords. */
 export const PARSE_MS_PER_FILE = 250;
 
@@ -166,13 +170,46 @@ interface N {
   parent: N | null;
 }
 
-function flatten(tree: { rootNode: { walk(): import('web-tree-sitter').TreeCursor } }): { root: N; errors: number } {
+/** Per language, node type and field names by id, so walking a tree passes numbers, not strings, out of WebAssembly. */
+const names = new Map<TsLanguage, { types: (string | null)[]; fields: (string | null)[] }>();
+
+function namesOf(lang: TsLanguage): { types: (string | null)[]; fields: (string | null)[] } {
+  let n = names.get(lang);
+  if (!n) {
+    n = { types: [], fields: [] };
+    for (let i = 0; i < lang.nodeTypeCount; i++) n.types.push(lang.nodeTypeForId(i));
+    for (let i = 0; i <= lang.fieldCount; i++) n.fields.push(lang.fieldNameForId(i));
+    names.set(lang, n);
+  }
+  return n;
+}
+
+/** The tree as plain objects, with each node's first and last line found from its offsets. */
+function flatten(tree: import('web-tree-sitter').Tree, text: string, lang: TsLanguage): { root: N; errors: number } {
+  const { types, fields } = namesOf(lang);
+  const starts = [0];
+  for (let i = text.indexOf('\n'); i >= 0; i = text.indexOf('\n', i + 1)) starts.push(i + 1);
+  const rowOf = (at: number) => {
+    let lo = 0;
+    let hi = starts.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (starts[mid]! <= at) lo = mid;
+      else hi = mid - 1;
+    }
+    return lo;
+  };
   const c = tree.rootNode.walk();
   let errors = 0;
   const make = (parent: N | null): N => {
-    const bad = c.nodeIsMissing || c.nodeType === 'ERROR';
+    const id = c.nodeTypeId;
+    const type = types[id] ?? c.nodeType;
+    const bad = type === 'ERROR' || c.nodeIsMissing;
     if (bad) errors++;
-    return { type: c.nodeType, named: c.nodeIsNamed, field: c.currentFieldName, sr: c.startPosition.row, er: c.endPosition.row, si: c.startIndex, ei: c.endIndex, bad, hasErr: bad, kids: [], parent };
+    const si = c.startIndex;
+    const ei = c.endIndex;
+    const f = c.currentFieldId;
+    return { type, named: c.nodeIsNamed, field: f > 0 ? fields[f] ?? null : null, sr: rowOf(si), er: rowOf(Math.max(si, ei - 1)), si, ei, bad, hasErr: bad, kids: [], parent };
   };
   const root = make(null);
   const stack: N[] = [root];
@@ -406,8 +443,13 @@ function parseBest(parser: TsParser, g: Grammar, text: string, deadline: number)
       return null;
     }
     if (!tree) return null;
-    const { root, errors } = flatten(tree);
-    tree.delete();
+    let flat: ReturnType<typeof flatten>;
+    try {
+      flat = flatten(tree, v.text, parser.language!);
+    } finally {
+      tree.delete();
+    }
+    const { root, errors } = flat;
     let definitions = 0;
     const count = (n: N) => {
       if (SPECS[g].definitions.has(n.type) && !n.hasErr) definitions++;
@@ -435,6 +477,15 @@ export interface NewSideLine {
  * file takes too long: the caller then counts keywords instead.
  */
 export function analyzeFile(path: string, newFile: readonly NewSideLine[], budget: ParseBudget): FileFacts | null {
+  try {
+    return readFile(path, newFile, budget);
+  } catch {
+    // A tree too deep to walk (a pathological line): count keywords instead.
+    return null;
+  }
+}
+
+function readFile(path: string, newFile: readonly NewSideLine[], budget: ParseBudget): FileFacts | null {
   const g = grammarOf(path);
   if (!g) return null;
   const parser = parsers.get(g);
@@ -444,12 +495,16 @@ export function analyzeFile(path: string, newFile: readonly NewSideLine[], budge
   const deadline = performance.now() + PARSE_MS_PER_FILE;
   const imports: { row: number; module: string; names: Binding[] }[] = [];
   const uses = new Set<string>();
+  // A definition or an import that counts starts on an added line, so a hunk whose added lines
+  // hold neither is not parsed, unless the file imports something its lines might use.
+  const shapes = MAY_DEFINE[g];
+  const importing = newFile.some((l) => l.added && shapes.imports.test(l.text));
   let start = 0;
   while (start < newFile.length) {
     let end = start;
     while (end < newFile.length && newFile[end]!.hunk === newFile[start]!.hunk) end++;
     const lines = newFile.slice(start, end);
-    if (lines.some((l) => l.added)) {
+    if (lines.some((l) => l.added && (importing || shapes.defines.test(l.text) || shapes.imports.test(l.text)))) {
       const text = lines.map((l) => l.text).join('\n');
       budget.bytes -= text.length;
       if (budget.bytes < 0) return null;
@@ -481,9 +536,27 @@ export function analyzeFile(path: string, newFile: readonly NewSideLine[], budge
   return facts;
 }
 
+/** Lines that may open a definition, or hold an import, per language: a cheap test before parsing a hunk. */
+const MAY_DEFINE: Record<Grammar, { defines: RegExp; imports: RegExp }> = (() => {
+  const js = { defines: /\b(function|class)\b|=>|\)\s*(:[^{=]*)?\{\s*$/, imports: /\bimport\b/ };
+  return {
+    javascript: js,
+    typescript: js,
+    tsx: js,
+    python: { defines: /\b(def|class)\b/, imports: /\bfrom\s+\./ },
+    go: { defines: /\bfunc\b/, imports: /\bimport\b|^\s*(\w+\s+)?"[^"\s]+\/[^"\s]+"\s*$/ },
+    rust: { defines: /\b(fn|impl|trait)\b|\|[^|]*\|/, imports: /\buse\b/ },
+    java: { defines: /\b(class|interface|enum|record)\b|->|\)\s*(throws\s+[\w., ]+)?\{\s*$/, imports: /\bimport\b/ },
+    kotlin: { defines: /\b(fun|class|object|constructor)\b|->|\{\s*$/, imports: /\bimport\b/ },
+    ruby: { defines: /\b(def|class|module|do|lambda|proc)\b|\{\s*\|/, imports: /\brequire_relative\b/ },
+  };
+})();
+
 // ------------------------------------------------------------ one line's decisions
 
 const lineCache = new Map<string, number>();
+/** Some token every decision of every supported language carries. */
+const DECISION_TOKEN = /\b(if|for|while|case|catch|elif|except|when|rescue|unless|until|elsif|and|or)\b|&&|\|\||\?|=>|->/;
 const LINE_CACHE_MAX = 200_000;
 /** Lines longer than this are not parsed alone (minified code, data): keywords count instead. */
 const LINE_PARSE_MAX = 1000;
@@ -493,13 +566,19 @@ const LINE_PARSE_MAX = 1000;
  * context that completes it; null when the grammar is not loaded or the line cannot be parsed. A
  * function of the line's text alone, so the ledger can key it like the line itself.
  */
-export function lineBranches(path: string, text: string): number | null {
+export function lineBranches(path: string, text: string, budget?: ParseBudget): number | null {
   const g = grammarOf(path);
   if (!g) return null;
   const parser = parsers.get(g);
   if (!parser) return null;
   const t = text.trim();
   if (t.length > LINE_PARSE_MAX) return null;
+  // Every decision has a token on its line; a line with none of them decides nothing.
+  if (!DECISION_TOKEN.test(t)) return 0;
+  if (budget) {
+    budget.bytes -= t.length;
+    if (budget.bytes < 0) return null;
+  }
   const key = `${g}\u0000${t}`;
   const known = lineCache.get(key);
   if (known !== undefined) return known;
@@ -516,10 +595,15 @@ export function lineBranches(path: string, text: string): number | null {
     return null;
   }
   if (!tree) return null;
-  const { root } = flatten(tree);
-  tree.delete();
   let n = 0;
-  readDecisions(root, spec, (row) => row === head, () => n++);
+  try {
+    const { root } = flatten(tree, source, parser.language!);
+    readDecisions(root, spec, (row) => row === head, () => n++);
+  } catch {
+    return null;
+  } finally {
+    tree.delete();
+  }
   if (lineCache.size >= LINE_CACHE_MAX) lineCache.clear();
   lineCache.set(key, n);
   return n;

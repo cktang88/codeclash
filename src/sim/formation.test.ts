@@ -371,9 +371,9 @@ describe('soldiers in the fight', () => {
     // The border fort on the road between the two capitals: the natural battleground.
     const fort = w.map.slots;
     step(w, [
-      // Half the code these armies once took: armies are twice the size they were.
-      push(0, L(550, 80, 40), 'fix: crash on resume', 8, 15),
-      push(1, L(650, 80, 40, 0, 0, 600), 'refactor: drop legacy auth', 8, 45),
+      // The fix is the size of one platoon with its Footmen, as 1100 lines once raised (armies are twice what they were).
+      push(0, L(450, 80, 40), 'fix: crash on resume', 8, 15),
+      push(1, L(1300, 80, 40, 0, 0, 1200), 'refactor: drop legacy auth', 8, 90),
     ]);
     let melee = 0;
     let piled = 0;
@@ -439,7 +439,7 @@ describe('a whole war of formations', () => {
     let stranded = 0;
     for (let t = 0; t < 10 * TICKS_PER_MINUTE; t++) {
       const inputs: SimInput[] = [];
-      for (let p = 0; p < 6; p++) if (rand() < 1 / 200) inputs.push(push(p, L(75 + Math.floor(rand() * 200), 40, 20, 0, 40, 30), ['fix: a', 'feat: b', 'refactor: c', 'perf: d'][p % 4]!, 9, 30));
+      for (let p = 0; p < 6; p++) if (rand() < 1 / 200) inputs.push(push(p, L(150 + Math.floor(rand() * 400), 40, 20, 0, 40, 60), ['fix: a', 'feat: b', 'refactor: c', 'perf: d'][p % 4]!, 9, 60));
       step(w, inputs);
       if (t % 25 !== 0) continue;
       for (const pl of w.platoons) {

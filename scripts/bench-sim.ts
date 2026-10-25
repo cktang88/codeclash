@@ -2,7 +2,7 @@
 // `pnpm tsx scripts/bench-sim.ts [players] [minutes]` with RATE=<pushes per player per hour> (default 90),
 // GOLDEN=<file> to write (or, if it exists, compare) the per-tick checksum chain.
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { TICKS_PER_MINUTE, type SimInput } from '../src/sim/api.ts';
+import { PlatoonState, TICKS_PER_MINUTE, type SimInput } from '../src/sim/api.ts';
 import { generateMap, slotsFor } from '../src/sim/mapgen.ts';
 import { checksum } from '../src/sim/snapshot.ts';
 import { createWorld, step } from '../src/sim/world.ts';
@@ -26,6 +26,8 @@ const total = minutes * TICKS_PER_MINUTE;
 const times = new Float64Array(total);
 const units = new Uint32Array(total);
 const sums: number[] = [];
+let platoons = 0;
+let fielded = 0;
 let chain = 0;
 for (let t = 0; t < total; t++) {
   const inputs: SimInput[] = [];
@@ -35,13 +37,15 @@ for (let t = 0; t < total; t++) {
   step(world, inputs);
   times[t] = performance.now() - t0;
   units[t] = world.units.length;
+  fielded = Math.max(fielded, world.platoons.filter((pl) => pl.state !== PlatoonState.Queued).length);
+  platoons = Math.max(platoons, world.platoons.length);
   if (process.env.GOLDEN) {
     chain = (Math.imul(chain ^ checksum(world), 16777619) + t) >>> 0;
     if (t % 50 === 0) sums.push(chain);
   }
 }
 // Report by unit-count band so runs compare like with like.
-const bands = [[0, 400], [400, 800], [800, 1200], [1200, 1600], [1600, 2000], [2000, 99999]] as const;
+const bands = [[0, 400], [400, 800], [800, 1200], [1200, 1600], [1600, 2000], [2000, 2800], [2800, 3600], [3600, 99999]] as const;
 for (const [lo, hi] of bands) {
   const sel: number[] = [];
   for (let t = 0; t < total; t++) if (units[t]! >= lo && units[t]! < hi) sel.push(times[t]!);
@@ -52,7 +56,7 @@ for (const [lo, hi] of bands) {
 }
 let all = 0;
 for (let t = 0; t < total; t++) all += times[t]!;
-console.log(`ticks=${total} total=${all.toFixed(0)}ms mean=${(all / total).toFixed(3)}ms peakUnits=${Math.max(...units)} final=${world.units.length} platoons=${world.platoons.length}`);
+console.log(`ticks=${total} total=${all.toFixed(0)}ms mean=${(all / total).toFixed(3)}ms peakUnits=${Math.max(...units)} final=${world.units.length} platoons=${world.platoons.length} peakPlatoons=${platoons} peakFielded=${fielded}`);
 if (process.env.GOLDEN) {
   const file = process.env.GOLDEN;
   if (existsSync(file)) {

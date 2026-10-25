@@ -88,7 +88,7 @@ export function barkLine(id: number, me: number, w: WaitInfo, nth: number, tick:
   return fill(line, w, me, tick, names);
 }
 
-/** One word or two for a label: "Besieging", "Massing 12/25", "Waiting · sieges in 1h 12m". */
+/** One word or two for a label: "Besieging", "Massing 24/50", "Waiting · sieges in 1h 12m". */
 export function stateWord(w: WaitInfo, names: BarkNames): string {
   switch (w.kind) {
     case Wait.Besieging:
@@ -118,7 +118,7 @@ export function stateWord(w: WaitInfo, names: BarkNames): string {
   }
 }
 
-/** The full status line for the Inspector: "Massing at the Ash Fort — 12 of 25 soldiers; sieges open in 1h 12m". */
+/** The full status line for the Inspector: "Massing at the Ash Fort — 24 of 50 soldiers; sieges open in 1h 12m". */
 export function statusLine(w: WaitInfo, names: BarkNames): string {
   const site = w.site >= 0 ? names.site(w.site) : 'the field';
   const foe = w.foe >= 0 ? names.player(w.foe) : 'the foe';
