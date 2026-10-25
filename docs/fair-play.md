@@ -111,6 +111,11 @@ The tests are in [`src/rules/gaming.test.ts`](../src/rules/gaming.test.ts), whic
 | 63 | Forged history in a new repository | Backdate commits to 2015, invent 100 authors, push a "core file" | Line ages clamped to the repository's (source's) creation and to each author account's creation; accounts younger than 30 days are not authors; the gate holds M to ×1.5 without 2 independent contributors and 5 stars or 2 forks | Low–Med | Server test "a new repository with forged old history and sockpuppet authors earns little" |
 | 64 | Sockpuppet contributors and stars | Old accounts (or spoofed author emails of real users) as "contributors", bought stars | Account age is checked (GitHub GraphQL `createdAt`, free in the same query); no cheap check of an account's other activity, so the star/fork gate carries the rest. A mirror names people by email and cannot check accounts | **Medium** (a farm of aged accounts that star and commit passes the gate; the bonus is still at most ×3.2 on modified lines and 2,000 lines a day) | Check contributors' activity elsewhere (a GraphQL `contributionsCollection` costs more points); weight stars by stargazer age |
 | 65 | Context outages | Push when GraphQL fails, hoping for something better | Failure only lowers the bonus: batch, then single queries, then the mirror, then neutral (×1) | Low | Server tests "retries one file per query…", "is the fallback when GraphQL fails…" |
+| 67 | Effort credit: tiny edits across many core files | Change 3 lines of others' code in each of 40 central files of a big project (or a fork of one) | The effort credit is fixed per file (120 lines at ×3.2), so this is its worst case: held to 15 files' worth a day (1,800 lines), plus the line bonus. 120 lines of edits: ×1.11 → **×2.48** on an honest day (bonus 2,026). Below an honest day at the code cap (×4.6) | **High** (the price of crediting small hard fixes: about 2 days' credit for 120 lines of tweaks) | Credit forks' effort only once the commit reaches the upstream (a merged pull request); require the file's change to survive a day; lower FILE_CAP. Tests "is held to FILE_CAP files' worth…", gaming "tiny 3-line edits across 40 core files…" |
+| 68 | Effort credit: split vs squash, and reverts | Cross the 3-line threshold over several pushes, or revert below it | The credit is a function of the file's day state (modified lines, frozen multiplier): awarded by the push that reaches 3, taken back exactly by a revert below 3. Split = squash | Low | Tests "is awarded by the push that reaches 3…", "split = squash across the threshold" |
+| 69 | Effort credit on trivial or own edits | Whitespace, comments, one's own files | They never make modified lines of others' code, so never reach the threshold: 0 | Low | Test "whitespace-only edits and one's own files earn none" |
+| 70 | Effort credit in a gated repository | A young repository with invented contributors | Scaled by (M − 1) / 2.2, and the gate holds M to ×1.5: 27 lines a file instead of 120 | Low–Med | Test "scales with the file's multiplier, so a gated file earns proportionally little" |
+| 71 | Fork farming, with the effort credit | 40 files a day of upstream code replaced in a fork | Line bonus (2,000) and effort (1,800) caps both bind: ×2.02 → **×3.47** (was ×2.93 with the line bonus alone) | **Medium–High** | As row 67. Gaming test "farming a fork's upstream code…" |
 | 66 | Choosing which files get context | Touch many files so the bonus covers more | Only the 5 most changed source files of a diff that remove lines get context; the others stay ×1. The frozen multiplier is per file and day | Low | Server test "never fetches context for assets, lockfiles…" |
 
 ## The difficulty bonus, measured
@@ -132,7 +137,24 @@ A maintainer in a war (`MAINTAINERS=1 DAYS=128 pnpm tsx scripts/diagnose-war.ts 
 | The bonus as built (M ≤ 3.2) | 4% | 0.39 | 513 / 2,709 | 525 |
 | (M − 1) tripled, sensitivity only (64 days) | 5% | 0.63 | 487 / 2,776 | 1,526 (held to 3 × code) |
 
-The bonus lifts a maintainer's army by about 60%, but not to a fair share: at the same push rate a greenfield pusher writes five times the lines, and a multiplier on modified lines (at most ×3.2, and 3 × code) cannot close a gap that wide. Parity would need credit that is not proportional to lines for small hard changes.
+**The effort credit** (DESIGN.md, *The effort credit*), tuned on the same simulation (128 seeded days, the same days for every setting; the bonus also counts toward veteran ranks). Maintainer wins (fair share 25%), by its push rate that day, and its budget against the greenfield median:
+
+| FILE_CREDIT | FILE_CAP | Wins | < 1.5 pushes/h | 2–4 /h (normal day) | ≥ 3 /h | Budget / greenfield | Bonus a day |
+|---|---|---|---|---|---|---|---|
+| 0 (line bonus only) | — | 4% | — | 2% | — | 0.39 | 525 |
+| 30 | 15 | 7% | 4% | 4% | 19% | 0.50 | 883 |
+| 60 | 15 | 7% | 0% | 8% | 20% | 0.64 | 1,263 |
+| 90 | 15 | 9% | 2% | 5% | 26% | 0.73 | 1,571 |
+| **120** | **15** | **13%** | 5% | **15%** | 20% | **0.87** | 2,105 |
+| 120 | 10 | 10% | 2% | 8% | 20% | 0.72 | 1,755 |
+| 120 | 20 | 12% | 5% | 15% | 23% | 0.87 | 2,032 |
+| 150 | 15 | 13% | 2% | 12% | 23% | 0.90 | 2,400 |
+| 200 | 20 (no veteran change) | 12% | 5% | 15% | 20% | 1.07 | 2,948 |
+| 240 | 20 (no veteran change) | 14% | 7% | 12% | 20% | 1.20 | 3,629 |
+
+(30 is from the run without the veteran change, 83 days; 120–150 with it, 117–125 days; 200 and 240 without it, 120 days.) Win share plateaus at 12–15% even when the maintainer's budget passes the greenfield median: the winner is usually the day's top budget, and a maintainer's capped credit rarely tops a heavy greenfield day. A low-activity maintainer (< 1.5 pushes an hour) still loses to greenfield pushers almost always (2–5%), as intended. With no maintainers the room is unchanged: 114 days compared, identical day for day (top committer wins 61%, conquest median 15.7 h).
+
+The line bonus alone lifts a maintainer's army by about 60%, but not to a fair share: at the same push rate a greenfield pusher writes five times the lines, and a multiplier on modified lines (at most ×3.2, and 3 × code) cannot close a gap that wide. Parity would need credit that is not proportional to lines for small hard changes.
 
 Attacks, each as strength over an honest day (1500 lines, 30 files, tests and comments) plus the attack, pushed with a ×3.2 context; *before* is the same push with no bonus:
 
@@ -145,6 +167,18 @@ Attacks, each as strength over an honest day (1500 lines, 30 files, tests and co
 | Delete others' lines in one place, add code elsewhere in the file | 1.138 | 1.363 | 380 |
 | The same, replaced in place (honest) | 1.138 | 1.363 | 380 |
 | Whitespace, quotes, comments on 40 core lines | 1.000 | 1.000 | 0 |
+
+With the effort credit (FILE_CREDIT 120, FILE_CAP 15), the same attacks:
+
+| Attack | Before (no bonus) | Line bonus only | Line bonus + effort credit | Bonus lines |
+|---|---|---|---|---|
+| Re-wrap 1,200 of others' old lines in 5 core files | 1.460 | 1.686 | 2.024 | 1,123 |
+| Rename a variable across them | 1.185 | 1.444 | 1.924 | 1,076 |
+| Copies of one line in 5 files | 1.003 | 1.003 | 1.003 | 11 |
+| Fork farming: 40 files of replaced code | 2.020 | 2.925 | 3.471 | 3,800 (both caps) |
+| Tiny 3-line edits across 40 core files (120 lines) | 1.113 | — | **2.477** | 2,026 (effort cap) |
+| Delete here, add there (5 files) | 1.138 | 1.363 | 1.813 | 980 |
+| For scale: an honest day at the code cap | — | — | 4.6 | — |
 | Own lines rewritten, today's or older | — | — | 0 |
 
 ## The complexity pass, measured

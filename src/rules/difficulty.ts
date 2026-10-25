@@ -51,7 +51,7 @@ export const DAILY_BONUS_CAP = 2000;
  * (M_MAX − 1)`. Lines are a poor measure of a hard fix in a big file, so this part of the bonus is
  * deliberately not proportional to them.
  */
-export const FILE_CREDIT = 60;
+export const FILE_CREDIT = 120;
 /** Modified lines of others' code (the file's day pairing) that make a file's edit meaningful. */
 export const MEANINGFUL_LINES = 3;
 /** Effort credit a day is held to: FILE_CAP files at the full credit (about 15 of the hardest files). */

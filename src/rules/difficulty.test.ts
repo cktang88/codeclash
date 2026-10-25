@@ -284,8 +284,8 @@ describe('the bonus in the ledger', () => {
     }
     expect(total).toBe(DAILY_BONUS_CAP + FILE_CAP * FILE_CREDIT);
     const ledger = emptyLedger();
-    applyDelta(ledger, { lines: [100, 0, 0, 0, 0, 100, 0, 0, 0], files: 3, branches: 0, churn: 0, filler: 0, bonus: 50_000, purpose: 'fix' });
-    expect(effectiveLedger(ledger).bonus).toBe(BONUS_PER_CODE * 100);
+    applyDelta(ledger, { lines: [40, 0, 0, 0, 0, 40, 0, 0, 0], files: 3, branches: 0, churn: 0, filler: 0, bonus: 50_000, purpose: 'fix' });
+    expect(effectiveLedger(ledger).bonus).toBe(BONUS_PER_CODE * 40);
     // Code and bonus share the knee: 3000 code + 3000 bonus is 4000 + 1000.
     const big = emptyLedger();
     applyDelta(big, { lines: [3000, 0, 0, 0, 0, 0, 0, 0, 0], files: 1, branches: 0, churn: 0, filler: 0, bonus: 3000, purpose: 'fix' });
@@ -305,7 +305,7 @@ describe('the effort credit', () => {
     expect(fileCreditMilli(3, 3200)).toBe(FILE_CREDIT * 1000);
     expect(fileCreditMilli(2, 3200)).toBe(0);
     expect(fileCreditMilli(3, 1000)).toBe(0);
-    expect(fileCreditMilli(3, 2100)).toBe(30_000);
+    expect(fileCreditMilli(3, 2100)).toBe(FILE_CREDIT * 500);
     // The gate holds M to ×1.5: a quarter or so of the credit.
     const gated = measurePush([edit(CORE, 10, code(5, 'old'), code(5, 'new'))], new MemoryLedger(), contextOf(ctx(CORE, 1.5, range(10, 5))));
     expect(gated.bonus).toBe(Math.floor(5 * 0.5) + Math.floor((FILE_CREDIT * 500) / 2200));
