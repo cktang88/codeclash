@@ -15,6 +15,8 @@ cp .env.example .env
 pnpm dev
 ```
 
+**Set `GITHUB_TOKEN` in `.env` first.** Without it GitHub allows only 60 anonymous requests an hour, about four army previews, after which the preview reports "GitHub's gates are shut for the hour"; real pushes are not ingested and the difficulty bonus can't read blame. Create a [fine-grained token](https://github.com/settings/personal-access-tokens/new) with "Public repositories (read-only)" access and no other permissions, and paste it in: that's 5,000 requests an hour. Every variable is documented in [`.env.example`](.env.example) and in the [Environment](#environment) table below.
+
 Use pnpm, not npm: the lockfile is `pnpm-lock.yaml`, and running `npm i` over a pnpm-made `node_modules` fails with `ERESOLVE … Found: vite@undefined`. If that happens, `rm -rf node_modules` and run `pnpm install`.
 
 Open http://localhost:5173. The Vite dev server proxies `/api`, `/auth`, `/hooks`, and `/ws` to the game server on port 8787.
@@ -43,6 +45,9 @@ Open http://localhost:5173. The Vite dev server proxies `/api`, `/auth`, `/hooks
 | `MAX_LIVE_ROOMS` | `200` | Rooms the server will simulate. |
 | `DEV_AUTH` | `0` | Enables `/auth/dev?login=`. Refused in production. |
 | `DAY_MINUTES` | unset | Replaces the daily cycle with wars of this length, for testing. |
+| `SERVICE_WORKER` | `1` | `0` is the service worker's kill switch: pages unregister it and drop its caches. |
+
+Copy [`.env.example`](.env.example) to `.env` to start; it lists every variable with the same defaults. `.env` is git-ignored, so tokens never get committed.
 
 ## Grammars
 
