@@ -369,18 +369,20 @@ export interface PatchLines {
   newFile: { text: string; added: boolean; hunk: number; /** Line number in the new file. */ line: number }[];
   removed: string[];
   /** Removed lines with their place in the old file, interleaved with context. */
-  oldFile: { text: string; removed: boolean; hunk: number }[];
+  oldFile: { text: string; removed: boolean; hunk: number; /** Line number in the old file. */ line: number }[];
 }
 
 export function splitPatch(patch: string): PatchLines {
   const out: PatchLines = { added: [], newFile: [], removed: [], oldFile: [] };
   let hunk = 0;
   let next = 1;
+  let prev = 1;
   for (const line of patch.split('\n')) {
     if (line.startsWith('@@')) {
       hunk++;
-      const start = /^@@ -\d+(?:,\d+)? \+(\d+)/.exec(line);
-      next = start ? Number(start[1]) : 1;
+      const start = /^@@ -(\d+)(?:,\d+)? \+(\d+)/.exec(line);
+      prev = start ? Number(start[1]) : 1;
+      next = start ? Number(start[2]) : 1;
       continue;
     }
     if (line.startsWith('\\')) continue;
@@ -391,10 +393,10 @@ export function splitPatch(patch: string): PatchLines {
       out.newFile.push({ text, added: true, hunk, line: next++ });
     } else if (mark === '-') {
       out.removed.push(text);
-      out.oldFile.push({ text, removed: true, hunk });
+      out.oldFile.push({ text, removed: true, hunk, line: prev++ });
     } else {
       out.newFile.push({ text, added: false, hunk, line: next++ });
-      out.oldFile.push({ text, removed: false, hunk });
+      out.oldFile.push({ text, removed: false, hunk, line: prev++ });
     }
   }
   return out;

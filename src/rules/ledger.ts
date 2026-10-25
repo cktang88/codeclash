@@ -21,6 +21,7 @@
 import { Cat, CAT_COUNT } from '../sim/api.ts';
 import { analyzeFile, FUNCTION_STATEMENTS, lineBranches, LINK_NAMES_PER_IMPORT, parseBudget, type ParseBudget } from './complexity.ts';
 import { branchesIn, categorizePath, classifyLine, extensionOf, isGeneratedContent, splitPatch, syntaxFor, type ChangedFile, type FileCategory } from './classify.ts';
+import { bonusMilli, DAILY_BONUS_CAP, type DifficultyNote, type PushContext } from './difficulty.ts';
 import { languageOfPath } from './heraldry.ts';
 import { CODE_CAP } from '../sim/muster.ts';
 
@@ -83,6 +84,13 @@ export interface PushDelta {
   language: string | null;
   /** Every added line left uncounted, by kind, with the files holding most of each (for explaining). */
   uncounted?: Uncounted[];
+  /**
+   * Signed change in difficulty bonus lines: extra code credit for modifying others' established code
+   * (rules/difficulty.ts). Absent or 0 without context.
+   */
+  bonus?: number;
+  /** Per file, what moved the bonus (for explaining). */
+  difficulty?: DifficultyNote[];
 }
 
 /**
@@ -371,6 +379,8 @@ interface Op {
   path: string;
   info: KeyInfo;
   sign: 1 | -1;
+  /** For a removed line, its line number in the old file (to look up who wrote it). */
+  oldLine?: number;
 }
 
 /** Classified lines of one file's patch, before any ledger is consulted. */
@@ -402,7 +412,7 @@ function fileOps(file: ChangedFile, category: FileCategory, patch: ReturnType<ty
   const rowKey = new Map<number, string>();
   const facts = category === 'source' ? analyzeFile(path, patch.newFile, cx.budget) : null;
   let row = -1;
-  const push = (kind: Counted, text: string, sign: 1 | -1) => {
+  const push = (kind: Counted, text: string, sign: 1 | -1, oldLine?: number) => {
     const normalized = normalize(text);
     if (kind === 'code' || kind === 'test') {
       const why = fillerKind(normalized, family) ?? (kind === 'code' && isProse(normalized) ? 'prose' : null);
@@ -423,7 +433,9 @@ function fileOps(file: ChangedFile, category: FileCategory, patch: ReturnType<ty
       return;
     }
     const branches = Math.min(LINE_BRANCH_CAP, branchesIn(stripComments(normalized, family), SAMPLE_PATH[family]!));
-    ops.push({ key, path, info: { kind, branches, group: `${family}\u0000${branches}\u0000${shapeOf(normalized, family)}` }, sign });
+    const op: Op = { key, path, info: { kind, branches, group: `${family}\u0000${branches}\u0000${shapeOf(normalized, family)}` }, sign };
+    if (oldLine !== undefined) op.oldLine = oldLine;
+    ops.push(op);
     if (sign === 1 && row >= 0) {
       rowKey.set(row, key);
       // Decision points from the syntax tree when the file parsed; otherwise today's keyword count.
@@ -445,7 +457,7 @@ function fileOps(file: ChangedFile, category: FileCategory, patch: ReturnType<ty
     return;
   }
   const syntax = syntaxFor(path);
-  const walk = (lines: readonly { text: string; changed: boolean; hunk: number }[], sign: 1 | -1) => {
+  const walk = (lines: readonly { text: string; changed: boolean; hunk: number; line: number }[], sign: 1 | -1) => {
     const state: { block: Parameters<typeof classifyLine>[2]['block'] } = { block: null };
     let hunk = -1;
     for (let i = 0; i < lines.length; i++) {
@@ -462,11 +474,11 @@ function fileOps(file: ChangedFile, category: FileCategory, patch: ReturnType<ty
       else if (kind === 'data') {
         if (sign === 1) tally(counts.uncounted, 'data', path);
       }
-      else push(kind, l.text, sign);
+      else push(kind, l.text, sign, sign === -1 ? l.line : undefined);
     }
   };
-  walk(patch.newFile.map((l) => ({ text: l.text, changed: l.added, hunk: l.hunk })), 1);
-  walk(patch.oldFile.map((l) => ({ text: l.text, changed: l.removed, hunk: l.hunk })), -1);
+  walk(patch.newFile.map((l) => ({ text: l.text, changed: l.added, hunk: l.hunk, line: l.line })), 1);
+  walk(patch.oldFile.map((l) => ({ text: l.text, changed: l.removed, hunk: l.hunk, line: l.line })), -1);
   if (!facts) return;
   for (const f of facts.functions) {
     const keys = f.rows.map((r) => rowKey.get(r)).filter((k): k is string => k !== undefined);
@@ -478,8 +490,32 @@ function fileOps(file: ChangedFile, category: FileCategory, patch: ReturnType<ty
   }
 }
 
-/** Measures one push against the user's ledger, updating the ledger. */
-export function measurePush(files: readonly ChangedFile[], store: LedgerStore): PushDelta {
+/**
+ * A push read and classified, with its syntax parsed, before any ledger is consulted: a pure function
+ * of the diff (and the parse budget), so it can run in a worker thread (server/parsePool.ts) and be
+ * applied to the ledger afterwards with exactly the result measuring inline gives. Plain data:
+ * structured-clone safe.
+ */
+export interface PreparedPush {
+  lines: number[];
+  ops: Op[];
+  uncounted: Tally;
+  blank: number;
+  branches: Map<string, number>;
+  functions: { header: string | undefined; keys: string[] }[];
+  imports: { key: string; module: string; used: number }[];
+  estimatedCode: number;
+  estimatedBranches: number;
+  estimatedFiles: number;
+}
+
+/** Measures one push against the user's ledger, updating the ledger. `context` carries what the difficulty bonus needs per file. */
+export function measurePush(files: readonly ChangedFile[], store: LedgerStore, context?: PushContext | null): PushDelta {
+  return applyPush(preparePush(files), store, context);
+}
+
+/** Reads, classifies and parses a push: everything that does not depend on the ledger (grammars must be loaded). */
+export function preparePush(files: readonly ChangedFile[]): PreparedPush {
   const lines = new Array<number>(CAT_COUNT).fill(0);
   const ops: Op[] = [];
   const counts = { uncounted: new Map() as Tally, blank: 0 };
@@ -510,10 +546,33 @@ export function measurePush(files: readonly ChangedFile[], store: LedgerStore): 
     }
     fileOps(file, category, patch, ops, counts, cx);
   }
+  return { lines, ops, uncounted: counts.uncounted, blank: counts.blank, branches: cx.branches, functions: cx.functions, imports: cx.imports, estimatedCode, estimatedBranches, estimatedFiles };
+}
+
+/** Keys of a file's day scope that hold its difficulty state (rules/difficulty.ts). */
+const MODIFIED_ADDED = '\u000badded';
+const MODIFIED_REMOVED = '\u000bremoved';
+const MULTIPLIER = '\u000bm';
+const FILE_BONUS = '\u000bbonus';
+/** Prefix of the per-key mark: this key's removal today was of someone else's line. */
+const OTHERS = '\u000bothers\u0000';
+/** The user's raw bonus today, in thousandths of a line, before DAILY_BONUS_CAP. */
+const DAY_BONUS = '\u000ebonus';
+
+/** Applies a prepared push to the user's ledger: the second half of `measurePush`. A prepared push is applied once. */
+export function applyPush(prepared: PreparedPush, store: LedgerStore, context?: PushContext | null): PushDelta {
+  const lines = prepared.lines.slice();
+  const ops = prepared.ops;
+  const counts = { uncounted: new Map([...prepared.uncounted].map(([k, m]) => [k, new Map(m)])) as Tally, blank: prepared.blank };
+  const cx = { branches: prepared.branches, functions: prepared.functions, imports: prepared.imports };
+  const { estimatedCode, estimatedBranches, estimatedFiles } = prepared;
 
   // Net change per key across all files (moves between files cancel) and per file (for files touched).
   const net = new Map<string, { info: KeyInfo; delta: number; paths: string[] }>();
   const perFile = new Map<string, Map<string, number>>();
+  // Removed code keys, per file, that someone else wrote (from the push's context): modified code.
+  const othersRemoved = new Map<string, Set<string>>();
+  const othersLines = new Map<string, Set<number>>();
   for (const op of ops) {
     let e = net.get(op.key);
     if (!e) net.set(op.key, (e = { info: op.info, delta: 0, paths: [] }));
@@ -523,6 +582,16 @@ export function measurePush(files: readonly ChangedFile[], store: LedgerStore): 
     let f = perFile.get(op.path);
     if (!f) perFile.set(op.path, (f = new Map()));
     f.set(op.key, (f.get(op.key) ?? 0) + op.sign);
+    const fc = context?.files[op.path];
+    if (op.sign === -1 && op.oldLine !== undefined && fc && fc.others.length > 0) {
+      let theirs = othersLines.get(op.path);
+      if (!theirs) othersLines.set(op.path, (theirs = new Set(fc.others)));
+      if (theirs.has(op.oldLine)) {
+        let keys = othersRemoved.get(op.path);
+        if (!keys) othersRemoved.set(op.path, (keys = new Set()));
+        keys.add(op.key);
+      }
+    }
   }
 
   const today = store.day ? store.day() : null;
@@ -636,13 +705,28 @@ export function measurePush(files: readonly ChangedFile[], store: LedgerStore): 
   // A file counts while any of its code keys carries a net change today. Each file keeps a count
   // of such keys under its own scope, so a push only reads the keys it touches. The scope is the
   // day's, so a file touched yesterday counts again when it is changed today.
+  //
+  // The same per-file day state carries the difficulty bonus (rules/difficulty.ts). A file counts as
+  // modified code the smaller of two tallies, both functions of its keys' net change today:
+  // - added: code keys with a net addition today (each once)
+  // - removed: code keys with a net removal today whose removed line someone else wrote (each once;
+  //   the mark is set when the key first goes negative, from the push's context, and cleared when it
+  //   comes back), so the pusher's own lines, today's or older, never count
+  // Its multiplier is frozen at the first push that brings context for it that day, and its bonus is a
+  // function of (modified, multiplier): any split of the day's edits adds up to the squash, and an
+  // edit undone the same day takes its bonus back.
   const codeByLanguage = new Map<string, number>();
   let filesDelta = estimatedFiles;
+  let bonusDelta = 0;
+  const notes: DifficultyNote[] = [];
   for (const [path, keys] of perFile) {
     const scope = today === null ? path : `${path}\u0005${today}`;
     let nonzero = store.balance(scope, NONZERO);
     const wasTouched = nonzero > 0;
     let added = 0;
+    let modAdded = 0;
+    let modRemoved = 0;
+    const others = othersRemoved.get(path);
     for (const [key, delta] of keys) {
       if (delta === 0) continue;
       const before = store.balance(scope, key);
@@ -650,11 +734,50 @@ export function measurePush(files: readonly ChangedFile[], store: LedgerStore): 
       store.setBalance(scope, key, after);
       nonzero += (after !== 0 ? 1 : 0) - (before !== 0 ? 1 : 0);
       if (delta > 0) added += delta;
+      modAdded += (after >= 1 ? 1 : 0) - (before >= 1 ? 1 : 0);
+      if (before > -1 && after <= -1) {
+        if (others?.has(key)) {
+          store.setBalance(scope, OTHERS + key, 1);
+          modRemoved++;
+        }
+      } else if (before <= -1 && after > -1 && store.balance(scope, OTHERS + key) !== 0) {
+        store.setBalance(scope, OTHERS + key, 0);
+        modRemoved--;
+      }
     }
     store.setBalance(scope, NONZERO, nonzero);
     filesDelta += (nonzero > 0 ? 1 : 0) - (wasTouched ? 1 : 0);
     const language = languageOfPath(path);
     if (language && added > 0) codeByLanguage.set(language, (codeByLanguage.get(language) ?? 0) + added);
+
+    const fc = context?.files[path] ?? null;
+    if (modAdded === 0 && modRemoved === 0 && !fc) continue;
+    const a = store.balance(scope, MODIFIED_ADDED) + modAdded;
+    const r = store.balance(scope, MODIFIED_REMOVED) + modRemoved;
+    if (modAdded !== 0) store.setBalance(scope, MODIFIED_ADDED, a);
+    if (modRemoved !== 0) store.setBalance(scope, MODIFIED_REMOVED, r);
+    let m = store.balance(scope, MULTIPLIER);
+    if (m === 0 && fc) {
+      m = Math.max(1000, Math.round(fc.mMilli));
+      store.setBalance(scope, MULTIPLIER, m);
+    }
+    const was = store.balance(scope, FILE_BONUS);
+    const now = bonusMilli(Math.min(a, r), m);
+    if (now !== was) {
+      store.setBalance(scope, FILE_BONUS, now);
+      bonusDelta += now - was;
+    }
+    if (m > 1000 && (now !== was || (fc && fc.others.length > 0))) notes.push({ path, modified: Math.max(0, Math.min(a, r)), mMilli: m, extraMilli: now - was, context: fc });
+  }
+  // The day's bonus telescopes like the code cap: credit only what the running total gains below DAILY_BONUS_CAP.
+  let bonus = 0;
+  if (bonusDelta !== 0) {
+    const scope = today === null ? DAY_BONUS : `${DAY_BONUS}\u0005${today}`;
+    const before = store.balance(scope, '');
+    const after = before + bonusDelta;
+    store.setBalance(scope, '', after);
+    const capped = (x: number) => Math.floor(Math.max(0, Math.min(x, DAILY_BONUS_CAP * 1000)) / 1000);
+    bonus = capped(after) - capped(before);
   }
 
   // Daily caps telescope too: credit only what the running total gains below the cap.
@@ -693,7 +816,7 @@ export function measurePush(files: readonly ChangedFile[], store: LedgerStore): 
     files: [...m].filter(([path]) => path !== '').sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)).slice(0, 3).map(([path, n]) => ({ path, lines: n })),
   }));
   uncounted.sort((a, b) => b.lines - a.lines || (a.kind < b.kind ? -1 : 1));
-  return { lines, files: filesDelta, branches: cappedBranches, functions, links, modules, churn, filler, language, uncounted };
+  return { lines, files: filesDelta, branches: cappedBranches, functions, links, modules, churn, filler, language, uncounted, bonus, ...(notes.length > 0 ? { difficulty: notes } : {}) };
 }
 
 /** A ledger in memory: for tests, bots and the browser demo. Set `today` to move to another day. */

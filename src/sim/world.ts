@@ -206,6 +206,7 @@ function applyInput(world: World, input: SimInput, ev: TickEvents): void {
     branches: int(input.branches),
     functions: int(input.functions),
     links: int(input.links),
+    bonus: int(input.bonus),
     churn: int(input.churn, 0),
     filler: int(input.filler, 0),
   }, ev);
@@ -303,7 +304,8 @@ export function conquered(world: World, player: PlayerState): number {
  * share of the room's total ranks players who hold as many capitals at the reset.
  */
 export function contribution(player: { ledger: PlayerState['ledger'] }): number {
-  return effectiveLedger(player.ledger).code;
+  const e = effectiveLedger(player.ledger);
+  return e.code + e.bonus;
 }
 
 /** The fields the standings are ranked by. */

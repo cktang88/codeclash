@@ -72,6 +72,11 @@ export interface Ledger {
   functions: number;
   /** Names used from newly imported local modules: half a point of complexity each. */
   links: number;
+  /**
+   * Difficulty bonus lines: extra code credit for modifying others' established code in a mature
+   * repository (rules/difficulty.ts). Counts with code in the budget, through the knee and cap. Absent in older ledgers.
+   */
+  bonus?: number;
   churn: number;
   filler: number;
   /** Code lines by purpose, indexed like PURPOSES. */
@@ -167,6 +172,8 @@ export type SimInput =
       functions?: number;
       /** Change in names used from newly imported local modules. Signed; absent in older replays. */
       links?: number;
+      /** Change in difficulty bonus lines, measured at ingestion and recorded so replays never refetch it. Signed; absent in older replays. */
+      bonus?: number;
       /** Lines that cancelled earlier work today (added then deleted, or rewritten back). */
       churn: number;
       /** Filler: uncounted lines (duplicates, punctuation, literal tables) beyond what the push's code carries, plus lines past the daily cap. */

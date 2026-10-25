@@ -21,6 +21,8 @@ export interface PushReport {
   functions?: number;
   /** Signed change in names used from newly imported local modules; absent in pushes recorded before. */
   links?: number;
+  /** Signed change in difficulty bonus lines (rules/difficulty.ts); absent in pushes recorded before, or without context. */
+  bonus?: number;
   /** Lines that undid counted work from earlier pushes. */
   churn: number;
   /** Filler: uncounted lines (punctuation, literal tables, duplicates) beyond what the push's code carries, plus pastes past the daily cap. */

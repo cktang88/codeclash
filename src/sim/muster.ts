@@ -53,6 +53,7 @@ export function emptyLedger(): Ledger {
     branches: 0,
     functions: 0,
     links: 0,
+    bonus: 0,
     churn: 0,
     filler: 0,
     purposeCode: new Array<number>(PURPOSES.length).fill(0),
@@ -68,6 +69,8 @@ export interface LedgerDelta {
   functions?: number;
   /** Names used from newly imported local modules; absent in older inputs. */
   links?: number;
+  /** Difficulty bonus lines; absent in older inputs. */
+  bonus?: number;
   churn: number;
   filler: number;
   purpose: Purpose;
@@ -80,6 +83,7 @@ export function applyDelta(ledger: Ledger, d: LedgerDelta): void {
   ledger.branches = Math.max(0, ledger.branches + int(d.branches));
   ledger.functions = Math.max(0, (ledger.functions || 0) + int(d.functions));
   ledger.links = Math.max(0, (ledger.links || 0) + int(d.links));
+  ledger.bonus = Math.max(0, (ledger.bonus || 0) + int(d.bonus));
   ledger.churn += int(d.churn, 0);
   ledger.filler += int(d.filler, 0);
   const i = PURPOSES.indexOf(d.purpose);
@@ -153,6 +157,12 @@ export const LINES_PER_FUNCTION_POINT = 8;
 /** Links (names used from local modules) make at most this share of complexity: branches and functions dominate. */
 export const LINK_SHARE = 0.25;
 
+/**
+ * Difficulty bonus lines count at most this many times the day's code lines: the bonus is
+ * `(M − 1)` per modified line and M is at most 4, so more would be bonus without the code behind it.
+ */
+export const BONUS_PER_CODE = 3;
+
 /** Lines' worth of `n` code lines: in full to the knee, half beyond, nothing past the cap. */
 export function credited(n: number): number {
   const x = Math.max(0, Math.min(CODE_CAP, Math.floor(n)));
@@ -179,11 +189,15 @@ export function complexityOf(ledger: Ledger, code: number): { half: number; bran
  * The parts of a ledger that count, each bounded by the real code behind it so
  * that no single metric can be pumped on its own. `complexity` is in points (it may end in .5).
  */
-export function effectiveLedger(ledger: Ledger): { code: number; removed: number; files: number; complexity: number } {
-  const code = credited(ledger.lines[Cat.Code]!);
+export function effectiveLedger(ledger: Ledger): { code: number; bonus: number; removed: number; files: number; complexity: number } {
+  const raw = Math.max(0, ledger.lines[Cat.Code]!);
+  const code = credited(raw);
+  // The difficulty bonus is code credit: it shares the knee and the cap with the code lines, and is
+  // held to BONUS_PER_CODE times them. Files, complexity and veteran ranks stay with the real lines.
+  const bonus = credited(raw + Math.min(Math.max(0, ledger.bonus || 0), BONUS_PER_CODE * raw)) - code;
   const removed = Math.max(0, Math.min(CODE_KNEE, ledger.lines[Cat.Removed]!));
   const files = Math.min(ledger.files, 1 + fl(code / LINES_PER_FILE) + fl(removed / REMOVED_PER_FILE));
-  return { code, removed, files, complexity: complexityOf(ledger, code).half / 2 };
+  return { code, bonus, removed, files, complexity: complexityOf(ledger, code).half / 2 };
 }
 
 /**
@@ -200,11 +214,11 @@ export const BUDGET_PER_10K = { code: 640, files: 1400, complexity: 140, removed
 
 /** The army's size in platoon slots before specialists are chosen, with CONQUEST_BONUS per capital held beyond home. */
 export function budgetOf(ledger: Ledger, conquered = 0): number {
-  const { code, removed, files } = effectiveLedger(ledger);
+  const { code, bonus, removed, files } = effectiveLedger(ledger);
   if (code + removed <= 0) return 0;
   const w = BUDGET_PER_10K;
   // Whole numbers until the end (complexity in half points), and the conquest factor is a multiple of 1/4, so the product is exact.
-  const sum = w.code * code + w.files * files + (w.complexity / 2) * complexityOf(ledger, code).half + w.removed * removed;
+  const sum = w.code * (code + bonus) + w.files * files + (w.complexity / 2) * complexityOf(ledger, code).half + w.removed * removed;
   const conquest = 1 + CONQUEST_BONUS * Math.max(0, Math.floor(conquered));
   return fl((sum * conquest) / 10_000);
 }
