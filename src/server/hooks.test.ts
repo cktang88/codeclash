@@ -117,3 +117,27 @@ describe('registerHooks', () => {
     expect(t.github.calls.compare).toBe(HOOK_LIMIT.max);
   });
 });
+
+describe('registerHooks and the difficulty bonus', () => {
+  it('reads a webhook push’s context before recording it, as the poller does', async () => {
+    const { DifficultyContext } = await import('./difficulty.ts');
+    const { FIXTURE_NOW, installVite, MAINTAINER, VITE_BASE, VITE_HEAD, VITE_REPO } = await import('./testing/difficultyFixtures.ts');
+    const { loadAllGrammars } = await import('../rules/complexity.ts');
+    await loadAllGrammars();
+    const store = new Store(openDb(':memory:'));
+    const github = new FakeGithub();
+    installVite(github);
+    store.upsertUser({ id: MAINTAINER.id, nodeId: 'U', login: MAINTAINER.login, avatarUrl: '', createdAtGithub: 0, joinedAt: 0, bot: false });
+    store.setHookSecret(MAINTAINER.id, SECRET);
+    const reports: PushReport[] = [];
+    const clock = () => FIXTURE_NOW;
+    const app = Fastify();
+    registerHooks(app, { store, github, log: silentLogger, clock, onPush: (r) => reports.push(r), context: new DifficultyContext({ github, clock }) });
+    await app.ready();
+    const raw = JSON.stringify({ ref: 'refs/heads/main', before: VITE_BASE, after: VITE_HEAD, repository: { full_name: VITE_REPO, private: false }, sender: { id: MAINTAINER.id } });
+    const res = await app.inject({ method: 'POST', url: `/hooks/github/${MAINTAINER.id}`, payload: raw, headers: { 'content-type': 'application/json', 'x-github-event': 'push', 'x-hub-signature-256': signatureOf(SECRET, Buffer.from(raw)) } });
+    expect(res.statusCode).toBe(202);
+    expect(reports[0]!.bonus).toBe(10);
+    await app.close();
+  });
+});

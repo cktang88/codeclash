@@ -100,6 +100,42 @@ The tests are in [`src/rules/gaming.test.ts`](../src/rules/gaming.test.ts), whic
 | 52 | Gutting a credited function | Write functions, then delete their bodies | Losing any of a function's three carrying lines undoes it: ×1.000 | Low | test "gutting a function…" |
 | 53 | Functions and imports across split pushes | Twenty pushes of whole functions vs one squash | Branch points are exact (a function of the line). Functions and links count only what one push shows whole, so pushes of whole functions equal their squash exactly (×1.000), and a function built up over several pushes counts less, never more | Low (undercounts work built up across pushes) | tests "a day split into twenty pushes…", "a function built up over several pushes…" |
 | 54 | Generated code with functions and imports | Codegen output | Generated and vendored lines carry nothing: 0 | Low | test "generated and vendored code raise no complexity" |
+| 55 | Difficulty bonus: split vs squash | Spread an edit of others' code over many pushes, or split a removal from its replacement | Per-file day tallies (added keys, removed keys of others') are functions of the day's net state; the multiplier is frozen at the file's first sight of the day. Split = squash exactly, including a removal and its replacement in separate pushes | Low | `rules/difficulty.test.ts` "a day split into pushes earns exactly its squash…" |
+| 56 | Edit, then revert, the same day | Modify others' code for the bonus, then restore it | The removed keys come back to zero and the added ones leave: the bonus is taken back exactly (a partial revert takes its part) | Low | "a modification reverted the same day takes its bonus back exactly" |
+| 57 | Re-editing one's own code | Rewrite lines written today, or one's own older lines, again and again | Lines added today cancel in the ledger before any context is read; blame names the pusher's older lines, which never count as others'. Flip-flopping one's own edit across six days: only the first day's edit of others' code pays | Low | "gives the pusher's own lines nothing…", gaming "flip-flopping one's own lines across days…" |
+| 58 | Trivial edits to a core file | Reindent, requote, reword comments or trailing comments on 40 lines of a central file | Canonical keys: the same key is removed and added, a net change of zero. Comments are not code keys. 0 bonus | Low | "gives trivial whitespace or comment edits to a core file about nothing" |
+| 59 | Re-wrapping or renaming others' code | Rewrap 1,200 old lines in 5 core files one argument per line, or rename a variable across them | These are modified code: the per-file rule (40 lines in full, then √) and the 2,000-a-day cap bound them. Rewrap ×1.46 → **×1.69** (+523 bonus lines); rename ×1.18 → **×1.44** (+476) | **Medium** (amplifies rows 5 and 41 by the multiplier, at most ~(40 + √n) × 2.2 lines a file) | Statement keys (row 5); or weight modified lines by how much of the old line survives. Gaming tests "re-wrapping others' old code…", "a mass rename…" |
+| 60 | Fork farming | In a fork of a big project, replace upstream code in 40 files a day with new code | Forks are allowed (that is how contributions start) and keep their real history, so this pays like maintenance: ×2.02 → **×2.93** on an honest day, the daily bonus cap (2,000) binding. Never above a real day at the code cap (×4.6) | **Medium** | Credit forks' bonus only once the commit reaches the upstream (a merged pull request); or a lower daily cap for forks. Gaming test "farming a fork's upstream code…" |
+| 61 | Bonus without code | Replace others' lines with copies of one line | A file's added tally counts each key once; the bonus is at most 3 × the day's code lines: ×1.003 (bonus 11 over 5 files) | Low | Gaming test "replacing others' code with copies…" |
+| 62 | Delete here, add there | Delete others' lines in one place of a file and add unrelated code elsewhere in it | Pairing is per file and day, so this pays as an in-place edit (×1.36, the same as replacing in place). By design: in-place replacement is no harder, and a per-hunk pairing could not be squash-exact | Low–Med | Gaming test "deleting others' lines in one place…" |
+| 63 | Forged history in a new repository | Backdate commits to 2015, invent 100 authors, push a "core file" | Line ages clamped to the repository's (source's) creation and to each author account's creation; accounts younger than 30 days are not authors; the gate holds M to ×1.5 without 2 independent contributors and 5 stars or 2 forks | Low–Med | Server test "a new repository with forged old history and sockpuppet authors earns little" |
+| 64 | Sockpuppet contributors and stars | Old accounts (or spoofed author emails of real users) as "contributors", bought stars | Account age is checked (GitHub GraphQL `createdAt`, free in the same query); no cheap check of an account's other activity, so the star/fork gate carries the rest. A mirror names people by email and cannot check accounts | **Medium** (a farm of aged accounts that star and commit passes the gate; the bonus is still at most ×3.2 on modified lines and 2,000 lines a day) | Check contributors' activity elsewhere (a GraphQL `contributionsCollection` costs more points); weight stars by stargazer age |
+| 65 | Context outages | Push when GraphQL fails, hoping for something better | Failure only lowers the bonus: batch, then single queries, then the mirror, then neutral (×1) | Low | Server tests "retries one file per query…", "is the fallback when GraphQL fails…" |
+| 66 | Choosing which files get context | Touch many files so the bonus covers more | Only the 5 most changed source files of a diff that remove lines get context; the others stay ×1. The frozen multiplier is per file and day | Low | Server test "never fetches context for assets, lockfiles…" |
+
+## The difficulty bonus, measured
+
+The bonus (DESIGN.md, *The difficulty bonus*) pays `f(modified) × (M − 1)` extra code lines for edits to others' established code, M at most ×3.2 (×1.5 behind the repository gate), the first 40 modified lines of a file in full and a square root beyond, at most 3 × the day's code and 2,000 lines a day.
+
+On the hand-built fixtures (`server/testing/difficultyFixtures.ts`, `scripts/measure-difficulty.ts`), through the same pipeline ingestion runs:
+
+| Push | Code | Removed | Bonus | Credited | Before |
+|---|---|---|---|---|---|
+| vite-like fix: 5 lines in 4 files of 212–3,688 lines (css.ts ×3.2, build.ts ×3.2, asset.ts ×3.2, sourcemap.ts ×2.6) | 5 | 5 | 10 | **15** | 5 |
+| greenfield: 500 new lines in 6 new files of a repository made this week | 500 | 0 | 0 | 500 | 500 |
+
+Attacks, each as strength over an honest day (1500 lines, 30 files, tests and comments) plus the attack, pushed with a ×3.2 context; *before* is the same push with no bonus:
+
+| Attack | Before | Now | Bonus lines |
+|---|---|---|---|
+| Re-wrap 1,200 of others' old lines in 5 core files | 1.460 | 1.686 | 523 |
+| Rename a variable across them | 1.185 | 1.444 | 476 |
+| Replace others' lines with copies of one line (5 files) | 1.003 | 1.003 | 11 |
+| Fork farming: 40 files of others' code replaced with new code | 2.020 | 2.925 | 2,000 (cap) |
+| Delete others' lines in one place, add code elsewhere in the file | 1.138 | 1.363 | 380 |
+| The same, replaced in place (honest) | 1.138 | 1.363 | 380 |
+| Whitespace, quotes, comments on 40 core lines | 1.000 | 1.000 | 0 |
+| Own lines rewritten, today's or older | — | — | 0 |
 
 ## The complexity pass, measured
 
@@ -214,6 +250,16 @@ On this repository's own source plus zod and rxjs, honest code keeps about **92%
 - long runs of JSX text, which read as prose
 
 All players are measured the same way. A realistic day of features, fixes, tests, comments and a refactor (1400 lines over 10 files) gets no negative quality notes, earns *Well tested* and veteran rank 1, and reaches rank 2 at 12 files (test "a realistic day…").
+
+## Changes in the difficulty-bonus pass
+
+- `src/rules/difficulty.ts` (new, pure): the multiplier, the per-file credit rule, the repository gate, line-age clamping, blame and history into a file's context
+- `src/rules/ledger.ts`: `measurePush` is `preparePush` (pure, worker-safe) then `applyPush` (the ledger); per-file day tallies of modified code, the frozen multiplier, the per-file and daily bonus; `PushDelta.bonus` and `difficulty`
+- `src/server/difficulty.ts` (new): REST facts per repository per day, one GraphQL query per diff, single-file retries, the mirror, neutral; `src/server/mirror.ts` (new): the bare partial-clone mirror
+- `src/server/github.ts`: GraphQL with its own rate-limit bucket, repository facts and languages, commit bases and author emails
+- `src/server/parsePool.ts`, `parseWorker.ts` (new): parsing in worker threads
+- `src/sim/muster.ts`: `bonus` in the ledger and the budget's code term, through the knee and cap, at most `BONUS_PER_CODE` (3) × code; push inputs and replays carry `bonus` (written only when nonzero)
+- grammars vendored in `assets/grammars/` (`scripts/vendor-grammars.ts`), the grammar packages dropped from the dependencies
 
 ## Changes in the complexity pass
 

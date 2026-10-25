@@ -1,11 +1,14 @@
 import type { FastifyInstance } from 'fastify';
 import type { Config } from './config.ts';
 import { openDb, Store } from './db.ts';
+import { DifficultyContext } from './difficulty.ts';
 import { createGithubClient, type GithubClient } from './github.ts';
 import { buildHttp } from './http.ts';
 import { Hub } from './hub.ts';
 import { Meta } from './meta.ts';
 import { consoleLogger, errorMessage, type Logger } from './log.ts';
+import { Mirror } from './mirror.ts';
+import { createParser } from './parsePool.ts';
 import { Poller, type PushReport } from './poller.ts';
 import { Preview } from './preview.ts';
 import { Rooms } from './rooms.ts';
@@ -62,16 +65,23 @@ export async function createServer(
   const github = config.githubToken ? createGithubClient(config.githubToken, opts.fetchImpl) : null;
   // The preview reads with the server's token and leaves ingestion a fair share of its rate limit;
   // with no token it reads anonymously (60 requests an hour, about four uncached previews).
+  // The difficulty bonus reads each push's context (GraphQL blame, then a local mirror) before it is
+  // recorded; parsing runs in worker threads so tree-sitter never blocks the wars.
+  const mirror = config.mirrorDir ? new Mirror({ dir: config.mirrorDir, clock }) : null;
+  const context = github ? new DifficultyContext({ github, clock, mirror, log }) : null;
+  const parser = createParser(config.parseWorkers);
+  const previewGithub = opts.previewGithub ?? github ?? createGithubClient(null, opts.fetchImpl);
   const preview = new Preview({
-    github: opts.previewGithub ?? github ?? createGithubClient(null, opts.fetchImpl),
+    github: previewGithub,
     clock,
     reserve: !opts.previewGithub && github ? PREVIEW_RESERVE : 0,
+    context: previewGithub === github && context ? context : new DifficultyContext({ github: previewGithub, clock, mirror, log }),
   });
   const onPush = (report: PushReport) => {
     const raised = rooms.onPush(report, clock());
-    log.info('push', { user: report.userId, repo: report.repo, lines: report.lines, rooms: raised });
+    log.info('push', { user: report.userId, repo: report.repo, lines: report.lines, bonus: report.bonus ?? 0, rooms: raised });
   };
-  const poller = github ? new Poller({ store, github, log, clock, onPush }) : null;
+  const poller = github ? new Poller({ store, github, log, clock, onPush, context, parser }) : null;
 
   if (!github) log.warn('GITHUB_TOKEN is not set: pushes are not ingested; only sparring bots fight');
   if (config.sessionSecretGenerated) log.warn('SESSION_SECRET is not set: using a random secret, sessions end on restart');
@@ -94,7 +104,7 @@ export async function createServer(
   prune();
 
   const app = await buildHttp({
-    config, store, log, clock, fetchImpl: opts.fetchImpl, hub, rooms, github, onPush, meta, preview,
+    config, store, log, clock, fetchImpl: opts.fetchImpl, hub, rooms, github, onPush, meta, preview, context, parser,
     onSignIn: (userId) => {
       poller?.pollUser(userId).catch((err: unknown) => log.warn('first poll failed', { user: userId, error: errorMessage(err) }));
     },
@@ -129,6 +139,7 @@ export async function createServer(
       if (pruneTimer) clearInterval(pruneTimer);
       rooms.snapshotAll();
       hub.closeAll();
+      await parser.close();
       await app.close();
       db.close();
       log.info('pushfront stopped');

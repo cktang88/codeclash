@@ -2,8 +2,10 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Store } from './db.ts';
+import type { DifficultyContext } from './difficulty.ts';
 import type { GithubClient } from './github.ts';
 import { errorMessage, type Logger } from './log.ts';
+import type { Parser } from './parsePool.ts';
 import { ingestPush, type PushReport } from './poller.ts';
 
 export interface HookDeps {
@@ -12,6 +14,8 @@ export interface HookDeps {
   log: Logger;
   clock: () => number;
   onPush: (r: PushReport) => void;
+  context?: DifficultyContext | null;
+  parser?: Parser | null;
 }
 
 const BODY_LIMIT = 5 * 1024 * 1024;

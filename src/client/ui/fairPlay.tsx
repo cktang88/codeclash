@@ -51,6 +51,7 @@ function nextRankText(ledger: Ledger): string {
 
 const ROWS: { label: string; value: (l: Ledger) => number; hint?: string }[] = [
   { label: 'Code', value: (l) => l.lines[Cat.Code] ?? 0, hint: 'Counted code lines: no comments, blanks, filler or undone work' },
+  { label: 'Difficulty bonus', value: (l) => l.bonus ?? 0, hint: 'Extra lines of credit for editing others’ established code in a mature repository: up to ×3.2 per modified line, never for pure additions' },
   { label: 'Files', value: (l) => l.files, hint: 'Source files touched today, each counted once' },
   { label: 'Branch points', value: (l) => l.branches, hint: 'Decisions read from the syntax: if, loops, case arms, catch, ternaries, &&, ||' },
   { label: 'New functions', value: (l) => Math.round((l.functions ?? 0) / 3), hint: 'Functions, methods and classes with at least three statements: 3 points of complexity each' },

@@ -120,3 +120,29 @@ describe('request timeouts', () => {
     for (const s of signals) expect(s).toBeInstanceOf(AbortSignal);
   });
 });
+
+describe('createGithubClient for the difficulty bonus', () => {
+  it('tracks GraphQL’s rate-limit bucket apart from REST’s, and returns partial answers with their errors', async () => {
+    const { fetch, calls } = fakeFetch((url) =>
+      url.endsWith('/graphql')
+        ? json({ data: { repository: { object: { b0: null } } }, errors: [{ message: 'Could not resolve file', path: ['repository', 'object', 'b0'] }] }, 200, { 'x-ratelimit-resource': 'graphql', 'x-ratelimit-remaining': '4990', 'x-ratelimit-reset': '1800000000' })
+        : json({ full_name: 'Up/Stream', fork: true, created_at: '2024-01-01T00:00:00Z', stargazers_count: 1, forks_count: 0, size: 2048, source: { full_name: 'big/stream', created_at: '2012-05-01T00:00:00Z', stargazers_count: 9000, forks_count: 800 } }, 200, { 'x-ratelimit-resource': 'core', 'x-ratelimit-remaining': '4000', 'x-ratelimit-reset': '1800000000' }),
+    );
+    const gh = createGithubClient('tok', fetch);
+    const res = await gh.graphql!('query { x }', { p0: 'a.ts' });
+    expect(res.errors).toEqual([{ message: 'Could not resolve file', path: ['repository', 'object', 'b0'] }]);
+    expect(gh.graphqlRateLimit!().remaining).toBe(4990);
+    expect(gh.rateLimit().remaining).toBe(5000);
+    const facts = await gh.repoFacts!('up/stream');
+    expect(facts).toEqual({ fullName: 'Up/Stream', fork: true, createdAt: Date.parse('2024-01-01T00:00:00Z'), stars: 1, forks: 0, sizeKb: 2048, source: { fullName: 'big/stream', createdAt: Date.parse('2012-05-01T00:00:00Z'), stars: 9000, forks: 800 } });
+    expect(gh.rateLimit().remaining).toBe(4000);
+    expect(gh.graphqlRateLimit!().remaining).toBe(4990);
+    expect(calls[0]!.url).toBe('https://api.github.com/graphql');
+  });
+
+  it('refuses GraphQL without a token', async () => {
+    const { fetch, calls } = fakeFetch(() => json({}));
+    await expect(createGithubClient(null, fetch).graphql!('query { x }', {})).rejects.toThrow(/token/);
+    expect(calls).toHaveLength(0);
+  });
+});

@@ -365,7 +365,7 @@ export function createGithubClient(token: string | null, fetchImpl: typeof fetch
       if (res.status === 404 || res.status === 422) return null;
       if (!res.ok) return fail(res, `commit ${repo}@${sha}`);
       const body = SingleCommitSchema.parse(await res.json());
-      return { commits: [toCommit(body)], files: toFiles(body.files), base: body.parents[0]?.sha ?? null };
+      return { commits: [toCommit(body)], files: toFiles(body.files), ...(body.parents[0] ? { base: body.parents[0].sha } : {}) };
     },
 
     async repo(repo) {

@@ -10,6 +10,7 @@ import { applyDelta, armyFor, armyQuality, emptyLedger, purposeOf } from '../sim
 import { STATS } from '../sim/stats.ts';
 import { openDb, Store } from '../server/db.ts';
 import type { ChangedFile } from './classify.ts';
+import { DAILY_BONUS_CAP, type PushContext } from './difficulty.ts';
 import { DAILY_CODE_CAP, measurePush, MemoryLedger, type LedgerStore, type PushDelta } from './ledger.ts';
 
 // Ingestion loads the grammars before it measures a push; so do these tests.
@@ -622,5 +623,96 @@ describe('honest work', () => {
       'const query = sql`SELECT id FROM invoices WHERE owner = ${owner}`;',
     ])]);
     expect(d.lines[Cat.Code]).toBeGreaterThanOrEqual(9);
+  });
+});
+
+// ------------------------------------------------------------ attacks on the difficulty bonus
+
+/** Context for a core file of a mature repository whose removed lines (old lines 1…n) are all someone else's. */
+function coreContext(paths: readonly string[], m = 3.2, n = 5000): PushContext {
+  const others = Array.from({ length: n }, (_, i) => i + 1);
+  return { files: Object.fromEntries(paths.map((path) => [path, { path, mMilli: Math.round(m * 1000), rawMilli: Math.round(m * 1000), gate: { passed: true, reason: null }, lines: n, linesOthers: n, authorsOthers: 120, fileCommits: 500, medianAgeDays: 1200, fromYear: 2021, others, source: 'graphql' as const }])) };
+}
+
+/** The honest day, then the attack pushed the same day with its context: strength over the honest day plus `plain` (the same work with no bonus). */
+function bonusAdvantage(attack: ChangedFile[], context: PushContext | null, plain: ChangedFile[] = attack): { now: number; before: number; bonus: number } {
+  const day = (extra: ChangedFile[], ctx: PushContext | null) => {
+    const store = new MemoryLedger();
+    const code = honestCode(1500, 1);
+    const changed = Array.from({ length: 30 }, (_, f) => file(`src/mod${f}/index.ts`, code.slice(f * 50, (f + 1) * 50)));
+    changed.push(file('src/billing.test.ts', honestTests(375, 2)), file('src/notes.ts', honestComments(100, 3)));
+    const honest = measurePush(changed, store);
+    const gamed = extra.length > 0 ? measurePush(extra, store, ctx) : null;
+    return { ledger: ledgerOf([{ delta: honest, msg: 'feat: billing' }, ...(gamed ? [{ delta: gamed, msg: 'fix: core' }] : [])]), bonus: gamed?.bonus ?? 0 };
+  };
+  const base = strength(day(plain, null).ledger);
+  const withBonus = day(attack, context);
+  return { now: strength(withBonus.ledger) / strength(day([], null).ledger), before: base / strength(day([], null).ledger), bonus: withBonus.bonus };
+}
+
+describe('gaming the difficulty bonus', () => {
+  const CORE = Array.from({ length: 5 }, (_, i) => `src/core/engine${'abcde'[i]}.ts`);
+
+  const old = honestCode(1200, 71).filter((l) => !/^\s*}?\s*$/.test(l));
+  const fresh = honestCode(1600, 33);
+  const per = Math.ceil(old.length / 5);
+  const slice = (xs: readonly string[], f: number, n = per) => xs.slice(f * n, (f + 1) * n);
+  /** Most bonus five core files can carry in a day: (40 + √(n − 40)) × 2.2 lines each. */
+  const perFileMax = (n: number) => Math.floor((40 + Math.sqrt(Math.max(0, n - 40))) * 2.2);
+
+  it('re-wrapping others’ old code in core files adds at most the per-file square root on top of what re-wrapping already paid', () => {
+    const wrapped = (l: string) => l.replace(/\(([^()]*), ([^()]*)\)/, '(\n    $1,\n    $2,\n  )').split('\n');
+    const rewrap = CORE.map((p, f) => file(p, slice(old, f).flatMap(wrapped), slice(old, f)));
+    const r = bonusAdvantage(rewrap, coreContext(CORE));
+    expect(r.before).toBeGreaterThan(1.4);
+    expect(r.bonus).toBeLessThanOrEqual(5 * perFileMax(per));
+    expect(r.now).toBeLessThan(r.before + 0.3);
+  });
+
+  it('a mass rename across others’ code is bounded per file by the square root past 40 lines', () => {
+    const rename = CORE.map((p, f) => file(p, slice(old, f).map((l) => l.replace(/options/g, 'settings')), slice(old, f)));
+    const r = bonusAdvantage(rename, coreContext(CORE));
+    expect(r.bonus).toBeLessThanOrEqual(5 * perFileMax(per));
+    expect(r.now).toBeLessThan(r.before + 0.3);
+  });
+
+  it('replacing others’ code with copies of one line earns no bonus without code behind it', () => {
+    const copies = CORE.map((p, f) => file(p, Array.from({ length: 80 }, () => 'return fallbackOrder(order, options.limit);'), slice(old, f, 80)));
+    const r = bonusAdvantage(copies, coreContext(CORE));
+    expect(r.bonus).toBeLessThanOrEqual(5 * 3);
+    expect(r.now).toBeLessThan(r.before * 1.01);
+  });
+
+  it('farming a fork’s upstream code (40 files a day of replaced lines) stops at the daily bonus cap', () => {
+    const files = Array.from({ length: 40 }, (_, f) => `src/fork/part${f.toString(36)}x.ts`);
+    const farm = files.map((p, f) => file(p, slice(fresh, f, 40), old.slice((f * 30) % 1000, ((f * 30) % 1000) + 40)));
+    const r = bonusAdvantage(farm, coreContext(files));
+    expect(r.bonus).toBe(DAILY_BONUS_CAP);
+    // The same code written in a greenfield repository is r.before; an honest day at the code cap is ×4.6.
+    expect(r.now).toBeLessThan(r.before * 1.5);
+    expect(r.now).toBeLessThan(3.2);
+  });
+
+  it('deleting others’ lines in one place and adding code in another place of the same file pays as an in-place edit (pairing is per file and day)', () => {
+    const elsewhere = CORE.map((p, f) => {
+      const patch = ['@@ -1,40 +1,0 @@', ...slice(old, f, 40).map((l) => `-${l}`), '@@ -900,1 +860,41 @@', ' keep();', ...slice(fresh, f, 40).map((l) => `+${l}`)].join('\n');
+      return { filename: p, status: 'modified', additions: 40, deletions: 40, patch };
+    });
+    const inplace = CORE.map((p, f) => file(p, slice(fresh, f, 40), slice(old, f, 40)));
+    expect(bonusAdvantage(elsewhere, coreContext(CORE)).bonus).toBe(bonusAdvantage(inplace, coreContext(CORE)).bonus);
+  });
+
+  it('flip-flopping one’s own lines across days earns nothing: blame names them the pusher’s', () => {
+    const store = new MemoryLedger();
+    const mine = { files: Object.fromEntries(Object.entries(coreContext(CORE).files).map(([k, v]) => [k, { ...v, others: [] }])) };
+    const days: number[] = [];
+    for (let d = 0; d < 6; d++) {
+      store.today = d;
+      const [from, to] = d % 2 === 0 ? [slice(old, 0, 40), slice(fresh, 0, 40)] : [slice(fresh, 0, 40), slice(old, 0, 40)];
+      days.push(measurePush([file(CORE[0]!, to, from)], store, d === 0 ? coreContext(CORE) : mine).bonus ?? 0);
+    }
+    // Only the first day's edit of others' code paid.
+    expect(days[0]).toBeGreaterThan(50);
+    expect(days.slice(1)).toEqual([0, 0, 0, 0, 0]);
   });
 });

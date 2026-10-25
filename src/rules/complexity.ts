@@ -22,7 +22,7 @@
 // use (`loadGrammars`); parsing itself is synchronous. Unsupported languages, failed loads and
 // pushes past the parse budget return null, and the ledger falls back to keyword counting.
 
-import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 import type { Language as TsLanguage, Parser as TsParser } from 'web-tree-sitter';
 import type { ChangedFile } from './classify.ts';
 
@@ -34,17 +34,27 @@ const GRAMMAR_BY_EXT: Record<string, Grammar> = {
   py: 'python', pyi: 'python', go: 'go', rs: 'rust', java: 'java', kt: 'kotlin', kts: 'kotlin', rb: 'ruby', rake: 'ruby',
 };
 
+/**
+ * Each grammar's `.wasm`, vendored in assets/grammars/ (scripts/vendor-grammars.ts records the
+ * package, version and sha256 of each). The grammar packages themselves are not dependencies: they
+ * carry native bindings and install scripts this server never needs.
+ */
 const WASM: Record<Grammar, string> = {
-  javascript: 'tree-sitter-javascript/tree-sitter-javascript.wasm',
-  typescript: 'tree-sitter-typescript/tree-sitter-typescript.wasm',
-  tsx: 'tree-sitter-typescript/tree-sitter-tsx.wasm',
-  python: 'tree-sitter-python/tree-sitter-python.wasm',
-  go: 'tree-sitter-go/tree-sitter-go.wasm',
-  rust: 'tree-sitter-rust/tree-sitter-rust.wasm',
-  java: 'tree-sitter-java/tree-sitter-java.wasm',
-  kotlin: '@tree-sitter-grammars/tree-sitter-kotlin/tree-sitter-kotlin.wasm',
-  ruby: 'tree-sitter-ruby/tree-sitter-ruby.wasm',
+  javascript: 'tree-sitter-javascript.wasm',
+  typescript: 'tree-sitter-typescript.wasm',
+  tsx: 'tree-sitter-tsx.wasm',
+  python: 'tree-sitter-python.wasm',
+  go: 'tree-sitter-go.wasm',
+  rust: 'tree-sitter-rust.wasm',
+  java: 'tree-sitter-java.wasm',
+  kotlin: 'tree-sitter-kotlin.wasm',
+  ruby: 'tree-sitter-ruby.wasm',
 };
+
+/** Where the vendored grammars are: two levels up from this file, in source (src/rules) and in a build (dist/server) alike. */
+export function grammarPath(g: Grammar): string {
+  return fileURLToPath(new URL(`../../assets/grammars/${WASM[g]}`, import.meta.url));
+}
 
 export function grammarOf(path: string): Grammar | null {
   const name = path.slice(path.lastIndexOf('/') + 1);
@@ -94,8 +104,7 @@ function loadGrammar(g: Grammar): Promise<void> {
       const mod = await init();
       if (!mod) return void failed.add(g);
       try {
-        const path = createRequire(import.meta.url).resolve(WASM[g]);
-        const language: TsLanguage = await mod.Language.load(path);
+        const language: TsLanguage = await mod.Language.load(grammarPath(g));
         const parser = new mod.Parser();
         parser.setLanguage(language);
         parsers.set(g, parser);

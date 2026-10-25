@@ -1,10 +1,12 @@
 import { CAT_COUNT } from '../sim/api.ts';
 import type { ChangedFile } from '../rules/classify.ts';
-import { loadGrammars } from '../rules/complexity.ts';
-import { measurePush, type PushDelta } from '../rules/ledger.ts';
+import { pusherOf, type PushContext } from '../rules/difficulty.ts';
+import { applyPush, type PushDelta } from '../rules/ledger.ts';
 import type { Store, UserRow } from './db.ts';
+import type { DifficultyContext } from './difficulty.ts';
 import { EVENT_PAGES, GithubError, type CompareResult, type GithubClient } from './github.ts';
 import { errorMessage, type Logger } from './log.ts';
+import { inlineParser, type Parser } from './parsePool.ts';
 
 export interface PushReport {
   userId: number;
@@ -38,7 +40,15 @@ export interface PollerDeps {
   log: Logger;
   clock: () => number;
   onPush: (report: PushReport) => void;
+  /** Reads each diff's difficulty context before the push is recorded; none: no bonus. */
+  context?: DifficultyContext | null;
+  /** Parses diffs (off the main thread in production); none: inline. */
+  parser?: Parser | null;
 }
+
+/** Diffs of one push that get difficulty context (a mixed push is measured commit by commit): the newest. */
+export const MAX_CONTEXT_DIFFS = 5;
+const INLINE = inlineParser();
 
 export const MIN_POLL_MS = 60_000;
 export const FIRST_POLL_WINDOW_MS = 24 * 3_600_000;
@@ -86,13 +96,15 @@ function compareIds(a: string, b: string): number {
 export const MAX_OWN_COMMITS = 20;
 
 function sumDeltas(deltas: readonly PushDelta[]): PushDelta {
-  const out: PushDelta = { lines: new Array<number>(CAT_COUNT).fill(0), files: 0, branches: 0, functions: 0, links: 0, churn: 0, filler: 0, language: null };
+  const out: PushDelta = { lines: new Array<number>(CAT_COUNT).fill(0), files: 0, branches: 0, functions: 0, links: 0, bonus: 0, churn: 0, filler: 0, language: null };
   for (const d of deltas) {
     d.lines.forEach((n, c) => (out.lines[c]! += n));
     out.files += d.files;
     out.branches += d.branches;
     out.functions += d.functions;
     out.links += d.links;
+    out.bonus! += d.bonus ?? 0;
+    if (d.difficulty) (out.difficulty ??= []).push(...d.difficulty);
     out.churn += d.churn;
     out.filler += d.filler;
     out.language ??= d.language;
@@ -101,7 +113,7 @@ function sumDeltas(deltas: readonly PushDelta[]): PushDelta {
 }
 
 export async function ingestPush(
-  deps: Pick<PollerDeps, 'store' | 'github' | 'clock' | 'onPush'>,
+  deps: Pick<PollerDeps, 'store' | 'github' | 'clock' | 'onPush' | 'context' | 'parser'>,
   user: UserRow,
   push: PushRef,
   /** Webhook deliveries are signed by the user themselves, so only commits GitHub links to them count. */
@@ -119,7 +131,7 @@ export async function ingestPush(
 }
 
 async function ingestOnce(
-  deps: Pick<PollerDeps, 'store' | 'github' | 'clock' | 'onPush'>,
+  deps: Pick<PollerDeps, 'store' | 'github' | 'clock' | 'onPush' | 'context' | 'parser'>,
   user: UserRow,
   push: PushRef,
   strictAuthor: boolean,
@@ -147,17 +159,23 @@ async function ingestOnce(
   // When the range holds anyone else's commits or merges (a merged base, an upstream sync,
   // a co-worker's work), measure only this user's own commits, one by one, so a large
   // merge never rides on a tiny commit. The ledger sums them exactly as a squash would.
-  let diffs: (readonly ChangedFile[])[] = [result.files];
+  let diffs: { files: readonly ChangedFile[]; base?: string | null }[] = [{ files: result.files, base: result.base ?? null }];
   if (counted.length < result.commits.length) {
     diffs = [];
     for (const c of counted.slice(-MAX_OWN_COMMITS)) {
       const single = await github.commit(push.repo, c.sha);
-      if (single) diffs.push(single.files);
+      if (single) diffs.push({ files: single.files, base: single.base ?? null });
     }
     if (diffs.length === 0) return null;
   }
-  // Grammars load once, outside the ledger's transaction; measuring itself is synchronous.
-  await loadGrammars(diffs.flat());
+  // Everything that waits happens before the push is recorded: each diff's difficulty context (the
+  // bonus it yields is recorded in the push input, so replays never fetch it) and parsing (in a
+  // worker thread). Applying the result to the ledger is then synchronous, inside the transaction.
+  const pusher = pusherOf(user.id, user.login, counted.map((c) => c.authorEmail));
+  const fetchContext = deps.context
+    ? Promise.all(diffs.map((d, i) => (i >= diffs.length - MAX_CONTEXT_DIFFS ? deps.context!.forDiff(push.repo, d, pusher) : Promise.resolve(null))))
+    : Promise.resolve(diffs.map((): PushContext | null => null));
+  const [contexts, prepared] = await Promise.all([fetchContext, (deps.parser ?? INLINE).prepare(diffs.map((d) => d.files))]);
   let report: PushReport;
   try {
     report = store.transaction(() => {
@@ -165,7 +183,7 @@ async function ingestOnce(
       if (store.claimCommits(user.id, shas, deps.clock()).length !== shas.length) throw CLAIMED_ELSEWHERE;
       // Measuring moves the ledger, so it commits only together with the push record.
       const ledger = store.ledgerFor(user.id, push.repo, deps.clock());
-      const delta = sumDeltas(diffs.map((files) => measurePush(files, ledger)));
+      const delta = sumDeltas(prepared.map((p, i) => applyPush(p, ledger, contexts[i])));
       const lines = delta.lines.slice();
       while (lines.length < CAT_COUNT) lines.push(0);
       const r: PushReport = {
@@ -178,6 +196,7 @@ async function ingestOnce(
         branches: delta.branches,
         functions: delta.functions,
         links: delta.links,
+        ...(delta.bonus ? { bonus: delta.bonus } : {}),
         churn: delta.churn,
         filler: delta.filler,
         commits: counted.length,

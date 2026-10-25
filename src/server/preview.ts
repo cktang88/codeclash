@@ -3,13 +3,15 @@
 // fresh ledger, then mustered with `armyFor` and `armyQuality`. Nothing here touches a player's
 // ledger, the database or a war; it only reads public GitHub data with the server's own token.
 
-import type { PreviewArmy, PreviewCombined, PreviewCommit, PreviewLines, PreviewResponse } from '../protocol.ts';
+import type { PreviewArmy, PreviewCombined, PreviewCommit, PreviewDifficulty, PreviewLines, PreviewResponse } from '../protocol.ts';
 import type { ChangedFile } from '../rules/classify.ts';
 import { loadGrammars } from '../rules/complexity.ts';
+import { DAILY_BONUS_CAP, GATE_CAP, pusherOf, type DifficultyNote, type PushContext } from '../rules/difficulty.ts';
+import type { DifficultyContext } from './difficulty.ts';
 import { DAILY_CODE_CAP, measurePush, MemoryLedger, SHAPE_CAP, type LedgerStore, type PushDelta, type Uncounted, type UncountedKind } from '../rules/ledger.ts';
 import { validRef, validRepo } from '../rules/repoRef.ts';
 import { CAT_NAMES, Cat, Kind, type Ledger, type Purpose } from '../sim/api.ts';
-import { applyDelta, armyFor, armyQuality, BUDGET_PER_10K, budgetOf, cleanLines, CODE_KNEE, complexityOf, credited, DRAGON_COMPLEXITY, effectiveLedger, emptyLedger, int, LINK_SHARE, purposeOf, slotsOf } from '../sim/muster.ts';
+import { applyDelta, armyFor, armyQuality, BONUS_PER_CODE, BUDGET_PER_10K, budgetOf, cleanLines, CODE_KNEE, complexityOf, credited, DRAGON_COMPLEXITY, effectiveLedger, emptyLedger, int, LINK_SHARE, purposeOf, slotsOf } from '../sim/muster.ts';
 import { STATS } from '../sim/stats.ts';
 import { GithubError, MAX_FILES, type CommitMeta, type GithubClient } from './github.ts';
 
@@ -95,6 +97,8 @@ export interface PreviewDeps {
   clock: () => number;
   /** Rate-limit headroom kept for ingestion: a preview that would dip below it is refused. */
   reserve?: number;
+  /** Reads each commit's difficulty context, as ingestion does; none: no bonus. */
+  context?: DifficultyContext | null;
 }
 
 // ------------------------------------------------------------------ measuring
@@ -122,7 +126,7 @@ function armyOf(ledger: Ledger, pushes: number): PreviewArmy {
 
 /** Applies one measured push to a ledger exactly as the war does (`musterPush` in sim/world.ts). */
 function credit(ledger: Ledger, delta: PushDelta, purpose: Purpose): void {
-  applyDelta(ledger, { lines: cleanLines(delta.lines), files: int(delta.files), branches: int(delta.branches), functions: int(delta.functions), links: int(delta.links), churn: int(delta.churn, 0), filler: int(delta.filler, 0), purpose });
+  applyDelta(ledger, { lines: cleanLines(delta.lines), files: int(delta.files), branches: int(delta.branches), functions: int(delta.functions), links: int(delta.links), bonus: int(delta.bonus), churn: int(delta.churn, 0), filler: int(delta.filler, 0), purpose });
 }
 
 /** A ledger's complexity parts, and the complexity the army counts from them. */
@@ -131,8 +135,8 @@ function complexityFields(ledger: Ledger): { branches: number; functions: number
 }
 
 /** What one commit alone raises: a standalone push measured on a fresh ledger. */
-export function musterCommit(files: readonly ChangedFile[], message: string, store: LedgerStore = new MemoryLedger()): { delta: PushDelta; ledger: Ledger; army: PreviewArmy; purpose: Purpose } {
-  const delta = measurePush(files, store);
+export function musterCommit(files: readonly ChangedFile[], message: string, store: LedgerStore = new MemoryLedger(), context: PushContext | null = null): { delta: PushDelta; ledger: Ledger; army: PreviewArmy; purpose: Purpose } {
+  const delta = measurePush(files, store, context);
   const purpose = purposeOf(message);
   const ledger = emptyLedger();
   credit(ledger, delta, purpose);
@@ -233,7 +237,35 @@ export function complexityText(ledger: Ledger, modules?: number): string | null 
   return `Complexity ${pts(raw)}: ${parts.join(', ')}${held.length ? `; ${held.join(', and ')}` : ''}`;
 }
 
-export function explain(ledger: Ledger, army: PreviewArmy, purpose: Purpose | null, extra: { filesChanged: number; estimated: number; truncated: boolean; unread?: boolean; uncounted?: readonly Uncounted[]; modules?: number }): string[] {
+/** A file's name as the difficulty lines show it. */
+const fileName = (path: string) => path.slice(path.lastIndexOf('/') + 1);
+
+/** The context of one file's bonus, for the page. */
+export function difficultyOf(n: DifficultyNote): PreviewDifficulty {
+  const c = n.context;
+  return {
+    path: n.path,
+    modified: n.modified,
+    multiplier: n.mMilli / 1000,
+    extra: Math.round(n.extraMilli / 100) / 10,
+    lines: c?.lines ?? 0,
+    authors: c?.authorsOthers ?? 0,
+    commits: c?.fileCommits ?? 0,
+    fromYear: c?.fromYear ?? null,
+    gate: c && !c.gate.passed && c.rawMilli > c.mMilli ? c.gate.reason : null,
+    source: c?.source ?? 'graphql',
+  };
+}
+
+/** "Edited 5 lines of others' code in css.ts (3,688 lines, 127 authors, lines from 2021) ×3.2 → +11 lines of credit". */
+export function difficultyText(d: PreviewDifficulty): string {
+  const facts = [d.lines > 0 ? plural(d.lines, 'line') : '', d.authors > 0 ? plural(d.authors, 'author') : '', d.fromYear ? `lines from ${d.fromYear}` : ''].filter(Boolean).join(', ');
+  const held = d.gate ? ` (held to ×${GATE_CAP}: ${d.gate})` : '';
+  const extra = d.extra >= 10 || Number.isInteger(d.extra) ? fmt(d.extra) : d.extra.toFixed(1);
+  return `Edited ${plural(d.modified, 'line')} of others’ code in ${fileName(d.path)}${facts ? ` (${facts})` : ''} ×${d.multiplier.toFixed(1)}${held} → +${extra} ${d.extra === 1 ? 'line' : 'lines'} of credit`;
+}
+
+export function explain(ledger: Ledger, army: PreviewArmy, purpose: Purpose | null, extra: { filesChanged: number; estimated: number; truncated: boolean; unread?: boolean; uncounted?: readonly Uncounted[]; modules?: number; difficulty?: readonly PreviewDifficulty[] }): string[] {
   const out: string[] = [];
   const L = ledger.lines;
   const c = army.counts;
@@ -242,10 +274,11 @@ export function explain(ledger: Ledger, army: PreviewArmy, purpose: Purpose | nu
   // How big the army is, and what each part of the work added to it.
   if (army.budget > 0) {
     const w = BUDGET_PER_10K;
-    const raw = [(w.code * eff.code) / 10_000, (w.files * eff.files) / 10_000, (w.complexity * eff.complexity) / 10_000, (w.removed * eff.removed) / 10_000];
-    const [code, files, complexity, removed] = apportion(raw, army.budget) as [number, number, number, number];
-    const knee = L[Cat.Code]! > CODE_KNEE ? `; past ${fmt(CODE_KNEE)} a line counts half` : '';
+    const raw = [(w.code * eff.code) / 10_000, (w.code * eff.bonus) / 10_000, (w.files * eff.files) / 10_000, (w.complexity * eff.complexity) / 10_000, (w.removed * eff.removed) / 10_000];
+    const [code, bonus, files, complexity, removed] = apportion(raw, army.budget) as [number, number, number, number, number];
+    const knee = L[Cat.Code]! + eff.bonus > CODE_KNEE ? `; past ${fmt(CODE_KNEE)} a line counts half` : '';
     const rest = [
+      eff.bonus > 0 ? `a difficulty bonus of ${plural(eff.bonus, 'line')} for editing established code (+${bonus})` : '',
       files > 0 ? `${plural(eff.files, 'file')} (+${files})` : '',
       complexity > 0 ? `complexity ${pts(eff.complexity)} (+${complexity})` : '',
       removed > 0 ? `${plural(eff.removed, 'removed line')} of cleanup (+${removed})` : '',
@@ -258,6 +291,11 @@ export function explain(ledger: Ledger, army: PreviewArmy, purpose: Purpose | nu
   }
   const cxText = complexityText(ledger, extra.modules);
   if (cxText && L[Cat.Code]! > 0) out.push(cxText);
+  // The difficulty bonus, file by file, most first.
+  const hard = (extra.difficulty ?? []).filter((d) => d.modified > 0).sort((a, b) => b.extra - a.extra || (a.path < b.path ? -1 : 1));
+  for (const d of hard.slice(0, 3)) out.push(difficultyText(d));
+  if (hard.length > 3) out.push(`…and ${plural(hard.length - 3, 'more file')} of others’ code`);
+  if ((ledger.bonus ?? 0) > eff.bonus) out.push(`The difficulty bonus counts at most ${BONUS_PER_CODE}× the code (and ${fmt(DAILY_BONUS_CAP)} lines a day)`);
   // How the army size was spent: specialists by what raised them, Footmen for the rest.
   const specialists: string[] = [];
   const fixers = units(c, [Kind.Cleric, Kind.Paladin, Kind.Ranger]);
@@ -340,6 +378,7 @@ export class Preview {
   private heads = new WeightedLru<{ at: number; body: PreviewBody | PreviewFailure }>(HEAD_ENTRIES);
   private diffs = new WeightedLru<Diff>(SHA_BYTES, (d) => d.bytes);
   private inflight = new Map<string, Promise<PreviewBody>>();
+  private contexts = new WeightedLru<{ context: PushContext | null }>(2_000);
   /** Diffs fetched from GitHub, and answered from the sha cache: for tests and logs. */
   readonly stats = { diffFetches: 0, diffHits: 0, headHits: 0 };
 
@@ -406,6 +445,7 @@ export class Preview {
     }
     const diffs = await this.fetchDiffs(name, chosen);
     await loadGrammars(diffs.flatMap((d) => d ?? []));
+    const contexts = await this.fetchContexts(name, chosen, diffs);
 
     const commits: PreviewCommit[] = chosen.map((c, i) => {
       const files = diffs[i]!;
@@ -417,8 +457,9 @@ export class Preview {
         date: c.date,
         htmlUrl: `https://github.com/${name}/commit/${c.sha}`,
       };
-      const { ledger, army, purpose, delta } = musterCommit(files ?? [], c.message);
+      const { ledger, army, purpose, delta } = musterCommit(files ?? [], c.message, new MemoryLedger(), contexts[i] ?? null);
       const shape = shapeOf(files ?? []);
+      const difficulty = (delta.difficulty ?? []).map(difficultyOf);
       return {
         ...base,
         purpose,
@@ -427,8 +468,10 @@ export class Preview {
         files: ledger.files,
         ...complexityFields(ledger),
         filler: ledger.filler,
+        ...(ledger.bonus ? { bonus: ledger.bonus } : {}),
+        ...(difficulty.length > 0 ? { difficulty } : {}),
         army,
-        reasons: explain(ledger, army, purpose, { filesChanged: files?.length ?? 0, ...shape, unread: files === null, uncounted: delta.uncounted, modules: delta.modules }),
+        reasons: explain(ledger, army, purpose, { filesChanged: files?.length ?? 0, ...shape, unread: files === null, uncounted: delta.uncounted, modules: delta.modules, difficulty }),
         ...(files === null ? { unread: true } : {}),
         ...(shape.truncated ? { truncated: true } : {}),
         ...(shape.estimated > 0 ? { estimated: shape.estimated } : {}),
@@ -443,9 +486,41 @@ export class Preview {
       branches,
       commits,
       skippedMerges,
-      combined: combine(chosen, diffs, commits),
+      combined: combine(chosen, diffs, commits, contexts),
       fetchedAt: this.deps.clock(),
     };
+  }
+
+  /**
+   * Each commit's difficulty context, read against its parent and for its author exactly as ingestion
+   * reads a push's, kept by sha for the day (a commit's history does not change; its age does).
+   */
+  private async fetchContexts(repo: string, commits: readonly CommitMeta[], diffs: readonly (ChangedFile[] | null)[]): Promise<(PushContext | null)[]> {
+    const out: (PushContext | null)[] = new Array(commits.length).fill(null);
+    const context = this.deps.context;
+    if (!context) return out;
+    const day = Math.floor(this.deps.clock() / 86_400_000);
+    let next = 0;
+    const worker = async () => {
+      while (next < commits.length) {
+        const i = next++;
+        const c = commits[i]!;
+        const files = diffs[i];
+        if (!files || !c.parent) continue;
+        const key = `${repo.toLowerCase()}@${c.sha}#${day}`;
+        const known = this.contexts.get(key);
+        if (known) {
+          out[i] = known.context;
+          continue;
+        }
+        const pusher = pusherOf(c.authorId ?? -1, c.authorLogin ?? '', []);
+        const ctx = await context.forDiff(repo, { base: c.parent, files }, pusher);
+        this.contexts.set(key, { context: ctx });
+        out[i] = ctx;
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, commits.length) }, worker));
+    return out;
   }
 
   /** Each commit's files, from the sha cache or GitHub, a few at a time. Null for a commit GitHub would not give. */
@@ -481,7 +556,7 @@ export class Preview {
  * whether they came as ten pushes or one squashed push (the ledger telescopes). Each commit's
  * code is credited to its own purpose, as ten pushes would be.
  */
-export function combine(chosen: readonly CommitMeta[], diffs: readonly (ChangedFile[] | null)[], commits: readonly PreviewCommit[]): PreviewCombined | null {
+export function combine(chosen: readonly CommitMeta[], diffs: readonly (ChangedFile[] | null)[], commits: readonly PreviewCommit[], contexts: readonly (PushContext | null)[] = []): PreviewCombined | null {
   if (chosen.length === 0) return null;
   const store = new MemoryLedger();
   const ledger = emptyLedger();
@@ -490,10 +565,13 @@ export function combine(chosen: readonly CommitMeta[], diffs: readonly (ChangedF
   let estimated = 0;
   const uncounted: (readonly Uncounted[] | undefined)[] = [];
   let modules = 0;
+  const notes = new Map<string, DifficultyNote>();
   for (let i = chosen.length - 1; i >= 0; i--) {
     const files = diffs[i];
     if (!files) continue;
-    const delta = measurePush(files, store);
+    const delta = measurePush(files, store, contexts[i] ?? null);
+    // A file's latest note carries the day's state (modified lines so far); its extra credit adds up.
+    for (const n of delta.difficulty ?? []) notes.set(n.path, { ...n, extraMilli: (notes.get(n.path)?.extraMilli ?? 0) + n.extraMilli, context: n.context ?? notes.get(n.path)?.context ?? null });
     uncounted.push(delta.uncounted);
     modules += delta.modules ?? 0;
     credit(ledger, delta, purposeOf(chosen[i]!.message));
@@ -505,7 +583,7 @@ export function combine(chosen: readonly CommitMeta[], diffs: readonly (ChangedF
   const separateSlots = commits.reduce((n, c) => n + c.army.slots, 0);
   const reasons = [
     `${plural(pushes, 'commit')} pushed on one day, oldest first`,
-    ...explain(ledger, army, null, { filesChanged, estimated, truncated: false, uncounted: mergeUncounted(uncounted), modules }),
+    ...explain(ledger, army, null, { filesChanged, estimated, truncated: false, uncounted: mergeUncounted(uncounted), modules, difficulty: [...notes.values()].map(difficultyOf) }),
     `One by one, each on a fresh day, their armies would add up to a size of ${fmt(separateSlots)}; together, ${fmt(army.slots)}`,
   ];
   return {
@@ -516,6 +594,7 @@ export function combine(chosen: readonly CommitMeta[], diffs: readonly (ChangedF
     filler: ledger.filler,
     army,
     separateSlots,
+    ...(ledger.bonus ? { bonus: ledger.bonus } : {}),
     reasons,
   };
 }

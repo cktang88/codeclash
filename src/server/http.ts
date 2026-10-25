@@ -37,7 +37,9 @@ import type { Meta } from './meta.ts';
 import { DEFAULT_HERALDRY, FANFARES, KEEPS, TRIMS } from '../rules/meta.ts';
 import { EMBLEMS, PATTERNS } from '../rules/heraldry.ts';
 import { WS_CLOSE_TRY_LATER, type Hub } from './hub.ts';
+import type { DifficultyContext } from './difficulty.ts';
 import type { GithubClient } from './github.ts';
+import type { Parser } from './parsePool.ts';
 import type { PushReport } from './poller.ts';
 import { PREVIEW_STATUS, PreviewFailure, type Preview } from './preview.ts';
 import { isoDay, RoomFailure, Rooms, userRef } from './rooms.ts';
@@ -53,6 +55,9 @@ export interface HttpDeps extends AuthDeps {
   meta?: Meta;
   /** The army preview; absent, its endpoint answers 503. */
   preview?: Preview | null;
+  /** Difficulty context and parsing for pushes the webhook delivers, as for the poller's. */
+  context?: DifficultyContext | null;
+  parser?: Parser | null;
 }
 
 /** Army previews one address may ask for a minute. */
@@ -615,7 +620,7 @@ export async function buildHttp(deps: HttpDeps): Promise<FastifyInstance> {
   }
 
   registerAuth(app, deps);
-  registerHooks(app, { store, github: deps.github, log: deps.log, clock, onPush: deps.onPush });
+  registerHooks(app, { store, github: deps.github, log: deps.log, clock, onPush: deps.onPush, context: deps.context ?? null, parser: deps.parser ?? null });
 
   const clientDir = resolve(config.clientDir);
   if (existsSync(clientDir)) {

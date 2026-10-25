@@ -29,7 +29,9 @@ Open http://localhost:5173. The Vite dev server proxies `/api`, `/auth`, `/hooks
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `GITHUB_TOKEN` | unset | Server token for public events and diffs, also used by the army preview. Without it, only sparring bots fight. |
+| `GITHUB_TOKEN` | unset | Server token for public events and diffs, also used by the army preview. Without it, only sparring bots fight. The difficulty bonus reads blame over GitHub's GraphQL API, which needs a token: without one (or when GraphQL fails) it falls back to `MIRROR_DIR`, else no bonus. |
+| `MIRROR_DIR` | unset | Directory for local git mirrors, the difficulty bonus's fallback when GraphQL cannot answer. Each is a bare partial clone holding only the history of the source files it was asked about, for repositories of 50 MB or less; mirrors over 50 MB are deleted and ones idle for 14 days pruned. Needs `git` on the PATH. Unset: no mirrors (the default, and in tests). |
+| `PARSE_WORKERS` | 2 (0 under test) | Worker threads that parse pushes with tree-sitter, so a huge push never blocks the wars. 0 parses on the main thread. |
 | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | unset | OAuth app for sign-in. |
 | `PUBLIC_URL` | `http://localhost:5173` | Origin browsers use. Builds OAuth callbacks, hook URLs, and digest links. Required in production. |
 | `SESSION_SECRET` | random per boot | HMAC key for the session cookie. Required in production, 32 or more characters. |
@@ -42,12 +44,18 @@ Open http://localhost:5173. The Vite dev server proxies `/api`, `/auth`, `/hooks
 | `DEV_AUTH` | `0` | Enables `/auth/dev?login=`. Refused in production. |
 | `DAY_MINUTES` | unset | Replaces the daily cycle with wars of this length, for testing. |
 
+## Grammars
+
+The tree-sitter grammars are vendored as `.wasm` files in `assets/grammars/`, with their source package, version and sha256 in `assets/grammars/grammars.json`; the grammar packages are not dependencies (they ship native bindings and install scripts). To update one, change its version in `scripts/vendor-grammars.ts` and run `pnpm grammars` (it uses `npm pack`, which runs no install scripts); `pnpm grammars --check` verifies the files.
+
 ## Test
 
 ```sh
 pnpm test
 pnpm typecheck
 pnpm tsx scripts/diagnose-war.ts 8 30   # a synthetic 8-player, 30-minute war, narrated
+MAINTAINERS=1 DAYS=128 pnpm tsx scripts/diagnose-war.ts 4 0   # 128 days, one maintainer among greenfield pushers
+pnpm tsx scripts/measure-difficulty.ts  # the difficulty bonus on a vite-like fix and a greenfield commit
 ```
 
 ## Replays

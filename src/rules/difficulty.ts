@@ -334,12 +334,12 @@ export function fileContext(input: { path: string; facts: RawFileFacts; changed:
 }
 
 /** The files of a diff worth fetching context for: the most changed source files that remove lines, at most CONTEXT_FILES. */
-export function contextCandidates<F extends { filename: string; status: string; additions: number; deletions: number; patch: string | null }>(
+export function contextCandidates<F extends { filename: string; status: string; additions: number; deletions: number; patch?: string | null }>(
   files: readonly F[],
-  isSource: (path: string, patch: string | null) => boolean,
+  isSource: (path: string, patch: string | null | undefined) => boolean,
 ): F[] {
   return files
-    .filter((f) => f.patch !== null && f.deletions > 0 && f.status !== 'added' && f.status !== 'renamed' && isSource(f.filename, f.patch))
+    .filter((f) => f.patch != null && f.deletions > 0 && f.status !== 'added' && f.status !== 'renamed' && isSource(f.filename, f.patch))
     .sort((a, b) => b.additions + b.deletions - (a.additions + a.deletions) || (a.filename < b.filename ? -1 : 1))
     .slice(0, CONTEXT_FILES);
 }

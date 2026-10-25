@@ -25,6 +25,10 @@ const EnvSchema = z
     MAX_LIVE_ROOMS: z.coerce.number().int().min(1).default(200),
     /** 0 is the service worker's kill switch: pages unregister it and drop its caches. */
     SERVICE_WORKER: flag('1'),
+    /** Where local mirrors for the difficulty bonus's fallback live; unset: no mirrors. */
+    MIRROR_DIR: optionalString,
+    /** Worker threads that parse pushes; 0 parses on the main thread. Unset: up to 2 (none under test). */
+    PARSE_WORKERS: z.coerce.number().int().min(0).max(16).optional().catch(undefined),
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV !== 'production') return;
@@ -56,6 +60,10 @@ export interface Config {
   maxLiveRooms: number;
   /** Offer the service worker; false serves a self-unregistering one instead (the kill switch). */
   serviceWorker: boolean;
+  /** Local mirrors for the difficulty bonus's fallback (MIRROR_DIR); null: none. */
+  mirrorDir: string | null;
+  /** Parse worker threads; null: the default (up to 2). */
+  parseWorkers: number | null;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv): Config {
@@ -77,5 +85,8 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     maxRoomsPerUser: e.MAX_ROOMS_PER_USER,
     maxLiveRooms: e.MAX_LIVE_ROOMS,
     serviceWorker: e.SERVICE_WORKER,
+    mirrorDir: e.MIRROR_DIR ?? null,
+    // Tests parse inline unless they ask for workers.
+    parseWorkers: e.PARSE_WORKERS ?? (e.NODE_ENV === 'test' || env.VITEST ? 0 : null),
   };
 }

@@ -358,6 +358,10 @@ export interface PreviewCommit {
   complexity: number;
   /** Filler: uncounted lines beyond what the commit's code carries, plus lines past the daily cap. */
   filler: number;
+  /** Difficulty bonus lines: extra code credit for editing others' established code (0 without context). */
+  bonus?: number;
+  /** Per file, the context behind the bonus. */
+  difficulty?: PreviewDifficulty[];
   army: PreviewArmy;
   /** Why it raised what it raised, one short line each. */
   reasons: string[];
@@ -367,6 +371,26 @@ export interface PreviewCommit {
   truncated?: boolean;
   /** Files whose patch GitHub omitted, counted from their additions alone. */
   estimated?: number;
+}
+
+/** One file's difficulty context in a preview: "Edited 5 lines of others' code in css.ts (3,688 lines, 127 authors, lines from 2021) ×3.2 → +11 lines". */
+export interface PreviewDifficulty {
+  path: string;
+  /** Lines of others' code modified (removed and replaced). */
+  modified: number;
+  /** The file's multiplier, after the repository gate. */
+  multiplier: number;
+  /** Extra lines of credit the file adds. */
+  extra: number;
+  /** The file's lines before the change, and its other authors. */
+  lines: number;
+  authors: number;
+  commits: number;
+  /** Year of the oldest changed line of someone else's. */
+  fromYear: number | null;
+  /** Why the multiplier is held to ×1.5, when it is. */
+  gate: string | null;
+  source: 'graphql' | 'mirror';
 }
 
 export interface PreviewCombined {
@@ -381,6 +405,8 @@ export interface PreviewCombined {
   army: PreviewArmy;
   /** Slots of the commits' armies mustered one by one, each on a fresh day, summed. */
   separateSlots: number;
+  /** Difficulty bonus lines of the day. */
+  bonus?: number;
   reasons: string[];
 }
 
