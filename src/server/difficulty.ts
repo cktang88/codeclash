@@ -19,6 +19,7 @@ import {
   independentAuthors,
   repoGate,
   repoOrigin,
+  upstreamOf,
   type BlameRange,
   type ContextSource,
   type FileContext,
@@ -164,7 +165,9 @@ export class DifficultyContext {
       if (!r) continue;
       files[f.filename] = fileContext({ path: f.filename, facts: r.facts, changed: changedLinesOf(f.patch!), pusher, now, origin, gate, source: r.source });
     }
-    return { files };
+    // A fork's bonus waits until its commits reach the upstream (server/upstream.ts).
+    const upstream = upstreamOf(facts);
+    return { files, ...(upstream ? { upstream } : {}) };
   }
 
   /** Blame and history for `paths` at `base`: one batched query, then one per file for any it did not answer. */

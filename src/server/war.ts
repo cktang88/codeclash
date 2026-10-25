@@ -260,6 +260,27 @@ export class War {
     return true;
   }
 
+  /**
+   * Credits a fork's deferred difficulty bonus to `userId`'s ledger in this war, if they fight in it: a
+   * one-off of bonus lines for commits found upstream after their day closed (server/upstream.ts).
+   */
+  upstream(now: number, userId: number, reward: { repo: string; bonus: number; day: number }): boolean {
+    const p = this.playerOf(userId);
+    const bonus = Math.max(0, Math.min(MAX_DELTA, Math.trunc(reward.bonus)));
+    if (p === null || !this.open || !(bonus > 0)) return false;
+    const header = this.row.header;
+    let repo = header.repos.findIndex((r) => r[0].toLowerCase() === reward.repo.toLowerCase());
+    const added: { index: number; ref: RepoRef }[] = [];
+    if (repo < 0) {
+      repo = header.repos.length;
+      const ref: RepoRef = [reward.repo, null];
+      header.repos.push(ref);
+      added.push({ index: repo, ref });
+    }
+    this.submit(now, [{ kind: 'upstream', p, repo, bonus, day: Math.trunc(reward.day) }], { repos: added });
+    return true;
+  }
+
   private submit(now: number, inputs: readonly SimInput[], extra: { roster?: RosterEntry[]; repos?: { index: number; ref: RepoRef }[] } = {}): void {
     const { store, channel } = this.deps;
     const tick = this.inputTick(now);

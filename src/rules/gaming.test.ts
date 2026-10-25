@@ -10,8 +10,8 @@ import { applyDelta, armyFor, armyQuality, emptyLedger, purposeOf } from '../sim
 import { STATS } from '../sim/stats.ts';
 import { openDb, Store } from '../server/db.ts';
 import type { ChangedFile } from './classify.ts';
-import { DAILY_BONUS_CAP, FILE_CAP, FILE_CREDIT, type PushContext } from './difficulty.ts';
-import { DAILY_CODE_CAP, measurePush, MemoryLedger, type LedgerStore, type PushDelta } from './ledger.ts';
+import { DAILY_BONUS_CAP, FILE_CAP, FILE_CREDIT, upstreamReward, type PushContext } from './difficulty.ts';
+import { DAILY_CODE_CAP, dayBonusTotals, measurePush, MemoryLedger, type LedgerStore, type PushDelta } from './ledger.ts';
 
 // Ingestion loads the grammars before it measures a push; so do these tests.
 beforeAll(() => loadAllGrammars());
@@ -688,7 +688,13 @@ describe('gaming the difficulty bonus', () => {
     const files = Array.from({ length: 40 }, (_, f) => `src/fork/part${f.toString(36)}x.ts`);
     const farm = files.map((p, f) => file(p, slice(fresh, f, 40), old.slice((f * 30) % 1000, ((f * 30) % 1000) + 40)));
     const r = bonusAdvantage(farm, coreContext(files));
+    report('row71 fork farming as it paid before (no upstream rule)', r);
     expect(r.bonus).toBe(DAILY_BONUS_CAP + FILE_CAP * FILE_CREDIT);
+    // In a fork the same push pays no bonus until its commits are upstream.
+    const fork = bonusAdvantage(farm, { ...coreContext(files), upstream: { repo: 'big/project', branch: 'main' } });
+    report('row71 fork farming, the same push in a fork', fork);
+    expect(fork.bonus).toBe(0);
+    expect(fork.now).toBeCloseTo(fork.before, 6);
     // The same code written in a greenfield repository is r.before; an honest day at the code cap is ×4.6.
     expect(r.now).toBeLessThan(4.6);
   });
@@ -697,6 +703,10 @@ describe('gaming the difficulty bonus', () => {
     const files = Array.from({ length: 40 }, (_, f) => `src/core/hub${f.toString(36)}z.ts`);
     const tiny = files.map((p, f) => file(p, slice(fresh, f, 3), old.slice(f * 3, f * 3 + 3)));
     const r = bonusAdvantage(tiny, coreContext(files));
+    report('row67 tiny edits as they paid before (no upstream rule)', r);
+    const fork = bonusAdvantage(tiny, { ...coreContext(files), upstream: { repo: 'big/project', branch: 'main' } });
+    report('row67 tiny edits, the same push in a fork', fork);
+    expect(fork.bonus).toBe(0);
     expect(r.bonus).toBeLessThanOrEqual(FILE_CAP * FILE_CREDIT + Math.floor(120 * 2.2));
     // Below an honest day at the code cap (×4.6), whatever the credit is tuned to.
     expect(r.now).toBeLessThan(4.6);
@@ -723,5 +733,112 @@ describe('gaming the difficulty bonus', () => {
     // Only the first day's edit of others' code paid.
     expect(days[0]).toBeGreaterThan(50);
     expect(days.slice(1)).toEqual([0, 0, 0, 0, 0]);
+  });
+});
+
+// ------------------------------------------------------------ forks, survival and repeat targets
+
+/** GAMING_REPORT=1 prints each measured ratio (for docs/fair-play.md). */
+const report = (label: string, x: unknown) => {
+  if (process.env.GAMING_REPORT) console.log(`[gaming] ${label}: ${JSON.stringify(x)}`);
+};
+
+const forkContext = (paths: readonly string[]): PushContext => ({ ...coreContext(paths), upstream: { repo: 'big/project', branch: 'main' } });
+
+/**
+ * Several UTC days on one player's ledger: each day an honest 1,500-line day and the attack. A merged
+ * fork's reward for a day lands in the next day's war. Strength each day over the same honest day alone.
+ */
+function farmDays(days: number, attack: (d: number) => ChangedFile[], context: PushContext | null, opts: { merged?: boolean } = {}): { ratios: number[]; mean: number; bonus: number[] } {
+  const store = new MemoryLedger();
+  const ref = new MemoryLedger();
+  const ratios: number[] = [];
+  const bonus: number[] = [];
+  let carry = 0;
+  for (let d = 0; d < days; d++) {
+    store.today = d;
+    ref.today = d;
+    const code = honestCode(1500, 1 + 17 * d);
+    const changed = Array.from({ length: 30 }, (_, f) => file(`src/mod${f}/index.ts`, code.slice(f * 50, (f + 1) * 50)));
+    changed.push(file('src/billing.test.ts', honestTests(375, 2 + 17 * d)), file('src/notes.ts', honestComments(100, 3 + 17 * d)));
+    const honest = measurePush(changed, store);
+    const alone = measurePush(changed, ref);
+    const gamed = measurePush(attack(d), store, context);
+    const ledger = ledgerOf([{ delta: honest, msg: 'feat: billing' }, { delta: gamed, msg: 'fix: core' }]);
+    // Yesterday's fork commits, found upstream: a one-off bonus in today's war.
+    ledger.bonus = (ledger.bonus ?? 0) + carry;
+    bonus.push((gamed.bonus ?? 0) + carry);
+    carry = opts.merged && gamed.pending ? upstreamReward(dayBonusTotals(store), [gamed.pending], 0) : 0;
+    ratios.push(+(strength(ledger) / strength(ledgerOf([{ delta: alone, msg: 'feat: billing' }]))).toFixed(3));
+  }
+  return { ratios, mean: +(ratios.reduce((a, b) => a + b, 0) / ratios.length).toFixed(3), bonus };
+}
+
+describe('gaming the difficulty bonus through forks and repeat targets', () => {
+  const old = honestCode(4000, 71).filter((l) => !/^\s*}?\s*$/.test(l));
+  const fresh = (d: number) => honestCode(2000, 33 + 101 * d).filter((l) => !/^\s*}?\s*$/.test(l));
+  const HUBS = Array.from({ length: 40 }, (_, f) => `src/core/hub${f.toString(36)}z.ts`);
+  /** Day d: 3 lines of others' code replaced in each of the 40 hub files (a fresh stretch of them each day). */
+  const tiny = (d: number) => HUBS.map((p, f) => file(p, fresh(d).slice(f * 3, f * 3 + 3), old.slice(d * 120 + f * 3, d * 120 + f * 3 + 3)));
+  /** Day d: 40 lines replaced in each of 40 files of a fork. */
+  const PARTS = Array.from({ length: 40 }, (_, f) => `src/fork/part${f.toString(36)}x.ts`);
+  const farm = (d: number) => PARTS.map((p, f) => file(p, fresh(d).slice(f * 40, f * 40 + 40), old.slice((d * 600 + f * 30) % 3000, ((d * 600 + f * 30) % 3000) + 40)));
+
+  it('tiny 3-line edits across 40 core files of a fork pay no bonus until the commits are upstream', () => {
+    const r = bonusAdvantage(tiny(0), forkContext(HUBS));
+    const direct = bonusAdvantage(tiny(0), coreContext(HUBS));
+    report('row67 tiny edits, fork, unmerged', r);
+    report('row67 tiny edits, non-fork (maintainer), day 1', direct);
+    expect(r.bonus).toBe(0);
+    expect(r.now).toBeCloseTo(r.before, 6);
+    expect(direct.now).toBeGreaterThan(r.now * 1.5);
+  });
+
+  it('farming a fork whose pull requests are never merged earns no bonus at all (rows 60 and 71)', () => {
+    const r = bonusAdvantage(farm(0), forkContext(PARTS));
+    report('row71 fork farming, never merged', r);
+    expect(r.bonus).toBe(0);
+    expect(r.now).toBeCloseTo(r.before, 6);
+    const days = farmDays(6, farm, forkContext(PARTS));
+    report('row71 fork farming, never merged, 6 days', days);
+    expect(days.bonus.every((b) => b === 0)).toBe(true);
+  }, 30_000);
+
+  it('a fork farm whose commits are all merged upstream pays a maintainer’s day, a day late, and the same files only one day in three', () => {
+    const merged = farmDays(6, farm, forkContext(PARTS), { merged: true });
+    const direct = farmDays(6, farm, coreContext(PARTS));
+    report('row71 fork farming, merged next day, 6 days', merged);
+    report('row71 farming the same 40 files of a repository of one’s own, 6 days', direct);
+    // The first day pays nothing; afterwards each war carries the day before's bonus.
+    expect(merged.bonus[0]).toBe(0);
+    expect(merged.bonus.slice(1)).toEqual(direct.bonus.slice(0, 5));
+    // The effort credit (1,800) pays one day in three on the same files; the line bonus (2,000) every day.
+    expect(direct.bonus[0]).toBe(DAILY_BONUS_CAP + FILE_CAP * FILE_CREDIT);
+    expect(direct.bonus[1]).toBe(DAILY_BONUS_CAP);
+    expect(direct.bonus[3]).toBe(DAILY_BONUS_CAP + FILE_CAP * FILE_CREDIT);
+    expect(Math.max(...direct.ratios)).toBeLessThan(4.6);
+  }, 30_000);
+
+  it('tiny edits to the same 40 core files every day earn the effort credit one day in three', () => {
+    const daily = farmDays(6, tiny, coreContext(HUBS));
+    report('row67 tiny edits, the same 40 files daily (non-fork), 6 days', daily);
+    const line = Math.floor(120 * 2.2);
+    expect(daily.bonus).toEqual([FILE_CAP * FILE_CREDIT + line, line, line, FILE_CAP * FILE_CREDIT + line, line, line]);
+    // Rotating through three sets of 40 files escapes it: the dampening prices the attack, it does not stop it.
+    const sets = Array.from({ length: 3 }, (_, k) => HUBS.map((p) => p.replace('hub', `hub${k}`)));
+    const rotate = (d: number) => tiny(d).map((f, i) => ({ ...f, filename: sets[d % 3]![i]! }));
+    const rotated = farmDays(6, rotate, coreContext(sets.flat()));
+    report('row67 tiny edits, rotating 120 core files (non-fork), 6 days', rotated);
+    expect(rotated.bonus.every((b) => b === FILE_CAP * FILE_CREDIT + line)).toBe(true);
+  }, 30_000);
+
+  it('an edit reverted before the day ends keeps nothing; reverted the next day it keeps that day’s credit, as it would surviving', () => {
+    const store = new MemoryLedger();
+    const ctx = coreContext(HUBS);
+    const edits = tiny(0);
+    const pay = measurePush(edits, store, ctx).bonus ?? 0;
+    const back = measurePush(edits.map((f) => file(f.filename, f.patch!.split('\n').filter((l) => l.startsWith('-')).map((l) => l.slice(1)), f.patch!.split('\n').filter((l) => l.startsWith('+')).map((l) => l.slice(1)))), store, { files: Object.fromEntries(Object.entries(ctx.files).map(([k, v]) => [k, { ...v, others: [] }])) }).bonus ?? 0;
+    report('survival: same-day revert', { pay, back });
+    expect(pay + back).toBe(0);
   });
 });

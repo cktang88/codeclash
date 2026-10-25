@@ -371,6 +371,7 @@ export const DEEDS: readonly DeedDef[] = [
   { id: 'dragonlord', name: 'Dragonlord', text: 'Summon a Dragon', title: 'Dragonlord', earned: (c) => c.pl.raised[Kind.Dragon]! > 0 },
   { id: 'dragonslayer', name: 'Dragonslayer', text: 'Fell a Dragon', title: 'Dragonslayer', earned: (c) => c.pl.slain[Kind.Dragon]! > 0 },
   { id: 'giantkiller', name: 'Giantkiller', text: 'Fell a Champion', earned: (c) => c.pl.slain[Kind.Champion]! > 0 },
+  { id: 'dragonbane', name: 'Dragonbane', text: 'Earn the Dragonbane award: the most damage to big soldiers by Ballistae', title: 'Dragonbane', earned: (c) => award(c, 'dragonbane') },
   { id: 'siegebreaker', name: 'Siegebreaker', text: 'Storm a capital', title: 'Siegebreaker', earned: (c) => c.pl.conquests >= 1 },
   { id: 'ringholder', name: 'Ringholder', text: 'Take every capital on the ring', title: 'the Ringholder', earned: (c) => c.digest.victory?.p === c.pl.p },
   { id: 'phoenix', name: 'Phoenix', text: 'Lose your home and retake it', title: 'the Phoenix', earned: (c) => c.pl.retakes >= 1 },

@@ -5,7 +5,7 @@ import { HEX_STEP, hexCenterX, hexCenterY, hexGrid, hexPassable, hexRoute } from
 import { generateMap, slotsFor } from './mapgen.ts';
 import { indexWorld, scratchFor } from './scratch.ts';
 import { checksum, restore, snapshot } from './snapshot.ts';
-import { STATS } from './stats.ts';
+import { STATS, isSiege } from './stats.ts';
 import { clearPath } from './steering.ts';
 import { attackerCap, pickTarget } from './tactics.ts';
 import { DEPLOY_RADIUS, STANDDOWN_RADIUS, STANDDOWN_TICKS, createWorld, placeOf, step } from './world.ts';
@@ -448,7 +448,7 @@ describe('a whole war of formations', () => {
         if (pl.calm < 50 || w.tick - pl.formAt < 100) continue;
         for (const u of w.units) {
           // Siege engines may trail the march; fliers keep no ranks.
-          if (u.platoon !== pl.id || u.target !== 0 || STATS[u.kind]!.flying || u.kind === Kind.Trebuchet) continue;
+          if (u.platoon !== pl.id || u.target !== 0 || STATS[u.kind]!.flying || isSiege(u.kind)) continue;
           const p = placeOf(w, u)!;
           samples++;
           if (Math.hypot(p.x - u.x, p.y - u.y) > 60) stranded++;

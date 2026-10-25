@@ -1,4 +1,4 @@
-import type { Feats, Platoon, PlayerState, World, WorldSnapshot } from './api.ts';
+import { KIND_COUNT, type Feats, type Platoon, type PlayerState, type World, type WorldSnapshot } from './api.ts';
 import { sharedMap } from './mapgen.ts';
 import { pacing } from './stats.ts';
 
@@ -26,8 +26,18 @@ export function restore(snap: WorldSnapshot): World {
     p.ledger.links ??= 0;
     // ... and from before the difficulty bonus.
     p.ledger.bonus ??= 0;
+    // Snapshots from before the Ballista (the 21st kind): no one has raised or slain one yet.
+    padKinds(p.raised);
+    padKinds(p.slain);
+    p.feats.bigDamage ??= 0;
   }
+  for (const pl of w.platoons) padKinds(pl.mustered);
   return { ...w, map: sharedMap(w.params) };
+}
+
+/** A per-kind tally from a war with fewer kinds: the kinds added since count zero. */
+function padKinds(counts: number[]): void {
+  while (counts.length < KIND_COUNT) counts.push(0);
 }
 
 /** Fields of the manual commands (doctrine, rally, War Cry) that wars once had; snapshots from then carry them. */
@@ -189,6 +199,7 @@ export function checksum(world: World): number {
     num(p.ledger.bonus ?? 0);
     for (const n of p.ledger.purposeCode) num(n);
     for (const n of p.ledger.purposeRemoved) num(n);
+    for (const n of p.ledger.purposeBonus ?? []) num(n);
     for (const n of p.raised) num(n);
     const f = p.feats;
     num(f.holdBest);
@@ -198,6 +209,7 @@ export function checksum(world: World): number {
     num(f.retakes);
     num(f.homeKills);
     num(f.ledTicks);
+    num(f.bigDamage ?? 0);
     num(p.structureDamage);
     num(p.captures);
     num(p.conquests);

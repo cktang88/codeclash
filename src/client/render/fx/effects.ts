@@ -365,6 +365,16 @@ export class Effects {
       if (!bounds.contains(target.x, target.y) && !bounds.contains(s.x, s.y)) continue;
       if (s.kind === ShotKind.Arrow || s.kind === ShotKind.RangerArrow) {
         if (volley++ === 0) this.cue('bow-volley', s.x, s.y, 0.6);
+      } else if (s.kind === ShotKind.Bolt) {
+        this.cue('ballista-loose', s.x, s.y, 0.8);
+        // The loose: a puff of dust kicked from the carriage, a flash of the string.
+        if (near) {
+          this.puff(s.x, s.y + 2, 2, 0xb7a888, 7, 8);
+          this.glowSpawn({ texture: this.tex.spark, x: s.x, y: s.y - 14, life: 0.14, size: 12, grow: 0.6, alpha: 0.8, tint: 0xfff2c8, rotation: angleOf(target.x - s.x, target.y - s.y), fadeIn: 0 });
+        }
+      } else if (s.kind === ShotKind.Smite) {
+        this.cue('smite', s.x, s.y, 0.5);
+        if (near) this.glowSpawn({ texture: this.tex.mote, x: s.x, y: s.y - 18, life: 0.3, size: 14, grow: 0.8, alpha: 0.9, tint: GOLD_HI, fadeIn: 0 });
       } else {
         this.cue(s.kind === ShotKind.Fireball ? 'fireball-cast' : s.kind === ShotKind.Boulder ? 'trebuchet-launch' : 'tower-bolt', s.x, s.y, 0.8);
       }
@@ -420,8 +430,17 @@ export class Effects {
       } else if (b.kind === BlastKind.Boulder) {
         this.boulderImpact(b.x, b.y, b.radius, near);
         this.cue('boulder-impact', b.x, b.y, 1);
+      } else if (b.kind === BlastKind.Pierce) {
+        this.pierce(b.x, b.y, near);
+        this.cue('bolt-pierce', b.x, b.y, 0.7);
       }
       else this.scorchMark(b.x, b.y, b.radius);
+    }
+
+    for (const c of ev.cleanses) {
+      if (!bounds.contains(c.x, c.y)) continue;
+      this.cleanse(c.x, c.y, c.n);
+      this.cue('cleanse', c.x, c.y, 0.6);
     }
 
     for (const h of ev.heals) {
@@ -466,7 +485,7 @@ export class Effects {
       if (!bounds.contains(x, y)) continue;
       this.death(d.kind, x, y, tint(d.p), near);
       const undead = d.kind === Kind.Skeleton || d.kind === Kind.BoneGolem;
-      const big = d.kind === Kind.Troll || d.kind === Kind.Knight || d.kind === Kind.Champion || d.kind === Kind.BoneGolem;
+      const big = d.kind === Kind.Troll || d.kind === Kind.Knight || d.kind === Kind.Champion || d.kind === Kind.BoneGolem || d.kind === Kind.Ballista;
       this.cue(d.kind === Kind.Dragon ? 'dragon-slain' : undead ? 'death-bones' : big ? 'death-big' : 'death', x, y, near ? 0.7 : 0.4);
     }
 
@@ -1284,6 +1303,16 @@ export class Effects {
       body = this.dust.acquire(this.tex.rangerArrow);
       height = Math.min(40, 8 + d * 0.14);
       z0 += 10;
+    } else if (kind === ShotKind.Bolt) {
+      // A heavy bolt flies flat and fast.
+      body = this.dust.acquire(this.tex.ballistaBolt);
+      height = Math.min(18, 4 + d * 0.06);
+      z0 += 16;
+    } else if (kind === ShotKind.Smite) {
+      // A radiant mote, arcing a little, that blooms.
+      body = this.fire.acquire(this.tex.mote);
+      height = Math.min(26, 8 + d * 0.15);
+      z0 += 18;
     } else {
       body = this.dust.acquire(this.tex.arrow);
       height = Math.min(64, 10 + d * 0.28);
@@ -1347,11 +1376,25 @@ export class Effects {
         }
       } else {
         b.rotation = angleOf(p.tx - p.x0, p.ty - p.y0 - dz);
-        b.scaleX = b.scaleY = p.kind === ShotKind.TowerBolt ? 0.55 : 0.42;
+        b.scaleX = b.scaleY = p.kind === ShotKind.TowerBolt ? 0.55 : p.kind === ShotKind.Bolt ? 0.5 : p.kind === ShotKind.Smite ? 0.4 + Math.sin(simTime * 20) * 0.06 : 0.42;
+        if (p.kind === ShotKind.Smite) b.tint = GOLD_HI;
         s.rotation = angleOf(p.tx - p.x0, p.ty - p.y0);
-        s.scaleX = p.kind === ShotKind.TowerBolt ? 0.2 : 0.35;
+        s.scaleX = p.kind === ShotKind.TowerBolt ? 0.2 : p.kind === ShotKind.Bolt ? 0.45 : 0.35;
         s.scaleY = 0.12;
-        if (p.kind === ShotKind.TowerBolt) {
+        if (p.kind === ShotKind.Bolt) {
+          // A pale streak of displaced air behind the bolt.
+          p.trail += dt;
+          while (p.trail > 0.02) {
+            p.trail -= 0.02;
+            this.dust.spawn({ texture: this.tex.streak, x: gx, y: gy, z, life: 0.16, size: 16, alpha: 0.55, tint: 0xf3ead2, rotation: b.rotation, fadeIn: 0 });
+          }
+        } else if (p.kind === ShotKind.Smite) {
+          p.trail += dt;
+          while (p.trail > 0.025) {
+            p.trail -= 0.025;
+            this.glowSpawn({ texture: this.tex.soft, x: gx, y: gy - z, life: 0.28, size: 7, grow: 0.3, alpha: 0.7, tint: GOLD_HI });
+          }
+        } else if (p.kind === ShotKind.TowerBolt) {
           // A gilded lance sheds gold leaf as it flies.
           p.trail += dt;
           while (p.trail > 0.035) {
@@ -1376,6 +1419,7 @@ export class Effects {
     const y = p.ty - p.zTarget;
     const release = () => {
       if (p.kind === ShotKind.Fireball) this.fire.release(p.body);
+      else if (p.kind === ShotKind.Smite) this.fire.release(p.body);
       else this.dust.release(p.body);
       this.decals.release(p.shadow);
     };
@@ -1384,6 +1428,20 @@ export class Effects {
       this.dust.spawn({ texture: p.kind === ShotKind.Arrow ? this.tex.arrow : this.tex.rangerArrow, x: x + (rand() - 0.5) * 6, y: y + (rand() - 0.5) * 6, life: 0.9, size: 13, rotation: p.body.rotation + (rand() - 0.5) * 0.4, fadeIn: 0 });
       if (p.zTarget <= 8) this.puff(p.tx, p.ty, 1, 0xb7a888, 6, 4);
       this.cue('arrow-thunk', x, y, 0.4);
+    } else if (p.kind === ShotKind.Bolt) {
+      // The bolt drives home: an iron spark, splinters, and the bolt left standing in the ground.
+      this.sparks(x, y, 4, 0xffe2a8, 95);
+      this.flash(x, y, 18, 0xfff2c8, 0.12);
+      for (let i = 0; i < this.n(4); i++) this.dust.spawn({ texture: this.tex.rock[i % 3]!, x, y: p.ty, z: p.zTarget, vx: (rand() - 0.5) * 90, vz: 30 + rand() * 40, gravity: 280, life: 0.7, size: 3.5, tint: 0xc9a46a, spin: (rand() - 0.5) * 12, fadeIn: 0 });
+      this.dust.spawn({ texture: this.tex.ballistaBolt, x: x - Math.cos(p.body.rotation) * 6, y: y - Math.sin(p.body.rotation) * 6, life: 1.4, size: 30, rotation: p.body.rotation + (rand() - 0.5) * 0.25, fadeIn: 0 });
+      if (p.zTarget <= 8) this.puff(p.tx, p.ty, 2, 0xb7a888, 8, 5);
+      this.kick(0.08);
+      this.cue('ballista-thunk', x, y, 0.7);
+    } else if (p.kind === ShotKind.Smite) {
+      // A radiant smite: a gold flash, a ring of light, motes rising.
+      this.flash(x, y, 20, GOLD_HI, 0.18);
+      this.ring(p.tx, p.ty, GOLD_HI, 4, 26, 0.45, 0.85);
+      for (let i = 0; i < this.n(4); i++) this.glowSpawn({ texture: this.tex.mote, x: x + (rand() - 0.5) * 10, y: y + (rand() - 0.5) * 6, vz: 25 + rand() * 25, life: 0.6, size: 5, tint: GOLD_HI, delay: rand() * 0.1 });
     } else if (p.kind === ShotKind.TowerBolt) {
       this.sparks(x, y, 5, GOLD_HI, 80);
       this.flash(x, y, 22, GOLD_HI, 0.14);
@@ -1495,6 +1553,26 @@ export class Effects {
   }
 
   // ------------------------------------------------------------- healing
+
+  /** A Ballista bolt bursting through one soldier into the next: splinters, a spark, a smear of ink. */
+  private pierce(x: number, y: number, near: boolean): void {
+    const hy = y - 10;
+    this.flames.spawn({ texture: this.tex.burst, x, y: hy, life: 0.16, size: 16, grow: 1.6, tint: 0xfff2c8, rotation: rand() * 6.28, fadeIn: 0 });
+    this.sparks(x, hy, 5, 0xffd890, 110);
+    if (!near) return;
+    for (let i = 0; i < this.n(6); i++) this.dust.spawn({ texture: this.tex.rock[i % 3]!, x, y, z: 10, vx: (rand() - 0.5) * 120, vz: 30 + rand() * 50, gravity: 300, life: 0.8, size: 3.5, tint: 0xc9a46a, spin: (rand() - 0.5) * 14, fadeIn: 0 });
+    for (let i = 0; i < 3; i++) this.dust.spawn({ texture: this.tex.droplet, x, y, z: 10, vx: (rand() - 0.5) * 100, vz: 30 + rand() * 40, gravity: 300, life: 0.45, size: 4, stretch: true, fadeIn: 0 });
+  }
+
+  /** A Cleric's cleansing: cool silver-gold sparkles wash over the allies it frees of fire. */
+  private cleanse(x: number, y: number, n: number): void {
+    this.ring(x, y, 0xe8f4ff, 8, 48, 0.7, 0.6);
+    for (let i = 0; i < this.n(Math.min(10, 4 + n)); i++) {
+      const a = rand() * Math.PI * 2;
+      const r = rand() * 40;
+      this.glowSpawn({ texture: this.tex.spark, x: x + Math.cos(a) * r, y: y + Math.sin(a) * r * 0.6 - 8, vz: 18 + rand() * 20, life: 0.5 + rand() * 0.3, size: 7, alpha: 0.9, tint: i % 2 ? GOLD_HI : 0xe8f4ff, rotation: rand() * 6.28, delay: rand() * 0.25, fadeIn: 0.05 });
+    }
+  }
 
   private heal(x: number, y: number, holy: boolean): void {
     // Gold motes drift up from the healed; a Paladin's blessing comes down as a pillar of light.

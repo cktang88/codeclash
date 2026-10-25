@@ -21,7 +21,7 @@ import {
   type WarParams,
   type World,
 } from './api.ts';
-import { attackerMultiplier, computeAuras, enemiesNear, onHomeTurf, structureDamage, unitDamage, mitigated } from './combat.ts';
+import { attackerMultiplier, boltDamage, computeAuras, enemiesNear, onHomeTurf, structureDamage, unitDamage, mitigated } from './combat.ts';
 import { capitalOwner, musterFront, runCouncil, sitePresence, stormable } from './council.ts';
 import { HUNT_REACH, STAGING_MARGIN, keepOut, sheltered, towerReach, underFire, zoneAt } from './stance.ts';
 import { computeRing, hostile, type Front } from './ring.ts';
@@ -34,11 +34,14 @@ import { hexCenterX, hexCenterY, hexRoute } from './hexroute.ts';
 import { Role, attackerCap, cohesion, guardRadius, overCap, pickTarget, roleOf, type Pick } from './tactics.ts';
 import { applyDelta, armyFor, armyQuality, cleanLines, effectiveLedger, emptyLedger, int, purposeOf, slotsOf, type LedgerDelta } from './muster.ts';
 import { nextRandom, seedRng } from './rng.ts';
-import { AURA_HEAL, enemyWithin, indexWorld, scratchFor, type Scratch } from './scratch.ts';
+import { AURA_BLESS, AURA_HEAL, enemyWithin, indexWorld, scratchFor, type Scratch } from './scratch.ts';
 import { bucketX, bucketY, rebuildSpatialHash } from './spatial.ts';
 import {
   ARROW_SPEED,
+  BALLISTA_PIERCE,
+  BALLISTA_PIERCE_REACH,
   CAPITAL_HP,
+  CLERIC_AURA,
   CAPITAL_REPAIR,
   CAPITAL_TOWER,
   CAPTURE_HP,
@@ -70,6 +73,8 @@ import {
   WALL_PER_SLOT,
   STATS,
   UNGARRISONED_SHARE,
+  isBig,
+  isSiege,
   matchup,
 } from './stats.ts';
 import { clearPath, flowDirection, flyMove, passableAt, resolveMove, separation, towards, type Vec } from './steering.ts';
@@ -101,7 +106,7 @@ const speedOf = (kind: number) => STATS[kind]!.speed;
 
 export function emptyEvents(): TickEvents {
   return {
-    desertions: [], swings: [], shots: [], breaths: [], blasts: [], heals: [], hits: [], deaths: [], musters: [], marches: [], routs: [], disbands: [],
+    desertions: [], swings: [], shots: [], breaths: [], blasts: [], cleanses: [], heals: [], hits: [], deaths: [], musters: [], marches: [], routs: [], disbands: [],
     captures: [], conquests: [], risings: [], regroups: [], victory: null, joins: [],
     leader: null, departures: [], forms: [],
   };
@@ -199,7 +204,13 @@ function applyInput(world: World, input: SimInput, ev: TickEvents): void {
     return;
   }
   const player = world.players[input.p];
-  if (!player || input.kind !== 'push' || !whole(input.repo) || input.repo < 0) return;
+  if (!player || !whole(input.repo) || input.repo < 0) return;
+  // A fork's deferred difficulty bonus, found upstream after its day: code credit to this war's ledger, not a push.
+  if (input.kind === 'upstream') {
+    musterPush(world, player, input.repo, '', { lines: cleanLines([]), files: 0, branches: 0, bonus: int(input.bonus, 0), churn: 0, filler: 0 }, ev, false);
+    return;
+  }
+  if (input.kind !== 'push') return;
   musterPush(world, player, input.repo, typeof input.msg === 'string' ? input.msg : '', {
     lines: cleanLines(input.lines),
     files: int(input.files),
@@ -220,7 +231,7 @@ function newPlayer(p: number, slot: number, hue: number): PlayerState {
     slain: new Array<number>(KIND_COUNT).fill(0),
     kills: 0, losses: 0, structureDamage: 0, captures: 0, conquests: 0, capitals: 0, fallen: 0, rising: false, fallenAt: -1, routs: 0,
     purposes: new Array<number>(PURPOSES.length).fill(0), best: null,
-    feats: { holdBest: 0, routsCaused: 0, returns: 0, standBest: 0, retakes: 0, homeKills: 0, ledTicks: 0 },
+    feats: { holdBest: 0, routsCaused: 0, returns: 0, standBest: 0, retakes: 0, homeKills: 0, ledTicks: 0, bigDamage: 0 },
     queue: [], battalions: [],
   };
 }
@@ -231,14 +242,16 @@ function newPlayer(p: number, slot: number, hue: number): PlayerState {
  * ledger only sums deltas, splitting or squashing the same work raises the same
  * army; when work is undone, the difference is negative and soldiers desert.
  */
-function musterPush(world: World, player: PlayerState, repo: number, msg: string, delta: Omit<LedgerDelta, 'purpose'>, ev: TickEvents): void {
+function musterPush(world: World, player: PlayerState, repo: number, msg: string, delta: Omit<LedgerDelta, 'purpose'>, ev: TickEvents, isPush = true): void {
   const purpose = purposeOf(msg);
   // Conquest feeds the army: every capital held beyond its own home multiplies the budget.
   const bonus = conquered(world, player);
   const before = slotsOf(armyFor(player.ledger, player.pushes, bonus));
-  player.pushes++;
-  if (player.firstPushAt < 0) player.firstPushAt = world.tick;
-  player.purposes[PURPOSES.indexOf(purpose)]!++;
+  if (isPush) {
+    player.pushes++;
+    if (player.firstPushAt < 0) player.firstPushAt = world.tick;
+    player.purposes[PURPOSES.indexOf(purpose)]!++;
+  }
   applyDelta(player.ledger, { ...delta, purpose });
   const quality = armyQuality(player.ledger);
   player.quality = quality.quality;
@@ -345,8 +358,8 @@ export function fieldCap(world: World, player: PlayerState): number {
 
 /** Heroes first, then specialists, so Footmen fill whatever room is left. */
 const MUSTER_ORDER: readonly Kind[] = [
-  Kind.Dragon, Kind.Champion, Kind.Troll, Kind.Trebuchet, Kind.GriffinRider, Kind.BoneGolem, Kind.Paladin, Kind.Ranger, Kind.Wizard,
-  Kind.Knight, Kind.Cleric, Kind.Outrider, Kind.Mercenary, Kind.Skeleton, Kind.Warden, Kind.Archer, Kind.Herald, Kind.Sapper, Kind.Berserker, Kind.Footman,
+  Kind.Dragon, Kind.Champion, Kind.Troll, Kind.Trebuchet, Kind.GriffinRider, Kind.BoneGolem, Kind.Ballista, Kind.Paladin, Kind.Ranger, Kind.Wizard,
+  Kind.Cleric, Kind.Knight, Kind.Outrider, Kind.Mercenary, Kind.Skeleton, Kind.Warden, Kind.Archer, Kind.Herald, Kind.Sapper, Kind.Berserker, Kind.Footman,
 ];
 
 /** Kinds to let go first when work is undone: those most above their target, Footmen last among equals. */
@@ -1533,7 +1546,7 @@ function updateUnits(world: World, s: Scratch, ev: TickEvents): void {
             s.damage[t]! += dmg;
             s.lastHit[t] = u.p;
             s.lastKind[t] = u.kind;
-            ev.hits.push({ unit: v.id, damage: dmg, structure: -1 });
+            ev.hits.push({ unit: v.id, damage: dmg, structure: -1, by: u.kind, bp: u.p });
           }
         }
       } else if (u.target < 0) {
@@ -1541,7 +1554,10 @@ function updateUnits(world: World, s: Scratch, ev: TickEvents): void {
       }
     }
 
-    if (stats.heal > 0 && !routing && (tick + u.id) % HEAL_PERIOD === 0) castHeal(world, s, i, stats.heal, u.kind === Kind.Cleric ? CLERIC_REACH : PALADIN_REACH, ev);
+    if (stats.heal > 0 && !routing && (tick + u.id) % HEAL_PERIOD === 0) {
+      castHeal(world, s, i, stats.heal, u.kind === Kind.Cleric ? CLERIC_REACH : PALADIN_REACH, ev);
+      if (u.kind === Kind.Cleric) cleanse(world, s, i, ev);
+    }
 
     // This soldier's place in the formation, and whether the platoon stands deployed.
     const placed = pl !== undefined && !routing;
@@ -1749,7 +1765,7 @@ function updateUnits(world: World, s: Scratch, ev: TickEvents): void {
       const ex = slot.x - u.x;
       const ey = slot.y - u.y;
       const e = Math.sqrt(ex * ex + ey * ey);
-      s.errSum[pi]! += u.kind === Kind.Trebuchet ? e * SIEGE_TRAIL : e;
+      s.errSum[pi]! += isSiege(u.kind) ? e * SIEGE_TRAIL : e;
       s.errN[pi]!++;
     }
 
@@ -1788,8 +1804,9 @@ function strike(world: World, u: Unit, v: Unit, i: number, t: number, dist: numb
   u.cooldown = stats.cooldown;
   if (stats.breath) breathe(world, s, i, v.x, v.y, ev);
   else if (stats.ranged) {
-    // A burst is weighed against each soldier it lands on, so it carries its raw force.
-    const damage = stats.splash > 0 ? stats.damage * attackerMultiplier(world, s, i, u.p >= 0 ? world.players[u.p] : undefined) : unitDamage(world, s, i, t);
+    // A burst is weighed against each soldier it lands on, so it carries its raw force; so does a
+    // Ballista's bolt, which may fly on into a second.
+    const damage = stats.splash > 0 || u.kind === Kind.Ballista ? stats.damage * attackerMultiplier(world, s, i, u.p >= 0 ? world.players[u.p] : undefined) : unitDamage(world, s, i, t);
     fire(world, s, i, v.id, v.x, v.y, damage, ev);
   }
   else {
@@ -1804,6 +1821,8 @@ const SHOT_OF: Partial<Record<Kind, ShotKind>> = {
   [Kind.Ranger]: ShotKind.RangerArrow,
   [Kind.Wizard]: ShotKind.Fireball,
   [Kind.Trebuchet]: ShotKind.Boulder,
+  [Kind.Ballista]: ShotKind.Bolt,
+  [Kind.Cleric]: ShotKind.Smite,
 };
 /** Which kind looses each projectile, for crediting kills. */
 const SHOOTER: Record<number, Kind> = {
@@ -1811,8 +1830,10 @@ const SHOOTER: Record<number, Kind> = {
   [ShotKind.RangerArrow]: Kind.Ranger,
   [ShotKind.Fireball]: Kind.Wizard,
   [ShotKind.Boulder]: Kind.Trebuchet,
+  [ShotKind.Bolt]: Kind.Ballista,
+  [ShotKind.Smite]: Kind.Cleric,
 };
-const SHOT_SPEED: Record<number, number> = { [ShotKind.Fireball]: 30, [ShotKind.Boulder]: 26 };
+const SHOT_SPEED: Record<number, number> = { [ShotKind.Fireball]: 30, [ShotKind.Boulder]: 26, [ShotKind.Bolt]: 50, [ShotKind.Smite]: 40 };
 
 /** Looses a projectile at a unit (`target` > 0) or a structure (`target` < 0). */
 function fire(world: World, s: Scratch, i: number, target: number, tx: number, ty: number, damage: number, ev: TickEvents): void {
@@ -1859,7 +1880,7 @@ function breathe(world: World, s: Scratch, i: number, tx: number, ty: number, ev
         s.lastHit[j] = u.p;
         s.lastKind[j] = u.kind;
         v.scorched = world.tick + SCORCH_TICKS;
-        ev.hits.push({ unit: v.id, damage: dmg, structure: -1 });
+        ev.hits.push({ unit: v.id, damage: dmg, structure: -1, by: u.kind, bp: u.p });
       }
     }
   }
@@ -1875,6 +1896,31 @@ function breathe(world: World, s: Scratch, i: number, tx: number, ty: number, ev
   }
   ev.breaths.push({ from: u.id, x: u.x, y: u.y, tx: ex, ty: ey, range });
   ev.blasts.push({ x: u.x + dx * range * 0.6, y: u.y + dy * range * 0.6, radius: 25, kind: BlastKind.Scorch });
+}
+
+/** A Cleric's blessing frees every ally within its aura of fire (scorched soldiers regenerate slowly). */
+function cleanse(world: World, s: Scratch, i: number, ev: TickEvents): void {
+  const u = world.units[i]!;
+  const hash = s.hash;
+  const cells = Math.floor(CLERIC_AURA / hash.cell) + 1;
+  const bx = bucketX(hash, u.x);
+  const by = bucketY(hash, u.y);
+  const r2 = CLERIC_AURA * CLERIC_AURA;
+  let n = 0;
+  for (let cy = Math.max(0, by - cells); cy <= Math.min(hash.rows - 1, by + cells); cy++) {
+    for (let cx = Math.max(0, bx - cells); cx <= Math.min(hash.cols - 1, bx + cells); cx++) {
+      for (let j = hash.head[cy * hash.cols + cx]!; j >= 0; j = hash.next[j]!) {
+        const v = world.units[j]!;
+        if (v.p !== u.p || v.scorched <= world.tick) continue;
+        const dx = v.x - u.x;
+        const dy = v.y - u.y;
+        if (dx * dx + dy * dy > r2) continue;
+        v.scorched = -1;
+        n++;
+      }
+    }
+  }
+  if (n > 0) ev.cleanses.push({ from: u.id, x: u.x, y: u.y, n });
 }
 
 /** Heals the most wounded friend within reach. */
@@ -1906,7 +1952,7 @@ function castHeal(world: World, s: Scratch, i: number, amount: number, reach: nu
   if (best < 0) return;
   const healed = Math.min(amount, bestMissing);
   s.heal[best]! += healed;
-  ev.heals.push({ from: u.id, to: world.units[best]!.id, amount: healed });
+  ev.heals.push({ from: u.id, to: world.units[best]!.id, amount: healed, kind: u.kind, p: u.p });
 }
 
 function nearestStructure(world: World, s: Scratch, p: number, x: number, y: number, range: number): number {
@@ -1936,7 +1982,7 @@ function damageStructure(world: World, s: Scratch, k: number, p: number, amount:
   const dmg = Math.min(st.hp, amount, room);
   st.hp -= dmg;
   s.wallHit[k]! += dmg;
-  ev.hits.push({ unit: -1, damage: dmg, structure: k });
+  ev.hits.push({ unit: -1, damage: dmg, structure: k, by: -1, bp: p });
   const player = world.players[p];
   if (!player) return;
   player.structureDamage += dmg;
@@ -2151,6 +2197,10 @@ function updateShots(world: World, s: Scratch, ev: TickEvents): void {
       continue;
     }
     if (t === undefined) continue;
+    if (shot.kind === ShotKind.Bolt) {
+      bolt(world, s, shot, t, ev);
+      continue;
+    }
     noteHit(world, s, t, shot.from);
     const dmg = shot.kind === ShotKind.TowerBolt ? mitigated(world, s, t, shot.damage, true) : shot.damage;
     s.damage[t]! += dmg;
@@ -2158,9 +2208,67 @@ function updateShots(world: World, s: Scratch, ev: TickEvents): void {
       s.lastHit[t] = shot.p;
       s.lastKind[t] = SHOOTER[shot.kind] ?? -1;
     } else if (s.lastHit[t]! < 0) s.lastHit[t] = -2;
-    ev.hits.push({ unit: shot.target, damage: dmg, structure: -1 });
+    ev.hits.push({ unit: shot.target, damage: dmg, structure: -1, by: shot.p >= 0 ? (SHOOTER[shot.kind] ?? -1) : -1, bp: shot.p });
   }
   world.shots.length = w;
+}
+
+/**
+ * A Ballista's bolt lands on soldier `t`: armour-piercing, weighed against it as it lands, and
+ * flying on into the nearest foe standing behind it in line (within BALLISTA_PIERCE_REACH beyond,
+ * and within its own half-width plus 4 of the line) for BALLISTA_PIERCE of the force.
+ */
+function bolt(world: World, s: Scratch, shot: Shot, t: number, ev: TickEvents): void {
+  const v = world.units[t]!;
+  let dx = v.x - shot.x;
+  let dy = v.y - shot.y;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+  const hitOne = (j: number, raw: number, d: number) => {
+    noteHit(world, s, j, shot.from);
+    const dmg = boltDamage(world, s, j, raw, d);
+    s.damage[j]! += dmg;
+    const shooter = shot.p >= 0 ? world.players[shot.p] : undefined;
+    if (shooter) {
+      s.lastHit[j] = shot.p;
+      s.lastKind[j] = Kind.Ballista;
+      // For the digest's Dragonbane: the damage that went into the big.
+      if (isBig(world.units[j]!.kind)) shooter.feats.bigDamage = (shooter.feats.bigDamage ?? 0) + dmg;
+    }
+    ev.hits.push({ unit: world.units[j]!.id, damage: dmg, structure: -1, by: Kind.Ballista, bp: shot.p });
+  };
+  hitOne(t, shot.damage, dist);
+  if (dist < 1e-6) return;
+  dx /= dist;
+  dy /= dist;
+  const hash = s.hash;
+  const reach = Math.floor(BALLISTA_PIERCE_REACH / hash.cell) + 1;
+  const bx = bucketX(hash, v.x);
+  const by = bucketY(hash, v.y);
+  let best = -1;
+  let bestAlong = Infinity;
+  for (let cy = Math.max(0, by - reach); cy <= Math.min(hash.rows - 1, by + reach); cy++) {
+    for (let cx = Math.max(0, bx - reach); cx <= Math.min(hash.cols - 1, bx + reach); cx++) {
+      for (let j = hash.head[cy * hash.cols + cx]!; j >= 0; j = hash.next[j]!) {
+        if (j === t) continue;
+        const w = world.units[j]!;
+        if (!hostile(s.ring, shot.p, w.p)) continue;
+        const ox = w.x - v.x;
+        const oy = w.y - v.y;
+        const along = ox * dx + oy * dy;
+        if (along <= 0 || along > BALLISTA_PIERCE_REACH) continue;
+        const side = Math.abs(ox * -dy + oy * dx);
+        if (side > STATS[w.kind]!.size * 0.5 + 4) continue;
+        if (along < bestAlong || (along === bestAlong && j < best)) {
+          bestAlong = along;
+          best = j;
+        }
+      }
+    }
+  }
+  if (best < 0) return;
+  hitOne(best, shot.damage * BALLISTA_PIERCE, dist + bestAlong);
+  const w = world.units[best]!;
+  ev.blasts.push({ x: w.x, y: w.y, radius: 0, kind: BlastKind.Pierce });
 }
 
 /** A missile from `from` (a soldier's id, or -(structure + 1) for a tower) struck soldier `t`: its platoon remembers. */
@@ -2204,7 +2312,7 @@ function splash(world: World, s: Scratch, shot: Shot, x: number, y: number, ev: 
         }
         if (fiery) v.scorched = world.tick + SCORCH_TICKS;
         noteHit(world, s, j, shot.from);
-        ev.hits.push({ unit: v.id, damage: dmg, structure: -1 });
+        ev.hits.push({ unit: v.id, damage: dmg, structure: -1, by: shooter ?? -1, bp: shot.p });
       }
     }
   }
@@ -2244,7 +2352,8 @@ function resolveDamage(world: World, s: Scratch, ev: TickEvents): void {
     if (pl) {
       pl.alive--;
       const loss = MORALE_LOSS / Math.max(1, pl.size);
-      pl.morale = Math.max(0, pl.morale - (s.heralds[pi]! > 0 ? loss * 0.5 : loss));
+      // A Herald steadies its whole platoon; a Cleric those who fall within its blessing. Either halves the loss, not both.
+      pl.morale = Math.max(0, pl.morale - (s.heralds[pi]! > 0 || (s.aura[i]! & AURA_BLESS) !== 0 ? loss * 0.5 : loss));
     }
     if (u.p >= 0) world.players[u.p]!.losses++;
     if (killer >= 0) {

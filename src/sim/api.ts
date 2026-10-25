@@ -28,9 +28,10 @@ export const CAT_NAMES = ['code', 'test', 'comment', 'docs', 'config', 'removed'
 export type Lines = readonly number[];
 
 /**
- * Twenty unit kinds. Each line category raises a base unit and, in larger
+ * Twenty-one unit kinds. Each line category raises a base unit and, in larger
  * pushes, an elite one; Berserkers, Clerics, Champions and Dragons come from
- * the shape of the push itself. See STATS in stats.ts and DESIGN.md.
+ * the shape of the push itself. See STATS in stats.ts and DESIGN.md. New kinds
+ * only ever append: a kind's number is in every replay and snapshot.
  */
 export const Kind = {
   Footman: 0,
@@ -53,9 +54,10 @@ export const Kind = {
   Cleric: 17,
   Champion: 18,
   Dragon: 19,
+  Ballista: 20,
 } as const;
 export type Kind = (typeof Kind)[keyof typeof Kind];
-export const KIND_COUNT = 20;
+export const KIND_COUNT = 21;
 
 /**
  * A player's contribution today, summed over pushes. Every push only adds its
@@ -83,6 +85,11 @@ export interface Ledger {
   purposeCode: number[];
   /** Removed lines by purpose, for refactors and reverts. */
   purposeRemoved: number[];
+  /**
+   * Difficulty bonus lines by purpose, indexed like PURPOSES: a fix's bonus is fix work, and raises
+   * fix specialists. Absent in older ledgers, whose bonus is then shared out like their code.
+   */
+  purposeBonus?: number[];
 }
 
 /** What a push is for, read from its commit message. */
@@ -178,6 +185,20 @@ export type SimInput =
       churn: number;
       /** Filler: uncounted lines (duplicates, punctuation, literal tables) beyond what the push's code carries, plus lines past the daily cap. */
       filler: number;
+    }
+  | {
+      /**
+       * A fork's deferred difficulty bonus (rules/difficulty.ts `upstreamReward`), credited once its commits
+       * reached the upstream: difficulty bonus lines added to this war's ledger as a one-off, not a push.
+       */
+      kind: 'upstream';
+      p: number;
+      /** Index into the war's repo table: the fork. */
+      repo: number;
+      /** Bonus lines; never negative. */
+      bonus: number;
+      /** UTC day number (ms / 86 400 000) of the pushes that earned it, for the record. */
+      day: number;
     };
 
 export interface TimedInput {
@@ -394,6 +415,8 @@ export interface Feats {
   homeKills: number;
   /** Ticks spent leading in renown. */
   ledTicks: number;
+  /** Damage this player's Ballistae dealt to big soldiers (size 9 and up: Dragons, Trolls, Knights…). Absent in older snapshots. */
+  bigDamage?: number;
 }
 
 export interface World {
@@ -424,10 +447,14 @@ export interface TickEvents {
   shots: { from: number; to: number; x: number; y: number; land: number; kind: number }[];
   /** A dragon's fire: from the breather toward (tx, ty), reaching `range`. */
   breaths: { from: number; x: number; y: number; tx: number; ty: number; range: number }[];
-  /** Area damage landing: fireball bursts, boulder impacts, breath scorch. */
+  /** Area damage landing: fireball bursts, boulder impacts, breath scorch; a Ballista bolt piercing through (BlastKind.Pierce, at the second soldier). */
   blasts: { x: number; y: number; radius: number; kind: number }[];
-  heals: { from: number; to: number; amount: number }[];
-  hits: { unit: number; damage: number; structure: number }[];
+  /** A Cleric's cleansing: `n` allies around (x, y) freed of fire. */
+  cleanses: { from: number; x: number; y: number; n: number }[];
+  /** `kind` and `p`: the healer's kind and player. */
+  heals: { from: number; to: number; amount: number; kind?: Kind; p?: number }[];
+  /** `by`: the striking kind (-1 a tower or none); `bp`: the striking player (-1 none). */
+  hits: { unit: number; damage: number; structure: number; by?: number; bp?: number }[];
   /** `killer` is the slaying player (-1 none, -2 a neutral tower); `by` the slaying kind, or -1. */
   deaths: { unit: number; p: number; kind: Kind; x: number; y: number; killer: number; by: number; platoon: number }[];
   musters: { platoon: number; p: number; queued: boolean }[];
@@ -451,10 +478,10 @@ export interface TickEvents {
   forms: { platoon: number; form: number }[];
 }
 
-export const ShotKind = { Arrow: 0, TowerBolt: 1, Fireball: 2, Boulder: 3, RangerArrow: 4 } as const;
+export const ShotKind = { Arrow: 0, TowerBolt: 1, Fireball: 2, Boulder: 3, RangerArrow: 4, Bolt: 6, Smite: 7 } as const;
 export type ShotKind = (typeof ShotKind)[keyof typeof ShotKind];
 
-export const BlastKind = { Fireball: 2, Boulder: 3, Scorch: 5 } as const;
+export const BlastKind = { Fireball: 2, Boulder: 3, Scorch: 5, Pierce: 8 } as const;
 export type BlastKind = (typeof BlastKind)[keyof typeof BlastKind];
 
 export interface WorldSnapshot {

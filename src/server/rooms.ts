@@ -150,6 +150,16 @@ export class Rooms {
     return raised;
   }
 
+  /** A fork's deferred bonus, found upstream: credited to the player's current war in each of their rooms. */
+  onUpstream(reward: { userId: number; repo: string; bonus: number; day: number }, now: number): number {
+    let credited = 0;
+    for (const room of this.deps.store.roomsOf(reward.userId)) {
+      const war = this.live.get(room.id);
+      if (war?.upstream(now, reward.userId, reward)) credited++;
+    }
+    return credited;
+  }
+
   private botsPush(now: number, elapsedMs: number): void {
     const rand = this.deps.random ?? Math.random;
     // Short test days compress a whole day of pushes into their length.

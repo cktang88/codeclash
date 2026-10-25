@@ -175,3 +175,22 @@ export function installViteDay(github: FakeGithub): { repo: string; base: string
   github.setCommit(VITE_REPO, VITE_DAY_HEAD, { commits: [{ sha: VITE_DAY_HEAD, authorLogin: MAINTAINER.login, message: 'fix' }], files, base: VITE_BASE });
   return { repo: VITE_REPO, base: VITE_BASE, head: VITE_DAY_HEAD, files };
 }
+
+export const FORK_REPO = 'mara/vite';
+
+/**
+ * The maintainer's harder commit (installViteDay) pushed to their fork of vite instead: the fork keeps
+ * vite's real history, so its context is vite's, and its upstream is vitejs/vite's `main`.
+ */
+export function installViteFork(github: FakeGithub, head = VITE_DAY_HEAD): { repo: string; base: string; head: string; files: ChangedFile[] } {
+  const day = installViteDay(github);
+  github.setRepoFacts(
+    { fullName: FORK_REPO, fork: true, createdAt: Date.parse('2026-01-10T09:00:00Z'), stars: 0, forks: 0, sizeKb: 41_000, source: { fullName: VITE_REPO, createdAt: VITE_FACTS.createdAt, stars: VITE_FACTS.stars, forks: VITE_FACTS.forks, defaultBranch: 'main' }, parent: { fullName: VITE_REPO, defaultBranch: 'main' } },
+    { TypeScript: 3_400_000 },
+  );
+  for (const [key, facts] of [...github.fileFacts]) if (key.startsWith(`${VITE_REPO.toLowerCase()}@`)) github.fileFacts.set(`${FORK_REPO}${key.slice(VITE_REPO.length)}`, facts);
+  const commit = { sha: head, authorLogin: MAINTAINER.login, authorId: MAINTAINER.id, message: 'fix: resolve build.sourcemap per environment', authorEmail: 'mara@example.com' };
+  github.setCompare(FORK_REPO, VITE_BASE, head, { commits: [commit], files: day.files, base: VITE_BASE });
+  github.setCommit(FORK_REPO, head, { commits: [commit], files: day.files, base: VITE_BASE });
+  return { repo: FORK_REPO, base: VITE_BASE, head, files: day.files };
+}

@@ -21,7 +21,7 @@
 import { Cat, CAT_COUNT } from '../sim/api.ts';
 import { analyzeFile, FUNCTION_STATEMENTS, lineBranches, LINK_NAMES_PER_IMPORT, parseBudget, type ParseBudget } from './complexity.ts';
 import { branchesIn, categorizePath, classifyLine, extensionOf, isGeneratedContent, splitPatch, syntaxFor, type ChangedFile, type FileCategory } from './classify.ts';
-import { bonusMilli, DAILY_BONUS_CAP, FILE_CAP, FILE_CREDIT, fileCreditMilli, type DifficultyNote, type PushContext } from './difficulty.ts';
+import { bonusMilli, DAILY_BONUS_CAP, EFFORT_REPEAT_DAYS, FILE_CAP, FILE_CREDIT, fileCreditMilli, type DifficultyNote, type PendingBonus, type PushContext } from './difficulty.ts';
 import { languageOfPath } from './heraldry.ts';
 import { CODE_CAP } from '../sim/muster.ts';
 
@@ -91,6 +91,11 @@ export interface PushDelta {
   bonus?: number;
   /** Per file, what moved the bonus (for explaining). */
   difficulty?: DifficultyNote[];
+  /**
+   * A fork's bonus and effort credit, deferred until the commit reaches the upstream (signed changes, in
+   * thousandths of a line, before the day's caps): `bonus` holds none of it. Absent when zero.
+   */
+  pending?: PendingBonus;
 }
 
 /**
@@ -562,6 +567,47 @@ const OTHERS = '\u000bothers\u0000';
 const DAY_BONUS = '\u000ebonus';
 /** The user's effort credit today, in thousandths of a line, before the FILE_CAP files' worth. */
 const DAY_EFFORT = '\u000eeffort';
+/** In a file's day scope: the file is a fork's, so its bonus and effort credit wait on the upstream (frozen with the multiplier). */
+const DEFERRED = '\u000bdeferred';
+/** In a file's own scope (not the day's): the last day it held effort credit at the day's close, for repeat-target dampening. */
+const EFFORT_PAID = '\u000beffortpaid';
+const DAY_SPAN = 2 ** 17;
+
+/**
+ * A file's effort history: `paid`, the latest earlier day it held effort credit at the day's close;
+ * `on`, whether it holds some now (on `day`). A function of earlier days' final states only, so
+ * today's pushes, however split, see the same `paid`.
+ */
+interface EffortHistory {
+  paid: number | null;
+  day: number;
+  on: boolean;
+}
+
+function readEffortHistory(store: LedgerStore, path: string, today: number): EffortHistory {
+  const v = store.balance(path, EFFORT_PAID);
+  if (v <= 0) return { paid: null, day: today, on: false };
+  const on = v % 2 === 1;
+  const x = Math.floor(v / 2);
+  const day = (x % DAY_SPAN) - 1;
+  const paid = Math.floor(x / DAY_SPAN) - 1;
+  const known = paid >= 0 ? paid : null;
+  if (day === today) return { paid: known, day, on };
+  // A new day: if the file held effort credit when its last day closed, that day paid it.
+  return { paid: on && day >= 0 ? day : known, day: today, on: false };
+}
+
+function writeEffortHistory(store: LedgerStore, path: string, h: EffortHistory): void {
+  const packed = h.paid === null && !h.on ? 0 : (((h.paid ?? -1) + 1) * DAY_SPAN + h.day + 1) * 2 + (h.on ? 1 : 0);
+  if (packed !== store.balance(path, EFFORT_PAID)) store.setBalance(path, EFFORT_PAID, packed);
+}
+
+/** The day's raw bonus and effort credit (thousandths of a line, before the caps) that paid at once: what a fork's deferred bonus is capped against. */
+export function dayBonusTotals(store: LedgerStore): PendingBonus {
+  const today = store.day ? store.day() : null;
+  const at = (key: string) => store.balance(today === null ? key : `${key}\u0005${today}`, '');
+  return { bonusMilli: at(DAY_BONUS), effortMilli: at(DAY_EFFORT) };
+}
 
 /** Applies a prepared push to the user's ledger: the second half of `measurePush`. A prepared push is applied once. */
 export function applyPush(prepared: PreparedPush, store: LedgerStore, context?: PushContext | null): PushDelta {
@@ -723,6 +769,9 @@ export function applyPush(prepared: PreparedPush, store: LedgerStore, context?: 
   let filesDelta = estimatedFiles;
   let bonusDelta = 0;
   let effortDelta = 0;
+  // A fork's files: their bonus and effort credit wait on the upstream (server/upstream.ts).
+  let pendingBonus = 0;
+  let pendingEffort = 0;
   const notes: DifficultyNote[] = [];
   for (const [path, keys] of perFile) {
     const scope = today === null ? path : `${path}\u0005${today}`;
@@ -765,22 +814,33 @@ export function applyPush(prepared: PreparedPush, store: LedgerStore, context?: 
     if (m === 0 && fc) {
       m = Math.max(1000, Math.round(fc.mMilli));
       store.setBalance(scope, MULTIPLIER, m);
+      // Whether the file is a fork's is frozen with its multiplier: the day's state stays one function.
+      if (context?.upstream && m > 1000) store.setBalance(scope, DEFERRED, 1);
     }
+    const deferred = store.balance(scope, DEFERRED) !== 0;
     const was = store.balance(scope, FILE_BONUS);
     const now = bonusMilli(Math.min(a, r), m);
     if (now !== was) {
       store.setBalance(scope, FILE_BONUS, now);
-      bonusDelta += now - was;
+      if (deferred) pendingBonus += now - was;
+      else bonusDelta += now - was;
     }
     // The effort credit: a function of (modified, frozen multiplier) like the bonus, so it is awarded
     // by the push that takes the file to MEANINGFUL_LINES and taken back by one that drops it below.
+    // A file that held effort credit at the close of one of the last EFFORT_REPEAT_DAYS − 1 days earns
+    // none today (a function of earlier days only, so any split of today's pushes sees the same).
+    const history = today === null ? null : readEffortHistory(store, path, today);
+    const repeat = history !== null && history.paid !== null && today! - history.paid < EFFORT_REPEAT_DAYS;
     const hadEffort = store.balance(scope, FILE_EFFORT);
-    const effort = fileCreditMilli(Math.min(a, r), m);
+    const effort = repeat ? 0 : fileCreditMilli(Math.min(a, r), m);
     if (effort !== hadEffort) {
       store.setBalance(scope, FILE_EFFORT, effort);
-      effortDelta += effort - hadEffort;
+      if (deferred) pendingEffort += effort - hadEffort;
+      else effortDelta += effort - hadEffort;
     }
-    if (m > 1000 && (now !== was || effort !== hadEffort || (fc && fc.others.length > 0))) notes.push({ path, modified: Math.max(0, Math.min(a, r)), mMilli: m, extraMilli: now - was, creditMilli: effort - hadEffort, context: fc });
+    if (history) writeEffortHistory(store, path, { ...history, on: effort > 0 });
+    if (m > 1000 && (now !== was || effort !== hadEffort || (fc && fc.others.length > 0)))
+      notes.push({ path, modified: Math.max(0, Math.min(a, r)), mMilli: m, extraMilli: now - was, creditMilli: effort - hadEffort, ...(deferred ? { pending: true } : {}), ...(repeat && fileCreditMilli(Math.min(a, r), m) > 0 ? { repeat: true } : {}), context: fc });
   }
   // The day's bonus telescopes like the code cap: credit only what the running total gains below DAILY_BONUS_CAP.
   // So does the effort credit, held to FILE_CAP files' worth; both fold into the bonus lines.
@@ -833,7 +893,11 @@ export function applyPush(prepared: PreparedPush, store: LedgerStore, context?: 
     files: [...m].filter(([path]) => path !== '').sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)).slice(0, 3).map(([path, n]) => ({ path, lines: n })),
   }));
   uncounted.sort((a, b) => b.lines - a.lines || (a.kind < b.kind ? -1 : 1));
-  return { lines, files: filesDelta, branches: cappedBranches, functions, links, modules, churn, filler, language, uncounted, bonus, ...(notes.length > 0 ? { difficulty: notes } : {}) };
+  return {
+    lines, files: filesDelta, branches: cappedBranches, functions, links, modules, churn, filler, language, uncounted, bonus,
+    ...(notes.length > 0 ? { difficulty: notes } : {}),
+    ...(pendingBonus !== 0 || pendingEffort !== 0 ? { pending: { bonusMilli: pendingBonus, effortMilli: pendingEffort } } : {}),
+  };
 }
 
 /** A ledger in memory: for tests, bots and the browser demo. Set `today` to move to another day. */

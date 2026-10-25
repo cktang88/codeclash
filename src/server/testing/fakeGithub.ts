@@ -1,7 +1,7 @@
 import type { ChangedFile } from '../../rules/classify.ts';
 import type { RepoFacts } from '../../rules/difficulty.ts';
 import { GithubError } from '../github.ts';
-import type { CommitMeta, CompareResult, EventsResult, GithubClient, GraphqlResult, PushEventLite, RepoInfo } from '../github.ts';
+import type { CommitMeta, CompareResult, CompareStatus, EventsResult, GithubClient, GraphqlResult, PullSummary, PushEventLite, RepoInfo } from '../github.ts';
 
 /** Who wrote a line or a commit, as GraphQL names them: a linked account (with its creation date), or none. */
 export interface FakeAuthor {
@@ -30,7 +30,13 @@ export class FakeGithub implements GithubClient {
   repos = new Map<string, RepoInfo>();
   /** Each branch's history, newest first, by `owner/name#branch`. */
   histories = new Map<string, CommitMeta[]>();
-  calls = { events: 0, notModified: 0, compare: 0, commit: 0, repo: 0, branches: 0, commits: 0, graphql: 0, repoFacts: 0, languages: 0 };
+  calls = { events: 0, notModified: 0, compare: 0, commit: 0, repo: 0, branches: 0, commits: 0, graphql: 0, repoFacts: 0, languages: 0, compareStatus: 0, closedPulls: 0, pullCommits: 0 };
+  /** How a head stands against a base, by `owner/name:base...head` (any case for the repository); absent: `ahead`. */
+  statuses = new Map<string, CompareStatus>();
+  /** Closed pull requests by `owner/name#owner:branch` (any case). */
+  pulls = new Map<string, PullSummary[]>();
+  /** A pull request's commits by `owner/name#number` (any case). */
+  prCommits = new Map<string, string[]>();
   /** Blame and history by `owner/name@oid:path`. */
   fileFacts = new Map<string, FakeFileFacts>();
   /** Repository facts and languages by `owner/name` (any case). */
@@ -137,6 +143,27 @@ export class FakeGithub implements GithubClient {
 
   rateLimit() {
     return { remaining: this.remaining, resetAtMs: 0 };
+  }
+
+  async compareStatus(repo: string, base: string, head: string): Promise<CompareStatus | null> {
+    this.calls.compareStatus++;
+    this.limited();
+    this.remaining--;
+    return this.statuses.get(`${repo.toLowerCase()}:${base}...${head}`) ?? 'ahead';
+  }
+
+  async closedPulls(repo: string, head: string): Promise<PullSummary[] | null> {
+    this.calls.closedPulls++;
+    this.limited();
+    this.remaining--;
+    return this.pulls.get(`${repo.toLowerCase()}#${head.toLowerCase()}`) ?? [];
+  }
+
+  async pullCommits(repo: string, number: number): Promise<string[] | null> {
+    this.calls.pullCommits++;
+    this.limited();
+    this.remaining--;
+    return this.prCommits.get(`${repo.toLowerCase()}#${number}`) ?? null;
   }
 
   /** Sets a file's blame and history at commit `oid`. */

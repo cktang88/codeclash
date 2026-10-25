@@ -58,6 +58,23 @@ export const MEANINGFUL_LINES = 3;
 export const FILE_CAP = 15;
 /** The largest multiplier the weights allow (all four signals saturated): the hardest file earns the full credit. */
 export const M_MAX = 1 + WEIGHTS.lines + WEIGHTS.authors + WEIGHTS.age + WEIGHTS.commits;
+/**
+ * Repeat-target dampening: a file that held effort credit at the close of a UTC day earns none on the
+ * next EFFORT_REPEAT_DAYS − 1 days (at most once per player per 3 days), so the same core file cannot
+ * be farmed daily with token edits. Its line bonus is not dampened.
+ */
+export const EFFORT_REPEAT_DAYS = 3;
+/**
+ * Forks: a fork's line bonus and effort credit pay only once the commit reaches the upstream's default
+ * branch. A commit not found there within this many days of its push is given up on: it pays nothing.
+ */
+export const UPSTREAM_GIVE_UP_DAYS = 14;
+/**
+ * Upstream rewards credited to one player in a UTC day, in lines: one day's caps. Days of fork work
+ * merged together arrive a day's worth at a time (the rest waits for the next day), so banking pull
+ * requests and having them merged at once cannot pour two weeks of bonus into one war.
+ */
+export const UPSTREAM_PER_DAY = DAILY_BONUS_CAP + FILE_CAP * FILE_CREDIT;
 
 const DAY_MS = 86_400_000;
 
@@ -112,7 +129,9 @@ export interface RepoFacts {
   /** Repository size as GitHub reports it, in KB. */
   sizeKb: number;
   /** For a fork, the repository it was forked from (its network's source). */
-  source?: { fullName: string; createdAt: number; stars: number; forks: number } | null;
+  source?: { fullName: string; createdAt: number; stars: number; forks: number; defaultBranch?: string } | null;
+  /** For a fork, the repository it was forked from directly (where its pull requests go), with its default branch. */
+  parent?: { fullName: string; defaultBranch: string } | null;
   /** Bytes per language, when known. */
   languages?: Record<string, number> | null;
 }
@@ -256,6 +275,45 @@ export interface FileContext {
 /** Context for the files of one diff, by path. Plain data (JSON and structured-clone safe). */
 export interface PushContext {
   files: Record<string, FileContext>;
+  /**
+   * Set when the diff is in a fork: its bonus and effort credit are deferred (M counts as 1 at push
+   * time) until the commit reaches `repo`'s default branch `branch` (server/upstream.ts).
+   */
+  upstream?: { repo: string; branch: string } | null;
+}
+
+/** Where a fork's deferred bonus waits: the repository its commits must reach. */
+export function upstreamOf(repo: RepoFacts | null): { repo: string; branch: string } | null {
+  if (!repo?.fork) return null;
+  if (repo.parent) return { repo: repo.parent.fullName, branch: repo.parent.defaultBranch };
+  if (repo.source) return { repo: repo.source.fullName, branch: repo.source.defaultBranch ?? 'main' };
+  // A fork whose upstream GitHub does not name: deferred all the same, and never found.
+  return { repo: '', branch: '' };
+}
+
+/** The day's caps on the two parts of the bonus, in lines: what `applyPush` credits at most per UTC day. */
+const capped = (milli: number, cap: number) => Math.floor(Math.max(0, Math.min(milli, cap * 1000)) / 1000);
+
+/** A fork's bonus waiting on the upstream, in thousandths of a line, before the day's caps. Signed per push. */
+export interface PendingBonus {
+  bonusMilli: number;
+  effortMilli: number;
+}
+
+/**
+ * What a past day's fork commits found upstream are worth, in lines, beyond what was already credited
+ * for that day: the bonus the day would have earned had those commits been in a repository of their
+ * own, `cap(immediate + pending) − cap(immediate)` for the line bonus and the effort credit each (the
+ * day's immediate totals took the caps first). Commits found later add only what they raise the total
+ * by, so each is credited exactly once, and never taken back.
+ */
+export function upstreamReward(day: PendingBonus, confirmed: readonly PendingBonus[], credited: number): number {
+  const b = Math.max(0, confirmed.reduce((n, c) => n + c.bonusMilli, 0));
+  const e = Math.max(0, confirmed.reduce((n, c) => n + c.effortMilli, 0));
+  const ib = Math.max(0, day.bonusMilli);
+  const ie = Math.max(0, day.effortMilli);
+  const total = capped(ib + b, DAILY_BONUS_CAP) - capped(ib, DAILY_BONUS_CAP) + capped(ie + e, FILE_CAP * FILE_CREDIT) - capped(ie, FILE_CAP * FILE_CREDIT);
+  return Math.max(0, total - Math.max(0, credited));
 }
 
 const median = (xs: number[]): number => {
@@ -376,5 +434,9 @@ export interface DifficultyNote {
   extraMilli: number;
   /** Change in the file's effort credit (a fixed credit per meaningfully modified hard file), in thousandths of a line. */
   creditMilli?: number;
+  /** A fork's file: extraMilli and creditMilli wait until the commit reaches the upstream, and pay nothing now. */
+  pending?: boolean;
+  /** The file held effort credit within the last EFFORT_REPEAT_DAYS days, so it earns none today. */
+  repeat?: boolean;
   context: FileContext | null;
 }

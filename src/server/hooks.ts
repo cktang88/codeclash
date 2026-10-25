@@ -7,6 +7,7 @@ import type { GithubClient } from './github.ts';
 import { errorMessage, type Logger } from './log.ts';
 import type { Parser } from './parsePool.ts';
 import { ingestPush, type PushReport } from './poller.ts';
+import type { UpstreamWatcher } from './upstream.ts';
 
 export interface HookDeps {
   store: Store;
@@ -16,6 +17,8 @@ export interface HookDeps {
   onPush: (r: PushReport) => void;
   context?: DifficultyContext | null;
   parser?: Parser | null;
+  /** Forks' deferred bonus: a merged pull request makes the member's pending rows there due now. */
+  upstream?: UpstreamWatcher | null;
 }
 
 const BODY_LIMIT = 5 * 1024 * 1024;
@@ -33,6 +36,18 @@ const PushPayload = z
     repository: z.object({ full_name: z.string(), private: z.boolean().optional().default(false) }).loose(),
     sender: z.object({ id: z.number().int() }).loose().nullable().optional(),
     pusher: z.object({ name: z.string().nullable().optional() }).loose().nullable().optional(),
+  })
+  .loose();
+
+/**
+ * A pull request event. Signed with the member's own secret, so it is never trusted: a merge it
+ * reports only makes the member's pending fork rows for that repository due, and the check asks GitHub.
+ */
+const PullPayload = z
+  .object({
+    action: z.string(),
+    repository: z.object({ full_name: z.string(), private: z.boolean().optional().default(false) }).loose(),
+    pull_request: z.object({ merged: z.boolean().nullable().optional() }).loose(),
   })
   .loose();
 
@@ -80,6 +95,20 @@ export function registerHooks(app: FastifyInstance, deps: HookDeps): void {
       }
       const event = req.headers['x-github-event'];
       if (event === 'ping') return reply.code(204).send();
+      if (event === 'pull_request') {
+        let pr: z.infer<typeof PullPayload>;
+        try {
+          pr = PullPayload.parse(payloadOf(raw, req.headers['content-type']));
+        } catch {
+          return reply.code(400).send({ error: 'malformed pull request payload' });
+        }
+        if (pr.action !== 'closed' || pr.pull_request.merged !== true || pr.repository.private) return reply.code(202).send({ ok: true, ignored: 'pull_request' });
+        if (!deps.upstream) return reply.code(202).send({ ok: true, ignored: 'upstream' });
+        if (!allow(user.id, deps.clock())) return reply.code(429).send({ error: 'too many deliveries' });
+        // The check runs in the background; the delivery is answered at once.
+        deps.upstream.wake(user.id, pr.repository.full_name).catch((err: unknown) => deps.log.warn('upstream wake failed', { user: user.login, error: errorMessage(err) }));
+        return reply.code(202).send({ ok: true, woke: true });
+      }
       if (event !== 'push') return reply.code(202).send({ ok: true, ignored: 'event' });
 
       let parsed: z.infer<typeof PushPayload>;

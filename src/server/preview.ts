@@ -10,8 +10,8 @@ import { DAILY_BONUS_CAP, GATE_CAP, pusherOf, type DifficultyNote, type PushCont
 import type { DifficultyContext } from './difficulty.ts';
 import { DAILY_CODE_CAP, measurePush, MemoryLedger, SHAPE_CAP, type LedgerStore, type PushDelta, type Uncounted, type UncountedKind } from '../rules/ledger.ts';
 import { validRef, validRepo } from '../rules/repoRef.ts';
-import { CAT_NAMES, Cat, Kind, type Ledger, type Purpose } from '../sim/api.ts';
-import { applyDelta, armyFor, armyQuality, BONUS_PER_CODE, BUDGET_PER_10K, budgetOf, cleanLines, CODE_KNEE, complexityOf, credited, DRAGON_COMPLEXITY, effectiveLedger, emptyLedger, int, LINK_SHARE, purposeOf, slotsOf } from '../sim/muster.ts';
+import { CAT_NAMES, Cat, Kind, PURPOSES, type Ledger, type Purpose } from '../sim/api.ts';
+import { applyDelta, armyFor, armyQuality, BONUS_PER_CODE, BUDGET_PER_10K, budgetOf, cleanLines, CODE_KNEE, complexityOf, credited, DRAGON_COMPLEXITY, effectiveLedger, emptyLedger, fixWork, int, LINK_SHARE, purposeOf, slotsOf } from '../sim/muster.ts';
 import { STATS } from '../sim/stats.ts';
 import { GithubError, MAX_FILES, type CommitMeta, type GithubClient } from './github.ts';
 
@@ -255,6 +255,7 @@ export function difficultyOf(n: DifficultyNote): PreviewDifficulty {
     fromYear: c?.fromYear ?? null,
     gate: c && !c.gate.passed && c.rawMilli > c.mMilli ? c.gate.reason : null,
     source: c?.source ?? 'graphql',
+    ...(n.pending ? { pending: true } : {}),
   };
 }
 
@@ -263,7 +264,8 @@ export function difficultyText(d: PreviewDifficulty): string {
   const facts = [d.lines > 0 ? plural(d.lines, 'line') : '', d.authors > 0 ? plural(d.authors, 'author') : '', d.fromYear ? `lines from ${d.fromYear}` : ''].filter(Boolean).join(', ');
   const held = d.gate ? ` (held to ×${GATE_CAP}: ${d.gate})` : '';
   const extra = d.extra >= 10 || Number.isInteger(d.extra) ? fmt(d.extra) : d.extra.toFixed(1);
-  return `Edited ${plural(d.modified, 'line')} of others’ code in ${fileName(d.path)}${facts ? ` (${facts})` : ''} ×${d.multiplier.toFixed(1)}${held} → +${extra} ${d.extra === 1 ? 'line' : 'lines'} of credit`;
+  const pending = d.pending ? ' pending upstream merge' : '';
+  return `Edited ${plural(d.modified, 'line')} of others’ code in ${fileName(d.path)}${facts ? ` (${facts})` : ''} ×${d.multiplier.toFixed(1)}${pending}${held} → +${extra} ${d.extra === 1 ? 'line' : 'lines'} of credit${d.pending ? ' once merged' : ''}`;
 }
 
 /** "Fixed 3 hard files in vite (css.ts ×3.2, build.ts ×3.2, asset.ts ×2.9) → +172 lines of effort credit", or null. */
@@ -273,7 +275,8 @@ export function effortText(files: readonly PreviewDifficulty[], repo?: string): 
   const total = Math.floor(hard.reduce((n, d) => n + (d.credit ?? 0), 0));
   const named = hard.slice(0, 3).map((d) => `${fileName(d.path)} ×${d.multiplier.toFixed(1)}`).join(', ');
   const where = repo ? ` in ${repo.slice(repo.indexOf('/') + 1)}` : '';
-  return `Fixed ${plural(hard.length, 'hard file')}${where} (${named}${hard.length > 3 ? ', …' : ''}) → +${plural(total, 'line')} of effort credit`;
+  const pending = hard.every((d) => d.pending);
+  return `Fixed ${plural(hard.length, 'hard file')}${where} (${named}${hard.length > 3 ? ', …' : ''})${pending ? ' pending upstream merge' : ''} → +${plural(total, 'line')} of effort credit${pending ? ' once merged' : ''}`;
 }
 
 export function explain(ledger: Ledger, army: PreviewArmy, purpose: Purpose | null, extra: { filesChanged: number; estimated: number; truncated: boolean; unread?: boolean; uncounted?: readonly Uncounted[]; modules?: number; difficulty?: readonly PreviewDifficulty[]; repo?: string }): string[] {
@@ -311,8 +314,14 @@ export function explain(ledger: Ledger, army: PreviewArmy, purpose: Purpose | nu
   if ((ledger.bonus ?? 0) > eff.bonus) out.push(`The difficulty bonus counts at most ${BONUS_PER_CODE}× the code (and ${fmt(DAILY_BONUS_CAP)} lines a day)`);
   // How the army size was spent: specialists by what raised them, Footmen for the rest.
   const specialists: string[] = [];
-  const fixers = units(c, [Kind.Cleric, Kind.Paladin, Kind.Ranger]);
-  if (fixers) specialists.push(`${purpose ? 'bug fix' : 'bug fixes'} → ${fixers}`);
+  const fixers = units(c, [Kind.Ballista, Kind.Cleric, Kind.Paladin, Kind.Ranger]);
+  if (fixers) {
+    // A hard fix's difficulty bonus is fix work too: say how much of it raised the fixers.
+    const work = fixWork(ledger);
+    const code = ledger.purposeCode[PURPOSES.indexOf('fix')]!;
+    const from = work > code ? ` (${plural(code, 'line')} of fix code and ${plural(work - code, 'line')} of its difficulty bonus)` : '';
+    specialists.push(`${purpose ? 'bug fix' : 'bug fixes'}${from} → ${fixers}`);
+  }
   if (c[Kind.Dragon]! > 0) specialists.push(`legendary ${purpose === 'work' ? 'work' : 'feature'} (900+ lines, 10+ files, complexity ${DRAGON_COMPLEXITY[0]}+) → ${unit(Kind.Dragon, c[Kind.Dragon]!)}`);
   if (c[Kind.Champion]! > 0) specialists.push(`big feature (two per 400 feature lines and 5 files) → ${unit(Kind.Champion, c[Kind.Champion]!)}`);
   const refactor = units(c, [Kind.Outrider, Kind.GriffinRider]);

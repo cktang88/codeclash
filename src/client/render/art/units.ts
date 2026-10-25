@@ -1,4 +1,4 @@
-import { Kind } from '../../../sim/api.ts';
+import { KIND_COUNT, Kind } from '../../../sim/api.ts';
 import {
   BONE, BONE_DARK, CLOTH, FEATHER, GOLD, GOLD_HI, HORSE, HORSE_DARK, INK, IRON, LEATHER, LEATHER_DARK, LIGHT, SCALE, SCALE_DARK, SKIN, STEEL,
   STEEL_DARK, TROLL, TROLL_DARK, WOOD, WOOD_DARK,
@@ -36,8 +36,8 @@ export const CELLS: Record<number, CellSpec> = {};
 const STD: CellSpec = { size: 96, feetY: 84 };
 const BIG: CellSpec = { size: 128, feetY: 114 };
 const HUGE: CellSpec = { size: 192, feetY: 168 };
-for (let k = 0; k < 20; k++) CELLS[k] = STD;
-for (const k of [Kind.Knight, Kind.Trebuchet, Kind.GriffinRider, Kind.BoneGolem, Kind.Troll, Kind.Outrider]) CELLS[k] = BIG;
+for (let k = 0; k < KIND_COUNT; k++) CELLS[k] = STD;
+for (const k of [Kind.Knight, Kind.Trebuchet, Kind.Ballista, Kind.GriffinRider, Kind.BoneGolem, Kind.Troll, Kind.Outrider]) CELLS[k] = BIG;
 CELLS[Kind.Dragon] = HUGE;
 
 type Painter = (g: G, p: Pose) => void;
@@ -1257,6 +1257,171 @@ const PAINTERS: Record<number, Painter> = {
       c.quadraticCurveTo(38, 62 + fl(0.5), 27, 68);
       c.closePath();
     }, CLOTH, { team: true, outline: 1.6, box: [27, 53, 50, 68] });
+    g.ctx.restore();
+  },
+  [Kind.Ballista]: (g, p) => {
+    // 128 cell: a great crossbow on a wheeled carriage, built like the Trebuchet (same timber,
+    // wheels and iron), laid by one crewman in the army's pigment. It faces right.
+    //   idle: loaded, string spanned. attack: lay (-0.6), aim (-1), loose (1), wind back (0.45).
+    const atk = isAttack(p);
+    const fired = atk && p.swing > 0;
+    const dead = p.pose === 'die';
+    const loaded = !fired && !dead;
+    const roll = p.pose === 'walk' ? p.t * TAU * 0.5 : 0;
+    const jolt = p.pose === 'walk' ? Math.abs(Math.sin(p.t * TAU * 2)) * -1 : 0;
+    // The kick of the loose rocks the whole carriage back.
+    const recoil = atk && p.swing >= 0.95 ? -2.5 : 0;
+    // Elevation of the stock (negative raises the head).
+    const aim = dead ? 0.22
+      : atk ? (p.swing < 0 ? -0.08 + p.swing * 0.1 : p.swing >= 0.95 ? -0.13 : -0.05)
+      : p.pose === 'walk' ? 0.02 + Math.sin(p.t * TAU) * 0.01 : -0.07 + wave(p) * 0.012;
+    // The claw holding the string: spanned back, slack forward after the loose, half-wound on reload.
+    const claw = fired ? (p.swing >= 0.95 ? 90 : 72) : 50;
+    // Windlass spokes turn while it is wound back (and as it rolls).
+    const crank = atk ? (p.swing < 0 ? p.swing * 0.4 : p.swing * 2.4) : roll;
+
+    // ---- The crewman, behind the engine at its left: tabard and helm in the army's pigment.
+    g.ctx.save();
+    g.ctx.translate(-20, 31);
+    legs(g, p, { color: '#6b5236' });
+    upper(g, { ...p, swing: p.swing * 0.4 }, () => {
+      arm(g, 45, 44, 38, 54, GAMBESON, SKIN, -1);
+      torso(g, 39, 41, 19, 23, GAMBESON);
+      tabard(g, 41, 44, 15, 17);
+      head(g, 49, 32, 'kettle');
+      // His near hand on the windlass handle (or the trigger lever on the loose).
+      const [hx, hy] = rot(66, 35, 60, 37, crank * 0.5);
+      if (atk && p.swing >= 0.95) arm(g, 52, 44, 68, 40, GAMBESON, SKIN, 1);
+      else arm(g, 52, 44, hx, hy, GAMBESON, SKIN, 1);
+    });
+    g.ctx.restore();
+
+    g.ctx.save();
+    g.ctx.translate(recoil, jolt);
+    // ---- Carriage: two spoked wheels and a timber bed, as the Trebuchet's.
+    const wheel = (wx: number, shade: number) => {
+      circle(g, wx, 104, 10, tone(WOOD_DARK, shade), { box: [wx - 10, 94, wx + 10, 114] });
+      circle(g, wx, 104, 7, tone(WOOD, shade), { outline: 1.4, box: [wx - 7, 97, wx + 7, 111] });
+      lines(g, 2, tone(WOOD_DARK, shade - 0.1), (ctx) => {
+        for (let i = 0; i < 3; i++) {
+          const a = roll + (i * Math.PI) / 3;
+          ctx.moveTo(wx - Math.cos(a) * 6.5, 104 - Math.sin(a) * 6.5);
+          ctx.lineTo(wx + Math.cos(a) * 6.5, 104 + Math.sin(a) * 6.5);
+        }
+      });
+      circle(g, wx, 104, 2.3, IRON, { outline: 1.2, flat: true, box: [wx - 3, 101, wx + 3, 107] });
+      rivets(g, [wx - 9, 104, wx + 9, 104, wx, 95, wx, 113], 0.7);
+    };
+    wheel(46, -0.2);
+    wheel(88, -0.2);
+    poly(g, [28, 98, 106, 98, 102, 90, 32, 90], WOOD_DARK, { box: [28, 90, 106, 98] });
+    lines(g, 0.8, 'rgba(34,24,15,0.4)', (ctx) => {
+      for (let x = 36; x < 102; x += 9) {
+        ctx.moveTo(x, 91);
+        ctx.lineTo(x + 2, 97);
+      }
+    });
+    // Trestle: a squat A-frame under the stock's pivot, cross-braced.
+    poly(g, [52, 92, 63, 66, 69, 66, 60, 92], WOOD, { box: [52, 66, 69, 92] });
+    poly(g, [78, 92, 65, 66, 71, 66, 86, 92], WOOD, { box: [65, 66, 86, 92] });
+    stick(g, 57, 82, 81, 82, 3, WOOD_DARK, 1.6);
+    rivets(g, [59, 82, 79, 82], 0.8);
+    // Windlass post at the rear, with its drum.
+    poly(g, [34, 90, 38, 62, 43, 62, 41, 90], WOOD_DARK, { box: [34, 62, 43, 90] });
+
+    // ---- The stock, the bow and the bolt, laid on the pivot.
+    pivot(g, 66, 66, aim, () => {
+      // Stock (the tiller), with its groove.
+      poly(g, [34, 62, 104, 61, 104, 69, 34, 70], WOOD, { box: [34, 61, 104, 70] });
+      lines(g, 1, 'rgba(34,24,15,0.55)', (ctx) => {
+        ctx.moveTo(40, 62.8);
+        ctx.lineTo(102, 62.2);
+      });
+      stick(g, 46, 66, 62, 66, 2, IRON, 1);
+      rivets(g, [38, 66, 70, 65.6, 88, 65.4], 0.8);
+      // Windlass drum and its spokes at the rear of the stock.
+      circle(g, 40, 68, 5.2, WOOD_DARK, { outline: 1.6, box: [35, 63, 45, 73] });
+      lines(g, 2.2, WOOD, (ctx) => {
+        for (let i = 0; i < 2; i++) {
+          const a = crank + (i * Math.PI) / 2;
+          ctx.moveTo(40 - Math.cos(a) * 9, 68 - Math.sin(a) * 9);
+          ctx.lineTo(40 + Math.cos(a) * 9, 68 + Math.sin(a) * 9);
+        }
+      });
+      circle(g, 40, 68, 1.8, IRON, { flat: true, outline: 0.8, box: [38, 66, 42, 70] });
+      // The bow: twin torsion skeins in the iron-bound head, arms swept back to their tips.
+      const tipUp: [number, number] = dead ? [94, 48] : [90, 40];
+      const tipDn: [number, number] = dead ? [96, 84] : [90, 90];
+      const flex = fired && p.swing >= 0.95 ? 3 : loaded ? -2 : 0;
+      curve(g, 101, 61, 104 + flex, 48, tipUp[0], tipUp[1], 4.2, WOOD, 1.8);
+      curve(g, 101, 70, 104 + flex, 82, tipDn[0], tipDn[1], 4.2, tone(WOOD, -0.12), 1.8);
+      rect(g, 96, 56, 11, 18, 2, IRON, { outline: 1.8, box: [96, 56, 107, 74] });
+      for (const sy of [58.5, 69]) {
+        rect(g, 98, sy, 7, 4.5, 1.5, '#cfc4ad', { outline: 1, box: [98, sy, 105, sy + 4.5] });
+        lines(g, 0.6, 'rgba(34,24,15,0.5)', (ctx) => {
+          for (let x = 99.5; x < 105; x += 1.6) {
+            ctx.moveTo(x, sy + 0.4);
+            ctx.lineTo(x - 0.8, sy + 4.1);
+          }
+        });
+      }
+      rivets(g, [97.5, 57.5, 105.5, 57.5, 97.5, 72.5, 105.5, 72.5], 0.7);
+      glint(g, 98, 57.2, 104, 57.2, 0.9);
+      // The string, from tip to tip by way of the claw.
+      if (!dead) {
+        paint(g, (ctx) => {
+          ctx.strokeStyle = INK;
+          ctx.lineWidth = 2.2;
+          ctx.lineJoin = 'round';
+          ctx.beginPath();
+          ctx.moveTo(tipUp[0], tipUp[1]);
+          ctx.lineTo(claw, 63);
+          ctx.lineTo(tipDn[0], tipDn[1]);
+          ctx.stroke();
+          ctx.strokeStyle = '#e8dcc0';
+          ctx.lineWidth = 1;
+          ctx.stroke();
+        });
+      } else {
+        // A snapped string hangs from the upper arm.
+        curve(g, tipUp[0], tipUp[1], tipUp[0] - 6, tipUp[1] + 10, tipUp[0] - 2, tipUp[1] + 20, 1, '#e8dcc0', 0.8);
+      }
+      // The claw (nut) on its slider.
+      rect(g, claw - 3, 59.5, 6, 4, 1, IRON, { outline: 1.2, box: [claw - 3, 59.5, claw + 3, 63.5] });
+      if (loaded) {
+        // A heavy bolt laid in the groove: ash shaft, vellum vanes, a long iron head.
+        stick(g, claw + 2, 60.4, 104, 60, 2.6, '#c9a46a', 1.4);
+        poly(g, [claw + 3, 57, claw + 11, 59.6, claw + 3, 60.2], '#efe4c8', { outline: 1, box: [claw + 3, 57, claw + 11, 60.2] });
+        poly(g, [104, 57.6, 118, 60, 104, 62.4], STEEL_DARK, { outline: 1.4, box: [104, 57.6, 118, 62.4] });
+        glint(g, 106, 59, 113, 59.6, 0.8);
+      }
+      if (atk && p.swing >= 0.95) {
+        // The loose: a thrum in the string and a streak where the bolt left the groove.
+        paint(g, (ctx) => {
+          ctx.strokeStyle = 'rgba(255,241,207,0.8)';
+          ctx.lineWidth = 2;
+          ctx.lineCap = 'round';
+          for (const dy of [-3, 0, 3]) {
+            ctx.beginPath();
+            ctx.moveTo(108, 60 + dy);
+            ctx.lineTo(124, 59.5 + dy * 1.4);
+            ctx.stroke();
+          }
+        });
+        glow(g, 110, 60, 9, '#fff1cf', 0.55);
+      }
+    });
+
+    // ---- A team pennant on the windlass post.
+    stick(g, 39, 64, 39, 40, 2.4, WOOD_DARK, 1.4);
+    const fl = (u: number) => Math.sin(p.t * TAU - u * 3) * 2 * u;
+    part(g, () => {
+      const c = g.ctx;
+      c.moveTo(40, 41);
+      c.quadraticCurveTo(50, 42 + fl(0.5), 60, 46 + fl(1));
+      c.quadraticCurveTo(50, 49 + fl(0.5), 40, 54);
+      c.closePath();
+    }, CLOTH, { team: true, outline: 1.6, box: [40, 41, 60, 54] });
     g.ctx.restore();
   },
   [Kind.Outrider]: (g, p) => {

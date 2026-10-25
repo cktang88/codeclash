@@ -1,11 +1,13 @@
 import { Kind, type World } from './api.ts';
 import { computeRing, type Ring } from './ring.ts';
 import { createSpatialHash, rebuildSpatialHash, type SpatialHash } from './spatial.ts';
-import { MAX_ALIVE, STATS } from './stats.ts';
+import { MAX_ALIVE, STATS, isSiege } from './stats.ts';
 
 export const AURA_SHIELD = 1;
 export const AURA_HEAL = 2;
 export const AURA_VALOR = 4;
+/** Within a friendly Cleric's blessing: a fall here costs its platoon half the morale. */
+export const AURA_BLESS = 8;
 
 /** Per-tick working memory. Rebuilt from World every tick, never serialized. */
 export interface Scratch {
@@ -221,7 +223,7 @@ export function indexWorld(world: World, s: Scratch, speedOf: (kind: number) => 
     if (u.kind === Kind.Champion || u.kind === Kind.Dragon) s.champions[pl]!++;
     const sp = speedOf(u.kind);
     if (sp < s.slowestAll[pl]!) s.slowestAll[pl] = sp;
-    if (STATS[u.kind]!.flying || u.kind === Kind.Trebuchet) continue;
+    if (STATS[u.kind]!.flying || isSiege(u.kind)) continue;
     if (sp < s.slowest[pl]!) s.slowest[pl] = sp;
   }
   // A platoon of siege engines and fliers alone marches at its own slowest pace.

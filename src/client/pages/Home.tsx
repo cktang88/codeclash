@@ -300,7 +300,7 @@ function JoinByLink() {
 
 const HOW = [
   { kind: Kind.Footman, title: 'Push', text: 'Every push to a public repo is weighed for its code: how much, how many files, how tangled. Generated code weighs nothing.' },
-  { kind: Kind.Cleric, title: 'Muster', text: 'What the code is for picks the specialists: fixes bring clerics, features champions, refactors outriders. Spam musters a ragged rabble.' },
+  { kind: Kind.Cleric, title: 'Muster', text: 'What the code is for picks the specialists: fixes bring ballistae and clerics, features champions, refactors outriders. Spam musters a ragged rabble.' },
   { kind: Kind.Champion, title: 'War', text: 'Capitals stand on a ring and you fight your two neighbours. Take their forts, storm their walls, hold the whole ring to win. At the reset its chronicle is written.' },
 ];
 

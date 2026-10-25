@@ -1,5 +1,5 @@
 import type { CueLimits } from './mixer.ts';
-import { bell, boom, bowstring, choir, clatter, crack, drum, fire, horn, roar, sparkle, stopAfter, tick, track, whoosh, type Voice } from './synth.ts';
+import { bell, boom, bowstring, choir, clatter, crack, drum, envelope, fire, horn, osc, roar, sparkle, stopAfter, tick, track, whoosh, type Voice } from './synth.ts';
 
 /** Plays a bundled sample; returns its length in seconds, or 0 if it has not loaded. */
 export type SamplePlayer = (name: string, opts?: { gain?: number; rate?: number; delay?: number }) => number;
@@ -91,6 +91,38 @@ export const CUES: Record<string, Cue> = {
     s(pick(v, 'stone', 3), { gain: 0.6, rate: 0.8 * vary(v, 0.08) });
     return 1;
   }, 200, 2, 1000),
+  'ballista-loose': combat((v, s) => {
+    // The windlass pawl lets go: a deep twang of the skeins, the stock's creak, the bolt's hiss.
+    osc(v, 'triangle', 92 * vary(v, 0.05), envelope(v, 0.32, 0.002, 0.22), v.t, v.t + 0.26, 58);
+    s('creak-1', { gain: 0.35, rate: 1.25 * vary(v, 0.06) });
+    whoosh(v, 0.32, 2600, 700, 0.2, v.t + 0.03);
+    return 0.45;
+  }, 220, 2, 500),
+  'ballista-thunk': combat((v, s) => {
+    // The bolt drives home: a heavy wooden thunk with an iron bite.
+    const thud = s(pick(v, 'thud', 3), { gain: 0.95, rate: 0.62 * vary(v, 0.06) });
+    s(pick(v, 'clash', 6), { gain: 0.22, rate: 0.55, delay: 0.01 });
+    boom(v, 105, 0.22, 0.32);
+    return Math.max(0.35, thud);
+  }, 110, 3, 450),
+  'bolt-pierce': combat((v, s) => {
+    // Through one and into the next: a splintering crack, then a second, duller thunk.
+    crack(v, 0.22);
+    return Math.max(0.3, s(pick(v, 'thud', 3), { gain: 0.6, rate: 0.75, delay: 0.06 }));
+  }, 150, 2, 400),
+  smite: combat((v) => {
+    // A radiant smite: a bright bell struck on the fifth with a shimmer of motes.
+    bell(v, A4 * 2, 0.11, 0.5);
+    bell(v, D5 * 2, 0.05, 0.35, v.t + 0.03);
+    return Math.max(0.5, sparkle(v, 0.05, 3, v.t + 0.02));
+  }, 140, 2, 600),
+  cleanse: combat((v) => {
+    // Fire washed away: a soft rising chime over a breath of air.
+    bell(v, D5, 0.07, 0.7);
+    bell(v, A4 * 1.5, 0.05, 0.6, v.t + 0.09);
+    whoosh(v, 0.35, 800, 2400, 0.05);
+    return 0.8;
+  }, 400, 1, 900),
   'dragon-breath': combat((v) => {
     roar(v, 70, 0.6, 0.25);
     return fire(v, 1.6, 0.5, v.t + 0.08);

@@ -39,6 +39,7 @@ const AWARD_ICON: Record<string, () => ReactNode> = {
   architect: () => <UnitIcon kind={Kind.Knight} size={26} title="" />,
   dragonlord: () => <UnitIcon kind={Kind.Dragon} size={26} title="" />,
   dragonslayer: () => <EventIcon kind="dragon" size={26} />,
+  dragonbane: () => <UnitIcon kind={Kind.Ballista} size={26} title="" />,
 };
 
 /**

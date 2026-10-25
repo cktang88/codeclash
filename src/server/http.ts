@@ -41,6 +41,7 @@ import type { DifficultyContext } from './difficulty.ts';
 import type { GithubClient } from './github.ts';
 import type { Parser } from './parsePool.ts';
 import type { PushReport } from './poller.ts';
+import type { UpstreamWatcher } from './upstream.ts';
 import { PREVIEW_STATUS, PreviewFailure, type Preview } from './preview.ts';
 import { isoDay, RoomFailure, Rooms, userRef } from './rooms.ts';
 import { readSession, SESSION_COOKIE } from './session.ts';
@@ -58,6 +59,8 @@ export interface HttpDeps extends AuthDeps {
   /** Difficulty context and parsing for pushes the webhook delivers, as for the poller's. */
   context?: DifficultyContext | null;
   parser?: Parser | null;
+  /** Forks' deferred bonus: a webhook's merged pull request wakes its checks. */
+  upstream?: UpstreamWatcher | null;
 }
 
 /** Army previews one address may ask for a minute. */
@@ -620,7 +623,7 @@ export async function buildHttp(deps: HttpDeps): Promise<FastifyInstance> {
   }
 
   registerAuth(app, deps);
-  registerHooks(app, { store, github: deps.github, log: deps.log, clock, onPush: deps.onPush, context: deps.context ?? null, parser: deps.parser ?? null });
+  registerHooks(app, { store, github: deps.github, log: deps.log, clock, onPush: deps.onPush, context: deps.context ?? null, parser: deps.parser ?? null, upstream: deps.upstream ?? null });
 
   const clientDir = resolve(config.clientDir);
   if (existsSync(clientDir)) {

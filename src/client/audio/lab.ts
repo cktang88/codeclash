@@ -4,7 +4,7 @@ const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as 
 const groups: Record<string, string[]> = { Codex: [], Combat: [], 'Set pieces': [] };
 for (const name of CUE_NAMES) {
   if (name.startsWith('ui.')) groups.Codex!.push(name);
-  else if (/^(swing|hit-|bow-|arrow-|tower-|fireball-|trebuchet-|boulder-|dragon-breath|heal|death|troll-|march-)/.test(name)) groups.Combat!.push(name);
+  else if (/^(swing|hit-|bow-|arrow-|tower-|fireball-|trebuchet-|boulder-|ballista-|bolt-|smite|cleanse|dragon-breath|heal|death|troll-|march-)/.test(name)) groups.Combat!.push(name);
   else groups['Set pieces']!.push(name);
 }
 const host = $<HTMLDivElement>('cues');

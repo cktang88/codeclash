@@ -57,18 +57,49 @@ export const STATS: readonly UnitStats[] = [
   { ...base, name: 'Mercenary', plural: 'Mercenaries', role: 'Hired blade; leaves when the contract ends', tier: 'base', hp: 130, damage: 16, range: 13, speed: 1.8, cooldown: 6, aggro: 120, ranged: false, value: 2, rank: 1, source: 'Chores and dependency bumps: in pairs, up to 6', slots: 1, size: 6 },
   { ...base, name: 'Troll', plural: 'Trolls', role: 'Hulking brute of tangled logic; regenerates its wounds', tier: 'elite', hp: 600, damage: 24, range: 16, speed: 1.2, cooldown: 9, aggro: 110, ranged: false, value: 6, rank: 0, source: 'Very complex code: two per 215 points of complexity once past 200 code lines, up to 6', slots: 3, regen: 1.2, size: 13 },
   { ...base, name: 'Berserker', plural: 'Berserkers', role: 'Untested, uncommented fury; hits hard, dies fast', tier: 'special', hp: 120, damage: 26, range: 13, speed: 2.1, cooldown: 5, aggro: 130, ranged: false, value: 2, rank: 1, source: 'Untested, uncommented code: a third of the Footmen, each taking two places', slots: 1, size: 6 },
-  { ...base, name: 'Cleric', plural: 'Clerics', role: 'Raised by bug fixes; mends the wounded', tier: 'special', hp: 90, damage: 5, range: 13, speed: 1.5, cooldown: 10, aggro: 110, ranged: false, value: 3, rank: 3, source: 'Bug fixes: √(fix code) ÷ 2.5, in pairs', slots: 1, heal: 22, size: 6 },
+  { ...base, name: 'Cleric', plural: 'Clerics', role: 'Battle priest: smites the foe, mends the wounded, cleanses fire and steadies the ranks', tier: 'special', hp: 90, damage: 8, range: 60, speed: 1.5, cooldown: 10, aggro: 110, ranged: true, value: 3, rank: 3, source: 'Bug fixes: √(fix work) ÷ 2.5, in pairs; fix work is fix code plus its difficulty bonus', slots: 1, heal: 22, size: 6 },
   { ...base, name: 'Champion', plural: 'Champions', role: 'Hero of a big push; steadies all around it', tier: 'hero', hp: 520, damage: 26, range: 16, speed: 1.5, cooldown: 7, aggro: 140, ranged: false, value: 10, rank: 2, source: 'Big features: two per 400 feature lines and 5 files, up to 6', slots: 2, size: 10 },
   { ...base, name: 'Dragon', plural: 'Dragons', role: 'Legendary; breathes fire across whole ranks', tier: 'legend', hp: 2400, damage: 24, range: 70, speed: 2.0, cooldown: 10, aggro: 150, ranged: true, value: 30, rank: 6, source: 'Legendary features: 900+ lines, 10+ files, complexity 130+', slots: 6, flying: true, breath: true, size: 22 },
+  { ...base, name: 'Ballista', plural: 'Ballistae', role: 'Crewed bolt-thrower; armour-piercing bolts that bring down the big', tier: 'elite', hp: 210, damage: 42, range: 150, speed: 0.9, cooldown: 20, aggro: 165, ranged: true, value: 5, rank: 5, source: 'Bug fixes: two per 250 lines of fix work (fix code plus its difficulty bonus)', slots: 2, size: 10 },
 ];
+
+/** A big soldier: size 9 or more (Knights, Paladins, Champions, Trolls, Bone Golems, Trebuchets, Ballistae, Griffin Riders, Dragons). */
+export function isBig(kind: Kind): boolean {
+  return STATS[kind]!.size >= 9;
+}
+
+/** Siege engines: a column lets them trail, and its pace is not held to theirs. */
+export function isSiege(kind: Kind): boolean {
+  return kind === Kind.Trebuchet || kind === Kind.Ballista;
+}
+
+/** A Ballista's bolt against big soldiers, and against fliers (the classic anti-dragon weapon). */
+export const BALLISTA_BIG = 2;
+export const BALLISTA_FLIER = 2.5;
+/** A Ballista cannot lay its bolt on a foe this close: its crew fights with sidearms, for this share. */
+export const BALLISTA_CLOSE = 30;
+export const BALLISTA_CLOSE_FACTOR = 0.35;
+/** The bolt flies on through its victim into the next foe in line within this reach, for this share. */
+export const BALLISTA_PIERCE_REACH = 45;
+export const BALLISTA_PIERCE = 0.5;
+/** A Cleric's smite against the undead raised by reverts. */
+export const CLERIC_UNDEAD = 2.5;
+/** A Cleric's aura: allies in it are cleansed of fire on each blessing, and lose half the morale for a fall. */
+export const CLERIC_AURA = 50;
 
 /** Bonus multiplier when `attacker` strikes `victim`. */
 export function matchup(attacker: Kind, victim: Kind): number {
   const v = STATS[victim]!;
   switch (attacker) {
     case Kind.Footman:
-    case Kind.Knight:
       return victim === Kind.Outrider || victim === Kind.Knight ? 1.6 : 1;
+    case Kind.Knight:
+      // Lancers ride down an engine's crew.
+      return victim === Kind.Outrider || victim === Kind.Knight || victim === Kind.Ballista ? 1.6 : 1;
+    case Kind.Ballista:
+      return v.flying ? BALLISTA_FLIER : v.size >= 9 ? BALLISTA_BIG : 1;
+    case Kind.Cleric:
+      return victim === Kind.Skeleton || victim === Kind.BoneGolem ? CLERIC_UNDEAD : 1;
     case Kind.Archer:
     case Kind.Ranger:
       if (v.flying) return 1.8;

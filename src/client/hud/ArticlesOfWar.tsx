@@ -12,7 +12,7 @@ const TIER_LABEL: Record<Tier, string> = { base: 'Line', elite: 'Elite', special
 /** Units grouped by what in a push raises them: the code itself, the commit's purpose, then small support. */
 export const UNIT_GROUPS: readonly { label: string; note: string; kinds: readonly Kind[] }[] = [
   { label: 'The code itself', note: 'Size, files touched and complexity', kinds: [Kind.Footman, Kind.Knight, Kind.Troll, Kind.Berserker, Kind.Trebuchet] },
-  { label: 'Bug fixes', note: 'Commit messages with fix, bug, hotfix, crash or regression', kinds: [Kind.Cleric, Kind.Paladin, Kind.Ranger] },
+  { label: 'Bug fixes', note: 'Commit messages with fix, bug, hotfix, crash or regression; a hard fix’s difficulty bonus counts as fix work', kinds: [Kind.Ballista, Kind.Cleric, Kind.Paladin, Kind.Ranger] },
   { label: 'Features', note: 'feat:, add, implement, introduce, support', kinds: [Kind.Champion, Kind.Dragon] },
   { label: 'Refactors', note: 'refactor:, clean up, simplify, remove, and deleted code', kinds: [Kind.Outrider, Kind.GriffinRider] },
   { label: 'Performance', note: 'perf:, optimize, faster, cache', kinds: [Kind.Wizard] },
@@ -34,8 +34,9 @@ const HOW_IT_WORKS = [
     {GATE_CAP}. The bonus counts as code, up to {DAILY_BONUS_CAP.toLocaleString('en-US')} lines a day.
   </>,
   <>
-    <strong>Purpose picks the specialists.</strong> The commit message decides who joins them: bug fixes bring Clerics and Paladins, features bring Champions, refactors bring cavalry,
-    and reverts raise the dead.
+    <strong>Purpose picks the specialists.</strong> The commit message decides who joins them: bug fixes bring Ballistae (armour-piercing bolts, deadly to Dragons, Trolls and
+    every big soldier), battle-priest Clerics, Paladins and Rangers; features bring Champions, refactors bring cavalry, and reverts raise the dead. A hard fix’s difficulty bonus
+    counts as fix work.
   </>,
   <>
     <strong>Complexity earns heavy units.</strong> Complexity is read from the code’s syntax: each decision (if, loops, case arms, catch, &amp;&amp;, ||) is a point, each new

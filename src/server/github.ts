@@ -110,6 +110,29 @@ export interface GithubClient {
   repoFacts?(repo: string): Promise<RepoFacts | null>;
   /** Bytes per language; null when missing. */
   languages?(repo: string): Promise<Record<string, number> | null>;
+  /**
+   * How `head` stands against `base` in `repo` (`GET /compare/{base}...{head}`, one commit asked for):
+   * `behind` or `identical` means `head` is already in `base`. Null when either is missing.
+   */
+  compareStatus?(repo: string, base: string, head: string): Promise<CompareStatus | null>;
+  /** Closed pull requests into `repo` from `head` (`owner:branch`), newest first (at most 10); null when the repository is missing. */
+  closedPulls?(repo: string, head: string): Promise<PullSummary[] | null>;
+  /** The commits of pull request `number` (at most 100, the head branch's own shas); null when missing. */
+  pullCommits?(repo: string, number: number): Promise<string[] | null>;
+}
+
+export type CompareStatus = 'ahead' | 'behind' | 'identical' | 'diverged';
+
+/** A pull request as the upstream check needs it. */
+export interface PullSummary {
+  number: number;
+  /** ms since the epoch, or null when it was closed without merging. */
+  mergedAt: number | null;
+  /** The merge, squash or rebase result on the base branch. */
+  mergeSha: string | null;
+  /** The branch it was merged into. */
+  base: string;
+  headSha: string | null;
 }
 
 export class GithubError extends Error {
@@ -174,6 +197,17 @@ const SourceSchema = z
     created_at: z.string().nullable().optional(),
     stargazers_count: z.number().optional().default(0),
     forks_count: z.number().optional().default(0),
+    default_branch: z.string().nullable().optional(),
+  })
+  .loose();
+
+const PullSchema = z
+  .object({
+    number: z.number().int(),
+    merged_at: z.string().nullable().optional(),
+    merge_commit_sha: z.string().nullable().optional(),
+    base: z.object({ ref: z.string() }).loose(),
+    head: z.object({ sha: z.string().nullable().optional() }).loose().nullable().optional(),
   })
   .loose();
 
@@ -186,6 +220,7 @@ const RepoFactsSchema = z
     forks_count: z.number().optional().default(0),
     size: z.number().optional().default(0),
     source: SourceSchema.nullable().optional(),
+    parent: SourceSchema.nullable().optional(),
   })
   .loose();
 
@@ -440,8 +475,39 @@ export function createGithubClient(token: string | null, fetchImpl: typeof fetch
       if (r.status === 404 || r.status === 451) return null;
       if (r.status !== 200) return fail(r.res, `repo ${repo}`);
       const b = RepoFactsSchema.parse(r.body);
-      const source = b.fork && b.source ? { fullName: b.source.full_name, createdAt: parseDate(b.source.created_at), stars: b.source.stargazers_count, forks: b.source.forks_count } : null;
-      return { fullName: b.full_name, fork: b.fork, createdAt: parseDate(b.created_at), stars: b.stargazers_count, forks: b.forks_count, sizeKb: b.size, source };
+      const source = b.fork && b.source ? { fullName: b.source.full_name, createdAt: parseDate(b.source.created_at), stars: b.source.stargazers_count, forks: b.source.forks_count, ...(b.source.default_branch ? { defaultBranch: b.source.default_branch } : {}) } : null;
+      const parent = b.fork && b.parent ? { fullName: b.parent.full_name, defaultBranch: b.parent.default_branch ?? 'main' } : null;
+      return { fullName: b.full_name, fork: b.fork, createdAt: parseDate(b.created_at), stars: b.stargazers_count, forks: b.forks_count, sizeKb: b.size, source, parent };
+    },
+
+    async compareStatus(repo, base, head) {
+      const res = await get(`/repos/${repoPath(repo)}/compare/${encodeURIComponent(base)}...${encodeURIComponent(head)}?per_page=1`);
+      if (res.status === 404 || res.status === 422) return null;
+      if (!res.ok) return fail(res, `compare ${repo}`);
+      const status = z.object({ status: z.string() }).loose().parse(await res.json()).status;
+      return status === 'ahead' || status === 'behind' || status === 'identical' || status === 'diverged' ? status : null;
+    },
+
+    async closedPulls(repo, head) {
+      const r = await getJson(`/repos/${repoPath(repo)}/pulls?state=closed&head=${encodeURIComponent(head)}&sort=updated&direction=desc&per_page=10`);
+      if (r.status === 404 || r.status === 422) return null;
+      if (r.status !== 200) return fail(r.res, `pulls of ${repo}`);
+      return z.array(z.unknown()).parse(r.body).flatMap((x) => {
+        const p = PullSchema.safeParse(x);
+        if (!p.success) return [];
+        const d = p.data;
+        return [{ number: d.number, mergedAt: d.merged_at ? parseDate(d.merged_at) || null : null, mergeSha: d.merge_commit_sha ?? null, base: d.base.ref, headSha: d.head?.sha ?? null }];
+      });
+    },
+
+    async pullCommits(repo, number) {
+      const r = await getJson(`/repos/${repoPath(repo)}/pulls/${number}/commits?per_page=100`);
+      if (r.status === 404 || r.status === 422) return null;
+      if (r.status !== 200) return fail(r.res, `commits of ${repo}#${number}`);
+      return z.array(z.unknown()).parse(r.body).flatMap((x) => {
+        const c = z.object({ sha: z.string() }).loose().safeParse(x);
+        return c.success ? [c.data.sha] : [];
+      });
     },
 
     async languages(repo) {

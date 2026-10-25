@@ -41,6 +41,8 @@ const HUNT_LINES: Partial<Record<Kind, readonly string[]>> = {
   [Kind.Archer]: ['Archers! Close with them!', 'At the bowmen, before they loose again!'],
   [Kind.Ranger]: ['Rangers in the trees — at them!', 'Close the distance!'],
   [Kind.Wizard]: ['Get the fire-caster!', 'At the wizard, quick!'],
+  [Kind.Ballista]: ['Ballista! Get under its bolts!', 'Ride down the bolt-thrower!', 'Cut the crew from that engine!'],
+  [Kind.Cleric]: ['That priest is smiting us — at them!', 'Silence the cleric!'],
   [Kind.Dragon]: ['The wyrm! Spears up!', 'Bring down the dragon!'],
 };
 

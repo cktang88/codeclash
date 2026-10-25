@@ -36,11 +36,15 @@ export interface Replay {
  *   rows from before complexity was parsed end at filler, and decode with no functions or links; the
  *   difficulty bonus is written only when nonzero, so older rows and pushes without it end at links)
  *
+ * [tick, 'upstream', p, repo, bonus, day]
+ *   (a fork's deferred difficulty bonus, found upstream after its day `day` and credited to this war)
+ *
  * Replays of older wars may also hold the retired manual commands (see RetiredInput).
  */
 export type EncodedInput =
   | [number, 'join', number, number, number]
   | [number, 'push', number, number, number[], number, string, number?, number?, number?, number?, number?, number?, number?]
+  | [number, 'upstream', number, number, number, number]
   | RetiredInput;
 
 /**
@@ -60,6 +64,8 @@ export function encodeInput(tick: number, input: SimInput): EncodedInput {
       return input.bonus
         ? [tick, 'push', input.p, input.repo, cleanLines(input.lines), input.commits, input.msg, input.files, input.branches, input.churn, input.filler, input.functions ?? 0, input.links ?? 0, input.bonus]
         : [tick, 'push', input.p, input.repo, cleanLines(input.lines), input.commits, input.msg, input.files, input.branches, input.churn, input.filler, input.functions ?? 0, input.links ?? 0];
+    case 'upstream':
+      return [tick, 'upstream', input.p, input.repo, input.bonus, input.day];
   }
 }
 
@@ -80,6 +86,8 @@ export function decodeInput(e: EncodedInput): { tick: number; input: SimInput } 
       if (!Array.isArray(e[4])) throw new Error(`malformed replay push ${JSON.stringify(e)}`);
       return { tick, input: { kind: 'push', p: e[2], repo: e[3], lines: cleanLines(e[4]), commits: e[5], msg: typeof e[6] === 'string' ? e[6] : '', files: e[7] ?? 0, branches: e[8] ?? 0, churn: e[9] ?? 0, filler: e[10] ?? 0, functions: e[11] ?? 0, links: e[12] ?? 0, ...(e[13] ? { bonus: e[13] } : {}) } };
     }
+    case 'upstream':
+      return { tick, input: { kind: 'upstream', p: e[2], repo: e[3], bonus: typeof e[4] === 'number' ? e[4] : 0, day: typeof e[5] === 'number' ? e[5] : 0 } };
     default:
       if (RETIRED.has(e[1])) return null;
       throw new Error(`unknown replay input ${JSON.stringify(e)}`);

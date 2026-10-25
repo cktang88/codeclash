@@ -7,6 +7,7 @@ import {
   bonusMilli,
   changedLinesOf,
   DAILY_BONUS_CAP,
+  EFFORT_REPEAT_DAYS,
   FILE_CAP,
   FILE_CREDIT,
   fileContext,
@@ -22,12 +23,14 @@ import {
   repoGate,
   repoOrigin,
   s,
+  upstreamOf,
+  upstreamReward,
   type FileContext,
   type PushContext,
   type RawFileFacts,
   type RepoFacts,
 } from './difficulty.ts';
-import { measurePush, MemoryLedger, type PushDelta } from './ledger.ts';
+import { dayBonusTotals, measurePush, MemoryLedger, type PushDelta } from './ledger.ts';
 
 beforeAll(() => loadAllGrammars());
 
@@ -250,10 +253,10 @@ describe('the bonus in the ledger', () => {
     const effort = Math.floor((FILE_CREDIT * 1000) / 2200);
     expect(a.bonus).toBe(10 + effort);
     expect(bonusOf([a, b])).toBe(20 + effort);
-    // The next day the file is seen afresh.
+    // The next day the file is seen afresh: a new multiplier (its effort credit waits out the repeat window).
     store.today++;
     const c = measurePush([edit(CORE, 90, code(10, 'e'), code(10, 'f'))], store, contextOf(ctx(CORE, 3.2, range(90, 10))));
-    expect(c.bonus).toBe(22 + FILE_CREDIT);
+    expect(c.bonus).toBe(22);
   });
 
   it('a modification reverted the same day takes its bonus back exactly', () => {
@@ -357,5 +360,112 @@ describe('the effort credit', () => {
     expect(ws.bonus).toBe(0);
     const own = measurePush([edit(CORE, 10, lines, code(10, 'mine'))], new MemoryLedger(), contextOf(ctx(CORE, 3.2, [])));
     expect(own.bonus).toBe(0);
+  });
+});
+
+describe('a fork’s bonus waits for the upstream', () => {
+  const CORE = 'src/core.ts';
+  const UP = { repo: 'big/project', branch: 'main' };
+  const forkOf = (...files: FileContext[]): PushContext => ({ ...contextOf(...files), upstream: UP });
+  const pendingOf = (deltas: readonly PushDelta[]) => deltas.reduce((n, d) => ({ bonusMilli: n.bonusMilli + (d.pending?.bonusMilli ?? 0), effortMilli: n.effortMilli + (d.pending?.effortMilli ?? 0) }), { bonusMilli: 0, effortMilli: 0 });
+
+  it('a fork push pays no bonus and no effort credit at push time: M counts as 1, and what is owed waits', () => {
+    const before = code(25, 'orig');
+    const after = code(25, 'patched');
+    const plain = measurePush([edit(CORE, 10, before, after)], new MemoryLedger(), contextOf(ctx(CORE, 3.2, range(10, 25))));
+    const store = new MemoryLedger();
+    const fork = measurePush([edit(CORE, 10, before, after)], store, forkOf(ctx(CORE, 3.2, range(10, 25))));
+    expect(plain.bonus).toBe(55 + FILE_CREDIT);
+    expect(fork.bonus).toBe(0);
+    expect(fork.lines[Cat.Code]).toBe(plain.lines[Cat.Code]);
+    expect(fork.pending).toEqual({ bonusMilli: 55_000, effortMilli: FILE_CREDIT * 1000 });
+    expect(fork.difficulty!.every((n) => n.pending)).toBe(true);
+    // Nothing of it is in the day's immediate totals, which the reward is capped against.
+    expect(dayBonusTotals(store)).toEqual({ bonusMilli: 0, effortMilli: 0 });
+    // Found upstream, it is worth exactly what the same push earned in a repository of its own.
+    expect(upstreamReward(dayBonusTotals(store), [fork.pending!], 0)).toBe(plain.bonus);
+    // A repository that is not a fork has no upstream; a fork GitHub names none for waits for ever.
+    expect(upstreamOf({ fullName: 'a/b', fork: false, createdAt: 0, stars: 0, forks: 0, sizeKb: 0 })).toBeNull();
+    expect(upstreamOf({ fullName: 'a/b', fork: true, createdAt: 0, stars: 0, forks: 0, sizeKb: 0, parent: { fullName: 'x/b', defaultBranch: 'dev' } })).toEqual({ repo: 'x/b', branch: 'dev' });
+  });
+
+  it('split = squash for the pending bonus, and a same-day revert takes it back', () => {
+    const lines = code(30, 'theirs');
+    const mine = code(30, 'mine');
+    const squash = measurePush([edit(CORE, 10, lines, mine)], new MemoryLedger(), forkOf(ctx(CORE, 2.6, range(10, 30))));
+    const store = new MemoryLedger();
+    const parts = [0, 1, 2].map((i) => measurePush([edit(CORE, 10 + 10 * i, lines.slice(10 * i, 10 * i + 10), mine.slice(10 * i, 10 * i + 10))], store, forkOf(ctx(CORE, 2.6, range(10 + 10 * i, 10)))));
+    expect(pendingOf(parts)).toEqual(squash.pending);
+    expect(bonusOf(parts)).toBe(0);
+    const revert = measurePush([edit(CORE, 10, mine, lines)], store, forkOf(ctx(CORE, 2.6, [])));
+    expect(pendingOf([...parts, revert])).toEqual({ bonusMilli: 0, effortMilli: 0 });
+  });
+
+  it('the reward for a day is capped with the day’s immediate bonus, credited once, and never taken back', () => {
+    const cap = (DAILY_BONUS_CAP + FILE_CAP * FILE_CREDIT);
+    // A day that already took 1,500 bonus lines and 10 files of effort at once.
+    const day = { bonusMilli: 1_500_000, effortMilli: 10 * FILE_CREDIT * 1000 };
+    const a = { bonusMilli: 900_000, effortMilli: 8 * FILE_CREDIT * 1000 };
+    expect(upstreamReward(day, [a], 0)).toBe(500 + 5 * FILE_CREDIT);
+    // A second commit found later adds only what it raises the total by; the first is not paid again.
+    const b = { bonusMilli: 50_000, effortMilli: 0 };
+    expect(upstreamReward(day, [a, b], 500 + 5 * FILE_CREDIT)).toBe(0);
+    expect(upstreamReward({ bonusMilli: 0, effortMilli: 0 }, [b], 0)).toBe(50);
+    // Found reverts lower the target but never claw back what was credited.
+    expect(upstreamReward({ bonusMilli: 0, effortMilli: 0 }, [b, { bonusMilli: -50_000, effortMilli: 0 }], 50)).toBe(0);
+    expect(upstreamReward({ bonusMilli: 0, effortMilli: 0 }, [{ bonusMilli: 9e9, effortMilli: 9e9 }], 0)).toBe(cap);
+  });
+});
+
+describe('repeat-target dampening', () => {
+  const CORE = 'src/core.ts';
+  const day = (store: MemoryLedger, d: number, salt: string, context = (from: number, n: number) => contextOf(ctx(CORE, 3.2, range(from, n)))) => {
+    store.today = d;
+    return measurePush([edit(CORE, 10, code(5, `${salt}-old`), code(5, `${salt}-new`))], store, context(10, 5));
+  };
+
+  it('a file earns effort credit at most once per player per 3 days; its line bonus is not dampened', () => {
+    expect(EFFORT_REPEAT_DAYS).toBe(3);
+    const store = new MemoryLedger();
+    const days = [0, 1, 2, 3, 4, 5, 6].map((d) => day(store, d, `d${d}`).bonus ?? 0);
+    const line = 11; // 5 lines × 2.2
+    expect(days).toEqual([line + FILE_CREDIT, line, line, line + FILE_CREDIT, line, line, line + FILE_CREDIT]);
+    const notes = day(store, 7, 'd7').difficulty!;
+    expect(notes[0]).toMatchObject({ repeat: true });
+    // Another file is not held back by this one.
+    store.today = 7;
+    const other = measurePush([edit('src/other.ts', 10, code(5, 'x-old'), code(5, 'x-new'))], store, contextOf(ctx('src/other.ts', 3.2, range(10, 5))));
+    expect(other.bonus).toBe(line + FILE_CREDIT);
+  });
+
+  it('is keyed by the close of earlier days: an edit reverted the same day leaves the file free, and splitting a day changes nothing', () => {
+    const store = new MemoryLedger();
+    const theirs = code(5, 'theirs');
+    const mine = code(5, 'mine');
+    store.today = 0;
+    const c = contextOf(ctx(CORE, 3.2, range(10, 5)));
+    expect(measurePush([edit(CORE, 10, theirs, mine)], store, c).bonus).toBe(11 + FILE_CREDIT);
+    expect(measurePush([edit(CORE, 10, mine, theirs)], store, contextOf(ctx(CORE, 3.2, []))).bonus).toBe(-11 - FILE_CREDIT);
+    // Day 0 closed with no effort on the file: day 1 pays.
+    expect(day(store, 1, 'a').bonus).toBe(11 + FILE_CREDIT);
+    // Day 2, split into single-line pushes, sees the same history as one squashed push: nothing.
+    const split = new MemoryLedger();
+    day(split, 1, 'a');
+    split.today = 2;
+    const old2 = code(5, 'b-old');
+    const new2 = code(5, 'b-new');
+    const parts = [0, 1, 2, 3, 4].map((i) => measurePush([edit(CORE, 10 + i, old2.slice(i, i + 1), new2.slice(i, i + 1))], split, contextOf(ctx(CORE, 3.2, [10 + i]))));
+    const squash = day(store, 2, 'b');
+    expect(bonusOf(parts)).toBe(squash.bonus);
+    expect(squash.bonus).toBe(11);
+  });
+
+  it('applies to a fork’s pending effort credit too', () => {
+    const store = new MemoryLedger();
+    const fork = (from: number, n: number): PushContext => ({ ...contextOf(ctx(CORE, 3.2, range(from, n))), upstream: { repo: 'big/project', branch: 'main' } });
+    const a = day(store, 0, 'p', fork);
+    const b = day(store, 1, 'q', fork);
+    expect(a.pending).toEqual({ bonusMilli: 11_000, effortMilli: FILE_CREDIT * 1000 });
+    expect(b.pending).toEqual({ bonusMilli: 11_000, effortMilli: 0 });
   });
 });

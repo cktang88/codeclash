@@ -43,6 +43,7 @@ function Callouts({ army }: { army: PreviewArmy }) {
   const tags: { tone: string; text: string; icon?: Parameters<typeof Icon>[0]['name'] }[] = [];
   if (c[Kind.Dragon]! > 0) tags.push({ tone: 'legend', text: c[Kind.Dragon] === 1 ? 'A Dragon wakes' : `${c[Kind.Dragon]} Dragons wake` });
   if (c[Kind.Champion]! > 0) tags.push({ tone: 'hero', text: c[Kind.Champion] === 1 ? 'A Champion' : `${c[Kind.Champion]} Champions`, icon: 'crown' });
+  if (c[Kind.Ballista]! > 0) tags.push({ tone: 'siege', text: c[Kind.Ballista] === 1 ? 'A Ballista: bane of the big' : `${c[Kind.Ballista]} Ballistae: bane of the big` });
   if (c[Kind.Berserker]! > 0) tags.push({ tone: 'berserk', text: `${c[Kind.Berserker]} Berserker${c[Kind.Berserker] === 1 ? '' : 's'}: untested fury`, icon: 'skull' });
   if (army.veterancy > 0) tags.push({ tone: 'veteran', text: `Veteran ${ROMAN[army.veterancy]}`, icon: 'shield' });
   if (army.ragged) tags.push({ tone: 'ragged', text: 'Ragged' });

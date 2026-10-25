@@ -393,6 +393,8 @@ export interface PreviewDifficulty {
   /** Why the multiplier is held to ×1.5, when it is. */
   gate: string | null;
   source: 'graphql' | 'mirror';
+  /** A fork's file: its extra and effort credit pay only once the commit reaches the upstream. */
+  pending?: boolean;
 }
 
 export interface PreviewCombined {

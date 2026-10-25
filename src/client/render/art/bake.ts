@@ -81,7 +81,7 @@ function paintCell(ctx: Ctx2D, kind: number, pose: Pose, dieIndex: number, layer
   if (dieIndex >= 0) {
     // Fall over backwards around the feet; flyers tumble forward out of the sky.
     // Wide bodies keel over less: a horse slumps, an engine sags on a broken wheel.
-    const a = DIE_ANGLES[dieIndex]! * (kind === Kind.Trebuchet ? 0.15 : WIDE.has(kind) ? 0.55 : 1);
+    const a = DIE_ANGLES[dieIndex]! * (kind === Kind.Trebuchet || kind === Kind.Ballista ? 0.15 : WIDE.has(kind) ? 0.55 : 1);
     const fx = spec.size / 2;
     const fy = spec.feetY;
     const flyer = isFlyer(kind);

@@ -1,12 +1,13 @@
 import { CAT_COUNT } from '../sim/api.ts';
 import type { ChangedFile } from '../rules/classify.ts';
 import { pusherOf, type PushContext } from '../rules/difficulty.ts';
-import { applyPush, type PushDelta } from '../rules/ledger.ts';
+import { applyPush, dayBonusTotals, type PushDelta } from '../rules/ledger.ts';
 import type { Store, UserRow } from './db.ts';
 import type { DifficultyContext } from './difficulty.ts';
 import { EVENT_PAGES, GithubError, type CompareResult, type GithubClient } from './github.ts';
 import { errorMessage, type Logger } from './log.ts';
 import { inlineParser, type Parser } from './parsePool.ts';
+import { firstCheckAt, patchId } from './upstream.ts';
 
 export interface PushReport {
   userId: number;
@@ -159,12 +160,13 @@ async function ingestOnce(
   // When the range holds anyone else's commits or merges (a merged base, an upstream sync,
   // a co-worker's work), measure only this user's own commits, one by one, so a large
   // merge never rides on a tiny commit. The ledger sums them exactly as a squash would.
-  let diffs: { files: readonly ChangedFile[]; base?: string | null }[] = [{ files: result.files, base: result.base ?? null }];
+  // Each diff's head and own commits, for finding a fork's diff upstream later (server/upstream.ts).
+  let diffs: { files: readonly ChangedFile[]; base?: string | null; head: string; shas: string[] }[] = [{ files: result.files, base: result.base ?? null, head: push.head, shas: counted.map((c) => c.sha) }];
   if (counted.length < result.commits.length) {
     diffs = [];
     for (const c of counted.slice(-MAX_OWN_COMMITS)) {
       const single = await github.commit(push.repo, c.sha);
-      if (single) diffs.push({ files: single.files, base: single.base ?? null });
+      if (single) diffs.push({ files: single.files, base: single.base ?? null, head: c.sha, shas: [c.sha] });
     }
     if (diffs.length === 0) return null;
   }
@@ -182,8 +184,25 @@ async function ingestOnce(
       const shas = counted.map((c) => c.sha);
       if (store.claimCommits(user.id, shas, deps.clock()).length !== shas.length) throw CLAIMED_ELSEWHERE;
       // Measuring moves the ledger, so it commits only together with the push record.
-      const ledger = store.ledgerFor(user.id, push.repo, deps.clock());
-      const delta = sumDeltas(prepared.map((p, i) => applyPush(p, ledger, contexts[i])));
+      const now = deps.clock();
+      const ledger = store.ledgerFor(user.id, push.repo, now);
+      const deltas = prepared.map((p, i) => applyPush(p, ledger, contexts[i]));
+      const delta = sumDeltas(deltas);
+      // A fork's bonus waits on the upstream: each diff's share is frozen now, to be credited once its
+      // commits are found there. The day's immediate totals are what that credit is capped against.
+      const day = Math.floor(now / 86_400_000);
+      deltas.forEach((d, i) => {
+        const up = contexts[i]?.upstream;
+        if (!d.pending || !up) return;
+        const diff = diffs[i]!;
+        store.addUpstreamPending({
+          userId: user.id, pushId, repo: push.repo, upstream: up.repo, branch: up.branch, ref: push.ref.slice('refs/heads/'.length),
+          head: diff.head, shas: diff.shas, patchId: patchId(diff.files), day, at: now,
+          bonusMilli: d.pending.bonusMilli, effortMilli: d.pending.effortMilli, nextCheckAt: firstCheckAt(now, diff.head),
+        });
+      });
+      const totals = dayBonusTotals(ledger);
+      store.setUpstreamDayTotals(user.id, day, totals.bonusMilli, totals.effortMilli);
       const lines = delta.lines.slice();
       while (lines.length < CAT_COUNT) lines.push(0);
       const r: PushReport = {

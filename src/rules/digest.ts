@@ -27,6 +27,7 @@ export const AWARDS: readonly AwardDef[] = [
   { id: 'architect', title: 'Architect', blurb: 'Most complex code: decisions, new functions and linked modules' },
   { id: 'dragonlord', title: 'Dragonlord', blurb: 'Summoned the most Dragons with legendary pushes' },
   { id: 'dragonslayer', title: 'Dragonslayer', blurb: 'Brought down the most Dragons' },
+  { id: 'dragonbane', title: 'Dragonbane', blurb: 'Most damage dealt to big soldiers by Ballistae' },
 ];
 
 export interface DigestPlayer {
@@ -74,6 +75,8 @@ export interface DigestPlayer {
   churn: number;
   filler: number;
   structureDamage: number;
+  /** Damage its Ballistae dealt to big soldiers. Absent from older digests. */
+  bigDamage?: number;
   best: { repo: string; ordinal: number; kills: number; message: string } | null;
   awards: string[];
 }
@@ -132,6 +135,7 @@ export function buildDigest(world: World, replay: Replay, chronicle: readonly Ch
       fallen: ps.fallen,
       rising: ps.rising,
       retakes: ps.feats.retakes,
+      bigDamage: Math.round(ps.feats.bigDamage ?? 0),
       standBest: ps.feats.standBest,
       routs: ps.routs,
       purposes: Object.fromEntries(PURPOSES.map((pu, i) => [pu, ps.purposes[i] ?? 0])) as Record<Purpose, number>,
@@ -213,6 +217,7 @@ export function buildDigest(world: World, replay: Replay, chronicle: readonly Ch
   give('architect', (pl) => pl.complexity ?? pl.branches);
   give('dragonlord', (pl) => pl.raised[Kind.Dragon]!);
   give('dragonslayer', (pl) => pl.slain[Kind.Dragon]!);
+  give('dragonbane', (pl) => pl.bigDamage ?? 0);
 
   const highlights = chronicle
     .filter((e) => HIGHLIGHT_KINDS.has(e.kind))

@@ -14,14 +14,36 @@
 // MAINTAINERS=<n> makes the first n humans maintainers: small fixes to others' established code in a
 // big repository, measured with the difficulty bonus (rules/difficulty.ts) as ingestion would credit
 // it (BONUS=0 turns the bonus off, to compare). The summary then says how often a maintainer won,
-// against its fair share, and its budget against the greenfield pushers'.
+// against its fair share, and its budget against the greenfield pushers'. A maintainer's repository
+// is not a fork (it has no upstream), so its bonus pays at once; a file that held effort credit at the
+// close of either of the two days before earns none (repeat-target dampening, `EFFORT_REPEAT_DAYS`;
+// DAMPEN=0 turns it off), those days replayed from the same model.
+//
+// FORKS=<n> makes the next n humans fork contributors: the maintainer's kind of work, pushed to a fork
+// of the big repository, so no bonus pays at push time. Each day's pull request is merged upstream
+// MERGE_RATE of the time (default 0.7) after 1 to 3 days; the daily check after the merge day closes
+// finds it (in the first two hours of the next day) and the day's bonus arrives as an `upstream` input.
+//
+// Settings may also be given as arguments: `pnpm tsx scripts/diagnose-war.ts 4 0 MAINTAINERS=1 FORKS=1`.
+//
+// JOBS=<n> splits the days over n child processes and summarises them together (ECHO_DAYS=1 still
+// prints each day). KINDS=1 adds, per group of players (maintainers, greenfield humans, bots), a table
+// by kind: share of slots raised, kills, deaths, kills per death, damage dealt and HP healed per slot
+// raised, and which kinds killed the group's soldiers; maintainers are also shown on the days their
+// budget was 0.83 to 1.2 of the greenfield median.
+import { spawn } from 'node:child_process';
+// KEY=VALUE arguments are settings, as if set in the environment.
+for (const arg of process.argv.slice(2)) {
+  const m = /^([A-Z_]+)=(.*)$/.exec(arg);
+  if (m) process.env[m[1]!] ??= m[2]!;
+}
 import { KIND_COUNT, TICKS_PER_MINUTE, type SimInput } from '../src/sim/api.ts';
 import { Chronicler } from '../src/sim/chronicle.ts';
 import { generateMap, seatOrder, slotsFor } from '../src/sim/mapgen.ts';
 import { armyFor, effectiveLedger, slotsOf } from '../src/sim/muster.ts';
 import { STATS } from '../src/sim/stats.ts';
 import { createWorld, dayWinner, step } from '../src/sim/world.ts';
-import { bonusMilli, DAILY_BONUS_CAP, FILE_CAP, FILE_CREDIT, fileCreditMilli } from '../src/rules/difficulty.ts';
+import { bonusMilli, DAILY_BONUS_CAP, EFFORT_REPEAT_DAYS, FILE_CAP, FILE_CREDIT, fileCreditMilli, UPSTREAM_PER_DAY } from '../src/rules/difficulty.ts';
 import { BOTS, botDay, botPush, botPushesPerDay, botRateAt, FUNCTIONS_PER_BRANCH, LINKS_PER_BRANCH, mulberry, type BotDay } from '../src/rules/bots.ts';
 
 const MESSAGES = ['fix: crash on empty input', 'feat: add export', 'refactor: split parser', 'perf: cache lookups', 'revert: "feat: add export"', 'chore(deps): bump vite', 'Update handler'];
@@ -40,6 +62,9 @@ function devPush(p: number, rand: () => number): Extract<SimInput, { kind: 'push
 }
 
 const MAINTAINERS = Number(process.env.MAINTAINERS ?? 0);
+const FORKS = Number(process.env.FORKS ?? 0);
+const MERGE_RATE = Number(process.env.MERGE_RATE ?? 0.7);
+const DAMPEN = process.env.DAMPEN !== '0';
 const BONUS = process.env.BONUS !== '0';
 /** Sensitivity only: scales each file's (M − 1), to see what multiplier a maintainer would need. 1 is the rule as built. */
 const BONUS_SCALE = Number(process.env.BONUS_SCALE ?? 1);
@@ -58,7 +83,7 @@ type MaintainerDay = { files: Map<number, { modified: number; m: number; bonus: 
  * (FILE_CREDIT × (M − 1) / 2.2, at most FILE_CAP files' worth a day). `day` carries the per-file state
  * across the day's pushes.
  */
-function maintainerPush(p: number, rand: () => number, day: MaintainerDay): Extract<SimInput, { kind: 'push' }> {
+function maintainerPush(p: number, rand: () => number, day: MaintainerDay, blocked: ReadonlySet<number> = new Set()): Extract<SimInput, { kind: 'push' }> {
   const pick = (n: number) => Math.floor(rand() * n);
   const big = rand() < 0.1;
   const code = big ? 100 + pick(100) : 3 + Math.floor(Math.pow(rand(), 1.6) * 57);
@@ -85,7 +110,8 @@ function maintainerPush(p: number, rand: () => number, day: MaintainerDay): Extr
     before += state.bonus;
     after += now;
     state.bonus = now;
-    const effort = fileCreditMilli(state.modified, state.m, EFFORT_CREDIT);
+    // Repeat-target dampening: a file paid on either of the two days before earns no effort credit today.
+    const effort = blocked.has(id) ? 0 : fileCreditMilli(state.modified, state.m, EFFORT_CREDIT);
     effortBefore += state.effort;
     effortAfter += effort;
     state.effort = effort;
@@ -98,6 +124,83 @@ function maintainerPush(p: number, rand: () => number, day: MaintainerDay): Extr
   day.effort += effortAfter - effortBefore;
   const branches = Math.floor(code / (5 + pick(4)));
   return { kind: 'push', p, repo: p * 2, commits: 1, msg, lines, files: nFiles, branches, functions: Math.floor(branches * FUNCTIONS_PER_BRANCH * 0.3), links: 0, churn: 0, filler: 0, bonus };
+}
+
+/** A human's working day as `runDay` draws it (the first draws of the day's generator): its push rate and hours. */
+function humanDay(day: number, p: number): { rate: number; hours: number } {
+  const rand = mulberry(day * 7919 + 13);
+  let out = { rate: 0, hours: 0 };
+  for (let q = 0; q <= p; q++) {
+    rand();
+    const hours = 7 + rand() * 4;
+    out = { rate: +(0.8 * Math.pow(6 / 0.8, rand())).toFixed(2), hours };
+  }
+  return out;
+}
+
+/**
+ * A maintainer's (or fork contributor's) earlier day, replayed from the same model with its own
+ * generator: which of its files held effort credit at the day's close, and the bonus the day was worth
+ * (capped as ingestion caps it). `floor` bounds how far back the dampening looks.
+ */
+const history = new Map<string, { paid: Set<number>; bonus: number }>();
+function historyDay(day: number, p: number, floor: number): { paid: Set<number>; bonus: number } {
+  const key = `${day}:${p}:${floor}`;
+  const known = history.get(key);
+  if (known) return known;
+  const blocked = blockedOn(day, p, floor);
+  const { rate, hours } = humanDay(day, p);
+  const rand = mulberry(day * 104_729 + p * 7_919 + 3);
+  const md: MaintainerDay = { files: new Map(), bonus: 0, effort: 0 };
+  let bonus = 0;
+  for (let i = 0, n = Math.round(rate * hours); i < n; i++) bonus += maintainerPush(p, rand, md, blocked).bonus ?? 0;
+  const out = { paid: new Set([...md.files].filter(([, f]) => f.effort > 0).map(([id]) => id)), bonus };
+  history.set(key, out);
+  return out;
+}
+
+/** Files that held effort credit at the close of one of the EFFORT_REPEAT_DAYS − 1 days before `day`. */
+function blockedOn(day: number, p: number, floor: number): Set<number> {
+  const out = new Set<number>();
+  if (!DAMPEN) return out;
+  for (let k = 1; k < EFFORT_REPEAT_DAYS; k++) if (day - k >= floor) for (const id of historyDay(day - k, p, floor).paid) out.add(id);
+  return out;
+}
+
+/**
+ * A fork contributor's earlier days found upstream today: [hour of the check, the day, its bonus], at
+ * most UPSTREAM_PER_DAY lines a day, what does not fit carried to the next day's first check.
+ */
+function upstreamToday(day: number, p: number): [number, number, number][] {
+  let backlog = 0;
+  for (let d = day - 10; ; d++) {
+    const items: [number, number, number][] = [...(backlog > 0 ? [[0, d - 1, backlog] as [number, number, number]] : []), ...foundOn(d, p)];
+    let room = UPSTREAM_PER_DAY;
+    let left = 0;
+    const paid: [number, number, number][] = [];
+    for (const [h, o, b] of items) {
+      const x = Math.min(b, room);
+      room -= x;
+      left += b - x;
+      if (x > 0) paid.push([h, o, x]);
+    }
+    if (d === day) return paid;
+    backlog = left;
+  }
+}
+
+/** Earlier days' fork work found upstream on `day`, before the daily limit: [hour of the check, the day, its bonus]. */
+function foundOn(day: number, p: number): [number, number, number][] {
+  const out: [number, number, number][] = [];
+  for (let o = day - 4; o <= day - 2; o++) {
+    const rand = mulberry(o * 15_485_863 + p * 31 + 11);
+    const merged = rand() < MERGE_RATE;
+    const after = 1 + Math.floor(rand() * 3);
+    const at = rand() * 2;
+    // Merged `after` days after day o; the daily check after that day closes finds it.
+    if (merged && o + after + 1 === day) out.push([at, o, historyDay(o, p, o - 8).bonus]);
+  }
+  return out.sort((a, b) => a[0] - b[0]);
 }
 
 function narrate(): void {
@@ -156,6 +259,8 @@ interface DayResult {
   capitals: number[];
   code: number[];
   bonus: number[];
+  /** Fork contributors: the bonus their pushes left waiting on the upstream (most of it found later). */
+  pending: number[];
   rates: number[];
   starts: number[];
   expected: number[];
@@ -171,7 +276,21 @@ interface DayResult {
   leadRatio: number;
   msPerTick: number;
   peakUnits: number;
+  /** With KINDS=1: per player, by kind — raised, damage dealt to soldiers, kills, deaths, deaths by the killer's kind, HP healed. */
+  kinds?: KindTally;
 }
+
+interface KindTally {
+  raised: number[][];
+  dealt: number[][];
+  kills: number[][];
+  deaths: number[][];
+  killedBy: number[][];
+  heals: number[][];
+}
+
+const KINDS = process.env.KINDS === '1';
+const grid = (players: number) => Array.from({ length: players }, () => new Array<number>(KIND_COUNT).fill(0));
 
 /** Hours over which humans' working days start, centred on 09:00 (SPREAD=5 spreads them from 06:30 to 11:30). */
 const SPREAD = Number(process.env.SPREAD ?? 2);
@@ -208,11 +327,17 @@ function runDay(day: number, humans: number, bots: number): DayResult {
   const code = new Array<number>(players).fill(0);
   const bonus = new Array<number>(players).fill(0);
   const maintainerDays = Array.from({ length: players }, (): MaintainerDay => ({ files: new Map(), bonus: 0, effort: 0 }));
+  const pending = new Array<number>(players).fill(0);
+  const forkers = (p: number) => p >= MAINTAINERS && p < MAINTAINERS + FORKS && p < humans;
+  // Files paid on the two days before (dampening), and fork contributors' earlier days found upstream today.
+  const blocked = Array.from({ length: players }, (_, p) => (p < MAINTAINERS + FORKS && p < humans ? blockedOn(day, p, day - 8) : new Set<number>()));
+  const rewards = Array.from({ length: players }, (_, p) => (forkers(p) ? upstreamToday(day, p).map(([h, o, b]) => ({ tick: Math.floor(h * 60 * TICKS_PER_MINUTE), day: o, bonus: b })) : []));
   let raised12: number[] = [];
   let firstFall: number | null = null;
   let firstCapture: number | null = null;
   let falls = 0;
   let peak = 0;
+  const tally: KindTally | undefined = KINDS ? { raised: grid(players), dealt: grid(players), kills: grid(players), deaths: grid(players), killedBy: grid(players), heals: grid(players) } : undefined;
   const started = performance.now();
   const end = 24 * hour;
   while (world.tick < end && world.victor < 0) {
@@ -223,8 +348,13 @@ function runDay(day: number, humans: number, bots: number): DayResult {
       const rate = p < humans ? (t >= from[p]! && t < until[p]! ? rates[p]! : 0) : botRateAt(schedule[p]!, t / hour);
       if (rate <= 0 || rand() >= rate / hour) continue;
       let push: Extract<SimInput, { kind: 'push' }>;
-      if (p < MAINTAINERS && p < humans) push = maintainerPush(p, rand, maintainerDays[p]!);
-      else if (p < humans) push = devPush(p, rand);
+      if (p < MAINTAINERS && p < humans) push = maintainerPush(p, rand, maintainerDays[p]!, blocked[p]);
+      else if (forkers(p)) {
+        // The same work in a fork: its bonus waits on the upstream.
+        push = maintainerPush(p, rand, maintainerDays[p]!, blocked[p]);
+        pending[p]! += push.bonus ?? 0;
+        push = { ...push, bonus: 0 };
+      } else if (p < humans) push = devPush(p, rand);
       else {
         const b = botPush(persona[p]!, rand);
         push = { kind: 'push', p, repo: p * 2, commits: 1, msg: b.message, lines: b.lines, files: b.files, branches: b.branches, functions: b.functions, links: b.links, churn: b.churn, filler: b.filler };
@@ -233,7 +363,25 @@ function runDay(day: number, humans: number, bots: number): DayResult {
       bonus[p]! += push.bonus ?? 0;
       inputs.push(push);
     }
+    for (let p = 0; p < players; p++) {
+      for (const r of rewards[p]!) {
+        if (r.tick !== t || r.bonus <= 0) continue;
+        inputs.push({ kind: 'upstream', p, repo: p * 2, bonus: r.bonus, day: r.day });
+        bonus[p]! += r.bonus;
+      }
+    }
     const ev = step(world, inputs);
+    if (tally) {
+      for (const h of ev.hits) if (h.unit >= 0 && (h.bp ?? -1) >= 0 && (h.by ?? -1) >= 0) tally.dealt[h.bp!]![h.by!]! += h.damage;
+      for (const d of ev.deaths) {
+        if (d.p >= 0) {
+          tally.deaths[d.p]![d.kind]!++;
+          if (d.by >= 0) tally.killedBy[d.p]![d.by]!++;
+        }
+        if (d.killer >= 0 && d.by >= 0) tally.kills[d.killer]![d.by]!++;
+      }
+      for (const h of ev.heals) if ((h.p ?? -1) >= 0 && h.kind !== undefined) tally.heals[h.p!]![h.kind]! += h.amount;
+    }
     if (world.tick === 12 * hour) raised12 = world.players.map((p) => p.raised.reduce((a, b) => a + b, 0));
     if (process.env.TRACE && world.tick % (hour / 2) === 0) {
       const alive = new Array<number>(players).fill(0);
@@ -279,6 +427,7 @@ function runDay(day: number, humans: number, bots: number): DayResult {
     capitals: world.players.map((p) => p.capitals),
     code,
     bonus,
+    pending,
     rates,
     starts: from.map((t) => +(t / hour).toFixed(2)),
     expected: expected.map((e) => Math.round(e / hour)),
@@ -290,20 +439,76 @@ function runDay(day: number, humans: number, bots: number): DayResult {
     leadRatio: +(sorted[0]! / Math.max(1, sorted[1] ?? 1)).toFixed(2),
     msPerTick: +(ms / world.tick).toFixed(4),
     peakUnits: peak,
+    ...(tally ? { kinds: { ...tally, raised: world.players.map((p) => p.raised.slice()), dealt: tally.dealt.map((r) => r.map(Math.round)), heals: tally.heals.map((r) => r.map(Math.round)) } } : {}),
   };
 }
 
-function days(): void {
+/** Per kind, summed over a group of players across days: the table KINDS=1 prints. */
+function kindTable(results: DayResult[], label: string, pick: (r: DayResult) => number[]): void {
+  const sum = (f: keyof KindTally) => {
+    const out = new Array<number>(KIND_COUNT).fill(0);
+    for (const r of results) for (const p of pick(r)) for (let k = 0; k < KIND_COUNT; k++) out[k]! += r.kinds![f][p]?.[k] ?? 0;
+    return out;
+  };
+  const raised = sum('raised');
+  const dealt = sum('dealt');
+  const kills = sum('kills');
+  const deaths = sum('deaths');
+  const killedBy = sum('killedBy');
+  const heals = sum('heals');
+  const slots = raised.map((n, k) => n * STATS[k]!.slots);
+  const total = slots.reduce((a, b) => a + b, 0) || 1;
+  const lost = killedBy.reduce((a, b) => a + b, 0) || 1;
+  console.log(`\n${label}: ${results.length} days, ${Math.round(total / Math.max(1, results.length))} slots raised a player-day`);
+  console.log('kind            slot%  raised   kills  deaths   k/d  dmg/slot heal/slot  killed-us%');
+  for (let k = 0; k < KIND_COUNT; k++) {
+    if (raised[k] === 0 && killedBy[k] === 0) continue;
+    const kd = deaths[k]! > 0 ? (kills[k]! / deaths[k]!).toFixed(2) : '-';
+    const per = (x: number) => (slots[k]! > 0 ? (x / slots[k]!).toFixed(0) : '-');
+    console.log(`${STATS[k]!.name.padEnd(15)} ${((100 * slots[k]!) / total).toFixed(1).padStart(5)} ${String(raised[k]).padStart(7)} ${String(kills[k]).padStart(7)} ${String(deaths[k]).padStart(7)} ${kd.padStart(5)} ${per(dealt[k]!).padStart(9)} ${per(heals[k]!).padStart(9)} ${((100 * killedBy[k]!) / lost).toFixed(1).padStart(10)}`);
+  }
+  const allKills = kills.reduce((a, b) => a + b, 0);
+  const allDeaths = deaths.reduce((a, b) => a + b, 0);
+  const allDealt = dealt.reduce((a, b) => a + b, 0);
+  console.log(`all             100.0 ${String(raised.reduce((a, b) => a + b, 0)).padStart(7)} ${String(allKills).padStart(7)} ${String(allDeaths).padStart(7)} ${(allKills / Math.max(1, allDeaths)).toFixed(2).padStart(5)} ${(allDealt / total).toFixed(0).padStart(9)}`);
+}
+
+async function days(): Promise<void> {
   const n = Number(process.env.DAYS);
   const first = Number(process.env.FROM ?? 1);
   const humans = Number(process.argv[2] ?? 4);
   const bots = Number(process.argv[3] ?? 0);
   const results: DayResult[] = [];
-  for (let d = first; d < first + n; d++) {
-    const r = runDay(d, humans, bots);
-    results.push(r);
-    console.log(JSON.stringify(r));
-  }
+  const jobs = Number(process.env.JOBS ?? 1);
+  if (jobs > 1) {
+    // Splits the days over child processes of this script (each with JOBS unset), then summarises them all.
+    const per = Math.ceil(n / jobs);
+    const outs = await Promise.all(
+      Array.from({ length: jobs }, (_, j) => {
+        const from = first + j * per;
+        const count = Math.min(per, first + n - from);
+        if (count <= 0) return Promise.resolve('');
+        return new Promise<string>((resolve, reject) => {
+          const child = spawn(process.execPath, [...process.execArgv, process.argv[1]!, ...process.argv.slice(2)], { env: { ...process.env, JOBS: '1', FROM: String(from), DAYS: String(count) }, stdio: ['ignore', 'pipe', 'inherit'] });
+          let out = '';
+          child.stdout.on('data', (b: Buffer) => (out += b.toString()));
+          child.on('error', reject);
+          child.on('close', (code) => (code === 0 ? resolve(out) : reject(new Error(`job ${j} exited ${code}`))));
+        });
+      }),
+    );
+    for (const out of outs) {
+      const lines = out.trim().split('\n').filter((l) => l.startsWith('{"day"'));
+      for (const l of lines) results.push(JSON.parse(l) as DayResult);
+    }
+    results.sort((a, b) => a.day - b.day);
+    if (process.env.ECHO_DAYS === '1') for (const r of results) console.log(JSON.stringify(r));
+  } else
+    for (let d = first; d < first + n; d++) {
+      const r = runDay(d, humans, bots);
+      results.push(r);
+      console.log(JSON.stringify(r));
+    }
   const share = (f: (r: DayResult) => boolean) => `${Math.round((100 * results.filter(f).length) / results.length)}%`;
   const median = (xs: (number | null)[]) => {
     const v = xs.filter((x): x is number => x !== null).sort((a, b) => a - b);
@@ -333,12 +538,32 @@ function days(): void {
           ),
         }
       : {}),
+    ...(FORKS > 0 && humans > MAINTAINERS + FORKS
+      ? (() => {
+          const f = MAINTAINERS;
+          const greenBudget = (r: DayResult) => median(r.budget.slice(MAINTAINERS + FORKS, humans)) ?? 1;
+          return {
+            forkContributors: FORKS,
+            mergeRate: MERGE_RATE,
+            forkContributorWins: share((r) => r.winner >= MAINTAINERS && r.winner < MAINTAINERS + FORKS),
+            forkContributorFairShare: `${Math.round((100 * FORKS) / (humans + bots))}%`,
+            forkContributorBudgetVsGreenfieldMedian: median(results.map((r) => +(r.budget[f]! / Math.max(1, greenBudget(r))).toFixed(2))),
+            forkContributorBonusPerDayMedian: median(results.map((r) => r.bonus[f]!)),
+            forkContributorPendingPerDayMedian: median(results.map((r) => r.pending[f]!)),
+            forkContributorWinsAtNormalRate: (() => {
+              const days = results.filter((r) => r.rates[f]! >= 2 && r.rates[f]! < 4);
+              return days.length > 0 ? `${Math.round((100 * days.filter((r) => r.winner === f).length) / days.length)}% of ${days.length}` : '-';
+            })(),
+          };
+        })()
+      : {}),
     ...(MAINTAINERS > 0 && humans > MAINTAINERS
       ? (() => {
-          const greenBudget = (r: DayResult) => median(r.budget.slice(MAINTAINERS, humans)) ?? 1;
+          const greenBudget = (r: DayResult) => median(r.budget.slice(MAINTAINERS + FORKS, humans)) ?? 1;
           return {
             maintainers: MAINTAINERS,
             bonus: BONUS,
+            dampen: DAMPEN,
             bonusScale: BONUS_SCALE,
             fileCredit: EFFORT_CREDIT,
             fileCap: EFFORT_CAP,
@@ -347,7 +572,7 @@ function days(): void {
             maintainerBudgetVsGreenfieldMedian: median(results.map((r) => +(r.budget[0]! / Math.max(1, greenBudget(r))).toFixed(2))),
             maintainerCodePerDayMedian: median(results.map((r) => r.code[0]!)),
             maintainerBonusPerDayMedian: median(results.map((r) => r.bonus[0]!)),
-            greenfieldCodePerDayMedian: median(results.flatMap((r) => r.code.slice(MAINTAINERS, humans))),
+            greenfieldCodePerDayMedian: median(results.flatMap((r) => r.code.slice(MAINTAINERS + FORKS, humans))),
             maintainerWinsByRate: Object.fromEntries(
               ([['<1.5', 0, 1.5], ['1.5-3', 1.5, 3], ['>=3', 3, 99]] as const).map(([k, lo, hi]) => {
                 const days = results.filter((r) => r.rates[0]! >= lo && r.rates[0]! < hi);
@@ -370,7 +595,26 @@ function days(): void {
     peakUnitsMax: Math.max(...results.map((r) => r.peakUnits)),
     msPerTick: +(results.reduce((a, r) => a + r.msPerTick, 0) / results.length).toFixed(4),
   }));
+  if (KINDS && results.length > 0 && results[0]!.kinds) {
+    const range = (a: number, b: number) => Array.from({ length: Math.max(0, b - a) }, (_, i) => a + i);
+    if (MAINTAINERS > 0) {
+      kindTable(results, 'Maintainers', () => range(0, MAINTAINERS));
+      kindTable(results, 'Greenfield humans', () => range(MAINTAINERS, humans));
+      // At similar budgets: the maintainer's day worth 0.83 to 1.2 of the greenfield median.
+      const similar = results.filter((r) => {
+        const g = r.budget.slice(MAINTAINERS, humans).sort((a, b) => a - b);
+        const ratio = r.budget[0]! / Math.max(1, g[g.length >> 1]!);
+        return ratio >= 0.83 && ratio <= 1.2;
+      });
+      if (similar.length > 0) {
+        kindTable(similar, 'Maintainers at a similar budget (0.83-1.2x greenfield)', () => range(0, MAINTAINERS));
+        kindTable(similar, 'Greenfield humans on those days', () => range(MAINTAINERS, humans));
+        console.log(`maintainer wins on similar-budget days: ${similar.filter((r) => r.winner < MAINTAINERS).length} of ${similar.length}`);
+      }
+    } else kindTable(results, 'Humans', () => range(0, humans));
+    if (bots > 0) kindTable(results, 'Bots', () => range(humans, humans + bots));
+  }
 }
 
-if (process.env.DAYS) days();
+if (process.env.DAYS) await days();
 else narrate();

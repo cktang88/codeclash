@@ -36,7 +36,8 @@ export function cohesion(kind: Kind): number {
     case Role.Cavalry:
       return 160;
     case Role.Healer:
-      return kind === Kind.Paladin ? 40 : 26;
+      // A Cleric smites from behind the line, as far as its reach.
+      return kind === Kind.Paladin ? 40 : kind === Kind.Cleric ? STATS[kind]!.range + 10 : 26;
     case Role.Ranged:
       return STATS[kind]!.range + 16;
     default:
@@ -44,9 +45,9 @@ export function cohesion(kind: Kind): number {
   }
 }
 
-/** Healers fight only what reaches them: this close, they strike back. */
+/** Healers fight only what reaches them: this close, they strike back (a Cleric smites what comes within its reach). */
 export function guardRadius(kind: Kind): number {
-  return kind === Kind.Paladin ? 44 : 24;
+  return kind === Kind.Paladin ? 44 : kind === Kind.Cleric ? STATS[kind]!.range : 24;
 }
 
 /** Melee attackers one soldier draws before others look elsewhere; big soldiers take more. */
@@ -77,7 +78,7 @@ const SOFT = 0.15;
 const BEHIND = 2;
 const BRUTE_CENTRE = 60 * 60;
 
-/** Lowest multiplier a role's score can take, so the ring search can stop early. */
+/** Lowest multiplier a role's score can take, so the ring search can stop early (a Ballista's lowest, a Dragon in range, is about 0.002). */
 const FLOOR: number[] = [FAVORED, FAVORED, FAVORED / 961, 0.0002, FAVORED * SOFT, FAVORED];
 
 export interface Pick {
@@ -103,6 +104,9 @@ export function pickTarget(world: World, s: Scratch, i: number, q: Pick): number
   const u = units[i]!;
   const role = ROLE[u.kind]!;
   const st = STATS[u.kind]!;
+  // Anyone who shoots picks foes as missile troops do (a Cleric's smite too), whatever its role.
+  const scoring: Role = st.ranged ? Role.Ranged : role;
+  const ballista = u.kind === Kind.Ballista;
   const { head, next, cols, ux, uy, up } = hash;
   const ox = u.x;
   const oy = u.y;
@@ -115,7 +119,7 @@ export function pickTarget(world: World, s: Scratch, i: number, q: Pick): number
   const leash2 = q.leash * q.leash;
   const reach2 = q.reach === Infinity ? Infinity : q.reach * q.reach;
   const range2 = st.range * st.range;
-  const floor = FLOOR[role]!;
+  const floor = FLOOR[scoring]!;
   let best = -1;
   let bestScore = Infinity;
   let inRange = false;
@@ -153,8 +157,14 @@ export function pickTarget(world: World, s: Scratch, i: number, q: Pick): number
           const v = units[j]!;
           const vs = STATS[v.kind]!;
           let m = matchup(u.kind, v.kind) > 1 ? FAVORED : 1;
-          switch (role) {
+          switch (scoring) {
             case Role.Ranged: {
+              if (ballista) {
+                // The biggest, most valuable foe in range: a bolt is wasted on a footman.
+                const w = (1 + 0.1 * vs.value) * (vs.size / 6);
+                m *= d2 <= range2 ? 1 / (w * w) : 3;
+                break;
+              }
               // Focus fire: the wounded and the valuable, among those already in range.
               const hurt = 0.1 + 0.9 * (v.hp / v.maxHp);
               m *= d2 <= range2 ? (hurt * hurt) / (1 + 0.1 * vs.value) : 3;
@@ -198,12 +208,12 @@ export function pickTarget(world: World, s: Scratch, i: number, q: Pick): number
               } else m *= 1 + 0.6 * a;
             }
           }
-          if (role !== Role.Ranged && (q.hx !== 0 || q.hy !== 0) && dx * q.hx + dy * q.hy < 0) m *= BEHIND;
+          if (scoring !== Role.Ranged && (q.hx !== 0 || q.hy !== 0) && dx * q.hx + dy * q.hy < 0) m *= BEHIND;
           const score = d2 * m;
           if (score < bestScore || (score === bestScore && j < best)) {
             bestScore = score;
             best = j;
-            inRange = role === Role.Ranged && d2 <= range2;
+            inRange = scoring === Role.Ranged && d2 <= range2;
           }
         }
       }

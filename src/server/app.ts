@@ -13,10 +13,13 @@ import { Poller, type PushReport } from './poller.ts';
 import { Preview } from './preview.ts';
 import { Rooms } from './rooms.ts';
 import { Scheduler } from './scheduler.ts';
+import { UpstreamWatcher } from './upstream.ts';
 
 const SEEN_COMMITS_DAYS = 14;
 const CHAT_DAYS = 30;
 const SNAPSHOT_DAYS = 14;
+/** Forks' pending bonus rows outlive their 14-day search by a fortnight, for the record. */
+const UPSTREAM_DAYS = 28;
 const PRUNE_EVERY_MS = 6 * 3_600_000;
 /** GitHub requests the army preview leaves to ingestion when it shares the server's token. */
 const PREVIEW_RESERVE = 1500;
@@ -82,6 +85,16 @@ export async function createServer(
     log.info('push', { user: report.userId, repo: report.repo, lines: report.lines, bonus: report.bonus ?? 0, rooms: raised });
   };
   const poller = github ? new Poller({ store, github, log, clock, onPush, context, parser }) : null;
+  // Forks' deferred bonus: found upstream once a day (or when a webhook reports a merge), credited once.
+  const upstream = github
+    ? new UpstreamWatcher({
+        store, github, clock, log,
+        onReward: (r) => {
+          const rooms_ = rooms.onUpstream(r, clock());
+          log.info('upstream bonus', { user: r.userId, repo: r.repo, upstream: r.upstream, day: r.day, bonus: r.bonus, rooms: rooms_ });
+        },
+      })
+    : null;
 
   if (!github) log.warn('GITHUB_TOKEN is not set: pushes are not ingested; only sparring bots fight');
   if (config.sessionSecretGenerated) log.warn('SESSION_SECRET is not set: using a random secret, sessions end on restart');
@@ -97,6 +110,7 @@ export async function createServer(
       store.pruneChat(clock() - CHAT_DAYS * 86_400_000);
       store.pruneLedger(clock());
       store.pruneEndedSnapshots(clock() - SNAPSHOT_DAYS * 86_400_000);
+      store.pruneUpstream(clock() - UPSTREAM_DAYS * 86_400_000);
     } catch (err) {
       log.error('prune failed', { error: errorMessage(err) });
     }
@@ -104,7 +118,7 @@ export async function createServer(
   prune();
 
   const app = await buildHttp({
-    config, store, log, clock, fetchImpl: opts.fetchImpl, hub, rooms, github, onPush, meta, preview, context, parser,
+    config, store, log, clock, fetchImpl: opts.fetchImpl, hub, rooms, github, onPush, meta, preview, context, parser, upstream,
     onSignIn: (userId) => {
       poller?.pollUser(userId).catch((err: unknown) => log.warn('first poll failed', { user: userId, error: errorMessage(err) }));
     },
@@ -124,6 +138,7 @@ export async function createServer(
       if (background) {
         scheduler.start(clock);
         poller?.start();
+        upstream?.start();
         pruneTimer = setInterval(prune, PRUNE_EVERY_MS);
         pruneTimer.unref();
       }
@@ -136,6 +151,7 @@ export async function createServer(
       closing = true;
       scheduler.stop();
       poller?.stop();
+      upstream?.stop();
       if (pruneTimer) clearInterval(pruneTimer);
       rooms.snapshotAll();
       hub.closeAll();

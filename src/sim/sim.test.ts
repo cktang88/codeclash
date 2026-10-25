@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Cat, Kind, NEUTRAL, PlatoonState, TICKS_PER_MINUTE, type Ledger, type SimInput, type World } from './api.ts';
+import { Cat, Kind, KIND_COUNT, NEUTRAL, PlatoonState, TICKS_PER_MINUTE, type Ledger, type SimInput, type World } from './api.ts';
 import { Chronicler } from './chronicle.ts';
 import { dcos, dsin } from './dmath.ts';
 import { generateMap, slotsFor } from './mapgen.ts';
@@ -112,7 +112,7 @@ describe('the army a day of work is worth', () => {
   });
 
   it('raises nothing for generated or vendored code, and keeps support small', () => {
-    expect(armyFor(ledgerOf([{ lines: { Generated: 1e6, Vendor: 1e6 } }]), 1)).toEqual([1, ...new Array(19).fill(0)]);
+    expect(armyFor(ledgerOf([{ lines: { Generated: 1e6, Vendor: 1e6 } }]), 1)).toEqual([1, ...new Array(KIND_COUNT - 1).fill(0)]);
     const support = armyFor(ledgerOf([{ lines: { Test: 1e6, Comment: 1e6, Docs: 1e6, Config: 1e6 } }]), 1);
     expect(slotsOf(support)).toBeLessThanOrEqual(24);
   });

@@ -23,7 +23,7 @@ const zoom = Number(q.get('zoom') ?? 1.4);
 const stress = Number(q.get('stress') ?? 0);
 const cx = Number(q.get('x') ?? 0);
 const cy = Number(q.get('y') ?? 0);
-const SCENES = ['combat', 'volley', 'fireball', 'boulder', 'breath', 'heal', 'deaths', 'muster', 'rank', 'dragon', 'site', 'desert', 'crack', 'siege', 'conquest', 'rising', 'victory', 'dayend'] as const;
+const SCENES = ['combat', 'volley', 'fireball', 'boulder', 'ballista', 'breath', 'heal', 'smite', 'deaths', 'muster', 'rank', 'dragon', 'site', 'desert', 'crack', 'siege', 'conquest', 'rising', 'victory', 'dayend'] as const;
 type Scene = (typeof SCENES)[number];
 const SCENE_TICKS = Number(q.get('ticks') ?? 18);
 const TINTS = [0x3d7fd9, 0xd9483d, 0x4cc26a];
@@ -74,6 +74,7 @@ const wizards = [0, 1, 2].map((i) => dummy(Kind.Wizard, 0, -260, -60 + i * 50));
 const trebuchet = dummy(Kind.Trebuchet, 0, -420, 120);
 const dragon = dummy(Kind.Dragon, 0, -120, 40);
 const clerics = [dummy(Kind.Cleric, 0, -200, 150), dummy(Kind.Paladin, 0, -170, 180)];
+const ballistae = [dummy(Kind.Ballista, 0, -380, -200), dummy(Kind.Ballista, 0, -380, 20)];
 for (let i = 0; i < 18; i++) right.push(dummy(Kind.Footman, 1, 120 + (i % 6) * 18, -60 + Math.floor(i / 6) * 22 + (i % 2) * 6));
 const casualties: Kind[] = [Kind.Footman, Kind.Skeleton, Kind.BoneGolem, Kind.Troll, Kind.Champion, Kind.Knight, Kind.GriffinRider, Kind.Dragon];
 const victims = casualties.map((k, i) => dummy(k, 1, 40 + i * 50, 200));
@@ -162,6 +163,31 @@ function stage(name: Scene, t0: number): void {
         at(t + k * 6, (ev) => ev.shots.push({ from: trebuchet.id, to: v.id, x: trebuchet.x, y: trebuchet.y, land: t + k * 6 + 8, kind: ShotKind.Boulder }));
         at(t + k * 6 + 8, (ev) => ev.blasts.push({ x: v.x, y: v.y, radius: 22, kind: BlastKind.Boulder }));
       }
+      break;
+    case 'ballista':
+      // Bolts at the big: the Troll, the Bone Golem and the Dragon among the victims; the second flies through into the next.
+      ballistae.forEach((b, i) => {
+        const v = victims[[3, 7][i]!]!;
+        at(t + i * 3, (ev) => ev.shots.push({ from: b.id, to: v.id, x: b.x, y: b.y, land: t + i * 3 + 4, kind: ShotKind.Bolt }));
+        at(t + i * 3 + 4, (ev) => {
+          ev.hits.push({ unit: v.id, damage: 84, structure: -1 });
+          if (i === 0) {
+            const w = victims[4]!;
+            ev.hits.push({ unit: w.id, damage: 42, structure: -1 });
+            ev.blasts.push({ x: w.x, y: w.y, radius: 0, kind: BlastKind.Pierce });
+          }
+        });
+      });
+      break;
+    case 'smite':
+      [0, 1, 2].forEach((k) => {
+        const c = clerics[0]!;
+        const v = victims[k % 2 === 0 ? 1 : 2]!;
+        at(t + k * 4, (ev) => ev.shots.push({ from: c.id, to: v.id, x: c.x, y: c.y, land: t + k * 4 + 3, kind: ShotKind.Smite }));
+        at(t + k * 4 + 3, (ev) => ev.hits.push({ unit: v.id, damage: 20, structure: -1 }));
+      });
+      at(t + 6, (ev) => ev.cleanses.push({ from: clerics[0]!.id, x: clerics[0]!.x, y: clerics[0]!.y, n: 4 }));
+      at(t + 8, (ev) => ev.heals.push({ from: clerics[0]!.id, to: left[2]!.id, amount: 22 }));
       break;
     case 'breath':
       for (let k = 0; k < 2; k++) {

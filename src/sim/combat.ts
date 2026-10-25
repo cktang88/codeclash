@@ -1,11 +1,14 @@
 import { Kind, Terrain, type PlayerState, type Unit, type World } from './api.ts';
 import { cellAt } from './flowfield.ts';
 import { VETERAN_BONUS } from './muster.ts';
-import { AURA_HEAL, AURA_SHIELD, AURA_VALOR, type Scratch } from './scratch.ts';
+import { AURA_BLESS, AURA_HEAL, AURA_SHIELD, AURA_VALOR, type Scratch } from './scratch.ts';
 import { bucketX, bucketY, type SpatialHash } from './spatial.ts';
 import {
+  BALLISTA_CLOSE,
+  BALLISTA_CLOSE_FACTOR,
   CHAMPION_AURA,
   CHAMPION_BONUS,
+  CLERIC_AURA,
   FOREST_ARROW_FACTOR,
   HERALD_AURA,
   HOME_TURF,
@@ -52,10 +55,13 @@ for (let k = 0; k < STATS.length; k++) {
   } else if (k === Kind.Champion || k === Kind.Dragon) {
     AURA_BIT[k] = AURA_VALOR;
     AURA_RADIUS[k] = CHAMPION_AURA;
+  } else if (k === Kind.Cleric) {
+    AURA_BIT[k] = AURA_BLESS;
+    AURA_RADIUS[k] = CLERIC_AURA;
   }
 }
 
-/** Marks every soldier standing in a friendly Warden's, Herald's or Champion's aura. */
+/** Marks every soldier standing in a friendly Warden's, Herald's, Champion's or Cleric's aura. */
 export function computeAuras(world: World, s: Scratch): void {
   const { units } = world;
   const hash = s.hash;
@@ -107,11 +113,20 @@ export function powerOf(player: PlayerState): number {
   return player.quality * (1 + VETERAN_BONUS * player.veterancy);
 }
 
-export function mitigated(world: World, s: Scratch, j: number, raw: number, ranged: boolean): number {
+/**
+ * Damage soldier `j` takes from a blow of `raw` force: divided by its army's power, less 30% in a
+ * Warden's or Paladin's shield aura, half for a missile in forest, less 20% on its holder's home turf.
+ *
+ * `pierce` (a Ballista's bolt) is armour-piercing: it ignores the shield aura. Armour in this war is
+ * the tower shield's aura and the half damage arrows do to Wardens and Paladins (`matchup`, which
+ * the Ballista's own matchup never halves); power (the army's quality and veterancy), forest cover
+ * and home turf are not armour, and still count.
+ */
+export function mitigated(world: World, s: Scratch, j: number, raw: number, ranged: boolean, pierce = false): number {
   const v = world.units[j]!;
   // A stronger army's soldiers shrug off more: dividing damage by power scales their effective HP.
   let d = v.p >= 0 ? raw / powerOf(world.players[v.p]!) : raw;
-  if ((s.aura[j]! & AURA_SHIELD) !== 0) d *= 1 - WARDEN_REDUCTION;
+  if (!pierce && (s.aura[j]! & AURA_SHIELD) !== 0) d *= 1 - WARDEN_REDUCTION;
   if (ranged) {
     const cell = cellAt(world.map, v.x, v.y);
     if (cell >= 0 && world.map.terrain[cell] === Terrain.Forest) d *= FOREST_ARROW_FACTOR;
@@ -131,6 +146,17 @@ export function onHomeTurf(world: World, s: Scratch, p: number, x: number, y: nu
     if (dx * dx + dy * dy <= HOME_TURF * HOME_TURF) return true;
   }
   return false;
+}
+
+/**
+ * A Ballista bolt's damage to soldier `j`, landing at `dist` from where it was loosed: `raw` force
+ * times the Ballista's bonus against the soldier, armour-piercing, and a fraction against a foe too
+ * close to lay the bolt on.
+ */
+export function boltDamage(world: World, s: Scratch, j: number, raw: number, dist: number): number {
+  const v = world.units[j]!;
+  const close = dist < BALLISTA_CLOSE ? BALLISTA_CLOSE_FACTOR : 1;
+  return mitigated(world, s, j, raw * matchup(Kind.Ballista, v.kind) * close, true, true);
 }
 
 export function unitDamage(world: World, s: Scratch, i: number, j: number): number {

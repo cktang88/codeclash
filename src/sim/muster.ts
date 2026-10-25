@@ -58,6 +58,7 @@ export function emptyLedger(): Ledger {
     filler: 0,
     purposeCode: new Array<number>(PURPOSES.length).fill(0),
     purposeRemoved: new Array<number>(PURPOSES.length).fill(0),
+    purposeBonus: new Array<number>(PURPOSES.length).fill(0),
   };
 }
 
@@ -89,6 +90,31 @@ export function applyDelta(ledger: Ledger, d: LedgerDelta): void {
   const i = PURPOSES.indexOf(d.purpose);
   byPurpose(ledger.purposeCode, i, int(d.lines[Cat.Code]));
   byPurpose(ledger.purposeRemoved, i, int(d.lines[Cat.Removed]));
+  if (int(d.bonus) !== 0) byPurpose((ledger.purposeBonus ??= new Array<number>(PURPOSES.length).fill(0)), i, int(d.bonus));
+}
+
+/**
+ * Fix work: the day's fix code plus the share of its counted difficulty bonus earned by fixes. A
+ * maintainer's careful fix to others' established code is worth its bonus in fix specialists too,
+ * not only in Footmen. A ledger from before the bonus was kept by purpose shares it like its code.
+ */
+export function fixWork(ledger: Ledger): number {
+  const i = PURPOSES.indexOf('fix');
+  const fix = ledger.purposeCode[i]!;
+  const { bonus } = effectiveLedger(ledger);
+  if (bonus <= 0) return fix;
+  const by = ledger.purposeBonus;
+  let total = 0;
+  let mine = 0;
+  if (by && by.length === PURPOSES.length) {
+    for (const n of by) total += n;
+    mine = by[i]!;
+  }
+  if (total <= 0) {
+    for (const n of ledger.purposeCode) total += n;
+    mine = fix;
+  }
+  return total > 0 ? fix + fl((bonus * mine) / total) : fix;
 }
 
 /**
@@ -270,6 +296,22 @@ export const TROLL_COMPLEXITY = 215;
 export const DRAGON_COMPLEXITY = [130, 570] as const;
 
 /**
+ * Fix work per pair of each fix specialist: Clerics by a square root (`2·floor(√fix / cleric)`), the
+ * rest linear (`2·floor(fix / n)`).
+ */
+export const FIX = { cleric: 3.5, ballista: 180, paladin: 350, ranger: 600 } as const;
+
+/**
+ * The order specialists are paid in while their share of the budget lasts: heroes first, then the
+ * big kinds; Ballistae before the other fix specialists so a fixer's army always has its answer to
+ * the big; Clerics before Knights, so a small fix still raises its Clerics.
+ */
+export const PAY_ORDER: readonly Kind[] = [
+  Kind.Dragon, Kind.Champion, Kind.Troll, Kind.Trebuchet, Kind.GriffinRider, Kind.BoneGolem, Kind.Ballista, Kind.Paladin, Kind.Ranger, Kind.Wizard,
+  Kind.Cleric, Kind.Knight, Kind.Outrider, Kind.Mercenary, Kind.Skeleton,
+];
+
+/**
  * The army a ledger is worth, as total soldiers by kind. Contribution sets a
  * budget of platoon slots; the purposes of the work spend part of it on
  * specialists, and Footmen take the rest, so a commit message changes what the
@@ -292,10 +334,13 @@ export function armyFor(ledger: Ledger, pushes: number, conquered = 0): number[]
   const want = new Array<number>(KIND_COUNT).fill(0);
   // Armies are twice the size they were, and so is every count: each kind comes in pairs where
   // one came before, so the make-up of an army (and the share each kind takes) is what it was.
-  const fix = pc('fix');
-  want[Kind.Cleric] = 2 * fl(sq(fix) / 2.5);
-  want[Kind.Paladin] = 2 * fl(fix / 300);
-  want[Kind.Ranger] = 2 * fl(fix / 500);
+  // Fix work (fix code and the difficulty bonus its fixes earned) raises a mix: Ballistae to bring
+  // down the big, Paladins and Rangers, and Clerics.
+  const fix = fixWork(ledger);
+  want[Kind.Cleric] = 2 * fl(sq(fix) / FIX.cleric);
+  want[Kind.Ballista] = 2 * fl(fix / FIX.ballista);
+  want[Kind.Paladin] = 2 * fl(fix / FIX.paladin);
+  want[Kind.Ranger] = 2 * fl(fix / FIX.ranger);
   const feature = pc('feature') + pc('work');
   // At most one Dragon per 900 feature lines. A second still needs 4000 (twice that would be the
   // cap, out of reach), and only one lives at a time: an extra marches as a Champion.
@@ -317,8 +362,7 @@ export function armyFor(ledger: Ledger, pushes: number, conquered = 0): number[]
   // Specialists may spend at most 65% of the budget; heroes are paid first.
   const cap = fl(budget * 0.65);
   let spent = 0;
-  const order: Kind[] = [Kind.Dragon, Kind.Champion, Kind.Troll, Kind.Trebuchet, Kind.GriffinRider, Kind.BoneGolem, Kind.Paladin, Kind.Ranger, Kind.Wizard, Kind.Knight, Kind.Cleric, Kind.Outrider, Kind.Mercenary, Kind.Skeleton];
-  for (const k of order) {
+  for (const k of PAY_ORDER) {
     const per = STATS[k]!.slots;
     // Paid in pairs, as they are counted (the Dragon alone), so the share left to each kind is what it was.
     const n = k === Kind.Dragon ? Math.min(want[k]!, fl((cap - spent) / per)) : Math.min(want[k]!, 2 * fl((cap - spent) / (2 * per)));

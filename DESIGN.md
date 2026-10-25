@@ -122,15 +122,16 @@ Each unit takes one or more **slots** in its platoon. Speed is in world units pe
 | Unit | Raised by | Slots | HP | Dmg | Range | Speed | Abilities |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Footman | any code | 1 | 110 | 11 | melee | 1.6 | Spear and shield. +60% vs Outriders and Knights |
-| Knight | complex code | 2 | 240 | 22 | melee | 2.4 | Charge: the first blow after riding 40 units deals ×1.8. +60% vs Outriders and Knights |
+| Knight | complex code | 2 | 240 | 22 | melee | 2.4 | Charge: the first blow after riding 40 units deals ×1.8. +60% vs Outriders, Knights and Ballistae |
 | Troll | very complex code | 3 | 600 | 24 | melee | 1.2 | Regenerates 1.2 HP per tick, a quarter of that while scorched by fire. +30% vs base units. Hired for 20 minutes, then lumbers home once its platoon is out of combat |
 | Berserker | untested, uncommented code | 1 | 120 | 26 | melee | 2.1 | Hits hard, dies fast |
 | Trebuchet | sweeping changes | 3 | 260 | 34 | 175 | 0.8 | Stones burst over 22 units. Prefers any structure in range whose walls lie within its banner's leash. ×2 vs structures |
-| Cleric | bug fixes | 1 | 90 | 5 | melee | 1.5 | Every 2 s, heals the most wounded ally within 80 for 22 |
+| Cleric | bug fixes | 1 | 90 | 8 | 60 | 1.5 | Battle priest. Smites with a radiant bolt, ×2.5 vs undead (Skeletons, Bone Golems). Every 2 s, heals the most wounded ally within 80 for 22 and cleanses every ally within 50 of fire; a soldier who falls within 50 of a Cleric costs its platoon half the morale (not stacking with a Herald) |
 | Paladin | larger bug fixes | 2 | 320 | 14 | melee | 1.4 | Shield aura like a Warden's. Every 2 s, heals the most wounded ally within 40 for 6. ×2 vs undead |
 | Ranger | bug fixes with real code | 2 | 90 | 13 | 125 | 1.9 | Elven longbow. +40% vs Skeletons, Mercenaries, Berserkers. +80% vs fliers. Half damage to Wardens and Paladins |
 | Champion | big work | 2 | 520 | 26 | melee | 1.5 | Allies within 60 deal 20% more. Its platoon cannot rout while it lives. ×1.5 vs heroes and Dragons |
 | Dragon | legendary features | 6 | 2400 | 24 | 70 | 2.0 | Flies. Every 2 s breathes fire on every enemy in a 50° cone, scorching them, and singes structures in it for 30%. Valor aura like a Champion's, and its platoon cannot rout while it lives |
+| Ballista | bug fixes (fix work) | 2 | 210 | 42 | 150 | 0.9 | Crewed bolt-thrower, every 4 s. Armour-piercing: its bolt ignores Warden and Paladin shield auras and is never halved against them. ×2 vs big soldiers (size 9+: Knights, Paladins, Champions, Trolls, Bone Golems, Trebuchets, Ballistae), ×2.5 vs fliers (Dragons, Griffin Riders). The bolt flies on into the next foe in line within 45 for half. A foe within 30 takes only 35% (the crew's sidearms). Knights deal +60% to it |
 | Outrider | refactors, especially deleted code | 1 | 120 | 15 | melee | 3.2 | +60% vs ranged units, Heralds, Sappers, Clerics |
 | Griffin Rider | big refactors | 2 | 200 | 20 | melee | 3.6 | Flies over water, rock and crowds. Same bonuses as the Outrider |
 | Wizard | performance work | 2 | 85 | 20 | 120 | 1.4 | Fireballs burst over 28 units (full damage at the center, half at the edge) and scorch |
@@ -144,7 +145,7 @@ Each unit takes one or more **slots** in its platoon. Speed is in world units pe
 
 Fliers ignore terrain and the press of ground soldiers. Melee soldiers can still strike them once the flier comes within reach.
 
-Soldiers stay leashed to their banner (1.7 × their aggro range), for enemies and walls alike, and once deployed to their own place in the line, so platoons fight as blocks (see *Formations*). A burst (fireball or stone) is weighed against each soldier it lands on, when it lands: the shooter's bonus against that soldier, then that soldier's own shields, forest cover and home turf. Missiles (arrows, fireballs, stones, tower bolts) do half damage to soldiers in forest.
+Soldiers stay leashed to their banner (1.7 × their aggro range), for enemies and walls alike, and once deployed to their own place in the line, so platoons fight as blocks (see *Formations*). A burst (fireball or stone) is weighed against each soldier it lands on, when it lands: the shooter's bonus against that soldier, then that soldier's own shields, forest cover and home turf. Missiles (arrows, fireballs, stones, smites, Ballista bolts, tower bolts) do half damage to soldiers in forest. A Ballista bolt is weighed against the soldier it lands on, as a burst is, and is armour-piercing: armour here is the tower shield's aura and the half damage arrows do to Wardens and Paladins, and the bolt ignores both; its victim's army power, forest cover and home turf still count.
 
 ### How many soldiers: the day's ledger
 
@@ -252,12 +253,12 @@ Every platoon is drawn up as one block per kind of soldier: a rectangle in ranks
 
 | Form | Shape | When |
 | --- | --- | --- |
-| **Column** | Narrow and deep: each block at most three files and 48 units wide, the blocks one behind another down the road. Head to tail: the cavalry scouts (Outriders, Knights); the heavy foot (Berserkers, Trolls, Bone Golems, Paladins, Wardens, Footmen, Mercenaries, Skeletons); the Champion with the Heralds, Clerics and Sappers; the missile troops (Archers, Rangers, Wizards); Trebuchets at the tail. Griffin Riders fly in single file over the middle of the column, a Dragon over it too. | Marching |
+| **Column** | Narrow and deep: each block at most three files and 48 units wide, the blocks one behind another down the road. Head to tail: the cavalry scouts (Outriders, Knights); the heavy foot (Berserkers, Trolls, Bone Golems, Paladins, Wardens, Footmen, Mercenaries, Skeletons); the Champion with the Heralds, Clerics and Sappers; the missile troops (Archers, Rangers, Wizards); the siege at the tail, Ballistae then Trebuchets. Griffin Riders fly in single file over the middle of the column, a Dragon over it too. | Marching |
 | **Deploying** | The column halts and wheels to face the threat while each block walks to its place in the line. | An enemy banner comes within **220** of the platoon's centre (about 1.3 × a Trebuchet's 170 aggro), or a foe's walls within 200 of their edge |
-| **Line** | Wide and shallow, facing the threat: Trolls, Bone Golems and Berserkers ahead; the heavy foot in the front ranks with the Champion at the centre; Paladins, Heralds, Clerics and Sappers behind the centre; the missile troops two to three ranks back; Trebuchets behind them. Knights ride the inner wings and Outriders the outer ones. Griffin Riders hover over the middle, a Dragon behind the centre. | Deployed: after 2 seconds once the ranks are dressed and the line faces the threat, after 8 seconds at most |
+| **Line** | Wide and shallow, facing the threat: Trolls, Bone Golems and Berserkers ahead; the heavy foot in the front ranks with the Champion at the centre; Paladins, Heralds, Clerics and Sappers behind the centre; the missile troops (Archers, Rangers, Wizards and Ballistae) two to three ranks back; Trebuchets behind them. Knights ride the inner wings and Outriders the outer ones. Griffin Riders hover over the middle, a Dragon behind the centre. | Deployed: after 2 seconds once the ranks are dressed and the line faces the threat, after 8 seconds at most |
 | **Engaged** | The line, fighting. | Any soldier has an enemy soldier in reach |
 
-- **The column follows its road.** The banner marches at the head and lays a trail behind it; every soldier's place is on that trail, so a column winds through gaps and around bends without anyone cutting a corner. It moves at 90% of its slowest kind's speed, siege engines and fliers aside: Trebuchets may trail, though a column waits for them (and for any stragglers) once its ranks fall more than 16 units behind on average. A column keeps a column's length behind the friendly column ahead on the same road.
+- **The column follows its road.** The banner marches at the head and lays a trail behind it; every soldier's place is on that trail, so a column winds through gaps and around bends without anyone cutting a corner. It moves at 90% of its slowest kind's speed, siege engines and fliers aside: Trebuchets and Ballistae may trail, though a column waits for them (and for any stragglers) once its ranks fall more than 16 units behind on average. A column keeps a column's length behind the friendly column ahead on the same road.
 - **Deploying.** The line forms on the column's centre of mass, so no one walks more than half the column. The formation wheels at most 0.1 radians a tick. A line is as wide as the ground allows: it is checked across the facing, and where rock or water is closer, blocks grow deeper, rows that do not fit fall in behind, the cavalry rides behind the foot, and the line shifts sideways to sit between the obstacles. It re-checks the ground every 2 seconds. Friendly lines on the same ground side-step until they stand side by side.
 - **The line advances or holds.** A line facing an enemy army advances on its banner at 60% of the column's pace until the two banners are 45 apart and the front ranks meet. A line facing walls presses on toward its objective at 85% pace. A platoon that reaches its objective draws up in line to hold it.
 - **Back to column.** A deployed platoon re-forms in column only when no threat has been within **275** (1.25 × the deploy radius) for 5 seconds, so it never flip-flops at the edge.
@@ -274,9 +275,9 @@ Every platoon is drawn up as one block per kind of soldier: a rectangle in ranks
 | Line infantry | Footmen, Wardens, Mercenaries, Skeletons, Berserkers, Sappers | The nearest foe in front of it, the ones it beats preferred. A foe already beset by 2 + size ÷ 4 attackers is left alone unless it is at arm's reach, so attackers spread along the enemy line. |
 | Brutes | Trolls, Bone Golems | Foes near the enemy's banner: they push the centre. |
 | Champion | Champion | The enemy's best: a foe's renown value weighs heavily. |
-| Missile troops | Archers, Rangers, Wizards, Trebuchets, Dragon | Foes in range, the wounded and the valuable first. They hold their rank, step back from melee, and do not advance beyond their place. |
+| Missile troops | Archers, Rangers, Wizards, Trebuchets, Ballistae, Dragon | Foes in range, the wounded and the valuable first; a Ballista the biggest and most valuable (a Dragon, a Troll, a Champion before any footman). They hold their rank, step back from melee, and do not advance beyond their place. |
 | Cavalry | Knights, Outriders, Griffin Riders | Missile troops, casters, Clerics, Heralds and Sappers first. A rider in front of a deployed enemy line swings wide round its flank before turning in. |
-| Healers | Clerics, Heralds, Paladins | They stay behind the front tending the wounded and strike only at foes that come within 24 (44 for a Paladin). |
+| Healers | Clerics, Heralds, Paladins | They stay behind the front tending the wounded and strike only at foes that come within 24 (44 for a Paladin); a Cleric smites any foe within its reach of 60, picking as missile troops do. |
 
 Sappers still run for the walls of their objective once within their leash, and Trebuchets prefer walls (only walls that can be stormed now; otherwise they hold and shoot at soldiers). A soldier below 20% of its HP steps back a rank, trading places with a fresh soldier (above 60%) of its kind behind it, and then fights only what reaches it.
 
@@ -372,7 +373,7 @@ At 0 morale the platoon **routs**: it stops fighting and flees to the nearest ca
 | Source | Renown |
 | --- | --- |
 | Border fort held | 2 per minute |
-| Kill | the victim's value: 1 for Footmen, Archers, Sappers and Skeletons; 2 for Wardens, Heralds, Outriders, Mercenaries and Berserkers; 3 for Rangers and Clerics; 4 for Knights and Bone Golems; 5 for Paladins, Wizards, Trebuchets and Griffin Riders; 6 for a Troll; 10 for a Champion; 30 for a Dragon |
+| Kill | the victim's value: 1 for Footmen, Archers, Sappers and Skeletons; 2 for Wardens, Heralds, Outriders, Mercenaries and Berserkers; 3 for Rangers and Clerics; 4 for Knights and Bone Golems; 5 for Paladins, Wizards, Trebuchets, Ballistae and Griffin Riders; 6 for a Troll; 10 for a Champion; 30 for a Dragon |
 | Capturing a capital | 120 for the first capture of that capital today, then `120 / n` for the n-th |
 
 A fort pays in full only while its owner has soldiers near it; an ungarrisoned fort pays a quarter of its renown, rounded down. Nothing singles out the leader: there is no bounty on the leader's soldiers and its capital draws no one more than any other. The ring itself makes the leader face only its two neighbours.
@@ -403,6 +404,7 @@ When a war ends, the server computes a digest from the final world and the war's
 | Architect | most complexity added (branch points, new functions, linked modules) |
 | Dragonlord | most Dragons raised |
 | Dragonslayer | most Dragons felled |
+| Dragonbane | most damage dealt to big soldiers (Dragons, Trolls, Knights, Champions…) by Ballistae |
 
 An award needs a score above zero; a tie goes to the player who joined first.
 

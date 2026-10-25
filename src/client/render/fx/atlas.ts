@@ -53,6 +53,8 @@ export interface FxTextures {
   crack: Texture[];
   /** A gilded lance, pointing right, for tower bolts. */
   lance: Texture;
+  /** A Ballista's heavy bolt, pointing right: an ash shaft, vellum vanes and a long iron head. */
+  ballistaBolt: Texture;
 }
 
 /** The bible's ink: outlines are a warm near-black, never pure black. */
@@ -778,6 +780,57 @@ export function makeFxTextures(art: FxArt | null = loaded): FxTextures {
     c.fillRect(57, 5, 8, 1);
   });
 
+  const ballistaBolt = make(64, 12, (c) => {
+    c.lineJoin = 'round';
+    c.lineCap = 'round';
+    // Ash shaft with an ink edge.
+    c.strokeStyle = INK;
+    c.lineWidth = 4.2;
+    c.beginPath();
+    c.moveTo(6, 6);
+    c.lineTo(46, 6);
+    c.stroke();
+    c.strokeStyle = '#c9a46a';
+    c.lineWidth = 2.2;
+    c.stroke();
+    c.strokeStyle = 'rgba(255,241,207,0.7)';
+    c.lineWidth = 0.8;
+    c.beginPath();
+    c.moveTo(8, 5.2);
+    c.lineTo(44, 5.2);
+    c.stroke();
+    // Vellum vanes.
+    c.fillStyle = '#efe4c8';
+    c.strokeStyle = INK;
+    c.lineWidth = 1;
+    for (const dy of [-1, 1]) {
+      c.beginPath();
+      c.moveTo(2, 6 + dy * 5);
+      c.lineTo(13, 6);
+      c.lineTo(5, 6);
+      c.closePath();
+      c.fill();
+      c.stroke();
+    }
+    // A long iron bodkin head, lit on its upper edge.
+    c.fillStyle = '#4d4f57';
+    c.beginPath();
+    c.moveTo(44, 2);
+    c.lineTo(63, 6);
+    c.lineTo(44, 10);
+    c.lineTo(46, 6);
+    c.closePath();
+    c.fill();
+    c.lineWidth = 1.2;
+    c.stroke();
+    c.strokeStyle = '#d9dde0';
+    c.lineWidth = 0.9;
+    c.beginPath();
+    c.moveTo(47, 4);
+    c.lineTo(60, 5.8);
+    c.stroke();
+  });
+
   const source = new CanvasSource({ resource: canvas, autoGenerateMipmaps: true, scaleMode: 'linear' });
   const textures = frames.map((frame) => new Texture({ source, frame }));
   const t = (i: number) => textures[i]!;
@@ -820,5 +873,6 @@ export function makeFxTextures(art: FxArt | null = loaded): FxTextures {
     flameWash: flameWash.map(t),
     firePuff: firePuff.map(t),
     lance: t(lance),
+    ballistaBolt: t(ballistaBolt),
   };
 }

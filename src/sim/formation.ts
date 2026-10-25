@@ -40,8 +40,8 @@ export const COLUMN_ORDER: readonly Kind[] = [
   Kind.Champion, Kind.Herald, Kind.Cleric, Kind.Sapper,
   // Missile troops.
   Kind.Archer, Kind.Ranger, Kind.Wizard,
-  // Siege at the tail.
-  Kind.Trebuchet,
+  // Siege at the tail: the bolt-throwers, then the stone-throwers.
+  Kind.Ballista, Kind.Trebuchet,
 ];
 
 /** Battle line, front row first; each row's blocks are set side by side from the centre out. */
@@ -52,8 +52,8 @@ export const LINE_ROWS: readonly (readonly Kind[])[] = [
   [Kind.Champion, Kind.Footman, Kind.Warden, Kind.Mercenary, Kind.Skeleton],
   // Healers and engineers behind the centre.
   [Kind.Paladin, Kind.Herald, Kind.Cleric, Kind.Sapper],
-  // Missile troops.
-  [Kind.Archer, Kind.Ranger, Kind.Wizard],
+  // Missile troops, the Ballistae among them.
+  [Kind.Archer, Kind.Ranger, Kind.Wizard, Kind.Ballista],
   // Siege behind the missile line.
   [Kind.Trebuchet],
 ];

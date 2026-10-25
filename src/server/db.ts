@@ -213,6 +213,44 @@ CREATE TABLE IF NOT EXISTS code_tally (
   branches INTEGER NOT NULL,
   PRIMARY KEY (user_id, day)
 );
+CREATE TABLE IF NOT EXISTS upstream_pending (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  push_id TEXT NOT NULL,
+  repo TEXT NOT NULL,
+  upstream TEXT NOT NULL,
+  branch TEXT NOT NULL,
+  ref TEXT NOT NULL,
+  head TEXT NOT NULL,
+  shas TEXT NOT NULL,
+  patch_id TEXT,
+  day INTEGER NOT NULL,
+  at INTEGER NOT NULL,
+  bonus_milli INTEGER NOT NULL,
+  effort_milli INTEGER NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  checks INTEGER NOT NULL DEFAULT 0,
+  next_check_at INTEGER NOT NULL,
+  found_at INTEGER,
+  settled INTEGER NOT NULL DEFAULT 0,
+  UNIQUE (user_id, push_id, head)
+);
+CREATE INDEX IF NOT EXISTS upstream_pending_due ON upstream_pending(status, next_check_at);
+CREATE INDEX IF NOT EXISTS upstream_pending_day ON upstream_pending(user_id, day);
+CREATE TABLE IF NOT EXISTS upstream_days (
+  user_id INTEGER NOT NULL,
+  day INTEGER NOT NULL,
+  bonus_milli INTEGER NOT NULL DEFAULT 0,
+  effort_milli INTEGER NOT NULL DEFAULT 0,
+  credited INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (user_id, day)
+);
+CREATE TABLE IF NOT EXISTS upstream_paid (
+  user_id INTEGER NOT NULL,
+  day INTEGER NOT NULL,
+  lines INTEGER NOT NULL,
+  PRIMARY KEY (user_id, day)
+);
 CREATE TABLE IF NOT EXISTS chat (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   room_id INTEGER NOT NULL,
@@ -247,6 +285,60 @@ export function openDb(path: string): Db {
 }
 
 type Raw = Record<string, unknown>;
+
+/** A fork's diff whose bonus waits until its commits reach the upstream (server/upstream.ts). */
+export interface UpstreamPending {
+  id: number;
+  userId: number;
+  pushId: string;
+  /** The fork. */
+  repo: string;
+  /** Where its commits must land: the upstream repository and its default branch. */
+  upstream: string;
+  branch: string;
+  /** The fork's branch the push went to (for finding its pull requests). */
+  ref: string;
+  /** The diff's newest commit, and all of the user's own commits it measured. */
+  head: string;
+  shas: string[];
+  /** The diff's patch id (server/upstream.ts `patchId`): a squash or rebase of it has the same one. */
+  patchId: string | null;
+  /** UTC day number of the push, and when it was pushed (ms). */
+  day: number;
+  at: number;
+  /** The bonus waiting, frozen at push time (rules/difficulty.ts `PendingBonus`): signed, before the day's caps. */
+  bonusMilli: number;
+  effortMilli: number;
+  status: 'pending' | 'upstream' | 'expired';
+  checks: number;
+  nextCheckAt: number;
+  foundAt: number | null;
+  settled: boolean;
+}
+
+function pendingRow(r: Raw): UpstreamPending {
+  return {
+    id: r.id as number,
+    userId: r.user_id as number,
+    pushId: r.push_id as string,
+    repo: r.repo as string,
+    upstream: r.upstream as string,
+    branch: r.branch as string,
+    ref: r.ref as string,
+    head: r.head as string,
+    shas: JSON.parse(r.shas as string) as string[],
+    patchId: (r.patch_id as string | null) ?? null,
+    day: r.day as number,
+    at: r.at as number,
+    bonusMilli: r.bonus_milli as number,
+    effortMilli: r.effort_milli as number,
+    status: r.status as UpstreamPending['status'],
+    checks: r.checks as number,
+    nextCheckAt: r.next_check_at as number,
+    foundAt: (r.found_at as number | null) ?? null,
+    settled: r.settled === 1,
+  };
+}
 
 function userRow(r: Raw): UserRow {
   return {
@@ -374,6 +466,83 @@ export class Store {
       .prepare('INSERT OR IGNORE INTO pushes (user_id, push_id, repo, at, data) VALUES (?, ?, ?, ?, ?)')
       .run(p.userId, p.pushId, p.repo, p.at, JSON.stringify(p));
     return res.changes > 0;
+  }
+
+  // ----------------------------------------------------------- forks' deferred bonus
+
+  /** Records a fork diff's pending bonus, once per (push, head). */
+  addUpstreamPending(p: Omit<UpstreamPending, 'id' | 'status' | 'checks' | 'foundAt' | 'settled'>): void {
+    this.db
+      .prepare(
+        `INSERT OR IGNORE INTO upstream_pending (user_id, push_id, repo, upstream, branch, ref, head, shas, patch_id, day, at, bonus_milli, effort_milli, next_check_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(p.userId, p.pushId, p.repo, p.upstream, p.branch, p.ref, p.head, JSON.stringify(p.shas), p.patchId, p.day, p.at, p.bonusMilli, p.effortMilli, p.nextCheckAt);
+  }
+
+  /** Pending rows due for a check, oldest due first. */
+  dueUpstream(now: number, limit: number): UpstreamPending[] {
+    return (this.db.prepare("SELECT * FROM upstream_pending WHERE status = 'pending' AND next_check_at <= ? ORDER BY next_check_at, id LIMIT ?").all(now, limit) as Raw[]).map(pendingRow);
+  }
+
+  upstreamPendingOf(userId: number): UpstreamPending[] {
+    return (this.db.prepare('SELECT * FROM upstream_pending WHERE user_id = ? ORDER BY id').all(userId) as Raw[]).map(pendingRow);
+  }
+
+  updateUpstream(id: number, u: { status: UpstreamPending['status']; checks: number; nextCheckAt: number; foundAt?: number | null }): void {
+    this.db.prepare('UPDATE upstream_pending SET status = ?, checks = ?, next_check_at = ?, found_at = coalesce(?, found_at) WHERE id = ?').run(u.status, u.checks, u.nextCheckAt, u.foundAt ?? null, id);
+  }
+
+  /** Makes a user's pending rows for `upstream` due now (a merged pull request was reported there). */
+  wakeUpstream(userId: number, upstream: string, now: number): number {
+    return this.db.prepare("UPDATE upstream_pending SET next_check_at = ? WHERE user_id = ? AND lower(upstream) = lower(?) AND status = 'pending' AND next_check_at > ?").run(now, userId, upstream, now).changes;
+  }
+
+  /** (user, day) pairs with rows found upstream and not yet settled, for days before `beforeDay`. */
+  unsettledUpstreamDays(beforeDay: number): { userId: number; day: number }[] {
+    return (this.db.prepare("SELECT DISTINCT user_id, day FROM upstream_pending WHERE status = 'upstream' AND settled = 0 AND day < ? ORDER BY day, user_id").all(beforeDay) as Raw[]).map((r) => ({ userId: r.user_id as number, day: r.day as number }));
+  }
+
+  /** Every row of a user's day found upstream, settled or not: what that day's reward is computed from. */
+  confirmedUpstream(userId: number, day: number): UpstreamPending[] {
+    return (this.db.prepare("SELECT * FROM upstream_pending WHERE user_id = ? AND day = ? AND status = 'upstream' ORDER BY id").all(userId, day) as Raw[]).map(pendingRow);
+  }
+
+  settleUpstream(userId: number, day: number): void {
+    this.db.prepare("UPDATE upstream_pending SET settled = 1 WHERE user_id = ? AND day = ? AND status = 'upstream'").run(userId, day);
+  }
+
+  /** The day's bonus that paid at once (raw, before the caps) and the upstream reward credited for it so far. */
+  upstreamDay(userId: number, day: number): { bonusMilli: number; effortMilli: number; credited: number } {
+    const r = this.db.prepare('SELECT bonus_milli, effort_milli, credited FROM upstream_days WHERE user_id = ? AND day = ?').get(userId, day) as Raw | undefined;
+    return r ? { bonusMilli: r.bonus_milli as number, effortMilli: r.effort_milli as number, credited: r.credited as number } : { bonusMilli: 0, effortMilli: 0, credited: 0 };
+  }
+
+  /** Records the day's raw immediate bonus totals as they stand after a push. */
+  setUpstreamDayTotals(userId: number, day: number, bonusMilli: number, effortMilli: number): void {
+    this.db
+      .prepare('INSERT INTO upstream_days (user_id, day, bonus_milli, effort_milli) VALUES (?, ?, ?, ?) ON CONFLICT(user_id, day) DO UPDATE SET bonus_milli = excluded.bonus_milli, effort_milli = excluded.effort_milli')
+      .run(userId, day, bonusMilli, effortMilli);
+  }
+
+  addUpstreamCredit(userId: number, day: number, lines: number): void {
+    this.db.prepare('INSERT INTO upstream_days (user_id, day, credited) VALUES (?, ?, ?) ON CONFLICT(user_id, day) DO UPDATE SET credited = credited + excluded.credited').run(userId, day, lines);
+  }
+
+  /** Upstream reward lines credited to the user on UTC day `day` (whatever days they were for). */
+  upstreamPaid(userId: number, day: number): number {
+    return ((this.db.prepare('SELECT lines FROM upstream_paid WHERE user_id = ? AND day = ?').get(userId, day) as Raw | undefined)?.lines as number | undefined) ?? 0;
+  }
+
+  addUpstreamPaid(userId: number, day: number, lines: number): void {
+    this.db.prepare('INSERT INTO upstream_paid (user_id, day, lines) VALUES (?, ?, ?) ON CONFLICT(user_id, day) DO UPDATE SET lines = lines + excluded.lines').run(userId, day, lines);
+  }
+
+  /** Drops forks' pending rows and day totals older than `before` (ms). */
+  pruneUpstream(before: number): void {
+    this.db.prepare('DELETE FROM upstream_paid WHERE day < ?').run(Math.floor(before / 86_400_000));
+    this.db.prepare('DELETE FROM upstream_pending WHERE at < ?').run(before);
+    this.db.prepare('DELETE FROM upstream_days WHERE day < ?').run(Math.floor(before / 86_400_000));
   }
 
   hasPush(userId: number, pushId: string): boolean {

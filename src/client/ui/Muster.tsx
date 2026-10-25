@@ -100,7 +100,7 @@ export function usePortrait(kind: number, look: PortraitLook): Portrait | null {
 
 /** Kinds in the order a muster roll lists them: legends and heroes, elites, the line, then support. */
 export const ROLL_ORDER: readonly number[] = [
-  Kind.Dragon, Kind.Champion, Kind.Troll, Kind.Knight, Kind.Paladin, Kind.Ranger, Kind.Wizard, Kind.GriffinRider, Kind.Trebuchet, Kind.BoneGolem,
+  Kind.Dragon, Kind.Champion, Kind.Troll, Kind.Knight, Kind.Paladin, Kind.Ranger, Kind.Wizard, Kind.GriffinRider, Kind.Ballista, Kind.Trebuchet, Kind.BoneGolem,
   Kind.Berserker, Kind.Cleric, Kind.Footman, Kind.Outrider, Kind.Mercenary, Kind.Skeleton,
   Kind.Warden, Kind.Archer, Kind.Herald, Kind.Sapper,
 ];

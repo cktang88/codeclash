@@ -91,6 +91,7 @@ const HEFT: Partial<Record<number, number>> = {
   [Kind.Berserker]: 1.4,
   [Kind.Dragon]: 2,
   [Kind.Trebuchet]: 2.2,
+  [Kind.Ballista]: 2,
   [Kind.Wizard]: 1.8,
 };
 /** Multiply tint of the ground pool under platoons: a cool ink-blue shade, never grey. */
