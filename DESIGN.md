@@ -126,12 +126,12 @@ Each unit takes one or more **slots** in its platoon. Speed is in world units pe
 | Troll | very complex code | 3 | 600 | 24 | melee | 1.2 | Regenerates 1.2 HP per tick, a quarter of that while scorched by fire. +30% vs base units. Hired for 20 minutes, then lumbers home once its platoon is out of combat |
 | Berserker | untested, uncommented code | 1 | 120 | 26 | melee | 2.1 | Hits hard, dies fast |
 | Trebuchet | sweeping changes | 3 | 260 | 34 | 175 | 0.8 | Stones burst over 22 units. Prefers any structure in range whose walls lie within its banner's leash. ×2 vs structures |
-| Cleric | bug fixes | 1 | 90 | 8 | 60 | 1.5 | Battle priest. Smites with a radiant bolt, ×2.5 vs undead (Skeletons, Bone Golems). Every 2 s, heals the most wounded ally within 80 for 22 and cleanses every ally within 50 of fire; a soldier who falls within 50 of a Cleric costs its platoon half the morale (not stacking with a Herald) |
+| Cleric | bug fixes | 1 | 90 | 5 | 55 | 1.5 | Battle priest. Every 2.4 s smites with a radiant bolt, ×2.5 vs undead (Skeletons, Bone Golems). Every 2 s, heals the most wounded ally within 80 for 22 and cleanses every ally within 50 of fire; a soldier who falls within 50 of a Cleric costs its platoon half the morale (not stacking with a Herald) |
 | Paladin | larger bug fixes | 2 | 320 | 14 | melee | 1.4 | Shield aura like a Warden's. Every 2 s, heals the most wounded ally within 40 for 6. ×2 vs undead |
 | Ranger | bug fixes with real code | 2 | 90 | 13 | 125 | 1.9 | Elven longbow. +40% vs Skeletons, Mercenaries, Berserkers. +80% vs fliers. Half damage to Wardens and Paladins |
 | Champion | big work | 2 | 520 | 26 | melee | 1.5 | Allies within 60 deal 20% more. Its platoon cannot rout while it lives. ×1.5 vs heroes and Dragons |
 | Dragon | legendary features | 6 | 2400 | 24 | 70 | 2.0 | Flies. Every 2 s breathes fire on every enemy in a 50° cone, scorching them, and singes structures in it for 30%. Valor aura like a Champion's, and its platoon cannot rout while it lives |
-| Ballista | bug fixes (fix work) | 2 | 210 | 42 | 150 | 0.9 | Crewed bolt-thrower, every 4 s. Armour-piercing: its bolt ignores Warden and Paladin shield auras and is never halved against them. ×2 vs big soldiers (size 9+: Knights, Paladins, Champions, Trolls, Bone Golems, Trebuchets, Ballistae), ×2.5 vs fliers (Dragons, Griffin Riders). The bolt flies on into the next foe in line within 45 for half. A foe within 30 takes only 35% (the crew's sidearms). Knights deal +60% to it |
+| Ballista | bug fixes (fix work) | 2 | 210 | 34 | 150 | 0.9 | Crewed bolt-thrower, a bolt every 5.4 s. Armour-piercing: its bolt ignores Warden and Paladin shield auras and is never halved against them. ×2 vs big soldiers (size 9+: Knights, Paladins, Champions, Trolls, Bone Golems, Trebuchets, Ballistae), ×2.5 vs fliers (Dragons, Griffin Riders). The bolt flies on into the next foe in line within 45 beyond for 40%. A foe within 30 takes only 35% (the crew's sidearms). Knights deal +60% to it |
 | Outrider | refactors, especially deleted code | 1 | 120 | 15 | melee | 3.2 | +60% vs ranged units, Heralds, Sappers, Clerics |
 | Griffin Rider | big refactors | 2 | 200 | 20 | melee | 3.6 | Flies over water, rock and crowds. Same bonuses as the Outrider |
 | Wizard | performance work | 2 | 85 | 20 | 120 | 1.4 | Fireballs burst over 28 units (full damage at the center, half at the edge) and scorch |
@@ -155,7 +155,7 @@ An army is worth what its player contributed **today as a whole**, not push by p
 2. **The target army.** The ledger decides the army it is worth, `armyFor(ledger)`. Each push musters only the difference between that target and what the player has already raised.
 3. **Splitting and squashing are equal.** Twenty small pushes and one squashed push of the same work leave the same ledger, so they raise an army of the same size and strength. Only the timing differs.
 4. **Desertion.** When later pushes undo earlier work (deleting code added today, rewriting it back), the ledger shrinks and soldiers **desert**: the kinds furthest above their target first, and of each kind the waiting ones first, then the newest in the field. Soldiers never desert while the ledger is growing.
-5. **Purpose follows the work.** The ledger also tallies code and removed lines by purpose. Undone lines come off the undoing push's own purpose first, then off the others in order, so the purposes always add up to the total: writing a feature and deleting it under a `fix:` message leaves nothing behind.
+5. **Purpose follows the work.** The ledger also tallies code, removed lines and the difficulty bonus by purpose (a fix's bonus is fix work: it raises fix specialists as its code does). Undone lines come off the undoing push's own purpose first, then off the others in order, so the purposes always add up to the total: writing a feature and deleting it under a `fix:` message leaves nothing behind.
 
 **The budget.** The army's size, in platoon slots, is **linear** in the day's contribution:
 
@@ -173,11 +173,11 @@ Each metric is first bounded by the real code behind it (`effectiveLedger`):
 
 Because the budget is a function of the day's ledger, many small pushes and one squashed push still raise exactly the same army.
 
-**Specialists come out of the budget.** What the work was for, and how complex it was, spend up to 65% of the budget. They are paid in this order while the share lasts: Dragon, Champion, Troll, Trebuchet, Griffin Rider, Bone Golem, Paladin, Ranger, Wizard, Knight, Cleric, Outrider, Mercenary, Skeleton. Footmen fill the rest. The commit message therefore changes what the army is made of, never how big it is. Specialists counted per so many lines (Paladins, Rangers, Champions, Griffin Riders, Bone Golems, Trolls, Trebuchets) keep a steady share of the linear budget; those counted by a square root (Clerics, Outriders, Knights, Skeletons) take a smaller share of a bigger day, and Footmen make up the difference. All counts below are for the whole day:
+**Specialists come out of the budget.** What the work was for, and how complex it was, spend up to 65% of the budget. They are paid in this order while the share lasts (`PAY_ORDER`): Dragon, Champion, Troll, Trebuchet, Griffin Rider, Bone Golem, Ballista, Paladin, Ranger, Wizard, Cleric, Knight, Outrider, Mercenary, Skeleton. Ballistae come before the other fixers, so a fixer's army always has its answer to the big; Clerics before Knights, so a small fix still raises its Clerics when its complexity asks for Knights too. Footmen fill the rest. The commit message therefore changes what the army is made of, never how big it is. Specialists counted per so many lines (Ballistae, Paladins, Rangers, Champions, Griffin Riders, Bone Golems, Trolls, Trebuchets) keep a steady share of the linear budget; those counted by a square root (Clerics, Outriders, Knights, Skeletons) take a smaller share of a bigger day, and Footmen make up the difference. All counts below are for the whole day:
 
 | Raised by | Specialists |
 | --- | --- |
-| fix code *f* | `2·floor(√f / 2.5)` Clerics, `2·floor(f / 300)` Paladins, `2·floor(f / 500)` Rangers |
+| fix work *f* (fix code, plus the difficulty bonus earned by fixes: `fixWork`) | `2·floor(f / 180)` Ballistae, `2·floor(√f / 3.5)` Clerics, `2·floor(f / 350)` Paladins, `2·floor(f / 600)` Rangers: on a working day, about 40–45% of the fixers' slots are Ballistae |
 | feature code *F* | `2·min(3, floor(F / 400), floor(files / 5))` Champions, less one for each Dragon |
 | feature and plain work *W* | a Dragon at *W* ≥ 900 with files ≥ 10 and complexity ≥ 130; a second at 4000 / 40 / 570 |
 | refactors | `2·floor(√(removed + code/2) / 1.5)` Outriders, from refactor lines; two Griffin Riders per 400 refactor lines removed (up to 6) |
@@ -277,7 +277,7 @@ Every platoon is drawn up as one block per kind of soldier: a rectangle in ranks
 | Champion | Champion | The enemy's best: a foe's renown value weighs heavily. |
 | Missile troops | Archers, Rangers, Wizards, Trebuchets, Ballistae, Dragon | Foes in range, the wounded and the valuable first; a Ballista the biggest and most valuable (a Dragon, a Troll, a Champion before any footman). They hold their rank, step back from melee, and do not advance beyond their place. |
 | Cavalry | Knights, Outriders, Griffin Riders | Missile troops, casters, Clerics, Heralds and Sappers first. A rider in front of a deployed enemy line swings wide round its flank before turning in. |
-| Healers | Clerics, Heralds, Paladins | They stay behind the front tending the wounded and strike only at foes that come within 24 (44 for a Paladin); a Cleric smites any foe within its reach of 60, picking as missile troops do. |
+| Healers | Clerics, Heralds, Paladins | They stay behind the front tending the wounded and strike only at foes that come within 24 (44 for a Paladin); a Cleric smites any foe within its reach of 55, picking as missile troops do. |
 
 Sappers still run for the walls of their objective once within their leash, and Trebuchets prefer walls (only walls that can be stormed now; otherwise they hold and shoot at soldiers). A soldier below 20% of its HP steps back a rank, trading places with a fresh soldier (above 60%) of its kind behind it, and then fights only what reaches it.
 
