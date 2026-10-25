@@ -59,11 +59,13 @@ export const FILE_CAP = 15;
 /** The largest multiplier the weights allow (all four signals saturated): the hardest file earns the full credit. */
 export const M_MAX = 1 + WEIGHTS.lines + WEIGHTS.authors + WEIGHTS.age + WEIGHTS.commits;
 /**
- * Repeat-target dampening: a file that held effort credit at the close of a UTC day earns none on the
- * next EFFORT_REPEAT_DAYS − 1 days (at most once per player per 3 days), so the same core file cannot
- * be farmed daily with token edits. Its line bonus is not dampened.
+ * Repeat-target dampening of token edits: a file that held effort credit at the close of either of the
+ * EFFORT_REPEAT_DAYS − 1 days before earns it again today only with at least EFFORT_REPEAT_LINES
+ * modified lines (instead of MEANINGFUL_LINES), so the same core file cannot be farmed daily with
+ * 3-line tweaks while a maintainer's real work on it still pays. Its line bonus is not dampened.
  */
 export const EFFORT_REPEAT_DAYS = 3;
+export const EFFORT_REPEAT_LINES = 10;
 /**
  * Forks: a fork's line bonus and effort credit pay only once the commit reaches the upstream's default
  * branch. A commit not found there within this many days of its push is given up on: it pays nothing.
@@ -436,7 +438,7 @@ export interface DifficultyNote {
   creditMilli?: number;
   /** A fork's file: extraMilli and creditMilli wait until the commit reaches the upstream, and pay nothing now. */
   pending?: boolean;
-  /** The file held effort credit within the last EFFORT_REPEAT_DAYS days, so it earns none today. */
+  /** The file held effort credit within the last EFFORT_REPEAT_DAYS days and has fewer than EFFORT_REPEAT_LINES modified lines today, so it earns none. */
   repeat?: boolean;
   context: FileContext | null;
 }

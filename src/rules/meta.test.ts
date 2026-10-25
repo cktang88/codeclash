@@ -68,7 +68,7 @@ describe('orders', () => {
 
   it('tracks feats deterministically in the sim', () => {
     const p = player();
-    expect(p.feats).toEqual({ holdBest: 0, routsCaused: 0, returns: 0, standBest: 0, retakes: 0, homeKills: 0, ledTicks: 0 });
+    expect(p.feats).toEqual({ holdBest: 0, routsCaused: 0, returns: 0, standBest: 0, retakes: 0, homeKills: 0, ledTicks: 0, bigDamage: 0 });
   });
 });
 

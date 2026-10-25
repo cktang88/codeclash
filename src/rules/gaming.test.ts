@@ -804,7 +804,7 @@ describe('gaming the difficulty bonus through forks and repeat targets', () => {
     expect(days.bonus.every((b) => b === 0)).toBe(true);
   }, 30_000);
 
-  it('a fork farm whose commits are all merged upstream pays a maintainer’s day, a day late, and the same files only one day in three', () => {
+  it('a fork farm whose commits are all merged upstream pays a maintainer’s day, a day late', () => {
     const merged = farmDays(6, farm, forkContext(PARTS), { merged: true });
     const direct = farmDays(6, farm, coreContext(PARTS));
     report('row71 fork farming, merged next day, 6 days', merged);
@@ -812,10 +812,8 @@ describe('gaming the difficulty bonus through forks and repeat targets', () => {
     // The first day pays nothing; afterwards each war carries the day before's bonus.
     expect(merged.bonus[0]).toBe(0);
     expect(merged.bonus.slice(1)).toEqual(direct.bonus.slice(0, 5));
-    // The effort credit (1,800) pays one day in three on the same files; the line bonus (2,000) every day.
-    expect(direct.bonus[0]).toBe(DAILY_BONUS_CAP + FILE_CAP * FILE_CREDIT);
-    expect(direct.bonus[1]).toBe(DAILY_BONUS_CAP);
-    expect(direct.bonus[3]).toBe(DAILY_BONUS_CAP + FILE_CAP * FILE_CREDIT);
+    // 40 modified lines a file are not token edits: both caps (2,000 + 1,800) pay every day, as for a maintainer.
+    expect(direct.bonus.every((b) => b === DAILY_BONUS_CAP + FILE_CAP * FILE_CREDIT)).toBe(true);
     expect(Math.max(...direct.ratios)).toBeLessThan(4.6);
   }, 30_000);
 
@@ -824,6 +822,11 @@ describe('gaming the difficulty bonus through forks and repeat targets', () => {
     report('row67 tiny edits, the same 40 files daily (non-fork), 6 days', daily);
     const line = Math.floor(120 * 2.2);
     expect(daily.bonus).toEqual([FILE_CAP * FILE_CREDIT + line, line, line, FILE_CAP * FILE_CREDIT + line, line, line]);
+    // Real-sized edits to the same files (10 lines each) are not token edits: they pay every day.
+    const ten = (d: number) => HUBS.map((p, f) => file(p, fresh(d).slice(f * 10, f * 10 + 10), old.slice(d * 400 + f * 10, d * 400 + f * 10 + 10)));
+    const tenDaily = farmDays(6, ten, coreContext(HUBS));
+    report('row67 10-line edits, the same 40 files daily (non-fork), 6 days', tenDaily);
+    expect(tenDaily.bonus.every((b) => b === tenDaily.bonus[0]! && b > FILE_CAP * FILE_CREDIT)).toBe(true);
     // Rotating through three sets of 40 files escapes it: the dampening prices the attack, it does not stop it.
     const sets = Array.from({ length: 3 }, (_, k) => HUBS.map((p) => p.replace('hub', `hub${k}`)));
     const rotate = (d: number) => tiny(d).map((f, i) => ({ ...f, filename: sets[d % 3]![i]! }));

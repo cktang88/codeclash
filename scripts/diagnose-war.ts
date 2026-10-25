@@ -16,7 +16,8 @@
 // it (BONUS=0 turns the bonus off, to compare). The summary then says how often a maintainer won,
 // against its fair share, and its budget against the greenfield pushers'. A maintainer's repository
 // is not a fork (it has no upstream), so its bonus pays at once; a file that held effort credit at the
-// close of either of the two days before earns none (repeat-target dampening, `EFFORT_REPEAT_DAYS`;
+// close of either of the two days before needs EFFORT_REPEAT_LINES modified lines today to earn it again
+// (repeat-target dampening of token edits, `EFFORT_REPEAT_DAYS`; REPEAT_LINES=<n> overrides the threshold;
 // DAMPEN=0 turns it off), those days replayed from the same model.
 //
 // FORKS=<n> makes the next n humans fork contributors: the maintainer's kind of work, pushed to a fork
@@ -43,7 +44,7 @@ import { generateMap, seatOrder, slotsFor } from '../src/sim/mapgen.ts';
 import { armyFor, effectiveLedger, slotsOf } from '../src/sim/muster.ts';
 import { STATS } from '../src/sim/stats.ts';
 import { createWorld, dayWinner, step } from '../src/sim/world.ts';
-import { bonusMilli, DAILY_BONUS_CAP, EFFORT_REPEAT_DAYS, FILE_CAP, FILE_CREDIT, fileCreditMilli, UPSTREAM_PER_DAY } from '../src/rules/difficulty.ts';
+import { bonusMilli, DAILY_BONUS_CAP, EFFORT_REPEAT_DAYS, EFFORT_REPEAT_LINES, FILE_CAP, FILE_CREDIT, fileCreditMilli, UPSTREAM_PER_DAY } from '../src/rules/difficulty.ts';
 import { BOTS, botDay, botPush, botPushesPerDay, botRateAt, FUNCTIONS_PER_BRANCH, LINKS_PER_BRANCH, mulberry, type BotDay } from '../src/rules/bots.ts';
 
 const MESSAGES = ['fix: crash on empty input', 'feat: add export', 'refactor: split parser', 'perf: cache lookups', 'revert: "feat: add export"', 'chore(deps): bump vite', 'Update handler'];
@@ -65,6 +66,7 @@ const MAINTAINERS = Number(process.env.MAINTAINERS ?? 0);
 const FORKS = Number(process.env.FORKS ?? 0);
 const MERGE_RATE = Number(process.env.MERGE_RATE ?? 0.7);
 const DAMPEN = process.env.DAMPEN !== '0';
+const REPEAT_LINES = Number(process.env.REPEAT_LINES ?? EFFORT_REPEAT_LINES);
 const BONUS = process.env.BONUS !== '0';
 /** Sensitivity only: scales each file's (M − 1), to see what multiplier a maintainer would need. 1 is the rule as built. */
 const BONUS_SCALE = Number(process.env.BONUS_SCALE ?? 1);
@@ -110,8 +112,8 @@ function maintainerPush(p: number, rand: () => number, day: MaintainerDay, block
     before += state.bonus;
     after += now;
     state.bonus = now;
-    // Repeat-target dampening: a file paid on either of the two days before earns no effort credit today.
-    const effort = blocked.has(id) ? 0 : fileCreditMilli(state.modified, state.m, EFFORT_CREDIT);
+    // Repeat-target dampening: a file paid on either of the two days before needs REPEAT_LINES modified lines today.
+    const effort = blocked.has(id) && state.modified < REPEAT_LINES ? 0 : fileCreditMilli(state.modified, state.m, EFFORT_CREDIT);
     effortBefore += state.effort;
     effortAfter += effort;
     state.effort = effort;
@@ -564,6 +566,7 @@ async function days(): Promise<void> {
             maintainers: MAINTAINERS,
             bonus: BONUS,
             dampen: DAMPEN,
+            repeatLines: REPEAT_LINES,
             bonusScale: BONUS_SCALE,
             fileCredit: EFFORT_CREDIT,
             fileCap: EFFORT_CAP,

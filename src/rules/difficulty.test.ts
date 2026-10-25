@@ -8,6 +8,7 @@ import {
   changedLinesOf,
   DAILY_BONUS_CAP,
   EFFORT_REPEAT_DAYS,
+  EFFORT_REPEAT_LINES,
   FILE_CAP,
   FILE_CREDIT,
   fileContext,
@@ -253,10 +254,10 @@ describe('the bonus in the ledger', () => {
     const effort = Math.floor((FILE_CREDIT * 1000) / 2200);
     expect(a.bonus).toBe(10 + effort);
     expect(bonusOf([a, b])).toBe(20 + effort);
-    // The next day the file is seen afresh: a new multiplier (its effort credit waits out the repeat window).
+    // The next day the file is seen afresh: a new multiplier (10 modified lines are enough to earn the effort credit again within the repeat window).
     store.today++;
     const c = measurePush([edit(CORE, 90, code(10, 'e'), code(10, 'f'))], store, contextOf(ctx(CORE, 3.2, range(90, 10))));
-    expect(c.bonus).toBe(22);
+    expect(c.bonus).toBe(22 + FILE_CREDIT);
   });
 
   it('a modification reverted the same day takes its bonus back exactly', () => {
@@ -424,8 +425,9 @@ describe('repeat-target dampening', () => {
     return measurePush([edit(CORE, 10, code(5, `${salt}-old`), code(5, `${salt}-new`))], store, context(10, 5));
   };
 
-  it('a file earns effort credit at most once per player per 3 days; its line bonus is not dampened', () => {
+  it('token edits to a file earn effort credit at most once per player per 3 days; its line bonus is not dampened', () => {
     expect(EFFORT_REPEAT_DAYS).toBe(3);
+    expect(EFFORT_REPEAT_LINES).toBe(10);
     const store = new MemoryLedger();
     const days = [0, 1, 2, 3, 4, 5, 6].map((d) => day(store, d, `d${d}`).bonus ?? 0);
     const line = 11; // 5 lines × 2.2
@@ -458,6 +460,33 @@ describe('repeat-target dampening', () => {
     const squash = day(store, 2, 'b');
     expect(bonusOf(parts)).toBe(squash.bonus);
     expect(squash.bonus).toBe(11);
+  });
+
+  it('real work on the same file still pays every day: EFFORT_REPEAT_LINES modified lines, reached in any split', () => {
+    const store = new MemoryLedger();
+    const big = (d: number) => {
+      store.today = d;
+      return measurePush([edit(CORE, 10, code(EFFORT_REPEAT_LINES, `big${d}-old`), code(EFFORT_REPEAT_LINES, `big${d}-new`))], store, contextOf(ctx(CORE, 3.2, range(10, EFFORT_REPEAT_LINES))));
+    };
+    const line = Math.floor(EFFORT_REPEAT_LINES * 2.2);
+    expect([0, 1, 2, 3].map((d) => big(d).bonus)).toEqual([line + FILE_CREDIT, line + FILE_CREDIT, line + FILE_CREDIT, line + FILE_CREDIT]);
+    // Within the window, the threshold is crossed by the push that reaches it, whatever the split.
+    const split = new MemoryLedger();
+    split.today = 0;
+    measurePush([edit(CORE, 10, code(5, 's-old'), code(5, 's-new'))], split, contextOf(ctx(CORE, 3.2, range(10, 5))));
+    split.today = 1;
+    const old = code(EFFORT_REPEAT_LINES, 't-old');
+    const neu = code(EFFORT_REPEAT_LINES, 't-new');
+    const parts = old.map((_, i) => measurePush([edit(CORE, 10 + i, old.slice(i, i + 1), neu.slice(i, i + 1))], split, contextOf(ctx(CORE, 3.2, [10 + i]))));
+    expect(parts.slice(0, EFFORT_REPEAT_LINES - 1).every((p) => (p.bonus ?? 0) <= 3)).toBe(true);
+    expect(parts[EFFORT_REPEAT_LINES - 1]!.bonus).toBeGreaterThan(FILE_CREDIT);
+    const squash = new MemoryLedger();
+    squash.today = 0;
+    measurePush([edit(CORE, 10, code(5, 's-old'), code(5, 's-new'))], squash, contextOf(ctx(CORE, 3.2, range(10, 5))));
+    squash.today = 1;
+    const whole = measurePush([edit(CORE, 10, old, neu)], squash, contextOf(ctx(CORE, 3.2, range(10, EFFORT_REPEAT_LINES))));
+    expect(bonusOf(parts)).toBe(whole.bonus);
+    expect(whole.bonus).toBe(line + FILE_CREDIT);
   });
 
   it('applies to a fork’s pending effort credit too', () => {

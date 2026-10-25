@@ -21,7 +21,7 @@
 import { Cat, CAT_COUNT } from '../sim/api.ts';
 import { analyzeFile, FUNCTION_STATEMENTS, lineBranches, LINK_NAMES_PER_IMPORT, parseBudget, type ParseBudget } from './complexity.ts';
 import { branchesIn, categorizePath, classifyLine, extensionOf, isGeneratedContent, splitPatch, syntaxFor, type ChangedFile, type FileCategory } from './classify.ts';
-import { bonusMilli, DAILY_BONUS_CAP, EFFORT_REPEAT_DAYS, FILE_CAP, FILE_CREDIT, fileCreditMilli, type DifficultyNote, type PendingBonus, type PushContext } from './difficulty.ts';
+import { bonusMilli, DAILY_BONUS_CAP, EFFORT_REPEAT_DAYS, EFFORT_REPEAT_LINES, FILE_CAP, FILE_CREDIT, fileCreditMilli, type DifficultyNote, type PendingBonus, type PushContext } from './difficulty.ts';
 import { languageOfPath } from './heraldry.ts';
 import { CODE_CAP } from '../sim/muster.ts';
 
@@ -827,10 +827,12 @@ export function applyPush(prepared: PreparedPush, store: LedgerStore, context?: 
     }
     // The effort credit: a function of (modified, frozen multiplier) like the bonus, so it is awarded
     // by the push that takes the file to MEANINGFUL_LINES and taken back by one that drops it below.
-    // A file that held effort credit at the close of one of the last EFFORT_REPEAT_DAYS − 1 days earns
-    // none today (a function of earlier days only, so any split of today's pushes sees the same).
+    // A file that held effort credit at the close of one of the last EFFORT_REPEAT_DAYS − 1 days needs
+    // EFFORT_REPEAT_LINES modified lines today, not MEANINGFUL_LINES: token edits to the same file pay once
+    // in three days, real work on it every day. A function of earlier days' final states and today's
+    // file state, so any split of today's pushes adds up to the squash, crossing the threshold included.
     const history = today === null ? null : readEffortHistory(store, path, today);
-    const repeat = history !== null && history.paid !== null && today! - history.paid < EFFORT_REPEAT_DAYS;
+    const repeat = history !== null && history.paid !== null && today! - history.paid < EFFORT_REPEAT_DAYS && Math.min(a, r) < EFFORT_REPEAT_LINES;
     const hadEffort = store.balance(scope, FILE_EFFORT);
     const effort = repeat ? 0 : fileCreditMilli(Math.min(a, r), m);
     if (effort !== hadEffort) {
