@@ -150,6 +150,36 @@ describe('gaming line counts', () => {
     expect(measure([file('src/panels.scss', ids)]).lines[Cat.Code]).toBeLessThanOrEqual(10);
   });
 
+  it('padding pushed with honest code, or alone, is filler past what the code carries', () => {
+    const code = honestCode(1500, 1);
+    const honestFiles = Array.from({ length: 30 }, (_, f) => file(`src/mod${f}/index.ts`, code.slice(f * 50, (f + 1) * 50)));
+    const support = [file('src/billing.test.ts', honestTests(375, 2)), file('src/notes.ts', honestComments(100, 3))];
+    const honest = ledgerOf([{ delta: measure([...honestFiles, ...support]), msg: 'feat: x' }]);
+    const pad = (n: number) => file('src/pad.ts', Array.from({ length: n }, (_, i) => ['}', ');', '];', '})', '{'][i % 5]!));
+    const table = (n: number) => file('src/table.ts', Array.from({ length: n }, (_, i) => `  { id: ${i}, name: "item${i}", price: ${(i * 37) % 1000}, active: true },`));
+    for (const extra of [pad(3000), table(2000), file('src/dup.ts', Array.from({ length: 2000 }, (_, i) => code[i % 300]!))]) {
+      // In the same push the code's allowance absorbs some of it; the rest is filler and frays the army.
+      const together = ledgerOf([{ delta: measure([...honestFiles, ...support, extra]), msg: 'feat: x' }]);
+      expect(together.filler).toBeGreaterThan(1000);
+      expect(strength(together) / strength(honest)).toBeLessThan(0.95);
+      // In a push of its own it brings no code, so all of it is filler.
+      const store = new MemoryLedger();
+      const apart = ledgerOf([{ delta: measure([...honestFiles, ...support], store), msg: 'feat: x' }, { delta: measure([extra], store), msg: 'feat: x' }]);
+      expect(apart.filler).toBeGreaterThanOrEqual(extra.additions - 1);
+    }
+  });
+
+  it('writing, deleting and rewriting the same code earns the filler allowance once a day', () => {
+    const code = honestCode(2000, 66);
+    const store = new MemoryLedger();
+    const first = measure([file('src/ch.ts', code)], store);
+    expect(first.filler).toBe(0);
+    measure([file('src/ch.ts', [], code)], store);
+    // The rewrite is credited again (and reported as churn), but its closing braces are not carried again.
+    const again = measure([file('src/ch.ts', code)], store);
+    expect(again.filler).toBe(code.filter((l) => l === '}').length);
+  });
+
   it('a trailing comment or inline comment does not make a duplicate line new', () => {
     const lines = Array.from({ length: 500 }, (_, i) => `registerHandler(router, paymentHandler); // ${['alpha', 'beta', 'gamma', 'delta'][i % 4]} ${i}`);
     const inline = Array.from({ length: 500 }, (_, i) => `registerHandler(router, /* ${i} */ paymentHandler);`);
@@ -374,8 +404,8 @@ describe('honest work', () => {
     expect(q.quality).toBeGreaterThanOrEqual(1);
     expect(day.files).toBe(10);
     expect(q.veterancy).toBeGreaterThanOrEqual(1);
-    // Closing braces and the like are filler, but little else of honest work is.
-    expect(day.filler).toBeLessThan(0.3 * day.lines[Cat.Code]!);
+    // Closing braces and the like are left uncounted, but none of honest work is filler.
+    expect(day.filler).toBe(0);
     // A bigger day across more files earns the next rank.
     expect(armyQuality({ ...day, files: 12 }).veterancy).toBe(2);
   });

@@ -18,7 +18,7 @@ export interface PushReport {
   branches: number;
   /** Lines that undid counted work from earlier pushes. */
   churn: number;
-  /** Added lines left out as filler: punctuation, literal tables, duplicates, pastes past the daily cap. */
+  /** Filler: uncounted lines (punctuation, literal tables, duplicates) beyond what the push's code carries, plus pastes past the daily cap. */
   filler: number;
   commits: number;
   message: string;

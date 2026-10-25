@@ -115,7 +115,7 @@ const ramp = (x: number, from: number, to: number) => Math.max(0, Math.min(1, (x
  * Filler is only what a push leaves uncounted beyond what its code carries (`FREE_PER_CODE` in
  * rules/ledger.ts), so honest work sits near zero and the ramp can start low.
  */
-export const FILLER_RAMP = [0.15, 0.6] as const;
+export const FILLER_RAMP = [0.15, 0.5] as const;
 
 /**
  * Code lines count in full up to CODE_KNEE a war, and at half value from there up

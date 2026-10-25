@@ -247,7 +247,8 @@ export function explain(ledger: Ledger, army: PreviewArmy, purpose: Purpose | nu
     const spent = army.budget - c[Kind.Footman]! - 2 * c[Kind.Berserker]!;
     const footmen = c[Kind.Berserker]! > 0 ? `${unit(Kind.Footman, c[Kind.Footman]!)} and ${unit(Kind.Berserker, c[Kind.Berserker]!)} (no tests or comments: each Berserker fights in place of two Footmen)` : unit(Kind.Footman, c[Kind.Footman]!);
     if (specialists.length > 0) out.push(`Specialists: ${fmt(spent)} of ${fmt(army.budget)} (${specialists.join('; ')}); the rest are ${footmen}`);
-    else out.push(`No specialists: ${c[Kind.Berserker]! > 0 ? `the ${fmt(army.budget)} are ${footmen}` : `all ${fmt(army.budget)} are Footmen`}`);
+    else if (c[Kind.Berserker]! > 0) out.push(`No specialists: the army is ${footmen}`);
+    else out.push(`No specialists: ${army.budget === 1 ? 'the one soldier is a Footman' : army.budget === 2 ? 'both are Footmen' : `all ${fmt(army.budget)} are Footmen`}`);
   }
   if (purpose && purpose !== 'work' && army.budget > 0 && !fixers && !refactor && !undead && c[Kind.Wizard] === 0 && c[Kind.Mercenary] === 0 && c[Kind.Champion] === 0 && c[Kind.Dragon] === 0) {
     out.push(`${PURPOSE_SPECIALISTS[purpose]}, or the specialists’ share (65% of the army size) went to others`);

@@ -166,7 +166,7 @@ An army that would otherwise be empty gets one Footman, so the first push of the
   | --- | --- |
   | tests outweigh code 3:1 or more | up to −15% at 8:1 |
   | comments outweigh code 0.5:1 or more | up to −10% at 2:1 |
-  | filler (duplicates, punctuation-only and table lines) is 30% or more of the lines | up to −15% at 80% |
+  | filler (uncounted lines such as duplicates, punctuation and tables, beyond what the push's code carries; see docs/fair-play.md) is 15% or more of the lines | up to −15% at 50% |
 
   Quality never drops below 0.7.
 

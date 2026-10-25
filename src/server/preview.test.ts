@@ -9,7 +9,7 @@ import { loadConfig } from './config.ts';
 import type { CommitMeta } from './github.ts';
 import { silentLogger } from './log.ts';
 import { PREVIEW_PER_MINUTE } from './http.ts';
-import { HEAD_TTL_MS, PREVIEW_COMMITS } from './preview.ts';
+import { explain, HEAD_TTL_MS, musterCommit, PREVIEW_COMMITS } from './preview.ts';
 import { commitMeta, FakeGithub } from './testing/fakeGithub.ts';
 import { diff, FIXTURE_REPO, fixtureCommits, fixtureSha, previewFixture, Scribe } from './testing/previewFixtures.ts';
 
@@ -71,9 +71,9 @@ describe('GET /api/preview/:owner/:repo', () => {
     const byMessage = (m: string) => body.commits.find((c) => c.message.startsWith(m))!;
     expect(byMessage('feat: add the siege planner').army.counts[Kind.Dragon]).toBe(1);
     expect(byMessage('feat: add the siege planner').reasons.some((r) => r.includes('a Dragon'))).toBe(true);
-    expect(byMessage('fix:').reasons.some((r) => r.startsWith('Bug fix →') && r.includes('Cleric'))).toBe(true);
+    expect(byMessage('fix:').reasons.some((r) => r.startsWith('Specialists:') && r.includes('bug fix →') && r.includes('Cleric'))).toBe(true);
     expect(byMessage('feat: implement courier').army.counts[Kind.Berserker]).toBeGreaterThan(0);
-    expect(byMessage('feat: implement courier').reasons.some((r) => r.startsWith('No tests or comments →'))).toBe(true);
+    expect(byMessage('feat: implement courier').reasons.some((r) => /Berserkers? \(no tests or comments: each Berserker fights in place of two Footmen\)/.test(r))).toBe(true);
     expect(byMessage('Explain the wagon queue').army.ragged).toBe(true);
     const lockfile = byMessage('chore(deps): bump lockfile');
     expect(lockfile.lines.generated).toBeGreaterThan(1000);
@@ -229,5 +229,42 @@ describe('GET /api/preview/:owner/:repo', () => {
     expect(body.commits[1]!.lines.code).toBe(900);
     expect(body.commits[1]!.army.counts).toEqual(standalone([omitted], 'feat: a file too large to diff').army);
     expect(body.commits[1]!.lines[CAT_NAMES[Cat.Removed]]).toBe(10);
+    // An estimated file is plain code, never filler, and the reasons say it was estimated.
+    expect(body.commits[1]!.filler).toBe(0);
+    expect(body.commits[1]!.reasons).toContain('GitHub omitted the diff of 1 file; their additions count as code, estimated');
+  });
+});
+
+describe('preview reasons', () => {
+  const reasons = (files: ChangedFile[], message = 'feat: work') => {
+    const { ledger, army, purpose, delta } = musterCommit(files, message);
+    return { army, delta, reasons: explain(ledger, army, purpose, { filesChanged: files.length, estimated: 0, truncated: false, uncounted: delta.uncounted }) };
+  };
+  const patch = (filename: string, lines: readonly string[]): ChangedFile => ({ filename, status: 'added', additions: lines.length, deletions: 0, patch: ['@@ -0,0 +1,' + lines.length + ' @@', ...lines.map((l) => `+${l}`)].join('\n') });
+
+  it('leads with the army size, split into whole parts that add up, each beside what earned it', () => {
+    const c = fixtureCommits().find((x) => x.message.startsWith('feat: add the siege planner'))!;
+    const { army, reasons: r } = reasons(c.files, c.message);
+    const size = r[0]!;
+    expect(size).toMatch(/^Army size: 51 — mostly from 1,420 lines of code \(\+45\), plus 14 files \(\+1\) and 473 branch points of logic \(\+5\)$/);
+    const parts = [...size.matchAll(/\(\+(\d+)/g)].map((m) => Number(m[1]));
+    expect(parts.reduce((a, b) => a + b, 0)).toBe(army.budget);
+    // Then how the size was spent.
+    expect(r[1]).toMatch(/^Specialists: 33 of 51 \(.*a Dragon.*\); the rest are 18 Footmen$/);
+    expect(r.join('\n')).not.toMatch(/[Bb]udget|slot/);
+  });
+
+  it('says no filler for honest structure, and names the kind and file of real filler', () => {
+    const fn = (n: string) => [`export function draw${n}(ctx: Context, ${n}: Part) {`, `  ctx.moveTo(${n}.left, ${n}.top);`, `  ctx.lineTo(${n}.right, ${n}.bottom);`, `  ctx.fillText(${n}.label, ${n}.left, ${n}.top);`, '}'];
+    const honest = reasons([patch('src/render/parts.ts', ['keep', 'wall', 'gate', 'tower', 'moat', 'bridge', 'yard', 'hall'].flatMap(fn))]);
+    expect(honest.delta.filler).toBe(0);
+    expect(honest.reasons).toContain('Not counted, as in any code (no penalty): 8 lines of brackets, closing tags and bare keywords in render/parts.ts');
+    // One rule copied for 312 icons: past the shape cap, the copies are near-duplicates, and filler.
+    const icons = Array.from({ length: 312 }, (_, i) => `.icon-${i.toString(36)}x { background: var(--sprite); }`);
+    const padded = reasons([patch('src/client/styles/hud.css', icons)]);
+    expect(padded.delta.filler).toBeGreaterThan(250);
+    const line = padded.reasons.find((x) => x.includes('of filler'))!;
+    expect(line).toBe(`${padded.delta.filler} lines of filler, more than the code carries: 304 near-duplicate lines (the same line with other names or numbers, counted 8 times a day) in styles/hud.css`);
+    expect(padded.reasons.some((x) => /^\d+% of lines were filler: quality −/.test(x))).toBe(true);
   });
 });

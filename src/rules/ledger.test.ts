@@ -261,10 +261,10 @@ describe('rules', () => {
 
   it('frees uncounted structure up to what the code carries, and reports the rest as filler', () => {
     const parts = ['keep', 'wall', 'gate', 'tower', 'moat', 'bridge'];
-    const fn = (p: string) => [`export function draw${p}(ctx: Context, ${p}: Part) {`, `  ctx.moveTo(${p}.left, ${p}.top);`, `  ctx.lineTo(${p}.right, ${p}.bottom);`, '  ctx.stroke();', '}'];
+    const fn = (p: string) => [`export function draw${p}(ctx: Context, ${p}: Part) {`, `  ctx.moveTo(${p}.left, ${p}.top);`, `  ctx.lineTo(${p}.right, ${p}.bottom);`, `  ctx.fillText(${p}.label, ${p}.left, ${p}.top);`, '  ctx.stroke();', '}'];
     // Honest code: closing braces and a repeated idiom stay within the allowance.
     const honest = measurePush([file('src/draw.ts', '@@\n' + parts.map((p) => fn(p).map((l) => `+${l}`).join('\n')).join('\n'))], new MemoryLedger());
-    expect(honest.lines[Cat.Code]).toBe(19);
+    expect(honest.lines[Cat.Code]).toBe(25);
     expect(honest.filler).toBe(0);
     expect(honest.uncounted?.map((u) => [u.kind, u.lines])).toEqual([['structure', 6], ['repeat', 5]]);
     expect(honest.uncounted?.[0]?.files).toEqual([{ path: 'src/draw.ts', lines: 6 }]);
@@ -276,6 +276,12 @@ describe('rules', () => {
     const mixed = measurePush([file('src/mix.ts', '@@\n' + ['alpha', 'beta', 'gamma', 'delta', 'omega', 'sigma', 'kappa', 'theta', 'lambda', 'zeta'].map((n) => `+const ${n} = compute(input, ${n}Weight);`).join('\n') + '\n' + '+}\n'.repeat(30))], ledger);
     expect(mixed.lines[Cat.Code]).toBe(10);
     expect(mixed.filler).toBe(30 - Math.floor(FREE_PER_CODE * 10));
+    // A style sheet repeats declarations from rule to rule and closes every rule: it carries more.
+    const rules = ['header', 'footer', 'sidebar', 'banner', 'card', 'toast'].map((n) => [`.${n}-title {`, `  font-family: var(--${n}-font);`, '  display: flex;', '  margin: 0;', '}']);
+    const css = measurePush([file('src/app.css', '@@\n' + rules.flat().map((l) => `+${l}`).join('\n'))], new MemoryLedger());
+    expect(css.lines[Cat.Code]).toBe(14);
+    expect(css.uncounted?.map((u) => [u.kind, u.lines])).toEqual([['repeat', 10], ['structure', 6]]);
+    expect(css.filler).toBe(0);
   });
 
   it('keys a comment by its text, so single-line doc comments are not copies of each other', () => {

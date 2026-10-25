@@ -160,7 +160,7 @@ export type SimInput =
       branches: number;
       /** Lines that cancelled earlier work today (added then deleted, or rewritten back). */
       churn: number;
-      /** Lines left out as filler: duplicates, punctuation-only, and literal tables. */
+      /** Filler: uncounted lines (duplicates, punctuation, literal tables) beyond what the push's code carries, plus lines past the daily cap. */
       filler: number;
     };
 

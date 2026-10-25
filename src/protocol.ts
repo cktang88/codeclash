@@ -349,7 +349,7 @@ export interface PreviewCommit {
   /** Source files carrying counted code. */
   files: number;
   branches: number;
-  /** Added lines left out as filler. */
+  /** Filler: uncounted lines beyond what the commit's code carries, plus lines past the daily cap. */
   filler: number;
   army: PreviewArmy;
   /** Why it raised what it raised, one short line each. */
