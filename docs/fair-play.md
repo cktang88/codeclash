@@ -124,6 +124,16 @@ On the hand-built fixtures (`server/testing/difficultyFixtures.ts`, `scripts/mea
 | vite-like fix: 5 lines in 4 files of 212–3,688 lines (css.ts ×3.2, build.ts ×3.2, asset.ts ×3.2, sourcemap.ts ×2.6) | 5 | 5 | 10 | **15** | 5 |
 | greenfield: 500 new lines in 6 new files of a repository made this week | 500 | 0 | 0 | 500 | 500 |
 
+A maintainer in a war (`MAINTAINERS=1 DAYS=128 pnpm tsx scripts/diagnose-war.ts 4 0`: one maintainer pushing small fixes to others' code in a big repository, median 15 lines a push, against three greenfield pushers, everyone on the same random workdays and push rates; fair share 25%):
+
+| | Maintainer wins | Maintainer's budget / greenfield median | Code a day (maintainer / greenfield) | Bonus a day |
+|---|---|---|---|---|
+| No bonus | 2% | 0.24 | 529 / 2,786 | 0 |
+| The bonus as built (M ≤ 3.2) | 4% | 0.39 | 513 / 2,709 | 525 |
+| (M − 1) tripled, sensitivity only (64 days) | 5% | 0.63 | 487 / 2,776 | 1,526 (held to 3 × code) |
+
+The bonus lifts a maintainer's army by about 60%, but not to a fair share: at the same push rate a greenfield pusher writes five times the lines, and a multiplier on modified lines (at most ×3.2, and 3 × code) cannot close a gap that wide. Parity would need credit that is not proportional to lines for small hard changes.
+
 Attacks, each as strength over an honest day (1500 lines, 30 files, tests and comments) plus the attack, pushed with a ×3.2 context; *before* is the same push with no bonus:
 
 | Attack | Before | Now | Bonus lines |
