@@ -583,6 +583,16 @@ async function days(): Promise<void> {
               }),
             ),
             // A maintainer with a normal workday: 2 to 4 pushes an hour.
+            // The same for the greenfield humans with a normal workday, player-days won: what a fair share looks like at that rate.
+            greenfieldWinsAtNormalRate: (() => {
+              let n = 0;
+              let won = 0;
+              for (const r of results) for (let p = MAINTAINERS; p < humans; p++) if (r.rates[p]! >= 2 && r.rates[p]! < 4) {
+                n++;
+                if (r.winner === p) won++;
+              }
+              return n > 0 ? `${Math.round((100 * won) / n)}% of ${n}` : '-';
+            })(),
             maintainerWinsAtNormalRate: (() => {
               const days = results.filter((r) => r.rates[0]! >= 2 && r.rates[0]! < 4);
               return days.length > 0 ? `${Math.round((100 * days.filter((r) => r.winner === 0).length) / days.length)}% of ${days.length}` : '-';

@@ -299,7 +299,7 @@ export const DRAGON_COMPLEXITY = [130, 570] as const;
  * Fix work per pair of each fix specialist: Clerics by a square root (`2·floor(√fix / cleric)`), the
  * rest linear (`2·floor(fix / n)`).
  */
-export const FIX = { cleric: 3.5, ballista: 180, paladin: 350, ranger: 600 } as const;
+export const FIX = { cleric: 4.5, ballista: 250, paladin: 500, ranger: 900 } as const;
 
 /**
  * The order specialists are paid in while their share of the budget lasts: heroes first, then the

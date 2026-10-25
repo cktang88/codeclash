@@ -135,12 +135,12 @@ Each unit takes one or more **slots** in its platoon. Speed is in world units pe
 | Troll | very complex code | 3 | 600 | 24 | melee | 1.2 | Regenerates 1.2 HP per tick, a quarter of that while scorched by fire. +30% vs base units. Hired for 20 minutes, then lumbers home once its platoon is out of combat |
 | Berserker | untested, uncommented code | 1 | 120 | 26 | melee | 2.1 | Hits hard, dies fast |
 | Trebuchet | sweeping changes | 3 | 260 | 34 | 175 | 0.8 | Stones burst over 22 units. Prefers any structure in range whose walls lie within its banner's leash. ×2 vs structures |
-| Cleric | bug fixes | 1 | 90 | 5 | 55 | 1.5 | Battle priest. Every 2.4 s smites with a radiant bolt, ×2.5 vs undead (Skeletons, Bone Golems). Every 2 s, heals the most wounded ally within 80 for 22 and cleanses every ally within 50 of fire; a soldier who falls within 50 of a Cleric costs its platoon half the morale (not stacking with a Herald) |
+| Cleric | bug fixes | 1 | 90 | 4 | 55 | 1.5 | Battle priest. Every 2.4 s smites with a radiant bolt, ×2.5 vs undead (Skeletons, Bone Golems). Every 2 s, heals the most wounded ally within 80 for 22 and cleanses every ally within 50 of fire; a soldier who falls within 50 of a Cleric costs its platoon half the morale (not stacking with a Herald) |
 | Paladin | larger bug fixes | 2 | 320 | 14 | melee | 1.4 | Shield aura like a Warden's. Every 2 s, heals the most wounded ally within 40 for 6. ×2 vs undead |
 | Ranger | bug fixes with real code | 2 | 90 | 13 | 125 | 1.9 | Elven longbow. +40% vs Skeletons, Mercenaries, Berserkers. +80% vs fliers. Half damage to Wardens and Paladins |
 | Champion | big work | 2 | 520 | 26 | melee | 1.5 | Allies within 60 deal 20% more. Its platoon cannot rout while it lives. ×1.5 vs heroes and Dragons |
 | Dragon | legendary features | 6 | 2400 | 24 | 70 | 2.0 | Flies. Every 2 s breathes fire on every enemy in a 50° cone, scorching them, and singes structures in it for 30%. Valor aura like a Champion's, and its platoon cannot rout while it lives |
-| Ballista | bug fixes (fix work) | 2 | 210 | 34 | 150 | 0.9 | Crewed bolt-thrower, a bolt every 5.4 s. Armour-piercing: its bolt ignores Warden and Paladin shield auras and is never halved against them. ×2 vs big soldiers (size 9+: Knights, Paladins, Champions, Trolls, Bone Golems, Trebuchets, Ballistae), ×2.5 vs fliers (Dragons, Griffin Riders). The bolt flies on into the next foe in line within 45 beyond for 40%. A foe within 30 takes only 35% (the crew's sidearms). Knights deal +60% to it |
+| Ballista | bug fixes (fix work) | 2 | 210 | 24 | 150 | 0.9 | Crewed bolt-thrower, a bolt every 6 s. Armour-piercing: its bolt ignores Warden and Paladin shield auras and is never halved against them. ×2 vs big soldiers (size 9+: Knights, Paladins, Champions, Trolls, Bone Golems, Trebuchets, Ballistae), ×2.5 vs fliers (Dragons, Griffin Riders). The bolt flies on into the next foe in line within 45 beyond for 40%. A foe within 30 takes only 35% (the crew's sidearms). Knights deal +60% to it |
 | Outrider | refactors, especially deleted code | 1 | 120 | 15 | melee | 3.2 | +60% vs ranged units, Heralds, Sappers, Clerics |
 | Griffin Rider | big refactors | 2 | 200 | 20 | melee | 3.6 | Flies over water, rock and crowds. Same bonuses as the Outrider |
 | Wizard | performance work | 2 | 85 | 20 | 120 | 1.4 | Fireballs burst over 28 units (full damage at the center, half at the edge) and scorch |
@@ -186,7 +186,7 @@ Because the budget is a function of the day's ledger, many small pushes and one 
 
 | Raised by | Specialists |
 | --- | --- |
-| fix work *f* (fix code, plus the difficulty bonus earned by fixes: `fixWork`) | `2·floor(f / 180)` Ballistae, `2·floor(√f / 3.5)` Clerics, `2·floor(f / 350)` Paladins, `2·floor(f / 600)` Rangers: on a working day, about 40–45% of the fixers' slots are Ballistae |
+| fix work *f* (fix code, plus the difficulty bonus earned by fixes: `fixWork`) | `2·floor(f / 250)` Ballistae, `2·floor(√f / 4.5)` Clerics, `2·floor(f / 500)` Paladins, `2·floor(f / 900)` Rangers: on a working day, about 40–45% of the fixers' slots are Ballistae |
 | feature code *F* | `2·min(3, floor(F / 400), floor(files / 5))` Champions, less one for each Dragon |
 | feature and plain work *W* | a Dragon at *W* ≥ 900 with files ≥ 10 and complexity ≥ 130; a second at 4000 / 40 / 570 |
 | refactors | `2·floor(√(removed + code/2) / 1.5)` Outriders, from refactor lines; two Griffin Riders per 400 refactor lines removed (up to 6) |
