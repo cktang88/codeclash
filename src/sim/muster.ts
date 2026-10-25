@@ -110,6 +110,12 @@ export interface QualityNote {
 }
 
 const ramp = (x: number, from: number, to: number) => Math.max(0, Math.min(1, (x - from) / (to - from)));
+/**
+ * Filler share of lines at which the army starts to fray, and at which the penalty is full.
+ * Filler is only what a push leaves uncounted beyond what its code carries (`FREE_PER_CODE` in
+ * rules/ledger.ts), so honest work sits near zero and the ramp can start low.
+ */
+export const FILLER_RAMP = [0.15, 0.6] as const;
 
 /**
  * Code lines count in full up to CODE_KNEE a war, and at half value from there up
@@ -190,7 +196,7 @@ export function armyQuality(ledger: Ledger): { quality: number; veterancy: numbe
   }
   const comments = -0.1 * ramp(commentRatio, 0.5, 2);
   if (comments < 0) notes.push({ kind: 'comments', effect: comments, text: `Comments outweigh the code ${commentRatio.toFixed(1)} to 1` });
-  const filler = -0.15 * ramp(fillerRatio, 0.3, 0.8);
+  const filler = -0.15 * ramp(fillerRatio, FILLER_RAMP[0], FILLER_RAMP[1]);
   if (filler < 0) notes.push({ kind: 'filler', effect: filler, text: `${Math.round(fillerRatio * 100)}% of lines were filler` });
   quality = Math.max(0.7, quality + tests + comments + filler);
   let veterancy = 0;

@@ -321,6 +321,8 @@ export function classifyLine(text: string, syntax: Syntax, state: { block: Block
     return 'comment';
   }
   for (const marker of syntax.line) if (t.startsWith(marker) && !opensBlockAt(t, syntax, 0)) return 'comment';
+  // A JSX comment, `{/* … */}`, is a comment.
+  if (syntax.strings?.includes(BACKTICK) && /^\{\s*\/\*(?:(?!\*\/).)*\*\/\s*\}$/.test(t)) return 'comment';
   for (const b of syntax.blocks) {
     if (!t.startsWith(b.open)) continue;
     if (t.indexOf(b.close, b.open.length) < 0) state.block = b;

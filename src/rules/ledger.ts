@@ -63,10 +63,43 @@ export interface PushDelta {
   branches: number;
   /** Lines that undid counted work from earlier pushes (both halves of each pair). */
   churn: number;
-  /** Added lines left out as filler: punctuation-only, literal tables, prose, string contents, or duplicates. */
+  /**
+   * Added lines left out as filler, which make a ragged army: whatever the push leaves uncounted
+   * beyond what its own code carries (`FREE_PER_CODE` a credited line), plus everything past the daily cap.
+   */
   filler: number;
   language: string | null;
+  /** Every added line left uncounted, by kind, with the files holding most of each (for explaining). */
+  uncounted?: Uncounted[];
 }
+
+/**
+ * Why an added line was not credited:
+ * - `structure`: brackets, closing tags, bare keywords
+ * - `fragment`: a lone name or call opener
+ * - `data`: literal rows, strings, numbers, blobs, the inside of multi-line strings
+ * - `prose`: sentences outside comments
+ * - `repeat`: a copy of a line already credited
+ * - `shape`: a near-duplicate past the shape cap (the same line with other literals or numbered names)
+ * - `cap`: past the daily code cap
+ */
+export type UncountedKind = 'structure' | 'fragment' | 'data' | 'prose' | 'repeat' | 'shape' | 'cap';
+
+export interface Uncounted {
+  kind: UncountedKind;
+  lines: number;
+  /** Files holding the most of them, most first (at most three). */
+  files: { path: string; lines: number }[];
+}
+
+/**
+ * Uncounted lines a push may carry per line of code it is credited with before the excess is
+ * filler. Honest code leaves structure (`}`, `</div>`), a few repeated idioms (`ctx.beginPath();`),
+ * the odd literal table or style rule uncounted: in this repository's own commits about one line
+ * in three, rarely more than one per two credited lines. Padding brings none of the code that
+ * would earn the allowance, so it stays filler.
+ */
+export const FREE_PER_CODE = 0.6;
 
 type Counted = 'code' | 'comment' | 'test' | 'docs' | 'config';
 
@@ -98,19 +131,54 @@ export function normalize(text: string): string {
 }
 
 /**
- * A line with fewer than two words of two letters or more (`}`, `0x1f, 0x2a,`,
- * `'a', 'b',`), an encoded blob, or a row of literal data whose only words are
- * keys and literals (`{ id: 7, name: "x", active: true },`).
+ * What an added line is when it cannot be credited as code, or null when it can:
+ * - `structure`: brackets, punctuation, bare tags and bare keywords (`}`, `);`, `</div>`, `} else {`, `return (`)
+ * - `fragment`: a lone name or call opener, as a wrapped argument leaves (`user,`, `{rising}`, `useEffect(() => {`)
+ * - `data`: literals with no code (`[-70, -118],`, `'a', 'b',`, `{ id: 7, name: "x", active: true },`), or an encoded blob
+ *
+ * A line with two names or values and some code around them counts, however short its names
+ * (`y += len / 6;`, `v.loss = 0;`, `x: number;`). Style sheets have no literal rows: `margin: 0;` is a declaration.
  */
-export function isFillerText(normalized: string): boolean {
-  const code = normalized.replace(STRINGS, ' ');
+export function fillerKind(normalized: string, family = 'c'): 'structure' | 'fragment' | 'data' | null {
+  const code = withoutStrings(normalized);
   // An encoded blob (base64, hex) outside quotes is data, not names.
-  if (/[A-Za-z0-9+/=_-]{40,}/.test(code)) return true;
-  const words = code.match(/[A-Za-z_]{2,}/g);
-  if ((words?.length ?? 0) < 2) return true;
-  const values = code.replace(/[A-Za-z_$][\w$]*\s*:(?!:)/g, ' ').match(/[A-Za-z_$][\w$]*/g) ?? [];
-  return !values.some((w) => !LITERALS.has(w) && /[A-Za-z_]{2,}/.test(w));
+  if (/[A-Za-z0-9+/=_-]{40,}/.test(code)) return 'data';
+  const bare = code.replace(BARE_TAG, ' ').replace(NUMBER, ' \u0002 ');
+  const names = bare.match(/[A-Za-z_$][\w$]*/g) ?? [];
+  const literals = bare.match(/[\u0001\u0002]/g)?.length ?? 0;
+  const hasLiteral = literals > 0 || names.some((w) => LITERALS.has(w));
+  const real = names.filter((w) => !LITERALS.has(w));
+  if (real.every((w) => STRUCTURAL.has(w))) {
+    if (!hasLiteral) return 'structure';
+    // `return 0;`, `case 'open':`, `throw null;` are statements; a row of literals is data.
+    return real.some((w) => CONTROL.has(w)) ? null : 'data';
+  }
+  if (family !== 'none') {
+    // Object keys and JSX attribute names are labels: a row of `key: literal` or `name="literal"` is data.
+    const values = bare.replace(/[A-Za-z_$][\w$]*\s*:(?!:)/g, ' ').replace(/(^|\s)[A-Za-z_$][\w$-]*=(?=[\u0001\u0002{])/g, ' ').match(/[A-Za-z_$][\w$]*/g) ?? [];
+    if (hasLiteral && !values.some((w) => !LITERALS.has(w))) return 'data';
+  }
+  return names.length + literals < 2 ? 'fragment' : null;
 }
+
+/** Whether a line is structure, a fragment or data: anything `fillerKind` would not credit as code. */
+export function isFillerText(normalized: string, family = 'c'): boolean {
+  return fillerKind(normalized, family) !== null;
+}
+
+/** String literals as \u0001; a template literal keeps the code of its interpolations. */
+function withoutStrings(text: string): string {
+  return text.replace(STRINGS, (m) => (m[0] === '`' ? ` \u0001 ${(m.match(/\$\{[^}]*\}/g) ?? []).map((x) => x.slice(2, -1).replace(STRINGS, ' \u0001 ')).join(' ')} ` : ' \u0001 '));
+}
+
+/** Words that shape code without naming anything: a line of only these is structure. */
+const STRUCTURAL = new Set(['else', 'return', 'break', 'continue', 'try', 'finally', 'do', 'default', 'case', 'throw', 'yield', 'await', 'end', 'fi', 'done', 'then', 'pass', 'begin']);
+/** Of those, the ones that make a statement of a literal (`return 0;`). */
+const CONTROL = new Set(['return', 'case', 'throw', 'yield', 'await']);
+/** Tags without attributes: `<div>`, `</span>`, `<>`, `</>`. */
+const BARE_TAG = /<\/?[A-Za-z][\w.:-]*\s*\/?>|<\/?>/g;
+/** Numeric literals, so `0x1f` and `1e9` are not read as names. */
+const NUMBER = /(?<![\w$])(?:0[xob][\da-f_]+|\d[\d_]*(?:\.\d+)?(?:e[+-]?\d+)?|\.\d+)n?(?![\w$])/gi;
 
 /** A run of eight or more words with none of code's brackets, assignments, colons or member access: prose. */
 export function isProse(normalized: string): boolean {
@@ -193,6 +261,8 @@ const MEMORY = '\u0003memory';
 /** Per-shape running credit today, for SHAPE_CAP. */
 const SHAPE_ADDED = '\u0004added';
 const SHAPE_REMOVED = '\u0004removed';
+/** The most code credited so far today (packed with the day, like shape tallies): the filler allowance is earned once. */
+const HIGH_WATER = '\u0006high';
 const BASE = 2 * DUPLICATE_CAP + 1;
 const SHAPE_DAY = 2 ** 24;
 
@@ -259,16 +329,34 @@ interface Op {
 }
 
 /** Classified lines of one file's patch, before any ledger is consulted. */
-function fileOps(file: ChangedFile, category: FileCategory, patch: ReturnType<typeof splitPatch>, ops: Op[], counts: { filler: number; blank: number }): void {
+/** Tallies of uncounted added lines, by kind and file. */
+type Tally = Map<UncountedKind, Map<string, number>>;
+
+function tally(t: Tally, kind: UncountedKind, path: string, n = 1): void {
+  if (n <= 0) return;
+  let m = t.get(kind);
+  if (!m) t.set(kind, (m = new Map()));
+  m.set(path, (m.get(path) ?? 0) + n);
+}
+
+function fileOps(file: ChangedFile, category: FileCategory, patch: ReturnType<typeof splitPatch>, ops: Op[], counts: { uncounted: Tally; blank: number }): void {
   const path = file.filename;
   const family = familyOf(path);
   const push = (kind: Counted, text: string, sign: 1 | -1) => {
     const normalized = normalize(text);
-    if ((kind === 'code' || kind === 'test') && (isFillerText(normalized) || (kind === 'code' && isProse(normalized)))) {
-      if (sign === 1) counts.filler++;
+    if (kind === 'code' || kind === 'test') {
+      const why = fillerKind(normalized, family) ?? (kind === 'code' && isProse(normalized) ? 'prose' : null);
+      if (why) {
+        if (sign === 1) tally(counts.uncounted, why, path);
+        return;
+      }
+    } else if (kind === 'comment' && !/[\p{L}\p{N}]/u.test(normalized)) {
+      // `/**`, ` *`, `*/`, `//`: a comment's frame is as empty as a blank line.
+      if (sign === 1) counts.blank++;
       return;
     }
-    const canon = canonical(normalized, family);
+    // A comment is its text: the markers are not stripped from it as from code.
+    const canon = kind === 'comment' ? normalized.replace(/['`]/g, '"').replace(/[\s;,]+/g, '') : canonical(normalized, family);
     const key = `${kind}\u0000${family}\u0000${canon}`;
     if (kind !== 'code') {
       ops.push({ key, path, info: { kind, branches: 0, group: key }, sign });
@@ -299,7 +387,9 @@ function fileOps(file: ChangedFile, category: FileCategory, patch: ReturnType<ty
       if (!l.changed) continue;
       if (kind === 'blank') counts.blank += sign === 1 ? 1 : 0;
       // The inside of a multi-line string is text, not code.
-      else if (kind === 'data') counts.filler += sign === 1 ? 1 : 0;
+      else if (kind === 'data') {
+        if (sign === 1) tally(counts.uncounted, 'data', path);
+      }
       else push(kind, l.text, sign);
     }
   };
@@ -311,7 +401,7 @@ function fileOps(file: ChangedFile, category: FileCategory, patch: ReturnType<ty
 export function measurePush(files: readonly ChangedFile[], store: LedgerStore): PushDelta {
   const lines = new Array<number>(CAT_COUNT).fill(0);
   const ops: Op[] = [];
-  const counts = { filler: 0, blank: 0 };
+  const counts = { uncounted: new Map() as Tally, blank: 0 };
   let estimatedCode = 0;
   let estimatedBranches = 0;
   let estimatedFiles = 0;
@@ -340,12 +430,13 @@ export function measurePush(files: readonly ChangedFile[], store: LedgerStore): 
   }
 
   // Net change per key across all files (moves between files cancel) and per file (for files touched).
-  const net = new Map<string, { info: KeyInfo; delta: number }>();
+  const net = new Map<string, { info: KeyInfo; delta: number; paths: string[] }>();
   const perFile = new Map<string, Map<string, number>>();
   for (const op of ops) {
-    const e = net.get(op.key);
-    if (e) e.delta += op.sign;
-    else net.set(op.key, { info: op.info, delta: op.sign });
+    let e = net.get(op.key);
+    if (!e) net.set(op.key, (e = { info: op.info, delta: 0, paths: [] }));
+    e.delta += op.sign;
+    if (op.sign === 1) e.paths.push(op.path);
     if (op.info.kind !== 'code') continue;
     let f = perFile.get(op.path);
     if (!f) perFile.set(op.path, (f = new Map()));
@@ -357,8 +448,8 @@ export function measurePush(files: readonly ChangedFile[], store: LedgerStore): 
   let branches = estimatedBranches;
   let churn = 0;
   // Each key's change in what it is worth today, gathered by group for the shape cap.
-  const groups = new Map<string, { info: KeyInfo; gained: number; lost: number; added: number }>();
-  for (const [key, { info, delta }] of net) {
+  const groups = new Map<string, { info: KeyInfo; gained: number; lost: number; added: number; paths: string[] }>();
+  for (const [key, { info, delta, paths }] of net) {
     if (delta === 0) continue;
     const before = store.balance('', key);
     const after = before + delta;
@@ -372,14 +463,19 @@ export function measurePush(files: readonly ChangedFile[], store: LedgerStore): 
     const gained = gain(after, m) - gain(before, m);
     const lost = loss(after, m) - loss(before, m);
     churn += 2 * (Math.max(0, -gained) + Math.max(0, -lost));
+    // The copies past what this key is credited with are repeats, in the files that added them last.
+    const added = Math.max(0, delta);
+    for (const path of paths.slice(paths.length - Math.max(0, added - Math.max(0, gained)))) tally(counts.uncounted, 'repeat', path);
     const g = groups.get(info.group);
+    const credits = Math.max(0, gained) > 0 ? paths.slice(0, Math.max(0, gained)) : [];
     if (g) {
       g.gained += gained;
       g.lost += lost;
-      g.added += Math.max(0, delta);
-    } else groups.set(info.group, { info, gained, lost, added: Math.max(0, delta) });
+      g.added += added;
+      g.paths.push(...credits);
+    } else groups.set(info.group, { info, gained, lost, added, paths: credits });
   }
-  for (const [group, { info, gained, lost, added }] of groups) {
+  for (const [group, { info, gained, lost, paths }] of groups) {
     let credited = gained;
     if (info.kind === 'code') {
       const a = readShape(store, SHAPE_ADDED, group, today);
@@ -390,8 +486,10 @@ export function measurePush(files: readonly ChangedFile[], store: LedgerStore): 
       code += credited;
       branches += credited * info.branches;
       lines[Cat.Removed]! += Math.min(SHAPE_CAP, r + lost) - Math.min(SHAPE_CAP, r);
+      // Lines of this shape gained past the cap are near-duplicates.
+      const near = Math.max(0, gained - Math.max(0, credited));
+      for (const path of paths.slice(paths.length - near)) tally(counts.uncounted, 'shape', path);
     } else lines[COUNTED_CAT[info.kind]]! += gained;
-    counts.filler += Math.max(0, added - Math.max(0, credited));
   }
 
   // A file counts while any of its code keys carries a net change today. Each file keeps a count
@@ -424,7 +522,17 @@ export function measurePush(files: readonly ChangedFile[], store: LedgerStore): 
   const branchesAfter = day.branches + branches;
   store.setDaily(codeAfter, branchesAfter);
   const cappedCode = Math.min(Math.max(codeAfter, 0), DAILY_CODE_CAP) - Math.min(Math.max(day.code, 0), DAILY_CODE_CAP);
-  if (code > 0) counts.filler += code - Math.max(0, cappedCode);
+  const overCap = code > 0 ? code - Math.max(0, cappedCode) : 0;
+  // What the push leaves uncounted is free up to what its new code and tests carry; the excess,
+  // and everything past the daily cap, is filler. Only code beyond the day's high-water mark is
+  // new: writing, deleting and rewriting the same lines does not earn the allowance again.
+  const high = Math.max(readShape(store, HIGH_WATER, '', today), day.code, 0);
+  const fresh = Math.max(0, Math.min(codeAfter, DAILY_CODE_CAP) - Math.min(high, DAILY_CODE_CAP));
+  if (codeAfter > high) writeShape(store, HIGH_WATER, '', today, codeAfter);
+  let free = 0;
+  for (const m of counts.uncounted.values()) for (const n of m.values()) free += n;
+  const filler = overCap + Math.max(0, free - Math.floor(FREE_PER_CODE * (fresh + Math.max(0, lines[Cat.Test]!))));
+  if (overCap > 0) tally(counts.uncounted, 'cap', '', overCap);
   lines[Cat.Code] = cappedCode;
   lines[Cat.Blank] = counts.blank;
   const cappedBranches = Math.min(Math.max(branchesAfter, 0), DAILY_BRANCH_CAP) - Math.min(Math.max(day.branches, 0), DAILY_BRANCH_CAP);
@@ -437,7 +545,13 @@ export function measurePush(files: readonly ChangedFile[], store: LedgerStore): 
       best = n;
     }
   }
-  return { lines, files: filesDelta, branches: cappedBranches, churn, filler: counts.filler, language };
+  const uncounted: Uncounted[] = [...counts.uncounted].map(([kind, m]) => ({
+    kind,
+    lines: [...m.values()].reduce((a, b) => a + b, 0),
+    files: [...m].filter(([path]) => path !== '').sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)).slice(0, 3).map(([path, n]) => ({ path, lines: n })),
+  }));
+  uncounted.sort((a, b) => b.lines - a.lines || (a.kind < b.kind ? -1 : 1));
+  return { lines, files: filesDelta, branches: cappedBranches, churn, filler, language, uncounted };
 }
 
 /** A ledger in memory: for tests, bots and the browser demo. Set `today` to move to another day. */

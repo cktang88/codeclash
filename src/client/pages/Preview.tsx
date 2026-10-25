@@ -58,13 +58,31 @@ function Callouts({ army }: { army: PreviewArmy }) {
   );
 }
 
+/** What "army size" counts, said once wherever a size is shown. */
+const SIZE_NOTE = 'Army size is room in the ranks. Bigger units take more room: a Knight takes 2, a Dragon 6.';
+
+/** Room taken by support (Wardens, Archers, Heralds, Sappers), which comes on top of the army size. */
+function supportOf(army: PreviewArmy): number {
+  return Math.max(0, army.slots - army.budget + army.counts[Kind.Berserker]!);
+}
+
+/** "Army size 62", "Army size 62 + 3 support", or the lone messenger's 1. */
+export function sizeLine(army: PreviewArmy): string {
+  if (army.budget === 0) return `Army size ${army.slots}`;
+  const support = supportOf(army);
+  return `Army size ${army.budget.toLocaleString('en-US')}${support > 0 ? ` + ${support} support` : ''}`;
+}
+
 function Reasons({ reasons, army, open }: { reasons: string[]; army: PreviewArmy; open?: boolean }) {
   return (
     <details className="reasons" open={open}>
       <summary>
         <span className="reasons-what">Why this army</span>
         <span className="reasons-sum">
-          <span className="num">{plural(army.slots, 'slot')}</span> · <span className={army.ragged ? 'bad' : army.quality > 1 ? 'good' : ''}>{qualityLine(army)}</span>
+          <span className="num" title={SIZE_NOTE}>
+            {sizeLine(army)}
+          </span>{' '}
+          · <span className={army.ragged ? 'bad' : army.quality > 1 ? 'good' : ''}>{qualityLine(army)}</span>
         </span>
       </summary>
       <ul>
@@ -72,6 +90,7 @@ function Reasons({ reasons, army, open }: { reasons: string[]; army: PreviewArmy
           <li key={i}>{r}</li>
         ))}
       </ul>
+      <p className="reasons-note">{SIZE_NOTE}</p>
     </details>
   );
 }
@@ -138,8 +157,11 @@ function CombinedCard({ combined, hue, count }: { combined: PreviewCombined; hue
           <dd className="num">{compact(soldiers(army))}</dd>
         </div>
         <div>
-          <dt>Slots</dt>
-          <dd className="num">{army.slots}</dd>
+          <dt title={SIZE_NOTE}>Army size</dt>
+          <dd className="num" title={SIZE_NOTE}>
+            {army.budget > 0 ? army.budget : army.slots}
+            {army.budget > 0 && supportOf(army) > 0 && <span className="vet-mark"> + {supportOf(army)} support</span>}
+          </dd>
         </div>
         <div>
           <dt>Code</dt>
@@ -158,7 +180,7 @@ function CombinedCard({ combined, hue, count }: { combined: PreviewCombined; hue
       <LineBar lines={combined.lines} hue={hue} />
       <p className="combined-note">
         Pushed one by one or squashed into one push, they leave the same ledger, so the army is the same size and strength either way: only the commit messages choose its specialists. Mustered
-        one by one, each on a fresh day, these commits raise <span className="num">{combined.separateSlots}</span> slots; together, <span className="num">{army.slots}</span>.
+        one by one, each on a fresh day, these commits raise armies of total size <span className="num">{combined.separateSlots}</span>; together, <span className="num">{army.slots}</span>.
       </p>
       <Reasons reasons={combined.reasons} army={army} />
     </section>

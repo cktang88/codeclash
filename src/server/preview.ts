@@ -5,10 +5,10 @@
 
 import type { PreviewArmy, PreviewCombined, PreviewCommit, PreviewLines, PreviewResponse } from '../protocol.ts';
 import type { ChangedFile } from '../rules/classify.ts';
-import { measurePush, MemoryLedger, type LedgerStore, type PushDelta } from '../rules/ledger.ts';
+import { DAILY_CODE_CAP, measurePush, MemoryLedger, SHAPE_CAP, type LedgerStore, type PushDelta, type Uncounted, type UncountedKind } from '../rules/ledger.ts';
 import { validRef, validRepo } from '../rules/repoRef.ts';
 import { CAT_NAMES, Cat, Kind, type Ledger, type Purpose } from '../sim/api.ts';
-import { applyDelta, armyFor, armyQuality, BUDGET_PER_10K, budgetOf, cleanLines, effectiveLedger, emptyLedger, int, purposeOf, slotsOf } from '../sim/muster.ts';
+import { applyDelta, armyFor, armyQuality, BUDGET_PER_10K, budgetOf, cleanLines, CODE_KNEE, effectiveLedger, emptyLedger, int, purposeOf, slotsOf } from '../sim/muster.ts';
 import { STATS } from '../sim/stats.ts';
 import { GithubError, MAX_FILES, type CommitMeta, type GithubClient } from './github.ts';
 
@@ -150,46 +150,109 @@ const PURPOSE_SPECIALISTS: Record<Exclude<Purpose, 'work'>, string> = {
   chore: 'Chore too small for Mercenaries',
 };
 
+/** Kinds of soldier that are support: they come on top of the army size. */
+const SUPPORT: readonly Kind[] = [Kind.Warden, Kind.Archer, Kind.Herald, Kind.Sapper];
+
+/** Room in the army the support takes, on top of what the code raised. */
+export function supportOf(counts: readonly number[]): number {
+  return SUPPORT.reduce<number>((n, k) => n + counts[k]! * STATS[k]!.slots, 0);
+}
+
+/** Whole numbers that add up to `total`, as near to `parts` as can be (largest remainders). */
+export function apportion(parts: readonly number[], total: number): number[] {
+  const out = parts.map((v) => Math.floor(Math.max(0, v)));
+  let left = total - out.reduce((a, b) => a + b, 0);
+  const order = parts.map((v, i) => [Math.max(0, v) - out[i]!, i] as const).sort((a, b) => b[0] - a[0] || a[1] - b[1]);
+  for (let j = 0; left > 0 && order.length > 0; j = (j + 1) % order.length, left--) out[order[j]![1]]!++;
+  return out;
+}
+
+/** What each kind of uncounted line is called in the reasons. */
+const UNCOUNTED_LABEL: Record<UncountedKind, (n: number) => string> = {
+  structure: (n) => `${plural(n, 'line')} of brackets, closing tags and bare keywords`,
+  fragment: (n) => plural(n, 'one-word fragment'),
+  data: (n) => `${plural(n, 'line')} of literal data (tables, strings, numbers)`,
+  prose: (n) => `${plural(n, 'line')} of prose`,
+  repeat: (n) => `${plural(n, 'repeated line')} (each counts once)`,
+  shape: (n) => `${plural(n, 'near-duplicate line')} (the same line with other names or numbers, counted ${SHAPE_CAP} times a day)`,
+  cap: (n) => `${plural(n, 'line')} past the daily cap of ${fmt(DAILY_CODE_CAP)}`,
+};
+
+/** A path as the reasons show it: its last two parts. */
+const shortPath = (path: string) => path.split('/').slice(-2).join('/');
+
+/** "312 near-duplicate lines (…) in styles/hud.css", "401 lines of … , most in render/sites.ts and ui/RingFigure.tsx". */
+function uncountedText(u: Uncounted): string {
+  const where = u.files.length === 0 ? '' : u.files.length === 1 || u.files[0]!.lines * 2 >= u.lines ? ` in ${shortPath(u.files[0]!.path)}` : `, most in ${shortPath(u.files[0]!.path)} and ${shortPath(u.files[1]!.path)}`;
+  return `${UNCOUNTED_LABEL[u.kind](u.lines)}${where}`;
+}
+
+/** Uncounted tallies of several pushes, merged by kind and file. */
+export function mergeUncounted(all: readonly (readonly Uncounted[] | undefined)[]): Uncounted[] {
+  const by = new Map<UncountedKind, { lines: number; files: Map<string, number> }>();
+  for (const list of all) {
+    for (const u of list ?? []) {
+      let e = by.get(u.kind);
+      if (!e) by.set(u.kind, (e = { lines: 0, files: new Map() }));
+      e.lines += u.lines;
+      for (const f of u.files) e.files.set(f.path, (e.files.get(f.path) ?? 0) + f.lines);
+    }
+  }
+  return [...by]
+    .map(([kind, e]) => ({ kind, lines: e.lines, files: [...e.files].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)).slice(0, 3).map(([path, lines]) => ({ path, lines })) }))
+    .sort((a, b) => b.lines - a.lines || (a.kind < b.kind ? -1 : 1));
+}
+
 /** Short lines saying why a ledger raised the army it did. */
-export function explain(ledger: Ledger, army: PreviewArmy, purpose: Purpose | null, extra: { filesChanged: number; estimated: number; truncated: boolean; unread?: boolean }): string[] {
+export function explain(ledger: Ledger, army: PreviewArmy, purpose: Purpose | null, extra: { filesChanged: number; estimated: number; truncated: boolean; unread?: boolean; uncounted?: readonly Uncounted[] }): string[] {
   const out: string[] = [];
   const L = ledger.lines;
   const c = army.counts;
   const eff = effectiveLedger(ledger);
   if (extra.unread) return ['GitHub would not give this commit’s diff, so nothing was measured'];
-  if (L[Cat.Code]! > 0) out.push(`${plural(L[Cat.Code]!, 'line')} of code across ${plural(ledger.files, 'source file')}${ledger.branches > 0 ? `, ${plural(ledger.branches, 'branch point')}` : ''}`);
-  if (L[Cat.Removed]! > 0) out.push(`${plural(L[Cat.Removed]!, 'line')} removed`);
+  // How big the army is, and what each part of the work added to it.
   if (army.budget > 0) {
     const w = BUDGET_PER_10K;
-    const parts = [
-      ['code', (w.code * eff.code) / 10_000],
-      ['files', (w.files * eff.files) / 10_000],
-      ['branch points', (w.branches * eff.branches) / 10_000],
-      ['removed lines', (w.removed * eff.removed) / 10_000],
-    ] as const;
-    const shown = parts.filter(([, v]) => v >= 0.5).map(([name, v]) => `${name} ${v < 10 ? v.toFixed(1) : Math.round(v)}`);
-    out.push(`Budget of ${plural(army.budget, 'slot')}${shown.length ? ` (${shown.join(', ')})` : ''}`);
+    const raw = [(w.code * eff.code) / 10_000, (w.files * eff.files) / 10_000, (w.branches * eff.branches) / 10_000, (w.removed * eff.removed) / 10_000];
+    const [code, files, branches, removed] = apportion(raw, army.budget) as [number, number, number, number];
+    const knee = L[Cat.Code]! > CODE_KNEE ? `; past ${fmt(CODE_KNEE)} a line counts half` : '';
+    const rest = [
+      files > 0 ? `${plural(eff.files, 'file')} (+${files})` : '',
+      branches > 0 ? `${plural(eff.branches, 'branch point')} of logic (+${branches})` : '',
+      removed > 0 ? `${plural(eff.removed, 'removed line')} of cleanup (+${removed})` : '',
+    ].filter(Boolean);
+    const lead = `${plural(L[Cat.Code]!, 'line')} of code (+${code}${knee})`;
+    const tail = rest.length === 0 ? '' : `, plus ${rest.length === 1 ? rest[0] : `${rest.slice(0, -1).join(', ')} and ${rest.at(-1)}`}`;
+    out.push(`Army size: ${fmt(army.budget)} — ${code * 2 > army.budget ? 'mostly ' : ''}from ${lead}${tail}`);
+  } else if (L[Cat.Code]! > 0) {
+    out.push(`${plural(L[Cat.Code]!, 'line')} of code: too few for a soldier (about ${Math.ceil(10_000 / BUDGET_PER_10K.code)} lines each)`);
   }
-  // Specialists, by what raised them.
+  // How the army size was spent: specialists by what raised them, Footmen for the rest.
+  const specialists: string[] = [];
   const fixers = units(c, [Kind.Cleric, Kind.Paladin, Kind.Ranger]);
-  if (fixers) out.push(`${purpose ? 'Bug fix' : 'Bug fixes'} → ${fixers}`);
-  if (c[Kind.Dragon]! > 0) out.push(`Legendary ${purpose === 'work' ? 'work' : 'feature'} (900+ lines, 10+ files, 90+ branch points) → ${unit(Kind.Dragon, c[Kind.Dragon]!)}`);
-  if (c[Kind.Champion]! > 0) out.push(`Big feature (400 feature lines and 5 files each) → ${unit(Kind.Champion, c[Kind.Champion]!)}`);
+  if (fixers) specialists.push(`${purpose ? 'bug fix' : 'bug fixes'} → ${fixers}`);
+  if (c[Kind.Dragon]! > 0) specialists.push(`legendary ${purpose === 'work' ? 'work' : 'feature'} (900+ lines, 10+ files, 90+ branch points) → ${unit(Kind.Dragon, c[Kind.Dragon]!)}`);
+  if (c[Kind.Champion]! > 0) specialists.push(`big feature (400 feature lines and 5 files each) → ${unit(Kind.Champion, c[Kind.Champion]!)}`);
   const refactor = units(c, [Kind.Outrider, Kind.GriffinRider]);
-  if (refactor) out.push(`Refactor → ${refactor}`);
-  if (c[Kind.Wizard]! > 0) out.push(`Performance work → ${unit(Kind.Wizard, c[Kind.Wizard]!)}`);
+  if (refactor) specialists.push(`refactor → ${refactor}`);
+  if (c[Kind.Wizard]! > 0) specialists.push(`performance work → ${unit(Kind.Wizard, c[Kind.Wizard]!)}`);
   const undead = units(c, [Kind.Skeleton, Kind.BoneGolem]);
-  if (undead) out.push(`Revert → ${undead}`);
-  if (c[Kind.Mercenary]! > 0) out.push(`Chore → ${unit(Kind.Mercenary, c[Kind.Mercenary]!)}`);
-  if (c[Kind.Knight]! > 0) out.push(`${plural(eff.branches, 'branch point')} → ${unit(Kind.Knight, c[Kind.Knight]!)}`);
-  if (c[Kind.Troll]! > 0) out.push(`Very complex code → ${unit(Kind.Troll, c[Kind.Troll]!)}`);
-  if (c[Kind.Trebuchet]! > 0) out.push(`Sweeping change (15 files each) → ${unit(Kind.Trebuchet, c[Kind.Trebuchet]!)}`);
-  if (purpose && purpose !== 'work' && army.budget > 0 && !fixers && !refactor && !undead && c[Kind.Wizard] === 0 && c[Kind.Mercenary] === 0 && c[Kind.Champion] === 0 && c[Kind.Dragon] === 0) {
-    out.push(`${PURPOSE_SPECIALISTS[purpose]}, or the specialists’ share (65% of the budget) went to others`);
+  if (undead) specialists.push(`revert → ${undead}`);
+  if (c[Kind.Mercenary]! > 0) specialists.push(`chore → ${unit(Kind.Mercenary, c[Kind.Mercenary]!)}`);
+  if (c[Kind.Knight]! > 0) specialists.push(`${plural(eff.branches, 'branch point')} → ${unit(Kind.Knight, c[Kind.Knight]!)}`);
+  if (c[Kind.Troll]! > 0) specialists.push(`very complex code → ${unit(Kind.Troll, c[Kind.Troll]!)}`);
+  if (c[Kind.Trebuchet]! > 0) specialists.push(`sweeping change (15 files each) → ${unit(Kind.Trebuchet, c[Kind.Trebuchet]!)}`);
+  if (army.budget > 0) {
+    // Each Berserker took the place of two Footmen, so the specialists spent the rest.
+    const spent = army.budget - c[Kind.Footman]! - 2 * c[Kind.Berserker]!;
+    const footmen = c[Kind.Berserker]! > 0 ? `${unit(Kind.Footman, c[Kind.Footman]!)} and ${unit(Kind.Berserker, c[Kind.Berserker]!)} (no tests or comments: each Berserker fights in place of two Footmen)` : unit(Kind.Footman, c[Kind.Footman]!);
+    if (specialists.length > 0) out.push(`Specialists: ${fmt(spent)} of ${fmt(army.budget)} (${specialists.join('; ')}); the rest are ${footmen}`);
+    else out.push(`No specialists: ${c[Kind.Berserker]! > 0 ? `the ${fmt(army.budget)} are ${footmen}` : `all ${fmt(army.budget)} are Footmen`}`);
   }
-  if (c[Kind.Footman]! > 0 && army.budget > 0) out.push(`The rest of the budget → ${unit(Kind.Footman, c[Kind.Footman]!)}`);
-  if (c[Kind.Berserker]! > 0) out.push(`No tests or comments → ${unit(Kind.Berserker, c[Kind.Berserker]!)}, each in place of two Footmen`);
-  // Support.
+  if (purpose && purpose !== 'work' && army.budget > 0 && !fixers && !refactor && !undead && c[Kind.Wizard] === 0 && c[Kind.Mercenary] === 0 && c[Kind.Champion] === 0 && c[Kind.Dragon] === 0) {
+    out.push(`${PURPOSE_SPECIALISTS[purpose]}, or the specialists’ share (65% of the army size) went to others`);
+  }
+  // Support, on top of the army size.
   const support: [number, Cat, string, string][] = [
     [Kind.Warden, Cat.Test, 'test line', 'tests'],
     [Kind.Archer, Cat.Comment, 'comment line', 'comments'],
@@ -199,22 +262,29 @@ export function explain(ledger: Ledger, army: PreviewArmy, purpose: Purpose | nu
   for (const [kind, cat, noun] of support) {
     if (L[cat]! <= 0) continue;
     const many = noun.startsWith('line') ? noun.replace('line', 'lines') : `${noun}s`;
-    out.push(c[kind]! > 0 ? `${plural(L[cat]!, noun, many)} → ${unit(kind, c[kind]!)} (support)` : `${plural(L[cat]!, noun, many)}: too few for a ${STATS[kind]!.name}`);
+    out.push(c[kind]! > 0 ? `${plural(L[cat]!, noun, many)} → ${unit(kind, c[kind]!)} (support, on top of the army size)` : `${plural(L[cat]!, noun, many)}: too few for a ${STATS[kind]!.name}`);
   }
   if (L[Cat.Generated]! > 0) out.push(`${plural(L[Cat.Generated]!, 'generated line')} raise nothing`);
   if (L[Cat.Vendor]! > 0) out.push(`${plural(L[Cat.Vendor]!, 'vendored line')} raise nothing`);
-  if (ledger.filler > 0) out.push(`${plural(ledger.filler, 'line')} left out as filler (copies, punctuation, tables)`);
+  // What was not counted, and whether any of it was filler.
+  const uncounted = extra.uncounted ?? [];
+  if (ledger.filler > 0) {
+    const shown = uncounted.filter((u) => u.kind !== 'structure' || uncounted.length === 1).slice(0, 3);
+    out.push(`${plural(ledger.filler, 'line')} of filler, more than the code carries${shown.length ? `: ${shown.map(uncountedText).join('; ')}` : ''}`);
+  } else if (uncounted.length > 0) {
+    out.push(`Not counted, as in any code (no penalty): ${uncounted.slice(0, 3).map(uncountedText).join('; ')}${uncounted.length > 3 ? '; and a few more' : ''}`);
+  }
   for (const n of army.notes) {
     if (n.kind === 'veteran') out.push(`${n.text}: soldiers fight ${Math.round(n.effect * 100)}% harder`);
     else out.push(`${n.text}: quality ${n.effect > 0 ? '+' : '−'}${Math.round(Math.abs(n.effect) * 100)}%`);
   }
   if (army.budget === 0) {
     const messenger = army.slots === 1 && c[Kind.Footman] === 1;
-    const unreadOnly = extra.filesChanged === 0 || (L.every((n, i) => i === Cat.Blank || n === 0) && ledger.filler === 0);
+    const unreadOnly = extra.filesChanged === 0 || (L.every((n, i) => i === Cat.Blank || n === 0) && ledger.filler === 0 && uncounted.length === 0);
     if (messenger) out.push(unreadOnly ? 'Nothing to count (binary, data or other unread files): a lone messenger marches' : 'No code: a lone messenger marches, as every first push sends one');
     else out.push('No code: only support marches');
   }
-  if (extra.estimated > 0) out.push(`GitHub omitted the diff of ${plural(extra.estimated, 'file')}; their additions count as code`);
+  if (extra.estimated > 0) out.push(`GitHub omitted the diff of ${plural(extra.estimated, 'file')}; their additions count as code, estimated`);
   if (extra.truncated) out.push(`Only the first ${MAX_FILES} files are read, as ingestion reads them`);
   return out;
 }
@@ -314,7 +384,7 @@ export class Preview {
         date: c.date,
         htmlUrl: `https://github.com/${name}/commit/${c.sha}`,
       };
-      const { ledger, army, purpose } = musterCommit(files ?? [], c.message);
+      const { ledger, army, purpose, delta } = musterCommit(files ?? [], c.message);
       const shape = shapeOf(files ?? []);
       return {
         ...base,
@@ -325,7 +395,7 @@ export class Preview {
         branches: ledger.branches,
         filler: ledger.filler,
         army,
-        reasons: explain(ledger, army, purpose, { filesChanged: files?.length ?? 0, ...shape, unread: files === null }),
+        reasons: explain(ledger, army, purpose, { filesChanged: files?.length ?? 0, ...shape, unread: files === null, uncounted: delta.uncounted }),
         ...(files === null ? { unread: true } : {}),
         ...(shape.truncated ? { truncated: true } : {}),
         ...(shape.estimated > 0 ? { estimated: shape.estimated } : {}),
@@ -385,10 +455,13 @@ export function combine(chosen: readonly CommitMeta[], diffs: readonly (ChangedF
   let pushes = 0;
   let filesChanged = 0;
   let estimated = 0;
+  const uncounted: (readonly Uncounted[] | undefined)[] = [];
   for (let i = chosen.length - 1; i >= 0; i--) {
     const files = diffs[i];
     if (!files) continue;
-    credit(ledger, measurePush(files, store), purposeOf(chosen[i]!.message));
+    const delta = measurePush(files, store);
+    uncounted.push(delta.uncounted);
+    credit(ledger, delta, purposeOf(chosen[i]!.message));
     pushes++;
     filesChanged += files.length;
     estimated += shapeOf(files).estimated;
@@ -397,8 +470,8 @@ export function combine(chosen: readonly CommitMeta[], diffs: readonly (ChangedF
   const separateSlots = commits.reduce((n, c) => n + c.army.slots, 0);
   const reasons = [
     `${plural(pushes, 'commit')} pushed on one day, oldest first`,
-    ...explain(ledger, army, null, { filesChanged, estimated, truncated: false }),
-    `One by one, each on a fresh day, they would muster ${plural(separateSlots, 'slot')}; together, ${plural(army.slots, 'slot')}`,
+    ...explain(ledger, army, null, { filesChanged, estimated, truncated: false, uncounted: mergeUncounted(uncounted) }),
+    `One by one, each on a fresh day, their armies would add up to a size of ${fmt(separateSlots)}; together, ${fmt(army.slots)}`,
   ];
   return {
     commits: pushes,

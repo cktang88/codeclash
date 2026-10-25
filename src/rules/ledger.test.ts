@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Cat } from '../sim/api.ts';
 import type { ChangedFile } from './classify.ts';
-import { DAILY_CODE_CAP, isFillerText, measurePush, MemoryLedger, normalize, type PushDelta } from './ledger.ts';
+import { DAILY_CODE_CAP, fillerKind, FREE_PER_CODE, isFillerText, measurePush, MemoryLedger, normalize, type PushDelta } from './ledger.ts';
 
 type Tree = Record<string, string[]>;
 
@@ -238,11 +238,52 @@ describe('rules', () => {
   });
 
   it('treats punctuation and literal tables as filler', () => {
-    for (const t of ['}', '});', '0x1f, 0x2a,', "'a', 'b',", '1, 2, 3,', 'x = 1;']) expect(isFillerText(normalize(t)), t).toBe(true);
-    for (const t of ['return items.length;', 'if (ready) start();']) expect(isFillerText(normalize(t)), t).toBe(false);
+    for (const t of ['}', '});', '0x1f, 0x2a,', "'a', 'b',", '1, 2, 3,', 'user,']) expect(isFillerText(normalize(t)), t).toBe(true);
+    for (const t of ['return items.length;', 'if (ready) start();', 'x = 1;']) expect(isFillerText(normalize(t)), t).toBe(false);
     const d = measurePush([file('src/a.ts', '@@\n+}\n+0x1f, 0x2a,\n+return items.length;')], new MemoryLedger());
     expect(d.lines[Cat.Code]).toBe(1);
     expect(d.filler).toBe(2);
+  });
+
+  it('tells structure, fragments and literal data from code, however short its names', () => {
+    const kind = (t: string, family = 'c') => fillerKind(normalize(t), family);
+    // Structure: brackets, bare tags and bare keywords.
+    for (const t of ['}', ');', '})}', '</div>', '<span>', '</>', '} else {', 'return (', 'break;', 'return;', 'default:']) expect(kind(t), t).toBe('structure');
+    // Fragments: a lone name, as a wrapped argument or a JSX child leaves.
+    for (const t of ['user,', '{rising}', 'useEffect(() => {', 'run: () => {', '{!still &&']) expect(kind(t), t).toBe('fragment');
+    // Data: literals with no code.
+    for (const t of ['[-70, -118],', "'No modifiers. The war council weighs every objective evenly.',", '{ id: 7, name: "x", active: true },', "tone: 'warn',", 'size={76}', '}, 4500, false, 10_000),', 'aGVsbG8gd29ybGQgaGVsbG8gd29ybGQgaGVsbG8gd29ybGQ=,']) expect(kind(t), t).toBe('data');
+    // Code, with one-letter names and literals: drawing code and short statements.
+    for (const t of ['label.x = x;', 'v.sampleTick = -1;', 'y += len / 6;', 'x += (rand() - 0.5) * 9;', 'whoosh(v, 0.7, 600, 2400, 0.12);', 'strokeWidth={1.3 / k}', 'x: number;', 'return 0;', "case 'rising':", '(victor >= 0', 'title: `You hold ${mine} of ${claimed} capitals`,']) expect(kind(t), t).toBeNull();
+    // Style sheets have declarations, not literal rows.
+    for (const t of ['margin: 0;', "content: '';", 'color: #d3c6a6;', 'z-index: -1;']) expect(kind(t, 'none'), t).toBeNull();
+  });
+
+  it('frees uncounted structure up to what the code carries, and reports the rest as filler', () => {
+    const parts = ['keep', 'wall', 'gate', 'tower', 'moat', 'bridge'];
+    const fn = (p: string) => [`export function draw${p}(ctx: Context, ${p}: Part) {`, `  ctx.moveTo(${p}.left, ${p}.top);`, `  ctx.lineTo(${p}.right, ${p}.bottom);`, '  ctx.stroke();', '}'];
+    // Honest code: closing braces and a repeated idiom stay within the allowance.
+    const honest = measurePush([file('src/draw.ts', '@@\n' + parts.map((p) => fn(p).map((l) => `+${l}`).join('\n')).join('\n'))], new MemoryLedger());
+    expect(honest.lines[Cat.Code]).toBe(19);
+    expect(honest.filler).toBe(0);
+    expect(honest.uncounted?.map((u) => [u.kind, u.lines])).toEqual([['structure', 6], ['repeat', 5]]);
+    expect(honest.uncounted?.[0]?.files).toEqual([{ path: 'src/draw.ts', lines: 6 }]);
+    // Padding brings no code to carry it: all of it is filler.
+    const padding = measurePush([file('src/pad.ts', '@@\n' + '+}\n+);\n'.repeat(100))], new MemoryLedger());
+    expect(padding.filler).toBe(200);
+    // Past the allowance, the excess is filler.
+    const ledger = new MemoryLedger();
+    const mixed = measurePush([file('src/mix.ts', '@@\n' + ['alpha', 'beta', 'gamma', 'delta', 'omega', 'sigma', 'kappa', 'theta', 'lambda', 'zeta'].map((n) => `+const ${n} = compute(input, ${n}Weight);`).join('\n') + '\n' + '+}\n'.repeat(30))], ledger);
+    expect(mixed.lines[Cat.Code]).toBe(10);
+    expect(mixed.filler).toBe(30 - Math.floor(FREE_PER_CODE * 10));
+  });
+
+  it('keys a comment by its text, so single-line doc comments are not copies of each other', () => {
+    const d = measurePush([file('src/a.ts', '@@\n+/** Walls about to fall crack and shed dust. */\n+/** The player whose home seat this is. */\n+/**\n+ * Lake or massif at the centre.\n+ */\n+{/* The ring road. */}')], new MemoryLedger());
+    expect(d.lines[Cat.Comment]).toBe(4);
+    expect(d.lines[Cat.Blank]).toBe(2);
+    expect(d.filler).toBe(0);
+    expect(d.uncounted).toEqual([]);
   });
 
   it('credits identical lines once per user', () => {
