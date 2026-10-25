@@ -99,7 +99,7 @@ A mixed push measured commit by commit gets context for its newest 5 commits. Th
 - The pusher's account (and commit emails, for a mirror) are left out of authors, lines and ages.
 - **The repository gate.** M is held to **×1.5** unless the repository (for a fork, its source) has at least 2 independent contributors with commits before today (accounts at least 30 days old) and at least 5 stars or 2 forks. Forks are not excluded (forking is how contributions happen), but a fork's blame is its own real history.
 
-The preview shows each file's context: "Edited 2 lines of others' code in css.ts (3,688 lines, 127 authors, lines from 2021) ×3.2 → +4.4 lines of credit", with the gate's reason when it holds the multiplier, and the effort credit: "Fixed 3 hard files in vite (css.ts ×3.2, build.ts ×3.2, asset.ts ×3.2) → +360 lines of effort credit".
+The preview shows each file's context: "Edited 2 lines of others' code in css.ts (3,688 lines, 127 authors, lines from 2021) ×3.2 → +4.4 lines of credit", with the gate's reason when it holds the multiplier, and the effort credit: "Fixed 3 hard files in vite (css.ts ×3.2, build.ts ×3.2, asset.ts ×3.2) → +359 lines of effort credit".
 
 **Purpose** comes from the first line of the newest counted commit's message. Conventional-commit prefixes come first, then common words. The first match wins:
 

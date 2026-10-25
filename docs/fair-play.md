@@ -143,16 +143,16 @@ A maintainer in a war (`MAINTAINERS=1 DAYS=128 pnpm tsx scripts/diagnose-war.ts 
 |---|---|---|---|---|---|---|---|
 | 0 (line bonus only) | — | 4% | — | 2% | — | 0.39 | 525 |
 | 30 | 15 | 7% | 4% | 4% | 19% | 0.50 | 883 |
-| 60 | 15 | 7% | 0% | 8% | 20% | 0.64 | 1,263 |
-| 90 | 15 | 9% | 2% | 5% | 26% | 0.73 | 1,571 |
-| **120** | **15** | **13%** | 5% | **15%** | 20% | **0.87** | 2,105 |
-| 120 | 10 | 10% | 2% | 8% | 20% | 0.72 | 1,755 |
-| 120 | 20 | 12% | 5% | 15% | 23% | 0.87 | 2,032 |
-| 150 | 15 | 13% | 2% | 12% | 23% | 0.90 | 2,400 |
+| 60 | 15 | 7% | 0% | 7% | 19% | 0.64 | 1,255 |
+| 90 | 15 | 9% | 2% | 5% | 25% | 0.74 | 1,579 |
+| **120** | **15** | **12%** | 7% | **14%** | 19% | **0.83** | 1,974 |
+| 120 | 10 | 10% | 4% | 7% | 19% | 0.72 | 1,736 |
+| 120 | 20 | 12% | 7% | 14% | 22% | 0.87 | 1,974 |
+| 150 | 15 | 13% | 4% | 12% | 22% | 0.90 | 2,333 |
 | 200 | 20 (no veteran change) | 12% | 5% | 15% | 20% | 1.07 | 2,948 |
 | 240 | 20 (no veteran change) | 14% | 7% | 12% | 20% | 1.20 | 3,629 |
 
-(30 is from the run without the veteran change, 83 days; 120–150 with it, 117–125 days; 200 and 240 without it, 120 days.) Win share plateaus at 12–15% even when the maintainer's budget passes the greenfield median: the winner is usually the day's top budget, and a maintainer's capped credit rarely tops a heavy greenfield day. A low-activity maintainer (< 1.5 pushes an hour) still loses to greenfield pushers almost always (2–5%), as intended. With no maintainers the room is unchanged: 114 days compared, identical day for day (top committer wins 61%, conquest median 15.7 h).
+(30 is from a run without the veteran change, 83 days; 60–150 are 128 days with it; 200 and 240 are without it, 120 days.) Win share plateaus at 12–15% even when the maintainer's budget passes the greenfield median: the winner is usually the day's top budget, and a maintainer's capped credit rarely tops a heavy greenfield day. A low-activity maintainer (< 1.5 pushes an hour) still loses to greenfield pushers almost always (7% at the chosen setting), as intended. With no maintainers the room is unchanged: identical day for day over 128 days (top committer wins 61%, 64% of days conquered, conquest median 15.7 h, first capture 14.4 h).
 
 The line bonus alone lifts a maintainer's army by about 60%, but not to a fair share: at the same push rate a greenfield pusher writes five times the lines, and a multiplier on modified lines (at most ×3.2, and 3 × code) cannot close a gap that wide. Parity would need credit that is not proportional to lines for small hard changes.
 
