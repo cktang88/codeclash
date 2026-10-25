@@ -1,6 +1,6 @@
-# Pushfront game loops
+# Code Clash game loops
 
-Pushfront is played two ways at once. You *build* your army by doing your real work, and you *watch* it fight. **No manual control: your code is your only command.** Your war council leads your army; you never steer it. The loops below make both satisfying over minutes, hours, and weeks.
+Code Clash is played two ways at once. You *build* your army by doing your real work, and you *watch* it fight. **No manual control: your code is your only command.** Your war council leads your army; you never steer it. The loops below make both satisfying over minutes, hours, and weeks.
 
 No loop may reward gaming the code metrics. Every reward comes either from real contribution, measured by the ledger (see [fair-play.md](fair-play.md)), or from play on the battlefield. Unlocks are cosmetic and social, never power.
 

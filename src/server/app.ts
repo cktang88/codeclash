@@ -143,7 +143,7 @@ export async function createServer(
         pruneTimer.unref();
       }
       const address = await app.listen({ port: config.port, host: config.host });
-      log.info('pushfront listening', { address });
+      log.info('codeclash listening', { address });
       return address;
     },
     async shutdown() {
@@ -158,7 +158,7 @@ export async function createServer(
       await parser.close();
       await app.close();
       db.close();
-      log.info('pushfront stopped');
+      log.info('codeclash stopped');
     },
   };
 }

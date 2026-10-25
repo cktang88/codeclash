@@ -1,5 +1,5 @@
 /// <reference lib="webworker" />
-// Pushfront's service worker: instant repeat loads of the shell, fonts, sprites and audio.
+// Code Clash's service worker: instant repeat loads of the shell, fonts, sprites and audio.
 // Built into /sw.js by vite.config.ts (swPlugin) with its version stamped in; see policy.ts for
 // what is cached how, and src/client/sw/register.ts for the version handshake and kill switch.
 import { SHELL_KEY, immutable, staleWhileRevalidate, strategyFor } from './policy.ts';

@@ -222,7 +222,7 @@ export function ArticlesOfWar({ onClose }: { onClose(): void }) {
       )}
       {tab === 'fair' && (
         <>
-          <p className="lede">Pushfront measures real work and refuses to be gamed. These are the rules that keep it honest.</p>
+          <p className="lede">Code Clash measures real work and refuses to be gamed. These are the rules that keep it honest.</p>
           <dl className="fair-list">
             {FAIR_PLAY.map(([rule, why]) => (
               <div key={rule} className="fair-item">

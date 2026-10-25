@@ -3,7 +3,7 @@ import type { ChangedFile } from '../rules/classify.ts';
 import type { RepoFacts } from '../rules/difficulty.ts';
 
 const API = 'https://api.github.com';
-const USER_AGENT = 'pushfront';
+const USER_AGENT = 'codeclash';
 /** Files read from one diff, as ingestion reads them; GitHub itself omits the patch of any very large file. */
 export const MAX_FILES = 300;
 /** A stalled request must not wedge the poller, which polls one user at a time. */

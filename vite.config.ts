@@ -22,7 +22,7 @@ const SIM_VERSION = simVersion();
  */
 function serviceWorker(): Plugin {
   return {
-    name: 'pushfront-sw',
+    name: 'codeclash-sw',
     apply: 'build',
     async generateBundle(_options, bundle) {
       const h = createHash('sha256').update(SIM_VERSION);

@@ -11,7 +11,7 @@ const EnvSchema = z
     NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
     PORT: z.coerce.number().int().min(0).default(8787),
     HOST: z.string().default('0.0.0.0'),
-    DATABASE_PATH: z.string().default('data/pushfront.db'),
+    DATABASE_PATH: z.string().default('data/codeclash.db'),
     PUBLIC_URL: z.preprocess((v) => (v === '' ? undefined : v), z.url().optional()),
     CLIENT_DIR: z.string().default('dist/client'),
     GITHUB_TOKEN: optionalString,

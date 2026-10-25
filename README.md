@@ -1,6 +1,6 @@
-# Pushfront
+# Code Clash
 
-Pushfront is an all-day war fought with your pushes. Sign in with GitHub and join a room. Each push you make to a public repository is read and sorted into the kind of code it is, then marches out of your capital as a platoon. Tests become shield-bearing Wardens, docs become Heralds, and refactors that delete code become fast Outriders. A big feature brings a Champion. The armies meet in the middle and fight slowly enough to watch. There is no manual control: your code is your only command. At the room's reset hour the day ends, everyone gets a digest, and a new map begins.
+Code Clash is an all-day war fought with your pushes. Sign in with GitHub and join a room. Each push you make to a public repository is read and sorted into the kind of code it is, then marches out of your capital as a platoon. Tests become shield-bearing Wardens, docs become Heralds, and refactors that delete code become fast Outriders. A big feature brings a Champion. The armies meet in the middle and fight slowly enough to watch. There is no manual control: your code is your only command. At the room's reset hour the day ends, everyone gets a digest, and a new map begins.
 
 [DESIGN.md](DESIGN.md) holds the rules and the architecture.
 
@@ -25,7 +25,7 @@ Open http://localhost:5173. The Vite dev server proxies `/api`, `/auth`, `/hooks
 - **Army preview:** open http://localhost:5173/preview and paste any public repository (`owner/repo` or a GitHub link). It shows the army each of the latest 10 commits would raise, and why. It uses `GITHUB_TOKEN` when it is set, and otherwise reads anonymously at 60 GitHub requests an hour (about four uncached previews).
 - **Without GitHub sign-in:** set `DEV_AUTH=1` and sign in at `http://localhost:5173/auth/dev?login=<any login>`. Set `DAY_MINUTES=10` to watch a whole day end, write its digest, and start again within minutes.
 - **With real pushes:** set `GITHUB_TOKEN` to a token that can read public data. Members' public pushes are polled from the events API. GitHub may deliver those events minutes to hours late. A member who wants near-real-time armies can open Settings, create a personal hook, and add it to a repository as a push webhook.
-- **Real sign-in:** create a GitHub OAuth app with the callback URL `${PUBLIC_URL}/auth/github/callback`, then set `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`. Pushfront requests no scopes.
+- **Real sign-in:** create a GitHub OAuth app with the callback URL `${PUBLIC_URL}/auth/github/callback`, then set `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`. Code Clash requests no scopes.
 
 ## Environment
 
@@ -38,7 +38,7 @@ Open http://localhost:5173. The Vite dev server proxies `/api`, `/auth`, `/hooks
 | `PUBLIC_URL` | `http://localhost:5173` | Origin browsers use. Builds OAuth callbacks, hook URLs, and digest links. Required in production. |
 | `SESSION_SECRET` | random per boot | HMAC key for the session cookie. Required in production, 32 or more characters. |
 | `PORT`, `HOST` | `8787`, `0.0.0.0` | Listen address. |
-| `DATABASE_PATH` | `data/pushfront.db` | SQLite file. Use a persistent volume in production. |
+| `DATABASE_PATH` | `data/codeclash.db` | SQLite file. Use a persistent volume in production. |
 | `CLIENT_DIR` | `dist/client` | Built client, served with SPA fallback when present. |
 | `COMMONS` | `1` | Seeds "The Commons", a public room with sparring bots. |
 | `MAX_ROOMS_PER_USER` | `5` | Rooms one player may own. |
@@ -69,16 +69,16 @@ Every finished war can be downloaded as a replay from `/api/rooms/<slug>/wars/<i
 
 ## Deploy
 
-Pushfront runs as one Fly.io machine (`fly.toml`: region `iad`, `shared-cpu-2x`, 512 MB plus 512 MB swap) with a volume mounted at `/data` for the SQLite database and the local mirrors.
+Code Clash runs as one Fly.io machine (`fly.toml`: region `iad`, `shared-cpu-2x`, 512 MB plus 512 MB swap) with a volume mounted at `/data` for the SQLite database and the local mirrors.
 
 ```sh
 fly launch --no-deploy --copy-config      # or: fly apps create <app>, then set `app` in fly.toml
-fly volumes create pushfront_data --region iad --size 3
+fly volumes create codeclash_data --region iad --size 3
 fly secrets set GITHUB_TOKEN=... GITHUB_CLIENT_ID=... GITHUB_CLIENT_SECRET=... SESSION_SECRET=$(openssl rand -hex 32)
 fly deploy
 ```
 
-If your app isn't named `pushfront`, change `app` and `PUBLIC_URL` in `fly.toml` (and the OAuth app's callback URL to `${PUBLIC_URL}/auth/github/callback`). At 512 MB the config runs one parse worker (`PARSE_WORKERS=1`) and caps the V8 heap at 320 MB; with many busy rooms, raise the machine to 1 GB and drop both.
+If your app isn't named `codeclash`, change `app` and `PUBLIC_URL` in `fly.toml` (and the OAuth app's callback URL to `${PUBLIC_URL}/auth/github/callback`). At 512 MB the config runs one parse worker (`PARSE_WORKERS=1`) and caps the V8 heap at 320 MB; with many busy rooms, raise the machine to 1 GB and drop both.
 
 On `SIGTERM` the server writes a snapshot of every war and closes the database. On boot, each war loads its latest snapshot, replays the logged inputs, and catches up to wall-clock time, so a restart loses no battle state.
 

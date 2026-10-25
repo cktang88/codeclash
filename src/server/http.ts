@@ -561,7 +561,7 @@ export async function buildHttp(deps: HttpDeps): Promise<FastifyInstance> {
       };
       // Sanity: every input decodes, so a corrupt row fails here rather than in a viewer's browser.
       for (const e of replay.inputs) decodeInput(e);
-      reply.header('content-disposition', `inline; filename="pushfront-${war.day}-${war.id}.json"`);
+      reply.header('content-disposition', `inline; filename="codeclash-${war.day}-${war.id}.json"`);
       return replay;
     } catch (err) {
       return failure(reply, err);

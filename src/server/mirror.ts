@@ -32,7 +32,7 @@ export const GIT_TIMEOUT_MS = 20_000;
 const HISTORY_COMMITS = 100;
 /** Output one git command may produce. */
 const OUTPUT_MAX = 64 * 1024 * 1024;
-const MARKER = 'pushfront-used';
+const MARKER = 'codeclash-used';
 
 const REPO = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/[A-Za-z0-9._-]{1,100}$/;
 const SHA = /^[0-9a-f]{40}$/;

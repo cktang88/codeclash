@@ -1,4 +1,4 @@
-app = "pushfront"
+app = "codeclash"
 primary_region = "iad"
 kill_signal = "SIGTERM"
 kill_timeout = "30s"
@@ -10,8 +10,8 @@ swap_size_mb = 512
 [env]
   NODE_ENV = "production"
   PORT = "8080"
-  DATABASE_PATH = "/data/pushfront.db"
-  PUBLIC_URL = "https://pushfront.fly.dev"
+  DATABASE_PATH = "/data/codeclash.db"
+  PUBLIC_URL = "https://codeclash.fly.dev"
   # One parse worker instead of two: each loads its own copy of the grammars.
   PARSE_WORKERS = "1"
   # Leave headroom under 512 MB for the worker, SQLite and native buffers.
@@ -20,7 +20,7 @@ swap_size_mb = 512
   MIRROR_DIR = "/data/mirrors"
 
 [[mounts]]
-  source = "pushfront_data"
+  source = "codeclash_data"
   destination = "/data"
 
 [http_service]

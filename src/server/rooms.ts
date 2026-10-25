@@ -80,7 +80,7 @@ export class Rooms {
 
   boot(now: number): void {
     if (!this.deps.store.user(SYSTEM_USER)) {
-      this.deps.store.upsertUser({ id: SYSTEM_USER, nodeId: 'system', login: 'pushfront', avatarUrl: '', createdAtGithub: 0, joinedAt: now, bot: true });
+      this.deps.store.upsertUser({ id: SYSTEM_USER, nodeId: 'system', login: 'codeclash', avatarUrl: '', createdAtGithub: 0, joinedAt: now, bot: true });
     }
     // One broken room must not keep the server from starting; reconcile retries it.
     for (const room of this.deps.store.rooms()) {

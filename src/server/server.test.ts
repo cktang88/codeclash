@@ -393,7 +393,7 @@ describe('configuration', () => {
   it('refuses a production server without its public URL', () => {
     const secret = 'x'.repeat(32);
     expect(() => loadConfig({ NODE_ENV: 'production', SESSION_SECRET: secret })).toThrow(/PUBLIC_URL/);
-    expect(loadConfig({ NODE_ENV: 'production', SESSION_SECRET: secret, PUBLIC_URL: 'https://pushfront.example/' }).publicUrl).toBe('https://pushfront.example');
+    expect(loadConfig({ NODE_ENV: 'production', SESSION_SECRET: secret, PUBLIC_URL: 'https://codeclash.example/' }).publicUrl).toBe('https://codeclash.example');
     expect(() => loadConfig({ PUBLIC_URL: 'not a url' })).toThrow();
   });
 

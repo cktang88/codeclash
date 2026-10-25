@@ -71,7 +71,7 @@ export function Root() {
   useEffect(loadMe, [loadMe]);
 
   useEffect(() => {
-    const titles: Record<string, string> = { home: 'Pushfront', demo: 'Demo war · Pushfront', lost: 'Lost · Pushfront', armory: 'Armory · Pushfront', hall: 'Hall of Legends · Pushfront', season: 'Season · Pushfront', preview: 'Army preview · Pushfront' };
+    const titles: Record<string, string> = { home: 'Code Clash', demo: 'Demo war · Code Clash', lost: 'Lost · Code Clash', armory: 'Armory · Code Clash', hall: 'Hall of Legends · Code Clash', season: 'Season · Code Clash', preview: 'Army preview · Code Clash' };
     // Every route sets a title, so one page's never lingers on the next; pages refine theirs once data arrives.
     const named: Partial<Record<string, string>> = {
       room: route.kind === 'room' ? route.slug : undefined,
@@ -80,7 +80,7 @@ export function Root() {
       history: 'Past wars',
       profile: route.kind === 'profile' ? `@${route.login}` : undefined,
     };
-    document.title = titles[route.kind] ?? (named[route.kind] ? `${named[route.kind]} · Pushfront` : 'Pushfront');
+    document.title = titles[route.kind] ?? (named[route.kind] ? `${named[route.kind]} · Code Clash` : 'Code Clash');
     window.scrollTo(0, 0);
   }, [href, route.kind]);
 

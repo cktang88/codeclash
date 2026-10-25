@@ -257,7 +257,7 @@ export function ReplayPage({ slug, warId, tick, invite = null, me }: { slug: str
       </div>
       <span className="dock-label">Speed</span>
       <SpeedPicker speeds={SPEEDS} value={speed} onChange={setSpeed} />
-      <button className="icon-btn" onClick={() => downloadJson(`pushfront-${slug}-war-${warId}.json`, replay)} aria-label="Download the replay file" title="Download replay JSON">
+      <button className="icon-btn" onClick={() => downloadJson(`codeclash-${slug}-war-${warId}.json`, replay)} aria-label="Download the replay file" title="Download replay JSON">
         <Icon name="download" size={18} />
       </button>
       {seeking && (

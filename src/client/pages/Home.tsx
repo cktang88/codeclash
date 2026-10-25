@@ -352,7 +352,7 @@ export function HomePage({ me, meError, onMeChanged }: { me: MeResponse | null; 
       <header className="home-nav">
         <span className="brand">
           <BrandMark />
-          <span className="brand-name">Pushfront</span>
+          <span className="brand-name">Code Clash</span>
         </span>
         <nav className="home-nav-actions">
           <SoundSeal />
@@ -506,7 +506,7 @@ export function HomePage({ me, meError, onMeChanged }: { me: MeResponse | null; 
       )}
 
       <footer className="home-foot muted small">
-        Pushfront reads only public activity. It rewards real code, not padding: twice the real work raises twice the army up to a daily cap, filler and copies count for nothing, and one squashed push or twenty small ones raise the same army.
+        Code Clash reads only public activity. It rewards real code, not padding: twice the real work raises twice the army up to a daily cap, filler and copies count for nothing, and one squashed push or twenty small ones raise the same army.
       </footer>
 
       {modal === 'create' && <CreateRoomModal onClose={() => setModal(null)} />}

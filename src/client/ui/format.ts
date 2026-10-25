@@ -98,7 +98,7 @@ export function parseInvite(text: string): { slug: string; invite: string | null
   if (!trimmed) return null;
   let url: URL;
   try {
-    url = new URL(trimmed, 'https://pushfront.invalid');
+    url = new URL(trimmed, 'https://codeclash.invalid');
   } catch {
     return null;
   }

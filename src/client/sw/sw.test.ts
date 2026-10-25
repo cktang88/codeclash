@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { mustReload } from '../../version.ts';
 import { SHELL_KEY, immutable, staleWhileRevalidate, strategyFor, type CacheLike } from './policy.ts';
 
-const ORIGIN = 'https://pushfront.example';
+const ORIGIN = 'https://codeclash.example';
 const at = (path: string, method = 'GET', mode = 'cors') => strategyFor(new URL(path, ORIGIN), method, mode, ORIGIN);
 
 class FakeCache implements CacheLike {

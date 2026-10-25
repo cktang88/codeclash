@@ -32,7 +32,7 @@ describe('format', () => {
   });
 
   it('parses invite links in several shapes', () => {
-    expect(parseInvite('https://pushfront.fly.dev/r/night-owls-x7?invite=abc123')).toEqual({ slug: 'night-owls-x7', invite: 'abc123' });
+    expect(parseInvite('https://codeclash.fly.dev/r/night-owls-x7?invite=abc123')).toEqual({ slug: 'night-owls-x7', invite: 'abc123' });
     expect(parseInvite('/r/team-room')).toEqual({ slug: 'team-room', invite: null });
     expect(parseInvite('team-room')).toEqual({ slug: 'team-room', invite: null });
     expect(parseInvite('not a link at all!')).toBeNull();

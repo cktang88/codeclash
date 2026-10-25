@@ -443,16 +443,15 @@ export function Tally({
 
 /* ------------------------------------------------------------------ marks */
 
-/** Pushfront's arms: a vermilion shield charged with a gilded P and a sword. */
+/** Code Clash's arms: a vermilion shield charged with a gilded C and a sword. */
 export function BrandMark({ className }: { className?: string }) {
   return (
     <svg className={`brand-mark${className ? ` ${className}` : ''}`} viewBox="0 0 36 40" aria-hidden>
       <path d="M18 1.5c6.5 0 15 2 15 2v14c0 9.5-6.6 16-15 20.5C9.6 33.5 3 27 3 17.5v-14s8.5-2 15-2Z" fill="#b8321f" stroke="#22180f" strokeWidth="1.6" />
       <path d="M18 4.2c5 0 11.8 1.5 11.8 1.5v11.8c0 7.8-5.2 13.3-11.8 17.2-6.6-3.9-11.8-9.4-11.8-17.2V5.7S13 4.2 18 4.2Z" fill="none" stroke="#d4a93e" strokeWidth="1" />
-      <path d="M22 6v24M19.5 9.5h5" stroke="#efe4c8" strokeWidth="1.4" strokeLinecap="round" opacity=".75" />
-      <path d="M12.5 29V10.5h6.2a5.2 5.2 0 0 1 0 10.4h-6.2" fill="none" stroke="#f6dc8c" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M12.5 29V10.5h6.2a5.2 5.2 0 0 1 0 10.4h-6.2" fill="none" stroke="#8a6418" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" opacity=".6" transform="translate(.6 .6)" />
-      <path d="M26 12c1.6 2.6 1.6 7-1 9.6" fill="none" stroke="#22180f" strokeWidth="1" opacity=".45" />
+      <path d="M25 6v24M22.5 9.5h5" stroke="#efe4c8" strokeWidth="1.4" strokeLinecap="round" opacity=".75" />
+      <path d="M19.6 14.4a6.6 6.6 0 1 0 0 10.2" fill="none" stroke="#f6dc8c" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M19.6 14.4a6.6 6.6 0 1 0 0 10.2" fill="none" stroke="#8a6418" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" opacity=".6" transform="translate(.6 .6)" />
     </svg>
   );
 }

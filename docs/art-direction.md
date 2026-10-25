@@ -1,6 +1,6 @@
-# Pushfront art direction: *The Illuminated War*
+# Code Clash art direction: *The Illuminated War*
 
-Every pixel in Pushfront belongs to one world: a medieval war chronicle being written and illuminated as the battle happens. The battlefield is a living painted map on vellum: a ring of capitals around a great lake or a mountain massif. The interface is the codex that records it, with ink, pigment, gold leaf and wax. Code is the magic of this world, and a commit message is a herald's proclamation.
+Every pixel in Code Clash belongs to one world: a medieval war chronicle being written and illuminated as the battle happens. The battlefield is a living painted map on vellum: a ring of capitals around a great lake or a mountain massif. The interface is the codex that records it, with ink, pigment, gold leaf and wax. Code is the magic of this world, and a commit message is a herald's proclamation.
 
 If an element would look at home in a SaaS dashboard, it is wrong. If it would look at home in a lavish illuminated manuscript that has come alive, it is right.
 

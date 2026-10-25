@@ -84,7 +84,7 @@ export class WaterGlints {
       indices: new Uint32Array([0, 1, 2, 0, 2, 3]),
     });
     this.shader = Shader.from({
-      gl: { vertex, fragment, name: 'pushfront-water' },
+      gl: { vertex, fragment, name: 'codeclash-water' },
       resources: {
         uMask: mask.source,
         waterUniforms: {

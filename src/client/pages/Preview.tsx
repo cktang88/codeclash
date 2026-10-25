@@ -222,7 +222,7 @@ export function PreviewPage({ owner, repo, branch, me }: { owner: string | null;
         setData(d);
         setNow(Date.now());
         setLoading(false);
-        document.title = `${d.repo} · Army preview · Pushfront`;
+        document.title = `${d.repo} · Army preview · Code Clash`;
       },
       (err: unknown) => {
         if (cancelled) return;

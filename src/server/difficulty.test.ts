@@ -242,7 +242,7 @@ describe('the local mirror', () => {
     const mirror = mirrorOf();
     await mirror.facts('olga/core', origin.head, ['src/core.ts'], 50);
     expect(mirror.prune(FIXTURE_NOW + 13 * 86_400_000)).toEqual([]);
-    const marker = join(mirror.pathOf('olga/core'), 'pushfront-used');
+    const marker = join(mirror.pathOf('olga/core'), 'codeclash-used');
     const old = new Date(FIXTURE_NOW - 15 * 86_400_000);
     utimesSync(marker, old, old);
     expect(mirror.prune(FIXTURE_NOW)).toEqual(['olga__core.git']);

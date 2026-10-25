@@ -65,7 +65,7 @@ export function RoomPage({ slug, invite, me, onMeChanged }: { slug: string; invi
 
   const roomName = room?.name ?? hud.room?.name ?? null;
   useEffect(() => {
-    if (roomName) document.title = `${roomName} · Pushfront`;
+    if (roomName) document.title = `${roomName} · Code Clash`;
   }, [roomName]);
 
   const getRunner = useCallback(() => runner.current, []);

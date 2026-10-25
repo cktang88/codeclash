@@ -200,9 +200,9 @@ export function RoomHud({ hud, title, subtitle, banner, dock, room, onRoomChange
   return (
     <div className={`hud${narrow ? ' is-narrow' : ''}`} ref={root}>
       <header className="topbar night-band">
-        <Link to={{ kind: 'home' }} className="brand" aria-label="Pushfront home">
+        <Link to={{ kind: 'home' }} className="brand" aria-label="Code Clash home">
           <BrandMark />
-          {!narrow && <span className="brand-name">Pushfront</span>}
+          {!narrow && <span className="brand-name">Code Clash</span>}
         </Link>
         <div className="topbar-title">
           <h1 className="room-name truncate">
