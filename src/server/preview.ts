@@ -3,15 +3,15 @@
 // fresh ledger, then mustered with `armyFor` and `armyQuality`. Nothing here touches a player's
 // ledger, the database or a war; it only reads public GitHub data with the server's own token.
 
-import type { PreviewArmy, PreviewCombined, PreviewCommit, PreviewDifficulty, PreviewLines, PreviewResponse } from '../protocol.ts';
+import type { PreviewArmy, PreviewCombined, PreviewCommit, PreviewDifficulty, PreviewLines, PreviewNearMiss, PreviewResponse, PreviewSource, PreviewUncounted, PreviewUnit, PreviewWhy } from '../protocol.ts';
 import type { ChangedFile } from '../rules/classify.ts';
 import { loadGrammars } from '../rules/complexity.ts';
-import { DAILY_BONUS_CAP, GATE_CAP, pusherOf, type DifficultyNote, type PushContext } from '../rules/difficulty.ts';
+import { DAILY_BONUS_CAP, EFFORT_REPEAT_LINES, FILE_CAP, FILE_CREDIT, GATE_CAP, MEANINGFUL_LINES, pusherOf, type DifficultyNote, type PushContext } from '../rules/difficulty.ts';
 import type { DifficultyContext } from './difficulty.ts';
 import { DAILY_CODE_CAP, measurePush, MemoryLedger, SHAPE_CAP, type LedgerStore, type PushDelta, type Uncounted, type UncountedKind } from '../rules/ledger.ts';
 import { validRef, validRepo } from '../rules/repoRef.ts';
 import { CAT_NAMES, Cat, Kind, PURPOSES, type Ledger, type Purpose } from '../sim/api.ts';
-import { applyDelta, armyFor, armyQuality, BONUS_PER_CODE, BUDGET_PER_10K, budgetOf, cleanLines, CODE_KNEE, complexityOf, credited, DRAGON_COMPLEXITY, effectiveLedger, emptyLedger, fixWork, int, LINK_SHARE, purposeOf, slotsOf } from '../sim/muster.ts';
+import { applyDelta, armyFor, armyQuality, BONUS_PER_CODE, BUDGET_PER_10K, budgetOf, cleanLines, CODE_CAP, CODE_KNEE, complexityOf, credited, DRAGON_COMPLEXITY, effectiveLedger, emptyLedger, fixWork, int, LINK_SHARE, PAY_ORDER, purposeOf, slotsOf, VETERAN_CODE, VETERAN_FILES } from '../sim/muster.ts';
 import { STATS } from '../sim/stats.ts';
 import { GithubError, MAX_FILES, type CommitMeta, type GithubClient } from './github.ts';
 
@@ -256,6 +256,7 @@ export function difficultyOf(n: DifficultyNote): PreviewDifficulty {
     gate: c && !c.gate.passed && c.rawMilli > c.mMilli ? c.gate.reason : null,
     source: c?.source ?? 'graphql',
     ...(n.pending ? { pending: true } : {}),
+    ...(n.repeat ? { repeat: true } : {}),
   };
 }
 
@@ -373,12 +374,313 @@ export function explain(ledger: Ledger, army: PreviewArmy, purpose: Purpose | nu
   if (army.budget === 0) {
     const messenger = army.slots === 1 && c[Kind.Footman] === 1;
     const unreadOnly = extra.filesChanged === 0 || (L.every((n, i) => i === Cat.Blank || n === 0) && ledger.filler === 0 && uncounted.length === 0);
-    if (messenger) out.push(unreadOnly ? 'Nothing to count (binary, data or other unread files): a lone messenger marches' : 'No code: a lone messenger marches, as every first push sends one');
+    if (messenger) out.push(unreadOnly ? 'Nothing to count (binary, data or other unread files): a lone messenger marches' : L[Cat.Code]! > 0 ? 'Too little code for a soldier: a lone messenger marches, as every first push sends one' : 'No code: a lone messenger marches, as every first push sends one');
     else out.push('No code: only support marches');
   }
   if (extra.estimated > 0) out.push(`GitHub omitted the diff of ${plural(extra.estimated, 'file')}; their additions count as code, estimated`);
   if (extra.truncated) out.push(`Only the first ${MAX_FILES} files are read, as ingestion reads them`);
   return out;
+}
+
+// ------------------------------------------------------------------ the figures
+
+/** What `whyOf` needs beside the ledger and the army. */
+export interface WhyExtra {
+  /** The difficulty notes behind the bonus (a fork's pending ones included). */
+  notes?: readonly DifficultyNote[];
+  /** The contexts read for the work: none of their files' removed lines were someone else's. */
+  ownOnly?: boolean;
+  uncounted?: readonly Uncounted[];
+  modules?: number;
+  filesChanged: number;
+  estimated: number;
+  truncated: boolean;
+  unread?: boolean;
+}
+
+/** Whether contexts were read for some file and none of the removed lines they saw were someone else's. */
+export function ownOnly(contexts: readonly (PushContext | null | undefined)[]): boolean {
+  const files = contexts.flatMap((c) => Object.values(c?.files ?? {}));
+  return files.length > 0 && files.every((f) => f.others.length === 0);
+}
+
+/** Lines of credit from a sum in thousandths, after a day's cap of `cap` lines. */
+const capLines = (milli: number, cap: number) => Math.floor(Math.max(0, Math.min(milli, cap * 1000)) / 1000);
+const sumOf = <T>(xs: readonly T[], f: (x: T) => number) => xs.reduce((n, x) => n + f(x), 0);
+const tenths = (milli: number) => Math.round(milli / 100) / 10;
+
+/** The few words a kind of soldier is raised for, on the page. */
+const UNIT_REASON: Partial<Record<number, string>> = {
+  [Kind.Champion]: 'big feature',
+  [Kind.Troll]: 'very complex code',
+  [Kind.Knight]: 'complex logic',
+  [Kind.Ballista]: 'bug fixes',
+  [Kind.Paladin]: 'bug fixes',
+  [Kind.Ranger]: 'bug fixes',
+  [Kind.Cleric]: 'bug fixes',
+  [Kind.Wizard]: 'performance work',
+  [Kind.GriffinRider]: 'big refactor',
+  [Kind.Outrider]: 'refactoring',
+  [Kind.Skeleton]: 'reverts',
+  [Kind.BoneGolem]: 'big revert',
+  [Kind.Mercenary]: 'chores',
+  [Kind.Trebuchet]: 'sweeping change',
+  [Kind.Footman]: 'the rest',
+  [Kind.Berserker]: 'untested code',
+};
+
+/** Specialists in the order they are paid, then the line. */
+const SPEND_ORDER: readonly number[] = [...PAY_ORDER, Kind.Footman, Kind.Berserker];
+
+/** The least work each support kind needs for its first pair: Wardens and Archers √n ÷ 5 ≥ 1, Heralds 120 lines, Sappers 80. */
+const SUPPORT_NEED: readonly [Kind, Cat, number, string, string][] = [
+  [Kind.Warden, Cat.Test, 25, 'test lines', 'test line'],
+  [Kind.Archer, Cat.Comment, 25, 'comments', 'comment'],
+  [Kind.Herald, Cat.Docs, 120, 'docs lines', 'docs line'],
+  [Kind.Sapper, Cat.Config, 80, 'config lines', 'config line'],
+];
+
+/**
+ * Why a ledger raised the army it did, as figures: the size and where it came from (each source's
+ * share, whole numbers that add up to the size), what it was spent on, the power and the rank,
+ * and what did not count. The page draws these; `explain` tells the same in sentences.
+ */
+export function whyOf(ledger: Ledger, army: PreviewArmy, purpose: Purpose | null, extra: WhyExtra): PreviewWhy {
+  const L = ledger.lines;
+  const c = army.counts;
+  const eff = effectiveLedger(ledger);
+  const cx = complexityOf(ledger, eff.code);
+  const support = supportOf(c);
+  const notes = extra.notes ?? [];
+  const live = notes.filter((n) => !n.pending);
+  const waiting = notes.filter((n) => n.pending);
+  const w = BUDGET_PER_10K;
+
+  // The bonus in its two parts, as the ledger credited them (each held to its day's cap).
+  const bonus = Math.max(0, ledger.bonus || 0);
+  const lineMilli = sumOf(live, (n) => n.extraMilli);
+  const effortMilli = sumOf(live, (n) => n.creditMilli ?? 0);
+  let lineCredit = capLines(lineMilli, DAILY_BONUS_CAP);
+  let effortCredit = capLines(effortMilli, FILE_CAP * FILE_CREDIT);
+  if (live.length === 0) [lineCredit, effortCredit] = [bonus, 0];
+  else if (lineCredit + effortCredit !== bonus) [lineCredit, effortCredit] = [Math.min(lineCredit, bonus), Math.max(0, bonus - Math.min(lineCredit, bonus))];
+  // What counts of it (the knee, the cap and BONUS_PER_CODE), shared between the parts.
+  const lineEff = bonus > 0 ? (eff.bonus * lineCredit) / bonus : 0;
+  const effortEff = eff.bonus - lineEff;
+  const raw = [w.code * eff.code, w.files * eff.files, w.complexity * eff.complexity, w.removed * eff.removed, w.code * lineEff, w.code * effortEff].map((v) => v / 10_000);
+  const [sCode, sFiles, sCx, sRemoved, sOthers, sEffort] = (army.budget > 0 ? apportion(raw, army.budget) : raw.map(() => 0)) as [number, number, number, number, number, number];
+
+  const sources: PreviewSource[] = [];
+  const capped = (extra.uncounted ?? []).find((u) => u.kind === 'cap')?.lines ?? 0;
+  if (L[Cat.Code]! > 0 || army.budget > 0) {
+    const chips: string[] = [];
+    if (army.budget === 0 && L[Cat.Code]! > 0) chips.push(`too few: about ${Math.ceil(10_000 / w.code)} lines a soldier`);
+    if (L[Cat.Code]! > CODE_KNEE) chips.push(`past the ${fmt(CODE_KNEE)}-line knee: half value`);
+    if (capped > 0) chips.push('daily cap reached');
+    sources.push({
+      key: 'code',
+      amount: L[Cat.Code]!,
+      size: sCode,
+      chips,
+      detail: [
+        `${plural(L[Cat.Code]!, 'line')} of code${eff.code !== L[Cat.Code] ? `, counted as ${fmt(eff.code)}` : ''}${capped > 0 ? `; ${plural(capped, 'more line')} past the daily cap of ${fmt(CODE_CAP)}` : ''}`,
+        `Code counts in full up to ${fmt(CODE_KNEE)} lines a day and at half value beyond; about ${Math.ceil(10_000 / w.code)} lines raise one place in the ranks`,
+      ],
+    });
+  }
+  if (ledger.files > 0) {
+    const held = eff.files < ledger.files;
+    sources.push({
+      key: 'files',
+      amount: ledger.files,
+      size: sFiles,
+      chips: held ? [`held to ${fmt(eff.files)}: one per 20 code lines`] : [],
+      detail: [`${plural(ledger.files, 'source file')} carrying counted code${held ? `, held to ${fmt(eff.files)}: one file per 20 lines of code (and per 100 removed), so a line in each of many files is not a sweeping change` : ''}`],
+    });
+  }
+  const rawCx = ledger.branches + ledger.functions + ledger.links / 2;
+  if (rawCx > 0) {
+    const chips: string[] = [];
+    if (cx.links < ledger.links) chips.push(`imported names: at most ${Math.round(LINK_SHARE * 100)}%`);
+    if (cx.half < 2 * cx.branches + 2 * cx.functions + cx.links) chips.push('held to 1 point per 2 code lines');
+    sources.push({
+      key: 'complexity',
+      amount: eff.complexity,
+      size: sCx,
+      parts: { branches: ledger.branches, functions: ledger.functions, links: ledger.links, modules: extra.modules ?? 0 },
+      chips,
+      detail: [complexityText(ledger, extra.modules) ?? `Complexity ${pts(eff.complexity)}`],
+    });
+  }
+  if (L[Cat.Removed]! > 0) {
+    sources.push({
+      key: 'removed',
+      amount: L[Cat.Removed]!,
+      size: sRemoved,
+      chips: L[Cat.Removed]! > CODE_KNEE ? [`counts up to ${fmt(CODE_KNEE)}`] : [],
+      detail: [`${plural(L[Cat.Removed]!, 'removed line')} of cleanup: deleting counts a little, up to ${fmt(CODE_KNEE)} lines a day`],
+    });
+  }
+
+  // The bonus's own holds: the knee it shares with the code, and BONUS_PER_CODE.
+  const bonusHeld: string[] = [];
+  if (bonus > 0 && eff.bonus < bonus) bonusHeld.push(bonus > BONUS_PER_CODE * L[Cat.Code]! ? `held to ${BONUS_PER_CODE}× the code` : `past the ${fmt(CODE_KNEE)}-line knee: half value`);
+  const fileRow = (n: DifficultyNote, milli: number) => ({ path: n.path, modified: n.modified, multiplier: n.mMilli / 1000, credit: tenths(milli) });
+
+  // Others' code: the line bonus for modifying others' established code.
+  {
+    const modified = sumOf(live, (n) => n.modified);
+    const chips: string[] = [];
+    // A fork's whole bonus is in the pending row.
+    if (notes.length === 0) {
+      if (extra.ownOnly) chips.push('your own code');
+      else if (L[Cat.Code]! > 0 && L[Cat.Removed]! === 0) chips.push('only new lines: never multiplied');
+    } else if (live.length > 0 && modified === 0) chips.push('removed, not rewritten');
+    const gated = notes.find((n) => n.context && !n.context.gate.passed && n.context.rawMilli > n.mMilli);
+    if (gated) chips.push(`repo gate ×${GATE_CAP}: ${gated.context!.gate.reason}`);
+    if (lineMilli > DAILY_BONUS_CAP * 1000) chips.push('daily cap reached');
+    if (lineCredit > 0) chips.push(...bonusHeld);
+    const files = live.filter((n) => n.modified > 0).sort((a, b) => b.extraMilli - a.extraMilli || (a.path < b.path ? -1 : 1));
+    if (modified > 0 || chips.length > 0) {
+      sources.push({
+        key: 'others',
+        amount: modified,
+        credit: lineCredit,
+        size: sOthers,
+        files: files.map((n) => fileRow(n, n.extraMilli)),
+        chips,
+        detail: files.length > 0 ? files.map((n) => difficultyText(difficultyOf(n))) : ['Lines of other people’s established code that a commit replaces earn extra credit, up to ×3.2 in a big, old, much-worked file; new lines and your own never do'],
+      });
+    }
+  }
+
+  // The effort credit: a fixed credit for each hard file meaningfully modified.
+  {
+    const hard = live.filter((n) => (n.creditMilli ?? 0) > 0).sort((a, b) => (b.creditMilli ?? 0) - (a.creditMilli ?? 0) || (a.path < b.path ? -1 : 1));
+    const chips: string[] = [];
+    const few = live.filter((n) => n.modified > 0 && n.modified < MEANINGFUL_LINES && !n.repeat && !((n.creditMilli ?? 0) > 0) && n.mMilli > 1000).sort((a, b) => b.modified - a.modified);
+    if (few.length > 0) chips.push(hard.length === 0 ? `only ${plural(few[0]!.modified, 'line')} changed (needs ${MEANINGFUL_LINES})` : `${plural(few.length, 'more file')} under ${MEANINGFUL_LINES} lines`);
+    if (live.some((n) => n.repeat)) chips.push(`credited recently — needs ${EFFORT_REPEAT_LINES}+ lines`);
+    if (effortMilli > FILE_CAP * FILE_CREDIT * 1000) chips.push('daily cap reached');
+    if (effortCredit > 0) chips.push(...bonusHeld);
+    if (hard.length > 0 || chips.length > 0) {
+      const text = effortText(hard.map(difficultyOf));
+      sources.push({
+        key: 'effort',
+        amount: hard.length,
+        credit: effortCredit,
+        size: sEffort,
+        files: hard.map((n) => fileRow(n, n.creditMilli ?? 0)),
+        chips,
+        detail: [
+          ...(text ? [text] : []),
+          `Each established file of others’ code modified by ${MEANINGFUL_LINES}+ lines earns up to ${FILE_CREDIT} lines of credit, by how hard it is; a file credited in the last 3 days needs ${EFFORT_REPEAT_LINES}+ lines`,
+        ],
+      });
+    }
+  }
+
+  // A fork's credit, waiting for the upstream: what it would add once merged, outside the total.
+  {
+    const pLine = capLines(lineMilli + sumOf(waiting, (n) => n.extraMilli), DAILY_BONUS_CAP) - capLines(lineMilli, DAILY_BONUS_CAP);
+    const pEffort = capLines(effortMilli + sumOf(waiting, (n) => n.creditMilli ?? 0), FILE_CAP * FILE_CREDIT) - capLines(effortMilli, FILE_CAP * FILE_CREDIT);
+    const pend = pLine + pEffort;
+    if (pend > 0) {
+      const files = waiting.filter((n) => n.extraMilli + (n.creditMilli ?? 0) > 0).sort((a, b) => b.extraMilli + (b.creditMilli ?? 0) - a.extraMilli - (a.creditMilli ?? 0) || (a.path < b.path ? -1 : 1));
+      const text = effortText(waiting.map(difficultyOf));
+      sources.push({
+        key: 'pending',
+        amount: pend,
+        credit: pend,
+        size: Math.max(0, budgetOf({ ...ledger, bonus: bonus + pend }) - army.budget),
+        files: files.map((n) => fileRow(n, n.extraMilli + (n.creditMilli ?? 0))),
+        chips: [],
+        detail: [...files.map((n) => difficultyText(difficultyOf(n))), ...(text ? [text] : []), 'A fork’s credit for others’ code pays once the commit reaches the upstream’s default branch (within 14 days)'],
+        pending: true,
+      });
+    }
+  }
+
+  // How the size was spent.
+  const fix = fixWork(ledger);
+  const pc = (p: Purpose) => ledger.purposeCode[PURPOSES.indexOf(p)]!;
+  const pr = (p: Purpose) => ledger.purposeRemoved[PURPOSES.indexOf(p)]!;
+  const feature = pc('feature') + pc('work');
+  const messengerOnly = army.budget === 0 && c[Kind.Footman] === 1;
+  const unitDetail = (k: number): string => {
+    const why = STATS[k]!.source;
+    if (k === Kind.Ballista || k === Kind.Paladin || k === Kind.Ranger || k === Kind.Cleric) {
+      const code = pc('fix');
+      return `${fmt(fix)} lines of fix work${fix > code ? ` (${fmt(code)} of fix code, ${fmt(fix - code)} of its difficulty bonus)` : ''}. ${why}`;
+    }
+    if (k === Kind.Knight || k === Kind.Troll) return `Complexity ${pts(eff.complexity)}. ${why}`;
+    if (k === Kind.Dragon || k === Kind.Champion) return `${plural(feature, 'line')} of feature work, ${plural(eff.files, 'file')}, complexity ${pts(eff.complexity)}. ${why}`;
+    if (k === Kind.Trebuchet) return `${plural(eff.files, 'file')}. ${why}`;
+    if (k === Kind.Footman) return messengerOnly ? 'Every first push of the day sends at least a messenger' : `What the specialists left of the size: they take at most 65% of it. ${why}`;
+    return why;
+  };
+  const units: PreviewUnit[] = SPEND_ORDER.filter((k) => c[k]! > 0).map((k) => ({
+    kind: k,
+    count: c[k]!,
+    reason: k === Kind.Dragon ? (purpose === 'work' ? 'legendary work' : 'legendary feature') : k === Kind.Footman && messengerOnly ? 'lone messenger' : UNIT_REASON[k]!,
+    detail: unitDetail(k),
+  }));
+  const supportUnits: PreviewUnit[] = SUPPORT_NEED.filter(([k]) => c[k]! > 0).map(([k, cat, , many, one]) => ({ kind: k, count: c[k]!, reason: `${fmt(L[cat]!)} ${L[cat] === 1 ? one : many}`, detail: STATS[k]!.source }));
+
+  // What the work came close to.
+  const nearMisses: PreviewNearMiss[] = [];
+  for (const [k, cat, need, unit] of SUPPORT_NEED) if (L[cat]! > 0 && c[k] === 0) nearMisses.push({ kind: k, have: L[cat]!, need, unit });
+  if (army.budget > 0) {
+    const none = (...ks: number[]) => ks.every((k) => c[k] === 0);
+    const miss = (kind: number, have: number, need: number, unit: string) => nearMisses.push({ kind, have: Math.floor(have), need, unit, ...(have >= need ? { crowded: true } : {}) });
+    if (fix > 0 && none(Kind.Cleric, Kind.Ballista, Kind.Paladin, Kind.Ranger)) miss(Kind.Cleric, fix, 21, 'fix lines');
+    else if (fix >= 125 && c[Kind.Ballista] === 0) miss(Kind.Ballista, fix, 250, 'fix lines');
+    if (pc('feature') > 0 && none(Kind.Champion, Kind.Dragon)) {
+      if (pc('feature') < 400) miss(Kind.Champion, pc('feature'), 400, 'feature lines');
+      else miss(Kind.Champion, eff.files, 5, 'files');
+    }
+    if (feature >= 450 && c[Kind.Dragon] === 0) {
+      const gaps: [number, number, string][] = [[feature, 900, 'feature lines'], [eff.files, 10, 'files'], [eff.complexity, DRAGON_COMPLEXITY[0], 'complexity']];
+      const gap = gaps.find(([have, need]) => have < need) ?? gaps[0]!;
+      miss(Kind.Dragon, gap[0], gap[1], gap[2]);
+    }
+    const refactor = pr('refactor') + pc('refactor') / 2;
+    if (refactor > 0 && none(Kind.Outrider, Kind.GriffinRider)) miss(Kind.Outrider, refactor, 3, 'refactor lines');
+    if (pc('perf') > 0 && c[Kind.Wizard] === 0) miss(Kind.Wizard, pc('perf'), 9, 'perf lines');
+    if (pc('revert') + pr('revert') > 0 && none(Kind.Skeleton, Kind.BoneGolem)) miss(Kind.Skeleton, pc('revert') + pr('revert'), 1, 'reverted lines');
+    if (pc('chore') > 0 && c[Kind.Mercenary] === 0) miss(Kind.Mercenary, pc('chore'), 4, 'chore lines');
+  }
+
+  // Rank: code counted with the bonus, and real files.
+  const max = VETERAN_CODE.length;
+  const rank = army.veterancy;
+  const t = Math.min(rank, max - 1);
+
+  // What did not count.
+  const kinds: PreviewUncounted[] = (extra.uncounted ?? []).map((u) => ({ kind: u.kind, lines: u.lines, text: uncountedText(u) }));
+  if (L[Cat.Generated]! > 0) kinds.push({ kind: 'generated', lines: L[Cat.Generated]!, text: `${plural(L[Cat.Generated]!, 'generated line')} (lockfiles, builds, snapshots)` });
+  if (L[Cat.Vendor]! > 0) kinds.push({ kind: 'vendor', lines: L[Cat.Vendor]!, text: `${plural(L[Cat.Vendor]!, 'vendored line')} (other people’s code copied in)` });
+  kinds.sort((a, b) => b.lines - a.lines || (a.kind < b.kind ? -1 : 1));
+  const penalty = army.notes.find((n) => n.kind === 'filler')?.effect ?? 0;
+
+  const unreadOnly = extra.filesChanged === 0 || (L.every((n, i) => i === Cat.Blank || n === 0) && ledger.filler === 0 && kinds.length === 0);
+  const extras: string[] = [];
+  if (extra.estimated > 0) extras.push(`GitHub omitted the diff of ${plural(extra.estimated, 'file')}; their additions count as code, estimated`);
+  if (extra.truncated) extras.push(`Only the first ${MAX_FILES} files are read, as ingestion reads them`);
+  return {
+    size: army.budget > 0 ? army.budget : army.slots - support,
+    support,
+    power: army.power,
+    parts: army.notes.map((n) => ({ kind: n.kind, effect: n.effect, detail: n.text })),
+    sources,
+    units,
+    supportUnits,
+    nearMisses,
+    rank: { rank, max, code: eff.code + eff.bonus, files: eff.files, target: { rank: t + 1, code: VETERAN_CODE[t]!, files: VETERAN_FILES[t]! } },
+    uncounted: { lines: sumOf(kinds, (k) => k.lines), kinds, filler: ledger.filler, penalty },
+    ...(army.budget === 0 ? { messenger: extra.unread || unreadOnly ? ('nothing-read' as const) : L[Cat.Code]! > 0 ? ('too-few' as const) : ('no-code' as const) } : {}),
+    notes: extras,
+  };
 }
 
 // ------------------------------------------------------------------ the service
@@ -493,6 +795,7 @@ export class Preview {
         ...(ledger.bonus ? { bonus: ledger.bonus } : {}),
         ...(difficulty.length > 0 ? { difficulty } : {}),
         army,
+        why: whyOf(ledger, army, purpose, { filesChanged: files?.length ?? 0, ...shape, unread: files === null, uncounted: delta.uncounted, modules: delta.modules, notes: delta.difficulty, ownOnly: ownOnly([contexts[i]]) }),
         reasons: explain(ledger, army, purpose, { filesChanged: files?.length ?? 0, ...shape, unread: files === null, uncounted: delta.uncounted, modules: delta.modules, difficulty, repo: name }),
         ...(files === null ? { unread: true } : {}),
         ...(shape.truncated ? { truncated: true } : {}),
@@ -606,9 +909,10 @@ export function combine(chosen: readonly CommitMeta[], diffs: readonly (ChangedF
   }
   const army = armyOf(ledger, Math.max(1, pushes));
   const separateSlots = commits.reduce((n, c) => n + c.army.slots, 0);
+  const merged = mergeUncounted(uncounted);
   const reasons = [
     `${plural(pushes, 'commit')} pushed on one day, oldest first`,
-    ...explain(ledger, army, null, { filesChanged, estimated, truncated: false, uncounted: mergeUncounted(uncounted), modules, difficulty: [...notes.values()].map(difficultyOf) }),
+    ...explain(ledger, army, null, { filesChanged, estimated, truncated: false, uncounted: merged, modules, difficulty: [...notes.values()].map(difficultyOf) }),
     `One by one, each on a fresh day, their armies would add up to a size of ${fmt(separateSlots)}; together, ${fmt(army.slots)}`,
   ];
   return {
@@ -620,6 +924,7 @@ export function combine(chosen: readonly CommitMeta[], diffs: readonly (ChangedF
     army,
     separateSlots,
     ...(ledger.bonus ? { bonus: ledger.bonus } : {}),
+    why: whyOf(ledger, army, null, { filesChanged, estimated, truncated: false, uncounted: merged, modules, notes: [...notes.values()], ownOnly: ownOnly(contexts) }),
     reasons,
   };
 }

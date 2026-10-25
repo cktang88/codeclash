@@ -1,13 +1,17 @@
 // A public repository's recent history for the army preview, with diffs that read like real
 // work: a bug fix, a test-only commit, comment padding, a lockfile bump, docs, a refactor that
 // deletes code, a merge, a legendary feature, performance work, an untested feature and a
-// binary-only commit. Every code line is distinct in name and shape, so the ledger's filters
+// binary-only commit. Beside it (`previewFixture`): repositories for the difficulty bonus (a
+// greenfield commit, a maintainer's fixes to others' code in vite with effort credit, the same fix
+// in a fork pending upstream merge and in a small repository the gate holds) and one whose commit
+// is mostly filler (a ragged army). Every code line is distinct in name and shape, so the ledger's filters
 // (duplicates, shapes, filler) leave it whole, as they would leave honest code.
 
 import type { ChangedFile } from '../../rules/classify.ts';
 import { mulberry } from '../../rules/bots.ts';
 import type { CommitMeta } from '../github.ts';
-import { FakeGithub } from './fakeGithub.ts';
+import { FORK_REPO, FRESH_BASE, FRESH_HEAD, FRESH_REPO, GATED_REPO, installGreenfield, installViteFork, installViteGated, MAINTAINER, VITE_BASE, VITE_DAY_HEAD, VITE_HEAD, VITE_REPO, viteFiles } from './difficultyFixtures.ts';
+import { commitMeta, FakeGithub } from './fakeGithub.ts';
 
 const WORDS = [
   'ledger', 'tally', 'muster', 'banner', 'siege', 'planner', 'route', 'scout', 'herald', 'camp', 'supply', 'wagon', 'gate', 'wall', 'tower', 'keep', 'front',
@@ -160,5 +164,46 @@ export function previewFixture(now = Date.now()): FakeGithub {
   github.addRepo(FIXTURE_REPO, history.slice(6), { branch: 'release/1.x' });
   github.addRepo('ironquill/war-chest', [], { private: true });
   github.addRepo('ironquill/blank-slate', [], { branch: 'main' });
+  installHardEdits(github, now);
+  installPadded(github, now);
   return github;
+}
+
+export const PADDED_REPO = 'ironquill/sprite-sheet';
+
+/** A commit that is mostly filler: one style rule copied for 312 icons, past the shape cap. Ragged, and its filler penalised. */
+export function paddedFiles(): ChangedFile[] {
+  const icons = Array.from({ length: 312 }, (_, i) => `.icon-${i.toString(36)}x { background: var(--sprite); }`);
+  return [diff('src/client/styles/hud.css', icons), diff('src/client/hud/icons.ts', new Scribe(17).code(40, 0.2))];
+}
+
+function installPadded(github: FakeGithub, now: number): void {
+  const sha = 'f1'.repeat(20);
+  github.addRepo(PADDED_REPO, [commitMeta(sha, 'Add the icon sprite classes', { authorLogin: 'osric', authorName: 'osric', date: new Date(now - 3 * 3_600_000).toISOString() })]);
+  github.setCommit(PADDED_REPO, sha, { commits: [], files: paddedFiles() });
+}
+
+/**
+ * The difficulty bonus's repositories, with the facts, blame and history the preview reads for each
+ * commit's context: a greenfield commit (mara/fresh-app), a maintainer's two fixes to others' code in
+ * vite (the original 5-line fix, every file under 3 modified lines, and a harder one with effort
+ * credit for 3 hard files), the harder one in a fork pending upstream merge (mara/vite), and in a
+ * small repository the gate holds to ×1.5 (mara/sourcemap-kit).
+ */
+function installHardEdits(github: FakeGithub, now: number): void {
+  const at = (hours: number) => new Date(now - hours * 3_600_000).toISOString();
+  const by = { authorLogin: MAINTAINER.login, authorName: MAINTAINER.login, authorId: MAINTAINER.id };
+  const fresh = installGreenfield(github);
+  github.addRepo(FRESH_REPO, [commitMeta(FRESH_HEAD, 'feat: first cut of the app', { ...by, date: at(1), parent: FRESH_BASE })]);
+  github.setCommit(FRESH_REPO, FRESH_HEAD, { commits: [], files: fresh.files, base: FRESH_BASE });
+  // installViteFork installs the vite fixture and the harder fix too.
+  const fork = installViteFork(github);
+  github.setCommit(VITE_REPO, VITE_HEAD, { commits: [], files: viteFiles().map((f) => f.file), base: VITE_BASE });
+  github.addRepo(VITE_REPO, [
+    commitMeta(VITE_DAY_HEAD, 'fix: resolve build.sourcemap per environment', { ...by, date: at(2), parent: VITE_BASE }),
+    commitMeta(VITE_HEAD, 'fix: respect build.sourcemap for css and assets', { ...by, date: at(26), parent: VITE_BASE }),
+  ]);
+  github.addRepo(FORK_REPO, [commitMeta(fork.head, 'fix: resolve build.sourcemap per environment', { ...by, date: at(2), parent: VITE_BASE })]);
+  installViteGated(github);
+  github.addRepo(GATED_REPO, [commitMeta(VITE_DAY_HEAD, 'fix: resolve build.sourcemap per environment', { ...by, date: at(4), parent: VITE_BASE })]);
 }

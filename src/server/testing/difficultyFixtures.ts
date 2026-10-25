@@ -6,9 +6,13 @@
 // a 5-line fix across 4 files of 212 to 3,688 lines; css.ts has 519 commits and 127 authors, and the
 // lines changed were written by others between 2021 and 2025. Paths, line numbers and code are
 // approximations (this environment cannot reach that repository); the sizes and counts are as given.
+//
+// Beside it: the maintainer's harder commit (effort credit), the same commit in a fork (pending
+// upstream merge) and in a small repository the gate holds to ×1.5, and a repeat-dampened day.
 
 import type { ChangedFile } from '../../rules/classify.ts';
-import type { RepoFacts } from '../../rules/difficulty.ts';
+import type { FileContext, PushContext, RepoFacts } from '../../rules/difficulty.ts';
+import { measurePush, MemoryLedger } from '../../rules/ledger.ts';
 import type { CompareResult } from '../github.ts';
 import { blameOf, type FakeAuthor, type FakeGithub } from './fakeGithub.ts';
 
@@ -155,17 +159,24 @@ export function installGreenfield(github: FakeGithub): { repo: string; base: str
 export const VITE_DAY_HEAD = 'a1'.repeat(20);
 
 /**
+ * Three or more lines of others' code reworked in one file at old line `at`: `n` lines that read the
+ * sourcemap option straight from the config, made to resolve it per environment. `salt` keeps two
+ * reworks of the same file distinct.
+ */
+export function rework(path: string, at: number, n: number, salt = ''): ChangedFile {
+  const tag = path.slice(path.lastIndexOf('/') + 1).replace(/\W.*$/, '') + salt;
+  const parts = ['Chunk', 'Asset', 'Entry', 'Module', 'Bundle', 'Style', 'Worker', 'Import', 'Graph', 'Output', 'Source', 'Plugin'];
+  const removed = Array.from({ length: n }, (_, i) => `    const ${tag}${parts[i]}Map = config.build.sourcemap ? load${parts[i]}Map(${tag}Id) : null`);
+  const added = removed.map((l) => l.replace('config.build.sourcemap', 'resolveSourcemap(environment.config.build)'));
+  return modified(path, hunk(at, ['  const id = normalizePath(file)', '  const environment = this.environment', '  if (!environment) return'], removed, added, ['  return result', '}', '']));
+}
+
+/**
  * A maintainer's harder commit on the same base: three or more lines of others' code reworked in each
  * of css.ts, build.ts and asset.ts (enough for the effort credit), installed as a single commit.
  */
 export function installViteDay(github: FakeGithub): { repo: string; base: string; head: string; files: ChangedFile[] } {
   installVite(github);
-  const rework = (path: string, at: number, n: number): ChangedFile => {
-    const tag = path.slice(path.lastIndexOf('/') + 1).replace(/\W.*$/, '');
-    const removed = Array.from({ length: n }, (_, i) => `    const ${tag}${['Chunk', 'Asset', 'Entry', 'Module', 'Bundle'][i]}Map = config.build.sourcemap ? load${['Chunk', 'Asset', 'Entry', 'Module', 'Bundle'][i]}Map(${tag}Id) : null`);
-    const added = removed.map((l) => l.replace('config.build.sourcemap', 'resolveSourcemap(environment.config.build)'));
-    return modified(path, hunk(at, ['  const id = normalizePath(file)', '  const environment = this.environment', '  if (!environment) return'], removed, added, ['  return result', '}', '']));
-  };
   const files = [rework('packages/vite/src/node/plugins/css.ts', 2304, 4), rework('packages/vite/src/node/build.ts', 611, 3), rework('packages/vite/src/node/plugins/asset.ts', 214, 3)];
   github.setCompare(VITE_REPO, VITE_BASE, VITE_DAY_HEAD, {
     commits: [{ sha: VITE_DAY_HEAD, authorLogin: MAINTAINER.login, authorId: MAINTAINER.id, message: 'fix: resolve build.sourcemap per environment', authorEmail: 'mara@example.com' }],
@@ -174,6 +185,49 @@ export function installViteDay(github: FakeGithub): { repo: string; base: string
   });
   github.setCommit(VITE_REPO, VITE_DAY_HEAD, { commits: [{ sha: VITE_DAY_HEAD, authorLogin: MAINTAINER.login, message: 'fix' }], files, base: VITE_BASE });
   return { repo: VITE_REPO, base: VITE_BASE, head: VITE_DAY_HEAD, files };
+}
+
+/** Copies the vite fixture's blame and history at the base to another repository holding the same files. */
+function copyFileFacts(github: FakeGithub, to: string): void {
+  for (const [key, facts] of [...github.fileFacts]) if (key.startsWith(`${VITE_REPO.toLowerCase()}@`)) github.fileFacts.set(`${to.toLowerCase()}${key.slice(VITE_REPO.length)}`, facts);
+}
+
+export const GATED_REPO = 'mara/sourcemap-kit';
+
+/**
+ * The maintainer's harder commit (installViteDay) in a small repository of their own that vendors
+ * vite's files with their history: one star and no forks, so the repository gate holds every file's
+ * multiplier to ×1.5.
+ */
+export function installViteGated(github: FakeGithub): { repo: string; base: string; head: string; files: ChangedFile[] } {
+  const day = installViteDay(github);
+  github.setRepoFacts({ fullName: GATED_REPO, fork: false, createdAt: Date.parse('2021-02-01T09:00:00Z'), stars: 1, forks: 0, sizeKb: 41_000 }, { TypeScript: 3_400_000 });
+  copyFileFacts(github, GATED_REPO);
+  const commit = { sha: VITE_DAY_HEAD, authorLogin: MAINTAINER.login, authorId: MAINTAINER.id, message: 'fix: resolve build.sourcemap per environment', authorEmail: 'mara@example.com' };
+  github.setCompare(GATED_REPO, VITE_BASE, VITE_DAY_HEAD, { commits: [commit], files: day.files, base: VITE_BASE });
+  github.setCommit(GATED_REPO, VITE_DAY_HEAD, { commits: [commit], files: day.files, base: VITE_BASE });
+  return { repo: GATED_REPO, base: VITE_BASE, head: VITE_DAY_HEAD, files: day.files };
+}
+
+export const CSS_PATH = 'packages/vite/src/node/plugins/css.ts';
+
+/** css.ts's context as ingestion reads it at the vite base (×3.2), with `others` the old-side lines of others' code the push removes. */
+export function cssContext(others: number[]): FileContext {
+  return { path: CSS_PATH, mMilli: 3200, rawMilli: 3200, gate: { passed: true, reason: null }, lines: 3688, linesOthers: 3688, authorsOthers: 127, fileCommits: 519, medianAgeDays: 1600, fromYear: 2021, others, source: 'graphql' };
+}
+
+/**
+ * A repeat-dampened day: css.ts earned effort credit yesterday for a 4-line rework, and today brings
+ * another 4-line token edit to it. The store holds yesterday's ledger; push today's files with the
+ * returned context and the file earns its line bonus but no effort credit (it needs 10 modified lines).
+ */
+export function repeatDay(): { store: MemoryLedger; files: ChangedFile[]; context: PushContext; message: string } {
+  const store = new MemoryLedger();
+  const range = (from: number, n: number) => Array.from({ length: n }, (_, i) => from + i);
+  store.today = 20_384;
+  measurePush([rework(CSS_PATH, 2304, 4)], store, { files: { [CSS_PATH]: cssContext(range(2304, 4)) } });
+  store.today += 1;
+  return { store, files: [rework(CSS_PATH, 2410, 4, 'Again')], context: { files: { [CSS_PATH]: cssContext(range(2410, 4)) } }, message: 'fix: tidy the css sourcemap lookup again' };
 }
 
 export const FORK_REPO = 'mara/vite';
@@ -188,7 +242,7 @@ export function installViteFork(github: FakeGithub, head = VITE_DAY_HEAD): { rep
     { fullName: FORK_REPO, fork: true, createdAt: Date.parse('2026-01-10T09:00:00Z'), stars: 0, forks: 0, sizeKb: 41_000, source: { fullName: VITE_REPO, createdAt: VITE_FACTS.createdAt, stars: VITE_FACTS.stars, forks: VITE_FACTS.forks, defaultBranch: 'main' }, parent: { fullName: VITE_REPO, defaultBranch: 'main' } },
     { TypeScript: 3_400_000 },
   );
-  for (const [key, facts] of [...github.fileFacts]) if (key.startsWith(`${VITE_REPO.toLowerCase()}@`)) github.fileFacts.set(`${FORK_REPO}${key.slice(VITE_REPO.length)}`, facts);
+  copyFileFacts(github, FORK_REPO);
   const commit = { sha: head, authorLogin: MAINTAINER.login, authorId: MAINTAINER.id, message: 'fix: resolve build.sourcemap per environment', authorEmail: 'mara@example.com' };
   github.setCompare(FORK_REPO, VITE_BASE, head, { commits: [commit], files: day.files, base: VITE_BASE });
   github.setCommit(FORK_REPO, head, { commits: [commit], files: day.files, base: VITE_BASE });

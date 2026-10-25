@@ -363,7 +363,9 @@ export interface PreviewCommit {
   /** Per file, the context behind the bonus. */
   difficulty?: PreviewDifficulty[];
   army: PreviewArmy;
-  /** Why it raised what it raised, one short line each. */
+  /** Why it raised what it raised, as figures: what the page draws. */
+  why: PreviewWhy;
+  /** Why it raised what it raised, one short line each (the page shows them only as hover detail). */
   reasons: string[];
   /** GitHub would not give this commit's diff: nothing was measured. */
   unread?: boolean;
@@ -395,6 +397,8 @@ export interface PreviewDifficulty {
   source: 'graphql' | 'mirror';
   /** A fork's file: its extra and effort credit pay only once the commit reaches the upstream. */
   pending?: boolean;
+  /** The file held effort credit within the last 3 days and has fewer than 10 modified lines today: no effort credit. */
+  repeat?: boolean;
 }
 
 export interface PreviewCombined {
@@ -411,7 +415,109 @@ export interface PreviewCombined {
   separateSlots: number;
   /** Difficulty bonus lines of the day. */
   bonus?: number;
+  why: PreviewWhy;
   reasons: string[];
+}
+
+/** Where an army's size came from. */
+export type PreviewSourceKey = 'code' | 'files' | 'complexity' | 'removed' | 'others' | 'effort' | 'pending';
+
+/** One row of "where the size came from". The counted rows' `size` add up to `PreviewWhy.size`. */
+export interface PreviewSource {
+  key: PreviewSourceKey;
+  /**
+   * What it counts, in its own unit: code lines, source files, complexity points, removed lines; for
+   * others' code the modified lines, for the effort credit the hard files, for pending the lines of credit.
+   */
+  amount: number;
+  /** Others' code, effort credit and pending: the lines of code credit it adds (after the day's caps). */
+  credit?: number;
+  /** Army size it adds (whole numbers). Pending: what it would add once merged upstream, not in the total. */
+  size: number;
+  /** Others' code, effort credit and pending: the files, most credit first. */
+  files?: { path: string; modified: number; multiplier: number; credit: number }[];
+  /** Complexity: what it is made of (function points are 3 a new function; names count half a point). */
+  parts?: { branches: number; functions: number; links: number; modules: number };
+  /** Why it is zero or held back, one short phrase each: "your own code", "daily cap reached". */
+  chips: string[];
+  /** The longer story, for hover. */
+  detail: string[];
+  /** Not counted in the total: a fork's credit waiting for the upstream. */
+  pending?: boolean;
+}
+
+/** One kind of soldier the size was spent on, and why. */
+export interface PreviewUnit {
+  /** `Kind`. */
+  kind: number;
+  count: number;
+  /** Two or three words: "complex logic", "bug fixes", "the rest". */
+  reason: string;
+  /** What raised it, for hover. */
+  detail: string;
+}
+
+/** A specialist the work came close to: "Herald at 120 docs lines — 25 so far". */
+export interface PreviewNearMiss {
+  kind: number;
+  have: number;
+  need: number;
+  /** What `have` and `need` count: "docs lines", "fix lines", "files". */
+  unit: string;
+  /** The work was enough, but the specialists' share (65% of the size) was spent first. */
+  crowded?: boolean;
+}
+
+/** One part of the army's power: a veteran rank, or a quality note. */
+export interface PreviewPowerPart {
+  kind: 'veteran' | 'tests' | 'comments' | 'filler';
+  /** +0.05 well tested, −0.08 ragged, +0.2 Veteran II. */
+  effect: number;
+  /** The longer story, for hover. */
+  detail: string;
+}
+
+/** Veteran rank and the way to the next: code counted with the difficulty bonus, and source files touched. */
+export interface PreviewRank {
+  rank: number;
+  max: number;
+  code: number;
+  files: number;
+  /** The next rank's thresholds; at the top rank, the top rank's own. */
+  target: { rank: number; code: number; files: number };
+}
+
+/** Lines that counted for nothing, by kind. */
+export interface PreviewUncounted {
+  kind: 'structure' | 'fragment' | 'data' | 'prose' | 'repeat' | 'shape' | 'cap' | 'generated' | 'vendor';
+  lines: number;
+  /** "312 near-duplicate lines (…) in styles/hud.css". */
+  text: string;
+}
+
+/** Why an army is what it is, as figures for the page to draw at a glance. */
+export interface PreviewWhy {
+  /** Army size (room in the ranks), or the lone messenger's 1. */
+  size: number;
+  /** Room support takes, on top of the size. */
+  support: number;
+  /** quality × (1 + 0.1 × veteran rank). */
+  power: number;
+  parts: PreviewPowerPart[];
+  /** Counted sources first, in a fixed order, then pending. Empty when the size is 0. */
+  sources: PreviewSource[];
+  /** Specialists, then Footmen and Berserkers. */
+  units: PreviewUnit[];
+  /** Wardens, Archers, Heralds and Sappers: on top of the size. */
+  supportUnits: PreviewUnit[];
+  nearMisses: PreviewNearMiss[];
+  rank: PreviewRank;
+  /** Lines that did not count. */
+  uncounted: { lines: number; kinds: PreviewUncounted[]; filler: number; penalty: number };
+  /** No code counted: a lone messenger (or only support) marches. */
+  messenger?: 'nothing-read' | 'no-code' | 'too-few';
+  /** Other facts worth a line: estimated patches, truncated diffs. */
+  notes: string[];
 }
 
 export interface PreviewResponse {

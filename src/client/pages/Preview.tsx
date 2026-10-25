@@ -8,8 +8,9 @@ import { Avatar } from '../ui/Avatar.tsx';
 import { Link } from '../ui/Link.tsx';
 import { PurposeTag } from '../ui/PurposeTag.tsx';
 import { DropCap, EmptyVignette, Fleuron, SealButton } from '../ui/codex.tsx';
-import { ago, compact, plural } from '../ui/format.ts';
+import { ago, plural } from '../ui/format.ts';
 import { Icon } from '../ui/icons.tsx';
+import { ArmyWhy } from '../ui/ArmyWhy.tsx';
 import { armyLook, Formation, LineBar } from '../ui/Muster.tsx';
 import '../styles/preview.css';
 
@@ -19,23 +20,6 @@ const EXAMPLES = ['facebook/react', 'sveltejs/svelte', 'rust-lang/rust'] as cons
 type Failure = { code: string; message: string };
 
 const ROMAN = ['', 'I', 'II', 'III'];
-
-/** "×0.90 ragged — comment padding", "×1.05 well tested", "×1.00 steady". */
-export function qualityLine(army: PreviewArmy): string {
-  const q = `×${army.quality.toFixed(2)}`;
-  if (army.ragged) {
-    const worst = army.notes.filter((n) => n.effect < 0 && n.kind !== 'veteran').sort((a, b) => a.effect - b.effect)[0];
-    const why = worst ? { tests: 'test padding', comments: 'comment padding', filler: 'filler', veteran: '' }[worst.kind] : 'padding';
-    return `${q} ragged — ${why}`;
-  }
-  const vet = army.veterancy > 0 ? ` · Veteran ${ROMAN[army.veterancy]}` : '';
-  if (army.quality > 1) return `${q} well tested${vet}`;
-  return `${q} steady${vet}`;
-}
-
-function soldiers(army: PreviewArmy): number {
-  return army.counts.reduce((a, b) => a + b, 0);
-}
 
 /** Heroes, a Dragon, Berserkers, veterans and rags, called out as heraldic labels. */
 function Callouts({ army }: { army: PreviewArmy }) {
@@ -59,39 +43,30 @@ function Callouts({ army }: { army: PreviewArmy }) {
   );
 }
 
-/** What "army size" counts, said once wherever a size is shown. */
-const SIZE_NOTE = 'Army size is room in the ranks. Bigger units take more room: a Knight takes 2, a Dragon 6.';
-
-/** Room taken by support (Wardens, Archers, Heralds, Sappers), which comes on top of the army size. */
-function supportOf(army: PreviewArmy): number {
-  return Math.max(0, army.slots - army.budget + army.counts[Kind.Berserker]!);
-}
-
-/** "Army size 62", "Army size 62 + 3 support", or the lone messenger's 1. */
-export function sizeLine(army: PreviewArmy): string {
-  if (army.budget === 0) return `Army size ${army.slots}`;
-  const support = supportOf(army);
-  return `Army size ${army.budget.toLocaleString('en-US')}${support > 0 ? ` + ${support} support` : ''}`;
-}
-
-function Reasons({ reasons, army, open }: { reasons: string[]; army: PreviewArmy; open?: boolean }) {
+/** How scoring works, in five lines: what the page's figures come from. */
+function HowScoring() {
   return (
-    <details className="reasons" open={open}>
+    <details className="how-scoring">
       <summary>
-        <span className="reasons-what">Why this army</span>
-        <span className="reasons-sum">
-          <span className="num" title={SIZE_NOTE}>
-            {sizeLine(army)}
-          </span>{' '}
-          · <span className={army.ragged ? 'bad' : army.quality > 1 ? 'good' : ''}>{qualityLine(army)}</span>
-        </span>
+        <Icon name="book" size={16} /> <span className="how-scoring-word">How scoring works</span>
       </summary>
       <ul>
-        {reasons.map((r, i) => (
-          <li key={i}>{r}</li>
-        ))}
+        <li>
+          <strong>Code is the army.</strong> About 16 lines of real code raise one place in the ranks; files, complexity and cleanup add a little.
+        </li>
+        <li>
+          <strong>Purpose picks specialists.</strong> The commit message chooses who marches (fixes raise Clerics and Ballistae, features Champions), never how many.
+        </li>
+        <li>
+          <strong>Editing others’ established code counts more:</strong> up to ×3.2 a line in a big, old, much-worked file, and each hard file fixed earns effort credit.
+        </li>
+        <li>
+          <strong>Forks pay once merged upstream.</strong> Their extra credit waits until the commit reaches the original repository.
+        </li>
+        <li>
+          <strong>Spam earns nothing.</strong> Repeats, brackets, data and generated lines don’t count, and padding makes a ragged army.
+        </li>
       </ul>
-      <p className="reasons-note">{SIZE_NOTE}</p>
     </details>
   );
 }
@@ -138,8 +113,13 @@ function CommitRow({ c, hue, now, index }: { c: PreviewCommit; hue: number | nul
       </div>
       <div className="muster-row-army">
         <Callouts army={c.army} />
-        {c.unread ? <p className="muted small">GitHub would not give this diff.</p> : <Formation army={c.army} hue={hue} compact label={`Army of ${c.shortSha}`} />}
-        <Reasons reasons={c.reasons} army={c.army} />
+        {c.unread ? (
+          <p className="muted small">GitHub would not give this diff.</p>
+        ) : (
+          <ArmyWhy why={c.why} reasons={c.reasons}>
+            <Formation army={c.army} hue={hue} compact label={`Army of ${c.shortSha}`} />
+          </ArmyWhy>
+        )}
       </div>
     </li>
   );
@@ -153,38 +133,15 @@ function CombinedCard({ combined, hue, count }: { combined: PreviewCombined; hue
       <h2 id="combined-title" className="block-title">
         All {count === 1 ? 'one' : count} together would raise…
       </h2>
-      <dl className="combined-totals">
-        <div>
-          <dt>Soldiers</dt>
-          <dd className="num">{compact(soldiers(army))}</dd>
-        </div>
-        <div>
-          <dt title={SIZE_NOTE}>Army size</dt>
-          <dd className="num" title={SIZE_NOTE}>
-            {army.budget > 0 ? army.budget : army.slots}
-            {army.budget > 0 && supportOf(army) > 0 && <span className="vet-mark"> + {supportOf(army)} support</span>}
-          </dd>
-        </div>
-        <div>
-          <dt>Code</dt>
-          <dd className="num">{compact(combined.lines.code)}</dd>
-        </div>
-        <div>
-          <dt>Quality</dt>
-          <dd className={`num${army.ragged ? ' bad' : ''}`}>
-            ×{army.quality.toFixed(2)}
-            {army.veterancy > 0 && <span className="vet-mark"> · Vet {ROMAN[army.veterancy]}</span>}
-          </dd>
-        </div>
-      </dl>
       <Callouts army={army} />
-      <Formation army={army} hue={hue} label="The combined army" />
-      <LineBar lines={combined.lines} hue={hue} />
-      <p className="combined-note">
-        Pushed one by one or squashed into one push, they leave the same ledger, so the army is the same size and strength either way: only the commit messages choose its specialists. Mustered
-        one by one, each on a fresh day, these commits raise armies of total size <span className="num">{combined.separateSlots}</span>; together, <span className="num">{army.slots}</span>.
-      </p>
-      <Reasons reasons={combined.reasons} army={army} />
+      <ArmyWhy why={combined.why} reasons={combined.reasons} open>
+        <Formation army={army} hue={hue} label="The combined army" />
+        <LineBar lines={combined.lines} hue={hue} />
+        <p className="combined-note">
+          Pushed one by one or squashed into one push, they leave the same ledger, so the army is the same size and strength either way: only the commit messages choose its specialists. Mustered
+          one by one, each on a fresh day, these commits raise armies of total size <span className="num">{combined.separateSlots}</span>; together, <span className="num">{army.slots}</span>.
+        </p>
+      </ArmyWhy>
     </section>
   );
 }
@@ -369,6 +326,7 @@ export function PreviewPage({ owner, repo, branch, me }: { owner: string | null;
         <p className="muted small preview-pigment">
           {hue !== null ? 'Drawn in your army’s colours.' : signedIn ? 'Drawn in a neutral pigment until your first war gives your army its colours.' : 'Drawn in a neutral pigment. Sign in and fight a war to see them in your own colours.'}
         </p>
+        <HowScoring />
       </header>
 
       {loading && target && <InkWriting repo={target} />}

@@ -220,35 +220,6 @@
   margin-bottom: 10px;
 }
 
-.combined-totals {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 30px;
-  margin: 0 0 12px;
-}
-
-.combined-totals > div {
-  display: grid;
-}
-
-.combined-totals dt {
-  font-family: var(--sc);
-  font-size: 13px;
-  letter-spacing: 0.06em;
-  color: var(--fg-soft);
-}
-
-.combined-totals dd {
-  margin: 0;
-  font-size: 26px;
-  line-height: 1.1;
-}
-
-.vet-mark {
-  font-size: 15px;
-  color: var(--gilt);
-}
-
 .combined .muster {
   margin: 10px 0 12px;
 }
@@ -638,74 +609,755 @@
   clip-path: polygon(0 8%, 12% 0, 26% 10%, 41% 0, 58% 8%, 73% 0, 88% 9%, 100% 2%, 97% 50%, 100% 96%, 84% 90%, 66% 100%, 50% 91%, 33% 100%, 18% 92%, 4% 100%, 3% 50%);
 }
 
-/* --------------------------------------------------------------- reasons */
+/* ------------------------------------------------------- why this army */
 
-.reasons {
-  margin-top: 8px;
-  font-size: 14px;
+/* A gloss: a word with a note on hover or focus (night vellum with a gold rule). */
+.gloss {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
 }
 
-.reasons summary {
+.gloss-mark {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+  text-align: inherit;
+  cursor: help;
+  text-decoration: underline dotted;
+  text-decoration-thickness: 1px;
+  text-decoration-color: color-mix(in srgb, currentColor 55%, transparent);
+  text-underline-offset: 3px;
+}
+
+.gloss-mark:hover {
+  text-decoration-color: currentColor;
+}
+
+.gloss-mark:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.gloss-tip {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 6px);
+  left: 50%;
+  width: max-content;
+  max-width: min(300px, calc(100vw - 32px));
+  padding: 8px 11px 9px;
+  transform: translateX(calc(-50% + var(--shift, 0px)));
+  background: var(--ink-night);
+  box-shadow: inset 0 0 0 1px var(--gold), 0 6px 14px rgba(10, 12, 20, 0.35);
+  color: var(--vellum);
+  font-family: var(--body);
+  font-size: 13.5px;
+  font-style: normal;
+  font-weight: 400;
+  font-variant: normal;
+  letter-spacing: normal;
+  line-height: 1.4;
+  text-align: left;
+  text-transform: none;
+  white-space: normal;
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity var(--t-fast) var(--ease-in),
+    visibility 0s linear var(--t-fast);
+}
+
+.gloss[data-open] > .gloss-tip,
+.gloss-mark:focus-visible + .gloss-tip {
+  visibility: visible;
+  opacity: 1;
+  pointer-events: auto;
+  transition: opacity var(--t-fast) var(--ease-in);
+}
+
+.gloss-line {
+  display: block;
+}
+
+.gloss-line + .gloss-line {
+  margin-top: 5px;
+}
+
+.why {
+  container-type: inline-size;
+  margin-top: 4px;
+}
+
+/* The header row: two big figures. */
+.why-head {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 2px 10px;
+  gap: 4px 26px;
+  margin: 0 0 8px;
+}
+
+.why-size,
+.why-power {
+  margin: 0;
+  font-family: var(--sc);
+  font-size: 15px;
+  color: var(--fg-soft);
+}
+
+.why-power {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+}
+
+.why-big {
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--fg);
+}
+
+.why-big.bad {
+  color: var(--bad);
+}
+
+.why-mid {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--fg);
+}
+
+.why-power-word {
+  letter-spacing: 0.04em;
+}
+
+.combined .why-big {
+  font-size: 34px;
+}
+
+/* Power seals: notched heraldic labels, never chips. */
+.why-seals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.why-seal {
+  padding: 0 11px;
+  font-family: var(--sc);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 22px;
+  background: var(--recess);
+  color: var(--ink);
+  clip-path: polygon(0 0, 100% 0, calc(100% - 6px) 50%, 100% 100%, 0 100%, 6px 50%);
+}
+
+.why-seal .gloss-mark {
+  text-decoration: none;
+}
+
+.why-seal.tone-good {
+  color: var(--good);
+  background: color-mix(in srgb, var(--verdigris) 16%, var(--vellum-shade));
+}
+
+.why-seal.tone-gilt {
+  background: linear-gradient(170deg, var(--gold-hi), var(--gold) 45%, #b8892c);
+  color: var(--ink);
+}
+
+.why-seal.tone-bad {
+  background: repeating-linear-gradient(-35deg, transparent 0 5px, rgba(34, 24, 15, 0.08) 5px 6px), #cdb994;
+  color: #8a2414;
+}
+
+/* The fold. */
+.why-more {
+  margin-top: 8px;
+}
+
+.why-more > summary,
+.why-fold > summary,
+.how-scoring > summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   min-height: 32px;
-  padding: 4px 0;
   cursor: pointer;
   list-style: none;
 }
 
-.reasons summary::-webkit-details-marker {
+.why-more > summary::-webkit-details-marker,
+.why-fold > summary::-webkit-details-marker,
+.how-scoring > summary::-webkit-details-marker {
   display: none;
 }
 
-.reasons-what {
+.why-more > summary::before,
+.why-fold > summary::before,
+.how-scoring > summary::before {
+  content: '';
+  flex: none;
+  width: 0;
+  height: 0;
+  border-left: 6px solid currentColor;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  transition: transform var(--t-fast) var(--ease-in);
+}
+
+.why-more[open] > summary::before,
+.why-fold[open] > summary::before,
+.how-scoring[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.why-more > summary,
+.how-scoring > summary {
   font-family: var(--sc);
+  font-size: 14px;
   font-weight: 700;
   color: var(--link);
 }
 
-.reasons-what::before {
-  content: '';
-  display: inline-block;
-  width: 0;
-  height: 0;
-  margin-right: 6px;
-  border-left: 6px solid currentColor;
-  border-top: 4px solid transparent;
-  border-bottom: 4px solid transparent;
-  vertical-align: 1px;
-  transition: transform var(--t-fast) var(--ease-in);
+.why-more > summary:focus-visible,
+.why-fold > summary:focus-visible,
+.how-scoring > summary:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
 }
 
-.reasons[open] .reasons-what::before {
-  transform: rotate(90deg);
-}
-
-.reasons-sum {
-  color: var(--ink-soft);
-}
-
-.reasons ul {
-  margin: 4px 0 0;
-  padding-left: 18px;
+.why-body {
+  display: grid;
+  gap: 16px 30px;
+  margin-top: 6px;
   animation: ink-in 260ms var(--ease-in) both;
 }
 
-.reasons li {
-  margin: 2px 0;
+@container (min-width: 760px) {
+  .why-body {
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .why-body > * {
+    grid-column: 2;
+  }
+
+  .why-body > .why-sources {
+    grid-column: 1;
+    grid-row: 1 / span 4;
+  }
+
+  .why-body > .why-scribe {
+    grid-column: 1 / -1;
+  }
 }
 
-.reasons li::marker {
+.why-sec {
+  min-width: 0;
+}
+
+.why-title {
+  margin: 0 0 6px;
+  font-family: var(--display);
+  font-size: 16px;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  color: var(--rubric);
+}
+
+.why-fine {
+  margin: 6px 0 0;
+  font-size: 13px;
+  font-style: italic;
+  color: var(--fg-soft);
+}
+
+/* The stacked bar: a carved channel, a segment per source. */
+.why-bar {
+  display: flex;
+  gap: 1px;
+  height: 24px;
+  padding: 2px;
+  margin: 0 0 8px;
+  background: rgba(185, 164, 119, 0.35);
+  box-shadow: inset 0 0 0 1.5px var(--ink), inset 0 2px 3px rgba(34, 24, 15, 0.3);
+}
+
+.why-seg {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-basis: 0;
+  min-width: 3px;
+  overflow: hidden;
+}
+
+.why-seg-label {
+  padding: 0 4px;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+  color: var(--vellum);
+  text-shadow: 0 1px 0 rgba(18, 22, 31, 0.5);
+}
+
+.seg-src-code {
+  background: var(--army);
+  box-shadow: inset 0 1px 0 rgba(255, 246, 226, 0.35);
+}
+
+.seg-src-files {
+  background: color-mix(in srgb, var(--army) 45%, #d9c79e);
+}
+
+.seg-src-complexity {
+  background: var(--verdigris);
+}
+
+.seg-src-removed {
+  background: repeating-linear-gradient(-45deg, var(--ink-soft) 0 2px, rgba(74, 58, 40, 0.45) 2px 4px);
+}
+
+.seg-src-others {
+  background: linear-gradient(170deg, var(--gold-hi), var(--gold) 50%, #b8892c);
+}
+
+.seg-src-effort {
+  background: var(--gold-lo);
+}
+
+.seg-src-pending {
+  background: repeating-linear-gradient(-45deg, transparent 0 4px, rgba(138, 100, 24, 0.22) 4px 5px);
+  outline: 1.5px dashed var(--ink-soft);
+  outline-offset: -1.5px;
+}
+
+.seg-src-files .why-seg-label,
+.seg-src-others .why-seg-label,
+.seg-src-pending .why-seg-label {
+  color: var(--ink);
+  text-shadow: none;
+}
+
+/* The table of sources. */
+.why-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.why-table th,
+.why-table td {
+  padding: 4px 6px;
+  text-align: left;
+  vertical-align: baseline;
+  border-bottom: 1px solid var(--rule-soft);
+}
+
+.why-table th:first-child,
+.why-table td:first-child {
+  padding-left: 0;
+}
+
+.why-table th:last-child,
+.why-table td:last-child {
+  padding-right: 0;
+}
+
+.why-table thead th {
+  font-family: var(--sc);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: var(--fg-soft);
+  border-bottom: 1.5px solid var(--rule);
+}
+
+.why-table .num {
+  text-align: right;
+}
+
+.why-src {
+  white-space: nowrap;
+  font-family: var(--sc);
+  font-weight: 700;
+  color: var(--fg);
+}
+
+.why-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 6px;
+  vertical-align: 0;
+  outline: none;
+  box-shadow: inset 0 0 0 1px rgba(34, 24, 15, 0.6);
+}
+
+.why-swatch.seg-src-pending {
+  outline: 1px dashed var(--ink-soft);
+  outline-offset: -1px;
+  box-shadow: none;
+}
+
+.why-hourglass {
+  margin-right: 4px;
+  vertical-align: -2px;
+}
+
+.why-amount-text {
+  margin-right: 6px;
+}
+
+.why-add {
+  width: 4.2em;
+  font-size: 16px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.why-table tfoot th,
+.why-table tfoot td {
+  border-top: 1.5px solid var(--rule);
+  border-bottom: 0;
+  font-family: var(--sc);
+  font-weight: 700;
+}
+
+.why-table tfoot th {
+  color: var(--fg-soft);
+  letter-spacing: 0.04em;
+}
+
+.why-table tfoot td {
+  font-size: 17px;
+}
+
+/* A zero or a cap, with its reason in a notched note. */
+.why-chip {
+  display: inline-block;
+  margin: 1px 4px 1px 0;
+  padding: 0 9px;
+  font-size: 13px;
+  font-style: italic;
+  line-height: 19px;
+  background: var(--recess);
+  color: var(--warn);
+  clip-path: polygon(0 0, 100% 0, calc(100% - 5px) 50%, 100% 100%, 0 100%, 5px 50%);
+}
+
+.why-table .is-zero .why-amount-text,
+.why-table .is-zero .why-add {
+  color: var(--fg-soft);
+  font-style: italic;
+}
+
+.why-table .is-pending th,
+.why-table .is-pending td {
+  color: var(--fg-soft);
+  font-style: italic;
+  background: repeating-linear-gradient(-45deg, transparent 0 6px, rgba(138, 100, 24, 0.07) 6px 7px);
+}
+
+.why-later {
+  font-weight: 400;
+}
+
+/* How it was spent: a ruled cell per kind. */
+.why-units {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(152px, 100%), 1fr));
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.why-unit .gloss {
+  display: block;
+}
+
+.why-unit .gloss-mark {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  padding: 4px 8px 4px 4px;
+  background: var(--field);
+  box-shadow: inset 0 -1.5px 0 var(--rule-soft);
+  text-decoration: none;
+}
+
+.why-unit .gloss-mark:hover {
+  background: var(--recess);
+}
+
+.why-unit.wt-hero .gloss-mark {
+  box-shadow: inset 0 -2.5px 0 var(--gold);
+}
+
+.why-unit.wt-legend .gloss-mark {
+  box-shadow: inset 0 -3px 0 var(--vermilion);
+}
+
+.why-unit-icon {
+  flex: none;
+  color: var(--ink);
+}
+
+.why-unit-text {
+  display: grid;
+  min-width: 0;
+  line-height: 1.2;
+}
+
+.why-unit-name {
+  font-family: var(--sc);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--fg);
+}
+
+.why-unit-name .num {
+  color: var(--ink);
+}
+
+.why-unit.wt-legend .why-unit-name .num,
+.why-unit.wt-hero .why-unit-name .num {
   color: var(--vermilion);
 }
 
-.reasons-note {
-  margin: 6px 0 0;
+.why-unit-why {
+  font-size: 13px;
+  font-style: italic;
+  color: var(--fg-soft);
+}
+
+.why-support {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.why-support-word {
+  flex: none;
+  font-family: var(--sc);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: var(--fg-soft);
+}
+
+.why-support .why-units {
+  flex: 1;
+}
+
+.why-units.is-support .gloss-mark {
+  background: none;
+  box-shadow: inset 0 -1.5px 0 var(--rule-soft);
+  opacity: 0.86;
+}
+
+/* Rank: two small carved bars. */
+.why-rank-name {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  margin: 0 0 6px;
+  font-family: var(--sc);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.why-rank-name.is-veteran {
+  color: var(--gilt);
+}
+
+.why-rank-next {
+  font-weight: 400;
+  color: var(--fg-soft);
+}
+
+.why-meters {
+  display: grid;
+  gap: 5px;
+}
+
+.why-meter-row {
+  display: grid;
+  grid-template-columns: 3.2em minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.why-meter-what {
+  font-family: var(--sc);
+  color: var(--fg-soft);
+}
+
+.why-meter {
+  position: relative;
+  height: 10px;
+  background: rgba(185, 164, 119, 0.35);
+  box-shadow: inset 0 0 0 1.5px var(--ink);
+}
+
+.why-meter-fill {
+  display: block;
+  height: 100%;
+  background: var(--army);
+  box-shadow: inset 0 0 0 1.5px var(--ink);
+}
+
+.why-meter-row.is-met .why-meter-fill {
+  background: linear-gradient(170deg, var(--gold-hi), var(--gold) 50%, #b8892c);
+}
+
+.why-meter-num {
+  min-width: 6.5em;
+  text-align: right;
+  font-size: 14px;
+  color: var(--fg);
+}
+
+.why-met {
+  color: var(--good);
+  font-weight: 700;
+}
+
+/* Didn't count: one line, red ink when filler is penalised. */
+.why-fold > summary {
+  font-size: 14px;
+  color: var(--fg-soft);
+}
+
+.why-uncounted.is-bad .why-fold > summary {
+  font-weight: 700;
+  color: var(--bad);
+}
+
+.why-uncounted.is-bad .why-title {
+  color: var(--bad);
+}
+
+.why-fold ul {
+  margin: 4px 0 0;
   padding-left: 18px;
-  font-size: 12.5px;
-  color: var(--ink-soft);
+  font-size: 14px;
+}
+
+.why-fold li::marker {
+  color: var(--vermilion);
+}
+
+.why-scribe {
+  font-style: normal;
+}
+
+.why-scribe .gloss-tip {
+  max-width: min(460px, calc(100vw - 32px));
+}
+
+/* Narrow cards: the table stacks, the bar stays. */
+@container (max-width: 440px) {
+  .why-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+
+  .why-table tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: baseline;
+    border-bottom: 1px solid var(--rule-soft);
+    padding: 4px 0;
+  }
+
+  .why-table th,
+  .why-table td {
+    display: block;
+    padding: 0;
+    border: 0;
+  }
+
+  .why-table .why-add {
+    grid-column: 2;
+    grid-row: 1;
+    width: auto;
+  }
+
+  .why-table .why-amount {
+    grid-column: 1 / -1;
+    padding-left: 16px;
+    font-size: 13.5px;
+  }
+
+  .why-table tfoot tr {
+    border-top: 1.5px solid var(--rule);
+    border-bottom: 0;
+  }
+
+  .why-table tfoot th,
+  .why-table tfoot td {
+    border: 0;
+  }
+
+  .why-head {
+    gap: 4px 18px;
+  }
+}
+
+/* How scoring works: five lines under the form. */
+.how-scoring {
+  margin: 10px 0 0;
+  max-width: 76ch;
+}
+
+.how-scoring-word {
+  margin-left: 2px;
+}
+
+.how-scoring ul {
+  margin: 6px 0 4px;
+  padding-left: 20px;
+  font-size: 15px;
+  animation: ink-in 260ms var(--ease-in) both;
+}
+
+.how-scoring li {
+  margin: 3px 0;
+}
+
+.how-scoring li::marker {
+  color: var(--vermilion);
+}
+
+.how-scoring strong {
+  font-weight: 700;
+  color: var(--fg);
 }
 
 .preview-foot {
@@ -767,16 +1419,19 @@
     zoom: 0.72;
   }
 
-  .combined-totals {
-    gap: 4px 22px;
-  }
-
-  .combined-totals dd {
-    font-size: 22px;
+  .combined .why-big {
+    font-size: 28px;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .gloss-tip,
+  .why-more > summary::before,
+  .why-fold > summary::before,
+  .how-scoring > summary::before {
+    transition: none !important;
+  }
+
   .ink-line {
     animation: none;
     stroke-dashoffset: 0;
@@ -791,7 +1446,8 @@
   .muster-fig,
   .combined,
   .torn-note,
-  .reasons ul {
+  .why-body,
+  .how-scoring ul {
     animation: veil-in 160ms linear both !important;
     animation-delay: 0ms !important;
   }
