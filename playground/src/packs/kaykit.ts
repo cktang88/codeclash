@@ -10,6 +10,19 @@ const w = (n: string) => `${B}weapons/${n}.gltf`;
 const MEDIUM = ['General', 'MovementBasic', 'MovementAdvanced', 'CombatMelee', 'CombatRanged', 'Special'].map((n) => `${B}anim/Rig_Medium_${n}.glb`);
 const LARGE = ['General', 'MovementBasic', 'CombatMelee'].map((n) => `${B}anim/Rig_Large_${n}.glb`);
 
+/**
+ * Kit modelled facing the other way from the hand slot. The bow's string side faced the target in
+ * every clip, draw included (playground /bowcheck.html measures it); a half turn about its own
+ * long axis puts the string toward the archer.
+ */
+const FLIPPED = new Set(['bow_withString']);
+
+function flipAboutLongAxis(piece: THREE.Object3D): void {
+  const size = new THREE.Box3().setFromObject(piece).getSize(new THREE.Vector3());
+  const axis = size.x >= size.y && size.x >= size.z ? new THREE.Vector3(1, 0, 0) : size.y >= size.z ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(0, 0, 1);
+  piece.quaternion.premultiply(new THREE.Quaternion().setFromAxisAngle(axis, Math.PI));
+}
+
 /** Weapons hang on the rig's hand slots, which already sit at the grip. */
 function arm(right?: string, left?: string, scale = 1) {
   return (root: THREE.Object3D, extra: Map<string, THREE.Object3D>) => {
@@ -19,6 +32,7 @@ function arm(right?: string, left?: string, scale = 1) {
       const piece = extra.get(w(name))?.clone();
       if (bone && piece) {
         piece.scale.setScalar(scale);
+        if (FLIPPED.has(name)) flipAboutLongAxis(piece);
         bone.add(piece);
       }
     }
