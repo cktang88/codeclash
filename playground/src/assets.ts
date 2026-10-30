@@ -18,8 +18,13 @@ export interface UnitStats {
   speed: number;
   /** Seconds between attacks. */
   cooldown: number;
-  /** Share of the attack clip at which the blow lands or the shot leaves. */
+  /** Share of the attack at which the blow lands or the shot leaves. */
   hitAt: number;
+  /**
+   * Seconds an attack takes (default 0.9). It's game data, not the clip's length: the simulation
+   * must not depend on art, so a server can run it without models. The renderer fits the clip to it.
+   */
+  swing?: number;
   /** Missile for ranged units. */
   shot?: 'arrow' | 'fire' | 'bolt';
   /** Hover height in metres for flyers. */
@@ -122,6 +127,14 @@ export function template(def: UnitDef): Promise<Template> {
       for (const pose of ['idle', 'walk', 'attack', 'hit', 'die'] as Pose[]) {
         const found = clips.filter((c) => def.clips[pose].test(c.name));
         byPose.set(pose, pose === 'attack' ? found : found.slice(0, 1));
+      }
+      // A pose with no match falls back (idle to the walk, anything to the idle), so a missing clip
+      // shows as stillness rather than breaking the frame. Flinches may be missing: they're skipped.
+      for (const pose of ['idle', 'walk', 'attack', 'die'] as Pose[]) {
+        if (byPose.get(pose)!.length) continue;
+        const fallback = byPose.get(pose === 'idle' ? 'walk' : 'idle')!.slice(0, 1);
+        byPose.set(pose, fallback.length ? fallback : clips.slice(0, 1));
+        console.warn(`${def.id}: no ${pose} clip matches ${def.clips[pose]}; using ${byPose.get(pose)![0]?.name ?? 'nothing'}`);
       }
       return { def, scene: holder, clips: byPose, all: clips };
     })();

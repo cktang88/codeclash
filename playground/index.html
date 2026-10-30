@@ -33,18 +33,19 @@
     <canvas id="view"></canvas>
     <div id="roster" class="panel">
       <h2>Muster</h2>
-      <div class="row"><label>count <select id="count"><option>1</option><option selected>3</option><option>6</option><option>12</option></select></label></div>
+      <div class="row"><label>count <select id="count"><option>1</option><option>5</option><option selected>20</option><option>50</option><option>100</option></select></label></div>
       <div id="units"></div>
     </div>
     <div id="controls" class="panel">
       <h2>The Field</h2>
       <h3>Battles</h3>
+      <div class="row"><label>per side <select id="size"><option>40</option><option selected>150</option><option>300</option><option>500</option><option>1000</option></select></label></div>
       <div class="row" id="presets"></div>
       <h3>Time</h3>
       <div class="row"><button id="pause">pause</button><button id="clear">clear</button></div>
       <div class="row"><label>speed <input id="speed" type="range" min="0.1" max="3" step="0.05" value="1" /></label></div>
       <h3>Look</h3>
-      <div class="row"><label><input id="ink" type="checkbox" checked /> ink line</label></div>
+      <div class="row"><label><input id="ink" type="checkbox" checked /> ink line</label><label><input id="lod" type="checkbox" checked /> far detail</label></div>
       <div class="row"><label>ink <input id="inkw" type="range" min="0.5" max="4" step="0.1" value="1.6" /></label></div>
       <div class="row"><label>bands <select id="bands"><option>2</option><option selected>3</option><option>4</option><option value="0">smooth</option></select></label></div>
       <div class="row"><label>light <select id="tod"><option value="day" selected>day</option><option value="dusk">dusk</option><option value="night">night</option></select></label></div>

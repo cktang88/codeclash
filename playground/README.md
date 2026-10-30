@@ -8,20 +8,80 @@ part of the game**: it has its own Vite config, imports nothing from `src/`, and
 pnpm playground        # http://localhost:5174
 ```
 
-- **Muster** (left): add any unit to blue or red, 1 to 12 at a time.
-- **Battles** (right): ready-made fights (line battle, monsters vs men, dragon raid, undead horde,
-  one of each), plus a **parade** of every unit standing side by side.
-- **Inspect:** click a soldier to see its pack and play any of its clips. Release puts it back in
-  the fight.
+- **Muster** (left): add any unit to blue or red, 1 to 100 at a time.
+- **Battles** (right): men vs monsters, mirror match, and dragon raid, drawn up in formation, plus
+  a **parade** of every unit standing side by side.
+- **Inspect:** click a soldier to see its pack and health, with a full-detail model viewer that
+  plays any of its clips.
 - **Look:** turn the ink line on or off, set its width and the toon bands, and pick day, dusk or
   night light. The camera can be orbited with the mouse, with presets for the game's angle, low and
   top.
-- **URL flags:** `?preset=<name>`, `?cam=low|parade`, `?dist=` (parade distance), `?paused`, `?tod=dusk`, `?ink=0`.
+- **Army size:** 40 to 1000 per side.
+- **URL flags:** `?preset=<name>`, `?size=<per side>`, `?cam=low&dist=&x=`, `?paused`, `?tod=dusk`,
+  `?ink=0`, `?lod=0`, `?seed=`.
 
-The fight is deliberately simple (`src/battle.ts`), and it is not the game's simulation. Soldiers
-pick the nearest foe and march, keeping apart from friends. They strike on their attack clip's
-beat (`hitAt`), or loose an arrow, fireball or bolt. They flinch when hit (unless mid-swing), are
-knocked back by heavy blows, and fall, lie, then sink away. Flyers hover.
+## How it runs
+
+**The simulation (`src/sim/sim.ts`) is deterministic, and it is separate from the drawing.** It
+uses fixed 20 Hz ticks and a seeded random stream (mulberry32). Its maths is only `+ − × ÷` and
+`√`, which IEEE 754 makes exact on every engine, so the same inputs give the same battle bit for
+bit anywhere. It has no three.js and no clips: an attack's length (`swing`) is game data, and the
+renderer fits the clip to it.
+
+- **Behaviour:** soldiers muster in formation blocks, melee in front and missiles behind. They
+  advance in their lanes until a foe comes within reach, then close and fight. They strike on the
+  beat of the swing, or loose arrows, fireballs and bolts that fly for a set number of ticks. They
+  are knocked back by heavy blows, flinch, fall, and lie as corpses for 7 s. A spatial grid keeps
+  targeting and crowding cheap, and ties always go to the lower id.
+- **In the browser** it runs in a **Web Worker** (`src/sim/sim.worker.ts`), which posts a snapshot
+  after each tick. Inputs (musters and clears) are stamped with the tick they apply on and echoed
+  back as a log.
+- **In Node** it runs as is: `pnpm tsx playground/scripts/simcheck.ts` runs it there and checks
+  that two runs of the same inputs stay identical tick by tick.
+
+**Multiplayer.** The playground itself is single-player: the worker is the only simulator, and
+there's no server or network yet. It is built so that adding one is plumbing, not a rewrite, the
+same way Code Clash's own war sim works (`src/sim`, the hub's lockstep inputs and checksums):
+
+- the server runs `sim.ts` and relays stamped inputs;
+- every client runs the same inputs in its worker, and the checksums prove they agree;
+- or the server simply streams snapshots.
+
+**Drawing (`src/crowd.ts`).** At load, each unit type's pose clips are sampled at 30 fps into a
+float texture of bone matrices. The model's meshes, both skinned parts and rigid kit hung on
+bones, are merged and welded into one skinned geometry per material. Every soldier of that type is
+then one instance: one draw call for the body and one for its ink hull, however many soldiers
+there are. The vertex shader skins each instance from the texture and cross-fades between two
+frames for 160 ms when its pose changes.
+
+- **Level of detail:** beyond 28 m a soldier draws through a meshoptimizer-simplified index
+  (about 20% of its triangles) over the same vertices, so skinning, UVs and team marks carry over.
+- **Missiles, base rings with blob shadows, and health bars** are one instanced draw each.
+- **Main thread:** interpolates the worker's snapshots, picks frames and writes the instance
+  buffers.
+
+**Measured** in this container (headless Chromium with software GL, so frame rates here say
+nothing about a real GPU):
+
+| Per side | Sim tick, Node (median / p95) | Main-thread update | Draw calls | Triangles drawn |
+| --- | --- | --- | --- | --- |
+| 40 | 0.07 / 0.35 ms | 0.5 ms | ~40–70 | 1.0 M (close camera) |
+| 150 | n/a | 1.1 ms | ~70 | 3.9 M (before LOD) |
+| 300 | 0.85 / 1.4 ms | n/a | n/a | n/a |
+| 500 | 1.05 / 3.0 ms | 1.2–2.0 ms | ~70 | 12.9 M without LOD, **3.0 M with LOD** (game camera) |
+| 1000 | 2.75 / 6.5 ms | n/a | n/a | n/a |
+
+A tick has a 50 ms budget, so the simulation has 10× headroom at 1000 a side. Draw calls stay
+flat as armies grow. The open question is GPU time on real hardware: at 500 a side and the game
+camera that is ~3 M toon-shaded triangles with texture skinning. A mid-range discrete GPU should
+hold 60 fps; an integrated laptop GPU is the one to try.
+
+**Not yet:**
+
+- shadow maps for crowds (a skinned depth pass per type; blob shadows stand in);
+- impostor sprites for the farthest soldiers, which is what `/anim-lab.html` bakes;
+- frustum culling per instance;
+- a server.
 
 ## Units and where they come from
 
@@ -95,5 +155,3 @@ autobattler-2's `proto3d`.
   the attack clip.
 - **Quaternius RPG** characters use darker hand-painted textures (lifted 1.35× here) and a
   different rig, so KayKit clips don't play on them.
-- **Performance:** software GL in CI renders a few fps. A real GPU handles the presets easily. For
-  hundreds of soldiers we would want instancing or baked sprites, as in `/anim-lab.html`.

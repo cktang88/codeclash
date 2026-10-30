@@ -67,12 +67,17 @@ function rpg(id: string, name: string, attack: RegExp, stats: UnitStats, team?: 
   };
 }
 
+function withClips(d: UnitDef, clips: Partial<UnitDef['clips']>): UnitDef {
+  return { ...d, clips: { ...d.clips, ...clips } };
+}
+
 export const QUATERNIUS: UnitDef[] = [
   rpg('Warrior', 'Warrior', /\|Sword_Attack(Fast)?$/, { hp: 130, damage: 16, range: 1.3, speed: 1.8, cooldown: 1.1, hitAt: 0.45, radius: 0.45 }),
   rpg('Ranger', 'Ranger', /\|Bow_Attack_Shoot$/, { hp: 90, damage: 13, range: 11, speed: 1.9, cooldown: 2, hitAt: 0.3, shot: 'arrow', radius: 0.4 }, tintNamed(/^Cloak$/)),
   rpg('Cleric', 'Cleric', /\|Spell1$/, { hp: 90, damage: 6, range: 6, speed: 1.5, cooldown: 2.5, hitAt: 0.55, shot: 'bolt', radius: 0.4 }),
   rpg('Wizard', 'Wizard (Q)', /\|Spell[12]$/, { hp: 85, damage: 20, range: 10, speed: 1.4, cooldown: 3, hitAt: 0.55, shot: 'fire', radius: 0.4 }),
-  rpg('Rogue', 'Rogue (Q)', /\|(Dagger_Attack|Punch)/, { hp: 90, damage: 12, range: 1.2, speed: 2.2, cooldown: 0.8, hitAt: 0.4, radius: 0.4 }),
+  // The Rogue has no weapon idle, only the plain one.
+  withClips(rpg('Rogue', 'Rogue (Q)', /\|(Dagger_Attack|Punch)/, { hp: 90, damage: 12, range: 1.2, speed: 2.2, cooldown: 0.8, hitAt: 0.4, radius: 0.4 }), { idle: /\|Idle$/ }),
   {
     id: 'quat-dragon',
     name: 'Dragon',
