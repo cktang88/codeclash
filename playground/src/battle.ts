@@ -216,9 +216,13 @@ function nearest(me: Fighter, foes: Fighter[]): Fighter | null {
 }
 
 function baseRing(radius: number, side: number): THREE.Object3D {
-  const ring = new THREE.Mesh(new THREE.RingGeometry(radius * 0.8, radius, 32), new THREE.MeshBasicMaterial({ color: TEAMS[side], transparent: true, opacity: 0.85, depthWrite: false }));
+  // Lying on the ground it would fight the ground for depth; polygonOffset wins it the test at any
+  // distance, and drawing it after the ground (renderOrder) keeps it from being overdrawn.
+  const mat = new THREE.MeshBasicMaterial({ color: TEAMS[side], transparent: true, opacity: 0.85, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+  const ring = new THREE.Mesh(new THREE.RingGeometry(radius * 0.8, radius, 32), mat);
   ring.rotation.x = -Math.PI / 2;
-  ring.position.y = 0.02;
+  ring.position.y = 0.01;
+  ring.renderOrder = 1;
   return ring;
 }
 

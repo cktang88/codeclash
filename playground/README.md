@@ -16,7 +16,7 @@ pnpm playground        # http://localhost:5174
 - **Look:** turn the ink line on or off, set its width and the toon bands, and pick day, dusk or
   night light. The camera can be orbited with the mouse, with presets for the game's angle, low and
   top.
-- **URL flags:** `?preset=<name>`, `?cam=low|parade`, `?dist=` (parade distance), `?paused`, `?tod=dusk`.
+- **URL flags:** `?preset=<name>`, `?cam=low|parade`, `?dist=` (parade distance), `?paused`, `?tod=dusk`, `?ink=0`.
 
 The fight is deliberately simple (`src/battle.ts`), and it is not the game's simulation. Soldiers
 pick the nearest foe and march, keeping apart from friends. They strike on their attack clip's
@@ -57,6 +57,33 @@ Add a `UnitDef` to one of the files in `src/packs/` (or a new file listed in `sr
 
 Every model gets the same look (`src/style.ts`): toon bands lit warm from the upper left, a cool
 ink-blue fill, and an inverted-hull ink line.
+
+## Depth, normals and facing
+
+Checked with `/diag.html`, which loads every model and logs mirrored transforms, missing, zero or
+inward normals, winding that disagrees with the normals, and open edges. Conventions follow
+autobattler-2's `proto3d`.
+
+- **Axes:** Y up, units face +Z, metres. Z-up FBXs (the Kevin pack) are turned back by -90° about
+  X. No pack has mirrored meshes or flipped winding.
+- **Sides:** KayKit marks every mesh double-sided because its heads and bodies are open where
+  parts meet, so the style pass keeps each pack's sidedness. Open sheets (capes, cloaks, laces;
+  over 10% of edges open) always draw both faces and get **no** ink hull. A hull a hair in front
+  of a one-sided sheet flickers against it.
+- **Ink hull:** pushed along normals averaged per position (`inkNormal`), so hard-edged models
+  don't tear the outline at creases. It is drawn with a positive `polygonOffset`, so where it lies a
+  hair from a surface (layered hair, a pauldron) the surface always wins the depth test.
+- **Coplanar faces:** `src/zfix.ts` ports autobattler-2's fix. Overlapping same-plane triangles of
+  different meshes have the smaller one lifted 2.5 mm along its normal, and it works on skinned and
+  indexed meshes. Every current unit scans clean. The one hit was a duplicated helmet dome of
+  ours, now fixed at the source.
+- **Ground overlays:** base rings sit 1 cm up with a negative `polygonOffset`, `depthWrite: false`
+  and `renderOrder` after the ground.
+- **Depth range:** near 0.5 and far 300, with the orbit limited to 3–90 m.
+- **Shadows:** `bias -0.0004` and `normalBias 0.03` against acne.
+- **Flicker check:** render a frozen frame twice with the camera nudged 1 mm and count pixels
+  that change sharply. What remains is one-pixel antialiasing ticks along ink edges, with no speckle
+  inside surfaces.
 
 ## Notes so far
 

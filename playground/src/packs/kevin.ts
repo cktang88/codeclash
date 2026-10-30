@@ -81,7 +81,7 @@ function helmet(kind: string): THREE.Group {
     }
   }
   if (kind === 'plume') {
-    add(new THREE.SphereGeometry(12.5, 14, 10, 0, Math.PI * 2, 0, Math.PI / 2), steel, 6);
+    // The dome comes from the default branch above; a second one here would z-fight with it.
     const p = add(new THREE.ConeGeometry(4, 22, 8), toon({ color: 0xb8321f }), 22);
     p.rotation.x = -0.5;
   }

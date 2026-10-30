@@ -71,10 +71,13 @@ const battle = new Battle();
 scene.add(battle.group);
 battle.group.traverse((o) => (o.castShadow = true));
 
-const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 500);
+// The near plane sets depth precision: at 0.5 a hull a few millimetres off its surface still resolves at 90 m.
+const camera = new THREE.PerspectiveCamera(35, 1, 0.5, 300);
 const controls = new OrbitControls(camera, canvas);
 controls.enableDamping = true;
 controls.maxPolarAngle = Math.PI / 2 - 0.05;
+controls.maxDistance = 90;
+controls.minDistance = 3;
 function view(pitch: number, dist: number): void {
   const p = THREE.MathUtils.degToRad(pitch);
   camera.position.set(0, Math.sin(p) * dist, Math.cos(p) * dist);
@@ -280,8 +283,9 @@ function tick(): void {
   requestAnimationFrame(tick);
 }
 requestAnimationFrame(tick);
+if (q.get("ink") === "0") setInk(false);
 preset(q.get('preset') ?? 'line battle');
 if (q.get('cam') === 'low') view(14, 22);
 if (q.get('cam') === 'parade') view(8, Number(q.get('dist') ?? 42));
 if (q.has('paused')) $('pause').click();
-(window as unknown as { pg: unknown }).pg = { battle, preset, camera, controls, view };
+(window as unknown as { pg: unknown }).pg = { battle, preset, camera, controls, view, renderer, scene };

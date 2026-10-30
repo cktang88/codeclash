@@ -5,6 +5,7 @@ import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { stylize } from './style.ts';
+import { fixZFight } from './zfix.ts';
 
 export type Pose = 'idle' | 'walk' | 'attack' | 'hit' | 'die';
 
@@ -114,6 +115,8 @@ export function template(def: UnitDef): Promise<Template> {
       holder.updateMatrixWorld(true);
       const b2 = bodyBox(scene);
       scene.position.y -= b2.min.y;
+      const lifted = fixZFight(holder);
+      if (lifted) console.info(`zfix ${def.id}: lifted ${lifted} coplanar triangles`);
       stylize(holder);
       const byPose = new Map<Pose, THREE.AnimationClip[]>();
       for (const pose of ['idle', 'walk', 'attack', 'hit', 'die'] as Pose[]) {
