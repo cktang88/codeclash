@@ -39,6 +39,20 @@ renderer fits the clip to it.
 - **In Node** it runs as is: `pnpm tsx playground/scripts/simcheck.ts` runs it there and checks
   that two runs of the same inputs stay identical tick by tick.
 
+**Collisions.** Each soldier is a circle on the ground: the usual crowd-game shape, stable and
+cheap to resolve. Boxes on soldiers that keep turning would snag. The radii are measured from the
+models (`/footprint.html` poses each through its idle, walk and attack clips and takes half the
+narrower side of its body's ground-plane bounding box, leaving out weapons so a spear can still
+cross a shield). They are stored as plain data (`src/sim/footprints.ts`), so the simulation still
+needs no models.
+
+Each tick, three relaxation passes push every overlapping pair fully apart. The grid is rebuilt
+from where soldiers now stand, and searched wide enough to reach the biggest circle. Walkers and
+flyers collide within their own layer, and the heavier soldier gives less ground. `simcheck`
+reports the overlap. Against the measured radii, the old single half-correcting pass left 25–31%
+of touching pairs more than 10% inside each other (worst 75–78%); now it's 0.2–1.1% (worst
+13–34%).
+
 **Multiplayer.** The playground itself is single-player: the worker is the only simulator, and
 there's no server or network yet. It is built so that adding one is plumbing, not a rewrite, the
 same way Code Clash's own war sim works (`src/sim`, the hub's lockstep inputs and checksums):
@@ -65,13 +79,14 @@ nothing about a real GPU):
 
 | Per side | Sim tick, Node (median / p95) | Main-thread update | Draw calls | Triangles drawn |
 | --- | --- | --- | --- | --- |
-| 40 | 0.07 / 0.35 ms | 0.5 ms | ~40–70 | 1.0 M (close camera) |
+| 40 | 0.10 / 0.35 ms | 0.5 ms | ~40–70 | 1.0 M (close camera) |
 | 150 | n/a | 1.1 ms | ~70 | 3.9 M (before LOD) |
-| 300 | 0.85 / 1.4 ms | n/a | n/a | n/a |
-| 500 | 1.05 / 3.0 ms | 1.2–2.0 ms | ~70 | 12.9 M without LOD, **3.0 M with LOD** (game camera) |
-| 1000 | 2.75 / 6.5 ms | n/a | n/a | n/a |
+| 300 | 1.5 / 2.1 ms | n/a | n/a | n/a |
+| 500 | 2.3 / 4.6 ms | 1.2–2.0 ms | ~70 | 12.9 M without LOD, **3.0 M with LOD** (game camera) |
+| 1000 | 5.6 / 10.5 ms | n/a | n/a | n/a |
 
-A tick has a 50 ms budget, so the simulation has 10× headroom at 1000 a side. Draw calls stay
+A tick has a 50 ms budget, so the simulation keeps about 5× headroom at 1000 a side (collisions
+are most of its cost). Draw calls stay
 flat as armies grow. The open question is GPU time on real hardware: at 500 a side and the game
 camera that is ~3 M toon-shaded triangles with texture skinning. A mid-range discrete GPU should
 hold 60 fps; an integrated laptop GPU is the one to try.

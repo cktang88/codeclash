@@ -207,11 +207,12 @@ function battle(name: string): void {
 function parade(): void {
   send({ tick: 0, kind: 'clear' });
   const list = UNITS.map((d, i) => [d, i] as const).filter(([d]) => usable(d.id));
-  let z = -list.reduce((a, [d]) => a + d.stats.radius * 2 + 0.8, 0) / 2;
-  for (const [d, type] of list) {
-    z += d.stats.radius + 0.4;
+  const radius = (type: number) => BATTLES.types[type]!.radius;
+  let z = -list.reduce((a, [, type]) => a + radius(type) * 2 + 0.8, 0) / 2;
+  for (const [, type] of list) {
+    z += radius(type) + 0.4;
     send({ tick: 0, kind: 'muster', side: 0, type, count: 1, files: 1, x: 0, z });
-    z += d.stats.radius + 0.4;
+    z += radius(type) + 0.4;
   }
   controls.target.set(0, 1, 0);
   camera.position.set(28, 4, 0);
@@ -337,7 +338,7 @@ canvas.addEventListener('pointerup', (e) => {
     const d = UNITS[cur.units[i + 1]!]!;
     p.set(cur.units[i + 3]!, (d.stats.fly ?? 0) + d.height / 2, cur.units[i + 4]!);
     const dist = ray.ray.distanceSqToPoint(p);
-    if (dist < Math.max(0.5, d.stats.radius) ** 2 && dist < bd) {
+    if (dist < Math.max(0.5, BATTLES.types[cur.units[i + 1]!]!.radius) ** 2 && dist < bd) {
       bd = dist;
       best = [cur.units[i]!, cur.units[i + 1]!];
     }
@@ -401,7 +402,7 @@ function draw(now: number): void {
     const since = Math.max(0, (at - U[i + 9]!) * TICK_S);
     const variant = U[i + 10]!;
     // Base ring and blob, even before the crowd's art is ready.
-    const r = def.stats.radius * 2.2;
+    const r = BATTLES.types[type]!.radius * 2.2;
     mat.compose(pos.set(x, 0.01, z), noTurn, scl.set(r, 1, r));
     bases.setMatrixAt(nb, mat);
     const pc = st === St.Dead ? corpse : pigments[side]!;

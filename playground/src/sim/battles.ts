@@ -1,10 +1,11 @@
 // Battles as simulation inputs: armies drawn up in formation blocks, melee in front, missiles behind.
 import { typeOf, UNITS } from '../units.ts';
+import { FOOTPRINTS } from './footprints.ts';
 import type { SimInput, UnitType } from './sim.ts';
 
 export const BATTLES = {
   types: UNITS.map(
-    (d): UnitType => ({ id: d.id, ...d.stats, swing: d.stats.swing ?? 0.9, variants: 4 }),
+    (d): UnitType => ({ id: d.id, ...d.stats, radius: FOOTPRINTS[d.id] ?? d.stats.radius, swing: d.stats.swing ?? 0.9, variants: 4 }),
   ),
 };
 

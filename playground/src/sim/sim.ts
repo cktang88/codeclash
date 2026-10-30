@@ -274,7 +274,7 @@ export function step(w: World, inputs: readonly SimInput[]): void {
       u.variant = Math.floor(rand(w) * t.variants);
     } else setState(w, u, St.Idle);
   }
-  separate(w, g);
+  separate(w);
   w.shots = w.shots.filter((s) => {
     if (w.tick < s.t1) return true;
     const foe = w.byId.get(s.target);
@@ -309,37 +309,59 @@ function strike(w: World, u: Unit, t: UnitType): void {
   w.shots.push({ id: w.nextId++, kind: SHOT_KINDS.indexOf(t.shot), x: u.x, y: (t.fly ?? 0) + 1.3, z: u.z, target: foe.id, t0: w.tick, t1: w.tick + Math.max(2, Math.ceil((d / speed) * TICKS_PER_S)), damage: t.damage });
 }
 
-/** Pushes overlapping soldiers apart, friend or foe, so lines press against each other instead of merging. */
-function separate(w: World, g: Grid): void {
-  for (const u of w.units) {
-    if (u.st === St.Dead) continue;
-    const t = w.types[u.type]!;
-    if (t.fly) continue;
-    const cx = Math.floor(u.x / CELL);
-    const cz = Math.floor(u.z / CELL);
-    for (let i = -1; i <= 1; i++)
-      for (let j = -1; j <= 1; j++) {
-        const l = g.get(cellKey(cx + i, cz + j));
-        if (!l) continue;
-        for (const o of l) {
-          if (o.id <= u.id || o.st === St.Dead) continue;
-          const ot = w.types[o.type]!;
-          if (ot.fly) continue;
-          const dx = o.x - u.x;
-          const dz = o.z - u.z;
-          const min = t.radius + ot.radius;
-          const d2 = dx * dx + dz * dz;
-          if (d2 >= min * min) continue;
-          const d = Math.sqrt(d2) || 1e-3;
-          const push = ((min - d) / d) * 0.5;
-          // The heavier soldier gives less ground.
-          const wu = ot.radius / (t.radius + ot.radius);
-          u.x -= dx * push * wu;
-          u.z -= dz * push * wu;
-          o.x += dx * push * (1 - wu);
-          o.z += dz * push * (1 - wu);
+/** Relaxation passes per tick: one leaves a dense crowd half-resolved; three settle it. */
+const SEPARATION_PASSES = 3;
+
+/**
+ * Pushes overlapping soldiers fully apart, friend or foe, so lines press against each other
+ * instead of merging. Walkers and flyers each collide only within their own layer. The grid is
+ * rebuilt each pass from where soldiers now stand, and searched wide enough to reach the biggest
+ * soldier's circle. Heavier soldiers (by area) give less ground.
+ */
+function separate(w: World): void {
+  const maxR = w.types.reduce((m, t) => Math.max(m, t.radius), 0);
+  for (let pass = 0; pass < SEPARATION_PASSES; pass++) {
+    const g = buildGrid(w);
+    for (const u of w.units) {
+      if (u.st === St.Dead) continue;
+      const t = w.types[u.type]!;
+      const fly = !!t.fly;
+      const span = Math.ceil((t.radius + maxR) / CELL);
+      const cx = Math.floor(u.x / CELL);
+      const cz = Math.floor(u.z / CELL);
+      for (let i = -span; i <= span; i++)
+        for (let j = -span; j <= span; j++) {
+          const l = g.get(cellKey(cx + i, cz + j));
+          if (!l) continue;
+          for (const o of l) {
+            if (o.id <= u.id) continue;
+            const ot = w.types[o.type]!;
+            if (!!ot.fly !== fly) continue;
+            const dx = o.x - u.x;
+            const dz = o.z - u.z;
+            const min = t.radius + ot.radius;
+            const d2 = dx * dx + dz * dz;
+            if (d2 >= min * min) continue;
+            let d = Math.sqrt(d2);
+            let nx = dx;
+            let nz = dz;
+            if (d < 1e-4) {
+              // Exactly stacked: part them along a direction fixed by their ids.
+              nx = (o.id - u.id) % 2 === 0 ? 1 : -1;
+              nz = 0.5;
+              d = Math.sqrt(nx * nx + nz * nz);
+            }
+            const over = (min - d) / d;
+            const mu = t.radius * t.radius;
+            const mo = ot.radius * ot.radius;
+            const ku = mo / (mu + mo);
+            u.x -= nx * over * ku;
+            u.z -= nz * over * ku;
+            o.x += nx * over * (1 - ku);
+            o.z += nz * over * (1 - ku);
+          }
         }
-      }
+    }
   }
 }
 
