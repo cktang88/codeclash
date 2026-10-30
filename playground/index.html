@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Fight Playground</title>
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #12161f; color: #efe4c8; font: 13px/1.4 Alegreya, Georgia, serif; }
+      #view { position: fixed; inset: 0; display: block; width: 100%; height: 100%; }
+      .panel { position: fixed; background: rgba(18, 22, 31, 0.88); border: 1px solid #8a6418; padding: 10px 12px; max-height: calc(100% - 40px); overflow: auto; }
+      #roster { top: 10px; left: 10px; width: 270px; }
+      #controls { top: 10px; right: 10px; width: 230px; }
+      #inspect { bottom: 10px; right: 10px; width: 300px; max-height: 45%; }
+      #inspect[hidden] { display: none; }
+      h2 { margin: 0 0 6px; font: 16px 'IM Fell English SC', Georgia, serif; color: #d4a93e; letter-spacing: 0.04em; }
+      h3 { margin: 10px 0 4px; font: 12px Georgia, serif; color: #b9a477; text-transform: uppercase; letter-spacing: 0.08em; }
+      .unit { display: flex; align-items: center; gap: 4px; padding: 1px 0; }
+      .unit span { flex: 1; }
+      button, select { background: #22180f; color: #efe4c8; border: 1px solid #8a6418; padding: 2px 7px; font: inherit; cursor: pointer; }
+      button:hover { background: #3a2a18; }
+      button.blue { border-color: #3d63c4; color: #9fb6ff; }
+      button.red { border-color: #c8432c; color: #ffab98; }
+      .row { display: flex; gap: 6px; align-items: center; margin: 4px 0; flex-wrap: wrap; }
+      label { display: flex; gap: 6px; align-items: center; }
+      input[type='range'] { width: 110px; }
+      #tally { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #b9a477; }
+      .clips { display: flex; flex-wrap: wrap; gap: 3px; }
+      .clips button { font-size: 11px; padding: 1px 5px; }
+      #missing { position: fixed; inset: 0; display: grid; place-items: center; text-align: center; }
+    </style>
+  </head>
+  <body>
+    <canvas id="view"></canvas>
+    <div id="roster" class="panel">
+      <h2>Muster</h2>
+      <div class="row"><label>count <select id="count"><option>1</option><option selected>3</option><option>6</option><option>12</option></select></label></div>
+      <div id="units"></div>
+    </div>
+    <div id="controls" class="panel">
+      <h2>The Field</h2>
+      <h3>Battles</h3>
+      <div class="row" id="presets"></div>
+      <h3>Time</h3>
+      <div class="row"><button id="pause">pause</button><button id="clear">clear</button></div>
+      <div class="row"><label>speed <input id="speed" type="range" min="0.1" max="3" step="0.05" value="1" /></label></div>
+      <h3>Look</h3>
+      <div class="row"><label><input id="ink" type="checkbox" checked /> ink line</label></div>
+      <div class="row"><label>ink <input id="inkw" type="range" min="0.5" max="4" step="0.1" value="1.6" /></label></div>
+      <div class="row"><label>bands <select id="bands"><option>2</option><option selected>3</option><option>4</option><option value="0">smooth</option></select></label></div>
+      <div class="row"><label>light <select id="tod"><option value="day" selected>day</option><option value="dusk">dusk</option><option value="night">night</option></select></label></div>
+      <h3>Camera</h3>
+      <div class="row"><button id="cam-game">game view</button><button id="cam-low">low</button><button id="cam-top">top</button></div>
+      <div id="tally"></div>
+    </div>
+    <div id="inspect" class="panel" hidden></div>
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>

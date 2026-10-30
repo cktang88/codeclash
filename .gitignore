@@ -6,3 +6,4 @@ data
 .env
 .claude/worktrees
 src/client/public/lab/
+playground/assets/kevin/

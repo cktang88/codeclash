@@ -9,6 +9,7 @@
     "dev": "concurrently -k -n server,client \"pnpm dev:server\" \"pnpm dev:client\"",
     "dev:server": "tsx watch src/server/main.ts",
     "dev:client": "vite",
+    "playground": "vite --config playground/vite.config.ts",
     "build": "vite build && esbuild src/server/main.ts src/server/parseWorker.ts --bundle --platform=node --format=esm --packages=external --outdir=dist/server --define:__SIM_VERSION__=\\\"$(tsx scripts/sim-version.ts)\\\"",
     "start": "node dist/server/main.js",
     "test": "vitest run",
