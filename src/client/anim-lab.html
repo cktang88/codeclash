@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Anim Lab</title>
+    <style>
+      html, body { margin: 0; background: #0b0e11; color: #e9e4d6; font: 13px/1.4 Inter, system-ui, sans-serif; }
+      #live { display: block; width: 100%; height: 46vh; }
+      #panel { position: sticky; top: 0; z-index: 1; display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; padding: 8px 12px; background: rgba(10, 12, 15, 0.92); border-bottom: 1px solid #333; }
+      #panel label { display: flex; gap: 6px; align-items: center; }
+      #panel button, #panel select { background: #1d232a; color: #e9e4d6; border: 1px solid #3a4450; border-radius: 6px; padding: 4px 9px; font: inherit; cursor: pointer; }
+      #status { font-family: 'JetBrains Mono', monospace; opacity: 0.75; }
+      #sheet { display: block; margin: 0 auto; max-width: 100%; }
+      #missing { padding: 24px; max-width: 640px; }
+      #missing code { background: #1d232a; padding: 1px 4px; }
+    </style>
+  </head>
+  <body>
+    <div id="panel">
+      <label>yaw <input id="yaw" type="range" min="0" max="90" value="38" /></label>
+      <label>elevation <input id="elev" type="range" min="0" max="60" value="22" /></label>
+      <label>ink <input id="ink" type="range" min="0" max="3" step="0.1" value="1.2" /></label>
+      <label>bands <select id="bands"><option>2</option><option selected>3</option><option>4</option><option value="0">smooth</option></select></label>
+      <label>frames <select id="frames"><option value="game" selected>game counts (4/6/4/4)</option><option value="smooth">smooth (12)</option></select></label>
+      <label>ground <select id="ground"><option value="day" selected>day</option><option value="night">night</option></select></label>
+      <button id="rebake">re-bake sheet</button>
+      <span id="status">loading…</span>
+    </div>
+    <canvas id="live"></canvas>
+    <canvas id="sheet"></canvas>
+    <script type="module" src="./anim-lab.ts"></script>
+  </body>
+</html>
