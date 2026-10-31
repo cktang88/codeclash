@@ -11,15 +11,14 @@ battlefield size.
 
 The lab uses [Human Melee Animations FREE](https://kevdev.itch.io/human-melee-animatons-free) by
 Kevin Iglesias. It is free, but its raw files may not be redistributed, so they are not in git
-(`src/client/public/lab/` is ignored). Download the "Godot/Unreal" zip (FBX) and unpack it:
+(`src/client/public/lab/` is ignored). Fetch and unpack it with one command:
 
 ```sh
-unzip "Human Melee Animations FREE.zip" -d /tmp/kevin
-D=src/client/public/lab/kevin; mkdir -p $D/anim
-cp -r /tmp/kevin/Models /tmp/kevin/Textures $D/
-find /tmp/kevin/Animations/Male -name '*.fbx' ! -path '*RootMotion*' ! -path '*Strafe*' -exec cp {} $D/anim/ \;
-cp /tmp/kevin/Animations/Masked\ Poses/HumanM@* $D/anim/
+pnpm setup:3d
 ```
+
+If itch.io changes its download flow, download the "Godot/Unreal" zip by hand and run
+`pnpm setup:3d --zip <path to the zip>`.
 
 Then run `pnpm dev:client` and open http://localhost:5173/anim-lab.html. Query flags: `?nobake`
 skips the sheet, `?mini=0` turns off the miniature proportions, and `?rx=` overrides the FBX

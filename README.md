@@ -22,6 +22,7 @@ Use pnpm, not npm: the lockfile is `pnpm-lock.yaml`, and running `npm i` over a 
 Open http://localhost:5173. The Vite dev server proxies `/api`, `/auth`, `/hooks`, and `/ws` to the game server on port 8787.
 
 - **No setup at all:** open http://localhost:5173/demo. A sparring war runs entirely in your browser.
+- **3D experiments:** `pnpm 3d` serves the fight playground at http://localhost:5174 (see [playground/README.md](playground/README.md)).
 - **Army preview:** open http://localhost:5173/preview and paste any public repository (`owner/repo` or a GitHub link). It shows the army each of the latest 10 commits would raise, and why. It uses `GITHUB_TOKEN` when it is set, and otherwise reads anonymously at 60 GitHub requests an hour (about four uncached previews).
 - **Without GitHub sign-in:** set `DEV_AUTH=1` and sign in at `http://localhost:5173/auth/dev?login=<any login>`. Set `DAY_MINUTES=10` to watch a whole day end, write its digest, and start again within minutes.
 - **With real pushes:** set `GITHUB_TOKEN` to a token that can read public data. Members' public pushes are polled from the events API. GitHub may deliver those events minutes to hours late. A member who wants near-real-time armies can open Settings, create a personal hook, and add it to a repository as a push webhook.

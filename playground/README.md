@@ -5,8 +5,12 @@ part of the game**: it has its own Vite config, imports nothing from `src/`, and
 `dist/playground` only when asked.
 
 ```sh
-pnpm playground        # http://localhost:5174
+pnpm install
+pnpm 3d                # fetches the Kevin Iglesias pack if missing, then serves http://localhost:5174
 ```
+
+`pnpm playground` serves it without the fetch. `pnpm setup:3d` only fetches (`--force` to fetch
+again, `--zip <file>` for a zip downloaded by hand). Without that pack, every CC0 unit still works.
 
 - **Muster** (left): add any unit to blue or red, 1 to 100 at a time.
 - **Battles** (right): men vs monsters, mirror match, and dragon raid, drawn up in formation, plus
@@ -108,10 +112,9 @@ hold 60 fps; an integrated laptop GPU is the one to try.
 | [Quaternius RPG Characters](https://opengameart.org/content/lowpoly-rpg-characters) | CC0 | Warrior, Ranger, Cleric, Wizard (Q), Rogue (Q) |
 | [Kevin Iglesias Human Melee Animations FREE](https://kevdev.itch.io/human-melee-animatons-free) | free, **not redistributable** | Footman, Warden, Mercenary, Sapper, Berserker, Champion (painted mannequin). Shown only when unpacked locally |
 
-The CC0 files are committed under `assets/` with their license texts. The Kevin Iglesias pack is
-ignored by git. To use it, unpack the "Godot/Unreal" zip so that `assets/kevin/` holds `Models/`,
-`Textures/` and `anim/HumanM@*.fbx` (the same layout as in `docs/anim-lab.md`, with
-`playground/assets/kevin` as the destination).
+The CC0 files are committed under `assets/` with their license texts. The Kevin Iglesias pack
+is ignored by git: `pnpm setup:3d` (`scripts/setup-3d.ts`) fetches it from itch.io's free download
+and unpacks it into `assets/kevin/` and the anim lab's folder, on your machine only.
 
 All KayKit characters share one rig (`Rig_Medium`). The animation library's ~150 clips play on
 any of them, including melee 1H, 2H and dual-wield, block, bow draw and release, spell casting,
