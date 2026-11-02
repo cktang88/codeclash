@@ -278,7 +278,7 @@ function openString(t: string, from: number, syntax: Syntax, state: { block: Blo
       continue;
     }
     // A JavaScript regex literal may hold quotes and backticks of its own.
-    if (ch === '/' && strings.some((s) => s.template) && /(^|[(,=:[!&|?{};+\-*%<>~^]|\b(return|typeof|case|of|in))\s*$/.test(t.slice(0, i))) {
+    if (ch === '/' && strings.some((s) => s.template) && REGEX_BEFORE.test(t.slice(0, i))) {
       const end = regexEnd(t, i + 1);
       if (end < 0) return;
       i = end;
@@ -287,6 +287,9 @@ function openString(t: string, from: number, syntax: Syntax, state: { block: Blo
     i++;
   }
 }
+
+/** What may come just before a JavaScript regex literal (where a `/` cannot be division). */
+const REGEX_BEFORE = /(^|[(,=:[!&|?{};+\-*%<>~^]|\b(return|typeof|case|of|in))\s*$/;
 
 /** From just inside a regex literal, the index just past its closing slash, or -1. */
 function regexEnd(t: string, i: number): number {
@@ -344,11 +347,18 @@ const QUOTED = /"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`/g;
 
 /** A line with its one-line string literals emptied and any trailing line comment cut off. */
 function codeOf(t: string, syntax: Syntax): string {
-  const s = t.replace(QUOTED, '""');
+  let s = t.replace(QUOTED, '""');
+  const js = syntax.strings?.some((x) => x.template) ?? false;
   for (let i = 0; i < s.length; i++) {
     const b = syntax.blocks.find((x) => s.startsWith(x.open, i));
     if (b) i += b.open.length - 1;
     else if (syntax.line.some((m) => s.startsWith(m, i))) return s.slice(0, i);
+    else if (js && s[i] === '/' && REGEX_BEFORE.test(s.slice(0, i))) {
+      // A regex literal (`/^\/*/`) is not a comment opener either.
+      const end = regexEnd(s, i + 1);
+      if (end > 0) s = `${s.slice(0, i)}""${s.slice(end)}`;
+      i++;
+    }
   }
   return s;
 }

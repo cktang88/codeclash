@@ -184,12 +184,32 @@ export function botDay(seed: number, bot: number): BotDay {
   rand();
   const start = 8 + rand() * 2;
   const windows: [number, number][] = [[start, start + 7 + rand() * 3]];
-  const rate = BOT_RATE[0] * Math.pow(BOT_RATE[1] / BOT_RATE[0], rand());
+  const rate = BOT_RATE[0] * powUnit(BOT_RATE[1] / BOT_RATE[0], rand());
   if (rand() < 0.4) {
     const from = 19 + rand() * 2.5;
     windows.push([from, Math.min(23, from + 0.5 + rand())]);
   }
   return { rate, windows };
+}
+
+/**
+ * `base ** u` for `u` in [0, 1), from square roots and products only (src/game/rng.ts: no `pow` in
+ * what the game reads, since engines may round it differently): each binary digit of `u` multiplies
+ * in `base` to the matching power of one half. Within a few ulps of `base ** u`.
+ */
+export function powUnit(base: number, u: number): number {
+  let r = 1;
+  let b = base;
+  let f = Math.max(0, Math.min(1, u));
+  for (let k = 0; k < 53 && f > 0; k++) {
+    b = Math.sqrt(b);
+    f *= 2;
+    if (f >= 1) {
+      r *= b;
+      f -= 1;
+    }
+  }
+  return r;
 }
 
 /** Bot pushes per hour at room-local `hour` (taken modulo 24). */

@@ -108,6 +108,10 @@ describe('classifyLine', () => {
     expect(run('a.go', ['files := find("src/**/*.go")', 'build(files)'])).toEqual(['code', 'code']);
     expect(run('a.ts', ['run(); // see /* below', 'next();'])).toEqual(['code', 'code']);
     expect(run('a.ts', ['const glob = "a/*"; /* real', 'comment', '*/', 'x();'])).toEqual(['code', 'comment', 'comment', 'code']);
+    // Nor from inside a regex literal: stripping leading slashes is code, and so are the lines after it.
+    expect(run('a.ts', ["const rel = path.replace(/^\\/*/, '');", 'load(rel);', 'done();'])).toEqual(['code', 'code', 'code']);
+    expect(run('a.ts', ['const re = /x/; /* real', 'comment', '*/', 'x();'])).toEqual(['code', 'comment', 'comment', 'code']);
+    expect(run('a.ts', ['const half = total / 2; /* real', 'comment', '*/', 'x();'])).toEqual(['code', 'comment', 'comment', 'code']);
   });
 
   it('reads Ruby =begin blocks, Lua and Haskell comments', () => {

@@ -1,6 +1,7 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { Cat } from './categories.ts';
-import { BOT_RATE, BOTS, botDay, botPush, botPushesPerDay, botRateAt, mulberry } from './bots.ts';
+import { BOT_RATE, BOTS, botDay, botPush, botPushesPerDay, botRateAt, mulberry, powUnit } from './bots.ts';
 
 describe('sparring bots', () => {
   it('push in their style with conventional messages and plausible shape', () => {
@@ -68,6 +69,18 @@ describe('sparring bots', () => {
     }
     expect(botDay(1, 0)).not.toEqual(botDay(2, 0));
     expect(botDay(1, 0)).not.toEqual(botDay(1, 1));
+  });
+
+  it('draw their push rate without Math.pow (the game must round the same on every engine), as Math.pow would', () => {
+    const rand = mulberry(9);
+    for (let i = 0; i < 2000; i++) {
+      const u = rand();
+      const want = BOT_RATE[1] / BOT_RATE[0];
+      expect(Math.abs(powUnit(want, u) / want ** u - 1)).toBeLessThan(1e-13);
+    }
+    expect(powUnit(7.5, 0)).toBe(1);
+    expect(powUnit(7.5, 0.5)).toBe(Math.sqrt(7.5));
+    expect(readFileSync(new URL('./bots.ts', import.meta.url), 'utf8')).not.toMatch(/Math\.(pow|exp|log|sin|cos|tan|atan2)\b/);
   });
 
   it('push about as often as people do over a day, some evenings too', () => {

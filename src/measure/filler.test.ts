@@ -55,6 +55,9 @@ describe('filler in honest client code', () => {
     // Lines from the commit that the old two-letter-word rule left out.
     for (const t of ['label.x = x;', 'v.sampleTick = -1;', 'y += len / 6;', 'ctx.lineWidth = 0.8;', 'const a = claimed[i]!;', 'whoosh(v, 0.7, 600, 2400, 0.12);']) expect(fillerKind(normalize(t)), t).toBeNull();
     for (const t of ['content: \'\';', 'margin: 0;', 'color: #d3c6a6;']) expect(fillerKind(normalize(t), 'none'), t).toBeNull();
+    // `:=` assigns (Go, Python's walrus): `i := 0` is a statement like `var i = 0`, not a `key: literal` row.
+    for (const t of ['i := 0', 'retries := 3', 'name := "ana"', 'err := nil', 'var i = 0']) expect(fillerKind(normalize(t)), t).toBeNull();
+    expect(fillerKind(normalize('retries: 3,')), 'an object key is still a label').toBe('data');
     // Closing braces and tags are structure, not code, and are free while the code carries them.
     for (const t of ['}', ')}', '})}', '</radialGradient>', '</g>', 'return (']) expect(fillerKind(normalize(t)), t).toBe('structure');
   });

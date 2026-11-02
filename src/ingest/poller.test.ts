@@ -267,4 +267,24 @@ describe('Poller', () => {
     expect(await ingestPush(deps, user, push)).toBeNull();
     expect(t.reports).toHaveLength(1);
   });
+
+  it('a tick never rejects, even when the store fails', async () => {
+    const warnings: string[] = [];
+    const store = new Proxy(t.store, { get: (s, k) => (k === 'user' ? () => { throw new Error('database is locked'); } : Reflect.get(s, k, s)) });
+    const poller = new Poller({ store, github: t.github, log: { ...silentLogger, warn: (m) => void warnings.push(m) }, clock: () => NOW, onPush: () => {} });
+    await expect(poller.tick()).resolves.toBeUndefined();
+    expect(warnings).toEqual(['poll tick failed']);
+    // And the next tick runs.
+    await expect(poller.tick()).resolves.toBeUndefined();
+    expect(warnings).toHaveLength(2);
+  });
+
+  it('shortens a long headline without cutting an emoji in half', async () => {
+    const message = `${'a'.repeat(70)}🚀 and the rest of a long headline`;
+    t.github.setCompare('ana/parser', sha(1), sha(2), { commits: [commit(2, 'ana', message)], files: [sourceFile('a.ts', calls(0, 2))] });
+    const deps = { store: t.store, github: t.github, clock: () => NOW, onPush: (r: PushReport) => t.reports.push(r) };
+    const r = await ingestPush(deps, t.store.user(7)!, { repo: 'ana/parser', ref: 'refs/heads/main', before: sha(1), head: sha(2), at: NOW });
+    expect(r!.message).toBe(`${'a'.repeat(70)}…`);
+    expect(r!.message).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
+  });
 });
