@@ -17,6 +17,8 @@ The template is the undead **Grave Legionary** in `undead.ts`. Read it before yo
 | `facing.ts` | the four facings and mirroring | coordinator only |
 | `registry.ts` | `registerPaperKind`, `paperKindFor`, `paperSupports` | coordinator only |
 | `index.ts` | `paintPaper`, the faction master palettes, the lint palette export | coordinator only |
+| `skeleton.ts` | bone animation: skeleton and animation data, deterministic FK/IK evaluation, the per-angle part cache, standard skeletons and clips, the mocap loader (see "Animating with bones") | coordinator only |
+| `rotsprite.ts` | RotSprite (Aseprite port, MIT) for rare hand-pixelled bitmap parts | coordinator only |
 | `<faction>.ts` (`templar.ts`, `samurai.ts`, `undead.ts`) | that faction's materials, keys and figures, registered at load | **that faction's agent only** |
 | `<faction>-parts.ts` (new) | additive helpers shared by that faction's figures (helmets, horses, banners) | that faction's agent only |
 
@@ -108,6 +110,101 @@ the viewer: it is screen-left in SE and screen-right in NE. In NE:
 - Draw back details: the back of the head, the spine and shoulder blades, cloak and tabard back panels, and the back of the shield.
 
 To hand-draw SW or NW instead of mirroring, list them in `facings`.
+
+## Animating with bones (`skeleton.ts`)
+
+The pose rig above moves anchors you compute by hand. `skeleton.ts` gives a figure real bones
+instead: a bone hierarchy with a rest pose, parts attached to bones, two-bone IK for planted feet
+and two-handed grips, and keyed animations. It follows Spine and DragonBones semantics, but it is our
+own small bake-time evaluator; see `docs/art-references/skeletal-animation.md` for why. Everything is
+plain JSON-serialisable data apart from the part draw functions.
+
+| Piece | What it is |
+|---|---|
+| `SkeletonData` | `bones` (name, parent, `len`, rest `x`/`y`/`rot` in the parent's frame, `inherit`, per-facing overrides), `slots` (a bone and the attachment shown per facing), `drawOrder` per facing, `ik` |
+| `IkData` | `bones: [upper, lower]`, `target` (a bone), `bend` (+1 knees forward, -1 elbows back), `mix`, and `ground` for feet |
+| `AnimationData` | `frames`, `loop`, per-bone timelines (`rotate`, `translate`, `scaleY`) of keys `{ f, v, c }` with `c` = `'linear'`, `'stepped'` or a bezier `[cx1, cy1, cx2, cy2]` (`EASE`, `EASE_IN`, `EASE_OUT`); IK `mix`/`bend` keys, slot swaps, draw-order keys, `events` (`smear`, `release`, `step`, `hit`, `land`) |
+| `Clip` | an animation, or layered `Track`s (`mode: 'add'` for a breathing overlay, `'replace'` for a rider's attack over a horse's walk), or `{ byFacing: { se, ne } }` |
+| `AttachmentSet` | slot attachment name → a draw function `(c, x, ctx)`, or `{ draw, cache: false }` for parts that read the frame (smears) |
+
+How a frame is made (`bakeClip`, `drawSkeleton`, `paintSkeleton`):
+1. **FK**, parents first. The angles are world angles snapped to 7.5° **with hysteresis**: a bone keeps last frame's step until its raw angle is 0.6 steps away. Joints are rounded to whole pixels parent-first.
+2. **IK**, in the skeleton's order. The law of cosines gives the raw solution, and the snapped pair whose pixel end lands nearest the target is chosen. Then the **ground** step moves the figure (never the targets) by whole pixels so that the lowest planted foot stands exactly on its target.
+3. **Parts**. Each attachment draws at its bone's snapped transform. Cached parts are rasterised once per (part, angle step, scale-y, level) and blitted at whole-pixel origins, so **an unchanged angle gives identical pixels**. Then the usual passes run on the composite (contact, clusters, steady, colours), and the outline goes round the whole figure once.
+4. **Determinism**. Snapped angles use a fixed sine table built from square roots, and atan2/acos are series. `Math.sin` is never called while posing, and bakes are byte-identical in Node and every browser (tested with Math trig sabotaged).
+
+The conventions are the rig's. On a **hanging** bone (limbs), + swings forward. On an **upright**
+bone (spine, chest, neck, head, a horse's neck), + tips it **backward**, so a forward lean is
+negative. The standard skeletons use one naming scheme: `pelvis`, `spine`, `chest`, `neck`, `head`,
+`upperArm`/`forearm`/`hand`, `thigh`/`shin`/`foot`, with sides `N` (near: the weapon side, toward
+the viewer in SE and NE) and `F` (far), plus `weapon`, `grip2` and `footTargetN/F`. Horses add
+`horseBody` (pivoting at the hindquarters, + rears), `horseNeck`, `horseHead`, `tail`,
+`foreNUpper`…`hindFLower` and `saddle`. The rider uses the man's names.
+
+Helpers:
+- `footSkeleton`, `beastSkeleton`, `horseSkeleton`, `engineSkeleton` (or `skeletonFor(body)`) build standard skeletons with the bulk brief's proportions.
+- `footAnimations`, `horseAnimations`, `beastAnimations`, `engineAnimations` (or `animationsFor(body)`) build the standard clips:
+  - idle (breathing only);
+  - walk and run (contact, down, passing, up, with the feet planted by IK);
+  - attack (anticipation, strike with a `smear` event, follow-through, recover);
+  - shoot (a `release` event), hit, die, dead and brace;
+  - for horses, a four-beat walk and a gallop with the rider's bob a frame behind.
+- `bonesFromJoints` builds bones from world-space rest joints. `animationFromPoses` builds an animation from whole poses, the way `KeySet`s are written. `restJoints(skel)` gives the rest positions to line key art up with.
+- `mixLocals`, `pickBones`, `scaleSkeleton` and `scaleAnimation` combine and resize skeletons and clips. `localsFromWorld` drives the bones from world angles (for example from an old `FootPose`).
+- `loadMotion(json, skel)` loads the mocap key JSON in `motion/*.json`:
+  - it resolves BVH and L/R names (`resolveBone`; right = N);
+  - it retargets by leg length or `restHeight`;
+  - it plants the feet by IK on top, using the `contact` flags or the ankle's height.
+- `skeletonKind(rig)` plugs a rig into `registerPaperKind`. `smearPart` draws a weapon's sweep during a `smear` event. `stickParts` gives placeholder rods for every slot. `bitmapPart` (in `rotsprite.ts`) turns a hand-pixelled bitmap with its bone, using RotSprite at snapped angles only.
+
+### Worked example: from key art to a walking, striking figure
+
+Take a static key-art figure (here the Grave Legionary's legs and skull from `undead-static.ts`).
+Split it into parts per bone, attach the parts, and play the clips. Each part makes the **same
+drawing calls as the key art**, with its key-art points passed through `x.r(...)`. That maps a
+point of the rest pose onto the bone as it moves now. Angles drawn in the key art go through
+`x.turn(...)`. The example is also a test in `skeleton.test.ts`.
+
+```ts
+import { Anim } from '../contract.ts';
+import { M, Paper, type P2 } from './core.ts';
+import { registerPaperKind } from './registry.ts';
+import { footAnimations, footSkeleton, paintSkeleton, skeletonKind, stickParts, type AttachmentSet, type SkeletonRig } from './skeleton.ts';
+import { skull, UM } from './undead-parts.ts';
+import { plate, vol } from './undead-static.ts';
+
+// 1. The skeleton. Its rest pose is the key art's stance (restJoints(skel) lists the joints).
+const skel = footSkeleton({ name: 'legionary-bones' });
+
+// 2. The key art's own points, from the static drawing (undead-static.ts `B`).
+const B = { head: [0.75, -13.15], hipN: [-0.75, -6.5], kneeN: [-1.05, -3.65], ankN: [-1.15, -0.75] } satisfies Record<string, P2>;
+const sabaton = (a: P2): P2[] => [[a[0] - 0.7, a[1] - 0.35], [a[0] + 0.5, a[1] - 0.45], [a[0] + 1.35, a[1] + 0.35], [a[0] + 1.3, a[1] + 0.75], [a[0] - 0.75, a[1] + 0.75]];
+
+// 3. One part per bone: the key art's drawing calls, with the points through x.r and the angles through x.turn.
+const parts: AttachmentSet = {
+  ...stickParts(skel, { body: UM.bone, cloth: UM.rag, metal: UM.steel, team: M.team, hide: UM.leather }), // the bones not split yet
+  thighN: (c, x) => vol(c, x.r(B.hipN), x.r(B.kneeN), 1.55, 1.25, UM.mail),
+  shinN: (c, x) => vol(c, x.r(B.kneeN), x.r(B.ankN), 0.95, 1.0, UM.rust, { tone: 3, caps: false }),
+  footN: (c, x) => plate(c, sabaton(B.ankN).map(x.r), UM.rust),
+  head: (c, x) => skull(c, x.r(B.head), x.turn(0), true),
+};
+
+// 4. Play it: walk (feet planted by IK) and attack (a smear on frames 4 and 5).
+const rig: SkeletonRig = { skel, atts: parts, clips: footAnimations() };
+const paper = new Paper();
+for (let f = 0; f < 12; f++) paintSkeleton(rig, Anim.Walk, f, { level: 8, facing: 'se', paper });
+for (let f = 0; f < 12; f++) paintSkeleton(rig, Anim.Attack, f, { level: 8, facing: 'ne', paper });
+
+// 5. Or hand it to the live painter: index.ts then paints it like any paper kind.
+registerPaperKind('undead', 0, skeletonKind(rig));
+```
+
+Notes:
+- **At rest the split parts rasterise exactly as the static drawing does**, pixel for pixel; the test checks it. Only the shading band offset is reseeded per slot, so that a part's bands do not depend on what was drawn before it.
+- **Back views.** Give a slot a different attachment per facing (`attachment: { se: 'thighN', ne: 'thighN.back' }`). Rest positions that differ by facing are bone `facing` overrides (`bonesFromJoints` with `facing: { ne: … }`).
+- **Tweaking keys.** Keys are relative to the rest pose. Take a standard clip and edit its timelines, or build your own with `animationFromPoses`. Add a clip per Anim; a missing Dead uses the last frame of Die.
+- **Parts that read the frame** (cloth spanning two bones, smears) set `cache: false`. A cached part must draw only through `x.at`, `x.r`, `x.tip` and `x.turn`.
+- **Demo:** `sprites-preview.html?mode=bones&faction=undead&kind=0` (`level=`, `z=`, `anims=`, `body=`, `bones=0`) draws the standard skeleton of a kind's body type with placeholder parts, in every animation, with the bones over it. The screenshots are `docs/screenshots/hd-sprites/bones-demo-foot.png` and `bones-demo-horse.png`.
 
 ## Drawing API (`Paper`, in `core.ts`)
 
