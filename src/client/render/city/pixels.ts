@@ -93,6 +93,11 @@ export class Px {
   readonly mx: number;
   readonly my: number;
   readonly depth: Float32Array;
+  /**
+   * Light class per pixel, for the night rig: 0 detail (posts, lines, stamps), 1 lit plane, 2 half
+   * lit, 3 shade plane (from each face's normal against the key light), 4 outline.
+   */
+  readonly cls: Uint8Array;
   /** The region written since the last clear (inclusive), so clearing and scanning stay cheap. */
   private x0 = Infinity;
   private y0 = Infinity;
@@ -108,6 +113,7 @@ export class Px {
     this.my = frame?.my ?? 0;
     this.data = new Uint32Array(w * h);
     this.depth = new Float32Array(w * h).fill(-1e9);
+    this.cls = new Uint8Array(w * h);
   }
   private touch(x: number, y: number): void {
     if (x < this.x0) this.x0 = x;
@@ -133,6 +139,7 @@ export class Px {
     y |= 0;
     if (x < 0 || y < 0 || x >= this.w || y >= this.h) return;
     this.data[y * this.w + x] = c;
+    this.cls[y * this.w + x] = 0;
     this.touch(x, y);
   }
   /** Buffer x of a world point. */
@@ -156,6 +163,7 @@ export class Px {
     if (d < this.depth[i]! - 0.01) return;
     this.depth[i] = d;
     this.data[i] = c;
+    this.cls[i] = 0;
     this.touch(x, y);
   }
   rect(x: number, y: number, w: number, h: number, c: Col): void {
@@ -197,6 +205,7 @@ export class Px {
     const ea = 0.35 / Math.max(1, Math.hypot(ax, ay));
     const eb = 0.35 / Math.max(1, Math.hypot(bx, by));
     const p: V3 = { u: 0, v: 0, z: 0 };
+    const lc = lightClass(a, b);
     for (let y = y0; y <= y1; y++)
       for (let x = x0; x <= x1; x++) {
         const dx = x + 0.5 - ox;
@@ -217,6 +226,7 @@ export class Px {
         if (!c) continue;
         this.depth[i] = d;
         this.data[i] = c;
+        this.cls[i] = lc;
         this.touch(x, y);
       }
   }
@@ -235,6 +245,7 @@ export class Px {
       }
     for (const i of add) {
       data[i] = c;
+      this.cls[i] = 4;
       this.touch(i % w, Math.floor(i / w));
     }
   }
@@ -377,4 +388,100 @@ export function line3(px: Px, a: V3, b: V3, c: Col): void {
     const t = i / n;
     px.plot(Math.floor(x0 + (x1 - x0) * t), Math.floor(y0 + (y1 - y0) * t), a.u + (b.u - a.u) * t + a.v + (b.v - a.v) * t + a.z + (b.z - a.z) * t + 0.5, c);
   }
+}
+
+// ------------------------------------------------------------------ the night rig
+
+/** Key light (sun by day, moon by night) from the upper left: lights +v faces and tops, not +u. */
+const KEY = (() => {
+  const l = [-0.2, 0.6, 0.77];
+  const n = Math.hypot(l[0]!, l[1]!, l[2]!);
+  return l.map((x) => x / n) as [number, number, number];
+})();
+
+/** The light class of a planar patch spanned by a and b: 1 lit, 2 half lit, 3 shade. */
+export function lightClass(a: V3, b: V3): number {
+  let nu = a.v * b.z - a.z * b.v;
+  let nv = a.z * b.u - a.u * b.z;
+  let nz = a.u * b.v - a.v * b.u;
+  const l = Math.hypot(nu, nv, nz);
+  if (l < 1e-9) return 0;
+  // Face the viewer (nearer is larger u + v + z).
+  if (nu + nv + nz < 0) {
+    nu = -nu;
+    nv = -nv;
+    nz = -nz;
+  }
+  const d = (nu * KEY[0] + nv * KEY[1] + nz * KEY[2]) / l;
+  return d >= 0.55 ? 1 : d >= 0.2 ? 2 : 3;
+}
+
+/**
+ * Night as a palette and rig change (pixel-art-techniques §1.2, §5.5), not a multiply: the moon is
+ * a cool key from the upper left. Lit planes keep their value with a cool shift, half-lit ones step
+ * down once and shaded ones twice toward the ambient violet; the outline goes navy; and every edge
+ * that faces the moon (sky above it, or sky to its left on an upright edge) gets a 1-px moonlit rim
+ * in the colour of the face it bounds (§2.5). Each class maps a source colour to one colour, so the
+ * night stays a palette, never a gradient.
+ */
+export interface NightRig {
+  rim: Col;
+  lit: Col;
+  ambient: Col;
+  shade: Col;
+  line: Col;
+}
+export const NIGHT_RIG: NightRig = { rim: hex('#d6e2ff'), lit: hex('#a8b8e0'), ambient: hex('#3c4466'), shade: hex('#2a2448'), line: hex('#10122a') };
+
+function scaleC(c: Col, k: number): Col {
+  return rgb(R(c) * k, G(c) * k, B(c) * k);
+}
+
+/** The night version of a region of a painted buffer (see NightRig). */
+export function nightCanvas(px: Px, x0: number, y0: number, x1: number, y1: number, rig: NightRig = NIGHT_RIG): HTMLCanvasElement {
+  const { w, h, data, cls } = px;
+  const c = document.createElement('canvas');
+  c.width = Math.max(1, x1 - x0);
+  c.height = Math.max(1, y1 - y0);
+  const ctx = c.getContext('2d')!;
+  const img = ctx.createImageData(c.width, c.height);
+  const out = new Uint32Array(img.data.buffer);
+  const memo = new Map<number, Col>();
+  const at = (c0: Col, k: number): Col => {
+    const key = c0 * 8 + k;
+    let r = memo.get(key);
+    if (r === undefined) {
+      r =
+        k === 1 ? mix(c0, rig.lit, 0.14)
+        : k === 2 ? scaleC(mix(c0, rig.ambient, 0.2), 0.86)
+        : k === 3 ? scaleC(mix(c0, rig.shade, 0.36), 0.66)
+        : k === 4 ? mix(c0, rig.line, 0.5)
+        : k === 5 ? mix(c0, rig.rim, 0.6)
+        : mix(c0, rig.ambient, 0.12);
+      memo.set(key, r);
+    }
+    return r;
+  };
+  for (let y = y0; y < y1; y++)
+    for (let x = x0; x < x1; x++) {
+      const i = y * w + x;
+      const col = data[i]!;
+      if (!col) continue;
+      const up = y === 0 || !data[i - w];
+      const left = x === 0 || !data[i - 1];
+      const down = y < h - 1 && !!data[i + w];
+      let k = cls[i]!;
+      let base = col;
+      if (up || (left && down)) {
+        k = 5;
+        // An outline pixel takes the colour of the face it bounds.
+        if (cls[i] === 4) {
+          const j = up && y < h - 1 ? i + w : x < w - 1 ? i + 1 : i;
+          if (data[j] && cls[j] !== 4) base = data[j]!;
+        }
+      }
+      out[(y - y0) * c.width + (x - x0)] = at(base, k);
+    }
+  ctx.putImageData(img, 0, 0);
+  return c;
 }

@@ -4,7 +4,7 @@
 
 import type { BuildingKey } from '../../../game/city.ts';
 import { GATE_V, LOT, tierOf, WALL, type Art } from './buildings.ts';
-import { box, groundAt, hash, hex, mix, post, Px, sx, sy, tone, v3, WORLD_H, WORLD_W, type Col } from './pixels.ts';
+import { box, groundAt, hash, hex, mix, nightCanvas, post, Px, sx, sy, tone, v3, WORLD_H, WORLD_W, type Col } from './pixels.ts';
 import { roadDistance } from './roads.ts';
 import type { CityStyle } from './style.ts';
 
@@ -36,6 +36,53 @@ export interface Ground {
 }
 
 const inRect = (u: number, v: number, r: [number, number, number, number], m = 0) => u >= r[0] - m && u < r[2] + m && v >= r[1] - m && v < r[3] + m;
+
+/**
+ * Texture stamps (pixel-art-techniques §2.4, Slynyrd's texture principles): a few small clusters
+ * repeated with variation, placed on a jittered lattice in world space (so they never swim), with
+ * negative space between them. `where` names the ground under a world point ('grass' gets tufts,
+ * 'earth' pebbles; null nothing); `cols` gives each kind its [light, dark] pair; `k` is buffer
+ * pixels per world pixel, and stamps are drawn in buffer pixels (1 px is one art pixel).
+ */
+export function stamps(px: Px, where: (u: number, v: number) => 'grass' | 'earth' | null, cols: Record<'grass' | 'earth', [Col, Col]>, k: number, step = 7): void {
+  const span = 2 * WALL;
+  for (let gu = -span / 2; gu < span; gu += step)
+    for (let gv = -span / 2; gv < span; gv += step) {
+      const h = hash(gu, gv, 71);
+      if (h < 0.35) continue;
+      const u = gu + hash(gu, gv, 72) * step;
+      const v = gv + hash(gu, gv, 73) * step;
+      const kind = where(u, v);
+      if (!kind) continue;
+      const x = Math.floor(px.X(u, v));
+      const y = Math.floor(px.Y(u, v));
+      if (x < 2 || y < 3 || x >= px.w - 3 || y >= px.h - 1) continue;
+      const [li, dk] = cols[kind];
+      const shape = Math.floor(hash(gu, gv, 74) * 3);
+      if (kind === 'grass') {
+        // Tufts: a V of blades over one dark root (3-5 px).
+        px.set(x, y, li);
+        px.set(x + 2, y, li);
+        px.set(x + 1, y - 1, li);
+        px.set(x + 1, y, dk);
+        if (shape === 1) px.set(x + 1, y - 2, li);
+        if (shape === 2 && k > 1) {
+          px.set(x - 1, y - 1, li);
+          px.set(x + 3, y - 1, li);
+        }
+      } else {
+        // Pebbles: a lit top, a shadow under it to the lower right (3-4 px).
+        px.set(x, y, li);
+        px.set(x + 1, y, li);
+        px.set(x + 1, y + 1, dk);
+        if (shape === 1) px.set(x + 2, y + 1, dk);
+        if (shape === 2) {
+          px.set(x + 3, y - 1, li);
+          px.set(x + 4, y - 1, dk);
+        }
+      }
+    }
+}
 
 /**
  * Everything of the levels that paintGround reads: the ground is the slow part of a repaint
@@ -74,22 +121,23 @@ export function paintGround(st: CityStyle, levels: Record<BuildingKey, number>, 
   for (let y = 0; y < WORLD_H; y++)
     for (let x = 0; x < WORLD_W; x++) {
       const [u, v] = groundAt(x + 0.5, y + 0.5);
-      // Clumped noise (pairs of pixels, a few tones) reads as texture rather than static.
-      const n = hash(x >> 1, y, 5) * 0.7 + hash(x, y, 4) * 0.3;
+      // Clusters, not static: one value per 2-pixel dash, the dashes of each row offset by one
+      // pixel from the row above, so no 2×2 window is ever a checker and no pixel is alone. The
+      // texture proper is stamps (tufts, pebbles), placed below.
+      const n = hash((x + (y & 1)) >> 1, y, 5);
       const n2 = hash(x >> 3, y >> 2, 6);
       const inside = u > 2 && v > 2 && u < WALL - 2 && v < WALL - 2;
       let c: Col;
       if (inside) {
         // Trodden earth, greener toward the walls.
         const edge = Math.min(u, v, WALL - u, WALL - v);
-        c = earth[n < 0.5 ? 0 : n < 0.75 ? 1 : n < 0.9 ? 2 : 3]!;
-        if (edge < 14 && n2 < 0.6 - edge / 30) c = grass[Math.floor(n * 3)]!;
+        c = earth[n < 0.62 ? 0 : n < 0.86 ? 1 : 2]!;
+        if (edge < 14 && n2 < 0.6 - edge / 30) c = grass[n < 0.6 ? 0 : 1]!;
         if (n2 > 0.85) c = tone(c, 0.06);
       } else {
-        c = grass[n < 0.45 ? 0 : n < 0.7 ? 1 : n < 0.85 ? 2 : n < 0.95 ? 3 : 4]!;
+        c = grass[n < 0.58 ? 0 : n < 0.82 ? 1 : 2]!;
         if (n2 < 0.25) c = tone(c, 0.08);
         if (n2 > 0.9) c = tone(c, -0.06);
-        if (n > 0.985) c = hash(x, y, 9) < 0.5 ? hex('#c9b458') : hex('#b9b2a2');
       }
       // Flagstones before the keep and the chapel.
       if ((u > 56 && u < 80 && v > 22 && v < 60) || (u > 76 && u < 142 && v > 46 && v < 60)) {
@@ -152,6 +200,15 @@ export function paintGround(st: CityStyle, levels: Record<BuildingKey, number>, 
       }
       px.set(x, y, c);
     }
+  stamps(px, (u, v) => {
+    // Grass outside the walls and the green margin inside them; earth, yard and roads otherwise.
+    if (FIELDS.some((f) => inRect(u, v, f, 1)) || inRect(u, v, GARDEN, 1) || inRect(u, v, PADDOCK, 1)) return null;
+    if ((u > 56 && u < 80 && v > 22 && v < 60) || (u > 76 && u < 142 && v > 46 && v < 60)) return null;
+    const inside = u > 2 && v > 2 && u < WALL - 2 && v < WALL - 2;
+    if (wallsT >= 2 && !inside && (Math.abs(u - (WALL + 16)) < 4 || Math.abs(v - (WALL + 16)) < 4)) return null;
+    if (!inside && roadDistance(u, v) > 6) return 'grass';
+    return 'earth';
+  }, { grass: [grass[4]!, grass[3]!], earth: [hex('#8a785a'), earth[3]!] }, 1);
   // The well.
   box(px, 76, 64, 0, 6, 6, 3, (f) => (f === 'top' ? hex('#1c1a18') : f === 'left' ? hex('#8f8676') : hex('#6a6256')));
   const base = px.toCanvas();
@@ -200,7 +257,7 @@ export function paintGround(st: CityStyle, levels: Record<BuildingKey, number>, 
       }
     tp.outline(st.outline);
     const b = tp.bounds();
-    if (b) arts.push({ canvas: tp.toCanvas(...b), lights: null, x: b[0], y: b[1], d: u + v });
+    if (b) arts.push({ canvas: tp.toCanvas(...b), lights: null, night: nightCanvas(tp, ...b), x: b[0], y: b[1], d: u + v });
   };
   const trees: [number, number, number][] = [
     [262, 40, 7], [280, 70, 6], [300, 160, 8], [290, 200, 6], [258, 228, 7], [284, 250, 6], [236, 272, 7],
@@ -229,7 +286,7 @@ export function paintGround(st: CityStyle, levels: Record<BuildingKey, number>, 
         }
       }
       const b = fp.bounds();
-      if (b) arts.push({ canvas: fp.toCanvas(...b), lights: null, x: b[0], y: b[1], d: depth });
+      if (b) arts.push({ canvas: fp.toCanvas(...b), lights: null, night: nightCanvas(fp, ...b), x: b[0], y: b[1], d: depth });
     };
     rail([[u0, v1], [u0, v0], [u1 - 10, v0]], u0 + v0);
     rail([[u0, v1], [u1, v1], [u1, v0]], u1 + v1);

@@ -4,7 +4,7 @@
 // as anchors for the scene to animate.
 
 import type { BuildingKey } from '../../../game/city.ts';
-import { box, CLASSIC, cone, drum, gable, hash, line3, mix, OX, post, pyramid, Px, sx, sy, tone, v3, type Col, type Facing, type Frame, type Shader, type V3 } from './pixels.ts';
+import { box, CLASSIC, cone, drum, gable, hash, hex, line3, mix, nightCanvas, NIGHT_RIG, OX, post, pyramid, Px, sx, sy, tone, v3, type Col, type Facing, type Frame, type NightRig, type Shader, type V3 } from './pixels.ts';
 import type { CityStyle, Ramp } from './style.ts';
 
 /** Level to tier: 0 empty lot, 1 timber, 2 stone, 3 fortified, 4 grand. */
@@ -45,6 +45,8 @@ export interface Art {
   y: number;
   /** Window glass, to light at night. */
   lights: HTMLCanvasElement | null;
+  /** The same art under the night rig (pixels.ts nightCanvas), laid over it as night falls. */
+  night?: HTMLCanvasElement | null;
   /** Sort key: u + v of the part's centre. */
   d: number;
 }
@@ -89,6 +91,8 @@ export class Painter {
   glass: number[] = [];
   /** HD: a cool rim light laid on every top edge before the outline (moonlight on the necropolis). */
   rim: Col | null = null;
+  /** Drawing done after the outline in finish(). */
+  late: (() => void)[] = [];
   constructor(
     readonly st: CityStyle,
     readonly frame: Frame = CLASSIC,
@@ -100,6 +104,7 @@ export class Painter {
   reset(): void {
     this.px.clear();
     this.glass = [];
+    this.late = [];
   }
 
   rampAt(r: Ramp, f: Facing, k = 0): Col {
@@ -177,12 +182,14 @@ export class Painter {
           sq % (8 * q) < q || ti === 0 || ti === Math.floor(h / 2) || t >= h - 1 ||
           (hash(Math.floor(s / 8), seed, 7) < 0.5 && t < h / 2 && Math.abs((s % 8) - (t / (h / 2)) * 8) < 0.9);
         c = beam ? this.rampAt(st.timber, f) : this.rampAt(st.daub, f);
-        if (!beam && hash(si, ti, seed) < 0.12) c = tone(c, 0.08);
+        // Stamps, not speckle: a 2-px crack in some 5×3 cells of daub, on the lit face only.
+        if (!beam && f === 'left' && stampAt(sq, tq, 5 * q, 3 * q, seed, 0.3, 2 * q)) c = tone(c, 0.1);
         // HD: a dark inner line along the beams' lower edges.
         if (q > 1 && beam && !(sq % (8 * q) < q) && tq === Math.floor(Math.floor(h / 2) * q)) c = this.rampAt(st.timber, f, 1);
       } else if (mat === 'plank') {
         c = this.rampAt(st.timber, f, Math.floor(sq / q) % 3 === 0 && (q === 1 || sq % q === 0) ? 1 : 0);
-        if (hash(si, ti >> 2, seed) < 0.1) c = tone(c, 0.15);
+        // A knot stamp on a few boards of the lit face.
+        if (f === 'left' && stampAt(sq, tq, 3 * q, 4 * q, seed + 1, 0.25, q)) c = tone(c, 0.15);
       } else {
         const r = mat === 'fine' ? st.fine : st.stone;
         const ch = (mat === 'fine' ? 4 : 3) * q;
@@ -195,8 +202,10 @@ export class Painter {
         const blk = hash(Math.floor((sq + off) / bw), row, seed);
         if (blk < 0.18) c = tone(c, 0.1);
         else if (blk > 0.9) c = tone(c, -0.08);
-        if (q > 1 && f !== 'left' && (course || joint)) c = mix(c, st.mortar, 0.22);
-        else if (course || joint) c = mix(c, st.mortar, f === 'left' ? 0.45 : 0.35);
+        // Joints in one colour per face (not per block), so the mortar is one connected net rather
+        // than a scatter of differently tinted 1-2 px bits.
+        if (q > 1 && f !== 'left' && (course || joint)) c = mix(this.rampAt(r, f), st.mortar, 0.22);
+        else if (course || joint) c = mix(this.rampAt(r, f), st.mortar, f === 'left' ? 0.45 : 0.35);
         // HD: a lit top edge on each course of the lit face (sparse, regular texture).
         else if (q > 1 && f === 'left' && tq % ch === 0) c = tone(c, -0.1);
         else if (q > 1 && f === 'left' && (sq + off) % bw === 1) c = tone(c, -0.06);
@@ -228,10 +237,14 @@ export class Painter {
       const ti = Math.floor(t);
       let c = base;
       if (mat === 'thatch') {
-        const n = hash(si, ti, seed);
+        const sq = Math.floor(s * q);
+        const tq = Math.floor(t * q);
+        const n = hash((sq + (tq & 1)) >> 1, tq, seed);
         if (ti % 3 === 0) c = tone(c, 0.18);
-        if (n < 0.2) c = tone(c, 0.12);
-        else if (n > 0.88) c = tone(c, -0.1);
+        // Straw ends: dashes two pixels long, staggered row to row (no checker, no lone pixel);
+        // the light ones only where the sun reaches.
+        if (n < 0.16) c = tone(c, 0.12);
+        else if (n > 0.9 && f !== 'right') c = tone(c, -0.1);
         if (t < 1) c = tone(c, 0.35);
       } else if (mat === 'lead') {
         c = mix(st.slate[LIGHT[f]]!, st.stone[3], 0.2);
@@ -239,7 +252,8 @@ export class Painter {
       } else {
         const rowH = 2;
         const row = Math.floor(t / rowH);
-        const gap = mat === 'slate' ? 3 : 2;
+        // Classic tiles are 2 px wide between joints (1-px tiles read as a stipple).
+        const gap = mat === 'slate' || q === 1 ? 3 : 2;
         const off = row % 2;
         const tq = Math.floor(t * q);
         const sq = Math.floor(s * q);
@@ -331,19 +345,24 @@ export class Painter {
     const corners: [number, number][] = [[u0, v0], [u1, v0], [u1, v1], [u0, v1]];
     for (const [u, v] of corners) stake(u, v);
     const rope = st.daub[1];
-    for (let i = 0; i < 4; i++) {
-      const [a, b] = [corners[i]!, corners[(i + 1) % 4]!];
-      line3(this.px, v3(a[0], a[1], 3), v3(b[0], b[1], 3), rope);
-    }
+    // The line goes on after the outline: an outlined 1-px diagonal is a checkerboard.
+    this.late.push(() => {
+      for (let i = 0; i < 4; i++) {
+        const [a, b] = [corners[i]!, corners[(i + 1) % 4]!];
+        line3(this.px, v3(a[0], a[1], 3), v3(b[0], b[1], 3), rope);
+      }
+    });
     // Stones and timber waiting.
     const mu = (u0 + u1) / 2;
     const mv = (v0 + v1) / 2;
     for (let i = 0; i < 5; i++) {
       const u = mu - 6 + hash(i, seed) * 8;
       const v = mv + 2 + hash(seed, i) * 6;
-      box(this.px, u, v, 0, 3, 3, 2 + (i % 2), this.wall('stone', 3, [], i));
+      // Plain ashlar: a 3-unit block is too small for coursing (it reads as noise).
+      box(this.px, u, v, 0, 3, 3, 2 + (i % 2), (f) => this.rampAt(st.stone, f));
     }
-    for (let i = 0; i < 3; i++) box(this.px, mu + 4, mv - 6 + i * 3, i % 2, 12, 2, 2, this.wall('plank', 2, [], i));
+    // Squared timbers, plain faces (plank grain on a 2-unit beam is only speckle).
+    for (let i = 0; i < 3; i++) box(this.px, mu + 4, mv - 6 + i * 3, i % 2, 12, 2, 2, (f) => this.rampAt(st.timber, f));
   }
 
   /** Finish one piece: outline, crop, light canvas. */
@@ -366,6 +385,9 @@ export class Painter {
       }
     }
     if (outline) px.outline(this.st.outline);
+    // Things laid on after the outline (ropes), so a 1-px line is not boxed into a checker.
+    for (const f of this.late) f();
+    this.late = [];
     const b = px.bounds();
     if (!b) return { canvas: null, lights: null, x: 0, y: 0, d: depth };
     const [x0, y0, x1, y1] = b;
@@ -373,18 +395,39 @@ export class Painter {
     let lights: HTMLCanvasElement | null = null;
     if (glass.length) {
       const lp = new Px(x1 - x0, y1 - y0);
-      for (let i = 0; i < glass.length; i += 2) {
-        const x = glass[i]!;
-        const y = glass[i + 1]!;
-        // Only glass that is still visible.
-        if (px.get(x, y) !== this.st.glass) continue;
-        lp.set(x - x0, y - y0, hash(x, y) < 0.25 ? tone(this.st.lit, -0.3) : this.st.lit);
+      const on = new Set<number>();
+      for (let i = 0; i < glass.length; i += 2) if (px.get(glass[i]!, glass[i + 1]!) === this.st.glass) on.add(glass[i + 1]! * px.w + glass[i]!);
+      for (const j of on) {
+        const x = j % px.w;
+        const y = (j / px.w) | 0;
+        // The top row of each pane burns brightest (a lamp's hot spot), the rest one step down.
+        lp.set(x - x0, y - y0, on.has(j - px.w) ? this.st.lit : tone(this.st.lit, -0.3));
       }
       lights = lp.toCanvas();
     }
-    return { canvas, lights, x: x0, y: y0, d: depth };
+    const night = nightCanvas(px, x0, y0, x1, y1, rigFor(this.st.id));
+    return { canvas, lights, night, x: x0, y: y0, d: depth };
   }
 }
+
+/**
+ * A texture stamp (pixel-art-techniques §2.4): in a grid of cw×ch cells (buffer pixels on a face),
+ * a share `p` of cells, chosen by hash, carry one horizontal dash `len` pixels long at a hashed
+ * spot. True where (sq, tq) is on a dash.
+ */
+export function stampAt(sq: number, tq: number, cw: number, ch: number, seed: number, p: number, len: number): boolean {
+  const cu = Math.floor(sq / cw);
+  const cv = Math.floor(tq / ch);
+  if (hash(cu, cv, seed + 101) >= p) return false;
+  const ox = Math.floor(hash(cu, cv, seed + 102) * Math.max(1, cw - len));
+  const oy = Math.floor(hash(cu, cv, seed + 103) * ch);
+  const lx = sq - cu * cw - ox;
+  return tq - cv * ch === oy && lx >= 0 && lx < len;
+}
+
+/** The moon rig per faction: the necropolis's moon is violet-white over violet shadow. */
+const UNDEAD_RIG: NightRig = { rim: hex('#dcd4ff'), lit: hex('#b4a8e4'), ambient: hex('#3a3458'), shade: hex('#261c40'), line: hex('#120e22') };
+export const rigFor = (id: string): NightRig => (id === 'undead' ? UNDEAD_RIG : NIGHT_RIG);
 
 // ------------------------------------------------------------------ the buildings
 
@@ -910,7 +953,8 @@ function walls(P: Painter, a: PaintArgs, parts: BuildingParts): BuildingParts {
       const v = lu > lv ? v0 + lv : v0 + i;
       P.px.point(v3(u, v, 0), tone(st.stone[3], 0.4));
     }
-    P.crenels(u0, v0, hh, lu, lv, sh);
+    // Classic merlons are 2×2 units: plain ashlar (coursing at that size is only speckle).
+    P.crenels(u0, v0, hh, lu, lv, P.k > 1 ? sh : (f) => P.rampAt(mat === 'fine' ? st.fine : st.stone, f));
   };
   const towerAt = (u: number, v: number, hh: number) => {
     if (tier === 1) {
@@ -934,7 +978,10 @@ function walls(P: Painter, a: PaintArgs, parts: BuildingParts): BuildingParts {
   if (tier >= 4) {
     P.pole(parts, 4, 4, h + 10 + 3, 10, 8, 6);
   }
-  parts.arts.push(P.finish(-10));
+  // Like the front chunks, the plain back walls carry no outline (their foot has its dark line):
+  // outlined, the merlon teeth broke the 2:1 top edge into 1- and 3-pixel runs. Towers (tier 3+)
+  // keep theirs.
+  parts.arts.push(P.finish(-10, tier >= 3));
   // Front walls in chunks so people inside and outside sort against them.
   const chunk = 29;
   // South-east wall (u = W - th .. W), with the gate.
@@ -995,14 +1042,17 @@ function walls(P: Painter, a: PaintArgs, parts: BuildingParts): BuildingParts {
     P.reset();
     for (let v = 8; v < W; v += 6) {
       if (Math.abs(v - GATE_V) < 16) continue;
-      line3(P.px, v3(W + 8, v, 0), v3(W + 11, v, 4), st.timber[1]);
-      line3(P.px, v3(W + 8, v + 2, 0), v3(W + 11, v + 1, 4), st.timber[2]);
+      // One sharpened stake every 6 units: a 1-px shaft with a light point. (Two crossed
+      // two-tone shafts per stake ran together, outlined, into a checkered band.)
+      line3(P.px, v3(W + 8, v, 0), v3(W + 11, v, 4), st.timber[2]);
+      P.px.point(v3(W + 11, v, 4), st.timber[0]);
     }
     for (let u = 8; u < W; u += 6) {
-      line3(P.px, v3(u, W + 8, 0), v3(u, W + 11, 4), st.timber[1]);
-      line3(P.px, v3(u + 2, W + 8, 0), v3(u + 1, W + 11, 4), st.timber[2]);
+      line3(P.px, v3(u, W + 8, 0), v3(u, W + 11, 4), st.timber[2]);
+      P.px.point(v3(u, W + 11, 4), st.timber[0]);
     }
-    parts.arts.push(P.finish(W * 2 + 30));
+    // Classic: no outline round 1-px stakes (outlined, a 1-px diagonal turns into a checkerboard).
+    parts.arts.push(P.finish(W * 2 + 30, P.k > 1));
   }
   void OX;
   return parts;

@@ -514,10 +514,11 @@ export class Life {
 
   /**
    * HD night light from life: will-o'-wisps drifting over the necropolis's grave fields (drawn
-   * additively with the glow sprite, then a bright core), and paper lanterns on the castle town's
-   * walkers. Called inside the light pass, in world pixels.
+   * additively as a stepped halo, then a bright core), and paper lanterns on the castle town's
+   * walkers. Called inside the light pass in the flat (buffer pixel) transform; `halo` lays a halo
+   * at a world centre and size, and `f` maps world to buffer pixels.
    */
-  nightGlow(g: CanvasRenderingContext2D, glow: HTMLCanvasElement, a: number): void {
+  nightGlow(g: CanvasRenderingContext2D, halo: (x: number, y: number, w: number, h: number) => void, a: number, f: { k: number; mx: number; my: number }): void {
     if (this.hd?.id !== 'undead' || !this.levels) return;
     const t = this.wispT;
     for (const w of this.wisps) {
@@ -528,14 +529,14 @@ export class Life {
       const y = sy(u, v, z);
       const pulse = 0.6 + 0.4 * Math.sin(t * 3 + w.ph * 2);
       g.globalAlpha = a * pulse * 0.9;
-      g.drawImage(glow, x - 9, y - 9, 18, 18);
+      halo(x, y, 18, 18);
       g.globalAlpha = a * pulse;
       // A bright core: a cross of five art pixels.
       g.fillStyle = '#e8ffd8';
-      const cx = Math.floor(x * 2) / 2;
-      const cy = Math.floor(y * 2) / 2;
-      g.fillRect(cx, cy - 0.5, 0.5, 1.5);
-      g.fillRect(cx - 0.5, cy, 1.5, 0.5);
+      const cx = Math.floor((x + f.mx) * f.k);
+      const cy = Math.floor((y + f.my) * f.k);
+      g.fillRect(cx, cy - 1, 1, 3);
+      g.fillRect(cx - 1, cy, 3, 1);
     }
   }
   private wispT = 0;
