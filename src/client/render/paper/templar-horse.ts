@@ -209,7 +209,7 @@ function horseParts(k: SKit, g: SGear, horse: SHorse, s: HorseSpec, dark: boolea
         const hn = ctx.posed.byName.handN!;
         const nock: P2 = [hn.tx, hn.ty];
         paintAs(c, dark, () => {
-          bow(c, x.o, (s.farDeg ?? 168) + x.turned * 7.5, 8.6, drawing ? 1 : 0, drawing ? nock : null);
+          bow(c, c.L < 2 ? [x.o[0] + 1.4, x.o[1] - 1.0] : x.o, (s.farDeg ?? 168) + x.turned * 7.5, c.L < 2 ? 15 : 8.6, drawing ? 1 : 0, drawing ? nock : null);
           if (drawing) c.rod(nock, [x.o[0] + (x.o[0] - nock[0]) * 0.25, x.o[1] + (x.o[1] - nock[1]) * 0.25], 0.14, 0.12, TM.ash, { tone: 3 });
         });
       },

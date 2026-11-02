@@ -1216,7 +1216,7 @@ export const MOUNTED: Record<number, { kit: SKit; horse: SHorse; gear: SGear; da
     dark: true,
     gear: {
       behind: (c) => { vol(c, [-2.4, -7.6], [-3.4, -5.6], [[0, 0.45], [1, 0.4]], TM.leather, { tone: 2 }); for (const k of [-0.25, 0.05, 0.3]) vol(c, [-2.4 + k, -7.5], [-2.2 + k * 1.3, -8.4], [[0, 0.15], [1, 0.2]], TM.white, { tone: 3 }); },
-      far: { el: [2.9, -9.6], wr: [3.6, -8.6], draw: (c, h, d) => bow(c, h, 168 + d, 8.6, 0, null) },
+      far: { el: [2.9, -9.6], wr: [3.6, -8.6], draw: (c, h, d) => bow(c, c.L < 2 ? addP(h, [1.4, -1.0]) : h, 168 + d, c.L < 2 ? 15 : 8.6, 0, null) },
       near: { el: [-2.8, -8.9], wr: [-1.6, -7.4] },
     },
   },
@@ -1226,7 +1226,7 @@ export const MOUNTED: Record<number, { kit: SKit; horse: SHorse; gear: SGear; da
     dark: false,
     gear: {
       front: (c) => kiteS(c, [2.1, -8.6], 3.8, 5.9, false, true, -6),
-      near: { el: [-2.8, -8.9], wr: [-1.8, -7.3], draw: (c, h, d) => void spear(c, h, 135 + d, 12.5, 3.5, { head: 1.3, pennon: 0.3, w: 0.36 }) },
+      near: { el: [-2.8, -8.9], wr: [-1.8, -7.3], draw: (c, h, d) => void spear(c, h, 135 + d, c.L < 2 ? 22 : 12.5, 3.5, { head: 1.3, pennon: 0.3, w: 0.36 }) },
     },
   },
   10: {
