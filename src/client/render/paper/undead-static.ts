@@ -228,28 +228,101 @@ function bigSword(c: Paper, grip: P2, deg: number, len: number): void {
 
 // ------------------------------------------------------------------ kinds
 
-/** The Grave Legionary: an armoured skeleton under a rusted hauberk and team tabard, big skull kite shield. */
+/**
+ * The Grave Legionary (after the user's armoured-undead target): one dominant armour colour,
+ * rusted iron, in big chunky plates with clear lit and shadow planes (a breastplate with a
+ * ridge, a fauld of lames, tassets, couters, greaves); mail only at the sleeves; a dark team
+ * cloth front skirt with a rope belt; the skull face pale and plain under the kettle hat; the
+ * long blade held low and back; the big skull kite shield tight on the far arm.
+ */
 function legionary(c: Paper): void {
-  // Far side first: the far leg, the far arm (behind the shield).
-  armouredLeg(c, B.hipF, B.kneeF, B.ankF, true);
+  // Far leg: dark cloth over the thigh, a rust tasset, the greave and sabaton.
+  plateLeg(c, B.hipF, B.kneeF, B.ankF, true);
   armouredArm(c, B.shF, [2.9, -8.9], [2.6, -7.4], true);
-  hauberk(c, -5.1);
-  // The tabard: a team panel from chest to knee, torn, belted.
-  rag(c, [-0.7, -10.6], [1.6, -10.7], 6.1, 0.15, UM.team, UM.teamDk, 461, { tear: 0.28 });
-  belt(c, B.waistY, -1.8, 2.3);
-  armouredLeg(c, B.hipN, B.kneeN, B.ankN, false);
-  // The neck bones and the skull under a dented kettle hat.
-  c.rod(B.neck, [0.55, -12.6], 0.55, 0.5, UM.bone, { tone: 1 });
-  bigSkull(c, B.head, -4, true);
-  pauldron(c, B.shF, true);
-  // The shield held tight across the body on the far arm, its inner edge past the centre line.
+  // The front skirt: dark team cloth hanging from the belt to the knees, torn.
+  rag(c, [-1.4, -7.6], [2.0, -7.7], 4.6, 0.1, UM.teamDk, UM.teamDk, 541, { tear: 0.3 });
+  // The breastplate: a ridge down the middle, the lit plane left of it, the shadow plane right.
+  const bp: P2[] = [[-2.4, -11.0], [-1.1, -11.85], [1.7, -11.95], [2.7, -11.0], [2.5, -9.2], [1.9, -7.7], [-1.5, -7.7], [-2.1, -9.2]];
+  plate(c, bp, UM.rust, {
+    tone: 2,
+    detail: (x, y, rx, ry) => {
+      const ridge = rx + ry * 0.12 + 0.05;
+      if (Math.abs(ridge) < 0.05) return code(UM.rust, 4);
+      if (c.tex(x, y, 543, 3) < 0.05) return code(UM.iron, 1); // pitting
+      if (ry > 0.75) return code(UM.rust, 1); // the lower edge turned under
+      return code(UM.rust, ridge < 0 ? (ry < -0.2 ? 3 : 3) : ry < 0 ? 2 : 1);
+    },
+  });
+  rivets(c, [-1.9, -11.0], [2.3, -11.1], 5);
+  // The fauld: three lames under the breastplate, each lit on its upper edge.
+  for (let i = 0; i < 3; i++) {
+    const y = -7.7 + i * 0.55;
+    plate(c, [[-1.8 - i * 0.12, y], [2.1 + i * 0.1, y - 0.05], [2.2 + i * 0.12, y + 0.6], [-1.9 - i * 0.14, y + 0.65]], UM.rust, { tone: 2, rim: true });
+  }
+  // A rope belt over it, its knot hanging.
+  c.rod([-1.9, -7.55], [2.3, -7.65], 0.34, 0.34, UM.bone, { tone: 1, detail: (x) => ((c.lx(x) >> 1) & 1 ? code(UM.bone, 2) : -1) });
+  c.rod([0.4, -7.5], [0.2, -6.0], 0.26, 0.22, UM.bone, { tone: 1 });
+  plateLeg(c, B.hipN, B.kneeN, B.ankN, false);
+  // A gorget, the neck bones, the skull bright under the hat's brim.
+  c.rod(B.neck, [0.55, -12.6], 0.55, 0.5, UM.bone, { tone: 2 });
+  plate(c, [[-1.0, -12.1], [1.9, -12.15], [1.7, -11.45], [-0.8, -11.4]], UM.rust, { tone: 2, rim: true });
+  keySkull(c, addP(B.head, [0, 0.05]), 1.2, -4, 'kettle');
+  pauldron(c, B.shF, true, 1.1);
   kiteShield(c, [1.55, -8.2], 6.9, 4.3, -4);
-  pauldron(c, B.shN, false);
-  // The sword arm: the blade carried up and forward, ready.
-  // The sword arm: the blade held upright at the near side, clear of the body.
-  const hand: P2 = [-2.95, -6.7];
-  bigSword(c, hand, 186, 7.0);
-  armouredArm(c, B.shN, [-3.05, -9.0], hand, false);
+  pauldron(c, B.shN, false, 1.15);
+  // The sword held low and back, the long blade slanting past the near leg.
+  const hand: P2 = [-2.85, -6.8];
+  bigSword(c, hand, -40, 7.4);
+  armouredArm(c, B.shN, [-3.0, -9.0], hand, false);
+}
+
+/** A plated leg: dark cloth at the thigh under a rust tasset, a poleyn, a rust greave, a sabaton. */
+function plateLeg(c: Paper, hip: P2, knee: P2, ank: P2, far: boolean): void {
+  const t = far ? 1 : 2;
+  vol(c, hip, knee, 1.5, 1.25, UM.teamDk, { tone: t - 1, caps: false });
+  // The tasset: a rust plate hanging over the upper thigh.
+  const tp = addP(hip, [0, 0.4]);
+  plate(c, [addP(tp, [-0.9, -0.3]), addP(tp, [0.85, -0.35]), addP(tp, [0.95, 1.5]), addP(tp, [-0.8, 1.6])], UM.rust, { tone: t + 1, rim: !far });
+  const g0 = addP(knee, mul([ank[0] - knee[0], ank[1] - knee[1]], 0.22));
+  vol(c, g0, ank, 1.15, 1.0, UM.rust, { tone: t + 1, caps: false });
+  c.blob(knee, 0.78, 0.68, UM.rust, { tone: t + 1, detail: (_x, _y, nx, ny) => (ny < -0.5 && nx < 0.3 && !far ? code(UM.rust, 4) : ny > 0.5 ? code(UM.rust, 0) : -1) });
+  const sab: P2[] = [addP(ank, [-0.7, -0.35]), addP(ank, [0.5, -0.45]), addP(ank, [1.35, 0.35]), addP(ank, [1.3, 0.75]), addP(ank, [-0.75, 0.75])];
+  plate(c, sab, UM.rust, { tone: t });
+}
+
+/**
+ * A skull drawn for key art at radius `r`: a pale cranium lit from the top-left, deep sockets
+ * with a point of green, the nasal hole, the cheekbones, the teeth, the jaw; with a hat or not.
+ */
+function keySkull(c: Paper, at: P2, r: number, ang: number, hat: 'kettle' | null): void {
+  ang = snapDeg(ang);
+  const R = (p: P2): P2 => addP(at, rot(mul(p, r), ang * DEG));
+  // The jaw: teeth, then the jawbone.
+  c.shape([R([-0.4, 0.55]), R([0.75, 0.5]), R([0.7, 1.05]), R([-0.3, 1.0])], (x, y) => {
+    const ly = c.ly(y) / (c.L * r);
+    if (ly < 0.22) return (c.lx(x) & 1) === 0 ? code(UM.bone, 3) : code(UM.ink, 0);
+    return code(UM.bone, ly > 0.38 ? 1 : 2);
+  });
+  const cx = c.sx(at[0]), cy = c.sy(at[1]), L = c.L;
+  c.blob(at, r, r * 0.95, UM.bone, {
+    tone: 3,
+    detail: (x, y) => {
+      const [fx, fy] = rot([(x + 0.5 - cx) / (L * r), (y + 0.5 - cy) / (L * r)], -ang * DEG);
+      for (const ox of [-0.18, 0.42]) {
+        const e = Math.hypot(fx - ox, (fy - 0.05) * 1.15);
+        if (e < 0.27) return e < 0.1 && ox > 0 ? code(UM.glow, 4) : code(UM.ink, 0);
+      }
+      if (Math.abs(fx - 0.14) < 0.09 && fy > 0.25 && fy < 0.48) return code(UM.ink, 1);
+      if (fy > 0.3 && fx < -0.3) return code(UM.bone, 1); // the cheek turned from the light
+      if (fx > 0.65 && fy > -0.1) return code(UM.bone, 2);
+      return -1;
+    },
+  });
+  if (hat === 'kettle') {
+    // The kettle hat: a low rusted crown, a wide brim tilted to show the face.
+    plate(c, [R([-0.8, -0.62]), R([-0.6, -1.2]), R([0.5, -1.25]), R([0.85, -0.66])], UM.rust, { tone: 2, rim: true });
+    plate(c, [R([-1.3, -0.68]), R([1.4, -0.72]), R([1.3, -0.5]), R([-1.25, -0.46])], UM.rust, { tone: 2, detail: (_x, _y, rx, ry) => (ry < -0.2 ? code(UM.rust, 3 + (rx < 0 ? 1 : 0)) : ry > 0.5 ? code(UM.rust, 0) : -1) });
+  }
 }
 
 /** A skull scaled up for key art (r ≈ 1.15 units): the Legionary's skull and kettle hat, larger. */
