@@ -5,7 +5,7 @@ Code Clash turns your pushes into a medieval war. Sign in with GitHub and swear 
 - **Every night** at the league’s hour, the soldiers each lord trained that day meet another lord’s, one against one, on an open field. A win makes veterans and lifts the city’s output for the rest of the week.
 - **Every week**, on the seventh night, everyone trained that week (less the dead the Hospital could not save) fights the **Grand Battle**. Then every city is razed and the next week starts from nothing.
 
-Volume and consistency both pay: building levels grow with the square root of their work, buildings train men every hour so early work keeps paying, and a city whose lord skips a day works at half pace. Factions share the same ten unit classes with small differences, Rome-II style; the Knights Templar ship first.
+Volume and consistency both pay: building levels grow with the square root of their work, each day in a row you push raises the Fields and speeds all training (+7% a day), a day without a push musters only 40% of that day's men, and code past 1,000 lines a day counts at 30%. Factions share the same ten unit classes with small differences, Rome-II style; the Knights Templar ship first.
 
 ## Architecture
 

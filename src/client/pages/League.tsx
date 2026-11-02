@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { BUILDINGS, MAX_LEVEL, type BuildingKey } from '../../game/city.ts';
 import { FACTIONS } from '../../game/factions.ts';
-import { DAILY_POINTS, GRAND_POINTS } from '../../game/league.ts';
+import { DAILY_POINTS, GRAND_POINTS, HONOUR_POINTS } from '../../game/league.ts';
 import { total, UNIT_COUNT } from '../../game/units.ts';
 import type { BattleCard, CityView, LeagueDetail, MeResponse, MemberSummary } from '../../protocol.ts';
 import { api } from '../api.ts';
@@ -147,12 +147,11 @@ function CityTab({ slug, id, detail }: { slug: string; id: number; detail: Leagu
           <p className="muted">
             {city.todayLevy > 0 ? `${n(city.todayLevy)} of them levied by today’s work. ` : ''}
             Training {rate.toFixed(1)} an hour
-            {city.granaryBonus > 0 ? `, +${Math.round(city.granaryBonus * 100)}% from the granary` : ''}
+            {city.granaryBonus > 0 ? `, +${Math.round(city.granaryBonus * 100)}% from a ${city.streak}-day streak` : ''}
             {city.boonBonus > 0 ? `, +${Math.round(city.boonBonus * 100)}% from ${city.wins} victor${city.wins === 1 ? 'y' : 'ies'}` : ''}.
           </p>
-          {city.idle && city.idleAt !== null && <p className="warn">The city is idle: no push for a day, so it trains at half pace. One push restores it.</p>}
-          {city.idleAt === null && <p className="muted">No work yet this week: the lots stand empty.</p>}
-          {!city.idle && city.idleAt && <p className="muted">Goes idle {duration(city.idleAt - Date.now())} from now without another push.</p>}
+          {city.idle && city.waiting > 0 && <p className="warn">No push yet today: {n(city.waiting)} trained men will stay home tonight. One push musters them all.</p>}
+          {total(city.produced) + today === 0 && <p className="muted">No work yet this week: the lots stand empty.</p>}
           <UnitTable counts={city.today} faction={look.faction} />
         </div>
         <div className="panel muster">
@@ -212,7 +211,7 @@ function effectOf(key: BuildingKey, level: number, city: CityView['city']): stri
     const per = def.trains.reduce((a, [, r]) => a + r * level * city.pace, 0);
     return `${def.effect}: ${per.toFixed(1)} men an hour.`;
   }
-  if (key === 'granary') return `Every building trains ${Math.round(city.granaryBonus * 100)}% faster.`;
+  if (key === 'granary') return `A ${city.streak}-day streak: every building trains ${Math.round(city.granaryBonus * 100)}% faster.`;
   if (key === 'hospital') return `Saves ${Math.round(city.recovery * 100)}% of the daily fallen for the Grand Battle.`;
   if (key === 'walls') return `Pavises turn ${Math.round(city.pavise * 100)}% of missile harm${city.stakes ? '; stakes before the archers' : '; stakes at level III'}.`;
   return def.effect;
@@ -285,7 +284,7 @@ function StandingsTab({ detail, slug }: { detail: LeagueDetail; slug: string }) 
           <tr>
             <th>#</th>
             <th>Lord</th>
-            <th title={`${DAILY_POINTS} a daily win, ${GRAND_POINTS} the Grand Battle`}>Points</th>
+            <th title={`${DAILY_POINTS} a daily win, ${HONOUR_POINTS} an honourable defeat, ${GRAND_POINTS} the Grand Battle`}>Points</th>
             <th>Won</th>
             <th>Lost</th>
             <th>Trained this week</th>
@@ -303,7 +302,7 @@ function StandingsTab({ detail, slug }: { detail: LeagueDetail; slug: string }) 
                   {m.user.login}
                 </a>
                 {m.user.bot && <span className="tag">bot</span>}
-                {m.idle && <span className="tag warn">idle</span>}
+                {m.idle && <span className="tag warn">no push today</span>}
               </td>
               <td className="mono">{m.points}</td>
               <td className="mono">{m.wins}</td>
@@ -342,7 +341,7 @@ function RulesTab() {
       <section className="panel">
         <h3>The week</h3>
         <p>A week runs Monday to Monday at the league’s battle hour. Every night at that hour each lord’s soldiers trained since the last battle meet another lord’s, paired by record. On the seventh night, after the last skirmish, comes the Grand Battle: every soldier trained that week, less the dead the Hospital could not save, first against second, third against fourth. Then every city is razed, and the next week begins from an empty field.</p>
-        <p>A daily win is worth {DAILY_POINTS} point, makes the survivors veterans for the Grand Battle and raises the city’s output by 6% for the rest of the week. The Grand Battle is worth {GRAND_POINTS}; its first match crowns the champion.</p>
+        <p>A daily win is worth {DAILY_POINTS} points, makes the survivors veterans for the Grand Battle and raises the city’s output by 5% for the rest of the week (up to four wins). A defeat that cost the enemy at least 60% of what it cost you is honourable, worth {HONOUR_POINTS}. The Grand Battle is worth {GRAND_POINTS}; its first match crowns the champion.</p>
       </section>
       <section className="panel">
         <h3>The city</h3>
@@ -352,7 +351,7 @@ function RulesTab() {
             <li key={b.key}><b>{f.buildings[b.key]}</b> — fed by {b.fedBy.toLowerCase()}. {b.effect}.</li>
           ))}
         </ul>
-        <p>A building’s level is the square root of its experience: twice the level takes four times the work, so breadth beats piling everything into one. Buildings train soldiers every hour, so work early in the week trains men for longer; fresh work also calls up a levy at once, for tonight’s battle. A day without a push and the city works at half pace.</p>
+        <p>A building’s level is the square root of its experience: twice the level takes four times the work, so breadth beats piling everything into one. Buildings train soldiers every hour, so work early in the week trains men for longer; fresh work also calls up a levy at once, for tonight’s battle. A day without a push and only 40% of that day’s garrison musters; the Fields grow with every day in a row you push. Code past 1,000 lines a day counts at 30%.</p>
       </section>
       <section className="panel">
         <h3>The battle</h3>

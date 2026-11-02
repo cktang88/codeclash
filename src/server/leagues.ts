@@ -11,7 +11,7 @@ import { fight, type ArmySpec, type BattleResult } from '../game/battle.ts';
 import { cityAt, grandArmy, type CityState, type DailyOutcome, type WorkEvent, DAYS_PER_WEEK } from '../game/city.ts';
 import { botLogin, botWork, BOT_COUNT } from '../game/bots.ts';
 import { isFaction, type FactionId } from '../game/factions.ts';
-import { battleAt, battleSeed, battleSetup, brigands, DAILY_POINTS, DAY_MS, GRAND_POINTS, pairDaily, pairGrand, rank, walkover, walkoverResult, weekOf, type Standing } from '../game/league.ts';
+import { battleAt, battleSeed, battleSetup, brigands, DAILY_POINTS, DAY_MS, GRAND_POINTS, HONOUR_POINTS, honourable, pairDaily, pairGrand, rank, walkover, walkoverResult, weekOf, type Standing } from '../game/league.ts';
 import { hashString, mixSeed } from '../game/rng.ts';
 import { creditOf, addToTally, emptyTally, type TallyDelta } from '../measure/credit.ts';
 import type { Store, UserRow } from '../ingest/store.ts';
@@ -195,7 +195,10 @@ export class Leagues {
         } else if (won) {
           wins++;
           points += DAILY_POINTS;
-        } else losses++;
+        } else {
+          losses++;
+          if (honourable(b.result, side as 0 | 1)) points += HONOUR_POINTS;
+        }
       }
       return { id: m.userId, points, wins, losses, produced: total(city.produced), grand, city, met };
     });

@@ -9,9 +9,23 @@ export const DAY_MS = 86_400_000;
 /** 1970-01-05 was a Monday: weeks start on Mondays at the league's reset hour (UTC). */
 const MONDAY_EPOCH = 4 * DAY_MS;
 
-/** Standing points for a daily win and for winning the Grand Battle. */
-export const DAILY_POINTS = 1;
-export const GRAND_POINTS = 3;
+/**
+ * Standing points: a daily win, an honourable defeat (the loser killed at least HONOUR_SHARE of
+ * what it lost, or held the field to the time limit), and the Grand Battle, worth two days.
+ */
+export const DAILY_POINTS = 3;
+export const HONOUR_POINTS = 1;
+export const GRAND_POINTS = 6;
+export const HONOUR_SHARE = 0.6;
+
+/** Whether the loser of `r` fought well enough for a point. */
+export function honourable(r: BattleResult, loser: 0 | 1): boolean {
+  if (r.ticks === 0) return false;
+  if (r.reason === 'time') return true;
+  const own = r.sides[loser].dead.reduce((a, b) => a + b, 0);
+  const theirs = r.sides[1 - loser as 0 | 1].dead.reduce((a, b) => a + b, 0);
+  return own > 0 && theirs >= HONOUR_SHARE * own;
+}
 
 export interface WeekClock {
   weekStart: number;

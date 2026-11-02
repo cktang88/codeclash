@@ -7,6 +7,11 @@ import { DAYS_PER_WEEK } from './city.ts';
 import { mixSeed } from './rng.ts';
 
 const SLOT_MS = 10 * 60_000;
+/**
+ * The personas push like busy developers; in the game they are scaled down to an ordinary one's
+ * credited work (a few hundred lines a day), so a steady human is a fair match for them.
+ */
+export const BOT_WORK_SCALE = 0.18;
 
 /** Bot `bot`'s pushes in the week starting `weekStart`, up to `until`. */
 export function botWork(leagueSeed: number, bot: number, weekStart: number, dayMs: number, until: number): WorkEvent[] {
@@ -29,7 +34,9 @@ export function botWork(leagueSeed: number, bot: number, weekStart: number, dayM
       const at = t + Math.floor(rand() * slot);
       if (at >= until) continue;
       const push = botPush(persona, rand);
-      out.push({ at, delta: push, repo: push.repo[0], message: push.message });
+      const k = (n: number) => Math.round(n * BOT_WORK_SCALE);
+      const delta = { ...push, lines: push.lines.map(k), files: Math.max(1, k(push.files)), branches: k(push.branches), functions: k(push.functions), links: k(push.links), churn: k(push.churn), filler: k(push.filler) };
+      out.push({ at, delta, repo: push.repo[0], message: push.message });
     }
   }
   return out;

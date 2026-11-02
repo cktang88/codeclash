@@ -77,11 +77,30 @@ describe('the city', () => {
     expect(c.cohorts.map(total).reduce((a, b) => a + b, 0)).toBe(total(c.produced));
   });
 
-  it('a city goes idle after a day without pushes', () => {
-    const c = cityAt({ weekStart: WEEK.weekStart, dayMs: DAY_MS, now: WEEK.weekStart + 2.5 * DAY_MS, events: [push(WEEK.weekStart + 3_600_000, 800)], outcomes: [] });
+  it('a day without a push musters only part of its garrison, and the streak speeds training', () => {
+    const c = cityAt({ weekStart: WEEK.weekStart, dayMs: DAY_MS, now: WEEK.weekStart + 1.5 * DAY_MS, events: [push(WEEK.weekStart + 3_600_000, 800)], outcomes: [] });
     expect(c.idle).toBe(true);
-    expect(c.pace).toBeLessThan(1);
+    expect(c.waiting).toBeGreaterThan(0);
+    const steady = weekOfWork([500, 500, 500, 500, 500, 500, 500]);
+    expect(steady.streak).toBe(7);
+    expect(steady.granaryBonus).toBeCloseTo(0.42);
   });
+
+  it('volume wins, with a knee: twice the work is worth well over, four times well under, twice and three times the army', () => {
+    const base = total(weekOfWork([500, 500, 500, 500, 500, 500, 500]).produced);
+    const x2 = total(weekOfWork([1000, 1000, 1000, 1000, 1000, 1000, 1000]).produced);
+    const x4 = total(weekOfWork([2000, 2000, 2000, 2000, 2000, 2000, 2000]).produced);
+    expect(x2 / base).toBeGreaterThan(1.4);
+    expect(x4 / base).toBeLessThan(2.3);
+    expect(x4).toBeGreaterThan(x2);
+  });
+
+  it('cramming the week into one day is worth well under half of steady work', () => {
+    const steady = total(weekOfWork([500, 500, 500, 500, 500, 500, 500]).produced);
+    expect(total(weekOfWork([3500, 0, 0, 0, 0, 0, 0]).produced) / steady).toBeLessThan(0.5);
+    expect(total(weekOfWork([1000, 0, 1000, 0, 1000, 0, 500]).produced) / steady).toBeLessThan(0.85);
+  });
+
 
   it('the Hospital brings back part of the dead for the Grand Battle', () => {
     const events = [push(WEEK.weekStart + 3_600_000, 900)];
@@ -106,6 +125,16 @@ describe('the city', () => {
     const b = botWork(7, 0, WEEK.weekStart, DAY_MS, WEEK.weekEnd);
     expect(a).toEqual(b);
     expect(a.length).toBeGreaterThan(10);
+  });
+
+  it('every sparring bot is a fair match for a steady human (0.3x to 2.5x the army)', () => {
+    const steady = total(weekOfWork([500, 500, 500, 500, 500, 500, 500]).produced);
+    for (let bot = 0; bot < 7; bot++) {
+      const c = cityAt({ weekStart: WEEK.weekStart, dayMs: DAY_MS, now: WEEK.weekEnd, events: botWork(42, bot, WEEK.weekStart, DAY_MS, WEEK.weekEnd), outcomes: [] });
+      const r = total(c.produced) / steady;
+      expect(r, `bot ${bot}`).toBeGreaterThan(0.3);
+      expect(r, `bot ${bot}`).toBeLessThan(2.5);
+    }
   });
 });
 

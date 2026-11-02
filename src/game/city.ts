@@ -8,7 +8,7 @@
 // save, fights the Grand Battle, and then the city is razed and the next week begins.
 
 import { addToTally, creditOf, emptyTally, emptyWork, workQuality, type DayTally, type TallyDelta, type Work } from '../measure/credit.ts';
-import { emptyCounts, U, UNIT_COUNT, type Counts, type UnitClass } from './units.ts';
+import { emptyCounts, total, U, UNIT_COUNT, type Counts, type UnitClass } from './units.ts';
 
 export const HOUR = 3_600_000;
 export const DAYS_PER_WEEK = 7;
@@ -49,8 +49,8 @@ export const BUILDINGS: readonly BuildingDef[] = [
     trains: [[U.Knights, 0.15]], xp: (w) => w.docs + w.comments,
   },
   {
-    key: 'granary', fedBy: 'Showing up: every day you push (and a little config)', effect: 'Feeds the city: every building trains faster',
-    trains: [], xp: (w) => 0.3 * w.config,
+    key: 'granary', fedBy: 'Showing up: its level is your streak of days at work', effect: 'Feeds the city: every building trains faster for each day in a row you push',
+    trains: [], xp: () => 0,
   },
   {
     key: 'hospital', fedBy: 'Tests', effect: 'Nurses the fallen of daily battles back for the Grand Battle',
@@ -73,16 +73,24 @@ export function xpForLevel(level: number): number {
   return XP_PER_LEVEL_SQ * level * level;
 }
 
-/** Granary experience for each day with real work in it. */
-export const ACTIVE_DAY_XP = 400;
 /** Credited code (or removed) lines that make a day count as active. */
-export const ACTIVE_DAY_LINES = 30;
-/** Production per granary level. */
-export const GRANARY_PER_LEVEL = 0.035;
-/** A city whose lord has not pushed for a whole day works at this pace. */
-export const IDLE_PACE = 0.5;
-/** Production boon for each daily battle won this week. */
-export const WIN_BOON = 0.06;
+export const ACTIVE_DAY_LINES = 50;
+/** Production for each day of the streak after the first (the Fields' level is the streak). */
+export const STREAK_STEP = 0.07;
+/** Missed days a week forgiven before the streak suffers; each further miss halves it. */
+export const STREAK_GRACE = 1;
+/** A day whose lord did not push musters only this share of the men trained that day. */
+export const IDLE_MUSTER = 0.4;
+/** Production boon for each daily battle won this week, for at most WIN_BOON_CAP wins. */
+export const WIN_BOON = 0.05;
+export const WIN_BOON_CAP = 4;
+/**
+ * Daily fatigue: credited code past DAY_KNEE lines in a day earns buildings and levy only DAY_OVER
+ * of its worth, so a firehose day or a weekly cram cannot outrun steady work.
+ */
+export const DAY_KNEE = 1000;
+export const DAY_OVER = 0.3;
+const knee = (x: number) => Math.min(x, DAY_KNEE) + DAY_OVER * Math.max(0, x - DAY_KNEE);
 /** Share of the daily dead nursed back for the Grand Battle, before and per Hospital level, and at most. */
 export const RECOVERY = { base: 0.4, perLevel: 0.025, max: 0.9 } as const;
 /** Missile damage turned by pavises per Walls level, at most; stakes from this level. */
@@ -152,13 +160,16 @@ export interface CityState {
   buildings: BuildingState[];
   /** Soldiers trained per hour right now, per class, everything applied. */
   ratePerHour: Counts;
-  /** Production multiplier right now: granary, win boons, idle pace. */
+  /** Production multiplier right now: streak and win boons. */
   pace: number;
   granaryBonus: number;
   boonBonus: number;
+  /** No push yet today: tonight only part of today's garrison would muster. */
   idle: boolean;
-  /** When the city goes idle unless its lord pushes again (ms), or null. */
-  idleAt: number | null;
+  /** Days in a row with work, counting today once it has work (the Fields' level). */
+  streak: number;
+  /** Men trained today who will stay home unless the lord pushes before the battle. */
+  waiting: number;
   wins: number;
   /** Armies of the daily battles fought so far, and today's army so far. */
   cohorts: Counts[];
@@ -215,8 +226,11 @@ export function cityAt(input: CityInput): CityState {
   const veterans = emptyCounts();
   const log: CityLogEntry[] = [];
   let wins = 0;
-  let lastActiveAt: number | null = null;
   let activeDays = 0;
+  let streak = 0;
+  let misses = 0;
+  // Men trained so far this day: mustered in full at the battle only if the lord pushed that day.
+  const dayAcc = new Array<number>(UNIT_COUNT).fill(0);
   let tally: DayTally = emptyTally();
   let dayCredit = emptyWork();
   let todayWork = emptyWork();
@@ -224,32 +238,26 @@ export function cityAt(input: CityInput): CityState {
   let dayActive = false;
   let day = 0;
 
-  const pace = (t: number) => {
-    const granary = GRANARY_PER_LEVEL * levels[BUILDING_INDEX.granary]!;
-    const idle = lastActiveAt === null || t >= lastActiveAt + dayMs;
-    return { granary, boon: WIN_BOON * wins, idle, value: (1 + granary + WIN_BOON * wins) * (idle ? IDLE_PACE : 1) };
+  const pace = () => {
+    const run = Math.max(0, streak + (dayActive ? 1 : 0) - 1);
+    const granary = STREAK_STEP * run;
+    const boon = WIN_BOON * Math.min(wins, WIN_BOON_CAP);
+    return { granary, boon, idle: !dayActive, value: (1 + boon) * (1 + granary) };
   };
-  const rates = (t: number): Counts => {
+  const rates = (): Counts => {
     const out = emptyCounts();
-    const p = pace(t).value;
+    const p = pace().value;
     BUILDINGS.forEach((b, i) => {
       for (const [k, r] of b.trains) out[k]! += r * levels[i]! * p;
     });
     return out;
   };
-  /** Trains soldiers from t0 to t1 at constant rates, splitting where the city goes idle. */
+  /** Trains soldiers from t0 to t1 at constant rates. */
   const train = (t0: number, t1: number) => {
     if (t1 <= t0) return;
-    const idleAt = lastActiveAt === null ? null : lastActiveAt + dayMs;
-    if (idleAt !== null && idleAt > t0 && idleAt < t1) {
-      train(t0, idleAt);
-      log.push({ at: idleAt, kind: 'idle', text: 'No pushes for a day: the city works at half pace' });
-      train(idleAt, t1);
-      return;
-    }
-    const r = rates(t0);
+    const r = rates();
     const hours = (t1 - t0) / (HOUR * hourScale);
-    for (let k = 0; k < UNIT_COUNT; k++) acc[k]! += r[k]! * hours;
+    for (let k = 0; k < UNIT_COUNT; k++) dayAcc[k]! += r[k]! * hours;
   };
   const setLevels = (t: number, cause: string) => {
     BUILDINGS.forEach((b, i) => {
@@ -267,6 +275,13 @@ export function cityAt(input: CityInput): CityState {
     return w;
   };
   const closeDay = (k: number) => {
+    if (!dayActive && total(dayAcc) > 0) log.push({ at: weekStart + (k + 1) * dayMs, kind: 'idle', text: `No push today: only ${Math.round(IDLE_MUSTER * 100)}% of the garrison mustered` });
+    for (let c = 0; c < UNIT_COUNT; c++) {
+      acc[c]! += dayAcc[c]! * (dayActive ? 1 : IDLE_MUSTER);
+      dayAcc[c] = 0;
+    }
+    if (dayActive) streak++;
+    else if (++misses > STREAK_GRACE) streak = Math.floor(streak / 2);
     const cohort = emptyCounts();
     for (let c = 0; c < UNIT_COUNT; c++) {
       const whole = Math.floor(acc[c]! + levyAcc[c]!);
@@ -314,10 +329,13 @@ export function cityAt(input: CityInput): CityState {
       const e = events[i++]!;
       const before = dayCredit;
       addToTally(tally, e.delta);
-      const q = workQuality(tally).quality;
+      const q0 = workQuality(tally).quality;
       const after = creditOf(tally);
       dayCredit = after;
       const d = diffWork(after, before);
+      // Daily fatigue on code past the knee.
+      const m = d.code > 0 ? (knee(after.code) - knee(before.code)) / d.code : before.code >= DAY_KNEE ? DAY_OVER : 1;
+      const q = q0 * m;
       addWork(todayWork, d);
       addWork(weekWork, d);
       BUILDINGS.forEach((b, bi) => {
@@ -327,9 +345,7 @@ export function cityAt(input: CityInput): CityState {
       if (!dayActive && after.code + after.removed >= ACTIVE_DAY_LINES) {
         dayActive = true;
         activeDays++;
-        xp[BUILDING_INDEX.granary]! += ACTIVE_DAY_XP;
       }
-      if (after.code + after.removed > 0 && d.code + d.removed + d.tests + d.docs > 0) lastActiveAt = e.at;
       setLevels(e.at, e.message ? `“${e.message}”` : 'A push');
       // The levy: fresh work calls men up at once (undone work sends them home again, today only).
       const men = levyOf(d) * (d.code + d.removed >= 0 ? q : 1);
@@ -347,24 +363,30 @@ export function cityAt(input: CityInput): CityState {
   const recovery = Math.min(RECOVERY.max, RECOVERY.base + RECOVERY.perLevel * levels[BUILDING_INDEX.hospital]!);
   for (let c = 0; c < UNIT_COUNT; c++) recovered[c] = Math.floor(dead[c]! * recovery);
   const today = emptyCounts();
-  for (let c = 0; c < UNIT_COUNT; c++) today[c] = Math.floor(acc[c]! + levyAcc[c]!);
-  const p = pace(now);
+  let waiting = 0;
+  for (let c = 0; c < UNIT_COUNT; c++) {
+    today[c] = Math.floor(acc[c]! + levyAcc[c]! + dayAcc[c]! * (dayActive ? 1 : IDLE_MUSTER));
+    if (!dayActive) waiting += dayAcc[c]! * (1 - IDLE_MUSTER);
+  }
+  const p = pace();
   const walls = levels[BUILDING_INDEX.walls]!;
   return {
     at: now,
     day,
     buildings: BUILDINGS.map((b, bi) => {
+      if (b.key === 'granary') return { key: b.key, xp: 0, level: Math.min(MAX_LEVEL, streak + (dayActive ? 1 : 0)), progress: 0 };
       const L = levels[bi]!;
       const lo = xpForLevel(L);
       const hi = xpForLevel(L + 1);
       return { key: b.key, xp: Math.floor(xp[bi]!), level: L, progress: L >= MAX_LEVEL ? 1 : Math.max(0, Math.min(1, (xp[bi]! - lo) / (hi - lo))) };
     }),
-    ratePerHour: rates(now),
+    ratePerHour: rates(),
     pace: p.value,
     granaryBonus: p.granary,
     boonBonus: p.boon,
     idle: p.idle,
-    idleAt: lastActiveAt === null ? null : lastActiveAt + dayMs,
+    streak: streak + (dayActive ? 1 : 0),
+    waiting: Math.floor(waiting),
     wins,
     cohorts,
     today: day < DAYS_PER_WEEK ? today : emptyCounts(),

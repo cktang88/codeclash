@@ -113,7 +113,7 @@ export function Home({ me }: { me: MeResponse | null }) {
         </div>
         <div>
           <h3>Ⅱ · The city trains soldiers</h3>
-          <p>Buildings train men every hour, day and night; fresh work calls up a levy at once. A lord who stops pushing for a day finds the city working at half pace.</p>
+          <p>Buildings train men every hour, day and night; fresh work calls up a levy at once. Push every day: each day in a row makes the city train faster, and on a day without a push most of the garrison stays home.</p>
         </div>
         <div>
           <h3>Ⅲ · Every night, a battle</h3>
