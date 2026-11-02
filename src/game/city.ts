@@ -97,6 +97,12 @@ export const RECOVERY = { base: 0.4, perLevel: 0.025, max: 0.9 } as const;
 export const PAVISE = { perLevel: 0.02, max: 0.4, stakesFrom: 3 } as const;
 /** Morale per Chapter House level. */
 export const MORALE_PER_CHAPTER = 1.5;
+/** Morale for each daily victory this week (counted up to WIN_BOON_CAP): men who have won expect to win. */
+export const MORALE_PER_WIN = 2;
+/** Morale for each day of the streak (counted up to 7): a lord who shows up every day is trusted. */
+export const MORALE_PER_STREAK_DAY = 1;
+/** Morale per Hospital level: men fight harder knowing the wounded are cared for. */
+export const MORALE_PER_HOSPITAL = 0.5;
 
 /**
  * Levy: soldiers called up at once by fresh work, per unit of credited work. A strong day's work
@@ -398,7 +404,11 @@ export function cityAt(input: CityInput): CityState {
     recovery,
     pavise: Math.min(PAVISE.max, PAVISE.perLevel * walls),
     stakes: walls >= PAVISE.stakesFrom,
-    moraleBonus: MORALE_PER_CHAPTER * levels[BUILDING_INDEX.chapter]!,
+    moraleBonus:
+      MORALE_PER_CHAPTER * levels[BUILDING_INDEX.chapter]! +
+      MORALE_PER_HOSPITAL * levels[BUILDING_INDEX.hospital]! +
+      MORALE_PER_WIN * Math.min(wins, WIN_BOON_CAP) +
+      MORALE_PER_STREAK_DAY * Math.min(7, streak + (dayActive ? 1 : 0)),
     todayWork,
     weekWork,
     activeDays,

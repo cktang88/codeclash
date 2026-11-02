@@ -152,6 +152,7 @@ function CityTab({ slug, id, detail }: { slug: string; id: number; detail: Leagu
           </p>
           {city.idle && city.waiting > 0 && <p className="warn">No push yet today: {n(city.waiting)} trained men will stay home tonight. One push musters them all.</p>}
           {total(city.produced) + today === 0 && <p className="muted">No work yet this week: the lots stand empty.</p>}
+          <p className="muted">Morale +{Math.round(city.moraleBonus)}: Chapter House, Hospital, a {city.streak}-day streak{city.wins > 0 ? `, ${city.wins} victor${city.wins === 1 ? 'y' : 'ies'}` : ''}.</p>
           <UnitTable counts={city.today} faction={look.faction} />
         </div>
         <div className="panel muster">
@@ -212,7 +213,7 @@ function effectOf(key: BuildingKey, level: number, city: CityView['city']): stri
     return `${def.effect}: ${per.toFixed(1)} men an hour.`;
   }
   if (key === 'granary') return `A ${city.streak}-day streak: every building trains ${Math.round(city.granaryBonus * 100)}% faster.`;
-  if (key === 'hospital') return `Saves ${Math.round(city.recovery * 100)}% of the daily fallen for the Grand Battle.`;
+  if (key === 'hospital') return `Saves ${Math.round(city.recovery * 100)}% of the daily fallen for the Grand Battle; +${(level * 0.5).toFixed(1)} morale.`;
   if (key === 'walls') return `Pavises turn ${Math.round(city.pavise * 100)}% of missile harm${city.stakes ? '; stakes before the archers' : '; stakes at level III'}.`;
   return def.effect;
 }
