@@ -117,7 +117,11 @@ export class CityScene {
     this.buffer.height = this.frame.h;
     this.g = this.buffer.getContext('2d')!;
     this.st = styleFor(faction, hue, hd);
-    this.draw2 = new Draw(hd ? buildHdAtlas(faction, hue) : cityAtlas(faction, hue), hd ? new FolkHd(this.st) : new Folk(this.st), this.st, this.frame);
+    const atlas = hd ? buildHdAtlas(faction, hue) : cityAtlas(faction, hue);
+    // HD: ask for every kind's sheet at the city's density now, so the soldiers are crisp by the
+    // time the drill starts (the workers paint them in the background).
+    if (hd && atlas.sheet) for (let kind = 0; kind < 10; kind++) atlas.sheet(kind, this.frame.k);
+    this.draw2 = new Draw(atlas, hd ? new FolkHd(this.st) : new Folk(this.st), this.st, this.frame);
     this.life = new Life(seed, hd ? this.st : null);
     const fire = ramp3([255, 112, 40], [255, 146, 58], [255, 186, 96], 0.55);
     const glow = hd ? ramp3(...lightRamp(this.st.glow)) : fire;

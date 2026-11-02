@@ -174,7 +174,7 @@ const TG = {
   // Warm, sunlit materials (golden-hour ochres); the cast shadows cool them later.
   grass: [hex('#717a3c'), hex('#646d36'), hex('#7e8644'), hex('#565f30')],
   earth: [hex('#7e6748'), hex('#735d40'), hex('#8a7250'), hex('#665238')],
-  beaten: [hex('#8d7656'), hex('#836c4d'), hex('#977f5c')],
+  beaten: [hex('#ad9268'), hex('#a2875e'), hex('#b89c70')],
   cobble: [hex('#a69a80'), hex('#988c72'), hex('#b3a78b'), hex('#8a7e66')],
   cobbleLit: hex('#c4b797'),
   cobbleDark: hex('#6f6552'),
