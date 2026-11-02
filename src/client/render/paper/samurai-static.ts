@@ -517,13 +517,13 @@ function sohei(c: Paper): void {
 
 /** 10: Daimyō: the crescent kabuto, the horo, the jinbaori, the war fan raised to command. */
 function daimyo(c: Paper): void {
-  const b = stand([0, 0], { hnN: [1.4, -9.3], elN: [-1.3, -9.7], hnF: [2.2, -6.9], elF: [2.55, -8.5] });
+  const b = stand([0, 0], { hnN: [2.4, -10.9], elN: [-0.4, -10.3], hnF: [2.2, -6.9], elF: [2.55, -8.5] });
   const dress: Dress = { kit: LORD_KIT, body: 'gusoku', sode: 'big', jinbaori: true };
   man(c, b, dress, {
     back: () => horo(c, addP(b.pel, [-1.2, -3.6]), 1.05),
     hipGear: () => swords(c, b),
     held: () => {
-      gunbai(c, b.hnN, 105);
+      gunbai(c, b.hnN, 112.5);
       part(c, b.hnN, 0, ell(0.5, 0.45, 0, 0.05, 12), (fx, fy) => code(SM.lacquer, lit(c, 2, fx + fy, 0.3, 0.4)));
     },
   });
