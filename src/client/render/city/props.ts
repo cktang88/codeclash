@@ -130,6 +130,7 @@ registerProp('hurdle', { lu: 9, lv: 1, h: 4, draw: (a) => hurdle(a.px, a.st, a.u
 registerProp('hurdleV', { lu: 1, lv: 9, h: 4, draw: (a) => hurdle(a.px, a.st, a.u + 0.5, a.v, a.u + 0.5, a.v + 9) });
 registerProp('washing', { lu: 10, lv: 1, h: 8, draw: (a) => washingLine(a.px, a.st, a.u, a.v + 0.5, a.n) });
 registerProp('bucket', { lu: 1.6, lv: 1.6, h: 1.4, draw: (a) => bucket(a.px, a.st, a.u + 0.8, a.v + 0.8, 0) });
+registerProp('roseBush', { lu: 4.4, lv: 4.4, h: 4.5, draw: (a) => bush(a.px, a.u + 2.2, a.v + 2.2, 2.2, 3, 2.5, Math.floor(a.n * 1000), LEAF, a.n > 0.5 ? [FLOWERS[0]!, FLOWERS[5]!] : [FLOWERS[1]!, FLOWERS[5]!], 0.26) });
 registerProp('bush', { lu: 4, lv: 4, h: 4, draw: (a) => bush(a.px, a.u + 2, a.v + 2, 2, 2.6, 2.2, Math.floor(a.n * 1000), LEAF, a.n > 0.5 ? [FLOWERS[0]!, FLOWERS[5]!] : [FLOWERS[1]!], 0.2) });
 
 // ------------------------------------------------------------------------------ the themes
@@ -173,6 +174,8 @@ registerTheme('templar', {
       G(1, [['pottedTree', 0, 0], ['pot', 3.8, 0.4]], 3),
       G(1, [['handcart', 0, 0.4]]),
       G(1, [['crate', 0, 0], ['bucket', 3.8, 0.6], ['sacks', 5.6, 0]]),
+      G(2, [['roseBush', 0, 0]]),
+      G(1, [['bush', 0, 0], ['pot', 4.4, 0.6]]),
     ],
     door: [G(3, [['lampPost', 0, 0]], 2), G(2, [['pots', 0, 0]], 2), G(1, [['barrel', 0, 0], ['crate', 3.8, 0]]), G(1, [['signPost', 0, 0]], 3)],
     road: [G(3, [['lampPost', 0, 0]], 3), G(1, [['bench', 0, 0]], 2), G(1, [['pot', 0, 0]], 2), G(1, [['hurdle', 0, 0]]), G(1, [['crates', 0, 0]])],
