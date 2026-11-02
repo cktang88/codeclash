@@ -50,6 +50,8 @@ interface Carry {
   itemF?: number;
   /** In NE the near hand is at the side, in view (not in front of the body). */
   side?: boolean;
+  /** The free far arm's base pose (world angles) under the capture's swing. */
+  farBase?: [number, number];
 }
 export interface SSpec {
   /** The near item's key-art angle (rig degrees: 0 down, 90 forward, 180 up). */
@@ -90,6 +92,13 @@ export const FOOT_SPECS: Record<number, SSpec> = {
     walk: { weapon: 177, side: true },
     // The charge: levelled at the hip in both hands, the point forward and a little down.
     run: { upperArmN: -12, forearmN: 74, weapon: 97, both: true },
+  },
+  2: {
+    nearDeg: 110, neNear: { el: [2.6, -11.6], hn: [0.4, -13.6] }, neFar: { el: [-0.9, -9.8], hn: [1.3, -8.9] }, backBone: 'banner',
+    attack: 'jab', shoot: 'javelin', brace: 'ready', die: 'back', smear: [1.5, 4.5],
+    // The javelin at the shoulder, sloped forward and up, held steady; the free arm swings low.
+    walk: { upperArmN: 25, forearmN: 165, weapon: 140, farBase: [8, 30], side: true },
+    run: { upperArmN: 30, forearmN: 160, weapon: 120, farBase: [10, 80], side: true },
   },
 };
 
@@ -395,14 +404,65 @@ const THRUST: Author = (rw) => ({
   },
 });
 
+/**
+ * The nage-yari jab: from the cocked javelin overhead, the weight back, then an overhand stab
+ * forward and down along the shaft with a step, held, and back up to the cock.
+ */
+const JAB: Author = (rw) => ({
+  w: {
+    upperArmN: R(rw.upperArmN!, 11, [2, 200], [3, 196], [4, 120], [5, 100], [6, 100], [8, 150], [10, 180]),
+    forearmN: R(rw.forearmN!, 11, [2, 215], [3, 210], [4, 130], [5, 108], [6, 108], [8, 160], [10, 190]),
+    weapon: R(rw.weapon!, 11, [2, 112], [3, 112], [4, 104], [5, 102], [6, 102], [8, 108]),
+    head: T([0, rw.head!]),
+  },
+  dw: { spine: T([0, 0], [2, 8], [3, 6], [4, -12], [6, -14], [8, -4], [11, 0]) },
+  tAdd: {
+    pelvis: [T([0, 0], [2, -0.45], [3, -0.3], [4, 0.6], [6, 0.65], [8, 0.3], [11, 0]), T([0, 0], [2, 0.1], [4, 0.3], [6, 0.3], [11, 0])],
+    footTargetF: [T([0, 0], [2, 0], [3, 0.5], [4, 1.2], [7, 1.2], [9, 0.4], [11, 0]), T([0, 0], [2, 0], [3, -0.5], [4, 0], [11, 0])],
+  },
+});
+
+/**
+ * The javelin throw (the javelin capture: withdraw 0-3, the block and delivery 4-5 over the
+ * planted front leg, release on 5, follow-through 6-8 with the throwing arm coming down across the
+ * body; recover 9-11, the hand reaching back to the bundle for the next).
+ */
+const THROW: Author = (rw) => ({
+  w: {
+    upperArmN: R(rw.upperArmN!, 11, [1, 215], [2, 225], [3, 228], [4, 185], [5, 140], [6, 70], [8, 10], [10, 120]),
+    forearmN: R(rw.forearmN!, 11, [1, 245], [2, 255], [3, 258], [4, 210], [5, 125], [6, 50], [8, 15], [10, 200]),
+    weapon: R(rw.weapon!, 11, [1, 100], [3, 98], [4, 104], [5, 112], [6, 112]),
+    head: T([0, rw.head!]),
+  },
+  // The free arm (far) points at the target through the withdraw, then pulls in to the chest; the
+  // trunk leans back 16° over the bent rear leg, whips forward over the planted front leg and folds
+  // over it in the follow-through, the rear foot lifting behind; then he steps back to the stance.
+  dw: {
+    upperArmF: T([0, 0], [3, 10], [4, 0], [5, -40], [7, -60], [9, -20], [11, 0]), forearmF: T([0, 0], [4, 10], [5, 30], [7, 40], [11, 0]),
+    spine: T([0, 0], [2, 12], [3, 16], [4, 4], [5, -14], [6, -24], [8, -22], [10, -6], [11, 0]),
+  },
+  tAdd: {
+    pelvis: [T([0, 0], [2, -0.5], [3, -0.6], [4, 0.2], [5, 0.7], [7, 0.9], [9, 0.4], [11, 0]), T([0, 0], [3, 0.35], [4, 0.15], [6, 0.35], [8, 0.3], [11, 0])],
+    footTargetF: [T([0, 0], [2, 0.2], [3, 0.9], [4, 1.4], [9, 1.4], [10, 0.6], [11, 0]), T([0, 0], [2, -0.4], [3, -0.3], [4, 0], [9, 0], [10, -0.3], [11, 0])],
+    footTargetN: [T([0, 0], [5, 0], [6, 0.4], [8, 0.6], [9, 0.3], [11, 0]), T([0, 0], [5, 0], [6, -0.6], [7, -0.9], [8, -0.4], [9, 0], [11, 0])],
+  },
+});
+
 const ATTACKS: Record<Attack, { clip: string; o: MocapOpts; a: Author; extra: number[]; ev: AnimEvent[] }> = {
   kesa: { clip: 'cut-diagonal', o: { torso: 0.5, travel: 0, feet: 0.3 }, a: KESA, extra: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], ev: [{ f: 5, name: 'smear', len: 3, bone: 'weapon' }, { f: 7, name: 'strike' }] },
   thrust: { clip: 'thrust', o: { torso: 0.3, travel: 0.3, feet: 0.3 }, a: THRUST, extra: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], ev: [{ f: 4, name: 'smear', len: 1, bone: 'weapon' }, { f: 5, name: 'strike' }] },
-  jab: { clip: 'thrust', o: {}, a: KESA, extra: [], ev: [] },
+  jab: { clip: 'thrust', o: { torso: 0.3, travel: 0.3, feet: 0.3 }, a: JAB, extra: [2, 3, 4, 5, 6, 7, 8, 9, 10], ev: [{ f: 4, name: 'smear', len: 1, bone: 'weapon' }, { f: 5, name: 'strike' }] },
   punch: { clip: 'thrust', o: {}, a: KESA, extra: [], ev: [] },
   butt: { clip: 'thrust', o: {}, a: KESA, extra: [], ev: [] },
   sweep: { clip: 'thrust', o: {}, a: KESA, extra: [], ev: [] },
   fan: { clip: 'thrust', o: {}, a: KESA, extra: [], ev: [] },
+};
+
+/** Missiles: clip, capture options, authored arms, events, and a slot hidden while the missile is away. */
+const SHOOTS: Record<Exclude<Shoot, null>, { clip: string; o: MocapOpts; a: Author; extra: number[]; ev: AnimEvent[]; hide?: [string, number, number] }> = {
+  javelin: { clip: 'thrust', o: { torso: 0.2, travel: 0, feet: 0 }, a: THROW, extra: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], ev: [{ f: 4, name: 'smear', len: 1, bone: 'weapon' }, { f: 5, name: 'release' }], hide: ['weapon', 5, 11] },
+  kyudo: { clip: 'bow', o: {}, a: THROW, extra: [], ev: [] },
+  teppo: { clip: 'gun', o: {}, a: THROW, extra: [], ev: [] },
 };
 
 // ------------------------------------------------------------------ the rest
@@ -423,7 +483,8 @@ const BRACE: Record<Brace, Author> = {
     w: { head: T([0, rw.head! + 4]), upperArmN: T([0, 14]), forearmN: T([0, 62]), weapon: T([0, 126]) },
     tAdd: { pelvis: [T([0, -0.1]), T([0, 1.1])], footTargetF: [T([0, 1.1]), T([0, 0])], footTargetN: [T([0, -0.8]), T([0, 0])] },
   }),
-  ready: () => ({}),
+  // A ready crouch, the weapon held as it is, the weight forward.
+  ready: (rw) => ({ dw: { spine: T([0, -10]) }, w: { head: T([0, rw.head! - 2]) }, tAdd: { pelvis: [T([0, 0.2]), T([0, 0.8])], footTargetF: [T([0, 0.9]), T([0, 0])], footTargetN: [T([0, -0.6]), T([0, 0])] } }),
   kneel: () => ({}),
   naginata: () => ({}),
   command: () => ({}),
@@ -473,11 +534,11 @@ export function footClips(skel: SkeletonData, s: SSpec, k: SFoot): ClipSet {
     const sd = f === 'ne' ? -1 : 1;
     return { footTargetN: [T([0, 1.1 * kk * sd]), T([0, 0])], footTargetF: [T([0, -1.1 * kk * sd]), T([0, 0])] };
   };
-  const carry = (c: Carry, rw: Record<string, number>): { w: Record<string, Track>; ik: Record<string, Track> } => {
+  const carry = (c: Carry, rw: Record<string, number>): { w: Record<string, Track>; dw: Record<string, Track>; ik: Record<string, Track> } => {
     const w: Record<string, Track> = {};
     for (const b of ['upperArmN', 'forearmN', 'weapon', 'upperArmF', 'forearmF', 'itemF'] as const) if (c[b] !== undefined) w[b] = T([0, c[b]!]);
-    void rw;
-    return { w, ik: { armF2h: T([0, s.twoHand && c.both ? 1 : 0]) } };
+    const dw: Record<string, Track> = c.farBase ? { upperArmF: T([0, c.farBase[0] - rw.upperArmF!]), forearmF: T([0, c.farBase[1] - rw.forearmF!]) } : {};
+    return { w, dw, ik: { armF2h: T([0, s.twoHand && c.both ? 1 : 0]) } };
   };
   const freeF = (c: Carry) => !(s.twoHand && c.both) && c.upperArmF === undefined;
   // The walk: a long even stride (feet ~0.3 H apart at contact), the hips down 1-2 px just after
@@ -486,19 +547,24 @@ export function footClips(skel: SkeletonData, s: SSpec, k: SFoot): ClipSet {
     const bob = T([0, 0.12], [1, 0.25], [2, 0.12], [3, -0.12], [4, -0.15], [5, 0], [6, 0.12], [7, 0.25], [8, 0.12], [9, -0.12], [10, -0.15], [11, 0]);
     const twist = T([0, -0.15], [3, 0], [6, 0.15], [9, 0], [11, -0.1]);
     const cw = carry(s.walk, rw);
-    return { w: { head: T([0, rw.head!]), ...cw.w }, ik: cw.ik, tAdd: { pelvis: [T([0, 0]), bob], chest: [twist, T([0, 0])], ...track(f, 1) } };
+    return { w: { head: T([0, rw.head!]), ...cw.w }, dw: cw.dw, ik: cw.ik, tAdd: { pelvis: [T([0, 0]), bob], chest: [twist, T([0, 0])], ...track(f, 1) } };
   };
   let walk = fc('walk', 12, true, (f) => mk(skel, f, 'walk', { ref: 'mean', torso: 0.5, arms: { N: 0, F: freeF(s.walk) ? 0.55 : 0 }, roll: 0.6, feet: 1.25, mirror: 12 }, walkA), [{ f: 0, name: 'step', str: 'N' }, { f: 6, name: 'step', str: 'F' }], 0.3);
   const runA = (rw: Record<string, number>, f: Facing): Tracks => {
     const cw = carry(s.run, rw);
-    return { tAdd: track(f, 1.1), w: { head: T([0, rw.head! - 6]), ...cw.w }, ik: cw.ik, dw: { spine: T([0, -13]) } };
+    return { tAdd: track(f, 1.1), w: { head: T([0, rw.head! - 6]), ...cw.w }, ik: cw.ik, dw: { spine: T([0, -13]), ...cw.dw } };
   };
   let run = fc('run', 12, true, (f) => mk(skel, f, 'run', { ref: 'mean', torso: 0.5, arms: { N: 0, F: freeF(s.run) ? 0.7 : 0 }, roll: 0.5, mirror: 12 }, runA), [{ f: 0, name: 'step', str: 'N' }, { f: 6, name: 'step', str: 'F' }], 1);
   // Idle: the capture's slow weight shift, small (the key art must hold), and breathing.
   const idle = withBreath(fc('idle', 8, true, (f) => mk(skel, f, 'idle', { ref: 'first', torso: 0.1, travel: 0.16, feet: 0 })));
   const at = ATTACKS[s.attack];
   const attack = fc('attack', 12, false, (f) => mk(skel, f, at.clip, at.o, at.a, at.extra), at.ev);
-  const shoot = attack;
+  let shoot = attack;
+  if (s.shoot) {
+    const sh = SHOOTS[s.shoot];
+    shoot = fc('shoot', 12, false, (f) => mk(skel, f, sh.clip, sh.o, sh.a, sh.extra), sh.ev);
+    if (sh.hide) shoot = hideSlot(shoot, sh.hide[0], sh.hide[1], sh.hide[2]);
+  }
   // Struck: the shoulder and head snap back, the trunk follows, the rear foot steps back; a flash.
   const hitA: Author = (rw, f) => ({ ...HIT(rw, f), ...(s.nearDeg >= 160 ? { w: { weapon: T([0, rw.weapon! - 4], [1, rw.weapon! - 6], [4, rw.weapon!]) } } : {}) });
   const hit = fc('hit', 5, false, (f) => mk(skel, f, 'hit', { torso: 0, absHeight: true, travel: 0.55, feet: 0.6 }, hitA, [1, 2, 3]), [{ f: 0, name: 'flash' }]);

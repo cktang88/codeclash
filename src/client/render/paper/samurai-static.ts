@@ -662,12 +662,13 @@ function torso(c: Paper, b: Body, d: Dress, back = false): void {
       const t = torsoTone(c, fx, fy);
       if (!back && Math.abs(fx - 0.2 + (fy + 4.9) * 0.32) < 0.32 && fy < -2.3) return code(KM.silk, t);
       if (fy > -0.85) return code(SM.teamDk, t);
+      // The jacket in the army colour, dyed deep (a light figure's mean would sit on the field's).
       const f = frac((fx + 3) / 1.25 + fy * 0.08);
-      if (f < 0.07) return code(SM.team, t - 1);
-      if (f > 0.07 && f < 0.13) return code(SM.team, Math.min(4, t + 1));
+      if (f < 0.07) return code(KM.lacTeam, t - 1);
+      if (f > 0.07 && f < 0.13) return code(KM.lacTeam, Math.min(4, t + 2));
       // A white mon on the jacket; the big one in the middle of the back.
       if (back ? Math.hypot(fx + 0.15, fy + 2.7) < 0.85 : Math.hypot(fx + 0.95, fy + 2.4) < 0.55) return code(KM.silk, 2);
-      return code(SM.team, t);
+      return code(KM.lacTeam, Math.min(4, t + 1));
     });
   } else {
     slab(c, o, TORSO.map((p) => [p[0] * 1.08, p[1]] as P2), (fx, fy) => {
