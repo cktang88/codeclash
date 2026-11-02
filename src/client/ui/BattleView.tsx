@@ -73,6 +73,8 @@ export function BattleView(props: {
   const [ticker, setTicker] = useState<Ticker[]>([]);
   const ctl = useRef({ speed, paused, skipping });
   ctl.current = { speed, paused, skipping };
+  const onDoneRef = useRef(props.onDone);
+  onDoneRef.current = props.onDone;
 
   useEffect(() => {
     if (noGl) return;
@@ -86,6 +88,7 @@ export function BattleView(props: {
     let acc = 0;
     let hudAt = 0;
     let restartAt = 0;
+    let doneSent = false;
     const [a, b] = setup.armies;
     const STANCE_WORDS: Record<string, string> = {
       shieldwall: 'lock shields', pikewall: 'level their spears in a pike wall', wedge: 'form a wedge', loose: 'spread into loose order',
@@ -161,7 +164,11 @@ export function BattleView(props: {
           setTicker((t) => [...fresh.reverse(), ...t].slice(0, 6));
         }
         if (battle.done() && c.skipping) setSkipping(false);
-        if (battle.done()) props.onDone?.();
+        // Once per battle, not on every HUD refresh after it ends; the latest callback, not the first render's.
+        if (battle.done() && !doneSent) {
+          doneSent = true;
+          onDoneRef.current?.();
+        }
       }
       raf = requestAnimationFrame(loop);
     };
@@ -322,19 +329,23 @@ export function BattleView(props: {
               </li>
             ))}
           </ul>
+          {/* Two groups that never split inside: on a narrow screen they stack as two rows. */}
           <div className="hud-controls">
-            <button onClick={() => setPaused((p) => !p)} disabled={live.done}>{paused ? '▶' : '❚❚'}</button>
-            {SPEEDS.map((s) => (
-              <button key={s} className={speed === s ? 'on' : ''} onClick={() => setSpeed(s)}>{s}×</button>
-            ))}
-            <button onClick={() => setSkipping(true)} disabled={live.done || skipping}>To the end ⏭</button>
-            <span className="sep" />
-            <button onClick={() => zoomTo(zoom - 1)} disabled={zoom <= 1}>−</button>
-            <span className="mono">{zoom}×</span>
-            <button onClick={() => zoomTo(zoom + 1)} disabled={zoom >= MAX_ZOOM}>+</button>
-            <button onClick={() => { sceneRef.current?.fit(); setZoom(1); }} title="Fit the field">⤢</button>
-            <button className={scan ? 'on' : ''} onClick={() => setScan((x) => !x)} title="Scanlines">▤</button>
-            <button className={follow ? 'on' : ''} onClick={() => setFollow((x) => !x)} title="Follow the fighting">◎</button>
+            <span className="hud-group">
+              <button onClick={() => setPaused((p) => !p)} disabled={live.done} title={paused ? 'Play' : 'Pause'}>{paused ? '▶' : '❚❚'}</button>
+              {SPEEDS.map((s) => (
+                <button key={s} className={speed === s ? 'on' : ''} onClick={() => setSpeed(s)}>{s}×</button>
+              ))}
+              <button onClick={() => setSkipping(true)} disabled={live.done || skipping} title="To the end" aria-label="To the end"><span className="hud-label">To the end </span>⏭</button>
+            </span>
+            <span className="hud-group">
+              <button onClick={() => zoomTo(zoom - 1)} disabled={zoom <= 1} aria-label="Zoom out">−</button>
+              <span className="mono">{zoom}×</span>
+              <button onClick={() => zoomTo(zoom + 1)} disabled={zoom >= MAX_ZOOM} aria-label="Zoom in">+</button>
+              <button onClick={() => { sceneRef.current?.fit(); setZoom(1); }} title="Fit the field">⤢</button>
+              <button className={scan ? 'on' : ''} onClick={() => setScan((x) => !x)} title="Scanlines">▤</button>
+              <button className={follow ? 'on' : ''} onClick={() => setFollow((x) => !x)} title="Follow the fighting">◎</button>
+            </span>
           </div>
           {live.done && live.winner !== null && (
             <div className="verdict">

@@ -26,6 +26,29 @@ const TABS = [
   ['rules', 'Rules of war'],
 ] as const;
 
+/** Copies the invite link and says so; where the clipboard is refused, shows the link selected to copy by hand. */
+function InviteLink({ url }: { url: string }) {
+  const [state, setState] = useState<'idle' | 'copied' | 'manual'>('idle');
+  useEffect(() => {
+    if (state !== 'copied') return;
+    const t = setTimeout(() => setState('idle'), 2000);
+    return () => clearTimeout(t);
+  }, [state]);
+  const copy = () => {
+    if (!navigator.clipboard) return setState('manual');
+    navigator.clipboard.writeText(url).then(() => setState('copied'), () => setState('manual'));
+  };
+  if (state === 'manual') {
+    return (
+      <label className="invite-manual small muted">
+        Copy this invite link:
+        <input readOnly value={url} autoFocus onFocus={(e) => e.currentTarget.select()} />
+      </label>
+    );
+  }
+  return <button onClick={copy}>{state === 'copied' ? 'Copied ✓' : 'Copy invite link'}</button>;
+}
+
 function Banner({ hue }: { hue: number }) {
   return <span className="swatch" style={{ background: hsl(hue, 55, 38) }} />;
 }
@@ -94,7 +117,7 @@ export function LeaguePage({ slug, tab, member, me }: { slug: string; tab: strin
         )}
         {!signedIn && me?.oauth && <a className="button primary" href={`/auth/github?next=${encodeURIComponent(location.pathname + location.search)}`}>Sign in with GitHub to join</a>}
         {detail.invite && (
-          <button onClick={() => navigator.clipboard?.writeText(`${location.origin}/l/${slug}?invite=${detail.invite}`)}>Copy invite link</button>
+          <InviteLink url={`${location.origin}/l/${slug}?invite=${detail.invite}`} />
         )}
         {detail.viewer.member && !detail.viewer.owner && (
           <button className="quiet" onClick={() => confirm('Leave this league?') && api.leave(slug).then(() => go('/'), (e: Error) => setError(e.message))}>Leave</button>
@@ -143,7 +166,24 @@ function CityTab({ slug, id, detail }: { slug: string; id: number; detail: Leagu
     };
   }, [slug, id, key]);
   const view = loaded?.key === key ? loaded.view : null;
-  if (!view && failed?.key === key) return <p className="error">{failed.message}</p>;
+  const known = detail.members.some((m) => m.user.id === id);
+  const picker = (
+    <select value={id} onChange={(e) => go(`/l/${slug}/city/${e.target.value}`)}>
+      {/* An id that is not a member gets a placeholder, so every real lord can still be picked. */}
+      {!known && <option value={id} disabled>Choose a lord…</option>}
+      {detail.members.map((m) => (
+        <option key={m.user.id} value={m.user.id}>{m.user.login}{m.user.bot ? ' (sparring bot)' : ''}</option>
+      ))}
+    </select>
+  );
+  if (!view && failed?.key === key) {
+    return (
+      <div className="city">
+        <div className="city-who">{picker}</div>
+        <p className="error">{failed.message}</p>
+      </div>
+    );
+  }
   if (!view) return <p className="muted">Riding out to the commandery…</p>;
   const { city, look } = view;
   const f = FACTIONS[look.faction];
@@ -154,11 +194,7 @@ function CityTab({ slug, id, detail }: { slug: string; id: number; detail: Leagu
   return (
     <div className="city">
       <div className="city-who">
-        <select value={id} onChange={(e) => go(`/l/${slug}/city/${e.target.value}`)}>
-          {detail.members.map((m) => (
-            <option key={m.user.id} value={m.user.id}>{m.user.login}{m.user.bot ? ' (sparring bot)' : ''}</option>
-          ))}
-        </select>
+        {picker}
         <span className="muted">{f.name} · <i>{f.motto}</i></span>
       </div>
       <div className="city-stage">
