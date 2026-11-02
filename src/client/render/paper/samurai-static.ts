@@ -228,7 +228,15 @@ function kebiki(c: Paper, fx: number, fy: number, top: number, t: number, lac: L
 /** Okegawa-dō: riveted horizontal plates in plain lacquer with kanamono rivet heads and lit plate edges. */
 function okegawa(c: Paper, fx: number, fy: number, top: number, t: number, plate: Mat, per = 0.85): number {
   const L = c.L;
-  if (L === 2) return code(plate, t);
+  if (L === 2) {
+    // At 2 px a unit: wider plates, each lit along its top on the light side only and its seam a
+    // broken dark dash, so rows neither stripe the dō nor end in line.
+    const r2 = (fy - top - 0.06 * fx * fx) / 1.5;
+    const k2 = frac(r2), p2 = 1 / (L * 1.5);
+    if (k2 < p2 && fx < 0.2 - Math.floor(r2) * 0.35) return code(plate, Math.min(4, t + 1));
+    if (k2 > 1 - p2 && frac((fx * L + Math.floor(r2) * 2.3) / 5) < 0.55) return code(plate, Math.max(0, t - 1));
+    return code(plate, t);
+  }
   const r = (fy - top - 0.06 * fx * fx) / per;
   const k = frac(r);
   const px = 1 / (L * per);
@@ -621,6 +629,8 @@ const torsoTone = (c: Paper, fx: number, fy: number): number => {
   let t = lit(c, 2, fx * 0.42 + (fy + 2.4) * 0.22, 0.5, 0.45);
   // The side plane's edge: slanted at 2 px a unit, so its columns do not all end on the dō's rim.
   if (fx > (c.L === 2 ? 0.55 - fy * 0.28 : 1.15 - fy * 0.05)) t = Math.min(t, 1);
+  // At 2 px a unit the chest takes the light as one plane (the dō's lit top reads as the key).
+  else if (c.L === 2 && fy < -3.0 && fx < 0.6) t = Math.min(4, t + 1);
   return t;
 };
 
@@ -692,6 +702,8 @@ function torso(c: Paper, b: Body, d: Dress, back = false): void {
   slab(c, o, [[-1.85, -0.45], [1.85, -0.5], [1.85, 0.15], [-1.85, 0.2]], (fx, fy) => {
     const f = frac((fx + 3) / 0.9 + fy * 0.4);
     if (f < 0.1) return code(m, 0);
+    // (At 2 px a unit the sash is in the dō's shadow: a pale band low on the figure would read as the light.)
+    if (c.L === 2) return code(m, fx < -1.0 ? 1 : 0);
     if (f < 0.18) return code(m, 2);
     return code(m, fx < -1.0 ? 2 : fx > 1.1 ? 0 : 1);
   });
@@ -712,7 +724,8 @@ function kusaPanel(c: Paper, b: Body, d: Dress, layer: 'back' | 'front', i: numb
   const [x0, flare0, tone0] = (layer === 'back' ? KUSA_BACK : KUSA_FRONT)[i]!;
   // From behind the back panels face the light like the front ones did (the near one lit, left).
   const x = back ? -x0 : x0, flare = back ? -flare0 : flare0;
-  const tone = back && layer === 'back' ? (x < 0 ? 3 : 2) : tone0;
+  // (At 2 px a unit the skirt sits a step down: below the dō it is in the trunk's shadow.)
+  const tone = Math.max(1, (back && layer === 'back' ? (x < 0 ? 3 : 2) : tone0) - (c.L === 2 ? 1 : 0));
   const w0 = robe ? 1.25 : 0.82, w1 = robe ? 1.55 : 1.05;
   const pts: P2[] = robe
     ? [[x - w0, 0], [x + w0, 0], [x + w1 + flare, long - 0.2], [x + flare, long + 0.15], [x - w1 + flare, long - 0.3]]
