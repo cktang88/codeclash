@@ -1,0 +1,53 @@
+{
+ "name": "thrust",
+ "anim": "Attack",
+ "frames": 12,
+ "loop": false,
+ "angles": "world",
+ "restHeight": 14,
+ "restHip": 8.25,
+ "lengths": {"pelvis":2.14,"spine":1.19,"chest":0.84,"neck":0.85,"head":0.85,"upperArm":2.96,"forearm":1.84,"hand":0.76,"thigh":3.6,"shin":4.02,"foot":1.13},
+ "facings": {
+  "se": { "keys": [
+    {"f":0,"root":[0,0.29],"height":7.96,"contact":{"N":true,"F":true},"bones":{"pelvis":194,"spine":169,"chest":168,"neck":169.5,"head":166,"upperArmN":7.5,"forearmN":144.5,"handN":179.5,"upperArmF":17,"forearmF":182.5,"handF":187.5,"thighN":8.5,"shinN":-14.5,"footN":61.5,"thighF":8,"shinF":-10.5,"footF":62},"twist":{"pelvis":-8,"chest":-10}},
+    {"f":1,"root":[0.04,0.25],"height":7.97,"contact":{"N":true,"F":true},"bones":{"pelvis":193,"spine":168,"chest":167,"neck":167.5,"head":163.5,"upperArmN":-3,"forearmN":128,"handN":163.5,"upperArmF":17.5,"forearmF":184.5,"handF":185,"thighN":8.5,"shinN":-14.5,"footN":61,"thighF":7.5,"shinF":-11,"footF":62},"twist":{"pelvis":-10,"chest":-13}},
+    {"f":2,"root":[0.09,0.26],"height":7.92,"contact":{"N":true,"F":true},"bones":{"pelvis":191.5,"spine":164.5,"chest":162.5,"neck":164,"head":160.5,"upperArmN":-27,"forearmN":79.5,"handN":106,"upperArmF":7,"forearmF":158.5,"handF":168,"thighN":8.5,"shinN":-15,"footN":58.5,"thighF":9.5,"shinF":-13.5,"footF":60},"twist":{"pelvis":-9,"chest":-13}},
+    {"f":3,"root":[0.16,0.26],"height":7.89,"contact":{"N":true,"F":true},"bones":{"pelvis":192,"spine":160,"chest":155,"neck":158.5,"head":156.5,"upperArmN":-25,"forearmN":92.5,"handN":111.5,"upperArmF":-8.5,"forearmF":106.5,"handF":141,"thighN":7,"shinN":-17,"footN":61,"thighF":12.5,"shinF":-15,"footF":58},"twist":{"pelvis":2,"chest":0}},
+    {"f":4,"root":[0.17,0.16],"height":7.98,"contact":{"N":true,"F":true},"bones":{"pelvis":192,"spine":157.5,"chest":151,"neck":155,"head":154,"upperArmN":9,"forearmN":130,"handN":151,"upperArmF":-16.5,"forearmF":89.5,"handF":120,"thighN":4,"shinN":-16.5,"footN":70,"thighF":12,"shinF":-12,"footF":58.5},"twist":{"pelvis":8,"chest":14}},
+    {"f":5,"root":[0.1,0.14],"height":8.01,"contact":{"N":true,"F":true},"bones":{"pelvis":190.5,"spine":155,"chest":148.5,"neck":154,"head":154,"upperArmN":64.5,"forearmN":115.5,"handN":112.5,"upperArmF":-22.5,"forearmF":88,"handF":109,"thighN":2.5,"shinN":-14.5,"footN":75,"thighF":12,"shinF":-11,"footF":59},"twist":{"pelvis":9,"chest":22}},
+    {"f":6,"root":[0.12,0.2],"height":8,"contact":{"N":true,"F":true},"bones":{"pelvis":189.5,"spine":154.5,"chest":149.5,"neck":155,"head":155.5,"upperArmN":76,"forearmN":99.5,"handN":69,"upperArmF":-18,"forearmF":94,"handF":108.5,"thighN":2.5,"shinN":-14.5,"footN":70,"thighF":13,"shinF":-12.5,"footF":59},"twist":{"pelvis":8,"chest":25}},
+    {"f":7,"root":[0.25,0.25],"height":7.94,"contact":{"N":true,"F":true},"bones":{"pelvis":191.5,"spine":156.5,"chest":151,"neck":158,"head":158,"upperArmN":45,"forearmN":101.5,"handN":65.5,"upperArmF":-10.5,"forearmF":90.5,"handF":106,"thighN":4,"shinN":-17.5,"footN":65,"thighF":13.5,"shinF":-15.5,"footF":58},"twist":{"pelvis":8,"chest":25}},
+    {"f":8,"root":[0.36,0.25],"height":7.93,"contact":{"N":true,"F":true},"bones":{"pelvis":192,"spine":159.5,"chest":154.5,"neck":161.5,"head":161.5,"upperArmN":12,"forearmN":110,"handN":150.5,"upperArmF":-9.5,"forearmF":97,"handF":113,"thighN":3,"shinN":-17.5,"footN":65.5,"thighF":12.5,"shinF":-17,"footF":58},"twist":{"pelvis":5,"chest":19}},
+    {"f":9,"root":[0.38,0.21],"height":7.96,"contact":{"N":true,"F":true},"bones":{"pelvis":192.5,"spine":162,"chest":157,"neck":164.5,"head":163.5,"upperArmN":-5,"forearmN":111,"handN":148,"upperArmF":-9.5,"forearmF":110.5,"handF":132.5,"thighN":3,"shinN":-16.5,"footN":64.5,"thighF":10,"shinF":-16,"footF":59},"twist":{"pelvis":1,"chest":8}},
+    {"f":11,"root":[0.24,0.22],"height":7.97,"contact":{"N":true,"F":true},"bones":{"pelvis":193,"spine":165.5,"chest":163.5,"neck":169.5,"head":167,"upperArmN":4,"forearmN":137,"handN":175,"upperArmF":7.5,"forearmF":157.5,"handF":172.5,"thighN":5,"shinN":-15,"footN":63,"thighF":8,"shinF":-13.5,"footF":60.5},"twist":{"pelvis":-6,"chest":-1}}
+  ] },
+  "ne": { "keys": [
+    {"f":0,"root":[0,0.29],"height":7.96,"contact":{"N":true,"F":true},"bones":{"pelvis":200,"spine":169,"chest":160.5,"neck":166.5,"head":171,"upperArmN":13,"forearmN":174,"handN":179.5,"upperArmF":20.5,"forearmF":159.5,"handF":188.5,"thighN":9,"shinN":-11.5,"footN":92,"thighF":5.5,"shinF":-19.5,"footF":92.5},"twist":{"pelvis":-8,"chest":-10}},
+    {"f":1,"root":[-0.04,0.25],"height":7.97,"contact":{"N":true,"F":true},"bones":{"pelvis":199.5,"spine":168,"chest":157.5,"neck":166,"head":170.5,"upperArmN":5,"forearmN":160.5,"handN":165.5,"upperArmF":15.5,"forearmF":151.5,"handF":185,"thighN":9.5,"shinN":-11,"footN":91.5,"thighF":5.5,"shinF":-19.5,"footF":92.5},"twist":{"pelvis":-10,"chest":-13}},
+    {"f":2,"root":[-0.09,0.26],"height":7.92,"contact":{"N":true,"F":true},"bones":{"pelvis":198,"spine":164.5,"chest":154,"neck":165.5,"head":171,"upperArmN":-13.5,"forearmN":112.5,"handN":131,"upperArmF":-4,"forearmF":132,"handF":169,"thighN":11.5,"shinN":-12,"footN":88,"thighF":9.5,"shinF":-21,"footF":90},"twist":{"pelvis":-9,"chest":-13}},
+    {"f":3,"root":[-0.1,0.25],"height":7.89,"contact":{"N":true,"F":true},"bones":{"pelvis":196.5,"spine":164.5,"chest":155,"neck":163,"head":168.5,"upperArmN":-3.5,"forearmN":126.5,"handN":134,"upperArmF":-16.5,"forearmF":119.5,"handF":151,"thighN":9,"shinN":-12.5,"footN":91.5,"thighF":12.5,"shinF":-20.5,"footF":87.5},"twist":{"pelvis":2,"chest":0}},
+    {"f":4,"root":[-0.11,0.14],"height":7.98,"contact":{"N":true,"F":true},"bones":{"pelvis":195,"spine":167,"chest":160,"neck":161.5,"head":166,"upperArmN":44,"forearmN":166.5,"handN":157,"upperArmF":-24,"forearmF":115,"handF":139,"thighN":4.5,"shinN":-10.5,"footN":102,"thighF":10.5,"shinF":-17.5,"footF":87.5},"twist":{"pelvis":8,"chest":14}},
+    {"f":5,"root":[-0.12,0.14],"height":8.01,"contact":{"N":true,"F":true},"bones":{"pelvis":193,"spine":167.5,"chest":165,"neck":161.5,"head":164,"upperArmN":97.5,"forearmN":153.5,"handN":134.5,"upperArmF":-29.5,"forearmF":116,"handF":132.5,"thighN":2,"shinN":-9,"footN":107,"thighF":10,"shinF":-16.5,"footF":88.5},"twist":{"pelvis":9,"chest":22}},
+    {"f":6,"root":[-0.05,0.17],"height":8,"contact":{"N":true,"F":true},"bones":{"pelvis":194,"spine":169.5,"chest":169,"neck":161,"head":162.5,"upperArmN":108.5,"forearmN":141,"handN":101,"upperArmF":-21.5,"forearmF":122,"handF":132.5,"thighN":2.5,"shinN":-9.5,"footN":102,"thighF":10.5,"shinF":-18,"footF":88.5},"twist":{"pelvis":8,"chest":25}},
+    {"f":7,"root":[0.03,0.17],"height":7.94,"contact":{"N":true,"F":true},"bones":{"pelvis":196,"spine":171.5,"chest":170.5,"neck":163.5,"head":165.5,"upperArmN":62.5,"forearmN":182,"handN":98.5,"upperArmF":-11.5,"forearmF":122,"handF":131,"thighN":4.5,"shinN":-12,"footN":96.5,"thighF":11.5,"shinF":-19,"footF":87},"twist":{"pelvis":8,"chest":25}},
+    {"f":8,"root":[0.06,0.13],"height":7.93,"contact":{"N":true,"F":true},"bones":{"pelvis":197.5,"spine":171.5,"chest":169,"neck":165,"head":167,"upperArmN":21,"forearmN":183.5,"handN":157,"upperArmF":-6.5,"forearmF":129,"handF":135,"thighN":4,"shinN":-11.5,"footN":97,"thighF":11,"shinF":-20,"footF":87.5},"twist":{"pelvis":5,"chest":19}},
+    {"f":9,"root":[0.05,0.09],"height":7.96,"contact":{"N":true,"F":true},"bones":{"pelvis":198,"spine":170.5,"chest":167,"neck":166,"head":168.5,"upperArmN":5,"forearmN":162.5,"handN":155.5,"upperArmF":-5,"forearmF":134,"handF":146,"thighN":4.5,"shinN":-11,"footN":95.5,"thighF":9.5,"shinF":-20,"footF":88.5},"twist":{"pelvis":1,"chest":8}},
+    {"f":11,"root":[0.02,0.15],"height":7.97,"contact":{"N":true,"F":true},"bones":{"pelvis":199,"spine":169,"chest":164.5,"neck":166.5,"head":169.5,"upperArmN":9,"forearmN":169,"handN":175.5,"upperArmF":10.5,"forearmF":153.5,"handF":173,"thighN":6.5,"shinN":-10.5,"footN":93.5,"thighF":7.5,"shinF":-20.5,"footF":91},"twist":{"pelvis":-6,"chest":-1}}
+  ] }
+ },
+ "events": [{"f":3,"name":"smear","len":3,"bone":"handN"},{"f":5,"name":"strike"}],
+ "meta": {
+   "source": "CMU Graphics Lab Motion Capture Database, subject 143, trial 143_23 (\"Punching\"), cgspeed BVH conversion",
+   "licence": "CMU: free to use, including in commercial products; the raw data may not be resold. Credit: mocap.cs.cmu.edu, NSF EIA-0196217.",
+   "range": [
+     277,
+     361
+   ],
+   "fps": 120,
+   "seconds": 0.7,
+   "why": "A right cross: the rear foot and hip drive (yaw -100° to -81°), the hand goes straight out (313), holds, and comes back slower. The closest captured motion to a spear or sword thrust; the point must travel in a straight line.",
+   "sides": "N (near, weapon side) = subject right; F (far) = subject left",
+   "projection": "SE: heading world +x; NE: heading (0.5, -0.866); ground turned 30° and squashed 0.5; heights unsquashed",
+   "keyTolerance": "7.5° (root 0.3 units)"
+ }
+}

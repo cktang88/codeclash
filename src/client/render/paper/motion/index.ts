@@ -8,10 +8,17 @@
 // list per drawn facing, root offset and pelvis height in figure units (a man is 14 units tall),
 // foot contacts for IK planting, and events (strike, release, smear, step).
 
+import bow from './bow.json' with { type: 'json' };
 import brace from './brace.json' with { type: 'json' };
+import chop from './chop.json' with { type: 'json' };
+import cutDiagonal from './cut-diagonal.json' with { type: 'json' };
+import cutOverhead from './cut-overhead.json' with { type: 'json' };
+import gun from './gun.json' with { type: 'json' };
 import idle from './idle.json' with { type: 'json' };
+import javelin from './javelin.json' with { type: 'json' };
 import march from './march.json' with { type: 'json' };
 import run from './run.json' with { type: 'json' };
+import thrust from './thrust.json' with { type: 'json' };
 import walk from './walk.json' with { type: 'json' };
 
 export type MotionFacing = 'se' | 'ne';
@@ -52,7 +59,7 @@ export interface MotionClip {
   meta: Record<string, unknown>;
 }
 
-const all = [walk, march, run, idle, brace] as unknown as MotionClip[];
+const all = [walk, march, run, idle, brace, cutOverhead, cutDiagonal, chop, thrust, bow, gun, javelin] as unknown as MotionClip[];
 
 /** Every converted clip by name. */
 export const MOTION: Readonly<Record<string, MotionClip>> = Object.fromEntries(all.map((c) => [c.name, c]));
