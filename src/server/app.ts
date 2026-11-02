@@ -122,20 +122,22 @@ export async function createServer(
     async listen() {
       if (background) {
         // Battles are fought a slice at a time so a big night never blocks requests for long.
-        battleTimer = setInterval(() => {
+        // A failed tick is logged, never thrown from a timer, where it would end the process.
+        const tick = () => {
           try {
             fightDue();
           } catch (err) {
             log.error('battle tick failed', { error: errorMessage(err) });
           }
-        }, BATTLE_CHECK_MS);
+        };
+        battleTimer = setInterval(tick, BATTLE_CHECK_MS);
         battleTimer.unref();
         poller?.start();
         discovery?.start();
         upstream?.start();
         pruneTimer = setInterval(prune, PRUNE_EVERY_MS);
         pruneTimer.unref();
-        setImmediate(fightDue);
+        setImmediate(tick);
       }
       const address = await app.listen({ port: config.port, host: config.host });
       log.info('codeclash listening', { address });

@@ -33,6 +33,8 @@ const StartQuery = z.object({ next: z.string().optional() });
 /** Only same-origin paths survive as redirect targets. */
 export function safeNext(next: string | undefined): string {
   if (!next || !next.startsWith('/') || next.startsWith('//') || next.startsWith('/\\')) return '/';
+  // Control and non-ASCII characters cannot go in a Location header (the redirect would fail with a 500).
+  if (/[^\x21-\x7e]/.test(next)) return '/';
   return next.slice(0, 300);
 }
 
@@ -107,14 +109,27 @@ export function registerAuth(app: FastifyInstance, deps: AuthDeps): void {
     }
   });
 
-  app.post('/auth/logout', async (_req, reply) => {
-    reply.clearCookie(SESSION_COOKIE, { path: '/' });
-    return reply.code(204).send();
+  // Signing out changes state, so only a POST from our own pages does it; another site cannot.
+  const origin = new URL(config.publicUrl).origin;
+  app.register(async (scope) => {
+    // The confirmation page's form posts urlencoded; its (empty) body is not needed.
+    scope.addContentTypeParser('application/x-www-form-urlencoded', { parseAs: 'string', bodyLimit: 1024 }, (_req, _body, done) => done(null, null));
+    scope.post('/auth/logout', async (req, reply) => {
+      if (req.headers.origin !== undefined && req.headers.origin !== origin) return reply.code(403).send({ error: 'forbidden', message: 'Cross-site sign-out refused.' });
+      reply.clearCookie(SESSION_COOKIE, { path: '/' });
+      // A plain form (the confirmation page below) is sent home; the app's fetch gets no content.
+      if (req.headers.accept?.includes('text/html')) return reply.redirect(`${config.publicUrl}/`, 303);
+      return reply.code(204).send();
+    });
   });
 
+  // A link or an <img> elsewhere cannot sign anyone out: GET only asks for confirmation.
   app.get('/auth/logout', async (_req, reply) => {
-    reply.clearCookie(SESSION_COOKIE, { path: '/' });
-    return reply.redirect(`${config.publicUrl}/`);
+    return reply
+      .type('text/html; charset=utf-8')
+      .header('cache-control', 'no-store')
+      .send('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Sign out</title>'
+        + '<form method="post" action="/auth/logout"><p>Sign out of Code Clash?</p><button type="submit">Sign out</button> <a href="/">Cancel</a></form>');
   });
 
   if (!config.devAuth) return;
