@@ -658,21 +658,21 @@ export function quiver(c: Paper, at: P2, deg: number, o: { shafts?: number; len?
 }
 
 /** A crossbow held level at the stock's grip, pointing `deg`; `spanned` draws the string back. */
-export function crossbow(c: Paper, grip: P2, deg: number, spanned: boolean): P2 {
-  const front = along(grip, deg, 2.4);
-  const butt = along(grip, deg + 180, 1.3);
-  c.rod(butt, front, 0.42, 0.34, UM.wood, { tone: 2 });
+export function crossbow(c: Paper, grip: P2, deg: number, spanned: boolean, k = 1): P2 {
+  const front = along(grip, deg, 2.4 * k);
+  const butt = along(grip, deg + 180, 1.3 * k);
+  c.rod(butt, front, 0.42 * k, 0.34 * k, UM.wood, { tone: 2 });
   // The steel prod across the front, swept back a little.
   const side = limb(deg + 90);
-  const p0 = addP(addP(front, mul(side, 1.6)), mul(limb(deg), -0.35)), p1 = addP(addP(front, mul(side, -1.6)), mul(limb(deg), -0.35));
-  c.rod(p0, front, 0.26, 0.32, UM.iron, { tone: 2, shine: true });
-  c.rod(front, p1, 0.32, 0.26, UM.iron, { tone: 2, shine: true });
-  const nut = spanned ? along(grip, deg, 0.4) : along(front, deg + 180, 0.2);
+  const p0 = addP(addP(front, mul(side, 1.6 * k)), mul(limb(deg), -0.35 * k)), p1 = addP(addP(front, mul(side, -1.6 * k)), mul(limb(deg), -0.35 * k));
+  c.rod(p0, front, 0.26 * k, 0.32 * k, UM.iron, { tone: 2, shine: true });
+  c.rod(front, p1, 0.32 * k, 0.26 * k, UM.iron, { tone: 2, shine: true });
+  const nut = spanned ? along(grip, deg, 0.4 * k) : along(front, deg + 180, 0.2 * k);
   c.line(p0, nut, code(UM.bone, 1));
   c.line(p1, nut, code(UM.bone, 1));
-  if (spanned) c.rod(nut, along(front, deg, 0.4), 0.2, 0.2, UM.iron, { tone: 3 });
+  if (spanned) c.rod(nut, along(front, deg, 0.4 * k), 0.2 * k, 0.2 * k, UM.iron, { tone: 3 });
   // The stirrup at the nose.
-  c.rod(along(front, deg, 0.1), along(front, deg, 0.7), 0.3, 0.3, UM.rust, { tone: 2 });
+  c.rod(along(front, deg, 0.1 * k), along(front, deg, 0.7 * k), 0.3 * k, 0.3 * k, UM.rust, { tone: 2 });
   return front;
 }
 
