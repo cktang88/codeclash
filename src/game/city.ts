@@ -346,7 +346,11 @@ export function cityAt(input: CityInput): CityState {
       addWork(weekWork, d);
       BUILDINGS.forEach((b, bi) => {
         const gain = b.xp(d);
-        xp[bi] = Math.max(dayXpFloor[bi]!, xp[bi]! + (gain > 0 ? gain * q : gain));
+        // Undone work takes back XP at the rate today's work earned it (earned / raw so far), so
+        // pushing and undoing the same lines over and over cannot farm the quality bonus.
+        const raw0 = b.xp(before);
+        const got = gain > 0 ? gain * q : raw0 > 0 ? (gain * (xp[bi]! - dayXpFloor[bi]!)) / raw0 : 0;
+        xp[bi] = Math.max(dayXpFloor[bi]!, xp[bi]! + got);
       });
       if (!dayActive && after.code + after.removed >= ACTIVE_DAY_LINES) {
         dayActive = true;
@@ -354,12 +358,18 @@ export function cityAt(input: CityInput): CityState {
       }
       setLevels(e.at, e.message ? `“${e.message}”` : 'A push');
       // The levy: fresh work calls men up at once (undone work sends them home again, today only).
-      const men = levyOf(d) * (d.code + d.removed >= 0 ? q : 1);
+      // Like XP, undone work sends men home at the rate today's work called them up.
+      const lv = levyOf(d);
+      const lv0 = levyOf(before);
+      const men = lv > 0 ? lv * q : lv0 > 0 ? (lv * levyMen) / lv0 : 0;
       if (men !== 0) {
         const w = levyWeights();
         const sum = w.reduce((a, b) => a + b, 0);
         const take = Math.max(-levyMen, men);
-        for (let c = 0; c < UNIT_COUNT; c++) levyAcc[c] = Math.max(0, levyAcc[c]! + (take * w[c]!) / sum);
+        // Men sent home leave every class in proportion to who answered today (the levels, and so the
+        // weights, may have changed since), so none are stranded by the clamp at zero.
+        const keep = take < 0 && levyMen > 0 ? (levyMen + take) / levyMen : 1;
+        for (let c = 0; c < UNIT_COUNT; c++) levyAcc[c] = take < 0 ? levyAcc[c]! * keep : levyAcc[c]! + (take * w[c]!) / sum;
         levyMen += take;
         if (take >= 1) log.push({ at: e.at, kind: 'levy', men: Math.floor(take), text: `${Math.floor(take)} men answered the call` });
       }

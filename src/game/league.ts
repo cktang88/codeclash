@@ -24,7 +24,8 @@ export function honourable(r: BattleResult, loser: 0 | 1): boolean {
   if (r.reason === 'time') return true;
   const own = r.sides[loser].dead.reduce((a, b) => a + b, 0);
   const theirs = r.sides[1 - loser as 0 | 1].dead.reduce((a, b) => a + b, 0);
-  return own > 0 && theirs >= HONOUR_SHARE * own;
+  // A loser whose men all fled alive but who killed some of the enemy outfought its own losses.
+  return own > 0 ? theirs >= HONOUR_SHARE * own : theirs > 0;
 }
 
 export interface WeekClock {
@@ -70,6 +71,9 @@ export function pairDaily(players: readonly Contender[], seed: number): [number,
   const list = players.map((p) => ({ p, r: rng.next() }));
   list.sort((a, b) => b.p.points - a.p.points || b.p.produced - a.p.produced || a.r - b.r);
   const left = list.map((x) => x.p);
+  const fresh = freshPairs(left);
+  if (fresh) return fresh;
+  // No pairing without a rematch (or the search ran out): greedy, rematches where unavoidable.
   const pairs: [number, number | null][] = [];
   while (left.length > 1) {
     const a = left.shift()!;
@@ -80,6 +84,40 @@ export function pairDaily(players: readonly Contender[], seed: number): [number,
   }
   if (left.length === 1) pairs.push([left[0]!.id, null]);
   return pairs;
+}
+
+/** Steps the rematch-free pairing search may take before falling back to greedy pairing. */
+const PAIR_SEARCH_BUDGET = 20_000;
+
+/**
+ * A pairing of `ranked` (best first) with no rematch, or null. Each player, from the top, takes the
+ * nearest-ranked opponent that still leaves a full pairing of the rest; with an odd count the
+ * lowest-ranked player who can be left out meets the brigands. Greedy pairing alone can force a
+ * rematch that a different choice higher up avoids.
+ */
+function freshPairs(ranked: readonly Contender[]): [number, number | null][] | null {
+  let steps = 0;
+  const met = (a: Contender, b: Contender) => a.met.includes(b.id) || b.met.includes(a.id);
+  const solve = (left: readonly Contender[]): [number, number][] | null => {
+    if (left.length === 0) return [];
+    if (++steps > PAIR_SEARCH_BUDGET) return null;
+    const a = left[0]!;
+    for (let j = 1; j < left.length; j++) {
+      const b = left[j]!;
+      if (met(a, b)) continue;
+      const rest = solve(left.filter((_, k) => k !== 0 && k !== j));
+      if (rest) return [[a.id, b.id], ...rest];
+      if (steps > PAIR_SEARCH_BUDGET) return null;
+    }
+    return null;
+  };
+  if (ranked.length % 2 === 0) return solve(ranked);
+  for (let bye = ranked.length - 1; bye >= 0; bye--) {
+    const rest = solve(ranked.filter((_, k) => k !== bye));
+    if (rest) return [...rest, [ranked[bye]!.id, null]];
+    if (steps > PAIR_SEARCH_BUDGET) return null;
+  }
+  return null;
 }
 
 /** The Grand Battle: first against second, third against fourth, and so on. */
