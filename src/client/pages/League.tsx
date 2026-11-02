@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { BUILDINGS, MAX_LEVEL, type BuildingKey } from '../../game/city.ts';
 import { FACTIONS } from '../../game/factions.ts';
 import { DAILY_POINTS, GRAND_POINTS, HONOUR_POINTS } from '../../game/league.ts';
 import { total, UNIT_COUNT } from '../../game/units.ts';
 import type { BattleCard, CityView, LeagueDetail, MeResponse, MemberSummary } from '../../protocol.ts';
 import { api } from '../api.ts';
-import { clockTime, DAY_NAMES, duration, n, ROMAN } from '../format.ts';
+import { clockTime, DAY_NAMES, duration, n, ROMAN, weekLabel } from '../format.ts';
 import { go, linkProps } from '../route.ts';
 import { hsl } from '../render/sprites.ts';
 import { CityCanvas } from '../ui/CityCanvas.tsx';
@@ -19,23 +19,37 @@ function useNow(ms = 1000): number {
   return now;
 }
 
+const TABS = [
+  ['city', 'Commandery'],
+  ['battles', 'Battles'],
+  ['standings', 'Standings'],
+  ['rules', 'Rules of war'],
+] as const;
+
 function Banner({ hue }: { hue: number }) {
   return <span className="swatch" style={{ background: hsl(hue, 55, 38) }} />;
 }
 
 export function LeaguePage({ slug, tab, member, me }: { slug: string; tab: string | null; member: number | null; me: MeResponse | null }) {
-  const [detail, setDetail] = useState<LeagueDetail | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState<{ slug: string; detail: LeagueDetail } | null>(null);
+  const [failed, setFailed] = useState<{ slug: string; message: string } | null>(null);
   const now = useNow();
+  // A response for a league we have since left is dropped, and state from another league is never shown.
+  const current = useRef(slug);
+  current.current = slug;
+  const detail = loaded?.slug === slug ? loaded.detail : null;
+  const error = failed?.slug === slug ? failed.message : null;
+  const setError = useCallback((message: string) => setFailed({ slug, message }), [slug]);
   const load = useCallback(() => {
     api.league(slug).then(
       (d) => {
-        setDetail(d);
-        setError(null);
+        if (current.current !== slug) return;
+        setLoaded({ slug, detail: d });
+        setFailed(null);
       },
-      (e: Error) => setError(e.message),
+      (e: Error) => current.current === slug && setError(e.message),
     );
-  }, [slug]);
+  }, [slug, setError]);
   useEffect(() => {
     load();
     const t = setInterval(load, 30_000);
@@ -50,12 +64,13 @@ export function LeaguePage({ slug, tab, member, me }: { slug: string; tab: strin
     return () => clearTimeout(t);
   }, [detail, load]);
 
-  if (error) return <div className="page"><p className="error">{error}</p></div>;
+  // Once the league is shown, a failed refresh or action is reported above the tabs instead of replacing the page.
+  if (error && !detail) return <div className="page"><p className="error">{error}</p></div>;
   if (!detail) return <div className="page"><p className="muted">Unrolling the muster…</p></div>;
 
   const signedIn = me?.user != null;
   const mine = detail.viewer.userId;
-  const active = tab ?? (detail.viewer.member ? 'city' : 'standings');
+  const active = tab !== null && TABS.some(([k]) => k === tab) ? tab : detail.viewer.member ? 'city' : 'standings';
   const cityOf = member ?? (detail.viewer.member && mine !== null ? mine : detail.members[0]?.user.id ?? null);
   const left = detail.clock.nextBattleAt - now;
   const day = detail.clock.day;
@@ -82,19 +97,15 @@ export function LeaguePage({ slug, tab, member, me }: { slug: string; tab: strin
           <button onClick={() => navigator.clipboard?.writeText(`${location.origin}/l/${slug}?invite=${detail.invite}`)}>Copy invite link</button>
         )}
         {detail.viewer.member && !detail.viewer.owner && (
-          <button className="quiet" onClick={() => confirm('Leave this league?') && api.leave(slug).then(() => go('/'))}>Leave</button>
+          <button className="quiet" onClick={() => confirm('Leave this league?') && api.leave(slug).then(() => go('/'), (e: Error) => setError(e.message))}>Leave</button>
         )}
         {detail.viewer.owner && (
-          <button className="quiet danger" onClick={() => confirm('Delete this league and its history for everyone?') && api.deleteLeague(slug).then(() => go('/'))}>Delete league</button>
+          <button className="quiet danger" onClick={() => confirm('Delete this league and its history for everyone?') && api.deleteLeague(slug).then(() => go('/'), (e: Error) => setError(e.message))}>Delete league</button>
         )}
       </div>
+      {error && <p className="error">{error}</p>}
       <nav className="tabs">
-        {[
-          ['city', 'Commandery'],
-          ['battles', 'Battles'],
-          ['standings', 'Standings'],
-          ['rules', 'Rules of war'],
-        ].map(([k, label]) => (
+        {TABS.map(([k, label]) => (
           <a key={k} className={active === k ? 'on' : ''} {...linkProps(`/l/${slug}/${k}`)}>{label}</a>
         ))}
       </nav>
@@ -109,17 +120,30 @@ export function LeaguePage({ slug, tab, member, me }: { slug: string; tab: strin
 // ------------------------------------------------------------------ the city
 
 function CityTab({ slug, id, detail }: { slug: string; id: number; detail: LeagueDetail }) {
-  const [view, setView] = useState<CityView | null>(null);
+  // Keyed by the city it shows, so switching lords never shows the last lord's city under the new name.
+  const key = `${slug}/${id}`;
+  const [loaded, setLoaded] = useState<{ key: string; view: CityView } | null>(null);
+  const [failed, setFailed] = useState<{ key: string; message: string } | null>(null);
   useEffect(() => {
     let live = true;
-    const load = () => api.city(slug, id).then((v) => live && setView(v), () => {});
+    const load = () =>
+      api.city(slug, id).then(
+        (v) => {
+          if (!live) return;
+          setLoaded({ key, view: v });
+          setFailed(null);
+        },
+        (e: Error) => live && setFailed({ key, message: e.message }),
+      );
     load();
     const t = setInterval(load, 30_000);
     return () => {
       live = false;
       clearInterval(t);
     };
-  }, [slug, id]);
+  }, [slug, id, key]);
+  const view = loaded?.key === key ? loaded.view : null;
+  if (!view && failed?.key === key) return <p className="error">{failed.message}</p>;
   if (!view) return <p className="muted">Riding out to the commandery…</p>;
   const { city, look } = view;
   const f = FACTIONS[look.faction];
@@ -293,6 +317,7 @@ function BattlesTab({ detail }: { detail: LeagueDetail }) {
 function StandingsTab({ detail, slug }: { detail: LeagueDetail; slug: string }) {
   return (
     <>
+      <div className="table-scroll">
       <table className="standings">
         <thead>
           <tr>
@@ -328,13 +353,14 @@ function StandingsTab({ detail, slug }: { detail: LeagueDetail; slug: string }) 
           ))}
         </tbody>
       </table>
+      </div>
       {detail.weeks.length > 0 && (
         <>
           <h2>Past weeks</h2>
           <ul className="weeks">
             {detail.weeks.map((w) => (
               <li key={w.weekStart}>
-                <span className="kicker">Week of {new Date(w.weekStart).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
+                <span className="kicker">Week of {weekLabel(w.weekStart)}</span>
                 <span className="champion">♛ {w.champion?.login ?? 'no champion'}</span>
                 <span className="muted">{w.standings.slice(0, 4).map((s) => `${s.user.login} ${s.points}`).join(' · ')}</span>
               </li>

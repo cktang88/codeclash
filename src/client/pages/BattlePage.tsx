@@ -8,11 +8,22 @@ import { linkProps } from '../route.ts';
 import { BattleView } from '../ui/BattleView.tsx';
 
 export function BattlePage({ id }: { id: number }) {
-  const [view, setView] = useState<View | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  // Both are tagged with the battle they belong to: a slow answer for a battle we have since left is dropped,
+  // and the last battle (or its error) is never shown under the next one's address.
+  const [loaded, setLoaded] = useState<{ id: number; view: View } | null>(null);
+  const [failed, setFailed] = useState<{ id: number; message: string } | null>(null);
   useEffect(() => {
-    api.battle(id).then(setView, (e: Error) => setError(e.message));
+    let live = true;
+    api.battle(id).then(
+      (v) => live && setLoaded({ id, view: v }),
+      (e: Error) => live && setFailed({ id, message: e.message }),
+    );
+    return () => {
+      live = false;
+    };
   }, [id]);
+  const view = loaded?.id === id ? loaded.view : null;
+  const error = failed?.id === id ? failed.message : null;
   if (error) return <div className="page"><p className="error">{error}</p></div>;
   if (!view) return <div className="page"><p className="muted">The armies are forming up…</p></div>;
   if (view.setup.version !== BATTLE_VERSION) {
@@ -33,7 +44,8 @@ export function BattlePage({ id }: { id: number }) {
       <div className="battle-crumbs">
         <a {...linkProps(`/l/${view.league.slug}/battles`)}>← {view.league.name}</a>
       </div>
-      <BattleView setup={view.setup} title={title} />
+      {/* A fresh view per battle: speed, zoom, HUD and ticker belong to the battle they were set on. */}
+      <BattleView key={id} setup={view.setup} title={title} />
     </div>
   );
 }
