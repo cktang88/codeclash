@@ -15,6 +15,8 @@
 import { FACTIONS, type FactionId } from '../../game/factions.ts';
 import { U } from '../../game/units.ts';
 import { Anim, ANIM_COUNT, COMMANDER_KIND, KIND_COUNT, type Atlas, type BuildAtlas, type Dir, type KindSheet } from './contract.ts';
+import { FRAMES, LOOPS, TICKS } from './frames.ts';
+import { paintPaper, type PaperFrame } from './paper/index.ts';
 
 export type { Atlas } from './contract.ts';
 
@@ -28,12 +30,6 @@ export const FOOT_Y = 38;
  * painted frames are in-betweened from them.
  */
 const KEYS = [4, 6, 6, 4, 4, 2, 5, 1, 2] as const;
-/** Painted frames per animation: smooth, ~20-24 fps playback. */
-const FRAMES = [8, 12, 12, 12, 12, 5, 12, 1, 8] as const;
-/** Ticks (0.1 s) per frame, indexed by Anim. */
-const TICKS = [2, 0.5, 0.42, 0.42, 0.5, 0.4, 0.42, 1, 1] as const;
-/** Animations that cycle (the rest play once). */
-const LOOPS = new Set<number>([Anim.Idle, Anim.Walk, Anim.Run, Anim.Brace]);
 
 /** Key time of a painted frame: a fraction of the way between key poses. */
 function keyTime(anim: Anim, fr: number): number {
@@ -3176,6 +3172,46 @@ export function slotOf(kind: number, a: Anim, frame: number, dir: Dir): number {
   return dir * COLS + COL0[b]! + f;
 }
 
+/** One painted frame, trimmed: its slot, size, foot point and pixels. */
+interface Tile {
+  slot: number;
+  w: number;
+  h: number;
+  ax: number;
+  ay: number;
+  px: Uint32Array;
+}
+
+/** A paper-doll frame (paper/index.ts) trimmed to what it covers. */
+function paperTile(pf: PaperFrame, slot: number): Tile {
+  const src = new Uint32Array(pf.pixels.buffer, pf.pixels.byteOffset, pf.width * pf.height);
+  let x0 = pf.width, y0 = pf.height, x1 = -1, y1 = -1;
+  for (let y = 0; y < pf.height; y++)
+    for (let x = 0; x < pf.width; x++)
+      if (src[y * pf.width + x]! >>> 24) {
+        if (x < x0) x0 = x;
+        if (x > x1) x1 = x;
+        if (y < y0) y0 = y;
+        if (y > y1) y1 = y;
+      }
+  if (x1 < x0) x0 = x1 = Math.min(pf.width - 1, pf.ax), y0 = y1 = Math.min(pf.height - 1, pf.ay);
+  const w = x1 - x0 + 1, h = y1 - y0 + 1;
+  const px = new Uint32Array(w * h);
+  for (let y = 0; y < h; y++) px.set(src.subarray((y0 + y) * pf.width + x0, (y0 + y) * pf.width + x0 + w), y * w);
+  return { slot, w, h, ax: pf.ax - x0, ay: pf.ay - y0, px };
+}
+
+/** Copies a paper-doll frame into a classic grid cell at (ox, oy), foot on the cell's foot point, clipped to the cell. */
+function paperCell(pf: PaperFrame, out: Uint32Array, iw: number, ox: number, oy: number): void {
+  const src = new Uint32Array(pf.pixels.buffer, pf.pixels.byteOffset, pf.width * pf.height);
+  const dx = FOOT_X - pf.ax, dy = FOOT_Y - pf.ay;
+  for (let y = Math.max(0, -dy); y < Math.min(pf.height, CELL_H - dy); y++)
+    for (let x = Math.max(0, -dx); x < Math.min(pf.width, CELL_W - dx); x++) {
+      const v = src[y * pf.width + x]!;
+      if (v >>> 24) out[(oy + y + dy) * iw + ox + x + dx] = v;
+    }
+}
+
 /**
  * Paints every frame of one kind at a detail level and packs them, each trimmed to what it
  * covers, into one RGBA page (shelf packing, at most 4096 wide). Pure, so it runs in a worker.
@@ -3185,11 +3221,18 @@ export function paintSheet(faction: string, hue: number, kind: number, level: nu
   const { fill, edge, looks } = armyColours(faction, hue);
   useLevel(level);
   const scratch = new Uint32Array(W * H);
-  const tiles: { slot: number; w: number; h: number; ax: number; ay: number; px: Uint32Array }[] = [];
+  const tiles: Tile[] = [];
   for (let dir = 0; dir < 4; dir++)
     for (let a = 0; a < ANIM_COUNT; a++) {
       if (a === Anim.Shoot && !SHOOTS.has(kind)) continue;
       for (let fr = 0; fr < FRAMES[a]!; fr++) {
+        const slot = dir * COLS + COL0[a]! + fr;
+        const pf = paintPaper(faction, kind, level, a as Anim, fr, dir as Dir, hue);
+        if (pf) {
+          tiles.push(paperTile(pf, slot));
+          continue;
+        }
+        if (LV !== level) useLevel(level);
         const sh = paint(looks, kind, a as Anim, fr, dir as Dir);
         prevOk = fr > 0;
         // The scratch is cleared over everything this frame can touch, then trimmed to what it did.
@@ -3206,7 +3249,7 @@ export function paintSheet(faction: string, hue: number, kind: number, level: nu
         const w = x1 - x0 + 1, h = y1 - y0 + 1;
         const px = new Uint32Array(w * h);
         for (let y = 0; y < h; y++) px.set(scratch.subarray((y0 + y) * W + x0, (y0 + y) * W + x0 + w), y * w);
-        tiles.push({ slot: dir * COLS + COL0[a]! + fr, w, h, ax: FX - x0, ay: FY - y0, px });
+        tiles.push({ slot, w, h, ax: FX - x0, ay: FY - y0, px });
       }
     }
   // Shelf packing, tallest first, into a page about as wide as it is tall.
@@ -3254,6 +3297,13 @@ export function paintGrid(faction: string, hue: number, kind: number): KindSheet
     for (let a = 0; a < ANIM_COUNT; a++) {
       if (a === Anim.Shoot && !SHOOTS.has(kind)) continue;
       for (let fr = 0; fr < FRAMES[a]!; fr++) {
+        // Paper-doll kinds are drawn natively at level 1 (one unit per pixel), not downscaled.
+        const pf = paintPaper(faction, kind, 1, a as Anim, fr, dir as Dir, hue);
+        if (pf) {
+          paperCell(pf, out, width, (COL0[a]! + fr) * CELL_W, dir * CELL_H);
+          continue;
+        }
+        if (LV !== 1) useLevel(1);
         const sh = paint(looks, kind, a as Anim, fr, dir as Dir);
         prevOk = fr > 0;
         finish(out, width, (COL0[a]! + fr) * CELL_W, dir * CELL_H, fill, edge, a === Anim.Dead ? null : sh, dir as Dir);
@@ -3418,7 +3468,6 @@ function request(faction: string, hue: number, kind: number, level: number, done
  */
 export const buildAtlas: BuildAtlas = (faction, hue) => {
   setLevel(1);
-  const { fill, edge, looks } = armyColours(faction, hue);
   const image = document.createElement('canvas');
   image.width = COLS * CELL_W;
   image.height = KIND_COUNT * 4 * CELL_H;
@@ -3437,19 +3486,8 @@ export const buildAtlas: BuildAtlas = (faction, hue) => {
       });
       return;
     }
-    useLevel(1);
-    const img = ctx.createImageData(image.width, 4 * CELL_H);
-    const out = new Uint32Array(img.data.buffer);
-    for (let dir = 0; dir < 4; dir++)
-      for (let a = 0; a < ANIM_COUNT; a++) {
-        if (a === Anim.Shoot && !SHOOTS.has(kind)) continue;
-        for (let fr = 0; fr < FRAMES[a]!; fr++) {
-          const sh = paint(looks, kind, a as Anim, fr, dir as Dir);
-          prevOk = fr > 0;
-          finish(out, image.width, (COL0[a]! + fr) * CELL_W, dir * CELL_H, fill, edge, a === Anim.Dead ? null : sh, dir as Dir);
-        }
-      }
-    ctx.putImageData(img, 0, kind * 4 * CELL_H);
+    const g = paintGrid(faction, hue, kind);
+    ctx.putImageData(new ImageData(new Uint8ClampedArray(g.pixels), g.width, g.height), 0, kind * 4 * CELL_H);
     atlas.version = (atlas.version ?? 0) + 1;
   };
   const sheets = new Map<number, { sheet: KindSheet; h: Held }>();
