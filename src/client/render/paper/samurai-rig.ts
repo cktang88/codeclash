@@ -102,6 +102,13 @@ export const FOOT_SPECS: Record<number, SSpec> = {
     walk: { both: true },
     run: { both: true, upperArmN: 10, forearmN: 100, weapon: 118 },
   },
+  8: {
+    nearDeg: 187.5, twoHand: true, neNear: 'mirror', neFar: { el: [-1.0, -7.6], hn: [0.95, -6.9] }, backBone: 'pelvis',
+    attack: 'sweep', shoot: null, brace: 'naginata', die: 'forward', smear: [5.4, 8.6],
+    // Carried upright in the near hand, steady; the far arm free.
+    walk: { weapon: 186, side: true },
+    run: { upperArmN: -10, forearmN: 70, weapon: 104, both: true },
+  },
   3: {
     nearDeg: 167, farDeg: 180, neNear: 'mirror', neFar: { el: [-0.6, -9.0], hn: [2.0, -7.4] }, backBone: 'pelvis',
     attack: 'punch', shoot: 'kyudo', brace: 'ready', die: 'back',
@@ -567,13 +574,35 @@ const BUTT: Author = (rw) => ({
   tAdd: { pelvis: [T([0, 0], [3, -0.35], [5, 0.55], [6, 0.55], [9, 0.2], [11, 0]), T([0, 0], [5, 0.25], [11, 0])], footTargetF: [T([0, 0], [3, 0], [5, 0.9], [8, 0.9], [10, 0.3], [11, 0]), T([0, 0], [4, -0.4], [5, 0], [11, 0])] },
 });
 
+/**
+ * The naginata sweep (naginata-jutsu's furikaeshi/yokogiri, on the chop capture's rise and drop):
+ * 1-3 the naginata swung back and up over the near shoulder, the blade high behind, the trunk
+ * coiled back; 4 the top, the hips turning; 5-6 the blade sweeps round in a wide arc forward and
+ * down, the far hand sliding the shaft through, the body stepping and sinking into it (smear);
+ * 7 the blade low and forward past the far knee, held; 8 it carries a little further; 9-11 back up.
+ */
+const SWEEP: Author = (rw) => ({
+  w: {
+    upperArmN: R(rw.upperArmN!, 11, [1, 70], [2, 130], [3, 150], [4, 140], [5, 110], [6, 75], [7, 50], [8, 46], [10, 30]),
+    forearmN: R(rw.forearmN!, 11, [1, 150], [2, 190], [3, 205], [4, 180], [5, 120], [6, 80], [7, 55], [8, 50], [10, 70]),
+    weapon: R(rw.weapon!, 11, [1, 215], [2, 245], [3, 262], [4, 236], [5, 160], [6, 95], [7, 58], [8, 50], [10, 120]),
+    head: T([0, rw.head!], [3, rw.head! + 6], [5, rw.head!], [7, rw.head! - 10], [8, rw.head! - 10], [10, rw.head!]),
+  },
+  dw: { spine: T([0, 0], [2, 8], [3, 12], [4, 6], [5, -6], [6, -16], [7, -24], [8, -24], [10, -6], [11, 0]) },
+  tAdd: {
+    pelvis: [T([0, 0], [3, -0.45], [4, -0.3], [5, 0.3], [6, 0.8], [7, 1.0], [8, 1.0], [10, 0.35], [11, 0]), T([0, 0], [3, -0.1], [5, 0.2], [7, 0.65], [8, 0.65], [10, 0.2], [11, 0])],
+    chest: [T([0, 0], [3, -0.35], [4, -0.3], [6, 0.25], [7, 0.4], [8, 0.4], [10, 0.1], [11, 0]), T([0, 0])],
+    footTargetF: [T([0, 0], [4, 0], [5, 0.7], [6, 1.5], [9, 1.45], [10, 0.6], [11, 0]), T([0, 0], [4, -0.2], [5, -0.6], [6, 0], [9, 0], [10, -0.3], [11, 0])],
+  },
+});
+
 const ATTACKS: Record<Attack, { clip: string; o: MocapOpts; a: Author; extra: number[]; ev: AnimEvent[] }> = {
   kesa: { clip: 'cut-diagonal', o: { torso: 0.5, travel: 0, feet: 0.3 }, a: KESA, extra: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], ev: [{ f: 5, name: 'smear', len: 3, bone: 'weapon' }, { f: 7, name: 'strike' }] },
   thrust: { clip: 'thrust', o: { torso: 0.3, travel: 0.3, feet: 0.3 }, a: THRUST, extra: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], ev: [{ f: 4, name: 'smear', len: 1, bone: 'weapon' }, { f: 5, name: 'strike' }] },
   jab: { clip: 'thrust', o: { torso: 0.3, travel: 0.3, feet: 0.3 }, a: JAB, extra: [2, 3, 4, 5, 6, 7, 8, 9, 10], ev: [{ f: 4, name: 'smear', len: 1, bone: 'weapon' }, { f: 5, name: 'strike' }] },
   punch: { clip: 'thrust', o: { torso: 0.3, travel: 0.3, feet: 0.3 }, a: PUNCH, extra: [3, 5, 6, 9], ev: [{ f: 5, name: 'strike' }] },
   butt: { clip: 'thrust', o: { torso: 0.3, travel: 0.3, feet: 0.3 }, a: BUTT, extra: [3, 5, 6, 9], ev: [{ f: 5, name: 'smear', len: 1, bone: 'weapon' }, { f: 5, name: 'strike' }] },
-  sweep: { clip: 'thrust', o: {}, a: KESA, extra: [], ev: [] },
+  sweep: { clip: 'chop', o: { torso: 0.3, travel: 0.3, feet: 0.3 }, a: SWEEP, extra: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], ev: [{ f: 5, name: 'smear', len: 3, bone: 'weapon' }, { f: 7, name: 'strike' }] },
   fan: { clip: 'thrust', o: {}, a: KESA, extra: [], ev: [] },
 };
 
@@ -610,7 +639,12 @@ const BRACE: Record<Brace, Author> = {
     w: { head: T([0, rw.head! - 8]), upperArmN: T([0, 138]), forearmN: T([0, 86]), weapon: T([0, 93]) },
     tAdd: { pelvis: [T([0, -0.3]), T([0, 1.5])], footTargetF: [T([0, 1.0]), T([0, 0])], footTargetN: [T([0, -1.1]), T([0, 0])] },
   }),
-  naginata: () => ({}),
+  // Gedan: deep and low, the naginata held forward with the blade down at the enemy's knee (the fighting-monk photograph).
+  naginata: (rw) => ({
+    dw: { spine: T([0, -14]) },
+    w: { head: T([0, rw.head! - 2]), upperArmN: T([0, 20]), forearmN: T([0, 70]), weapon: T([0, 78]) },
+    tAdd: { pelvis: [T([0, 0.2]), T([0, 1.0])], footTargetF: [T([0, 1.0]), T([0, 0])], footTargetN: [T([0, -0.8]), T([0, 0])] },
+  }),
   command: () => ({}),
 };
 
