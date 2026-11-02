@@ -264,9 +264,8 @@ function legionary(c: Paper): void {
   c.rod([0.4, -7.5], [0.2, -6.0], 0.26, 0.22, UM.bone, { tone: 1 });
   plateLeg(c, B.hipN, B.kneeN, B.ankN, false);
   // A gorget, the neck bones, the skull bright under the hat's brim.
-  c.rod(B.neck, [0.55, -12.6], 0.55, 0.5, UM.bone, { tone: 2 });
-  plate(c, [[-1.0, -11.75], [1.9, -11.8], [1.7, -11.15], [-0.8, -11.1]], UM.rust, { tone: 2, rim: true });
-  keySkull(c, addP(B.head, [0, 0.05]), 1.2, -4, 'kettle');
+  // An open bascinet in rusted iron, its mail aventail over the shoulders, the skull grinning out.
+  bascinet(c, addP(B.head, [0, 0.0]), UM.rust);
   pauldron(c, B.shF, true, 1.1);
   kiteShield(c, [1.55, -8.2], 6.9, 4.3, -4);
   pauldron(c, B.shN, false, 1.15);
@@ -358,14 +357,31 @@ function wrappedLeg(c: Paper, hip: P2, knee: P2, ank: P2, far: boolean): void {
  * An open bascinet: a rounded, pointed black-iron skull-cap with a riveted brow band, a mail
  * aventail falling to the shoulders, and the face open so the skull grins out of it.
  */
-function bascinet(c: Paper, at: P2): void {
+function bascinet(c: Paper, at: P2, m: number = UM.iron): void {
   // The aventail: mail from the helm's rim over the neck and shoulders.
   plate(c, [addP(at, [-1.5, 0.0]), addP(at, [1.7, 0.0]), addP(at, [2.0, 1.9]), addP(at, [-1.7, 2.0])], UM.mail, { detail: (x, y, rx, ry) => mailShade(c, x, y, rx, ry) });
   keySkull(c, addP(at, [0.1, 0.2]), 1.1, -4, null);
   // The bowl: rounded, rising to a point at the back, lit top-left, a specular streak.
-  plate(c, [addP(at, [-1.35, -0.1]), addP(at, [-1.3, -1.0]), addP(at, [-0.5, -1.9]), addP(at, [-0.2, -2.6]), addP(at, [0.6, -1.7]), addP(at, [1.4, -0.9]), addP(at, [1.5, -0.25]), addP(at, [0.9, -0.55]), addP(at, [-0.6, -0.5])], UM.iron, { tone: 2, k: 0.3 });
+  plate(c, [addP(at, [-1.35, -0.1]), addP(at, [-1.3, -1.0]), addP(at, [-0.5, -1.9]), addP(at, [-0.2, -2.6]), addP(at, [0.6, -1.7]), addP(at, [1.4, -0.9]), addP(at, [1.5, -0.25]), addP(at, [0.9, -0.55]), addP(at, [-0.6, -0.5])], m, { tone: 2, k: 0.3 });
   c.rod(addP(at, [-1.3, -0.35]), addP(at, [1.45, -0.5]), 0.32, 0.32, UM.rust, { tone: 2 });
   rivets(c, addP(at, [-1.1, -0.38]), addP(at, [1.3, -0.5]), 4);
+}
+
+/** A mail coif framing the skull's face to the shoulders, under a dented iron skullcap. */
+function coif(c: Paper, at: P2): void {
+  plate(c, [addP(at, [-1.5, -0.6]), addP(at, [-0.8, -1.55]), addP(at, [0.7, -1.6]), addP(at, [1.6, -0.8]), addP(at, [1.9, 1.9]), addP(at, [-1.8, 2.0])], UM.mail, { detail: (x, y, rx, ry) => mailShade(c, x, y, rx, ry) });
+  keySkull(c, addP(at, [0.15, 0.2]), 1.08, -4, null);
+  // The skullcap: a low dome with a dent and a rivet at the brow.
+  c.blob(addP(at, [0.05, -0.95]), 1.3, 0.75, UM.iron, {
+    tone: 2,
+    detail: (_x, _y, nx, ny) => {
+      if (ny > 0.25) return -2;
+      if (Math.hypot(nx + 0.35, ny + 0.5) < 0.22) return code(UM.iron, 4);
+      if (Math.hypot(nx - 0.35, ny + 0.2) < 0.2) return code(UM.iron, 0); // the dent
+      return -1;
+    },
+  });
+  c.rod(addP(at, [-1.25, -0.82]), addP(at, [1.3, -0.86]), 0.3, 0.3, UM.rust, { tone: 2 });
 }
 
 /** A skull scaled up for key art (r ≈ 1.15 units): the Legionary's skull and kettle hat, larger. */
@@ -529,8 +545,7 @@ function arbalestStatic(c: Paper): void {
   belt(c, B.waistY, -2.2, 2.5);
   quiver(c, [-2.2, -6.4], 160, { shafts: 3, len: 2.0 });
   wrappedLeg(c, B.hipN, B.kneeN, B.ankN, false);
-  c.rod(B.neck, [0.55, -12.6], 0.55, 0.5, UM.bone, { tone: 2 });
-  keySkull(c, addP(B.head, [0, 0.05]), 1.2, -4, 'kettle');
+  coif(c, B.head);
   // The crossbow levelled at the hip, the near arm on the stock.
   crossbow(c, grip, deg, true, 1.45);
   vol(c, B.shN, [-2.6, -9.0], 1.35, 1.15, UM.rag, { tone: 2, caps: false });
@@ -540,7 +555,7 @@ function arbalestStatic(c: Paper): void {
 
 /** The Death Knight: full black plate on a bone-barded horse, a great helm, the big kite shield, a lance. */
 function deathKnightStatic(c: Paper): void {
-  const p = poseAt(DEATH_KNIGHT_KEYS, Anim.Idle, 0);
+  const p = { ...poseAt(DEATH_KNIGHT_KEYS, Anim.Idle, 0), neck: 47, nod: -16 };
   const H = horseFrame(c, p, false);
   const S = H.seat;
   const at = (q: P2): P2 => addP(S, q);
@@ -705,7 +720,7 @@ function idleOf<P>(keys: KeySet<P & import('./rig.ts').BasePose>, draw: (c: Pape
 
 /** The Barrow Horse Archer: a gaunt skeleton in a rotted leather jerkin, a quiver at the hip, a war bow. */
 function horseArcherStatic(c: Paper): void {
-  const p = poseAt(HORSE_ARCHER_KEYS, Anim.Idle, 0);
+  const p = { ...poseAt(HORSE_ARCHER_KEYS, Anim.Idle, 0), neck: 47, nod: -16 };
   const H = horseFrame(c, p, false);
   const at = (q: P2): P2 => addP(H.seat, q);
   horseFar(c, H, p, { cloth: true, mane: true });
@@ -745,7 +760,7 @@ function horseArcherStatic(c: Paper): void {
 
 /** The Black Rider: a hooded rider in a heavy grave-shroud that falls over the horse's flanks, a couched spear. */
 function blackRiderStatic(c: Paper): void {
-  const p = poseAt(BLACK_RIDER_KEYS, Anim.Idle, 0);
+  const p = { ...poseAt(BLACK_RIDER_KEYS, Anim.Idle, 0), neck: 47, nod: -16 };
   const H = horseFrame(c, p, false);
   const at = (q: P2): P2 => addP(H.seat, q);
   horseFar(c, H, p, { mane: true });

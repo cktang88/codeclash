@@ -916,16 +916,19 @@ function horseLeg(c: Paper, H: HorseFrame, root: P2, up: number, lo: number, hin
  */
 function horseSkull(c: Paper, poll: P2, deg: number, back: boolean, o: { chanfron?: boolean; jaw?: number } = {}): void {
   deg = snapDeg(deg);
-  const len = back ? 3.4 : 3.9;
+  // The key art's horses carry a bigger, blockier head (the sheets keep theirs).
+  const hs = HORSE_BULK.k > 1 ? 1.35 : 1;
+  const blocky = HORSE_BULK.k > 1;
+  const len = (back ? 3.4 : 3.9) * hs;
   // Pale bone, except at level 1 where the head is three pixels and a pale one would pull the
   // rider's light toward the muzzle.
   const B = c.L <= 1 ? HB : UM.bone;
   const dir = limb(deg), side = limb(deg - 90); // side: toward the top of the head
-  const at = (u: number, v: number): P2 => addP(poll, addP(mul(dir, u * len), mul(side, v)));
+  const at = (u: number, v: number): P2 => addP(poll, addP(mul(dir, u * len), mul(side, v * hs)));
   const ox = c.sx(poll[0]), oy = c.sy(poll[1]);
   const uv = (x: number, y: number): P2 => {
     const dx = (x + 0.5 - ox) / c.L, dy = (y + 0.5 - oy) / c.L;
-    return [(dx * dir[0] + dy * dir[1]) / len, dx * side[0] + dy * side[1]];
+    return [(dx * dir[0] + dy * dir[1]) / len, (dx * side[0] + dy * side[1]) / hs];
   };
   // The mandible: a deep, rounded angle under the cheek, the bar of the jaw running forward to
   // the incisors, the molars along its upper edge; hung open by `jaw`.
@@ -934,12 +937,15 @@ function horseSkull(c: Paper, poll: P2, deg: number, back: boolean, o: { chanfro
     const [u, v] = uv(x, y);
     if (c.L >= 8 && v > -0.42 - jo * 0.4 && u > 0.3 && u < 0.98) return (c.lx(x) & 1) === 0 ? code(B, 2) : code(UM.ink, 1); // teeth
     if (c.L >= 4 && Math.hypot((u - 0.16) * len, v + 0.85) < 0.28) return code(B, 0); // the hollow of the angle
-    if (v < -0.95 || u > 0.6) return code(B, 0);
-    return code(B, 1);
+    if (v < -0.95 || u > 0.6) return code(B, blocky ? 1 : 0);
+    return code(B, blocky ? 2 : 1);
   });
   // The skull: a short broad cranium, the orbit high at the back, then the long face: the
   // straight nasal line on top, the facial crest under the eye, the muzzle and the incisors.
-  const pts: P2[] = [at(-0.1, 0.3), at(0.02, 0.72), at(0.2, 0.92), at(0.36, 0.86), at(0.98, 0.38), at(1.06, 0.12), at(1.03, -0.28), at(0.62, -0.36), at(0.3, -0.42), at(0.06, -0.5), at(-0.12, -0.2)];
+  // Blocky at the back (cranium, the high orbit, the cheek), tapering gently to a broad muzzle.
+  const pts: P2[] = blocky
+    ? [at(-0.1, 0.35), at(0.0, 0.85), at(0.16, 1.0), at(0.45, 0.95), at(1.0, 0.5), at(1.07, 0.2), at(1.05, -0.32), at(0.62, -0.42), at(0.3, -0.5), at(0.04, -0.6), at(-0.12, -0.25)]
+    : [at(-0.1, 0.3), at(0.02, 0.72), at(0.2, 0.92), at(0.36, 0.86), at(0.98, 0.38), at(1.06, 0.12), at(1.03, -0.28), at(0.62, -0.36), at(0.3, -0.42), at(0.06, -0.5), at(-0.12, -0.2)];
   c.shape(pts, (x, y) => {
     const [u, v] = uv(x, y);
     if (o.chanfron && u > 0.12 && u < 0.9 && v > -0.2) {
@@ -949,7 +955,7 @@ function horseSkull(c: Paper, poll: P2, deg: number, back: boolean, o: { chanfro
       return v > 0.45 ? code(UM.iron, 3) : code(UM.iron, 2);
     }
     // The orbit: a round socket with a bony rim, lit on top, the cold point of light in it.
-    const e = Math.hypot((u - 0.25) * len, (v - 0.42) * 1.05);
+    const e = Math.hypot((u - 0.25) * len / hs, (v - (blocky ? 0.55 : 0.42)) * 1.05);
     if (!back && e < 0.42) return e < (c.L <= 1 ? 0.45 : 0.16) ? code(UM.glow, 4) : code(UM.ink, 0);
     if (!back && e < 0.58) return v > 0.42 ? code(B, 3) : code(B, 1);
     if (back && e < 0.32) return code(UM.ink, 1);
