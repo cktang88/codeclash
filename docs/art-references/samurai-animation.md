@@ -102,6 +102,17 @@ committed; the screenshots in `docs/screenshots/hd-sprites/samurai-anim-*.png` a
 - **Brace**: the volley behind the tate, crouched low on a long stance, the gun at the cheek.
 - **Die**: back, away from the tate.
 
+### Sōhei (8)
+- **Idle** is the key art: the naginata upright in both hands. **Walk**: carried upright in the near
+  hand, steady, the far arm free; the long robe's skirt panels trail the thighs. **Run**: levelled
+  forward in both hands.
+- **Attack: the sweep** (on the chop capture's rise and drop): 1-3 the naginata swung back and up over
+  the near shoulder, the blade high behind and the trunk coiled; 4 the top, the hips turning; 5-6 the
+  blade sweeps round in a wide arc forward and down (a solid smear over the blade's reach) as the
+  body steps 1.5 units and sinks; 7-8 the blade low and forward past the far knee, held; 9-11 back up.
+- **Brace**: *gedan*, deep and low, the blade forward and down at the enemy's knee (the
+  fighting-monk photograph).
+
 ## Critique rounds
 
 ### Katana Samurai
@@ -158,6 +169,14 @@ committed; the screenshots in `docs/screenshots/hd-sprites/samurai-anim-*.png` a
    low at the hip so the muzzle is at the chin, and from behind the far arm reaches up and forward.
 3. **Round 3.** The forward fall carried the body under the tate; the butt-stroke rotated the gun
    muzzle-up. He now falls back, away from it, and the melee rams the gun forward level.
+
+### Sōhei
+1. **Round 1.** The sweep against the brief's chop (rise, top, drop with the head lagging, the body
+   lower at impact): reads; the smear only covers the blade's reach (5.4-8.6 units), not the shaft.
+2. **Round 2.** The brace was copied from the yari (point rising): the naginata guards low, blade
+   down, as the monk in the 1893 photograph.
+3. **Round 3.** Checked NE: the upright naginata stays on the near side over the cowl's back, and the
+   sweep reads the same from behind.
 
 Katana Samurai lint (level 1/2/4/8): no FAIL. Warnings left: aligned band ends 0.24-0.30, outline and figure vs
 ground ΔL 0.07-0.13, light-angle error at levels 1-2, mid-widest silhouettes. Level-1 silhouette:
