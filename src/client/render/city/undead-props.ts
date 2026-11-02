@@ -235,6 +235,75 @@ export function palOf(st: CityStyle): Pal {
   return p;
 }
 
+
+// ------------------------------------------------------------------ the day's low sun
+
+/**
+ * A low pale sun breaking through the overcast (by day only): the lit planes (light class 1) take
+ * a cold pale gold and step up, the half-lit ones a touch of it, the shade planes fall a step into
+ * deep violet, and every silhouette top (a pixel under the outline) catches a pale-gold rim. It is
+ * laid on the finished Art's day canvas alone; its night canvas, made from the same pixels before,
+ * stays the moonlit palette. Witchfire-lit pixels (strong green) keep their colour.
+ */
+export const SUN = hex('#f2dca2');
+const SUN_RIM = hex('#fff2c8');
+const SHADE = hex('#140f28');
+/** A colour lifted by a warm offset (keeps a ramp's contrast, where a mix would flatten it). */
+const add = (c: Col, r: number, g: number, b: number): Col => rgb(Math.min(255, R(c) + r), Math.min(255, G(c) + g), Math.min(255, B(c) + b));
+export function sunlit(art: Art, P: Pt): void {
+  if (!art.canvas) return;
+  const px = P.px;
+  const { w, data } = px;
+  const cl = px.cls;
+  const W = art.canvas.width;
+  const H = art.canvas.height;
+  const g = art.canvas.getContext('2d')!;
+  const img = g.createImageData(W, H);
+  const out = new Uint32Array(img.data.buffer);
+  for (let y = 0; y < H; y++)
+    for (let x = 0; x < W; x++) {
+      const i = (y + art.y) * w + (x + art.x);
+      let c = data[i]!;
+      if (!c) continue;
+      const k = cl[i]!;
+      const green = G(c) > R(c) + 30 && G(c) > B(c) + 10;
+      if (!green && k !== 4) {
+        const top = i >= w && cl[i - w] === 4;
+        if (top && k !== 3) c = mix(add(c, 30, 24, 8), SUN_RIM, 0.35);
+        else if (k === 1) c = add(c, 26, 20, 4);
+        else if (k === 2) c = add(c, 10, 8, 1);
+        else if (k === 3) c = mix(c, SHADE, 0.26);
+      }
+      out[y * W + x] = c;
+    }
+  g.putImageData(img, 0, 0);
+}
+
+/**
+ * A pool of pale sun on the flags, broken by the shadows of dead branches (the user's
+ * town-displate: a patch of light on the cobbles in the shade). Opaque by day; at night the same
+ * pixels fall back to plain flagstone in the ground's own night (decalArt's base colours).
+ */
+export function sunPool(D: Decal, cu: number, cv: number, r: number, seed: number): void {
+  const lit = [hex('#a49a8c'), hex('#948a80'), hex('#b2a690'), hex('#7c7470')];
+  const flags = [hex('#5f5d74'), hex('#545269'), hex('#6a6880'), hex('#4a4860')];
+  const bands: [number, number, number][] = [];
+  for (let i = 0; i < 5; i++) bands.push([hash(i, seed, 1) * Math.PI, (hash(i, seed, 2) - 0.5) * r * 1.4, 0.3 + hash(i, seed, 3) * 0.5]);
+  D.ellipse(cu, cv, r, r * 0.65, (x, y, u, v, rr) => {
+    if (rr > 0.6 && hash(x >> 2, y >> 1, seed + 9) < (rr - 0.6) * 2.4) return;
+    let shade = false;
+    for (const [a, o, wd] of bands) {
+      const d = (u - cu) * Math.cos(a) + (v - cv) * Math.sin(a) - o + Math.sin((u + v) * 0.9 + a * 3) * 0.6;
+      if (Math.abs(d) < wd) shade = true;
+    }
+    if (shade) return;
+    const f = flagAt(u, v, seed);
+    const j = Math.floor(f.slab * 3);
+    const c = f.joint || f.crack ? lit[3]! : lit[j]!;
+    const base = f.joint || f.crack ? flags[3]! : flags[j]!;
+    D.set(x, y, f.weed ? hex('#76804e') : c, 3, base);
+  });
+}
 // ------------------------------------------------------------------ the micro-sprite
 
 export interface StampOpts {
@@ -795,10 +864,14 @@ export function corpseCart(P: Pt, u: number, v: number): void {
  * the light pools, which keep their value (class 1): by night they are the brightest ground.
  */
 export class Decal {
+  /** Night colours for pixels that differ from their day (the sun's pools): buffer index → colour. */
+  readonly base = new Map<number, Col>();
   constructor(readonly P: Painter) {}
-  set(x: number, y: number, c: Col, k = 3): void {
+  set(x: number, y: number, c: Col, k = 3, base?: Col): void {
     this.P.px.set(x, y, c);
     cls(this.P, x, y, k);
+    if (base !== undefined && x >= 0 && y >= 0 && x < this.P.px.w && y < this.P.px.h) this.base.set(y * this.P.px.w + x, base);
+    else this.base.delete(y * this.P.px.w + x);
   }
   /** A world point's buffer pixel. */
   at(u: number, v: number): [number, number] {
@@ -823,7 +896,7 @@ export class Decal {
  * it, and a decal is all edges): it falls by the ground's own night multiply, except the light
  * pools (class 1), which keep their value and so become the brightest ground after dark.
  */
-export function decalArt(P: Painter, depth: number): Art {
+export function decalArt(P: Painter, depth: number, base?: Map<number, Col>): Art {
   const px = P.px;
   const b = px.bounds();
   if (!b) return { canvas: null, lights: null, x: 0, y: 0, d: depth };
@@ -838,8 +911,9 @@ export function decalArt(P: Painter, depth: number): Art {
   for (let y = y0; y < y1; y++)
     for (let x = x0; x < x1; x++) {
       const i = y * px.w + x;
-      const c = px.data[i]!;
-      if (!c) continue;
+      const c0 = px.data[i]!;
+      if (!c0) continue;
+      const c = base?.get(i) ?? c0;
       const keep = px.cls[i] === 1;
       const [r, gg, bb] = keep ? [0.82, 0.9, 0.86] : [0.72, 0.72, 0.82];
       out[(y - y0) * night.width + (x - x0)] = rgb(R(c) * r, G(c) * gg, B(c) * bb);
@@ -1019,7 +1093,12 @@ export function yardProps(P: Painter, tier: number, parts: BuildingParts, finish
   if (tier >= 3) boneDirt(D, 186, 196, 9, 6, 12);
   boneDirt(D, 60, 120, 6, 5, 13);
   trodden(D, 86, 70, 150, 148, 14);
-  parts.arts.push(decalArt(P, -1000));
+  // Pale sun breaking through on the flags before the keep and the chapel, and in the yard.
+  sunPool(D, 66, 40, 7, 21);
+  sunPool(D, 100, 53, 9, 22);
+  sunPool(D, 132, 52, 6, 23);
+  if (tier >= 2) sunPool(D, 118, 100, 11, 24);
+  parts.arts.push(decalArt(P, -1000, D.base));
   P.reset();
   P.rim = rim;
 
