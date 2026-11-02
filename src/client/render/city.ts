@@ -221,6 +221,7 @@ export class CityScene {
     const glows: [number, number, number][] = [];
     const buildingArts: Art[] = [];
     const footprints: Partial<Record<BuildingKey | 'keep', Footprint[]>> = {};
+    const buildingLamps: [number, number][] = [];
     const keys: (BuildingKey | 'keep')[] = ['keep', ...BUILDINGS.map((b) => b.key)];
     for (const k of keys) {
       const level = k === 'keep' ? maxLevel : levels[k] ?? 0;
@@ -235,6 +236,7 @@ export class CityScene {
       targets.push(...p.targets);
       if (p.glows) glows.push(...p.glows);
       footprints[k] = p.footprints ?? [];
+      if (p.lamps) buildingLamps.push(...p.lamps);
     }
     // HD: the props and clutter (city/props.ts), placed clear of what the buildings recorded on
     // the ground; their footprints and the buildings' make the cast shadows on the ground.
@@ -270,7 +272,7 @@ export class CityScene {
       }
     }
     const arts: Art[] = [...this.ground!.arts, ...buildingArts, ...(this.props?.painted.arts ?? [])];
-    this.lamps = this.props?.painted.lamps ?? [];
+    this.lamps = [...(this.props?.painted.lamps ?? []), ...buildingLamps];
     this.pools = null;
     this.glows = glows;
     const millKey = `mill:${tierOf(levels.granary)}`;
