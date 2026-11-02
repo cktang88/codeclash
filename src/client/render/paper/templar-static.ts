@@ -32,7 +32,13 @@ const KM = {
   slate: defineMaterial('templar.k.slate', dye([0.24, 0.42, 0.6, 0.69, 0.78], [0.02, 0.025, 0.03, 0.025, 0.02], 250)),
   /** Linen hose and leg wraps. */
   wraps: defineMaterial('templar.k.wraps', dye([0.25, 0.48, 0.63, 0.72, 0.8], [0.02, 0.03, 0.035, 0.03, 0.025], 85)),
+  /** The brothers' polished mail: bright silver with hard lights (the key art's heroic steel). */
+  silver: defineMaterial('templar.k.silver', dye([0.19, 0.44, 0.62, 0.76, 0.9], [0.012, 0.015, 0.016, 0.014, 0.01], 240)),
+  /** Fur collars: grey-white wolf and fox. */
+  fur: defineMaterial('templar.k.fur', dye([0.24, 0.5, 0.66, 0.78, 0.87], [0.015, 0.02, 0.022, 0.02, 0.016], 70)),
 };
+/** Mail, including the key art's silver. */
+const isMailS = (m: Mat): boolean => isMail(m) || m === KM.silver;
 
 // ------------------------------------------------------------------ mail
 
@@ -104,7 +110,7 @@ function vol(c: Paper, a: P2, b: P2, prof: Profile, m: Mat, o: VolOpts = {}): vo
       const r = o.detail(x, y, ul, v);
       if (r >= 0) return r;
     }
-    if (isMail(m)) {
+    if (isMailS(m)) {
       const r = mailTex(c, x, y, ul < -0.3 ? -1 : ul > 0.45 ? 1 : 0, ul < -0.45 ? base + 1 : ul > 0.5 ? base - 1 : base, m);
       if (r >= 0) return r;
     }
@@ -153,6 +159,14 @@ interface SKit {
   pouch?: boolean;
   /** A cloth hood with a shoulder cape (the pilgrims), in this colour. */
   hood?: Mat;
+  /** The brothers' white mantle with a fur collar. */
+  cloak?: boolean;
+  /** Layered steel pauldrons. */
+  pauldrons?: boolean;
+  /** A wide guard stance (foot). */
+  wide?: boolean;
+  /** The tabard's cross runs long, from the chest to the hem. */
+  longCross?: boolean;
 }
 
 /** The fixed key-art pose (units, feet at 0, facing SE: forward is screen right). */
@@ -174,7 +188,7 @@ function legS(c: Paper, hip: P2, knee: P2, ank: P2, k: SKit, far: boolean): void
   const t = far ? 1 : 2;
   vol(c, hip, knee, [[0, 0.82], [0.35, 0.8], [0.8, 0.66], [1, 0.62]], k.legs, { tone: t });
   // Knee: the mail bulges over a padded knee.
-  c.blob(addP(knee, [0.05, 0.05]), 0.66, 0.6, k.legs, { tone: t, detail: isMail(k.legs) ? (x, y, nx) => mailTex(c, x, y, nx < -0.2 ? -1 : 0, t, k.legs) : undefined });
+  c.blob(addP(knee, [0.05, 0.05]), 0.66, 0.6, k.legs, { tone: t, detail: isMailS(k.legs) ? (x, y, nx) => mailTex(c, x, y, nx < -0.2 ? -1 : 0, t, k.legs) : undefined });
   vol(c, knee, ank, [[0, 0.6], [0.3, 0.66], [0.7, 0.5], [1, 0.45]], k.legs, { tone: Math.max(1, t - 1) });
   // Boot: ankle boot with a cuff, and the foot pointing forward.
   const top = lerp(knee, ank, 0.58);
@@ -199,7 +213,7 @@ function armS(c: Paper, sh: P2, el: P2, wr: P2, k: SKit, far: boolean): void {
 function torsoS(c: Paper, k: SKit, back: boolean): void {
   const garment = k.coat ?? k.body;
   // The hauberk skirt shows below the surcoat hem, split for riding.
-  if (k.coat && isMail(k.body)) {
+  if (k.coat && isMailS(k.body)) {
     shapeU(c, [[-2.0, -7.2], [2.0, -7.2], [2.25, -3.0], [-2.15, -3.0]], [0, -7], (x, y, ux, uy) => mailTex(c, x, y, ux < -1.2 ? -1 : ux > 1.2 ? 1 : 0, 2, k.body) >= 0 ? mailTex(c, x, y, ux < -1.2 ? -1 : ux > 1.2 ? 1 : 0, 2, k.body) : code(k.body, ux < -1.2 ? 3 : ux > 1.2 ? 1 : 2) + (uy > 3.6 ? -1 : 0));
   }
   // The skirt flares to the knee (a short tunic stops at mid-thigh), the hem stepping down toward
@@ -227,9 +241,9 @@ function torsoS(c: Paper, k: SKit, back: boolean): void {
     }
     if (!back && Math.abs(ux - 0.7) < 0.14 && uy > -7.95 && uy < -6.6) return code(k.belt ?? TM.leather, 1);
     // The cross on the chest (or the back): a broad red cross, its arms reaching the flanks.
-    if (k.cross && uy > -11.5 && uy < -8.5) {
-      const vx = ux - crossX;
-      if ((within(c, vx, 0.42) && uy > -11.35) || (within(c, uy + 10.25, 0.38) && Math.abs(vx) < 1.45)) return code(TM.red, vx < -0.2 ? 3 : side > 1.3 ? 1 : 2);
+    if (k.cross && uy > -11.5 && uy < (k.longCross ? hemY - 0.2 : -8.5)) {
+      const vx = ux - crossX - (k.longCross ? (uy + 8) * 0.04 : 0);
+      if ((within(c, vx, k.longCross ? 0.48 : 0.42) && uy > -11.35 && !(uy > -8.45 && uy < -7.95)) || (within(c, uy + 10.25, 0.38) && Math.abs(vx) < 1.45)) return code(TM.red, vx < -0.2 ? 3 : side > 1.3 ? 1 : 2);
     }
     // Skirt folds below the belt: three hanging folds, a dark channel with a lit ridge beside it,
     // drifting toward the back as they fall.
@@ -247,7 +261,7 @@ function torsoS(c: Paper, k: SKit, back: boolean): void {
       if (hem < 0.35) return code(garment, Math.max(1, t - 1));
     }
     if (quilt && uy < -8.5 && ((c.ly(y) % 6 === 0) || (uy < -9.5 && Math.abs(((ux + 5) * 1.6) % 1 - 0.5) < 0.07))) return code(garment, t - 1);
-    if (isMail(garment)) {
+    if (isMailS(garment)) {
       const r = mailTex(c, x, y, t > 2 ? -1 : t < 2 ? 1 : 0, t, garment);
       if (r >= 0) return r;
     }
@@ -452,22 +466,74 @@ interface SGear {
   last?: (c: Paper) => void;
 }
 
+/**
+ * The brothers' white mantle, heavy, hanging from both shoulders behind the body to the ankles,
+ * wider than the man: deep vertical folds with lit ridges, the red cross on the far shoulder.
+ */
+function cloakS(c: Paper, hemY = -0.55, sweep = 0): void {
+  const pts = smooth([[-2.9, -12.1], [0.2, -12.5], [3.0, -12.0], [3.6, -9.5], [4.1, -5.0], [4.5 + sweep, hemY - 0.2], [2.0, hemY + 0.15], [-0.8, hemY], [-3.6 + sweep, hemY + 0.2], [-4.1 + sweep * 0.5, -4.5], [-3.6, -9.6]], 3);
+  shapeU(c, pts, [0, 0], (x, y, ux, uy) => {
+    // The cross on the far shoulder, where the mantle turns toward the light.
+    if ((within(c, ux - 3.15, 0.3) && Math.abs(uy + 10.4) < 0.95) || (within(c, uy + 10.55, 0.28) && Math.abs(ux - 3.15) < 0.6)) return code(TM.red, 2);
+    // Folds: wide, deep, swinging out toward the hem; lit ridge then shadowed trough.
+    const spread = (uy + 12.3) / 12;
+    const f = (((ux / (1 + spread * 0.35)) + 8) * 0.62) % 1;
+    let t = ux < -2.6 + spread ? 3 : ux > 3.0 + spread * 0.6 ? 1 : 2;
+    if (f < 0.16) t -= 1;
+    else if (f < 0.3) t += 1;
+    if (uy > hemY - 0.9 && c.tex(x, y, 57, 3) < 0.45) t -= 1;
+    return code(TM.white, Math.max(1, Math.min(4, t)));
+  });
+}
+
+/** A fur collar over the mantle's shoulders: tufted grey-white strands. */
+function furS(c: Paper): void {
+  shapeU(c, smooth([[-2.7, -12.4], [-1.0, -13.2], [1.2, -13.25], [2.9, -12.4], [2.4, -11.4], [0.8, -11.8], [-0.9, -11.75], [-2.4, -11.3]], 3), [0, -12.3], (x, y, ux, uy) => {
+    const strand = (c.lx(x) + (c.ly(y) >> 1) * 2) % 4;
+    let t = ux < -1.3 ? 4 : ux > 1.6 ? 2 : 3;
+    if (strand === 0) t -= 1;
+    if (uy > 0.55 && c.tex(x, y, 77, 2) < 0.5) return -1; // ragged lower edge
+    return code(KM.fur, t);
+  });
+}
+
+/** Layered pauldron: three overlapping steel lames over the shoulder, bright on the lit edges. */
+function pauldronS(c: Paper, sh: P2, far: boolean): void {
+  for (let i = 2; i >= 0; i--) {
+    const o = addP(sh, [0, -0.35 + i * 0.55]);
+    c.blob(o, 1.15 - i * 0.08, 0.55, TM.steel, {
+      tone: far ? 1 : 2,
+      detail: (_x, _y, nx, ny) => {
+        if (ny < -0.45 && nx < 0.3) return code(TM.steel, far ? 3 : 4); // lit rolled edge
+        if (ny > 0.55) return code(TM.steel, 0); // the lame's lower edge, in shadow
+        if (Math.abs(nx + 0.55) < 0.14 && Math.abs(ny) < 0.2) return code(TM.steel, 4); // rivet
+        return -1;
+      },
+    });
+  }
+}
+
 function manS(c: Paper, k: SKit, g: SGear): void {
+  if (k.cloak) cloakS(c);
   g.behind?.(c);
-  legS(c, J.hipF, J.kneeF, J.ankF, k, true);
-  legS(c, J.hipN, J.kneeN, J.ankN, k, false);
+  const wide = k.wide ?? false;
+  // A wide guard stance: weight on the back leg, the front foot advanced.
+  legS(c, J.hipF, wide ? [1.75, -3.7] : J.kneeF, wide ? [2.55, -0.6] : J.ankF, k, true);
+  legS(c, J.hipN, wide ? [-1.6, -3.5] : J.kneeN, wide ? [-2.2, -0.5] : J.ankN, k, false);
   if (g.far) {
     armS(c, J.shF, g.far.el, g.far.wr, k, true);
     g.far.draw?.(c, addP(g.far.wr, mul(sub(g.far.wr, g.far.el), 0.18)));
   }
   torsoS(c, k, false);
+  if (k.cloak) furS(c);
   if (k.camail) camail(c, k.camail, false);
   if (k.hood) hoodCape(c, k.hood);
   if (k.pouch) vol(c, [-1.45, -8.0], [-1.6, -6.85], [[0, 0.32], [0.6, 0.5], [1, 0.42]], TM.leather, { tone: 2, detail: (_x, _y, _u, v) => (v < 0.18 ? code(TM.leather, 3) : -1) });
-  helmS(c, k.helm, J.head, false, k.beard ?? true, k.hood ?? k.camail ?? (isMail(k.body) ? k.body : null));
+  helmS(c, k.helm, J.head, false, k.beard ?? true, k.hood ?? k.camail ?? (isMailS(k.body) ? k.body : null));
   g.front?.(c);
   const ne = g.near ?? { el: [-2.65, -8.5] as P2, wr: [-2.3, -6.3] as P2 };
   armS(c, J.shN, ne.el, ne.wr, k, false);
+  if (k.pauldrons) pauldronS(c, addP(J.shN, [-0.1, 0.1]), false);
   ne.draw?.(c, addP(ne.wr, mul(sub(ne.wr, ne.el), 0.18)));
   g.last?.(c);
 }
@@ -535,7 +601,9 @@ const LEVY: SKit = { helm: 'nasal', body: KM.ochre, coat: null, quilted: true, c
 const JAVELIN: SKit = { helm: 'cap', body: KM.madder, coat: null, short: true, pouch: true, camail: null, sleeve: KM.madder, hand: TM.flesh, legs: KM.wraps, boots: TM.leather, belt: TM.team };
 const ARCHER: SKit = { helm: 'hood', hood: KM.slate, body: KM.slate, coat: null, short: true, camail: null, sleeve: KM.slate, hand: TM.flesh, legs: TM.wool, boots: TM.leather };
 const XBOW: SKit = { helm: 'kettle', body: TM.wool, coat: null, quilted: true, camail: TM.mailDk, sleeve: TM.wool, hand: TM.leather, legs: TM.wool, boots: TM.leather, belt: TM.team };
-const BRETHREN: SKit = { helm: 'great', body: TM.mail, coat: TM.white, cross: true, camail: TM.mail, sleeve: TM.mail, hand: TM.mail, legs: TM.mail, boots: TM.mail };
+// The Iron Brethren as the painted Templar: a black tabard with the long red cross over silver mail
+// and layered pauldrons, the heavy white mantle with a fur collar, steel gauntlets, a wide stance.
+const BRETHREN: SKit = { helm: 'great', body: KM.silver, coat: TM.black, cross: true, longCross: true, cloak: true, pauldrons: true, wide: true, camail: KM.silver, sleeve: KM.silver, hand: TM.steel, legs: KM.silver, boots: KM.silver };
 
 const FOOT: Record<number, { kit: SKit; gear: SGear; dark: boolean }> = {
   0: {
@@ -585,10 +653,11 @@ const FOOT: Record<number, { kit: SKit; gear: SGear; dark: boolean }> = {
   },
   8: {
     kit: BRETHREN,
-    dark: false,
+    dark: true,
     gear: {
       // The Dane axe held at the port, its great bit high and forward of the helm.
-      near: { el: [-2.75, -8.9], wr: [-1.2, -7.6], draw: (c, h) => daneAxeS(c, h, 140) },
+      // The Dane axe held low across the body in guard, the bit forward at the shoulder.
+      near: { el: [-2.5, -8.6], wr: [-0.9, -7.4], draw: (c, h) => daneAxeS(c, h, 135) },
     },
   },
 };
@@ -762,7 +831,8 @@ function horseS(c: Paper, k: SHorse, part: 'far' | 'body'): void {
         else if (f > 0.84 && f < 0.95) t = Math.min(4, t + 1);
       }
       if (uy > -5.3 && c.tex(x, y, 59, 3) < 0.45) t = Math.max(0, t - 1);
-      return code(cm, t);
+      // White cloth never drops to the deep tone: its shadow is a cool grey, not a brown hole.
+      return code(cm, Math.max(1, t));
     });
   } else if (k.cloth) {
     shapeU(c, smooth([[-1.9, -10.2], [2.1, -10.4], [2.2, -7.2], [0.2, -6.8], [-1.8, -7.0]], 3), [0, -9], (_x, _y, ux, uy) => (uy > 1.6 ? code(TM.teamDk, 1) : code(TM.team, ux < -0.8 ? 3 : 2)));
@@ -786,6 +856,22 @@ function scaled(c: Paper, k: number, draw: () => void): void {
 }
 
 /** A rider seated on the horse: thighs along its flank, a solid torso, his arms and head. */
+/** A rider's mantle: from the shoulders it spills back over the cantle and the horse's croup. */
+function riderCloak(c: Paper): void {
+  const pts = smooth([[-2.8, -12.1], [0.4, -12.5], [2.7, -11.9], [1.6, -8.8], [-0.4, -5.9], [-3.4, -4.3], [-6.6, -4.1], [-6.9, -5.3], [-5.0, -7.6], [-3.6, -10.1]], 3);
+  shapeU(c, pts, [0, 0], (x, y, ux, uy) => {
+    if ((within(c, ux - 1.9, 0.3) && Math.abs(uy + 10.5) < 0.95) || (within(c, uy + 10.65, 0.28) && Math.abs(ux - 1.9) < 0.6)) return code(TM.red, 2);
+    // Folds run from the shoulders down and back, fanning over the croup.
+    const a = Math.atan2(uy + 12, ux - 0.5);
+    const f = ((a * 4.2 + 10) % 1 + 1) % 1;
+    let t = ux < -3.0 || uy < -10.8 ? 3 : uy > -5.2 ? 1 : 2;
+    if (f < 0.18) t -= 1;
+    else if (f < 0.32) t += 1;
+    if (uy > -5.0 && c.tex(x, y, 57, 3) < 0.45) t -= 1;
+    return code(TM.white, Math.max(1, Math.min(4, t)));
+  });
+}
+
 function riderS(c: Paper, k: SKit, g: SGear): void {
   // Shift the man's foot frame so his pelvis sits in the saddle.
   const pel: P2 = [0.3 * HORSE_SCALE, -10.6 * HORSE_SCALE];
@@ -801,6 +887,7 @@ function riderS(c: Paper, k: SKit, g: SGear): void {
     vol(c, knee, ank, [[0, 0.58], [0.3, 0.62], [1, 0.45]], k.legs, { tone: 1 });
     c.shape([addP(ank, [-0.5, -0.3]), addP(ank, [0.4, -0.3]), addP(ank, [1.25, 0.2]), addP(ank, [1.2, 0.5]), addP(ank, [-0.5, 0.5])], () => code(k.boots, 2));
     vol(c, addP(ank, [0.1, 0.55]), addP(ank, [0.1, -2.6]), [[0, 0.1], [1, 0.1]], TM.leather, { tone: 1 }); // stirrup leather
+    if (k.cloak) riderCloak(c);
     g.behind?.(c);
     if (g.far) armS(c, J.shF, g.far.el, g.far.wr, k, true);
     if (g.far?.draw) g.far.draw(c, addP(g.far.wr, mul(sub(g.far.wr, g.far.el), 0.18)));
@@ -819,17 +906,19 @@ function riderS(c: Paper, k: SKit, g: SGear): void {
         const fx2 = ux * 0.6 + (uy + 7.6) * 0.5;
         if (Math.abs(fx2 - 1.0) < 0.12 || Math.abs(fx2 - 2.0) < 0.12) return code(garment, t - 1);
       }
-      if (isMail(garment)) {
+      if (isMailS(garment)) {
         const r = mailTex(c, x, y, t > 2 ? -1 : t < 2 ? 1 : 0, t, garment);
         if (r >= 0) return r;
       }
       return code(garment, t);
     });
+    if (k.cloak) furS(c);
     if (k.camail) camail(c, k.camail, false);
-    helmS(c, k.helm, J.head, false, k.beard ?? true, k.camail ?? (isMail(k.body) ? k.body : null));
+    helmS(c, k.helm, J.head, false, k.beard ?? true, k.camail ?? (isMailS(k.body) ? k.body : null));
     g.front?.(c);
     const ne = g.near ?? { el: [-2.65, -8.5] as P2, wr: [-1.6, -7.0] as P2 };
     armS(c, J.shN, ne.el, ne.wr, k, false);
+    if (k.pauldrons) pauldronS(c, addP(J.shN, [-0.1, 0.1]), false);
     ne.draw?.(c, addP(ne.wr, mul(sub(ne.wr, ne.el), 0.18)));
     g.last?.(c);
   } finally {
@@ -838,7 +927,7 @@ function riderS(c: Paper, k: SKit, g: SGear): void {
   }
 }
 
-const KNIGHT: SKit = { helm: 'great', body: TM.mail, coat: TM.white, cross: true, camail: TM.mail, sleeve: TM.mail, hand: TM.mail, legs: TM.mail, boots: TM.mail };
+const KNIGHT: SKit = { helm: 'great', body: KM.silver, coat: TM.white, cross: true, longCross: true, cloak: true, pauldrons: true, camail: KM.silver, sleeve: KM.silver, hand: TM.steel, legs: KM.silver, boots: KM.silver };
 const MARSHAL: SKit = { ...KNIGHT, helm: 'gilded', belt: TM.gold };
 const TURCOPOLE: SKit = { helm: 'turban', body: TM.gambeson, coat: null, camail: TM.mailDk, sleeve: TM.gambeson, hand: TM.leather, legs: TM.wool, boots: TM.leather };
 const HORSE_ARCHER: SKit = { helm: 'turban', body: TM.wool, coat: null, camail: null, sleeve: TM.wool, hand: TM.flesh, legs: TM.wool, boots: TM.leather, belt: TM.team };
@@ -866,7 +955,7 @@ const MOUNTED: Record<number, { kit: SKit; horse: SHorse; gear: SGear; dark: boo
   7: {
     kit: KNIGHT,
     horse: { coat: TM.grey, capar: TM.white },
-    dark: false,
+    dark: true,
     gear: {
       front: (c) => kiteS(c, [2.1, -8.6], 3.8, 5.9, false, true, -6),
       near: { el: [-2.8, -8.9], wr: [-1.8, -7.3], draw: (c, h) => spear(c, h, 135, 12.5, 3.5, { head: 1.3, pennon: 0.3, w: 0.36 }) },
@@ -875,7 +964,7 @@ const MOUNTED: Record<number, { kit: SKit; horse: SHorse; gear: SGear; dark: boo
   10: {
     kit: MARSHAL,
     horse: { coat: TM.grey, capar: TM.white },
-    dark: false,
+    dark: true,
     gear: {
       far: { el: [2.7, -9.7], wr: [3.0, -11.4], draw: (c, h) => beauseant(c, addP(h, [0, 0]), 180, 0.35, 0) },
       near: { el: [-2.9, -8.9], wr: [-2.2, -7.1], draw: (c, h) => sword(c, h, 135, 5.4) },
@@ -890,7 +979,7 @@ function crewS(c: Paper, dx: number, g: SGear): void {
   const fx = c.FX;
   c.FX = fx + Math.round(dx * c.L);
   try {
-    manS(c, { helm: 'cap', body: TM.wool, coat: null, quilted: true, camail: null, sleeve: TM.wool, hand: TM.flesh, legs: TM.wool, boots: TM.leather }, g);
+    manS(c, { helm: 'cap', body: KM.wraps, coat: null, short: true, camail: null, sleeve: KM.wraps, hand: TM.flesh, legs: TM.wool, boots: TM.leather }, g);
   } finally {
     c.FX = fx;
   }
