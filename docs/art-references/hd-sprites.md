@@ -404,9 +404,12 @@ Still short of the references:
 
 ## Templar paper figures (`paper/templar.ts`, `templar-parts.ts`, `templar-static.ts`)
 
-All eleven Templar kinds are drawn on paper. The animated figures (`templar.ts`) are live in HD
-mode. The bulked-up key art (`templar-static.ts`, one idle SE image per kind at level 8) is waiting
-for approval, after which the animated figures will be rebuilt from it.
+All eleven Templar kinds are drawn on paper. The approved key art (`templar-static.ts`, one idle
+SE image per kind) is now the rest pose of the live figures: each kind is rebuilt on bones from it
+and animated from motion capture and Muybridge (`templar-foot.ts`, `templar-horse.ts`,
+`templar-engine.ts`, `templar-clips.ts`, `templar-rig.ts`). See `templar-animation.md` for the
+references, the method and the critique rounds. The pose-rig figures in `templar.ts` remain as the
+fallback registrations.
 
 ### References (`references/templar/`, `references/user-targets/`; study only, none committed)
 
