@@ -129,14 +129,15 @@ export function footSkel(name: string, s: FootSpec): SkeletonData {
   });
   const pieces = s.art.pieces.map((p) => p.slot);
   const dropSlots = s.drops.map((d) => `${d.slot}Drop`);
-  const se0 = [...dropSlots, ...pieces, 'smear', 'light', 'flash'];
+  // What falls in a death lies beside the heap: drawn over it.
+  const se0 = [...pieces, ...dropSlots, 'smear', 'light', 'flash'];
   const first = s.neFirst ?? ['front'], last = s.neLast ?? [];
   const legs = ['thighF', 'shinF', 'footF', 'thighN', 'shinN', 'footN'];
   const nearArm = ['weapon', 'upperArmN', 'forearmN', 'handN'];
   const has = (n: string) => pieces.includes(n);
   const body = pieces.filter((n) => !first.includes(n) && !last.includes(n) && !legs.includes(n) && !nearArm.includes(n) && !/F$/.test(n));
   const farArm = pieces.filter((n) => /F$/.test(n) && !legs.includes(n) && !first.includes(n) && !last.includes(n));
-  const ne0 = [...dropSlots, ...first.filter(has), ...farArm, ...legs.filter(has), ...body, ...last.filter(has), ...nearArm.filter(has), 'smear', 'light', 'flash'];
+  const ne0 = [...first.filter(has), ...farArm, ...legs.filter(has), ...body, ...last.filter(has), ...nearArm.filter(has), ...dropSlots, 'smear', 'light', 'flash'];
   const bone = new Map(s.art.pieces.map((p) => [p.slot, p.bone] as const));
   const slots: SlotData[] = se0.map((n) => (dropSlots.includes(n) ? { name: n, bone: `drop_${n.slice(0, -4)}`, attachment: { all: null } } : EXTRA[n] ? { name: n, bone: EXTRA[n]!.bone, attachment: { all: EXTRA[n]!.att } } : { name: n, bone: bone.get(n)!, attachment: { all: n } }));
   return {

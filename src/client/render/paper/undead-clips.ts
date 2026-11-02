@@ -11,7 +11,7 @@
 
 import { Anim } from '../contract.ts';
 import type { Facing } from './facing.ts';
-import { BREATH, evaluate, sampleAnimation, sampleClip, type AnimationData, type AnimEvent, type BoneTimeline, type Clip, type Key, type SkeletonData } from './skeleton.ts';
+import { BREATH, EASE_IN, evaluate, sampleAnimation, sampleClip, type AnimationData, type AnimEvent, type BoneTimeline, type Clip, type Key, type SkeletonData } from './skeleton.ts';
 import { addDrops, facingClip, lagCloth, lastFrame, mapFacings, mocapKeys, overlayKeys, restWorld, type ClipSet, type Drop, type KP, type LagSpec, type MocapOpts, type Track } from './templar-rig.ts';
 import { BLOCK, CUT, HIT, R, T, type Author, type Tracks } from './templar-clips.ts';
 
@@ -33,6 +33,8 @@ export interface FootClipSpec {
   stiff: number;
   /** Things that fall away in the death (by slot), where they land and when. */
   drops: { slot: string; holder: string; at: number; land: Drop['land'] }[];
+  /** Extra idle tracks (world turns): a floating lich, a fidgeting hand. */
+  idle?: Record<string, Track>;
   /** A long robe or cloak that trails (a cloak bone), and how far the skirt trails. */
   cloak?: boolean;
 }
@@ -107,7 +109,7 @@ const HEAVY_CUT: Author = (rw, f) => {
       forearmN: R(rw.forearmN!, 11, [2, 150], [3, 205], [4, 218], [5, 150], [6, 60], [7, 30], [8, 28], [10, 15]),
       weapon: R(rw.weapon!, 11, [2, 176], [3, 222], [4, 236], [5, 160], [6, 64], [7, 24], [8, 20], [10, 18]),
     },
-    dw: { ...c.dw, spine: T([0, 0], [3, 10], [4, 12], [5, -6], [6, -22], [8, -24], [10, -8], [11, 0]), head: T([0, 0], [4, 8], [6, -10], [8, -10], [11, 0]), jaw: jawTrack([0, -8], [3, -22], [4, -24], [5, -10], [6, 0], [7, 0], [8, -16], [10, -8], [11, -8]) },
+    dw: { ...c.dw, spine: T([0, 0], [3, 10], [4, 12], [5, -6], [6, -22], [8, -24], [10, -8], [11, 0]), head: T([0, 0], [4, 8], [6, -10], [8, -10], [11, 0]), jaw: jawTrack([0, -8], [3, -4], [4, -2], [5, -18], [6, -34], [7, -36], [8, -36], [9, -6], [10, -2], [11, -8]) },
     tAdd: { ...c.tAdd, pelvis: [T([0, 0], [4, -0.45], [6, 0.6], [8, 0.75], [10, 0.3], [11, 0]), T([0, 0], [4, -0.1], [6, 0.35], [8, 0.45], [11, 0])] },
   };
 };
@@ -181,7 +183,7 @@ export function footClips(skel: SkeletonData, s: FootClipSpec): ClipSet {
   };
   const sword = s.attack === 'cut';
   // The weapon arm is carried steady (a blade swinging through the head's zone boils); the free arm swings.
-  const gaitArms = (g: number): MocapOpts['arms'] => ({ N: 0, F: s.farHeld ? 0 : g });
+  const gaitArms = (g: number): MocapOpts['arms'] => ({ N: sword ? g * 0.4 : 0, F: s.farHeld ? 0 : g });
   // The feet track close to the line of travel while walking, so the two half-strides look alike.
   const track = (f: Facing, k: number): Record<string, [Track, Track]> => {
     const sd = f === 'ne' ? -1 : 1;
@@ -209,7 +211,8 @@ export function footClips(skel: SkeletonData, s: FootClipSpec): ClipSet {
     const bob = T([0, 0.12], [1, 0.28], [2, 0.12], [3, -0.1], [4, -0.12], [5, 0], [6, 0.12], [7, 0.28], [8, 0.12], [9, -0.1], [10, -0.12], [11, 0]);
     const twist = T([0, -0.18], [3, 0], [6, 0.18], [9, 0], [11, -0.12]);
     return {
-      w: (sword ? { weapon: T([0, f === 'ne' ? 125 : 250]) } : {}) as Record<string, Track>,
+      // The blade carried low in front, the tip down and angled forward, swinging a little with the arm.
+      w: (sword ? { weapon: T([0, 52], [3, 46], [6, 40], [9, 46], [12, 52]) } : {}) as Record<string, Track>,
       dw: (sword ? { forearmN: T([0, 18]), jaw: T([0, -10]) } : { jaw: T([0, -10]) }) as Record<string, Track>,
       tAdd: { pelvis: [T([0, 0]), bob], chest: [twist, T([0, 0])], ...track(f, 1) },
     };
@@ -218,7 +221,8 @@ export function footClips(skel: SkeletonData, s: FootClipSpec): ClipSet {
     const m = mk(skel, f, 'walk', { ref: 'mean', torso: 0.3, arms: gaitArms(0.5), roll: 0.5, feet: 1.25, mirror: 12 }, both(walkA, posture(s)));
     return { ...m, keys: stiffen(m.keys, s.stiff) };
   };
-  const walk = fc('walk', 12, true, walkKeys, undefined, 0.3, [0, 1, 1, 3, 4, 5, 6, 7, 7, 9, 10, 11]);
+  // One stop-motion hold a stride: the trunk, arms and skull freeze for two frames, then jerk on.
+  const walk = fc('walk', 12, true, walkKeys, undefined, 0.3, [0, 1, 2, 3, 3, 3, 6, 7, 8, 9, 10, 11]);
   // ---- the run (a charge): the lean, a heavier hunch, the arms pumping less (the dead do not sprint well).
   const runA: Author = (rw, f) => ({ tAdd: track(f, 1.1), w: { head: T([0, rw.head! - 8 + s.tilt]) }, dw: { spine: T([0, -15 - s.hunch * 0.5]), jaw: T([0, -16]), ...(s.farHeld ? { forearmF: T([0, 12]) } : {}), ...(sword ? { forearmN: T([0, 50]) } : {}) } });
   const runKeys = (f: Facing) => {
@@ -226,11 +230,11 @@ export function footClips(skel: SkeletonData, s: FootClipSpec): ClipSet {
     return { ...m, keys: stiffen(m.keys, s.stiff * 0.6) };
   };
   const run = fc('run', 12, true, runKeys, undefined, 1, [0, 1, 2, 2, 4, 5, 6, 7, 8, 8, 10, 11]);
-  // ---- idle: a slow weight shift and the chest rising a pixel; the skull twitches to a new tilt
-  // and holds (a stop-motion beat), the jaw hangs.
-  // The skull holds its odd tilt and the jaw hangs (a static part: anything more boils at this size).
-  const idleA: Author = (rw) => ({ w: { head: T([0, rw.head! + s.tilt]) }, dw: { jaw: T([0, -8]), spine: T([0, -s.hunch * 0.6]), chest: T([0, -s.hunch * 0.4]) } });
-  const idle = withBreath(fc('idle', 8, true, (f) => mk(skel, f, 'idle', { ref: 'first', torso: 0.1, travel: 0.3, feet: 0 }, idleA, [3, 4, 5, 7])), 1.6);
+  // ---- idle: the chest rises a pixel, the weight sways from foot to foot, the jaw hangs open.
+  // (The skull holds still: any turn or jerk of it in the idle reads as boil at this size and
+  // fails the lint's head-churn gate.)
+  const idleA: Author = (rw) => ({ w: { head: T([0, rw.head! + s.tilt]) }, dw: { jaw: T([0, -8]), spine: T([0, -s.hunch * 0.6]), chest: T([0, -s.hunch * 0.4]), ...(s.idle ?? {}) }, tAdd: { pelvis: [T([0, 0], [2, 0.15], [4, 0], [6, -0.15], [8, 0]), T([0, 0])] } });
+  const idle = withBreath(fc('idle', 8, true, (f) => mk(skel, f, 'idle', { ref: 'first', torso: 0, travel: 0.15, feet: 0 }, idleA, [2, 4, 4.5, 6, 6.5])), 1.0);
   // ---- the blow.
   const at = ATTACKS[s.attack];
   const attack = fc('attack', 12, false, (f) => mk(skel, f, at.clip, at.o, both(at.a, posture(s, 0.5, false)), at.extra), at.ev, 0, at.warp);
@@ -284,7 +288,15 @@ export function footClips(skel: SkeletonData, s: FootClipSpec): ClipSet {
     };
   };
   const drops: Drop[] = s.drops.map((d) => ({ holder: d.holder, bone: `drop_${d.slot}`, slot: `${d.slot}Drop`, from: d.slot, at: d.at, land: d.land }));
-  const die = addDrops(skel, groundClamp(skel, fc('die', 12, false, dieKeys, [{ f: s.die === 'back' ? 7 : 9, name: 'land' }], 0), 12), 12, drops);
+  // The last four frames: it comes apart. The ribcage collapses under the armour (the chest
+  // squashed down its length) and the body sinks into a heap as the pieces fall away.
+  const collapse = (c: Clip): Clip =>
+    mapFacings(c, (a) => {
+      const pv = a.bones?.pelvis?.translate ?? [];
+      const sink = pv.map((k) => (k.f >= 8 ? { ...k, v: [k.v[0], k.v[1] + Math.min(1, (k.f - 7) / 3) * 0.5] as [number, number] } : k));
+      return { ...a, bones: { ...(a.bones ?? {}), pelvis: { ...(a.bones?.pelvis ?? {}), translate: sink }, chest: { ...(a.bones?.chest ?? {}), scaleY: [{ f: 0, v: 1 }, { f: 8, v: 1, c: EASE_IN }, { f: 10, v: 0.55 }, { f: 11, v: 0.6 }] } } };
+    });
+  const die = addDrops(skel, collapse(groundClamp(skel, fc('die', 12, false, dieKeys, [{ f: s.die === 'back' ? 7 : 9, name: 'land' }], 0), 12)), 12, drops);
   const dead = mapFacings(die, (a) => lastFrame(a, 'dead'));
   // ---- brace, by the weapon.
   const BRACE: Record<FootClipSpec['brace'], Author> = {
