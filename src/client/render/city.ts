@@ -7,7 +7,8 @@ import type { FactionId } from '../../game/factions.ts';
 import { Rng } from '../../game/rng.ts';
 import { U } from '../../game/units.ts';
 import { Post } from './post.ts';
-import { buildAtlas, CELL_H, CELL_W, FOOT_X, FOOT_Y, Frame, hsl, type Atlas } from './sprites.ts';
+import { Anim } from './contract.ts';
+import { buildAtlas, hsl, type Atlas } from './sprites.ts';
 
 export const CITY_W = 400;
 export const CITY_H = 225;
@@ -295,9 +296,10 @@ export class CityScene {
       const x = 140 + col * 7 + sweep * span + (row % 2) * 3;
       const y = 140 + row * 6;
       const kind = kinds[row % kinds.length]!;
-      const frame = Math.floor((this.tick + col * 3) / 8) % 2 ? Frame.Walk : Frame.Idle;
-      const [sx, sy] = this.atlas.at(kind, frame, facingLeft);
-      g.drawImage(this.atlas.canvas, sx, sy, CELL_W, CELL_H, Math.round(x) - FOOT_X, Math.round(y) - FOOT_Y, CELL_W, CELL_H);
+      const a = this.atlas;
+      const frame = Math.floor((this.tick + col * 3) / 6);
+      const [sx, sy] = a.at(kind, Anim.Walk, frame, facingLeft ? 1 : 0);
+      g.drawImage(a.image, sx, sy, a.cellW, a.cellH, Math.round(x) - a.footX, Math.round(y) - a.footY, a.cellW, a.cellH);
     }
 
     // Smoke.
