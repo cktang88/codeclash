@@ -19,8 +19,8 @@ import { Anim } from '../contract.ts';
 import { addP, code, type P2, type Paper } from './core.ts';
 import type { Facing } from './facing.ts';
 import { registerPaperKind } from './registry.ts';
-import { flash as muzzleFlash, smoke, SM, stick } from './samurai-parts.ts';
-import { footBody, FOOT, KUSA_TOP, manOrder, manPiece, withMap, type Body, type ManPiece, type SFoot } from './samurai-static.ts';
+import { flash as muzzleFlash, smoke, SM, stick, yumi } from './samurai-parts.ts';
+import { footBody, FOOT, KUSA_TOP, manOrder, manPiece, mapPoint, withMap, type Body, type ManPiece, type SFoot } from './samurai-static.ts';
 import {
   BREATH, bonesFromJoints, EASE, EASE_IN, EASE_OUT, emptyLocals, evaluate, sampleClip, shortest, skeletonKind, smearPart,
   type AnimationData, type FacingClips, type Key, type Posed, type AnimEvent, type AttachmentSet, type Clip, type JointDef, type SkeletonData, type SkeletonRig, type SlotData,
@@ -52,6 +52,8 @@ interface Carry {
   side?: boolean;
   /** The free far arm's base pose (world angles) under the capture's swing. */
   farBase?: [number, number];
+  /** The far arm holds its key-art pose (a bow carried upright). */
+  holdF?: boolean;
 }
 export interface SSpec {
   /** The near item's key-art angle (rig degrees: 0 down, 90 forward, 180 up). */
@@ -92,6 +94,13 @@ export const FOOT_SPECS: Record<number, SSpec> = {
     walk: { weapon: 177, side: true },
     // The charge: levelled at the hip in both hands, the point forward and a little down.
     run: { upperArmN: -12, forearmN: 74, weapon: 97, both: true },
+  },
+  3: {
+    nearDeg: 167, farDeg: 180, neNear: 'mirror', neFar: { el: [-0.6, -9.0], hn: [2.0, -7.4] }, backBone: 'pelvis',
+    attack: 'punch', shoot: 'kyudo', brace: 'ready', die: 'back',
+    // The yumi carried upright and steady in the bow hand; the arrow hand at the side.
+    walk: { holdF: true, side: true },
+    run: { holdF: true, side: true },
   },
   2: {
     nearDeg: 110, neNear: { el: [2.6, -11.6], hn: [0.4, -13.6] }, neFar: { el: [-0.9, -9.8], hn: [1.3, -8.9] }, backBone: 'banner',
@@ -276,6 +285,24 @@ export function footParts(kind: number, k: SFoot, s: SSpec): AttachmentSet {
     },
   };
   if (s.smear) atts.smear = smearPart('weapon', s.smear[0], s.smear[1], SM.steel);
+  if (s.shoot === 'kyudo') {
+    // The yumi, drawn on the frame: while the `draw` event runs the string goes to the draw hand,
+    // the bow bends with the draw's length and the arrow lies on it; after the loose the bow has
+    // turned in the hand (yugaeri), the string on the outside.
+    atts.farItem = {
+      cache: false,
+      draw: (c, x, ctx) => {
+        const f = ctx.posed.facing;
+        const drawing = ctx.events.some((e) => e.name === 'draw');
+        const hn = ctx.posed.byName.handN!;
+        const nock: P2 = [hn.tx, hn.ty];
+        const grip = withMap(partMap(x), () => mapPoint(rest[f].hnF));
+        const len = Math.hypot(nock[0] - grip[0], nock[1] - grip[1]);
+        const bend = drawing ? Math.max(0, Math.min(1, (len - 1.6) / 4.2)) : 0;
+        yumi(c, grip, (s.farDeg ?? 180) + x.turned * 7.5, bend, drawing ? nock : null, drawing);
+      },
+    };
+  }
   return atts;
 }
 
@@ -448,11 +475,37 @@ const THROW: Author = (rw) => ({
   },
 });
 
+/**
+ * Kyūdō's shot (the hassetsu on the bow capture's timing): 0 the stance; 1 the arrow nocked, the
+ * draw hand on the string; 2-3 uchiokoshi, both arms raise the bow above the head; 4-5 hikiwake,
+ * the bow comes down to the target while the arms open, the draw hand to behind the ear with the
+ * elbow high and back; 6 kai, held; 7 hanare, the draw hand flies back and down along the arrow's
+ * line, the bow turns in the hand (yugaeri); 8-9 zanshin, held; 10-11 the bow lowered, the hand
+ * goes to the ebira for the next arrow.
+ */
+const KYUDO: Author = (rw) => ({
+  w: {
+    upperArmF: R(rw.upperArmF!, 11, [1, 60], [2, 140], [3, 150], [4, 120], [5, 96], [6, 94], [7, 94], [8, 90], [9, 90], [10, 50]),
+    forearmF: R(rw.forearmF!, 11, [1, 70], [2, 150], [3, 158], [4, 120], [5, 96], [6, 94], [7, 94], [8, 92], [9, 92], [10, 60]),
+    itemF: R(rw.itemF!, 11, [1, 180], [6, 180], [7, 168], [9, 166], [10, 175]),
+    upperArmN: R(rw.upperArmN!, 11, [1, 60], [2, 150], [3, 165], [4, 190], [5, 205], [6, 206], [7, 262], [8, 266], [9, 266], [10, 120]),
+    forearmN: R(rw.forearmN!, 11, [1, 100], [2, 150], [3, 150], [4, 120], [5, 100], [6, 98], [7, 250], [8, 262], [9, 262], [10, 60]),
+    head: T([0, rw.head!]),
+  },
+  dw: { spine: T([0, 0], [3, 3], [6, 2], [8, 3], [11, 0]) },
+});
+/** The archer's last resort: a stab with the arrow in the fist, on a step. */
+const PUNCH: Author = (rw) => ({
+  w: { upperArmN: R(rw.upperArmN!, 11, [3, -25], [5, 80], [6, 78], [9, 20]), forearmN: R(rw.forearmN!, 11, [3, 80], [5, 92], [6, 90], [9, 40]), head: T([0, rw.head!]) },
+  dw: { spine: T([0, 0], [3, 6], [5, -12], [6, -12], [9, -3], [11, 0]) },
+  tAdd: { pelvis: [T([0, 0], [3, -0.35], [5, 0.55], [6, 0.55], [9, 0.2], [11, 0]), T([0, 0], [5, 0.25], [11, 0])], footTargetF: [T([0, 0], [3, 0], [5, 0.9], [8, 0.9], [10, 0.3], [11, 0]), T([0, 0], [4, -0.4], [5, 0], [11, 0])] },
+});
+
 const ATTACKS: Record<Attack, { clip: string; o: MocapOpts; a: Author; extra: number[]; ev: AnimEvent[] }> = {
   kesa: { clip: 'cut-diagonal', o: { torso: 0.5, travel: 0, feet: 0.3 }, a: KESA, extra: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], ev: [{ f: 5, name: 'smear', len: 3, bone: 'weapon' }, { f: 7, name: 'strike' }] },
   thrust: { clip: 'thrust', o: { torso: 0.3, travel: 0.3, feet: 0.3 }, a: THRUST, extra: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], ev: [{ f: 4, name: 'smear', len: 1, bone: 'weapon' }, { f: 5, name: 'strike' }] },
   jab: { clip: 'thrust', o: { torso: 0.3, travel: 0.3, feet: 0.3 }, a: JAB, extra: [2, 3, 4, 5, 6, 7, 8, 9, 10], ev: [{ f: 4, name: 'smear', len: 1, bone: 'weapon' }, { f: 5, name: 'strike' }] },
-  punch: { clip: 'thrust', o: {}, a: KESA, extra: [], ev: [] },
+  punch: { clip: 'thrust', o: { torso: 0.3, travel: 0.3, feet: 0.3 }, a: PUNCH, extra: [3, 5, 6, 9], ev: [{ f: 5, name: 'strike' }] },
   butt: { clip: 'thrust', o: {}, a: KESA, extra: [], ev: [] },
   sweep: { clip: 'thrust', o: {}, a: KESA, extra: [], ev: [] },
   fan: { clip: 'thrust', o: {}, a: KESA, extra: [], ev: [] },
@@ -461,7 +514,7 @@ const ATTACKS: Record<Attack, { clip: string; o: MocapOpts; a: Author; extra: nu
 /** Missiles: clip, capture options, authored arms, events, and a slot hidden while the missile is away. */
 const SHOOTS: Record<Exclude<Shoot, null>, { clip: string; o: MocapOpts; a: Author; extra: number[]; ev: AnimEvent[]; hide?: [string, number, number] }> = {
   javelin: { clip: 'thrust', o: { torso: 0.2, travel: 0, feet: 0 }, a: THROW, extra: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], ev: [{ f: 4, name: 'smear', len: 1, bone: 'weapon' }, { f: 5, name: 'release' }], hide: ['weapon', 5, 11] },
-  kyudo: { clip: 'bow', o: {}, a: THROW, extra: [], ev: [] },
+  kyudo: { clip: 'bow', o: { torso: 0.4, travel: 0.6, feet: 0.4 }, a: KYUDO, extra: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], ev: [{ f: 1, name: 'draw', len: 6 }, { f: 7, name: 'release' }], hide: ['weapon', 1, 11] },
   teppo: { clip: 'gun', o: {}, a: THROW, extra: [], ev: [] },
 };
 
@@ -540,7 +593,7 @@ export function footClips(skel: SkeletonData, s: SSpec, k: SFoot): ClipSet {
     const dw: Record<string, Track> = c.farBase ? { upperArmF: T([0, c.farBase[0] - rw.upperArmF!]), forearmF: T([0, c.farBase[1] - rw.forearmF!]) } : {};
     return { w, dw, ik: { armF2h: T([0, s.twoHand && c.both ? 1 : 0]) } };
   };
-  const freeF = (c: Carry) => !(s.twoHand && c.both) && c.upperArmF === undefined;
+  const freeF = (c: Carry) => !(s.twoHand && c.both) && c.upperArmF === undefined && !c.holdF;
   // The walk: a long even stride (feet ~0.3 H apart at contact), the hips down 1-2 px just after
   // each contact, the shoulders counter-swinging, the weapon carried clear of the body.
   const walkA = (rw: Record<string, number>, f: Facing): Tracks => {
