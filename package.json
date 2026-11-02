@@ -14,7 +14,8 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "grammars": "tsx scripts/vendor-grammars.ts",
-    "bench": "tsx scripts/battle-bench.ts"
+    "bench": "tsx scripts/battle-bench.ts",
+    "pixel-lint": "tsx scripts/pixel-lint.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.3",
