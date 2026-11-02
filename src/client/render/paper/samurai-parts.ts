@@ -250,7 +250,7 @@ export interface Kit {
 // ------------------------------------------------------------------ heads
 
 /** The face, 3/4 to the right: eyes, brow, nose; with a menpō the lower face is an iron mask with a pale moustache. */
-function face(c: Paper, r: ManRig, mask: boolean, hair: 'cap' | 'top' | 'none'): void {
+export function face(c: Paper, r: ManRig, mask: boolean, hair: 'cap' | 'top' | 'none'): void {
   const L = c.L;
   part(c, r.head, r.ha, [...ell(0.66, 0.82, 0.02, 0.05, 14), ], (fx, fy) => {
     const s = fx * 0.9 + fy * 0.4;
@@ -507,8 +507,8 @@ export function skirt(c: Paper, r: ManRig, p: FootPose, kit: Kit, layer: 'far' |
 
 /** A sode: the flat laced shoulder board hanging over the upper arm. */
 export function sode(c: Paper, sh: P2, ang: number, far: boolean, back: boolean): void {
-  const w = far ? 0.7 : 0.85;
-  part(c, addP(sh, [0, -0.15]), clamp(ang * 0.45, -25, 50), [[-w, -0.15], [w, -0.25], [w + 0.08, 1.95], [-w - 0.05, 2.05]], (fx, fy) => {
+  const w = far ? 0.72 : 0.88;
+  part(c, addP(sh, [0, -0.15]), clamp(ang * 0.45, -25, 50), [[-w, -0.15], [w, -0.25], [w + 0.1, 2.05], [-w - 0.05, 2.15]], (fx, fy) => {
     const t = far ? 1 : lit(c, 2, fx * 0.9 * (back ? -1 : 1), 0.4, 0.45);
     if (fy < 0.15) return code(SM.lacquer, far ? 1 : 3);
     return lames(c, fx, fy, 0.15, t, { per: 0.48, seed: far ? 23 : 21 });
@@ -546,14 +546,17 @@ export function leg(c: Paper, hip: P2, th: number, sh: number, tilt: number, kit
   const knee = c.q(along(hip, th + tilt, LEG_U));
   const ank = c.q(along(knee, th + sh + tilt, LEG_L));
   const robe = kit.shin === 'robe';
+  // Cloth folds break the shadow side into a zig-zag (a straight dark edge would hug the outline).
+  const folds = (m: Mat) => (u: number, v: number): number => (u > 0.35 ? code(m, frac(v * 2.6 + u * 0.8) < 0.5 ? tone - 1 : tone) : -1);
+  const thighFold = folds(kit.legs);
   c.rod(hip, knee, robe ? 1.1 : 1.32, 0.95, kit.legs, {
     tone,
-    detail: kit.body === 'gusoku' && L >= 4 ? (_x, _y, u, v) => (v > 0.25 && frac(v * 4) < 0.2 && u < 0.5 ? code(SM.lacquer, tone) : -1) : undefined,
+    detail: L >= 4 ? (_x, _y, u, v) => (kit.body === 'gusoku' && v > 0.25 && frac(v * 4) < 0.2 && u < 0.5 ? code(SM.lacquer, tone) : thighFold(u, v)) : undefined,
   });
   const shinMat = kit.shin === 'suneate' ? SM.iron : kit.shin === 'kyahan' ? SM.black : SM.black;
   c.rod(knee, ank, 0.8, 0.6, shinMat, {
     tone,
-    detail: L >= 4 && kit.shin === 'suneate' ? (_x, _y, u, v) => (Math.abs(u) < 0.18 && v > 0.1 ? code(SM.iron, tone + 1) : -1) : L >= 4 && kit.shin === 'kyahan' ? (_x, _y, _u, v) => (frac(v * 3) < 0.15 ? code(SM.cotton, 1) : -1) : undefined,
+    detail: L >= 4 && kit.shin === 'suneate' ? (_x, _y, u, v) => (Math.abs(u) < 0.18 && v > 0.1 ? code(SM.iron, tone + 1) : folds(SM.iron)(u, v)) : L >= 4 && kit.shin === 'kyahan' ? (_x, _y, u, v) => (frac(v * 3) < 0.15 ? code(SM.cotton, 1) : folds(SM.black)(u, v)) : undefined,
   });
   if (!riding) {
     const toe = c.q(addP(ank, rot([0.95, 0.22], tilt * DEG)));
