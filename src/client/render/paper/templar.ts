@@ -19,14 +19,19 @@ import { U } from '../../../game/units.ts';
 import { Anim } from '../contract.ts';
 import { addP, type P2, type Paper } from './core.ts';
 import { isBack, type Facing } from './facing.ts';
-import { registerPaperKind } from './registry.ts';
-import { ENGINE0, FOOT0, HORSE0, poser, settle, swing, type EnginePose, type FootPose, type HorsePose, type KeySet } from './rig.ts';
+import { registerPaperKind, type PaperKindDef } from './registry.ts';
+import { ENGINE0, FOOT0, HORSE0, poser, settle, swing, type BasePose, type EnginePose, type FootPose, type HorsePose, type KeySet } from './rig.ts';
 import {
   arrow, at, beauseant, bow, crossbow, daneAxe, horse, kite, man, paintAs, pavise, quiver, round, spear, sword, TM, trebuchet,
   type Gear, type HorseKit, type Kit, type Rig,
 } from './templar-parts.ts';
 
 const pose = poser(FOOT0);
+
+/** Registers a Templar kind with the paper painter (every kind is drawn on paper). */
+function register<P extends BasePose>(faction: 'templar', kind: number, def: PaperKindDef<P>): void {
+  registerPaperKind<P>(faction, kind, def);
+}
 
 // ------------------------------------------------------------------ kits
 
@@ -337,7 +342,7 @@ const brethrenGear: Gear = {
 // ------------------------------------------------------------------ foot registration
 
 function foot(kind: number, kit: Kit, keys: KeySet<FootPose>, gear: (anim: Anim) => Gear): void {
-  registerPaperKind<FootPose>('templar', kind, {
+  register<FootPose>('templar', kind, {
     body: 'foot',
     keys,
     draw: (c: Paper, p: FootPose, facing: Facing, anim: Anim) => {
@@ -520,7 +525,7 @@ function marshalGear(fr: number, anim: Anim): Gear {
 }
 
 function horseman(kind: number, kit: Kit, hk: HorseKit, keys: KeySet<HorsePose>, gear: (anim: Anim, fr: number) => Gear): void {
-  registerPaperKind<HorsePose>('templar', kind, {
+  register<HorsePose>('templar', kind, {
     body: 'horse',
     keys,
     draw: (c: Paper, p: HorsePose, facing: Facing, anim: Anim, fr: number) => paintAs(c, kit.coat !== TM.white, () => mounted(c, p, facing, kit, hk, gear(anim, fr))),
@@ -605,7 +610,7 @@ function engine(c: Paper, e: EnginePose, facing: Facing, anim: Anim): void {
     crewAt(-6.8, 'load', 1);
   }
 }
-registerPaperKind<EnginePose>('templar', U.Artillery, {
+register<EnginePose>('templar', U.Artillery, {
   body: 'engine',
   keys: ENGINE_KEYS,
   draw: (c: Paper, p: EnginePose, facing: Facing, anim: Anim) => paintAs(c, true, () => engine(c, p, facing, anim)),

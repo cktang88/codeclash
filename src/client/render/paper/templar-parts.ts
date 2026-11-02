@@ -402,12 +402,18 @@ export function man(c: Paper, p: FootPose, facing: Facing, kit: Kit, gear: Gear 
   else gear.back?.(c, r);
   if (!o.seated) leg(c, hipF, r.kneeF, p.fs, tilt, kit, true, s, false);
   leg(c, hipN, r.kneeN, p.ns, tilt, kit, false, s, !!o.seated);
+  // At level 1 the head is two or three pixels: drawn before the body, so the contact line where
+  // it sits on the shoulders falls on nothing (drawn after, it would darken the whole head).
+  const small = c.L <= 1;
+  const neckAndHead = () => {
+    c.rod(r.neck, at(r.T, 0.1 * s, -0.6 * s), 0.8 * s, 0.75 * s, coifOf(kit) ?? TM.flesh, { tone: 1 });
+    head(c, r, kit);
+  };
+  if (small) neckAndHead();
   arm(c, r.shF, r.elbowF, r.handF, kit, true, s);
   if (!back) gear.far?.(c, r);
   torso(c, r, kit, sway);
-  // Neck (the coif or the throat).
-  c.rod(r.neck, at(r.T, 0.1 * s, -0.6 * s), 0.8 * s, 0.75 * s, coifOf(kit) ?? TM.flesh, { tone: 1 });
-  head(c, r, kit);
+  if (!small) neckAndHead();
   if (back) gear.back?.(c, r);
   arm(c, r.shN, r.elbowN, r.handN, kit, false, s);
   if (kit.ailettes) ailette(c, r);
@@ -705,7 +711,7 @@ export function bow(c: Paper, grip: P2, deg: number, len: number, draw: number, 
     c.line(tipA, nock, code(TM.white, 2));
     c.line(nock, tipB, code(TM.white, 2));
   } else c.line(tipA, tipB, code(TM.white, 1));
-  for (let i = 0; i < 8; i++) c.rod(pts[i]!, pts[i + 1]!, i === 3 || i === 4 ? 0.36 : 0.3, i === 3 || i === 4 ? 0.36 : 0.26, TM.ash, { tone: i < 4 ? 3 : 2 });
+  for (let i = 0; i < 8; i++) c.rod(pts[i]!, pts[i + 1]!, i === 3 || i === 4 ? 0.36 : 0.3, i === 3 || i === 4 ? 0.36 : 0.26, TM.ash, { tone: i < 4 ? 2 : 1 });
   c.blob(grip, 0.3, 0.3, TM.leather, { tone: 1 });
 }
 
