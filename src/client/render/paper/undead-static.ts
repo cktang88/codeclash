@@ -177,6 +177,28 @@ function belt(c: Paper, y: number, x0: number, x1: number): void {
 }
 
 /** The big kite shield held tight across the body: team field, a painted skull, a rusted rim and rivets, scars. */
+/** The kite shield from behind: rotted boards, the leather enarmes and the guige, a rusted rim. */
+export function kiteShieldBack(c: Paper, at: P2, h: number, w: number, tilt: number): void {
+  tilt = snapDeg(tilt);
+  const R = (p: P2): P2 => addP(at, rot(p, tilt * DEG));
+  const top = -h * 0.42, bot = h * 0.58;
+  const pts: P2[] = [R([-w / 2, top]), R([0, top - 0.25]), R([w / 2, top]), R([w * 0.47, top + h * 0.35]), R([0, bot]), R([-w * 0.47, top + h * 0.35])];
+  const cx = c.sx(at[0]), cy = c.sy(at[1]), L = c.L;
+  c.shape(pts, (x, y) => {
+    const [lx, ly] = rot([(x + 0.5 - cx) / L, (y + 0.5 - cy) / L], -tilt * DEG);
+    const half = ly < top + h * 0.35 ? w / 2 : (w * 0.47) * (1 - (ly - top - h * 0.35) / (bot - top - h * 0.35));
+    const edge = Math.min(half - Math.abs(lx), ly - top + 0.25 - Math.abs(lx) * 0.1);
+    const lt = planeLight(lx / (w / 2), ((ly - top) / h) * 2 - 1, 0.3);
+    if (edge < 0.32) return code(UM.rust, 2 + lt);
+    // Two straps across (the enarmes) and the long guige from the top corner.
+    if (Math.abs(ly + h * 0.05) < 0.28 || Math.abs(ly - h * 0.22) < 0.28) return code(UM.leather, 2 + Math.min(0, lt));
+    if (Math.abs(lx + ly * 0.45 + 0.4) < 0.16 && ly < 0) return code(UM.leather, 1);
+    const plank = (lx + w) * 1.4;
+    if (Math.abs((plank % 1) - 0.5) > 0.42) return code(UM.wood, 0);
+    return code(UM.wood, (hash(Math.floor(plank), c.ly(y) >> 2, 447) < 0.2 ? 1 : 2) + Math.min(0, lt));
+  });
+}
+
 function kiteShield(c: Paper, at: P2, h: number, w: number, tilt: number): void {
   tilt = snapDeg(tilt);
   const R = (p: P2): P2 => addP(at, rot(p, tilt * DEG));
@@ -228,33 +250,108 @@ function bigSword(c: Paper, grip: P2, deg: number, len: number): void {
 
 // ------------------------------------------------------------------ kinds
 
+// ------------------------------------------------------------------ pieces (the rig's parts)
+
+/** Named key-art points of a figure (units, SE rest stance). */
+export type UJ = Record<string, P2>;
+/** What an animated piece is told beyond the joints: how far its cloth swings, a bow's draw, a flame's flicker. */
+export interface PieceOpts {
+  /** Cloth swing (units at the hem, + forward). */
+  sway?: number;
+  /** A bow's draw (0 braced .. 1 full) or a crossbow's span (1 spanned). */
+  draw?: number;
+  /** Flicker phase of a flame (0..1). */
+  phase?: number;
+}
+/**
+ * One piece of a figure: drawn with the key art's own calls from its joints `J` (the SE rest, or
+ * the NE rest from behind with `back`). It rides `bone`; `mirror` draws its key-art x mirrored about
+ * the body's axis from behind (torso plates, robes); `cloth` reads the sway from its bone's trail.
+ */
+export interface UPiece {
+  slot: string;
+  bone: string;
+  draw: (c: Paper, J: UJ, back: boolean, o: PieceOpts) => void;
+  mirror?: boolean;
+  cloth?: boolean;
+}
+/** A foot figure's key art as pieces, in the key art's drawing order. */
+export interface FootArt {
+  J: UJ;
+  pieces: UPiece[];
+  /** The body's axis (units x) for mirrored pieces and the NE rest. */
+  axis: number;
+  /** How each arm's NE rest is made: swapped across the body ('mirror') or moved with its shoulder ('shift'). */
+  ne?: { N?: 'mirror' | 'shift'; F?: 'mirror' | 'shift' };
+}
+/** Draws a figure's pieces in key-art order (the static key art). */
+export const drawPieces = (c: Paper, art: FootArt): void => {
+  for (const p of art.pieces) p.draw(c, art.J, false, {});
+};
+
 /**
  * The Grave Legionary (after the user's armoured-undead target): one dominant armour colour,
  * rusted iron, in big chunky plates with clear lit and shadow planes (a breastplate with a
  * ridge, a fauld of lames, tassets, couters, greaves); mail only at the sleeves; a dark team
- * cloth front skirt with a rope belt; the skull face pale and plain under the kettle hat; the
+ * cloth front skirt with a rope belt; the skull face pale and plain under the bascinet; the
  * long blade held low and back; the big skull kite shield tight on the far arm.
  */
+export const LEGIONARY: FootArt = {
+  axis: 0.2,
+  ne: { N: 'shift', F: 'shift' },
+  J: { neck: B.neck, head: B.head, shN: B.shN, shF: B.shF, hipN: B.hipN, hipF: B.hipF, kneeN: B.kneeN, kneeF: B.kneeF, ankN: B.ankN, ankF: B.ankF, elN: [-3.0, -9.0], hN: [-2.85, -6.8], elF: [2.9, -8.9], hF: [2.6, -7.4], pelvis: [0.15, -6.55] },
+  pieces: [
+    // Far leg: dark cloth over the thigh, a rust tasset, the greave and sabaton.
+    { slot: 'thighF', bone: 'thighF', draw: (c, J) => plateThigh(c, J.hipF!, J.kneeF!, true) },
+    { slot: 'shinF', bone: 'shinF', draw: (c, J) => plateShin(c, J.kneeF!, J.ankF!, true) },
+    { slot: 'footF', bone: 'footF', draw: (c, J) => sabaton(c, J.ankF!, UM.rust, true) },
+    { slot: 'upperArmF', bone: 'upperArmF', draw: (c, J) => armUpper(c, J.shF!, J.elF!, true) },
+    { slot: 'forearmF', bone: 'forearmF', draw: (c, J) => armFore(c, J.elF!, J.hF!, true) },
+    // The front skirt: dark team cloth hanging from the belt to the knees, torn.
+    { slot: 'skirt', bone: 'skirt', cloth: true, draw: (c, _J, _b, o) => rag(c, [-1.4, -7.6], [2.0, -7.7], 4.6, 0.1 + (o.sway ?? 0), UM.teamDk, UM.teamDk, 541, { tear: 0.3 }) },
+    // The breastplate: a ridge down the middle, the lit plane left of it, the shadow plane right.
+    { slot: 'torso', bone: 'chest', draw: (c, _J, back) => legionaryCuirass(c, back) },
+    // The fauld: three lames under the breastplate, each lit on its upper edge; the rope belt.
+    { slot: 'fauld', bone: 'pelvis', draw: (c) => legionaryFauld(c) },
+    { slot: 'thighN', bone: 'thighN', draw: (c, J) => plateThigh(c, J.hipN!, J.kneeN!, false) },
+    { slot: 'shinN', bone: 'shinN', draw: (c, J) => plateShin(c, J.kneeN!, J.ankN!, false) },
+    { slot: 'footN', bone: 'footN', draw: (c, J) => sabaton(c, J.ankN!, UM.rust, false) },
+    // An open bascinet in rusted iron, its mail aventail over the shoulders, the skull grinning out.
+    { slot: 'aventail', bone: 'neck', draw: (c, J) => bascinetMail(c, J.head!) },
+    { slot: 'skull', bone: 'head', draw: (c, J, back) => keyCranium(c, addP(J.head!, [0.1, 0.2]), 1.1, -4, back) },
+    { slot: 'jaw', bone: 'jaw', draw: (c, J, back) => void (back || keyJaw(c, addP(J.head!, [0.1, 0.2]), 1.1, -4)) },
+    { slot: 'helm', bone: 'head', draw: (c, J) => bascinetBowl(c, J.head!, UM.rust) },
+    { slot: 'pauldronF', bone: 'chest', draw: (c, J) => pauldron(c, J.shF!, true, 1.1) },
+    // The big skull kite shield tight on the far forearm.
+    { slot: 'front', bone: 'forearmF', draw: (c, J, back) => (back ? kiteShieldBack : kiteShield)(c, addP(J.hF!, [-1.05, -0.8]), 6.9, 4.3, -4) },
+    { slot: 'pauldronN', bone: 'chest', draw: (c, J) => pauldron(c, J.shN!, false, 1.15) },
+    // The sword held low and back, the long blade slanting past the near leg.
+    { slot: 'weapon', bone: 'weapon', draw: (c, J) => bigSword(c, J.hN!, -40, 7.4) },
+    { slot: 'upperArmN', bone: 'upperArmN', draw: (c, J) => armUpper(c, J.shN!, J.elN!, false) },
+    { slot: 'forearmN', bone: 'forearmN', draw: (c, J) => armFore(c, J.elN!, J.hN!, false) },
+  ],
+};
 function legionary(c: Paper): void {
-  // Far leg: dark cloth over the thigh, a rust tasset, the greave and sabaton.
-  plateLeg(c, B.hipF, B.kneeF, B.ankF, true);
-  armouredArm(c, B.shF, [2.9, -8.9], [2.6, -7.4], true);
-  // The front skirt: dark team cloth hanging from the belt to the knees, torn.
-  rag(c, [-1.4, -7.6], [2.0, -7.7], 4.6, 0.1, UM.teamDk, UM.teamDk, 541, { tear: 0.3 });
-  // The breastplate: a ridge down the middle, the lit plane left of it, the shadow plane right.
+  drawPieces(c, LEGIONARY);
+}
+
+function legionaryCuirass(c: Paper, back: boolean): void {
   const bp: P2[] = [[-2.4, -11.0], [-1.1, -11.85], [1.7, -11.95], [2.7, -11.0], [2.5, -9.2], [1.9, -7.7], [-1.5, -7.7], [-2.1, -9.2]];
   plate(c, bp, UM.rust, {
     tone: 2,
     detail: (x, y, rx, ry) => {
-      const ridge = rx + ry * 0.12 + 0.05;
-      if (Math.abs(ridge) < 0.05) return code(UM.rust, 4);
+      // From behind: the backplate, a spine channel down the middle and the shoulder blades.
+      const ridge = back ? rx - 0.05 : rx + ry * 0.12 + 0.05;
+      if (Math.abs(ridge) < 0.05) return code(UM.rust, back ? 1 : 4);
       if (c.tex(x, y, 543, 3) < 0.05) return code(UM.iron, 1); // pitting
       if (ry > 0.75) return code(UM.rust, 1); // the lower edge turned under
+      if (back && ry < -0.1 && Math.abs(Math.abs(rx) - 0.5) < 0.05) return code(UM.rust, 1);
       return code(UM.rust, ridge < 0 ? (ry < -0.2 ? 3 : 3) : ry < 0 ? 2 : 1);
     },
   });
   rivets(c, [-1.9, -11.0], [2.3, -11.1], 5);
-  // The fauld: three lames under the breastplate, each lit on its upper edge.
+}
+function legionaryFauld(c: Paper): void {
   for (let i = 0; i < 3; i++) {
     const y = -7.7 + i * 0.55;
     plate(c, [[-1.8 - i * 0.12, y], [2.1 + i * 0.1, y - 0.05], [2.2 + i * 0.12, y + 0.6], [-1.9 - i * 0.14, y + 0.65]], UM.rust, { tone: 2, rim: true });
@@ -262,17 +359,41 @@ function legionary(c: Paper): void {
   // A rope belt over it, its knot hanging.
   c.rod([-1.9, -7.55], [2.3, -7.65], 0.34, 0.34, UM.bone, { tone: 1, detail: (x) => ((c.lx(x) >> 1) & 1 ? code(UM.bone, 2) : -1) });
   c.rod([0.4, -7.5], [0.2, -6.0], 0.26, 0.22, UM.bone, { tone: 1 });
-  plateLeg(c, B.hipN, B.kneeN, B.ankN, false);
-  // A gorget, the neck bones, the skull bright under the hat's brim.
-  // An open bascinet in rusted iron, its mail aventail over the shoulders, the skull grinning out.
-  bascinet(c, addP(B.head, [0, 0.0]), UM.rust);
-  pauldron(c, B.shF, true, 1.1);
-  kiteShield(c, [1.55, -8.2], 6.9, 4.3, -4);
-  pauldron(c, B.shN, false, 1.15);
-  // The sword held low and back, the long blade slanting past the near leg.
-  const hand: P2 = [-2.85, -6.8];
-  bigSword(c, hand, -40, 7.4);
-  armouredArm(c, B.shN, [-3.0, -9.0], hand, false);
+}
+/** The thigh of a plated leg: dark cloth under a rust tasset. */
+function plateThigh(c: Paper, hip: P2, knee: P2, far: boolean): void {
+  const t = far ? 1 : 2;
+  vol(c, hip, knee, 1.5, 1.25, UM.teamDk, { tone: t - 1, caps: false });
+  // The tasset: a rust plate hanging over the upper thigh.
+  const tp = addP(hip, [0, 0.4]);
+  plate(c, [addP(tp, [-0.9, -0.3]), addP(tp, [0.85, -0.35]), addP(tp, [0.95, 1.5]), addP(tp, [-0.8, 1.6])], UM.rust, { tone: t + 1, rim: !far });
+}
+/** The shin of a plated leg: the greave and the poleyn over the knee. */
+function plateShin(c: Paper, knee: P2, ank: P2, far: boolean): void {
+  const t = far ? 1 : 2;
+  const g0 = addP(knee, mul([ank[0] - knee[0], ank[1] - knee[1]], 0.22));
+  vol(c, g0, ank, 1.15, 1.0, UM.rust, { tone: t + 1, caps: false });
+  c.blob(knee, 0.78, 0.68, UM.rust, { tone: t + 1, detail: (_x, _y, nx, ny) => (ny < -0.5 && nx < 0.3 && !far ? code(UM.rust, 4) : ny > 0.5 ? code(UM.rust, 0) : -1) });
+}
+/** A broad iron (or leather) foot, toe forward. */
+function sabaton(c: Paper, ank: P2, m: number, far: boolean): void {
+  const sab: P2[] = [addP(ank, [-0.7, -0.35]), addP(ank, [0.5, -0.45]), addP(ank, [1.35, 0.35]), addP(ank, [1.3, 0.75]), addP(ank, [-0.75, 0.75])];
+  plate(c, sab, m, { tone: far ? 1 : 2 });
+}
+/** The upper arm of `armouredArm`: a mail sleeve to the elbow. */
+function armUpper(c: Paper, sh: P2, el: P2, far: boolean): void {
+  const t = far ? 1 : 2;
+  vol(c, sh, el, 1.25, 1.0, UM.mail, { tone: t, caps: false, detail: (x, y, u, v) => mailShade(c, x, y, u, v * 2 - 1, t) });
+}
+/** The forearm of `armouredArm`: the bare forearm bones, a rusted gauntlet, the couter and fist. */
+function armFore(c: Paper, el: P2, hand: P2, far: boolean): void {
+  const t = far ? 1 : 2;
+  const g0 = addP(el, mul([hand[0] - el[0], hand[1] - el[1]], 0.5));
+  c.rod(el, g0, 0.42, 0.36, UM.bone, { tone: t + 1 });
+  c.rod(addP(el, [0.22, 0.05]), addP(g0, [0.2, 0.0]), 0.24, 0.22, UM.bone, { tone: t });
+  vol(c, g0, hand, 0.8, 1.0, UM.rust, { tone: t + 1, caps: false });
+  c.blob(el, 0.6, 0.52, UM.rust, { tone: t + 1, detail: (_x, _y, _nx, ny) => (ny > 0.5 ? code(UM.rust, 0) : -1) });
+  c.blob(hand, 0.62, 0.55, UM.rust, { tone: t, detail: (_x, _y, nx, ny) => (Math.abs(nx * 0.8 + ny) < 0.12 ? code(UM.rust, 0) : -1) });
 }
 
 /** A plated leg: dark cloth at the thigh under a rust tasset, a poleyn, a rust greave, a sabaton. */
@@ -294,13 +415,25 @@ function plateLeg(c: Paper, hip: P2, knee: P2, ank: P2, far: boolean): void {
  * with a point of green, the nasal hole, the cheekbones, the teeth, the jaw; with a hat or not.
  */
 function keySkull(c: Paper, at: P2, r: number, ang: number, hat: 'kettle' | null): void {
+  keyCranium(c, at, r, ang, false);
+  keyJaw(c, at, r, ang);
+  if (hat === 'kettle') kettleHat(c, at, r, ang);
+}
+
+/** The cranium of `keySkull` (the face from the front; from behind, the plain dome). */
+export function keyCranium(c: Paper, at: P2, r: number, ang: number, back: boolean): void {
   ang = snapDeg(ang);
-  const R = (p: P2): P2 => addP(at, rot(mul(p, r), ang * DEG));
   const cx = c.sx(at[0]), cy = c.sy(at[1]), L = c.L;
   c.blob(at, r, r * 0.88, UM.bone, {
     tone: 3,
     detail: (x, y) => {
       const [fx, fy] = rot([(x + 0.5 - cx) / (L * r), (y + 0.5 - cy) / (L * r)], -ang * DEG);
+      if (back) {
+        // The back of the skull: the dome lit top-left, the occipital ridge and the seam.
+        if (Math.abs(fx + 0.05 - fy * 0.2) < 0.06 && fy < 0.2 && L >= 4) return code(UM.bone, 2);
+        if (fy > 0.45) return code(UM.bone, 1);
+        return -1;
+      }
       for (const ox of [-0.18, 0.42]) {
         const e = Math.hypot(fx - ox, (fy - 0.05) * 1.15);
         if (e < 0.27) return e < 0.1 && ox > 0 ? code(UM.glow, 4) : code(UM.ink, 0);
@@ -311,7 +444,12 @@ function keySkull(c: Paper, at: P2, r: number, ang: number, hat: 'kettle' | null
       return -1;
     },
   });
-  // The jaw, hung a little open: the upper teeth, a dark gap, the lower teeth on the jawbone.
+}
+
+/** The jaw of `keySkull`, hung a little open: the upper teeth, a dark gap, the lower teeth on the jawbone. Its hinge is `jawHinge`. */
+export function keyJaw(c: Paper, at: P2, r: number, ang: number): void {
+  ang = snapDeg(ang);
+  const R = (p: P2): P2 => addP(at, rot(mul(p, r), ang * DEG));
   c.shape([R([-0.4, 0.42]), R([0.8, 0.38]), R([0.78, 1.2]), R([0.35, 1.32]), R([-0.35, 1.2])], (x, y) => {
     const ly = c.ly(y) / (c.L * r);
     const tooth = (c.lx(x) % 3) !== 2;
@@ -320,8 +458,14 @@ function keySkull(c: Paper, at: P2, r: number, ang: number, hat: 'kettle' | null
     if (ly < 0.55) return tooth ? code(UM.bone, 4) : code(UM.ink, 0);
     return code(UM.bone, ly > 0.68 ? 1 : 2);
   });
-  if (hat === 'kettle') {
-    // The kettle hat: a low rusted crown, a wide brim tilted to show the face.
+}
+/** Where `keyJaw` hinges (the back of the jaw, under the ear). */
+export const jawHinge = (at: P2, r: number, ang: number): P2 => addP(at, rot(mul([-0.35, 0.45], r), snapDeg(ang) * DEG));
+
+function kettleHat(c: Paper, at: P2, r: number, ang: number): void {
+  ang = snapDeg(ang);
+  const R = (p: P2): P2 => addP(at, rot(mul(p, r), ang * DEG));
+  {
     // The kettle hat: a round bowl, a riveted band at its foot, a broad straight brim angled a
     // little down all round (its far side in shade, its near edge catching the light).
     const brim: P2[] = [R([-1.75, -0.3]), R([-1.2, -0.62]), R([1.3, -0.66]), R([1.85, -0.36]), R([1.7, -0.18]), R([-1.6, -0.12])];
@@ -358,10 +502,16 @@ function wrappedLeg(c: Paper, hip: P2, knee: P2, ank: P2, far: boolean): void {
  * aventail falling to the shoulders, and the face open so the skull grins out of it.
  */
 function bascinet(c: Paper, at: P2, m: number = UM.iron): void {
-  // The aventail: mail from the helm's rim over the neck and shoulders.
-  plate(c, [addP(at, [-1.5, 0.0]), addP(at, [1.7, 0.0]), addP(at, [2.0, 1.9]), addP(at, [-1.7, 2.0])], UM.mail, { detail: (x, y, rx, ry) => mailShade(c, x, y, rx, ry) });
+  bascinetMail(c, at);
   keySkull(c, addP(at, [0.1, 0.2]), 1.1, -4, null);
-  // The bowl: rounded, rising to a point at the back, lit top-left, a specular streak.
+  bascinetBowl(c, at, m);
+}
+/** The bascinet's aventail: mail from the helm's rim over the neck and shoulders. */
+export function bascinetMail(c: Paper, at: P2): void {
+  plate(c, [addP(at, [-1.5, 0.0]), addP(at, [1.7, 0.0]), addP(at, [2.0, 1.9]), addP(at, [-1.7, 2.0])], UM.mail, { detail: (x, y, rx, ry) => mailShade(c, x, y, rx, ry) });
+}
+/** The bascinet's bowl: rounded, rising to a point at the back, lit top-left, a riveted brow band. */
+export function bascinetBowl(c: Paper, at: P2, m: number = UM.iron): void {
   plate(c, [addP(at, [-1.35, -0.1]), addP(at, [-1.3, -1.0]), addP(at, [-0.5, -1.9]), addP(at, [-0.2, -2.6]), addP(at, [0.6, -1.7]), addP(at, [1.4, -0.9]), addP(at, [1.5, -0.25]), addP(at, [0.9, -0.55]), addP(at, [-0.6, -0.5])], m, { tone: 2, k: 0.3 });
   c.rod(addP(at, [-1.3, -0.35]), addP(at, [1.45, -0.5]), 0.32, 0.32, UM.rust, { tone: 2 });
   rivets(c, addP(at, [-1.1, -0.38]), addP(at, [1.3, -0.5]), 4);
@@ -875,8 +1025,8 @@ Object.assign(STATIC_KINDS, {
   5: { body: 'horse', draw: bulky(blackRiderStatic) },
   6: { body: 'horse', draw: bulky(horseArcherStatic) },
   7: { body: 'horse', draw: bulky(deathKnightStatic) },
-  8: { body: 'beast', draw: idleOf(COLOSSUS_KEYS, colossus) },
-  9: { body: 'engine', draw: idleOf(TREBUCHET_KEYS, trebuchet) },
+  8: { body: 'beast', draw: (c: Paper) => idleOf(COLOSSUS_KEYS, colossus)(c) },
+  9: { body: 'engine', draw: (c: Paper) => idleOf(TREBUCHET_KEYS, trebuchet)(c) },
   10: { body: 'foot', draw: lichStatic },
 });
 
