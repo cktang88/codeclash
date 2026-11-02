@@ -306,9 +306,11 @@ function ishigaki(P: Painter, seed: number, corner?: { left: number; right: numb
     const joint = inRow < 1 + lift || inBlk < 1;
     if (joint) {
       c = f === 'left' ? hex('#3a3640') : hex('#2a2632');
-      if (rw < 3 && hash(blk, rw, seed + 9) < 0.25) c = f === 'left' ? PAL.moss : hex('#4a5428');
+      if (rw < 5 && hash(blk, rw, seed + 9) < 0.45 - rw * 0.06) c = f === 'left' ? PAL.moss : hex('#4a5428');
     } else if (inRow === 1 + lift || inBlk < 2) c = f === 'left' ? tone(c, -0.14) : tone(c, -0.06);
     else if (inRow === rh - 1) c = tone(c, 0.14);
+    // Moss creeping over the faces of the lowest stones, from their upper edges.
+    if (!joint && rw < 3 && hash(blk, rw, seed + 11) < 0.3 && inRow > rh - 3 + rw) c = mix(c, f === 'left' ? PAL.moss : hex('#3e4a26'), 0.7);
     // A weed or a fern in a joint near the foot.
     if (rw < 2 && inRow < 3 && hash(blk, rw, seed + 4) < 0.08 && inBlk < 3) c = PAL.leaf[inRow === 0 ? 1 : 0]!;
     void st;
@@ -332,6 +334,14 @@ function stoneBase(P: Painter, u0: number, v0: number, lu: number, lv: number, h
     frustum(P.px, u0 + i0, v0 + i0, z, lu - 2 * i0, lv - 2 * i0, hh, di, (f, p) => sh(f, p), top && i === 2);
     z += hh;
     i0 += di;
+  }
+  if (h >= 2.5) {
+    const n = 2 + Math.floor(hash(seed, 7) * 2);
+    for (let j = 0; j < n; j++) {
+      const wl = 3 + hash(seed, j, 8) * 5;
+      if (lu > wl + 2) S.ivyUp(P, 'left', v0 + lv, u0 + 1 + hash(seed, j, 9) * (lu - wl - 2), wl, h * 0.9, inset, seed + j);
+      if (lv > wl + 2 && hash(seed, j, 10) < 0.6) S.ivyUp(P, 'right', u0 + lu, v0 + 1 + hash(seed, j, 11) * (lv - wl - 2), wl, h * 0.9, inset, seed + j + 5);
+    }
   }
 }
 
@@ -1188,7 +1198,7 @@ function walls(P: Painter, a: PaintArgs, parts: BuildingParts): BuildingParts {
     // Ivy over the coping here and there.
     if (tier >= 2 && hash(u0, v0, 5) < 0.8) {
       const a0 = (along ? wu : wv) + 4 + hash(u0, v0, 6) * Math.max(1, len - 14);
-      S.vines(P, along ? 'left' : 'right', (along ? wv + ww : wu + wl) + 0.2, a0, 6, hh - 0.3, base, Math.round(u0 + v0), hash(u0, v0, 7) < 0.4 ? PAL.wisteria : null);
+      S.vines(P, along ? 'left' : 'right', (along ? wv + ww : wu + wl) + 0.2, a0, 6, hh - 0.3, base, Math.round(u0 + v0), hash(u0, v0, 7) < 0.65 ? PAL.wisteria : null);
     }
   };
   const towerAt = (u: number, v: number, hh: number) => {

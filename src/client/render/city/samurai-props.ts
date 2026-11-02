@@ -890,6 +890,30 @@ export function vines(P: PP, face: 'left' | 'right', at: number, along0: number,
   }
 }
 
+/**
+ * Ivy climbing a battered stone face from its foot: ragged strands of leaf clusters rising to
+ * different heights, thick low down and thinning upward, following the face's lean (`lean` units
+ * inward over the height `h`). The face is at `at` (v of a left face, u of a right) at its foot.
+ */
+export function ivyUp(P: PP, face: 'left' | 'right', at: number, along0: number, len: number, h: number, lean: number, seed: number): void {
+  const k = P.k;
+  for (let a = 0; a < len; a += 1 / k) {
+    const col = Math.floor((along0 + a) * k);
+    const n = hash(col >> 1, seed, 13);
+    const top = h * (0.45 + 0.55 * n) * (0.55 + 0.45 * Math.sin((a / len) * Math.PI));
+    for (let z = 0; z < top; z += 1 / k) {
+      const zi = Math.floor(z * k);
+      const leafy = hash(col >> 1, zi >> 1, seed + 3);
+      if (z / top > 0.6 && leafy < (z / top) * 0.5) continue;
+      const off = at - lean * (z / Math.max(1, h)) + 0.25;
+      const p = face === 'left' ? v3(along0 + a, off, z) : v3(off, along0 + a, z);
+      let c = leafy < 0.3 ? PAL.leaf[0]! : leafy < 0.7 ? PAL.leaf[1]! : PAL.leaf[2]!;
+      if (face === 'right') c = tone(c, 0.18);
+      P.px.point(p, sunlit(c, p, face));
+    }
+  }
+}
+
 /** A wisteria trellis (fuji-dana): posts, a grid of poles, racemes of lilac hanging under it. */
 export function wisteria(P: PP, u: number, v: number, lu: number, lv: number, h: number, seed: number): void {
   const wood = hex('#4a3a2c');
@@ -1119,12 +1143,13 @@ registerTheme('samurai', {
       G(2, [[sk('woodpile'), 0, 0]]),
       G(2, [[sk('tenbosui'), 0, 0]], 2),
       G(2, [[sk('pots'), 0, 0]], 2),
-      G(1, [[sk('bonsai'), 0, 0], [sk('azalea'), 3.4, 0]], 2),
+      G(2, [[sk('bonsai'), 0, 0], [sk('azalea'), 3.4, 0]]),
+      G(2, [[sk('azalea'), 0, 0], [sk('pots'), 4.4, 0]], 2),
       G(1, [[sk('handcart'), 0, 0.4]], 2),
       G(1, [[sk('komodaru2'), 0, 0], [sk('oke2'), 6.2, 0.4]]),
     ],
-    door: [G(3, [[sk('andon'), 0, 0]], 2), G(2, [[sk('pots'), 0, 0]], 2), G(2, [[sk('kanban'), 0, 0]], 2), G(2, [[sk('nobori'), 0, 0], [sk('nobori'), 3, 0]], 3), G(1, [[sk('oke2'), 0, 0]])],
-    road: [G(3, [[sk('toro'), 0, 0]], 3), G(2, [[sk('azalea'), 0, 0]]), G(2, [[sk('andon'), 0, 0]], 2), G(1, [[sk('fence'), 0, 0]], 2), G(1, [[sk('shrub'), 0, 0], [sk('rock'), 4, 0]]), G(1, [[sk('nobori'), 0, 0]], 2)],
+    door: [G(3, [[sk('andon'), 0, 0], [sk('azalea'), 2.4, 0]], 2), G(3, [[sk('pots'), 0, 0]]), G(2, [[sk('azalea'), 0, 0], [sk('bonsai'), 4.4, 0]]), G(2, [[sk('kanban'), 0, 0], [sk('azalea'), 1.8, 0]], 2), G(2, [[sk('nobori'), 0, 0], [sk('nobori'), 3, 0]], 3), G(1, [[sk('oke2'), 0, 0]])],
+    road: [G(3, [[sk('toro'), 0, 0]], 2), G(3, [[sk('azalea'), 0, 0]]), G(2, [[sk('andon'), 0, 0]], 2), G(1, [[sk('fence'), 0, 0]], 2), G(1, [[sk('shrub'), 0, 0], [sk('rock'), 4, 0]]), G(1, [[sk('nobori'), 0, 0]], 2)],
     yard: [G(2, [[sk('rock'), 0, 0], [sk('shrub'), 3.4, 0]]), G(1, [[sk('oke2'), 0, 0]]), G(1, [[sk('tawara3'), 0, 0]])],
     market: [
       G(3, [[sk('yatai'), 0, 0]]),
