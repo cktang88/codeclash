@@ -27,7 +27,13 @@ import { FATIGUE, MORALE, newOrder, PERSONALITIES, PLANS, type CommanderTrait, t
 export type { CommanderTrait, MoraleState, Order, OrderKind, Personality, Plan } from './command.ts';
 export { MORALE } from './command.ts';
 
-export const BATTLE_VERSION = 2;
+export const BATTLE_VERSION = 3;
+/**
+ * Mixed into every battle's seed. It was BATTLE_VERSION until v3; v3 only changed degenerate
+ * armies (no line, all engines, a general alone, a break in the last seconds), so it keeps v2's
+ * salt and an ordinary battle fights exactly as it did under v2.
+ */
+const SEED_SALT = 2;
 
 /** Thrown for a setup fought under another BATTLE_VERSION (see docs/replays.md). */
 export class BattleVersionError extends Error {
@@ -327,6 +333,9 @@ export class Regiment {
   /** Green troops fear missiles more. */
   green = false;
   homeX = 0;
+  /** Shots tried since the last think: out of range, and loosed. */
+  short = 0;
+  loosed = 0;
   constructor(
     readonly id: number,
     readonly team: number,
@@ -443,7 +452,7 @@ export class General {
   rashKnights: boolean;
   readonly rng: Rng;
   constructor(readonly team: number, seed: number) {
-    this.rng = new Rng(mixSeed(seed, BATTLE_VERSION, 7001 + team));
+    this.rng = new Rng(mixSeed(seed, SEED_SALT, 7001 + team));
     this.personality = PERSONALITIES[this.rng.int(PERSONALITIES.length)]!;
     this.skill = 0.55 + this.rng.next() * 0.4;
     this.rashKnights = this.rng.next() < (1 - this.skill) * 0.4;
@@ -557,7 +566,7 @@ export class Battle {
   constructor(readonly setup: BattleSetup) {
     // A setup recorded under another version of the rules would replay as a different battle.
     if (setup.version !== BATTLE_VERSION) throw new BattleVersionError(setup.version);
-    this.rng = new Rng(mixSeed(setup.seed, BATTLE_VERSION));
+    this.rng = new Rng(mixSeed(setup.seed, SEED_SALT));
     this.generals = [new General(0, setup.seed), new General(1, setup.seed)];
     this.scale = scaleFor(setup.armies[0].counts, setup.armies[1].counts);
     this.stats = [factionStats(setup.armies[0].faction), factionStats(setup.armies[1].faction)];
@@ -636,11 +645,13 @@ export class Battle {
     const vetLeft = army.veterans.slice();
     // Regiment size grows with the armies, so a big battle has big blocks, not a swarm of small ones.
     const base = Math.max(30, Math.min(120, Math.round(2.2 * sqrt(this.figureScale))));
-    const sizeOf = (role: Role): number =>
+    // Engines go four to a battery, but never more than 32 batteries a side: an army of engines
+    // would otherwise be hundreds of tiny regiments (slow to fight, deployed far off the field).
+    const sizeOf = (role: Role, n: number): number =>
       role === 'line' ? base
         : role === 'missile' ? Math.round(base * 0.8)
           : role === 'skirmish' ? Math.max(16, Math.round(base * 0.55))
-            : role === 'siege' ? 4
+            : role === 'siege' ? Math.max(4, Math.ceil(n / 32))
               : role === 'horse-archer' ? Math.max(10, Math.round(base * 0.36))
                 : Math.max(10, Math.round(base * 0.4));
     for (let cls = 0; cls < UNIT_COUNT; cls++) {
@@ -648,7 +659,7 @@ export class Battle {
       this.startFigures[team]![cls] = n;
       if (n <= 0) continue;
       const st = stats[cls]!;
-      const count = Math.ceil(n / sizeOf(st.role));
+      const count = Math.ceil(n / sizeOf(st.role, n));
       for (let r = 0; r < count; r++) {
         const m = Math.round(((r + 1) * n) / count) - Math.round((r * n) / count);
         if (m <= 0) continue;
@@ -699,6 +710,9 @@ export class Battle {
     for (const r of first) r.line = 1;
     for (const r of second) r.line = 2;
 
+    // Keeps a regiment's back rank on the field: a deep overflow row (an army of horse, archers
+    // or engines) stands against the back edge instead of beyond it.
+    const onField = (reg: Regiment, x: number): number => (dir > 0 ? Math.max(8 + reg.depth, x) : Math.min(FIELD_W - 8 - reg.depth, x));
     const place = (list: Regiment[], depth: number, y0: number, y1: number, gap = 12): number => {
       // Lay regiments across the band between y0 and y1; overflow goes to further rows behind.
       let rank = 0;
@@ -716,7 +730,9 @@ export class Battle {
         let y = (y0 + y1) / 2 - (width - gap) / 2;
         let deepest = 0;
         for (const reg of row) {
-          this.formUp(reg, X(depth + rank), y + reg.width / 2);
+          const half = reg.width / 2 + 4;
+          const ry = half * 2 >= FIELD_H ? FIELD_H / 2 : Math.max(half, Math.min(FIELD_H - half, y + reg.width / 2));
+          this.formUp(reg, onField(reg, X(depth + rank)), ry);
           reg.homeY = reg.ay;
           reg.homeX = reg.ax;
           deepest = Math.max(deepest, reg.depth);
@@ -767,7 +783,7 @@ export class Battle {
       reg.start = reg.alive = reg.members.length;
       reg.baseMorale = reg.morale = 95 + army.moraleBonus;
       shape(reg, reg.members.length);
-      this.formUp(reg, X(Math.max(14, firstDepth) + missileDepth * 0.5 + 4), midY);
+      this.formUp(reg, onField(reg, X(Math.max(14, firstDepth) + missileDepth * 0.5 + 4)), midY);
       reg.homeY = midY;
       reg.homeX = reg.ax;
       reg.veteran = true;
@@ -1354,7 +1370,8 @@ export class Battle {
       }
       const shooters = this.nearestFoe(r, 1, Infinity);
       const locked = this.nearestFoe(r, 3, Infinity);
-      const linesMet = ts.engaged || es.engaged;
+      // An enemy with no line has no clash of lines to wait for (the knights would wait all day).
+      const linesMet = ts.engaged || es.engaged || !es.hasLine;
       if (r.role === 'shock-cav') {
         const go = linesMet || (plan === 'envelop' && this.tick > 200) || (early && this.tick > 320) || g.rashKnights;
         if (enemyCav && sqrt(bd) < 220) this.give(r, 'attack', enemyCav.id);
@@ -1388,6 +1405,8 @@ export class Battle {
     const foes: Regiment[] = [];
     for (const o of this.teamRegs[1 - t]!) if (o.alive > 0 && !o.routed && o.role === 'line') foes.push(o);
     if (foes.length === 0) for (const o of this.teamRegs[1 - t]!) if (o.alive > 0 && !o.routed && !isCav(o)) foes.push(o);
+    // Only horse left: go at them all the same (standing in reserve would never end the day).
+    if (foes.length === 0) for (const o of this.teamRegs[1 - t]!) if (o.alive > 0 && !o.routed) foes.push(o);
     if (foes.length === 0) {
       for (const r of ours) r.targetReg = -1;
       return;
@@ -1422,7 +1441,9 @@ export class Battle {
             slotPos(o, k, r.depth, tmp);
             const px = tmp[0]!;
             const py = tmp[1]!;
-            if (px > 10 && px < FIELD_W - 10 && py > 10 && py < FIELD_H - 10 && !(k > 0 && this.blocked(px, py, o, r.depth))) {
+            // A front can always be reached (the goal is clamped to the field); a flank or rear
+            // against the edge of the field cannot.
+            if (k === 0 || (px > 10 && px < FIELD_W - 10 && py > 10 && py < FIELD_H - 10 && !this.blocked(px, py, o, r.depth))) {
               const dx = px - r.ax;
               const dy = py - r.ay;
               c = sqrt(dx * dx + dy * dy) + (k === 0 ? 0 : k === 3 ? 170 : r.committed ? 20 : 90);
@@ -1896,7 +1917,7 @@ export class Battle {
     if (best) {
       this.setMode(r, 'shoot');
       r.targetReg = best.id;
-      this.goal(r, r.ax, r.ay);
+      this.closeToShoot(r, best);
       this.faceToward(r, best.cx, best.cy);
       return;
     }
@@ -1927,6 +1948,23 @@ export class Battle {
     }
   }
 
+  /**
+   * Stands to shoot at `tgt`. With no line of its own to bring it on, if most of the men found
+   * it out of their reach since the last think, it steps toward it. (A regiment's centre can be
+   * in range while its men are not: two armies of archers would otherwise stand just out of
+   * reach of each other all day.)
+   */
+  private closeToShoot(r: Regiment, tgt: Regiment): void {
+    if (r.short > r.loosed && !this.ts[r.team]!.hasLine) {
+      const dx = tgt.cx - r.cx;
+      const dy = tgt.cy - r.cy;
+      const q = sqrt(dx * dx + dy * dy) || 1;
+      this.goal(r, r.ax + (dx / q) * 10, r.ay + (dy / q) * 10);
+    } else this.goal(r, r.ax, r.ay);
+    r.short = 0;
+    r.loosed = 0;
+  }
+
   /** The best block to shoot at within `range` of the regiment: not locked with our own men. */
   private shootable(r: Regiment, range: number): Regiment | null {
     let best: Regiment | null = null;
@@ -1955,7 +1993,10 @@ export class Battle {
     const e = this.ts[1 - r.team]!;
     const gap = (e.frontX - ts.frontX) * dir;
     const threat = this.nearestFoe(r, 0, 55) ?? this.nearestFoe(r, 2, 110);
-    const retired = r.mode === 'skirmish' || r.mode === 'reserve' || r.retired;
+    // With no line of our own there is nothing to fall back behind (and `frontX` is then the
+    // army's centre, which runs away from them as they walk toward it): they fight it out.
+    const noLine = !ts.hasLine;
+    const retired = !noLine && (r.mode === 'skirmish' || r.mode === 'reserve' || r.retired);
     const home = ts.frontX - dir * (ts.lineDepth + 70);
     if (r.ord.kind === 'pursue') {
       const prey = this.nearestFoe(r, 4, 300);
@@ -1965,12 +2006,16 @@ export class Battle {
         return;
       }
     }
-    if (!retired && (r.ammoLeft === 0 || threat || (gap < 95 && ts.hasLine && e.hasLine))) {
+    if (noLine && r.ammoLeft === 0) {
+      this.thinkLine(r);
+      return;
+    }
+    if (!retired && !noLine && (r.ammoLeft === 0 || threat || (gap < 95 && ts.hasLine && e.hasLine))) {
       // Fall back through our own line.
       this.setMode(r, 'skirmish');
       r.retired = true;
     }
-    if (r.mode === 'skirmish') {
+    if (r.mode === 'skirmish' && !noLine) {
       this.goal(r, home, r.ay);
       if ((r.ax - home) * dir < 8) this.setMode(r, 'reserve');
       return;
@@ -1992,7 +2037,7 @@ export class Battle {
     if (best) {
       this.setMode(r, 'shoot');
       r.targetReg = best.id;
-      this.goal(r, r.ax, r.ay);
+      this.closeToShoot(r, best);
       this.faceToward(r, best.cx, best.cy);
       return;
     }
@@ -2206,7 +2251,22 @@ export class Battle {
     }
     this.setMode(r, 'guard');
     // Behind the middle of our own line, in sight of the men.
-    this.goal(r, ts.frontX - dir * (ts.lineDepth + 55), ts.midY);
+    if (ts.hasLine) this.goal(r, ts.frontX - dir * (ts.lineDepth + 55), ts.midY);
+    else {
+      // No line left: behind the middle of what is left. (The army's centre counts the general
+      // himself, so stepping back from it would walk him off the back of the field.)
+      let k = 0;
+      let x = 0;
+      let y = 0;
+      for (const o of this.teamRegs[r.team]!) {
+        if (o === r || o.alive === 0 || o.routed) continue;
+        k += o.alive;
+        x += o.cx * o.alive;
+        y += o.cy * o.alive;
+      }
+      if (k > 0) this.goal(r, x / k - dir * 55, y / k);
+      else this.goal(r, r.ax, r.ay);
+    }
     r.dfx = dir;
     r.dfy = 0;
   }
@@ -2502,9 +2562,11 @@ export class Battle {
     const dy = d.y[v]! - d.y[i]!;
     const dist = sqrt(dx * dx + dy * dy);
     if (dist > st.range || dist < 6) {
+      if (dist > st.range) r.short++;
       d.cd[i] = 4;
       return;
     }
+    r.loosed++;
     const flight = Math.max(3, Math.round((dist / st.projectileSpeed) * TICKS_PER_SECOND));
     // Lead the target a little, and scatter more with distance.
     const spread = 2 + dist * (st.role === 'siege' ? 0.05 : 0.03);
@@ -2911,6 +2973,7 @@ export class Battle {
     const d = this.d;
     const fighting = [0, 0];
     for (let i = 0; i < this.n; i++) if (d.state[i] === State.Fighting) fighting[d.team[i]!]!++;
+    const before = [this.broken[0], this.broken[1]];
     for (let t = 0; t < 2; t++) {
       if (this.broken[t]) continue;
       const f = fighting[t]!;
@@ -2927,18 +2990,39 @@ export class Battle {
       }
     }
     if (this.broken[0] && this.broken[1]) {
-      this.result = this.decide('rout');
+      // The side that broke first lost, even if the winner's remnant gives way in the pursuit.
+      // Both at once: whoever still has more men on the field (everyone is running by now, so
+      // `strength`, which counts only men standing, would make it a coin toss).
+      if (before[0] !== before[1]) this.result = this.decide('rout', before[0] ? 1 : 0);
+      else {
+        const a = this.onField(0);
+        const b = this.onField(1);
+        this.result = this.decide('rout', a === b ? null : a > b ? 0 : 1);
+      }
       return;
     }
     if (this.brokenAt >= 0) {
       const loser = this.broken[0] ? 0 : 1;
       let left = 0;
       for (let i = 0; i < this.n; i++) if (d.team[i] === loser && d.state[i]! <= State.Routing) left++;
-      // Let the pursuit run a little, then call it.
-      if (left === 0 || this.tick - this.brokenAt >= 120) this.result = this.decide('rout', loser === 0 ? 1 : 0);
+      // Let the pursuit run a little, then call it (at the time limit at the latest: `fight()`
+      // stops there, and a replay must not run on past it to another ending).
+      if (left === 0 || this.tick - this.brokenAt >= 120 || this.tick >= MAX_TICKS) this.result = this.decide('rout', loser === 0 ? 1 : 0);
       return;
     }
     if (this.tick >= MAX_TICKS) this.result = this.decide('time');
+  }
+
+  /** Value of what a side still has on the field, standing or running. */
+  private onField(team: number): number {
+    const d = this.d;
+    let v = 0;
+    for (let i = 0; i < this.n; i++) {
+      if (d.team[i] !== team || d.state[i]! > State.Routing) continue;
+      const s = this.soldiers[i]!.s;
+      v += s.value * (d.hp[i]! / s.hp);
+    }
+    return v;
   }
 
   /** Value of what a side still has fighting, against what it brought. */
@@ -3042,7 +3126,8 @@ function centreOut<T>(list: T[]): T[] {
 function shape(reg: Regiment, n: number): void {
   const sd = STANCES[reg.stance];
   const ratio = sd.ratio > 0 ? sd.ratio : RATIO[reg.role]! * sd.ratioMul;
-  let cols = reg.role === 'siege' ? Math.max(1, n) : Math.max(1, Math.min(n, Math.ceil(sqrt(n * ratio))));
+  // Engines stand in one row of four; a bigger battery (a huge army of engines) in a block.
+  let cols = reg.role === 'siege' ? Math.max(1, Math.min(n, Math.max(4, Math.ceil(sqrt(n * 2))))) : Math.max(1, Math.min(n, Math.ceil(sqrt(n * ratio))));
   if (reg.stance === 'wedge') {
     let rows = 1;
     while ((rows * (rows + 1)) / 2 < n) rows++;
