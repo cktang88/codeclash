@@ -113,6 +113,15 @@ committed; the screenshots in `docs/screenshots/hd-sprites/samurai-anim-*.png` a
 - **Brace**: *gedan*, deep and low, the blade forward and down at the enemy's knee (the
   fighting-monk photograph).
 
+### Daimyō (10)
+- **Idle** is the key art: the gunbai raised forward, the horo on his back. **Walk**: the fan held at
+  the chest; the horo swells a little. **Run**: the fan pointing ahead; the horo balloons (its frame's
+  bone stretched back 30% and fluttering) and trails the trunk.
+- **Attack: the command** with the war fan: 1-3 raised high over the head; 4 held, the line looking
+  to him; 5-6 swept forward and down to point at the enemy with a step and a lean; 7-8 the point
+  held; 9-11 back to the chest.
+- **Brace**: planted wide, the fan held out over the line.
+
 ## Critique rounds
 
 ### Katana Samurai
@@ -177,6 +186,14 @@ committed; the screenshots in `docs/screenshots/hd-sprites/samurai-anim-*.png` a
    down, as the monk in the 1893 photograph.
 3. **Round 3.** Checked NE: the upright naginata stays on the near side over the cowl's back, and the
    sweep reads the same from behind.
+
+### Daimyō
+1. **Round 1.** The command on a standing base (the brace capture, no travel): the lord does not
+   lunge, he signals; only a half step with the point.
+2. **Round 2.** The horo hung slack at the run: its bone now stretches back with a flutter (the
+   balloon filling), and it trails the chest two frames late.
+3. **Round 3.** NE: the near hand with the fan is given its own rest (forward of the near shoulder),
+   so the fan shows past the horo from behind.
 
 Katana Samurai lint (level 1/2/4/8): no FAIL. Warnings left: aligned band ends 0.24-0.30, outline and figure vs
 ground ΔL 0.07-0.13, light-angle error at levels 1-2, mid-widest silhouettes. Level-1 silhouette:
