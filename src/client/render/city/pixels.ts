@@ -288,8 +288,40 @@ export interface Shader {
   (face: Facing, s: number, t: number, p: V3): Col;
 }
 
+/** A ground footprint: [u0, v0, u1, v1, height] in world units. */
+export type Footprint = [number, number, number, number, number];
+let footprintSink: ((f: Footprint) => void) | null = null;
+/**
+ * Record the footprints of solids that stand on the ground (box, drum, frustum, posts) while `fn`
+ * runs, so the prop placement (props.ts) and the cast shadows (ground-hd.ts) know where buildings
+ * stand without each kit listing them. Paints nothing.
+ */
+export function recordFootprints<T>(fn: () => T, out: Footprint[]): T {
+  const prev = footprintSink;
+  footprintSink = (f) => out.push(f);
+  try {
+    return fn();
+  } finally {
+    footprintSink = prev;
+  }
+}
+/** Pause recording (scaffolding and other passing things). */
+export function unrecorded<T>(fn: () => T): T {
+  const prev = footprintSink;
+  footprintSink = null;
+  try {
+    return fn();
+  } finally {
+    footprintSink = prev;
+  }
+}
+export function noteFootprint(u0: number, v0: number, u1: number, v1: number, z0: number, h: number): void {
+  if (footprintSink && z0 < 1.5 && h > 0.5) footprintSink([Math.min(u0, u1), Math.min(v0, v1), Math.max(u0, u1), Math.max(v0, v1), z0 + h]);
+}
+
 /** An axis-aligned box: its three visible faces. s runs along the face, t up it (or along v on top). */
 export function box(px: Px, u0: number, v0: number, z0: number, lu: number, lv: number, h: number, shade: Shader, top = true): void {
+  noteFootprint(u0, v0, u0 + lu, v0 + lv, z0, h);
   // Left face (v = v0 + lv), s along u.
   px.quad(v3(u0, v0 + lv, z0), v3(lu, 0, 0), v3(0, 0, h), (s, t, p) => shade('left', s, t, p));
   // Right face (u = u0 + lu), s along v from the far end toward the viewer.
@@ -336,6 +368,7 @@ export function pyramid(px: Px, u0: number, v0: number, z: number, lu: number, l
 
 /** An upright cylinder of `n` facets (a round tower or the Temple rotunda), then a cone. */
 export function drum(px: Px, cu: number, cv: number, z0: number, r: number, h: number, n: number, wall: Shader): void {
+  noteFootprint(cu - r * 0.85, cv - r * 0.85, cu + r * 0.85, cv + r * 0.85, z0, h);
   for (let i = 0; i < n; i++) {
     const a0 = (i / n) * Math.PI * 2;
     const a1 = ((i + 1) / n) * Math.PI * 2;
@@ -369,6 +402,7 @@ export function cone(px: Px, cu: number, cv: number, z: number, r: number, rh: n
 
 /** A thin upright post (one or two pixels), depth tested. */
 export function post(px: Px, u: number, v: number, z0: number, h: number, c: Col, c2?: Col): void {
+  if (h >= 4) noteFootprint(u - 0.5, v - 0.5, u + 0.5, v + 0.5, z0, h);
   const x = Math.floor(px.X(u, v));
   const y = Math.floor(px.Y(u, v, z0));
   for (let k = 0; k < h * px.k; k++) {
