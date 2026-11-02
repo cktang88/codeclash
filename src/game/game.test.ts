@@ -86,6 +86,13 @@ describe('the city', () => {
     expect(steady.granaryBonus).toBeCloseTo(0.42);
   });
 
+  it('days before the first push do not spend the grace day, and misses never wipe out a streak', () => {
+    // Joins Wednesday, then works every day but Saturday: the grace covers Saturday.
+    expect(weekOfWork([0, 0, 500, 500, 500, 0, 500]).streak).toBe(4);
+    // Four days on, then three misses: grace, then two halvings (4 → 2 → 1), never 0.
+    expect(weekOfWork([500, 500, 500, 500, 0, 0, 0]).streak).toBe(1);
+  });
+
   it('volume wins, with a knee: twice the work is worth well over, four times well under, twice and three times the army', () => {
     const base = total(weekOfWork([500, 500, 500, 500, 500, 500, 500]).produced);
     const x2 = total(weekOfWork([1000, 1000, 1000, 1000, 1000, 1000, 1000]).produced);

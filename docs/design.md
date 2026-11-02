@@ -76,7 +76,7 @@ New constants `DAY_KNEE = 1000`, `DAY_OVER = 0.3` next to `LEVY`. Up to 2x a nor
 
 - **Fields (Granary) level = current streak** of active days (≥ `ACTIVE_DAY_LINES`, raise to **50**), 0–7. Production is multiplied by `1 + 0.10 * max(0, streak - 1)`, so +60% on day 7. Drop the `ACTIVE_DAY_XP` and config feed, so config goes only to the Walls.
 - **Grace day:** the first missed day each week does not break the streak; that day simply does not increment it. Each further miss **halves** the streak (floor), never zeroes it. This avoids the "lost my 40-day streak, quit" cliff that Duolingo had to patch with Streak Freeze and that GitHub's own streak produced (see §9).
-- **Muster, not the idle timer:** remove the "24 h since last push, then half pace" rule. A day's garrison is counted in full if the lord pushed that day (any time before the battle); otherwise it is counted at **0.4**. The UI shows "Men waiting to muster: N, push today to call them all".
+- **Muster, not the idle timer:** remove the "24 h since last push, then half pace" rule. A day's garrison is counted in full if the lord pushed at least 50 credited lines that day (`ACTIVE_DAY_LINES`, any time before the battle); otherwise it is counted at **0.4**. The UI shows "Men waiting to muster: N, push today to call them all".
 - **End-of-day rate:** a day's garrison = `24 h × rate at the moment of the battle` (levels as of the battle). This removes the time-of-day bias and is fair across timezones.
 
 **Prototype result (changes #1 and #2, boon as in #4):**
@@ -153,7 +153,7 @@ Raise `MAX_FIGURES` to 1,800 and `MAX_TICKS` to 6,000 for `kind: 'grand'` only (
 | Stables | removed + 10×files | light cav 0.25, horse archers 0.2 | keep |
 | Siege Workshop | bonus + 4×functions | Iron Brethren (shock/"elephant") 0.1, mangonels 0.02 | keep |
 | Chapter House | docs + comments | knights 0.15; morale +1.5/level | keep |
-| **Fields** (granary) | **streak** | production +10%/streak day beyond the first | **change (#2)** |
+| **Fields** (granary) | **streak** | production +7%/streak day beyond the first | **change (#2)** |
 | Hospital | tests | 40% + 2.5%/level of the daily dead return for the Grand (max 90%) | keep |
 | Walls & Pavises | 0.6×tests + 0.3×config | pavise 2%/level (max 40%), stakes at level 3 | config only feeds here now |
 | **Commandery (Keep)** | none (shows the Commander and Bannermen) | leaders, the trait choice | **new, UI only** |

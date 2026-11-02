@@ -287,7 +287,9 @@ export function cityAt(input: CityInput): CityState {
       dayAcc[c] = 0;
     }
     if (dayActive) streak++;
-    else if (++misses > STREAK_GRACE) streak = Math.floor(streak / 2);
+    // Days before the first streak day cost nothing (a lord who joins mid-week keeps the grace);
+    // past the grace each miss halves the streak but never wipes it out.
+    else if (streak > 0 && ++misses > STREAK_GRACE) streak = Math.max(1, Math.floor(streak / 2));
     const cohort = emptyCounts();
     for (let c = 0; c < UNIT_COUNT; c++) {
       const whole = Math.floor(acc[c]! + levyAcc[c]!);
