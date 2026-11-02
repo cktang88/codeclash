@@ -14,13 +14,14 @@ import type { FactionId } from '../../game/factions.ts';
 import { artMode, type ArtMode } from '../settings.ts';
 import { cityAtlas } from './city/atlas.ts';
 import { buildAtlas as buildHdAtlas } from './sprites128.ts';
-import { paintBuilding, paintMill, tierOf, WALL, wallHeights, type Art, type Banner, type BuildingParts } from './city/buildings.ts';
+import { paintBuilding, paintMill, rigFor, tierOf, WALL, wallHeights, type Art, type Banner, type BuildingParts } from './city/buildings.ts';
 import { paintGround, type Ground } from './city/ground.ts';
-import { groundKey, groundSteps } from './city/ground-hd.ts';
+import { groundKey, groundSteps, TREES } from './city/ground-hd.ts';
 import { Draw, Life, type Ent, type Mood } from './city/life.ts';
 import { Folk } from './city/people.ts';
 import { FolkHd } from './city/people-hd.ts';
-import { CLASSIC, css, HD, WORLD_H, WORLD_W, type Frame } from './city/pixels.ts';
+import { CLASSIC, css, HD, WORLD_H, WORLD_W, type Footprint, type Frame } from './city/pixels.ts';
+import { paintProps, placeProps, propShadows, shadowAt, type PaintedProps } from './city/props.ts';
 import { styleFor, type CityStyle } from './city/style.ts';
 import './city/samurai.ts';
 import './city/undead.ts';
@@ -73,6 +74,10 @@ export class CityScene {
   private forges: [number, number][] = [];
   private glows: [number, number, number][] = [];
   private mill: { art: Art; hub: [number, number] | null } | null = null;
+  /** HD props (city/props.ts): placed and painted once per change of what stands on the ground. */
+  private props: { key: string; casts: Footprint[]; painted: PaintedProps } | null = null;
+  /** Lantern glass on the props, in world pixels. */
+  private lamps: [number, number][] = [];
   private partCache = new Map<string, BuildingParts>();
   private key = '';
   private t = 0;
@@ -204,28 +209,6 @@ export class CityScene {
   private rebuild(levels: Record<BuildingKey, number>, mood: CityMood): void {
     const st = this.st;
     const maxLevel = Math.max(0, ...BUILDINGS.map((b) => levels[b.key] ?? 0));
-    if (this.mode === 'hd') {
-      const gk = groundKey(st, levels, maxLevel);
-      if (!this.ground) {
-        // The first ground is painted at once; later ones a band per frame (see draw()).
-        const job = groundSteps(st, levels, maxLevel, this.frame);
-        let r = job.next();
-        while (!r.done) r = job.next();
-        this.ground = r.value;
-        this.groundShownKey = gk;
-      } else if (gk !== this.groundShownKey && gk !== this.groundJobKey) {
-        this.groundJob = groundSteps(st, levels, maxLevel, this.frame);
-        this.groundJobKey = gk;
-      }
-    } else {
-      // Classic: the same ground as ever, repainted only when something it shows changes.
-      const gk = groundKey(st, levels, maxLevel);
-      if (!this.ground || gk !== this.groundShownKey) {
-        this.ground = paintGround(st, levels, maxLevel);
-        this.groundShownKey = gk;
-      }
-    }
-    const arts: Art[] = [...this.ground!.arts];
     const banners: Banner[] = [];
     const torches: Torch[] = [];
     const smoke: [number, number][] = [];
@@ -234,11 +217,13 @@ export class CityScene {
     const stalls: [number, number][] = [];
     const targets: [number, number][] = [];
     const glows: [number, number, number][] = [];
+    const buildingArts: Art[] = [];
+    const footprints: Partial<Record<BuildingKey | 'keep', Footprint[]>> = {};
     const keys: (BuildingKey | 'keep')[] = ['keep', ...BUILDINGS.map((b) => b.key)];
     for (const k of keys) {
       const level = k === 'keep' ? maxLevel : levels[k] ?? 0;
       const p = this.parts(k, level, k === 'keep' ? 0 : mood.progress?.[k] ?? 0);
-      arts.push(...p.arts);
+      buildingArts.push(...p.arts);
       banners.push(...p.banners);
       torches.push(...p.torches.map(([x, y]) => ({ x, y })));
       smoke.push(...p.smoke);
@@ -247,7 +232,43 @@ export class CityScene {
       stalls.push(...p.stalls);
       targets.push(...p.targets);
       if (p.glows) glows.push(...p.glows);
+      footprints[k] = p.footprints ?? [];
     }
+    // HD: the props and clutter (city/props.ts), placed clear of what the buildings recorded on
+    // the ground; their footprints and the buildings' make the cast shadows on the ground.
+    let propsKey = '';
+    if (this.mode === 'hd') {
+      const built = Object.values(footprints).flat() as Footprint[];
+      propsKey = built.map((f) => f.map((x) => Math.round(x)).join(',')).join(';');
+      if (this.props?.key !== propsKey) {
+        const placed = placeProps({ faction: st.id, seed: this.seed, levels, footprints, clear: TREES.map(([u, v, r]) => [u, v, r * 0.7] as [number, number, number]) });
+        const painted = paintProps(placed, st, this.frame, (u, v) => shadowAt(u, v, built), rigFor(st.id));
+        this.props = { key: propsKey, casts: [...built, ...propShadows(placed)], painted };
+      }
+      const gk = groundKey(st, levels, maxLevel) + '|' + propsKey.length + ':' + hashStr(propsKey);
+      const casts = this.props!.casts;
+      if (!this.ground) {
+        // The first ground is painted at once; later ones a band per frame (see draw()).
+        const job = groundSteps(st, levels, maxLevel, this.frame, casts);
+        let r = job.next();
+        while (!r.done) r = job.next();
+        this.ground = r.value;
+        this.groundShownKey = gk;
+      } else if (gk !== this.groundShownKey && gk !== this.groundJobKey) {
+        this.groundJob = groundSteps(st, levels, maxLevel, this.frame, casts);
+        this.groundJobKey = gk;
+      }
+    } else {
+      this.props = null;
+      // Classic: the same ground as ever, repainted only when something it shows changes.
+      const gk = groundKey(st, levels, maxLevel);
+      if (!this.ground || gk !== this.groundShownKey) {
+        this.ground = paintGround(st, levels, maxLevel);
+        this.groundShownKey = gk;
+      }
+    }
+    const arts: Art[] = [...this.ground!.arts, ...buildingArts, ...(this.props?.painted.arts ?? [])];
+    this.lamps = this.props?.painted.lamps ?? [];
     this.glows = glows;
     const millKey = `mill:${tierOf(levels.granary)}`;
     if (levels.granary > 0) {
@@ -912,6 +933,13 @@ function stepped(w: number, h: number, rings: Ring[], ragged = false): HTMLCanva
     }
   x.putImageData(img, 0, 0);
   return c;
+}
+
+/** A 32-bit hash of a string (the props key, for the ground's key). */
+function hashStr(s: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
+  return h >>> 0;
 }
 
 function localHour(): number {

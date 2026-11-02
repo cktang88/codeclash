@@ -2,7 +2,7 @@
 // (ishigaki, plinths), hipped roofs and rounded mounds. Shaded by world point rather than by
 // patch coordinates, since these faces are not parallelograms.
 
-import { type Col, type Facing, type Px, v3, type V3 } from './pixels.ts';
+import { type Col, type Facing, noteFootprint, type Px, v3, type V3 } from './pixels.ts';
 
 export type PShader = (face: Facing, p: V3) => Col;
 
@@ -22,6 +22,7 @@ export function face4(px: Px, a: V3, b: V3, c: V3, d: V3, face: Facing, shade: P
  * height h (ishigaki, a sloped plinth, a tapering spire base).
  */
 export function frustum(px: Px, u0: number, v0: number, z0: number, lu: number, lv: number, h: number, inset: number, shade: PShader, top = true): void {
+  noteFootprint(u0, v0, u0 + lu, v0 + lv, z0, h);
   const u1 = u0 + lu;
   const v1 = v0 + lv;
   const z1 = z0 + h;

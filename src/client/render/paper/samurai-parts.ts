@@ -694,7 +694,7 @@ export function shaft(c: Paper, grip: P2, deg: number, butt: number, fore: numbe
   const a = c.q(addP(grip, mul(d, -butt))), b = c.q(addP(grip, mul(d, fore)));
   // An upright pole rises over the figure, where the light is: it keeps the base tone.
   const upright = Math.abs(((deg % 360) + 360) % 360 - 180) < 35;
-  stick(c, a, b, w, mat, upright ? 2 : WT(c));
+  stick(c, a, b, w, mat, upright ? (c.L === 2 ? 3 : 2) : WT(c));
   return [a, b];
 }
 
@@ -724,6 +724,14 @@ export function naginata(c: Paper, grip: P2, deg: number, butt = 3.5, fore = 6.0
 
 /** A nage-yari (javelin) in the hand. */
 export function javelin(c: Paper, grip: P2, deg: number): void {
+  // At 13 px the javelin is held up in the light: a pale one-pixel line, not the dark of a weapon held low.
+  if (c.L <= 1) {
+    // (Snapped to a clean 1:1 or level line: a shallow one-pixel diagonal stair-steps.)
+    const d0 = limb(Math.round(deg / 45) * 45);
+    c.line(c.q(addP(grip, mul(d0, -2.4))), c.q(addP(grip, mul(d0, 3.6))), code(SM.wood, 3));
+    c.line(c.q(addP(grip, mul(d0, 3.6))), c.q(addP(grip, mul(d0, 4.6))), code(SM.steel, 3));
+    return;
+  }
   const [, b] = shaft(c, grip, deg, 2.4, 3.6, SM.wood, 0.2);
   c.rod(b, addP(b, mul(limb(deg), 1.0)), 0.3, 0.06, SM.steel, { shine: true });
 }
@@ -747,12 +755,18 @@ export function yumi(c: Paper, grip: P2, axis: number, bend: number, nock: P2 | 
     pts.push(c.q(addP(addP(grip, mul(up, s * (1 - bend * 0.06))), mul(fwd, off - 0.75))));
   }
   for (let i = 0; i < pts.length - 1; i++) {
-    const bind = L >= 4 && (i === 2 || i === 6 || i === 8);
-    stick(c, pts[i]!, pts[i + 1]!, 0.26, bind ? SM.cotton : SM.black, WT(c));
+    // The rattan bindings from level 8; below, the bow is one unbroken line (two-pixel limbs cut
+    // into segments at the same rows read as banding).
+    const bind = L >= 8 && (i === 2 || i === 6 || i === 8);
+    if (L <= 4) c.line(pts[i]!, pts[i + 1]!, code(SM.black, WT(c)));
+    else stick(c, pts[i]!, pts[i + 1]!, 0.26, bind ? SM.shu : SM.black, bind ? 3 : WT(c)); // lacquered rattan bindings
   }
   const top = pts[pts.length - 1]!, bot = pts[0]!;
-  const sc = c.L <= 1 ? code(SM.black, 1) : code(SM.straw, 1);
-  if (L <= 1 && !nock) return;
+  // The hemp string, dark with wax: a pale line along the bow's edge would light the silhouette's rim.
+  const sc = c.L <= 1 ? code(SM.black, 1) : code(SM.wood, 2);
+  // The braced string at rest from level 8 only: below, a one-pixel line beside the limb, ending where
+  // it ends, reads as a band.
+  if (L <= 4 && !nock) return;
   if (nock) {
     c.line(top, nock, sc);
     c.line(nock, bot, sc);

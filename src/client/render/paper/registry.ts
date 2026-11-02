@@ -2,7 +2,7 @@
 // load; sprites128.ts asks paperKindFor() and falls back to the ray-cast painter otherwise.
 
 import { Anim, type Dir } from '../contract.ts';
-import type { Paper } from './core.ts';
+import type { Paper, PaletteOpts } from './core.ts';
 import { DRAWN_DEFAULT, facingOf, planFacing, type Facing } from './facing.ts';
 import { animsOf, type BasePose, type BodyType, type KeySet } from './rig.ts';
 
@@ -50,3 +50,23 @@ export function paperSupports(faction: string, kind: number, anim: Anim, dir: Di
   if (!k.anims.has(anim)) return false;
   return planFacing(facingOf(dir), k.facings ?? DRAWN_DEFAULT) !== null;
 }
+
+/**
+ * How a faction's master palette is built (opt-in, additive): `perKind` gives every kind its own
+ * master palette from its own codes, under the same per-level budget, instead of one palette
+ * shared by the faction; the `PaletteOpts` change how colours merge. A faction that sets nothing
+ * keeps the shared palette exactly as before.
+ */
+export interface FactionPaletteOpts extends PaletteOpts {
+  perKind?: boolean;
+}
+const PALETTE_OPTS = new Map<string, FactionPaletteOpts>();
+let paletteOptsVersion = 0;
+/** Sets a faction's palette options (call at module top level, like the kinds). */
+export function setFactionPaletteOptions(faction: string, opts: FactionPaletteOpts): void {
+  PALETTE_OPTS.set(faction, opts);
+  paletteOptsVersion++;
+}
+export const factionPaletteOptions = (faction: string): FactionPaletteOpts | undefined => PALETTE_OPTS.get(faction);
+/** Bumped whenever a faction's palette options change (palette caches key on it). */
+export const factionPaletteVersion = (): number => paletteOptsVersion;
