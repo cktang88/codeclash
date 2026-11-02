@@ -557,8 +557,10 @@ export class CityScene {
       // Night darkens less than it used to: the arts' night palette and the ground's own dimming
       // (draw()) carry the dark, so the value steps between roof, wall and ground survive.
       if (this.necropolis) {
-        const top = [170 - 70 * k, 160 - 66 * k, 215 - 40 * k];
-        const bot = [150 - 64 * k, 186 - 78 * k, 192 - 50 * k];
+        // A lighter day floor (a pale sun through the overcast) so buildings separate from the ground;
+        // the night end is unchanged.
+        const top = [205 - 105 * k, 198 - 104 * k, 232 - 57 * k];
+        const bot = [188 - 102 * k, 206 - 98 * k, 212 - 70 * k];
         const sky = x.createLinearGradient(0, 0, 0, H);
         sky.addColorStop(0, `rgb(${top.map(Math.round).join(',')})`);
         sky.addColorStop(1, `rgb(${bot.map(Math.round).join(',')})`);
@@ -611,9 +613,10 @@ export class CityScene {
       // The banks drift a whole world pixel at a time.
       const x = Math.round(bx + Math.sin(t * 0.04 + i * 1.7) * 30);
       const y = Math.round(by + Math.sin(t * 0.03 + i) * 6);
-      if (k < 0.9) {
+      // By day the mist lies thin, and only over the grave fields: not the yard or the keep.
+      if (k < 0.9 && i < 4) {
         g.globalCompositeOperation = 'source-over';
-        g.globalAlpha = 1 - k;
+        g.globalAlpha = 0.35 * (1 - k);
         this.halo(g, 'mistDay', x, y, 180, 52);
       }
       if (k > 0.1) {
