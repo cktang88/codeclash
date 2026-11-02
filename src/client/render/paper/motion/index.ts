@@ -54,7 +54,7 @@ export interface MotionClip {
   loop: boolean;
   angles: 'world';
   restHeight: number;
-  /** People: pelvis height when standing (root is measured from (0, -restHip)). */
+  /** Rest height of the root bone (a man's hips, a horse's barrel); root is measured from (0, -restHip). */
   restHip?: number;
   /** Missing: a man on foot. */
   body?: 'foot' | 'horse';
@@ -71,3 +71,38 @@ const all = [walk, march, run, idle, brace, cutOverhead, cutDiagonal, chop, thru
 export const MOTION: Readonly<Record<string, MotionClip>> = Object.fromEntries(all.map((c) => [c.name, c]));
 /** Clip names per Anim name (contract.ts), the first being the default. */
 export const MOTION_FOR: Readonly<Record<string, string[]>> = all.reduce<Record<string, string[]>>((m, c) => ((m[c.anim] ??= []).push(c.name), m), {});
+
+/**
+ * A clip in the shape `loadMotion` (paper/skeleton.ts) reads: one complete clip per drawn facing,
+ * with the root bone's rest height as `restHeight` and sided leg lengths, so retargeting scales by
+ * the figure's leg (a man's thigh + shin, a horse's foreleg).
+ */
+export function toMotionJson(c: MotionClip): { name: string; facings: Record<MotionFacing, LoaderClip> } {
+  const lengths: Record<string, number> = {};
+  for (const [n, v] of Object.entries(c.lengths)) {
+    if (/^(thigh|shin|foot|upperArm|forearm|hand)$/.test(n)) (lengths[`${n}N`] = v), (lengths[`${n}F`] = v);
+    else if (/^(fore|hind)(Upper|Lower)$/.test(n)) (lengths[`${n}N`] = v), (lengths[`${n}F`] = v);
+    else lengths[n] = v;
+  }
+  const one = (fc: MotionFacing): LoaderClip => ({
+    name: `${c.name}-${fc}`,
+    frames: c.frames,
+    loop: c.loop,
+    angles: 'world',
+    restHeight: c.restHip ?? c.restHeight,
+    lengths,
+    keys: c.facings[fc].keys.map((k) => ({ ...k, root: [k.root[0]!, k.root[1]!] as [number, number] })),
+    events: c.events,
+  });
+  return { name: c.name, facings: { se: one('se'), ne: one('ne') } };
+}
+export interface LoaderClip {
+  name: string;
+  frames: number;
+  loop: boolean;
+  angles: 'world';
+  restHeight: number;
+  lengths: Record<string, number>;
+  keys: (MotionKey & { root: [number, number] })[];
+  events: MotionClip['events'];
+}
