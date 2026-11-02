@@ -8,16 +8,17 @@
 // man's bones; his hips follow the saddle a frame late and his head stays level.
 
 import { Anim } from '../contract.ts';
-import type { P2, Paper } from './core.ts';
+import { code, type P2, type Paper } from './core.ts';
 import type { Facing } from './facing.ts';
 import { registerPaperKind } from './registry.ts';
+import { along as alongR } from './rig.ts';
 import {
-  BREATH, bonesFromJoints, EASE, smearPart, skeletonKind,
+  BREATH, bonesFromJoints, dirStep, EASE, restPose, smearPart, skeletonKind, type Posed,
   type AnimationData, type AnimEvent, type AttachmentSet, type Clip, type DrawCtx, type JointDef, type PartXf, type SkeletonData, type SkeletonRig, type SlotData,
 } from './skeleton.ts';
 import { BOW, CUT, HIT, T, THRUST, cloth, type Author, type Tracks } from './templar-clips.ts';
 import { joints, neRest, PARENT, type FootSpec } from './templar-foot.ts';
-import { bow, paintAs, TM } from './templar-parts.ts';
+import { bow, paintAs, RIG_CLOTH, TM } from './templar-parts.ts';
 import { at as atT, facingClip, lagCloth, lastFrame, mapFacings, memoSkin, overlayKeys, partMap, restWorld, skinMap, smooth01, type ClipSet, type KP, type LagSpec, type Track, type Weights } from './templar-rig.ts';
 import {
   CAPAR_PTS, HJ, hoofAt, HORSE_BODY, HORSE_FAR, HORSE_SCALE, horsePiece, MOUNTED, RIDER_PIECES, RIDER_SHIFT, riderPiece, riderRest, scaled, withMap,
@@ -40,6 +41,31 @@ const HORSE_SPECS: Record<number, HorseSpec> = {
   6: { farDeg: 168, front: 'chest', neNear: 'mirror', neFar: 'mirror', attack: 'punch', shoot: 'bow', brace: 'ready', die: 'back', ride: 'stab', charge: 0 },
   7: { nearDeg: 135, front: 'forearmF', neNear: 'mirror', neFar: 'shift', attack: 'thrust', shoot: null, brace: 'spear', die: 'back', ride: 'couch', charge: 96 },
   10: { nearDeg: 135, farDeg: 180, front: 'chest', neNear: 'mirror', neFar: 'mirror', attack: 'cut', shoot: null, brace: 'ready', die: 'back', ride: 'cut', charge: 120, smear: [2.4, 6.0] },
+};
+
+/**
+ * Cloth flown from a staff, on bones of its own so it ripples (the key art's is frozen at one flap):
+ * the Marshal's Beauséant and the lancers' pennons. The hoist sits `at` units up the staff from the
+ * fist (on the staff bone), the fly runs `len` back (screen left, the wind of the charge) and
+ * `drop` down, in `n` bones (key-art sizes: templar-parts.ts `beauseant` and `pennon`).
+ */
+interface Fly {
+  kind: 'banner' | 'pennon';
+  parent: 'itemF' | 'weapon';
+  /** The staff's key-art angle (rig: 180 up) and the hoist's middle along it, from the fist. */
+  deg: number;
+  at: number;
+  height: number;
+  len: number;
+  drop: number;
+  n: number;
+  /** How much of the staff's turn the fly takes (the rest is the wind's). */
+  follow: number;
+}
+const FLY: Partial<Record<number, Fly>> = {
+  5: { kind: 'pennon', parent: 'weapon', deg: 180, at: 11.9, height: 1.1, len: 2.8, drop: 0.5, n: 2, follow: 0.3 },
+  7: { kind: 'pennon', parent: 'weapon', deg: 135, at: 11.4, height: 1.1, len: 2.8, drop: 0.45, n: 2, follow: 0.3 },
+  10: { kind: 'banner', parent: 'itemF', deg: 180, at: 6.95, height: 3.4, len: 4.4, drop: 0.5, n: 3, follow: 0.35 },
 };
 
 // ------------------------------------------------------------------ the skeleton
@@ -118,8 +144,26 @@ function horseSkel(kind: number, k: SKit, g: SGear, s: FootSpec): SkeletonData {
     if (n.from[0] !== d.from[0] || n.from[1] !== d.from[1] || n.to[0] !== d.to[0] || n.to[1] !== d.to[1]) d.facing = { ne: { from: n.from, to: n.to } };
     defs.push(d);
   }
+  const fly = FLY[kind];
+  if (fly) {
+    // The fly's joints in each drawn facing: from the hoist on the staff, back and a little down.
+    const joint = (j: Record<string, { from: P2 }>, i: number): P2 => {
+      const h = alongR(j[fly.parent]!.from, fly.deg, fly.at);
+      return [h[0] - (fly.len * i) / fly.n, h[1] + (fly.drop * i) / fly.n];
+    };
+    for (let i = 0; i < fly.n; i++) {
+      const d: JointDef = { name: `fly${i}`, parent: i === 0 ? fly.parent : `fly${i - 1}`, from: joint(se, i), to: joint(se, i + 1) };
+      const nf = joint(ne, i), nt = joint(ne, i + 1);
+      if (nf[0] !== d.from[0] || nf[1] !== d.from[1] || nt[0] !== d.to[0] || nt[1] !== d.to[1]) d.facing = { ne: { from: nf, to: nt } };
+      defs.push(d);
+    }
+  }
+  // The cloth is drawn just after its staff.
+  const withFly = (order: readonly string[]): string[] => (fly ? order.flatMap((n) => (n === (fly.parent === 'itemF' ? 'farItem' : 'weapon') ? [n, 'fly'] : [n])) : [...order]);
+  const orderSe = withFly(ORDER_SE), orderNe = withFly(ORDER_NE);
   const rb = RPIECE_BONE(s);
-  const slots: SlotData[] = ORDER_SE.map((name) => {
+  const slots: SlotData[] = orderSe.map((name) => {
+    if (name === 'fly') return { name, bone: 'fly0', attachment: { all: 'fly' } };
     if (name.startsWith('h_')) return { name, bone: HPIECE_BONE[name.slice(2) as HorsePiece], attachment: { all: name } };
     if (name === 'smear') return { name, bone: 'weapon', attachment: { all: 'smear' } };
     if (name === 'flash') return { name, bone: 'root', attachment: { all: 'flash' } };
@@ -131,7 +175,7 @@ function horseSkel(kind: number, k: SKit, g: SGear, s: FootSpec): SkeletonData {
     body: 'horse',
     bones: bonesFromJoints(defs),
     slots,
-    drawOrder: { se: ORDER_SE, ne: ORDER_NE },
+    drawOrder: { se: orderSe, ne: orderNe },
     ik: [...ik, { name: 'armF2h', bones: ['upperArmF', 'forearmF'], target: 'grip2', bend: -1, mix: 0 }],
   };
 }
@@ -182,7 +226,7 @@ const riderCloakWeights: Weights = ([x, y]) => {
   return [['chest', 1 - c], ['cloak', c * (1 - hb)], ['horseBody', c * hb]];
 };
 
-function horseParts(k: SKit, g: SGear, horse: SHorse, s: HorseSpec, dark: boolean): AttachmentSet {
+function horseParts(k: SKit, g: SGear, horse: SHorse, s: HorseSpec, dark: boolean, fly?: Fly): AttachmentSet {
   const rest: Record<Facing, RiderRest> = { se: riderRest(k, g), ne: neRest(riderRest(k, g), s), sw: riderRest(k, g), nw: riderRest(k, g) };
   const atts: AttachmentSet = {};
   for (const p of [...HORSE_FAR, ...HORSE_BODY]) {
@@ -195,7 +239,14 @@ function horseParts(k: SKit, g: SGear, horse: SHorse, s: HorseSpec, dark: boolea
     atts[hs(p)] = (c, x, ctx) => paintAs(c, dark, () => scaled(c, S, () => withMap(scaleMap(partMap(x)), () => horsePiece(c, horse, p, ctx.posed.facing === 'ne'))));
   }
   for (const p of RIDER_PIECES) {
-    const draw = (c: Paper, m: PartMap, f: Facing) => paintAs(c, dark, () => withMap(shiftMap(m), () => riderPiece(c, k, g, p, rest[f], { rig: true, back: f === 'ne' })));
+    const draw = (c: Paper, m: PartMap, f: Facing) => {
+      RIG_CLOTH.on = true;
+      try {
+        paintAs(c, dark, () => withMap(shiftMap(m), () => riderPiece(c, k, g, p, rest[f], { rig: true, back: f === 'ne' })));
+      } finally {
+        RIG_CLOTH.on = false;
+      }
+    };
     if (p === 'torso' || p === 'cloak') {
       const bones = p === 'torso' ? ['pelvis', 'spine', 'chest'] : ['chest', 'cloak', 'horseBody'];
       atts[p] = memoSkin(`rider-${p}`, bones, (c, ctx) => draw(c, skinMap(ctx.posed, p === 'torso' ? riderTorsoWeights : riderCloakWeights), ctx.posed.facing));
@@ -217,6 +268,7 @@ function horseParts(k: SKit, g: SGear, horse: SHorse, s: HorseSpec, dark: boolea
       },
     };
   }
+  if (fly) atts.fly = { cache: false, draw: (c, _x, ctx) => paintAs(c, dark, () => flyCloth(c, ctx.posed, fly)) };
   if (s.smear) {
     const sm = smearPart('weapon', s.smear[0], s.smear[1], TM.steel);
     atts.smear = { cache: false, draw: (c, x, ctx) => paintAs(c, dark, () => sm.draw(c, x, ctx)) };
@@ -354,7 +406,7 @@ function standKeys(n: number, extra?: Author): (f: Facing, skel: SkeletonData) =
   };
 }
 
-function horseClips(skel: SkeletonData, s: HorseSpec): ClipSet {
+function horseClips(skel: SkeletonData, s: HorseSpec, fly?: Fly): ClipSet {
   // The mantle, the caparison's hem and the mane trail the body 1-2 frames; at speed the hem
   // streams back off the legs and flutters, the mane flows back.
   const trail = (run: number): LagSpec[] => [
@@ -362,6 +414,7 @@ function horseClips(skel: SkeletonData, s: HorseSpec): ClipSet {
     { bone: 'caparF', follow: 'horseBody', k: 0.8, lag: 1.5, bias: -4 - 16 * run, plumb: 0.4, wave: [3 + 5 * run, 2, 0] },
     { bone: 'caparR', follow: 'horseBody', k: 0.8, lag: 2, bias: -4 - 22 * run, plumb: 0.4, wave: [3 + 6 * run, 2, 0.3] },
     { bone: 'mane', follow: 'horseNeck', k: 0.6, lag: 1.5, bias: -28 * run, wave: [4 * run, 2, 0.15] },
+    ...(fly ? flyTrail(fly, run) : []),
   ];
   const fc = (name: string, n: number, loop: boolean, keys: (f: Facing) => KP[], ev: AnimEvent[] = [], run = 0): Clip =>
     lagCloth(skel, facingClip(skel, name, n, loop, keys, ev), n, loop, trail(run));
@@ -427,6 +480,91 @@ function horseClips(skel: SkeletonData, s: HorseSpec): ClipSet {
   }
 }
 
+// ------------------------------------------------------------------ the flown cloth
+
+/**
+ * The fly's bones over a clip. Each follows the staff a frame later than the one before it (the
+ * cloth trails the pole), and carries a wave whose phase lags toward the tip, so a crest travels
+ * from the hoist to the fly (the OpenGameArt CC0 flag strips; the stencil pennon's kink running
+ * out to the tip). Whole cycles per clip, so the loops close: one at the walk, three at the gallop
+ * (12 frames). Still air lets the fly droop toward the tip; at the gallop it streams back, the tip
+ * lifting, and flutters harder.
+ */
+function flyTrail(fly: Fly, run: number): LagSpec[] {
+  const cycles = run >= 1 ? 3 : 1;
+  // Still air at rest; a slow wave at the walk, strongest at the tip; the full ripple at the gallop.
+  // (The banner is the top of the figure, where the lint reads boil: the walk stays under it.)
+  const amp = run >= 1 ? 14 : run > 0 ? 7 : 0;
+  return Array.from({ length: fly.n }, (_, i) => ({
+    bone: `fly${i}`,
+    follow: fly.parent,
+    k: fly.follow,
+    lag: i,
+    bias: run >= 1 ? -2 - 2 * i : (4 - 3 * run) * i,
+    // The hoist panel moves least (it is held by the staff); the tip most.
+    wave: [Math.round(amp * (run >= 1 ? 0.6 + 0.4 * (i / Math.max(1, fly.n - 1)) : i / Math.max(1, fly.n - 1)) * 10) / 10, cycles, -0.18 * i] as [number, number, number],
+  }));
+}
+
+/**
+ * Draws the flown cloth from its bones: the hoist along the staff, then one panel per fly bone,
+ * its edges at the bone's joints across the cloth. A panel turned up against the one before it
+ * (its far end lifted toward the light) is a step lighter, one turned down a step darker, so the
+ * folds' light and shade bands travel with the wave; all from snapped angles and whole-pixel
+ * joints (no boil). The banner
+ * is sable over argent (a third, Matthew Paris); the pennon is a swallow-tail in the army colour.
+ */
+function flyCloth(c: Paper, posed: Posed, fly: Fly): void {
+  const B = posed.byName;
+  const rest = restPose(posed.skel, posed.level, posed.facing).byName;
+  const staff = B[fly.parent]!;
+  const up = dirStep(staff.step); // along the staff, toward its top (180: up)
+  const J: P2[] = [[B.fly0!.x, B.fly0!.y]];
+  for (let i = 0; i < fly.n; i++) J.push([B[`fly${i}`]!.tx, B[`fly${i}`]!.ty]);
+  const norm = (v: P2): P2 => {
+    const l = Math.hypot(v[0], v[1]) || 1;
+    return [v[0] / l, v[1] / l];
+  };
+  // Across the cloth at each joint: the staff at the hoist, then square to the fly (its upper side).
+  const across: P2[] = J.map((p, i) => {
+    if (i === 0) return up;
+    const d = norm([J[Math.min(fly.n, i + 1)]![0] - J[i - 1]![0], J[Math.min(fly.n, i + 1)]![1] - J[i - 1]![1]]);
+    return [-d[1], d[0]];
+  });
+  const half = (i: number) => (fly.height / 2) * (fly.kind === 'pennon' ? 1 - (0.3 * i) / fly.n : 1 - 0.04 * i);
+  const top = J.map((p, i): P2 => [p[0] + across[i]![0] * half(i), p[1] + across[i]![1] * half(i)]);
+  const bot = J.map((p, i): P2 => [p[0] - across[i]![0] * half(i), p[1] - across[i]![1] * half(i)]);
+  const turn = (i: number) => {
+    let d = B[`fly${i}`]!.step - rest[`fly${i}`]!.step;
+    d -= 48 * Math.round(d / 48);
+    return d;
+  };
+  for (let i = 0; i < fly.n; i++) {
+    // A panel turned up against the one before it (the angle turned back, negative) faces the light
+    // above: lit; turned down: in shade. Folds, not the whole fly, change tone as the wave passes.
+    const rel = turn(i) - (i > 0 ? turn(i - 1) : 0);
+    const lift = c.L >= 2 ? (rel < 0 ? 1 : rel > 0 ? -1 : 0) : 0;
+    const a = J[i]!, b = J[i + 1]!;
+    const seg = norm([b[0] - a[0], b[1] - a[1]]);
+    const last = i === fly.n - 1;
+    // The swallow-tail's notch: the last panel's free edge cut back at the middle.
+    const pts: P2[] = last && fly.kind === 'pennon'
+      ? [top[i]!, top[i + 1]!, [b[0] - seg[0] * 0.75, b[1] - seg[1] * 0.75], bot[i + 1]!, bot[i]!]
+      : [top[i]!, top[i + 1]!, bot[i + 1]!, bot[i]!];
+    c.shape(pts, (x, y) => {
+      const q: P2 = [(x + 0.5 - c.FX) / c.L, (y + 0.5 - c.FY) / c.L];
+      // How far up the cloth (0 bottom edge .. 1 top edge), between this panel's two joints.
+      const t = Math.max(0, Math.min(1, (q[0] - a[0]) * seg[0] + (q[1] - a[1]) * seg[1]) / (Math.hypot(b[0] - a[0], b[1] - a[1]) || 1));
+      const m: P2 = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+      const ax: P2 = norm([across[i]![0] * (1 - t) + across[i + 1]![0] * t, across[i]![1] * (1 - t) + across[i + 1]![1] * t]);
+      const h = half(i) * (1 - t) + half(i + 1) * t;
+      const v = 0.5 + ((q[0] - m[0]) * ax[0] + (q[1] - m[1]) * ax[1]) / (2 * h);
+      if (fly.kind === 'pennon') return code(TM.team, 2 + lift - (v < 0.3 && c.L >= 4 ? 1 : 0));
+      return v > 0.64 ? code(TM.black, 2 + lift) : code(TM.white, 3 + lift);
+    });
+  }
+}
+
 // ------------------------------------------------------------------ registration
 
 const RIGS = new Map<number, SkeletonRig>();
@@ -436,7 +574,7 @@ export function horseRig(kind: number): SkeletonRig | undefined {
   const m = MOUNTED[kind], s = HORSE_SPECS[kind];
   if (!m || !s) return undefined;
   const skel = horseSkel(kind, m.kit, m.gear, s);
-  const rig: SkeletonRig = { skel, atts: horseParts(m.kit, m.gear, m.horse, s, m.dark), clips: horseClips(skel, s) };
+  const rig: SkeletonRig = { skel, atts: horseParts(m.kit, m.gear, m.horse, s, m.dark, FLY[kind]), clips: horseClips(skel, s, FLY[kind]) };
   RIGS.set(kind, rig);
   return rig;
 }
