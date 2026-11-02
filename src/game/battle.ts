@@ -29,9 +29,8 @@ export { MORALE } from './command.ts';
 
 export const BATTLE_VERSION = 3;
 /**
- * Mixed into every battle's seed. It was BATTLE_VERSION until v3; v3 only changed degenerate
- * armies (no line, all engines, a general alone, a break in the last seconds), so it keeps v2's
- * salt and an ordinary battle fights exactly as it did under v2.
+ * Mixed into every battle's seed. It was BATTLE_VERSION until v3, which kept v2's salt: a
+ * version bump refuses old setups (BattleVersionError) but does not re-seed battles by itself.
  */
 const SEED_SALT = 2;
 
@@ -563,9 +562,13 @@ export class Battle {
   private readonly cellOf: Int32Array;
   private readonly tmp = new Float64Array(4);
 
-  constructor(readonly setup: BattleSetup) {
+  /** The setup as fought: counts made whole men (see `sanitize`). */
+  readonly setup: BattleSetup;
+
+  constructor(given: BattleSetup) {
     // A setup recorded under another version of the rules would replay as a different battle.
-    if (setup.version !== BATTLE_VERSION) throw new BattleVersionError(setup.version);
+    if (given.version !== BATTLE_VERSION) throw new BattleVersionError(given.version);
+    const setup = (this.setup = sanitize(given));
     this.rng = new Rng(mixSeed(setup.seed, SEED_SALT));
     this.generals = [new General(0, setup.seed), new General(1, setup.seed)];
     this.scale = scaleFor(setup.armies[0].counts, setup.armies[1].counts);
@@ -1954,8 +1957,8 @@ export class Battle {
    * in range while its men are not: two armies of archers would otherwise stand just out of
    * reach of each other all day.)
    */
-  private closeToShoot(r: Regiment, tgt: Regiment): void {
-    if (r.short > r.loosed && !this.ts[r.team]!.hasLine) {
+  private closeToShoot(r: Regiment, tgt: Regiment, always = false): void {
+    if (r.short > r.loosed && (always || !this.ts[r.team]!.hasLine)) {
       const dx = tgt.cx - r.cx;
       const dy = tgt.cy - r.cy;
       const q = sqrt(dx * dx + dy * dy) || 1;
@@ -1965,15 +1968,74 @@ export class Battle {
     r.loosed = 0;
   }
 
-  /** The best block to shoot at within `range` of the regiment: not locked with our own men. */
-  private shootable(r: Regiment, range: number): Regiment | null {
+  /**
+   * Distance from the middle of `r`'s front to the nearest living man of `o`; that man's
+   * position goes to tmp[0], tmp[1]. (Wide blocks are poorly described by their bounding
+   * circles: two lines facing each other can be far apart with their circles overlapping.)
+   */
+  private gapTo(r: Regiment, o: Regiment): number {
+    const d = this.d;
+    let bd = Infinity;
+    for (const id of o.members) {
+      if (d.state[id]! > State.Routing) continue;
+      const dx = d.x[id]! - r.ax;
+      const dy = d.y[id]! - r.ay;
+      const q = dx * dx + dy * dy;
+      if (q < bd) {
+        bd = q;
+        this.tmp[0] = d.x[id]!;
+        this.tmp[1] = d.y[id]!;
+      }
+    }
+    return sqrt(bd);
+  }
+
+  /** The nearest enemy (not running; horse only with `cav`) whose men are within `range` of `r`'s front. */
+  private nearGap(r: Regiment, range: number, cav: boolean): Regiment | null {
+    let best: Regiment | null = null;
+    let bd = range;
+    for (const o of this.teamRegs[1 - r.team]!) {
+      if (o.alive === 0 || o.routed || (cav && !isCav(o))) continue;
+      const dx = o.cx - r.cx;
+      const dy = o.cy - r.cy;
+      const rr = o.radius + r.radius + range;
+      if (dx * dx + dy * dy > rr * rr) continue;
+      const g = this.gapTo(r, o);
+      if (g < bd) {
+        bd = g;
+        best = o;
+      }
+    }
+    return best;
+  }
+
+  /** Walks `r` to stand with its front `dist` from the nearest man of `o`. */
+  private standOff(r: Regiment, o: Regiment, dist: number): void {
+    const g = this.gapTo(r, o);
+    const px = this.tmp[0]!;
+    const py = this.tmp[1]!;
+    const ux = g > 0.01 ? (px - r.ax) / g : r.fx;
+    const uy = g > 0.01 ? (py - r.ay) / g : r.fy;
+    this.goal(r, px - ux * dist, py - uy * dist);
+    this.faceToward(r, o.cx, o.cy);
+  }
+
+  /**
+   * The best block to shoot at within `range` of the regiment: not locked with our own men.
+   * `reach`: measured from the regiment's front to the target's nearest man (skirmishers and
+   * horse archers, who shoot at close range and must not stand inside their own retreat
+   * distance); otherwise from centre to centre, less half the target's spread.
+   */
+  private shootable(r: Regiment, range: number, reach = false): Regiment | null {
     let best: Regiment | null = null;
     let bs = Infinity;
     for (const o of this.teamRegs[1 - r.team]!) {
       if (o.alive === 0 || o.routed || o.engaged) continue;
       const dx = o.cx - r.cx;
       const dy = o.cy - r.cy;
-      const q = sqrt(dx * dx + dy * dy) - o.radius * 0.5;
+      const c = sqrt(dx * dx + dy * dy);
+      if (reach && c - o.radius - r.radius > range) continue;
+      const q = reach ? this.gapTo(r, o) : c - o.radius * 0.5;
       if (q > range) continue;
       // Big blocks and horse first; keep the same target when it's still good.
       let s = q - (isCav(o) ? 20 : 0) - (o.id === r.targetReg ? 30 : 0) - (o.id === r.ord.target ? 40 : 0) - Math.min(40, o.alive * 0.3);
@@ -1992,11 +2054,17 @@ export class Battle {
     const dir = r.team === 0 ? 1 : -1;
     const e = this.ts[1 - r.team]!;
     const gap = (e.frontX - ts.frontX) * dir;
-    const threat = this.nearestFoe(r, 0, 55) ?? this.nearestFoe(r, 2, 110);
+    const threat = this.nearGap(r, 25, false) ?? this.nearGap(r, 70, true);
     // With no line of our own there is nothing to fall back behind (and `frontX` is then the
     // army's centre, which runs away from them as they walk toward it): they fight it out.
     const noLine = !ts.hasLine;
-    const retired = !noLine && (r.mode === 'skirmish' || r.mode === 'reserve' || r.retired);
+    let retired = !noLine && (r.mode === 'skirmish' || r.mode === 'reserve' || r.retired);
+    if (retired && r.mode === 'reserve' && r.ammoLeft > 0 && !threat && gap > 160 && e.hasLine && this.tick - r.modeAt > 50) {
+      // Safe behind the line with javelins left and the lines still apart: go out again.
+      retired = false;
+      r.retired = false;
+      this.setMode(r, 'advance');
+    }
     const home = ts.frontX - dir * (ts.lineDepth + 70);
     if (r.ord.kind === 'pursue') {
       const prey = this.nearestFoe(r, 4, 300);
@@ -2033,11 +2101,11 @@ export class Battle {
       return;
     }
     if (this.tick < 30) return;
-    const best = this.shootable(r, st.range * 0.9);
+    const best = this.shootable(r, st.range * 0.9, true);
     if (best) {
       this.setMode(r, 'shoot');
       r.targetReg = best.id;
-      this.closeToShoot(r, best);
+      this.closeToShoot(r, best, true);
       this.faceToward(r, best.cx, best.cy);
       return;
     }
@@ -2045,8 +2113,8 @@ export class Battle {
     if (!near) return;
     this.setMode(r, 'advance');
     r.targetReg = near.id;
-    this.goal(r, near.cx - dir * st.range * 0.75, r.ay + (near.cy - r.ay) * 0.2);
-    this.faceToward(r, near.cx, near.cy);
+    // Within javelin range of its nearest men, outside the distance at which they fall back.
+    this.standOff(r, near, st.range * 0.6);
   }
 
   private thinkCav(r: Regiment, shock: boolean): void {
@@ -2058,14 +2126,19 @@ export class Battle {
       this.setMode(r, 'hold');
       return;
     }
-    const prey0 = r.targetReg >= 0 ? this.regiments[r.targetReg]! : null;
+    let prey0 = r.targetReg >= 0 ? this.regiments[r.targetReg]! : null;
+    if (r.engaged && r.mode !== 'withdraw' && (!prey0 || prey0.alive === 0)) {
+      // The block it rode into is gone: take on whoever it is fighting now.
+      prey0 = this.nearestFoe(r, 0, 30);
+      r.targetReg = prey0 ? prey0.id : -1;
+    }
     if (r.engaged && r.mode !== 'withdraw') {
       if (r.mode !== 'melee') r.meleeTicks = 0;
       r.meleeTicks += 5;
       this.setMode(r, 'melee');
       const footPrey = prey0 && !prey0.routed && (prey0.role === 'line' || prey0.role === 'command');
       const braced = prey0 && (prey0.stance === 'pikewall' || prey0.stance === 'braced');
-      if (footPrey && r.meleeTicks > (braced ? 15 : 45)) {
+      if (prey0 && footPrey && r.meleeTicks > (braced ? 15 : 45)) {
         // Cycle charge: pull out, re-form, and come again.
         const dx = r.cx - prey0.cx;
         const dy = r.cy - prey0.cy;
@@ -2176,7 +2249,7 @@ export class Battle {
       this.thinkCav(r, false);
       return;
     }
-    const threat = this.nearestFoe(r, 0, 70);
+    const threat = this.nearGap(r, 35, false) ?? this.nearGap(r, 90, true);
     if (threat) {
       // Ride away from it, sideways along the field, loosing as they go.
       const dx = r.cx - threat.cx;
@@ -2186,16 +2259,16 @@ export class Battle {
       const uy = dy / q;
       const s = r.cy < FIELD_H / 2 ? -1 : 1;
       this.goal(r, r.cx + ux * 80 - uy * 30 * s, r.cy + uy * 80 + ux * 30 * s);
-      const t = this.shootable(r, st.range * 0.95);
+      const t = this.shootable(r, st.range * 0.95, true);
       r.targetReg = t ? t.id : -1;
       this.setMode(r, 'kite');
       return;
     }
-    const best = this.shootable(r, st.range * 0.95);
+    const best = this.shootable(r, st.range * 0.9, true);
     if (best) {
       this.setMode(r, 'shoot');
       r.targetReg = best.id;
-      this.goal(r, r.ax, r.ay);
+      this.closeToShoot(r, best, true);
       this.faceToward(r, best.cx, best.cy);
       return;
     }
@@ -2213,13 +2286,10 @@ export class Battle {
       this.setMode(r, 'hold');
       return;
     }
-    const dx = near.cx - r.cx;
-    const dy = near.cy - r.cy;
-    const q = sqrt(dx * dx + dy * dy) || 1;
     this.setMode(r, 'advance');
     r.targetReg = near.id;
-    this.goal(r, near.cx - (dx / q) * st.range * 0.8, near.cy - (dy / q) * st.range * 0.8);
-    this.faceToward(r, near.cx, near.cy);
+    // In bow range of its nearest men, well outside the distance at which they ride off.
+    this.standOff(r, near, st.range * 0.6);
   }
 
   private thinkSiege(r: Regiment): void {
@@ -2265,7 +2335,16 @@ export class Battle {
         y += o.cy * o.alive;
       }
       if (k > 0) this.goal(r, x / k - dir * 55, y / k);
-      else this.goal(r, r.ax, r.ay);
+      else {
+        // His army is gone: he and his household ride at the enemy (standing still would
+        // leave two lone generals facing each other until the time limit).
+        const foe = this.nearestFoe(r, 0, Infinity);
+        if (foe) {
+          this.setMode(r, 'advance');
+          this.goal(r, foe.cx, foe.cy);
+          this.faceToward(r, foe.cx, foe.cy);
+        } else this.goal(r, r.ax, r.ay);
+      }
     }
     r.dfx = dir;
     r.dfy = 0;
@@ -2556,7 +2635,7 @@ export class Battle {
     const d = this.d;
     const tr = this.regiments[r.targetReg]!;
     if (tr.alive === 0) return;
-    const v = this.pickMember(tr);
+    const v = this.pickInReach(tr, d.x[i]!, d.y[i]!, st.range);
     if (v < 0) return;
     const dx = d.x[v]! - d.x[i]!;
     const dy = d.y[v]! - d.y[i]!;
@@ -2580,6 +2659,29 @@ export class Battle {
     d.ammo[i]!--;
     d.acted[i] = this.tick;
     d.cd[i] = st.reload + this.rng.int(Math.max(2, Math.floor(st.reload / 5)));
+  }
+
+  /**
+   * A man of regiment `r` to shoot at from (x, y): a few picked at random, the first within
+   * `range` (a bowman aims at the part of a big block he can reach), else the nearest of them.
+   */
+  private pickInReach(r: Regiment, x: number, y: number, range: number): number {
+    const d = this.d;
+    let best = -1;
+    let bd = Infinity;
+    for (let tries = 0; tries < 6; tries++) {
+      const id = r.members[this.rng.int(r.members.length)]!;
+      if (d.state[id]! > State.Routing) continue;
+      const dx = d.x[id]! - x;
+      const dy = d.y[id]! - y;
+      const q = dx * dx + dy * dy;
+      if (q <= range * range && q >= 36) return id;
+      if (q < bd) {
+        bd = q;
+        best = id;
+      }
+    }
+    return best >= 0 ? best : this.pickMember(r);
   }
 
   private pickMember(r: Regiment): number {
@@ -3013,6 +3115,12 @@ export class Battle {
     if (this.tick >= MAX_TICKS) this.result = this.decide('time');
   }
 
+  private kills(team: number): number {
+    let k = 0;
+    for (let i = 0; i < this.n; i++) if (this.d.team[i] === team) k += this.d.kills[i]!;
+    return k;
+  }
+
   /** Value of what a side still has on the field, standing or running. */
   private onField(team: number): number {
     const d = this.d;
@@ -3039,9 +3147,11 @@ export class Battle {
 
   private decide(reason: 'rout' | 'time', winner: 0 | 1 | null = null): BattleResult {
     if (winner === null) {
-      const a = this.strength(0);
-      const b = this.strength(1);
-      winner = a === b ? (this.rng.next() < 0.5 ? 0 : 1) : a > b ? 0 : 1;
+      // On the strength still standing; failing that, on the men still on the field, then on
+      // the kills. Only a perfectly even day is left to chance.
+      const keys = [this.strength(0) - this.strength(1), this.onField(0) - this.onField(1), this.kills(0) - this.kills(1)];
+      const k = keys.find((x) => x !== 0);
+      winner = k === undefined ? (this.rng.next() < 0.5 ? 0 : 1) : k > 0 ? 0 : 1;
     }
     const d = this.d;
     const side = (team: number): SideResult => {
@@ -3157,6 +3267,29 @@ function cellIndex(x: number, y: number): number {
   const cx = Math.max(0, Math.min(GW - 1, Math.floor(x / CELL)));
   const cy = Math.max(0, Math.min(GH - 1, Math.floor(y / CELL)));
   return cy * GW + cx;
+}
+
+/** Most men of one class an army can bring (far beyond any city; keeps the arithmetic sane). */
+const MAX_MEN = 10_000_000;
+const wholeMen = (n: number): number => (Number.isFinite(n) && n > 0 ? Math.min(MAX_MEN, Math.floor(n)) : 0);
+const within = (n: number, lo: number, hi: number, otherwise: number): number => (Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : otherwise);
+
+/**
+ * A setup with whole, finite numbers: counts and veterans floored to men (NaN, negative or
+ * infinite counts are none), veterans no more than the men, morale bonus and pavise bounded.
+ * A valid setup comes back equal to the one given.
+ */
+function sanitize(setup: BattleSetup): BattleSetup {
+  const army = (a: ArmySpec): ArmySpec => {
+    const counts = emptyCounts();
+    const veterans = emptyCounts();
+    for (let c = 0; c < UNIT_COUNT; c++) {
+      counts[c] = wholeMen(a.counts[c] ?? 0);
+      veterans[c] = Math.min(counts[c]!, wholeMen(a.veterans[c] ?? 0));
+    }
+    return { ...a, counts, veterans, moraleBonus: within(a.moraleBonus, -50, 50, 0), pavise: within(a.pavise, 0, 0.4, 0) };
+  };
+  return { ...setup, armies: [army(setup.armies[0]), army(setup.armies[1])] };
 }
 
 /** Fights a battle to its end. */

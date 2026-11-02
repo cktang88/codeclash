@@ -53,15 +53,14 @@ describe('battle: armies with no line', () => {
     expect(r.ticks).toBeLessThan(MAX_TICKS);
   }, 60_000);
 
-  it('a general left alone stands his ground instead of walking off the back of the field', () => {
+  it('two generals left alone ride at each other instead of walking off the field or waiting', () => {
     const b = new Battle(setupOf(1, army(0), army(0)));
-    for (let i = 0; i < 1200; i++) b.step();
-    for (const t of [0, 1]) {
-      const g = b.soldiers[b.commander[t]!]!;
-      expect(g.state).toBe(State.Fighting);
-      expect(g.x).toBeGreaterThan(200);
-      expect(g.x).toBeLessThan(FIELD_W - 200);
+    while (!b.done()) {
+      b.step();
+      for (const s of b.soldiers) if (s.state === State.Fighting) expect(s.x > 100 && s.x < FIELD_W - 100).toBe(true);
     }
+    expect(b.result!.reason).toBe('rout');
+    expect(b.result!.ticks).toBeLessThan(MAX_TICKS);
   }, 60_000);
 
   it('small mixed armies with no line still finish by a rout', () => {
@@ -85,6 +84,80 @@ describe('battle: an enemy with only horse, or no line', () => {
       const vets = (c: number[]) => c.map(() => 0);
       expect(fight(setupOf(seed, spec(ca, { ...oa, veterans: vets(ca) }), spec(cb, { ...ob, veterans: vets(cb) }))).reason).toBe('rout');
     }
+  }, 60_000);
+});
+
+describe('battle: horse archers and skirmishers', () => {
+  const used = (b: Battle, cls: number) => {
+    let carried = 0;
+    let left = 0;
+    for (const s of b.soldiers) if (s.cls === cls && !s.commander) {
+      carried += s.s.ammo;
+      left += s.ammo;
+    }
+    return 1 - left / carried;
+  };
+
+  it('horse archers loose most of their arrows at big blocks of foot, then the battle ends', () => {
+    // They used to ride up, find themselves inside their own retreat distance, ride off, and
+    // never shoot: six minutes without a casualty.
+    for (const seed of [1, 2]) {
+      const b = new Battle(setupOf(seed, only(U.HorseArchers, 300), only(U.HeavyInfantry, 300)));
+      const r = b.run();
+      expect(r.reason).toBe('rout');
+      expect(used(b, U.HorseArchers)).toBeGreaterThan(0.5);
+    }
+  }, 60_000);
+
+  it('skirmishers throw most of their javelins before the lines meet', () => {
+    let share = 0;
+    for (const seed of [1, 2]) {
+      const b = new Battle(setupOf(seed, army(1000), army(1000)));
+      b.run();
+      share += used(b, U.Skirmishers) / 2;
+    }
+    expect(share).toBeGreaterThan(0.4);
+  }, 60_000);
+});
+
+describe('battle: cavalry in melee', () => {
+  it('takes on another enemy when the block it rode into is gone', () => {
+    // Knights locked in a melee with two blocks of foot; the one they charged is wiped out.
+    let checked = 0;
+    for (let seed = 1; seed <= 6; seed++) {
+      const b = new Battle(setupOf(seed, only(U.Knights, 60, { commander: false }), only(U.HeavyInfantry, 160, { commander: false })));
+      b.generals[0].rashKnights = true;
+      while (!b.done() && b.tick < 1500) {
+        b.step();
+        const k = b.regiments.find((r) => r.team === 0 && r.engaged && r.mode === 'melee' && r.targetReg >= 0);
+        if (!k) continue;
+        const gone = k.targetReg;
+        for (const id of b.regiments[gone]!.members) b.kill(id);
+        for (let i = 0; i < 6; i++) b.step();
+        if (k.engaged && !k.routed) {
+          expect(k.targetReg).not.toBe(gone);
+          checked++;
+        }
+        break;
+      }
+    }
+    expect(checked).toBeGreaterThan(0);
+  }, 60_000);
+});
+
+describe('battle: setups', () => {
+  it('fights bad counts as whole men: NaN, infinite and negative as none, fractions floored', () => {
+    const a = spec([NaN, Infinity, -5, 40.7, 0, 12.2, 0, 3.9, 0, 0], { veterans: [5, NaN, 0, 99, 0, 0, 0, 0, 0, 0], pavise: NaN, moraleBonus: Infinity });
+    const b = new Battle(setupOf(1, a, army(80)));
+    expect(b.setup.armies[0].counts).toEqual([0, 0, 0, 40, 0, 12, 0, 3, 0, 0]);
+    expect(b.setup.armies[0].veterans).toEqual([0, 0, 0, 40, 0, 0, 0, 0, 0, 0]);
+    expect(b.soldiers.filter((s) => s.team === 0 && !s.commander && b.regiments[s.reg]!.role !== 'command').length).toBe(55);
+    const r = b.run();
+    for (const side of r.sides) for (let c = 0; c < UNIT_COUNT; c++) expect(side.dead[c]! + side.fled[c]! + side.alive[c]!).toBe(side.start[c]);
+    for (const s of b.soldiers) expect(Number.isFinite(s.x) && Number.isFinite(s.y) && !Number.isNaN(s.hp)).toBe(true);
+    // A valid setup is fought as given.
+    const ok = setupOf(1, army(80), army(80));
+    expect(new Battle(ok).setup).toEqual(ok);
   }, 60_000);
 });
 
