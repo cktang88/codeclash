@@ -77,14 +77,14 @@ export const CLIPS: ClipSpec[] = [
   {
     name: 'idle',
     anim: 'Idle',
-    trial: '141_20',
-    description: 'Waiting',
+    trial: '137_28',
+    description: 'Normal Wait',
     frames: 8,
     loop: true,
-    range: [300, 492],
+    range: [2233, 2425],
     heading: 'hips',
     tolerance: 3,
-    why: '1.6 s (one Idle loop at 2 ticks a frame) of relaxed waiting: breathing and a slow weight shift. The loop closure spreads the small end mismatch over the loop.',
+    why: '1.6 s (one Idle loop at 2 ticks a frame) of standing idle (the near hand rests on the hip: take the legs, pelvis and spine, not the arms): breathing and a slow weight shift with the feet still. Chosen by search as the window where the feet move least and the end pose matches the start. 141_20 (waiting) steps about too much for an idle loop, and the 140_06 subject stands hunched with bent knees (head at 12.4 of 14 units), which reads as a crouch.',
   },
   {
     name: 'brace',
@@ -93,10 +93,10 @@ export const CLIPS: ClipSpec[] = [
     description: 'ready stance',
     frames: 8,
     loop: true,
-    range: [241, 337],
+    range: [469, 565],
     heading: 'hips',
     tolerance: 3,
-    why: '0.8 s (one Brace loop) of a crouched, careful ready stance: hips low (7.5 of 14 units), knees bent, weight central. The base for a pike or shield brace.',
+    why: '0.8 s (one Brace loop; the stillest window of the trial) of a crouched, careful ready stance: hips low (7.5 of 14 units), knees bent, weight central. The base for a pike or shield brace.',
   },
   // ---------------------------------------------------------------- melee
   {
@@ -208,9 +208,9 @@ export const CLIPS: ClipSpec[] = [
     frames: 5,
     loop: false,
     range: [217, 241],
-    timing: [[0, 217], [2, 235], [4, 221]],
+    timing: [[0, 217], [1, 225], [2, 229], [4, 219]],
     heading: 'hips',
-    why: 'The first 0.15 s of a sudden flinch (hips drop, head ducks, arms come in), then back: CMU has no trials of being struck, so this is the closest real reaction. Add the snap-back of the struck shoulder from the brief (Muybridge plate "one hits the other").',
+    why: 'The first 0.1 s of a sudden flinch (peak at 229, before it becomes a full duck): hips drop, head ducks, arms come in, then back. CMU has no trials of being struck, so this is the closest real reaction. Add the snap-back of the struck shoulder from the brief (Muybridge plate "one hits the other").',
   },
   {
     name: 'die-back',

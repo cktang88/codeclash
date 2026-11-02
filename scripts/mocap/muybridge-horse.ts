@@ -147,7 +147,7 @@ function clip(name: string, anim: 'Run' | 'Walk', frames: HorseFrame[], meta: Re
     const prev = frames[(i + frames.length - 1) % frames.length]!.down;
     return (['HN', 'HF', 'FN', 'FF'] as const).filter((k) => h.down[k] && !prev[k]).map((k) => ({ f: h.f, name: 'step', bone: k }));
   });
-  return { name, anim, body: 'horse', frames: 12, loop: true, angles: 'world', restHeight: 14, lengths: { ...LENGTHS }, facings, events, meta };
+  return { name, anim, body: 'horse', frames: 12, loop: true, angles: 'world', restHeight: 14, restHip: BARREL_HEIGHT, lengths: { ...LENGTHS }, facings, events, meta };
 }
 
 function main(): void {

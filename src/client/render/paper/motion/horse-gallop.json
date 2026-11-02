@@ -6,6 +6,7 @@
  "loop": true,
  "angles": "world",
  "restHeight": 14,
+ "restHip": 8.6,
  "lengths": {"barrel":7,"neck":4.6,"head":3.2,"foreUpper":3.4,"foreLower":3.8,"hindUpper":3.6,"hindLower":4.2,"tail":3.4},
  "facings": {
   "se": { "keys": [

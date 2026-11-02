@@ -226,7 +226,7 @@ export interface MotionClip {
   loop: boolean;
   angles: 'world';
   restHeight: number;
-  /** Pelvis (hip joints) height of the standing subject, units: `root` is measured from (0, -restHip). */
+  /** Rest height of the root bone (a man's hip joints, a horse's barrel), units: `root` is measured from (0, -restHip). */
   restHip?: number;
   lengths: Record<string, number>;
   facings: Record<DrawnFacing, { keys: MotionKey[] }>;
