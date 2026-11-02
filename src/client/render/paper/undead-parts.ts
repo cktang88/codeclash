@@ -861,17 +861,30 @@ export function horseFrame(c: Paper, p: HorseLegs, back: boolean): HorseFrame {
  * femur forward to the stifle, the tibia back to the hock (its point standing out behind), the
  * cannon, fetlock, pastern and hoof. `lo` < 0 flexes the knee or the hock (the hoof lifts).
  */
+/** Leg bulk of the skeletal horse (1 for the animated sheets; the key art draws heavier legs). */
+const HORSE_BULK = { k: 1 };
+export function withHorseBulk(k: number, draw: () => void): void {
+  const was = HORSE_BULK.k;
+  HORSE_BULK.k = k;
+  try {
+    draw();
+  } finally {
+    HORSE_BULK.k = was;
+  }
+}
+
 function horseLeg(c: Paper, H: HorseFrame, root: P2, up: number, lo: number, hind: boolean, far: boolean, o: { bard?: boolean } = {}): void {
   const tone = far ? 1 : 2;
+  const K = HORSE_BULK.k;
   const t = H.tilt;
   let joint: P2, cannonA: number;
   if (hind) {
     const stifle = along(root, 30 + up * 0.5 + t, 2.8);
     joint = along(stifle, -28 + up + t, 3.0); // the hock
     cannonA = 4 + up * 0.4 - lo;
-    c.rod(root, stifle, 0.8, 0.55, HB, { tone });
-    c.blob(stifle, 0.45, 0.42, HB, { tone: tone - 1 });
-    c.rod(stifle, joint, 0.55, 0.38, HB, { tone });
+    c.rod(root, stifle, 0.8 * K, 0.55 * K, HB, { tone });
+    c.blob(stifle, 0.45 * K, 0.42 * K, HB, { tone: tone - 1 });
+    c.rod(stifle, joint, 0.55 * K, 0.38 * K, HB, { tone });
     // The point of the hock behind.
     c.rod(joint, along(joint, 150 + up + t, 0.6), 0.36, 0.22, HB, { tone });
   } else {
@@ -879,18 +892,18 @@ function horseLeg(c: Paper, H: HorseFrame, root: P2, up: number, lo: number, hin
     cannonA = up + lo;
     // The olecranon behind the elbow.
     c.rod(root, along(root, 200 + t, 0.6), 0.4, 0.26, HB, { tone });
-    c.rod(root, joint, 0.55, 0.4, HB, { tone });
+    c.rod(root, joint, 0.55 * K, 0.4 * K, HB, { tone });
     if (c.L >= 2) c.rod(addP(root, [0.22, 0.3]), addP(joint, [0.15, -0.3]), 0.16, 0.12, HB, { tone: tone - 1 });
   }
-  c.blob(joint, 0.44, 0.4, HB, { tone: tone - 1 });
+  c.blob(joint, 0.44 * K, 0.4 * K, HB, { tone: tone - 1 });
   const fet = along(joint, cannonA + t, hind ? 2.3 : 2.2);
-  c.rod(joint, fet, 0.34, 0.3, HB, { tone });
-  c.blob(fet, 0.38, 0.34, HB, { tone: tone - 1 });
+  c.rod(joint, fet, 0.34 * K, 0.3 * K, HB, { tone });
+  c.blob(fet, 0.38 * K, 0.34 * K, HB, { tone: tone - 1 });
   const hoofTop = along(fet, cannonA + 28 + t, 0.75);
-  c.rod(fet, hoofTop, 0.3, 0.32, HB, { tone });
+  c.rod(fet, hoofTop, 0.3 * K, 0.32 * K, HB, { tone });
   // The hoof: a dark wedge widening to its base, the toe forward, the wall lit at the front.
   const R = (q: P2): P2 => addP(hoofTop, rot(q, (t + (cannonA + 28) * 0.15) * DEG));
-  const hp: P2[] = [R([-0.32, -0.05]), R([0.28, -0.05]), R([0.68, 0.55]), R([-0.38, 0.55])];
+  const hp: P2[] = [R([-0.32 * K, -0.05]), R([0.28 * K, -0.05]), R([0.68 * K, 0.55]), R([-0.38 * K, 0.55])];
   c.shape(hp, (x) => code(UM.rag, (far ? 0 : 1) + (c.lx(x) > c.L * 0.6 && !far ? 1 : 0)));
   void o;
 }

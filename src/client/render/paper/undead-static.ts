@@ -13,9 +13,9 @@
 import { addP, code, DEG, hash, rot, type P2, type Paper } from './core.ts';
 import { Anim } from '../contract.ts';
 import { along, limb, poseAt, snapDeg, type KeySet } from './rig.ts';
-import { bone, bow, crossbow, helm, hood, horseBody, horseFar, horseFrame, horseNear, lance, mul, pavise, planeLight, quiver, rag, robe, skull, spear, UM } from './undead-parts.ts';
+import { bone, bow, crossbow, helm, hood, horseBody, horseFar, horseFrame, horseNear, lance, withHorseBulk, mul, pavise, planeLight, quiver, rag, robe, skull, spear, UM } from './undead-parts.ts';
 import {
-  BLACK_RIDER_KEYS, blackRider, boneJavelin, COLOSSUS_KEYS, colossus, DEATH_KNIGHT_KEYS, ghoulHead, greatHelm, HORSE_ARCHER_KEYS, horseArcher, lich, LICH_KEYS, lit, TREBUCHET_KEYS, trebuchet,
+  BLACK_RIDER_KEYS, blackRider, boneJavelin, COLOSSUS_KEYS, colossus, DEATH_KNIGHT_KEYS, ghoulHead, greatHelm, HORSE_ARCHER_KEYS, lich, LICH_KEYS, lit, TREBUCHET_KEYS, trebuchet,
 } from './undead.ts';
 
 // ------------------------------------------------------------------ volumes
@@ -392,8 +392,9 @@ function arbalestStatic(c: Paper): void {
       const hx = (x - c.sx(1.3)) / c.L, hy = (y - c.sy(-9.6)) / c.L;
       if (Math.hypot(hx / 0.7, hy / 1.0) < 1) return Math.abs(((hy + 2) % 0.62) - 0.31) < 0.14 ? code(UM.bone, 2) : code(UM.ink, 1);
       const lt = planeLight(rx, ry, 0.35);
+      // Quilted channels running down, stitched across every few rows (not a plaid).
       if (c.lx(x) % Math.max(3, Math.round(c.L * 0.75)) === 0) return code(UM.rag, 1 + Math.min(0, lt));
-      if (c.ly(y) % Math.max(4, Math.round(c.L * 1.2)) === 0) return code(UM.rag, 1 + Math.min(0, lt));
+      if (c.ly(y) % Math.max(4, Math.round(c.L * 1.2)) === 0 && (c.lx(x) & 1) === 0) return code(UM.rag, 1 + Math.min(0, lt));
       return code(UM.rag, 2 + lt);
     },
   });
@@ -456,14 +457,56 @@ function idleOf<P>(keys: KeySet<P & import('./rig.ts').BasePose>, draw: (c: Pape
   return (c) => lit(c, () => draw(c, poseAt(keys, Anim.Idle, 0) as P, 'se', Anim.Idle, 0));
 }
 
+/** The Barrow Horse Archer: a gaunt skeleton in a rotted leather jerkin, a quiver at the hip, a war bow. */
+function horseArcherStatic(c: Paper): void {
+  const p = poseAt(HORSE_ARCHER_KEYS, Anim.Idle, 0);
+  const H = horseFrame(c, p, false);
+  const at = (q: P2): P2 => addP(H.seat, q);
+  horseFar(c, H, p, { cloth: true });
+  stout(c, at([0.9, -0.2]), at([2.2, 2.1]), 0.6, true);
+  horseBody(c, H, p, { cloth: true });
+  // The pennon pole on the back.
+  c.rod(at([-1.6, -3.2]), at([-2.4, -10.0]), 0.28, 0.24, UM.wood, { tone: 2 });
+  c.shape([at([-2.4, -10.0]), at([-5.6, -9.4]), at([-4.6, -9.0]), at([-5.4, -8.5]), at([-2.4, -8.6])], (x, y) => (c.ly(y) < c.L * 0.5 ? code(UM.team, 3) : code(UM.team, 2)));
+  // The far arm holding the bow out, the quiver at the hip.
+  const grip = at([3.6, -3.6]);
+  stout(c, at([1.9, -4.6]), at([2.9, -3.8]), 0.55, true);
+  stout(c, at([2.9, -3.8]), grip, 0.5, true);
+  quiver(c, at([-1.2, -0.6]), 215, { shafts: 4, len: 2.4 });
+  // The pelvis, a rag skirt, the jerkin over the ribs, a team sash.
+  c.blob(at([0.2, 0.2]), 1.4, 0.7, UM.bone, { tone: 2 });
+  rag(c, at([-1.3, -0.5]), at([1.8, -0.6]), 2.4, 0.1, UM.rag, UM.rag, 511, { tear: 0.45 });
+  plate(c, [at([-1.7, -4.6]), at([-0.6, -5.4]), at([1.6, -5.4]), at([2.4, -4.6]), at([2.0, -1.6]), at([1.7, -0.4]), at([-1.2, -0.4]), at([-1.5, -1.8])], UM.leather, {
+    detail: (x, y, rx, ry) => {
+      const hx = (x - c.sx(at([0.5, 0])[0])) / c.L, hy = (y - c.sy(at([0, -3.1])[1])) / c.L;
+      if (Math.hypot(hx / 0.8, hy / 1.3) < 1) return Math.abs(((hy + 2) % 0.62) - 0.31) < 0.15 ? code(UM.bone, hx < 0 ? 3 : 2) : code(UM.ink, 1);
+      if (c.ly(y) % Math.max(3, Math.round(c.L * 0.7)) === 0) return code(UM.leather, 1);
+      return code(UM.leather, 2 + planeLight(rx, ry, 0.35));
+    },
+  });
+  c.rod(at([-1.5, -4.5]), at([1.8, -0.7]), 0.55, 0.55, UM.team, { tone: 2 });
+  stout(c, at([-0.5, -0.2]), at([1.0, 2.3]), 0.62, false);
+  stout(c, at([1.0, 2.3]), at([0.3, 4.6]), 0.52, false);
+  horseNear(c, H, p, { cloth: true });
+  c.rod(at([0.4, -5.4]), at([0.55, -6.0]), 0.5, 0.45, UM.bone, { tone: 1 });
+  skull(c, at([0.8, -6.9]), -4, false);
+  // The bow, half drawn, the near arm at the string.
+  const nock = bow(c, grip, 96, 1.2, 7, { arrow: true });
+  stout(c, at([-1.5, -4.6]), at([-0.9, -2.9]), 0.58, false);
+  stout(c, at([-0.9, -2.9]), nock, 0.5, false);
+  c.blob(nock, 0.48, 0.42, UM.bone, { tone: 2 });
+}
+
+const bulky = (draw: (c: Paper) => void) => (c: Paper): void => withHorseBulk(1.45, () => draw(c));
+
 Object.assign(STATIC_KINDS, {
   1: { body: 'foot', draw: ghoulStatic },
   2: { body: 'foot', draw: throwerStatic },
   3: { body: 'foot', draw: wraithStatic },
   4: { body: 'foot', draw: arbalestStatic },
-  5: { body: 'horse', draw: idleOf(BLACK_RIDER_KEYS, blackRider) },
-  6: { body: 'horse', draw: idleOf(HORSE_ARCHER_KEYS, horseArcher) },
-  7: { body: 'horse', draw: deathKnightStatic },
+  5: { body: 'horse', draw: bulky(idleOf(BLACK_RIDER_KEYS, blackRider)) },
+  6: { body: 'horse', draw: bulky(horseArcherStatic) },
+  7: { body: 'horse', draw: bulky(deathKnightStatic) },
   8: { body: 'beast', draw: idleOf(COLOSSUS_KEYS, colossus) },
   9: { body: 'engine', draw: idleOf(TREBUCHET_KEYS, trebuchet) },
   10: { body: 'foot', draw: idleOf(LICH_KEYS, lich) },
