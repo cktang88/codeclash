@@ -12,9 +12,9 @@
 // art under everything (`decal`).
 
 import type { Art, BuildingParts, Painter } from './buildings.ts';
-import { registerProp, registerTheme, SUN as CAST, type Group } from './props.ts';
+import { isoOff, registerProp, registerTheme, sunFor, type Group, type PropAnim } from './props.ts';
 import type { CityStyle } from './style.ts';
-import { box, drum, hash, hex, line3, mix, post, Px, rgb, tone, v3, type Col, type Facing, type V3 } from './pixels.ts';
+import { box, css, drum, hash, hex, line3, mix, post, Px, rgb, tone, v3, type Col, type Facing, type V3 } from './pixels.ts';
 import { frustum, hip, tri3 } from './solids.ts';
 import type { Ramp } from './style.ts';
 
@@ -59,6 +59,8 @@ export const PAL = {
 
 /** Light from a world-space normal against the key (upper left): -1 (away) .. 1 (facing). */
 const KEY = [-0.2 / 0.996, 0.6 / 0.996, 0.77 / 0.996] as const;
+/** The Samurai sun's cast per unit of height (props.ts sunFor): the low golden-hour sun. */
+const CAST = sunFor('samurai').dir;
 export const lightOf = (nu: number, nv: number, nz: number): number => {
   const l = Math.hypot(nu, nv, nz) || 1;
   return (nu * KEY[0] + nv * KEY[1] + nz * KEY[2]) / l;
@@ -545,7 +547,6 @@ export function chochin(P: PP, u: number, v: number, z: number, red = false, r =
   const paper = red ? ramp('#ff7a50', '#e0482e', '#a42c22', '#661c1a') : ramp('#fff4d8', '#f6e2b4', '#dcbc86', '#a07e52');
   const lightC = red ? hex('#ff9a5a') : hex('#ffe0a0');
   const ink = red ? hex('#2a1418') : hex('#2c2024');
-  P.lights?.push(v3(u, v, z - h / 2));
   line3(P.px, v3(u, v, z), v3(u, v, z + 1.2), hex('#1e1a1c'));
   const H = Math.floor(h * P.k);
   cyl(P, u, v, z - h, r, h, (l, t, p) => {
@@ -763,7 +764,6 @@ export function toro(P: PP, u: number, v: number, s = 1): void {
   box(P.px, u - 0.9 * s, v - 0.9 * s, 0.7 * s, 1.8 * s, 1.8 * s, 0.5 * s, (f, _a, _b, p) => S(f, p));
   cyl(P, u, v, 1.2 * s, 0.55 * s, 2.2 * s, (l, _t, p) => sunlit(step(stone, l), p));
   box(P.px, u - 1.1 * s, v - 1.1 * s, 3.4 * s, 2.2 * s, 2.2 * s, 0.4 * s, (f, _a, _b, p) => S(f, p));
-  P.lights?.push(v3(u, v, 4.4 * s));
   // The fire-box: a window on each visible face.
   box(P.px, u - 0.8 * s, v - 0.8 * s, 3.8 * s, 1.6 * s, 1.6 * s, 1.3 * s, (f, a, t, p) => {
     if (f !== 'top' && a > 0.35 * s && a < 1.25 * s && t > 0.25 * s && t < 1.05 * s) return emitAt(P, p, f === 'left' ? hex('#5a3a28') : hex('#3a2820'), hex('#ffc070'));
@@ -1165,7 +1165,6 @@ export function andon(P: PP, u: number, v: number, h = 4.6): void {
     return emitAt(P, p, f === 'left' ? hex('#fff0d0') : hex('#e8c890'), hex('#ffe0a0'));
   });
   box(P.px, u - 0.9, v - 0.9, h, 1.8, 1.8, 0.3, (f) => faceCol(wood, f, 1));
-  P.lights?.push(v3(u, v, h - 0.9));
 }
 
 /**
@@ -1203,6 +1202,7 @@ const TREE_H = { pine: 14, sakura: 12, maple: 11 } as const;
 for (const t of TREES) t.h = TREE_H[t.kind];
 
 type Draw = (P: PP, u: number, v: number, n: number) => void;
+type Extra = { flicker?: [number, number, number][]; anim?: PropAnim };
 /**
  * The Samurai light on a prop painted by props.ts: the pixels this prop changed (its screen
  * rectangle, compared before and after) take the same warm/cool grade as the buildings
@@ -1228,8 +1228,31 @@ function gradeProp(px: Px, u: number, v: number, lu: number, lv: number, h: numb
     }
 }
 
-const reg = (kind: string, lu: number, lv: number, h: number, draw: Draw) =>
-  registerProp('samurai:' + kind, { lu, lv, h, draw: (a) => gradeProp(a.px, a.u, a.v, lu, lv, h, () => draw(ctx(a), a.u, a.v, a.n)) });
+const reg = (kind: string, lu: number, lv: number, h: number, draw: Draw, extra: Extra = {}) =>
+  registerProp('samurai:' + kind, { lu, lv, h, draw: (a) => gradeProp(a.px, a.u, a.v, lu, lv, h, () => draw(ctx(a), a.u, a.v, a.n)), ...extra });
+
+/**
+ * A nobori stirring: its free edge (away from the pole) ripples a pixel out and back as a wave
+ * runs down the cloth, and a fold shadow travels with it.
+ */
+const noboriStir: PropAnim = (g, t, x, y, n, k) => {
+  const cloth = n < 0.5 ? PAL.indigo : ramp('#f0e8d4', '#e2d8c0', '#b8ae98', '#7c7466');
+  const top = 12;
+  const bot = 12 * 0.35;
+  for (let z = bot + 0.5; z < top - 0.3; z += 1 / k) {
+    const w = Math.sin(t * 3.1 - z * 0.9 + n * 9);
+    if (w > 0.35) {
+      const [ox, oy] = isoOff(k, 0.6, 0.4 + 0.2 + 1.6 + 0.5 / k, z);
+      g.fillStyle = css(cloth[2]!);
+      g.fillRect(x + ox, y + oy, 1, 1);
+    } else if (w < -0.6) {
+      // The fold: a darker pixel a little in from the edge.
+      const [ox, oy] = isoOff(k, 0.6, 0.4 + 0.2 + 1.1, z);
+      g.fillStyle = css(cloth[3]!);
+      g.fillRect(x + ox, y + oy, 1, 1);
+    }
+  }
+};
 
 reg('komodaru', 10.2, 3.4, 6.6, (P, u, v, n) => komodaru(P, u + 1.6, v + 1.7, 3, 2, true, Math.floor(n * 50)));
 reg('komodaru2', 6.8, 3.4, 3.3, (P, u, v, n) => komodaru(P, u + 1.6, v + 1.7, 2, 1, true, Math.floor(n * 50)));
@@ -1241,8 +1264,8 @@ reg('oke2', 3.6, 1.8, 1.3, (P, u, v) => {
   oke(P, u + 2.7, v + 0.9, 0, 0.7, 1.1, false);
 });
 reg('tenbosui', 4, 4, 6, (P, u, v) => tenbosui(P, u + 2, v + 2));
-reg('andon', 1.8, 1.8, 4.8, (P, u, v) => andon(P, u + 0.9, v + 0.9));
-reg('nobori', 2.4, 2.4, 13, (P, u, v, n) => nobori(P, u + 0.6, v + 0.4, 12, n < 0.5 ? PAL.indigo : ramp('#f0e8d4', '#e2d8c0', '#b8ae98', '#7c7466'), false, n < 0.5 ? hex('#efe6d0') : P.st.accent));
+reg('andon', 1.8, 1.8, 4.8, (P, u, v) => andon(P, u + 0.9, v + 0.9), { flicker: [[0.9, 0.9, 3.7]] });
+reg('nobori', 2.4, 2.4, 13, (P, u, v, n) => nobori(P, u + 0.6, v + 0.4, 12, n < 0.5 ? PAL.indigo : ramp('#f0e8d4', '#e2d8c0', '#b8ae98', '#7c7466'), false, n < 0.5 ? hex('#efe6d0') : P.st.accent), { anim: noboriStir });
 reg('kanban', 1.2, 3, 4.8, (P, u, v) => kanban(P, u + 0.4, v, false, 4.6));
 reg('handcart', 10.5, 3.6, 4, (P, u, v) => handcart(P, u, v + 0.5, true));
 reg('fence', 8.6, 0.8, 3.4, (P, u, v) => bambooFence(P, u + 0.3, v + 0.4, 8, true));
@@ -1251,7 +1274,7 @@ reg('well', 6.8, 6.8, 8, (P, u, v) => well(P, u + 3.4, v + 3.4));
 reg('hasa', 12.8, 1.2, 6, (P, u, v) => hasa(P, u + 0.4, v + 0.6, 12, true));
 reg('woodpile', 6.6, 3, 3.4, (P, u, v) => woodpile(P, u, v + 0.2, 6, true));
 reg('crates', 4.4, 4.4, 3.6, (P, u, v, n) => crates(P, u, v, 2 + Math.floor(n * 3), Math.floor(n * 9)));
-reg('toro', 3, 3, 7, (P, u, v) => toro(P, u + 1.5, v + 1.5, 0.9));
+reg('toro', 3, 3, 7, (P, u, v) => toro(P, u + 1.5, v + 1.5, 0.9), { flicker: [[1.5, 1.5, 4]] });
 reg('komainuA', 2.6, 2.6, 4.4, (P, u, v) => komainu(P, u + 1.3, v + 1.3, true, true));
 reg('komainuUn', 2.6, 2.6, 4.4, (P, u, v) => komainu(P, u + 1.3, v + 1.3, true, false));
 reg('ema', 8.4, 2, 5.8, (P, u, v) => emaRack(P, u + 0.6, v + 1, 7, true));
@@ -1265,7 +1288,7 @@ reg('azalea', 4, 3.6, 1.6, (P, u, v, n) => bush(P, u + 2, v + 1.8, 1.7, Math.flo
 reg('shrub', 3.6, 3.2, 1.6, (P, u, v, n) => bush(P, u + 1.8, v + 1.6, 1.5, Math.floor(n * 50), null));
 reg('wisteria', 9, 13, 7, (P, u, v, n) => wisteria(P, u + 0.5, v + 0.5, 8, 12, 7, Math.floor(n * 50)));
 reg('rock', 3, 3, 1.2, (P, u, v, n) => rock(P, u + 1.5, v + 1.5, 1.1 + n * 0.4));
-reg('yatai', 8.2, 5, 6.4, (P, u, v, n) => yatai(P, u, v, Math.floor(n * 7)));
+reg('yatai', 8.2, 5, 6.4, (P, u, v, n) => yatai(P, u, v, Math.floor(n * 7)), { flicker: [[7.4, 4.1, 4.9]] });
 // Trees: a small cast footprint (the trunk); the canopy's dappled shade is the keep's decal.
 reg('pine', 4, 4, 1.5, (P, u, v, n) => {
   pine(P, u + 2, v + 2, TREE_H.pine, Math.floor(n * 99));
