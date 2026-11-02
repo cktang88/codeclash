@@ -13,11 +13,11 @@
 // angles copy the thighs' and the chest's from 1-2 frames before, so cloth trails the motion.
 
 import type { Anim } from '../contract.ts';
-import type { P2, Paper } from './core.ts';
+import { Paper, type P2 } from './core.ts';
 import type { Facing } from './facing.ts';
 import {
   animationFromPoses, clipBase, cosStep, EASE_IN, EASE_OUT, emptyLocals, evaluate, localsFromWorld, restPose, sampleClip, sinStep,
-  type AnimationData, type AnimEvent, type BoneXf, type Clip, type Curve, type FacingClips, type Key, type PartXf, type Posed, type PoseKey, type SkeletonData,
+  type AnimationData, type AnimEvent, type Attachment, type BoneXf, type Clip, type Curve, type DrawCtx, type FacingClips, type Key, type PartXf, type Posed, type PoseKey, type SkeletonData,
 } from './skeleton.ts';
 import { SNAP_DEG } from './rig.ts';
 import type { PartMap } from './templar-static.ts';
@@ -85,7 +85,9 @@ export function skinMap(posed: Posed, weights: Weights): PartMap {
     f: (p) => apply(blend(p), p),
     inv: (p) => {
       let q = p;
-      for (let i = 0; i < 6; i++) q = invert(blend(q), p);
+      // Two steps of the fixed point from the blend at the figure point itself: the bones of one
+      // piece of cloth turn by a step or two from each other, so it has converged to well under a pixel.
+      for (let i = 0; i < 2; i++) q = invert(blend(q), p);
       return q;
     },
     deg,
@@ -470,4 +472,82 @@ export function lastFrame(anim: AnimationData, name = `${anim.name}-end`): Anima
   const slots: NonNullable<AnimationData['slots']> = {};
   for (const [n, v] of Object.entries(anim.slots ?? {})) slots[n] = last(v)!;
   return { name, frames: 1, loop: false, bones, ik, slots };
+}
+
+// ------------------------------------------------------------------ skinned parts, memoised
+
+interface SkinImg {
+  x0: number;
+  y0: number;
+  w: number;
+  h: number;
+  pix: Int16Array;
+  ord: Int16Array;
+  polys: number;
+  ax: number;
+  ay: number;
+}
+const SKIN = new Map<string, SkinImg>();
+let SKIN_SCRATCH: Paper | null = null;
+
+/**
+ * A skinned part (cloth over several bones) whose image is reused while its bones keep their
+ * snapped angles and their whole-pixel offsets from one another: it is drawn once on a scratch
+ * surface and blitted, moved with its first bone (as the skeleton's part cache does for rigid parts).
+ */
+export function memoSkin(id: string, bones: readonly string[], draw: (c: Paper, ctx: DrawCtx) => void): Attachment {
+  return {
+    cache: false,
+    draw: (c, _x, ctx) => {
+      const p = ctx.posed, L = c.L;
+      const B0 = p.byName[bones[0]!]!;
+      const ax = Math.round(B0.x * L), ay = Math.round(B0.y * L);
+      let key = `${id}|${p.skel.name}|${p.facing}|${L}|${c.CW}x${c.CH}`;
+      for (const b of bones) {
+        const B = p.byName[b];
+        if (B) key += `|${B.step},${Math.round(B.x * L) - ax},${Math.round(B.y * L) - ay},${B.sy}`;
+      }
+      let img = SKIN.get(key);
+      if (!img) {
+        const s = (SKIN_SCRATCH ??= new Paper());
+        s.begin(L, { w: c.CW / L, h: c.CH / L, footY: c.FY / c.CH });
+        draw(s, ctx);
+        img = { x0: 0, y0: 0, w: 0, h: 0, pix: new Int16Array(0), ord: new Int16Array(0), polys: s.order, ax, ay };
+        if (s.bx1 >= s.bx0) {
+          img.x0 = s.bx0;
+          img.y0 = s.by0;
+          img.w = s.bx1 - s.bx0 + 1;
+          img.h = s.by1 - s.by0 + 1;
+          img.pix = new Int16Array(img.w * img.h);
+          img.ord = new Int16Array(img.w * img.h);
+          for (let y = 0; y < img.h; y++)
+            for (let x = 0; x < img.w; x++) {
+              const i = (s.by0 + y) * s.CW + s.bx0 + x;
+              img.pix[y * img.w + x] = s.pix[i]!;
+              img.ord[y * img.w + x] = s.pix[i]! >= 0 ? s.ord[i]! : 0;
+            }
+        }
+        if (SKIN.size > 6000) SKIN.clear();
+        SKIN.set(key, img);
+      }
+      const dx = ax - img.ax + img.x0, dy = ay - img.ay + img.y0;
+      for (let y = 0; y < img.h; y++) {
+        const Y = dy + y;
+        if (Y < 0 || Y >= c.CH) continue;
+        for (let x = 0; x < img.w; x++) {
+          const v = img.pix[y * img.w + x]!;
+          const X = dx + x;
+          if (v < 0 || X < 0 || X >= c.CW) continue;
+          const i = Y * c.CW + X;
+          c.pix[i] = v;
+          c.ord[i] = c.order + img.ord[y * img.w + x]!;
+          if (X < c.bx0) c.bx0 = X;
+          if (X > c.bx1) c.bx1 = X;
+          if (Y < c.by0) c.by0 = Y;
+          if (Y > c.by1) c.by1 = Y;
+        }
+      }
+      c.order += img.polys;
+    },
+  };
 }

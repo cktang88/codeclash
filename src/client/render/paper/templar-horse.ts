@@ -18,7 +18,7 @@ import {
 import { BOW, CUT, HIT, T, THRUST, cloth, type Author, type Tracks } from './templar-clips.ts';
 import { joints, neRest, PARENT, type FootSpec } from './templar-foot.ts';
 import { bow, paintAs, TM } from './templar-parts.ts';
-import { at as atT, facingClip, lagCloth, lastFrame, mapFacings, overlayKeys, partMap, restWorld, skinMap, smooth01, type ClipSet, type KP, type LagSpec, type Track, type Weights } from './templar-rig.ts';
+import { at as atT, facingClip, lagCloth, lastFrame, mapFacings, memoSkin, overlayKeys, partMap, restWorld, skinMap, smooth01, type ClipSet, type KP, type LagSpec, type Track, type Weights } from './templar-rig.ts';
 import {
   CAPAR_PTS, HJ, hoofAt, HORSE_BODY, HORSE_FAR, HORSE_SCALE, horsePiece, MOUNTED, RIDER_PIECES, RIDER_SHIFT, riderPiece, riderRest, scaled, withMap,
   type HorsePiece, type PartMap, type RiderPiece, type RiderRest, type SGear, type SHorse, type SKit,
@@ -188,7 +188,8 @@ function horseParts(k: SKit, g: SGear, horse: SHorse, s: HorseSpec, dark: boolea
   for (const p of [...HORSE_FAR, ...HORSE_BODY]) {
     if (p === 'capar' || p === 'mane') {
       const wts = p === 'capar' ? caparWeights : maneWeights;
-      atts[hs(p)] = { cache: false, draw: (c, _x, ctx) => paintAs(c, dark, () => scaled(c, S, () => withMap(scaleMap(skinMap(ctx.posed, wts)), () => horsePiece(c, horse, p, ctx.posed.facing === 'ne')))) };
+      const bones = p === 'capar' ? ['horseBody', 'horseNeck', 'caparF', 'caparR'] : ['horseNeck', 'mane'];
+      atts[hs(p)] = memoSkin(`horse-${p}`, bones, (c, ctx) => paintAs(c, dark, () => scaled(c, S, () => withMap(scaleMap(skinMap(ctx.posed, wts)), () => horsePiece(c, horse, p, ctx.posed.facing === 'ne')))));
       continue;
     }
     atts[hs(p)] = (c, x, ctx) => paintAs(c, dark, () => scaled(c, S, () => withMap(scaleMap(partMap(x)), () => horsePiece(c, horse, p, ctx.posed.facing === 'ne'))));
@@ -196,7 +197,8 @@ function horseParts(k: SKit, g: SGear, horse: SHorse, s: HorseSpec, dark: boolea
   for (const p of RIDER_PIECES) {
     const draw = (c: Paper, m: PartMap, f: Facing) => paintAs(c, dark, () => withMap(shiftMap(m), () => riderPiece(c, k, g, p, rest[f], { rig: true, back: f === 'ne' })));
     if (p === 'torso' || p === 'cloak') {
-      atts[p] = { cache: false, draw: (c, _x, ctx) => draw(c, skinMap(ctx.posed, p === 'torso' ? riderTorsoWeights : riderCloakWeights), ctx.posed.facing) };
+      const bones = p === 'torso' ? ['pelvis', 'spine', 'chest'] : ['chest', 'cloak', 'horseBody'];
+      atts[p] = memoSkin(`rider-${p}`, bones, (c, ctx) => draw(c, skinMap(ctx.posed, p === 'torso' ? riderTorsoWeights : riderCloakWeights), ctx.posed.facing));
       continue;
     }
     atts[p] = (c, x, ctx) => draw(c, partMap(x), ctx.posed.facing);

@@ -11,7 +11,7 @@ import {
   type AnimationData, type AnimEvent, type AttachmentSet, type DrawCtx, type FacingClips, type PartXf, type Track, type Clip, type JointDef, type SkeletonData, type SkeletonRig, type SlotData,
 } from './skeleton.ts';
 import { bow, paintAs, TM } from './templar-parts.ts';
-import { buildAnim, facingClip, lagCloth, partMap, skinMap, smooth01, type ClipSet, type KP, type LagSpec, type Weights } from './templar-rig.ts';
+import { buildAnim, facingClip, lagCloth, memoSkin, partMap, skinMap, smooth01, type ClipSet, type KP, type LagSpec, type Weights } from './templar-rig.ts';
 import { mocapFootClips } from './templar-clips.ts';
 import { FOOT, handAt, manPiece, manRest, withMap, type ManPiece, type ManRest, type SGear, type SKit } from './templar-static.ts';
 
@@ -195,14 +195,12 @@ function footParts(k: SKit, g: SGear, s: FootSpec, dark: boolean): AttachmentSet
     if (EXTRA_SLOTS[p]) continue;
     const piece = p as ManPiece;
     if (piece === 'torso' || piece === 'cloak') {
-      atts[p] = {
-        cache: false,
-        draw: (c, _x, ctx) => {
-          const f = ctx.posed.facing;
-          const m = skinMap(ctx.posed, piece === 'torso' ? torsoWeights(k, f) : cloakWeights);
-          paintAs(c, dark, () => withMap(m, () => manPiece(c, k, g, piece, rest[f], { rig: true, back: f === 'ne' })));
-        },
-      };
+      const bones = piece === 'torso' ? ['pelvis', 'spine', 'chest', 'skirtN', 'skirtF'] : ['chest', 'cloak'];
+      atts[p] = memoSkin(`foot-${piece}`, bones, (c, ctx) => {
+        const f = ctx.posed.facing;
+        const m = skinMap(ctx.posed, piece === 'torso' ? torsoWeights(k, f) : cloakWeights);
+        paintAs(c, dark, () => withMap(m, () => manPiece(c, k, g, piece, rest[f], { rig: true, back: f === 'ne' })));
+      });
       continue;
     }
     atts[p] = (c, x, ctx) => {
