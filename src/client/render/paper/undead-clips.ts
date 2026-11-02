@@ -116,20 +116,20 @@ export function jerk(anim: AnimationData, warp: readonly number[], bones: Readon
  * the body) are lifted by the difference.
  */
 const TIPS = new Set(['thighN', 'shinN', 'footN', 'thighF', 'shinF', 'footF', 'upperArmN', 'forearmN', 'upperArmF', 'forearmF', 'head', 'chest']);
-export function groundClamp(skel: SkeletonData, clip: Clip, n: number, margin = 0.7): Clip {
-  const skip = (b: string) => b === 'root' || b.startsWith('drop_') || b.startsWith('footTarget') || b === 'grip2' || b === 'nock' || b === 'weapon' || b === 'itemF' || b === 'skirt' || b === 'cloak';
+export function groundClamp(skel: SkeletonData, clip: Clip, n: number, margin = 0.7, liftBone = 'pelvis', only?: (b: string) => boolean, from = 0): Clip {
+  const skip = (b: string) => (only ? !only(b) : b === 'root' || b.startsWith('drop_') || b.startsWith('footTarget') || b === 'grip2' || b === 'nock' || b === 'weapon' || b === 'itemF' || b === 'skirt' || b === 'cloak');
   return mapFacings(clip, (anim, facing) => {
     const tr: Key<[number, number]>[] = [];
     for (let f = 0; f < n; f++) {
       const l = sampleClip(anim, f, n, facing);
       const p = evaluate(skel, l, { level: 16, facing });
       let low = -Infinity;
-      for (const b of p.bones) if (!skip(b.name)) low = Math.max(low, b.y, TIPS.has(b.name) ? b.ty : -Infinity);
-      const lift = Math.min(0, -margin - low);
-      const pv = l.bones.pelvis ?? {};
+      for (const b of p.bones) if (!skip(b.name)) low = Math.max(low, b.y, only || TIPS.has(b.name) ? b.ty : -Infinity);
+      const lift = f < from ? 0 : Math.min(0, -margin - low);
+      const pv = l.bones[liftBone] ?? {};
       tr.push({ f, v: [pv.x ?? 0, (pv.y ?? 0) + Math.round(lift * 100) / 100], c: 'linear' });
     }
-    return { ...anim, bones: { ...(anim.bones ?? {}), pelvis: { ...(anim.bones?.pelvis ?? {}), translate: tr } } };
+    return { ...anim, bones: { ...(anim.bones ?? {}), [liftBone]: { ...(anim.bones?.[liftBone] ?? {}), translate: tr } } };
   });
 }
 /** A slot shows nothing from frame `from` until `to` (a thrown weapon gone from the hand). */
