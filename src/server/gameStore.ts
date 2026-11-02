@@ -265,6 +265,12 @@ export class GameStore {
       .run(leagueId, weekStart, dayDone, grandDone ? 1 : 0);
   }
 
+  /** The latest week whose Grand Battle is fought, if any. */
+  lastFinishedWeek(leagueId: number): number | null {
+    const r = this.db.prepare('SELECT MAX(week_start) AS ws FROM league_progress WHERE league_id = ? AND grand_done = 1').get(leagueId) as Raw | undefined;
+    return (r?.ws as number | null | undefined) ?? null;
+  }
+
   saveWeek(w: WeekResultRow): void {
     this.db
       .prepare('INSERT OR REPLACE INTO week_results (league_id, week_start, champion_id, standings) VALUES (?, ?, ?, ?)')

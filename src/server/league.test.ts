@@ -7,6 +7,10 @@ import { silentLogger } from '../ingest/log.ts';
 import type { BattleView, CityView, LeagueCard, LeagueDetail, MeResponse } from '../protocol.ts';
 import { createServer } from './app.ts';
 import { loadConfig } from './config.ts';
+import { sameInvite } from './leagues.ts';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 async function boot(start: number) {
   const now = { t: start };
@@ -219,5 +223,114 @@ describe('server bug sweep regressions', () => {
       expect(res.headers.location).toBe('http://cc.test/');
     }
     await server.shutdown();
+  });
+});
+
+describe('server sweep, second round', () => {
+  it('catches up every week missed across several resets, oldest first, and keeps the work they need', async () => {
+    const w0 = weekOf(Date.UTC(2026, 10, 3), 0).weekStart;
+    const week = 7 * DAY_MS;
+    const { server, now, signIn } = await boot(w0 + 3_600_000);
+    const cookie = await signIn('ana');
+    const id = (await server.app.inject({ url: '/api/me', headers: { cookie } })).json<MeResponse>().user!.id;
+    const card = (await server.app.inject({ method: 'POST', url: '/api/leagues', headers: { cookie }, payload: { name: 'Long Sleep', visibility: 'public', resetHour: 0, bots: 2 } })).json<LeagueCard>();
+    const league = server.game.leagueBySlug(card.slug)!;
+    for (let h = 2; h < 12; h += 3) server.leagues.onPush(push(id, 400), w0 + h * 3_600_000);
+    // The server is down from Monday of week 0 to Thursday of week 3: three resets missed.
+    now.t = w0 + 3 * week + 3 * DAY_MS + 1000;
+    // Boot prunes before it fights; week 0's work must survive that.
+    server.leagues.prune(now.t);
+    for (let i = 0; i < 100 && server.fightDue() > 0; i++);
+    const weeks = server.game.weeks(league.id, 10).map((w) => w.weekStart).sort((a, b) => a - b);
+    expect(weeks).toEqual([w0, w0 + week, w0 + 2 * week]);
+    const first = server.game.battlesOfWeek(league.id, w0);
+    expect(first.filter((b) => b.kind === 'daily' && b.day === 0).some((b) => b.aId === id || b.bId === id)).toBe(true);
+    expect(first.some((b) => b.kind === 'grand')).toBe(true);
+    expect(server.game.progress(league.id, w0 + 3 * week)).toEqual({ dayDone: 2, grandDone: false });
+    expect(server.fightDue()).toBe(0);
+    // Once fought, old work is pruned as before.
+    server.leagues.prune(now.t);
+    expect(server.game.work(id, 0, w0 + week)).toHaveLength(0);
+    await server.shutdown();
+  }, 300_000);
+
+  it('signs out only on a same-site POST; GET asks for confirmation', async () => {
+    const { server, signIn } = await boot(Date.UTC(2026, 10, 3, 9));
+    const cookie = await signIn('ana');
+    const cleared = (res: { headers: Record<string, unknown> }) => [res.headers['set-cookie']].flat().some((c) => typeof c === 'string' && c.startsWith('pf_session=;'));
+    const get = await server.app.inject({ url: '/auth/logout', headers: { cookie } });
+    expect(get.statusCode).toBe(200);
+    expect(get.body).toContain('method="post"');
+    expect(cleared(get)).toBe(false);
+    const evil = await server.app.inject({ method: 'POST', url: '/auth/logout', headers: { cookie, origin: 'https://evil.example' } });
+    expect(evil.statusCode).toBe(403);
+    expect(cleared(evil)).toBe(false);
+    const app = await server.app.inject({ method: 'POST', url: '/auth/logout', headers: { cookie, origin: 'http://cc.test' } });
+    expect(app.statusCode).toBe(204);
+    expect(cleared(app)).toBe(true);
+    // The confirmation page's form: an empty urlencoded body, a browser asking for HTML.
+    const form = await server.app.inject({
+      method: 'POST', url: '/auth/logout', payload: '',
+      headers: { cookie, origin: 'http://cc.test', accept: 'text/html,*/*', 'content-type': 'application/x-www-form-urlencoded' },
+    });
+    expect(form.statusCode).toBe(303);
+    expect(form.headers.location).toBe('http://cc.test/');
+    expect(cleared(form)).toBe(true);
+    await server.shutdown();
+  });
+
+  it('creates a league and deletes an account all at once or not at all', async () => {
+    const { server, signIn } = await boot(Date.UTC(2026, 10, 3, 9));
+    const cookie = await signIn('ana');
+    const addMember = server.game.addMember.bind(server.game);
+    server.game.addMember = (l, u, role, at) => {
+      if (role === 'bot') throw new Error('disk full');
+      return addMember(l, u, role, at);
+    };
+    const res = await server.app.inject({ method: 'POST', url: '/api/leagues', headers: { cookie }, payload: { name: 'Half Built', visibility: 'public', resetHour: 0, bots: 2 } });
+    expect(res.statusCode).toBe(500);
+    server.game.addMember = addMember;
+    expect(server.game.leagues()).toHaveLength(0);
+
+    const id = (await server.app.inject({ url: '/api/me', headers: { cookie } })).json<MeResponse>().user!.id;
+    server.game.setLook(id, 'templar', 10);
+    const deleteUser = server.store.deleteUser.bind(server.store);
+    server.store.deleteUser = () => {
+      throw new Error('disk full');
+    };
+    expect((await server.app.inject({ method: 'DELETE', url: '/api/me', headers: { cookie } })).statusCode).toBe(500);
+    server.store.deleteUser = deleteUser;
+    expect(server.game.look(id)).not.toBeNull();
+    expect(server.store.user(id)).not.toBeNull();
+    expect((await server.app.inject({ method: 'DELETE', url: '/api/me', headers: { cookie } })).statusCode).toBe(204);
+    expect(server.game.look(id)).toBeNull();
+    expect(server.store.user(id)).toBeNull();
+    await server.shutdown();
+  });
+
+  it('HEAD on a page route serves like GET', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cc-client-'));
+    writeFileSync(join(dir, 'index.html'), '<!doctype html><title>Code Clash</title>');
+    const config = loadConfig({ NODE_ENV: 'test', DATABASE_PATH: ':memory:', COMMONS: '0', CLIENT_DIR: dir, PUBLIC_URL: 'http://cc.test' });
+    const server = await createServer(config, { log: silentLogger, background: false, github: null });
+    try {
+      const get = await server.app.inject({ url: '/league/night-watch' });
+      const head = await server.app.inject({ method: 'HEAD', url: '/league/night-watch' });
+      expect(get.statusCode).toBe(200);
+      expect(head.statusCode).toBe(200);
+      expect(head.headers['content-type']).toMatch(/text\/html/);
+      expect(head.body).toBe('');
+      expect((await server.app.inject({ method: 'HEAD', url: '/api/nope' })).statusCode).toBe(404);
+    } finally {
+      await server.shutdown();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('compares invite codes without short-circuiting', () => {
+    expect(sameInvite('abc', 'abc')).toBe(true);
+    expect(sameInvite('abd', 'abc')).toBe(false);
+    expect(sameInvite('', 'abc')).toBe(false);
+    expect(sameInvite('abcabc', 'abc')).toBe(false);
   });
 });

@@ -5,7 +5,7 @@
 // is recomputed from that log whenever it is needed. At each league's battle times the
 // scheduler fights the day's battles in order, and records them; the browser replays them.
 
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { emptyCounts, total, type Counts } from '../game/units.ts';
 import { fight, type ArmySpec, type BattleResult } from '../game/battle.ts';
 import { cityAt, grandArmy, type CityState, type DailyOutcome, type WorkEvent, DAYS_PER_WEEK } from '../game/city.ts';
@@ -48,6 +48,12 @@ export interface LeaguesDeps {
 export function slugify(name: string): string {
   const s = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
   return s.length >= 3 ? s : `league-${s || 'x'}`;
+}
+
+/** Compares invite codes in constant time (hashed first, so neither length nor prefix leaks). */
+export function sameInvite(given: string, actual: string): boolean {
+  const digest = (v: string) => createHash('sha256').update(v).digest();
+  return timingSafeEqual(digest(given), digest(actual));
 }
 
 const isBot = (id: number) => id < 0;
@@ -148,12 +154,9 @@ export class Leagues {
   private resolve(league: LeagueRow, now: number, deadline: number): number {
     const { game } = this.deps;
     const current = weekOf(now, league.resetHour, this.dayMs);
-    // Last week first, if it was left unfinished (a restart across the reset), then this week.
-    const weeks = [current.weekStart - DAYS_PER_WEEK * this.dayMs, current.weekStart];
+    // Every unfinished week, oldest first: a server down across several resets catches them all up.
     let fought = 0;
-    for (const ws of weeks) {
-      const created = weekOf(league.createdAt, league.resetHour, this.dayMs).weekStart;
-      if (ws < created) continue;
+    for (let ws = this.firstUnresolvedWeek(league); ws <= current.weekStart; ws += DAYS_PER_WEEK * this.dayMs) {
       let p = game.progress(league.id, ws) ?? { dayDone: -1, grandDone: false };
       for (let day = p.dayDone + 1; day < DAYS_PER_WEEK; day++) {
         const at = battleAt(ws, day, this.dayMs);
@@ -185,6 +188,14 @@ export class Leagues {
       }
     }
     return fought;
+  }
+
+  /** The oldest week whose battles are not all fought: the one after the last finished week, or the league's first. */
+  firstUnresolvedWeek(league: LeagueRow): number {
+    const created = weekOf(league.createdAt, league.resetHour, this.dayMs).weekStart;
+    const last = this.deps.game.lastFinishedWeek(league.id);
+    if (last === null) return created;
+    return Math.max(created, weekOf(last, league.resetHour, this.dayMs).weekStart + DAYS_PER_WEEK * this.dayMs);
   }
 
   private standings(league: LeagueRow, ws: number, at: number, battles: readonly BattleRow[], members: readonly LeagueMemberRow[]): (Standing & { city: CityState; met: number[] })[] {
@@ -288,13 +299,16 @@ export class Leagues {
     if (owned.length >= config.maxLeaguesPerUser) throw new LeagueFailure('limit', `You can own at most ${config.maxLeaguesPerUser} leagues.`);
     let slug = slugify(req.name);
     for (let i = 2; game.leagueBySlug(slug); i++) slug = `${slugify(req.name).slice(0, 36)}-${i}`;
-    const id = game.insertLeague({
-      slug, name: req.name, ownerId: owner.id, visibility: req.visibility, invite: randomBytes(9).toString('base64url'), resetHour: req.resetHour,
-      bots: Math.min(BOT_COUNT, req.bots), seed: hashString(`${slug}:${now}`), createdAt: now,
+    // The league and its members are written together: never a league without its owner.
+    return game.transaction(() => {
+      const id = game.insertLeague({
+        slug, name: req.name, ownerId: owner.id, visibility: req.visibility, invite: randomBytes(9).toString('base64url'), resetHour: req.resetHour,
+        bots: Math.min(BOT_COUNT, req.bots), seed: hashString(`${slug}:${now}`), createdAt: now,
+      });
+      game.addMember(id, owner.id, 'owner', now);
+      for (let i = 0; i < Math.min(BOT_COUNT, req.bots); i++) game.addMember(id, -(i + 1), 'bot', now);
+      return game.league(id)!;
     });
-    game.addMember(id, owner.id, 'owner', now);
-    for (let i = 0; i < Math.min(BOT_COUNT, req.bots); i++) game.addMember(id, -(i + 1), 'bot', now);
-    return game.league(id)!;
   }
 
   /** The public league with sparring bots that every server starts with. */
@@ -308,11 +322,11 @@ export class Leagues {
   canView(league: LeagueRow, userId: number | null, invite: string | null): boolean {
     if (league.visibility === 'public') return true;
     if (userId !== null && (league.ownerId === userId || this.deps.game.isMember(league.id, userId))) return true;
-    return invite !== null && invite === league.invite;
+    return invite !== null && sameInvite(invite, league.invite);
   }
 
   join(league: LeagueRow, user: UserRow, invite: string | null, now: number): void {
-    if (league.visibility === 'private' && invite !== league.invite && league.ownerId !== user.id) throw new LeagueFailure('forbidden', 'This league is private: you need its invite link.');
+    if (league.visibility === 'private' && !(invite !== null && sameInvite(invite, league.invite)) && league.ownerId !== user.id) throw new LeagueFailure('forbidden', 'This league is private: you need its invite link.');
     this.deps.game.addMember(league.id, user.id, 'member', now);
   }
 
@@ -416,6 +430,9 @@ export class Leagues {
   }
 
   prune(now: number): void {
-    this.deps.game.pruneWork(now - WORK_KEEP_MS - DAYS_PER_WEEK * this.dayMs);
+    // Work still needed by a week whose battles are not yet fought (a catch-up after downtime) is kept.
+    let before = now - WORK_KEEP_MS - DAYS_PER_WEEK * this.dayMs;
+    for (const league of this.deps.game.leagues()) before = Math.min(before, this.firstUnresolvedWeek(league));
+    this.deps.game.pruneWork(before);
   }
 }

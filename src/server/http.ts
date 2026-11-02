@@ -148,8 +148,11 @@ export async function buildHttp(deps: HttpDeps): Promise<FastifyInstance> {
     if (!user) return fail(reply, 401, 'signed_out', 'Sign in first.');
     const owned = game.leaguesOf(user.id).filter((l) => l.ownerId === user.id);
     if (owned.length > 0) return fail(reply, 409, 'owns_leagues', `Delete the leagues you own first (${owned.map((l) => l.name).join(', ')}).`);
-    game.deleteUser(user.id);
-    store.deleteUser(user.id);
+    // Both stores share one database: the account goes all at once or not at all.
+    game.transaction(() => {
+      game.deleteUser(user.id);
+      store.deleteUser(user.id);
+    });
     deps.pool?.forget(user.id);
     reply.clearCookie(SESSION_COOKIE, { path: '/' });
     deps.log.info('account deleted', { user: user.id });
@@ -275,7 +278,7 @@ export async function buildHttp(deps: HttpDeps): Promise<FastifyInstance> {
     app.setNotFoundHandler((req, reply) => {
       const path = req.url.split('?')[0]!;
       const asset = /\.[A-Za-z0-9]+$/.test(path.slice(path.lastIndexOf('/') + 1));
-      if (req.method !== 'GET' || asset || /^\/(api|auth|hooks)(\/|$)/.test(path)) return reply.code(404).send({ error: 'not_found', message: 'Not found.' });
+      if ((req.method !== 'GET' && req.method !== 'HEAD') || asset || /^\/(api|auth|hooks)(\/|$)/.test(path)) return reply.code(404).send({ error: 'not_found', message: 'Not found.' });
       return reply.type('text/html').sendFile('index.html');
     });
   }
