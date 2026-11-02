@@ -591,8 +591,8 @@ export class CityScene {
         // here, the cool is in its shade steps and cast shadows.
         const gold = this.st.id === 'templar';
         const r = 255 - 150 * k;
-        const gg = (gold ? 246 : 252) - (gold ? 120 : 126) * k;
-        const b = (gold ? 222 : 240) - (gold ? 28 : 46) * k;
+        const gg = (gold ? 240 : 252) - (gold ? 114 : 126) * k;
+        const b = (gold ? 210 : 240) - (gold ? 16 : 46) * k;
         x.fillStyle = `rgb(${Math.round(r)},${Math.round(gg)},${Math.round(b)})`;
       }
       x.fillRect(0, 0, W, H);

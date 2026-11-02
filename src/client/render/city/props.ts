@@ -579,7 +579,7 @@ export interface Sun {
 export function sunFor(id: string): Sun {
   switch (id) {
     case 'templar':
-      return { dir: [1.04, -0.34], shade: hex('#24245c'), depth: 0.52 };
+      return { dir: [1.4, -0.46], shade: hex('#1e1e58'), depth: 0.58 };
     case 'samurai':
       return { dir: [1.1, -0.36], shade: hex('#262a64'), depth: 0.5 };
     case 'undead':

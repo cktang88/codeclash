@@ -24,9 +24,9 @@ type Mat = 'stone' | 'fine' | 'timber' | 'plank';
 
 /** Low-frequency dapple: warm patches of sun on the lit face (as through leaves or broken cloud). */
 function dapple(p: V3, seed: number): number {
-  const a = hash(Math.floor(p.u / 7), Math.floor(p.z / 5), seed + 300);
-  const b = hash(Math.floor((p.u + 3) / 5), Math.floor((p.z + 2) / 4), seed + 301);
-  return a < 0.28 && b < 0.6 ? 1 : 0;
+  const a = hash(Math.floor((p.u + p.v) / 6), Math.floor(p.z / 4), seed + 300);
+  const b = hash(Math.floor((p.u + p.v + 2) / 3), Math.floor((p.z + 1) / 2), seed + 301);
+  return a < 0.4 && b < 0.65 ? 1 : 0;
 }
 
 /** Is (ls, lt) inside an opening of w × h, with a round arch (w ≥ 3) or a pointed lancet head? */
@@ -287,7 +287,7 @@ function material(P: Painter, mat: Mat, h: number, f: Facing, s: number, t: numb
   if (t < 1.5 && p.z < 3) c = tone(c, 0.12);
   if (t > h - 1.2 - hash(sq >> 2, seed, 35) * 0.8) c = tone(c, 0.3);
   // Dappled sun on the lit face.
-  else if (lit && dapple(p, seed)) c = mix(c, SUN, 0.14);
+  else if (lit && dapple(p, seed)) c = mix(c, SUN, 0.26);
   return c;
 }
 
