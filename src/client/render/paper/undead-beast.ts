@@ -366,5 +366,5 @@ const engineRig = (): SkeletonRig => {
 
 export function registerBeasts(colossusKind: number, engineKind: number): void {
   registerLazy(colossusKind, 'beast', colossusRig, false);
-  void engineRig; // registerLazy(engineKind, "engine", engineRig, true);
+  registerLazy(engineKind, 'engine', engineRig, true);
 }
