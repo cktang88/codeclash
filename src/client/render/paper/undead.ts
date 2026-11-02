@@ -12,6 +12,7 @@ import { Anim, COMMANDER_KIND } from '../contract.ts';
 import { addP, code, DEG, hash, rot, type P2, type Paper } from './core.ts';
 import { isBack, type Facing } from './facing.ts';
 import { registerPaperKind } from './registry.ts';
+import { registerUndeadRigs } from './undead-bones.ts';
 import { along, BEAST0, ENGINE0, FOOT0, HORSE0, limb, poser, settle, snapDeg, swing, type BeastPose, type EnginePose, type FootPose, type HorsePose, type KeySet } from './rig.ts';
 import {
   backbone, bone, bow, crossbow, flame, frameOf, handAt, head, hood, mailShirt, mul, pavise, pelvis, quiver, rag, ribcage, robe, shield, shieldBack, skelArm, skelLeg, skull, skullBack, spear, sword, tabard, UM,
@@ -1568,3 +1569,8 @@ export function trebuchet(c: Paper, p: EnginePose, facing: Facing, anim: Anim, f
 }
 
 registerPaperKind<EnginePose>('undead', U.Artillery, { body: 'engine', keys: TREBUCHET_KEYS, draw: (c, p, facing, anim, frame) => lit(c, () => trebuchet(c, p, facing, anim, frame)) });
+
+// ------------------------------------------------------------------ the kinds rebuilt on bones
+// The kinds rebuilt on bones from the approved key art (undead-bones.ts) replace their pose-rig
+// figures above.
+registerUndeadRigs();
