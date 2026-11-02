@@ -7,7 +7,7 @@ import { paintPaper } from './index.ts';
 import { registerPaperKind } from './registry.ts';
 import { BODIES } from './rig.ts';
 import {
-  animationsFor, bakeClip, drawSkeleton, footAnimations, footSkeleton, loadMotion, paintSkeleton, partDrawCount, posedNumbers, resolveBone, skeletonFor, skeletonKind, stickParts,
+  animationsFor, bakeClip, drawSkeleton, footAnimations, footSkeleton, horseSkeleton, loadMotion, paintSkeleton, partDrawCount, posedNumbers, resolveBone, skeletonFor, skeletonKind, stickParts,
   type Clip, type FacingClips, type MotionJson, type Posed, type SkeletonRig,
   acosDeg, angleOf, animationFromPoses, atan2Deg, bonesFromJoints, cosStep, curveAt, EASE, emptyLocals, evaluate, mixLocals, sampleAnimation, sampleClip, sinStep, snapStep, type AnimationData, type SkeletonData,
 } from './skeleton.ts';
@@ -279,9 +279,36 @@ describe('skeleton: standard bodies and clips', () => {
   });
 
   it('resolves mocap bone names', () => {
-    expect(['LeftUpLeg', 'RightForeArm', 'upperArm.R', 'thigh_l', 'Hips', 'Spine', 'thighN', 'hand.L', 'Head', 'shin_r'].map(resolveBone)).toEqual([
+    expect(['LeftUpLeg', 'RightForeArm', 'upperArm.R', 'thigh_l', 'Hips', 'Spine', 'thighN', 'hand.L', 'Head', 'shin_r'].map((n) => resolveBone(n))).toEqual([
       'thighF', 'forearmN', 'upperArmN', 'thighF', 'pelvis', 'spine', 'thighN', 'handF', 'head', 'shinN',
     ]);
+    // Horse names only resolve to the horse within a horse skeleton.
+    const horse = horseSkeleton();
+    expect(['barrel', 'neck', 'head', 'tail', 'foreUpperN', 'hindLowerF', 'fore_upper_l', 'foreNUpper', 'riderHead', 'upperArm.R'].map((n) => resolveBone(n, horse))).toEqual([
+      'horseBody', 'horseNeck', 'horseHead', 'tail', 'foreNUpper', 'hindFLower', 'foreFUpper', 'foreNUpper', 'head', 'upperArmN',
+    ]);
+    expect(resolveBone('neck', skel)).toBe('neck');
+  });
+
+  it('loads a horse clip in the mocap naming (barrel, neck, foreUpperN …), ignoring twist', () => {
+    const horse = horseSkeleton();
+    const legs = ['foreUpperN', 'foreLowerN', 'foreUpperF', 'foreLowerF', 'hindUpperN', 'hindLowerN', 'hindUpperF', 'hindLowerF'];
+    const json: MotionJson = {
+      name: 'horse-walk', frames: 12, loop: true, ease: EASE, lengths: { foreUpper: 6.4, foreLower: 6.2 },
+      keys: [0, 3, 6, 9].map((f, i) => ({
+        f, height: 16.0 + (i % 2) * 0.3, twist: { pelvis: 4, chest: -3 },
+        bones: { barrel: 93 + (i % 2), neck: 150 - i, head: 45, tail: 15, ...Object.fromEntries(legs.map((l, j) => [l, (j % 2 ? -5 : 10) * (i % 2 ? 1 : -1)])) },
+      })),
+    };
+    const a = loadMotion(json, horse) as AnimationData;
+    for (const b of ['horseBody', 'horseNeck', 'horseHead', 'tail', 'foreNUpper', 'foreFLower', 'hindNUpper', 'hindFLower']) expect(a.bones![b]?.rotate?.length, b).toBe(4);
+    expect(a.bones!.neck).toBeUndefined(); // the rider's neck is untouched
+    expect(a.bones!.horseBody!.translate!.length).toBe(4); // height drives the barrel
+    const frames = bakeClip(horse, a, 4, 'se', 12, true);
+    expect(frames.length).toBe(12);
+    const fk = evaluate(horse, sampleClip(a, 0, 12), { level: 8, facing: 'se', noIk: true });
+    expect(fk.byName.horseNeck!.a).toBe(150);
+    expect(fk.byName.foreNUpper!.a).toBe(352.5); // -10 degrees snaps to -7.5
   });
 
   it('loads mocap key JSON: retargets, eases, and plants the feet by IK on top', () => {

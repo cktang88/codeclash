@@ -1069,9 +1069,35 @@ export const BONE_ALIASES: Record<string, string> = {
   thigh: 'thigh', upleg: 'thigh', upperleg: 'thigh', femur: 'thigh', shin: 'shin', leg: 'shin', lowerleg: 'shin', tibia: 'shin', calf: 'shin', foot: 'foot', ankle: 'foot',
 };
 const SIDED = new Set(['upperArm', 'forearm', 'hand', 'thigh', 'shin', 'foot']);
-/** Our bone name for a mocap bone name ('LeftUpLeg' → 'thighF', 'upperArm.R' → 'upperArmN', 'thighN' → 'thighN'), or the name unchanged. */
-export function resolveBone(name: string): string {
-  if ((FOOT_BONES as readonly string[]).includes(name)) return name;
+/**
+ * Horse clip names (the mocap agent's style) to horseSkeleton's. Within a horse skeleton `neck` and
+ * `head` are the horse's; the rider's are reached as `riderNeck` / `riderHead` (or by our names
+ * through a foot clip, e.g. footAnimations picked for the rider).
+ */
+export const HORSE_ALIASES: Record<string, string> = {
+  barrel: 'horseBody', body: 'horseBody', horsebody: 'horseBody', neck: 'horseNeck', horseneck: 'horseNeck', head: 'horseHead', horsehead: 'horseHead', tail: 'tail',
+  riderneck: 'neck', riderhead: 'head', riderpelvis: 'pelvis', riderspine: 'spine', riderchest: 'chest',
+};
+/** 'foreUpperN', 'hind_lower_l', 'foreNUpper' → horseSkeleton's leg names (fore|hind, side, Upper|Lower). */
+function horseLeg(name: string): string | null {
+  const m = /^(fore|hind)[._ -]?(?:(upper|lower)[._ -]?(n|f|near|far|l|r|left|right)|(n|f)[._ -]?(upper|lower))$/i.exec(name);
+  if (!m) return null;
+  const end = (m[2] ?? m[5])!.toLowerCase(), sd = (m[3] ?? m[4])!.toLowerCase();
+  const side = sd === 'n' || sd === 'near' || sd === 'r' || sd === 'right' ? 'N' : 'F';
+  return `${m[1]!.toLowerCase()}${side}${end === 'upper' ? 'Upper' : 'Lower'}`;
+}
+
+/**
+ * Our bone name for a mocap bone name ('LeftUpLeg' → 'thighF', 'upperArm.R' → 'upperArmN', 'thighN'
+ * → 'thighN'), or the name unchanged. Given a horse skeleton, horse names resolve first ('barrel' →
+ * 'horseBody', 'neck' → 'horseNeck', 'foreUpperN' → 'foreNUpper').
+ */
+export function resolveBone(name: string, skel?: SkeletonData): string {
+  if (skel && (skel.body === 'horse' || skel.bones.some((b) => b.name === 'horseBody'))) {
+    const h = HORSE_ALIASES[name.toLowerCase()] ?? horseLeg(name);
+    if (h) return h;
+  }
+  if ((FOOT_BONES as readonly string[]).includes(name) || (skel && skel.bones.some((b) => b.name === name))) return name;
   let base = name, side = '';
   const pre = /^(left|right)/i.exec(name);
   if (pre) {
@@ -1605,6 +1631,8 @@ export interface MotionKey {
   contact?: Partial<Record<'N' | 'F', boolean>>;
   /** Bone name (ours, or a mocap alias) → angle in degrees. */
   bones: Record<string, number>;
+  /** Informational (axial twist the 2D projection cannot show); ignored. */
+  twist?: Record<string, number>;
 }
 export interface MotionClip {
   name: string;
@@ -1634,8 +1662,9 @@ export interface LoadMotionOptions {
  * Turns mocap key JSON into a clip for a skeleton (a FacingClips when the file has facings):
  * 1. bone names resolve through BONE_ALIASES; angles become rotation offsets from rest (world
  *    angles through the hierarchy, so the figure's own rest angles never matter);
- * 2. retargeting: offsets and heights scale by the figure's leg (thigh + shin) over the source's,
- *    or the figure's pelvis height over the source's `restHeight`;
+ * 2. retargeting: offsets and heights scale by the figure's leg (thigh + shin, or a horse's
+ *    foreleg) over the source's, or the figure's pelvis (horse: barrel) height over `restHeight`;
+ *    the root offset and height drive the pelvis, or a horse's barrel; `twist` is ignored;
  * 3. foot planting: at each key the FK ankle is found, the foot IK target is put there, and pressed
  *    onto the ground line where the key is a contact, so IK (and the ground correction) keep the
  *    planted foot on the ground while the mocap drives everything else.
@@ -1657,11 +1686,16 @@ function loadMotionClip(clip: MotionClip, skel: SkeletonData, facing: Facing, op
   const lenOf = (n: string) => (has(n) ? skel.bones[C.idx.get(n)!]!.len : 0);
   // Retargeting scale.
   let scale = 1;
-  const src = Object.fromEntries(Object.entries(clip.lengths ?? {}).map(([n, v]) => [resolveBone(n), v]));
-  const srcLeg = (src.thighN ?? src.thighF ?? src.thigh ?? 0) + (src.shinN ?? src.shinF ?? src.shin ?? 0);
-  const pelvisH = has('pelvis') ? -rest.byName.pelvis!.y : 0;
-  if (srcLeg > 0) scale = (lenOf('thighN') + lenOf('shinN')) / srcLeg;
-  else if (clip.restHeight) scale = pelvisH / clip.restHeight;
+  const src = Object.fromEntries(Object.entries(clip.lengths ?? {}).map(([n, v]) => [resolveBone(n, skel), v]));
+  // A leg (sided names, either side, or unsided) over the figure's: thigh + shin, or a horse's foreleg.
+  const srcLen = (ours: string): number => src[ours] ?? src[ours.replace(/N(?=Upper|Lower|$)/, 'F')] ?? src[ours.replace(/N(?=Upper|Lower|$)/, '')] ?? 0;
+  const legs: [string, string][] = [['thighN', 'shinN'], ['foreNUpper', 'foreNLower']];
+  const leg = legs.find(([a, b]) => has(a) && has(b) && srcLen(a) > 0 && srcLen(b) > 0);
+  // The root offset and height drive the pelvis of a man, the barrel of a horse.
+  const rootBone = has('horseBody') ? 'horseBody' : 'pelvis';
+  const rootH = has(rootBone) ? -rest.byName[rootBone]!.y : 0;
+  if (leg) scale = (lenOf(leg[0]) + lenOf(leg[1])) / (srcLen(leg[0]) + srcLen(leg[1]));
+  else if (clip.restHeight) scale = rootH / clip.restHeight;
   const ease = clip.ease;
   const anim: AnimationData = { name: clip.name, frames: clip.frames, loop: clip.loop, bones: {} };
   const tl = (n: string): BoneTimeline => (anim.bones![n] ??= {});
@@ -1673,17 +1707,17 @@ function loadMotionClip(clip: MotionClip, skel: SkeletonData, facing: Facing, op
   for (const k of keys) {
     const named: Record<string, number> = {};
     for (const [n, v] of Object.entries(k.bones)) {
-      const r = resolveBone(n);
+      const r = resolveBone(n, skel);
       if (has(r)) named[r] = v;
     }
     let rots: Record<string, BoneLocal>;
     if ((clip.angles ?? 'world') === 'world') rots = localsFromWorld(skel, named, facing).bones;
     else rots = Object.fromEntries(Object.entries(named).map(([n, v]) => [n, { rot: v - (skel.bones[C.idx.get(n)!]!.facing?.[facing]?.rot ?? skel.bones[C.idx.get(n)!]!.rot) }]));
     for (const [n, b] of Object.entries(rots)) (tl(n).rotate ??= []).push(key(k, b.rot ?? 0));
-    if (has('pelvis') && (k.root || k.height !== undefined)) {
+    if (has(rootBone) && (k.root || k.height !== undefined)) {
       const x = (k.root?.[0] ?? 0) * scale;
-      const y = k.height !== undefined ? pelvisH - k.height * scale : (k.root?.[1] ?? 0) * scale;
-      (tl('pelvis').translate ??= []).push(key(k, [round6(x), round6(y)] as [number, number]));
+      const y = k.height !== undefined ? rootH - k.height * scale : (k.root?.[1] ?? 0) * scale;
+      (tl(rootBone).translate ??= []).push(key(k, [round6(x), round6(y)] as [number, number]));
     }
   }
   // Every keyed channel needs a key at every key frame for the plant pass below to sample cleanly;
