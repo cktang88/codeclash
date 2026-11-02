@@ -642,6 +642,11 @@ export class CityScene {
       g.globalAlpha = Math.min(1, pool * 1.4);
       this.halo(g, 'glow', x, y, 32, 20);
     }
+    // The props' lanterns (city/props.ts), the same small pool.
+    for (const [x, y] of this.lamps) {
+      g.globalAlpha = Math.min(1, pool * 1.4);
+      this.halo(g, 'glow', x, y, 32, 20);
+    }
     for (const [x, y, c] of this.glows) {
       const pulse = 0.8 + 0.2 * Math.sin(t * (c ? 1.6 : 4) + x);
       g.globalAlpha = Math.min(1, pool * 1.6) * pulse;
