@@ -23,7 +23,7 @@
 // courses of long bones); rubble; moss-slate and verdigris lead; rotten timber. The one saturated
 // colour is the grave-light green in the lancets, the cauldron and the crown.
 
-import { GATE_V, registerKit, tierOf, wallHeights, WALL, type BuildingParts, type Painter, type PaintArgs } from './buildings.ts';
+import { GATE_V, registerKit, registerMill, tierOf, wallHeights, WALL, type BuildingParts, type Painter, type PaintArgs } from './buildings.ts';
 import { box, cone, drum, gable, hash, hex, line3, mix, post, pyramid, sx, sy, tone, v3, type Col, type Facing, type Shader } from './pixels.ts';
 import { frustum, mound, type PShader } from './solids.ts';
 import type { Ramp } from './style.ts';
@@ -202,7 +202,8 @@ function spire(P: Painter, u: number, v: number, z: number, l: number, h: number
   pyramid(P.px, u, v, z, l, l, h, 0.6, roofSh(P, 'slate'));
   const t = v3(u + l / 2, v + l / 2, z + h);
   line3(P.px, t, v3(t.u, t.v, t.z + 3), P.st.timber[3]);
-  P.px.point(v3(t.u, t.v, t.z + 3.5), P.st.accent);
+  P.px.point(v3(t.u, t.v, t.z + 3.5), P.st.violet);
+  glow(t.u, t.v, t.z + 3.5, 1);
 }
 
 /** A pinnacle: a little square shaft and a spirelet. */
@@ -340,13 +341,15 @@ function chapter(P: Painter, tier: number, parts: BuildingParts): void {
     { face: 'right', a: lv / 2 - 3.5, w: 7, z: h + 1, h: 7, kind: 'rose' },
   ];
   const rh = hall(P, u0, v0, 0, lu, lv, h, true, holes, (zz) => (zz > h - 3.5 && zz < h - 0.8 && tier >= 3 ? 'bone' : 'black'), 'slate', 23, 1.0);
+  // The rose window and the west door throw grave-light.
+  glow(u0 + lu + 0.3, v0 + lv / 2, h + 4.5, 0);
   // Buttresses down the nave, flying ones when grand.
   if (tier >= 3)
     for (let u = u0 + 5; u < u0 + lu - 3; u += 9) {
       box(P.px, u, v0 + lv, 0, 2.5, 3, h - 2, wrap(gwall(P, 0, h - 2, [], 'black', 24)));
       pyramid(P.px, u, v0 + lv, h - 2, 2.5, 3, 3, 0.1, roofSh(P, 'slate'));
       if (tier >= 4) {
-        if ((u - u0) % 18 > 8) continue;
+        if ((u - u0) % 18 > 8 || u < u0 + 13) continue;
         box(P.px, u, v0 + lv + 6, 0, 2.5, 2.5, h - 2, wrap(gwall(P, 0, h - 2, [], 'black', 25)));
         pinnacle(P, u, v0 + lv + 6, h - 2, 3, u);
         for (let k = 0; k <= 12; k++) {
@@ -375,17 +378,23 @@ function chapter(P: Painter, tier: number, parts: BuildingParts): void {
     for (const [pu, pv] of [[tu - 0.5, tv - 0.5], [tu + 12, tv - 0.5], [tu - 0.5, tv + 12], [tu + 12, tv + 12]] as const) pinnacle(P, pu, pv, th - 1, 4, pu + pv);
     parts.bells.push([Math.floor(sx(tu + 14, tv + 7)), Math.floor(sy(tu + 14, tv + 7, th - 5))]);
     if (tier >= 4) {
-      // The broken tower at the east end (Whitby).
-      const bu = u0 - 8;
-      const bv = v0 + 2;
+      // A transept tower on the near side, left broken (Whitby): its top a ragged stair of
+      // stone against the sky, an empty lancet, its fallen stones heaped at its foot.
+      const bu = u0 + 1;
+      const bv = v0 + lv + 1;
+      const top = (along: number) => 20 + Math.abs(((along * 0.9) % 6) - 3) * 2.2 + hash(Math.floor(along * 2), 0, 3) * 3 + (along - (bu + bv)) * 0.25;
       const broke: PShader = (f, p) => {
         const along = f === 'left' ? p.u : p.v;
-        return p.z > 26 + Math.sin(along * 1.3) * 3 + hash(Math.floor(along * 2), 0, 3) * 4 ? 0 : gwall(P, 0, 34, [
-          { face: 'left', a: bu + 3.5, w: 4, z: 14, h: 9, kind: 'lancet' }, { face: 'right', a: bv + 4, w: 4, z: 14, h: 9, kind: 'lancet' },
-        ], 'black', 28)(f, p);
+        if (p.z > top(along + (f === 'left' ? bv : bu))) return 0;
+        return gwall(P, 0, 34, [
+          { face: 'left', a: bu + 3, w: 4, z: 10, h: 9, kind: 'lancet' }, { face: 'right', a: bv + 3, w: 4, z: 10, h: 9, kind: 'lancet' },
+        ], (zz) => (zz > 16 && zz < 18 ? 'bone' : 'black'), 28)(f, p);
       };
-      box(P.px, bu, bv, 0, 11, 12, 34, wrap(broke), false);
-      bonePile(P, bu + 13, bv + 15, 3.5, 2, 29);
+      box(P.px, bu, bv, 0, 10, 10, 34, wrap(broke), false);
+      // The tower is hollow: its inner walls show dark above the break.
+      box(P.px, bu + 1.2, bv + 1.2, 12, 7.6, 7.6, 10, () => tone(st.stone[3], 0.2), false);
+      bonePile(P, bu + 12, bv + 6, 2.5, 1.6, 29);
+      for (let i = 0; i < 6; i++) box(P.px, bu + 10.5 + hash(i, 1) * 4, bv + 1 + hash(i, 2) * 8, 0, 1.6, 1.6, 1 + (i % 2), (f) => lit(st.stone, f));
       P.pole(parts, tu + 1, tv + 13, th, 10, 7, 5);
     }
   }
@@ -501,7 +510,10 @@ function granary(P: Painter, tier: number, level: number, parts: BuildingParts):
     ], (zz) => (zz > 8.5 && zz < 11 ? 'bone' : 'black'), 55)));
     drum(P.px, u0 + l / 2, v0 + l / 2, 14.5, 8, 3, 16, wrap(gwall(P, 14.5, 3, [], 'bone', 56)));
     cone(P.px, u0 + l / 2, v0 + l / 2, 17.5, 8.5, 7, 16, roofSh(P, 'lead'));
-    P.px.point(v3(u0 + l / 2, v0 + l / 2, 25), st.accent);
+    P.px.point(v3(u0 + l / 2, v0 + l / 2, 25), st.violet);
+    glow(u0 + l / 2, v0 + l / 2, 25, 1);
+    // The tomb door breathes violet.
+    glow(u0 + l + 0.5, v0 + l / 2, 5, 1);
     for (let i = 0; i < 4; i++) {
       const v = v0 + 3 + i * ((l - 6) / 3);
       box(P.px, u0 + l + 2, v - 0.7, 2.5, 1.4, 1.4, 9.5, (f) => lit(st.fine, f));
@@ -568,6 +580,7 @@ function workshop(P: Painter, tier: number, parts: BuildingParts): void {
   drum(P.px, cu, cv, 1.5, 3, 3, 12, (f) => (f === 'left' ? hex('#3a3a42') : hex('#22222a')));
   box(P.px, cu - 2.2, cv - 2.2, 4.4, 4.4, 4.4, 0.2, (_f, _s, _t, p) => P.glassAt(p, mix(st.accent, hex('#20301e'), 0.4)), true);
   parts.smoke.push([Math.floor(sx(cu, cv)), Math.floor(sy(cu, cv, 5))]);
+  glow(cu, cv, 5, 0);
   parts.torches.push([Math.floor(sx(cu + 3.5, cv + 3.5)), Math.floor(sy(cu + 3.5, cv + 3.5, 0))]);
   // Bone heaps sorted by kind, and planks of black timber.
   bonePile(P, u0 + 22, v0 + 10, 4, 3.5, 73);
@@ -791,8 +804,19 @@ function walls(P: Painter, a: PaintArgs, parts: BuildingParts): BuildingParts {
 
 // ------------------------------------------------------------------ registration
 
+/** The parts being painted, for helpers that add light sources (spires, the cauldron). */
+let sink: BuildingParts | null = null;
+/** An emissive point: 0 grave-light green, 1 arcane violet. */
+function glow(u: number, v: number, z: number, kind: 0 | 1): void {
+  if (!sink) return;
+  (sink.glows ??= []).push([sx(u, v), sy(u, v, z), kind]);
+}
+
 registerKit('undead', (P, key, a, parts) => {
   const tier = tierOf(a.level);
+  // Moonlight on every top edge, so the black stone's silhouettes read against the dark.
+  P.rim = hex('#8f88cc');
+  sink = parts;
   switch (key) {
     case 'walls':
       return tier === 0 ? null : walls(P, a, parts);
@@ -822,4 +846,35 @@ registerKit('undead', (P, key, a, parts) => {
       return true;
   }
   return null;
+});
+
+/**
+ * Where the commandery has its windmill: a bone mill. A drum of black stone with a bone band and a
+ * slate cap, its sails laths of long bone hung with shrouds (drawn live, city.ts); a gibbet by
+ * its door. It grinds what the grave fields give up.
+ */
+registerMill('undead', (P, level) => {
+  const st = P.st;
+  P.rim = hex('#8f88cc');
+  const u = 116;
+  const v = -46;
+  const tier = tierOf(level);
+  const h = tier >= 3 ? 22 : 16;
+  frustum(P.px, u - 7, v - 7, 0, 14, 14, 2, 0.8, (f, p) => blackAt(P, f, f === 'left' ? p.u : p.v, p.z, 91));
+  drum(P.px, u, v, 2, 6.5, h, 14, wrap(gwall(P, 2, h, [
+    { face: 'left', a: 0, w: 2, z: h * 0.55, h: 3.5, kind: 'lancet' },
+    { face: 'right', a: 0, w: 3, z: 0, h: 6, kind: 'door' },
+  ].map((o) => ({ ...o, face: o.face as Facing, kind: o.kind as Hole['kind'], a: o.face === 'left' ? u - 1 : v - 1.5 })), (zz) => (zz > h - 4 && zz < h - 1.5 ? 'bone' : 'black'), 92)));
+  cone(P.px, u, v, h + 2, 7.4, 8, 14, roofSh(P, 'slate'));
+  // The cap's finial: a skull.
+  P.px.point(v3(u, v, h + 10.5), st.fine[0]);
+  P.px.point(v3(u + 0.4, v, h + 10.5), st.fine[1]);
+  // A gibbet by the door.
+  line3(P.px, v3(u + 10, v + 4, 0), v3(u + 10, v + 4, 13), st.timber[2]);
+  line3(P.px, v3(u + 10, v + 4, 13), v3(u + 10, v + 8, 13), st.timber[1]);
+  line3(P.px, v3(u + 10, v + 7.5, 13), v3(u + 10, v + 7.5, 10), hex('#4a4a50'));
+  for (let z = 6; z < 10; z += 0.5) for (const dv of [-0.8, 0.8]) P.px.point(v3(u + 10, v + 7.5 + dv, z), hex('#4a4a50'));
+  P.px.point(v3(u + 10, v + 7.5, 9), st.fine[0]);
+  const hub = v3(u + 6.5, v + 6.5, h - 2);
+  return [Math.floor(sx(hub.u, hub.v)), Math.floor(sy(hub.u, hub.v, hub.z))];
 });

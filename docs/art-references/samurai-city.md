@@ -62,3 +62,30 @@ because shrine and temple shared precincts until 1868.
 3. **Round 3:** chidori-hafu moved onto the slope just above each eave, so their white
    triangles and gilt fins show (Hikone). Checked against the references at zoom 4: the ishigaki
    batter and courses, the kura's namako and the gate's yagura-mon.
+
+4. **Round 4 (fixes):** the chidori-hafu read flat. Each now has thick barge boards with a white
+   line of end-tiles along their tops, a two-pixel shadow under the eaves on the plaster, a dark
+   tie-beam at its foot and a hanging gilt fin (`gableDepth`), which is how the Hikone gables
+   read. The armourer's lean-to now has an open mono-pitch roof, so its fire is seen under it,
+   not painted over a roof. City soldiers are drawn from the HD sprite sheets at the city's own
+   density, a pace further apart.
+
+## Study copies and direct image links
+
+The images above were downloaded as study copies to `references/samurai-city/` (git-ignored, never committed).
+Each is linked here as a direct image, with its Commons page and licence.
+
+| Local copy | Image | Page | Licence |
+| --- | --- | --- | --- |
+| `references/samurai-city/sam-himeji.jpg` | [image](https://commons.wikimedia.org/wiki/Special:FilePath/Tenshu_of_Himeji_Castle_13.jpg?width=640) | [page](https://commons.wikimedia.org/wiki/File:Tenshu_of_Himeji_Castle_13.jpg) | CC BY-SA 4.0 |
+| `references/samurai-city/sam-kumamoto.jpg` | [image](https://commons.wikimedia.org/wiki/Special:FilePath/Hitoyoshi_Castle%2C_ishigaki.jpg?width=640) | [page](https://commons.wikimedia.org/wiki/File:Hitoyoshi_Castle,_ishigaki.jpg) | CC0 |
+| `references/samurai-city/sam-machiya.jpg` | [image](https://commons.wikimedia.org/wiki/Special:FilePath/Streets_of_Gion%2C_Kyoto_-_Gion7712.jpg?width=640) | [page](https://commons.wikimedia.org/wiki/File:Streets_of_Gion,_Kyoto_-_Gion7712.jpg) | CC0 |
+| `references/samurai-city/sam-kura.jpg` | [image](https://commons.wikimedia.org/wiki/Special:FilePath/Kura_door.JPG?width=640) | [page](https://commons.wikimedia.org/wiki/File:Kura_door.JPG) | CC BY-SA 3.0 |
+| `references/samurai-city/sam-paddy.jpg` | [image](https://commons.wikimedia.org/wiki/Special:FilePath/Rice-planting-machine_2%2Ckatori-city%2Cjapan.JPG?width=640) | [page](https://commons.wikimedia.org/wiki/File:Rice-planting-machine_2,katori-city,japan.JPG) | CC BY-SA 3.0 |
+| `references/samurai-city/sam-matsumoto.jpg` | [image](https://commons.wikimedia.org/wiki/Special:FilePath/Matsumoto_Castle05s5s4592.jpg?width=640) | [page](https://commons.wikimedia.org/wiki/File:Matsumoto_Castle05s5s4592.jpg) | CC BY 2.5 |
+| `references/samurai-city/sam-byobu.jpg` | [image](https://commons.wikimedia.org/wiki/Special:FilePath/Byobu_of_Matsumae_by_Kodama_Teiryo.jpg?width=640) | [page](https://commons.wikimedia.org/wiki/File:Byobu_of_Matsumae_by_Kodama_Teiryo.jpg) | Public domain |
+| `references/samurai-city/sam-shachi.jpg` | [image](https://commons.wikimedia.org/wiki/Special:FilePath/Dolphin_of_Nagoya_Castle_2.JPG?width=640) | [page](https://commons.wikimedia.org/wiki/File:Dolphin_of_Nagoya_Castle_2.JPG) | CC0 |
+| `references/samurai-city/sam-kyudojo.jpg` | [image](https://commons.wikimedia.org/wiki/Special:FilePath/%E5%BC%93%E9%81%93%E5%A0%B4_-_%E4%B8%89%E5%B3%B6%E5%A4%A7%E7%A4%BE.jpg?width=640) | [page](https://commons.wikimedia.org/wiki/File:%E5%BC%93%E9%81%93%E5%A0%B4_-_%E4%B8%89%E5%B3%B6%E5%A4%A7%E7%A4%BE.jpg) | CC BY-SA 4.0 |
+| `references/samurai-city/sam-temple.jpg` | [image](https://commons.wikimedia.org/wiki/Special:FilePath/Byodo-ji%2C_Main_Hall_01.jpg?width=640) | [page](https://commons.wikimedia.org/wiki/File:Byodo-ji,_Main_Hall_01.jpg) | CC BY-SA 4.0 |
+| `references/samurai-city/sam-ricefarm.jpg` | [image](https://commons.wikimedia.org/wiki/Special:FilePath/A_Couple_Viewing_Rice_Planting_LACMA_16.16.18.jpg?width=640) | [page](https://commons.wikimedia.org/wiki/File:A_Couple_Viewing_Rice_Planting_LACMA_16.16.18.jpg) | Public domain |
+| `references/samurai-city/sam-hikone.jpg` | [image](https://commons.wikimedia.org/wiki/Special:FilePath/Hikone_castle5537.JPG?width=640) | [page](https://commons.wikimedia.org/wiki/File:Hikone_castle5537.JPG) | CC BY 2.1 jp |

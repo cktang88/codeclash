@@ -7,7 +7,7 @@
 import type { BuildingKey } from '../../../game/city.ts';
 import { GATE_V, LOT, tierOf, WALL, type Art } from './buildings.ts';
 import { FIELDS, GARDEN, PADDOCK, type Ground } from './ground.ts';
-import { box, hash, hex, mix, post, Px, tone, v3, type Col, type Frame } from './pixels.ts';
+import { box, hash, hex, mix, post, Px, sx, sy, tone, v3, type Col, type Frame } from './pixels.ts';
 import { roadDistance } from './roads.ts';
 import type { CityStyle } from './style.ts';
 
@@ -42,12 +42,13 @@ function palette(id: string): Pal {
     };
   if (id === 'undead')
     return {
-      grass: [hex('#4f4f3e'), hex('#46473a'), hex('#5a5946'), hex('#3c3d33')],
-      earth: [hex('#4c4640'), hex('#433e39'), hex('#57514a'), hex('#3a3531')],
-      road: [hex('#5f5a55'), hex('#68625c'), hex('#544f4b')],
-      flags: [hex('#6e6a68'), hex('#625e5d'), hex('#7a7674')],
-      soil: hex('#2f2924'),
-      tuft: [hex('#6a6a50'), hex('#2e3028')],
+      // Dead turf gone blue-grey under the necropolis's sky; ash and charcoal within.
+      grass: [hex('#3c4446'), hex('#353d40'), hex('#455052'), hex('#2e3538')],
+      earth: [hex('#3a3644'), hex('#332f3d'), hex('#433f4e'), hex('#2a2734')],
+      road: [hex('#55536a'), hex('#5e5c73'), hex('#4b4960')],
+      flags: [hex('#5f5d74'), hex('#545269'), hex('#6a6880')],
+      soil: hex('#211e29'),
+      tuft: [hex('#56645e'), hex('#262c2e')],
     };
   return {
     grass: [hex('#59613a'), hex('#4f5833'), hex('#646b40'), hex('#454d2e')],
@@ -266,6 +267,8 @@ export function* groundSteps(st: CityStyle, levels: Record<BuildingKey, number>,
   let cropX = 0;
   let cropY = 0;
   const frames = id === 'undead' ? 1 : 4;
+  // The necropolis's grave lanterns: a post and a little iron cage of witchfire, two per worked field.
+  const lamps: [number, number][] = [];
   for (let k = 0; k < frames; k++) {
     const cp = new Px(frame.w, frame.h, frame);
     for (let i = 0; i < sown; i++) {
@@ -276,6 +279,14 @@ export function* groundSteps(st: CityStyle, levels: Record<BuildingKey, number>,
             const n = hash(Math.floor(u), Math.floor(v), 41);
             if (n < 0.12) continue;
             stone(cp, u, v, n, st);
+          }
+        if (k === 0)
+          for (const [fu, fv] of [[0.3, 0.45], [0.75, 0.6]] as const) {
+            const u = f[0] + (f[2] - f[0]) * fu;
+            const v = f[1] + (f[3] - f[1]) * fv;
+            post(cp, u, v, 0, 6, st.timber[1], st.timber[3]);
+            box(cp, u - 0.6, v - 0.6, 6, 1.2, 1.2, 1.5, (fc) => (fc === 'top' ? hex('#2a2632') : fc === 'left' ? hex('#d8ffb8') : hex('#8ee070')));
+            lamps.push([sx(u, v), sy(u, v, 6.8)]);
           }
       } else {
         const stepU = id === 'samurai' ? 2.5 : 1;
@@ -373,7 +384,7 @@ export function* groundSteps(st: CityStyle, levels: Record<BuildingKey, number>,
     rail([[u0, v1], [u1, v1], [u1, v0]], u1 + v1);
   }
   void v3;
-  return { base, crops, arts, sown, cropX, cropY };
+  return { base, crops, arts, sown, cropX, cropY, lamps };
 }
 
 // ------------------------------------------------------------------ trees and headstones

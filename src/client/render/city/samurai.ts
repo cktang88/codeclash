@@ -22,7 +22,7 @@
 
 import type { BuildingKey } from '../../../game/city.ts';
 import { GATE_V, LOT, painterFor, registerKit, registerMill, row, tierOf, wallHeights, WALL, type BuildingParts, type Painter, type PaintArgs } from './buildings.ts';
-import { box, gable, hash, hex, line3, mix, post, sx, sy, tone, v3, type Col, type Facing, type Shader } from './pixels.ts';
+import { box, gable, hash, hex, line3, mix, post, sx, sy, tone, v3, type Col, type Facing, type Shader, type V3 } from './pixels.ts';
 import { face4, frustum, hip, tri3, type PShader } from './solids.ts';
 import type { Ramp } from './style.ts';
 
@@ -242,17 +242,37 @@ function hafu(P: Painter, u: number, v: number, z: number, w: number, h: number,
     face4(P.px, v3(u + w / 2 + 0.5, v, z - 0.4), v3(u, v, z + h + 0.3), v3(u, v - d, z + h + 0.3), v3(u + w / 2 + 0.5, v - d, z - 0.4), 'left', roof);
     // The white gable last, a hair in front, with dark barge boards and the gilt fin.
     tri3(P.px, v3(u - w / 2, v + 0.3, z), v3(u + w / 2, v + 0.3, z), v3(u, v + 0.3, z + h), 'left', face);
-    line3(P.px, v3(u - w / 2 - 0.4, v + 0.4, z - 0.3), v3(u, v + 0.4, z + h + 0.2), st.timber[2]);
-    line3(P.px, v3(u + w / 2 + 0.4, v + 0.4, z - 0.3), v3(u, v + 0.4, z + h + 0.2), st.timber[2]);
-    P.px.point(v3(u, v + 0.5, z + h - 0.8), st.gold);
+    gableDepth(P, (a, zz) => v3(u + a, v + 0.3, zz), w, z, h);
   } else {
     face4(P.px, v3(u, v - w / 2 - 0.5, z - 0.4), v3(u, v, z + h + 0.3), v3(u - d, v, z + h + 0.3), v3(u - d, v - w / 2 - 0.5, z - 0.4), 'back', roof);
     face4(P.px, v3(u, v + w / 2 + 0.5, z - 0.4), v3(u, v, z + h + 0.3), v3(u - d, v, z + h + 0.3), v3(u - d, v + w / 2 + 0.5, z - 0.4), 'right', roof);
     tri3(P.px, v3(u + 0.3, v - w / 2, z), v3(u + 0.3, v + w / 2, z), v3(u + 0.3, v, z + h), 'right', face);
-    line3(P.px, v3(u + 0.4, v - w / 2 - 0.4, z - 0.3), v3(u + 0.4, v, z + h + 0.2), st.timber[2]);
-    line3(P.px, v3(u + 0.4, v + w / 2 + 0.4, z - 0.3), v3(u + 0.4, v, z + h + 0.2), st.timber[2]);
-    P.px.point(v3(u + 0.5, v, z + h - 0.8), st.gold);
+    gableDepth(P, (a, zz) => v3(u + 0.3, v + a, zz), w, z, h);
   }
+}
+
+/**
+ * What gives a small gable its depth: the shadow its projecting roof throws on the plaster just
+ * under the barge boards, thick barge boards with a white line of end-tiles along their tops, a
+ * dark tie-beam across the foot, and the gilt fish-fin (gegyo) hanging at the apex.
+ */
+function gableDepth(P: Painter, at: (a: number, z: number) => V3, w: number, z: number, h: number): void {
+  const st = P.st;
+  const lift = (p: V3, dz: number, out = 0.15): V3 => v3(p.u + out, p.v + out, p.z + dz);
+  const L = (a0: number, z0: number, a1: number, z1: number, c: Col, dz = 0, out = 0.15) => line3(P.px, lift(at(a0, z0), dz, out), lift(at(a1, z1), dz, out), c);
+  // Shadow under the eaves, two art pixels deep.
+  for (const d of [0.55, 1.0]) {
+    L(-w / 2 + d * 1.2, z + 0.1, 0, z + h - d * 1.1, tone(st.fine[2], d > 0.6 ? 0.1 : 0.25), 0, 0.12);
+    L(w / 2 - d * 1.2, z + 0.1, 0, z + h - d * 1.1, tone(st.fine[2], d > 0.6 ? 0.1 : 0.25), 0, 0.12);
+  }
+  // Barge boards: dark, two pixels thick, end-tiles white along the top.
+  for (const [dz, c] of [[0, st.timber[3]], [0.5, st.timber[2]], [1.0, st.fine[1]]] as const) {
+    L(-w / 2 - 0.5, z - 0.4, 0, z + h + 0.1, c, dz, 0.3);
+    L(w / 2 + 0.5, z - 0.4, 0, z + h + 0.1, c, dz, 0.3);
+  }
+  L(-w / 2 + 0.4, z + 0.6, w / 2 - 0.4, z + 0.6, st.timber[2], 0, 0.2);
+  P.px.point(lift(at(0, z + h - 0.9), 0, 0.35), st.gold);
+  P.px.point(lift(at(0, z + h - 1.4), 0, 0.35), tone(st.gold, 0.3));
 }
 
 /** Koshi windows spaced along a face. */
@@ -522,7 +542,9 @@ function barracks(P: Painter, tier: number, parts: BuildingParts): void {
   const fv = v0 + lv + 1;
   box(P.px, u0 + 2, fv, 0, 16, 10, 2, wrap(ishigaki(P, 34)));
   for (const [pu, pv] of [[u0 + 2, fv + 10], [u0 + 18, fv + 10], [u0 + 18, fv]] as const) post(P.px, pu, pv, 0, 9, st.timber[2], st.timber[3]);
-  hip(P.px, u0 + 1, fv - 1, 9, 18, 12, 3, 1.2, tier >= 2 ? kawara(P, 8) : bark(P, 8, st.thatch));
+  // A mono-pitch roof, open toward the yard so the hearth's fire shows.
+  const lean = tier >= 2 ? kawara(P, 8) : bark(P, 8, st.thatch);
+  P.px.quad(v3(u0 + 1, fv - 1, 11), v3(19, 0, 0), v3(0, 13, -3), (_s, _t, p) => lean('left', p));
   box(P.px, u0 + 4, fv + 2, 0, 5, 5, 4, wrap(ishigaki(P, 35)));
   box(P.px, u0 + 10, fv + 2, 0, 3, 5, 3, (f) => lit(st.timber, f, 1));
   P.chimney(parts, u0 + 5, fv + 3, 4, 11);
@@ -670,7 +692,7 @@ function workshop(P: Painter, tier: number, parts: BuildingParts): void {
   parts.smoke.push([Math.floor(sx(u0 + 8.5, v0 + lv / 2)), Math.floor(sy(u0 + 8.5, v0 + lv / 2, zr + 3))]);
   // Hearth, bellows (fuigo), anvil, a quench tub and charcoal sacks.
   box(P.px, u0 + 4, v0 + 5, 0, 6, 6, 3, wrap(ishigaki(P, 71)));
-  parts.forges.push([Math.floor(sx(u0 + 7, v0 + 8)), Math.floor(sy(u0 + 7, v0 + 8, 3))]);
+  // (The hearth is under the roof: its fire shows only as smoke from the kemuridashi.)
   box(P.px, u0 + 11, v0 + 5, 0, 5, 3, 3, (f) => lit(st.timber, f));
   box(P.px, u0 + 14, v0 + 12, 0, 2, 2, 2.5, P.flat(st.slate[2]));
   box(P.px, u0 + 18, v0 + 10, 0, 3, 3, 2, (f, _s, _t, p) => (f === 'top' ? tone(st.slate[1], 0.2) : lit(st.timber, f, Math.floor(p.z * 2) % 2)));

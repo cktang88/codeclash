@@ -83,21 +83,46 @@ export class Draw {
     const a = this.atlas;
     const n = Math.max(1, a.frames(kind, anim));
     const frame = Math.floor((time * 10) / Math.max(1, a.ticksPerFrame(anim))) % n;
-    const [cx, cy] = a.at(kind, anim, frame, dir);
-    this.atlasCell(cx, cy, u, v, z);
+    this.atlasFrame(kind, anim, frame, dir, u, v, z);
   }
-  /** An atlas cell at its own pixel density: in HD its pixels are the buffer's pixels. */
-  private atlasCell(cx: number, cy: number, u: number, v: number, z: number): void {
+  /**
+   * A soldier's frame. Classic draws the atlas grid cell, one texel to a world pixel. HD draws
+   * the HD painter's sheet at the buffer's own density (level k: one texel to a buffer pixel), so
+   * soldiers share the townsfolk's pixel scale; until that sheet is painted (in the background),
+   * the grid cell stands in at the same size.
+   */
+  private atlasFrame(kind: number, anim: Anim, frame: number, dir: Dir, u: number, v: number, z: number): void {
     const a = this.atlas;
     const k = this.k;
-    this.g.drawImage(a.image, cx, cy, a.cellW, a.cellH, this.snap(sx(u, v)) - a.footX / k, this.snap(sy(u, v, z)) - a.footY / k, a.cellW / k, a.cellH / k);
+    const x = this.snap(sx(u, v));
+    const y = this.snap(sy(u, v, z));
+    if (k > 1 && a.sheet && a.slot) {
+      const sh = a.sheet(kind, k);
+      if (sh) {
+        let page = sheetCanvas.get(sh);
+        if (!page) {
+          page = document.createElement('canvas');
+          page.width = sh.width;
+          page.height = sh.height;
+          page.getContext('2d')!.putImageData(new ImageData(new Uint8ClampedArray(sh.pixels), sh.width, sh.height), 0, 0);
+          sheetCanvas.set(sh, page);
+        }
+        const i = a.slot(kind, anim, frame, dir) * 6;
+        const r = sh.rects;
+        const w = r[i + 2]!;
+        const h = r[i + 3]!;
+        if (w > 0 && h > 0) this.g.drawImage(page, r[i]!, r[i + 1]!, w, h, x - r[i + 4]! / k, y - r[i + 5]! / k, w / k, h / k);
+        return;
+      }
+    }
+    const [cx, cy] = a.at(kind, anim, frame, dir);
+    this.g.drawImage(a.image, cx, cy, a.cellW, a.cellH, x - a.footX, y - a.footY, a.cellW, a.cellH);
   }
   /** A soldier on a given frame (for scripted actions). */
   soldierFrame(kind: number, anim: Anim, frame: number, dir: Dir, u: number, v: number, z = 0): void {
     const a = this.atlas;
     const n = Math.max(1, a.frames(kind, anim));
-    const [cx, cy] = a.at(kind, anim, Math.min(n - 1, Math.max(0, frame)), dir);
-    this.atlasCell(cx, cy, u, v, z);
+    this.atlasFrame(kind, anim, Math.min(n - 1, Math.max(0, frame)), dir, u, v, z);
   }
   /** One art pixel (in HD, half a world pixel). */
   px(x: number, y: number, c: string): void {
@@ -135,7 +160,41 @@ export class Draw {
   /** A small shadow under a figure. */
   shadow(u: number, v: number, w = 5): void {
     this.g.fillStyle = 'rgba(20,14,8,0.28)';
+    if (this.k > 1) {
+      // HD: a soft two-row ellipse in art pixels.
+      const q = 1 / this.k;
+      const x = this.snap(sx(u, v));
+      const y = this.snap(sy(u, v));
+      this.g.fillRect(x - w / 2, y, w, q);
+      this.g.fillRect(x - w / 2 + q, y + q, w - 2 * q, q);
+      return;
+    }
     this.g.fillRect(Math.floor(sx(u, v)) - (w >> 1), Math.floor(sy(u, v)), w, 1);
+  }
+  /** A filled rectangle on the art grid (HD) or the world grid (classic), in world pixels. */
+  rect(x: number, y: number, w: number, h: number, c: string): void {
+    this.g.fillStyle = c;
+    this.g.fillRect(this.snap(x), this.snap(y), w, h);
+  }
+  /**
+   * HD: a round puff of `d` art pixels, lit on its upper left (smoke, dust). Built from three
+   * rectangles so its corners are cut, not square.
+   */
+  puff(x: number, y: number, d: number, lit: string, shade: string): void {
+    const q = 1 / this.k;
+    const g = this.g;
+    const D = Math.max(1, Math.round(d));
+    const x0 = this.snap(x - (D * q) / 2);
+    const y0 = this.snap(y - (D * q) / 2);
+    g.fillStyle = shade;
+    if (D <= 2) {
+      g.fillRect(x0, y0, D * q, D * q);
+      return;
+    }
+    g.fillRect(x0 + q, y0, (D - 2) * q, D * q);
+    g.fillRect(x0, y0 + q, D * q, (D - 2) * q);
+    g.fillStyle = lit;
+    g.fillRect(x0 + q, y0 + q, (D - 2) * q, Math.max(1, D - 3) * q);
   }
 }
 
@@ -471,8 +530,12 @@ export class Life {
       g.globalAlpha = a * pulse * 0.9;
       g.drawImage(glow, x - 9, y - 9, 18, 18);
       g.globalAlpha = a * pulse;
+      // A bright core: a cross of five art pixels.
       g.fillStyle = '#e8ffd8';
-      g.fillRect(Math.floor(x * 2) / 2, Math.floor(y * 2) / 2, 1, 1);
+      const cx = Math.floor(x * 2) / 2;
+      const cy = Math.floor(y * 2) / 2;
+      g.fillRect(cx, cy - 0.5, 0.5, 1.5);
+      g.fillRect(cx - 0.5, cy, 1.5, 0.5);
     }
   }
   private wispT = 0;
@@ -696,8 +759,16 @@ export class Life {
       }
       // A pell, and a recruit hacking at it.
       ent(60, 128, (r) => {
-        const x = Math.floor(sx(60, 128));
-        const y = Math.floor(sy(60, 128));
+        const x = r.k > 1 ? r.snap(sx(60, 128)) : Math.floor(sx(60, 128));
+        const y = r.k > 1 ? r.snap(sy(60, 128)) : Math.floor(sy(60, 128));
+        if (r.k > 1) {
+          // HD: a post three art pixels wide, lit, mid and shaded, with a dark cap.
+          r.rect(x - 0.5, y - 9, 0.5, 9, css(st.timber[0]));
+          r.rect(x, y - 9, 0.5, 9, css(st.timber[1]));
+          r.rect(x + 0.5, y - 9, 0.5, 9, css(st.timber[3]));
+          r.rect(x - 0.5, y - 9.5, 1.5, 0.5, css(st.outline));
+          return;
+        }
         r.g.fillStyle = css(st.timber[1]);
         r.g.fillRect(x, y - 9, 2, 9);
         r.g.fillStyle = css(st.timber[3]);
@@ -753,6 +824,11 @@ export class Life {
       const u = s.u0 + (s.u1 - s.u0) * s.t;
       const z = 24 + 110 * s.t * (1 - s.t) - 24 * s.t;
       ent(u, s.v + 30, (r) => {
+        if (r.k > 1) {
+          r.shadow(u, s.v, 1.5);
+          r.puff(sx(u, s.v), sy(u, s.v, z), 4, this.hd?.id === 'samurai' ? '#3a3632' : '#6a645c', '#2a2420');
+          return;
+        }
         r.g.fillStyle = 'rgba(20,14,8,0.3)';
         r.g.fillRect(Math.floor(sx(u, s.v)), Math.floor(sy(u, s.v)), 2, 1);
         r.g.fillStyle = '#4a4540';
@@ -908,8 +984,10 @@ export class Life {
     for (let i = 0; i < n; i++) {
       const c = i % cols;
       const rr = Math.floor(i / cols);
-      const u = cu + (c - (cols - 1) / 2) * 5;
-      const v = cv + (rr - (rows - 1) / 2) * 5;
+      // HD soldiers carry their banners and spears at full size: give them a pace more room.
+      const sp = this.hd ? 6 : 5;
+      const u = cu + (c - (cols - 1) / 2) * sp;
+      const v = cv + (rr - (rows - 1) / 2) * sp;
       out.push({ d: u + v, draw: (r) => r.soldier(kinds[i]!, moving ? Anim.Walk : Anim.Idle, r.t + c * 0.05, moving ? dir : 1, u, v) });
       if (moving && rr === rows - 1 && this.rand.next() < 0.01) this.dust(u, v, 1);
     }
@@ -974,12 +1052,18 @@ export class Life {
     const long: [number, number] = P(ca * 14, 0, pz + sa * 14);
     const short: [number, number] = P(-ca * 5, 0, pz - sa * 5);
     B(short, long, light);
-    r.g.fillStyle = dark;
-    r.g.fillRect(Math.floor(P(0, 0, pz)[0]) - 1, Math.floor(P(0, 0, pz)[1]) - 1, 3, 3);
+    if (r.k > 1) r.puff(P(0, 0, pz)[0], P(0, 0, pz)[1], 3, dark, '#140f0b');
+    else {
+      r.g.fillStyle = dark;
+      r.g.fillRect(Math.floor(P(0, 0, pz)[0]) - 1, Math.floor(P(0, 0, pz)[1]) - 1, 3, 3);
+    }
     const loaded = tt > 5 || tt < 0.35;
     const sling: [number, number] = loaded ? P(ca * 14 - 1, 0, Math.max(1, pz + sa * 14 - 4)) : [long[0] + 2, long[1] + 3];
     r.line(long[0], long[1], sling[0], sling[1], '#d8ccb0');
-    if (loaded) {
+    if (loaded && r.k > 1) {
+      // HD: the sling's pouch and its load, a round stone (or, for the dead, a bundled corpse).
+      r.puff(sling[0], sling[1] + 1, 5, this.hd?.id === 'undead' ? '#b8b09a' : '#7a746a', '#2a2420');
+    } else if (loaded) {
       r.g.fillStyle = '#140f0b';
       r.g.fillRect(Math.floor(sling[0]) - 2, Math.floor(sling[1]) - 1, 4, 4);
       r.g.fillStyle = '#6a645c';
@@ -1048,6 +1132,36 @@ export class Life {
     const h = this.wallFront + 2;
     const open = this.gate;
     const u = WALL - 2;
+    const k = r.k;
+    if (k > 1) {
+      // HD: the leaves column by art pixel: planks, two iron bands, nail heads, a dark passage.
+      const q = 1 / k;
+      const col = (va: number, vb: number, fill: (x: number, y: number, i: number) => void) => {
+        const xa = sx(u, va);
+        const xb = sx(u, vb);
+        let i = 0;
+        for (let x = r.snap(Math.min(xa, xb)); x <= Math.max(xa, xb); x += q, i++) {
+          const vv = u - (x - 256);
+          fill(x, r.snap(sy(u, vv)), i);
+        }
+      };
+      if (open > 0.05) col(g1, g0, (x, y) => r.rect(x, y - h, q, h, 'rgba(12,8,5,0.55)'));
+      const half = (g1 - g0) / 2;
+      const w = half * (1 - open * 0.85);
+      const leafHd = (va: number, vb: number) =>
+        col(va, vb, (x, y, i) => {
+          r.rect(x, y - h, q, h, i % 5 === 0 ? css(r.st.timber[3]) : i % 5 === 1 ? css(r.st.timber[1]) : css(r.st.timber[2]));
+          r.rect(x, y - h + 2, q, q, css(r.st.outline));
+          r.rect(x, y - 3, q, q, css(r.st.outline));
+          if (i % 4 === 2) {
+            r.rect(x, y - h + 2 - q, q, q, '#8a8478');
+            r.rect(x, y - 3 - q, q, q, '#8a8478');
+          }
+        });
+      leafHd(g0, g0 + w);
+      leafHd(g1 - w, g1);
+      return;
+    }
     const leaf = (va: number, vb: number) => {
       const xa = Math.floor(sx(u, va));
       const xb = Math.floor(sx(u, vb));
@@ -1088,6 +1202,29 @@ export class Life {
       const y0 = sy(u0, v0, 18);
       const x1 = sx(u1, v1);
       const y1 = sy(u1, v1, 18);
+      if (r.k > 1) {
+        // HD: poles one art pixel wide, the cord sagging, little triangular pennants that flutter.
+        const q = 1 / r.k;
+        r.rect(x0, y0, q, 18, css(r.st.timber[2]));
+        r.rect(x1, y1, q, 18, css(r.st.timber[2]));
+        const m = Math.ceil(Math.hypot(x1 - x0, y1 - y0) * r.k);
+        for (let i = 0; i <= m; i++) {
+          const f = i / m;
+          r.px(x0 + (x1 - x0) * f, y0 + (y1 - y0) * f + Math.sin(f * Math.PI) * 6, '#3a2a1a');
+        }
+        const n2 = Math.ceil(Math.hypot(x1 - x0, y1 - y0) / 3);
+        for (let i = 0; i < n2; i++) {
+          const f = (i + 0.5) / n2;
+          const x = x0 + (x1 - x0) * f;
+          const y = y0 + (y1 - y0) * f + Math.sin(f * Math.PI) * 6;
+          const c = cols[i % 3]!;
+          const sw = Math.round(Math.sin(t * 3 + i) * 1.2) * q;
+          r.rect(x - q, y + q, 3 * q, q, c);
+          r.rect(x - q + (sw > 0 ? q : 0), y + 2 * q, 2 * q, q, c);
+          r.rect(x + sw, y + 3 * q, q, q, c);
+        }
+        continue;
+      }
       // Poles.
       r.g.fillStyle = css(r.st.timber[2]);
       r.g.fillRect(Math.floor(x0), Math.floor(y0), 1, 18);
@@ -1114,8 +1251,25 @@ export class Life {
   overlay(r: Draw): void {
     const g = r.g;
     const m = this.mood;
+    const hd = r.k > 1;
+    const q = 1 / r.k;
     for (const p of this.parts) {
       const f = p.age / p.life;
+      if (hd) {
+        // HD: smoke as round two-tone puffs that grow and thin; dust likewise, smaller; sparks
+        // and sawdust single art pixels.
+        if (p.kind === 0 || p.kind === 4) {
+          g.globalAlpha = (m.idle ? 0.3 : 0.55) * (1 - f) * (f < 0.1 ? f * 10 : 1);
+          r.puff(p.x, p.y, 2 + f * 8, f < 0.35 ? '#b4aea4' : '#9a948a', f < 0.35 ? '#8c867c' : '#78726a');
+        } else if (p.kind === 1) {
+          g.globalAlpha = 0.45 * (1 - f);
+          r.puff(p.x, p.y, 1 + f * 4, '#b49e7a', '#8e7a5a');
+        } else {
+          g.globalAlpha = p.kind === 2 ? 1 - f : 0.8 * (1 - f);
+          r.rect(p.x, p.y, q, q, p.kind === 2 ? (f < 0.5 ? '#ffd27a' : '#e0702a') : '#e0cc9a');
+        }
+        continue;
+      }
       if (p.kind === 0 || p.kind === 4) {
         const s = 1 + Math.floor(f * 3.5);
         g.globalAlpha = (m.idle ? 0.3 : 0.5) * (1 - f) * (f < 0.1 ? f * 10 : 1);
@@ -1140,6 +1294,18 @@ export class Life {
     // Horses' heads at the stall doors.
     for (const [x, y, i] of overlayStall) {
       const coat = ['#6e4a2c', '#3a2e26', '#8f8577', '#9a6a3a'][i % 4]!;
+      if (hd) {
+        // HD: a head looking out: forelock, an eye, the muzzle darker, an ear.
+        const bone = this.hd?.id === 'undead';
+        const c = bone ? '#cfc6aa' : coat;
+        r.rect(x - 1, y - 1, 2, 3, c);
+        r.rect(x + 1, y, q * 2, 2, c);
+        r.rect(x + 1, y + 1.5, q * 2, q, bone ? '#3a3632' : '#1a1410');
+        r.rect(x - 1, y - 1.5, q * 2, q, '#1a1410');
+        r.rect(x, y - q, q, q, bone ? this.hd!.id === 'undead' ? '#86f070' : '#1a1410' : '#1a1410');
+        r.rect(x - 1, y - 1, q, 3, 'rgba(255,255,255,0.12)');
+        continue;
+      }
       g.fillStyle = coat;
       g.fillRect(x - 1, y - 1, 2, 3);
       g.fillRect(x + 1, y, 1, 2);
@@ -1152,6 +1318,20 @@ export class Life {
     for (const [x, y] of this.anchors.bells) {
       const ringing = this.bellT < 6;
       const sw = ringing ? Math.round(Math.sin(this.bellT * 7) * 1.4) : 0;
+      if (hd) {
+        // HD: a bronze bell with a lit shoulder, a dark mouth and a clapper.
+        const s2 = ringing ? Math.round(Math.sin(this.bellT * 7) * 2.6) * q : 0;
+        r.rect(x - q + s2, y - q, 3 * q, q, '#c9a44c');
+        r.rect(x - 2 * q + s2, y, 5 * q, 2 * q, '#b08a3a');
+        r.rect(x - 2 * q + s2, y, q, 2 * q, '#d8b860');
+        r.rect(x - 3 * q + s2, y + 2 * q, 7 * q, q, '#6a4e1c');
+        r.rect(x + s2 - (s2 > 0 ? q : 0), y + 3 * q, q, q, '#3a2a10');
+        if (ringing && Math.floor((this.bellT * 7) / Math.PI) % 2 === 0) {
+          r.rect(x - 4, y - 0.5, q, q, 'rgba(255,240,200,0.5)');
+          r.rect(x + 4, y - 0.5, q, q, 'rgba(255,240,200,0.5)');
+        }
+        continue;
+      }
       g.fillStyle = '#b08a3a';
       g.fillRect(x - 1 + sw, y, 3, 2);
       g.fillRect(x + sw, y - 1, 1, 1);
@@ -1170,7 +1350,7 @@ export class Life {
       r.cell(r.folk.crow, CROW_W, CROW_H, f, c.vx > 0 ? 0 : 1, Math.floor(c.x), Math.floor(y));
       // Their shadow on the ground, far below.
       g.fillStyle = 'rgba(20,14,8,0.15)';
-      g.fillRect(Math.floor(c.x) + 8, Math.floor(y) + 40, 3, 1);
+      g.fillRect(Math.floor(c.x) + 8, Math.floor(y) + 40, 3, hd ? q : 1);
     }
     void m;
   }
@@ -1195,4 +1375,6 @@ function classicLooks(st: CityStyle | null): Looks {
 const ENGINE: [number, number] = [158, 166];
 
 const overlayStall: [number, number, number][] = [];
+/** HD sheets as canvases, made once per sheet. */
+const sheetCanvas = new WeakMap<object, HTMLCanvasElement>();
 void UNIT_COUNT;
