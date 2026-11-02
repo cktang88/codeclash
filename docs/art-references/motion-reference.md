@@ -216,3 +216,323 @@ Dead 1 and Brace 8 (`render/frames.ts`). Key counts that read well at those leng
 - hit: 3 keys (impact, recoil peak, return);
 - die: 5–7 keys;
 - brace: 2 keys.
+
+## 7. Converted clips: what is in `paper/motion/` and how to use it
+
+These clips are made by `scripts/mocap/bvh-to-paper.ts` (people; trials and trims are in
+`scripts/mocap/clips.ts`) and `scripts/mocap/muybridge-horse.ts` (horses). Re-run them after
+fetching the BVH files into `references/motion/bvh/`:
+
+```sh
+pnpm tsx scripts/mocap/bvh-to-paper.ts
+pnpm tsx scripts/mocap/muybridge-horse.ts
+```
+
+To fetch a trial, take `data/<subject padded to 3>/<trial>.bvh` from the una-dinosauria/cmu-mocap mirror.
+
+**Pipeline:**
+1. Forward kinematics on the BVH.
+2. The CMU joints are mapped to our bones (table below).
+3. Each frame is turned into body coordinates. "Forward" is the direction of travel, the hips' facing, or the arrow line for shots.
+4. Each frame is projected into SE (heading world +x) and NE (heading (0.5, −0.866)). The ground is turned 30° and squashed to 0.5, as in `render/iso.ts`. Heights stay unsquashed, as the sprites draw them.
+5. Angles are unwrapped continuously, in 8 sub-steps between painted frames.
+   - A bone seen end-on keeps its last angle.
+   - Hands and feet are projected in the sagittal plane only, so a toe-out never reads as a flip.
+   - Loops have their closing error spread over the loop.
+6. Foot contacts are found from the heel or ball height above that marker's own lowest point, plus the ball's speed.
+7. The frames are reduced to keys. A key is kept wherever easing (linear or one of the skeleton's beziers) would miss the sampled frame by more than 7.5° (one snap step; root 0.3 units).
+
+| Our bone | CMU (cgspeed) joints |
+|---|---|
+| pelvis | hip centre (midpoint of LeftUpLeg and RightUpLeg) → Spine |
+| spine, chest, neck, head | Spine → Spine1, Spine1 → Neck1, Neck1 → Head, Head → Head End |
+| upperArm, forearm, hand (N = right, F = left) | Arm → ForeArm, ForeArm → Hand, Hand → HandIndex1 End |
+| thigh, shin, foot | UpLeg → Leg, Leg → Foot, Foot → ToeBase |
+
+**Data shape.** Angles are world angles in the rig convention (`dir(a) = (sin a, cos a)`). An upright spine leaning forward reads below 180. The run's spine sits at 154–162, and a test asserts it.
+- **Per key:**
+  - `root` is the pelvis offset from (0, −restHip) in units, y down;
+  - `height` is the pelvis height above the ground;
+  - `contact {N, F}`;
+  - `twist {pelvis, chest}`: the yaw in degrees that the 2D view cannot show. It is informational.
+- **Per clip:**
+  - `restHip`;
+  - `lengths` (true 3D bone lengths, with a man scaled to 14 units);
+  - `events`: `strike` and `release` at the impact or loose, `smear` over the fast frames into it, `step` at each foot plant;
+  - `meta` (source, licence, trimmed range, why).
+- **Loading.** `toMotionJson(clip)` in `motion/index.ts` turns a clip into the exact shape `loadMotion` (`paper/skeleton.ts`) reads. A test loads and bakes every clip on the standard foot and horse skeletons in both facings.
+- **Horse clips** carry `body: "horse"` and the bones `barrel, neck, head, tail, fore/hind Upper/Lower N/F`, plus per-hoof flags in `hooves`.
+
+| Clip | Anim | Source | Keys / frames | Notes |
+|---|---|---|---|---|
+| walk | Walk | CMU 08_01 [124–248] | 12/12 | Brisk walk with arm swing. Frame 0 is near heel strike, and the lowest pelvis is on 2–3 and 8–9 (the "down"). |
+| march | Walk | CMU 138_01 [284–432] | 12/12 | High knee, straight arm. The toe-off foot flick is noisy around frame 8. |
+| run | Run | CMU 09_02 [35–123] | 11/12 | 15° lean, flight on 4–5 and 9–11, heel kick to −116° shin. |
+| idle | Idle | CMU 137_28 [2233–2425] | 5/8 | Weight shift only. The near hand rests on the hip, so don't copy the arms. |
+| brace | Brace | CMU 77_03 [469–565] | 2/8 | Crouched ready stance, very still. |
+| cut-overhead | Attack | CMU 02_07 [1–271], time-mapped | 9/12 | Two-handed vertical cut, strike at 7. |
+| cut-diagonal | Attack | CMU 02_07 [1036–1246] | 10/12 | Diagonal cut with a 57° hip turn. |
+| chop | Attack | CMU 79_01 [261–401] | 10/12 | Overhead axe, strike at 7. |
+| thrust | Attack | CMU 143_23 [277–361] | 11/12 | A right cross with no step: add the lunge step from Muybridge for spears. |
+| bow | Shoot | CMU 79_86 [265–589] | 11/12 | Side-on archer, release at 7. |
+| gun | Shoot | CMU 79_96 [181–493] | 11/12 | Shoulder, aim, recoil at 6. |
+| javelin | Shoot | CMU 124_01 [373–541] | 12/12 | Withdraw, block, release at 5. The root travels about 1.5 m forward. |
+| hit | Hit | CMU 77_09 [217–229–219] | 3/5 | A flinch, not a struck reaction (CMU has none). |
+| die-back | Die | CMU 90_18 [61–241] | 10/12 | Real backward fall onto a mat, with the bounce on 8. |
+| die-forward | Die | CMU 140_01 [556→121], reversed | 12/12 | A face-down get-up played backwards. |
+| die-crumple | Die | CMU 85_15 [261–431] | 12/12 | Folds to the knees and one hand. It ends kneeling: finish it lying down by hand. |
+| horse-walk | Walk | Muybridge Plate 574 | 12/12 | Lateral four-beat with two head nods. |
+| horse-gallop | Run | Muybridge Plate 626, measured | 7/12 | Transverse gallop with a gathered suspension. |
+
+## 8. Preview and critique rounds
+
+`src/client/motion-preview.html` (run `pnpm dev:client`, then open `/motion-preview.html`) shows each clip:
+- on a stick figure in SE and NE, with gold for the near limbs, grey for the far ones, green dots on planted feet and red at the strike;
+- with a filmstrip of every painted frame;
+- beside the matching Muybridge strip, animated at the clip's speed.
+
+URL options: `?clip=walk,run`, `?frame=5`, `?scale=9`, `?film=0`. The screenshots are in `docs/screenshots/motion/`: `locomotion.png`, `melee.png`, `missile.png`, `death.png` and `horse.png`.
+
+### Round 1: does the data read as the motion?
+
+- **Walk.** It reads right against Muybridge's lateral walk:
+  - contact on frame 0 with the legs at their widest;
+  - the arm opposite the forward leg is forward (a test checks the correlation is below −0.5);
+  - the pelvis is lowest just after contact.
+- **Run.** Also right: forward lean, flight frames, and the heel kicking up behind on frames 5–6, as in Muybridge's runner.
+- **Idle** (140_06) was wrong. The subject stands hunched with bent knees, and the stick figure read as a crouch. It was replaced by 137_28, chosen by search as the stillest window whose end matches its start. 141_20 ("waiting") was rejected too, because it steps.
+- **Hit** was too deep: at 0.2 s it became a full duck. It is now cut at the flinch's peak.
+- **Javelin.** The thrower's 1.5 m of travel walked off the canvas. The preview now centres travelling clips. The data keeps the travel, so animators can decide.
+- **Preview bug.** The Muybridge players were blank in frozen mode. Fixed by redrawing when the image loads.
+
+### Round 2: three-quarter view and the horses
+
+- **Three-quarter walk.** Muybridge's front-oblique walk was added. In a photograph three-quarters from the front, the stride runs mostly in depth. In our camera the SE heading is only 16° below the horizontal, so the stride reads mostly sideways.
+  - That is correct for our iso, and the data shows it.
+  - Animators should still overlap the far leg behind the near one at passing, as the oblique photographs do.
+- **Horses.** The stick horse was too thin to judge, so the barrel and neck were thickened.
+  - Gallop against Plate 626: the gathered suspension (frames 0–1, 11) reads, and the hinds land under the belly before the fores.
+  - Walk: three hooves down most of the time, and the head nods with each fore landing.
+- **Twist.** The hips counter-rotate against the shoulders clearly in the march (±8° against ±10°). In subject 8's walk the shoulders barely turn, which is a quiet walker. The brief asks for ±5°.
+
+### Round 3: strikes and anticipation, against Muybridge
+
+- **Overhead cut.** The cut has real anticipation:
+  - the chest arches back to 204° (24° behind vertical) and the arms go overhead (upper arm 109°) on frames 3–4;
+  - the trunk then drops through the strike to 103° on frame 7, almost horizontal, like the end of Muybridge's chop.
+  - The impact pose is held for one frame, and the recovery comes up slowly.
+- **Chop.** The arm makes a full backward circle (back, up, over, down), the forearm swinging through 300°. That is the real path of an axe, not a hinge.
+- **Thrust.** Measured against Muybridge's lunge, it is too short. The punch has no step, while the fencer's back leg drives straight and the front shin goes vertical. The brief therefore adds a lunge step to every thrust.
+- **Bow.**
+  - The archer stands side-on with the bow arm straight to the target.
+  - The draw elbow goes back to −106° (behind the head line).
+  - On the loose (frame 7) the draw hand flies back past the ear, the forearm swinging to 163°, and holds there. That is the release and follow-through the archery sources describe.
+- **Deaths.** `die-back` matches Muybridge's knock-down frame for frame: knees go, buttocks land, the back lands, and the legs swing up and drop. `die-forward` reads as a collapse onto knees and hands, then prone.
+- **Remaining limits**, carried into the brief:
+  - there is no captured struck reaction;
+  - the forward death is a reversed get-up;
+  - `die-crumple` stops kneeling;
+  - the gallop angles are hand-measured (±10°).
+
+## 9. Key poses per animation for Code Clash
+
+This is the brief the faction animators follow. The frame numbers are painted frames at the atlas
+counts (`render/frames.ts`): Idle 8, Walk 12, Run 12, Attack 12, Shoot 12, Hit 5, Die 12, Brace 8.
+
+**Conventions:**
+- Angles are world angles in the rig convention. 0 = hanging down, 90 = forward (screen right), 180 = up. An upright trunk leaning forward is *below* 180.
+- N = the near (weapon) side, F = the far (shield) side.
+- Where a converted clip exists, load it with `loadMotion(toMotionJson(MOTION.<name>), skel)` and hand-key only what the brief adds: the weapon, the shield and the lunge step.
+
+**Rules for every animation:**
+1. **Anticipation runs the other way.** Before a forward blow the trunk goes back. Before a downward blow the body rises.
+2. **The hips lead and the hands arrive last.** The order is hips, then chest, then upper arm, then forearm, then the weapon, each a frame behind the one before.
+3. **Planted feet do not slide.** Key `contact` and let IK hold the foot.
+4. **The impact pose is held** for 1–2 frames (baked hit-stop). The smear goes on the frame before it.
+5. **The recovery is slower than the strike**: about two to three times the frames.
+6. **Overlap.** Cloth, hair, plumes and sword tips settle 1–2 frames after the body stops (`settle`, `chain`).
+
+### Idle (8 frames, loop, 1.6 s) — `idle`
+- 0: weight on the F foot. The pelvis is shifted 0.3 units toward F and dropped 1 px on the N side. The chest is up and the head level.
+- 2: breathe in. The chest rises 1 px and the shoulders lift slightly.
+- 4: the weight moves to centre and on toward N, mirroring frame 0.
+- 6: breathe out. The chest settles.
+
+Keep every angle within one 7.5° step. Hands rest on the weapon or the belt. Only `py` and the shift move.
+
+### Walk (12 frames, loop) — `walk`, `march`
+
+| Frame | Pose | Legs | Pelvis | Arms and trunk |
+|---|---|---|---|---|
+| 0 | **contact N** | N heel strikes, thigh +30°, shin −15°, toes up. F leg back, thigh −15°, on its toe. | Mid height. Turned toward N by +5°. | N arm back (−20°), F arm forward (+20°). Elbows a little bent. Trunk upright (176–180). |
+| 1–2 | **down** | N knee flexes about 15° as weight comes on, foot flat. F toe pushes off. | **Lowest** (+0.25 units). | Arms at their widest. |
+| 3 | **passing** | N leg vertical under the body. F leg swings through, knee bent about 60°, foot clear of the ground. | **Highest** of the step. Shifted over N. | Arms pass the body. |
+| 4–5 | **up** | N heel lifts. F thigh reaches forward. | Rising and falling. | N arm moving forward. |
+| 6–11 | the same with N and F swapped | | | |
+
+March variant: thigh to +60° at passing, straight arm swinging ±40°, trunk at 185 (slightly back).
+
+### Run (12 frames, loop) — `run`
+- 0: **contact N**, foot landing under the hips (not ahead). N thigh +20°, knee soft. F leg trailing with the shin folding.
+- 1–2: **compress**. Pelvis lowest (+0.35 units), N knee flexed about 35°.
+- 3: **push-off**. N leg extends behind, thigh −30°.
+- 4–5: **flight**. Both feet off, pelvis highest (−0.15). N heel kicks up toward the buttock (shin −110°). F thigh drives forward to +30°.
+- 6–11: the same with N and F swapped.
+
+Throughout:
+- The trunk leans forward 15° (spine 155–162) and the head stays level, looking ahead.
+- Elbows are bent at 90° and pump forward and back opposite the legs. The hands come forward to chest height and back past the hip.
+
+### Sword cut (Attack 12) — `cut-overhead`, `cut-diagonal`
+- 0: **guard.** Blade forward or up, weight 60% on the front foot, knees soft.
+- 1–3: **anticipation (wind-up).**
+  - The hands rise over the N shoulder, or overhead for the vertical cut (upper arm 110°).
+  - The chest arches back to 200–205 and the hips turn back 10–15°. The blade points up and back (`bl` 200–220).
+  - It is slow: ease in.
+- 4: **start of strike.** The hips turn forward first. The arms are still high. The smear starts.
+- 5–6: **strike.**
+  - The trunk folds forward fast: spine 170, then 127. The arms extend and the wrists turn the edge over.
+  - The front foot plants, or a passing step lands, as the hands arrive ("hand before foot").
+  - Smear on 5–6.
+- 7: **impact.** The blade at the target line, extended. The trunk is forward (spine 100–110 for a full vertical cut, 130–150 for a diagonal), weight on the front foot, rear heel up. **Hold one frame.**
+- 8: hold, plus overlap: the cloth and the blade tip settle.
+- 9–11: **recover** to guard over three frames, the blade coming up the same line.
+
+For the diagonal cut, take the line from the N shoulder to the F hip. The hip turn is large (yaw −13° to −70°) and reads well in three-quarter view.
+
+### Axe or mace chop (Attack 12) — `chop`
+- 0: ready, axe low in front, both hands on the haft.
+- 1–3: **rise.**
+  - The axe goes up and back past vertical. The arms swing back, up and over: the near arm makes a full backward circle.
+  - The chest opens (spine 200–207), the heels lift and the body rises.
+- 4: **top.** The axe head is behind the head and the body at its highest. A one-frame pause reads as weight.
+- 5–6: **drop.**
+  - The knees bend, the trunk flexes (165, then 140) and the hands slide together. The axe head lags the hands.
+  - Smear on 5–6.
+- 7: **impact.** Arms straight forward and down, trunk at 120, body *lower* than at the start. **Hold one frame** (8).
+- 9–11: the axe head rebounds slightly. The body settles and comes back up to ready.
+
+### Spear thrust (Attack 12) — `thrust`, plus the lunge from Muybridge
+- 0: guard. Spear level at the hip (underarm) or at shoulder height over the shield rim (overarm).
+- 1–3: **chamber.** The rear hand draws back 0.5–1 unit, the hips turn back, and the weight goes to the rear leg.
+- 4–5: **thrust.**
+  - The point travels in a **straight line** along the shaft, never in an arc.
+  - Rear hand slides forward and the hips drive. The front foot steps 1–2 units (the lunge): rear leg straight, front shin vertical, and the trunk stays upright.
+  - Smear (a short streak) on 4.
+- 5: **full extension. Hold** frames 5–6.
+- 7–11: **retract** slower (five frames). The front foot recovers half the step.
+
+Pike thrust: the same, with both hands, and the step is a lean instead.
+
+### Pike brace (Brace 8, loop) — base `brace`
+- The pose:
+  - crouched, rear knee nearly on the ground, front knee bent 60°;
+  - the butt of the pike against the instep of the rear foot, or planted behind it;
+  - the rear hand low near the butt, pressing down, and the front hand forward on the shaft;
+  - the point at a horse's chest height, rising 20–30°;
+  - the trunk leaning forward over the front thigh (spine 130–140), the head up behind the shaft.
+- Loop: breathing only (1 px). The point may tremble by one step on frames 2 and 6.
+
+### Shield block (use as Hit for shielded kinds, or as a parry on Attack frames)
+- 0: guard, shield edge-forward close to the body, elbow bent.
+- 1: **punch the shield out to meet** the blow, 0.5 units forward and up toward the attacker's line. The head ducks behind the rim.
+- 2: **impact.** The shield jolts back 0.3 units, the weight rocks onto the rear foot, the trunk goes back 5°. Hold one frame.
+- 3–4: return to guard.
+
+### Bow draw and loose (Shoot 12) — `bow`
+- 0: **stance.** Side-on to the target, feet shoulder-width apart, arrow nocked, bow low. The head is already turned to the target.
+- 1–2: **raise.**
+  - The bow arm (F) comes up to shoulder height.
+  - War bow: the draw starts during the raise.
+  - Kyudo (samurai): raise the bow *above the head* first (*uchiokoshi*), then open it while lowering (*hikiwake*).
+- 3–5: **draw.** The draw elbow (N) goes back and up to shoulder height or above (upper arm about −100° in side view). The shoulder blades close, the draw hand comes to the jaw or ear, and the trunk stays upright.
+- 6: **anchor and aim.** Everything still, held. This frame stands for the hold.
+- 7: **loose.** One frame. The draw hand flies back past the ear along the jaw, and the bow hand drops or turns slightly toward the target. The release event fires here.
+- 8–9: **follow-through.** Hold the after-shot pose (*zanshin*).
+- 10–11: lower the bow and reach for the next arrow (at the quiver: hip or back).
+
+### Crossbow shoot and reload (Shoot 12) — base `gun` for the shot
+- 0–1: the stock comes to the cheek or shoulder, aiming down the tiller.
+- 2: **loose.** The trigger lever is squeezed and the bow jolts forward and down 1 px. A small recoil.
+- 3: hold, looking down range.
+- 4–5: tip the bow nose-down and put a foot in the stirrup.
+- 6–7: **stoop.** Bend at the hips and knees and hook the string with the belt claw.
+- 8–9: **straighten** the legs and back. The legs span the bow.
+- 10: lay a bolt in the groove.
+- 11: bring the stock back toward the shoulder.
+
+A cranequin variant swaps 6–9 for two winding cycles with the bow braced on the ground.
+
+### Javelin throw (Shoot 12) — `javelin`
+- 0: **withdrawn.** Throwing arm straight back at shoulder height, palm up, javelin along the forearm. Trunk leaning back 15–20° over a bent rear leg. Front arm pointing at the target.
+- 1–3: **crossover / step.** The front leg reaches forward.
+- 4: **block.** The front leg plants nearly straight. The hips stop and the chest whips forward over them.
+- 5: **release** over the block leg at a 30–36° rise. Elbow high, hand in front of the head. The release event fires here, with a smear on 3–4.
+- 6–8: **follow-through.** The throwing arm comes down across the body. The rear leg swings through and up and the trunk folds over the block.
+- 9–11: recover, stepping onto the rear foot.
+
+### Gun firing, teppō (Shoot 12) — `gun`
+- 0–2: **present.** The gun comes up. The tanegashima's short butt goes **against the cheek**, not the shoulder. Stance side-on and wide, as in kyudo, back straight.
+- 3–5: **aim.** Still, with the head on the stock and the support elbow under the barrel.
+- 6: **fire.** The pan flash on 6 and the muzzle flash and smoke on 6–7. The release event fires here.
+- 7: **recoil.** The muzzle kicks up 15°, the head and shoulders go back about 0.5 units, and the weight rocks back.
+- 8: settle.
+- 9–11: lower the muzzle and bring it up into the reload (muzzle up, ramrod).
+
+### Cavalry charge with couched lance (horse Run 12 + rider) — `horse-gallop`
+- **Horse.** Use the gallop keys:
+  - 0 gathered suspension;
+  - 3 trailing hind lands;
+  - 5 both hinds down;
+  - 6 trailing fore lands;
+  - 8 fores take the weight (barrel lowest, nose down 4°);
+  - 10 lead fore down;
+  - 11 push-off.
+- **Neck.** It reaches forward and down as the fores land (106–110) and rises as the hinds come under (120–126).
+- **Rider.**
+  - Seat deep, back against the cantle. Legs long and forward in the stirrups, heels down.
+  - Trunk leaning **slightly forward** (170). The head steady relative to the ground: the horse moves under the rider.
+  - The lance is couched under the N armpit, with 30–45 cm (2–3 units) behind it. The N hand grips just in front of the armpit.
+  - The point crosses over the horse's neck to the F side and stays level while the horse pitches.
+  - The shield and the reins are in the F hand, low.
+- **On impact** (an event on the Attack variant):
+  - the lance shaft bends;
+  - the rider's trunk is driven back against the cantle (5–10°) and the N shoulder recoils 0.5 units;
+  - hold one frame, then settle.
+- **Before the couch** (the approach at a walk or canter): the lance is upright, butt on the thigh or the stirrup.
+
+### Horse walk (12, loop) — `horse-walk`
+- The footfall order is LH (frame 0), LF (3), RH (6), RF (9). Each hoof is down for about 62% of the stride, so 2–3 hooves are always down.
+- The head nods down as each fore lands, on frames 3 and 9.
+- The tail swings slowly. The rider's hips follow the saddle with the head level.
+
+### Hit react (Hit 5) — `hit` for the flinch, plus the snap-back from Muybridge's "one hits the other"
+- 0: **impact** (no wind-up). The struck shoulder snaps back 0.5 units and the head whips back 10–15°. White flash or tint on the part.
+- 1: **recoil peak.** The trunk twists away (10°), the knees give (pelvis down 0.3) and the arms come in. The weapon arm stays up.
+- 2: one foot steps back to catch the weight.
+- 3–4: return toward guard. The hips lead and the head comes back last.
+
+### Death, backward (Die 12) — `die-back`
+- 0: impact. The head snaps back and the arms fly up and out.
+- 1–3: the knees buckle while the trunk is still upright. The feet slide forward and the pelvis drops (8.0, then 7.0 units).
+- 4–5: falling. The trunk tilts back past 200 and the arms are thrown up.
+- 6–7: **the buttocks land, then the back.** The pelvis is on the ground and the legs swing up (thigh 65–75°).
+- 8: **bounce.** The legs and arms lift slightly as the body hits.
+- 9–11: the legs drop and the body settles flat. The weapon falls away (a slot swap) and the head rolls to one side.
+
+### Death, forward (Die 12) — `die-forward`
+- 0–1: hit from the front or behind. The trunk folds forward and the head drops.
+- 2–4: the knees give and both knees hit the ground. The trunk upright to forward (spine 130).
+- 5–7: the hands go out to catch, then fail. The trunk pitches forward.
+- 8–10: chest and face to the ground and the legs straighten behind (thigh −100°).
+- 11: still. The arms are under or beside the body and the weapon is dropped ahead.
+
+The first half should be **faster** than the reversed get-up gives. Ease out on 0–4.
+
+### Death, crumple (Die 12) — `die-crumple`
+- 0–2: the legs go first. The knees fold and the pelvis drops straight down. The arms hang.
+- 3–5: on the knees, the trunk slumping (spine 120) and one hand to the ground.
+- 6–8: topple sideways onto the hip and the F shoulder. The head is the last part to land.
+- 9–11: lying curled on the side, limbs slack, with a 1 px settle on 10.
+
+The clip stops kneeling on frame 11, so key frames 9–11 by hand from this brief. The lying-down plate, "a naked man lowers himself onto a mat, lying on his side", shows the order: knees, then hip, then shoulder.
