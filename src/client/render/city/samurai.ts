@@ -57,7 +57,7 @@ const ramp = (a: string, b: string, c: string, d: string): Ramp => [hex(a), hex(
 /** Black-stained shitamiita clapboards (yakisugi): charcoal with a violet cast. */
 const BOARD = ramp('#4c4450', '#35303a', '#25212a', '#16141a');
 /** The deep cool shadow under the eaves (and the lantern's glow is in it). */
-const EAVE = hex('#20225a');
+const EAVE = hex('#1c1e5a');
 const PAPER: [Col, Col] = [hex('#f2e6c8'), hex('#d4c6a6')];
 const PAPER_LIGHT = hex('#ffd690');
 
@@ -79,7 +79,7 @@ function plaster(P: Painter, z0: number, h: number, wins: Win[] = [], boards = 0
     const zp = Math.floor(zz * k);
     const es = o * (f === 'left' ? 0.75 : 1.05) + 0.4;
     const shade = zz > h - es;
-    const dark = (c: Col) => (shade ? mix(c, EAVE, f === 'left' ? 0.42 : 0.3) : c);
+    const dark = (c: Col) => (shade ? mix(c, EAVE, f === 'left' ? 0.55 : 0.42) : c);
     for (const w of wins) {
       if (w.face !== f) continue;
       const ia = along >= w.a && along < w.a + w.w;
@@ -193,7 +193,7 @@ function plaster(P: Painter, z0: number, h: number, wins: Win[] = [], boards = 0
     }
     // A splash of dirt along the foot of the plaster.
     if (!boards && zz < 0.6) c = mix(c, hex('#8a7a62'), 0.35);
-    if (shade) return mix(c, EAVE, zz > h - 0.6 ? 0.64 : f === 'left' ? 0.5 : 0.38);
+    if (shade) return mix(c, EAVE, zz > h - 0.6 ? 0.72 : f === 'left' ? 0.6 : 0.48);
     return sunlit(c, p, f);
   };
 }
@@ -306,9 +306,11 @@ function ishigaki(P: Painter, seed: number, corner?: { left: number; right: numb
     const joint = inRow < 1 + lift || inBlk < 1;
     if (joint) {
       c = f === 'left' ? hex('#3a3640') : hex('#2a2632');
-      if (rw < 3 && hash(blk, rw, seed + 9) < 0.25) c = f === 'left' ? PAL.moss : hex('#4a5428');
+      if (rw < 5 && hash(blk, rw, seed + 9) < 0.45 - rw * 0.06) c = f === 'left' ? PAL.moss : hex('#4a5428');
     } else if (inRow === 1 + lift || inBlk < 2) c = f === 'left' ? tone(c, -0.14) : tone(c, -0.06);
     else if (inRow === rh - 1) c = tone(c, 0.14);
+    // Moss creeping over the faces of the lowest stones, from their upper edges.
+    if (!joint && rw < 3 && hash(blk, rw, seed + 11) < 0.3 && inRow > rh - 3 + rw) c = mix(c, f === 'left' ? PAL.moss : hex('#3e4a26'), 0.7);
     // A weed or a fern in a joint near the foot.
     if (rw < 2 && inRow < 3 && hash(blk, rw, seed + 4) < 0.08 && inBlk < 3) c = PAL.leaf[inRow === 0 ? 1 : 0]!;
     void st;
@@ -332,6 +334,14 @@ function stoneBase(P: Painter, u0: number, v0: number, lu: number, lv: number, h
     frustum(P.px, u0 + i0, v0 + i0, z, lu - 2 * i0, lv - 2 * i0, hh, di, (f, p) => sh(f, p), top && i === 2);
     z += hh;
     i0 += di;
+  }
+  if (h >= 2.5) {
+    const n = 2 + Math.floor(hash(seed, 7) * 2);
+    for (let j = 0; j < n; j++) {
+      const wl = 3 + hash(seed, j, 8) * 5;
+      if (lu > wl + 2) S.ivyUp(P, 'left', v0 + lv, u0 + 1 + hash(seed, j, 9) * (lu - wl - 2), wl, h * 0.9, inset, seed + j);
+      if (lv > wl + 2 && hash(seed, j, 10) < 0.6) S.ivyUp(P, 'right', u0 + lu, v0 + 1 + hash(seed, j, 11) * (lv - wl - 2), wl, h * 0.9, inset, seed + j + 5);
+    }
   }
 }
 
@@ -627,7 +637,7 @@ function planks(P: Painter, z0: number, h: number, ws: Win[], o = 2): PShader {
     if (hash(ap >> 1, Math.floor(zz * k) >> 3, 4) < 0.08) c = tone(c, -0.1);
     const zq = Math.floor(zz * k);
     if (zq === Math.floor(h * k * 0.5) || zq === 1) c = lit(st.timber, f, 2);
-    if (shade) return mix(c, EAVE, f === 'left' ? 0.4 : 0.3);
+    if (shade) return mix(c, EAVE, f === 'left' ? 0.55 : 0.42);
     return sunlit(c, p, f);
   };
 }
@@ -764,6 +774,8 @@ function keep(P: Painter, tier: number, parts: BuildingParts): void {
     stoneBase(P, tu - 2, 30, 10, 12, bh * 0.6, 1.2, 12);
     house(P, tu - 1, 31, bh * 0.6, 8, 10, 6, [{ face: 'right', a: 3, w: 4, z: 0, h: 4.5, kind: 'door' }, ...wins('left', 1, 6, 1, 3, 2, 2)], 'kawara', { boards: black ? 3 : 0, rh: 4 });
     karahafu(P, tu + 7.4, 36, bh * 0.6 + 4.6, 6, 1.8, 2.4, false);
+    S.chochin(P, tu + 8.4, 32.6, bh * 0.6 + 4.4, true);
+    S.chochin(P, tu + 8.4, 39.4, bh * 0.6 + 4.4, true);
   } else {
     box(P.px, b0 + base - 1, 32, 0, 5, 8, bh - 1, wrap(ishigaki(P, 13)));
   }
@@ -1070,6 +1082,7 @@ function stables(P: Painter, tier: number, parts: BuildingParts): void {
     else irimoya(P, u0, v0, h, lu, lv, lu * 0.55, 2.2, false, st.shingle, bark(P, h - 1.3, st.shingle));
   }
   S.vines(P, 'left', v0 + lv, u0 + 1, 6, h - 0.5, 0.5, 71);
+  if (tier >= 2) lanterns(P, 'right', u0 + lu + 1.6, v0 + 2, lv - 4, (tier >= 3 ? h + 1 : h) - 0.6, Math.min(4, tier + 1));
   for (let i = 0; i < n; i++) {
     const v = v0 + ((i + 0.5) * lv) / n;
     parts.stalls.push([Math.floor(sx(u0 + lu, v)), Math.floor(sy(u0 + lu, v, 5))]);
@@ -1188,7 +1201,7 @@ function walls(P: Painter, a: PaintArgs, parts: BuildingParts): BuildingParts {
     // Ivy over the coping here and there.
     if (tier >= 2 && hash(u0, v0, 5) < 0.8) {
       const a0 = (along ? wu : wv) + 4 + hash(u0, v0, 6) * Math.max(1, len - 14);
-      S.vines(P, along ? 'left' : 'right', (along ? wv + ww : wu + wl) + 0.2, a0, 6, hh - 0.3, base, Math.round(u0 + v0), hash(u0, v0, 7) < 0.4 ? PAL.wisteria : null);
+      S.vines(P, along ? 'left' : 'right', (along ? wv + ww : wu + wl) + 0.2, a0, 6, hh - 0.3, base, Math.round(u0 + v0), hash(u0, v0, 7) < 0.65 ? PAL.wisteria : null);
     }
   };
   const towerAt = (u: number, v: number, hh: number) => {
@@ -1315,7 +1328,12 @@ function walls(P: Painter, a: PaintArgs, parts: BuildingParts): BuildingParts {
 
 registerKit('samurai', (P, key, a, parts) => {
   const tier = tierOf(a.level);
-  if (key === 'walls') return tier === 0 ? null : walls(P, a, parts);
+  if (key === 'walls') {
+    if (tier === 0) return null;
+    walls(P, a, parts);
+    parts.arts.push(...S.takeExtra());
+    return parts;
+  }
   // Ground decals first (each its own flat art; P is reset between), then the building. The
   // free-standing props are placed by props.ts from the Samurai theme (samurai-props.ts).
   if (key === 'keep') keepGrounds(P, Math.max(1, tier), parts);
@@ -1351,6 +1369,7 @@ registerKit('samurai', (P, key, a, parts) => {
   const [u0, v0, u1, v1] = LOT[key];
   if (a.progress > 0.45 && TIER_START.includes(a.level + 1) && a.level > 0) P.scaffold(u0 + 4, v0 + 4, (u1 - u0) * 0.5, (v1 - v0) * 0.5, 14 + tier * 4);
   parts.arts.unshift(finishLit(P, (u0 + u1 + v0 + v1) / 2));
+  parts.arts.push(...S.takeExtra());
   return parts;
 });
 
