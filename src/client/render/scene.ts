@@ -23,7 +23,7 @@ import { paintGround, type Ground } from './ground.ts';
 import { dirFor, projX, projY, PX, unproject } from './iso.ts';
 import { GlPost } from './post.ts';
 // TEMPORARY: swap for `import { buildAtlas } from './sprites.ts'` when the isometric sprites land.
-import { buildStubAtlas as buildAtlas } from './stubAtlas.ts';
+import { buildAtlas } from './sprites.ts';
 
 export interface Camera {
   /** Whole-number zoom: 1 fits the field, each step adds one screen pixel per scene pixel. */
@@ -644,7 +644,7 @@ export class BattleScene {
       let f = loop ? Math.floor((T + phase) / tpf) % frames : Math.min(frames - 1, Math.floor((T - start) / tpf));
       if (f < 0) f = 0;
       const [u, vv] = atlas.at(kind, anim, f, dir);
-      const flash = T - hitAt < 1 ? 0.65 : 0;
+      const flash = T - hitAt < 0.6 ? 0.3 : 0;
       // Routers stagger: a pixel of jitter that changes every few ticks.
       let jx = 0;
       let jy = 0;
