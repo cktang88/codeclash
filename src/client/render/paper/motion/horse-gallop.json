@@ -1,0 +1,38 @@
+{
+ "name": "horse-gallop",
+ "anim": "Run",
+ "body": "horse",
+ "frames": 12,
+ "loop": true,
+ "angles": "world",
+ "restHeight": 14,
+ "lengths": {"barrel":7,"neck":4.6,"head":3.2,"foreUpper":3.4,"foreLower":3.8,"hindUpper":3.6,"hindLower":4.2,"tail":3.4},
+ "facings": {
+  "se": { "keys": [
+    {"f":0,"root":[0,-0.6],"height":9.2,"contact":{"N":false,"F":false},"bones":{"barrel":76,"neck":113.5,"head":42.5,"tail":-111.5,"foreUpperN":-24.5,"foreLowerN":-42.5,"foreUpperF":16,"foreLowerF":-106,"hindUpperN":-69.5,"hindLowerN":23.5,"hindUpperF":-56,"hindLowerF":34.5},"twist":{"pelvis":0,"chest":0},"hooves":{"HN":false,"HF":false,"FN":false,"FF":false},"c":[0.42,0,0.58,1]},
+    {"f":3,"root":[0,-0.2],"height":8.8,"contact":{"N":false,"F":true},"bones":{"barrel":77,"neck":119,"head":44.5,"tail":-116,"foreUpperN":34.5,"foreLowerN":23.5,"foreUpperF":23.5,"foreLowerF":-42.5,"hindUpperN":27.5,"hindLowerN":20,"hindUpperF":20,"hindLowerF":12.5},"twist":{"pelvis":0,"chest":0},"hooves":{"HN":false,"HF":true,"FN":false,"FF":false},"c":[0.42,0,0.58,1]},
+    {"f":5,"root":[0,0],"height":8.6,"contact":{"N":true,"F":true},"bones":{"barrel":75,"neck":110.5,"head":42.5,"tail":-116,"foreUpperN":38.5,"foreLowerN":34.5,"foreUpperF":31,"foreLowerF":16,"hindUpperN":20,"hindLowerN":23.5,"hindUpperF":-9,"hindLowerF":-19},"twist":{"pelvis":0,"chest":0},"hooves":{"HN":true,"HF":true,"FN":false,"FF":false},"c":[0.42,0,0.58,1]},
+    {"f":6,"root":[0,0.2],"height":8.4,"contact":{"N":true,"F":true},"bones":{"barrel":72,"neck":100,"head":40,"tail":-121,"foreUpperN":34.5,"foreLowerN":31,"foreUpperF":16,"foreLowerF":16,"hindUpperN":0,"hindLowerN":0,"hindUpperF":-49,"hindLowerF":-69.5},"twist":{"pelvis":0,"chest":0},"hooves":{"HN":true,"HF":false,"FN":false,"FF":true},"c":[0.42,0,0.58,1]},
+    {"f":8,"root":[0,0.5],"height":8.1,"contact":{"N":false,"F":true},"bones":{"barrel":69.5,"neck":92.5,"head":37,"tail":-121,"foreUpperN":38.5,"foreLowerN":42.5,"foreUpperF":0,"foreLowerF":0,"hindUpperN":-49,"hindLowerN":-76,"hindUpperF":-69.5,"hindLowerF":-69.5},"twist":{"pelvis":0,"chest":0},"hooves":{"HN":false,"HF":false,"FN":false,"FF":true},"c":[0.42,0,0.58,1]},
+    {"f":10,"root":[0,0.3],"height":8.3,"contact":{"N":true,"F":false},"bones":{"barrel":71,"neck":97.5,"head":38.5,"tail":-116,"foreUpperN":16,"foreLowerN":16,"foreUpperF":-56,"foreLowerF":-69.5,"hindUpperN":-42.5,"hindLowerN":-30.5,"hindUpperF":-62.5,"hindLowerF":-116},"twist":{"pelvis":0,"chest":0},"hooves":{"HN":false,"HF":false,"FN":true,"FF":false},"c":[0.42,0,0.58,1]},
+    {"f":11,"root":[0,-0.2],"height":8.8,"contact":{"N":true,"F":false},"bones":{"barrel":74,"neck":105.5,"head":41,"tail":-114.5,"foreUpperN":-14,"foreLowerN":-19,"foreUpperF":8.5,"foreLowerF":-95,"hindUpperN":-24.5,"hindLowerN":0,"hindUpperF":-14,"hindLowerF":12.5},"twist":{"pelvis":0,"chest":0},"hooves":{"HN":false,"HF":false,"FN":true,"FF":false},"c":[0.42,0,0.58,1]}
+  ] },
+  "ne": { "keys": [
+    {"f":0,"root":[0,-0.6],"height":9.2,"contact":{"N":false,"F":false},"bones":{"barrel":108,"neck":135.5,"head":62.5,"tail":-79.5,"foreUpperN":-20,"foreLowerN":-31,"foreUpperF":19,"foreLowerF":-74,"hindUpperN":-46.5,"hindLowerN":30.5,"hindUpperF":-38.5,"hindLowerF":49},"twist":{"pelvis":0,"chest":0},"hooves":{"HN":false,"HF":false,"FN":false,"FF":false},"c":[0.42,0,0.58,1]},
+    {"f":3,"root":[0,-0.2],"height":8.8,"contact":{"N":false,"F":true},"bones":{"barrel":109,"neck":138.5,"head":66.5,"tail":-85,"foreUpperN":49,"foreLowerN":30.5,"foreUpperF":30.5,"foreLowerF":-31,"hindUpperN":36.5,"hindLowerN":24.5,"hindUpperF":24.5,"hindLowerF":14},"twist":{"pelvis":0,"chest":0},"hooves":{"HN":false,"HF":true,"FN":false,"FF":false},"c":[0.42,0,0.58,1]},
+    {"f":5,"root":[0,0],"height":8.6,"contact":{"N":true,"F":true},"bones":{"barrel":107,"neck":133.5,"head":62.5,"tail":-85,"foreUpperN":56,"foreLowerN":49,"foreUpperF":42.5,"foreLowerF":19,"hindUpperN":24.5,"hindLowerN":30.5,"hindUpperF":-8.5,"hindLowerF":-16},"twist":{"pelvis":0,"chest":0},"hooves":{"HN":true,"HF":true,"FN":false,"FF":false},"c":[0.42,0,0.58,1]},
+    {"f":6,"root":[0,0.2],"height":8.4,"contact":{"N":true,"F":true},"bones":{"barrel":104,"neck":127,"head":58.5,"tail":-91,"foreUpperN":49,"foreLowerN":42.5,"foreUpperF":19,"foreLowerF":19,"hindUpperN":0,"hindLowerN":0,"hindUpperF":-34.5,"hindLowerF":-46.5},"twist":{"pelvis":0,"chest":0},"hooves":{"HN":true,"HF":false,"FN":false,"FF":true},"c":[0.42,0,0.58,1]},
+    {"f":8,"root":[0,0.5],"height":8.1,"contact":{"N":false,"F":true},"bones":{"barrel":101.5,"neck":122,"head":53,"tail":-91,"foreUpperN":56,"foreLowerN":62.5,"foreUpperF":0,"foreLowerF":0,"hindUpperN":-34.5,"hindLowerN":-50.5,"hindUpperF":-46.5,"hindLowerF":-46.5},"twist":{"pelvis":0,"chest":0},"hooves":{"HN":false,"HF":false,"FN":false,"FF":true},"c":[0.42,0,0.58,1]},
+    {"f":10,"root":[0,0.3],"height":8.3,"contact":{"N":true,"F":false},"bones":{"barrel":103,"neck":125.5,"head":56,"tail":-85,"foreUpperN":19,"foreLowerN":19,"foreUpperF":-38.5,"foreLowerF":-46.5,"hindUpperN":-31,"hindLowerN":-23.5,"hindUpperF":-42.5,"hindLowerF":-85},"twist":{"pelvis":0,"chest":0},"hooves":{"HN":false,"HF":false,"FN":true,"FF":false},"c":[0.42,0,0.58,1]},
+    {"f":11,"root":[0,-0.2],"height":8.8,"contact":{"N":true,"F":false},"bones":{"barrel":106,"neck":130.5,"head":60,"tail":-83,"foreUpperN":-12.5,"foreLowerN":-16,"foreUpperF":9,"foreLowerF":-64,"hindUpperN":-20,"hindLowerN":0,"hindUpperF":-12.5,"hindLowerF":14},"twist":{"pelvis":0,"chest":0},"hooves":{"HN":false,"HF":false,"FN":true,"FF":false},"c":[0.42,0,0.58,1]}
+  ] }
+ },
+ "events": [{"f":3,"name":"step","bone":"HF"},{"f":5,"name":"step","bone":"HN"},{"f":6,"name":"step","bone":"FF"},{"f":10,"name":"step","bone":"FN"}],
+ "meta": {
+   "source": "Eadweard Muybridge, Animal Locomotion (1887), Plate 626 \"A galloping horse and rider\", exposures 1-15; Wellcome Collection https://wellcomecollection.org/works/uwc8xuuu",
+   "licence": "Public domain (Public Domain Mark, Wellcome Collection)",
+   "measured": "angles read by eye off exposures 1, 5, 7, 9, 11, 13, 15 with a measuring grid; about ±10°",
+   "why": "One stride (exposures 1 to 16) as one Run loop: suspension gathered under the belly, trailing hind, lead hind, trailing fore, lead fore. Cross-checked against The Horse in Motion (1878, 11 frames).",
+   "sides": "N = the lead legs (the lead hind lands second, the lead fore last)"
+ }
+}

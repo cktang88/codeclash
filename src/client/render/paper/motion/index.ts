@@ -13,7 +13,13 @@ import brace from './brace.json' with { type: 'json' };
 import chop from './chop.json' with { type: 'json' };
 import cutDiagonal from './cut-diagonal.json' with { type: 'json' };
 import cutOverhead from './cut-overhead.json' with { type: 'json' };
+import dieBack from './die-back.json' with { type: 'json' };
+import dieCrumple from './die-crumple.json' with { type: 'json' };
+import dieForward from './die-forward.json' with { type: 'json' };
 import gun from './gun.json' with { type: 'json' };
+import hit from './hit.json' with { type: 'json' };
+import horseGallop from './horse-gallop.json' with { type: 'json' };
+import horseWalk from './horse-walk.json' with { type: 'json' };
 import idle from './idle.json' with { type: 'json' };
 import javelin from './javelin.json' with { type: 'json' };
 import march from './march.json' with { type: 'json' };
@@ -59,7 +65,7 @@ export interface MotionClip {
   meta: Record<string, unknown>;
 }
 
-const all = [walk, march, run, idle, brace, cutOverhead, cutDiagonal, chop, thrust, bow, gun, javelin] as unknown as MotionClip[];
+const all = [walk, march, run, idle, brace, cutOverhead, cutDiagonal, chop, thrust, bow, gun, javelin, hit, dieBack, dieForward, dieCrumple, horseWalk, horseGallop] as unknown as MotionClip[];
 
 /** Every converted clip by name. */
 export const MOTION: Readonly<Record<string, MotionClip>> = Object.fromEntries(all.map((c) => [c.name, c]));
