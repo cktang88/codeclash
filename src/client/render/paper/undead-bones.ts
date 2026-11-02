@@ -4,10 +4,12 @@
 
 import { U } from '../../../game/units.ts';
 import { registerFoot, type FootSpec } from './undead-foot.ts';
-import { LEGIONARY } from './undead-static.ts';
+import { GHOUL, LEGIONARY } from './undead-static.ts';
 
 /** The Grave Legionary: a heavy cut with sword and shield, the shield wall, a fall back that comes apart. */
-const LEGIONARY_SPEC: FootSpec = {
+// Specs are built when registering (not at module load): undead-static.ts and undead.ts import
+// each other, and the key art's constants must be initialised first.
+const LEGIONARY_SPEC = (): FootSpec => ({
   art: LEGIONARY,
   nearDeg: -40,
   skull: { at: [0.85, -12.95], r: 1.1, ang: -4 },
@@ -34,8 +36,36 @@ const LEGIONARY_SPEC: FootSpec = {
     { slot: 'forearmF', holder: 'forearmF', at: 9, land: { x: 8.6, y: -0.5, rot: 90, f: 11 } },
     { slot: 'shinN', holder: 'shinN', at: 9, land: { x: 4.2, y: -0.5, rot: -85, f: 11 } },
   ],
-};
+});
+
+/** The Ghoul Spears: a hunched two-handed lunge, the spear set against horse, a fall on its face that comes apart. */
+const GHOUL_SPEC = (): FootSpec => ({
+  art: GHOUL,
+  nearDeg: 174,
+  skull: { at: [2.6, -10.7], r: 1, ang: -10 },
+  jaw: { hinge: [2.65, -10.27], chin: [3.55, -9.75] },
+  attack: 'lunge',
+  shoot: null,
+  brace: 'spear',
+  die: 'forward',
+  farHeld: true,
+  twoHand: 1,
+  hunch: 6,
+  tilt: 8,
+  stiff: 0.8,
+  neFirst: [],
+  neHide: ['upperArmF', 'forearmF'],
+  drops: [
+    { slot: 'weapon', holder: 'weapon', at: 3, land: { x: 1.4, y: -0.4, rot: -82, f: 6 } },
+    { slot: 'skull', holder: 'head', at: 9, land: { x: 8.4, y: -0.9, rot: 60, f: 11 } },
+    { slot: 'jaw', holder: 'jaw', at: 9, land: { x: 6.6, y: -0.4, rot: 40, f: 11 } },
+    { slot: 'forearmN', holder: 'forearmN', at: 9, land: { x: -3.6, y: -0.5, rot: 80, f: 11 } },
+    { slot: 'forearmF', holder: 'forearmF', at: 8, land: { x: 4.2, y: -0.5, rot: -95, f: 10 } },
+    { slot: 'shinN', holder: 'shinN', at: 9, land: { x: -6.2, y: -0.5, rot: 85, f: 11 } },
+  ],
+});
 
 export function registerUndeadRigs(): void {
-  registerFoot(U.HeavyInfantry, LEGIONARY_SPEC);
+  registerFoot(U.Spearmen, GHOUL_SPEC, false);
+  registerFoot(U.HeavyInfantry, LEGIONARY_SPEC, false);
 }

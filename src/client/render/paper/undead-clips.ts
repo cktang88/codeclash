@@ -114,9 +114,32 @@ const HEAVY_CUT: Author = (rw, f) => {
   };
 };
 
+/**
+ * The ghoul's hunched lunge (thrust, plus Muybridge's lunge): the spear comes down level and is
+ * drawn back past the hip, the weight sinks onto the back foot (1-3); the hips drive, the front
+ * foot reaches a long step and both arms shoot the point out along the shaft (4); held at full
+ * reach, the back folded low over the front thigh, the jaw gaping (5-6); drawn back slower (7-11).
+ */
+const LUNGE: Author = (rw) => ({
+  w: {
+    upperArmN: R(rw.upperArmN!, 11, [1, 0], [2, -30], [3, -38], [4, 50], [5, 84], [6, 86], [8, 30], [10, 10]),
+    forearmN: R(rw.forearmN!, 11, [1, 80], [2, 66], [3, 62], [4, 92], [5, 100], [6, 100], [8, 90], [10, 86]),
+    weapon: R(rw.weapon!, 11, [1, 100], [2, 98], [3, 98], [4, 96], [5, 95], [6, 95], [8, 104], [10, 140]),
+  },
+  dw: {
+    spine: T([0, 0], [2, 8], [3, 10], [4, -14], [5, -22], [6, -22], [8, -8], [11, 0]),
+    head: T([0, 0], [3, 6], [5, -8], [6, -8], [9, 0]),
+    jaw: T([0, -8], [3, -4], [4, -30], [5, -38], [6, -38], [7, -4], [8, -16], [10, -8]),
+  },
+  tAdd: {
+    pelvis: [T([0, 0], [2, -0.4], [3, -0.5], [4, 0.6], [5, 0.95], [6, 1.0], [8, 0.5], [10, 0.1], [11, 0]), T([0, 0], [2, 0.1], [3, 0.15], [4, 0.35], [5, 0.5], [6, 0.5], [8, 0.2], [11, 0])],
+    footTargetF: [T([0, 0], [3, 0], [4, 1.3], [5, 1.7], [6, 1.7], [8, 0.9], [10, 0.2], [11, 0]), T([0, 0], [3, 0], [3.5, -0.6], [4, 0], [7, 0], [8, -0.3], [9, 0])],
+  },
+});
+
 const ATTACKS: Record<FootAttack, { clip: string; o: MocapOpts; a: Author; extra: number[]; ev: AnimEvent[]; warp: number[] }> = {
   cut: { clip: 'cut-diagonal', o: { torso: 0.4, travel: 0, feet: 0.3 }, a: HEAVY_CUT, extra: [2, 3, 5, 9, 10], ev: [{ f: 6, name: 'smear', len: 1, bone: 'weapon' }, { f: 7, name: 'strike' }], warp: [0, 1, 2, 3, 4, 4, 6, 7, 8, 9, 10, 11] },
-  lunge: { clip: 'thrust', o: { torso: 0.3, travel: 0.3, feet: 0.3 }, a: HEAVY_CUT, extra: [], ev: [], warp: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] },
+  lunge: { clip: 'thrust', o: { torso: 0.3, travel: 0.3, feet: 0.3 }, a: LUNGE, extra: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], ev: [{ f: 4, name: 'smear', len: 1, bone: 'weapon' }, { f: 5, name: 'strike' }], warp: [0, 1, 2, 3, 3, 5, 6, 7, 8, 9, 10, 11] },
   hurl: { clip: 'javelin', o: { torso: 0.6, travel: 0.8, feet: 0.8 }, a: HEAVY_CUT, extra: [], ev: [], warp: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] },
   cast: { clip: 'idle', o: { torso: 0.2, travel: 0, feet: 0 }, a: HEAVY_CUT, extra: [], ev: [], warp: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] },
   butt: { clip: 'thrust', o: { torso: 0.5, travel: 1, feet: 0.8 }, a: HEAVY_CUT, extra: [], ev: [], warp: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] },
