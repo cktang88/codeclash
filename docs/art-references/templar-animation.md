@@ -90,6 +90,18 @@ The Sergeant (kind 0) came first; the others followed the same pattern.
    - The Iron Brethren, the Knights, the Marshal and the Turcopoles are light, with a black tabard dye for the Brethren.
    - Signature items are drawn larger at level 1 (bow, javelin shield, Knight's lance, horse archer's bow, axe haft), so the silhouettes part.
 
+## Performance
+
+`pnpm tsx scripts/sprite-bench.ts templar 8 0,7`: a whole level-8 sheet takes 3.3 s for the
+Sergeant and 3.7 s for the Knight-Brothers on the 4-core container, against 1.5–1.7 s for the
+undead pose-rig figures. Rigid parts are cached per angle by the skeleton. Skinned cloth is memoised
+per its bones' angles and pixel offsets (`memoSkin`), which halved the mounted kinds.
+
+## Not done yet
+
+- The Beauséant's fly does not ripple yet: the banner is a cached part at its key-art flap.
+- The far legs of the riders are hidden by the horse in every pose, so they are not drawn.
+
 ## Lint status (`pnpm pixel-lint --only=sprites --factions=templar`, then `kind-report`)
 
 These pass for every kind:
