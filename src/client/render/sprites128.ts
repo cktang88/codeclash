@@ -183,10 +183,10 @@ function makeRamps(p: Palette, hue: number): RGB[][] {
   r[R.white] = ramp(p.cloth, 0.7);
   r[R.black] = ramp('#3a3029', 1.2, 0.9);
   r[R.red] = ramp('#a61e1a', 1.1);
-  r[R.mail] = ramp('#7d838a', 0.9);
-  r[R.plate] = ramp('#9aa0a8', 1.2);
+  r[R.mail] = ramp('#6f7276', 0.9);
+  r[R.plate] = ramp('#86898a', 1.25);
   r[R.dplate] = ramp('#474b54', 1.6);
-  r[R.steel] = ramp('#c6ccd2', 1.2);
+  r[R.steel] = ramp('#a9adb0', 1.3);
   r[R.leather] = ramp(p.leather);
   r[R.dleather] = ramp('#3b281b');
   r[R.skin] = ramp(p.skin);
@@ -219,14 +219,14 @@ function makeRamps(p: Palette, hue: number): RGB[][] {
   r[R.fire] = [[200, 80, 20], [235, 140, 30], [250, 200, 70], [255, 245, 190]];
   r[R.ochre] = ramp('#9a7a3a');
   r[R.darkbay] = ramp('#4a2e1e');
-  r[R.bone] = ramp('#d8d0b4', 0.7);
+  r[R.bone] = ramp('#a8967a', 0.9);
   r[R.rust] = ramp('#6e4a32', 1.1);
   r[R.glow] = [[60, 110, 50], [95, 143, 78], [140, 200, 100], [190, 240, 140]];
   r[R.ghoul] = ramp('#8f9a80');
   r[R.bplate] = ramp('#2f3036', 1.6);
   r[R.rag] = ramp('#2e2b2a', 1.4);
   r[R.sinew] = ramp('#6d6a55');
-  r[R.bonehorse] = ramp('#a9a28c', 0.8);
+  r[R.bonehorse] = ramp('#8f8068', 0.9);
   r[R.ash] = ramp('#3a3633', 1.2);
   r[R.rmail] = ramp('#6c6150', 1.0);
   return r;
@@ -315,7 +315,7 @@ const MAX_PX = HI_W * HI_H * 64;
 
 function setLevel(level: number): void {
   LV = level;
-  EX = level === 1 ? 1.3 : 1.12;
+  EX = level === 1 ? 1.3 : 1.0;
   BLK = Math.round(Math.log2(level));
   if (level === 1) {
     W = CELL_W;
@@ -342,6 +342,10 @@ const LC = ((d: V3): V3 => nrm([d[0], 0.5 * d[2] - SQ * d[1], SQ * d[2] + 0.5 * 
 
 const ZB = new Float32Array(MAX_PX);
 const PX = new Int16Array(MAX_PX);
+/** The previous frame of the same animation and facing, as finished codes (anti-flicker). */
+const PREV = new Int16Array(MAX_PX);
+/** Whether PREV holds the frame before this one. */
+let prevOk = false;
 let bloodChance = 0;
 let bloodSeed = 0;
 /** log2 of the level: blood and other per-pixel noise comes in blocks this big, not specks. */
@@ -1213,8 +1217,21 @@ function posed(L: Look, anim: Anim, f: number, mounted: boolean): Pose {
         p.fr = [1.4, 0.55, -1.0];
       }
       break;
+    case 'yumi':
+      if (anim === Anim.Idle || anim === Anim.Walk || anim === Anim.Run) {
+        p.hl = add(p.hl, [0.3, 1.3, 0.2]);
+        p.aim = N(0, 0.12, 1);
+      }
+      break;
     case 'teppo':
       if (anim === Anim.Shoot) p.fx = [0, 0, 1, 2][f]!;
+      if (anim === Anim.Idle || anim === Anim.Walk) {
+        // Carried level at the chest, muzzle forward: a horizontal bar, unlike any bow.
+        p.aim = N(0, 0.02, 1);
+        p.hr = [0.9, -0.2, 0.6];
+        p.hl = madd(p.hr, p.aim, 2.2);
+        p.draw = 0;
+      }
       if (anim === Anim.Brace) {
         p.kneel = true;
         p.bob = -2.6;
@@ -1347,7 +1364,7 @@ function skullMat(glow: boolean): Mat {
   return (l) => {
     if (l[2] > 0.4) {
       const ax = Math.abs(l[0]);
-      if (l[1] > -0.08 && l[1] < 0.38 && ax > 0.1 && ax < 0.66) return glow && ax > 0.22 && ax < 0.5 && l[1] > 0.04 && l[1] < 0.26 ? F(R.glow, 3) : F(R.ink, 0);
+      if (l[1] > -0.08 && l[1] < 0.38 && ax > 0.1 && ax < 0.66) return glow && Math.abs(ax - 0.38) < (LV >= 4 ? 0.07 : 0.12) && Math.abs(l[1] - 0.15) < (LV >= 4 ? 0.07 : 0.11) ? F(R.glow, 3) : F(R.ink, 0);
       if (ax < 0.12 && l[1] > -0.4 && l[1] < -0.12) return F(R.ink, 1);
       if (l[1] < -0.6) return ax < 0.6 && Math.floor(l[0] * 6) % 2 === 0 ? F(R.ink, 1) : R.bone;
     }
@@ -1511,11 +1528,39 @@ function arm(f: Fig, L: Look, sh: V3, hand: V3, side: number): void {
   const reach = body === 'colossus' ? 1.3 : 1;
   const elbow = ik(sh, hand, 2.2 * reach, 2.25 * reach, [side * 0.7, -0.5, -0.6]);
   // The colossus's limbs are bones fused end to end: seams across them.
-  const lm: Mat = body === 'colossus' ? (l) => ((l[0] * 5) % 1 < 0.14 ? F(R.bone, 0) : L.sleeve) : L.sleeve;
-  f.cap(sh, elbow, 0.78 * k, lm);
-  f.cap(elbow, hand, 0.68 * k, lm);
-  if (body === 'skel' && L.sleeve === R.bone) f.ell(elbow, [0.52, 0.52, 0.52], R.bone);
-  f.ell(hand, [0.58 * k + 0.1, 0.58 * k + 0.1, 0.58 * k + 0.1], L.hand);
+  if (body === 'colossus') {
+    // A limb of several bones fused side by side, knobbed at the joints.
+    const off = scl(nrm(crs(sub(elbow, sh), [0, 0, 1])), 0.95);
+    const off2 = scl(nrm(crs(sub(elbow, sh), off)), 0.8);
+    for (const [o, q] of [[-1, 0], [1, 0], [0, 1]] as [number, number][]) {
+      const d = add(scl(off, o), scl(off2, q));
+      f.cap(add(sh, d), add(elbow, scl(d, 0.7)), 0.17, R.bone);
+      f.cap(add(elbow, scl(d, 0.7)), add(hand, scl(d, 0.5)), 0.15, q ? F(R.bone, 1) : R.bone);
+    }
+    f.ell(sh, [0.6, 0.6, 0.6], R.bone);
+    f.ell(elbow, [0.55, 0.55, 0.55], R.bone);
+    // A fist of finger bones.
+    for (let j = -1; j <= 1; j++) f.cap(hand, add(hand, [j * 0.35, -0.7, 0.4]), 0.16, R.bone);
+    return;
+  }
+  const thin = body === 'skel' && L.sleeve === R.bone;
+  if (thin) {
+    // Humerus, radius and ulna: thin bones with knobbed ends.
+    f.cap(sh, elbow, 0.22, R.bone);
+    f.cap(elbow, hand, 0.18, R.bone);
+    f.ell(elbow, [0.32, 0.32, 0.32], R.bone);
+    f.ell(sh, [0.42, 0.42, 0.42], R.bone);
+  } else {
+    // Tapered: a rounded shoulder, the upper arm, a forearm swelling below the elbow, a slim wrist.
+    f.ell(sh, [0.95 * k, 0.9 * k, 0.95 * k], L.sleeve);
+    f.cap(sh, elbow, 0.72 * k, L.sleeve);
+    f.cap(elbow, hand, 0.56 * k, L.sleeve);
+    if (LV >= 2) f.ell(lerp(elbow, hand, 0.3), [0.72 * k, 0.72 * k, 0.72 * k], L.sleeve);
+  }
+  // The fist, a little longer than wide, with the thumb over it.
+  const hk = thin ? 0.38 : 0.58 * k + 0.1;
+  f.ell(hand, [hk, hk * 0.9, hk * 1.1], L.hand);
+  if (LV >= 4 && !thin) f.ell(add(hand, [side * -0.15, 0.32, 0.25]), [0.26, 0.22, 0.3], L.hand);
 }
 
 /** A shield device at (u, v) on the face (-1..1), or undefined for the plain field. */
@@ -1599,9 +1644,14 @@ function weaponLook(f: Fig, L: Look, p: Pose): boolean {
       f.ell(add(p.hl, [-0.3, -0.8, -0.4]), [0.9, 1.1, 0.9], R.rag);
       return true;
     case 'club':
-      f.cap(madd(hr, w, -1.2), madd(hr, w, 6.4), 0.62, R.bone);
-      f.ell(madd(hr, w, 6.8), [1.25, 1.4, 1.25], R.bone);
-      f.ell(madd(hr, w, 7.4), [0.7, 0.7, 0.7], R.bone);
+      {
+        // A giant's femur: a long shaft, twin knuckled condyles, an iron band nailed round it.
+        const sd = perp(w);
+        f.cap(madd(hr, w, -1.2), madd(hr, w, 6.2), 0.42, R.bone);
+        for (const o of [-0.55, 0.55]) f.ell(add(madd(hr, w, 6.6), scl(sd, o)), [0.7, 0.7, 0.7], R.bone);
+        f.ell(madd(hr, w, -1.4), [0.6, 0.6, 0.6], R.bone);
+        f.cap(madd(hr, w, 4.6), madd(hr, w, 5.1), 0.5, R.rust);
+      }
       return true;
     case 'staff':
       return true;
@@ -1611,7 +1661,7 @@ function weaponLook(f: Fig, L: Look, p: Pose): boolean {
       const b = nrm(crs(a, nrm(crs([0, 1, 0], a))));
       const hl = p.hl;
       const bend = p.draw > 0.5 ? 1.4 : 0.8;
-      const top = madd(madd(hl, b, L.style === 'horsebow' ? 5.6 : 6.4), a, -bend), bot = madd(madd(hl, b, -3.0), a, -bend * 0.7);
+      const top = madd(madd(hl, b, L.style === 'horsebow' ? 6.2 : 9.2), a, -bend), bot = madd(madd(hl, b, -3.6), a, -bend * 0.7);
       f.poly([top, madd(madd(hl, b, 3.2), a, -0.35), hl, madd(madd(hl, b, -1.6), a, -0.3), bot], F(R.lacquer, 3));
       const nock = p.draw > 0.5 ? hr : madd(madd(hl, a, -bend), b, 1.6);
       f.poly([top, nock, bot], F(R.string, 3), 0.05);
@@ -1816,6 +1866,9 @@ function pavise(f: Fig, c: V3, ax: V3, ay: V3, az: V3, out: number, tate = false
   });
 }
 
+/** Helmets that leave the face (and so a jaw) showing. */
+const OPEN_FACE = new Set<Helm>(['nasal', 'kettle', 'cap', 'hood', 'turban', 'jingasa', 'hachimaki']);
+
 /** Limb thickness by body: bones are thin, with gaps between them. */
 const LIMB: Record<Body, number> = { man: 1, skel: 0.6, ghoul: 0.75, wraith: 0.8, robe: 0.85, colossus: 1.05, armour: 1 };
 
@@ -1875,11 +1928,37 @@ function man(f: Fig, L: Look, p: Pose, mounted: boolean): void {
       const hip: V3 = [side * 1.0, pel[1] - 0.3, pel[2]];
       const ank = side < 0 ? p.fl : p.fr;
       const knee = ik(hip, ank, 2.92, 2.82, p.kneel && side > 0 ? [0, -1, 0.15] : [side * 0.1, 0, 1]);
-      const lg: Mat = body === 'colossus' ? (l) => ((l[0] * 5) % 1 < 0.14 ? F(R.bone, 0) : L.leg) : L.leg;
-      f.cap(hip, knee, 0.92 * lk, lg);
-      f.cap(knee, ank, 0.8 * lk, lg);
-      f.ell(add(ank, [0, -0.25, 0.45]), [0.62 * lk, 0.42, 0.98], L.boot);
-      if (body === 'skel' || body === 'colossus') f.ell(knee, [0.62 * lk + 0.2, 0.55 * lk + 0.2, 0.62 * lk + 0.2], R.bone);
+      if (body === 'colossus') {
+        // Fused femurs and shins, twin bones knobbed at knee and ankle.
+        for (const [o, z] of [[-0.85, 0], [0.85, 0], [0, -0.8]] as [number, number][]) {
+          f.cap(add(hip, [o, 0, z]), add(knee, [o * 0.7, 0, z * 0.7]), 0.19, R.bone);
+          f.cap(add(knee, [o * 0.7, 0, z * 0.7]), add(ank, [o * 0.5, 0, z * 0.5]), 0.16, z ? F(R.bone, 1) : R.bone);
+        }
+        f.ell(knee, [0.6, 0.55, 0.6], R.bone);
+        f.ell(add(ank, [0, -0.1, 0.5]), [0.7, 0.4, 1.1], R.bone);
+        continue;
+      }
+      if (body === 'skel') {
+        f.cap(hip, knee, 0.24, L.leg);
+        f.cap(knee, ank, 0.2, L.leg);
+        f.ell(knee, [0.36, 0.34, 0.36], R.bone);
+        // Foot bones: a narrow splay of toes.
+        f.ell(add(ank, [0, -0.3, 0.5]), [0.42, 0.25, 0.85], R.bone);
+        continue;
+      }
+      // Thigh, knee, a calf swelling behind the shin, a slim ankle; a boot with a cuff and a foot.
+      f.cap(hip, knee, 0.9 * lk, L.leg);
+      f.cap(knee, ank, 0.62 * lk, L.leg);
+      if (LV >= 2) {
+        const calf = add(lerp(knee, ank, 0.3), [0, 0, -0.18]);
+        f.ell(calf, [0.8 * lk, 1.0 * lk, 0.8 * lk], L.leg);
+        f.ell(knee, [0.72 * lk, 0.7 * lk, 0.75 * lk], L.leg);
+      }
+      if (L.boot !== L.leg) {
+        f.cap(lerp(knee, ank, 0.55), ank, 0.7 * lk, L.boot);
+        if (LV >= 4) f.ell(lerp(knee, ank, 0.55), [0.8 * lk, 0.22, 0.8 * lk], F(L.boot, 1));
+      }
+      f.ell(add(ank, [0, -0.25, 0.5]), [0.62 * lk, 0.44, 1.05], L.boot);
     }
     if (body === 'skel' || body === 'colossus') {
       // A pelvis as a bowl with hip-wings, and the spine rising out of it.
@@ -1898,6 +1977,7 @@ function man(f: Fig, L: Look, p: Pose, mounted: boolean): void {
   }
   const laced = (l: V3, base: number): number => (L.lacing !== undefined && Math.floor((l[1] + 1) * 4.2) % 2 === 0 ? L.lacing : base);
   const skirtMat = (l: V3): number => {
+    if ((body === 'skel' || body === 'ghoul') && l[1] < -0.2 && hash2(Math.floor(Math.atan2(l[0], l[2]) * 7), 2, 41) < (-0.2 - l[1]) * 1.5) return -1;
     if (body === 'wraith' && l[1] < 0.35 && hash2(Math.floor(Math.atan2(l[0], l[2]) * 6), Math.floor(l[1] * 5), 7) < (0.35 - l[1]) * 1.6) return -1;
     if (L.hem !== undefined && (L.bell ? l[1] < 0.12 : l[1] < -0.68)) return L.hem;
     if (L.cross && Math.abs(l[0]) < 0.2 && Math.abs(l[2]) > 0.4 && l[1] > -0.5) return R.red;
@@ -1920,7 +2000,11 @@ function man(f: Fig, L: Look, p: Pose, mounted: boolean): void {
     f.ell([0, 0, 0], [1.7, 1.9, 1.15], (l, inner) => (inner ? F(R.ink, 0) : Math.floor((l[1] + 1) * 3.4) % 2 || Math.abs(l[0]) < 0.13 ? R.bone : -1), { lo: -0.6, hi: 0.9 }, Rt);
     f.cap([0, -2.0, -0.6], [0, 2.0, -0.6], 0.34, R.bone);
   }
-  f.ell([0, 0, 0], [2.0, 2.2, 1.42], (l, inner) => {
+  if (LV >= 2 && body !== 'colossus' && !ribs && body !== 'skel') {
+    // Chest and shoulders broader than the waist: a second, higher volume in the coat's colour.
+    f.ell([0, 0.75, 0.05], [2.15, 1.35, 1.48], (l) => (L.cross && Math.abs(l[2]) > 0.3 && Math.abs(l[0]) < 0.22 ? R.red : L.lacing !== undefined ? L.cloth : L.cloth), { lo: -0.2, hi: 0.9, capHi: true }, Rt);
+  }
+  f.ell([0, 0, 0], [body === 'colossus' ? 2.3 : 1.85, 2.2, 1.42], (l, inner) => {
     if (L.rot && !inner && hash2(Math.floor(l[0] * 4 + 9), Math.floor(l[1] * 4 + 9), Math.floor(l[2] * 2 + 5)) < 0.22 + Math.max(0, -l[1]) * 0.25) return -1;
     if (body === 'colossus' && l[2] > 0.55 && Math.abs(l[0]) < 0.32 && Math.abs(l[1] - 0.05) < 0.3) return F(R.glow, inner ? 2 : 3);
     if (ribs) {
@@ -1947,6 +2031,16 @@ function man(f: Fig, L: Look, p: Pose, mounted: boolean): void {
       });
   }
   if (body === 'colossus') {
+    // More ribcages fused into the heap, each with its spine, at odd angles.
+    for (const [x, y, z, a] of [[-1.3, 0.6, -0.6, 0.5], [1.4, 0.3, -0.4, -0.6], [0, -0.6, -1.0, 0.2]] as number[][]) {
+      f.ell(mv(Rt, [x!, y!, z!]), [1.2, 1.35, 0.9], (l, inner) => (inner ? F(R.ink, 0) : Math.floor((l[1] + 1) * 3.2) % 2 ? R.bone : -1), { lo: -0.8, hi: 0.85 }, mm(Rt, rz(a!)));
+      f.cap(mv(Rt, [x! * 1.1, y! - 1.4, z! - 0.8]), mv(Rt, [x! * 1.1, y! + 1.4, z! - 0.8]), 0.24, F(R.bone, 1));
+    }
+    for (const [x, y, z, r] of [[-1.8, 1.4, 0.9, 0.5], [1.7, 0.9, 1.0, 0.45], [0.6, -1.4, 1.3, 0.45], [-0.9, -0.9, 1.3, 0.4], [1.9, -0.6, -1.0, 0.45], [-1.9, -0.2, -1.1, 0.5]] as number[][]) {
+      f.push(mv(Rt, [x!, y!, z!]), mm(Rt, ry(x! * 0.4)));
+      skull(f, false, r!);
+      f.pop();
+    }
     // Bone spurs along the shoulders and back.
     for (const [x, y, z, dx, dy, dz] of [[-1.6, 1.4, -0.6, -0.8, 2.2, -0.8], [1.6, 1.4, -0.6, 0.8, 2.2, -0.8], [0, 1.6, -1.2, 0, 2.4, -1.4], [-0.9, 0.2, -1.3, -0.6, 1.4, -1.6], [0.9, 0.2, -1.3, 0.6, 1.4, -1.6]] as number[][])
       f.cap(mv(Rt, [x!, y!, z!]), mv(Rt, [x! + dx!, y! + dy!, z! + dz!]), 0.32, R.bone);
@@ -1978,8 +2072,23 @@ function man(f: Fig, L: Look, p: Pose, mounted: boolean): void {
   }
   standard(f, L, p, Rt);
   f.cap([0, 1.6, 0], [0, 2.3, 0.1], 0.72 * lk, L.collar);
-  f.push(mv(Rt, [0, 2.85, 0.15]), mm(ry(p.twist * 0.5), rx(p.head)));
+  const hs = LV >= 2 ? (body === 'colossus' ? 0.8 : 0.66) : 0.88;
+  f.push(mv(Rt, [0, 2.85 - (1 - hs) * 0.75, 0.15]), mm(ry(p.twist * 0.5), rx(p.head)));
+  f.pushScale([hs, hs, hs]);
+  if (LV >= 2 && OPEN_FACE.has(L.helm)) {
+    // Jaw and chin: the face is not an egg. Bearded faces get the beard's colour.
+    f.ell([0, -0.95, 0.42], [1.05, 0.62, 1.0], (L.beard ?? true) ? R.hair : R.skin);
+  }
   head(f, L);
+  f.pop();
+  if (body === 'colossus') {
+    // Lesser skulls fused into the shoulders and back of the giant.
+    for (const [x, y, z, r] of [[-2.6, -1.8, -0.6, 0.7], [2.5, -1.9, -0.8, 0.65], [-1.3, -1.2, -1.9, 0.6], [1.4, -1.0, -2.0, 0.6], [0, -2.6, -2.2, 0.7]] as number[][]) {
+      f.push([x!, y!, z!], ry(x! * 0.3));
+      skull(f, false, r!);
+      f.pop();
+    }
+  }
   f.pop();
   arm(f, L, shR, p.hr, 1);
   arm(f, L, shL, p.hl, -1);
@@ -2239,11 +2348,17 @@ function horse(f: Fig, H: HorseLook, hp: HPose): [V3, M3] {
     f.cap([0, 1.6, -4.0], [0, 1.6, 3.4], 0.5, H.coat);
     f.ell([0, 0.5, -3.1], [1.6, 1.2, 1.3], H.coat);
   } else {
-    f.ell([0, 0, 0], [2.0, 2.3, 4.2], H.coat);
-    f.ell([0, 0.3, 3.0], [1.9, 2.3, 1.9], H.coat);
-    f.ell([0, 0.4, -3.0], [2.05, 2.25, 2.05], H.coat);
+    // Barrel, a deep chest in front (lower than the back), a high rounded haunch behind.
+    f.ell([0, 0, 0], [1.95, 2.2, 4.0], H.coat);
+    f.ell([0, -0.1, 2.9], [1.85, 2.45, 1.85], H.coat);
+    f.ell([0, 0.55, -3.0], [2.1, 2.3, 2.1], H.coat);
+    if (LV >= 2) {
+      f.ell([0, 1.0, 3.2], [1.4, 1.2, 1.2], H.coat);
+      for (const sx of [-1, 1]) f.ell([sx * 1.1, -0.6, 3.2], [0.9, 1.4, 1.0], H.coat);
+    }
   }
-  if (H.barding) f.ell([0, 0.1, 0.3], [2.45, 3.25, 6.0], cloth, { lo: -0.8 });
+  // A caparison draped over the horse: flat over the back (the saddle sits on it), hanging straight to the knees.
+  if (H.barding) f.ell([0, 0.1, 0.3], [2.35, 3.1, 5.6], cloth, { lo: -0.8, hi: 0.62, capHi: true });
   else {
     if (H.saddle !== null) {
       const sc = H.saddle ?? R.team;
@@ -2262,13 +2377,23 @@ function horse(f: Fig, H: HorseLook, hp: HPose): [V3, M3] {
   f.push([0, 1.2, 3.4], rx(hp.neck));
   if (bony) {
     for (let i = 0; i < 4; i++) f.ell(lerp([0, 0.2, 0.1], [0, 3.4, 1.9], i / 3), [0.75, 0.6, 0.75], H.coat);
-  } else f.cap([0, 0, 0], [0, 3.6, 2.0], 1.22, H.coat);
+  } else {
+    // A neck deep at the chest and slim at the throat.
+    f.ell([0, 0.3, 0.1], [1.25, 1.7, 1.45], H.coat);
+    f.cap([0, 0.5, 0.2], [0, 3.6, 2.0], 1.05, H.coat);
+    f.cap([0, 2.0, 1.0], [0, 3.8, 2.1], 0.85, H.coat);
+  }
   if (H.barding) f.cap([0, -0.2, -0.1], [0, 2.0, 1.2], 1.38, (l) => (H.ragged && l[0] > 0.6 ? -1 : bard));
   f.cap([0, 1.3, -0.25], [0, 4.5, 1.6], bony ? 0.45 : 0.62, H.points);
   if (!bony && LV >= 2) for (let i = 0; i < 4; i++) f.ell(lerp([0, 1.6, -0.45], [0, 4.2, 1.2], i / 3), [0.32, 0.55, 0.5], H.points);
   const skullHead = bony || H.chanfron === 'skull';
-  f.cap([0, 3.9, 2.2], [0, 2.4, 4.6], 0.9, skullHead ? R.bone : H.coat);
+  // The head: a broad cheek and forehead tapering to the muzzle, a jaw beneath, an eye.
+  f.cap([0, 3.9, 2.2], [0, 2.4, 4.6], 0.78, skullHead ? R.bone : H.coat);
   f.ell([0, 3.7, 2.35], [1.0, 1.05, 1.05], skullHead ? R.bone : H.coat);
+  if (LV >= 2 && !skullHead) {
+    f.ell([0, 3.05, 2.7], [0.85, 0.8, 1.1], H.coat);
+    for (const sx of [-0.78, 0.78]) f.ell([sx, 3.9, 2.55], [0.2, 0.2, 0.2], F(R.ink, 0));
+  }
   f.ell([0, 2.25, 4.65], [0.62, 0.55, 0.5], skullHead ? R.bone : H.points);
   if (skullHead) for (const sx of [-0.62, 0.62]) f.ell([sx, 3.85, 2.6], [0.38, 0.38, 0.38], H.glow ? F(R.glow, 3) : F(R.ink, 0));
   if (H.barding && !skullHead) f.cap([0, 4.1, 2.6], [0, 2.8, 4.55], 0.55, R.plate);
@@ -2523,9 +2648,11 @@ const sb = {
 };
 const SAMURAI_FOOT: Record<number, Look> = {
   [U.HeavyInfantry]: { ...sb, style: 'sword', weapon: 'katana', cloth: R.lacquer, lacing: R.vermilion, sode: R.lacquer, skirt: R.lacquer, bell: true, helm: 'kabuto', standard: 'big' },
-  [U.Spearmen]: { ...sb, style: 'spear', weapon: 'yari', cloth: R.lacquer, sleeve: R.leather, skirt: R.indigo, leg: R.skin, boot: R.paper, helm: 'jingasa', standard: 'sashimono', beard: false },
+  [U.Spearmen]: { ...sb, style: 'spear', weapon: 'yari', cloth: R.lacquer, sleeve: R.leather, skirt: R.indigo, leg: R.indigo, boot: R.paper, helm: 'jingasa', standard: 'sashimono', beard: false },
   [U.Skirmishers]: { ...sb, style: 'javelin', cloth: R.team, collar: R.indigo, sleeve: R.indigo, skirt: R.indigo, boot: R.paper, helm: 'hachimaki', beard: false },
-  [U.Archers]: { ...sb, style: 'bow', weapon: 'yumi', cloth: R.lacquer, sleeve: R.indigo, skirt: R.indigo, boot: R.paper, helm: 'jingasa', standard: 'small', quiver: true },
+  // Archers: a hachimaki, no flag, and the tall asymmetric yumi standing over the head. Gunners: the
+  // jingasa and a tall sashimono, the teppō held level at the chest, smoke on the shot.
+  [U.Archers]: { ...sb, style: 'bow', weapon: 'yumi', cloth: R.indigo, sleeve: R.indigo, skirt: R.indigo, boot: R.paper, helm: 'hachimaki', quiver: true, beard: false },
   [U.Crossbowmen]: { ...sb, style: 'xbow', weapon: 'teppo', cloth: R.lacquer, sleeve: R.indigo, skirt: R.indigo, boot: R.paper, helm: 'jingasa', standard: 'sashimono', tate: true },
   [U.Shock]: { ...sb, style: 'poleaxe', weapon: 'naginata', cloth: R.hose, lacing: R.mail, collar: R.paper, sleeve: R.hose, hand: R.skin, leg: R.hose, boot: R.wood, skirt: R.hose, bell: true, helm: 'cowl', sash: true, scale: 1.14 },
 };
@@ -2552,7 +2679,7 @@ const SAMURAI_CREW: Look = { ...sb, style: 'crew', cloth: R.lacquer, sleeve: R.i
 // The Hollow Host: bone, rust and grave-black, one green glow, the team hue on shields and rags
 // (refs: Holbein and Hollar's Dance of Death, Kuniyoshi's ghosts, CC0 skeletons and Gate Keeper).
 const ub = {
-  cross: 0 as const, belt: R.rag, collar: R.bone, sleeve: R.bone, hand: R.bone, leg: R.bone, boot: R.bone, blade: R.rust, body: 'skel' as Body, bowWood: R.ash, glow: true,
+  cross: 0 as const, belt: R.rag, collar: R.bone, sleeve: R.bone, hand: R.bone, leg: R.bone, boot: R.bone, blade: R.rust, body: 'skel' as Body, bowWood: R.ash, glow: true, hunch: 0.15,
 };
 const UNDEAD_FOOT: Record<number, Look> = {
   // Grave Legionaries: rotted mail over the ribs, a tattered tabard, a rusted helm, a grave-sword
@@ -2737,6 +2864,104 @@ function useLevel(level: number): void {
   bx1 = by1 = -1;
 }
 
+/** Ramps exempt from cluster and silhouette clean-up: eyes, glows, strings, fire, thin shafts. */
+const KEEP = new Set<number>([R.ink, R.glow, R.string, R.fire, R.gold]);
+const CL_SEEN = new Int32Array(MAX_PX);
+let clMark = 0;
+const CL_STACK: number[] = [];
+const CL_MEMBERS: number[] = [];
+
+/**
+ * Hand-drawn clusters: any patch of one colour smaller than a few pixels (the speckle a
+ * renderer leaves where bands meet) is repainted with the neighbouring tone of its own material,
+ * so every shape is a clean flat cluster.
+ */
+function clusters(x0: number, x1: number, y0: number, y1: number): void {
+  const min = LV >= 8 ? 6 : LV >= 4 ? 4 : 3;
+  clMark++;
+  for (let y = y0; y <= y1; y++)
+    for (let x = x0; x <= x1; x++) {
+      const i0 = y * W + x;
+      const v = PX[i0]!;
+      if (v < 0 || CL_SEEN[i0] === clMark) continue;
+      // Flood the cluster (4-connected, same code).
+      CL_STACK.length = 0;
+      CL_MEMBERS.length = 0;
+      CL_STACK.push(i0);
+      CL_SEEN[i0] = clMark;
+      while (CL_STACK.length && CL_MEMBERS.length <= min) {
+        const i = CL_STACK.pop()!;
+        CL_MEMBERS.push(i);
+        for (const j of [i - 1, i + 1, i - W, i + W]) {
+          if (CL_SEEN[j] === clMark || PX[j] !== v) continue;
+          CL_SEEN[j] = clMark;
+          CL_STACK.push(j);
+        }
+      }
+      if (CL_MEMBERS.length + CL_STACK.length >= min || KEEP.has(v >> 2)) continue;
+      // Too small: take the most common neighbouring tone of the same material.
+      const r = v >> 2;
+      const n = [0, 0, 0, 0];
+      for (const i of CL_MEMBERS)
+        for (const j of [i - 1, i + 1, i - W, i + W]) {
+          const u = PX[j]!;
+          if (u >= 0 && u >> 2 === r && u !== v) n[u & 3]!++;
+        }
+      let best = -1;
+      for (let t = 0; t < 4; t++) if (n[t]! > 0 && (best < 0 || n[t]! > n[best]!)) best = t;
+      if (best >= 0) for (const i of CL_MEMBERS) PX[i] = r * 4 + best;
+    }
+}
+
+/**
+ * Clean silhouettes: one-pixel spurs sticking out of an edge are trimmed and one-pixel notches
+ * filled, so edges step in deliberate runs. Thin props (shafts, strings) are left alone.
+ */
+function silhouette(x0: number, x1: number, y0: number, y1: number): void {
+  const fix: number[] = [];
+  for (let y = y0; y <= y1; y++)
+    for (let x = x0; x <= x1; x++) {
+      const i = y * W + x;
+      const v = PX[i]!;
+      let n4 = 0, n8 = 0, best = -1;
+      for (const j of [i - 1, i + 1, i - W, i + W]) if (PX[j]! >= 0) {
+        n4++;
+        best = j;
+      }
+      for (const j of [i - W - 1, i - W + 1, i + W - 1, i + W + 1]) if (PX[j]! >= 0) n8++;
+      if (v >= 0) {
+        const r = v >> 2;
+        if (n4 <= 1 && n8 <= 1 && !KEEP.has(r) && r !== R.wood && r !== R.dwood && r !== R.lacquer && r !== R.ash && r !== R.steel) fix.push(i, -1);
+      } else if (n4 >= 3 && n8 >= 3) fix.push(i, -2 - best);
+    }
+  for (let k = 0; k < fix.length; k += 2) {
+    const i = fix[k]!, f = fix[k + 1]!;
+    if (f === -1) PX[i] = -1;
+    else {
+      // A filled notch takes its neighbour's colour and depth.
+      const j = -2 - f;
+      PX[i] = PX[j]!;
+      ZB[i] = ZB[j]!;
+    }
+  }
+}
+
+/**
+ * Anti-flicker: where a pixel changed tone since the last frame of this animation only as a lone
+ * flip (its neighbours now agree with what it was), it keeps last frame's tone.
+ */
+function steady(x0: number, x1: number, y0: number, y1: number): void {
+  for (let y = y0; y <= y1; y++)
+    for (let x = x0; x <= x1; x++) {
+      const i = y * W + x;
+      const v = PX[i]!, q = PREV[i]!;
+      if (v < 0 || q < 0 || v === q || v >> 2 !== q >> 2) continue;
+      let agree = 0;
+      for (const j of [i - 1, i + 1, i - W, i + W]) if (PX[j] === q) agree++;
+      if (agree >= 3) PX[i] = q;
+    }
+}
+
 /** Merges lone pixels of one material into the material around them (eyes and glows exempt). */
 const ORPH_V = new Int32Array(8);
 const ORPH_N = new Int32Array(8);
@@ -2830,6 +3055,9 @@ function tidy(): void {
         if (cnt >= 3 && same && tone !== (v & 3)) PX[i] = r * 4 + tone;
       }
   if (LV >= 2) orphans(x0, x1, y0, y1);
+  if (LV >= 2) clusters(x0, x1, y0, y1);
+  if (LV >= 4) silhouette(x0, x1, y0, y1);
+  if (prevOk) steady(x0, x1, y0, y1);
   if (LV >= 4) texture();
   if (LV < 2) return;
   // Inner lines: the farther pixel of a depth step (a part behind another) takes its deepest
@@ -2847,7 +3075,8 @@ function tidy(): void {
         const u = PX[j]!;
         if (u < 0) continue;
         const dz = ZB[j]! - z;
-        if (dz > step && (u >> 2 !== v >> 2 || dz > step * 2.5)) {
+        // A part in front of another: a shallow step is enough where the material changes.
+        if ((u >> 2 !== v >> 2 && dz > step * 0.4) || dz > step * 2.5) {
           mark.push(i);
           break;
         }
@@ -2907,6 +3136,7 @@ function finish(out: Uint32Array, iw: number, ox: number, oy: number, fill: numb
       // deepest tone, not the darker outline colour.
       if (nb >= 0) out[o] = lit && LV >= 2 && (nb & 3) >= 2 ? fill[(nb & ~3) | 0]! : edge[nb >> 2]!;
     }
+  PREV.set(PX.subarray(0, W * H));
 }
 
 /** Packed colours of an army's ramps (fill by ramp*4+tone) and its outline colours (by ramp). */
@@ -2914,6 +3144,15 @@ function armyColours(faction: string, hue: number): { fill: number[]; edge: numb
   const looks = looksFor(faction);
   const ramps = makeRamps(paletteFor(faction as FactionId, hue), hue);
   looks.ramps?.(ramps, hue);
+  // Moody, weathered values: everything a step darker and duller than the classic palette,
+  // with the darkest tone pushed down so parts separate; the army's colour stays strong.
+  for (let r = 0; r < RAMP_COUNT; r++) {
+    if (r === R.glow || r === R.fire || r === R.team || r === R.teamDark || r === R.ink || r === R.blood) continue;
+    ramps[r] = ramps[r]!.map((c, t) => {
+      const [h, sat, l] = rgbHsl(c);
+      return hslRgb(h, sat * 0.82, l * (t === 0 ? 0.78 : t === 3 ? 0.94 : 0.88));
+    });
+  }
   const fill: number[] = [];
   const edge: number[] = [];
   for (let r = 0; r < RAMP_COUNT; r++) {
@@ -2952,6 +3191,7 @@ export function paintSheet(faction: string, hue: number, kind: number, level: nu
       if (a === Anim.Shoot && !SHOOTS.has(kind)) continue;
       for (let fr = 0; fr < FRAMES[a]!; fr++) {
         const sh = paint(looks, kind, a as Anim, fr, dir as Dir);
+        prevOk = fr > 0;
         // The scratch is cleared over everything this frame can touch, then trimmed to what it did.
         const ex = Math.ceil(Math.max(sh.rx, sh.rz) * LV) + 1;
         const c0 = Math.max(0, Math.min(bx0 - 1, FX - 2 * ex)), c1 = Math.min(W - 1, Math.max(bx1 + 1, FX + 2 * ex));
@@ -3015,6 +3255,7 @@ export function paintGrid(faction: string, hue: number, kind: number): KindSheet
       if (a === Anim.Shoot && !SHOOTS.has(kind)) continue;
       for (let fr = 0; fr < FRAMES[a]!; fr++) {
         const sh = paint(looks, kind, a as Anim, fr, dir as Dir);
+        prevOk = fr > 0;
         finish(out, width, (COL0[a]! + fr) * CELL_W, dir * CELL_H, fill, edge, a === Anim.Dead ? null : sh, dir as Dir);
       }
     }
@@ -3204,6 +3445,7 @@ export const buildAtlas: BuildAtlas = (faction, hue) => {
         if (a === Anim.Shoot && !SHOOTS.has(kind)) continue;
         for (let fr = 0; fr < FRAMES[a]!; fr++) {
           const sh = paint(looks, kind, a as Anim, fr, dir as Dir);
+          prevOk = fr > 0;
           finish(out, image.width, (COL0[a]! + fr) * CELL_W, dir * CELL_H, fill, edge, a === Anim.Dead ? null : sh, dir as Dir);
         }
       }
