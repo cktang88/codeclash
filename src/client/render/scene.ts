@@ -154,6 +154,8 @@ export class BattleScene {
     this.ground = paintGround(battle.setup.seed);
     const [a, b] = battle.setup.armies;
     this.atlases = [buildAtlas(a.faction, a.hue), buildAtlas(b.faction, b.hue)];
+    // The painter fills kinds lazily, but the atlas goes to the GPU once: paint every kind first.
+    for (const atlas of this.atlases) for (let k = 0; k < KIND_COUNT; k++) atlas.at(k, Anim.Idle, 0, 0);
     this.fxSheet = buildFx([a, b], battle.setup.seed);
     // Lookup tables, so the per-figure loop calls no atlas closures and builds no strings.
     for (const atlas of this.atlases) {

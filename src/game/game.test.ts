@@ -425,3 +425,10 @@ describe('pairings', () => {
     expect(pairGrand([5, 3, 1])).toEqual([[5, 3], [1, null]]);
   });
 });
+
+describe('replay versions', () => {
+  it('refuses a setup recorded under another version of the rules', async () => {
+    const { BattleVersionError } = await import('./battle.ts');
+    expect(() => new Battle({ version: BATTLE_VERSION - 1, seed: 1, kind: 'daily', armies: [army(50), army(50)] })).toThrow(BattleVersionError);
+  });
+});

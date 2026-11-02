@@ -28,6 +28,13 @@ export type { CommanderTrait, MoraleState, Order, OrderKind, Personality, Plan }
 export { MORALE } from './command.ts';
 
 export const BATTLE_VERSION = 2;
+
+/** Thrown for a setup fought under another BATTLE_VERSION (see docs/replays.md). */
+export class BattleVersionError extends Error {
+  constructor(readonly version: number) {
+    super(`battle recorded under rules v${version}; this build fights v${BATTLE_VERSION}`);
+  }
+}
 /** The field, in world units (a man is about five across). Armies face each other along x. */
 export const FIELD_W = 1600;
 export const FIELD_H = 1200;
@@ -548,6 +555,8 @@ export class Battle {
   private readonly tmp = new Float64Array(4);
 
   constructor(readonly setup: BattleSetup) {
+    // A setup recorded under another version of the rules would replay as a different battle.
+    if (setup.version !== BATTLE_VERSION) throw new BattleVersionError(setup.version);
     this.rng = new Rng(mixSeed(setup.seed, BATTLE_VERSION));
     this.generals = [new General(0, setup.seed), new General(1, setup.seed)];
     this.scale = scaleFor(setup.armies[0].counts, setup.armies[1].counts);
