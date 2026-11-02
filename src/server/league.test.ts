@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Battle } from '../game/battle.ts';
+import { grandArmy } from '../game/city.ts';
 import { DAY_MS, weekOf } from '../game/league.ts';
 import type { PushReport } from '../ingest/poller.ts';
 import { silentLogger } from '../ingest/log.ts';
@@ -128,6 +129,38 @@ describe('server bug sweep regressions', () => {
     expect(server.fightDue()).toBe(0);
     await server.shutdown();
   }, 60_000);
+
+  it('the Grand Battle is fought after the day-6 dailies and from their outcomes, even a slice at a time', async () => {
+    const monday = weekOf(Date.UTC(2026, 10, 3), 0).weekStart;
+    const { server, now, signIn } = await boot(monday + 3_600_000);
+    const cookie = await signIn('ana');
+    const card = (await server.app.inject({ method: 'POST', url: '/api/leagues', headers: { cookie }, payload: { name: 'Last Night', visibility: 'public', resetHour: 0, bots: 4 } })).json<LeagueCard>();
+    const league = server.game.leagueBySlug(card.slug)!;
+    // Catch the whole week up after a restart, one battle day per tick (a budget of 0 yields after each).
+    now.t = monday + 7 * DAY_MS + 1000;
+    for (let i = 0; i < 20; i++) server.leagues.tick(now.t, 0);
+    const battles = server.game.battlesOfWeek(league.id, monday);
+    const grand = battles.filter((b) => b.kind === 'grand');
+    const day6 = battles.filter((b) => b.kind === 'daily' && b.day === 6);
+    expect(grand.length).toBeGreaterThan(0);
+    expect(day6.length).toBeGreaterThan(0);
+    expect(Math.min(...grand.map((b) => b.id))).toBeGreaterThan(Math.max(...day6.map((b) => b.id)));
+    // Each Grand army is what the city held once the day-6 dead were counted.
+    const at = grand[0]!.foughtAt;
+    const dailies = battles.filter((b) => b.kind === 'daily');
+    const before6 = dailies.filter((b) => b.day < 6);
+    let differs = false;
+    for (const g of grand) {
+      for (const [side, id] of [[0, g.aId], [1, g.bId]] as const) {
+        if (id === null) continue;
+        const expected = grandArmy(server.leagues.city(league, id, monday, at, dailies)).counts;
+        expect(g.setup.armies[side].counts).toEqual(expected);
+        if (JSON.stringify(grandArmy(server.leagues.city(league, id, monday, at, before6)).counts) !== JSON.stringify(expected)) differs = true;
+      }
+    }
+    expect(differs).toBe(true);
+    await server.shutdown();
+  }, 120_000);
 
   it("a private league's battles are not offered to shared caches", async () => {
     const monday = weekOf(Date.UTC(2026, 10, 3), 0).weekStart;
