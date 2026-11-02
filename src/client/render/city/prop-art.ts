@@ -158,8 +158,9 @@ export function barrel(px: Px, st: CityStyle, cu: number, cv: number, z0: number
       const mid = 1 - Math.abs(z / h - 0.5) * 2;
       const ll = l + mid * 0.15;
       if (hoops.some((hz) => Math.abs(z - hz) < 0.5 / k)) return ll > 0.3 ? IRON[1] : ll > -0.4 ? IRON[2] : IRON[3];
-      const stave = Math.floor((a * r * k) / 2.2) % 2;
-      const c = lit(wood, ll - stave * 0.12);
+      const sp = (a * r * k) / 2.4;
+      if (sp - Math.floor(sp) < 0.22 && ll < 0.75) return z < 0.3 ? wood[3] : tone(lit(wood, ll), 0.22);
+      const c = lit(wood, ll);
       return z < 0.3 ? tone(c, 0.15) : c;
     },
     (du, dv) => {
@@ -175,13 +176,24 @@ export function barrel(px: Px, st: CityStyle, cu: number, cv: number, z0: number
 /** A crate: battens round each face, boards inside, a diagonal brace on the lit face. */
 export function crate(px: Px, st: CityStyle, u: number, v: number, z: number, l = 3.4, h = 3.2): void {
   const k = px.k;
-  rbox(px, u, v, z, l, l, h, st.timber, (f, s, t, c) => {
-    const ls = l;
+  // Pale sawn deal for the battens and lid, darker boards between, dark gaps and nail heads.
+  const deal = mix(st.timber[0], st.daub[1], 0.35);
+  rbox(px, u, v, z, l, l, h, st.timber, (f, s, t) => {
     const lt = f === 'top' ? l : h;
-    if (border(s, t, ls, lt, 0.5)) return f === 'right' ? st.timber[1] : f === 'top' ? st.daub[1] : st.timber[0];
-    if (f === 'left' && Math.abs(s / ls - t / lt) < 0.6 / Math.max(ls, lt) * 1.6) return st.timber[0];
-    const base = f === 'top' ? st.timber[1] : f === 'left' ? st.timber[1] : st.timber[2];
-    return planks(f, s, t, base, k, 1.0, f !== 'top');
+    const edge = border(s, t, l, lt, 0.45);
+    const xq = Math.floor(s * k);
+    const yq = Math.floor(t * k);
+    if (f === 'top') {
+      if (edge) return tone(deal, -0.06);
+      return yq % 3 === 2 ? st.timber[2] : xq % 5 === 0 && yq % 3 === 0 ? st.timber[3] : deal;
+    }
+    const lit = f === 'left';
+    if (edge) {
+      return lit ? deal : st.timber[1];
+    }
+    if (lit && Math.abs(s / l - t / lt) < 0.11) return tone(deal, 0.06);
+    if (yq % 3 === 2) return st.timber[3];
+    return lit ? st.timber[1] : st.timber[2];
   });
 }
 
@@ -380,7 +392,14 @@ export function haystack(px: Px, st: CityStyle, cu: number, cv: number, n: numbe
 /** Square hay bales, two on one. */
 export function bales(px: Px, st: CityStyle, u: number, v: number): void {
   const k = px.k;
-  const shade = (f: 'top' | 'left' | 'right', s: number, t: number, c: Col) => (Math.abs(s - 1.4) < 0.3 / k * 1.2 || (f !== 'top' && Math.floor(t * k) % 3 === 0) ? tone(c, 0.18) : c);
+  // Straw laid along the bale in fine lines, two twine bands round it.
+  const shade = (f: 'top' | 'left' | 'right', s: number, t: number, c: Col) => {
+    const along = f === 'right' ? t : s;
+    const across = f === 'top' ? t : f === 'right' ? s : t;
+    if (f !== 'right' && (Math.abs(along - 1.2) < 0.5 / k || Math.abs(along - 2.8) < 0.5 / k)) return st.thatch[3];
+    if (f === 'right') return Math.floor(s * k + t * k) % 3 === 0 ? tone(c, 0.12) : c;
+    return Math.floor(across * k) % 2 === 1 ? tone(c, 0.1) : c;
+  };
   rbox(px, u, v, 0, 4, 2.4, 2, st.thatch, shade);
   rbox(px, u + 4.3, v, 0, 4, 2.4, 2, st.thatch, shade);
   rbox(px, u + 2, v + 0.2, 2, 4, 2.4, 2, st.thatch, shade);
