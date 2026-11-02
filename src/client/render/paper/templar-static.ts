@@ -9,9 +9,62 @@
 // with padding or a mail cape), waist ~0.24 H; kite shield ~0.48 H x 0.3 H.
 
 import { addP, code, DEG, defineMaterial, figurePalette, hash, oklchRgb, Paper, rot, type Mat, type P2, type RGB } from './core.ts';
-import './index.ts';
 import { BODIES, type BodyType } from './rig.ts';
-import { at, beauseant, bow, crossbow, frameAt, isMail, lerp, local, mailTex as mailRows, mul, paintAs, spear, sub, sword, TM } from './templar-parts.ts';
+import { at, beauseant, bow, crossbow, frameAt as frameAt0, isMail, lerp, local, mailTex as mailRows, mul, paintAs, spear, sub, sword, TM } from './templar-parts.ts';
+
+// ------------------------------------------------------------------ part maps (the rig)
+
+/**
+ * Where key-art geometry lands while an animated part draws it (templar-rig.ts): `f` takes a
+ * point of the key art (rest pose, units) to the figure, `inv` takes a figure point back (for
+ * shading in the part's own coordinates, so texture and folds ride on the part), and `deg` is how
+ * far the part has turned (snapped). Null for the key art itself, which then draws exactly as
+ * before.
+ */
+export interface PartMap {
+  f(p: P2): P2;
+  inv(p: P2): P2;
+  deg: number;
+}
+let XF: PartMap | null = null;
+/** Draws with key-art geometry mapped through `m` (nests; restores the previous map). */
+export function withMap<T>(m: PartMap | null, draw: () => T): T {
+  const was = XF;
+  XF = m;
+  try {
+    return draw();
+  } finally {
+    XF = was;
+  }
+}
+/** A key-art point where it lands now. */
+const T = (p: P2): P2 => (XF ? XF.f(p) : p);
+/** A canvas pixel's centre back in key-art units. */
+const back = (c: Paper, x: number, y: number): P2 => {
+  const p: P2 = [(x + 0.5 - c.FX) / c.L, (y + 0.5 - c.FY) / c.L];
+  return XF ? XF.inv(p) : p;
+};
+/** A frame for a key-art point and angle, turned with the part. */
+// frameAt turns clockwise on screen, rig angles counter-clockwise: a part turned by +d turns its frames by -d.
+const frameAt = (o: P2, deg: number) => frameAt0(T(o), deg - (XF ? XF.deg : 0));
+/** An ellipse at a key-art centre. */
+const lineK = (c: Paper, a: P2, b: P2, cd: number): void => c.line(T(a), T(b), cd);
+const blob = (c: Paper, o: P2, rx: number, ry: number, m: Mat, opts: Parameters<Paper['blob']>[4] = {}): void => c.blob(T(o), rx, ry, m, opts);
+/** A polygon of key-art points, shaded with key-art units. */
+const shapeK = (c: Paper, pts: P2[], shade: (x: number, y: number, ux: number, uy: number) => number): void => {
+  // Under a map that bends (cloth over two bones) long edges are split so the outline follows it.
+  const dense: P2[] = [];
+  if (XF)
+    pts.forEach((a, i) => {
+      const b = pts[(i + 1) % pts.length]!;
+      const n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / 0.6));
+      for (let k = 0; k < n; k++) dense.push(lerp(a, b, k / n));
+    });
+  c.shape((XF ? dense : pts).map(T), (x, y) => {
+    const q = back(c, x, y);
+    return shade(x, y, q[0], q[1]);
+  });
+};
 
 // ------------------------------------------------------------------ key-art materials
 
@@ -87,7 +140,8 @@ interface VolOpts {
  * A shaped volume from a to b: a limb, a haft, a boot. Shaded the pixel-art way on its own
  * width: a lit band on the light side, the body, a shadow band on the far side; mail gets rings.
  */
-function vol(c: Paper, a: P2, b: P2, prof: Profile, m: Mat, o: VolOpts = {}): void {
+export function vol(c: Paper, a0: P2, b0: P2, prof: Profile, m: Mat, o: VolOpts = {}): void {
+  const a = T(a0), b = T(b0);
   const d = sub(b, a);
   const len = Math.hypot(d[0], d[1]) || 1;
   const dir: P2 = [d[0] / len, d[1] / len];
@@ -126,7 +180,11 @@ function vol(c: Paper, a: P2, b: P2, prof: Profile, m: Mat, o: VolOpts = {}): vo
 
 /** A polygon in units with a shade callback that gets units relative to an origin. */
 function shapeU(c: Paper, pts: P2[], o: P2, shade: (x: number, y: number, ux: number, uy: number) => number): void {
-  c.shape(pts, (x, y) => shade(x, y, (x + 0.5 - c.sx(o[0])) / c.L, (y + 0.5 - c.sy(o[1])) / c.L));
+  if (!XF) {
+    c.shape(pts, (x, y) => shade(x, y, (x + 0.5 - c.sx(o[0])) / c.L, (y + 0.5 - c.sy(o[1])) / c.L));
+    return;
+  }
+  shapeK(c, pts, (x, y, ux, uy) => shade(x, y, ux - o[0], uy - o[1]));
 }
 
 const within = (c: Paper, d: number, half: number): boolean => Math.abs(d) * c.L < Math.max(0.55, half * c.L);
@@ -136,7 +194,7 @@ const within = (c: Paper, d: number, half: number): boolean => Math.abs(d) * c.L
 export type SHelm = 'great' | 'gilded' | 'kettle' | 'nasal' | 'cap' | 'pilgrim' | 'turban' | 'hood';
 
 /** A static man's dress. */
-interface SKit {
+export interface SKit {
   helm: SHelm;
   /** Mail (hauberk) or a padded/wool garment under everything. */
   body: Mat;
@@ -185,25 +243,55 @@ const J = {
 
 /** One leg: a thigh with mass, the knee, a calf, the boot with its turned-down top, the foot. */
 function legS(c: Paper, hip: P2, knee: P2, ank: P2, k: SKit, far: boolean): void {
+  thighS(c, hip, knee, k, far);
+  shinS(c, knee, ank, k, far);
+  footS(c, ank, k, far);
+}
+/** The thigh and the knee. */
+export function thighS(c: Paper, hip: P2, knee: P2, k: SKit, far: boolean): void {
   const t = far ? 1 : 2;
   vol(c, hip, knee, [[0, 0.82], [0.35, 0.8], [0.8, 0.66], [1, 0.62]], k.legs, { tone: t });
   // Knee: the mail bulges over a padded knee.
-  c.blob(addP(knee, [0.05, 0.05]), 0.66, 0.6, k.legs, { tone: t, detail: isMailS(k.legs) ? (x, y, nx) => mailTex(c, x, y, nx < -0.2 ? -1 : 0, t, k.legs) : undefined });
+  blob(c, addP(knee, [0.05, 0.05]), 0.66, 0.6, k.legs, { tone: t, detail: isMailS(k.legs) ? (x, y, nx) => mailTex(c, x, y, nx < -0.2 ? -1 : 0, t, k.legs) : undefined });
+}
+/** The calf and the boot's leg with its cuff. */
+export function shinS(c: Paper, knee: P2, ank: P2, k: SKit, far: boolean): void {
+  const t = far ? 1 : 2;
   vol(c, knee, ank, [[0, 0.6], [0.3, 0.66], [0.7, 0.5], [1, 0.45]], k.legs, { tone: Math.max(1, t - 1) });
-  // Boot: ankle boot with a cuff, and the foot pointing forward.
+  // Boot: ankle boot with a cuff.
   const top = lerp(knee, ank, 0.58);
   vol(c, top, ank, [[0, 0.55], [0.12, 0.6], [0.2, 0.53], [1, 0.5]], k.boots, { tone: t, detail: (_x, _y, _u, v) => (v < 0.14 ? code(k.boots, t + 1) : -1) });
-  c.shape([addP(ank, [-0.5, -0.35]), addP(ank, [0.45, -0.3]), addP(ank, [1.35, 0.25]), addP(ank, [1.3, 0.55]), addP(ank, [-0.55, 0.55])], (_x, y) =>
-    code(k.boots, y < c.sy(ank[1] + 0.05) ? t + 1 : y > c.sy(ank[1] + 0.4) ? t - 1 : t));
+}
+/** The foot pointing forward. */
+export function footS(c: Paper, ank: P2, k: SKit, far: boolean): void {
+  const t = far ? 1 : 2;
+  const pts: P2[] = [addP(ank, [-0.5, -0.35]), addP(ank, [0.45, -0.3]), addP(ank, [1.35, 0.25]), addP(ank, [1.3, 0.55]), addP(ank, [-0.55, 0.55])];
+  if (!XF) {
+    c.shape(pts, (_x, y) => code(k.boots, y < c.sy(ank[1] + 0.05) ? t + 1 : y > c.sy(ank[1] + 0.4) ? t - 1 : t));
+    return;
+  }
+  shapeK(c, pts, (_x, _y, _ux, uy) => code(k.boots, uy < ank[1] + 0.05 + 0.5 / c.L ? t + 1 : uy > ank[1] + 0.4 + 0.5 / c.L ? t - 1 : t));
 }
 
 /** One arm: deltoid, upper arm, elbow, a forearm widening to the mitten or glove, the fist. */
 function armS(c: Paper, sh: P2, el: P2, wr: P2, k: SKit, far: boolean): void {
+  upperArmS(c, sh, el, k, far);
+  forearmS(c, el, wr, k, far);
+  handS(c, el, wr, k, far);
+}
+/** The upper arm and the elbow. */
+export function upperArmS(c: Paper, sh: P2, el: P2, k: SKit, far: boolean): void {
   const t = far ? 1 : 2;
   vol(c, sh, el, [[0, 0.78], [0.25, 0.72], [0.75, 0.6], [1, 0.56]], k.sleeve, { tone: t });
-  c.blob(el, 0.6, 0.58, k.sleeve, { tone: t });
-  vol(c, el, wr, [[0, 0.56], [0.35, 0.62], [0.8, 0.54], [1, 0.58]], k.sleeve, { tone: t });
-  c.blob(addP(wr, mul(sub(wr, el), 0.18)), 0.55, 0.52, k.hand, { tone: t });
+  blob(c, el, 0.6, 0.58, k.sleeve, { tone: t });
+}
+export function forearmS(c: Paper, el: P2, wr: P2, k: SKit, far: boolean): void {
+  vol(c, el, wr, [[0, 0.56], [0.35, 0.62], [0.8, 0.54], [1, 0.58]], k.sleeve, { tone: far ? 1 : 2 });
+}
+/** The fist, a little past the wrist. */
+export const handAt = (el: P2, wr: P2): P2 => addP(wr, mul(sub(wr, el), 0.18));
+export function handS(c: Paper, el: P2, wr: P2, k: SKit, far: boolean): void {
+  blob(c, handAt(el, wr), 0.55, 0.52, k.hand, { tone: far ? 1 : 2 });
 }
 
 /**
@@ -302,8 +390,8 @@ function hoodCape(c: Paper, m: Mat): void {
 function faceS(c: Paper, o: P2, beard: boolean): void {
   // Pixel coordinates in the face (from its centre, 8 px per unit at level 8): the features are
   // placed by hand, the way a pixel artist builds a 12 px face.
-  const ox = c.sx(o[0]), oy = c.sy(o[1]);
-  c.blob(o, 0.78, 0.92, TM.flesh, {
+  const ox = c.sx(T(o)[0]), oy = c.sy(T(o)[1]);
+  blob(c, o, 0.78, 0.92, TM.flesh, {
     detail: (x, y, nx, ny) => {
       const px = x + 0.5 - ox, py = y + 0.5 - oy;
       const s = c.L / 8;
@@ -356,7 +444,7 @@ function helmS(c: Paper, h: SHelm, o: P2, back: boolean, beard: boolean, coif: M
     // A cloth hood drawn up over the head, its peak (the liripipe) falling behind, the face in
     // the opening; a fold runs from the crown to the cheek.
     vol(c, addP(o, [-0.6, -1.0]), addP(o, [-1.9, 0.6]), [[0, 0.42], [1, 0.16]], coif, { tone: 1 });
-    c.blob(addP(o, [-0.1, -0.05]), 1.3, 1.4, coif, {
+    blob(c, addP(o, [-0.1, -0.05]), 1.3, 1.4, coif, {
       detail: (_x, _y, nx, ny) => {
         if (Math.abs(nx + 0.35 - ny * 0.25) < 0.08 && ny > -0.6) return code(coif, 1);
         return code(coif, nx < -0.35 || ny < -0.6 ? 3 : nx > 0.55 ? 1 : 2);
@@ -364,20 +452,20 @@ function helmS(c: Paper, h: SHelm, o: P2, back: boolean, beard: boolean, coif: M
     });
   } else if (coif) {
     // The coif: a mail hood round the face, thick at the cheeks and throat.
-    c.blob(addP(o, [-0.05, 0.1]), 1.2, 1.3, coif, { detail: (x, y, nx) => mailTex(c, x, y, nx < -0.3 ? -1 : nx > 0.4 ? 1 : 0, nx < -0.4 ? 3 : nx > 0.5 ? 1 : 2, coif) });
-  } else c.blob(addP(o, [-0.15, -0.1]), 0.95, 1.0, TM.hair, { tone: 2 });
+    blob(c, addP(o, [-0.05, 0.1]), 1.2, 1.3, coif, { detail: (x, y, nx) => mailTex(c, x, y, nx < -0.3 ? -1 : nx > 0.4 ? 1 : 0, nx < -0.4 ? 3 : nx > 0.5 ? 1 : 2, coif) });
+  } else blob(c, addP(o, [-0.15, -0.1]), 0.95, 1.0, TM.hair, { tone: 2 });
   if (!back) faceS(c, addP(o, [0.38, 0.25]), beard);
   if (h === 'kettle' || h === 'pilgrim') {
     const pil = h === 'pilgrim';
     const m = pil ? TM.wool : TM.steel;
-    c.blob(addP(o, [0.05, -0.85]), 1.0, 0.72, m, { shine: !pil });
+    blob(c, addP(o, [0.05, -0.85]), 1.0, 0.72, m, { shine: !pil });
     // A wide brim, dished: the upper face lit, the underside in shadow, chewed and dented.
     shapeU(c, [[-1.9, -0.55], [-1.0, -0.85], [1.15, -0.85], [2.05, -0.5], [1.9, -0.25], [-1.75, -0.3]].map((p) => addP(o, p as P2)), o, (x, _y, ux, uy) => {
       if (uy < -0.62) return code(m, ux < 0 ? 4 : 3);
       if (!pil && hash(c.lx(x) >> 1, 1, 3) < 0.1) return code(TM.leather, 1);
       return code(m, uy > -0.38 ? 1 : 2);
     });
-    if (pil && !back) c.blob(addP(o, [0.65, -0.75]), 0.28, 0.25, TM.white, { tone: 3 });
+    if (pil && !back) blob(c, addP(o, [0.65, -0.75]), 0.28, 0.25, TM.white, { tone: 3 });
     return;
   }
   if (h === 'nasal') {
@@ -388,12 +476,12 @@ function helmS(c: Paper, h: SHelm, o: P2, back: boolean, beard: boolean, coif: M
   }
   if (h === 'turban') {
     vol(c, addP(o, [0, -1.3]), addP(o, [0.05, -2.2]), [[0, 0.22], [1, 0.06]], TM.steel, { tone: 3 });
-    c.blob(addP(o, [0, -0.65]), 1.25, 0.85, TM.white, { detail: (x, y, nx, ny) => ((c.ly(y) + (c.lx(x) >> 2)) % 4 === 0 ? code(TM.white, nx < 0 ? 2 : 1) : ny > 0.6 ? code(TM.white, 1) : -1) });
+    blob(c, addP(o, [0, -0.65]), 1.25, 0.85, TM.white, { detail: (x, y, nx, ny) => ((c.ly(y) + (c.lx(x) >> 2)) % 4 === 0 ? code(TM.white, nx < 0 ? 2 : 1) : ny > 0.6 ? code(TM.white, 1) : -1) });
     return;
   }
   if (h === 'hood') return;
   // cap
-  c.blob(addP(o, [-0.05, -0.65]), 1.05, 0.68, TM.wool, { tone: 2 });
+  blob(c, addP(o, [-0.05, -0.65]), 1.05, 0.68, TM.wool, { tone: 2 });
 }
 
 /** A big kite shield held tight against the body (team field or the Temple's arms). */
@@ -439,7 +527,7 @@ function kiteS(c: Paper, ctr: P2, w: number, h: number, back: boolean, temple: b
 
 /** A round shield, big, held tight: team field quartered, iron rim, a boss. */
 function roundS(c: Paper, ctr: P2, r: number): void {
-  c.blob(ctr, r * 0.86, r, TM.team, {
+  blob(c, ctr, r * 0.86, r, TM.team, {
     detail: (x, y, nx, ny) => {
       const d = Math.hypot(nx, ny);
       if (d > 0.88) return code(TM.steel, nx + ny < -0.4 ? 4 : nx + ny > 0.6 ? 1 : 2);
@@ -452,16 +540,18 @@ function roundS(c: Paper, ctr: P2, r: number): void {
   });
 }
 
+/** A held item: drawn from the fist (figure units) turned by `turn` degrees from its key-art angle. */
+export type SItem = (c: Paper, hand: P2, turn: number) => void;
 /** The parts of a foot figure that are not the man himself. */
-interface SGear {
+export interface SGear {
   /** Behind the whole figure (a pavise on the back, a quiver, javelins in the shield hand). */
   behind?: (c: Paper) => void;
   /** Between the body and the near arm (a shield held close covers the torso). */
   front?: (c: Paper) => void;
   /** In the near hand (and the near arm's pose: elbow and wrist). */
-  near?: { el: P2; wr: P2; draw?: (c: Paper, hand: P2) => void };
+  near?: { el: P2; wr: P2; draw?: SItem };
   /** The far arm's pose when it shows (no shield). */
-  far?: { el: P2; wr: P2; draw?: (c: Paper, hand: P2) => void };
+  far?: { el: P2; wr: P2; draw?: SItem };
   /** Last, over everything. */
   last?: (c: Paper) => void;
 }
@@ -470,11 +560,11 @@ interface SGear {
  * The brothers' white mantle, heavy, hanging from both shoulders behind the body to the ankles,
  * wider than the man: deep vertical folds with lit ridges, the red cross on the far shoulder.
  */
-function cloakS(c: Paper, hemY = -0.55, sweep = 0): void {
+function cloakS(c: Paper, hemY = -0.55, sweep = 0, back = false): void {
   const pts = smooth([[-2.9, -12.1], [0.2, -12.5], [3.0, -12.0], [3.6, -9.5], [4.1, -5.0], [4.5 + sweep, hemY - 0.2], [2.0, hemY + 0.15], [-0.8, hemY], [-3.6 + sweep, hemY + 0.2], [-4.1 + sweep * 0.5, -4.5], [-3.6, -9.6]], 3);
   shapeU(c, pts, [0, 0], (x, y, ux, uy) => {
     // The cross on the far shoulder, where the mantle turns toward the light.
-    if ((within(c, ux - 3.15, 0.3) && Math.abs(uy + 10.4) < 0.95) || (within(c, uy + 10.55, 0.28) && Math.abs(ux - 3.15) < 0.6)) return code(TM.red, 2);
+    if (!back && ((within(c, ux - 3.15, 0.3) && Math.abs(uy + 10.4) < 0.95) || (within(c, uy + 10.55, 0.28) && Math.abs(ux - 3.15) < 0.6))) return code(TM.red, 2);
     // Folds: wide, deep, swinging out toward the hem; lit ridge then shadowed trough.
     const spread = (uy + 12.3) / 12;
     const f = (((ux / (1 + spread * 0.35)) + 8) * 0.62) % 1;
@@ -501,7 +591,7 @@ function furS(c: Paper): void {
 function pauldronS(c: Paper, sh: P2, far: boolean): void {
   for (let i = 2; i >= 0; i--) {
     const o = addP(sh, [0, -0.35 + i * 0.55]);
-    c.blob(o, 1.15 - i * 0.08, 0.55, TM.steel, {
+    blob(c, o, 1.15 - i * 0.08, 0.55, TM.steel, {
       tone: far ? 1 : 2,
       detail: (_x, _y, nx, ny) => {
         if (ny < -0.45 && nx < 0.3) return code(TM.steel, far ? 3 : 4); // lit rolled edge
@@ -513,29 +603,83 @@ function pauldronS(c: Paper, sh: P2, far: boolean): void {
   }
 }
 
-function manS(c: Paper, k: SKit, g: SGear): void {
-  if (k.cloak) cloakS(c);
-  g.behind?.(c);
+/** The key-art joints of a foot kind (SE, units). */
+export interface ManRest {
+  hipN: P2; hipF: P2; kneeN: P2; kneeF: P2; ankN: P2; ankF: P2;
+  shN: P2; shF: P2; elN: P2; wrN: P2; elF: P2; wrF: P2;
+  neck: P2; head: P2;
+}
+/** The far arm's pose when the key art hides it (behind a shield held across the body). */
+const FAR_HIDDEN = { el: [2.55, -9.0] as P2, wr: [1.7, -8.25] as P2 };
+const NEAR_DEFAULT = { el: [-2.65, -8.5] as P2, wr: [-2.3, -6.3] as P2 };
+export function manRest(k: SKit, g: SGear): ManRest {
   const wide = k.wide ?? false;
-  // A wide guard stance: weight on the back leg, the front foot advanced.
-  legS(c, J.hipF, wide ? [1.75, -3.7] : J.kneeF, wide ? [2.55, -0.6] : J.ankF, k, true);
-  legS(c, J.hipN, wide ? [-1.6, -3.5] : J.kneeN, wide ? [-2.2, -0.5] : J.ankN, k, false);
-  if (g.far) {
-    armS(c, J.shF, g.far.el, g.far.wr, k, true);
-    g.far.draw?.(c, addP(g.far.wr, mul(sub(g.far.wr, g.far.el), 0.18)));
+  const ne = g.near ?? NEAR_DEFAULT, fa = g.far ?? FAR_HIDDEN;
+  return {
+    hipN: J.hipN, hipF: J.hipF,
+    kneeN: wide ? [-1.6, -3.5] : J.kneeN, kneeF: wide ? [1.75, -3.7] : J.kneeF,
+    ankN: wide ? [-2.2, -0.5] : J.ankN, ankF: wide ? [2.55, -0.6] : J.ankF,
+    shN: J.shN, shF: J.shF, elN: ne.el, wrN: ne.wr, elF: fa.el, wrF: fa.wr,
+    neck: J.neck, head: J.head,
+  };
+}
+
+/** The pieces of a man, each drawn on its own (a rig part rides one bone). */
+export type ManPiece =
+  | 'cloak' | 'behind' | 'thighF' | 'shinF' | 'footF' | 'thighN' | 'shinN' | 'footN'
+  | 'upperArmF' | 'forearmF' | 'handF' | 'farItem' | 'torso' | 'fur' | 'camail' | 'hood' | 'pouch'
+  | 'head' | 'front' | 'upperArmN' | 'forearmN' | 'handN' | 'pauldron' | 'weapon' | 'last';
+/** The key art's drawing order (SE). */
+export const MAN_PIECES: readonly ManPiece[] = [
+  'cloak', 'behind', 'thighF', 'shinF', 'footF', 'thighN', 'shinN', 'footN', 'upperArmF', 'forearmF', 'handF', 'farItem',
+  'torso', 'fur', 'camail', 'hood', 'pouch', 'head', 'front', 'upperArmN', 'forearmN', 'handN', 'pauldron', 'weapon', 'last',
+];
+
+/**
+ * Draws one piece of a man in key-art coordinates (through the current part map). `rig`: the
+ * animated figure, which also draws the far arm the key art hides behind the shield; `back`: the
+ * NE view (the back of the torso, helm and shield).
+ */
+export function manPiece(c: Paper, k: SKit, g: SGear, p: ManPiece, R: ManRest, o: { rig?: boolean; back?: boolean } = {}): void {
+  const back = o.back ?? false;
+  const farArm = !!g.far || !!o.rig;
+  const held = (it: { el: P2; wr: P2; draw?: SItem } | undefined, el: P2, wr: P2) => {
+    if (!it?.draw) return;
+    const h = T(handAt(el, wr)), turn = XF ? XF.deg : 0;
+    withMap(null, () => it.draw!(c, h, turn));
+  };
+  switch (p) {
+    case 'cloak': if (k.cloak) cloakS(c, -0.55, 0, back); return;
+    case 'behind': g.behind?.(c); return;
+    case 'thighF': thighS(c, R.hipF, R.kneeF, k, true); return;
+    case 'shinF': shinS(c, R.kneeF, R.ankF, k, true); return;
+    case 'footF': footS(c, R.ankF, k, true); return;
+    case 'thighN': thighS(c, R.hipN, R.kneeN, k, false); return;
+    case 'shinN': shinS(c, R.kneeN, R.ankN, k, false); return;
+    case 'footN': footS(c, R.ankN, k, false); return;
+    case 'upperArmF': if (farArm) upperArmS(c, R.shF, R.elF, k, true); return;
+    case 'forearmF': if (farArm) forearmS(c, R.elF, R.wrF, k, true); return;
+    case 'handF': if (farArm) handS(c, R.elF, R.wrF, k, true); return;
+    case 'farItem': held(g.far, R.elF, R.wrF); return;
+    case 'torso': torsoS(c, k, back); return;
+    case 'fur': if (k.cloak) furS(c); return;
+    case 'camail': if (k.camail) camail(c, k.camail, back); return;
+    case 'hood': if (k.hood) hoodCape(c, k.hood); return;
+    case 'pouch': if (k.pouch) vol(c, [-1.45, -8.0], [-1.6, -6.85], [[0, 0.32], [0.6, 0.5], [1, 0.42]], TM.leather, { tone: 2, detail: (_x, _y, _u, v) => (v < 0.18 ? code(TM.leather, 3) : -1) }); return;
+    case 'head': helmS(c, k.helm, R.head, back, k.beard ?? true, k.hood ?? k.camail ?? (isMailS(k.body) ? k.body : null)); return;
+    case 'front': g.front?.(c); return;
+    case 'upperArmN': upperArmS(c, R.shN, R.elN, k, false); return;
+    case 'forearmN': forearmS(c, R.elN, R.wrN, k, false); return;
+    case 'handN': handS(c, R.elN, R.wrN, k, false); return;
+    case 'pauldron': if (k.pauldrons) pauldronS(c, addP(R.shN, [-0.1, 0.1]), false); return;
+    case 'weapon': held(g.near, R.elN, R.wrN); return;
+    case 'last': g.last?.(c); return;
   }
-  torsoS(c, k, false);
-  if (k.cloak) furS(c);
-  if (k.camail) camail(c, k.camail, false);
-  if (k.hood) hoodCape(c, k.hood);
-  if (k.pouch) vol(c, [-1.45, -8.0], [-1.6, -6.85], [[0, 0.32], [0.6, 0.5], [1, 0.42]], TM.leather, { tone: 2, detail: (_x, _y, _u, v) => (v < 0.18 ? code(TM.leather, 3) : -1) });
-  helmS(c, k.helm, J.head, false, k.beard ?? true, k.hood ?? k.camail ?? (isMailS(k.body) ? k.body : null));
-  g.front?.(c);
-  const ne = g.near ?? { el: [-2.65, -8.5] as P2, wr: [-2.3, -6.3] as P2 };
-  armS(c, J.shN, ne.el, ne.wr, k, false);
-  if (k.pauldrons) pauldronS(c, addP(J.shN, [-0.1, 0.1]), false);
-  ne.draw?.(c, addP(ne.wr, mul(sub(ne.wr, ne.el), 0.18)));
-  g.last?.(c);
+}
+
+function manS(c: Paper, k: SKit, g: SGear): void {
+  const R = manRest(k, g);
+  for (const p of MAN_PIECES) manPiece(c, k, g, p, R);
 }
 
 // ------------------------------------------------------------------ more gear
@@ -556,8 +700,8 @@ function paviseS(c: Paper, ctr: P2, w: number, h: number, deg: number): void {
 }
 
 /** A fan of spare javelins in the shield hand. */
-function javelinsS(c: Paper, hand: P2): void {
-  for (const d of [-10, 0, 10]) spear(c, addP(hand, [d * 0.01, 0]), 180 + d, 7.6, 1.8, { head: 1.1, w: 0.28, wood: TM.gambeson });
+function javelinsS(c: Paper, hand: P2, turn = 0): void {
+  for (const d of [-10, 0, 10]) spear(c, addP(hand, [d * 0.01, 0]), 180 + d + turn, 7.6, 1.8, { head: 1.1, w: 0.28, wood: TM.gambeson });
 }
 
 /** The Iron Brethren's ailettes: square boards on the shoulders in the army colour. */
@@ -605,7 +749,7 @@ const XBOW: SKit = { helm: 'kettle', body: TM.wool, coat: null, quilted: true, c
 // and layered pauldrons, the heavy white mantle with a fur collar, steel gauntlets, a wide stance.
 const BRETHREN: SKit = { helm: 'great', body: KM.silver, coat: TM.black, cross: true, longCross: true, cloak: true, pauldrons: true, wide: true, camail: KM.silver, sleeve: KM.silver, hand: TM.steel, legs: KM.silver, boots: KM.silver };
 
-const FOOT: Record<number, { kit: SKit; gear: SGear; dark: boolean }> = {
+export const FOOT: Record<number, { kit: SKit; gear: SGear; dark: boolean }> = {
   0: {
     kit: SERGEANT,
     dark: true,
@@ -613,7 +757,7 @@ const FOOT: Record<number, { kit: SKit; gear: SGear; dark: boolean }> = {
       // The kite covers the torso from the shoulder to the knee, its inner edge on the centre line.
       front: (c) => kiteS(c, [1.75, -8.1], 4.3, 6.8, false, false),
       // The sword hangs point-down at his side, clear of the shield (the D2R Paladin's stance).
-      near: { el: [-3.05, -8.75], wr: [-3.1, -6.5], draw: (c, h) => sword(c, h, 8, 5.4) },
+      near: { el: [-3.05, -8.75], wr: [-3.1, -6.5], draw: (c, h, d) => sword(c, h, 8 + d, 5.4) },
     },
   },
   1: {
@@ -622,15 +766,15 @@ const FOOT: Record<number, { kit: SKit; gear: SGear; dark: boolean }> = {
     gear: {
       // A big round shield held close; the spear grounded, half again his height.
       front: (c) => roundS(c, [1.85, -8.6], 2.75),
-      near: { el: [-2.95, -8.9], wr: [-2.5, -7.0], draw: (c, h) => spear(c, h, 180, 12.5, 6.4, { head: 1.9, w: 0.34 }) },
+      near: { el: [-2.95, -8.9], wr: [-2.5, -7.0], draw: (c, h, d) => void spear(c, h, 180 + d, 12.5, 6.4, { head: 1.9, w: 0.34 }) },
     },
   },
   2: {
     kit: JAVELIN,
     dark: true,
     gear: {
-      far: { el: [2.85, -8.9], wr: [3.35, -7.4], draw: (c, h) => { javelinsS(c, h); roundS(c, addP(h, [0.55, 0.1]), 1.35); } },
-      near: { el: [-2.95, -9.0], wr: [-2.2, -7.2], draw: (c, h) => spear(c, h, 120, 5.6, 2.4, { head: 1.15, w: 0.3, wood: TM.gambeson }) },
+      far: { el: [2.85, -8.9], wr: [3.35, -7.4], draw: (c, h, d) => { javelinsS(c, h, d); roundS(c, addP(h, [0.55, 0.1]), 1.35); } },
+      near: { el: [-2.95, -9.0], wr: [-2.2, -7.2], draw: (c, h, d) => void spear(c, h, 120 + d, 5.6, 2.4, { head: 1.15, w: 0.3, wood: TM.gambeson }) },
     },
   },
   3: {
@@ -639,7 +783,7 @@ const FOOT: Record<number, { kit: SKit; gear: SGear; dark: boolean }> = {
     gear: {
       // The quiver hangs at the near hip, in front, its fletchings standing above the belt.
       front: (c) => { vol(c, [-1.5, -8.1], [-1.0, -5.3], [[0, 0.5], [1, 0.42]], TM.leather, { tone: 2, detail: (_x, _y, _u, v) => (Math.abs(v - 0.2) < 0.04 ? code(TM.leather, 1) : -1) }); for (const k of [-0.3, 0, 0.3]) vol(c, [-1.5 + k, -8.0], [-1.7 + k * 1.4, -9.0], [[0, 0.16], [1, 0.22]], TM.white, { tone: 3 }); },
-      far: { el: [2.8, -8.8], wr: [3.2, -7.0], draw: (c, h) => bow(c, h, 174, 13.4, 0, null) },
+      far: { el: [2.8, -8.8], wr: [3.2, -7.0], draw: (c, h, d) => bow(c, h, 174 + d, 13.4, 0, null) },
       near: { el: [-2.95, -8.8], wr: [-2.7, -6.6] },
     },
   },
@@ -648,7 +792,7 @@ const FOOT: Record<number, { kit: SKit; gear: SGear; dark: boolean }> = {
     dark: true,
     gear: {
       behind: (c) => paviseS(c, [-1.25, -12.0], 4.3, 8.0, -6),
-      near: { el: [-2.7, -8.7], wr: [-1.0, -7.7], draw: (c, h) => crossbow(c, h, 118, 1) },
+      near: { el: [-2.7, -8.7], wr: [-1.0, -7.7], draw: (c, h, d) => crossbow(c, h, 118 + d, 1) },
     },
   },
   8: {
@@ -657,7 +801,7 @@ const FOOT: Record<number, { kit: SKit; gear: SGear; dark: boolean }> = {
     gear: {
       // The Dane axe held at the port, its great bit high and forward of the helm.
       // The Dane axe held low across the body in guard, the bit forward at the shoulder.
-      near: { el: [-2.5, -8.6], wr: [-0.9, -7.4], draw: (c, h) => daneAxeS(c, h, 135) },
+      near: { el: [-2.5, -8.6], wr: [-0.9, -7.4], draw: (c, h, d) => daneAxeS(c, h, 135 + d) },
     },
   },
 };
@@ -725,7 +869,7 @@ function horseS(c: Paper, k: SHorse, part: 'far' | 'body'): void {
     const t = far ? 1 : 2;
     // Forearm: muscled at the top, tapering into the flat knee.
     vol(c, top, knee, [[0, 0.95], [0.3, 0.85], [0.8, 0.52], [1, 0.5]], m, { tone: t });
-    c.blob(knee, 0.52, 0.48, m, { tone: t });
+    blob(c, knee, 0.52, 0.48, m, { tone: t });
     // Cannon: a flat bone, then the fetlock knob, the pastern and the hoof.
     vol(c, knee, fet, [[0, 0.42], [0.5, 0.36], [1, 0.4]], m, { tone: t - 1 });
     hoofS(fet, far);
@@ -734,12 +878,12 @@ function horseS(c: Paper, k: SHorse, part: 'far' | 'body'): void {
     const t = far ? 1 : 2;
     // Gaskin: the second thigh, thick behind, narrowing to the point of the hock.
     vol(c, stifle, hock, [[0, 1.2], [0.4, 0.95], [0.85, 0.55], [1, 0.5]], m, { tone: t });
-    c.blob(addP(hock, [-0.2, -0.05]), 0.5, 0.45, m, { tone: t + 1 });
+    blob(c, addP(hock, [-0.2, -0.05]), 0.5, 0.45, m, { tone: t + 1 });
     vol(c, hock, fet, [[0, 0.46], [0.5, 0.38], [1, 0.4]], m, { tone: t - 1 });
     hoofS(fet, far);
   };
   const hoofS = (fet: P2, far: boolean) => {
-    c.blob(fet, 0.48, 0.42, m, { tone: far ? 0 : 1 });
+    blob(c, fet, 0.48, 0.42, m, { tone: far ? 0 : 1 });
     const hoof = addP(fet, [0.3, 0.85]);
     vol(c, fet, hoof, [[0, 0.36], [1, 0.4]], m, { tone: far ? 0 : 1 });
     c.shape([addP(hoof, [-0.5, -0.12]), addP(hoof, [0.55, -0.15]), addP(hoof, [0.75, 0.38]), addP(hoof, [-0.55, 0.38])], (_x, y) => code(TM.mane, y < c.sy(hoof[1] + 0.1) ? 2 : 1));
@@ -810,7 +954,7 @@ function horseS(c: Paper, k: SHorse, part: 'far' | 'body'): void {
     return code(m, hy < -0.2 ? 3 : hy > 0.45 ? 1 : 2);
   });
   c.shape([at(HF, -0.25, -0.45), at(HF, -1.3, -0.8), at(HF, 0.2, -0.75)], () => code(m, 2));
-  c.line(at(HF, 2.7, 0.45), [3.0, -11.6], code(TM.leather, 1));
+  lineK(c, at(HF, 2.7, 0.45), [3.0, -11.6], code(TM.leather, 1));
   if (k.capar) {
     // The caparison drapes over the curves: over the croup and the barrel to the knees, up the
     // neck; heavy hanging folds with lit ridges, a scalloped hem, the red cross on the flank.
@@ -883,14 +1027,14 @@ function riderS(c: Paper, k: SKit, g: SGear): void {
     // The near leg: thigh forward and down along the flank, the shin back to the stirrup.
     const hip: P2 = [-0.4, -6.3], knee: P2 = [1.6, -3.9], ank: P2 = [1.0, -1.1];
     vol(c, hip, knee, [[0, 0.85], [1, 0.62]], k.legs, { tone: 2 });
-    c.blob(knee, 0.62, 0.58, k.legs, { tone: 2 });
+    blob(c, knee, 0.62, 0.58, k.legs, { tone: 2 });
     vol(c, knee, ank, [[0, 0.58], [0.3, 0.62], [1, 0.45]], k.legs, { tone: 1 });
     c.shape([addP(ank, [-0.5, -0.3]), addP(ank, [0.4, -0.3]), addP(ank, [1.25, 0.2]), addP(ank, [1.2, 0.5]), addP(ank, [-0.5, 0.5])], () => code(k.boots, 2));
     vol(c, addP(ank, [0.1, 0.55]), addP(ank, [0.1, -2.6]), [[0, 0.1], [1, 0.1]], TM.leather, { tone: 1 }); // stirrup leather
     if (k.cloak) riderCloak(c);
     g.behind?.(c);
     if (g.far) armS(c, J.shF, g.far.el, g.far.wr, k, true);
-    if (g.far?.draw) g.far.draw(c, addP(g.far.wr, mul(sub(g.far.wr, g.far.el), 0.18)));
+    if (g.far?.draw) g.far.draw(c, addP(g.far.wr, mul(sub(g.far.wr, g.far.el), 0.18)), 0);
     // Torso, with the coat skirt falling over the thigh.
     const garment = k.coat ?? k.body;
     shapeU(c, [[-0.75, -12.15], [0.85, -12.15], [2.45, -11.75], [2.6, -10.7], [2.3, -9.4], [1.75, -8.25], [2.0, -7.0], [3.2, -5.6], [2.8, -4.9], [0.6, -5.2], [-1.6, -5.4], [-2.4, -6.2], [-1.9, -7.4], [-1.8, -8.25], [-2.35, -9.4], [-2.6, -10.7], [-2.5, -11.75]], [0, 0], (x, y, ux, uy) => {
@@ -919,7 +1063,7 @@ function riderS(c: Paper, k: SKit, g: SGear): void {
     const ne = g.near ?? { el: [-2.65, -8.5] as P2, wr: [-1.6, -7.0] as P2 };
     armS(c, J.shN, ne.el, ne.wr, k, false);
     if (k.pauldrons) pauldronS(c, addP(J.shN, [-0.1, 0.1]), false);
-    ne.draw?.(c, addP(ne.wr, mul(sub(ne.wr, ne.el), 0.18)));
+    ne.draw?.(c, addP(ne.wr, mul(sub(ne.wr, ne.el), 0.18)), 0);
     g.last?.(c);
   } finally {
     c.FX = fx;
@@ -932,14 +1076,14 @@ const MARSHAL: SKit = { ...KNIGHT, helm: 'gilded', belt: TM.gold };
 const TURCOPOLE: SKit = { helm: 'turban', body: TM.gambeson, coat: null, camail: TM.mailDk, sleeve: TM.gambeson, hand: TM.leather, legs: TM.wool, boots: TM.leather };
 const HORSE_ARCHER: SKit = { helm: 'turban', body: TM.wool, coat: null, camail: null, sleeve: TM.wool, hand: TM.flesh, legs: TM.wool, boots: TM.leather, belt: TM.team };
 
-const MOUNTED: Record<number, { kit: SKit; horse: SHorse; gear: SGear; dark: boolean }> = {
+export const MOUNTED: Record<number, { kit: SKit; horse: SHorse; gear: SGear; dark: boolean }> = {
   5: {
     kit: TURCOPOLE,
     horse: { coat: TM.dun },
     dark: true,
     gear: {
       front: (c) => roundS(c, [2.0, -9.0], 2.2),
-      near: { el: [-2.8, -8.9], wr: [-2.0, -7.4], draw: (c, h) => spear(c, h, 180, 13.0, 4.5, { head: 1.5, pennon: 0.4, w: 0.3 }) },
+      near: { el: [-2.8, -8.9], wr: [-2.0, -7.4], draw: (c, h, d) => void spear(c, h, 180 + d, 13.0, 4.5, { head: 1.5, pennon: 0.4, w: 0.3 }) },
     },
   },
   6: {
@@ -948,7 +1092,7 @@ const MOUNTED: Record<number, { kit: SKit; horse: SHorse; gear: SGear; dark: boo
     dark: true,
     gear: {
       behind: (c) => { vol(c, [-2.4, -7.6], [-3.4, -5.6], [[0, 0.45], [1, 0.4]], TM.leather, { tone: 2 }); for (const k of [-0.25, 0.05, 0.3]) vol(c, [-2.4 + k, -7.5], [-2.2 + k * 1.3, -8.4], [[0, 0.15], [1, 0.2]], TM.white, { tone: 3 }); },
-      far: { el: [2.9, -9.6], wr: [3.6, -8.6], draw: (c, h) => bow(c, h, 168, 8.6, 0, null) },
+      far: { el: [2.9, -9.6], wr: [3.6, -8.6], draw: (c, h, d) => bow(c, h, 168 + d, 8.6, 0, null) },
       near: { el: [-2.8, -8.9], wr: [-1.6, -7.4] },
     },
   },
@@ -958,7 +1102,7 @@ const MOUNTED: Record<number, { kit: SKit; horse: SHorse; gear: SGear; dark: boo
     dark: true,
     gear: {
       front: (c) => kiteS(c, [2.1, -8.6], 3.8, 5.9, false, true, -6),
-      near: { el: [-2.8, -8.9], wr: [-1.8, -7.3], draw: (c, h) => spear(c, h, 135, 12.5, 3.5, { head: 1.3, pennon: 0.3, w: 0.36 }) },
+      near: { el: [-2.8, -8.9], wr: [-1.8, -7.3], draw: (c, h, d) => void spear(c, h, 135 + d, 12.5, 3.5, { head: 1.3, pennon: 0.3, w: 0.36 }) },
     },
   },
   10: {
@@ -966,8 +1110,8 @@ const MOUNTED: Record<number, { kit: SKit; horse: SHorse; gear: SGear; dark: boo
     horse: { coat: TM.grey, capar: TM.white },
     dark: true,
     gear: {
-      far: { el: [2.7, -9.7], wr: [3.0, -11.4], draw: (c, h) => beauseant(c, addP(h, [0, 0]), 180, 0.35, 0) },
-      near: { el: [-2.9, -8.9], wr: [-2.2, -7.1], draw: (c, h) => sword(c, h, 135, 5.4) },
+      far: { el: [2.7, -9.7], wr: [3.0, -11.4], draw: (c, h, d) => beauseant(c, addP(h, [0, 0]), 180 + d, 0.35, 0) },
+      near: { el: [-2.9, -8.9], wr: [-2.2, -7.1], draw: (c, h, d) => sword(c, h, 135 + d, 5.4) },
     },
   },
 };
@@ -1002,16 +1146,16 @@ function engineS(c: Paper): void {
   vol(c, shortEnd, longEnd, [[0, 0.55], [0.3, 0.75], [1, 0.4]], TM.wood, { tone: 2, detail: (_x, _y, _u, v) => (Math.abs(v - 0.27) < 0.02 || Math.abs(v - 0.36) < 0.02 || Math.abs(v - 0.6) < 0.015 ? code(TM.leather, 1) : -1) });
   // Sling to a pouch with the stone lying behind.
   const pouch: P2 = [-11.6, -1.0];
-  c.line(longEnd, pouch, code(TM.leather, 2));
-  c.line(addP(longEnd, [0.2, 0.1]), addP(pouch, [0.4, 0.0]), code(TM.leather, 1));
-  c.blob(pouch, 0.95, 0.85, TM.wool, { tone: 2 });
+  lineK(c, longEnd, pouch, code(TM.leather, 2));
+  lineK(c, addP(longEnd, [0.2, 0.1]), addP(pouch, [0.4, 0.0]), code(TM.leather, 1));
+  blob(c, pouch, 0.95, 0.85, TM.wool, { tone: 2 });
   // Ropes from the short arm down to the pullers.
-  for (const [k, x] of [[-0.3, 6.8], [0, 7.6], [0.3, 9.2], [0.5, 10.0]] as [number, number][]) c.line(addP(shortEnd, [k, 0]), [x, -10.8], code(TM.white, 1));
+  for (const [k, x] of [[-0.3, 6.8], [0, 7.6], [0.3, 9.2], [0.5, 10.0]] as [number, number][]) lineK(c, addP(shortEnd, [k, 0]), [x, -10.8], code(TM.white, 1));
   // Near trestle and axle.
   timber(piv, [-4.8, 0], 0.65, 2);
   timber(piv, [3.4, 0], 0.65, 2);
   timber([-3.3, -5.0], [2.3, -5.0], 0.45, 1);
-  c.blob(piv, 0.55, 0.55, TM.steel, { tone: 2 });
+  blob(c, piv, 0.55, 0.55, TM.steel, { tone: 2 });
   // The pullers, arms up on the ropes, leaning back.
   crewS(c, 7.4, { near: { el: [-2.3, -13.0], wr: [-0.4, -14.6] }, far: { el: [2.6, -13.2], wr: [0.9, -14.6] } });
 }
