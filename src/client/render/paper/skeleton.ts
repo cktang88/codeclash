@@ -713,6 +713,13 @@ export function restPose(skel: SkeletonData, level: number, facing: Facing): Pos
   return p;
 }
 
+/** Every bone's rest joints (origin and tip, units, unrounded) in a facing: line key art up with these. */
+export function restJoints(skel: SkeletonData, facing: Facing = 'se'): Record<string, { from: P2; to: P2 }> {
+  const p = evaluate(skel, emptyLocals(), { level: 4096, facing, noIk: true });
+  const r = (v: number) => Math.round(v * 1000) / 1000 + 0;
+  return Object.fromEntries(p.bones.map((b) => [b.name, { from: [r(b.x), r(b.y)] as P2, to: [r(b.tx), r(b.ty)] as P2 }]));
+}
+
 const BAKES = new WeakMap<SkeletonData, WeakMap<object, Map<string, Posed[]>>>();
 /**
  * Every frame of a clip, posed in order (frame f's hysteresis follows on from frame f-1). A loop is
