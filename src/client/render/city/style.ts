@@ -37,6 +37,8 @@ export interface CityStyle {
   accent: Col;
   /** Night windows and lanterns: warm, or the necropolis's green. Torches stay fire. */
   glow: string;
+  /** A second emissive colour (the necropolis's arcane violet). */
+  violet: Col;
 }
 
 const ramp = (a: string, b: string, c: string, d: string): Ramp => [hex(a), hex(b), hex(c), hex(d)];
@@ -69,6 +71,7 @@ function templar(hue: number): CityStyle {
     skin: hex(f.skin),
     accent: hex('#d6a83c'),
     glow: 'rgba(255,170,70,0.55)',
+    violet: hex('#b88cff'),
   };
 }
 
@@ -104,6 +107,7 @@ function samuraiHd(hue: number): CityStyle {
     skin: hex(f.skin),
     accent: hex('#c8432b'),
     glow: 'rgba(255,176,90,0.55)',
+    violet: hex('#b88cff'),
   };
 }
 
@@ -116,18 +120,18 @@ function undeadHd(hue: number): CityStyle {
   const f = FACTIONS.undead.palette;
   return {
     id: 'undead',
-    stone: ramp('#6a6570', '#4c4855', '#34313c', '#211e27'),
+    stone: ramp('#5c5c78', '#41405a', '#2b2a40', '#18172a'),
     fine: ramp('#e4d9bc', '#c4b490', '#8c7e66', '#574c42'),
     mortar: hex('#29252e'),
-    timber: ramp('#62534a', '#463a33', '#2f2624', '#1b1518'),
-    daub: ramp('#8d8370', '#6e6657', '#4f4940', '#332f2b'),
+    timber: ramp('#5a4e56', '#40363f', '#2a232c', '#18131b'),
+    daub: ramp('#7c7a84', '#5e5c68', '#43414e', '#2b2a35'),
     thatch: ramp('#8c805c', '#6d6346', '#4d4532', '#312a20'),
     shingle: ramp('#5c665a', '#454e45', '#313730', '#1f231f'),
     tile: ramp('#6f7c6c', '#546151', '#3c473b', '#262d26'),
-    slate: ramp('#5f5b6c', '#464354', '#312f3d', '#1e1d27'),
+    slate: ramp('#55537a', '#3c3a5a', '#29283f', '#17162a'),
     gold: hex('#a89656'),
     glass: hex('#120f15'),
-    lit: hex('#a4f58c'),
+    lit: hex('#b4ff8c'),
     bannerField: hex(f.cloth),
     bannerCharge: hex('#7fc46a'),
     team: hslCol(hue, 45, 36),
@@ -135,10 +139,11 @@ function undeadHd(hue: number): CityStyle {
     habit: hex('#2a2629'),
     habitShade: hex('#19161a'),
     mantle: hex(f.cloth),
-    outline: hex('#140f14'),
+    outline: hex('#100c18'),
     skin: hex('#b9b49a'),
-    accent: hex('#86f070'),
-    glow: 'rgba(120,255,110,0.5)',
+    accent: hex('#7dff5c'),
+    glow: 'rgba(110,255,90,0.6)',
+    violet: hex('#c08cff'),
   };
 }
 

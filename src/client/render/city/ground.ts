@@ -31,6 +31,8 @@ export interface Ground {
   /** Where the crop frames go (HD crops them to their bounds). */
   cropX?: number;
   cropY?: number;
+  /** HD necropolis: grave lanterns (world pixels) that light the fields. */
+  lamps?: [number, number][];
 }
 
 const inRect = (u: number, v: number, r: [number, number, number, number], m = 0) => u >= r[0] - m && u < r[2] + m && v >= r[1] - m && v < r[3] + m;
@@ -138,8 +140,15 @@ export function paintGround(st: CityStyle, levels: Record<BuildingKey, number>, 
       if (wallsT > 0 && inside && (u < 5 + wallsT * 3) && v > 0) c = tone(c, 0.18);
       // A ditch outside the walls once they are stone.
       if (wallsT >= 2) {
-        const d = Math.min(Math.abs(u - (WALL + 16)), Math.abs(v - (WALL + 16)));
-        if (d < 3 && u > WALL + 8 && v > -6 && v < WALL + 22 && Math.abs(v - GATE_V) > 8 || (d < 3 && v > WALL + 8 && u > -6 && u < WALL + 22)) c = d < 1.5 ? hex('#3a3f3a') : tone(c, 0.3);
+        // Each side's own distance, so the ditch stops at the corner instead of running on.
+        const du = Math.abs(u - (WALL + 16));
+        const dv = Math.abs(v - (WALL + 16));
+        const onU = du < 3 && v > -6 && v < WALL + 19 && Math.abs(v - GATE_V) > 8;
+        const onV = dv < 3 && u > -6 && u < WALL + 19;
+        if (onU || onV) {
+          const d = onU && onV ? Math.min(du, dv) : onU ? du : dv;
+          c = d < 1.5 ? hex('#3a3f3a') : tone(c, 0.3);
+        }
       }
       px.set(x, y, c);
     }

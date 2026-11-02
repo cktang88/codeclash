@@ -13,6 +13,7 @@ import { BUILDINGS, type BuildingKey } from '../../game/city.ts';
 import type { FactionId } from '../../game/factions.ts';
 import { artMode, type ArtMode } from '../settings.ts';
 import { cityAtlas } from './city/atlas.ts';
+import { buildAtlas as buildHdAtlas } from './sprites128.ts';
 import { paintBuilding, paintMill, tierOf, WALL, wallHeights, type Art, type Banner, type BuildingParts } from './city/buildings.ts';
 import { paintGround, type Ground } from './city/ground.ts';
 import { groundKey, groundSteps } from './city/ground-hd.ts';
@@ -70,6 +71,7 @@ export class CityScene {
   private banners: Banner[] = [];
   private torches: Torch[] = [];
   private forges: [number, number][] = [];
+  private glows: [number, number, number][] = [];
   private mill: { art: Art; hub: [number, number] | null } | null = null;
   private partCache = new Map<string, BuildingParts>();
   private key = '';
@@ -77,7 +79,10 @@ export class CityScene {
   private glow: HTMLCanvasElement;
   private fire: HTMLCanvasElement;
   private cloud: HTMLCanvasElement;
-  private vignette: HTMLCanvasElement | null = null;
+  /** The necropolis's light: green and violet pools, and mist by day and by night. */
+  private violet: HTMLCanvasElement | null = null;
+  private mistDay: HTMLCanvasElement | null = null;
+  private mistNight: HTMLCanvasElement | null = null;
   private ents: Ent[] = [];
   private nightNow = 0;
   /** Milliseconds the last draw took (for the preview's meter), and the last repaint of the buildings. */
@@ -107,11 +112,16 @@ export class CityScene {
     this.buffer.height = this.frame.h;
     this.g = this.buffer.getContext('2d')!;
     this.st = styleFor(faction, hue, hd);
-    this.draw2 = new Draw(cityAtlas(faction, hue), hd ? new FolkHd(this.st) : new Folk(this.st), this.st, this.frame);
+    this.draw2 = new Draw(hd ? buildHdAtlas(faction, hue) : cityAtlas(faction, hue), hd ? new FolkHd(this.st) : new Folk(this.st), this.st, this.frame);
     this.life = new Life(seed, hd ? this.st : null);
     this.fire = radial(24, 'rgba(255,170,70,0.55)', 'rgba(255,120,40,0)');
     this.glow = hd ? radial(20, this.st.glow, this.st.glow.replace(/[\d.]+\)$/, '0)')) : this.fire;
     this.cloud = radial(70, 'rgba(10,14,20,0.16)', 'rgba(10,14,20,0)');
+    if (hd && faction === 'undead') {
+      this.violet = radial(20, 'rgba(190,120,255,0.65)', 'rgba(150,80,255,0)');
+      this.mistDay = radial(40, 'rgba(196,192,224,0.5)', 'rgba(196,192,224,0)');
+      this.mistNight = radial(40, 'rgba(80,190,130,0.4)', 'rgba(60,160,110,0)');
+    }
   }
 
   // ---------------------------------------------------------------- camera
@@ -225,6 +235,7 @@ export class CityScene {
     const bells: [number, number][] = [];
     const stalls: [number, number][] = [];
     const targets: [number, number][] = [];
+    const glows: [number, number, number][] = [];
     const keys: (BuildingKey | 'keep')[] = ['keep', ...BUILDINGS.map((b) => b.key)];
     for (const k of keys) {
       const level = k === 'keep' ? maxLevel : levels[k] ?? 0;
@@ -237,7 +248,9 @@ export class CityScene {
       bells.push(...p.bells);
       stalls.push(...p.stalls);
       targets.push(...p.targets);
+      if (p.glows) glows.push(...p.glows);
     }
+    this.glows = glows;
     const millKey = `mill:${tierOf(levels.granary)}`;
     if (levels.granary > 0) {
       if (!this.mill || this.partCache.get(millKey) === undefined) {
@@ -320,6 +333,8 @@ export class CityScene {
     const r = this.draw2;
     r.g = g;
     r.t = t;
+    // The part of the buffer the camera shows (HD paints and grades only that).
+    const view = this.view(out);
     // World pixels (what life, banners and anchors use) to buffer pixels.
     const world = () => g.setTransform(f.k, 0, 0, f.k, f.mx * f.k, f.my * f.k);
     const flat = () => g.setTransform(1, 0, 0, 1, 0, 0);
@@ -328,9 +343,15 @@ export class CityScene {
     g.globalAlpha = 1;
     g.globalCompositeOperation = 'source-over';
     const ground = this.ground!;
-    g.drawImage(ground.base, 0, 0);
-    const crop = ground.crops[Math.floor(t * (m.idle ? 1.5 : 2.5)) % ground.crops.length]!;
-    g.drawImage(crop, ground.cropX ?? 0, ground.cropY ?? 0);
+    const ci = Math.floor(t * (m.idle ? 1.5 : 2.5)) % ground.crops.length;
+    if (hd) {
+      // HD: the ground and each crop frame composed once, so a frame lays one image, not two.
+      const gc = this.groundFrame(ground, ci);
+      g.drawImage(gc, view.rx, view.ry, view.rw, view.rh, view.rx, view.ry, view.rw, view.rh);
+    } else {
+      g.drawImage(ground.base, 0, 0);
+      g.drawImage(ground.crops[ci]!, ground.cropX ?? 0, ground.cropY ?? 0);
+    }
 
     // The sorted pass: buildings, walls, trees, people, beasts.
     const ents = this.ents;
@@ -343,6 +364,8 @@ export class CityScene {
       if ('canvas' in e) {
         const a = e as unknown as Art;
         if (!a.canvas) continue;
+        // HD: skip art wholly outside the view (it matters when zoomed in).
+        if (hd && (a.x > view.rx + view.rw || a.y > view.ry + view.rh || a.x + a.canvas.width < view.rx || a.y + a.canvas.height < view.ry)) continue;
         if (inWorld) {
           flat();
           inWorld = false;
@@ -375,16 +398,18 @@ export class CityScene {
       g.fillStyle = '#b8401c';
       g.fillRect(x + 1, y, 1, 1);
     }
-    if (night > 0.3)
+    const witch = hd && this.st.id === 'undead';
+    if (night > 0.3 || witch)
       for (const tc of this.torches) {
         const fl = Math.sin(t * 17 + tc.x * 3) > 0 ? 1 : 0;
         if (hd) {
-          // A brazier pole one art pixel wide, a three-step flame.
+          // A brazier pole one art pixel wide, a three-step flame (witchfire in the necropolis,
+          // which burns by day too).
           g.fillStyle = '#2a1e16';
           g.fillRect(tc.x, tc.y, q, 3);
-          g.fillStyle = '#ff8a2a';
+          g.fillStyle = witch ? '#4fd64a' : '#ff8a2a';
           g.fillRect(tc.x - q, tc.y - 1 - fl * q, 3 * q, 2 * q);
-          g.fillStyle = '#ffd27a';
+          g.fillStyle = witch ? '#e4ffc8' : '#ffd27a';
           g.fillRect(tc.x, tc.y - 1 - q - fl * q, q, 2 * q);
           continue;
         }
@@ -408,15 +433,51 @@ export class CityScene {
 
     // Light for the hour.
     flat();
-    this.light(g, hour, night, t, world, flat);
+    if (hd) this.gradeHd(g, night, view);
+    if (this.violet) this.lightNecropolis(g, night, t, world, flat);
+    else this.light(g, hour, night, t, world, flat);
     flat();
 
     // To the screen through the camera. The finish (grade, vignette, grain) is laid on the
     // visible part of the world buffer, so it costs the same at any screen size.
     const ctx = out.getContext('2d')!;
     ctx.imageSmoothingEnabled = false;
-    const W = f.w;
-    const H = f.h;
+    const { s, sx0, sy0, ax, ay, bx, by, rx, ry, rw, rh } = view;
+    if (!hd) this.post.apply(g, rx, ry, rw, rh, 1, false);
+    const dx = Math.round((ax - sx0) * s);
+    const dy = Math.round((ay - sy0) * s);
+    const dw = Math.round((bx - ax) * s);
+    const dh = Math.round((by - ay) * s);
+    if (dx > 0 || dy > 0 || dw < out.width || dh < out.height) {
+      ctx.fillStyle = '#0b0907';
+      ctx.fillRect(0, 0, out.width, out.height);
+    }
+    ctx.drawImage(this.buffer, ax, ay, bx - ax, by - ay, dx, dy, dw, dh);
+    this.lastCost = performance.now() - t0;
+  }
+
+  /** HD: the ground with crop frame `i` laid on it, composed once per ground. */
+  private groundFrame(ground: Ground, i: number): HTMLCanvasElement {
+    if (this.groundFrames?.ground !== ground) this.groundFrames = { ground, frames: [] };
+    let c = this.groundFrames.frames[i];
+    if (!c) {
+      c = document.createElement('canvas');
+      c.width = ground.base.width;
+      c.height = ground.base.height;
+      const x = c.getContext('2d')!;
+      x.drawImage(ground.base, 0, 0);
+      x.drawImage(ground.crops[i]!, ground.cropX ?? 0, ground.cropY ?? 0);
+      this.groundFrames.frames[i] = c;
+    }
+    return c;
+  }
+  private groundFrames: { ground: Ground; frames: HTMLCanvasElement[] } | null = null;
+
+  /** The camera's view of the buffer: scale, origin and the visible rectangle. */
+  private view(out: HTMLCanvasElement) {
+    const W = this.frame.w;
+    const H = this.frame.h;
+    const hd = this.mode === 'hd';
     const s = this.scale();
     const vw = out.width / s;
     const vh = out.height / s;
@@ -431,53 +492,139 @@ export class CityScene {
     const by = Math.min(H, sy0 + vh);
     const rx = Math.floor(ax);
     const ry = Math.floor(ay);
-    const rw = Math.ceil(bx) - rx;
-    const rh = Math.ceil(by) - ry;
-    if (hd) this.finishHd(g, rx, ry, rw, rh);
-    else this.post.apply(g, rx, ry, rw, rh, 1, false);
-    const dx = Math.round((ax - sx0) * s);
-    const dy = Math.round((ay - sy0) * s);
-    const dw = Math.round((bx - ax) * s);
-    const dh = Math.round((by - ay) * s);
-    if (dx > 0 || dy > 0 || dw < out.width || dh < out.height) {
-      ctx.fillStyle = '#0b0907';
-      ctx.fillRect(0, 0, out.width, out.height);
-    }
-    ctx.drawImage(this.buffer, ax, ay, bx - ax, by - ay, dx, dy, dw, dh);
-    this.lastCost = performance.now() - t0;
+    return { s, sx0, sy0, ax, ay, bx, by, rx, ry, rw: Math.ceil(bx) - rx, rh: Math.ceil(by) - ry };
   }
 
   /**
-   * HD finish: the same amber-light, teal-shadow grade and vignette as the classic Post, without
-   * the film grain (noise fights the clean pixel clusters at this density).
+   * HD grade in one pass: the night (or the necropolis's violet-to-teal sky), a cool teal shadow
+   * grade, a touch of warmth and the vignette, baked into one canvas per step of the night and laid
+   * with a single multiply over the visible part, before the lights. (Classic keeps its Post.)
    */
-  private finishHd(g: CanvasRenderingContext2D, x: number, y: number, w: number, h: number): void {
-    g.save();
-    g.globalCompositeOperation = 'soft-light';
-    g.fillStyle = 'rgba(214,150,80,0.30)';
-    g.fillRect(x, y, w, h);
-    g.globalCompositeOperation = 'multiply';
-    g.fillStyle = 'rgba(150,170,175,0.18)';
-    g.fillRect(x, y, w, h);
-    g.globalCompositeOperation = 'source-over';
-    // The vignette belongs to the whole world, not the view, so it does not swim as you pan.
-    if (!this.vignette) {
-      const c = document.createElement('canvas');
-      c.width = this.frame.w;
-      c.height = this.frame.h;
-      const v = c.getContext('2d')!;
-      const W = c.width;
-      const H = c.height;
-      const grd = v.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.38, W / 2, H / 2, Math.max(W, H) * 0.7);
+  private gradeHd(g: CanvasRenderingContext2D, night: number, view: { rx: number; ry: number; rw: number; rh: number }): void {
+    const step = Math.round(night * 24);
+    const key = `${step}`;
+    if (this.grade?.key !== key) {
+      const W = this.frame.w;
+      const H = this.frame.h;
+      const c = this.grade?.canvas ?? document.createElement('canvas');
+      c.width = W;
+      c.height = H;
+      const x = c.getContext('2d')!;
+      const k = step / 24;
+      if (this.violet) {
+        const top = [170 - 96 * k, 160 - 96 * k, 215 - 80 * k];
+        const bot = [150 - 100 * k, 186 - 104 * k, 192 - 94 * k];
+        const sky = x.createLinearGradient(0, 0, 0, H);
+        sky.addColorStop(0, `rgb(${top.map(Math.round).join(',')})`);
+        sky.addColorStop(1, `rgb(${bot.map(Math.round).join(',')})`);
+        x.fillStyle = sky;
+      } else {
+        // Night a cool blue; by day a faint warmth (what the classic amber lift does).
+        const r = 255 - 190 * k;
+        const gg = 252 - 170 * k;
+        const b = 240 - 95 * k;
+        x.fillStyle = `rgb(${Math.round(r)},${Math.round(gg)},${Math.round(b)})`;
+      }
+      x.fillRect(0, 0, W, H);
+      x.globalCompositeOperation = 'multiply';
+      x.fillStyle = 'rgba(150,170,175,0.18)';
+      x.fillRect(0, 0, W, H);
+      x.globalCompositeOperation = 'source-over';
+      const grd = x.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.38, W / 2, H / 2, Math.max(W, H) * 0.7);
       grd.addColorStop(0, 'rgba(0,0,0,0)');
       grd.addColorStop(0.7, 'rgba(6,4,2,0.3)');
       grd.addColorStop(1, 'rgba(4,2,1,0.7)');
-      v.fillStyle = grd;
-      v.fillRect(0, 0, W, H);
-      this.vignette = c;
+      x.fillStyle = grd;
+      x.fillRect(0, 0, W, H);
+      this.grade = { key, canvas: c };
     }
-    g.drawImage(this.vignette, x, y, w, h, x, y, w, h);
-    g.restore();
+    g.globalCompositeOperation = 'multiply';
+    g.drawImage(this.grade.canvas, view.rx, view.ry, view.rw, view.rh, view.rx, view.ry, view.rw, view.rh);
+    g.globalCompositeOperation = 'source-over';
+  }
+  private grade: { key: string; canvas: HTMLCanvasElement } | null = null;
+
+  /**
+   * The necropolis's light (HD), after the games that do undead best (HoMM III's Necropolis,
+   * Naxxramas, Darkest Dungeon): a dark blue-violet base under a violet-to-teal sky; ground mist
+   * that drifts by day and catches the grave-light by night; and saturated emissive sources (green
+   * witchfire, windows, the cauldron, grave lanterns, wisps; violet at the spires and the tomb)
+   * whose light pools actually light the stone and the ground around them. Gloomy but readable by
+   * day; spectacular by night.
+   */
+  private lightNecropolis(g: CanvasRenderingContext2D, night: number, t: number, world: () => void, flat: () => void): void {
+    const W = this.frame.w;
+    const H = this.frame.h;
+    const k = night;
+    // (The sky's violet-to-teal light is in the one-pass grade, gradeHd.)
+    // Mist banks drifting over the grave fields and the yard.
+    world();
+    const banks: [number, number, number][] = [[60, 60, 0], [430, 70, 1], [80, 220, 2], [420, 230, 3], [250, 150, 4], [250, 20, 5]];
+    for (const [bx, by, i] of banks) {
+      const x = bx + Math.sin(t * 0.04 + i * 1.7) * 30;
+      const y = by + Math.sin(t * 0.03 + i) * 6;
+      if (k < 0.9) {
+        g.globalCompositeOperation = 'source-over';
+        g.globalAlpha = 0.5 * (1 - k);
+        g.drawImage(this.mistDay!, x - 90, y - 26, 180, 52);
+      }
+      if (k > 0.1) {
+        g.globalCompositeOperation = 'lighter';
+        g.globalAlpha = 0.4 * k;
+        g.drawImage(this.mistNight!, x - 90, y - 26, 180, 52);
+      }
+    }
+    flat();
+    // Lit windows: faint by day, burning by night.
+    g.globalCompositeOperation = 'source-over';
+    const wa = 0.45 + 0.55 * Math.min(1, k * 1.5);
+    for (const art of this.arts) {
+      if (!art.lights) continue;
+      g.globalAlpha = wa * (0.85 + 0.15 * Math.sin(t * 3 + art.x));
+      g.drawImage(art.lights, art.x, art.y);
+    }
+    // Light pools, additive, so the stone and ground around each source are lit.
+    world();
+    g.globalCompositeOperation = 'lighter';
+    const pool = 0.18 + 0.47 * k;
+    const f = this.frame;
+    for (const art of this.arts) {
+      if (!art.lights || !art.canvas) continue;
+      g.globalAlpha = pool * 0.4;
+      const cx = (art.x + art.canvas.width / 2) / f.k - f.mx;
+      const cy = (art.y + art.canvas.height * 0.6) / f.k - f.my;
+      g.drawImage(this.glow, cx - 36, cy - 24, 72, 48);
+    }
+    for (const tc of this.torches) {
+      const fl = 0.8 + 0.2 * Math.sin(t * 11 + tc.x);
+      g.globalAlpha = pool * fl;
+      g.drawImage(this.glow, tc.x - 22, tc.y - 18, 44, 36);
+      g.globalAlpha = Math.min(1, pool * 1.4) * fl;
+      g.drawImage(this.glow, tc.x - 7, tc.y - 7, 14, 14);
+    }
+    for (const [x, y] of this.ground?.lamps ?? []) {
+      g.globalAlpha = pool * 0.8 * (0.85 + 0.15 * Math.sin(t * 5 + x));
+      g.drawImage(this.glow, x - 16, y - 9, 32, 20);
+      g.globalAlpha = Math.min(1, pool * 1.6);
+      g.drawImage(this.glow, x - 4, y - 4, 8, 8);
+    }
+    for (const [x, y, c] of this.glows) {
+      const pulse = 0.75 + 0.25 * Math.sin(t * (c ? 1.6 : 4) + x);
+      const img = c ? this.violet! : this.glow;
+      g.globalAlpha = Math.min(1, pool * 0.9) * pulse;
+      g.drawImage(img, x - 24, y - 18, 48, 36);
+      g.globalAlpha = Math.min(1, pool * 1.8) * pulse;
+      g.drawImage(img, x - 8, y - 8, 16, 16);
+    }
+    // The forges stay true fire: the one warm note, the complement to all that green.
+    for (const [x, y] of this.forges) {
+      g.globalAlpha = (0.25 + 0.6 * k) * (0.8 + 0.2 * Math.sin(t * 9 + x));
+      g.drawImage(this.fire, x - 24, y - 24);
+    }
+    this.life.nightGlow(g, this.glow, Math.max(0.25, k));
+    g.globalAlpha = 1;
+    g.globalCompositeOperation = 'source-over';
+    flat();
   }
 
   /** Night tint, warm dawn and dusk, then lit windows, torches and forges. */
@@ -486,7 +633,7 @@ export class CityScene {
     const H = this.frame.h;
     const undead = this.mode === 'hd' && this.st.id === 'undead';
     const warm = Math.max(0, 1 - Math.min(Math.abs(hour - 6.5), Math.abs(hour - 19)) / 1.5) * (undead ? 0.4 : 1);
-    if (night > 0.01 || undead) {
+    if ((night > 0.01 || undead) && this.mode !== 'hd') {
       g.globalCompositeOperation = 'multiply';
       const k = night;
       // The necropolis's night is bluer and greener, and even its day is overcast (a grey-violet
@@ -549,8 +696,10 @@ export class CityScene {
     const wood = css(this.st.timber[2]);
     // The necropolis's mill turns rags; the others sailcloth.
     const ragged = hd && this.st.id === 'undead';
-    const cloth = ragged ? '#8a8270' : '#d8ceb4';
-    const clothS = ragged ? '#5e584c' : '#b3a88c';
+    const cloth = ragged ? '#8a869a' : '#d8ceb4';
+    const clothS = ragged ? '#5c586c' : '#b3a88c';
+    // Its laths are long bones.
+    const lathC = ragged ? css(this.st.fine[1]) : null;
     const dark = css(this.st.timber[3]);
     for (let k = 0; k < 4; k++) {
       const an = a + (k * Math.PI) / 2;
@@ -569,7 +718,7 @@ export class CityScene {
           const lath = hd ? Math.abs((i % 4) - 0) < step * 0.9 || w >= 4 - step * 0.5 : Math.floor(i) % 4 === 0 || w >= 4;
           if (ragged && !lath && (Math.sin(i * 3.1 + k * 2) * 2 + w > 3.2 || (i > 14 && w > 1.6 + Math.sin(i * 5 + k))))
             continue;
-          g.fillStyle = lath ? wood : w < 2 ? cloth : clothS;
+          g.fillStyle = lath ? lathC ?? wood : w < 2 ? cloth : clothS;
           if (hd) g.fillRect(Math.floor(sx * 2) / 2, Math.floor(sy * 2) / 2, q, q);
           else g.fillRect(Math.floor(sx), Math.floor(sy), 1, 1);
         }

@@ -62,6 +62,8 @@ export interface BuildingParts {
   stalls: [number, number][];
   /** Straw targets: screen centre (range). */
   targets: [number, number][];
+  /** HD: emissive light sources (world pixels) and their colour: 0 grave-light green, 1 arcane violet. */
+  glows?: [number, number, number][];
 }
 
 export const emptyParts = (): BuildingParts => ({ arts: [], smoke: [], banners: [], torches: [], bells: [], forges: [], stalls: [], targets: [] });
@@ -85,6 +87,8 @@ export class Painter {
   readonly k: number;
   /** Glass pixels painted, as [x, y, colour]. */
   glass: number[] = [];
+  /** HD: a cool rim light laid on every top edge before the outline (moonlight on the necropolis). */
+  rim: Col | null = null;
   constructor(
     readonly st: CityStyle,
     readonly frame: Frame = CLASSIC,
@@ -112,6 +116,11 @@ export class Painter {
       // The same patterns in buffer pixels, so HD gets 1-pixel joints instead of doubled ones.
       const sq = Math.floor(s * q);
       const tq = Math.floor(t * q);
+      // HD: flat tops (merlons, wall-walks) without joint noise; a worn lighter rim at the edges.
+      if (q > 1 && f === 'top') {
+        const r = mat === 'fine' ? st.fine : mat === 'timber' || mat === 'plank' ? st.timber : st.stone;
+        return tq % (3 * q) === 0 && mat !== 'timber' && mat !== 'plank' ? r[1] : r[0];
+      }
       for (const o of holes) {
         if (o.face !== f) continue;
         if (o.kind === 'rose') {
@@ -133,6 +142,15 @@ export class Painter {
         const arched = mat !== 'timber' && mat !== 'plank' && o.w >= 3 && o.kind !== 'stall';
         if (inS && inT) {
           if (arched && t >= o.t + o.h - 1 && (ls < 1 || ls >= o.w - 1)) return this.rampAt(mat === 'fine' ? st.fine : st.stone, f, 1);
+          if (o.kind === 'door' && q > 1) {
+            // HD: planks two art pixels wide, two iron straps with hinge ends, nail studs.
+            const x = Math.floor(ls * q);
+            const y = Math.floor((t - o.t) * q);
+            const strap = y === 4 || y === Math.floor(o.h * q) - 5;
+            if (strap) return x % 3 === 0 ? tone(st.slate[1], -0.15) : st.outline;
+            if ((y === 3 || y === Math.floor(o.h * q) - 4) && x % 3 === 0) return st.slate[1];
+            return x % 2 === 0 ? (x % 4 === 0 ? st.timber[2] : st.timber[1]) : st.timber[3];
+          }
           if (o.kind === 'door') {
             const plank = Math.floor(ls) % 2 === 0;
             const iron = Math.floor(t - o.t) === 2 || Math.floor(t - o.t) === o.h - 3;
@@ -142,8 +160,13 @@ export class Painter {
           if (o.kind === 'arch') return st.glass;
           // Glass with a mullion for wide windows.
           if (o.w >= 3 && Math.floor(ls) === Math.floor(o.w / 2)) return this.rampAt(mat === 'timber' ? st.timber : st.stone, f, 1);
+          // HD tracery: a transom bar, and leading in the glass.
+          if (q > 1 && o.w >= 2 && arched && Math.floor((t - o.t) * q) === Math.floor(o.h * q * 0.62)) return this.rampAt(st.fine, f, 1);
+          if (q > 1 && (Math.floor(ls * q) + Math.floor((t - o.t) * q)) % 4 === 0 && o.kind === 'window') return this.glassAt(p, tone(st.glass, -0.12));
           return this.glassAt(p, st.glass);
         }
+        // HD: a sill under stone windows, lit on top.
+        if (q > 1 && arched && o.kind === 'window' && inS && t < o.t && t >= o.t - 0.5) return this.rampAt(st.fine, f);
         // A dressed frame around stone openings, a timber lintel on timber walls.
         if (o.kind === 'slit') continue;
         if (t >= o.t + o.h && t < o.t + o.h + 1 && s >= o.s - 1 && s < o.s + o.w + 1) return mat === 'timber' || mat === 'plank' ? this.rampAt(st.timber, f, 1) : this.rampAt(st.fine, f);
@@ -176,6 +199,9 @@ export class Painter {
         else if (course || joint) c = mix(c, st.mortar, f === 'left' ? 0.45 : 0.35);
         // HD: a lit top edge on each course of the lit face (sparse, regular texture).
         else if (q > 1 && f === 'left' && tq % ch === 0) c = tone(c, -0.1);
+        else if (q > 1 && f === 'left' && (sq + off) % bw === 1) c = tone(c, -0.06);
+        // HD: a few weathered blocks carry a darker chip at their lower right.
+        if (q > 1 && blk > 0.82 && (sq + off) % bw === bw - 2 && tq % ch === ch - 2) c = tone(c, 0.2);
         if (gold >= 0 && ti === gold) c = f === 'left' ? st.gold : tone(st.gold, 0.25);
       }
       // Grime at the foot of the wall, shadow under the eaves.
@@ -220,8 +246,17 @@ export class Painter {
         if (q === 1 ? ti % rowH === 0 : tq % (rowH * q) === 0) c = tone(c, mat === 'tile' ? 0.28 : 0.22);
         else if (q === 1 ? (si + off) % gap === 0 : (sq + off * q) % (gap * q) === 0) c = tone(c, 0.14);
         else if (q > 1 && tq % (rowH * q) === 1) c = tone(c, -0.06);
-        if (hash(Math.floor(si) >> 1, row, seed) < 0.08) c = tone(c, -0.12);
-        if (t < 1) c = tone(c, 0.35);
+        if (q === 1) {
+          if (hash(Math.floor(si) >> 1, row, seed) < 0.08) c = tone(c, -0.12);
+        } else {
+          // HD: whole tiles vary a little (a weathered one here and there), each lit at its left.
+          const tile = Math.floor((sq + off * q) / (gap * q));
+          const n = hash(tile, row, seed);
+          if (n < 0.12) c = tone(c, 0.07);
+          else if (n > 0.93) c = tone(c, -0.07);
+          if ((sq + off * q) % (gap * q) === 1 && tq % (rowH * q) > 1 && f === 'left') c = tone(c, -0.08);
+        }
+        if (t < 1) c = tone(c, q > 1 && t < 0.5 ? 0.45 : 0.35);
       }
       return c;
     };
@@ -315,6 +350,21 @@ export class Painter {
   finish(depth: number, outline = true): Art {
     const px = this.px;
     const glass = this.glass;
+    if (this.rim) {
+      // Top edges catch the moon: a pixel with sky above it is lifted toward the rim colour.
+      const bb = px.bounds();
+      if (bb) {
+        const { w, data } = px;
+        const lift: number[] = [];
+        for (let y = Math.max(1, bb[1]); y < bb[3]; y++)
+          for (let x = bb[0]; x < bb[2]; x++) {
+            const i = y * w + x;
+            if (!data[i]) continue;
+            if (!data[i - w] || (x > 0 && !data[i - w - 1] && !data[i - 1])) lift.push(i);
+          }
+        for (const i of lift) data[i] = mix(data[i]!, this.rim, 0.42);
+      }
+    }
     if (outline) px.outline(this.st.outline);
     const b = px.bounds();
     if (!b) return { canvas: null, lights: null, x: 0, y: 0, d: depth };

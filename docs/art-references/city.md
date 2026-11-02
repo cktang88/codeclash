@@ -53,3 +53,15 @@ Their references and critique rounds are in [samurai-city.md](samurai-city.md) a
 [undead-city.md](undead-city.md). The townsfolk are repainted at 24×34 (`people-hd.ts`) under
 the pixel-art rules of the research guide: clean clusters, hue-shifted ramps, coloured outlines,
 and one accent per element. The beasts are the classic sprites doubled with Scale2x.
+
+Templar HD keeps the classic shapes but gains HD-native detail, so it doesn't look upscaled next
+to the other two towns:
+- **Stone:** a lit top edge on each course, a lit left bevel on each block, and the odd
+  weathered chip.
+- **Tops:** flat merlon tops and wall-walks without joint noise.
+- **Windows:** sills, plus a transom bar and leading in the arched glass.
+- **Doors:** planks with two iron straps and nail studs.
+- **Roofs:** tiles that vary one at a time, each lit at its left edge, with a brighter eave line.
+
+The classic ditch also had a bug: it ran on past the wall corners. That is fixed in both modes;
+classic is otherwise untouched.
