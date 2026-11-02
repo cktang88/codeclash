@@ -12,5 +12,6 @@ description: Gather and study internet reference images before drawing or design
    - Games we emulate: Total War battle screenshots (formations, block shapes, charges, routs); isometric pixel RTS and city builders for camera angle, scale and readability.
 3. **Download and look.** Save images to the scratchpad (never into the repo unless CC0/redistributable), e.g. `curl -sL -o <scratchpad>/refs/<subject>-1.png <url>`, and open each with the Read tool. Note per image: proportions, silhouette, palette, shading direction, how many pixels a figure uses, how motion reads.
 4. **Write the brief** in `docs/art-references/<subject>.md`: each URL, its licence, and the 2–4 things taken from it.
-5. **Draw**, then screenshot the result at game scale and zoomed, and compare side by side with the references. Iterate at least three rounds; each round names what is still off relative to the references.
-6. **Licensing.** Commit third-party pixels only if CC0 or redistributable with attribution, and credit them in README.md. Everything else stays reference-only.
+5. **Apply the craft guide.** Before drawing pixels, read `docs/art-references/pixel-art-craft.md` (ramps, outlines, cleanup, readability, scaling; the user's target is the xave_pixel 128/64/32 comparison it analyses) and follow it.
+6. **Draw**, then screenshot the result at game scale and zoomed, and compare side by side with the references. Iterate at least three rounds; each round names what is still off relative to the references.
+7. **Licensing.** Commit third-party pixels only if CC0 or redistributable with attribution, and credit them in README.md. Everything else stays reference-only.
