@@ -33,7 +33,7 @@ export interface UnitStats {
   armour: number;
   /** Shield: chance to stop a missile from the front. */
   shield: number;
-  /** Added to attack and damage for a moment after contact at speed. */
+  /** Charge bonus: added to the damage of the first blows of a charge (battle.ts `impact`). */
   charge: number;
   /** Damage multiplier against mounted targets. */
   antiCav: number;
@@ -64,9 +64,9 @@ const base = {
 
 export const STATS: readonly UnitStats[] = [
   // HeavyInfantry: sword and kite shield, mail and plate. The anvil of the line.
-  { ...base, role: 'line', hp: 60, attack: 34, defence: 42, damage: 11, armour: 55, shield: 0.55, speed: 22, radius: 2.4, mass: 1.2, meleeCooldown: 9, morale: 70, value: 1.4 },
+  { ...base, role: 'line', hp: 60, attack: 34, defence: 42, damage: 11, armour: 55, shield: 0.55, charge: 6, speed: 22, radius: 2.4, mass: 1.2, meleeCooldown: 9, morale: 70, value: 1.4 },
   // Spearmen: long spears, light armour; they break charges.
-  { ...base, role: 'line', hp: 45, attack: 28, defence: 36, damage: 9, armour: 30, shield: 0.35, antiCav: 2.4, speed: 24, radius: 2.3, mass: 1, meleeCooldown: 9, morale: 60, value: 1 },
+  { ...base, role: 'line', hp: 45, attack: 28, defence: 36, damage: 9, armour: 30, shield: 0.35, charge: 4, antiCav: 2.4, speed: 24, radius: 2.3, mass: 1, meleeCooldown: 9, morale: 60, value: 1 },
   // Skirmishers: javelins, then run.
   { ...base, role: 'skirmish', hp: 32, attack: 18, defence: 14, damage: 7, armour: 10, speed: 34, radius: 2.1, mass: 0.8, meleeCooldown: 10, range: 70, missileDamage: 14, reload: 26, ammo: 5, projectileSpeed: 110, pierce: 0.3, morale: 45, value: 0.8 },
   // Archers: light bows, long range, volume of fire.

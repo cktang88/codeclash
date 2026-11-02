@@ -15,7 +15,7 @@ Three layers, each usable without the next:
 | --- | --- | --- |
 | Measurement | `src/measure/` | Pure. Reads diffs and credits work: line classes, tree-sitter complexity, the anti-gaming ledger (squash-equivalent, copies and filler count nothing), the difficulty bonus. `credit.ts` is the boundary: a day's pushes summed into `Work`. See [docs/fair-play.md](docs/fair-play.md). |
 | Ingestion | `src/ingest/` | GitHub: OAuth tokens (sealed), event polling, early discovery, webhooks, forks' upstream bonus, parse workers, and its SQLite tables. Emits one `PushReport` per push. |
-| Game | `src/game/` | Pure and deterministic. `city.ts` (the commandery economy), `battle.ts` (the 2D regiment battle), `league.ts` (week clock, Swiss pairing, brigands), `factions.ts`, `units.ts`. |
+| Game | `src/game/` | Pure and deterministic. `city.ts` (the commandery economy), `battle.ts` (the regiment battle: up to 2800 figures a side on a 1600×1200 field, blocks with stances, a General and a Captain per regiment), `command.ts` (orders, battle plans and the morale table), `league.ts` (week clock, Swiss pairing, brigands), `factions.ts`, `units.ts`. |
 
 `src/server/` glues them: every `PushReport` is appended to a work log (at the time the server received it, so late events can never rewrite battles already fought), cities are recomputed from that log on demand, and a scheduler fights each league's battles at their hour and records the setup and result. `src/client/` is the browser: it fetches a battle's setup and fights the same battle again, tick for tick, to show it. Rendering is plain Canvas 2D at the field's native 640×360, painted with procedural pixel sprites, scaled up with whole pixels and finished with a grade, vignette, grain and scanlines.
 
@@ -75,7 +75,9 @@ The tree-sitter grammars are vendored as `.wasm` files in `assets/grammars/`, wi
 ```sh
 pnpm test
 pnpm typecheck
-pnpm bench 450 1     # fight a sample battle and print the casualties and timing
+pnpm bench           # battles of 250 to 2800 men a side: timings and phases (contact, first rout, break, end)
+pnpm bench 2800 3    # one battle, with casualties and its event log
+pnpm tsx scripts/battle-trace.ts 500 1   # a battle as it unfolds, every regiment every 10 s
 ```
 
 ## Deploy

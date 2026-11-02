@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { CAT_COUNT } from '../measure/categories.ts';
-import { Battle, BATTLE_VERSION, fight, type ArmySpec } from './battle.ts';
+import { Battle, BATTLE_VERSION, FIELD_H, FIELD_W, fight, MAX_FIGURES, State, TICKS_PER_SECOND, type ArmySpec, type BattleSetup, type Stance } from './battle.ts';
 import { cityAt, grandArmy, levelOf, type WorkEvent } from './city.ts';
 import { botWork } from './bots.ts';
 import { pairDaily, pairGrand, weekOf, DAY_MS, walkover } from './league.ts';
-import { emptyCounts, total, UNIT_COUNT } from './units.ts';
+import { emptyCounts, STATS, total, U, UNIT_COUNT } from './units.ts';
 
 const MIX = [0.22, 0.2, 0.08, 0.12, 0.07, 0.07, 0.05, 0.03, 0.03, 0.005];
 function army(n: number, over: Partial<ArmySpec> = {}): ArmySpec {
@@ -143,42 +143,270 @@ function cohortsAfter(events: WorkEvent[], won: boolean) {
   return cityAt({ weekStart: WEEK.weekStart, dayMs: DAY_MS, now: WEEK.weekEnd, events, outcomes: [{ day: 0, won, dead: emptyCounts(), survivors: first.cohorts[0]! }] });
 }
 
+const setupOf = (seed: number, a: ArmySpec, b: ArmySpec): BattleSetup => ({ version: BATTLE_VERSION, seed, kind: 'daily', armies: [a, { ...b, hue: 200 }] });
+/** An army of about `value` worth, split between classes by weight. */
+function valued(value: number, weights: Partial<Record<number, number>>, over: Partial<ArmySpec> = {}): ArmySpec {
+  const counts = emptyCounts();
+  let w = 0;
+  for (const [k, v] of Object.entries(weights)) w += v! * STATS[Number(k)]!.value;
+  for (const [k, v] of Object.entries(weights)) counts[Number(k)] = Math.round((value * v!) / w);
+  return army(0, { counts, ...over });
+}
+function only(cls: number, n: number, over: Partial<ArmySpec> = {}): ArmySpec {
+  const counts = emptyCounts();
+  counts[cls] = n;
+  return army(0, { counts, commander: false, ...over });
+}
+const deadOf = (b: Battle, team: number) => b.soldiers.filter((s) => s.team === team && s.state === State.Dead).length;
+const winsOf = (seeds: number, f: (seed: number) => 0 | 1): number => {
+  let w = 0;
+  for (let s = 1; s <= seeds; s++) if (f(s) === 0) w++;
+  return w;
+};
+
 describe('battle', () => {
-  it('is deterministic', () => {
-    const setup = { version: BATTLE_VERSION, seed: 9, kind: 'daily' as const, armies: [army(300), army(320, { hue: 200 })] as [ArmySpec, ArmySpec] };
+  it('is deterministic, step by step', () => {
+    const setup = setupOf(9, army(300), army(320));
     const a = fight(setup);
     const b = fight(setup);
     expect(a).toEqual(b);
     const x = new Battle(setup);
-    for (let i = 0; i < 300; i++) x.step();
     const y = new Battle(setup);
-    for (let i = 0; i < 300; i++) y.step();
-    expect(x.soldiers.map((s) => [s.x, s.y, s.hp])).toEqual(y.soldiers.map((s) => [s.x, s.y, s.hp]));
+    for (let i = 0; i < 400; i++) {
+      x.step();
+      y.step();
+    }
+    expect(x.soldiers.map((s) => [s.x, s.y, s.hp, s.state, s.target, s.hitAt])).toEqual(y.soldiers.map((s) => [s.x, s.y, s.hp, s.state, s.target, s.hitAt]));
+    expect(x.regiments.map((r) => [r.ax, r.ay, r.fx, r.mode, r.stance, r.order, r.morale, r.moraleState])).toEqual(y.regiments.map((r) => [r.ax, r.ay, r.fx, r.mode, r.stance, r.order, r.morale, r.moraleState]));
+    expect(x.events).toEqual(y.events);
+    expect(x.run()).toEqual(a);
   });
 
   it('ends, and accounts for every man', () => {
-    const r = fight({ version: BATTLE_VERSION, seed: 3, kind: 'daily', armies: [army(400), army(400, { hue: 200 })] });
+    const r = fight(setupOf(3, army(400), army(400)));
     expect(r.ticks).toBeGreaterThan(100);
     for (const s of r.sides) for (let c = 0; c < UNIT_COUNT; c++) expect(s.dead[c]! + s.fled[c]! + s.alive[c]!).toBe(s.start[c]);
   });
 
+  it('lasts a minute and a half to four minutes, with an approach, a clash and a rout', () => {
+    for (const seed of [1, 2]) {
+      const b = new Battle(setupOf(seed, army(500), army(500)));
+      const r = b.run();
+      expect(r.reason).toBe('rout');
+      expect(r.ticks).toBeGreaterThan(80 * TICKS_PER_SECOND);
+      expect(r.ticks).toBeLessThan(300 * TICKS_PER_SECOND);
+      const contact = b.events.find((e) => e.kind === 'contact')!.tick;
+      expect(contact).toBeGreaterThan(15 * TICKS_PER_SECOND);
+      expect(b.events.some((e) => e.kind === 'general-order')).toBe(true);
+      expect(b.events.some((e) => e.kind === 'stance')).toBe(true);
+      expect(b.events.some((e) => e.kind === 'charge')).toBe(true);
+      expect(b.events.filter((e) => e.kind === 'rout' || e.kind === 'shattered').length).toBeGreaterThan(3);
+    }
+  });
+
   it('a much bigger army wins', () => {
-    let wins = 0;
-    for (let seed = 1; seed <= 6; seed++) if (fight({ version: BATTLE_VERSION, seed, kind: 'daily', armies: [army(200), army(400, { hue: 200 })] }).winner === 1) wins++;
-    expect(wins).toBeGreaterThanOrEqual(5);
+    expect(winsOf(6, (seed) => fight(setupOf(seed, army(200), army(400))).winner)).toBeLessThanOrEqual(1);
   });
 
   it('equal armies are a fair fight from either side', () => {
-    let left = 0;
-    for (let seed = 1; seed <= 10; seed++) if (fight({ version: BATTLE_VERSION, seed, kind: 'daily', armies: [army(250), army(250, { hue: 200 })] }).winner === 0) left++;
+    const left = winsOf(10, (seed) => fight(setupOf(seed, army(250), army(250))).winner);
     expect(left).toBeGreaterThanOrEqual(2);
     expect(left).toBeLessThanOrEqual(8);
   }, 30_000);
+
+  it('a tenth more men usually wins, but not always', () => {
+    const wins = winsOf(20, (seed) => fight(setupOf(seed, army(330), army(300))).winner);
+    expect(wins).toBeGreaterThanOrEqual(11);
+    expect(wins).toBeLessThanOrEqual(19);
+  }, 60_000);
 
   it('a side with no soldiers loses without a fight', () => {
     expect(walkover(emptyCounts(), army(10).counts)).toBe(1);
     expect(walkover(army(10).counts, army(10).counts)).toBe(null);
   });
+});
+
+describe('battle: the matchups', () => {
+  const V = 450;
+  const horse = { [U.LightCavalry]: 0.5, [U.Knights]: 0.3, [U.HeavyInfantry]: 0.2 };
+  const bows = { [U.Archers]: 0.5, [U.Crossbowmen]: 0.2, [U.HeavyInfantry]: 0.3 };
+  const spears = { [U.Spearmen]: 0.8, [U.HeavyInfantry]: 0.2 };
+  it('horse beats bows at equal value', () => {
+    expect(winsOf(6, (seed) => fight(setupOf(seed, valued(V, horse), valued(V, bows))).winner)).toBeGreaterThanOrEqual(5);
+  }, 30_000);
+  it('spears hold against horse at equal value', () => {
+    expect(winsOf(6, (seed) => fight(setupOf(seed, valued(V, spears), valued(V, horse))).winner)).toBeGreaterThanOrEqual(5);
+  }, 30_000);
+  it('bows beat spears at equal value', () => {
+    expect(winsOf(6, (seed) => fight(setupOf(seed, valued(V, bows), valued(V, spears))).winner)).toBeGreaterThanOrEqual(4);
+  }, 30_000);
+});
+
+describe('battle: stances', () => {
+  /** Knights charge a block of foot that is pinned to a stance; returns [foot dead, knights dead] after `ticks`. */
+  function charge(seed: number, foot: number, footStance: Stance, knightStance: Stance | null, ticks = 450): [number, number] {
+    const b = new Battle(setupOf(seed, only(foot, 120), only(U.Knights, 40)));
+    b.generals[1].rashKnights = true;
+    b.pinStance(0, foot, footStance);
+    if (knightStance) b.pinStance(1, U.Knights, knightStance);
+    for (let i = 0; i < ticks && !b.done(); i++) b.step();
+    return [deadOf(b, 0), deadOf(b, 1)];
+  }
+
+  it('a pike wall breaks a frontal charge of horse', () => {
+    let pikeKnights = 0;
+    let lineKnights = 0;
+    let pikeSpears = 0;
+    let lineSpears = 0;
+    for (const seed of [1, 2, 3]) {
+      const p = charge(seed, U.Spearmen, 'pikewall', null);
+      const l = charge(seed, U.Spearmen, 'line', null);
+      pikeSpears += p[0];
+      pikeKnights += p[1];
+      lineSpears += l[0];
+      lineKnights += l[1];
+    }
+    expect(pikeKnights).toBeGreaterThan(lineKnights * 1.5);
+    expect(pikeSpears).toBeLessThan(lineSpears);
+  }, 30_000);
+
+  it('a wedge hits foot harder than a line of horse', () => {
+    let wedge = 0;
+    let line = 0;
+    for (const seed of [1, 2, 3]) {
+      wedge += charge(seed, U.HeavyInfantry, 'line', 'wedge', 330)[0];
+      line += charge(seed, U.HeavyInfantry, 'line', 'line', 330)[0];
+    }
+    expect(wedge).toBeGreaterThan(line);
+  }, 30_000);
+
+  /** Archers shoot at a block of heavy foot that waits for them, pinned to a stance; returns the foot's dead. */
+  function shot(seed: number, stance: Stance, ticks = 700): number {
+    const b = new Battle(setupOf(seed, only(U.Archers, 150), only(U.HeavyInfantry, 100)));
+    b.generals[1].fixedPlan = 'hold';
+    b.pinStance(1, U.HeavyInfantry, stance);
+    for (let i = 0; i < ticks && !b.done(); i++) b.step();
+    return deadOf(b, 1);
+  }
+
+  it('loose order and the shield wall lose fewer men to arrows', () => {
+    let line = 0;
+    let loose = 0;
+    let wall = 0;
+    for (const seed of [1, 2, 3]) {
+      line += shot(seed, 'line');
+      loose += shot(seed, 'loose');
+      wall += shot(seed, 'shieldwall');
+    }
+    expect(line).toBeGreaterThan(10);
+    expect(loose).toBeLessThan(line * 0.8);
+    expect(wall).toBeLessThan(line * 0.8);
+  }, 30_000);
+
+  it('picks stances by itself and says so', () => {
+    const b = new Battle(setupOf(4, army(500), army(500)));
+    const seen = new Set<string>();
+    while (!b.done()) {
+      b.step();
+      for (const r of b.regiments) seen.add(`${r.cls}:${r.stance}`);
+    }
+    expect(seen.has(`${U.Archers}:loose`)).toBe(true);
+    expect(seen.has(`${U.Knights}:wedge`)).toBe(true);
+    expect(seen.has(`${U.HeavyInfantry}:line`)).toBe(true);
+    expect([...seen].some((k) => k === `${U.HeavyInfantry}:shieldwall` || k === `${U.Spearmen}:pikewall`)).toBe(true);
+    expect(b.events.filter((e) => e.kind === 'stance').every((e) => e.stance !== undefined && e.reg !== undefined)).toBe(true);
+  }, 30_000);
+});
+
+describe('battle: command and morale', () => {
+  it('a general who sends his horse round the flanks beats one who keeps it at home', () => {
+    let good = 0;
+    for (let seed = 1; seed <= 10; seed++) {
+      for (const side of [0, 1] as const) {
+        const b = new Battle(setupOf(seed, army(300), army(300)));
+        b.generals[1 - side]!.useCavalry = false;
+        if (b.run().winner === side) good++;
+      }
+    }
+    // More often than not, from either side.
+    expect(good).toBeGreaterThanOrEqual(12);
+  }, 60_000);
+
+  it('a committed reserve changes the battle', () => {
+    let changed = 0;
+    let committed = 0;
+    for (let seed = 1; seed <= 4; seed++) {
+      const a = new Battle(setupOf(seed, army(400), army(400)));
+      const b = new Battle(setupOf(seed, army(400), army(400)));
+      b.generals[0].useReserve = false;
+      const ra = a.run();
+      const rb = b.run();
+      if (a.events.some((e) => e.kind === 'general-order' && e.team === 0 && e.order === 'support')) committed++;
+      expect(b.events.some((e) => e.kind === 'general-order' && e.team === 0 && e.order === 'support')).toBe(false);
+      if (ra.winner !== rb.winner || ra.ticks !== rb.ticks || ra.sides[1].dead.join() !== rb.sides[1].dead.join()) changed++;
+    }
+    expect(committed).toBeGreaterThanOrEqual(2);
+    expect(changed).toBeGreaterThanOrEqual(3);
+  }, 60_000);
+
+  it('the general’s death matters', () => {
+    const b = new Battle(setupOf(2, army(300), army(300)));
+    for (let i = 0; i < 300; i++) b.step();
+    const before = b.regiments.filter((r) => r.team === 1 && r.alive > 0).map((r) => r.morale);
+    b.kill(b.commander[1]);
+    const after = b.regiments.filter((r) => r.team === 1 && r.alive > 0).map((r) => r.morale);
+    expect(b.commanderFell[1]).toBe(true);
+    expect(b.events.some((e) => e.kind === 'commander' && e.team === 1)).toBe(true);
+    for (let i = 0; i < before.length; i++) expect(after[i]!).toBeLessThanOrEqual(before[i]! - 15);
+    // Over several battles, the side that lost its general early loses most of them.
+    const lost = winsOf(6, (seed) => {
+      const x = new Battle(setupOf(seed, army(300), army(300)));
+      for (let i = 0; i < 300; i++) x.step();
+      x.kill(x.commander[1]);
+      return x.run().winner;
+    });
+    expect(lost).toBeGreaterThanOrEqual(5);
+  }, 60_000);
+
+  it('regiments waver, break, rally and shatter; the city’s morale bonus helps', () => {
+    const b = new Battle(setupOf(5, army(600), army(600)));
+    const states = new Set<string>();
+    while (!b.done()) {
+      b.step();
+      for (const r of b.regiments) states.add(r.moraleState);
+    }
+    expect([...states].sort()).toEqual(['broken', 'rallying', 'shattered', 'steady', 'wavering']);
+    for (const k of ['waver', 'rout', 'shattered'] as const) expect(b.events.some((e) => e.kind === k)).toBe(true);
+    // The Chapter House's morale bonus, on either side.
+    let bonus = 0;
+    for (let seed = 1; seed <= 10; seed++) {
+      if (fight(setupOf(seed, army(300, { moraleBonus: 15 }), army(300))).winner === 0) bonus++;
+      if (fight(setupOf(seed, army(300), army(300, { moraleBonus: 15 }))).winner === 1) bonus++;
+    }
+    expect(bonus).toBeGreaterThanOrEqual(13);
+  }, 60_000);
+});
+
+describe('battle: scale', () => {
+  it('fights a grand battle of thousands quickly enough', () => {
+    const b = new Battle({ ...setupOf(1, army(2800), army(2800)), kind: 'grand' });
+    expect(b.soldiers.length).toBeGreaterThan(4800);
+    expect(b.scale).toBe(1);
+    const t0 = performance.now();
+    for (let i = 0; i < 300; i++) b.step();
+    const perStep = (performance.now() - t0) / 300;
+    // Loose for CI: the target on a dev machine is under 4 ms.
+    expect(perStep).toBeLessThan(25);
+    const big = new Battle({ ...setupOf(1, army(20000), army(18000)), kind: 'grand' });
+    expect(big.scale).toBeGreaterThan(1);
+    expect(big.soldiers.length).toBeLessThanOrEqual(2 * MAX_FIGURES + 20);
+    for (const s of b.soldiers) {
+      expect(s.x).toBeGreaterThanOrEqual(-10);
+      expect(s.x).toBeLessThanOrEqual(FIELD_W + 10);
+      expect(s.y).toBeGreaterThanOrEqual(0);
+      expect(s.y).toBeLessThanOrEqual(FIELD_H);
+    }
+  }, 60_000);
 });
 
 describe('pairings', () => {
