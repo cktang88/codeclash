@@ -147,8 +147,31 @@ function undeadHd(hue: number): CityStyle {
   };
 }
 
+/**
+ * HD: the commandery at golden hour (the user's town-displate target): the lit steps of each
+ * ramp warm toward ochre and honey, the shade steps cool toward blue-violet, timber dark and
+ * heavy, clay tiles orange-red. The classic commandery keeps templar().
+ */
+function templarHd(hue: number): CityStyle {
+  return {
+    ...templar(hue),
+    stone: ramp('#e6d2a2', '#ccb184', '#7c7888', '#4a4658'),
+    fine: ramp('#f2e2b8', '#dcc69a', '#9890a2', '#5c5668'),
+    mortar: hex('#4e4650'),
+    timber: ramp('#8c5e36', '#62402a', '#3a2a2a', '#22181a'),
+    daub: ramp('#f0dcac', '#dcc394', '#9a92a0', '#605a68'),
+    thatch: ramp('#dab466', '#b88e4c', '#76644e', '#48402e'),
+    shingle: ramp('#9a6e48', '#785236', '#54403a', '#2c2226'),
+    tile: ramp('#d8703e', '#b4502e', '#7c4038', '#46242a'),
+    slate: ramp('#8890a0', '#6a7284', '#454a5e', '#2a2c3c'),
+    glass: hex('#1a1416'),
+    outline: hex('#1c1214'),
+  };
+}
+
 /** The building style for a faction (Templar until a faction brings its own). */
 export function styleFor(faction: FactionId | string, hue: number, hd = false): CityStyle {
+  if (hd && faction === 'templar') return templarHd(hue);
   if (hd && faction === 'samurai') return samuraiHd(hue);
   if (hd && faction === 'undead') return undeadHd(hue);
   const base = templar(hue);
