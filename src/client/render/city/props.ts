@@ -39,7 +39,7 @@
 import type { BuildingKey } from '../../../game/city.ts';
 import { tierOf, WALL, type Art } from './buildings.ts';
 import { FIELDS, GARDEN, PADDOCK } from './ground.ts';
-import { hash, hex, mix, nightCanvas, NIGHT_RIG, Px, type Col, type Footprint, type Frame, type NightRig, type V3 } from './pixels.ts';
+import { css, hash, hex, mix, nightCanvas, NIGHT_RIG, Px, tone, type Col, type Footprint, type Frame, type NightRig, type V3 } from './pixels.ts';
 import { bales, barrel, bench, bucket, cart, crate, flowerPot, FLAME, FLAME2, FLOWERS, haystack, hurdle, LEAF, lampPost, marketStall, pottedTree, sack, signPost, trough, washingLine, well, woodPile, bush } from './prop-art.ts';
 import { EDGES, NODES, roadDistance } from './roads.ts';
 import type { CityStyle } from './style.ts';
@@ -70,7 +70,42 @@ export interface PropDef {
    * warm lantern glass (FLAME) every prop already has.
    */
   glass?: Col[];
+  /**
+   * A little life drawn every frame over the static art (an awning's hem fluttering, washing
+   * swaying, a flame flickering): called in buffer pixels (the flat transform) with the time,
+   * the buffer point of the prop's min corner on the ground (x, y), the prop's hash 0..1, the
+   * density k (buffer pixels per world unit; isoOff converts world offsets) and the style. Drawn
+   * just in front of the prop's own art in the depth sort, only when the camera is in at zoom 2+
+   * and the prop is in view. Draw whole buffer pixels.
+   */
+  anim?: PropAnim;
+  /** Lamp flames [du, dv, z] from the min corner: each flickers (a drawn flame) and lights a pool at night. */
+  flicker?: [number, number, number][];
 }
+
+export type PropAnim = (g: CanvasRenderingContext2D, t: number, x: number, y: number, seed: number, k: number, st: CityStyle) => void;
+/** Buffer-pixel offset of a world offset (du, dv, dz) at density k. */
+export const isoOff = (k: number, du: number, dv: number, dz: number): [number, number] => [Math.round((du - dv) * k), Math.round(((du + dv) / 2 - dz) * k)];
+/** A placed prop's animation, ready for the depth sort. */
+export interface PropAnimAt {
+  d: number;
+  x: number;
+  y: number;
+  seed: number;
+  fn: PropAnim;
+  /** Buffer-pixel box it may draw in, for the on-screen test. */
+  box: [number, number, number, number];
+}
+
+/** A flickering flame: two art pixels that trade hot and warm, hashed per lamp so lamps flicker apart. */
+export const flameAnim = (du: number, dv: number, z: number): PropAnim => (g, t, x, y, seed, k) => {
+  const [ox, oy] = isoOff(k, du, dv, z);
+  const ph = Math.sin(t * 13 + seed * 40) + Math.sin(t * 7.3 + seed * 17);
+  g.fillStyle = ph > 0.6 ? '#fff4c8' : ph > -0.4 ? '#ffd27a' : '#ff9a3a';
+  g.fillRect(x + ox, y + oy, 1, 1);
+  g.fillStyle = ph > 0 ? '#ffb24a' : '#e8782a';
+  g.fillRect(x + ox, y + oy + 1, 1, 1);
+};
 
 const LIB = new Map<string, PropDef>();
 export function registerProp(kind: string, def: PropDef): void {
@@ -119,16 +154,51 @@ registerProp('pots', {
 });
 registerProp('pot', { lu: 2.4, lv: 2.4, h: 3.5, draw: (a) => flowerPot(a.px, a.u + 1.2, a.v + 1.2, 0, Math.floor(a.n * 1000), true) });
 registerProp('pottedTree', { lu: 3.4, lv: 3.4, h: 9, draw: (a) => pottedTree(a.px, a.st, a.u + 1.7, a.v + 1.7, Math.floor(a.n * 1000)) });
-registerProp('lampPost', { lu: 1.4, lv: 1.4, h: 9, draw: (a) => lampPost(a.px, a.st, a.lights, a.u + 0.7, a.v + 0.7) });
+registerProp('lampPost', { lu: 1.4, lv: 1.4, h: 9, draw: (a) => lampPost(a.px, a.st, [], a.u + 0.7, a.v + 0.7), flicker: [[2.9, 0.9, 7.2]] });
 registerProp('signPost', { lu: 1.4, lv: 3.4, h: 7, draw: (a) => signPost(a.px, a.st, a.u + 0.7, a.v + 0.5, a.n) });
-registerProp('stall', { lu: 9.6, lv: 6, h: 9, draw: (a) => marketStall(a.px, a.st, a.u, a.v, a.n) });
+registerProp('stall', {
+  lu: 9.6, lv: 6, h: 9,
+  draw: (a) => marketStall(a.px, a.st, a.u, a.v, a.n),
+  // The hem flutters: each scallop's tongue drops a pixel in turn, as a wave runs along it.
+  anim: (g, t, x, y, n, k, st) => {
+    const a = n > 0.5 ? st.bannerField : mix(st.daub[0], 0xffffffff, 0.2);
+    const b = n > 0.5 ? st.bannerCharge : n > 0.25 ? st.team : hex('#3e6a8a');
+    for (let i = 0; i < 9.2 * k; i += 3) {
+      if (Math.sin(t * 5 - i * 0.7 + n * 9) < 0.35) continue;
+      const s = i / k;
+      const [ox, oy] = isoOff(k, -0.6 + s + 0.7 / k, 3.6 + 2.2, 7.2 - 0.3);
+      g.fillStyle = css(tone(Math.floor(i / 3) % 2 === 0 ? a : b, 0.12));
+      g.fillRect(x + ox, y + oy + 1, 1, 1);
+    }
+  },
+});
 registerProp('well', { lu: 6.6, lv: 6.6, h: 8, draw: (a) => well(a.px, a.st, a.u + 3.3, a.v + 3.3) });
 registerProp('trough', { lu: 7, lv: 2.6, h: 2.2, draw: (a) => trough(a.px, a.st, a.u, a.v) });
 registerProp('haystack', { lu: 8, lv: 7.4, h: 7, draw: (a) => haystack(a.px, a.st, a.u + 4, a.v + 3.7, a.n) });
 registerProp('bales', { lu: 8.4, lv: 2.6, h: 4, draw: (a) => bales(a.px, a.st, a.u, a.v) });
 registerProp('hurdle', { lu: 9, lv: 1, h: 4, draw: (a) => hurdle(a.px, a.st, a.u, a.v + 0.5, a.u + 9, a.v + 0.5) });
 registerProp('hurdleV', { lu: 1, lv: 9, h: 4, draw: (a) => hurdle(a.px, a.st, a.u + 0.5, a.v, a.u + 0.5, a.v + 9) });
-registerProp('washing', { lu: 10, lv: 1, h: 8, draw: (a) => washingLine(a.px, a.st, a.u, a.v + 0.5, a.n) });
+registerProp('washing', {
+  lu: 10, lv: 1, h: 8,
+  draw: (a) => washingLine(a.px, a.st, a.u, a.v + 0.5, a.n),
+  // The linen sways: each cloth's free corner swings a pixel either way.
+  anim: (g, t, x, y, n, k, st) => {
+    const cloth = [st.daub[0], hex('#e8e2d4'), hex('#6a7aa4'), st.bannerField, hex('#a8503c')];
+    let s = 0.8;
+    for (let i = 0; s < 9; i++) {
+      const w = 1.4 + hash(i, n * 50) * 1.4;
+      const c = cloth[Math.floor(hash(i, n * 51) * cloth.length)]!;
+      const h = 2 + hash(i, n * 52) * 1.6;
+      const sw = Math.round(Math.sin(t * 2.2 + i * 1.3 + n * 7));
+      if (sw) {
+        const [ox, oy] = isoOff(k, s + (sw > 0 ? w : 0), 0.5, 7.4 - (s / 10) * 0.4 - h);
+        g.fillStyle = css(tone(c, 0.1));
+        g.fillRect(x + ox + (sw > 0 ? 0 : -1), y + oy, 1, 2);
+      }
+      s += w + 0.6;
+    }
+  },
+});
 registerProp('bucket', { lu: 1.6, lv: 1.6, h: 1.4, draw: (a) => bucket(a.px, a.st, a.u + 0.8, a.v + 0.8, 0) });
 registerProp('roseBush', { lu: 4.4, lv: 4.4, h: 4.5, draw: (a) => bush(a.px, a.u + 2.2, a.v + 2.2, 2.2, 3, 2.5, Math.floor(a.n * 1000), LEAF, a.n > 0.5 ? [FLOWERS[0]!, FLOWERS[5]!] : [FLOWERS[1]!, FLOWERS[5]!], 0.26) });
 registerProp('bush', { lu: 4, lv: 4, h: 4, draw: (a) => bush(a.px, a.u + 2, a.v + 2, 2, 2.6, 2.2, Math.floor(a.n * 1000), LEAF, a.n > 0.5 ? [FLOWERS[0]!, FLOWERS[5]!] : [FLOWERS[1]!], 0.2) });
@@ -404,8 +474,10 @@ export function propShadows(placed: Placed[]): Footprint[] {
 
 export interface PaintedProps {
   arts: Art[];
-  /** Lamp glass in world pixels (classic 512×288 coordinates), for halos. */
+  /** Lamp glass in world pixels (classic 512×288 coordinates), for the light pools. */
   lamps: [number, number][];
+  /** Per-frame animations of the placed props (PropDef.anim and flicker). */
+  anims: PropAnimAt[];
 }
 
 let shared: Px | null = null;
@@ -420,6 +492,7 @@ export function paintProps(placed: Placed[], st: CityStyle, frame: Frame, inShad
   const px = shared;
   const arts: Art[] = [];
   const lamps: [number, number][] = [];
+  const anims: PropAnimAt[] = [];
   const byGroup = new Map<number, Placed[]>();
   for (const p of placed) byGroup.set(p.group, [...(byGroup.get(p.group) ?? []), p]);
   const shadeCol = hex('#2c2c4c');
@@ -467,8 +540,19 @@ export function paintProps(placed: Placed[], st: CityStyle, frame: Frame, inShad
     if (lit) lightsC = lp.toCanvas();
     for (const l of lights) lamps.push([px.X(l.u, l.v) / px.k - px.mx, px.Y(l.u, l.v, l.z) / px.k - px.my]);
     arts.push({ canvas, lights: lightsC, night: nightCanvas(px, ...b, rig), x: b[0], y: b[1], d: du + dv });
+    for (const p of ps) {
+      const d = LIB.get(p.kind)!;
+      const x = Math.floor(px.X(p.u, p.v));
+      const y = Math.floor(px.Y(p.u, p.v, 0));
+      const at = { d: du + dv + 0.05, x, y, seed: p.n, box: [b[0] - 4, b[1] - 4, b[2] + 4, b[3] + 4] as [number, number, number, number] };
+      if (d.anim) anims.push({ ...at, fn: d.anim });
+      for (const [fu, fv, fz] of d.flicker ?? []) {
+        anims.push({ ...at, fn: flameAnim(fu, fv, fz) });
+        lamps.push([px.X(p.u + fu, p.v + fv) / px.k - px.mx, px.Y(p.u + fu, p.v + fv, fz) / px.k - px.my]);
+      }
+    }
   }
-  return { arts, lamps };
+  return { arts, lamps, anims };
 }
 
 // ------------------------------------------------------------------------------- shadows
