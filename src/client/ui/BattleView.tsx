@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { Battle, FIELD_H, FIELD_W, State, TICK_S, TICKS_PER_SECOND, type BattleSetup } from '../../game/battle.ts';
+import { Battle, State, TICK_S, TICKS_PER_SECOND, type BattleSetup } from '../../game/battle.ts';
 import { FACTIONS } from '../../game/factions.ts';
 import { UNIT_COUNT } from '../../game/units.ts';
-import { BattleScene } from '../render/scene.ts';
+import { BattleScene, MAX_ZOOM } from '../render/scene.ts';
 import { hsl } from '../render/sprites.ts';
 import { n } from '../format.ts';
 
@@ -66,6 +66,8 @@ export function BattleView(props: {
   const [paused, setPaused] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [scan, setScan] = useState(true);
+  const [follow, setFollow] = useState(false);
+  const [noGl] = useState(() => !BattleScene.supported());
   const [skipping, setSkipping] = useState(false);
   const [live, setLive] = useState<Live | null>(null);
   const [ticker, setTicker] = useState<Ticker[]>([]);
@@ -73,6 +75,7 @@ export function BattleView(props: {
   ctl.current = { speed, paused, skipping };
 
   useEffect(() => {
+    if (noGl) return;
     const canvas = canvasRef.current!;
     let battle = new Battle(setup);
     let scene = new BattleScene(battle);
@@ -123,7 +126,9 @@ export function BattleView(props: {
         if (!restartAt) restartAt = now + 4000;
         else if (now > restartAt) {
           battle = new Battle({ ...setup, seed: (setup.seed + Math.floor(now)) >>> 0 });
+          scene.dispose();
           scene = new BattleScene(battle);
+          scene.camera.zoom = sceneRef.current?.camera.zoom ?? 1;
           sceneRef.current = scene;
           restartAt = 0;
           seen = 0;
@@ -148,6 +153,7 @@ export function BattleView(props: {
     return () => {
       cancelAnimationFrame(raf);
       ro.disconnect();
+      scene.dispose();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [setup, ambient]);
@@ -157,38 +163,96 @@ export function BattleView(props: {
     if (s) {
       s.camera.zoom = zoom;
       s.scanlines = scan;
+      s.follow = follow;
     }
-  }, [zoom, scan, live === null]);
+  }, [zoom, scan, follow, live === null]);
 
-  // Drag to pan, wheel to zoom.
-  const drag = useRef<{ x: number; y: number } | null>(null);
+  // Camera: drag (or one finger) pans, wheel and pinch zoom toward the point under them,
+  // double-click or double-tap zooms in there; +/− zoom about the centre, ⤢ fits the field.
+  const pointers = useRef(new Map<number, { x: number; y: number }>());
+  const pinch = useRef<{ dist: number } | null>(null);
+  const lastTap = useRef<{ t: number; x: number; y: number } | null>(null);
+  const wheelAcc = useRef(0);
+  /** Device pixel of the canvas under a client point. */
+  const dev = (clientX: number, clientY: number): [number, number] => {
+    const c = canvasRef.current!;
+    const r = c.getBoundingClientRect();
+    const k = c.width / Math.max(1, r.width);
+    return [(clientX - r.left) * k, (clientY - r.top) * k];
+  };
+  const zoomTo = (level: number, clientX?: number, clientY?: number) => {
+    const s = sceneRef.current;
+    const c = canvasRef.current;
+    if (!s || !c) return;
+    const [x, y] = clientX === undefined ? [c.width / 2, c.height / 2] : dev(clientX, clientY!);
+    s.zoomAt(c, level, x, y);
+    setZoom(s.camera.zoom);
+  };
+  const stopFollow = () => follow && setFollow(false);
   const onPointerDown = (e: React.PointerEvent) => {
-    drag.current = { x: e.clientX, y: e.clientY };
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    try {
+      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    } catch {
+      // Not an active pointer (synthetic events); dragging still works without capture.
+    }
+    if (pointers.current.size === 2) {
+      const [p, q] = [...pointers.current.values()];
+      pinch.current = { dist: Math.hypot(p!.x - q!.x, p!.y - q!.y) };
+    }
+    if (e.pointerType === 'touch' && pointers.current.size === 1) {
+      // The event's own timestamp: a busy frame must not stretch the gap between taps.
+      const now = e.timeStamp;
+      const l = lastTap.current;
+      if (l && now - l.t < 320 && Math.hypot(e.clientX - l.x, e.clientY - l.y) < 30) {
+        zoomTo((sceneRef.current?.camera.zoom ?? 1) + 1, e.clientX, e.clientY);
+        lastTap.current = null;
+      } else lastTap.current = { t: now, x: e.clientX, y: e.clientY };
+    }
   };
   const onPointerMove = (e: React.PointerEvent) => {
     const s = sceneRef.current;
-    const d = drag.current;
     const canvas = canvasRef.current;
-    if (!s || !d || !canvas) return;
-    const fit = Math.min(canvas.clientWidth / FIELD_W, canvas.clientHeight / FIELD_H) * s.camera.zoom;
-    s.camera.cx -= (e.clientX - d.x) / fit;
-    s.camera.cy -= (e.clientY - d.y) / fit;
-    drag.current = { x: e.clientX, y: e.clientY };
-  };
-  const onWheel = (e: React.WheelEvent) => {
-    if (ambient) return;
-    const s = sceneRef.current;
-    const canvas = canvasRef.current;
-    if (s && canvas) {
-      const r = canvas.getBoundingClientRect();
-      const dpr = canvas.width / r.width;
-      const [wx, wy] = s.toWorld(canvas, (e.clientX - r.left) * dpr, (e.clientY - r.top) * dpr);
-      s.camera.cx = wx;
-      s.camera.cy = wy;
+    const prev = pointers.current.get(e.pointerId);
+    if (!s || !canvas || !prev) return;
+    const k = canvas.width / Math.max(1, canvas.clientWidth);
+    const n = pointers.current.size;
+    // With two fingers each moves the view by half its travel: together, the midpoint's.
+    s.pan(((e.clientX - prev.x) * k) / n, ((e.clientY - prev.y) * k) / n);
+    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    stopFollow();
+    if (n === 2 && pinch.current) {
+      const [p, q] = [...pointers.current.values()];
+      const d = Math.hypot(p!.x - q!.x, p!.y - q!.y);
+      const ratio = d / Math.max(1, pinch.current.dist);
+      if (ratio > 1.3 || ratio < 0.77) {
+        zoomTo(s.camera.zoom + (ratio > 1 ? 1 : -1), (p!.x + q!.x) / 2, (p!.y + q!.y) / 2);
+        pinch.current = { dist: d };
+      }
     }
-    setZoom((z) => Math.max(1, Math.min(4, z + (e.deltaY < 0 ? 1 : -1))));
   };
+  const onPointerUp = (e: React.PointerEvent) => {
+    pointers.current.delete(e.pointerId);
+    if (pointers.current.size < 2) pinch.current = null;
+  };
+  // Wheel: a native listener, so the page doesn't scroll; trackpads accumulate small deltas.
+  useEffect(() => {
+    const c = canvasRef.current;
+    if (!c || ambient) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const s = sceneRef.current;
+      if (!s) return;
+      wheelAcc.current += e.deltaMode === 1 ? e.deltaY * 40 : e.deltaY;
+      if (Math.abs(wheelAcc.current) < 50) return;
+      const step = wheelAcc.current < 0 ? 1 : -1;
+      wheelAcc.current = 0;
+      zoomTo(s.camera.zoom + step, e.clientX, e.clientY);
+    };
+    c.addEventListener('wheel', onWheel, { passive: false });
+    return () => c.removeEventListener('wheel', onWheel);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ambient, noGl]);
 
   const [a, b] = setup.armies;
   const seconds = live ? Math.floor(live.tick / TICKS_PER_SECOND) : 0;
@@ -197,11 +261,14 @@ export function BattleView(props: {
       <canvas
         ref={canvasRef}
         className="battle-canvas"
+        style={ambient ? undefined : { touchAction: 'none' }}
         onPointerDown={ambient ? undefined : onPointerDown}
         onPointerMove={ambient ? undefined : onPointerMove}
-        onPointerUp={() => (drag.current = null)}
-        onWheel={onWheel}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+        onDoubleClick={ambient ? undefined : (e) => zoomTo(zoom + 1, e.clientX, e.clientY)}
       />
+      {noGl && <div className="verdict"><div className="verdict-kicker">This browser cannot draw the battle (WebGL2 is unavailable).</div></div>}
       {!ambient && live && (
         <>
           <div className="hud-top">
@@ -246,10 +313,12 @@ export function BattleView(props: {
             ))}
             <button onClick={() => setSkipping(true)} disabled={live.done || skipping}>To the end ⏭</button>
             <span className="sep" />
-            <button onClick={() => setZoom((z) => Math.max(1, z - 1))} disabled={zoom <= 1}>−</button>
+            <button onClick={() => zoomTo(zoom - 1)} disabled={zoom <= 1}>−</button>
             <span className="mono">{zoom}×</span>
-            <button onClick={() => setZoom((z) => Math.min(4, z + 1))} disabled={zoom >= 4}>+</button>
+            <button onClick={() => zoomTo(zoom + 1)} disabled={zoom >= MAX_ZOOM}>+</button>
+            <button onClick={() => { sceneRef.current?.fit(); setZoom(1); }} title="Fit the field">⤢</button>
             <button className={scan ? 'on' : ''} onClick={() => setScan((x) => !x)} title="Scanlines">▤</button>
+            <button className={follow ? 'on' : ''} onClick={() => setFollow((x) => !x)} title="Follow the fighting">◎</button>
           </div>
           {live.done && live.winner !== null && (
             <div className="verdict">
