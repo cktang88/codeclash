@@ -33,6 +33,8 @@ export interface FootSpec extends FootClipSpec {
   neFirst?: string[];
   /** Slots drawn last from behind (on the back: a quiver, a pavise, a cloak). */
   neLast?: string[];
+  /** The draw hand stays on the bowstring (the nock bone) by IK. */
+  nocked?: boolean;
   /** Slots not drawn from behind (a far arm reaching across, hidden by the body). */
   neHide?: string[];
 }
@@ -98,6 +100,8 @@ function joints(J: UJ, s: FootSpec): Record<string, { from: P2; to: P2 }> {
     // Cloth that trails: the skirt from the belt and the cloak from the shoulders.
     skirt: { from: [pel[0] + 0.2, pel[1] - 1.0], to: [pel[0] + 0.2, -2.6] },
     cloak: { from: [J.neck![0] - 0.2, J.neck![1] + 0.4], to: [J.neck![0] - 0.2, -0.6] },
+    // The bowstring's nock: the draw hand reaches it by IK, and it slides back along the arrow.
+    nock: { from: hN, to: hN },
     footTargetN: { from: J.ankN!, to: J.ankN! },
     footTargetF: { from: J.ankF!, to: J.ankF! },
   };
@@ -117,7 +121,7 @@ export const PARENT: Record<string, string | undefined> = {
   upperArmN: 'chest', forearmN: 'upperArmN', handN: 'forearmN', weapon: 'handN', grip2: 'weapon',
   upperArmF: 'chest', forearmF: 'upperArmF', handF: 'forearmF', itemF: 'handF',
   thighN: 'pelvis', shinN: 'thighN', footN: 'shinN', thighF: 'pelvis', shinF: 'thighF', footF: 'shinF',
-  skirt: 'pelvis', cloak: 'chest', footTargetN: 'root', footTargetF: 'root',
+  skirt: 'pelvis', cloak: 'chest', nock: 'itemF', footTargetN: 'root', footTargetF: 'root',
 };
 
 /** Slots that are not key-art pieces: smears, what falls in a death, the key light and the hit flash. */
@@ -161,6 +165,7 @@ export function footSkel(name: string, s: FootSpec): SkeletonData {
       { name: 'legN', bones: ['thighN', 'shinN'], target: 'footTargetN', bend: 1, mix: 1, ground: s.art.J.ankN![1] },
       { name: 'legF', bones: ['thighF', 'shinF'], target: 'footTargetF', bend: 1, mix: 1, ground: s.art.J.ankF![1] },
       { name: 'armF2h', bones: ['upperArmF', 'forearmF'], target: 'grip2', bend: -1, mix: s.twoHand ? 1 : 0 },
+      { name: 'armN2h', bones: ['upperArmN', 'forearmN'], target: 'nock', bend: -1, mix: s.nocked ? 1 : 0 },
     ],
   };
 }
@@ -205,6 +210,17 @@ export function pieceAtt(p: UPiece, J: Record<Facing, UJ>, axis: number, clothLe
         // The hem's swing in units (whole pixels, so it does not crawl), + forward.
         const sway = c.qn(Math.max(-2.2, Math.min(2.2, Math.sin((trail(ctx.posed, p.bone) * Math.PI) / 180) * (p.clothLen ?? clothLen))));
         mapped(c, posedMap(ctx.posed, parent), p.mirror && back ? axis : false, () => p.draw(c, J[f], back, { sway }));
+      },
+    };
+  }
+  if (p.live) {
+    // Read from the frame (a bow's draw from where the string hand is): drawn on the frame.
+    const live = p.live;
+    return {
+      cache: false,
+      draw: (c, _x, ctx) => {
+        const f = ctx.posed.facing, back = f === 'ne';
+        mapped(c, posedMap(ctx.posed, p.bone), p.mirror && back ? axis : false, () => p.draw(c, J[f], back, live(ctx, J[f])));
       },
     };
   }
