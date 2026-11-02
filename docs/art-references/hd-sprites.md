@@ -202,3 +202,87 @@ Still short of the references:
 - The back of the shield is mostly hidden, so the straps barely show.
 - The mail is very dark under the ground-value rule.
 - At level 1 the figure is a pale stick with a hat and a shield: readable, but no skeleton detail survives at 13 px.
+
+## Templar paper figures (`paper/templar.ts`, `templar-parts.ts`, `templar-static.ts`)
+
+All eleven Templar kinds are drawn on paper. The animated figures (`templar.ts`) are live in HD
+mode. The bulked-up key art (`templar-static.ts`, one idle SE image per kind at level 8) is waiting
+for approval, after which the animated figures will be rebuilt from it.
+
+### References (`references/templar/`, `references/user-targets/`; study only, none committed)
+
+| Image (direct URL) | Page | Licence | Taken from it |
+|---|---|---|---|
+| https://thumb.wikimedia.org/wikipedia/commons/thumb/a/a3/Maciejowski_Bible_-_Morgan_Library_%26_Museum_MS_M.638%2C_fol._23v.jpg/1280px-Maciejowski_Bible_-_Morgan_Library_%26_Museum_MS_M.638%2C_fol._23v.jpg | https://commons.wikimedia.org/wiki/File:Maciejowski_Bible_-_Morgan_Library_%26_Museum_MS_M.638,_fol._23v.jpg | Public domain | <ul><li>Mail from head to toe under plain surcoats.</li><li>Kettle hats beside flat-topped great helms.</li><li>Long-necked horses with long heads.</li><li>The traction trebuchet: a beam lashed from poles, a man hauling a rope, and the sling with its stone.</li></ul> |
+| https://upload.wikimedia.org/wikipedia/commons/2/22/Morgan_Bible_28r_detail.jpg | https://commons.wikimedia.org/wiki/File:Morgan_Bible_28r_detail.jpg | Public domain | The hauberk is drawn as rows of rings that follow the body, under a short coloured surcoat. These are the ring rows of `mailTex`. |
+| https://thumb.wikimedia.org/wikipedia/commons/thumb/b/b1/Old_Testament_miniatures_with_Latin%2C_Persian%2C_and_Judeo-Persian_inscriptions_-_Google_Art_Project_%28cropped_trebuchet%29.jpg/960px-Old_Testament_miniatures_with_Latin%2C_Persian%2C_and_Judeo-Persian_inscriptions_-_Google_Art_Project_%28cropped_trebuchet%29.jpg | https://commons.wikimedia.org/wiki/File:Old_Testament_miniatures_with_Latin,_Persian,_and_Judeo-Persian_inscriptions_-_Google_Art_Project_(cropped_trebuchet).jpg | Public domain | The engine's proportions: the beam is twice a man's height and sits on an A-trestle. The short arm carries the pulling ropes and the long arm the sling. |
+| https://upload.wikimedia.org/wikipedia/commons/9/98/Templari_MatthewParis.jpg | https://commons.wikimedia.org/wiki/File:Templari_MatthewParis.jpg | Public domain | Matthew Paris's two brothers on one horse:<ul><li>The **Beauséant is a third sable over argent**, with no cross. The marshal's banner follows it.</li><li>The brothers' **shields are argent, a chief sable**. The knights' shields follow it.</li><li>A slender, long-headed horse with a rope bridle.</li></ul> |
+| https://upload.wikimedia.org/wikipedia/commons/0/03/Seal_of_Templars.jpg | https://commons.wikimedia.org/wiki/File:Seal_of_Templars.jpg | Public domain | Two riders with lances on the seal: rider and horse make one compact mass, and the lance is the silhouette. |
+| https://thumb.wikimedia.org/wikipedia/commons/thumb/5/58/Topfhelm_DHM_transparent.png/960px-Topfhelm_DHM_transparent.png | https://commons.wikimedia.org/wiki/File:Topfhelm_DHM_transparent.png | CC BY-SA 3.0 | The great helm is a tall, flat-topped barrel, wider than the head. It has:<ul><li>a cross-shaped brow and nasal reinforcement;</li><li>eye slits either side of the bar;</li><li>breaths on the cheek;</li><li>rivets round the rim.</li></ul> |
+| https://thumb.wikimedia.org/wikipedia/commons/thumb/6/6d/European_riveted_mail_hauberk%2C_close_up_view.jpg/960px-European_riveted_mail_hauberk%2C_close_up_view.jpg | https://commons.wikimedia.org/wiki/File:European_riveted_mail_hauberk,_close_up_view.jpg | CC BY-SA 3.0 | Mail is dark and grimy, with small hard highlights on the ring edges. So the mail gets a dull ramp, with highlights on the lit side only. |
+| https://thumb.wikimedia.org/wikipedia/commons/thumb/f/fa/Chapel_de_fer%2C_kettle_helmet_or_war_hat_-_Snowshill_Manor_-_NT_1328878_-_DSC_0538.jpg/960px-Chapel_de_fer%2C_kettle_helmet_or_war_hat_-_Snowshill_Manor_-_NT_1328878_-_DSC_0538.jpg | https://commons.wikimedia.org/wiki/File:Chapel_de_fer,_kettle_helmet_or_war_hat_-_Snowshill_Manor_-_NT_1328878_-_DSC_0538.jpg | CC BY-SA 4.0 | A low crown and a wide, dished brim. The brim's upper face is lit and its underside is in shadow. |
+| https://upload.wikimedia.org/wikipedia/commons/a/a6/Dane_Axe.JPG | https://commons.wikimedia.org/wiki/File:Dane_Axe.JPG | Public domain | A long haft and a thin, broad crescent bit. This is the Iron Brethren's signature. |
+| https://upload.wikimedia.org/wikipedia/commons/2/29/Turcopole%2C_12th_century.jpg | https://commons.wikimedia.org/wiki/File:Turcopole,_12th_century.jpg | CC BY-SA 3.0 | A light horseman with a head-wrap over a spiked cap, a round shield and a light lance. |
+| https://upload.wikimedia.org/wikipedia/commons/a/a2/Balestriere1.jpg | https://commons.wikimedia.org/wiki/File:Balestriere1.jpg | CC BY-SA 3.0 | The crossbowman wears a padded jack and a kettle hat, and holds the bow across his body. |
+| https://static.wikia.nocookie.net/totalwar/images/1/11/Fra_dismounted_feudal_knights_info.png | https://totalwar.fandom.com/wiki/Dismounted_Feudal_Knights | (c) Creative Assembly (study only) | Medieval II proportions: the great helm is small against a broad body, the mail is grimy and the cloth is heavy. |
+| https://static.wikia.nocookie.net/totalwar/images/a/a2/Knights_of_Santiago.JPG | https://totalwar.fandom.com/wiki/Knights_of_Santiago | (c) Creative Assembly (study only) | Knights of a military order: a white surcoat with a red cross, a great helm, and a caparisoned horse whose cloth hangs to the knees. |
+| https://static.wikia.nocookie.net/totalwar/images/8/8b/French_Mounted_Sergeants.JPG | https://totalwar.fandom.com/wiki/Mounted_Sergeants | (c) Creative Assembly (study only) | A light rider in padded armour on a horse with no caparison, so the saddle and girth show. This is the turcopoles' look. |
+| https://i.redd.it/fxx9828pdq3d1.png | (xave_pixel, Reddit) | All rights reserved (study only) | The quality target:<ul><li>large flat clusters;</li><li>3-5-step hue-shifted ramps;</li><li>one saturated accent;</li><li>no black outline.</li></ul> |
+| https://i.redd.it/fsroum98hki61.png | (Diablo II: Resurrected class renders, Reddit) | (c) Blizzard (study only) | The user's target is the Paladin:<ul><li>broad shoulders with pauldrons;</li><li>a solid, layered torso;</li><li>a **great kite shield held tight across the body**;</li><li>the sword hanging point-down at his side.</li></ul>His bulk comes from volumes. |
+| https://img.craftpix.net/2023/04/Fantasy-Knight-Sprite-Sheets-Pixel-Art.webp | https://craftpix.net | CraftPix commercial licence (study only) | Pixel knights whose limbs are shaped masses: a thick upper arm, knee armour, a calf, a boot. Their shields sit against the body. |
+
+### Value classes and the palette (animated figures)
+
+The lint's ground rules decided the palette: a figure's mean value must be at least 0.06 OKLab L
+from the field, and its outline ring at least 0.1. Every figure is therefore one value class:
+- **Dark:** sergeants, levies, javelin men, archers, crossbowmen, turcopoles and the engine crew.
+  The dark materials share an umber deep pair.
+- **Light:** knights, Iron Brethren and the marshal. The light materials share a pale deep tone,
+  which is also their dark outline. A white brother reads by the value of his whole mass rather than
+  by a black ring.
+
+`paintAs` repaints each part in its figure's class. On a dark figure, pale steel keeps a dark deep
+tone; on a light figure, the lance is pale ash. At level 1 the faction has only 12 colours, so dark
+figures paint their browns as one neutral dark, and light figures paint their metal and wood as one
+pale grey.
+
+### Critique rounds
+
+Animated figures:
+1. **First pass** (all kinds, level 8). The mail came out brown and the faces were dark masks,
+   because the materials sat in the field's value band and were shifted, then merged. Fix: ramps set
+   clear of the field, a smaller eye and a lighter beard.
+2. **Level 1** (13 px). The contact pass blacked out the 1-2 px head and arms, so the light seemed to
+   come from below, and the ramps collapsed into straight runs. Fixes:
+   - the head is drawn before the body;
+   - a diagonal light at level 1;
+   - one dark material per dark figure;
+   - hue-stepped umbers and army colour.
+3. **Silhouettes and heraldry.** The brothers bear Matthew Paris's arms (a chief sable) and the
+   Beauséant is a third sable. The archer's bow leans at rest, and lances and swords are held at 45°,
+   which gives clean steps.
+
+Key art (`templar-static-*.png`):
+1. **Bulk**, after the user's critique "stick figures". The rods became shaped volumes:
+   - shoulders span about 5.2 of 14 units (0.37 H), with a mail cape over them;
+   - thigh 1.6, upper arm 1.5, forearm 1.2;
+   - the kite shield is 6.8 × 4.3 units, held against the body with its inner edge over the centre
+     line.
+
+   The sword crossed the shield, unlike the Paladin's, so it now hangs point-down at the side.
+2. **Horses.**
+   - The head read as a wedge pointing up. It is now drawn in its own frame: forehead, nose bridge,
+     a darker soft muzzle, jowl, ears and bridle, on a deep arched neck.
+   - The horse is drawn 1.15× against the man, so the riders no longer sit on ponies.
+   - The pavise is larger and slung higher, and the javelin shafts are pale.
+3. **Trapper and finish.** The caparison now rounds over the croup instead of ending in a box.
+   Still short of the Paladin:
+   - the faces are small dark masses;
+   - the knight's white surcoat and white trapper sit at nearly the same value;
+   - the engine crew are the plain foot figure.
+
+Screenshots:
+- `templar-static-L8.png`: the lineup.
+- `templar-static-k<kind>-x3.png`: each kind at ×3.
+- `templar-static-sergeant-before-after-x3.png`: the old rod figure on the left, the bulked key art
+  on the right.

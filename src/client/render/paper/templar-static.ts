@@ -393,7 +393,7 @@ function paviseS(c: Paper, ctr: P2, w: number, h: number, deg: number): void {
 
 /** A fan of spare javelins in the shield hand. */
 function javelinsS(c: Paper, hand: P2): void {
-  for (const d of [-10, 0, 10]) spear(c, addP(hand, [d * 0.01, 0]), 180 + d, 7.6, 1.8, { head: 1.1, w: 0.28 });
+  for (const d of [-10, 0, 10]) spear(c, addP(hand, [d * 0.01, 0]), 180 + d, 7.6, 1.8, { head: 1.1, w: 0.28, wood: TM.gambeson });
 }
 
 /** The Iron Brethren's ailettes: square boards on the shoulders in the army colour. */
@@ -461,7 +461,7 @@ const FOOT: Record<number, { kit: SKit; gear: SGear; dark: boolean }> = {
     dark: true,
     gear: {
       far: { el: [2.85, -8.9], wr: [3.35, -7.4], draw: (c, h) => { javelinsS(c, h); roundS(c, addP(h, [0.55, 0.1]), 1.35); } },
-      near: { el: [-2.95, -9.0], wr: [-2.2, -7.2], draw: (c, h) => spear(c, h, 150, 5.6, 2.4, { head: 1.15, w: 0.28 }) },
+      near: { el: [-2.95, -9.0], wr: [-2.2, -7.2], draw: (c, h) => spear(c, h, 150, 5.6, 2.4, { head: 1.15, w: 0.3, wood: TM.gambeson }) },
     },
   },
   3: {
@@ -477,7 +477,7 @@ const FOOT: Record<number, { kit: SKit; gear: SGear; dark: boolean }> = {
     kit: XBOW,
     dark: true,
     gear: {
-      behind: (c) => paviseS(c, [-0.9, -10.9], 4.0, 7.2, -6),
+      behind: (c) => paviseS(c, [-1.25, -12.0], 4.3, 8.0, -6),
       near: { el: [-2.7, -8.7], wr: [-1.0, -7.7], draw: (c, h) => crossbow(c, h, 118, 1) },
     },
   },
@@ -487,7 +487,6 @@ const FOOT: Record<number, { kit: SKit; gear: SGear; dark: boolean }> = {
     gear: {
       // The Dane axe held at the port, its great bit high and forward of the helm.
       near: { el: [-2.75, -8.9], wr: [-1.2, -7.6], draw: (c, h) => daneAxeS(c, h, 140) },
-      last: (c) => ailetteS(c, [-2.3, -11.6], -8),
     },
   },
 };
@@ -534,21 +533,40 @@ function horseS(c: Paper, k: SHorse, part: 'far' | 'body'): void {
     return code(m, t);
   });
   // The neck: deep at the base, arched along the crest; the mane.
-  shapeU(c, [[2.6, -10.4], [4.0, -11.6], [5.4, -13.4], [6.6, -14.7], [7.6, -14.4], [8.0, -12.9], [7.2, -11.2], [6.1, -8.4], [4.8, -7.6]], [6, -11], (_x, _y, ux, uy) => code(m, ux - uy * 0.5 < -0.6 ? 3 : ux > 1.2 ? 1 : 2));
-  vol(c, [2.9, -10.6], [6.7, -14.7], [[0, 0.35], [0.5, 0.55], [1, 0.35]], TM.mane, { tone: 2, detail: (x, y) => ((c.lx(x) * 2 + c.ly(y)) % 5 === 0 ? code(TM.mane, 1) : -1) });
-  // The head: a long wedge with the jowl, ears up, the bridle.
-  shapeU(c, [[6.7, -15.2], [7.8, -15.0], [9.9, -12.4], [10.15, -11.6], [9.6, -11.2], [8.6, -11.9], [7.4, -12.4], [6.6, -13.4]], [8, -13], (x, y, ux, uy) => {
-    if (Math.hypot(ux - 0.0, uy + 1.35) < 0.22) return code(TM.ink, 1); // eye
-    if (ux > 1.75 && uy > 1.2) return code(TM.ink, 2); // nostril
-    if (within(c, ux + uy * 0.8 - 1.3, 0.1) || within(c, ux - 0.0 + (uy + 1.0) * 0.1 - 0.5, 0.08)) return code(TM.leather, 1);
-    return code(m, uy - ux * 0.6 < -1.7 ? 3 : ux + uy > 1.4 ? 1 : 2);
+  // Crest from the withers arching up to the poll; the throat from the chest to the jaw.
+  const poll: P2 = [7.2, -14.9];
+  shapeU(c, [[2.4, -10.3], [3.6, -11.5], [5.0, -13.3], [6.3, -14.7], [7.4, -15.2], [8.3, -14.2], [8.1, -12.9], [7.5, -11.6], [6.6, -9.6], [6.0, -7.8], [4.4, -7.4]], [6, -11], (x, y, ux, uy) => {
+    // Lit along the crest, the throat and the underside of the neck in shadow, a muscle groove.
+    const crest = ux * 0.75 - uy * 0.66;
+    let t = crest < -0.7 ? 3 : crest > 1.5 ? 1 : 2;
+    if (Math.abs(crest - 0.55) < 0.14 && uy > -2.5) t -= 1;
+    if (c.tex(x, y, 27, 4) < 0.04) t -= 1;
+    return code(m, t);
   });
-  c.shape([[6.8, -15.0], [7.0, -16.1], [7.45, -15.0]], () => code(m, 2));
+  vol(c, [2.6, -10.6], [7.1, -15.3], [[0, 0.32], [0.5, 0.55], [1, 0.4]], TM.mane, { tone: 2, detail: (x, y) => ((c.lx(x) * 2 + c.ly(y)) % 5 === 0 ? code(TM.mane, 1) : -1) });
+  // The head in its own frame: along from the poll to the muzzle (down and forward), across
+  // toward the jaw. Forehead, nose bridge, a soft muzzle, the chin, the round jowl.
+  const HF = frameAt(poll, 52);
+  const head: P2[] = [[-0.3, -0.6], [1.2, -0.7], [2.9, -0.45], [3.55, -0.3], [3.75, 0.25], [3.35, 0.65], [1.7, 0.8], [0.7, 1.3], [-0.2, 1.05], [-0.45, 0.3]];
+  c.shape(head.map(([x, y]) => at(HF, x, y)), (x, y) => {
+    const [hx, hy] = local(c, HF, x, y);
+    if (Math.hypot(hx - 0.75, hy + 0.15) < 0.24) return code(TM.ink, 1); // eye
+    if (Math.hypot(hx - 3.4, hy - 0.1) < 0.2) return code(TM.ink, 2); // nostril
+    if (within(c, hx - 0.25, 0.1) || within(c, hx - 2.6, 0.1) || (hy < -0.35 && hx > 0.25 && hx < 2.6 && within(c, hy + 0.5, 0.07))) return code(TM.leather, 2); // bridle
+    if (hx > 3.0) return code(m, hy < 0 ? 2 : 1); // the soft muzzle, darker
+    if (hx < 1.5 && hy > 0.55) return code(m, 1); // jowl shadow
+    return code(m, hy < -0.3 ? 3 : hy > 0.45 ? 1 : 2);
+  });
+  // Ears pricked up and back from the poll.
+  c.shape([at(HF, -0.25, -0.45), at(HF, -1.25, -0.75), at(HF, 0.2, -0.75)], () => code(m, 2));
+  // The reins from the bit back toward the saddle.
+  c.line(at(HF, 2.7, 0.45), [3.0, -11.6], code(TM.leather, 1));
   leg([3.8, -6.0], [4.0, -3.0], [3.8, -1.2], false, false);
   leg([-4.2, -6.4], [-4.0, -3.4], [-4.7, -1.2], true, false);
   if (k.capar) {
     // The caparison: from the neck to the knees, heavy folds, a scalloped hem, the red cross.
-    const capPts: P2[] = [[-6.6, -10.4], [-3.0, -10.6], [0.2, -10.2], [2.6, -10.8], [4.4, -11.9], [5.8, -13.6], [7.3, -14.2], [7.9, -12.8], [7.0, -11.0], [6.5, -8.6], [6.4, -4.6],
+    // It rides over the rounded croup, dips at the saddle and climbs the neck.
+    const capPts: P2[] = [[-7.1, -8.6], [-6.7, -9.9], [-5.6, -10.6], [-3.6, -10.8], [-1.6, -10.5], [0.2, -10.2], [2.6, -10.8], [4.4, -11.9], [5.8, -13.6], [7.3, -14.2], [7.9, -12.8], [7.0, -11.0], [6.5, -8.6], [6.4, -4.6],
       [5.2, -4.2], [4.0, -4.6], [2.8, -4.2], [1.6, -4.6], [0.4, -4.2], [-0.8, -4.6], [-2.0, -4.2], [-3.2, -4.6], [-4.4, -4.2], [-5.6, -4.6], [-6.7, -4.4], [-7.0, -7.0]];
     const cm = k.capar;
     shapeU(c, capPts, [0, -7.5], (x, y, ux, uy) => {
@@ -568,10 +586,23 @@ function horseS(c: Paper, k: SHorse, part: 'far' | 'body'): void {
   if (!k.capar) vol(c, [0.5, -9.8], [0.7, -5.0], [[0, 0.18], [1, 0.18]], TM.leather, { tone: 1 });
 }
 
+/** The horse is drawn a size up against the man (a destrier stands ~1.6 m at the withers). */
+const HORSE_SCALE = 1.15;
+/** Draws at `k` times the size about the foot point (the canvas' pixels per unit, scaled). */
+function scaled(c: Paper, k: number, draw: () => void): void {
+  const L = c.L;
+  c.L = L * k;
+  try {
+    draw();
+  } finally {
+    c.L = L;
+  }
+}
+
 /** A rider seated on the horse: thighs along its flank, a solid torso, his arms and head. */
 function riderS(c: Paper, k: SKit, g: SGear): void {
   // Shift the man's foot frame so his pelvis sits in the saddle.
-  const pel: P2 = [0.3, -10.6];
+  const pel: P2 = [0.3 * HORSE_SCALE, -10.6 * HORSE_SCALE];
   const dx = pel[0] - 0, dy = pel[1] - -6.5;
   const fx = c.FX, fy = c.FY;
   c.FX = fx + Math.round(dx * c.L);
@@ -722,8 +753,8 @@ export function paintStatic(kind: number, hue = 215, level = 8): { width: number
   if (foot) paintAs(c, foot.dark, () => manS(c, foot.kit, foot.gear));
   else if (rider)
     paintAs(c, rider.dark, () => {
-      horseS(c, rider.horse, 'far');
-      horseS(c, rider.horse, 'body');
+      scaled(c, HORSE_SCALE, () => horseS(c, rider.horse, 'far'));
+      scaled(c, HORSE_SCALE, () => horseS(c, rider.horse, 'body'));
       riderS(c, rider.kit, rider.gear);
     });
   else paintAs(c, true, () => engineS(c));

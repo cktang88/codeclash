@@ -666,11 +666,11 @@ export function sword(c: Paper, grip: P2, deg: number, len = 5.4): void {
 }
 
 /** A spear or lance from the grip: haft `fwd` ahead and `aft` behind along `deg`, a leaf head. */
-export function spear(c: Paper, grip: P2, deg: number, fwd: number, aft: number, opts: { head?: number; pennon?: number | null; w?: number } = {}): P2 {
+export function spear(c: Paper, grip: P2, deg: number, fwd: number, aft: number, opts: { head?: number; pennon?: number | null; w?: number; wood?: Mat } = {}): P2 {
   const tip = along(grip, deg, fwd);
   const butt = along(grip, deg + 180, aft);
   const w = opts.w ?? 0.3;
-  c.rod(butt, tip, w, w * 0.85, TM.ash, { tone: 2 });
+  c.rod(butt, tip, w, w * 0.85, opts.wood ?? TM.ash, { tone: 2 });
   // Leaf head with a midrib and a socket (Met 26470), oversized to read.
   const hl = opts.head ?? 1.5;
   const h0 = along(tip, deg + 180, 0.35);
