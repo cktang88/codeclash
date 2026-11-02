@@ -19,9 +19,10 @@
 
 import { Anim } from '../contract.ts';
 import { FRAMES, LOOPS } from '../frames.ts';
-import type { P2 } from './core.ts';
-import type { Facing } from './facing.ts';
-import { SNAP_DEG, type BodyType } from './rig.ts';
+import { figurePalette, Paper, type FigurePalette, type Mat, type P2 } from './core.ts';
+import { DRAWN_DEFAULT, planFacing, type Facing } from './facing.ts';
+import type { PaperKindDef } from './registry.ts';
+import { BODIES, SNAP_DEG, type BasePose, type BodyType } from './rig.ts';
 
 // ------------------------------------------------------------------ deterministic trig
 
@@ -360,19 +361,31 @@ export interface Track {
   alpha?: number;
   mode?: 'add' | 'replace';
 }
-/** What plays for an Anim: one animation, or layers (the first is the base, e.g. a stance plus breathing). */
-export type Clip = AnimationData | Track[];
+/** A clip authored per drawn facing (mocap projected for SE and for NE). Missing facings use SE. */
+export interface FacingClips {
+  byFacing: Partial<Record<Facing, AnimationData | Track[]>>;
+}
+/** What plays for an Anim: one animation, or layers (the first is the base, e.g. a stance plus breathing), or either per facing. */
+export type Clip = AnimationData | Track[] | FacingClips;
 
-const tracksOf = (clip: Clip): Track[] => (Array.isArray(clip) ? clip : [{ anim: clip }]);
-/** The base animation of a clip. */
-export const clipBase = (clip: Clip): AnimationData => tracksOf(clip)[0]!.anim;
+const tracksOf = (clip: Clip, facing: Facing = 'se'): Track[] => {
+  if (Array.isArray(clip)) return clip;
+  if ('byFacing' in clip) {
+    const c = clip.byFacing[facing] ?? clip.byFacing.se ?? Object.values(clip.byFacing)[0];
+    if (!c) throw new Error('clip: byFacing is empty');
+    return tracksOf(c);
+  }
+  return [{ anim: clip }];
+};
+/** The base animation of a clip (for a facing). */
+export const clipBase = (clip: Clip, facing: Facing = 'se'): AnimationData => tracksOf(clip, facing)[0]!.anim;
 
 /**
  * Samples a clip at painted frame `fr` of `n`: every track's time is scaled so the track spans the
  * clip (an 8-frame breathing loop over a 12-frame walk breathes once per stride).
  */
-export function sampleClip(clip: Clip, fr: number, n: number = clipBase(clip).frames): Locals {
-  const tracks = tracksOf(clip);
+export function sampleClip(clip: Clip, fr: number, n: number = clipBase(clip).frames, facing: Facing = 'se'): Locals {
+  const tracks = tracksOf(clip, facing);
   let out: Locals | null = null;
   for (const tr of tracks) {
     const l = sampleAnimation(tr.anim, (fr * tr.anim.frames) / n);
@@ -706,7 +719,7 @@ const BAKES = new WeakMap<SkeletonData, WeakMap<object, Map<string, Posed[]>>>()
  * run twice and the second pass kept, so frame 0 follows on from the last frame too. Cached per
  * skeleton, clip, level and facing.
  */
-export function bakeClip(skel: SkeletonData, clip: Clip, level: number, facing: Facing, n: number = clipBase(clip).frames, loop: boolean = clipBase(clip).loop): Posed[] {
+export function bakeClip(skel: SkeletonData, clip: Clip, level: number, facing: Facing, n: number = clipBase(clip, facing).frames, loop: boolean = clipBase(clip, facing).loop): Posed[] {
   let bySkel = BAKES.get(skel);
   if (!bySkel) BAKES.set(skel, (bySkel = new WeakMap()));
   let byClip = bySkel.get(clip);
@@ -718,7 +731,7 @@ export function bakeClip(skel: SkeletonData, clip: Clip, level: number, facing: 
   const run = (): Posed[] => {
     const out: Posed[] = [];
     for (let f = 0; f < n; f++) {
-      prev = evaluate(skel, sampleClip(clip, f, n), { level, facing, prev });
+      prev = evaluate(skel, sampleClip(clip, f, n, facing), { level, facing, prev });
       out.push(prev);
     }
     return out;
@@ -749,4 +762,276 @@ export function localsFromWorld(skel: SkeletonData, world: Record<string, number
     if (want !== undefined) out.bones[b.name] = { rot: want - base - rest };
   });
   return out;
+}
+
+// ------------------------------------------------------------------ drawing: parts on bones
+
+/**
+ * Where a part is drawn: its bone's snapped transform, with maps from bone-local coordinates and
+ * from the rest pose (key-art coordinates). While a part is being cached its origin is (0, 0):
+ * draw only through `at`, `r` and `tip`, never from absolute positions.
+ */
+export interface PartXf {
+  bone: BoneXf;
+  /** The bone origin (units, whole pixels). */
+  o: P2;
+  /** The bone tip. */
+  tip: P2;
+  /** Snapped steps the bone has turned since rest (0 at rest). */
+  turned: number;
+  /** A bone-local point (x across, y along the bone, units; y is squashed by scale-y) to figure units. */
+  at(p: P2): P2;
+  /** A point of the rest pose (static key art, same facing) to figure units: it rides on the bone. */
+  r(p: P2): P2;
+  /** A rest-pose angle (deg, rig convention: a blade's `bl`, a skull's tilt) turned with the bone. */
+  turn(deg: number): number;
+}
+
+/** What a drawing pass knows about the frame (uncached parts only; cached parts must not use it). */
+export interface DrawCtx {
+  posed: Posed;
+  /** The previous frame of the clip (smears sweep from there). */
+  prev?: Posed;
+  events: AnimEvent[];
+}
+
+export type DrawPart = (c: Paper, x: PartXf, ctx: DrawCtx) => void;
+/**
+ * A part. `cache` (default true): its pixels depend only on its bone's snapped angle, scale-y and
+ * the level, so they are drawn once per angle and reused (an unchanged angle gives identical
+ * pixels: no boil). Set false for parts that read the context (smears, cloth that follows two
+ * bones), which are drawn straight onto the frame.
+ */
+export interface Attachment {
+  draw: DrawPart;
+  cache?: boolean;
+}
+export type AttachmentSet = Record<string, Attachment | DrawPart>;
+
+function partXf(bone: BoneXf, rest: BoneXf, o: P2): PartXf {
+  const turned = wrapStep(bone.step - rest.step);
+  const same = turned === 0 && bone.sy === 1;
+  return {
+    bone,
+    o,
+    tip: [o[0] + (bone.tx - bone.x), o[1] + (bone.ty - bone.y)],
+    turned: turned > STEPS / 2 ? turned - STEPS : turned,
+    at: (p) => {
+      const w = rotStep([p[0], p[1] * bone.sy], bone.step);
+      return [o[0] + w[0], o[1] + w[1]];
+    },
+    r: (p) => {
+      const dx = p[0] - rest.x, dy = p[1] - rest.y;
+      if (same) return [o[0] + dx, o[1] + dy];
+      const l = unrotStep([dx, dy], rest.step);
+      const w = rotStep([l[0], l[1] * bone.sy], bone.step);
+      return [o[0] + w[0], o[1] + w[1]];
+    },
+    turn: (deg) => deg + (bone.step - rest.step) * SNAP_DEG,
+  };
+}
+
+interface PartImg {
+  x0: number;
+  y0: number;
+  w: number;
+  h: number;
+  pix: Int16Array;
+  ord: Int16Array;
+  polys: number;
+}
+const PARTS = new WeakMap<object, Map<string, PartImg>>();
+let SCRATCH: Paper | null = null;
+let partDraws = 0;
+/** How many part images have been drawn (cache misses), for tests and benches. */
+export const partDrawCount = (): number => partDraws;
+
+function partImage(att: Attachment, key: string, slotIndex: number, posed: Posed, bone: BoneXf, rest: BoneXf): PartImg {
+  let m = PARTS.get(att);
+  if (!m) PARTS.set(att, (m = new Map()));
+  const got = m.get(key);
+  if (got) return got;
+  partDraws++;
+  const s = (SCRATCH ??= new Paper());
+  const cv = BODIES[posed.skel.body].canvas;
+  s.begin(posed.level, { w: cv.w * 2, h: cv.h * 2, footY: 0.5 });
+  // A stable order base per slot: the part's band offsets are the same whatever is drawn before it.
+  const base = slotIndex * 32;
+  s.order = base;
+  att.draw(s, partXf(bone, rest, [0, 0]), { posed, events: [] });
+  const img: PartImg = { x0: 0, y0: 0, w: 0, h: 0, pix: new Int16Array(0), ord: new Int16Array(0), polys: s.order - base };
+  if (s.bx1 >= s.bx0) {
+    img.x0 = s.bx0 - s.FX;
+    img.y0 = s.by0 - s.FY;
+    img.w = s.bx1 - s.bx0 + 1;
+    img.h = s.by1 - s.by0 + 1;
+    img.pix = new Int16Array(img.w * img.h);
+    img.ord = new Int16Array(img.w * img.h);
+    for (let y = 0; y < img.h; y++)
+      for (let x = 0; x < img.w; x++) {
+        const i = (s.by0 + y) * s.CW + s.bx0 + x;
+        img.pix[y * img.w + x] = s.pix[i]!;
+        img.ord[y * img.w + x] = s.pix[i]! >= 0 ? s.ord[i]! - base : 0;
+      }
+  }
+  m.set(key, img);
+  return img;
+}
+
+function blit(c: Paper, img: PartImg, o: P2): void {
+  const bx = c.FX + Math.round(o[0] * c.L) + img.x0, by = c.FY + Math.round(o[1] * c.L) + img.y0;
+  for (let y = 0; y < img.h; y++) {
+    const Y = by + y;
+    if (Y < 0 || Y >= c.CH) continue;
+    for (let x = 0; x < img.w; x++) {
+      const v = img.pix[y * img.w + x]!;
+      const X = bx + x;
+      if (v < 0 || X < 0 || X >= c.CW) continue;
+      const i = Y * c.CW + X;
+      c.pix[i] = v;
+      c.ord[i] = c.order + img.ord[y * img.w + x]!;
+      if (X < c.bx0) c.bx0 = X;
+      if (X > c.bx1) c.bx1 = X;
+      if (Y < c.by0) c.by0 = Y;
+      if (Y > c.by1) c.by1 = Y;
+    }
+  }
+  c.order += img.polys;
+}
+
+const asAtt = (a: Attachment | DrawPart): Attachment => (typeof a === 'function' ? { draw: a } : a);
+
+/**
+ * Draws a posed skeleton's slots back to front on `c` (already begun at the posed level): each
+ * attachment at its bone's snapped transform, cached parts from their image per (part, angle step,
+ * scale-y, level). Codes only; the finishing passes (contact, clusters, steady, colours with the
+ * one outline round the whole figure) run afterwards, as for any paper figure.
+ */
+export function drawSkeleton(c: Paper, posed: Posed, atts: AttachmentSet, opts: { prev?: Posed; only?: (slot: string) => boolean } = {}): void {
+  const skel = posed.skel;
+  const rest = restPose(skel, posed.level, posed.facing);
+  const slotIdx = new Map(skel.slots.map((s, i) => [s.name, i] as const));
+  const ctx: DrawCtx = { posed, prev: opts.prev, events: posed.events };
+  for (const name of posed.order) {
+    if (opts.only && !opts.only(name)) continue;
+    const si = slotIdx.get(name);
+    const an = posed.slots[name];
+    if (si === undefined || !an) continue;
+    const raw = atts[an];
+    if (!raw) continue;
+    const att = asAtt(raw);
+    const bone = posed.byName[skel.slots[si]!.bone]!;
+    const rb = rest.bones[bone.i]!;
+    if (att.cache === false) {
+      att.draw(c, partXf(bone, rb, [bone.x, bone.y]), ctx);
+      continue;
+    }
+    const key = `${skel.name}|${posed.facing}|${name}|${an}|${bone.step}|${bone.sy}|${posed.level}`;
+    blit(c, partImage(att, key, si, posed, bone, rb), [bone.x, bone.y]);
+  }
+}
+
+/** Forgets every cached part image (after editing a part's drawing at run time). */
+export function clearPartCache(atts: AttachmentSet): void {
+  for (const a of Object.values(atts)) if (typeof a !== 'function') PARTS.delete(a);
+}
+
+/** A smear behind a weapon bone while a `smear` event is active: from last frame's angle to this one's. */
+export function smearPart(bone: string, r0: number, r1: number, mat: Mat): Attachment {
+  return {
+    cache: false,
+    draw: (c, x, ctx) => {
+      if (!ctx.events.some((e) => e.name === 'smear')) return;
+      const now = ctx.posed.byName[bone], was = ctx.prev?.byName[bone];
+      if (!now || !was || was.step === now.step) return;
+      c.smear([now.x, now.y], was.a, was.a + shortest(now.a - was.a), r0, r1, mat);
+      void x;
+    },
+  };
+}
+
+export interface SkeletonFrame {
+  width: number;
+  height: number;
+  /** RGBA. */
+  pixels: Uint8ClampedArray;
+  ax: number;
+  ay: number;
+  /** The pose drawn (in the drawn facing; mirrored facings are flipped after drawing). */
+  posed: Posed;
+  mirror: boolean;
+}
+
+/** A skeleton with its parts and clips: everything needed to paint it. */
+export interface SkeletonRig {
+  skel: SkeletonData;
+  atts: AttachmentSet;
+  clips: Partial<Record<Anim, Clip>>;
+  /** Facings drawn by hand (default SE and NE). */
+  facings?: readonly Facing[];
+}
+
+/** The clip, frame count and loop flag that paint an Anim (Dead: Die's last frame; missing: Idle). */
+export function clipOf(rig: SkeletonRig, anim: Anim, frame: number): { clip: Clip; n: number; loop: boolean; frame: number } {
+  const c = rig.clips[anim];
+  if (c) return { clip: c, n: animFrames(anim).frames, loop: animFrames(anim).loop, frame };
+  if (anim === Anim.Dead && rig.clips[Anim.Die]) {
+    const n = FRAMES[Anim.Die]!;
+    return { clip: rig.clips[Anim.Die]!, n, loop: false, frame: n - 1 };
+  }
+  const idle = rig.clips[Anim.Idle];
+  if (!idle) throw new Error(`skeleton ${rig.skel.name}: no clip for anim ${anim} and no Idle`);
+  const f = animFrames(Anim.Idle);
+  return { clip: idle, n: f.frames, loop: f.loop, frame: frame % f.frames };
+}
+
+/** Draws an Anim's frame of a rig, codes only, on `c` (begun), in a drawn facing. */
+export function drawRigFrame(c: Paper, rig: SkeletonRig, anim: Anim, frame: number, facing: Facing): Posed {
+  const { clip, n, loop, frame: fr } = clipOf(rig, anim, frame);
+  const frames = bakeClip(rig.skel, clip, c.L, facing, n, loop);
+  const posed = frames[fr % frames.length]!;
+  const prev = fr > 0 ? frames[fr - 1] : loop ? frames[frames.length - 1] : undefined;
+  drawSkeleton(c, posed, rig.atts, { prev });
+  return posed;
+}
+
+/**
+ * Paints one frame of a rig, finished: drawn (and mirrored for SW and NW), contact lines, cluster
+ * merge, anti-flicker against the previous frame painted on the same surface, the palette (`fp`, or
+ * one built from this frame) and the coloured outline round the whole figure.
+ */
+export function paintSkeleton(rig: SkeletonRig, anim: Anim, frame: number, opts: { level: number; facing?: Facing; hue?: number; paper?: Paper; fp?: FigurePalette }): SkeletonFrame {
+  const c = opts.paper ?? new Paper();
+  const facing = opts.facing ?? 'se';
+  const plan = planFacing(facing, rig.facings ?? DRAWN_DEFAULT);
+  if (!plan) throw new Error(`skeleton ${rig.skel.name}: facing ${facing} is not drawn`);
+  c.begin(opts.level, BODIES[rig.skel.body].canvas);
+  const posed = drawRigFrame(c, rig, anim, frame, plan.draw);
+  if (plan.mirror) c.mirror();
+  c.contact();
+  c.clusters(opts.level >= 8 ? 4 : 3);
+  const id = `skel:${rig.skel.name}:${opts.level}:${anim}:${facing}`;
+  if (frame > 0 && c.last === `${id}:${frame - 1}`) c.steady();
+  c.keep();
+  c.last = `${id}:${frame}`;
+  const fp = opts.fp ?? figurePalette(opts.hue ?? 215, opts.level, c.codes());
+  const out = c.colours(fp);
+  return { width: c.CW, height: c.CH, pixels: new Uint8ClampedArray(out.buffer), ax: c.FX, ay: c.FY, posed, mirror: plan.mirror };
+}
+
+/**
+ * A paper kind drawn by a skeleton, for `registerPaperKind(faction, kind, skeletonKind(rig))`: the
+ * existing painter (index.ts) then paints it with its faction palette and the usual passes.
+ */
+export function skeletonKind(rig: SkeletonRig, opts: Omit<PaperKindDef<BasePose>, 'body' | 'keys' | 'draw' | 'facings'> = {}): PaperKindDef<BasePose> {
+  const rest: BasePose = { px: 0, py: 0, tilt: 0, apart: 0, smear: null, sway: 0 };
+  const poses: Partial<Record<Anim, BasePose[]>> = {};
+  for (const a of Object.keys(rig.clips)) poses[Number(a) as Anim] = [rest];
+  return {
+    ...opts,
+    body: rig.skel.body,
+    facings: rig.facings,
+    keys: { poses },
+    draw: (c, _p, facing, anim, frame) => void drawRigFrame(c, rig, anim, frame, facing),
+  };
 }
