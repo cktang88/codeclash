@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Motion Preview</title>
+    <style>
+      body { margin: 0; background: #1b1712; color: #d9d2bf; font: 12px/1.35 monospace; }
+      header { padding: 8px 12px; }
+      a { color: #e0b860; }
+      h2 { margin: 0 0 2px; font-size: 13px; color: #f0e2bd; }
+      .clip { margin: 6px 12px 10px; padding: 6px 8px; background: #241f18; border: 1px solid #3a3226; }
+      .row { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
+      .cap { color: #9d927b; font-size: 11px; }
+      .meta { color: #9d927b; max-width: 1200px; }
+      canvas { display: block; background: #56603a; }
+      .film canvas { background: #4b5433; }
+      img.ref { display: block; max-height: 96px; max-width: 100%; height: auto; filter: sepia(0.25); }
+    </style>
+  </head>
+  <body>
+    <header id="info"></header>
+    <main id="out"></main>
+    <script type="module" src="./motion-preview.ts"></script>
+  </body>
+</html>

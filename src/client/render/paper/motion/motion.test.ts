@@ -5,7 +5,8 @@ import { jointPositions, parseBvh } from '../../../../../scripts/mocap/bvh.ts';
 import { BONE_ORDER, formatClip, project, type MotionClip as OutClip } from '../../../../../scripts/mocap/bvh-to-paper.ts';
 import { Anim } from '../../contract.ts';
 import { FRAMES, LOOPS } from '../../frames.ts';
-import { MOTION, MOTION_FOR } from './index.ts';
+import { MOTION, MOTION_FOR, toMotionJson } from './index.ts';
+import { bakeClip, footSkeleton, horseSkeleton, loadMotion, type AnimationData, type FacingClips } from '../skeleton.ts';
 
 const BVH = `HIERARCHY
 ROOT Hips
@@ -140,4 +141,22 @@ describe('realism checks', () => {
       expect(k.at(-1)!.height).toBeLessThan(k[0]!.height * 0.5);
     }
   });
+});
+
+describe('skeleton loader', () => {
+  for (const c of Object.values(MOTION)) {
+    it(`${c.name} loads and bakes on the standard ${c.body ?? 'foot'} skeleton in both facings`, () => {
+      const skel = c.body === 'horse' ? horseSkeleton() : footSkeleton();
+      const clip = loadMotion(toMotionJson(c) as never, skel) as FacingClips;
+      for (const fc of ['se', 'ne'] as const) {
+        const a = clip.byFacing[fc] as AnimationData;
+        expect(a.frames).toBe(c.frames);
+        // the names reached the skeleton's bones through the aliases
+        const keyed = Object.keys(a.bones ?? {});
+        for (const b of c.body === 'horse' ? ['horseBody', 'horseNeck', 'foreNUpper', 'hindFLower'] : ['pelvis', 'chest', 'upperArmN', 'thighF', 'shinN']) expect(keyed).toContain(b);
+        const frames = bakeClip(skel, clip, 1, fc, c.frames, c.loop);
+        expect(frames.length).toBe(c.frames);
+      }
+    });
+  }
 });
