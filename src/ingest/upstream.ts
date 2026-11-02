@@ -221,23 +221,32 @@ export class UpstreamWatcher {
     const { store } = this.deps;
     const today = Math.floor(now / DAY_MS);
     for (const { userId, day } of store.unsettledUpstreamDays(today)) {
-      const event = store.transaction(() => {
-        const rows = store.confirmedUpstream(userId, day);
-        const totals = store.upstreamDay(userId, day);
-        const owed = upstreamReward(totals, rows, totals.credited);
-        const room = Math.max(0, UPSTREAM_PER_DAY - store.upstreamPaid(userId, today));
-        const bonus = Math.min(owed, room);
-        if (bonus >= owed) store.settleUpstream(userId, day);
-        if (bonus <= 0) return null;
-        store.addUpstreamCredit(userId, day, bonus);
-        store.addUpstreamPaid(userId, today, bonus);
-        const newest = rows[rows.length - 1]!;
-        return { userId, repo: newest.repo, upstream: newest.upstream, day, bonus };
-      });
+      let event: UpstreamRewardEvent | null;
+      try {
+        event = store.transaction(() => {
+          const rows = store.confirmedUpstream(userId, day);
+          const totals = store.upstreamDay(userId, day);
+          const owed = upstreamReward(totals, rows, totals.credited);
+          const room = Math.max(0, UPSTREAM_PER_DAY - store.upstreamPaid(userId, today));
+          const bonus = Math.min(owed, room);
+          if (bonus >= owed) store.settleUpstream(userId, day);
+          if (bonus <= 0) return null;
+          store.addUpstreamCredit(userId, day, bonus);
+          store.addUpstreamPaid(userId, today, bonus);
+          const newest = rows[rows.length - 1]!;
+          const reward = { userId, repo: newest.repo, upstream: newest.upstream, day, bonus };
+          // Inside the transaction: the reward is recorded as paid only if it was delivered (a throw
+          // rolls the bookkeeping back, and the day is settled again on the next run).
+          this.deps.onReward(reward);
+          return reward;
+        });
+      } catch (err) {
+        this.deps.log?.warn('upstream reward not delivered', { user: userId, day, error: errorMessage(err) });
+        continue;
+      }
       if (!event) continue;
       this.stats.rewards++;
       this.stats.rewardLines += event.bonus;
-      this.deps.onReward(event);
     }
   }
 

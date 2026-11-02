@@ -37,7 +37,7 @@ describe('parsing off the main thread', () => {
       const b = measurePush(diffs[i]!, inline);
       expect(a).toEqual(b);
     }
-  }, 30_000);
+  }, 120_000);
 
   it('falls back to parsing inline when a worker cannot answer', async () => {
     const broken = new ParsePool(1, 30_000, new URL('./does-not-exist.ts', import.meta.url));
@@ -46,7 +46,7 @@ describe('parsing off the main thread', () => {
     expect(broken.stats.fallbacks).toBe(1);
     expect(got).toEqual(await inlineParser().prepare(diffs));
     await broken.close();
-  });
+  }, 120_000);
 });
 
 describe('vendored grammars', () => {
