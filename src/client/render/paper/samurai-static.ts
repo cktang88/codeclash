@@ -461,6 +461,7 @@ function jingasa(c: Paper, h: P2, plate: Mat): void {
   const pts: P2[] = [[0.05, -1.4], [2.45, -0.3], [2.35, -0.04], [0.0, -0.32], [-2.35, -0.04], [-2.4, -0.3]].map((q) => [q[0]! * s, q[1]! * s] as P2);
   slab(c, h, pts, (fx0, fy0) => {
     const fx = fx0 / s, fy = fy0 / s;
+    if (c.L <= 1) return code(plate, fy > -0.27 + Math.abs(fx) * 0.1 ? 2 : 3); // (at 13 px the hat is the top of the figure, in the light)
     if (fy > -0.27 + Math.abs(fx) * 0.1) return code(plate, 1); // the underside
     if (Math.hypot(fx - 0.25, (fy + 0.75) * 1.6) < 0.3) return code(SM.gold, fx < 0.2 ? 3 : 2);
     const top = -1.4 + Math.abs(fx) * ((1.4 - 0.3) / 2.4);
@@ -1161,12 +1162,13 @@ export function horsePiece(c: Paper, hz: Horse, p: HorsePiece): void {
     const [top, mid, fet, hoof] = HJ[leg] as [P2, P2, P2, P2];
     // (Below level 8 the legs sit a step lower: they are under the barrel, out of the key light, and
     // a lit leg low on the figure reads as the light's side.)
-    const t0 = Math.max(0, (leg.endsWith('F') ? 1 : 2) - (L < 8 ? 1 : 0));
+    // (The hind upper leg is the haunch, lit with the croup: it keeps its tone.)
+    const t0 = Math.max(0, (leg.endsWith('F') ? 1 : 2) - (L < 8 && !(seg === 'U' && leg.startsWith('hind')) ? 1 : 0));
     // (At 1-2 px a unit the lower legs and hooves are the figure's darkest: the bottom of the
     // silhouette must not out-shine the rider at its top.)
     const t = L <= 2 && seg !== 'U' ? 0 : t0;
     const fore = leg.startsWith('fore');
-    const sock = fore && hz.socks && L > 1 ? SM.cotton : H; // (no white socks at 13 px: pale feet would read as the light)
+    const sock = fore && hz.socks && L >= 8 ? SM.cotton : H; // (white socks from level 8: below, pale feet low on the right read as the light)
     if (seg === 'U') {
       if (fore) vol(c, top, mid, 1.75, 1.45, 1.0, H, t, { caps: [0.1, 0.25] }); // forearm tapering to the knee
       else vol(c, top, mid, 2.3, 1.7, 0.95, H, t, { caps: [0.1, 0.2] }); // gaskin
@@ -1271,7 +1273,8 @@ export function horsePiece(c: Paper, hz: Horse, p: HorsePiece): void {
         const k = i / 7;
         const root: P2 = [2.9 + k * 4.0, -11.2 - k * 3.0];
         const tip: P2 = addP(root, [-0.55 + k * 0.1, 1.5 - k * 0.25]);
-        vol(c, root, tip, 0.5, 0.45, 0.12, hz.mane, i % 2 ? 1 : 2, { caps: [0.2, 0.2] });
+        // (Below level 8 a step down: a pale flaxen mane far forward would read as the light's side.)
+        vol(c, root, tip, 0.5, 0.45, 0.12, hz.mane, Math.max(0, (i % 2 ? 1 : 2) - (L < 8 ? 1 : 0)), { caps: [0.2, 0.2] });
       }
       return;
     case 'head': {
@@ -1396,47 +1399,98 @@ export const MOUNTED: Record<number, SMounted> = {
 
 // ------------------------------------------------------------------ 9: the ōzutsu
 
+/** The ōzutsu's crew: the gunner with the linstock (left, at the breech), the loader with the rammer (right, at the muzzle). */
+export const OZ_CREW: Record<'G' | 'L', SFoot & { o: P2 }> = {
+  G: {
+    o: [-4.6, -1.7],
+    d: { ...ASHIGARU },
+    over: { hnN: [-1.0, -8.6], elN: [-2.6, -8.4], hnF: [2.4, -7.4], elF: [2.4, -8.8] },
+    gear: {
+      near: {
+        // The linstock, its slow match glowing at the top.
+        draw: (c, h) => {
+          vol(c, addP(h, [0.6, 2.2]), addP(h, [-0.9, -3.2]), 0.3, 0.3, 0.26, SM.wood, 2);
+          slab(c, addP(h, [-0.95, -3.35]), ell(0.3, 0.3, 0, 0, 10), () => code(SM.fire, 3));
+        },
+        grip: SM.flesh,
+      },
+    },
+  },
+  L: {
+    o: [4.2, -1.9],
+    d: { ...ASHIGARU, moustache: true },
+    over: { hnN: [-1.5, -8.3], elN: [-2.7, -8.6], hnF: [-1.5, -6.7], elF: [0.6, -7.6] },
+    gear: {
+      near: {
+        // The rammer and its swab.
+        draw: (c, h) => {
+          vol(c, addP(h, [0, 2.6]), addP(h, [0, -4.2]), 0.3, 0.3, 0.3, SM.wood, 2);
+          slab(c, addP(h, [0, -4.5]), ell(0.5, 0.42, 0, 0, 12), (fx, fy) => code(KM.silk, lit(c, 2, fx + fy, 0.3, 0.4)));
+        },
+        grip: SM.flesh,
+      },
+    },
+  },
+};
+/** A crew man's body (key art). */
+export const ozCrewBody = (k: 'G' | 'L'): Body => stand(OZ_CREW[k].o, OZ_CREW[k].over);
+
+/** The gun: breech and muzzle (key art). */
+export const OZ = { br: [-3.4, -4.3] as P2, mz: [5.2, -5.6] as P2 };
+export type OzPiece = 'chocks' | 'bed' | 'cradle' | 'barrel' | 'block' | 'balls';
+export const OZ_PIECES: readonly OzPiece[] = ['chocks', 'bed', 'cradle', 'barrel', 'block', 'balls'];
+
+/** One piece of the ōzutsu: the chocks, the plank bed, the cradle, the bronze barrel, the rear block, the shot. */
+export function ozPiece(c: Paper, p: OzPiece): void {
+  switch (p) {
+    case 'chocks':
+      for (const x of [-3.0, 2.6]) slab(c, [x, 0], [[-0.8, -1.2], [0.8, -1.2], [0.85, 0.15], [-0.85, 0.15]], (fx, fy) => code(SM.wood, c.L <= 1 ? 0 : fy < -1.0 ? 4 : fx < -0.3 ? 2 : 1));
+      return;
+    case 'bed':
+      slab(c, [0, 0], [[-4.6, -2.9], [4.4, -2.9], [4.6, -1.0], [-4.7, -1.0]], (fx, fy) => {
+        if (c.L <= 1) return code(SM.wood, 0); // (at 13 px the bed is the shadowed base of the figure)
+        if (fy < -2.7) return code(SM.wood, 4);
+        if (frac((fx + 6) / 1.7 + fy * 0.1) < 0.05) return code(SM.wood, 0);
+        return code(SM.wood, fy > -1.4 ? 1 : 2);
+      });
+      return;
+    case 'cradle':
+      slab(c, [0, 0], [[-3.4, -3.1], [1.0, -3.6], [1.0, -2.8], [-3.4, -2.8]], (fx) => code(SM.wood, fx < -1 ? 3 : 2));
+      return;
+    case 'barrel': {
+      const { br, mz } = OZ;
+      // (At 13 px the bronze a step down: the gun lies low in the figure, under the crew.)
+      vol(c, br, mz, 2.7, 2.4, 2.15, SM.bronze, c.L <= 1 ? 1 : 2, {
+        shine: true,
+        rim: true,
+        caps: [0.45, 0.1],
+        detail: (un, v) => {
+          if ([0.18, 0.42, 0.7].some((k) => Math.abs(v - k) < 0.03)) return code(SM.bronze, un < -0.3 ? 4 : 1);
+          if ([0.3, 0.56].some((k) => Math.abs(v - k) < 0.035)) return code(SM.straw, un < 0 ? 3 : 1);
+          if (Math.abs(v - 0.82) < 0.06 && Math.abs(un + 0.1) < 0.25) return code(SM.gold, 3); // a cast mon near the muzzle
+          return -1;
+        },
+      });
+      slab(c, mz, ell(1.0, 1.35, 0.05, 0, 16), (fx, fy) => (Math.hypot((fx - 0.25) / 0.55, fy / 0.8) < 1 ? code(SM.ink, 0) : code(SM.bronze, lit(c, 2, fx * 0.5 + fy * 0.6, 0.35, 0.45))));
+      slab(c, br, ell(1.15, 1.25, 0, 0, 16), (fx, fy) => code(SM.bronze, Math.hypot(fx + 0.3, fy + 0.3) < 0.35 ? 4 : lit(c, 1, fx * 0.6 + fy * 0.6, 0.4, 0.4)));
+      return;
+    }
+    case 'block':
+      slab(c, [-6.3, 0], [[-0.9, -2.2], [0.9, -2.2], [1.0, 0.1], [-1.0, 0.1]], (fx, fy) => (Math.abs(fy + 1.6) < 0.15 || Math.abs(fy + 0.4) < 0.15 ? code(SM.iron, 2) : code(SM.wood, fx < -0.2 ? 3 : 2)));
+      return;
+    case 'balls':
+      for (const [x, y] of [[6.5, -0.4], [7.3, -0.4], [6.9, -1.05]] as P2[]) slab(c, [x, y], ell(0.42, 0.4, 0, 0, 12), (fx, fy) => code(SM.iron, fx + fy < -0.3 ? 3 : 1));
+      return;
+  }
+}
+
 function ozutsuScene(c: Paper): void {
-  const crew: Dress = { ...ASHIGARU };
-  const g = stand([-4.6, -1.7], { hnN: [-1.0, -8.6], elN: [-2.6, -8.4], hnF: [2.4, -7.4], elF: [2.4, -8.8] });
-  man(c, g, crew, {
-    held: () => {
-      vol(c, addP(g.hnN, [0.6, 2.2]), addP(g.hnN, [-0.9, -3.2]), 0.3, 0.3, 0.26, SM.wood, 2);
-      slab(c, addP(g.hnN, [-0.95, -3.35]), ell(0.3, 0.3, 0, 0, 10), () => code(SM.fire, 3));
-      fist(c, g.hnN, SM.flesh, 2);
-    },
-  });
-  const l = stand([4.2, -1.9], { hnN: [-1.5, -8.3], elN: [-2.7, -8.6], hnF: [-1.5, -6.7], elF: [0.6, -7.6] });
-  man(c, l, { ...crew, moustache: true }, {
-    held: () => {
-      vol(c, addP(l.hnN, [0, 2.6]), addP(l.hnN, [0, -4.2]), 0.3, 0.3, 0.3, SM.wood, 2);
-      slab(c, addP(l.hnN, [0, -4.5]), ell(0.5, 0.42, 0, 0, 12), (fx, fy) => code(KM.silk, lit(c, 2, fx + fy, 0.3, 0.4)));
-      fist(c, l.hnN, SM.flesh, 2);
-    },
-  });
-  for (const x of [-3.0, 2.6]) slab(c, [x, 0], [[-0.8, -1.2], [0.8, -1.2], [0.85, 0.15], [-0.85, 0.15]], (fx, fy) => code(SM.wood, fy < -1.0 ? 4 : fx < -0.3 ? 2 : 1));
-  slab(c, [0, 0], [[-4.6, -2.9], [4.4, -2.9], [4.6, -1.0], [-4.7, -1.0]], (fx, fy) => {
-    if (fy < -2.7) return code(SM.wood, 4);
-    if (frac((fx + 6) / 1.7 + fy * 0.1) < 0.05) return code(SM.wood, 0);
-    return code(SM.wood, fy > -1.4 ? 1 : 2);
-  });
-  slab(c, [0, 0], [[-3.4, -3.1], [1.0, -3.6], [1.0, -2.8], [-3.4, -2.8]], (fx) => code(SM.wood, fx < -1 ? 3 : 2));
-  const br: P2 = [-3.4, -4.3], mz: P2 = [5.2, -5.6];
-  vol(c, br, mz, 2.7, 2.4, 2.15, SM.bronze, 2, {
-    shine: true,
-    rim: true,
-    caps: [0.45, 0.1],
-    detail: (un, v) => {
-      if ([0.18, 0.42, 0.7].some((k) => Math.abs(v - k) < 0.03)) return code(SM.bronze, un < -0.3 ? 4 : 1);
-      if ([0.3, 0.56].some((k) => Math.abs(v - k) < 0.035)) return code(SM.straw, un < 0 ? 3 : 1);
-      if (Math.abs(v - 0.82) < 0.06 && Math.abs(un + 0.1) < 0.25) return code(SM.gold, 3); // a cast mon near the muzzle
-      return -1;
-    },
-  });
-  slab(c, mz, ell(1.0, 1.35, 0.05, 0, 16), (fx, fy) => (Math.hypot((fx - 0.25) / 0.55, fy / 0.8) < 1 ? code(SM.ink, 0) : code(SM.bronze, lit(c, 2, fx * 0.5 + fy * 0.6, 0.35, 0.45))));
-  slab(c, br, ell(1.15, 1.25, 0, 0, 16), (fx, fy) => code(SM.bronze, Math.hypot(fx + 0.3, fy + 0.3) < 0.35 ? 4 : lit(c, 1, fx * 0.6 + fy * 0.6, 0.4, 0.4)));
-  slab(c, [-6.3, 0], [[-0.9, -2.2], [0.9, -2.2], [1.0, 0.1], [-1.0, 0.1]], (fx, fy) => (Math.abs(fy + 1.6) < 0.15 || Math.abs(fy + 0.4) < 0.15 ? code(SM.iron, 2) : code(SM.wood, fx < -0.2 ? 3 : 2)));
-  for (const [x, y] of [[6.5, -0.4], [7.3, -0.4], [6.9, -1.05]] as P2[]) slab(c, [x, y], ell(0.42, 0.4, 0, 0, 12), (fx, fy) => code(SM.iron, fx + fy < -0.3 ? 3 : 1));
+  for (const k of ['G', 'L'] as const) {
+    const cr = OZ_CREW[k];
+    const b = ozCrewBody(k);
+    for (const p of manOrder(cr.gear)) manPiece(c, b, cr.d, cr.gear, p);
+  }
+  for (const p of OZ_PIECES) ozPiece(c, p);
 }
 
 // ------------------------------------------------------------------ entry point

@@ -830,6 +830,11 @@ export function lowMerge(c: Paper): void {
   const build = (pairs: readonly [number, number][]) => {
     const m = new Map<number, number>();
     for (const [a, b] of pairs) for (let k = 0; k < 8; k++) m.set(a * 8 + k, b * 8 + k);
+    // The off-whites never take their deepest tone here: in the small palettes it is a neutral grey
+    // (the lint's grey shadows), and a white cloth in shadow reads as well a step up.
+    const cot = SM.cotton * 8;
+    m.set(cot, cot + 1);
+    for (const [a, b] of pairs) if (b === SM.cotton) m.set(a * 8, cot + 1);
     return m;
   };
   const t = c.L <= 2 ? (lowMergeTable ??= build(LOW_MERGE)) : (midMergeTable ??= build(MID_MERGE));
