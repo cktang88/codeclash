@@ -183,3 +183,38 @@ library (`props.ts`: `registerProp`, `registerTheme`).
    pool; shōji and windows only bloom, and a pool stays on its source's own surface (depth within
    1.5 units). Windows read as small warm panes. The lantern by the physician's door lights its
    noren and plaster.
+5. **Round 5 (golden hour, after town-displate):** the day was evenly lit. Lit planes now go 40%
+   toward a cream-ochre sun and shaded planes 48% toward deep blue-violet. Eaves and leaf shade
+   are deeper, sun flecks stronger, and the gravel is ochre. The props painted by props.ts get the
+   same grade on their own pixels. The sun is low (props.ts `sunFor('samurai')`, 1.8× the old
+   cast) and the canopies' dapple follows it.
+6. **Round 6 (overgrowth, night):** ivy climbs the ishigaki, moss creeps over the low stones,
+   wisteria hangs from most copings, and azaleas and pots stand by the doors. Each light lays a
+   ragged warm pool on the ground below the foot of what it hangs on, on its own pooled art.
+7. **Round 7 (close-up, zoom 4 and ×8 crops):** the casks were 5-px drums with no texture. Now
+   they are straw-wrapped with strand texture, twisted rope bands and ties, and a bordered
+   label with brush strokes. The chōchin have ribs, a lacquered lid with a gilt line, a ring mon
+   and a tassel. The tōrō stone is pitted and lichened, the tenbōsui has hoops, staves and 水,
+   the crates have battens and grain, and azaleas and wisteria have proper trusses and racemes.
+   Andon, tōrō and yatai lanterns flicker (props.ts `flicker`) and nobori stir (`anim`).
+
+### Checks
+
+- `pnpm pixel-lint --only=city`: HD Samurai has no fails at any tier, by day or night. It
+  warns on building checkers (6-14 per 1000, from the 4-px tile period and the gravel) and
+  orphans (5-13%, from the moss and flower pixels), the same order as the Templar.
+- Frame time (`city.bench(60)`, 2560×1440, headless Chromium on a shared machine, min of 3 runs):
+  level 20 by day 17-22 ms, by night 16-32 ms; level 10 14 ms; level 5 16 ms; zoom 4 16 ms. The
+  original Samurai town in the same harness and session: 20.7, 19.7, 14.9, 16.6 and 14.7 ms.
+  The difference is within the run-to-run noise (medians swing 16-41 ms). The new detail is
+  painted once per level into the cached arts, so frames cost only the extra prop and decal
+  draws.
+
+### Screenshots (our art only, `docs/screenshots/city-detail/`)
+
+`samurai-before-l{5,10,20}-day.jpg` and `samurai-before-l20-night.jpg` are the town before this
+pass. `samurai-after-l{5,10,20}-{day,night}.jpg` are the town after it, at zoom 1, 2560×1440.
+Zoom 4: `samurai-after-keep-zoom4-{day,night}.jpg`, `samurai-after-machiya-zoom4-day.jpg`,
+`samurai-after-gate-fair-zoom4-night.jpg` and `samurai-round1-keep-zoom4.jpg` (round 1). Zoom 8
+(2× nearest crops of zoom 4): `samurai-after-fair-zoom8-night.jpg`,
+`samurai-after-machiya-zoom8-day.jpg`.
