@@ -6,15 +6,18 @@ import { TOKEN_KEY_MIN_BYTES } from '../ingest/tokens.ts';
 const flag = (fallback: '0' | '1') =>
   z.enum(['', '0', '1', 'true', 'false']).default(fallback).transform((v) => (v === '' ? fallback === '1' : v === '1' || v === 'true'));
 const optionalString = z.string().trim().min(1).optional().catch(undefined);
+// Likewise for settings with defaults: `PORT=` must not listen on a random port, `DATABASE_PATH=`
+// must not open a throwaway database, and `CLIENT_DIR=` must not serve the working directory.
+const orDefault = <T extends z.ZodType>(schema: T) => z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), schema);
 
 const EnvSchema = z
   .object({
-    NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
-    PORT: z.coerce.number().int().min(0).default(8787),
-    HOST: z.string().default('0.0.0.0'),
-    DATABASE_PATH: z.string().default('data/codeclash.db'),
+    NODE_ENV: orDefault(z.enum(['development', 'production', 'test']).default('development')),
+    PORT: orDefault(z.coerce.number().int().min(0).default(8787)),
+    HOST: orDefault(z.string().default('0.0.0.0')),
+    DATABASE_PATH: orDefault(z.string().default('data/codeclash.db')),
     PUBLIC_URL: z.preprocess((v) => (v === '' ? undefined : v), z.url().optional()),
-    CLIENT_DIR: z.string().default('dist/client'),
+    CLIENT_DIR: orDefault(z.string().default('dist/client')),
     GITHUB_TOKEN: optionalString,
     GITHUB_CLIENT_ID: optionalString,
     GITHUB_CLIENT_SECRET: optionalString,
@@ -24,7 +27,7 @@ const EnvSchema = z
     DEV_AUTH: flag('0'),
     COMMONS: flag('1'),
     DAY_MINUTES: z.coerce.number().positive().optional().catch(undefined),
-    MAX_LEAGUES_PER_USER: z.coerce.number().int().min(1).default(5),
+    MAX_LEAGUES_PER_USER: orDefault(z.coerce.number().int().min(1).default(5)),
     /** 0 is the service worker's kill switch: pages unregister it and drop its caches. */
     SERVICE_WORKER: flag('1'),
     /** Where local mirrors for the difficulty bonus's fallback live; unset: no mirrors. */

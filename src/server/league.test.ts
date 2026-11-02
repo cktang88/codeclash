@@ -102,3 +102,89 @@ describe('a league week', () => {
     await server.shutdown();
   });
 });
+
+describe('server bug sweep regressions', () => {
+  it('a crash part way through a day does not fight that day twice', async () => {
+    const monday = weekOf(Date.UTC(2026, 10, 3), 0).weekStart;
+    const { server, now, signIn } = await boot(monday + 3_600_000);
+    const cookie = await signIn('ana');
+    const card = (await server.app.inject({ method: 'POST', url: '/api/leagues', headers: { cookie }, payload: { name: 'Crash Test', visibility: 'public', resetHour: 0, bots: 5 } })).json<LeagueCard>();
+    const league = server.game.leagueBySlug(card.slug)!;
+    now.t = monday + DAY_MS + 1000;
+    // The second battle of the day fails to save, as if the process died between the two.
+    const insert = server.game.insertBattle.bind(server.game);
+    let calls = 0;
+    server.game.insertBattle = (b) => {
+      if (++calls === 2) throw new Error('disk full');
+      return insert(b);
+    };
+    server.fightDue();
+    server.game.insertBattle = insert;
+    expect(server.game.battlesOfWeek(league.id, monday)).toHaveLength(0);
+    expect(server.fightDue()).toBeGreaterThanOrEqual(2);
+    const day0 = server.game.battlesOfWeek(league.id, monday).filter((b) => b.day === 0);
+    const fighters = day0.flatMap((b) => [b.aId, b.bId]).filter((id) => id !== null);
+    expect(new Set(fighters).size).toBe(fighters.length);
+    expect(server.fightDue()).toBe(0);
+    await server.shutdown();
+  }, 60_000);
+
+  it("a private league's battles are not offered to shared caches", async () => {
+    const monday = weekOf(Date.UTC(2026, 10, 3), 0).weekStart;
+    const { server, now, signIn } = await boot(monday + 3_600_000);
+    const cookie = await signIn('ana');
+    const priv = (await server.app.inject({ method: 'POST', url: '/api/leagues', headers: { cookie }, payload: { name: 'Hidden', visibility: 'private', resetHour: 0, bots: 2 } })).json<LeagueCard>();
+    const pub = (await server.app.inject({ method: 'POST', url: '/api/leagues', headers: { cookie }, payload: { name: 'Shown', visibility: 'public', resetHour: 0, bots: 2 } })).json<LeagueCard>();
+    now.t = monday + DAY_MS + 1000;
+    server.fightDue();
+    const battleOf = (slug: string) => server.game.battlesOfWeek(server.game.leagueBySlug(slug)!.id, monday)[0]!.id;
+    const hidden = await server.app.inject({ url: `/api/battles/${battleOf(priv.slug)}`, headers: { cookie } });
+    expect(hidden.statusCode).toBe(200);
+    expect(hidden.headers['cache-control']).not.toMatch(/public/);
+    const shown = await server.app.inject({ url: `/api/battles/${battleOf(pub.slug)}` });
+    expect(shown.headers['cache-control']).toMatch(/public/);
+    await server.shutdown();
+  }, 60_000);
+
+  it('a battle tick that throws at boot is logged, not thrown from a timer', async () => {
+    const config = loadConfig({ NODE_ENV: 'test', DATABASE_PATH: ':memory:', COMMONS: '0', PORT: '0', HOST: '127.0.0.1', PUBLIC_URL: 'http://cc.test' });
+    const errors: string[] = [];
+    const log = { info() {}, warn() {}, error: (msg: string) => void errors.push(msg) };
+    const server = await createServer(config, { log, background: true, github: null });
+    server.leagues.tick = () => {
+      throw new Error('database is locked');
+    };
+    const uncaught: unknown[] = [];
+    const onUncaught = (err: unknown) => void uncaught.push(err);
+    process.prependListener('uncaughtException', onUncaught);
+    try {
+      await server.listen();
+      await new Promise((r) => setTimeout(r, 50));
+    } finally {
+      process.off('uncaughtException', onUncaught);
+      await server.shutdown();
+    }
+    expect(uncaught).toEqual([]);
+    expect(errors).toContain('battle tick failed');
+  });
+
+  it('empty settings in a .env file mean their defaults', () => {
+    const c = loadConfig({ PORT: '', HOST: '', DATABASE_PATH: '', CLIENT_DIR: ' ', MAX_LEAGUES_PER_USER: '', NODE_ENV: '' });
+    expect(c.port).toBe(8787);
+    expect(c.host).toBe('0.0.0.0');
+    expect(c.databasePath).toBe('data/codeclash.db');
+    expect(c.clientDir).toBe('dist/client');
+    expect(c.maxLeaguesPerUser).toBe(5);
+    expect(c.production).toBe(false);
+  });
+
+  it('a sign-in return path that cannot go in a header falls back to the home page', async () => {
+    const { server } = await boot(Date.UTC(2026, 10, 3, 9));
+    for (const next of ['/x%0d%0aSet-Cookie:%20a=b', '/%E6%97%A5']) {
+      const res = await server.app.inject({ url: `/auth/dev?login=ana&next=${next}` });
+      expect(res.statusCode).toBe(302);
+      expect(res.headers.location).toBe('http://cc.test/');
+    }
+    await server.shutdown();
+  });
+});

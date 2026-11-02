@@ -158,17 +158,29 @@ export class Leagues {
       for (let day = p.dayDone + 1; day < DAYS_PER_WEEK; day++) {
         const at = battleAt(ws, day, this.dayMs);
         if (at > now) return fought;
-        // Battles from before the league existed are skipped.
-        if (at > league.createdAt) fought += this.fightDaily(league, ws, day, at);
+        // A day's battles and its progress are written together, so a crash mid-day never
+        // leaves half the day recorded to be fought again; progress is re-read inside, so a
+        // second resolver (an overlapping tick or process) that got there first is not repeated.
+        fought += game.transaction(() => {
+          const done = game.progress(league.id, ws);
+          if (done && done.dayDone >= day) return 0;
+          // Battles from before the league existed are skipped.
+          const n = at > league.createdAt ? this.fightDaily(league, ws, day, at) : 0;
+          game.setProgress(league.id, ws, day, false);
+          return n;
+        });
         p = { dayDone: day, grandDone: false };
-        game.setProgress(league.id, ws, day, false);
         if (Date.now() > deadline) return fought;
       }
       if (!p.grandDone) {
         const at = ws + DAYS_PER_WEEK * this.dayMs;
         if (at > now) return fought;
-        fought += this.fightGrand(league, ws, at);
-        game.setProgress(league.id, ws, DAYS_PER_WEEK - 1, true);
+        fought += game.transaction(() => {
+          if (game.progress(league.id, ws)?.grandDone) return 0;
+          const n = this.fightGrand(league, ws, at);
+          game.setProgress(league.id, ws, DAYS_PER_WEEK - 1, true);
+          return n;
+        });
         if (Date.now() > deadline) return fought;
       }
     }

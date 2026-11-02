@@ -246,8 +246,10 @@ export async function buildHttp(deps: HttpDeps): Promise<FastifyInstance> {
       const { id } = z.object({ id: z.coerce.number().int().positive() }).parse(req.params);
       const battle = game.battle(id);
       if (!battle) return fail(reply, 404, 'not_found', 'No such battle.');
-      viewable(req, game.league(battle.leagueId)!);
-      reply.header('cache-control', 'public, max-age=3600');
+      const league = game.league(battle.leagueId)!;
+      viewable(req, league);
+      // A private league's battle must never sit in a shared cache, where anyone could fetch it.
+      reply.header('cache-control', league.visibility === 'public' ? 'public, max-age=3600' : 'private, max-age=3600');
       return leagues.battleView(battle);
     } catch (err) {
       return failure(reply, err);

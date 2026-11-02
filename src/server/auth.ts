@@ -33,6 +33,8 @@ const StartQuery = z.object({ next: z.string().optional() });
 /** Only same-origin paths survive as redirect targets. */
 export function safeNext(next: string | undefined): string {
   if (!next || !next.startsWith('/') || next.startsWith('//') || next.startsWith('/\\')) return '/';
+  // Control and non-ASCII characters cannot go in a Location header (the redirect would fail with a 500).
+  if (/[^\x21-\x7e]/.test(next)) return '/';
   return next.slice(0, 300);
 }
 
