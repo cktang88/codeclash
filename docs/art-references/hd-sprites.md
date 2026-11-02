@@ -202,3 +202,139 @@ Still short of the references:
 - The back of the shield is mostly hidden, so the straps barely show.
 - The mail is very dark under the ground-value rule.
 - At level 1 the figure is a pale stick with a hat and a shield: readable, but no skeleton detail survives at 13 px.
+
+## Samurai on paper (`paper/samurai.ts`, `paper/samurai-parts.ts`): all eleven kinds
+
+All eleven Samurai kinds are now drawn by the paper-doll painter:
+- foot (`foot` body): Katana Samurai, Yari Ashigaru, Nage-yari Skirmishers, Yumi Ashigaru, Teppō Ashigaru, Sōhei Warrior Monks and the Daimyō;
+- mounted (`horse` body): Yari Cavalry, Yabusame Archers and Hatamoto Horse;
+- the Ōzutsu Bombard with its crew (`engine` body).
+
+They are built from one part library. Each kind has SE and NE drawn, every animation keyed (Shoot for the five missile kinds), and levels 1, 2, 4 and 8.
+
+### References (`references/samurai/`, study only, not committed)
+
+| Image (direct URL) | Page | Licence | Taken from it |
+|---|---|---|---|
+| https://images.metmuseum.org/CRDImages/aa/web-large/DT5334.jpg | https://www.metmuseum.org/art/collection/search/24975 | Public domain (Met Open Access) | Tōsei-gusoku: a near-black lacquered dō over **bright lacing at the sode and kusazuri**, a white sash at the waist, a dark menpō with a pale moustache, and a ridged kabuto with a flared shikoro. This gives our lacquer ramp (L 0.29, C 0.02), the lames with a lacing line at each foot, the cotton obi and the iron menpō. |
+| https://images.metmuseum.org/CRDImages/aa/web-large/DT305406.jpg | https://www.metmuseum.org/art/collection/search/22505 | Public domain | Dō-maru: the figure is **widest at the hips**, where the kusazuri flares like a bell. The panels hang from the waist, and ours follow the thighs in a walk. |
+| https://images.metmuseum.org/CRDImages/aa/web-large/LC-L_2004_41_13-002.JPG | https://www.metmuseum.org/art/collection/search/27593 | Public domain | Jingasa: a wide shallow cone with a gold mon and a dark underside. It is drawn wider than the shoulders, and its crown is a step lighter because it faces the sky. |
+| https://images.metmuseum.org/CRDImages/aa/web-large/LC-14_100_101-013.jpg | https://www.metmuseum.org/art/collection/search/22492 | Public domain | Matchlock of Horio Yoshiharu: a long iron barrel in a short wooden stock with brass fittings at the lock. We draw an iron barrel, a wood stock, two gilt bands and the lock, with a glowing match. |
+| https://images.metmuseum.org/CRDImages/aa/web-large/LC-09_49_2-019.jpg | https://www.metmuseum.org/art/collection/search/22108 | Public domain | Hand cannon: a thick, short barrel with a flared muzzle. This shaped the ōzutsu: a short bronze tube with rings, lashed to a timber bed on blocks. |
+| https://images.metmuseum.org/CRDImages/aa/web-large/LC-L_2004_41_16ab-012.jpg | https://www.metmuseum.org/art/collection/search/27596 | Public domain | Gunbai: a lacquered paddle with a gilt rim and mon on an iron handle. That is the Daimyō's signature prop, in dull shu with a gold rim and sun disc. |
+| https://images.metmuseum.org/CRDImages/aa/web-large/LC-L_2004_41_24ab-005.jpg | https://www.metmuseum.org/art/collection/search/27605 | Public domain | A field ensign: a sashimono is a **pole with a crossbar and a hanging cloth**. Ours has a visible pole, a crossbar and a tall team flag with a pale mon. |
+| https://images.metmuseum.org/CRDImages/as/web-large/DP-29782-002.jpg | https://www.metmuseum.org/art/collection/search/894770 | Public domain | Jinbaori: a black surcoat with a red lining and a mon on the back. The Daimyō's jinbaori is black with team-coloured lining edges and a gold mon on the back. |
+| https://images.metmuseum.org/CRDImages/aa/web-large/DT305418.jpg | https://www.metmuseum.org/art/collection/search/23941 | Public domain | Saddle and tack: a high lacquered pommel and cantle. We draw a lacquer saddle with both raised and a team saddle-cloth with a gilt hem on the hatamoto horse. |
+| https://images.metmuseum.org/CRDImages/as/web-large/DP143374.jpg | https://www.metmuseum.org/art/collection/search/63361 | Public domain | Kuniyoshi, *Horimoto Gidayū*: the **horo** is a huge puffed cloak behind the back, the crescent maedate is broad, and the warrior stands with feet apart and weight low. From this come the horo (a gored balloon pinned at the shoulders), the Daimyō's large crescent and the settled stance. |
+| https://images.metmuseum.org/CRDImages/as/web-large/DP149164.jpg | https://www.metmuseum.org/art/collection/search/893323 | Public domain | Yoshitsuna, *Fourth Battle at Kawanakajima*: riders with horo, spears carried upright then levelled at the gallop, and a forest of flags. These give the hatamoto's horo, the upright cavalry yari and the gallop lean. |
+| https://images.metmuseum.org/CRDImages/as/web-large/DP149158.jpg, https://images.metmuseum.org/CRDImages/as/web-large/DP149166.jpg, https://images.metmuseum.org/CRDImages/as/web-large/DP149171.jpg | https://www.metmuseum.org/art/collection/search/893317 (and 893325, 893331) | Public domain | Battle prints: the warrior monk's white cowl and two-handed overhead blows, and **cannon smoke as big grey clusters** that hang in the air. The sōhei's katō and the naginata's high wind-up come from these, and the ōzutsu's smoke stays where the shot was fired. |
+| https://static.wikia.nocookie.net/totalwar/images/b/b1/STW_spear_ashigaru.png | https://totalwar.fandom.com/wiki/Yari_Ashigaru | (c) Creative Assembly (study only) | A stocky man under a jingasa, a dark plain dō, a long yari with gilt collars, and the feet apart. This gives the okegawa dō with its gold mon, the gilt collar on the yari and the wider stance. |
+| https://static.wikia.nocookie.net/totalwar/images/b/b0/Bow_Ashigaru_S2TW.png | https://totalwar.fandom.com/wiki/Bow_Ashigaru | (c) CA (study only) | The yumi towers over the man, with pale rattan bindings on black lacquer and the grip a third of the way up. We draw it 15.6 units long (the man is 14), gripped low in the far hand, with bindings from level 4. |
+| https://static.wikia.nocookie.net/totalwar/images/f/f2/Matchlock_Ashigaru_S2TW.png | https://totalwar.fandom.com/wiki/Matchlock_Ashigaru | (c) CA (study only) | The teppō aimed level at the cheek, a coiled slow-match, and the jingasa. Shoot presents the gun at the cheek, and the gun is carried slanting across the body (port arms) as the gunner's signature. |
+| https://static.wikia.nocookie.net/totalwar/images/e/e3/Katana_Samurai_S2TW.png | https://totalwar.fandom.com/wiki/Katana_Samurai | (c) CA (study only) | The lacing reads at a glance and the katana is raised two-handed. The samurai's attack is an overhead cut from high behind (with a smear), and his idle is hassō with the blade upright by the shoulder. |
+| https://static.wikia.nocookie.net/ghostoftsushima/images/9/94/Jin_Sakai_key_art_cropped.png | https://ghostoftsushima.fandom.com/wiki/Jin_Sakai | (c) Sucker Punch / Sony (study only) | Scuffed black lacquer with small sharp highlights, and the hachimaki tails. Lacquer is scuffed to a red-brown undercoat (sparse `shu` specks), and the archers and skirmishers wear hachimaki with knot tails. |
+| https://static0.fextralifeimages.com/file/sekiroshadowsdietwice/2/27/Ashina-elite-jinsuke-saze-gallery-1-sekiro-wiki-guide-300px.png | https://sekiroshadowsdietwice.wiki.fextralife.com/Ashina+Elite+-+Jinsuke+Saze | (c) FromSoftware (study only) | Worn, desaturated indigo cotton. Indigo is kept at C 0.05, and only the army colour is saturated. |
+| https://i.redd.it/fxx9828pdq3d1.png | (xave_pixel, see `pixel-art-craft.md` §0) | (c) the artist (study only) | The target: flat clusters, hue-shifted ramps, no black outline, one accent. At 13 px what survives is a dark Sengoku mass with the team-coloured sashimono and horo, which is the craft guide's §4 read for this faction. |
+
+Wikimedia Commons (the Nagashino screen and Tokyo National Museum photos) answered HTTP 429 to
+both the API and direct file URLs from the build machine, so none were downloaded this round.
+The Nagashino notes from round 1 still stand: very long yari, and different flags by troop.
+
+### Signature silhouettes (level 1) and the overlap matrix
+
+Each kind has one signature shape at 13 px:
+
+| Kind | Signature |
+|---|---|
+| Katana Samurai | gilt kuwagata and a sashimono |
+| Yari Ashigaru | jingasa and a 20-unit yari stood upright |
+| Skirmishers | a fan of javelins on the back and a team jacket |
+| Yumi Ashigaru | the tall slanted yumi, no flag |
+| Teppō Ashigaru | jingasa and the gun slanted high (drawn long at level 1) |
+| Yari Cavalry | an upright yari with a sashimono over the horse |
+| Yabusame | a flat kasa and the bow |
+| Hatamoto | the horo balloon |
+| Sōhei | the white katō and a long robe |
+| Ōzutsu | a low, wide gun with two jingasa |
+| Daimyō | a broad crescent, the horo and the raised fan |
+
+Best-shift IoU, pixel lint, level 1 (gate < 0.85):
+
+|  | KatSam | YariAsh | YariCav | Hatamoto | Yabusame | Teppō | Daimyō | Sōhei | NageYari | Ōzutsu | YumiAsh |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| Katana Samurai | - | 0.76 | 0.48 | 0.48 | 0.43 | 0.57 | 0.66 | 0.58 | 0.66 | 0.35 | 0.43 |
+| Yari Ashigaru | 0.76 | - | 0.58 | 0.48 | 0.39 | 0.50 | 0.56 | 0.53 | 0.57 | 0.35 | 0.38 |
+| Yari Cavalry | 0.48 | 0.58 | - | 0.74 | 0.62 | 0.32 | 0.43 | 0.40 | 0.39 | 0.46 | 0.44 |
+| Hatamoto Horse | 0.48 | 0.48 | 0.74 | - | 0.71 | 0.44 | 0.51 | 0.47 | 0.46 | 0.60 | 0.52 |
+| Yabusame | 0.43 | 0.39 | 0.62 | 0.71 | - | 0.41 | 0.48 | 0.42 | 0.45 | 0.60 | 0.58 |
+| Teppō Ashigaru | 0.57 | 0.50 | 0.32 | 0.44 | 0.41 | - | 0.68 | 0.67 | 0.61 | 0.33 | 0.52 |
+| Daimyō | 0.66 | 0.56 | 0.43 | 0.51 | 0.48 | 0.68 | - | 0.66 | 0.65 | 0.42 | 0.53 |
+| Sōhei | 0.58 | 0.53 | 0.40 | 0.47 | 0.42 | 0.67 | 0.66 | - | 0.57 | 0.40 | 0.48 |
+| Nage-yari | 0.66 | 0.57 | 0.39 | 0.46 | 0.45 | 0.61 | 0.65 | 0.57 | - | 0.38 | 0.51 |
+| Ōzutsu | 0.35 | 0.35 | 0.46 | 0.60 | 0.60 | 0.33 | 0.42 | 0.40 | 0.38 | - | 0.49 |
+| Yumi Ashigaru | 0.43 | 0.38 | 0.44 | 0.52 | 0.58 | 0.52 | 0.53 | 0.48 | 0.51 | 0.49 | - |
+
+The old ray-cast pairs are fixed:
+- Yumi/Teppō went from 0.90 to 0.52, and Yari/Yumi from 0.94 to 0.38.
+- Yari Cavalry/Hatamoto went from 0.96 to 0.74.
+
+### Critique rounds (`docs/screenshots/hd-sprites/samurai-paper-*`, our art only)
+
+1. **First pass, level 8, against the Met gusoku, the dō-maru and Shogun 2.**
+   - The men were thin and leggy, and the kusazuri was too narrow (the dō-maru is widest at the hips).
+   - Lacing stitches swamped the lacquer.
+   - The sashimono floated beside the head, and the horo read as a round shield.
+   - The kuwagata and the crescent were too small, the sōhei's robe was a block, and the katana was hidden in hassō.
+
+   Fixes:
+   - wider torso, sleeves, thighs and kusazuri;
+   - stitches only at level 8, one lacing line per lame;
+   - a visible pole and crossbar for the sashimono;
+   - the horo as a gored balloon pinned at the shoulders (Kuniyoshi);
+   - larger horns and crescent;
+   - a pleated, flared robe with a cowl drape;
+   - the blade raised and angled back.
+2. **Horses and the gun.**
+   - The horses were long-legged and shallow-chested, with giraffe necks.
+   - The ōzutsu was a small log lying between the crew.
+
+   Fixes:
+   - a deeper barrel, shorter legs with thicker forearms and gaskins, and a thicker, shorter neck;
+   - a bigger bronze barrel on a raised timber bed, with the crew standing beyond it.
+
+   In battle (seeds 10 and 20, zoom 5; `samurai-paper-battle-s10-zoom5-sohei-hatamoto.png` is the before), two more problems showed. From behind, the sōhei's cowl read as an oversized pale egg, and the horo still read as a disc. The cowl was made smaller and a step darker from behind, with a back fold. The horo from behind became a teardrop narrow at the shoulders, with a small mon. The teppō smoke followed the lowered gun, so it now hangs where the shot was fired. The ōzutsu blast was scaled up.
+3. **Stance, side by side with Shogun 2 and Kuniyoshi** (comparison in `references/comparisons/`, not committed). Ours stood to attention with their legs together, and the sode were narrower than the Met gusoku's. Fixes: feet apart with the weight settled, broader sode, and hakama folds that break the shadow side of the legs (which also cured the hugging band on the legs).
+
+Pixel-lint fixes that changed the look:
+- **Level 1.** Thin props (yari, yumi, poles, the barrel) are one-pixel lines; a rod would cover two columns and, with its outline, read as a four-pixel bar. The legs and the held weapons are a step darker, so the light still reads from the top-left once the lit tone folds into the base. Sash, hachimaki band, socks and the horse's rump highlight are dropped, because at 13 px they were stray rows whose ends lined up. The yumi has no string at rest.
+- **Level 4.** Lacing shows as staggered single stitches on plain lacquer; full rows striped the dō and their ends lined up. Plate seams are staggered dashes.
+- **Ramps.**
+  - Dark coloured ramps (wood, bay, chestnut, shu, indigo and teamDk) use a narrower spread, so their deepest tone keeps its chroma and does not merge with the neutral lacquer darks (grey shadows).
+  - The yabusame's dun horse sat on the ground's value, so it is now a chestnut with a flaxen mane and socks.
+
+### Lint status (`pnpm pixel-lint --only=sprites --factions=samurai`)
+
+No FAIL on any kind at levels 1, 2, 4 and 8. Warnings that remain, by count over the 44 kind-levels:
+
+| Count | Warning |
+|---|---|
+| 34 | base band under 35% (`midWidest`) |
+| 34 | aligned band ends between 0.2 and 0.3 |
+| 19 | light-angle error between 45° and 90° |
+| 11 | edge ΔL to ground under 0.15 |
+| 9 | jaggies between 1.0 and 1.5 |
+| 7 | straight ramps (the army colour) |
+| 6 | mean ΔL to ground under 0.12 |
+| 5 | hugging between 0.6 and 0.8 |
+| 4 | lit outline barely lighter |
+| 3 | outline continuity |
+| 3 | checkers |
+| 2 | walk head churn |
+| 1 | off-palette |
+
+Still short of the references:
+- Horses are flat-shaded masses with straight tube legs (no fetlock or knee joint below level 4).
+- The NE horse is the SE horse redrawn with the tail and head order swapped, not a real rump-first view.
+- Faces are small at level 8 (two eye pixels and a nose).
+- The menpō's moustache shows only at level 8.
+- The daimyō's crescent and fan crowd the head when the fan is raised.
