@@ -13,8 +13,8 @@
 import { addP, code, DEG, defineMaterial, hash, isKept, oklchRamp, rot, type P2, type Paper } from './core.ts';
 import type { DrawCtx } from './skeleton.ts';
 import { Anim } from '../contract.ts';
-import { along, limb, poseAt, snapDeg, type KeySet } from './rig.ts';
-import { bone, bow, crossbow, flame, frameOf, helm, hood, horseBody, horseFar, horseFrame, horseNear, lance, withHorseBulk, mul, pavise, planeLight, quiver, rag, robe, skull, spear, UM } from './undead-parts.ts';
+import { along, limb, poseAt, snapDeg, type HorsePose, type KeySet } from './rig.ts';
+import { bone, bow, crossbow, flame, frameOf, helm, hood, horseBody, horseFar, horseFrame, horseNear, lance, type HorseLegs, type HorseLook, withHorseBulk, mul, pavise, planeLight, quiver, rag, robe, skull, skullBack, spear, UM, type FramePose } from './undead-parts.ts';
 import {
   BLACK_RIDER_KEYS, boneJavelin, COLOSSUS_KEYS, colossus, DEATH_KNIGHT_KEYS, ghoulCranium, ghoulHead, ghoulJaw, greatHelm, HORSE_ARCHER_KEYS, collar, lichChest, LICH_KEYS, spineCrown, lit, TREBUCHET_KEYS, trebuchet,
 } from './undead.ts';
@@ -271,6 +271,8 @@ export interface PieceOpts {
   snap?: boolean;
   /** How far an effect has run (a soul's wisp rising: 1..6). */
   t?: number;
+  /** A horse's pose (mounted figures: the horse is drawn whole from it). */
+  horse?: HorseLegs;
 }
 /**
  * One piece of a figure: drawn with the key art's own calls from its joints `J` (the SE rest, or
@@ -843,48 +845,108 @@ function arbalestStatic(c: Paper): void {
   drawPieces(c, ARBALEST);
 }
 
-/** The Death Knight: full black plate on a bone-barded horse, a great helm, the big kite shield, a lance. */
-function deathKnightStatic(c: Paper): void {
-  const p = { ...poseAt(DEATH_KNIGHT_KEYS, Anim.Idle, 0), neck: 47, nod: -16 };
-  const H = horseFrame(c, p, false);
-  const S = H.seat;
-  const at = (q: P2): P2 => addP(S, q);
-  horseFar(c, H, p, { bard: true });
-  // The far leg in plate (mostly hidden by the horse).
-  vol(c, at([0.9, -0.2]), at([2.4, 2.0]), 1.4, 1.1, UM.iron, { tone: 1 });
-  horseBody(c, H, p, { bard: true });
-  // The kite shield on the far arm, held tight before the chest.
-  const shF = at([2.0, -4.6]);
-  vol(c, shF, at([3.0, -2.6]), 1.4, 1.2, UM.iron, { tone: 1 });
-  // The body: a broad black cuirass, a fauld of lames, a team surcoat skirt over the saddle.
-  rag(c, at([-1.2, -1.2]), at([2.0, -1.2]), 2.8, 0.1, UM.team, UM.teamDk, 501, { tear: 0.35 });
-  plate(c, [at([-1.9, -4.7]), at([-0.7, -5.6]), at([2.0, -5.6]), at([2.9, -4.7]), at([2.5, -2.4]), at([2.2, -0.9]), at([-1.2, -0.9]), at([-1.6, -2.4])], UM.iron, {
-    detail: (x, y, rx, ry) => {
-      if (ry > 0.45) return c.ly(y) % Math.max(3, Math.round(c.L * 0.5)) === 0 ? code(UM.iron, 0) : code(UM.iron, 2 + Math.min(0, planeLight(rx, ry)));
-      if (Math.abs(rx + 0.1 + ry * 0.1) < 0.06) return code(UM.iron, 3); // the ridge
-      if (c.tex(x, y, 503, 3) < 0.06) return code(UM.rust, 1);
-      return -1;
-    },
-    k: 0.3,
-  });
-  // The great helm with a team crest, the visor slit glowing.
-  bascinet(c, at([0.75, -6.95]));
-  // Pauldrons.
-  pauldron(c, at([2.1, -4.9]), true, 1.05);
-  kiteShield(c, at([2.5, -2.7]), 6.0, 3.8, -6);
-  // The near leg in plate over the barding.
-  vol(c, at([-0.6, -0.2]), at([1.0, 2.3]), 1.55, 1.2, UM.iron, { tone: 2, shine: true });
-  vol(c, at([1.0, 2.3]), at([0.4, 4.6]), 1.1, 1.0, UM.iron, { tone: 2 });
-  c.blob(at([1.0, 2.3]), 0.7, 0.62, UM.iron, { tone: 2 });
-  horseNear(c, H, p, { bard: true });
-  // The lance, upright with its pennon, and the armoured near arm.
-  const hand = at([-1.0, -2.0]);
-  lance(c, hand, 174, 10.5, 3.0, { pennon: true, sway: 0.3, vamplate: true });
-  pauldron(c, at([-1.4, -4.6]), false, 1.15);
-  vol(c, at([-1.4, -4.4]), at([-2.0, -2.8]), 1.3, 1.1, UM.iron, { tone: 2 });
-  vol(c, at([-2.0, -2.8]), hand, 1.05, 1.1, UM.iron, { tone: 2, shine: true });
-}
+// ------------------------------------------------------------------ the riders, as pieces
 
+/** A mounted figure's key art: the horse (drawn whole from its pose) and the rider's pieces, seated on it. */
+export interface MountArt {
+  look: HorseLook;
+  /** The horse's key-art pose. */
+  pose: () => HorseLegs;
+  /** The rider's joints from the seat (units). */
+  R: UJ;
+  /** In drawing order; the horse's own are 'hFar', 'hBody' and 'hNear' (drawn from `o.horse`). */
+  pieces: UPiece[];
+  axis: number;
+}
+/** The rider's joints on a horse frame's seat. */
+export const seated = (R: UJ, seat: P2): UJ => Object.fromEntries(Object.entries(R).map(([k, v]) => [k, addP(seat, v)]));
+/** The horse's pieces of a mounted figure, drawn from the pose in `o.horse` (the key art's when absent). */
+export function horsePieces(look: HorseLook, pose: () => HorseLegs): Record<'hFar' | 'hBody' | 'hNear', UPiece> {
+  const H = (c: Paper, back: boolean, o: PieceOpts) => {
+    const p = o.horse ?? pose();
+    return { p, H: horseFrame(c, p, back) };
+  };
+  return {
+    hFar: { slot: 'hFar', bone: 'horseBody', draw: (c, _J, back, o) => withHorseBulk(1.45, () => { const h = H(c, back, o); horseFar(c, h.H, h.p, look); }) },
+    hBody: { slot: 'hBody', bone: 'horseBody', draw: (c, _J, back, o) => withHorseBulk(1.45, () => { const h = H(c, back, o); horseBody(c, h.H, h.p, look, { jaw: o.t ?? 0 }); }) },
+    hNear: { slot: 'hNear', bone: 'horseBody', draw: (c, _J, back, o) => withHorseBulk(1.45, () => { const h = H(c, back, o); horseNear(c, h.H, h.p, look); }) },
+  };
+}
+/** Draws a mounted figure's key art. */
+export function drawMount(c: Paper, art: MountArt): void {
+  const p = art.pose();
+  const J = seated(art.R, horseFrame(c, p, false).seat);
+  for (const q of art.pieces) withHorseBulk(1.45, () => q.draw(c, J, false, { horse: p }));
+}
+const mountPose = (keys: () => KeySet<HorsePose>) => (): HorseLegs => ({ ...poseAt(keys(), Anim.Idle, 0), neck: 47, nod: -16 });
+
+/** The Death Knight: full black plate on a bone-barded horse, a great helm, the big kite shield, a lance. */
+export const DEATH_KNIGHT: MountArt = (() => {
+  const pose = mountPose(() => DEATH_KNIGHT_KEYS);
+  const h = horsePieces({ bard: true }, pose);
+  return {
+    look: { bard: true },
+    pose,
+    axis: 0.6,
+    R: {
+      pelvis: [0.3, -0.4], neck: [0.5, -5.6], head: [0.75, -6.95],
+      shN: [-1.4, -4.4], elN: [-2.0, -2.8], hN: [-1.0, -2.0], shF: [2.0, -4.6], elF: [2.5, -3.6], hF: [3.0, -2.6],
+      hipN: [-0.6, -0.2], kneeN: [1.0, 2.3], ankN: [0.4, 4.6], hipF: [0.9, -0.2], kneeF: [2.4, 2.0], ankF: [2.0, 4.2],
+    },
+    pieces: [
+      h.hFar,
+      // The far leg in plate (mostly hidden by the horse).
+      { slot: 'thighF', bone: 'thighF', draw: (c, J) => vol(c, J.hipF!, J.kneeF!, 1.4, 1.1, UM.iron, { tone: 1 }) },
+      h.hBody,
+      // The far arm, and the kite shield on it held tight before the chest.
+      { slot: 'upperArmF', bone: 'upperArmF', draw: (c, J) => vol(c, J.shF!, J.hF!, 1.4, 1.2, UM.iron, { tone: 1 }) },
+      // The body: a broad black cuirass, a fauld of lames, a team surcoat skirt over the saddle.
+      { slot: 'skirt', bone: 'skirt', cloth: true, clothLen: 2.8, draw: (c, J, _b, o) => rag(c, addP(J.pelvis!, [-1.5, -0.8]), addP(J.pelvis!, [1.7, -0.8]), 2.8, 0.1 + (o.sway ?? 0), UM.team, UM.teamDk, 501, { tear: 0.35 }) },
+      {
+        slot: 'torso',
+        bone: 'chest',
+        draw: (c, J) => {
+          const at = (q: P2): P2 => addP(J.pelvis!, addP(q, [-0.3, 0.4]));
+          plate(c, [at([-1.9, -4.7]), at([-0.7, -5.6]), at([2.0, -5.6]), at([2.9, -4.7]), at([2.5, -2.4]), at([2.2, -0.9]), at([-1.2, -0.9]), at([-1.6, -2.4])], UM.iron, {
+            detail: (x, y, rx, ry) => {
+              if (ry > 0.45) return c.ly(y) % Math.max(3, Math.round(c.L * 0.5)) === 0 ? code(UM.iron, 0) : code(UM.iron, 2 + Math.min(0, planeLight(rx, ry)));
+              if (Math.abs(rx + 0.1 + ry * 0.1) < 0.06) return code(UM.iron, 3); // the ridge
+              if (c.tex(x, y, 503, 3) < 0.06) return code(UM.rust, 1);
+              return -1;
+            },
+            k: 0.3,
+          });
+        },
+      },
+      // The open bascinet, the skull grinning out of it.
+      { slot: 'aventail', bone: 'neck', draw: (c, J) => bascinetMail(c, J.head!) },
+      { slot: 'skull', bone: 'head', draw: (c, J, back) => keyCranium(c, addP(J.head!, [0.1, 0.2]), 1.1, -4, back) },
+      { slot: 'jaw', bone: 'jaw', draw: (c, J, back) => void (back || keyJaw(c, addP(J.head!, [0.1, 0.2]), 1.1, -4)) },
+      { slot: 'helm', bone: 'head', draw: (c, J) => bascinetBowl(c, J.head!) },
+      { slot: 'pauldronF', bone: 'chest', draw: (c, J) => pauldron(c, addP(J.shF!, [0.1, -0.3]), true, 1.05) },
+      { slot: 'front', bone: 'upperArmF', draw: (c, J, back) => (back ? kiteShieldBack : kiteShield)(c, addP(J.hF!, [-0.5, -0.1]), 6.0, 3.8, -6) },
+      // The near leg in plate over the barding.
+      { slot: 'thighN', bone: 'thighN', draw: (c, J) => vol(c, J.hipN!, J.kneeN!, 1.55, 1.2, UM.iron, { tone: 2, shine: true }) },
+      {
+        slot: 'shinN',
+        bone: 'shinN',
+        draw: (c, J) => {
+          vol(c, J.kneeN!, J.ankN!, 1.1, 1.0, UM.iron, { tone: 2 });
+          c.blob(J.kneeN!, 0.7, 0.62, UM.iron, { tone: 2 });
+        },
+      },
+      h.hNear,
+      // The lance, upright with its pennon, and the armoured near arm.
+      { slot: 'weapon', bone: 'weapon', draw: (c, J, _b, o) => void lance(c, J.hN!, 174, 10.5, 3.0, { pennon: true, sway: 0.3 + (o.sway ?? 0), vamplate: true }) },
+      { slot: 'pauldronN', bone: 'chest', draw: (c, J) => pauldron(c, addP(J.shN!, [0, -0.2]), false, 1.15) },
+      { slot: 'upperArmN', bone: 'upperArmN', draw: (c, J) => vol(c, J.shN!, J.elN!, 1.3, 1.1, UM.iron, { tone: 2 }) },
+      { slot: 'forearmN', bone: 'forearmN', draw: (c, J) => vol(c, J.elN!, J.hN!, 1.05, 1.1, UM.iron, { tone: 2, shine: true }) },
+    ],
+  };
+})();
+function deathKnightStatic(c: Paper): void {
+  drawMount(c, DEATH_KNIGHT);
+}
 
 // ------------------------------------------------------------------ the Wraith-Warden (Wraith Bows, recast)
 //
@@ -1092,57 +1154,136 @@ function idleOf<P>(keys: KeySet<P & import('./rig.ts').BasePose>, draw: (c: Pape
 }
 
 /** The Barrow Horse Archer: a gaunt skeleton in a rotted leather jerkin, a quiver at the hip, a war bow. */
-function horseArcherStatic(c: Paper): void {
-  const p = { ...poseAt(HORSE_ARCHER_KEYS, Anim.Idle, 0), neck: 47, nod: -16 };
-  const H = horseFrame(c, p, false);
-  const at = (q: P2): P2 => addP(H.seat, q);
-  horseFar(c, H, p, { cloth: true, mane: true });
-  stout(c, at([0.9, -0.2]), at([2.2, 2.1]), 0.6, true);
-  horseBody(c, H, p, { cloth: true, mane: true });
-  // The pennon pole on the back.
-  c.rod(at([-1.6, -3.2]), at([-2.4, -10.0]), 0.28, 0.24, UM.wood, { tone: 2 });
-  c.shape([at([-2.4, -10.0]), at([-5.6, -9.4]), at([-4.6, -9.0]), at([-5.4, -8.5]), at([-2.4, -8.6])], (x, y) => (c.ly(y) < c.L * 0.5 ? code(UM.team, 3) : code(UM.team, 2)));
-  // The far arm holding the bow out, the quiver at the hip.
-  const grip = at([3.6, -3.6]);
-  stout(c, at([1.9, -4.6]), at([2.9, -3.8]), 0.55, true);
-  stout(c, at([2.9, -3.8]), grip, 0.5, true);
-  quiver(c, at([-1.2, -0.6]), 215, { shafts: 4, len: 2.4 });
-  // The pelvis, a rag skirt, the jerkin over the ribs, a team sash.
-  c.blob(at([0.2, 0.2]), 1.4, 0.7, UM.bone, { tone: 2 });
-  rag(c, at([-1.3, -0.5]), at([1.8, -0.6]), 2.4, 0.1, UM.rag, UM.rag, 511, { tear: 0.45 });
-  plate(c, [at([-1.7, -4.6]), at([-0.6, -5.4]), at([1.6, -5.4]), at([2.4, -4.6]), at([2.0, -1.6]), at([1.7, -0.4]), at([-1.2, -0.4]), at([-1.5, -1.8])], UM.leather, {
-    detail: (x, y, rx, ry) => {
-      const hx = (x - c.sx(at([0.5, 0])[0])) / c.L, hy = (y - c.sy(at([0, -3.1])[1])) / c.L;
-      if (Math.hypot(hx / 0.8, hy / 1.3) < 1) return Math.abs(((hy + 2) % 0.62) - 0.31) < 0.15 ? code(UM.bone, hx < 0 ? 3 : 2) : code(UM.ink, 1);
-      if (c.ly(y) % Math.max(3, Math.round(c.L * 0.7)) === 0) return code(UM.leather, 1);
-      return code(UM.leather, 2 + planeLight(rx, ry, 0.35));
+export const HORSE_ARCHER: MountArt = (() => {
+  const look = { cloth: true, mane: true };
+  const pose = mountPose(() => HORSE_ARCHER_KEYS);
+  const h = horsePieces(look, pose);
+  const grip: P2 = [3.6, -3.6];
+  return {
+    look,
+    pose,
+    axis: 0.4,
+    R: {
+      pelvis: [0.2, 0.2], neck: [0.4, -5.4], head: [0.8, -6.9],
+      shN: [-1.5, -4.6], elN: [-0.9, -2.9], hN: along(grip, 276, 1.2 * 7 * 0.2 + 0.3), shF: [1.9, -4.6], elF: [2.9, -3.8], hF: grip,
+      hipN: [-0.5, -0.2], kneeN: [1.0, 2.3], ankN: [0.3, 4.6], hipF: [0.9, -0.2], kneeF: [2.2, 2.1], ankF: [1.8, 4.3],
     },
-  });
-  c.rod(at([-1.5, -4.5]), at([1.8, -0.7]), 0.55, 0.55, UM.team, { tone: 2 });
-  stout(c, at([-0.5, -0.2]), at([1.0, 2.3]), 0.62, false);
-  stout(c, at([1.0, 2.3]), at([0.3, 4.6]), 0.52, false);
-  horseNear(c, H, p, { cloth: true, mane: true });
-  c.rod(at([0.4, -5.4]), at([0.55, -6.0]), 0.5, 0.45, UM.bone, { tone: 1 });
-  skull(c, at([0.8, -6.9]), -4, false);
-  // The bow, half drawn, the near arm at the string.
-  const nock = bow(c, grip, 96, 1.2, 7, { arrow: true });
-  stout(c, at([-1.5, -4.6]), at([-0.9, -2.9]), 0.58, false);
-  stout(c, at([-0.9, -2.9]), nock, 0.5, false);
-  c.blob(nock, 0.48, 0.42, UM.bone, { tone: 2 });
+    pieces: [
+      h.hFar,
+      { slot: 'thighF', bone: 'thighF', draw: (c, J) => stout(c, J.hipF!, J.kneeF!, 0.6, true) },
+      h.hBody,
+      // The pennon pole on the back.
+      {
+        slot: 'pennon',
+        bone: 'chest',
+        draw: (c, J, _b, o) => {
+          const at = (q: P2): P2 => addP(J.pelvis!, addP(q, [-0.2, -0.2]));
+          const s = o.sway ?? 0;
+          c.rod(at([-1.6, -3.2]), at([-2.4, -10.0]), 0.28, 0.24, UM.wood, { tone: 2 });
+          c.shape([at([-2.4, -10.0]), at([-5.6, -9.4 + s * 0.3]), at([-4.6, -9.0 + s * 0.2]), at([-5.4, -8.5 + s * 0.3]), at([-2.4, -8.6])], (x, y) => (c.ly(y) < c.L * 0.5 ? code(UM.team, 3) : code(UM.team, 2)));
+        },
+      },
+      // The far arm holding the bow out, the quiver at the hip.
+      { slot: 'upperArmF', bone: 'upperArmF', draw: (c, J) => stout(c, J.shF!, J.elF!, 0.55, true) },
+      { slot: 'forearmF', bone: 'forearmF', draw: (c, J) => stout(c, J.elF!, J.hF!, 0.5, true) },
+      { slot: 'quiver', bone: 'pelvis', draw: (c, J) => quiver(c, addP(J.pelvis!, [-1.4, -0.8]), 215, { shafts: 4, len: 2.4 }) },
+      // The pelvis, a rag skirt, the jerkin over the ribs, a team sash.
+      { slot: 'hips', bone: 'pelvis', draw: (c, J) => c.blob(J.pelvis!, 1.4, 0.7, UM.bone, { tone: 2 }) },
+      { slot: 'skirt', bone: 'skirt', cloth: true, clothLen: 2.4, draw: (c, J, _b, o) => rag(c, addP(J.pelvis!, [-1.5, -0.7]), addP(J.pelvis!, [1.6, -0.8]), 2.4, 0.1 + (o.sway ?? 0), UM.rag, UM.rag, 511, { tear: 0.45 }) },
+      {
+        slot: 'torso',
+        bone: 'chest',
+        draw: (c, J, back) => {
+          const at = (q: P2): P2 => addP(J.pelvis!, addP(q, [-0.2, -0.2]));
+          plate(c, [at([-1.7, -4.6]), at([-0.6, -5.4]), at([1.6, -5.4]), at([2.4, -4.6]), at([2.0, -1.6]), at([1.7, -0.4]), at([-1.2, -0.4]), at([-1.5, -1.8])], UM.leather, {
+            detail: (x, y, rx, ry) => {
+              const hx = (x - c.sx(at([back ? 0.2 : 0.5, 0])[0])) / c.L, hy = (y - c.sy(at([0, -3.1])[1])) / c.L;
+              if (Math.hypot(hx / (back ? 0.5 : 0.8), hy / 1.3) < 1) return Math.abs(((hy + 2) % 0.62) - 0.31) < 0.15 ? code(UM.bone, hx < 0 ? 3 : 2) : code(UM.ink, 1);
+              if (c.ly(y) % Math.max(3, Math.round(c.L * 0.7)) === 0) return code(UM.leather, 1);
+              return code(UM.leather, 2 + planeLight(rx, ry, 0.35));
+            },
+          });
+          c.rod(at([-1.5, -4.5]), at([1.8, -0.7]), 0.55, 0.55, UM.team, { tone: 2 });
+        },
+      },
+      { slot: 'thighN', bone: 'thighN', draw: (c, J) => stout(c, J.hipN!, J.kneeN!, 0.62, false) },
+      { slot: 'shinN', bone: 'shinN', draw: (c, J) => stout(c, J.kneeN!, J.ankN!, 0.52, false) },
+      h.hNear,
+      { slot: 'neckBone', bone: 'neck', draw: (c, J) => c.rod(J.neck!, addP(J.neck!, [0.15, -0.6]), 0.5, 0.45, UM.bone, { tone: 1 }) },
+      { slot: 'skull', bone: 'head', draw: (c, J, back) => (back ? skullBack : skull)(c, J.head!, -4, false) },
+      // The bow, half drawn, the near arm at the string.
+      { slot: 'farItem', bone: 'itemF', draw: (c, J, _b, o) => void bow(c, J.hF!, 96, o.draw ?? 1.2, 7, { arrow: o.arrow ?? true }) },
+      { slot: 'upperArmN', bone: 'upperArmN', draw: (c, J) => stout(c, J.shN!, J.elN!, 0.58, false) },
+      {
+        slot: 'forearmN',
+        bone: 'forearmN',
+        draw: (c, J) => {
+          stout(c, J.elN!, J.hN!, 0.5, false);
+          c.blob(J.hN!, 0.48, 0.42, UM.bone, { tone: 2 });
+        },
+      },
+    ],
+  };
+})();
+function horseArcherStatic(c: Paper): void {
+  drawMount(c, HORSE_ARCHER);
 }
 
 /** The Black Rider: a hooded rider in a heavy grave-shroud that falls over the horse's flanks, a couched spear. */
-function blackRiderStatic(c: Paper): void {
-  const p = { ...poseAt(BLACK_RIDER_KEYS, Anim.Idle, 0), neck: 47, nod: -16 };
-  const H = horseFrame(c, p, false);
-  const at = (q: P2): P2 => addP(H.seat, q);
-  horseFar(c, H, p, { mane: true });
-  horseBody(c, H, p, { mane: true });
-  // The far sleeve to the reins.
-  vol(c, at([1.9, -4.5]), at([3.2, -2.6]), 1.4, 1.2, UM.shroud, { tone: 1, caps: false });
-  c.rod(at([3.2, -2.6]), at([4.4, -2.0]), 0.42, 0.38, UM.bone, { tone: 1 });
-  // The shroud: broad over the shoulders, a heavy fall over the flank, tatters streaming back.
-  const pts: P2[] = [at([-2.0, -4.7]), at([-0.6, -5.6]), at([1.6, -5.6]), at([2.6, -4.6]), at([2.8, -1.0]), at([2.2, 2.6]), at([0.2, 3.3]), at([-1.8, 2.9]), at([-3.6, 3.2]), at([-3.1, 1.8]), at([-5.0, 1.6]), at([-3.0, -1.0])];
+export const BLACK_RIDER: MountArt = (() => {
+  const look = { mane: true };
+  const pose = mountPose(() => BLACK_RIDER_KEYS);
+  const h = horsePieces(look, pose);
+  return {
+    look,
+    pose,
+    axis: 0.3,
+    R: {
+      pelvis: [0.2, 0.0], neck: [0.6, -5.6], head: [0.7, -7.0],
+      shN: [-1.7, -4.4], elN: [-0.5, -2.6], hN: [1.6, -2.6], shF: [1.9, -4.5], elF: [3.2, -2.6], hF: [4.4, -2.0],
+      hipN: [-0.5, -0.2], kneeN: [1.0, 2.3], ankN: [0.3, 4.6], hipF: [0.9, -0.2], kneeF: [2.2, 2.1], ankF: [1.8, 4.3],
+    },
+    pieces: [
+      h.hFar,
+      h.hBody,
+      // The far sleeve to the reins.
+      { slot: 'upperArmF', bone: 'upperArmF', draw: (c, J) => vol(c, J.shF!, J.elF!, 1.4, 1.2, UM.shroud, { tone: 1, caps: false }) },
+      { slot: 'forearmF', bone: 'forearmF', draw: (c, J) => c.rod(J.elF!, J.hF!, 0.42, 0.38, UM.bone, { tone: 1 }) },
+      // The shroud: broad over the shoulders, a heavy fall over the flank, tatters streaming back.
+      { slot: 'torso', bone: 'cloak', cloth: true, clothLen: 3, draw: (c, J, _b, o) => blackShroud(c, J.pelvis!, o.sway ?? 0) },
+      // A team sash across the chest and its knot.
+      { slot: 'sash', bone: 'chest', draw: (c, J) => c.rod(addP(J.pelvis!, [-1.8, -4.6]), addP(J.pelvis!, [1.6, -1.6]), 0.7, 0.7, UM.team, { tone: 2 }) },
+      { slot: 'skirt', bone: 'skirt', cloth: true, clothLen: 2.6, draw: (c, J, _b, o) => rag(c, addP(J.pelvis!, [1.2, -1.9]), addP(J.pelvis!, [2.0, -1.9]), 2.6, -0.5 + (o.sway ?? 0), UM.team, UM.teamDk, 523, { folds: false, tear: 0.4 }) },
+      { slot: 'hood', bone: 'head', draw: (c, J, back) => hood(c, J.head!, -4, back, UM.shroud, { eyes: false }) },
+      // The skull plain in the hood's dark, a black-iron gorget under it.
+      { slot: 'skull', bone: 'head', draw: (c, J, back) => void (back || keyCranium(c, addP(J.head!, [0.3, 0.1]), 0.82, -6, false)) },
+      { slot: 'jaw', bone: 'jaw', draw: (c, J, back) => void (back || keyJaw(c, addP(J.head!, [0.3, 0.1]), 0.82, -6)) },
+      { slot: 'gorget', bone: 'neck', draw: (c, J) => plate(c, [addP(J.neck!, [-1.2, -0.15]), addP(J.neck!, [1.3, -0.2]), addP(J.neck!, [1.1, 0.35]), addP(J.neck!, [-1.0, 0.4])], UM.iron, { tone: 2, rim: true }) },
+      { slot: 'pauldronF', bone: 'chest', draw: (c, J) => pauldron(c, addP(J.shF!, [0.1, -0.5]), true, 0.95) },
+      h.hNear,
+      // The spear couched under the near arm, the arm in its sleeve.
+      { slot: 'weapon', bone: 'weapon', draw: (c, J) => void spear(c, J.hN!, 116, 8.2, 3.6, { blade: 1.8 }) },
+      { slot: 'upperArmN', bone: 'upperArmN', draw: (c, J) => vol(c, J.shN!, J.elN!, 1.5, 1.3, UM.shroud, { tone: 2, caps: false }) },
+      {
+        slot: 'forearmN',
+        bone: 'forearmN',
+        draw: (c, J) => {
+          const hand = J.hN!;
+          vol(c, J.elN!, hand, 1.3, 1.0, UM.shroud, { tone: 2, caps: false });
+          // A black-iron gauntlet on the spear.
+          vol(c, addP(hand, [-0.9, -0.2]), hand, 0.9, 1.05, UM.iron, { tone: 2, shine: true, caps: false });
+          c.blob(hand, 0.55, 0.5, UM.iron, { tone: 1 });
+        },
+      },
+      { slot: 'pauldronN', bone: 'chest', draw: (c, J) => pauldron(c, addP(J.shN!, [0.1, -0.3]), false, 1.0) },
+    ],
+  };
+})();
+/** The Black Rider's grave-shroud: broad over the shoulders, a heavy fall over the flank, the tatters behind swinging with `sway`. */
+function blackShroud(c: Paper, pel: P2, sway: number): void {
+  const at = (q: P2): P2 => addP(pel, addP(q, [-0.2, 0]));
+  const s = sway;
+  const pts: P2[] = [at([-2.0, -4.7]), at([-0.6, -5.6]), at([1.6, -5.6]), at([2.6, -4.6]), at([2.8, -1.0]), at([2.2 + s * 0.5, 2.6]), at([0.2 + s * 0.6, 3.3]), at([-1.8 + s * 0.8, 2.9]), at([-3.6 + s, 3.2]), at([-3.1 + s * 0.8, 1.8]), at([-5.0 + s * 1.2, 1.6]), at([-3.0 + s * 0.4, -1.0])];
   plate(c, pts, UM.shroud, {
     detail: (x, y, rx, ry) => {
       // Heavy folds falling from the shoulders, the lit ridge beside each.
@@ -1154,24 +1295,9 @@ function blackRiderStatic(c: Paper): void {
       return code(UM.shroud, 2 + planeLight(rx, ry, 0.35));
     },
   });
-  // A team sash across the chest and its knot.
-  c.rod(at([-1.6, -4.6]), at([1.8, -1.6]), 0.7, 0.7, UM.team, { tone: 2 });
-  rag(c, at([1.4, -1.9]), at([2.2, -1.9]), 2.6, -0.5, UM.team, UM.teamDk, 523, { folds: false, tear: 0.4 });
-  hood(c, at([0.7, -7.0]), -4, false, UM.shroud, { eyes: false });
-  // The skull plain in the hood's dark, a black-iron gorget under it.
-  keySkull(c, at([1.0, -6.9]), 0.82, -6, null);
-  plate(c, [at([-0.6, -5.75]), at([1.9, -5.8]), at([1.7, -5.25]), at([-0.4, -5.2])], UM.iron, { tone: 2, rim: true });
-  pauldron(c, at([2.0, -5.0]), true, 0.95);
-  horseNear(c, H, p, { mane: true });
-  // The spear couched under the near arm, the arm in its sleeve.
-  const hand = at([1.6, -2.6]);
-  spear(c, hand, 116, 8.2, 3.6, { blade: 1.8 });
-  vol(c, at([-1.7, -4.4]), at([-0.5, -2.6]), 1.5, 1.3, UM.shroud, { tone: 2, caps: false });
-  vol(c, at([-0.5, -2.6]), hand, 1.3, 1.0, UM.shroud, { tone: 2, caps: false });
-  // A black-iron gauntlet on the spear, and the near pauldron over the shroud.
-  vol(c, addP(hand, [-0.9, -0.2]), hand, 0.9, 1.05, UM.iron, { tone: 2, shine: true, caps: false });
-  c.blob(hand, 0.55, 0.5, UM.iron, { tone: 1 });
-  pauldron(c, at([-1.6, -4.7]), false, 1.0);
+}
+function blackRiderStatic(c: Paper): void {
+  drawMount(c, BLACK_RIDER);
 }
 
 /** A skull worn as a pauldron (the Necromancer's): a big pale skull over the shoulder, its jaw a lip. */
@@ -1188,54 +1314,97 @@ function skullPauldron(c: Paper, at: P2, r: number, far: boolean): void {
   });
 }
 
-/** The Lich-Marshal: broad in a heavy mantle with skull pauldrons, robed to the ground, the crown, the bone staff. */
-function lichStatic(c: Paper): void {
-  const p = poseAt(LICH_KEYS, Anim.Idle, 0);
-  const F = frameOf(c, p, false, { k: 1.12 });
-  // The far hand, witchfire curling in it.
-  const fh: P2 = [3.6, -6.9];
-  vol(c, [2.6, -11.2], [3.5, -8.8], 1.5, 1.3, UM.shroud, { tone: 1, caps: false });
-  c.rod([3.5, -8.8], fh, 0.45, 0.4, UM.bone, { tone: 1 });
-  flame(c, addP(fh, [0.1, -0.2]), 1.6, 0.25, { w: 0.65 });
-  collar(c, F, 0);
-  // The robe: broad shoulders, heavy folds, a flared, torn hem on the ground.
-  robe(c, [0.4, -11.4], 5.0, 6.4, 11.3, 0.2, UM.shroud, 531);
-  lichChest(c, F, 0, 0.25);
-  c.rod([-1.6, -6.9], [2.3, -7.0], 0.42, 0.42, UM.rust, { tone: 2 });
-  // The mantle over the shoulders in team cloth, skull pauldrons on top.
-  // The mantle: one heavy team-coloured cape over both shoulders, open at the chest, its
-  // planes lit at the near shoulder and shaded down the far side, the hem torn.
-  const mantleSide = (pts: P2[], seed: number) =>
-    plate(c, pts, UM.team, {
-      seed,
-      detail: (x, y, rx, ry) => {
-        const ys = c.sy(pts.reduce((m, q) => Math.max(m, q[1]), -99));
-        if (ys - y < c.L * 0.9 && hash(Math.floor(c.lx(x) / Math.max(3, c.L * 0.7)), 2, seed) * c.L * 0.9 > ys - y) return -2;
-        const f = ((rx * 2.2 + ry * 0.3) % 1 + 1) % 1;
-        if (ry > -0.4 && f < 0.1) return code(UM.teamDk, 1);
-        if (ry > -0.4 && f < 0.2) return code(UM.team, 3);
-        const lt = planeLight(rx, ry, 0.3);
-        return lt < 0 ? code(UM.teamDk, 2) : code(UM.team, 2 + lt);
-      },
-    });
-  mantleSide([[-3.1, -11.2], [-1.7, -12.2], [-0.4, -12.0], [-0.6, -9.2], [-1.0, -6.4], [-3.4, -6.6]], 533);
-  mantleSide([[1.5, -12.0], [2.9, -12.0], [3.8, -11.0], [3.7, -6.8], [1.7, -6.9], [1.8, -9.3]], 535);
-  skullPauldron(c, [2.7, -11.4], 1.05, true);
-  c.rod([0.4, -12.2], [0.6, -12.8], 0.55, 0.5, UM.bone, { tone: 1 });
-  skull(c, [0.9, -13.4], -6, false);
-  spineCrown(c, [0.9, -13.4], -6, false, 1.1);
-  skullPauldron(c, [-2.1, -11.2], 1.2, false);
-  // The staff of bone at the near side, its caged skull and witchfire; the sleeved arm on it.
-  const hand: P2 = [-2.9, -7.0];
+/** The Lich's mantle, one side of it: heavy team cloth over the shoulder, its planes lit at the near shoulder and shaded down the far side, the hem torn. */
+function mantleSide(c: Paper, pts: P2[], seed: number): void {
+  plate(c, pts, UM.team, {
+    seed,
+    detail: (x, y, rx, ry) => {
+      const ys = c.sy(pts.reduce((m, q) => Math.max(m, q[1]), -99));
+      if (ys - y < c.L * 0.9 && hash(Math.floor(c.lx(x) / Math.max(3, c.L * 0.7)), 2, seed) * c.L * 0.9 > ys - y) return -2;
+      const f = ((rx * 2.2 + ry * 0.3) % 1 + 1) % 1;
+      if (ry > -0.4 && f < 0.1) return code(UM.teamDk, 1);
+      if (ry > -0.4 && f < 0.2) return code(UM.team, 3);
+      const lt = planeLight(rx, ry, 0.3);
+      return lt < 0 ? code(UM.teamDk, 2) : code(UM.team, 2 + lt);
+    },
+  });
+}
+/** The bone staff at the near hand: its caged skull and witchfire (`flare` grows the fire). */
+function lichStaff(c: Paper, hand: P2, flare = 0, phase = 0.25): void {
   const top = along(hand, 178, 7.4), foot = along(hand, -2, 7.0);
   c.rod(foot, top, 0.45, 0.38, UM.bone, { tone: 2, detail: (_x, _y, u, v) => (Math.abs(v - 0.72) < 0.02 || Math.abs(v - 0.8) < 0.02 ? code(UM.rust, 2) : u > -0.5 && Math.floor(v * 34) % 2 === 0 ? code(UM.bone, 1) : -1) });
   for (const d of [-35, 0, 35]) c.rod(along(top, -2, 0.4), along(along(top, 178 + d * 0.6, 1.4), 178 + d * 1.4, 0.55), 0.24, 0.08, UM.bone, { tone: d < 0 ? 3 : 2 });
   const sk = along(top, 178, 0.45);
   c.blob(sk, 0.7, 0.62, UM.bone, { tone: 3, detail: (_x, _y, nx, ny) => (Math.hypot(Math.abs(nx) - 0.35, ny - 0.05) < 0.28 ? code(UM.glow, 3) : ny > 0.55 ? code(UM.ink, 1) : -1) });
-  flame(c, along(sk, 178, 0.45), 2.2, 0.25);
-  vol(c, [-2.1, -10.8], [-3.4, -8.6], 1.6, 1.4, UM.shroud, { tone: 2, caps: false });
-  vol(c, [-3.4, -8.6], hand, 1.4, 1.2, UM.shroud, { tone: 2, caps: false });
-  c.blob(hand, 0.52, 0.46, UM.bone, { tone: 2 });
+  flame(c, along(sk, 178, 0.45), 2.2 + flare, phase);
+}
+const LICH_POSE = (): FramePose => poseAt(LICH_KEYS, Anim.Idle, 0);
+/** The Lich-Marshal: broad in a heavy mantle with skull pauldrons, robed to the ground, the spined crown, the bone staff, witchfire in the far hand. */
+export const LICH: FootArt = {
+  axis: 0.4,
+  ne: { N: 'shift', F: 'shift' },
+  J: {
+    pelvis: [0.15, -6.55], neck: [0.4, -12.2], head: [0.9, -13.4], hipN: B.hipN, hipF: B.hipF, kneeN: B.kneeN, kneeF: B.kneeF, ankN: B.ankN, ankF: B.ankF,
+    shN: [-2.1, -10.8], elN: [-3.4, -8.6], hN: [-2.9, -7.0], shF: [2.6, -11.2], elF: [3.5, -8.8], hF: [3.6, -6.9],
+  },
+  pieces: [
+    // The far arm, witchfire curling in the hand (it flares in the cast).
+    { slot: 'upperArmF', bone: 'upperArmF', draw: (c, J) => vol(c, J.shF!, J.elF!, 1.5, 1.3, UM.shroud, { tone: 1, caps: false }) },
+    {
+      slot: 'forearmF',
+      bone: 'forearmF',
+      draw: (c, J, _b, o) => {
+        c.rod(J.elF!, J.hF!, 0.45, 0.4, UM.bone, { tone: 1 });
+        const f = o.draw ?? 0;
+        flame(c, addP(J.hF!, [0.1, -0.2]), 1.6 + f * 1.4, o.phase ?? 0.25, { w: 0.65 + f * 0.35 });
+        if (o.snap) {
+          // The witchfire streaming from the thrust palm (along the forearm, beyond the fingers).
+          const d = (Math.atan2(J.hF![0] - J.elF![0], J.hF![1] - J.elF![1]) * 180) / Math.PI;
+          for (const [k, h] of [[1.6, 1.5], [3.0, 1.1], [4.2, 0.7]] as [number, number][]) flame(c, along(J.hF!, d, k), h, k * 0.3, { w: h * 0.5 });
+        }
+      },
+    },
+    { slot: 'collar', bone: 'chest', draw: (c) => collar(c, frameOf(c, LICH_POSE(), false, { k: 1.12 }), 0) },
+    // The robe: broad shoulders, heavy folds, a flared, torn hem on the ground.
+    { slot: 'cloak', bone: 'cloak', cloth: true, clothLen: 6, draw: (c, _J, back, o) => robe(c, [0.4, -11.4], 5.0, 6.4, 11.3, 0.2 + (o.sway ?? 0), UM.shroud, 531, { back }) },
+    { slot: 'torso', bone: 'chest', draw: (c, _J, back) => void (back || lichChest(c, frameOf(c, LICH_POSE(), false, { k: 1.12 }), 0, 0.25)) },
+    { slot: 'belt', bone: 'pelvis', draw: (c) => c.rod([-1.6, -6.9], [2.3, -7.0], 0.42, 0.42, UM.rust, { tone: 2 }) },
+    // The mantle over the shoulders in team cloth, skull pauldrons on top.
+    { slot: 'mantleN', bone: 'chest', draw: (c) => mantleSide(c, [[-3.1, -11.2], [-1.7, -12.2], [-0.4, -12.0], [-0.6, -9.2], [-1.0, -6.4], [-3.4, -6.6]], 533) },
+    { slot: 'mantleF', bone: 'chest', draw: (c) => mantleSide(c, [[1.5, -12.0], [2.9, -12.0], [3.8, -11.0], [3.7, -6.8], [1.7, -6.9], [1.8, -9.3]], 535) },
+    { slot: 'pauldronF', bone: 'chest', draw: (c, J) => skullPauldron(c, addP(J.shF!, [0.1, -0.2]), 1.05, true) },
+    { slot: 'neckBone', bone: 'neck', draw: (c, J) => c.rod(J.neck!, addP(J.neck!, [0.2, -0.6]), 0.55, 0.5, UM.bone, { tone: 1 }) },
+    {
+      slot: 'skull',
+      bone: 'head',
+      draw: (c, J, back) => {
+        if (back) skullBack(c, J.head!, -6, false);
+        else skull(c, J.head!, -6, false);
+        spineCrown(c, J.head!, -6, back, 1.1);
+      },
+    },
+    { slot: 'pauldronN', bone: 'chest', draw: (c, J) => skullPauldron(c, addP(J.shN!, [0, -0.4]), 1.2, false) },
+    // The staff of bone at the near side, its caged skull and witchfire; the sleeved arm on it.
+    { slot: 'weapon', bone: 'weapon', draw: (c, J, _b, o) => lichStaff(c, J.hN!, o.t ?? 0, o.phase ?? 0.25) },
+    { slot: 'upperArmN', bone: 'upperArmN', draw: (c, J) => vol(c, J.shN!, J.elN!, 1.6, 1.4, UM.shroud, { tone: 2, caps: false }) },
+    {
+      slot: 'forearmN',
+      bone: 'forearmN',
+      draw: (c, J) => {
+        vol(c, J.elN!, J.hN!, 1.4, 1.2, UM.shroud, { tone: 2, caps: false });
+        c.blob(J.hN!, 0.52, 0.46, UM.bone, { tone: 2 });
+      },
+    },
+  ],
+};
+/** The Lich's empty robe and mantle on the ground after the soul has gone. */
+export function lichHeap(c: Paper, back: boolean): void {
+  robe(c, [0.6, -2.2], 6.4, 9.0, 2.4, 0.4, UM.shroud, 539, { back });
+  rag(c, [-2.6, -2.6], [2.8, -2.7], 1.8, 0.5, UM.team, UM.teamDk, 541, { tear: 0.4, folds: false });
+  c.rod([-1.6, -1.4], [2.3, -1.2], 0.42, 0.42, UM.rust, { tone: 2 });
+}
+function lichStatic(c: Paper): void {
+  drawPieces(c, LICH);
 }
 
 const bulky = (draw: (c: Paper) => void) => (c: Paper): void => withHorseBulk(1.45, () => draw(c));

@@ -285,19 +285,25 @@ export function pottedTree(px: Px, st: CityStyle, cu: number, cv: number, seed: 
 
 /** A lantern: an iron cage with warm glass (lit at night, glowing a little by day). */
 export function lantern(px: Px, lights: V3[], u: number, v: number, z: number): void {
-  // Cap, cage and glass, then the ring it hangs from.
-  rbox(px, u - 0.6, v - 0.6, z, 1.2, 1.2, 1.6, IRON, (f, s, t, c) => (t > 0.3 && t < 1.3 && (f === 'left' || f === 'right') && s > 0.25 && s < 0.95 ? (f === 'left' ? FLAME : FLAME2) : c));
-  rbox(px, u - 0.8, v - 0.8, z + 1.6, 1.6, 1.6, 0.4, IRON);
-  dot(px, u, v, z + 2.3, IRON[2], 0, 0.5);
-  lights.push(v3(u, v, z + 0.8));
+  // A pointed cap, an iron cage of four posts round warm glass, a drip at the foot.
+  rbox(px, u - 0.8, v - 0.8, z, 1.6, 1.6, 2, IRON, (f, s, t, c) => {
+    if (f === 'top') return IRON[1];
+    const edge = s < 0.3 || s > 1.3 || t < 0.3 || t > 1.7;
+    if (edge) return f === 'left' ? IRON[1] : IRON[2];
+    return f === 'left' ? FLAME : FLAME2;
+  });
+  rbox(px, u - 1, v - 1, z + 2, 2, 2, 0.4, IRON);
+  dot(px, u, v, z + 2.8, IRON[1], 0, 0.6);
+  dot(px, u, v, z + 3.2, IRON[2], 0, 0.6);
+  lights.push(v3(u, v, z + 1));
 }
 
 /** A lamp post with an arm and a hanging lantern. */
 export function lampPost(px: Px, st: CityStyle, lights: V3[], u: number, v: number): void {
-  post(px, u, v, 0, 9, IRON[2], IRON[3]);
-  line3(px, v3(u, v, 9), v3(u + 2, v + 0.2, 9), IRON[3]);
-  lantern(px, lights, u + 2, v + 0.2, 6.6);
-  void st;
+  post(px, u, v, 0, 10, st.timber[1], st.timber[2]);
+  line3(px, v3(u, v, 9.6), v3(u + 2.2, v + 0.2, 9.6), IRON[2]);
+  line3(px, v3(u, v, 8.2), v3(u + 1.2, v + 0.1, 9.6), IRON[2]);
+  lantern(px, lights, u + 2.2, v + 0.2, 6.2);
 }
 
 /** A sign hanging from an iron bracket off a wall, perpendicular to it. */
@@ -406,16 +412,22 @@ function straw(st: CityStyle, l: number, p: V3, k: number): Col {
 export function woodPile(px: Px, st: CityStyle, u: number, v: number, n: number): void {
   const k = px.k;
   const L = 6 + Math.floor(n * 3);
+  const d = 1.6;
   for (let row = 0; row < 3; row++)
     for (let i = 0; i < 3 - row; i++) {
-      const vv = v + i * 1.3 + row * 0.65;
-      rbox(px, u + (hash(i, row, 3) - 0.5) * 0.6, vv, row * 1.1, L, 1.2, 1.15, st.timber, (f, s, t, c) => {
-        if (f === 'right') return Math.hypot(s - 0.6, t - 0.55) < 0.3 ? st.daub[1] : st.daub[0];
-        if (f === 'top') return Math.floor(s * k) % 5 === 0 ? st.timber[2] : st.timber[1];
-        return Math.floor(s * k) % 7 === 3 ? st.timber[3] : st.timber[2];
+      const vv = v + i * d + row * d * 0.5;
+      const uu = u + (hash(i, row, 3) - 0.5) * 0.8;
+      // Each log: bark along its length, a pale end with a dark ring and heart on the cut face.
+      rbox(px, uu, vv, row * d * 0.85, L, d, d, st.timber, (f, s, t, c) => {
+        if (f === 'right') {
+          const r = Math.hypot(s - d / 2, t - d / 2);
+          return r > d * 0.46 ? st.timber[3] : r < d * 0.14 ? st.daub[2] : r > d * 0.3 ? st.daub[1] : st.daub[0];
+        }
+        if (f === 'top') return t > d - 0.4 ? st.timber[3] : Math.floor(s * k) % 5 === 0 ? st.timber[2] : st.timber[1];
+        return t < 0.4 ? st.timber[3] : Math.floor(s * k) % 7 === 3 ? st.timber[3] : st.timber[2];
       });
     }
-  cyl(px, u + L + 2, v + 1.5, 0, 1.1, 1.6, (l) => lit(st.timber, l), (du, dv) => (Math.hypot(du, dv) > 0.7 ? st.daub[1] : st.daub[0]));
+  cyl(px, u + L + 2, v + 1.5, 0, 1.2, 1.8, (l) => lit(st.timber, l), (du, dv) => (Math.hypot(du, dv) > 0.8 ? st.daub[1] : st.daub[0]));
 }
 
 /** A bench against a wall. */
@@ -587,7 +599,7 @@ registerProp('sacks', {
 registerProp('hayCart', { lu: 15, lv: 5, h: 8, draw: (a) => cart(a.px, a.st, a.u, a.v, 'hay', a.n) });
 registerProp('cart', { lu: 15, lv: 5, h: 6, draw: (a) => cart(a.px, a.st, a.u, a.v, a.n > 0.5 ? 'barrels' : 'sacks', a.n) });
 registerProp('handcart', { lu: 10, lv: 4, h: 4.5, draw: (a) => cart(a.px, a.st, a.u, a.v, a.n > 0.6 ? 'sacks' : a.n > 0.3 ? 'barrels' : 'none', a.n, true) });
-registerProp('woodPile', { lu: 12, lv: 4, h: 3.4, draw: (a) => woodPile(a.px, a.st, a.u, a.v, a.n) });
+registerProp('woodPile', { lu: 12, lv: 5, h: 4, draw: (a) => woodPile(a.px, a.st, a.u, a.v, a.n) });
 registerProp('bench', { lu: 6, lv: 1.6, h: 2.6, draw: (a) => bench(a.px, a.st, a.u, a.v) });
 registerProp('benchV', { lu: 1.6, lv: 6, h: 2.6, draw: (a) => bench(a.px, a.st, a.u, a.v, false) });
 registerProp('pots', {
@@ -655,8 +667,8 @@ registerTheme('templar', {
       G(1, [['crate', 0, 0], ['bucket', 3.8, 0.6], ['sacks', 5.6, 0]]),
     ],
     door: [G(3, [['lampPost', 0, 0]], 2), G(2, [['pots', 0, 0]], 2), G(1, [['barrel', 0, 0], ['crate', 3.8, 0]]), G(1, [['signPost', 0, 0]], 3)],
-    road: [G(3, [['lampPost', 0, 0]], 3), G(1, [['bench', 0, 0]], 2), G(1, [['bush', 0, 0]]), G(1, [['pot', 0, 0]], 2), G(1, [['hurdle', 0, 0]]), G(1, [['crates', 0, 0]])],
-    yard: [G(1, [['bush', 0, 0]]), G(1, [['crates', 0, 0]]), G(1, [['bucket', 0, 0], ['barrel', 2, 0]])],
+    road: [G(3, [['lampPost', 0, 0]], 3), G(1, [['bench', 0, 0]], 2), G(1, [['pot', 0, 0]], 2), G(1, [['hurdle', 0, 0]]), G(1, [['crates', 0, 0]])],
+    yard: [G(1, [['crates', 0, 0]]), G(1, [['bucket', 0, 0], ['barrel', 2, 0]]), G(1, [['sacks', 0, 0]])],
     market: [
       G(3, [['stall', 0, 0]]),
       G(1, [['stall', 0, 0], ['sacks', 10.4, 0.6]], 3),
