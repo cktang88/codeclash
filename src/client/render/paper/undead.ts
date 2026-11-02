@@ -1180,13 +1180,13 @@ registerPaperKind<HorsePose>('undead', U.Knights, { body: 'horse', keys: DEATH_K
 // for a club. References: Total War's Necrofex Colossus and Varghulf (mass and hunch), Darkest
 // Dungeon's Bone Captain (the weight and the club), the Diablo II skeleton sheet (thin bones).
 
-const COL = poser<BeastPose>({ ...BEAST0, torso: -34, head: 16, nu: 30, nl: 40, fu: 10, fl: 30, bl: 140, nt: 18, ns: -24, ft: -12, fs: -10, hunch: 1, jaw: 0.2 });
-const halfLegs = (l: Partial<FootPose>): Partial<BeastPose> => ({ nt: 18 + (l.nt ?? 0) * 0.6, ns: -24 + (l.ns ?? 0) * 0.6, ft: -12 + (l.ft ?? 0) * 0.6, fs: -10 + (l.fs ?? 0) * 0.6, py: (l.py ?? 0) * 1.5 });
+const COL = poser<BeastPose>({ ...BEAST0, torso: -34, head: 16, nu: 45, nl: 0, fu: 10, fl: 30, bl: 135, nt: -14, ns: -10, ft: 24, fs: -30, hunch: 1, jaw: 0.2 });
+const halfLegs = (l: Partial<FootPose>): Partial<BeastPose> => ({ nt: -14 + (l.nt ?? 0) * 0.6, ns: -10 + (l.ns ?? 0) * 0.6, ft: 24 + (l.ft ?? 0) * 0.6, fs: -30 + (l.fs ?? 0) * 0.6, py: (l.py ?? 0) * 0.5 });
 export const COLOSSUS_KEYS: KeySet<BeastPose> = {
   poses: {
     [Anim.Idle]: [COL(), COL({ py: 0.25, jaw: 0.3 })],
     // A lumbering walk: the whole heap rolls from foot to foot.
-    [Anim.Walk]: WALK_LEGS.map((l, i) => COL({ ...halfLegs(l), fu: i === 0 ? 24 : i === 2 ? -6 : 10 })),
+    [Anim.Walk]: WALK_LEGS.map((l) => COL({ ...halfLegs(l) })),
     [Anim.Run]: RUN_LEGS.map((l, i) => COL({ ...halfLegs(l), torso: -44, head: 24, bl: 110, nu: 50, nl: 30, fu: i % 2 ? 40 : -10, jaw: 0.6 })),
     [Anim.Attack]: [
       // The club heaved up over the hump.
@@ -1218,6 +1218,11 @@ function heapLimb(c: Paper, a: P2, b: P2, w: number, tone: number, seed: number)
   const dx = b[0] - a[0], dy = b[1] - a[1];
   const d = Math.hypot(dx, dy) || 1;
   const n: P2 = [-dy / d, dx / d];
+  if (c.L <= 1) {
+    // At level 1 the three bones are one stroke: a 1-px bone would be noise.
+    c.rod(a, b, w * 0.95, w * 0.8, UM.char, { tone });
+    return;
+  }
   for (let i = -1; i <= 1; i++) {
     const off = mul(n, i * w * 0.42);
     const lag = 0.12 * hash(i + 2, seed, 301) * d;
@@ -1269,13 +1274,17 @@ function colossus(c: Paper, p: BeastPose, facing: Facing, _anim: Anim, frame: nu
     flame(c, [-0.6, -3.0], 1.2, (frame % 4) / 4, { w: 0.6 });
     return;
   }
-  const F = frameOf(c, p, back, { k: K });
+  // Short, bowed legs under a heavy heap: the pelvis low, the spine long.
+  const F = frameOf(c, p, back, { k: K, pelY: -5.3 * K, spine: 5.4 * K });
   const collapse = p.apart; // 0.5: the heap begins to slide
+  // A wide stance under the weight.
+  F.hipN = addP(F.pel, F.T(back ? [1.5, 0.3] : [-1.3, 0.3]));
+  F.hipF = addP(F.pel, F.T(back ? [-1.2, 0.0] : [1.5, 0.0]));
   const leg = (hip: P2, th: number, sh: number, far: boolean) => {
-    const knee = along(hip, th + F.tilt, 3.0 * K);
-    const ank = along(knee, th + sh + F.tilt, 3.1 * K);
-    heapLimb(c, hip, knee, 1.2, far ? 2 : 3, far ? 1 : 2);
-    heapLimb(c, knee, ank, 1.0, far ? 2 : 3, far ? 3 : 4);
+    const knee = along(hip, th + F.tilt, 2.6 * K);
+    const ank = along(knee, th + sh + F.tilt, 2.65 * K);
+    heapLimb(c, hip, knee, 1.2, far ? 1 : 3, far ? 1 : 2);
+    heapLimb(c, knee, ank, 1.0, far ? 1 : 3, far ? 3 : 4);
     // A broad foot of splayed toe bones.
     for (const d of [-0.4, 0, 0.4]) c.rod(ank, addP(ank, [1.5, 0.25 + d * 0.4]), 0.36, 0.22, UM.char, { tone: far ? 1 : 2 });
   };
@@ -1288,7 +1297,6 @@ function colossus(c: Paper, p: BeastPose, facing: Facing, _anim: Anim, frame: nu
     for (const d of [-30, -10, 10, 30]) c.rod(hand, along(hand, ua + la + F.tilt + d, 1.2), 0.24, 0.14, UM.char, { tone: far ? 1 : 2 });
     return hand;
   };
-  leg(F.hipF, p.ft, p.fs, true);
   arm(F.shF, p.fu, p.fl, true);
   // The heap: a hump from the hips to the shoulders, dark between the bones.
   const s: P2 = [F.neck[0] - F.pel[0], F.neck[1] - F.pel[1]];
@@ -1296,12 +1304,28 @@ function colossus(c: Paper, p: BeastPose, facing: Facing, _anim: Anim, frame: nu
   const nrm: P2 = [-s[1] / sl, s[0] / sl];
   const at = (t: number, w: number): P2 => addP(addP(F.pel, mul(s, t)), mul(nrm, w));
   const hump = 1 + collapse * 0.4;
-  const mass: P2[] = [at(-0.1, 2.0), at(0.3, 2.6), at(0.75, 2.8), at(1.05, 1.6), at(1.15, -0.6), at(1.0, -2.6 * hump), at(0.6, -3.4 * hump), at(0.15, -2.6), at(-0.12, -1.0)];
+  const mass: P2[] = [at(-0.12, 2.4), at(0.3, 3.2), at(0.75, 3.5), at(1.05, 2.2), at(1.15, -0.6), at(1.0, -3.2 * hump), at(0.6, -4.2 * hump), at(0.15, -3.2), at(-0.15, -1.2)];
+  // The hollow of the heap, dark, lit along its hump.
   c.shape(mass, (x, y) => {
-    const t = c.tex(x, y, 313, c.L >= 4 ? 3 : 2);
-    if (t < 0.28) return code(UM.ink, 1);
-    return code(UM.char, t < 0.5 ? 1 : 2);
+    const rx = (x - c.sx(F.pel[0])) / (c.L * 4), ry = (y - c.sy(F.neck[1])) / (c.L * 6) - 0.5;
+    return planeLight(rx, ry, 0.5) > 0 ? code(UM.char, 1) : code(UM.ink, 1);
   });
+  // The heap itself: long bones fused every which way over the hollow, most blackened, some
+  // bare, so it reads as a pile of the dead (the Necrofex's lashed bones) and not a rock.
+  if (c.L >= 4)
+    for (let i = 0; i < 16; i++) {
+      const t = 0.08 + (i % 4) * 0.27 + hash(i, 1, 317) * 0.12;
+      const w = -2.9 * hump + Math.floor(i / 4) * 1.55 + hash(i, 2, 317) * 0.6;
+      const ang = snapDeg(hash(i, 3, 317) * 180);
+      const mid = at(Math.min(1.05, t), Math.min(3.0, w));
+      const len = 1.3 + hash(i, 4, 317) * 1.1;
+      const a = along(mid, ang, len), b2 = along(mid, ang + 180, len);
+      const pale = hash(i, 5, 317) < 0.45;
+      const tone = 2 + planeLight((mid[0] - F.pel[0]) / 4, (mid[1] - F.neck[1]) / 6 - 0.5, 0.3);
+      c.rod(a, b2, 0.5, 0.42, pale ? UM.bone : UM.char, { tone: pale ? tone - 1 : tone + 1 });
+      c.blob(a, 0.38, 0.34, pale ? UM.bone : UM.char, { tone: tone - 1 });
+      c.blob(b2, 0.36, 0.32, pale ? UM.bone : UM.char, { tone: tone - 1 });
+    }
   // The soul-fire inside, seen through the ribs.
   c.blob(at(0.62, 0.6), 1.6, 1.4, UM.glow, { tone: 2, detail: (_x, _y, nx, ny) => (Math.hypot(nx, ny) < 0.45 ? code(UM.glow, 4) : Math.hypot(nx, ny) < 0.75 ? code(UM.glow, 3) : -1) });
   // Ribcages fused in the heap, skulls caught among them, spines along the hump.
@@ -1320,6 +1344,8 @@ function colossus(c: Paper, p: BeastPose, facing: Facing, _anim: Anim, frame: nu
   const top = addP(pole, mul(nrm, -3.2 * E));
   c.rod(pole, top, 0.3, 0.26, UM.bone, { tone: 2 });
   rag(c, top, addP(top, [-2.4, 0.3]), 3.0, c.qn(p.sway * 0.3) - 0.4, UM.team, UM.teamDk, 315, { tear: 0.55 });
+  // The far leg too comes out from under the heap's skirt of bones.
+  leg(F.hipF, p.ft, p.fs, true);
   leg(F.hipN, p.nt, p.ns, false);
   // The head: a cluster of skulls slung low in front of the hump.
   const hd = at(1.08, 1.4);
