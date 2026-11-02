@@ -280,18 +280,20 @@ function armS(c: Paper, sh: P2, el: P2, wr: P2, k: SKit, far: boolean): void {
   handS(c, el, wr, k, far);
 }
 /** The upper arm and the elbow. */
+/** An arm's tone: the far one in shade; at level 1 the near one lit (it is the top-left of the dark mass, where the light falls). */
+const armTone = (c: Paper, far: boolean): number => (far ? 1 : c.L < 2 ? 4 : 2);
 export function upperArmS(c: Paper, sh: P2, el: P2, k: SKit, far: boolean): void {
-  const t = far ? 1 : 2;
+  const t = armTone(c, far);
   vol(c, sh, el, [[0, 0.78], [0.25, 0.72], [0.75, 0.6], [1, 0.56]], k.sleeve, { tone: t });
   blob(c, el, 0.6, 0.58, k.sleeve, { tone: t });
 }
 export function forearmS(c: Paper, el: P2, wr: P2, k: SKit, far: boolean): void {
-  vol(c, el, wr, [[0, 0.56], [0.35, 0.62], [0.8, 0.54], [1, 0.58]], k.sleeve, { tone: far ? 1 : 2 });
+  vol(c, el, wr, [[0, 0.56], [0.35, 0.62], [0.8, 0.54], [1, 0.58]], k.sleeve, { tone: armTone(c, far) });
 }
 /** The fist, a little past the wrist. */
 export const handAt = (el: P2, wr: P2): P2 => addP(wr, mul(sub(wr, el), 0.18));
 export function handS(c: Paper, el: P2, wr: P2, k: SKit, far: boolean): void {
-  blob(c, handAt(el, wr), 0.55, 0.52, k.hand, { tone: far ? 1 : 2 });
+  blob(c, handAt(el, wr), 0.55, 0.52, k.hand, { tone: armTone(c, far) });
 }
 
 /**
@@ -322,6 +324,9 @@ function torsoS(c: Paper, k: SKit, back: boolean): void {
     const side = ux + (uy + 9) * 0.12;
     let t = side < -1.25 ? 3 : side > 1.35 ? 1 : 2;
     if (uy < -10.6 && ux < 1.0) t = Math.max(t, 3); // shoulders' top plane
+    // At level 1 (three tones) the form is one gradient: the chest catches the light, the skirt
+    // below the belt falls into shade, so the light reads from above.
+    if (c.L < 2) t = uy < -9.4 && side < -0.4 ? 4 : uy < -8.45 ? 2 : 1;
     // Belt, with a buckle and a strap end hanging.
     if (uy > -8.45 && uy < -7.95) {
       if (Math.abs(ux - (back ? -0.6 : 0.45)) < 0.32) return code(TM.steel, uy < -8.2 ? 4 : 2);

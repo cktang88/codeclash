@@ -10,7 +10,7 @@ import {
   BREATH, bonesFromJoints, EASE, EASE_IN, EASE_OUT, skeletonKind, smearPart,
   type AnimationData, type AnimEvent, type AttachmentSet, type FacingClips, type Track, type Clip, type JointDef, type SkeletonData, type SkeletonRig, type SlotData,
 } from './skeleton.ts';
-import { paintAs, TM } from './templar-parts.ts';
+import { bow, paintAs, TM } from './templar-parts.ts';
 import { buildAnim, facingClip, lagCloth, partMap, skinMap, smooth01, type ClipSet, type KP, type LagSpec, type Weights } from './templar-rig.ts';
 import { mocapFootClips } from './templar-clips.ts';
 import { FOOT, handAt, manPiece, manRest, withMap, type ManPiece, type ManRest, type SGear, type SKit } from './templar-static.ts';
@@ -198,6 +198,23 @@ function footParts(k: SKit, g: SGear, s: FootSpec, dark: boolean): AttachmentSet
     atts[p] = (c, x, ctx) => {
       const f = ctx.posed.facing;
       paintAs(c, dark, () => withMap(partMap(x), () => manPiece(c, k, g, piece, rest[f], { rig: true, back: f === 'ne' })));
+    };
+  }
+  if (s.shoot === 'bow') {
+    // The bow, drawn on the frame: from the `draw` event to the loose its string runs to the draw
+    // hand, the stave bends and an arrow lies on it.
+    atts.farItem = {
+      cache: false,
+      draw: (c, x, ctx) => {
+        const drawing = ctx.events.some((e) => e.name === 'draw');
+        const hn = ctx.posed.byName.handN!;
+        const nock: P2 = [hn.tx, hn.ty];
+        const deg = (s.farDeg ?? 174) + x.turned * 7.5;
+        paintAs(c, dark, () => {
+          bow(c, x.o, deg, 13.4, drawing ? 1 : 0, drawing ? nock : null);
+          if (drawing) c.rod(nock, [x.o[0] + (x.o[0] - nock[0]) * 0.25, x.o[1] + (x.o[1] - nock[1]) * 0.25], 0.14, 0.12, TM.ash, { tone: 3 });
+        });
+      },
     };
   }
   if (s.smear) {

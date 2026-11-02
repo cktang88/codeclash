@@ -626,4 +626,4 @@ export type { Rig };
 
 // The kinds rebuilt on bones from the approved key art (templar-foot.ts) replace their pose-rig
 // figures above.
-registerFootRigs([0]);
+registerFootRigs([0, 1, 2, 3, 4, 8]);

@@ -6,7 +6,7 @@
 import { Anim } from '../contract.ts';
 import type { P2 } from './core.ts';
 import type { Facing } from './facing.ts';
-import { BREATH, type AnimEvent, type Clip, type SkeletonData } from './skeleton.ts';
+import { BREATH, type AnimationData, type AnimEvent, type Clip, type SkeletonData } from './skeleton.ts';
 import { facingClip, lagCloth, mocapKeys, overlayKeys, restWorld, type ClipSet, type KP, type LagSpec, type MocapOpts, type Track } from './templar-rig.ts';
 
 /** What the clips need to know of a kind (templar-foot.ts FootSpec). */
@@ -159,6 +159,13 @@ function mk(skel: SkeletonData, f: Facing, clip: string, o: MocapOpts, author?: 
   return { keys: overlayKeys(keys, tr, extra), ev: mc.events.map((e) => ({ ...e })) };
 }
 
+/** A slot shows nothing from frame `from` until `to` (a thrown weapon gone from the hand). */
+function hideSlot(c: Clip, slot: string, from: number, to: number): Clip {
+  const b = c as { byFacing: Record<string, AnimationData> };
+  const keys = [{ f: 0, v: slot }, { f: from, v: null }, { f: to, v: slot }];
+  return { byFacing: Object.fromEntries(Object.entries(b.byFacing).map(([f, a]) => [f, { ...a, slots: { ...(a.slots ?? {}), [slot]: keys } }])) };
+}
+
 /** Every Anim of a foot kind. */
 export function mocapFootClips(skel: SkeletonData, s: ClipSpec): ClipSet {
   const fc = (name: string, n: number, loop: boolean, keys: (f: Facing) => { keys: KP[]; ev: AnimEvent[] }, ev?: AnimEvent[], run = 0): Clip => {
@@ -172,7 +179,7 @@ export function mocapFootClips(skel: SkeletonData, s: ClipSpec): ClipSet {
   };
   const sword = s.attack === 'cut' || s.attack === 'punch';
   // Locomotion: the march (drilled troops) and the run; the arm that carries the weapon swings from the capture, the shield arm rides with the trunk.
-  const gaitArms = (g: number): MocapOpts['arms'] => ({ N: sword ? g : s.attack === 'thrust' ? 0.25 : 0.35, F: s.farHeld ? 0 : g });
+  const gaitArms = (g: number): MocapOpts['arms'] => ({ N: sword ? g : s.attack === 'thrust' ? 0.25 : 0.35, F: s.farHeld ? 0 : s.shoot === 'bow' ? g * 0.4 : g });
   const walk = fc('walk', 12, true, (f) => mk(skel, f, 'walk', { ref: 'mean', torso: 0.5, arms: gaitArms(0.45), roll: 0.5, feet: 0.9 }), undefined, 0.3);
   const runLean: Author = () => ({ dw: { spine: T([0, -13]), head: T([0, 8]), ...(s.farHeld ? { forearmF: T([0, 12]) } : {}), ...(sword ? { forearmN: T([0, 50]) } : {}) } });
   const run = fc('run', 12, true, (f) => mk(skel, f, 'run', { ref: 'mean', torso: 0.5, arms: gaitArms(0.7), roll: 0.5 }, runLean), undefined, 1);
@@ -196,10 +203,14 @@ export function mocapFootClips(skel: SkeletonData, s: ClipSpec): ClipSet {
   };
   const attack = fc('attack', 12, false, atk, smearAt[s.attack]);
   let shoot = attack;
-  if (s.shoot === 'javelin') shoot = fc('shoot', 12, false, (f) => mk(skel, f, 'javelin', { torso: 0.7, travel: 1, feet: 1 }, JAVELIN, [2]));
-  if (s.shoot === 'bow') shoot = fc('shoot', 12, false, (f) => mk(skel, f, 'bow', { torso: 0.5, travel: 1, feet: 0.5 }, BOW, [2, 4, 8]));
+  // The javelin leaves the hand at the release; the last frame takes the next from the bundle.
+  if (s.shoot === 'javelin') shoot = hideSlot(fc('shoot', 12, false, (f) => mk(skel, f, 'javelin', { torso: 0.7, travel: 1, feet: 1 }, JAVELIN, [2])), 'weapon', 5, 11);
+  // The string comes back with the draw hand from the draw to the loose (the `draw` event).
+  if (s.shoot === 'bow') shoot = fc('shoot', 12, false, (f) => mk(skel, f, 'bow', { torso: 0.5, travel: 1, feet: 0.5 }, BOW, [2, 4, 8]), [{ f: 3, name: 'draw', len: 4 }, { f: 7, name: 'release' }]);
   if (s.shoot === 'crossbow') shoot = fc('shoot', 12, false, (f) => mk(skel, f, 'brace', { ref: 'first', torso: 0, travel: 0.4, feet: 0 }, CROSSBOW, [2, 3, 5, 7, 9, 11]), [{ f: 3, name: 'release' }]);
-  const hit = fc('hit', 5, false, (f) => mk(skel, f, 'hit', { torso: 0, absHeight: true, travel: 0.55, feet: 0.6 }, HIT, [1, 2]));
+  // A long spear stays upright in the fist while the body recoils.
+  const hitA: Author = (rw) => ({ ...HIT(rw), ...(s.attack === 'thrust' ? { w: { weapon: T([0, rw.weapon! - 4], [1, rw.weapon! - 6], [4, rw.weapon!]) } } : {}) });
+  const hit = fc('hit', 5, false, (f) => mk(skel, f, 'hit', { torso: 0, absHeight: true, travel: 0.55, feet: 0.6 }, hitA, [1, 2]));
   const dieName = s.die === 'back' ? 'die-back' : 'die-forward';
   const dieKeys = (f: Facing) => mk(skel, f, dieName, { torso: 1, absHeight: true, legsFK: true, arms: { N: 1, F: s.farHeld ? 0 : 1 } }, s.die === 'back' ? DIE_BACK : DIE_FWD);
   const die = fc('die', 12, false, dieKeys, [{ f: 9, name: 'land' }]);
