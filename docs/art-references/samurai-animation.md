@@ -75,6 +75,19 @@ committed; the screenshots in `docs/screenshots/hd-sprites/samurai-anim-*.png` a
 - The jacket is dyed deep in the army colour (`samurai.lacTeam`): in the bright flag colour the
   figure's mean value sat on the field's.
 
+### Yumi Ashigaru (3)
+- **Idle** is the key art: the yumi upright in the bow hand, an arrow in the other, the ebira at the
+  hip. **Walk/Run**: the bow carried upright and steady, the arrow hand at the side.
+- **Shoot: kyūdō's hassetsu** on the bow capture (the daikyū photograph for the full draw): 0 the
+  stance; 1 the arrow nocked (the arrow in the hand goes onto the string); 2-3 *uchiokoshi*, the bow
+  raised above the head in both arms; 4-5 *hikiwake*, the bow coming down to the target as the arms
+  open; 5-6 *kai*, the bow arm straight at shoulder height, the draw hand behind the ear with the
+  elbow high and back, the arrow at the mouth line; 7 *hanare*, the draw hand flies straight back
+  and the bow turns in the hand (*yugaeri*); 8-9 *zanshin*, both arms out in one line, held;
+  10-11 the bow lowered, a new arrow from the ebira. The string runs to the draw hand and the yumi
+  bends with the draw's length (the bow part reads the frame).
+- **Attack**: a stab with the arrow in the fist on a step.
+
 ## Critique rounds
 
 ### Katana Samurai
@@ -115,6 +128,14 @@ committed; the screenshots in `docs/screenshots/hd-sprites/samurai-anim-*.png` a
 2. **Round 2.** The mean value of the bright happi sat on the field (lint): deep-dyed jacket.
 3. **Round 3.** Walk carry: the cocked javelin overhead in the walk would sweep through the head
    zone; it rides at the shoulder instead.
+
+### Yumi Ashigaru
+1. **Round 1.** The loose came a frame late (kai held on 7) and the draw hand flew *up*: hanare is on
+   7 now and the hand goes straight back along the arrow's line, as in the zanshin of the photograph.
+2. **Round 2.** Against the daikyū photograph: the bow is gripped a third of the way up (the upper
+   limb towers over the head) and the draw hand ends behind the ear, not at the chin.
+3. **Round 3.** The bow sweeping in the walk would boil the top of the sprite: the bow arm holds the
+   key-art pose in the gait.
 
 Katana Samurai lint (level 1/2/4/8): no FAIL. Warnings left: aligned band ends 0.24-0.30, outline and figure vs
 ground ΔL 0.07-0.13, light-angle error at levels 1-2, mid-widest silhouettes. Level-1 silhouette:
