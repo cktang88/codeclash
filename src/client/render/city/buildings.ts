@@ -49,6 +49,11 @@ export interface Art {
   night?: HTMLCanvasElement | null;
   /** Sort key: u + v of the part's centre. */
   d: number;
+  /**
+   * HD: the art's lights canvas already carries its own light pools (lit wall and ground pixels
+   * round each window), so the scene adds no generic glow for it.
+   */
+  pooled?: boolean;
 }
 
 export interface BuildingParts {
