@@ -129,8 +129,14 @@ export function grammarReady(g: Grammar): boolean {
  * About a second of parsing at worst; this repository's largest commit of the last 80 uses a third.
  */
 export const PARSE_BYTES_PER_PUSH = 1_000_000;
-/** Milliseconds one file may spend parsing before it falls back to keywords. */
-export const PARSE_MS_PER_FILE = 250;
+/**
+ * Parser work one file may spend before it falls back to keywords, counted in tree-sitter's progress
+ * checks (one per hundred parser operations, so the same text always costs the same, however busy the
+ * machine): a pathological file stops at about half a second's parsing, as a wall-clock deadline did, but
+ * the result no longer depends on load. Ordinary code costs one check per ~90 bytes; this repository's
+ * largest source file, parsed whole, takes 1,600.
+ */
+export const PARSE_CHECKS_PER_FILE = 6_000;
 
 export interface ParseBudget {
   bytes: number;
@@ -441,17 +447,23 @@ interface Parsed {
   definitions: number;
 }
 
-function parseBest(parser: TsParser, g: Grammar, text: string, deadline: number): Parsed | null {
+function parseBest(parser: TsParser, g: Grammar, text: string, work: { checks: number }): Parsed | null {
   let best: Parsed | null = null;
   for (const v of variants(g, text)) {
-    if (performance.now() > deadline) return null;
+    if (work.checks > PARSE_CHECKS_PER_FILE) return null;
     let tree: ReturnType<TsParser['parse']>;
     try {
-      tree = parser.parse(v.text, null, { progressCallback: (() => performance.now() > deadline) as unknown as () => void });
+      tree = parser.parse(v.text, null, { progressCallback: (() => ++work.checks > PARSE_CHECKS_PER_FILE) as unknown as () => void });
     } catch {
+      parser.reset();
       return null;
     }
-    if (!tree) return null;
+    if (!tree) {
+      // A cancelled parse is kept to be resumed: without a reset the next parse, of any text, would
+      // continue this one and return its tree.
+      parser.reset();
+      return null;
+    }
     let flat: ReturnType<typeof flatten>;
     try {
       flat = flatten(tree, v.text, parser.language!);
@@ -501,7 +513,8 @@ function readFile(path: string, newFile: readonly NewSideLine[], budget: ParseBu
   if (!parser) return null;
   const spec = SPECS[g];
   const facts: FileFacts = { functions: [], imports: [] };
-  const deadline = performance.now() + PARSE_MS_PER_FILE;
+  // Every variant of every hunk of the file draws on one work budget.
+  const work = { checks: 0 };
   const imports: { row: number; module: string; names: Binding[] }[] = [];
   const uses = new Set<string>();
   // A definition or an import that counts starts on an added line, so a hunk whose added lines
@@ -517,7 +530,7 @@ function readFile(path: string, newFile: readonly NewSideLine[], budget: ParseBu
       const text = lines.map((l) => l.text).join('\n');
       budget.bytes -= text.length;
       if (budget.bytes < 0) return null;
-      const parsed = parseBest(parser, g, text, deadline);
+      const parsed = parseBest(parser, g, text, work);
       if (!parsed) return null;
       const added = (row: number) => {
         const i = row - parsed.offset;

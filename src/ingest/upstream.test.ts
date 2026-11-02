@@ -193,6 +193,33 @@ describe('a fork’s difficulty bonus waits for the upstream', () => {
     for (let d = pushDay; d < pushDay + 5; d++) expect(t.store.upstreamDay(MAINTAINER.id, d).credited).toBe(UPSTREAM_PER_DAY);
   });
 
+  it('a reward the game could not take is not recorded as paid, and is delivered on a later run', () => {
+    const t = setup();
+    const today = pushDay + 3;
+    t.store.addUpstreamPending({ userId: MAINTAINER.id, pushId: 'p', repo: FORK_REPO, upstream: VITE_REPO, branch: 'main', ref: BRANCH, head: '1'.padStart(40, '0'), shas: [], patchId: null, day: pushDay, at: pushDay * DAY, bonusMilli: 50_000, effortMilli: 0, nextCheckAt: 0 });
+    t.store.setUpstreamDayTotals(MAINTAINER.id, pushDay, 0, 0);
+    for (const r of t.store.upstreamPendingOf(MAINTAINER.id)) t.store.updateUpstream(r.id, { status: 'upstream', checks: 1, nextCheckAt: 0, foundAt: today * DAY });
+    const delivered: UpstreamRewardEvent[] = [];
+    let down = true;
+    const watcher = new UpstreamWatcher({
+      store: t.store, github: t.github, clock: () => today * DAY, log: silentLogger,
+      onReward: (r) => {
+        if (down) throw new Error('database is locked');
+        delivered.push(r);
+      },
+    });
+    expect(() => watcher.settle(today * DAY + 1)).not.toThrow();
+    expect(t.store.upstreamDay(MAINTAINER.id, pushDay).credited).toBe(0);
+    expect(t.store.upstreamPaid(MAINTAINER.id, today)).toBe(0);
+    expect(t.store.unsettledUpstreamDays(today)).toEqual([{ userId: MAINTAINER.id, day: pushDay }]);
+    down = false;
+    watcher.settle(today * DAY + 2);
+    expect(delivered.map((r) => r.bonus)).toEqual([50]);
+    expect(t.store.upstreamDay(MAINTAINER.id, pushDay).credited).toBe(50);
+    watcher.settle(today * DAY + 3);
+    expect(delivered).toHaveLength(1);
+  });
+
   it('keeps within the REST budget: no checks below the reserve, and caches what never changes', async () => {
     const t = setup();
     installViteFork(t.github);

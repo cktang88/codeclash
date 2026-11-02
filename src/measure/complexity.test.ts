@@ -1,5 +1,5 @@
-import { beforeAll, describe, expect, it } from 'vitest';
-import { analyzeFile, grammarOf, lineBranches, loadAllGrammars, parseBudget } from './complexity.ts';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { analyzeFile, grammarOf, lineBranches, loadAllGrammars, PARSE_CHECKS_PER_FILE, parseBudget } from './complexity.ts';
 import { measurePush, MemoryLedger } from './ledger.ts';
 
 beforeAll(() => loadAllGrammars());
@@ -109,4 +109,35 @@ describe('functions and imports in a hunk', () => {
     const d = measurePush([{ filename: 'src/billing/settle.ts', status: 'added', additions: src.length, deletions: 0, patch }], new MemoryLedger());
     expect({ branches: d.branches, functions: d.functions, links: d.links, modules: d.modules }).toEqual({ branches: 2, functions: 3, links: 2, modules: 1 });
   });
+
+  it('a file measures the same however slow the machine is: the parse budget counts work, not time', () => {
+    const src = ['function settle(order) {', '  const total = sum(order.items);', '  charge(order.card, total);', '  return total;', '}'].join('\n');
+    const calm = analyzeFile('src/settle.ts', added(src), parseBudget());
+    expect(calm?.functions).toHaveLength(1);
+    // A clock that leaps a second at every look, as on a machine stalled by other work.
+    let t = 0;
+    const clock = vi.spyOn(performance, 'now').mockImplementation(() => (t += 1000));
+    try {
+      expect(analyzeFile('src/settle.ts', added(src), parseBudget())).toEqual(calm);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it('gives up on a file whose parsing takes too much work, the same way every time', () => {
+    // Past the per-file budget, inside a large byte budget.
+    // A plain call costs about 0.45 checks, so this is some 20% over.
+    const n = Math.ceil((PARSE_CHECKS_PER_FILE / 0.45) * 1.2);
+    const lines = ['function big() {', ...Array.from({ length: n }, (_, i) => `  step${i}(a, b, c);`), '}'];
+    expect(analyzeFile('src/big.ts', added(lines.join('\n')), { bytes: 100_000_000 })).toBeNull();
+    expect(analyzeFile('src/big.ts', added(lines.join('\n')), { bytes: 100_000_000 })).toBeNull();
+    // The abandoned parse is not resumed by the next one, of another text.
+    const after = ['function settle(order) {', '  const total = sum(order.items);', '  charge(order.card, total);', '  return total;', '}'];
+    expect(analyzeFile('src/big.ts', added(lines.join('\n')), { bytes: 100_000_000 })).toBeNull();
+    expect(analyzeFile('src/settle.ts', added(after.join('\n')), parseBudget())).toEqual({ functions: [{ header: 0, rows: [1, 2, 3] }], imports: [] });
+    expect(analyzeFile('src/big.ts', added(lines.join('\n')), { bytes: 100_000_000 })).toBeNull();
+    expect(lineBranches('x.ts', 'if (ready && armed) fire();')).toBe(2);
+    // A quarter of it is ordinary work, and parses.
+    expect(analyzeFile('src/big.ts', added([...lines.slice(0, Math.floor(n / 4)), '}'].join('\n')), { bytes: 100_000_000 })?.functions).toHaveLength(1);
+  }, 60_000);
 });
