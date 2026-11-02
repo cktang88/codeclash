@@ -564,12 +564,37 @@ export function paintProps(placed: Placed[], st: CityStyle, frame: Frame, inShad
  */
 export const SUN: [number, number] = [0.62, -0.2];
 
+/** A town's sun: the cast per unit of height, and the cast shadow's colour and depth (umbra mix). */
+export interface Sun {
+  dir: [number, number];
+  shade: Col;
+  /** How far the umbra moves a ground colour toward `shade` (the softer tip takes about 0.6 of it). */
+  depth: number;
+}
+/**
+ * The sun per faction: the commandery's low golden-hour sun throws long shadows (about 1.7× the
+ * old cast) in a deep blue-violet; the castle town's is lower still and cooler; the necropolis's
+ * a pale low sun over violet-black. Others keep the old noon cast.
+ */
+export function sunFor(id: string): Sun {
+  switch (id) {
+    case 'templar':
+      return { dir: [1.04, -0.34], shade: hex('#24245c'), depth: 0.52 };
+    case 'samurai':
+      return { dir: [1.1, -0.36], shade: hex('#262a64'), depth: 0.5 };
+    case 'undead':
+      return { dir: [0.95, -0.31], shade: hex('#1c1830'), depth: 0.44 };
+    default:
+      return { dir: SUN, shade: hex('#2a2c50'), depth: 0.42 };
+  }
+}
+
 /** 0..1: how deep in the cast shadow of any footprint (u, v) lies (1 in the umbra, less at the tip). */
-export function shadowAt(u: number, v: number, casts: Footprint[]): number {
+export function shadowAt(u: number, v: number, casts: Footprint[], sun: [number, number] = SUN): number {
   let best = 0;
   for (const f of casts) {
-    const lu = SUN[0] * f[4];
-    const lv = SUN[1] * f[4];
+    const lu = sun[0] * f[4];
+    const lv = sun[1] * f[4];
     // Quick reject on the swept box.
     if (u < f[0] || u > f[2] + lu || v > f[3] || v < f[1] + lv) continue;
     // t range where (u, v) - t·L lies inside the footprint.

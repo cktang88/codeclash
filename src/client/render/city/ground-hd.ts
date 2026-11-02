@@ -8,7 +8,7 @@ import type { BuildingKey } from '../../../game/city.ts';
 import { GATE_V, LOT, tierOf, WALL, type Art } from './buildings.ts';
 import { FIELDS, GARDEN, PADDOCK, type Ground } from './ground.ts';
 import { box, hash, hex, mix, nightCanvas, post, Px, sx, sy, tone, v3, type Col, type Footprint, type Frame } from './pixels.ts';
-import { shadowAt, SUN } from './props.ts';
+import { shadowAt, sunFor } from './props.ts';
 import { roadDistance } from './roads.ts';
 import type { CityStyle } from './style.ts';
 
@@ -162,7 +162,7 @@ function* staticGround(id: string, frame: Frame): Generator<void, Uint32Array> {
     yield;
     meadow(px, frame);
     yield;
-    treeShade(px, treesFor(id));
+    treeShade(px, treesFor(id), id);
   }
   STATIC.set(key, px.data);
   return px.data;
@@ -325,13 +325,14 @@ function meadow(px: Px, frame: Frame): void {
  * Tree shadows with dappled light: each tree casts a cool shadow along the sun, broken by flecks
  * of warm sunlight that come through the canopy (3×2 cell clusters, never single pixels).
  */
-function treeShade(px: Px, trees: [number, number, number][]): void {
-  const shade = hex('#2a2c50');
+function treeShade(px: Px, trees: [number, number, number][], id: string): void {
+  const sun = sunFor(id).dir;
+  const shade = sunFor(id).shade;
   const sunC = hex('#c8a85a');
   for (const [tu, tv, r] of trees) {
     const h = r * 1.8;
-    const cu = tu + SUN[0] * h;
-    const cv = tv + SUN[1] * h;
+    const cu = tu + sun[0] * h * 0.75;
+    const cv = tv + sun[1] * h * 0.75;
     const ru = r * 1.15;
     const rv = r * 0.95;
     const x0 = Math.floor(px.X(cu - ru, cv + rv)) - 2;
@@ -451,18 +452,19 @@ export function* groundSteps(st: CityStyle, levels: Record<BuildingKey, number>,
   if (casts) {
     // Cast shadows from everything that stands on the ground (the buildings' recorded footprints
     // and the props), swept along the sun: deep and cool, softer at the tip.
-    const shade = id === 'undead' ? hex('#1c1830') : id === 'templar' ? hex('#26265a') : hex('#2a2c50');
+    const sun = sunFor(id);
+    const shade = sun.shade;
     for (const f of casts) {
-      const lu = SUN[0] * f[4];
-      const lv = SUN[1] * f[4];
+      const lu = sun.dir[0] * f[4];
+      const lv = sun.dir[1] * f[4];
       region(f[0], Math.min(f[1], f[1] + lv), f[2] + lu, f[3], (i, u, v) => {
-        const s = shadowAt(u, v, [f]);
+        const s = shadowAt(u, v, [f], sun.dir);
         if (!s || shadowed[i]! >= s) return;
         const was = shadowed[i]!;
         shadowed[i] = s;
         const c = was ? unshade[i]! : data[i]!;
         if (!was) unshade[i] = c;
-        data[i] = mix(c, shade, id === 'templar' ? (s >= 1 ? 0.5 : 0.32) : s >= 1 ? 0.42 : 0.26);
+        data[i] = mix(c, shade, s >= 1 ? sun.depth : sun.depth * 0.62);
       });
     }
   } else

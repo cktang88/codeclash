@@ -21,7 +21,7 @@ import { Draw, Life, type Ent, type Mood } from './city/life.ts';
 import { Folk } from './city/people.ts';
 import { FolkHd } from './city/people-hd.ts';
 import { CLASSIC, css, HD, WORLD_H, WORLD_W, type Footprint, type Frame } from './city/pixels.ts';
-import { paintProps, placeProps, propShadows, shadowAt, type PaintedProps } from './city/props.ts';
+import { paintProps, placeProps, propShadows, shadowAt, sunFor, type PaintedProps } from './city/props.ts';
 import { styleFor, type CityStyle } from './city/style.ts';
 import './city/samurai.ts';
 import './city/undead.ts';
@@ -246,7 +246,7 @@ export class CityScene {
       propsKey = built.map((f) => f.map((x) => Math.round(x)).join(',')).join(';');
       if (this.props?.key !== propsKey) {
         const placed = placeProps({ faction: st.id, seed: this.seed, levels, footprints, clear: treesFor(st.id).map(([u, v, r]) => [u, v, r * 0.7] as [number, number, number]) });
-        const painted = paintProps(placed, st, this.frame, (u, v) => shadowAt(u, v, built), rigFor(st.id));
+        const painted = paintProps(placed, st, this.frame, (u, v) => shadowAt(u, v, built, sunFor(st.id).dir), rigFor(st.id));
         this.props = { key: propsKey, casts: [...built, ...propShadows(placed)], painted };
       }
       const gk = groundKey(st, levels, maxLevel) + '|' + propsKey.length + ':' + hashStr(propsKey);
