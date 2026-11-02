@@ -23,7 +23,7 @@ export interface FootClipSpec {
   lie?: number;
   /** A wraith: it glides, the feet sliding under the hem. */
   glide?: boolean;
-  brace: 'shield' | 'spear' | 'ready' | 'staff';
+  brace: 'shield' | 'spear' | 'ready' | 'staff' | 'aim';
   die: 'back' | 'forward' | 'crumple' | 'dissolve';
   /** The far arm carries a shield or a two-handed grip (it stays with the torso). */
   farHeld: boolean;
@@ -231,6 +231,39 @@ const BOW_SHOT: Author = (rw) => ({
   t: { nock: [T([0, 0]), T([0, 0], [2, 0.1], [3, -0.8], [4, -1.8], [5, -2.8], [6, -3.3], [6.5, -3.3], [7, 2.8], [9, 2.8], [10, 0.6], [11, 0])] },
   ik: { armN2h: T([0, 1], [6.5, 1], [7, 0], [9.5, 0], [10, 1]) },
 });
+/**
+ * The Revenant's shot and its crank-spanning reload (crossbow, cranequin variant): the stock
+ * comes up to the cheek (1); the loose, a jolt up and back (2), held (3); the bow tipped nose-down
+ * to the ground at the feet, the body stooping over it (4); the far hand winds the cranequin at
+ * the butt, two turns, the string creeping back, the jaw clacking with the effort (5-8); the bow
+ * comes up spanned (9), a bolt is laid in the groove (10), and back to the hip (11).
+ */
+const CRANK: Author = (rw) => ({
+  w: {
+    upperArmN: R(rw.upperArmN!, 11, [1, 40], [2, 36], [3, 38], [4, 30], [8, 30], [9, 10], [10, 0]),
+    forearmN: R(rw.forearmN!, 11, [1, 150], [2, 156], [3, 152], [4, 70], [8, 70], [9, 90], [10, 70]),
+    weapon: R(rw.weapon!, 11, [1, 90], [2, 80], [3, 86], [4, 4], [8, 4], [9, 70], [10, 86]),
+  },
+  dw: {
+    spine: T([0, 0], [1, -4], [2, 2], [3, -2], [4, -34], [8, -34], [9, -8], [11, 0]),
+    head: T([0, 0], [1, -8], [2, -2], [3, -6], [4, 14], [8, 14], [9, 0], [11, 0]),
+    jaw: T([0, -8], [2, -26], [3, -10], [5, -22], [6, -2], [7, -22], [8, -2], [9, -8]),
+  },
+  tAdd: { pelvis: [T([0, 0], [2, -0.2], [3, -0.1], [4, 0.3], [8, 0.3], [10, 0], [11, 0]), T([0, 0], [4, 1.5], [8, 1.5], [9, 0.4], [11, 0])] },
+  // The far hand leaves the fore-stock for the cranequin's handle at the butt (in the stock's own
+  // frame: 4.5 back along it), and turns it a quarter a frame, twice round; then lays the bolt.
+  t: { grip2: [T([0, 0], [4, 0], [5, 1.0], [6, 0], [7, -1.0], [8, 0], [9, 0.6], [10, 0], [11, 0]), T([0, 0], [3, 0], [4, -4.0], [5, -4.5], [6, -5.5], [7, -4.5], [8, -3.5], [9, -2.0], [10, -1.2], [11, 0])] },
+});
+/** The crossbow's butt rammed forward into a face: drawn back, the stock driven, held, recovered. */
+const BUTT: Author = (rw) => ({
+  w: {
+    upperArmN: R(rw.upperArmN!, 11, [3, rw.upperArmN! - 30], [5, rw.upperArmN! + 55], [6, rw.upperArmN! + 58], [9, rw.upperArmN! + 10]),
+    forearmN: R(rw.forearmN!, 11, [3, rw.forearmN! - 20], [5, rw.forearmN! + 40], [6, rw.forearmN! + 42]),
+    weapon: R(rw.weapon!, 11, [3, rw.weapon! - 40], [5, rw.weapon! + 50], [6, rw.weapon! + 52], [9, rw.weapon! + 10]),
+  },
+  dw: { spine: T([0, 0], [3, 10], [5, -18], [6, -18], [9, -4], [11, 0]), jaw: T([0, -8], [3, -4], [5, -34], [6, -34], [8, -6], [11, -8]) },
+  tAdd: { pelvis: [T([0, 0], [3, -0.4], [5, 0.6], [6, 0.65], [9, 0.2], [11, 0]), T([0, 0], [5, 0.2], [11, 0])], footTargetF: [T([0, 0], [3, 0], [5, 0.9], [6, 0.9], [9, 0.3], [11, 0]), T([0, 0], [3, 0], [4, -0.5], [5, 0], [11, 0])] },
+});
 export const SHOOTS: Record<'javelin', { clip: string; o: MocapOpts; a: Author; extra: number[]; ev: AnimEvent[]; warp: number[]; hide?: [string, number, number] }> = {
   javelin: { clip: 'javelin', o: { torso: 0.6, travel: 0.6, feet: 0.8 }, a: HURL, extra: [1, 2, 3, 4, 5, 6, 8, 10], ev: [{ f: 4, name: 'smear', len: 1, bone: 'weapon' }, { f: 5, name: 'release' }], warp: [0, 1, 2, 3, 3, 5, 6, 7, 8, 9, 10, 11], hide: ['weapon', 5, 10] },
 };
@@ -240,7 +273,7 @@ const ATTACKS: Record<FootAttack, { clip: string; o: MocapOpts; a: Author; extra
   lunge: { clip: 'thrust', o: { torso: 0.3, travel: 0.3, feet: 0.3 }, a: LUNGE, extra: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], ev: [{ f: 4, name: 'smear', len: 1, bone: 'weapon' }, { f: 5, name: 'strike' }], warp: [0, 1, 2, 3, 3, 5, 6, 7, 8, 9, 10, 11] },
   hurl: { clip: 'thrust', o: { torso: 0.4, travel: 0.5, feet: 0.5 }, a: STAB, extra: [2, 3, 4, 5, 6, 8, 10], ev: [{ f: 5, name: 'strike' }], warp: [0, 1, 2, 3, 3, 5, 6, 7, 8, 9, 10, 11] },
   cast: { clip: 'idle', o: { torso: 0.2, travel: 0, feet: 0 }, a: HEAVY_CUT, extra: [], ev: [], warp: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] },
-  butt: { clip: 'thrust', o: { torso: 0.5, travel: 1, feet: 0.8 }, a: HEAVY_CUT, extra: [], ev: [], warp: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] },
+  butt: { clip: 'thrust', o: { torso: 0.4, travel: 0.5, feet: 0.5 }, a: BUTT, extra: [3, 5, 6, 9], ev: [{ f: 5, name: 'smear', len: 1, bone: 'weapon' }, { f: 5, name: 'strike' }], warp: [0, 1, 2, 3, 3, 5, 6, 7, 8, 9, 10, 11] },
   loose: { clip: 'thrust', o: { torso: 0.5, travel: 1, feet: 0.8 }, a: HEAVY_CUT, extra: [], ev: [], warp: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] },
 };
 /** Registers a kind's own blow (ghoul lunge, hurl, cast, ...). */
@@ -445,6 +478,8 @@ export function footClips(skel: SkeletonData, s: FootClipSpec): ClipSet {
     shield: () => ({ dw: { spine: T([0, -14]), head: T([0, -8]), upperArmF: T([0, 52]), forearmF: T([0, 44]), jaw: T([0, -6]) }, w: { upperArmN: T([0, 20]), forearmN: T([0, 85]), weapon: T([0, 112]) } }),
     spear: () => ({ dw: { spine: T([0, -16]), head: T([0, 4]), upperArmF: T([0, 20]), forearmF: T([0, 16]) }, w: { upperArmN: T([0, 25]), forearmN: T([0, 80]), weapon: T([0, 118]) } }),
     staff: () => ({ dw: { spine: T([0, -6]), head: T([0, -4]) } }),
+    // Down on one knee behind the levelled crossbow, the stock at the cheek, waiting.
+    aim: (rw) => ({ dw: { spine: T([0, -8]), head: T([0, -8]) }, w: { upperArmN: T([0, 40]), forearmN: T([0, 150]), weapon: T([0, 92]) }, tAdd: { pelvis: [T([0, 0]), T([0, 0.5])] } }),
     ready: () => ({ dw: { spine: T([0, -10]), head: T([0, -2]), upperArmN: T([0, 10]), forearmN: T([0, 20]), upperArmF: T([0, 10]), forearmF: T([0, 15]) } }),
   };
   const brace = withBreath(fc('brace', 8, true, (f) => mk(skel, f, 'brace', { ref: 'mean', absHeight: true, travel: 1.0, torso: 0, feet: 0.4 }, both(BRACE[s.brace], posture(s, 0.5, false)))), 0.8);
@@ -453,6 +488,13 @@ export function footClips(skel: SkeletonData, s: FootClipSpec): ClipSet {
     const shoot = fc('shoot', 12, false, (f) => mk(skel, f, 'brace', { ref: 'first', torso: 0, travel: 0, feet: 0 }, both(BOW_SHOT, posture(s, 0.5, false)), [1, 2, 3, 4, 5, 6, 6.5, 7, 8, 9, 10, 11]), [{ f: 7, name: 'release' }, { f: 7, name: 'empty', len: 3 }], 0, [0, 1, 2, 3, 4, 5, 6, 6, 8, 9, 10, 11]);
     out[Anim.Shoot] = shoot;
     if (s.attack === 'loose') out[Anim.Attack] = shoot;
+  }
+  if (s.shoot === 'crossbow') {
+    out[Anim.Shoot] = fc('shoot', 12, false, (f) => mk(skel, f, 'brace', { ref: 'first', torso: 0, travel: 0.3, feet: 0 }, both(CRANK, posture(s, 0.5, false)), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]), [
+      { f: 2, name: 'release' },
+      { f: 2, name: 'empty', len: 7 },
+      ...[5, 6, 7, 8].map((k) => ({ f: k, name: 'crank', int: k - 5 })),
+    ]);
   }
   if (s.shoot === 'javelin') {
     const sh = SHOOTS.javelin;

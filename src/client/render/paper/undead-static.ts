@@ -813,7 +813,7 @@ export const ARBALEST: FootArt = {
     { slot: 'jaw', bone: 'jaw', draw: (c, J, back) => void (back || keyJaw(c, addP(J.head!, [0.15, 0.2]), 1.08, -4)) },
     { slot: 'helm', bone: 'head', draw: (c, J) => coifCap(c, J.head!) },
     // The crossbow levelled at the hip, the near arm on the stock.
-    { slot: 'weapon', bone: 'weapon', draw: (c, J, _b, o) => void crossbow(c, J.hN!, 88, (o.draw ?? 1) > 0.5, 1.45) },
+    { slot: 'weapon', bone: 'weapon', draw: (c, J, _b, o) => arbalestBow(c, J.hN!, (o.draw ?? 1) > 0.5, o.t ?? 0) },
     { slot: 'upperArmN', bone: 'upperArmN', draw: (c, J) => vol(c, J.shN!, J.elN!, 1.35, 1.15, UM.rag, { tone: 2, caps: false }) },
     {
       slot: 'forearmN',
@@ -825,6 +825,20 @@ export const ARBALEST: FootArt = {
     },
   ],
 };
+/**
+ * The heavy crossbow at the stock's grip, spanned or not; while it is being spanned (`crank` 1..4)
+ * the cranequin sits on the butt, its gear box and the handle a quarter turn on each frame.
+ */
+function arbalestBow(c: Paper, grip: P2, spanned: boolean, crank: number): void {
+  crossbow(c, grip, 88, spanned, 1.45);
+  if (!crank) return;
+  const box = along(grip, 268, 1.7);
+  c.rod(box, along(grip, 88, 1.2), 0.18, 0.18, UM.bone, { tone: 3 }); // the cord to the string
+  c.blob(box, 0.55, 0.5, UM.iron, { tone: 2, shine: true });
+  const h = along(box, 268 + crank * 90, 1.1);
+  c.rod(box, h, 0.26, 0.22, UM.iron, { tone: 2 });
+  c.blob(h, 0.3, 0.28, UM.wood, { tone: 3 });
+}
 function arbalestStatic(c: Paper): void {
   drawPieces(c, ARBALEST);
 }
