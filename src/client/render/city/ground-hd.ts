@@ -7,11 +7,17 @@
 import type { BuildingKey } from '../../../game/city.ts';
 import { GATE_V, LOT, tierOf, WALL, type Art } from './buildings.ts';
 import { FIELDS, GARDEN, PADDOCK, type Ground } from './ground.ts';
-import { box, hash, hex, mix, post, Px, sx, sy, tone, v3, type Col, type Frame } from './pixels.ts';
+import { box, hash, hex, mix, nightCanvas, post, Px, sx, sy, tone, v3, type Col, type Frame } from './pixels.ts';
 import { roadDistance } from './roads.ts';
 import type { CityStyle } from './style.ts';
 
 const inRect = (u: number, v: number, r: [number, number, number, number], m = 0) => u >= r[0] - m && u < r[2] + m && v >= r[1] - m && v < r[3] + m;
+
+/** The cluster value at a buffer pixel: 3×2 cells, odd columns of cells dropped by a row. */
+function cellAt(x: number, y: number): number {
+  const cx = Math.floor(x / 3);
+  return hash(cx, (y + (cx & 1)) >> 1, 5);
+}
 
 /** Everything the ground depends on, so it is repainted only when one of these changes. */
 export function groundKey(st: CityStyle, levels: Record<BuildingKey, number>, maxLevel: number): string {
@@ -77,8 +83,9 @@ function* staticGround(id: string, frame: Frame): Generator<void, Uint32Array> {
       const a = (x + 0.5) / k - frame.mx - 256;
       const u = (a + b) / 2;
       const v = (b - a) / 2;
-      // Clusters: tone chosen per 4×2-pixel cell with a little drift, so it reads as sod, not static.
-      const cell = hash(x >> 2, y >> 1, 5);
+      // Clusters: tone chosen per 3×2-pixel cell, every other column of cells a row lower, so the
+      // sod reads at the art-pixel size (1 px), not as 2×2 blocks, and never as a checker.
+      const cell = cellAt(x, y);
       const big = hash(x >> 4, y >> 3, 6);
       const inside = u > 2 && v > 2 && u < WALL - 2 && v < WALL - 2;
       let c: Col;
@@ -173,7 +180,7 @@ export function* groundSteps(st: CityStyle, levels: Record<BuildingKey, number>,
       for (let x = x0; x <= x1; x++) {
         const [u, v] = px.ground(x, y);
         if (u < u0 || u >= u1 || v < v0 || v >= v1) continue;
-        fn(y * W + x, u, v, hash(x >> 2, y >> 1, 5), x, y);
+        fn(y * W + x, u, v, cellAt(x, y), x, y);
       }
     }
   };
@@ -203,11 +210,11 @@ export function* groundSteps(st: CityStyle, levels: Record<BuildingKey, number>,
           const gu = lu % 6;
           const gv = lv % 8;
           if (gu > 1.2 && gu < 5 && gv > 1 && gv < 3.6) c = gu < 2 || gv < 1.6 ? tone(P.earth[2]!, -0.05) : P.earth[3]!;
-        } else if (Math.floor(lv) % 3 === 0) c = tone(P.soil, 0.15);
+        } else if (Math.floor(lv * 2) % 6 === 0) c = tone(P.soil, 0.15);
         if (lu < 1 || lv < 1 || lu > Wf - 1 || lv > Hf - 1) c = tone(P.grass[1]!, 0.12);
       } else {
-        if (fi < sown) c = Math.floor(v) % 3 === 0 ? tone(P.soil, 0.1) : mix(wheat, P.soil, 0.35 + cell * 0.2);
-        else c = Math.floor(v) % 3 === 0 ? tone(P.soil, 0.2) : mix(P.soil, P.grass[0]!, cell * 0.3);
+        if (fi < sown) c = Math.floor(v * 2) % 6 === 0 ? tone(P.soil, 0.1) : mix(wheat, P.soil, 0.35 + cell * 0.2);
+        else c = Math.floor(v * 2) % 6 === 0 ? tone(P.soil, 0.2) : mix(P.soil, P.grass[0]!, cell * 0.3);
         if (lu < 1 || lv < 1 || lu > Wf - 1 || lv > Hf - 1) c = tone(P.grass[1]!, 0.1);
       }
       data[i] = c;
@@ -356,7 +363,7 @@ export function* groundSteps(st: CityStyle, levels: Record<BuildingKey, number>,
     else if (id === 'undead') (i % 3 === 1 ? yew : deadTree)(tp, u, v, r, i, st);
     else oak(tp, u, v, r, i, st);
     const b = tp.bounds();
-    if (b) arts.push({ canvas: tp.toCanvas(...b), lights: null, x: b[0], y: b[1], d: u + v });
+    if (b) arts.push({ canvas: tp.toCanvas(...b), lights: null, night: nightCanvas(tp, ...b), x: b[0], y: b[1], d: u + v });
   });
   if (levels.stables > 0) {
     const [u0, v0, u1, v1] = PADDOCK;
@@ -378,7 +385,7 @@ export function* groundSteps(st: CityStyle, levels: Record<BuildingKey, number>,
         }
       }
       const b = tp.bounds();
-      if (b) arts.push({ canvas: tp.toCanvas(...b), lights: null, x: b[0], y: b[1], d: depth });
+      if (b) arts.push({ canvas: tp.toCanvas(...b), lights: null, night: nightCanvas(tp, ...b), x: b[0], y: b[1], d: depth });
     };
     rail([[u0, v1], [u0, v0], [u1 - 10, v0]], u0 + v0);
     rail([[u0, v1], [u1, v1], [u1, v0]], u1 + v1);
