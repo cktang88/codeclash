@@ -7,20 +7,22 @@ import { COMMANDER_KIND } from '../contract.ts';
 import { registerFoot, type FootSpec } from './undead-foot.ts';
 import { restPose, type DrawCtx } from './skeleton.ts';
 import { UM } from './undead-parts.ts';
-import { ARBALEST, GHOUL, LEGIONARY, LICH, lichHeap, soulWisp, THROWER, WARDEN, wardenHeap, type FootArt, type PieceOpts } from './undead-static.ts';
+import { jawOf, registerMount, type MountSpec } from './undead-horse.ts';
+import { ARBALEST, BLACK_RIDER, DEATH_KNIGHT, GHOUL, HORSE_ARCHER, LEGIONARY, LICH, lichHeap, soulWisp, THROWER, WARDEN, wardenHeap, type FootArt, type PieceOpts } from './undead-static.ts';
 
 /**
  * A bow drawn on the frame: its draw from how far the nock (where the string hand is) has slid
  * back along the arrow from rest (the key art's half draw), the arrow gone after the loose, the
  * green fire flickering while it is on the string.
  */
-function bowLive(ctx: DrawCtx): PieceOpts {
+const bowLiveOf = (restDraw: number, size: number) => (ctx: DrawCtx): PieceOpts => {
   const p = ctx.posed, rest = restPose(p.skel, p.level, p.facing);
   const d = (q: typeof p) => Math.hypot(q.byName.nock!.x - q.byName.itemF!.x, q.byName.nock!.y - q.byName.itemF!.y);
-  const draw = Math.max(0, Math.min(3.4, 1.5 + (d(p) - d(rest)) / 1.9));
+  const draw = Math.max(0, Math.min(3.4, restDraw + (d(p) - d(rest)) / (size * 0.2)));
   const release = ctx.events.some((e) => e.name === 'release');
   return { draw: Math.round(draw * 4) / 4, arrow: !ctx.events.some((e) => e.name === 'empty'), phase: draw > 2 ? 0.75 : 0.25, snap: release };
-}
+};
+const bowLive = bowLiveOf(1.5, 9.5);
 const withLive = (art: FootArt, slot: string, live: (ctx: DrawCtx) => PieceOpts): FootArt => ({ ...art, pieces: art.pieces.map((p) => (p.slot === slot ? { ...p, live } : p)) });
 
 /** The Grave Legionary: a heavy cut with sword and shield, the shield wall, a fall back that comes apart. */
@@ -210,7 +212,64 @@ const LICH_SPEC = (): FootSpec => ({
   ],
 });
 
+/** The Black Riders: the shroud streaming, the spear driven down from the saddle at the charge. */
+const BLACK_RIDER_SPEC = (): MountSpec => ({
+  art: BLACK_RIDER,
+  nearDeg: 116,
+  jaw: jawOf([1.0, -6.9], 0.82, -6),
+  ride: 'thrust',
+  tilt: -8,
+  hunch: 6,
+  neLast: ['torso'],
+  drops: [
+    { slot: 'weapon', holder: 'weapon', at: 3, land: { x: -8.0, y: -0.4, rot: -26, f: 6 } },
+    { slot: 'hood', holder: 'head', at: 8, land: { x: -9.6, y: -0.6, rot: -80, f: 10 } },
+    { slot: 'skull', holder: 'head', at: 8, land: { x: -7.4, y: -0.9, rot: 120, f: 10 } },
+    { slot: 'jaw', holder: 'jaw', at: 9, land: { x: -5.8, y: -0.4, rot: 60, f: 11 } },
+    { slot: 'forearmN', holder: 'forearmN', at: 9, land: { x: 8.6, y: -0.5, rot: 90, f: 11 } },
+  ],
+});
+/** The Barrow Horse Archers: the bow drawn from the saddle; Attack is the same shot at closer range. */
+const HORSE_ARCHER_SPEC = (): MountSpec => ({
+  art: { ...HORSE_ARCHER, pieces: HORSE_ARCHER.pieces.map((p) => (p.slot === 'farItem' ? { ...p, live: bowLiveOf(1.2, 7) } : p)) },
+  nearDeg: 96,
+  farDeg: 96,
+  ride: 'bow',
+  nocked: true,
+  tilt: 8,
+  hunch: 6,
+  neFirst: ['farItem'],
+  neLast: ['quiver', 'pennon'],
+  drops: [
+    { slot: 'farItem', holder: 'itemF', at: 3, land: { x: 7.4, y: -0.4, rot: -90, f: 6 } },
+    { slot: 'skull', holder: 'head', at: 8, land: { x: -7.8, y: -0.9, rot: 110, f: 10 } },
+    { slot: 'quiver', holder: 'pelvis', at: 7, land: { x: -5.6, y: -0.6, rot: 60, f: 9 } },
+    { slot: 'upperArmN', holder: 'upperArmN', at: 9, land: { x: 6.0, y: -0.5, rot: -90, f: 11 } },
+    { slot: 'shinN', holder: 'shinN', at: 9, land: { x: -3.6, y: -0.5, rot: 90, f: 11 } },
+  ],
+});
+/** The Death Knights: the heavy charge with the couched lance, the rider driven back at the impact. */
+const DEATH_KNIGHT_SPEC = (): MountSpec => ({
+  art: DEATH_KNIGHT,
+  nearDeg: 174,
+  jaw: jawOf([0.85, -6.75], 1.1, -4),
+  ride: 'couch',
+  tilt: -10,
+  hunch: 4,
+  neFirst: ['front'],
+  drops: [
+    { slot: 'weapon', holder: 'weapon', at: 3, land: { x: -9.0, y: -0.4, rot: -84, f: 6 } },
+    { slot: 'front', holder: 'upperArmF', at: 5, land: { x: 7.6, y: -1.4, rot: 84, f: 8 } },
+    { slot: 'helm', holder: 'head', at: 8, land: { x: -10.4, y: -0.6, rot: -100, f: 10 } },
+    { slot: 'skull', holder: 'head', at: 8, land: { x: -7.6, y: -0.9, rot: 110, f: 10 } },
+    { slot: 'jaw', holder: 'jaw', at: 9, land: { x: -5.8, y: -0.4, rot: 60, f: 11 } },
+  ],
+});
+
 export function registerUndeadRigs(): void {
+  // registerMount(U.LightCavalry, BLACK_RIDER_SPEC, false);
+  // registerMount(U.HorseArchers, HORSE_ARCHER_SPEC, true);
+  registerMount(U.Knights, DEATH_KNIGHT_SPEC, false);
   registerFoot(COMMANDER_KIND, LICH_SPEC, false);
   registerFoot(U.Crossbowmen, ARBALEST_SPEC, true);
   registerFoot(U.Archers, WARDEN_SPEC, true);
