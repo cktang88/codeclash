@@ -68,6 +68,11 @@ export interface Atlas {
    * first call asks for it; painting happens in the background).
    */
   sheet?(kind: number, level: number): KindSheet | null;
+  /**
+   * Bumped whenever `image` changes after it was built (an HD painter fills its grid in the
+   * background); a renderer that uploaded `image` uploads it again.
+   */
+  version?: number;
   /** HD painters only: the index of a frame in a KindSheet's rects (Shoot falls back, Die holds). */
   slot?(kind: number, anim: Anim, frame: number, dir: Dir): number;
 }
