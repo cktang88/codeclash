@@ -93,6 +93,10 @@ export function groundClamp(skel: SkeletonData, clip: Clip, n: number, margin = 
     return { ...anim, bones: { ...(anim.bones ?? {}), pelvis: { ...(anim.bones?.pelvis ?? {}), translate: tr } } };
   });
 }
+/** A slot shows nothing from frame `from` until `to` (a thrown weapon gone from the hand). */
+function hideSlot(c: Clip, slot: string, from: number, to: number): Clip {
+  return mapFacings(c, (a) => ({ ...a, slots: { ...(a.slots ?? {}), [slot]: [{ f: 0, v: slot }, { f: from, v: null }, { f: to, v: slot }] } }));
+}
 const jerkClip = (c: Clip, warp: readonly number[]): Clip => mapFacings(c, (a) => jerk(a, warp));
 
 /** The jaw: hangs a little open, gapes on the wind-up, clacks shut on the blow (deg, − opens). */
@@ -137,10 +141,48 @@ const LUNGE: Author = (rw) => ({
   },
 });
 
+/**
+ * The bone javelin hurled overarm (javelin: withdraw, block, release at 5): the arm goes straight
+ * back at shoulder height with the javelin along the forearm and the trunk leans back over the
+ * bent rear leg (1-3); the front leg blocks, the hips stop and the chest whips over them (4); the
+ * javelin leaves the hand high in front of the head, the jaw gaping (5); the arm comes down across
+ * the body (6-8); the hand goes back over the shoulder for the next one (9-11).
+ */
+const HURL: Author = (rw) => ({
+  w: {
+    upperArmN: R(rw.upperArmN!, 11, [1, 230], [2, 248], [3, 252], [4, 200], [5, 150], [6, 80], [8, 20], [10, 60]),
+    forearmN: R(rw.forearmN!, 11, [1, 250], [2, 262], [3, 264], [4, 215], [5, 130], [6, 60], [8, 30], [10, 140]),
+    weapon: R(rw.weapon!, 11, [1, 96], [3, 96], [4, 104], [5, 112], [6, 112], [10, 100]),
+  },
+  dw: {
+    spine: T([0, 0], [2, 14], [3, 16], [4, 2], [5, -14], [6, -24], [8, -22], [10, -6], [11, 0]),
+    head: T([0, 0], [3, 6], [5, -6], [7, -8], [11, 0]),
+    upperArmF: T([0, 0], [2, 60], [3, 70], [5, 10], [7, -20], [11, 0]),
+    forearmF: T([0, 0], [2, 50], [3, 60], [5, 20], [11, 0]),
+    jaw: T([0, -8], [3, -6], [4, -24], [5, -38], [6, -38], [7, -10], [9, -20], [11, -8]),
+  },
+});
+/** The overarm stab with the bone javelin held: a short draw back, the drive, held, drawn back. */
+const STAB: Author = (rw) => ({
+  w: {
+    upperArmN: R(rw.upperArmN!, 11, [2, 236], [3, 240], [4, 170], [5, 128], [6, 126], [8, 190], [10, 220]),
+    forearmN: R(rw.forearmN!, 11, [2, 258], [3, 260], [4, 180], [5, 110], [6, 108], [8, 200], [10, 190]),
+    weapon: R(rw.weapon!, 11, [2, 100], [4, 112], [5, 128], [6, 128], [8, 110]),
+  },
+  dw: {
+    spine: T([0, 0], [3, 10], [4, 0], [5, -18], [6, -18], [8, -6], [11, 0]),
+    jaw: T([0, -8], [3, -4], [4, -26], [5, -36], [6, -36], [7, -6], [9, -14], [11, -8]),
+  },
+  tAdd: { pelvis: [T([0, 0], [3, -0.35], [5, 0.6], [6, 0.65], [8, 0.3], [11, 0]), T([0, 0], [5, 0.2], [11, 0])], footTargetF: [T([0, 0], [3, 0], [5, 1.0], [6, 1.0], [8, 0.5], [11, 0]), T([0, 0], [3, 0], [4, -0.5], [5, 0], [11, 0])] },
+});
+export const SHOOTS: Record<'javelin', { clip: string; o: MocapOpts; a: Author; extra: number[]; ev: AnimEvent[]; warp: number[]; hide?: [string, number, number] }> = {
+  javelin: { clip: 'javelin', o: { torso: 0.6, travel: 0.6, feet: 0.8 }, a: HURL, extra: [1, 2, 3, 4, 5, 6, 8, 10], ev: [{ f: 4, name: 'smear', len: 1, bone: 'weapon' }, { f: 5, name: 'release' }], warp: [0, 1, 2, 3, 3, 5, 6, 7, 8, 9, 10, 11], hide: ['weapon', 5, 10] },
+};
+
 const ATTACKS: Record<FootAttack, { clip: string; o: MocapOpts; a: Author; extra: number[]; ev: AnimEvent[]; warp: number[] }> = {
   cut: { clip: 'cut-diagonal', o: { torso: 0.4, travel: 0, feet: 0.3 }, a: HEAVY_CUT, extra: [2, 3, 5, 9, 10], ev: [{ f: 6, name: 'smear', len: 1, bone: 'weapon' }, { f: 7, name: 'strike' }], warp: [0, 1, 2, 3, 4, 4, 6, 7, 8, 9, 10, 11] },
   lunge: { clip: 'thrust', o: { torso: 0.3, travel: 0.3, feet: 0.3 }, a: LUNGE, extra: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], ev: [{ f: 4, name: 'smear', len: 1, bone: 'weapon' }, { f: 5, name: 'strike' }], warp: [0, 1, 2, 3, 3, 5, 6, 7, 8, 9, 10, 11] },
-  hurl: { clip: 'javelin', o: { torso: 0.6, travel: 0.8, feet: 0.8 }, a: HEAVY_CUT, extra: [], ev: [], warp: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] },
+  hurl: { clip: 'thrust', o: { torso: 0.4, travel: 0.5, feet: 0.5 }, a: STAB, extra: [2, 3, 4, 5, 6, 8, 10], ev: [{ f: 5, name: 'strike' }], warp: [0, 1, 2, 3, 3, 5, 6, 7, 8, 9, 10, 11] },
   cast: { clip: 'idle', o: { torso: 0.2, travel: 0, feet: 0 }, a: HEAVY_CUT, extra: [], ev: [], warp: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] },
   butt: { clip: 'thrust', o: { torso: 0.5, travel: 1, feet: 0.8 }, a: HEAVY_CUT, extra: [], ev: [], warp: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] },
   loose: { clip: 'thrust', o: { torso: 0.5, travel: 1, feet: 0.8 }, a: HEAVY_CUT, extra: [], ev: [], warp: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] },
@@ -282,8 +324,8 @@ export function footClips(skel: SkeletonData, s: FootClipSpec): ClipSet {
   // The capture's legs end lying toward the camera (below the hips on screen); ours lie flat along
   // the ground line from the landing on, so nothing reads as sinking into it.
   const flat: Record<FootClipSpec['die'], Record<string, number>> = {
-    back: { thighN: 84, shinN: 92, thighF: 80, shinF: 96, upperArmN: 255, forearmN: 265, upperArmF: 105, forearmF: 95 },
-    forward: { thighN: -96, shinN: -92, thighF: -100, shinF: -86, upperArmN: 100, forearmN: 95, upperArmF: 80, forearmF: 100 },
+    back: { pelvis: 268, spine: 270, chest: 272, thighN: 84, shinN: 92, thighF: 80, shinF: 96, upperArmN: 255, forearmN: 265, upperArmF: 105, forearmF: 95 },
+    forward: { pelvis: 88, spine: 90, chest: 92, thighN: -96, shinN: -92, thighF: -100, shinF: -86, upperArmN: 100, forearmN: 95, upperArmF: 80, forearmF: 100 },
     crumple: { thighN: 60, shinN: -40, thighF: 50, shinF: -50, upperArmN: 100, forearmN: 120, upperArmF: 80, forearmF: 100 },
   };
   const dieKeys = (f: Facing) => {
@@ -331,5 +373,12 @@ export function footClips(skel: SkeletonData, s: FootClipSpec): ClipSet {
   };
   const brace = withBreath(fc('brace', 8, true, (f) => mk(skel, f, 'brace', { ref: 'mean', absHeight: true, travel: 1.0, torso: 0, feet: 0.4 }, both(BRACE[s.brace], posture(s, 0.5, false)))), 0.8);
   const out: ClipSet = { [Anim.Idle]: idle, [Anim.Walk]: walk, [Anim.Run]: run, [Anim.Attack]: attack, [Anim.Hit]: hit, [Anim.Die]: die, [Anim.Dead]: dead, [Anim.Brace]: brace };
+  if (s.shoot === 'javelin') {
+    const sh = SHOOTS.javelin;
+    let shoot = fc('shoot', 12, false, (f) => mk(skel, f, sh.clip, sh.o, both(sh.a, posture(s, 0.5, false)), sh.extra), sh.ev, 0, sh.warp);
+    // The javelin leaves the hand at the release; the hand comes back with the next from the quiver.
+    if (sh.hide) shoot = hideSlot(shoot, ...sh.hide);
+    out[Anim.Shoot] = shoot;
+  }
   return out;
 }

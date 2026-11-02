@@ -203,7 +203,7 @@ export function pieceAtt(p: UPiece, J: Record<Facing, UJ>, axis: number, clothLe
         const f = ctx.posed.facing, back = f === 'ne';
         const parent = ctx.posed.skel.bones.find((b) => b.name === p.bone)!.parent!;
         // The hem's swing in units (whole pixels, so it does not crawl), + forward.
-        const sway = c.qn(Math.max(-2.2, Math.min(2.2, Math.sin((trail(ctx.posed, p.bone) * Math.PI) / 180) * clothLen)));
+        const sway = c.qn(Math.max(-2.2, Math.min(2.2, Math.sin((trail(ctx.posed, p.bone) * Math.PI) / 180) * (p.clothLen ?? clothLen))));
         mapped(c, posedMap(ctx.posed, parent), p.mirror && back ? axis : false, () => p.draw(c, J[f], back, { sway }));
       },
     };

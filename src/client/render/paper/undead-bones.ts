@@ -4,7 +4,7 @@
 
 import { U } from '../../../game/units.ts';
 import { registerFoot, type FootSpec } from './undead-foot.ts';
-import { GHOUL, LEGIONARY } from './undead-static.ts';
+import { GHOUL, LEGIONARY, THROWER } from './undead-static.ts';
 
 /** The Grave Legionary: a heavy cut with sword and shield, the shield wall, a fall back that comes apart. */
 // Specs are built when registering (not at module load): undead-static.ts and undead.ts import
@@ -65,7 +65,34 @@ const GHOUL_SPEC = (): FootSpec => ({
   ],
 });
 
+/** The Bone-Throwers: an overarm hurl of bone javelins (and the same stab held), a fall back that comes apart. */
+const THROWER_SPEC = (): FootSpec => ({
+  art: THROWER,
+  nearDeg: 100,
+  skull: { at: [0.8, -13.2], r: 1, ang: -4 },
+  attack: 'hurl',
+  shoot: 'javelin',
+  brace: 'ready',
+  die: 'back',
+  farHeld: false,
+  hunch: 7,
+  tilt: 10,
+  stiff: 0.9,
+  cloak: true,
+  neFirst: [],
+  neLast: ['cape', 'quiver'],
+  drops: [
+    { slot: 'weapon', holder: 'weapon', at: 3, land: { x: -7.0, y: -0.3, rot: -10, f: 6 } },
+    { slot: 'quiver', holder: 'chest', at: 7, land: { x: -5.2, y: -0.8, rot: -60, f: 9 } },
+    { slot: 'skull', holder: 'head', at: 8, land: { x: -9.2, y: -1.2, rot: 100, f: 10 } },
+    { slot: 'forearmN', holder: 'forearmN', at: 8, land: { x: -2.4, y: -0.5, rot: 70, f: 10 } },
+    { slot: 'upperArmF', holder: 'upperArmF', at: 9, land: { x: 2.0, y: -0.5, rot: -95, f: 11 } },
+    { slot: 'shinF', holder: 'shinF', at: 9, land: { x: 5.8, y: -0.5, rot: 88, f: 11 } },
+  ],
+});
+
 export function registerUndeadRigs(): void {
+  registerFoot(U.Skirmishers, THROWER_SPEC, true);
   registerFoot(U.Spearmen, GHOUL_SPEC, false);
   registerFoot(U.HeavyInfantry, LEGIONARY_SPEC, false);
 }

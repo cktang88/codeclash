@@ -276,6 +276,8 @@ export interface UPiece {
   draw: (c: Paper, J: UJ, back: boolean, o: PieceOpts) => void;
   mirror?: boolean;
   cloth?: boolean;
+  /** How long the cloth hangs (units): its swing at the hem. */
+  clothLen?: number;
 }
 /** A foot figure's key art as pieces, in the key art's drawing order. */
 export interface FootArt {
@@ -639,42 +641,66 @@ function stout(c: Paper, a: P2, b: P2, w: number, far: boolean): void {
 }
 
 /** The Bone-Thrower: a gaunt hooded skeleton in a rotted jerkin and cape, a fan of bone javelins on the back. */
+export const THROWER: FootArt = {
+  axis: 0.2,
+  ne: { N: 'shift', F: 'shift' },
+  J: {
+    pelvis: [0.2, -6.4], neck: [0.3, -11.9], head: [0.8, -13.2],
+    hipN: [-0.6, -6.3], kneeN: [-0.9, -3.5], ankN: [-1.1, -0.7], hipF: [1.0, -6.4], kneeF: [1.6, -3.5], ankF: [1.7, -0.7],
+    shN: [-1.7, -11.0], elN: [-2.9, -9.0], hN: [-2.6, -10.6], shF: [2.1, -11.0], elF: [2.9, -8.7], hF: [3.0, -6.8],
+  },
+  pieces: [
+    // The cape behind and the fan of javelins over the shoulder.
+    { slot: 'cape', bone: 'cloak', cloth: true, clothLen: 8.4, draw: (c, _J, _b, o) => rag(c, [-2.4, -11.3], [1.0, -11.5], 8.4, -0.4 + (o.sway ?? 0), UM.rag, UM.rag, 481, { tear: 0.3, folds: true, spread: 0.6 }) },
+    { slot: 'quiver', bone: 'chest', draw: (c) => quiver(c, [-1.4, -9.8], 195, { shafts: 3, len: 2.6, bone: true }) },
+    // Far leg and arm.
+    { slot: 'thighF', bone: 'thighF', draw: (c, J) => stout(c, J.hipF!, J.kneeF!, 0.6, true) },
+    { slot: 'shinF', bone: 'shinF', draw: (c, J) => stout(c, J.kneeF!, J.ankF!, 0.5, true) },
+    { slot: 'footF', bone: 'footF', draw: (c, J) => c.rod(J.ankF!, addP(J.ankF!, [0.9, 0.4]), 0.5, 0.3, UM.bone, { tone: 1 }) },
+    { slot: 'upperArmF', bone: 'upperArmF', draw: (c, J) => stout(c, J.shF!, J.elF!, 0.55, true) },
+    { slot: 'forearmF', bone: 'forearmF', draw: (c, J) => stout(c, J.elF!, J.hF!, 0.48, true) },
+    // The pelvis and the jerkin over the ribs, a team sash and loincloth.
+    { slot: 'hips', bone: 'pelvis', draw: (c) => c.blob([0.2, -6.4], 1.4, 0.7, UM.bone, { tone: 2 }) },
+    { slot: 'torso', bone: 'chest', draw: (c, _J, back) => throwerJerkin(c, back) },
+    { slot: 'skirt', bone: 'skirt', cloth: true, clothLen: 3.0, draw: (c, _J, _b, o) => rag(c, [-1.4, -6.9], [1.9, -7.0], 3.0, 0.2 + (o.sway ?? 0), UM.team, UM.teamDk, 483, { tear: 0.45 }) },
+    { slot: 'sash', bone: 'chest', draw: (c, _J, back) => (back ? c.rod([1.7, -11.0], [-1.7, -7.0], 0.6, 0.6, UM.team, { tone: 2 }) : c.rod([-1.7, -11.0], [1.7, -7.0], 0.6, 0.6, UM.team, { tone: 2 })) },
+    // The near leg.
+    { slot: 'thighN', bone: 'thighN', draw: (c, J) => stout(c, J.hipN!, J.kneeN!, 0.62, false) },
+    { slot: 'shinN', bone: 'shinN', draw: (c, J) => stout(c, J.kneeN!, J.ankN!, 0.52, false) },
+    { slot: 'footN', bone: 'footN', draw: (c, J) => c.rod(J.ankN!, addP(J.ankN!, [1.1, 0.45]), 0.55, 0.32, UM.bone, { tone: 2 }) },
+    // The hooded skull.
+    { slot: 'neckBone', bone: 'neck', draw: (c, J) => c.rod(J.neck!, addP(J.neck!, [0.2, -0.6]), 0.5, 0.45, UM.bone, { tone: 1 }) },
+    { slot: 'skull', bone: 'head', draw: (c, J, back) => hood(c, J.head!, -4, back, UM.rag, { skullFace: true }) },
+    // The near arm, cocked with a javelin over the shoulder.
+    { slot: 'weapon', bone: 'weapon', draw: (c, J) => boneJavelin(c, J.hN!, 100, 6.4) },
+    { slot: 'upperArmN', bone: 'upperArmN', draw: (c, J) => stout(c, J.shN!, J.elN!, 0.58, false) },
+    {
+      slot: 'forearmN',
+      bone: 'forearmN',
+      draw: (c, J) => {
+        stout(c, J.elN!, J.hN!, 0.5, false);
+        c.blob(J.hN!, 0.5, 0.45, UM.bone, { tone: 2 });
+      },
+    },
+  ],
+};
 function throwerStatic(c: Paper): void {
-  // The cape behind and the fan of javelins over the shoulder.
-  rag(c, [-2.4, -11.3], [1.0, -11.5], 8.4, -0.4, UM.rag, UM.rag, 481, { tear: 0.3, folds: true, spread: 0.6 });
-  quiver(c, [-1.4, -9.8], 195, { shafts: 3, len: 2.6, bone: true });
-  // Far leg and arm.
-  stout(c, [1.0, -6.4], [1.6, -3.5], 0.6, true);
-  stout(c, [1.6, -3.5], [1.7, -0.7], 0.5, true);
-  c.rod([1.7, -0.7], [2.6, -0.3], 0.5, 0.3, UM.bone, { tone: 1 });
-  stout(c, [2.1, -11.0], [2.9, -8.7], 0.55, true);
-  stout(c, [2.9, -8.7], [3.0, -6.8], 0.48, true);
-  // The pelvis and the jerkin over the ribs, a team sash and loincloth.
-  c.blob([0.2, -6.4], 1.4, 0.7, UM.bone, { tone: 2 });
+  drawPieces(c, THROWER);
+}
+/** The Bone-Thrower's rotted jerkin over the ribs (from behind: the back of it, laced, the spine showing through a tear). */
+function throwerJerkin(c: Paper, back: boolean): void {
   plate(c, [[-2.0, -11.2], [-0.8, -11.8], [1.6, -11.8], [2.5, -11.0], [2.2, -8.0], [1.8, -6.6], [-1.4, -6.6], [-1.8, -8.4]], UM.leather, {
     detail: (x, y, rx, ry) => {
-      // Rotted open over the ribs.
-      const hx = (x - c.sx(0.6)) / c.L, hy = (y - c.sy(-9.6)) / c.L;
-      if (Math.hypot(hx / 0.9, hy / 1.4) < 1) return Math.abs(((hy + 2) % 0.62) - 0.31) < 0.15 ? code(UM.bone, hx < 0 ? 3 : 2) : code(UM.ink, 1);
+      // Rotted open over the ribs (from behind, over the spine).
+      const hx = (x - c.sx(back ? 0.1 : 0.6)) / c.L, hy = (y - c.sy(-9.6)) / c.L;
+      if (Math.hypot(hx / (back ? 0.6 : 0.9), hy / 1.4) < 1) {
+        if (back) return Math.abs(((hy + 2) % 0.55) - 0.27) < 0.16 ? code(UM.bone, 2) : code(UM.ink, 1);
+        return Math.abs(((hy + 2) % 0.62) - 0.31) < 0.15 ? code(UM.bone, hx < 0 ? 3 : 2) : code(UM.ink, 1);
+      }
       if (c.ly(y) % Math.max(3, Math.round(c.L * 0.7)) === 0) return code(UM.leather, 1);
       return code(UM.leather, 2 + planeLight(rx, ry, 0.35));
     },
   });
-  rag(c, [-1.4, -6.9], [1.9, -7.0], 3.0, 0.2, UM.team, UM.teamDk, 483, { tear: 0.45 });
-  c.rod([-1.7, -11.0], [1.7, -7.0], 0.6, 0.6, UM.team, { tone: 2 });
-  // The near leg.
-  stout(c, [-0.6, -6.3], [-0.9, -3.5], 0.62, false);
-  stout(c, [-0.9, -3.5], [-1.1, -0.7], 0.52, false);
-  c.rod([-1.1, -0.7], [0.0, -0.25], 0.55, 0.32, UM.bone, { tone: 2 });
-  // The hooded skull.
-  c.rod([0.3, -11.9], [0.5, -12.5], 0.5, 0.45, UM.bone, { tone: 1 });
-  hood(c, [0.8, -13.2], -4, false, UM.rag, { skullFace: true });
-  // The near arm, cocked with a javelin over the shoulder.
-  const hand: P2 = [-2.6, -10.6];
-  boneJavelin(c, hand, 100, 6.4);
-  stout(c, [-1.7, -11.0], [-2.9, -9.0], 0.58, false);
-  stout(c, [-2.9, -9.0], hand, 0.5, false);
-  c.blob(hand, 0.5, 0.45, UM.bone, { tone: 2 });
 }
 
 /** The Wraith Bow: a tall hooded shroud with a skull's grin in the dark, a man-high war bow. */
