@@ -20,7 +20,7 @@ import { addP, code, type P2, type Paper } from './core.ts';
 import type { Facing } from './facing.ts';
 import { registerPaperKind } from './registry.ts';
 import { flash as muzzleFlash, smoke, SM, stick, yumi } from './samurai-parts.ts';
-import { footBody, FOOT, KUSA_TOP, manOrder, manPiece, mapPoint, withMap, type Body, type ManPiece, type SFoot } from './samurai-static.ts';
+import { footBody, FOOT, KUSA_TOP, LOW_MERGE, manOrder, manPiece, mapPoint, withMap, type Body, type ManPiece, type SFoot } from './samurai-static.ts';
 import {
   BREATH, bonesFromJoints, EASE, EASE_IN, EASE_OUT, emptyLocals, evaluate, sampleClip, shortest, skeletonKind, smearPart,
   type AnimationData, type FacingClips, type Key, type Posed, type AnimEvent, type AttachmentSet, type Clip, type JointDef, type SkeletonData, type SkeletonRig, type SlotData,
@@ -822,11 +822,36 @@ export function footRig(kind: number): SkeletonRig | undefined {
   return rig;
 }
 
+/** Merges the near-twin materials (samurai-static LOW_MERGE) over a drawn frame below level 4. */
+export function lowMerge(c: Paper): void {
+  if (c.L > 2) return;
+  const t = (lowMergeTable ??= (() => {
+    const m = new Map<number, number>();
+    for (const [a, b] of LOW_MERGE) for (let k = 0; k < 8; k++) m.set(a * 8 + k, b * 8 + k);
+    return m;
+  })());
+  for (let y = c.by0; y <= c.by1; y++)
+    for (let x = c.bx0; x <= c.bx1; x++) {
+      const i = y * c.CW + x, v = c.pix[i]!;
+      if (v < 0) continue;
+      const w = t.get(v);
+      if (w !== undefined) c.pix[i] = w;
+    }
+}
+let lowMergeTable: Map<number, number> | null = null;
+
+/** A rig as a paper kind, its frames merged below level 4. */
+export function samuraiKind(rig: SkeletonRig): ReturnType<typeof skeletonKind> {
+  const k = skeletonKind(rig);
+  const draw = k.draw;
+  return { ...k, draw: (c, p, f, anim, fr) => { draw(c, p, f, anim, fr); lowMerge(c); } };
+}
+
 /** Registers the foot kinds drawn on bones (samurai.ts calls this after its own registrations, so these win). */
 export function registerFootRigs(kinds: readonly number[]): void {
   for (const kd of kinds) {
     const rig = footRig(kd);
-    if (rig) registerPaperKind('samurai', kd, skeletonKind(rig));
+    if (rig) registerPaperKind('samurai', kd, samuraiKind(rig));
   }
 }
 
