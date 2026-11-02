@@ -3,7 +3,7 @@ import { CAT_COUNT } from '../measure/categories.ts';
 import { Battle, BATTLE_VERSION, FIELD_H, FIELD_W, fight, MAX_FIGURES, State, TICKS_PER_SECOND, type ArmySpec, type BattleSetup, type Stance } from './battle.ts';
 import { cityAt, grandArmy, levelOf, type WorkEvent } from './city.ts';
 import { botWork } from './bots.ts';
-import { pairDaily, pairGrand, weekOf, DAY_MS, walkover } from './league.ts';
+import { honourable, pairDaily, pairGrand, weekOf, DAY_MS, walkover } from './league.ts';
 import { emptyCounts, STATS, total, U, UNIT_COUNT } from './units.ts';
 
 const MIX = [0.22, 0.2, 0.08, 0.12, 0.07, 0.07, 0.05, 0.03, 0.03, 0.005];
@@ -118,6 +118,25 @@ describe('the city', () => {
     const c1 = cohortsAfter(events, true);
     expect(total(c1.produced)).toBeGreaterThan(total(c0.produced));
     expect(total(c1.veterans)).toBeGreaterThan(0);
+  });
+
+  it('pushing and undoing the same work over and over earns nothing extra', () => {
+    const undo = (e: WorkEvent): WorkEvent => ({
+      at: e.at + 60_000,
+      delta: { ...e.delta, lines: e.delta.lines.map((n) => -n), files: -e.delta.files, branches: -e.delta.branches, functions: -(e.delta.functions ?? 0), links: -(e.delta.links ?? 0) },
+    });
+    const t0 = WEEK.weekStart + 3_600_000;
+    const now = t0 + 2 * 3_600_000;
+    const once = cityAt({ weekStart: WEEK.weekStart, dayMs: DAY_MS, now, events: [push(t0, 900)], outcomes: [] });
+    const events: WorkEvent[] = [];
+    for (let k = 0; k < 20; k++) events.push(push(t0, 900), undo(push(t0, 900)));
+    events.push(push(t0, 900));
+    // All in the same minute-long window: same levels, so any difference is farmed.
+    events.forEach((e, k) => (e.at = t0 + k));
+    const farmed = cityAt({ weekStart: WEEK.weekStart, dayMs: DAY_MS, now, events, outcomes: [] });
+    expect(farmed.buildings.map((b) => b.xp)).toEqual(once.buildings.map((b) => b.xp));
+    expect(total(farmed.today)).toBeLessThanOrEqual(total(once.today) + 1);
+    expect(farmed.todayLevy).toBe(once.todayLevy);
   });
 
   it('bots work a person’s week, deterministically', () => {
@@ -423,6 +442,33 @@ describe('pairings', () => {
     expect(flat.filter((x) => x === null)).toHaveLength(1);
     expect(pairs.some(([a, b]) => (a === 1 && b === 2) || (a === 2 && b === 1))).toBe(false);
     expect(pairGrand([5, 3, 1])).toEqual([[5, 3], [1, null]]);
+  });
+
+  it('avoids a rematch that greedy pairing from the top would force', () => {
+    // Greedy pairs 1-2 and is left with 3-4, who have met; 1-3 and 2-4 are both fresh.
+    const players = [
+      { id: 1, points: 6, produced: 10, met: [] },
+      { id: 2, points: 6, produced: 9, met: [] },
+      { id: 3, points: 0, produced: 8, met: [4] },
+      { id: 4, points: 0, produced: 7, met: [3] },
+    ];
+    const pairs = pairDaily(players, 1);
+    expect(pairs).toHaveLength(2);
+    expect(pairs.some(([a, b]) => (a === 3 && b === 4) || (a === 4 && b === 3))).toBe(false);
+    // Odd count: the lowest who can be left out meets the brigands, and nobody meets twice.
+    const odd = pairDaily([...players, { id: 5, points: 0, produced: 1, met: [] }], 2);
+    expect(odd.filter(([, b]) => b === null)).toHaveLength(1);
+    expect(odd.some(([a, b]) => (a === 3 && b === 4) || (a === 4 && b === 3))).toBe(false);
+    expect(new Set(odd.flat().filter((x) => x !== null)).size).toBe(5);
+  });
+
+  it('a loser who lost no one but killed some of the enemy fought honourably', () => {
+    const side = (dead: number) => ({ start: emptyCounts(), dead: [dead, 0, 0, 0, 0, 0, 0, 0, 0, 0], fled: emptyCounts(), alive: emptyCounts(), kills: 0, commanderFell: false });
+    const r = (own: number, theirs: number) => ({ winner: 1 as const, reason: 'rout' as const, ticks: 100, scale: 1, sides: [side(own), side(theirs)] as [ReturnType<typeof side>, ReturnType<typeof side>] });
+    expect(honourable(r(0, 30), 0)).toBe(true);
+    expect(honourable(r(0, 0), 0)).toBe(false);
+    expect(honourable(r(50, 30), 0)).toBe(true);
+    expect(honourable(r(50, 29), 0)).toBe(false);
   });
 });
 
