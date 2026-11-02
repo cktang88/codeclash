@@ -692,6 +692,8 @@ export function pavise(c: Paper, at: P2, tilt: number, face: boolean, s = 1): vo
     if (edge < 0.28) return code(UM.rust, lt > 0 ? 3 : lt < 0 ? 1 : 2);
     if (!face) {
       if (Math.abs(ly + 1.1) < 0.2 || Math.abs(ly - 0.9) < 0.2) return code(UM.leather, 1 + lt);
+      // (At level 1 the planks would be stripes every other pixel: the boards are plain there.)
+      if (L <= 1) return code(UM.wood, 2 + Math.min(0, lt));
       const plank = (lx + 3) * 1.5;
       if (Math.abs((plank % 1) - 0.5) > 0.42) return code(UM.wood, lt > 0 ? 1 : 0);
       return code(UM.wood, (hash(Math.floor(plank), c.ly(y) >> 2, 151) < 0.2 ? 1 : 2) + Math.min(0, lt));
@@ -738,7 +740,8 @@ export function femur(c: Paper, grip: P2, deg: number, len: number, w: number): 
   const butt = along(grip, deg + 180, len * 0.12);
   c.blob(butt, w * 0.75, w * 0.7, UM.bone, { tone: 2 });
   c.rod(butt, head, w * 0.7, w * 1.0, UM.bone, {
-    tone: 2,
+    // (At level 1 the club is a tone down, so the heap's lit hump stays the brightest bone.)
+    tone: c.L <= 1 ? 1 : 2,
     detail: (x, y, u, v) => {
       if (Math.abs(v - 0.3) < 0.04 || Math.abs(v - 0.36) < 0.03) return code(UM.rust, v < 0.33 ? 2 : 1);
       if (c.L >= 2 && Math.abs(u - 0.1 - Math.sin(v * 9) * 0.15) < 0.09 && v > 0.45 && v < 0.8) return code(UM.ink, 2);

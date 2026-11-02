@@ -743,7 +743,8 @@ function wrapShin(c: Paper, knee: P2, ank: P2, far: boolean): void {
   vol(c, knee, ank, 1.05, 0.9, UM.bone, {
     tone: t,
     caps: false,
-    detail: (_x, y, u) => ((c.ly(y) % Math.max(3, Math.round(c.L * 0.45))) === 0 ? code(UM.bone, t - 1) : u < -0.3 ? code(UM.bone, t + 1) : -1),
+    // (At level 1 the wraps would be stripes lined up across both legs: plain there.)
+    detail: (_x, y, u) => (c.L > 1 && (c.ly(y) % Math.max(3, Math.round(c.L * 0.45))) === 0 ? code(UM.bone, t - 1) : u < -0.3 ? code(UM.bone, t + 1) : -1),
   });
   c.blob(knee, 0.62, 0.55, UM.rag, { tone: t });
 }
@@ -778,7 +779,9 @@ function gambesonKey(c: Paper, back: boolean): void {
       const hx = (x - c.sx(back ? 0.2 : 1.3)) / c.L, hy = (y - c.sy(-9.6)) / c.L;
       if (Math.hypot(hx / 0.7, hy / 1.0) < 1) return Math.abs(((hy + 2) % 0.62) - 0.31) < 0.14 ? code(UM.bone, 2) : code(UM.ink, 1);
       const lt = planeLight(rx, ry, 0.35);
-      // Quilted channels running down, stitched across every few rows (not a plaid).
+      // Quilted channels running down, stitched across every few rows (not a plaid); at level 1
+      // the channels would be every other pixel column, so the coat is plain there.
+      if (c.L <= 1) return code(UM.rag, 2 + lt);
       if (c.lx(x) % Math.max(3, Math.round(c.L * 0.75)) === 0) return code(UM.rag, 1 + Math.min(0, lt));
       if (c.ly(y) % Math.max(4, Math.round(c.L * 1.2)) === 0 && (c.lx(x) & 1) === 0) return code(UM.rag, 1 + Math.min(0, lt));
       return code(UM.rag, 2 + lt);
@@ -937,7 +940,8 @@ export const DEATH_KNIGHT: MountArt = (() => {
       },
       h.hNear,
       // The lance, upright with its pennon, and the armoured near arm.
-      { slot: 'weapon', bone: 'weapon', draw: (c, J, _b, o) => void lance(c, J.hN!, 174, 10.5, 3.0, { pennon: true, sway: 0.3 + (o.sway ?? 0), vamplate: true }) },
+      // (At level 1 the lance is drawn longer: the Knights' signature against the other riders.)
+      { slot: 'weapon', bone: 'weapon', draw: (c, J, _b, o) => void lance(c, J.hN!, 174, c.L <= 1 ? 14 : 10.5, 3.0, { pennon: true, sway: 0.3 + (o.sway ?? 0), vamplate: true }) },
       { slot: 'pauldronN', bone: 'chest', draw: (c, J) => pauldron(c, addP(J.shN!, [0, -0.2]), false, 1.15) },
       { slot: 'upperArmN', bone: 'upperArmN', draw: (c, J) => vol(c, J.shN!, J.elN!, 1.3, 1.1, UM.iron, { tone: 2 }) },
       { slot: 'forearmN', bone: 'forearmN', draw: (c, J) => vol(c, J.elN!, J.hN!, 1.05, 1.1, UM.iron, { tone: 2, shine: true }) },
@@ -1212,7 +1216,8 @@ export const HORSE_ARCHER: MountArt = (() => {
       { slot: 'neckBone', bone: 'neck', draw: (c, J) => c.rod(J.neck!, addP(J.neck!, [0.15, -0.6]), 0.5, 0.45, UM.bone, { tone: 1 }) },
       { slot: 'skull', bone: 'head', draw: (c, J, back) => (back ? skullBack : skull)(c, J.head!, -4, false) },
       // The bow, half drawn, the near arm at the string.
-      { slot: 'farItem', bone: 'itemF', draw: (c, J, _b, o) => void bow(c, J.hF!, 96, o.draw ?? 1.2, 7, { arrow: o.arrow ?? true }) },
+      // (At level 1 the bow is drawn larger, the archers' signature.)
+      { slot: 'farItem', bone: 'itemF', draw: (c, J, _b, o) => void bow(c, J.hF!, 96, o.draw ?? 1.2, c.L <= 1 ? 10 : 7, { arrow: o.arrow ?? true }) },
       { slot: 'upperArmN', bone: 'upperArmN', draw: (c, J) => stout(c, J.shN!, J.elN!, 0.58, false) },
       {
         slot: 'forearmN',
@@ -1262,7 +1267,8 @@ export const BLACK_RIDER: MountArt = (() => {
       { slot: 'pauldronF', bone: 'chest', draw: (c, J) => pauldron(c, addP(J.shF!, [0.1, -0.5]), true, 0.95) },
       h.hNear,
       // The spear couched under the near arm, the arm in its sleeve.
-      { slot: 'weapon', bone: 'weapon', draw: (c, J) => void spear(c, J.hN!, 116, 8.2, 3.6, { blade: 1.8 }) },
+      // (At level 1 the couched spear reaches further, the Riders' signature.)
+      { slot: 'weapon', bone: 'weapon', draw: (c, J) => void spear(c, J.hN!, 116, c.L <= 1 ? 11 : 8.2, 3.6, { blade: 1.8 }) },
       { slot: 'upperArmN', bone: 'upperArmN', draw: (c, J) => vol(c, J.shN!, J.elN!, 1.5, 1.3, UM.shroud, { tone: 2, caps: false }) },
       {
         slot: 'forearmN',
