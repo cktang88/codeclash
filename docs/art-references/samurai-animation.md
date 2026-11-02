@@ -122,6 +122,22 @@ committed; the screenshots in `docs/screenshots/hd-sprites/samurai-anim-*.png` a
   held; 9-11 back to the chest.
 - **Brace**: planted wide, the fan held out over the line.
 
+### Yari Cavalry (5)
+- The horse is the key art's, split into pieces on bones (`samurai-static` `horsePiece`): far and
+  near legs (upper, lower with the knee or hock, hoof), barrel, tail, neck, mane, head with the
+  bridle, saddle-cloth, saddle and tassels. The gaits are Muybridge's (`horse-walk`, `horse-gallop`),
+  each hoof planted while the plate shows it down; the barrel pitches and bobs with the neck
+  pumping against it; the mane is skinned between the neck and a mane bone that trails it and
+  streams back at the gallop (`samurai-horse.ts`, after the Templar horse).
+- The rider sits on a saddle bone with the foot rig's bones; his hips follow the saddle a frame
+  late, his head stays level; the sashimono streams back and flutters at the gallop.
+- **Run: the charge**, the yari couched level over the horse's neck. **Attack**: at the gallop, the
+  rider leans hard in, the point dips onto the target as the horse drives into it, the trunk is
+  thrown back at the impact and settles.
+- **Hit**: the horse shies (head up, half a step back) and the rider snaps back; **Die**: the horse
+  buckles onto its knees, then its hind legs, the neck stretching out; the rider is pitched back
+  over the cantle and the yari falls free.
+
 ## Critique rounds
 
 ### Katana Samurai
@@ -219,6 +235,15 @@ Lint (all seven foot kinds, levels 1/2/4/8): no FAIL. Level-1 silhouettes: close
 (Katana Samurai and Daimyō; Teppō and Daimyō), all under 0.85. Warnings left: aligned band ends
 0.17-0.30, outline and figure vs ground ΔL 0.07-0.15, mid-widest silhouettes, a few light-angle
 warnings (41-68°) and jaggies at levels 1-2 on the skirmisher.
+
+### Yari Cavalry
+1. **Round 1** (against Plate 626 and the brief's gallop keys): the gathered suspension and the
+   extended phases read, the hooves stay planted, the mane trails.
+2. **Round 2.** At levels 1-4 the faction palette had no room for the bay: the near-twin materials
+   are also merged at level 4 (`MID_MERGE`), so the horse keeps its browns.
+3. **Round 3.** The light read from the bottom-right at levels 1-2 (bright legs and hooves under a
+   dark rider): the lower legs and hooves are the darkest tone there, the barrel two big planes
+   (croup and back lit, belly in shade), the tail lit with the croup.
 
 Katana Samurai lint before the pass (level 1/2/4/8): no FAIL. Warnings left: aligned band ends 0.24-0.30, outline and figure vs
 ground ΔL 0.07-0.13, light-angle error at levels 1-2, mid-widest silhouettes. Level-1 silhouette:

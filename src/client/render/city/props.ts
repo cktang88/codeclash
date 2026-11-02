@@ -200,6 +200,12 @@ export interface PropDef {
   lv: number;
   h: number;
   draw: (a: PropAt) => void;
+  /**
+   * Emissive colours this prop paints (a faction's lantern glass, witchfire): pixels of exactly
+   * these colours go into the group's lights canvas and are spared the cast shadow, like the
+   * warm lantern glass (FLAME) every prop already has.
+   */
+  glass?: Col[];
 }
 
 const LIB = new Map<string, PropDef>();
@@ -907,32 +913,36 @@ export function paintProps(placed: Placed[], st: CityStyle, frame: Frame, inShad
     }
     du /= ps.length;
     dv /= ps.length;
+    // The glass of this group: the warm lantern flame, and any faction emissives its props declare.
+    const glass = new Set<Col>([FLAME, FLAME2]);
+    for (const p of ps) for (const g of LIB.get(p.kind)!.glass ?? []) glass.add(g);
     const sh = inShade?.(du, dv) ?? 0;
     const b0 = px.bounds();
     if (!b0) continue;
     if (sh > 0) {
-      // In a building's shadow: the cool shade over everything but the lantern glass.
+      // In a building's shadow: the cool shade over everything but the glass.
       for (let y = b0[1]; y < b0[3]; y++)
         for (let x = b0[0]; x < b0[2]; x++) {
           const i = y * px.w + x;
           const c = px.data[i]!;
-          if (c && c !== FLAME && c !== FLAME2) px.data[i] = mix(c, shadeCol, 0.38 * sh);
+          if (c && !glass.has(c)) px.data[i] = mix(c, shadeCol, 0.38 * sh);
         }
     }
     px.outline(st.outline);
     const b = px.bounds()!;
     const canvas = px.toCanvas(...b);
     let lightsC: HTMLCanvasElement | null = null;
-    if (lights.length) {
-      const lp = new Px(b[2] - b[0], b[3] - b[1]);
-      for (let y = b[1]; y < b[3]; y++)
-        for (let x = b[0]; x < b[2]; x++) {
-          const c = px.data[y * px.w + x];
-          if (c === FLAME || c === FLAME2) lp.set(x - b[0], y - b[1], c === FLAME ? hex('#ffe6a0') : FLAME);
-        }
-      lightsC = lp.toCanvas();
-      for (const l of lights) lamps.push([px.X(l.u, l.v) / px.k - px.mx, px.Y(l.u, l.v, l.z) / px.k - px.my]);
-    }
+    const lp = new Px(b[2] - b[0], b[3] - b[1]);
+    let lit = 0;
+    for (let y = b[1]; y < b[3]; y++)
+      for (let x = b[0]; x < b[2]; x++) {
+        const c = px.data[y * px.w + x]!;
+        if (!glass.has(c)) continue;
+        lp.set(x - b[0], y - b[1], c === FLAME ? hex('#ffe6a0') : c === FLAME2 ? FLAME : c);
+        lit++;
+      }
+    if (lit) lightsC = lp.toCanvas();
+    for (const l of lights) lamps.push([px.X(l.u, l.v) / px.k - px.mx, px.Y(l.u, l.v, l.z) / px.k - px.my]);
     arts.push({ canvas, lights: lightsC, night: nightCanvas(px, ...b, rig), x: b[0], y: b[1], d: du + dv });
   }
   return { arts, lamps };

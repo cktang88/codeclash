@@ -5,7 +5,8 @@
 import { U } from '../../../game/units.ts';
 import { registerFoot, type FootSpec } from './undead-foot.ts';
 import { restPose, type DrawCtx } from './skeleton.ts';
-import { GHOUL, LEGIONARY, THROWER, WARDEN, type FootArt, type PieceOpts } from './undead-static.ts';
+import { UM } from './undead-parts.ts';
+import { ARBALEST, GHOUL, LEGIONARY, soulWisp, THROWER, WARDEN, wardenHeap, type FootArt, type PieceOpts } from './undead-static.ts';
 
 /**
  * A bow drawn on the frame: its draw from how far the nock (where the string hand is) has slid
@@ -15,9 +16,9 @@ import { GHOUL, LEGIONARY, THROWER, WARDEN, type FootArt, type PieceOpts } from 
 function bowLive(ctx: DrawCtx): PieceOpts {
   const p = ctx.posed, rest = restPose(p.skel, p.level, p.facing);
   const d = (q: typeof p) => Math.hypot(q.byName.nock!.x - q.byName.itemF!.x, q.byName.nock!.y - q.byName.itemF!.y);
-  const draw = Math.max(0, Math.min(2.6, 1.5 + (d(p) - d(rest)) / 1.9));
-  const shooting = ctx.events.some((e) => e.name === 'release' || e.name === 'empty');
-  return { draw: Math.round(draw * 4) / 4, arrow: !ctx.events.some((e) => e.name === 'empty'), phase: shooting ? 0.75 : 0.25 };
+  const draw = Math.max(0, Math.min(3.4, 1.5 + (d(p) - d(rest)) / 1.9));
+  const release = ctx.events.some((e) => e.name === 'release');
+  return { draw: Math.round(draw * 4) / 4, arrow: !ctx.events.some((e) => e.name === 'empty'), phase: draw > 2 ? 0.75 : 0.25, snap: release };
 }
 const withLive = (art: FootArt, slot: string, live: (ctx: DrawCtx) => PieceOpts): FootArt => ({ ...art, pieces: art.pieces.map((p) => (p.slot === slot ? { ...p, live } : p)) });
 
@@ -118,9 +119,13 @@ const WARDEN_SPEC = (): FootSpec => ({
   attack: 'loose',
   shoot: 'bow',
   brace: 'ready',
-  die: 'back',
+  die: 'dissolve',
   farHeld: true,
   nocked: true,
+  extras: [
+    { slot: 'heap', bone: 'root', draw: (c, _J, back) => wardenHeap(c, back) },
+    { slot: 'wisp', bone: 'root', top: true, live: (ctx) => ({ t: ctx.events.find((e) => e.name === 'wisp')?.int ?? 0 }), draw: (c, _J, _b, o) => void (o.t && soulWisp(c, o.t)) },
+  ],
   lie: 2.6,
   glide: true,
   hunch: 4,
@@ -130,14 +135,49 @@ const WARDEN_SPEC = (): FootSpec => ({
   neFirst: ['farItem'],
   neLast: ['cloak'],
   drops: [
-    { slot: 'farItem', holder: 'itemF', at: 4, land: { x: 5.6, y: -0.6, rot: -88, f: 7 } },
-    { slot: 'skull', holder: 'head', at: 8, land: { x: -6.6, y: -1.0, rot: -95, f: 10 } },
-    { slot: 'pauldronN', holder: 'chest', at: 9, land: { x: -3.4, y: -0.6, rot: 40, f: 11 } },
-    { slot: 'forearmF', holder: 'forearmF', at: 9, land: { x: 7.4, y: -0.5, rot: 95, f: 11 } },
+    // The bow falls from the hand; the mask in its hood drops onto the empty robe.
+    { slot: 'farItem', holder: 'itemF', at: 3, land: { x: 1.6, y: -0.35, rot: -86, f: 6 } },
+    { slot: 'skull', holder: 'head', at: 6, land: { x: 1.4, y: -0.9, rot: -20, f: 9 } },
+  ],
+});
+
+/** The crossbow drawn on the frame: unspanned from the loose until it is wound back; the cranequin's handle turning. */
+function crossbowLive(ctx: DrawCtx): PieceOpts {
+  const crank = ctx.events.find((e) => e.name === 'crank');
+  return { draw: ctx.events.some((e) => e.name === 'empty') ? 0 : 1, t: crank ? (crank.int ?? 0) + 1 : 0 };
+}
+
+/** The Revenant Arbalests: the shot and a crank-spanning reload, a butt-stroke, aiming from a crouch; the pavise falls off the back as it comes apart. */
+const ARBALEST_SPEC = (): FootSpec => ({
+  art: withLive(ARBALEST, 'weapon', crossbowLive),
+  nearDeg: 88,
+  skull: { at: [0.9, -12.95], r: 1.08, ang: -4 },
+  smear: [1.0, 3.2],
+  smearMat: UM.wood,
+  attack: 'butt',
+  shoot: 'crossbow',
+  brace: 'aim',
+  die: 'back',
+  farHeld: true,
+  twoHand: 2.6,
+  hunch: 6,
+  tilt: -14,
+  stiff: 0.8,
+  neFirst: [],
+  neLast: ['pavise'],
+  drops: [
+    { slot: 'weapon', holder: 'weapon', at: 3, land: { x: 4.6, y: -0.4, rot: 0, f: 6 } },
+    { slot: 'pavise', holder: 'chest', at: 5, land: { x: -7.2, y: -1.0, rot: -84, f: 8 } },
+    { slot: 'helm', holder: 'head', at: 8, land: { x: -9.6, y: -0.6, rot: -100, f: 10 } },
+    { slot: 'skull', holder: 'head', at: 8, land: { x: -5.4, y: -0.9, rot: 110, f: 10 } },
+    { slot: 'jaw', holder: 'jaw', at: 9, land: { x: -3.6, y: -0.4, rot: 60, f: 11 } },
+    { slot: 'forearmN', holder: 'forearmN', at: 9, land: { x: 1.4, y: -0.5, rot: 90, f: 11 } },
+    { slot: 'shinF', holder: 'shinF', at: 9, land: { x: 6.8, y: -0.5, rot: -88, f: 11 } },
   ],
 });
 
 export function registerUndeadRigs(): void {
+  registerFoot(U.Crossbowmen, ARBALEST_SPEC, true);
   registerFoot(U.Archers, WARDEN_SPEC, true);
   registerFoot(U.Skirmishers, THROWER_SPEC, true);
   registerFoot(U.Spearmen, GHOUL_SPEC, false);
