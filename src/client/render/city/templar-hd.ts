@@ -90,8 +90,6 @@ function stoneAt(r: Ramp, f: Facing, sq: number, tq: number, q: number, seed: nu
   // Bevel: the block's top edge catches the sun, its lower right turns away.
   if (y === ch - 1 && f === 'left') c = tone(c, -0.1);
   else if (bx === bw - 1 || y === 1) c = tone(c, 0.1);
-  // The odd weathered pit.
-  if (!fine && n > 0.9 && bx === Math.floor(bw / 2) && y === Math.floor(ch / 2)) c = tone(c, 0.2);
   return [c, false];
 }
 
@@ -320,9 +318,9 @@ export function richRoof(P: Painter, mat: 'shingle' | 'tile' | 'slate', seed: nu
     if (ry === rowQ - 1) c = tone(c, 0.24);
     else if (ry === 0 && lit) c = tone(c, -0.09);
     // Joints, and the curve of a clay tile: a lit crown, a shaded side.
+    // (A lit crown and shaded side per clay tile were single pixels between the course lines:
+    // orphans. The joint and the course shadow carry the tile.)
     if (tx === 0) c = tone(c, 0.16);
-    else if (mat === 'tile' && tx === 1 && lit) c = tone(c, -0.06);
-    else if (mat === 'tile' && tx === W - 1) c = tone(c, 0.07);
     // Moss in tile-sized clumps, thicker low on the roof and on the slope away from the sun.
     const m = hash(Math.floor(s / 3.2), Math.floor(t / 2.2), seed + 51);
     const mossy = m < (f === 'left' ? 0.08 : 0.15) + (t < 3 ? 0.1 : 0) && hash(tile, row, seed + 52) < 0.7;
