@@ -8,7 +8,7 @@ import { BUILDINGS, type BuildingKey } from '../../game/city.ts';
 import type { FactionId } from '../../game/factions.ts';
 import { cityAtlas } from './city/atlas.ts';
 import { paintBuilding, paintMill, tierOf, WALL, wallHeights, type Art, type Banner } from './city/buildings.ts';
-import { paintGround, type Ground } from './city/ground.ts';
+import { groundKey, paintGround, type Ground } from './city/ground.ts';
 import { Draw, Life, type Ent, type Mood } from './city/life.ts';
 import { Folk } from './city/people.ts';
 import { css, WORLD_H, WORLD_W } from './city/pixels.ts';
@@ -50,6 +50,7 @@ export class CityScene {
   private readonly draw2: Draw;
   private readonly life: Life;
   private ground: Ground | null = null;
+  private groundKey = '';
   private arts: Art[] = [];
   private banners: Banner[] = [];
   private torches: Torch[] = [];
@@ -138,7 +139,12 @@ export class CityScene {
   private rebuild(levels: Record<BuildingKey, number>, mood: CityMood): void {
     const st = this.st;
     const maxLevel = Math.max(0, ...BUILDINGS.map((b) => levels[b.key] ?? 0));
-    this.ground = paintGround(st, levels, maxLevel);
+    // The ground is the slow part: repaint it only when something it shows has changed.
+    const gk = groundKey(levels, maxLevel);
+    if (!this.ground || gk !== this.groundKey) {
+      this.ground = paintGround(st, levels, maxLevel);
+      this.groundKey = gk;
+    }
     const arts: Art[] = [...this.ground.arts];
     const banners: Banner[] = [];
     const torches: Torch[] = [];

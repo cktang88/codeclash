@@ -32,6 +32,22 @@ export interface Ground {
 
 const inRect = (u: number, v: number, r: [number, number, number, number], m = 0) => u >= r[0] - m && u < r[2] + m && v >= r[1] - m && v < r[3] + m;
 
+/**
+ * Everything of the levels that paintGround reads: the ground is the slow part of a repaint
+ * (~100-300 ms), and most level-ups (a building gaining a level inside its tier) leave it alone.
+ * Keep in step with paintGround.
+ */
+export function groundKey(levels: Record<BuildingKey, number>, maxLevel: number): string {
+  const sown = Math.min(FIELDS.length, 1 + Math.floor(levels.granary / 3));
+  const lots = (Object.keys(LOT) as (BuildingKey | 'keep')[])
+    .filter((k) => k !== 'walls')
+    .map((k) => {
+      const lvl = k === 'keep' ? Math.max(maxLevel, 1) : levels[k];
+      return lvl <= 0 ? 0 : tierOf(lvl);
+    });
+  return [sown, tierOf(levels.walls), tierOf(levels.hospital), levels.stables > 0 ? 1 : 0, ...lots].join(',');
+}
+
 export function paintGround(st: CityStyle, levels: Record<BuildingKey, number>, maxLevel: number): Ground {
   const px = new Px(WORLD_W, WORLD_H);
   const grass = [hex('#59613a'), hex('#4f5833'), hex('#646b40'), hex('#454d2e'), hex('#6f7446')];

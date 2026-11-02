@@ -24,9 +24,16 @@ export function compile(gl: WebGL2RenderingContext, vs: string, fs: string): Web
     return s;
   };
   const p = gl.createProgram()!;
-  gl.attachShader(p, mk(gl.VERTEX_SHADER, vs));
-  gl.attachShader(p, mk(gl.FRAGMENT_SHADER, fs));
+  const v = mk(gl.VERTEX_SHADER, vs);
+  const f = mk(gl.FRAGMENT_SHADER, fs);
+  gl.attachShader(p, v);
+  gl.attachShader(p, f);
   gl.linkProgram(p);
+  // The linked program keeps what it needs: free the shader objects, or each scene leaks two.
+  gl.detachShader(p, v);
+  gl.detachShader(p, f);
+  gl.deleteShader(v);
+  gl.deleteShader(f);
   if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(`link: ${gl.getProgramInfoLog(p)}`);
   return p;
 }
