@@ -687,7 +687,8 @@ export function spear(c: Paper, grip: P2, deg: number, fwd: number, aft: number,
     return code(TM.steel, q[1] < 0 ? 4 : 2);
   });
   c.rod(along(tip, deg + 180, 0.6), h0, 0.3, 0.3, TM.steel, { tone: 1 });
-  if (opts.pennon !== undefined && opts.pennon !== null) pennon(c, along(tip, deg + 180, 0.55), deg, opts.pennon);
+  // (The rig draws the pennon on its own cloth bones from level 2; at level 1 the lance's length differs.)
+  if (opts.pennon !== undefined && opts.pennon !== null && !(RIG_CLOTH.on && c.L >= 2)) pennon(c, along(tip, deg + 180, 0.55), deg, opts.pennon);
   return tip;
 }
 
@@ -780,12 +781,19 @@ export function crossbow(c: Paper, grip: P2, deg: number, spanned: number): void
   c.rod(along(nose, deg, 0.1), along(nose, deg, 0.7), 0.3, 0.3, TM.steel, { tone: 1 });
 }
 
-/** The Beauséant: a tall staff, the banner black over white, with a red cross at level 4 and up. */
+/**
+ * While the animated rig draws a staff, its cloth (the Beauséant's fly, a lance's pennon) is left
+ * off: the rig draws it on cloth bones of its own (templar-horse.ts, `flyCloth`), so it ripples.
+ */
+export const RIG_CLOTH = { on: false };
+
+/** The Beauséant: a tall staff, the banner black over white (Matthew Paris: a third sable). */
 export function beauseant(c: Paper, grip: P2, deg: number, flap: number, fr: number): void {
   const top = along(grip, deg, 9.0);
   const butt = along(grip, deg + 180, 2.0);
   c.rod(butt, top, 0.3, 0.26, TM.ash, { tone: 2 });
   c.blob(along(top, deg, 0.25), 0.3, 0.3, TM.gold, { tone: 3 });
+  if (RIG_CLOTH.on) return;
   const h = 3.4, w = 4.4;
   const p0 = along(top, deg + 180, 0.35);
   const p1 = along(p0, deg + 180, h);
