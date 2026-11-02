@@ -52,7 +52,7 @@ export const PAL = {
   bamboo: ramp('#c8c06a', '#a09a48', '#6e6a34', '#3e3c22'),
   bronze: ramp('#9ab08a', '#6a8670', '#46604e', '#28382e'),
   water: hex('#2a3c4a'),
-  gravel: ramp('#f2dcb0', '#dec294', '#b49a78', '#806c58'),
+  gravel: ramp('#fde8b8', '#efd09c', '#c6a47a', '#8a7058'),
   moss: hex('#6a7a3a'),
   iron: hex('#3a3a42'),
 };
@@ -124,13 +124,13 @@ export function sunAt(p: V3): number {
   return out;
 }
 
-const SHADE = hex('#242a64');
-const SUN = hex('#ffbc58');
+const SHADE = hex('#20245e');
+const SUN = hex('#ffc25a');
 /** A colour as the sun leaves it at p: leaf shade cool and deep, sun flecks warm. */
 export function sunlit(c: Col, p: V3, f: Facing = 'left'): Col {
   const s = sunAt(p);
-  if (s < 0) return mix(c, SHADE, f === 'right' ? 0.28 : 0.42);
-  if (s > 0 && f !== 'right') return mix(c, SUN, 0.3);
+  if (s < 0) return mix(c, SHADE, f === 'right' ? 0.38 : 0.52);
+  if (s > 0 && f !== 'right') return mix(c, SUN, 0.42);
   return c;
 }
 
@@ -151,8 +151,8 @@ export function glowPoint(P: PP, p: V3, day: Col, light: Col = P.st.lit): void {
   P.px.point(p, emitAt(P, p, day, light));
 }
 
-const WARM = hex('#ffb35c');
-const COOL = hex('#2a2c70');
+const WARM = hex('#ffc46c');
+const COOL = hex('#24266c');
 /**
  * Finish the art in P with the Samurai light: lit planes warmed toward the golden sun, half-lit a
  * touch cool and shaded planes pushed toward blue-violet (a strong warm/cool split), then the
@@ -172,7 +172,7 @@ export function finishLit(P: Painter, depth: number, outline = true): Art {
         const c = data[i]!;
         if (!c || c === glass || keep.has(i) || c >>> 24 !== 255) continue;
         const k = cls[i]!;
-        data[i] = k === 1 ? mix(c, WARM, 0.27) : k === 2 ? mix(c, WARM, 0.06) : k === 3 ? mix(c, COOL, 0.34) : c;
+        data[i] = k === 1 ? mix(c, WARM, 0.4) : k === 2 ? mix(c, WARM, 0.14) : k === 3 ? mix(c, COOL, 0.48) : c;
       }
   }
   const art = P.finish(depth, outline);
@@ -440,28 +440,49 @@ export function logAlong(P: PP, u: number, v: number, zc: number, len: number, r
 
 /** Komodaru: straw-wrapped sake casks, stacked in rows, each with a painted label and rope bands. */
 export function komodaru(P: PP, u: number, v: number, cols: number, rows: number, alongU: boolean, seed = 0): void {
-  const r = 1.3;
-  const h = 2.8;
-  const labels = [PAL.red[1], hex('#2f6a4a'), PAL.indigo[1], hex('#d0a030')];
+  const r = 1.6;
+  const h = 3.3;
+  const k = P.k;
+  const H = Math.floor(h * k);
+  const labels: Ramp[] = [PAL.red, ramp('#58a070', '#2f6a4a', '#1f4a34', '#12301f'), PAL.indigo, ramp('#f0c860', '#d0a030', '#9a7420', '#5e4614')];
+  const ink = hex('#1e1a1c');
+  const rope = ramp('#c8a46a', '#a07c48', '#76582e', '#4a361c');
   for (let row = 0; row < rows; row++)
     for (let c = 0; c < cols - row; c++) {
-      const a = c * 2.7 + row * 1.35;
+      const a = c * 3.3 + row * 1.65;
       const cu = alongU ? u + a : u;
       const cv = alongU ? v : v + a;
       const z = row * h;
       const lab = labels[Math.floor(hash(c, row, seed) * labels.length)]!;
-      cyl(P, cu, cv, z, r, h, (l, t, p, s) => {
-        const tz = Math.floor(t * P.k);
-        // Rope bands near the top and the bottom, the straw rim at each end.
-        if (tz === 1 || tz === Math.floor(h * P.k) - 2) return tone(PAL.rope, l < 0 ? 0.3 : 0);
-        const base = step(PAL.paperW, l);
-        // The label: a coloured badge with a dark brush stroke, on the lit side only.
-        const sp = Math.floor(s * P.k);
-        if (l > 0.1 && tz >= 2 && tz <= 4 && sp % 7 >= 2 && sp % 7 <= 4) return tz === 3 && sp % 7 === 3 ? hex('#1e1a1c') : lab;
-        if (l > 0.1 && tz === 2 && sp % 7 === 1) return hex('#2a2224');
-        void p;
-        return base;
-      }, (_p, e) => (e > 0.7 ? PAL.straw[1] : PAL.straw[0]));
+      const glyph = Math.floor(hash(c, row, seed + 1) * 4);
+      cyl(P, cu, cv, z, r, h, (l, tt, _p, s) => {
+        const tz = Math.floor(tt * k);
+        const sp = Math.floor(s * k);
+        // The straw mat's rims, top and foot: strands in alternating columns.
+        if (tz <= 1 || tz >= H - 1) return step(PAL.straw, l + (sp & 1 ? 0.18 : -0.12));
+        // Two rope bands with a twist, and the rope ties running up the cask.
+        if (tz === 2 || tz === H - 2) return step(rope, l + ((sp + tz) % 3 === 0 ? -0.35 : 0.1));
+        if (((sp % 9) + 9) % 9 === 0) return step(rope, l - 0.1);
+        // The brewer's label on the lit face: a bordered badge with brush strokes.
+        const lx = ((sp % 9) + 9) % 9;
+        if (l > 0.15 && lx >= 2 && lx <= 7 && tz >= 3 && tz <= H - 3) {
+          if (lx === 2 || lx === 7 || tz === 3 || tz === H - 3) return lab[1]!;
+          const gx = lx - 3;
+          const gy = tz - 4;
+          const strokes = [[1, 0], [1, 1], [1, 2], [0, 1], [2, 1], [0, 2], [2, 0]];
+          const on = strokes.slice(0, 3 + glyph).some(([x, y]) => x === gx && y === gy);
+          return on ? ink : PAL.paperW[0]!;
+        }
+        // The straw mat: faint vertical strands on the paper-white wrap.
+        return step(PAL.paperW, l + (sp % 3 === 0 ? -0.12 : 0));
+      }, (p, e) => {
+        if (e > 0.78) return (Math.floor((p.u + p.v) * k) & 1) ? PAL.straw[0]! : PAL.straw[1]!;
+        // The lid: straw, with the rope cross.
+        const du = p.u - cu;
+        const dv = p.v - cv;
+        if (Math.abs(du - dv) < 0.25 || Math.abs(du + dv) < 0.25) return rope[1]!;
+        return PAL.paperW[1]!;
+      });
     }
 }
 
@@ -498,38 +519,50 @@ export function oke(P: PP, u: number, v: number, z = 0, r = 0.8, h = 1.3, water 
 export function tenbosui(P: PP, u: number, v: number): void {
   const wood = ramp('#b07c4a', '#8a5e38', '#5e3e26', '#3a2618');
   box(P.px, u - 1.8, v - 1.8, 0, 3.6, 3.6, 0.6, (f) => faceCol(wood, f, 1));
-  cyl(P, u, v, 0.6, 1.7, 3, (l, t) => {
+  const ironR = ramp('#8a8a96', '#5a5a66', '#3a3a44', '#22222a');
+  cyl(P, u, v, 0.6, 1.7, 3, (l, t, _p, s) => {
     const tz = Math.floor(t * P.k);
-    if (tz % 3 === 1) return tone(PAL.iron, l < 0 ? 0.25 : -0.1);
-    return step(wood, l);
-  }, (_p, e) => (e > 0.8 ? wood[0] : PAL.water));
-  // Buckets: three on the rim, one on top, each with the house mark.
-  for (const [du, dv, dz] of [[-0.7, 0.6, 3.6], [0.7, 0.6, 3.6], [0, -0.6, 3.6], [0, 0.1, 4.9]] as const) oke(P, u + du, v + dv, dz, 0.6, 1.2, false);
-  // The character for water painted on the tub's front.
-  P.px.point(v3(u - 0.4, v + 1.75, 2.4), hex('#f2ead6'));
-  P.px.point(v3(u - 0.4, v + 1.75, 1.9), hex('#f2ead6'));
+    if (tz === 1 || tz === 4) return step(ironR, l);
+    // Staves: a darker joint every third pixel round, the wood grain lighter between.
+    const sp = Math.floor(s * P.k);
+    return step(wood, l + (((sp % 3) + 3) % 3 === 0 ? -0.35 : 0));
+  }, (p, e) => (e > 0.8 ? wood[0] : (Math.floor((p.u - p.v) * 2) & 1) ? PAL.water : tone(PAL.water, -0.15)));
+  // Buckets: three on the rim, one on top, each lacquered red round its rim.
+  for (const [du, dv, dz] of [[-0.75, 0.65, 3.6], [0.75, 0.65, 3.6], [0, -0.65, 3.6], [0, 0.1, 4.95]] as const) {
+    oke(P, u + du, v + dv, dz, 0.68, 1.3, false);
+    P.px.point(v3(u + du, v + dv + 0.68, dz + 1.1), PAL.red[1]!);
+  }
+  // 水 (water) painted in white on the tub's front: a stroke down and two sweeps.
+  const W = hex('#f2ead6');
+  for (const [dz, da] of [[2.6, 0], [2.1, 0], [1.6, 0], [2.3, -0.5], [1.8, 0.5], [1.6, -0.6]] as const) P.px.point(v3(u - 0.4 + da, v + 1.72 - da * 0.2, dz), W);
 }
 
 /**
  * A chōchin paper lantern hanging at (u, v, z) (z is its top): a ribbed paper drum, black lid and
  * foot, a mon on its face. It glows warm (emissive), and a red one carries the shop's sign.
  */
-export function chochin(P: PP, u: number, v: number, z: number, red = false, r = 0.75, h = 1.8): void {
-  const paper = red ? PAL.red : ramp('#fff4d8', '#f2dcae', '#d8b680', '#9a7a50');
+export function chochin(P: PP, u: number, v: number, z: number, red = false, r = 0.8, h = 2): void {
+  const paper = red ? ramp('#ff7a50', '#e0482e', '#a42c22', '#661c1a') : ramp('#fff4d8', '#f6e2b4', '#dcbc86', '#a07e52');
   const lightC = red ? hex('#ff9a5a') : hex('#ffe0a0');
+  const ink = red ? hex('#2a1418') : hex('#2c2024');
   P.lights?.push(v3(u, v, z - h / 2));
   line3(P.px, v3(u, v, z), v3(u, v, z + 1.2), hex('#1e1a1c'));
+  const H = Math.floor(h * P.k);
   cyl(P, u, v, z - h, r, h, (l, t, p) => {
     const tz = Math.floor(t * P.k);
-    const top = Math.floor(h * P.k) - 1;
-    if (tz === 0 || tz === top) return hex('#1e1a1c');
-    // Ribs: a darker line every second pixel row on the shade side only.
-    let c = step(paper, l + 0.35);
-    if (tz % 2 === 0 && l < 0.2) c = tone(c, 0.1);
-    // The mon: a dark ring-and-dot on the lit face.
-    if (l > 0.3 && (tz === 1 || tz === 2)) c = red ? hex('#2a1c1c') : hex('#3a2a2a');
+    // The black lacquered lid and foot, a gilt line at the lid.
+    if (tz === 0 || tz === H - 1) return hex('#1e1a1c');
+    if (tz === H - 2 && l > 0.2) return hex('#c89a40');
+    // The paper bulges: lighter in the middle rows; a bamboo rib every other row.
+    const mid = 1 - Math.abs(tz - H / 2) / (H / 2);
+    let c = step(paper, l + 0.25 + mid * 0.2);
+    if (tz % 2 === 0) c = tone(c, l < 0.2 ? 0.14 : 0.07);
+    // The mon on the lit face: a dark ring round a paper centre.
+    if (l > 0.5 && Math.abs(tz - H / 2) <= 1) c = l > 0.66 && tz === Math.floor(H / 2) ? step(paper, 1) : ink;
     return emitAt(P, p, c, lightC);
   });
+  // A tassel under it.
+  P.px.point(v3(u, v, z - h - 0.4), red ? hex('#e0482e') : hex('#c89a40'));
 }
 
 /** A nobori: a tall narrow banner on a pole with a cross-arm, a mon on the cloth. */
@@ -702,8 +735,14 @@ export function crates(P: PP, u: number, v: number, n: number, seed = 0): void {
     const dv = Math.floor(i / 2) * 2.2;
     const z = i >= 3 ? 1.8 : 0;
     box(P.px, u + du, v + dv, z, s, s, s, (f, a, b) => {
-      const q = Math.floor((f === 'top' ? a : b) * P.k);
-      if (q === 0 || q === Math.floor(s * P.k) - 1) return faceCol(wood, f, 1);
+      const S = Math.floor(s * P.k);
+      const qa = Math.floor(a * P.k);
+      const qb = Math.floor(b * P.k);
+      // Corner battens down each side, boards across (a seam every 3 pixels), grain dashes.
+      if (f !== 'top' && (qa === 0 || qa === S - 1)) return faceCol(wood, f, 2);
+      if (f === 'top' && qa % 3 === 2) return wood[2]!;
+      if (f !== 'top' && qb % 3 === 2) return faceCol(wood, f, 1);
+      if (hash(qa >> 1, qb, seed + i) < 0.18) return faceCol(wood, f, 1);
       return faceCol(wood, f);
     });
   }
@@ -712,7 +751,14 @@ export function crates(P: PP, u: number, v: number, n: number, seed = 0): void {
 /** A tōrō: a stone lantern (Kasuga type): base, post, a fire-box with lit windows, a curled roof, a jewel. */
 export function toro(P: PP, u: number, v: number, s = 1): void {
   const stone = ramp('#c4bca8', '#9c9484', '#706c74', '#4a4852');
-  const S = (f: Facing, p: V3) => sunlit(faceCol(stone, f), p, f);
+  const S = (f: Facing, p: V3) => {
+    let c = faceCol(stone, f);
+    const n = hash(Math.floor((p.u + p.v) * 4), Math.floor(p.z * 4), 31);
+    if (n < 0.14) c = tone(c, 0.12);
+    else if (n > 0.92) c = mix(c, hex('#c8c088'), 0.45);
+    if (f === 'top' && hash(Math.floor(p.u * 3), Math.floor(p.v * 3), 33) < 0.35) c = mix(c, PAL.moss, 0.65);
+    return sunlit(c, p, f);
+  };
   box(P.px, u - 1.3 * s, v - 1.3 * s, 0, 2.6 * s, 2.6 * s, 0.7 * s, (f, _a, _b, p) => S(f, p));
   box(P.px, u - 0.9 * s, v - 0.9 * s, 0.7 * s, 1.8 * s, 1.8 * s, 0.5 * s, (f, _a, _b, p) => S(f, p));
   cyl(P, u, v, 1.2 * s, 0.55 * s, 2.2 * s, (l, _t, p) => sunlit(step(stone, l), p));
@@ -901,7 +947,7 @@ export function bush(P: PP, u: number, v: number, r: number, seed: number, flowe
   pad(P, u, v, 0, r, r * 0.85, r * 0.9, PAL.leaf, seed);
   if (!flowers) return;
   // Blossom clumps laid on top: little 2-pixel clusters on the lit side.
-  for (let i = 0; i < r * 8; i++) {
+  for (let i = 0; i < r * 10; i++) {
     const a = hash(i, seed, 1) * Math.PI * 2;
     const d = Math.sqrt(hash(i, seed, 2)) * r * 0.85;
     const pu = u + Math.cos(a) * d;
@@ -910,6 +956,8 @@ export function bush(P: PP, u: number, v: number, r: number, seed: number, flowe
     const lit = pv - pu > -r * 0.3;
     P.px.point(v3(pu, pv, z), lit ? flowers[1]! : flowers[2]!);
     P.px.point(v3(pu + 0.5, pv - 0.5, z), lit ? flowers[0]! : flowers[1]!);
+    P.px.point(v3(pu, pv, z + 0.5), lit ? flowers[0]! : flowers[1]!);
+    if (i % 3 === 0) P.px.point(v3(pu + 0.25, pv - 0.25, z + 0.25), flowers[3]!);
   }
 }
 
@@ -998,8 +1046,12 @@ export function wisteria(P: PP, u: number, v: number, lu: number, lv: number, h:
     const ln = 1.2 + hash(i, seed, 5) * 1.8;
     for (let k = 0; k < ln * P.k; k++) {
       const t = k / (ln * P.k);
-      P.px.point(v3(pu, pv, h - 0.3 - k / P.k), PAL.wisteria[t < 0.3 ? 0 : t < 0.7 ? 1 : 2]!);
+      const z = h - 0.3 - k / P.k;
+      P.px.point(v3(pu, pv, z), PAL.wisteria[t < 0.3 ? 0 : t < 0.7 ? 1 : 2]!);
+      if (t < 0.55) P.px.point(v3(pu + 0.5, pv - 0.5, z), PAL.wisteria[t < 0.25 ? 1 : 2]!);
     }
+    // A few leaves at the raceme's top.
+    P.px.point(v3(pu - 0.5, pv + 0.5, h - 0.3), PAL.leaf[1]!);
   }
 }
 
@@ -1082,8 +1134,8 @@ export function treeShade(P: PP): void {
         p.u = u;
         p.v = v;
         const sh = sunAt(p);
-        if (sh < 0) P.px.point(p, shadeA(104));
-        else if (sh > 0) P.px.point(p, rgb(255, 190, 96, 96));
+        if (sh < 0) P.px.point(p, shadeA(150));
+        else if (sh > 0) P.px.point(p, rgb(255, 200, 104, 140));
       }
     // The trunk's own shadow, a dark stroke from the foot.
     line3(P.px, v3(t.u, t.v, 0), v3(cu, cv, 0), shadeA(110));
@@ -1151,11 +1203,36 @@ const TREE_H = { pine: 14, sakura: 12, maple: 11 } as const;
 for (const t of TREES) t.h = TREE_H[t.kind];
 
 type Draw = (P: PP, u: number, v: number, n: number) => void;
-const reg = (kind: string, lu: number, lv: number, h: number, draw: Draw) =>
-  registerProp('samurai:' + kind, { lu, lv, h, draw: (a) => draw(ctx(a), a.u, a.v, a.n) });
+/**
+ * The Samurai light on a prop painted by props.ts: the pixels this prop changed (its screen
+ * rectangle, compared before and after) take the same warm/cool grade as the buildings
+ * (`finishLit`), lantern flame colours excepted.
+ */
+function gradeProp(px: Px, u: number, v: number, lu: number, lv: number, h: number, draw: () => void): void {
+  const x0 = Math.max(0, Math.floor(px.X(u, v + lv)) - 2);
+  const x1 = Math.min(px.w, Math.ceil(px.X(u + lu, v)) + 2);
+  const y0 = Math.max(0, Math.floor(px.Y(u, v, h + 16)) - 2);
+  const y1 = Math.min(px.h, Math.ceil(px.Y(u + lu, v + lv, 0)) + 2);
+  if (x1 <= x0 || y1 <= y0) return draw();
+  const w = x1 - x0;
+  const before = new Uint32Array(w * (y1 - y0));
+  for (let y = y0; y < y1; y++) before.set(px.data.subarray(y * px.w + x0, y * px.w + x1), (y - y0) * w);
+  draw();
+  for (let y = y0; y < y1; y++)
+    for (let x = x0; x < x1; x++) {
+      const i = y * px.w + x;
+      const c = px.data[i]!;
+      if (!c || c === before[(y - y0) * w + x - x0] || c === FLAME || c === FLAME2 || c >>> 24 !== 255) continue;
+      const k = px.cls[i]!;
+      px.data[i] = k === 1 ? mix(c, WARM, 0.4) : k === 2 ? mix(c, WARM, 0.14) : k === 3 ? mix(c, COOL, 0.48) : mix(c, WARM, 0.2);
+    }
+}
 
-reg('komodaru', 8.4, 2.8, 5.6, (P, u, v, n) => komodaru(P, u + 1.3, v + 1.4, 3, 2, true, Math.floor(n * 50)));
-reg('komodaru2', 5.6, 2.8, 2.8, (P, u, v, n) => komodaru(P, u + 1.3, v + 1.4, 2, 1, true, Math.floor(n * 50)));
+const reg = (kind: string, lu: number, lv: number, h: number, draw: Draw) =>
+  registerProp('samurai:' + kind, { lu, lv, h, draw: (a) => gradeProp(a.px, a.u, a.v, lu, lv, h, () => draw(ctx(a), a.u, a.v, a.n)) });
+
+reg('komodaru', 10.2, 3.4, 6.6, (P, u, v, n) => komodaru(P, u + 1.6, v + 1.7, 3, 2, true, Math.floor(n * 50)));
+reg('komodaru2', 6.8, 3.4, 3.3, (P, u, v, n) => komodaru(P, u + 1.6, v + 1.7, 2, 1, true, Math.floor(n * 50)));
 reg('tawara', 8, 3.2, 3.4, (P, u, v, n) => tawara(P, u + 1, v, 5 + Math.floor(n * 3), false, Math.floor(n * 40)));
 reg('tawara3', 5.4, 3.2, 3.4, (P, u, v, n) => tawara(P, u + 1, v, 3, false, Math.floor(n * 40)));
 reg('oke', 1.8, 1.8, 1.3, (P, u, v) => oke(P, u + 0.9, v + 0.9));
