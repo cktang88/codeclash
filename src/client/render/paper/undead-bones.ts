@@ -267,7 +267,7 @@ const DEATH_KNIGHT_SPEC = (): MountSpec => ({
 });
 
 export function registerUndeadRigs(): void {
-  // registerMount(U.LightCavalry, BLACK_RIDER_SPEC, false);
+  registerMount(U.LightCavalry, BLACK_RIDER_SPEC, false);
   // registerMount(U.HorseArchers, HORSE_ARCHER_SPEC, true);
   registerMount(U.Knights, DEATH_KNIGHT_SPEC, false);
   registerFoot(COMMANDER_KIND, LICH_SPEC, false);
