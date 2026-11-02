@@ -96,6 +96,10 @@ function* staticGround(id: string, frame: Frame): Generator<void, Uint32Array> {
       // Clusters: tone chosen per 3×2-pixel cell, every other column of cells a row lower, so the
       // sod reads at the art-pixel size (1 px), not as 2×2 blocks, and never as a checker.
       const cell = cellAt(x, y);
+      if (id === 'templar') {
+        px.set(x, y, templarAt(u, v, x, y, cell));
+        continue;
+      }
       const big = hash(x >> 4, y >> 3, 6);
       const inside = u > 2 && v > 2 && u < WALL - 2 && v < WALL - 2;
       let c: Col;
@@ -149,8 +153,200 @@ function* staticGround(id: string, frame: Frame): Generator<void, Uint32Array> {
     if (id === 'samurai' && i % 9 === 0) px.set(x + 1, y - 2, hex('#e8a8b8'));
     if (id === 'undead' && i % 11 === 0) px.set(x + 1, y - 2, hex('#cfc6aa'));
   }
+  if (id === 'templar') {
+    yield;
+    meadow(px, frame);
+    yield;
+    treeShade(px);
+  }
   STATIC.set(key, px.data);
   return px.data;
+}
+
+// ------------------------------------------------------------------ the commandery's ground (HD)
+
+const TG = {
+  // Warm, sunlit materials (golden-hour ochres); the cast shadows cool them later.
+  grass: [hex('#68713c'), hex('#5c6636'), hex('#747c44'), hex('#4f5a30')],
+  earth: [hex('#7e6748'), hex('#735d40'), hex('#8a7250'), hex('#665238')],
+  beaten: [hex('#8d7656'), hex('#836c4d'), hex('#977f5c')],
+  cobble: [hex('#a69a80'), hex('#988c72'), hex('#b3a78b'), hex('#8a7e66')],
+  cobbleLit: hex('#c4b797'),
+  cobbleDark: hex('#6f6552'),
+  mortar: hex('#4a4134'),
+  moss: hex('#66733a'),
+  mossLit: hex('#7f8a44'),
+  rut: hex('#56452f'),
+  rutLit: hex('#9a8460'),
+  water: [hex('#9fb4b8'), hex('#7d969e'), hex('#5f7880'), hex('#d8e4dc')],
+  wet: hex('#5a4a34'),
+  flags: [hex('#a49a86'), hex('#988e7a'), hex('#aea592')],
+};
+
+/** Cobbles: rounded stones on a staggered world grid, one tone each, lit at the upper left. */
+function cobbleAt(u: number, v: number, rd: number): Col | null {
+  const sv = 2.1;
+  const su = 2.5;
+  const row = Math.floor(v / sv);
+  const uu = u + (row & 1) * su * 0.5 + (hash(row, 3, 61) - 0.5) * 0.6;
+  const col = Math.floor(uu / su);
+  const fu = uu / su - col - 0.5;
+  const fv = v / sv - row - 0.5;
+  const n = hash(col, row, 62);
+  // The verge: stones go missing toward the edge.
+  if (rd > 3.6 && n < (rd - 3.6) / 1.9) return null;
+  const r = fu * fu * 1.1 + fv * fv;
+  const worn = rd < 1.7;
+  if (r > (worn ? 0.2 : 0.17) || Math.abs(fu) > 0.43 || Math.abs(fv) > 0.42) {
+    // Mortar, with grass in the joints of the less trodden stones.
+    if (!worn && hash(col >> 1, row, 63) < 0.12 + rd * 0.05) return hash(col, row >> 1, 64) < 0.5 ? TG.moss : TG.mossLit;
+    return worn ? TG.cobble[3]! : TG.mortar;
+  }
+  let c = worn ? (n < 0.5 ? TG.cobble[0]! : TG.cobble[2]!) : TG.cobble[n < 0.35 ? 0 : n < 0.62 ? 1 : n < 0.85 ? 3 : 2]!;
+  // Lit at the upper left (toward -u on screen), shaded at the lower right.
+  if (fu < -0.24 && fv < 0.18) c = worn ? TG.cobbleLit : mix(c, TG.cobbleLit, 0.6);
+  else if (fu > 0.26 || (fv > 0.28 && fu > -0.1)) c = mix(c, TG.cobbleDark, 0.55);
+  return c;
+}
+
+/** A puddle in a hollow: water reflecting the sky, a dark wet rim, a glint. */
+function puddleAt(u: number, v: number, cu: number, cv: number, ru: number, rv: number): Col | null {
+  const d = ((u - cu) / ru) ** 2 + ((v - cv) / rv) ** 2;
+  if (d > 1.35) return null;
+  if (d > 1) return TG.wet;
+  // The near (upper-left) bank shades the water; the far side catches the sky.
+  const t = (u - cu) / ru + (v - cv) / rv * 0.3;
+  if (d < 0.12 && t > 0.1) return TG.water[3]!;
+  return t < -0.45 ? TG.water[2]! : t < 0.25 ? TG.water[1]! : TG.water[0]!;
+}
+
+const PUDDLES: [number, number, number, number][] = [
+  [300, 116, 3.2, 1.6], [272, 123, 2.2, 1.2], [318, 125, 2.4, 1.3], [104, 156, 3, 2], [160, 130, 2.4, 1.5], [60, 128, 2.2, 1.5], [200, 210, 2.6, 1.6],
+];
+
+/** The commandery's ground at a world point: cobbled lanes, beaten-earth yards, a rutted track outside. */
+function templarAt(u: number, v: number, x: number, y: number, cell: number): Col {
+  const inside = u > 2 && v > 2 && u < WALL - 2 && v < WALL - 2;
+  const big = hash(x >> 4, y >> 3, 6);
+  let c: Col;
+  if (inside) {
+    const edge = Math.min(u, v, WALL - u, WALL - v);
+    c = TG.earth[cell < 0.55 ? 0 : cell < 0.8 ? 1 : cell < 0.93 ? 2 : 3]!;
+    // Grass creeping in from the foot of the walls, in clumps.
+    if (edge < 16 && big < 0.62 - edge / 28) c = TG.grass[Math.floor(cell * 3)]!;
+    // The drill yard: beaten flat and pale.
+    if (u > 84 && u < 150 && v > 70 && v < 150) c = TG.beaten[cell < 0.6 ? 0 : cell < 0.88 ? 1 : 2]!;
+  } else {
+    c = TG.grass[cell < 0.5 ? 0 : cell < 0.75 ? 1 : cell < 0.92 ? 2 : 3]!;
+    if (big < 0.22) c = tone(c, 0.05);
+    if (big > 0.88) c = tone(c, -0.05);
+  }
+  // Flagstones before the keep and the chapel: big slabs with lit edges.
+  if ((u > 56 && u < 80 && v > 22 && v < 60) || (u > 76 && u < 142 && v > 46 && v < 60)) {
+    const fv = Math.floor(v / 4);
+    const fu = Math.floor((u + (fv & 1) * 2.5) / 5);
+    const lu = (u + (fv & 1) * 2.5) % 5;
+    const lv = v % 4;
+    c = TG.flags[Math.floor(hash(fu, fv) * TG.flags.length)]!;
+    if (lu < 0.5 || lv < 0.5) c = TG.mortar;
+    else if (lu < 1) c = tone(c, -0.1);
+    else if (lu > 4.4) c = tone(c, 0.12);
+    if (lu >= 0.5 && lv >= 0.5 && hash(fu, fv, 3) < 0.15 && lu > 2 && lu < 3.2 && lv > 1.5 && lv < 2.2) c = tone(c, 0.18);
+  }
+  const rd = roadDistance(u, v);
+  if (rd < 5.6) {
+    if (inside || (u > WALL - 4 && u < WALL + 26 && Math.abs(v - GATE_V) < 12)) {
+      // Cobbled lanes inside the walls and through the gate, a worn path down the middle.
+      const cc = cobbleAt(u, v, rd);
+      if (cc) c = cc;
+      else if (rd > 4.6 && inside) c = mix(c, TG.grass[0]!, 0.4);
+    } else {
+      // Outside: a dirt track, two wheel ruts and a grass crown.
+      c = TG.earth[cell < 0.6 ? 2 : cell < 0.9 ? 0 : 1]!;
+      const off = Math.abs(rd - 2.1);
+      if (off < 0.35) c = TG.rut;
+      else if (off < 0.6 && rd > 2.1) c = TG.rutLit;
+      if (rd < 0.9 && cell < 0.55) c = TG.grass[2]!;
+      if (rd > 4.4) c = cell < 0.5 ? TG.grass[1]! : mix(c, TG.grass[0]!, 0.5);
+    }
+  }
+  for (const [pu, pv, ru, rv] of PUDDLES) {
+    if (Math.abs(u - pu) > ru * 1.2 || Math.abs(v - pv) > rv * 1.2) continue;
+    const w = puddleAt(u, v, pu, pv, ru, rv);
+    if (w) c = w;
+  }
+  return c;
+}
+
+/** Clover patches and wild flowers in the grass outside the walls: stamps on a world lattice. */
+function meadow(px: Px, frame: Frame): void {
+  const k = frame.k;
+  const clover = [hex('#7e8a46'), hex('#5a6634')];
+  const flowers = [hex('#f2ecd8'), hex('#f0cc52'), hex('#e48aa8'), hex('#a888cc'), hex('#f2ecd8')];
+  const ok = (u: number, v: number) => !(u > -4 && v > -4 && u < WALL + 4 && v < WALL + 4) && roadDistance(u, v) > 6.5 && !FIELDS.some((f) => inRect(u, v, f, 2));
+  // Clover: rounded patches of three-leaf clusters, lit leaf over a dark one.
+  for (let i = 0; i < 260; i++) {
+    const x0 = Math.floor(hash(i, 11, 91) * frame.w);
+    const y0 = Math.floor(hash(i, 12, 91) * frame.h);
+    const [u, v] = px.ground(x0, y0);
+    if (!ok(u, v)) continue;
+    for (let j = 0; j < 7; j++) {
+      const x = x0 + Math.round((hash(i, j, 92) - 0.5) * 7 * k);
+      const y = y0 + Math.round((hash(i, j, 93) - 0.5) * 3 * k);
+      px.set(x, y, clover[0]!);
+      px.set(x + 1, y, clover[0]!);
+      px.set(x, y + 1, clover[1]!);
+      px.set(x + 1, y - 1, clover[0]!);
+    }
+  }
+  // Flowers: a pair of petals over a dark stem pixel, in loose drifts of one colour.
+  for (let i = 0; i < 520; i++) {
+    const x0 = Math.floor(hash(i, 21, 94) * frame.w);
+    const y0 = Math.floor(hash(i, 22, 94) * frame.h);
+    const [u, v] = px.ground(x0, y0);
+    if (!ok(u, v)) continue;
+    const fc = flowers[Math.floor(hash(Math.floor(u / 30), Math.floor(v / 30), 95) * flowers.length)]!;
+    for (let j = 0; j < 3; j++) {
+      const x = x0 + Math.round((hash(i, j, 96) - 0.5) * 10 * k);
+      const y = y0 + Math.round((hash(i, j, 97) - 0.5) * 4 * k);
+      px.set(x, y, fc);
+      px.set(x + 1, y, fc);
+      px.set(x, y + 1, hex('#3f4a28'));
+    }
+  }
+}
+
+/**
+ * Tree shadows with dappled light: each tree casts a cool shadow along the sun, broken by flecks
+ * of warm sunlight that come through the canopy (3×2 cell clusters, never single pixels).
+ */
+function treeShade(px: Px): void {
+  const shade = hex('#2a2c50');
+  const sunC = hex('#c8a85a');
+  for (const [tu, tv, r] of TREES) {
+    const h = r * 1.8;
+    const cu = tu + SUN[0] * h;
+    const cv = tv + SUN[1] * h;
+    const ru = r * 1.15;
+    const rv = r * 0.95;
+    const x0 = Math.floor(px.X(cu - ru, cv + rv)) - 2;
+    const x1 = Math.ceil(px.X(cu + ru, cv - rv)) + 2;
+    const y0 = Math.floor(px.Y(cu - ru, cv - rv)) - 2;
+    const y1 = Math.ceil(px.Y(cu + ru, cv + rv)) + 2;
+    for (let y = Math.max(0, y0); y <= Math.min(px.h - 1, y1); y++)
+      for (let x = Math.max(0, x0); x <= Math.min(px.w - 1, x1); x++) {
+        const [u, v] = px.ground(x, y);
+        const d = ((u - cu) / ru) ** 2 + ((v - cv) / rv) ** 2;
+        const wob = hash(x >> 2, y >> 1, 98) * 0.25;
+        if (d > 1 - wob) continue;
+        const i = y * px.w + x;
+        const c = px.data[i]!;
+        // Sun flecks inside the shadow: 3×2 cells, more toward the rim.
+        const cx = Math.floor(x / 3);
+        const fleck = hash(cx, (y + (cx & 1)) >> 1, 99) < 0.1 + d * 0.22;
+        px.data[i] = fleck ? mix(c, sunC, 0.18) : mix(c, shade, 0.36);
+      }
+  }
 }
 
 /**
@@ -296,7 +492,7 @@ export function* groundSteps(st: CityStyle, levels: Record<BuildingKey, number>,
     region(-6, m - wide, m - wide, m + wide, (i, _u, v, _c, x, y) => paint(i, Math.abs(v - m), x, y));
   }
   // The well.
-  box(px, 76, 64, 0, 6, 6, 3, (f) => (f === 'top' ? hex('#1c1a18') : f === 'left' ? P.flags[2]! : P.flags[1]!));
+  if (id !== 'templar') box(px, 76, 64, 0, 6, 6, 3, (f) => (f === 'top' ? hex('#1c1a18') : f === 'left' ? P.flags[2]! : P.flags[1]!));
   const base = px.toCanvas();
   yield;
 
