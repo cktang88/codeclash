@@ -94,3 +94,7 @@ fly deploy
 `TOKEN_KEY` is a secret, so it goes in `fly secrets`, never in `fly.toml`. If your app isn't named `codeclash`, change `app` and `PUBLIC_URL` in `fly.toml` (and the OAuth app's callback URL to `${PUBLIC_URL}/auth/github/callback`). At 512 MB the config runs one parse worker (`PARSE_WORKERS=1`) and caps the V8 heap at 320 MB; with many busy leagues, raise the machine to 1 GB and drop both.
 
 Battles are recorded when fought, and cities are recomputed from the work log, so a restart loses nothing: on boot the server fights any battle whose hour passed while it was down.
+
+## Credits
+
+- `src/client/render/paper/rotsprite.ts` ports the RotSprite algorithm from [Aseprite](https://github.com/aseprite/aseprite)'s `src/doc/algorithm/rotsprite.cpp` (Aseprite Document Library, MIT licence, Copyright (c) 2019-2024 Igara Studio S.A., Copyright (c) 2001-2016 David Capello), after Xenowhirl's RotSprite. The bone animation data model in `paper/skeleton.ts` follows the publicly documented Spine and DragonBones JSON semantics; no code from either runtime is used.

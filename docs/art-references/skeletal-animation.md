@@ -130,3 +130,12 @@ The existing `FootPose` fields (`torso`, `head`, `nu`, `nl`, `fu`, `fl`, `nt`, `
 | `godot-rotsprite-like.png` | [godotshaders.com RotSprite-like shader](https://godotshaders.com/shader/rotsprite-like-algorithm-for-cleaner-pixel-art-rotation) (shader code CC0; screenshot is study only) | With nearest rotation, outlines break into dotted segments and thin antenna lines lose pixels. Fast RotSprite keeps the lines continuous and the silhouette closed. |
 | `cleanedge-ferret.png`, `cleanedge-lines.png`, `cleanedge-zip/` | [torcado.com/cleanEdge](https://torcado.com/cleanEdge/) (tool is MIT; example art is study only) | Test inputs. Edge-priority upscaling exists to protect 1 px lines and 2:1 slopes, which are exactly the features our outlines are made of. |
 | `test-ferret-nearest-vs-rotsprite-30.png`, `test-lines-nearest-vs-rotsprite-22.png` | Our experiment (nearest on the left, RotSprite on the right, 4× zoom) | RotSprite fixes gaps and doubled pixels but leaves uneven steps at odd angles. That is why we snap angles and re-rasterize vector outlines instead of rotating bitmaps whenever we can. |
+
+## Implementation (2026-11-02)
+
+`src/client/render/paper/skeleton.ts` implements option (a) above, and `paper/rotsprite.ts` the RotSprite port. The usage guide is `paper/README.md`, "Animating with bones". The demo is `sprites-preview.html?mode=bones`.
+
+Critique rounds on the demo's placeholder figure (`docs/screenshots/hd-sprites/bones-demo-*.png`), compared with the walk and gallop references above and with the Legionary's hand keys:
+1. The bones, joints, IK targets and the smear event all read. The off-hand grip target was marked even while its IK was off, which was misleading, so now only active IK targets are marked.
+2. Walk and run at level 8: the planted foot holds the ground line in every frame (the tests check this to within 0.5 px at levels 1-8). The horse walk is four-beat and the gallop has a suspension phase.
+3. The run, the strike and the brace leaned *back*, and the die toppled forward with the arms through the ground. The cause: on an upright bone, a positive rotation tips it backward in the rig convention. All leans were flipped, and the dead lie on their backs with their arms along the ground. The convention is now spelled out in the README for the faction and mocap agents.

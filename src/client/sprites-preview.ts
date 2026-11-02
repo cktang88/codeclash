@@ -2,6 +2,7 @@
 //   ?mode=grid  (default) animated, one table per kind: rows = animations, columns = facings
 //   ?mode=sheet static frames: rows = animation × facing, columns = frames
 //   ?mode=army  two armies at 1x and 2x, for readability at a glance
+//   ?mode=bones the skeleton demo (bones-preview.ts): bones over a test figure, every animation
 //   ?mode=lineup every kind of every faction, at the zoomed-out cell size (1x, 2x) and, in HD, at
 //                each detail level drawn 1:1 (levels=2,4,8), for checking that units read apart
 // Other params: kinds=0,1,2  anims=0,8  z=4 (zoom)  hue=215  hue2=8  faction=templar  t=<ticks> (freeze time)
@@ -43,7 +44,7 @@ const t4 = performance.now();
 const info = document.getElementById('info')!;
 info.innerHTML =
   `${faction} · atlas ${A.image.width}×${A.image.height} · build ${(t1 - t0).toFixed(0)} / ${(t2 - t1).toFixed(0)} ms, full paint ${(t3 - t2).toFixed(0)} / ${(t4 - t3).toFixed(0)} ms · ` +
-  ['grid', 'sheet', 'army', 'compare', 'lineup'].map((m) => `<a href="?mode=${m}&faction=${faction}&art=${art}">${m}</a>`).join(' ') +
+  ['grid', 'sheet', 'army', 'compare', 'lineup', 'bones'].map((m) => `<a href="?mode=${m}&faction=${faction}&art=${art}">${m}</a>`).join(' ') +
   ` · art: <b>${art}</b> <button id="art">switch to ${art === 'hd' ? 'classic 48' : 'HD 128'}</button>`;
 document.getElementById('art')!.onclick = () => {
   const next: ArtMode = art === 'hd' ? 'classic' : 'hd';

@@ -680,7 +680,7 @@ export function evaluate(skel: SkeletonData, locals: Locals, opts: EvaluateOptio
     for (const { d, i2, it } of C.ik) {
       if (d.ground === undefined || mixOf(d) < 1) continue;
       const T = out[it]!, F = out[i2]!;
-      if (T.y < d.ground - 0.02) continue;
+      if (T.y * L < Math.round(d.ground * L) - 0.01) continue;
       if (F.ty > lowest) {
         lowest = F.ty;
         lift = Math.round((T.y - F.ty) * L);
@@ -711,6 +711,13 @@ export function restPose(skel: SkeletonData, level: number, facing: Facing): Pos
   let p = m.get(key);
   if (!p) m.set(key, (p = evaluate(skel, emptyLocals(), { level, facing, noIk: true })));
   return p;
+}
+
+/** Every bone's rest joints (origin and tip, units, unrounded) in a facing: line key art up with these. */
+export function restJoints(skel: SkeletonData, facing: Facing = 'se'): Record<string, { from: P2; to: P2 }> {
+  const p = evaluate(skel, emptyLocals(), { level: 4096, facing, noIk: true });
+  const r = (v: number) => Math.round(v * 1000) / 1000 + 0;
+  return Object.fromEntries(p.bones.map((b) => [b.name, { from: [r(b.x), r(b.y)] as P2, to: [r(b.tx), r(b.ty)] as P2 }]));
 }
 
 const BAKES = new WeakMap<SkeletonData, WeakMap<object, Map<string, Posed[]>>>();
@@ -899,7 +906,14 @@ function blit(c: Paper, img: PartImg, o: P2): void {
   c.order += img.polys;
 }
 
-const asAtt = (a: Attachment | DrawPart): Attachment => (typeof a === 'function' ? { draw: a } : a);
+const WRAPPED = new WeakMap<DrawPart, Attachment>();
+/** A plain draw function as an Attachment: the same object every time (it keys the part cache). */
+const asAtt = (a: Attachment | DrawPart): Attachment => {
+  if (typeof a !== 'function') return a;
+  let w = WRAPPED.get(a);
+  if (!w) WRAPPED.set(a, (w = { draw: a }));
+  return w;
+};
 
 /**
  * Draws a posed skeleton's slots back to front on `c` (already begun at the posed level): each
@@ -933,7 +947,7 @@ export function drawSkeleton(c: Paper, posed: Posed, atts: AttachmentSet, opts: 
 
 /** Forgets every cached part image (after editing a part's drawing at run time). */
 export function clearPartCache(atts: AttachmentSet): void {
-  for (const a of Object.values(atts)) if (typeof a !== 'function') PARTS.delete(a);
+  for (const a of Object.values(atts)) PARTS.delete(asAtt(a));
 }
 
 /** A smear behind a weapon bone while a `smear` event is active: from last frame's angle to this one's. */
@@ -1034,4 +1048,737 @@ export function skeletonKind(rig: SkeletonRig, opts: Omit<PaperKindDef<BasePose>
     keys: { poses },
     draw: (c, _p, facing, anim, frame) => void drawRigFrame(c, rig, anim, frame, facing),
   };
+}
+
+// ================================================================== standard skeletons
+
+/**
+ * Bone names of the standard skeletons. They match the mocap key JSON (`motion/*.json`): the
+ * body down the middle, then per side, N = near (the weapon side, toward the viewer in both drawn
+ * facings) and F = far. Mocap L/R names map through BONE_ALIASES (right = near).
+ */
+export const FOOT_BONES = [
+  'root', 'pelvis', 'spine', 'chest', 'neck', 'head',
+  'upperArmN', 'forearmN', 'handN', 'weapon', 'grip2', 'upperArmF', 'forearmF', 'handF',
+  'thighN', 'shinN', 'footN', 'thighF', 'shinF', 'footF', 'footTargetN', 'footTargetF',
+] as const;
+
+/** Side suffixes as other tools write them, to ours (the weapon hand is the right: near). */
+const SIDES: [RegExp, string][] = [
+  [/[._ -]?(r|right|n|near)$/i, 'N'],
+  [/[._ -]?(l|left|f|far)$/i, 'F'],
+];
+/** Mocap / BVH bone names to ours (case-insensitive, sides stripped first). */
+export const BONE_ALIASES: Record<string, string> = {
+  hips: 'pelvis', pelvis: 'pelvis', root: 'pelvis', lowerback: 'spine', spine: 'spine', spine1: 'spine', abdomen: 'spine',
+  chest: 'chest', spine2: 'chest', upperchest: 'chest', thorax: 'chest', neck: 'neck', neck1: 'neck', head: 'head',
+  upperarm: 'upperArm', arm: 'upperArm', humerus: 'upperArm', forearm: 'forearm', lowerarm: 'forearm', radius: 'forearm', hand: 'hand', wrist: 'hand',
+  thigh: 'thigh', upleg: 'thigh', upperleg: 'thigh', femur: 'thigh', shin: 'shin', leg: 'shin', lowerleg: 'shin', tibia: 'shin', calf: 'shin', foot: 'foot', ankle: 'foot',
+};
+const SIDED = new Set(['upperArm', 'forearm', 'hand', 'thigh', 'shin', 'foot']);
+/**
+ * Horse clip names (the mocap agent's style) to horseSkeleton's. Within a horse skeleton `neck` and
+ * `head` are the horse's; the rider's are reached as `riderNeck` / `riderHead` (or by our names
+ * through a foot clip, e.g. footAnimations picked for the rider).
+ */
+export const HORSE_ALIASES: Record<string, string> = {
+  barrel: 'horseBody', body: 'horseBody', horsebody: 'horseBody', neck: 'horseNeck', horseneck: 'horseNeck', head: 'horseHead', horsehead: 'horseHead', tail: 'tail',
+  riderneck: 'neck', riderhead: 'head', riderpelvis: 'pelvis', riderspine: 'spine', riderchest: 'chest',
+};
+/** 'foreUpperN', 'hind_lower_l', 'foreNUpper' → horseSkeleton's leg names (fore|hind, side, Upper|Lower). */
+function horseLeg(name: string): string | null {
+  const m = /^(fore|hind)[._ -]?(?:(upper|lower)[._ -]?(n|f|near|far|l|r|left|right)|(n|f)[._ -]?(upper|lower))$/i.exec(name);
+  if (!m) return null;
+  const end = (m[2] ?? m[5])!.toLowerCase(), sd = (m[3] ?? m[4])!.toLowerCase();
+  const side = sd === 'n' || sd === 'near' || sd === 'r' || sd === 'right' ? 'N' : 'F';
+  return `${m[1]!.toLowerCase()}${side}${end === 'upper' ? 'Upper' : 'Lower'}`;
+}
+
+/**
+ * Our bone name for a mocap bone name ('LeftUpLeg' → 'thighF', 'upperArm.R' → 'upperArmN', 'thighN'
+ * → 'thighN'), or the name unchanged. Given a horse skeleton, horse names resolve first ('barrel' →
+ * 'horseBody', 'neck' → 'horseNeck', 'foreUpperN' → 'foreNUpper').
+ */
+export function resolveBone(name: string, skel?: SkeletonData): string {
+  if (skel && (skel.body === 'horse' || skel.bones.some((b) => b.name === 'horseBody'))) {
+    const h = HORSE_ALIASES[name.toLowerCase()] ?? horseLeg(name);
+    if (h) return h;
+  }
+  if ((FOOT_BONES as readonly string[]).includes(name) || (skel && skel.bones.some((b) => b.name === name))) return name;
+  let base = name, side = '';
+  const pre = /^(left|right)/i.exec(name);
+  if (pre) {
+    base = name.slice(pre[0].length);
+    side = pre[1]!.toLowerCase() === 'right' ? 'N' : 'F';
+  } else
+    for (const [re, s] of SIDES) {
+      const m = re.exec(name);
+      if (m && BONE_ALIASES[name.slice(0, m.index).toLowerCase()] && SIDED.has(BONE_ALIASES[name.slice(0, m.index).toLowerCase()]!)) {
+        base = name.slice(0, m.index);
+        side = s;
+        break;
+      }
+    }
+  const ours = BONE_ALIASES[base.toLowerCase()];
+  if (!ours) return name;
+  return SIDED.has(ours) ? ours + side : ours;
+}
+
+const add = (a: P2, b: P2): P2 => [a[0] + b[0], a[1] + b[1]];
+/** A point `len` along a snapped angle (degrees, a multiple of 7.5), from the table. */
+const along = (p: P2, deg: number, len: number): P2 => [p[0] + sinStep(deg / SNAP_DEG) * len, p[1] + cosStep(deg / SNAP_DEG) * len];
+
+/** An arm's rest joints from the shoulder: upper arm hanging, the forearm a little forward. */
+function armJoints(side: 'N' | 'F', sh: P2, parent: string): { from: P2; to: P2; name: string; parent: string }[] {
+  const el = add(sh, [-0.2, 2.4]), wr = add(el, [0.45, 2.2]), hd = add(wr, [0.2, 0.6]);
+  return [
+    { name: `upperArm${side}`, parent, from: sh, to: el },
+    { name: `forearm${side}`, parent: `upperArm${side}`, from: el, to: wr },
+    { name: `hand${side}`, parent: `forearm${side}`, from: wr, to: hd },
+  ];
+}
+/** A leg's rest joints from the hip: the knee a touch forward, the ankle at `ankY`. */
+function legJoints(side: 'N' | 'F', hip: P2, ankY: number, parent: string): { from: P2; to: P2; name: string; parent: string; inherit?: 'translation' }[] {
+  const kn = add(hip, [0.35, 2.88]);
+  const an: P2 = [kn[0] - 0.75, ankY];
+  return [
+    { name: `thigh${side}`, parent, from: hip, to: kn },
+    { name: `shin${side}`, parent: `thigh${side}`, from: kn, to: an },
+    { name: `foot${side}`, parent: `shin${side}`, from: an, to: add(an, [1.1, 0.4]), inherit: 'translation' },
+  ];
+}
+/** Joints of a man drawn in one facing (SE, or NE where the sides swap). */
+function manJoints(facing: 'se' | 'ne', o: { root?: string; at?: P2 } = {}): { name: string; parent?: string; from: P2; to: P2; inherit?: 'all' | 'translation' }[] {
+  const at = o.at ?? [0, 0];
+  const P = (p: P2): P2 => add(p, at);
+  const back = facing === 'ne';
+  const shN = P(back ? [2.15, -11.0] : [-1.75, -11.0]), shF = P(back ? [-1.75, -11.25] : [2.15, -11.25]);
+  const hipN = P(back ? [1.05, -6.5] : [-0.75, -6.5]), hipF = P(back ? [-0.75, -6.6] : [1.05, -6.6]);
+  const arms = [...armJoints('N', shN, 'chest'), ...armJoints('F', shF, 'chest')];
+  const wr = arms[1]!.to;
+  const grip = add(wr, [0.1, 0.3]);
+  const root = o.root ? [] : [{ name: 'root', from: [0, 0] as P2, to: [0, 0] as P2 }];
+  return [
+    ...root,
+    { name: 'pelvis', parent: o.root ?? 'root', from: P([0.15, -6.6]), to: P([0.3, -7.7]) },
+    { name: 'spine', parent: 'pelvis', from: P([0.3, -7.7]), to: P([0.35, -9.6]) },
+    { name: 'chest', parent: 'spine', from: P([0.35, -9.6]), to: P([0.4, -12.0]) },
+    { name: 'neck', parent: 'chest', from: P([0.4, -12.0]), to: P([0.5, -12.6]) },
+    { name: 'head', parent: 'neck', from: P([0.5, -12.6]), to: P([0.8, -14.5]) },
+    ...arms.slice(0, 3),
+    { name: 'weapon', parent: 'handN', from: grip, to: along(grip, 165, 5) },
+    { name: 'grip2', parent: 'weapon', from: along(grip, 165, 1.3), to: along(grip, 165, 1.3) },
+    ...arms.slice(3),
+    ...legJoints('N', hipN, at[1] - 0.75, 'pelvis'),
+    ...legJoints('F', hipF, at[1] - 0.8, 'pelvis'),
+  ];
+}
+/** Merges per-facing joint lists (same names, same order) into JointDefs with NE overrides. */
+function withFacings(se: ReturnType<typeof manJoints>, ne: ReturnType<typeof manJoints>): JointDef[] {
+  return se.map((j, i) => {
+    const n = ne[i]!;
+    const d: JointDef = { ...j };
+    if (n.from[0] !== j.from[0] || n.from[1] !== j.from[1] || n.to[0] !== j.to[0] || n.to[1] !== j.to[1]) d.facing = { ne: { from: n.from, to: n.to } };
+    return d;
+  });
+}
+
+const MAN_ORDER_SE = ['thighF', 'shinF', 'footF', 'upperArmF', 'forearmF', 'handF', 'offhand', 'pelvis', 'spine', 'chest', 'thighN', 'shinN', 'footN', 'neck', 'head', 'upperArmN', 'forearmN', 'handN', 'weapon', 'smear'];
+const MAN_ORDER_NE = ['offhand', 'thighF', 'shinF', 'footF', 'upperArmF', 'forearmF', 'handF', 'pelvis', 'spine', 'chest', 'thighN', 'shinN', 'footN', 'neck', 'head', 'upperArmN', 'forearmN', 'handN', 'weapon', 'smear'];
+/** Slots of a man: one per visible bone, the off-hand item (shield) on handF, a smear on the weapon. Each shows the attachment of its own name. */
+const manSlots = (): SlotData[] =>
+  MAN_ORDER_SE.map((name) => ({ name, bone: name === 'offhand' ? 'handF' : name === 'smear' ? 'weapon' : name, attachment: { all: name } }));
+
+/** Scales a skeleton's lengths and offsets (a colossus is a man × 1.4). */
+export function scaleSkeleton(skel: SkeletonData, k: number, name = `${skel.name}x${k}`): SkeletonData {
+  const s = (v: number) => round6(v * k);
+  return {
+    ...skel,
+    name,
+    bones: skel.bones.map((b) => ({
+      ...b,
+      len: s(b.len),
+      x: s(b.x),
+      y: s(b.y),
+      ...(b.facing ? { facing: Object.fromEntries(Object.entries(b.facing).map(([f, v]) => [f, { ...v, x: v.x === undefined ? undefined : s(v.x), y: v.y === undefined ? undefined : s(v.y) }])) } : {}),
+    })),
+    ik: skel.ik?.map((d) => (d.ground === undefined ? d : { ...d, ground: s(d.ground) })),
+  };
+}
+/** Scales an animation's translations (to go with scaleSkeleton). */
+export function scaleAnimation(anim: AnimationData, k: number): AnimationData {
+  const bones: Record<string, BoneTimeline> = {};
+  for (const [n, tl] of Object.entries(anim.bones ?? {})) bones[n] = { ...tl, ...(tl.translate ? { translate: tl.translate.map((key) => ({ ...key, v: [key.v[0] * k, key.v[1] * k] as [number, number] })) } : {}) };
+  return { ...anim, bones };
+}
+/** An animation keeping only some bones' timelines (an attack's upper body for a rider). */
+export function pickBones(anim: AnimationData, keep: (bone: string) => boolean, name = anim.name): AnimationData {
+  return { ...anim, name, bones: Object.fromEntries(Object.entries(anim.bones ?? {}).filter(([n]) => keep(n))), ik: undefined, drawOrder: undefined };
+}
+
+/**
+ * A man on foot, about 14.5 units tall (116 px at level 8), with the bulk brief's proportions:
+ * shoulders 0.27 H apart in three-quarter view (0.36 H across the pauldrons), hips at 0.45 H,
+ * the head a seventh. Feet are planted by IK (legN, legF: targets footTargetN/F on the ground);
+ * the off hand can grip a two-handed weapon by IK (armF2h → grip2; mix 0 until a clip or
+ * `twoHanded` turns it on).
+ */
+export function footSkeleton(o: { name?: string; twoHanded?: boolean } = {}): SkeletonData {
+  const se = manJoints('se'), ne = manJoints('ne');
+  const ankN = se.find((j) => j.name === 'footN')!.from, ankF = se.find((j) => j.name === 'footF')!.from;
+  const ankNb = ne.find((j) => j.name === 'footN')!.from, ankFb = ne.find((j) => j.name === 'footF')!.from;
+  const joints: JointDef[] = [
+    ...withFacings(se, ne),
+    { name: 'footTargetN', parent: 'root', from: ankN, to: ankN, facing: { ne: { from: ankNb, to: ankNb } } },
+    { name: 'footTargetF', parent: 'root', from: ankF, to: ankF, facing: { ne: { from: ankFb, to: ankFb } } },
+  ];
+  return {
+    name: o.name ?? 'foot',
+    body: 'foot',
+    bones: bonesFromJoints(joints),
+    slots: manSlots(),
+    drawOrder: { se: MAN_ORDER_SE, ne: MAN_ORDER_NE },
+    ik: [
+      { name: 'legN', bones: ['thighN', 'shinN'], target: 'footTargetN', bend: 1, mix: 1, ground: ankN[1] },
+      { name: 'legF', bones: ['thighF', 'shinF'], target: 'footTargetF', bend: 1, mix: 1, ground: ankF[1] },
+      { name: 'armF2h', bones: ['upperArmF', 'forearmF'], target: 'grip2', bend: -1, mix: o.twoHanded ? 1 : 0 },
+    ],
+  };
+}
+
+/** A colossus: a man × 1.4, hunched (spine forward, head up to look ahead), with a jaw. */
+export function beastSkeleton(o: { name?: string; scale?: number } = {}): SkeletonData {
+  const k = o.scale ?? 1.4;
+  const s = scaleSkeleton(footSkeleton(), k, o.name ?? 'beast');
+  const bones = s.bones.map((b) => (b.name === 'spine' ? { ...b, rot: round6(b.rot - 18) } : b.name === 'neck' ? { ...b, rot: round6(b.rot + 14) } : b));
+  const hi = bones.findIndex((b) => b.name === 'head');
+  bones.splice(hi + 1, 0, { name: 'jaw', parent: 'head', len: round6(0.9 * k), x: round6(-0.35 * k), y: round6(0.45 * k), rot: 150 });
+  const slots = [...s.slots, { name: 'jaw', bone: 'jaw', attachment: { all: 'jaw' } }];
+  const ins = (order: string[]) => {
+    const o2 = [...order];
+    o2.splice(o2.indexOf('head'), 0, 'jaw');
+    return o2;
+  };
+  return { ...s, body: 'beast', bones, slots, drawOrder: { se: ins(MAN_ORDER_SE), ne: ins(MAN_ORDER_NE) } };
+}
+
+const HORSE_LEGS: [string, P2, P2, P2][] = [
+  ['foreF', [3.8, -7.1], [4.1, -3.9], [4.0, -0.8]],
+  ['hindF', [-2.8, -7.2], [-2.2, -4.1], [-2.8, -0.8]],
+  ['foreN', [3.1, -6.9], [3.3, -3.7], [3.2, -0.6]],
+  ['hindN', [-3.5, -7.0], [-2.9, -3.9], [-3.5, -0.6]],
+];
+/**
+ * A horse and its rider. The horse: a barrel (horseBody, pivoting at the hindquarters, so + rot
+ * rears), neck, head, tail and four legs (fore/hind × N/F, upper and lower). The rider sits on a
+ * `saddle` bone and has a man's upper-body bones (same names as footSkeleton, so foot clips drive
+ * the rider), with his legs hanging (FK, no ground IK).
+ */
+export function horseSkeleton(o: { name?: string } = {}): SkeletonData {
+  const seat: P2 = [-0.2, -10.4];
+  const legs = HORSE_LEGS.flatMap(([n, a, b, c]): JointDef[] => [
+    { name: `${n}Upper`, parent: 'horseBody', from: a, to: b },
+    { name: `${n}Lower`, parent: `${n}Upper`, from: b, to: c },
+  ]);
+  const rider = (f: 'se' | 'ne') => {
+    const j = manJoints(f, { root: 'saddle', at: [seat[0] - 0.15, seat[1] + 6.6] });
+    // Legs hang astride: thigh forward along the barrel's side, shin down, foot in the stirrup.
+    const hang = (side: 'N' | 'F', hip: P2) => {
+      const kn = add(hip, [1.6, 1.2]), an = add(kn, [-0.2, 2.6]);
+      return [
+        { name: `thigh${side}`, parent: 'pelvis', from: hip, to: kn },
+        { name: `shin${side}`, parent: `thigh${side}`, from: kn, to: an },
+        { name: `foot${side}`, parent: `shin${side}`, from: an, to: add(an, [0.9, 0.2]), inherit: 'translation' as const },
+      ];
+    };
+    return [...j.filter((x) => !/^(thigh|shin|foot)/.test(x.name)), ...hang('N', add(seat, [-0.4, 0.05])), ...hang('F', add(seat, [0.6, -0.05]))];
+  };
+  const joints: JointDef[] = [
+    { name: 'root', from: [0, 0], to: [0, 0] },
+    { name: 'horseBody', parent: 'root', from: [-4.5, -8.0], to: [4.0, -8.4] },
+    { name: 'horseNeck', parent: 'horseBody', from: [3.6, -8.9], to: [5.6, -12.4] },
+    { name: 'horseHead', parent: 'horseNeck', from: [5.6, -12.4], to: [7.4, -10.6] },
+    { name: 'tail', parent: 'horseBody', from: [-4.9, -8.7], to: [-5.8, -5.4] },
+    ...legs,
+    { name: 'saddle', parent: 'horseBody', from: seat, to: seat },
+    ...withFacings(rider('se'), rider('ne')),
+  ];
+  const horseFar = ['foreFUpper', 'foreFLower', 'hindFUpper', 'hindFLower'];
+  const horseNear = ['foreNUpper', 'foreNLower', 'hindNUpper', 'hindNLower'];
+  const riderFar = ['thighF', 'shinF', 'footF', 'upperArmF', 'forearmF', 'handF'];
+  const riderNear = ['pelvis', 'spine', 'chest', 'neck', 'head', 'thighN', 'shinN', 'footN', 'upperArmN', 'forearmN', 'handN', 'weapon', 'smear'];
+  const se = [...horseFar, ...riderFar, 'offhand', 'tail', 'horseBody', 'horseNeck', 'horseHead', ...horseNear, ...riderNear];
+  const ne = ['offhand', ...horseFar, ...riderFar, 'tail', 'horseBody', 'horseNeck', 'horseHead', ...horseNear, ...riderNear];
+  return {
+    name: o.name ?? 'horse',
+    body: 'horse',
+    bones: bonesFromJoints(joints),
+    slots: se.map((name) => ({ name, bone: name === 'offhand' ? 'handF' : name === 'smear' ? 'weapon' : name, attachment: { all: name } })),
+    drawOrder: { se, ne },
+    ik: [{ name: 'armF2h', bones: ['upperArmF', 'forearmF'], target: 'grip2', bend: -1, mix: 0 }],
+  };
+}
+
+/**
+ * A war machine (trebuchet) and one crewman: a base frame, a post, the throwing arm (pivot on the
+ * post; at rest the long end is cocked down and back), the counterweight on the short end hanging
+ * level, the sling on the long end, and the crewman (crewPelvis … crewShin).
+ */
+export function engineSkeleton(o: { name?: string } = {}): SkeletonData {
+  const piv: P2 = [0, -7.5];
+  const joints: JointDef[] = [
+    { name: 'root', from: [0, 0], to: [0, 0] },
+    { name: 'frame', parent: 'root', from: [-4.5, -1.2], to: [4.5, -1.2] },
+    { name: 'post', parent: 'frame', from: [0, -1.2], to: piv },
+    { name: 'arm', parent: 'post', from: piv, to: [-5.8, -3.4] },
+    { name: 'counter', parent: 'arm', from: piv, to: [1.6, -8.6] },
+    { name: 'weight', parent: 'counter', from: [1.6, -8.6], to: [1.6, -7.0], inherit: 'translation' },
+    { name: 'sling', parent: 'arm', from: [-5.8, -3.4], to: [-3.4, -1.7] },
+    { name: 'crewPelvis', parent: 'root', from: [4.0, -3.2], to: [4.1, -4.3] },
+    { name: 'crewChest', parent: 'crewPelvis', from: [4.1, -4.3], to: [4.6, -6.4] },
+    { name: 'crewHead', parent: 'crewChest', from: [4.6, -6.4], to: [4.8, -7.5] },
+    { name: 'crewArm', parent: 'crewChest', from: [4.5, -6.0], to: [3.6, -4.7] },
+    { name: 'crewForearm', parent: 'crewArm', from: [3.6, -4.7], to: [2.6, -4.2] },
+    { name: 'crewThigh', parent: 'crewPelvis', from: [4.0, -3.2], to: [3.7, -1.6] },
+    { name: 'crewShin', parent: 'crewThigh', from: [3.7, -1.6], to: [4.0, 0] },
+  ];
+  const order = ['sling', 'frame', 'post', 'counter', 'weight', 'arm', 'crewThigh', 'crewShin', 'crewPelvis', 'crewChest', 'crewHead', 'crewArm', 'crewForearm'];
+  return { name: o.name ?? 'engine', body: 'engine', bones: bonesFromJoints(joints), slots: order.map((n) => ({ name: n, bone: n, attachment: { all: n } })), drawOrder: { se: order, ne: order } };
+}
+
+/** The standard skeleton of a body type. */
+export function skeletonFor(body: BodyType): SkeletonData {
+  return body === 'foot' ? footSkeleton() : body === 'horse' ? horseSkeleton() : body === 'beast' ? beastSkeleton() : engineSkeleton();
+}
+
+// ================================================================== standard animation sets
+
+type Pose = Record<string, BoneLocal>;
+const merge = (...ps: Pose[]): Pose => {
+  const out: Pose = {};
+  for (const p of ps) for (const [n, b] of Object.entries(p)) out[n] = { ...(out[n] ?? {}), ...b };
+  return out;
+};
+const pk = (f: number, bones: Pose, c?: Curve, ik?: Record<string, number>): PoseKey => ({ f, bones, ...(c ? { c } : {}), ...(ik ? { ik } : {}) });
+
+/** The weapon carried ready: the near arm a little forward, the forearm raised. */
+export const STANCE: Pose = { upperArmN: { rot: 10 }, forearmN: { rot: 35 }, upperArmF: { rot: 6 }, forearmF: { rot: 20 } };
+
+/** Breathing: the chest rises a pixel at level 8 and settles (an overlay for any stance). */
+export const BREATH: AnimationData = {
+  name: 'breath',
+  frames: 8,
+  loop: true,
+  bones: { chest: { translate: [{ f: 0, v: [0, 0], c: EASE }, { f: 4, v: [0, -0.13], c: EASE }] } },
+};
+
+/**
+ * A walk cycle's feet (12 frames): each foot slides back along the ground through its stance
+ * (contact at the front, passing under the hip, toe-off at the back) and swings forward, lifted,
+ * through the other half. Targets are translations of footTargetN/F from their rest.
+ */
+function feetCycle(n: number, stride: number, lift: number, stance: number): Pose[] {
+  // Keys at the stance's ends and middle, and three in the swing; F runs half a cycle behind.
+  const half = stride / 2;
+  const foot = (t: number): BoneLocal => {
+    const u = ((t % n) + n) % n;
+    if (u <= stance) return { x: half - (stride * u) / stance, y: 0 };
+    const s = (u - stance) / (n - stance);
+    const arc = 4 * s * (1 - s);
+    return { x: -half + stride * s * s * (3 - 2 * s), y: -lift * arc };
+  };
+  const out: Pose[] = [];
+  for (let i = 0; i < 8; i++) {
+    const t = (i * n) / 8;
+    out.push({ footTargetN: foot(t), footTargetF: foot(t + n / 2) });
+  }
+  return out;
+}
+
+/** Foot clips: idle, walk, run, attack, shoot, hit, die, dead and brace (frame counts from frames.ts). */
+export function footAnimations(o: { stride?: number; scale?: number } = {}): Partial<Record<Anim, Clip>> {
+  const k = o.scale ?? 1;
+  const S = (a: AnimationData) => (k === 1 ? a : scaleAnimation(a, k));
+  const stride = o.stride ?? 2.0;
+  const idle = animationFromPoses('idle', 8, true, [pk(0, STANCE)]);
+
+  // Walk: contact, down, passing, up (per half cycle); arms swing against the legs, the weapon arm
+  // is carried steady (README, no-boil rule 4).
+  const wf = feetCycle(12, stride, 0.7, 6);
+  const bob = [0.1, 0.3, 0, -0.12];
+  const walk = animationFromPoses('walk', 12, true, wf.map((feet, i) =>
+    pk(i * 1.5, merge(STANCE, feet, { pelvis: { y: bob[i % 4]! }, spine: { rot: -3 }, upperArmF: { rot: 6 + 14 * [1, 0.7, 0, -0.7, -1, -0.7, 0, 0.7][i]! } })),
+  ), [{ f: 0, name: 'step', str: 'N' }, { f: 6, name: 'step', str: 'F' }]);
+
+  // Run: a shorter stance, a flight phase with both feet up, a forward lean and pumping arms.
+  const rf = feetCycle(12, stride * 1.35, 1.5, 4.5);
+  const rbob = [0.4, 0.2, -0.15, -0.35];
+  const run = animationFromPoses('run', 12, true, rf.map((feet, i) =>
+    pk(i * 1.5, merge(feet, { pelvis: { x: 0.3, y: rbob[i % 4]! }, spine: { rot: -14 }, head: { rot: 10 }, upperArmN: { rot: 20 }, forearmN: { rot: 50 }, upperArmF: { rot: 28 * [1, 0.7, 0, -0.7, -1, -0.7, 0, 0.7][i]! }, forearmF: { rot: 50 } })),
+  ), [{ f: 0, name: 'step', str: 'N' }, { f: 6, name: 'step', str: 'F' }]);
+
+  // Attack: anticipation (wind up, weight back), strike (lunge; smear), follow-through, recover.
+  const attack = animationFromPoses('attack', 12, false, [
+    pk(0, STANCE, EASE),
+    pk(3, { upperArmN: { rot: 150 }, forearmN: { rot: -20 }, weapon: { rot: 40 }, spine: { rot: 8 }, head: { rot: -6 }, pelvis: { x: -0.2 }, upperArmF: { rot: 20 }, forearmF: { rot: 30 } }, EASE_IN),
+    pk(5, { upperArmN: { rot: 70 }, forearmN: { rot: -10 }, weapon: { rot: -50 }, spine: { rot: -20 }, pelvis: { x: 0.45, y: 0.3 }, upperArmF: { rot: -12 }, forearmF: { rot: 30 } }, EASE_OUT),
+    pk(7, { upperArmN: { rot: 15 }, forearmN: { rot: -15 }, weapon: { rot: -95 }, spine: { rot: -24 }, pelvis: { x: 0.55, y: 0.35 }, upperArmF: { rot: -16 }, forearmF: { rot: 30 } }, EASE),
+    pk(11, merge(STANCE, { spine: { rot: -4 } })),
+  ], [{ f: 4, name: 'smear', len: 2, bone: 'weapon' }, { f: 5, name: 'hit' }]);
+
+  // Shoot: raise the bow arm, draw to the chin, release, recoil, recover.
+  const shoot = animationFromPoses('shoot', 12, false, [
+    pk(0, STANCE, EASE),
+    pk(3, { upperArmF: { rot: 80 }, forearmF: { rot: -10 }, upperArmN: { rot: 70 }, forearmN: { rot: 60 }, weapon: { rot: -60 } }, EASE),
+    pk(6, { upperArmF: { rot: 82 }, forearmF: { rot: -8 }, upperArmN: { rot: 80 }, forearmN: { rot: 120 }, weapon: { rot: -60 }, spine: { rot: 4 } }, 'stepped'),
+    pk(7, { upperArmF: { rot: 82 }, forearmF: { rot: -8 }, upperArmN: { rot: 70 }, forearmN: { rot: 95 }, weapon: { rot: -60 }, spine: { rot: 4 } }, EASE_OUT),
+    pk(8, { upperArmF: { rot: 88 }, forearmF: { rot: -4 }, upperArmN: { rot: 66 }, forearmN: { rot: 85 }, weapon: { rot: -60 }, spine: { rot: 6 } }, EASE),
+    pk(11, STANCE),
+  ], [{ f: 7, name: 'release' }]);
+
+  // Hit: thrown back, the head snaps back, arms fly; he steadies.
+  const hit = animationFromPoses('hit', 5, false, [
+    pk(0, STANCE, EASE_OUT),
+    pk(1, { spine: { rot: 14 }, head: { rot: 18 }, pelvis: { x: -0.35, y: 0.1 }, upperArmN: { rot: 35 }, forearmN: { rot: 50 }, upperArmF: { rot: 36 }, forearmF: { rot: 40 } }, EASE),
+    pk(2, { spine: { rot: 10 }, head: { rot: 10 }, pelvis: { x: -0.25 }, upperArmN: { rot: 25 }, forearmN: { rot: 45 }, upperArmF: { rot: 24 }, forearmF: { rot: 30 } }, EASE),
+    pk(4, merge(STANCE, { spine: { rot: 2 } })),
+  ]);
+
+  // Die: the blow, the knees go (feet released from IK), he topples backwards about his feet.
+  const fall: Pose = { root: { rot: 88, y: -0.6 }, spine: { rot: 5 }, head: { rot: -30 }, thighN: { rot: 30 }, shinN: { rot: -20 }, thighF: { rot: 20 }, shinF: { rot: -20 }, upperArmN: { rot: 12 }, forearmN: { rot: 8 }, upperArmF: { rot: -6 }, forearmF: { rot: 14 }, weapon: { rot: 50 } };
+  const off = { legN: 0, legF: 0 };
+  const die = animationFromPoses('die', 12, false, [
+    pk(0, STANCE, EASE_OUT, { legN: 1, legF: 1 }),
+    pk(2, { spine: { rot: 18 }, head: { rot: 20 }, upperArmN: { rot: 60 }, forearmN: { rot: 30 }, upperArmF: { rot: 40 }, forearmF: { rot: 30 } }, EASE, { legN: 1, legF: 1 }),
+    pk(5, { spine: { rot: 10 }, head: { rot: -20 }, pelvis: { y: 1.6 }, thighN: { rot: 40 }, shinN: { rot: -70 }, thighF: { rot: 30 }, shinF: { rot: -60 }, upperArmN: { rot: 30 }, forearmN: { rot: 40 }, upperArmF: { rot: 30 }, forearmF: { rot: 50 } }, EASE_IN, off),
+    pk(8, { root: { rot: 50, y: -0.2 }, spine: { rot: 10 }, head: { rot: -30 }, pelvis: { y: 1.0 }, thighN: { rot: 50 }, shinN: { rot: -60 }, thighF: { rot: 40 }, shinF: { rot: -50 }, upperArmN: { rot: 70 }, forearmN: { rot: 10 }, upperArmF: { rot: 60 }, forearmF: { rot: 20 } }, EASE_OUT, off),
+    pk(11, fall, undefined, off),
+  ], [{ f: 11, name: 'land' }]);
+  const dead = animationFromPoses('dead', 1, false, [pk(0, fall, undefined, off)]);
+
+  // Brace: crouched behind the off-hand item held square, the weapon cocked over it; it breathes.
+  const brace = animationFromPoses('brace', 8, true, [
+    pk(0, { pelvis: { x: 0.15, y: 0.6 }, spine: { rot: -14 }, head: { rot: 4 }, upperArmF: { rot: 60 }, forearmF: { rot: 25 }, upperArmN: { rot: 50 }, forearmN: { rot: 40 }, weapon: { rot: -20 } }),
+  ]);
+
+  return {
+    [Anim.Idle]: [{ anim: S(idle) }, { anim: S(BREATH) }],
+    [Anim.Walk]: S(walk),
+    [Anim.Run]: S(run),
+    [Anim.Attack]: S(attack),
+    [Anim.Shoot]: S(shoot),
+    [Anim.Hit]: S(hit),
+    [Anim.Die]: S(die),
+    [Anim.Dead]: S(dead),
+    [Anim.Brace]: [{ anim: S(brace) }, { anim: S(BREATH), alpha: 0.6 }],
+  };
+}
+
+/** Beast clips: the foot set scaled, the jaw opening on the attack's wind-up and snapping shut on the strike. */
+export function beastAnimations(o: { scale?: number } = {}): Partial<Record<Anim, Clip>> {
+  const k = o.scale ?? 1.4;
+  const set = footAnimations({ scale: k, stride: 1.8 });
+  const jaw: AnimationData = { name: 'jaw', frames: 12, loop: false, bones: { jaw: { rotate: [{ f: 0, v: 0, c: EASE }, { f: 3, v: -30, c: EASE_IN }, { f: 5, v: 0 }] } } };
+  set[Anim.Attack] = [{ anim: set[Anim.Attack] as AnimationData }, { anim: jaw }];
+  return set;
+}
+
+/** One leg of a horse cycling with a phase (frames): forward reach, stance back, tucked swing. */
+function hoofCycle(leg: string, n: number, phase: number, amp: number, tuck: number): Record<string, BoneTimeline> {
+  const ks: [number, number, number][] = [
+    [0, amp, 0], // contact, reaching forward
+    [0.25, amp * 0.25, 0], // supporting
+    [0.5, -amp, -tuck * 0.2], // pushing off, back
+    [0.75, 0, -tuck], // swinging through, tucked
+  ];
+  const keys = ks.map(([u, up, lo]) => ({ f: (((phase + u * n) % n) + n) % n, up, lo })).sort((a, b) => a.f - b.f);
+  return {
+    [`${leg}Upper`]: { rotate: keys.map((x) => ({ f: x.f, v: x.up, c: EASE })) },
+    [`${leg}Lower`]: { rotate: keys.map((x) => ({ f: x.f, v: x.lo, c: EASE })) },
+  };
+}
+
+const RIDER_UPPER = (n: string) => /^(spine|chest|neck|head|upperArm|forearm|hand|weapon|grip2)/.test(n);
+
+/** Horse-and-rider clips: a four-beat walk and a gallop with the rider's bob lagging the horse's, idle, and the rider's attack, shoot and hit over the horse. */
+export function horseAnimations(): Partial<Record<Anim, Clip>> {
+  const foot = footAnimations();
+  const riderOf = (a: Anim) => pickBones(clipBase(foot[a]!), RIDER_UPPER, `rider-${clipBase(foot[a]!).name}`);
+  const bobKeys = (n: number, amp: number, lag: number, per: number): Key<[number, number]>[] => {
+    const out: Key<[number, number]>[] = [];
+    for (let i = 0; i < per * 2; i++) out.push({ f: (lag + (i * n) / (per * 2)) % n, v: [0, i % 2 ? amp : 0], c: EASE });
+    return out.sort((a, b) => a.f - b.f);
+  };
+  const walk: AnimationData = {
+    name: 'horse-walk',
+    frames: 12,
+    loop: true,
+    bones: {
+      ...hoofCycle('hindN', 12, 0, 16, 40),
+      ...hoofCycle('foreN', 12, 3, 16, 50),
+      ...hoofCycle('hindF', 12, 6, 16, 40),
+      ...hoofCycle('foreF', 12, 9, 16, 50),
+      horseBody: { translate: bobKeys(12, 0.12, 0, 2) },
+      horseNeck: { rotate: [{ f: 0, v: 4, c: EASE }, { f: 3, v: -4, c: EASE }, { f: 6, v: 4, c: EASE }, { f: 9, v: -4, c: EASE }] },
+      tail: { rotate: [{ f: 0, v: 5, c: EASE }, { f: 6, v: -5, c: EASE }] },
+      // The rider's bob follows the horse's a frame late.
+      pelvis: { translate: bobKeys(12, 0.1, 1, 2) },
+      ...pickBones(clipBase(foot[Anim.Idle]!), RIDER_UPPER).bones,
+    },
+    events: [{ f: 0, name: 'step' }, { f: 3, name: 'step' }, { f: 6, name: 'step' }, { f: 9, name: 'step' }],
+  };
+  const gallop: AnimationData = {
+    name: 'horse-gallop',
+    frames: 12,
+    loop: true,
+    bones: {
+      ...hoofCycle('hindN', 12, 0, 34, 70),
+      ...hoofCycle('hindF', 12, 1.5, 34, 70),
+      ...hoofCycle('foreN', 12, 5, 34, 80),
+      ...hoofCycle('foreF', 12, 6.5, 34, 80),
+      horseBody: {
+        rotate: [{ f: 0, v: -4, c: EASE }, { f: 4, v: 5, c: EASE }, { f: 8, v: 0, c: EASE }],
+        translate: [{ f: 0, v: [0, 0.4], c: EASE }, { f: 6, v: [0, -0.5], c: EASE }],
+      },
+      horseNeck: { rotate: [{ f: 0, v: 6, c: EASE }, { f: 4, v: -6, c: EASE }, { f: 8, v: 2, c: EASE }] },
+      horseHead: { rotate: [{ f: 0, v: -4, c: EASE }, { f: 6, v: 4, c: EASE }] },
+      tail: { rotate: [{ f: 0, v: -15, c: EASE }, { f: 6, v: -25, c: EASE }] },
+      pelvis: { translate: [{ f: 1.5, v: [0, 0.3], c: EASE }, { f: 7.5, v: [0, -0.2], c: EASE }] },
+      spine: { rotate: [{ f: 0, v: -14 }] },
+      head: { rotate: [{ f: 0, v: 10 }] },
+      upperArmN: { rotate: [{ f: 0, v: 40 }] },
+      forearmN: { rotate: [{ f: 0, v: 30 }] },
+      upperArmF: { rotate: [{ f: 0, v: 20 }] },
+      forearmF: { rotate: [{ f: 0, v: 50 }] },
+    },
+    events: [{ f: 0, name: 'step' }, { f: 5, name: 'step' }],
+  };
+  const idle: AnimationData = {
+    name: 'horse-idle',
+    frames: 8,
+    loop: true,
+    bones: {
+      horseBody: { translate: [{ f: 0, v: [0, 0], c: EASE }, { f: 4, v: [0, 0.1], c: EASE }] },
+      horseNeck: { rotate: [{ f: 0, v: 0, c: EASE }, { f: 5, v: -3, c: EASE }] },
+      tail: { rotate: [{ f: 0, v: 0, c: EASE }, { f: 2, v: 10, c: EASE }, { f: 4, v: 0 }] },
+      ...pickBones(clipBase(foot[Anim.Idle]!), RIDER_UPPER).bones,
+    },
+  };
+  const over = (a: Anim): Track[] => [{ anim: idle }, { anim: riderOf(a), mode: 'replace' }];
+  const fold: Pose = { foreNUpper: { rot: 60 }, foreNLower: { rot: -100 }, foreFUpper: { rot: 55 }, foreFLower: { rot: -95 }, hindNUpper: { rot: 50 }, hindNLower: { rot: -90 }, hindFUpper: { rot: 45 }, hindFLower: { rot: -85 } };
+  const down: Pose = merge(fold, { root: { y: 3 }, horseBody: { rot: -6 }, horseNeck: { rot: -40 }, horseHead: { rot: -20 }, spine: { rot: 30 }, pelvis: { x: -1.5, y: 1.0 }, head: { rot: -20 }, upperArmN: { rot: 90 }, upperArmF: { rot: 80 } });
+  const die = animationFromPoses('horse-die', 12, false, [
+    pk(0, {}, EASE),
+    pk(3, { horseBody: { rot: 10 }, horseNeck: { rot: 14 }, foreNUpper: { rot: 30 }, foreFUpper: { rot: 25 }, spine: { rot: 12 } }, EASE_IN),
+    pk(7, merge(fold, { root: { y: 1.8 }, horseBody: { rot: -4 }, horseNeck: { rot: -20 }, spine: { rot: 24 }, pelvis: { x: -0.6, y: 0.4 } }), EASE_OUT),
+    pk(11, down),
+  ], [{ f: 11, name: 'land' }]);
+  const brace = animationFromPoses('horse-brace', 8, true, [
+    pk(0, { horseBody: { rot: 4 }, horseNeck: { rot: 8 }, foreNUpper: { rot: 10 }, foreFUpper: { rot: 8 }, hindNUpper: { rot: -6 }, hindFUpper: { rot: -6 }, spine: { rot: -6 }, upperArmN: { rot: 40 }, forearmN: { rot: 50 }, weapon: { rot: -60 } }, EASE),
+    pk(4, { horseBody: { rot: 4, y: 0.1 }, horseNeck: { rot: 12 }, foreNUpper: { rot: 10 }, foreFUpper: { rot: 8 }, hindNUpper: { rot: -6 }, hindFUpper: { rot: -6 }, spine: { rot: -6 }, upperArmN: { rot: 40 }, forearmN: { rot: 50 }, weapon: { rot: -60 } }, EASE),
+  ]);
+  return {
+    [Anim.Idle]: idle,
+    [Anim.Walk]: walk,
+    [Anim.Run]: gallop,
+    [Anim.Attack]: over(Anim.Attack),
+    [Anim.Shoot]: over(Anim.Shoot),
+    [Anim.Hit]: [{ anim: idle }, { anim: riderOf(Anim.Hit), mode: 'replace' }, { anim: { name: 'horse-shy', frames: 5, loop: false, bones: { horseNeck: { rotate: [{ f: 0, v: 0 }, { f: 1, v: 15, c: EASE }, { f: 4, v: 0 }] } } } }],
+    [Anim.Die]: die,
+    [Anim.Dead]: animationFromPoses('horse-dead', 1, false, [pk(0, down)]),
+    [Anim.Brace]: brace,
+  };
+}
+
+/** Engine clips: the crew's breath, the throw (release event), the crew pushing, a hit and a collapse. */
+export function engineAnimations(): Partial<Record<Anim, Clip>> {
+  const idle: AnimationData = { name: 'engine-idle', frames: 8, loop: true, bones: { crewChest: { translate: [{ f: 0, v: [0, 0], c: EASE }, { f: 4, v: [0, -0.13], c: EASE }] } } };
+  const throwIt = animationFromPoses('engine-throw', 12, false, [
+    pk(0, { crewChest: { rot: -10 }, crewArm: { rot: 30 } }, EASE),
+    pk(2, { arm: { rot: -6 }, crewChest: { rot: -20 }, crewArm: { rot: 60 }, crewForearm: { rot: 20 } }, EASE_IN),
+    pk(5, { arm: { rot: 150 }, sling: { rot: 90 }, crewChest: { rot: 6 }, crewArm: { rot: -20 } }, EASE_OUT),
+    pk(7, { arm: { rot: 175 }, sling: { rot: 200 }, crewChest: { rot: 8 }, crewArm: { rot: -10 } }, EASE),
+    pk(11, { arm: { rot: 40 }, sling: { rot: 30 }, crewChest: { rot: -24 }, crewArm: { rot: 70 }, crewForearm: { rot: 30 } }),
+  ], [{ f: 5, name: 'release' }]);
+  const push = animationFromPoses('engine-push', 12, true, [0, 3, 6, 9].map((f, i) =>
+    pk(f, { root: { y: i % 2 ? -0.06 : 0 }, crewChest: { rot: -24 }, crewArm: { rot: 70 }, crewThigh: { rot: i < 2 ? 18 : -18 }, crewShin: { rot: i % 2 ? -30 : -6 } }, EASE)));
+  const hit = animationFromPoses('engine-hit', 5, false, [pk(0, {}), pk(1, { frame: { x: -0.25, rot: -3 }, crewChest: { rot: 20 } }, EASE), pk(4, {})]);
+  const wreck: Pose = { frame: { rot: -6, y: 0.4 }, post: { rot: -24 }, arm: { rot: 70 }, sling: { rot: -40 }, crewPelvis: { y: 2.4, x: 1.0 }, crewChest: { rot: 80 }, crewThigh: { rot: 70 }, crewShin: { rot: -40 } };
+  const die = animationFromPoses('engine-die', 12, false, [pk(0, {}, EASE), pk(4, { frame: { rot: -3 }, post: { rot: -8 }, crewChest: { rot: 30 } }, EASE_IN), pk(11, wreck)], [{ f: 11, name: 'land' }]);
+  return {
+    [Anim.Idle]: idle,
+    [Anim.Walk]: push,
+    [Anim.Run]: push,
+    [Anim.Attack]: throwIt,
+    [Anim.Shoot]: throwIt,
+    [Anim.Hit]: hit,
+    [Anim.Die]: die,
+    [Anim.Dead]: animationFromPoses('engine-dead', 1, false, [pk(0, wreck)]),
+    [Anim.Brace]: idle,
+  };
+}
+
+/** The standard clips of a body type. */
+export function animationsFor(body: BodyType): Partial<Record<Anim, Clip>> {
+  return body === 'foot' ? footAnimations() : body === 'horse' ? horseAnimations() : body === 'beast' ? beastAnimations() : engineAnimations();
+}
+
+// ================================================================== mocap key JSON
+
+/** One key of a motion file: bone angles (deg, rig convention), the pelvis offset and height, foot contacts. */
+export interface MotionKey {
+  f: number;
+  /** Curve to the next key (default: the file's `ease`, else linear). */
+  c?: Curve;
+  /** Pelvis offset (source units: x forward, y down) from its rest. */
+  root?: [number, number];
+  /** Pelvis height above the ground (source units); overrides root[1]. */
+  height?: number;
+  /** Feet on the ground at this key (else guessed from the ankle's height). */
+  contact?: Partial<Record<'N' | 'F', boolean>>;
+  /** Bone name (ours, or a mocap alias) → angle in degrees. */
+  bones: Record<string, number>;
+  /** Informational (axial twist the 2D projection cannot show); ignored. */
+  twist?: Record<string, number>;
+}
+export interface MotionClip {
+  name: string;
+  frames: number;
+  loop: boolean;
+  ease?: Curve;
+  /** 'world' (default): absolute angles in the drawn facing; 'local': relative to the parent bone. */
+  angles?: 'world' | 'local';
+  /** The source's standing pelvis height, for retargeting… */
+  restHeight?: number;
+  /** …or the source's bone lengths (thigh and shin are enough). */
+  lengths?: Record<string, number>;
+  keys: MotionKey[];
+  events?: AnimEvent[];
+}
+/** A motion file: one clip, or one per drawn facing (projected for SE and NE). */
+export type MotionJson = MotionClip | { name?: string; facings: Partial<Record<Facing, MotionClip>> };
+
+export interface LoadMotionOptions {
+  /** Plant the feet by IK on top of the mocap keys (default true). */
+  plantFeet?: boolean;
+  /** An ankle this close to the ground (units) counts as planted when a key has no contact flag. */
+  contactTolerance?: number;
+}
+
+/**
+ * Turns mocap key JSON into a clip for a skeleton (a FacingClips when the file has facings):
+ * 1. bone names resolve through BONE_ALIASES; angles become rotation offsets from rest (world
+ *    angles through the hierarchy, so the figure's own rest angles never matter);
+ * 2. retargeting: offsets and heights scale by the figure's leg (thigh + shin, or a horse's
+ *    foreleg) over the source's, or the figure's pelvis (horse: barrel) height over `restHeight`;
+ *    the root offset and height drive the pelvis, or a horse's barrel; `twist` is ignored;
+ * 3. foot planting: at each key the FK ankle is found, the foot IK target is put there, and pressed
+ *    onto the ground line where the key is a contact, so IK (and the ground correction) keep the
+ *    planted foot on the ground while the mocap drives everything else.
+ */
+export function loadMotion(json: MotionJson, skel: SkeletonData, opts: LoadMotionOptions = {}): AnimationData | FacingClips {
+  if ('facings' in json) {
+    const byFacing: Partial<Record<Facing, AnimationData>> = {};
+    for (const [f, clip] of Object.entries(json.facings) as [Facing, MotionClip][]) byFacing[f] = loadMotionClip(clip, skel, f, opts);
+    return { byFacing };
+  }
+  return loadMotionClip(json, skel, 'se', opts);
+}
+
+function loadMotionClip(clip: MotionClip, skel: SkeletonData, facing: Facing, opts: LoadMotionOptions): AnimationData {
+  const C = compile(skel);
+  const PREC = 1024;
+  const rest = evaluate(skel, emptyLocals(), { level: PREC, facing, noIk: true });
+  const has = (n: string) => C.idx.has(n);
+  const lenOf = (n: string) => (has(n) ? skel.bones[C.idx.get(n)!]!.len : 0);
+  // Retargeting scale.
+  let scale = 1;
+  const src = Object.fromEntries(Object.entries(clip.lengths ?? {}).map(([n, v]) => [resolveBone(n, skel), v]));
+  // A leg (sided names, either side, or unsided) over the figure's: thigh + shin, or a horse's foreleg.
+  const srcLen = (ours: string): number => src[ours] ?? src[ours.replace(/N(?=Upper|Lower|$)/, 'F')] ?? src[ours.replace(/N(?=Upper|Lower|$)/, '')] ?? 0;
+  const legs: [string, string][] = [['thighN', 'shinN'], ['foreNUpper', 'foreNLower']];
+  const leg = legs.find(([a, b]) => has(a) && has(b) && srcLen(a) > 0 && srcLen(b) > 0);
+  // The root offset and height drive the pelvis of a man, the barrel of a horse.
+  const rootBone = has('horseBody') ? 'horseBody' : 'pelvis';
+  const rootH = has(rootBone) ? -rest.byName[rootBone]!.y : 0;
+  if (leg) scale = (lenOf(leg[0]) + lenOf(leg[1])) / (srcLen(leg[0]) + srcLen(leg[1]));
+  else if (clip.restHeight) scale = rootH / clip.restHeight;
+  const ease = clip.ease;
+  const anim: AnimationData = { name: clip.name, frames: clip.frames, loop: clip.loop, bones: {} };
+  const tl = (n: string): BoneTimeline => (anim.bones![n] ??= {});
+  const key = <T>(k: MotionKey, v: T): Key<T> => {
+    const c = k.c ?? ease;
+    return c ? { f: k.f, v, c } : { f: k.f, v };
+  };
+  const keys = [...clip.keys].sort((a, b) => a.f - b.f);
+  for (const k of keys) {
+    const named: Record<string, number> = {};
+    for (const [n, v] of Object.entries(k.bones)) {
+      const r = resolveBone(n, skel);
+      if (has(r)) named[r] = v;
+    }
+    let rots: Record<string, BoneLocal>;
+    if ((clip.angles ?? 'world') === 'world') rots = localsFromWorld(skel, named, facing).bones;
+    else rots = Object.fromEntries(Object.entries(named).map(([n, v]) => [n, { rot: v - (skel.bones[C.idx.get(n)!]!.facing?.[facing]?.rot ?? skel.bones[C.idx.get(n)!]!.rot) }]));
+    for (const [n, b] of Object.entries(rots)) (tl(n).rotate ??= []).push(key(k, b.rot ?? 0));
+    if (has(rootBone) && (k.root || k.height !== undefined)) {
+      const x = (k.root?.[0] ?? 0) * scale;
+      const y = k.height !== undefined ? rootH - k.height * scale : (k.root?.[1] ?? 0) * scale;
+      (tl(rootBone).translate ??= []).push(key(k, [round6(x), round6(y)] as [number, number]));
+    }
+  }
+  // Every keyed channel needs a key at every key frame for the plant pass below to sample cleanly;
+  // channels keyed on some keys only are fine for sampling (they interpolate their own keys).
+  if (opts.plantFeet !== false)
+    for (const { d, i2, it } of C.ik) {
+      if (d.ground === undefined) continue;
+      const side = d.bones[1].endsWith('F') ? 'F' : 'N';
+      const tName = skel.bones[it]!.name;
+      const tRest = rest.bones[it]!;
+      const tol = opts.contactTolerance ?? 0.3;
+      const tk: Key<[number, number]>[] = [];
+      for (const k of keys) {
+        const fk = evaluate(skel, sampleAnimation(anim, k.f), { level: PREC, facing, noIk: true });
+        const ank = fk.bones[i2]!;
+        const planted = k.contact?.[side] ?? ank.ty >= d.ground - tol;
+        tk.push(key(k, [round6(ank.tx - tRest.x), round6((planted ? d.ground : Math.min(ank.ty, d.ground)) - tRest.y)] as [number, number]));
+      }
+      tl(tName).translate = tk;
+      (anim.ik ??= {})[d.name] = { mix: [{ f: 0, v: 1 }] };
+    }
+  if (clip.events?.length) anim.events = clip.events;
+  return anim;
+}
+
+// ================================================================== simple parts (tests, demo)
+
+/**
+ * Plain parts for every slot of a standard skeleton, so its bones can be seen moving before a
+ * faction draws the real ones: rods along limbs, a blob head, a shield, a steel blade and a smear.
+ */
+export function stickParts(skel: SkeletonData, mats: { body?: Mat; cloth?: Mat; metal?: Mat; wood?: Mat; team?: Mat; hide?: Mat }): AttachmentSet {
+  const body = mats.body ?? 0, cloth = mats.cloth ?? body, metal = mats.metal ?? body, wood = mats.wood ?? body, team = mats.team ?? cloth, hide = mats.hide ?? cloth;
+  const W: [RegExp, number, number, Mat][] = [
+    [/^(thigh)/, 1.15, 0.9, cloth], [/^(shin)/, 0.85, 0.7, body], [/^foot/, 0.7, 0.5, hide],
+    [/^upperArm/, 0.85, 0.7, cloth], [/^forearm/, 0.7, 0.55, body], [/^pelvis/, 2.2, 2.0, team], [/^spine/, 2.0, 2.3, team], [/^chest/, 2.5, 2.1, metal],
+    [/^neck$/, 0.6, 0.55, body], [/^weapon/, 0.3, 0.2, metal], [/^horseBody/, 3.4, 3.0, hide], [/^horseNeck/, 1.7, 1.1, hide], [/^horseHead/, 1.0, 0.6, hide],
+    [/^tail/, 0.7, 0.3, cloth], [/Upper$/, 0.9, 0.6, hide], [/Lower$/, 0.5, 0.45, hide], [/^frame/, 0.9, 0.9, wood], [/^post/, 0.8, 0.7, wood], [/^arm$/, 0.6, 0.35, wood],
+    [/^counter/, 0.5, 0.5, wood], [/^sling/, 0.18, 0.18, hide], [/^crewChest/, 1.5, 1.2, cloth], [/^crewPelvis/, 1.2, 1.2, cloth], [/^crew(Arm|Forearm)/, 0.6, 0.5, body],
+    [/^crew(Thigh|Shin)/, 0.7, 0.55, cloth], [/^jaw/, 0.8, 0.5, body],
+  ];
+  const out: AttachmentSet = {};
+  for (const s of skel.slots) {
+    const far = /F$|F(Upper|Lower)$/.test(s.bone) && s.name !== 'offhand';
+    const tone = far ? 1 : 2;
+    if (s.name === 'smear') out[s.name] = smearPart('weapon', 1.4, 5.4, metal);
+    else if (s.name === 'offhand') out[s.name] = (c, x) => c.blob(x.at([0.9, 0.4]), 1.25, 1.75, team, { tone: 2 });
+    else if (/^(head|crewHead)$/.test(s.name)) out[s.name] = (c, x) => c.blob(x.at([0, x.bone.len * 0.5]), s.name === 'head' ? 0.95 : 0.7, s.name === 'head' ? 1.05 : 0.75, body, { tone: 3 });
+    else if (/^hand/.test(s.name)) out[s.name] = (c, x) => c.blob(x.at([0, 0.25]), 0.4, 0.4, body, { tone });
+    else if (s.name === 'weight') out[s.name] = (c, x) => c.blob(x.tip, 1.2, 1.0, metal, { tone: 1 });
+    else {
+      const w = W.find(([re]) => re.test(s.name));
+      out[s.name] = (c, x) => (x.bone.len > 0 ? c.rod(x.o, x.tip, w?.[1] ?? 0.6, w?.[2] ?? 0.5, w?.[3] ?? body, { tone, shine: w?.[3] === metal }) : undefined);
+    }
+  }
+  return out;
 }

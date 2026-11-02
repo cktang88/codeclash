@@ -17,6 +17,10 @@
   <body>
     <header id="info"></header>
     <main id="out"></main>
-    <script type="module" src="./sprites-preview.ts"></script>
+    <script type="module">
+      // ?mode=bones is the skeleton demo (bones-preview.ts); every other mode is the sprite preview.
+      if (new URLSearchParams(location.search).get('mode') === 'bones') import('./bones-preview.ts');
+      else import('./sprites-preview.ts');
+    </script>
   </body>
 </html>
