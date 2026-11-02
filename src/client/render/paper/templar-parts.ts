@@ -36,7 +36,7 @@ const WARM_SHADOW = [1.7, 1.35, 1.0, 0.8, 0.6] as const;
  * at level 1) then spend one slot on it instead of scattering these shades into the red cross
  * or the cold steel darks.
  */
-const UMBER: readonly [RGB, RGB] = [oklchRgb(0.17, 0.025, 28), oklchRgb(0.235, 0.035, 58)];
+const UMBER: readonly [RGB, RGB] = [oklchRgb(0.17, 0.022, 28), oklchRgb(0.235, 0.026, 58)];
 const umber = (r: RGB[]): RGB[] => [UMBER[0], UMBER[1], r[2]!, r[3]!, r[4]!];
 /**
  * The light materials (linen, mail, steel, skin, the pale horses, gilt, ash) share one pale deep
@@ -67,7 +67,7 @@ export const TM = {
   /** The brothers' white habit, dirty: warm off-white linen. */
   white: defineMaterial('templar.white', deep(ramp([0.61, 0.69, 0.79, 0.86, 0.92], 0.024, 88, WARM_SHADOW))),
   /** The sergeants' black-brown surcoat. */
-  black: defineMaterial('templar.black', umber(ramp([0.17, 0.22, 0.26, 0.33, 0.41], 0.03, 45))),
+  black: defineMaterial('templar.black', umber(ramp([0.17, 0.22, 0.27, 0.34, 0.42], 0.022, 45))),
   /** The red cross: the faction accent. */
   red: defineMaterial('templar.red', ramp([0.22, 0.28, 0.36, 0.45, 0.53], 0.14, 27, [0.85, 1.1, 1.0, 0.85, 0.7])),
   /** Quilted gambeson: dirty pale linen (the turcopoles). */
@@ -127,7 +127,7 @@ const TL = {
  */
 const REMAP = new Map<string, Int16Array>();
 function remapFor(dark: boolean, level: number): Int16Array {
-  const key = `${dark}:${level <= 1}`;
+  const key = `${dark}:${Math.min(level, 4)}`;
   let t = REMAP.get(key);
   if (t && t.length >= materialCount() * 8) return t;
   t = new Int16Array(materialCount() * 8).map((_, i) => i);
@@ -136,13 +136,13 @@ function remapFor(dark: boolean, level: number): Int16Array {
       // materials: the 12-colour palette has no room for a second set of lights.
       // Oiled mail under a black surcoat is one dark mass at 13 px; as one material, the arm
       // across the chest gets no contact line (which would black out a 1 px limb).
-      [[TM.mail, TM.black], [TM.mailDk, TM.black], [TM.ash, TM.wood]]
+      [[TM.mail, TM.black], [TM.mailDk, TM.black], [TM.ash, TM.black], [TM.wood, TM.black], [TM.wool, TM.black], [TM.russet, TM.black], [TM.leather, TM.black], [TM.bay, TM.black], [TM.hair, TM.black], [TM.mane, TM.black]]
     : dark
     ? [[TM.steel, TD.steel], [TM.flesh, TD.flesh], [TM.white, TD.white], [TM.gambeson, TD.gambeson], [TM.gold, TD.gold], [TM.dun, TD.dun], [TM.mail, TM.mailDk], [TM.ash, TM.wood], [TM.grey, TD.white]]
-    : level <= 1
-      ? // At 13 px mail, helm steel, ash and buff leather are one pale grey mass (and the
-        // level-1 palette has no room to tell them apart).
-        [[TM.mane, TL.mane], [TM.wood, TL.mane], [TM.ash, TL.mane], [TM.mailDk, TM.grey], [TM.mail, TM.grey], [TM.steel, TM.grey], [TM.leather, TL.mane]]
+    : level <= 2
+      ? // At 13-26 px mail, helm steel, ash and buff leather are one pale grey mass (and the
+        // small palettes have no room to tell them apart).
+        [[TM.mane, TL.mane], [TM.wood, TL.mane], [TM.ash, TL.mane], [TM.mailDk, TM.grey], [TM.mail, TM.grey], [TM.steel, TM.grey], [TM.leather, TL.mane], [TM.black, TL.black]]
       : [[TM.mane, TL.mane], [TM.wood, TM.ash], [TM.mailDk, TM.mail], [TM.leather, TL.leather], [TM.black, TL.black]];
   for (const [a, b] of pairs) for (let k = 0; k < 8; k++) t[a * 8 + k] = b * 8 + k;
   REMAP.set(key, t);
@@ -344,7 +344,8 @@ function leg(c: Paper, hip: P2, knee: P2, sh: number, tilt: number, kit: Kit, fa
 
 /** One arm: sleeve, elbow, forearm and hand (mail mitten or bare). */
 function arm(c: Paper, sh: P2, el: P2, hand: P2, kit: Kit, far: boolean, s: number): void {
-  const tone = far ? 1 : 2;
+  // At level 2 the near (lit) arm takes the lit tone: a 2 px limb has no room for a lit edge.
+  const tone = far ? 1 : c.L === 2 ? 3 : 2;
   const m = kit.sleeve;
   const det = isMail(m) ? (x: number, y: number, u: number) => mailTex(c, x, y, u, tone, m) : undefined;
   c.rod(sh, el, 0.95 * s, 0.78 * s, m, { tone, detail: det });
@@ -387,7 +388,10 @@ function torso(c: Paper, r: Rig, kit: Kit, sway: number): void {
       return code(kit.belt ?? TM.leather, lit < 0 ? 2 : 1);
     }
     const fromHem = (hyPx - y) / L;
-    let tone = lit < 0 || (L <= 1 && ly < 1.6 * s && lit <= 0) ? hiTone(c) : lit > 0 ? 1 : 2;
+    // At level 1 the light falls across a diagonal (upper left to lower right), so the lit and
+    // shaded clusters end on different rows and columns rather than in parallel stripes.
+    const diag = (lx + 0.45 * ly) / s;
+    let tone = L <= 1 ? (diag < 0.1 ? hiTone(c) : diag > 2.6 ? 1 : 2) : lit < 0 ? 3 : lit > 0 ? 1 : 2;
     if (mailBody) {
       const m = mailTex(c, x, y, lit, tone, mat);
       if (m >= 0) return m;
@@ -542,7 +546,8 @@ function helm(c: Paper, F: Frame2, s: number, h: Helm, back: boolean): void {
     const m = pil ? TM.wool : TM.steel;
     // Crown (a low dome, or the pilgrim's felt crown), then the wide brim.
     c.blob(at(F, 0.05 * s, -0.75 * s), 0.9 * s, (pil ? 0.62 : 0.6) * s, m, { tone: pil ? 2 : 2, shine: !pil });
-    const b = at(F, 0.05 * s, -0.5 * s);
+    // The pilgrim brim is turned up behind and shades the eyes in front (it reaches forward).
+    const b = at(F, (pil ? 0.35 : 0.05) * s, -0.5 * s);
     c.blob(b, (pil ? 1.75 : 1.55) * s, 0.3 * s, m, {
       tone: pil ? 1 : 2,
       detail: (x, _y, _nx, ny) => {

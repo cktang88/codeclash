@@ -156,7 +156,7 @@ const spearGear: Gear = {
   far: (c, r) => round(c, addP(r.handF, [0.75, 0.15]), 1.7, r.back),
   near: (c, r) => {
     const deg = r.p.bl + r.tilt;
-    spear(c, r.handN, deg, deg > 150 ? 12.5 : 10.5, deg > 150 ? 6.2 : 4.0, { head: 1.6 });
+    spear(c, r.handN, deg, deg > 150 ? 12.5 : 10.5, deg > 150 ? (c.L <= 1 ? 4.4 : 6.2) : 4.0, { head: 1.6 });
   },
 };
 
@@ -243,11 +243,16 @@ const ARCHER_KEYS: KeySet<FootPose> = {
   secondary: footSecondary,
 };
 const archerGear: Gear = {
-  back: (c, r) => quiver(c, at(r.T, r.back ? 0.3 : -0.9, 0.6), r.back ? 200 : 160),
+  back: (c, r) => {
+    // (At 13 px the quiver is a stray dark pixel on the lit side: it starts at level 2.)
+    if (c.L >= 2) quiver(c, at(r.T, r.back ? 0.3 : -0.9, 0.6), r.back ? 200 : 160);
+  },
   far: (c, r) => {
     const draw = r.p.sw;
     const nock: P2 | null = draw > 0.15 ? r.handN : null;
-    bow(c, r.handF, 180 - 6 * draw + r.tilt, 12.6, draw, nock);
+    // At rest the stave leans forward in the hand (a diagonal, not a second vertical
+    // beside the body); drawn, it stands upright.
+    bow(c, r.handF, 180 - 18 * (1 - draw) + r.tilt, 12.6, draw, nock);
     if (draw > 0.15) arrow(c, r.handN, 90 + r.tilt, 5.0);
   },
   near: (c, r) => {
@@ -484,7 +489,7 @@ const horseArcherGear: Gear = {
 };
 
 // 7 Knight-Brothers: the lance held high at rest, couched at the charge; kite shield; the trapper.
-const KN_REST: Partial<HorsePose> = { nu: 24, nl: 56, fu: 34, fl: 46, bl: 150 };
+const KN_REST: Partial<HorsePose> = { nu: 24, nl: 56, fu: 34, fl: 46, bl: 135 };
 const KNIGHT_KEYS = horseKeys({
   rest: KN_REST,
   run: { nu: -14, nl: 104, bl: 90, torso: 16 },
@@ -505,7 +510,7 @@ const knightGear: Gear = {
 };
 
 // 10 The Marshal: the Beauséant in the shield hand, the sword in the other.
-const MS_REST: Partial<HorsePose> = { nu: 20, nl: 62, fu: 30, fl: 120, bl: 150 };
+const MS_REST: Partial<HorsePose> = { nu: 20, nl: 62, fu: 30, fl: 120, bl: 135 };
 const MARSHAL_KEYS = horseKeys({
   rest: MS_REST,
   run: { fu: 40, fl: 110, bl: 120 },
