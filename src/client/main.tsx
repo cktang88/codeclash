@@ -9,10 +9,12 @@ import { Home } from './pages/Home.tsx';
 import { LeaguePage } from './pages/League.tsx';
 import { linkProps, useRoute } from './route.ts';
 import { hsl } from './render/sprites.ts';
+import { ART_LABEL, useArtMode } from './ui/useArtMode.ts';
 import './styles.css';
 
 function Account({ me, onChange }: { me: MeResponse; onChange: () => void }) {
   const [open, setOpen] = useState(false);
+  const [art, setArt] = useArtMode();
   const u = me.user!;
   // The slider follows the hand at once and saves once it rests: a request per input event lagged the thumb
   // behind the round trip (snapping it back while dragging) and could land out of order.
@@ -44,6 +46,13 @@ function Account({ me, onChange }: { me: MeResponse; onChange: () => void }) {
           <label>
             Colours
             <input type="range" min={0} max={359} value={hue} onChange={(e) => pickHue(Number(e.target.value))} style={{ accentColor: hsl(hue, 55, 45) }} />
+          </label>
+          <label>
+            Pixel art
+            <select value={art} onChange={(e) => setArt(e.target.value === 'hd' ? 'hd' : 'classic')}>
+              <option value="classic">{ART_LABEL.classic}</option>
+              <option value="hd">{ART_LABEL.hd}</option>
+            </select>
           </label>
           <p className="muted small">
             GitHub: {u.github.status === 'ok' ? 'reading your public pushes on your own rate limit' : u.github.status === 'invalid' ? 'sign in again to keep reading your pushes' : 'not connected'}

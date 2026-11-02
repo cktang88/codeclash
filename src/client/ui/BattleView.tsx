@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { ART_LABEL, useArtMode } from './useArtMode.ts';
 import { Battle, State, TICK_S, TICKS_PER_SECOND, type BattleSetup } from '../../game/battle.ts';
 import { FACTIONS } from '../../game/factions.ts';
 import { UNIT_COUNT } from '../../game/units.ts';
@@ -67,6 +68,9 @@ export function BattleView(props: {
   const [zoom, setZoom] = useState(1);
   const [scan, setScan] = useState(true);
   const [follow, setFollow] = useState(false);
+  const [art, setArt] = useArtMode();
+  const artRef = useRef(art);
+  artRef.current = art;
   const [noGl] = useState(() => !BattleScene.supported());
   const [skipping, setSkipping] = useState(false);
   const [live, setLive] = useState<Live | null>(null);
@@ -80,7 +84,8 @@ export function BattleView(props: {
     if (noGl) return;
     const canvas = canvasRef.current!;
     let battle = new Battle(setup);
-    let scene = new BattleScene(battle);
+    let sceneArt = artRef.current;
+    let scene = new BattleScene(battle, sceneArt);
     sceneRef.current = scene;
     let seen = 0;
     let raf = 0;
@@ -146,7 +151,7 @@ export function BattleView(props: {
         else if (now > restartAt) {
           battle = new Battle({ ...setup, seed: (setup.seed + Math.floor(now)) >>> 0 });
           scene.dispose();
-          scene = new BattleScene(battle);
+          scene = new BattleScene(battle, sceneArt);
           const prev = sceneRef.current;
           scene.camera.zoom = prev?.camera.zoom ?? 1;
           // Keep the viewer's choices across the ambient restart.
@@ -158,6 +163,20 @@ export function BattleView(props: {
           restartAt = 0;
           seen = 0;
         }
+      }
+      if (artRef.current !== sceneArt) {
+        // The pixel-art setting changed: redraw the same battle with the other painter, keeping the view.
+        const prev = scene;
+        sceneArt = artRef.current;
+        prev.dispose();
+        scene = new BattleScene(battle, sceneArt);
+        scene.camera.zoom = Math.min(prev.camera.zoom, scene.maxZoom);
+        scene.camera.cx = prev.camera.cx;
+        scene.camera.cy = prev.camera.cy;
+        scene.scanlines = prev.scanlines;
+        scene.follow = prev.follow;
+        sceneRef.current = scene;
+        setZoom(scene.camera.zoom);
       }
       scene.draw(canvas, battle.done() ? 1 : Math.min(1, acc / TICK_S), dt);
       if (!ambient && now - hudAt > 200) {
@@ -351,6 +370,7 @@ export function BattleView(props: {
               <button onClick={() => { sceneRef.current?.fit(); setZoom(1); }} title="Fit the field">⤢</button>
               <button className={scan ? 'on' : ''} onClick={() => setScan((x) => !x)} title="Scanlines">▤</button>
               <button className={follow ? 'on' : ''} onClick={() => setFollow((x) => !x)} title="Follow the fighting">◎</button>
+              <button className={art === 'hd' ? 'on' : ''} onClick={() => setArt(art === 'hd' ? 'classic' : 'hd')} title={`Pixel art: ${ART_LABEL[art]} (switch to ${ART_LABEL[art === 'hd' ? 'classic' : 'hd']})`}>HD</button>
             </span>
           </div>
           {live.done && live.winner !== null && (
