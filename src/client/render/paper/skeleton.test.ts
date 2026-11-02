@@ -1,5 +1,14 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { Anim, ANIM_COUNT } from '../contract.ts';
+import { FRAMES } from '../frames.ts';
+import { M, Paper } from './core.ts';
+import type { Facing } from './facing.ts';
+import { paintPaper } from './index.ts';
+import { registerPaperKind } from './registry.ts';
+import { BODIES } from './rig.ts';
 import {
+  animationsFor, bakeClip, drawSkeleton, footAnimations, footSkeleton, loadMotion, paintSkeleton, partDrawCount, posedNumbers, resolveBone, skeletonFor, skeletonKind, stickParts,
+  type Clip, type FacingClips, type MotionJson, type Posed, type SkeletonRig,
   acosDeg, angleOf, animationFromPoses, atan2Deg, bonesFromJoints, cosStep, curveAt, EASE, emptyLocals, evaluate, mixLocals, sampleAnimation, sampleClip, sinStep, snapStep, type AnimationData, type SkeletonData,
 } from './skeleton.ts';
 import type { P2 } from './core.ts';
@@ -137,5 +146,172 @@ describe('skeleton: data model', () => {
     const a = animationFromPoses('walk', 12, true, [{ f: 0, bones: { thigh: { rot: 10 } } }, { f: 6, bones: { shin: { y: 1 } } }]);
     expect(a.bones!.thigh!.rotate).toEqual([{ f: 0, v: 10 }, { f: 6, v: 0 }]);
     expect(a.bones!.shin!.translate).toEqual([{ f: 0, v: [0, 0] }, { f: 6, v: [0, 1] }]);
+  });
+});
+
+describe('skeleton: standard bodies and clips', () => {
+  const skel = footSkeleton();
+  const clips = footAnimations();
+  const parts = stickParts(skel, { body: M.bone, cloth: M.rag, metal: M.steel, team: M.team, hide: M.leather });
+  const rig: SkeletonRig = { skel, atts: parts, clips };
+
+  it('bakes the same numbers and bytes twice, and with Math trig sabotaged', () => {
+    const clipsCopy = (a: Anim) => JSON.parse(JSON.stringify(clips[a])) as Clip;
+    const run = () => [Anim.Walk, Anim.Attack, Anim.Die].flatMap((a) => bakeClip(footSkeleton(), clipsCopy(a), 8, 'se').flatMap(posedNumbers));
+    const a = run();
+    const spies = (['sin', 'cos', 'tan', 'atan', 'atan2', 'acos', 'asin'] as const).map((f) => vi.spyOn(Math, f).mockImplementation(() => NaN));
+    let b: number[];
+    try {
+      b = run();
+    } finally {
+      for (const s of spies) s.mockRestore();
+    }
+    expect(b).toEqual(a);
+    const p1 = paintSkeleton(rig, Anim.Attack, 5, { level: 8, facing: 'ne', paper: new Paper() });
+    const p2 = paintSkeleton({ ...rig }, Anim.Attack, 5, { level: 8, facing: 'ne', paper: new Paper() });
+    expect(Buffer.from(p1.pixels).equals(Buffer.from(p2.pixels))).toBe(true);
+  });
+
+  it('keeps idle to breathing: no angle changes, the chest moves at most a pixel', () => {
+    for (const L of [1, 2, 4, 8])
+      for (const f of ['se', 'ne'] as Facing[]) {
+        const frames = bakeClip(skel, clips[Anim.Idle]!, L, f, 8, true);
+        for (const p of frames)
+          for (const b of p.bones) {
+            expect(b.step, `${b.name} L${L}`).toBe(frames[0]!.bones[b.i]!.step);
+            expect(Math.abs(b.y - frames[0]!.bones[b.i]!.y) * L).toBeLessThanOrEqual(1);
+          }
+      }
+  });
+
+  it('does not boil: a bone whose angle is unchanged draws identical pixels at its origin', () => {
+    const frames = bakeClip(skel, clips[Anim.Idle]!, 8, 'se', 8, true);
+    const shot = (p: Posed, slot: string) => {
+      const c = new Paper();
+      c.begin(8, BODIES.foot.canvas);
+      drawSkeleton(c, p, parts, { only: (s) => s === slot });
+      const b = p.byName[skel.slots.find((s) => s.name === slot)!.bone]!;
+      const ox = c.FX + Math.round(b.x * 8), oy = c.FY + Math.round(b.y * 8);
+      const out: number[] = [];
+      for (let y = c.by0; y <= c.by1; y++) for (let x = c.bx0; x <= c.bx1; x++) out.push(x - ox, y - oy, c.pix[y * c.CW + x]!);
+      return out.join(',');
+    };
+    for (const slot of ['head', 'chest', 'thighN', 'weapon', 'upperArmF']) {
+      const first = shot(frames[0]!, slot);
+      for (const p of frames) expect(shot(p, slot), slot).toBe(first);
+    }
+    // And the part cache drew each (part, angle) once only.
+    const full = (p: Posed) => {
+      const c = new Paper();
+      c.begin(8, BODIES.foot.canvas);
+      drawSkeleton(c, p, parts);
+    };
+    full(frames[0]!);
+    const n0 = partDrawCount();
+    for (const p of frames) {
+      const c = new Paper();
+      c.begin(8, BODIES.foot.canvas);
+      drawSkeleton(c, p, parts);
+    }
+    expect(partDrawCount()).toBe(n0);
+  });
+
+  it('keeps the planted foot on the ground line through a walk and a run', () => {
+    for (const a of [Anim.Walk, Anim.Run])
+      for (const L of [1, 2, 4, 8])
+        for (const f of ['se', 'ne'] as Facing[]) {
+          const frames = bakeClip(skel, clips[a]!, L, f, 12, true);
+          let planted = 0;
+          frames.forEach((p, fr) => {
+            const feet = (['N', 'F'] as const).map((s) => ({ s, t: p.byName[`footTarget${s}`]!, end: p.byName[`shin${s}`]!, g: Math.round(skel.ik!.find((k) => k.name === `leg${s}`)!.ground! * L) / L }));
+            const down = feet.filter((x) => x.t.y >= x.g - 0.01);
+            for (const x of feet) expect((x.end.ty - x.g) * L, `anim ${a} L${L} ${f} fr${fr} ${x.s} below ground`).toBeLessThanOrEqual(0.5);
+            if (down.length) {
+              planted++;
+              expect(Math.min(...down.map((x) => Math.abs(x.end.ty - x.t.y) * L)), `anim ${a} L${L} ${f} fr${fr}`).toBeLessThanOrEqual(0.5);
+            }
+          });
+          expect(planted).toBeGreaterThanOrEqual(a === Anim.Walk ? 12 : 6);
+        }
+  });
+
+  it('grips a two-handed weapon with the off hand by IK', () => {
+    const s2 = footSkeleton({ twoHanded: true, name: 'foot2h' });
+    for (const fr of [0, 3, 5, 7]) {
+      const p = bakeClip(s2, clips[Anim.Attack]!, 8, 'se')[fr]!;
+      const u = p.byName.upperArmF!, w = p.byName.forearmF!, g = p.byName.grip2!;
+      // As close as the arm's reach allows.
+      const short = Math.max(0, Math.hypot(g.x - u.x, g.y - u.y) - (u.len + w.len));
+      expect(Math.hypot(w.tx - g.x, w.ty - g.y) * 8, `frame ${fr}`).toBeLessThanOrEqual(2 + short * 8);
+    }
+  });
+
+  it('round-trips a skeleton and an animation through JSON', () => {
+    for (const body of ['foot', 'horse', 'beast', 'engine'] as const) {
+      const s = skeletonFor(body);
+      const s2 = JSON.parse(JSON.stringify(s)) as SkeletonData;
+      expect(s2).toEqual(s);
+      const set = animationsFor(body);
+      for (const a of [Anim.Walk, Anim.Attack]) {
+        const c2 = JSON.parse(JSON.stringify(set[a])) as Clip;
+        expect(c2).toEqual(set[a]);
+        expect(bakeClip(s2, c2, 4, 'se').map(posedNumbers)).toEqual(bakeClip(s, set[a]!, 4, 'se').map(posedNumbers));
+      }
+    }
+  });
+
+  it('paints every body type in every animation and facing, through the paper registry too', () => {
+    const bodies = ['foot', 'horse', 'beast', 'engine'] as const;
+    for (const body of bodies) {
+      const s = skeletonFor(body);
+      const r: SkeletonRig = { skel: s, clips: animationsFor(body), atts: stickParts(s, { body: M.bone, cloth: M.rag, metal: M.steel, team: M.team, hide: M.leather, wood: M.wood }) };
+      for (let a = 0; a < ANIM_COUNT; a++)
+        for (const facing of ['se', 'sw', 'ne', 'nw'] as Facing[]) {
+          const f = paintSkeleton(r, a as Anim, Math.min(3, FRAMES[a]! - 1), { level: 2, facing });
+          let n = 0;
+          for (let i = 3; i < f.pixels.length; i += 4) if (f.pixels[i] === 255) n++;
+          expect(n, `${body} ${a} ${facing}`).toBeGreaterThan(60);
+        }
+      registerPaperKind('bones-test', bodies.indexOf(body), skeletonKind(r));
+      const pf = paintPaper('bones-test', bodies.indexOf(body), 4, Anim.Walk, 2, 1, 215)!;
+      expect(pf.pixels.some((v, i) => i % 4 === 3 && v === 255)).toBe(true);
+    }
+  });
+
+  it('resolves mocap bone names', () => {
+    expect(['LeftUpLeg', 'RightForeArm', 'upperArm.R', 'thigh_l', 'Hips', 'Spine', 'thighN', 'hand.L', 'Head', 'shin_r'].map(resolveBone)).toEqual([
+      'thighF', 'forearmN', 'upperArmN', 'thighF', 'pelvis', 'spine', 'thighN', 'handF', 'head', 'shinN',
+    ]);
+  });
+
+  it('loads mocap key JSON: retargets, eases, and plants the feet by IK on top', () => {
+    // A source man twice our size, walking: thighs and shins swing, the pelvis bobs.
+    const swing = [24, 0, -20, 0];
+    const json: MotionJson = {
+      facings: {
+        se: {
+          name: 'mocap-walk', frames: 12, loop: true, ease: EASE, lengths: { thigh: 5.9, shin: 5.9 },
+          keys: swing.map((s, i) => ({
+            f: i * 3, height: 11.0 - (i % 2 ? 0 : 0.6), contact: { N: i !== 3, F: i !== 1 },
+            bones: { 'thigh.R': s, 'shin.R': s - 10, LeftUpLeg: -s, LeftLeg: -s - 10, Spine: 183, 'upperArm.L': -s / 2 },
+          })),
+        },
+      },
+    };
+    const clip = loadMotion(json, skel) as FacingClips;
+    const a = clip.byFacing.se as AnimationData;
+    expect(a.bones!.thighN!.rotate!.length).toBe(4);
+    expect(a.bones!.pelvis!.translate![0]!.v[1]).toBeGreaterThan(0); // crouched lower than rest at contact
+    expect(a.bones!.footTargetN!.translate).toBeDefined();
+    expect(a.ik!.legN).toBeDefined();
+    const frames = bakeClip(skel, clip, 8, 'se', 12, true);
+    for (const p of frames) {
+      const lows = (['N', 'F'] as const).map((s) => (p.byName[`shin${s}`]!.ty - skel.ik!.find((k) => k.name === `leg${s}`)!.ground!) * 8);
+      expect(Math.max(...lows)).toBeLessThanOrEqual(0.5);
+      expect(Math.max(...lows)).toBeGreaterThanOrEqual(-0.5);
+    }
+    // World angles come through (snapped): the near thigh at 24 degrees on key 0, before IK.
+    const fk = evaluate(skel, sampleClip(clip, 0, 12, 'se'), { level: 8, facing: 'se', noIk: true });
+    expect(fk.byName.thighN!.a).toBe(22.5);
   });
 });
