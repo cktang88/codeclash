@@ -199,7 +199,7 @@ function kiteShield(c: Paper, at: P2, h: number, w: number, tilt: number): void 
 function bigSword(c: Paper, grip: P2, deg: number, len: number): void {
   const g0 = along(grip, deg, 0.55);
   const tip = along(g0, deg, len);
-  c.rod(g0, tip, 0.62, 0.22, UM.steel, {
+  c.rod(g0, tip, 0.8, 0.3, UM.steel, {
     shine: true,
     detail: (x, y, u, v) => {
       if (v > 0.25 && v < 0.9 && hash(Math.round(v * 16), 0, 451) < 0.22 && u > 0.4) return -1; // chips
@@ -236,7 +236,7 @@ function legionary(c: Paper): void {
   // The sword arm: the blade carried up and forward, ready.
   // The sword arm: the blade held upright at the near side, clear of the body.
   const hand: P2 = [-2.95, -6.7];
-  bigSword(c, hand, 190, 6.4);
+  bigSword(c, hand, 186, 7.0);
   armouredArm(c, B.shN, [-3.05, -9.0], hand, false);
 }
 
@@ -320,7 +320,7 @@ function stout(c: Paper, a: P2, b: P2, w: number, far: boolean): void {
 function throwerStatic(c: Paper): void {
   // The cape behind and the fan of javelins over the shoulder.
   rag(c, [-2.4, -11.3], [1.0, -11.5], 8.4, -0.4, UM.rag, UM.rag, 481, { tear: 0.3, folds: true, spread: 0.6 });
-  quiver(c, [-1.6, -10.2], 205, { shafts: 4, len: 2.4, bone: true });
+  quiver(c, [-1.4, -9.8], 195, { shafts: 3, len: 2.6, bone: true });
   // Far leg and arm.
   stout(c, [1.0, -6.4], [1.6, -3.5], 0.6, true);
   stout(c, [1.6, -3.5], [1.7, -0.7], 0.5, true);
@@ -382,7 +382,7 @@ function arbalestStatic(c: Paper): void {
   const grip: P2 = [-0.4, -7.8];
   const deg = 88;
   vol(c, B.shF, [3.0, -9.0], 1.35, 1.15, UM.rag, { tone: 1, caps: false });
-  c.rod([3.0, -9.0], along(grip, deg, 2.0), 0.45, 0.4, UM.bone, { tone: 1 });
+  c.rod([3.0, -9.0], along(grip, deg, 2.6), 0.5, 0.45, UM.bone, { tone: 1 });
   // The gambeson: quilted channels, rotted through in places, a belt with a bolt case.
   const pts: P2[] = [[-2.5, -11.1], [-1.2, -11.9], [1.7, -11.9], [2.8, -11.1], [2.6, -8.6], [2.4, -5.3], [-2.4, -5.2], [-2.2, -8.6]];
   const y1 = c.sy(-5.2);
@@ -404,9 +404,9 @@ function arbalestStatic(c: Paper): void {
   c.rod(B.neck, [0.55, -12.6], 0.55, 0.5, UM.bone, { tone: 1 });
   bigSkull(c, B.head, -4, true);
   // The crossbow levelled at the hip, the near arm on the stock.
-  crossbow(c, grip, deg, true);
+  crossbow(c, grip, deg, true, 1.45);
   vol(c, B.shN, [-2.6, -9.0], 1.35, 1.15, UM.rag, { tone: 2, caps: false });
-  c.rod([-2.6, -9.0], grip, 0.45, 0.4, UM.bone, { tone: 2 });
+  c.rod([-2.6, -9.0], grip, 0.52, 0.46, UM.bone, { tone: 2 });
   c.blob(grip, 0.55, 0.5, UM.bone, { tone: 2 });
 }
 
