@@ -225,3 +225,145 @@ export function lagCloth(skel: SkeletonData, clip: Clip, n: number, loop: boolea
 export const clipFrames = (clip: Clip): number => clipBase(clip).frames;
 
 export type ClipSet = Partial<Record<Anim, Clip>>;
+
+// ------------------------------------------------------------------ mocap as the base
+
+import { MOTION, type MotionClip, type MotionKey } from './motion/index.ts';
+
+/** A keyed value over a clip's frames (for authored overrides sampled at the mocap keys). */
+export type Track = readonly (readonly [number, number])[];
+/** Samples a track at frame f, eased between keys (smoothstep), held at the ends. */
+export function at(tr: Track, f: number): number {
+  if (f <= tr[0]![0]) return tr[0]![1];
+  for (let i = 1; i < tr.length; i++) {
+    const [f1, v1] = tr[i]!, [f0, v0] = tr[i - 1]!;
+    if (f <= f1) {
+      const u = (f - f0) / Math.max(1e-6, f1 - f0);
+      return v0 + (v1 - v0) * u * u * (3 - 2 * u);
+    }
+  }
+  return tr.at(-1)![1];
+}
+
+export interface MocapOpts {
+  /** Torso chain (pelvis…head) turn, times this (the subject's own posture is taken out). */
+  torso?: number;
+  /** Pelvis travel, times this (after scaling to our hip height). */
+  travel?: number;
+  /** Feet: ankle travel times this (0 = keep the stance and plant). */
+  feet?: number;
+  /** Arms copied (as turns from the reference pose), times this; empty = authored per kind. */
+  arms?: { N?: number; F?: number };
+  /** Foot roll (heel and toe), times this. */
+  roll?: number;
+  /** The reference pose: 'first' key (attacks, falls) or the 'mean' of a loop. */
+  ref?: 'first' | 'mean';
+  /** Frames to drop keys from (falls drive the body with dl instead). */
+  only?: (k: MotionKey) => boolean;
+  /** The hips' height is absolute (a crouch or a fall from standing), not a turn from the reference. */
+  absHeight?: boolean;
+  /** Legs by their mocap angles (FK) once neither foot is planted (falls); IK on while a foot is down. */
+  legsFK?: boolean;
+}
+
+const TORSO = ['pelvis', 'spine', 'chest', 'neck', 'head'] as const;
+const sinD = (d: number) => Math.sin((d * Math.PI) / 180), cosD = (d: number) => Math.cos((d * Math.PI) / 180);
+const wrap = (d: number) => d - 360 * Math.floor(d / 360 + 0.5);
+
+/**
+ * Key poses from a converted mocap clip (motion/*.json) for our skeleton, as turns and offsets from
+ * the subject's reference pose laid over the key art's rest: the clip brings the weight, the hip
+ * travel, the trunk and the footwork; the rest pose keeps our figure's look.
+ */
+export function mocapKeys(skel: SkeletonData, name: string, facing: Facing, o: MocapOpts = {}): { keys: KP[]; clip: MotionClip } {
+  const clip = MOTION[name];
+  if (!clip) throw new Error(`no motion clip ${name}`);
+  const ks = clip.facings[facing === 'ne' ? 'ne' : 'se'].keys;
+  const len = (b: string) => skel.bones.find((x) => x.name === b)!.len;
+  const lt = len('thighN'), ls = len('shinN');
+  const hip = -(skel.bones.find((b) => b.name === 'pelvis')!.y);
+  const scale = hip / (clip.restHip ?? 8.3);
+  const mlt = clip.lengths.thigh ?? 3.9, mls = clip.lengths.shin ?? 3.8;
+  const ankle = (k: MotionKey, s: 'N' | 'F'): P2 => {
+    const t = k.bones[`thigh${s}`]!, h = k.bones[`shin${s}`]!;
+    return [(mlt * sinD(t) + mls * sinD(h)) * scale + k.root[0]! * scale, (mlt * cosD(t) + mls * cosD(h)) * scale + k.root[1]! * scale];
+  };
+  const mean = (get: (k: MotionKey) => number) => (o.ref === 'mean' ? ks.reduce((s, k) => s + get(k), 0) / ks.length : get(ks[0]!));
+  const ref: Record<string, number> = {};
+  for (const b of Object.keys(ks[0]!.bones)) ref[b] = mean((k) => ks[0]!.bones[b]! + wrap(k.bones[b]! - ks[0]!.bones[b]!));
+  const refRoot: P2 = [mean((k) => k.root[0]!), mean((k) => k.root[1]!)];
+  const refAnk = { N: [mean((k) => ankle(k, 'N')[0]), mean((k) => ankle(k, 'N')[1])] as P2, F: [mean((k) => ankle(k, 'F')[0]), mean((k) => ankle(k, 'F')[1])] as P2 };
+  const tg = o.torso ?? 1, tv = o.travel ?? 1, fg = o.feet ?? 1, rg = o.roll ?? 0.6;
+  const keys: KP[] = ks.filter((k) => !o.only || o.only(k)).map((k) => {
+    const dw: Record<string, number> = {};
+    for (const b of TORSO) if (k.bones[b] !== undefined) dw[b] = Math.round(wrap(k.bones[b]! - ref[b]!) * tg * 10) / 10;
+    for (const s of ['N', 'F'] as const) {
+      const g = o.arms?.[s];
+      if (!g) continue;
+      for (const b of [`upperArm${s}`, `forearm${s}`]) if (k.bones[b] !== undefined) dw[b] = Math.round(wrap(k.bones[b]! - ref[b]!) * g * 10) / 10;
+    }
+    const py = (o.absHeight ? (clip.restHip ?? 8.3) - k.height : k.root[1]! - refRoot[1]) * scale * tv;
+    const t: Record<string, P2> = {
+      pelvis: [Math.round((k.root[0]! - refRoot[0]) * scale * tv * 100) / 100, Math.round(py * 100) / 100],
+    };
+    const fk = o.legsFK && ks.indexOf(k) > 0;
+    const w: Record<string, number> = {};
+    if (fk) for (const b of ['thighN', 'shinN', 'thighF', 'shinF']) w[b] = k.bones[b]!;
+    const dl: Record<string, number> = {};
+    for (const s of ['N', 'F'] as const) {
+      const a = ankle(k, s), r = refAnk[s];
+      const grounded = k.contact[s];
+      const y = grounded ? 0 : Math.min(0, (a[1] - r[1]) * fg);
+      t[`footTarget${s}`] = [Math.round((a[0] - r[0]) * fg * 100) / 100, Math.round(y * 100) / 100];
+      const roll = wrap(k.bones[`foot${s}`]! - ref[`foot${s}`]!);
+      dl[`foot${s}`] = Math.abs(roll) > 70 ? 0 : Math.round(Math.max(-35, Math.min(30, roll * rg)));
+    }
+    void lt;
+    void ls;
+    if (fk) {
+      delete t.footTargetN;
+      delete t.footTargetF;
+    }
+    return { f: k.f, ...(k.c ? { c: k.c as Curve } : {}), dw, t, dl, ...(fk ? { w, ik: { legN: 0, legF: 0 } } : o.legsFK ? { ik: { legN: 1, legF: 1 } } : {}) };
+  });
+  return { keys, clip };
+}
+
+/** Lays authored tracks (world angles `w`, world turns `dw`, offsets `t`) over mocap keys, sampled at the keys' frames. */
+export function overlayKeys(keys: readonly KP[], o: { w?: Record<string, Track>; dw?: Record<string, Track>; t?: Record<string, [Track, Track]>; tAdd?: Record<string, [Track, Track]>; ik?: Record<string, Track> }, extra: readonly number[] = []): KP[] {
+  // Extra frames (authored key times the mocap lacks) are added by interpolating the mocap keys.
+  const frames = [...new Set([...keys.map((k) => k.f), ...extra])].sort((a, b) => a - b);
+  const lerpKey = (f: number): KP => {
+    const i = keys.findIndex((k) => k.f >= f);
+    if (i < 0) return { ...keys.at(-1)!, f };
+    if (keys[i]!.f === f || i === 0) return { ...keys[i]!, f };
+    const a = keys[i - 1]!, b = keys[i]!, u = (f - a.f) / (b.f - a.f);
+    const mix = <T extends Record<string, number>>(x?: T, y?: T) => {
+      const out: Record<string, number> = {};
+      for (const n of new Set([...Object.keys(x ?? {}), ...Object.keys(y ?? {})])) out[n] = (x?.[n] ?? 0) + ((y?.[n] ?? 0) - (x?.[n] ?? 0)) * u;
+      return out;
+    };
+    const t: Record<string, P2> = {};
+    for (const n of new Set([...Object.keys(a.t ?? {}), ...Object.keys(b.t ?? {})])) {
+      const p = a.t?.[n] ?? [0, 0], q = b.t?.[n] ?? [0, 0];
+      t[n] = [p[0] + (q[0] - p[0]) * u, p[1] + (q[1] - p[1]) * u];
+    }
+    return { f, c: a.c, dw: mix(a.dw, b.dw), dl: mix(a.dl, b.dl), t };
+  };
+  return frames.map((f) => {
+    const k = lerpKey(f);
+    const out: KP = { ...k, dw: { ...(k.dw ?? {}) }, t: { ...(k.t ?? {}) }, w: { ...(k.w ?? {}) } };
+    for (const [n, tr] of Object.entries(o.w ?? {})) {
+      out.w![n] = Math.round(at(tr, f) * 10) / 10;
+      delete out.dw![n];
+    }
+    for (const [n, tr] of Object.entries(o.dw ?? {})) out.dw![n] = Math.round(((out.dw![n] ?? 0) + at(tr, f)) * 10) / 10;
+    for (const [n, [x, y]] of Object.entries(o.t ?? {})) out.t![n] = [at(x, f), at(y, f)];
+    for (const [n, [x, y]] of Object.entries(o.tAdd ?? {})) {
+      const p = out.t![n] ?? [0, 0];
+      out.t![n] = [Math.round((p[0] + at(x, f)) * 100) / 100, Math.round((p[1] + at(y, f)) * 100) / 100];
+    }
+    if (o.ik) out.ik = Object.fromEntries(Object.entries(o.ik).map(([n, tr]) => [n, at(tr, f)]));
+    return out;
+  });
+}

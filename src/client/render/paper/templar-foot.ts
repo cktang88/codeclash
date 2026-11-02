@@ -12,6 +12,7 @@ import {
 } from './skeleton.ts';
 import { paintAs, TM } from './templar-parts.ts';
 import { buildAnim, facingClip, lagCloth, partMap, skinMap, smooth01, type ClipSet, type KP, type LagSpec, type Weights } from './templar-rig.ts';
+import { mocapFootClips } from './templar-clips.ts';
 import { FOOT, handAt, manPiece, manRest, withMap, type ManPiece, type ManRest, type SGear, type SKit } from './templar-static.ts';
 
 // ------------------------------------------------------------------ per-kind rig facts
@@ -541,7 +542,8 @@ export function footRig(kind: number): SkeletonRig | undefined {
   const f = FOOT[kind], s = FOOT_SPECS[kind];
   if (!f || !s) return undefined;
   const skel = footSkel(kind, f.kit, f.gear, s);
-  const rig: SkeletonRig = { skel, atts: footParts(f.kit, f.gear, s, f.dark), clips: footClips(skel, s) };
+  const clips = mocapFootClips(skel, { ...s, farHeld: s.front === 'forearmF' || !!s.twoHand || s.shoot === 'crossbow' });
+  const rig: SkeletonRig = { skel, atts: footParts(f.kit, f.gear, s, f.dark), clips };
   RIGS.set(kind, rig);
   return rig;
 }
