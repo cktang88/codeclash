@@ -1,4 +1,4 @@
-import { StrictMode, useEffect, useState } from 'react';
+import { StrictMode, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { FACTIONS } from '../game/factions.ts';
 import type { MeResponse } from '../protocol.ts';
@@ -14,6 +14,17 @@ import './styles.css';
 function Account({ me, onChange }: { me: MeResponse; onChange: () => void }) {
   const [open, setOpen] = useState(false);
   const u = me.user!;
+  // The slider follows the hand at once and saves once it rests: a request per input event lagged the thumb
+  // behind the round trip (snapping it back while dragging) and could land out of order.
+  const [hue, setHue] = useState(u.hue);
+  const saveHue = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => setHue(u.hue), [u.hue]);
+  useEffect(() => () => clearTimeout(saveHue.current), []);
+  const pickHue = (h: number) => {
+    setHue(h);
+    clearTimeout(saveHue.current);
+    saveHue.current = setTimeout(() => void api.setLook(u.faction, h).then(onChange, onChange), 250);
+  };
   return (
     <div className="account">
       <button className="quiet" onClick={() => setOpen((o) => !o)}>
@@ -24,7 +35,7 @@ function Account({ me, onChange }: { me: MeResponse; onChange: () => void }) {
         <div className="panel account-menu">
           <label>
             Faction
-            <select value={u.faction} onChange={(e) => api.setLook(e.target.value, u.hue).then(onChange)}>
+            <select value={u.faction} onChange={(e) => api.setLook(e.target.value, hue).then(onChange, onChange)}>
               {Object.values(FACTIONS).map((f) => (
                 <option key={f.id} value={f.id}>{f.name}</option>
               ))}
@@ -32,7 +43,7 @@ function Account({ me, onChange }: { me: MeResponse; onChange: () => void }) {
           </label>
           <label>
             Colours
-            <input type="range" min={0} max={359} value={u.hue} onChange={(e) => api.setLook(u.faction, Number(e.target.value)).then(onChange)} style={{ accentColor: hsl(u.hue, 55, 45) }} />
+            <input type="range" min={0} max={359} value={hue} onChange={(e) => pickHue(Number(e.target.value))} style={{ accentColor: hsl(hue, 55, 45) }} />
           </label>
           <p className="muted small">
             GitHub: {u.github.status === 'ok' ? 'reading your public pushes on your own rate limit' : u.github.status === 'invalid' ? 'sign in again to keep reading your pushes' : 'not connected'}

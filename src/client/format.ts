@@ -10,7 +10,13 @@ export function duration(ms: number): string {
   return `${s}s`;
 }
 
-export const n = (x: number) => Math.round(x).toLocaleString('en-US');
+// `|| 0` folds the -0 that rounding a small negative gives, which would print as "-0".
+export const n = (x: number) => (Math.round(x) || 0).toLocaleString('en-US');
+
+/** A league week's start (Monday at the battle hour, UTC) as its UTC calendar date, e.g. "Nov 2". */
+export function weekLabel(weekStart: number): string {
+  return new Date(weekStart).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+}
 
 export const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 export const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII', 'XIII', 'XIV', 'XV', 'XVI', 'XVII', 'XVIII', 'XIX', 'XX'];

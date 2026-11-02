@@ -120,7 +120,9 @@ export function BattleView(props: {
     ro.observe(canvas);
 
     const loop = (now: number) => {
-      const dt = Math.min(0.1, (now - last) / 1000);
+      // A frame's timestamp can precede the performance.now() taken when the effect ran: never step backwards
+      // (a negative dt made `acc`, and so the draw alpha, negative and the renderer asked for frame -1).
+      const dt = Math.min(0.1, Math.max(0, (now - last) / 1000));
       last = now;
       const c = ctl.current;
       if (!c.paused && !battle.done()) {
