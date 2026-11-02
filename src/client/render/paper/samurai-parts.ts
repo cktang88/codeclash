@@ -39,7 +39,8 @@ export const SM = {
   team: defineMaterial('samurai.team', (hue) => armyRamp(hue, [0.42, 0.51, 0.6, 0.68, 0.76], [0.12, 0.17, 0.15, 0.12, 0.09])),
   teamDk: defineMaterial('samurai.teamDk', (hue) => armyRamp(hue, [0.24, 0.29, 0.34, 0.39, 0.45], [0.07, 0.1, 0.1, 0.085, 0.07], 14)),
   indigo: defineMaterial('samurai.indigo', oklchRamp({ l: 0.34, c: 0.05, h: 262, spread: 0.06 })),
-  cotton: defineMaterial('samurai.cotton', oklchRamp({ l: 0.76, c: 0.018, h: 85, spread: 0.07 })),
+  // (Unbleached, a little warm: a neutral off-white's deep tone shares its colour with the irons.)
+  cotton: defineMaterial('samurai.cotton', oklchRamp({ l: 0.76, c: 0.032, h: 85, spread: 0.07 })),
   flesh: defineMaterial('samurai.flesh', oklchRamp({ l: 0.62, c: 0.06, h: 55 })),
   hair: defineMaterial('samurai.hair', oklchRamp({ l: 0.22, c: 0.016, h: 40, spread: 0.06 })),
   wood: defineMaterial('samurai.wood', oklchRamp({ l: 0.34, c: 0.055, h: 58, spread: 0.065 })),

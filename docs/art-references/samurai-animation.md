@@ -154,6 +154,22 @@ committed; the screenshots in `docs/screenshots/hd-sprites/samurai-anim-*.png` a
 - **Attack: the cut at the charge**: the katana over the near shoulder, the rider leaning out over
   the neck, the blade falling down the horse's near side under a solid smear, held, back up.
 
+### Ōzutsu (9)
+- The key art split into the gun (chocks, plank bed, cradle, the bronze barrel on its own bone, the
+  rear block, the shot) and the two crew on bones of their own with moving arms (the Templar
+  engine's method): the gunner with the linstock at the breech, the loader with the rammer at the
+  muzzle. From behind the crew stand this side of the gun, drawn as back views.
+- **Attack/Shoot: load and fire**: 0-2 the loader rams the charge home leaning in over the muzzle
+  and draws the rammer out; 3 he steps clear and turns away; 3-5 the gunner leans in and lowers the
+  match to the touch-hole; 5 the priming flashes; 6 the gun fires (muzzle flash, smoke); 7 the recoil
+  throws the barrel back 1.4 units off its cradle, the muzzle kicking up, the crew flinching; 8-9 it
+  settles and is run back; 10-11 the loader swabs the bore. The smoke stays where the muzzle was,
+  swelling and rolling up for the rest of the clip.
+- **Walk/Run**: the crew heave at the bed with their arms, the gun shuffling on its chocks;
+  **Idle**: the match smoulders, the loader leans on his rammer; **Brace**: the gunner crouched with
+  the match poised; **Hit**: the gun jolts, the crew reel; **Die**: the barrel is thrown off its
+  cradle nose-first and the crew are flung down.
+
 ## Critique rounds
 
 ### Katana Samurai
@@ -270,6 +286,27 @@ warnings (41-68°) and jaggies at levels 1-2 on the skirmisher.
    braced off the shot.
 3. **Round 3.** At 13 px the horse archers' black bow over the horse and the white socks at its feet
    inverted the light: the bow is a pale bamboo line and the socks drop out at level 1.
+
+### Ōzutsu
+1. **Round 1.** From behind, the crew's mirrored arm rest stretched the far arm across the body:
+   they now keep their key-art stance from behind, drawn as back views (as the Templar crew).
+2. **Round 2.** The crew lay floating at their feet's height in the wreck: they stand on the far
+   side of the bed, so they now drop to the ground there.
+3. **Round 3.** Head boil (lint): the two men rocking by fractions of a unit rounded differently
+   (their feet stand on different sub-pixel origins) and their hats churned; the idle and the
+   shift now move their arms and the gun, never their bodies.
+
+### Lint pass with the mounted kinds and the ōzutsu
+The horses, the crew and the bronze brought new colours into the small palettes, so the pass was
+repeated: the near-twin materials are also merged at level 4 (`MID_MERGE`), the off-whites never
+take their deepest (grey) tone below level 8, the cotton is a little warmer, the horse's lower legs,
+hooves, neck and head sit a step down below level 8 and the barrel is two planes there (croup lit,
+belly shaded), the white socks show from level 8, the yari shaft and poles are lit at levels 1-2, the
+ōzutsu's bed and chocks are the figure's shadowed base at level 1, and the kyahan, the bow and the
+tabi lose their painted detail at levels 1-2.
+
+**Lint, all eleven kinds, levels 1/2/4/8: no FAIL.** Level-1 silhouettes: closest pairs 0.83 (the
+three mounted kinds, which share the horse), all under the 0.85 gate; the foot kinds 0.66-0.74.
 
 Katana Samurai lint before the pass (level 1/2/4/8): no FAIL. Warnings left: aligned band ends 0.24-0.30, outline and figure vs
 ground ΔL 0.07-0.13, light-angle error at levels 1-2, mid-widest silhouettes. Level-1 silhouette:

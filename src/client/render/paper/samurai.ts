@@ -17,6 +17,7 @@ import { isBack, type Facing } from './facing.ts';
 import { registerPaperKind } from './registry.ts';
 import { registerFootRigs } from './samurai-rig.ts';
 import { registerHorseRigs } from './samurai-horse.ts';
+import { registerEngineRig } from './samurai-engine.ts';
 import { along, ENGINE0, FOOT0, HORSE0, limb, poseAt, poser, settle, swing, type EnginePose, type FootPose, type HorsePose, type KeySet } from './rig.ts';
 import {
   ARM_L, ARM_U, CREW, drawMan, FIRE, flash, gunbai, horse, javelin, katana, leg, manRig, mul, naginata, ozutsu, SM, smoke, teppo, yari, yumi,
@@ -577,6 +578,7 @@ registerPaperKind<EnginePose>('samurai', U.Artillery, { body: 'engine', keys: OZ
 // The kinds rebuilt from the key art on bones (samurai-rig.ts) replace the posed figures above.
 registerFootRigs([U.HeavyInfantry, U.Spearmen, U.Skirmishers, U.Archers, U.Crossbowmen, U.Shock, COMMANDER_KIND]);
 registerHorseRigs([U.LightCavalry, U.HorseArchers, U.Knights]);
+registerEngineRig(U.Artillery);
 
 // Kept for tests and the contact sheet.
 export const SAMURAI_KINDS = [U.HeavyInfantry, U.Spearmen, U.Skirmishers, U.Archers, U.Crossbowmen, U.LightCavalry, U.HorseArchers, U.Knights, U.Shock, U.Artillery, COMMANDER_KIND] as const;
