@@ -8,7 +8,7 @@ Today a battle row holds the `BattleSetup` (seed, both armies, about 0.4 KB of J
 
 Two details in the code make this worse:
 
-- `Battle`'s constructor mixes the **constant** `BATTLE_VERSION` into the seed (`new Rng(mixSeed(setup.seed, BATTLE_VERSION))`) and never reads `setup.version`. A v1 setup loaded by a v2 sim runs as v2. Nothing refuses it.
+- `Battle`'s constructor used to mix the **constant** `BATTLE_VERSION` into the seed (`new Rng(mixSeed(setup.seed, BATTLE_VERSION))`) and never read `setup.version`, so a v1 setup loaded by a v2 sim ran as v2 and nothing refused it. *Since v3:* the constructor refuses a setup of another version (`BattleVersionError`), and the seed takes a separate constant, `SEED_SALT` (still 2), so bumping `BATTLE_VERSION` no longer re-seeds every battle by itself; a version that should re-seed must change `SEED_SALT` too.
 - The sim's behaviour lives in `battle.ts` **and** its imports `factions.ts`, `units.ts` and `rng.ts`. A stat change in `units.ts` changes battles just as much as a code change, and nothing ties those files to `BATTLE_VERSION`.
 
 Requirement: a player can open any battle (days, weeks, months, a year later) and see the fight that was scored.

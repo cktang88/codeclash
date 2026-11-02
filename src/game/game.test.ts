@@ -215,11 +215,15 @@ describe('battle', () => {
   });
 
   it('lasts a minute and a half to four minutes, with an approach, a clash and a rout', () => {
-    for (const seed of [1, 2]) {
+    // Over a dozen days, not one seed that happens to land in range: the typical battle (the
+    // median) runs 80 s to 5 min, and none is over in under 50 s or runs to the time limit.
+    const ticks: number[] = [];
+    for (let seed = 1; seed <= 12; seed++) {
       const b = new Battle(setupOf(seed, army(500), army(500)));
       const r = b.run();
+      ticks.push(r.ticks);
       expect(r.reason).toBe('rout');
-      expect(r.ticks).toBeGreaterThan(80 * TICKS_PER_SECOND);
+      expect(r.ticks).toBeGreaterThan(50 * TICKS_PER_SECOND);
       expect(r.ticks).toBeLessThan(300 * TICKS_PER_SECOND);
       const contact = b.events.find((e) => e.kind === 'contact')!.tick;
       expect(contact).toBeGreaterThan(15 * TICKS_PER_SECOND);
@@ -228,7 +232,11 @@ describe('battle', () => {
       expect(b.events.some((e) => e.kind === 'charge')).toBe(true);
       expect(b.events.filter((e) => e.kind === 'rout' || e.kind === 'shattered').length).toBeGreaterThan(3);
     }
-  });
+    ticks.sort((a, b) => a - b);
+    const median = (ticks[5]! + ticks[6]!) / 2;
+    expect(median).toBeGreaterThan(80 * TICKS_PER_SECOND);
+    expect(median).toBeLessThan(300 * TICKS_PER_SECOND);
+  }, 60_000);
 
   it('a much bigger army wins', () => {
     expect(winsOf(6, (seed) => fight(setupOf(seed, army(200), army(400))).winner)).toBeLessThanOrEqual(1);
@@ -347,16 +355,17 @@ describe('battle: stances', () => {
 describe('battle: command and morale', () => {
   it('a general who sends his horse round the flanks beats one who keeps it at home', () => {
     let good = 0;
-    for (let seed = 1; seed <= 10; seed++) {
+    for (let seed = 1; seed <= 50; seed++) {
       for (const side of [0, 1] as const) {
         const b = new Battle(setupOf(seed, army(300), army(300)));
         b.generals[1 - side]!.useCavalry = false;
         if (b.run().winner === side) good++;
       }
     }
-    // More often than not, from either side.
-    expect(good).toBeGreaterThanOrEqual(12);
-  }, 60_000);
+    // Clearly more often than not, from either side: 60 of 100 battles (about 70 today). A run
+    // of 20 battles swings by several wins on the seeds alone, too much to tell 55% from 70%.
+    expect(good).toBeGreaterThanOrEqual(60);
+  }, 180_000);
 
   it('a committed reserve changes the battle', () => {
     let changed = 0;
@@ -404,13 +413,14 @@ describe('battle: command and morale', () => {
     expect([...states].sort()).toEqual(['broken', 'rallying', 'shattered', 'steady', 'wavering']);
     for (const k of ['waver', 'rout', 'shattered'] as const) expect(b.events.some((e) => e.kind === k)).toBe(true);
     // The Chapter House's morale bonus, on either side.
+    // Clearly more often than not: 60 of 100 battles (about two in three today).
     let bonus = 0;
-    for (let seed = 1; seed <= 10; seed++) {
+    for (let seed = 1; seed <= 50; seed++) {
       if (fight(setupOf(seed, army(300, { moraleBonus: 15 }), army(300))).winner === 0) bonus++;
       if (fight(setupOf(seed, army(300), army(300, { moraleBonus: 15 }))).winner === 1) bonus++;
     }
-    expect(bonus).toBeGreaterThanOrEqual(13);
-  }, 60_000);
+    expect(bonus).toBeGreaterThanOrEqual(60);
+  }, 180_000);
 });
 
 describe('battle: scale', () => {
