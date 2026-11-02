@@ -341,6 +341,33 @@ function keySkull(c: Paper, at: P2, r: number, ang: number, hat: 'kettle' | null
   }
 }
 
+/** A leg in rag breeches bound with pale linen wraps from knee to ankle, a leather boot. */
+function wrappedLeg(c: Paper, hip: P2, knee: P2, ank: P2, far: boolean): void {
+  const t = far ? 1 : 2;
+  vol(c, hip, knee, 1.45, 1.2, UM.rag, { tone: t, caps: false });
+  vol(c, knee, ank, 1.05, 0.9, UM.bone, {
+    tone: t,
+    caps: false,
+    detail: (_x, y, u) => ((c.ly(y) % Math.max(3, Math.round(c.L * 0.45))) === 0 ? code(UM.bone, t - 1) : u < -0.3 ? code(UM.bone, t + 1) : -1),
+  });
+  c.blob(knee, 0.62, 0.55, UM.rag, { tone: t });
+  plate(c, [addP(ank, [-0.7, -0.4]), addP(ank, [0.5, -0.45]), addP(ank, [1.3, 0.35]), addP(ank, [1.25, 0.75]), addP(ank, [-0.75, 0.75])], UM.leather, { tone: t });
+}
+
+/**
+ * An open bascinet: a rounded, pointed black-iron skull-cap with a riveted brow band, a mail
+ * aventail falling to the shoulders, and the face open so the skull grins out of it.
+ */
+function bascinet(c: Paper, at: P2): void {
+  // The aventail: mail from the helm's rim over the neck and shoulders.
+  plate(c, [addP(at, [-1.5, 0.0]), addP(at, [1.7, 0.0]), addP(at, [2.0, 1.9]), addP(at, [-1.7, 2.0])], UM.mail, { detail: (x, y, rx, ry) => mailShade(c, x, y, rx, ry) });
+  keySkull(c, addP(at, [0.1, 0.2]), 1.1, -4, null);
+  // The bowl: rounded, rising to a point at the back, lit top-left, a specular streak.
+  plate(c, [addP(at, [-1.35, -0.1]), addP(at, [-1.3, -1.0]), addP(at, [-0.5, -1.9]), addP(at, [-0.2, -2.6]), addP(at, [0.6, -1.7]), addP(at, [1.4, -0.9]), addP(at, [1.5, -0.25]), addP(at, [0.9, -0.55]), addP(at, [-0.6, -0.5])], UM.iron, { tone: 2, k: 0.3 });
+  c.rod(addP(at, [-1.3, -0.35]), addP(at, [1.45, -0.5]), 0.32, 0.32, UM.rust, { tone: 2 });
+  rivets(c, addP(at, [-1.1, -0.38]), addP(at, [1.3, -0.5]), 4);
+}
+
 /** A skull scaled up for key art (r ≈ 1.15 units): the Legionary's skull and kettle hat, larger. */
 function bigSkull(c: Paper, at: P2, ang: number, hat: boolean): void {
   // The shared skull is r = 1; draw it, then the hat a little wider.
@@ -479,7 +506,7 @@ function wraithStatic(c: Paper): void {
 function arbalestStatic(c: Paper): void {
   pavise(c, [-1.4, -10.4], -6, false, 1.35);
   // The far leg and arm (to the fore-stock).
-  armouredLeg(c, B.hipF, B.kneeF, B.ankF, true);
+  wrappedLeg(c, B.hipF, B.kneeF, B.ankF, true);
   const grip: P2 = [-0.4, -7.8];
   const deg = 88;
   vol(c, B.shF, [3.0, -9.0], 1.35, 1.15, UM.rag, { tone: 1, caps: false });
@@ -501,9 +528,9 @@ function arbalestStatic(c: Paper): void {
   });
   belt(c, B.waistY, -2.2, 2.5);
   quiver(c, [-2.2, -6.4], 160, { shafts: 3, len: 2.0 });
-  armouredLeg(c, B.hipN, B.kneeN, B.ankN, false);
-  c.rod(B.neck, [0.55, -12.6], 0.55, 0.5, UM.bone, { tone: 1 });
-  bigSkull(c, B.head, -4, true);
+  wrappedLeg(c, B.hipN, B.kneeN, B.ankN, false);
+  c.rod(B.neck, [0.55, -12.6], 0.55, 0.5, UM.bone, { tone: 2 });
+  keySkull(c, addP(B.head, [0, 0.05]), 1.2, -4, 'kettle');
   // The crossbow levelled at the hip, the near arm on the stock.
   crossbow(c, grip, deg, true, 1.45);
   vol(c, B.shN, [-2.6, -9.0], 1.35, 1.15, UM.rag, { tone: 2, caps: false });
@@ -536,7 +563,7 @@ function deathKnightStatic(c: Paper): void {
     k: 0.3,
   });
   // The great helm with a team crest, the visor slit glowing.
-  greatHelm(c, at([0.7, -6.9]), 0, false, -0.3);
+  bascinet(c, at([0.75, -6.95]));
   // Pauldrons.
   pauldron(c, at([2.1, -4.9]), true, 1.05);
   kiteShield(c, at([2.5, -2.7]), 6.0, 3.8, -6);
