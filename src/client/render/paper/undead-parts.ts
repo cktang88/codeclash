@@ -882,9 +882,9 @@ function horseLeg(c: Paper, H: HorseFrame, root: P2, up: number, lo: number, hin
     const stifle = along(root, 30 + up * 0.5 + t, 2.8);
     joint = along(stifle, -28 + up + t, 3.0); // the hock
     cannonA = 4 + up * 0.4 - lo;
-    c.rod(root, stifle, 0.8 * K, 0.55 * K, HB, { tone });
+    c.rod(root, stifle, 0.95 * K, 0.55 * K, HB, { tone });
     c.blob(stifle, 0.45 * K, 0.42 * K, HB, { tone: tone - 1 });
-    c.rod(stifle, joint, 0.55 * K, 0.38 * K, HB, { tone });
+    c.rod(stifle, joint, 0.62 * K, 0.34 * K, HB, { tone });
     // The point of the hock behind.
     c.rod(joint, along(joint, 150 + up + t, 0.6), 0.36, 0.22, HB, { tone });
   } else {
@@ -892,12 +892,12 @@ function horseLeg(c: Paper, H: HorseFrame, root: P2, up: number, lo: number, hin
     cannonA = up + lo;
     // The olecranon behind the elbow.
     c.rod(root, along(root, 200 + t, 0.6), 0.4, 0.26, HB, { tone });
-    c.rod(root, joint, 0.55 * K, 0.4 * K, HB, { tone });
+    c.rod(root, joint, 0.62 * K, 0.36 * K, HB, { tone });
     if (c.L >= 2) c.rod(addP(root, [0.22, 0.3]), addP(joint, [0.15, -0.3]), 0.16, 0.12, HB, { tone: tone - 1 });
   }
   c.blob(joint, 0.44 * K, 0.4 * K, HB, { tone: tone - 1 });
   const fet = along(joint, cannonA + t, hind ? 2.3 : 2.2);
-  c.rod(joint, fet, 0.34 * K, 0.3 * K, HB, { tone });
+  c.rod(joint, fet, 0.32 * K, 0.26 * K, HB, { tone });
   c.blob(fet, 0.38 * K, 0.34 * K, HB, { tone: tone - 1 });
   const hoofTop = along(fet, cannonA + 28 + t, 0.75);
   c.rod(fet, hoofTop, 0.3 * K, 0.32 * K, HB, { tone });
@@ -916,46 +916,56 @@ function horseLeg(c: Paper, H: HorseFrame, root: P2, up: number, lo: number, hin
  */
 function horseSkull(c: Paper, poll: P2, deg: number, back: boolean, o: { chanfron?: boolean; jaw?: number } = {}): void {
   deg = snapDeg(deg);
-  const len = back ? 3.3 : 3.8;
+  const len = back ? 3.4 : 3.9;
   // Pale bone, except at level 1 where the head is three pixels and a pale one would pull the
   // rider's light toward the muzzle.
   const B = c.L <= 1 ? HB : UM.bone;
   const dir = limb(deg), side = limb(deg - 90); // side: toward the top of the head
   const at = (u: number, v: number): P2 => addP(poll, addP(mul(dir, u * len), mul(side, v)));
-  // The lower jaw first (behind): deep at the cheek, hung a little open, teeth along its edge.
-  const jo = o.jaw ?? 0;
-  c.shape([at(0.0, -0.2), at(0.22, -1.05 - jo * 0.3), at(0.5, -0.8 - jo * 0.4), at(0.98, -0.4 - jo * 0.5), at(0.96, -0.15)], (x, y) => {
-    if (c.L >= 4 && c.ly(y) < c.L * 0.25) return (c.lx(x) & 1) === 0 ? code(B, 3) : code(UM.ink, 1);
-    return c.tex(x, y, 181) < 0.15 ? code(B, 0) : code(B, 1);
-  });
-  // The skull: a broad cranium behind the socket, the long face tapering to the muzzle.
-  const pts: P2[] = [at(-0.12, 0.35), at(0.06, 0.9), at(0.38, 0.78), at(1.0, 0.32), at(1.06, 0.02), at(1.0, -0.24), at(0.45, -0.34), at(0.12, -0.6), at(-0.1, -0.35)];
   const ox = c.sx(poll[0]), oy = c.sy(poll[1]);
-  c.shape(pts, (x, y) => {
+  const uv = (x: number, y: number): P2 => {
     const dx = (x + 0.5 - ox) / c.L, dy = (y + 0.5 - oy) / c.L;
-    const u = (dx * dir[0] + dy * dir[1]) / len, v = dx * side[0] + dy * side[1];
+    return [(dx * dir[0] + dy * dir[1]) / len, dx * side[0] + dy * side[1]];
+  };
+  // The mandible: a deep, rounded angle under the cheek, the bar of the jaw running forward to
+  // the incisors, the molars along its upper edge; hung open by `jaw`.
+  const jo = o.jaw ?? 0;
+  c.shape([at(0.02, -0.15), at(0.0, -0.75 - jo * 0.2), at(0.12, -1.2 - jo * 0.3), at(0.32, -1.25 - jo * 0.35), at(0.5, -0.82 - jo * 0.4), at(0.98, -0.52 - jo * 0.5), at(1.02, -0.32 - jo * 0.45), at(0.55, -0.3), at(0.3, -0.25)], (x, y) => {
+    const [u, v] = uv(x, y);
+    if (c.L >= 8 && v > -0.42 - jo * 0.4 && u > 0.3 && u < 0.98) return (c.lx(x) & 1) === 0 ? code(B, 2) : code(UM.ink, 1); // teeth
+    if (c.L >= 4 && Math.hypot((u - 0.16) * len, v + 0.85) < 0.28) return code(B, 0); // the hollow of the angle
+    if (v < -0.95 || u > 0.6) return code(B, 0);
+    return code(B, 1);
+  });
+  // The skull: a short broad cranium, the orbit high at the back, then the long face: the
+  // straight nasal line on top, the facial crest under the eye, the muzzle and the incisors.
+  const pts: P2[] = [at(-0.1, 0.3), at(0.02, 0.72), at(0.2, 0.92), at(0.36, 0.86), at(0.98, 0.38), at(1.06, 0.12), at(1.03, -0.28), at(0.62, -0.36), at(0.3, -0.42), at(0.06, -0.5), at(-0.12, -0.2)];
+  c.shape(pts, (x, y) => {
+    const [u, v] = uv(x, y);
     if (o.chanfron && u > 0.12 && u < 0.9 && v > -0.2) {
-      if (Math.hypot((u - 0.22) * len, v - 0.38) < (c.L <= 1 ? 0.45 : 0.18)) return code(UM.glow, 4);
-      if (Math.hypot((u - 0.22) * len, v - 0.38) < 0.36) return code(UM.ink, 0);
+      if (Math.hypot((u - 0.25) * len, v - 0.42) < (c.L <= 1 ? 0.45 : 0.18)) return code(UM.glow, 4);
+      if (Math.hypot((u - 0.25) * len, v - 0.42) < 0.38) return code(UM.ink, 0);
       if (Math.abs(u - 0.55) < 0.03 && c.L >= 4) return code(UM.rust, 1);
-      return v > 0.42 ? code(UM.iron, 3) : code(UM.iron, 2);
+      return v > 0.45 ? code(UM.iron, 3) : code(UM.iron, 2);
     }
-    // The deep socket under the brow, its point of light; the brow ridge lit.
-    const e = Math.hypot((u - 0.22) * len, (v - 0.36) * 1.1);
-    if (!back && e < 0.5) return e < (c.L <= 1 ? 0.45 : 0.18) ? code(UM.glow, 4) : code(UM.ink, 0);
+    // The orbit: a round socket with a bony rim, lit on top, the cold point of light in it.
+    const e = Math.hypot((u - 0.25) * len, (v - 0.42) * 1.05);
+    if (!back && e < 0.42) return e < (c.L <= 1 ? 0.45 : 0.16) ? code(UM.glow, 4) : code(UM.ink, 0);
+    if (!back && e < 0.58) return v > 0.42 ? code(B, 3) : code(B, 1);
     if (back && e < 0.32) return code(UM.ink, 1);
-    if (!back && e < 0.66 && v > 0.36) return code(B, 3);
-    // The long nasal bone lit on top, the nostril notch, the upper teeth.
-    if (!back && u > 0.74 && u < 0.95 && Math.abs(v - 0.02) < 0.14) return code(UM.ink, 1);
-    if (u > 0.52 && v < -0.14 && c.L >= 2) return (c.lx(x) & 1) === 0 ? code(B, 3) : code(UM.ink, 2);
-    if (v > 0.3 + (u - 0.4) * -0.6 && u > 0.4) return code(B, 3);
-    // The hollow of the cheek behind the socket, the stains of the grave.
-    if (c.L >= 4 && Math.hypot((u - 0.08) * len, v + 0.05) < 0.3) return code(B, 0);
-    if (v < -0.15) return code(B, 1);
-    if (c.tex(x, y, 183) < 0.12) return code(B, 1);
+    // The nasal notch: a dark slot between the nasal bone and the muzzle.
+    if (!back && u > 0.68 && u < 0.93 && v > -0.02 && v < 0.18 - (u - 0.68) * 0.4) return code(UM.ink, 1);
+    // The facial crest: a lit ridge running forward and down from under the eye.
+    if (c.L >= 4 && Math.abs(v - (0.12 - (u - 0.3) * 0.5)) < 0.07 && u > 0.3 && u < 0.62) return code(B, 3);
+    // The upper teeth and the incisors at the muzzle.
+    if (c.L >= 8 && v < -0.24 && u > 0.32) return (c.lx(x) & 1) === 0 ? code(B, 2) : code(UM.ink, 2);
+    // Light: the top of the face lit, the cheek below the crest in shade.
+    if (v > 0.3 + (u - 0.4) * -0.6 && u > 0.36) return code(B, 3);
+    if (v < 0.0 && u < 0.62) return code(B, 1);
+    if (c.tex(x, y, 183) < 0.1) return code(B, 1);
     return code(B, 2);
   });
-  if (o.chanfron) c.rod(at(0.16, 0.55), addP(at(0.16, 0.55), mul(side, 1.0)), 0.3, 0.08, UM.steel, { tone: 2 });
+  if (o.chanfron) c.rod(at(0.18, 0.6), addP(at(0.18, 0.6), mul(side, 1.0)), 0.3, 0.08, UM.steel, { tone: 2 });
 }
 
 export interface HorseLook {
@@ -1043,7 +1053,7 @@ export function horseBody(c: Paper, H: HorseFrame, p: HorseLegs, look: HorseLook
       const top = P([x, -1.6]), mid = P([x - 0.6, 0.9]), end = P([x - 0.3, belly(x - 0.3) - 0.1]);
       const lt = i < 3 ? 1 : 0;
       c.rod(top, mid, 0.42, 0.38, HB, { tone: (H.back ? 2 : 2 + lt) });
-      c.rod(mid, end, 0.38, 0.3, HB, { tone: 2 });
+      c.rod(mid, end, 0.38, 0.3, HB, { tone: c.L === 2 ? 1 : 2 });
     }
     // The sternum along the bottom of the chest.
     c.rod(P([4.6, 2.3]), P([0.6, belly(0.6)]), 0.42, 0.36, HB, { tone: 1 });
@@ -1057,22 +1067,16 @@ export function horseBody(c: Paper, H: HorseFrame, p: HorseLegs, look: HorseLook
     c.blob(v, 0.42, 0.3, HB, { tone: i % 2 ? 2 : 3 });
   }
   if (!look.bard) {
-    // The pelvis: the broad ilium over the haunch, from the point of the hip back to the buttock.
-    const pv: P2[] = H.back
-      ? [P([-2.8, -2.0]), P([-4.6, -2.6]), P([-6.6, -1.2]), P([-6.6, 0.1]), P([-4.8, 1.0]), P([-3.6, -0.4])]
-      : [P([-2.9, -1.9]), P([-4.4, -2.4]), P([-6.3, -1.0]), P([-6.4, 0.1]), P([-4.6, 0.9]), P([-3.6, -0.4])];
-    const pcx = P([-4.7, -0.6]);
-    c.shape(pv, (x, y) => {
-      const dx = (x + 0.5 - c.sx(pcx[0])) / c.L, dy = (y + 0.5 - c.sy(pcx[1])) / c.L;
-      if (c.L >= 4 && Math.hypot(dx + 0.4, (dy - 0.7) * 1.2) < 0.4) return code(UM.ink, 1); // obturator
-      if (H.back && Math.abs(dx + 0.1) < 0.16) return code(HB, 1); // the sacrum's ridge
-      if (dy < -1.2 || dx < -1.2) return code(HB, 3);
-      if (dx > 0.8 && dy > 0.2) return code(HB, 1);
-      return code(HB, 2);
-    });
+    // The pelvis, curved: the broad wing of the ilium over the haunch, the ischium behind and
+    // below it, the round head of the femur in its socket, the dark ring of the obturator.
+    const il = P([-4.4, -1.55]), is = P([-5.9, -0.3]);
+    c.blob(is, 0.7, 0.95, HB, { tone: 1 });
+    c.blob(il, 1.75, 0.95, HB, { tone: 2, detail: (_x, _y, nx, ny) => (ny < -0.55 && nx < 0.4 ? code(HB, 3) : ny > 0.55 ? code(HB, 1) : -1) });
+    if (c.L >= 4) c.blob(P([-5.1, 0.25]), 0.42, 0.38, UM.ink, { tone: 1 });
+    c.blob(H.hj, 0.6, 0.55, HB, { tone: 1 });
     // The shoulder blade, broad at the withers, down to the point of the shoulder, its spine
     // a ridge; the humerus from the point of the shoulder back to the elbow.
-    const sc: P2[] = [P([2.9, -2.0]), P([4.5, -2.0]), P([5.3, 0.3]), P([4.4, 0.6])];
+    const sc: P2[] = [P([2.8, -1.9]), P([3.6, -2.25]), P([4.6, -1.95]), P([5.2, -0.4]), P([5.2, 0.4]), P([4.4, 0.65]), P([3.6, -0.6])];
     c.shape(sc, (x, y) => (c.ly(y) < c.L * 0.6 || c.lx(x) < c.L * 0.4 ? code(HB, 3) : c.L >= 4 && Math.abs(c.lx(x) - c.ly(y) * 0.35 - c.L * 0.8) < c.L * 0.12 ? code(HB, 1) : code(HB, 2)));
     c.rod(P([5.2, 0.3]), H.sj, 0.7, 0.55, HB, { tone: 2 });
     c.blob(P([5.2, 0.3]), 0.5, 0.45, HB, { tone: 1 });
@@ -1092,13 +1096,18 @@ function bard(c: Paper, H: HorseFrame, sway: number): void {
   const P = H.P;
   // The team caparison hangs below the plates, torn.
   rag(c, P([5.6, 2.2]), P([-6.0, 1.6]), 2.4, -sway * 0.4, UM.team, UM.teamDk, 199, { tear: 0.55, folds: false });
-  const pts: P2[] = [P([6.0, -0.4]), P([4.4, -2.5]), P([-1.0, -2.9]), P([-4.6, -2.7]), P([-6.6, -1.2]), P([-6.6, 2.0]), P([1.0, 2.9]), P([5.9, 2.4])];
+  // Rounded over the barrel, the rump and the chest (it follows the body, not a box).
+  const pts: P2[] = [P([6.0, -0.4]), P([5.4, -1.8]), P([4.4, -2.5]), P([1.5, -2.95]), P([-1.0, -2.95]), P([-3.6, -2.8]), P([-5.4, -2.2]), P([-6.4, -1.0]), P([-6.7, 0.4]), P([-6.3, 1.6]), P([-4.5, 2.4]), P([1.0, 3.0]), P([4.6, 2.6]), P([5.9, 1.4])];
   const L = c.L;
   const row = Math.max(2, Math.round(L * 1.05));
   const top = c.sy(P([0, -2.9])[1]);
+  const xa = c.sx(P([-6.6, 0])[0]), xb = c.sx(P([6.0, 0])[0]);
   c.poly(pts.map((p) => [c.sx(p[0]), c.sy(p[1])] as P2), (x, y) => {
-    const r = Math.floor((y - top) / row);
-    const yy = (y - top) % row;
+    // The rows of plates follow the barrel: they bow down toward the chest and the rump.
+    const fx0 = (x - xa) / Math.max(1, xb - xa);
+    const yb = y - top - ((fx0 - 0.5) * 2) ** 2 * L * 1.4;
+    const r = Math.floor(yb / row);
+    const yy = ((yb % row) + row) % row;
     const pw = Math.max(3, Math.round(L * 1.5));
     const xx = (c.lx(x) + (r % 2) * (pw >> 1)) % pw;
     // One plane of light over the whole bard: lit toward the rump and back, shaded to the belly.
