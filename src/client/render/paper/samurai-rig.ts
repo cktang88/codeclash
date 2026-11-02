@@ -22,12 +22,12 @@ import { registerPaperKind } from './registry.ts';
 import { flash as muzzleFlash, smoke, SM, stick } from './samurai-parts.ts';
 import { footBody, FOOT, KUSA_TOP, manOrder, manPiece, withMap, type Body, type ManPiece, type SFoot } from './samurai-static.ts';
 import {
-  BREATH, bonesFromJoints, EASE, EASE_IN, EASE_OUT, evaluate, sampleClip, skeletonKind, smearPart,
-  type AnimationData, type AnimEvent, type AttachmentSet, type Clip, type JointDef, type SkeletonData, type SkeletonRig, type SlotData,
+  BREATH, bonesFromJoints, EASE, EASE_IN, EASE_OUT, emptyLocals, evaluate, sampleClip, shortest, skeletonKind, smearPart,
+  type AnimationData, type FacingClips, type Key, type Posed, type AnimEvent, type AttachmentSet, type Clip, type JointDef, type SkeletonData, type SkeletonRig, type SlotData,
 } from './skeleton.ts';
 import { HIT, T } from './templar-clips.ts';
 import {
-  addDrops, facingClip, lagCloth, lastFrame, mapFacings, mocapKeys, overlayKeys, partMap, restWorld, skinMap, smooth01,
+  addDrops, facingClip, lastFrame, mapFacings, mocapKeys, overlayKeys, partMap, restWorld, skinMap, smooth01,
   type ClipSet, type Drop, type KP, type LagSpec, type MocapOpts, type Track, type Weights,
 } from './templar-rig.ts';
 
@@ -284,6 +284,41 @@ function mk(skel: SkeletonData, f: Facing, clip: string, o: MocapOpts, author?: 
   return { keys: overlayKeys(keys, tr, extra), ev: mc.events.map((e) => ({ ...e })) };
 }
 
+/**
+ * templar-rig's lagCloth, with the leader's and the parent's turns taken the short way round: a
+ * bone solved by IK can come back a full turn from its rest (358° for -2°), which the Templar
+ * version reads as a 360° swing of the cloth.
+ */
+function lagCloth(skel: SkeletonData, clip: Clip, n: number, loop: boolean, specs: readonly LagSpec[]): Clip {
+  const one = (anim: AnimationData, facing: Facing): AnimationData => {
+    const L = 16;
+    const rest = evaluate(skel, emptyLocals(), { level: L, facing, noIk: true });
+    const at = (t: number): Posed => {
+      const tt = loop ? t - n * Math.floor(t / n) : Math.max(0, Math.min(n - 1, t));
+      return evaluate(skel, sampleClip(anim, tt, n, facing), { level: L, facing });
+    };
+    const rw = restWorld(skel, facing);
+    const bones = { ...(anim.bones ?? {}) };
+    for (const sp of specs) {
+      const keys: Key<number>[] = [];
+      const parent = skel.bones.find((b) => b.name === sp.bone)!.parent!;
+      for (let f = 0; f <= (loop ? n : n - 1); f++) {
+        const now = at(f), was = at(f - sp.lag);
+        const lead = shortest(was.byName[sp.follow]!.raw - rest.byName[sp.follow]!.raw);
+        const pTurn = shortest(now.byName[parent]!.raw - rest.byName[parent]!.raw);
+        const wv = sp.wave ? sp.wave[0] * Math.sin(2 * Math.PI * (sp.wave[1] * f / n + sp.wave[2])) : 0;
+        const want = rw[sp.bone]! + sp.k * lead + (sp.bias ?? 0) - (sp.plumb ?? 0) * pTurn + wv;
+        const local = shortest(want - now.byName[parent]!.raw - (rw[sp.bone]! - rw[parent]!));
+        keys.push({ f, v: Math.round(local * 100) / 100 });
+      }
+      bones[sp.bone] = { ...(bones[sp.bone] ?? {}), rotate: keys };
+    }
+    return { ...anim, bones };
+  };
+  const fc = clip as FacingClips;
+  return mapFacings(fc, (a, f) => one(a, f));
+}
+
 /** Cloth and gear driven late by the body. */
 function trail(run: number, fall = false, swing = false): LagSpec[] {
   // In a fall the flag pole and the horo frame go down with the body (no hanging plumb).
@@ -348,15 +383,15 @@ const KESA: Author = (rw) => ({
  */
 const THRUST: Author = (rw) => ({
   w: {
-    upperArmN: R(rw.upperArmN!, 11, [1, -8], [2, -32], [3, -12], [4, 30], [5, 38], [6, 38], [8, 0], [9, -8], [10, 20]),
-    forearmN: R(rw.forearmN!, 11, [1, 72], [2, 58], [3, 74], [4, 92], [5, 95], [6, 95], [8, 80], [9, 72], [10, 100]),
+    upperArmN: R(rw.upperArmN!, 11, [1, -8], [2, -36], [3, -18], [4, 44], [5, 56], [6, 56], [8, 4], [9, -8], [10, 20]),
+    forearmN: R(rw.forearmN!, 11, [1, 72], [2, 52], [3, 70], [4, 94], [5, 97], [6, 97], [8, 80], [9, 72], [10, 100]),
     weapon: R(rw.weapon!, 11, [1, 97], [9, 97], [10, 140]),
     head: T([0, rw.head!]),
   },
   dw: { spine: T([0, 0], [2, 8], [3, 0], [4, -12], [6, -13], [8, -4], [11, 0]) },
   tAdd: {
-    pelvis: [T([0, 0], [1, -0.1], [2, -0.5], [3, 0.1], [4, 0.85], [6, 0.9], [8, 0.4], [10, 0.1], [11, 0]), T([0, 0], [1, 0.2], [2, 0.3], [4, 0.45], [6, 0.45], [8, 0.2], [11, 0])],
-    footTargetF: [T([0, 0], [2, 0], [3, 0.7], [4, 1.45], [6, 1.45], [8, 0.7], [10, 0.1], [11, 0]), T([0, 0], [2, 0], [3, -0.55], [4, 0], [6, 0], [7, -0.3], [8, 0], [9, -0.2], [10, 0])],
+    pelvis: [T([0, 0], [1, -0.1], [2, -0.55], [3, 0.25], [4, 1.1], [6, 1.15], [8, 0.5], [10, 0.1], [11, 0]), T([0, 0], [1, 0.2], [2, 0.3], [4, 0.55], [6, 0.55], [8, 0.25], [11, 0])],
+    footTargetF: [T([0, 0], [2, 0], [3, 0.8], [4, 1.7], [6, 1.7], [8, 0.8], [10, 0.1], [11, 0]), T([0, 0], [2, 0], [3, -0.55], [4, 0], [6, 0], [7, -0.3], [8, 0], [9, -0.2], [10, 0])],
   },
 });
 
@@ -383,7 +418,11 @@ const BRACE: Record<Brace, Author> = {
     tAdd: { pelvis: [T([0, 0.3]), T([0, 0.9])], footTargetF: [T([0, 1.0]), T([0, 0])], footTargetN: [T([0, -0.7]), T([0, 0])] },
   }),
   // Set against horse: crouched, the butt planted behind the rear foot, the point rising at a horse's chest.
-  yari: (rw) => ({ dw: { spine: T([0, -14]) }, w: { head: T([0, rw.head! + 2]), upperArmN: T([0, 18]), forearmN: T([0, 66]), weapon: T([0, 128]) } }),
+  yari: (rw) => ({
+    dw: { spine: T([0, -16]) },
+    w: { head: T([0, rw.head! + 4]), upperArmN: T([0, 14]), forearmN: T([0, 62]), weapon: T([0, 126]) },
+    tAdd: { pelvis: [T([0, -0.1]), T([0, 1.1])], footTargetF: [T([0, 1.1]), T([0, 0])], footTargetN: [T([0, -0.8]), T([0, 0])] },
+  }),
   ready: () => ({}),
   kneel: () => ({}),
   naginata: () => ({}),

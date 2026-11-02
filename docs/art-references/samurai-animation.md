@@ -47,6 +47,19 @@ committed; the screenshots in `docs/screenshots/hd-sprites/samurai-anim-*.png` a
 - **Hit, Die, Dead** as the Templar: the snap back with a flash and a step; the knock-down with the
   sword falling free and the sashimono going down with the body.
 
+### Yari Ashigaru (1)
+- **Idle** is the key art: the nagae-yari upright in both hands. **Walk**: carried upright at the
+  shoulder, held steady (a tall pole sweeping would boil the top of the sprite), the far arm swinging.
+  **Run**: levelled at the hip in both hands for the charge.
+- **Attack: the thrust** (sōjutsu, underarm, two hands; the thrust capture with the lunge the brief
+  adds): 1 the spear comes down level at the hip; 2 chamber, the rear hand back 1 unit, the weight on
+  the rear foot; 3-4 the drive, the hips first (frame 3), the front foot lunging 1.7 units, the arms
+  shooting the shaft out along its own line, so the point travels straight; 5-6 held at full reach;
+  7-11 drawn back slower and raised to the slope.
+- **Brace**: crouched low, the front foot forward and the rear foot back, the butt grounded behind
+  the rear foot, the point rising at a horse's chest.
+- **Die**: forward (the reversed get-up, its first half sped up), the spear falling free ahead.
+
 ## Critique rounds
 
 ### Katana Samurai
@@ -69,6 +82,18 @@ committed; the screenshots in `docs/screenshots/hd-sprites/samurai-anim-*.png` a
    and the blade running shoulder to far knee under a solid arc; the brace was idle again, now a deep
    low chūdan; the sashimono sways and lags in the run and the cut.
 
-Lint (level 1/2/4/8): no FAIL. Warnings left: aligned band ends 0.24-0.30, outline and figure vs
+### Yari Ashigaru
+1. **Round 1.** A kusazuri panel and the far sode stood out at 60-150° in the idle: the leg and arm
+   IK can return a bone a full turn from its rest (358° for -2°), which the Templar `lagCloth` read
+   as a 360° swing of the cloth following it. The Samurai rig now has its own copy that takes the
+   turns the short way round.
+2. **Round 2.** The thrust's point barely travelled: the drive now carries the hips 1.1 units and the
+   arms reach out 56°, so the point moves about 3 units in a straight line; the brace was nearly the
+   idle, now a deep crouch with the butt grounded.
+3. **Round 3.** At level 2 the faction's 16-colour palette merges the pole, the hat and the dō into
+   one brown: the chest's lit plane is raised a step and the skirt and sash lowered a step at level 2
+   so the figure still takes its light from the top-left.
+
+Katana Samurai lint (level 1/2/4/8): no FAIL. Warnings left: aligned band ends 0.24-0.30, outline and figure vs
 ground ΔL 0.07-0.13, light-angle error at levels 1-2, mid-widest silhouettes. Level-1 silhouette:
 closest the Daimyō at 0.61.
