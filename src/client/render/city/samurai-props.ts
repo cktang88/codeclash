@@ -1134,7 +1134,7 @@ export function treeShade(P: PP): void {
         p.u = u;
         p.v = v;
         const sh = sunAt(p);
-        if (sh < 0) P.px.point(p, shadeA(150));
+        if (sh < 0) P.px.point(p, shadeA(118));
         else if (sh > 0) P.px.point(p, rgb(255, 200, 104, 140));
       }
     // The trunk's own shadow, a dark stroke from the foot.
