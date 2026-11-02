@@ -1,0 +1,39 @@
+{
+ "name": "hit",
+ "anim": "Hit",
+ "frames": 5,
+ "loop": false,
+ "angles": "world",
+ "restHeight": 14,
+ "restHip": 8.12,
+ "lengths": {"pelvis":2.06,"spine":1.1,"chest":0.92,"neck":0.94,"head":0.95,"upperArm":2.65,"forearm":1.79,"hand":0.61,"thigh":3.58,"shin":3.76,"foot":1.09},
+ "facings": {
+  "se": { "keys": [
+    {"f":0,"root":[0,1.19],"height":6.93,"contact":{"N":true,"F":true},"bones":{"pelvis":174.5,"spine":126.5,"chest":157,"neck":153,"head":126,"upperArmN":-15,"forearmN":60,"handN":30,"upperArmF":-13.5,"forearmF":46,"handF":61,"thighN":25.5,"shinN":-21.5,"footN":55.5,"thighF":41.5,"shinF":-28.5,"footF":43},"twist":{"pelvis":17,"chest":19}},
+    {"f":1,"root":[-0.1,1.42],"height":6.7,"contact":{"N":true,"F":true},"bones":{"pelvis":172,"spine":111,"chest":145.5,"neck":138,"head":103,"upperArmN":-15,"forearmN":66,"handN":39.5,"upperArmF":-13.5,"forearmF":38,"handF":62.5,"thighN":28.5,"shinN":-20,"footN":56,"thighF":44,"shinF":-34,"footF":43.5},"twist":{"pelvis":3,"chest":2}},
+    {"f":2,"root":[-0.17,2.46],"height":5.76,"contact":{"N":true,"F":true},"bones":{"pelvis":172,"spine":87,"chest":123,"neck":98.5,"head":56.5,"upperArmN":-9,"forearmN":99.5,"handN":79.5,"upperArmF":16,"forearmF":27.5,"handF":124,"thighN":36.5,"shinN":-21.5,"footN":53,"thighF":58.5,"shinF":-45,"footF":40},"twist":{"pelvis":-8,"chest":-18},"c":[0,0,0.58,1]},
+    {"f":4,"root":[-0.07,1.24],"height":6.88,"contact":{"N":true,"F":true},"bones":{"pelvis":173,"spine":121.5,"chest":153.5,"neck":149,"head":120.5,"upperArmN":-15.5,"forearmN":60.5,"handN":32,"upperArmF":-15.5,"forearmF":42.5,"handF":59.5,"thighN":26.5,"shinN":-20,"footN":56.5,"thighF":42,"shinF":-30,"footF":43},"twist":{"pelvis":11,"chest":13}}
+  ] },
+  "ne": { "keys": [
+    {"f":0,"root":[0,1.19],"height":6.93,"contact":{"N":true,"F":true},"bones":{"pelvis":173,"spine":150,"chest":168,"neck":164.5,"head":149.5,"upperArmN":-5,"forearmN":79,"handN":41,"upperArmF":-16.5,"forearmF":66,"handF":91.5,"thighN":42.5,"shinN":-7.5,"footN":83.5,"thighF":9.5,"shinF":-19,"footF":63.5},"twist":{"pelvis":17,"chest":19}},
+    {"f":1,"root":[-0.05,1.46],"height":6.7,"contact":{"N":true,"F":true},"bones":{"pelvis":169.5,"spine":135,"chest":156,"neck":149.5,"head":128.5,"upperArmN":-4.5,"forearmN":93.5,"handN":57.5,"upperArmF":-22,"forearmF":66,"handF":93.5,"thighN":51.5,"shinN":-9,"footN":84.5,"thighF":16.5,"shinF":-22.5,"footF":64.5},"twist":{"pelvis":3,"chest":2}},
+    {"f":2,"root":[0.09,2.49],"height":5.76,"contact":{"N":true,"F":true},"bones":{"pelvis":163.5,"spine":114.5,"chest":132,"neck":119.5,"head":92.5,"upperArmN":7.5,"forearmN":130,"handN":111,"upperArmF":-4,"forearmF":89.5,"handF":141.5,"thighN":68,"shinN":-15.5,"footN":79.5,"thighF":34.5,"shinF":-27,"footF":58},"twist":{"pelvis":-8,"chest":-18},"c":[0,0,0.58,1]},
+    {"f":4,"root":[-0.03,1.27],"height":6.88,"contact":{"N":true,"F":true},"bones":{"pelvis":172,"spine":145.5,"chest":164,"neck":160,"head":143.5,"upperArmN":-5,"forearmN":81,"handN":44.5,"upperArmF":-19.5,"forearmF":63,"handF":89.5,"thighN":45.5,"shinN":-8,"footN":85,"thighF":12.5,"shinF":-20,"footF":64},"twist":{"pelvis":11,"chest":13}}
+  ] }
+ },
+ "events": [],
+ "meta": {
+   "source": "CMU Graphics Lab Motion Capture Database, subject 77, trial 77_09 (\"duck to avoid flying object\"), cgspeed BVH conversion",
+   "licence": "CMU: free to use, including in commercial products; the raw data may not be resold. Credit: mocap.cs.cmu.edu, NSF EIA-0196217.",
+   "range": [
+     217,
+     241
+   ],
+   "fps": 120,
+   "seconds": 0.2,
+   "why": "The first 0.15 s of a sudden flinch (hips drop, head ducks, arms come in), then back: CMU has no trials of being struck, so this is the closest real reaction. Add the snap-back of the struck shoulder from the brief (Muybridge plate \"one hits the other\").",
+   "sides": "N (near, weapon side) = subject right; F (far) = subject left",
+   "projection": "SE: heading world +x; NE: heading (0.5, -0.866); ground turned 30° and squashed 0.5; heights unsquashed",
+   "keyTolerance": "7.5° (root 0.3 units)"
+ }
+}

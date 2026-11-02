@@ -1,0 +1,51 @@
+{
+ "name": "die-back",
+ "anim": "Die",
+ "frames": 12,
+ "loop": false,
+ "angles": "world",
+ "restHeight": 14,
+ "restHip": 8.3,
+ "lengths": {"pelvis":2.11,"spine":1.1,"chest":0.85,"neck":0.82,"head":0.89,"upperArm":2.73,"forearm":1.89,"hand":0.55,"thigh":3.68,"shin":4.02,"foot":0.95},
+ "facings": {
+  "se": { "keys": [
+    {"f":0,"root":[0,0.42],"height":7.89,"contact":{"N":true,"F":true},"bones":{"pelvis":193,"spine":182,"chest":167.5,"neck":173,"head":174,"upperArmN":-9.5,"forearmN":15.5,"handN":-15,"upperArmF":0,"forearmF":14,"handF":25.5,"thighN":2,"shinN":-10,"footN":81.5,"thighF":14.5,"shinF":-13.5,"footF":68},"twist":{"pelvis":3,"chest":6},"c":[0.42,0,0.58,1]},
+    {"f":2,"root":[-0.12,0.5],"height":7.73,"contact":{"N":false,"F":false},"bones":{"pelvis":199,"spine":177.5,"chest":164.5,"neck":167,"head":166.5,"upperArmN":-11.5,"forearmN":22.5,"handN":-1.5,"upperArmF":1.5,"forearmF":20,"handF":40,"thighN":25,"shinN":13,"footN":104,"thighF":38.5,"shinF":12,"footF":95.5},"twist":{"pelvis":5,"chest":6}},
+    {"f":3,"root":[0.21,1.26],"height":7.06,"contact":{"N":false,"F":false},"bones":{"pelvis":208.5,"spine":187.5,"chest":172.5,"neck":173,"head":173,"upperArmN":-10.5,"forearmN":30.5,"handN":12,"upperArmF":2.5,"forearmF":33.5,"handF":71.5,"thighN":34,"shinN":21.5,"footN":91.5,"thighF":48,"shinF":22,"footF":92.5},"twist":{"pelvis":3,"chest":7}},
+    {"f":4,"root":[0.6,2.48],"height":5.95,"contact":{"N":false,"F":false},"bones":{"pelvis":219,"spine":200,"chest":186.5,"neck":186,"head":185.5,"upperArmN":-4,"forearmN":30,"handN":16,"upperArmF":10.5,"forearmF":43.5,"handF":89,"thighN":41,"shinN":33.5,"footN":120.5,"thighF":56,"shinF":33,"footF":116.5},"twist":{"pelvis":0,"chest":3}},
+    {"f":6,"root":[1.05,6.86],"height":1.66,"contact":{"N":false,"F":false},"bones":{"pelvis":236,"spine":211,"chest":203,"neck":204.5,"head":205.5,"upperArmN":1.5,"forearmN":29.5,"handN":26,"upperArmF":31,"forearmF":53,"handF":79.5,"thighN":64.5,"shinN":64.5,"footN":186.5,"thighF":84.5,"shinF":66,"footF":161.5},"twist":{"pelvis":2,"chest":-1}},
+    {"f":7,"root":[1.15,8.66],"height":-0.11,"contact":{"N":false,"F":false},"bones":{"pelvis":250.5,"spine":223.5,"chest":217,"neck":199,"head":192.5,"upperArmN":7,"forearmN":84.5,"handN":120,"upperArmF":46.5,"forearmF":97,"handF":128.5,"thighN":74,"shinN":74,"footN":190.5,"thighF":103.5,"shinF":80.5,"footF":177},"twist":{"pelvis":2,"chest":-3}},
+    {"f":8,"root":[0.94,7.67],"height":0.77,"contact":{"N":true,"F":false},"bones":{"pelvis":270,"spine":236,"chest":229.5,"neck":227.5,"head":227,"upperArmN":27,"forearmN":104,"handN":132,"upperArmF":69.5,"forearmF":120,"handF":123,"thighN":67.5,"shinN":55,"footN":175,"thighF":100.5,"shinF":78.5,"footF":174.5},"twist":{"pelvis":2,"chest":-3}},
+    {"f":9,"root":[0.48,7.03],"height":1.29,"contact":{"N":false,"F":false},"bones":{"pelvis":267,"spine":242,"chest":244,"neck":259,"head":261.5,"upperArmN":33.5,"forearmN":135,"handN":149,"upperArmF":80,"forearmF":158,"handF":162.5,"thighN":60,"shinN":60,"footN":174,"thighF":96.5,"shinF":74.5,"footF":166},"twist":{"pelvis":0,"chest":-7}},
+    {"f":10,"root":[0.34,6.93],"height":1.37,"contact":{"N":true,"F":true},"bones":{"pelvis":271.5,"spine":243.5,"chest":242,"neck":264.5,"head":270,"upperArmN":34,"forearmN":166.5,"handN":160.5,"upperArmF":86.5,"forearmF":179.5,"handF":192.5,"thighN":56.5,"shinN":56.5,"footN":182,"thighF":86,"shinF":65.5,"footF":152},"twist":{"pelvis":-2,"chest":-10}},
+    {"f":11,"root":[0.48,7.01],"height":1.35,"contact":{"N":true,"F":true},"bones":{"pelvis":270,"spine":244,"chest":247,"neck":261.5,"head":264,"upperArmN":27,"forearmN":224,"handN":226.5,"upperArmF":90.5,"forearmF":192.5,"handF":250,"thighN":53.5,"shinN":53.5,"footN":188,"thighF":89.5,"shinF":67,"footF":165.5},"twist":{"pelvis":-3,"chest":-11}}
+  ] },
+  "ne": { "keys": [
+    {"f":0,"root":[0,0.42],"height":7.89,"contact":{"N":true,"F":true},"bones":{"pelvis":196.5,"spine":183.5,"chest":177.5,"neck":170.5,"head":163.5,"upperArmN":-4,"forearmN":16,"handN":-13,"upperArmF":-1,"forearmF":19.5,"handF":33.5,"thighN":3,"shinN":-6,"footN":113,"thighF":13,"shinF":-17,"footF":100},"twist":{"pelvis":3,"chest":6},"c":[0.42,0,0.58,1]},
+    {"f":2,"root":[-0.18,0.59],"height":7.73,"contact":{"N":false,"F":false},"bones":{"pelvis":202,"spine":177.5,"chest":174.5,"neck":168.5,"head":162.5,"upperArmN":-1.5,"forearmN":23.5,"handN":-1.5,"upperArmF":-3.5,"forearmF":28,"handF":58.5,"thighN":35,"shinN":21,"footN":129.5,"thighF":49,"shinF":10.5,"footF":124},"twist":{"pelvis":5,"chest":6}},
+    {"f":3,"root":[0.14,1.16],"height":7.06,"contact":{"N":false,"F":false},"bones":{"pelvis":218,"spine":186,"chest":179.5,"neck":173.5,"head":167,"upperArmN":-1,"forearmN":40.5,"handN":13.5,"upperArmF":-12,"forearmF":52.5,"handF":104,"thighN":53,"shinN":35,"footN":121.5,"thighF":68.5,"shinF":22,"footF":122},"twist":{"pelvis":3,"chest":7}},
+    {"f":4,"root":[0.52,2.16],"height":5.95,"contact":{"N":false,"F":false},"bones":{"pelvis":236.5,"spine":201.5,"chest":192.5,"neck":179,"head":169.5,"upperArmN":6.5,"forearmN":48.5,"handN":19,"upperArmF":-9,"forearmF":65.5,"handF":119.5,"thighN":66.5,"shinN":56,"footN":139.5,"thighF":82.5,"shinF":37.5,"footF":137},"twist":{"pelvis":0,"chest":3}},
+    {"f":6,"root":[0.89,6.3],"height":1.66,"contact":{"N":false,"F":false},"bones":{"pelvis":264,"spine":220.5,"chest":213,"neck":200.5,"head":190,"upperArmN":18,"forearmN":55.5,"handN":30,"upperArmF":13,"forearmF":72,"handF":111.5,"thighN":99,"shinN":99,"footN":187,"thighF":117,"shinF":94.5,"footF":164},"twist":{"pelvis":2,"chest":-1}},
+    {"f":7,"root":[1,8.04],"height":-0.11,"contact":{"N":false,"F":false},"bones":{"pelvis":283,"spine":245,"chest":227.5,"neck":202,"head":192,"upperArmN":36,"forearmN":114,"handN":139,"upperArmF":43,"forearmF":125.5,"handF":144,"thighN":106.5,"shinN":106.5,"footN":192,"thighF":132.5,"shinF":114,"footF":177},"twist":{"pelvis":2,"chest":-3}},
+    {"f":8,"root":[0.7,7.19],"height":0.77,"contact":{"N":true,"F":false},"bones":{"pelvis":299.5,"spine":266,"chest":257,"neck":251,"head":247,"upperArmN":68,"forearmN":128,"handN":146,"upperArmF":100,"forearmF":141,"handF":141,"thighN":101.5,"shinN":89.5,"footN":175.5,"thighF":130.5,"shinF":111.5,"footF":174.5},"twist":{"pelvis":2,"chest":-3}},
+    {"f":9,"root":[0.27,6.81],"height":1.29,"contact":{"N":false,"F":false},"bones":{"pelvis":297,"spine":274,"chest":276.5,"neck":291,"head":294,"upperArmN":72.5,"forearmN":149,"handN":156,"upperArmF":114,"forearmF":166.5,"handF":165,"thighN":94.5,"shinN":94.5,"footN":174.5,"thighF":127,"shinF":107,"footF":167.5},"twist":{"pelvis":0,"chest":-7}},
+    {"f":10,"root":[0.18,6.78],"height":1.37,"contact":{"N":true,"F":true},"bones":{"pelvis":300,"spine":276,"chest":275,"neck":295,"head":300,"upperArmN":74.5,"forearmN":170.5,"handN":163.5,"upperArmF":125.5,"forearmF":188,"handF":194.5,"thighN":91.5,"shinN":91.5,"footN":182,"thighF":119.5,"shinF":93.5,"footF":158},"twist":{"pelvis":-2,"chest":-10}},
+    {"f":11,"root":[0.34,6.78],"height":1.35,"contact":{"N":true,"F":true},"bones":{"pelvis":299,"spine":276.5,"chest":280,"neck":293,"head":296,"upperArmN":72,"forearmN":223.5,"handN":235.5,"upperArmF":134,"forearmF":237.5,"handF":282,"thighN":89.5,"shinN":89.5,"footN":189,"thighF":124.5,"shinF":95.5,"footF":167},"twist":{"pelvis":-3,"chest":-11}}
+  ] }
+ },
+ "events": [],
+ "meta": {
+   "source": "CMU Graphics Lab Motion Capture Database, subject 90, trial 90_18 (\"RugPullFall\"), cgspeed BVH conversion",
+   "licence": "CMU: free to use, including in commercial products; the raw data may not be resold. Credit: mocap.cs.cmu.edu, NSF EIA-0196217.",
+   "range": [
+     61,
+     241
+   ],
+   "fps": 120,
+   "seconds": 1.5,
+   "why": "A real backward fall: the feet go out forward, the hips drop (111-131) and hit (131), the back lands with a small bounce (141), the legs drop, the body settles flat. The fastest part runs at game speed; the settle is compressed.",
+   "sides": "N (near, weapon side) = subject right; F (far) = subject left",
+   "projection": "SE: heading world +x; NE: heading (0.5, -0.866); ground turned 30° and squashed 0.5; heights unsquashed",
+   "keyTolerance": "7.5° (root 0.3 units)"
+ }
+}

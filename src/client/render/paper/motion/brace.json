@@ -1,0 +1,41 @@
+{
+ "name": "brace",
+ "anim": "Brace",
+ "frames": 8,
+ "loop": true,
+ "angles": "world",
+ "restHeight": 14,
+ "restHip": 8.12,
+ "lengths": {"pelvis":2.06,"spine":1.1,"chest":0.92,"neck":0.94,"head":0.95,"upperArm":2.65,"forearm":1.79,"hand":0.61,"thigh":3.58,"shin":3.76,"foot":1.09},
+ "facings": {
+  "se": { "keys": [
+    {"f":0,"root":[-0.18,0.83],"height":7.29,"contact":{"N":true,"F":true},"bones":{"pelvis":179.5,"spine":130.5,"chest":159.5,"neck":158.5,"head":136,"upperArmN":-21.5,"forearmN":41.5,"handN":21,"upperArmF":-12.5,"forearmF":40,"handF":59.5,"thighN":8.5,"shinN":-22,"footN":53,"thighF":30.5,"shinF":-22.5,"footF":48.5},"twist":{"pelvis":-2,"chest":3}},
+    {"f":1,"root":[0,0.68],"height":7.29,"contact":{"N":true,"F":true},"bones":{"pelvis":178,"spine":129.5,"chest":154.5,"neck":155,"head":134,"upperArmN":-24,"forearmN":41,"handN":19,"upperArmF":-16,"forearmF":42,"handF":56,"thighN":6.5,"shinN":-22.5,"footN":53.5,"thighF":30.5,"shinF":-24.5,"footF":48.5},"twist":{"pelvis":1,"chest":8}},
+    {"f":3,"root":[0.14,0.56],"height":7.3,"contact":{"N":true,"F":true},"bones":{"pelvis":176,"spine":129,"chest":151,"neck":151,"head":130,"upperArmN":-24.5,"forearmN":35.5,"handN":16,"upperArmF":-21.5,"forearmF":36,"handF":47,"thighN":5,"shinN":-22.5,"footN":53.5,"thighF":31,"shinF":-26.5,"footF":48.5},"twist":{"pelvis":3,"chest":12},"c":[0.42,0,1,1]},
+    {"f":5,"root":[0.01,0.66],"height":7.28,"contact":{"N":true,"F":true},"bones":{"pelvis":176,"spine":127,"chest":155.5,"neck":149,"head":122.5,"upperArmN":-28,"forearmN":44.5,"handN":23,"upperArmF":-20.5,"forearmF":44,"handF":65,"thighN":6.5,"shinN":-21.5,"footN":52.5,"thighF":32,"shinF":-26,"footF":48.5},"twist":{"pelvis":0,"chest":5}},
+    {"f":6,"root":[-0.06,0.71],"height":7.27,"contact":{"N":true,"F":true},"bones":{"pelvis":176,"spine":127,"chest":156.5,"neck":148,"head":119.5,"upperArmN":-24.5,"forearmN":46,"handN":25.5,"upperArmF":-16.5,"forearmF":45,"handF":66.5,"thighN":7,"shinN":-21.5,"footN":52.5,"thighF":31.5,"shinF":-25.5,"footF":49},"twist":{"pelvis":-2,"chest":-1},"c":[0.42,0,0.58,1]}
+  ] },
+  "ne": { "keys": [
+    {"f":0,"root":[0.2,0.83],"height":7.29,"contact":{"N":true,"F":true},"bones":{"pelvis":175.5,"spine":144.5,"chest":153.5,"neck":168,"head":163,"upperArmN":-17,"forearmN":62.5,"handN":26.5,"upperArmF":-18.5,"forearmF":60,"handF":89,"thighN":28,"shinN":-12,"footN":80.5,"thighF":25.5,"shinF":-21,"footF":73},"twist":{"pelvis":-2,"chest":3}},
+    {"f":1,"root":[0.02,0.68],"height":7.29,"contact":{"N":true,"F":true},"bones":{"pelvis":176,"spine":147,"chest":152,"neck":168.5,"head":167.5,"upperArmN":-16.5,"forearmN":58,"handN":23.5,"upperArmF":-18.5,"forearmF":58,"handF":84.5,"thighN":27,"shinN":-9.5,"footN":81,"thighF":28,"shinF":-19,"footF":73},"twist":{"pelvis":1,"chest":8}},
+    {"f":3,"root":[-0.1,0.56],"height":7.3,"contact":{"N":true,"F":true},"bones":{"pelvis":176.5,"spine":149,"chest":149.5,"neck":167.5,"head":170,"upperArmN":-13,"forearmN":45.5,"handN":18.5,"upperArmF":-21.5,"forearmF":47,"handF":70.5,"thighN":26.5,"shinN":-8,"footN":80.5,"thighF":30.5,"shinF":-18,"footF":72.5},"twist":{"pelvis":3,"chest":12},"c":[0.42,0,1,1]},
+    {"f":5,"root":[-0.03,0.67],"height":7.28,"contact":{"N":true,"F":true},"bones":{"pelvis":176,"spine":147,"chest":159.5,"neck":164.5,"head":155.5,"upperArmN":-15,"forearmN":60.5,"handN":29.5,"upperArmF":-20,"forearmF":63.5,"handF":96,"thighN":29,"shinN":-9.5,"footN":79,"thighF":30.5,"shinF":-18.5,"footF":73},"twist":{"pelvis":0,"chest":5}},
+    {"f":6,"root":[0.01,0.73],"height":7.27,"contact":{"N":true,"F":true},"bones":{"pelvis":175,"spine":145,"chest":157.5,"neck":161.5,"head":151.5,"upperArmN":-16,"forearmN":67.5,"handN":33.5,"upperArmF":-17,"forearmF":66,"handF":98,"thighN":29,"shinN":-10.5,"footN":79.5,"thighF":29.5,"shinF":-19.5,"footF":73.5},"twist":{"pelvis":-2,"chest":-1},"c":[0.42,0,0.58,1]}
+  ] }
+ },
+ "events": [],
+ "meta": {
+   "source": "CMU Graphics Lab Motion Capture Database, subject 77, trial 77_03 (\"ready stance\"), cgspeed BVH conversion",
+   "licence": "CMU: free to use, including in commercial products; the raw data may not be resold. Credit: mocap.cs.cmu.edu, NSF EIA-0196217.",
+   "range": [
+     241,
+     337
+   ],
+   "fps": 120,
+   "seconds": 0.8,
+   "why": "0.8 s (one Brace loop) of a crouched, careful ready stance: hips low (7.5 of 14 units), knees bent, weight central. The base for a pike or shield brace.",
+   "sides": "N (near, weapon side) = subject right; F (far) = subject left",
+   "projection": "SE: heading world +x; NE: heading (0.5, -0.866); ground turned 30° and squashed 0.5; heights unsquashed",
+   "keyTolerance": "3° (root 0.3 units)"
+ }
+}

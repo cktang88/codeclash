@@ -1,0 +1,48 @@
+{
+ "name": "horse-walk",
+ "anim": "Walk",
+ "body": "horse",
+ "frames": 12,
+ "loop": true,
+ "angles": "world",
+ "restHeight": 14,
+ "lengths": {"barrel":7,"neck":4.6,"head":3.2,"foreUpper":3.4,"foreLower":3.8,"hindUpper":3.6,"hindLower":4.2,"tail":3.4},
+ "facings": {
+  "se": { "keys": [
+    {"f":0,"root":[0,0.05],"height":8.55,"contact":{"N":true,"F":true},"bones":{"barrel":75,"neck":128,"head":28,"tail":-19,"foreUpperN":2.5,"foreLowerN":-2.5,"foreUpperF":-10,"foreLowerF":-97,"hindUpperN":-13,"hindLowerN":-15.5,"hindUpperF":16,"hindLowerF":16},"twist":{"pelvis":0,"chest":0},"hooves":{"HF":true,"FF":false,"HN":true,"FN":true}},
+    {"f":1,"root":[0,0.15],"height":8.45,"contact":{"N":true,"F":true},"bones":{"barrel":74.5,"neck":125,"head":26,"tail":-16,"foreUpperN":-2.5,"foreLowerN":-7.5,"foreUpperF":2.5,"foreLowerF":-75,"hindUpperN":-18.5,"hindLowerN":-29,"hindUpperF":12,"hindLowerF":10.5},"twist":{"pelvis":0,"chest":0},"hooves":{"HF":true,"FF":false,"HN":true,"FN":true}},
+    {"f":2,"root":[0,0.1],"height":8.5,"contact":{"N":true,"F":true},"bones":{"barrel":73.5,"neck":118,"head":21.5,"tail":-14,"foreUpperN":-7.5,"foreLowerN":-12.5,"foreUpperF":12.5,"foreLowerF":-7.5,"hindUpperN":-19.5,"hindLowerN":-42.5,"hindUpperF":7.5,"hindLowerF":5},"twist":{"pelvis":0,"chest":0},"hooves":{"HF":true,"FF":false,"HN":false,"FN":true}},
+    {"f":3,"root":[0,-0.05],"height":8.65,"contact":{"N":true,"F":true},"bones":{"barrel":73,"neck":115,"head":19,"tail":-13,"foreUpperN":-13,"foreLowerN":-16.5,"foreUpperF":16,"foreLowerF":16,"hindUpperN":-10,"hindLowerN":-60.5,"hindUpperF":2.5,"hindLowerF":-0.5},"twist":{"pelvis":0,"chest":0},"hooves":{"HF":true,"FF":true,"HN":false,"FN":true}},
+    {"f":4,"root":[0,-0.15],"height":8.75,"contact":{"N":true,"F":true},"bones":{"barrel":73.5,"neck":118,"head":21.5,"tail":-14,"foreUpperN":-18.5,"foreLowerN":-29,"foreUpperF":12,"foreLowerF":10,"hindUpperN":2.5,"hindLowerN":-39,"hindUpperF":-2.5,"hindLowerF":-6},"twist":{"pelvis":0,"chest":0},"hooves":{"HF":true,"FF":true,"HN":false,"FN":true}},
+    {"f":5,"root":[0,-0.1],"height":8.7,"contact":{"N":false,"F":true},"bones":{"barrel":74.5,"neck":125,"head":26,"tail":-16,"foreUpperN":-19.5,"foreLowerN":-59.5,"foreUpperF":7.5,"foreLowerF":3.5,"hindUpperN":12.5,"hindLowerN":1,"hindUpperF":-7.5,"hindLowerF":-10.5},"twist":{"pelvis":0,"chest":0},"hooves":{"HF":true,"FF":true,"HN":false,"FN":false}},
+    {"f":6,"root":[0,0.05],"height":8.55,"contact":{"N":true,"F":true},"bones":{"barrel":75,"neck":128,"head":28,"tail":-19,"foreUpperN":-10,"foreLowerN":-97,"foreUpperF":2.5,"foreLowerF":-2.5,"hindUpperN":16,"hindLowerN":16,"hindUpperF":-13,"hindLowerF":-15.5},"twist":{"pelvis":0,"chest":0},"hooves":{"HF":true,"FF":true,"HN":true,"FN":false}},
+    {"f":7,"root":[0,0.15],"height":8.45,"contact":{"N":true,"F":true},"bones":{"barrel":74.5,"neck":125,"head":26,"tail":-22.5,"foreUpperN":2.5,"foreLowerN":-75,"foreUpperF":-2.5,"foreLowerF":-7.5,"hindUpperN":12,"hindLowerN":10.5,"hindUpperF":-18.5,"hindLowerF":-29},"twist":{"pelvis":0,"chest":0},"hooves":{"HF":true,"FF":true,"HN":true,"FN":false}},
+    {"f":8,"root":[0,0.1],"height":8.5,"contact":{"N":true,"F":true},"bones":{"barrel":73.5,"neck":118,"head":21.5,"tail":-25,"foreUpperN":12.5,"foreLowerN":-7.5,"foreUpperF":-7.5,"foreLowerF":-12.5,"hindUpperN":7.5,"hindLowerN":5,"hindUpperF":-19.5,"hindLowerF":-42.5},"twist":{"pelvis":0,"chest":0},"hooves":{"HF":false,"FF":true,"HN":true,"FN":false}},
+    {"f":9,"root":[0,-0.05],"height":8.65,"contact":{"N":true,"F":true},"bones":{"barrel":73,"neck":115,"head":19,"tail":-25.5,"foreUpperN":16,"foreLowerN":16,"foreUpperF":-13,"foreLowerF":-16.5,"hindUpperN":2.5,"hindLowerN":-0.5,"hindUpperF":-10,"hindLowerF":-60.5},"twist":{"pelvis":0,"chest":0},"hooves":{"HF":false,"FF":true,"HN":true,"FN":true}},
+    {"f":10,"root":[0,-0.15],"height":8.75,"contact":{"N":true,"F":true},"bones":{"barrel":73.5,"neck":118,"head":21.5,"tail":-25,"foreUpperN":12,"foreLowerN":10,"foreUpperF":-18.5,"foreLowerF":-29,"hindUpperN":-2.5,"hindLowerN":-6,"hindUpperF":2.5,"hindLowerF":-39},"twist":{"pelvis":0,"chest":0},"hooves":{"HF":false,"FF":true,"HN":true,"FN":true}},
+    {"f":11,"root":[0,-0.1],"height":8.7,"contact":{"N":true,"F":false},"bones":{"barrel":74.5,"neck":125,"head":26,"tail":-22.5,"foreUpperN":7.5,"foreLowerN":3.5,"foreUpperF":-19.5,"foreLowerF":-59.5,"hindUpperN":-7.5,"hindLowerN":-10.5,"hindUpperF":12.5,"hindLowerF":1},"twist":{"pelvis":0,"chest":0},"hooves":{"HF":false,"FF":false,"HN":true,"FN":true}}
+  ] },
+  "ne": { "keys": [
+    {"f":0,"root":[0,0.05],"height":8.55,"contact":{"N":true,"F":true},"bones":{"barrel":107,"neck":144,"head":37.5,"tail":-16,"foreUpperN":2.5,"foreLowerN":-2.5,"foreUpperF":-9,"foreLowerF":-65.5,"hindUpperN":-11.5,"hindLowerN":-13.5,"hindUpperF":19,"hindLowerF":19},"twist":{"pelvis":0,"chest":0},"hooves":{"HF":true,"FF":false,"HN":true,"FN":true}},
+    {"f":1,"root":[0,0.15],"height":8.45,"contact":{"N":true,"F":true},"bones":{"barrel":106.5,"neck":142,"head":34,"tail":-14,"foreUpperN":-2,"foreLowerN":-7,"foreUpperF":2.5,"foreLowerF":-50,"hindUpperN":-15.5,"hindLowerN":-22.5,"hindUpperF":13.5,"hindLowerF":11.5},"twist":{"pelvis":0,"chest":0},"hooves":{"HF":true,"FF":false,"HN":true,"FN":true}},
+    {"f":2,"root":[0,0.1],"height":8.5,"contact":{"N":true,"F":true},"bones":{"barrel":105.5,"neck":138,"head":27,"tail":-12,"foreUpperN":-7,"foreLowerN":-11,"foreUpperF":14,"foreLowerF":-7,"hindUpperN":-16.5,"hindLowerN":-31,"hindUpperF":8,"hindLowerF":5},"twist":{"pelvis":0,"chest":0},"hooves":{"HF":true,"FF":false,"HN":false,"FN":true}},
+    {"f":3,"root":[0,-0.05],"height":8.65,"contact":{"N":true,"F":true},"bones":{"barrel":105,"neck":136,"head":23.5,"tail":-11.5,"foreUpperN":-11.5,"foreLowerN":-14.5,"foreUpperF":19,"foreLowerF":19,"hindUpperN":-9,"hindLowerN":-41,"hindUpperF":2.5,"hindLowerF":-0.5},"twist":{"pelvis":0,"chest":0},"hooves":{"HF":true,"FF":true,"HN":false,"FN":true}},
+    {"f":4,"root":[0,-0.15],"height":8.75,"contact":{"N":true,"F":true},"bones":{"barrel":105.5,"neck":138,"head":27,"tail":-12,"foreUpperN":-15.5,"foreLowerN":-23,"foreUpperF":13.5,"foreLowerF":11,"hindUpperN":2.5,"hindLowerN":-29,"hindUpperF":-2,"hindLowerF":-5.5},"twist":{"pelvis":0,"chest":0},"hooves":{"HF":true,"FF":true,"HN":false,"FN":true}},
+    {"f":5,"root":[0,-0.1],"height":8.7,"contact":{"N":false,"F":true},"bones":{"barrel":106.5,"neck":142,"head":34,"tail":-14,"foreUpperN":-16.5,"foreLowerN":-40.5,"foreUpperF":8,"foreLowerF":3.5,"hindUpperN":14,"hindLowerN":1,"hindUpperF":-7,"hindLowerF":-9.5},"twist":{"pelvis":0,"chest":0},"hooves":{"HF":true,"FF":true,"HN":false,"FN":false}},
+    {"f":6,"root":[0,0.05],"height":8.55,"contact":{"N":true,"F":true},"bones":{"barrel":107,"neck":144,"head":37.5,"tail":-16,"foreUpperN":-9,"foreLowerN":-65.5,"foreUpperF":2.5,"foreLowerF":-2.5,"hindUpperN":19,"hindLowerN":19,"hindUpperF":-11.5,"hindLowerF":-13.5},"twist":{"pelvis":0,"chest":0},"hooves":{"HF":true,"FF":true,"HN":true,"FN":false}},
+    {"f":7,"root":[0,0.15],"height":8.45,"contact":{"N":true,"F":true},"bones":{"barrel":106.5,"neck":142,"head":34,"tail":-18.5,"foreUpperN":2.5,"foreLowerN":-50,"foreUpperF":-2,"foreLowerF":-7,"hindUpperN":13.5,"hindLowerN":11.5,"hindUpperF":-15.5,"hindLowerF":-22.5},"twist":{"pelvis":0,"chest":0},"hooves":{"HF":true,"FF":true,"HN":true,"FN":false}},
+    {"f":8,"root":[0,0.1],"height":8.5,"contact":{"N":true,"F":true},"bones":{"barrel":105.5,"neck":138,"head":27,"tail":-20,"foreUpperN":14,"foreLowerN":-7,"foreUpperF":-7,"foreLowerF":-11,"hindUpperN":8,"hindLowerN":5,"hindUpperF":-16.5,"hindLowerF":-31},"twist":{"pelvis":0,"chest":0},"hooves":{"HF":false,"FF":true,"HN":true,"FN":false}},
+    {"f":9,"root":[0,-0.05],"height":8.65,"contact":{"N":true,"F":true},"bones":{"barrel":105,"neck":136,"head":23.5,"tail":-20.5,"foreUpperN":19,"foreLowerN":19,"foreUpperF":-11.5,"foreLowerF":-14.5,"hindUpperN":2.5,"hindLowerN":-0.5,"hindUpperF":-9,"hindLowerF":-41},"twist":{"pelvis":0,"chest":0},"hooves":{"HF":false,"FF":true,"HN":true,"FN":true}},
+    {"f":10,"root":[0,-0.15],"height":8.75,"contact":{"N":true,"F":true},"bones":{"barrel":105.5,"neck":138,"head":27,"tail":-20,"foreUpperN":13.5,"foreLowerN":11,"foreUpperF":-15.5,"foreLowerF":-23,"hindUpperN":-2,"hindLowerN":-5.5,"hindUpperF":2.5,"hindLowerF":-29},"twist":{"pelvis":0,"chest":0},"hooves":{"HF":false,"FF":true,"HN":true,"FN":true}},
+    {"f":11,"root":[0,-0.1],"height":8.7,"contact":{"N":true,"F":false},"bones":{"barrel":106.5,"neck":142,"head":34,"tail":-18.5,"foreUpperN":8,"foreLowerN":3.5,"foreUpperF":-16.5,"foreLowerF":-40.5,"hindUpperN":-7,"hindLowerN":-9.5,"hindUpperF":14,"hindLowerF":1},"twist":{"pelvis":0,"chest":0},"hooves":{"HF":false,"FF":false,"HN":true,"FN":true}}
+  ] }
+ },
+ "events": [{"f":0,"name":"step","bone":"HF"},{"f":3,"name":"step","bone":"FF"},{"f":6,"name":"step","bone":"HN"},{"f":9,"name":"step","bone":"FN"}],
+ "meta": {
+   "source": "Eadweard Muybridge, Animal Locomotion (1887), Plate 574 \"A horse walking\" (24 exposures); Wellcome Collection https://wellcomecollection.org/works/a98xvb7f",
+   "licence": "Public domain (Public Domain Mark, Wellcome Collection)",
+   "measured": "stance and swing shapes read off the plate; the footfalls laid out as an even lateral sequence (LH, LF, RH, RF at quarter-stride intervals, duty factor 0.62)",
+   "why": "One stride per Walk loop; the head nods down as each fore hoof lands (two nods per stride).",
+   "sides": "N = right legs, F = left legs; frame 0 is the far (left) hind landing"
+ }
+}

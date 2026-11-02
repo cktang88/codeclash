@@ -220,10 +220,14 @@ export interface MotionEvent {
 export interface MotionClip {
   name: string;
   anim: string;
+  /** Missing: a man on foot. */
+  body?: 'foot' | 'horse';
   frames: number;
   loop: boolean;
   angles: 'world';
   restHeight: number;
+  /** Pelvis (hip joints) height of the standing subject, units: `root` is measured from (0, -restHip). */
+  restHip?: number;
   lengths: Record<string, number>;
   facings: Record<DrawnFacing, { keys: MotionKey[] }>;
   events: MotionEvent[];
@@ -551,6 +555,7 @@ export function convert(spec: ClipSpec, bvh: Bvh = loadTrial(spec.trial)): Motio
     loop: spec.loop,
     angles: 'world',
     restHeight: REST_HEIGHT,
+    restHip: r2(restHip),
     lengths,
     facings: { se: { keys: [] }, ne: { keys: [] } },
     events,
@@ -593,8 +598,8 @@ export function formatClip(c: MotionClip): string {
   const keys = (fc: DrawnFacing): string => c.facings[fc].keys.map((k) => `    ${j(k)}`).join(',\n');
   return (
     '{\n' +
-    ` "name": ${j(c.name)},\n "anim": ${j(c.anim)},\n "frames": ${c.frames},\n "loop": ${c.loop},\n "angles": ${j(c.angles)},\n` +
-    ` "restHeight": ${c.restHeight},\n "lengths": ${j(c.lengths)},\n` +
+    ` "name": ${j(c.name)},\n "anim": ${j(c.anim)},\n${c.body ? ` "body": ${j(c.body)},\n` : ''} "frames": ${c.frames},\n "loop": ${c.loop},\n "angles": ${j(c.angles)},\n` +
+    ` "restHeight": ${c.restHeight},\n${c.restHip !== undefined ? ` "restHip": ${c.restHip},\n` : ''} "lengths": ${j(c.lengths)},\n` +
     ` "facings": {\n  "se": { "keys": [\n${keys('se')}\n  ] },\n  "ne": { "keys": [\n${keys('ne')}\n  ] }\n },\n` +
     ` "events": ${j(c.events)},\n "meta": ${JSON.stringify(c.meta, null, 2).replace(/\n/g, '\n ')}\n}\n`
   );
