@@ -93,6 +93,8 @@ interface Gfx {
   soft: Batch;
   groundQuad: Batch;
   stamp: [Batch, Batch, Batch];
+  /** Detaches the context-loss listeners. */
+  unlisten: () => void;
 }
 
 /** Sun: ground offset of a shadow per pixel of height (long, late-afternoon, toward the viewer's right). */
@@ -310,11 +312,17 @@ export class BattleScene {
   private stampCorpse(i: number): void {
     this.stamped[i] = 1;
     const s = this.battle.soldiers[i]!;
-    const atlas = this.atlases[s.team as 0 | 1];
-    const kind = this.kindOf(i);
     const rng = this.rng;
     const pools = s.s.mounted ? 2 : 1;
     for (let k = 0; k < pools; k++) this.stampFx(`pool${rng.int(6)}`, s.x + (rng.next() - 0.5) * 3 * pools, s.y + (rng.next() - 0.5) * 3, 0.7);
+    this.restampCorpse(i);
+  }
+
+  /** The body alone (after a lost context wiped the ground). */
+  private restampCorpse(i: number): void {
+    const s = this.battle.soldiers[i]!;
+    const atlas = this.atlases[s.team as 0 | 1];
+    const kind = this.kindOf(i);
     const [u, v] = atlas.at(kind, Anim.Dead, 0, this.dirs[i] as Dir);
     this.stamps.push({ tex: s.team, x: Math.round(this.mapX(s.x, s.y)), y: Math.round(this.mapY(s.x, s.y)), u, v, w: atlas.cellW, h: atlas.cellH, ax: atlas.footX, ay: atlas.footY, shade: 0.78, a: 1, solid: false, r: 0, g: 0, b: 0 });
   }
@@ -322,13 +330,34 @@ export class BattleScene {
   // ---------------------------------------------------------------- GL setup
 
   private init(canvas: HTMLCanvasElement): Gfx | null {
-    if (this.gfx && this.gfx.canvas === canvas) return this.gfx;
+    if (this.gfx && this.gfx.canvas === canvas) {
+      if (!this.gfx.gl.isContextLost()) return this.gfx;
+      // The GPU dropped the context: every object is gone. Wait for it to come back, then
+      // rebuild from scratch (the ground's stamped decals are lost; the corpses are restamped).
+      return null;
+    }
     if (this.gfx) this.dispose();
     const gl = canvas.getContext('webgl2', { antialias: false, alpha: false, depth: false, stencil: false, premultipliedAlpha: false });
     if (!gl) {
       this.failed = 'WebGL2 is not available in this browser.';
       return null;
     }
+    if (gl.isContextLost()) return null;
+    // Without preventDefault on the loss the browser never restores the context.
+    const onLost = (e: Event) => e.preventDefault();
+    const onRestored = () => {
+      if (this.gfx?.canvas !== canvas) return;
+      this.gfx.unlisten();
+      this.gfx = null;
+      this.stamps.length = 0;
+      for (let i = 0; i < this.stamped.length; i++) if (this.stamped[i]) this.restampCorpse(i);
+    };
+    canvas.addEventListener('webglcontextlost', onLost);
+    canvas.addEventListener('webglcontextrestored', onRestored);
+    const unlisten = () => {
+      canvas.removeEventListener('webglcontextlost', onLost);
+      canvas.removeEventListener('webglcontextrestored', onRestored);
+    };
     const corners = cornerBuffer(gl);
     const g = this.ground;
     const groundTex = texture(gl, g.canvas);
@@ -347,6 +376,7 @@ export class BattleScene {
       soft: new Batch(gl, corners, 1024),
       groundQuad: new Batch(gl, corners, 1),
       stamp: [new Batch(gl, corners, 64), new Batch(gl, corners, 64), new Batch(gl, corners, 256)],
+      unlisten,
     };
     gfx.groundQuad.sprite(0, 0, 0, 0, g.w, g.h, 0, 0, -1e6);
     gfx.groundQuad.upload();
@@ -358,7 +388,11 @@ export class BattleScene {
   dispose(): void {
     const g = this.gfx;
     if (!g) return;
+    g.unlisten();
+    this.gfx = null;
     const gl = g.gl;
+    // A lost context has already freed everything.
+    if (gl.isContextLost()) return;
     for (const b of [...g.team, g.fx, g.soft, g.groundQuad, ...g.stamp]) b.dispose();
     for (const t of [...g.atlasTex, g.fxTex]) gl.deleteTexture(t);
     dropTarget(gl, g.ground);
@@ -366,7 +400,6 @@ export class BattleScene {
     gl.deleteBuffer(g.corners);
     gl.deleteProgram(g.prog.prog);
     g.post.dispose();
-    this.gfx = null;
   }
 
   // ---------------------------------------------------------------- camera
@@ -417,8 +450,9 @@ export class BattleScene {
 
   /** Field coordinates under a device pixel of `out`. */
   toWorld(out: HTMLCanvasElement, x: number, y: number): [number, number] {
+    // Lay out afresh: a pan or zoom since the last frame has moved the view (cheap).
+    this.layout(out.width, out.height);
     const v = this.view;
-    if (v.W !== out.width || v.H !== out.height) this.layout(out.width, out.height);
     const mx = v.camX + (x - v.offX) / v.px;
     const my = v.camY + (y - v.offY) / v.px;
     return unproject(mx + this.ground.ox, my + this.ground.oy);
@@ -462,6 +496,9 @@ export class BattleScene {
   /** Paints the battle onto `out` (a WebGL2 canvas this scene owns) at tick + alpha. */
   draw(out: HTMLCanvasElement, alpha: number, dt: number): void {
     const t0 = performance.now();
+    // A collapsed canvas (display: none, a 0-height flex child) has nothing to draw into, and a
+    // 0×0 scene buffer would be an incomplete framebuffer.
+    if (out.width < 1 || out.height < 1) return;
     const gfx = this.init(out);
     if (!gfx) return;
     const gl = gfx.gl;
@@ -698,7 +735,7 @@ export class BattleScene {
       const mounted = r.role === 'flank' || r.role === 'shock-cav' || r.role === 'horse-archer' || cmd;
       const wavering = ms === 'wavering';
       // Wavering cloth flaps fast and fitfully; a rallying standard is hoisted with a bob.
-      const frame = wavering ? Math.floor(T * 1.3 + i * 1.3 + Math.sin(T * 0.7 + i) * 2) & 3 : Math.floor(T / 2.5 + i * 1.3) % 4;
+      const frame = wavering ? Math.floor(T * 1.3 + i * 1.3 + Math.sin(T * 0.7 + i) * 2) & 3 : Math.floor(T / 2.5 + i * 1.3) & 3; // & 3, not % 4: never negative (T < 0 before the first tick)
       const bob = ms === 'rallying' ? Math.round(Math.abs(Math.sin(T * 0.6)) * 3) : 0;
       if (wavering && Math.sin(T * 2.1 + i * 5.3) > 0.82) continue;
       const reg = fx.get(`${wavering ? 'torn' : ''}${cmd ? 'cmd' : wavering ? '' : 'ban'}${r.team}_${frame}`);
