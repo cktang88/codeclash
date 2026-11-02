@@ -551,3 +551,44 @@ images are approved and split into rig parts.
 3. **Against the CraftPix knight at the same scale.** The masses now read, but the near arm of the two-handed poses disappears behind the near sode. That is accepted for chūdan, since the sode's job is to cover the arm. Horses and riders read as one heavy block, as in the D2R mounted art.
 
 Still to do after approval: split each image into rig parts and animate it, keeping the look, and run the lint gate per animation.
+
+### Key art round 2: colour, faces, horses, form (`samurai-static-before-after-L8.png`)
+
+The coordinator's notes on round 1 were:
+- the armour read as a dark slab with blue stripes;
+- the faces were tiny;
+- the horses were blocky;
+- everything was flat and boxy.
+
+The user then added Samurai targets (`references/user-targets/`, study only):
+
+| Image | Licence | Taken from it |
+|---|---|---|
+| https://i.redd.it/4gwik0e0yha61.png | artist's copyright (study only) | **Big flat shapes and few colours.** About five blues plus gold plus one orange accent. The lames are big stepped bands with a lit top edge, and the lacing is rows of orange dots. A huge boxy kabuto with tall gilt kuwagata, and a dark menpō. |
+| armoured undead samurai, Google thumbnail (`armored-undead-gstatic.jpg`; URL in the README) | unknown (study only) | Red lacquer in chunky plates, each with a clear lit plane and a shadow plane, bone-white leg wraps, and a long katana. |
+| https://www.shutterstock.com/image-vector/samurai-pixel-art-sprite-sheet-260nw-2191246469.jpg | Shutterstock licence (study only) | Kept for the attack animations later: a long blade with teal slash smears. |
+
+Rounds:
+1. **Colour, faces and horses.**
+   - Lacquer comes in black, red-brown (ashigaru, yari cavalry) and deep red (hatamoto). The ashigaru wear riveted okegawa-dō with a gold mon.
+   - Heads are a seventh of the figure, with brow, eyes and a catch-light, a lit nose ridge, a mouth and an ear. The menpō has a nose, a mouth slit, a moustache and a laced throat guard.
+   - Horses are built from Catmull-Rom curves:
+     - an arched neck with the jugular groove;
+     - a round barrel and croup;
+     - shoulder and haunch muscle planes lit from the top-left, with a rim along the back;
+     - knees, hocks, fetlocks and hooves;
+     - mane and tail in strands;
+     - a bridle, reins and tassels.
+2. **Close-ups at ×5.**
+   - The kebiki rows were only about 2 px of lacing at L8 and read as thin lines, so the rows were widened.
+   - The teppō's muzzle crossed the jingasa brim, so the gun is re-angled.
+   - The reins were a loud team-coloured line; they are now dark lacquer.
+3. **Against the user's blue samurai.**
+   - The Katana Samurai's armour is lacquered in the army colour, with gilt and one complementary accent for the lacing dots (orange on a blue army). Lames are 1.05-unit flat bands, each with a lit top edge and a two-step shadow.
+   - The kabuto is a big boxy zunari bowl with a lit crown plane, a gilt koshimaki and kuwagata 3.6 units tall.
+   - The Daimyō is black and gold, with gilt lame edges. The hatamoto is deep red with team-coloured dots.
+
+Still short:
+- The lame bands on the black Daimyō read busier than the blue samurai's.
+- Horse heads are a little narrow beside their necks.
+- Riders' near legs are mostly hidden by the barrel.
