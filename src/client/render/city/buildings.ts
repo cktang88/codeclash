@@ -7,6 +7,7 @@ import type { BuildingKey } from '../../../game/city.ts';
 import { box, CLASSIC, cone, drum, gable, hash, hex, line3, mix, nightCanvas, NIGHT_RIG, OX, post, pyramid, Px, recordFootprints, sx, sy, tone, unrecorded, v3, type Col, type Facing, type Footprint, type Frame, type NightRig, type Shader, type V3 } from './pixels.ts';
 import type { CityStyle, Ramp } from './style.ts';
 import { dressHall, drumLancets, joists, richChimney, richRoof, richThatch, richWall } from './templar-hd.ts';
+import { ivy } from './prop-art.ts';
 
 /** Level to tier: 0 empty lot, 1 timber, 2 stone, 3 fortified, 4 grand. */
 export function tierOf(level: number): number {
@@ -1055,6 +1056,17 @@ function walls(P: Painter, a: PaintArgs, parts: BuildingParts): BuildingParts {
     // The wall-walk: worn flags in shadow between the parapets.
     const sh: Shader = (f, s, t, p) => (f === 'top' ? tone(face('left', s, t + 1, p), Math.floor(s) % 4 === 0 ? 0.4 : 0.28) : face(f, s, t, p));
     box(P.px, u0, v0, 0, lu, lv, hh, sh);
+    if (P.rich) {
+      // HD Templar: ivy climbs the old curtain walls here and there, on the faces in view.
+      const along = lu > lv;
+      const len = along ? lu : lv;
+      for (let a = 4; a < len - 6; a += 9) {
+        if (hash(a, u0 + v0, 91) > 0.35) continue;
+        const w = 3 + hash(a, u0 + v0, 92) * 5;
+        if (along) ivy(P.px, 'left', u0 + a, v0 + lv, w, hh, hh * (0.4 + 0.5 * hash(a, 93)), a + u0, undefined, hash(a, 94) < 0.3 ? [hex('#f2ecd8')] : []);
+        else ivy(P.px, 'right', u0 + lu, v0 + a, w, hh, hh * (0.4 + 0.5 * hash(a, 93)), a + v0);
+      }
+    }
     // A dark line along the foot, since the chunks carry no outline.
     for (let i = 0; i < Math.max(lu, lv); i++) {
       const u = lu > lv ? u0 + i : u0 + lu;

@@ -393,6 +393,22 @@ export class CityScene {
     ents.length = 0;
     for (const a of this.arts) ents.push(a as unknown as Ent);
     this.life.collect(ents, r);
+    // HD props' little life (props.ts PropDef.anim / flicker), sorted just in front of their art,
+    // only when the camera is in close and the prop is in view.
+    if (hd && this.zoom >= 2 && this.props)
+      for (const an of this.props.painted.anims) {
+        const [x0, y0, x1, y1] = an.box;
+        if (x1 < view.rx || y1 < view.ry || x0 > view.rx + view.rw || y0 > view.ry + view.rh) continue;
+        ents.push({
+          d: an.d,
+          draw: () => {
+            g.save();
+            g.setTransform(1, 0, 0, 1, 0, 0);
+            an.fn(g, t, an.x, an.y, an.seed, f.k, this.st);
+            g.restore();
+          },
+        });
+      }
     ents.sort((a, b) => a.d - b.d || 0);
     let inWorld = false;
     for (const e of ents) {

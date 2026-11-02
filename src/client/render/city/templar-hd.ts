@@ -11,7 +11,7 @@
 
 import type { Hole, Painter } from './buildings.ts';
 import { box, gable, hash, hex, line3, mix, post, tone, v3, type Col, type Facing, type Shader, type V3 } from './pixels.ts';
-import { ivy, lantern, wallSign, windowBox } from './prop-art.ts';
+import { bush, FLOWERS, ivy, LEAF, lantern, wallSign, windowBox } from './prop-art.ts';
 import type { Ramp } from './style.ts';
 
 const BRICK: Ramp = [hex('#c0704c'), hex('#a0523a'), hex('#7a3c2e'), hex('#4e2620')];
@@ -405,6 +405,15 @@ export function dressHall(P: Painter, d: HallDress): void {
       line3(px, v3(at, v0 + side, 5.4), v3(at + 1.2, v0 + side, 5.4), st.outline);
       lantern(px, lights, at + 1.6, v0 + side, 3.4);
     }
+    // A climbing rose up the other side of the door, pink or white.
+    const rose = [hash(i, seed, 82) < 0.5 ? FLOWERS[0]! : FLOWERS[1]!, FLOWERS[5]!];
+    const rs = o.s - 2;
+    if (hash(i, seed, 83) < 0.8) {
+      if (o.face === 'left') ivy(px, 'left', u0 + rs, at, 1.8, o.h + 1.6, o.h + 1.6, seed + i * 5, LEAF, rose);
+      else ivy(px, 'right', at, v0 + rs, 1.8, o.h + 1.6, o.h + 1.6, seed + i * 5, LEAF, rose);
+      if (o.face === 'left') bush(px, u0 + rs + 0.9, at + 0.8, 1, 1.4, 1.2, seed + i, LEAF, rose, 0.3);
+      else bush(px, at + 0.8, v0 + rs + 0.9, 1, 1.4, 1.2, seed + i, LEAF, rose, 0.3);
+    }
     if (hash(i, seed, 71) < 0.6) {
       const sg = o.s - 1.2;
       if (o.face === 'left') wallSign(px, st, 'left', u0 + sg, at, o.h + 2.5, Math.floor(hash(seed, 72) * 4));
@@ -417,7 +426,7 @@ export function dressHall(P: Painter, d: HallDress): void {
     const len = face === 'left' ? lu : lv;
     const runs = freeRuns(d.holes, face, len);
     runs.forEach(([a, b], i) => {
-      const chance = d.wall === 'timber' ? 0.3 : 0.62;
+      const chance = d.wall === 'timber' ? 0.45 : 0.72;
       if (hash(i, seed + (face === 'left' ? 1 : 2), 73) > chance) return;
       const w = Math.min(b - a, 4 + hash(i, seed, 74) * 6);
       const s0 = a + (b - a - w) * hash(i, seed, 75);
@@ -427,6 +436,15 @@ export function dressHall(P: Painter, d: HallDress): void {
       if (face === 'left') ivy(px, 'left', u0 + s0, at, w, h - 0.6, drop, seed + i * 7, undefined, flowers);
       else ivy(px, 'right', at, v0 + s0, w, h - 0.6, drop, seed + i * 7, undefined, flowers);
     });
+  }
+  // A flowering bush at the front corner, and one or two at the foot of the lit face.
+  const cu = u0 + lu + (jetty ? 1 : 0);
+  const cv = v0 + lv + (jetty ? 1 : 0);
+  const bloom = [FLOWERS[Math.floor(hash(seed, 84) * 3)]!, FLOWERS[1]!];
+  if (hash(seed, 85) < 0.8) bush(px, cu + 0.6, cv + 0.6, 1.6, 2.2, 1.9, seed + 3, LEAF, bloom, 0.18);
+  for (const [a, b] of freeRuns(d.holes.filter((x) => x.t < 2), 'left', lu).slice(0, 2)) {
+    if (hash(a, seed, 86) < 0.5) continue;
+    bush(px, u0 + (a + b) / 2, v0 + lv + 0.9, 1.3, 1.9, 1.5, seed + a, LEAF, hash(a, seed, 87) < 0.6 ? bloom : [], 0.16);
   }
   // Dormers on the visible slope of long roofs (a gabled box with a window), from the stone tier.
   const long = d.alongU ? lu : lv;
@@ -473,6 +491,8 @@ export function dressHall(P: Painter, d: HallDress): void {
     line3(px, v3(bu, bv + 0.2, z + 2.7), v3(bu, bv + 1.7, z + 2.7), st.timber[1]);
     // Pots on the rail.
     if (hash(seed, 80) < 0.7) windowBox(px, st, 'left', bu + 1, bv + 1.9, z + 2.9, 4, seed + 81);
+    // Vines trailing from the rail.
+    ivy(px, 'left', bu + 0.3, bv + 1.75, 5.4, z + 2.6, 2.4 + hash(seed, 88) * 2, seed + 89, undefined, hash(seed, 90) < 0.5 ? [FLOWERS[0]!] : []);
     // Joist ends under it.
     for (let i = 0.5; i < 6; i += 1.5) P.px.point(v3(bu + i, bv + 1.8, z - 0.1), st.timber[3]);
   }
