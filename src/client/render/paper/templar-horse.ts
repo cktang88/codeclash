@@ -247,7 +247,7 @@ const HOOF_REST = (Math.atan2(0.3, 0.85) * 180) / Math.PI;
  * plate's angles scaled to our horse, pressed onto the ground while the plate shows that hoof
  * down; a hoof planted lies flat, a hoof in the air folds back under the fetlock.
  */
-function gaitKeys(skel: SkeletonData, name: string, facing: Facing, o: { amp?: number; pitch?: number; neck?: number; tail?: number } = {}): { keys: KP[]; bob: Track } {
+function gaitKeys(skel: SkeletonData, name: string, facing: Facing, o: { amp?: number; pitch?: number; neck?: number; head?: number; tail?: number } = {}): { keys: KP[]; bob: Track } {
   const clip = MOTION[name]!;
   const ks = clip.facings[facing === 'ne' ? 'ne' : 'se'].keys as (MotionKey & { hooves: Record<string, boolean> })[];
   const amp = o.amp ?? 1;
@@ -286,7 +286,7 @@ function gaitKeys(skel: SkeletonData, name: string, facing: Facing, o: { amp?: n
     const dw = {
       horseBody: Math.round(pitch * 10) / 10,
       horseNeck: Math.round((wrap(k.bones.neck! - ref.neck) * (o.neck ?? 1) - pitch * 0.6) * 10) / 10,
-      horseHead: Math.round(wrap(k.bones.head! - ref.head) * 10) / 10,
+      horseHead: Math.round(wrap(k.bones.head! - ref.head) * (o.head ?? 1) * 10) / 10,
       tail: Math.round((wrap(k.bones.tail! - ref.tail) + (o.tail ?? 0)) * 10) / 10,
     };
     return { f: k.f, ...(k.c ? { c: k.c as KP['c'] } : {}), t, w, dw };
@@ -301,7 +301,7 @@ function riderGait(bob: Track, n: number, s: HorseSpec, run: boolean): Author {
     const lagged: [number, number][] = [];
     for (let f = 0; f <= n; f++) {
       const now = atT(bob, f), was = atT(bob, f - 1 < 0 ? f - 1 + n : f - 1);
-      lagged.push([f, Math.round((was - now) * 0.6 * 100) / 100]);
+      lagged.push([f, Math.round((was - now) * 0.3 * 100) / 100]);
     }
     const w: Record<string, Track> = { head: T([0, rw.head! - (run ? 6 : 0)]) };
     const dw: Record<string, Track> = run ? { spine: T([0, -10]) } : {};
@@ -368,7 +368,7 @@ function horseClips(skel: SkeletonData, s: HorseSpec): ClipSet {
     return { byFacing: { se: [{ anim: b.byFacing.se }, { anim: BREATH, alpha }], ne: [{ anim: b.byFacing.ne }, { anim: BREATH, alpha }] } };
   };
   const gait = (name: string, run: boolean) => (f: Facing) => {
-    const g = gaitKeys(skel, name, f, run ? { pitch: 2.2, neck: 1.4, tail: -50 } : { pitch: 1.5, neck: 1.2, tail: -6 });
+    const g = gaitKeys(skel, name, f, run ? { pitch: 2.2, neck: 1.4, tail: -50 } : { pitch: 1.0, neck: 0.7, head: 0.4, tail: -6 });
     return overlayKeys(g.keys, riderGait(g.bob, 12, s, run)(restWorld(skel, f), f));
   };
   const idle = breath(fc('idle', 8, true, (f) => standKeys(8)(f, skel)));

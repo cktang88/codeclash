@@ -1204,7 +1204,7 @@ export const MOUNTED: Record<number, { kit: SKit; horse: SHorse; gear: SGear; da
   5: {
     kit: TURCOPOLE,
     horse: { coat: TM.dun },
-    dark: true,
+    dark: false,
     gear: {
       front: (c) => roundS(c, [2.0, -9.0], 2.2),
       near: { el: [-2.8, -8.9], wr: [-2.0, -7.4], draw: (c, h, d) => void spear(c, h, 180 + d, 13.0, 4.5, { head: 1.5, pennon: 0.4, w: 0.3 }) },
@@ -1223,7 +1223,7 @@ export const MOUNTED: Record<number, { kit: SKit; horse: SHorse; gear: SGear; da
   7: {
     kit: KNIGHT,
     horse: { coat: TM.grey, capar: TM.white },
-    dark: true,
+    dark: false,
     gear: {
       front: (c) => kiteS(c, [2.1, -8.6], 3.8, 5.9, false, true, -6),
       near: { el: [-2.8, -8.9], wr: [-1.8, -7.3], draw: (c, h, d) => void spear(c, h, 135 + d, 12.5, 3.5, { head: 1.3, pennon: 0.3, w: 0.36 }) },
@@ -1232,7 +1232,7 @@ export const MOUNTED: Record<number, { kit: SKit; horse: SHorse; gear: SGear; da
   10: {
     kit: MARSHAL,
     horse: { coat: TM.grey, capar: TM.white },
-    dark: true,
+    dark: false,
     gear: {
       far: { el: [2.7, -9.7], wr: [3.0, -11.4], draw: (c, h, d) => beauseant(c, addP(h, [0, 0]), 180 + d, 0.35, 0) },
       near: { el: [-2.9, -8.9], wr: [-2.2, -7.1], draw: (c, h, d) => sword(c, h, 135 + d, 5.4) },

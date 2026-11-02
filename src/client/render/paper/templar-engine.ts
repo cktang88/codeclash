@@ -135,9 +135,9 @@ const THROW: Author = () => ({
   },
   tAdd: { crewP: [T([0, 0], [3, 0.3], [6, 0.5], [11, 0]), T([0, 0], [3, 0.5], [5, 0.8], [8, 0.3], [11, 0])], crewL: [T([0, 0], [8, -0.6], [10, -0.9], [11, -0.3]), T([0, 0], [10, 0.5], [11, 0])] },
 });
-const IDLE: Author = () => ({ dw: { crewP: T([0, 0], [4, -3], [8, 0]), crewL: T([0, 0], [4, 2], [8, 0]) } });
+const IDLE: Author = () => ({ dw: {} });
 /** Moving the machine: the crew rock and shift at the ropes and the frame (no capture of this, so it is kept small). */
-const SHIFT: Author = () => ({ dw: { crewP: T([0, 0], [3, -8], [6, 0], [9, -8], [12, 0]), crewPArmN: T([0, 0], [3, 15], [6, 0], [9, 15], [12, 0]), crewPArmF: T([0, 0], [3, 15], [6, 0], [9, 15], [12, 0]), crewL: T([0, 0], [6, -8], [12, 0]), beam: T([0, 0], [3, -2], [6, 0], [9, -2], [12, 0]) }, tAdd: { crewP: [T([0, 0], [3, 0.2], [6, 0], [9, 0.2], [12, 0]), T([0, 0])] } });
+const SHIFT: Author = () => ({ dw: {}, tAdd: { crewP: [T([0, 0], [3, 0.25], [6, 0], [9, 0.25], [12, 0]), T([0, 0], [3, 0.12], [6, 0], [9, 0.12], [12, 0])], crewL: [T([0, 0], [6, -0.25], [12, 0]), T([0, 0], [6, 0.12], [12, 0])] } });
 const HITA: Author = () => ({ dw: { beam: T([0, 6], [1, 9], [2, 3], [4, 0]), crewP: T([0, 12], [1, 16], [3, 4], [4, 0]), crewL: T([0, 10], [1, 14], [3, 4], [4, 0]) }, tAdd: { root: [T([0, -0.3], [1, -0.4], [3, 0], [4, 0]), T([0, 0])] } });
 /** Wrecked: the trestle gives and the machine topples back, the long arm driven into the ground; the crew are thrown. */
 const WRECK: Author = () => ({
