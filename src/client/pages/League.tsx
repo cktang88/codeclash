@@ -138,7 +138,20 @@ function CityTab({ slug, id, detail }: { slug: string; id: number; detail: Leagu
         <span className="muted">{f.name} · <i>{f.motto}</i></span>
       </div>
       <div className="city-stage">
-        <CityCanvas faction={look.faction} hue={look.hue} seed={id >>> 0} levels={levels} recruits={Math.ceil(today / 12)} />
+        <CityCanvas
+          faction={look.faction}
+          hue={look.hue}
+          seed={id >>> 0}
+          levels={levels}
+          recruits={Math.ceil(today / 12)}
+          mood={{
+            idle: city.idle,
+            streak: city.streak,
+            wins: city.wins,
+            army: city.today,
+            progress: Object.fromEntries(city.buildings.map((b) => [b.key, b.progress])),
+          }}
+        />
       </div>
       <div className="city-grid">
         <div className="panel muster">

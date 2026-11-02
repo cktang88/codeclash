@@ -425,6 +425,30 @@ main {
   display: block;
   image-rendering: pixelated;
 }
+.city-view {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+.city-canvas:active {
+  cursor: grabbing;
+}
+.city-zoom {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.city-zoom button {
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  line-height: 1;
+  font-size: 1.1rem;
+  background: rgba(11, 9, 7, 0.78);
+}
 .city-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));

@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Commandery preview</title>
+    <style>
+      body { background: #0b0907; color: #d8cfba; font: 13px/1.4 Georgia, serif; margin: 16px; }
+      .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(512px, 1fr)); gap: 14px; }
+      figure { margin: 0; }
+      canvas { width: 100%; aspect-ratio: 16 / 9; display: block; image-rendering: pixelated; background: #000; }
+      figcaption { padding: 4px 0; color: #a89c80; }
+      #meter { position: fixed; right: 10px; top: 6px; color: #e0c070; }
+    </style>
+  </head>
+  <body>
+    <div id="meter"></div>
+    <div class="grid" id="grid"></div>
+    <script type="module" src="./city-preview.ts"></script>
+  </body>
+</html>
