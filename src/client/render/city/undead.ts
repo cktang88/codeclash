@@ -23,12 +23,19 @@
 // courses of long bones); rubble; moss-slate and verdigris lead; rotten timber. The one saturated
 // colour is the grave-light green in the lancets, the cauldron and the crown.
 
-import { GATE_V, registerKit, registerMill, tierOf, wallHeights, WALL, type BuildingParts, type Painter, type PaintArgs } from './buildings.ts';
-import { box, cone, drum, gable, hash, hex, line3, mix, post, pyramid, sx, sy, tone, v3, type Col, type Facing, type Shader, type V3 } from './pixels.ts';
+import { GATE_V, LOT, registerKit, registerMill, TIER_START, tierOf, wallHeights, WALL, type Art, type BuildingParts, type Painter, type PaintArgs } from './buildings.ts';
+import { box, cone, drum, gable, hash, hex, line3, mix, post, pyramid, sx, sy, tone, unrecorded, v3, type Col, type Facing, type Shader, type V3 } from './pixels.ts';
 import { frustum, mound, type PShader } from './solids.ts';
 import type { Ramp } from './style.ts';
 import { FIELDS } from './ground.ts';
-import { angel, bakePools, beginLights, candles, cobweb, coffinStack, endLights, fixedLights, gargoyle, glow, graveFields, groundPools, ivyAt, plagueSign, railing, sarcophagus, setSink, torch, wallLantern, wreath, yardProps } from './undead-props.ts';
+import { angel, bakePools, beginLights, candles, cobweb, coffinStack, endLights, fixedLights, gargoyle, glow, graveFields, groundPools, ivyAt, plagueSign, railing, sarcophagus, setSink, sunlit, torch, wallLantern, wreath, yardProps } from './undead-props.ts';
+
+/** Finish a piece and lay the day's low sun on it (undead-props.ts sunlit). */
+function sunFinish(P: Painter, depth: number, outline = true): Art {
+  const art = P.finish(depth, outline);
+  sunlit(art, P);
+  return art;
+}
 
 interface Hole {
   face: Facing;
@@ -113,6 +120,7 @@ function blackAt(P: Painter, f: Facing, along: number, zz: number, seed: number,
 const STAIN = hex('#100e16');
 const IRON = hex('#2a2832');
 const IRON_L = hex('#5a5868');
+const RAFTER: [Col, Col] = [hex('#8a7c74'), hex('#5c5058')];
 
 /** Rubble: rough uncoursed stones, deep joints, moss in some of them. */
 function rubbleAt(P: Painter, f: Facing, along: number, zz: number, seed: number): Col {
@@ -324,9 +332,10 @@ function roofSh(P: Painter, mat: 'slate' | 'lead' | 'thatch', ragged = false, ru
       const r = Math.hypot((s - ruin[0]) / ruin[2], (t - ruin[1]) / ruin[3]) + (hash(Math.floor((s * k) / 2), Math.floor(t * k), 78) - 0.5) * 0.35;
       if (r < 1) {
         // Rafters down the slope, a purlin across, black between; the rafters lit on their tops.
-        const rs = s % 2.4;
-        if (rs < 0.5) return rs < 0.25 ? st.timber[0] : st.timber[2];
-        if (Math.abs(t - ruin[1]) < 0.35) return st.timber[1];
+        // (The rafters are a weathered grey-brown a step above the slate, so they read in the dark.)
+        const rs = s % 2.6;
+        if (rs < 1) return rs < 0.5 ? RAFTER[0] : RAFTER[1];
+        if (Math.abs(t - ruin[1]) < 0.5) return RAFTER[1];
         return hex('#0c0a10');
       }
       // The broken edge: slates lifted pale, then a dark line under them.
@@ -969,7 +978,7 @@ function walls(P: Painter, a: PaintArgs, parts: BuildingParts): BuildingParts {
     towerAt(-4, W - 4, h);
   }
   if (tier >= 4) P.pole(parts, 4, 4, h + 10 + 3, 10, 8, 6);
-  parts.arts.push(P.finish(-10));
+  parts.arts.push(sunFinish(P, -10));
   const chunk = 29;
   for (let v = 0; v < W; v += chunk) {
     P.reset();
@@ -979,13 +988,13 @@ function walls(P: Painter, a: PaintArgs, parts: BuildingParts): BuildingParts {
       run(W - th, a0, th, gate0 - a0, front);
       run(W - th, gate1, th, v1 - gate1, front);
     } else run(W - th, a0, th, v1 - a0, front);
-    parts.arts.push(P.finish(W + (v + v1) / 2 - 2));
+    parts.arts.push(sunFinish(P, W + (v + v1) / 2 - 2));
   }
   for (let u = 0; u < W - th; u += chunk) {
     P.reset();
     const u1 = Math.min(W - th, u + chunk);
     run(Math.max(u, th), W - th, u1 - Math.max(u, th), th, front);
-    parts.arts.push(P.finish(W + (u + u1) / 2 - 2));
+    parts.arts.push(sunFinish(P, W + (u + u1) / 2 - 2));
   }
   // The gate: skull-topped posts, a rubble arch, then a gatehouse with a portcullis and spires.
   P.reset();
@@ -1020,12 +1029,12 @@ function walls(P: Painter, a: PaintArgs, parts: BuildingParts): BuildingParts {
     P.pole(parts, W - 2, gate0 - 4, gh + (tier >= 4 ? 16 : 3), 10, 8, 6);
     P.pole(parts, W - 2, gate1 + 4, gh + (tier >= 4 ? 16 : 3), 10, 8, 6);
   }
-  parts.arts.push(P.finish(W + GATE_V + 6));
+  parts.arts.push(sunFinish(P, W + GATE_V + 6));
   if (tier >= 3) {
     P.reset();
     towerAt(W - 4, W - 4, front);
     torch(parts, W + 6, W - 2, front + 8);
-    parts.arts.push(P.finish(W * 2 + 4));
+    parts.arts.push(sunFinish(P, W * 2 + 4));
   }
   // Stakes before the walls (from level 3), some with the impaled dead's skulls.
   if (a.level >= 3) {
@@ -1041,7 +1050,7 @@ function walls(P: Painter, a: PaintArgs, parts: BuildingParts): BuildingParts {
       line3(P.px, v3(u + 2, W + 8, 0), v3(u + 1, W + 11, 4), st.timber[2]);
       if (u % 18 === 2) skull(u + 0.8, W + 10.8, 4.2);
     }
-    parts.arts.push(P.finish(W * 2 + 30));
+    parts.arts.push(sunFinish(P, W * 2 + 30));
   }
   return parts;
 }
@@ -1055,7 +1064,7 @@ registerKit('undead', (P, key, a, parts) => {
   const lights = beginLights();
   // Props are finished as their own Arts (each sorted at its own depth) before the building.
   const finish = (d: number, outline = true) => {
-    parts.arts.push(P.finish(d, outline));
+    parts.arts.push(sunFinish(P, d, outline));
     P.reset();
   };
   const tier = tierOf(a.level);
@@ -1064,9 +1073,15 @@ registerKit('undead', (P, key, a, parts) => {
   endLights();
   setSink(null);
   // The light: pools baked on the stone the sources reach, and on the ground round them.
-  if (done === true) bakePools(P, lights);
   if (done && lights.length) parts.arts.push(groundPools(P, lights));
-  return done;
+  if (done !== true) return done;
+  bakePools(P, lights);
+  // Finished here (not by paintBuilding) so the day's sun can be laid on it: the scaffold of a
+  // building about to rise a tier, then the piece itself, first among the parts.
+  const [u0, v0, u1, v1] = LOT[key];
+  if (a.progress > 0.45 && TIER_START.includes(a.level + 1) && a.level > 0) unrecorded(() => P.scaffold(u0 + 4, v0 + 4, (u1 - u0) * 0.5, (v1 - v0) * 0.5, 14 + tier * 4));
+  parts.arts.unshift(sunFinish(P, (u0 + u1 + v0 + v1) / 2));
+  return parts;
 });
 
 function paintKit(P: Painter, key: string, a: PaintArgs, parts: BuildingParts, tier: number, finish: (d: number, outline?: boolean) => void): BuildingParts | boolean | null {
