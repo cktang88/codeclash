@@ -16,7 +16,7 @@ import type { Anim } from '../contract.ts';
 import type { P2, Paper } from './core.ts';
 import type { Facing } from './facing.ts';
 import {
-  animationFromPoses, clipBase, cosStep, emptyLocals, evaluate, localsFromWorld, restPose, sampleClip, sinStep,
+  animationFromPoses, clipBase, cosStep, EASE_IN, EASE_OUT, emptyLocals, evaluate, localsFromWorld, restPose, sampleClip, sinStep,
   type AnimationData, type AnimEvent, type BoneXf, type Clip, type Curve, type FacingClips, type Key, type PartXf, type Posed, type PoseKey, type SkeletonData,
 } from './skeleton.ts';
 import { SNAP_DEG } from './rig.ts';
@@ -264,6 +264,8 @@ export interface MocapOpts {
   absHeight?: boolean;
   /** Legs by their mocap angles (FK) once neither foot is planted (falls); IK on while a foot is down. */
   legsFK?: boolean;
+  /** Re-times the keys (painted frame → painted frame), e.g. a faster first half. */
+  retime?: (f: number) => number;
 }
 
 const TORSO = ['pelvis', 'spine', 'chest', 'neck', 'head'] as const;
@@ -324,7 +326,8 @@ export function mocapKeys(skel: SkeletonData, name: string, facing: Facing, o: M
       delete t.footTargetN;
       delete t.footTargetF;
     }
-    return { f: k.f, ...(k.c ? { c: k.c as Curve } : {}), dw, t, dl, ...(fk ? { w, ik: { legN: 0, legF: 0 } } : o.legsFK ? { ik: { legN: 1, legF: 1 } } : {}) };
+    const f = o.retime ? Math.round(o.retime(k.f) * 100) / 100 : k.f;
+    return { f, ...(k.c ? { c: k.c as Curve } : {}), dw, t, dl, ...(fk ? { w, ik: { legN: 0, legF: 0 } } : o.legsFK ? { ik: { legN: 1, legF: 1 } } : {}) };
   });
   return { keys, clip };
 }
@@ -363,7 +366,87 @@ export function overlayKeys(keys: readonly KP[], o: { w?: Record<string, Track>;
       const p = out.t![n] ?? [0, 0];
       out.t![n] = [Math.round((p[0] + at(x, f)) * 100) / 100, Math.round((p[1] + at(y, f)) * 100) / 100];
     }
-    if (o.ik) out.ik = Object.fromEntries(Object.entries(o.ik).map(([n, tr]) => [n, at(tr, f)]));
+    if (o.ik) out.ik = { ...(out.ik ?? {}), ...Object.fromEntries(Object.entries(o.ik).map(([n, tr]) => [n, at(tr, f)])) };
     return out;
   });
+}
+
+// ------------------------------------------------------------------ things that fall
+
+/** Something let go in a death: the `from` slot's drawing passes to `slot` on the free `bone` at frame `at`, then falls to `land`. */
+export interface Drop {
+  /** The bone that carried it (the forearm under a shield, the weapon bone). */
+  holder: string;
+  /** The free bone (a child of the root) and its slot, and the slot it leaves. */
+  bone: string;
+  slot: string;
+  from: string;
+  at: number;
+  /** Where it lands (bone origin, figure units), its turn from rest there (deg), and when; it bounces a frame later. */
+  land: { x: number; y: number; rot: number; f: number };
+}
+
+/** Adds the drops' keys and slot swaps to a clip (per drawn facing), so a shield slides off and a sword falls. */
+export function addDrops(skel: SkeletonData, clip: Clip, n: number, drops: readonly Drop[]): Clip {
+  const one = (anim: AnimationData, facing: Facing): AnimationData => {
+    const L = 64;
+    const rest = evaluate(skel, emptyLocals(), { level: L, facing, noIk: true });
+    const at = (f: number) => evaluate(skel, sampleClip(anim, f, n, facing), { level: L, facing });
+    const bones = { ...(anim.bones ?? {}) };
+    const slots = { ...(anim.slots ?? {}) };
+    for (const d of drops) {
+      const p = at(d.at);
+      const b = p.byName[d.holder]!, rb = rest.byName[d.holder]!, rd = rest.byName[d.bone]!;
+      const k = b.step - rb.step;
+      const s = sinStep(k), c = cosStep(k);
+      const dx = rd.x - rb.x, dy = rd.y - rb.y;
+      const o: P2 = [b.x + c * dx + s * dy, b.y - s * dx + c * dy];
+      const turn = k * SNAP_DEG;
+      const t0: [number, number] = [o[0] - rd.x, o[1] - rd.y];
+      const tl: [number, number] = [d.land.x - rd.x, d.land.y - rd.y];
+      const mid: [number, number] = [(t0[0] + tl[0]) / 2, Math.min(t0[1], tl[1]) - 0.2];
+      const f1 = d.land.f;
+      bones[d.bone] = {
+        translate: [{ f: d.at, v: t0, c: EASE_IN }, { f: (d.at + f1) / 2, v: mid, c: EASE_IN }, { f: f1, v: tl, c: EASE_OUT }, { f: f1 + 1, v: [tl[0], tl[1] - 0.18], c: EASE_IN }, { f: f1 + 2, v: tl }],
+        rotate: [{ f: d.at, v: turn, c: EASE_IN }, { f: f1, v: d.land.rot, c: EASE_OUT }, { f: f1 + 1, v: d.land.rot + 4 }, { f: f1 + 2, v: d.land.rot }],
+      };
+      slots[d.slot] = [{ f: 0, v: null }, { f: d.at, v: d.slot }];
+      slots[d.from] = [{ f: 0, v: d.from }, { f: d.at, v: null }];
+    }
+    return { ...anim, bones, slots };
+  };
+  return mapFacings(clip, one);
+}
+
+/** Applies `fn` to the base animation of a clip in each facing. */
+export function mapFacings(clip: Clip, fn: (a: AnimationData, f: Facing) => AnimationData): Clip {
+  if (Array.isArray(clip)) return clip.map((tr, i) => (i === 0 ? { ...tr, anim: fn(tr.anim, 'se') } : tr));
+  if ('byFacing' in clip) {
+    const byFacing: FacingClips['byFacing'] = {};
+    for (const [f, c] of Object.entries(clip.byFacing) as [Facing, AnimationData | { anim: AnimationData }[]][]) byFacing[f] = Array.isArray(c) ? (mapFacings(c as never, (a) => fn(a, f)) as never) : fn(c, f);
+    return { byFacing };
+  }
+  return fn(clip, 'se');
+}
+
+/** A one-frame animation holding every channel's last key (Dead: the end of Die). */
+export function lastFrame(anim: AnimationData, name = `${anim.name}-end`): AnimationData {
+  const last = <T>(ks?: Key<T>[]): Key<T>[] | undefined => (ks?.length ? [{ f: 0, v: ks.at(-1)!.v }] : undefined);
+  const bones: NonNullable<AnimationData['bones']> = {};
+  for (const [n, tl] of Object.entries(anim.bones ?? {})) {
+    const b: (typeof bones)[string] = {};
+    const r = last(tl.rotate), t = last(tl.translate), sy = last(tl.scaleY);
+    if (r) b.rotate = r;
+    if (t) b.translate = t;
+    if (sy) b.scaleY = sy;
+    bones[n] = b;
+  }
+  const ik: NonNullable<AnimationData['ik']> = {};
+  for (const [n, v] of Object.entries(anim.ik ?? {})) {
+    const m = last(v.mix), bd = last(v.bend);
+    ik[n] = { ...(m ? { mix: m } : {}), ...(bd ? { bend: bd } : {}) };
+  }
+  const slots: NonNullable<AnimationData['slots']> = {};
+  for (const [n, v] of Object.entries(anim.slots ?? {})) slots[n] = last(v)!;
+  return { name, frames: 1, loop: false, bones, ik, slots };
 }

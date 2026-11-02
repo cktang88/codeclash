@@ -7,7 +7,7 @@ import { Anim } from '../contract.ts';
 import type { P2 } from './core.ts';
 import type { Facing } from './facing.ts';
 import { BREATH, type AnimationData, type AnimEvent, type Clip, type SkeletonData } from './skeleton.ts';
-import { facingClip, lagCloth, mocapKeys, overlayKeys, restWorld, type ClipSet, type KP, type LagSpec, type MocapOpts, type Track } from './templar-rig.ts';
+import { addDrops, facingClip, lagCloth, lastFrame, mapFacings, mocapKeys, overlayKeys, restWorld, type ClipSet, type Drop, type KP, type LagSpec, type MocapOpts, type Track } from './templar-rig.ts';
 
 /** What the clips need to know of a kind (templar-foot.ts FootSpec). */
 export interface ClipSpec {
@@ -17,6 +17,10 @@ export interface ClipSpec {
   die: 'back' | 'crumple';
   /** The far arm carries a shield or a two-handed grip (it stays with the torso). */
   farHeld: boolean;
+  /** A shield on the far forearm: Hit is the shield block. */
+  shield?: boolean;
+  /** The weapon's key-art angle (for where it lies when dropped). */
+  nearDeg?: number;
 }
 
 type Tracks = Parameters<typeof overlayKeys>[1];
@@ -126,25 +130,38 @@ const CROSSBOW: Author = (rw) => ({
 /** Struck: the struck shoulder and head snap back first, then the trunk; the rear foot steps back to catch the weight (over the capture's dropped hips). */
 const HIT: Author = () => ({
   dw: {
-    spine: T([0, 14], [1, 19], [2, 9], [4, 1]), head: T([0, 16], [1, 22], [2, 8], [4, 0]),
+    spine: T([0, 16], [1, 20], [2, 12], [3, 5], [4, 0]), head: T([0, 18], [1, 24], [2, 14], [3, 6], [4, 0]),
     upperArmN: T([0, 18], [1, 26], [2, 10], [4, 0]), forearmN: T([0, 30], [1, 40], [2, 16], [4, 0]),
     upperArmF: T([0, 12], [1, 16], [2, 6], [4, 0]), forearmF: T([0, 10], [1, 14], [2, 6], [4, 0]),
   },
-  tAdd: { pelvis: [T([0, -0.3], [1, -0.6], [2, -0.45], [4, -0.1]), T([0, 0], [4, 0])], footTargetN: [T([0, 0], [1, -0.55], [2, -0.6], [4, -0.2]), T([0, 0], [1, -0.3], [2, 0], [4, 0])] },
+  tAdd: { pelvis: [T([0, -0.35], [1, -0.7], [2, -0.6], [4, -0.2]), T([0, 0.05], [1, 0.15], [4, 0])], footTargetN: [T([0, 0], [1, -0.7], [2, -0.8], [4, -0.3]), T([0, 0], [1, -0.35], [2, 0], [4, 0])] },
 });
 
-/** In the fall the shield arm folds across the body and the blade drops from the hand. */
-const DIE_BACK: Author = (rw) => ({
-  w: { upperArmF: T([0, rw.upperArmF!], [2, rw.upperArmF! + 25], [6, 70], [11, 90]), forearmF: T([0, rw.forearmF!], [6, 70], [11, 84]), weapon: T([0, rw.weapon!], [4, 60], [8, 262], [11, 280]) },
-  dw: { spine: T([0, 0], [6, 0], [8, 18], [11, 24]), chest: T([0, 0], [8, 10], [11, 16]), head: T([0, 0], [8, 0], [11, 6]) },
+/** The shield block (Hit for shielded kinds): punch the shield out to meet the blow, the head ducks behind the rim; the blow jolts it back, the weight rocks onto the rear foot; back to guard. */
+const BLOCK: Author = () => ({
+  dw: {
+    upperArmF: T([0, 0], [1, 30], [2, 18], [4, 0]), forearmF: T([0, 0], [1, 24], [2, 14], [4, 0]),
+    spine: T([0, 0], [1, -6], [2, 5], [4, 0]), head: T([0, 0], [1, -8], [2, 2], [4, 0]),
+    upperArmN: T([0, 0], [1, 8], [2, 12], [4, 0]),
+  },
+  tAdd: { pelvis: [T([0, 0], [1, 0.15], [2, -0.35], [4, 0]), T([0, 0], [2, 0.1], [4, 0])], footTargetN: [T([0, 0], [1, 0], [2, -0.4], [4, -0.15]), T([0, 0], [1, -0.3], [2, 0], [4, 0])] },
 });
-const DIE_FWD: Author = (rw) => ({
-  w: { weapon: T([0, rw.weapon!], [4, 40], [8, 80], [11, 92]) },
+
+/** The fall back: the trunk ends flat, with a bounce of the hips as the back lands (frame 8); the off hand lets go of a two-handed haft. */
+const DIE_BACK: Author = () => ({
+  dw: { spine: T([0, 0], [6, 0], [8, 18], [11, 24]), chest: T([0, 0], [8, 10], [11, 16]), head: T([0, 0], [8, 0], [11, 6]) },
+  tAdd: { pelvis: [T([0, 0]), T([0, 0], [7, 0], [8, -0.3], [9, 0])] },
+  ik: { armF2h: T([0, 1], [2, 0]) },
+});
+const DIE_FWD: Author = () => ({
+  tAdd: { pelvis: [T([0, 0]), T([0, 0], [8, 0], [9, -0.25], [10, 0])] },
+  ik: { armF2h: T([0, 1], [2, 0]) },
 });
 
 /** Brace: the shield wall (shield punched forward, blade over the rim), the spear set against horse (butt at the back foot, the point at a horse's chest), a ready crouch. */
 const BRACE: Record<ClipSpec['brace'], Author> = {
-  shield: () => ({ dw: { spine: T([0, -12]), head: T([0, -2]), upperArmF: T([0, 24]), forearmF: T([0, 18]) }, w: { upperArmN: T([0, 70]), forearmN: T([0, 105]), weapon: T([0, 100]) } }),
+  // Crouched behind the shield raised to the eyes, the sword drawn back ready to cut over or under it.
+  shield: () => ({ dw: { spine: T([0, -14]), head: T([0, -8]), upperArmF: T([0, 52]), forearmF: T([0, 44]) }, w: { upperArmN: T([0, 20]), forearmN: T([0, 85]), weapon: T([0, 112]) } }),
   spear: () => ({ dw: { spine: T([0, -16]), head: T([0, 4]), upperArmF: T([0, 20]), forearmF: T([0, 16]) }, w: { upperArmN: T([0, 25]), forearmN: T([0, 80]), weapon: T([0, 118]) } }),
   axe: () => ({ dw: { spine: T([0, -10]), head: T([0, -2]) }, w: { upperArmN: T([0, 40]), forearmN: T([0, 95]), weapon: T([0, 150]) } }),
   ready: () => ({ dw: { spine: T([0, -10]), head: T([0, -2]), upperArmN: T([0, 10]), forearmN: T([0, 20]), upperArmF: T([0, 10]), forearmF: T([0, 15]) } }),
@@ -180,11 +197,24 @@ export function mocapFootClips(skel: SkeletonData, s: ClipSpec): ClipSet {
   const sword = s.attack === 'cut' || s.attack === 'punch';
   // Locomotion: the march (drilled troops) and the run; the arm that carries the weapon swings from the capture, the shield arm rides with the trunk.
   const gaitArms = (g: number): MocapOpts['arms'] => ({ N: sword ? g : s.attack === 'thrust' ? 0.25 : 0.35, F: s.farHeld ? 0 : s.shoot === 'bow' ? g * 0.4 : g });
-  const walk = fc('walk', 12, true, (f) => mk(skel, f, 'walk', { ref: 'mean', torso: 0.5, arms: gaitArms(0.45), roll: 0.5, feet: 0.9 }), undefined, 0.3);
-  const runLean: Author = () => ({ dw: { spine: T([0, -13]), head: T([0, 8]), ...(s.farHeld ? { forearmF: T([0, 12]) } : {}), ...(sword ? { forearmN: T([0, 50]) } : {}) } });
+  // The head stays level and looking ahead whatever the trunk does (and a held angle never boils).
+  const level: Author = (rw) => ({ w: { head: T([0, rw.head!]) } });
+  // The walk: a long stride (feet 0.3 H apart at contact), the hips down 1-2 px just after each
+  // contact, the shoulders counter-swinging against the hips, the sword carried angled up.
+  const walkA: Author = (rw) => {
+    const bob = T([0, 0.12], [1, 0.25], [2, 0.12], [3, -0.12], [4, -0.15], [5, 0], [6, 0.12], [7, 0.25], [8, 0.12], [9, -0.12], [10, -0.15], [11, 0]);
+    const twist = T([0, -0.15], [3, 0], [6, 0.15], [9, 0], [11, -0.1]);
+    return {
+      w: (sword ? { head: T([0, rw.head!]), weapon: T([0, 148]) } : { head: T([0, rw.head!]) }) as Record<string, Track>,
+      dw: sword ? { forearmN: T([0, 38]) } : ({} as Record<string, Track>),
+      tAdd: { pelvis: [T([0, 0]), bob], chest: [twist, T([0, 0])] },
+    };
+  };
+  const walk = fc('walk', 12, true, (f) => mk(skel, f, 'walk', { ref: 'mean', torso: 0.5, arms: gaitArms(0.7), roll: 0.6, feet: 1.25 }, walkA), undefined, 0.3);
+  const runLean: Author = (rw) => ({ w: { head: T([0, rw.head! - 6]) }, dw: { spine: T([0, -13]), ...(s.farHeld ? { forearmF: T([0, 12]) } : {}), ...(sword ? { forearmN: T([0, 50]) } : {}) } });
   const run = fc('run', 12, true, (f) => mk(skel, f, 'run', { ref: 'mean', torso: 0.5, arms: gaitArms(0.7), roll: 0.5 }, runLean), undefined, 1);
   // Idle: the capture's slow weight shift, small (the key art must hold), and breathing.
-  const idle = withBreath(fc('idle', 8, true, (f) => mk(skel, f, 'idle', { ref: 'first', torso: 0.15, travel: 0.12, feet: 0 })));
+  const idle = withBreath(fc('idle', 8, true, (f) => mk(skel, f, 'idle', { ref: 'first', torso: 0.15, travel: 0.2, feet: 0 })));
   const atk = {
     cut: () => (f: Facing) => mk(skel, f, 'cut-diagonal', { torso: 0.4, travel: 0, feet: 0.3 }, CUT, [2, 10]),
     thrust: () => (f: Facing) => mk(skel, f, 'thrust', { torso: 0.6, travel: 1, feet: 1 }, THRUST, [10]),
@@ -210,15 +240,24 @@ export function mocapFootClips(skel: SkeletonData, s: ClipSpec): ClipSet {
   if (s.shoot === 'crossbow') shoot = fc('shoot', 12, false, (f) => mk(skel, f, 'brace', { ref: 'first', torso: 0, travel: 0.4, feet: 0 }, CROSSBOW, [2, 3, 5, 7, 9, 11]), [{ f: 3, name: 'release' }]);
   // A long spear stays upright in the fist while the body recoils.
   const hitA: Author = (rw) => ({ ...HIT(rw), ...(s.attack === 'thrust' ? { w: { weapon: T([0, rw.weapon! - 4], [1, rw.weapon! - 6], [4, rw.weapon!]) } } : {}) });
-  const hit = fc('hit', 5, false, (f) => mk(skel, f, 'hit', { torso: 0, absHeight: true, travel: 0.55, feet: 0.6 }, hitA, [1, 2]));
+  // Shielded men snap back like anyone, and punch the shield out against the blow as they do.
+  const hitS: Author = (rw) => {
+    const h = hitA(rw), b = BLOCK(rw);
+    return { ...h, dw: { ...h.dw, upperArmF: b.dw!.upperArmF!, forearmF: b.dw!.forearmF! } };
+  };
+  const hit = fc('hit', 5, false, (f) => mk(skel, f, 'hit', { torso: 0, absHeight: true, travel: 0.55, feet: 0.6 }, s.shield ? hitS : hitA, [1, 2, 3]), [{ f: 0, name: 'flash' }]);
   const dieName = s.die === 'back' ? 'die-back' : 'die-forward';
-  const dieKeys = (f: Facing) => mk(skel, f, dieName, { torso: 1, absHeight: true, legsFK: true, arms: { N: 1, F: s.farHeld ? 0 : 1 } }, s.die === 'back' ? DIE_BACK : DIE_FWD);
-  const die = fc('die', 12, false, dieKeys, [{ f: 9, name: 'land' }]);
-  const dead = fc('dead', 1, false, (f) => {
-    const d = dieKeys(f);
-    return { keys: [{ ...d.keys.at(-1)!, f: 0 }], ev: [] };
-  });
-  const brace = withBreath(fc('brace', 8, true, (f) => mk(skel, f, 'brace', { ref: 'mean', absHeight: true, travel: 0.8, torso: 0, feet: 0.4 }, BRACE[s.brace])), 0.6);
+  // die-forward is a get-up played backwards: its first half is too slow for a man losing his legs.
+  const fast = (f: number) => (f <= 6 ? f * 0.7 : 4.2 + ((f - 6) * 6.8) / 5);
+  const dieKeys = (f: Facing) => mk(skel, f, dieName, { torso: 1, absHeight: true, legsFK: true, arms: { N: 1, F: 1 }, ...(s.die === 'back' ? {} : { retime: fast }) }, s.die === 'back' ? DIE_BACK : DIE_FWD, [8, 9]);
+  // The shield slides off the arm and the weapon falls from the hand: they land beside him and bounce.
+  const back = s.die === 'back';
+  const nd = s.nearDeg ?? 20;
+  const drops: Drop[] = [{ holder: 'weapon', bone: 'dropW', slot: 'weaponDrop', from: 'weapon', at: back ? 3 : 4, land: back ? { x: -6.2, y: -0.25, rot: 270 - nd, f: 6 } : { x: 4.6, y: -0.25, rot: 90 - nd, f: 7 } }];
+  if (s.shield) drops.push({ holder: 'forearmF', bone: 'dropF', slot: 'frontDrop', from: 'front', at: back ? 5 : 5, land: back ? { x: 4.4, y: -0.45, rot: 84, f: 8 } : { x: -2.6, y: -0.45, rot: -80, f: 9 } });
+  const die = addDrops(skel, fc('die', 12, false, dieKeys, [{ f: back ? 7 : 9, name: 'land' }]), 12, drops);
+  const dead = mapFacings(die, (a) => lastFrame(a, 'dead'));
+  const brace = withBreath(fc('brace', 8, true, (f) => mk(skel, f, 'brace', { ref: 'mean', absHeight: true, travel: 1.0, torso: 0, feet: 0.4 }, BRACE[s.brace])), 0.6);
   return { [Anim.Idle]: idle, [Anim.Walk]: walk, [Anim.Run]: run, [Anim.Attack]: attack, [Anim.Shoot]: shoot, [Anim.Hit]: hit, [Anim.Die]: die, [Anim.Dead]: dead, [Anim.Brace]: brace };
 }
 void (null as unknown as P2);

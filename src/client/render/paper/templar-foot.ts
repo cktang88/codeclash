@@ -3,12 +3,12 @@
 // motion reference behind the clips.
 
 import { Anim } from '../contract.ts';
-import { type P2 } from './core.ts';
+import { type P2, type Paper } from './core.ts';
 import type { Facing } from './facing.ts';
 import { registerPaperKind } from './registry.ts';
 import {
   BREATH, bonesFromJoints, EASE, EASE_IN, EASE_OUT, skeletonKind, smearPart,
-  type AnimationData, type AnimEvent, type AttachmentSet, type FacingClips, type Track, type Clip, type JointDef, type SkeletonData, type SkeletonRig, type SlotData,
+  type AnimationData, type AnimEvent, type AttachmentSet, type DrawCtx, type FacingClips, type PartXf, type Track, type Clip, type JointDef, type SkeletonData, type SkeletonRig, type SlotData,
 } from './skeleton.ts';
 import { bow, paintAs, TM } from './templar-parts.ts';
 import { buildAnim, facingClip, lagCloth, partMap, skinMap, smooth01, type ClipSet, type KP, type LagSpec, type Weights } from './templar-rig.ts';
@@ -103,6 +103,9 @@ function joints(R: ManRest, s: FootSpec, k: SKit): Record<string, { from: P2; to
     cloak: { from: [0.3, -12.0], to: [0.3, -1.0] },
     footTargetN: { from: R.ankN, to: R.ankN },
     footTargetF: { from: R.ankF, to: R.ankF },
+    // What falls from the hands in a death: the shield and the weapon, free of the arms.
+    dropF: { from: [1.75, -8.1], to: [1.75, -7.1] },
+    dropW: { from: hN, to: along(hN, nd, 4) },
   };
 }
 const PARENT: Record<string, string | undefined> = {
@@ -110,7 +113,7 @@ const PARENT: Record<string, string | undefined> = {
   upperArmN: 'chest', forearmN: 'upperArmN', handN: 'forearmN', weapon: 'handN', grip2: 'weapon',
   upperArmF: 'chest', forearmF: 'upperArmF', handF: 'forearmF', itemF: 'handF',
   thighN: 'pelvis', shinN: 'thighN', footN: 'shinN', thighF: 'pelvis', shinF: 'thighF', footF: 'shinF',
-  skirtN: 'pelvis', skirtF: 'pelvis', cloak: 'chest', footTargetN: 'root', footTargetF: 'root',
+  skirtN: 'pelvis', skirtF: 'pelvis', cloak: 'chest', footTargetN: 'root', footTargetF: 'root', dropF: 'root', dropW: 'root',
 };
 
 /** The rig's slots: every key-art piece rides one bone. */
@@ -120,14 +123,21 @@ const PIECE_BONE = (s: FootSpec): Record<ManPiece, string> => ({
   pouch: 'pelvis', head: 'head', front: s.front, upperArmN: 'upperArmN', forearmN: 'forearmN', handN: 'handN', pauldron: 'chest', weapon: 'weapon', last: 'chest',
 });
 const ORDER_SE: string[] = [
-  'cloak', 'behind', 'thighF', 'shinF', 'footF', 'thighN', 'shinN', 'footN', 'upperArmF', 'forearmF', 'handF', 'farItem',
-  'torso', 'fur', 'camail', 'hood', 'pouch', 'head', 'front', 'upperArmN', 'forearmN', 'handN', 'pauldron', 'weapon', 'smear', 'last',
+  'frontDrop', 'weaponDrop', 'cloak', 'behind', 'thighF', 'shinF', 'footF', 'thighN', 'shinN', 'footN', 'upperArmF', 'forearmF', 'handF', 'farItem',
+  'torso', 'fur', 'camail', 'hood', 'pouch', 'head', 'front', 'upperArmN', 'forearmN', 'handN', 'pauldron', 'weapon', 'smear', 'last', 'flash',
 ];
 /** From behind: what is held in front goes first; the mantle and a slung pavise cover the back. */
 const ORDER_NE: string[] = [
-  'front', 'farItem', 'upperArmF', 'forearmF', 'handF', 'thighF', 'shinF', 'footF', 'thighN', 'shinN', 'footN',
-  'torso', 'pouch', 'cloak', 'fur', 'camail', 'hood', 'head', 'behind', 'upperArmN', 'forearmN', 'handN', 'pauldron', 'weapon', 'smear', 'last',
+  'frontDrop', 'weaponDrop', 'front', 'farItem', 'upperArmF', 'forearmF', 'handF', 'thighF', 'shinF', 'footF', 'thighN', 'shinN', 'footN',
+  'torso', 'pouch', 'cloak', 'fur', 'camail', 'hood', 'head', 'behind', 'upperArmN', 'forearmN', 'handN', 'pauldron', 'weapon', 'smear', 'last', 'flash',
 ];
+/** Slots that are not key-art pieces on their own bone. */
+const EXTRA_SLOTS: Record<string, { bone: string; att: string | null }> = {
+  smear: { bone: 'weapon', att: 'smear' },
+  frontDrop: { bone: 'dropF', att: null },
+  weaponDrop: { bone: 'dropW', att: null },
+  flash: { bone: 'root', att: 'flash' },
+};
 
 export function footSkel(kind: number, k: SKit, g: SGear, s: FootSpec): SkeletonData {
   const se = joints(manRest(k, g), s, k), ne = joints(neRest(manRest(k, g), s), s, k);
@@ -142,7 +152,7 @@ export function footSkel(kind: number, k: SKit, g: SGear, s: FootSpec): Skeleton
   });
   const R = manRest(k, g);
   const pb = PIECE_BONE(s);
-  const slots: SlotData[] = ORDER_SE.map((name) => ({ name, bone: name === 'smear' ? 'weapon' : pb[name as ManPiece], attachment: { all: name } }));
+  const slots: SlotData[] = ORDER_SE.map((name) => (EXTRA_SLOTS[name] ? { name, bone: EXTRA_SLOTS[name]!.bone, attachment: { all: EXTRA_SLOTS[name]!.att } } : { name, bone: pb[name as ManPiece], attachment: { all: name } }));
   return {
     name: `templar-foot-${kind}`,
     body: 'foot',
@@ -182,7 +192,7 @@ function footParts(k: SKit, g: SGear, s: FootSpec, dark: boolean): AttachmentSet
   const rest: Record<Facing, ManRest> = { se: manRest(k, g), ne: neRest(manRest(k, g), s), sw: manRest(k, g), nw: manRest(k, g) };
   const atts: AttachmentSet = {};
   for (const p of ORDER_SE) {
-    if (p === 'smear') continue;
+    if (EXTRA_SLOTS[p]) continue;
     const piece = p as ManPiece;
     if (piece === 'torso' || piece === 'cloak') {
       atts[p] = {
@@ -200,6 +210,25 @@ function footParts(k: SKit, g: SGear, s: FootSpec, dark: boolean): AttachmentSet
       paintAs(c, dark, () => withMap(partMap(x), () => manPiece(c, k, g, piece, rest[f], { rig: true, back: f === 'ne' })));
     };
   }
+  // Dropped in a death: the same drawings on bones of their own.
+  const dropped = (piece: ManPiece) => (c: Paper, x: PartXf, ctx: DrawCtx) => {
+    const f = ctx.posed.facing;
+    paintAs(c, dark, () => withMap(partMap(x), () => manPiece(c, k, g, piece, rest[f], { rig: true, back: f === 'ne' })));
+  };
+  atts.frontDrop = dropped('front');
+  atts.weaponDrop = dropped('weapon');
+  // The hit flash: on the impact frame every pixel of the figure goes two tones lighter.
+  atts.flash = {
+    cache: false,
+    draw: (c, _x, ctx) => {
+      if (!ctx.events.some((e) => e.name === 'flash')) return;
+      for (let y = c.by0; y <= c.by1; y++)
+        for (let x = c.bx0; x <= c.bx1; x++) {
+          const i = y * c.CW + x, v = c.pix[i]!;
+          if (v >= 0) c.pix[i] = v - (v & 7) + Math.min(4, (v & 7) + 2);
+        }
+    },
+  };
   if (s.shoot === 'bow') {
     // The bow, drawn on the frame: from the `draw` event to the loose its string runs to the draw
     // hand, the stave bends and an arrow lies on it.
@@ -559,7 +588,7 @@ export function footRig(kind: number): SkeletonRig | undefined {
   const f = FOOT[kind], s = FOOT_SPECS[kind];
   if (!f || !s) return undefined;
   const skel = footSkel(kind, f.kit, f.gear, s);
-  const clips = mocapFootClips(skel, { ...s, farHeld: s.front === 'forearmF' || !!s.twoHand || s.shoot === 'crossbow' });
+  const clips = mocapFootClips(skel, { ...s, farHeld: s.front === 'forearmF' || !!s.twoHand || s.shoot === 'crossbow', shield: s.front === 'forearmF' });
   const rig: SkeletonRig = { skel, atts: footParts(f.kit, f.gear, s, f.dark), clips };
   RIGS.set(kind, rig);
   return rig;
