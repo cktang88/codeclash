@@ -125,7 +125,7 @@ export function bakePools(P: Pt, ls: readonly Light[]): void {
           if (data[j] && depth[j]! > qu + qv + qz + 1.5) hidden = true;
         }
         if (hidden) continue;
-        data[i] = a > 0.55 ? tone(mix(c, L.tint, 0.32), -0.1) : mix(c, L.tint, 0.15);
+        data[i] = a > 0.55 ? tone(mix(c, L.tint, 0.42), -0.18) : tone(mix(c, L.tint, 0.24), -0.06);
         cl[i] = 1;
       }
   }
@@ -192,7 +192,7 @@ export function groundPools(P: Pt, ls: readonly Light[], depthKey = -999): Art {
     g.putImageData(img, 0, 0);
     return c;
   };
-  return { canvas: make([0.08, 0.16]), lights: null, night: make([0.26, 0.5]), x: x0, y: y0, d: depthKey };
+  return { canvas: make([0.08, 0.16]), lights: null, night: make([0.32, 0.6]), x: x0, y: y0, d: depthKey };
 }
 // ------------------------------------------------------------------ palette
 

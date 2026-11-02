@@ -418,7 +418,7 @@ function spire(P: Painter, u: number, v: number, z: number, l: number, h: number
   // A cross-bar on the finial.
   line3(P.px, v3(t.u - 0.8, t.v + 0.8, t.z + 2.2), v3(t.u + 0.8, t.v - 0.8, t.z + 2.2), P.st.timber[3]);
   P.px.point(v3(t.u, t.v, t.z + 3.5), P.st.violet);
-  glow(t.u, t.v, t.z + 3.5, 1);
+  glow(t.u, t.v, t.z + 3.5, 1, 14);
 }
 
 /** A pinnacle: a little square shaft and a crocketed spirelet. */
@@ -499,6 +499,11 @@ function keep(P: Painter, tier: number, parts: BuildingParts): void {
   const mat = (zz: number): Mat => (zz > h - 7 && zz < h - 2 ? 'bone' : tier >= 4 && zz > h * 0.45 && zz < h * 0.45 + 3.6 ? 'frieze' : 'black');
   frustum(P.px, u - 2, u - 2, 0, l + 4, l + 4, 4, 1.2, (f, p) => blackAt(P, f, f === 'left' ? p.u : p.v, p.z, 13));
   box(P.px, u, u, 4, l, l, h - 4, wrap(gwall(P, 4, h - 4, holes.map((o) => ({ ...o, a: o.a + (o.face === 'left' ? u : u), z: o.z - 4 })), (zz) => mat(zz + 4), 11, { ivy: 0.45 })));
+  // The upper lancets burn: their light falls down the walls under them.
+  for (let i = 0; i < 2; i++) {
+    glow(u + ((i + 0.5) * l) / 2, u + l + 0.8, h - 12, 0, 8);
+    glow(u + l + 0.8, u + ((i + 0.5) * l) / 2, h - 12, 0, 8);
+  }
   // Buttresses up the visible corners and faces.
   if (tier >= 3)
     for (const [bu, bv] of [[u + l - 1, u + l - 1], [u + l - 1, u + l / 2 - 1], [u + l / 2 - 1, u + l - 1]] as const) {
@@ -571,7 +576,10 @@ function chapter(P: Painter, tier: number, parts: BuildingParts): void {
   ];
   const rh = hall(P, u0, v0, 0, lu, lv, h, true, holes, (zz) => (zz > h - 3.5 && zz < h - 0.8 && tier >= 3 ? 'bone' : 'black'), 'slate', 23, 1.0, false, { ivy: 0.42, ruin: tier >= 3 ? [lu * 0.62, lv * 0.32, 5, 3.2] : undefined });
   // The rose window and the west door throw grave-light.
-  glow(u0 + lu + 0.3, v0 + lv / 2, h + 4.5, 0);
+  glow(u0 + lu + 0.3, v0 + lv / 2, h + 4.5, 0, 11);
+  // The nave's lancets throw their green down the wall and onto the ground before them.
+  const nl = tier >= 3 ? 5 : 4;
+  for (let i = 0; i < nl; i++) glow(u0 + ((i + 0.5) * lu) / nl, v0 + lv + 1.2, 2 + (h - 6) / 2, 0, 9);
   // Buttresses down the nave, flying ones when grand.
   if (tier >= 3)
     for (let u = u0 + 5; u < u0 + lu - 3; u += 9) {
@@ -748,9 +756,9 @@ function granary(P: Painter, tier: number, level: number, parts: BuildingParts):
     drum(P.px, u0 + l / 2, v0 + l / 2, 14.5, 8, 3, 16, wrap(gwall(P, 14.5, 3, [], 'bone', 56)));
     cone(P.px, u0 + l / 2, v0 + l / 2, 17.5, 8.5, 7, 16, roofSh(P, 'lead'));
     P.px.point(v3(u0 + l / 2, v0 + l / 2, 25), st.violet);
-    glow(u0 + l / 2, v0 + l / 2, 25, 1);
+    glow(u0 + l / 2, v0 + l / 2, 25, 1, 12);
     // The tomb door breathes violet.
-    glow(u0 + l + 0.5, v0 + l / 2, 5, 1);
+    glow(u0 + l + 0.5, v0 + l / 2, 5, 1, 13);
     for (let i = 0; i < 4; i++) {
       const v = v0 + 3 + i * ((l - 6) / 3);
       box(P.px, u0 + l + 2, v - 0.7, 2.5, 1.4, 1.4, 9.5, (f) => lit(st.fine, f));
