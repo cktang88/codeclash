@@ -125,7 +125,7 @@ export function bakePools(P: Pt, ls: readonly Light[]): void {
           if (data[j] && depth[j]! > qu + qv + qz + 1.5) hidden = true;
         }
         if (hidden) continue;
-        data[i] = a > 0.55 ? tone(mix(c, L.tint, 0.32), -0.1) : mix(c, L.tint, 0.15);
+        data[i] = a > 0.55 ? tone(mix(c, L.tint, 0.42), -0.18) : tone(mix(c, L.tint, 0.24), -0.06);
         cl[i] = 1;
       }
   }
@@ -192,7 +192,7 @@ export function groundPools(P: Pt, ls: readonly Light[], depthKey = -999): Art {
     g.putImageData(img, 0, 0);
     return c;
   };
-  return { canvas: make([0.08, 0.16]), lights: null, night: make([0.26, 0.5]), x: x0, y: y0, d: depthKey };
+  return { canvas: make([0.08, 0.16]), lights: null, night: make([0.32, 0.6]), x: x0, y: y0, d: depthKey };
 }
 // ------------------------------------------------------------------ palette
 
@@ -206,7 +206,10 @@ export function palOf(st: CityStyle): Pal {
   p = {
     // Weathered grey stone (paler than the buildings, so the graves read against the dark turf).
     S: mix(st.stone[0], st.fine[2], 0.3), s: mix(st.stone[1], st.fine[3], 0.2), d: st.stone[2], e: st.stone[3],
+    // Highlight, epitaph cut, pale lichen, the contact shadow on the ground.
+    H: mix(st.stone[0], st.fine[1], 0.55), E: tone(st.stone[3], 0.1), l: hex('#a6a676'), f: hex('#120e1a'),
     // Marble gone grey-violet, for angels and the better tombs.
+    P: hex('#c4bed2'),
     A: hex('#a29cb2'), a: hex('#7a7490'), q: hex('#524c68'),
     // Bone.
     B: st.fine[0], b: st.fine[1], k: st.fine[2], K: st.fine[3],
@@ -235,6 +238,75 @@ export function palOf(st: CityStyle): Pal {
   return p;
 }
 
+
+// ------------------------------------------------------------------ the day's low sun
+
+/**
+ * A low pale sun breaking through the overcast (by day only): the lit planes (light class 1) take
+ * a cold pale gold and step up, the half-lit ones a touch of it, the shade planes fall a step into
+ * deep violet, and every silhouette top (a pixel under the outline) catches a pale-gold rim. It is
+ * laid on the finished Art's day canvas alone; its night canvas, made from the same pixels before,
+ * stays the moonlit palette. Witchfire-lit pixels (strong green) keep their colour.
+ */
+export const SUN = hex('#f2dca2');
+const SUN_RIM = hex('#fff2c8');
+const SHADE = hex('#140f28');
+/** A colour lifted by a warm offset (keeps a ramp's contrast, where a mix would flatten it). */
+const add = (c: Col, r: number, g: number, b: number): Col => rgb(Math.min(255, R(c) + r), Math.min(255, G(c) + g), Math.min(255, B(c) + b));
+export function sunlit(art: Art, P: Pt): void {
+  if (!art.canvas) return;
+  const px = P.px;
+  const { w, data } = px;
+  const cl = px.cls;
+  const W = art.canvas.width;
+  const H = art.canvas.height;
+  const g = art.canvas.getContext('2d')!;
+  const img = g.createImageData(W, H);
+  const out = new Uint32Array(img.data.buffer);
+  for (let y = 0; y < H; y++)
+    for (let x = 0; x < W; x++) {
+      const i = (y + art.y) * w + (x + art.x);
+      let c = data[i]!;
+      if (!c) continue;
+      const k = cl[i]!;
+      const green = G(c) > R(c) + 30 && G(c) > B(c) + 10;
+      if (!green && k !== 4) {
+        const top = i >= w && cl[i - w] === 4;
+        if (top && k !== 3) c = mix(add(c, 48, 42, 22), SUN_RIM, 0.45);
+        else if (k === 1) c = add(c, 44, 38, 20);
+        else if (k === 2) c = add(c, 24, 20, 10);
+        else if (k === 3) c = mix(c, SHADE, 0.38);
+      }
+      out[y * W + x] = c;
+    }
+  g.putImageData(img, 0, 0);
+}
+
+/**
+ * A pool of pale sun on the flags, broken by the shadows of dead branches (the user's
+ * town-displate: a patch of light on the cobbles in the shade). Opaque by day; at night the same
+ * pixels fall back to plain flagstone in the ground's own night (decalArt's base colours).
+ */
+export function sunPool(D: Decal, cu: number, cv: number, r: number, seed: number): void {
+  const lit = [hex('#cabca0'), hex('#b6aa92'), hex('#d8caa8'), hex('#8e8476')];
+  const flags = [hex('#5f5d74'), hex('#545269'), hex('#6a6880'), hex('#4a4860')];
+  const bands: [number, number, number][] = [];
+  for (let i = 0; i < 5; i++) bands.push([hash(i, seed, 1) * Math.PI, (hash(i, seed, 2) - 0.5) * r * 1.4, 0.3 + hash(i, seed, 3) * 0.5]);
+  D.ellipse(cu, cv, r, r * 0.65, (x, y, u, v, rr) => {
+    if (rr > 0.6 && hash(x >> 2, y >> 1, seed + 9) < (rr - 0.6) * 2.4) return;
+    let shade = false;
+    for (const [a, o, wd] of bands) {
+      const d = (u - cu) * Math.cos(a) + (v - cv) * Math.sin(a) - o + Math.sin((u + v) * 0.9 + a * 3) * 0.6;
+      if (Math.abs(d) < wd) shade = true;
+    }
+    if (shade) return;
+    const f = flagAt(u, v, seed);
+    const j = Math.floor(f.slab * 3);
+    const c = f.joint || f.crack ? lit[3]! : lit[j]!;
+    const base = f.joint || f.crack ? flags[3]! : flags[j]!;
+    D.set(x, y, f.weed ? hex('#76804e') : c, 3, base);
+  });
+}
 // ------------------------------------------------------------------ the micro-sprite
 
 export interface StampOpts {
@@ -293,135 +365,162 @@ function cls(P: Pt, x: number, y: number, c: number): void {
 
 /** Headstones and grave markers, after Glasnevin's crowded rows and SpiderDave's CC0 set. */
 const ROUND = [
-  '..sSSs..',
-  '.sSSSSSd',
-  '.SSSSSSd',
-  '.SsssSSd',
-  '.SSSSSSd',
-  '.SssSsSd',
-  '.SSSSSSd',
-  '.SSLSSSd',
-  '.MSSSSMd',
-  'MmMMmMmd',
+  '...HHs...',
+  '..HSSssd.',
+  '.HSSsssde',
+  '.HSEEEsde',
+  '.SSsSSsde',
+  '.SEEsEEde',
+  '.SSssssde',
+  '.SEEEssde',
+  '.SlSsssde',
+  '.SSsslsde',
+  '.MSsssMde',
+  'MmMMmMmdeff',
 ];
 const CRACKED = [
-  '..sSS...',
-  '.sSSSe..',
-  '.SSSSSe.',
-  '.SssseSd',
-  '.SSSeSSd',
-  '.SseSsSd',
-  '.SSeSSSd',
-  '.SSSeSSd',
-  '.MSSSeMd',
-  'MmMMmMmd',
+  '...HH....',
+  '..HSSs...',
+  '.HSSssE..',
+  '.HSEEsEd.',
+  '.SSsSEsde',
+  '.SEEsEEde',
+  '.SSsEssde',
+  '.SEEEsEde',
+  '.SlSsEsde',
+  '.SSssEsde',
+  '.MSsssMde',
+  'MmMMmMmdeff',
 ];
 const GOTHIC = [
-  '...S....',
-  '..sSd...',
-  '.sSSSd..',
-  '.SSdSSd.',
-  '.SsssSd.',
-  '.SSsSSd.',
-  '.SSSSSd.',
-  '.SsssSd.',
-  '.SSSSSd.',
-  '.SSLSSd.',
-  '.MSSSMd.',
-  'MmMMmMd.',
+  '....H....',
+  '...HSd...',
+  '..HSsde..',
+  '.HSSssde.',
+  '.HSEEEsde',
+  '.SSsSSsde',
+  '.SEEsEsde',
+  '.SSssssde',
+  '.SEEEssde',
+  '.SSssssde',
+  '.SlSsssde',
+  '.MSssMsde',
+  'MmMMmMmdeff',
 ];
 const CROSS = [
-  '...S...',
-  '..SSd..',
-  '..SSd..',
-  'sSSSSdd',
-  'ssssddd',
-  '..SSd..',
-  '..SSd..',
-  '..SLd..',
-  '..SSd..',
-  '.SSSSd.',
-  'MmMMmMd',
+  '...HH...',
+  '...Ssd..',
+  'HHHSsddd',
+  'SsssssdE',
+  'eddSsdee',
+  '...Ssd..',
+  '...Ssd..',
+  '...Sld..',
+  '...Ssd..',
+  '..HSsde.',
+  '..SEEde.',
+  '.MSssdMe',
+  'MmMMmMdeff',
 ];
 const CELTIC = [
-  '....S....',
-  '...SSd...',
-  '..sSSds..',
-  '.s.SSd.d.',
-  'SSSSSSSdd',
-  'sssSSdsdd',
-  '.s.SSd.d.',
-  '..sSSdd..',
-  '...SSd...',
-  '...SLd...',
-  '...SSd...',
-  '...SSd...',
-  '..SSSSd..',
-  '..SdddSd.',
-  '.MSSSSSdM',
-  'MmMMmMmMd',
+  '....HH....',
+  '..HHSsdd..',
+  '.Hs.Ssd.e.',
+  'HSSSSssddd',
+  'sssssssdde',
+  '.Hs.Ssd.e.',
+  '..sdSsdee.',
+  '....Ssd...',
+  '....Sld...',
+  '....Ssd...',
+  '....Ssd...',
+  '...HSsde..',
+  '..HSEEsde.',
+  '..SSssdde.',
+  '.MSSssdMe.',
+  'MmMMmMmdeff',
 ];
 const OBELISK = [
-  '...S...',
-  '..SSd..',
-  '..SSd..',
-  '..SSd..',
-  '..SSd..',
-  '..SSd..',
-  '..SSd..',
-  '..SLd..',
-  '..SSd..',
-  '..SSd..',
-  '..SSd..',
-  '.SSSdd.',
-  '.SdddSd',
-  '.SSSSdd',
-  '.ssssdd',
-  'MSSSSdM',
-  'MmMmMmd',
+  '...H...',
+  '..HSd..',
+  '..HSd..',
+  '..Ssd..',
+  '..Ssd..',
+  '..Ssd..',
+  '..Sld..',
+  '..Ssd..',
+  '..Ssd..',
+  '..SEd..',
+  '..Ssd..',
+  '.HSssd.',
+  '.HSssde',
+  '.SEEsde',
+  '.SSssde',
+  '.SEEsde',
+  'MSlssdM',
+  'MmMmMdeff',
 ];
 const SLAB = [
-  '..sSSSSs..',
-  '.sSSSSSSSd',
-  'sSSdSSSSdd',
-  'SSSSSSSSdd',
-  'MSSSSSSdd.',
-  'mMmMMmMd..',
+  '..HSSSSs..',
+  '.HSsEEsSd.',
+  'HSssssssde',
+  'SSsEEEssde',
+  'MSsssssdd.',
+  'mMmMMmMdeff',
 ];
+/** Faceless with weather, head bowed, wings folded behind, hands clasped, robe in folds, streaked black. */
 const ANGEL = [
-  '....aa.....',
-  '...aAAq....',
-  '...aAAq....',
-  '.aA.aAq.Aq.',
-  'aAAaAAAqAAq',
-  'aAAAAAAAAAq',
-  'aAAqAAAqqAq',
-  '.aAqAAAqAq.',
-  '.aAqAeAAqq.',
-  '..aqAeAAq..',
-  '..aAAeAAq..',
-  '..aAAqAAq..',
-  '..aAAqAeq..',
-  '.aAAAqAeAq.',
-  '.aAAAqAAAq.',
-  '.aaaaqqqqq.',
-  '.SSSSSSSSd.',
-  '.SdddddSSd.',
-  '.SSSSSSSSd.',
-  'MMSSSSSSSdM',
-  'mMmMMmMmMMd',
+  '.....PA......',
+  '....PAAq.....',
+  '....AAaq.....',
+  '..Pa.Aqq.aq..',
+  '.PAaAAAaqAaq.',
+  '.PAAaAAAqaAq.',
+  '.PAaqAAaqqAq.',
+  '.PAaqPAAqqaq.',
+  '..AaPAAaqaq..',
+  '..AaAaAqqqq..',
+  '..PaAAaeqqe..',
+  '..PAaAaeAq...',
+  '..PAaAaqAqe..',
+  '.PAAaAaqAaqe.',
+  '.PAAaeaqAaqe.',
+  'PAAaAAaqAaaqe',
+  'qqqqqqqqqqqqe',
+  '.HSSSSSSSSde.',
+  '.SEEEEEEEsde.',
+  '.SSSSSSSSsde.',
+  'MSSlSSSSSsdM.',
+  'mMmMMmMMmMdeff',
 ];
 const WREATH = ['.nNn.', 'N.y.n', 'n...N', 'NyY.n', '.nNy.', '..y..'];
+/** Dead ivy creeping over a headstone's shoulder and trailing down its face. */
+const CREEPER = ['.NNn....', 'NnNNn...', '.nN.Nn..', '..n..N..', '..N.....', '..n.....'];
+/** Candle stubs of different heights, wax running down them into a pool, two-tone flames. */
 const CANDLES = [
-  '.F....F.',
-  '.G..F.G.',
-  '.X..G.X.',
-  '.Xt.X.Xt',
-  'XXtXXtXt',
-  'XtXXtXXt',
-  'ttttttt.',
+  '.F.....F..',
+  '.G..F..G..',
+  '.g..G..g..',
+  '.X..g..X..',
+  '.Xt.X..Xt.',
+  'XXt.XtXXt.',
+  'XtXXtXXtt.',
+  'XttXttXtt.',
+  '.tttttttff',
 ];
-const LANTERN = ['..j..', '.iji.', 'iiiii', 'iGFGi', 'iGGGi', 'igGgi', 'iiiii', '..i..'];
+/** An iron lantern: a ring, a cap, cage bars over the witchfire, a base. */
+const LANTERN = [
+  '...j...',
+  '..jIj..',
+  '.jIIIj.',
+  '.iGiGi.',
+  '.iFiFi.',
+  '.iGiGi.',
+  '.igigi.',
+  '.jIIIj.',
+  '..jjj..',
+  '...j...',
+];
 const CAGE = [
   '...i...',
   '..iji..',
@@ -451,8 +550,21 @@ const PLAGUE = [
   'xvvvvvvvx',
 ];
 const SHOVEL = ['.v.', 'vvv', '.w.', '.w.', '.w.', '.w.', 'IIi', 'IIi', '.i.'];
-const SKULL = ['.BB.', 'BbbK', 'kQkK', '.bK.'];
-const SKULLPILE = ['...BB...', '..BkkK..', '.BBQkBK.', 'BkbKBbbK', 'bQkbkQkK', 'kbKBkbKk'];
+const SKULL = ['.BBb.', 'BbbbK', 'QbQkK', '.kbK.', '..fff'];
+/** Skulls heaped on long bones: each skull a cranium, two sockets and a jaw, so they read one by one. */
+const SKULLPILE = [
+  '....BBb.....',
+  '...BbbbK....',
+  '...QbQkK....',
+  '.BBbkbKBBb..',
+  'BbbbKBbbbbK.',
+  'QbQkKQbQkKK.',
+  'BkbKBkbKBbb.',
+  'BbbbKbBbbKbK',
+  'QbQkKQbQkKkK',
+  '.kbKkkbKkbK.',
+  '..ffffffffff',
+];
 const BONES = ['B.....b', '.bk.kK.', '..BbK..', '.Bk.bk.', 'b.....K'];
 const FLOWERS = ['y.Y.y', 'NyNYn', '.nNn.'];
 const WEB = ['ZZZZZZZ', 'Z.Z..Z.', 'ZZ.ZZ..', 'Z.Z.Z..', 'ZZ.Z...', 'Z.Z....', 'ZZ.....', 'Z......'];
@@ -460,8 +572,8 @@ const WEB = ['ZZZZZZZ', 'Z.Z..Z.', 'ZZ.ZZ..', 'Z.Z.Z..', 'ZZ.Z...', 'Z.Z....', '
 /** Swap the stone keys for a black polished or a marble headstone. */
 function subFor(P: Pt, kind: number): Pal | undefined {
   const p = palOf(P.st);
-  if (kind === 1) return { S: hex('#3a3850'), s: hex('#2c2a3e'), d: hex('#1c1a2a'), L: hex('#56546c') };
-  if (kind === 2) return { S: p.A!, s: p.a!, d: p.q!, L: hex('#c8c4cc') };
+  if (kind === 1) return { H: hex('#5a5874'), S: hex('#3e3c56'), s: hex('#302e44'), d: hex('#1e1c2e'), e: hex('#14121f'), E: hex('#0e0c16'), L: hex('#56546c'), l: hex('#6e7058') };
+  if (kind === 2) return { H: p.P!, S: p.A!, s: p.a!, d: p.q!, e: hex('#3e3854'), E: hex('#4a4460'), L: hex('#c8c4cc') };
   return undefined;
 }
 
@@ -473,11 +585,12 @@ export function headstone(P: Pt, u: number, v: number, n: number, seed: number):
   const sub = subFor(P, m < 0.4 ? 1 : m > 0.9 ? 2 : 0);
   const lean = hash(seed, 5, 17) < 0.25 ? (hash(seed, 6, 17) < 0.5 ? 0.18 : -0.18) : 0;
   const art = n < 0.2 ? ROUND : n < 0.32 ? CRACKED : n < 0.46 ? GOTHIC : n < 0.6 ? CROSS : n < 0.72 ? CELTIC : n < 0.8 ? OBELISK : n < 0.985 ? SLAB : ANGEL;
-  stamp(P, u, v, 0, art, { sub, lean: art === OBELISK || art === ANGEL ? 0 : lean, flip: hash(seed, 7) < 0.5 });
-  // Withered flowers or a wreath on some.
+  stamp(P, u, v, 0, art, { sub, lean: art === OBELISK || art === ANGEL ? 0 : lean });
+  // Creepers over a shoulder of some; withered flowers or a wreath on many.
+  if (hash(seed, 9, 17) < 0.35 && art !== SLAB && art !== OBELISK) stamp(P, u, v, art.length * 0.32, CREEPER, { flip: hash(seed, 10) < 0.5, dz: 0.9 });
   const f = hash(seed, 8, 17);
-  if (f < 0.12 && art !== SLAB) stamp(P, u + 0.6, v + 1.2, 1.5, WREATH, { dz: 1 });
-  else if (f < 0.3) stamp(P, u + 0.8, v + 1.6, 0, FLOWERS, { dz: 1 });
+  if (f < 0.2 && art !== SLAB) stamp(P, u + 0.6, v + 1.2, 1.5, WREATH, { dz: 1 });
+  else if (f < 0.5) stamp(P, u + 0.8, v + 1.6, 0, FLOWERS, { dz: 1 });
 }
 
 /** An open grave: a black pit, its spoil heaped beside it, a shovel stood in the heap. */
@@ -507,11 +620,18 @@ export function coffin(P: Pt, u: number, v: number, z: number, alongU: boolean, 
   const wood = (f: Facing, s: number, t: number): Col => {
     if (f === 'top') {
       if (open) return s > 0.4 && s < (alongU ? L : W) - 0.4 && t > 0.4 && t < (alongU ? W : L) - 0.4 ? p.T! : p.v!;
-      // A lid with a cross in relief.
+      // A lid of planks, nailed at the ends, with a cross in relief.
       const a = alongU ? s : t;
       const b = alongU ? t : s;
-      return (Math.abs(a - L * 0.35) < 0.3 && Math.abs(b - W / 2) < 0.7) || (Math.abs(b - W / 2) < 0.2 && a > 0.8 && a < L - 0.6) ? p.W! : p.w!;
+      if ((Math.abs(a - L * 0.35) < 0.3 && Math.abs(b - W / 2) < 0.7) || (Math.abs(b - W / 2) < 0.2 && a > 0.8 && a < L - 0.6)) return p.W!;
+      if ((a < 0.4 || a > L - 0.4) && Math.abs(((b * 2) % 1) - 0.5) < 0.25) return p.I!;
+      if (Math.abs(b - W / 3) < 0.12 || Math.abs(b - (2 * W) / 3) < 0.12) return p.v!;
+      return p.w!;
     }
+    // The sides: two planks, a dark seam, nail heads at the ends.
+    const len = f === 'left' ? (alongU ? L : W) : alongU ? W : L;
+    if (Math.abs(t - 0.6) < 0.12) return p.x!;
+    if ((s < 0.35 || s > len - 0.35) && Math.abs(t - 0.3) < 0.2) return p.I!;
     return f === 'left' ? (t > 0.9 ? p.w! : p.v!) : p.x!;
   };
   box(P.px, u, v, z, lu, lv, 1.2, wood);
@@ -530,12 +650,13 @@ export function coffinStack(P: Pt, u: number, v: number, n: number, alongU: bool
 
 /** A heap of skulls and long bones. */
 export function bones(P: Pt, u: number, v: number, big: boolean, seed: number): void {
-  stamp(P, u, v, 0, big ? SKULLPILE : hash(seed, 1) < 0.5 ? BONES : SKULL, { flip: hash(seed, 2) < 0.5 });
+  stamp(P, u, v, 0, big ? SKULLPILE : hash(seed, 1) < 0.5 ? BONES : SKULL);
 }
 
 /** Candles at a shrine: a cluster of stubs over a pool of wax, flames lit, a little light. */
 export function candles(P: Pt, u: number, v: number, z: number, seed: number, light = true): void {
-  stamp(P, u, v, z, CANDLES, { flip: hash(seed, 1) < 0.5, dz: 0.8 });
+  void seed;
+  stamp(P, u, v, z, CANDLES, { dz: 0.8 });
   if (light) glow(u, v, z + 3, 0, 6);
 }
 
@@ -544,7 +665,7 @@ export function lanternPost(P: Pt, u: number, v: number, h = 9): void {
   const p = palOf(P.st);
   post(P.px, u, v, 0, h, p.i!, p.j!);
   line3(P.px, v3(u, v, h), v3(u, v + 1.6, h), p.i!);
-  stamp(P, u, v + 1.6, h - 4.2, LANTERN, { dz: 0.6 });
+  stamp(P, u, v + 1.6, h - 5.4, LANTERN, { dz: 0.6 });
   glow(u, v + 1.6, h - 2.5, 0);
 }
 
@@ -561,7 +682,8 @@ export function gibbet(P: Pt, u: number, v: number, h = 16): void {
   line3(P.px, v3(u, v, h), v3(u, v + 6, h), p.w!);
   line3(P.px, v3(u, v, h - 1), v3(u, v + 6, h - 1), p.v!);
   line3(P.px, v3(u, v + 0.4, h - 4), v3(u, v + 3, h - 1), p.v!);
-  line3(P.px, v3(u, v + 5.5, h - 1), v3(u, v + 5.5, h - 3), p.i!);
+  // The chain: links one pixel each, light and dark in turn.
+  for (let z = h - 1, n = 0; z > h - 3.2; z -= 0.5, n++) P.px.point(v3(u, v + 5.5, z), n % 2 ? p.I! : p.j!);
   stamp(P, u, v + 5.5, h - 9, CAGE, { dz: 0.5 });
 }
 
@@ -680,7 +802,8 @@ export function sarcophagus(P: Pt, u: number, v: number, alongU: boolean): void 
 
 /** A weeping angel: faceless with weather, head bowed, wings folded, on a plinth. */
 export function angel(P: Pt, u: number, v: number, flip = false): void {
-  stamp(P, u, v, 0, ANGEL, { flip });
+  void flip;
+  stamp(P, u, v, 0, ANGEL);
 }
 
 /** A gargoyle crouched on a cornice, peering out (`face` picks which wall it juts from). */
@@ -721,7 +844,7 @@ export function ivyAt(along: number, zz: number, h: number, k: number, density: 
   const sx0 = Math.floor(x / 3);
   const n = hash(sx0, 0, seed);
   if (n > density) return 0;
-  const len = (0.25 + hash(sx0, 1, seed) * 0.65) * h * k;
+  const len = (0.3 + hash(sx0, 1, seed) * 0.7) * h * k;
   const ragged = hash(x, Math.floor(y / 2), seed + 2) * 4;
   if (y > len - ragged) return 0;
   const cell = hash(x >> 1, y >> 1, seed + 3);
@@ -795,10 +918,14 @@ export function corpseCart(P: Pt, u: number, v: number): void {
  * the light pools, which keep their value (class 1): by night they are the brightest ground.
  */
 export class Decal {
+  /** Night colours for pixels that differ from their day (the sun's pools): buffer index → colour. */
+  readonly base = new Map<number, Col>();
   constructor(readonly P: Painter) {}
-  set(x: number, y: number, c: Col, k = 3): void {
+  set(x: number, y: number, c: Col, k = 3, base?: Col): void {
     this.P.px.set(x, y, c);
     cls(this.P, x, y, k);
+    if (base !== undefined && x >= 0 && y >= 0 && x < this.P.px.w && y < this.P.px.h) this.base.set(y * this.P.px.w + x, base);
+    else this.base.delete(y * this.P.px.w + x);
   }
   /** A world point's buffer pixel. */
   at(u: number, v: number): [number, number] {
@@ -823,7 +950,7 @@ export class Decal {
  * it, and a decal is all edges): it falls by the ground's own night multiply, except the light
  * pools (class 1), which keep their value and so become the brightest ground after dark.
  */
-export function decalArt(P: Painter, depth: number): Art {
+export function decalArt(P: Painter, depth: number, base?: Map<number, Col>): Art {
   const px = P.px;
   const b = px.bounds();
   if (!b) return { canvas: null, lights: null, x: 0, y: 0, d: depth };
@@ -838,8 +965,9 @@ export function decalArt(P: Painter, depth: number): Art {
   for (let y = y0; y < y1; y++)
     for (let x = x0; x < x1; x++) {
       const i = y * px.w + x;
-      const c = px.data[i]!;
-      if (!c) continue;
+      const c0 = px.data[i]!;
+      if (!c0) continue;
+      const c = base?.get(i) ?? c0;
       const keep = px.cls[i] === 1;
       const [r, gg, bb] = keep ? [0.82, 0.9, 0.86] : [0.72, 0.72, 0.82];
       out[(y - y0) * night.width + (x - x0)] = rgb(R(c) * r, G(c) * gg, B(c) * bb);
@@ -1019,7 +1147,12 @@ export function yardProps(P: Painter, tier: number, parts: BuildingParts, finish
   if (tier >= 3) boneDirt(D, 186, 196, 9, 6, 12);
   boneDirt(D, 60, 120, 6, 5, 13);
   trodden(D, 86, 70, 150, 148, 14);
-  parts.arts.push(decalArt(P, -1000));
+  // Pale sun breaking through on the flags before the keep and the chapel, and in the yard.
+  sunPool(D, 66, 40, 7, 21);
+  sunPool(D, 100, 53, 9, 22);
+  sunPool(D, 132, 52, 6, 23);
+  if (tier >= 2) sunPool(D, 118, 100, 11, 24);
+  parts.arts.push(decalArt(P, -1000, D.base));
   P.reset();
   P.rim = rim;
 

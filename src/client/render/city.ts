@@ -16,12 +16,12 @@ import { cityAtlas } from './city/atlas.ts';
 import { buildAtlas as buildHdAtlas } from './sprites128.ts';
 import { paintBuilding, paintMill, rigFor, tierOf, WALL, wallHeights, type Art, type Banner, type BuildingParts } from './city/buildings.ts';
 import { paintGround, type Ground } from './city/ground.ts';
-import { groundKey, groundSteps, TREES } from './city/ground-hd.ts';
+import { groundKey, groundSteps, treesFor } from './city/ground-hd.ts';
 import { Draw, Life, type Ent, type Mood } from './city/life.ts';
 import { Folk } from './city/people.ts';
 import { FolkHd } from './city/people-hd.ts';
 import { CLASSIC, css, HD, WORLD_H, WORLD_W, type Footprint, type Frame } from './city/pixels.ts';
-import { paintProps, placeProps, propShadows, shadowAt, type PaintedProps } from './city/props.ts';
+import { paintProps, placeProps, propShadows, shadowAt, sunFor, type PaintedProps } from './city/props.ts';
 import { styleFor, type CityStyle } from './city/style.ts';
 import './city/samurai.ts';
 import './city/undead.ts';
@@ -221,6 +221,7 @@ export class CityScene {
     const glows: [number, number, number][] = [];
     const buildingArts: Art[] = [];
     const footprints: Partial<Record<BuildingKey | 'keep', Footprint[]>> = {};
+    const buildingLamps: [number, number][] = [];
     const keys: (BuildingKey | 'keep')[] = ['keep', ...BUILDINGS.map((b) => b.key)];
     for (const k of keys) {
       const level = k === 'keep' ? maxLevel : levels[k] ?? 0;
@@ -235,6 +236,7 @@ export class CityScene {
       targets.push(...p.targets);
       if (p.glows) glows.push(...p.glows);
       footprints[k] = p.footprints ?? [];
+      if (p.lamps) buildingLamps.push(...p.lamps);
     }
     // HD: the props and clutter (city/props.ts), placed clear of what the buildings recorded on
     // the ground; their footprints and the buildings' make the cast shadows on the ground.
@@ -243,8 +245,8 @@ export class CityScene {
       const built = Object.values(footprints).flat() as Footprint[];
       propsKey = built.map((f) => f.map((x) => Math.round(x)).join(',')).join(';');
       if (this.props?.key !== propsKey) {
-        const placed = placeProps({ faction: st.id, seed: this.seed, levels, footprints, clear: TREES.map(([u, v, r]) => [u, v, r * 0.7] as [number, number, number]) });
-        const painted = paintProps(placed, st, this.frame, (u, v) => shadowAt(u, v, built), rigFor(st.id));
+        const placed = placeProps({ faction: st.id, seed: this.seed, levels, footprints, clear: treesFor(st.id).map(([u, v, r]) => [u, v, r * 0.7] as [number, number, number]) });
+        const painted = paintProps(placed, st, this.frame, (u, v) => shadowAt(u, v, built, sunFor(st.id).dir), rigFor(st.id));
         this.props = { key: propsKey, casts: [...built, ...propShadows(placed)], painted };
       }
       const gk = groundKey(st, levels, maxLevel) + '|' + propsKey.length + ':' + hashStr(propsKey);
@@ -270,7 +272,7 @@ export class CityScene {
       }
     }
     const arts: Art[] = [...this.ground!.arts, ...buildingArts, ...(this.props?.painted.arts ?? [])];
-    this.lamps = this.props?.painted.lamps ?? [];
+    this.lamps = [...(this.props?.painted.lamps ?? []), ...buildingLamps];
     this.pools = null;
     this.glows = glows;
     const millKey = `mill:${tierOf(levels.granary)}`;
@@ -391,6 +393,22 @@ export class CityScene {
     ents.length = 0;
     for (const a of this.arts) ents.push(a as unknown as Ent);
     this.life.collect(ents, r);
+    // HD props' little life (props.ts PropDef.anim / flicker), sorted just in front of their art,
+    // only when the camera is in close and the prop is in view.
+    if (hd && this.zoom >= 2 && this.props)
+      for (const an of this.props.painted.anims) {
+        const [x0, y0, x1, y1] = an.box;
+        if (x1 < view.rx || y1 < view.ry || x0 > view.rx + view.rw || y0 > view.ry + view.rh) continue;
+        ents.push({
+          d: an.d,
+          draw: () => {
+            g.save();
+            g.setTransform(1, 0, 0, 1, 0, 0);
+            an.fn(g, t, an.x, an.y, an.seed, f.k, this.st);
+            g.restore();
+          },
+        });
+      }
     ents.sort((a, b) => a.d - b.d || 0);
     let inWorld = false;
     for (const e of ents) {
@@ -555,17 +573,22 @@ export class CityScene {
       // Night darkens less than it used to: the arts' night palette and the ground's own dimming
       // (draw()) carry the dark, so the value steps between roof, wall and ground survive.
       if (this.necropolis) {
-        const top = [170 - 70 * k, 160 - 66 * k, 215 - 40 * k];
-        const bot = [150 - 64 * k, 186 - 78 * k, 192 - 50 * k];
+        // A lighter day floor (a pale sun through the overcast) so buildings separate from the ground;
+        // the night end is unchanged.
+        const top = [205 - 105 * k, 198 - 104 * k, 232 - 57 * k];
+        const bot = [188 - 102 * k, 206 - 98 * k, 212 - 70 * k];
         const sky = x.createLinearGradient(0, 0, 0, H);
         sky.addColorStop(0, `rgb(${top.map(Math.round).join(',')})`);
         sky.addColorStop(1, `rgb(${bot.map(Math.round).join(',')})`);
         x.fillStyle = sky;
       } else {
-        // Night a cool blue; by day a faint warmth (what the classic amber lift does).
+        // Night a cool blue; by day a faint warmth (what the classic amber lift does), and for
+        // the commandery a golden-hour sun (town-displate): the warm lift is in its palette and
+        // here, the cool is in its shade steps and cast shadows.
+        const gold = this.st.id === 'templar';
         const r = 255 - 150 * k;
-        const gg = 252 - 126 * k;
-        const b = 240 - 46 * k;
+        const gg = (gold ? 246 : 252) - (gold ? 120 : 126) * k;
+        const b = (gold ? 222 : 240) - (gold ? 28 : 46) * k;
         x.fillStyle = `rgb(${Math.round(r)},${Math.round(gg)},${Math.round(b)})`;
       }
       x.fillRect(0, 0, W, H);
@@ -606,9 +629,10 @@ export class CityScene {
       // The banks drift a whole world pixel at a time.
       const x = Math.round(bx + Math.sin(t * 0.04 + i * 1.7) * 30);
       const y = Math.round(by + Math.sin(t * 0.03 + i) * 6);
-      if (k < 0.9) {
+      // By day the mist lies thin, and only over the grave fields: not the yard or the keep.
+      if (k < 0.9 && i < 4) {
         g.globalCompositeOperation = 'source-over';
-        g.globalAlpha = 1 - k;
+        g.globalAlpha = 0.35 * (1 - k);
         this.halo(g, 'mistDay', x, y, 180, 52);
       }
       if (k > 0.1) {
@@ -665,6 +689,18 @@ export class CityScene {
     }
     g.globalCompositeOperation = 'source-over';
     flat();
+    if (this.mode === 'hd' && this.st.id === 'templar' && night <= 0.15) {
+      // By day the lamps and some windows still glow warm inside the shade (town-displate).
+      for (const art of this.arts) {
+        if (!art.lights) continue;
+        g.globalAlpha = 0.3 + 0.06 * Math.sin(t * 3 + art.x);
+        g.drawImage(art.lights, art.x, art.y);
+      }
+      g.globalCompositeOperation = 'lighter';
+      this.bloom(g, this.poolSources().filter((p) => p.z > 2 && p.z < 8), [FIRE_POOL], 0.35);
+      g.globalCompositeOperation = 'source-over';
+      g.globalAlpha = 1;
+    }
     if (night > 0.15) {
       const a = Math.min(1, (night - 0.15) / 0.5);
       for (const art of this.arts) {

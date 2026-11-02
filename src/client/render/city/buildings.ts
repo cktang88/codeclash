@@ -6,6 +6,8 @@
 import type { BuildingKey } from '../../../game/city.ts';
 import { box, CLASSIC, cone, drum, gable, hash, hex, line3, mix, nightCanvas, NIGHT_RIG, OX, post, pyramid, Px, recordFootprints, sx, sy, tone, unrecorded, v3, type Col, type Facing, type Footprint, type Frame, type NightRig, type Shader, type V3 } from './pixels.ts';
 import type { CityStyle, Ramp } from './style.ts';
+import { dressHall, drumLancets, joists, richChimney, richRoof, richThatch, richWall } from './templar-hd.ts';
+import { ivy } from './prop-art.ts';
 
 /** Level to tier: 0 empty lot, 1 timber, 2 stone, 3 fortified, 4 grand. */
 export function tierOf(level: number): number {
@@ -73,6 +75,8 @@ export interface BuildingParts {
   glows?: [number, number, number][];
   /** What stands on the ground (pixels.ts recordFootprints): props keep clear, shadows are cast from it. */
   footprints?: Footprint[];
+  /** HD: lanterns on the buildings (world pixels), for the night's light pools. */
+  lamps?: [number, number][];
 }
 
 export const emptyParts = (): BuildingParts => ({ arts: [], smoke: [], banners: [], torches: [], bells: [], forges: [], stalls: [], targets: [] });
@@ -100,18 +104,30 @@ export class Painter {
   rim: Col | null = null;
   /** Drawing done after the outline in finish(). */
   late: (() => void)[] = [];
+  /**
+   * HD Templar (and any faction without its own kit): the rich materials and dressings of
+   * templar-hd.ts. Classic and the Samurai and Undead kits keep the plain shaders.
+   */
+  readonly rich: boolean;
+  /** HD: a second glass colour that lights at night (the coloured panes of the rose). */
+  readonly glassRed: Col;
+  /** HD: lanterns hung on the buildings (world points), for the night's pools. */
+  lamps: V3[] = [];
   constructor(
     readonly st: CityStyle,
     readonly frame: Frame = CLASSIC,
   ) {
     this.px = new Px(frame.w, frame.h, frame);
     this.k = frame.k;
+    this.rich = frame.k > 1 && st.id !== 'samurai' && st.id !== 'undead';
+    this.glassRed = mix(st.glass, hex('#8a2a2a'), 0.55);
   }
 
   reset(): void {
     this.px.clear();
     this.glass = [];
     this.late = [];
+    this.lamps = [];
   }
 
   rampAt(r: Ramp, f: Facing, k = 0): Col {
@@ -120,6 +136,12 @@ export class Painter {
 
   /** A wall face: stone, fine stone, timber frame, or palisade; with windows and doors cut in. */
   wall(mat: 'stone' | 'fine' | 'timber' | 'plank', h: number, holes: Hole[] = [], seed = 0, gold = -1): Shader {
+    const base = this.plainWall(mat, h, holes, seed, gold);
+    return this.rich ? richWall(this, mat, h, holes, seed, gold, base) : base;
+  }
+
+  /** The wall shader of classic (and the HD base the rich one builds on). */
+  plainWall(mat: 'stone' | 'fine' | 'timber' | 'plank', h: number, holes: Hole[] = [], seed = 0, gold = -1): Shader {
     const st = this.st;
     const q = this.k;
     return (f, s, t, p) => {
@@ -235,6 +257,13 @@ export class Painter {
 
   /** A roof covering: thatch, shingle, tile or slate, by rows up the slope. */
   roof(mat: 'thatch' | 'shingle' | 'tile' | 'slate' | 'lead', seed = 0): Shader {
+    const base = this.plainRoof(mat, seed);
+    if (!this.rich || mat === 'lead') return base;
+    return mat === 'thatch' ? richThatch(this, base, seed) : richRoof(this, mat, seed);
+  }
+
+  /** The roof shader of classic (and of HD thatch under the rich one). */
+  plainRoof(mat: 'thatch' | 'shingle' | 'tile' | 'slate' | 'lead', seed = 0): Shader {
     const st = this.st;
     const r = mat === 'thatch' ? st.thatch : mat === 'shingle' ? st.shingle : mat === 'tile' ? st.tile : st.slate;
     const q = this.k;
@@ -313,6 +342,11 @@ export class Painter {
   }
 
   chimney(parts: BuildingParts, u: number, v: number, z: number, h: number): void {
+    if (this.rich) {
+      richChimney(this, u, v, z, h);
+      parts.smoke.push([Math.floor(sx(u + 1.5, v + 1.5)), Math.floor(sy(u + 1.5, v + 1.5, z + h + 1.7)) - 1]);
+      return;
+    }
     const sh = this.wall('stone', h, [], 9);
     box(this.px, u, v, z, 3, 3, h, sh);
     parts.smoke.push([Math.floor(sx(u + 1.5, v + 1.5)), Math.floor(sy(u + 1.5, v + 1.5, z + h)) - 1]);
@@ -403,7 +437,10 @@ export class Painter {
     if (glass.length) {
       const lp = new Px(x1 - x0, y1 - y0);
       const on = new Set<number>();
-      for (let i = 0; i < glass.length; i += 2) if (px.get(glass[i]!, glass[i + 1]!) === this.st.glass) on.add(glass[i + 1]! * px.w + glass[i]!);
+      for (let i = 0; i < glass.length; i += 2) {
+        const g = px.get(glass[i]!, glass[i + 1]!);
+        if (g === this.st.glass || (this.rich && g === this.glassRed)) on.add(glass[i + 1]! * px.w + glass[i]!);
+      }
       for (const j of on) {
         const x = j % px.w;
         const y = (j / px.w) | 0;
@@ -531,6 +568,7 @@ function paintBuildingAt(key: BuildingKey | 'keep', a: PaintArgs, frame: Frame):
     const lu = (u1 - u0) * 0.5;
     unrecorded(() => P.scaffold(u0 + 4, v0 + 4, lu, (v1 - v0) * 0.5, 14 + tier * 4));
   }
+  if (P.lamps.length) parts.lamps = P.lamps.map((l) => [P.px.X(l.u, l.v) / P.k - P.px.mx, P.px.Y(l.u, l.v, l.z) / P.k - P.px.my] as [number, number]);
   parts.arts.unshift(P.finish(depth));
   return parts;
 }
@@ -549,6 +587,10 @@ export function hall(
   P: Painter, u0: number, v0: number, lu: number, lv: number, h: number, alongU: boolean, tier: number,
   holes: Hole[], seed: number, rh = 0,
 ): void {
+  if (P.rich) {
+    richHall(P, u0, v0, lu, lv, h, alongU, tier, holes, seed, rh);
+    return;
+  }
   const m = MAT[tier]!;
   const st = P.st;
   if (m.wall === 'timber') box(P.px, u0, v0, 0, lu, lv, 2, P.wall('stone', 2, [], seed));
@@ -567,6 +609,59 @@ export function hall(
       P.px.point(v3(u0 + lu / 2, v0 + lv, h + ridge + 1), st.gold);
     }
   }
+}
+
+/**
+ * The HD Templar hall: a stone or timber ground floor, a jettied timber upper storey on the
+ * timber and stone tiers, a tiled roof (slate only on towers), and its dressings (templar-hd.ts).
+ */
+function richHall(P: Painter, u0: number, v0: number, lu: number, lv: number, h: number, alongU: boolean, tier: number, holes: Hole[], seed: number, rh: number): void {
+  const st = P.st;
+  const m: M = tier >= 4 ? { wall: 'fine', roof: 'tile' } : MAT[tier]!;
+  // Every hall but the church carries a jettied, half-timbered upper storey over its ground floor
+  // (timber on a plinth, then rubble, then ashlar as the commandery grows).
+  const church = holes.some((x) => x.kind === 'rose');
+  const jetty = !church && h >= 9 ? Math.max(5, Math.floor(h * 0.5)) : 0;
+  const gold = tier >= 4 && !jetty ? h - 4 : -1;
+  const ridge = rh || Math.round((alongU ? lv : lu) * (m.roof === 'thatch' ? 0.6 : 0.55));
+  const o = m.roof === 'thatch' ? 2 : 1.5;
+  let ru0 = u0;
+  let rv0 = v0;
+  let rlu = lu;
+  let rlv = lv;
+  let gableSh: Shader;
+  if (jetty) {
+    const low = holes.filter((x) => x.t < jetty || x.face === 'top');
+    const up = holes.filter((x) => x.t >= jetty).map((x) => ({ ...x, t: x.t - jetty + 2.5 }));
+    box(P.px, u0, v0, 0, lu, lv, jetty, P.wall(m.wall, jetty + 1.5, low, seed), false);
+    // The upper storey stands out by a unit on the faces the street sees, on joists.
+    const ush = P.wall('timber', h - jetty + 2.5, up, seed + 2);
+    box(P.px, u0, v0, jetty, lu + 1, lv + 1, h - jetty, (f, s, t, p) => ush(f, s, t + 2.5, p), false);
+    joists(P, u0, v0, lu, lv, jetty);
+    rlu = lu + 1;
+    rlv = lv + 1;
+    const gsh = P.wall('timber', 99, holes.filter((x) => x.kind === 'rose' || x.kind === 'window').map((x) => ({ ...x, t: x.t + 2.5 })), seed + 1);
+    gableSh = (f, s, t, p) => gsh(f, s, t + 2.5, p);
+  } else {
+    if (m.wall === 'timber') box(P.px, u0, v0, 0, lu, lv, 2, P.wall('stone', 2, [], seed));
+    box(P.px, u0, v0, 0, lu, lv, h, P.wall(m.wall, h, holes, seed, gold), false);
+    const gsh = P.wall(m.wall, 99, holes.filter((x) => x.kind === 'rose' || x.kind === 'window'), seed + 1);
+    gableSh = m.wall === 'timber' ? (f, s, t, p) => gsh(f, s, t + 2.5, p) : gsh;
+  }
+  gable(P.px, ru0, rv0, h, rlu, rlv, ridge, alongU, o, P.roof(m.roof, seed), gableSh);
+  if (tier >= 4) {
+    // Gilt ridge finials.
+    if (alongU) {
+      P.px.point(v3(ru0, rv0 + rlv / 2, h + ridge + 1), st.gold);
+      P.px.point(v3(ru0 + rlu, rv0 + rlv / 2, h + ridge + 1), st.gold);
+    } else {
+      P.px.point(v3(ru0 + rlu / 2, rv0, h + ridge + 1), st.gold);
+      P.px.point(v3(ru0 + rlu / 2, rv0 + rlv, h + ridge + 1), st.gold);
+    }
+  }
+  dressHall(P, { u0, v0, lu, lv, h, jetty, alongU, tier, holes, seed, ridge, roof: m.roof, wall: m.wall });
+  ru0 = ru0 + 0;
+  rv0 = rv0 + 0;
 }
 
 /** Windows spaced along a face. */
@@ -686,7 +781,7 @@ function chapter(P: Painter, tier: number, parts: BuildingParts): void {
       // The Templars' round church: an octagonal rotunda at the east end, as at Tomar.
       const ru = u0 - 2;
       const rv = v0 + lv / 2;
-      drum(P.px, ru, rv, 0, 15, h + 8, 16, P.wall('fine', h + 8, [], 27, h + 4));
+      drum(P.px, ru, rv, 0, 15, h + 8, 16, P.wall('fine', h + 8, P.rich ? drumLancets(Math.PI * 2 * 15, 12, 5, 7) : [], 27, h + 4));
       // The drum's own roof, a low lead cone, then the raised central tower and its cap.
       cone(P.px, ru, rv, h + 8, 16, 5, 16, P.roof('lead', 2));
       drum(P.px, ru, rv, h + 8, 9, 9, 12, P.wall('fine', 9, [{ face: 'left', s: 6, t: 3, w: 2, h: 4, kind: 'window' }, { face: 'right', s: 30, t: 3, w: 2, h: 4, kind: 'window' }, { face: 'left', s: 16, t: 3, w: 2, h: 4, kind: 'window' }], 28));
@@ -961,6 +1056,17 @@ function walls(P: Painter, a: PaintArgs, parts: BuildingParts): BuildingParts {
     // The wall-walk: worn flags in shadow between the parapets.
     const sh: Shader = (f, s, t, p) => (f === 'top' ? tone(face('left', s, t + 1, p), Math.floor(s) % 4 === 0 ? 0.4 : 0.28) : face(f, s, t, p));
     box(P.px, u0, v0, 0, lu, lv, hh, sh);
+    if (P.rich) {
+      // HD Templar: ivy climbs the old curtain walls here and there, on the faces in view.
+      const along = lu > lv;
+      const len = along ? lu : lv;
+      for (let a = 4; a < len - 6; a += 9) {
+        if (hash(a, u0 + v0, 91) > 0.35) continue;
+        const w = 3 + hash(a, u0 + v0, 92) * 5;
+        if (along) ivy(P.px, 'left', u0 + a, v0 + lv, w, hh, hh * (0.4 + 0.5 * hash(a, 93)), a + u0, undefined, hash(a, 94) < 0.3 ? [hex('#f2ecd8')] : []);
+        else ivy(P.px, 'right', u0 + lu, v0 + a, w, hh, hh * (0.4 + 0.5 * hash(a, 93)), a + v0);
+      }
+    }
     // A dark line along the foot, since the chunks carry no outline.
     for (let i = 0; i < Math.max(lu, lv); i++) {
       const u = lu > lv ? u0 + i : u0 + lu;
