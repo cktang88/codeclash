@@ -732,7 +732,7 @@ function arbalest(c: Paper, p: FootPose, facing: Facing, anim: Anim, _frame?: nu
 
 // ------------------------------------------------------------------ the Lich-Marshal (commander)
 
-const LICH = poser<FootPose>({ ...FOOT0, torso: -4, head: -6, nu: 22, nl: 40, fu: 18, fl: 50, bl: 176, nt: 4, ns: -6, ft: -8, fs: -4 });
+const LICH = poser<FootPose>({ ...FOOT0, torso: -4, head: -6, nu: 6, nl: 16, fu: 10, fl: 12, bl: 176, nt: 4, ns: -6, ft: -8, fs: -4 });
 export const LICH_KEYS: KeySet<FootPose> = {
   poses: {
     [Anim.Idle]: [LICH(), LICH({ py: 0.12, torso: -5 })],
@@ -762,19 +762,58 @@ export const LICH_KEYS: KeySet<FootPose> = {
   },
 };
 
-/** A crown of bone spines: a rusted band round the skull, long spines fanned up and back. */
+/**
+ * A crown of bone spines: a rusted circlet round the skull and a sunburst of thin, tapering
+ * spines, long in the middle and short at the sides, alternating, lit on the near side.
+ */
 function spineCrown(c: Paper, at: P2, ang: number, back: boolean, E: number): void {
   ang = snapDeg(ang);
-  const base = addP(at, rot([0.05, -0.55], ang * DEG));
-  const spines: [number, number][] = back
-    ? [[-38, 1.6], [-18, 2.4], [0, 2.9], [18, 2.3], [36, 1.5]]
-    : [[-40, 1.7], [-20, 2.5], [-2, 3.0], [16, 2.2], [34, 1.4]];
-  for (const [d, l] of spines) {
-    const from = addP(base, rot([d / 45, 0.1], ang * DEG));
-    const deg = 180 - d * 0.9 + ang;
-    c.rod(from, along(from, deg, l * E), 0.36, 0.1, UM.bone, { tone: d < 0 ? 3 : 2 });
+  const base = addP(at, rot([0.05, -0.6], ang * DEG));
+  const lens = [1.2, 2.0, 1.5, 2.7, 3.3, 2.6, 1.5, 1.9, 1.1];
+  // At level 1 five spines (nine would merge into a block).
+  const step = c.L <= 1 ? 2 : 1;
+  for (let i = 0; i < lens.length; i += step) {
+    const d = (i - 4) * 15;
+    const from = addP(base, rot([d / 70, 0.05 + Math.abs(d) / 300], ang * DEG));
+    const deg = snapDeg(180 - d * 1.05 + ang);
+    const near = back ? d > 0 : d < 0;
+    c.rod(from, along(from, deg, lens[i]! * E), 0.3, 0.06, UM.bone, { tone: near ? 3 : 2 });
   }
-  c.rod(addP(base, rot([-1.0, 0.15], ang * DEG)), addP(base, rot([1.0, 0.05], ang * DEG)), 0.42, 0.42, UM.rust, { tone: 2, detail: (x) => ((c.lx(x) >> 1) % 3 === 0 ? code(UM.rust, 3) : -1) });
+  c.rod(addP(base, rot([-1.05, 0.15], ang * DEG)), addP(base, rot([1.05, 0.05], ang * DEG)), 0.42, 0.42, UM.rust, { tone: 2, detail: (x) => ((c.lx(x) >> 1) % 3 === 0 ? code(UM.rust, 3) : -1) });
+}
+
+/**
+ * The Lich-Marshal's high collar: a stiff fan of team cloth standing up behind the skull from
+ * the shoulders, its upper edge cut into points (the vampire lord's collar, the Courtier's fur).
+ */
+function collar(c: Paper, F: Frame, sway: number): void {
+  const n = F.neck;
+  const pts: P2[] = [addP(n, F.T([-1.9, 0.6])), addP(n, F.T([-2.1, -1.6])), addP(n, F.T([-1.4, -1.1])), addP(n, F.T([-0.9, -2.4])), addP(n, F.T([-0.3, -1.4])), addP(n, F.T([0.5, -2.3])), addP(n, F.T([0.9, -1.0])), addP(n, F.T([1.9, -1.5])), addP(n, F.T([2.1, 0.6]))];
+  const cx = c.sx(n[0]), top = c.sy(n[1] - 2.4);
+  void sway;
+  c.shape(pts, (x, y) => {
+    const rx = (x + 0.5 - cx) / (c.L * 2), ry = ((y - top) / (c.L * 3)) * 2 - 1;
+    const lt = planeLight(rx, ry, 0.35);
+    if (c.L >= 4 && Math.abs(rx + 0.25) < 0.05) return code(UM.teamDk, 1); // a stiffening seam
+    return lt > 0 ? code(UM.team, 2 + litStep(c)) : lt < 0 ? code(UM.teamDk, 2) : code(UM.team, 1);
+  });
+}
+
+/**
+ * The open chest: the robe parted in a V from the collar to the girdle, the ribs across it and
+ * the soul-fire burning inside them, a stole of team cloth down each lapel.
+ */
+function lichChest(c: Paper, F: Frame, sway: number, phase: number): void {
+  const n = F.neck, pel = F.pel;
+  const v: P2[] = [addP(n, [-0.9, 0.5]), addP(n, [1.7, 0.45]), addP(pel, [1.0, -0.9]), addP(pel, [0.2, -0.9])];
+  c.shape(v, () => code(UM.ink, 1));
+  // The soul-fire where the heart was, flickering with the staff's flame.
+  const heart = addP(n, [0.5, 1.9]);
+  c.blob(heart, 0.95, 1.1, UM.glow, { tone: 2, detail: (_x, _y, nx, ny) => (Math.hypot(nx, ny) < 0.5 ? code(UM.glow, 4) : Math.hypot(nx, ny) < 0.8 ? code(UM.glow, 3) : -1) });
+  if (c.L >= 2) ribcage(c, addP(n, [0.1, 0.1]), addP(pel, [0.1, -0.6]), F.tor);
+  // The stoles: two strips of team cloth down the lapels, their ends torn.
+  rag(c, addP(n, [-1.2, 0.3]), addP(n, [-0.6, 0.4]), 5.8, sway, UM.team, UM.teamDk, 265, { tear: 0.25, folds: false });
+  rag(c, addP(n, [1.6, 0.35]), addP(n, [2.1, 0.3]), 5.4, sway, UM.team, UM.teamDk, 267, { tear: 0.25, folds: false });
 }
 
 function lich(c: Paper, p: FootPose, facing: Facing, anim: Anim, frame: number): void {
@@ -796,9 +835,11 @@ function lich(c: Paper, p: FootPose, facing: Facing, anim: Anim, frame: number):
   const top = along(hand, sd, 6.4 * E), foot = along(hand, sd + 180, 5.8);
   const staff = () => {
     if (p.smear !== null) c.smear(hand, p.smear + F.tilt, sd, 3.5, 6.4 * E, UM.bone, { tone: 2 });
-    c.rod(foot, top, 0.36, 0.3, UM.wood, { tone: 2, detail: (_x, _y, _u, v) => (Math.abs(v - 0.72) < 0.02 || Math.abs(v - 0.8) < 0.02 ? code(UM.rust, 2) : -1) });
-    // The finial: a skull on the staff's head, witchfire burning out of its crown.
+    // A staff of bone (a long spine of vertebrae), pale against the dark robe, bound with rusted wire.
+    c.rod(foot, top, 0.4, 0.32, UM.bone, { tone: 2, detail: (_x, _y, u, v) => (Math.abs(v - 0.72) < 0.02 || Math.abs(v - 0.8) < 0.02 ? code(UM.rust, 2) : c.L >= 4 && u > -0.5 && Math.floor(v * 30) % 2 === 0 ? code(UM.bone, 1) : -1) });
+    // The finial: a skull on the staff's head, in a cage of three bone prongs, witchfire burning out of its crown.
     const sk = along(top, sd, 0.4);
+    if (c.L >= 2) for (const d of [-35, 0, 35]) c.rod(along(top, sd + 180, 0.4), along(along(top, sd + d * 0.6, 1.3 * E), sd + d * 1.4, 0.5), 0.2, 0.08, UM.bone, { tone: d < 0 ? 3 : 2 });
     c.blob(sk, 0.6 * E, 0.55 * E, UM.bone, { tone: 3, detail: (_x, _y, nx, ny) => (Math.hypot(Math.abs(nx) - 0.35, ny - 0.05) < 0.28 ? code(UM.glow, 3) : ny > 0.55 ? code(UM.ink, 1) : -1) });
     flame(c, along(sk, sd, 0.35 * E), 1.9 * E, phase);
   };
@@ -810,10 +851,12 @@ function lich(c: Paper, p: FootPose, facing: Facing, anim: Anim, frame: number):
     const fh = skelArm(c, F, F.shF, p.fu, p.fl, true);
     if (witchHand) flame(c, addP(fh, [0, -0.2]), 1.5, phase, { w: 0.6 });
     skelLeg(c, F, F.hipN, p.nt, p.ns, false, { len: 1.05 });
-    robe(c, addP(F.neck, [0.2, 0.4]), 2.7, 4.6, -F.neck[1] - 0.3, p.sway, UM.shroud, 255, { back });
+    robe(c, addP(F.neck, [0.2, 0.4]), 2.3, 5.0, -F.neck[1] - 0.3, p.sway, UM.shroud, 255, { back });
     rag(c, addP(F.neck, F.T([-1.6, 0.2])), addP(F.neck, F.T([1.9, 0.3])), 7.4, p.sway * 1.4, UM.team, UM.teamDk, 257, { tear: 0.35, spread: 0.6 });
     head(c, F, p.head, false);
     spineCrown(c, addP(F.neck, F.T([0.3, -1.05])), p.head + F.tilt, true, E);
+    // From behind the collar stands in front of the skull's lower half.
+    collar(c, F, p.sway);
     staff();
     skelArm(c, F, F.shN, p.nu, p.nl, false);
     return;
@@ -822,11 +865,11 @@ function lich(c: Paper, p: FootPose, facing: Facing, anim: Anim, frame: number):
   // The far arm (behind) with fire in its hand when it casts.
   const fh = skelArm(c, F, F.shF, p.fu, p.fl, true);
   if (witchHand) flame(c, addP(fh, [0, -0.2]), 1.5, phase, { w: 0.6 });
-  robe(c, addP(F.neck, [0.2, 0.4]), 2.7, 4.6, -F.neck[1] - 0.3, p.sway, UM.shroud, 259);
-  // A rope girdle with a hanging end; the mantle over the shoulders, open at the chest.
+  collar(c, F, p.sway);
+  robe(c, addP(F.neck, [0.2, 0.4]), 2.3, 5.0, -F.neck[1] - 0.3, p.sway, UM.shroud, 259);
+  lichChest(c, F, p.sway, phase);
+  // A rope girdle.
   c.rod(addP(F.pel, [-1.1, -0.6]), addP(F.pel, [1.6, -0.7]), 0.3, 0.3, UM.rust, { tone: 1 });
-  rag(c, addP(F.neck, F.T([-1.6, 0.25])), addP(F.neck, F.T([-0.1, 0.35])), 3.8, p.sway, UM.team, UM.teamDk, 261, { tear: 0.4 });
-  rag(c, addP(F.neck, F.T([0.9, 0.3])), addP(F.neck, F.T([2.0, 0.25])), 3.2, p.sway, UM.team, UM.teamDk, 263, { tear: 0.4, folds: false });
   head(c, F, p.head, false);
   spineCrown(c, addP(F.neck, F.T([0.3, -1.05])), p.head + F.tilt, false, E);
   staff();
