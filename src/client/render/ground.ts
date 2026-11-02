@@ -39,16 +39,16 @@ function valueNoise(rng: Rng, _x0: number, _y0: number, _w: number, _h: number, 
 }
 
 type RGB = [number, number, number];
-const DARK: RGB = [56, 54, 34];
-const GRASS: RGB = [82, 80, 46];
-const GRASS2: RGB = [98, 92, 54];
-const DRY: RGB = [124, 108, 68];
-const PALE: RGB = [146, 128, 86];
-const EARTH: RGB = [104, 80, 54];
-const MUD: RGB = [78, 62, 44];
-const WET: RGB = [62, 50, 38];
-const ROAD: RGB = [138, 114, 80];
-const RUT: RGB = [92, 74, 52];
+const DARK: RGB = [84, 80, 46];
+const GRASS: RGB = [96, 92, 52];
+const GRASS2: RGB = [114, 104, 60];
+const DRY: RGB = [146, 126, 80];
+const PALE: RGB = [166, 146, 100];
+const EARTH: RGB = [124, 96, 64];
+const MUD: RGB = [92, 72, 50];
+const WET: RGB = [74, 60, 44];
+const ROAD: RGB = [158, 134, 96];
+const RUT: RGB = [108, 88, 62];
 
 const mix = (a: RGB, b: RGB, t: number): RGB => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
 
@@ -147,11 +147,29 @@ export function paintGround(seed: number): Ground {
 
   // Tufts, stones and pebbles, painted in map pixels.
   const n = Math.round((W * H) / 260);
+  // Clumps: most tufts gather around a few hundred centres, with bare stretches between.
+  const clumps: [number, number][] = [];
+  for (let i = 0; i < n / 8; i++) clumps.push([rng.next() * W, rng.next() * H]);
   for (let i = 0; i < n; i++) {
-    const mx = Math.floor(rng.next() * W);
-    const my = Math.floor(rng.next() * H);
+    let mx: number;
+    let my: number;
+    if (rng.next() < 0.7) {
+      const c = clumps[rng.int(clumps.length)]!;
+      mx = Math.floor(c[0] + (rng.next() - 0.5) * 18);
+      my = Math.floor(c[1] + (rng.next() - 0.5) * 9);
+    } else {
+      mx = Math.floor(rng.next() * W);
+      my = Math.floor(rng.next() * H);
+    }
     const [x, y] = unproject(mx + ox, my + oy);
-    if (Math.abs(y - road(x)) < 7) continue;
+    if (Math.abs(y - road(x)) < 7) {
+      // Pale pebbles on the road.
+      if (rng.next() < 0.5) {
+        ctx.fillStyle = rng.next() < 0.5 ? '#c4b898' : '#9a8c6c';
+        ctx.fillRect(mx, my, 1, 1);
+      }
+      continue;
+    }
     const k = rng.next();
     if (k < 0.62) {
       // A tuft of grass: a few upright blades, light over dark.

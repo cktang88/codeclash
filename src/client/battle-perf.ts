@@ -1,5 +1,5 @@
 // Perf and screenshot harness for the battle renderer.
-//   /battle-perf.html?men=20000&per=2500&seed=3&t=0&speed=1&zoom=1&pause=0&sync=0&cx=&cy=&stances=0&hud=1&scan=1
+//   /battle-perf.html?men=20000&per=2500&seed=3&t=0&speed=1&zoom=1&pause=0&sync=0&cx=&cy=&stances=0&morale=0&hud=1&scan=1
 // `per` pads each side to that many figures with clones of the simulated ones (the sim caps a
 // side at MAX_FIGURES), so the renderer can be measured at crowd sizes the sim doesn't make.
 // `t` fast-forwards to that tick first; `sync=1` waits for the GPU after each draw so the
@@ -53,11 +53,23 @@ sync();
 const view = Object.create(real) as Battle;
 Object.defineProperty(view, 'soldiers', { value: [...real.soldiers, ...clones.map((k) => k.c)] });
 
+// Until the sim sets Regiment.moraleState/morale, `morale=1` fakes them from morale and rout.
+const fakeMorale = q.get('morale') === '1';
+const moraleTick = () => {
+  if (!fakeMorale) return;
+  for (const r of real.regiments) {
+    const x = r as unknown as { moraleState: string; morale: number };
+    x.moraleState = r.routed ? 'broken' : r.id % 4 === 1 ? 'wavering' : r.id % 4 === 3 ? 'rallying' : 'steady';
+    x.morale = r.routed ? 5 : r.id % 4 === 1 ? 28 : r.id % 4 === 3 ? 45 : 80;
+  }
+};
+moraleTick();
 const scene = new BattleScene(view);
 const step = () => {
   scene.snapshot();
   real.step();
   sync();
+  moraleTick();
   scene.afterStep();
 };
 

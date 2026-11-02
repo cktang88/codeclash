@@ -16,7 +16,7 @@
 import { Battle, FIELD_H, FIELD_W, State, type Projectile } from '../../game/battle.ts';
 import { Rng } from '../../game/rng.ts';
 import { U } from '../../game/units.ts';
-import { Anim, COMMANDER_KIND, type Atlas, type Dir, type Stance } from './contract.ts';
+import { Anim, ANIM_COUNT, COMMANDER_KIND, KIND_COUNT, type Atlas, type Dir, type Stance } from './contract.ts';
 import { buildFx, type FxSheet, type Region } from './fx.ts';
 import { Batch, cornerBuffer, dropTarget, SpriteProgram, target, texture, type Target } from './gl.ts';
 import { paintGround, type Ground } from './ground.ts';
@@ -100,6 +100,8 @@ const SHEAR_X = 0.85;
 const SHEAR_Y = 0.32;
 const SHADOW: [number, number, number, number] = [0.07, 0.06, 0.1, 0.42];
 const MAX_PARTICLES = 3000;
+/** Highest zoom level (1 fits the field). */
+export const MAX_ZOOM = 8;
 
 const BRACING: ReadonlySet<Stance> = new Set<Stance>(['shieldwall', 'pikewall', 'braced']);
 /** A regiment's stance; the sim adds `stance` on Regiment (read loosely until it lands). */
@@ -135,6 +137,11 @@ export class BattleScene {
   private dirs: Uint8Array;
   private stamped: Uint8Array;
   private regX: Float32Array;
+  private frameTab: Uint16Array[] = [];
+  private lenTab: Float32Array[] = [];
+  private tpfTab: Float32Array[] = [];
+  private missileRegions: Record<string, Region[]> = {};
+  private puffRegions: Region[] = [];
   private regY: Float32Array;
   private flying = new Set<Projectile>();
   private particles: Particle[] = [];
@@ -147,7 +154,25 @@ export class BattleScene {
     this.ground = paintGround(battle.setup.seed);
     const [a, b] = battle.setup.armies;
     this.atlases = [buildAtlas(a.faction, a.hue), buildAtlas(b.faction, b.hue)];
-    this.fxSheet = buildFx([a.hue, b.hue], battle.setup.seed);
+    this.fxSheet = buildFx([a, b], battle.setup.seed);
+    // Lookup tables, so the per-figure loop calls no atlas closures and builds no strings.
+    for (const atlas of this.atlases) {
+      const frames = new Uint16Array(KIND_COUNT * ANIM_COUNT);
+      const lens = new Float32Array(KIND_COUNT * ANIM_COUNT);
+      const tpf = new Float32Array(ANIM_COUNT);
+      for (let an = 0; an < ANIM_COUNT; an++) tpf[an] = atlas.ticksPerFrame(an as Anim);
+      for (let k = 0; k < KIND_COUNT; k++)
+        for (let an = 0; an < ANIM_COUNT; an++) {
+          frames[k * ANIM_COUNT + an] = atlas.frames(k, an as Anim);
+          lens[k * ANIM_COUNT + an] = frames[k * ANIM_COUNT + an]! * tpf[an]!;
+        }
+      this.frameTab.push(frames);
+      this.lenTab.push(lens);
+      this.tpfTab.push(tpf);
+    }
+    for (const look of ['arrow', 'bolt', 'jav']) this.missileRegions[look] = Array.from({ length: 16 }, (_, i) => this.fxSheet.get(`${look}${i}`));
+    const sizes = [1, 2, 3, 4, 5, 6, 7, 9, 11];
+    for (let d = 0; d <= 11; d++) this.puffRegions[d] = this.fxSheet.get(`puff${sizes.find((q) => q >= d) ?? 11}`);
     const n = battle.soldiers.length;
     this.prevX = new Float32Array(n);
     this.prevY = new Float32Array(n);
@@ -210,9 +235,12 @@ export class BattleScene {
         const dead = s.state === State.Dead;
         const n = dead ? 6 : 3;
         const h = s.s.mounted ? 12 : 8;
-        for (let k = 0; k < n; k++) {
-          const c = rng.next();
-          this.spawn(PK.Blood, s.x, s.y, h + rng.next() * 3, (rng.next() - 0.5) * 26, (rng.next() - 0.5) * 26, 14 + rng.next() * 26, 0.9, 1, c < 0.5 ? 0.42 : 0.6, 0.05, 0.04, 1);
+        // A ring of single drops bursting outward (see docs/art-references/battle-effects.md).
+        const a0 = rng.next() * Math.PI * 2;
+        for (let k = 0; k < n * 2; k++) {
+          const a = a0 + (k / (n * 2)) * Math.PI * 2;
+          const sp = 14 + rng.next() * 18;
+          this.spawn(PK.Blood, s.x, s.y, h + rng.next() * 3, Math.cos(a) * sp, Math.sin(a) * sp, 6 + rng.next() * 18, 0.9, 1, rng.next() < 0.5 ? 0.42 : 0.6, 0.05, 0.04, 1);
         }
         if (rng.next() < 0.12) this.stampFx(`splat${rng.int(4)}`, s.x + (rng.next() - 0.5) * 4, s.y + (rng.next() - 0.5) * 4, 0.7);
       }
@@ -224,7 +252,7 @@ export class BattleScene {
       const v2 = s.vx * s.vx + s.vy * s.vy;
       if (s.s.mounted ? v2 > 700 && rng.next() < 0.3 : v2 > 100 && rng.next() < 0.02) {
         const big = s.s.mounted ? 1 : 0;
-        this.spawn(PK.Dust, s.x - s.vx * 0.06, s.y - s.vy * 0.06, 1, -s.vx * 0.1 + (rng.next() - 0.5) * 6, -s.vy * 0.1 + (rng.next() - 0.5) * 6, 2 + rng.next() * 3, 1.4 + rng.next() * 1.2 + big, 2 + big * 2, 0.55, 0.48, 0.36, 0.3);
+        this.spawn(PK.Dust, s.x - s.vx * 0.06, s.y - s.vy * 0.06, 1, -s.vx * 0.1 + (rng.next() - 0.5) * 6, -s.vy * 0.1 + (rng.next() - 0.5) * 6, 2 + rng.next() * 3, 1.4 + rng.next() * 1.2 + big, 2 + big * 2, 0.46, 0.4, 0.3, 0.22);
       }
     }
     // Missiles that came down this tick.
@@ -249,9 +277,9 @@ export class BattleScene {
 
   private impact(x: number, y: number): void {
     const rng = this.rng;
-    this.stampFx(`crater${rng.int(2)}`, x, y, 0.95);
+    this.stampFx(`crater${rng.int(2)}`, x, y, 0.85);
     for (let k = 0; k < 9; k++) {
-      const g = 0.32 + rng.next() * 0.12;
+      const g = 0.2 + rng.next() * 0.12;
       this.spawn(PK.Smoke, x + (rng.next() - 0.5) * 6, y + (rng.next() - 0.5) * 6, 2 + rng.next() * 4, (rng.next() - 0.5) * 14, (rng.next() - 0.5) * 14, 6 + rng.next() * 8, 2.2 + rng.next() * 1.6, 3 + rng.int(4), g, g * 0.95, g * 0.88, 0.55);
     }
     for (let k = 0; k < 10; k++) {
@@ -355,6 +383,28 @@ export class BattleScene {
     return fit + Math.max(0, Math.round(this.camera.zoom) - 1);
   }
 
+  /**
+   * Zooms to `level` keeping the field point under device pixel (x, y) of `out` where it is
+   * (wheel, pinch, double-click). Zoom levels are whole numbers: each adds one device pixel per
+   * scene pixel, so the scene buffer shrinks and sprites grow, never blur.
+   */
+  zoomAt(out: HTMLCanvasElement, level: number, x: number, y: number): void {
+    const [bx, by] = this.toWorld(out, x, y);
+    this.camera.zoom = Math.max(1, Math.min(MAX_ZOOM, Math.round(level)));
+    this.layout(out.width, out.height);
+    const [ax, ay] = this.toWorld(out, x, y);
+    this.camera.cx += bx - ax;
+    this.camera.cy += by - ay;
+    this.layout(out.width, out.height);
+  }
+
+  /** The whole field in view. */
+  fit(): void {
+    this.camera.zoom = 1;
+    this.camera.cx = FIELD_W / 2;
+    this.camera.cy = FIELD_H / 2;
+  }
+
   /** Moves the view by a drag of (dx, dy) device pixels. */
   pan(dx: number, dy: number): void {
     const px = this.view.px;
@@ -377,6 +427,9 @@ export class BattleScene {
     const bw = Math.ceil(W / px);
     const bh = Math.ceil(H / px);
     const g = this.ground;
+    // The view's centre stays over the field, and the view inside the painted ground.
+    this.camera.cx = Math.max(0, Math.min(FIELD_W, this.camera.cx));
+    this.camera.cy = Math.max(0, Math.min(FIELD_H, this.camera.cy));
     let mcx = this.mapX(this.camera.cx, this.camera.cy);
     let mcy = this.mapY(this.camera.cx, this.camera.cy);
     mcx = bw >= g.w ? g.w / 2 : Math.max(bw / 2, Math.min(g.w - bw / 2, mcx));
@@ -547,6 +600,7 @@ export class BattleScene {
       if (fmx < x0 || fmx > x1 || fmy < y0 || fmy > y1) continue;
       const atlas = this.atlases[s.team as 0 | 1];
       const kind = s.commander ? COMMANDER_KIND : s.cls;
+      const lens = this.lenTab[s.team]!;
       let anim: Anim = Anim.Idle;
       let start = 0;
       let loop = true;
@@ -564,11 +618,11 @@ export class BattleScene {
         const tgt = s.target >= 0 ? ss[s.target] : undefined;
         const melee = s.s.range === 0 || (tgt !== undefined && (tgt.x - s.x) ** 2 + (tgt.y - s.y) ** 2 < 14 * 14);
         const actAnim = melee ? Anim.Attack : Anim.Shoot;
-        if (act >= 0 && act < atlas.frames(kind, actAnim) * atlas.ticksPerFrame(actAnim)) {
+        if (act >= 0 && act < lens[kind * ANIM_COUNT + actAnim]!) {
           anim = actAnim;
           start = s.actedAt;
           loop = false;
-        } else if (T - hitAt < atlas.frames(kind, Anim.Hit) * atlas.ticksPerFrame(Anim.Hit)) {
+        } else if (T - hitAt < lens[kind * ANIM_COUNT + Anim.Hit]!) {
           anim = Anim.Hit;
           start = hitAt;
           loop = false;
@@ -581,8 +635,8 @@ export class BattleScene {
         else dir = dirFor(reg.fx, reg.fy, dir);
         this.dirs[i] = dir;
       }
-      const frames = atlas.frames(kind, anim);
-      const tpf = atlas.ticksPerFrame(anim);
+      const frames = this.frameTab[s.team]![kind * ANIM_COUNT + anim]!;
+      const tpf = this.tpfTab[s.team]![anim]!;
       // Marching blocks step together: one phase per regiment, a hair's offset per file.
       // Everything else (idling, routing) keeps a per-man phase so a crowd doesn't pulse.
       const drilled = s.state === State.Fighting && (anim === Anim.Walk || anim === Anim.Run);
@@ -693,7 +747,7 @@ export class BattleScene {
       if (look === 'stone') r = fx.get('stone');
       else {
         const a = Math.round((Math.atan2(sy, sx) / (Math.PI * 2)) * 16 + 16) % 16;
-        r = fx.get(`${look}${a}`);
+        r = this.missileRegions[look]![a]!;
       }
       gfx.fx.sprite(Math.round(mx), Math.round(my - z), r.u, r.v, r.w, r.h, r.ax, r.ay, my, 1, 1, 1, 1, 0, 1);
     }
@@ -730,8 +784,7 @@ export class BattleScene {
         gfx.fx.rect(Math.round(mx), Math.round(my - p.z), p.size, 1, my, p.r, p.g, p.b, 1);
       } else {
         const grow = p.kind === PK.Smoke ? p.life * 3.2 : p.life * 2.2;
-        const d = [1, 2, 3, 4, 5, 6, 7, 9, 11].find((q) => q >= p.size + grow) ?? 11;
-        const r = fx.get(`puff${d}`);
+        const r = this.puffRegions[Math.min(11, Math.ceil(p.size + grow))]!;
         const a = p.a * Math.min(1, fade * 1.6) * Math.min(1, p.life * 6);
         gfx.soft.sprite(Math.round(mx), Math.round(my - p.z), r.u, r.v, r.w, r.h, r.ax, r.ay, my + 2, p.r, p.g, p.b, a);
       }

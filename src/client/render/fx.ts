@@ -3,7 +3,36 @@
 // each army's hue, and the trees, boulders and ruins around the field. Painted pixel by pixel
 // once per battle and packed into one texture.
 
+import { FACTIONS, type FactionId } from '../../game/factions.ts';
 import { hsl } from './sprites.ts';
+
+/** An army as the effects sheet needs it: its heraldic hue and its faction's colours. */
+export interface FxArmy {
+  hue: number;
+  faction: FactionId;
+}
+
+/** Banner colours: regimental cloth in the army's hue with the faction's light cloth as the
+ * emblem; the commander's standard in the faction's own cloth and trim (for the Templars, the
+ * white field and red cross). */
+interface Colours {
+  base: string;
+  shade: string;
+  light: string;
+  mark: string;
+}
+
+function shadeHex(hex: string, k: number): string {
+  const n = parseInt(hex.slice(1), 16);
+  const f = (v: number) => Math.max(0, Math.min(255, Math.round(k >= 1 ? v + (255 - v) * (k - 1) : v * k)));
+  return `rgb(${f(n >> 16)} ${f((n >> 8) & 255)} ${f(n & 255)})`;
+}
+
+function colours(army: FxArmy, command: boolean): Colours {
+  const pal = FACTIONS[army.faction].palette;
+  if (command) return { base: pal.cloth, shade: shadeHex(pal.cloth, 0.78), light: shadeHex(pal.cloth, 1.35), mark: pal.trim };
+  return { base: hsl(army.hue, 68, 42), shade: hsl(army.hue, 64, 28), light: hsl(army.hue, 72, 56), mark: shadeHex(pal.cloth, 1.1) };
+}
 
 export interface Region {
   u: number;
@@ -136,20 +165,28 @@ function missile(kind: 'arrow' | 'bolt' | 'jav', a: number): Px {
   const dy = Math.sin(a);
   for (let i = 0; i < len; i++) {
     const t = i - (len - 1) / 2;
+    // Dark iron head, dark shaft, pale fletching: the contrast is what reads at this size.
     const col =
-      kind === 'jav' ? (i >= len - 2 ? '#b8b6ae' : '#6b4c2c') : kind === 'bolt' ? (i === len - 1 ? '#9a9890' : '#4a3a28') : i === len - 1 ? '#d8d4c8' : i <= 1 ? '#b9a98a' : '#8a7354';
+      kind === 'jav' ? (i >= len - 2 ? '#2e2c2a' : i === 0 ? '#c8bfa8' : '#6b4c2c') : kind === 'bolt' ? (i === len - 1 ? '#2a2826' : i === 0 ? '#d8d0bc' : '#4a3a28') : i === len - 1 ? '#262422' : i <= 1 ? '#efe8d8' : '#6e5638';
     p.set(c + dx * t, c + dy * t, col);
   }
   return p;
 }
 
-function puff(d: number): Px {
+/** A lumpy puff: a few overlapping blobs, lit on top, darker underneath. Tinted at draw time. */
+function puff(d: number, seed: number): Px {
   const p = new Px(d, d);
   const r = d / 2;
+  const rnd = rngOf(seed);
+  const blobs: [number, number, number][] = [[r, r, r * 0.75]];
+  if (d >= 4) for (let k = 0; k < 3; k++) blobs.push([r + (rnd() - 0.5) * r, r + (rnd() - 0.5) * r * 0.8, r * (0.4 + rnd() * 0.25)]);
   for (let y = 0; y < d; y++)
     for (let x = 0; x < d; x++) {
-      const q = (x + 0.5 - r) ** 2 + (y + 0.5 - r) ** 2;
-      if (q <= r * r + (d <= 3 ? 0.6 : 0)) p.set(x, y, q < r * r * 0.35 ? '#ffffff' : '#e6e6e6');
+      let f = 0;
+      for (const [bx, by, br] of blobs) f = Math.max(f, 1 - ((x + 0.5 - bx) ** 2 + (y + 0.5 - by) ** 2) / (br * br));
+      if (d <= 3 ? (x + 0.5 - r) ** 2 + (y + 0.5 - r) ** 2 > r * r + 0.6 : f + (bayer(x, y) - 0.5) * 0.35 <= 0) continue;
+      const lit = (r - y) / r;
+      p.set(x, y, lit > 0.3 ? '#ffffff' : lit > -0.35 ? '#dcdcdc' : '#b4b4b4');
     }
   return p;
 }
@@ -301,7 +338,7 @@ function bush(r: () => number, v: number): [Px, number, number] {
 // -------------------------------------------------------------------- standards
 
 /** A standard on its pole, the cloth in four frames of waving. */
-function banner(hue: number, command: boolean, frame: number, facingLeft: boolean, tattered = false): Px {
+function banner(army: FxArmy, command: boolean, frame: number, facingLeft: boolean, tattered = false): Px {
   const W = 12;
   const H = 22;
   const p = new Px(W, H);
@@ -311,10 +348,7 @@ function banner(hue: number, command: boolean, frame: number, facingLeft: boolea
   p.set(pole, 0, '#e4c46a');
   const cw = command ? 9 : 8;
   const ch = command ? 7 : 6;
-  const base = command ? '#e4ded0' : hsl(hue, 52, 38);
-  const shade = command ? '#b6b0a2' : hsl(hue, 52, 26);
-  const light = command ? '#f6f2e8' : hsl(hue, 55, 50);
-  const mark = command ? '#9c1c1c' : '#e0dac8';
+  const { base, shade, light, mark } = colours(army, command);
   for (let i = 0; i < cw; i++) {
     const x = facingLeft ? pole - 1 - i : pole + 1 + i;
     const wave = Math.round(Math.sin(i * 0.9 - frame * (Math.PI / 2)) * (i / cw) * 1.6);
@@ -322,7 +356,7 @@ function banner(hue: number, command: boolean, frame: number, facingLeft: boolea
       const y = 2 + j + wave + (i === cw - 1 && !command ? 1 : 0);
       const lit = Math.sin(i * 0.9 - frame * (Math.PI / 2) + 0.8);
       let col = lit > 0.45 ? light : lit < -0.45 ? shade : base;
-      // A cross: on the command standard red on white, else pale on the hue.
+      // The emblem: a cross of the mark colour (trim on the commander's, pale cloth on the hue).
       const mx = Math.floor(cw / 2) - (command ? 0 : 1);
       if (i === mx || j === Math.floor(ch / 2) - 0) col = mark;
       if (!command && (i === mx || j === Math.floor(ch / 2)) && (i > cw - 3)) col = lit < -0.45 ? shade : base;
@@ -341,7 +375,7 @@ function banner(hue: number, command: boolean, frame: number, facingLeft: boolea
 }
 
 /** The effects sheet for a battle between armies of these two hues. */
-export function buildFx(hues: [number, number], seed: number): FxSheet {
+export function buildFx(armies: [FxArmy, FxArmy], seed: number): FxSheet {
   const s = new Sheet(512);
   const r = rngOf(seed ^ 0xf00d);
   for (let k = 0; k < 6; k++) {
@@ -354,11 +388,21 @@ export function buildFx(hues: [number, number], seed: number): FxSheet {
     s.put(`splat${k}`, p, 3, 2);
   }
   for (let k = 0; k < 2; k++) {
-    const c = pool(r, 18, 9, '#1c1610', '#2a2118', '#3a2e22');
-    for (let i = 0; i < 14; i++) {
+    // A stone's crater: dark scooped centre, a lighter rim of thrown earth, clods around.
+    const c = new Px(18, 9);
+    for (let y = 0; y < 9; y++)
+      for (let x = 0; x < 18; x++) {
+        const dx = (x + 0.5 - 9) / 7;
+        const dy = (y + 0.5 - 4.5) / 3.4;
+        const q = Math.sqrt(dx * dx + dy * dy) + (r() - 0.5) * 0.25;
+        if (q < 0.55) c.set(x, y, dy < 0 ? '#1e1812' : '#2c241a');
+        else if (q < 0.85) c.set(x, y, '#3e3326');
+        else if (q < 1.08 && bayer(x, y) > 0.35) c.set(x, y, dy > 0 ? '#6a5a42' : '#54473a');
+      }
+    for (let i = 0; i < 10; i++) {
       const a = r() * Math.PI * 2;
-      const d = 6 + r() * 3;
-      c.set(9 + Math.cos(a) * d, 4.5 + Math.sin(a) * d * 0.5, r() < 0.5 ? '#5d5240' : '#3e3528');
+      const d = 1.15 + r() * 0.3;
+      c.set(9 + Math.cos(a) * 7 * d, 4.5 + Math.sin(a) * 3.4 * d, r() < 0.5 ? '#5d5240' : '#3e3528');
     }
     s.put(`crater${k}`, c, 9, 4);
   }
@@ -380,7 +424,7 @@ export function buildFx(hues: [number, number], seed: number): FxSheet {
   stone.rect(1, 0, 2, 4, '#4a463e');
   stone.set(1, 1, '#8a8474');
   s.put('stone', stone, 2, 2);
-  for (const d of [1, 2, 3, 4, 5, 6, 7, 9, 11]) s.put(`puff${d}`, puff(d), Math.floor(d / 2), Math.floor(d / 2));
+  for (const d of [1, 2, 3, 4, 5, 6, 7, 9, 11]) s.put(`puff${d}`, puff(d, d * 31), Math.floor(d / 2), Math.floor(d / 2));
 
   // Stance glyphs shown over a standard when zoomed in.
   const glyphs: Record<string, string[]> = {
@@ -408,10 +452,10 @@ export function buildFx(hues: [number, number], seed: number): FxSheet {
   for (let t = 0; t < 2; t++)
     for (let f = 0; f < 4; f++) {
       const left = t === 1;
-      s.put(`ban${t}_${f}`, banner(hues[t]!, false, f, left), left ? 10 : 1, 21);
-      s.put(`cmd${t}_${f}`, banner(hues[t]!, true, f, left), left ? 10 : 1, 21);
-      s.put(`torn${t}_${f}`, banner(hues[t]!, false, f, left, true), left ? 10 : 1, 21);
-      s.put(`torncmd${t}_${f}`, banner(hues[t]!, true, f, left, true), left ? 10 : 1, 21);
+      s.put(`ban${t}_${f}`, banner(armies[t]!, false, f, left), left ? 10 : 1, 21);
+      s.put(`cmd${t}_${f}`, banner(armies[t]!, true, f, left), left ? 10 : 1, 21);
+      s.put(`torn${t}_${f}`, banner(armies[t]!, false, f, left, true), left ? 10 : 1, 21);
+      s.put(`torncmd${t}_${f}`, banner(armies[t]!, true, f, left, true), left ? 10 : 1, 21);
     }
   // A dropped standard: the pole in the dirt, the cloth crumpled beside it.
   for (let t = 0; t < 2; t++)
@@ -419,11 +463,12 @@ export function buildFx(hues: [number, number], seed: number): FxSheet {
       const p = new Px(18, 7);
       p.line(0, 5, 15, 2, '#3a2a1a');
       p.set(16, 2, '#c9a24a');
-      const base = command ? '#d8d2c4' : hsl(hues[t]!, 45, 32);
-      const shade = command ? '#a6a092' : hsl(hues[t]!, 45, 22);
+      const c = colours(armies[t]!, command);
+      const base = c.base;
+      const shade = c.shade;
       for (let i = 0; i < 6; i++)
         for (let j = 0; j < 3; j++) p.set(9 + i, 3 + j - (i > 3 ? 1 : 0), (i + j) % 3 === 0 ? shade : base);
-      p.set(11, 4, command ? '#9c1c1c' : '#cfc8b4');
+      p.set(11, 4, c.mark);
       p.outline(OUT);
       s.put(`dropped${command ? 'cmd' : ''}${t}`, p, 8, 5);
     }

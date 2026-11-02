@@ -2,10 +2,11 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
+// Anchored patterns: a bare '/api' prefix would also swallow the client module '/api.ts'.
 const PROXY = {
-  '/api': 'http://localhost:8787',
-  '/auth': 'http://localhost:8787',
-  '/hooks': 'http://localhost:8787',
+  '^/api/': 'http://localhost:8787',
+  '^/auth/': 'http://localhost:8787',
+  '^/hooks/': 'http://localhost:8787',
 };
 
 export default defineConfig({

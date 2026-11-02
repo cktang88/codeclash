@@ -125,7 +125,7 @@ void main() {
   // Scanlines: darken the last device row of each buffer row.
   if (u_scan > 0.5 && u_px >= 3.0) {
     float row = mod(dev.y - u_off.y, u_px);
-    if (row >= u_px - 1.0) c *= 0.84;
+    if (row >= u_px - 1.0) c *= mix(0.8, 0.95, smoothstep(0.1, 0.7, l));
   }
   o = vec4(clamp(c, 0.0, 1.0), 1.0);
 }`;
