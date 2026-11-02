@@ -6,7 +6,7 @@
 
 import { Anim, ANIM_COUNT, KIND_COUNT, type Atlas, type Dir } from './render/contract.ts';
 import { buildAtlas } from './render/sprites.ts';
-import type { FactionId } from '../game/factions.ts';
+import { FACTIONS, type FactionId } from '../game/factions.ts';
 
 const q = new URLSearchParams(location.search);
 const mode = q.get('mode') ?? 'grid';
@@ -17,7 +17,7 @@ const faction = (q.get('faction') ?? 'templar') as FactionId;
 const kinds = (q.get('kinds') ?? [...Array(KIND_COUNT).keys()].join(',')).split(',').map(Number);
 const anims = (q.get('anims') ?? [...Array(ANIM_COUNT).keys()].join(',')).split(',').map(Number) as Anim[];
 
-const KIND = ['Sergeant-Brothers', 'Spear Levy', 'Javelin Men', 'Pilgrim Archers', 'Genoese Crossbows', 'Turcopoles', 'Turcopole Archers', 'Knight-Brothers', 'Iron Brethren', 'Mangonel', 'Marshal'];
+const KIND = [...FACTIONS[faction].units, FACTIONS[faction].commander];
 const ANIM = ['Idle', 'Walk', 'Run', 'Attack', 'Shoot', 'Hit', 'Die', 'Dead', 'Brace'];
 const DIR = ['SE', 'SW', 'NW', 'NE'];
 const FIELD = '#56603a';
@@ -25,16 +25,23 @@ const FIELD = '#56603a';
 const t0 = performance.now();
 const A = buildAtlas(faction, hueA);
 const t1 = performance.now();
-const B = buildAtlas(faction, hueB);
+const faction2 = (q.get('faction2') ?? faction) as FactionId;
+const B = buildAtlas(faction2, hueB);
 const t2 = performance.now();
+// Force every kind of both (they paint lazily) and time it.
+for (let k = 0; k < KIND_COUNT; k++) A.at(k, Anim.Idle, 0, 0);
+const t3 = performance.now();
+for (let k = 0; k < KIND_COUNT; k++) B.at(k, Anim.Idle, 0, 0);
+const t4 = performance.now();
 const info = document.getElementById('info')!;
 info.innerHTML =
-  `${faction} · atlas ${A.image.width}×${A.image.height} · build ${(t1 - t0).toFixed(0)} ms / ${(t2 - t1).toFixed(0)} ms · ` +
-  ['grid', 'sheet', 'army'].map((m) => `<a href="?mode=${m}&faction=${faction}">${m}</a>`).join(' ');
-const times = [t1 - t0, t2 - t1];
+  `${faction} · atlas ${A.image.width}×${A.image.height} · build ${(t1 - t0).toFixed(0)} / ${(t2 - t1).toFixed(0)} ms, full paint ${(t3 - t2).toFixed(0)} / ${(t4 - t3).toFixed(0)} ms · ` +
+  ['grid', 'sheet', 'army', 'compare'].map((m) => `<a href="?mode=${m}&faction=${faction}">${m}</a>`).join(' ');
+const times = [t1 - t0, t2 - t1, t3 - t2, t4 - t3];
 for (let i = 0; i < Number(q.get('bench') ?? 0); i++) {
   const s = performance.now();
-  buildAtlas(faction, (hueA + 40 * i) % 360);
+  const X = buildAtlas(faction, (hueA + 40 * i) % 360);
+  for (let k = 0; k < KIND_COUNT; k++) X.at(k, Anim.Idle, 0, 0);
   times.push(performance.now() - s);
 }
 (window as unknown as { buildMs: number[] }).buildMs = times.map(Math.round);
@@ -73,7 +80,39 @@ function frameAt(at: Atlas, kind: number, a: Anim, t: number): number {
 
 const draws: ((t: number) => void)[] = [];
 
-if (mode === 'grid') {
+if (mode === 'compare') {
+  // The three factions side by side: rows = kinds, for each faction the four facings.
+  const ids: FactionId[] = ['templar', 'samurai', 'undead'];
+  const atl = ids.map((id) => [buildAtlas(id, hueA), buildAtlas(id, hueB)] as const);
+  const a = (anims[0] ?? Anim.Idle) as Anim;
+  const tbl = document.createElement('table');
+  const hr = tbl.insertRow();
+  hr.insertCell();
+  for (const id of ids) {
+    const c = hr.insertCell();
+    c.colSpan = 4;
+    c.textContent = `${FACTIONS[id].name} · ${ANIM[a]}`;
+  }
+  for (const k of kinds) {
+    const tr = tbl.insertRow();
+    tr.insertCell().textContent = String(k);
+    ids.forEach((id, j) => {
+      for (let d = 0; d < 4; d++) {
+        const at = atl[j]![d % 2]!;
+        const [c, g] = cell(at.cellW * zoom, at.cellH * zoom);
+        const td = tr.insertCell();
+        td.title = `${[...FACTIONS[id].units, FACTIONS[id].commander][k]} ${DIR[d]}`;
+        td.appendChild(c);
+        draws.push((t) => {
+          field(g, c.width, c.height, zoom);
+          const [sx, sy] = at.at(k, a, frameAt(at, k, a, t), d as Dir);
+          g.drawImage(at.image, sx, sy, at.cellW, at.cellH, 0, 0, c.width, c.height);
+        });
+      }
+    });
+  }
+  out.appendChild(tbl);
+} else if (mode === 'grid') {
   for (const k of kinds) {
     const h2 = document.createElement('h2');
     h2.textContent = `${k} ${KIND[k]}`;

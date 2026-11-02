@@ -16,3 +16,11 @@ Met images are Open Access (public domain, CC0 metadata), fetched through the Me
 Not used: the Wikimedia Commons API was rate-limited from the build machine (HTTP 429), so the
 Nagashino screen (File:Battle-of-Nagashino-Map-Folding-Screen-1575.png, public domain) was found
 but not downloaded; revisit for teppō volley lines behind the palisade.
+
+## Added by the sprite painter (sprites.ts)
+
+| # | Image | Source / licence | Taken from it |
+|---|---|---|---|
+| 8 | Helmet (*Zukinnari Kabuto*), 16th c. (Met 24014) | https://www.metmuseum.org/art/collection/search/24014 — Public domain (Met Open Access) | The kabuto bowl sits low with a wide flaring shikoro (neck guard) and turned-back fukigaeshi, and the crest is a tall gold-and-vermilion shape above. In pixels: a dark bowl, a laced vermilion flare at the back and sides, and a 2-px gold crest. The daimyō gets a 5-px crescent. |
+| 9 | Kawanakajima print and Met gusoku, re-studied at sprite scale (refs 2, 4) | as above | At game scale the dark lacquer must stay near-black rather than blue: our first pass used `#2c3550` and whole blocks read as blue blobs, so lacquer became `#2a2a31` and the team-hue sashimono carries all the colour. Seen from behind, a regiment is a field of flags, as in the print. |
+| 10 | sebshady, *Samurai Sprites* (OGA, CC0), re-studied (ref 7) | **CC0** | The katana as a pale 1-px arc that sweeps through the attack; the fall to the side. |
