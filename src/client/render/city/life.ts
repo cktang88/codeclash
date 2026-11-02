@@ -116,7 +116,10 @@ export class Draw {
       }
     }
     const [cx, cy] = a.at(kind, anim, frame, dir);
-    this.g.drawImage(a.image, cx, cy, a.cellW, a.cellH, x - a.footX, y - a.footY, a.cellW, a.cellH);
+    // HD, until the sheet lands: the level-1 grid cell at one texel to a buffer pixel (drawn at
+    // world scale it was twice the townsfolk's size in doubled pixels, a murky blob).
+    if (k > 1) this.g.drawImage(a.image, cx, cy, a.cellW, a.cellH, x - a.footX / k, y - a.footY / k, a.cellW / k, a.cellH / k);
+    else this.g.drawImage(a.image, cx, cy, a.cellW, a.cellH, x - a.footX, y - a.footY, a.cellW, a.cellH);
   }
   /** A soldier on a given frame (for scripted actions). */
   soldierFrame(kind: number, anim: Anim, frame: number, dir: Dir, u: number, v: number, z = 0): void {
@@ -986,14 +989,14 @@ export class Life {
       const c = i % cols;
       const rr = Math.floor(i / cols);
       // HD soldiers carry their banners and spears at full size: give them a pace more room.
-      const sp = this.hd ? 6 : 5;
+      const sp = this.hd ? 8 : 5;
       const u = cu + (c - (cols - 1) / 2) * sp;
       const v = cv + (rr - (rows - 1) / 2) * sp;
       out.push({ d: u + v, draw: (r) => r.soldier(kinds[i]!, moving ? Anim.Walk : Anim.Idle, r.t + c * 0.05, moving ? dir : 1, u, v) });
       if (moving && rr === rows - 1 && this.rand.next() < 0.01) this.dust(u, v, 1);
     }
     // The drill sergeant walks beside them, barking.
-    const su = cu - ((cols - 1) / 2) * 5 - 9;
+    const su = cu - ((cols - 1) / 2) * (this.hd ? 8 : 5) - 9;
     const sv = cv + (moving ? 4 : 0);
     out.push({ d: su + sv, draw: (r) => r.soldier(U.HeavyInfantry, moving ? Anim.Walk : Math.floor(r.t) % 3 === 0 ? Anim.Attack : Anim.Idle, r.t, moving ? dir : 0, su, sv) });
   }
