@@ -13,9 +13,9 @@
 import { addP, code, DEG, hash, rot, type P2, type Paper } from './core.ts';
 import { Anim } from '../contract.ts';
 import { along, limb, poseAt, snapDeg, type KeySet } from './rig.ts';
-import { bone, bow, crossbow, helm, hood, horseBody, horseFar, horseFrame, horseNear, lance, withHorseBulk, mul, pavise, planeLight, quiver, rag, robe, skull, spear, UM } from './undead-parts.ts';
+import { bone, bow, crossbow, flame, frameOf, helm, hood, horseBody, horseFar, horseFrame, horseNear, lance, withHorseBulk, mul, pavise, planeLight, quiver, rag, robe, skull, spear, UM } from './undead-parts.ts';
 import {
-  BLACK_RIDER_KEYS, boneJavelin, COLOSSUS_KEYS, colossus, DEATH_KNIGHT_KEYS, ghoulHead, greatHelm, HORSE_ARCHER_KEYS, lich, LICH_KEYS, lit, TREBUCHET_KEYS, trebuchet,
+  BLACK_RIDER_KEYS, boneJavelin, COLOSSUS_KEYS, colossus, DEATH_KNIGHT_KEYS, ghoulHead, greatHelm, HORSE_ARCHER_KEYS, collar, lichChest, LICH_KEYS, spineCrown, lit, TREBUCHET_KEYS, trebuchet,
 } from './undead.ts';
 
 // ------------------------------------------------------------------ volumes
@@ -533,6 +533,55 @@ function blackRiderStatic(c: Paper): void {
   c.blob(hand, 0.5, 0.45, UM.bone, { tone: 2 });
 }
 
+/** A skull worn as a pauldron (the Necromancer's): a big pale skull over the shoulder, its jaw a lip. */
+function skullPauldron(c: Paper, at: P2, r: number, far: boolean): void {
+  c.blob(addP(at, [0.1, r * 0.55]), r * 1.05, r * 0.45, UM.bone, { tone: far ? 1 : 2 });
+  c.blob(at, r, r * 0.85, UM.bone, {
+    tone: far ? 2 : 3,
+    detail: (_x, _y, nx, ny) => {
+      for (const ox of [-0.3, 0.35]) if (Math.hypot(nx - ox, ny + 0.05) < 0.24) return code(UM.ink, 0);
+      if (Math.abs(nx - 0.02) < 0.08 && ny > 0.2 && ny < 0.45) return code(UM.ink, 1);
+      if (ny > 0.62) return code(UM.bone, 1);
+      return -1;
+    },
+  });
+}
+
+/** The Lich-Marshal: broad in a heavy mantle with skull pauldrons, robed to the ground, the crown, the bone staff. */
+function lichStatic(c: Paper): void {
+  const p = poseAt(LICH_KEYS, Anim.Idle, 0);
+  const F = frameOf(c, p, false, { k: 1.12 });
+  // The far hand, witchfire curling in it.
+  const fh: P2 = [3.6, -6.9];
+  vol(c, [2.6, -11.2], [3.5, -8.8], 1.5, 1.3, UM.shroud, { tone: 1, caps: false });
+  c.rod([3.5, -8.8], fh, 0.45, 0.4, UM.bone, { tone: 1 });
+  flame(c, addP(fh, [0.1, -0.2]), 1.6, 0.25, { w: 0.65 });
+  collar(c, F, 0);
+  // The robe: broad shoulders, heavy folds, a flared, torn hem on the ground.
+  robe(c, [0.4, -11.4], 5.0, 6.4, 11.3, 0.2, UM.shroud, 531);
+  lichChest(c, F, 0, 0.25);
+  c.rod([-1.6, -6.9], [2.3, -7.0], 0.42, 0.42, UM.rust, { tone: 2 });
+  // The mantle over the shoulders in team cloth, skull pauldrons on top.
+  rag(c, [-2.9, -11.3], [-0.6, -11.6], 4.8, 0.1, UM.team, UM.teamDk, 533, { tear: 0.35 });
+  rag(c, [1.6, -11.6], [3.4, -11.2], 4.2, 0.1, UM.team, UM.teamDk, 535, { tear: 0.35, folds: false });
+  skullPauldron(c, [2.7, -11.4], 1.05, true);
+  c.rod([0.4, -12.2], [0.6, -12.8], 0.55, 0.5, UM.bone, { tone: 1 });
+  skull(c, [0.9, -13.4], -6, false);
+  spineCrown(c, [0.9, -13.4], -6, false, 1.1);
+  skullPauldron(c, [-2.1, -11.2], 1.2, false);
+  // The staff of bone at the near side, its caged skull and witchfire; the sleeved arm on it.
+  const hand: P2 = [-2.9, -7.0];
+  const top = along(hand, 178, 7.4), foot = along(hand, -2, 7.0);
+  c.rod(foot, top, 0.45, 0.38, UM.bone, { tone: 2, detail: (_x, _y, u, v) => (Math.abs(v - 0.72) < 0.02 || Math.abs(v - 0.8) < 0.02 ? code(UM.rust, 2) : u > -0.5 && Math.floor(v * 34) % 2 === 0 ? code(UM.bone, 1) : -1) });
+  for (const d of [-35, 0, 35]) c.rod(along(top, -2, 0.4), along(along(top, 178 + d * 0.6, 1.4), 178 + d * 1.4, 0.55), 0.24, 0.08, UM.bone, { tone: d < 0 ? 3 : 2 });
+  const sk = along(top, 178, 0.45);
+  c.blob(sk, 0.7, 0.62, UM.bone, { tone: 3, detail: (_x, _y, nx, ny) => (Math.hypot(Math.abs(nx) - 0.35, ny - 0.05) < 0.28 ? code(UM.glow, 3) : ny > 0.55 ? code(UM.ink, 1) : -1) });
+  flame(c, along(sk, 178, 0.45), 2.2, 0.25);
+  vol(c, [-2.1, -10.8], [-3.4, -8.6], 1.6, 1.4, UM.shroud, { tone: 2, caps: false });
+  vol(c, [-3.4, -8.6], hand, 1.4, 1.2, UM.shroud, { tone: 2, caps: false });
+  c.blob(hand, 0.52, 0.46, UM.bone, { tone: 2 });
+}
+
 const bulky = (draw: (c: Paper) => void) => (c: Paper): void => withHorseBulk(1.45, () => draw(c));
 
 Object.assign(STATIC_KINDS, {
@@ -545,5 +594,5 @@ Object.assign(STATIC_KINDS, {
   7: { body: 'horse', draw: bulky(deathKnightStatic) },
   8: { body: 'beast', draw: idleOf(COLOSSUS_KEYS, colossus) },
   9: { body: 'engine', draw: idleOf(TREBUCHET_KEYS, trebuchet) },
-  10: { body: 'foot', draw: idleOf(LICH_KEYS, lich) },
+  10: { body: 'foot', draw: lichStatic },
 });
