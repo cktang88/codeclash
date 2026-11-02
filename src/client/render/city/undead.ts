@@ -306,26 +306,32 @@ function doorAt(P: Painter, f: Facing, da: number, dz: number, half: number, all
   return hash(xx, Math.floor((dz * k) / 3), 5) < 0.15 ? lit(st.timber, f, 2) : lit(st.timber, f, 1);
 }
 
+/** A hole fallen in a roof: [s, t] centre along the ridge and up the slope, [rs, rt] radii. */
+type Ruin = [number, number, number, number];
+
 /**
  * Steep slate (or lead, or ragged thatch). Slates break and slip: a few gone, showing the dark
- * underlay and a batten; a few new and pale. A ruined roof (`ruin` 0..1) has holes down to its
- * rafters, black inside.
+ * underlay and a batten; a few new and pale. A ruined roof has a hole fallen in it down to the
+ * rafters (black inside), its rim a ragged line of broken slates.
  */
-function roofSh(P: Painter, mat: 'slate' | 'lead' | 'thatch', ragged = false, ruin = 0): Shader {
+function roofSh(P: Painter, mat: 'slate' | 'lead' | 'thatch', ragged = false, ruin?: Ruin): Shader {
   const st = P.st;
   const k = P.k;
   const base = P.roof(mat === 'lead' ? 'lead' : mat === 'thatch' ? 'thatch' : 'slate', 7);
   return (f, s, t, p) => {
     if (ragged && t < 2.2 && hash(Math.floor(s * k), 0, 3) < 0.35 + (2.2 - t) * 0.1) return 0;
-    if (ruin > 0 && t > 1.5) {
-      const hb = hash(Math.floor(s / 5), Math.floor(t / 4), 77) + (hash(Math.floor((s * k) / 2), Math.floor((t * k) / 2), 78) - 0.5) * 0.25;
-      if (hb < ruin) {
-        // Rafters down the slope, a purlin across, black between.
-        if (s % 2.5 < 0.6) return f === 'left' || f === 'top' ? st.timber[1] : st.timber[2];
-        if (t % 4 < 0.5) return st.timber[2];
+    if (ruin && f !== 'back') {
+      const r = Math.hypot((s - ruin[0]) / ruin[2], (t - ruin[1]) / ruin[3]) + (hash(Math.floor((s * k) / 2), Math.floor(t * k), 78) - 0.5) * 0.35;
+      if (r < 1) {
+        // Rafters down the slope, a purlin across, black between; the rafters lit on their tops.
+        const rs = s % 2.4;
+        if (rs < 0.5) return rs < 0.25 ? st.timber[0] : st.timber[2];
+        if (Math.abs(t - ruin[1]) < 0.35) return st.timber[1];
         return hex('#0c0a10');
       }
-      if (hb < ruin + 0.05) return tone(st.slate[1], -0.1);
+      // The broken edge: slates lifted pale, then a dark line under them.
+      if (r < 1.12) return tone(st.slate[0], -0.12);
+      if (r < 1.2) return st.slate[3];
     }
     let c = base(f, s, t, p);
     if (mat === 'slate') {
@@ -346,8 +352,8 @@ function roofSh(P: Painter, mat: 'slate' | 'lead' | 'thatch', ragged = false, ru
 // ------------------------------------------------------------------ parts
 
 interface HallOpts extends WallOpts {
-  /** Holes in the roof down to the rafters (0..1). */
-  ruin?: number;
+  /** A hole in the roof down to the rafters. */
+  ruin?: Ruin;
 }
 
 /** A hall: walls of a material, a steep gable roof, openings. */
@@ -356,7 +362,7 @@ function hall(P: Painter, u0: number, v0: number, z: number, lu: number, lv: num
   const sh = gwall(P, z, h, abs, mat, seed, ho);
   box(P.px, u0, v0, z, lu, lv, h, wrap(sh), false);
   const rh = Math.round((alongU ? lv : lu) * steep);
-  gable(P.px, u0, v0, z + h, lu, lv, rh, alongU, roof === 'thatch' ? 1.6 : 1.2, roofSh(P, roof, ragged, ho.ruin ?? 0), wrap(gwall(P, z, 999, abs.filter((o) => o.kind === 'rose' || o.kind === 'lancet' || o.kind === 'osslancet'), mat, seed + 1)));
+  gable(P.px, u0, v0, z + h, lu, lv, rh, alongU, roof === 'thatch' ? 1.6 : 1.2, roofSh(P, roof, ragged, ho.ruin), wrap(gwall(P, z, 999, abs.filter((o) => o.kind === 'rose' || o.kind === 'lancet' || o.kind === 'osslancet'), mat, seed + 1)));
   return rh;
 }
 
@@ -550,11 +556,11 @@ function chapter(P: Painter, tier: number, parts: BuildingParts): void {
   const v0 = 14;
   const h = tier === 2 ? 13 : tier === 3 ? 16 : 18;
   const holes: Hole[] = [
-    ...lancets('left', 0, lu, tier >= 3 ? 5 : 4, 3, 2.5, h - 6),
+    ...lancets('left', 0, lu, tier >= 3 ? 5 : 4, 3, 3, h - 6, tier >= 3 ? 'osslancet' : 'lancet'),
     { face: 'right', a: lv / 2 - 2.5, w: 5, z: 0, h: 8, kind: 'door' },
     { face: 'right', a: lv / 2 - 3.5, w: 7, z: h + 1, h: 7, kind: 'rose' },
   ];
-  const rh = hall(P, u0, v0, 0, lu, lv, h, true, holes, (zz) => (zz > h - 3.5 && zz < h - 0.8 && tier >= 3 ? 'bone' : 'black'), 'slate', 23, 1.0);
+  const rh = hall(P, u0, v0, 0, lu, lv, h, true, holes, (zz) => (zz > h - 3.5 && zz < h - 0.8 && tier >= 3 ? 'bone' : 'black'), 'slate', 23, 1.0, false, { ivy: 0.3, ruin: tier >= 3 ? [lu * 0.62, lv * 0.32, 5, 3.2] : undefined });
   // The rose window and the west door throw grave-light.
   glow(u0 + lu + 0.3, v0 + lv / 2, h + 4.5, 0);
   // Buttresses down the nave, flying ones when grand.
@@ -589,6 +595,11 @@ function chapter(P: Painter, tier: number, parts: BuildingParts): void {
       { face: 'right', a: tv + 5, w: 4, z: 0, h: 8, kind: 'door' }, { face: 'left', a: tu + 6, w: 2, z: 5, h: 6, kind: 'lancet' },
     ], (zz) => (zz > th - 12 && zz < th - 10 ? 'bone' : 'black'), 27)));
     spire(P, tu, tv, th, 14, tier >= 4 ? 30 : 20);
+    gargoyles(P, tu, tv, 14, 14, th - 3);
+    wallLantern(P, tu + 14.3, tv + 3.6, 5.5);
+    wallLantern(P, tu + 14.3, tv + 10.4, 5.5);
+    wreath(P, tu + 14.2, tv + 7, 6.2);
+    cobweb(P, tu + 14.05, tv + 4.6, 8);
     for (const [pu, pv] of [[tu - 0.5, tv - 0.5], [tu + 12, tv - 0.5], [tu - 0.5, tv + 12], [tu + 12, tv + 12]] as const) pinnacle(P, pu, pv, th - 1, 4, pu + pv);
     parts.bells.push([Math.floor(sx(tu + 14, tv + 7)), Math.floor(sy(tu + 14, tv + 7, th - 5))]);
     if (tier >= 4) {
@@ -638,14 +649,15 @@ function barracks(P: Painter, tier: number, parts: BuildingParts): void {
       ...lancets('left', 0, lu, 2, 3.5, 3, 3.5, 'grate'),
     ];
     frustum(P.px, u0 - 1, v0 - 1, 0, lu + 2, lv + 2, 2, 0.4, (f, p) => blackAt(P, f, f === 'left' ? p.u : p.v, p.z, 32));
-    hall(P, u0, v0, 2, lu, lv, h, false, holes, (zz) => (zz < 1.2 ? 'black' : 'bone'), 'slate', 33, 0.55);
+    hall(P, u0, v0, 2, lu, lv, h, false, holes, (zz) => (zz < 1.2 ? 'black' : zz < 6.7 ? 'niche' : 'bone'), 'slate', 33, 0.55, false, { ivy: 0.2 });
     if (tier >= 3) {
       // Bone pyramids at the corners, as in Sedlec's chapel.
       for (const [pu, pv] of [[u0 + lu + 4, v0 + 3], [u0 + lu + 4, v0 + lv - 3]] as const) bonePile(P, pu, pv, 3.6, 7, pu + pv);
       // A squat tower at the yard end, its top a skull frieze.
       const tu = u0 + lu - 9;
       const tv = v0 - 6;
-      box(P.px, tu, tv, 0, 12, 12, 22, wrap(gwall(P, 0, 22, [...lancets('left', tu, 12, 1, 12, 2, 5), ...lancets('right', tv, 12, 1, 12, 2, 5)], (zz) => (zz > 17 ? 'bone' : 'black'), 34)));
+      box(P.px, tu, tv, 0, 12, 12, 22, wrap(gwall(P, 0, 22, [...lancets('left', tu, 12, 1, 11, 3, 6, 'osslancet'), ...lancets('right', tv, 12, 1, 11, 3, 6, 'osslancet')], (zz) => (zz > 17 ? 'frieze' : 'black'), 34, { ivy: 0.3 })));
+      gargoyles(P, tu, tv, 12, 12, 16);
       if (tier >= 4) {
         spire(P, tu, tv, 22, 12, 20);
         P.pole(parts, tu + 12, tv + 12, 0, 26, 7, 5);
@@ -708,7 +720,9 @@ function granary(P: Painter, tier: number, level: number, parts: BuildingParts):
     hall(P, 162, 78, 0, 30, 20, 11, true, [
       { face: 'left', a: 13, w: 4, z: 0, h: 7, kind: 'door' }, ...lancets('left', 0, 30, 4, 4, 2.5, 4, 'grate').filter((o) => Math.abs(o.a - 13.5) > 3),
       ...lancets('right', 0, 20, 1, 5, 3, 4, 'grate'),
-    ], 'black', 'slate', 52, 0.85);
+    ], 'black', 'slate', 52, 0.85, false, { ivy: 0.35, ruin: tier === 2 ? [10, 5, 4, 2.6] : undefined });
+    wallLantern(P, 177, 98.3, 5.5);
+    wreath(P, 177.5, 98.2, 7.6);
     if (tier >= 3) {
       box(P.px, 194, 80, 0, 10, 16, 8, wrap(gwall(P, 0, 8, [], 'bone', 53)));
       pyramid(P.px, 194, 80, 8, 10, 16, 5, 0.6, roofSh(P, 'lead'));
@@ -733,6 +747,18 @@ function granary(P: Painter, tier: number, level: number, parts: BuildingParts):
       box(P.px, u0 + l + 2, v - 0.7, 2.5, 1.4, 1.4, 9.5, (f) => lit(st.fine, f));
     }
     box(P.px, u0 + l, v0 + 1, 12, 4, l - 2, 1.5, (f) => lit(st.stone, f));
+    // The pediment over the portico: a lead-roofed gable, a skull in its tympanum.
+    gable(P.px, u0 + l - 0.5, v0 + 1, 13.5, 4.5, l - 2, 4, true, 0.4, roofSh(P, 'lead'), (f, _s, t, p) => (Math.hypot(p.v - (v0 + l / 2), t - 1.4) < 0.9 ? st.fine[t > 1.4 ? 0 : 2] : t < 0.4 ? lit(st.fine, f, 1) : lit(st.stone, f)));
+    // Steps up to the door.
+    for (let i = 0; i < 3; i++) box(P.px, u0 + l + 4 + i * 0.9, v0 + l / 2 - 4, 0, 1, 8, 2.5 - i * 0.8, (f) => lit(st.stone, f, f === 'top' ? 0 : 1));
+    // Weeping angels either side, sarcophagi and obelisks before, a railing with a gate round it all.
+    angel(P, u0 + l + 6, v0 + 2, false);
+    angel(P, u0 + l + 6, v0 + l - 2, true);
+    sarcophagus(P, u0 + l + 9, v0 + 1, false);
+    sarcophagus(P, u0 + l + 9, v0 + l - 6, false);
+    railing(P, u0 - 3, v0 + l + 3, u0 + l + 14, v0 + l + 3, 4);
+    railing(P, u0 + l + 14, v0 - 3, u0 + l + 14, v0 + l + 3, 4, true);
+    candles(P, u0 + l + 7.5, v0 + l / 2 + 4.5, 0, 3);
     for (const [pu, pv] of [[u0 - 1, v0 + l], [u0 + l, v0 - 1], [u0 + l, v0 + l]] as const) {
       box(P.px, pu - 0.8, pv - 0.8, 14.5, 1.6, 1.6, 2, (f) => lit(st.fine, f));
       P.px.point(v3(pu, pv, 17), st.fine[0]);
@@ -842,9 +868,13 @@ function hospital(P: Painter, tier: number, parts: BuildingParts): void {
   } else if (tier < 4) {
     // The embalming house: dark half-timbering, a tall chimney for the fires.
     hall(P, u0, v0, 0, lu, lv, h, true, [
-      ...lancets('left', 0, lu, tier + 1, 4, 2.5, 4),
+      ...lancets('left', 0, lu, tier + 1, 4, 3, 3.5, 'shutter'),
       { face: 'right', a: lv / 2 - 2, w: 4, z: 0, h: 7, kind: 'door' },
-    ], tier >= 3 ? (zz) => (zz < 4 ? 'black' : 'timber') : 'timber', 'slate', 82, 0.75);
+    ], tier >= 3 ? (zz) => (zz < 4 ? 'black' : 'timber') : 'timber', 'slate', 82, 0.75, false, { ivy: 0.22 });
+    // The plague doctor's sign over the street, coffins stacked by the door, a chalked cross on it.
+    plagueSign(P, u0 + 5, v0 + lv, 10);
+    coffinStack(P, u0 + lu + 1.5, v0 + 1, 6, true);
+    wallLantern(P, u0 + lu + 0.3, v0 + lv / 2 + 3.4, 5);
   } else {
     // The domed embalming hall: black stone, a bone band, a lead dome with a green lantern.
     box(P.px, u0, v0, 0, lu, lv, h, wrap(gwall(P, 0, h, [
@@ -893,7 +923,7 @@ function walls(P: Painter, a: PaintArgs, parts: BuildingParts): BuildingParts {
       return;
     }
     const mat: Mat | ((zz: number) => Mat) = tier === 2 ? 'rubble' : (zz) => (zz > hh - 3.2 && zz < hh - 1 ? 'bone' : 'black');
-    const face = gwall(P, 0, hh, [], mat, u0 + v0);
+    const face = gwall(P, 0, hh, [], mat, u0 + v0, { ivy: 0.16 });
     const top: PShader = (f, p) => (f === 'top' ? tone(st.stone[2], Math.floor(p.u + p.v) % 4 === 0 ? 0.3 : 0.15) : face(f, p));
     box(P.px, u0, v0, 0, lu, lv, hh, wrap(top));
     // Merlons: broken rubble, black stone, or skulls when grand.
