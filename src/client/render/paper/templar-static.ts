@@ -1242,46 +1242,75 @@ export const MOUNTED: Record<number, { kit: SKit; horse: SHorse; gear: SGear; da
 
 // ------------------------------------------------------------------ the engine
 
+/** The engine's crew: undyed linen, a cap. */
+export const CREW_KIT: SKit = { helm: 'cap', body: KM.wraps, coat: null, short: true, camail: null, sleeve: KM.wraps, hand: TM.flesh, legs: TM.wool, boots: TM.leather };
+/** The traction trebuchet's layout (units): the axle, the beam's ends, the sling's pouch, the crew's places, the ropes. */
+export const ENGINE = {
+  piv: [-0.4, -14.2] as P2,
+  longEnd: [-9.2, -6.6] as P2,
+  shortEnd: [3.8, -18.0] as P2,
+  pouch: [-11.6, -1.0] as P2,
+  loaderX: -8.6,
+  pullerX: 7.4,
+  ropes: [[-0.3, 6.8], [0, 7.6], [0.3, 9.2], [0.5, 10.0]] as [number, number][],
+  loader: { near: { el: [-2.6, -9.2] as P2, wr: [-0.8, -9.0] as P2 } } as SGear,
+  puller: { near: { el: [-2.3, -13.0] as P2, wr: [-0.4, -14.6] as P2 }, far: { el: [2.6, -13.2] as P2, wr: [0.9, -14.6] as P2 } } as SGear,
+};
+
 /** A crewman at an offset along the ground (his whole frame shifted). */
 function crewS(c: Paper, dx: number, g: SGear): void {
   const fx = c.FX;
   c.FX = fx + Math.round(dx * c.L);
   try {
-    manS(c, { helm: 'cap', body: KM.wraps, coat: null, short: true, camail: null, sleeve: KM.wraps, hand: TM.flesh, legs: TM.wool, boots: TM.leather }, g);
+    manS(c, CREW_KIT, g);
   } finally {
     c.FX = fx;
   }
 }
 
-/** The traction trebuchet (Maciejowski fol. 23v): trestle, lashed beam, sling, ropes, crew. */
+export type EnginePiece = 'farTimbers' | 'beam' | 'sling' | 'stone' | 'ropes' | 'nearTimbers';
+const timberS = (c: Paper, a: P2, b: P2, w: number, t: number) => vol(c, a, b, [[0, w], [1, w * 0.92]], TM.wood, { tone: t, detail: (x, y) => (c.tex(x, y, 33, 3) < 0.06 ? code(TM.wood, t - 1) : -1) });
+/** One piece of the traction trebuchet (Maciejowski fol. 23v): trestle, lashed beam, sling, ropes. */
+export function enginePiece(c: Paper, p: EnginePiece): void {
+  const { piv, longEnd, shortEnd, pouch } = ENGINE;
+  switch (p) {
+    case 'farTimbers':
+      // Far trestle, darker; ground sills and a cross-brace.
+      timberS(c, addP(piv, [1.2, -0.6]), [-3.4, -0.3], 0.55, 1);
+      timberS(c, addP(piv, [1.2, -0.6]), [4.4, -0.6], 0.55, 1);
+      timberS(c, [-6.2, -0.2], [6.4, -0.6], 0.6, 1);
+      return;
+    case 'beam':
+      // The beam: long arm resting back-down, the short arm up in front with its ropes.
+      vol(c, shortEnd, longEnd, [[0, 0.55], [0.3, 0.75], [1, 0.4]], TM.wood, { tone: 2, detail: (_x, _y, _u, v) => (Math.abs(v - 0.27) < 0.02 || Math.abs(v - 0.36) < 0.02 || Math.abs(v - 0.6) < 0.015 ? code(TM.leather, 1) : -1) });
+      return;
+    case 'sling':
+      // Sling to a pouch with the stone lying behind.
+      lineK(c, longEnd, pouch, code(TM.leather, 2));
+      lineK(c, addP(longEnd, [0.2, 0.1]), addP(pouch, [0.4, 0.0]), code(TM.leather, 1));
+      return;
+    case 'stone':
+      blob(c, pouch, 0.95, 0.85, TM.wool, { tone: 2 });
+      return;
+    case 'ropes':
+      // Ropes from the short arm down to the pullers.
+      for (const [k, x] of ENGINE.ropes) lineK(c, addP(shortEnd, [k, 0]), [x, -10.8], code(TM.white, 1));
+      return;
+    case 'nearTimbers':
+      // Near trestle and axle.
+      timberS(c, piv, [-4.8, 0], 0.65, 2);
+      timberS(c, piv, [3.4, 0], 0.65, 2);
+      timberS(c, [-3.3, -5.0], [2.3, -5.0], 0.45, 1);
+      blob(c, piv, 0.55, 0.55, TM.steel, { tone: 2 });
+      return;
+  }
+}
+
+/** The traction trebuchet with its loader behind and its pullers, arms up on the ropes, leaning back. */
 function engineS(c: Paper): void {
-  const S = 0.85; // the crew stand a little smaller, behind and beside the timbers
-  void S;
-  crewS(c, -8.6, { near: { el: [-2.6, -9.2], wr: [-0.8, -9.0] } });
-  // Far trestle, darker.
-  const timber = (a: P2, b: P2, w: number, t: number) => vol(c, a, b, [[0, w], [1, w * 0.92]], TM.wood, { tone: t, detail: (x, y) => (c.tex(x, y, 33, 3) < 0.06 ? code(TM.wood, t - 1) : -1) });
-  const piv: P2 = [-0.4, -14.2];
-  timber(addP(piv, [1.2, -0.6]), [-3.4, -0.3], 0.55, 1);
-  timber(addP(piv, [1.2, -0.6]), [4.4, -0.6], 0.55, 1);
-  // Ground sills and a cross-brace.
-  timber([-6.2, -0.2], [6.4, -0.6], 0.6, 1);
-  // The beam: long arm resting back-down, the short arm up in front with its ropes.
-  const longEnd: P2 = [-9.2, -6.6], shortEnd: P2 = [3.8, -18.0];
-  vol(c, shortEnd, longEnd, [[0, 0.55], [0.3, 0.75], [1, 0.4]], TM.wood, { tone: 2, detail: (_x, _y, _u, v) => (Math.abs(v - 0.27) < 0.02 || Math.abs(v - 0.36) < 0.02 || Math.abs(v - 0.6) < 0.015 ? code(TM.leather, 1) : -1) });
-  // Sling to a pouch with the stone lying behind.
-  const pouch: P2 = [-11.6, -1.0];
-  lineK(c, longEnd, pouch, code(TM.leather, 2));
-  lineK(c, addP(longEnd, [0.2, 0.1]), addP(pouch, [0.4, 0.0]), code(TM.leather, 1));
-  blob(c, pouch, 0.95, 0.85, TM.wool, { tone: 2 });
-  // Ropes from the short arm down to the pullers.
-  for (const [k, x] of [[-0.3, 6.8], [0, 7.6], [0.3, 9.2], [0.5, 10.0]] as [number, number][]) lineK(c, addP(shortEnd, [k, 0]), [x, -10.8], code(TM.white, 1));
-  // Near trestle and axle.
-  timber(piv, [-4.8, 0], 0.65, 2);
-  timber(piv, [3.4, 0], 0.65, 2);
-  timber([-3.3, -5.0], [2.3, -5.0], 0.45, 1);
-  blob(c, piv, 0.55, 0.55, TM.steel, { tone: 2 });
-  // The pullers, arms up on the ropes, leaning back.
-  crewS(c, 7.4, { near: { el: [-2.3, -13.0], wr: [-0.4, -14.6] }, far: { el: [2.6, -13.2], wr: [0.9, -14.6] } });
+  crewS(c, ENGINE.loaderX, ENGINE.loader);
+  for (const p of ['farTimbers', 'beam', 'sling', 'stone', 'ropes', 'nearTimbers'] as EnginePiece[]) enginePiece(c, p);
+  crewS(c, ENGINE.pullerX, ENGINE.puller);
 }
 
 // ------------------------------------------------------------------ painting
