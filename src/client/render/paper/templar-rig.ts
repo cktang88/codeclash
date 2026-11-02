@@ -16,7 +16,7 @@ import type { Anim } from '../contract.ts';
 import { Paper, type P2 } from './core.ts';
 import type { Facing } from './facing.ts';
 import {
-  animationFromPoses, clipBase, cosStep, EASE_IN, EASE_OUT, emptyLocals, evaluate, localsFromWorld, restPose, sampleClip, sinStep,
+  animationFromPoses, clipBase, cosStep, EASE_IN, EASE_OUT, emptyLocals, evaluate, localsFromWorld, restPose, sampleClip, shortest, sinStep,
   type AnimationData, type AnimEvent, type Attachment, type BoneXf, type Clip, type Curve, type DrawCtx, type FacingClips, type Key, type PartXf, type Posed, type PoseKey, type SkeletonData,
 } from './skeleton.ts';
 import { SNAP_DEG } from './rig.ts';
@@ -202,12 +202,12 @@ export function lagCloth(skel: SkeletonData, clip: Clip, n: number, loop: boolea
       const parent = skel.bones.find((b) => b.name === s.bone)!.parent!;
       for (let f = 0; f <= (loop ? n : n - 1); f++) {
         const now = at(f), was = at(f - s.lag);
-        const lead = was.byName[s.follow]!.raw - rest.byName[s.follow]!.raw;
-        const pTurn = now.byName[parent]!.raw - rest.byName[parent]!.raw;
+        const lead = shortest(was.byName[s.follow]!.raw - rest.byName[s.follow]!.raw);
+        const pTurn = shortest(now.byName[parent]!.raw - rest.byName[parent]!.raw);
         const wv = s.wave ? s.wave[0] * Math.sin(2 * Math.PI * (s.wave[1] * f / n + s.wave[2])) : 0;
         const want = rw[s.bone]! + s.k * lead + (s.bias ?? 0) + (bias[s.bone] ?? 0) - (s.plumb ?? 0) * pTurn + wv;
         // Local offset that gives `want` under the parent as it is now.
-        const local = want - now.byName[parent]!.raw - (rw[s.bone]! - rw[parent]!);
+        const local = shortest(want - now.byName[parent]!.raw - (rw[s.bone]! - rw[parent]!));
         keys.push({ f, v: Math.round(local * 100) / 100 });
       }
       bones[s.bone] = { ...(bones[s.bone] ?? {}), rotate: keys };
