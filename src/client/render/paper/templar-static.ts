@@ -82,11 +82,13 @@ const KM = {
   /** The javelin men's madder-red tunics. */
   madder: defineMaterial('templar.k.madder', dye([0.17, 0.23, 0.3, 0.38, 0.47], [0.05, 0.075, 0.085, 0.07, 0.05], 30)),
   /** The pilgrims' undyed grey hoods and short tunics (cool, slate). */
-  slate: defineMaterial('templar.k.slate', dye([0.2, 0.3, 0.39, 0.48, 0.57], [0.025, 0.035, 0.04, 0.035, 0.03], 250)),
+  slate: defineMaterial('templar.k.slate', dye([0.2, 0.3, 0.39, 0.48, 0.57], [0.012, 0.016, 0.018, 0.016, 0.014], 95)),
   /** Linen hose and leg wraps. */
   wraps: defineMaterial('templar.k.wraps', dye([0.2, 0.28, 0.36, 0.44, 0.52], [0.02, 0.03, 0.035, 0.03, 0.025], 85)),
   /** The brothers' polished mail: bright silver with hard lights (the key art's heroic steel). */
   silver: defineMaterial('templar.k.silver', dye([0.66, 0.44, 0.62, 0.76, 0.9], [0.012, 0.015, 0.016, 0.014, 0.01], 240)),
+  /** The Iron Brethren's black tabard on a light (white-mantled) figure: near-black, cool, with the pale deep tone of the light class. */
+  sable: defineMaterial('templar.k.sable', dye([0.66, 0.2, 0.25, 0.31, 0.38], [0.01, 0.012, 0.014, 0.012, 0.01], 285)),
   /** Fur collars: grey-white wolf and fox. */
   fur: defineMaterial('templar.k.fur', dye([0.24, 0.5, 0.66, 0.78, 0.87], [0.015, 0.02, 0.022, 0.02, 0.016], 70)),
 };
@@ -737,6 +739,7 @@ function daneAxeS(c: Paper, grip: P2, deg: number): void {
   const d = mul([Math.sin(deg * DEG), Math.cos(deg * DEG)], 1);
   const top = addP(grip, mul(d, 6.4)), butt = sub(grip, mul(d, 3.0));
   vol(c, butt, top, [[0, 0.2], [1, 0.18]], TM.ash, { tone: 2 });
+  if (c.L < 2) lineK(c, butt, top, code(TM.ash, 2));
   const out: P2 = [d[1] * -1, d[0]]; // forward of the haft (perpendicular)
   const fwd: P2 = out[0] > 0 ? out : mul(out, -1);
   const a = sub(top, mul(d, 0.3)), b = sub(top, mul(d, 1.8));
@@ -764,7 +767,7 @@ const ARCHER: SKit = { helm: 'hood', hood: KM.slate, body: KM.slate, coat: null,
 const XBOW: SKit = { helm: 'kettle', body: TM.wool, coat: null, quilted: true, camail: TM.mailDk, sleeve: TM.wool, hand: TM.leather, legs: TM.wool, boots: TM.leather, belt: TM.team };
 // The Iron Brethren as the painted Templar: a black tabard with the long red cross over silver mail
 // and layered pauldrons, the heavy white mantle with a fur collar, steel gauntlets, a wide stance.
-const BRETHREN: SKit = { helm: 'great', body: KM.silver, coat: TM.black, cross: true, longCross: true, cloak: true, pauldrons: true, wide: true, camail: KM.silver, sleeve: KM.silver, hand: TM.steel, legs: KM.silver, boots: KM.silver };
+const BRETHREN: SKit = { helm: 'great', body: KM.silver, coat: KM.sable, cross: true, longCross: true, cloak: true, pauldrons: true, wide: true, camail: KM.silver, sleeve: KM.silver, hand: TM.steel, legs: KM.silver, boots: KM.silver };
 
 export const FOOT: Record<number, { kit: SKit; gear: SGear; dark: boolean }> = {
   0: {
@@ -790,7 +793,7 @@ export const FOOT: Record<number, { kit: SKit; gear: SGear; dark: boolean }> = {
     kit: JAVELIN,
     dark: true,
     gear: {
-      far: { el: [2.85, -8.9], wr: [3.35, -7.4], draw: (c, h, d) => { javelinsS(c, h, d); roundS(c, addP(h, [0.55, 0.1]), 1.35); } },
+      far: { el: [2.85, -8.9], wr: [3.35, -7.4], draw: (c, h, d) => { javelinsS(c, h, d); roundS(c, addP(h, [0.55, 0.1]), c.L < 2 ? 1.9 : 1.35); } },
       near: { el: [-2.95, -9.0], wr: [-2.2, -7.2], draw: (c, h, d) => void spear(c, h, 120 + d, 5.6, 2.4, { head: 1.15, w: 0.3, wood: TM.gambeson }) },
     },
   },
@@ -800,7 +803,7 @@ export const FOOT: Record<number, { kit: SKit; gear: SGear; dark: boolean }> = {
     gear: {
       // The quiver hangs at the near hip, in front, its fletchings standing above the belt.
       front: (c) => { vol(c, [-1.5, -8.1], [-1.0, -5.3], [[0, 0.5], [1, 0.42]], TM.leather, { tone: 2, detail: (_x, _y, _u, v) => (Math.abs(v - 0.2) < 0.04 ? code(TM.leather, 1) : -1) }); for (const k of [-0.3, 0, 0.3]) vol(c, [-1.5 + k, -8.0], [-1.7 + k * 1.4, -9.0], [[0, 0.16], [1, 0.22]], TM.white, { tone: 3 }); },
-      far: { el: [2.8, -8.8], wr: [3.2, -7.0], draw: (c, h, d) => bow(c, h, 174 + d, 13.4, 0, null) },
+      far: { el: [2.8, -8.8], wr: [3.2, -7.0], draw: (c, h, d) => bow(c, c.L < 2 ? addP(h, [1.2, -0.5]) : h, 174 + d, c.L < 2 ? 17 : 13.4, 0, null) },
       near: { el: [-2.95, -8.8], wr: [-2.7, -6.6] },
     },
   },

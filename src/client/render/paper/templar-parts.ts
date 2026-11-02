@@ -674,6 +674,7 @@ export function spear(c: Paper, grip: P2, deg: number, fwd: number, aft: number,
   const butt = along(grip, deg + 180, aft);
   const w = opts.w ?? 0.3;
   c.rod(butt, tip, w, w * 0.85, opts.wood ?? TM.ash, { tone: 2 });
+  if (c.L < 2) c.line(butt, tip, code(opts.wood ?? TM.ash, 2));
   // Leaf head with a midrib and a socket (Met 26470), oversized to read.
   const hl = opts.head ?? 1.5;
   const h0 = along(tip, deg + 180, 0.35);
@@ -738,6 +739,8 @@ export function bow(c: Paper, grip: P2, deg: number, len: number, draw: number, 
     c.line(nock, tipB, code(TM.white, 2));
   } else c.line(tipA, tipB, code(TM.white, 1));
   for (let i = 0; i < 8; i++) c.rod(pts[i]!, pts[i + 1]!, i === 3 || i === 4 ? 0.36 : 0.3, i === 3 || i === 4 ? 0.36 : 0.26, TM.ash, { tone: i < 4 ? 2 : 1 });
+  // At level 1 the stave is thinner than a pixel: a 1 px line keeps the bow, the archer's signature.
+  if (c.L < 2) for (let i = 0; i < 8; i++) c.line(pts[i]!, pts[i + 1]!, code(TM.ash, 2));
   c.blob(grip, 0.3, 0.3, TM.leather, { tone: 1 });
 }
 

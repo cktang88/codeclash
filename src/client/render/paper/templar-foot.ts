@@ -240,7 +240,7 @@ function footParts(k: SKit, g: SGear, s: FootSpec, dark: boolean): AttachmentSet
         const nock: P2 = [hn.tx, hn.ty];
         const deg = (s.farDeg ?? 174) + x.turned * 7.5;
         paintAs(c, dark, () => {
-          bow(c, x.o, deg, 13.4, drawing ? 1 : 0, drawing ? nock : null);
+          bow(c, c.L < 2 ? [x.o[0] + 1.2, x.o[1] - 0.5] : x.o, deg, c.L < 2 ? 17 : 13.4, drawing ? 1 : 0, drawing ? nock : null);
           if (drawing) c.rod(nock, [x.o[0] + (x.o[0] - nock[0]) * 0.25, x.o[1] + (x.o[1] - nock[1]) * 0.25], 0.14, 0.12, TM.ash, { tone: 3 });
         });
       },
