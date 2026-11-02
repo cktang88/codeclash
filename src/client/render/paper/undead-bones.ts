@@ -3,10 +3,11 @@
 // See docs/art-references/undead-animation.md.
 
 import { U } from '../../../game/units.ts';
+import { COMMANDER_KIND } from '../contract.ts';
 import { registerFoot, type FootSpec } from './undead-foot.ts';
 import { restPose, type DrawCtx } from './skeleton.ts';
 import { UM } from './undead-parts.ts';
-import { ARBALEST, GHOUL, LEGIONARY, soulWisp, THROWER, WARDEN, wardenHeap, type FootArt, type PieceOpts } from './undead-static.ts';
+import { ARBALEST, GHOUL, LEGIONARY, LICH, lichHeap, soulWisp, THROWER, WARDEN, wardenHeap, type FootArt, type PieceOpts } from './undead-static.ts';
 
 /**
  * A bow drawn on the frame: its draw from how far the nock (where the string hand is) has slid
@@ -176,7 +177,41 @@ const ARBALEST_SPEC = (): FootSpec => ({
   ],
 });
 
+/** The witchfire in the Lich's hand and on its staff, swelling through the cast (events `flare`) and streaming from the palm (`bolt`). */
+const flareOf = (ctx: DrawCtx): number => ctx.events.find((e) => e.name === 'flare')?.int ?? 0;
+const handFire = (ctx: DrawCtx): PieceOpts => ({ draw: flareOf(ctx) * 0.5, phase: flareOf(ctx) ? 0.25 + flareOf(ctx) * 0.15 : 0.25, snap: ctx.events.some((e) => e.name === 'bolt') });
+const staffFire = (ctx: DrawCtx): PieceOpts => ({ t: flareOf(ctx) * 0.3, phase: 0.25 });
+
+/** The Lich-Marshal: floats, glides, casts with the witch-hand; its end is the wraith's, an empty robe and the crown. */
+const LICH_SPEC = (): FootSpec => ({
+  art: withLive(withLive(LICH, 'forearmF', handFire), 'weapon', staffFire),
+  nearDeg: 178,
+  skull: { at: [0.9, -13.4], r: 1, ang: -6 },
+  attack: 'cast',
+  shoot: null,
+  brace: 'staff',
+  die: 'dissolve',
+  farHeld: false,
+  float: true,
+  glide: true,
+  hunch: 3,
+  tilt: -6,
+  stiff: 1,
+  cloak: true,
+  neFirst: [],
+  neLast: ['cloak', 'mantleN', 'mantleF'],
+  extras: [
+    { slot: 'heap', bone: 'root', draw: (c, _J, back) => lichHeap(c, back) },
+    { slot: 'wisp', bone: 'root', top: true, live: (ctx) => ({ t: ctx.events.find((e) => e.name === 'wisp')?.int ?? 0 }), draw: (c, _J, _b, o) => void (o.t && soulWisp(c, o.t)) },
+  ],
+  drops: [
+    { slot: 'weapon', holder: 'weapon', at: 3, land: { x: -0.6, y: -0.3, rot: -88, f: 6 } },
+    { slot: 'skull', holder: 'head', at: 6, land: { x: 1.8, y: -1.2, rot: 30, f: 9 } },
+  ],
+});
+
 export function registerUndeadRigs(): void {
+  registerFoot(COMMANDER_KIND, LICH_SPEC, false);
   registerFoot(U.Crossbowmen, ARBALEST_SPEC, true);
   registerFoot(U.Archers, WARDEN_SPEC, true);
   registerFoot(U.Skirmishers, THROWER_SPEC, true);

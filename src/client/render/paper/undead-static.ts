@@ -14,7 +14,7 @@ import { addP, code, DEG, defineMaterial, hash, isKept, oklchRamp, rot, type P2,
 import type { DrawCtx } from './skeleton.ts';
 import { Anim } from '../contract.ts';
 import { along, limb, poseAt, snapDeg, type KeySet } from './rig.ts';
-import { bone, bow, crossbow, flame, frameOf, helm, hood, horseBody, horseFar, horseFrame, horseNear, lance, withHorseBulk, mul, pavise, planeLight, quiver, rag, robe, skull, spear, UM } from './undead-parts.ts';
+import { bone, bow, crossbow, flame, frameOf, helm, hood, horseBody, horseFar, horseFrame, horseNear, lance, withHorseBulk, mul, pavise, planeLight, quiver, rag, robe, skull, skullBack, spear, UM, type FramePose } from './undead-parts.ts';
 import {
   BLACK_RIDER_KEYS, boneJavelin, COLOSSUS_KEYS, colossus, DEATH_KNIGHT_KEYS, ghoulCranium, ghoulHead, ghoulJaw, greatHelm, HORSE_ARCHER_KEYS, collar, lichChest, LICH_KEYS, spineCrown, lit, TREBUCHET_KEYS, trebuchet,
 } from './undead.ts';
@@ -1188,54 +1188,97 @@ function skullPauldron(c: Paper, at: P2, r: number, far: boolean): void {
   });
 }
 
-/** The Lich-Marshal: broad in a heavy mantle with skull pauldrons, robed to the ground, the crown, the bone staff. */
-function lichStatic(c: Paper): void {
-  const p = poseAt(LICH_KEYS, Anim.Idle, 0);
-  const F = frameOf(c, p, false, { k: 1.12 });
-  // The far hand, witchfire curling in it.
-  const fh: P2 = [3.6, -6.9];
-  vol(c, [2.6, -11.2], [3.5, -8.8], 1.5, 1.3, UM.shroud, { tone: 1, caps: false });
-  c.rod([3.5, -8.8], fh, 0.45, 0.4, UM.bone, { tone: 1 });
-  flame(c, addP(fh, [0.1, -0.2]), 1.6, 0.25, { w: 0.65 });
-  collar(c, F, 0);
-  // The robe: broad shoulders, heavy folds, a flared, torn hem on the ground.
-  robe(c, [0.4, -11.4], 5.0, 6.4, 11.3, 0.2, UM.shroud, 531);
-  lichChest(c, F, 0, 0.25);
-  c.rod([-1.6, -6.9], [2.3, -7.0], 0.42, 0.42, UM.rust, { tone: 2 });
-  // The mantle over the shoulders in team cloth, skull pauldrons on top.
-  // The mantle: one heavy team-coloured cape over both shoulders, open at the chest, its
-  // planes lit at the near shoulder and shaded down the far side, the hem torn.
-  const mantleSide = (pts: P2[], seed: number) =>
-    plate(c, pts, UM.team, {
-      seed,
-      detail: (x, y, rx, ry) => {
-        const ys = c.sy(pts.reduce((m, q) => Math.max(m, q[1]), -99));
-        if (ys - y < c.L * 0.9 && hash(Math.floor(c.lx(x) / Math.max(3, c.L * 0.7)), 2, seed) * c.L * 0.9 > ys - y) return -2;
-        const f = ((rx * 2.2 + ry * 0.3) % 1 + 1) % 1;
-        if (ry > -0.4 && f < 0.1) return code(UM.teamDk, 1);
-        if (ry > -0.4 && f < 0.2) return code(UM.team, 3);
-        const lt = planeLight(rx, ry, 0.3);
-        return lt < 0 ? code(UM.teamDk, 2) : code(UM.team, 2 + lt);
-      },
-    });
-  mantleSide([[-3.1, -11.2], [-1.7, -12.2], [-0.4, -12.0], [-0.6, -9.2], [-1.0, -6.4], [-3.4, -6.6]], 533);
-  mantleSide([[1.5, -12.0], [2.9, -12.0], [3.8, -11.0], [3.7, -6.8], [1.7, -6.9], [1.8, -9.3]], 535);
-  skullPauldron(c, [2.7, -11.4], 1.05, true);
-  c.rod([0.4, -12.2], [0.6, -12.8], 0.55, 0.5, UM.bone, { tone: 1 });
-  skull(c, [0.9, -13.4], -6, false);
-  spineCrown(c, [0.9, -13.4], -6, false, 1.1);
-  skullPauldron(c, [-2.1, -11.2], 1.2, false);
-  // The staff of bone at the near side, its caged skull and witchfire; the sleeved arm on it.
-  const hand: P2 = [-2.9, -7.0];
+/** The Lich's mantle, one side of it: heavy team cloth over the shoulder, its planes lit at the near shoulder and shaded down the far side, the hem torn. */
+function mantleSide(c: Paper, pts: P2[], seed: number): void {
+  plate(c, pts, UM.team, {
+    seed,
+    detail: (x, y, rx, ry) => {
+      const ys = c.sy(pts.reduce((m, q) => Math.max(m, q[1]), -99));
+      if (ys - y < c.L * 0.9 && hash(Math.floor(c.lx(x) / Math.max(3, c.L * 0.7)), 2, seed) * c.L * 0.9 > ys - y) return -2;
+      const f = ((rx * 2.2 + ry * 0.3) % 1 + 1) % 1;
+      if (ry > -0.4 && f < 0.1) return code(UM.teamDk, 1);
+      if (ry > -0.4 && f < 0.2) return code(UM.team, 3);
+      const lt = planeLight(rx, ry, 0.3);
+      return lt < 0 ? code(UM.teamDk, 2) : code(UM.team, 2 + lt);
+    },
+  });
+}
+/** The bone staff at the near hand: its caged skull and witchfire (`flare` grows the fire). */
+function lichStaff(c: Paper, hand: P2, flare = 0, phase = 0.25): void {
   const top = along(hand, 178, 7.4), foot = along(hand, -2, 7.0);
   c.rod(foot, top, 0.45, 0.38, UM.bone, { tone: 2, detail: (_x, _y, u, v) => (Math.abs(v - 0.72) < 0.02 || Math.abs(v - 0.8) < 0.02 ? code(UM.rust, 2) : u > -0.5 && Math.floor(v * 34) % 2 === 0 ? code(UM.bone, 1) : -1) });
   for (const d of [-35, 0, 35]) c.rod(along(top, -2, 0.4), along(along(top, 178 + d * 0.6, 1.4), 178 + d * 1.4, 0.55), 0.24, 0.08, UM.bone, { tone: d < 0 ? 3 : 2 });
   const sk = along(top, 178, 0.45);
   c.blob(sk, 0.7, 0.62, UM.bone, { tone: 3, detail: (_x, _y, nx, ny) => (Math.hypot(Math.abs(nx) - 0.35, ny - 0.05) < 0.28 ? code(UM.glow, 3) : ny > 0.55 ? code(UM.ink, 1) : -1) });
-  flame(c, along(sk, 178, 0.45), 2.2, 0.25);
-  vol(c, [-2.1, -10.8], [-3.4, -8.6], 1.6, 1.4, UM.shroud, { tone: 2, caps: false });
-  vol(c, [-3.4, -8.6], hand, 1.4, 1.2, UM.shroud, { tone: 2, caps: false });
-  c.blob(hand, 0.52, 0.46, UM.bone, { tone: 2 });
+  flame(c, along(sk, 178, 0.45), 2.2 + flare, phase);
+}
+const LICH_POSE = (): FramePose => poseAt(LICH_KEYS, Anim.Idle, 0);
+/** The Lich-Marshal: broad in a heavy mantle with skull pauldrons, robed to the ground, the spined crown, the bone staff, witchfire in the far hand. */
+export const LICH: FootArt = {
+  axis: 0.4,
+  ne: { N: 'shift', F: 'shift' },
+  J: {
+    pelvis: [0.15, -6.55], neck: [0.4, -12.2], head: [0.9, -13.4], hipN: B.hipN, hipF: B.hipF, kneeN: B.kneeN, kneeF: B.kneeF, ankN: B.ankN, ankF: B.ankF,
+    shN: [-2.1, -10.8], elN: [-3.4, -8.6], hN: [-2.9, -7.0], shF: [2.6, -11.2], elF: [3.5, -8.8], hF: [3.6, -6.9],
+  },
+  pieces: [
+    // The far arm, witchfire curling in the hand (it flares in the cast).
+    { slot: 'upperArmF', bone: 'upperArmF', draw: (c, J) => vol(c, J.shF!, J.elF!, 1.5, 1.3, UM.shroud, { tone: 1, caps: false }) },
+    {
+      slot: 'forearmF',
+      bone: 'forearmF',
+      draw: (c, J, _b, o) => {
+        c.rod(J.elF!, J.hF!, 0.45, 0.4, UM.bone, { tone: 1 });
+        const f = o.draw ?? 0;
+        flame(c, addP(J.hF!, [0.1, -0.2]), 1.6 + f * 1.4, o.phase ?? 0.25, { w: 0.65 + f * 0.35 });
+        if (o.snap) {
+          // The witchfire streaming from the thrust palm (along the forearm, beyond the fingers).
+          const d = (Math.atan2(J.hF![0] - J.elF![0], J.hF![1] - J.elF![1]) * 180) / Math.PI;
+          for (const [k, h] of [[1.6, 1.5], [3.0, 1.1], [4.2, 0.7]] as [number, number][]) flame(c, along(J.hF!, d, k), h, k * 0.3, { w: h * 0.5 });
+        }
+      },
+    },
+    { slot: 'collar', bone: 'chest', draw: (c) => collar(c, frameOf(c, LICH_POSE(), false, { k: 1.12 }), 0) },
+    // The robe: broad shoulders, heavy folds, a flared, torn hem on the ground.
+    { slot: 'cloak', bone: 'cloak', cloth: true, clothLen: 6, draw: (c, _J, back, o) => robe(c, [0.4, -11.4], 5.0, 6.4, 11.3, 0.2 + (o.sway ?? 0), UM.shroud, 531, { back }) },
+    { slot: 'torso', bone: 'chest', draw: (c, _J, back) => void (back || lichChest(c, frameOf(c, LICH_POSE(), false, { k: 1.12 }), 0, 0.25)) },
+    { slot: 'belt', bone: 'pelvis', draw: (c) => c.rod([-1.6, -6.9], [2.3, -7.0], 0.42, 0.42, UM.rust, { tone: 2 }) },
+    // The mantle over the shoulders in team cloth, skull pauldrons on top.
+    { slot: 'mantleN', bone: 'chest', draw: (c) => mantleSide(c, [[-3.1, -11.2], [-1.7, -12.2], [-0.4, -12.0], [-0.6, -9.2], [-1.0, -6.4], [-3.4, -6.6]], 533) },
+    { slot: 'mantleF', bone: 'chest', draw: (c) => mantleSide(c, [[1.5, -12.0], [2.9, -12.0], [3.8, -11.0], [3.7, -6.8], [1.7, -6.9], [1.8, -9.3]], 535) },
+    { slot: 'pauldronF', bone: 'chest', draw: (c, J) => skullPauldron(c, addP(J.shF!, [0.1, -0.2]), 1.05, true) },
+    { slot: 'neckBone', bone: 'neck', draw: (c, J) => c.rod(J.neck!, addP(J.neck!, [0.2, -0.6]), 0.55, 0.5, UM.bone, { tone: 1 }) },
+    {
+      slot: 'skull',
+      bone: 'head',
+      draw: (c, J, back) => {
+        if (back) skullBack(c, J.head!, -6, false);
+        else skull(c, J.head!, -6, false);
+        spineCrown(c, J.head!, -6, back, 1.1);
+      },
+    },
+    { slot: 'pauldronN', bone: 'chest', draw: (c, J) => skullPauldron(c, addP(J.shN!, [0, -0.4]), 1.2, false) },
+    // The staff of bone at the near side, its caged skull and witchfire; the sleeved arm on it.
+    { slot: 'weapon', bone: 'weapon', draw: (c, J, _b, o) => lichStaff(c, J.hN!, o.t ?? 0, o.phase ?? 0.25) },
+    { slot: 'upperArmN', bone: 'upperArmN', draw: (c, J) => vol(c, J.shN!, J.elN!, 1.6, 1.4, UM.shroud, { tone: 2, caps: false }) },
+    {
+      slot: 'forearmN',
+      bone: 'forearmN',
+      draw: (c, J) => {
+        vol(c, J.elN!, J.hN!, 1.4, 1.2, UM.shroud, { tone: 2, caps: false });
+        c.blob(J.hN!, 0.52, 0.46, UM.bone, { tone: 2 });
+      },
+    },
+  ],
+};
+/** The Lich's empty robe and mantle on the ground after the soul has gone. */
+export function lichHeap(c: Paper, back: boolean): void {
+  robe(c, [0.6, -2.2], 6.4, 9.0, 2.4, 0.4, UM.shroud, 539, { back });
+  rag(c, [-2.6, -2.6], [2.8, -2.7], 1.8, 0.5, UM.team, UM.teamDk, 541, { tear: 0.4, folds: false });
+  c.rod([-1.6, -1.4], [2.3, -1.2], 0.42, 0.42, UM.rust, { tone: 2 });
+}
+function lichStatic(c: Paper): void {
+  drawPieces(c, LICH);
 }
 
 const bulky = (draw: (c: Paper) => void) => (c: Paper): void => withHorseBulk(1.45, () => draw(c));
