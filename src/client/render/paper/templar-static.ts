@@ -720,7 +720,7 @@ function paviseS(c: Paper, ctr: P2, w: number, h: number, deg: number): void {
 
 /** A fan of spare javelins in the shield hand. */
 function javelinsS(c: Paper, hand: P2, turn = 0): void {
-  for (const d of [-10, 0, 10]) spear(c, addP(hand, [d * 0.01, 0]), 180 + d + turn, 7.6, 1.8, { head: 1.1, w: 0.28, wood: TM.gambeson });
+  for (const d of [-10, 0, 10]) spear(c, addP(hand, [d * 0.01, 0]), 180 + d + turn, 7.6, 1.8, { head: 1.1, w: 0.28, wood: c.L < 2 ? TM.ash : TM.gambeson });
 }
 
 /** The Iron Brethren's ailettes: square boards on the shoulders in the army colour. */
@@ -794,7 +794,7 @@ export const FOOT: Record<number, { kit: SKit; gear: SGear; dark: boolean }> = {
     dark: true,
     gear: {
       far: { el: [2.85, -8.9], wr: [3.35, -7.4], draw: (c, h, d) => { javelinsS(c, h, d); roundS(c, addP(h, [0.55, 0.1]), c.L < 2 ? 1.9 : 1.35); } },
-      near: { el: [-2.95, -9.0], wr: [-2.2, -7.2], draw: (c, h, d) => void spear(c, h, 120 + d, 5.6, 2.4, { head: 1.15, w: 0.3, wood: TM.gambeson }) },
+      near: { el: [-2.95, -9.0], wr: [-2.2, -7.2], draw: (c, h, d) => void spear(c, h, 120 + d, 5.6, 2.4, { head: 1.15, w: 0.3, wood: c.L < 2 ? TM.ash : TM.gambeson }) },
     },
   },
   3: {

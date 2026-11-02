@@ -230,7 +230,7 @@ export function mocapFootClips(skel: SkeletonData, s: ClipSpec): ClipSet {
       tAdd: { pelvis: [T([0, 0]), bob], chest: [twist, T([0, 0])], ...track(f, 1) },
     };
   };
-  const walk = fc('walk', 12, true, (f) => mk(skel, f, 'walk', { ref: 'mean', torso: 0.5, arms: gaitArms(0.55), roll: 0.6, feet: 1.25, mirror: 12 }, walkA), undefined, 0.3);
+  const walk = fc('walk', 12, true, (f) => mk(skel, f, 'walk', { ref: 'mean', torso: tallF ? 0.2 : 0.5, arms: gaitArms(0.55), roll: 0.6, feet: 1.25, mirror: 12 }, walkA), undefined, 0.3);
   const runLean: Author = (rw, f) => ({ tAdd: track(f, 1.1), w: { head: T([0, rw.head! - 6]) }, dw: { spine: T([0, -13]), ...(s.farHeld ? { forearmF: T([0, 12]) } : {}), ...(sword ? { forearmN: T([0, 50]) } : {}) } });
   const run = fc('run', 12, true, (f) => mk(skel, f, 'run', { ref: 'mean', torso: 0.5, arms: gaitArms(0.7), roll: 0.5, mirror: 12 }, runLean), undefined, 1);
   // Idle: the capture's slow weight shift, small (the key art must hold), and breathing.
