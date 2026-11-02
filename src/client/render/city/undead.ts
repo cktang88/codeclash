@@ -28,7 +28,7 @@ import { box, cone, drum, gable, hash, hex, line3, mix, post, pyramid, sx, sy, t
 import { frustum, mound, type PShader } from './solids.ts';
 import type { Ramp } from './style.ts';
 import { FIELDS } from './ground.ts';
-import { angel, bones, candles, cobweb, coffin, coffinStack, corpseCart, gargoyle, glow, graveFields, ivyAt, lanternPost, plagueSign, railing, sarcophagus, setSink, wallLantern, wreath, yardProps } from './undead-props.ts';
+import { angel, bakePools, beginLights, candles, cobweb, coffinStack, endLights, fixedLights, gargoyle, glow, graveFields, groundPools, ivyAt, plagueSign, railing, sarcophagus, setSink, torch, wallLantern, wreath, yardProps } from './undead-props.ts';
 
 interface Hole {
   face: Facing;
@@ -476,7 +476,7 @@ function keep(P: Painter, tier: number, parts: BuildingParts): void {
     line3(P.px, v3(46, 24, 16), v3(46, 30, 16), st.timber[2]);
     line3(P.px, v3(46, 29, 16), v3(46, 29, 12), st.timber[0]);
     P.pole(parts, 30, 34, 9, 9, 6, 5);
-    parts.torches.push([Math.floor(sx(52, 36)), Math.floor(sy(52, 36, 5))]);
+    torch(parts, 52, 36, 5);
     return;
   }
   const l = tier === 2 ? 22 : tier === 3 ? 26 : 28;
@@ -526,7 +526,7 @@ function keep(P: Painter, tier: number, parts: BuildingParts): void {
       P.pole(parts, 36, 36, h + 10, 8, 7, 5);
     }
   } else P.pole(parts, 36, 36, h, 12, 7, 5);
-  parts.torches.push([Math.floor(sx(u + l + 7, u + l / 2)), Math.floor(sy(u + l + 7, u + l / 2, 8))]);
+  torch(parts, u + l + 7, u + l / 2, 8);
 }
 
 function chapter(P: Painter, tier: number, parts: BuildingParts): void {
@@ -547,7 +547,7 @@ function chapter(P: Painter, tier: number, parts: BuildingParts): void {
     box(P.px, u0, v0, 0, lu, lv, h, wrap(ruin(gwall(P, 0, h, holes, 'black', 21))), false);
     bonePile(P, u0 + 10, v0 + lv + 4, 3, 2, 22);
     for (let i = 0; i < 4; i++) box(P.px, u0 + 4 + i * 7, v0 + lv + 6 + (i % 2) * 3, 0, 2, 2, 1 + (i % 2), (f) => lit(st.stone, f));
-    parts.torches.push([Math.floor(sx(u0 + lu + 1, v0 + lv / 2 + 4)), Math.floor(sy(u0 + lu + 1, v0 + lv / 2 + 4, 6))]);
+    torch(parts, u0 + lu + 1, v0 + lv / 2 + 4, 6);
     return;
   }
   const lu = tier === 2 ? 40 : tier === 3 ? 46 : 50;
@@ -623,7 +623,7 @@ function chapter(P: Painter, tier: number, parts: BuildingParts): void {
       P.pole(parts, tu + 1, tv + 13, th, 10, 7, 5);
     }
   }
-  parts.torches.push([Math.floor(sx(u0 + lu + 1, v0 + lv / 2 + 4)), Math.floor(sy(u0 + lu + 1, v0 + lv / 2 + 4, 7))]);
+  torch(parts, u0 + lu + 1, v0 + lv / 2 + 4, 7);
 }
 
 function barracks(P: Painter, tier: number, parts: BuildingParts): void {
@@ -674,7 +674,7 @@ function barracks(P: Painter, tier: number, parts: BuildingParts): void {
   P.chimney(parts, u0 + 5, fv + 3, 5, 12);
   parts.forges.push([Math.floor(sx(u0 + 9, fv + 5)), Math.floor(sy(u0 + 9, fv + 5, 2))]);
   box(P.px, u0 + 12, fv + 6, 0, 2, 2, 3, P.flat(st.slate[2]));
-  parts.torches.push([Math.floor(sx(u0 + lu + 1, v0 + lv / 2 - 4)), Math.floor(sy(u0 + lu + 1, v0 + lv / 2 - 4, 8))]);
+  torch(parts, u0 + lu + 1, v0 + lv / 2 - 4, 8);
 }
 
 function range(P: Painter, tier: number, level: number, parts: BuildingParts): void {
@@ -821,7 +821,7 @@ function workshop(P: Painter, tier: number, parts: BuildingParts): void {
   box(P.px, cu - 2.2, cv - 2.2, 4.4, 4.4, 4.4, 0.2, (_f, _s, _t, p) => P.glassAt(p, mix(st.accent, hex('#20301e'), 0.4)), true);
   parts.smoke.push([Math.floor(sx(cu, cv)), Math.floor(sy(cu, cv, 5))]);
   glow(cu, cv, 5, 0);
-  parts.torches.push([Math.floor(sx(cu + 3.5, cv + 3.5)), Math.floor(sy(cu + 3.5, cv + 3.5, 0))]);
+  torch(parts, cu + 3.5, cv + 3.5, 0);
   // Bone heaps sorted by kind, and planks of black timber.
   bonePile(P, u0 + 22, v0 + 10, 4, 3.5, 73);
   bonePile(P, u0 + 26, v0 + 20, 3, 2.5, 74);
@@ -886,7 +886,7 @@ function hospital(P: Painter, tier: number, parts: BuildingParts): void {
     P.pole(parts, u0 + lu, v0 + 2, h, 10, 7, 5);
   }
   P.chimney(parts, u0 + 5, v0 + 4, h + 4, tier >= 2 ? 9 : 5);
-  parts.torches.push([Math.floor(sx(u0 + lu + 1, v0 + lv / 2 - 4)), Math.floor(sy(u0 + lu + 1, v0 + lv / 2 - 4, 8))]);
+  torch(parts, u0 + lu + 1, v0 + lv / 2 - 4, 8);
 }
 
 // ------------------------------------------------------------------ walls
@@ -1014,8 +1014,8 @@ function walls(P: Painter, a: PaintArgs, parts: BuildingParts): BuildingParts {
     box(P.px, W - 8, gate0, 0, 11, gate1 - gate0, gh, wrap(arch));
     for (let v = gate0; v + 2 <= gate1; v += 4) box(P.px, W - 8, v, gh, 2, 2, 2.5, wrap(gwall(P, gh, 3, [], tier >= 4 ? 'bone' : 'black', v)));
   }
-  parts.torches.push([Math.floor(sx(W + 3, gate0 - 1)), Math.floor(sy(W + 3, gate0 - 1, 9))]);
-  parts.torches.push([Math.floor(sx(W + 3, gate1 + 1)), Math.floor(sy(W + 3, gate1 + 1, 9))]);
+  torch(parts, W + 3, gate0 - 1, 9);
+  torch(parts, W + 3, gate1 + 1, 9);
   if (tier >= 2) {
     P.pole(parts, W - 2, gate0 - 4, gh + (tier >= 4 ? 16 : 3), 10, 8, 6);
     P.pole(parts, W - 2, gate1 + 4, gh + (tier >= 4 ? 16 : 3), 10, 8, 6);
@@ -1024,7 +1024,7 @@ function walls(P: Painter, a: PaintArgs, parts: BuildingParts): BuildingParts {
   if (tier >= 3) {
     P.reset();
     towerAt(W - 4, W - 4, front);
-    parts.torches.push([Math.floor(sx(W + 6, W - 2)), Math.floor(sy(W + 6, W - 2, front + 8))]);
+    torch(parts, W + 6, W - 2, front + 8);
     parts.arts.push(P.finish(W * 2 + 4));
   }
   // Stakes before the walls (from level 3), some with the impaled dead's skulls.
@@ -1049,15 +1049,27 @@ function walls(P: Painter, a: PaintArgs, parts: BuildingParts): BuildingParts {
 // ------------------------------------------------------------------ registration
 
 registerKit('undead', (P, key, a, parts) => {
-  const tier = tierOf(a.level);
   // Moonlight on every top edge, so the black stone's silhouettes read against the dark.
   P.rim = hex('#8f88cc');
   setSink(parts);
+  const lights = beginLights();
   // Props are finished as their own Arts (each sorted at its own depth) before the building.
   const finish = (d: number, outline = true) => {
     parts.arts.push(P.finish(d, outline));
     P.reset();
   };
+  const tier = tierOf(a.level);
+  if (key === 'keep') lights.push(...fixedLights(Math.max(1, tier)));
+  const done = paintKit(P, key, a, parts, tier, finish);
+  endLights();
+  setSink(null);
+  // The light: pools baked on the stone the sources reach, and on the ground round them.
+  if (done === true) bakePools(P, lights);
+  if (done && lights.length) parts.arts.push(groundPools(P, lights));
+  return done;
+});
+
+function paintKit(P: Painter, key: string, a: PaintArgs, parts: BuildingParts, tier: number, finish: (d: number, outline?: boolean) => void): BuildingParts | boolean | null {
   switch (key) {
     case 'walls':
       return tier === 0 ? null : walls(P, a, parts);
@@ -1089,7 +1101,7 @@ registerKit('undead', (P, key, a, parts) => {
       return true;
   }
   return null;
-});
+}
 
 /**
  * Where the commandery has its windmill: a bone mill. A drum of black stone with a bone band and a
