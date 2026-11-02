@@ -353,7 +353,16 @@ export function ghoulHead(c: Paper, at: P2, ang: number, back: boolean): void {
     c.blob(at, 0.85, 0.82, UM.flesh, { tone: 2, detail: (x, y, nx, ny) => (ny > 0.45 && Math.abs(nx) < 0.3 ? code(UM.flesh, 1) : c.tex(x, y, 213, 3) < 0.12 ? code(UM.flesh, 1) : -1) });
     return;
   }
-  // The hanging lower jaw, open on long teeth.
+  ghoulJaw(c, at, ang);
+  ghoulCranium(c, at, ang);
+}
+
+/** The ghoul's hanging lower jaw, open on long teeth (`ghoulHead`'s; it hinges at `ghoulJawHinge`). */
+export function ghoulJaw(c: Paper, at: P2, ang: number): void {
+  ang = snapDeg(ang);
+  const R = (p: P2): P2 => addP(at, rot(p, ang * DEG));
+  const cx = c.sx(at[0]), cy = c.sy(at[1]), L = c.L;
+  const local = (x: number, y: number): P2 => rot([(x + 0.5 - cx) / L, (y + 0.5 - cy) / L], -ang * DEG);
   c.shape([R([0.1, 0.45]), R([1.05, 0.7]), R([0.95, 1.05]), R([0.05, 0.85])], () => code(UM.flesh, 1));
   // The mouth's dark and the teeth along both jaws.
   c.shape([R([0.25, 0.35]), R([1.2, 0.42]), R([1.0, 0.75]), R([0.25, 0.62])], (x, y) => {
@@ -362,6 +371,14 @@ export function ghoulHead(c: Paper, at: P2, ang: number, back: boolean): void {
     if ((fy < 0.47 || fy > 0.62) && tooth) return code(UM.bone, 3);
     return code(UM.ink, 0);
   });
+}
+
+/** The ghoul's cranium, muzzle and laid-back ear (`ghoulHead`'s, without the jaw). */
+export function ghoulCranium(c: Paper, at: P2, ang: number): void {
+  ang = snapDeg(ang);
+  const R = (p: P2): P2 => addP(at, rot(p, ang * DEG));
+  const cx = c.sx(at[0]), cy = c.sy(at[1]), L = c.L;
+  const local = (x: number, y: number): P2 => rot([(x + 0.5 - cx) / L, (y + 0.5 - cy) / L], -ang * DEG);
   // The cranium and the long muzzle as one shape.
   const head: P2[] = [R([-0.85, 0.1]), R([-0.75, -0.55]), R([-0.2, -0.88]), R([0.45, -0.75]), R([0.85, -0.35]), R([1.3, 0.15]), R([1.25, 0.42]), R([0.3, 0.45]), R([-0.3, 0.75])];
   c.shape(head, (x, y) => {

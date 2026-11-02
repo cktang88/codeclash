@@ -19,18 +19,20 @@ const LEGIONARY_SPEC: FootSpec = {
   farHeld: true,
   shield: true,
   hunch: 8,
-  tilt: -12,
-  stiff: 0.7,
+  tilt: -16,
+  stiff: 1,
   drops: [
-    { slot: 'weapon', holder: 'weapon', at: 3, land: { x: -6.6, y: -0.3, rot: -50, f: 6 } },
-    { slot: 'front', holder: 'forearmF', at: 5, land: { x: 4.8, y: -1.5, rot: 84, f: 8 } },
-    // Then it comes apart on the ground: the helm and the skull roll off, the jaw drops away, the
-    // sword arm falls loose.
-    { slot: 'helm', holder: 'head', at: 8, land: { x: -8.6, y: -0.6, rot: -100, f: 10 } },
-    { slot: 'skull', holder: 'head', at: 8, land: { x: -6.8, y: -1.0, rot: 40, f: 10 } },
-    { slot: 'jaw', holder: 'jaw', at: 9, land: { x: -4.9, y: -0.9, rot: 70, f: 11 } },
-    { slot: 'forearmN', holder: 'forearmN', at: 8, land: { x: -3.2, y: -0.5, rot: 95, f: 10 } },
-    { slot: 'upperArmN', holder: 'upperArmN', at: 9, land: { x: 1.6, y: -0.6, rot: -80, f: 11 } },
+    { slot: 'weapon', holder: 'weapon', at: 3, land: { x: -8.2, y: -0.2, rot: -50, f: 6 } },
+    { slot: 'front', holder: 'forearmF', at: 5, land: { x: 6.6, y: -1.5, rot: 84, f: 8 } },
+    // Then, as he lands, it comes apart: the helm and the skull roll free, the jaw drops away and
+    // the arm bones scatter, a shin lies apart.
+    { slot: 'helm', holder: 'head', at: 8, land: { x: -10.2, y: -0.7, rot: -100, f: 10 } },
+    { slot: 'skull', holder: 'head', at: 8, land: { x: -6.8, y: -0.9, rot: 120, f: 10 } },
+    { slot: 'jaw', holder: 'jaw', at: 8, land: { x: -4.6, y: -0.5, rot: 70, f: 10 } },
+    { slot: 'forearmN', holder: 'forearmN', at: 8, land: { x: -2.6, y: -0.5, rot: 100, f: 10 } },
+    { slot: 'upperArmN', holder: 'upperArmN', at: 8, land: { x: 1.6, y: -0.5, rot: -95, f: 11 } },
+    { slot: 'forearmF', holder: 'forearmF', at: 9, land: { x: 8.6, y: -0.5, rot: 90, f: 11 } },
+    { slot: 'shinN', holder: 'shinN', at: 9, land: { x: 4.2, y: -0.5, rot: -85, f: 11 } },
   ],
 };
 

@@ -1080,7 +1080,8 @@ export function keyLight(c: Paper): void {
       const hard = m === UM.iron || m === UM.rust || m === UM.steel || m === UM.bone || m === UM.mail;
       const edge = (x + 1 <= c.bx1 && c.pix[i + 1]! < 0) || (y + 1 <= c.by1 && c.pix[i + CW]! < 0);
       const inner = c.pix[i - 1]! >= 0 && c.pix[i - CW]! >= 0;
-      if (hard && edge && inner && (v & 7) <= 2) out[i] = (v & ~7) | ((v & 7) + 1);
+      // (Not at levels 1-2: there the rim is a third of a part and pulls its light to the bottom-right.)
+      if (hard && edge && inner && c.L > 2 && (v & 7) <= 2) out[i] = (v & ~7) | ((v & 7) + 1);
     }
   c.pix.set(out);
 }
