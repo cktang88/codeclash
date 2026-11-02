@@ -58,6 +58,31 @@ export interface Atlas {
   ticksPerFrame(anim: Anim): number;
   /** Top-left of a frame's cell in `image`. */
   at(kind: number, anim: Anim, frame: number, dir: Dir): [number, number];
+  /**
+   * HD painters only: detail levels beyond the cell grid above (texels per map pixel, ascending,
+   * e.g. 2, 4, 8). At level L a figure is L times the size it has in `image`.
+   */
+  levels?: readonly number[];
+  /**
+   * HD painters only: one kind's frames at a level, or null while it is still being painted (the
+   * first call asks for it; painting happens in the background).
+   */
+  sheet?(kind: number, level: number): KindSheet | null;
+  /** HD painters only: the index of a frame in a KindSheet's rects (Shoot falls back, Die holds). */
+  slot?(kind: number, anim: Anim, frame: number, dir: Dir): number;
+}
+
+/** One kind's frames at a detail level, each trimmed to what it covers and packed into one page. */
+export interface KindSheet {
+  level: number;
+  width: number;
+  height: number;
+  /** RGBA, width × height. */
+  pixels: Uint8ClampedArray;
+  /** Six numbers per slot: u, v, w, h of the frame in the page, and its foot point ax, ay inside it. */
+  rects: Int32Array;
+  /** Milliseconds it took to paint. */
+  ms: number;
 }
 
 export type BuildAtlas = (faction: FactionId, hue: number) => Atlas;

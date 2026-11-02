@@ -45,6 +45,13 @@ export function texture(gl: WebGL2RenderingContext, src: TexImageSource | null, 
   return t;
 }
 
+/** A texture from raw RGBA pixels (an HD sprite sheet). */
+export function texturePixels(gl: WebGL2RenderingContext, w: number, h: number, pixels: Uint8ClampedArray): WebGLTexture {
+  const t = texture(gl, null, w, h);
+  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(pixels.buffer, pixels.byteOffset, pixels.byteLength));
+  return t;
+}
+
 /** A colour texture to render into, with a depth+stencil buffer when asked. */
 export function target(gl: WebGL2RenderingContext, w: number, h: number, depth: boolean, tex?: WebGLTexture): Target {
   const t = tex ?? texture(gl, null, w, h);
@@ -82,6 +89,8 @@ uniform vec2 u_tex;    // texture size
 uniform vec2 u_z;      // depth range in map px (far, near)
 uniform vec2 u_shear;  // shadow pass: ground offset per pixel of height; (0,0) = normal pass
 uniform float u_shadow;
+uniform float u_scale; // target px per map px (HD zoom draws the map larger than one px per map px)
+uniform float u_texel; // texels per map px of the bound texture (HD sprite sheets: their level)
 out vec2 v_uv;
 out vec4 v_col;
 out vec2 v_ext;
@@ -96,10 +105,10 @@ void main() {
   } else {
     p = i_dst.xy + rel;
   }
-  vec2 n = (p - u_cam) / u_view * 2.0 - 1.0;
+  vec2 n = (p - u_cam) * u_scale / u_view * 2.0 - 1.0;
   float z = 1.0 - 2.0 * clamp((i_ext.x - u_z.x) / (u_z.y - u_z.x), 0.0, 1.0);
   gl_Position = vec4(n, z * 0.999, 1.0);
-  v_uv = (i_src.xy + local) / u_tex;
+  v_uv = (i_src.xy + local * u_texel) / u_tex;
   v_col = i_col;
   v_ext = i_ext.yz;
 }`;
@@ -243,12 +252,15 @@ export class SpriteProgram {
 
   constructor(readonly gl: WebGL2RenderingContext) {
     this.prog = compile(gl, SPRITE_VS, SPRITE_FS);
-    for (const k of ['u_cam', 'u_view', 'u_tex', 'u_z', 'u_shear', 'u_shadow', 'u_shadowCol', 'u_img']) this.u[k] = gl.getUniformLocation(this.prog, k);
+    for (const k of ['u_cam', 'u_view', 'u_tex', 'u_z', 'u_shear', 'u_shadow', 'u_shadowCol', 'u_img', 'u_scale', 'u_texel']) this.u[k] = gl.getUniformLocation(this.prog, k);
   }
 
-  use(camX: number, camY: number, w: number, h: number, zFar: number, zNear: number): void {
+  /** `scale`: target px per map px (1 except for the HD art's zoomed-in views). */
+  use(camX: number, camY: number, w: number, h: number, zFar: number, zNear: number, scale = 1): void {
     const gl = this.gl;
     gl.useProgram(this.prog);
+    gl.uniform1f(this.u.u_scale!, scale);
+    gl.uniform1f(this.u.u_texel!, 1);
     gl.uniform2f(this.u.u_cam!, camX, camY);
     gl.uniform2f(this.u.u_view!, w, h);
     gl.uniform2f(this.u.u_z!, zFar, zNear);
@@ -256,11 +268,13 @@ export class SpriteProgram {
     gl.uniform1f(this.u.u_shadow!, 0);
   }
 
-  tex(t: WebGLTexture, w: number, h: number): void {
+  /** Binds a w×h texture; `texel` is its texels per map px (an HD sheet's level, else 1). */
+  tex(t: WebGLTexture, w: number, h: number, texel = 1): void {
     const gl = this.gl;
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, t);
     gl.uniform2f(this.u.u_tex!, w, h);
+    gl.uniform1f(this.u.u_texel!, texel);
   }
 
   shadow(on: boolean, shx = 0, shy = 0, col: [number, number, number, number] = [0, 0, 0, 0]): void {

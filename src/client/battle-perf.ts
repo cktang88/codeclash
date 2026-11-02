@@ -1,5 +1,5 @@
 // Perf and screenshot harness for the battle renderer.
-//   /battle-perf.html?men=20000&per=2500&seed=3&t=0&speed=1&zoom=1&pause=0&sync=0&cx=&cy=&stances=0&morale=0&hud=1&scan=1
+//   /battle-perf.html?men=20000&per=2500&seed=3&t=0&speed=1&zoom=1&pause=0&sync=0&cx=&cy=&stances=0&morale=0&hud=1&scan=1&art=classic|hd
 // `per` pads each side to that many figures with clones of the simulated ones (the sim caps a
 // side at MAX_FIGURES), so the renderer can be measured at crowd sizes the sim doesn't make.
 // `t` fast-forwards to that tick first; `sync=1` waits for the GPU after each draw so the
@@ -8,6 +8,7 @@
 import { Battle, TICK_S, type Soldier } from '../game/battle.ts';
 import { demoSetup } from './demo.ts';
 import { BattleScene } from './render/scene.ts';
+import { artMode, setArtMode, type ArtMode } from './settings.ts';
 
 const q = new URLSearchParams(location.search);
 const num = (k: string, d: number) => (q.has(k) ? Number(q.get(k)) : d);
@@ -64,7 +65,20 @@ const moraleTick = () => {
   }
 };
 moraleTick();
-const scene = new BattleScene(view);
+const art: ArtMode = q.get('art') === 'hd' ? 'hd' : q.get('art') === 'classic' ? 'classic' : artMode();
+const scene = new BattleScene(view, art);
+// The art toggle: classic 48 px sprites or HD (up to 128 px), saved like the game's setting.
+const toggle = document.getElementById('art') as HTMLButtonElement | null;
+if (toggle) {
+  toggle.textContent = `art: ${art === 'hd' ? 'HD 128' : 'classic 48'} (switch)`;
+  toggle.onclick = () => {
+    const next: ArtMode = art === 'hd' ? 'classic' : 'hd';
+    setArtMode(next);
+    q.set('art', next);
+    location.search = q.toString();
+  };
+  if (q.get('hud') === '0') toggle.style.display = 'none';
+}
 const step = () => {
   scene.snapshot();
   real.step();
@@ -133,7 +147,7 @@ const loop = (now: number) => {
   perf.drawP95 = sorted[Math.floor(sorted.length * 0.95)] ?? 0;
   perf.fps = 1000 / (frames.reduce((a, b) => a + b, 0) / frames.length);
   perf.tick = real.tick;
-  perf.buffer = `${canvas.width}x${canvas.height} px=${scene.pixelScale(canvas.width, canvas.height)}`;
+  perf.buffer = `${canvas.width}x${canvas.height} px=${scene.pixelScale(canvas.width, canvas.height)} art=${scene.art} zoom=${scene.camera.zoom}`;
   if (q.get('hud') !== '0') {
     const alive = view.soldiers.filter((s) => s.state < 2).length;
     stats.textContent = `figures ${view.soldiers.length} (alive ${alive})  tick ${real.tick}\ndraw ${perf.drawMs.toFixed(2)} ms (p95 ${perf.drawP95.toFixed(2)})  fps ${perf.fps.toFixed(1)}\n${perf.buffer}${scene.error ? '\n' + scene.error : ''}`;
