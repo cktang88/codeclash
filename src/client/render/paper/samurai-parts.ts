@@ -8,7 +8,7 @@
 // right); the near (weapon, right) side is toward the viewer: screen left in SE, screen right in NE.
 // Body-frame helpers below lean with the torso: positive torso = leaning forward.
 
-import { addP, code, DEG, defineMaterial, hash, M, oklchRamp, okHue, rot, type Mat, type P2, type Paper } from './core.ts';
+import { addP, code, DEG, defineMaterial, hash, M, oklchRamp, oklchRgb, okHue, rot, type Mat, type P2, type Paper } from './core.ts';
 import { isBack, type Facing } from './facing.ts';
 import { along, limb, snapDeg, type EnginePose, type FootPose, type HorsePose } from './rig.ts';
 
@@ -19,6 +19,16 @@ import { along, limb, snapDeg, type EnginePose, type FootPose, type HorsePose } 
  * straw; the army colour (sashimono, horo, lacing) is the one saturated accent. Base tones sit
  * clear of the battlefield green (L ≈ 0.47) so the core does not have to shift them.
  */
+/**
+ * An army-colour ramp whose hue steps toward violet in the shadows and toward the warm key in the
+ * lights (`step`° a tone), whatever the army's hue: never a straight ramp (pixel-art-craft §ramps).
+ */
+export function armyRamp(hue: number, ls: readonly number[], cs: readonly number[], step = 8): [number, number, number][] {
+  const h = okHue(hue);
+  const toward = (to: number, by: number) => h + Math.sign(((to - h + 540) % 360) - 180) * by;
+  return ls.map((l, i) => oklchRgb(l, cs[i]!, i < 2 ? toward(295, (2 - i) * step) : i > 2 ? toward(75, (i - 2) * step) : h));
+}
+
 export const SM = {
   lacquer: defineMaterial('samurai.lacquer', oklchRamp({ l: 0.29, c: 0.02, h: 40, spread: 0.1 })),
   /** The red-brown undercoat that shows where lacquer is scuffed, and the dull shu of a war fan. */
@@ -26,8 +36,8 @@ export const SM = {
   iron: defineMaterial('samurai.iron', oklchRamp({ l: 0.33, c: 0.014, h: 250, spread: 0.1 })),
   steel: defineMaterial('samurai.steel', oklchRamp({ l: 0.66, c: 0.014, h: 235, spread: 0.11 })),
   gold: defineMaterial('samurai.gold', oklchRamp({ l: 0.64, c: 0.09, h: 82, spread: 0.1 })),
-  team: defineMaterial('samurai.team', (hue) => oklchRamp({ l: 0.6, c: 0.15, h: okHue(hue), spread: 0.09 })),
-  teamDk: defineMaterial('samurai.teamDk', (hue) => oklchRamp({ l: 0.34, c: 0.1, h: okHue(hue), spread: 0.06 })),
+  team: defineMaterial('samurai.team', (hue) => armyRamp(hue, [0.42, 0.51, 0.6, 0.68, 0.76], [0.12, 0.17, 0.15, 0.12, 0.09])),
+  teamDk: defineMaterial('samurai.teamDk', (hue) => armyRamp(hue, [0.24, 0.29, 0.34, 0.39, 0.45], [0.07, 0.1, 0.1, 0.085, 0.07], 14)),
   indigo: defineMaterial('samurai.indigo', oklchRamp({ l: 0.34, c: 0.05, h: 262, spread: 0.06 })),
   cotton: defineMaterial('samurai.cotton', oklchRamp({ l: 0.76, c: 0.018, h: 85, spread: 0.07 })),
   flesh: defineMaterial('samurai.flesh', oklchRamp({ l: 0.62, c: 0.06, h: 55 })),

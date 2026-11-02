@@ -11,9 +11,78 @@
 //   knees, hocks and fetlocks, mane and tail in strands, tack with tassels;
 // - form lighting: a key from the top-left, a shadow side, a rim on hard edges, lit fold ridges.
 // H ≈ 15 units (≈ 120 px at level 8).
+//
+// The animated figures (samurai-rig.ts, samurai-horse.ts, samurai-engine.ts) are rebuilt from this
+// key art: every piece below (a thigh, the dō, a kusazuri panel, the kabuto) can be drawn on its
+// own, its key-art points mapped onto a bone by a part map (`withMap`), so at rest the pieces make
+// the key art and in motion each is the same drawing turned and moved, re-rasterised at every
+// snapped angle. The NE (back three-quarter) pieces are drawn here too (`back`).
 
-import { addP, code, DEG, defineMaterial, figurePalette, okHue, oklchRamp, Paper, type Mat, type P2 } from './core.ts';
-import { ell, gunbai, javelin, katana, lerpP, lit, mul, part, SM, teppo, yari, yumi } from './samurai-parts.ts';
+import { addP, code, DEG, defineMaterial, figurePalette, okHue, oklchRamp, Paper, rot, type Mat, type P2 } from './core.ts';
+import { snapDeg } from './rig.ts';
+import { armyRamp, ell, gunbai, javelin, katana, lerpP, lit, mul, part, SM, teppo, yari, yumi } from './samurai-parts.ts';
+
+// ------------------------------------------------------------------ part maps (the rig)
+
+/**
+ * Where key-art geometry lands while an animated part draws it: `f` takes a key-art point (rest
+ * pose, units) to the figure, `inv` takes a figure point back (so shading and texture ride on the
+ * part), `deg` is how far the part has turned (snapped, rig degrees). Null for the key art itself,
+ * which then draws exactly as before. (The shape of templar-static's PartMap, so the Templar rig's
+ * `partMap`/`skinMap` build these.)
+ */
+export interface PartMap {
+  f(p: P2): P2;
+  inv(p: P2): P2;
+  deg: number;
+}
+let XF: PartMap | null = null;
+/** Draws with key-art geometry mapped through `m` (nests; restores the previous map). */
+export function withMap<T>(m: PartMap | null, draw: () => T): T {
+  const was = XF;
+  XF = m;
+  try {
+    return draw();
+  } finally {
+    XF = was;
+  }
+}
+/** A key-art point where it lands now. */
+const T = (p: P2): P2 => (XF ? XF.f(p) : p);
+/** The current part's turn (deg) for things drawn by angle (weapons). */
+export const mapTurn = (): number => (XF ? XF.deg : 0);
+/** A key-art point where it lands now (for the rig's held items). */
+export const mapPoint = (p: P2): P2 => T(p);
+
+/**
+ * A rigid part in key-art coordinates (samurai-parts `part`, through the map): a polygon relative
+ * to `at`, turned by `ang`, shaded in its own frame. Long edges are split under a map so a part
+ * skinned over two bones bends smoothly.
+ */
+function partK(c: Paper, at: P2, ang: number, pts: P2[], shade: (fx: number, fy: number, x: number, y: number) => number): void {
+  if (!XF) {
+    part(c, at, ang, pts, shade);
+    return;
+  }
+  const m = XF;
+  const a = snapDeg(ang) * DEG;
+  const o = c.q(at);
+  const key = pts.map((p) => addP(o, rot(p, a)));
+  const dense: P2[] = [];
+  key.forEach((p, i) => {
+    const q = key[(i + 1) % key.length]!;
+    const n = Math.max(1, Math.ceil(Math.hypot(q[0] - p[0], q[1] - p[1]) / 0.6));
+    for (let k = 0; k < n; k++) dense.push(lerpP(p, q, k / n));
+  });
+  c.poly(dense.map((p) => {
+    const w = m.f(p);
+    return [c.sx(w[0]), c.sy(w[1])] as P2;
+  }), (x, y) => {
+    const k = m.inv([(x + 0.5 - c.FX) / c.L, (y + 0.5 - c.FY) / c.L]);
+    const f = rot([k[0] - o[0], k[1] - o[1]], -a);
+    return shade(f[0], f[1], x, y);
+  });
+}
 
 const frac = (v: number) => v - Math.floor(v);
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
@@ -41,6 +110,12 @@ const KM = {
    * The one accent beside the army colour: the lacing dots and the menpō rim, opposite the army's
    * hue (orange on a blue army, as in the user's blue samurai), warm and a step darker than the team.
    */
+  /**
+   * The samurai's lacquer in the army colour: a deep lacquer, not the flag's bright silk, so the
+   * figure reads dark against the field (the lint's figure-vs-ground ΔL) while its lit plates
+   * still carry the colour.
+   */
+  lacTeam: defineMaterial('samurai.lacTeam', (hue) => armyRamp(hue, [0.2, 0.29, 0.38, 0.465, 0.55], [0.06, 0.1, 0.11, 0.095, 0.075], 14)),
   accent: defineMaterial('samurai.accent', (hue) => oklchRamp({ l: 0.56, c: 0.13, h: (okHue(hue) + 180) % 360, spread: 0.08 })),
 } as const;
 
@@ -56,7 +131,7 @@ interface Lac {
   gildedEdge?: boolean;
 }
 /** The samurai's armour lacquered in the army colour, gilt, with accent lacing (the user's blue samurai). */
-const TEAM_ARMOUR: Lac = { plate: SM.team, lace: KM.accent, band: SM.gold };
+const TEAM_ARMOUR: Lac = { plate: KM.lacTeam, lace: KM.accent, band: SM.gold };
 const BLACK_GOLD: Lac = { plate: SM.lacquer, lace: SM.team, band: SM.gold, gildedEdge: true };
 const DEEPRED_TEAM: Lac = { plate: KM.deepRed, lace: SM.team, band: SM.gold };
 const REDBROWN_TEAM: Lac = { plate: KM.redBrown, lace: SM.team, band: KM.silk };
@@ -69,8 +144,9 @@ const REDBROWN_TEAM: Lac = { plate: KM.redBrown, lace: SM.team, band: KM.silk };
  * edge, and on hard materials a one-pixel rim on the shadow edge); `detail(un, v)` first
  * (un: -1 lit edge .. 1 shadow edge).
  */
-function vol(c: Paper, a: P2, b: P2, w0: number, w1: number, w2: number, mat: Mat, tone = 2, opt: { detail?: (un: number, v: number, x: number, y: number) => number; shine?: boolean; rim?: boolean; caps?: [number, number] } = {}): void {
+function vol(c: Paper, a0: P2, b0: P2, w0: number, w1: number, w2: number, mat: Mat, tone = 2, opt: { detail?: (un: number, v: number, x: number, y: number) => number; shine?: boolean; rim?: boolean; caps?: [number, number] } = {}): void {
   const L = c.L;
+  const a = T(a0), b = T(b0);
   const d = norm(sub(b, a));
   const n: P2 = [-d[1], d[0]];
   const [k0, k1] = opt.caps ?? [0.35, 0.35];
@@ -83,11 +159,15 @@ function vol(c: Paper, a: P2, b: P2, w0: number, w1: number, w2: number, mat: Ma
     const vv = clamp(v, 0, 1);
     const hw = ((vv < 0.45 ? w0 + (w1 - w0) * (vv / 0.45) : w1 + (w2 - w1) * ((vv - 0.45) / 0.55)) / 2) * L;
     const un = u / Math.max(0.5, hw);
-    if (opt.detail) {
+    // Painted detail (folds, splints, scales) is texture at 2 px a unit: left out (at 1 px it is the read).
+    if (opt.detail && L !== 2) {
       const r = opt.detail(un, vv, x, y);
       if (r >= 0) return r;
     }
     const bd = c.band;
+    // At 2 px a unit a limb is its tone and a shadow side only: a lit band beside it would make
+    // two parallel stripes whose ends line up at every joint. (At 1 px the lit pixel is the light's cue.)
+    if (L === 2) return code(mat, un > 0.3 + bd ? tone - 1 : tone);
     if (opt.shine && un > -0.8 && un < -0.52 && vv > 0.15 && vv < 0.55) return code(mat, tone + 2);
     if (opt.rim && un > 0.9 && vv > 0.1 && vv < 0.85) return code(mat, tone);
     if (un < -0.5 + bd) return code(mat, tone + 1);
@@ -99,7 +179,7 @@ function vol(c: Paper, a: P2, b: P2, w0: number, w1: number, w2: number, mat: Ma
 
 /** A polygon in units shaded by `shade(fx, fy)` in units relative to `o`. */
 function slab(c: Paper, o: P2, pts: P2[], shade: (fx: number, fy: number) => number): void {
-  part(c, o, 0, pts, shade);
+  partK(c, o, 0, pts, shade);
 }
 
 /** A closed Catmull-Rom curve through `pts` (units), `k` points per span: organic outlines. */
@@ -132,6 +212,9 @@ function kebiki(c: Paper, fx: number, fy: number, top: number, t: number, lac: L
   const row = Math.floor(r);
   const k = frac(r);
   const px = 1 / (L * per);
+  // At 2 px a unit the lames are one plate in the form light (as samurai-parts' lames): a lit
+  // and a dark pixel row per lame would stripe the dō, every row's ends lining up.
+  if (L === 2) return code(lac.plate, t);
   const plate = opt.bandRows?.(row) ? lac.band : lac.plate;
   if (k < px) return lac.gildedEdge ? code(SM.gold, t >= 2 ? 3 : 2) : code(plate, t >= 2 ? clamp(t + 2, 0, 4) : t + 1); // the lit top edge
   if (k > 1 - 1.6 * px) return code(plate, Math.max(0, t - 2)); // the step's shadow
@@ -145,6 +228,7 @@ function kebiki(c: Paper, fx: number, fy: number, top: number, t: number, lac: L
 /** Okegawa-dō: riveted horizontal plates in plain lacquer with kanamono rivet heads and lit plate edges. */
 function okegawa(c: Paper, fx: number, fy: number, top: number, t: number, plate: Mat, per = 0.85): number {
   const L = c.L;
+  if (L === 2) return code(plate, t);
   const r = (fy - top - 0.06 * fx * fx) / per;
   const k = frac(r);
   const px = 1 / (L * per);
@@ -156,15 +240,15 @@ function okegawa(c: Paper, fx: number, fy: number, top: number, t: number, plate
 
 /** A gilt agemaki bow (the big tassel-knot) at `at`: two loops and two hanging tails. */
 function agemaki(c: Paper, at: P2, mat: Mat = SM.team, s = 1): void {
-  for (const dx of [-0.38, 0.38]) part(c, addP(at, [dx * s, -0.05 * s]), 0, ell(0.36 * s, 0.24 * s, 0, 0, 12), (fx, fy) => (Math.hypot(fx, fy) < 0.14 * s ? -1 : code(mat, fx + fy < 0 ? 3 : 1)));
+  for (const dx of [-0.38, 0.38]) partK(c, addP(at, [dx * s, -0.05 * s]), 0, ell(0.36 * s, 0.24 * s, 0, 0, 12), (fx, fy) => (Math.hypot(fx, fy) < 0.14 * s ? -1 : code(mat, fx + fy < 0 ? 3 : 1)));
   vol(c, addP(at, [-0.05 * s, 0.1 * s]), addP(at, [-0.3 * s, 1.0 * s]), 0.22 * s, 0.24 * s, 0.3 * s, mat, 2, { caps: [0, 0.2] });
   vol(c, addP(at, [0.05 * s, 0.1 * s]), addP(at, [0.35 * s, 0.95 * s]), 0.22 * s, 0.24 * s, 0.3 * s, mat, 1, { caps: [0, 0.2] });
-  part(c, at, 0, ell(0.16 * s, 0.14 * s, 0, 0, 10), () => code(SM.gold, 3));
+  partK(c, at, 0, ell(0.16 * s, 0.14 * s, 0, 0, 10), () => code(SM.gold, 3));
 }
 
 // ------------------------------------------------------------------ the man
 
-interface Body {
+export interface Body {
   head: P2;
   neck: P2;
   pel: P2;
@@ -193,7 +277,7 @@ function stand(o: P2 = [0, 0], over: Partial<Body> = {}): Body {
 
 type Head = 'kabuto' | 'jingasa' | 'hachimaki' | 'kato' | 'kasa';
 
-interface Dress {
+export interface Dress {
   head: Head;
   crest?: 'kuwagata' | 'crescent' | 'none';
   /** Samurai mask over the lower face. */
@@ -256,10 +340,12 @@ function menpo(c: Paper, h: P2, lac: Lac): void {
   slab(c, h, S([[-0.65, 0.78], [0.85, 0.7], [0.95, 1.25], [-0.75, 1.35]]), (fx, fy) => kebiki(c, fx, fy, 0.75 * s, lit(c, 2, fx * 0.4, 0.4, 0.45), lac, { per: 0.32, bandRows: () => false }));
 }
 
-/** The kabuto's shikoro: flared laced lames behind the head (before the face). */
-function shikoro(c: Paper, h: P2, lac: Lac): void {
+/** The kabuto's shikoro: flared laced lames behind the head (before the face); from behind it covers the nape, wide. */
+function shikoro(c: Paper, h: P2, lac: Lac, back = false): void {
   const s = HS;
-  const pts: P2[] = [[-0.9, -0.45], [0.2, -0.5], [1.15, -0.3], [1.55, 0.55], [1.0, 0.95], [-0.2, 1.05], [-1.6, 1.3], [-2.5, 0.95], [-1.8, -0.15]];
+  const pts: P2[] = back
+    ? [[-1.5, -0.5], [0.6, -0.55], [1.45, -0.3], [1.85, 0.55], [1.3, 1.15], [-0.2, 1.4], [-1.7, 1.45], [-2.5, 0.95], [-2.0, -0.15]]
+    : [[-0.9, -0.45], [0.2, -0.5], [1.15, -0.3], [1.55, 0.55], [1.0, 0.95], [-0.2, 1.05], [-1.6, 1.3], [-2.5, 0.95], [-1.8, -0.15]];
   slab(c, h, pts.map((q) => [q[0] * s, q[1] * s] as P2), (fx, fy) => {
     const t = lit(c, 2, fx * 0.3 + fy * 0.45, 0.45, 0.45);
     return kebiki(c, fx, fy - 0.08 * fx, -0.4 * s, t, lac, { per: 0.62, bandRows: () => false });
@@ -267,7 +353,8 @@ function shikoro(c: Paper, h: P2, lac: Lac): void {
 }
 
 /** The kabuto: a ridged bowl with gilt rivets, a lit rim, big gilt-edged fukigaeshi, and the crest. */
-function kabuto(c: Paper, h: P2, lac: Lac, crest: 'kuwagata' | 'crescent' | 'none'): void {
+function kabuto(c: Paper, h: P2, lac: Lac, crest: 'kuwagata' | 'crescent' | 'none', back = false): void {
+  if (back) kabutoCrest(c, h, crest);
   const s = HS;
   const L = c.L;
   const S = (p: P2[]) => p.map((q) => [q[0] * s, q[1] * s] as P2);
@@ -283,6 +370,11 @@ function kabuto(c: Paper, h: P2, lac: Lac, crest: 'kuwagata' | 'crescent' | 'non
     return code(lac.plate, 2);
   });
   if (L >= 4) slab(c, addP(h, [0, -1.33 * s]), ell(0.22, 0.12, 0, 0, 10), () => code(SM.gold, 3)); // tehen
+  if (back) {
+    // From behind only the near fukigaeshi shows, turned edge-on at the front of the bowl.
+    slab(c, h, S([[0.95, -0.35], [1.6, -0.75], [1.7, -0.1], [1.15, 0.1]]), (fx0) => (fx0 / s > 1.55 ? code(SM.gold, 3) : code(lac.plate, 2)));
+    return;
+  }
   slab(c, h, S([[-0.4, -0.38], [1.25, -0.42], [1.42, -0.2], [-0.2, -0.16]]), (fx) => code(lac.plate, fx < 0.6 ? 3 : 2)); // mabizashi
   // Fukigaeshi: the turned-back wings, gilt-edged, a gilt mon on the near one.
   slab(c, h, S([[-0.95, -0.42], [-1.95, -1.0], [-2.25, -0.2], [-1.85, 0.35], [-1.05, 0.0]]), (fx0, fy0) => {
@@ -292,6 +384,12 @@ function kabuto(c: Paper, h: P2, lac: Lac, crest: 'kuwagata' | 'crescent' | 'non
     return code(lac.plate, lit(c, 3, fx * 0.5 + fy * 0.4, 0.4, 0.4));
   });
   slab(c, h, S([[0.95, -0.35], [1.6, -0.75], [1.7, -0.1], [1.15, 0.1]]), (fx0) => (fx0 / s > 1.55 ? code(SM.gold, 2) : code(lac.plate, 1)));
+  kabutoCrest(c, h, crest);
+}
+
+/** The maedate: gilt kuwagata horns or the lord's crescent, on the front of the bowl. */
+function kabutoCrest(c: Paper, h: P2, crest: 'kuwagata' | 'crescent' | 'none'): void {
+  const s = HS;
   const base: P2 = addP(h, [0.45 * s, -0.75 * s]);
   if (crest === 'kuwagata') {
     for (const [dx, tone] of [[-1.25, 2], [1.4, 3]] as [number, number][]) {
@@ -324,20 +422,28 @@ function jingasa(c: Paper, h: P2, plate: Mat): void {
   });
 }
 
-function hachimaki(c: Paper, h: P2): void {
+function hachimaki(c: Paper, h: P2, back = false): void {
   const s = HS;
   vol(c, addP(h, [-0.66 * s, -0.3 * s]), addP(h, [0.7 * s, -0.4 * s]), 0.36, 0.38, 0.34, KM.silk, 2, { caps: [0.1, 0.1] });
+  if (back) {
+    // The knot at the back of the head and its tails over the nape.
+    slab(c, addP(h, [-0.45 * s, -0.3 * s]), ell(0.3, 0.24, 0, 0, 10), (fx, fy) => code(KM.silk, fx + fy < 0 ? 3 : 1));
+    vol(c, addP(h, [-0.5 * s, -0.25 * s]), addP(h, [-0.85 * s, 0.6 * s]), 0.3, 0.3, 0.2, KM.silk, 2, { caps: [0, 0.3] });
+    vol(c, addP(h, [-0.4 * s, -0.2 * s]), addP(h, [-0.35 * s, 0.75 * s]), 0.26, 0.26, 0.18, KM.silk, 1, { caps: [0, 0.3] });
+    return;
+  }
   vol(c, addP(h, [-0.7 * s, -0.3 * s]), addP(h, [-1.35 * s, 0.5 * s]), 0.3, 0.3, 0.2, KM.silk, 2, { caps: [0, 0.3] });
   vol(c, addP(h, [-0.7 * s, -0.25 * s]), addP(h, [-1.15 * s, 0.75 * s]), 0.26, 0.26, 0.18, KM.silk, 1, { caps: [0, 0.3] });
   vol(c, addP(h, [-0.15 * s, -0.85 * s]), addP(h, [0.35 * s, -1.1 * s]), 0.36, 0.34, 0.3, SM.hair, 2); // topknot
 }
 
 /** The katō: a white cowl wrapped round the head, an eye slit, the tail over the shoulders. */
-function kato(c: Paper, h: P2): void {
+function kato(c: Paper, h: P2, back = false): void {
   const s = HS;
   slab(c, h, ell(0.82 * s, 0.94 * s, -0.04, 0, 18), (fx0, fy0) => {
     const fx = fx0 / s, fy = fy0 / s;
-    if (fy > -0.2 && fy < 0.1 && fx > 0.02 && fx < 0.85) {
+    if (back && fx > 0.6 && fy > -0.2 && fy < 0.1) return code(SM.flesh, 1); // a sliver of the face turning away
+    if (!back && fy > -0.2 && fy < 0.1 && fx > 0.02 && fx < 0.85) {
       if (Math.abs(fx - 0.45) < 0.1 && fy > -0.13 && fy < 0.03) return code(SM.ink, 0);
       if (fy < -0.12 && fx > 0.1 && fx < 0.7) return code(SM.hair, 1); // brow
       return code(SM.flesh, fx > 0.65 ? 1 : 2);
@@ -360,9 +466,46 @@ function kasa(c: Paper, h: P2): void {
   vol(c, addP(h, [-0.45 * s, -0.35 * s]), addP(h, [0.2 * s, 0.85 * s]), 0.14, 0.14, 0.14, SM.lacquer, 1, { caps: [0, 0] });
 }
 
-/** Head with its gear. */
-function head(c: Paper, b: Body, d: Dress): void {
+/** The back of a bare or capped head (NE): hair, the nape, the cheek's edge and the near ear. */
+function nape(c: Paper, h: P2, topknot: boolean): void {
+  const s = HS;
+  slab(c, h, ell(0.66 * s, 0.82 * s, -0.04, 0.06 * s, 18), (fx0, fy0) => {
+    const fx = fx0 / s, fy = fy0 / s;
+    if (fx > 0.42 && fy > -0.15 && fy < 0.5) return code(SM.flesh, fx > 0.56 ? 1 : 2); // the cheek turning away
+    if (Math.hypot(fx - 0.3, fy - 0.05) < 0.14) return code(SM.flesh, 1); // the near ear
+    if (fy > 0.5) return code(SM.flesh, 1); // the nape
+    return code(SM.hair, lit(c, 2, fx * 0.6 + fy * 0.5, 0.4, 0.45));
+  });
+  if (topknot) vol(c, addP(h, [-0.25 * s, -0.85 * s]), addP(h, [0.2 * s, -1.15 * s]), 0.36, 0.34, 0.3, SM.hair, 2);
+}
+
+/** Head with its gear; `back`: seen from behind (NE). */
+function head(c: Paper, b: Body, d: Dress, back = false): void {
   const h = b.head;
+  if (back) {
+    switch (d.head) {
+      case 'kabuto':
+        kabuto(c, h, d.lac, d.crest ?? 'none', true);
+        shikoro(c, h, d.lac, true);
+        break;
+      case 'jingasa':
+        nape(c, h, false);
+        jingasa(c, h, d.lac.plate);
+        break;
+      case 'hachimaki':
+        nape(c, h, true);
+        hachimaki(c, h, true);
+        break;
+      case 'kato':
+        kato(c, h, true);
+        break;
+      case 'kasa':
+        nape(c, h, false);
+        kasa(c, h);
+        break;
+    }
+    return;
+  }
   switch (d.head) {
     case 'kabuto':
       shikoro(c, h, d.lac);
@@ -397,26 +540,40 @@ function fist(c: Paper, at: P2, mat: Mat, t: number): void {
   });
 }
 
-/** Arm volume: the sleeve with its crease, the kote's splints and mail, the fist. */
-function arm(c: Paper, sh: P2, el: P2, hn: P2, d: Dress, far: boolean, fistMat?: Mat): void {
+/** The sleeve over the upper arm, with its crease. */
+function upperArm(c: Paper, sh: P2, el: P2, d: Dress, far: boolean): void {
   const t = far ? 1 : 2;
-  const armoured = d.body === 'gusoku';
   const robe = d.body === 'robe';
   const sleeve = d.sleeve;
   vol(c, sh, el, robe ? 1.9 : 1.5, robe ? 1.95 : 1.55, robe ? 1.6 : 1.2, sleeve, t, {
     detail: (un, v) => (un > -0.25 && un < 0.25 && Math.abs(frac(v * 2.2 + 0.3) - 0.5) < 0.09 ? code(sleeve, t - 1) : un < -0.2 && Math.abs(frac(v * 2.2 + 0.3) - 0.62) < 0.06 ? code(sleeve, t + 1) : -1),
   });
-  vol(c, el, hn, robe ? 1.5 : 1.25, robe ? 1.4 : 1.25, 0.95, armoured ? KM.mask : sleeve, t, {
+}
+/** The forearm: the kote's splints and mail, or the sleeve. */
+function forearm(c: Paper, el: P2, hn: P2, d: Dress, far: boolean): void {
+  const t = far ? 1 : 2;
+  const armoured = d.body === 'gusoku';
+  const robe = d.body === 'robe';
+  vol(c, el, hn, robe ? 1.5 : 1.25, robe ? 1.4 : 1.25, 0.95, armoured ? KM.mask : d.sleeve, t, {
     shine: armoured,
     rim: armoured,
     detail: armoured ? (un, v) => (v > 0.1 && v < 0.85 && Math.abs(un + 0.1) < 0.24 && frac(v * 3) > 0.25 ? code(SM.gold, frac(v * 3) < 0.35 ? 3 : t) : frac(v * 3) < 0.08 ? code(KM.mask, t - 1) : -1) : undefined,
     caps: [0.25, 0.2],
   });
-  fist(c, hn, fistMat ?? (armoured ? d.lac.plate : SM.flesh), t);
+}
+function handPiece(c: Paper, hn: P2, d: Dress, far: boolean, fistMat?: Mat): void {
+  fist(c, hn, fistMat ?? (d.body === 'gusoku' ? d.lac.plate : SM.flesh), far ? 1 : 2);
 }
 
-/** Leg volume: hakama'd thigh with lit fold ridges, the shin (suneate or kyahan), knee, tabi and waraji. */
-function leg(c: Paper, hip: P2, kn: P2, an: P2, d: Dress, far: boolean): void {
+/** Arm volume: the sleeve with its crease, the kote's splints and mail, the fist. */
+function arm(c: Paper, sh: P2, el: P2, hn: P2, d: Dress, far: boolean, fistMat?: Mat): void {
+  upperArm(c, sh, el, d, far);
+  forearm(c, el, hn, d, far);
+  handPiece(c, hn, d, far, fistMat);
+}
+
+/** The hakama'd thigh with lit fold ridges. */
+function thigh(c: Paper, hip: P2, kn: P2, d: Dress, far: boolean): void {
   const t = far ? 1 : 2;
   const legs = d.legs;
   const robe = d.body === 'robe';
@@ -428,8 +585,12 @@ function leg(c: Paper, hip: P2, kn: P2, an: P2, d: Dress, far: boolean): void {
       return -1;
     },
   });
-  const shin = d.shin === 'suneate' ? KM.mask : SM.black;
-  vol(c, kn, an, 1.4, 1.35, 0.95, shin, t, {
+}
+/** The shin (suneate or kyahan) and the knee. */
+function shin(c: Paper, kn: P2, an: P2, d: Dress, far: boolean): void {
+  const t = far ? 1 : 2;
+  const sh = d.shin === 'suneate' ? KM.mask : SM.black;
+  vol(c, kn, an, 1.4, 1.35, 0.95, sh, t, {
     shine: d.shin === 'suneate',
     rim: d.shin === 'suneate',
     detail: (un, v) =>
@@ -438,57 +599,73 @@ function leg(c: Paper, hip: P2, kn: P2, an: P2, d: Dress, far: boolean): void {
         : frac(v * 3) < 0.09 ? code(KM.silk, 1) : -1,
     caps: [0.3, 0.15],
   });
-  slab(c, kn, ell(0.74, 0.56, 0, -0.05, 14), (fx, fy) => code(d.shin === 'suneate' ? KM.mask : legs, lit(c, t, fx * 0.8 + fy * 0.8, 0.3, 0.4)));
+  slab(c, kn, ell(0.74, 0.56, 0, -0.05, 14), (fx, fy) => code(d.shin === 'suneate' ? KM.mask : d.legs, lit(c, t, fx * 0.8 + fy * 0.8, 0.3, 0.4)));
+}
+/** The tabi and the waraji. */
+function footS(c: Paper, an: P2, far: boolean): void {
+  const t = far ? 1 : 2;
   const toe = addP(an, [1.2, 0.35]);
   vol(c, addP(an, [-0.25, 0.05]), toe, 0.85, 0.8, 0.6, KM.silk, t - 1, { caps: [0.2, 0.3] });
   vol(c, addP(an, [-0.35, 0.38]), addP(toe, [0.15, 0.08]), 0.32, 0.3, 0.28, SM.straw, 1);
+}
+/** Leg volume: hakama'd thigh with lit fold ridges, the shin (suneate or kyahan), knee, tabi and waraji. */
+function leg(c: Paper, hip: P2, kn: P2, an: P2, d: Dress, far: boolean): void {
+  thigh(c, hip, kn, d, far);
+  shin(c, kn, an, d, far);
+  footS(c, an, far);
 }
 
 const TORSO: P2[] = [[-2.2, -4.75], [-0.6, -5.05], [1.0, -5.0], [2.15, -4.65], [2.25, -2.9], [1.8, -0.1], [-1.75, -0.1], [-2.3, -2.9]];
 /** Form light on the dō: lit upper-left, the front plane turning to a shaded side past x ≈ 1.1. */
 const torsoTone = (c: Paper, fx: number, fy: number): number => {
   let t = lit(c, 2, fx * 0.42 + (fy + 2.4) * 0.22, 0.5, 0.45);
-  if (fx > 1.15 - fy * 0.05) t = Math.min(t, 1);
+  // The side plane's edge: slanted at 2 px a unit, so its columns do not all end on the dō's rim.
+  if (fx > (c.L === 2 ? 0.55 - fy * 0.28 : 1.15 - fy * 0.05)) t = Math.min(t, 1);
   return t;
 };
 
-function torso(c: Paper, b: Body, d: Dress): void {
+/** The dō (or jacket, or robe) with the obi; `back`: its back plate, the agemaki on it, the jinbaori's back with the mon. */
+function torso(c: Paper, b: Body, d: Dress, back = false): void {
   const o = b.pel;
   if (d.body === 'gusoku') {
     slab(c, o, TORSO, (fx, fy) => {
       const t = torsoTone(c, fx, fy);
-      if (fy < -4.2) return code(d.lac.plate, fx < 0.4 ? Math.min(4, t + 1) : t); // the munaita, a lit plate
+      if (fy < -4.2) return code(d.lac.plate, fx < 0.4 ? Math.min(4, t + 1) : t); // the munaita (oshitsuke-ita behind), a lit plate
       if (fy < -4.05) return code(SM.gold, fx < 0.4 ? 3 : 2); // gilt edge
       // Kebiki rows: the top two rows the contrasting band (kata-iro).
       return kebiki(c, fx, fy, -4.05, t, d.lac, { bandRows: (r) => r === 0 });
     });
-    agemaki(c, addP(o, [1.1, -4.5]), d.lac.lace, 0.9);
+    // The agemaki: a small bow on the front, the big ring-knot in the middle of the back.
+    if (back) agemaki(c, addP(o, [-0.15, -3.0]), d.lac.lace, 1.2);
+    else agemaki(c, addP(o, [1.1, -4.5]), d.lac.lace, 0.9);
   } else if (d.body === 'okegawa') {
     slab(c, o, TORSO, (fx, fy) => {
       const t = torsoTone(c, fx, fy);
       if (fy < -4.2) return code(d.lac.plate, fx < 0.4 ? Math.min(4, t + 1) : t);
-      // The clan mon in gold, a thin ring with a disc.
-      const m = Math.hypot(fx - 0.15, (fy + 2.95) * 1.05);
+      // The clan mon in gold, a thin ring with a disc (front and back).
+      const m = Math.hypot(fx - (back ? -0.15 : 0.15), (fy + 2.95) * 1.05);
       if (m < 0.72) return m > 0.5 || m < 0.22 ? code(SM.gold, fx < 0.1 ? 3 : 2) : code(d.lac.plate, t);
       return okegawa(c, fx, fy, -4.2, t, d.lac.plate);
     });
   } else if (d.body === 'happi') {
     slab(c, o, TORSO.map((p) => [p[0] * 0.95, p[1]] as P2), (fx, fy) => {
       const t = torsoTone(c, fx, fy);
-      if (Math.abs(fx - 0.2 + (fy + 4.9) * 0.32) < 0.32 && fy < -2.3) return code(KM.silk, t);
+      if (!back && Math.abs(fx - 0.2 + (fy + 4.9) * 0.32) < 0.32 && fy < -2.3) return code(KM.silk, t);
       if (fy > -0.85) return code(SM.teamDk, t);
       const f = frac((fx + 3) / 1.25 + fy * 0.08);
       if (f < 0.07) return code(SM.team, t - 1);
       if (f > 0.07 && f < 0.13) return code(SM.team, Math.min(4, t + 1));
-      if (Math.hypot(fx + 0.95, fy + 2.4) < 0.55) return code(KM.silk, 2); // a white mon on the jacket
+      // A white mon on the jacket; the big one in the middle of the back.
+      if (back ? Math.hypot(fx + 0.15, fy + 2.7) < 0.85 : Math.hypot(fx + 0.95, fy + 2.4) < 0.55) return code(KM.silk, 2);
       return code(SM.team, t);
     });
   } else {
     slab(c, o, TORSO.map((p) => [p[0] * 1.08, p[1]] as P2), (fx, fy) => {
       const t = torsoTone(c, fx, fy);
-      if (Math.abs(fy + 2.6 - fx * 0.85) < 0.75) {
+      // The kesa's stitched panels: over the far shoulder in front, across the back the other way.
+      if (Math.abs(fy + 2.6 + (back ? 1 : -1) * fx * 0.85) < 0.75) {
         const f = frac((fx + 4) / 0.9);
-        return code(SM.ochre, f < 0.1 ? t - 1 : f < 0.18 ? Math.min(4, t + 1) : t); // the kesa's stitched panels
+        return code(SM.ochre, f < 0.1 ? t - 1 : f < 0.18 ? Math.min(4, t + 1) : t);
       }
       const f = frac((fx + 3) / 1.1 - fy * 0.1);
       if (f < 0.08) return code(SM.black, t - 1);
@@ -497,8 +674,18 @@ function torso(c: Paper, b: Body, d: Dress): void {
     });
   }
   if (d.jinbaori) {
-    slab(c, o, [[-2.4, -4.9], [-0.7, -5.1], [-0.9, 0.6], [-2.6, 0.7]], (fx, fy) => (fx > -1.05 || fy > 0.35 ? code(SM.gold, 2) : code(SM.black, lit(c, 2, fx * 0.5 + fy * 0.2, 0.4, 0.5))));
-    slab(c, o, [[1.0, -5.0], [2.35, -4.75], [2.55, 0.6], [1.15, 0.5]], (fx) => (fx < 1.3 ? code(SM.gold, 2) : code(SM.black, 1)));
+    if (back) {
+      // The surcoat's back: one black panel from the shoulders to the hips, the house mon in gold.
+      slab(c, o, [[-2.5, -5.0], [2.35, -4.85], [2.6, 0.6], [-2.65, 0.75]], (fx, fy) => {
+        const m = Math.hypot(fx + 0.1, fy + 2.9);
+        if (m < 1.0) return m > 0.78 || m < 0.3 ? code(SM.gold, fx < 0 ? 3 : 2) : code(SM.black, 2);
+        if (fy > 0.35) return code(SM.gold, 2);
+        return code(SM.black, lit(c, 2, fx * 0.35 + fy * 0.15, 0.45, 0.45));
+      });
+    } else {
+      slab(c, o, [[-2.4, -4.9], [-0.7, -5.1], [-0.9, 0.6], [-2.6, 0.7]], (fx, fy) => (fx > -1.05 || fy > 0.35 ? code(SM.gold, 2) : code(SM.black, lit(c, 2, fx * 0.5 + fy * 0.2, 0.4, 0.5))));
+      slab(c, o, [[1.0, -5.0], [2.35, -4.75], [2.55, 0.6], [1.15, 0.5]], (fx) => (fx < 1.3 ? code(SM.gold, 2) : code(SM.black, 1)));
+    }
   }
   // The obi: a sash with lit fold ridges, knotted at the front.
   const m = d.body === 'robe' ? SM.ochre : d.body === 'happi' ? SM.indigo : KM.silk;
@@ -510,61 +697,164 @@ function torso(c: Paper, b: Body, d: Dress): void {
   });
 }
 
-/** The kusazuri: five panels flaring out over the thighs, bound at the hem in the band colour. */
-function kusazuri(c: Paper, b: Body, d: Dress, layer: 'back' | 'front'): void {
+/** The kusazuri panels: [x, flare, tone] for the back layer (far, near) and the front (near, middle, far). */
+const KUSA_BACK: [number, number, number][] = [[1.5, 0.75, 1], [-1.9, -0.75, 1]];
+const KUSA_FRONT: [number, number, number][] = [[-1.25, -0.55, 3], [0.1, 0.05, 2], [1.3, 0.55, 1]];
+/** The kusazuri hang from the dō 0.25 below the pelvis point. */
+export const KUSA_TOP = 0.25;
+
+/** One kusazuri panel flaring out over the thighs, bound at the hem in the band colour; `back`: mirrored across the body (NE). */
+function kusaPanel(c: Paper, b: Body, d: Dress, layer: 'back' | 'front', i: number, back = false): void {
   if (d.body === 'happi') return;
-  const o = addP(b.pel, [0, 0.25]);
+  const o = addP(b.pel, [0, KUSA_TOP]);
   const robe = d.body === 'robe';
   const long = d.body === 'gusoku' ? 2.9 : robe ? 5.6 : 2.4;
-  const panels: [number, number, number][] = layer === 'back' ? [[1.5, 0.75, 1], [-1.9, -0.75, 1]] : [[-1.25, -0.55, 3], [0.1, 0.05, 2], [1.3, 0.55, 1]];
-  for (const [x, flare, tone] of panels) {
-    const w0 = robe ? 1.25 : 0.82, w1 = robe ? 1.55 : 1.05;
-    const pts: P2[] = robe
-      ? [[x - w0, 0], [x + w0, 0], [x + w1 + flare, long - 0.2], [x + flare, long + 0.15], [x - w1 + flare, long - 0.3]]
-      : [[x - w0, 0], [x + w0, 0], [x + w1 + flare, long], [x - w1 + flare, long]];
-    slab(c, o, pts, (fx, fy) => {
-      const rel = fx - x - flare * (fy / long);
-      const t = lit(c, tone === 1 ? 1 : 2, rel * 0.7 + fy * 0.18 + (tone === 1 ? 0.3 : -0.1), 0.45, 0.5);
-      if (robe) {
-        const pleat = frac((rel + 3) / 0.7);
-        if (fy > long - 0.35) return code(SM.black, Math.max(0, t - 1));
-        if (pleat < 0.12) return code(SM.black, Math.max(0, t - 1));
-        if (pleat < 0.24 && rel < 0.4) return code(SM.black, Math.min(4, t + 1)); // lit pleat ridge
-        return code(SM.black, t);
-      }
-      if (fy > long - 0.3) return code(d.lac.band, t); // the bound hem (hishinui)
-      if (d.body === 'okegawa') return okegawa(c, rel, fy, 0.05, t, d.lac.plate, 0.6);
-      return kebiki(c, rel, fy, 0.05, t, d.lac, { per: 0.8, bandRows: () => false, curve: 0.02 });
-    });
-  }
+  const [x0, flare0, tone0] = (layer === 'back' ? KUSA_BACK : KUSA_FRONT)[i]!;
+  // From behind the back panels face the light like the front ones did (the near one lit, left).
+  const x = back ? -x0 : x0, flare = back ? -flare0 : flare0;
+  const tone = back && layer === 'back' ? (x < 0 ? 3 : 2) : tone0;
+  const w0 = robe ? 1.25 : 0.82, w1 = robe ? 1.55 : 1.05;
+  const pts: P2[] = robe
+    ? [[x - w0, 0], [x + w0, 0], [x + w1 + flare, long - 0.2], [x + flare, long + 0.15], [x - w1 + flare, long - 0.3]]
+    : [[x - w0, 0], [x + w0, 0], [x + w1 + flare, long], [x - w1 + flare, long]];
+  slab(c, o, pts, (fx, fy) => {
+    const rel = fx - x - flare * (fy / long);
+    const t = lit(c, tone === 1 ? 1 : 2, rel * 0.7 + fy * 0.18 + (tone === 1 ? 0.3 : -0.1), 0.45, 0.5);
+    if (robe) {
+      const pleat = frac((rel + 3) / 0.7);
+      if (fy > long - 0.35) return code(SM.black, Math.max(0, t - 1));
+      if (pleat < 0.12) return code(SM.black, Math.max(0, t - 1));
+      if (pleat < 0.24 && rel < 0.4) return code(SM.black, Math.min(4, t + 1)); // lit pleat ridge
+      return code(SM.black, t);
+    }
+    if (fy > long - 0.3 && c.L !== 2) return code(d.lac.band, t); // the bound hem (hishinui)
+    if (d.body === 'okegawa') return okegawa(c, rel, fy, 0.05, t, d.lac.plate, 0.6);
+    return kebiki(c, rel, fy, 0.05, t, d.lac, { per: 0.8, bandRows: () => false, curve: 0.02 });
+  });
+}
+/** The kusazuri: five panels flaring out over the thighs, bound at the hem in the band colour. */
+function kusazuri(c: Paper, b: Body, d: Dress, layer: 'back' | 'front'): void {
+  const n = layer === 'back' ? KUSA_BACK.length : KUSA_FRONT.length;
+  for (let i = 0; i < n; i++) kusaPanel(c, b, d, layer, i);
 }
 
-/** Haidate: an apron of small iron scales on cloth over the thighs (gusoku only). */
-function haidate(c: Paper, b: Body, d: Dress): void {
-  for (const [hip, kn, t] of [[b.hipF, b.knF, 1], [b.hipN, b.knN, 2]] as [P2, P2, number][]) {
-    vol(c, lerpP(hip, kn, 0.3), lerpP(hip, kn, 0.95), 2.0, 2.1, 1.75, d.lac.plate, t, {
-      caps: [0.05, 0.15],
-      detail: (un, v, x) => {
-        const row = Math.floor(v * 5);
-        if (frac(v * 5) < 0.18) return code(d.lac.lace, t);
-        if (un < 0.35 && frac((x - c.ox) / (c.L * 0.55) + row * 0.5) < 0.45) return code(KM.mask, t + (un < -0.4 ? 2 : 1));
-        return -1;
-      },
-    });
-  }
+/** Haidate: an apron of small iron scales on cloth over a thigh (gusoku only). */
+function haidateSide(c: Paper, b: Body, d: Dress, side: 'F' | 'N'): void {
+  if (d.body !== 'gusoku') return;
+  const [hip, kn, t] = side === 'F' ? [b.hipF, b.knF, 1] : [b.hipN, b.knN, 2];
+  vol(c, lerpP(hip, kn, 0.3), lerpP(hip, kn, 0.95), 2.0, 2.1, 1.75, d.lac.plate, t, {
+    caps: [0.05, 0.15],
+    detail: (un, v, x) => {
+      const row = Math.floor(v * 5);
+      if (frac(v * 5) < 0.18) return code(d.lac.lace, t);
+      if (un < 0.35 && frac((x - c.ox) / (c.L * 0.55) + row * 0.5) < 0.45) return code(KM.mask, t + (un < -0.4 ? 2 : 1));
+      return -1;
+    },
+  });
 }
 
 /** Sode: a big laced shoulder board, a lit kanmuri-ita on top with gilt rivets, the band rows, a bound hem. */
-function sode(c: Paper, sh: P2, far: boolean, big: boolean, lac: Lac, ang = 0): void {
+function sode(c: Paper, sh: P2, far: boolean, big: boolean, lac: Lac, ang = 0, back = false): void {
   const w = big ? (far ? 1.05 : 1.3) : far ? 0.7 : 0.85;
   const h = big ? 2.8 : 1.7;
-  const dx = far ? 0.45 : -0.45;
-  part(c, addP(sh, [dx, -0.1]), ang, [[-w, -0.1], [w, -0.25], [w + 0.18, h], [-w - 0.12, h + 0.1]], (fx, fy) => {
+  const dx = (far ? 0.45 : -0.45) * (back ? -1 : 1);
+  partK(c, addP(sh, [dx, -0.1]), ang, [[-w, -0.1], [w, -0.25], [w + 0.18, h], [-w - 0.12, h + 0.1]], (fx, fy) => {
     const t = far ? 1 : lit(c, 2, fx * 0.75 + fy * 0.12, 0.35, 0.5);
     if (fy < 0.2) return Math.abs(frac((fx + 3) / 0.6) - 0.5) < 0.12 ? code(SM.gold, 3) : code(lac.plate, far ? 2 : Math.min(4, t + 1));
     if (fy > h - 0.3) return code(lac.band, t);
     return kebiki(c, fx, fy, 0.2, t, lac, { per: 0.75, bandRows: (r) => r === 0 });
   });
+}
+
+// ------------------------------------------------------------------ the man as pieces
+
+/** Something held, drawn from the hand (a key-art point; samurai-parts weapons go through `mapPoint`/`mapTurn`). */
+export type Held = (c: Paper, hand: P2, back: boolean) => void;
+export interface HandGear {
+  draw?: Held;
+  /** The fist drawn again over the item (the grip). */
+  grip?: Mat;
+}
+/** A figure's gear: what it holds and wears beside the man. */
+export interface SGear {
+  near?: HandGear;
+  far?: HandGear;
+  /** On the back (sashimono, horo, javelin bundle, ebira): units relative to the body. */
+  back?: (c: Paper, b: Body, back: boolean) => void;
+  /** At the hips (swords, the dōran and match). */
+  hipGear?: (c: Paper, b: Body, back: boolean) => void;
+  /** Set apart from the man (the planted tate). */
+  scene?: (c: Paper) => void;
+  /** The near grip is drawn before the far one (the key art's order). */
+  gripNFirst?: boolean;
+}
+
+/** The pieces of a man, each drawn on its own (a rig part rides one bone). */
+export type ManPiece =
+  | 'back' | 'thighF' | 'shinF' | 'footF' | 'upperArmF' | 'forearmF' | 'handF' | 'sodeF' | 'kusaBF' | 'kusaBN'
+  | 'thighN' | 'shinN' | 'footN' | 'haidateF' | 'haidateN' | 'torso' | 'kusaFN' | 'kusaFM' | 'kusaFF' | 'hipGear'
+  | 'head' | 'upperArmN' | 'forearmN' | 'handN' | 'sodeN' | 'farItem' | 'weapon' | 'gripF' | 'gripN';
+/** The key art's drawing order (SE). */
+export const MAN_SE: readonly ManPiece[] = [
+  'back', 'thighF', 'shinF', 'footF', 'upperArmF', 'forearmF', 'handF', 'sodeF', 'kusaBF', 'kusaBN', 'thighN', 'shinN', 'footN',
+  'haidateF', 'haidateN', 'torso', 'kusaFN', 'kusaFM', 'kusaFF', 'hipGear', 'head', 'upperArmN', 'forearmN', 'handN', 'sodeN',
+  'farItem', 'weapon', 'gripF', 'gripN',
+];
+/** The SE order for a figure's gear. */
+export const manOrder = (g: SGear): readonly ManPiece[] => (g.gripNFirst ? [...MAN_SE.slice(0, -2), 'gripN', 'gripF'] : MAN_SE);
+/** Pieces of the legs (left out on horseback). */
+export const LEG_PIECES: ReadonlySet<ManPiece> = new Set(['thighF', 'shinF', 'footF', 'thighN', 'shinN', 'footN', 'haidateF', 'haidateN']);
+
+/** Draws one piece of a man in key-art coordinates (through the current part map); `back`: the NE view. */
+export function manPiece(c: Paper, b: Body, d: Dress, g: SGear, p: ManPiece, back = false): void {
+  switch (p) {
+    case 'back': g.back?.(c, b, back); return;
+    case 'thighF': thigh(c, b.hipF, b.knF, d, true); return;
+    case 'shinF': shin(c, b.knF, b.anF, d, true); return;
+    case 'footF': footS(c, b.anF, true); return;
+    case 'upperArmF': upperArm(c, b.shF, b.elF, d, true); return;
+    case 'forearmF': forearm(c, b.elF, b.hnF, d, true); return;
+    case 'handF': handPiece(c, b.hnF, d, true); return;
+    case 'sodeF': if (d.sode !== 'none') sode(c, b.shF, true, d.sode === 'big', d.lac, 0, back); return;
+    case 'kusaBF': kusaPanel(c, b, d, 'back', 0, back); return;
+    case 'kusaBN': kusaPanel(c, b, d, 'back', 1, back); return;
+    case 'thighN': thigh(c, b.hipN, b.knN, d, false); return;
+    case 'shinN': shin(c, b.knN, b.anN, d, false); return;
+    case 'footN': footS(c, b.anN, false); return;
+    case 'haidateF': haidateSide(c, b, d, 'F'); return;
+    case 'haidateN': haidateSide(c, b, d, 'N'); return;
+    case 'torso': torso(c, b, d, back); return;
+    case 'kusaFN': kusaPanel(c, b, d, 'front', 0, back); return;
+    case 'kusaFM': kusaPanel(c, b, d, 'front', 1, back); return;
+    case 'kusaFF': kusaPanel(c, b, d, 'front', 2, back); return;
+    case 'hipGear': g.hipGear?.(c, b, back); return;
+    case 'head': head(c, b, d, back); return;
+    case 'upperArmN': upperArm(c, b.shN, b.elN, d, false); return;
+    case 'forearmN': forearm(c, b.elN, b.hnN, d, false); return;
+    case 'handN': handPiece(c, b.hnN, d, false); return;
+    case 'sodeN': if (d.sode !== 'none') sode(c, b.shN, false, d.sode === 'big', d.lac, 4, back); return;
+    case 'farItem': g.far?.draw?.(c, b.hnF, back); return;
+    case 'weapon': g.near?.draw?.(c, b.hnN, back); return;
+    case 'gripF': if (g.far?.grip) fist(c, b.hnF, g.far.grip, 1); return;
+    case 'gripN': if (g.near?.grip) fist(c, b.hnN, g.near.grip, 2); return;
+  }
+}
+
+interface Layers {
+  back?: () => void;
+  held?: () => void;
+  hipGear?: () => void;
+}
+
+/** A whole man, back to front, facing SE (the mounted key art and the crew). */
+function man(c: Paper, b: Body, d: Dress, layers: Layers): void {
+  const legs = d.legsOn !== false;
+  const g: SGear = { back: layers.back && (() => layers.back!()), hipGear: layers.hipGear && (() => layers.hipGear!()) };
+  for (const p of MAN_SE) {
+    if (!legs && LEG_PIECES.has(p)) continue;
+    manPiece(c, b, d, g, p);
+  }
+  layers.held?.();
 }
 
 /** The sashimono: a lacquered pole, a crossbar, the tall team flag with a pale mon, folds lit. */
@@ -574,8 +864,8 @@ function sashimono(c: Paper, base: P2, height = 9.6, w = 2.0, h = 4.4): void {
   slab(c, top, [[0, 0.25], [-w, 0.25], [-w + 0.1, h], [0.05, h + 0.05]], (fx, fy) => {
     if (Math.hypot(fx + w / 2, fy - h * 0.36) < w * 0.27) return code(KM.silk, Math.hypot(fx + w / 2 + 0.1, fy - h * 0.36 + 0.1) < w * 0.14 ? 3 : 2);
     const f = frac((fx + 5 + fy * 0.12) / (w / 2.4));
-    if (f < 0.07) return code(SM.team, 1);
-    if (f < 0.13) return code(SM.team, 3); // lit fold ridge
+    if (c.L !== 2 && f < 0.07) return code(SM.team, 1);
+    if (c.L !== 2 && f < 0.13) return code(SM.team, 3); // lit fold ridge
     const sd = fx / w + (fy / h) * 0.5;
     return code(SM.team, sd > -0.05 ? 1 : sd < -0.62 ? 3 : 2);
   });
@@ -599,41 +889,13 @@ function horo(c: Paper, at: P2, big = 1): void {
   vol(c, addP(at, [0.2, -2.55 * big]), addP(at, [-1.6 * big, -3.65 * big]), 0.22, 0.22, 0.2, SM.wood, 2);
 }
 
+/** The daishō at the hip: the scabbards sweeping back, the hilt forward with its tsuba. */
 function swords(c: Paper, b: Body): void {
   const o = b.pel;
   vol(c, addP(o, [1.6, -0.3]), addP(o, [-3.3, 1.9]), 0.4, 0.4, 0.34, SM.lacquer, 2, { caps: [0.3, 0.3], rim: true });
   vol(c, addP(o, [1.6, -0.3]), addP(o, [2.6, -0.85]), 0.36, 0.36, 0.36, SM.black, 2, { detail: (_u, v) => (frac(v * 4) < 0.3 ? code(KM.silk, 2) : -1) });
   slab(c, addP(o, [1.6, -0.3]), ell(0.3, 0.26, 0, 0, 10), () => code(SM.gold, 3)); // tsuba
   vol(c, addP(o, [1.4, 0.05]), addP(o, [-2.0, 1.6]), 0.34, 0.34, 0.3, SM.lacquer, 1);
-}
-
-interface Layers {
-  back?: () => void;
-  behind?: () => void;
-  held?: () => void;
-  hipGear?: () => void;
-  fistN?: Mat;
-  fistF?: Mat;
-}
-
-/** A whole man, back to front, facing SE. */
-function man(c: Paper, b: Body, d: Dress, layers: Layers): void {
-  const legs = d.legsOn !== false;
-  layers.back?.();
-  if (legs) leg(c, b.hipF, b.knF, b.anF, d, true);
-  arm(c, b.shF, b.elF, b.hnF, d, true, layers.fistF);
-  if (d.sode !== 'none') sode(c, b.shF, true, d.sode === 'big', d.lac);
-  layers.behind?.();
-  kusazuri(c, b, d, 'back');
-  if (legs) leg(c, b.hipN, b.knN, b.anN, d, false);
-  if (legs && d.body === 'gusoku') haidate(c, b, d);
-  torso(c, b, d);
-  kusazuri(c, b, d, 'front');
-  layers.hipGear?.();
-  head(c, b, d);
-  arm(c, b.shN, b.elN, b.hnN, d, false, layers.fistN);
-  if (d.sode !== 'none') sode(c, b.shN, false, d.sode === 'big', d.lac, 4);
-  layers.held?.();
 }
 
 // ------------------------------------------------------------------ dresses
@@ -643,96 +905,11 @@ const ASHIGARU: Dress = { head: 'jingasa', body: 'okegawa', lac: REDBROWN_TEAM, 
 
 // ------------------------------------------------------------------ the foot figures
 
-/** 0: Katana Samurai in chūdan, both hands on the hilt; black lacquer, team kebiki with a white band. */
-function katanaSamurai(c: Paper): void {
-  const b = stand([0, 0], { hnN: [0.75, -8.4], elN: [-1.75, -8.55], hnF: [1.3, -7.95], elF: [2.4, -8.3] });
-  man(c, b, SAMURAI, {
-    back: () => sashimono(c, addP(b.pel, [-1.6, -3.4])),
-    hipGear: () => swords(c, b),
-    held: () => {
-      katana(c, b.hnN, 135, 5.0);
-      fist(c, b.hnN, SM.lacquer, 2);
-    },
-  });
-}
-
-/** 1: Yari Ashigaru: the nagae-yari upright in both hands; red-brown okegawa-dō with the clan mon, jingasa, sashimono. */
-function yariAshigaru(c: Paper): void {
-  const b = stand([0, 0], { hnN: [-1.45, -8.3], elN: [-2.75, -8.6], hnF: [-1.45, -6.6], elF: [0.5, -7.6] });
-  man(c, b, { ...ASHIGARU, moustache: true }, {
-    back: () => sashimono(c, addP(b.pel, [-1.6, -3.4]), 9.0, 1.8, 4.0),
-    held: () => {
-      yari(c, b.hnN, 180, 8.0, 15.5);
-      fist(c, b.hnN, SM.flesh, 2);
-    },
-  });
-}
-
-/** 2: Nage-yari Skirmishers: a javelin cocked overhead, the bundle on the back, a team happi. */
-function skirmisher(c: Paper): void {
-  const b = stand([0, 0], { hnN: [-2.3, -13.6], elN: [-3.4, -11.5], hnF: [2.9, -8.9], elF: [2.8, -9.8] });
-  man(c, b, { head: 'hachimaki', body: 'happi', lac: REDBROWN_TEAM, sode: 'none', sleeve: SM.indigo, legs: SM.indigo, shin: 'kyahan' }, {
-    back: () => {
-      const base = addP(b.pel, [-1.2, -1.2]);
-      for (const [dx, t] of [[-2.0, 1], [-1.2, 2], [-0.4, 2], [0.3, 1]] as [number, number][]) {
-        const tip = addP(base, [dx, -7.6]);
-        vol(c, base, tip, 0.26, 0.26, 0.22, SM.wood, t, { caps: [0, 0] });
-        vol(c, tip, addP(tip, [dx * 0.08, -1.2]), 0.42, 0.3, 0.06, SM.steel, t + 1, { caps: [0, 0.2], rim: true });
-      }
-      vol(c, addP(base, [-0.3, 0.2]), addP(base, [-0.9, -3.4]), 1.35, 1.45, 1.25, SM.straw, 2, { detail: (un, v) => (frac(v * 4 + un * 0.3) < 0.12 ? code(SM.straw, 1) : -1) });
-    },
-    held: () => {
-      javelin(c, b.hnN, 110);
-      fist(c, b.hnN, SM.flesh, 2);
-    },
-  });
-}
-
-/** 3: Yumi Ashigaru at rest: the yumi braced upright, an arrow in hand, the ebira at the hip. */
-function yumiAshigaru(c: Paper): void {
-  const b = stand([0, 0], { hnF: [2.55, -7.4], elF: [2.6, -9.0], hnN: [-1.6, -6.4], elN: [-2.6, -8.3] });
-  man(c, b, { ...ASHIGARU, head: 'hachimaki', lac: { ...REDBROWN_TEAM, plate: SM.lacquer } }, {
-    back: () => {
-      vol(c, addP(b.pel, [-2.0, 1.6]), addP(b.pel, [-3.4, -2.6]), 1.3, 1.35, 1.2, SM.lacquer, 2, { rim: true, detail: (_un, v) => (Math.abs(v - 0.3) < 0.04 ? code(SM.gold, 2) : -1) });
-      for (const dx of [-0.45, 0.0, 0.45]) vol(c, addP(b.pel, [-3.4 + dx, -2.5]), addP(b.pel, [-4.0 + dx * 1.7, -4.4]), 0.34, 0.36, 0.28, KM.silk, dx > 0 ? 2 : 3);
-    },
-    held: () => {
-      yumi(c, b.hnF, 180, 0, null, false);
-      vol(c, addP(b.hnN, [0.4, 1.0]), addP(b.hnN, [1.6, -4.2]), 0.18, 0.18, 0.16, SM.wood, 3, { caps: [0, 0] });
-      vol(c, addP(b.hnN, [1.6, -4.2]), addP(b.hnN, [1.8, -5.0]), 0.3, 0.2, 0.05, SM.steel, 3, { caps: [0, 0.2] });
-      vol(c, addP(b.hnN, [0.45, 0.7]), addP(b.hnN, [0.6, 0.0]), 0.36, 0.4, 0.3, KM.silk, 3);
-      fist(c, b.hnF, SM.flesh, 1);
-      fist(c, b.hnN, SM.flesh, 2);
-    },
-  });
-}
-
-/** 4: Teppō Ashigaru at port arms beside a planted tate; the dōran and the coiled match. */
-function teppoAshigaru(c: Paper): void {
-  const b = stand([0, 0], { hnN: [-1.35, -7.6], elN: [-2.7, -8.2], hnF: [0.95, -9.25], elF: [2.15, -8.0] });
-  man(c, b, { ...ASHIGARU, lac: { ...REDBROWN_TEAM, plate: SM.lacquer } }, {
-    hipGear: () => {
-      slab(c, b.pel, [[-2.3, -0.5], [-0.9, -0.55], [-0.9, 0.9], [-2.3, 0.95]], (fx, fy) => (fy < -0.25 ? code(KM.redBrown, 3) : Math.hypot(fx + 1.6, fy - 0.25) < 0.22 ? code(SM.gold, 3) : code(KM.redBrown, lit(c, 2, fx * 0.6, 0.4, 0.4))));
-      slab(c, addP(b.pel, [1.6, 0.6]), ell(0.75, 0.55, 0, 0, 14), (fx, fy) => (Math.hypot(fx, fy * 1.3) < 0.38 ? -1 : code(SM.straw, fx + fy < 0 ? 3 : 1)));
-    },
-    held: () => {
-      teppo(c, b.hnN, 127.5, true);
-      fist(c, b.hnN, SM.flesh, 2);
-      fist(c, b.hnF, SM.flesh, 1);
-    },
-  });
-  // The tate: planks with battens and the painted mon, a lit top edge, braced by a prop.
-  vol(c, [5.2, -6.6], [7.0, 0.1], 0.3, 0.3, 0.28, SM.wood, 1);
-  slab(c, [3.0, 0], [[0, -7.6], [2.6, -7.2], [2.75, 0.25], [0.05, 0.1]], (fx, fy) => {
-    const plank = frac((fx + 3) / 0.85);
-    const mon = Math.hypot(fx - 1.35, (fy + 4.6) * 0.95);
-    if (mon < 0.8) return mon < 0.38 ? code(KM.redBrown, 2) : code(SM.gold, mon < 0.5 ? 3 : 2);
-    if (fy < -7.3 + fx * 0.15) return code(SM.wood, 4);
-    if (plank < 0.1) return code(SM.wood, 0);
-    if (plank < 0.18 && fx < 1.0) return code(SM.wood, 4);
-    if (Math.abs(fy + 6.4) < 0.25 || Math.abs(fy + 1.4) < 0.25) return code(SM.wood, Math.abs(fy + 6.4) < 0.1 || Math.abs(fy + 1.4) < 0.1 ? 3 : 1);
-    return code(SM.wood, fx < 0.9 ? 3 : 2);
-  });
+/** A foot kind's key art: the dress, the stance (joint overrides of `stand`), the gear. */
+export interface SFoot {
+  d: Dress;
+  over: Partial<Body>;
+  gear: SGear;
 }
 
 /** A naginata held upright: a lacquered shaft, a gilt collar, a long broad curved blade. */
@@ -751,28 +928,123 @@ function bigNaginata(c: Paper, hand: P2, butt: number, fore: number): void {
   });
 }
 
-/** 8: Sōhei: the naginata upright, the katō, the black koromo and ochre kesa. */
-function sohei(c: Paper): void {
-  const b = stand([0, 0], { hnN: [-0.9, -8.6], elN: [-2.8, -8.7], hnF: [-0.85, -6.9], elF: [1.2, -7.5], anN: [-1.0, -0.45], anF: [1.15, -0.5], knN: [-1.1, -3.4], knF: [1.15, -3.4] });
-  man(c, b, { head: 'kato', body: 'robe', lac: BLACK_GOLD, sode: 'none', sleeve: SM.black, legs: SM.black, shin: 'robe' }, {
-    held: () => {
-      bigNaginata(c, b.hnN, 5.2, 7.4);
-      fist(c, b.hnN, SM.flesh, 2);
-    },
+/** The teppō's planted tate: planks with battens and the painted mon, a lit top edge, braced by a prop. */
+function tate(c: Paper): void {
+  vol(c, [5.2, -6.6], [7.0, 0.1], 0.3, 0.3, 0.28, SM.wood, 1);
+  slab(c, [3.0, 0], [[0, -7.6], [2.6, -7.2], [2.75, 0.25], [0.05, 0.1]], (fx, fy) => {
+    const plank = frac((fx + 3) / 0.85);
+    const mon = Math.hypot(fx - 1.35, (fy + 4.6) * 0.95);
+    if (mon < 0.8) return mon < 0.38 ? code(KM.redBrown, 2) : code(SM.gold, mon < 0.5 ? 3 : 2);
+    if (fy < -7.3 + fx * 0.15) return code(SM.wood, 4);
+    if (plank < 0.1) return code(SM.wood, 0);
+    if (plank < 0.18 && fx < 1.0) return code(SM.wood, 4);
+    if (Math.abs(fy + 6.4) < 0.25 || Math.abs(fy + 1.4) < 0.25) return code(SM.wood, Math.abs(fy + 6.4) < 0.1 || Math.abs(fy + 1.4) < 0.1 ? 3 : 1);
+    return code(SM.wood, fx < 0.9 ? 3 : 2);
   });
 }
 
-/** 10: Daimyō: deep red lacquer and gilt, team kebiki with a gold band, the crescent, the horo, the war fan. */
-function daimyo(c: Paper): void {
-  const b = stand([0, 0], { hnN: [2.4, -10.9], elN: [-0.4, -10.3], hnF: [2.2, -6.9], elF: [2.55, -8.5] });
-  man(c, b, { ...SAMURAI, crest: 'crescent', lac: BLACK_GOLD, sleeve: SM.black, legs: SM.black, jinbaori: true }, {
-    back: () => horo(c, addP(b.pel, [-1.2, -3.6]), 1.05),
-    hipGear: () => swords(c, b),
-    held: () => {
-      gunbai(c, b.hnN, 112.5);
-      fist(c, b.hnN, KM.deepRed, 2);
+export const FOOT: Record<number, SFoot> = {
+  /** 0: Katana Samurai in chūdan, both hands on the hilt; team lacquer, accent kebiki with a gold band. */
+  0: {
+    d: SAMURAI,
+    over: { hnN: [0.75, -8.4], elN: [-1.75, -8.55], hnF: [1.3, -7.95], elF: [2.4, -8.3] },
+    gear: {
+      back: (c, b) => sashimono(c, addP(b.pel, [-1.6, -3.4])),
+      hipGear: (c, b) => swords(c, b),
+      near: { draw: (c, h) => katana(c, mapPoint(h), 135 + mapTurn(), 5.0), grip: SM.lacquer },
     },
-  });
+  },
+  /** 1: Yari Ashigaru: the nagae-yari upright in both hands; red-brown okegawa-dō with the clan mon, jingasa, sashimono. */
+  1: {
+    d: { ...ASHIGARU, moustache: true },
+    over: { hnN: [-1.45, -8.3], elN: [-2.75, -8.6], hnF: [-1.45, -6.6], elF: [0.5, -7.6] },
+    gear: {
+      back: (c, b) => sashimono(c, addP(b.pel, [-1.6, -3.4]), 9.0, 1.8, 4.0),
+      near: { draw: (c, h) => yari(c, mapPoint(h), 180 + mapTurn(), 8.0, 15.5), grip: SM.flesh },
+    },
+  },
+  /** 2: Nage-yari Skirmishers: a javelin cocked overhead, the bundle on the back, a team happi. */
+  2: {
+    d: { head: 'hachimaki', body: 'happi', lac: REDBROWN_TEAM, sode: 'none', sleeve: SM.indigo, legs: SM.indigo, shin: 'kyahan' },
+    over: { hnN: [-2.3, -13.6], elN: [-3.4, -11.5], hnF: [2.9, -8.9], elF: [2.8, -9.8] },
+    gear: {
+      back: (c, b) => {
+        const base = addP(b.pel, [-1.2, -1.2]);
+        for (const [dx, t] of [[-2.0, 1], [-1.2, 2], [-0.4, 2], [0.3, 1]] as [number, number][]) {
+          const tip = addP(base, [dx, -7.6]);
+          vol(c, base, tip, 0.26, 0.26, 0.22, SM.wood, t, { caps: [0, 0] });
+          vol(c, tip, addP(tip, [dx * 0.08, -1.2]), 0.42, 0.3, 0.06, SM.steel, t + 1, { caps: [0, 0.2], rim: true });
+        }
+        vol(c, addP(base, [-0.3, 0.2]), addP(base, [-0.9, -3.4]), 1.35, 1.45, 1.25, SM.straw, 2, { detail: (un, v) => (frac(v * 4 + un * 0.3) < 0.12 ? code(SM.straw, 1) : -1) });
+      },
+      near: { draw: (c, h) => javelin(c, mapPoint(h), 110 + mapTurn()), grip: SM.flesh },
+    },
+  },
+  /** 3: Yumi Ashigaru at rest: the yumi braced upright, an arrow in hand, the ebira at the hip. */
+  3: {
+    d: { ...ASHIGARU, head: 'hachimaki', lac: { ...REDBROWN_TEAM, plate: SM.lacquer } },
+    over: { hnF: [2.55, -7.4], elF: [2.6, -9.0], hnN: [-1.6, -6.4], elN: [-2.6, -8.3] },
+    gear: {
+      back: (c, b) => {
+        vol(c, addP(b.pel, [-2.0, 1.6]), addP(b.pel, [-3.4, -2.6]), 1.3, 1.35, 1.2, SM.lacquer, 2, { rim: true, detail: (_un, v) => (Math.abs(v - 0.3) < 0.04 ? code(SM.gold, 2) : -1) });
+        for (const dx of [-0.45, 0.0, 0.45]) vol(c, addP(b.pel, [-3.4 + dx, -2.5]), addP(b.pel, [-4.0 + dx * 1.7, -4.4]), 0.34, 0.36, 0.28, KM.silk, dx > 0 ? 2 : 3);
+      },
+      far: { draw: (c, h) => yumi(c, mapPoint(h), 180 + mapTurn(), 0, null, false), grip: SM.flesh },
+      near: {
+        // An arrow held point-up along the forearm, the fletching at the fist.
+        draw: (c, h) => {
+          vol(c, addP(h, [0.4, 1.0]), addP(h, [1.6, -4.2]), 0.18, 0.18, 0.16, SM.wood, 3, { caps: [0, 0] });
+          vol(c, addP(h, [1.6, -4.2]), addP(h, [1.8, -5.0]), 0.3, 0.2, 0.05, SM.steel, 3, { caps: [0, 0.2] });
+          vol(c, addP(h, [0.45, 0.7]), addP(h, [0.6, 0.0]), 0.36, 0.4, 0.3, KM.silk, 3);
+        },
+        grip: SM.flesh,
+      },
+    },
+  },
+  /** 4: Teppō Ashigaru at port arms beside a planted tate; the dōran and the coiled match. */
+  4: {
+    d: { ...ASHIGARU, lac: { ...REDBROWN_TEAM, plate: SM.lacquer } },
+    over: { hnN: [-1.35, -7.6], elN: [-2.7, -8.2], hnF: [0.95, -9.25], elF: [2.15, -8.0] },
+    gear: {
+      hipGear: (c, b, back) => {
+        const sx = back ? -1 : 1;
+        const S = (p: P2[]) => p.map((q) => [q[0] * sx, q[1]] as P2);
+        slab(c, b.pel, S([[-2.3, -0.5], [-0.9, -0.55], [-0.9, 0.9], [-2.3, 0.95]]), (fx, fy) => (fy < -0.25 ? code(KM.redBrown, 3) : Math.hypot(fx * sx + 1.6, fy - 0.25) < 0.22 ? code(SM.gold, 3) : code(KM.redBrown, lit(c, 2, fx * 0.6, 0.4, 0.4))));
+        slab(c, addP(b.pel, [1.6 * sx, 0.6]), ell(0.75, 0.55, 0, 0, 14), (fx, fy) => (Math.hypot(fx, fy * 1.3) < 0.38 ? -1 : code(SM.straw, fx + fy < 0 ? 3 : 1)));
+      },
+      near: { draw: (c, h) => void teppo(c, mapPoint(h), 127.5 + mapTurn(), true), grip: SM.flesh },
+      far: { grip: SM.flesh },
+      gripNFirst: true,
+      scene: (c) => tate(c),
+    },
+  },
+  /** 8: Sōhei: the naginata upright, the katō, the black koromo and ochre kesa. */
+  8: {
+    d: { head: 'kato', body: 'robe', lac: BLACK_GOLD, sode: 'none', sleeve: SM.black, legs: SM.black, shin: 'robe' },
+    over: { hnN: [-0.9, -8.6], elN: [-2.8, -8.7], hnF: [-0.85, -6.9], elF: [1.2, -7.5], anN: [-1.0, -0.45], anF: [1.15, -0.5], knN: [-1.1, -3.4], knF: [1.15, -3.4] },
+    gear: { near: { draw: (c, h) => bigNaginata(c, h, 5.2, 7.4), grip: SM.flesh } },
+  },
+  /** 10: Daimyō: black lacquer and gilt, team kebiki with a gold band, the crescent, the horo, the war fan. */
+  10: {
+    d: { ...SAMURAI, crest: 'crescent', lac: BLACK_GOLD, sleeve: SM.black, legs: SM.black, jinbaori: true },
+    over: { hnN: [2.4, -10.9], elN: [-0.4, -10.3], hnF: [2.2, -6.9], elF: [2.55, -8.5] },
+    gear: {
+      back: (c, b) => horo(c, addP(b.pel, [-1.2, -3.6]), 1.05),
+      hipGear: (c, b) => swords(c, b),
+      near: { draw: (c, h) => gunbai(c, mapPoint(h), 112.5 + mapTurn()), grip: KM.deepRed },
+    },
+  },
+};
+
+/** The standing body of a foot kind (SE key art). */
+export const footBody = (kind: number): Body => stand([0, 0], FOOT[kind]!.over);
+
+/** Draws a foot kind's key art. */
+function footFigure(c: Paper, kind: number): void {
+  const k = FOOT[kind]!;
+  const b = footBody(kind);
+  for (const p of manOrder(k.gear)) manPiece(c, b, k.d, k.gear, p);
+  k.gear.scene?.(c);
 }
 
 // ------------------------------------------------------------------ the horse
@@ -1007,17 +1279,17 @@ function ozutsuScene(c: Paper): void {
 // ------------------------------------------------------------------ entry point
 
 const FIGURES: Record<number, (c: Paper) => void> = {
-  0: katanaSamurai,
-  1: yariAshigaru,
-  2: skirmisher,
-  3: yumiAshigaru,
-  4: teppoAshigaru,
+  0: (c) => footFigure(c, 0),
+  1: (c) => footFigure(c, 1),
+  2: (c) => footFigure(c, 2),
+  3: (c) => footFigure(c, 3),
+  4: (c) => footFigure(c, 4),
   5: yariCavalry,
   6: yabusame,
   7: hatamoto,
-  8: sohei,
+  8: (c) => footFigure(c, 8),
   9: ozutsuScene,
-  10: daimyo,
+  10: (c) => footFigure(c, 10),
 };
 
 export interface StaticFrame {
