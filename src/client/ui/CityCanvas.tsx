@@ -1,7 +1,8 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { BuildingKey } from '../../game/city.ts';
 import type { FactionId } from '../../game/factions.ts';
 import { CityScene, MAX_ZOOM, MIN_ZOOM, type CityMood } from '../render/city.ts';
+import { artMode, type ArtMode } from '../settings.ts';
 
 /**
  * The living commandery. Wheel or the buttons zoom by whole pixels, drag pans, pinch zooms and
@@ -12,9 +13,16 @@ export function CityCanvas(props: { faction: FactionId; hue: number; seed: numbe
   const sceneRef = useRef<CityScene | null>(null);
   const state = useRef(props);
   state.current = props;
+  // Classic or HD art (settings.ts); the scene is rebuilt when the player switches.
+  const [mode, setMode] = useState<ArtMode>(artMode);
+  useEffect(() => {
+    const on = (e: Event) => setMode((e as CustomEvent<ArtMode>).detail === 'hd' ? 'hd' : 'classic');
+    window.addEventListener('codeclash:art', on);
+    return () => window.removeEventListener('codeclash:art', on);
+  }, []);
   useEffect(() => {
     const canvas = ref.current!;
-    const scene = new CityScene(props.faction, props.hue, props.seed);
+    const scene = new CityScene(props.faction, props.hue, props.seed, mode);
     sceneRef.current = scene;
     const dpr = () => Math.min(2, window.devicePixelRatio || 1);
     const resize = () => {
@@ -95,7 +103,7 @@ export function CityCanvas(props: { faction: FactionId; hue: number; seed: numbe
       canvas.removeEventListener('wheel', wheel);
       sceneRef.current = null;
     };
-  }, [props.faction, props.hue, props.seed]);
+  }, [props.faction, props.hue, props.seed, mode]);
   const zoom = (k: number) => sceneRef.current?.zoomAt(k);
   return (
     <div className="city-view">

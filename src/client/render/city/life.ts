@@ -11,7 +11,8 @@ import {
   carpenterLook, CART_FX, CART_FY, CART_H, CART_W, chaplainLook, CROW_H, CROW_W, DOG_FX, DOG_FY, DOG_H, DOG_W, farmerLook, FIG_FX, FIG_FY, FIG_H, FIG_W,
   Folk, HEN_H, HEN_W, HORSE_FX, HORSE_FY, HORSE_H, HORSE_W, infirmarerLook, monkLook, sergeantLook, squireLook, villagerLook, type Look,
 } from './people.ts';
-import { css, hash, sx, sy, WORLD_W } from './pixels.ts';
+import { samuraiLooks, undeadLooks, type FolkHd, type Looks } from './people-hd.ts';
+import { CLASSIC, css, hash, sx, sy, WORLD_W, type Frame } from './pixels.ts';
 import { NODES, route, type Place } from './roads.ts';
 import type { CityStyle } from './style.ts';
 
@@ -42,16 +43,34 @@ export interface Ent {
 export class Draw {
   g!: CanvasRenderingContext2D;
   t = 0;
+  /** Buffer pixels per world pixel (1 classic, 2 HD): the size of one art pixel is 1/k. */
+  readonly k: number;
+  /** Sheet pixels per world pixel in the folk's sheets. */
+  readonly d: number;
   constructor(
     readonly atlas: Atlas,
-    readonly folk: Folk,
+    readonly folk: Folk | FolkHd,
     readonly st: CityStyle,
-  ) {}
+    readonly frame: Frame = CLASSIC,
+  ) {
+    this.k = frame.k;
+    this.d = 'density' in folk ? folk.density : 1;
+  }
+  /** Snap a world-pixel coordinate to the art pixel grid. */
+  snap(x: number): number {
+    return Math.floor(x * this.k) / this.k;
+  }
 
   sheet(img: HTMLCanvasElement, cw: number, ch: number, fx: number, fy: number, frame: number, dir: Dir, u: number, v: number, z = 0): void {
-    const x = Math.floor(sx(u, v)) - fx;
-    const y = Math.floor(sy(u, v, z)) - fy;
-    this.g.drawImage(img, frame * cw, dir * ch, cw, ch, x, y, cw, ch);
+    const x = this.snap(sx(u, v)) - fx;
+    const y = this.snap(sy(u, v, z)) - fy;
+    const d = this.d;
+    this.g.drawImage(img, frame * cw * d, dir * ch * d, cw * d, ch * d, x, y, cw, ch);
+  }
+  /** A cell of a folk sheet at a screen point (world pixels), for things not on the ground. */
+  cell(img: HTMLCanvasElement, cw: number, ch: number, col: number, row: number, x: number, y: number): void {
+    const d = this.d;
+    this.g.drawImage(img, col * cw * d, row * ch * d, cw * d, ch * d, this.snap(x), this.snap(y), cw, ch);
   }
   figure(look: Look, frame: number, dir: Dir, u: number, v: number, z = 0): void {
     this.sheet(this.folk.figure(look), FIG_W, FIG_H, FIG_FX, FIG_FY, frame, dir, u, v, z);
@@ -65,28 +84,49 @@ export class Draw {
     const n = Math.max(1, a.frames(kind, anim));
     const frame = Math.floor((time * 10) / Math.max(1, a.ticksPerFrame(anim))) % n;
     const [cx, cy] = a.at(kind, anim, frame, dir);
-    this.g.drawImage(a.image, cx, cy, a.cellW, a.cellH, Math.floor(sx(u, v)) - a.footX, Math.floor(sy(u, v, z)) - a.footY, a.cellW, a.cellH);
+    this.atlasCell(cx, cy, u, v, z);
+  }
+  /** An atlas cell at its own pixel density: in HD its pixels are the buffer's pixels. */
+  private atlasCell(cx: number, cy: number, u: number, v: number, z: number): void {
+    const a = this.atlas;
+    const k = this.k;
+    this.g.drawImage(a.image, cx, cy, a.cellW, a.cellH, this.snap(sx(u, v)) - a.footX / k, this.snap(sy(u, v, z)) - a.footY / k, a.cellW / k, a.cellH / k);
   }
   /** A soldier on a given frame (for scripted actions). */
   soldierFrame(kind: number, anim: Anim, frame: number, dir: Dir, u: number, v: number, z = 0): void {
     const a = this.atlas;
     const n = Math.max(1, a.frames(kind, anim));
     const [cx, cy] = a.at(kind, anim, Math.min(n - 1, Math.max(0, frame)), dir);
-    this.g.drawImage(a.image, cx, cy, a.cellW, a.cellH, Math.floor(sx(u, v)) - a.footX, Math.floor(sy(u, v, z)) - a.footY, a.cellW, a.cellH);
+    this.atlasCell(cx, cy, u, v, z);
   }
+  /** One art pixel (in HD, half a world pixel). */
   px(x: number, y: number, c: string): void {
+    const q = 1 / this.k;
     this.g.fillStyle = c;
-    this.g.fillRect(Math.floor(x), Math.floor(y), 1, 1);
+    this.g.fillRect(this.snap(x), this.snap(y), q, q);
   }
+  /** A one-art-pixel line. */
   line(x0: number, y0: number, x1: number, y1: number, c: string): void {
+    const k = this.k;
+    const q = 1 / k;
     this.g.fillStyle = c;
-    const n = Math.max(1, Math.ceil(Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0))));
-    for (let i = 0; i <= n; i++) this.g.fillRect(Math.floor(x0 + ((x1 - x0) * i) / n), Math.floor(y0 + ((y1 - y0) * i) / n), 1, 1);
+    const n = Math.max(1, Math.ceil(Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0)) * k));
+    for (let i = 0; i <= n; i++) this.g.fillRect(this.snap(x0 + ((x1 - x0) * i) / n), this.snap(y0 + ((y1 - y0) * i) / n), q, q);
   }
   /** A timber two pixels thick with a dark outline, so engines read against the ground. */
   beam(x0: number, y0: number, x1: number, y1: number, c: string, out = '#140f0b'): void {
-    const n = Math.max(1, Math.ceil(Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0))));
     const g = this.g;
+    if (this.k > 1) {
+      // HD: a timber two art pixels thick inside a one-pixel outline, on the art grid.
+      const q = 1 / this.k;
+      const m = Math.max(1, Math.ceil(Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0)) * this.k));
+      g.fillStyle = out;
+      for (let i = 0; i <= m; i++) g.fillRect(this.snap(x0 + ((x1 - x0) * i) / m) - q, this.snap(y0 + ((y1 - y0) * i) / m) - q, 4 * q, 4 * q);
+      g.fillStyle = c;
+      for (let i = 0; i <= m; i++) g.fillRect(this.snap(x0 + ((x1 - x0) * i) / m), this.snap(y0 + ((y1 - y0) * i) / m), 2 * q, 2 * q);
+      return;
+    }
+    const n = Math.max(1, Math.ceil(Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0))));
     g.fillStyle = out;
     for (let i = 0; i <= n; i++) g.fillRect(Math.floor(x0 + ((x1 - x0) * i) / n) - 1, Math.floor(y0 + ((y1 - y0) * i) / n) - 1, 4, 3);
     g.fillStyle = c;
@@ -394,13 +434,53 @@ export class Life {
   wallFront = 8;
   wallBack = 11;
 
-  constructor(seed: number) {
+  /** HD: the faction's own people and night life; null in classic. */
+  readonly hd: CityStyle | null;
+  /** Who lives here, by role. */
+  L: Looks;
+  private wisps: { u: number; v: number; ph: number; sp: number }[] = [];
+
+  constructor(seed: number, hd: CityStyle | null = null) {
     this.rand = new Rand(seed);
+    this.hd = hd;
+    this.L = classicLooks(hd);
+    if (hd?.id === 'samurai') this.L = samuraiLooks(hd);
+    else if (hd?.id === 'undead') this.L = undeadLooks(hd);
+    if (hd?.id === 'undead')
+      for (let i = 0; i < 9; i++) {
+        const f = FIELDS[i % FIELDS.length]!;
+        this.wisps.push({ u: f[0] + hash(i, 1) * (f[2] - f[0]), v: f[1] + hash(i, 2) * (f[3] - f[1]), ph: hash(i, 3) * 6, sp: 0.4 + hash(i, 4) * 0.5 });
+      }
   }
+
+  /**
+   * HD night light from life: will-o'-wisps drifting over the necropolis's grave fields (drawn
+   * additively with the glow sprite, then a bright core), and paper lanterns on the castle town's
+   * walkers. Called inside the light pass, in world pixels.
+   */
+  nightGlow(g: CanvasRenderingContext2D, glow: HTMLCanvasElement, a: number): void {
+    if (this.hd?.id !== 'undead' || !this.levels) return;
+    const t = this.wispT;
+    for (const w of this.wisps) {
+      const u = w.u + Math.sin(t * w.sp + w.ph) * 6;
+      const v = w.v + Math.cos(t * w.sp * 0.7 + w.ph) * 5;
+      const z = 5 + Math.sin(t * 1.7 + w.ph) * 2;
+      const x = sx(u, v);
+      const y = sy(u, v, z);
+      const pulse = 0.6 + 0.4 * Math.sin(t * 3 + w.ph * 2);
+      g.globalAlpha = a * pulse * 0.9;
+      g.drawImage(glow, x - 9, y - 9, 18, 18);
+      g.globalAlpha = a * pulse;
+      g.fillStyle = '#e8ffd8';
+      g.fillRect(Math.floor(x * 2) / 2, Math.floor(y * 2) / 2, 1, 1);
+    }
+  }
+  private wispT = 0;
 
   /** Rebuild the population for new levels (keeps nothing; called rarely). */
   populate(levels: Record<BuildingKey, number>, st: CityStyle): void {
     this.levels = levels;
+    if (!this.hd || this.hd.id === 'templar') this.L = classicLooks(st);
     const R = this.rand;
     const total = Object.values(levels).reduce((a, b) => a + b, 0);
     this.walkers = [];
@@ -412,33 +492,33 @@ export class Life {
     for (let i = 0; i < nVill; i++) {
       const carry = (['none', 'sack', 'bucket', 'basket', 'plank', 'none'] as const)[i % 6]!;
       const start = R.pick(hauntsV);
-      this.walkers.push(new Walker(start, villagerLook(i * 7 + 3, carry), hauntsV, R.range(9, 13), R.range(-2.5, 2.5), new Rand(i * 31 + 7), 'none', 0, i / nVill, workAt, { keep: true, out: true }));
+      this.walkers.push(new Walker(start, this.L.villager(i * 7 + 3, carry), hauntsV, R.range(9, 13), R.range(-2.5, 2.5), new Rand(i * 31 + 7), 'none', 0, i / nVill, workAt, { keep: true, out: true }));
     }
     if (levels.chapter > 0) {
       const n = 1 + tierOf(levels.chapter);
       for (let i = 0; i < n; i++)
-        this.walkers.push(new Walker('chapel', i === 0 ? chaplainLook(st) : monkLook(st, i % 2 ? 'book' : 'none'), ['chapel', 'hospital', 'keep', 'yardN', 'garden'], 7, R.range(-1.5, 1.5), new Rand(100 + i), 'none', 0, i / n, { yardN: true }, enters));
+        this.walkers.push(new Walker('chapel', i === 0 ? this.L.chaplain() : this.L.monk(i % 2 ? 'book' : 'none'), ['chapel', 'hospital', 'keep', 'yardN', 'garden'], 7, R.range(-1.5, 1.5), new Rand(100 + i), 'none', 0, i / n, { yardN: true }, enters));
     }
     if (levels.hospital > 0) {
-      this.walkers.push(new Walker('hospital', infirmarerLook(st, 'none', 'bucket'), ['hospital', 'well', 'garden'], 8, 1, new Rand(200), 'none', 0, 0.1, { garden: true, well: true }, { hospital: true }));
-      if (levels.hospital >= 3) this.walkers.push(new Walker('out', infirmarerLook(st, 'none'), ['out', 'hospital'], 8, -1, new Rand(201), 'litter', 0, 0.3, {}, { hospital: true, out: true }));
+      this.walkers.push(new Walker('hospital', this.L.infirmarer('none', 'bucket'), ['hospital', 'well', 'garden'], 8, 1, new Rand(200), 'none', 0, 0.1, { garden: true, well: true }, { hospital: true }));
+      if (levels.hospital >= 3) this.walkers.push(new Walker('out', this.L.infirmarer('none'), ['out', 'hospital'], 8, -1, new Rand(201), 'litter', 0, 0.3, {}, { hospital: true, out: true }));
     }
     if (levels.granary > 0) {
       const carts = levels.granary >= 8 ? 2 : 1;
       for (let i = 0; i < carts; i++)
-        this.walkers.push(new Walker(i ? 'granary' : 'out', villagerLook(50 + i, 'none'), ['out', 'granary'], 10, -2 + i * 2, new Rand(300 + i), 'cart', 3, i * 0.4, {}, { out: true }));
+        this.walkers.push(new Walker(i ? 'granary' : 'out', this.L.villager(50 + i, 'none'), ['out', 'granary'], 10, -2 + i * 2, new Rand(300 + i), 'cart', 3, i * 0.4, {}, { out: true }));
       for (let i = 0; i < Math.min(6, 2 + Math.floor(levels.granary / 3)); i++) this.beasts.push(new Beast('hen', i % 2 ? [176, 112] : [150, 186], 7, new Rand(400 + i), i / 6));
     }
     if (levels.stables > 0) {
       const n = levels.stables >= 10 ? 2 : 1;
       for (let i = 0; i < n; i++)
-        this.walkers.push(new Walker('stables', i ? squireLook(st) : villagerLook(60, 'none'), ['stables', 'out', 'yard', 'paddock'], 9, 1 + i, new Rand(500 + i), 'horse', i ? 1 : 0, i * 0.5, {}, {}));
+        this.walkers.push(new Walker('stables', i ? this.L.squire() : this.L.villager(60, 'none'), ['stables', 'out', 'yard', 'paddock'], 9, 1 + i, new Rand(500 + i), 'horse', i ? 1 : 0, i * 0.5, {}, {}));
     }
     if (levels.barracks > 0) {
       for (let i = 0; i < Math.min(3, tierOf(levels.barracks)); i++)
-        this.walkers.push(new Walker('barracks', sergeantLook(st, i % 2 ? 'none' : 'staff'), ['barracks', 'yard', 'keep', 'forge', 'gateIn'], 10, R.range(-2, 2), new Rand(600 + i), 'none', 0, i / 3, { gateIn: true }, { barracks: true }));
+        this.walkers.push(new Walker('barracks', this.L.sergeant(i % 2 ? 'none' : 'staff'), ['barracks', 'yard', 'keep', 'forge', 'gateIn'], 10, R.range(-2, 2), new Rand(600 + i), 'none', 0, i / 3, { gateIn: true }, { barracks: true }));
     }
-    if (levels.workshop > 0) this.walkers.push(new Walker('workshop', carpenterLook(1, 'none', 'plank'), ['workshop', 'yard', 'out', 'forge'], 9, -1.5, new Rand(700), 'none', 0, 0.2, {}, { out: true }));
+    if (levels.workshop > 0) this.walkers.push(new Walker('workshop', this.L.carpenter(1, 'none', 'plank'), ['workshop', 'yard', 'out', 'forge'], 9, -1.5, new Rand(700), 'none', 0, 0.2, {}, { out: true }));
     const dogs = Math.min(3, 1 + Math.floor(total / 40));
     for (let i = 0; i < dogs; i++) this.beasts.push(new Beast('dog', NODES.yard as unknown as [number, number], 14, new Rand(800 + i), i / 3, this.walkers[i * 3] ?? null));
     this.fieldPos = FIELDS.map((_, i) => hash(i, 3) * 40);
@@ -457,6 +537,7 @@ export class Life {
 
   update(dt: number, t: number, levels: Record<BuildingKey, number>): void {
     const m = this.mood;
+    this.wispT += dt;
     const busy = (m.idle ? 0.55 : m.streak >= 3 ? 1 : 0.85) * (1 - 0.6 * m.night);
     for (const w of this.walkers) if (w.rank <= busy || w.companion !== 'none') w.update(dt, this);
     for (const b of this.beasts) b.update(dt);
@@ -509,6 +590,13 @@ export class Life {
       if (this.throwT > 0.35 && this.armed) {
         this.armed = false;
         this.stone = { t: 0, u0: ENGINE[0] + 9, u1: 330, v: ENGINE[1] };
+        if (this.hd?.id === 'samurai') {
+          // The ōzutsu's report: a cloud of white smoke from the muzzle.
+          const mx = sx(ENGINE[0] + 9, ENGINE[1]);
+          const my = sy(ENGINE[0] + 9, ENGINE[1], 4);
+          for (let i = 0; i < 14; i++) this.emit(mx + this.rand.range(-2, 2), my + this.rand.range(-2, 1), 0, this.rand.range(4, 16), -this.rand.range(1, 6), this.rand.range(1.2, 2.6));
+          for (let i = 0; i < 5; i++) this.emit(mx, my, 2, this.rand.range(6, 20), -this.rand.range(2, 10), 0.3);
+        }
       }
     }
     if (this.stone) {
@@ -526,8 +614,10 @@ export class Life {
     // Crows fly over now and then.
     this.nextCrows -= dt;
     if (this.nextCrows <= 0) {
-      this.nextCrows = this.rand.range(25, 60);
-      const n = 2 + Math.floor(this.rand.next() * 4);
+      // The necropolis is never without its crows.
+      const undead = this.hd?.id === 'undead';
+      this.nextCrows = undead ? this.rand.range(8, 20) : this.rand.range(25, 60);
+      const n = (undead ? 4 : 2) + Math.floor(this.rand.next() * 4);
       const y = this.rand.range(30, 150);
       const left = this.rand.next() < 0.5;
       for (let i = 0; i < n; i++)
@@ -645,7 +735,7 @@ export class Life {
     // The smith at the forge.
     if (levels.barracks > 0) {
       const strike = Math.floor(t * 2.2) % 2;
-      ent(24, 136, (r) => r.figure(carpenterLook(2, 'hammer'), 5 + strike, 0, 24, 136));
+      ent(24, 136, (r) => r.figure(this.L.carpenter(2, 'hammer'), 5 + strike, 0, 24, 136));
       if (strike && this.rand.next() < 0.3) this.emit(sx(26.5, 136), sy(26.5, 136, 4), 2, this.rand.range(-10, 10), -this.rand.range(10, 20), 0.35);
     }
 
@@ -653,11 +743,11 @@ export class Life {
     const wt = tierOf(levels.workshop);
     if (wt > 0 && day) {
       ent(186, 190, (r) => this.drawFrame(r, 188, 192));
-      ent(182, 188, (r) => r.figure(carpenterLook(0, 'hammer'), 5 + (Math.floor(t * 2.6) % 2), 0, 182, 188));
-      if (wt >= 2 || !m.idle) ent(196, 194, (r) => r.figure(carpenterLook(1, 'saw'), 5 + (Math.floor(t * 4) % 2), 1, 196, 194));
-      if (wt >= 3) ent(176, 194, (r) => r.figure(carpenterLook(2, 'none', 'plank'), 4, 0, 176, 194));
+      ent(182, 188, (r) => r.figure(this.L.carpenter(0, 'hammer'), 5 + (Math.floor(t * 2.6) % 2), 0, 182, 188));
+      if (wt >= 2 || !m.idle) ent(196, 194, (r) => r.figure(this.L.carpenter(1, 'saw'), 5 + (Math.floor(t * 4) % 2), 1, 196, 194));
+      if (wt >= 3) ent(176, 194, (r) => r.figure(this.L.carpenter(2, 'none', 'plank'), 4, 0, 176, 194));
     }
-    if (levels.workshop >= 3) ent(ENGINE[0], ENGINE[1], (r) => this.drawMangonel(r));
+    if (levels.workshop >= 3) ent(ENGINE[0], ENGINE[1], (r) => (this.hd?.id === 'samurai' ? this.drawCannon(r) : this.drawMangonel(r)));
     if (this.stone) {
       const s = this.stone;
       const u = s.u0 + (s.u1 - s.u0) * s.t;
@@ -680,12 +770,12 @@ export class Life {
         const u = f[0] + 4 + (along < w ? along : 2 * w - along);
         const v = f[1] + 6 + (i * 13) % (f[3] - f[1] - 10);
         const dir: Dir = along < w ? 0 : 2;
-        ent(u, v, (r) => r.figure(farmerLook(i, i === 2 ? 'dig' : 'scythe'), 5 + (Math.floor(t * 1.8 + i) % 2), dir, u, v));
+        ent(u, v, (r) => r.figure(this.L.farmer(i, this.hd ? undefined : i === 2 ? 'dig' : 'scythe'), 5 + (Math.floor(t * 1.8 + i) % 2), dir, u, v));
       }
     }
 
     // A brother tending the herb garden.
-    if (day && levels.hospital > 0) ent(160, 202, (r) => r.figure(infirmarerLook(st), 5 + (Math.floor(t * 0.8) % 2), 1, 160, 202));
+    if (day && levels.hospital > 0) ent(160, 202, (r) => r.figure(this.L.infirmarer(), 5 + (Math.floor(t * 0.8) % 2), 1, 160, 202));
 
     // Horses in the paddock, a rider schooling one.
     const sl = levels.stables;
@@ -902,8 +992,54 @@ export class Life {
       const cv = v - 2 + k * 4;
       const hand: [number, number] = [sx(cu, cv), sy(cu, cv, hauling ? 4 : 8)];
       r.line(short[0], short[1], hand[0], hand[1], '#8a7a58');
-      r.figure(carpenterLook(k, 'dig'), hauling ? 6 : 5, 1, cu, cv);
+      r.figure(this.L.carpenter(k, 'dig'), hauling ? 6 : 5, 1, cu, cv);
     }
+  }
+
+  /**
+   * The Samurai workshop's piece: an ōzutsu, a bronze bombard bound to a timber sled, its crew
+   * ramming and touching off. It kicks back when it fires and is run forward again.
+   */
+  private drawCannon(r: Draw): void {
+    const [u, v] = ENGINE;
+    const tt = this.throwT;
+    const kick = tt < 0.35 ? 0 : tt < 0.8 ? -2.5 : tt < 3 ? -2.5 * (1 - (tt - 0.8) / 2.2) : 0;
+    const P = (du: number, dv: number, z: number): [number, number] => [sx(u + du + kick, v + dv), sy(u + du + kick, v + dv, z)];
+    const B = (p: [number, number], q: [number, number], c: string) => r.beam(p[0], p[1], q[0], q[1], c);
+    const wood = css(r.st.timber[1]);
+    const dark = css(r.st.timber[2]);
+    // The sled and its cross-pieces.
+    B(P(-6, -2.5, 0.5), P(6, -2.5, 0.5), dark);
+    B(P(-6, 2.5, 0.5), P(6, 2.5, 0.5), wood);
+    B(P(-4, -2.5, 1), P(-4, 2.5, 1), wood);
+    B(P(4, -2.5, 1), P(4, 2.5, 1), wood);
+    // The barrel: bronze, ringed with reinforcing bands, the muzzle swelling.
+    const bronze = '#a57e3c';
+    const bronzeL = '#d2a85a';
+    const bronzeS = '#6a4c24';
+    for (let k = 0; k <= 26; k++) {
+      const f = k / 26;
+      const [x, y] = P(-5 + f * 13, 0, 3.4 + f * 0.8);
+      const band = k % 6 === 0 || k >= 24;
+      r.g.fillStyle = '#20160e';
+      r.g.fillRect(r.snap(x) - 1, r.snap(y) - 1.5, 2, 3);
+      r.g.fillStyle = band ? bronzeS : bronze;
+      r.g.fillRect(r.snap(x) - 0.5, r.snap(y) - 1, 1, 2);
+      r.g.fillStyle = band ? bronze : bronzeL;
+      r.g.fillRect(r.snap(x) - 0.5, r.snap(y) - 1, 1, 0.5);
+    }
+    const [mx, my] = P(8.2, 0, 4.2);
+    r.g.fillStyle = '#100a06';
+    r.g.fillRect(r.snap(mx), r.snap(my) - 0.5, 0.5, 1);
+    if (tt < 0.5) {
+      // Muzzle flash.
+      r.g.fillStyle = tt < 0.42 ? '#fff0b0' : '#ff9a3a';
+      r.g.fillRect(r.snap(mx) + 0.5, r.snap(my) - 1.5, 2.5, 3);
+    }
+    // The crew: a loader with a rammer, a gunner with the slow-match.
+    const cu = u - 7;
+    r.figure(this.L.carpenter(2, 'none', 'staff'), 4, 0, cu, v - 3);
+    r.figure(this.L.sergeant('none'), tt < 0.5 ? 6 : 4, 0, cu + 1, v + 4);
   }
 
   private drawGate(r: Draw): void {
@@ -1031,13 +1167,28 @@ export class Life {
     for (const c of this.crows) {
       const f = Math.floor(r.t * 6 + c.ph) % 2;
       const y = c.y + Math.sin(r.t * 2 + c.ph) * 2;
-      g.drawImage(r.folk.crow, f * CROW_W, (c.vx > 0 ? 0 : 1) * CROW_H, CROW_W, CROW_H, Math.floor(c.x), Math.floor(y), CROW_W, CROW_H);
+      r.cell(r.folk.crow, CROW_W, CROW_H, f, c.vx > 0 ? 0 : 1, Math.floor(c.x), Math.floor(y));
       // Their shadow on the ground, far below.
       g.fillStyle = 'rgba(20,14,8,0.15)';
       g.fillRect(Math.floor(c.x) + 8, Math.floor(y) + 40, 3, 1);
     }
     void m;
   }
+}
+
+/** The commandery's people (people.ts), as a Looks. */
+function classicLooks(st: CityStyle | null): Looks {
+  const s = st!;
+  return {
+    villager: (seed, carry) => villagerLook(seed, carry),
+    monk: (carry, work) => monkLook(s, carry, work),
+    chaplain: () => chaplainLook(s),
+    infirmarer: (work, carry) => infirmarerLook(s, work, carry),
+    farmer: (seed, work) => farmerLook(seed, work),
+    carpenter: (seed, work, carry) => carpenterLook(seed, work, carry),
+    sergeant: (carry) => sergeantLook(s, carry),
+    squire: () => squireLook(s),
+  };
 }
 
 /** Where the workshop tries its engine: clear ground between the yard and the workshop. */
