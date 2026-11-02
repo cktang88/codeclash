@@ -19,7 +19,7 @@ import { U } from '../../../game/units.ts';
 import { Anim } from '../contract.ts';
 import { addP, type P2, type Paper } from './core.ts';
 import { isBack, type Facing } from './facing.ts';
-import { registerPaperKind, type PaperKindDef } from './registry.ts';
+import { registerPaperKind, setFactionPaletteOptions, type PaperKindDef } from './registry.ts';
 import { registerFootRigs } from './templar-foot.ts';
 import { registerHorseRigs } from './templar-horse.ts';
 import { registerEngineRig } from './templar-engine.ts';
@@ -30,6 +30,12 @@ import {
 } from './templar-parts.ts';
 
 const pose = poser(FOOT0);
+
+// Each kind gets its own master palette (the full per-figure budget, from its own codes), so the
+// dyes survive at levels 1-2 (the levy's ochre, the pilgrims' slate) and a kind's colours no longer
+// shift when another kind changes; near-duplicate colours merge (most at level 2, where they broke
+// flat masses into stripes). See docs/art-references/templar-animation.md, "Palette".
+setFactionPaletteOptions('templar', { perKind: true, minDist: [0.1, 0.16, 0.1, 0.06] });
 
 /** Registers a Templar kind with the paper painter (every kind is drawn on paper). */
 function register<P extends BasePose>(faction: 'templar', kind: number, def: PaperKindDef<P>): void {
