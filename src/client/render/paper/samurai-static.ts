@@ -9,7 +9,7 @@
 
 import { addP, code, DEG, figurePalette, Paper, type Mat, type P2 } from './core.ts';
 import {
-  ell, face, gunbai, headgear, javelin, katana, lames, lerpP, lit, mul, naginata, part, plates, SM, teppo, yari, yumi,
+  ell, face, gunbai, headgear, javelin, katana, lames, lerpP, lit, mul, part, plates, SM, teppo, yari, yumi,
   type Kit, type ManRig,
 } from './samurai-parts.ts';
 
@@ -486,13 +486,30 @@ function teppoAshigaru(c: Paper): void {
   });
 }
 
+/** A naginata held upright: a lacquered shaft, a gilt collar, a long broad curved blade (edge forward). */
+function bigNaginata(c: Paper, hand: P2, butt: number, fore: number): void {
+  const a = addP(hand, [0.62 * (butt / 7.4) * 0.0 + butt * 0.13, butt]);
+  const top = addP(hand, [-fore * 0.13, -fore]);
+  vol(c, a, top, 0.36, 0.36, 0.34, SM.wood, 2, { caps: [0.1, 0], detail: (_u, v) => (v < 0.06 ? code(SM.iron, 2) : -1) });
+  vol(c, addP(top, [0.06, 0.55]), addP(top, [-0.02, -0.15]), 0.5, 0.5, 0.5, SM.gold, 3, { caps: [0, 0] });
+  // The blade: long, broad, curving forward to the point; a lit flat, a dark back edge, the groove.
+  const pts: P2[] = [[-0.25, 0], [0.32, 0], [0.62, -1.4], [0.75, -2.8], [0.45, -3.9], [-0.1, -4.6], [0.05, -3.4], [-0.15, -1.8]];
+  slab(c, addP(top, [-0.05, -0.1]), pts, (fx, fy) => {
+    const mid = -0.05 + Math.max(0, -fy - 1.5) * 0.12;
+    if (fx < mid - 0.12) return code(SM.steel, 4);
+    if (Math.abs(fx - mid) < 0.06 && fy > -3.2) return code(SM.steel, 1); // the hi (groove)
+    if (fx > 0.45 - fy * 0.02) return code(SM.steel, 2);
+    return code(SM.steel, 3);
+  });
+}
+
 /** 8: Sōhei: the naginata held upright in front, a white katō, the black koromo and ochre kesa. */
 function sohei(c: Paper): void {
   const b = stand([0, 0], { hnN: [-0.9, -8.6], elN: [-2.8, -8.7], hnF: [-0.85, -6.9], elF: [1.2, -7.5], anN: [-1.0, -0.45], anF: [1.15, -0.5], knN: [-1.1, -3.4], knF: [1.15, -3.4] });
   const dress: Dress = { kit: MONK_KIT, body: 'robe', sode: 'none' };
   man(c, b, dress, {
     held: () => {
-      naginata(c, b.hnN, 172.5, 5.2, 7.2);
+      bigNaginata(c, b.hnN, 5.2, 7.4);
       part(c, b.hnN, 0, ell(0.5, 0.45, 0, 0.05, 12), (fx, fy) => code(SM.flesh, lit(c, 2, fx + fy, 0.3, 0.4)));
     },
   });
