@@ -2,13 +2,20 @@
 //   ?mode=grid  (default) animated, one table per kind: rows = animations, columns = facings
 //   ?mode=sheet static frames: rows = animation × facing, columns = frames
 //   ?mode=army  two armies at 1x and 2x, for readability at a glance
+//   ?mode=lineup every kind of every faction, at the zoomed-out cell size (1x, 2x) and, in HD, at
+//                each detail level drawn 1:1 (levels=2,4,8), for checking that units read apart
 // Other params: kinds=0,1,2  anims=0,8  z=4 (zoom)  hue=215  hue2=8  faction=templar  t=<ticks> (freeze time)
+//   art=classic|hd (default: the saved setting)  dir=0..3 (lineup facing)
 
-import { Anim, ANIM_COUNT, KIND_COUNT, type Atlas, type Dir } from './render/contract.ts';
-import { buildAtlas } from './render/sprites.ts';
+import { Anim, ANIM_COUNT, KIND_COUNT, type Atlas, type Dir, type KindSheet } from './render/contract.ts';
+import { buildAtlas as buildClassic } from './render/sprites.ts';
+import { buildAtlas as buildHd } from './render/sprites128.ts';
 import { FACTIONS, type FactionId } from '../game/factions.ts';
+import { artMode, setArtMode, type ArtMode } from './settings.ts';
 
 const q = new URLSearchParams(location.search);
+const art: ArtMode = q.get('art') === 'hd' ? 'hd' : q.get('art') === 'classic' ? 'classic' : artMode();
+const buildAtlas = art === 'hd' ? buildHd : buildClassic;
 const mode = q.get('mode') ?? 'grid';
 const zoom = Number(q.get('z') ?? 4);
 const hueA = Number(q.get('hue') ?? 215);
@@ -36,7 +43,14 @@ const t4 = performance.now();
 const info = document.getElementById('info')!;
 info.innerHTML =
   `${faction} · atlas ${A.image.width}×${A.image.height} · build ${(t1 - t0).toFixed(0)} / ${(t2 - t1).toFixed(0)} ms, full paint ${(t3 - t2).toFixed(0)} / ${(t4 - t3).toFixed(0)} ms · ` +
-  ['grid', 'sheet', 'army', 'compare'].map((m) => `<a href="?mode=${m}&faction=${faction}">${m}</a>`).join(' ');
+  ['grid', 'sheet', 'army', 'compare', 'lineup'].map((m) => `<a href="?mode=${m}&faction=${faction}&art=${art}">${m}</a>`).join(' ') +
+  ` · art: <b>${art}</b> <button id="art">switch to ${art === 'hd' ? 'classic 48' : 'HD 128'}</button>`;
+document.getElementById('art')!.onclick = () => {
+  const next: ArtMode = art === 'hd' ? 'classic' : 'hd';
+  setArtMode(next);
+  q.set('art', next);
+  location.search = q.toString();
+};
 const times = [t1 - t0, t2 - t1, t3 - t2, t4 - t3];
 for (let i = 0; i < Number(q.get('bench') ?? 0); i++) {
   const s = performance.now();
@@ -80,7 +94,82 @@ function frameAt(at: Atlas, kind: number, a: Anim, t: number): number {
 
 const draws: ((t: number) => void)[] = [];
 
-if (mode === 'compare') {
+/** A KindSheet as a canvas, made once. */
+const sheetCanvas = new WeakMap<KindSheet, HTMLCanvasElement>();
+function canvasOf(sh: KindSheet): HTMLCanvasElement {
+  let c = sheetCanvas.get(sh);
+  if (!c) {
+    c = document.createElement('canvas');
+    c.width = sh.width;
+    c.height = sh.height;
+    c.getContext('2d')!.putImageData(new ImageData(new Uint8ClampedArray(sh.pixels), sh.width, sh.height), 0, 0);
+    sheetCanvas.set(sh, c);
+  }
+  return c;
+}
+
+if (mode === 'lineup') {
+  // Every faction's eleven kinds in a row, on field green: the zoomed-out cell at 1x and 2x, then
+  // (HD) each detail level 1:1. The test of the brief: can all eleven be told apart at a glance?
+  const ids: FactionId[] = ['templar', 'samurai', 'undead'];
+  const levels = (q.get('levels') ?? '2,4,8').split(',').map(Number);
+  const a = (anims[0] ?? Anim.Idle) as Anim;
+  const d = Number(q.get('dir') ?? 0) as Dir;
+  const status = document.createElement('div');
+  status.style.margin = '4px 12px';
+  out.appendChild(status);
+  const timing: string[] = [];
+  for (const id of ids) {
+    const at = buildAtlas(id, hueA);
+    const h2 = document.createElement('h2');
+    h2.textContent = `${FACTIONS[id].name} · ${ANIM[a]} · ${DIR[d]}`;
+    out.appendChild(h2);
+    const names = [...FACTIONS[id].units, FACTIONS[id].commander];
+    for (const s of [1, 2]) {
+      const w = at.cellW * KIND_COUNT, h = at.cellH;
+      const [c, g] = cell(w * s, h * s);
+      c.style.margin = '2px 12px';
+      out.appendChild(c);
+      draws.push((t) => {
+        field(g, c.width, c.height, s);
+        for (const k of kinds) {
+          const [sx, sy] = at.at(k, a, frameAt(at, k, a, t), d);
+          g.drawImage(at.image, sx, sy, at.cellW, at.cellH, k * at.cellW * s, 0, at.cellW * s, at.cellH * s);
+        }
+      });
+    }
+    if (!at.sheet || !at.slot) continue;
+    for (const lv of levels) {
+      const cw = 52 * lv, ch = 56 * lv;
+      const [c, g] = cell(cw * kinds.length, ch);
+      c.style.margin = '2px 12px';
+      c.title = `level ${lv}`;
+      out.appendChild(c);
+      const lab = document.createElement('div');
+      lab.style.margin = '0 12px';
+      lab.textContent = `level ${lv}: ` + kinds.map((k) => names[k]).join(' · ');
+      out.appendChild(lab);
+      draws.push((t) => {
+        field(g, c.width, c.height, lv);
+        kinds.forEach((k, i) => {
+          const sh = at.sheet!(k, lv);
+          if (!sh) return;
+          if (!timing.includes(`${id} k${k} L${lv}`)) {
+            timing.push(`${id} k${k} L${lv}`);
+            (window as unknown as { paintMs: Record<string, number> }).paintMs ??= {};
+            (window as unknown as { paintMs: Record<string, number> }).paintMs[`${id}:${k}:${lv}`] = Math.round(sh.ms);
+          }
+          const r = sh.rects.subarray(at.slot!(k, a, frameAt(at, k, a, t), d) * 6);
+          g.drawImage(canvasOf(sh), r[0]!, r[1]!, r[2]!, r[3]!, i * cw + Math.round(cw / 2) - r[4]!, Math.round(ch * 0.8) - r[5]!, r[2]!, r[3]!);
+        });
+      });
+    }
+  }
+  draws.push(() => {
+    const pm = (window as unknown as { paintMs?: Record<string, number> }).paintMs ?? {};
+    status.textContent = `HD sheets painted: ${Object.keys(pm).length} / ${ids.length * kinds.length * levels.length}`;
+  });
+} else if (mode === 'compare') {
   // The three factions side by side: rows = kinds, for each faction the four facings.
   const ids: FactionId[] = ['templar', 'samurai', 'undead'];
   const atl = ids.map((id) => [buildAtlas(id, hueA), buildAtlas(id, hueB)] as const);
@@ -209,6 +298,6 @@ const tq = q.get('t');
 function loop(): void {
   const t = tq !== null ? Number(tq) : (performance.now() - start) / 100;
   for (const d of draws) d(t);
-  if (tq === null) requestAnimationFrame(loop);
+  if (tq === null || mode === 'lineup') requestAnimationFrame(loop);
 }
 loop();

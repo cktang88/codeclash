@@ -347,7 +347,7 @@ export function BattleView(props: {
             <span className="hud-group">
               <button onClick={() => zoomTo(zoom - 1)} disabled={zoom <= 1} aria-label="Zoom out">−</button>
               <span className="mono">{zoom}×</span>
-              <button onClick={() => zoomTo(zoom + 1)} disabled={zoom >= MAX_ZOOM} aria-label="Zoom in">+</button>
+              <button onClick={() => zoomTo(zoom + 1)} disabled={zoom >= (sceneRef.current?.maxZoom ?? MAX_ZOOM)} aria-label="Zoom in">+</button>
               <button onClick={() => { sceneRef.current?.fit(); setZoom(1); }} title="Fit the field">⤢</button>
               <button className={scan ? 'on' : ''} onClick={() => setScan((x) => !x)} title="Scanlines">▤</button>
               <button className={follow ? 'on' : ''} onClick={() => setFollow((x) => !x)} title="Follow the fighting">◎</button>
