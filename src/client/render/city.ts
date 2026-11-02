@@ -640,8 +640,9 @@ export class CityScene {
         this.halo(g, 'mistDay', x, y, 180, 52);
       }
       if (k > 0.1) {
+        // A faint green breath of mist at night, not a lit disc over the graves.
         g.globalCompositeOperation = 'lighter';
-        g.globalAlpha = k;
+        g.globalAlpha = 0.3 * k;
         this.halo(g, 'mistNight', x, y, 180, 52);
       }
     }
