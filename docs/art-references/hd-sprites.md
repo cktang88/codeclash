@@ -488,3 +488,40 @@ images are approved and split into rig parts.
 3. **Against the CraftPix knight at the same scale.** The masses now read, but the near arm of the two-handed poses disappears behind the near sode. That is accepted for chūdan, since the sode's job is to cover the arm. Horses and riders read as one heavy block, as in the D2R mounted art.
 
 Still to do after approval: split each image into rig parts and animate it, keeping the look, and run the lint gate per animation.
+
+### Templar key art, rounds 4-5 (user critique: "too alike", "blocky horses", "flat"; "cooler, more character")
+
+Further user targets (in `references/user-targets/`, study only; their URLs are in the folder's README):
+- `templar-gstatic-1` (a pixel sheet of Templar knights):
+  - silver plate and mail with strong white highlights;
+  - layered pauldrons;
+  - a white tabard with a long red cross;
+  - a belt with a pouch;
+  - a dark rim that makes the figures pop.
+- `templar-gstatic-2` (a painted Templar): a bucket helm, a heavy white mantle with a fur collar and the cross on the shoulder, and a black tabard. He stands wide in guard.
+
+Round 4:
+- **The foot are told apart by kit and colour:**
+  - the sergeant: a black surcoat over mail drawn as staggered riveted rings;
+  - the levy: an undyed ochre gambeson, quilted, with leg wraps;
+  - the javelin men: unarmoured, in short madder tunics with a pouch;
+  - the pilgrim archers: in slate hoods with the Santiago scallop, short tunics and a quiver at the hip.
+- **Form light:** a rim light on shadow edges, lit fold ridges, and faces with a brow ridge, a nose and a beard.
+- **Horses built from curves.**
+  - Catmull-Rom outlines, lit from three shading masses (barrel, haunch, shoulder) by a top-left key.
+  - An arched neck with a jugular groove, and mane and tail in strands.
+  - Legs with a forearm, knee, cannon and fetlock in front, and a gaskin, hock and fetlock behind.
+  - Turcopoles ride a dun with black points, the horse archers a bay.
+- The key art builds its own master palette from its own codes, so the new dyes survive.
+
+Round 5:
+- **The Knight-Brothers, Marshal and Iron Brethren:**
+  - a heavy white mantle with a fur collar and a red cross on the shoulder; on the riders it spills back over the croup;
+  - a long red cross from chest to hem;
+  - layered steel pauldrons, steel gauntlets and polished silver mail;
+  - all drawn in the dark-rim class, so they pop against the field.
+- The Iron Brethren wear the black tabard and hold the Dane axe low in guard, in a wide stance.
+
+Still short: at 100 px the faces are small, and the poses are the same idle for every foot kind except the brethren.
+
+Screenshots: `templar-static-L8.png`, `templar-static-k<kind>-x3.png`, and `templar-static-before-after-lineup.png` (the lineup before round 4 on top, the current lineup below).
