@@ -5,3 +5,5 @@ data
 *.db-*
 .env
 .claude/worktrees
+playground/
+src/client/public/lab/
