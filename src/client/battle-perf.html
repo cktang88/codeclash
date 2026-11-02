@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Battle renderer perf</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #0b0907; overflow: hidden; }
+      canvas { display: block; width: 100vw; height: 100vh; }
+      #stats { position: fixed; left: 8px; top: 8px; font: 12px monospace; color: #d8d0b8; background: rgba(0,0,0,.55); padding: 4px 8px; white-space: pre; pointer-events: none; }
+    </style>
+  </head>
+  <body>
+    <canvas id="c"></canvas>
+    <div id="stats"></div>
+    <script type="module" src="./battle-perf.ts"></script>
+  </body>
+</html>

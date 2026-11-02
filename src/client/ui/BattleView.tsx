@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Battle, FIELD_H, FIELD_W, State, TICK_S, TICKS_PER_SECOND, type BattleSetup } from '../../game/battle.ts';
+import { Battle, State, TICK_S, TICKS_PER_SECOND, type BattleSetup } from '../../game/battle.ts';
 import { FACTIONS } from '../../game/factions.ts';
 import { UNIT_COUNT } from '../../game/units.ts';
 import { BattleScene } from '../render/scene.ts';
@@ -66,6 +66,8 @@ export function BattleView(props: {
   const [paused, setPaused] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [scan, setScan] = useState(true);
+  const [follow, setFollow] = useState(false);
+  const [noGl] = useState(() => !BattleScene.supported());
   const [skipping, setSkipping] = useState(false);
   const [live, setLive] = useState<Live | null>(null);
   const [ticker, setTicker] = useState<Ticker[]>([]);
@@ -73,6 +75,7 @@ export function BattleView(props: {
   ctl.current = { speed, paused, skipping };
 
   useEffect(() => {
+    if (noGl) return;
     const canvas = canvasRef.current!;
     let battle = new Battle(setup);
     let scene = new BattleScene(battle);
@@ -123,7 +126,9 @@ export function BattleView(props: {
         if (!restartAt) restartAt = now + 4000;
         else if (now > restartAt) {
           battle = new Battle({ ...setup, seed: (setup.seed + Math.floor(now)) >>> 0 });
+          scene.dispose();
           scene = new BattleScene(battle);
+          scene.camera.zoom = sceneRef.current?.camera.zoom ?? 1;
           sceneRef.current = scene;
           restartAt = 0;
           seen = 0;
@@ -148,6 +153,7 @@ export function BattleView(props: {
     return () => {
       cancelAnimationFrame(raf);
       ro.disconnect();
+      scene.dispose();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [setup, ambient]);
@@ -157,8 +163,9 @@ export function BattleView(props: {
     if (s) {
       s.camera.zoom = zoom;
       s.scanlines = scan;
+      s.follow = follow;
     }
-  }, [zoom, scan, live === null]);
+  }, [zoom, scan, follow, live === null]);
 
   // Drag to pan, wheel to zoom.
   const drag = useRef<{ x: number; y: number } | null>(null);
@@ -171,9 +178,9 @@ export function BattleView(props: {
     const d = drag.current;
     const canvas = canvasRef.current;
     if (!s || !d || !canvas) return;
-    const fit = Math.min(canvas.clientWidth / FIELD_W, canvas.clientHeight / FIELD_H) * s.camera.zoom;
-    s.camera.cx -= (e.clientX - d.x) / fit;
-    s.camera.cy -= (e.clientY - d.y) / fit;
+    const dpr = canvas.width / Math.max(1, canvas.clientWidth);
+    s.pan((e.clientX - d.x) * dpr, (e.clientY - d.y) * dpr);
+    if (follow) setFollow(false);
     drag.current = { x: e.clientX, y: e.clientY };
   };
   const onWheel = (e: React.WheelEvent) => {
@@ -202,6 +209,7 @@ export function BattleView(props: {
         onPointerUp={() => (drag.current = null)}
         onWheel={onWheel}
       />
+      {noGl && <div className="verdict"><div className="verdict-kicker">This browser cannot draw the battle (WebGL2 is unavailable).</div></div>}
       {!ambient && live && (
         <>
           <div className="hud-top">
@@ -250,6 +258,7 @@ export function BattleView(props: {
             <span className="mono">{zoom}×</span>
             <button onClick={() => setZoom((z) => Math.min(4, z + 1))} disabled={zoom >= 4}>+</button>
             <button className={scan ? 'on' : ''} onClick={() => setScan((x) => !x)} title="Scanlines">▤</button>
+            <button className={follow ? 'on' : ''} onClick={() => setFollow((x) => !x)} title="Follow the fighting">◎</button>
           </div>
           {live.done && live.winner !== null && (
             <div className="verdict">
