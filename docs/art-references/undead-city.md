@@ -112,3 +112,48 @@ Each is linked here as a direct image, with its Commons page and licence.
 | `references/undead-city/und-danse.jpg` | [image](https://commons.wikimedia.org/wiki/Special:FilePath/Holbein_Danse_Macabre_45.jpg?width=640) | [page](https://commons.wikimedia.org/wiki/File:Holbein_Danse_Macabre_45.jpg) | Public domain |
 | `references/undead-city/und-tintern.jpg` | [image](https://commons.wikimedia.org/wiki/Special:FilePath/Tintern_Abbey_and_Courtyard.jpg?width=640) | [page](https://commons.wikimedia.org/wiki/File:Tintern_Abbey_and_Courtyard.jpg) | CC BY-SA 3.0 |
 | `references/undead-city/und-barrow.jpg` | [image](https://commons.wikimedia.org/wiki/Special:FilePath/West_Kennet_long_barrow_entrance_-_geograph.org.uk_-_1877235.jpg?width=640) | [page](https://commons.wikimedia.org/wiki/File:West_Kennet_long_barrow_entrance_-_geograph.org.uk_-_1877235.jpg) | CC BY-SA 2.0 |
+
+## Detail pass: "real towns have a ton of details" (`undead.ts`, `undead-props.ts`)
+
+The user found the towns simplistic and polygonal. Their targets (`references/user-targets/`,
+study only) are `town-gstatic.png` and `town-redbubble.png`, which have every stone and roof tile
+its own, timber framing, iron-strapped doors, clutter at every wall and weathering. They later
+added `town-displate.jpg`, which has dramatic light pools in deep shade, overgrowth hanging in
+curtains, lanterns glowing inside the shade and chunky painterly clusters. New study copies are in
+`references/city-undead-detail/` (git-ignored). Wikimedia refused this session's downloads (rate
+limit, then robot policy), so the Highgate, Sedlec-chandelier and gargoyle images were searched
+but not studied. The earlier Sedlec, Évora, Whitby and Tintern studies above still apply.
+
+| Reference | Licence | What we took |
+| --- | --- | --- |
+| User target: town-gstatic (`references/user-targets/README.txt` has the URL) | © the artist, study only | Every block of stone its own, with a mortar line and a lit edge; roof tiles row by row, with a few broken; clutter heaped at the foot of every wall. This became `blackAt`: hashed course widths, a bevel lit on each block's top and left, dark joints, cracked and fallen-out blocks, black water streaking from the wall head, moss at the foot and lichen on the lit faces. Slates slip and break, showing the batten and the dark underlay. |
+| User target: town-redbubble | © the artist, study only | Iron-strapped plank doors in a dark reveal, and stone that varies block to block in value. This became `doorAt`: planks, two iron straps with studs, a ring and a dark reveal. Window sills drip black water. |
+| User target: town-displate | © the artist, study only | Light is a *pool on the surfaces it reaches*, not a disc in the air. Large areas sit in deep shade, and the lit areas read by contrast. Overgrowth hangs in curtains, in chunky clusters. This became `bakePools` (stone lifted up its ramp near a source, occluded, holding at night), `groundPools`, `sunPool` (pale sun on the flags, dappled by branch shadows) and `ivyAt` (dead-ivy strands of varied length that merge into curtains). |
+| Glasnevin Cemetery: [image](https://commons.wikimedia.org/wiki/Special:FilePath/Glasnevin_Cemetery_-_More_than_1,000,000_Graves_(4164589746).jpg?width=800), [page](https://commons.wikimedia.org/wiki/File:Glasnevin_Cemetery_-_More_than_1,000,000_Graves_(4164589746).jpg) | CC BY-SA 2.0 | Density and variety: black polished stones next to pale weathered ones, rounded and pointed tops, Celtic crosses, obelisks, all of different heights and crowded together. The grave fields are redrawn row by row with eight marker kinds in black, grey and marble, some leaning or cracked. |
+| Père Lachaise, Couture tomb: [image](https://commons.wikimedia.org/wiki/Special:FilePath/Pere_lachaise_detail.jpg?width=800), [page](https://commons.wikimedia.org/wiki/File:Pere_lachaise_detail.jpg) | CC BY-SA 3.0 | Weathered statuary: features eroded, dark streaks in every recess, a withered flower left on the stone. The weeping angel is faceless, with dark streaks down its robe, and wreaths and dead flowers lie on half the graves. |
+| SpiderDave, Tombstones: [image](https://opengameart.org/sites/default/files/tombstones_preview_0.png), [page](https://opengameart.org/content/tombstones) | CC0 | A silhouette vocabulary for markers at a small size: rounded, cross, gothic point, spirelet, winged. Each marker kind differs first by silhouette. |
+| angrysnail, Pixel Art Graveyard Tileset: [image](https://img.itch.zone/aW1hZ2UvMzA3MjU2LzE1MDgzNzIucG5n/794x1000/SDM5AB.png), [page](https://angrysnail.itch.io/pixel-art-graveyard-tileset) | CC0 | Irregular flagstones with 1-px dark joints and cracks; a small drop shadow on the right of every prop; a dead tree as a few forked strokes; a well with a plank lid. This became `flagAt`, the props' contact shadows (`f`), `deadTree` and `well`. |
+| Forest graveyard tileset: [image](https://opengameart.org/sites/default/files/tileset_47.png), [page](https://opengameart.org/content/forest-graveyard-tileset) | CC0 | Tiny clutter that carries at 1–2 px per detail: candle stubs with a lit tip, cobwebs as a few radial threads, skulls as 3×3 clusters. This became `CANDLES`, `cobweb` (laid after the outline so the threads stay one pixel) and `SKULLPILE`. |
+
+**What was made:**
+
+- **Stone:** individual ashlar blocks with mortar; cracked and fallen-out stones; moss, lichen and black water stains. A skull-and-crossbones frieze, skull niches over stacked femurs (Évora), and rubble with mossy joints.
+- **Gothic:** lancets with mullions, Y-tracery and an oculus. On the ossuaries a bone chandelier hangs black against the witchfire, its candles burning. The rose window gets a ring of foils. Crockets climb every spire and pinnacle, and gargoyles crouch on the cornices.
+- **Roofs:** slipped and broken slates and moss at the eaves. The chapel (and, at tier 2, the charnel house) has a hole fallen in down to the rafters.
+- **Doors and gates:** iron-banded doors, wreaths, wall lanterns, iron railings with spear finials, and a railed mausoleum with a gate.
+- **Mausoleum:** a pediment with a skull in its tympanum, steps, weeping angels, sarcophagi and candles.
+- **Plague house:** shuttered windows, a plague-doctor sign on a bracket and stacked coffins.
+- **Grave fields:** eight marker kinds with epitaph cuts and creepers, open graves with spoil and spades, coffins, bone heaps, angels and candles. The unsown fields are a new burial ground of fresh mounds under wooden crosses.
+- **Props** through the shared library (`registerProp('undead:*')`, `registerTheme('undead')`): the well with a chained lid, lanterns, braziers, shrines, candles, gibbets, a corpse cart with a shroud, family plots, dead trees with crows, coffins and spades. Flames flicker, the gibbet cage swings and crows hop (`PropDef.anim`).
+- **Ground:** cracked flags with weeds, bone-strewn dirt, puddles holding a sliver of sky, ruts, dead grass, and pools of pale sun dappled by branches.
+- **Light:**
+  - By day, a low pale sun (`sunlit`, on the day canvas only): lit planes lift to a cold gold-grey, shade planes sink into violet and every silhouette top gets a gold rim.
+  - By night, the sources bake pools into the stone and the ground, and large areas stay in deep violet shade.
+
+**Critique rounds** (2560×1440, scratchpad `r1`–`r10`; before/after in `docs/screenshots/city-detail/`):
+
+1. **First pass:** the grave fields read Glasnevin-dense at once. Two faults: the headstones were too pale and lavender, and their inscriptions read as faces. The dead trees, outlined, became black lattices. Fix: darker stone, shallow epitaph cuts and trees not outlined.
+2. **Library pass:** the library had been placing Templar barrels and flower pots in the necropolis, so I registered an Undead theme. The chapel's ruin read as black confetti; I made it one ragged hole with rafters and a purlin. The ivy was too dark to read, so it now uses drier, lighter olive leaves.
+3. **Light pass:** the halos made a field of green bullseyes, so light is now baked into surfaces and the halo discs are gone (a city.ts fix on master). The night pools were too faint at first, so they were strengthened and windows and spire crowns added as sources.
+4. **Day pass:** the scene read as one murky violet. I added a warm additive lift on the lit planes; a mix would flatten the masonry, which I tried first. The shade planes went deeper, the day mist was thinned (city.ts) and the sun pools on the flags were brightened.
+5. **Close-up pass (×4, ×8):** a mirrored sprite lit its right side, so lit sprites are never flipped now. The markers got five tones, chips, lichen and contact shadows, and the skulls in the heaps now read one by one.
