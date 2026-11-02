@@ -10,7 +10,8 @@ const opaque = (f: { pixels: Uint8ClampedArray }, i: number) => f.pixels[i * 4 +
 describe('paper-doll painter', () => {
   it('registers the Grave Legionary with every animation, facing and level', () => {
     expect(paperKindFor('undead', U.HeavyInfantry)).toBeDefined();
-    expect(paperKindFor('templar', U.HeavyInfantry)).toBeUndefined();
+    // Every faction's kinds are drawn on paper now.
+    for (const f of ['undead', 'templar', 'samurai'] as const) for (let k = 0; k < 11; k++) expect(paperKindFor(f, k), `${f} kind ${k}`).toBeDefined();
     for (let a = 0; a < ANIM_COUNT; a++)
       for (const dir of [0, 1, 2, 3] as Dir[])
         for (const level of [1, 2, 4, 8]) expect(paperSupports('undead', U.HeavyInfantry, a as Anim, dir, level)).toBe(a !== Anim.Shoot);
