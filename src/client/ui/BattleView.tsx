@@ -147,7 +147,13 @@ export function BattleView(props: {
           battle = new Battle({ ...setup, seed: (setup.seed + Math.floor(now)) >>> 0 });
           scene.dispose();
           scene = new BattleScene(battle);
-          scene.camera.zoom = sceneRef.current?.camera.zoom ?? 1;
+          const prev = sceneRef.current;
+          scene.camera.zoom = prev?.camera.zoom ?? 1;
+          // Keep the viewer's choices across the ambient restart.
+          if (prev) {
+            scene.scanlines = prev.scanlines;
+            scene.follow = prev.follow;
+          }
           sceneRef.current = scene;
           restartAt = 0;
           seen = 0;
