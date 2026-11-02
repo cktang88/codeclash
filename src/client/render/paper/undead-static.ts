@@ -784,14 +784,21 @@ function blackRiderStatic(c: Paper): void {
   // A team sash across the chest and its knot.
   c.rod(at([-1.6, -4.6]), at([1.8, -1.6]), 0.7, 0.7, UM.team, { tone: 2 });
   rag(c, at([1.4, -1.9]), at([2.2, -1.9]), 2.6, -0.5, UM.team, UM.teamDk, 523, { folds: false, tear: 0.4 });
-  hood(c, at([0.7, -7.0]), -4, false, UM.shroud, { skullFace: true });
+  hood(c, at([0.7, -7.0]), -4, false, UM.shroud, { eyes: false });
+  // The skull plain in the hood's dark, a black-iron gorget under it.
+  keySkull(c, at([1.0, -6.9]), 0.82, -6, null);
+  plate(c, [at([-0.6, -5.75]), at([1.9, -5.8]), at([1.7, -5.25]), at([-0.4, -5.2])], UM.iron, { tone: 2, rim: true });
+  pauldron(c, at([2.0, -5.0]), true, 0.95);
   horseNear(c, H, p, { mane: true });
   // The spear couched under the near arm, the arm in its sleeve.
   const hand = at([1.6, -2.6]);
   spear(c, hand, 116, 8.2, 3.6, { blade: 1.8 });
   vol(c, at([-1.7, -4.4]), at([-0.5, -2.6]), 1.5, 1.3, UM.shroud, { tone: 2, caps: false });
   vol(c, at([-0.5, -2.6]), hand, 1.3, 1.0, UM.shroud, { tone: 2, caps: false });
-  c.blob(hand, 0.5, 0.45, UM.bone, { tone: 2 });
+  // A black-iron gauntlet on the spear, and the near pauldron over the shroud.
+  vol(c, addP(hand, [-0.9, -0.2]), hand, 0.9, 1.05, UM.iron, { tone: 2, shine: true, caps: false });
+  c.blob(hand, 0.55, 0.5, UM.iron, { tone: 1 });
+  pauldron(c, at([-1.6, -4.7]), false, 1.0);
 }
 
 /** A skull worn as a pauldron (the Necromancer's): a big pale skull over the shoulder, its jaw a lip. */
@@ -823,8 +830,23 @@ function lichStatic(c: Paper): void {
   lichChest(c, F, 0, 0.25);
   c.rod([-1.6, -6.9], [2.3, -7.0], 0.42, 0.42, UM.rust, { tone: 2 });
   // The mantle over the shoulders in team cloth, skull pauldrons on top.
-  rag(c, [-2.9, -11.3], [-0.6, -11.6], 4.8, 0.1, UM.team, UM.teamDk, 533, { tear: 0.35 });
-  rag(c, [1.6, -11.6], [3.4, -11.2], 4.2, 0.1, UM.team, UM.teamDk, 535, { tear: 0.35, folds: false });
+  // The mantle: one heavy team-coloured cape over both shoulders, open at the chest, its
+  // planes lit at the near shoulder and shaded down the far side, the hem torn.
+  const mantleSide = (pts: P2[], seed: number) =>
+    plate(c, pts, UM.team, {
+      seed,
+      detail: (x, y, rx, ry) => {
+        const ys = c.sy(pts.reduce((m, q) => Math.max(m, q[1]), -99));
+        if (ys - y < c.L * 0.9 && hash(Math.floor(c.lx(x) / Math.max(3, c.L * 0.7)), 2, seed) * c.L * 0.9 > ys - y) return -2;
+        const f = ((rx * 2.2 + ry * 0.3) % 1 + 1) % 1;
+        if (ry > -0.4 && f < 0.1) return code(UM.teamDk, 1);
+        if (ry > -0.4 && f < 0.2) return code(UM.team, 3);
+        const lt = planeLight(rx, ry, 0.3);
+        return lt < 0 ? code(UM.teamDk, 2) : code(UM.team, 2 + lt);
+      },
+    });
+  mantleSide([[-3.1, -11.2], [-1.7, -12.2], [-0.4, -12.0], [-0.6, -9.2], [-1.0, -6.4], [-3.4, -6.6]], 533);
+  mantleSide([[1.5, -12.0], [2.9, -12.0], [3.8, -11.0], [3.7, -6.8], [1.7, -6.9], [1.8, -9.3]], 535);
   skullPauldron(c, [2.7, -11.4], 1.05, true);
   c.rod([0.4, -12.2], [0.6, -12.8], 0.55, 0.5, UM.bone, { tone: 1 });
   skull(c, [0.9, -13.4], -6, false);
