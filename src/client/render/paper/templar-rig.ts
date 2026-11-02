@@ -176,6 +176,8 @@ export interface LagSpec {
   bias?: number;
   /** The parent's own turn is kept off by this much (1: the cloth hangs plumb whatever the parent does). */
   plumb?: number;
+  /** A flutter on top: amplitude (deg), cycles per clip, phase (0..1). */
+  wave?: [number, number, number];
 }
 
 /**
@@ -200,7 +202,8 @@ export function lagCloth(skel: SkeletonData, clip: Clip, n: number, loop: boolea
         const now = at(f), was = at(f - s.lag);
         const lead = was.byName[s.follow]!.raw - rest.byName[s.follow]!.raw;
         const pTurn = now.byName[parent]!.raw - rest.byName[parent]!.raw;
-        const want = rw[s.bone]! + s.k * lead + (s.bias ?? 0) + (bias[s.bone] ?? 0) - (s.plumb ?? 0) * pTurn;
+        const wv = s.wave ? s.wave[0] * Math.sin(2 * Math.PI * (s.wave[1] * f / n + s.wave[2])) : 0;
+        const want = rw[s.bone]! + s.k * lead + (s.bias ?? 0) + (bias[s.bone] ?? 0) - (s.plumb ?? 0) * pTurn + wv;
         // Local offset that gives `want` under the parent as it is now.
         const local = want - now.byName[parent]!.raw - (rw[s.bone]! - rw[parent]!);
         keys.push({ f, v: Math.round(local * 100) / 100 });

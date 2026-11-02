@@ -18,7 +18,7 @@ import {
 import { BOW, CUT, HIT, T, THRUST, cloth, type Author, type Tracks } from './templar-clips.ts';
 import { joints, neRest, PARENT, type FootSpec } from './templar-foot.ts';
 import { bow, paintAs, TM } from './templar-parts.ts';
-import { at as atT, facingClip, lagCloth, lastFrame, mapFacings, overlayKeys, partMap, restWorld, skinMap, smooth01, type ClipSet, type KP, type Track, type Weights } from './templar-rig.ts';
+import { at as atT, facingClip, lagCloth, lastFrame, mapFacings, overlayKeys, partMap, restWorld, skinMap, smooth01, type ClipSet, type KP, type LagSpec, type Track, type Weights } from './templar-rig.ts';
 import {
   CAPAR_PTS, HJ, hoofAt, HORSE_BODY, HORSE_FAR, HORSE_SCALE, horsePiece, MOUNTED, RIDER_PIECES, RIDER_SHIFT, riderPiece, riderRest, scaled, withMap,
   type HorsePiece, type PartMap, type RiderPiece, type RiderRest, type SGear, type SHorse, type SKit,
@@ -70,6 +70,12 @@ function horseJoints(): { name: string; parent?: string; from: P2; to: P2 }[] {
     );
   }
   out.push({ name: 'saddle', parent: 'horseBody', from: H([0.3, -10.6]), to: H([0.3, -10.6]) });
+  // Cloth and hair that trail: the caparison's hem, front and rear, and the mane.
+  out.push(
+    { name: 'caparF', parent: 'horseBody', from: H([3.6, -8.2]), to: H([3.6, -4.2]) },
+    { name: 'caparR', parent: 'horseBody', from: H([-3.8, -8.4]), to: H([-3.8, -4.2]) },
+    { name: 'mane', parent: 'horseNeck', from: H([5.0, -13.0]), to: H([4.4, -12.0]) },
+  );
   return out;
 }
 
@@ -149,7 +155,18 @@ const shiftMap = (m: PartMap): PartMap => ({ f: (p) => m.f(add(p, RIDER_SHIFT)),
 const caparWeights: Weights = ([x, y]) => {
   const hx = x / S, hy = y / S;
   const n = smooth01((hx - 3.6) / 1.8) * smooth01((-hy - 10.2) / 1.6);
-  return [['horseBody', 1 - n], ['horseNeck', n]];
+  // The skirt below the barrel hangs from it and trails: front and rear halves on their own hem bones.
+  const hem = smooth01((hy + 8.6) / 4.2) * 0.95 * (1 - n);
+  const front = smooth01((hx + 1.2) / 3.8);
+  return [['horseBody', (1 - n) - hem], ['horseNeck', n], ['caparF', hem * front], ['caparR', hem * (1 - front)]];
+};
+/** The mane: the strands' roots on the crest ride the neck, their ends the trailing mane bone. */
+const maneWeights: Weights = ([x, y]) => {
+  const hx = x / S, hy = y / S;
+  // Distance below the crest line (from [2.7, -10.7] to [7.1, -15.0]).
+  const d = ((hx - 2.7) * 0.7 + (hy + 10.7) * 0.715) * 1;
+  const m = smooth01(d / 0.8);
+  return [['horseNeck', 1 - m], ['mane', m]];
 };
 /** The rider's torso: chest, spine, pelvis (rider frame for the weights). */
 const riderTorsoWeights: Weights = ([, y]) => {
@@ -169,8 +186,9 @@ function horseParts(k: SKit, g: SGear, horse: SHorse, s: HorseSpec, dark: boolea
   const rest: Record<Facing, RiderRest> = { se: riderRest(k, g), ne: neRest(riderRest(k, g), s), sw: riderRest(k, g), nw: riderRest(k, g) };
   const atts: AttachmentSet = {};
   for (const p of [...HORSE_FAR, ...HORSE_BODY]) {
-    if (p === 'capar') {
-      atts[hs(p)] = { cache: false, draw: (c, _x, ctx) => paintAs(c, dark, () => scaled(c, S, () => withMap(scaleMap(skinMap(ctx.posed, caparWeights)), () => horsePiece(c, horse, p, ctx.posed.facing === 'ne')))) };
+    if (p === 'capar' || p === 'mane') {
+      const wts = p === 'capar' ? caparWeights : maneWeights;
+      atts[hs(p)] = { cache: false, draw: (c, _x, ctx) => paintAs(c, dark, () => scaled(c, S, () => withMap(scaleMap(skinMap(ctx.posed, wts)), () => horsePiece(c, horse, p, ctx.posed.facing === 'ne')))) };
       continue;
     }
     atts[hs(p)] = (c, x, ctx) => paintAs(c, dark, () => scaled(c, S, () => withMap(scaleMap(partMap(x)), () => horsePiece(c, horse, p, ctx.posed.facing === 'ne'))));
@@ -229,7 +247,7 @@ const HOOF_REST = (Math.atan2(0.3, 0.85) * 180) / Math.PI;
  * plate's angles scaled to our horse, pressed onto the ground while the plate shows that hoof
  * down; a hoof planted lies flat, a hoof in the air folds back under the fetlock.
  */
-function gaitKeys(skel: SkeletonData, name: string, facing: Facing, o: { amp?: number } = {}): { keys: KP[]; bob: Track } {
+function gaitKeys(skel: SkeletonData, name: string, facing: Facing, o: { amp?: number; pitch?: number; neck?: number; tail?: number } = {}): { keys: KP[]; bob: Track } {
   const clip = MOTION[name]!;
   const ks = clip.facings[facing === 'ne' ? 'ne' : 'se'].keys as (MotionKey & { hooves: Record<string, boolean> })[];
   const amp = o.amp ?? 1;
@@ -262,11 +280,14 @@ function gaitKeys(skel: SkeletonData, name: string, facing: Facing, o: { amp?: n
       t[`${L}Target`] = [Math.round((fx - restF[0]) * amp * 100) / 100, Math.round((fy - restF[1]) * 100) / 100];
       w[`${L}Hoof`] = down ? HOOF_REST : Math.round(l - (type === 'fore' ? 40 : 25));
     }
+    // The barrel's pitch from the plate (amplified so it reads in 7.5° steps), the neck pumping
+    // against it, the tail streaming back at speed.
+    const pitch = wrap(k.bones.barrel! - ref.barrel) * (o.pitch ?? 1);
     const dw = {
-      horseBody: Math.round(wrap(k.bones.barrel! - ref.barrel) * 10) / 10,
-      horseNeck: Math.round(wrap(k.bones.neck! - ref.neck) * 10) / 10,
+      horseBody: Math.round(pitch * 10) / 10,
+      horseNeck: Math.round((wrap(k.bones.neck! - ref.neck) * (o.neck ?? 1) - pitch * 0.6) * 10) / 10,
       horseHead: Math.round(wrap(k.bones.head! - ref.head) * 10) / 10,
-      tail: Math.round(wrap(k.bones.tail! - ref.tail) * 10) / 10,
+      tail: Math.round((wrap(k.bones.tail! - ref.tail) + (o.tail ?? 0)) * 10) / 10,
     };
     return { f: k.f, ...(k.c ? { c: k.c as KP['c'] } : {}), t, w, dw };
   });
@@ -296,11 +317,12 @@ const COUCH: Author = (rw) => ({
   // The lance comes down from the slope into the couch under the arm, the rider leans into it; at
   // the impact his trunk is driven back against the cantle and the shoulder recoils; he settles.
   w: {
-    upperArmN: T([0, rw.upperArmN!], [2, -10], [4, -6], [5, -4], [6, -24], [7, -22], [9, -10], [11, rw.upperArmN!]),
-    forearmN: T([0, rw.forearmN!], [2, 78], [4, 82], [5, 84], [6, 70], [7, 72], [9, 78], [11, rw.forearmN!]),
-    weapon: T([0, rw.weapon!], [2, 96], [5, 94], [6, 100], [7, 99], [9, 96], [11, rw.weapon!]),
+    upperArmN: T([0, rw.upperArmN!], [2, -10], [4, -4], [5, 0], [6, -26], [7, -24], [9, -10], [11, rw.upperArmN!]),
+    forearmN: T([0, rw.forearmN!], [2, 78], [4, 84], [5, 88], [6, 70], [7, 72], [9, 78], [11, rw.forearmN!]),
+    // The tip dips onto the target at the impact, then kicks up as the shaft takes the blow.
+    weapon: T([0, rw.weapon!], [2, 96], [4, 100], [5, 106], [6, 92], [7, 94], [9, 96], [11, rw.weapon!]),
   },
-  dw: { spine: T([0, 0], [2, -6], [4, -14], [5, -16], [6, 8], [7, 9], [9, 0], [11, 0]), head: T([0, 0], [4, -4], [6, 6], [8, 0]), upperArmF: T([0, 0], [4, 10], [6, -6], [11, 0]) },
+  dw: { spine: T([0, 0], [2, -10], [4, -22], [5, -26], [6, 10], [7, 12], [9, -2], [11, 0]), head: T([0, 0], [4, -8], [5, -10], [6, 8], [8, 0]), upperArmF: T([0, 0], [4, 12], [6, -8], [11, 0]) },
 });
 const RIDE_THRUST: Author = (rw, f) => {
   const t = THRUST(rw, f);
@@ -331,14 +353,22 @@ function standKeys(n: number, extra?: Author): (f: Facing, skel: SkeletonData) =
 }
 
 function horseClips(skel: SkeletonData, s: HorseSpec): ClipSet {
+  // The mantle, the caparison's hem and the mane trail the body 1-2 frames; at speed the hem
+  // streams back off the legs and flutters, the mane flows back.
+  const trail = (run: number): LagSpec[] => [
+    ...cloth(run).filter((c) => c.bone === 'cloak'),
+    { bone: 'caparF', follow: 'horseBody', k: 0.8, lag: 1.5, bias: -4 - 16 * run, plumb: 0.4, wave: [3 + 5 * run, 2, 0] },
+    { bone: 'caparR', follow: 'horseBody', k: 0.8, lag: 2, bias: -4 - 22 * run, plumb: 0.4, wave: [3 + 6 * run, 2, 0.3] },
+    { bone: 'mane', follow: 'horseNeck', k: 0.6, lag: 1.5, bias: -28 * run, wave: [4 * run, 2, 0.15] },
+  ];
   const fc = (name: string, n: number, loop: boolean, keys: (f: Facing) => KP[], ev: AnimEvent[] = [], run = 0): Clip =>
-    lagCloth(skel, facingClip(skel, name, n, loop, keys, ev), n, loop, cloth(run).filter((c) => c.bone === 'cloak'));
+    lagCloth(skel, facingClip(skel, name, n, loop, keys, ev), n, loop, trail(run));
   const breath = (c: Clip, alpha = 1): Clip => {
     const b = c as { byFacing: Record<'se' | 'ne', AnimationData> };
     return { byFacing: { se: [{ anim: b.byFacing.se }, { anim: BREATH, alpha }], ne: [{ anim: b.byFacing.ne }, { anim: BREATH, alpha }] } };
   };
   const gait = (name: string, run: boolean) => (f: Facing) => {
-    const g = gaitKeys(skel, name, f);
+    const g = gaitKeys(skel, name, f, run ? { pitch: 2.2, neck: 1.4, tail: -50 } : { pitch: 1.5, neck: 1.2, tail: -6 });
     return overlayKeys(g.keys, riderGait(g.bob, 12, s, run)(restWorld(skel, f), f));
   };
   const idle = breath(fc('idle', 8, true, (f) => standKeys(8)(f, skel)));
@@ -347,7 +377,17 @@ function horseClips(skel: SkeletonData, s: HorseSpec): ClipSet {
   const ride = RIDES[s.ride];
   const horseLean: Author = () => ({ dw: { horseBody: T([0, 0], [4, -2], [6, 2], [9, 0]), horseNeck: T([0, 0], [5, 6], [8, 0]) } });
   const atkEv: AnimEvent[] = s.ride === 'cut' ? [{ f: 6, name: 'smear', len: 1, bone: 'weapon' }, { f: 7, name: 'strike' }] : [{ f: 5, name: 'strike' }];
-  const attack = fc('attack', 12, false, (f) => overlayKeys(standKeys(11, horseLean)(f, skel), ride(restWorld(skel, f), f)), atkEv);
+  // Lancers strike at the charge: the gallop under the couched lance, the horse driving into the
+  // impact (nose down, a surge forward) and the rider leaning hard in.
+  const lancer = s.ride === 'couch' || s.ride === 'thrust';
+  const drive: Author = () => ({ dw: { horseBody: T([0, 0], [4, -4], [5, -10], [6, 4], [8, 0]), horseNeck: T([0, 0], [5, 8], [7, -4], [9, 0]) }, tAdd: { horseBody: [T([0, 0], [4, 0.3], [5, 0.7], [7, 0.4], [11, 0]), T([0, 0])] } });
+  const attack = lancer
+    ? fc('attack', 12, false, (f) => {
+        const g = gaitKeys(skel, 'horse-gallop', f, { pitch: 2.2, neck: 1.4, tail: -50 });
+        const rw = restWorld(skel, f);
+        return overlayKeys(overlayKeys(g.keys, drive(rw, f), [1, 2, 4, 7, 9]), (s.ride === 'couch' ? COUCH : RIDE_THRUST)(rw, f));
+      }, atkEv, 1)
+    : fc('attack', 12, false, (f) => overlayKeys(standKeys(11, horseLean)(f, skel), ride(restWorld(skel, f), f)), atkEv);
   const shoot = s.shoot === 'bow' ? fc('shoot', 12, false, (f) => overlayKeys(standKeys(11)(f, skel), BOW(restWorld(skel, f), f)), [{ f: 3, name: 'draw', len: 4 }, { f: 7, name: 'release' }]) : attack;
   // Struck: the horse shies (head up, a half-step back), the rider snaps back; a flash.
   const shy: Author = () => ({ dw: { horseNeck: T([0, 14], [1, 20], [2, 10], [4, 0]), horseBody: T([0, 3], [1, 5], [2, 2], [4, 0]), horseHead: T([0, 8], [1, 10], [4, 0]) }, tAdd: { horseBody: [T([0, -0.3], [1, -0.5], [2, -0.3], [4, 0]), T([0, 0])] } });
