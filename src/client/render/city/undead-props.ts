@@ -481,6 +481,8 @@ const ANGEL = [
   'mMmMMmMmMMd',
 ];
 const WREATH = ['.nNn.', 'N.y.n', 'n...N', 'NyY.n', '.nNy.', '..y..'];
+/** Dead ivy creeping over a headstone's shoulder and trailing down its face. */
+const CREEPER = ['.NNn....', 'NnNNn...', '.nN.Nn..', '..n..N..', '..N.....', '..n.....'];
 const CANDLES = [
   '.F....F.',
   '.G..F.G.',
@@ -543,10 +545,11 @@ export function headstone(P: Pt, u: number, v: number, n: number, seed: number):
   const lean = hash(seed, 5, 17) < 0.25 ? (hash(seed, 6, 17) < 0.5 ? 0.18 : -0.18) : 0;
   const art = n < 0.2 ? ROUND : n < 0.32 ? CRACKED : n < 0.46 ? GOTHIC : n < 0.6 ? CROSS : n < 0.72 ? CELTIC : n < 0.8 ? OBELISK : n < 0.985 ? SLAB : ANGEL;
   stamp(P, u, v, 0, art, { sub, lean: art === OBELISK || art === ANGEL ? 0 : lean, flip: hash(seed, 7) < 0.5 });
-  // Withered flowers or a wreath on some.
+  // Creepers over a shoulder of some; withered flowers or a wreath on many.
+  if (hash(seed, 9, 17) < 0.35 && art !== SLAB && art !== OBELISK) stamp(P, u, v, art.length * 0.32, CREEPER, { flip: hash(seed, 10) < 0.5, dz: 0.9 });
   const f = hash(seed, 8, 17);
-  if (f < 0.12 && art !== SLAB) stamp(P, u + 0.6, v + 1.2, 1.5, WREATH, { dz: 1 });
-  else if (f < 0.3) stamp(P, u + 0.8, v + 1.6, 0, FLOWERS, { dz: 1 });
+  if (f < 0.2 && art !== SLAB) stamp(P, u + 0.6, v + 1.2, 1.5, WREATH, { dz: 1 });
+  else if (f < 0.5) stamp(P, u + 0.8, v + 1.6, 0, FLOWERS, { dz: 1 });
 }
 
 /** An open grave: a black pit, its spoil heaped beside it, a shovel stood in the heap. */
@@ -790,7 +793,7 @@ export function ivyAt(along: number, zz: number, h: number, k: number, density: 
   const sx0 = Math.floor(x / 3);
   const n = hash(sx0, 0, seed);
   if (n > density) return 0;
-  const len = (0.25 + hash(sx0, 1, seed) * 0.65) * h * k;
+  const len = (0.3 + hash(sx0, 1, seed) * 0.7) * h * k;
   const ragged = hash(x, Math.floor(y / 2), seed + 2) * 4;
   if (y > len - ragged) return 0;
   const cell = hash(x >> 1, y >> 1, seed + 3);
