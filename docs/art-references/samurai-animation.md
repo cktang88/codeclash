@@ -88,6 +88,20 @@ committed; the screenshots in `docs/screenshots/hd-sprites/samurai-anim-*.png` a
   bends with the draw's length (the bow part reads the frame).
 - **Attack**: a stab with the arrow in the fist on a step.
 
+### Teppō Ashigaru (4)
+- **Idle** is the key art: port arms beside the planted tate. **Walk/Run**: the gun at port arms in
+  both hands, steady; the tate stays where it was planted (not drawn on the march).
+- **Shoot** (the gun capture's timing; the Edo manuals for the stance and the reload): 0-2 the gun
+  comes up, the short butt *to the cheek*, the far hand under the barrel, the head down along it;
+  3-5 the aim, still; 6 fire: the pan flashes at the lock, the muzzle flashes, the smoke starts;
+  7 recoil, the muzzle kicking up 15° and the head and shoulders rocking back; 8 settle;
+  9-10 the gun stood upright at the near hip, the far hand over the muzzle driving the ramrod down
+  (as the men behind the tate in *Ashigaru using shields*); 11 back to port arms. The smoke stays
+  where the muzzle was, swelling and drifting up for the rest of the clip.
+- **Attack**: the gun levelled at the hip and rammed muzzle-first on a step.
+- **Brace**: the volley behind the tate, crouched low on a long stance, the gun at the cheek.
+- **Die**: back, away from the tate.
+
 ## Critique rounds
 
 ### Katana Samurai
@@ -136,6 +150,14 @@ committed; the screenshots in `docs/screenshots/hd-sprites/samurai-anim-*.png` a
    limb towers over the head) and the draw hand ends behind the ear, not at the chin.
 3. **Round 3.** The bow sweeping in the walk would boil the top of the sprite: the bow arm holds the
    key-art pose in the gait.
+
+### Teppō Ashigaru
+1. **Round 1.** The gun was presented at the chest, not the cheek: the arms now lift it until the
+   butt sits under the cheekbone, as in *Strings for night firing*.
+2. **Round 2.** The ramrod hand reached for a muzzle two heads above the hat: the gun is now stood
+   low at the hip so the muzzle is at the chin, and from behind the far arm reaches up and forward.
+3. **Round 3.** The forward fall carried the body under the tate; the butt-stroke rotated the gun
+   muzzle-up. He now falls back, away from it, and the melee rams the gun forward level.
 
 Katana Samurai lint (level 1/2/4/8): no FAIL. Warnings left: aligned band ends 0.24-0.30, outline and figure vs
 ground ΔL 0.07-0.13, light-angle error at levels 1-2, mid-widest silhouettes. Level-1 silhouette:

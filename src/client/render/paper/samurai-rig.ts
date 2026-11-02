@@ -95,6 +95,13 @@ export const FOOT_SPECS: Record<number, SSpec> = {
     // The charge: levelled at the hip in both hands, the point forward and a little down.
     run: { upperArmN: -12, forearmN: 74, weapon: 97, both: true },
   },
+  4: {
+    nearDeg: 127.5, twoHand: true, neNear: 'mirror', neFar: { el: [-0.9, -8.4], hn: [3.6, -9.33] }, neFront: true, backBone: 'pelvis',
+    attack: 'butt', shoot: 'teppo', brace: 'kneel', die: 'back', smear: [4.0, 7.0],
+    // Port arms, both hands on the gun, steady.
+    walk: { both: true },
+    run: { both: true, upperArmN: 10, forearmN: 100, weapon: 118 },
+  },
   3: {
     nearDeg: 167, farDeg: 180, neNear: 'mirror', neFar: { el: [-0.6, -9.0], hn: [2.0, -7.4] }, backBone: 'pelvis',
     attack: 'punch', shoot: 'kyudo', brace: 'ready', die: 'back',
@@ -197,7 +204,7 @@ const EXTRA: Record<string, { bone: string; att: string | null }> = {
   farDrop: { bone: 'dropF', att: null },
   scene: { bone: 'scene', att: 'scene' },
   fx: { bone: 'root', att: 'fx' },
-  ramrod: { bone: 'handN', att: null },
+  ramrod: { bone: 'handF', att: null },
   flash: { bone: 'root', att: 'flash' },
 };
 
@@ -285,6 +292,29 @@ export function footParts(kind: number, k: SFoot, s: SSpec): AttachmentSet {
     },
   };
   if (s.smear) atts.smear = smearPart('weapon', s.smear[0], s.smear[1], SM.steel);
+  if (s.shoot === 'teppo') {
+    // The shot: the pan flashes a beat before the muzzle (frame 6), the muzzle flash on 6-7, and
+    // the smoke where the muzzle was, swelling and drifting up and back as he reloads. Each
+    // `smoke` event carries the puff's age (int) and the muzzle point (str, figure units).
+    atts.fx = {
+      cache: false,
+      draw: (c, _x, ctx) => {
+        for (const e of ctx.events) {
+          if (!e.str) continue;
+          const [mx0, my0, deg] = e.str.split(',').map(Number) as [number, number, number];
+          const m: P2 = [mx0, my0];
+          if (e.name === 'pan') muzzleFlash(c, m, deg - 90, 0.55);
+          if (e.name === 'muzzle') muzzleFlash(c, m, deg, e.int ? 1.4 : 2.4);
+          if (e.name === 'smoke') smoke(c, [m[0] + 1.2, m[1] - 0.3], (e.int! + 1) / 7, 9, 1.8);
+        }
+      },
+    };
+    // The ramrod in the far hand, pushed down the barrel.
+    atts.ramrod = (c, x) => {
+      const top = x.at([0, -0.6]);
+      stick(c, top, [top[0], top[1] + 4.2], 0.18, SM.wood, 3);
+    };
+  }
   if (s.shoot === 'kyudo') {
     // The yumi, drawn on the frame: while the `draw` event runs the string goes to the draw hand,
     // the bow bends with the draw's length and the arrow lies on it; after the loose the bow has
@@ -501,12 +531,48 @@ const PUNCH: Author = (rw) => ({
   tAdd: { pelvis: [T([0, 0], [3, -0.35], [5, 0.55], [6, 0.55], [9, 0.2], [11, 0]), T([0, 0], [5, 0.25], [11, 0])], footTargetF: [T([0, 0], [3, 0], [5, 0.9], [8, 0.9], [10, 0.3], [11, 0]), T([0, 0], [4, -0.4], [5, 0], [11, 0])] },
 });
 
+/**
+ * Hōjutsu's shot and the first of the reload (the gun capture's timing; the Edo manuals' stance):
+ * 0-2 the gun comes up, the short butt to the cheek, the far hand under the barrel, the head down
+ * along it; 3-5 the aim, still; 6 fire (the pan, then the muzzle and the smoke); 7 the recoil, the
+ * muzzle kicking up 15° and the head and shoulders rocking back; 8 settle; 9-10 the gun stood
+ * muzzle-up at the hip and the ramrod driven down the barrel; 11 back to port arms.
+ */
+const TEPPO: Author = (rw, f) => ({
+  w: {
+    // (The reload: the gun stood upright low at the near hip, the muzzle at the chin, the far hand
+    // over it driving the ramrod down.)
+    upperArmN: R(rw.upperArmN!, 11, [2, 138], [5, 140], [6, 140], [7, 148], [8, 142], [9, -5], [10, -5]),
+    forearmN: R(rw.forearmN!, 11, [2, 86], [5, 88], [6, 88], [7, 100], [8, 90], [9, 10], [10, 10]),
+    weapon: R(rw.weapon!, 11, [2, 93], [5, 92], [6, 92], [7, 108], [8, 96], [9, 165], [10, 165]),
+    // (From behind the far shoulder is on the other side of the gun: the arm reaches up and forward.)
+    upperArmF: T([0, rw.upperArmF!], [8.5, rw.upperArmF!], [9, f === 'ne' ? 158 : 200], [10, f === 'ne' ? 150 : 192], [11, rw.upperArmF!]),
+    forearmF: T([0, rw.forearmF!], [8.5, rw.forearmF!], [9, f === 'ne' ? 150 : 212], [10, f === 'ne' ? 140 : 198], [11, rw.forearmF!]),
+    head: T([0, rw.head!], [2, rw.head! - 8], [6, rw.head! - 8], [7, rw.head! + 2], [8, rw.head! - 4], [9, rw.head!]),
+  },
+  dw: { spine: T([0, 0], [2, -6], [6, -6], [7, 4], [8, -2], [9, -4], [11, 0]) },
+  tAdd: { pelvis: [T([0, 0], [2, 0.1], [6, 0.15], [7, -0.35], [8, -0.1], [11, 0]), T([0, 0], [2, 0.2], [6, 0.2], [7, 0.15], [9, 0.25], [11, 0])] },
+  // The far hand leaves the stock for the ramrod.
+  ik: { armF2h: T([0, 1], [8.4, 1], [8.6, 0], [10.4, 0], [10.6, 1]) },
+});
+/** The gunner's melee: the teppō levelled at the hip and rammed muzzle-first into the enemy, two-handed, on a step. */
+const BUTT: Author = (rw) => ({
+  w: {
+    upperArmN: R(rw.upperArmN!, 11, [2, -10], [3, -24], [5, 46], [6, 48], [9, 0]),
+    forearmN: R(rw.forearmN!, 11, [2, 70], [3, 62], [5, 92], [6, 92], [9, 75]),
+    weapon: R(rw.weapon!, 11, [2, 98], [3, 98], [5, 95], [6, 95], [9, 105]),
+    head: T([0, rw.head!]),
+  },
+  dw: { spine: T([0, 0], [3, 8], [5, -14], [6, -14], [9, -4], [11, 0]) },
+  tAdd: { pelvis: [T([0, 0], [3, -0.35], [5, 0.55], [6, 0.55], [9, 0.2], [11, 0]), T([0, 0], [5, 0.25], [11, 0])], footTargetF: [T([0, 0], [3, 0], [5, 0.9], [8, 0.9], [10, 0.3], [11, 0]), T([0, 0], [4, -0.4], [5, 0], [11, 0])] },
+});
+
 const ATTACKS: Record<Attack, { clip: string; o: MocapOpts; a: Author; extra: number[]; ev: AnimEvent[] }> = {
   kesa: { clip: 'cut-diagonal', o: { torso: 0.5, travel: 0, feet: 0.3 }, a: KESA, extra: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], ev: [{ f: 5, name: 'smear', len: 3, bone: 'weapon' }, { f: 7, name: 'strike' }] },
   thrust: { clip: 'thrust', o: { torso: 0.3, travel: 0.3, feet: 0.3 }, a: THRUST, extra: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], ev: [{ f: 4, name: 'smear', len: 1, bone: 'weapon' }, { f: 5, name: 'strike' }] },
   jab: { clip: 'thrust', o: { torso: 0.3, travel: 0.3, feet: 0.3 }, a: JAB, extra: [2, 3, 4, 5, 6, 7, 8, 9, 10], ev: [{ f: 4, name: 'smear', len: 1, bone: 'weapon' }, { f: 5, name: 'strike' }] },
   punch: { clip: 'thrust', o: { torso: 0.3, travel: 0.3, feet: 0.3 }, a: PUNCH, extra: [3, 5, 6, 9], ev: [{ f: 5, name: 'strike' }] },
-  butt: { clip: 'thrust', o: {}, a: KESA, extra: [], ev: [] },
+  butt: { clip: 'thrust', o: { torso: 0.3, travel: 0.3, feet: 0.3 }, a: BUTT, extra: [3, 5, 6, 9], ev: [{ f: 5, name: 'smear', len: 1, bone: 'weapon' }, { f: 5, name: 'strike' }] },
   sweep: { clip: 'thrust', o: {}, a: KESA, extra: [], ev: [] },
   fan: { clip: 'thrust', o: {}, a: KESA, extra: [], ev: [] },
 };
@@ -515,7 +581,7 @@ const ATTACKS: Record<Attack, { clip: string; o: MocapOpts; a: Author; extra: nu
 const SHOOTS: Record<Exclude<Shoot, null>, { clip: string; o: MocapOpts; a: Author; extra: number[]; ev: AnimEvent[]; hide?: [string, number, number] }> = {
   javelin: { clip: 'thrust', o: { torso: 0.2, travel: 0, feet: 0 }, a: THROW, extra: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], ev: [{ f: 4, name: 'smear', len: 1, bone: 'weapon' }, { f: 5, name: 'release' }], hide: ['weapon', 5, 11] },
   kyudo: { clip: 'bow', o: { torso: 0.4, travel: 0.6, feet: 0.4 }, a: KYUDO, extra: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], ev: [{ f: 1, name: 'draw', len: 6 }, { f: 7, name: 'release' }], hide: ['weapon', 1, 11] },
-  teppo: { clip: 'gun', o: {}, a: THROW, extra: [], ev: [] },
+  teppo: { clip: 'gun', o: { ref: 'first', torso: 0.3, travel: 0.4, feet: 0.3 }, a: TEPPO, extra: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], ev: [{ f: 6, name: 'release' }] },
 };
 
 // ------------------------------------------------------------------ the rest
@@ -538,7 +604,12 @@ const BRACE: Record<Brace, Author> = {
   }),
   // A ready crouch, the weapon held as it is, the weight forward.
   ready: (rw) => ({ dw: { spine: T([0, -10]) }, w: { head: T([0, rw.head! - 2]) }, tAdd: { pelvis: [T([0, 0.2]), T([0, 0.8])], footTargetF: [T([0, 0.9]), T([0, 0])], footTargetN: [T([0, -0.6]), T([0, 0])] } }),
-  kneel: () => ({}),
+  // The volley behind the tate (the Edo manuals): crouched low on a long stance, the gun at the cheek, aiming.
+  kneel: (rw) => ({
+    dw: { spine: T([0, -10]) },
+    w: { head: T([0, rw.head! - 8]), upperArmN: T([0, 138]), forearmN: T([0, 86]), weapon: T([0, 93]) },
+    tAdd: { pelvis: [T([0, -0.3]), T([0, 1.5])], footTargetF: [T([0, 1.0]), T([0, 0])], footTargetN: [T([0, -1.1]), T([0, 0])] },
+  }),
   naginata: () => ({}),
   command: () => ({}),
 };
@@ -617,6 +688,29 @@ export function footClips(skel: SkeletonData, s: SSpec, k: SFoot): ClipSet {
     const sh = SHOOTS[s.shoot];
     shoot = fc('shoot', 12, false, (f) => mk(skel, f, sh.clip, sh.o, sh.a, sh.extra), sh.ev);
     if (sh.hide) shoot = hideSlot(shoot, sh.hide[0], sh.hide[1], sh.hide[2]);
+    if (s.shoot === 'teppo') {
+      // The muzzle where it fired (per facing), for the flash and the smoke that stays there.
+      shoot = mapFacings(shoot, (a, f) => {
+        const p = evaluate(skel, sampleClip(a, 6, 12, f), { level: 16, facing: f });
+        const w = p.byName.weapon!;
+        const deg = w.step * 7.5;
+        const mz: P2 = [Math.round((w.x + Math.sin((deg * Math.PI) / 180) * 7.1) * 100) / 100, Math.round((w.y + Math.cos((deg * Math.PI) / 180) * 7.1) * 100) / 100];
+        const pan: P2 = [Math.round((w.x + Math.sin((deg * Math.PI) / 180) * 0.6) * 100) / 100, Math.round((w.y + Math.cos((deg * Math.PI) / 180) * 0.6 - 0.35) * 100) / 100];
+        const ev: AnimEvent[] = [
+          { f: 6, name: 'pan', str: `${pan[0]},${pan[1]},${deg}` },
+          { f: 6, name: 'muzzle', int: 0, str: `${mz[0]},${mz[1]},${deg}` },
+          { f: 7, name: 'muzzle', int: 1, str: `${mz[0]},${mz[1]},${deg}` },
+          ...[6, 7, 8, 9, 10, 11].map((fr) => ({ f: fr, name: 'smoke', int: fr - 6, str: `${mz[0]},${mz[1]},${deg}` })),
+        ];
+        return { ...a, events: [...(a.events ?? []), ...ev], slots: { ...(a.slots ?? {}), ramrod: [{ f: 0, v: null }, { f: 9, v: 'ramrod' }, { f: 10.6, v: null }] } };
+      });
+    }
+  }
+  if (k.gear.scene) {
+    // The tate stays planted where it stood: not carried on the march.
+    const noScene = (c: Clip): Clip => mapFacings(c, (a) => ({ ...a, slots: { ...(a.slots ?? {}), scene: [{ f: 0, v: null }] } }));
+    walk = noScene(walk);
+    run = noScene(run);
   }
   // Struck: the shoulder and head snap back, the trunk follows, the rear foot steps back; a flash.
   const hitA: Author = (rw, f) => ({ ...HIT(rw, f), ...(s.nearDeg >= 160 ? { w: { weapon: T([0, rw.weapon! - 4], [1, rw.weapon! - 6], [4, rw.weapon!]) } } : {}) });
