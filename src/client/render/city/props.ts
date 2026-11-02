@@ -667,6 +667,7 @@ registerTheme('templar', {
     barracks: [G(3, [['barrels', 0, 0]]), G(2, [['crates', 0, 0], ['barrel', 7.6, 0]]), G(2, [['woodPile', 0, 0]]), G(1, [['washing', 0, 1.2]], 2), G(1, [['bench', 0, 0]])],
     keep: [G(3, [['barrels', 0, 0]]), G(2, [['crates', 0, 0]]), G(1, [['sacks', 0, 0], ['crate', 6.8, 0]]), G(1, [['pots', 0, 0]], 3)],
     range: [G(3, [['bales', 0, 0]]), G(2, [['crates', 0, 0]]), G(1, [['barrel', 0, 0]])],
+    walls: [G(3, [['woodPile', 0, 0]]), G(2, [['barrels', 0, 0]]), G(2, [['crates', 0, 0], ['sacks', 7.6, 0]]), G(1, [['bales', 0, 0]]), G(1, [['handcart', 0, 0.5]])],
   },
   // A fair outside the gate, either side of the road in, and a corner stall by the cross.
   market: [[262, 103], [276, 104], [290, 103], [262, 128], [278, 129], [294, 128], [304, 104], [308, 130], [200, 124]],
@@ -695,7 +696,7 @@ export interface PlaceOptions {
 }
 
 /** How many groups each tier puts along a building: an empty lot is bare, the grand tier busy. */
-const DENSITY = [0, 3, 6, 10, 15];
+const DENSITY = [0, 4, 8, 13, 20];
 
 /** Ground the town's life needs: the drill yard, the butts, the engine's trial ground. */
 const KEEP_CLEAR: [number, number, number, number][] = [
@@ -778,7 +779,7 @@ export function placeProps(o: PlaceOptions): Placed[] {
   }
 
   // Along the buildings' lit (+v) and right (+u) faces, the ones the viewer sees.
-  const keys = ['keep', 'chapter', 'barracks', 'range', 'granary', 'stables', 'workshop', 'hospital'] as (BuildingKey | 'keep')[];
+  const keys = ['keep', 'chapter', 'barracks', 'range', 'granary', 'stables', 'workshop', 'hospital', 'walls'] as (BuildingKey | 'keep')[];
   for (const key of keys) {
     const tier = tierOf(levelOf(key));
     const want = DENSITY[tier] ?? 0;
@@ -849,10 +850,10 @@ export function placeProps(o: PlaceOptions): Placed[] {
     }
   });
 
-  // A little clutter in open yards and the field edges from the timber tier.
-  for (let i = 0; i < top * 5; i++) {
-    const u = -60 + rnd() * 380;
-    const v = -60 + rnd() * 380;
+  // A little clutter in the open ground inside the walls.
+  for (let i = 0; i < top * 6; i++) {
+    const u = 8 + rnd() * 216;
+    const v = 8 + rnd() * 216;
     const g = pick(theme.groups.yard, top);
     if (g) tryGroup(g, u, v, 'u', 1);
   }

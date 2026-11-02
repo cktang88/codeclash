@@ -4,7 +4,7 @@
 // as anchors for the scene to animate.
 
 import type { BuildingKey } from '../../../game/city.ts';
-import { box, CLASSIC, cone, drum, gable, hash, hex, line3, mix, nightCanvas, NIGHT_RIG, OX, post, pyramid, Px, sx, sy, tone, v3, type Col, type Facing, type Frame, type NightRig, type Shader, type V3 } from './pixels.ts';
+import { box, CLASSIC, cone, drum, gable, hash, hex, line3, mix, nightCanvas, NIGHT_RIG, OX, post, pyramid, Px, recordFootprints, sx, sy, tone, unrecorded, v3, type Col, type Facing, type Footprint, type Frame, type NightRig, type Shader, type V3 } from './pixels.ts';
 import type { CityStyle, Ramp } from './style.ts';
 
 /** Level to tier: 0 empty lot, 1 timber, 2 stone, 3 fortified, 4 grand. */
@@ -66,6 +66,8 @@ export interface BuildingParts {
   targets: [number, number][];
   /** HD: emissive light sources (world pixels) and their colour: 0 grave-light green, 1 arcane violet. */
   glows?: [number, number, number][];
+  /** What stands on the ground (pixels.ts recordFootprints): props keep clear, shadows are cast from it. */
+  footprints?: Footprint[];
 }
 
 export const emptyParts = (): BuildingParts => ({ arts: [], smoke: [], banners: [], torches: [], bells: [], forges: [], stalls: [], targets: [] });
@@ -466,6 +468,13 @@ export function registerMill(id: string, kit: MillKit): void {
 }
 
 export function paintBuilding(key: BuildingKey | 'keep', a: PaintArgs, frame: Frame = CLASSIC): BuildingParts {
+  const fps: Footprint[] = [];
+  const parts = recordFootprints(() => paintBuildingAt(key, a, frame), fps);
+  parts.footprints = fps;
+  return parts;
+}
+
+function paintBuildingAt(key: BuildingKey | 'keep', a: PaintArgs, frame: Frame): BuildingParts {
   const P = painterFor(a.st, frame);
   P.reset();
   const parts = emptyParts();
@@ -515,7 +524,7 @@ export function paintBuilding(key: BuildingKey | 'keep', a: PaintArgs, frame: Fr
   }
   if (rising) {
     const lu = (u1 - u0) * 0.5;
-    P.scaffold(u0 + 4, v0 + 4, lu, (v1 - v0) * 0.5, 14 + tier * 4);
+    unrecorded(() => P.scaffold(u0 + 4, v0 + 4, lu, (v1 - v0) * 0.5, 14 + tier * 4));
   }
   parts.arts.unshift(P.finish(depth));
   return parts;

@@ -7,7 +7,8 @@
 import type { BuildingKey } from '../../../game/city.ts';
 import { GATE_V, LOT, tierOf, WALL, type Art } from './buildings.ts';
 import { FIELDS, GARDEN, PADDOCK, type Ground } from './ground.ts';
-import { box, hash, hex, mix, nightCanvas, post, Px, sx, sy, tone, v3, type Col, type Frame } from './pixels.ts';
+import { box, hash, hex, mix, nightCanvas, post, Px, sx, sy, tone, v3, type Col, type Footprint, type Frame } from './pixels.ts';
+import { shadowAt, SUN } from './props.ts';
 import { roadDistance } from './roads.ts';
 import type { CityStyle } from './style.ts';
 
@@ -65,6 +66,15 @@ function palette(id: string): Pal {
     tuft: [hex('#737a46'), hex('#3f472a')],
   };
 }
+
+/** Trees round the commandery (u, v, radius), also kept clear by the props. */
+export const TREES: [number, number, number][] = [
+  [262, 40, 7], [280, 70, 6], [300, 160, 8], [290, 200, 6], [258, 228, 7], [284, 250, 6], [236, 272, 7],
+  [-30, -20, 7], [-40, 230, 8], [-20, 262, 6], [10, 300, 7], [-50, 12, 6], [70, -84, 6], [236, -40, 7], [258, 4, 6],
+  [120, 316, 6], [-24, 120, 5], [252, 100, 5],
+  // Beyond the classic frame, in HD's margin.
+  [330, 20, 7], [340, 120, 8], [320, 280, 7], [-90, 60, 7], [-96, 180, 8], [30, -120, 6], [190, -110, 7], [60, 352, 7], [200, 340, 6],
+];
 
 /** The level-independent ground (grass, earth, flagstones, roads, the yard, tufts), per faction. */
 const STATIC = new Map<string, Uint32Array>();
@@ -148,7 +158,7 @@ function* staticGround(id: string, frame: Frame): Generator<void, Uint32Array> {
  * parts that depend on the levels (fields, the herb garden, the paddock, building shadows, the
  * walls' shadow and the moat), each over its own patch of pixels.
  */
-export function* groundSteps(st: CityStyle, levels: Record<BuildingKey, number>, maxLevel: number, frame: Frame): Generator<void, Ground> {
+export function* groundSteps(st: CityStyle, levels: Record<BuildingKey, number>, maxLevel: number, frame: Frame, casts?: Footprint[]): Generator<void, Ground> {
   const id = st.id;
   const stat = yield* staticGround(id, frame);
   const px = new Px(frame.w, frame.h, frame);
@@ -158,6 +168,9 @@ export function* groundSteps(st: CityStyle, levels: Record<BuildingKey, number>,
   const data = px.data;
   const W = frame.w;
   const P = palette(id);
+  /** Shadow depth already laid per pixel, and the colour under it, so overlapping casts never double-darken. */
+  const shadowed = new Float32Array(casts ? data.length : 0);
+  const unshade = new Uint32Array(casts ? data.length : 0);
   const sown = sownOf(levels);
   const wallsT = tierOf(levels.walls);
   const ht = tierOf(levels.hospital);
@@ -234,17 +247,35 @@ export function* groundSteps(st: CityStyle, levels: Record<BuildingKey, number>,
     });
   // Paddock: churned earth.
   if (levels.stables > 0) region(PADDOCK[0], PADDOCK[1], PADDOCK[2], PADDOCK[3], (i, _u, _v, cell) => (data[i] = cell < 0.5 ? P.earth[3]! : tone(P.earth[1]!, 0.08)));
-  // Building shadows toward the lower right.
-  for (const k of Object.keys(LOT) as (BuildingKey | 'keep')[]) {
-    if (k === 'walls') continue;
-    const lvl = k === 'keep' ? Math.max(maxLevel, 1) : levels[k];
-    if (lvl <= 0) continue;
-    const [u0, v0, u1, v1] = LOT[k];
-    const len = (k === 'keep' ? 30 + tierOf(lvl) * 8 : 10 + tierOf(lvl) * 3) * 0.6;
-    region(Math.max(u0 + 2, u1 - 2), v0 + 2, u1 + len, v1, (i) => (data[i] = tone(data[i]!, 0.26)));
-  }
+  if (casts) {
+    // Cast shadows from everything that stands on the ground (the buildings' recorded footprints
+    // and the props), swept along the sun: deep and cool, softer at the tip.
+    const shade = id === 'undead' ? hex('#1c1830') : hex('#2a2c50');
+    for (const f of casts) {
+      const lu = SUN[0] * f[4];
+      const lv = SUN[1] * f[4];
+      region(f[0], Math.min(f[1], f[1] + lv), f[2] + lu, f[3], (i, u, v) => {
+        const s = shadowAt(u, v, [f]);
+        if (!s || shadowed[i]! >= s) return;
+        const was = shadowed[i]!;
+        shadowed[i] = s;
+        const c = was ? unshade[i]! : data[i]!;
+        if (!was) unshade[i] = c;
+        data[i] = mix(c, shade, s >= 1 ? 0.42 : 0.26);
+      });
+    }
+  } else
+    for (const k of Object.keys(LOT) as (BuildingKey | 'keep')[]) {
+      // Building shadows toward the lower right.
+      if (k === 'walls') continue;
+      const lvl = k === 'keep' ? Math.max(maxLevel, 1) : levels[k];
+      if (lvl <= 0) continue;
+      const [u0, v0, u1, v1] = LOT[k];
+      const len = (k === 'keep' ? 30 + tierOf(lvl) * 8 : 10 + tierOf(lvl) * 3) * 0.6;
+      region(Math.max(u0 + 2, u1 - 2), v0 + 2, u1 + len, v1, (i) => (data[i] = tone(data[i]!, 0.26)));
+    }
   // The walls' shadow inside.
-  if (wallsT > 0) region(2, 2, 5 + wallsT * 3, WALL - 2, (i) => (data[i] = tone(data[i]!, 0.16)));
+  if (wallsT > 0 && !casts) region(2, 2, 5 + wallsT * 3, WALL - 2, (i) => (data[i] = tone(data[i]!, 0.16)));
   yield;
   // Ditch (Templar), wet moat (Samurai) or a black mere (Undead) outside stone walls.
   if (wallsT >= 2) {
@@ -350,13 +381,7 @@ export function* groundSteps(st: CityStyle, levels: Record<BuildingKey, number>,
   // Trees and fences.
   const arts: Art[] = [];
   const tp = new Px(frame.w, frame.h, frame);
-  const trees: [number, number, number][] = [
-    [262, 40, 7], [280, 70, 6], [300, 160, 8], [290, 200, 6], [258, 228, 7], [284, 250, 6], [236, 272, 7],
-    [-30, -20, 7], [-40, 230, 8], [-20, 262, 6], [10, 300, 7], [-50, 12, 6], [70, -84, 6], [236, -40, 7], [258, 4, 6],
-    [120, 316, 6], [-24, 120, 5], [252, 100, 5],
-    // Beyond the classic frame, in HD's margin.
-    [330, 20, 7], [340, 120, 8], [320, 280, 7], [-90, 60, 7], [-96, 180, 8], [30, -120, 6], [190, -110, 7], [60, 352, 7], [200, 340, 6],
-  ];
+  const trees = TREES;
   trees.forEach(([u, v, r], i) => {
     tp.clear();
     if (id === 'samurai') (i % 5 === 2 ? sakura : pine)(tp, u, v, r, i, st);
