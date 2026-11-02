@@ -78,13 +78,13 @@ function dye(ls: readonly number[], cs: readonly number[], h: number): RGB[] {
 }
 const KM = {
   /** The levy's padded gambeson: undyed, ochre with dirt. */
-  ochre: defineMaterial('templar.k.ochre', dye([0.2, 0.31, 0.41, 0.5, 0.59], [0.035, 0.065, 0.08, 0.07, 0.06], 78)),
+  ochre: defineMaterial('templar.k.ochre', dye([0.2, 0.34, 0.64, 0.73, 0.81], [0.03, 0.06, 0.07, 0.06, 0.05], 78)),
   /** The javelin men's madder-red tunics. */
   madder: defineMaterial('templar.k.madder', dye([0.17, 0.23, 0.3, 0.38, 0.47], [0.05, 0.075, 0.085, 0.07, 0.05], 30)),
   /** The pilgrims' undyed grey hoods and short tunics (cool, slate). */
-  slate: defineMaterial('templar.k.slate', dye([0.2, 0.3, 0.39, 0.48, 0.57], [0.012, 0.016, 0.018, 0.016, 0.014], 95)),
+  slate: defineMaterial('templar.k.slate', dye([0.2, 0.35, 0.6, 0.69, 0.78], [0.02, 0.025, 0.03, 0.025, 0.02], 250)),
   /** Linen hose and leg wraps. */
-  wraps: defineMaterial('templar.k.wraps', dye([0.2, 0.28, 0.36, 0.44, 0.52], [0.02, 0.03, 0.035, 0.03, 0.025], 85)),
+  wraps: defineMaterial('templar.k.wraps', dye([0.25, 0.48, 0.63, 0.72, 0.8], [0.02, 0.03, 0.035, 0.03, 0.025], 85)),
   /** The brothers' polished mail: bright silver with hard lights (the key art's heroic steel). */
   silver: defineMaterial('templar.k.silver', dye([0.66, 0.44, 0.62, 0.76, 0.9], [0.012, 0.015, 0.016, 0.014, 0.01], 240)),
   /** The Iron Brethren's black tabard on a light (white-mantled) figure: near-black, cool, with the pale deep tone of the light class. */
@@ -161,7 +161,9 @@ export function vol(c: Paper, a0: P2, b0: P2, prof: Profile, m: Mat, o: VolOpts 
   const base = o.tone ?? 2;
   const A: P2 = [c.sx(a[0]), c.sy(a[1])], B: P2 = [c.sx(b[0]), c.sy(b[1])];
   c.poly([...left, ...right.reverse()].map((p) => [c.sx(p[0]), c.sy(p[1])] as P2), (x, y, u, v) => {
-    const ul = (u * maxW) / Math.max(0.05, halfAt(prof, Math.min(1, Math.max(0, v))));
+    // Across the width (-1 lit .. 1 shadow), the terminators wandering a little along the part
+    // (bands that keep a fixed distance from the outline hug it; level 4 and up).
+    const ul = (u * maxW) / Math.max(0.05, halfAt(prof, Math.min(1, Math.max(0, v)))) + (c.L >= 4 ? 0.22 * Math.sin(v * 9) : 0);
     if (o.detail) {
       const r = o.detail(x, y, ul, v);
       if (r >= 0) return r;
@@ -172,10 +174,14 @@ export function vol(c: Paper, a0: P2, b0: P2, prof: Profile, m: Mat, o: VolOpts 
     }
     // A crisp specular strip on hard materials, set in from the lit edge.
     if (o.shine && ul > -0.62 && ul < -0.38 && v > 0.12 && v < 0.7) return code(m, base + 2);
-    if (ul < -0.5 + c.band) return code(m, base + 1);
-    // Rim light: the shadow side's outermost sliver catches reflected light from the ground.
-    if (ul > 0.84 && v > 0.15 && v < 0.85) return code(m, base);
-    if (ul > 0.4 + c.band) return code(m, base - 1);
+    // The lit band stops short of the far end and the shadow band of the near end, so the three
+    // bands never start and end on the same rows (column banding; README no-boil rule 5).
+    // (At level 2 a limb is 2-3 px across and the lit band a 1 px stripe beside the base: none.)
+    if (ul < -0.5 + c.band && v < 0.84 && c.L !== 2) return code(m, base + 1);
+    // Rim light: the shadow side's outermost sliver catches reflected light from the ground (only
+    // on the middle of the limb, so it does not run the length of the outline: hugging).
+    if (ul > 0.84 && v > 0.3 && v < 0.62) return code(m, base);
+    if (ul > 0.4 + c.band && v > 0.1) return code(m, base - 1);
     return code(m, base);
   }, { a: A, b: B, w: 2 * maxW * c.L });
 }
@@ -227,6 +233,15 @@ export interface SKit {
   wide?: boolean;
   /** The tabard's cross runs long, from the chest to the hem. */
   longCross?: boolean;
+  /**
+   * Where the garment's shadow plane starts across the torso, hood and cape (key-art units from
+   * the centre line; default 1.35, the far flank only). A light garment on a figure that must
+   * read dark against the field turns its whole far half into shade, keeping its lit and base
+   * tones (and so its dye) as approved.
+   */
+  shadeFrom?: number;
+  /** The chest cross is mostly behind a shield held across the body (the sergeants' kite). */
+  coveredCross?: boolean;
 }
 
 /** The fixed key-art pose (units, feet at 0, facing SE: forward is screen right). */
@@ -243,6 +258,17 @@ const J = {
   head: [0.15, -13.15] as P2,
 };
 
+/**
+ * A leg's tone: the far one in shade. At level 1 the legs are the darkest of the figure (the
+ * light falls from above: the chest lit, the skirt in shade, the legs and boots below it darker
+ * still), else a 13 px figure reads as lit from the ground.
+ */
+/**
+ * At level 2 the legs are drawn a little fuller so they meet: a 1 px slot between them fills with
+ * outline and runs down beside both legs, row for row (column banding).
+ */
+const legGirth = (c: Paper): number => (c.L === 2 ? 1.25 : 1);
+const legTone = (c: Paper, far: boolean): number => (c.L < 2 ? (far ? 0 : 1) : far ? 1 : 2);
 /** One leg: a thigh with mass, the knee, a calf, the boot with its turned-down top, the foot. */
 function legS(c: Paper, hip: P2, knee: P2, ank: P2, k: SKit, far: boolean): void {
   thighS(c, hip, knee, k, far);
@@ -251,22 +277,24 @@ function legS(c: Paper, hip: P2, knee: P2, ank: P2, k: SKit, far: boolean): void
 }
 /** The thigh and the knee. */
 export function thighS(c: Paper, hip: P2, knee: P2, k: SKit, far: boolean): void {
-  const t = far ? 1 : 2;
-  vol(c, hip, knee, [[0, 0.82], [0.35, 0.8], [0.8, 0.66], [1, 0.62]], k.legs, { tone: t });
+  const t = legTone(c, far);
+  const g = legGirth(c);
+  vol(c, hip, knee, [[0, 0.82 * g], [0.35, 0.8 * g], [0.8, 0.66 * g], [1, 0.62 * g]], k.legs, { tone: t });
   // Knee: the mail bulges over a padded knee.
   blob(c, addP(knee, [0.05, 0.05]), 0.66, 0.6, k.legs, { tone: t, detail: isMailS(k.legs) ? (x, y, nx) => mailTex(c, x, y, nx < -0.2 ? -1 : 0, t, k.legs) : undefined });
 }
 /** The calf and the boot's leg with its cuff. */
 export function shinS(c: Paper, knee: P2, ank: P2, k: SKit, far: boolean): void {
-  const t = far ? 1 : 2;
-  vol(c, knee, ank, [[0, 0.6], [0.3, 0.66], [0.7, 0.5], [1, 0.45]], k.legs, { tone: Math.max(1, t - 1) });
+  const t = legTone(c, far);
+  const g = legGirth(c);
+  vol(c, knee, ank, [[0, 0.6 * g], [0.3, 0.66 * g], [0.7, 0.5 * g], [1, 0.45 * g]], k.legs, { tone: c.L < 2 ? t : Math.max(1, t - 1) });
   // Boot: ankle boot with a cuff.
   const top = lerp(knee, ank, 0.58);
   vol(c, top, ank, [[0, 0.55], [0.12, 0.6], [0.2, 0.53], [1, 0.5]], k.boots, { tone: t, detail: (_x, _y, _u, v) => (v < 0.14 ? code(k.boots, t + 1) : -1) });
 }
 /** The foot pointing forward. */
 export function footS(c: Paper, ank: P2, k: SKit, far: boolean): void {
-  const t = far ? 1 : 2;
+  const t = legTone(c, far);
   const pts: P2[] = [addP(ank, [-0.5, -0.35]), addP(ank, [0.45, -0.3]), addP(ank, [1.35, 0.25]), addP(ank, [1.3, 0.55]), addP(ank, [-0.55, 0.55])];
   if (!XF) {
     c.shape(pts, (_x, y) => code(k.boots, y < c.sy(ank[1] + 0.05) ? t + 1 : y > c.sy(ank[1] + 0.4) ? t - 1 : t));
@@ -323,8 +351,11 @@ function torsoS(c: Paper, k: SKit, back: boolean): void {
   shapeU(c, pts, [0, 0], (x, y, ux, uy) => {
     // Light: the upper left; the chest plane faces the viewer and catches it, the far flank and
     // the skirt's underside fall away.
-    const side = ux + (uy + 9) * 0.12;
-    let t = side < -1.25 ? 3 : side > 1.35 ? 1 : 2;
+    // The terminators wander with the cloth's folds (straight ones would run parallel to the
+    // flanks: bands hugging the outline). Keyed to key-art height, so they ride with the cloth.
+    const side = ux + (uy + 9) * 0.12 + (c.L >= 4 ? 0.28 * Math.sin(uy * 2.3) : 0);
+    // (At level 2 the lit flank is a 1 px column beside the base, starting under the belt with it: a stripe, so none.)
+    let t = side < -1.25 && c.L !== 2 ? 3 : side > (k.shadeFrom ?? 1.35) ? 1 : 2;
     if (uy < -10.6 && ux < 1.0) t = Math.max(t, 3); // shoulders' top plane
     // At level 1 (three tones) the form is one gradient: the chest catches the light, the skirt
     // below the belt falls into shade, so the light reads from above.
@@ -336,7 +367,8 @@ function torsoS(c: Paper, k: SKit, back: boolean): void {
     }
     if (!back && Math.abs(ux - 0.7) < 0.14 && uy > -7.95 && uy < -6.6) return code(k.belt ?? TM.leather, 1);
     // The cross on the chest (or the back): a broad red cross, its arms reaching the flanks.
-    if (k.cross && uy > -11.5 && uy < (k.longCross ? hemY - 0.2 : -8.5)) {
+    // (A chest cross the kite covers shows only as a 1 px red sliver beside it at level 2: none there.)
+    if (k.cross && !(c.L === 2 && k.coveredCross) && uy > -11.5 && uy < (k.longCross ? hemY - 0.2 : -8.5)) {
       const vx = ux - crossX - (k.longCross ? (uy + 8) * 0.04 : 0);
       if ((within(c, vx, k.longCross ? 0.48 : 0.42) && uy > -11.35 && !(uy > -8.45 && uy < -7.95)) || (within(c, uy + 10.25, 0.38) && Math.abs(vx) < 1.45)) return code(TM.red, vx < -0.2 ? 3 : side > 1.3 ? 1 : 2);
     }
@@ -348,8 +380,10 @@ function torsoS(c: Paper, k: SKit, back: boolean): void {
       for (const f0 of c.L >= 4 ? [-1.0, 0.25, 1.35] : []) {
         const dd = fx - f0;
         // A fold: its shadowed channel, and the lit ridge beside it (a clear two-step contrast).
+        // The ridge stops short of the hem, each fold at its own height, so ridge and channel do
+        // not end on one row.
         if (dd > 0 && dd < 0.26 && uy > -7.0) return code(garment, t - 1);
-        if (dd > -0.24 && dd <= 0 && uy > -6.8) return code(garment, Math.min(4, t + 1 + (t < 3 ? 1 : 0)));
+        if (dd > -0.24 && dd <= 0 && uy > -6.8 && uy < hemY - 0.55 - f0 * 0.2) return code(garment, Math.min(4, t + 1 + (t < 3 ? 1 : 0)));
       }
       // Dirt and wear rising from the hem.
       const hem = hemY - uy;
@@ -383,14 +417,14 @@ function camail(c: Paper, m: Mat, back: boolean): void {
  * The pilgrim's hood cape: cloth over the shoulders with a dagged hem, two folds, and the lead
  * scallop badge of Santiago pinned at the chest.
  */
-function hoodCape(c: Paper, m: Mat): void {
-  shapeU(c, [[-1.2, -13.2], [1.3, -13.2], [2.0, -12.0], [2.75, -11.2], [2.4, -10.3], [1.0, -9.9], [-0.4, -10.2], [-1.7, -9.95], [-2.75, -10.6], [-2.1, -12.0]], [0, -11.5], (_x, _y, ux, uy) => {
+function hoodCape(c: Paper, m: Mat, shadeFrom = 1.6): void {
+  shapeU(c, [[-1.2, -13.2], [1.3, -13.2], [2.0, -12.0], [2.75, -11.2], [2.4, -10.3], [1.0, -9.9], [-0.4, -10.2], [-1.7, -9.95], [-2.75, -10.6], [-2.4, -12.2]], [0, -11.5], (_x, _y, ux, uy) => {
     if (uy > 1.2 + 0.2 * Math.sin(ux * 6)) return -1;
     if (Math.hypot(ux - 0.7, uy - 0.6) < 0.38) return code(TM.white, Math.hypot(ux - 0.6, uy - 0.5) < 0.18 ? 4 : 2); // the scallop
     const fx = ux - uy * 0.3;
     if (Math.abs(fx + 0.9) < 0.13 || Math.abs(fx - 1.6) < 0.13) return code(m, 1);
     if (Math.abs(fx + 1.15) < 0.12 || Math.abs(fx - 1.35) < 0.12) return code(m, 3);
-    return code(m, ux < -1.2 ? 3 : ux > 1.6 ? 1 : 2);
+    return code(m, ux < -1.2 ? 3 : ux > shadeFrom ? 1 : 2);
   });
 }
 
@@ -488,8 +522,8 @@ function helmS(c: Paper, h: SHelm, o: P2, back: boolean, beard: boolean, coif: M
     return;
   }
   if (h === 'hood') return;
-  // cap
-  blob(c, addP(o, [-0.05, -0.65]), 1.05, 0.68, TM.wool, { tone: 2 });
+  // cap (at level 1 its crown is the top of the dark mass, where the light falls)
+  blob(c, addP(o, [-0.05, -0.65]), 1.05, 0.68, TM.wool, { tone: c.L < 2 ? 4 : 2 });
 }
 
 /** A big kite shield held tight against the body (team field or the Temple's arms). */
@@ -540,12 +574,12 @@ function kiteS(c: Paper, ctr: P2, w: number, h: number, back: boolean, temple: b
   });
 }
 
-/** A round shield, big, held tight: team field quartered, iron rim, a boss. */
-function roundS(c: Paper, ctr: P2, r: number): void {
+/** A round shield, big, held tight: team field quartered, a rim (iron, or dark rawhide), a boss. */
+function roundS(c: Paper, ctr: P2, r: number, rim: Mat = TM.steel): void {
   blob(c, ctr, r * 0.86, r, TM.team, {
     detail: (x, y, nx, ny) => {
       const d = Math.hypot(nx, ny);
-      if (d > 0.88) return code(TM.steel, nx + ny < -0.4 ? 4 : nx + ny > 0.6 ? 1 : 2);
+      if (d > 0.88) return rim === TM.steel ? code(TM.steel, nx + ny < -0.4 ? 4 : nx + ny > 0.6 ? 1 : 2) : code(rim, nx + ny < -0.4 ? 2 : 1);
       if (d < 0.22) return code(TM.steel, nx + ny < -0.1 ? 4 : 2);
       if (d < 0.3) return code(TM.steel, 1);
       if (c.tex(x, y, 79, 3) < 0.05) return code(TM.wood, 2);
@@ -590,7 +624,8 @@ function cloakS(c: Paper, hemY = -0.55, sweep = 0, back = false): void {
     // The heavy cloth turns away from the eye at its sides and hem: a shade band along the
     // silhouette, so the mantle's outline is dark all round (it never averages out to the grass).
     const left = -2.9 - spread * 1.3, right = 3.0 + spread * 1.6;
-    if (c.L >= 2 && (ux - left < 0.5 || right - ux < 0.5 || uy > hemY - 0.45)) t = 1;
+    // (Not at level 2, where it is a 1 px band hugging the outline all round.)
+    if (c.L >= 4 && (ux - left < 0.5 || right - ux < 0.5 || uy > hemY - 0.45)) t = 1;
     return code(TM.white, Math.max(1, Math.min(4, t)));
   });
 }
@@ -683,7 +718,7 @@ export function manPiece(c: Paper, k: SKit, g: SGear, p: ManPiece, R: ManRest, o
     case 'torso': torsoS(c, k, back); return;
     case 'fur': if (k.cloak) furS(c); return;
     case 'camail': if (k.camail) camail(c, k.camail, back); return;
-    case 'hood': if (k.hood) hoodCape(c, k.hood); return;
+    case 'hood': if (k.hood) hoodCape(c, k.hood, k.shadeFrom === undefined ? 1.6 : k.shadeFrom + 0.2); return;
     case 'pouch': if (k.pouch) vol(c, [-1.45, -8.0], [-1.6, -6.85], [[0, 0.32], [0.6, 0.5], [1, 0.42]], TM.leather, { tone: 2, detail: (_x, _y, _u, v) => (v < 0.18 ? code(TM.leather, 3) : -1) }); return;
     case 'head': helmS(c, k.helm, R.head, back, k.beard ?? true, k.hood ?? k.camail ?? (isMailS(k.body) ? k.body : null)); return;
     case 'front': g.front?.(c); return;
@@ -710,7 +745,9 @@ function paviseS(c: Paper, ctr: P2, w: number, h: number, deg: number): void {
     const [lx, ly] = local(c, F, x, y);
     const ex = w / 2 - Math.abs(lx), ey = h / 2 - Math.abs(ly);
     const u = lx / (w / 2);
-    if (ex < 0.3 || ey < 0.3) return code(TM.white, ex < 0.13 || ey < 0.13 ? 1 : u < 0 ? 3 : 2);
+    // The rim, one band lit on the left (the figure's outline closes it: a darker line inside it
+    // too would be a second outline, hugging the first).
+    if (ex < 0.3 || ey < 0.3) return code(TM.white, u < 0 ? 3 : 2);
     if (within(c, lx + 0.1, 0.14)) return code(TM.team, 3); // the keel
     if ((within(c, lx + 0.1, 0.38) && Math.abs(ly + 0.2) < h * 0.32) || (within(c, ly + h * 0.12, 0.36) && Math.abs(lx + 0.1) < w * 0.3)) return code(TM.white, u < 0 ? 3 : 2);
     if (c.tex(x, y, 83, 3) < 0.05) return code(TM.wood, 2);
@@ -720,7 +757,7 @@ function paviseS(c: Paper, ctr: P2, w: number, h: number, deg: number): void {
 
 /** A fan of spare javelins in the shield hand. */
 function javelinsS(c: Paper, hand: P2, turn = 0): void {
-  for (const d of [-10, 0, 10]) spear(c, addP(hand, [d * 0.01, 0]), 180 + d + turn, 7.6, 1.8, { head: 1.1, w: 0.28, wood: c.L < 2 ? TM.ash : TM.gambeson });
+  for (const d of [-10, 0, 10]) spear(c, addP(hand, [d * 0.01, 0]), 180 + d + turn, 7.6, 1.8, { head: 1.1, w: 0.28, wood: c.L < 2 ? TM.ink : TM.gambeson });
 }
 
 /** The Iron Brethren's ailettes: square boards on the shoulders in the army colour. */
@@ -757,13 +794,13 @@ function daneAxeS(c: Paper, grip: P2, deg: number): void {
 
 // ------------------------------------------------------------------ the kinds (foot)
 
-const SERGEANT: SKit = { helm: 'kettle', body: TM.mailDk, coat: TM.black, cross: true, camail: TM.mailDk, sleeve: TM.mailDk, hand: TM.leather, legs: TM.mailDk, boots: TM.leather };
+const SERGEANT: SKit = { helm: 'kettle', body: TM.mailDk, coat: TM.black, cross: true, camail: TM.mailDk, sleeve: TM.mailDk, hand: TM.leather, legs: TM.mailDk, boots: TM.leather, coveredCross: true };
 // The four foot kinds told apart by kit and colour: the sergeant's black surcoat over mail; the
 // levy's undyed ochre gambeson; the javelin men's short madder tunics, unarmoured; the pilgrims'
 // slate hoods with the scallop and short tunics.
-const LEVY: SKit = { helm: 'nasal', body: KM.ochre, coat: null, quilted: true, camail: null, sleeve: KM.ochre, hand: TM.flesh, legs: KM.wraps, boots: TM.leather };
+const LEVY: SKit = { helm: 'nasal', body: KM.ochre, coat: null, quilted: true, camail: null, sleeve: KM.ochre, hand: TM.flesh, legs: TM.wool, boots: TM.leather, shadeFrom: 0.0 };
 const JAVELIN: SKit = { helm: 'cap', body: KM.madder, coat: null, short: true, pouch: true, camail: null, sleeve: KM.madder, hand: TM.flesh, legs: KM.wraps, boots: TM.leather, belt: TM.team };
-const ARCHER: SKit = { helm: 'hood', hood: KM.slate, body: KM.slate, coat: null, short: true, camail: null, sleeve: KM.slate, hand: TM.flesh, legs: KM.wraps, boots: TM.leather };
+const ARCHER: SKit = { helm: 'hood', hood: KM.slate, body: KM.slate, coat: null, short: true, camail: null, sleeve: KM.slate, hand: TM.flesh, legs: TM.wool, boots: TM.leather, shadeFrom: 0.45 };
 const XBOW: SKit = { helm: 'kettle', body: TM.wool, coat: null, quilted: true, camail: TM.mailDk, sleeve: TM.wool, hand: TM.leather, legs: TM.wool, boots: TM.leather, belt: TM.team };
 // The Iron Brethren as the painted Templar: a black tabard with the long red cross over silver mail
 // and layered pauldrons, the heavy white mantle with a fur collar, steel gauntlets, a wide stance.
@@ -785,8 +822,8 @@ export const FOOT: Record<number, { kit: SKit; gear: SGear; dark: boolean }> = {
     dark: true,
     gear: {
       // A big round shield held close; the spear grounded, half again his height.
-      front: (c) => roundS(c, [1.85, -8.6], 2.75),
-      near: { el: [-2.95, -8.9], wr: [-2.5, -7.0], draw: (c, h, d) => void spear(c, h, 180 + d, 12.5, 6.4, { head: 1.9, w: 0.34 }) },
+      front: (c) => roundS(c, [1.85, -8.6], 2.75, TM.leather),
+      near: { el: [-2.95, -8.9], wr: [-2.5, -7.0], draw: (c, h, d) => void spear(c, h, 180 + d, 12.5, 6.4, { head: 1.9, w: 0.34, tone: c.L >= 4 ? 1 : 2 }) }, // a dark haft beside the pale gambeson
     },
   },
   2: {
@@ -794,7 +831,7 @@ export const FOOT: Record<number, { kit: SKit; gear: SGear; dark: boolean }> = {
     dark: true,
     gear: {
       far: { el: [2.85, -8.9], wr: [3.35, -7.4], draw: (c, h, d) => { javelinsS(c, h, d); roundS(c, addP(h, [0.55, 0.1]), c.L < 2 ? 1.9 : 1.35); } },
-      near: { el: [-2.95, -9.0], wr: [-2.2, -7.2], draw: (c, h, d) => void spear(c, h, 120 + d, 5.6, 2.4, { head: 1.15, w: 0.3, wood: c.L < 2 ? TM.ash : TM.gambeson }) },
+      near: { el: [-2.95, -9.0], wr: [-2.2, -7.2], draw: (c, h, d) => void spear(c, h, 120 + d, 5.6, 2.4, { head: 1.15, w: 0.3, wood: c.L < 2 ? TM.ink : TM.gambeson }) },
     },
   },
   3: {
@@ -1162,7 +1199,7 @@ function riderTorsoS(c: Paper, k: SKit, back: boolean): void {
   const garment = k.coat ?? k.body;
   shapeU(c, [[-0.75, -12.15], [0.85, -12.15], [2.45, -11.75], [2.6, -10.7], [2.3, -9.4], [1.75, -8.25], [2.0, -7.0], [3.2, -5.6], [2.8, -4.9], [0.6, -5.2], [-1.6, -5.4], [-2.4, -6.2], [-1.9, -7.4], [-1.8, -8.25], [-2.35, -9.4], [-2.6, -10.7], [-2.5, -11.75]], [0, 0], (x, y, ux, uy) => {
     const side = ux + (uy + 9) * 0.12;
-    let t = side < -1.25 ? 3 : side > 1.35 ? 1 : 2;
+    let t = side < -1.25 ? 3 : side > (k.shadeFrom ?? 1.35) ? 1 : 2;
     if (uy < -10.6 && ux < 1.0) t = Math.max(t, 3);
     if (uy > -8.45 && uy < -7.95) return code(k.belt ?? TM.leather, ux < -1.2 ? 3 : 2);
     if (k.cross && uy > -11.5 && uy < -8.5) {
@@ -1269,7 +1306,10 @@ function crewS(c: Paper, dx: number, g: SGear): void {
 }
 
 export type EnginePiece = 'farTimbers' | 'beam' | 'sling' | 'stone' | 'ropes' | 'nearTimbers';
-const timberS = (c: Paper, a: P2, b: P2, w: number, t: number) => vol(c, a, b, [[0, w], [1, w * 0.92]], TM.wood, { tone: t, detail: (x, y) => (c.tex(x, y, 33, 3) < 0.06 ? code(TM.wood, t - 1) : -1) });
+// A squared timber. At level 4 (5 px across) lit, base and shadow bands would each run a pixel or
+// two inside its edges, parallel to them (hugging): one plane per timber there, the grain kept.
+const timberS = (c: Paper, a: P2, b: P2, w: number, t: number) =>
+  vol(c, a, b, [[0, w], [1, w * 0.92]], TM.wood, { tone: t, detail: (x, y) => (c.tex(x, y, 33, 3) < 0.06 ? code(TM.wood, t - 1) : c.L === 4 ? code(TM.wood, t) : -1) });
 /** One piece of the traction trebuchet (Maciejowski fol. 23v): trestle, lashed beam, sling, ropes. */
 export function enginePiece(c: Paper, p: EnginePiece): void {
   const { piv, longEnd, shortEnd, pouch } = ENGINE;

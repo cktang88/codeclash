@@ -669,11 +669,11 @@ export function sword(c: Paper, grip: P2, deg: number, len = 5.4): void {
 }
 
 /** A spear or lance from the grip: haft `fwd` ahead and `aft` behind along `deg`, a leaf head. */
-export function spear(c: Paper, grip: P2, deg: number, fwd: number, aft: number, opts: { head?: number; pennon?: number | null; w?: number; wood?: Mat } = {}): P2 {
+export function spear(c: Paper, grip: P2, deg: number, fwd: number, aft: number, opts: { head?: number; pennon?: number | null; w?: number; wood?: Mat; tone?: number } = {}): P2 {
   const tip = along(grip, deg, fwd);
   const butt = along(grip, deg + 180, aft);
   const w = opts.w ?? 0.3;
-  c.rod(butt, tip, w, w * 0.85, opts.wood ?? TM.ash, { tone: 2 });
+  c.rod(butt, tip, w, w * 0.85, opts.wood ?? TM.ash, { tone: opts.tone ?? 2 });
   if (c.L < 2) c.line(butt, tip, code(opts.wood ?? TM.ash, 2));
   // Leaf head with a midrib and a socket (Met 26470), oversized to read.
   const hl = opts.head ?? 1.5;
@@ -737,10 +737,12 @@ export function bow(c: Paper, grip: P2, deg: number, len: number, draw: number, 
   if (nock) {
     c.line(tipA, nock, code(TM.white, 2));
     c.line(nock, tipB, code(TM.white, 2));
-  } else c.line(tipA, tipB, code(TM.white, 1));
-  for (let i = 0; i < 8; i++) c.rod(pts[i]!, pts[i + 1]!, i === 3 || i === 4 ? 0.36 : 0.3, i === 3 || i === 4 ? 0.36 : 0.26, TM.ash, { tone: i < 4 ? 2 : 1 });
-  // At level 1 the stave is thinner than a pixel: a 1 px line keeps the bow, the archer's signature.
-  if (c.L < 2) for (let i = 0; i < 8; i++) c.line(pts[i]!, pts[i + 1]!, code(TM.ash, 2));
+  } else if (c.L >= 2) c.line(tipA, tipB, code(TM.white, 1)); // (at level 1 a slack string is a second stave beside the first)
+  // pts run from the lower tip up: the upper limb faces the light, the lower one turns away.
+  for (let i = 0; i < 8; i++) c.rod(pts[i]!, pts[i + 1]!, i === 3 || i === 4 ? 0.36 : 0.3, i === 3 || i === 4 ? 0.36 : 0.26, TM.ash, { tone: i < 4 ? 1 : 2 });
+  // At level 1 the stave is thinner than a pixel: a 1 px line keeps the bow, the archer's signature,
+  // in ink (ash would join the dark class's one black mass and fuse with the legs below it).
+  if (c.L < 2) for (let i = 0; i < 8; i++) c.line(pts[i]!, pts[i + 1]!, code(TM.ink, 2));
   c.blob(grip, 0.3, 0.3, TM.leather, { tone: 1 });
 }
 

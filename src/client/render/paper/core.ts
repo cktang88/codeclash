@@ -283,11 +283,19 @@ export interface PaletteOpts {
   /** At most this many fill colours for the army-colour materials, merged among themselves first. */
   accentCap?: number;
   /**
-   * Colours closer than this (in the merge distance) are merged even under the budget: near
-   * duplicates read as noise and break flat clusters into stripes (mistakes guide #7). One value,
-   * or one per level (1, 2, 4, 8).
+   * Colours of one family (one material, both near-neutral, or hues within 25°) closer than this
+   * (in the merge distance) are merged even under the budget: near duplicates read as noise and
+   * break flat clusters into stripes (mistakes guide #7). One value, or one per level (1, 2, 4, 8).
    */
   minDist?: number | readonly [number, number, number, number];
+  /**
+   * A coloured tone (C ≥ 0.05) does not map to a near-grey fill (C < 0.025) when a coloured fill
+   * of a hue within 40° is within this much of the nearest (mistakes guide #9: no grey shadows
+   * on coloured materials; a red cross's shadow stays red).
+   */
+  keepChroma?: number;
+  /** Weight the dark outline candidates by their material's pixels when merging them to the budget. */
+  weightOutlines?: boolean;
 }
 
 /** Shifts a ramp's lightness so its base tone keeps GROUND_DL away from the battlefield green. */
@@ -332,10 +340,10 @@ interface Cand {
 }
 
 /** Drops the less important of the closest pair until at most `cap` remain. */
-function reduce(cs: Cand[], cap: number, dist: (p: Lab, q: Lab) => number = labDist, among?: (c: Cand) => boolean, minDist = 0): Cand[] {
+function reduce(cs: Cand[], cap: number, dist: (p: Lab, q: Lab) => number = labDist, among?: (c: Cand) => boolean): Cand[] {
   const out = cs.slice();
   const n = () => (among ? out.filter(among).length : out.length);
-  for (;;) {
+  while (n() > cap) {
     let bi = 0, bj = 1, bd = Infinity;
     for (let i = 0; i < out.length; i++)
       for (let j = i + 1; j < out.length; j++) {
@@ -343,11 +351,37 @@ function reduce(cs: Cand[], cap: number, dist: (p: Lab, q: Lab) => number = labD
         const d = dist(out[i]!.lab, out[j]!.lab);
         if (d < bd) [bi, bj, bd] = [i, j, d];
       }
-    // Over the cap, or (with `minDist`) two colours too alike to tell apart.
-    if (!(n() > cap || bd < minDist)) break;
     out.splice(out[bi]!.weight >= out[bj]!.weight ? bj : bi, 1);
   }
   return out;
+}
+
+/**
+ * Two colours of one family: both near-neutral, or hues within 25° (8° within one material, whose
+ * ramp's hue shift is the point of it: a shade and a light of different hue are not duplicates).
+ */
+function sameFamily(p: Cand, q: Cand): boolean {
+  const cp = Math.hypot(p.lab[1], p.lab[2]), cq = Math.hypot(q.lab[1], q.lab[2]);
+  if (cp < 0.035 && cq < 0.035) return true;
+  if (cp < 0.035 || cq < 0.035) return p.mat === q.mat;
+  const dh = Math.abs(Math.atan2(p.lab[2], p.lab[1]) - Math.atan2(q.lab[2], q.lab[1])) / DEG;
+  return Math.min(dh, 360 - dh) < (p.mat === q.mat ? 8 : 25);
+}
+
+/** Merges near-duplicates (closer than `minDist`, of one family), the less important going first. */
+function dedupe(cs: Cand[], minDist: number, dist: (p: Lab, q: Lab) => number): Cand[] {
+  const out = cs.slice();
+  for (;;) {
+    let bi = -1, bj = -1, bd = minDist;
+    for (let i = 0; i < out.length; i++)
+      for (let j = i + 1; j < out.length; j++) {
+        if (MATS[out[i]!.mat]?.keep || MATS[out[j]!.mat]?.keep || !sameFamily(out[i]!, out[j]!)) continue;
+        const d = dist(out[i]!.lab, out[j]!.lab);
+        if (d < bd) [bi, bj, bd] = [i, j, d];
+      }
+    if (bi < 0) return out;
+    out.splice(out[bi]!.weight >= out[bj]!.weight ? bj : bi, 1);
+  }
 }
 
 /**
@@ -375,9 +409,11 @@ export function figurePalette(hue: number, level: number, used: ReadonlyMap<numb
   let cands = [...byRgb.values()];
   const o = opts ?? {};
   if (o.accentCap !== undefined) cands = reduce(cands, o.accentCap, labDist, (c) => isAccent(c.mat));
+  const dist = o.darkChroma ? chromaDist : labDist;
   const md = o.minDist;
   const minDist = typeof md === 'number' ? md : md ? md[level >= 8 ? 3 : level >= 4 ? 2 : level >= 2 ? 1 : 0] ?? 0 : 0;
-  const fills = reduce(cands, B.fill, o.darkChroma ? chromaDist : labDist, undefined, minDist);
+  if (minDist > 0) cands = dedupe(cands, minDist, dist);
+  const fills = reduce(cands, B.fill, dist);
   const nearest = (lab: Lab, list: { lab: Lab }[]): number => {
     let bi = 0, bd = Infinity;
     list.forEach((f, i) => {
@@ -387,13 +423,37 @@ export function figurePalette(hue: number, level: number, used: ReadonlyMap<numb
     return bi;
   };
   const fillOf = new Int16Array(MATS.length * 8).fill(0);
-  for (let c = 0; c < fillOf.length; c++) if ((c & 7) <= 4) fillOf[c] = nearest(rgbOklab(colourOf(c)), fills);
+  for (let c = 0; c < fillOf.length; c++) {
+    if ((c & 7) > 4) continue;
+    const lab = rgbOklab(colourOf(c));
+    fillOf[c] = nearest(lab, fills);
+    if (o.keepChroma === undefined) continue;
+    const ch = (q: Lab) => Math.hypot(q[1], q[2]);
+    const hueOff = (p: Lab, q: Lab) => {
+      const d = Math.abs(Math.atan2(p[2], p[1]) - Math.atan2(q[2], q[1])) / DEG;
+      return Math.min(d, 360 - d);
+    };
+    const near = fills[fillOf[c]!]!.lab, cc = ch(lab);
+    const ok: ((f: Lab) => boolean) | null =
+      cc >= 0.05 && ch(near) < 0.025 ? (f) => ch(f) >= 0.035 && hueOff(f, lab) < 40 : null;
+    if (!ok) continue;
+    const g = labDist(lab, near);
+    let bi = -1, bd = g + o.keepChroma;
+    fills.forEach((f, i) => {
+      const d = labDist(lab, f.lab);
+      if (ok(f.lab) && d <= bd) [bi, bd] = [i, d];
+    });
+    if (bi >= 0) fillOf[c] = bi;
+  }
   // Dark outlines: one per material in use, then merged down to the budget.
   const mats = [...new Set(fills.map((f) => f.mat))].sort((p, q) => p - q);
   const darkC: Cand[] = mats.map((m) => {
     const [L, a, b] = rgbOklab(safe[m]![0]!);
     const lab: Lab = [Math.max(OUTLINE_FLOOR, L - 0.07), a * 0.85, b * 0.85];
-    return { lab, rgb: oklabRgb(lab[0], lab[1], lab[2]), mat: m, weight: 0 };
+    // (Opt-in: weighted by the pixels its material covers, so the figure's main materials keep
+    // their own outline when the outline budget is small, not whichever came first.)
+    const weight = o.weightOutlines ? fills.filter((f) => f.mat === m).reduce((a, f) => a + f.weight, 0) : 0;
+    return { lab, rgb: oklabRgb(lab[0], lab[1], lab[2]), mat: m, weight };
   });
   const darks = reduce(darkC, B.outline);
   const rgb = [...fills.map((f) => f.rgb), ...darks.map((d) => d.rgb)];
