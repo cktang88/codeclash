@@ -1,5 +1,0 @@
-/* Code Clash: The Illuminated War. The look follows docs/art-direction.md; the codex kit's
-   markup lives in ui/codex.tsx. */
-@import './styles/base.css';
-@import './styles/hud.css';
-@import './styles/pages.css';

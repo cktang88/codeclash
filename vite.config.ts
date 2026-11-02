@@ -4,7 +4,6 @@ import { fileURLToPath } from 'node:url';
 import { build as esbuild } from 'esbuild';
 import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
-import { simVersion } from './scripts/sim-version.ts';
 
 const PROXY = {
   '/api': 'http://localhost:8787',
@@ -13,7 +12,7 @@ const PROXY = {
   '/ws': { target: 'ws://localhost:8787', ws: true },
 };
 
-const SIM_VERSION = simVersion();
+const SIM_VERSION = process.env.BUILD_VERSION ?? 'dev';
 
 /**
  * Builds the service worker (src/client/sw/sw.ts) into /sw.js beside the page, stamped with a
