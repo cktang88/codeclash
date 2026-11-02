@@ -3,7 +3,7 @@
 // poller uses, and checks the gamed army is no meaningfully stronger. See
 // docs/fair-play.md for the survey these come from.
 
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { loadAllGrammars } from './complexity.ts';
 import { Cat } from './categories.ts';
 import { addToTally, emptyTally, workQuality, workValue, type DayTally as Ledger } from './credit.ts';
@@ -109,6 +109,9 @@ function honestDay(n: number, files: number, msg = 'feat: add billing exports'):
 }
 
 // ------------------------------------------------------------ attacks on line counting
+
+// These parse real code with tree-sitter; on a busy machine one can pass 5 s, so give them room.
+vi.setConfig({ testTimeout: 60_000 });
 
 describe('gaming line counts', () => {
   it('reformatting old code (quotes, semicolons, trailing commas, spacing) earns nothing', () => {
