@@ -206,7 +206,10 @@ export function palOf(st: CityStyle): Pal {
   p = {
     // Weathered grey stone (paler than the buildings, so the graves read against the dark turf).
     S: mix(st.stone[0], st.fine[2], 0.3), s: mix(st.stone[1], st.fine[3], 0.2), d: st.stone[2], e: st.stone[3],
+    // Highlight, epitaph cut, pale lichen, the contact shadow on the ground.
+    H: mix(st.stone[0], st.fine[1], 0.55), E: tone(st.stone[3], 0.1), l: hex('#a6a676'), f: hex('#120e1a'),
     // Marble gone grey-violet, for angels and the better tombs.
+    P: hex('#c4bed2'),
     A: hex('#a29cb2'), a: hex('#7a7490'), q: hex('#524c68'),
     // Bone.
     B: st.fine[0], b: st.fine[1], k: st.fine[2], K: st.fine[3],
@@ -269,10 +272,10 @@ export function sunlit(art: Art, P: Pt): void {
       const green = G(c) > R(c) + 30 && G(c) > B(c) + 10;
       if (!green && k !== 4) {
         const top = i >= w && cl[i - w] === 4;
-        if (top && k !== 3) c = mix(add(c, 30, 24, 8), SUN_RIM, 0.35);
-        else if (k === 1) c = add(c, 26, 20, 4);
-        else if (k === 2) c = add(c, 10, 8, 1);
-        else if (k === 3) c = mix(c, SHADE, 0.26);
+        if (top && k !== 3) c = mix(add(c, 48, 42, 22), SUN_RIM, 0.45);
+        else if (k === 1) c = add(c, 44, 38, 20);
+        else if (k === 2) c = add(c, 24, 20, 10);
+        else if (k === 3) c = mix(c, SHADE, 0.38);
       }
       out[y * W + x] = c;
     }
@@ -285,7 +288,7 @@ export function sunlit(art: Art, P: Pt): void {
  * pixels fall back to plain flagstone in the ground's own night (decalArt's base colours).
  */
 export function sunPool(D: Decal, cu: number, cv: number, r: number, seed: number): void {
-  const lit = [hex('#a49a8c'), hex('#948a80'), hex('#b2a690'), hex('#7c7470')];
+  const lit = [hex('#cabca0'), hex('#b6aa92'), hex('#d8caa8'), hex('#8e8476')];
   const flags = [hex('#5f5d74'), hex('#545269'), hex('#6a6880'), hex('#4a4860')];
   const bands: [number, number, number][] = [];
   for (let i = 0; i < 5; i++) bands.push([hash(i, seed, 1) * Math.PI, (hash(i, seed, 2) - 0.5) * r * 1.4, 0.3 + hash(i, seed, 3) * 0.5]);
@@ -362,137 +365,162 @@ function cls(P: Pt, x: number, y: number, c: number): void {
 
 /** Headstones and grave markers, after Glasnevin's crowded rows and SpiderDave's CC0 set. */
 const ROUND = [
-  '..sSSs..',
-  '.sSSSSSd',
-  '.SSSSSSd',
-  '.SsssSSd',
-  '.SSSSSSd',
-  '.SssSsSd',
-  '.SSSSSSd',
-  '.SSLSSSd',
-  '.MSSSSMd',
-  'MmMMmMmd',
+  '...HHs...',
+  '..HSSssd.',
+  '.HSSsssde',
+  '.HSEEEsde',
+  '.SSsSSsde',
+  '.SEEsEEde',
+  '.SSssssde',
+  '.SEEEssde',
+  '.SlSsssde',
+  '.SSsslsde',
+  '.MSsssMde',
+  'MmMMmMmdeff',
 ];
 const CRACKED = [
-  '..sSS...',
-  '.sSSSe..',
-  '.SSSSSe.',
-  '.SssseSd',
-  '.SSSeSSd',
-  '.SseSsSd',
-  '.SSeSSSd',
-  '.SSSeSSd',
-  '.MSSSeMd',
-  'MmMMmMmd',
+  '...HH....',
+  '..HSSs...',
+  '.HSSssE..',
+  '.HSEEsEd.',
+  '.SSsSEsde',
+  '.SEEsEEde',
+  '.SSsEssde',
+  '.SEEEsEde',
+  '.SlSsEsde',
+  '.SSssEsde',
+  '.MSsssMde',
+  'MmMMmMmdeff',
 ];
 const GOTHIC = [
-  '...S....',
-  '..sSd...',
-  '.sSSSd..',
-  '.SSdSSd.',
-  '.SsssSd.',
-  '.SSsSSd.',
-  '.SSSSSd.',
-  '.SsssSd.',
-  '.SSSSSd.',
-  '.SSLSSd.',
-  '.MSSSMd.',
-  'MmMMmMd.',
+  '....H....',
+  '...HSd...',
+  '..HSsde..',
+  '.HSSssde.',
+  '.HSEEEsde',
+  '.SSsSSsde',
+  '.SEEsEsde',
+  '.SSssssde',
+  '.SEEEssde',
+  '.SSssssde',
+  '.SlSsssde',
+  '.MSssMsde',
+  'MmMMmMmdeff',
 ];
 const CROSS = [
-  '...S...',
-  '..SSd..',
-  '..SSd..',
-  'sSSSSdd',
-  'ssssddd',
-  '..SSd..',
-  '..SSd..',
-  '..SLd..',
-  '..SSd..',
-  '.SSSSd.',
-  'MmMMmMd',
+  '...HH...',
+  '...Ssd..',
+  'HHHSsddd',
+  'SsssssdE',
+  'eddSsdee',
+  '...Ssd..',
+  '...Ssd..',
+  '...Sld..',
+  '...Ssd..',
+  '..HSsde.',
+  '..SEEde.',
+  '.MSssdMe',
+  'MmMMmMdeff',
 ];
 const CELTIC = [
-  '....S....',
-  '...SSd...',
-  '..sSSds..',
-  '.s.SSd.d.',
-  'SSSSSSSdd',
-  'sssSSdsdd',
-  '.s.SSd.d.',
-  '..sSSdd..',
-  '...SSd...',
-  '...SLd...',
-  '...SSd...',
-  '...SSd...',
-  '..SSSSd..',
-  '..SdddSd.',
-  '.MSSSSSdM',
-  'MmMMmMmMd',
+  '....HH....',
+  '..HHSsdd..',
+  '.Hs.Ssd.e.',
+  'HSSSSssddd',
+  'sssssssdde',
+  '.Hs.Ssd.e.',
+  '..sdSsdee.',
+  '....Ssd...',
+  '....Sld...',
+  '....Ssd...',
+  '....Ssd...',
+  '...HSsde..',
+  '..HSEEsde.',
+  '..SSssdde.',
+  '.MSSssdMe.',
+  'MmMMmMmdeff',
 ];
 const OBELISK = [
-  '...S...',
-  '..SSd..',
-  '..SSd..',
-  '..SSd..',
-  '..SSd..',
-  '..SSd..',
-  '..SSd..',
-  '..SLd..',
-  '..SSd..',
-  '..SSd..',
-  '..SSd..',
-  '.SSSdd.',
-  '.SdddSd',
-  '.SSSSdd',
-  '.ssssdd',
-  'MSSSSdM',
-  'MmMmMmd',
+  '...H...',
+  '..HSd..',
+  '..HSd..',
+  '..Ssd..',
+  '..Ssd..',
+  '..Ssd..',
+  '..Sld..',
+  '..Ssd..',
+  '..Ssd..',
+  '..SEd..',
+  '..Ssd..',
+  '.HSssd.',
+  '.HSssde',
+  '.SEEsde',
+  '.SSssde',
+  '.SEEsde',
+  'MSlssdM',
+  'MmMmMdeff',
 ];
 const SLAB = [
-  '..sSSSSs..',
-  '.sSSSSSSSd',
-  'sSSdSSSSdd',
-  'SSSSSSSSdd',
-  'MSSSSSSdd.',
-  'mMmMMmMd..',
+  '..HSSSSs..',
+  '.HSsEEsSd.',
+  'HSssssssde',
+  'SSsEEEssde',
+  'MSsssssdd.',
+  'mMmMMmMdeff',
 ];
+/** Faceless with weather, head bowed, wings folded behind, hands clasped, robe in folds, streaked black. */
 const ANGEL = [
-  '....aa.....',
-  '...aAAq....',
-  '...aAAq....',
-  '.aA.aAq.Aq.',
-  'aAAaAAAqAAq',
-  'aAAAAAAAAAq',
-  'aAAqAAAqqAq',
-  '.aAqAAAqAq.',
-  '.aAqAeAAqq.',
-  '..aqAeAAq..',
-  '..aAAeAAq..',
-  '..aAAqAAq..',
-  '..aAAqAeq..',
-  '.aAAAqAeAq.',
-  '.aAAAqAAAq.',
-  '.aaaaqqqqq.',
-  '.SSSSSSSSd.',
-  '.SdddddSSd.',
-  '.SSSSSSSSd.',
-  'MMSSSSSSSdM',
-  'mMmMMmMmMMd',
+  '.....PA......',
+  '....PAAq.....',
+  '....AAaq.....',
+  '..Pa.Aqq.aq..',
+  '.PAaAAAaqAaq.',
+  '.PAAaAAAqaAq.',
+  '.PAaqAAaqqAq.',
+  '.PAaqPAAqqaq.',
+  '..AaPAAaqaq..',
+  '..AaAaAqqqq..',
+  '..PaAAaeqqe..',
+  '..PAaAaeAq...',
+  '..PAaAaqAqe..',
+  '.PAAaAaqAaqe.',
+  '.PAAaeaqAaqe.',
+  'PAAaAAaqAaaqe',
+  'qqqqqqqqqqqqe',
+  '.HSSSSSSSSde.',
+  '.SEEEEEEEsde.',
+  '.SSSSSSSSsde.',
+  'MSSlSSSSSsdM.',
+  'mMmMMmMMmMdeff',
 ];
 const WREATH = ['.nNn.', 'N.y.n', 'n...N', 'NyY.n', '.nNy.', '..y..'];
 /** Dead ivy creeping over a headstone's shoulder and trailing down its face. */
 const CREEPER = ['.NNn....', 'NnNNn...', '.nN.Nn..', '..n..N..', '..N.....', '..n.....'];
+/** Candle stubs of different heights, wax running down them into a pool, two-tone flames. */
 const CANDLES = [
-  '.F....F.',
-  '.G..F.G.',
-  '.X..G.X.',
-  '.Xt.X.Xt',
-  'XXtXXtXt',
-  'XtXXtXXt',
-  'ttttttt.',
+  '.F.....F..',
+  '.G..F..G..',
+  '.g..G..g..',
+  '.X..g..X..',
+  '.Xt.X..Xt.',
+  'XXt.XtXXt.',
+  'XtXXtXXtt.',
+  'XttXttXtt.',
+  '.tttttttff',
 ];
-const LANTERN = ['..j..', '.iji.', 'iiiii', 'iGFGi', 'iGGGi', 'igGgi', 'iiiii', '..i..'];
+/** An iron lantern: a ring, a cap, cage bars over the witchfire, a base. */
+const LANTERN = [
+  '...j...',
+  '..jIj..',
+  '.jIIIj.',
+  '.iGiGi.',
+  '.iFiFi.',
+  '.iGiGi.',
+  '.igigi.',
+  '.jIIIj.',
+  '..jjj..',
+  '...j...',
+];
 const CAGE = [
   '...i...',
   '..iji..',
@@ -522,8 +550,21 @@ const PLAGUE = [
   'xvvvvvvvx',
 ];
 const SHOVEL = ['.v.', 'vvv', '.w.', '.w.', '.w.', '.w.', 'IIi', 'IIi', '.i.'];
-const SKULL = ['.BB.', 'BbbK', 'kQkK', '.bK.'];
-const SKULLPILE = ['...BB...', '..BkkK..', '.BBQkBK.', 'BkbKBbbK', 'bQkbkQkK', 'kbKBkbKk'];
+const SKULL = ['.BBb.', 'BbbbK', 'QbQkK', '.kbK.', '..fff'];
+/** Skulls heaped on long bones: each skull a cranium, two sockets and a jaw, so they read one by one. */
+const SKULLPILE = [
+  '....BBb.....',
+  '...BbbbK....',
+  '...QbQkK....',
+  '.BBbkbKBBb..',
+  'BbbbKBbbbbK.',
+  'QbQkKQbQkKK.',
+  'BkbKBkbKBbb.',
+  'BbbbKbBbbKbK',
+  'QbQkKQbQkKkK',
+  '.kbKkkbKkbK.',
+  '..ffffffffff',
+];
 const BONES = ['B.....b', '.bk.kK.', '..BbK..', '.Bk.bk.', 'b.....K'];
 const FLOWERS = ['y.Y.y', 'NyNYn', '.nNn.'];
 const WEB = ['ZZZZZZZ', 'Z.Z..Z.', 'ZZ.ZZ..', 'Z.Z.Z..', 'ZZ.Z...', 'Z.Z....', 'ZZ.....', 'Z......'];
@@ -531,8 +572,8 @@ const WEB = ['ZZZZZZZ', 'Z.Z..Z.', 'ZZ.ZZ..', 'Z.Z.Z..', 'ZZ.Z...', 'Z.Z....', '
 /** Swap the stone keys for a black polished or a marble headstone. */
 function subFor(P: Pt, kind: number): Pal | undefined {
   const p = palOf(P.st);
-  if (kind === 1) return { S: hex('#3a3850'), s: hex('#2c2a3e'), d: hex('#1c1a2a'), L: hex('#56546c') };
-  if (kind === 2) return { S: p.A!, s: p.a!, d: p.q!, L: hex('#c8c4cc') };
+  if (kind === 1) return { H: hex('#5a5874'), S: hex('#3e3c56'), s: hex('#302e44'), d: hex('#1e1c2e'), e: hex('#14121f'), E: hex('#0e0c16'), L: hex('#56546c'), l: hex('#6e7058') };
+  if (kind === 2) return { H: p.P!, S: p.A!, s: p.a!, d: p.q!, e: hex('#3e3854'), E: hex('#4a4460'), L: hex('#c8c4cc') };
   return undefined;
 }
 
@@ -544,7 +585,7 @@ export function headstone(P: Pt, u: number, v: number, n: number, seed: number):
   const sub = subFor(P, m < 0.4 ? 1 : m > 0.9 ? 2 : 0);
   const lean = hash(seed, 5, 17) < 0.25 ? (hash(seed, 6, 17) < 0.5 ? 0.18 : -0.18) : 0;
   const art = n < 0.2 ? ROUND : n < 0.32 ? CRACKED : n < 0.46 ? GOTHIC : n < 0.6 ? CROSS : n < 0.72 ? CELTIC : n < 0.8 ? OBELISK : n < 0.985 ? SLAB : ANGEL;
-  stamp(P, u, v, 0, art, { sub, lean: art === OBELISK || art === ANGEL ? 0 : lean, flip: hash(seed, 7) < 0.5 });
+  stamp(P, u, v, 0, art, { sub, lean: art === OBELISK || art === ANGEL ? 0 : lean });
   // Creepers over a shoulder of some; withered flowers or a wreath on many.
   if (hash(seed, 9, 17) < 0.35 && art !== SLAB && art !== OBELISK) stamp(P, u, v, art.length * 0.32, CREEPER, { flip: hash(seed, 10) < 0.5, dz: 0.9 });
   const f = hash(seed, 8, 17);
@@ -579,11 +620,18 @@ export function coffin(P: Pt, u: number, v: number, z: number, alongU: boolean, 
   const wood = (f: Facing, s: number, t: number): Col => {
     if (f === 'top') {
       if (open) return s > 0.4 && s < (alongU ? L : W) - 0.4 && t > 0.4 && t < (alongU ? W : L) - 0.4 ? p.T! : p.v!;
-      // A lid with a cross in relief.
+      // A lid of planks, nailed at the ends, with a cross in relief.
       const a = alongU ? s : t;
       const b = alongU ? t : s;
-      return (Math.abs(a - L * 0.35) < 0.3 && Math.abs(b - W / 2) < 0.7) || (Math.abs(b - W / 2) < 0.2 && a > 0.8 && a < L - 0.6) ? p.W! : p.w!;
+      if ((Math.abs(a - L * 0.35) < 0.3 && Math.abs(b - W / 2) < 0.7) || (Math.abs(b - W / 2) < 0.2 && a > 0.8 && a < L - 0.6)) return p.W!;
+      if ((a < 0.4 || a > L - 0.4) && Math.abs(((b * 2) % 1) - 0.5) < 0.25) return p.I!;
+      if (Math.abs(b - W / 3) < 0.12 || Math.abs(b - (2 * W) / 3) < 0.12) return p.v!;
+      return p.w!;
     }
+    // The sides: two planks, a dark seam, nail heads at the ends.
+    const len = f === 'left' ? (alongU ? L : W) : alongU ? W : L;
+    if (Math.abs(t - 0.6) < 0.12) return p.x!;
+    if ((s < 0.35 || s > len - 0.35) && Math.abs(t - 0.3) < 0.2) return p.I!;
     return f === 'left' ? (t > 0.9 ? p.w! : p.v!) : p.x!;
   };
   box(P.px, u, v, z, lu, lv, 1.2, wood);
@@ -602,12 +650,13 @@ export function coffinStack(P: Pt, u: number, v: number, n: number, alongU: bool
 
 /** A heap of skulls and long bones. */
 export function bones(P: Pt, u: number, v: number, big: boolean, seed: number): void {
-  stamp(P, u, v, 0, big ? SKULLPILE : hash(seed, 1) < 0.5 ? BONES : SKULL, { flip: hash(seed, 2) < 0.5 });
+  stamp(P, u, v, 0, big ? SKULLPILE : hash(seed, 1) < 0.5 ? BONES : SKULL);
 }
 
 /** Candles at a shrine: a cluster of stubs over a pool of wax, flames lit, a little light. */
 export function candles(P: Pt, u: number, v: number, z: number, seed: number, light = true): void {
-  stamp(P, u, v, z, CANDLES, { flip: hash(seed, 1) < 0.5, dz: 0.8 });
+  void seed;
+  stamp(P, u, v, z, CANDLES, { dz: 0.8 });
   if (light) glow(u, v, z + 3, 0, 6);
 }
 
@@ -616,7 +665,7 @@ export function lanternPost(P: Pt, u: number, v: number, h = 9): void {
   const p = palOf(P.st);
   post(P.px, u, v, 0, h, p.i!, p.j!);
   line3(P.px, v3(u, v, h), v3(u, v + 1.6, h), p.i!);
-  stamp(P, u, v + 1.6, h - 4.2, LANTERN, { dz: 0.6 });
+  stamp(P, u, v + 1.6, h - 5.4, LANTERN, { dz: 0.6 });
   glow(u, v + 1.6, h - 2.5, 0);
 }
 
@@ -633,7 +682,8 @@ export function gibbet(P: Pt, u: number, v: number, h = 16): void {
   line3(P.px, v3(u, v, h), v3(u, v + 6, h), p.w!);
   line3(P.px, v3(u, v, h - 1), v3(u, v + 6, h - 1), p.v!);
   line3(P.px, v3(u, v + 0.4, h - 4), v3(u, v + 3, h - 1), p.v!);
-  line3(P.px, v3(u, v + 5.5, h - 1), v3(u, v + 5.5, h - 3), p.i!);
+  // The chain: links one pixel each, light and dark in turn.
+  for (let z = h - 1, n = 0; z > h - 3.2; z -= 0.5, n++) P.px.point(v3(u, v + 5.5, z), n % 2 ? p.I! : p.j!);
   stamp(P, u, v + 5.5, h - 9, CAGE, { dz: 0.5 });
 }
 
@@ -752,7 +802,8 @@ export function sarcophagus(P: Pt, u: number, v: number, alongU: boolean): void 
 
 /** A weeping angel: faceless with weather, head bowed, wings folded, on a plinth. */
 export function angel(P: Pt, u: number, v: number, flip = false): void {
-  stamp(P, u, v, 0, ANGEL, { flip });
+  void flip;
+  stamp(P, u, v, 0, ANGEL);
 }
 
 /** A gargoyle crouched on a cornice, peering out (`face` picks which wall it juts from). */
