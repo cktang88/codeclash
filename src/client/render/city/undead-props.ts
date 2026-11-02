@@ -18,8 +18,8 @@
 
 import { WALL, GATE_V, type Art, type BuildingParts, type Painter } from './buildings.ts';
 import { FIELDS } from './ground.ts';
-import { B, box, G, hash, hex, line3, mix, OX, OY, post, Px, R, rgb, sx, sy, tone, v3, type Col, type Facing } from './pixels.ts';
-import { registerProp, registerTheme, type Group, type PropAt } from './props.ts';
+import { B, box, css, G, hash, hex, line3, mix, OX, OY, post, Px, R, rgb, sx, sy, tone, v3, type Col, type Facing } from './pixels.ts';
+import { isoOff, registerProp, registerTheme, type Group, type PropAnim, type PropAt } from './props.ts';
 import { roadDistance } from './roads.ts';
 import type { CityStyle } from './style.ts';
 
@@ -676,12 +676,13 @@ export function wallLantern(P: Pt, u: number, v: number, z: number): void {
 }
 
 /** A gibbet: an upright, an arm and a brace, an iron cage with someone's bones in it. */
-export function gibbet(P: Pt, u: number, v: number, h = 16): void {
+export function gibbet(P: Pt, u: number, v: number, h = 16, cage = true): void {
   const p = palOf(P.st);
   post(P.px, u, v, 0, h, p.w!, p.v!);
   line3(P.px, v3(u, v, h), v3(u, v + 6, h), p.w!);
   line3(P.px, v3(u, v, h - 1), v3(u, v + 6, h - 1), p.v!);
   line3(P.px, v3(u, v + 0.4, h - 4), v3(u, v + 3, h - 1), p.v!);
+  if (!cage) return;
   // The chain: links one pixel each, light and dark in turn.
   for (let z = h - 1, n = 0; z > h - 3.2; z -= 0.5, n++) P.px.point(v3(u, v + 5.5, z), n % 2 ? p.I! : p.j!);
   stamp(P, u, v + 5.5, h - 9, CAGE, { dz: 0.5 });
@@ -1256,6 +1257,83 @@ export function graveFields(P: Painter, sown: number, finish: (d: number, outlin
   }
 }
 
+
+// ------------------------------------------------------------------ the props' little life
+
+/** Draw a micro-sprite with a canvas (buffer pixels), its bottom-middle at (x, y). */
+function sprite(g: CanvasRenderingContext2D, art: readonly string[], x: number, y: number, pal: Pal): void {
+  const ax = Math.floor(art[0]!.length / 2);
+  for (let r = 0; r < art.length; r++)
+    for (let c = 0; c < art[r]!.length; c++) {
+      const ch = art[r]![c]!;
+      const col = pal[ch];
+      if (ch === '.' || col === undefined) continue;
+      g.fillStyle = css(col);
+      g.fillRect(x - ax + c, y - (art.length - 1 - r), 1, 1);
+    }
+}
+/** A witchfire flame two pixels tall that flickers: hot core, green body, sometimes a tongue. */
+function witchFlame(g: CanvasRenderingContext2D, x: number, y: number, t: number, seed: number): void {
+  const ph = Math.sin(t * 13 + seed * 40) + Math.sin(t * 7.3 + seed * 17);
+  g.fillStyle = ph > 0.5 ? '#f0ffd8' : ph > -0.5 ? '#b4ff8c' : '#7ee06a';
+  g.fillRect(x, y, 1, 1);
+  g.fillStyle = ph > 0 ? '#5fd64a' : '#3fa83a';
+  g.fillRect(x, y + 1, 1, 1);
+  if (ph > 1.1) {
+    g.fillStyle = '#b4ff8c';
+    g.fillRect(x, y - 1, 1, 1);
+  }
+}
+/** Candle flames: each wick of the CANDLES art flickers on its own. */
+const candlesAnim = (du: number, dv: number): PropAnim => (g, t, x, y, seed, k) => {
+  const [ox, oy] = isoOff(k, du, dv, 0);
+  const ax = Math.floor(CANDLES[0]!.length / 2);
+  const top = y + oy - (CANDLES.length - 1);
+  for (const [c, r] of [[1, 0], [4, 1], [7, 0]] as const) witchFlame(g, x + ox - ax + c, top + r, t, seed + c * 0.13);
+};
+/** The lantern's flame behind its cage bars. */
+const lanternAnim = (du: number, dv: number, z: number): PropAnim => (g, t, x, y, seed, k) => {
+  const [ox, oy] = isoOff(k, du, dv, z);
+  const top = y + oy - (LANTERN.length - 1);
+  const ax = Math.floor(LANTERN[0]!.length / 2);
+  witchFlame(g, x + ox - ax + 2, top + 4, t, seed);
+  witchFlame(g, x + ox - ax + 4, top + 4, t, seed + 0.37);
+};
+/** A brazier's fire: a ragged row of tongues that rise and fall. */
+const brazierAnim = (du: number, dv: number, z: number): PropAnim => (g, t, x, y, seed, k) => {
+  const [ox, oy] = isoOff(k, du, dv, z);
+  for (let c = -2; c <= 2; c++) {
+    const h = 1 + Math.round(1.5 + Math.sin(t * 9 + c * 1.7 + seed * 30) * 1.5);
+    for (let j = 0; j < h; j++) {
+      g.fillStyle = j === h - 1 ? '#f0ffd8' : j === 0 ? '#3fa83a' : '#7ee06a';
+      g.fillRect(x + ox + c, y + oy - 1 - j, 1, 1);
+    }
+  }
+};
+/** A gibbet's chain and cage, swinging a little on the arm. */
+const gibbetAnim = (du: number, dv: number, h: number): PropAnim => (g, t, x, y, seed, k, st) => {
+  const pal = palOf(st);
+  const sw = Math.sin(t * 1.4 + seed * 9);
+  const [ox, oy] = isoOff(k, du, dv, h - 1);
+  const links = Math.round(2.2 * k);
+  for (let i = 0; i < links; i++) {
+    g.fillStyle = css(i % 2 ? pal.I! : pal.j!);
+    g.fillRect(x + ox + Math.round((sw * i) / links), y + oy + i, 1, 1);
+  }
+  sprite(g, CAGE, x + ox + Math.round(sw), y + oy + links + CAGE.length - 1, pal);
+};
+/** A crow on the ground under a dead tree, hopping now and then and turning back. */
+const crowAnim = (du: number, dv: number): PropAnim => (g, t, x, y, seed, k, st) => {
+  const pal = palOf(st);
+  const cyc = (t * 0.6 + seed * 7) % 6;
+  const step = Math.floor(cyc);
+  const f = cyc - step;
+  const hop = f < 0.25 ? Math.round(Math.sin((f / 0.25) * Math.PI) * 2) : 0;
+  const along = step < 3 ? step : 6 - step;
+  const [ox, oy] = isoOff(k, du + along * 0.8, dv, 0);
+  const art = step < 3 ? CROW : CROW.map((r) => [...r].reverse().join(''));
+  sprite(g, art, x + ox, y + oy - hop, pal);
+};
 // ------------------------------------------------------------------ the prop library
 
 /**
@@ -1295,19 +1373,23 @@ registerProp('undead:cart', { lu: 13, lv: 5, h: 6, draw: lib((P, a) => corpseCar
 registerProp('undead:sarcophagus', { lu: 5.6, lv: 3.2, h: 3.3, draw: lib((P, a) => sarcophagus(P, a.u + 0.3, a.v + 0.3, true)) });
 registerProp('undead:angel', { lu: 4, lv: 4, h: 10, draw: lib((P, a) => angel(P, a.u + 2, a.v + 2, a.n < 0.5)) });
 registerProp('undead:obelisk', { lu: 3, lv: 3, h: 8, draw: lib((P, a) => stamp(P, a.u + 1.5, a.v + 1.5, 0, OBELISK, { sub: subFor(P, a.n < 0.4 ? 1 : a.n > 0.7 ? 2 : 0) })) });
-registerProp('undead:deadTree', { lu: 4, lv: 4, h: 14, draw: lib((P, a) => deadTree(P, a.u + 2, a.v + 2, 12 + a.n * 8, seedOf(a), a.n < 0.6 ? 1 : 2)) });
-registerProp('undead:gibbet', { lu: 2, lv: 8, h: 16, draw: lib((P, a) => gibbet(P, a.u + 1, a.v + 1, 15)) });
+registerProp('undead:deadTree', { lu: 4, lv: 4, h: 14, draw: lib((P, a) => deadTree(P, a.u + 2, a.v + 2, 12 + a.n * 8, seedOf(a), a.n < 0.6 ? 1 : 2)), anim: crowAnim(3.5, 3) });
+// The library's gibbet hangs its cage live (it swings); zoomed right out it is a bare gallows.
+registerProp('undead:gibbet', { lu: 2, lv: 8, h: 16, draw: lib((P, a) => gibbet(P, a.u + 1, a.v + 1, 15, false)), anim: gibbetAnim(1, 6.5, 15) });
 registerProp('undead:shrine', {
   lu: 7, lv: 4, h: 7,
   draw: lib((P, a) => shrine(P, a.u + 0.4, a.v + 0.4)),
+  anim: candlesAnim(4.6, 2.2),
 });
 registerProp('undead:candles', {
   lu: 3, lv: 2, h: 2,
   draw: lib((P, a) => candles(P, a.u + 1.5, a.v + 1, 0, seedOf(a))),
+  anim: candlesAnim(1.5, 1),
 });
 registerProp('undead:brazier', {
   lu: 2, lv: 2, h: 5,
   draw: lib((P, a) => brazier(P, a.u + 1, a.v + 1)),
+  anim: brazierAnim(1, 1, 4.4),
 });
 registerProp('undead:railing', { lu: 12, lv: 1, h: 5, draw: lib((P, a) => railing(P, a.u, a.v + 0.5, a.u + 12, a.v + 0.5)) });
 registerProp('undead:railingV', { lu: 1, lv: 12, h: 5, draw: lib((P, a) => railing(P, a.u + 0.5, a.v, a.u + 0.5, a.v + 12)) });
@@ -1317,6 +1399,7 @@ registerProp('undead:well', { lu: 6.6, lv: 6.6, h: 9, draw: lib((P, a) => well(P
 registerProp('undead:lantern', {
   lu: 2, lv: 3, h: 10,
   draw: lib((P, a) => lanternPost(P, a.u + 1, a.v + 0.5, 9)),
+  anim: lanternAnim(1, 2.1, 3.6),
 });
 
 /**
