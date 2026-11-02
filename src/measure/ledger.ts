@@ -186,7 +186,7 @@ export function fillerKind(normalized: string, family = 'c'): 'structure' | 'fra
   }
   if (family !== 'none') {
     // Object keys and JSX attribute names are labels: a row of `key: literal` or `name="literal"` is data.
-    const values = bare.replace(/[A-Za-z_$][\w$]*\s*:(?!:)/g, ' ').replace(/(^|\s)[A-Za-z_$][\w$-]*=(?=[\u0001\u0002{])/g, ' ').match(/[A-Za-z_$][\w$]*/g) ?? [];
+    const values = bare.replace(/[A-Za-z_$][\w$]*\s*:(?![:=])/g, ' ').replace(/(^|\s)[A-Za-z_$][\w$-]*=(?=[\u0001\u0002{])/g, ' ').match(/[A-Za-z_$][\w$]*/g) ?? [];
     if (hasLiteral && !values.some((w) => !LITERALS.has(w))) return 'data';
   }
   return names.length + literals < 2 ? 'fragment' : null;

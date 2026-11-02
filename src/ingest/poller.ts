@@ -87,7 +87,10 @@ export function pushIdOf(repo: string, head: string): string {
 
 function headline(message: string): string {
   const first = message.split('\n', 1)[0]!.trim();
-  return first.length > MESSAGE_MAX ? `${first.slice(0, MESSAGE_MAX - 1)}…` : first;
+  if (first.length <= MESSAGE_MAX) return first;
+  // Never cut an emoji (a surrogate pair) in half: a lone surrogate is not text.
+  const cut = /[\uD800-\uDBFF]/.test(first[MESSAGE_MAX - 2]!) ? MESSAGE_MAX - 2 : MESSAGE_MAX - 1;
+  return `${first.slice(0, cut)}…`;
 }
 
 function compareIds(a: string, b: string): number {
@@ -286,6 +289,9 @@ export class Poller {
       // At least one user per tick keeps the feed moving, even when the budget rounds down.
       const budget = Math.max(this.deps.github.rateLimit().remaining > 50 ? 1 : 0, this.budget(now));
       for (const user of [...own.slice(0, MAX_OWN_PER_TICK), ...shared.slice(0, budget)]) await this.pollUser(user.id);
+    } catch (err) {
+      // The tick runs from a timer: a rejection here would be unhandled and take the server down.
+      this.deps.log.warn('poll tick failed', { error: errorMessage(err) });
     } finally {
       this.running = false;
     }
