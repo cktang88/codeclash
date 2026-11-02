@@ -113,6 +113,7 @@ function blackAt(P: Painter, f: Facing, along: number, zz: number, seed: number,
 const STAIN = hex('#100e16');
 const IRON = hex('#2a2832');
 const IRON_L = hex('#5a5868');
+const RAFTER: [Col, Col] = [hex('#8a7c74'), hex('#5c5058')];
 
 /** Rubble: rough uncoursed stones, deep joints, moss in some of them. */
 function rubbleAt(P: Painter, f: Facing, along: number, zz: number, seed: number): Col {
@@ -324,9 +325,10 @@ function roofSh(P: Painter, mat: 'slate' | 'lead' | 'thatch', ragged = false, ru
       const r = Math.hypot((s - ruin[0]) / ruin[2], (t - ruin[1]) / ruin[3]) + (hash(Math.floor((s * k) / 2), Math.floor(t * k), 78) - 0.5) * 0.35;
       if (r < 1) {
         // Rafters down the slope, a purlin across, black between; the rafters lit on their tops.
-        const rs = s % 2.4;
-        if (rs < 0.5) return rs < 0.25 ? st.timber[0] : st.timber[2];
-        if (Math.abs(t - ruin[1]) < 0.35) return st.timber[1];
+        // (The rafters are a weathered grey-brown a step above the slate, so they read in the dark.)
+        const rs = s % 2.6;
+        if (rs < 1) return rs < 0.5 ? RAFTER[0] : RAFTER[1];
+        if (Math.abs(t - ruin[1]) < 0.5) return RAFTER[1];
         return hex('#0c0a10');
       }
       // The broken edge: slates lifted pale, then a dark line under them.
