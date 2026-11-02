@@ -104,7 +104,9 @@ async function main(): Promise<void> {
           for (const lv of art === 'hd' ? hdLevels : [1])
             for (let kind = 0; kind < 11; kind++) {
               const t0 = performance.now();
-              const { res, idle0: f0 } = auditSprite(P, art, f, kind, lv, names[kind]!, pal, info);
+              // HD: paper-doll colours differ per level (each level has its own master palette).
+              const palL = art === 'hd' ? P.palette(art, f, lv) : pal;
+              const { res, idle0: f0 } = auditSprite(P, art, f, kind, lv, names[kind]!, palL, art === 'hd' ? rampInfo(palL) : info);
               rep.sprites.push(res);
               idle0.set(`${art}:${f}:${kind}:${lv}`, f0);
               log(`sprites ${art} ${f} k${kind} L${lv} ${Math.round(performance.now() - t0)} ms`);

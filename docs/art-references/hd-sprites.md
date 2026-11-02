@@ -151,3 +151,54 @@ Round 4 changes, from the coordinator's critique:
 - **Plates:** a two-lame pauldron with rivets, a pale lit top rim and rust spreading from the lower edge. The mail cape has a shaped, scalloped hem.
 
 Remaining for this unit: the ribs still read busy at level 4; the back facings are not drawn yet.
+
+## The paper painter as a module (`src/client/render/paper/`), wired into HD mode
+
+`paper.ts` is now a module folder:
+- `core.ts`: the canvas, primitives, materials, passes and palette.
+- `rig.ts`: bodies, poses and keys.
+- `facing.ts`
+- `registry.ts`
+- `index.ts`
+- `undead.ts` (`templar.ts` and `samurai.ts` are empty and owned by their faction agents).
+
+The authoring guide is `src/client/render/paper/README.md`. HD mode routes a registered
+(faction, kind) to it and falls back to the ray-cast painter for everything else. The split was
+checked against the proof before any art changed: 352 SE frames at levels 1, 2, 4 and 8, in two
+hues, were pixel-identical. The pixel-lint rules were then built into the core, which changed the
+pixels on purpose (see the README, "No-boil rules" and "Passes"):
+- whole-pixel anchors and part-local texture (no boil);
+- an OKLab master palette per faction and level, under a colour cap;
+- OKLab outlines with a lightness floor and the side taken from the edge normal;
+- base tones kept 0.12 from the ground;
+- cleanup at level 1;
+- contact lines on the shadow side only;
+- per-part band offsets;
+- no baked ground shadow.
+
+### Back view references (`references/legionary-back/`, study only, not committed)
+
+| Image (direct URL) | Page | Licence | Taken from it |
+|---|---|---|---|
+| https://upload.wikimedia.org/wikipedia/commons/1/1e/Standing_skeleton%2C_posterior_view_Wellcome_L0018904.jpg (960 px thumb) | https://commons.wikimedia.org/wiki/File:Standing_skeleton,_posterior_view_Wellcome_L0018904.jpg | CC BY 4.0 (Wellcome Collection) | The Encyclopédie plate of a **three-quarter back view**. The shoulder blades are big pale triangles over the ribs. The spine is a knobbed column lying *over* the ribs, and the ribs arch out and down from it. The iliac wings flare either side of the sacrum. The back of the cranium is a smooth dome with a suture and the jaw just showing. |
+| https://upload.wikimedia.org/wikipedia/commons/0/0e/Human_Skeleton_Upper_Body_Posterior_View.jpg (960 px thumb) | https://commons.wikimedia.org/wiki/File:Human_Skeleton_Upper_Body_Posterior_View.jpg | CC BY-SA 3.0 | The lambdoid suture across the back of the skull, the occipital knob above the neck, and the scapular spine as a ridge across each blade. |
+| https://raw.githubusercontent.com/LiberatedPixelCup/Universal-LPC-Spritesheet-Character-Generator/master/spritesheets/body/bodies/skeleton/walk.png and `.../slash.png` | https://github.com/LiberatedPixelCup/Universal-LPC-Spritesheet-Character-Generator | CC-BY-SA 3.0 / GPL 3.0 (LPC) | How a 64 px pixel skeleton reads from behind: the spine as one light column with dark rib bands either side, the blades as the lightest plates, and the near arm overlapping the back. In the slash row, the weapon arm stays visible from behind. |
+| Diablo II skeleton sheet and Darkest Dungeon Bone Soldier (above) | | (c), study only | Kept for the front. Its low-key yellowed bone carries over to the back. |
+
+I tried to find a medieval shield back (enarmes) on Commons, but the API rate-limited me. The
+shield back is drawn from general knowledge: dark planks, two leather straps and a buckle.
+
+### Critique rounds (`docs/screenshots/hd-sprites/paper-legionary-*`, `paper-battle-hd-*`)
+
+1. **Back view, first pass.** The mail cape covered the whole upper back, which hid the spine and shoulder blades: exactly what makes the Encyclopédie plate and the LPC back row read as a back. Fix: from behind, the cape is a short mantle over the shoulders, and the ribs, spine and blades show beneath it.
+2. **Attack at level 8.** The smear, drawn as a rod every 7.5°, read as a fan of separate blades. Fix: `Paper.smear` is now one solid annular sector, lit at the leading edge and thinning to the tail.
+3. **Level 1 and values.** Under the ground-value rule, the first level-1 tone map made the bone brown and the limbs chunky, so the skeleton read was lost. Fix: tones (0, 1, 2, 2, 3) at level 1 and thinner minimum rods. The bone reads pale again, and the figure's mean value still clears the lint's fail line.
+
+Checked in a real HD battle (battle-perf, seed 3, undead against templar, 2000 men):
+- At zoom 5, level-8 sheets land after about 20 s in software GL. The Legionary block reads as kettle hats, raised blades and skull kite shields in the army's purple. It sits consistently with the ray-cast kinds around it.
+- At zoom 1 the field renders cleanly.
+
+Still short of the references:
+- The back of the shield is mostly hidden, so the straps barely show.
+- The mail is very dark under the ground-value rule.
+- At level 1 the figure is a pale stick with a hat and a shield: readable, but no skeleton detail survives at 13 px.

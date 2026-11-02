@@ -12,7 +12,7 @@ import { Anim } from '../contract.ts';
 import { addP, code, DEG, defineMaterial, hash, hslRamp, M, rot, type P2, type Paper } from './core.ts';
 import { isBack, type Facing } from './facing.ts';
 import { registerPaperKind } from './registry.ts';
-import { along, FOOT0, limb, poser, settle, swing, type FootPose, type KeySet } from './rig.ts';
+import { along, FOOT0, limb, poser, settle, snapDeg, swing, type FootPose, type KeySet } from './rig.ts';
 
 // ------------------------------------------------------------------ materials
 
@@ -42,12 +42,16 @@ const pose = poser(FOOT0);
 /** Key poses per animation, authored by hand (a pixel animator's keys), then eased between. */
 export const LEGIONARY_KEYS: KeySet<FootPose> = {
   poses: {
-    [Anim.Idle]: [pose({}), pose({ py: 0.12, torso: 10, nu: 20, fu: 14, head: -2, bl: 148 })],
+    // Idle: only the breath moves (a pixel of rise); every angle stays in its 7.5° step, so the
+    // head, arms and blade keep their drawings and the loop does not boil.
+    [Anim.Idle]: [pose({ nu: 16 }), pose({ py: 0.12, torso: 10, nu: 16, fu: 14, head: -5 })],
+    // Walk: the sword arm is carried steady (the blade rides with the body, no wobble at the
+    // head); the shield arm and the legs swing.
     [Anim.Walk]: [
-      pose({ nt: 24, ns: -6, ft: -20, fs: -18, py: 0.1, nu: 6, fu: 22 }),
-      pose({ nt: 4, ns: -30, ft: 2, fs: -4, py: -0.3, nu: 14, fu: 14 }),
-      pose({ nt: -20, ns: -18, ft: 24, fs: -6, py: 0.1, nu: 26, fu: 4 }),
-      pose({ nt: 2, ns: -4, ft: 4, fs: -30, py: -0.3, nu: 14, fu: 14 }),
+      pose({ nt: 24, ns: -6, ft: -20, fs: -18, py: 0.1, nu: 16, fu: 22 }),
+      pose({ nt: 4, ns: -30, ft: 2, fs: -4, py: -0.3, nu: 16, fu: 14 }),
+      pose({ nt: -20, ns: -18, ft: 24, fs: -6, py: 0.1, nu: 16, fu: 4 }),
+      pose({ nt: 2, ns: -4, ft: 4, fs: -30, py: -0.3, nu: 16, fu: 14 }),
     ],
     // Charging: leaning in, long strides with a flight phase, the blade carried forward.
     [Anim.Run]: [
@@ -97,19 +101,20 @@ export const LEGIONARY_KEYS: KeySet<FootPose> = {
 
 /** A thin bone with knobbed ends: shaft, two condyles, a lit edge. */
 function bone(c: Paper, a: P2, b: P2, w: number, knob: number, tone = 2): void {
-  c.rod(a, b, w, w * 0.85, UM.bone, { tone, detail: (x, y, u, v) => (u > -0.3 && hash(x >> 1, y >> 1, 91) < 0.12 + v * 0.1 ? code(UM.bone, tone - 1) : -1) });
+  c.rod(a, b, w, w * 0.85, UM.bone, { tone, detail: (x, y, u, v) => (u > -0.3 && c.tex(x, y, 91) < 0.12 + v * 0.1 ? code(UM.bone, tone - 1) : -1) });
   // The joint: a knob with a dark seam where the bones meet.
   c.blob(b, knob, knob * 0.9, UM.bone, { tone: tone - 1, detail: (_x, _y, nx, ny) => (Math.abs(ny - nx * 0.3) < 0.14 ? code(UM.bone, 0) : -1) });
 }
 
 /** The rusted, dented kettle hat: a low iron crown with rust creeping up, a wide chewed brim. */
 function helm(c: Paper, at: P2, ang: number): void {
+  ang = snapDeg(ang);
   const crown = addP(at, rot([0.05, -0.7], ang * DEG));
   c.blob(crown, 0.95, 0.62, UM.iron, {
     detail: (x, y, nx, ny) => {
       if (ny > 0.15) return -2;
       if (Math.hypot(nx - 0.35, ny + 0.2) < 0.18) return code(UM.iron, 0);
-      if (ny > -0.1 || hash(x >> 1, y >> 1, 7) < 0.25 + ny * 0.3) return code(UM.rust, ny > 0 ? 1 : 2);
+      if (ny > -0.1 || c.tex(x, y, 7) < 0.25 + ny * 0.3) return code(UM.rust, ny > 0 ? 1 : 2);
       return -1;
     },
   });
@@ -119,7 +124,7 @@ function helm(c: Paper, at: P2, ang: number): void {
     detail: (x, _y, nx, ny) => {
       if (Math.abs(nx) < 0.62 && ny > -0.2) return -2;
       if (ny < -0.35) return code(UM.rust, 3);
-      if (hash(x >> 1, 3, 9) < 0.18) return code(UM.iron, 1);
+      if (hash(c.lx(x) >> 1, 3, 9) < 0.18) return code(UM.iron, 1);
       return -1;
     },
   });
@@ -127,6 +132,7 @@ function helm(c: Paper, at: P2, ang: number): void {
 
 /** The skull: small, brow ridge, deep sockets with a cold point of light, cheekbones, teeth. */
 function skull(c: Paper, at: P2, ang: number, hat: boolean): void {
+  ang = snapDeg(ang);
   const r = 1.0;
   c.blob(at, r, r * 1.05, UM.bone, {
     detail: (_x, _y, nx, ny) => {
@@ -151,7 +157,8 @@ function skull(c: Paper, at: P2, ang: number, hat: boolean): void {
   const jaw = addP(at, rot([0.15, 0.85], ang * DEG));
   c.blob(jaw, 0.55, 0.32, UM.bone, {
     tone: 1,
-    detail: (x, _y, _nx, ny) => (ny < -0.1 ? ((x & 1) === 0 ? code(UM.bone, 3) : code(UM.ink, 1)) : -1),
+    // Teeth of uneven length (staggered ends, not a row of equal stripes).
+    detail: (x, _y, _nx, ny) => (ny < -0.1 - hash(c.lx(x) >> 1, 2, 19) * 0.35 ? ((c.lx(x) & 1) === 0 ? code(UM.bone, 3) : code(UM.ink, 1)) : -1),
   });
   if (hat) helm(c, at, ang);
 }
@@ -161,20 +168,21 @@ function skull(c: Paper, at: P2, ang: number, hat: boolean): void {
  * crack, the occipital knob above the neck, and the near corner of the jaw just showing.
  */
 function skullBack(c: Paper, at: P2, ang: number, hat: boolean): void {
+  ang = snapDeg(ang);
   // The jaw's near corner, peeking out on the forward side below the cranium.
   c.blob(addP(at, rot([0.55, 0.7], ang * DEG)), 0.32, 0.28, UM.bone, { tone: 1 });
   c.blob(at, 1.0, 1.05, UM.bone, {
     detail: (x, y, nx, ny) => {
       const [fx, fy] = rot([nx, ny], -ang * DEG);
       // Lambdoid suture: a jagged dark seam across the back of the head.
-      const seam = -0.05 + Math.abs(fx + 0.1) * 0.55 + (hash(x >> 1, 5, 13) - 0.5) * 0.12;
+      const seam = -0.05 + Math.abs(fx + 0.1) * 0.55 + (hash(c.lx(x) >> 1, 5, 13) - 0.5) * 0.12;
       if (Math.abs(fy - seam) < 0.07 && Math.abs(fx) < 0.75) return code(UM.bone, 0);
       // A crack running down from the crown on the near side.
       if (Math.abs(fx - 0.25 - fy * 0.2) < 0.05 && fy > -0.7 && fy < -0.15) return code(UM.ink, 1);
       // The occipital knob, lit on top, and its shadow over the neck.
       if (fy > 0.5 && Math.abs(fx + 0.05) < 0.4) return code(UM.bone, fy > 0.75 ? 0 : 1);
       // A brown stain on the far side.
-      if (fx < -0.35 && fy > 0.0 && fy < 0.45 && hash(x >> 1, y >> 1, 17) < 0.6) return code(UM.bone, 1);
+      if (fx < -0.35 && fy > 0.0 && fy < 0.45 && c.tex(x, y, 17) < 0.6) return code(UM.bone, 1);
       return -1;
     },
   });
@@ -247,29 +255,30 @@ function backbone(c: Paper, neck: P2, pelvis: P2, shN: P2, shF: P2): void {
       const top = c.sy(sh[1] + 0.55);
       if (Math.abs(y - top) < Math.max(1, c.L * 0.18)) return code(UM.bone, tone + 1); // the scapular spine
       if (y > c.sy(sh[1] + 1.6)) return code(UM.bone, tone - 1);
-      return code(UM.bone, hash(x >> 1, y >> 1, 23) < 0.12 ? tone - 1 : tone);
+      return code(UM.bone, c.tex(x, y, 23) < 0.12 ? tone - 1 : tone);
     });
   }
 }
 
 /** Rotted mail hanging off the shoulders: ring pattern in the lit plane, holes, a torn hem. */
 function mailShirt(c: Paper, neck: P2, back: boolean): void {
-  // From behind the cape hangs lower and wider across the shoulder blades.
+  // From behind it is a short mantle over the shoulders: the spine and the shoulder blades,
+  // which carry the back view, show below it.
   const shape: P2[] = back
-    ? [[-1.7, 0.1], [1.8, 0.2], [1.6, 1.6], [0.9, 2.3], [0.1, 1.9], [-0.9, 2.4], [-1.9, 1.5]]
+    ? [[-1.4, 0.15], [1.8, 0.25], [1.7, 0.95], [1.0, 1.35], [0.3, 1.05], [-0.5, 1.4], [-1.3, 0.95]]
     : [[-1.6, 0.2], [1.7, 0.1], [2.1, 1.5], [1.3, 2.4], [0.2, 2.0], [-0.8, 2.5], [-1.4, 1.6]];
   const pts: P2[] = shape.map(([x, y]) => [c.sx(neck[0] + x), c.sy(neck[1] + y)]);
-  const hem = c.sy(neck[1] + 2.4);
+  const hem = c.sy(neck[1] + (back ? 1.4 : 2.4));
   const L = c.L;
   c.poly(pts, (x, y) => {
     // Rotted through: irregular holes (ribs show beneath) and a ragged lower edge.
     const hy = hem - y;
-    if (hash(x >> 2, y >> 2, back ? 37 : 31) < 0.2) return -1;
-    if (hy < L * 1.4 && hash(x >> 1, 0, 33) < 0.5 - hy / (L * 3)) return -1;
+    if (c.tex(x, y, back ? 37 : 31, 4) < 0.2) return -1;
+    if (hy < L * 1.4 && hash(c.lx(x) >> 1, 0, 33) < 0.5 - hy / (L * 3)) return -1;
     // Rings: a dark line every third row, an offset checker of light toward the lit (left) side.
     const lit = x < c.sx(neck[0]);
-    if (y % 3 === 0) return code(UM.mail, 0);
-    if ((x + ((y / 3) | 0)) % 2 === 0) return code(UM.mail, lit ? 3 : 2);
+    if (c.ly(y) % 3 === 0) return code(UM.mail, 0);
+    if ((c.lx(x) + ((c.ly(y) / 3) | 0)) % 2 === 0) return code(UM.mail, lit ? 3 : 2);
     return code(UM.mail, lit ? 2 : 1);
   });
 }
@@ -302,7 +311,7 @@ function tabard(c: Paper, waist: P2, sway: number, back: boolean): void {
     if (fromBot < L * 0.6) return code(UM.teamDk, 1);
     if (rel > 0.82) return code(UM.teamDk, 2);
     // Stains toward the hem.
-    if (fromBot < L * 3 && hash(x >> 1, y >> 1, 53) < 0.18) return code(UM.teamDk, 1);
+    if (fromBot < L * 3 && c.tex(x, y, 53) < 0.18) return code(UM.teamDk, 1);
     return code(UM.team, 2);
   });
 }
@@ -315,7 +324,7 @@ function sword(c: Paper, grip: P2, deg: number): void {
     shine: true,
     detail: (x, y, u, v) => {
       if (v > 0.25 && v < 0.9 && hash(Math.round(v * 14), 0, 61) < 0.25 && u > 0.35) return -1; // chips
-      if (hash(x >> 1, y >> 1, 63) < 0.16 && v > 0.1) return code(UM.rust, 2); // pitting
+      if (c.tex(x, y, 63) < 0.16 && v > 0.1) return code(UM.rust, 2); // pitting
       return -1;
     },
   });
@@ -329,6 +338,7 @@ const KITE: P2[] = [[-1.55, -2.3], [1.55, -2.3], [1.45, -0.3], [0, 2.9], [-1.45,
 
 /** The kite shield, seen three-quarter: team field, a painted skull, a rusted rim, rivets, scars. */
 function shield(c: Paper, at: P2, tilt: number): void {
+  tilt = snapDeg(tilt);
   const pts: P2[] = KITE.map((p) => addP(at, rot([p[0] * 0.82, p[1]], tilt * DEG)));
   const L = c.L;
   const cx = c.sx(at[0]), cy = c.sy(at[1]);
@@ -345,11 +355,11 @@ function shield(c: Paper, at: P2, tilt: number): void {
     const sd = Math.hypot(lx2 * 1.1, (ly + 0.55) * 1.0);
     if (sd < 0.62) {
       if (Math.hypot(Math.abs(lx2) - 0.24, ly + 0.6) < 0.15) return code(UM.ink, 1);
-      if (ly > -0.2 && Math.abs(lx2) < 0.3 && ((x & 1) === 0)) return code(UM.ink, 2);
+      if (ly > -0.2 && Math.abs(lx2) < 0.3 && ((c.lx(x) & 1) === 0)) return code(UM.ink, 2);
       return code(UM.bone, lx2 < 0 ? 3 : 2);
     }
     // Scars and chipped paint.
-    if (hash(x >> 1, y >> 2, 71) < 0.07) return code(UM.wood, 1);
+    if (hash(c.lx(x) >> 1, c.ly(y) >> 2, 71) < 0.07) return code(UM.wood, 1);
     // Field: the lit left half a step brighter (the shield faces the light obliquely).
     return lx2 < -0.4 ? code(UM.team, 3) : lx2 > 0.6 ? code(UM.team, 1) : code(UM.team, 2);
   });
@@ -357,6 +367,7 @@ function shield(c: Paper, at: P2, tilt: number): void {
 
 /** The kite shield from behind: dark wood boards, the rusted rim, the leather arm straps (enarmes). */
 function shieldBack(c: Paper, at: P2, tilt: number): void {
+  tilt = snapDeg(tilt);
   const pts: P2[] = KITE.map((p) => addP(at, rot([p[0] * 0.7, p[1]], tilt * DEG)));
   const L = c.L;
   const cx = c.sx(at[0]), cy = c.sy(at[1]);
@@ -371,7 +382,7 @@ function shieldBack(c: Paper, at: P2, tilt: number): void {
     // Boards: vertical planks with dark joins, in shadow (the face is turned away from the light).
     const plank = (lx2 + 3) * 1.3;
     if (Math.abs((plank % 1) - 0.5) > 0.42) return code(UM.wood, 0);
-    return code(UM.wood, hash(Math.floor(plank), y >> 2, 75) < 0.2 ? 0 : 1);
+    return code(UM.wood, hash(Math.floor(plank), c.ly(y) >> 2, 75) < 0.2 ? 0 : 1);
   });
 }
 
@@ -386,9 +397,10 @@ function legionary(c: Paper, p: FootPose, facing: Facing): void {
   const tilt = p.tilt;
   // Everything is posed relative to the feet, then tilted about them (falls).
   const T = (q: P2): P2 => rot(q, tilt * DEG);
-  const pel: P2 = T([p.px, -6.5 + p.py]);
+  // Anchors snap to whole pixels: rigid parts then move by integer offsets (no boil).
+  const pel: P2 = c.q(T([p.px, -6.5 + p.py]));
   const tor = p.torso + tilt;
-  const neck = addP(pel, [limb(tor + 180)[0] * 4.9, limb(tor + 180)[1] * 4.9]);
+  const neck = c.q(addP(pel, [limb(tor + 180)[0] * 4.9, limb(tor + 180)[1] * 4.9]));
   // The weapon (right) side is toward the viewer in both views: screen left from the front,
   // screen right from behind.
   const shN = addP(neck, T(back ? [1.4, 0.6] : [-0.35, 0.6]));
@@ -433,7 +445,7 @@ function legionary(c: Paper, p: FootPose, facing: Facing): void {
     return;
   }
   const belt = () =>
-    c.rod(addP(pel, [-0.9, -0.35]), addP(pel, [1.5, -0.45]), 0.42, 0.42, UM.leather, { tone: 2, detail: (x, _y, _u, v) => (Math.abs(v - 0.7) < 0.08 ? code(UM.iron, 3) : (x & 3) === 0 && v < 0.6 ? code(UM.leather, 1) : -1) });
+    c.rod(addP(pel, [-0.9, -0.35]), addP(pel, [1.5, -0.45]), 0.42, 0.42, UM.leather, { tone: 2, detail: (x, _y, _u, v) => (Math.abs(v - 0.7) < 0.08 ? code(UM.iron, 3) : (c.lx(x) & 3) === 0 && v < 0.6 ? code(UM.leather, 1) : -1) });
   const pauldron = () => {
     // A dented rust-iron plate over the near shoulder, two rivets, a lit rim.
     for (const [dy, r] of [[0.15, 0.75], [0.55, 0.62]] as [number, number][]) {
@@ -443,7 +455,7 @@ function legionary(c: Paper, p: FootPose, facing: Facing): void {
           if (ny < -0.6) return code(UM.steel, 3);
           if (Math.abs(ny) < 0.25 && (Math.abs(nx + 0.5) < 0.12 || Math.abs(nx - 0.45) < 0.12)) return code(UM.steel, 4);
           if (ny > 0.55) return code(UM.rust, 0);
-          if (hash(x >> 1, y >> 1, 81) < 0.15 + (ny + 1) * 0.3) return code(UM.rust, ny > 0.2 ? 1 : 2);
+          if (c.tex(x, y, 81) < 0.15 + (ny + 1) * 0.3) return code(UM.rust, ny > 0.2 ? 1 : 2);
           return -1;
         },
       });
@@ -468,7 +480,7 @@ function legionary(c: Paper, p: FootPose, facing: Facing): void {
     c.blob(addP(pel, [0.35, 0.1]), 1.2, 0.62, UM.bone, { tone: 2, detail: (_x, _y, nx, ny) => (Math.abs(nx + 0.05) < 0.16 && ny > -0.4 ? code(UM.bone, ny > 0.3 ? 0 : 1) : -1) });
     backbone(c, neck, pel, shN, shF);
     mailShirt(c, neck, true);
-    tabard(c, pel, Math.sin(tor * DEG) * 0.3 + p.sway, true);
+    tabard(c, pel, c.qn(Math.sin(tor * DEG) * 0.3 + p.sway), true);
     belt();
     legs(hipN, p.nt, p.ns, false);
     c.rod(neck, addP(neck, T([0.15, -0.55])), 0.36, 0.3, UM.bone, { tone: 2 });
@@ -486,7 +498,7 @@ function legionary(c: Paper, p: FootPose, facing: Facing): void {
   c.blob(addP(pel, [0.15, 0.1]), 1.15, 0.6, UM.bone, { tone: 2 });
   ribcage(c, neck, pel, tor);
   mailShirt(c, neck, false);
-  tabard(c, pel, Math.sin(tor * DEG) * 0.3 + p.sway, false);
+  tabard(c, pel, c.qn(Math.sin(tor * DEG) * 0.3 + p.sway), false);
   belt();
   legs(hipN, p.nt, p.ns, false);
   // Neck vertebrae and the skull.

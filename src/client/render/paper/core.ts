@@ -183,6 +183,7 @@ export function defineMaterial(name: string, ramp: RGB[] | ((hue: number) => RGB
 }
 export const materialId = (name: string): Mat | undefined => BY_NAME.get(name);
 export const materialCount = (): number => MATS.length;
+export const materialNameOf = (m: Mat): string => MATS[m]?.name ?? '';
 export const isKept = (m: Mat): boolean => MATS[m]?.keep === true;
 
 const PALS = new Map<number, { n: number; pal: RGB[][] }>();
@@ -213,12 +214,164 @@ export const M = {
   wood: defineMaterial('wood', oklchRamp({ l: 0.4, c: 0.06, h: 55 })),
   leather: defineMaterial('leather', oklchRamp({ l: 0.34, c: 0.06, h: 45 })),
   flesh: defineMaterial('flesh', oklchRamp({ l: 0.62, c: 0.06, h: 55 })),
-  ink: defineMaterial('ink', [[14, 10, 12], [20, 15, 16], [28, 21, 22], [36, 28, 28], [46, 36, 34]], { keep: true }),
+  // Ink: eye sockets, mouths, deep cracks. Warm, never neutral black (a grey shadow reads dead).
+  ink: defineMaterial('ink', [[24, 12, 16], [32, 17, 21], [40, 23, 26], [49, 30, 32], [60, 39, 39]], { keep: true }),
   glow: defineMaterial('glow', [[40, 90, 60], [70, 140, 80], [110, 200, 110], [160, 235, 150], [215, 255, 200]], { keep: true }),
 } as const;
 
 /** A pixel code: material and tone (clamped to 0..4). */
 export const code = (m: Mat, t: number): number => m * 8 + Math.max(0, Math.min(4, t));
+
+// ------------------------------------------------------------------ the lint rules, as data
+
+/** The battlefield green every figure is judged against (pixel-lint FIELD). */
+export const GROUND: RGB = [0x56, 0x60, 0x3a];
+const GROUND_L = rgbOklab(GROUND)[0];
+/** Material base tones keep at least this OKLab lightness away from the ground. */
+export const GROUND_DL = 0.12;
+/** Toward the key light in image space (upper left), as the lint measures it. */
+export const KEY_LIGHT: P2 = (() => {
+  const x = -0.75, y = 0.5 * 0.12 - (Math.sqrt(3) / 2) * 0.7;
+  const n = Math.hypot(x, y);
+  return [x / n, y / n];
+})();
+/** Outline colours never go darker than this OKLab lightness (never near-black). */
+export const OUTLINE_FLOOR = 0.2;
+
+/**
+ * Colour budget per detail level: fill colours, dark outline colours, and which ramp tone each
+ * painted tone becomes (level 1 keeps 3 tones, level 2 four, levels 4 and 8 all five).
+ */
+export interface Budget {
+  fill: number;
+  outline: number;
+  tones: readonly [number, number, number, number, number];
+}
+export function budget(level: number): Budget {
+  if (level <= 1) return { fill: 12, outline: 2, tones: [0, 1, 2, 2, 3] };
+  if (level <= 2) return { fill: 16, outline: 3, tones: [0, 1, 2, 3, 3] };
+  if (level <= 4) return { fill: 21, outline: 4, tones: [0, 1, 2, 3, 4] };
+  return { fill: 33, outline: 6, tones: [0, 1, 2, 3, 4] };
+}
+
+type Lab = [number, number, number];
+/**
+ * Distance in OKLab with lightness weighted twice (value matters most in pixel art) and hue
+ * half again (so a coloured shadow is not merged into a grey one).
+ */
+const labDist = (p: Lab, q: Lab): number => Math.hypot(2 * (p[0] - q[0]), 1.5 * (p[1] - q[1]), 1.5 * (p[2] - q[2]));
+
+/** Shifts a ramp's lightness so its base tone keeps GROUND_DL away from the battlefield green. */
+export function groundSafe(ramp: RGB[]): RGB[] {
+  const labs = ramp.map(rgbOklab);
+  const l2 = labs[2]![0];
+  const d = l2 - GROUND_L;
+  if (Math.abs(d) >= GROUND_DL) return ramp;
+  // Darker unless clearly lighter already (figures read dark-on-ground: the mean value of a figure
+  // must also clear the ground, and outlines and shadows already pull it down), whole ramp at once.
+  const shift = (d > 0.05 ? GROUND_DL : -GROUND_DL - 0.03) - d;
+  // The floor keeps the deepest tone coloured (at very low lightness the gamut has no chroma).
+  return labs.map(([L, a, b]) => oklabRgb(Math.min(0.95, Math.max(0.17, L + shift)), a, b));
+}
+
+/**
+ * A figure's colours at one level: every painted code maps to one of at most `budget.fill` fill
+ * colours (the faction's master palette for that level, built in OKLab from the codes its
+ * figures use), and each fill colour has a lit outline (its material's tone 1) and a dark outline
+ * (one of at most `budget.outline` colours: the material's darkest tone, held above
+ * OUTLINE_FLOOR, hue kept).
+ */
+export interface FigurePalette {
+  /** Fill colours, then dark outline colours. */
+  rgb: RGB[];
+  fills: number;
+  /** Code (mat*8+tone) → fill colour index. */
+  fillOf: Int16Array;
+  /** Per fill colour: exempt from cleanup (inks, glows). */
+  keep: Uint8Array;
+  /** Levels 1-2: the lit side keeps the part's own colour (sel-out) instead of a lit outline. */
+  selOut: boolean;
+  /** Per fill colour: dark-side outline colour. */
+  dark: Int16Array;
+}
+
+interface Cand {
+  lab: Lab;
+  rgb: RGB;
+  mat: Mat;
+  weight: number;
+}
+
+/** Drops the less important of the closest pair until at most `cap` remain. */
+function reduce(cs: Cand[], cap: number): Cand[] {
+  const out = cs.slice();
+  while (out.length > cap) {
+    let bi = 0, bj = 1, bd = Infinity;
+    for (let i = 0; i < out.length; i++)
+      for (let j = i + 1; j < out.length; j++) {
+        const d = labDist(out[i]!.lab, out[j]!.lab);
+        if (d < bd) [bi, bj, bd] = [i, j, d];
+      }
+    out.splice(out[bi]!.weight >= out[bj]!.weight ? bj : bi, 1);
+  }
+  return out;
+}
+
+/**
+ * Builds the palette for a level from the codes a faction's figures use and how many pixels each
+ * covers (see paper/index.ts): when colours must merge, the rarely used go first.
+ */
+export function figurePalette(hue: number, level: number, used: ReadonlyMap<number, number>): FigurePalette {
+  const B = budget(level);
+  const pal = palette(hue);
+  const safe = pal.map((r, m) => (MATS[m]?.keep ? r : groundSafe(r)));
+  const colourOf = (c: number): RGB => safe[c >> 3]![B.tones[Math.min(4, c & 7)]!]!;
+  // Candidates: each painted colour, weighted by the pixels it covers (log), with a bonus for
+  // inks and glows (tiny but essential) and for the army colour (the accent).
+  const byRgb = new Map<string, Cand>();
+  for (const c of [...used.keys()].sort((p, q) => p - q)) {
+    if (c < 0 || c >> 3 >= safe.length) continue;
+    const rgb = colourOf(c);
+    const k = rgb.join(',');
+    const m = c >> 3;
+    const w = Math.log2(1 + (used.get(c) ?? 1)) + (MATS[m]?.keep ? 8 : 0) + (MATS[m]?.name.endsWith('team') ? 2 : 0);
+    const had = byRgb.get(k);
+    if (had) had.weight += w;
+    else byRgb.set(k, { lab: rgbOklab(rgb), rgb, mat: m, weight: w });
+  }
+  const cands = [...byRgb.values()];
+  const fills = reduce(cands, B.fill);
+  const nearest = (lab: Lab, list: { lab: Lab }[]): number => {
+    let bi = 0, bd = Infinity;
+    list.forEach((f, i) => {
+      const d = labDist(lab, f.lab);
+      if (d < bd) [bi, bd] = [i, d];
+    });
+    return bi;
+  };
+  const fillOf = new Int16Array(MATS.length * 8).fill(0);
+  for (let c = 0; c < fillOf.length; c++) if ((c & 7) <= 4) fillOf[c] = nearest(rgbOklab(colourOf(c)), fills);
+  // Dark outlines: one per material in use, then merged down to the budget.
+  const mats = [...new Set(fills.map((f) => f.mat))].sort((p, q) => p - q);
+  const darkC: Cand[] = mats.map((m) => {
+    const [L, a, b] = rgbOklab(safe[m]![0]!);
+    const lab: Lab = [Math.max(OUTLINE_FLOOR, L - 0.07), a * 0.85, b * 0.85];
+    return { lab, rgb: oklabRgb(lab[0], lab[1], lab[2]), mat: m, weight: 0 };
+  });
+  const darks = reduce(darkC, B.outline);
+  const rgb = [...fills.map((f) => f.rgb), ...darks.map((d) => d.rgb)];
+  const n = fills.length;
+  const keep = new Uint8Array(n), dark = new Int16Array(n);
+  fills.forEach((f, i) => {
+    keep[i] = MATS[f.mat]?.keep ? 1 : 0;
+    const own = darkC.find((d) => d.mat === f.mat)!;
+    dark[i] = n + nearest(own.lab, darks);
+  });
+  // At levels 1-2 a figure is 13-26 px tall and its parts are mostly one tone: a darker lit
+  // outline would read as light from the inside, so the lit side keeps the part's own colour
+  // (sel-out). From level 4 the lit outline is a step below the edge pixel, at least tone 1.
+  return { rgb, fills: n, fillOf, keep, dark, selOut: level <= 2 };
+}
 
 // ------------------------------------------------------------------ the canvas
 
@@ -237,6 +390,11 @@ export type Shade = (x: number, y: number, u: number, v: number) => number;
 /**
  * One painting surface: the pixel codes, the draw order of the part that painted each pixel
  * (for contact lines), and the previous frame (for anti-flicker). Not shared between threads.
+ *
+ * No-boil rules built in: `poly` sets a part-local origin (`lx`, `ly`, `tex`) so texture rides
+ * with the part instead of the canvas grid; `q` snaps an anchor to whole pixels so rigid parts
+ * move by integer offsets; each part gets its own band offset (`band`) so bands do not line up
+ * across parallel parts.
  */
 export class Paper {
   /** Canvas pixels per figure unit (the detail level: 1, 2, 4 or 8). */
@@ -253,6 +411,21 @@ export class Paper {
   order = 0;
   /** What the previous frame on this surface was (anti-flicker only follows on from it). */
   last = '';
+  /** The current part's origin in canvas px (its bounding box corner, whole pixels). */
+  ox = 0;
+  oy = 0;
+  /** The current part's band offset (-0.18..0.18), stable per part from frame to frame. */
+  band = 0;
+  /** Bounding box of what has been drawn (canvas px, inclusive); passes only scan it. */
+  bx0 = 0;
+  by0 = 0;
+  bx1 = -1;
+  by1 = -1;
+
+  /** The rows and columns a pass scans: the drawn box grown by `pad`, kept `edge` px inside the canvas. */
+  private box(pad: number, edge: number): [number, number, number, number] {
+    return [Math.max(edge, this.bx0 - pad), Math.max(edge, this.by0 - pad), Math.min(this.CW - 1 - edge, this.bx1 + pad), Math.min(this.CH - 1 - edge, this.by1 + pad)];
+  }
 
   /** Clears the canvas for a level and size. */
   begin(level: number, size: CanvasSize = { w: 46, h: 50, footY: 0.86 }): void {
@@ -264,12 +437,16 @@ export class Paper {
       this.pix = new Int16Array(cw * ch);
       this.ord = new Int16Array(cw * ch);
       this.prev = new Int16Array(cw * ch).fill(-1);
+      this.last = '';
     }
     this.CW = cw;
     this.CH = ch;
     this.pix.fill(-1);
     this.ord.fill(-1);
     this.order = 0;
+    this.bx0 = cw;
+    this.by0 = ch;
+    this.bx1 = this.by1 = -1;
   }
 
   plot(x: number, y: number, c: number): void {
@@ -277,6 +454,10 @@ export class Paper {
     const i = y * this.CW + x;
     this.pix[i] = c;
     this.ord[i] = this.order;
+    if (x < this.bx0) this.bx0 = x;
+    if (x > this.bx1) this.bx1 = x;
+    if (y < this.by0) this.by0 = y;
+    if (y > this.by1) this.by1 = y;
   }
 
   /** Figure units to canvas px. */
@@ -286,6 +467,29 @@ export class Paper {
   sy(y: number): number {
     return this.FY + y * this.L;
   }
+  /** Snaps a point (figure units) to whole canvas pixels: anchors of rigid parts go through this. */
+  q(p: P2): P2 {
+    return [Math.round(p[0] * this.L) / this.L, Math.round(p[1] * this.L) / this.L];
+  }
+  /** Snaps a length or offset (figure units) to whole pixels. */
+  qn(v: number): number {
+    return Math.round(v * this.L) / this.L;
+  }
+  /** Part-local pixel coordinates (for texture: key hashes and patterns to these, never to x, y). */
+  lx(x: number): number {
+    return x - this.ox;
+  }
+  ly(y: number): number {
+    return y - this.oy;
+  }
+  /**
+   * Part-local texture noise in [0, 1): diagonal cells about `cell` px across, seeded. Diagonal,
+   * not square, so the ends of neighbouring runs never line up (flat banding).
+   */
+  tex(x: number, y: number, seed: number, cell = 2): number {
+    const lx = x - this.ox, ly = y - this.oy;
+    return hash(Math.floor((lx + ly) / cell), Math.floor((lx - ly + 1000) / (cell + 1)), seed);
+  }
 
   /**
    * Fills a polygon (canvas px): a pixel is in when its centre is. `shade(x, y, u, v)` gets the
@@ -294,12 +498,16 @@ export class Paper {
    */
   poly(pts: P2[], shade: Shade, axis?: { a: P2; b: P2; w: number }): void {
     this.order++;
+    this.band = (hash(this.order, 7, 99) - 0.5) * 0.36;
     const CW = this.CW, CH = this.CH;
-    let y0 = Infinity, y1 = -Infinity;
+    let y0 = Infinity, y1 = -Infinity, x0 = Infinity;
     for (const p of pts) {
       y0 = Math.min(y0, p[1]);
       y1 = Math.max(y1, p[1]);
+      x0 = Math.min(x0, p[0]);
     }
+    this.ox = Math.floor(x0 + 1e-6);
+    this.oy = Math.floor(y0 + 1e-6);
     const iy0 = Math.max(0, Math.floor(y0)), iy1 = Math.min(CH - 1, Math.ceil(y1));
     let ux = 0, uy = 0, vx = 0, vy = 0, len = 1;
     if (axis) {
@@ -346,8 +554,10 @@ export class Paper {
   }
 
   /**
-   * A tapered stroke from a to b (figure units), widths wa..wb (figure units, at least one pixel),
-   * shaded as a rounded rod: a lit edge, a mid body, a shadow third and a dark edge.
+   * A tapered stroke from a to b (figure units), widths wa..wb (figure units), shaded as a
+   * rounded rod: a lit edge, a mid body, a shadow third and a dark edge. Thin rods (under 3 px)
+   * are one tone with a shadow side only, and at levels 1-2 at least 1.4 px wide so they stay
+   * 4-connected (no orphan pixels along a diagonal).
    */
   rod(a: P2, b: P2, wa: number, wb: number, m: Mat, opts: { shine?: boolean; tone?: number; detail?: Shade } = {}): void {
     const L = this.L;
@@ -355,7 +565,8 @@ export class Paper {
     const dx = B[0] - A[0], dy = B[1] - A[1];
     const ln = Math.hypot(dx, dy) || 1;
     const nx = -dy / ln, ny = dx / ln;
-    const ha = Math.max(0.5, (wa * L) / 2), hb = Math.max(0.5, (wb * L) / 2);
+    const minH = L <= 1 ? 0.62 : L <= 2 ? 0.7 : 0.5;
+    const ha = Math.max(minH, (wa * L) / 2), hb = Math.max(minH, (wb * L) / 2);
     const pts: P2[] = [
       [A[0] + nx * ha, A[1] + ny * ha],
       [B[0] + nx * hb, B[1] + ny * hb],
@@ -363,20 +574,23 @@ export class Paper {
       [A[0] - nx * ha, A[1] - ny * ha],
     ];
     const base = opts.tone ?? 2;
+    const w = Math.max(ha, hb);
     this.poly(pts, (x, y, u, v) => {
       if (opts.detail) {
         const d = opts.detail(x, y, u, v);
         if (d >= 0) return d;
       }
-      const w = Math.max(ha, hb);
-      // Bands in pixels, not fractions, so thin rods stay readable: 1 px lit edge, 1 px dark edge.
+      if (w < 1.5) return code(m, base);
       const px = u * w;
-      if (w >= 1.5 && px < -w + 1.2) return code(m, base + (opts.shine ? 2 : 1));
-      if (w >= 1.5 && px > w - 1.2) return code(m, base - 2);
-      if (u > 0.25) return code(m, base - 1);
+      // Bands in pixels, not fractions, so thin rods stay readable: 1 px lit edge, 1 px dark edge.
+      // The lit edge stops short of the ends and the dark edge runs nearly full length, so the
+      // bands do not end on the same row (flat banding).
+      if (px < -w + 1.2 && v > 0.1 + this.band * 0.3 && v < 0.86 + this.band * 0.3) return code(m, base + (opts.shine ? 2 : 1));
+      if (px > w - 1.2 && v > 0.03 && v < 0.97) return code(m, base - 2);
+      if (u > 0.25 + this.band) return code(m, base - 1);
       if (opts.shine && Math.abs(u + 0.45) < 0.12 && v > 0.15 && v < 0.6) return code(m, base + 2);
       return code(m, base);
-    }, { a: A, b: B, w: 2 * Math.max(ha, hb) });
+    }, { a: A, b: B, w: 2 * w });
   }
 
   /**
@@ -394,18 +608,20 @@ export class Paper {
       pts.push([cx + Math.cos(a) * RX, cy + Math.sin(a) * RY]);
     }
     const base = opts.tone ?? 2;
+    const small = Math.min(RX, RY) < 1.6;
     this.poly(pts, (x, y) => {
       const nx = (x + 0.5 - cx) / RX, ny = (y + 0.5 - cy) / RY;
       if (opts.detail) {
         const d = opts.detail(x, y, nx, ny);
         if (d >= 0) return d;
       }
+      if (small) return code(m, base);
       const lit = Math.hypot(nx + 0.38, ny + 0.38);
       const dk = nx * 0.7 + ny * 0.7;
-      if (opts.shine && lit < 0.28) return code(m, base + 2);
-      if (lit < 0.62) return code(m, base + 1);
-      if (dk > 0.72) return code(m, base - 2);
-      if (dk > 0.32) return code(m, base - 1);
+      if (opts.shine && lit < 0.28 + this.band * 0.5) return code(m, base + 2);
+      if (lit < 0.62 + this.band) return code(m, base + 1);
+      if (dk > 0.72 + this.band) return code(m, base - 2);
+      if (dk > 0.32 + this.band) return code(m, base - 1);
       return code(m, base);
     });
   }
@@ -419,15 +635,29 @@ export class Paper {
 
   /**
    * A solid smear (no blending): the sweep of a blade from angle `from` to `to` (degrees, the
-   * rig's convention, stepping 7.5°) about `pivot`, between radii r0 and r1, as one pale shape.
+   * rig's convention: 0 down, 90 forward, 180 up) about `pivot`, between radii r0 and r1, filled
+   * as one pale annular sector, a lit leading edge and a darker trailing tail.
    */
-  smear(pivot: P2, from: number, to: number, r0: number, r1: number, m: Mat, opts: { w0?: number; w1?: number; tone?: number } = {}): void {
-    const step = from > to ? -7.5 : 7.5;
-    const at = (deg: number, r: number): P2 => {
-      const s = Math.round((deg * DEG) / (7.5 * DEG)) * 7.5 * DEG;
-      return [pivot[0] + Math.sin(s) * r, pivot[1] + Math.cos(s) * r];
-    };
-    for (let a = from; step < 0 ? a > to : a < to; a += step) this.rod(at(a, r0), at(a, r1), opts.w0 ?? 0.55, opts.w1 ?? 0.35, m, { tone: opts.tone ?? 3 });
+  smear(pivot: P2, from: number, to: number, r0: number, r1: number, m: Mat, opts: { tone?: number } = {}): void {
+    if (Math.abs(from - to) < 1) return;
+    const steps = Math.max(2, Math.ceil(Math.abs(from - to) / 7.5));
+    const at = (deg: number, r: number): P2 => [this.sx(pivot[0] + Math.sin(deg * DEG) * r), this.sy(pivot[1] + Math.cos(deg * DEG) * r)];
+    const outer: P2[] = [], inner: P2[] = [];
+    for (let k = 0; k <= steps; k++) {
+      const d = from + ((to - from) * k) / steps;
+      // The tail (at `from`) thins toward the tip radius, the leading edge (at `to`) is full width.
+      const r0k = r1 - (r1 - r0) * (0.35 + 0.65 * (k / steps));
+      outer.push(at(d, r1));
+      inner.push(at(d, r0k));
+    }
+    const tone = opts.tone ?? 3;
+    const span = Math.abs(to - from);
+    this.poly([...outer, ...inner.reverse()], (x, y) => {
+      const dx = (x + 0.5 - this.sx(pivot[0])) / this.L, dy = (y + 0.5 - this.sy(pivot[1])) / this.L;
+      const ang = Math.atan2(dx, dy) / DEG;
+      const k = Math.min(1, Math.max(0, Math.abs(((ang - from + 540) % 360) - 180) / span));
+      return code(m, k > 0.75 ? tone + 1 : k < 0.3 ? tone - 1 : tone);
+    });
   }
 
   // ---------------------------------------------------------------- passes
@@ -440,24 +670,27 @@ export class Paper {
       pix.subarray(r, r + CW).reverse();
       ord.subarray(r, r + CW).reverse();
     }
+    if (this.bx1 >= this.bx0) [this.bx0, this.bx1] = [CW - 1 - this.bx1, CW - 1 - this.bx0];
   }
 
-  /** Contact lines: where a part lies in front of another, the pixel behind takes a tone two steps down. */
+  /**
+   * Contact lines on the shadow side only: where a part lies in front of another, its own rim on
+   * its shadow side (the pixel whose right or lower neighbour belongs to a part behind it) takes
+   * a tone two steps down. Lit-side rims are left alone, so parts never get a dark line all the
+   * way round (pillow shading).
+   */
   contact(): void {
     const { CW, CH, pix: PIX, ord: ORD } = this;
     const mark: number[] = [];
-    for (let y = 1; y < CH - 1; y++)
-      for (let x = 1; x < CW - 1; x++) {
+    const [x0, y0, x1, y1] = this.box(0, 1);
+    for (let y = y0; y <= y1; y++)
+      for (let x = x0; x <= x1; x++) {
         const i = y * CW + x;
         const v = PIX[i]!;
         if (v < 0) continue;
-        for (const j of [i - 1, i + 1, i - CW, i + CW]) {
-          const u = PIX[j]!;
-          if (u >= 0 && ORD[j]! > ORD[i]! + 0 && u >> 3 !== v >> 3) {
-            mark.push(i);
-            break;
-          }
-        }
+        const o = ORD[i]!;
+        const a = PIX[i + 1]!, b = PIX[i + CW]!;
+        if ((a >= 0 && ORD[i + 1]! < o && a >> 3 !== v >> 3) || (b >= 0 && ORD[i + CW]! < o && b >> 3 !== v >> 3)) mark.push(i);
       }
     for (const i of mark) PIX[i] = (PIX[i]! & ~7) | Math.max(0, (PIX[i]! & 7) - 2);
   }
@@ -467,7 +700,10 @@ export class Paper {
     const { CW, CH, pix: PIX } = this;
     const seen = new Uint8Array(CW * CH);
     const stack: number[] = [], members: number[] = [];
-    for (let i0 = 0; i0 < CW * CH; i0++) {
+    const [bx0, by0, bx1, by1] = this.box(0, 0);
+    for (let i0 = by0 * CW + bx0; i0 <= by1 * CW + bx1; i0++) {
+      const x0 = i0 % CW;
+      if (x0 < bx0 || x0 > bx1) continue;
       const v = PIX[i0]!;
       if (v < 0 || seen[i0]) continue;
       stack.length = members.length = 0;
@@ -495,17 +731,25 @@ export class Paper {
     }
   }
 
-  /** Anti-flicker: a lone tone flip since the last frame keeps last frame's tone. */
+  /**
+   * Anti-flicker with hysteresis: a pixel whose tone changed since the last frame (same material)
+   * keeps last frame's tone when three of its neighbours agree with it, or when the change is a
+   * single step and two agree (a band edge does not creep back and forth).
+   */
   steady(): void {
-    const { CW, CH, pix: PIX, prev: PREV } = this;
-    for (let y = 1; y < CH - 1; y++)
-      for (let x = 1; x < CW - 1; x++) {
+    const { CW, pix: PIX, prev: PREV } = this;
+    const [x0, y0, x1, y1] = this.box(0, 1);
+    for (let y = y0; y <= y1; y++)
+      for (let x = x0; x <= x1; x++) {
         const i = y * CW + x;
         const v = PIX[i]!, q = PREV[i]!;
         if (v < 0 || q < 0 || v === q || v >> 3 !== q >> 3) continue;
         let agree = 0;
-        for (const j of [i - 1, i + 1, i - CW, i + CW]) if (PIX[j] === q) agree++;
-        if (agree >= 3) PIX[i] = q;
+        if (PIX[i - 1] === q) agree++;
+        if (PIX[i + 1] === q) agree++;
+        if (PIX[i - CW] === q) agree++;
+        if (PIX[i + CW] === q) agree++;
+        if (agree >= 3 || (agree >= 2 && Math.abs((v & 7) - (q & 7)) === 1)) PIX[i] = q;
       }
   }
 
@@ -514,39 +758,77 @@ export class Paper {
     this.prev.set(this.pix);
   }
 
+  /** The codes painted and their pixel counts (to build a faction's master palette). */
+  codes(into: Map<number, number> = new Map()): Map<number, number> {
+    for (const v of this.pix) if (v >= 0) into.set(v, (into.get(v) ?? 0) + 1);
+    return into;
+  }
+
   /**
-   * Colours (RGBA, little-endian packed): a ground shadow ellipse (radii in units, or null), the
-   * figure, and the coloured outline: the material's darkest tone on the lit (left/top) side, a
-   * darker version of it on the shadow side.
+   * Final colours (RGBA, little-endian packed), with no ground shadow (the battle draws its own):
+   * every code goes to its fill colour in `fp`; single-pixel islands of a colour (orphans) take
+   * their most common neighbour (inks and glows excepted); then the outline, a pixel outside the
+   * figure beside it, takes the lit outline where the edge faces the light (from the edge
+   * normal) and the dark outline elsewhere.
    */
-  colours(pal: RGB[][], shadow: { rx: number; ry: number } | null): Uint32Array {
-    const { CW, CH, FX, FY, L, pix: PIX } = this;
-    const out = new Uint32Array(CW * CH);
-    const pack = ([r, g, b]: RGB, a = 255) => ((a << 24) | (b << 16) | (g << 8) | r) >>> 0;
-    if (shadow) {
-      const sh = pack([12, 14, 8], 92);
-      for (let y = 0; y < CH; y++)
-        for (let x = 0; x < CW; x++) {
-          const dx = (x + 0.5 - FX) / (shadow.rx * L), dy = (y + 0.5 - FY) / (shadow.ry * L);
-          if (dx * dx + dy * dy < 1) out[y * CW + x] = sh;
-        }
+  colours(fp: FigurePalette): Uint32Array {
+    const { CW, CH, pix: PIX } = this;
+    const N = CW * CH;
+    const ci = new Int16Array(N).fill(-1);
+    const [bx0, by0, bx1, by1] = this.box(0, 0);
+    for (let i = by0 * CW + bx0; i <= by1 * CW + bx1; i++) {
+      const v = PIX[i]!;
+      if (v >= 0) ci[i] = fp.fillOf[v]!;
     }
-    for (let y = 0; y < CH; y++)
-      for (let x = 0; x < CW; x++) {
+    // Orphans, twice (a fix can leave a new island).
+    const cnt = new Int32Array(fp.fills);
+    const [ix0, iy0, ix1, iy1] = this.box(0, 1);
+    for (let pass = 0; pass < 2; pass++)
+      for (let y = iy0; y <= iy1; y++)
+        for (let x = ix0; x <= ix1; x++) {
+          const i = y * CW + x;
+          const v = ci[i]!;
+          if (v < 0 || fp.keep[v]) continue;
+          if (ci[i - 1] === v || ci[i + 1] === v || ci[i - CW] === v || ci[i + CW] === v) continue;
+          cnt.fill(0);
+          let best = -1, bn = 0;
+          for (const j of [i - 1, i + 1, i - CW, i + CW, i - CW - 1, i - CW + 1, i + CW - 1, i + CW + 1]) {
+            const u = ci[j]!;
+            if (u < 0 || fp.keep[u]) continue;
+            // 4-neighbours count double: that is what makes the pixel part of a cluster.
+            cnt[u]! += j === i - 1 || j === i + 1 || j === i - CW || j === i + CW ? 2 : 1;
+            if (cnt[u]! > bn) [best, bn] = [u, cnt[u]!];
+          }
+          if (best >= 0 && bn >= 2) ci[i] = best;
+        }
+    const out = new Uint32Array(N);
+    const packed = fp.rgb.map(([r, g, b]) => ((255 << 24) | (b << 16) | (g << 8) | r) >>> 0);
+    const [kx, ky] = KEY_LIGHT;
+    const [ox0, oy0, ox1, oy1] = this.box(1, 0);
+    for (let y = oy0; y <= oy1; y++)
+      for (let x = ox0; x <= ox1; x++) {
         const i = y * CW + x;
-        const v = PIX[i]!;
+        const v = ci[i]!;
         if (v >= 0) {
-          out[i] = pack(pal[v >> 3]![v & 7]!);
+          out[i] = packed[v]!;
           continue;
         }
-        let nb = -1, lit = false;
-        if (x < CW - 1 && PIX[i + 1]! >= 0) [nb, lit] = [PIX[i + 1]!, true];
-        else if (y < CH - 1 && PIX[i + CW]! >= 0) [nb, lit] = [PIX[i + CW]!, true];
-        else if (x > 0 && PIX[i - 1]! >= 0) nb = PIX[i - 1]!;
-        else if (y > 0 && PIX[i - CW]! >= 0) nb = PIX[i - CW]!;
-        if (nb < 0) continue;
-        const d = pal[nb >> 3]![0]!;
-        out[i] = lit ? pack(pal[nb >> 3]![0]!) : pack([Math.round(d[0] * 0.5 + 4), Math.round(d[1] * 0.5 + 3), Math.round(d[2] * 0.5 + 4)]);
+        // Outline: outward normal from the filled 4-neighbours (the pixel it outlines is the
+        // first of them found).
+        let nx = 0, ny = 0, j = -1;
+        if (x > 0 && ci[i - 1]! >= 0) (nx += 1, (j = i - 1));
+        if (x < CW - 1 && ci[i + 1]! >= 0) (nx -= 1, (j = j < 0 ? i + 1 : j));
+        if (y > 0 && ci[i - CW]! >= 0) (ny += 1, (j = j < 0 ? i - CW : j));
+        if (y < CH - 1 && ci[i + CW]! >= 0) (ny -= 1, (j = j < 0 ? i + CW : j));
+        if (j < 0) continue;
+        const nb = ci[j]!;
+        const n = Math.hypot(nx, ny);
+        if (n > 0 && (nx * kx + ny * ky) / n > 0.3) {
+          // Lit side: a step below the edge pixel's tone, at least tone 1 (always lighter than
+          // the dark outline, never darker than the part's own shade next to it).
+          const v = PIX[j]!;
+          out[i] = fp.selOut ? packed[nb]! : packed[fp.fillOf[(v & ~7) | Math.max(1, (v & 7) - 1)]!]!;
+        } else out[i] = packed[fp.dark[nb]!]!;
       }
     return out;
   }

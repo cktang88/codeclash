@@ -11,6 +11,8 @@ import { addP, DEG, type CanvasSize, type P2 } from './core.ts';
 /** Angles snap to 7.5°. */
 export const SNAP_DEG = 7.5;
 export const snap = (a: number): number => Math.round(a / (SNAP_DEG * DEG)) * SNAP_DEG * DEG;
+/** The same, in degrees. */
+export const snapDeg = (deg: number): number => Math.round(deg / SNAP_DEG) * SNAP_DEG;
 /** Unit direction of a limb at an angle (degrees; 0 = down, + = forward), snapped. */
 export const limb = (deg: number): P2 => [Math.sin(snap(deg * DEG)), Math.cos(snap(deg * DEG))];
 /** The point `len` units from p along a limb angle. */

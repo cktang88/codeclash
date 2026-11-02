@@ -43,6 +43,9 @@ interface HdMod {
   __FRAMES: readonly number[];
   __COLS: number;
 }
+interface PaperMod {
+  paperLintPalette: (f: string, hue: number) => { name: string; level: number; tones: RGB[]; edge: RGB }[];
+}
 
 /** What a pixel of a sprite is made of. */
 export interface Palette {
@@ -81,6 +84,7 @@ export class Painters {
     private readonly server: ViteDevServer,
     private readonly classic: ClassicMod,
     private readonly hd: HdMod,
+    private readonly paper: PaperMod,
   ) {}
 
   static async load(root: string): Promise<Painters> {
@@ -106,7 +110,8 @@ export class Painters {
     });
     const classic = (await server.ssrLoadModule('/src/client/render/sprites.ts')) as unknown as ClassicMod;
     const hd = (await server.ssrLoadModule('/src/client/render/sprites128.ts')) as unknown as HdMod;
-    return new Painters(server, classic, hd);
+    const paper = (await server.ssrLoadModule('/src/client/render/paper/index.ts')) as unknown as PaperMod;
+    return new Painters(server, classic, hd, paper);
   }
 
   close(): Promise<void> {
@@ -117,7 +122,8 @@ export class Painters {
     return (art === 'hd' ? this.hd.__FRAMES : this.classic.__FRAMES)[anim]!;
   }
 
-  palette(art: Art, faction: Faction): Palette {
+  /** A faction's palette; for HD, `level` limits the paper-doll ramps to those painted at that level. */
+  palette(art: Art, faction: Faction, level?: number): Palette {
     const mod = art === 'hd' ? this.hd : this.classic;
     const names: string[] = [];
     for (const [k, v] of Object.entries(mod.__R)) names[v] = k;
@@ -151,6 +157,20 @@ export class Painters {
       const k = rgbKey(unpack(p));
       if (!edge.has(k)) edge.set(k, r);
     });
+    // Paper-doll kinds (src/client/render/paper/): their ramps as painted at each level, five
+    // tones folded into the lint's four (the lightest two share tone 3), and their outlines.
+    if (art === 'hd')
+      for (const pr of this.paper.paperLintPalette(faction, HUE).filter((x) => level === undefined || x.level === level)) {
+        const r = ramps.length;
+        names[r] = pr.name;
+        ramps.push(pr.tones.slice(0, 4));
+        pr.tones.forEach((c, t) => {
+          const k = rgbKey(c);
+          if (!fill.has(k)) fill.set(k, r * 4 + Math.min(3, t));
+        });
+        const k = rgbKey(pr.edge);
+        if (!edge.has(k) && !fill.has(k)) edge.set(k, r);
+      }
     return { fill, edge, names, ramps };
   }
 

@@ -1,9 +1,9 @@
 // The 2D paper-doll HD painter: entry point. See README.md for how to add a figure.
 
 import { Anim, type Dir } from '../contract.ts';
-import { Paper, palette } from './core.ts';
-import { DRAWN_DEFAULT, drawFacing, facingOf } from './facing.ts';
-import { paperKindFor, paperSupports } from './registry.ts';
+import { code, figurePalette, materialCount, materialNameOf, Paper, type FigurePalette, type RGB } from './core.ts';
+import { DRAWN_DEFAULT, drawFacing, facingOf, type Facing } from './facing.ts';
+import { paperKindFor, paperKinds, paperSupports, type PaperKind } from './registry.ts';
 import { BODIES, poseAt } from './rig.ts';
 // Faction figures register themselves on import.
 import './templar.ts';
@@ -25,6 +25,50 @@ export interface PaperFrame {
 
 /** This thread's painting surface (each worker has its own module instance). */
 const SHARED = new Paper();
+const SCRATCH = new Paper();
+
+/** Draws a frame's codes on `paper` (no colours): pose, facing, mirror, contact and cluster passes. */
+function drawCodes(paper: Paper, k: PaperKind, level: number, anim: Anim, frame: number, dir: Dir): void {
+  paper.begin(level, BODIES[k.body].canvas);
+  const pose = poseAt(k.keys, anim, frame);
+  drawFacing(paper, facingOf(dir), k.facings ?? DRAWN_DEFAULT, (f: Facing) => k.draw(paper, pose, f, anim, frame));
+  paper.contact();
+  paper.clusters(k.clusterMin?.(level) ?? (level >= 8 ? 4 : 3));
+}
+
+/**
+ * The codes a faction's paper figures paint at a level, sampled from a few representative frames
+ * (front and back): the faction's master palette for that level is built from these.
+ */
+const USED = new Map<string, { n: number; mats: number; codes: Map<number, number> }>();
+function usedCodes(faction: string, level: number): Map<number, number> {
+  const kinds = paperKinds().filter((k) => k.faction === faction);
+  const key = `${faction}:${level}`;
+  const got = USED.get(key);
+  if (got && got.n === kinds.length && got.mats === materialCount()) return got.codes;
+  const codes = new Map<number, number>();
+  for (const k of kinds)
+    for (const [anim, fr] of [[Anim.Idle, 0], [Anim.Attack, 4], [Anim.Die, 6]] as [Anim, number][])
+      for (const dir of [0, 3] as Dir[]) {
+        if (!paperSupports(faction, k.kind, anim, dir, level)) continue;
+        drawCodes(SCRATCH, k, level, anim, fr, dir);
+        SCRATCH.codes(codes);
+      }
+  USED.set(key, { n: kinds.length, mats: materialCount(), codes });
+  return codes;
+}
+
+const PALETTES = new Map<string, { codes: Map<number, number>; fp: FigurePalette }>();
+/** A faction's master palette at a level for an army hue (cached). */
+export function factionPalette(faction: string, hue: number, level: number): FigurePalette {
+  const codes = usedCodes(faction, level);
+  const key = `${faction}:${hue}:${level}`;
+  const got = PALETTES.get(key);
+  if (got && got.codes === codes) return got.fp;
+  const fp = figurePalette(hue, level, codes);
+  PALETTES.set(key, { codes, fp });
+  return fp;
+}
 
 /**
  * Paints one frame of a faction's kind at a detail level (pixels per unit: 1 ≈ the 48 px cell,
@@ -35,17 +79,33 @@ const SHARED = new Paper();
 export function paintPaper(faction: string, kind: number, level: number, anim: Anim, frame: number, dir: Dir, hue: number, paper: Paper = SHARED): PaperFrame | null {
   if (!paperSupports(faction, kind, anim, dir, level)) return null;
   const k = paperKindFor(faction, kind)!;
-  const body = BODIES[k.body];
-  paper.begin(level, body.canvas);
-  const pose = poseAt(k.keys, anim, frame);
-  drawFacing(paper, facingOf(dir), k.facings ?? DRAWN_DEFAULT, (f) => k.draw(paper, pose, f, anim, frame));
-  paper.contact();
-  paper.clusters(k.clusterMin?.(level) ?? (level >= 8 ? 4 : 3));
+  const fp = factionPalette(faction, hue, level);
+  drawCodes(paper, k, level, anim, frame, dir);
   const id = `${faction}:${kind}:${level}:${anim}:${dir}:${hue}`;
   if (frame > 0 && paper.last === `${id}:${frame - 1}`) paper.steady();
   paper.keep();
   paper.last = `${id}:${frame}`;
-  const shadow = (k.noShadow ?? [Anim.Die, Anim.Dead]).includes(anim) ? null : body.shadow;
-  const out = paper.colours(palette(hue), shadow);
+  const out = paper.colours(fp);
   return { width: paper.CW, height: paper.CH, pixels: new Uint8ClampedArray(out.buffer), ax: paper.FX, ay: paper.FY };
 }
+
+/**
+ * For the pixel lint (scripts/pixel-lint/painters.ts): every material ramp a faction's paper
+ * figures use, as painted at each level (five tones), with its dark outline colour.
+ */
+export function paperLintPalette(faction: string, hue: number): { name: string; level: number; tones: RGB[]; edge: RGB }[] {
+  const out: { name: string; level: number; tones: RGB[]; edge: RGB }[] = [];
+  if (!paperKinds().some((k) => k.faction === faction)) return out;
+  for (const level of [1, 2, 4, 8]) {
+    const fp = factionPalette(faction, hue, level);
+    const mats = [...new Set([...usedCodes(faction, level).keys()].map((c) => c >> 3))].sort((a, b) => a - b);
+    for (const m of mats) {
+      const tones = [0, 1, 2, 3, 4].map((t) => fp.rgb[fp.fillOf[code(m, t)]!]!);
+      out.push({ name: materialName(m), level, tones, edge: fp.rgb[fp.dark[fp.fillOf[code(m, 2)]!]!]! });
+    }
+  }
+  return out;
+}
+
+/** A material's short name (the part after the faction prefix), as the lint's exemptions expect. */
+const materialName = (m: number): string => materialNameOf(m).replace(/^.*\./, '');
