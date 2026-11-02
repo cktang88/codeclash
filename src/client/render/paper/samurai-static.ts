@@ -272,7 +272,7 @@ function okegawa(c: Paper, fx: number, fy: number, top: number, t: number, plate
     // only on the light side, so the rows do not stripe the dō with their ends in line.
     const p4 = Math.max(per, 1.15);
     const r4 = (fy - top - 0.06 * fx * fx) / p4, k4 = frac(r4), q4 = 1 / (L * p4), row = Math.floor(r4);
-    if (k4 > 1 - q4 && frac((fx * L + row * 2.3) / 5) < 0.45) return code(plate, Math.max(0, t - 2));
+    if (k4 > 1 - q4 && frac((fx * L + row * 2.3) / 5) < 0.45) return code(plate, Math.max(1, t - 1));
     if (k4 < q4 && t >= 2 && fx < 0.3 - row * 0.4) return code(plate, Math.min(4, t + 1));
     if (k4 > 0.4 && k4 < 0.4 + 1.2 * q4 && frac((fx + 4 + row * 0.3) / 0.9) < 0.18) return code(SM.gold, t >= 2 ? 3 : 2); // rivets
     return code(plate, t);
@@ -653,7 +653,7 @@ function shin(c: Paper, kn: P2, an: P2, d: Dress, far: boolean): void {
 function footS(c: Paper, an: P2, far: boolean): void {
   const t = far ? 1 : 2;
   const toe = addP(an, [1.2, 0.35]);
-  vol(c, addP(an, [-0.25, 0.05]), toe, 0.85, 0.8, 0.6, KM.silk, t - 1, { caps: [0.2, 0.3] });
+  vol(c, addP(an, [-0.25, 0.05]), toe, 0.85, 0.8, 0.6, KM.silk, Math.max(1, t - 1), { caps: [0.2, 0.3] }); // (never the white's grey deep tone)
   vol(c, addP(an, [-0.35, 0.38]), addP(toe, [0.15, 0.08]), 0.32, 0.3, 0.28, SM.straw, 1);
 }
 /** Leg volume: hakama'd thigh with lit fold ridges, the shin (suneate or kyahan), knee, tabi and waraji. */
@@ -1166,7 +1166,7 @@ export function horsePiece(c: Paper, hz: Horse, p: HorsePiece): void {
     // silhouette must not out-shine the rider at its top.)
     const t = L <= 2 && seg !== 'U' ? 0 : t0;
     const fore = leg.startsWith('fore');
-    const sock = fore && hz.socks ? SM.cotton : H;
+    const sock = fore && hz.socks && L > 1 ? SM.cotton : H; // (no white socks at 13 px: pale feet would read as the light)
     if (seg === 'U') {
       if (fore) vol(c, top, mid, 1.75, 1.45, 1.0, H, t, { caps: [0.1, 0.25] }); // forearm tapering to the knee
       else vol(c, top, mid, 2.3, 1.7, 0.95, H, t, { caps: [0.1, 0.2] }); // gaskin
@@ -1217,7 +1217,7 @@ export function horsePiece(c: Paper, hz: Horse, p: HorsePiece): void {
         // Below level 8 the barrel is two big planes in the key light: the croup and back lit, the
         // belly and the chest in shade (the palette there is too small for the muscle planes).
         if (L < 8) {
-          const s = (fy + 8.3) * 0.55 + fx * 0.12;
+          const s = (fy + 8.3) * 0.55 + fx * (L <= 1 ? 0.3 : 0.12);
           return code(H, s < -0.35 ? 3 : s > 0.75 ? 1 : 2);
         }
         if (fy < -10.3 + Math.abs(fx + 0.8) * 0.06 && fx > -5.2 && fx < 3.4) return code(H, 4); // back rim
@@ -1258,6 +1258,7 @@ export function horsePiece(c: Paper, hz: Horse, p: HorsePiece): void {
         if (Math.abs((fy + 9.0) + (fx - 6.0) * 1.15) < 0.1 && fx > 5.6 && fx < 7.0) return code(H, 1); // jugular groove
         // (Below level 8 the neck and head, far forward of the figure's centre, sit a step down.)
         const dn = L < 8 ? 1 : 0;
+        if (L <= 1) return code(H, 1);
         if (s < -0.55) return code(H, 3 - dn);
         if (s > 0.5) return code(H, 1);
         return code(H, 2 - dn);
@@ -1377,7 +1378,7 @@ export const MOUNTED: Record<number, SMounted> = {
         for (const dx of [-0.5, -0.1, 0.3]) vol(c, addP(b.pel, [-2.4 + dx, -4.3]), addP(b.pel, [-2.9 + dx * 1.6, -5.9]), 0.3, 0.32, 0.25, KM.silk, dx > 0 ? 2 : 3);
         slab(c, b.pel, [[-1.3, 0.2], [1.4, 0.2], [2.4, 3.6], [-0.4, 3.9]], (fx, fy) => code(SM.straw, frac(fx * 0.9 + fy * 0.4) < 0.1 ? 1 : lit(c, 2, fx * 0.4 + fy * 0.15, 0.4, 0.5)));
       },
-      far: { draw: (c, h, _bk, b) => yumi(c, mapPoint(h), 176 + mapTurn(), 0.05, mapPoint(b.hnN), true), grip: SM.flesh },
+      far: { draw: (c, h, _bk, b) => yumi(c, mapPoint(h), 176 + mapTurn(), 0.05, mapPoint(b.hnN), true, true), grip: SM.flesh },
       near: { grip: SM.flesh },
     },
   },
