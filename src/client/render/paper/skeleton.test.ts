@@ -6,6 +6,7 @@ import type { Facing } from './facing.ts';
 import { paintPaper } from './index.ts';
 import { registerPaperKind } from './registry.ts';
 import { BODIES } from './rig.ts';
+import { rotSprite, scale2x } from './rotsprite.ts';
 import {
   animationsFor, bakeClip, drawSkeleton, footAnimations, footSkeleton, horseSkeleton, loadMotion, paintSkeleton, partDrawCount, posedNumbers, resolveBone, skeletonFor, skeletonKind, stickParts,
   type Clip, type FacingClips, type MotionJson, type Posed, type SkeletonRig,
@@ -67,6 +68,36 @@ describe('skeleton: maths', () => {
       expect(v).toBeGreaterThanOrEqual(last);
       last = v;
     }
+  });
+});
+
+describe('rotsprite', () => {
+  // A 7 x 7 arrow pointing down: a 1 px shaft and a head.
+  const w = 7, h = 7;
+  const pix = new Int16Array(w * h).fill(-1);
+  for (let y = 0; y < 6; y++) pix[y * w + 3] = 10;
+  pix[4 * w + 2] = pix[4 * w + 4] = pix[5 * w + 1] = pix[5 * w + 5] = 11;
+  const bmp = { w, h, pix };
+
+  it('scale2x keeps a flat image flat and doubles it', () => {
+    const s = scale2x({ w: 2, h: 2, pix: Int16Array.from([5, 5, 5, 5]) });
+    expect([s.w, s.h, ...s.pix]).toEqual([4, 4, ...new Array(16).fill(5)]);
+  });
+
+  it('turns by whole quarter turns exactly and by 7.5° steps without breaking the line', () => {
+    const r0 = rotSprite(bmp, 0, [3.5, 0.5]);
+    expect([...r0.img.pix]).toEqual([...pix]);
+    // A quarter turn: the downward shaft points forward (screen right) from the pivot.
+    const r12 = rotSprite(bmp, 12, [3.5, 0.5]);
+    const [px, py] = r12.pivot.map(Math.floor) as [number, number];
+    for (let i = 0; i < 6; i++) expect(r12.img.pix[py * r12.img.w + px + i]).toBe(10);
+    // At 30° the shaft stays 8-connected (nearest rotation would leave gaps) and the same twice.
+    const r4 = rotSprite(bmp, 4, [3.5, 0.5]);
+    expect([...rotSprite(bmp, 4, [3.5, 0.5]).img.pix]).toEqual([...r4.img.pix]);
+    const shaft: P2[] = [];
+    for (let y = 0; y < r4.img.h; y++) for (let x = 0; x < r4.img.w; x++) if (r4.img.pix[y * r4.img.w + x] === 10) shaft.push([x, y]);
+    expect(shaft.length).toBeGreaterThanOrEqual(5);
+    for (const [x, y] of shaft) expect(shaft.some(([u, v]) => (u !== x || v !== y) && Math.abs(u - x) <= 1 && Math.abs(v - y) <= 1)).toBe(true);
   });
 });
 
