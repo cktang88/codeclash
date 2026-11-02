@@ -5,7 +5,7 @@
 import { U } from '../../../game/units.ts';
 import { registerFoot, type FootSpec } from './undead-foot.ts';
 import { restPose, type DrawCtx } from './skeleton.ts';
-import { GHOUL, LEGIONARY, THROWER, WARDEN, type FootArt, type PieceOpts } from './undead-static.ts';
+import { GHOUL, LEGIONARY, soulWisp, THROWER, WARDEN, wardenHeap, type FootArt, type PieceOpts } from './undead-static.ts';
 
 /**
  * A bow drawn on the frame: its draw from how far the nock (where the string hand is) has slid
@@ -15,9 +15,9 @@ import { GHOUL, LEGIONARY, THROWER, WARDEN, type FootArt, type PieceOpts } from 
 function bowLive(ctx: DrawCtx): PieceOpts {
   const p = ctx.posed, rest = restPose(p.skel, p.level, p.facing);
   const d = (q: typeof p) => Math.hypot(q.byName.nock!.x - q.byName.itemF!.x, q.byName.nock!.y - q.byName.itemF!.y);
-  const draw = Math.max(0, Math.min(2.6, 1.5 + (d(p) - d(rest)) / 1.9));
-  const shooting = ctx.events.some((e) => e.name === 'release' || e.name === 'empty');
-  return { draw: Math.round(draw * 4) / 4, arrow: !ctx.events.some((e) => e.name === 'empty'), phase: shooting ? 0.75 : 0.25 };
+  const draw = Math.max(0, Math.min(3.4, 1.5 + (d(p) - d(rest)) / 1.9));
+  const release = ctx.events.some((e) => e.name === 'release');
+  return { draw: Math.round(draw * 4) / 4, arrow: !ctx.events.some((e) => e.name === 'empty'), phase: draw > 2 ? 0.75 : 0.25, snap: release };
 }
 const withLive = (art: FootArt, slot: string, live: (ctx: DrawCtx) => PieceOpts): FootArt => ({ ...art, pieces: art.pieces.map((p) => (p.slot === slot ? { ...p, live } : p)) });
 
@@ -118,9 +118,13 @@ const WARDEN_SPEC = (): FootSpec => ({
   attack: 'loose',
   shoot: 'bow',
   brace: 'ready',
-  die: 'back',
+  die: 'dissolve',
   farHeld: true,
   nocked: true,
+  extras: [
+    { slot: 'heap', bone: 'root', draw: (c, _J, back) => wardenHeap(c, back) },
+    { slot: 'wisp', bone: 'root', top: true, live: (ctx) => ({ t: ctx.events.find((e) => e.name === 'wisp')?.int ?? 0 }), draw: (c, _J, _b, o) => void (o.t && soulWisp(c, o.t)) },
+  ],
   lie: 2.6,
   glide: true,
   hunch: 4,
@@ -130,10 +134,9 @@ const WARDEN_SPEC = (): FootSpec => ({
   neFirst: ['farItem'],
   neLast: ['cloak'],
   drops: [
-    { slot: 'farItem', holder: 'itemF', at: 4, land: { x: 5.6, y: -0.6, rot: -88, f: 7 } },
-    { slot: 'skull', holder: 'head', at: 8, land: { x: -6.6, y: -1.0, rot: -95, f: 10 } },
-    { slot: 'pauldronN', holder: 'chest', at: 9, land: { x: -3.4, y: -0.6, rot: 40, f: 11 } },
-    { slot: 'forearmF', holder: 'forearmF', at: 9, land: { x: 7.4, y: -0.5, rot: 95, f: 11 } },
+    // The bow falls from the hand; the mask in its hood drops onto the empty robe.
+    { slot: 'farItem', holder: 'itemF', at: 3, land: { x: 1.6, y: -0.35, rot: -86, f: 6 } },
+    { slot: 'skull', holder: 'head', at: 6, land: { x: 1.4, y: -0.9, rot: -20, f: 9 } },
   ],
 });
 

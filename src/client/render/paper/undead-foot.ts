@@ -33,6 +33,8 @@ export interface FootSpec extends FootClipSpec {
   neFirst?: string[];
   /** Slots drawn last from behind (on the back: a quiver, a pavise, a cloak). */
   neLast?: string[];
+  /** Pieces not in the key art, shown only when a clip swaps them in (a death's empty robe, a soul's wisp): drawn first, or last with `top`. */
+  extras?: (UPiece & { top?: boolean })[];
   /** The draw hand stays on the bowstring (the nock bone) by IK. */
   nocked?: boolean;
   /** Slots not drawn from behind (a far arm reaching across, hidden by the body). */
@@ -145,16 +147,18 @@ export function footSkel(name: string, s: FootSpec): SkeletonData {
   const pieces = s.art.pieces.map((p) => p.slot);
   const dropSlots = s.drops.map((d) => `${d.slot}Drop`);
   // What falls in a death lies beside the heap: drawn over it.
-  const se0 = [...pieces, ...dropSlots, 'smear', 'light', 'flash'];
+  const under = (s.extras ?? []).filter((p) => !p.top).map((p) => p.slot), over = (s.extras ?? []).filter((p) => p.top).map((p) => p.slot);
+  const se0 = [...under, ...pieces, ...dropSlots, ...over, 'smear', 'light', 'flash'];
   const first = s.neFirst ?? ['front'], last = s.neLast ?? [];
   const legs = ['thighF', 'shinF', 'footF', 'thighN', 'shinN', 'footN'];
   const nearArm = ['weapon', 'upperArmN', 'forearmN', 'handN'];
   const has = (n: string) => pieces.includes(n);
   const body = pieces.filter((n) => !first.includes(n) && !last.includes(n) && !legs.includes(n) && !nearArm.includes(n) && !/F$/.test(n));
   const farArm = pieces.filter((n) => /F$/.test(n) && !legs.includes(n) && !first.includes(n) && !last.includes(n));
-  const ne0 = [...first.filter(has), ...farArm, ...legs.filter(has), ...body, ...last.filter(has), ...nearArm.filter(has), ...dropSlots, 'smear', 'light', 'flash'];
-  const bone = new Map(s.art.pieces.map((p) => [p.slot, p.bone] as const));
-  const slots: SlotData[] = se0.map((n) => (dropSlots.includes(n) ? { name: n, bone: `drop_${n.slice(0, -4)}`, attachment: { all: null } } : EXTRA[n] ? { name: n, bone: EXTRA[n]!.bone, attachment: { all: EXTRA[n]!.att } } : { name: n, bone: bone.get(n)!, attachment: s.neHide?.includes(n) ? { all: n, ne: '' } : { all: n } }));
+  const ne0 = [...under, ...first.filter(has), ...farArm, ...legs.filter(has), ...body, ...last.filter(has), ...nearArm.filter(has), ...dropSlots, ...over, 'smear', 'light', 'flash'];
+  const bone = new Map([...s.art.pieces, ...(s.extras ?? [])].map((p) => [p.slot, p.bone] as const));
+  const extra = new Set([...under, ...over]);
+  const slots: SlotData[] = se0.map((n) => (extra.has(n) ? { name: n, bone: bone.get(n)!, attachment: { all: null } } : dropSlots.includes(n) ? { name: n, bone: `drop_${n.slice(0, -4)}`, attachment: { all: null } } : EXTRA[n] ? { name: n, bone: EXTRA[n]!.bone, attachment: { all: EXTRA[n]!.att } } : { name: n, bone: bone.get(n)!, attachment: s.neHide?.includes(n) ? { all: n, ne: '' } : { all: n } }));
   return {
     name: `undead-foot-${name}`,
     body: 'foot',
@@ -258,7 +262,7 @@ export const LIGHT: Attachment = {
 function footParts(s: FootSpec): AttachmentSet {
   const J: Record<Facing, UJ> = { se: s.art.J, ne: neJoints(s.art), sw: s.art.J, nw: s.art.J };
   const atts: AttachmentSet = {};
-  for (const p of s.art.pieces) atts[p.slot] = pieceAtt(p, J, s.art.axis);
+  for (const p of [...s.art.pieces, ...(s.extras ?? [])]) atts[p.slot] = pieceAtt(p, J, s.art.axis);
   // Dropped in a death: the same drawings on free bones.
   for (const d of s.drops) {
     const p = s.art.pieces.find((q) => q.slot === d.slot)!;
