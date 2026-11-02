@@ -172,13 +172,13 @@ export function finishLit(P: Painter, depth: number, outline = true): Art {
         const c = data[i]!;
         if (!c || c === glass || keep.has(i) || c >>> 24 !== 255) continue;
         const k = cls[i]!;
-        data[i] = k === 1 ? mix(c, WARM, 0.12) : k === 2 ? mix(c, COOL, 0.05) : k === 3 ? mix(c, COOL, 0.18) : c;
+        data[i] = k === 1 ? mix(c, WARM, 0.17) : k === 2 ? mix(c, COOL, 0.07) : k === 3 ? mix(c, COOL, 0.24) : c;
       }
   }
   const art = P.finish(depth, outline);
   const emit = EMIT;
   EMIT = [];
-  if (!art.canvas || !emit.length) return art;
+  if (!art.canvas || (!emit.length && !art.lights)) return art;
   const cw = art.canvas.width;
   const ch = art.canvas.height;
   const c = document.createElement('canvas');
@@ -188,7 +188,9 @@ export function finishLit(P: Painter, depth: number, outline = true): Art {
   if (art.lights) g.drawImage(art.lights, 0, 0);
   const img = g.getImageData(0, 0, cw, ch);
   const out = new Uint32Array(img.data.buffer);
-  let any = false;
+  // The glowing pixels themselves: paper, lantern, tōrō windows (and the windows P.finish lit).
+  const src = new Uint8Array(cw * ch);
+  for (let i = 0; i < out.length; i++) if (out[i]! >>> 24) src[i] = 1;
   for (let i = 0; i < emit.length; i += 4) {
     const x = emit[i]!;
     const y = emit[i + 1]!;
@@ -197,12 +199,86 @@ export function finishLit(P: Painter, depth: number, outline = true): Art {
     const ly = y - art.y;
     if (lx < 0 || ly < 0 || lx >= cw || ly >= ch) continue;
     out[ly * cw + lx] = emit[i + 3]!;
-    any = true;
+    // Shōji paper glows and blooms; lanterns, andon and tōrō also throw a pool.
+    src[ly * cw + lx] = emit[i + 3] === SHOJI_LIGHT ? 1 : 2;
   }
-  if (!any) return art;
+  pools(px, art.x, art.y, cw, ch, out, src);
   g.putImageData(img, 0, 0);
   art.lights = c;
+  // The light falls as pools on what is round it (baked above); the scene's generic round halo
+  // is not wanted on these arts (see city.ts, `pooled`).
+  (art as Art & { pooled?: boolean }).pooled = true;
   return art;
+}
+
+const POOL = hex('#ffc27a');
+/** The light colour of shōji paper (samurai.ts PAPER_LIGHT): a broad soft glow, no pool. */
+const SHOJI_LIGHT = hex('#ffd690');
+/**
+ * Light pools round each glowing source, baked into the lights canvas: the wall, eave and roof
+ * pixels near a lantern or a lit shōji are raised up their ramp (warmer and brighter, two steps
+ * falling off), the bare ground under it gets a soft warm patch, and the source a 1-pixel bloom.
+ * The pool's edge is ragged (hashed per 2-pixel cell), it reaches further down than up (the
+ * light falls), and it is cut where the surface turns away (the outline and the far side of an
+ * outline stop it). No discs, no rings.
+ */
+function pools(px: Px, ax: number, ay: number, cw: number, ch: number, out: Uint32Array, src: Uint8Array): void {
+  // One pool per 4×4 cell of sources, centred on them.
+  const cells = new Map<number, [number, number, number, number]>();
+  const depthAt = (x: number, y: number) => px.depth[(y + ay) * px.w + x + ax]!;
+  for (let y = 0; y < ch; y++)
+    for (let x = 0; x < cw; x++) {
+      if (src[y * cw + x] !== 2) continue;
+      const key = (y >> 2) * 4096 + (x >> 2);
+      const c = cells.get(key);
+      const d = depthAt(x, y);
+      if (c) {
+        c[0] += x;
+        c[1] += y;
+        c[2]++;
+        c[3] = Math.max(c[3], d);
+      } else cells.set(key, [x, y, 1, d]);
+    }
+  const lift = new Float32Array(cw * ch);
+  for (const [sx0, sy0, n, sd] of cells.values()) {
+    const cx = sx0 / n;
+    const cy = sy0 / n;
+    const rx = 7 + Math.min(4, n * 0.4);
+    const ry = 6 + Math.min(4, n * 0.4);
+    for (let y = Math.max(0, Math.floor(cy - 2)); y < Math.min(ch, Math.ceil(cy + ry * 1.4)); y++)
+      for (let x = Math.max(0, Math.floor(cx - rx)); x < Math.min(cw, Math.ceil(cx + rx)); x++) {
+        const dy = y - cy;
+        const e = ((x - cx) / rx) ** 2 + (dy / (dy < 0 ? ry * 0.6 : ry * 1.4)) ** 2;
+        const rag = (hash((x + ax) >> 1, (y + ay) >> 1, 77) - 0.5) * 0.5;
+        if (e > 1 + rag) continue;
+        // Cut by geometry: nothing nearer the viewer than the source (an eave or a roof skirt in
+        // front of a window) is lit by it.
+        if (px.data[(y + ay) * px.w + x + ax] && Math.abs(depthAt(x, y) - sd) > 1.5) continue;
+        const v = e < 0.35 + rag * 0.5 ? 2 : 1;
+        if (v > lift[y * cw + x]!) lift[y * cw + x] = v;
+      }
+  }
+  for (let y = 0; y < ch; y++)
+    for (let x = 0; x < cw; x++) {
+      const i = y * cw + x;
+      if (src[i]) continue;
+      const near = (x > 0 && src[i - 1]) || (x < cw - 1 && src[i + 1]) || (y > 0 && src[i - cw]) || (y < ch - 1 && src[i + cw]);
+      const day = px.data[(y + ay) * px.w + x + ax]!;
+      if (near && day) {
+        // The bloom: one pixel round the source.
+        out[i] = mix(day, POOL, 0.55);
+        continue;
+      }
+      const l = lift[i]!;
+      if (!l) continue;
+      if (!day) {
+        // Bare ground under the light: a translucent warm patch (the art's own bounds only).
+        out[i] = rgb(255, 196, 120, l > 1 ? 64 : 34);
+        continue;
+      }
+      if (px.cls[(y + ay) * px.w + x + ax] === 4) continue;
+      out[i] = mix(day, POOL, l > 1 ? 0.3 : 0.15);
+    }
 }
 
 /** Paint a group of props as their own art at depth d (P is reset before and after). */
