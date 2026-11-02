@@ -774,6 +774,8 @@ function keep(P: Painter, tier: number, parts: BuildingParts): void {
     stoneBase(P, tu - 2, 30, 10, 12, bh * 0.6, 1.2, 12);
     house(P, tu - 1, 31, bh * 0.6, 8, 10, 6, [{ face: 'right', a: 3, w: 4, z: 0, h: 4.5, kind: 'door' }, ...wins('left', 1, 6, 1, 3, 2, 2)], 'kawara', { boards: black ? 3 : 0, rh: 4 });
     karahafu(P, tu + 7.4, 36, bh * 0.6 + 4.6, 6, 1.8, 2.4, false);
+    S.chochin(P, tu + 8.4, 32.6, bh * 0.6 + 4.4, true);
+    S.chochin(P, tu + 8.4, 39.4, bh * 0.6 + 4.4, true);
   } else {
     box(P.px, b0 + base - 1, 32, 0, 5, 8, bh - 1, wrap(ishigaki(P, 13)));
   }
@@ -1080,6 +1082,7 @@ function stables(P: Painter, tier: number, parts: BuildingParts): void {
     else irimoya(P, u0, v0, h, lu, lv, lu * 0.55, 2.2, false, st.shingle, bark(P, h - 1.3, st.shingle));
   }
   S.vines(P, 'left', v0 + lv, u0 + 1, 6, h - 0.5, 0.5, 71);
+  if (tier >= 2) lanterns(P, 'right', u0 + lu + 1.6, v0 + 2, lv - 4, (tier >= 3 ? h + 1 : h) - 0.6, Math.min(4, tier + 1));
   for (let i = 0; i < n; i++) {
     const v = v0 + ((i + 0.5) * lv) / n;
     parts.stalls.push([Math.floor(sx(u0 + lu, v)), Math.floor(sy(u0 + lu, v, 5))]);
@@ -1325,7 +1328,12 @@ function walls(P: Painter, a: PaintArgs, parts: BuildingParts): BuildingParts {
 
 registerKit('samurai', (P, key, a, parts) => {
   const tier = tierOf(a.level);
-  if (key === 'walls') return tier === 0 ? null : walls(P, a, parts);
+  if (key === 'walls') {
+    if (tier === 0) return null;
+    walls(P, a, parts);
+    parts.arts.push(...S.takeExtra());
+    return parts;
+  }
   // Ground decals first (each its own flat art; P is reset between), then the building. The
   // free-standing props are placed by props.ts from the Samurai theme (samurai-props.ts).
   if (key === 'keep') keepGrounds(P, Math.max(1, tier), parts);
@@ -1361,6 +1369,7 @@ registerKit('samurai', (P, key, a, parts) => {
   const [u0, v0, u1, v1] = LOT[key];
   if (a.progress > 0.45 && TIER_START.includes(a.level + 1) && a.level > 0) P.scaffold(u0 + 4, v0 + 4, (u1 - u0) * 0.5, (v1 - v0) * 0.5, 14 + tier * 4);
   parts.arts.unshift(finishLit(P, (u0 + u1 + v0 + v1) / 2));
+  parts.arts.push(...S.takeExtra());
   return parts;
 });
 

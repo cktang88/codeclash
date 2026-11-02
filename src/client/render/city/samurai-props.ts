@@ -14,7 +14,7 @@
 import type { Art, BuildingParts, Painter } from './buildings.ts';
 import { registerProp, registerTheme, SUN as CAST, type Group } from './props.ts';
 import type { CityStyle } from './style.ts';
-import { box, drum, hash, hex, line3, mix, post, rgb, tone, v3, type Col, type Facing, type Px, type V3 } from './pixels.ts';
+import { box, drum, hash, hex, line3, mix, post, Px, rgb, tone, v3, type Col, type Facing, type V3 } from './pixels.ts';
 import { frustum, hip, tri3 } from './solids.ts';
 import type { Ramp } from './style.ts';
 
@@ -203,6 +203,8 @@ export function finishLit(P: Painter, depth: number, outline = true): Art {
     src[ly * cw + lx] = emit[i + 3] === SHOJI_LIGHT ? 1 : 2;
   }
   pools(px, art.x, art.y, cw, ch, out, src);
+  const gp = groundPools(px, art.x, art.y, cw, ch, src);
+  if (gp) EXTRA.push(gp);
   g.putImageData(img, 0, 0);
   art.lights = c;
   // The light falls as pools on what is round it (baked above); the scene's generic round halo
@@ -271,14 +273,83 @@ function pools(px: Px, ax: number, ay: number, cw: number, ch: number, out: Uint
       }
       const l = lift[i]!;
       if (!l) continue;
-      if (!day) {
-        // Bare ground under the light: a translucent warm patch (the art's own bounds only).
-        out[i] = rgb(255, 196, 120, l > 1 ? 64 : 34);
-        continue;
-      }
+      // (Bare ground is lit by groundPools, on its own art.)
+      if (!day) continue;
       if (px.cls[(y + ay) * px.w + x + ax] === 4) continue;
       out[i] = mix(day, POOL, l > 1 ? 0.3 : 0.15);
     }
+}
+
+/** Ground-pool arts made by finishLit since the last take (the kit adds them to its parts). */
+let EXTRA: Art[] = [];
+export function takeExtra(): Art[] {
+  const e = EXTRA;
+  EXTRA = [];
+  return e;
+}
+
+/**
+ * The warm patches each light lays on the ground: every lantern, andon, tōrō, shōji and lit
+ * window throws an iso ellipse (twice as wide as deep, ragged, two flat bands) centred on the
+ * ground below it, which is found by walking down from the source to the foot of what it hangs
+ * on. They go on their own art (a lights canvas over a transparent one, under everything else),
+ * so a pool can reach past the building's own pixels; they cover only ground, never the
+ * building's own walls or roofs.
+ */
+function groundPools(px: Px, ax: number, ay: number, cw: number, ch: number, src: Uint8Array): Art | null {
+  const cells = new Map<number, [number, number, number, number]>();
+  for (let y = 0; y < ch; y++)
+    for (let x = 0; x < cw; x++) {
+      const s = src[y * cw + x]!;
+      if (!s) continue;
+      const key = Math.floor(y / 6) * 4096 + Math.floor(x / 6);
+      const c = cells.get(key);
+      if (c) {
+        c[0] += x;
+        c[1] += y;
+        c[2]++;
+        if (s === 2) c[3]++;
+      } else cells.set(key, [x, y, 1, s === 2 ? 1 : 0]);
+    }
+  if (!cells.size) return null;
+  const M = 18;
+  const W = cw + 2 * M;
+  const H = ch + 2 * M;
+  const lift = new Uint8Array(W * H);
+  const solid = (x: number, y: number) => x >= 0 && y >= 0 && x < cw && y < ch && !!px.data[(y + ay) * px.w + x + ax];
+  for (const [sx0, sy0, n, lamps] of cells.values()) {
+    const cx = Math.round(sx0 / n);
+    let y = Math.round(sy0 / n);
+    // Down to the foot of what the light hangs on (or just below a free-hanging lantern).
+    while (solid(cx, y + 1) || solid(cx, y + 2)) y++;
+    const lamp = lamps > n / 2;
+    const gy = y + (lamp ? 4 : 2) + M;
+    const gx = cx + M;
+    const rx = lamp ? 12 : Math.min(12, 6 + n * 0.25);
+    const ry = rx * 0.5;
+    for (let yy = Math.max(0, Math.floor(gy - ry - 2)); yy < Math.min(H, Math.ceil(gy + ry + 2)); yy++)
+      for (let xx = Math.max(0, Math.floor(gx - rx - 2)); xx < Math.min(W, Math.ceil(gx + rx + 2)); xx++) {
+        if (solid(xx - M, yy - M)) continue;
+        const e = ((xx - gx) / rx) ** 2 + ((yy - gy) / ry) ** 2;
+        const rag = (hash((xx + ax) >> 1, (yy + ay) >> 1, 79) - 0.5) * 0.45;
+        if (e > 1 + rag) continue;
+        const v = e < 0.38 + rag * 0.5 ? 2 : 1;
+        if (v > lift[yy * W + xx]!) lift[yy * W + xx] = v;
+      }
+  }
+  const lights = new Px(W, H);
+  let any = false;
+  for (let i = 0; i < W * H; i++) {
+    const v = lift[i]!;
+    if (!v) continue;
+    lights.data[i] = rgb(255, 188, 104, v > 1 ? 86 : 44);
+    any = true;
+  }
+  if (!any) return null;
+  const blank = document.createElement('canvas');
+  blank.width = W;
+  blank.height = H;
+  return { canvas: blank, lights: lights.toCanvas(), night: null, x: ax - M, y: ay - M, d: -1e5, pooled: true } as Art;
 }
 
 /** Paint a group of props as their own art at depth d (P is reset before and after). */
