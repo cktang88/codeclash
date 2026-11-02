@@ -10,7 +10,7 @@
 // keep thin bones only where the armour gaps: the face, the neck, a forearm, a shin. Figure height
 // H is about 14.5 units (116 px at level 8).
 
-import { addP, code, DEG, hash, rot, type P2, type Paper } from './core.ts';
+import { addP, code, DEG, defineMaterial, hash, isKept, oklchRamp, rot, type P2, type Paper } from './core.ts';
 import { Anim } from '../contract.ts';
 import { along, limb, poseAt, snapDeg, type KeySet } from './rig.ts';
 import { bone, bow, crossbow, flame, frameOf, helm, hood, horseBody, horseFar, horseFrame, horseNear, lance, withHorseBulk, mul, pavise, planeLight, quiver, rag, robe, skull, spear, UM } from './undead-parts.ts';
@@ -51,6 +51,8 @@ export function plate(c: Paper, pts: P2[], m: number, o: { tone?: number; rust?:
     if (o.rim && y - y0 < Math.max(1, c.L * 0.2)) return code(m, tone + 1);
     if (o.rust && c.tex(x, y, o.seed ?? 401, 3) < o.rust * (0.5 + ry * 0.5)) return code(UM.rust, tone - (ry > 0.3 ? 1 : 0));
     const lt = planeLight(rx, ry, o.k ?? 0.4);
+    // Hard metals catch a crisp specular: a short streak in the lit plane.
+    if ((m === UM.iron || m === UM.rust || m === UM.steel) && lt > 0 && Math.abs(rx + ry * 0.5 + 0.55) < 0.06) return code(m, 4);
     return code(m, tone + lt);
   });
 }
@@ -84,8 +86,18 @@ const B = {
 function mailShade(c: Paper, x: number, y: number, rx: number, ry: number, tone = 2): number {
   const lt = planeLight(rx, ry, 0.35);
   if (c.tex(x, y, 411, 4) < 0.05 + Math.max(0, ry) * 0.07) return code(UM.rust, 1 + (lt > 0 ? 1 : 0));
-  if (c.ly(y) % 3 === 0) return code(UM.mail, tone - 1 + Math.min(0, lt));
-  if (lt > 0 && (c.lx(x) + ((c.ly(y) / 3) | 0)) % 2 === 0) return code(UM.mail, tone + 1);
+  if (c.L < 8) {
+    if (c.ly(y) % 3 === 0) return code(UM.mail, tone - 1 + Math.min(0, lt));
+    if (lt > 0 && (c.lx(x) + ((c.ly(y) / 3) | 0)) % 2 === 0) return code(UM.mail, tone + 1);
+    return code(UM.mail, tone + Math.min(0, lt));
+  }
+  // Rings: rows of small links, each a 3 x 3 cell with a dark hole, offset row to row; in the lit
+  // plane each ring catches a point of light on its upper left, in the shade the rings go flat.
+  const row = Math.floor(c.ly(y) / 3);
+  const cx = (c.lx(x) + (row % 2) * 2) % 4, cy = c.ly(y) % 3;
+  if (cx === 3) return code(UM.mail, tone - 1 + Math.min(0, lt)); // the gap between links
+  if (cx === 1 && cy === 1) return code(UM.mail, tone - 2 + Math.max(0, lt)); // the hole
+  if (cx === 0 && cy === 0 && lt >= 0) return code(UM.mail, tone + 1 + lt);
   return code(UM.mail, tone + Math.min(0, lt));
 }
 
@@ -596,3 +608,58 @@ Object.assign(STATIC_KINDS, {
   9: { body: 'engine', draw: idleOf(TREBUCHET_KEYS, trebuchet) },
   10: { body: 'foot', draw: lichStatic },
 });
+
+// ------------------------------------------------------------------ key-art light
+
+/** Bone washed in the green of the soul-fire: the light that the glow throws on bone and flesh nearby. */
+const FIRELIT = defineMaterial('undead.firelit', oklchRamp({ l: 0.6, c: 0.05, h: 140, spread: 0.1 }));
+
+/**
+ * The key art's finishing light, after the figure is drawn:
+ * - the soul-fire is a light source: bone, charred bone and flesh within reach of a glow pixel
+ *   take its green (a tone lighter close to it);
+ * - a rim light on hard edges turned from the key: metal and bone pixels on the bottom-right
+ *   silhouette edge go a step lighter, so the figure separates from the dark field there too.
+ */
+export function keyLight(c: Paper): void {
+  const { CW } = c;
+  const glow: number[] = [];
+  // Light sources are the bodies of fire (flames, the burning chest), not the eye points: a glow
+  // pixel counts only inside a 5 x 5 patch of glow.
+  const isGlow = (i: number) => c.pix[i]! >= 0 && c.pix[i]! >> 3 === UM.glow;
+  for (let y = c.by0 + 2; y <= c.by1 - 2; y++)
+    for (let x = c.bx0 + 2; x <= c.bx1 - 2; x++) {
+      let n = 0;
+      for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) if (isGlow((y + dy) * CW + x + dx)) n++;
+      if (n >= 22) glow.push(x, y);
+    }
+  const R = 2.2 * c.L;
+  const lit = new Set([UM.bone, UM.char, UM.flesh]);
+  const out = c.pix.slice();
+  for (let y = c.by0; y <= c.by1; y++)
+    for (let x = c.bx0; x <= c.bx1; x++) {
+      const i = y * CW + x;
+      const v = c.pix[i]!;
+      if (v < 0) continue;
+      const m = v >> 3;
+      if (glow.length && lit.has(m)) {
+        let d2 = Infinity;
+        for (let k = 0; k < glow.length; k += 2) {
+          const dx = glow[k]! - x, dy = glow[k + 1]! - y;
+          const dd = dx * dx + dy * dy;
+          if (dd < d2) d2 = dd;
+        }
+        if (d2 < R * R) {
+          const near = d2 < (R * 0.45) ** 2;
+          out[i] = code(FIRELIT, (v & 7) + (near ? 1 : 0));
+          continue;
+        }
+      }
+      if (isKept(m)) continue;
+      const hard = m === UM.iron || m === UM.rust || m === UM.steel || m === UM.bone || m === UM.mail;
+      const edge = (x + 1 <= c.bx1 && c.pix[i + 1]! < 0) || (y + 1 <= c.by1 && c.pix[i + CW]! < 0);
+      const inner = c.pix[i - 1]! >= 0 && c.pix[i - CW]! >= 0;
+      if (hard && edge && inner && (v & 7) <= 2) out[i] = (v & ~7) | ((v & 7) + 1);
+    }
+  c.pix.set(out);
+}
