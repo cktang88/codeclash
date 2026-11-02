@@ -119,6 +119,19 @@ const KM = {
   accent: defineMaterial('samurai.accent', (hue) => oklchRamp({ l: 0.56, c: 0.13, h: (okHue(hue) + 180) % 360, spread: 0.08 })),
 } as const;
 
+/**
+ * Materials that are one colour at 13-26 px (levels 1-2): the faction shares a 12-16 colour palette
+ * there, and near-twins (bone silk and cotton, mask iron and iron, red-brown and shu, the blacks)
+ * only make the merge pick grey shadows. The animated figures paint these pairs as one below level 4.
+ */
+export const LOW_MERGE: readonly [Mat, Mat][] = [
+  [KM.silk, SM.cotton],
+  [KM.mask, SM.iron],
+  [KM.redBrown, SM.shu],
+  [SM.black, SM.lacquer],
+  [SM.ochre, SM.straw],
+];
+
 /** An armour's colours: plate lacquer, the lacing, its contrasting band. */
 interface Lac {
   /** The lame lacquer. */
@@ -158,7 +171,9 @@ function vol(c: Paper, a0: P2, b0: P2, w0: number, w1: number, w2: number, mat: 
   c.poly(cpts, (x, y, u, v) => {
     const vv = clamp(v, 0, 1);
     const hw = ((vv < 0.45 ? w0 + (w1 - w0) * (vv / 0.45) : w1 + (w2 - w1) * ((vv - 0.45) / 0.55)) / 2) * L;
-    const un = u / Math.max(0.5, hw);
+    // At 4 px a unit the lit and shadow bands taper along the part, so their edges are not parallel
+    // to its outline (parallel bands end in line at every joint).
+    const un = u / Math.max(0.5, hw) + (L === 4 ? (vv - 0.5) * 0.5 : 0);
     // Painted detail (folds, splints, scales) is texture at 2 px a unit: left out (at 1 px it is the read).
     if (opt.detail && L !== 2) {
       const r = opt.detail(un, vv, x, y);
@@ -168,6 +183,8 @@ function vol(c: Paper, a0: P2, b0: P2, w0: number, w1: number, w2: number, mat: 
     // At 2 px a unit a limb is its tone and a shadow side only: a lit band beside it would make
     // two parallel stripes whose ends line up at every joint. (At 1 px the lit pixel is the light's cue.)
     if (L === 2) return code(mat, un > 0.3 + bd ? tone - 1 : tone);
+    // At 1 px a unit a limb is two or three pixels wide: its lit half carries the light.
+    if (L <= 1) return code(mat, un < -0.1 ? Math.min(4, tone + 1) : un > 0.55 ? Math.max(0, tone - 1) : tone);
     if (opt.shine && un > -0.8 && un < -0.52 && vv > 0.15 && vv < 0.55) return code(mat, tone + 2);
     if (opt.rim && un > 0.9 && vv > 0.1 && vv < 0.85) return code(mat, tone);
     if (un < -0.5 + bd) return code(mat, tone + 1);
@@ -235,6 +252,17 @@ function okegawa(c: Paper, fx: number, fy: number, top: number, t: number, plate
     const k2 = frac(r2), p2 = 1 / (L * 1.5);
     if (k2 < p2 && fx < 0.2 - Math.floor(r2) * 0.35) return code(plate, Math.min(4, t + 1));
     if (k2 > 1 - p2 && frac((fx * L + Math.floor(r2) * 2.3) / 5) < 0.55) return code(plate, Math.max(0, t - 1));
+    return code(plate, t);
+  }
+  if (L <= 1) return code(plate, t);
+  if (L <= 4) {
+    // At 4 px a unit: wider plates, the seams as staggered dark dashes (rivet-like), a lit edge
+    // only on the light side, so the rows do not stripe the dō with their ends in line.
+    const p4 = Math.max(per, 1.15);
+    const r4 = (fy - top - 0.06 * fx * fx) / p4, k4 = frac(r4), q4 = 1 / (L * p4), row = Math.floor(r4);
+    if (k4 > 1 - q4 && frac((fx * L + row * 2.3) / 5) < 0.45) return code(plate, Math.max(0, t - 2));
+    if (k4 < q4 && t >= 2 && fx < 0.3 - row * 0.4) return code(plate, Math.min(4, t + 1));
+    if (k4 > 0.4 && k4 < 0.4 + 1.2 * q4 && frac((fx + 4 + row * 0.3) / 0.9) < 0.18) return code(SM.gold, t >= 2 ? 3 : 2); // rivets
     return code(plate, t);
   }
   const r = (fy - top - 0.06 * fx * fx) / per;
@@ -311,7 +339,7 @@ function face(c: Paper, h: P2, opt: { hair: 'top' | 'cap' | 'none'; moustache?: 
   slab(c, h, ell(0.66 * s, 0.82 * s, 0.03, 0.06 * s, 18), (fx0, fy0) => {
     const fx = fx0 / s, fy = fy0 / s;
     const lightS = fx * 0.55 + fy * 0.55;
-    if (opt.hair === 'top' && (fy < -0.46 || (fx < -0.3 && fy < 0.15))) return code(SM.hair, fx < -0.2 && fy < -0.5 ? 3 : 2);
+    if (opt.hair === 'top' && (fy < -0.46 || (fx < -0.3 && fy < 0.15))) return code(SM.hair, c.L <= 1 ? 1 : fx < -0.2 && fy < -0.5 ? 3 : 2);
     if (opt.hair === 'cap' && fy < -0.45) return code(SM.hair, 2);
     // Brow: a heavy line and the shadow under it.
     if (fy > -0.24 && fy < -0.17 && fx > -0.12 && fx < 0.66) return code(SM.hair, 1);
@@ -442,7 +470,7 @@ function hachimaki(c: Paper, h: P2, back = false): void {
   }
   vol(c, addP(h, [-0.7 * s, -0.3 * s]), addP(h, [-1.35 * s, 0.5 * s]), 0.3, 0.3, 0.2, KM.silk, 2, { caps: [0, 0.3] });
   vol(c, addP(h, [-0.7 * s, -0.25 * s]), addP(h, [-1.15 * s, 0.75 * s]), 0.26, 0.26, 0.18, KM.silk, 1, { caps: [0, 0.3] });
-  vol(c, addP(h, [-0.15 * s, -0.85 * s]), addP(h, [0.35 * s, -1.1 * s]), 0.36, 0.34, 0.3, SM.hair, 2); // topknot
+  vol(c, addP(h, [-0.15 * s, -0.85 * s]), addP(h, [0.35 * s, -1.1 * s]), 0.36, 0.34, 0.3, SM.hair, c.L <= 1 ? 1 : 2); // topknot
 }
 
 /** The katō: a white cowl wrapped round the head, an eye slit, the tail over the shoulders. */
@@ -628,7 +656,7 @@ const TORSO: P2[] = [[-2.2, -4.75], [-0.6, -5.05], [1.0, -5.0], [2.15, -4.65], [
 const torsoTone = (c: Paper, fx: number, fy: number): number => {
   let t = lit(c, 2, fx * 0.42 + (fy + 2.4) * 0.22, 0.5, 0.45);
   // The side plane's edge: slanted at 2 px a unit, so its columns do not all end on the dō's rim.
-  if (fx > (c.L === 2 ? 0.55 - fy * 0.28 : 1.15 - fy * 0.05)) t = Math.min(t, 1);
+  if (c.L !== 4 && fx > (c.L <= 2 ? 0.55 - fy * 0.28 : 1.15 - fy * 0.05)) t = Math.min(t, 1);
   // At 2 px a unit the chest takes the light as one plane (the dō's lit top reads as the key).
   else if (c.L === 2 && fy < -3.0 && fx < 0.6) t = Math.min(4, t + 1);
   return t;
@@ -665,10 +693,10 @@ function torso(c: Paper, b: Body, d: Dress, back = false): void {
       // The jacket in the army colour, dyed deep (a light figure's mean would sit on the field's).
       const f = frac((fx + 3) / 1.25 + fy * 0.08);
       if (f < 0.07) return code(KM.lacTeam, t - 1);
-      if (f > 0.07 && f < 0.13) return code(KM.lacTeam, Math.min(4, t + 2));
+      if (f > 0.07 && f < 0.13) return code(KM.lacTeam, Math.min(4, t + 1));
       // A white mon on the jacket; the big one in the middle of the back.
       if (back ? Math.hypot(fx + 0.15, fy + 2.7) < 0.85 : Math.hypot(fx + 0.95, fy + 2.4) < 0.55) return code(KM.silk, 2);
-      return code(KM.lacTeam, Math.min(4, t + 1));
+      return code(KM.lacTeam, t);
     });
   } else {
     slab(c, o, TORSO.map((p) => [p[0] * 1.08, p[1]] as P2), (fx, fy) => {
@@ -702,9 +730,11 @@ function torso(c: Paper, b: Body, d: Dress, back = false): void {
   const m = d.body === 'robe' ? SM.ochre : d.body === 'happi' ? SM.indigo : KM.silk;
   slab(c, o, [[-1.85, -0.45], [1.85, -0.5], [1.85, 0.15], [-1.85, 0.2]], (fx, fy) => {
     const f = frac((fx + 3) / 0.9 + fy * 0.4);
-    if (f < 0.1) return code(m, 0);
     // (At 2 px a unit the sash is in the dō's shadow: a pale band low on the figure would read as the light.)
     if (c.L === 2) return code(m, fx < -1.0 ? 1 : 0);
+    // (Its folds from level 8: below, short stripes across a band all start and end on its edges.)
+    if (c.L !== 1 && c.L < 8) return code(m, fx < -1.0 ? 2 : fx > 1.1 ? 0 : 1);
+    if (f < 0.1) return code(m, 0);
     if (f < 0.18) return code(m, 2);
     return code(m, fx < -1.0 ? 2 : fx > 1.1 ? 0 : 1);
   });
@@ -741,7 +771,7 @@ function kusaPanel(c: Paper, b: Body, d: Dress, layer: 'back' | 'front', i: numb
       if (pleat < 0.24 && rel < 0.4) return code(SM.black, Math.min(4, t + 1)); // lit pleat ridge
       return code(SM.black, t);
     }
-    if (fy > long - 0.3 && c.L !== 2) return code(d.lac.band, t); // the bound hem (hishinui)
+    if (fy > long - 0.3 && c.L >= 8) return code(d.lac.band, t); // the bound hem (hishinui), from level 8
     if (d.body === 'okegawa') return okegawa(c, rel, fy, 0.05, t, d.lac.plate, 0.6);
     return kebiki(c, rel, fy, 0.05, t, d.lac, { per: 0.8, bandRows: () => false, curve: 0.02 });
   });
@@ -874,7 +904,9 @@ function man(c: Paper, b: Body, d: Dress, layers: Layers): void {
 /** The sashimono: a lacquered pole, a crossbar, the tall team flag with a pale mon, folds lit. */
 function sashimono(c: Paper, base: P2, height = 9.6, w = 2.0, h = 4.4): void {
   const top = addP(base, [-0.15, -height]);
-  vol(c, base, top, 0.3, 0.3, 0.26, SM.lacquer, 2, { caps: [0, 0.1], rim: true });
+  // (The pole and crossbar a step lighter at 2 px a unit: the darkest pixels at the very top of the
+  // figure would read as the shadow side.)
+  vol(c, base, top, 0.3, 0.3, 0.26, SM.lacquer, c.L === 2 ? 3 : 2, { caps: [0, 0.1], rim: true });
   slab(c, top, [[0, 0.25], [-w, 0.25], [-w + 0.1, h], [0.05, h + 0.05]], (fx, fy) => {
     if (Math.hypot(fx + w / 2, fy - h * 0.36) < w * 0.27) return code(KM.silk, Math.hypot(fx + w / 2 + 0.1, fy - h * 0.36 + 0.1) < w * 0.14 ? 3 : 2);
     const f = frac((fx + 5 + fy * 0.12) / (w / 2.4));
@@ -883,7 +915,7 @@ function sashimono(c: Paper, base: P2, height = 9.6, w = 2.0, h = 4.4): void {
     const sd = fx / w + (fy / h) * 0.5;
     return code(SM.team, sd > -0.05 ? 1 : sd < -0.62 ? 3 : 2);
   });
-  vol(c, addP(top, [-w - 0.15, 0.2]), addP(top, [0.2, 0.2]), 0.24, 0.24, 0.24, SM.lacquer, 2, { caps: [0.1, 0.1] });
+  vol(c, addP(top, [-w - 0.15, 0.2]), addP(top, [0.2, 0.2]), 0.24, 0.24, 0.24, SM.lacquer, c.L === 2 ? 3 : 2, { caps: [0.1, 0.1] });
 }
 
 /** The horo: a puffed cloth balloon on a cane frame, pinned at the shoulders, its gores lit. */
@@ -893,12 +925,16 @@ function horo(c: Paper, at: P2, big = 1): void {
     const ang = Math.atan2(fx + 0.2, fy + 3.9 * big) / DEG;
     const gore = frac((ang + 90) / 13);
     const s = (fx / big) * 0.08 + (fy / big) * 0.32 - (fx / big + 2) * 0.12;
-    const t = s < -0.45 + c.band ? 3 : s > 0.42 + c.band ? 1 : 2;
-    if (gore < 0.09) return code(SM.teamDk, Math.max(1, t));
+    // (A step below the flag's silk: the balloon is a third of the lord's silhouette, and in the
+    // bright tones his mean value would sit on the field's.)
+    const t = s < -0.45 + c.band ? 2 : s > 0.42 + c.band ? 0 : 1;
+    if (gore < 0.09) return code(SM.teamDk, Math.max(1, t + 1));
     if (gore < 0.22 && t >= 2) return code(SM.team, Math.min(4, t + 1));
     const m = Math.hypot(fx + 2.2 * big, fy + 0.1);
     if (m < 0.62 * big) return code(KM.silk, m < 0.3 * big ? 2 : 3);
-    return code(SM.team, t);
+    // (At 13 px the balloon is the dark army colour: in the bright one the lord's mean value
+    // would sit on the field's.)
+    return code(c.L <= 1 ? SM.teamDk : SM.team, t);
   });
   vol(c, addP(at, [0.2, -2.55 * big]), addP(at, [-1.6 * big, -3.65 * big]), 0.22, 0.22, 0.2, SM.wood, 2);
 }
@@ -949,11 +985,16 @@ function tate(c: Paper): void {
     const plank = frac((fx + 3) / 0.85);
     const mon = Math.hypot(fx - 1.35, (fy + 4.6) * 0.95);
     if (mon < 0.8) return mon < 0.38 ? code(KM.redBrown, 2) : code(SM.gold, mon < 0.5 ? 3 : 2);
-    if (fy < -7.3 + fx * 0.15) return code(SM.wood, 4);
+    // (Weathered planks a step darker than the man: a big pale board beside him would read as
+    // where the light comes from.)
+    if (c.L <= 1) return code(SM.wood, fy < -7.0 ? 1 : 0);
+    if (fy < -7.3 + fx * 0.15) return code(SM.wood, 3);
+    // Plank seams only from level 8 (below, their parallel ends line up on the board's edges).
+    if (c.L < 8) return code(SM.wood, fx < 0.9 - (fy + 3.8) * 0.3 ? 2 : 1);
     if (plank < 0.1) return code(SM.wood, 0);
-    if (plank < 0.18 && fx < 1.0) return code(SM.wood, 4);
-    if (Math.abs(fy + 6.4) < 0.25 || Math.abs(fy + 1.4) < 0.25) return code(SM.wood, Math.abs(fy + 6.4) < 0.1 || Math.abs(fy + 1.4) < 0.1 ? 3 : 1);
-    return code(SM.wood, fx < 0.9 ? 3 : 2);
+    if (plank < 0.18 && fx < 1.0) return code(SM.wood, 3);
+    if (Math.abs(fy + 6.4) < 0.25 || Math.abs(fy + 1.4) < 0.25) return code(SM.wood, Math.abs(fy + 6.4) < 0.1 || Math.abs(fy + 1.4) < 0.1 ? 2 : 0);
+    return code(SM.wood, fx < 0.9 ? 2 : 1);
   });
 }
 
@@ -974,19 +1015,23 @@ export const FOOT: Record<number, SFoot> = {
     over: { hnN: [-1.45, -8.3], elN: [-2.75, -8.6], hnF: [-1.45, -6.6], elF: [0.5, -7.6] },
     gear: {
       back: (c, b) => sashimono(c, addP(b.pel, [-1.6, -3.4]), 9.0, 1.8, 4.0),
-      near: { draw: (c, h) => yari(c, mapPoint(h), 180 + mapTurn(), 8.0, 15.5), grip: SM.flesh },
+      // (At 13 px the shaft stands a pixel outside the body, so it reads as the silhouette's edge,
+      // not a seam cut through the figure.)
+      near: { draw: (c, h) => yari(c, c.L <= 1 ? addP(mapPoint(h), [-1, 0]) : mapPoint(h), 180 + mapTurn(), 8.0, 15.5), grip: SM.flesh },
     },
   },
   /** 2: Nage-yari Skirmishers: a javelin cocked overhead, the bundle on the back, a team happi. */
   2: {
-    d: { head: 'hachimaki', body: 'happi', lac: REDBROWN_TEAM, sode: 'none', sleeve: SM.indigo, legs: SM.indigo, shin: 'kyahan' },
+    // The happi's sleeves are the jacket's cloth (the army colour, dyed deep).
+    d: { head: 'hachimaki', body: 'happi', lac: REDBROWN_TEAM, sode: 'none', sleeve: KM.lacTeam, legs: SM.indigo, shin: 'kyahan' },
     over: { hnN: [-2.3, -13.6], elN: [-3.4, -11.5], hnF: [2.9, -8.9], elF: [2.8, -9.8] },
     gear: {
       back: (c, b) => {
         const base = addP(b.pel, [-1.2, -1.2]);
         for (const [dx, t] of [[-2.0, 1], [-1.2, 2], [-0.4, 2], [0.3, 1]] as [number, number][]) {
           const tip = addP(base, [dx, -7.6]);
-          vol(c, base, tip, 0.26, 0.26, 0.22, SM.wood, t, { caps: [0, 0] });
+          // (At 13 px the bundle is a lit mass behind the head: the shafts a step lighter.)
+          vol(c, base, tip, 0.26, 0.26, 0.22, SM.wood, c.L <= 1 ? Math.min(4, t + 2) : t, { caps: [0, 0] });
           vol(c, tip, addP(tip, [dx * 0.08, -1.2]), 0.42, 0.3, 0.06, SM.steel, t + 1, { caps: [0, 0.2], rim: true });
         }
         vol(c, addP(base, [-0.3, 0.2]), addP(base, [-0.9, -3.4]), 1.35, 1.45, 1.25, SM.straw, 2, { detail: (un, v) => (frac(v * 4 + un * 0.3) < 0.12 ? code(SM.straw, 1) : -1) });
@@ -1000,8 +1045,9 @@ export const FOOT: Record<number, SFoot> = {
     over: { hnF: [2.55, -7.4], elF: [2.6, -9.0], hnN: [-1.6, -6.4], elN: [-2.6, -8.3] },
     gear: {
       back: (c, b) => {
-        vol(c, addP(b.pel, [-2.0, 1.6]), addP(b.pel, [-3.4, -2.6]), 1.3, 1.35, 1.2, SM.lacquer, 2, { rim: true, detail: (_un, v) => (Math.abs(v - 0.3) < 0.04 ? code(SM.gold, 2) : -1) });
-        for (const dx of [-0.45, 0.0, 0.45]) vol(c, addP(b.pel, [-3.4 + dx, -2.5]), addP(b.pel, [-4.0 + dx * 1.7, -4.4]), 0.34, 0.36, 0.28, KM.silk, dx > 0 ? 2 : 3);
+        vol(c, addP(b.pel, [-2.0, 1.6]), addP(b.pel, [-3.4, -2.6]), 1.3, 1.35, 1.2, SM.lacquer, 2, { rim: c.L >= 8, detail: (_un, v) => (Math.abs(v - 0.3) < 0.04 ? code(SM.gold, 2) : -1) });
+        // (The fletchings a step down: three pale tufts on the silhouette's rim would light it.)
+        for (const dx of [-0.45, 0.0, 0.45]) vol(c, addP(b.pel, [-3.4 + dx, -2.5]), addP(b.pel, [-4.0 + dx * 1.7, -4.4]), 0.34, 0.36, 0.28, KM.silk, dx > 0 ? 1 : 2);
       },
       far: { draw: (c, h) => yumi(c, mapPoint(h), 180 + mapTurn(), 0, null, false), grip: SM.flesh },
       near: {

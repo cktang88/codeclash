@@ -195,6 +195,31 @@ committed; the screenshots in `docs/screenshots/hd-sprites/samurai-anim-*.png` a
 3. **Round 3.** NE: the near hand with the fan is given its own rest (forward of the near shoulder),
    so the fan shows past the horo from behind.
 
-Katana Samurai lint (level 1/2/4/8): no FAIL. Warnings left: aligned band ends 0.24-0.30, outline and figure vs
+### Lint pass over the seven foot kinds
+
+With all foot kinds on bones the faction's shared low-level palettes (12-16 colours) shifted and
+the gate failed in places; the fixes, found with the lint's own frames and per-region light vectors:
+- **Grey shadows at level 2**: near-twin materials (bone silk and cotton, mask iron and iron,
+  red-brown and shu, black and lacquer, ochre and straw) are painted as one below level 4
+  (`samurai-static` `LOW_MERGE`, applied by `samurai-rig` `lowMerge`), so the palette's merges keep
+  the hue in the shadows.
+- **Light direction**: the dark pixels at the very top of a figure read as the shadow side (the
+  sashimono pole at level 2, the javelin in the cocked hand at level 1), and pale props low on the
+  right as the light (the tate, the kusazuri's bound hem, the sash's folds): those are toned to
+  their place in the form light at the low levels. The skirmisher's happi sleeves are now the
+  jacket's own cloth.
+- **Aligned band ends** at levels 1-4: okegawa plates show staggered seam dashes instead of full
+  lit and dark rows, the bow is one unbroken line with the braced string from level 8, the sash's
+  folds from level 8, the limbs' bands taper at level 4, and at 13 px the yari shaft stands a
+  pixel outside the body.
+- **Values against the field**: the daimyō's horo is a step darker (the dark army colour at level
+  1), the yumi's string is waxed hemp and its bindings lacquered, the ebira's fletchings a step down.
+
+Lint (all seven foot kinds, levels 1/2/4/8): no FAIL. Level-1 silhouettes: closest pair 0.74
+(Katana Samurai and Daimyō; Teppō and Daimyō), all under 0.85. Warnings left: aligned band ends
+0.17-0.30, outline and figure vs ground ΔL 0.07-0.15, mid-widest silhouettes, a few light-angle
+warnings (41-68°) and jaggies at levels 1-2 on the skirmisher.
+
+Katana Samurai lint before the pass (level 1/2/4/8): no FAIL. Warnings left: aligned band ends 0.24-0.30, outline and figure vs
 ground ΔL 0.07-0.13, light-angle error at levels 1-2, mid-widest silhouettes. Level-1 silhouette:
 closest the Daimyō at 0.61.
