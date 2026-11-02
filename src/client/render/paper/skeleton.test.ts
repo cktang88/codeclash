@@ -7,6 +7,9 @@ import { paintPaper } from './index.ts';
 import { registerPaperKind } from './registry.ts';
 import { BODIES } from './rig.ts';
 import { rotSprite, scale2x } from './rotsprite.ts';
+import { skull, UM } from './undead-parts.ts';
+import { plate, vol } from './undead-static.ts';
+import { restJoints, type AttachmentSet, type DrawCtx, type PartXf } from './skeleton.ts';
 import {
   animationsFor, bakeClip, drawSkeleton, footAnimations, footSkeleton, horseSkeleton, loadMotion, paintSkeleton, partDrawCount, posedNumbers, resolveBone, skeletonFor, skeletonKind, stickParts,
   type Clip, type FacingClips, type MotionJson, type Posed, type SkeletonRig,
@@ -68,6 +71,56 @@ describe('skeleton: maths', () => {
       expect(v).toBeGreaterThanOrEqual(last);
       last = v;
     }
+  });
+});
+
+describe('skeleton: README worked example (static key art split into bone parts)', () => {
+  // Points of the Grave Legionary's static key art (undead-static.ts `B`), in its rest stance.
+  const B = { neck: [0.4, -12.0], head: [0.75, -13.15], hipN: [-0.75, -6.5], kneeN: [-1.05, -3.65], ankN: [-1.15, -0.75], hipF: [1.05, -6.6], kneeF: [1.55, -3.75], ankF: [1.85, -0.8] } satisfies Record<string, P2>;
+  const sabaton = (ank: P2): P2[] => [[ank[0] - 0.7, ank[1] - 0.35], [ank[0] + 0.5, ank[1] - 0.45], [ank[0] + 1.35, ank[1] + 0.35], [ank[0] + 1.3, ank[1] + 0.75], [ank[0] - 0.75, ank[1] + 0.75]];
+  const skel = footSkeleton({ name: 'legionary-bones' });
+  const parts: AttachmentSet = {
+    ...stickParts(skel, { body: UM.bone, cloth: UM.rag, metal: UM.steel, team: M.team, hide: UM.leather }),
+    thighF: (c, x) => vol(c, x.r(B.hipF), x.r(B.kneeF), 1.55, 1.25, UM.mail, { tone: 1 }),
+    shinF: (c, x) => vol(c, x.r(B.kneeF), x.r(B.ankF), 0.95, 1.0, UM.rust, { tone: 2, caps: false }),
+    footF: (c, x) => plate(c, sabaton(B.ankF).map(x.r), UM.rust, { tone: 1 }),
+    thighN: (c, x) => vol(c, x.r(B.hipN), x.r(B.kneeN), 1.55, 1.25, UM.mail),
+    shinN: (c, x) => vol(c, x.r(B.kneeN), x.r(B.ankN), 0.95, 1.0, UM.rust, { tone: 3, caps: false }),
+    footN: (c, x) => plate(c, sabaton(B.ankN).map(x.r), UM.rust),
+    head: (c, x) => skull(c, x.r(B.head), x.turn(0), true),
+  };
+  const rig: SkeletonRig = { skel, atts: parts, clips: footAnimations() };
+
+  it('draws the split parts at rest exactly as the static drawing does', () => {
+    for (const L of [2, 8]) {
+      const direct = new Paper(), boned = new Paper();
+      direct.begin(L, BODIES.foot.canvas);
+      boned.begin(L, BODIES.foot.canvas);
+      const posed = evaluate(skel, emptyLocals(), { level: L, facing: 'se', noIk: true });
+      drawSkeleton(boned, posed, parts, { only: (s) => ['thighF', 'shinF', 'footF', 'thighN', 'shinN', 'footN', 'head'].includes(s) });
+      for (const s of ['thighF', 'shinF', 'footF', 'thighN', 'shinN', 'footN', 'head']) {
+        const b = posed.byName[s]!;
+        const att = parts[s] as (c: Paper, x: PartXf, ctx: DrawCtx) => void;
+        // Band offsets are seeded per slot (its index · 32), so the shading does not depend on what
+        // was drawn before; seed the direct drawing the same way.
+        direct.order = skel.slots.findIndex((x) => x.name === s) * 32;
+        att(direct, { bone: b, o: [b.x, b.y], tip: [b.tx, b.ty], turned: 0, at: (p) => p, r: (p) => p, turn: (d) => d }, { posed, events: [] });
+      }
+      let diff = 0;
+      for (let i = 0; i < direct.pix.length; i++) if (direct.pix[i] !== boned.pix[i]) diff++;
+      expect(diff, `level ${L}`).toBe(0);
+    }
+  });
+
+  it('plays walk and attack with the split parts', () => {
+    for (const a of [Anim.Walk, Anim.Attack]) {
+      const paper = new Paper();
+      for (let f = 0; f < 12; f++) {
+        const fr = paintSkeleton(rig, a, f, { level: 8, facing: 'se', paper });
+        expect(fr.pixels.some((v, i) => i % 4 === 3 && v === 255)).toBe(true);
+      }
+    }
+    expect(Object.keys(restJoints(skel)).length).toBe(skel.bones.length);
   });
 });
 
