@@ -338,3 +338,69 @@ Still short of the references:
 - Faces are small at level 8 (two eye pixels and a nose).
 - The menpō's moustache shows only at level 8.
 - The daimyō's crescent and fan crowd the head when the fan is raised.
+
+## Samurai key art: bulk-up round, static first (`paper/samurai-static.ts`)
+
+The user's verdict on the paper units was "stick figures, as if all limbs were screwed on like
+sticks". So there is now one hand-placed static image per kind: idle, SE, level 8, about 116 px
+tall. It is not registered with the painter; the live game keeps `paper/samurai.ts` until the
+images are approved and split into rig parts.
+
+### User targets (`references/user-targets/`, study only, not committed)
+
+| Image | Licence | Taken from it |
+|---|---|---|
+| https://img.craftpix.net/2023/04/Fantasy-Knight-Sprite-Sheets-Pixel-Art.webp | CraftPix commercial licence (study only) | **Limbs are masses.** Thighs as wide as the head, a shield planted against the body, a dark broken edge on the shadow side, flat lit planes. |
+| https://i.redd.it/fsroum98hki61.png (Diablo II: Resurrected class renders) | (c) Blizzard (study only) | **Shoulders 0.35-0.5 H with pauldrons**, a waist about 0.24 H, plate built up in boxy layers, weapons held against the body, the paladin's shield close and large. |
+
+### What changed
+
+- **Limbs are volumes.** Each limb is a tapered polygon (`vol`) with a swell, rounded ends and planar shading: a lit plane, the body, a shadow plane, and a broken dark edge. At H ≈ 14.5 units:
+
+  | Part | Width (units) | Ratio |
+  |---|---|---|
+  | upper arm | 1.45-1.5 | 0.10 H |
+  | forearm | 1.2 | 0.08 H |
+  | thigh | 1.85-1.9 | 0.13 H, with hakama |
+  | shin | 1.35-1.4 | 0.095 H, suneate |
+
+  There are also kneecap plates, fists or gauntlets, and tabi with waraji.
+- **Torso and armour.**
+  - The dō is a boxy slab, 4.4 units across the shoulders (0.30 H), 3.5 at the waist (0.24 H). Its front plane turns to a shadowed side.
+  - The big sode take the shoulders to about 6.6 units (0.46 H).
+  - The kusazuri has five laced panels that flare out, its bottom row bound in the army colour.
+  - Kawara haidate (small iron scales) cover the thighs.
+  - The lacing is dark team colour, with bright stitches only, so the lacquer dominates.
+- **Kabuto.** A broad ridged bowl, a shikoro flaring behind the head (drawn behind the face), large gilt-edged fukigaeshi, and a half menpō that leaves the eyes visible.
+- **Horses.** A deep barrel and chest as one mass, a thick crest-necked neck (3.2 → 1.7 units), heavy forearms and gaskins, fetlock knobs, and hooves that widen to the ground. The saddle has a high pommel and cantle; the hatamoto's horse has a team saddle-cloth and big tassels.
+- **Weapons close to the body.**
+  - Katana Samurai: chūdan, both hands on the hilt.
+  - Yari Ashigaru: the yari stood upright in both hands.
+  - Teppō: port arms, behind a large tate planted beside him (the Nagashino line).
+  - Sōhei: a long broad naginata held upright.
+  - Daimyō: the war fan held out in command.
+  - Yumi Ashigaru: the bow braced and upright, with an arrow in hand.
+
+### Critique rounds (`docs/screenshots/hd-sprites/samurai-static-*`, `samurai-katana-before-after-L8.png`)
+
+1. **Bulk first.**
+   - The heads sank between the big sode.
+   - The kabuto's neck guard was drawn over the face, so no eyes showed.
+   - The katana in hassō was lost behind the fukigaeshi.
+   - The obi read as a bright belt.
+   - The Daimyō's raised fan arm hid his face.
+
+   Fixes:
+   - a longer neck, with the sode hung lower;
+   - the shikoro drawn behind the face, with a half menpō;
+   - chūdan, the blade crossing the body clearly;
+   - a narrower, toned-down obi;
+   - the fan held out forward.
+2. **Against the D2R renders.**
+   - The lacing stripes swamped the lacquer: lacing is now dark team colour with bright stitches.
+   - The archer's quiver was hidden; the ebira now slants out behind the hip with its fletchings fanned.
+   - The archer's bow was strung awkwardly to his belly; it is now braced at rest.
+   - The sōhei's naginata was too small for his bulk: the blade is now 4.6 units, broad and curved.
+3. **Against the CraftPix knight at the same scale.** The masses now read, but the near arm of the two-handed poses disappears behind the near sode. That is accepted for chūdan, since the sode's job is to cover the arm. Horses and riders read as one heavy block, as in the D2R mounted art.
+
+Still to do after approval: split each image into rig parts and animate it, keeping the look, and run the lint gate per animation.
