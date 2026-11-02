@@ -439,16 +439,21 @@ function skirmisher(c: Paper): void {
 
 /** 3: Yumi Ashigaru: the tall yumi upright in the left hand, an arrow nocked, quiver at the hip. */
 function yumiAshigaru(c: Paper): void {
-  const b = stand([0, 0], { hnF: [2.55, -7.4], elF: [2.6, -9.0], hnN: [-0.7, -7.7], elN: [-2.6, -8.3] });
+  const b = stand([0, 0], { hnF: [2.55, -7.4], elF: [2.6, -9.0], hnN: [-1.6, -6.4], elN: [-2.6, -8.3] });
   const dress: Dress = { kit: ARCH_KIT, body: 'okegawa', sode: 'small' };
   man(c, b, dress, {
     back: () => {
       // The ebira (quiver) on the back hip, arrows fletched white.
-      vol(c, addP(b.pel, [-2.2, 0.8]), addP(b.pel, [-2.6, -3.0]), 1.2, 1.25, 1.1, SM.lacquer, 2);
-      for (const dx of [-0.35, 0.05, 0.4]) vol(c, addP(b.pel, [-2.6 + dx, -2.9]), addP(b.pel, [-2.9 + dx * 1.4, -4.4]), 0.3, 0.32, 0.25, SM.cotton, dx > 0 ? 2 : 3);
+      // Slung behind the near hip, slanting out so its box and the fan of fletchings show.
+      vol(c, addP(b.pel, [-2.0, 1.6]), addP(b.pel, [-3.4, -2.6]), 1.3, 1.35, 1.2, SM.lacquer, 2, { detail: (_un, v) => (Math.abs(v - 0.3) < 0.04 ? code(SM.gold, 2) : -1) });
+      for (const dx of [-0.45, 0.0, 0.45]) vol(c, addP(b.pel, [-3.4 + dx, -2.5]), addP(b.pel, [-4.0 + dx * 1.7, -4.4]), 0.34, 0.36, 0.28, SM.cotton, dx > 0 ? 2 : 3);
     },
     held: () => {
-      yumi(c, b.hnF, 176, 0.05, b.hnN, true);
+      // At rest: the bow upright and braced in the left hand, an arrow held along it in the right.
+      yumi(c, b.hnF, 180, 0, null, false);
+      vol(c, addP(b.hnN, [0.4, 1.0]), addP(b.hnN, [1.6, -4.2]), 0.18, 0.18, 0.16, SM.wood, 3, { caps: [0, 0] });
+      vol(c, addP(b.hnN, [1.6, -4.2]), addP(b.hnN, [1.8, -5.0]), 0.3, 0.2, 0.05, SM.steel, 3, { caps: [0, 0.2] });
+      vol(c, addP(b.hnN, [0.45, 0.7]), addP(b.hnN, [0.6, 0.0]), 0.36, 0.4, 0.3, SM.cotton, 3);
       part(c, b.hnF, 0, ell(0.5, 0.45, 0, 0.05, 12), (fx, fy) => code(SM.flesh, lit(c, 1, fx + fy, 0.3, 0.4)));
       part(c, b.hnN, 0, ell(0.48, 0.42, 0, 0.05, 12), (fx, fy) => code(SM.flesh, lit(c, 2, fx + fy, 0.3, 0.4)));
     },
