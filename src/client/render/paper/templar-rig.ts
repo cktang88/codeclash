@@ -266,6 +266,8 @@ export interface MocapOpts {
   legsFK?: boolean;
   /** Re-times the keys (painted frame → painted frame), e.g. a faster first half. */
   retime?: (f: number) => number;
+  /** A gait of `n` frames: the second half-cycle is the first with the sides swapped (an even stride, no limp). */
+  mirror?: number;
 }
 
 const TORSO = ['pelvis', 'spine', 'chest', 'neck', 'head'] as const;
@@ -329,6 +331,22 @@ export function mocapKeys(skel: SkeletonData, name: string, facing: Facing, o: M
     const f = o.retime ? Math.round(o.retime(k.f) * 100) / 100 : k.f;
     return { f, ...(k.c ? { c: k.c as Curve } : {}), dw, t, dl, ...(fk ? { w, ik: { legN: 0, legF: 0 } } : o.legsFK ? { ik: { legN: 1, legF: 1 } } : {}) };
   });
+  if (o.mirror) {
+    const half = o.mirror / 2;
+    const swap = (n: string) => (n.endsWith('N') ? `${n.slice(0, -1)}F` : n.endsWith('F') ? `${n.slice(0, -1)}N` : n);
+    const first = keys.filter((k) => k.f < half);
+    const second = first.map((k): KP => {
+      const t: Record<string, P2> = {};
+      for (const [n, v] of Object.entries(k.t ?? {})) t[n.startsWith('footTarget') ? swap(n) : n] = v;
+      const dl: Record<string, number> = {};
+      for (const [n, v] of Object.entries(k.dl ?? {})) dl[swap(n)] = v;
+      const dw: Record<string, number> = {};
+      // The trunk repeats; an arm's swing about its mean runs the other way.
+      for (const [n, v] of Object.entries(k.dw ?? {})) dw[n] = /^(upperArm|forearm)/.test(n) ? -v : v;
+      return { ...k, f: k.f + half, t, dl, dw };
+    });
+    return { keys: [...first, ...second], clip };
+  }
   return { keys, clip };
 }
 

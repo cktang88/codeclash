@@ -78,15 +78,15 @@ function dye(ls: readonly number[], cs: readonly number[], h: number): RGB[] {
 }
 const KM = {
   /** The levy's padded gambeson: undyed, ochre with dirt. */
-  ochre: defineMaterial('templar.k.ochre', dye([0.24, 0.5, 0.64, 0.73, 0.81], [0.03, 0.06, 0.07, 0.06, 0.05], 78)),
+  ochre: defineMaterial('templar.k.ochre', dye([0.2, 0.31, 0.41, 0.5, 0.59], [0.035, 0.065, 0.08, 0.07, 0.06], 78)),
   /** The javelin men's madder-red tunics. */
-  madder: defineMaterial('templar.k.madder', dye([0.2, 0.27, 0.35, 0.44, 0.52], [0.05, 0.075, 0.085, 0.07, 0.05], 30)),
+  madder: defineMaterial('templar.k.madder', dye([0.17, 0.23, 0.3, 0.38, 0.47], [0.05, 0.075, 0.085, 0.07, 0.05], 30)),
   /** The pilgrims' undyed grey hoods and short tunics (cool, slate). */
-  slate: defineMaterial('templar.k.slate', dye([0.24, 0.42, 0.6, 0.69, 0.78], [0.02, 0.025, 0.03, 0.025, 0.02], 250)),
+  slate: defineMaterial('templar.k.slate', dye([0.2, 0.3, 0.39, 0.48, 0.57], [0.025, 0.035, 0.04, 0.035, 0.03], 250)),
   /** Linen hose and leg wraps. */
-  wraps: defineMaterial('templar.k.wraps', dye([0.25, 0.48, 0.63, 0.72, 0.8], [0.02, 0.03, 0.035, 0.03, 0.025], 85)),
+  wraps: defineMaterial('templar.k.wraps', dye([0.2, 0.28, 0.36, 0.44, 0.52], [0.02, 0.03, 0.035, 0.03, 0.025], 85)),
   /** The brothers' polished mail: bright silver with hard lights (the key art's heroic steel). */
-  silver: defineMaterial('templar.k.silver', dye([0.19, 0.44, 0.62, 0.76, 0.9], [0.012, 0.015, 0.016, 0.014, 0.01], 240)),
+  silver: defineMaterial('templar.k.silver', dye([0.66, 0.44, 0.62, 0.76, 0.9], [0.012, 0.015, 0.016, 0.014, 0.01], 240)),
   /** Fur collars: grey-white wolf and fox. */
   fur: defineMaterial('templar.k.fur', dye([0.24, 0.5, 0.66, 0.78, 0.87], [0.015, 0.02, 0.022, 0.02, 0.016], 70)),
 };
@@ -585,6 +585,10 @@ function cloakS(c: Paper, hemY = -0.55, sweep = 0, back = false): void {
     if (f < 0.16) t -= 1;
     else if (f < 0.3) t += 1;
     if (uy > hemY - 0.9 && c.tex(x, y, 57, 3) < 0.45) t -= 1;
+    // The heavy cloth turns away from the eye at its sides and hem: a shade band along the
+    // silhouette, so the mantle's outline is dark all round (it never averages out to the grass).
+    const left = -2.9 - spread * 1.3, right = 3.0 + spread * 1.6;
+    if (c.L >= 2 && (ux - left < 0.5 || right - ux < 0.5 || uy > hemY - 0.45)) t = 1;
     return code(TM.white, Math.max(1, Math.min(4, t)));
   });
 }
@@ -756,7 +760,7 @@ const SERGEANT: SKit = { helm: 'kettle', body: TM.mailDk, coat: TM.black, cross:
 // slate hoods with the scallop and short tunics.
 const LEVY: SKit = { helm: 'nasal', body: KM.ochre, coat: null, quilted: true, camail: null, sleeve: KM.ochre, hand: TM.flesh, legs: KM.wraps, boots: TM.leather };
 const JAVELIN: SKit = { helm: 'cap', body: KM.madder, coat: null, short: true, pouch: true, camail: null, sleeve: KM.madder, hand: TM.flesh, legs: KM.wraps, boots: TM.leather, belt: TM.team };
-const ARCHER: SKit = { helm: 'hood', hood: KM.slate, body: KM.slate, coat: null, short: true, camail: null, sleeve: KM.slate, hand: TM.flesh, legs: TM.wool, boots: TM.leather };
+const ARCHER: SKit = { helm: 'hood', hood: KM.slate, body: KM.slate, coat: null, short: true, camail: null, sleeve: KM.slate, hand: TM.flesh, legs: KM.wraps, boots: TM.leather };
 const XBOW: SKit = { helm: 'kettle', body: TM.wool, coat: null, quilted: true, camail: TM.mailDk, sleeve: TM.wool, hand: TM.leather, legs: TM.wool, boots: TM.leather, belt: TM.team };
 // The Iron Brethren as the painted Templar: a black tabard with the long red cross over silver mail
 // and layered pauldrons, the heavy white mantle with a fur collar, steel gauntlets, a wide stance.
@@ -810,7 +814,7 @@ export const FOOT: Record<number, { kit: SKit; gear: SGear; dark: boolean }> = {
   },
   8: {
     kit: BRETHREN,
-    dark: true,
+    dark: false,
     gear: {
       // The Dane axe held at the port, its great bit high and forward of the helm.
       // The Dane axe held low across the body in guard, the bit forward at the shoulder.

@@ -25,7 +25,7 @@ export interface ClipSpec {
 
 type Tracks = Parameters<typeof overlayKeys>[1];
 /** Authored tracks for a facing, given the rest world angles (to start and end at rest). */
-type Author = (rw: Record<string, number>) => Tracks;
+type Author = (rw: Record<string, number>, f: Facing) => Tracks;
 
 /** Cloth bones driven late by the body (templar-rig.ts lagCloth). */
 export function cloth(run: number): LagSpec[] {
@@ -172,7 +172,7 @@ const BRACE: Record<ClipSpec['brace'], Author> = {
 /** Keys for a facing from a mocap clip with authored tracks laid over it. */
 function mk(skel: SkeletonData, f: Facing, clip: string, o: MocapOpts, author?: Author, extra: number[] = []): { keys: KP[]; ev: AnimEvent[] } {
   const { keys, clip: mc } = mocapKeys(skel, clip, f, o);
-  const tr = author ? author(restWorld(skel, f)) : {};
+  const tr = author ? author(restWorld(skel, f), f) : {};
   return { keys: overlayKeys(keys, tr, extra), ev: mc.events.map((e) => ({ ...e })) };
 }
 
@@ -196,25 +196,36 @@ export function mocapFootClips(skel: SkeletonData, s: ClipSpec): ClipSet {
   };
   const sword = s.attack === 'cut' || s.attack === 'punch';
   // Locomotion: the march (drilled troops) and the run; the arm that carries the weapon swings from the capture, the shield arm rides with the trunk.
-  const gaitArms = (g: number): MocapOpts['arms'] => ({ N: sword ? g : s.attack === 'thrust' ? 0.25 : 0.35, F: s.farHeld ? 0 : s.shoot === 'bow' ? g * 0.4 : g });
+  // A tall thing carried (a spear, a javelin bundle, a bow, an axe) is held steady against the
+  // body: it would sweep through the head's zone and boil (README no-boil rule 4).
+  const tallN = !sword, tallF = s.shoot === 'bow' || s.shoot === 'javelin';
+  const gaitArms = (g: number): MocapOpts['arms'] => ({ N: tallN ? 0 : g, F: s.farHeld || tallF ? 0 : g });
   // The head stays level and looking ahead whatever the trunk does (and a held angle never boils).
   const level: Author = (rw) => ({ w: { head: T([0, rw.head!]) } });
   // The walk: a long stride (feet 0.3 H apart at contact), the hips down 1-2 px just after each
   // contact, the shoulders counter-swinging against the hips, the sword carried angled up.
-  const walkA: Author = (rw) => {
+  // In the stance the feet stand 3 units apart across the body; walking, they track close to the
+  // line of travel, so the two half-strides look alike.
+  const track = (f: Facing, k: number): Record<string, [Track, Track]> => {
+    const sd = f === 'ne' ? -1 : 1;
+    return { footTargetN: [T([0, 1.1 * k * sd]), T([0, 0])], footTargetF: [T([0, -1.1 * k * sd]), T([0, 0])] };
+  };
+  const walkA: Author = (rw, f) => {
     const bob = T([0, 0.12], [1, 0.25], [2, 0.12], [3, -0.12], [4, -0.15], [5, 0], [6, 0.12], [7, 0.25], [8, 0.12], [9, -0.12], [10, -0.15], [11, 0]);
     const twist = T([0, -0.15], [3, 0], [6, 0.15], [9, 0], [11, -0.1]);
     return {
-      w: (sword ? { head: T([0, rw.head!]), weapon: T([0, 148]) } : { head: T([0, rw.head!]) }) as Record<string, Track>,
-      dw: sword ? { forearmN: T([0, 38]) } : ({} as Record<string, Track>),
-      tAdd: { pelvis: [T([0, 0]), bob], chest: [twist, T([0, 0])] },
+      // The sword rides at the near hip, its blade angled up and back: clear of the shield face and
+      // below the head (the lint's head zone).
+      w: (sword ? { head: T([0, rw.head!]), weapon: T([0, 236]) } : { head: T([0, rw.head!]) }) as Record<string, Track>,
+      dw: sword ? { forearmN: T([0, 18]) } : ({} as Record<string, Track>),
+      tAdd: { pelvis: [T([0, 0]), bob], chest: [twist, T([0, 0])], ...track(f, 1) },
     };
   };
-  const walk = fc('walk', 12, true, (f) => mk(skel, f, 'walk', { ref: 'mean', torso: 0.5, arms: gaitArms(0.7), roll: 0.6, feet: 1.25 }, walkA), undefined, 0.3);
-  const runLean: Author = (rw) => ({ w: { head: T([0, rw.head! - 6]) }, dw: { spine: T([0, -13]), ...(s.farHeld ? { forearmF: T([0, 12]) } : {}), ...(sword ? { forearmN: T([0, 50]) } : {}) } });
-  const run = fc('run', 12, true, (f) => mk(skel, f, 'run', { ref: 'mean', torso: 0.5, arms: gaitArms(0.7), roll: 0.5 }, runLean), undefined, 1);
+  const walk = fc('walk', 12, true, (f) => mk(skel, f, 'walk', { ref: 'mean', torso: 0.5, arms: gaitArms(0.55), roll: 0.6, feet: 1.25, mirror: 12 }, walkA), undefined, 0.3);
+  const runLean: Author = (rw, f) => ({ tAdd: track(f, 1.1), w: { head: T([0, rw.head! - 6]) }, dw: { spine: T([0, -13]), ...(s.farHeld ? { forearmF: T([0, 12]) } : {}), ...(sword ? { forearmN: T([0, 50]) } : {}) } });
+  const run = fc('run', 12, true, (f) => mk(skel, f, 'run', { ref: 'mean', torso: 0.5, arms: gaitArms(0.7), roll: 0.5, mirror: 12 }, runLean), undefined, 1);
   // Idle: the capture's slow weight shift, small (the key art must hold), and breathing.
-  const idle = withBreath(fc('idle', 8, true, (f) => mk(skel, f, 'idle', { ref: 'first', torso: 0.15, travel: 0.2, feet: 0 })));
+  const idle = withBreath(fc('idle', 8, true, (f) => mk(skel, f, 'idle', { ref: 'first', torso: 0.1, travel: 0.16, feet: 0 })));
   const atk = {
     cut: () => (f: Facing) => mk(skel, f, 'cut-diagonal', { torso: 0.4, travel: 0, feet: 0.3 }, CUT, [2, 10]),
     thrust: () => (f: Facing) => mk(skel, f, 'thrust', { torso: 0.6, travel: 1, feet: 1 }, THRUST, [10]),
@@ -239,10 +250,10 @@ export function mocapFootClips(skel: SkeletonData, s: ClipSpec): ClipSet {
   if (s.shoot === 'bow') shoot = fc('shoot', 12, false, (f) => mk(skel, f, 'bow', { torso: 0.5, travel: 1, feet: 0.5 }, BOW, [2, 4, 8]), [{ f: 3, name: 'draw', len: 4 }, { f: 7, name: 'release' }]);
   if (s.shoot === 'crossbow') shoot = fc('shoot', 12, false, (f) => mk(skel, f, 'brace', { ref: 'first', torso: 0, travel: 0.4, feet: 0 }, CROSSBOW, [2, 3, 5, 7, 9, 11]), [{ f: 3, name: 'release' }]);
   // A long spear stays upright in the fist while the body recoils.
-  const hitA: Author = (rw) => ({ ...HIT(rw), ...(s.attack === 'thrust' ? { w: { weapon: T([0, rw.weapon! - 4], [1, rw.weapon! - 6], [4, rw.weapon!]) } } : {}) });
+  const hitA: Author = (rw, f) => ({ ...HIT(rw, f), ...(s.attack === 'thrust' ? { w: { weapon: T([0, rw.weapon! - 4], [1, rw.weapon! - 6], [4, rw.weapon!]) } } : {}) });
   // Shielded men snap back like anyone, and punch the shield out against the blow as they do.
-  const hitS: Author = (rw) => {
-    const h = hitA(rw), b = BLOCK(rw);
+  const hitS: Author = (rw, f) => {
+    const h = hitA(rw, f), b = BLOCK(rw, f);
     return { ...h, dw: { ...h.dw, upperArmF: b.dw!.upperArmF!, forearmF: b.dw!.forearmF! } };
   };
   const hit = fc('hit', 5, false, (f) => mk(skel, f, 'hit', { torso: 0, absHeight: true, travel: 0.55, feet: 0.6 }, s.shield ? hitS : hitA, [1, 2, 3]), [{ f: 0, name: 'flash' }]);

@@ -116,6 +116,9 @@ const TL = {
   leather: defineMaterial('templar.leatherL', deep(ramp([0.61, 0.64, 0.67, 0.73, 0.79], 0.05, 62))),
   /** The Beauséant's sable half carried by a white brother: black cloth with the pale edge. */
   black: defineMaterial('templar.sable', deep(ramp([0.61, 0.21, 0.25, 0.31, 0.38], 0.025, 45))),
+  /** The army colour on a light figure (a pale levy's shield): its outline is the pale deep tone too. */
+  team: defineMaterial('templar.teamL', (hue) => deep(teamRamp(hue, [0.2, 0.27, 0.34, 0.43, 0.52], [0.08, 0.12, 0.14, 0.12, 0.09]))),
+  teamDk: defineMaterial('templar.teamDkL', (hue) => deep(teamRamp(hue, [0.17, 0.22, 0.27, 0.33, 0.4], [0.06, 0.09, 0.1, 0.09, 0.07]))),
 };
 
 /**
@@ -142,8 +145,8 @@ function remapFor(dark: boolean, level: number): Int16Array {
     : level <= 2
       ? // At 13-26 px mail, helm steel, ash and buff leather are one pale grey mass (and the
         // small palettes have no room to tell them apart).
-        [[TM.mane, TL.mane], [TM.wood, TL.mane], [TM.ash, TL.mane], [TM.mailDk, TM.grey], [TM.mail, TM.grey], [TM.steel, TM.grey], [TM.leather, TL.mane], [TM.black, TL.black]]
-      : [[TM.mane, TL.mane], [TM.wood, TM.ash], [TM.mailDk, TM.mail], [TM.leather, TL.leather], [TM.black, TL.black]];
+        [[TM.mane, TL.mane], [TM.wood, TL.mane], [TM.ash, TL.mane], [TM.mailDk, TM.grey], [TM.mail, TM.grey], [TM.steel, TM.grey], [TM.leather, TL.mane], [TM.black, TL.black], [TM.team, TL.team], [TM.teamDk, TL.teamDk]]
+      : [[TM.mane, TL.mane], [TM.wood, TM.ash], [TM.mailDk, TM.mail], [TM.leather, TL.leather], [TM.black, TL.black], [TM.team, TL.team], [TM.teamDk, TL.teamDk]];
   for (const [a, b] of pairs) for (let k = 0; k < 8; k++) t[a * 8 + k] = b * 8 + k;
   REMAP.set(key, t);
   return t;
