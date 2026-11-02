@@ -16,7 +16,7 @@ import { cityAtlas } from './city/atlas.ts';
 import { buildAtlas as buildHdAtlas } from './sprites128.ts';
 import { paintBuilding, paintMill, rigFor, tierOf, WALL, wallHeights, type Art, type Banner, type BuildingParts } from './city/buildings.ts';
 import { paintGround, type Ground } from './city/ground.ts';
-import { groundKey, groundSteps, TREES } from './city/ground-hd.ts';
+import { groundKey, groundSteps, treesFor } from './city/ground-hd.ts';
 import { Draw, Life, type Ent, type Mood } from './city/life.ts';
 import { Folk } from './city/people.ts';
 import { FolkHd } from './city/people-hd.ts';
@@ -245,7 +245,7 @@ export class CityScene {
       const built = Object.values(footprints).flat() as Footprint[];
       propsKey = built.map((f) => f.map((x) => Math.round(x)).join(',')).join(';');
       if (this.props?.key !== propsKey) {
-        const placed = placeProps({ faction: st.id, seed: this.seed, levels, footprints, clear: TREES.map(([u, v, r]) => [u, v, r * 0.7] as [number, number, number]) });
+        const placed = placeProps({ faction: st.id, seed: this.seed, levels, footprints, clear: treesFor(st.id).map(([u, v, r]) => [u, v, r * 0.7] as [number, number, number]) });
         const painted = paintProps(placed, st, this.frame, (u, v) => shadowAt(u, v, built), rigFor(st.id));
         this.props = { key: propsKey, casts: [...built, ...propShadows(placed)], painted };
       }
@@ -564,10 +564,13 @@ export class CityScene {
         sky.addColorStop(1, `rgb(${bot.map(Math.round).join(',')})`);
         x.fillStyle = sky;
       } else {
-        // Night a cool blue; by day a faint warmth (what the classic amber lift does).
+        // Night a cool blue; by day a faint warmth (what the classic amber lift does), and for
+        // the commandery a golden-hour sun (town-displate): the warm lift is in its palette and
+        // here, the cool is in its shade steps and cast shadows.
+        const gold = this.st.id === 'templar';
         const r = 255 - 150 * k;
-        const gg = 252 - 126 * k;
-        const b = 240 - 46 * k;
+        const gg = (gold ? 246 : 252) - (gold ? 120 : 126) * k;
+        const b = (gold ? 222 : 240) - (gold ? 28 : 46) * k;
         x.fillStyle = `rgb(${Math.round(r)},${Math.round(gg)},${Math.round(b)})`;
       }
       x.fillRect(0, 0, W, H);
@@ -667,6 +670,18 @@ export class CityScene {
     }
     g.globalCompositeOperation = 'source-over';
     flat();
+    if (this.mode === 'hd' && this.st.id === 'templar' && night <= 0.15) {
+      // By day the lamps and some windows still glow warm inside the shade (town-displate).
+      for (const art of this.arts) {
+        if (!art.lights) continue;
+        g.globalAlpha = 0.3 + 0.06 * Math.sin(t * 3 + art.x);
+        g.drawImage(art.lights, art.x, art.y);
+      }
+      g.globalCompositeOperation = 'lighter';
+      this.bloom(g, this.poolSources().filter((p) => p.z > 2 && p.z < 8), [FIRE_POOL], 0.35);
+      g.globalCompositeOperation = 'source-over';
+      g.globalAlpha = 1;
+    }
     if (night > 0.15) {
       const a = Math.min(1, (night - 0.15) / 0.5);
       for (const art of this.arts) {
