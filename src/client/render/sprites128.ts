@@ -170,12 +170,12 @@ const R = {
   // Samurai Clans
   lacquer: 30, vermilion: 31, indigo: 32, paper: 33, bronze: 34, smoke: 35, fire: 36, ochre: 37, darkbay: 38,
   // Hollow Host
-  bone: 39, rust: 40, glow: 41, ghoul: 42, bplate: 43, rag: 44, sinew: 45, bonehorse: 46, ash: 47,
+  bone: 39, rust: 40, glow: 41, ghoul: 42, bplate: 43, rag: 44, sinew: 45, bonehorse: 46, ash: 47, rmail: 48,
 } as const;
-const RAMP_COUNT = 48;
+const RAMP_COUNT = 49;
 /** Hard, shiny materials: the only ones with a specular band. */
 const SHINY: boolean[] = [];
-for (const r of [R.mail, R.plate, R.dplate, R.steel, R.gold, R.lacquer, R.bronze, R.bplate, R.bone]) SHINY[r] = true;
+for (const r of [R.rmail, R.mail, R.plate, R.dplate, R.steel, R.gold, R.lacquer, R.bronze, R.bplate, R.bone]) SHINY[r] = true;
 
 function makeRamps(p: Palette, hue: number): RGB[][] {
   const r: RGB[][] = [];
@@ -228,6 +228,7 @@ function makeRamps(p: Palette, hue: number): RGB[][] {
   r[R.sinew] = ramp('#6d6a55');
   r[R.bonehorse] = ramp('#a9a28c', 0.8);
   r[R.ash] = ramp('#3a3633', 1.2);
+  r[R.rmail] = ramp('#6c6150', 1.0);
   return r;
 }
 
@@ -763,6 +764,10 @@ interface Look {
   scale?: number;
   /** A tate board instead of a pavise when braced. */
   tate?: boolean;
+  /** Rotted through: holes in the coat show the ribcage inside (the dead in grave-mail). */
+  rot?: boolean;
+  /** A tabard hanging front and back to mid-thigh, in this ramp, its hem in tatters. */
+  tabard?: number;
 }
 
 interface Pose {
@@ -798,12 +803,14 @@ interface Pose {
   wave: number;
   /** Gunfire: 1 flash, 2 smoke, 3 thinning smoke. */
   fx: number;
+  /** On a strike in-between: the blade direction at the start of the sweep (a smear is drawn from it to w). */
+  smear: V3 | null;
 }
 
 function basePose(): Pose {
   return {
     bob: 0, lean: 0, twist: 0, pz: 0, fl: [-0.95, 0.55, 0.45], fr: [0.95, 0.55, -0.35], hl: [-1.7, -1.2, 1.7], hr: [2.1, -1.8, 1.1],
-    w: nrm([0.1, 1, 0.45]), aim: [0, 0, 1], draw: 0, loaded: true, head: 0, fall: 0, drop: false, spray: 0, knife: false, kneel: false, planted: false, blood: 0, wave: 0, fx: 0,
+    w: nrm([0.1, 1, 0.45]), aim: [0, 0, 1], draw: 0, loaded: true, head: 0, fall: 0, drop: false, spray: 0, knife: false, kneel: false, planted: false, blood: 0, wave: 0, fx: 0, smear: null,
   };
 }
 
@@ -1259,8 +1266,15 @@ function posedT(L: Look, anim: Anim, t: number, mounted: boolean): Pose {
   if (fk < 1e-3) return posed(L, anim, k0, mounted);
   const kn = KEYS[anim];
   const k1 = LOOPS.has(anim) ? (k0 + 1) % kn : Math.min(kn - 1, k0 + 1);
-  return mixPose(posed(L, anim, k0, mounted), posed(L, anim, k1, mounted), ease(fk));
+  const a = posed(L, anim, k0, mounted);
+  const p = mixPose(a, posed(L, anim, k1, mounted), ease(fk));
+  // The downswing (keys 0 to 2 of a melee blow) leaves a smear behind the blade.
+  if (anim === Anim.Attack && k0 <= 1 && SWINGS.has(L.style) && LV >= 2) p.smear = a.w;
+  return p;
 }
+
+/** Styles whose blow is a sweep (smeared), not a thrust or a shot. */
+const SWINGS = new Set<Style>(['sword', 'marshal', 'poleaxe']);
 
 /** Hit, Die and Dead override the style's pose. */
 function hurt(p: Pose, anim: Anim, f: number, mounted: boolean): void {
@@ -1496,8 +1510,11 @@ function arm(f: Fig, L: Look, sh: V3, hand: V3, side: number): void {
   const k = LIMB[body];
   const reach = body === 'colossus' ? 1.3 : 1;
   const elbow = ik(sh, hand, 2.2 * reach, 2.25 * reach, [side * 0.7, -0.5, -0.6]);
-  f.cap(sh, elbow, 0.78 * k, L.sleeve);
-  f.cap(elbow, hand, 0.68 * k, L.sleeve);
+  // The colossus's limbs are bones fused end to end: seams across them.
+  const lm: Mat = body === 'colossus' ? (l) => ((l[0] * 5) % 1 < 0.14 ? F(R.bone, 0) : L.sleeve) : L.sleeve;
+  f.cap(sh, elbow, 0.78 * k, lm);
+  f.cap(elbow, hand, 0.68 * k, lm);
+  if (body === 'skel' && L.sleeve === R.bone) f.ell(elbow, [0.52, 0.52, 0.52], R.bone);
   f.ell(hand, [0.58 * k + 0.1, 0.58 * k + 0.1, 0.58 * k + 0.1], L.hand);
 }
 
@@ -1629,7 +1646,20 @@ function teamPennant(f: Fig, at: V3, w: V3, phase: number, size = 1): void {
 }
 
 /** The weapon in the right hand (and the bow in the left), in the chest frame. */
+/** The smear: a fan of pale steel between where the blade was and where it is. */
+function smear(f: Fig, L: Look, p: Pose): void {
+  if (!p.smear) return;
+  const reach = L.weapon === 'club' ? 7.2 : L.weapon === 'naginata' ? 8.6 : L.style === 'poleaxe' ? 6.8 : 5.4;
+  const inner = L.style === 'poleaxe' || L.weapon === 'naginata' ? reach - 2.2 : 1.6;
+  const col = F(L.blade === R.rust ? R.bone : R.steel, 3);
+  for (let j = 0; j <= 6; j++) {
+    const d = nrm(lerp(p.smear, p.w, j / 6));
+    f.line(madd(p.hr, d, inner), madd(p.hr, d, reach), col, 0.3);
+  }
+}
+
 function weapon(f: Fig, L: Look, p: Pose): void {
+  smear(f, L, p);
   if (weaponLook(f, L, p)) return;
   const hr = p.hr, w = p.w;
   const blade = L.blade ?? R.steel;
@@ -1738,7 +1768,7 @@ function shield(f: Fig, L: Look, p: Pose): void {
   const ay = nrm(crs(n, ax));
   const c = add(p.hl, [-0.2, -0.3, 0.55]);
   if (L.shield === 'kite') {
-    f.box(c, scl(ax, 2.0), scl(ay, 3.1), scl(n, 0.22), (l) => {
+    f.box(c, scl(ax, 2.0 * EX), scl(ay, 3.1 * EX), scl(n, 0.22), (l) => {
       const u = Math.abs(l[0]), v = l[1];
       const wv = v > 0.35 ? 1 : 0.12 + (0.88 * (v + 1)) / 1.35;
       if (u > wv) return -1;
@@ -1766,7 +1796,7 @@ function shield(f: Fig, L: Look, p: Pose): void {
 }
 
 /** A pavise (or a tate board); `out` is the sign of local z on its painted face. */
-function pavise(f: Fig, c: V3, ax: V3, ay: V3, az: V3, out: number, tate = false): void {
+function pavise(f: Fig, c: V3, ax: V3, ay: V3, az: V3, out: number, tate = false, skull = false): void {
   f.box(c, ax, ay, az, (l) => {
     if (l[2] * out < -0.9) return F(R.dwood, 1);
     if (Math.abs(l[2]) <= 0.9) return R.dwood;
@@ -1775,7 +1805,12 @@ function pavise(f: Fig, c: V3, ax: V3, ay: V3, az: V3, out: number, tate = false
       if (l[0] * l[0] + (l[1] - 0.3) * (l[1] - 0.3) < 0.12) return R.team;
       return Math.floor((l[0] + 1) * 3) % 2 ? R.wood : F(R.wood, 1);
     }
-    if (Math.abs(l[0]) > 0.84 || Math.abs(l[1]) > 0.9) return R.teamDark;
+    if (Math.abs(l[0]) > 0.84 || Math.abs(l[1]) > 0.9) return skull ? R.rust : R.teamDark;
+    if (skull) {
+      const d = l[0] * l[0] + (l[1] - 0.2) * (l[1] - 0.2) * 1.4;
+      if (d < 0.2) return Math.abs(l[0]) > 0.1 && Math.abs(l[0]) < 0.32 && l[1] > 0.18 && l[1] < 0.36 ? F(R.ink, 0) : R.bone;
+      return R.team;
+    }
     if (Math.abs(l[0]) < 0.17 || Math.abs(l[1] - 0.25) < 0.12) return R.white;
     return R.team;
   });
@@ -1830,7 +1865,7 @@ function man(f: Fig, L: Look, p: Pose, mounted: boolean): void {
     // Standing on its foot in front of him, leaning back a little on its prop.
     const t = rx(-0.12);
     if (L.tate) pavise(f, [0.2, 3.0, 2.8], mv(t, [2.6, 0, 0]), mv(t, [0, 3.0, 0]), mv(t, [0, 0, 0.3]), 1, true);
-    else pavise(f, [0.2, 3.7, 2.7], mv(t, [2.4, 0, 0]), mv(t, [0, 3.7, 0]), mv(t, [0, 0, 0.3]), 1);
+    else pavise(f, [0.2, 3.7, 2.7], mv(t, [2.4, 0, 0]), mv(t, [0, 3.7, 0]), mv(t, [0, 0, 0.3]), 1, false, L.emblem === 'skull');
     f.line([0.2, 2.4, 2.2], [0.2, 0.2, 0.6], R.dwood);
   }
   if (fallen) f.push([0, 1.35 * Math.sin(p.fall), 0], rx(-p.fall));
@@ -1840,11 +1875,17 @@ function man(f: Fig, L: Look, p: Pose, mounted: boolean): void {
       const hip: V3 = [side * 1.0, pel[1] - 0.3, pel[2]];
       const ank = side < 0 ? p.fl : p.fr;
       const knee = ik(hip, ank, 2.92, 2.82, p.kneel && side > 0 ? [0, -1, 0.15] : [side * 0.1, 0, 1]);
-      f.cap(hip, knee, 0.92 * lk, L.leg);
-      f.cap(knee, ank, 0.8 * lk, L.leg);
+      const lg: Mat = body === 'colossus' ? (l) => ((l[0] * 5) % 1 < 0.14 ? F(R.bone, 0) : L.leg) : L.leg;
+      f.cap(hip, knee, 0.92 * lk, lg);
+      f.cap(knee, ank, 0.8 * lk, lg);
       f.ell(add(ank, [0, -0.25, 0.45]), [0.62 * lk, 0.42, 0.98], L.boot);
+      if (body === 'skel' || body === 'colossus') f.ell(knee, [0.62 * lk + 0.2, 0.55 * lk + 0.2, 0.62 * lk + 0.2], R.bone);
     }
-    if (body === 'skel' || body === 'colossus') f.ell(add(pel, [0, -0.1, 0]), [1.5, 0.6, 0.9], R.bone);
+    if (body === 'skel' || body === 'colossus') {
+      // A pelvis as a bowl with hip-wings, and the spine rising out of it.
+      f.ell(add(pel, [0, -0.1, 0]), [1.5, 0.6, 0.9], R.bone);
+      f.cap(add(pel, [0, 0.2, -0.4]), add(pel, [0, 2.6, -0.5]), 0.36, R.bone);
+    }
   } else if (mounted) {
     for (const side of [-1, 1]) {
       const hip: V3 = [side * 1.0, pel[1] - 0.2, pel[2]];
@@ -1874,7 +1915,13 @@ function man(f: Fig, L: Look, p: Pose, mounted: boolean): void {
   const Rt = ry(p.twist);
   const shR = mv(Rt, [1.95, 1.15, 0]), shL = mv(Rt, [-1.95, 1.15, 0]);
   const ribs = (body === 'skel' || body === 'colossus') && L.cloth === R.bone;
+  if (L.rot) {
+    // The ribcage inside, seen through the holes rotted in the mail or gambeson over it.
+    f.ell([0, 0, 0], [1.7, 1.9, 1.15], (l, inner) => (inner ? F(R.ink, 0) : Math.floor((l[1] + 1) * 3.4) % 2 || Math.abs(l[0]) < 0.13 ? R.bone : -1), { lo: -0.6, hi: 0.9 }, Rt);
+    f.cap([0, -2.0, -0.6], [0, 2.0, -0.6], 0.34, R.bone);
+  }
   f.ell([0, 0, 0], [2.0, 2.2, 1.42], (l, inner) => {
+    if (L.rot && !inner && hash2(Math.floor(l[0] * 4 + 9), Math.floor(l[1] * 4 + 9), Math.floor(l[2] * 2 + 5)) < 0.22 + Math.max(0, -l[1]) * 0.25) return -1;
     if (body === 'colossus' && l[2] > 0.55 && Math.abs(l[0]) < 0.32 && Math.abs(l[1] - 0.05) < 0.3) return F(R.glow, inner ? 2 : 3);
     if (ribs) {
       if (inner) return F(R.ink, 0);
@@ -1889,11 +1936,32 @@ function man(f: Fig, L: Look, p: Pose, mounted: boolean): void {
     if (L.lacing !== undefined && l[1] < 0.55) return laced(l, L.cloth);
     return L.cloth;
   }, { lo: -1, hi: 0.92, capHi: true }, Rt);
+  if (L.tabard !== undefined) {
+    // A tabard front and back, its hem eaten away.
+    const tb = L.tabard;
+    for (const z of [1.48, -1.48])
+      f.sheet(mv(Rt, [-1.05, 1.5, z]), mv(Rt, [2.1, 0, 0]), [0, -5.6, 0], (s0, t) => 0.12 * t * Math.sin(s0 * 5 + t * 4 - p.wave), (s0, t) => {
+        if (t > 0.62 && hash2(Math.floor(s0 * 7), 1, 23) < (t - 0.62) * 2.4) return -1;
+        if (hash2(Math.floor(s0 * 6), Math.floor(t * 7), 29) < 0.06) return -1;
+        return t < 0.05 ? R.rust : tb;
+      });
+  }
+  if (body === 'colossus') {
+    // Bone spurs along the shoulders and back.
+    for (const [x, y, z, dx, dy, dz] of [[-1.6, 1.4, -0.6, -0.8, 2.2, -0.8], [1.6, 1.4, -0.6, 0.8, 2.2, -0.8], [0, 1.6, -1.2, 0, 2.4, -1.4], [-0.9, 0.2, -1.3, -0.6, 1.4, -1.6], [0.9, 0.2, -1.3, 0.6, 1.4, -1.6]] as number[][])
+      f.cap(mv(Rt, [x!, y!, z!]), mv(Rt, [x! + dx!, y! + dy!, z! + dz!]), 0.32, R.bone);
+  }
+  if (L.helm === 'skullCrown') {
+    // The lich's high collar of bone spines fanned behind the head.
+    for (let i = -2; i <= 2; i++) f.cap(mv(Rt, [i * 0.55, 1.9, -0.9]), mv(Rt, [i * 1.15, 4.4 - Math.abs(i) * 0.5, -1.5]), 0.26, R.bone);
+  }
   if (L.sode !== undefined) {
     for (const sx of [-1, 1])
       f.box(mv(Rt, [sx * 2.4, 0.55, 0]), mv(Rt, [0.32, 0, 0]), mv(Rt, [0, 1.0, 0]), mv(Rt, [0, 0, 1.15]), (l) => (Math.floor((l[1] + 1) * 2) % 2 ? L.sode! : L.lacing ?? L.sode!));
   }
-  if (L.pavise && !p.planted) pavise(f, mv(Rt, [0.1, 0.3, -1.9]), mv(Rt, [2.0, 0, 0]), mv(Rt, [0, 3.0, 0]), mv(Rt, [0, 0, 0.26]), -1);
+  // Slung high on the back: the pavise's painted top stands over the head, so the crossbowman
+  // reads from the front too (Met 22877; the pavise is two-thirds of a man).
+  if (L.pavise && !p.planted) pavise(f, mv(Rt, [0.1, 1.5, -1.9]), mv(Rt, [2.2 * EX, 0, 0]), mv(Rt, [0, 3.4 * EX, 0]), mv(Rt, [0, 0, 0.26]), -1, false, L.emblem === 'skull');
   if (L.quiver) {
     f.cap(mv(Rt, [1.1, 1.5, -1.6]), mv(Rt, [0.4, -2.2, -1.5]), 0.6, R.leather);
     f.line(mv(Rt, [1.0, 1.6, -1.6]), mv(Rt, [1.3, 2.4, -1.7]), F(R.white, 3));
@@ -2012,6 +2080,8 @@ interface HorseLook {
   tassels?: number;
   /** A bare-bone horse: ribs, vertebrae, a skull head. */
   skeletal?: boolean;
+  /** Barding of bone plates (the Death Knights' horses). */
+  boneBard?: boolean;
   chanfron?: 'skull';
   glow?: boolean;
 }
@@ -2129,14 +2199,32 @@ function horse(f: Fig, H: HorseLook, hp: HPose): [V3, M3] {
     const hoof = hp.hooves[i]!;
     const knee = ik(top, hoof, 3.0, 3.3, mv(Rb, [0, 0, i < 2 ? 1 : -1]));
     f.cap(top, knee, bony ? 0.55 : i < 2 ? 0.82 : 0.95, H.coat);
-    f.cap(knee, hoof, bony ? 0.46 : 0.5, H.points);
-    f.ell(add(hoof, [0, -0.05, 0.2]), [0.62, 0.5, 0.72], bony ? H.coat : F(R.ink, 2));
+    if (LV < 2) {
+      f.cap(knee, hoof, bony ? 0.46 : 0.5, H.points);
+      f.ell(add(hoof, [0, -0.05, 0.2]), [0.62, 0.5, 0.72], bony ? H.coat : F(R.ink, 2));
+      continue;
+    }
+    const fet = add(lerp(knee, hoof, 0.74), [0, 0, i < 2 ? -0.12 : 0.12]);
+    f.ell(knee, [0.6, 0.62, 0.62], bony ? H.coat : i < 2 ? H.coat : H.points);
+    f.cap(knee, fet, bony ? 0.34 : 0.38, H.points);
+    f.ell(fet, [0.46, 0.46, 0.5], H.points);
+    const toe = add(hoof, [0, 0.35, 0.3]);
+    f.cap(fet, toe, bony ? 0.3 : 0.34, H.points);
+    // The hoof: a dark truncated cone, flat on the ground.
+    f.ell(add(hoof, [0, 0.0, 0.25]), [0.58, 0.62, 0.68], bony ? H.coat : F(R.ink, 2), { lo: -0.75, hi: 0.4, capLo: true, capHi: true });
   }
   f.push(C, Rb);
   const bard = H.bard ?? R.white;
   const cloth = (l: V3): number => {
     if (H.ragged && l[1] < -0.5 && hash2(Math.floor(Math.atan2(l[0], l[2]) * 5), 3, 11) < (-0.5 - l[1]) * 3.2) return -1;
     if (l[1] < -0.62) return H.ragged ? R.teamDark : R.team;
+    if (H.boneBard) {
+      // Overlapping bone plates, row on row, with dark seams and a skull boss on the flank.
+      const row = (l[1] + 1) * 4.2;
+      if (Math.abs(l[0]) > 0.5 && l[2] * l[2] + (l[1] - 0.1) * (l[1] - 0.1) < 0.05) return Math.abs(l[2]) < 0.1 && l[1] > 0.12 ? F(R.glow, 3) : R.bone;
+      if (row - Math.floor(row) < 0.18) return F(R.ink, 1);
+      return Math.floor(row + Math.atan2(l[0], l[2]) * 1.6) % 2 ? R.bone : F(R.bone, 1);
+    }
     if (H.bard === undefined && Math.abs(l[0]) > 0.4 && ((Math.abs(l[2] + 0.05) < 0.1 && Math.abs(l[1] - 0.02) < 0.48) || (Math.abs(l[1] - 0.14) < 0.13 && Math.abs(l[2] + 0.05) < 0.3))) return R.red;
     return bard;
   };
@@ -2274,6 +2362,12 @@ function trebuchet(f: Fig, anim: Anim, fr: number, E: EngineLook): void {
   }
   for (const z of [-3.3, 3.3]) f.beam([-2.4, 0.4, z], [2.4, 0.4, z], 0.6, 0.6, E.timber2, [0, 1, 0.001]);
   const P: V3 = [0, apex, 0];
+  if (E.wisp && wreck < 3)
+    for (const sx of [-1, 1]) {
+      f.push([sx * 1.55, apex + 1.0, 0]);
+      skull(f, true, 0.55);
+      f.pop();
+    }
   f.beam([-2.0, apex, 0], [2.0, apex, 0], 0.55, 0.55, R.dplate, [0, 1, 0.001]);
   const d: V3 = [0, Math.sin(a), -Math.cos(a)];
   const tip = madd(P, d, 8.6);
@@ -2458,26 +2552,29 @@ const SAMURAI_CREW: Look = { ...sb, style: 'crew', cloth: R.lacquer, sleeve: R.i
 // The Hollow Host: bone, rust and grave-black, one green glow, the team hue on shields and rags
 // (refs: Holbein and Hollar's Dance of Death, Kuniyoshi's ghosts, CC0 skeletons and Gate Keeper).
 const ub = {
-  cross: 0 as const, belt: R.rag, collar: R.bone, sleeve: R.bone, hand: R.bone, leg: R.bone, boot: R.bone, blade: R.rust, body: 'skel' as Body, bowWood: R.ash,
+  cross: 0 as const, belt: R.rag, collar: R.bone, sleeve: R.bone, hand: R.bone, leg: R.bone, boot: R.bone, blade: R.rust, body: 'skel' as Body, bowWood: R.ash, glow: true,
 };
 const UNDEAD_FOOT: Record<number, Look> = {
-  [U.HeavyInfantry]: { ...ub, style: 'sword', cloth: R.rust, collar: R.rust, skirt: R.rag, helm: 'skullHelm', shield: 'kite', emblem: 'crack' },
+  // Grave Legionaries: rotted mail over the ribs, a tattered tabard, a rusted helm, a grave-sword
+  // and a kite shield with the skull.
+  [U.HeavyInfantry]: { ...ub, style: 'sword', cloth: R.rmail, collar: R.rmail, skirt: R.rmail, rot: true, tabard: R.team, helm: 'skullHelm', shield: 'kite', emblem: 'skull' },
   [U.Spearmen]: {
-    ...ub, body: 'ghoul', style: 'spear', cloth: R.ghoul, collar: R.ghoul, sleeve: R.ghoul, hand: R.ghoul, leg: R.ghoul, boot: R.ghoul, skirt: R.rag, helm: 'ghoul', hunch: 0.35, cloak: { ramp: R.team, ragged: true },
+    ...ub, body: 'ghoul', style: 'spear', blade: R.bronze, cloth: R.ghoul, collar: R.ghoul, sleeve: R.ghoul, hand: R.ghoul, leg: R.ghoul, boot: R.ghoul, skirt: R.rag, helm: 'ghoul', hunch: 0.35, cloak: { ramp: R.team, ragged: true },
   },
   [U.Skirmishers]: { ...ub, style: 'javelin', weapon: 'bone', cloth: R.bone, skirt: R.team, hem: R.teamDark, helm: 'skull' },
   [U.Archers]: { ...ub, body: 'wraith', style: 'bow', bowWood: R.sinew, cloth: R.rag, collar: R.rag, sleeve: R.rag, skirt: R.rag, helm: 'wraith', glow: true, sash: true, cloak: { ramp: R.team, ragged: true } },
-  [U.Crossbowmen]: { ...ub, style: 'xbow', cloth: R.rag, collar: R.rag, skirt: R.rag, hem: R.team, sash: true, helm: 'skullKettle', pavise: true },
+  // Revenant Arbalests: a rotted gambeson, a rusted kettle hat, a pavise painted with the skull.
+  [U.Crossbowmen]: { ...ub, style: 'xbow', cloth: R.rag, collar: R.rag, skirt: R.rag, hem: R.team, rot: true, helm: 'skullKettle', pavise: true, emblem: 'skull' },
   [U.Shock]: { ...ub, body: 'colossus', style: 'poleaxe', weapon: 'club', cloth: R.bone, skirt: null, helm: 'skulls', hunch: 0.4, scale: 1.7, standard: 'rag', glow: true },
-  [COMMANDER_KIND]: { ...ub, body: 'robe', style: 'marshal', weapon: 'staff', cloth: R.rag, collar: R.rag, sleeve: R.rag, skirt: R.rag, helm: 'skullCrown', glow: true, standard: 'rag', scale: 1.2 },
+  [COMMANDER_KIND]: { ...ub, body: 'robe', style: 'marshal', weapon: 'staff', cloth: R.rag, collar: R.rag, sleeve: R.rag, skirt: R.rag, helm: 'skullCrown', glow: true, standard: 'rag', scale: 1.2, cloak: { ramp: R.team, ragged: true } },
 };
 const boneHorse: HorseLook = { coat: R.bonehorse, points: R.ash, barding: false, skeletal: true, glow: true, saddle: R.team, ragged: true, tack: R.rag };
 const UNDEAD_RIDERS: Record<number, { look: Look; horse: HorseLook }> = {
-  [U.LightCavalry]: { look: { ...ub, style: 'lance', cloth: R.rag, collar: R.rag, skirt: R.rag, helm: 'skullHood', glow: true }, horse: boneHorse },
+  [U.LightCavalry]: { look: { ...ub, style: 'lance', cloth: R.rag, collar: R.rag, skirt: R.rag, rot: true, helm: 'skullHood', glow: true, cloak: { ramp: R.team, ragged: true } }, horse: boneHorse },
   [U.HorseArchers]: { look: { ...ub, style: 'horsebow', cloth: R.bone, skirt: R.rag, helm: 'skull', quiver: true, standard: 'pennon' }, horse: boneHorse },
   [U.Knights]: {
     look: { ...ub, body: 'armour', style: 'lance', cloth: R.bplate, collar: R.bplate, sleeve: R.bplate, hand: R.bplate, leg: R.bplate, boot: R.bplate, skirt: R.rag, helm: 'deathHelm', shield: 'kite', emblem: 'skull', glow: true },
-    horse: { coat: R.ash, points: R.ink, barding: true, bard: R.rag, ragged: true, chanfron: 'skull', glow: true },
+    horse: { coat: R.ash, points: R.ink, barding: true, bard: R.bone, boneBard: true, ragged: true, chanfron: 'skull', glow: true },
   },
 };
 const UNDEAD_CREW: Look = { ...ub, style: 'crew', cloth: R.bone, skirt: R.team, hem: R.teamDark, helm: 'skull' };
@@ -2507,7 +2604,7 @@ const SAMURAI: FactionLooks = {
 const UNDEAD: FactionLooks = {
   foot: UNDEAD_FOOT,
   riders: UNDEAD_RIDERS,
-  engine: { kind: 'trebuchet', timber: R.ash, timber2: R.rag, rope: R.sinew, ammo: R.rag, crew: UNDEAD_CREW, wisp: true },
+  engine: { kind: 'trebuchet', timber: R.ash, timber2: R.rag, rope: R.sinew, ammo: R.glow, crew: UNDEAD_CREW, wisp: true },
 };
 
 /** Looks by faction id; an unknown faction borrows the Templar table. */
@@ -2697,7 +2794,7 @@ function texture(): void {
       const v = PX[i]!;
       if (v < 0) continue;
       const r = v >> 2, t = v & 3;
-      if (r === R.mail) {
+      if (r === R.mail || r === R.rmail) {
         if (y % per === 0) PX[i] = r * 4 + Math.max(0, t - 1);
         else if (t === 2 && (x + (y / per | 0)) % 2 === 0) PX[i] = r * 4 + 3;
       } else if (r === R.gambeson || r === R.tunic) {
@@ -2903,6 +3000,80 @@ export function paintSheet(faction: string, hue: number, kind: number, level: nu
   return { level, width: pageW, height: pageH, pixels: new Uint8ClampedArray(page.buffer), rects, ms };
 }
 
+/**
+ * The level-1 grid strip of one kind (its four rows of 48×48 cells, every animation), as RGBA:
+ * what buildAtlas puts into its image. Pure, so the workers paint it at battle start.
+ */
+export function paintGrid(faction: string, hue: number, kind: number): KindSheet {
+  const t0 = typeof performance !== 'undefined' ? performance.now() : 0;
+  const { fill, edge, looks } = armyColours(faction, hue);
+  useLevel(1);
+  const width = COLS * CELL_W, height = 4 * CELL_H;
+  const out = new Uint32Array(width * height);
+  for (let dir = 0; dir < 4; dir++)
+    for (let a = 0; a < ANIM_COUNT; a++) {
+      if (a === Anim.Shoot && !SHOOTS.has(kind)) continue;
+      for (let fr = 0; fr < FRAMES[a]!; fr++) {
+        const sh = paint(looks, kind, a as Anim, fr, dir as Dir);
+        finish(out, width, (COL0[a]! + fr) * CELL_W, dir * CELL_H, fill, edge, a === Anim.Dead ? null : sh, dir as Dir);
+      }
+    }
+  const ms = typeof performance !== 'undefined' ? performance.now() - t0 : 0;
+  return { level: 1, width, height, pixels: new Uint8ClampedArray(out.buffer), rects: new Int32Array(0), ms };
+}
+
+// ------------------------------------------------------------------ memory
+
+/**
+ * Every hi-res sheet held in memory, across all armies: an LRU under a byte cap. 8x sheets that
+ * the renderer has not asked for in a few seconds (zoomed out, or their kind out of view) go
+ * first; then, over the cap, whatever was used longest ago. A dropped sheet is painted again
+ * the next time it is asked for.
+ */
+interface Held {
+  bytes: number;
+  level: number;
+  used: number;
+  drop: () => void;
+}
+const held = new Set<Held>();
+let heldBytes = 0;
+/** Bytes of hi-res sheets kept in memory, all armies together. */
+export const HD_CAP_BYTES = 320 * 1024 * 1024;
+const IDLE_8X_MS = 4000;
+let lastTrim = 0;
+const now = (): number => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+
+function hold(h: Held): void {
+  held.add(h);
+  heldBytes += h.bytes;
+  trim(true);
+}
+
+function release(h: Held): void {
+  if (!held.delete(h)) return;
+  heldBytes -= h.bytes;
+  h.drop();
+}
+
+function trim(force = false): void {
+  const t = now();
+  if (!force && t - lastTrim < 500) return;
+  lastTrim = t;
+  for (const h of [...held]) if (h.level >= 8 && t - h.used > IDLE_8X_MS) release(h);
+  if (heldBytes <= HD_CAP_BYTES) return;
+  const old = [...held].filter((h) => t - h.used > 1000).sort((p, q) => p.used - q.used);
+  for (const h of old) {
+    if (heldBytes <= HD_CAP_BYTES) break;
+    release(h);
+  }
+}
+
+/** What the HD painter holds: bytes and sheet count (for the perf HUD and the report). */
+export function hdMemory(): { bytes: number; sheets: number } {
+  return { bytes: heldBytes, sheets: held.size };
+}
+
 // ------------------------------------------------------------------ painting in the background
 
 interface Job {
@@ -2929,7 +3100,8 @@ function startPool(): void {
   if (typeof Worker === 'undefined') return;
   try {
     const cores = typeof navigator !== 'undefined' && navigator.hardwareConcurrency ? navigator.hardwareConcurrency : 2;
-    const n = Math.max(1, Math.min(6, cores - 1));
+    // Leave the main thread and the simulation a core of their own.
+    const n = Math.max(1, Math.min(6, cores - 2));
     for (let i = 0; i < n; i++) {
       const w = new Worker(new URL('./sprite-worker.ts', import.meta.url), { type: 'module' });
       const slot = { w, busy: null as Job | null };
@@ -2978,7 +3150,7 @@ function pump(): void {
   setTimeout(() => {
     idleTimer = false;
     const job = workPool.queue.shift();
-    if (job) finishJob(job, paintSheet(job.faction, job.hue, job.kind, job.level));
+    if (job) finishJob(job, job.level === 1 ? paintGrid(job.faction, job.hue, job.kind) : paintSheet(job.faction, job.hue, job.kind, job.level));
     pump();
   }, 30);
 }
@@ -3014,6 +3186,16 @@ export const buildAtlas: BuildAtlas = (faction, hue) => {
   const ensure = (kind: number): void => {
     if (painted[kind] || kind < 0 || kind >= KIND_COUNT) return;
     painted[kind] = true;
+    // With workers, the grid strip is painted off the main thread and lands a moment later
+    // (the renderer re-uploads when `version` moves), so a battle starts without a stall.
+    startPool();
+    if (workPool.ok) {
+      request(faction, hue, kind, 1, (g) => {
+        ctx.putImageData(new ImageData(new Uint8ClampedArray(g.pixels), g.width, g.height), 0, kind * 4 * CELL_H);
+        atlas.version = (atlas.version ?? 0) + 1;
+      });
+      return;
+    }
     useLevel(1);
     const img = ctx.createImageData(image.width, 4 * CELL_H);
     const out = new Uint32Array(img.data.buffer);
@@ -3026,11 +3208,13 @@ export const buildAtlas: BuildAtlas = (faction, hue) => {
         }
       }
     ctx.putImageData(img, 0, kind * 4 * CELL_H);
+    atlas.version = (atlas.version ?? 0) + 1;
   };
-  const sheets = new Map<number, KindSheet>();
+  const sheets = new Map<number, { sheet: KindSheet; h: Held }>();
   const asked = new Set<number>();
   const anim = (kind: number, a: Anim): Anim => (a === Anim.Shoot && !SHOOTS.has(kind) ? Anim.Attack : a);
-  return {
+  const atlas: Atlas = {
+    version: 0,
     image,
     cellW: CELL_W,
     cellH: CELL_H,
@@ -3046,13 +3230,30 @@ export const buildAtlas: BuildAtlas = (faction, hue) => {
     sheet: (kind, level) => {
       const key = kind * 16 + level;
       const got = sheets.get(key);
-      if (got) return got;
+      trim();
+      if (got) {
+        got.h.used = now();
+        return got.sheet;
+      }
       if (!asked.has(key) && kind >= 0 && kind < KIND_COUNT && (LEVELS as readonly number[]).includes(level)) {
         asked.add(key);
-        request(faction, hue, kind, level, (sh) => sheets.set(key, sh));
+        request(faction, hue, kind, level, (sh) => {
+          const h: Held = {
+            bytes: sh.pixels.byteLength + sh.rects.byteLength,
+            level,
+            used: now(),
+            drop: () => {
+              sheets.delete(key);
+              asked.delete(key);
+            },
+          };
+          sheets.set(key, { sheet: sh, h });
+          hold(h);
+        });
       }
       return null;
     },
     slot: slotOf,
   };
+  return atlas;
 };

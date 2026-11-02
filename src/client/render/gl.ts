@@ -98,6 +98,7 @@ uniform vec2 u_shear;  // shadow pass: ground offset per pixel of height; (0,0) 
 uniform float u_shadow;
 uniform float u_scale; // target px per map px (HD zoom draws the map larger than one px per map px)
 uniform float u_texel; // texels per map px of the bound texture (HD sprite sheets: their level)
+uniform float u_src;   // scale of the instances' texel coords (an upscaled copy of a sheet: its factor)
 out vec2 v_uv;
 out vec4 v_col;
 out vec2 v_ext;
@@ -115,7 +116,7 @@ void main() {
   vec2 n = (p - u_cam) * u_scale / u_view * 2.0 - 1.0;
   float z = 1.0 - 2.0 * clamp((i_ext.x - u_z.x) / (u_z.y - u_z.x), 0.0, 1.0);
   gl_Position = vec4(n, z * 0.999, 1.0);
-  v_uv = (i_src.xy + local * u_texel) / u_tex;
+  v_uv = (i_src.xy * u_src + local * u_texel) / u_tex;
   v_col = i_col;
   v_ext = i_ext.yz;
 }`;
@@ -259,7 +260,7 @@ export class SpriteProgram {
 
   constructor(readonly gl: WebGL2RenderingContext) {
     this.prog = compile(gl, SPRITE_VS, SPRITE_FS);
-    for (const k of ['u_cam', 'u_view', 'u_tex', 'u_z', 'u_shear', 'u_shadow', 'u_shadowCol', 'u_img', 'u_scale', 'u_texel']) this.u[k] = gl.getUniformLocation(this.prog, k);
+    for (const k of ['u_cam', 'u_view', 'u_tex', 'u_z', 'u_shear', 'u_shadow', 'u_shadowCol', 'u_img', 'u_scale', 'u_texel', 'u_src']) this.u[k] = gl.getUniformLocation(this.prog, k);
   }
 
   /** `scale`: target px per map px (1 except for the HD art's zoomed-in views). */
@@ -268,6 +269,7 @@ export class SpriteProgram {
     gl.useProgram(this.prog);
     gl.uniform1f(this.u.u_scale!, scale);
     gl.uniform1f(this.u.u_texel!, 1);
+    gl.uniform1f(this.u.u_src!, 1);
     gl.uniform2f(this.u.u_cam!, camX, camY);
     gl.uniform2f(this.u.u_view!, w, h);
     gl.uniform2f(this.u.u_z!, zFar, zNear);
@@ -275,13 +277,17 @@ export class SpriteProgram {
     gl.uniform1f(this.u.u_shadow!, 0);
   }
 
-  /** Binds a w×h texture; `texel` is its texels per map px (an HD sheet's level, else 1). */
-  tex(t: WebGLTexture, w: number, h: number, texel = 1): void {
+  /**
+   * Binds a w×h texture; `texel` is its texels per map px (an HD sheet's level, else 1), `src`
+   * the factor the instances' texel coords are scaled by (an upscaled copy of a sheet).
+   */
+  tex(t: WebGLTexture, w: number, h: number, texel = 1, src = 1): void {
     const gl = this.gl;
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, t);
     gl.uniform2f(this.u.u_tex!, w, h);
     gl.uniform1f(this.u.u_texel!, texel);
+    gl.uniform1f(this.u.u_src!, src);
   }
 
   shadow(on: boolean, shx = 0, shy = 0, col: [number, number, number, number] = [0, 0, 0, 0]): void {
