@@ -698,7 +698,6 @@ function keep(P: Painter, tier: number, parts: BuildingParts): void {
     house(P, 40, 18, 0, 14, 26, 8, [{ face: 'right', a: 10, w: 4, z: 0, h: 5, kind: 'door' }, ...wins('left', 2, 10, 2, 3, 2.5, 2.5, 'shoji'), ...wins('right', 16, 8, 1, 3, 3, 2.5, 'shoji')], 'thatch', { daub: true, rh: 8 });
     noren(P, 'right', 54, 28.5, 4, 5);
     P.pole(parts, 30, 30, 36, 8, 4, 4);
-    parts.torches.push([Math.floor(sx(39, 32)), Math.floor(sy(39, 32, 6))]);
     return;
   }
   // A tenshu on its ishigaki, storeys stepping in, each under its own kawara skirt.
@@ -769,7 +768,6 @@ function keep(P: Painter, tier: number, parts: BuildingParts): void {
     box(P.px, b0 + base - 1, 32, 0, 5, 8, bh - 1, wrap(ishigaki(P, 13)));
   }
   P.pole(parts, b0 + base - 2, b0 + base - 2, bh, 14, 4, 4);
-  parts.torches.push([Math.floor(sx(b0 + base + 7, 36)), Math.floor(sy(b0 + base + 7, 36, 6))]);
 }
 
 /**
@@ -944,6 +942,7 @@ function barracks(P: Painter, tier: number, parts: BuildingParts): void {
     stoneBase(P, u0 - 1, v0 - 1, lu + 2, lv + 2, 1.5, 0.3, 31);
     house(P, u0, v0, 1.5, lu, lv, h, ws, 'irimoya', { boards: tier >= 3 ? 4 : 3, rh: lu * 0.62, o: 2.5, frame: 5 });
     noren(P, 'right', u0 + lu, v0 + lv / 2 - 3, 6, 1.5 + 6);
+    S.vines(P, 'left', v0 + lv, u0 + 2, 7, 1.5 + h - 0.6, 1.5, 51);
   }
   // A kanban by the door and the weapon rack (yari stand).
   const sv = v0 + lv / 2;
@@ -973,7 +972,6 @@ function barracks(P: Painter, tier: number, parts: BuildingParts): void {
   P.chimney(parts, u0 + 5, fv + 3, 4, 11);
   parts.forges.push([Math.floor(sx(u0 + 9, fv + 5)), Math.floor(sy(u0 + 9, fv + 5, 2))]);
   box(P.px, u0 + 12, fv + 6, 0, 2, 2, 3, P.flat(st.slate[2]));
-  parts.torches.push([Math.floor(sx(u0 + lu + 1, v0 + lv / 2 - 4)), Math.floor(sy(u0 + lu + 1, v0 + lv / 2 - 4, 8))]);
 }
 
 function range(P: Painter, tier: number, level: number, parts: BuildingParts): void {
@@ -1041,6 +1039,7 @@ function granary(P: Painter, tier: number, parts: BuildingParts): void {
       { face: 'left', a: lu / 2 - 2.2, w: 4.4, z: 0, h: 6.2, kind: 'irondoor' },
       { face: 'right', a: lv / 2 - 1.2, w: 2.4, z: h * 0.68, h: 2, kind: 'irondoor' },
     ], 'kawara', { rh: lv * 0.55, o: 1.5 });
+    if (i === 0) S.vines(P, 'right', u0 + lu, v0 + 1, 4, 1.2 + h - 0.4, 1.2, 61, PAL.wisteria);
     // A little tiled hood over the door (the kura's kirizuma-yane).
     box(P.px, u0 + lu / 2 - 3, v0 + lv, 1.2 + 6.6, 6, 1.4, 0.5, (f) => lit(st.slate, f));
     // The owner's mon in white on the gable side, under the eave.
@@ -1070,6 +1069,7 @@ function stables(P: Painter, tier: number, parts: BuildingParts): void {
     if (tier === 1) hip(P.px, u0, v0, h, lu, lv, 12, 2.2, bark(P, h - 1.3, st.thatch));
     else irimoya(P, u0, v0, h, lu, lv, lu * 0.55, 2.2, false, st.shingle, bark(P, h - 1.3, st.shingle));
   }
+  S.vines(P, 'left', v0 + lv, u0 + 1, 6, h - 0.5, 0.5, 71);
   for (let i = 0; i < n; i++) {
     const v = v0 + ((i + 0.5) * lv) / n;
     parts.stalls.push([Math.floor(sx(u0 + lu, v)), Math.floor(sy(u0 + lu, v, 5))]);
@@ -1127,7 +1127,6 @@ function hospital(P: Painter, tier: number, parts: BuildingParts): void {
   noren(P, 'right', nu, v0 + lv / 2 - 2.5, 5, 6.6);
   S.chochin(P, nu + 1.2, v0 + lv / 2 + 3.8, 7.4, true);
   S.chochin(P, nu + 1.2, v0 + lv / 2 - 3.8, 7.4, false);
-  parts.torches.push([Math.floor(sx(nu + 1, v0 + lv / 2 + 4)), Math.floor(sy(nu + 1, v0 + lv / 2 + 4, 6))]);
   // Ivy up the lit wall.
   S.vines(P, 'left', v0 + lv, u0 + 1, 5, h - 0.4, 1, 33);
   if (tier >= 3) {
@@ -1187,7 +1186,7 @@ function walls(P: Painter, a: PaintArgs, parts: BuildingParts): BuildingParts {
     box(P.px, wu, wv, base, wl, ww, wh, wrap(plaster(P, base, wh, sama, tier >= 3 ? wh * 0.3 : 0, false, 0.8)), true);
     hip(P.px, wu, wv, hh, wl, ww, 1.2, 0.8, kawara(P, hh - 0.5, undefined, u0 + v0), 0.5);
     // Ivy over the coping here and there.
-    if (tier >= 2 && hash(u0, v0, 5) < 0.5) {
+    if (tier >= 2 && hash(u0, v0, 5) < 0.8) {
       const a0 = (along ? wu : wv) + 4 + hash(u0, v0, 6) * Math.max(1, len - 14);
       S.vines(P, along ? 'left' : 'right', (along ? wv + ww : wu + wl) + 0.2, a0, 6, hh - 0.3, base, Math.round(u0 + v0), hash(u0, v0, 7) < 0.4 ? PAL.wisteria : null);
     }
@@ -1285,8 +1284,6 @@ function walls(P: Painter, a: PaintArgs, parts: BuildingParts): BuildingParts {
     S.tenbosui(P, W + 6, gate0 - 7);
     S.toro(P, W + 7, gate1 + 6, 0.9);
   }
-  parts.torches.push([Math.floor(sx(W + 3, gate0 - 1)), Math.floor(sy(W + 3, gate0 - 1, 7))]);
-  parts.torches.push([Math.floor(sx(W + 3, gate1 + 1)), Math.floor(sy(W + 3, gate1 + 1, 7))]);
   if (tier >= 2) {
     P.pole(parts, W + 2, gate0 - 4, 0, gh + 8, 4, 4);
     P.pole(parts, W + 2, gate1 + 4, 0, gh + 8, 4, 4);
