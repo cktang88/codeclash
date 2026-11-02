@@ -60,6 +60,21 @@ committed; the screenshots in `docs/screenshots/hd-sprites/samurai-anim-*.png` a
   the rear foot, the point rising at a horse's chest.
 - **Die**: forward (the reversed get-up, its first half sped up), the spear falling free ahead.
 
+### Nage-yari Skirmishers (2)
+- **Idle** is the key art: a javelin cocked overhead, the bundle on the back, the free arm aiming.
+  **Walk** and **Run**: the javelin at the shoulder sloped forward and up, held steady; the free arm
+  swings low.
+- **Attack: a jab** with the cocked javelin: the weight back, an overhand stab forward and down along
+  the shaft with a step, held, back to the cock.
+- **Shoot: the throw** (motion-reference §4, Muybridge's javelin thrower): 0-3 the withdraw, the arm
+  straight back at shoulder height and the trunk leaning back 16° over the bent rear leg, the free
+  arm pointing at the target; 3-4 the front leg plants 1.4 units ahead (the block); 4-5 the delivery
+  over the block, released on 5 (the javelin leaves the hand, a new one comes from the bundle on 11);
+  6-8 the follow-through, the arm across the body, the trunk folding over the front leg and the rear
+  foot lifting behind; 9-11 back to the stance.
+- The jacket is dyed deep in the army colour (`samurai.lacTeam`): in the bright flag colour the
+  figure's mean value sat on the field's.
+
 ## Critique rounds
 
 ### Katana Samurai
@@ -93,6 +108,13 @@ committed; the screenshots in `docs/screenshots/hd-sprites/samurai-anim-*.png` a
 3. **Round 3.** At level 2 the faction's 16-colour palette merges the pole, the hat and the dō into
    one brown: the chest's lit plane is raised a step and the skirt and sash lowered a step at level 2
    so the figure still takes its light from the top-left.
+
+### Nage-yari Skirmishers
+1. **Round 1.** The throw on the captured pitch travelled 1.5 m and ended bent over, far from the
+   stance: the body is now authored on a still base (lean back, plant, whip forward, fold, step back).
+2. **Round 2.** The mean value of the bright happi sat on the field (lint): deep-dyed jacket.
+3. **Round 3.** Walk carry: the cocked javelin overhead in the walk would sweep through the head
+   zone; it rides at the shoulder instead.
 
 Katana Samurai lint (level 1/2/4/8): no FAIL. Warnings left: aligned band ends 0.24-0.30, outline and figure vs
 ground ΔL 0.07-0.13, light-angle error at levels 1-2, mid-widest silhouettes. Level-1 silhouette:
