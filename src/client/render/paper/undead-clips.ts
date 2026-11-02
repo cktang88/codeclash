@@ -24,7 +24,7 @@ export interface FootClipSpec {
   /** A wraith: it glides, the feet sliding under the hem. */
   glide?: boolean;
   brace: 'shield' | 'spear' | 'ready' | 'staff';
-  die: 'back' | 'forward' | 'crumple';
+  die: 'back' | 'forward' | 'crumple' | 'dissolve';
   /** The far arm carries a shield or a two-handed grip (it stays with the torso). */
   farHeld: boolean;
   shield?: boolean;
@@ -48,6 +48,37 @@ function cloth(run: number, cloak: boolean): LagSpec[] {
   const out: LagSpec[] = [{ bone: 'skirt', follow: 'thighN', k: 0.55, lag: 2, bias: -9 * run, plumb: 0.5, wave: [3 + 3 * run, 2, 0.2] }];
   if (cloak) out.push({ bone: 'cloak', follow: 'pelvis', k: 0.5, lag: 2.5, bias: -12 * run, plumb: 0.6, wave: [2 + 4 * run, 2, 0.6] });
   return out;
+}
+
+/**
+ * A wraith's end: struck, the hood snaps back and the arms fly up (0-2); then there is nothing
+ * inside the robe: it sinks straight down where it stood, the coat folding in on itself (3-7),
+ * and settles as an empty heap (8-11). The bow and the mask drop, and a green wisp of soul-fire
+ * escapes upward (events `wisp`, 5-10).
+ */
+const DISSOLVE: Author = () => ({
+  dw: {
+    spine: T([0, 10], [2, 14], [4, 4], [6, -20], [8, -40], [11, -44]),
+    head: T([0, 16], [2, 20], [5, 0], [8, -30], [11, -30]),
+    upperArmN: T([0, 40], [2, 70], [5, 20], [8, -10], [11, -10]),
+    forearmN: T([0, 40], [2, 60], [5, 0], [11, 0]),
+    upperArmF: T([0, 30], [2, 50], [5, 0], [8, -20], [11, -20]),
+  },
+  tAdd: { pelvis: [T([0, -0.3], [2, -0.5], [5, -0.3], [8, 0], [11, 0]), T([0, 0.1], [2, 0.2], [3, 0.6], [5, 2.6], [7, 4.6], [8, 5.2], [9, 4.9], [10, 5.3], [11, 5.3])] },
+  ik: { armF2h: T([0, 0]), armN2h: T([0, 1], [1, 0]), legN: T([0, 1], [3, 0]), legF: T([0, 1], [3, 0]) },
+  w: { thighN: T([0, 0], [3, 10], [6, 70], [8, 90]), shinN: T([0, 0], [3, -20], [6, -80], [8, -95]), thighF: T([0, 0], [3, 12], [6, 75], [8, 92]), shinF: T([0, 0], [3, -25], [6, -85], [8, -100]) },
+});
+/** The robe collapses: the coat squashes down, and from the settle only the empty heap is left. */
+function dissolve(c: Clip): Clip {
+  return mapFacings(c, (a) => {
+    const slots: NonNullable<AnimationData['slots']> = { ...(a.slots ?? {}) };
+    for (const n of ['thighN', 'shinN', 'footN', 'thighF', 'shinF', 'footF', 'upperArmN', 'forearmN', 'upperArmF', 'forearmF', 'torso', 'belt', 'skirt', 'pauldronN', 'pauldronF']) slots[n] = [{ f: 0, v: n }, { f: 8, v: null }];
+    // The long cloak folds down into the heap first (it would reach through the ground as the robe sinks).
+    slots.cloak = [{ f: 0, v: 'cloak' }, { f: 5, v: null }];
+    slots.heap = [{ f: 0, v: null }, { f: 5, v: 'heap' }];
+    slots.wisp = [{ f: 0, v: null }, { f: 5, v: 'wisp' }];
+    return { ...a, slots, bones: { ...(a.bones ?? {}), chest: { ...(a.bones?.chest ?? {}), scaleY: [{ f: 0, v: 1 }, { f: 4, v: 1 }, { f: 7, v: 0.5 }, { f: 8, v: 0.4 }] } } };
+  });
 }
 
 /** The upper body: what the stop-motion holds freeze (the legs and the hips keep going). */
@@ -189,14 +220,15 @@ const STAB: Author = (rw) => ({
  */
 const BOW_SHOT: Author = (rw) => ({
   w: {
-    upperArmF: R(rw.upperArmF!, 11, [2, 74], [6, 74], [7, 70], [9, 70]),
-    forearmF: R(rw.forearmF!, 11, [2, 86], [6, 86], [7, 84], [9, 84]),
-    itemF: R(rw.itemF!, 11, [2, 96], [6, 96], [7, 98], [9, 96]),
-    upperArmN: T([0, rw.upperArmN!], [6, rw.upperArmN!], [7, -40], [9, -44], [10, rw.upperArmN!]),
-    forearmN: T([0, rw.forearmN!], [6, rw.forearmN!], [7, 230], [9, 236], [10, rw.forearmN!]),
+    upperArmF: R(rw.upperArmF!, 11, [2, 86], [6, 88], [7, 84], [9, 82]),
+    forearmF: R(rw.forearmF!, 11, [2, 92], [6, 92], [7, 90], [9, 90]),
+    itemF: R(rw.itemF!, 11, [2, 98], [6, 98], [7, 100], [9, 98]),
+    upperArmN: T([0, rw.upperArmN!], [6, rw.upperArmN!], [7, -70], [9, -76], [10, rw.upperArmN!]),
+    forearmN: T([0, rw.forearmN!], [6, rw.forearmN!], [7, 200], [9, 206], [10, rw.forearmN!]),
   },
-  dw: { spine: T([0, 0], [2, 3], [6, 5], [7, 6], [9, 4], [11, 0]), head: T([0, 0], [2, -3], [6, -4], [9, -4], [11, 0]) },
-  t: { nock: [T([0, 0]), T([0, 0], [2, 0.1], [3, -0.3], [4, -0.8], [5, -1.35], [6, -1.7], [6.5, -1.7], [7, 2.8], [9, 2.8], [10, 0.6], [11, 0])] },
+  dw: { spine: T([0, 0], [2, 4], [6, 8], [7, 10], [9, 6], [11, 0]), head: T([0, 0], [2, -3], [6, -5], [9, -5], [11, 0]) },
+  // The nock slides back along the arrow past the jaw (a full draw), held, and snaps past braced on the loose.
+  t: { nock: [T([0, 0]), T([0, 0], [2, 0.1], [3, -0.8], [4, -1.8], [5, -2.8], [6, -3.3], [6.5, -3.3], [7, 2.8], [9, 2.8], [10, 0.6], [11, 0])] },
   ik: { armN2h: T([0, 1], [6.5, 1], [7, 0], [9.5, 0], [10, 1]) },
 });
 export const SHOOTS: Record<'javelin', { clip: string; o: MocapOpts; a: Author; extra: number[]; ev: AnimEvent[]; warp: number[]; hide?: [string, number, number] }> = {
@@ -313,18 +345,18 @@ export function footClips(skel: SkeletonData, s: FootClipSpec): ClipSet {
   // One stop-motion hold a stride: the trunk, arms and skull freeze for two frames, then jerk on.
   // A wraith glides: the feet slide under the hem with a small shuffle and never lift, the body
   // does not bob, the cloak streams behind; only the stop-motion hold breaks the glide.
-  const glideA = (lean: number, shuffle: number): Author => () => ({
-    dw: { spine: T([0, lean]), chest: T([0, lean * 0.4]), jaw: T([0, -6]) },
+  const glideA = (lean: number, shuffle: number, bob: number, bobs: number, head = 0): Author => () => ({
+    dw: { spine: T([0, lean]), chest: T([0, lean * 0.4]), jaw: T([0, -6]), ...(head ? { head: T([0, head]) } : {}) },
     tAdd: {
       footTargetN: [T([0, shuffle], [6, -shuffle], [12, shuffle]), T([0, 0])],
       footTargetF: [T([0, -shuffle], [6, shuffle], [12, -shuffle]), T([0, 0])],
-      pelvis: [T([0, 0]), T([0, 0], [3, -0.06], [6, 0], [9, -0.06], [12, 0])],
+      pelvis: [T([0, 0]), Array.from({ length: bobs * 2 + 1 }, (_, i) => [(i * 12) / (bobs * 2), i % 2 ? -bob : 0] as [number, number])],
     },
   });
-  const glideKeys = (lean: number, shuffle: number) => (f: Facing) =>
-    mk(skel, f, 'idle', { ref: 'first', torso: 0, travel: 0, feet: 0 }, both(glideA(lean, shuffle), posture(s, 0.5)), [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+  const glideKeys = (lean: number, shuffle: number, bob: number, bobs: number, head = 0) => (f: Facing) =>
+    mk(skel, f, 'idle', { ref: 'first', torso: 0, travel: 0, feet: 0 }, both(glideA(lean, shuffle, bob, bobs, head), posture(s, 0.5, !head)), [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
   const walk = s.glide
-    ? fc('walk', 12, true, glideKeys(-4, 0.3), [{ f: 0, name: 'step' }], 0.6, [0, 1, 2, 3, 3, 3, 6, 7, 8, 9, 10, 11])
+    ? fc('walk', 12, true, glideKeys(-4, 0.3, 0.06, 2), [{ f: 0, name: 'step' }], 0.6, [0, 1, 2, 3, 3, 3, 6, 7, 8, 9, 10, 11])
     : fc('walk', 12, true, walkKeys, undefined, 0.3, [0, 1, 2, 3, 3, 3, 6, 7, 8, 9, 10, 11]);
   // ---- the run (a charge): the lean, a heavier hunch, the arms pumping less (the dead do not sprint well).
   const runA: Author = (rw, f) => ({ tAdd: track(f, 1.1), w: { head: T([0, rw.head! - 8 + s.tilt]) }, dw: { spine: T([0, -15 - s.hunch * 0.5]), jaw: T([0, -16]), ...(s.farHeld ? { forearmF: T([0, 12]) } : {}), ...(sword ? { forearmN: T([0, 50]) } : {}) } });
@@ -332,7 +364,8 @@ export function footClips(skel: SkeletonData, s: FootClipSpec): ClipSet {
     const m = mk(skel, f, 'run', { ref: 'mean', torso: 0.5, arms: gaitArms(0.55), roll: 0.5, mirror: 12 }, runA);
     return { ...m, keys: stiffen(m.keys, s.stiff * 0.6) };
   };
-  const run = s.glide ? fc('run', 12, true, glideKeys(-12, 0.45), [{ f: 0, name: 'step' }], 1.2) : fc('run', 12, true, runKeys, undefined, 1, [0, 1, 2, 2, 4, 5, 6, 7, 8, 8, 10, 11]);
+  // The glide at speed: leaning hard into it, a quicker bob, the cloak and hem streaming back.
+  const run = s.glide ? fc('run', 12, true, glideKeys(-26, 0.5, 0.22, 4, -14), [{ f: 0, name: 'step' }], 2.6) : fc('run', 12, true, runKeys, undefined, 1, [0, 1, 2, 2, 4, 5, 6, 7, 8, 8, 10, 11]);
   // ---- idle: the chest rises a pixel, the weight sways from foot to foot, the jaw hangs open.
   // (The skull holds still: any turn or jerk of it in the idle reads as boil at this size and
   // fails the lint's head-churn gate.)
@@ -364,6 +397,7 @@ export function footClips(skel: SkeletonData, s: FootClipSpec): ClipSet {
   const flat: Record<FootClipSpec['die'], Record<string, number>> = {
     back: { pelvis: 268, spine: 270, chest: 272, thighN: 84, shinN: 92, thighF: 80, shinF: 96, upperArmN: 255, forearmN: 265, upperArmF: 105, forearmF: 95 },
     forward: { pelvis: 88, spine: 90, chest: 92, thighN: -96, shinN: -92, thighF: -100, shinF: -86, upperArmN: 100, forearmN: 95, upperArmF: 80, forearmF: 100 },
+    dissolve: {},
     crumple: { thighN: 60, shinN: -40, thighF: 50, shinF: -50, upperArmN: 100, forearmN: 120, upperArmF: 80, forearmF: 100 },
   };
   const dieKeys = (f: Facing) => {
@@ -399,8 +433,12 @@ export function footClips(skel: SkeletonData, s: FootClipSpec): ClipSet {
       const sink = pv.map((k) => (k.f >= 8 ? { ...k, v: [k.v[0], k.v[1] + Math.min(1, (k.f - 7) / 3) * 0.5] as [number, number] } : k));
       return { ...a, bones: { ...(a.bones ?? {}), pelvis: { ...(a.bones?.pelvis ?? {}), translate: sink }, chest: { ...(a.bones?.chest ?? {}), scaleY: [{ f: 0, v: 1 }, { f: 8, v: 1, c: EASE_IN }, { f: 10, v: 0.55 }, { f: 11, v: 0.6 }] } } };
     });
-  const die = addDrops(skel, collapse(groundClamp(skel, fc('die', 12, false, dieKeys, [{ f: s.die === 'back' ? 7 : 9, name: 'land' }], 0), 12, s.lie ?? 0.7)), 12, drops);
+  const die = s.die === 'dissolve'
+    ? addDrops(skel, dissolve(fc('die', 12, false, (f) => mk(skel, f, 'hit', { torso: 0, absHeight: true, travel: 0, feet: 0 }, DISSOLVE, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]), [{ f: 8, name: 'land' }, ...[5, 6, 7, 8, 9, 10].map((k) => ({ f: k, name: 'wisp', int: k - 4 }))], 0)), 12, drops)
+    : addDrops(skel, collapse(groundClamp(skel, fc('die', 12, false, dieKeys, [{ f: s.die === 'back' ? 7 : 9, name: 'land' }], 0), 12, s.lie ?? 0.7)), 12, drops);
+
   const dead = mapFacings(die, (a) => lastFrame(a, 'dead'));
+
   // ---- brace, by the weapon.
   const BRACE: Record<FootClipSpec['brace'], Author> = {
     // Crouched behind the shield raised to the eyes, the sword drawn back to cut over it.

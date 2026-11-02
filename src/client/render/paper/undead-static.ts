@@ -267,6 +267,10 @@ export interface PieceOpts {
   phase?: number;
   /** The arrow is on the string (false between the loose and the next arrow). */
   arrow?: boolean;
+  /** The string snapping on the loose. */
+  snap?: boolean;
+  /** How far an effect has run (a soul's wisp rising: 1..6). */
+  t?: number;
 }
 /**
  * One piece of a figure: drawn with the key art's own calls from its joints `J` (the SE rest, or
@@ -727,22 +731,49 @@ function wraithStatic(c: Paper): void {
   c.blob(nock, 0.42, 0.38, UM.bone, { tone: 2 });
 }
 
-/** The Revenant Arbalest: a quilted, rotted gambeson, a kettle hat, the great skull pavise on the back, a crossbow. */
-function arbalestStatic(c: Paper): void {
-  pavise(c, [-1.4, -10.4], -6, false, 1.35);
-  // The far leg and arm (to the fore-stock).
-  wrappedLeg(c, B.hipF, B.kneeF, B.ankF, true);
-  const grip: P2 = [-0.4, -7.8];
-  const deg = 88;
-  vol(c, B.shF, [3.0, -9.0], 1.35, 1.15, UM.rag, { tone: 1, caps: false });
-  c.rod([3.0, -9.0], along(grip, deg, 2.6), 0.5, 0.45, UM.bone, { tone: 1 });
-  // The gambeson: quilted channels, rotted through in places, a belt with a bolt case.
+/** The thigh of a wrapped leg: rag breeches. */
+function ragThigh(c: Paper, hip: P2, knee: P2, far: boolean): void {
+  vol(c, hip, knee, 1.45, 1.2, UM.rag, { tone: far ? 1 : 2, caps: false });
+}
+/** The shin of a wrapped leg: pale linen wraps from knee to ankle, the knee in rag. */
+function wrapShin(c: Paper, knee: P2, ank: P2, far: boolean): void {
+  const t = far ? 1 : 2;
+  vol(c, knee, ank, 1.05, 0.9, UM.bone, {
+    tone: t,
+    caps: false,
+    detail: (_x, y, u) => ((c.ly(y) % Math.max(3, Math.round(c.L * 0.45))) === 0 ? code(UM.bone, t - 1) : u < -0.3 ? code(UM.bone, t + 1) : -1),
+  });
+  c.blob(knee, 0.62, 0.55, UM.rag, { tone: t });
+}
+/** A leather boot, toe forward. */
+function leatherBoot(c: Paper, ank: P2, far: boolean): void {
+  plate(c, [addP(ank, [-0.7, -0.4]), addP(ank, [0.5, -0.45]), addP(ank, [1.3, 0.35]), addP(ank, [1.25, 0.75]), addP(ank, [-0.75, 0.75])], UM.leather, { tone: far ? 1 : 2 });
+}
+/** The coif's mail, framing the face to the shoulders. */
+function coifMail(c: Paper, at: P2): void {
+  plate(c, [addP(at, [-1.5, -0.6]), addP(at, [-0.8, -1.55]), addP(at, [0.7, -1.6]), addP(at, [1.6, -0.8]), addP(at, [1.9, 1.9]), addP(at, [-1.8, 2.0])], UM.mail, { detail: (x, y, rx, ry) => mailShade(c, x, y, rx, ry) });
+}
+/** The coif's dented iron skullcap and its brow band. */
+function coifCap(c: Paper, at: P2): void {
+  c.blob(addP(at, [0.05, -0.95]), 1.3, 0.75, UM.iron, {
+    tone: 2,
+    detail: (_x, _y, nx, ny) => {
+      if (ny > 0.25) return -2;
+      if (Math.hypot(nx + 0.35, ny + 0.5) < 0.22) return code(UM.iron, 4);
+      if (Math.hypot(nx - 0.35, ny + 0.2) < 0.2) return code(UM.iron, 0); // the dent
+      return -1;
+    },
+  });
+  c.rod(addP(at, [-1.25, -0.82]), addP(at, [1.3, -0.86]), 0.3, 0.3, UM.rust, { tone: 2 });
+}
+/** The Revenant's gambeson: quilted channels, rotted through over the ribs (from behind, over the spine). */
+function gambesonKey(c: Paper, back: boolean): void {
   const pts: P2[] = [[-2.5, -11.1], [-1.2, -11.9], [1.7, -11.9], [2.8, -11.1], [2.6, -8.6], [2.4, -5.3], [-2.4, -5.2], [-2.2, -8.6]];
   const y1 = c.sy(-5.2);
   plate(c, pts, UM.rag, {
     detail: (x, y, rx, ry) => {
       if (y1 - y < c.L * 0.8 && hash(Math.floor(c.lx(x) / Math.max(2, c.L * 0.6)), 5, 495) * c.L * 0.8 > y1 - y) return -2;
-      const hx = (x - c.sx(1.3)) / c.L, hy = (y - c.sy(-9.6)) / c.L;
+      const hx = (x - c.sx(back ? 0.2 : 1.3)) / c.L, hy = (y - c.sy(-9.6)) / c.L;
       if (Math.hypot(hx / 0.7, hy / 1.0) < 1) return Math.abs(((hy + 2) % 0.62) - 0.31) < 0.14 ? code(UM.bone, 2) : code(UM.ink, 1);
       const lt = planeLight(rx, ry, 0.35);
       // Quilted channels running down, stitched across every few rows (not a plaid).
@@ -751,15 +782,51 @@ function arbalestStatic(c: Paper): void {
       return code(UM.rag, 2 + lt);
     },
   });
-  belt(c, B.waistY, -2.2, 2.5);
-  quiver(c, [-2.2, -6.4], 160, { shafts: 3, len: 2.0 });
-  wrappedLeg(c, B.hipN, B.kneeN, B.ankN, false);
-  coif(c, B.head);
-  // The crossbow levelled at the hip, the near arm on the stock.
-  crossbow(c, grip, deg, true, 1.45);
-  vol(c, B.shN, [-2.6, -9.0], 1.35, 1.15, UM.rag, { tone: 2, caps: false });
-  c.rod([-2.6, -9.0], grip, 0.52, 0.46, UM.bone, { tone: 2 });
-  c.blob(grip, 0.55, 0.5, UM.bone, { tone: 2 });
+}
+const ARB_GRIP: P2 = [-0.4, -7.8];
+/** The Revenant Arbalest: a quilted, rotted gambeson, a coif and skullcap, the great skull pavise on the back, a heavy crossbow. */
+export const ARBALEST: FootArt = {
+  axis: 0.2,
+  ne: { N: 'shift', F: 'shift' },
+  J: {
+    pelvis: [0.15, -6.55], neck: B.neck, head: B.head, shN: B.shN, shF: B.shF, hipN: B.hipN, hipF: B.hipF, kneeN: B.kneeN, kneeF: B.kneeF, ankN: B.ankN, ankF: B.ankF,
+    elN: [-2.6, -9.0], hN: ARB_GRIP, elF: [3.0, -9.0], hF: along(ARB_GRIP, 88, 2.6), grip: along(ARB_GRIP, 88, 2.6),
+  },
+  pieces: [
+    { slot: 'pavise', bone: 'chest', draw: (c, _J, back) => pavise(c, [-1.4, -10.4], -6, back, 1.35) },
+    // The far leg and arm (to the fore-stock).
+    { slot: 'thighF', bone: 'thighF', draw: (c, J) => ragThigh(c, J.hipF!, J.kneeF!, true) },
+    { slot: 'shinF', bone: 'shinF', draw: (c, J) => wrapShin(c, J.kneeF!, J.ankF!, true) },
+    { slot: 'footF', bone: 'footF', draw: (c, J) => leatherBoot(c, J.ankF!, true) },
+    { slot: 'upperArmF', bone: 'upperArmF', draw: (c, J) => vol(c, J.shF!, J.elF!, 1.35, 1.15, UM.rag, { tone: 1, caps: false }) },
+    { slot: 'forearmF', bone: 'forearmF', draw: (c, J) => c.rod(J.elF!, J.hF!, 0.5, 0.45, UM.bone, { tone: 1 }) },
+    // The gambeson, a belt with a bolt case.
+    { slot: 'torso', bone: 'chest', draw: (c, _J, back) => gambesonKey(c, back) },
+    { slot: 'belt', bone: 'pelvis', draw: (c) => belt(c, B.waistY, -2.2, 2.5) },
+    { slot: 'boltCase', bone: 'pelvis', draw: (c) => quiver(c, [-2.2, -6.4], 160, { shafts: 3, len: 2.0 }) },
+    { slot: 'thighN', bone: 'thighN', draw: (c, J) => ragThigh(c, J.hipN!, J.kneeN!, false) },
+    { slot: 'shinN', bone: 'shinN', draw: (c, J) => wrapShin(c, J.kneeN!, J.ankN!, false) },
+    { slot: 'footN', bone: 'footN', draw: (c, J) => leatherBoot(c, J.ankN!, false) },
+    // The mail coif, the skull's face in it, the skullcap.
+    { slot: 'aventail', bone: 'neck', draw: (c, J) => coifMail(c, J.head!) },
+    { slot: 'skull', bone: 'head', draw: (c, J, back) => keyCranium(c, addP(J.head!, [0.15, 0.2]), 1.08, -4, back) },
+    { slot: 'jaw', bone: 'jaw', draw: (c, J, back) => void (back || keyJaw(c, addP(J.head!, [0.15, 0.2]), 1.08, -4)) },
+    { slot: 'helm', bone: 'head', draw: (c, J) => coifCap(c, J.head!) },
+    // The crossbow levelled at the hip, the near arm on the stock.
+    { slot: 'weapon', bone: 'weapon', draw: (c, J, _b, o) => void crossbow(c, J.hN!, 88, (o.draw ?? 1) > 0.5, 1.45) },
+    { slot: 'upperArmN', bone: 'upperArmN', draw: (c, J) => vol(c, J.shN!, J.elN!, 1.35, 1.15, UM.rag, { tone: 2, caps: false }) },
+    {
+      slot: 'forearmN',
+      bone: 'forearmN',
+      draw: (c, J) => {
+        c.rod(J.elN!, J.hN!, 0.52, 0.46, UM.bone, { tone: 2 });
+        c.blob(J.hN!, 0.55, 0.5, UM.bone, { tone: 2 });
+      },
+    },
+  ],
+};
+function arbalestStatic(c: Paper): void {
+  drawPieces(c, ARBALEST);
 }
 
 /** The Death Knight: full black plate on a bone-barded horse, a great helm, the big kite shield, a lance. */
@@ -922,7 +989,7 @@ export const WARDEN: FootArt = {
     { slot: 'skull', bone: 'head', draw: (c, J, back) => wardenHood(c, J.head!, back) },
     { slot: 'pauldronN', bone: 'chest', draw: (c, J) => hornedPauldron(c, addP(J.shN!, [-0.2, -0.4]), false, -1) },
     // The bone longbow, a green-fire arrow on the string (the shot draws it on the frame).
-    { slot: 'farItem', bone: 'itemF', draw: (c, J, _b, o) => void wardenBow(c, J.hF!, o.draw ?? 1.5, o.phase ?? 0.25, o.arrow ?? true) },
+    { slot: 'farItem', bone: 'itemF', draw: (c, J, _b, o) => void wardenBow(c, J.hF!, o.draw ?? 1.5, o.phase ?? 0.25, o.arrow ?? true, o.snap) },
     // The near arm drawing to the cheek.
     { slot: 'upperArmN', bone: 'upperArmN', draw: (c, J) => vol(c, J.shN!, J.elN!, 1.25, 1.05, VIOLET, { tone: 2, caps: false }) },
     {
@@ -936,9 +1003,18 @@ export const WARDEN: FootArt = {
   ],
 };
 /** The bone longbow at `grip`, drawn by `draw` (0 braced .. ~2.4 full), its green-fire arrow on the string when `arrow`. */
-export function wardenBow(c: Paper, grip: P2, draw: number, phase: number, arrow: boolean): P2 {
+export function wardenBow(c: Paper, grip: P2, draw: number, phase: number, arrow: boolean, snap = false): P2 {
   const nock = bow(c, grip, 93, draw, 9.5, { arrow, mat: UM.bone });
-  if (arrow) flame(c, along(grip, 93, 1.6), 1.0, phase, { w: 0.4 });
+  // The green fire flares as the string comes back (the key art's half draw is the base).
+  const flare = Math.max(0, draw - 1.5);
+  if (arrow) flame(c, along(grip, 93, 1.6), 1.0 + flare * 0.55, phase, { w: 0.4 + flare * 0.18 });
+  if (snap) {
+    // The loose: the string still shuddering past braced, a pale double line.
+    const up = along(grip, 3, 9.5 * 0.92), dn = along(grip, 183, 9.5 * 0.92);
+    const mid = along(grip, 93, 0.9);
+    c.line(up, mid, code(UM.bone, 4));
+    c.line(mid, dn, code(UM.bone, 4));
+  }
   return nock;
 }
 function wardenCoat(c: Paper, back: boolean): void {
@@ -979,6 +1055,18 @@ function wardenHood(c: Paper, hd: P2, back: boolean): void {
     },
   });
   if (!back) deathMask(c, addP(hd, [0.15, 0.25]), 1.05);
+}
+/** The warden's empty robe on the ground after the soul has gone: a low ragged heap of violet, the coat's bronze edging in it. */
+export function wardenHeap(c: Paper, back: boolean): void {
+  robe(c, [0.6, -2.2], 6.2, 8.6, 2.4, 0.4, VIOLET, 557, { back });
+  trim(c, [-1.6, -1.2], [1.4, -0.9], 0.24);
+  c.rod([-0.6, -1.6], [2.2, -1.1], 0.5, 0.45, UM.leather, { tone: 1 });
+}
+/** The soul leaving as a green wisp, rising and thinning as it goes (`t` 1..6). */
+export function soulWisp(c: Paper, t: number): void {
+  const k = Math.max(0, 1 - (t - 1) / 6);
+  flame(c, [0.4 + Math.sin(t * 1.3) * 0.4, -3.0 - t * 1.7], 1.8 + 2.0 * k, t * 0.17, { w: 0.45 + 0.6 * k });
+  if (t >= 2) flame(c, [0.2, -1.6 - t * 1.1], 0.7 * k + 0.3, t * 0.31, { w: 0.18 + 0.2 * k });
 }
 function wardenStatic(c: Paper): void {
   drawPieces(c, WARDEN);
