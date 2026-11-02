@@ -202,3 +202,66 @@ Still short of the references:
 - The back of the shield is mostly hidden, so the straps barely show.
 - The mail is very dark under the ground-value rule.
 - At level 1 the figure is a pale stick with a hat and a shield: readable, but no skeleton detail survives at 13 px.
+
+## The Hollow Host on paper: the ten other kinds, and their key art
+
+Ghoul Spears, Bone-Throwers, Wraith Bows, Revenant Arbalests, Black Riders, Barrow Horse Archers,
+Death Knights, the Bone Colossus, the Corpse Trebuchet and the Lich-Marshal are drawn on the paper
+painter (`paper/undead.ts`; shared parts in `paper/undead-parts.ts`). Each has SE and NE drawings,
+every animation (Shoot for the five missile kinds), and levels 1, 2, 4 and 8. Static key art per
+kind, after the user's bulk-up brief, is in `paper/undead-static.ts`; the game does not draw it yet.
+
+### References (`references/undead/` and `references/user-targets/`; study only, not committed)
+
+| Image (direct URL) | Page | Licence | Taken from it |
+|---|---|---|---|
+| https://static.wikia.nocookie.net/totalwarhammer_gamepedia/images/3/35/Creative-assembly-cst-necrofex-colossus.jpg | https://totalwarwarhammer.fandom.com/wiki/Necrofex_Colossus | (c) CA / GW (study only) | The Bone Colossus is **lashed long bones** with skulls hung in them, not a smooth mass: the heap is built of bone strokes, blackened and bare, over a dark hollow. |
+| https://static.wikia.nocookie.net/totalwarhammer_gamepedia/images/4/4d/Wh_main_vmp_black_knights_barded_lance.png | https://totalwarwarhammer.fandom.com/wiki/Black_Knights | (c) CA / GW (study only) | A dark rider on a **black skeletal horse with a pale skull**; the lance upright with a pennon. Our horses are charred bone with pale skulls. |
+| https://static.wikia.nocookie.net/totalwarhammer_gamepedia/images/6/61/Wh_main_vmp_hexwraiths.png | https://totalwarwarhammer.fandom.com/wiki/Hexwraiths | (c) CA / GW (study only) | The horse's **ribs and spine over nothing**; a hooded rider in a shroud that streams back. The Black Riders. |
+| https://static.wikia.nocookie.net/totalwarhammer_gamepedia/images/c/c7/Wh2_dlc09_tmb_skeleton_horsemen_archers.png | https://totalwarwarhammer.fandom.com/wiki/Skeleton_Horsemen_Archers | (c) CA / GW (study only) | A bare skeleton drawing a bow from the saddle of a skeletal horse; the Barrow Horse Archers. |
+| https://static.wikia.nocookie.net/totalwarhammer_gamepedia/images/6/6a/Wh_main_vmp_crypt_ghoul.png | https://totalwarwarhammer.fandom.com/wiki/Crypt_Ghouls | (c) CA / GW (study only) | Crypt ghouls: **hunched, sinewy, grey-skinned**, a long jaw of teeth. The Ghoul Spears. |
+| https://static.wikia.nocookie.net/totalwarhammer_gamepedia/images/0/00/Wh_main_vmp_cairn_wraith.png | https://totalwarwarhammer.fandom.com/wiki/Cairn_Wraith | (c) CA / GW (study only) | A hood with a skull in its dark and a shroud ending in wisps. The Wraith Bows. |
+| https://static.wikia.nocookie.net/totalwarhammer_gamepedia/images/e/ea/Wh2_dlc09_tmb_screaming_skull_catapult.png and https://static.wikia.nocookie.net/totalwarhammer_gamepedia/images/e/e2/Wh_dlc04_vmp_mortis_engine.png | https://totalwarwarhammer.fandom.com/wiki/Screaming_Skull_Catapult | (c) CA / GW (study only) | A siege engine of bone and timber with a skeleton crew, green witchfire as the one light. The Corpse Trebuchet. |
+| https://darkestdungeon.wiki.gg/images/Bone_Captain.png, https://darkestdungeon.wiki.gg/images/Bone_Bearer.png, https://darkestdungeon.wiki.gg/images/Bone_Rabble.png | https://darkestdungeon.wiki.gg/wiki/Bone_Captain | (c) Red Hook (study only) | **Heavy armour gives the dead their bulk** (the Captain's plate, the Bearer's banner and greaves); bone shows only at the gaps. |
+| https://darkestdungeon.wiki.gg/images/Bone_Arbalist.png and https://darkestdungeon.wiki.gg/images/Bone_Courtier.png | https://darkestdungeon.wiki.gg/wiki/Bone_Arbalist | (c) Red Hook (study only) | The kettle hat, the quilted gambeson and the levelled crossbow; the courtier's heavy coat with the skull small on top (the Lich). |
+| https://static.wikia.nocookie.net/diablo/images/5/5d/Skeleton_Variations.png | https://diablo.fandom.com/wiki/Skeleton | (c) Blizzard (study only) | Yellowed, stick-thin bones at sprite size; the gaunt bare skeletons (Bone-Throwers, horse archers) stay thin but never under three pixels at level 8. |
+| https://images.metmuseum.org/CRDImages/dp/web-large/DP816773.jpg | https://www.metmuseum.org/art/collection/search/336215 | Public domain (Met) | Dürer, *The Four Horsemen*: Death's **starved horse** with its ribs and hip bones, the rider a gaunt figure. |
+| https://images.metmuseum.org/CRDImages/dp/web-large/DP102226.jpg | https://www.metmuseum.org/art/collection/search/336223 | Public domain (Met) | Dürer, *Knight, Death and the Devil*: the horse's proportions (deep barrel, long neck, jointed legs), the lance carried upright. |
+| https://images.metmuseum.org/CRDImages/dp/web-large/DP817535.jpg | https://www.metmuseum.org/art/collection/search/376680 | Public domain (Met) | Della Bella, *Death on horseback*: a skeletal horse in motion. |
+| https://images.metmuseum.org/CRDImages/dp/web-large/DP822859.jpg | https://www.metmuseum.org/art/collection/search/361663 | Public domain (Met) | Hollar after Holbein, *The Knight*: re-studied for the thin bones with gaps. |
+| https://images.metmuseum.org/CRDImages/aa/web-large/sfma21.139.2_87900.jpg | https://www.metmuseum.org/art/collection/search/35773 | Public domain (Met) | Armour for man and horse: the bard in overlapping rows; the Death Knights' bone-plate barding. |
+| https://opengameart.org/sites/default/files/zombie_n_skeleton2.png and https://opengameart.org/sites/default/files/skeletonPreview.png | https://opengameart.org/content/zombie-and-skeleton-32x48, https://opengameart.org/content/mv-platformer-skeleton | CC0 | How a small pixel skeleton reads: the skull and the ribcage as the two light masses. |
+| https://img.craftpix.net/2023/04/Fantasy-Knight-Sprite-Sheets-Pixel-Art.webp | https://craftpix.net | (c) craftpix (study only; the user's target) | **Bulk from volumes**: tapered upper arms, gauntlets, knee armour, boots; a big kite shield close to the body. |
+| https://i.redd.it/fsroum98hki61.png | https://www.reddit.com/r/Diablo/ (Diablo II: Resurrected class renders) | (c) Blizzard (study only; the user's target) | Broad shoulders and pauldrons, layered armour; the Paladin's shield across the body; the Necromancer's black plate and the **skull worn as a pauldron** (the Lich's). |
+| https://i.redd.it/fxx9828pdq3d1.png | (xave_pixel) | study only | The quality target, as before. |
+
+### Critique rounds (screenshots in `docs/screenshots/hd-sprites/undead-*`, our art only)
+
+1. **First pass, all kinds (level 8 lineup).** The ghoul's head read as a helmet and its torso as a slab. The ghoul now has a long, bald head with a hanging jaw and a socket of green, on a torso built along the spine with ribs and spine knobs. The Bone-Thrower's javelin was hidden behind the quiver, so it is now held upright in front. The horse skull was a plank; it now has a broad cranium, a socket and a jaw. The spear rag was a box; it is now two torn streamers.
+2. **Values and the lint.** A bare skeleton is as light, at its outline, as the field green is dark, so several kinds failed figure-vs-ground and light direction. Fixes:
+   - Light from above: the lower part of each figure is in shade on a slanted, broken line, and the lit edge is raised at levels 1-2.
+   - One plane of light per cloth or plate part.
+   - Charred bone for the horses, the colossus' limbs and the Bone-Throwers' limbs.
+   - A dark cape, a hood and a jerkin for the throwers.
+   - Our own ink and glow materials, so the level-1 outline is the bone's and the rust's warm dark instead of glow-green.
+3. **Showpieces.**
+   - The Colossus was a giant on stilts. It now has short splayed legs and a heap of long bones (blackened and bare) over a dark hollow, with a skull cluster for a head.
+   - The Lich's crown read as a hand. It is now a sunburst of nine thin spines. The robe is open over a ribcage with the soul-fire in it, the staff is pale bone (the wooden one vanished against the robe), and a high collar was added.
+4. **The skeletal horse rebuilt** (from the coordinator's critique: thin, stiff, stick-legged).
+   - A deep barrel of heavy ribs, a haunch, legs jointed as in Muybridge and Dürer with hooves, a long pale skull with its jaw, and an arched neck.
+   - A walk that settles onto each planted pair.
+   - The Death Knights' bard became legible plates, and the knight got black greaves.
+5. **Key art, bulked up** (the user: "our units feel like stick figures"). New static images were drawn from volumes instead of rods: limb masses, broad rusted pauldrons, mail hauberks and tabards, kite shields 0.48 H tall held tight over the torso, gauntlets, greaves and sabatons. Bone shows only at the gaps.
+   - Round a: the sword vanished against the arm, and everything was one dark grey. The armour plates are now rust and the mail grey, for value separation.
+   - Round b: the horse archer got a jerkin, the horses got thicker legs, the Revenant's gambeson got channels instead of a plaid, and the Black Rider got a heavy shroud.
+   - Round c: the Lich gained skull pauldrons and the crossbow and sword were scaled up.
+
+   Files: `undead-static-L8.png`, `undead-static-L8-x3.png`, `undead-static-k<kind>-L8-x3.png`, and the Legionary before/after.
+
+### Lint and silhouettes
+
+`pnpm pixel-lint --only=sprites --factions=undead` reports **no FAIL for any undead kind at levels
+1, 2, 4 or 8**. Warnings remain (figure-vs-ground ΔL under 0.12 on some kinds, aligned band ends
+0.2-0.3, base band share under 35%). The level-1 silhouette overlap is below 0.85 for every pair.
+The closest pairs are Grave Legionaries / Bone-Throwers at 0.83, and Black Riders against the Death
+Knights and the horse archers at 0.79-0.80.
