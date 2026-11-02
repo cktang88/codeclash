@@ -12,7 +12,7 @@
 // - form lighting: a key from the top-left, a shadow side, a rim on hard edges, lit fold ridges.
 // H ≈ 15 units (≈ 120 px at level 8).
 
-import { addP, code, DEG, defineMaterial, figurePalette, oklchRamp, Paper, type Mat, type P2 } from './core.ts';
+import { addP, code, DEG, defineMaterial, figurePalette, okHue, oklchRamp, Paper, type Mat, type P2 } from './core.ts';
 import { ell, gunbai, javelin, katana, lerpP, lit, mul, part, SM, teppo, yari, yumi } from './samurai-parts.ts';
 
 const frac = (v: number) => v - Math.floor(v);
@@ -37,15 +37,27 @@ const KM = {
   silk: defineMaterial('samurai.silkWhite', oklchRamp({ l: 0.8, c: 0.02, h: 90, spread: 0.06 })),
   /** Dark iron of masks and kote, a touch warmer than the field iron. */
   mask: defineMaterial('samurai.maskIron', oklchRamp({ l: 0.32, c: 0.02, h: 40, spread: 0.09 })),
+  /**
+   * The one accent beside the army colour: the lacing dots and the menpō rim, opposite the army's
+   * hue (orange on a blue army, as in the user's blue samurai), warm and a step darker than the team.
+   */
+  accent: defineMaterial('samurai.accent', (hue) => oklchRamp({ l: 0.56, c: 0.13, h: (okHue(hue) + 180) % 360, spread: 0.08 })),
 } as const;
 
 /** An armour's colours: plate lacquer, the lacing, its contrasting band. */
 interface Lac {
+  /** The lame lacquer. */
   plate: Mat;
+  /** The lacing, shown as rows of dots. */
   lace: Mat;
+  /** Hems, binding, the kata-iro band. */
   band: Mat;
+  /** A gilt edge on each lame instead of a lit lacquer edge (the lord's armour). */
+  gildedEdge?: boolean;
 }
-const BLACK_TEAM: Lac = { plate: SM.lacquer, lace: SM.team, band: KM.silk };
+/** The samurai's armour lacquered in the army colour, gilt, with accent lacing (the user's blue samurai). */
+const TEAM_ARMOUR: Lac = { plate: SM.team, lace: KM.accent, band: SM.gold };
+const BLACK_GOLD: Lac = { plate: SM.lacquer, lace: SM.team, band: SM.gold, gildedEdge: true };
 const DEEPRED_TEAM: Lac = { plate: KM.deepRed, lace: SM.team, band: SM.gold };
 const REDBROWN_TEAM: Lac = { plate: KM.redBrown, lace: SM.team, band: KM.silk };
 
@@ -108,25 +120,26 @@ function curve(pts: P2[], k = 4): P2[] {
 // ------------------------------------------------------------------ armour surfaces
 
 /**
- * Kebiki odoshi: rows of lacquered lames, each with a crisp lit top edge and a plate band, then
- * the dense lacing (vertical cords, staggered row to row) in the army colour, with `bandRows`
- * rows in the contrasting colour; a dark seam under each lame. `t` is the form-lit tone here.
+ * Lames as big flat bands (the user's blue samurai): each band one flat tone of the form light,
+ * a crisp lit top edge (gilt on the lord's armour), a stepped shadow under it, and the lacing as a
+ * row of accent dots across the band, staggered from the band above. `bandRows` rows are in the
+ * band colour instead (the kata-iro).
  */
 function kebiki(c: Paper, fx: number, fy: number, top: number, t: number, lac: Lac, opt: { per?: number; bandRows?: (row: number) => boolean; curve?: number } = {}): number {
   const L = c.L;
-  const per = opt.per ?? 0.95;
-  const r = (fy - top - (opt.curve ?? 0.06) * fx * fx) / per;
+  const per = opt.per ?? 1.05;
+  const r = (fy - top - (opt.curve ?? 0.04) * fx * fx) / per;
   const row = Math.floor(r);
   const k = frac(r);
   const px = 1 / (L * per);
-  if (k < px) return code(lac.plate, t >= 2 ? clamp(t + 1, 0, 4) : t); // the lit lame edge, on the lit side
-  if (k < 2.2 * px) return code(lac.plate, t);
-  if (k > 1 - px) return code(lac.plate, Math.max(0, t - 2)); // the seam's shadow
-  const mat = opt.bandRows?.(row) ? lac.band : lac.lace;
-  // Cords: two pixels of cord, one of shadow between, staggered by row.
-  const col = Math.floor(fx * L + row * 1.5);
-  if (((col % 3) + 3) % 3 === 2) return code(mat, Math.max(0, t - 1));
-  return code(mat, t);
+  const plate = opt.bandRows?.(row) ? lac.band : lac.plate;
+  if (k < px) return lac.gildedEdge ? code(SM.gold, t >= 2 ? 3 : 2) : code(plate, t >= 2 ? clamp(t + 2, 0, 4) : t + 1); // the lit top edge
+  if (k > 1 - 1.6 * px) return code(plate, Math.max(0, t - 2)); // the step's shadow
+  if (k > 1 - 3.2 * px) return code(plate, Math.max(0, t - 1));
+  // Lacing: dots in a row across the band, two pixels wide, staggered from row to row.
+  const q = frac((fx + 5 + (row & 1) * 0.45) / 0.9);
+  if (k > 0.26 && k < 0.6 && q < (L >= 8 ? 2 : 1.4) / (0.9 * L)) return code(lac.lace, t >= 2 ? 3 : 2);
+  return code(plate, t);
 }
 
 /** Okegawa-dō: riveted horizontal plates in plain lacquer with kanamono rivet heads and lit plate edges. */
@@ -258,17 +271,16 @@ function kabuto(c: Paper, h: P2, lac: Lac, crest: 'kuwagata' | 'crescent' | 'non
   const s = HS;
   const L = c.L;
   const S = (p: P2[]) => p.map((q) => [q[0] * s, q[1] * s] as P2);
-  slab(c, h, S(ell(1.12, 0.92, 0, -0.42, 20, 180, 360).concat([[1.12, -0.3], [-1.12, -0.3]])), (fx0, fy0) => {
+  // A big boxy bowl (zunari-style): a flat lit crown plane, a front plane, a side in shade, the
+  // gilt koshimaki band; broad flat planes, few tones.
+  slab(c, h, S([[-1.25, -0.3], [-1.2, -1.15], [-0.75, -1.6], [0.55, -1.65], [1.15, -1.3], [1.3, -0.3]]), (fx0, fy0) => {
     const fx = fx0 / s, fy = fy0 / s;
-    const sv = fx * 0.75 + (fy + 0.7) * 0.6;
-    const t = lit(c, 2, sv * 1.2, 0.45, 0.45);
-    const ang = Math.atan2(fy + 0.3, fx) / DEG;
-    const ridge = frac((ang + 400) / 12);
-    if (fy > -0.48 && fy < -0.38) return code(SM.gold, frac(fx * 4) < 0.5 ? 3 : 2); // the koshimaki band with rivets
-    if (ridge < 0.2) return code(lac.plate, Math.max(1, t - 1));
-    if (ridge < 0.32 && sv < 0.1) return code(lac.plate, Math.min(4, t + 1)); // lit ridge
-    if (L >= 8 && sv > 0.75) return code(lac.plate, t + 1); // rim light on the far curve
-    return code(lac.plate, t);
+    if (fy > -0.5 && fy < -0.36) return code(SM.gold, frac(fx * 3) < 0.25 ? 4 : 3); // koshimaki with rivets
+    if (fy < -1.3 + Math.abs(fx - 0.0) * 0.12) return code(lac.plate, 4); // the crown catching the key light
+    if (fx > 0.75) return code(lac.plate, 1); // the far side
+    if (fx < -0.6) return code(lac.plate, 3); // the near side, lit
+    if (L >= 8 && Math.abs(fx - 0.1) < 0.05) return code(lac.plate, 3); // a lit ridge
+    return code(lac.plate, 2);
   });
   if (L >= 4) slab(c, addP(h, [0, -1.33 * s]), ell(0.22, 0.12, 0, 0, 10), () => code(SM.gold, 3)); // tehen
   slab(c, h, S([[-0.4, -0.38], [1.25, -0.42], [1.42, -0.2], [-0.2, -0.16]]), (fx) => code(lac.plate, fx < 0.6 ? 3 : 2)); // mabizashi
@@ -280,11 +292,11 @@ function kabuto(c: Paper, h: P2, lac: Lac, crest: 'kuwagata' | 'crescent' | 'non
     return code(lac.plate, lit(c, 3, fx * 0.5 + fy * 0.4, 0.4, 0.4));
   });
   slab(c, h, S([[0.95, -0.35], [1.6, -0.75], [1.7, -0.1], [1.15, 0.1]]), (fx0) => (fx0 / s > 1.55 ? code(SM.gold, 2) : code(lac.plate, 1)));
-  const base: P2 = addP(h, [0.45 * s, -0.62 * s]);
+  const base: P2 = addP(h, [0.45 * s, -0.75 * s]);
   if (crest === 'kuwagata') {
-    for (const [dx, tone] of [[-1.3, 2], [1.45, 3]] as [number, number][]) {
-      const mid = addP(base, [dx * 0.55, -1.15]);
-      const tip = addP(base, [dx, -2.5]);
+    for (const [dx, tone] of [[-1.25, 2], [1.4, 3]] as [number, number][]) {
+      const mid = addP(base, [dx * 0.45, -1.6]);
+      const tip = addP(base, [dx * 0.85, -3.6]);
       vol(c, base, mid, 0.44, 0.48, 0.4, SM.gold, tone, { caps: [0.2, 0.1], rim: true });
       vol(c, mid, tip, 0.4, 0.34, 0.16, SM.gold, tone, { caps: [0.05, 0.3], shine: tone === 3, rim: true });
     }
@@ -626,7 +638,7 @@ function man(c: Paper, b: Body, d: Dress, layers: Layers): void {
 
 // ------------------------------------------------------------------ dresses
 
-const SAMURAI: Dress = { head: 'kabuto', crest: 'kuwagata', menpo: true, body: 'gusoku', lac: BLACK_TEAM, sode: 'big', sleeve: SM.indigo, legs: SM.indigo, shin: 'suneate' };
+const SAMURAI: Dress = { head: 'kabuto', crest: 'kuwagata', menpo: true, body: 'gusoku', lac: TEAM_ARMOUR, sode: 'big', sleeve: SM.teamDk, legs: SM.teamDk, shin: 'suneate' };
 const ASHIGARU: Dress = { head: 'jingasa', body: 'okegawa', lac: REDBROWN_TEAM, sode: 'small', sleeve: SM.indigo, legs: SM.indigo, shin: 'kyahan' };
 
 // ------------------------------------------------------------------ the foot figures
@@ -742,7 +754,7 @@ function bigNaginata(c: Paper, hand: P2, butt: number, fore: number): void {
 /** 8: Sōhei: the naginata upright, the katō, the black koromo and ochre kesa. */
 function sohei(c: Paper): void {
   const b = stand([0, 0], { hnN: [-0.9, -8.6], elN: [-2.8, -8.7], hnF: [-0.85, -6.9], elF: [1.2, -7.5], anN: [-1.0, -0.45], anF: [1.15, -0.5], knN: [-1.1, -3.4], knF: [1.15, -3.4] });
-  man(c, b, { head: 'kato', body: 'robe', lac: BLACK_TEAM, sode: 'none', sleeve: SM.black, legs: SM.black, shin: 'robe' }, {
+  man(c, b, { head: 'kato', body: 'robe', lac: BLACK_GOLD, sode: 'none', sleeve: SM.black, legs: SM.black, shin: 'robe' }, {
     held: () => {
       bigNaginata(c, b.hnN, 5.2, 7.4);
       fist(c, b.hnN, SM.flesh, 2);
@@ -753,7 +765,7 @@ function sohei(c: Paper): void {
 /** 10: Daimyō: deep red lacquer and gilt, team kebiki with a gold band, the crescent, the horo, the war fan. */
 function daimyo(c: Paper): void {
   const b = stand([0, 0], { hnN: [2.4, -10.9], elN: [-0.4, -10.3], hnF: [2.2, -6.9], elF: [2.55, -8.5] });
-  man(c, b, { ...SAMURAI, crest: 'crescent', lac: DEEPRED_TEAM, jinbaori: true }, {
+  man(c, b, { ...SAMURAI, crest: 'crescent', lac: BLACK_GOLD, sleeve: SM.black, legs: SM.black, jinbaori: true }, {
     back: () => horo(c, addP(b.pel, [-1.2, -3.6]), 1.05),
     hipGear: () => swords(c, b),
     held: () => {
@@ -922,7 +934,7 @@ function yariCavalry(c: Paper): void {
 
 /** 6: Yabusame Archers: a chestnut with socks; the ayaigasa, the yumi braced, the yebira and mukabaki. */
 function yabusame(c: Paper): void {
-  mounted(c, { hide: SM.chestnut, mane: SM.straw, socks: true }, { ...ASHIGARU, head: 'kasa', lac: { ...BLACK_TEAM }, sode: 'none', shin: 'suneate', moustache: true }, { hnF: [2.7, -7.6], elF: [2.7, -9.1], hnN: [-0.4, -8.0], elN: [-2.4, -8.5] }, (b) => ({
+  mounted(c, { hide: SM.chestnut, mane: SM.straw, socks: true }, { ...ASHIGARU, head: 'kasa', lac: { plate: SM.lacquer, lace: SM.team, band: KM.silk }, sode: 'none', shin: 'suneate', moustache: true }, { hnF: [2.7, -7.6], elF: [2.7, -9.1], hnN: [-0.4, -8.0], elN: [-2.4, -8.5] }, (b) => ({
     back: () => {
       vol(c, addP(b.pel, [-2.1, -1.0]), addP(b.pel, [-2.4, -4.4]), 1.1, 1.15, 1.0, SM.lacquer, 2, { rim: true });
       for (const dx of [-0.5, -0.1, 0.3]) vol(c, addP(b.pel, [-2.4 + dx, -4.3]), addP(b.pel, [-2.9 + dx * 1.6, -5.9]), 0.3, 0.32, 0.25, KM.silk, dx > 0 ? 2 : 3);
@@ -938,7 +950,7 @@ function yabusame(c: Paper): void {
 
 /** 7: Hatamoto Horse: a black horse with team tassels; deep red armour, kuwagata, the horo, katana raised. */
 function hatamoto(c: Paper): void {
-  mounted(c, { hide: SM.black, mane: SM.hair, tassels: true, cloth: SM.teamDk }, { ...SAMURAI, lac: DEEPRED_TEAM }, { hnN: [-1.3, -15.0], elN: [-3.2, -13.4], hnF: [2.6, -7.2], elF: [2.4, -8.6] }, (b) => ({
+  mounted(c, { hide: SM.black, mane: SM.hair, tassels: true, cloth: SM.teamDk }, { ...SAMURAI, lac: DEEPRED_TEAM, sleeve: SM.black, legs: SM.black }, { hnN: [-1.3, -15.0], elN: [-3.2, -13.4], hnF: [2.6, -7.2], elF: [2.4, -8.6] }, (b) => ({
     back: () => horo(c, addP(b.pel, [-1.2, -3.6]), 1.1),
     held: () => {
       katana(c, b.hnN, 150, 4.3);
