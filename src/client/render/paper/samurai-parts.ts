@@ -250,7 +250,7 @@ export interface Kit {
 // ------------------------------------------------------------------ heads
 
 /** The face, 3/4 to the right: eyes, brow, nose; with a menpō the lower face is an iron mask with a pale moustache. */
-function face(c: Paper, r: ManRig, mask: boolean, hair: 'cap' | 'top' | 'none'): void {
+export function face(c: Paper, r: ManRig, mask: boolean, hair: 'cap' | 'top' | 'none'): void {
   const L = c.L;
   part(c, r.head, r.ha, [...ell(0.66, 0.82, 0.02, 0.05, 14), ], (fx, fy) => {
     const s = fx * 0.9 + fy * 0.4;
