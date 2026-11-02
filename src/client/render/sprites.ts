@@ -141,8 +141,12 @@ const R = {
   ink: 0, white: 1, black: 2, red: 3, mail: 4, plate: 5, dplate: 6, steel: 7, leather: 8, dleather: 9,
   skin: 10, hair: 11, wood: 12, dwood: 13, gambeson: 14, tunic: 15, tunic2: 16, hose: 17, team: 18, teamDark: 19,
   gold: 20, bay: 21, chestnut: 22, grey: 23, dun: 24, points: 25, blood: 26, string: 27, stone: 28, rope: 29,
+  // Samurai Clans
+  lacquer: 30, vermilion: 31, indigo: 32, paper: 33, bronze: 34, smoke: 35, fire: 36, ochre: 37, darkbay: 38,
+  // Hollow Host
+  bone: 39, rust: 40, glow: 41, ghoul: 42, bplate: 43, rag: 44, sinew: 45, bonehorse: 46, ash: 47,
 } as const;
-const RAMP_COUNT = 30;
+const RAMP_COUNT = 48;
 
 function makeRamps(p: Palette, hue: number): RGB[][] {
   const r: RGB[][] = [];
@@ -177,6 +181,24 @@ function makeRamps(p: Palette, hue: number): RGB[][] {
   r[R.string] = ramp('#d8cfb4');
   r[R.stone] = ramp('#8b867b');
   r[R.rope] = ramp('#a48e5f');
+  r[R.lacquer] = ramp('#2a2a31', 1.5, 0.9);
+  r[R.vermilion] = ramp('#b5372b', 1.1);
+  r[R.indigo] = ramp('#363c4c');
+  r[R.paper] = ramp('#e6e0d0', 0.6);
+  r[R.bronze] = ramp('#8a6a32', 1.5);
+  r[R.smoke] = ramp('#a8a49a', 0.6, 0.5);
+  r[R.fire] = [[200, 80, 20], [235, 140, 30], [250, 200, 70], [255, 245, 190]];
+  r[R.ochre] = ramp('#9a7a3a');
+  r[R.darkbay] = ramp('#4a2e1e');
+  r[R.bone] = ramp('#d8d0b4', 0.7);
+  r[R.rust] = ramp('#6e4a32', 1.1);
+  r[R.glow] = [[60, 110, 50], [95, 143, 78], [140, 200, 100], [190, 240, 140]];
+  r[R.ghoul] = ramp('#8f9a80');
+  r[R.bplate] = ramp('#2f3036', 1.6);
+  r[R.rag] = ramp('#2e2b2a', 1.4);
+  r[R.sinew] = ramp('#6d6a55');
+  r[R.bonehorse] = ramp('#a9a28c', 0.8);
+  r[R.ash] = ramp('#3a3633', 1.2);
   return r;
 }
 
@@ -601,7 +623,18 @@ function basis(dir: Dir): M3 {
 // ------------------------------------------------------------------ people
 
 type Style = 'sword' | 'spear' | 'javelin' | 'bow' | 'xbow' | 'poleaxe' | 'lance' | 'cavspear' | 'horsebow' | 'marshal' | 'crew';
-type Helm = 'great' | 'nasal' | 'kettle' | 'hood' | 'cap' | 'turban' | 'sallet' | 'marshal';
+type Helm =
+  | 'great' | 'nasal' | 'kettle' | 'hood' | 'cap' | 'turban' | 'sallet' | 'marshal'
+  // Samurai
+  | 'kabuto' | 'daimyo' | 'jingasa' | 'hachimaki' | 'cowl'
+  // Hollow Host
+  | 'skull' | 'skullHelm' | 'skullKettle' | 'skullHood' | 'skullCrown' | 'deathHelm' | 'ghoul' | 'wraith' | 'skulls';
+/** What the figure is made of: a living man, or the dead in their several kinds. */
+type Body = 'man' | 'skel' | 'ghoul' | 'wraith' | 'robe' | 'colossus' | 'armour';
+/** How the weapon looks (the style sets how it moves). */
+type Weapon = 'katana' | 'yari' | 'yumi' | 'teppo' | 'naginata' | 'saihai' | 'bone' | 'club' | 'staff' | 'sword';
+/** The flag or cloak a figure carries on his back, in the team hue. */
+type Standard = 'sashimono' | 'small' | 'big' | 'horo' | 'nobori' | 'rag' | 'pennon';
 
 interface Look {
   style: Style;
@@ -623,11 +656,35 @@ interface Look {
   shield?: 'kite' | 'round' | 'buckler';
   pavise?: boolean;
   quiver?: boolean;
-  mantle?: boolean;
+  /** Bow stave ramp (pale wood by default). */
+  bowWood?: number;
   sash?: boolean;
   beard?: boolean;
   /** Hands empty (the engine crew hauling). */
   noWeapon?: boolean;
+  body?: Body;
+  weapon?: Weapon;
+  /** Blade ramp (steel by default; rust for the dead). */
+  blade?: number;
+  standard?: Standard;
+  /** The mantle's ramp, and whether it is the Templar mantle (cross) or rags. */
+  cloak?: { ramp: number; cross?: boolean; ragged?: boolean };
+  /** Shield device: 'skull' (3 bone pixels), 'crack' (a dark split), 'mon' (a gold dot). */
+  emblem?: 'skull' | 'crack' | 'mon';
+  /** Horizontal lacing rows on the torso and skirt (Samurai odoshi), in this ramp. */
+  lacing?: number;
+  /** Sode: shoulder boards in this ramp. */
+  sode?: number;
+  /** The skirt flares like a bell (kusazuri, robes) instead of hanging straight. */
+  bell?: boolean;
+  /** Green glow in the eyes (officers, riders, the lich). */
+  glow?: boolean;
+  /** Forward stoop added to every pose (ghouls, the colossus). */
+  hunch?: number;
+  /** Figure scale (the colossus, the lich). */
+  scale?: number;
+  /** A tate board instead of a pavise when braced. */
+  tate?: boolean;
 }
 
 interface Pose {
@@ -661,12 +718,14 @@ interface Pose {
   blood: number;
   /** Seconds-ish phase for cloth waving. */
   wave: number;
+  /** Gunfire: 1 flash, 2 smoke, 3 thinning smoke. */
+  fx: number;
 }
 
 function basePose(): Pose {
   return {
     bob: 0, lean: 0, twist: 0, pz: 0, fl: [-0.95, 0.55, 0.45], fr: [0.95, 0.55, -0.35], hl: [-1.7, -1.2, 1.7], hr: [2.1, -1.8, 1.1],
-    w: nrm([0.1, 1, 0.45]), aim: [0, 0, 1], draw: 0, loaded: true, head: 0, fall: 0, drop: false, spray: 0, knife: false, kneel: false, planted: false, blood: 0, wave: 0,
+    w: nrm([0.1, 1, 0.45]), aim: [0, 0, 1], draw: 0, loaded: true, head: 0, fall: 0, drop: false, spray: 0, knife: false, kneel: false, planted: false, blood: 0, wave: 0, fx: 0,
   };
 }
 
@@ -1039,6 +1098,64 @@ function brace(p: Pose, st: Style, f: number, mounted: boolean): void {
   }
 }
 
+/** The pose for a look: its style's pose, adjusted for the weapon and the body. */
+function posed(L: Look, anim: Anim, f: number, mounted: boolean): Pose {
+  const p = manPose(L.style, anim, f, mounted);
+  const hurtAnim = anim === Anim.Hit || anim === Anim.Die || anim === Anim.Dead;
+  const k = f === 1 ? 1 : 0;
+  switch (L.weapon) {
+    case 'katana':
+      if (anim === Anim.Brace) {
+        // Hassō: the blade upright by the right shoulder, knees bent.
+        p.hr = [1.0, 1.6 - 0.1 * k, 0.6];
+        p.w = N(0.2, 1, 0.3);
+        p.bob = -0.7;
+        p.lean = 0.08;
+        if (!mounted) {
+          p.fl = [-1.15, 0.55, 1.0];
+          p.fr = [1.15, 0.55, -0.9];
+        }
+      }
+      if (!hurtAnim) p.hl = madd(p.hr, p.w, -1.0);
+      break;
+    case 'naginata':
+      if (anim === Anim.Brace) {
+        p.hr = [1.3, -0.5 + 0.1 * k, 1.0];
+        p.w = N(-0.05, 0.12, 1);
+        p.hl = madd(p.hr, p.w, 2.0);
+        p.bob = -0.8;
+        p.fl = [-1.4, 0.55, 1.2];
+        p.fr = [1.4, 0.55, -1.0];
+      }
+      break;
+    case 'teppo':
+      if (anim === Anim.Shoot) p.fx = [0, 0, 1, 2][f]!;
+      if (anim === Anim.Brace) {
+        p.kneel = true;
+        p.bob = -2.6;
+        p.fl = [-0.95, 0.55, 1.5];
+        p.fr = [0.95, 0.55, -2.6];
+        p.hr = [0.9, 1.0 - 0.05 * k, 0.7];
+        p.aim = N(0, 0.03, 1);
+        p.hl = madd(p.hr, p.aim, 2.0);
+      }
+      break;
+    case 'club':
+      if (anim === Anim.Brace) {
+        p.hr = [1.2, -0.4 + 0.15 * k, 1.6];
+        p.w = N(-1, 0.35, 0.35);
+        p.hl = madd(p.hr, p.w, 1.6);
+      }
+      break;
+  }
+  if (L.hunch && !hurtAnim) {
+    p.lean += L.hunch;
+    p.head -= L.hunch * 0.8;
+  }
+  if ((L.body ?? 'man') !== 'man') p.blood = 0;
+  return p;
+}
+
 /** Hit, Die and Dead override the style's pose. */
 function hurt(p: Pose, anim: Anim, f: number, mounted: boolean): void {
   if (anim === Anim.Hit) {
@@ -1097,9 +1214,107 @@ function face(l: V3, beard: boolean, other: number): number {
   return other;
 }
 
+/** A skull: big, dark sockets (green-lit for officers), nose hole, a row of teeth. */
+function skullMat(glow: boolean): Mat {
+  return (l) => {
+    if (l[2] > 0.4) {
+      const ax = Math.abs(l[0]);
+      if (l[1] > -0.08 && l[1] < 0.38 && ax > 0.1 && ax < 0.66) return glow && ax > 0.22 && ax < 0.5 && l[1] > 0.04 && l[1] < 0.26 ? F(R.glow, 3) : F(R.ink, 0);
+      if (ax < 0.12 && l[1] > -0.4 && l[1] < -0.12) return F(R.ink, 1);
+      if (l[1] < -0.6) return ax < 0.6 && Math.floor(l[0] * 6) % 2 === 0 ? F(R.ink, 1) : R.bone;
+    }
+    return R.bone;
+  };
+}
+
+function skull(f: Fig, glow: boolean, r = 1.0): void {
+  f.ell([0, 0.05, 0.05], [1.6 * r, 1.7 * r, 1.7 * r], skullMat(glow));
+  f.ell([0, -1.3 * r, 0.55 * r], [0.95 * r, 0.45 * r, 0.85 * r], R.bone);
+}
+
 function head(f: Fig, L: Look): void {
   const beard = L.beard ?? true;
+  const glow = !!L.glow;
   switch (L.helm) {
+    case 'kabuto':
+    case 'daimyo': {
+      // Menpō (dark lacquer mask, eye slits), a low bowl, the flared shikoro neck guard laced in
+      // vermilion, fukigaeshi wings, and the gold maedate crest.
+      f.ell([0, -0.1, 0], [1.45, 1.55, 1.5], (l) => (l[2] > 0.55 && l[1] > -0.05 && l[1] < 0.28 && Math.abs(l[0]) > 0.15 && Math.abs(l[0]) < 0.62 ? F(R.ink, 0) : R.lacquer));
+      f.ell([0, 0.55, 0], [1.62, 1.25, 1.68], R.lacquer, { lo: 0 });
+      f.ell([0, 0.25, -0.25], [2.3, 1.1, 2.2], (l) => (l[2] > 0.3 ? -1 : Math.floor((l[1] + 1) * 2.4) % 2 ? R.vermilion : R.lacquer), { lo: -0.95, hi: 0.25 });
+      for (const sx of [-1, 1]) f.box([sx * 1.75, 0.55, 0.55], [0.5, 0, 0], [0, 0.6, 0], [0, 0, 0.14], R.lacquer);
+      if (L.helm === 'daimyo') {
+        // A great crescent.
+        f.poly([[-1.9, 3.2, 1.0], [-1.2, 2.1, 1.15], [0, 1.65, 1.2], [1.2, 2.1, 1.15], [1.9, 3.2, 1.0]], F(R.gold, 3));
+        f.poly([[-1.6, 3.0, 0.9], [-0.9, 2.2, 1.05], [0.9, 2.2, 1.05], [1.6, 3.0, 0.9]], F(R.gold, 2));
+      } else f.cap([0, 1.5, 0.95], [0, 2.4, 1.15], 0.46, F(R.gold, 3));
+      break;
+    }
+    case 'jingasa':
+      f.ell([0, -0.05, 0], [1.45, 1.55, 1.5], (l) => face(l, false, R.hair));
+      f.ell([0, 0.75, 0], [2.95, 0.9, 2.95], (l) => (l[1] > 0.55 && l[2] > 0.25 && Math.abs(l[0]) < 0.22 ? F(R.gold, 3) : R.lacquer), { lo: 0 });
+      break;
+    case 'hachimaki':
+      f.ell([0, -0.05, 0], [1.45, 1.55, 1.5], (l) => (l[1] > 0.2 && l[1] < 0.45 ? F(R.paper, 2) : l[1] >= 0.45 ? R.hair : face(l, false, R.hair)));
+      f.ell([0, 1.2, -0.6], [0.45, 0.6, 0.6], R.hair);
+      break;
+    case 'cowl':
+      // Sōhei katō: white cloth wrapping head and face, only the eyes showing.
+      f.ell([0, 0, 0], [1.6, 1.7, 1.65], (l) => (l[2] > 0.5 && l[1] > -0.02 && l[1] < 0.32 && Math.abs(l[0]) < 0.7 ? (Math.abs(l[0]) > 0.18 && Math.abs(l[0]) < 0.55 ? F(R.ink, 0) : R.skin) : R.paper));
+      f.ell([0, -1.6, -0.1], [2.25, 0.95, 1.75], R.paper, { lo: -0.2 });
+      break;
+    case 'skull':
+      skull(f, glow);
+      break;
+    case 'skullHelm':
+      skull(f, glow);
+      f.ell([0, 0.45, -0.05], [1.8, 1.35, 1.85], (l) => (l[2] > 0.6 && Math.abs(l[0]) < 0.16 && l[1] < 0.3 ? R.rust : l[2] > 0.35 && l[1] < 0.25 ? -1 : R.rust), { lo: 0 });
+      break;
+    case 'skullKettle':
+      skull(f, glow);
+      f.ell([0, 0.55, 0], [1.7, 1.2, 1.7], R.rust, { lo: 0 });
+      f.ell([0, 0.55, 0], [2.6, 0.3, 2.6], (l) => (hash2(Math.floor(l[0] * 4), Math.floor(l[2] * 4), 9) < 0.12 ? -1 : R.rust));
+      break;
+    case 'skullHood':
+      skull(f, glow);
+      f.ell([0, 0.15, -0.1], [1.85, 1.95, 1.9], (l) => (l[2] > 0.35 ? -1 : R.rag));
+      f.cap([0, 0.5, -1.0], [0, -0.8, -2.2], 0.6, R.rag);
+      break;
+    case 'skullCrown':
+      skull(f, glow);
+      f.ell([0, 1.1, 0], [1.45, 0.35, 1.45], R.bplate, { lo: -1, hi: 1 });
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * TAU;
+        f.line([Math.sin(a) * 1.35, 1.2, Math.cos(a) * 1.35], [Math.sin(a) * 1.45, 2.1, Math.cos(a) * 1.45], R.bplate);
+      }
+      break;
+    case 'deathHelm':
+      f.ell([0, 0.05, 0.05], [1.62, 1.9, 1.7], (l) => (l[2] > 0.45 && l[1] > 0.12 && l[1] < 0.38 ? F(R.glow, 3) : R.bplate), { lo: -1, hi: 0.72, capHi: true });
+      f.cap([0, 1.5, -0.2], [0, 2.4, -1.4], 0.45, R.rag);
+      break;
+    case 'ghoul':
+      f.ell([0, -0.1, 0.15], [1.4, 1.5, 1.6], (l) => {
+        if (l[2] > 0.5 && l[1] > -0.05 && l[1] < 0.3 && Math.abs(l[0]) > 0.15 && Math.abs(l[0]) < 0.6) return F(R.ink, 0);
+        if (l[2] > 0.6 && l[1] < -0.45 && Math.abs(l[0]) < 0.5) return F(R.ink, 1);
+        return R.ghoul;
+      });
+      break;
+    case 'wraith':
+      // A deep hood: a dark void with a pale skull and two green points inside.
+      f.ell([0, -0.05, 0.25], [1.35, 1.45, 1.4], skullMat(true));
+      f.ell([0, 0.2, -0.15], [1.95, 2.1, 2.0], (l) => (l[2] > 0.45 && l[1] < 0.55 && Math.abs(l[0]) < 0.72 ? -1 : R.rag));
+      f.cap([0, 0.9, -1.2], [0, -0.4, -2.6], 0.65, R.rag);
+      break;
+    case 'skulls':
+      // The colossus: a cluster of skulls fused into one head.
+      skull(f, true, 1.1);
+      for (const sx of [-1, 1]) {
+        f.push([sx * 1.7, -0.8, -0.3], ry(sx * 0.5));
+        skull(f, false, 0.75);
+        f.pop();
+      }
+      break;
     case 'great':
     case 'marshal': {
       f.ell([0, 0.05, 0.05], [1.62, 1.9, 1.7], (l) => {
@@ -1155,10 +1370,109 @@ function head(f: Fig, L: Look): void {
 }
 
 function arm(f: Fig, L: Look, sh: V3, hand: V3, side: number): void {
-  const elbow = ik(sh, hand, 2.2, 2.25, [side * 0.7, -0.5, -0.6]);
-  f.cap(sh, elbow, 0.78, L.sleeve);
-  f.cap(elbow, hand, 0.68, L.sleeve);
-  f.ell(hand, [0.58, 0.58, 0.58], L.hand);
+  const body = L.body ?? 'man';
+  const k = LIMB[body];
+  const reach = body === 'colossus' ? 1.3 : 1;
+  const elbow = ik(sh, hand, 2.2 * reach, 2.25 * reach, [side * 0.7, -0.5, -0.6]);
+  f.cap(sh, elbow, 0.78 * k, L.sleeve);
+  f.cap(elbow, hand, 0.68 * k, L.sleeve);
+  f.ell(hand, [0.58 * k + 0.1, 0.58 * k + 0.1, 0.58 * k + 0.1], L.hand);
+}
+
+/** A shield device at (u, v) on the face (-1..1), or undefined for the plain field. */
+function emblemAt(L: Look, u: number, v: number): number | undefined {
+  switch (L.emblem) {
+    case 'skull':
+      if (u * u + (v - 0.15) * (v - 0.15) < 0.09) return Math.abs(u) > 0.08 && Math.abs(u) < 0.2 && v > 0.12 && v < 0.25 ? F(R.ink, 0) : R.bone;
+      return undefined;
+    case 'crack':
+      return Math.abs(u - v * 0.55 - 0.1) < 0.07 ? F(R.ink, 1) : undefined;
+    case 'mon':
+      return u * u + v * v < 0.06 ? F(R.gold, 3) : undefined;
+  }
+  return undefined;
+}
+
+/** The lich's staff in the left hand, crowned with a green-burning skull. */
+function lichStaff(f: Fig, p: Pose): void {
+  const hl = p.hl;
+  f.line(add(hl, [0, -5.0, 0]), add(hl, [0, 8.6, 0]), R.ash);
+  f.push(add(hl, [0, 9.6, 0.1]));
+  f.ell([0, 0, 0], [1.6, 1.6, 1.6], (l) => (hash2(Math.floor(l[0] * 3), Math.floor(l[1] * 3), 6 + Math.floor(p.wave)) < 0.5 ? -1 : F(R.glow, 2)));
+  skull(f, true, 0.6);
+  f.pop();
+}
+
+/** Weapons that only look different: the style still sets how they move. */
+function weaponLook(f: Fig, L: Look, p: Pose): boolean {
+  const hr = p.hr, w = p.w;
+  const blade = L.blade ?? R.steel;
+  switch (L.weapon) {
+    case undefined:
+    case 'sword':
+      return false;
+    case 'katana': {
+      // A long, slightly curved blade, held two-handed; a dark tsuba.
+      const c = perp(w);
+      const back = c[1] > 0 ? c : scl(c, -1);
+      f.poly([madd(hr, w, 0.6), add(madd(hr, w, 3.0), scl(back, 0.25)), add(madd(hr, w, 5.4), scl(back, 0.7))], (l) => F(blade, l[0] < 0.5 ? 3 : 2));
+      f.ell(madd(hr, w, 0.5), [0.42, 0.42, 0.42], F(R.ink, 2));
+      return true;
+    }
+    case 'yari':
+      f.line(madd(hr, w, -5.2), madd(hr, w, 12.6), R.wood);
+      f.cap(madd(hr, w, 12.3), madd(hr, w, 14.4), 0.5, (l) => F(blade, l[0] < 0.4 ? 2 : 3));
+      return true;
+    case 'naginata': {
+      f.line(madd(hr, w, -2.8), madd(hr, w, 5.6), R.lacquer);
+      const c = perp(w);
+      const edge = c[2] > 0 ? c : scl(c, -1);
+      const a0 = madd(hr, w, 5.6);
+      f.poly([a0, add(madd(hr, w, 7.0), scl(edge, 0.35)), add(madd(hr, w, 8.2), scl(edge, 0.9))], F(blade, 3));
+      f.poly([add(a0, scl(edge, 0.4)), add(madd(hr, w, 6.9), scl(edge, 0.85))], F(blade, 2));
+      return true;
+    }
+    case 'saihai':
+      f.line(hr, madd(hr, w, 2.2), R.lacquer);
+      f.ell(madd(hr, w, 2.6), [0.65, 0.65, 0.65], F(R.paper, 3));
+      return true;
+    case 'bone':
+      if (p.loaded) {
+        f.cap(madd(hr, w, -0.4), madd(hr, w, 2.8), 0.45, R.bone);
+        f.ell(madd(hr, w, 3.0), [0.45, 0.45, 0.45], R.bone);
+      }
+      f.ell(add(p.hl, [-0.3, -0.8, -0.4]), [0.9, 1.1, 0.9], R.rag);
+      return true;
+    case 'club':
+      f.cap(madd(hr, w, -1.2), madd(hr, w, 6.4), 0.62, R.bone);
+      f.ell(madd(hr, w, 6.8), [1.25, 1.4, 1.25], R.bone);
+      f.ell(madd(hr, w, 7.4), [0.7, 0.7, 0.7], R.bone);
+      return true;
+    case 'staff':
+      return true;
+    case 'yumi': {
+      // The asymmetric bow: the grip a third of the way up, the upper limb towering over the head.
+      const a = p.aim;
+      const b = nrm(crs(a, nrm(crs([0, 1, 0], a))));
+      const hl = p.hl;
+      const bend = p.draw > 0.5 ? 1.4 : 0.8;
+      const top = madd(madd(hl, b, L.style === 'horsebow' ? 5.6 : 6.4), a, -bend), bot = madd(madd(hl, b, -3.0), a, -bend * 0.7);
+      f.poly([top, madd(madd(hl, b, 3.2), a, -0.35), hl, madd(madd(hl, b, -1.6), a, -0.3), bot], F(R.lacquer, 3));
+      const nock = p.draw > 0.5 ? hr : madd(madd(hl, a, -bend), b, 1.6);
+      f.poly([top, nock, bot], F(R.string, 3));
+      if (p.loaded && p.draw > 0) f.line(madd(hr, a, -0.2), madd(hl, a, 1.4), F(R.paper, 3));
+      if (p.knife) f.line(madd(hr, p.w, 0.4), madd(hr, p.w, 2.6), F(blade, 3));
+      return true;
+    }
+    case 'teppo': {
+      // A long dark barrel at the cheek, a short stock, a gold pan.
+      const a = p.aim;
+      f.beam(madd(hr, a, -1.4), madd(hr, a, 4.4), 0.7, 0.8, F(R.ochre, 3));
+      f.line(madd(madd(hr, a, 0.4), [0, 0.45, 0], 1), madd(madd(hr, a, 6.0), [0, 0.45, 0], 1), F(R.bplate, 2));
+      f.ell(madd(hr, a, 0.9), [0.35, 0.35, 0.35], F(R.gold, 3));
+      return true;
+    }
+  }
 }
 
 /** A perpendicular to v, preferring the sagittal plane. */
@@ -1178,8 +1492,10 @@ function teamPennant(f: Fig, at: V3, w: V3, phase: number, size = 1): void {
 
 /** The weapon in the right hand (and the bow in the left), in the chest frame. */
 function weapon(f: Fig, L: Look, p: Pose): void {
+  if (weaponLook(f, L, p)) return;
   const hr = p.hr, w = p.w;
-  const steel = (l: V3) => F(R.steel, l[0] < 0.4 ? 3 : 2);
+  const blade = L.blade ?? R.steel;
+  const steel = (l: V3) => F(blade, l[0] < 0.4 ? 3 : 2);
   switch (L.style) {
     case 'sword':
     case 'marshal': {
@@ -1235,7 +1551,7 @@ function weapon(f: Fig, L: Look, p: Pose): void {
       const bend = p.draw > 0.5 ? 1.45 : 0.9;
       const s = L.style === 'horsebow' ? 2.7 : 3.6;
       const top = madd(madd(hl, b, s), a, -bend), bot = madd(madd(hl, b, -s), a, -bend);
-      f.poly([top, madd(madd(hl, b, s * 0.55), a, -0.35), hl, madd(madd(hl, b, -s * 0.55), a, -0.35), bot], F(R.rope, 3));
+      f.poly([top, madd(madd(hl, b, s * 0.55), a, -0.35), hl, madd(madd(hl, b, -s * 0.55), a, -0.35), bot], F(L.bowWood ?? R.rope, 3));
       const nock = p.draw > 0.5 ? hr : madd(hl, a, -bend);
       f.poly([top, nock, bot], F(R.string, 3));
       if (p.loaded && p.draw > 0) {
@@ -1279,7 +1595,9 @@ function shield(f: Fig, L: Look, p: Pose): void {
       if (l[2] < -0.9) return R.teamDark;
       if (Math.abs(l[2]) < 0.9) return F(R.dleather, 1);
       if (u > wv - 0.2 || v > 0.86) return R.teamDark;
-      if (u < 0.13 && v > 0.15 && v < 0.4) return R.plate;
+      const em = emblemAt(L, l[0], v - 0.2);
+      if (em !== undefined) return em;
+      if (u < 0.13 && v > 0.15 && v < 0.4 && !L.emblem) return R.plate;
       return R.team;
     });
   } else {
@@ -1287,6 +1605,8 @@ function shield(f: Fig, L: Look, p: Pose): void {
     f.ellAx(c, scl(ax, r), scl(ay, r), scl(n, 0.35), (l) => {
       if (l[2] < 0) return R.teamDark;
       const d = l[0] * l[0] + l[1] * l[1];
+      const em = emblemAt(L, l[0], l[1]);
+      if (em !== undefined) return em;
       if (d < 0.07) return R.plate;
       if (d > 0.72) return R.dwood;
       return R.team;
@@ -1294,50 +1614,107 @@ function shield(f: Fig, L: Look, p: Pose): void {
   }
 }
 
-/** A pavise; `out` is the sign of local z on its painted face. */
-function pavise(f: Fig, c: V3, ax: V3, ay: V3, az: V3, out: number): void {
+/** A pavise (or a tate board); `out` is the sign of local z on its painted face. */
+function pavise(f: Fig, c: V3, ax: V3, ay: V3, az: V3, out: number, tate = false): void {
   f.box(c, ax, ay, az, (l) => {
     if (l[2] * out < -0.9) return F(R.dwood, 1);
     if (Math.abs(l[2]) <= 0.9) return R.dwood;
+    if (tate) {
+      // Planks with a team-hue mon.
+      if (l[0] * l[0] + (l[1] - 0.3) * (l[1] - 0.3) < 0.12) return R.team;
+      return Math.floor((l[0] + 1) * 3) % 2 ? R.wood : F(R.wood, 1);
+    }
     if (Math.abs(l[0]) > 0.84 || Math.abs(l[1]) > 0.9) return R.teamDark;
     if (Math.abs(l[0]) < 0.17 || Math.abs(l[1] - 0.25) < 0.12) return R.white;
     return R.team;
   });
 }
 
-/** A man: legs, coat, head, arms, gear. The figure's origin is on the ground between the feet. */
+/** Limb thickness by body: bones are thin, with gaps between them. */
+const LIMB: Record<Body, number> = { man: 1, skel: 0.6, ghoul: 0.75, wraith: 0.8, robe: 0.85, colossus: 1.05, armour: 1 };
+
+/** The flag or cloak on his back, in the chest frame (twist Rt). */
+function standard(f: Fig, L: Look, p: Pose, Rt: M3): void {
+  const st = L.standard;
+  if (!st) return;
+  const at = (v: V3): V3 => mv(Rt, v);
+  if (st === 'horo') {
+    // A cloak bellied out by the wind of the gallop.
+    f.ell(at([0, 0.4, -2.4]), [2.2, 2.3, 1.5], (l) => (l[1] < -0.75 ? R.teamDark : R.team), undefined, Rt);
+    return;
+  }
+  if (st === 'pennon') {
+    f.line(at([1.1, 1.4, -1.6]), at([1.25, 4.6, -1.7]), R.ash);
+    f.sheet(at([1.25, 4.5, -1.7]), mv(Rt, [0, 0, -2.4]), [0, -1.4, 0], (s) => 0.3 * s * Math.sin(s * 6 - p.wave), (s, t) =>
+      Math.abs(t - 0.5) > 0.55 * (1 - s * 0.7) || (s > 0.6 && hash2(Math.floor(s * 8), Math.floor(t * 4), 2) < 0.35) ? -1 : R.team,
+    );
+    return;
+  }
+  const dims: Record<string, [number, number, number]> = { sashimono: [2.2, 4.0, 9.4], small: [1.7, 3.0, 8.4], big: [3.0, 5.0, 10.6], nobori: [2.4, 8.5, 15.0], rag: [3.0, 4.6, 10.6] };
+  const [w, h, top] = dims[st]!;
+  const ragged = st === 'rag';
+  f.line(at([0, -1.4, -1.75]), at([0, top + 0.3, -1.75]), ragged ? R.ash : R.dwood);
+  if (st === 'nobori' || ragged) f.line(at([-w / 2, top, -1.8]), at([w / 2, top, -1.8]), ragged ? R.ash : R.dwood);
+  f.sheet(at([-w / 2, top, -1.85]), mv(Rt, [w, 0, 0]), [0, -h, 0], (s0, t) => 0.25 * t * Math.sin(s0 * 4 + t * 3 - p.wave), (s0, t) => {
+    if (ragged) {
+      if (t > 0.6 && hash2(Math.floor(s0 * 7), 0, 13) < (t - 0.6) * 2.6) return -1;
+      if (hash2(Math.floor(s0 * 6), Math.floor(t * 6), 17) < 0.08) return -1;
+      return t < 0.15 ? R.teamDark : R.team;
+    }
+    const cx = s0 - 0.5, cy = (t - 0.3) * (h / w);
+    const d = cx * cx + cy * cy;
+    if ((st === 'nobori' || st === 'big') && d < 0.06 && d > 0.02) return F(R.gold, 3);
+    if (st === 'sashimono' && d < 0.03) return F(R.paper, 2);
+    return R.team;
+  });
+}
+
+/** A figure on foot or in the saddle: legs, coat, head, arms, gear. Origin on the ground between the feet. */
 function man(f: Fig, L: Look, p: Pose, mounted: boolean): void {
   const fallen = p.fall > 0;
-  if (L.pavise && p.planted) {
+  const body: Body = L.body ?? 'man';
+  const lk = LIMB[body];
+  const robed = body === 'wraith' || body === 'robe';
+  if ((L.pavise || L.tate) && p.planted) {
     // Standing on its foot in front of him, leaning back a little on its prop.
     const t = rx(-0.12);
-    pavise(f, [0.2, 3.7, 2.7], mv(t, [2.4, 0, 0]), mv(t, [0, 3.7, 0]), mv(t, [0, 0, 0.3]), 1);
+    if (L.tate) pavise(f, [0.2, 3.0, 2.8], mv(t, [2.6, 0, 0]), mv(t, [0, 3.0, 0]), mv(t, [0, 0, 0.3]), 1, true);
+    else pavise(f, [0.2, 3.7, 2.7], mv(t, [2.4, 0, 0]), mv(t, [0, 3.7, 0]), mv(t, [0, 0, 0.3]), 1);
     f.line([0.2, 2.4, 2.2], [0.2, 0.2, 0.6], R.dwood);
   }
   if (fallen) f.push([0, 1.35 * Math.sin(p.fall), 0], rx(-p.fall));
   const pel: V3 = [0, 6.2 + p.bob, p.pz];
-  if (!mounted) {
+  if (!mounted && !robed) {
     for (const side of [-1, 1]) {
       const hip: V3 = [side * 1.0, pel[1] - 0.3, pel[2]];
       const ank = side < 0 ? p.fl : p.fr;
       const knee = ik(hip, ank, 3.1, 3.0, p.kneel && side > 0 ? [0, -1, 0.15] : [side * 0.1, 0, 1]);
-      f.cap(hip, knee, 0.92, L.leg);
-      f.cap(knee, ank, 0.8, L.leg);
-      f.ell(add(ank, [0, -0.25, 0.45]), [0.62, 0.42, 0.98], L.boot);
+      f.cap(hip, knee, 0.92 * lk, L.leg);
+      f.cap(knee, ank, 0.8 * lk, L.leg);
+      f.ell(add(ank, [0, -0.25, 0.45]), [0.62 * lk, 0.42, 0.98], L.boot);
     }
-  } else {
+    if (body === 'skel' || body === 'colossus') f.ell(add(pel, [0, -0.1, 0]), [1.5, 0.6, 0.9], R.bone);
+  } else if (mounted) {
     for (const side of [-1, 1]) {
       const hip: V3 = [side * 1.0, pel[1] - 0.2, pel[2]];
       const knee: V3 = [side * 2.35, pel[1] - 1.7, pel[2] + 1.5];
       const ank: V3 = [side * 2.45, pel[1] - 4.3, pel[2] + 0.4];
-      f.cap(hip, knee, 0.88, L.leg);
-      f.cap(knee, ank, 0.75, L.leg);
-      f.ell(add(ank, [0, -0.2, 0.45]), [0.55, 0.4, 0.9], L.boot);
+      f.cap(hip, knee, 0.88 * lk, L.leg);
+      f.cap(knee, ank, 0.75 * lk, L.leg);
+      f.ell(add(ank, [0, -0.2, 0.45]), [0.55 * lk, 0.4, 0.9], L.boot);
     }
   }
-  const skirtMat = (l: V3): number => (L.hem !== undefined && l[1] < -0.68 ? L.hem : L.cross && Math.abs(l[0]) < 0.2 && Math.abs(l[2]) > 0.4 && l[1] > -0.5 ? R.red : L.skirt!);
+  const laced = (l: V3, base: number): number => (L.lacing !== undefined && Math.floor((l[1] + 1) * 4.2) % 2 === 0 ? L.lacing : base);
+  const skirtMat = (l: V3): number => {
+    if (body === 'wraith' && l[1] < 0.35 && hash2(Math.floor(Math.atan2(l[0], l[2]) * 6), Math.floor(l[1] * 5), 7) < (0.35 - l[1]) * 1.6) return -1;
+    if (L.hem !== undefined && (L.bell ? l[1] < 0.12 : l[1] < -0.68)) return L.hem;
+    if (L.cross && Math.abs(l[0]) < 0.2 && Math.abs(l[2]) > 0.4 && l[1] > -0.5) return R.red;
+    return L.bell ? laced(l, L.skirt!) : L.skirt!;
+  };
   if (L.skirt !== null) {
     if (mounted) f.ell(add(pel, [0, 0.2, 0.2]), [2.55, 2.5, 2.3], skirtMat, { hi: 0.05, lo: -0.8 });
+    else if (robed) f.ell([0, 0.1, p.pz * 0.5], [2.7, 6.3 + p.bob, 2.3], skirtMat, { lo: 0, hi: 0.97 }, rx(p.lean * 0.3));
+    else if (L.bell) f.ell(add(pel, [0, -3.3, 0]), [2.6, 3.5, 2.2], skirtMat, { lo: 0, hi: 0.95 }, rx(p.lean * 0.4));
     else f.ell(add(pel, [0, 0.4, 0]), [2.05, 3.0, 1.62], skirtMat, { hi: 0.05, lo: -0.84 }, rx(p.lean * 0.4));
   }
   const Rl = rx(p.lean);
@@ -1345,54 +1722,126 @@ function man(f: Fig, L: Look, p: Pose, mounted: boolean): void {
   f.push(chest, Rl);
   const Rt = ry(p.twist);
   const shR = mv(Rt, [1.95, 1.15, 0]), shL = mv(Rt, [-1.95, 1.15, 0]);
-  f.ell([0, 0, 0], [2.0, 2.2, 1.42], (l) => {
+  const ribs = (body === 'skel' || body === 'colossus') && L.cloth === R.bone;
+  f.ell([0, 0, 0], [2.0, 2.2, 1.42], (l, inner) => {
+    if (body === 'colossus' && l[2] > 0.55 && Math.abs(l[0]) < 0.32 && Math.abs(l[1] - 0.05) < 0.3) return F(R.glow, inner ? 2 : 3);
+    if (ribs) {
+      if (inner) return F(R.ink, 0);
+      if (l[1] < -0.5) return Math.abs(l[0]) < 0.24 && l[2] < 0 ? R.bone : -1;
+      if (l[2] > 0.3 && Math.abs(l[0]) < 0.13) return R.bone;
+      return Math.floor((l[1] + 1) * 3.4) % 2 ? R.bone : -1;
+    }
     if (l[1] < -0.62 && l[1] > -0.88) return L.belt;
     if (l[1] > 0.84) return L.collar;
     if (L.cross && Math.abs(l[2]) > 0.2 && ((Math.abs(l[0]) < 0.24 && l[1] > -0.62) || (Math.abs(l[1] - 0.2) < 0.17 && Math.abs(l[0]) < 0.66))) return R.red;
     if (L.sash && Math.abs(l[1] + l[0] * 0.75) < 0.22) return R.team;
+    if (L.lacing !== undefined && l[1] < 0.55) return laced(l, L.cloth);
     return L.cloth;
   }, { lo: -1, hi: 0.92, capHi: true }, Rt);
+  if (L.sode !== undefined) {
+    for (const sx of [-1, 1])
+      f.box(mv(Rt, [sx * 2.4, 0.55, 0]), mv(Rt, [0.32, 0, 0]), mv(Rt, [0, 1.0, 0]), mv(Rt, [0, 0, 1.15]), (l) => (Math.floor((l[1] + 1) * 2) % 2 ? L.sode! : L.lacing ?? L.sode!));
+  }
   if (L.pavise && !p.planted) pavise(f, mv(Rt, [0.1, 0.3, -1.9]), mv(Rt, [2.0, 0, 0]), mv(Rt, [0, 3.0, 0]), mv(Rt, [0, 0, 0.26]), -1);
   if (L.quiver) {
     f.cap(mv(Rt, [1.1, 1.5, -1.6]), mv(Rt, [0.4, -2.2, -1.5]), 0.6, R.leather);
     f.line(mv(Rt, [1.0, 1.6, -1.6]), mv(Rt, [1.3, 2.4, -1.7]), F(R.white, 3));
     f.line(mv(Rt, [0.7, 1.5, -1.5]), mv(Rt, [0.8, 2.3, -1.4]), F(R.white, 2));
   }
-  if (L.mantle) {
+  if (L.cloak) {
+    const C = L.cloak;
     const back: V3 = mounted ? [0, -4.2, -2.6] : [0, -6.4, -1.1];
-    f.sheet(mv(Rt, [2.0, 1.3, -1.0]), mv(Rt, [-4.0, 0, 0]), back, (s, t) => 0.35 * t * Math.sin(s * 5 + t * 3 - p.wave) - 0.3 * t * Math.sin(s * Math.PI), (s, t, bk) => {
-      if (!bk && s > 0.62 && s < 0.86 && t > 0.08 && t < 0.3 && (Math.abs(s - 0.74) < 0.04 || Math.abs(t - 0.17) < 0.035)) return R.red;
-      return R.white;
+    f.sheet(mv(Rt, [2.0, 1.3, -1.0]), mv(Rt, [-4.0, 0, 0]), back, (s0, t) => 0.35 * t * Math.sin(s0 * 5 + t * 3 - p.wave) - 0.3 * t * Math.sin(s0 * Math.PI), (s0, t, bk) => {
+      if (C.ragged && t > 0.55 && hash2(Math.floor(s0 * 8), 0, 21) < (t - 0.55) * 2.4) return -1;
+      if (C.cross && !bk && s0 > 0.62 && s0 < 0.86 && t > 0.08 && t < 0.3 && (Math.abs(s0 - 0.74) < 0.04 || Math.abs(t - 0.17) < 0.035)) return R.red;
+      return C.ramp;
     });
   }
-  f.cap([0, 1.6, 0], [0, 2.3, 0.1], 0.72, L.collar);
+  standard(f, L, p, Rt);
+  f.cap([0, 1.6, 0], [0, 2.3, 0.1], 0.72 * lk, L.collar);
   f.push(mv(Rt, [0, 2.85, 0.15]), mm(ry(p.twist * 0.5), rx(p.head)));
   head(f, L);
   f.pop();
   arm(f, L, shR, p.hr, 1);
   arm(f, L, shL, p.hl, -1);
   if (!p.drop && !L.noWeapon) weapon(f, L, p);
-  if (L.style === 'marshal' && !p.drop) beauseant(f, p);
+  if (L.style === 'marshal' && !p.drop) {
+    if (L.weapon === 'staff') lichStaff(f, p);
+    else if (!L.standard) beauseant(f, p);
+  }
   shield(f, L, p);
   if (p.spray > 0) {
-    const s = p.spray;
-    for (const [x, y, z] of [[0.4, 0.8, 2.0], [1.2, 1.6, 2.8], [-0.6, 1.9, 3.2]] as V3[]) f.ell([x * s, y + 0.3 * s, z + 0.5 * s], [0.45, 0.45, 0.45], F(R.blood, 2));
+    const sp = p.spray;
+    const chip = body === 'man' ? F(R.blood, 2) : body === 'ghoul' ? F(R.sinew, 1) : F(R.bone, 3);
+    for (const [x, y, z] of [[0.4, 0.8, 2.0], [1.2, 1.6, 2.8], [-0.6, 1.9, 3.2]] as V3[]) f.ell([x * sp, y + 0.3 * sp, z + 0.5 * sp], [0.45, 0.45, 0.45], chip);
   }
+  if (p.fx) gunsmoke(f, p.fx);
   f.pop();
   if (fallen) f.pop();
-  if (p.drop) {
-    // The weapon lies where it fell, beside him.
-    const q = basePose();
-    q.hr = [3.0, 0.35, -3.0];
-    q.w = N(0.25, 0, -1);
-    q.hl = [-3.0, 0.4, -3.5];
-    q.aim = N(0, 0, -1);
-    q.loaded = false;
-    q.draw = 0;
-    q.wave = p.wave;
-    q.drop = true;
-    weapon(f, L, q);
+  if (p.drop) dropWeapon(f, L, p);
+}
+
+/** The weapon lies where it fell, beside him. */
+function dropWeapon(f: Fig, L: Look, p: Pose): void {
+  const q = basePose();
+  q.hr = [3.0, 0.35, -3.0];
+  q.w = N(0.25, 0, -1);
+  q.hl = [-3.0, 0.4, -3.5];
+  q.aim = N(0, 0, -1);
+  q.loaded = false;
+  q.draw = 0;
+  q.wave = p.wave;
+  q.drop = true;
+  weapon(f, L, q);
+  if (L.weapon === 'staff') {
+    f.line([-3.0, 0.4, 1.0], [-1.0, 0.4, -7.0], R.ash);
+    f.ell([-1.0, 0.7, -7.3], [0.8, 0.8, 0.8], R.bone);
   }
+}
+
+/** A matchlock's flash and the smoke that hangs after it, in the chest frame, ahead of the muzzle. */
+function gunsmoke(f: Fig, fx: number): void {
+  const m: V3 = [0.9, 1.4, 6.6];
+  if (fx === 1) {
+    f.ell(m, [0.9, 0.9, 0.9], F(R.fire, 3));
+    f.ell(add(m, [0, 0, 1.0]), [0.6, 0.6, 0.6], F(R.fire, 2));
+  }
+  const puffs: [V3, number][] = fx === 1 ? [[[0, 0.6, 0.6], 0.9]] : fx === 2 ? [[[0, 1.2, 0.8], 1.4], [[0.8, 0.6, 1.8], 1.1]] : [[[0, 2.6, 1.0], 1.7], [[1.0, 1.6, 2.2], 1.3]];
+  for (const [o, r] of puffs) f.ell(add(m, o), [r, r * 0.85, r], (l) => (fx === 3 && hash2(Math.floor(l[0] * 3), Math.floor(l[1] * 3), 4) < 0.35 ? -1 : R.smoke));
+}
+
+/** What is left of the dead: a heap of bones with the skull on top, or an empty robe. */
+function remains(f: Fig, L: Look, k: number): void {
+  const body = L.body ?? 'man';
+  const wisp = !!L.glow && k === 4;
+  if (body === 'wraith' || body === 'robe') {
+    const robe = L.skirt ?? R.rag;
+    f.ell([0, 0.3, -2.0], [3.6, 0.6, 4.2], (l) => (l[0] * l[0] + l[2] * l[2] > 0.55 + 0.45 * hash2(Math.floor(l[0] * 4), Math.floor(l[2] * 4), 3) ? -1 : robe));
+    f.ell([0.2, 0.8, -0.8], [2.0, 0.7, 1.8], R.rag);
+    if (L.cloak) f.ell([-1.2, 0.5, -3.0], [2.2, 0.35, 1.8], (l) => (hash2(Math.floor(l[0] * 3), Math.floor(l[2] * 3), 5) < 0.3 ? -1 : L.cloak!.ramp));
+    if (body === 'robe') {
+      f.push([0.6, 1.1, -3.4], rx(-1.2));
+      head(f, L);
+      f.pop();
+    }
+  } else {
+    // Long bones scattered around the ribcage, as if he had come apart where he stood.
+    for (let i = 0; i < 9; i++) {
+      const a = i * 2.4, r = 1.0 + (i % 3) * 1.3;
+      const c: V3 = [Math.cos(a) * r, 0.4 + (i % 2) * 0.3, -1.6 + Math.sin(a) * r * 1.3];
+      const d: V3 = [Math.cos(a * 1.7), 0.05, Math.sin(a * 1.7)];
+      f.cap(madd(c, d, -1.6), madd(c, d, 1.6), 0.5, R.bone);
+      f.ell(madd(c, d, 1.7), [0.5, 0.5, 0.5], R.bone);
+    }
+    f.ell([0, 0.8, -1.8], [1.8, 0.9, 1.5], (l, inner) => (inner ? F(R.ink, 0) : Math.floor((l[2] + 1) * 3.4) % 2 ? R.bone : -1));
+    f.push([0.4, 1.7, -0.6], mm(ry(0.6), rx(-0.3)));
+    skull(f, !!L.glow && k < 4);
+    f.pop();
+    if (L.helm === 'skullHelm' || L.helm === 'skullKettle' || L.helm === 'deathHelm') f.ell([-2.2, 0.6, 0.6], [1.6, 1.1, 1.6], L.helm === 'deathHelm' ? R.bplate : R.rust, { lo: 0 });
+    if (L.cloth !== R.bone) f.ell([0.8, 0.25, -2.6], [2.0, 0.3, 1.6], L.cloth);
+  }
+  if (L.shield) f.ellAx([-2.6, 0.3, -1.4], [1.7, 0, 0], [0, 0, 1.9], [0, 0.25, 0], (l) => (l[1] < 0 ? R.teamDark : emblemAt(L, l[0], -l[2]) ?? R.team));
+  if (wisp) for (const [x, y, z, r] of [[0.2, 3.5, -1.0, 0.5], [0.6, 5.2, -1.2, 0.4], [0.1, 6.6, -1.0, 0.3]] as [number, number, number, number][]) f.ell([x, y, z], [r, r, r], F(R.glow, 3));
 }
 
 // ------------------------------------------------------------------ horses
@@ -1401,6 +1850,19 @@ interface HorseLook {
   coat: number;
   points: number;
   barding: boolean;
+  /** Barding ramp (white caparison by default, with the Templar cross). */
+  bard?: number;
+  /** Ragged hems on the barding or saddle cloth. */
+  ragged?: boolean;
+  /** Saddle cloth ramp; null for none (team by default). */
+  saddle?: number | null;
+  tack?: number;
+  /** Tassel knots on the harness, in this ramp. */
+  tassels?: number;
+  /** A bare-bone horse: ribs, vertebrae, a skull head. */
+  skeletal?: boolean;
+  chanfron?: 'skull';
+  glow?: boolean;
 }
 
 interface HPose {
@@ -1509,55 +1971,109 @@ function horse(f: Fig, H: HorseLook, hp: HPose): [V3, M3] {
   const C: V3 = [0, 7.6 + hp.bob, 0];
   const Rb = rx(hp.pitch);
   const body = (v: V3): V3 => add(C, mv(Rb, v));
+  const bony = !!H.skeletal;
   for (let i = 0; i < 4; i++) {
     const [x, z] = LEGS[i]!;
     const top = body([x, -1.1, z]);
     const hoof = hp.hooves[i]!;
     const knee = ik(top, hoof, 3.0, 3.3, mv(Rb, [0, 0, i < 2 ? 1 : -1]));
-    f.cap(top, knee, i < 2 ? 0.82 : 0.95, H.coat);
-    f.cap(knee, hoof, 0.5, H.points);
-    f.ell(add(hoof, [0, -0.1, 0.2]), [0.55, 0.42, 0.62], F(R.ink, 2));
+    f.cap(top, knee, bony ? 0.55 : i < 2 ? 0.82 : 0.95, H.coat);
+    f.cap(knee, hoof, bony ? 0.46 : 0.5, H.points);
+    f.ell(add(hoof, [0, -0.1, 0.2]), [0.55, 0.42, 0.62], bony ? H.coat : F(R.ink, 2));
   }
   f.push(C, Rb);
+  const bard = H.bard ?? R.white;
   const cloth = (l: V3): number => {
-    if (l[1] < -0.62) return R.team;
-    if (Math.abs(l[0]) > 0.4 && ((Math.abs(l[2] + 0.05) < 0.1 && Math.abs(l[1] - 0.02) < 0.48) || (Math.abs(l[1] - 0.14) < 0.13 && Math.abs(l[2] + 0.05) < 0.3))) return R.red;
-    return R.white;
+    if (H.ragged && l[1] < -0.5 && hash2(Math.floor(Math.atan2(l[0], l[2]) * 5), 3, 11) < (-0.5 - l[1]) * 3.2) return -1;
+    if (l[1] < -0.62) return H.ragged ? R.teamDark : R.team;
+    if (H.bard === undefined && Math.abs(l[0]) > 0.4 && ((Math.abs(l[2] + 0.05) < 0.1 && Math.abs(l[1] - 0.02) < 0.48) || (Math.abs(l[1] - 0.14) < 0.13 && Math.abs(l[2] + 0.05) < 0.3))) return R.red;
+    return bard;
   };
-  f.ell([0, 0, 0], [2.0, 2.3, 4.2], H.coat);
-  f.ell([0, 0.3, 3.0], [1.9, 2.3, 1.9], H.coat);
-  f.ell([0, 0.4, -3.0], [2.05, 2.25, 2.05], H.coat);
+  // Ribs: bone bars with the dark of the body cavity between them.
+  const ribs = (l: V3, inner: boolean): number => {
+    if (inner) return F(R.ink, 0);
+    if (l[1] > 0.55) return H.coat;
+    return Math.floor((l[2] + 1) * 4.5) % 2 ? H.coat : -1;
+  };
+  if (bony) {
+    f.ell([0, 0.2, 0], [1.7, 2.1, 3.6], ribs);
+    f.cap([0, 1.6, -4.0], [0, 1.6, 3.4], 0.5, H.coat);
+    f.ell([0, 0.5, -3.1], [1.6, 1.2, 1.3], H.coat);
+  } else {
+    f.ell([0, 0, 0], [2.0, 2.3, 4.2], H.coat);
+    f.ell([0, 0.3, 3.0], [1.9, 2.3, 1.9], H.coat);
+    f.ell([0, 0.4, -3.0], [2.05, 2.25, 2.05], H.coat);
+  }
   if (H.barding) f.ell([0, 0.1, 0.3], [2.45, 3.25, 6.0], cloth, { lo: -0.8 });
   else {
-    f.ell([0, 1.0, -0.3], [2.25, 2.0, 2.3], (l) => (l[1] < -0.55 ? R.teamDark : R.team), { lo: -0.15 });
-    f.ell([0, 2.25, -0.3], [1.45, 0.6, 1.75], R.leather);
+    if (H.saddle !== null) {
+      const sc = H.saddle ?? R.team;
+      f.ell([0, 1.0, -0.3], [2.25, 2.0, 2.3], (l) => {
+        if (H.ragged && l[1] < -0.2 && hash2(Math.floor(Math.atan2(l[0], l[2]) * 6), 1, 5) < 0.45) return -1;
+        return l[1] < -0.55 ? R.teamDark : sc;
+      }, { lo: -0.15 });
+    }
+    f.ell([0, 2.25, -0.3], [1.45, 0.6, 1.75], H.tack ?? R.leather);
+  }
+  if (H.tassels !== undefined) {
+    // Red tassel harness: knots on the breast and the crupper.
+    for (const [x, y, z] of [[0, -0.6, 4.3], [-1.3, -0.2, 3.6], [1.3, -0.2, 3.6], [-1.5, 0.2, -3.6], [1.5, 0.2, -3.6], [0, 0.6, -4.5]] as V3[]) f.ell([x, y, z], [0.5, 0.6, 0.5], H.tassels);
   }
   // Neck and head.
   f.push([0, 1.2, 3.4], rx(hp.neck));
-  f.cap([0, 0, 0], [0, 3.6, 2.0], 1.22, H.coat);
-  if (H.barding) f.cap([0, -0.2, -0.1], [0, 2.0, 1.2], 1.38, R.white);
-  f.cap([0, 1.3, -0.25], [0, 4.5, 1.6], 0.5, H.points);
-  f.cap([0, 3.9, 2.2], [0, 2.4, 4.6], 0.9, H.coat);
-  f.ell([0, 3.7, 2.35], [1.0, 1.05, 1.05], H.coat);
-  f.ell([0, 2.25, 4.65], [0.62, 0.55, 0.5], H.points);
-  if (H.barding) f.cap([0, 4.1, 2.6], [0, 2.8, 4.55], 0.55, R.plate);
-  for (const s of [-1, 1]) f.line([s * 0.45, 4.5, 2.1], [s * 0.5, 5.3, 1.8], H.coat);
+  if (bony) {
+    for (let i = 0; i < 4; i++) f.ell(lerp([0, 0.2, 0.1], [0, 3.4, 1.9], i / 3), [0.75, 0.6, 0.75], H.coat);
+  } else f.cap([0, 0, 0], [0, 3.6, 2.0], 1.22, H.coat);
+  if (H.barding) f.cap([0, -0.2, -0.1], [0, 2.0, 1.2], 1.38, (l) => (H.ragged && l[0] > 0.6 ? -1 : bard));
+  f.cap([0, 1.3, -0.25], [0, 4.5, 1.6], bony ? 0.45 : 0.5, H.points);
+  const skullHead = bony || H.chanfron === 'skull';
+  f.cap([0, 3.9, 2.2], [0, 2.4, 4.6], 0.9, skullHead ? R.bone : H.coat);
+  f.ell([0, 3.7, 2.35], [1.0, 1.05, 1.05], skullHead ? R.bone : H.coat);
+  f.ell([0, 2.25, 4.65], [0.62, 0.55, 0.5], skullHead ? R.bone : H.points);
+  if (skullHead) for (const sx of [-0.62, 0.62]) f.ell([sx, 3.85, 2.6], [0.38, 0.38, 0.38], H.glow ? F(R.glow, 3) : F(R.ink, 0));
+  if (H.barding && !skullHead) f.cap([0, 4.1, 2.6], [0, 2.8, 4.55], 0.55, R.plate);
+  for (const sx of [-1, 1]) f.line([sx * 0.45, 4.5, 2.1], [sx * 0.5, 5.3, 1.8], skullHead ? R.bone : H.coat);
   f.pop();
   // Tail.
-  f.cap([0, 1.0, -4.6], add([0, 1.0, -4.6], hp.tail), 0.55, H.points);
+  f.cap([0, 1.0, -4.6], add([0, 1.0, -4.6], hp.tail), bony ? 0.45 : 0.55, H.points);
   f.pop();
   return [body([0, 2.6, -0.4]), Rb];
 }
 
-// ------------------------------------------------------------------ the engine
+// ------------------------------------------------------------------ the engines
+
+interface EngineLook {
+  kind: 'trebuchet' | 'bombard';
+  timber: number;
+  timber2: number;
+  rope: number;
+  ammo: number;
+  crew: Look;
+  /** A green wisp trailing the shot (the corpse trebuchet). */
+  wisp?: boolean;
+}
+
+/** True for the bodies that fall to bones (or an empty robe) instead of bleeding. */
+const undead = (L: Look): boolean => (L.body ?? 'man') !== 'man' && L.body !== 'ghoul';
+
+/** One of the engine's crew, posed; the dead among the undead crews fall to bones. */
+function crewman(f: Fig, L: Look, p: Pose, anim: Anim, fr: number): void {
+  if (undead(L) && ((anim === Anim.Die && fr >= 3) || anim === Anim.Dead)) remains(f, L, anim === Anim.Dead ? 5 : fr);
+  else man(f, L, p, false);
+}
+
+function engine(f: Fig, anim: Anim, fr: number, E: EngineLook): void {
+  if (E.kind === 'bombard') bombard(f, anim, fr, E);
+  else trebuchet(f, anim, fr, E);
+}
 
 /**
  * A traction trebuchet (the 13th-century "mangonel" of the Maciejowski Bible): a trestle, a long
  * beam on an axle with a sling on its long end, and a crew hauling ropes on the short end.
  */
-function mangonel(f: Fig, anim: Anim, fr: number, crew: Look): void {
+function trebuchet(f: Fig, anim: Anim, fr: number, E: EngineLook): void {
   const n = FRAMES[anim];
-  // Beam angle: the long end's direction is (0, sin a, -cos a) — negative a is down and back.
+  // Beam angle: the long end's direction is (0, sin a, -cos a); negative a is down and back.
   let a = -0.42, loaded = true, flying = false, wreck = 0, pull = 0;
   if (anim === Anim.Shoot) {
     a = [-0.42, 0.5, 1.75, 1.5][fr]!;
@@ -1579,45 +2095,47 @@ function mangonel(f: Fig, anim: Anim, fr: number, crew: Look): void {
   const S = 1.7;
   f.pushScale([S, S, S]);
   f.push([0, 0, 0], rz(tilt));
-  // Sills on the ground and the two trestles.
   for (const s of [-1, 1]) {
-    f.beam([s * 2.2, 0.35, -3.6], [s * 2.2, 0.35, 3.6], 0.7, 0.7, R.dwood);
+    f.beam([s * 2.2, 0.35, -3.6], [s * 2.2, 0.35, 3.6], 0.7, 0.7, E.timber2);
     if (wreck >= 3 && s > 0) {
-      f.beam([3.0, 0.4, -2.8], [6.5, 0.4, 2.0], 0.6, 0.6, R.wood);
+      f.beam([3.0, 0.4, -2.8], [6.5, 0.4, 2.0], 0.6, 0.6, E.timber);
       continue;
     }
-    f.beam([s * 2.1, 0.5, 3.0], [s * 1.5, apex, 0], 0.6, 0.6, R.wood, [1, 0, 0]);
-    f.beam([s * 2.1, 0.5, -3.0], [s * 1.5, apex, 0], 0.6, 0.6, R.wood, [1, 0, 0]);
-    f.beam([s * 1.9, 3.2, -1.9], [s * 1.9, 3.2, 1.9], 0.45, 0.45, R.dwood);
+    f.beam([s * 2.1, 0.5, 3.0], [s * 1.5, apex, 0], 0.6, 0.6, E.timber, [1, 0, 0]);
+    f.beam([s * 2.1, 0.5, -3.0], [s * 1.5, apex, 0], 0.6, 0.6, E.timber, [1, 0, 0]);
+    f.beam([s * 1.9, 3.2, -1.9], [s * 1.9, 3.2, 1.9], 0.45, 0.45, E.timber2);
   }
-  for (const z of [-3.3, 3.3]) f.beam([-2.4, 0.4, z], [2.4, 0.4, z], 0.6, 0.6, R.dwood, [0, 1, 0.001]);
+  for (const z of [-3.3, 3.3]) f.beam([-2.4, 0.4, z], [2.4, 0.4, z], 0.6, 0.6, E.timber2, [0, 1, 0.001]);
   const P: V3 = [0, apex, 0];
   f.beam([-2.0, apex, 0], [2.0, apex, 0], 0.55, 0.55, R.dplate, [0, 1, 0.001]);
   const d: V3 = [0, Math.sin(a), -Math.cos(a)];
   const tip = madd(P, d, 8.6);
   const butt = madd(P, d, -3.4);
   f.push([0, 0, 0], wreck >= 2 ? rz(-0.2) : I3);
-  f.beam(butt, tip, 0.75, 0.75, (l) => (Math.abs(l[2] + 0.4) < 0.05 || Math.abs(l[2] - 0.3) < 0.05 ? R.rope : R.wood), [1, 0, 0]);
+  f.beam(butt, tip, 0.75, 0.75, (l) => (Math.abs(l[2] + 0.4) < 0.05 || Math.abs(l[2] - 0.3) < 0.05 ? E.rope : E.timber), [1, 0, 0]);
   f.pop();
-  // The sling: hanging from the long end, or lying on the ground behind when cocked.
   if (wreck < 2) {
     const pouch: V3 = a < 0 ? [0, 0.6, Math.min(tip[2] - 1.5, -6.2)] : flying ? madd(tip, d, 2.4) : madd(tip, [0, -1, -0.4], 2.2);
-    f.line(tip, pouch, F(R.rope, 2));
+    f.line(tip, pouch, F(E.rope, 2));
     f.ell(pouch, [0.7, 0.45, 0.7], R.leather);
-    if (loaded) f.ell(add(pouch, [0, 0.6, 0]), [0.8, 0.8, 0.8], R.stone);
-    if (flying) f.ell(madd(tip, d, 4.6), [0.8, 0.8, 0.8], R.stone);
+    if (loaded) f.ell(add(pouch, [0, 0.6, 0]), [0.8, 0.8, 0.8], E.ammo);
+    if (flying) {
+      const shot = madd(tip, d, 4.6);
+      f.ell(shot, [0.8, 0.8, 0.8], E.ammo);
+      if (E.wisp) for (let i = 1; i <= 3; i++) f.ell(madd(shot, d, -0.9 * i), [0.4, 0.4, 0.4], F(R.glow, 3 - (i >> 1)));
+    }
   }
   f.pop();
   f.pop();
-  // The crew haul the ropes from the front; the master stands by the frame.
   const hauls: V3[] = [
     [-5.6, 0, 3.6],
     [5.8, 0, 4.4],
   ];
   hauls.forEach((at, i) => {
     let p: Pose;
+    const crew = E.crew;
     if (anim === Anim.Shoot || anim === Anim.Idle || anim === Anim.Brace) {
-      p = manPose('crew', Anim.Idle, anim === Anim.Shoot ? 0 : fr % FRAMES[Anim.Idle], false);
+      p = posed(crew, Anim.Idle, anim === Anim.Shoot ? 0 : fr % FRAMES[Anim.Idle], false);
       const up = 1 - pull;
       p.hr = [0.4, -1.2 + 3.6 * up, -0.6 - 0.8 * up];
       p.hl = [-0.4, -1.4 + 3.6 * up, -0.4 - 0.8 * up];
@@ -1627,25 +2145,89 @@ function mangonel(f: Fig, anim: Anim, fr: number, crew: Look): void {
       p.head = -0.2 + 0.3 * pull;
       p.drop = false;
     } else if ((anim === Anim.Die || anim === Anim.Dead) && i === 1) {
-      p = manPose('crew', anim, fr, false);
+      p = posed(crew, anim, fr, false);
     } else if (anim === Anim.Die || anim === Anim.Dead) {
-      p = manPose('crew', Anim.Hit, fr % 2, false);
-      if (anim === Anim.Dead) p = manPose('crew', Anim.Idle, 0, false);
-    } else p = manPose('crew', anim, fr, false);
-    // Facing the engine (backward), the ropes over their heads.
+      p = posed(crew, Anim.Hit, fr % 2, false);
+      if (anim === Anim.Dead) p = posed(crew, Anim.Idle, 0, false);
+    } else p = posed(crew, anim, fr, false);
     f.push(at, ry(Math.PI));
     const hauling = anim === Anim.Shoot || anim === Anim.Idle || anim === Anim.Brace;
-    man(f, hauling ? { ...crew, style: 'crew', noWeapon: true } : crew, p, false);
+    crewman(f, hauling ? { ...crew, noWeapon: true } : crew, p, i === 1 ? anim : anim === Anim.Dead ? Anim.Idle : anim, fr);
     f.pop();
     if (hauling && wreck === 0) {
-      // Rope from the beam's short end down to his fists (fists ~ chest height + hand offset).
       const hand: V3 = [at[0], 9.2 + p.bob + p.hr[1], at[2] - p.hr[2]];
-      f.line(scl(butt, S), hand, F(R.rope, 1));
+      f.line(scl(butt, S), hand, F(E.rope, 1));
     }
   });
 }
 
-// ------------------------------------------------------------------ the army's figures
+/** The ōzutsu: a fat bronze barrel on a timber sledge, three gunners, flash and a great cloud. */
+function bombard(f: Fig, anim: Anim, fr: number, E: EngineLook): void {
+  let recoil = 0, fx = 0, tilt = 0;
+  if (anim === Anim.Shoot) {
+    recoil = [0, 0.9, 0.5, 0.1][fr]!;
+    fx = [0, 1, 2, 3][fr]!;
+  } else if (anim === Anim.Die || anim === Anim.Dead) tilt = [0, 0.1, 0.3, 0.55, 0.62][anim === Anim.Dead ? 4 : fr]!;
+  const S = 1.6;
+  const el = 0.12;
+  f.pushScale([S, S, S]);
+  f.push([0, 0, -recoil], rz(tilt));
+  for (const sx of [-1, 1]) f.beam([sx * 1.7, 0.4, -4.2], [sx * 1.7, 0.4, 3.4], 0.6, 0.7, E.timber2);
+  f.box([0, 1.15, -0.4], [2.1, 0, 0], [0, 0.4, 0], [0, 0, 3.0], E.timber);
+  f.box([0, 2.0, 0.6], [1.3, 0, 0], [0, 0.6, 0], [0, 0, 1.3], E.timber2);
+  const d: V3 = [0, Math.sin(el), Math.cos(el)];
+  const breech: V3 = [0, 2.9, -2.8];
+  const muzzle = madd(breech, d, 7.2);
+  f.cap(breech, muzzle, 1.45, (l) => (Math.abs(l[0] - 0.33) < 0.04 || Math.abs(l[0] - 0.7) < 0.04 || l[0] > 0.93 ? F(R.bronze, 1) : R.bronze));
+  f.ell(muzzle, [1.55, 1.55, 0.5], R.bronze, undefined, I3);
+  f.ell(madd(muzzle, d, 0.3), [0.75, 0.75, 0.3], F(R.ink, 0));
+  for (const [x, z] of [[2.6, -2.4], [3.2, -1.6], [2.9, -3.2]] as [number, number][]) f.ell([x, 0.6, z], [0.6, 0.6, 0.6], E.ammo);
+  f.pop();
+  f.pop();
+  const m = scl(madd([0, 2.9, -2.8 - recoil], d, 8.0), S);
+  if (fx === 1) {
+    f.ell(m, [2.4, 2.1, 2.4], F(R.fire, 3));
+    f.ell(madd(m, d, 2.6), [1.6, 1.4, 1.6], F(R.fire, 2));
+    f.ell(madd(m, d, 4.0), [0.9, 0.8, 0.9], F(R.fire, 1));
+  }
+  if (fx) {
+    const puffs: [V3, number][] =
+      fx === 1 ? [[[0, 1.4, 1.6], 1.6]] : fx === 2 ? [[[0, 1.6, 2.2], 2.4], [[1.6, 1.0, 1.0], 1.8], [[-1.4, 2.4, 1.2], 1.6]] : [[[0, 3.6, 2.0], 2.8], [[1.8, 2.6, 0.6], 2.2], [[-1.8, 3.0, 1.4], 2.0]];
+    for (const [o, r] of puffs) f.ell(add(m, o), [r, r * 0.85, r], (l) => (fx === 3 && hash2(Math.floor(l[0] * 3), Math.floor(l[1] * 3), 8) < 0.3 ? -1 : R.smoke));
+  }
+  const crewAt: [V3, number][] = [
+    [[-4.6, 0, -6.4], 0.2],
+    [[4.6, 0, -7.0], -0.2],
+    [[0.4, 0, -10.0], 0],
+  ];
+  crewAt.forEach(([at, yaw], i) => {
+    let a: Anim = anim === Anim.Brace ? Anim.Idle : anim;
+    let k = fr;
+    if (anim === Anim.Shoot) {
+      a = fx === 1 ? Anim.Hit : Anim.Idle;
+      k = 0;
+    }
+    if ((anim === Anim.Die || anim === Anim.Dead) && i !== 1) {
+      a = anim === Anim.Dead ? Anim.Dead : Anim.Die;
+      k = anim === Anim.Dead ? 0 : Math.min(4, fr + i);
+    } else if (anim === Anim.Die || anim === Anim.Dead) {
+      a = Anim.Hit;
+      k = fr % 2;
+    }
+    const p = posed(E.crew, a, k, false);
+    if (i === 2 && anim === Anim.Shoot && fr === 0) {
+      // The gunner reaches the slow-match to the touch-hole.
+      p.hr = [1.0, -0.2, 2.6];
+      p.lean = 0.3;
+    }
+    f.push(at, ry(yaw));
+    crewman(f, E.crew, p, a, k);
+    if (i === 2 && a !== Anim.Die && a !== Anim.Dead) f.ell(add(add([0, 9.2 + p.bob, 0], p.hr), [0, 0.2, 0.5]), [0.4, 0.4, 0.4], F(R.fire, 2));
+    f.pop();
+  });
+}
+
+// ------------------------------------------------------------------ the armies' figures
 
 const base = {
   cross: 0 as const, belt: R.leather, collar: R.mail, sleeve: R.mail, hand: R.skin, leg: R.hose, boot: R.leather,
@@ -1659,54 +2241,111 @@ const FOOT: Record<number, Look> = {
   [U.Crossbowmen]: { ...base, style: 'xbow', cloth: R.gambeson, collar: R.gambeson, sleeve: R.gambeson, skirt: R.gambeson, hem: R.team, helm: 'kettle', pavise: true },
   [U.Shock]: { ...base, style: 'poleaxe', cloth: R.dplate, belt: R.dplate, collar: R.dplate, sleeve: R.dplate, hand: R.dplate, leg: R.dplate, boot: R.dplate, skirt: R.team, hem: R.teamDark, helm: 'sallet', plume: R.red, sash: true },
 };
-const CREW: Look = { ...base, style: 'crew', cloth: R.tunic, collar: R.tunic, sleeve: R.tunic, skirt: R.tunic, hem: R.team, helm: 'cap' };
 
 const RIDERS: Record<number, { look: Look; horse: HorseLook }> = {
   [U.LightCavalry]: { look: { ...base, style: 'cavspear', cloth: R.tunic, collar: R.mail, sleeve: R.tunic, skirt: R.tunic, helm: 'turban', shield: 'round' }, horse: { coat: R.chestnut, points: R.points, barding: false } },
   [U.HorseArchers]: { look: { ...base, style: 'horsebow', cloth: R.tunic2, collar: R.tunic2, sleeve: R.tunic2, skirt: R.tunic2, helm: 'turban', quiver: true }, horse: { coat: R.dun, points: R.points, barding: false } },
   [U.Knights]: {
-    look: { ...base, style: 'lance', cloth: R.white, cross: 1, hand: R.mail, leg: R.mail, boot: R.mail, skirt: R.white, helm: 'great', shield: 'kite', mantle: true },
+    look: { ...base, style: 'lance', cloth: R.white, cross: 1, hand: R.mail, leg: R.mail, boot: R.mail, skirt: R.white, helm: 'great', shield: 'kite', cloak: { ramp: R.white, cross: true } },
     horse: { coat: R.bay, points: R.points, barding: true },
   },
   [COMMANDER_KIND]: {
-    look: { ...base, style: 'marshal', cloth: R.white, cross: 1, hand: R.mail, leg: R.mail, boot: R.mail, skirt: R.white, helm: 'marshal', plume: R.gold, mantle: true },
+    look: { ...base, style: 'marshal', cloth: R.white, cross: 1, hand: R.mail, leg: R.mail, boot: R.mail, skirt: R.white, helm: 'marshal', plume: R.gold, cloak: { ramp: R.white, cross: true } },
     horse: { coat: R.grey, points: R.grey, barding: true },
   },
 };
 
+// The Samurai Clans: dark lacquer laced in vermilion, flared kusazuri, and over every soldier a
+// sashimono in the team hue (refs: Met gusoku and dō-maru, Kawanakajima print, jingasa).
+const sb = {
+  cross: 0 as const, belt: R.paper, collar: R.lacquer, sleeve: R.lacquer, hand: R.skin, leg: R.indigo, boot: R.lacquer,
+};
+const SAMURAI_FOOT: Record<number, Look> = {
+  [U.HeavyInfantry]: { ...sb, style: 'sword', weapon: 'katana', cloth: R.lacquer, lacing: R.vermilion, sode: R.lacquer, skirt: R.lacquer, bell: true, helm: 'kabuto', standard: 'sashimono' },
+  [U.Spearmen]: { ...sb, style: 'spear', weapon: 'yari', cloth: R.lacquer, sleeve: R.leather, skirt: R.indigo, leg: R.skin, boot: R.paper, helm: 'jingasa', standard: 'sashimono', beard: false },
+  [U.Skirmishers]: { ...sb, style: 'javelin', cloth: R.indigo, collar: R.indigo, sleeve: R.indigo, skirt: R.indigo, boot: R.paper, helm: 'hachimaki', standard: 'small', beard: false },
+  [U.Archers]: { ...sb, style: 'bow', weapon: 'yumi', cloth: R.lacquer, sleeve: R.indigo, skirt: R.indigo, boot: R.paper, helm: 'jingasa', standard: 'sashimono', quiver: true },
+  [U.Crossbowmen]: { ...sb, style: 'xbow', weapon: 'teppo', cloth: R.lacquer, sleeve: R.indigo, skirt: R.indigo, boot: R.paper, helm: 'jingasa', standard: 'sashimono', tate: true },
+  [U.Shock]: { ...sb, style: 'poleaxe', weapon: 'naginata', cloth: R.hose, lacing: R.mail, collar: R.paper, sleeve: R.hose, hand: R.skin, leg: R.hose, boot: R.wood, skirt: R.hose, bell: true, helm: 'cowl', sash: true, scale: 1.14 },
+};
+const SAMURAI_RIDERS: Record<number, { look: Look; horse: HorseLook }> = {
+  [U.LightCavalry]: {
+    look: { ...sb, style: 'cavspear', weapon: 'yari', cloth: R.lacquer, lacing: R.vermilion, skirt: R.lacquer, helm: 'jingasa', standard: 'sashimono' },
+    horse: { coat: R.bay, points: R.points, barding: false, saddle: null, tack: R.lacquer, tassels: R.vermilion },
+  },
+  [U.HorseArchers]: {
+    look: { ...sb, style: 'horsebow', weapon: 'yumi', cloth: R.indigo, lacing: R.paper, skirt: R.indigo, helm: 'kabuto', standard: 'horo', quiver: true },
+    horse: { coat: R.chestnut, points: R.points, barding: false, saddle: null, tack: R.lacquer, tassels: R.vermilion },
+  },
+  [U.Knights]: {
+    look: { ...sb, style: 'lance', weapon: 'yari', cloth: R.lacquer, lacing: R.vermilion, sode: R.lacquer, skirt: R.lacquer, helm: 'kabuto', standard: 'big' },
+    horse: { coat: R.darkbay, points: R.points, barding: false, saddle: null, tack: R.lacquer, tassels: R.vermilion },
+  },
+  [COMMANDER_KIND]: {
+    look: { ...sb, style: 'marshal', weapon: 'saihai', cloth: R.team, lacing: R.gold, sode: R.lacquer, skirt: R.lacquer, helm: 'daimyo', standard: 'nobori' },
+    horse: { coat: R.darkbay, points: R.points, barding: false, saddle: null, tack: R.lacquer, tassels: R.gold },
+  },
+};
+const SAMURAI_CREW: Look = { ...sb, style: 'crew', cloth: R.lacquer, sleeve: R.indigo, skirt: R.indigo, boot: R.paper, helm: 'jingasa', beard: false };
+
+// The Hollow Host: bone, rust and grave-black, one green glow, the team hue on shields and rags
+// (refs: Holbein and Hollar's Dance of Death, Kuniyoshi's ghosts, CC0 skeletons and Gate Keeper).
+const ub = {
+  cross: 0 as const, belt: R.rag, collar: R.bone, sleeve: R.bone, hand: R.bone, leg: R.bone, boot: R.bone, blade: R.rust, body: 'skel' as Body, bowWood: R.ash,
+};
+const UNDEAD_FOOT: Record<number, Look> = {
+  [U.HeavyInfantry]: { ...ub, style: 'sword', cloth: R.rust, collar: R.rust, skirt: R.rag, helm: 'skullHelm', shield: 'kite', emblem: 'crack' },
+  [U.Spearmen]: {
+    ...ub, body: 'ghoul', style: 'spear', cloth: R.ghoul, collar: R.ghoul, sleeve: R.ghoul, hand: R.ghoul, leg: R.ghoul, boot: R.ghoul, skirt: R.rag, helm: 'ghoul', hunch: 0.35, cloak: { ramp: R.team, ragged: true },
+  },
+  [U.Skirmishers]: { ...ub, style: 'javelin', weapon: 'bone', cloth: R.bone, skirt: R.team, hem: R.teamDark, helm: 'skull' },
+  [U.Archers]: { ...ub, body: 'wraith', style: 'bow', bowWood: R.sinew, cloth: R.rag, collar: R.rag, sleeve: R.rag, skirt: R.rag, helm: 'wraith', glow: true, sash: true, cloak: { ramp: R.team, ragged: true } },
+  [U.Crossbowmen]: { ...ub, style: 'xbow', cloth: R.rag, collar: R.rag, skirt: R.rag, hem: R.team, sash: true, helm: 'skullKettle', pavise: true },
+  [U.Shock]: { ...ub, body: 'colossus', style: 'poleaxe', weapon: 'club', cloth: R.bone, skirt: null, helm: 'skulls', hunch: 0.4, scale: 1.7, standard: 'rag', glow: true },
+  [COMMANDER_KIND]: { ...ub, body: 'robe', style: 'marshal', weapon: 'staff', cloth: R.rag, collar: R.rag, sleeve: R.rag, skirt: R.rag, helm: 'skullCrown', glow: true, standard: 'rag', scale: 1.2 },
+};
+const boneHorse: HorseLook = { coat: R.bonehorse, points: R.ash, barding: false, skeletal: true, glow: true, saddle: R.team, ragged: true, tack: R.rag };
+const UNDEAD_RIDERS: Record<number, { look: Look; horse: HorseLook }> = {
+  [U.LightCavalry]: { look: { ...ub, style: 'lance', cloth: R.rag, collar: R.rag, skirt: R.rag, helm: 'skullHood', glow: true }, horse: boneHorse },
+  [U.HorseArchers]: { look: { ...ub, style: 'horsebow', cloth: R.bone, skirt: R.rag, helm: 'skull', quiver: true, standard: 'pennon' }, horse: boneHorse },
+  [U.Knights]: {
+    look: { ...ub, body: 'armour', style: 'lance', cloth: R.bplate, collar: R.bplate, sleeve: R.bplate, hand: R.bplate, leg: R.bplate, boot: R.bplate, skirt: R.rag, helm: 'deathHelm', shield: 'kite', emblem: 'skull', glow: true },
+    horse: { coat: R.ash, points: R.ink, barding: true, bard: R.rag, ragged: true, chanfron: 'skull', glow: true },
+  },
+};
+const UNDEAD_CREW: Look = { ...ub, style: 'crew', cloth: R.bone, skirt: R.team, hem: R.teamDark, helm: 'skull' };
+
 /**
- * A faction's look table: what each class wears and carries, the horses, the engine crew, and any
- * ramp overrides (its palette and special marks). Bodies, poses and animation are shared, so a new
- * faction is a new table, not new animation code.
+ * A faction's look table: what each class wears and carries, the horses and the engine. Bodies,
+ * poses and animation are shared, so a new faction is a new table, not new animation code.
  */
 export interface FactionLooks {
   foot: Record<number, Look>;
   riders: Record<number, { look: Look; horse: HorseLook }>;
-  crew: Look;
-  /** Adjusts the army's ramps after the shared ones are made (e.g. lacquer, bone, rust). */
+  engine: EngineLook;
+  /** Adjusts the army's ramps after the shared ones are made. */
   ramps?: (r: RGB[][], hue: number) => void;
 }
 
-const TEMPLAR: FactionLooks = { foot: FOOT, riders: RIDERS, crew: CREW };
+const TEMPLAR: FactionLooks = {
+  foot: FOOT,
+  riders: RIDERS,
+  engine: { kind: 'trebuchet', timber: R.wood, timber2: R.dwood, rope: R.rope, ammo: R.stone, crew: { ...base, style: 'crew', cloth: R.tunic, collar: R.tunic, sleeve: R.tunic, skirt: R.tunic, hem: R.team, helm: 'cap' } },
+};
+const SAMURAI: FactionLooks = {
+  foot: SAMURAI_FOOT,
+  riders: SAMURAI_RIDERS,
+  engine: { kind: 'bombard', timber: R.wood, timber2: R.dwood, rope: R.rope, ammo: R.dplate, crew: SAMURAI_CREW },
+};
+const UNDEAD: FactionLooks = {
+  foot: UNDEAD_FOOT,
+  riders: UNDEAD_RIDERS,
+  engine: { kind: 'trebuchet', timber: R.ash, timber2: R.rag, rope: R.sinew, ammo: R.rag, crew: UNDEAD_CREW, wisp: true },
+};
 
-/** Looks by faction id. A faction without its own table borrows the Templar one, recoloured. */
-const LOOKS: Record<string, FactionLooks> = { templar: TEMPLAR };
-
-function looksFor(faction: string): FactionLooks {
-  const own = LOOKS[faction];
-  if (own) return own;
-  // Placeholder: the Templar figures in a cloth colour of the faction's own.
-  let h = 0;
-  for (const ch of faction) h = (h * 31 + ch.charCodeAt(0)) % 360;
-  return {
-    ...TEMPLAR,
-    ramps: (r) => {
-      r[R.white] = ramp(hsl(h, 25, 70));
-      r[R.black] = ramp(hsl(h, 30, 22));
-      r[R.red] = ramp(hsl((h + 180) % 360, 55, 40));
-    },
-  };
-}
+/** Looks by faction id; an unknown faction borrows the Templar table. */
+const LOOKS: Record<string, FactionLooks> = { templar: TEMPLAR, samurai: SAMURAI, undead: UNDEAD };
+const looksFor = (faction: string): FactionLooks => LOOKS[faction] ?? TEMPLAR;
 
 const SHADOW_FOOT: Shadow = { rx: 2.4, rz: 2.0 };
 const SHADOW_HORSE: Shadow = { rx: 2.8, rz: 7.2 };
@@ -1721,6 +2360,20 @@ function beauseant(f: Fig, p: Pose): void {
   f.sheet(add(hl, [0, 14.2, -0.2]), [0, 0, -8.0], [0, -6.0, 0], (s) => 0.7 * s * Math.sin(s * 6 - p.wave), (_s, t) => (t < 0.5 ? F(R.ink, 3) : R.white));
 }
 
+/** A figure on foot, at its scale; the undead fall to their remains from the fourth frame of Die. */
+function footFigure(f: Fig, L: Look, anim: Anim, fr: number): void {
+  const sc = L.scale ?? 1;
+  if (sc !== 1) f.pushScale([sc, sc, sc]);
+  const k = anim === Anim.Dead ? 5 : fr;
+  if (undead(L) && (anim === Anim.Dead || (anim === Anim.Die && fr >= 3))) remains(f, L, Math.min(k, 4) + (anim === Anim.Dead ? 1 : 0));
+  else {
+    const p = posed(L, anim, fr, false);
+    bloodChance = p.blood;
+    man(f, L, p, false);
+  }
+  if (sc !== 1) f.pop();
+}
+
 function paint(looks: FactionLooks, kind: number, anim: Anim, fr: number, dir: Dir): Shadow {
   ZB.fill(-Infinity);
   PX.fill(-1);
@@ -1731,23 +2384,23 @@ function paint(looks: FactionLooks, kind: number, anim: Anim, fr: number, dir: D
   bloodSeed = kind * 131 + dir * 17 + fr;
   const f = new Fig(basis(dir));
   if (kind === U.Artillery) {
-    if (anim === Anim.Dead) bloodChance = 0.05;
-    mangonel(f, anim, fr, looks.crew);
+    const living = !undead(looks.engine.crew);
+    if (anim === Anim.Dead && living) bloodChance = 0.05;
+    engine(f, anim, fr, looks.engine);
     return SHADOW_ENGINE;
   }
   const rider = looks.riders[kind];
   if (!rider) {
     const L = looks.foot[kind]!;
-    const p = manPose(L.style, anim, fr, false);
-    if (anim === Anim.Dead) pool(f, [0.6, 0.03, -6.0], 1);
-    bloodChance = p.blood;
-    man(f, L, p, false);
-    return SHADOW_FOOT;
+    if (anim === Anim.Dead && (L.body ?? 'man') === 'man') pool(f, [0.6, 0.03, -6.0], 1);
+    footFigure(f, L, anim, fr);
+    return L.scale && L.scale > 1.4 ? { rx: 3.6, rz: 3.0 } : SHADOW_FOOT;
   }
-  const L0 = rider.look;
-  const hp = horsePose(anim, fr, L0.style === 'lance' || L0.style === 'cavspear');
+  const L = rider.look;
+  const bleeds = !undead(L);
+  const hp = horsePose(anim, fr, L.style === 'lance' || L.style === 'cavspear');
   const dying = anim === Anim.Die || anim === Anim.Dead;
-  if (anim === Anim.Dead) pool(f, [-1.5, 0.03, 0.5], 1.4);
+  if (anim === Anim.Dead && bleeds && !rider.horse.skeletal) pool(f, [-1.5, 0.03, 0.5], 1.4);
   const k = anim === Anim.Dead ? 5 : fr;
   if (hp.roll > 0) {
     // Fall onto the side that leaves the legs pointing away from the eye, so they stay in the cell.
@@ -1755,7 +2408,7 @@ function paint(looks: FactionLooks, kind: number, anim: Anim, fr: number, dir: D
     const r = hp.roll / (Math.PI / 2);
     f.pushAbout([-2.2 * sg, 0, 0], rz(hp.roll * sg), [5.5 * r * sg, 0.3 * r, 0]);
   }
-  bloodChance = dying ? (anim === Anim.Dead ? 0.12 : 0.04 * fr) : 0;
+  bloodChance = dying && bleeds && !rider.horse.skeletal ? (anim === Anim.Dead ? 0.12 : 0.04 * fr) : 0;
   f.pushScale(HORSE_SCALE);
   const [s0, Rb] = horse(f, rider.horse, hp);
   const saddle: V3 = [s0[0] * HORSE_SCALE[0], s0[1] * HORSE_SCALE[1], s0[2] * HORSE_SCALE[2]];
@@ -1764,9 +2417,8 @@ function paint(looks: FactionLooks, kind: number, anim: Anim, fr: number, dir: D
     f.pop();
     f.pop();
   }
-  const L = rider.look;
   if (!dying || k < 2) {
-    const p = manPose(L.style, dying ? Anim.Die : anim, dying ? 0 : fr, true);
+    const p = posed(L, dying ? Anim.Die : anim, dying ? 0 : fr, true);
     if (dying && k === 1) {
       p.lean = -0.5;
       p.twist = 0.4;
@@ -1777,10 +2429,8 @@ function paint(looks: FactionLooks, kind: number, anim: Anim, fr: number, dir: D
     f.pop();
   } else {
     // Thrown: he falls beside his horse.
-    const p = manPose(L.style, k >= 5 ? Anim.Dead : Anim.Die, Math.min(4, k), false);
-    bloodChance = p.blood;
     f.push([3.4, 0, -4.2], ry(0.5));
-    man(f, L, p, false);
+    footFigure(f, L, k >= 5 ? Anim.Dead : Anim.Die, Math.min(4, k));
     f.pop();
   }
   return SHADOW_HORSE;
@@ -1852,6 +2502,11 @@ function finish(out: Uint32Array, iw: number, ox: number, oy: number, fill: numb
     }
 }
 
+/**
+ * One army's atlas. Kinds are painted lazily: a kind's rows are filled the first time at() is asked
+ * for it (about 10-15 ms each), and the rest are filled in the background a kind at a time, so
+ * building an atlas costs almost nothing up front and no frame ever waits for more than one kind.
+ */
 export const buildAtlas: BuildAtlas = (faction, hue) => {
   const looks = looksFor(faction);
   const ramps = makeRamps(paletteFor(faction, hue), hue);
@@ -1868,18 +2523,31 @@ export const buildAtlas: BuildAtlas = (faction, hue) => {
   image.width = COLS * W;
   image.height = KIND_COUNT * 4 * H;
   const ctx = image.getContext('2d')!;
-  const img = ctx.createImageData(image.width, image.height);
-  const out = new Uint32Array(img.data.buffer);
-  for (let kind = 0; kind < KIND_COUNT; kind++)
+  const painted: boolean[] = new Array<boolean>(KIND_COUNT).fill(false);
+  const ensure = (kind: number): void => {
+    if (painted[kind] || kind < 0 || kind >= KIND_COUNT) return;
+    painted[kind] = true;
+    const img = ctx.createImageData(image.width, 4 * H);
+    const out = new Uint32Array(img.data.buffer);
     for (let dir = 0; dir < 4; dir++)
       for (let a = 0; a < ANIM_COUNT; a++) {
         if (a === Anim.Shoot && !SHOOTS.has(kind)) continue;
         for (let fr = 0; fr < FRAMES[a]!; fr++) {
           const sh = paint(looks, kind, a as Anim, fr, dir as Dir);
-          finish(out, image.width, (COL0[a]! + fr) * W, (kind * 4 + dir) * H, fill, edge, a === Anim.Dead ? null : sh, dir as Dir);
+          finish(out, image.width, (COL0[a]! + fr) * W, dir * H, fill, edge, a === Anim.Dead ? null : sh, dir as Dir);
         }
       }
-  ctx.putImageData(img, 0, 0);
+    ctx.putImageData(img, 0, kind * 4 * H);
+  };
+  // Fill the remaining kinds in the background, one per slice.
+  let next = 0;
+  const idle = (): void => {
+    while (next < KIND_COUNT && painted[next]) next++;
+    if (next >= KIND_COUNT) return;
+    ensure(next);
+    setTimeout(idle, 16);
+  };
+  if (typeof setTimeout === 'function') setTimeout(idle, 50);
   const anim = (kind: number, a: Anim): Anim => (a === Anim.Shoot && !SHOOTS.has(kind) ? Anim.Attack : a);
   const atlas: Atlas = {
     image,
@@ -1890,6 +2558,7 @@ export const buildAtlas: BuildAtlas = (faction, hue) => {
     frames: (kind, a) => FRAMES[anim(kind, a)],
     ticksPerFrame: (a) => TICKS[a],
     at: (kind, a, frame, dir) => {
+      ensure(kind);
       const b = anim(kind, a);
       const n = FRAMES[b];
       const f = b === Anim.Die || b === Anim.Dead ? Math.min(Math.max(0, frame), n - 1) : ((frame % n) + n) % n;

@@ -14,3 +14,10 @@ Studied for the Undead faction (docs/factions.md). Reference only; no image file
 Not used: Wikimedia Commons (Holbein *Danse Macabre* woodcut set found, e.g. File:Holbein Danse
 Macabre 18.jpg, public domain) was rate-limited from the build machine; the Met prints above cover
 the same images.
+
+## Added by the sprite painter (sprites.ts)
+
+| # | Image | Source / licence | Taken from it |
+|---|---|---|---|
+| 7 | Wenceslaus Hollar, *The Knight* and *Old Woman*, Dance of Death (Met 361663, 361672) | https://www.metmuseum.org/art/collection/search/361663 — Public domain | The ribcage is horizontal bars with dark gaps. We cut real gaps (see-through) in the torso, the skeletal horses' barrels and the bone heaps instead of painting stripes, so the dead look hollow at any facing. |
+| 8 | Skeletons rework and Gate Keeper (OGA, CC0), re-studied (refs 5, 6) | **CC0** | One light source per figure: green eye pixels only on officers, riders, wraiths, the colossus's chest and the lich's staff skull, which is the brightest green on the field. Undead deaths end in a bone heap with the skull on top, never blood. |
