@@ -382,6 +382,17 @@ main {
   margin: 0.8rem 0 1rem;
   flex-wrap: wrap;
 }
+.invite-manual {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+  max-width: 100%;
+}
+.invite-manual input {
+  width: min(26rem, 100%);
+  font-size: 0.85rem;
+}
 .tabs {
   display: flex;
   gap: 0.2rem;
@@ -775,9 +786,16 @@ main {
   padding: 0.35rem 0.5rem;
   flex-wrap: wrap;
   justify-content: center;
+  column-gap: 0.95rem;
+  /* left: 50% alone would cap the shrink-to-fit width at half the field and wrap the bar early. */
+  width: max-content;
+  max-width: calc(100% - 1rem);
 }
-.hud-controls .sep {
-  flex: 0 0 0.6rem;
+.hud-group {
+  display: flex;
+  gap: 0.35rem;
+  align-items: center;
+  white-space: nowrap;
 }
 .verdict {
   position: absolute;
@@ -857,6 +875,22 @@ main {
     gap: 0.5rem;
   }
   .ticker {
+    display: none;
+  }
+  /* Phone battle controls: two compact rows of icon buttons at the foot of the field. */
+  .hud-controls {
+    bottom: 0.5rem;
+    padding: 0.3rem;
+    row-gap: 0.3rem;
+  }
+  .hud-group {
+    gap: 0.25rem;
+  }
+  .hud-controls button {
+    font-size: 0.85rem;
+    padding: 0.25em 0.55em;
+  }
+  .hud-label {
     display: none;
   }
   .worklog li {
