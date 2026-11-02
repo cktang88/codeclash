@@ -896,10 +896,12 @@ registerPaperKind<FootPose>('undead', COMMANDER_KIND, { body: 'foot', keys: LICH
 const HP = poser<HorsePose>({ ...HORSE0, fnu: 6, fnl: -4, ffu: -4, ffl: 2, hnu: -6, hnl: 4, hfu: 6, hfl: -2 });
 /** Leg keys of the gaits, shared by the three riders (fore and hind, near and far). */
 const H_WALK: Partial<HorsePose>[] = [
-  { fnu: 24, fnl: -8, ffu: -16, ffl: 6, hnu: -18, hnl: 8, hfu: 16, hfl: -6, py: 0, neck: 33 },
-  { fnu: 6, fnl: -56, ffu: -4, ffl: 0, hnu: -4, hnl: 0, hfu: 4, hfl: -40, py: -0.25, neck: 37 },
-  { fnu: -16, fnl: 6, ffu: 24, ffl: -8, hnu: 16, hnl: -6, hfu: -18, hfl: 8, py: 0, neck: 33 },
-  { fnu: -4, fnl: 0, ffu: 6, ffl: -56, hnu: 4, hnl: -40, hfu: -4, hfl: 0, py: -0.25, neck: 37 },
+  // Contact: a diagonal pair planted wide, the body settles onto it and the head drops.
+  { fnu: 26, fnl: -6, ffu: -18, ffl: 8, hnu: -22, hnl: 6, hfu: 20, hfl: -4, py: 0.2, pitch: -1.5, neck: 30, nod: 6 },
+  // Passing: the other pair swings through flexed, the body rides up on the planted legs.
+  { fnu: 6, fnl: -64, ffu: -4, ffl: 0, hnu: -4, hnl: 0, hfu: 8, hfl: -46, py: -0.35, pitch: 0.5, neck: 37, nod: -2 },
+  { fnu: -18, fnl: 8, ffu: 26, ffl: -6, hnu: 20, hnl: -4, hfu: -22, hfl: 6, py: 0.2, pitch: -1.5, neck: 30, nod: 6 },
+  { fnu: -4, fnl: 0, ffu: 6, ffl: -64, hnu: 8, hnl: -46, hfu: -4, hfl: 0, py: -0.35, pitch: 0.5, neck: 37, nod: -2 },
 ];
 const H_GALLOP: Partial<HorsePose>[] = [
   // Extended: forelegs reaching, hind legs thrown back.
@@ -926,7 +928,7 @@ function horseKeys(rider: (a: Anim, i: number) => Partial<HorsePose>, extra: { a
     [Anim.Run]: H_GALLOP.map((l, i) => HP({ ...l, ...rider(Anim.Run, i) })),
     [Anim.Attack]: extra.attack.map((a) => HP({ ...rider(Anim.Attack, 0), ...a })),
     [Anim.Hit]: [HP(rider(Anim.Hit, 0)), HP({ ...rider(Anim.Hit, 1), pitch: 6, neck: 50, nod: -16, px: -0.3, torso: 14, head: -22 }), HP({ ...rider(Anim.Hit, 2), neck: 40, px: -0.15 })],
-    [Anim.Die]: [...H_DIE.map((l, i) => HP({ ...rider(Anim.Die, i), ...l, torso: [12, -30, -50][i]!, head: [-20, 20, 30][i]! })), HP({ ...H_DIE[2]!, apart: 1 })],
+    [Anim.Die]: [...H_DIE.map((l, i) => HP({ ...rider(Anim.Die, i), ...l, torso: [12, -30, -50][i]!, head: [-20, 20, 30][i]! })), HP({ ...rider(Anim.Die, 2), ...H_DIE[2]!, apart: 1 })],
     [Anim.Brace]: [HP({ ...rider(Anim.Brace, 0), neck: 26, ...extra.brace }), HP({ ...rider(Anim.Brace, 1), neck: 27, py: 0.12, ...extra.brace })],
   };
   if (extra.shoot) poses[Anim.Shoot] = extra.shoot.map((s) => HP({ ...rider(Anim.Shoot, 0), ...s }));
@@ -1083,8 +1085,9 @@ function horseArcher(c: Paper, p: HorsePose, facing: Facing, _anim?: Anim, _fram
       bareRider(c, F, p.sway);
       if (F.back) quiver(c, addP(F.pel, [-0.2, -0.8]), 215, { shafts: 4, len: 2.2 });
       // A long team pennon on a pole at the back: the troop's mark over the bow.
-      const pole = addP(F.neck, F.T(F.back ? [0.2, 0.8] : [-1.0, 0.7]));
-      const tip = addP(pole, [-0.5, -5.2 * E]);
+      // The pole stands clear of the skull (a pixel apart at level 1).
+      const pole = addP(F.neck, F.T(F.back ? [0.2, 0.8] : [-1.6, 0.7]));
+      const tip = addP(pole, [-0.9, -5.2 * E]);
       c.rod(pole, tip, 0.22, 0.2, UM.wood, { tone: 2 });
       const s = p.sway;
       c.shape([tip, addP(tip, [-3.2 + s, 0.6]), addP(tip, [-2.2 + s, 1.0]), addP(tip, [-3.0 + s, 1.5]), addP(tip, [0.0, 1.4])], (x, y) => (c.ly(y) < c.L * 0.5 ? code(UM.team, 3) : code(UM.team, 2)));
