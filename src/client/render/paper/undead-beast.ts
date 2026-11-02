@@ -176,7 +176,7 @@ function colossusClips(skel: SkeletonData): ClipSet {
   const fc = (name: string, n: number, loop: boolean, keys: (f: Facing) => KP[], ev: AnimEvent[] = [], warp?: number[], run = 0): Clip => {
     let c: Clip = facingClip(skel, name, n, loop, keys, ev);
     if (warp) c = mapFacings(c, (a) => jerk(a, warp, new Set(['head', 'jaw', 'upperArmN', 'forearmN', 'weapon', 'upperArmF', 'forearmF'])));
-    return lagCloth(skel, c, n, loop, [{ bone: 'banner', follow: 'pelvis', k: 0.7, lag: 2, bias: -10 * run, wave: [4, 2, 0.2] }, { bone: 'jaw', follow: 'pelvis', k: 0.4, lag: 1.5 }]);
+    return lagCloth(skel, c, n, loop, [{ bone: 'banner', follow: 'pelvis', k: 0.35, lag: 2, bias: -10 * run, wave: [run ? 4 : 0, 2, 0.2] }, { bone: 'jaw', follow: 'pelvis', k: 0.4, lag: 1.5 }]);
   };
   const mk = (f: Facing, clip: string, o: Parameters<typeof mocapKeys>[3], a?: Author, extra: number[] = []) => overlayKeys(mocapKeys(skel, clip, f, o).keys, a ? a(restWorld(skel, f), f) : {}, extra);
   const heavy: Author = () => ({ dw: { head: T([0, 0]) } });
@@ -185,8 +185,8 @@ function colossusClips(skel: SkeletonData): ClipSet {
   // The lumbering walk: a long heavy stride on the capture, the heap rolling over each planted
   // foot (the whole torso swaying), dropping hard on each contact; the arms and the skull hold,
   // then jerk on.
-  const roll: Author = () => ({ dw: { pelvis: T([0, -4], [3, 2], [6, -4], [9, 2], [12, -4]) }, tAdd: { pelvis: [T([0, 0]), T([0, 0.25], [1, 0.45], [3, -0.1], [6, 0.25], [7, 0.45], [9, -0.1], [12, 0.25])] } });
-  const walk = fc('walk', 12, true, (f) => mk(f, 'walk', { ref: 'mean', torso: 0.4, roll: 0.4, feet: 0.9, mirror: 12 }, both(roll, heavy), [0, 1, 3, 6, 7, 9]), [{ f: 0, name: 'step' }, { f: 6, name: 'step' }], [0, 1, 2, 2, 4, 5, 6, 7, 8, 8, 10, 11]);
+  const roll: Author = () => ({ tAdd: { pelvis: [T([0, -0.2], [3, 0.15], [6, -0.2], [9, 0.15], [12, -0.2]), T([0, 0.25], [1, 0.45], [3, -0.1], [6, 0.25], [7, 0.45], [9, -0.1], [12, 0.25])] } });
+  const walk = fc('walk', 12, true, (f) => mk(f, 'walk', { ref: 'mean', torso: 0, roll: 0.4, feet: 0.9, mirror: 12 }, both(roll, heavy), [0, 1, 3, 6, 7, 9]), [{ f: 0, name: 'step' }, { f: 6, name: 'step' }], [0, 1, 2, 2, 4, 5, 6, 7, 8, 8, 10, 11]);
   const charge: Author = () => ({ dw: { pelvis: T([0, -10]), head: T([0, 6]) }, w: { weapon: T([0, 110]) } });
   const run = fc('run', 12, true, (f) => mk(f, 'run', { ref: 'mean', torso: 0.4, roll: 0.4, feet: 0.8, mirror: 12 }, charge), [{ f: 0, name: 'step' }, { f: 6, name: 'step' }], [0, 1, 2, 2, 4, 5, 6, 7, 8, 8, 10, 11], 1);
   // The smash (chop: the rise, the drop, the impact held): heaved up over the hump (1-3), held at

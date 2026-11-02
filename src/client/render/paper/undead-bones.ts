@@ -101,6 +101,7 @@ const THROWER_SPEC = (): FootSpec => ({
   cloak: true,
   neFirst: [],
   neLast: ['cape', 'quiver'],
+  shadeL1: 0.42,
   drops: [
     { slot: 'weapon', holder: 'weapon', at: 3, land: { x: -7.0, y: -0.3, rot: -10, f: 6 } },
     { slot: 'quiver', holder: 'chest', at: 7, land: { x: -5.2, y: -0.8, rot: -60, f: 9 } },
@@ -138,6 +139,7 @@ const WARDEN_SPEC = (): FootSpec => ({
   cloak: true,
   neFirst: ['farItem'],
   neLast: ['cloak'],
+  shadeL1: 0.3,
   drops: [
     // The bow falls from the hand; the mask in its hood drops onto the empty robe.
     { slot: 'farItem', holder: 'itemF', at: 3, land: { x: 1.6, y: -0.35, rot: -86, f: 6 } },
@@ -169,6 +171,7 @@ const ARBALEST_SPEC = (): FootSpec => ({
   stiff: 0.8,
   neFirst: [],
   neLast: ['pavise'],
+  shadeL1: 0.36,
   drops: [
     { slot: 'weapon', holder: 'weapon', at: 3, land: { x: 4.6, y: -0.4, rot: 0, f: 6 } },
     { slot: 'pavise', holder: 'chest', at: 5, land: { x: -7.2, y: -1.0, rot: -84, f: 8 } },
@@ -207,6 +210,7 @@ const LICH_SPEC = (): FootSpec => ({
     { slot: 'heap', bone: 'root', draw: (c, _J, back) => lichHeap(c, back) },
     { slot: 'wisp', bone: 'root', top: true, live: (ctx) => ({ t: ctx.events.find((e) => e.name === 'wisp')?.int ?? 0 }), draw: (c, _J, _b, o) => void (o.t && soulWisp(c, o.t)) },
   ],
+  shadeL1: 0.42,
   drops: [
     { slot: 'weapon', holder: 'weapon', at: 3, land: { x: -0.6, y: -0.3, rot: -88, f: 6 } },
     { slot: 'skull', holder: 'head', at: 6, land: { x: 1.8, y: -1.2, rot: 30, f: 9 } },

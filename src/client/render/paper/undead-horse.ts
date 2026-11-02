@@ -21,9 +21,10 @@ import {
 } from './skeleton.ts';
 import { at as atT, facingClip, lagCloth, lastFrame, mapFacings, overlayKeys, restWorld, addDrops, type ClipSet, type Drop, type KP, type LagSpec, type Track } from './templar-rig.ts';
 import { HIT, R, T, type Author, type Tracks } from './templar-clips.ts';
-import { FLASH, LIGHT, pieceAtt, registerLazy, trail } from './undead-foot.ts';
+import { FLASH, pieceAtt, registerLazy, trail } from './undead-foot.ts';
 import { both, groundClamp, jerk } from './undead-clips.ts';
-import { horseFrame, UM, type HorseLegs } from './undead-parts.ts';
+import { horseFrame, shadeLower, UM, type HorseLegs } from './undead-parts.ts';
+import { keyLight } from './undead-static.ts';
 import { seated, type MountArt, type PieceOpts, type UJ, type UPiece } from './undead-static.ts';
 import { MOTION, type MotionKey } from './motion/index.ts';
 
@@ -50,6 +51,8 @@ export interface MountSpec {
   neLast?: string[];
   drops: { slot: string; holder: string; at: number; land: Drop['land'] }[];
   smear?: [number, number];
+  /** How much of the figure is in the low shade at level 1. */
+  shadeL1?: number;
 }
 
 // ------------------------------------------------------------------ the skeleton
@@ -278,7 +281,8 @@ function mountParts(s: MountSpec): AttachmentSet {
     atts[`${d.slot}Drop`] = pieceAtt({ ...p, bone: `drop_${d.slot}`, cloth: false, live: undefined }, J, art.axis);
   }
   atts.flash = FLASH;
-  atts.light = LIGHT;
+  // The light from above: the horse's legs and belly in shade (as the pose rig's horses were), then the key light.
+  atts.light = { cache: false, draw: (c) => { keyLight(c); shadeLower(c, c.L <= 1 ? s.shadeL1 ?? 0.3 : 0.42); } };
   if (s.smear) atts.smear = smearPart('weapon', s.smear[0], s.smear[1], UM.steel);
   return atts;
 }
