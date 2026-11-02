@@ -36,7 +36,8 @@ const HATAMOTO: Kit = { head: 'kabuto', crest: 'kuwagata', mask: true, body: 'gu
 
 // ------------------------------------------------------------------ poses shared by the foot
 
-const pose = poser<FootPose>({ ...FOOT0, torso: 3, head: 0, nt: 6, ns: -6, ft: -8, fs: -2 });
+// Feet apart and weight settled (Shogun 2's ashigaru, Kuniyoshi's warriors), not standing to attention.
+const pose = poser<FootPose>({ ...FOOT0, torso: 3, head: 0, nt: 12, ns: -10, ft: -14, fs: 2 });
 
 /** Legs of a walk (contact, passing, contact, passing), with the body's rise and fall. */
 const WALK_LEGS: Partial<FootPose>[] = [
@@ -100,7 +101,7 @@ const heldFan = (p: FootPose): Held => ({ draw: (c, hand, _f, r) => gunbai(c, ha
 
 // ------------------------------------------------------------------ 0: Katana Samurai
 
-const KATANA_REST = { nu: 8, nl: 150, fu: 34, bl: 196, sw: -0.62 };
+const KATANA_REST = { nu: 8, nl: 150, fu: 34, bl: 210, sw: -0.62 };
 const KATANA_KEYS: KeySet<FootPose> = {
   poses: {
     // Hassō-no-kamae: the sword held upright by the right shoulder; only the breath moves.
@@ -293,7 +294,7 @@ const GUN_KEYS: KeySet<FootPose> = {
 
 // ------------------------------------------------------------------ 8: Sōhei
 
-const MONK_REST = { nu: 20, nl: 75, fu: 30, bl: 172.5, sw: -2.2, torso: 4 };
+const MONK_REST = { nu: 20, nl: 75, fu: 30, bl: 172.5, sw: -2.2, torso: 4, nt: 6, ns: -6, ft: -8, fs: -2 };
 const MONK_KEYS: KeySet<FootPose> = {
   poses: {
     // The naginata held slanting forward, blade high: a broad curved blade over a white cowl.
@@ -319,7 +320,7 @@ const MONK_KEYS: KeySet<FootPose> = {
 
 // ------------------------------------------------------------------ 10: Daimyō
 
-const LORD_REST = { nu: 100, nl: 60, fu: 26, fl: 50, bl: 165 };
+const LORD_REST = { nu: 100, nl: 60, fu: 26, fl: 50, bl: 165, nt: 6, ns: -6, ft: -8, fs: -2 };
 const LORD_KEYS: KeySet<FootPose> = {
   poses: {
     // The war fan raised to direct the army; the horo billowing behind.
