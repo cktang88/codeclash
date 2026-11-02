@@ -957,6 +957,8 @@ function mounted(
     nearSide(F: Frame): void;
     /** Remains of the rider beside the fallen horse. */
     fallen(back: boolean): void;
+    /** What the rider's legs are made of (bone, or the Death Knights' black plate). */
+    legMat?: number;
   },
 ): void {
   const back = isBack(facing);
@@ -968,11 +970,12 @@ function mounted(
   const H = horseFrame(c, p, back);
   const F = riderFrame(c, H, p, back);
   horseFar(c, H, p, look);
-  skelLeg(c, F, F.hipF, p.ft, p.fs, true, { len: 0.9 });
+  const legMat = rider.legMat ?? boneMat();
+  withBone(legMat, () => skelLeg(c, F, F.hipF, p.ft, p.fs, true, { len: 0.9 }));
   horseBody(c, H, p, look);
   rider.farSide(F);
   rider.body(F);
-  skelLeg(c, F, F.hipN, p.nt, p.ns, false, { len: 0.9 });
+  withBone(legMat, () => skelLeg(c, F, F.hipN, p.nt, p.ns, false, { len: 0.9, w: legMat === UM.iron ? 1.5 : 1 }));
   horseNear(c, H, p, look);
   rider.nearSide(F);
 }
@@ -1186,6 +1189,7 @@ function greatHelm(c: Paper, at: P2, ang: number, back: boolean, sway: number): 
 function deathKnight(c: Paper, p: HorsePose, facing: Facing, _anim?: Anim, _frame?: number): void {
   const E = ex(c);
   mounted(c, p, facing, { bard: true }, {
+    legMat: UM.iron,
     farSide(F) {
       const hf = skelArm(c, F, F.shF, p.fu, p.fl, true, { len: 0.95 });
       if (F.back) shieldBack(c, addP(hf, [0.9, 0.2]), -6);

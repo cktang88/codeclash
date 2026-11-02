@@ -1081,22 +1081,22 @@ function bard(c: Paper, H: HorseFrame, sway: number): void {
   rag(c, P([5.6, 2.2]), P([-6.0, 1.6]), 2.4, -sway * 0.4, UM.team, UM.teamDk, 199, { tear: 0.55, folds: false });
   const pts: P2[] = [P([6.0, -0.4]), P([4.4, -2.5]), P([-1.0, -2.9]), P([-4.6, -2.7]), P([-6.6, -1.2]), P([-6.6, 2.0]), P([1.0, 2.9]), P([5.9, 2.4])];
   const L = c.L;
-  const row = Math.max(2, Math.round(L * 0.85));
+  const row = Math.max(2, Math.round(L * 1.05));
   const top = c.sy(P([0, -2.9])[1]);
   c.poly(pts.map((p) => [c.sx(p[0]), c.sy(p[1])] as P2), (x, y) => {
     const r = Math.floor((y - top) / row);
     const yy = (y - top) % row;
-    const pw = Math.max(3, Math.round(L * 1.2));
+    const pw = Math.max(3, Math.round(L * 1.5));
     const xx = (c.lx(x) + (r % 2) * (pw >> 1)) % pw;
-    // Scalloped lower edge of each plate: a dark seam, the plate's top lit.
-    if (L >= 2 && (yy === row - 1 || (xx === 0 && yy > row / 2))) return code(HB, 0);
-    // Each plate's upper rim is bare bone, the rest blackened.
-    if ((L >= 4 || (L >= 2 && r === 0)) && yy === 0) return code(UM.bone, 2);
-    if (c.tex(x, y, 201, 3) < 0.12) return code(HB, 1);
-    // One plane of light over the whole bard: lit toward the withers, shaded to the belly and rump.
+    // One plane of light over the whole bard: lit toward the rump and back, shaded to the belly.
     const fx = (x - c.sx(P([-6, 0])[0])) / Math.max(1, c.sx(P([6, 0])[0]) - c.sx(P([-6, 0])[0]));
     const lt = planeLight(2 * fx - 1, (r / 5) * 2 - 1, 0.35);
-    return code(HB, 2 + (lt > 0 ? litStep(c) : lt));
+    if (L <= 2) return code(HB, 2 + (lt > 0 ? litStep(c) : lt));
+    // Each plate: a seam under it and down its side, a bare-bone rim on top, its upper half
+    // catching the light, the lower half turned down into shade.
+    if (yy === row - 1 || (xx === 0 && yy > 0)) return code(HB, 0);
+    if (yy === 0) return code(UM.bone, 2 + Math.min(0, lt));
+    return code(HB, (yy < row / 2 ? 3 : 2) + Math.min(0, lt));
   });
   // A skull boss on the flank, the green point in its socket.
   const sk = P([-3.6, -0.2]);
