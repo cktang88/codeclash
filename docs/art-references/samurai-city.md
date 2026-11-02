@@ -89,3 +89,97 @@ Each is linked here as a direct image, with its Commons page and licence.
 | `references/samurai-city/sam-temple.jpg` | [image](https://commons.wikimedia.org/wiki/Special:FilePath/Byodo-ji%2C_Main_Hall_01.jpg?width=640) | [page](https://commons.wikimedia.org/wiki/File:Byodo-ji,_Main_Hall_01.jpg) | CC BY-SA 4.0 |
 | `references/samurai-city/sam-ricefarm.jpg` | [image](https://commons.wikimedia.org/wiki/Special:FilePath/A_Couple_Viewing_Rice_Planting_LACMA_16.16.18.jpg?width=640) | [page](https://commons.wikimedia.org/wiki/File:A_Couple_Viewing_Rice_Planting_LACMA_16.16.18.jpg) | Public domain |
 | `references/samurai-city/sam-hikone.jpg` | [image](https://commons.wikimedia.org/wiki/Special:FilePath/Hikone_castle5537.JPG?width=640) | [page](https://commons.wikimedia.org/wiki/File:Hikone_castle5537.JPG) | CC BY 2.1 jp |
+
+## Detail pass (2026-11): a town with a ton of detail
+
+The user's targets (`references/user-targets/town-gstatic.png`, `town-redbubble.png`,
+`town-displate.jpg`; study only, never committed) are dense, lived-in pixel towns. They show
+clutter at every wall foot, individual roof tiles, stones with mortar, timber framing, plank
+doors with iron, sills, weathering and moss, and cobbles with grass. They also have strong sun:
+golden-hour warm pools against cool blue-violet shade, lanterns and windows glowing even by day,
+and vines in curtains. The Samurai town was rebuilt toward that, in the iso view at the HD
+density (2 buffer pixels per unit, zoom to 8×). The work is in `samurai.ts` (materials and
+buildings) and `samurai-props.ts` (props, light, ground decals). The props go through the shared
+library (`props.ts`: `registerProp`, `registerTheme`).
+
+### New references (study copies in `references/city-samurai-detail/`, git-ignored)
+
+| Local copy | Image | Page | Licence | What we took |
+| --- | --- | --- | --- | --- |
+| `rakuchu-uesugi-gion.jpg` | [image](https://commons.wikimedia.org/wiki/Special:FilePath/EITOKU_Uesugi-Gion-matsuri.jpg?width=960) | [page](https://commons.wikimedia.org/wiki/File:EITOKU_Uesugi-Gion-matsuri.jpg) | Public domain (Kanō Eitoku, Rakuchū-rakugai-zu, Uesugi screens) | The town from above, our camera: grey roofs in dense rows, each roof a grid of tile courses; lattice fronts, noren and blinds at street level; pines and gold mist between. Clutter belongs at the eaves' foot, and the roofs carry the texture. |
+| `namako-house.jpg` | [image](https://commons.wikimedia.org/wiki/Special:FilePath/Namako-kabe_house_(4003011809).jpg?width=960) | [page](https://commons.wikimedia.org/wiki/File:Namako-kabe_house_(4003011809).jpg) | CC BY-SA 2.0 (emi moriya) | Namako: dark square tiles set diagonally, raised white joints wider than a line, lit on one side. The lattice went from a 6-px to an 8-px period with 2-px joints, the lit edge one step lighter. Also a row of round end tiles along every eave, and onigawara at ridge ends. |
+| `komodaru-toshogu.jpg` | [image](https://commons.wikimedia.org/wiki/Special:FilePath/Sake_barrels_at_Toshogu_shrine,_Nikko,_Japan.JPG?width=960) | [page](https://commons.wikimedia.org/wiki/File:Sake_barrels_at_Toshogu_shrine,_Nikko,_Japan.JPG) | CC BY-SA 2.5 (MichaelMaggs) | Komodaru: white straw-wrapped drums stacked in pyramids, rope bands near top and foot, a bold painted label (red, green, black). `komodaru()` draws drums with two rope bands and a coloured badge with a brush stroke on the lit side. |
+| `ishiotoshi-kumamoto.jpg` | [image](https://commons.wikimedia.org/wiki/Special:FilePath/Isiotosi_machicolation_of_Gennosinyagura_Hoarding_Kumamoto_Castle.jpg?width=960) | [page](https://commons.wikimedia.org/wiki/File:Isiotosi_machicolation_of_Gennosinyagura_Hoarding_Kumamoto_Castle.jpg) | CC BY-SA 4.0 (Mukai) | Ishi-otoshi: a boarded bay that projects over the ishigaki with a slanted underside, black boards with battens, a small sama. Drawn on the corner yagura and the keep's first storey. Shitamiita became horizontal overlapping boards with vertical battens. |
+| `onigawara-ritsurin.jpg` | [image](https://commons.wikimedia.org/wiki/Special:FilePath/Late_Edo_onigawara_from_Ritsurin.jpg?width=960) | [page](https://commons.wikimedia.org/wiki/File:Late_Edo_onigawara_from_Ritsurin.jpg) | CC0 (Photos of Japan) | The onigawara is a broad dark-grey block with flaring ears, wider than the ridge. At our size it is a low broad block with a lit pixel per ear; a tall one read as a spike. |
+| `komainu-fushimi.jpg` | [image](https://commons.wikimedia.org/wiki/Special:FilePath/Komainu,_Fushimi_Inari-taisha,_Kyoto,_20240818_1404_4482.jpg?width=960) | [page](https://commons.wikimedia.org/wiki/File:Komainu,_Fushimi_Inari-taisha,_Kyoto,_20240818_1404_4482.jpg) | CC BY 4.0 (Jakub Hałun) | A guardian seated on a tall plinth with a banded top: stacked lumps (haunch, chest, maned head), pale weathered stone with lichen, one open-mouthed and one closed (a-un). |
+| `pagoda-kiyomizu.jpg` | [image](https://commons.wikimedia.org/wiki/Special:FilePath/Sanjunoto,_Kiyomizu-dera_(36860171592).jpg?width=960) | [page](https://commons.wikimedia.org/wiki/File:Sanjunoto,_Kiyomizu-dera_(36860171592).jpg) | CC BY 2.0 (DavideGorla) | A vermilion sanjūnotō with a deep dark band of bracketing under each eave and a tall bronze sōrin of rings. The pagoda got a dark-gold bracket band, a railed balcony per storey and nine two-tone rings with a flame. Also: azaleas in flower before the temple, maple and pine overhead. |
+| `torii-shide.jpg` | [image](https://commons.wikimedia.org/wiki/Special:FilePath/Shide_jinja_-_Torii_1.jpg?width=960) | [page](https://commons.wikimedia.org/wiki/File:Shide_jinja_-_Torii_1.jpg) | CC BY-SA 4.0 (運動会プロテインパワー) | The shimenawa: a thick twisted straw rope sagging between the pillars, thickest in the middle, white zig-zag shide hanging; komainu and tall stone lanterns in pairs at the approach. `shimenawa()` twists light and dark strands diagonally and steps the shide. |
+| `ema-suga.jpg` | [image](https://commons.wikimedia.org/wiki/Special:FilePath/Ema_at_Suga_Shrine_in_Shinjuku,_Tokyo,_9_December_2024.jpg?width=960) | [page](https://commons.wikimedia.org/wiki/File:Ema_at_Suga_Shrine_in_Shinjuku,_Tokyo,_9_December_2024.jpg) | CC BY-SA 4.0 (Yuet Man Lee) | The ema rack: a vermilion frame under a small roof, rows of pale pentagonal plaques on white cords, a few brush marks each. |
+| `oga-jetrel-japanese-iso.png` | [image](https://opengameart.org/sites/default/files/jpisotbs.png) | [page](https://opengameart.org/content/japanese-buildings-isometric-strategy-game-mockup) | CC0 (Jetrel) | Japanese buildings at our iso angle in low-res pixel art. Roofs dominate the silhouette, the eaves overhang deeply, and grass and a pink cherry crown read as clumps, not noise. Our tree pads are lumpy clusters, each lit on its own corner. |
+| `shogun2-steam-1.jpg` | [image](https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/201270/ss_333be0aca0dec5c08ab6556bb0b597afb6509c10.1920x1080.jpg) | [Steam store](https://store.steampowered.com/app/34330/) | © Creative Assembly / SEGA, study only | Thatched village buildings in warm late light, translucent sunlit foliage. It confirmed the warm-sun/cool-shade grade more than any building detail. |
+
+### What changed
+
+- **Roofs:** `kawara()` tiles at a 4-px period (lit edge, crown, shaded side, the flat tile's
+  trough) with a seam every 4 rows. Single tiles are bleached or darkened by hash, there is moss
+  in the troughs and a few lichen spots. The eave has a dark fascia line and a row of round end
+  tiles, each with a dark mon dot. `noshi()` stacks the ridge with white mortar lines under a
+  cap, with a low onigawara at each end (or shachi on the tenshu). `hipRidge()` adds hip ridges
+  with an upturned corner tile. `eaveEdge()` draws the fascia and rafter ends along both visible
+  eaves. `karahafu()` adds cusped porches (the keep's entrance tower, the grand keep's second
+  skirt, the haiden). The shachihoko is a 9×12-px gilt carp.
+- **Walls:** plaster has dark posts and a tie-beam (`frame`), lit sills and dark frames round
+  the windows, and rain streaks under them. A dirt splash runs along the foot, and a deep cool
+  shadow sits under each eave, sized from the overhang. New window kinds: `sudare`, `mushiko`,
+  `irondoor` (kura), `sama` (triangle and square loopholes), and plank `door`s with iron bands
+  and a ring pull. Shitamiita are horizontal clapboards with battens and bleached boards. Ivy and
+  wisteria hang from the dōjō, the kura, the physician's house, the stables and the walls'
+  copings. Noren with a white mon hang over doors, and chōchin under eaves.
+- **Castle:** the ishigaki has fitted stones in uneven courses. Stones in a course vary in height,
+  each is lit on its upper and left edges, and moss and weeds grow in the low joints. The corner
+  is laid in sangi-zumi long and short blocks. `stoneBase()` builds it as three battered courses
+  leaning most at the foot (the fan slope). The yagura carry ishi-otoshi bays and sama, and the
+  gate has iron-banded leaves, lanterns, a fire barrel and a tōrō.
+- **Shrine and temple:** the torii has a gakuzuka tablet and a shimenawa with shide, the honden a
+  railed engawa, gilt fittings and a shimenawa. The haiden is open-fronted, with a karahafu, a
+  lamp inside and chōchin under its eaves. The bell house has red posts, a banded bronze bell
+  and a striker log on ropes. The pagoda has bracket bands, balconies and the sōrin. The precinct
+  is raked gravel with a stepping-stone approach.
+- **Props** (registered as `samurai:*` with `props.ts`, placed by the Samurai theme): komodaru
+  stacks, tawara heaps, oke, tenbōsui fire barrels with their bucket pyramid, andon, nobori,
+  kanban, a daihachi handcart, yotsume-gaki bamboo fence, a tsukubai with spout and ladle, the
+  well with a pulley, hasa racks, woodpiles, crates, tōrō, a-un komainu, an ema rack, pots
+  (bonsai, azalea, fern), azaleas and box shrubs, a wisteria arbour, rocks, yatai stalls at the
+  fair, and pines, cherries and a maple. Fixed: the well, the trees, the shrine's approach, the
+  keep's tōrō and the wisteria.
+- **Ground:** the keep's raked gravel ring with stepping stones and a rock in ripples, the
+  shrine's gravel, petals under the cherries, moss tufts, and the dappled shade of every
+  canopy. These are flat decal arts under everything; the gravel is slightly translucent so the
+  ground's cast shadows show through. No faction ground hook was needed.
+- **Light:** `finishLit()` warms the lit planes toward `#ffcf86` (17%) and pushes the shade
+  planes toward `#323a78` (24%). `sunlit()` walks each pixel up the sun's cast (props.ts `SUN`)
+  to the canopies, so plaster and tile near a tree are broken by leaf shade and sun flecks.
+  Emissive pixels (shōji, chōchin, andon, tōrō windows) go in a lights canvas: they glow by
+  night, and a little by day, with a 1-px bloom. Lanterns also throw a ragged warm pool on their
+  own surface and the ground below, cut by depth. The pools are baked, not drawn as round halos,
+  and the torches are gone.
+
+### Critique rounds (2560×1440, levels 5, 10 and 20, day and night, zoom 1 and 4)
+
+1. **Round 1:** the materials read at zoom 4 (tile columns, end tiles, the eave shadow, ishigaki
+   courses). Against the targets, there was too little clutter at zoom 1, and the keep's gravel
+   was only a thin band. Hip ridges ended in dark blocks that stuck out of the corners like bars.
+   The onigawara on short ridges (the kura) were spikes. The ishigaki read as a regular brick
+   grid.
+2. **Round 2:** onigawara low and broad, the hip corner now a 2-px upturn; stones in a course
+   vary in height; gravel translucent, without a kerb grid. The props moved from hand placement
+   to the shared library's theme, which spreads them along every building and road. At the gate
+   (zoom 4) the yatai with indigo awnings, the fire barrel, the lanterns and the curved ishigaki
+   now read like the targets' street clutter.
+3. **Round 3:** the warm/cool split strengthened toward the golden-hour target. Ivy and wisteria
+   added on more walls.
+4. **Round 4 (night, the lighting rule):** the first pools reached onto roof skirts in front of
+   the upper windows and lit the keep's plaster in cream blobs. Now only lanterns, andon and tōrō
+   pool; shōji and windows only bloom, and a pool stays on its source's own surface (depth within
+   1.5 units). Windows read as small warm panes. The lantern by the physician's door lights its
+   noren and plaster.

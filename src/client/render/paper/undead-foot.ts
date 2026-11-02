@@ -5,12 +5,14 @@
 
 import type { P2, Paper } from './core.ts';
 import type { Facing } from './facing.ts';
+import { Anim } from '../contract.ts';
+import type { BasePose } from './rig.ts';
 import { registerPaperKind } from './registry.ts';
-import { bonesFromJoints, restPose, skeletonKind, smearPart, type Attachment, type AttachmentSet, type DrawCtx, type JointDef, type PartXf, type Posed, type SkeletonData, type SkeletonRig, type SlotData } from './skeleton.ts';
+import { bonesFromJoints, drawRigFrame, restPose, smearPart, type Attachment, type AttachmentSet, type DrawCtx, type JointDef, type PartXf, type Posed, type SkeletonData, type SkeletonRig, type SlotData } from './skeleton.ts';
 import { boneAff, type Aff } from './templar-rig.ts';
 import { boneMap, mapped, type UMap } from './undead-rig.ts';
 import { keyLight, type FootArt, type UJ, type UPiece } from './undead-static.ts';
-import { UM } from './undead-parts.ts';
+import { shadeLower, UM } from './undead-parts.ts';
 import { footClips, type FootClipSpec } from './undead-clips.ts';
 
 // ------------------------------------------------------------------ the spec of a kind
@@ -22,6 +24,8 @@ export interface FootSpec extends FootClipSpec {
   farDeg?: number;
   /** The skull the jaw hangs from: centre, radius and tilt as the key art draws it. */
   skull: { at: P2; r: number; ang: number };
+  /** The jaw's hinge and chin, where the skull's frame does not give them. */
+  jaw?: { hinge: P2; chin: P2 };
   /** Weapon reach for the smear (units from the fist), and its material. */
   smear?: [number, number];
   smearMat?: number;
@@ -29,6 +33,12 @@ export interface FootSpec extends FootClipSpec {
   neFirst?: string[];
   /** Slots drawn last from behind (on the back: a quiver, a pavise, a cloak). */
   neLast?: string[];
+  /** Pieces not in the key art, shown only when a clip swaps them in (a death's empty robe, a soul's wisp): drawn first, or last with `top`. */
+  extras?: (UPiece & { top?: boolean })[];
+  /** The draw hand stays on the bowstring (the nock bone) by IK. */
+  nocked?: boolean;
+  /** Slots not drawn from behind (a far arm reaching across, hidden by the body). */
+  neHide?: string[];
 }
 
 // ------------------------------------------------------------------ the skeleton
@@ -50,6 +60,8 @@ export function neJoints(art: FootArt): UJ {
     const sh = J[`sh${s}`]!, sh1 = out[`sh${s}`]!;
     for (const j of [`el${s}`, `h${s}`]) if (J[j]) out[j] = mode === 'mirror' ? mx(J[j]!) : add(J[j]!, sub(sh1, sh));
   }
+  // A second grip on the weapon moves with the weapon hand.
+  if (J.grip) out.grip = add(J.grip, sub(out.hN!, J.hN!));
   return out;
 }
 
@@ -57,10 +69,13 @@ function joints(J: UJ, s: FootSpec): Record<string, { from: P2; to: P2 }> {
   const pel = J.pelvis ?? [(J.hipN![0] + J.hipF![0]) / 2, (J.hipN![1] + J.hipF![1]) / 2 - 0.05];
   const hN = J.hN!, hF = J.hF!;
   const sk = s.skull;
-  const hinge = add(sk.at, rot([-0.35 * sk.r, 0.45 * sk.r], sk.ang));
-  const chin = add(sk.at, rot([0.6 * sk.r, 1.3 * sk.r], sk.ang));
-  const waist: P2 = [pel[0] - 0.1, pel[1] - 1.65];
-  const mid: P2 = [pel[0] - 0.05, pel[1] - 3.25];
+  // The jaw hinges under the ear and runs to the chin (the skull's own frame), or as the spec says.
+  const hinge = s.jaw?.hinge ?? add(sk.at, rot([-0.35 * sk.r, 0.45 * sk.r], sk.ang));
+  const chin = s.jaw?.chin ?? add(sk.at, rot([0.6 * sk.r, 1.3 * sk.r], sk.ang));
+  // A hunched back runs its spine bones along the hunch.
+  const waist: P2 = J.waist ?? [pel[0] - 0.1, pel[1] - 1.65];
+  const mid: P2 = J.mid ?? [pel[0] - 0.05, pel[1] - 3.25];
+  const grip = J.grip;
   return {
     root: { from: [0, 0], to: [0, 0] },
     pelvis: { from: pel, to: waist },
@@ -73,7 +88,7 @@ function joints(J: UJ, s: FootSpec): Record<string, { from: P2; to: P2 }> {
     forearmN: { from: J.elN!, to: hN },
     handN: { from: hN, to: along(hN, angOf(J.elN!, hN), 0.5) },
     weapon: { from: hN, to: along(hN, s.nearDeg, 4) },
-    grip2: { from: along(hN, s.nearDeg, s.twoHand ?? 1.3), to: along(hN, s.nearDeg, s.twoHand ?? 1.3) },
+    grip2: grip ? { from: grip, to: grip } : { from: along(hN, s.nearDeg, s.twoHand ?? 1.3), to: along(hN, s.nearDeg, s.twoHand ?? 1.3) },
     upperArmF: { from: J.shF!, to: J.elF! },
     forearmF: { from: J.elF!, to: hF },
     handF: { from: hF, to: along(hF, angOf(J.elF!, hF), 0.5) },
@@ -87,6 +102,8 @@ function joints(J: UJ, s: FootSpec): Record<string, { from: P2; to: P2 }> {
     // Cloth that trails: the skirt from the belt and the cloak from the shoulders.
     skirt: { from: [pel[0] + 0.2, pel[1] - 1.0], to: [pel[0] + 0.2, -2.6] },
     cloak: { from: [J.neck![0] - 0.2, J.neck![1] + 0.4], to: [J.neck![0] - 0.2, -0.6] },
+    // The bowstring's nock: the draw hand reaches it by IK, and it slides back along the arrow.
+    nock: { from: hN, to: hN },
     footTargetN: { from: J.ankN!, to: J.ankN! },
     footTargetF: { from: J.ankF!, to: J.ankF! },
   };
@@ -106,7 +123,7 @@ export const PARENT: Record<string, string | undefined> = {
   upperArmN: 'chest', forearmN: 'upperArmN', handN: 'forearmN', weapon: 'handN', grip2: 'weapon',
   upperArmF: 'chest', forearmF: 'upperArmF', handF: 'forearmF', itemF: 'handF',
   thighN: 'pelvis', shinN: 'thighN', footN: 'shinN', thighF: 'pelvis', shinF: 'thighF', footF: 'shinF',
-  skirt: 'pelvis', cloak: 'chest', footTargetN: 'root', footTargetF: 'root',
+  skirt: 'pelvis', cloak: 'chest', nock: 'itemF', footTargetN: 'root', footTargetF: 'root',
 };
 
 /** Slots that are not key-art pieces: smears, what falls in a death, the key light and the hit flash. */
@@ -130,16 +147,18 @@ export function footSkel(name: string, s: FootSpec): SkeletonData {
   const pieces = s.art.pieces.map((p) => p.slot);
   const dropSlots = s.drops.map((d) => `${d.slot}Drop`);
   // What falls in a death lies beside the heap: drawn over it.
-  const se0 = [...pieces, ...dropSlots, 'smear', 'light', 'flash'];
+  const under = (s.extras ?? []).filter((p) => !p.top).map((p) => p.slot), over = (s.extras ?? []).filter((p) => p.top).map((p) => p.slot);
+  const se0 = [...under, ...pieces, ...dropSlots, ...over, 'smear', 'light', 'flash'];
   const first = s.neFirst ?? ['front'], last = s.neLast ?? [];
   const legs = ['thighF', 'shinF', 'footF', 'thighN', 'shinN', 'footN'];
   const nearArm = ['weapon', 'upperArmN', 'forearmN', 'handN'];
   const has = (n: string) => pieces.includes(n);
   const body = pieces.filter((n) => !first.includes(n) && !last.includes(n) && !legs.includes(n) && !nearArm.includes(n) && !/F$/.test(n));
   const farArm = pieces.filter((n) => /F$/.test(n) && !legs.includes(n) && !first.includes(n) && !last.includes(n));
-  const ne0 = [...first.filter(has), ...farArm, ...legs.filter(has), ...body, ...last.filter(has), ...nearArm.filter(has), ...dropSlots, 'smear', 'light', 'flash'];
-  const bone = new Map(s.art.pieces.map((p) => [p.slot, p.bone] as const));
-  const slots: SlotData[] = se0.map((n) => (dropSlots.includes(n) ? { name: n, bone: `drop_${n.slice(0, -4)}`, attachment: { all: null } } : EXTRA[n] ? { name: n, bone: EXTRA[n]!.bone, attachment: { all: EXTRA[n]!.att } } : { name: n, bone: bone.get(n)!, attachment: { all: n } }));
+  const ne0 = [...under, ...first.filter(has), ...farArm, ...legs.filter(has), ...body, ...last.filter(has), ...nearArm.filter(has), ...dropSlots, ...over, 'smear', 'light', 'flash'];
+  const bone = new Map([...s.art.pieces, ...(s.extras ?? [])].map((p) => [p.slot, p.bone] as const));
+  const extra = new Set([...under, ...over]);
+  const slots: SlotData[] = se0.map((n) => (extra.has(n) ? { name: n, bone: bone.get(n)!, attachment: { all: null } } : dropSlots.includes(n) ? { name: n, bone: `drop_${n.slice(0, -4)}`, attachment: { all: null } } : EXTRA[n] ? { name: n, bone: EXTRA[n]!.bone, attachment: { all: EXTRA[n]!.att } } : { name: n, bone: bone.get(n)!, attachment: s.neHide?.includes(n) ? { all: n, ne: '' } : { all: n } }));
   return {
     name: `undead-foot-${name}`,
     body: 'foot',
@@ -150,6 +169,7 @@ export function footSkel(name: string, s: FootSpec): SkeletonData {
       { name: 'legN', bones: ['thighN', 'shinN'], target: 'footTargetN', bend: 1, mix: 1, ground: s.art.J.ankN![1] },
       { name: 'legF', bones: ['thighF', 'shinF'], target: 'footTargetF', bend: 1, mix: 1, ground: s.art.J.ankF![1] },
       { name: 'armF2h', bones: ['upperArmF', 'forearmF'], target: 'grip2', bend: -1, mix: s.twoHand ? 1 : 0 },
+      { name: 'armN2h', bones: ['upperArmN', 'forearmN'], target: 'nock', bend: -1, mix: s.nocked ? 1 : 0 },
     ],
   };
 }
@@ -192,8 +212,19 @@ export function pieceAtt(p: UPiece, J: Record<Facing, UJ>, axis: number, clothLe
         const f = ctx.posed.facing, back = f === 'ne';
         const parent = ctx.posed.skel.bones.find((b) => b.name === p.bone)!.parent!;
         // The hem's swing in units (whole pixels, so it does not crawl), + forward.
-        const sway = c.qn(Math.max(-2.2, Math.min(2.2, Math.sin((trail(ctx.posed, p.bone) * Math.PI) / 180) * clothLen)));
+        const sway = c.qn(Math.max(-2.2, Math.min(2.2, Math.sin((trail(ctx.posed, p.bone) * Math.PI) / 180) * (p.clothLen ?? clothLen))));
         mapped(c, posedMap(ctx.posed, parent), p.mirror && back ? axis : false, () => p.draw(c, J[f], back, { sway }));
+      },
+    };
+  }
+  if (p.live) {
+    // Read from the frame (a bow's draw from where the string hand is): drawn on the frame.
+    const live = p.live;
+    return {
+      cache: false,
+      draw: (c, _x, ctx) => {
+        const f = ctx.posed.facing, back = f === 'ne';
+        mapped(c, posedMap(ctx.posed, p.bone), p.mirror && back ? axis : false, () => p.draw(c, J[f], back, live(ctx, J[f])));
       },
     };
   }
@@ -218,12 +249,20 @@ export const FLASH: Attachment = {
   },
 };
 /** The key art's light: soul-fire lights the bone near it, a rim on hard edges turned from the key. */
-export const LIGHT: Attachment = { cache: false, draw: (c) => keyLight(c) };
+export const LIGHT: Attachment = {
+  cache: false,
+  draw: (c) => {
+    keyLight(c);
+    // At levels 1-2 a figure is 13-26 px tall: the light from above has to show as a darker
+    // lower body, or each part's light reads from the side (the lint's light direction).
+    if (c.L <= 2) shadeLower(c, c.L <= 1 ? 0.36 : 0.42);
+  },
+};
 
 function footParts(s: FootSpec): AttachmentSet {
   const J: Record<Facing, UJ> = { se: s.art.J, ne: neJoints(s.art), sw: s.art.J, nw: s.art.J };
   const atts: AttachmentSet = {};
-  for (const p of s.art.pieces) atts[p.slot] = pieceAtt(p, J, s.art.axis);
+  for (const p of [...s.art.pieces, ...(s.extras ?? [])]) atts[p.slot] = pieceAtt(p, J, s.art.axis);
   // Dropped in a death: the same drawings on free bones.
   for (const d of s.drops) {
     const p = s.art.pieces.find((q) => q.slot === d.slot)!;
@@ -246,6 +285,22 @@ export function footRig(kind: number, s: FootSpec): SkeletonRig {
   RIGS.set(kind, rig);
   return rig;
 }
-export function registerFoot(kind: number, s: FootSpec): void {
-  registerPaperKind('undead', kind, skeletonKind(footRig(kind, s)));
+/**
+ * Registers a kind drawn on bones. The rig is built on first use, not here: undead.ts (which
+ * registers) and undead-static.ts (the key art) import each other, and the key art's constants are
+ * not initialised yet while undead.ts runs if the key art was imported first.
+ */
+/** The rig of a kind already built (after its first draw). */
+export const builtRig = (kind: number): SkeletonRig | undefined => RIGS.get(kind);
+export function registerFoot(kind: number, spec: () => FootSpec, shoots: boolean): void {
+  registerLazy(kind, 'foot', () => footRig(kind, spec()), shoots);
+}
+export function registerLazy(kind: number, body: SkeletonData['body'], rig: () => SkeletonRig, shoots: boolean): void {
+  const anims = [Anim.Idle, Anim.Walk, Anim.Run, Anim.Attack, Anim.Hit, Anim.Die, Anim.Dead, Anim.Brace, ...(shoots ? [Anim.Shoot] : [])];
+  const rest: BasePose = { px: 0, py: 0, tilt: 0, apart: 0, smear: null, sway: 0 };
+  registerPaperKind('undead', kind, {
+    body,
+    keys: { poses: Object.fromEntries(anims.map((a) => [a, [rest]])) },
+    draw: (c, _p, facing, anim, frame) => void drawRigFrame(c, rig(), anim, frame, facing),
+  });
 }

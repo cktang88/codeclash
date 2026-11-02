@@ -3,14 +3,14 @@
 import { Anim, type Dir } from '../contract.ts';
 import { code, figurePalette, materialCount, materialNameOf, Paper, type FigurePalette, type RGB } from './core.ts';
 import { DRAWN_DEFAULT, drawFacing, facingOf, type Facing } from './facing.ts';
-import { paperKindFor, paperKinds, paperSupports, type PaperKind } from './registry.ts';
+import { factionPaletteOptions, factionPaletteVersion, paperKindFor, paperKinds, paperSupports, type PaperKind } from './registry.ts';
 import { BODIES, poseAt } from './rig.ts';
 // Faction figures register themselves on import.
 import './templar.ts';
 import './samurai.ts';
 import './undead.ts';
 
-export { paperKindFor, paperSupports, registerPaperKind, PAPER_LEVELS } from './registry.ts';
+export { paperKindFor, paperSupports, registerPaperKind, setFactionPaletteOptions, PAPER_LEVELS } from './registry.ts';
 export { Paper } from './core.ts';
 
 export interface PaperFrame {
@@ -38,12 +38,13 @@ function drawCodes(paper: Paper, k: PaperKind, level: number, anim: Anim, frame:
 
 /**
  * The codes a faction's paper figures paint at a level, sampled from a few representative frames
- * (front and back): the faction's master palette for that level is built from these.
+ * (front and back): the faction's master palette for that level is built from these. With `kind`
+ * (factions with per-kind palettes), that kind's codes only.
  */
 const USED = new Map<string, { n: number; mats: number; codes: Map<number, number> }>();
-function usedCodes(faction: string, level: number): Map<number, number> {
-  const kinds = paperKinds().filter((k) => k.faction === faction);
-  const key = `${faction}:${level}`;
+function usedCodes(faction: string, level: number, kind?: number): Map<number, number> {
+  const kinds = paperKinds().filter((k) => k.faction === faction && (kind === undefined || k.kind === kind));
+  const key = kind === undefined ? `${faction}:${level}` : `${faction}:${level}:k${kind}`;
   const got = USED.get(key);
   if (got && got.n === kinds.length && got.mats === materialCount()) return got.codes;
   const codes = new Map<number, number>();
@@ -58,15 +59,20 @@ function usedCodes(faction: string, level: number): Map<number, number> {
   return codes;
 }
 
-const PALETTES = new Map<string, { codes: Map<number, number>; fp: FigurePalette }>();
-/** A faction's master palette at a level for an army hue (cached). */
-export function factionPalette(faction: string, hue: number, level: number): FigurePalette {
-  const codes = usedCodes(faction, level);
-  const key = `${faction}:${hue}:${level}`;
+const PALETTES = new Map<string, { codes: Map<number, number>; v: number; fp: FigurePalette }>();
+/**
+ * A faction's master palette at a level for an army hue (cached). For a faction with per-kind
+ * palettes (`setFactionPaletteOptions`), `kind` picks that kind's own palette.
+ */
+export function factionPalette(faction: string, hue: number, level: number, kind?: number): FigurePalette {
+  const opts = factionPaletteOptions(faction);
+  const k = opts?.perKind ? kind : undefined;
+  const codes = usedCodes(faction, level, k);
+  const key = k === undefined ? `${faction}:${hue}:${level}` : `${faction}:${hue}:${level}:k${k}`;
   const got = PALETTES.get(key);
-  if (got && got.codes === codes) return got.fp;
-  const fp = figurePalette(hue, level, codes);
-  PALETTES.set(key, { codes, fp });
+  if (got && got.codes === codes && got.v === factionPaletteVersion()) return got.fp;
+  const fp = figurePalette(hue, level, codes, opts);
+  PALETTES.set(key, { codes, v: factionPaletteVersion(), fp });
   return fp;
 }
 
@@ -79,7 +85,7 @@ export function factionPalette(faction: string, hue: number, level: number): Fig
 export function paintPaper(faction: string, kind: number, level: number, anim: Anim, frame: number, dir: Dir, hue: number, paper: Paper = SHARED): PaperFrame | null {
   if (!paperSupports(faction, kind, anim, dir, level)) return null;
   const k = paperKindFor(faction, kind)!;
-  const fp = factionPalette(faction, hue, level);
+  const fp = factionPalette(faction, hue, level, kind);
   drawCodes(paper, k, level, anim, frame, dir);
   const id = `${faction}:${kind}:${level}:${anim}:${dir}:${hue}`;
   if (frame > 0 && paper.last === `${id}:${frame - 1}`) paper.steady();
@@ -95,15 +101,20 @@ export function paintPaper(faction: string, kind: number, level: number, anim: A
  */
 export function paperLintPalette(faction: string, hue: number): { name: string; level: number; tones: RGB[]; edge: RGB }[] {
   const out: { name: string; level: number; tones: RGB[]; edge: RGB }[] = [];
-  if (!paperKinds().some((k) => k.faction === faction)) return out;
-  for (const level of [1, 2, 4, 8]) {
-    const fp = factionPalette(faction, hue, level);
-    const mats = [...new Set([...usedCodes(faction, level).keys()].map((c) => c >> 3))].sort((a, b) => a - b);
-    for (const m of mats) {
-      const tones = [0, 1, 2, 3, 4].map((t) => fp.rgb[fp.fillOf[code(m, t)]!]!);
-      out.push({ name: materialName(m), level, tones, edge: fp.rgb[fp.dark[fp.fillOf[code(m, 2)]!]!]! });
+  const kinds = paperKinds().filter((k) => k.faction === faction).map((k) => k.kind);
+  if (!kinds.length) return out;
+  // Per-kind palettes: every kind's ramps in turn (a colour is then credited to the kind and
+  // material that paints it, unless an earlier kind paints the very same colour).
+  const sets: (number | undefined)[] = factionPaletteOptions(faction)?.perKind ? kinds.sort((a, b) => a - b) : [undefined];
+  for (const level of [1, 2, 4, 8])
+    for (const kind of sets) {
+      const fp = factionPalette(faction, hue, level, kind);
+      const mats = [...new Set([...usedCodes(faction, level, kind).keys()].map((c) => c >> 3))].sort((a, b) => a - b);
+      for (const m of mats) {
+        const tones = [0, 1, 2, 3, 4].map((t) => fp.rgb[fp.fillOf[code(m, t)]!]!);
+        out.push({ name: materialName(m), level, tones, edge: fp.rgb[fp.dark[fp.fillOf[code(m, 2)]!]!]! });
+      }
     }
-  }
   return out;
 }
 

@@ -122,6 +122,38 @@ committed; the screenshots in `docs/screenshots/hd-sprites/samurai-anim-*.png` a
   held; 9-11 back to the chest.
 - **Brace**: planted wide, the fan held out over the line.
 
+### Yari Cavalry (5)
+- The horse is the key art's, split into pieces on bones (`samurai-static` `horsePiece`): far and
+  near legs (upper, lower with the knee or hock, hoof), barrel, tail, neck, mane, head with the
+  bridle, saddle-cloth, saddle and tassels. The gaits are Muybridge's (`horse-walk`, `horse-gallop`),
+  each hoof planted while the plate shows it down; the barrel pitches and bobs with the neck
+  pumping against it; the mane is skinned between the neck and a mane bone that trails it and
+  streams back at the gallop (`samurai-horse.ts`, after the Templar horse).
+- The rider sits on a saddle bone with the foot rig's bones; his hips follow the saddle a frame
+  late, his head stays level; the sashimono streams back and flutters at the gallop.
+- **Run: the charge**, the yari couched level over the horse's neck. **Attack**: at the gallop, the
+  rider leans hard in, the point dips onto the target as the horse drives into it, the trunk is
+  thrown back at the impact and settles.
+- **Hit**: the horse shies (head up, half a step back) and the rider snaps back; **Die**: the horse
+  buckles onto its knees, then its hind legs, the neck stretching out; the rider is pitched back
+  over the cantle and the yari falls free.
+
+### Yabusame Archers (6)
+- **Idle** is the key art: the yumi across the horse's neck with an arrow nocked to the draw hand.
+  On the march and at the gallop the bow is carried braced (no string to the bobbing hand).
+- **Shoot: yabusame at the gallop** on the gallop keys: the bow raised over the head (1-2), drawn
+  to behind the ear while it comes down (3-5), held (6), loosed with the draw hand flying back (7),
+  held in zanshin (8-9), lowered for the next arrow (10-11); the string runs to the draw hand and the
+  bow bends with the draw. The rider leans a little forward over the neck and sits plumb while the
+  barrel pitches under him.
+- **Attack**: a stab with the arrow from the saddle.
+
+### Hatamoto Horse (7)
+- **Idle** is the key art: the katana raised, the horo on his back. **Run**: the katana held high
+  for the charge; the horo balloons (its bone stretched back 35% with a flutter) and trails.
+- **Attack: the cut at the charge**: the katana over the near shoulder, the rider leaning out over
+  the neck, the blade falling down the horse's near side under a solid smear, held, back up.
+
 ## Critique rounds
 
 ### Katana Samurai
@@ -195,6 +227,50 @@ committed; the screenshots in `docs/screenshots/hd-sprites/samurai-anim-*.png` a
 3. **Round 3.** NE: the near hand with the fan is given its own rest (forward of the near shoulder),
    so the fan shows past the horo from behind.
 
-Katana Samurai lint (level 1/2/4/8): no FAIL. Warnings left: aligned band ends 0.24-0.30, outline and figure vs
+### Lint pass over the seven foot kinds
+
+With all foot kinds on bones the faction's shared low-level palettes (12-16 colours) shifted and
+the gate failed in places; the fixes, found with the lint's own frames and per-region light vectors:
+- **Grey shadows at level 2**: near-twin materials (bone silk and cotton, mask iron and iron,
+  red-brown and shu, black and lacquer, ochre and straw) are painted as one below level 4
+  (`samurai-static` `LOW_MERGE`, applied by `samurai-rig` `lowMerge`), so the palette's merges keep
+  the hue in the shadows.
+- **Light direction**: the dark pixels at the very top of a figure read as the shadow side (the
+  sashimono pole at level 2, the javelin in the cocked hand at level 1), and pale props low on the
+  right as the light (the tate, the kusazuri's bound hem, the sash's folds): those are toned to
+  their place in the form light at the low levels. The skirmisher's happi sleeves are now the
+  jacket's own cloth.
+- **Aligned band ends** at levels 1-4: okegawa plates show staggered seam dashes instead of full
+  lit and dark rows, the bow is one unbroken line with the braced string from level 8, the sash's
+  folds from level 8, the limbs' bands taper at level 4, and at 13 px the yari shaft stands a
+  pixel outside the body.
+- **Values against the field**: the daimyō's horo is a step darker (the dark army colour at level
+  1), the yumi's string is waxed hemp and its bindings lacquered, the ebira's fletchings a step down.
+
+Lint (all seven foot kinds, levels 1/2/4/8): no FAIL. Level-1 silhouettes: closest pair 0.74
+(Katana Samurai and Daimyō; Teppō and Daimyō), all under 0.85. Warnings left: aligned band ends
+0.17-0.30, outline and figure vs ground ΔL 0.07-0.15, mid-widest silhouettes, a few light-angle
+warnings (41-68°) and jaggies at levels 1-2 on the skirmisher.
+
+### Yari Cavalry
+1. **Round 1** (against Plate 626 and the brief's gallop keys): the gathered suspension and the
+   extended phases read, the hooves stay planted, the mane trails.
+2. **Round 2.** At levels 1-4 the faction palette had no room for the bay: the near-twin materials
+   are also merged at level 4 (`MID_MERGE`), so the horse keeps its browns.
+3. **Round 3.** The light read from the bottom-right at levels 1-2 (bright legs and hooves under a
+   dark rider): the lower legs and hooves are the darkest tone there, the barrel two big planes
+   (croup and back lit, belly in shade), the tail lit with the croup.
+
+### Yabusame and Hatamoto
+1. **Round 1.** The yumi in NE was drawn over the horse; from behind it is on the horse's far side:
+   it now goes before the horse's body.
+2. **Round 2.** The top of the yabusame sprite churned in the walk (lint): the rider rotated with the
+   barrel's pitch, swinging the tall bow by whole steps, and the nocked string followed the bobbing
+   hand. The rider now sits plumb (Plate 626: the horse moves under him) and the bow is carried
+   braced off the shot.
+3. **Round 3.** At 13 px the horse archers' black bow over the horse and the white socks at its feet
+   inverted the light: the bow is a pale bamboo line and the socks drop out at level 1.
+
+Katana Samurai lint before the pass (level 1/2/4/8): no FAIL. Warnings left: aligned band ends 0.24-0.30, outline and figure vs
 ground ΔL 0.07-0.13, light-angle error at levels 1-2, mid-widest silhouettes. Level-1 silhouette:
 closest the Daimyō at 0.61.

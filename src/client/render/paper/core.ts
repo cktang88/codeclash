@@ -261,6 +261,35 @@ type Lab = [number, number, number];
  */
 const labDist = (p: Lab, q: Lab): number => Math.hypot(2 * (p[0] - q[0]), 1.5 * (p[1] - q[1]), 1.5 * (p[2] - q[2]));
 
+/**
+ * Like `labDist`, but chroma is compared relative to lightness (a/L, b/L, with L held at 0.3 or
+ * more): in OKLab the dark colours of every hue crowd together near the black point, so a dark
+ * slate, a dark ochre and a dark madder would otherwise be the first colours merged.
+ */
+const chromaDist = (p: Lab, q: Lab): number => {
+  const sp = 0.6 / Math.max(0.3, p[0]), sq = 0.6 / Math.max(0.3, q[0]);
+  return Math.hypot(2 * (p[0] - q[0]), 1.5 * (p[1] * sp - q[1] * sq), 1.5 * (p[2] * sp - q[2] * sq));
+};
+/** The army-colour materials (`team`, `teamDk` and a faction's variants of them). */
+const isAccent = (m: Mat): boolean => /(^|\.)team/.test(MATS[m]?.name ?? '');
+
+/**
+ * Per-faction options for building its master palette (`figurePalette`). All default off, so a
+ * faction that sets none gets exactly the original palette.
+ */
+export interface PaletteOpts {
+  /** Merge by `chromaDist` instead of `labDist`, so dark materials keep their own hues. */
+  darkChroma?: boolean;
+  /** At most this many fill colours for the army-colour materials, merged among themselves first. */
+  accentCap?: number;
+  /**
+   * Colours closer than this (in the merge distance) are merged even under the budget: near
+   * duplicates read as noise and break flat clusters into stripes (mistakes guide #7). One value,
+   * or one per level (1, 2, 4, 8).
+   */
+  minDist?: number | readonly [number, number, number, number];
+}
+
 /** Shifts a ramp's lightness so its base tone keeps GROUND_DL away from the battlefield green. */
 export function groundSafe(ramp: RGB[]): RGB[] {
   const labs = ramp.map(rgbOklab);
@@ -303,15 +332,19 @@ interface Cand {
 }
 
 /** Drops the less important of the closest pair until at most `cap` remain. */
-function reduce(cs: Cand[], cap: number): Cand[] {
+function reduce(cs: Cand[], cap: number, dist: (p: Lab, q: Lab) => number = labDist, among?: (c: Cand) => boolean, minDist = 0): Cand[] {
   const out = cs.slice();
-  while (out.length > cap) {
+  const n = () => (among ? out.filter(among).length : out.length);
+  for (;;) {
     let bi = 0, bj = 1, bd = Infinity;
     for (let i = 0; i < out.length; i++)
       for (let j = i + 1; j < out.length; j++) {
-        const d = labDist(out[i]!.lab, out[j]!.lab);
+        if (among && !(among(out[i]!) && among(out[j]!))) continue;
+        const d = dist(out[i]!.lab, out[j]!.lab);
         if (d < bd) [bi, bj, bd] = [i, j, d];
       }
+    // Over the cap, or (with `minDist`) two colours too alike to tell apart.
+    if (!(n() > cap || bd < minDist)) break;
     out.splice(out[bi]!.weight >= out[bj]!.weight ? bj : bi, 1);
   }
   return out;
@@ -321,7 +354,7 @@ function reduce(cs: Cand[], cap: number): Cand[] {
  * Builds the palette for a level from the codes a faction's figures use and how many pixels each
  * covers (see paper/index.ts): when colours must merge, the rarely used go first.
  */
-export function figurePalette(hue: number, level: number, used: ReadonlyMap<number, number>): FigurePalette {
+export function figurePalette(hue: number, level: number, used: ReadonlyMap<number, number>, opts?: PaletteOpts): FigurePalette {
   const B = budget(level);
   const pal = palette(hue);
   const safe = pal.map((r, m) => (MATS[m]?.keep ? r : groundSafe(r)));
@@ -339,8 +372,12 @@ export function figurePalette(hue: number, level: number, used: ReadonlyMap<numb
     if (had) had.weight += w;
     else byRgb.set(k, { lab: rgbOklab(rgb), rgb, mat: m, weight: w });
   }
-  const cands = [...byRgb.values()];
-  const fills = reduce(cands, B.fill);
+  let cands = [...byRgb.values()];
+  const o = opts ?? {};
+  if (o.accentCap !== undefined) cands = reduce(cands, o.accentCap, labDist, (c) => isAccent(c.mat));
+  const md = o.minDist;
+  const minDist = typeof md === 'number' ? md : md ? md[level >= 8 ? 3 : level >= 4 ? 2 : level >= 2 ? 1 : 0] ?? 0 : 0;
+  const fills = reduce(cands, B.fill, o.darkChroma ? chromaDist : labDist, undefined, minDist);
   const nearest = (lab: Lab, list: { lab: Lab }[]): number => {
     let bi = 0, bd = Infinity;
     list.forEach((f, i) => {

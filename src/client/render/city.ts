@@ -676,14 +676,12 @@ export class CityScene {
       }
       g.globalCompositeOperation = 'lighter';
       if (this.mode === 'hd') {
-        // HD: warm pools on the surfaces each light reaches, not discs in the air. A faction town
-        // that bakes its own pools (Samurai) gets only the bloom at each source.
+        // HD: warm pools on the surfaces each light reaches, not discs in the air. Buildings that bake
+        // their own pools (Art.pooled) push no sources here; props lamps and forges always pool.
         const src = this.poolSources();
-        if (this.st.id !== 'samurai') {
-          this.pools ??= this.lightPools(src);
-          g.globalAlpha = a * (0.92 + 0.08 * Math.sin(t * 9));
-          g.drawImage(this.pools, 0, 0);
-        }
+        this.pools ??= this.lightPools(src);
+        g.globalAlpha = a * (0.92 + 0.08 * Math.sin(t * 9));
+        g.drawImage(this.pools, 0, 0);
         this.bloom(g, src.filter((p) => p.z > 2), [FIRE_POOL], a * 0.6);
       } else
         for (const tc of this.torches) {

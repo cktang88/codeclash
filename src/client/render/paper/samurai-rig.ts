@@ -20,7 +20,7 @@ import { addP, code, type P2, type Paper } from './core.ts';
 import type { Facing } from './facing.ts';
 import { registerPaperKind } from './registry.ts';
 import { flash as muzzleFlash, smoke, SM, stick, yumi } from './samurai-parts.ts';
-import { footBody, FOOT, KUSA_TOP, manOrder, manPiece, mapPoint, withMap, type Body, type ManPiece, type SFoot } from './samurai-static.ts';
+import { footBody, FOOT, KUSA_TOP, LOW_MERGE, MID_MERGE, manOrder, manPiece, mapPoint, withMap, type Body, type ManPiece, type SFoot } from './samurai-static.ts';
 import {
   BREATH, bonesFromJoints, EASE, EASE_IN, EASE_OUT, emptyLocals, evaluate, sampleClip, shortest, skeletonKind, smearPart,
   type AnimationData, type FacingClips, type Key, type Posed, type AnimEvent, type AttachmentSet, type Clip, type JointDef, type SkeletonData, type SkeletonRig, type SlotData,
@@ -157,7 +157,7 @@ export function neBody(b: Body, s: SSpec): Body {
 /** How far the kusazuri (or the robe's skirt) hangs below its top. */
 const kusaLong = (k: SFoot): number => (k.d.body === 'gusoku' ? 2.9 : k.d.body === 'robe' ? 5.6 : 2.4);
 
-function joints(b: Body, s: SSpec, k: SFoot): Record<string, { from: P2; to: P2 }> {
+export function joints(b: Body, s: SSpec, k: SFoot): Record<string, { from: P2; to: P2 }> {
   const hem = b.pel[1] + KUSA_TOP + kusaLong(k);
   const sodeLen = k.d.sode === 'big' ? 2.8 : 1.7;
   return {
@@ -197,7 +197,7 @@ function joints(b: Body, s: SSpec, k: SFoot): Record<string, { from: P2; to: P2 
     scene: { from: [3.0, 0], to: [3.0, -1] },
   };
 }
-const PARENT: Record<string, string | undefined> = {
+export const PARENT: Record<string, string | undefined> = {
   root: undefined, pelvis: 'root', spine: 'pelvis', chest: 'spine', neck: 'chest', head: 'neck',
   upperArmN: 'chest', forearmN: 'upperArmN', handN: 'forearmN', weapon: 'handN', grip2: 'weapon',
   upperArmF: 'chest', forearmF: 'upperArmF', handF: 'forearmF', itemF: 'handF', sodeN: 'chest', sodeF: 'chest',
@@ -205,7 +205,7 @@ const PARENT: Record<string, string | undefined> = {
   skirtN: 'pelvis', skirtF: 'pelvis', banner: 'chest', horo: 'chest', footTargetN: 'root', footTargetF: 'root', dropW: 'root', dropF: 'root', scene: 'root',
 };
 
-const PIECE_BONE = (s: SSpec): Record<ManPiece, string> => ({
+export const PIECE_BONE = (s: SSpec): Record<ManPiece, string> => ({
   back: s.backBone, thighF: 'thighF', shinF: 'shinF', footF: 'footF', upperArmF: 'upperArmF', forearmF: 'forearmF', handF: 'handF', sodeF: 'sodeF',
   kusaBF: 'skirtF', kusaBN: 'skirtN', thighN: 'thighN', shinN: 'shinN', footN: 'footN', haidateF: 'thighF', haidateN: 'thighN', torso: 'pelvis',
   kusaFN: 'skirtN', kusaFM: 'pelvis', kusaFF: 'skirtF', hipGear: 'pelvis', head: 'head', upperArmN: 'upperArmN', forearmN: 'forearmN', handN: 'handN',
@@ -271,11 +271,13 @@ export function footSkel(kind: number, k: SFoot, s: SSpec): SkeletonData {
 // ------------------------------------------------------------------ the parts
 
 /** The dō over the pelvis, spine and chest (key-art y): rigid plates, bending at the waist. */
-const torsoWeights: Weights = ([, y]) => {
+export const torsoWeightsAt = (dy: number): Weights => ([, y0]) => {
+  const y = y0 - dy;
   const a = smooth01((-9.2 - y) / 1.0);
   const b = smooth01((-7.7 - y) / 1.0);
   return [['chest', a], ['spine', b - a], ['pelvis', 1 - b]];
 };
+const torsoWeights = torsoWeightsAt(0);
 
 export function footParts(kind: number, k: SFoot, s: SSpec): AttachmentSet {
   const rest: Record<Facing, Body> = { se: footBody(kind), ne: neBody(footBody(kind), s), sw: footBody(kind), nw: footBody(kind) };
@@ -352,10 +354,10 @@ export function footParts(kind: number, k: SFoot, s: SSpec): AttachmentSet {
 
 // ------------------------------------------------------------------ authoring clips
 
-type Tracks = Parameters<typeof overlayKeys>[1];
-type Author = (rw: Record<string, number>, f: Facing) => Tracks;
+export type Tracks = Parameters<typeof overlayKeys>[1];
+export type Author = (rw: Record<string, number>, f: Facing) => Tracks;
 /** A track from rest through the given keys and back to rest at `end`. */
-const R = (rest: number, end: number, ...kv: [number, number][]): Track => [[0, rest], ...kv, [end, rest]];
+export const R = (rest: number, end: number, ...kv: [number, number][]): Track => [[0, rest], ...kv, [end, rest]];
 
 /** Keys for a facing from a mocap clip with authored tracks laid over it. */
 function mk(skel: SkeletonData, f: Facing, clip: string, o: MocapOpts, author?: Author, extra: number[] = []): { keys: KP[]; ev: AnimEvent[] } {
@@ -369,7 +371,7 @@ function mk(skel: SkeletonData, f: Facing, clip: string, o: MocapOpts, author?: 
  * bone solved by IK can come back a full turn from its rest (358° for -2°), which the Templar
  * version reads as a 360° swing of the cloth.
  */
-function lagCloth(skel: SkeletonData, clip: Clip, n: number, loop: boolean, specs: readonly LagSpec[]): Clip {
+export function lagCloth(skel: SkeletonData, clip: Clip, n: number, loop: boolean, specs: readonly LagSpec[]): Clip {
   const one = (anim: AnimationData, facing: Facing): AnimationData => {
     const L = 16;
     const rest = evaluate(skel, emptyLocals(), { level: L, facing, noIk: true });
@@ -431,7 +433,7 @@ function trail(run: number, fall = false, swing = false): LagSpec[] {
  * near shoulder, the hips turn first, then the arms, and the blade falls on the diagonal from the
  * near shoulder through the far hip, ending low in front with the weight on the front foot.
  */
-const KESA: Author = (rw) => ({
+export const KESA: Author = (rw) => ({
   // 1-4: both hands climb over the near (right) shoulder to hassō/jōdan, the blade back over the
   // head, the hips and shoulders coiled back; 5: the hips turn first, the hands still high; 6-7 the
   // blade falls through the whole diagonal, shoulder height to past the far knee; 8 zanshin.
@@ -527,7 +529,7 @@ const THROW: Author = (rw) => ({
  * line, the bow turns in the hand (yugaeri); 8-9 zanshin, held; 10-11 the bow lowered, the hand
  * goes to the ebira for the next arrow.
  */
-const KYUDO: Author = (rw) => ({
+export const KYUDO: Author = (rw) => ({
   w: {
     upperArmF: R(rw.upperArmF!, 11, [1, 60], [2, 140], [3, 150], [4, 120], [5, 96], [6, 94], [7, 94], [8, 90], [9, 90], [10, 50]),
     forearmF: R(rw.forearmF!, 11, [1, 70], [2, 150], [3, 158], [4, 120], [5, 96], [6, 94], [7, 94], [8, 92], [9, 92], [10, 60]),
@@ -539,7 +541,7 @@ const KYUDO: Author = (rw) => ({
   dw: { spine: T([0, 0], [3, 3], [6, 2], [8, 3], [11, 0]) },
 });
 /** The archer's last resort: a stab with the arrow in the fist, on a step. */
-const PUNCH: Author = (rw) => ({
+export const PUNCH: Author = (rw) => ({
   w: { upperArmN: R(rw.upperArmN!, 11, [3, -25], [5, 80], [6, 78], [9, 20]), forearmN: R(rw.forearmN!, 11, [3, 80], [5, 92], [6, 90], [9, 40]), head: T([0, rw.head!]) },
   dw: { spine: T([0, 0], [3, 6], [5, -12], [6, -12], [9, -3], [11, 0]) },
   tAdd: { pelvis: [T([0, 0], [3, -0.35], [5, 0.55], [6, 0.55], [9, 0.2], [11, 0]), T([0, 0], [5, 0.25], [11, 0])], footTargetF: [T([0, 0], [3, 0], [5, 0.9], [8, 0.9], [10, 0.3], [11, 0]), T([0, 0], [4, -0.4], [5, 0], [11, 0])] },
@@ -642,7 +644,7 @@ const SHOOTS: Record<Exclude<Shoot, null>, { clip: string; o: MocapOpts; a: Auth
 // ------------------------------------------------------------------ the rest
 
 /** Brace poses (held; the breathing is laid over). */
-const BRACE: Record<Brace, Author> = {
+export const BRACE: Record<Brace, Author> = {
   // Chūdan no kamae, settled low: the blade forward at the enemy's throat, the far hand on the pommel.
   // A deep chūdan: knees well bent, the front foot forward and the weight on it, the trunk over
   // the front thigh, the blade levelled at the enemy's throat.
@@ -822,11 +824,38 @@ export function footRig(kind: number): SkeletonRig | undefined {
   return rig;
 }
 
+/** Merges the near-twin materials (samurai-static LOW_MERGE) over a drawn frame below level 4. */
+export function lowMerge(c: Paper): void {
+  if (c.L > 4) return;
+  const build = (pairs: readonly [number, number][]) => {
+    const m = new Map<number, number>();
+    for (const [a, b] of pairs) for (let k = 0; k < 8; k++) m.set(a * 8 + k, b * 8 + k);
+    return m;
+  };
+  const t = c.L <= 2 ? (lowMergeTable ??= build(LOW_MERGE)) : (midMergeTable ??= build(MID_MERGE));
+  for (let y = c.by0; y <= c.by1; y++)
+    for (let x = c.bx0; x <= c.bx1; x++) {
+      const i = y * c.CW + x, v = c.pix[i]!;
+      if (v < 0) continue;
+      const w = t.get(v);
+      if (w !== undefined) c.pix[i] = w;
+    }
+}
+let lowMergeTable: Map<number, number> | null = null;
+let midMergeTable: Map<number, number> | null = null;
+
+/** A rig as a paper kind, its frames merged below level 4. */
+export function samuraiKind(rig: SkeletonRig): ReturnType<typeof skeletonKind> {
+  const k = skeletonKind(rig);
+  const draw = k.draw;
+  return { ...k, draw: (c, p, f, anim, fr) => { draw(c, p, f, anim, fr); lowMerge(c); } };
+}
+
 /** Registers the foot kinds drawn on bones (samurai.ts calls this after its own registrations, so these win). */
 export function registerFootRigs(kinds: readonly number[]): void {
   for (const kd of kinds) {
     const rig = footRig(kd);
-    if (rig) registerPaperKind('samurai', kd, skeletonKind(rig));
+    if (rig) registerPaperKind('samurai', kd, samuraiKind(rig));
   }
 }
 
