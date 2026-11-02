@@ -537,6 +537,124 @@ function deathKnightStatic(c: Paper): void {
   vol(c, at([-2.0, -2.8]), hand, 1.05, 1.1, UM.iron, { tone: 2, shine: true });
 }
 
+
+// ------------------------------------------------------------------ the Wraith-Warden (Wraith Bows, recast)
+//
+// After the user's hooded wraith-knight target, made our own: a tall, gaunt warden of the barrow
+// in deep violet with bronze trim (a new note in the Undead palette beside rust and soul-fire
+// green), a pointed hood framing a cracked bone death-mask with one vertical slit of green fire,
+// swept bone horns rising from layered pauldrons, a bronze-buckled belt with a hanging tabard,
+// violet gauntlets and greaves, a ragged cloak to the ground, and a bone longbow with a
+// green-fire arrow on the string.
+
+const VIOLET = defineMaterial('undead.violet', oklchRamp({ l: 0.36, c: 0.11, h: 300, spread: 0.085 }));
+const BRONZE = defineMaterial('undead.bronze', oklchRamp({ l: 0.6, c: 0.1, h: 68, spread: 0.11 }));
+
+/** Bronze trim along a line (a 1-2 px band, lit on its upper side). */
+function trim(c: Paper, a: P2, b: P2, w = 0.28): void {
+  c.rod(a, b, w, w, BRONZE, { tone: 3 });
+}
+
+/** A layered violet pauldron, three lames edged in bronze, and a swept bone horn rising from it. */
+function hornedPauldron(c: Paper, sh: P2, far: boolean, horn: number): void {
+  const t = far ? 1 : 2;
+  // The horn first (it rises behind the plates): a curved, tapering spike of bone.
+  const h0 = addP(sh, [far ? 0.4 : -0.4, -0.3]);
+  const h1 = addP(h0, [horn * 0.5, -1.6]), h2 = addP(h1, [horn * 0.9, -1.2]), h3 = addP(h2, [horn * 0.2, -1.0]);
+  c.rod(h0, h1, 0.7, 0.5, UM.bone, { tone: far ? 2 : 3 });
+  c.rod(h1, h2, 0.5, 0.32, UM.bone, { tone: far ? 2 : 3 });
+  c.rod(h2, h3, 0.32, 0.08, UM.bone, { tone: far ? 1 : 2 });
+  for (const [dy, rx, ry] of [[0.9, 1.05, 0.45], [0.42, 1.25, 0.55], [-0.12, 1.4, 0.72]] as [number, number, number][]) {
+    c.blob(addP(sh, [0, dy]), rx, ry, VIOLET, {
+      tone: t + 1,
+      detail: (_x, _y, nx, ny) => {
+        if (ny > 0.62) return code(BRONZE, far ? 1 : 2); // the bronze edge of each lame
+        if (ny < -0.55 && nx < 0.2 && !far) return code(VIOLET, 4);
+        return -1;
+      },
+    });
+  }
+}
+
+/** The death-mask: a pale cracked bone visor, oval, with a single vertical slit of green fire. */
+function deathMask(c: Paper, at: P2, r: number): void {
+  const cx = c.sx(at[0]), cy = c.sy(at[1]), L = c.L;
+  c.blob(at, r * 0.78, r, UM.bone, {
+    tone: 3,
+    detail: (x, y) => {
+      const fx = (x + 0.5 - cx) / (L * r), fy = (y + 0.5 - cy) / (L * r);
+      // The slit, burning.
+      if (Math.abs(fx - 0.08) < 0.09 && fy > -0.55 && fy < 0.45) return code(UM.glow, Math.abs(fy + 0.05) < 0.25 ? 4 : 3);
+      if (Math.abs(fx - 0.08) < 0.17 && fy > -0.6 && fy < 0.5) return code(UM.ink, 0);
+      // Cracks: a jagged line across the brow and one down the cheek.
+      if (Math.abs(fy + 0.35 - Math.abs(fx + 0.3) * 0.5) < 0.05 && fx < 0.0) return code(UM.ink, 1);
+      if (Math.abs(fx + 0.38 - fy * 0.25) < 0.05 && fy > 0.05 && fy < 0.7) return code(UM.ink, 1);
+      // Light from the top-left, the far cheek in shade.
+      if (fx > 0.45 || fy > 0.7) return code(UM.bone, 1);
+      if (fx < -0.2 && fy < -0.2) return code(UM.bone, 4);
+      return -1;
+    },
+  });
+}
+
+function wardenStatic(c: Paper): void {
+  const neck: P2 = [0.4, -12.6];
+  // The cloak behind: from the shoulders, falling to the ground, ragged.
+  robe(c, [0.3, -12.0], 5.6, 7.2, 12.0, -0.2, VIOLET, 551, {});
+  // The far leg: dark cloth, a violet greave with a bronze rim, a boot.
+  vol(c, [1.0, -6.6], [1.5, -3.6], 1.2, 1.0, UM.shroud, { tone: 1, caps: false });
+  vol(c, [1.5, -3.6], [1.7, -0.6], 1.05, 0.95, VIOLET, { tone: 2, caps: false });
+  trim(c, [1.0, -3.6], [2.0, -3.6]);
+  plate(c, [[1.1, -0.9], [2.3, -0.9], [2.9, -0.05], [1.0, -0.05]], UM.leather, { tone: 1 });
+  // The far arm holding out the bow: a violet sleeve and a gauntlet with a bronze cuff.
+  const grip: P2 = [4.7, -8.6];
+  vol(c, [2.3, -11.3], [3.5, -9.7], 1.25, 1.05, VIOLET, { tone: 1, caps: false });
+  vol(c, [3.5, -9.7], grip, 1.0, 0.95, VIOLET, { tone: 2, caps: false });
+  trim(c, addP(grip, [-0.9, -0.15]), addP(grip, [-0.75, 0.55]), 0.3);
+  // The body: a violet coat narrow at the waist, a high collar, layered lames at the chest.
+  plate(c, [[-1.9, -11.6], [-0.8, -12.3], [1.6, -12.3], [2.5, -11.5], [2.0, -9.2], [1.4, -7.3], [-0.9, -7.3], [-1.5, -9.2]], VIOLET, {
+    detail: (x, y, rx, ry) => {
+      if (ry < 0.2 && ry > -0.7 && (c.ly(y) % Math.max(3, Math.round(c.L * 0.8))) === 0) return code(VIOLET, 1);
+      if (Math.abs(rx + 0.05) < 0.05) return code(BRONZE, 2); // the clasp line
+      return code(VIOLET, 2 + planeLight(rx, ry, 0.35));
+    },
+  });
+  // The belt and its bronze buckle; the tabard hanging from it.
+  c.rod([-1.4, -7.45], [1.9, -7.5], 0.6, 0.6, UM.leather, { tone: 1 });
+  plate(c, [[-0.1, -7.85], [1.1, -7.85], [1.1, -7.0], [-0.1, -7.0]], BRONZE, { tone: 3, detail: (x, y, rx, ry) => (Math.abs(rx) < 0.4 && Math.abs(ry) < 0.4 ? code(UM.leather, 1) : -1) });
+  rag(c, [-0.3, -7.1], [1.3, -7.1], 5.0, 0.15, VIOLET, VIOLET, 553, { tear: 0.25, folds: false });
+  trim(c, [-0.3, -7.0], [-0.25, -3.2], 0.22);
+  trim(c, [1.3, -7.0], [1.35, -3.2], 0.22);
+  c.rod([0.5, -6.9], [0.55, -3.4], 0.32, 0.3, UM.team, { tone: 2 });
+  // The near leg.
+  vol(c, [-0.7, -6.6], [-0.9, -3.6], 1.3, 1.05, UM.shroud, { tone: 2, caps: false });
+  vol(c, [-0.9, -3.6], [-1.0, -0.6], 1.15, 1.0, VIOLET, { tone: 3, caps: false });
+  trim(c, [-1.55, -3.6], [-0.35, -3.6]);
+  plate(c, [[-1.6, -0.9], [-0.4, -0.9], [0.4, -0.05], [-1.7, -0.05]], UM.leather, { tone: 2 });
+  // The pauldrons with their horns, the far one first.
+  hornedPauldron(c, [2.2, -11.6], true, 1);
+  // The hood: tall and pointed, deep violet, its rim lit, the death-mask inside.
+  const hd: P2 = [0.75, -13.7];
+  plate(c, [addP(hd, [-1.6, 1.6]), addP(hd, [-1.7, 0.0]), addP(hd, [-1.0, -1.5]), addP(hd, [0.1, -2.6]), addP(hd, [1.1, -1.6]), addP(hd, [1.7, -0.2]), addP(hd, [1.7, 1.6])], VIOLET, {
+    detail: (x, y, rx, ry) => {
+      const fx = (x + 0.5 - c.sx(hd[0] + 0.15)) / c.L, fy = (y + 0.5 - c.sy(hd[1] + 0.2)) / c.L;
+      const e = Math.hypot(fx / 1.05, fy / 1.35);
+      if (e < 1) return code(UM.ink, 0); // the dark inside of the hood
+      if (e < 1.18) return code(VIOLET, fx < 0.3 && fy < 0.6 ? 4 : 2); // the lit rim
+      return code(VIOLET, 2 + planeLight(rx, ry, 0.3));
+    },
+  });
+  deathMask(c, addP(hd, [0.15, 0.25]), 1.05);
+  hornedPauldron(c, [-1.6, -11.4], false, -1);
+  // The bone longbow, a green-fire arrow on the string, the near arm drawing to the cheek.
+  const nock = bow(c, grip, 93, 1.5, 9.5, { arrow: true, mat: UM.bone });
+  flame(c, along(grip, 93, 1.6), 1.0, 0.25, { w: 0.4 });
+  vol(c, [-1.4, -11.0], [-0.5, -9.4], 1.25, 1.05, VIOLET, { tone: 2, caps: false });
+  vol(c, [-0.5, -9.4], nock, 1.0, 0.95, VIOLET, { tone: 3, caps: false });
+  trim(c, addP(nock, [-0.55, -0.5]), addP(nock, [-0.75, 0.3]), 0.3);
+  void neck;
+}
+
 /** Kinds whose animated drawing already carries its bulk: their idle frame is the key art. */
 function idleOf<P>(keys: KeySet<P & import('./rig.ts').BasePose>, draw: (c: Paper, p: P, facing: 'se', anim: Anim, frame: number) => void): (c: Paper) => void {
   return (c) => lit(c, () => draw(c, poseAt(keys, Anim.Idle, 0) as P, 'se', Anim.Idle, 0));
@@ -672,7 +790,7 @@ const bulky = (draw: (c: Paper) => void) => (c: Paper): void => withHorseBulk(1.
 Object.assign(STATIC_KINDS, {
   1: { body: 'foot', draw: ghoulStatic },
   2: { body: 'foot', draw: throwerStatic },
-  3: { body: 'foot', draw: wraithStatic },
+  3: { body: 'foot', draw: wardenStatic },
   4: { body: 'foot', draw: arbalestStatic },
   5: { body: 'horse', draw: bulky(blackRiderStatic) },
   6: { body: 'horse', draw: bulky(horseArcherStatic) },
