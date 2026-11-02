@@ -28,6 +28,9 @@ export interface Ground {
   arts: Art[];
   /** Ears of wheat per field, for the reapers: how many fields are sown. */
   sown: number;
+  /** Where the crop frames go (HD crops them to their bounds). */
+  cropX?: number;
+  cropY?: number;
 }
 
 const inRect = (u: number, v: number, r: [number, number, number, number], m = 0) => u >= r[0] - m && u < r[2] + m && v >= r[1] - m && v < r[3] + m;

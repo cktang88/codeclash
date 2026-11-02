@@ -42,3 +42,14 @@ these images are in the repository. Every pixel of the city is painted by our ow
 1. **Round 1:** all eight scenes rendered. The walls were too tall and too bright and hid the yard. Wall chunks showed outline seams. The archery butts read as a cart. People bunched on the road nodes. The sails were thin. The rotunda's roof was missing. Art was not sorted by depth at all, because the arts had no `d` key.
 2. **Round 2:** depth sorting fixed. Back walls lowered (10 to 13 px) and front walls lowered to 70% of that. The wall-walk was darkened. The seams were removed. Targets now stand on trestles before a turf bank (Luttrell). Waiting spots are jittered. The cart has sacks.
 3. **Round 3:** ground noise clumped into fewer tones (it read as TV static next to the CC0 references). Dusk was toned down. The rotunda now has a lead drum roof, a raised central tower and a cone. The engine was changed to a traction trebuchet (Maciejowski) drawn with 2 px outlined beams, on clear ground. The drill stands at ease at night.
+
+## HD mode (settings.ts: classic | hd)
+
+The classic commandery above stays as it was. HD paints the same plan at twice the pixel density
+(1280×720 buffer, shown at exactly 2× on a 2560×1440 screen, whole-number zoom steps, the camera
+snapped to art pixels). Each faction has its own town: the Templar commandery is redrawn at the
+new density with 1-pixel joints and course highlights, and the Samurai and Undead towns are new.
+Their references and critique rounds are in [samurai-city.md](samurai-city.md) and
+[undead-city.md](undead-city.md). The townsfolk are repainted at 24×34 (`people-hd.ts`) under
+the pixel-art rules of the research guide: clean clusters, hue-shifted ramps, coloured outlines,
+and one accent per element. The beasts are the classic sprites doubled with Scale2x.

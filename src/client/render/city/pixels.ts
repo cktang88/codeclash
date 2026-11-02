@@ -19,6 +19,21 @@ export interface V3 {
 
 export const sx = (u: number, v: number) => OX + u - v;
 export const sy = (u: number, v: number, z = 0) => OY + (u + v) / 2 - z;
+/**
+ * How a pixel buffer maps the world: a buffer pixel is ((sx + mx) * k, (sy + my) * k). Classic is
+ * the original 512×288 buffer; HD paints at twice the density with a margin, 1280×720, so a
+ * 2560×1440 screen shows it at exactly 2× and every zoom step is a whole number.
+ */
+export interface Frame {
+  k: number;
+  mx: number;
+  my: number;
+  w: number;
+  h: number;
+}
+export const CLASSIC: Frame = { k: 1, mx: 0, my: 0, w: WORLD_W, h: WORLD_H };
+export const HD: Frame = { k: 2, mx: 64, my: 36, w: 1280, h: 720 };
+
 /** Ground point under a screen pixel. */
 export const groundAt = (x: number, y: number): [number, number] => {
   const a = x - OX;
@@ -73,6 +88,10 @@ export function hash(x: number, y: number, s = 0): number {
 
 export class Px {
   readonly data: Uint32Array;
+  /** Pixels per world unit, and the margin (world pixels) before the world's origin. */
+  readonly k: number;
+  readonly mx: number;
+  readonly my: number;
   readonly depth: Float32Array;
   /** The region written since the last clear (inclusive), so clearing and scanning stay cheap. */
   private x0 = Infinity;
@@ -82,7 +101,11 @@ export class Px {
   constructor(
     readonly w: number,
     readonly h: number,
+    frame?: Frame,
   ) {
+    this.k = frame?.k ?? 1;
+    this.mx = frame?.mx ?? 0;
+    this.my = frame?.my ?? 0;
     this.data = new Uint32Array(w * h);
     this.depth = new Float32Array(w * h).fill(-1e9);
   }
@@ -112,6 +135,18 @@ export class Px {
     this.data[y * this.w + x] = c;
     this.touch(x, y);
   }
+  /** Buffer x of a world point. */
+  X(u: number, v: number): number {
+    return (sx(u, v) + this.mx) * this.k;
+  }
+  /** Buffer y of a world point. */
+  Y(u: number, v: number, z = 0): number {
+    return (sy(u, v, z) + this.my) * this.k;
+  }
+  /** The world ground point under a buffer pixel's centre. */
+  ground(x: number, y: number): [number, number] {
+    return groundAt((x + 0.5) / this.k - this.mx, (y + 0.5) / this.k - this.my);
+  }
   /** Set if nearer than what is there (depth u+v+z). */
   plot(x: number, y: number, d: number, c: Col): void {
     x |= 0;
@@ -134,7 +169,7 @@ export class Px {
   }
   /** A world point, depth tested. */
   point(p: V3, c: Col): void {
-    this.plot(Math.floor(sx(p.u, p.v)), Math.floor(sy(p.u, p.v, p.z)), p.u + p.v + p.z, c);
+    this.plot(Math.floor(this.X(p.u, p.v)), Math.floor(this.Y(p.u, p.v, p.z)), p.u + p.v + p.z, c);
   }
   /**
    * A planar patch o + s·a + t·b (s, t in 0..1, or the triangle s + t ≤ 1), rasterised in screen
@@ -142,14 +177,15 @@ export class Px {
    * and returns a colour or 0 to leave the pixel alone.
    */
   quad(o: V3, a: V3, b: V3, shade: (s: number, t: number, p: V3) => Col, tri = false): void {
-    const ax = a.u - a.v;
-    const ay = (a.u + a.v) / 2 - a.z;
-    const bx = b.u - b.v;
-    const by = (b.u + b.v) / 2 - b.z;
+    const k = this.k;
+    const ax = (a.u - a.v) * k;
+    const ay = ((a.u + a.v) / 2 - a.z) * k;
+    const bx = (b.u - b.v) * k;
+    const by = ((b.u + b.v) / 2 - b.z) * k;
     const det = ax * by - ay * bx;
     if (Math.abs(det) < 1e-6) return;
-    const ox = sx(o.u, o.v);
-    const oy = sy(o.u, o.v, o.z);
+    const ox = this.X(o.u, o.v);
+    const oy = this.Y(o.u, o.v, o.z);
     const xs = [ox, ox + ax, ox + bx, ox + ax + bx];
     const ys = [oy, oy + ay, oy + by, oy + ay + by];
     const x0 = Math.max(0, Math.floor(Math.min(...xs)) - 1);
@@ -322,20 +358,20 @@ export function cone(px: Px, cu: number, cv: number, z: number, r: number, rh: n
 
 /** A thin upright post (one or two pixels), depth tested. */
 export function post(px: Px, u: number, v: number, z0: number, h: number, c: Col, c2?: Col): void {
-  const x = Math.floor(sx(u, v));
-  const y = Math.floor(sy(u, v, z0));
-  for (let k = 0; k < h; k++) {
-    px.plot(x, y - k, u + v + z0 + k, c);
-    if (c2) px.plot(x + 1, y - k, u + v + z0 + k, c2);
+  const x = Math.floor(px.X(u, v));
+  const y = Math.floor(px.Y(u, v, z0));
+  for (let k = 0; k < h * px.k; k++) {
+    px.plot(x, y - k, u + v + z0 + k / px.k, c);
+    if (c2) px.plot(x + 1, y - k, u + v + z0 + k / px.k, c2);
   }
 }
 
 /** A line between two world points, depth tested. */
 export function line3(px: Px, a: V3, b: V3, c: Col): void {
-  const x0 = sx(a.u, a.v);
-  const y0 = sy(a.u, a.v, a.z);
-  const x1 = sx(b.u, b.v);
-  const y1 = sy(b.u, b.v, b.z);
+  const x0 = px.X(a.u, a.v);
+  const y0 = px.Y(a.u, a.v, a.z);
+  const x1 = px.X(b.u, b.v);
+  const y1 = px.Y(b.u, b.v, b.z);
   const n = Math.max(1, Math.ceil(Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0))));
   for (let i = 0; i <= n; i++) {
     const t = i / n;

@@ -4,14 +4,14 @@
 // as anchors for the scene to animate.
 
 import type { BuildingKey } from '../../../game/city.ts';
-import { box, cone, drum, gable, hash, line3, mix, OX, post, pyramid, Px, sx, sy, tone, v3, WORLD_H, WORLD_W, type Col, type Facing, type Shader, type V3 } from './pixels.ts';
+import { box, CLASSIC, cone, drum, gable, hash, line3, mix, OX, post, pyramid, Px, sx, sy, tone, v3, type Col, type Facing, type Frame, type Shader, type V3 } from './pixels.ts';
 import type { CityStyle, Ramp } from './style.ts';
 
 /** Level to tier: 0 empty lot, 1 timber, 2 stone, 3 fortified, 4 grand. */
 export function tierOf(level: number): number {
   return level <= 0 ? 0 : level < 5 ? 1 : level < 10 ? 2 : level < 15 ? 3 : 4;
 }
-const TIER_START = [0, 1, 5, 10, 15, 99];
+export const TIER_START = [0, 1, 5, 10, 15, 99];
 
 /** Footprints (u0, v0, u1, v1) of each lot inside the walls (0..232). */
 export const LOT: Record<BuildingKey | 'keep', [number, number, number, number]> = {
@@ -64,11 +64,11 @@ export interface BuildingParts {
   targets: [number, number][];
 }
 
-const emptyParts = (): BuildingParts => ({ arts: [], smoke: [], banners: [], torches: [], bells: [], forges: [], stalls: [], targets: [] });
+export const emptyParts = (): BuildingParts => ({ arts: [], smoke: [], banners: [], torches: [], bells: [], forges: [], stalls: [], targets: [] });
 
 // ------------------------------------------------------------------ materials
 
-interface Hole {
+export interface Hole {
   face: Facing;
   s: number;
   t: number;
@@ -79,27 +79,39 @@ interface Hole {
 
 const LIGHT: Record<Facing, number> = { top: 0, left: 1, right: 2, back: 2 };
 
-class Painter {
-  readonly px = new Px(WORLD_W, WORLD_H);
+export class Painter {
+  readonly px: Px;
+  /** Pixels per world unit (1 classic, 2 HD). */
+  readonly k: number;
   /** Glass pixels painted, as [x, y, colour]. */
   glass: number[] = [];
-  constructor(readonly st: CityStyle) {}
+  constructor(
+    readonly st: CityStyle,
+    readonly frame: Frame = CLASSIC,
+  ) {
+    this.px = new Px(frame.w, frame.h, frame);
+    this.k = frame.k;
+  }
 
   reset(): void {
     this.px.clear();
     this.glass = [];
   }
 
-  private rampAt(r: Ramp, f: Facing, k = 0): Col {
+  rampAt(r: Ramp, f: Facing, k = 0): Col {
     return r[Math.min(3, LIGHT[f] + k)]!;
   }
 
   /** A wall face: stone, fine stone, timber frame, or palisade; with windows and doors cut in. */
   wall(mat: 'stone' | 'fine' | 'timber' | 'plank', h: number, holes: Hole[] = [], seed = 0, gold = -1): Shader {
     const st = this.st;
+    const q = this.k;
     return (f, s, t, p) => {
       const si = Math.floor(s);
       const ti = Math.floor(t);
+      // The same patterns in buffer pixels, so HD gets 1-pixel joints instead of doubled ones.
+      const sq = Math.floor(s * q);
+      const tq = Math.floor(t * q);
       for (const o of holes) {
         if (o.face !== f) continue;
         if (o.kind === 'rose') {
@@ -139,26 +151,31 @@ class Painter {
       let c: Col;
       if (mat === 'timber') {
         const beam =
-          si % 8 === 0 || ti === 0 || ti === Math.floor(h / 2) || t >= h - 1 ||
+          sq % (8 * q) < q || ti === 0 || ti === Math.floor(h / 2) || t >= h - 1 ||
           (hash(Math.floor(s / 8), seed, 7) < 0.5 && t < h / 2 && Math.abs((s % 8) - (t / (h / 2)) * 8) < 0.9);
         c = beam ? this.rampAt(st.timber, f) : this.rampAt(st.daub, f);
         if (!beam && hash(si, ti, seed) < 0.12) c = tone(c, 0.08);
+        // HD: a dark inner line along the beams' lower edges.
+        if (q > 1 && beam && !(sq % (8 * q) < q) && tq === Math.floor(Math.floor(h / 2) * q)) c = this.rampAt(st.timber, f, 1);
       } else if (mat === 'plank') {
-        c = this.rampAt(st.timber, f, si % 3 === 0 ? 1 : 0);
+        c = this.rampAt(st.timber, f, Math.floor(sq / q) % 3 === 0 && (q === 1 || sq % q === 0) ? 1 : 0);
         if (hash(si, ti >> 2, seed) < 0.1) c = tone(c, 0.15);
       } else {
         const r = mat === 'fine' ? st.fine : st.stone;
-        const ch = mat === 'fine' ? 4 : 3;
-        const row = Math.floor(t / ch);
-        const bw = mat === 'fine' ? 8 : 6;
-        const off = (row * (mat === 'fine' ? 4 : 3) + (hash(row, seed, 3) * 3) | 0) % bw;
-        const joint = (si + off) % bw === 0;
-        const course = ti % ch === ch - 1;
+        const ch = (mat === 'fine' ? 4 : 3) * q;
+        const row = Math.floor(tq / ch);
+        const bw = (mat === 'fine' ? 8 : 6) * q;
+        const off = ((row * (mat === 'fine' ? 4 : 3) + (hash(row, seed, 3) * 3) | 0) * q) % bw;
+        const joint = (sq + off) % bw === 0;
+        const course = tq % ch === ch - 1;
         c = this.rampAt(r, f);
-        const blk = hash(Math.floor((si + off) / bw), row, seed);
+        const blk = hash(Math.floor((sq + off) / bw), row, seed);
         if (blk < 0.18) c = tone(c, 0.1);
         else if (blk > 0.9) c = tone(c, -0.08);
-        if (course || joint) c = mix(c, st.mortar, f === 'left' ? 0.45 : 0.35);
+        if (q > 1 && f !== 'left' && (course || joint)) c = mix(c, st.mortar, 0.22);
+        else if (course || joint) c = mix(c, st.mortar, f === 'left' ? 0.45 : 0.35);
+        // HD: a lit top edge on each course of the lit face (sparse, regular texture).
+        else if (q > 1 && f === 'left' && tq % ch === 0) c = tone(c, -0.1);
         if (gold >= 0 && ti === gold) c = f === 'left' ? st.gold : tone(st.gold, 0.25);
       }
       // Grime at the foot of the wall, shadow under the eaves.
@@ -168,8 +185,9 @@ class Painter {
     };
   }
 
-  private glassAt(p: V3, c: Col): Col {
-    this.glass.push(Math.floor(sx(p.u, p.v)), Math.floor(sy(p.u, p.v, p.z)));
+  /** Mark a glass pixel (it lights at night) and return its colour. */
+  glassAt(p: V3, c: Col): Col {
+    this.glass.push(Math.floor(this.px.X(p.u, p.v)), Math.floor(this.px.Y(p.u, p.v, p.z)));
     return c;
   }
 
@@ -177,9 +195,10 @@ class Painter {
   roof(mat: 'thatch' | 'shingle' | 'tile' | 'slate' | 'lead', seed = 0): Shader {
     const st = this.st;
     const r = mat === 'thatch' ? st.thatch : mat === 'shingle' ? st.shingle : mat === 'tile' ? st.tile : st.slate;
+    const q = this.k;
     return (f, s, t) => {
       const base = f === 'left' ? r[0] : f === 'right' ? r[2] : f === 'top' ? r[1] : r[1];
-      const si = Math.floor(s);
+      const si = Math.floor(s * q) / q;
       const ti = Math.floor(t);
       let c = base;
       if (mat === 'thatch') {
@@ -196,9 +215,12 @@ class Painter {
         const row = Math.floor(t / rowH);
         const gap = mat === 'slate' ? 3 : 2;
         const off = row % 2;
-        if (ti % rowH === 0) c = tone(c, mat === 'tile' ? 0.28 : 0.22);
-        else if ((si + off) % gap === 0) c = tone(c, 0.14);
-        if (hash(si >> 1, row, seed) < 0.08) c = tone(c, -0.12);
+        const tq = Math.floor(t * q);
+        const sq = Math.floor(s * q);
+        if (q === 1 ? ti % rowH === 0 : tq % (rowH * q) === 0) c = tone(c, mat === 'tile' ? 0.28 : 0.22);
+        else if (q === 1 ? (si + off) % gap === 0 : (sq + off * q) % (gap * q) === 0) c = tone(c, 0.14);
+        else if (q > 1 && tq % (rowH * q) === 1) c = tone(c, -0.06);
+        if (hash(Math.floor(si) >> 1, row, seed) < 0.08) c = tone(c, -0.12);
         if (t < 1) c = tone(c, 0.35);
       }
       return c;
@@ -212,6 +234,7 @@ class Painter {
   // ---------------------------------------------------------------- parts
 
   /** Merlons along the visible top edges of a box. */
+  // (public helpers below are shared with the faction kits in samurai.ts and undead.ts)
   crenels(u0: number, v0: number, z: number, lu: number, lv: number, sh: Shader): void {
     const m = 2;
     for (let u = u0; u <= u0 + lu - m; u += 4) {
@@ -228,7 +251,9 @@ class Painter {
   pole(parts: BuildingParts, u: number, v: number, z: number, h: number, w = 6, bh = 5, pennon = false): void {
     post(this.px, u, v, z, h, this.st.timber[3]);
     this.px.point(v3(u, v, z + h), this.st.gold);
-    parts.banners.push({ x: Math.floor(sx(u, v)) + 1, y: Math.floor(sy(u, v, z + h)) + 1, w, h: bh, pennon });
+    // In world pixels, on the art pixel beside the pole (the same as floor(sx) + 1 in classic).
+    const { k, mx, my } = this.px;
+    parts.banners.push({ x: (Math.floor(this.px.X(u, v)) + 1) / k - mx, y: (Math.floor(this.px.Y(u, v, z + h)) + 1) / k - my, w, h: bh, pennon });
   }
 
   chimney(parts: BuildingParts, u: number, v: number, z: number, h: number): void {
@@ -324,22 +349,52 @@ export interface PaintArgs {
 
 let painter: Painter | null = null;
 
-export function paintBuilding(key: BuildingKey | 'keep', a: PaintArgs): BuildingParts {
-  if (!painter || painter.st !== a.st) painter = new Painter(a.st);
-  const P = painter;
+/** The shared painter for a style and frame (one buffer, reused between buildings). */
+export function painterFor(st: CityStyle, frame: Frame = CLASSIC): Painter {
+  if (!painter || painter.st !== st || painter.frame !== frame) painter = new Painter(st, frame);
+  return painter;
+}
+
+/**
+ * A faction's own buildings (HD). Return true when it painted the building into P (the lot and
+ * scaffolding and the finish are then done as for the commandery), finished parts when it did
+ * everything itself (the walls), or null to fall back to the commandery's building.
+ */
+export type FactionKit = (P: Painter, key: BuildingKey | 'keep', a: PaintArgs, parts: BuildingParts) => BuildingParts | boolean | null;
+const KITS: Record<string, FactionKit> = {};
+export function registerKit(id: string, kit: FactionKit): void {
+  KITS[id] = kit;
+}
+/** A faction's own building outside the walls where the commandery has its windmill (HD). */
+type MillKit = (P: Painter, level: number) => [number, number] | null;
+const MILLS: Record<string, MillKit> = {};
+export function registerMill(id: string, kit: MillKit): void {
+  MILLS[id] = kit;
+}
+
+export function paintBuilding(key: BuildingKey | 'keep', a: PaintArgs, frame: Frame = CLASSIC): BuildingParts {
+  const P = painterFor(a.st, frame);
   P.reset();
   const parts = emptyParts();
   const tier = tierOf(a.level);
   const [u0, v0, u1, v1] = LOT[key];
   const depth = (u0 + u1 + v0 + v1) / 2;
-  if (key === 'walls') return walls(P, a, parts);
+  const kit = frame.k > 1 && (tier > 0 || key === 'keep' || key === 'walls') ? KITS[a.st.id] : undefined;
+  let drawn = false;
+  if (kit) {
+    const done = kit(P, key, a, parts);
+    if (done === true) drawn = true;
+    else if (done) return done;
+    else P.reset();
+  }
+  if (key === 'walls' && !drawn) return walls(P, a, parts);
   if (tier === 0 && key !== 'keep') {
     P.lot(u0 + 4, v0 + 4, u1 - 4, v1 - 4, a.seed);
     parts.arts.push(P.finish(depth));
     return parts;
   }
   const rising = a.progress > 0.45 && TIER_START.includes(a.level + 1) && a.level > 0;
-  switch (key) {
+  if (!drawn) switch (key) {
     case 'keep':
       keep(P, tier, parts);
       break;
@@ -383,7 +438,7 @@ const MAT: M[] = [
 ];
 
 /** A hall: walls, gabled roof, a stone plinth under timber, windows and a door. */
-function hall(
+export function hall(
   P: Painter, u0: number, v0: number, lu: number, lv: number, h: number, alongU: boolean, tier: number,
   holes: Hole[], seed: number, rh = 0,
 ): void {
@@ -408,7 +463,7 @@ function hall(
 }
 
 /** Windows spaced along a face. */
-function row(face: Facing, from: number, len: number, n: number, t: number, w: number, h: number, kind: Hole['kind'] = 'window'): Hole[] {
+export function row(face: Facing, from: number, len: number, n: number, t: number, w: number, h: number, kind: Hole['kind'] = 'window'): Hole[] {
   const out: Hole[] = [];
   for (let i = 0; i < n; i++) out.push({ face, s: Math.round(from + ((i + 0.5) * len) / n - w / 2), t, w, h, kind });
   return out;
@@ -906,9 +961,14 @@ function walls(P: Painter, a: PaintArgs, parts: BuildingParts): BuildingParts {
 // ------------------------------------------------------------------ the windmill
 
 /** The mill outside the walls, its body only (sails turn live). Returns the hub. */
-export function paintMill(st: CityStyle, level: number): { art: Art; hub: [number, number] } {
-  if (!painter || painter.st !== st) painter = new Painter(st);
-  const P = painter;
+export function paintMill(st: CityStyle, level: number, frame: Frame = CLASSIC): { art: Art; hub: [number, number] | null } {
+  const P = painterFor(st, frame);
+  const own = frame.k > 1 ? MILLS[st.id] : undefined;
+  if (own) {
+    P.reset();
+    const hub = own(P, level);
+    return { art: P.finish(116 - 46), hub };
+  }
   P.reset();
   const u = 116;
   const v = -46;

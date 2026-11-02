@@ -6,7 +6,9 @@ import './styles.css';
 import { createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { BuildingKey } from '../game/city.ts';
+import { isFaction, type FactionId } from '../game/factions.ts';
 import { CityScene, type CityMood } from './render/city.ts';
+import { artMode, setArtMode, type ArtMode } from './settings.ts';
 import { CityCanvas } from './ui/CityCanvas.tsx';
 
 type Levels = Record<BuildingKey, number>;
@@ -27,6 +29,27 @@ const SCENES: { name: string; levels: Levels; recruits: number; mood: CityMood }
 ];
 
 const q = new URLSearchParams(location.search);
+// ?faction=templar|samurai|undead picks the city; ?level=<0-20> adds a scene 0 with every building at one level.
+const faction: FactionId = isFaction(q.get('faction')) ? (q.get('faction') as FactionId) : 'templar';
+if (q.has('level')) {
+  const n = Number(q.get('level'));
+  SCENES.unshift({ name: `All at level ${n}`, levels: L(n, n, n, n, n, n, n, n), recruits: n * 2, mood: { hour: 11, streak: Math.min(6, n), army: army(Math.ceil(n / 3)) } });
+}
+// ?art=classic|hd picks the art mode (default: the saved setting); the button flips the setting.
+const art: ArtMode = q.get('art') === 'hd' ? 'hd' : q.get('art') === 'classic' ? 'classic' : artMode();
+{
+  const b = document.createElement('button');
+  b.textContent = art === 'hd' ? 'Art: HD (switch to classic)' : 'Art: classic (switch to HD)';
+  b.style.cssText = 'position:fixed;right:10px;top:26px;z-index:2;font:12px Georgia,serif';
+  b.onclick = () => {
+    const next: ArtMode = art === 'hd' ? 'classic' : 'hd';
+    setArtMode(next);
+    const u = new URL(location.href);
+    u.searchParams.set('art', next);
+    location.href = u.toString();
+  };
+  document.body.append(b);
+}
 const only = q.has('only') ? Number(q.get('only')) : null;
 const hour = q.has('hour') ? Number(q.get('hour')) : null;
 const skip = Number(q.get('t') ?? 0);
@@ -42,7 +65,7 @@ if (q.has('app')) {
   stage.className = 'city-stage';
   stage.style.maxWidth = '1000px';
   document.body.prepend(stage);
-  createRoot(stage).render(createElement(CityCanvas, { faction: 'templar', hue: 200, seed: 7, levels: s.levels, recruits: s.recruits, mood: s.mood }));
+  createRoot(stage).render(createElement(CityCanvas, { faction, hue: 200, seed: 7, levels: s.levels, recruits: s.recruits, mood: s.mood }));
 }
 
 const live = SCENES.map((s, i) => ({ s, i }))
@@ -54,7 +77,7 @@ const live = SCENES.map((s, i) => ({ s, i }))
     cap.textContent = `${i}. ${s.name}`;
     fig.append(canvas, cap);
     grid.append(fig);
-    const scene = new CityScene('templar', (i * 47 + 10) % 360, 1234 + i);
+    const scene = new CityScene(faction, (i * 47 + 10) % 360, 1234 + i, art);
     const mood = { ...s.mood, ...(hour !== null ? { hour } : {}) };
     return { s, canvas, scene, mood };
   });
@@ -74,11 +97,8 @@ for (const l of live) {
   for (let k = 0; k < skip * 10; k++) l.scene.draw(l.canvas, l.s.levels, l.s.recruits, 0.1, l.mood);
   if (zoom > 1) {
     l.scene.zoomAt(zoom - 1);
-    if (focus) {
-      l.scene.cx = focus[0]!;
-      l.scene.cy = focus[1]!;
-      l.scene.panBy(0, 0);
-    }
+    // focus: a point in world pixels (the classic 512×288 coordinates) in either mode.
+    if (focus) l.scene.lookAt(focus[0]!, focus[1]!);
   }
 }
 const costs: number[] = [];

@@ -18,13 +18,20 @@ export type Carry = 'none' | 'sack' | 'bucket' | 'staff' | 'book' | 'plank' | 'b
 export interface Look {
   body: Col;
   legs: Col;
-  head: 'hair' | 'hood' | 'coif' | 'hat' | 'cap' | 'veil';
+  /** The classic painter knows the first six; the HD painter (people-hd.ts) knows them all. */
+  head: 'hair' | 'hood' | 'coif' | 'hat' | 'cap' | 'veil' | 'jingasa' | 'kasa' | 'shaved' | 'topknot' | 'eboshi' | 'skull' | 'cowl' | 'tenugui';
   hair: Col;
   robe: boolean;
   apron?: Col;
   cross?: Col;
   work: Work;
   carry: Carry;
+  /** HD only: own skin (the dead), a sash or kesa, a hunched shambling gait, glowing eyes, rags. */
+  skin?: Col;
+  sash?: Col;
+  shamble?: boolean;
+  eyes?: Col;
+  rags?: boolean;
 }
 
 const OUT = hex('#140f0b');
@@ -348,7 +355,7 @@ export const HORSE_FY = 15;
 /** 0-3 walk, 4 idle, 5 graze, 6 toss. */
 export const HORSE_FRAMES = 7;
 
-function paintHorse(c: Px, coat: Col, mane: Col, f: number, caparison: CityStyle | null): void {
+export function paintHorse(c: Px, coat: Col, mane: Col, f: number, caparison: CityStyle | null): void {
   const shade = tone(coat, 0.3);
   const light = tone(coat, -0.15);
   const hoof = hex('#1a1410');
@@ -441,8 +448,8 @@ export const DOG_H = 9;
 export const DOG_FX = 5;
 export const DOG_FY = 8;
 /** 0-1 trot, 2 sit, 3 sniff. */
-function paintDog(c: Px, f: number): void {
-  const coat = hex('#6a5038');
+export function paintDog(c: Px, f: number, coatIn?: Col): void {
+  const coat = coatIn ?? hex('#6a5038');
   const shade = tone(coat, 0.35);
   if (f === 2) {
     for (let y = 4; y <= 7; y++) for (let x = 4; x <= 6; x++) c.set(x, y, y > 5 ? shade : coat);
@@ -477,9 +484,9 @@ function paintDog(c: Px, f: number): void {
 
 export const HEN_W = 7;
 export const HEN_H = 7;
-function paintHen(c: Px, f: number): void {
-  const w = hex('#d8cfba');
-  const b = hex('#a08a6a');
+export function paintHen(c: Px, f: number, white?: Col, brown?: Col): void {
+  const w = white ?? hex('#d8cfba');
+  const b = brown ?? hex('#a08a6a');
   c.set(2, 3, w);
   c.set(3, 3, w);
   c.set(4, 3, w);
@@ -504,13 +511,13 @@ export const CART_W = 22;
 export const CART_H = 14;
 export const CART_FX = 9;
 export const CART_FY = 13;
-function paintCart(c: Px, f: number, st: CityStyle): void {
+export function paintCart(c: Px, f: number, st: CityStyle, load?: [Col, Col, Col]): void {
   const wood = st.timber[1];
   const dark = st.timber[3];
   // Sacks of grain heaped in the bed: rounded lumps lit from the upper left.
-  const sackL = hex('#d8c79a');
-  const sack = hex('#b8a372');
-  const sackD = hex('#8a7a52');
+  const sackL = load?.[0] ?? hex('#d8c79a');
+  const sack = load?.[1] ?? hex('#b8a372');
+  const sackD = load?.[2] ?? hex('#8a7a52');
   const lumps: [number, number][] = [[4, 6], [8, 6], [12, 6], [6, 3], [10, 3]];
   for (const [x0, y0] of lumps)
     for (let y = 0; y < 4; y++)
@@ -544,7 +551,7 @@ function paintCart(c: Px, f: number, st: CityStyle): void {
 export const CROW_W = 7;
 export const CROW_H = 5;
 /** 0-1 flap, 2 perched. */
-function paintCrow(c: Px, f: number): void {
+export function paintCrow(c: Px, f: number): void {
   const k = hex('#15131a');
   const g = hex('#2c2a33');
   if (f === 2) {
