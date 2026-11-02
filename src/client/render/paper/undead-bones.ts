@@ -7,6 +7,7 @@ import { COMMANDER_KIND } from '../contract.ts';
 import { registerFoot, type FootSpec } from './undead-foot.ts';
 import { restPose, type DrawCtx } from './skeleton.ts';
 import { UM } from './undead-parts.ts';
+import { registerBeasts } from './undead-beast.ts';
 import { jawOf, registerMount, type MountSpec } from './undead-horse.ts';
 import { ARBALEST, BLACK_RIDER, DEATH_KNIGHT, GHOUL, HORSE_ARCHER, LEGIONARY, LICH, lichHeap, soulWisp, THROWER, WARDEN, wardenHeap, type FootArt, type PieceOpts } from './undead-static.ts';
 
@@ -267,6 +268,7 @@ const DEATH_KNIGHT_SPEC = (): MountSpec => ({
 });
 
 export function registerUndeadRigs(): void {
+  registerBeasts(U.Shock, U.Artillery);
   registerMount(U.LightCavalry, BLACK_RIDER_SPEC, false);
   registerMount(U.HorseArchers, HORSE_ARCHER_SPEC, true);
   registerMount(U.Knights, DEATH_KNIGHT_SPEC, false);
