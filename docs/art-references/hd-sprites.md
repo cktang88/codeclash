@@ -115,3 +115,39 @@ Still short of the target:
 - The colossus is a pale mass at a distance.
 - Horse bodies are smooth.
 - The xave figure's hand-placed cloth folds and hair strands have no equivalent in a ray-cast. The stylisation pass gets clean flat clusters, not authored ones.
+
+## The 2D paper-doll painter (paper.ts): first unit, the Grave Legionary
+
+The user's direction is to go as far as we can in 2D, with no 3D primitives. `src/client/render/paper.ts` draws the Grave Legionary
+(south-east facing; Idle, Walk, Attack and Die; level 4 ≈ 64 px and level 8 ≈ 128 px) the way a pixel artist would, without ray-casting:
+- **Parts.** Each part is an outline polygon or tapered stroke in sprite space, filled pixel-perfectly (a pixel is in when its centre is).
+- **Shading is painted into the parts.** Rods get a 1 px lit edge toward the top-left, a shadow third and a dark far edge. Round shapes get an offset light cluster and a shadow crescent. The details are drawn by hand: eye sockets with a cold point, teeth, rib gaps over a dark chest cavity, mail rings, rust patches, rivets, blade chips and pitting, a painted skull on the shield, and tabard folds and torn tongues.
+- **Ramps.** Five steps per material, hue-shifted. Bone is yellowed and brown-stained; iron, rust, mail and team cloth are low-key.
+- **Rig.** A 2D bone rig with authored key poses, eased between, and angles snapped to 7.5°. Every rotated part is redrawn from its outline, never rotated as an image.
+  - Attack has an anticipation key, a fast strike with a solid smear, and a follow-through overshoot.
+  - In Die he buckles, falls and comes apart into a heap.
+- **Passes.** Contact lines where a part lies in front of another, small-cluster merge, anti-flicker against the previous frame, and a coloured outline that is lighter on the lit side.
+
+References for this unit (in `references/undead/`, study only): the Diablo II skeleton sheet and Darkest Dungeon's Bone Soldier (URLs above), with xave_pixel's 128 figure as the target. The side-by-side with them is in `references/comparisons/` and is not committed.
+
+Critique rounds (`docs/screenshots/hd-sprites/paper-*`, our art only):
+1. A flat slab of tabard and mail hid the skeleton.
+2. The ribs were a tangle, the pauldron read as a second head, and the helm hid the face. Fixes: a short mail cape and a narrow tabard on a belt, a dark chest cavity behind fewer and lighter ribs, and a small rusty pauldron.
+3. The legs overlapped into one, the sword pointed back, and the skull had no face. Fixes: legs set apart, authored blade angles per key, the helm raised, and a visible glow point.
+
+Against the old ray-cast Legionary (blobby limbs, a cream mannequin), the new one reads as a thin, grim skeleton warrior at both levels.
+
+Still short of the references:
+- The pose is close to profile rather than a true three-quarter view.
+- The skull is small and dark, and the face reads mainly as teeth.
+- Not yet wired into the game: only this unit, in one facing.
+
+Round 4 changes, from the coordinator's critique:
+- **Ribcage:** the striped slab is gone. Behind is a vertebra column, in front a sternum, and four thin curved ribs on each side (the near side lit, the far side darker) with empty gaps between them.
+- **Head:** an open-faced, dented kettle hat (low rusty crown, wide chewed brim). The skull face shows eye sockets with the glow point, a nasal cavity, a cheekbone highlight, a stain and the jaw.
+- **Tabard:** two folds with lit ridges, a darker underside at the hem, and torn strips. It swings a frame and a half behind the stride and the strike.
+- **Three-quarter view:** the shoulders spread across the screen, so the chest faces the viewer.
+- **Bone:** darker knobbed joints with a seam, brown stains along the shafts, a lit edge.
+- **Plates:** a two-lame pauldron with rivets, a pale lit top rim and rust spreading from the lower edge. The mail cape has a shaped, scalloped hem.
+
+Remaining for this unit: the ribs still read busy at level 4; the back facings are not drawn yet.
