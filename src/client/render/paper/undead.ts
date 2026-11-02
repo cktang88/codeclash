@@ -223,7 +223,7 @@ registerPaperKind<FootPose>('undead', U.HeavyInfantry, {
 // Signature props are drawn a quarter larger at level 1 (`ex`).
 
 /** Draws a figure, then puts its lower part in the shade (light from above). */
-const lit = (c: Paper, draw: () => void): void => {
+export const lit = (c: Paper, draw: () => void): void => {
   draw();
   shadeLower(c);
 };
@@ -321,7 +321,7 @@ export const GHOUL_KEYS: KeySet<FootPose> = {
 };
 
 /** A gaunt limb of grey dead flesh with a knob of a joint. */
-function fleshLimb(c: Paper, a: P2, b: P2, w0: number, w1: number, tone: number): void {
+export function fleshLimb(c: Paper, a: P2, b: P2, w0: number, w1: number, tone: number): void {
   c.rod(a, b, w0, w1, UM.flesh, { tone, detail: (x, y, u) => (c.L >= 4 && u > -0.2 && c.tex(x, y, 211, 3) < 0.1 ? code(UM.flesh, tone - 1) : -1) });
   c.blob(b, w1 * 0.75, w1 * 0.7, UM.flesh, { tone: tone - 1 });
 }
@@ -340,7 +340,7 @@ function ghoulLeg(c: Paper, F: Frame, hip: P2, th: number, sh: number, far: bool
  * The ghoul's head: a long bald skull under grey skin, a heavy brow over a sunken socket with a
  * green point, a pointed ear laid back, the jaw hanging open on long teeth.
  */
-function ghoulHead(c: Paper, at: P2, ang: number, back: boolean): void {
+export function ghoulHead(c: Paper, at: P2, ang: number, back: boolean): void {
   ang = snapDeg(ang);
   const R = (p: P2): P2 => addP(at, rot(p, ang * DEG));
   const cx = c.sx(at[0]), cy = c.sy(at[1]), L = c.L;
@@ -418,7 +418,7 @@ function ghoulTorso(c: Paper, F: Frame): void {
   if (!back) for (let i = 1; i < 5; i++) c.blob(at(i / 5 + 0.05, -backW[Math.min(5, i + 1)]! + 0.05), 0.22, 0.18, UM.flesh, { tone: 3 });
 }
 
-function ghoul(c: Paper, p: FootPose, facing: Facing, _anim?: Anim, _frame?: number): void {
+export function ghoul(c: Paper, p: FootPose, facing: Facing, _anim?: Anim, _frame?: number): void {
   const back = isBack(facing);
   const F = frameOf(c, p, back, { spine: 4.4 });
   const E = ex(c);
@@ -486,14 +486,14 @@ export const THROWER_KEYS: KeySet<FootPose> = {
 };
 
 /** A sharpened bone javelin: a long shin bone, its knuckle the butt, splintered to a point. */
-function boneJavelin(c: Paper, hand: P2, deg: number, len: number): void {
+export function boneJavelin(c: Paper, hand: P2, deg: number, len: number): void {
   const butt = along(hand, deg + 180, len * 0.35);
   const tip = along(hand, deg, len * 0.65);
   c.blob(butt, 0.3, 0.28, UM.bone, { tone: 2 });
   c.rod(butt, tip, 0.34, 0.12, UM.bone, { tone: 3, detail: (_x, _y, _u, v) => (v > 0.8 ? code(UM.bone, 1) : -1) });
 }
 
-function thrower(c: Paper, p: FootPose, facing: Facing, _anim?: Anim, _frame?: number): void {
+export function thrower(c: Paper, p: FootPose, facing: Facing, _anim?: Anim, _frame?: number): void {
   const back = isBack(facing);
   if (p.apart >= 1) {
     remains(c, back, false);
@@ -589,7 +589,7 @@ export const WRAITH_KEYS: KeySet<FootPose> = {
   },
 };
 
-function wraith(c: Paper, p: FootPose, facing: Facing, _anim?: Anim, _frame?: number): void {
+export function wraith(c: Paper, p: FootPose, facing: Facing, _anim?: Anim, _frame?: number): void {
   const back = isBack(facing);
   const E = ex(c);
   if (p.apart >= 1) {
@@ -672,7 +672,7 @@ export const ARB_KEYS: KeySet<FootPose> = {
 };
 
 /** The rotted gambeson: quilted brown rag over the ribs, holes rotted through, a torn skirt. */
-function gambeson(c: Paper, F: Frame, sway: number, quilt = true): void {
+export function gambeson(c: Paper, F: Frame, sway: number, quilt = true): void {
   const { neck, pel, back } = F;
   const pts: P2[] = back
     ? [addP(neck, [-1.4, 0.2]), addP(neck, [1.8, 0.3]), addP(pel, [1.5, 1.6 + sway * 0.2]), addP(pel, [-1.0 + sway, 1.8]), addP(pel, [-1.2, 0.0])]
@@ -693,7 +693,7 @@ function gambeson(c: Paper, F: Frame, sway: number, quilt = true): void {
   });
 }
 
-function arbalest(c: Paper, p: FootPose, facing: Facing, anim: Anim, _frame?: number): void {
+export function arbalest(c: Paper, p: FootPose, facing: Facing, anim: Anim, _frame?: number): void {
   const back = isBack(facing);
   const E = ex(c);
   const braced = anim === Anim.Brace;
@@ -766,7 +766,7 @@ export const LICH_KEYS: KeySet<FootPose> = {
  * A crown of bone spines: a rusted circlet round the skull and a sunburst of thin, tapering
  * spines, long in the middle and short at the sides, alternating, lit on the near side.
  */
-function spineCrown(c: Paper, at: P2, ang: number, back: boolean, E: number): void {
+export function spineCrown(c: Paper, at: P2, ang: number, back: boolean, E: number): void {
   ang = snapDeg(ang);
   const base = addP(at, rot([0.05, -0.6], ang * DEG));
   const lens = [1.2, 2.0, 1.5, 2.7, 3.3, 2.6, 1.5, 1.9, 1.1];
@@ -786,7 +786,7 @@ function spineCrown(c: Paper, at: P2, ang: number, back: boolean, E: number): vo
  * The Lich-Marshal's high collar: a stiff fan of team cloth standing up behind the skull from
  * the shoulders, its upper edge cut into points (the vampire lord's collar, the Courtier's fur).
  */
-function collar(c: Paper, F: Frame, sway: number): void {
+export function collar(c: Paper, F: Frame, sway: number): void {
   const n = F.neck;
   const pts: P2[] = [addP(n, F.T([-1.9, 0.6])), addP(n, F.T([-2.1, -1.6])), addP(n, F.T([-1.4, -1.1])), addP(n, F.T([-0.9, -2.4])), addP(n, F.T([-0.3, -1.4])), addP(n, F.T([0.5, -2.3])), addP(n, F.T([0.9, -1.0])), addP(n, F.T([1.9, -1.5])), addP(n, F.T([2.1, 0.6]))];
   const cx = c.sx(n[0]), top = c.sy(n[1] - 2.4);
@@ -803,7 +803,7 @@ function collar(c: Paper, F: Frame, sway: number): void {
  * The open chest: the robe parted in a V from the collar to the girdle, the ribs across it and
  * the soul-fire burning inside them, a stole of team cloth down each lapel.
  */
-function lichChest(c: Paper, F: Frame, sway: number, phase: number): void {
+export function lichChest(c: Paper, F: Frame, sway: number, phase: number): void {
   const n = F.neck, pel = F.pel;
   const v: P2[] = [addP(n, [-0.9, 0.5]), addP(n, [1.7, 0.45]), addP(pel, [1.0, -0.9]), addP(pel, [0.2, -0.9])];
   c.shape(v, () => code(UM.ink, 1));
@@ -816,7 +816,7 @@ function lichChest(c: Paper, F: Frame, sway: number, phase: number): void {
   rag(c, addP(n, [1.6, 0.35]), addP(n, [2.1, 0.3]), 5.4, sway, UM.team, UM.teamDk, 267, { tear: 0.25, folds: false });
 }
 
-function lich(c: Paper, p: FootPose, facing: Facing, anim: Anim, frame: number): void {
+export function lich(c: Paper, p: FootPose, facing: Facing, anim: Anim, frame: number): void {
   const back = isBack(facing);
   const E = ex(c);
   const phase = (frame % 4) / 4;
@@ -1005,7 +1005,7 @@ export const BLACK_RIDER_KEYS = horseKeys(
   },
 );
 
-function blackRider(c: Paper, p: HorsePose, facing: Facing, _anim?: Anim, _frame?: number): void {
+export function blackRider(c: Paper, p: HorsePose, facing: Facing, _anim?: Anim, _frame?: number): void {
   const E = ex(c);
   mounted(c, p, facing, { mane: true }, {
     farSide(F) {
@@ -1075,7 +1075,7 @@ export const HORSE_ARCHER_KEYS = horseKeys(
   },
 );
 
-function horseArcher(c: Paper, p: HorsePose, facing: Facing, _anim?: Anim, _frame?: number): void {
+export function horseArcher(c: Paper, p: HorsePose, facing: Facing, _anim?: Anim, _frame?: number): void {
   const E = ex(c);
   mounted(c, p, facing, { cloth: true }, {
     farSide(F) {
@@ -1139,7 +1139,7 @@ export const DEATH_KNIGHT_KEYS = horseKeys(
 );
 
 /** The black cuirass: a breastplate (or backplate) over the ribs, lames at the waist, rust in the dents. */
-function cuirass(c: Paper, F: Frame): void {
+export function cuirass(c: Paper, F: Frame): void {
   const { neck, pel, back } = F;
   const pts: P2[] = [addP(neck, [-1.4, 0.3]), addP(neck, [1.7, 0.25]), addP(pel, [1.3, -0.6]), addP(pel, [1.2, 0.5]), addP(pel, [-1.0, 0.5]), addP(pel, [-1.1, -0.6])];
   const L = c.L;
@@ -1163,7 +1163,7 @@ function cuirass(c: Paper, F: Frame): void {
 }
 
 /** A flat-topped great helm, black iron, a cross-shaped slit with two cold points of light, a team crest of rag streaming back. */
-function greatHelm(c: Paper, at: P2, ang: number, back: boolean, sway: number): void {
+export function greatHelm(c: Paper, at: P2, ang: number, back: boolean, sway: number): void {
   ang = snapDeg(ang);
   const R = (p: P2): P2 => addP(at, rot(p, ang * DEG));
   // The crest: a strip of team rag from the crown, streaming back.
@@ -1186,7 +1186,7 @@ function greatHelm(c: Paper, at: P2, ang: number, back: boolean, sway: number): 
   });
 }
 
-function deathKnight(c: Paper, p: HorsePose, facing: Facing, _anim?: Anim, _frame?: number): void {
+export function deathKnight(c: Paper, p: HorsePose, facing: Facing, _anim?: Anim, _frame?: number): void {
   const E = ex(c);
   mounted(c, p, facing, { bard: true }, {
     legMat: UM.iron,
@@ -1306,7 +1306,7 @@ function bigSkull(c: Paper, at: P2, r: number, ang: number, jaw: number, back: b
   });
 }
 
-function colossus(c: Paper, p: BeastPose, facing: Facing, _anim: Anim, frame: number): void {
+export function colossus(c: Paper, p: BeastPose, facing: Facing, _anim: Anim, frame: number): void {
   const back = isBack(facing);
   const K = 1.75;
   const E = ex(c);
@@ -1489,7 +1489,7 @@ function wheel(c: Paper, at: P2, r: number, turn: number, tone: number): void {
   c.blob(at, r * 0.25, r * 0.25, UM.iron, { tone: 2 });
 }
 
-function trebuchet(c: Paper, p: EnginePose, facing: Facing, anim: Anim, frame: number): void {
+export function trebuchet(c: Paper, p: EnginePose, facing: Facing, anim: Anim, frame: number): void {
   const back = isBack(facing);
   const E = ex(c);
   const phase = (frame % 4) / 4;

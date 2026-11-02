@@ -1,0 +1,470 @@
+// The Hollow Host's key art: one static image per kind (idle, facing SE, level 8), drawn with the
+// paper painter's primitives but placed by hand, not posed by the rig. These set the look the
+// animated figures in undead.ts will be rebuilt from once approved; nothing in the game draws
+// them yet (see scripts that render `undeadStatic`).
+//
+// Brief (the user's targets: the craftpix knight sheet and the Diablo II: Resurrected class
+// renders): bulk comes from volumes, not rods. Limbs are shaped masses (upper arm about 0.09 H
+// thick, thigh 0.11 H, boots wider), shoulders 0.36 H (0.45 H with pauldrons), a solid torso in
+// layered armour, a waist of 0.24 H, large shields held tight to the body over the torso. The dead
+// keep thin bones only where the armour gaps: the face, the neck, a forearm, a shin. Figure height
+// H is about 14.5 units (116 px at level 8).
+
+import { addP, code, DEG, hash, rot, type P2, type Paper } from './core.ts';
+import { Anim } from '../contract.ts';
+import { along, limb, poseAt, snapDeg, type KeySet } from './rig.ts';
+import { bone, bow, crossbow, helm, hood, horseBody, horseFar, horseFrame, horseNear, lance, mul, pavise, planeLight, quiver, rag, robe, skull, spear, UM } from './undead-parts.ts';
+import {
+  BLACK_RIDER_KEYS, blackRider, boneJavelin, COLOSSUS_KEYS, colossus, DEATH_KNIGHT_KEYS, ghoulHead, greatHelm, HORSE_ARCHER_KEYS, horseArcher, lich, LICH_KEYS, lit, TREBUCHET_KEYS, trebuchet,
+} from './undead.ts';
+
+// ------------------------------------------------------------------ volumes
+
+/**
+ * A limb mass: a tapered stroke with rounded ends (a blob at each end), shaded as a rounded
+ * volume, lit top-left. The core of every armoured arm and leg.
+ */
+export function vol(c: Paper, a: P2, b: P2, wa: number, wb: number, m: number, o: { tone?: number; shine?: boolean; detail?: (x: number, y: number, u: number, v: number) => number; caps?: boolean } = {}): void {
+  const tone = o.tone ?? 2;
+  if (o.caps !== false) {
+    c.blob(a, wa / 2, wa / 2, m, { tone });
+    c.blob(b, wb / 2, wb / 2, m, { tone: tone - 1 });
+  }
+  c.rod(a, b, wa, wb, m, { tone, shine: o.shine, detail: o.detail });
+}
+
+/**
+ * A plate or a panel: any outline (units) filled with one plane of light across its bounding
+ * box (lit top-left, a shade band bottom-right), rust creeping in at `rust`, a pale rim along
+ * its top edge when `rim`.
+ */
+export function plate(c: Paper, pts: P2[], m: number, o: { tone?: number; rust?: number; rim?: boolean; k?: number; seed?: number; detail?: (x: number, y: number, rx: number, ry: number) => number } = {}): void {
+  const xs = pts.map((p) => c.sx(p[0])), ys = pts.map((p) => c.sy(p[1]));
+  const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+  const tone = o.tone ?? 2;
+  c.shape(pts, (x, y) => {
+    const rx = ((x + 0.5 - x0) / Math.max(1, x1 - x0)) * 2 - 1, ry = ((y + 0.5 - y0) / Math.max(1, y1 - y0)) * 2 - 1;
+    if (o.detail) {
+      const d = o.detail(x, y, rx, ry);
+      if (d >= 0) return d;
+    }
+    if (o.rim && y - y0 < Math.max(1, c.L * 0.2)) return code(m, tone + 1);
+    if (o.rust && c.tex(x, y, o.seed ?? 401, 3) < o.rust * (0.5 + ry * 0.5)) return code(UM.rust, tone - (ry > 0.3 ? 1 : 0));
+    const lt = planeLight(rx, ry, o.k ?? 0.4);
+    return code(m, tone + lt);
+  });
+}
+
+/** Rivets along a line. */
+function rivets(c: Paper, a: P2, b: P2, n: number): void {
+  for (let i = 0; i < n; i++) {
+    const p = addP(a, mul([b[0] - a[0], b[1] - a[1]], (i + 0.5) / n));
+    c.blob(p, 0.16, 0.16, UM.steel, { tone: 3 });
+  }
+}
+
+// ------------------------------------------------------------------ the armoured dead: shared body
+
+/** The standing SE idle frame every foot kind is drawn on (units, feet at 0). */
+const B = {
+  neck: [0.4, -12.0] as P2,
+  head: [0.75, -13.15] as P2,
+  shN: [-1.75, -11.0] as P2,
+  shF: [2.15, -11.25] as P2,
+  waistY: -7.7,
+  hipN: [-0.75, -6.5] as P2,
+  hipF: [1.05, -6.6] as P2,
+  kneeN: [-1.05, -3.65] as P2,
+  kneeF: [1.55, -3.75] as P2,
+  ankN: [-1.15, -0.75] as P2,
+  ankF: [1.85, -0.8] as P2,
+};
+
+/** A mail hauberk: ring rows every third pixel row, a checker of light in the lit plane only, rust. */
+function mailShade(c: Paper, x: number, y: number, rx: number, ry: number, tone = 2): number {
+  const lt = planeLight(rx, ry, 0.35);
+  if (c.tex(x, y, 411, 4) < 0.05 + Math.max(0, ry) * 0.07) return code(UM.rust, 1 + (lt > 0 ? 1 : 0));
+  if (c.ly(y) % 3 === 0) return code(UM.mail, tone - 1 + Math.min(0, lt));
+  if (lt > 0 && (c.lx(x) + ((c.ly(y) / 3) | 0)) % 2 === 0) return code(UM.mail, tone + 1);
+  return code(UM.mail, tone + Math.min(0, lt));
+}
+
+/** A greave and boot leg: the thigh in mail, a poleyn on the knee, an iron shin, a heavy sabaton. */
+function armouredLeg(c: Paper, hip: P2, knee: P2, ank: P2, far: boolean, o: { thigh?: number; shin?: number } = {}): void {
+  const t = far ? 1 : 2;
+  vol(c, hip, knee, 1.55, 1.25, UM.mail, { tone: t, detail: (x, y, u, v) => mailShade(c, x, y, u, v * 2 - 1, t) });
+  // The shin: a bare bone gap under the poleyn, then the greave.
+  bone(c, knee, addP(knee, mul([ank[0] - knee[0], ank[1] - knee[1]], 0.45)), 0.45, 0.4, t);
+  const g0 = addP(knee, mul([ank[0] - knee[0], ank[1] - knee[1]], 0.38));
+  vol(c, g0, ank, 0.95, 1.0, UM.rust, { tone: t + 1, caps: false });
+  c.blob(knee, 0.7, 0.62, UM.rust, { tone: t + 1, detail: (_x, _y, nx, ny) => (ny < -0.55 && !far ? code(UM.rust, 4) : ny > 0.5 ? code(UM.rust, 0) : -1) });
+  // The sabaton: a broad iron foot, toe forward.
+  const sab: P2[] = [addP(ank, [-0.7, -0.35]), addP(ank, [0.5, -0.45]), addP(ank, [1.35, 0.35]), addP(ank, [1.3, 0.75]), addP(ank, [-0.75, 0.75])];
+  plate(c, sab, UM.rust, { tone: t });
+  void o;
+}
+
+/**
+ * A gauntleted arm: a mail sleeve to the elbow, a rusted couter, the bare forearm bones (radius
+ * and ulna, pale against the armour), a rusted gauntlet and fist.
+ */
+function armouredArm(c: Paper, sh: P2, el: P2, hand: P2, far: boolean): void {
+  const t = far ? 1 : 2;
+  vol(c, sh, el, 1.25, 1.0, UM.mail, { tone: t, caps: false, detail: (x, y, u, v) => mailShade(c, x, y, u, v * 2 - 1, t) });
+  const g0 = addP(el, mul([hand[0] - el[0], hand[1] - el[1]], 0.5));
+  c.rod(el, g0, 0.42, 0.36, UM.bone, { tone: t + 1 });
+  c.rod(addP(el, [0.22, 0.05]), addP(g0, [0.2, 0.0]), 0.24, 0.22, UM.bone, { tone: t });
+  vol(c, g0, hand, 0.8, 1.0, UM.rust, { tone: t + 1, caps: false });
+  c.blob(el, 0.6, 0.52, UM.rust, { tone: t + 1, detail: (_x, _y, _nx, ny) => (ny > 0.5 ? code(UM.rust, 0) : -1) });
+  c.blob(hand, 0.62, 0.55, UM.rust, { tone: t, detail: (_x, _y, nx, ny) => (Math.abs(nx * 0.8 + ny) < 0.12 ? code(UM.rust, 0) : -1) });
+}
+
+/** Pauldrons: three rusted lames stepping down over the shoulder, a lit top rim, rivets. */
+function pauldron(c: Paper, sh: P2, far: boolean, s = 1): void {
+  const t = far ? 1 : 2;
+  for (const [dy, rx, ry] of [[0.95, 1.05, 0.5], [0.45, 1.25, 0.6], [-0.15, 1.35, 0.78]] as [number, number, number][]) {
+    c.blob(addP(sh, [0, dy * s]), rx * s, ry * s, UM.rust, {
+      tone: t + 1,
+      detail: (x, y, nx, ny) => {
+        if (ny < -0.62 && nx < 0.3 && !far) return code(UM.steel, 3);
+        if (ny > 0.6) return code(UM.rust, 0);
+        if (c.tex(x, y, 421, 3) < 0.04 + (ny + 1) * 0.08) return code(UM.iron, ny > 0.2 ? 1 : 2);
+        return -1;
+      },
+    });
+  }
+  if (!far) rivets(c, addP(sh, [-0.8 * s, -0.1]), addP(sh, [0.8 * s, -0.25]), 3);
+}
+
+/** The torso of the armoured dead: a mail hauberk over the ribs, holes showing the bone. */
+function hauberk(c: Paper, hem: number, o: { team?: boolean } = {}): void {
+  const pts: P2[] = [[-2.45, -11.1], [-1.2, -11.85], [1.7, -11.95], [2.75, -11.1], [2.55, -9.0], [2.05, B.waistY], [2.6, hem], [-2.35, hem + 0.15], [-1.65, B.waistY], [-2.15, -9.0]];
+  const L = c.L;
+  const y0 = c.sy(-11.95), y1 = c.sy(hem);
+  plate(c, pts, UM.mail, {
+    detail: (x, y, rx, ry) => {
+      // A ragged hem.
+      if (y1 - y < L * 0.9 && hash(Math.floor(c.lx(x) / Math.max(2, L * 0.55)), 3, 431) * L * 0.9 > y1 - y) return -2;
+      // Rotted through: the ribs show in a hole under the far breast.
+      const hx = (x - c.sx(1.1)) / L, hy = (y - c.sy(-9.8)) / L;
+      if (Math.hypot(hx / 1.0, hy / 1.25) < 1) {
+        if (Math.hypot(hx / 1.0, hy / 1.25) > 0.82) return code(UM.rust, 1);
+        return Math.abs(((hy + 2) % 0.62) - 0.31) < 0.14 ? code(UM.bone, hx < 0 ? 3 : 2) : code(UM.ink, 1);
+      }
+      void y0;
+      return mailShade(c, x, y, rx, ry);
+    },
+  });
+  void o;
+}
+
+/** A belt with a buckle and a hanging pouch. */
+function belt(c: Paper, y: number, x0: number, x1: number): void {
+  c.rod([x0, y - 0.1], [x1, y + 0.05], 0.55, 0.55, UM.leather, { tone: 2, detail: (x, _y, _u, v) => (Math.abs(v - 0.55) < 0.06 ? code(UM.steel, 3) : (c.lx(x) & 3) === 0 && v < 0.4 ? code(UM.leather, 1) : -1) });
+  plate(c, [[x0 + 0.5, y + 0.2], [x0 + 1.3, y + 0.2], [x0 + 1.25, y + 1.3], [x0 + 0.55, y + 1.3]], UM.leather, { tone: 1, rim: true });
+}
+
+/** The big kite shield held tight across the body: team field, a painted skull, a rusted rim and rivets, scars. */
+function kiteShield(c: Paper, at: P2, h: number, w: number, tilt: number): void {
+  tilt = snapDeg(tilt);
+  const R = (p: P2): P2 => addP(at, rot(p, tilt * DEG));
+  const top = -h * 0.42, bot = h * 0.58;
+  const pts: P2[] = [R([-w / 2, top]), R([0, top - 0.25]), R([w / 2, top]), R([w * 0.47, top + h * 0.35]), R([0, bot]), R([-w * 0.47, top + h * 0.35])];
+  const cx = c.sx(at[0]), cy = c.sy(at[1]), L = c.L;
+  c.shape(pts, (x, y) => {
+    const [lx, ly] = rot([(x + 0.5 - cx) / L, (y + 0.5 - cy) / L], -tilt * DEG);
+    const half = ly < top + h * 0.35 ? w / 2 : (w * 0.47) * (1 - (ly - top - h * 0.35) / (bot - top - h * 0.35));
+    const edge = Math.min(half - Math.abs(lx), ly - top + 0.25 - Math.abs(lx) * 0.1);
+    const rx = lx / (w / 2), ry = ((ly - top) / h) * 2 - 1;
+    const lt = planeLight(rx, ry, 0.3);
+    if (edge < 0.32) return code(UM.rust, 2 + lt);
+    if (edge < 0.55 && Math.abs((((ly - top) * 1.4) % 1) - 0.5) < 0.12 && edge > 0.38) return code(UM.steel, 3);
+    // The painted skull, a third of the field.
+    const sd = Math.hypot(lx * 1.05, (ly + h * 0.04) * 1.0);
+    const sr = w * 0.27;
+    if (sd < sr || (Math.abs(lx) < sr * 0.62 && ly > 0 && ly < sr * 1.35)) {
+      if (Math.hypot(Math.abs(lx) - sr * 0.38, ly + h * 0.05) < sr * 0.28) return code(UM.ink, 1);
+      if (Math.abs(lx) < sr * 0.12 && ly > sr * 0.15 && ly < sr * 0.5) return code(UM.ink, 1);
+      if (ly > sr * 0.8 && (c.lx(x) & 1) === 0) return code(UM.ink, 2);
+      return code(UM.bone, 2 + (lt > 0 ? 1 : 0));
+    }
+    // Scars and chipped paint showing the boards.
+    if (hash(c.lx(x) >> 1, c.ly(y) >> 2, 441) < 0.05) return code(UM.wood, 1);
+    if (Math.abs(lx + ly * 0.4 - 0.8) < 0.08 && ly > 0.5) return code(UM.teamDk, 1);
+    return code(UM.team, 2 + lt);
+  });
+}
+
+/** A rusted arming sword held at `grip`, blade toward `deg`. */
+function bigSword(c: Paper, grip: P2, deg: number, len: number): void {
+  const g0 = along(grip, deg, 0.55);
+  const tip = along(g0, deg, len);
+  c.rod(g0, tip, 0.62, 0.22, UM.steel, {
+    shine: true,
+    detail: (x, y, u, v) => {
+      if (v > 0.25 && v < 0.9 && hash(Math.round(v * 16), 0, 451) < 0.22 && u > 0.4) return -1; // chips
+      if (c.tex(x, y, 453) < 0.14 && v > 0.1) return code(UM.rust, 2);
+      if (Math.abs(u) < 0.1 && v < 0.75) return code(UM.steel, 1); // the fuller
+      return -1;
+    },
+  });
+  const side = limb(deg + 90);
+  c.rod(addP(g0, mul(side, 1.0)), addP(g0, mul(side, -1.0)), 0.36, 0.36, UM.iron, { tone: 2 });
+  c.rod(grip, along(grip, deg + 180, 1.0), 0.34, 0.3, UM.leather, { tone: 2 });
+  c.blob(along(grip, deg + 180, 1.15), 0.34, 0.34, UM.iron, { shine: true });
+}
+
+// ------------------------------------------------------------------ kinds
+
+/** The Grave Legionary: an armoured skeleton under a rusted hauberk and team tabard, big skull kite shield. */
+function legionary(c: Paper): void {
+  // Far side first: the far leg, the far arm (behind the shield).
+  armouredLeg(c, B.hipF, B.kneeF, B.ankF, true);
+  armouredArm(c, B.shF, [2.9, -8.9], [2.6, -7.4], true);
+  hauberk(c, -5.1);
+  // The tabard: a team panel from chest to knee, torn, belted.
+  rag(c, [-0.7, -10.6], [1.6, -10.7], 6.1, 0.15, UM.team, UM.teamDk, 461, { tear: 0.28 });
+  belt(c, B.waistY, -1.8, 2.3);
+  armouredLeg(c, B.hipN, B.kneeN, B.ankN, false);
+  // The neck bones and the skull under a dented kettle hat.
+  c.rod(B.neck, [0.55, -12.6], 0.55, 0.5, UM.bone, { tone: 1 });
+  bigSkull(c, B.head, -4, true);
+  pauldron(c, B.shF, true);
+  // The shield held tight across the body on the far arm, its inner edge past the centre line.
+  kiteShield(c, [1.55, -8.2], 6.9, 4.3, -4);
+  pauldron(c, B.shN, false);
+  // The sword arm: the blade carried up and forward, ready.
+  // The sword arm: the blade held upright at the near side, clear of the body.
+  const hand: P2 = [-2.95, -6.7];
+  bigSword(c, hand, 190, 6.4);
+  armouredArm(c, B.shN, [-3.05, -9.0], hand, false);
+}
+
+/** A skull scaled up for key art (r ≈ 1.15 units): the Legionary's skull and kettle hat, larger. */
+function bigSkull(c: Paper, at: P2, ang: number, hat: boolean): void {
+  // The shared skull is r = 1; draw it, then the hat a little wider.
+  skull(c, at, ang, false);
+  if (hat) helm(c, addP(at, [0, -0.05]), ang);
+}
+
+// ------------------------------------------------------------------ registry
+
+export const STATIC_KINDS: Record<number, { body: 'foot' | 'horse' | 'beast' | 'engine'; draw: (c: Paper) => void }> = {
+  0: { body: 'foot', draw: legionary },
+};
+
+
+/** A gaunt limb of grey dead flesh, as a volume: sinew over bone, a knob at the joint. */
+function fleshVol(c: Paper, a: P2, b: P2, wa: number, wb: number, far: boolean): void {
+  const t = far ? 1 : 2;
+  vol(c, a, b, wa, wb, UM.flesh, { tone: t + 1, caps: false, detail: (x, y, u) => (u > -0.2 && c.tex(x, y, 471, 3) < 0.1 ? code(UM.flesh, t) : -1) });
+  c.blob(b, wb * 0.62, wb * 0.58, UM.flesh, { tone: t });
+}
+
+/** The Ghoul Spearman: a hunched, sinewy corpse-eater with a long spear and a rag tied under the blade. */
+function ghoulStatic(c: Paper): void {
+  const neck: P2 = [1.6, -10.0], pel: P2 = [-0.3, -5.9];
+  // The far leg and the far arm on the haft.
+  fleshVol(c, [0.6, -5.8], [2.2, -3.2], 1.35, 0.95, true);
+  fleshVol(c, [2.2, -3.2], [1.6, -0.6], 0.9, 0.7, true);
+  c.rod([1.6, -0.6], [2.9, -0.2], 0.5, 0.3, UM.flesh, { tone: 1 });
+  fleshVol(c, [2.5, -9.6], [3.6, -7.6], 1.0, 0.8, true);
+  fleshVol(c, [3.6, -7.6], [2.6, -6.4], 0.8, 0.65, true);
+  // The loincloth.
+  rag(c, [-1.6, -6.4], [1.2, -6.3], 2.7, 0.2, UM.rag, UM.rag, 473, { tear: 0.4 });
+  // The torso: a hunched mass, the spine's knobs along the back, ribs standing out.
+  const s: P2 = [neck[0] - pel[0], neck[1] - pel[1]];
+  const n: P2 = mul([-s[1], s[0]], 1 / Math.hypot(...s));
+  const at = (t: number, w: number): P2 => addP(addP(pel, mul(s, t)), mul(n, w));
+  const ts = [0, 0.25, 0.5, 0.75, 1.0];
+  const back = [1.05, 1.25, 1.55, 1.65, 1.2];
+  const front = [1.15, 0.95, 1.2, 1.5, 1.3];
+  const pts: P2[] = [...ts.map((t, i) => at(t, front[i]!)), at(1.12, 0.3), ...ts.map((t, i) => at(t, -back[i]!)).reverse()];
+  plate(c, pts, UM.flesh, {
+    tone: 2,
+    detail: (x, y, rx, ry) => {
+      const dx = (x + 0.5 - c.sx(pel[0])) / c.L, dy = (y + 0.5 - c.sy(pel[1])) / c.L;
+      const t = (dx * s[0] + dy * s[1]) / Math.hypot(...s) ** 2, w = dx * n[0] + dy * n[1];
+      if (t > 0.4 && t < 0.88 && w > -0.4) {
+        const r = (t * Math.hypot(...s)) % 0.68;
+        if (r < 0.14) return code(UM.flesh, 1);
+        if (r < 0.28) return code(UM.flesh, 3);
+      }
+      if (w > 0.6 && t < 0.4) return code(UM.flesh, 1);
+      const lt = planeLight(rx, ry, 0.35);
+      return code(UM.flesh, 2 + lt);
+    },
+  });
+  for (let i = 1; i < 6; i++) c.blob(at(i / 6, -back[Math.min(4, Math.round((i / 6) * 4))]! + 0.1), 0.3, 0.26, UM.flesh, { tone: 3 });
+  // The near leg: a bent, sinewy thigh, a long shin, a clawed foot.
+  fleshVol(c, [-1.0, -5.8], [-0.3, -3.1], 1.45, 1.0, false);
+  fleshVol(c, [-0.3, -3.1], [-1.1, -0.6], 0.95, 0.7, false);
+  c.rod([-1.1, -0.6], [0.4, -0.15], 0.6, 0.3, UM.flesh, { tone: 2 });
+  // The head, thrust forward.
+  ghoulHead(c, [2.6, -10.7], -10, false);
+  // The spear, upright, and the near arm gripping it.
+  const hand: P2 = [3.3, -7.3];
+  spear(c, hand, 174, 9.5, 5.6, { blade: 2.0, rag: true, sway: 0 });
+  fleshVol(c, [0.9, -9.7], [2.0, -7.5], 1.1, 0.85, false);
+  fleshVol(c, [2.0, -7.5], hand, 0.85, 0.7, false);
+  c.blob(hand, 0.55, 0.5, UM.flesh, { tone: 2 });
+  for (const d of [-20, 10]) c.rod(hand, along(hand, 120 + d, 0.7), 0.2, 0.08, UM.bone, { tone: 3 });
+}
+
+/** A skeleton's bone for key art: never under three pixels at level 8, knobbed at the joint. */
+function stout(c: Paper, a: P2, b: P2, w: number, far: boolean): void {
+  bone(c, a, b, w, w * 0.95, far ? 1 : 2);
+}
+
+/** The Bone-Thrower: a gaunt hooded skeleton in a rotted jerkin and cape, a fan of bone javelins on the back. */
+function throwerStatic(c: Paper): void {
+  // The cape behind and the fan of javelins over the shoulder.
+  rag(c, [-2.4, -11.3], [1.0, -11.5], 8.4, -0.4, UM.rag, UM.rag, 481, { tear: 0.3, folds: true, spread: 0.6 });
+  quiver(c, [-1.6, -10.2], 205, { shafts: 4, len: 2.4, bone: true });
+  // Far leg and arm.
+  stout(c, [1.0, -6.4], [1.6, -3.5], 0.6, true);
+  stout(c, [1.6, -3.5], [1.7, -0.7], 0.5, true);
+  c.rod([1.7, -0.7], [2.6, -0.3], 0.5, 0.3, UM.bone, { tone: 1 });
+  stout(c, [2.1, -11.0], [2.9, -8.7], 0.55, true);
+  stout(c, [2.9, -8.7], [3.0, -6.8], 0.48, true);
+  // The pelvis and the jerkin over the ribs, a team sash and loincloth.
+  c.blob([0.2, -6.4], 1.4, 0.7, UM.bone, { tone: 2 });
+  plate(c, [[-2.0, -11.2], [-0.8, -11.8], [1.6, -11.8], [2.5, -11.0], [2.2, -8.0], [1.8, -6.6], [-1.4, -6.6], [-1.8, -8.4]], UM.leather, {
+    detail: (x, y, rx, ry) => {
+      // Rotted open over the ribs.
+      const hx = (x - c.sx(0.6)) / c.L, hy = (y - c.sy(-9.6)) / c.L;
+      if (Math.hypot(hx / 0.9, hy / 1.4) < 1) return Math.abs(((hy + 2) % 0.62) - 0.31) < 0.15 ? code(UM.bone, hx < 0 ? 3 : 2) : code(UM.ink, 1);
+      if (c.ly(y) % Math.max(3, Math.round(c.L * 0.7)) === 0) return code(UM.leather, 1);
+      return code(UM.leather, 2 + planeLight(rx, ry, 0.35));
+    },
+  });
+  rag(c, [-1.4, -6.9], [1.9, -7.0], 3.0, 0.2, UM.team, UM.teamDk, 483, { tear: 0.45 });
+  c.rod([-1.7, -11.0], [1.7, -7.0], 0.6, 0.6, UM.team, { tone: 2 });
+  // The near leg.
+  stout(c, [-0.6, -6.3], [-0.9, -3.5], 0.62, false);
+  stout(c, [-0.9, -3.5], [-1.1, -0.7], 0.52, false);
+  c.rod([-1.1, -0.7], [0.0, -0.25], 0.55, 0.32, UM.bone, { tone: 2 });
+  // The hooded skull.
+  c.rod([0.3, -11.9], [0.5, -12.5], 0.5, 0.45, UM.bone, { tone: 1 });
+  hood(c, [0.8, -13.2], -4, false, UM.rag, { skullFace: true });
+  // The near arm, cocked with a javelin over the shoulder.
+  const hand: P2 = [-2.6, -10.6];
+  boneJavelin(c, hand, 100, 6.4);
+  stout(c, [-1.7, -11.0], [-2.9, -9.0], 0.58, false);
+  stout(c, [-2.9, -9.0], hand, 0.5, false);
+  c.blob(hand, 0.5, 0.45, UM.bone, { tone: 2 });
+}
+
+/** The Wraith Bow: a tall hooded shroud with a skull's grin in the dark, a man-high war bow. */
+function wraithStatic(c: Paper): void {
+  // The far sleeve and bony hand reaching to the bow's grip.
+  const grip: P2 = [4.0, -8.8];
+  vol(c, [2.2, -11.0], [3.4, -9.4], 1.4, 1.2, UM.shroud, { tone: 1, caps: false });
+  c.rod([3.4, -9.4], grip, 0.45, 0.4, UM.bone, { tone: 1 });
+  // The shroud: broad at the shoulders, falling in heavy folds to torn wisps over the ground.
+  robe(c, [0.3, -11.3], 4.6, 5.6, 10.6, 0.3, UM.shroud, 491, { wisp: true });
+  // The team stole over the shoulders.
+  rag(c, [-2.3, -11.3], [2.6, -11.4], 2.4, 0.1, UM.team, UM.teamDk, 493, { tear: 0.55 });
+  // The cowl.
+  hood(c, [0.8, -12.9], -4, false, UM.shroud, { skullFace: true });
+  // The bow, and the near arm drawing to the cheek.
+  const nock = bow(c, grip, 96, 1.6, 10, { arrow: true, mat: UM.wood });
+  vol(c, [-1.9, -11.0], [-1.0, -9.3], 1.45, 1.25, UM.shroud, { tone: 2, caps: false });
+  c.rod([-1.0, -9.3], nock, 0.45, 0.4, UM.bone, { tone: 2 });
+  c.blob(nock, 0.42, 0.38, UM.bone, { tone: 2 });
+}
+
+/** The Revenant Arbalest: a quilted, rotted gambeson, a kettle hat, the great skull pavise on the back, a crossbow. */
+function arbalestStatic(c: Paper): void {
+  pavise(c, [-1.4, -10.4], -6, false, 1.35);
+  // The far leg and arm (to the fore-stock).
+  armouredLeg(c, B.hipF, B.kneeF, B.ankF, true);
+  const grip: P2 = [-0.4, -7.8];
+  const deg = 88;
+  vol(c, B.shF, [3.0, -9.0], 1.35, 1.15, UM.rag, { tone: 1, caps: false });
+  c.rod([3.0, -9.0], along(grip, deg, 2.0), 0.45, 0.4, UM.bone, { tone: 1 });
+  // The gambeson: quilted channels, rotted through in places, a belt with a bolt case.
+  const pts: P2[] = [[-2.5, -11.1], [-1.2, -11.9], [1.7, -11.9], [2.8, -11.1], [2.6, -8.6], [2.4, -5.3], [-2.4, -5.2], [-2.2, -8.6]];
+  const y1 = c.sy(-5.2);
+  plate(c, pts, UM.rag, {
+    detail: (x, y, rx, ry) => {
+      if (y1 - y < c.L * 0.8 && hash(Math.floor(c.lx(x) / Math.max(2, c.L * 0.6)), 5, 495) * c.L * 0.8 > y1 - y) return -2;
+      const hx = (x - c.sx(1.3)) / c.L, hy = (y - c.sy(-9.6)) / c.L;
+      if (Math.hypot(hx / 0.7, hy / 1.0) < 1) return Math.abs(((hy + 2) % 0.62) - 0.31) < 0.14 ? code(UM.bone, 2) : code(UM.ink, 1);
+      const lt = planeLight(rx, ry, 0.35);
+      if (c.lx(x) % Math.max(3, Math.round(c.L * 0.75)) === 0) return code(UM.rag, 1 + Math.min(0, lt));
+      if (c.ly(y) % Math.max(4, Math.round(c.L * 1.2)) === 0) return code(UM.rag, 1 + Math.min(0, lt));
+      return code(UM.rag, 2 + lt);
+    },
+  });
+  belt(c, B.waistY, -2.2, 2.5);
+  quiver(c, [-2.2, -6.4], 160, { shafts: 3, len: 2.0 });
+  armouredLeg(c, B.hipN, B.kneeN, B.ankN, false);
+  c.rod(B.neck, [0.55, -12.6], 0.55, 0.5, UM.bone, { tone: 1 });
+  bigSkull(c, B.head, -4, true);
+  // The crossbow levelled at the hip, the near arm on the stock.
+  crossbow(c, grip, deg, true);
+  vol(c, B.shN, [-2.6, -9.0], 1.35, 1.15, UM.rag, { tone: 2, caps: false });
+  c.rod([-2.6, -9.0], grip, 0.45, 0.4, UM.bone, { tone: 2 });
+  c.blob(grip, 0.55, 0.5, UM.bone, { tone: 2 });
+}
+
+/** The Death Knight: full black plate on a bone-barded horse, a great helm, the big kite shield, a lance. */
+function deathKnightStatic(c: Paper): void {
+  const p = poseAt(DEATH_KNIGHT_KEYS, Anim.Idle, 0);
+  const H = horseFrame(c, p, false);
+  const S = H.seat;
+  const at = (q: P2): P2 => addP(S, q);
+  horseFar(c, H, p, { bard: true });
+  // The far leg in plate (mostly hidden by the horse).
+  vol(c, at([0.9, -0.2]), at([2.4, 2.0]), 1.4, 1.1, UM.iron, { tone: 1 });
+  horseBody(c, H, p, { bard: true });
+  // The kite shield on the far arm, held tight before the chest.
+  const shF = at([2.0, -4.6]);
+  vol(c, shF, at([3.0, -2.6]), 1.4, 1.2, UM.iron, { tone: 1 });
+  // The body: a broad black cuirass, a fauld of lames, a team surcoat skirt over the saddle.
+  rag(c, at([-1.2, -1.2]), at([2.0, -1.2]), 2.8, 0.1, UM.team, UM.teamDk, 501, { tear: 0.35 });
+  plate(c, [at([-1.9, -4.7]), at([-0.7, -5.6]), at([2.0, -5.6]), at([2.9, -4.7]), at([2.5, -2.4]), at([2.2, -0.9]), at([-1.2, -0.9]), at([-1.6, -2.4])], UM.iron, {
+    detail: (x, y, rx, ry) => {
+      if (ry > 0.45) return c.ly(y) % Math.max(3, Math.round(c.L * 0.5)) === 0 ? code(UM.iron, 0) : code(UM.iron, 2 + Math.min(0, planeLight(rx, ry)));
+      if (Math.abs(rx + 0.1 + ry * 0.1) < 0.06) return code(UM.iron, 3); // the ridge
+      if (c.tex(x, y, 503, 3) < 0.06) return code(UM.rust, 1);
+      return -1;
+    },
+    k: 0.3,
+  });
+  // The great helm with a team crest, the visor slit glowing.
+  greatHelm(c, at([0.7, -6.9]), 0, false, -0.3);
+  // Pauldrons.
+  pauldron(c, at([2.1, -4.9]), true, 1.05);
+  kiteShield(c, at([2.5, -2.7]), 6.0, 3.8, -6);
+  // The near leg in plate over the barding.
+  vol(c, at([-0.6, -0.2]), at([1.0, 2.3]), 1.55, 1.2, UM.iron, { tone: 2, shine: true });
+  vol(c, at([1.0, 2.3]), at([0.4, 4.6]), 1.1, 1.0, UM.iron, { tone: 2 });
+  c.blob(at([1.0, 2.3]), 0.7, 0.62, UM.iron, { tone: 2 });
+  horseNear(c, H, p, { bard: true });
+  // The lance, upright with its pennon, and the armoured near arm.
+  const hand = at([-1.0, -2.0]);
+  lance(c, hand, 174, 10.5, 3.0, { pennon: true, sway: 0.3, vamplate: true });
+  pauldron(c, at([-1.4, -4.6]), false, 1.15);
+  vol(c, at([-1.4, -4.4]), at([-2.0, -2.8]), 1.3, 1.1, UM.iron, { tone: 2 });
+  vol(c, at([-2.0, -2.8]), hand, 1.05, 1.1, UM.iron, { tone: 2, shine: true });
+}
+
+/** Kinds whose animated drawing already carries its bulk: their idle frame is the key art. */
+function idleOf<P>(keys: KeySet<P & import('./rig.ts').BasePose>, draw: (c: Paper, p: P, facing: 'se', anim: Anim, frame: number) => void): (c: Paper) => void {
+  return (c) => lit(c, () => draw(c, poseAt(keys, Anim.Idle, 0) as P, 'se', Anim.Idle, 0));
+}
+
+Object.assign(STATIC_KINDS, {
+  1: { body: 'foot', draw: ghoulStatic },
+  2: { body: 'foot', draw: throwerStatic },
+  3: { body: 'foot', draw: wraithStatic },
+  4: { body: 'foot', draw: arbalestStatic },
+  5: { body: 'horse', draw: idleOf(BLACK_RIDER_KEYS, blackRider) },
+  6: { body: 'horse', draw: idleOf(HORSE_ARCHER_KEYS, horseArcher) },
+  7: { body: 'horse', draw: deathKnightStatic },
+  8: { body: 'beast', draw: idleOf(COLOSSUS_KEYS, colossus) },
+  9: { body: 'engine', draw: idleOf(TREBUCHET_KEYS, trebuchet) },
+  10: { body: 'foot', draw: idleOf(LICH_KEYS, lich) },
+});
