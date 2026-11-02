@@ -265,7 +265,7 @@ function legionary(c: Paper): void {
   plateLeg(c, B.hipN, B.kneeN, B.ankN, false);
   // A gorget, the neck bones, the skull bright under the hat's brim.
   c.rod(B.neck, [0.55, -12.6], 0.55, 0.5, UM.bone, { tone: 2 });
-  plate(c, [[-1.0, -12.1], [1.9, -12.15], [1.7, -11.45], [-0.8, -11.4]], UM.rust, { tone: 2, rim: true });
+  plate(c, [[-1.0, -11.75], [1.9, -11.8], [1.7, -11.15], [-0.8, -11.1]], UM.rust, { tone: 2, rim: true });
   keySkull(c, addP(B.head, [0, 0.05]), 1.2, -4, 'kettle');
   pauldron(c, B.shF, true, 1.1);
   kiteShield(c, [1.55, -8.2], 6.9, 4.3, -4);
@@ -297,14 +297,8 @@ function plateLeg(c: Paper, hip: P2, knee: P2, ank: P2, far: boolean): void {
 function keySkull(c: Paper, at: P2, r: number, ang: number, hat: 'kettle' | null): void {
   ang = snapDeg(ang);
   const R = (p: P2): P2 => addP(at, rot(mul(p, r), ang * DEG));
-  // The jaw: teeth, then the jawbone.
-  c.shape([R([-0.4, 0.55]), R([0.75, 0.5]), R([0.7, 1.05]), R([-0.3, 1.0])], (x, y) => {
-    const ly = c.ly(y) / (c.L * r);
-    if (ly < 0.22) return (c.lx(x) & 1) === 0 ? code(UM.bone, 3) : code(UM.ink, 0);
-    return code(UM.bone, ly > 0.38 ? 1 : 2);
-  });
   const cx = c.sx(at[0]), cy = c.sy(at[1]), L = c.L;
-  c.blob(at, r, r * 0.95, UM.bone, {
+  c.blob(at, r, r * 0.88, UM.bone, {
     tone: 3,
     detail: (x, y) => {
       const [fx, fy] = rot([(x + 0.5 - cx) / (L * r), (y + 0.5 - cy) / (L * r)], -ang * DEG);
@@ -318,10 +312,32 @@ function keySkull(c: Paper, at: P2, r: number, ang: number, hat: 'kettle' | null
       return -1;
     },
   });
+  // The jaw, hung a little open: the upper teeth, a dark gap, the lower teeth on the jawbone.
+  c.shape([R([-0.4, 0.42]), R([0.8, 0.38]), R([0.78, 1.2]), R([0.35, 1.32]), R([-0.35, 1.2])], (x, y) => {
+    const ly = c.ly(y) / (c.L * r);
+    const tooth = (c.lx(x) % 3) !== 2;
+    if (ly < 0.22) return tooth ? code(UM.bone, 4) : code(UM.ink, 0);
+    if (ly < 0.36) return code(UM.ink, 0);
+    if (ly < 0.55) return tooth ? code(UM.bone, 4) : code(UM.ink, 0);
+    return code(UM.bone, ly > 0.68 ? 1 : 2);
+  });
   if (hat === 'kettle') {
     // The kettle hat: a low rusted crown, a wide brim tilted to show the face.
-    plate(c, [R([-0.8, -0.62]), R([-0.6, -1.2]), R([0.5, -1.25]), R([0.85, -0.66])], UM.rust, { tone: 2, rim: true });
-    plate(c, [R([-1.3, -0.68]), R([1.4, -0.72]), R([1.3, -0.5]), R([-1.25, -0.46])], UM.rust, { tone: 2, detail: (_x, _y, rx, ry) => (ry < -0.2 ? code(UM.rust, 3 + (rx < 0 ? 1 : 0)) : ry > 0.5 ? code(UM.rust, 0) : -1) });
+    // The kettle hat: a round bowl, a riveted band at its foot, a broad straight brim angled a
+    // little down all round (its far side in shade, its near edge catching the light).
+    const brim: P2[] = [R([-1.75, -0.3]), R([-1.2, -0.62]), R([1.3, -0.66]), R([1.85, -0.36]), R([1.7, -0.18]), R([-1.6, -0.12])];
+    plate(c, brim, UM.rust, { tone: 2, detail: (_x, _y, rx, ry) => (ry > 0.45 ? code(UM.rust, 1) : ry < -0.4 && rx < 0.4 ? code(UM.rust, 4) : -1) });
+    c.blob(R([0.05, -1.15]), 1.0 * r, 0.62 * r, UM.rust, {
+      tone: 2,
+      detail: (x, y, nx, ny) => {
+        if (ny > 0.1) return -2; // the lower half of the ellipse is under the brim
+        if (Math.hypot(nx + 0.4, ny + 0.55) < 0.28) return code(UM.rust, 4);
+        if (c.tex(x, y, 561, 3) < 0.1) return code(UM.iron, 1);
+        return -1;
+      },
+    });
+    c.rod(R([-0.95, -0.72]), R([1.05, -0.74]), 0.3, 0.3, UM.iron, { tone: 1 });
+    rivets(c, R([-0.8, -0.73]), R([0.95, -0.75]), 4);
   }
 }
 
