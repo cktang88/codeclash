@@ -172,11 +172,11 @@ function* staticGround(id: string, frame: Frame): Generator<void, Uint32Array> {
 
 const TG = {
   // Warm, sunlit materials (golden-hour ochres); the cast shadows cool them later.
-  grass: [hex('#717a3c'), hex('#646d36'), hex('#7e8644'), hex('#565f30')],
-  earth: [hex('#7e6748'), hex('#735d40'), hex('#8a7250'), hex('#665238')],
-  beaten: [hex('#ad9268'), hex('#a2875e'), hex('#b89c70')],
-  cobble: [hex('#a69a80'), hex('#988c72'), hex('#b3a78b'), hex('#8a7e66')],
-  cobbleLit: hex('#c4b797'),
+  grass: [hex('#7f8640'), hex('#71793a'), hex('#8e9448'), hex('#626a34')],
+  earth: [hex('#937552'), hex('#876a4a'), hex('#a0805a'), hex('#785e42')],
+  beaten: [hex('#c0a272'), hex('#b49668'), hex('#ccae7c')],
+  cobble: [hex('#c2aa82'), hex('#b29a74'), hex('#d0b88e'), hex('#a28c6a')],
+  cobbleLit: hex('#e6cc98'),
   cobbleDark: hex('#6f6552'),
   mortar: hex('#4a4134'),
   moss: hex('#66733a'),
@@ -328,29 +328,37 @@ function meadow(px: Px, frame: Frame): void {
 function treeShade(px: Px, trees: [number, number, number][], id: string): void {
   const sun = sunFor(id).dir;
   const shade = sunFor(id).shade;
-  const sunC = hex('#c8a85a');
+  const sunC = hex('#ffd890');
   for (const [tu, tv, r] of trees) {
     const h = r * 1.8;
-    const cu = tu + sun[0] * h * 0.75;
-    const cv = tv + sun[1] * h * 0.75;
-    const ru = r * 1.15;
-    const rv = r * 0.95;
-    const x0 = Math.floor(px.X(cu - ru, cv + rv)) - 2;
-    const x1 = Math.ceil(px.X(cu + ru, cv - rv)) + 2;
-    const y0 = Math.floor(px.Y(cu - ru, cv - rv)) - 2;
-    const y1 = Math.ceil(px.Y(cu + ru, cv + rv)) + 2;
+    // The canopy's shadow is swept along the sun from near the trunk to its tip: two lobes,
+    // joined, so it stays attached to the tree however long the sun throws it.
+    const au = tu + sun[0] * h * 0.3;
+    const av = tv + sun[1] * h * 0.3;
+    const bu = tu + sun[0] * h * 0.85;
+    const bv = tv + sun[1] * h * 0.85;
+    const ru = r * 1.05;
+    const rv = r * 0.9;
+    const x0 = Math.floor(Math.min(px.X(au - ru, av + rv), px.X(bu - ru, bv + rv))) - 2;
+    const x1 = Math.ceil(Math.max(px.X(au + ru, av - rv), px.X(bu + ru, bv - rv))) + 2;
+    const y0 = Math.floor(Math.min(px.Y(au - ru, av - rv), px.Y(bu - ru, bv - rv))) - 2;
+    const y1 = Math.ceil(Math.max(px.Y(au + ru, av + rv), px.Y(bu + ru, bv + rv))) + 2;
     for (let y = Math.max(0, y0); y <= Math.min(px.h - 1, y1); y++)
       for (let x = Math.max(0, x0); x <= Math.min(px.w - 1, x1); x++) {
         const [u, v] = px.ground(x, y);
-        const d = ((u - cu) / ru) ** 2 + ((v - cv) / rv) ** 2;
+        // Distance to the segment between the lobes, in canopy radii.
+        const lu = bu - au;
+        const lv = bv - av;
+        const t = Math.max(0, Math.min(1, ((u - au) * lu + (v - av) * lv) / (lu * lu + lv * lv || 1)));
+        const d = ((u - au - lu * t) / ru) ** 2 + ((v - av - lv * t) / rv) ** 2;
         const wob = hash(x >> 2, y >> 1, 98) * 0.25;
         if (d > 1 - wob) continue;
         const i = y * px.w + x;
         const c = px.data[i]!;
         // Sun flecks inside the shadow: 3×2 cells, more toward the rim.
         const cx = Math.floor(x / 3);
-        const fleck = hash(cx, (y + (cx & 1)) >> 1, 99) < 0.1 + d * 0.22;
-        px.data[i] = fleck ? mix(c, sunC, 0.18) : mix(c, shade, 0.36);
+        const fleck = hash(cx, (y + (cx & 1)) >> 1, 99) < 0.14 + d * 0.26;
+        px.data[i] = fleck ? mix(c, sunC, 0.22) : mix(c, shade, 0.46);
       }
   }
 }
