@@ -58,13 +58,22 @@ const CUT: Author = (rw) => ({
 });
 /** The overarm spear thrust (thrust: the drive 3-5, held 5-6, slower back): the point travels level along the shaft. */
 const THRUST: Author = (rw) => ({
+  // 0-2 chamber: the spear comes down level over the shield and is drawn back past the ear, the
+  // weight on the rear foot; 3-4 the drive: hips first, the front foot lunges, the arm shoots out
+  // along the shaft; 5-6 held at full reach; 7-11 drawn back and brought up to the guard.
   w: {
-    upperArmN: R(rw.upperArmN!, 11, [2, 150], [3, 168], [5, 112], [6, 108], [8, 128], [10, 150]),
-    forearmN: R(rw.forearmN!, 11, [2, 88], [3, 112], [5, 98], [6, 98], [8, 94], [10, 90]),
-    weapon: R(rw.weapon!, 11, [2, 100], [10, 100]),
+    upperArmN: R(rw.upperArmN!, 11, [1, 150], [2, 186], [3, 160], [4, 104], [5, 98], [6, 98], [8, 165], [10, 150]),
+    forearmN: R(rw.forearmN!, 11, [1, 100], [2, 150], [3, 128], [4, 96], [5, 94], [6, 94], [8, 120], [10, 120]),
+    weapon: R(rw.weapon!, 11, [1, 100], [8, 100], [10, 150]),
   },
-  dw: { upperArmF: T([0, 0], [2, 14], [3, 18], [5, 8], [10, 12], [11, 0]), forearmF: T([0, 0], [2, 16], [5, 12], [10, 14], [11, 0]) },
-  tAdd: { footTargetF: [T([0, 0], [3, 0], [4, 0.4], [5, 0.8], [9, 0.6], [11, 0]), T([0, 0], [3, 0], [4, -0.4], [5, 0], [10, -0.2], [11, 0])] },
+  dw: {
+    spine: T([0, 0], [2, 8], [3, 0], [4, -14], [6, -15], [8, -4], [11, 0]), head: T([0, 0], [2, 3], [4, -5], [6, -5], [8, 0], [11, 0]),
+    upperArmF: T([0, 0], [2, 18], [4, 8], [6, 8], [9, 12], [11, 0]), forearmF: T([0, 0], [2, 18], [4, 12], [6, 12], [9, 14], [11, 0]),
+  },
+  tAdd: {
+    pelvis: [T([0, 0], [2, -0.45], [3, 0.1], [4, 0.75], [6, 0.8], [8, 0.35], [10, 0.1], [11, 0]), T([0, 0], [2, 0.12], [4, 0.3], [6, 0.32], [8, 0.1], [11, 0])],
+    footTargetF: [T([0, 0], [2, 0], [3, 0.6], [4, 1.25], [6, 1.25], [8, 0.6], [10, 0.1], [11, 0]), T([0, 0], [2, 0], [3, -0.5], [4, 0], [6, 0], [7, -0.3], [8, 0], [9, -0.2], [10, 0])],
+  },
 });
 /** A javelin jab underarm on the same drive. */
 const JAB: Author = (rw) => ({
@@ -228,7 +237,7 @@ export function mocapFootClips(skel: SkeletonData, s: ClipSpec): ClipSet {
   const idle = withBreath(fc('idle', 8, true, (f) => mk(skel, f, 'idle', { ref: 'first', torso: 0.1, travel: 0.16, feet: 0 })));
   const atk = {
     cut: () => (f: Facing) => mk(skel, f, 'cut-diagonal', { torso: 0.4, travel: 0, feet: 0.3 }, CUT, [2, 10]),
-    thrust: () => (f: Facing) => mk(skel, f, 'thrust', { torso: 0.6, travel: 1, feet: 1 }, THRUST, [10]),
+    thrust: () => (f: Facing) => mk(skel, f, 'thrust', { torso: 0.3, travel: 0.3, feet: 0.3 }, THRUST, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]),
     jab: () => (f: Facing) => mk(skel, f, 'thrust', { torso: 0.6, travel: 1, feet: 1 }, JAB),
     punch: () => (f: Facing) => mk(skel, f, 'thrust', { torso: 0.6, travel: 1, feet: 1 }, PUNCH),
     butt: () => (f: Facing) => mk(skel, f, 'thrust', { torso: 0.5, travel: 1, feet: 0.8 }, BUTT),
@@ -237,7 +246,7 @@ export function mocapFootClips(skel: SkeletonData, s: ClipSpec): ClipSet {
   const smearAt: Record<ClipSpec['attack'], AnimEvent[]> = {
     cut: [{ f: 6, name: 'smear', len: 1, bone: 'weapon' }, { f: 7, name: 'strike' }],
     chop: [{ f: 6, name: 'smear', len: 1, bone: 'weapon' }, { f: 7, name: 'strike' }],
-    thrust: [{ f: 5, name: 'strike' }],
+    thrust: [{ f: 4, name: 'strike' }],
     jab: [{ f: 5, name: 'strike' }],
     punch: [{ f: 5, name: 'strike' }],
     butt: [{ f: 5, name: 'smear', len: 1, bone: 'weapon' }, { f: 5, name: 'strike' }],
