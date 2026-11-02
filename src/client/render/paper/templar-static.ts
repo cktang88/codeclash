@@ -337,7 +337,8 @@ function torsoS(c: Paper, k: SKit, back: boolean): void {
     // drifting toward the back as they fall.
     if (uy > -7.6) {
       const fx = ux - (uy + 7.6) * 0.08;
-      for (const f0 of [-1.0, 0.25, 1.35]) {
+      // (Below level 4 a fold is a 1 px column ending on the hem row with its neighbours: banding, so none.)
+      for (const f0 of c.L >= 4 ? [-1.0, 0.25, 1.35] : []) {
         const dd = fx - f0;
         // A fold: its shadowed channel, and the lit ridge beside it (a clear two-step contrast).
         if (dd > 0 && dd < 0.26 && uy > -7.0) return code(garment, t - 1);
@@ -503,6 +504,13 @@ function kiteS(c: Paper, ctr: P2, w: number, h: number, back: boolean, temple: b
     const half = yt < h * 0.3 ? w * 0.48 : yt < h * 0.62 ? w * (0.48 - ((yt - h * 0.3) / (h * 0.32)) * 0.18) : w * 0.3 * (1 - (yt - h * 0.62) / (bot - top - h * 0.62));
     const edge = half - Math.abs(lx);
     const u = lx / (w * 0.5);
+    // At level 1 the shield is four pixels across: rim and cross would eat it, so it is the
+    // field (team colour, or the Temple's white under a black chief) lit from the left.
+    if (c.L < 2) {
+      if (back) return code(TM.wood, u < 0 ? 2 : 1);
+      if (temple) return ly < top + h * 0.22 ? code(TM.black, 2) : code(TM.white, u < -0.2 ? 3 : 2);
+      return code(TM.team, u < -0.3 ? 3 : u > 0.4 ? 1 : 2);
+    }
     if (edge < 0.32 || ly < top + 0.25) return code(TM.steel, edge < 0.14 ? 1 : u < -0.3 ? 4 : u > 0.5 ? 1 : 2);
     if (back) {
       if (Math.abs(ly + 0.6) < 0.25 || Math.abs(ly - 1.2) < 0.25) return code(TM.leather, 2);

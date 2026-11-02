@@ -73,11 +73,11 @@ export function skinMap(posed: Posed, weights: Weights): PartMap {
     for (const [n, w] of weights(p)) {
       if (w <= 0) continue;
       const m = aff(n);
-      for (let i = 0; i < 6; i++) out[i] += m[i]! * w;
+      for (let i = 0; i < 6; i++) out[i] = out[i]! + m[i]! * w;
       tot += w;
     }
     if (tot <= 0) return [1, 0, 0, 1, 0, 0];
-    for (let i = 0; i < 6; i++) out[i] /= tot;
+    for (let i = 0; i < 6; i++) out[i] = out[i]! / tot;
     return out;
   };
   const deg = (posed.byName.chest ? posed.byName.chest.step - rest.byName.chest!.step : 0) * SNAP_DEG;
