@@ -57,7 +57,7 @@ const ramp = (a: string, b: string, c: string, d: string): Ramp => [hex(a), hex(
 /** Black-stained shitamiita clapboards (yakisugi): charcoal with a violet cast. */
 const BOARD = ramp('#4c4450', '#35303a', '#25212a', '#16141a');
 /** The deep cool shadow under the eaves (and the lantern's glow is in it). */
-const EAVE = hex('#24264c');
+const EAVE = hex('#20225a');
 const PAPER: [Col, Col] = [hex('#f2e6c8'), hex('#d4c6a6')];
 const PAPER_LIGHT = hex('#ffd690');
 
@@ -193,7 +193,7 @@ function plaster(P: Painter, z0: number, h: number, wins: Win[] = [], boards = 0
     }
     // A splash of dirt along the foot of the plaster.
     if (!boards && zz < 0.6) c = mix(c, hex('#8a7a62'), 0.35);
-    if (shade) return mix(c, EAVE, zz > h - 0.6 ? 0.58 : f === 'left' ? 0.42 : 0.3);
+    if (shade) return mix(c, EAVE, zz > h - 0.6 ? 0.64 : f === 'left' ? 0.5 : 0.38);
     return sunlit(c, p, f);
   };
 }

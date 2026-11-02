@@ -52,7 +52,7 @@ export const PAL = {
   bamboo: ramp('#c8c06a', '#a09a48', '#6e6a34', '#3e3c22'),
   bronze: ramp('#9ab08a', '#6a8670', '#46604e', '#28382e'),
   water: hex('#2a3c4a'),
-  gravel: ramp('#e4dccb', '#cfc5b0', '#aaa08c', '#7c7464'),
+  gravel: ramp('#f2dcb0', '#dec294', '#b49a78', '#806c58'),
   moss: hex('#6a7a3a'),
   iron: hex('#3a3a42'),
 };
@@ -124,13 +124,13 @@ export function sunAt(p: V3): number {
   return out;
 }
 
-const SHADE = hex('#283060');
-const SUN = hex('#ffd27a');
+const SHADE = hex('#242a64');
+const SUN = hex('#ffbc58');
 /** A colour as the sun leaves it at p: leaf shade cool and deep, sun flecks warm. */
 export function sunlit(c: Col, p: V3, f: Facing = 'left'): Col {
   const s = sunAt(p);
-  if (s < 0) return mix(c, SHADE, f === 'right' ? 0.22 : 0.36);
-  if (s > 0 && f !== 'right') return mix(c, SUN, 0.16);
+  if (s < 0) return mix(c, SHADE, f === 'right' ? 0.28 : 0.42);
+  if (s > 0 && f !== 'right') return mix(c, SUN, 0.3);
   return c;
 }
 
@@ -151,8 +151,8 @@ export function glowPoint(P: PP, p: V3, day: Col, light: Col = P.st.lit): void {
   P.px.point(p, emitAt(P, p, day, light));
 }
 
-const WARM = hex('#ffcf86');
-const COOL = hex('#323a78');
+const WARM = hex('#ffb35c');
+const COOL = hex('#2a2c70');
 /**
  * Finish the art in P with the Samurai light: lit planes warmed toward the golden sun, half-lit a
  * touch cool and shaded planes pushed toward blue-violet (a strong warm/cool split), then the
@@ -172,7 +172,7 @@ export function finishLit(P: Painter, depth: number, outline = true): Art {
         const c = data[i]!;
         if (!c || c === glass || keep.has(i) || c >>> 24 !== 255) continue;
         const k = cls[i]!;
-        data[i] = k === 1 ? mix(c, WARM, 0.17) : k === 2 ? mix(c, COOL, 0.07) : k === 3 ? mix(c, COOL, 0.24) : c;
+        data[i] = k === 1 ? mix(c, WARM, 0.27) : k === 2 ? mix(c, WARM, 0.06) : k === 3 ? mix(c, COOL, 0.34) : c;
       }
   }
   const art = P.finish(depth, outline);
@@ -987,8 +987,8 @@ export function treeShade(P: PP): void {
         p.u = u;
         p.v = v;
         const sh = sunAt(p);
-        if (sh < 0) P.px.point(p, shadeA(92));
-        else if (sh > 0) P.px.point(p, rgb(255, 214, 140, 46));
+        if (sh < 0) P.px.point(p, shadeA(104));
+        else if (sh > 0) P.px.point(p, rgb(255, 190, 96, 96));
       }
     // The trunk's own shadow, a dark stroke from the foot.
     line3(P.px, v3(t.u, t.v, 0), v3(cu, cv, 0), shadeA(110));
