@@ -19,9 +19,20 @@ export const Anim = {
   Die: 6,
   /** The corpse, one frame, stamped on the ground. */
   Dead: 7,
+  /**
+   * Braced stance, held in place: shield wall (shields locked forward), spear/pike wall (spears
+   * levelled forward), crossbows behind pavises, knights with lances couched at the trot. 1-2 frames.
+   */
+  Brace: 8,
 } as const;
 export type Anim = (typeof Anim)[keyof typeof Anim];
-export const ANIM_COUNT = 8;
+export const ANIM_COUNT = 9;
+
+/**
+ * Regiment stances (game/battle.ts Regiment.stance): how a block stands and moves. The renderer
+ * picks Brace for 'shieldwall', 'pikewall' and 'braced' when not moving.
+ */
+export type Stance = 'line' | 'column' | 'loose' | 'shieldwall' | 'pikewall' | 'wedge' | 'braced';
 
 /**
  * Facing on the isometric field. 0 = toward the viewer and right (south-east), 1 = toward the
