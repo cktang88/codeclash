@@ -551,3 +551,35 @@ images are approved and split into rig parts.
 3. **Against the CraftPix knight at the same scale.** The masses now read, but the near arm of the two-handed poses disappears behind the near sode. That is accepted for chūdan, since the sode's job is to cover the arm. Horses and riders read as one heavy block, as in the D2R mounted art.
 
 Still to do after approval: split each image into rig parts and animate it, keeping the look, and run the lint gate per animation.
+
+### Undead key art, second critique (after the user's armoured-undead and wraith-knight targets)
+
+More targets (in `references/user-targets/`, study only):
+- `armored-undead-x3.png`: a skeleton in red-lacquered armour. It reads by **one dominant armour colour** with lit and shadow planes and bone only at the face, hands and joints.
+- `undead-unit-gstatic-x2.png`: a hooded wraith-knight in violet and bronze.
+
+Rounds:
+1. **Form light** (`keyLight`, plus the material passes):
+   - Soul-fire lights the bone near a body of witchfire green; the eye points don't count as fire.
+   - A rim light on hard edges turned from the key.
+   - Mail at level 8 is rows of links, each with a hole and a point of light.
+   - Plates get a specular streak.
+   - Each key image takes its own level-8 palette.
+2. **Horses:**
+   - A real horse skull: orbit, facial crest, nasal notch, teeth, a deep jaw.
+   - A curved pelvis and shoulder blade, and tapering legs.
+   - Barding rows that bow with the barrel.
+   - In the key art: heads 1.35 times larger and boxy at the back, on a lower neck.
+3. **The armoured dead:**
+   - The Grave Legionary is in rusted plate (breastplate, fauld, tassets, greaves), with a dark front skirt and rope belt and the blade held low.
+   - The brimmed hats read as cowboy hats, so they went. The Legionary now wears an open bascinet with an aventail, and the Arbalest a mail coif under a dented skullcap.
+   - The Death Knight wears an open black bascinet.
+   - The Black Rider shows his skull in the hood, with pauldrons and a gauntlet.
+   - The Lich's mantle is one heavy team cape with folds.
+4. **The Wraith Bows recast as Wraith-Wardens** (new materials `undead.violet` and `undead.bronze`):
+   - A tall pointed hood around a cracked bone death-mask with one green slit.
+   - Swept bone horns from layered pauldrons, violet with bronze trim, and a ragged cloak.
+   - A bone longbow with a green-fire arrow.
+   - Static only, until the user approves it.
+
+Before/after: `docs/screenshots/hd-sprites/undead-static-L8-before-after.png`.
