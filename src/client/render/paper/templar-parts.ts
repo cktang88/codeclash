@@ -9,7 +9,7 @@
 // proportions, dull grimy mail drawn as rows of rings, dirty linen, steel lit only on hard edges.
 // The one saturated accent is the red cross and the army colour.
 
-import { addP, code, DEG, defineMaterial, hash, M, materialCount, oklabRgb, oklchRamp, oklchRgb, rgbOklab, rot, type Mat, type P2, type Paper, type RGB } from './core.ts';
+import { addP, code, DEG, defineMaterial, hash, materialCount, oklabRgb, oklchRamp, oklchRgb, okHue, rgbOklab, rot, type Mat, type P2, type Paper, type RGB } from './core.ts';
 import { isBack, type Facing } from './facing.ts';
 import { along, limb, snapDeg, type EnginePose, type FootPose, type HorsePose } from './rig.ts';
 
@@ -36,7 +36,7 @@ const WARM_SHADOW = [1.7, 1.35, 1.0, 0.8, 0.6] as const;
  * at level 1) then spend one slot on it instead of scattering these shades into the red cross
  * or the cold steel darks.
  */
-const UMBER: readonly [RGB, RGB] = [oklchRgb(0.17, 0.022, 45), oklchRgb(0.235, 0.035, 50)];
+const UMBER: readonly [RGB, RGB] = [oklchRgb(0.17, 0.025, 28), oklchRgb(0.235, 0.035, 58)];
 const umber = (r: RGB[]): RGB[] => [UMBER[0], UMBER[1], r[2]!, r[3]!, r[4]!];
 /**
  * The light materials (linen, mail, steel, skin, the pale horses, gilt, ash) share one pale deep
@@ -47,6 +47,14 @@ const umber = (r: RGB[]): RGB[] => [UMBER[0], UMBER[1], r[2]!, r[3]!, r[4]!];
  */
 const PALE: RGB = oklchRgb(0.61, 0.022, 65);
 const deep = (r: RGB[]): RGB[] => [PALE, r[1]!, r[2]!, r[3]!, r[4]!];
+
+/** Turns hue `h` toward `to` by the fraction k, the short way round. */
+const toward = (h: number, to: number, k: number): number => h + ((((to - h + 540) % 360) - 180) * k);
+/** The army colour's ramp for an HSL heraldic hue: shadows lean violet, lights lean warm. */
+function teamRamp(hue: number, ls: readonly number[], cs: readonly number[]): RGB[] {
+  const h = okHue(hue);
+  return ls.map((l, i) => oklchRgb(l, cs[i]!, i < 2 ? toward(h, 300, (2 - i) * 0.14) : toward(h, 85, (i - 2) * 0.08)));
+}
 
 /** Templar ramps (OKLCH, low-key). Only `red` and the army colour are saturated. */
 export const TM = {
@@ -84,8 +92,9 @@ export const TM = {
   mane: defineMaterial('templar.mane', umber(ramp([0.15, 0.2, 0.26, 0.32, 0.39], 0.03, 50))),
   /** Gilt: the marshal's helm and belt, the banner finial. */
   gold: defineMaterial('templar.gold', deep(ramp([0.61, 0.645, 0.7, 0.78, 0.86], 0.1, 85))),
-  team: M.team,
-  teamDk: M.teamDk,
+  /** The army colour (the accent): hue-stepped, shadows toward violet and lights toward warm. */
+  team: defineMaterial('templar.team', (hue) => teamRamp(hue, [0.2, 0.27, 0.34, 0.43, 0.52], [0.08, 0.12, 0.14, 0.12, 0.09])),
+  teamDk: defineMaterial('templar.teamDk', (hue) => teamRamp(hue, [0.17, 0.22, 0.27, 0.33, 0.4], [0.06, 0.09, 0.1, 0.09, 0.07])),
   /** Eye slits, sights, nostrils: a warm near-black that steps in hue (never neutral). */
   ink: defineMaterial('templar.ink', [oklchRgb(0.14, 0.03, 15), oklchRgb(0.17, 0.035, 28), oklchRgb(0.2, 0.035, 40), oklchRgb(0.24, 0.035, 52), oklchRgb(0.28, 0.035, 64)], { keep: true }),
 } as const;
@@ -125,7 +134,9 @@ function remapFor(dark: boolean, level: number): Int16Array {
   const pairs: [Mat, Mat][] = dark && level <= 1
     ? // At level 1 the pale bits of a dark figure (a helm, a face: 2-3 px) keep the pale
       // materials: the 12-colour palette has no room for a second set of lights.
-      [[TM.mail, TM.mailDk], [TM.ash, TM.wood]]
+      // Oiled mail under a black surcoat is one dark mass at 13 px; as one material, the arm
+      // across the chest gets no contact line (which would black out a 1 px limb).
+      [[TM.mail, TM.black], [TM.mailDk, TM.black], [TM.ash, TM.wood]]
     : dark
     ? [[TM.steel, TD.steel], [TM.flesh, TD.flesh], [TM.white, TD.white], [TM.gambeson, TD.gambeson], [TM.gold, TD.gold], [TM.dun, TD.dun], [TM.mail, TM.mailDk], [TM.ash, TM.wood], [TM.grey, TD.white]]
     : level <= 1
@@ -202,6 +213,12 @@ export function mailTex(c: Paper, x: number, y: number, lit: number, base = 2, m
   if (lit < -0.2 && (lx + ly) % 3 === 0) return code(m, base + 1);
   return -1;
 }
+/**
+ * The lit band's tone: 3, or 4 at level 1, where the budget folds tones 2 and 3 into one colour
+ * and the light would otherwise vanish from a 13 px figure.
+ */
+export const hiTone = (c: Paper): number => (c.L <= 1 ? 4 : 3);
+
 /** Whether a material is mail (gets the ring texture). */
 export const isMail = (m: Mat): boolean => m === TM.mail || m === TM.mailDk;
 
@@ -348,7 +365,8 @@ function torso(c: Paper, r: Rig, kit: Kit, sway: number): void {
   const sw = kit.coat ? 1.0 : 1.25;
   const pts: P2[] = [
     at(T, -1.1 * s * sw, -0.1 * s), at(T, 1.05 * s * sw, -0.1 * s), at(T, 1.45 * s, 0.7 * s), at(T, 1.25 * s, 2.6 * s), at(T, 1.12 * s, 3.7 * s),
-    [kx1, hy - 0.2 * s], [(kx0 + kx1) / 2 + 0.2, hy + 0.15 * s], [kx0, hy],
+    // The hem dips at the back and rises toward the striding front leg: never one level row.
+    [kx1, hy - 0.55 * s], [kx1 - (kx1 - kx0) * 0.35, hy - 0.05 * s], [(kx0 + kx1) / 2 - 0.3, hy + 0.3 * s], [kx0, hy + 0.1 * s],
     at(T, -1.2 * s, 3.7 * s), at(T, -1.35 * s, 2.6 * s), at(T, -1.55 * s, 0.7 * s),
   ];
   const hyPx = c.sy(hy);
@@ -369,7 +387,7 @@ function torso(c: Paper, r: Rig, kit: Kit, sway: number): void {
       return code(kit.belt ?? TM.leather, lit < 0 ? 2 : 1);
     }
     const fromHem = (hyPx - y) / L;
-    let tone = lit < 0 ? 3 : lit > 0 ? 1 : 2;
+    let tone = lit < 0 || (L <= 1 && ly < 1.6 * s && lit <= 0) ? hiTone(c) : lit > 0 ? 1 : 2;
     if (mailBody) {
       const m = mailTex(c, x, y, lit, tone, mat);
       if (m >= 0) return m;
@@ -818,9 +836,9 @@ export function horse(c: Paper, p: HorsePose, facing: Facing, kit: HorseKit, lay
     const hoof = along(f, lo - pitch + 18, 0.55 * s);
     c.rod(attach, k, (hind ? 1.45 : 1.15) * s, 0.62 * s, coat, { tone });
     if (c.L >= 2) c.blob(k, 0.4 * s, 0.38 * s, coat, { tone: tone - 1 });
-    c.rod(k, f, 0.5 * s, 0.44 * s, coat, { tone });
+    c.rod(k, f, 0.5 * s, 0.44 * s, coat, { tone: 1 });
     if (c.L >= 2) c.blob(f, 0.33 * s, 0.3 * s, coat, { tone: tone - 1 });
-    c.rod(f, hoof, 0.42 * s, 0.5 * s, coat, { tone: tone - 1 });
+    c.rod(f, hoof, 0.42 * s, 0.5 * s, coat, { tone: 1 });
     c.rod(hoof, along(hoof, lo - pitch + 18, 0.3 * s), 0.6 * s, 0.66 * s, TM.mane, { tone: 1 });
   };
   const legs = (far: boolean) => {
@@ -859,21 +877,21 @@ export function horse(c: Paper, p: HorsePose, facing: Facing, kit: HorseKit, lay
       [0.5, 2.05], [-2.0, 1.85], [-3.6, 1.55], [-4.55, 0.6], [-4.75, -0.6], [-4.4, -1.55],
     ];
     fshape(c, F, pts.map(([x, y]) => [x * s, y * s] as P2), (x, y, lx, ly) => {
-      const tone = ly < -1.25 * s || (lx < -3.4 * s && ly < 0.8 * s) ? 3 : ly > 1.25 * s || lx > 3.6 * s ? 1 : 2;
+      const tone = ly < -1.25 * s || (lx < -3.4 * s && ly < 0.8 * s) ? hiTone(c) : ly > 1.25 * s || lx > 3.6 * s ? 1 : 2;
       if (c.L >= 4 && c.tex(x, y, 21, 4) < 0.06) return code(coat, tone - 1);
       return code(coat, tone);
     });
     // Haunch and shoulder masses: no pale spot, only a shadow crescent under each (the muscle's
     // lower edge) and a lit top that merges into the back.
     const mass = (o: P2, rx: number, ry: number) =>
-      c.blob(o, rx, ry, coat, { tone: 2, detail: (_x, _y, nx, ny) => code(coat, nx * 0.5 + ny > 0.62 ? 1 : ny < -0.55 ? 3 : 2) });
+      c.blob(o, rx, ry, coat, { tone: 2, detail: (_x, _y, nx, ny) => code(coat, nx * 0.5 + ny > 0.62 ? 1 : ny < -0.55 ? hiTone(c) : 2) });
     mass(P(-3.1, -0.3), 1.85 * s, 1.85 * s);
     mass(P(2.9, -0.15), 1.45 * s, 1.85 * s);
     // Neck: a deep arched slab from the shoulders to the poll; the mane along the crest.
     const NF = frameAt(nbase, neckDeg - 90);
     c.shape([P(1.6, -2.0), lerp(P(1.6, -2.0), addP(poll, mul(perp, 0.6 * s)), 0.5), addP(addP(poll, mul(perp, 0.6 * s)), mul(nd, -0.2 * s)), addP(poll, mul(perp, -0.75 * s)), lerp(addP(poll, mul(perp, -0.75 * s)), P(4.45, -0.2), 0.55), P(4.45, -0.2)], (x, y) => {
       const q = local(c, NF, x, y);
-      return code(coat, q[1] < -0.5 * s ? 3 : q[1] > 0.75 * s ? 1 : 2);
+      return code(coat, q[1] < -0.5 * s ? hiTone(c) : q[1] > 0.75 * s || c.L <= 1 ? 1 : 2);
     });
     c.rod(P(1.9, -2.15), addP(poll, mul(perp, 0.5 * s)), 0.65 * s, 0.5 * s, TM.mane, {
       tone: 2,
@@ -892,7 +910,7 @@ export function horse(c: Paper, p: HorsePose, facing: Facing, kit: HorseKit, lay
       if (c.L >= 2 && (within(c, hx - 0.25, 0.09) || within(c, hx - 2.15, 0.09))) return code(TM.leather, 1);
       // The jowl's round shadow, the lit forehead and nose bridge.
       if (hx < 1.2 && hy > 0.45) return code(coat, 1);
-      return code(coat, hy < -0.25 ? 3 : hy > 0.35 ? 1 : 2);
+      return code(coat, c.L <= 1 ? 1 : hy < -0.25 ? 3 : hy > 0.35 ? 1 : 2);
     });
     // Ears, pricked forward.
     c.shape([at(HF, -0.1 * k, -0.45 * s), at(HF, -0.1 * k + 0.25, -1.35 * s), at(HF, 0.45 * k, -0.5 * s)], () => code(coat, 2));
@@ -909,7 +927,7 @@ export function horse(c: Paper, p: HorsePose, facing: Facing, kit: HorseKit, lay
       const cx = back ? -2.4 : 0.6, cy = 0.45;
       const vx = lx / s - cx, vy = ly / s - cy;
       if ((within(c, vx, 0.42) && Math.abs(vy) < 1.55) || (within(c, vy + 0.1, 0.4) && Math.abs(vx) < 1.25)) return code(TM.red, vx < -0.15 ? 3 : 2);
-      let tone = ly < -1.3 * s || (lx < -3.6 * s && ly < 1.2 * s) ? 3 : ly > 1.6 * s || lx > 3.9 * s ? 1 : 2;
+      let tone = ly < -1.3 * s || (lx < -3.6 * s && ly < 1.2 * s) ? hiTone(c) : ly > 1.6 * s || lx > 3.9 * s ? 1 : 2;
       if (c.L >= 4) {
         // Vertical folds hanging from the back, a dirty hem.
         const f = ((lx / s + 6) * 0.85) % 1;
@@ -922,7 +940,7 @@ export function horse(c: Paper, p: HorsePose, facing: Facing, kit: HorseKit, lay
     // The crinet: cloth over the neck to the poll.
     c.shape([P(1.9, -2.25), addP(poll, mul(perp, 0.65 * s)), addP(poll, mul(perp, -0.55 * s)), P(4.6, -0.2)], (x, y) => {
       const q = local(c, frameAt(nbase, neckDeg - 90), x, y);
-      return code(capar, q[1] < -0.5 * s ? 3 : q[1] > 0.7 * s ? 1 : 2);
+      return code(capar, q[1] < -0.5 * s ? hiTone(c) : q[1] > 0.7 * s || c.L <= 1 ? 1 : 2);
     });
   };
   const saddle = () => {
