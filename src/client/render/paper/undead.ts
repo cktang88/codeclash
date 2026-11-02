@@ -15,7 +15,7 @@ import { registerPaperKind } from './registry.ts';
 import { along, BEAST0, ENGINE0, FOOT0, HORSE0, limb, poser, settle, snapDeg, swing, type BeastPose, type EnginePose, type FootPose, type HorsePose, type KeySet } from './rig.ts';
 import {
   backbone, bone, bow, crossbow, flame, frameOf, handAt, head, hood, mailShirt, mul, pavise, pelvis, quiver, rag, ribcage, robe, shield, shieldBack, skelArm, skelLeg, skull, skullBack, spear, sword, tabard, UM,
-  femur, planeLight, shadeLower, withBone, horseBody, horseFar, horseFrame, horseNear, horseRemains, lance, riderFrame,
+  boneMat, femur, litStep, planeLight, shadeLower, withBone, horseBody, horseFar, horseFrame, horseNear, horseRemains, lance, riderFrame,
   type Frame, type HorseLook,
 } from './undead-parts.ts';
 
@@ -277,8 +277,8 @@ function reach(c: Paper, F: Frame, sh: P2, target: P2, far: boolean, o: { flesh?
     c.blob(hand, 0.36, 0.32, UM.flesh, { tone });
   } else {
     bone(c, sh, el, 0.36, 0.3, tone);
-    c.rod(el, hand, 0.28, 0.24, UM.bone, { tone });
-    c.blob(hand, 0.34, 0.3, UM.bone, { tone });
+    c.rod(el, hand, 0.28, 0.24, boneMat(), { tone });
+    c.blob(hand, 0.34, 0.3, boneMat(), { tone: tone - 1 });
   }
   if (o.sleeve) c.rod(sh, addP(sh, mul([el[0] - sh[0], el[1] - sh[1]], o.sleeve)), 0.95, 1.05, UM.shroud, { tone: far ? 1 : 2 });
   return hand;
@@ -506,24 +506,30 @@ function thrower(c: Paper, p: FootPose, facing: Facing, _anim?: Anim, _frame?: n
   const qDeg = 205 + F.tor * 0.5;
   // A ragged cape of grave-cloth from the shoulders: dark on the field, it carries the figure's
   // value (a bare skeleton is as light as the grass is dark at the outline).
-  const cape = () => rag(c, addP(F.neck, F.T(back ? [-1.3, 0.2] : [-1.6, 0.3])), addP(F.neck, F.T(back ? [1.7, 0.3] : [0.7, 0.15])), 7.0, p.sway * 1.2 - 0.3, UM.rag, UM.rag, back ? 225 : 227, { tear: 0.3, spread: 0.9, folds: false });
+  const cape = () => rag(c, addP(F.neck, F.T(back ? [-1.3, 0.2] : [-1.6, 0.3])), addP(F.neck, F.T(back ? [1.7, 0.3] : [0.7, 0.15])), 7.0, p.sway * 1.2 - 0.3, UM.rag, UM.rag, back ? 225 : 227, { tear: 0.3, spread: 0.9, folds: false, flat: true });
   if (!back) cape();
   if (!back) quiver(c, qAt, qDeg, { shafts: 3, len: 1.8, bone: true });
-  skelLeg(c, F, F.hipF, p.ft, p.fs, true);
-  skelArm(c, F, F.shF, p.fu, p.fl, true);
-  pelvis(c, F, 1);
+  // Charred limbs and pelvis; the ribs and skull stay pale (the light falls on the chest).
+  withBone(UM.char, () => {
+    skelLeg(c, F, F.hipF, p.ft, p.fs, true);
+    skelArm(c, F, F.shF, p.fu, p.fl, true);
+    pelvis(c, F, 1);
+  });
   if (back) backbone(c, F.neck, F.pel, F.shN, F.shF);
   else ribcage(c, F.neck, F.pel, F.tor);
+  // A rotted jerkin over the ribs (they show through where it has rotted away).
+  gambeson(c, F, p.sway, false);
   // A team loincloth and a sash across the chest: the army's colour on a bare skeleton.
   rag(c, addP(F.pel, back ? [-0.8, -0.3] : [-0.7, -0.35]), addP(F.pel, back ? [1.0, -0.3] : [1.3, -0.4]), 2.6, p.sway, UM.team, UM.teamDk, 221, { tear: 0.5 });
   c.rod(F.shN, addP(F.pel, F.T(back ? [-0.6, -0.6] : [1.1, -0.5])), 0.42, 0.42, UM.teamDk, { tone: 2 });
   if (back) cape();
   if (back) quiver(c, qAt, qDeg, { shafts: 3, len: 1.8, bone: true });
-  skelLeg(c, F, F.hipN, p.nt, p.ns, false);
+  withBone(UM.char, () => skelLeg(c, F, F.hipN, p.nt, p.ns, false));
   // A grave-cloth cowl over the skull, its face open: the skull grins out of the dark.
   c.rod(F.neck, addP(F.neck, F.T([0.15, -0.55])), 0.36, 0.3, UM.bone, { tone: 1 });
   hood(c, addP(F.neck, F.T([0.35, -1.15])), p.head + F.tilt, back, UM.rag, { skullFace: true, eyes: true });
-  const handN = skelArm(c, F, F.shN, p.nu, p.nl, false);
+  let handN: P2 = F.shN;
+  withBone(UM.char, () => (handN = skelArm(c, F, F.shN, p.nu, p.nl, false)));
   if (p.sw >= 0) boneJavelin(c, handN, p.bl + F.tilt, 5.4 * E);
 }
 
@@ -666,7 +672,7 @@ export const ARB_KEYS: KeySet<FootPose> = {
 };
 
 /** The rotted gambeson: quilted brown rag over the ribs, holes rotted through, a torn skirt. */
-function gambeson(c: Paper, F: Frame, sway: number): void {
+function gambeson(c: Paper, F: Frame, sway: number, quilt = true): void {
   const { neck, pel, back } = F;
   const pts: P2[] = back
     ? [addP(neck, [-1.4, 0.2]), addP(neck, [1.8, 0.3]), addP(pel, [1.5, 1.6 + sway * 0.2]), addP(pel, [-1.0 + sway, 1.8]), addP(pel, [-1.2, 0.0])]
@@ -681,10 +687,9 @@ function gambeson(c: Paper, F: Frame, sway: number): void {
     if (L >= 2 && c.tex(x, y, back ? 243 : 245, 4) < 0.13 && fromBot > L * 1.5) return -1; // rotted through
     if (Math.abs(y - c.sy(pel[1] - 0.3)) < Math.max(1, L * 0.3)) return code(UM.leather, 2); // belt
     const rel = (x - c.sx(neck[0] - 1.5)) / (3.3 * L);
-    if (L >= 2 && c.lx(x) % qw === 0) return code(UM.rag, rel < 0.3 ? 2 : 1); // quilting
-    if (rel < 0.18) return code(UM.rag, 3);
-    if (rel > 0.75) return code(UM.rag, 1);
-    return code(UM.rag, 2);
+    const lt = planeLight(rel * 2 - 1, ((y - c.sy(neck[1])) / Math.max(1, bot - c.sy(neck[1]))) * 2 - 1, 0.35);
+    if (quilt && L >= 2 && c.lx(x) % qw === 0) return code(UM.rag, 1 + Math.min(0, lt)); // quilting
+    return code(UM.rag, 2 + (lt > 0 ? litStep(c) : lt));
   });
 }
 
@@ -708,7 +713,9 @@ function arbalest(c: Paper, p: FootPose, facing: Facing, anim: Anim, _frame?: nu
   skelLeg(c, F, F.hipF, p.ft, p.fs, true);
   const grip = handAt(F, F.shN, p.nu, p.nl);
   const aim = p.bl + F.tilt;
-  reach(c, F, F.shF, along(grip, aim, 1.7), true);
+  // At level 1 the arms are a pixel wide and sit beside the face: in shade, so the face keeps the light.
+  const armBone = c.L <= 1 ? UM.char : UM.bone;
+  withBone(armBone, () => reach(c, F, F.shF, along(grip, aim, 1.7), true));
   pelvis(c, F);
   if (back) backbone(c, F.neck, F.pel, F.shN, F.shF);
   else ribcage(c, F.neck, F.pel, F.tor);
@@ -719,7 +726,7 @@ function arbalest(c: Paper, p: FootPose, facing: Facing, anim: Anim, _frame?: nu
   if (!back) quiver(c, addP(F.pel, [-1.0, 0.3]), 160, { shafts: 3, len: 1.6 });
   head(c, F, p.head, true);
   crossbow(c, grip, aim, p.sw > 0);
-  skelArm(c, F, F.shN, p.nu, p.nl, false);
+  withBone(armBone, () => skelArm(c, F, F.shN, p.nu, p.nl, false));
   if (braced && !back) pavise(c, planted, 0, true, s);
 }
 
@@ -831,7 +838,7 @@ function lich(c: Paper, p: FootPose, facing: Facing, anim: Anim, frame: number):
 }
 
 registerPaperKind<FootPose>('undead', U.Spearmen, { body: 'foot', keys: GHOUL_KEYS, draw: (c, p, facing, anim, frame) => lit(c, () => ghoul(c, p, facing, anim, frame)) });
-registerPaperKind<FootPose>('undead', U.Skirmishers, { body: 'foot', keys: THROWER_KEYS, draw: (c, p, facing, anim, frame) => lit(c, () => withBone(UM.char, () => thrower(c, p, facing, anim, frame))) });
+registerPaperKind<FootPose>('undead', U.Skirmishers, { body: 'foot', keys: THROWER_KEYS, draw: (c, p, facing, anim, frame) => lit(c, () => thrower(c, p, facing, anim, frame)) });
 registerPaperKind<FootPose>('undead', U.Archers, { body: 'foot', keys: WRAITH_KEYS, draw: (c, p, facing, anim, frame) => lit(c, () => wraith(c, p, facing, anim, frame)) });
 registerPaperKind<FootPose>('undead', U.Crossbowmen, { body: 'foot', keys: ARB_KEYS, draw: (c, p, facing, anim, frame) => lit(c, () => arbalest(c, p, facing, anim, frame)) });
 registerPaperKind<FootPose>('undead', COMMANDER_KIND, { body: 'foot', keys: LICH_KEYS, draw: (c, p, facing, anim, frame) => lit(c, () => lich(c, p, facing, anim, frame)) });
@@ -968,7 +975,8 @@ function blackRider(c: Paper, p: HorsePose, facing: Facing, _anim?: Anim, _frame
         const rel = (x - c.sx(top[0] - 3)) / (4.6 * L);
         if (L >= 2 && Math.abs(((rel * 5) % 1) - 0.5) < 0.09 && y > c.sy(top[1] + 1)) return code(UM.shroud, 1);
         const ry = ((y - c.sy(top[1])) / (L * 4.5)) * 2 - 1;
-        return code(UM.shroud, 2 + planeLight(rel * 2 - 1, ry, 0.4));
+        const lt = planeLight(rel * 2 - 1, ry, 0.4);
+        return code(UM.shroud, 2 + (lt > 0 ? litStep(c) : lt));
       });
       // A team sash knotted over the shoulder, its ends flying.
       c.rod(addP(F.neck, F.T(F.back ? [1.2, 0.5] : [-0.3, 0.5])), addP(F.pel, F.T([F.back ? -0.6 : 1.0, -0.4])), 0.5, 0.5, UM.team, { tone: 2 });
@@ -1094,7 +1102,8 @@ function cuirass(c: Paper, F: Frame): void {
     if (L >= 4 && Math.abs(rel - (back ? 0.2 : 0.35)) < 0.09) return code(UM.iron, back ? 1 : 3); // the ridge (or spine groove)
     if (c.tex(x, y, 291, 3) < 0.1) return code(UM.rust, 1);
     const ry = ((y - c.sy(neck[1])) / Math.max(1, lame - c.sy(neck[1]))) * 2 - 1;
-    return code(UM.iron, 2 + planeLight(rel / 1.5, ry, 0.35));
+    const lt = planeLight(rel / 1.5, ry, 0.35);
+    return code(UM.iron, 2 + (lt > 0 ? litStep(c) : lt));
   });
   // Pauldrons: two lames over each shoulder.
   for (const sh of [F.shF, F.shN]) {
@@ -1338,7 +1347,7 @@ registerPaperKind<BeastPose>('undead', U.Shock, { body: 'beast', keys: COLOSSUS_
 // winch and the arm. References: the Screaming Skull Catapult and the Mortis Engine (Total War),
 // Villard de Honnecourt's and the Maciejowski Bible's counterweight engines (frame and sling).
 
-const ENG = poser<EnginePose>({ ...ENGINE0, arm: -58, sling: 0, load: 1 });
+const ENG = poser<EnginePose>({ ...ENGINE0, arm: -45, sling: 0, load: 1 });
 export const TREBUCHET_KEYS: KeySet<EnginePose> = {
   poses: {
     [Anim.Idle]: [ENG(), ENG({ py: 0.0 })],
@@ -1356,8 +1365,8 @@ export const TREBUCHET_KEYS: KeySet<EnginePose> = {
       ENG({ arm: 140, sling: 120, load: 0 }),
       // Wound back down by the crew, and loaded.
       ENG({ arm: 40, sling: 20, load: 0, crew: 0.25 }),
-      ENG({ arm: -40, sling: 0, load: 0, crew: 0.5 }),
-      ENG({ arm: -58, sling: 0, load: 1, crew: 0.75 }),
+      ENG({ arm: -30, sling: 0, load: 0, crew: 0.5 }),
+      ENG({ arm: -45, sling: 0, load: 1, crew: 0.75 }),
     ],
     // The crew beat off attackers with their tools.
     [Anim.Attack]: [ENG({ crew: 0.25, lean: -1 }), ENG({ crew: 0.75, lean: 2 }), ENG({ crew: 0.8, lean: 2.2 }), ENG({ crew: 0.5, lean: 0 })],
@@ -1432,8 +1441,9 @@ function trebuchet(c: Paper, p: EnginePose, facing: Facing, anim: Anim, frame: n
   const frameSide = (off: P2, tone: number) => {
     const o = (q: P2): P2 => T(addP(q, off));
     c.rod(o([-7.6, -0.6]), o([7.6, -0.6]), 0.75, 0.75, UM.wood, { tone });
-    c.rod(o([-5.2, -0.9]), o([-0.1, -13.2]), 0.62, 0.5, UM.wood, { tone });
-    c.rod(o([5.2, -0.9]), o([0.1, -13.2]), 0.62, 0.5, UM.wood, { tone });
+    // The uprights on a clean 2:1 slope (no jaggies on the long diagonals).
+    c.rod(o([-6.5, -0.4]), o([0, -13.4]), 0.62, 0.5, UM.wood, { tone });
+    c.rod(o([6.5, -0.4]), o([0, -13.4]), 0.62, 0.5, UM.wood, { tone });
     c.rod(o([-3.2, -5.6]), o([3.2, -5.6]), 0.42, 0.42, UM.wood, { tone: tone - 1 });
     // Lashings of sinew where the beams cross.
     c.blob(o([0, -13.1]), 0.5, 0.5, UM.rust, { tone: tone });

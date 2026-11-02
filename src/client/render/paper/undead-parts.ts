@@ -46,6 +46,9 @@ export const UM = {
  * pale bone, or the charred bone with `withBone`. Skulls stay pale.
  */
 const BONE = { m: UM.bone as number };
+/** The skeleton material in force (see `withBone`). */
+export const boneMat = (): number => BONE.m;
+
 export function withBone(m: number, draw: () => void): void {
   const was = BONE.m;
   BONE.m = m;
@@ -442,7 +445,7 @@ export function head(c: Paper, F: Frame, ang: number, hat: boolean): P2 {
  * swung by `sway`: two folds with a lit ridge, the far edge in shade, stains near the hem, and
  * the hem torn into tongues of uneven length.
  */
-export function rag(c: Paper, a: P2, b: P2, len: number, sway: number, m: number, dk: number, seed: number, o: { tear?: number; folds?: boolean; spread?: number; tone?: number } = {}): void {
+export function rag(c: Paper, a: P2, b: P2, len: number, sway: number, m: number, dk: number, seed: number, o: { tear?: number; folds?: boolean; spread?: number; tone?: number; flat?: boolean } = {}): void {
   const L = c.L;
   const tear = o.tear ?? 0.45;
   const spread = o.spread ?? 0;
@@ -453,8 +456,12 @@ export function rag(c: Paper, a: P2, b: P2, len: number, sway: number, m: number
   const xa = Math.min(pts[0]![0], pts[3]![0]), xb = Math.max(pts[1]![0], pts[2]![0]);
   c.poly(pts, (x, y) => {
     const fromBot = y1 - y;
-    const col = Math.floor(c.lx(x) / Math.max(2, L * 0.5));
-    if (fromBot < L * len * tear && hash(col, 1, seed) * L * len * tear > fromBot) return -1;
+    // Torn into pointed tongues: each tongue's sides are shorter than its middle, so the
+    // columns of a tongue end on different rows.
+    const tw = Math.max(3, Math.round(L * 0.8));
+    const col = Math.floor(c.lx(x) / tw);
+    const off = Math.abs(((c.lx(x) % tw) + 0.5) / tw * 2 - 1);
+    if (fromBot < L * len * tear + L && hash(col, 1, seed) * L * len * tear + off * L * 0.8 > fromBot) return -1;
     const rel = (x - xa) / Math.max(1, xb - xa);
     const fold = rel + ((y - y0) / Math.max(1, y1 - y0)) * 0.15 * Math.sign(sway || 1);
     if (o.folds !== false && L >= 2) {
@@ -464,7 +471,7 @@ export function rag(c: Paper, a: P2, b: P2, len: number, sway: number, m: number
     // Planar light across the whole strip: lit toward the top-left, in shade toward the
     // bottom-right (one large plane per part, not a rim), stains in the lower shade.
     const lt = planeLight(rel * 2 - 1, ((y - y0) / Math.max(1, y1 - y0)) * 2 - 1);
-    if (lt > 0) return code(m, base + 1);
+    if (lt > 0 && !o.flat) return code(m, base + litStep(c));
     if (lt < 0 || (fromBot < L * 2.4 && c.tex(x, y, seed + 3) < 0.16)) return dk === m ? code(m, base - 1) : code(dk, base);
     return code(m, base);
   });
@@ -476,6 +483,9 @@ export function rag(c: Paper, a: P2, b: P2, len: number, sway: number, m: number
  * Large cloth and plate shapes take one band per plane, so each part's light reads from the
  * top-left however it is cut (the lint measures each region's luminance centroid).
  */
+/** How far up a lit plane goes: one tone, two at level 1 (which merges tones 2 and 3). */
+export const litStep = (c: Paper): number => (c.L <= 1 ? 2 : 1);
+
 export function planeLight(rx: number, ry: number, k = 0.42): number {
   const s = -(rx * 0.62 + ry * 0.78);
   return s > k ? 1 : s < -k ? -1 : 0;
@@ -498,17 +508,18 @@ export function robe(c: Paper, top: P2, w0: number, w1: number, len: number, swa
     const half = (w0 / 2 + ((w1 - w0) / 2) * t) * L;
     const cx = c.sx(top[0] + sway * t);
     const rel = (x + 0.5 - cx) / Math.max(1, half);
-    const col = Math.floor(c.lx(x) / Math.max(2, L * (o.wisp ? 1.1 : 0.6)));
+    const tw = Math.max(3, Math.round(L * (o.wisp ? 1.1 : 0.7)));
+    const col = Math.floor(c.lx(x) / tw);
+    const off = Math.abs(((c.lx(x) % tw) + 0.5) / tw * 2 - 1);
     const deep = o.wisp ? len * 0.36 : len * 0.16;
-    if (fromBot < L * deep && hash(col, 3, seed) * L * deep * (o.wisp ? 1 - Math.abs(rel) * 0.5 : 1) > fromBot) return -1;
-    if (o.wisp && fromBot < L * deep * 1.3 && Math.abs(rel) > 0.75 - fromBot / (L * deep * 4)) return -1;
+    if (fromBot < L * deep + L && hash(col, 3, seed) * L * deep * (o.wisp ? 1 - Math.abs(rel) * 0.5 : 1) + off * L * 0.8 > fromBot) return -1;
     // A fold channel running down from under the near shoulder, a lit ridge beside it.
     const fold = rel - t * 0.12;
     if (L >= 2 && Math.abs(fold + 0.05) < 0.07) return code(m, 1);
     if (L >= 2 && Math.abs(fold + 0.18) < 0.05 && t > 0.15) return code(m, 3);
     if (L >= 4 && Math.abs(fold - 0.45) < 0.05 && t > 0.3) return code(m, 1);
     const lt = planeLight(rel, t * 2 - 1, 0.38);
-    if (lt > 0 || rel < -0.78) return code(m, 3);
+    if (lt > 0 || rel < -0.78) return code(m, 2 + litStep(c));
     if (lt < 0 || (fromBot < L * 1.5 && c.tex(x, y, seed) < 0.2)) return code(m, 1);
     return code(m, 2);
   });
@@ -547,10 +558,10 @@ export function hood(c: Paper, at: P2, ang: number, back: boolean, m: number = U
       return code(UM.ink, 0);
     }
     // The lip of the hood round the face is lit; the crown lit top-left; the back in shade.
-    if (Math.hypot(ox / 0.98, oy / 1.15) < 1 && (ox < 0 || oy < -0.2)) return code(m, 3);
-    if (fx < -0.9 || fy < -1.1) return code(m, 3);
+    if (Math.hypot(ox / 0.98, oy / 1.15) < 1 && ox < 0 && oy < 0) return code(m, 2 + litStep(c));
     if (fx < -0.2 && L >= 2 && Math.abs(fx + 0.55 - fy * 0.1) < 0.08) return code(m, 1);
-    return code(m, 2);
+    const lt = planeLight(fx / 1.5, fy / 1.6, 0.35);
+    return code(m, 2 + (lt > 0 ? litStep(c) : lt));
   });
 }
 
@@ -609,7 +620,7 @@ export function bow(c: Paper, grip: P2, deg: number, draw: number, size: number,
     const p0 = grip;
     const p1 = addP(along(p0, dir, size * 0.36), mul(limb(deg), -flex * 0.35 * size * 0.2));
     const p2 = addP(along(p1, dir, size * 0.34), mul(limb(deg), -flex * 0.9 * size * 0.2));
-    const p3 = addP(along(p2, dir, size * 0.22), mul(limb(deg), 0.15 * size * 0.2)); // recurve
+    const p3 = addP(along(p2, dir, size * 0.22), mul(limb(deg), -flex * 0.7 * size * 0.2));
     return [p0, p1, p2, p3];
   };
   const U = limbPts(up), D = limbPts(dn);
@@ -633,7 +644,8 @@ export function quiver(c: Paper, at: P2, deg: number, o: { shafts?: number; len?
   for (let i = 0; i < n; i++) {
     const off = (i - (n - 1) / 2) * 0.32;
     const base = addP(mouth, mul(limb(deg + 90), off));
-    const tip = along(base, deg + (i - (n - 1) / 2) * 6, o.bone ? 2.6 : 1.1);
+    // Fanned and of different lengths, so the shafts never end on one row.
+    const tip = along(base, deg + (i - (n - 1) / 2) * (o.bone ? 16 : 6), o.bone ? 2.2 + ((i * 2) % 3) * 0.55 : 1.1 + (i % 2) * 0.3);
     if (o.bone) {
       // Sharpened long bones: a knob end in the quiver, a splintered point out of it.
       c.rod(base, tip, 0.3, 0.12, UM.bone, { tone: i % 2 ? 2 : 3 });
@@ -695,7 +707,7 @@ export function pavise(c: Paper, at: P2, tilt: number, face: boolean, s = 1): vo
     if (hash(c.lx(x) >> 1, c.ly(y) >> 2, 153) < 0.06) return code(UM.wood, 1);
     // A dark stripe down the middle (the painted field's border) and the team field.
     if (Math.abs(lx) < 0.12 && ly > 1.1) return code(UM.teamDk, 1);
-    return code(UM.team, 2 + lt);
+    return code(UM.team, 2 + (lt > 0 ? litStep(c) : lt));
   });
 }
 
@@ -1042,12 +1054,12 @@ function bard(c: Paper, H: HorseFrame, sway: number): void {
     // Scalloped lower edge of each plate: a dark seam, the plate's top lit.
     if (L >= 2 && (yy === row - 1 || (xx === 0 && yy > row / 2))) return code(HB, 0);
     // Each plate's upper rim is bare bone, the rest blackened.
-    if (L >= 4 && yy === 0) return code(UM.bone, 2);
+    if ((L >= 4 || (L >= 2 && r === 0)) && yy === 0) return code(UM.bone, 2);
     if (c.tex(x, y, 201, 3) < 0.12) return code(HB, 1);
     // One plane of light over the whole bard: lit toward the withers, shaded to the belly and rump.
     const fx = (x - c.sx(P([-6, 0])[0])) / Math.max(1, c.sx(P([6, 0])[0]) - c.sx(P([-6, 0])[0]));
-    const lt = planeLight(1 - 2 * fx, (r / 5) * 2 - 1, 0.35);
-    return code(HB, 2 + lt);
+    const lt = planeLight(2 * fx - 1, (r / 5) * 2 - 1, 0.35);
+    return code(HB, 2 + (lt > 0 ? litStep(c) : lt));
   });
   // A skull boss on the flank, the green point in its socket.
   const sk = P([-3.6, -0.2]);
@@ -1095,14 +1107,17 @@ export function riderFrame(c: Paper, H: HorseFrame, p: FramePose, back: boolean)
 export function shadeLower(c: Paper, frac = 0.42): void {
   if (c.bx1 < c.bx0) return;
   const h = c.by1 - c.by0;
-  const yT = Math.round(c.by1 - h * frac), yT2 = Math.round(c.by1 - h * frac * 0.4);
-  for (let y = yT + 1; y <= c.by1; y++)
+  // The shade line slants up toward the far (right) side, away from the light, and steps
+  // irregularly, so it never cuts every part on one row (that would read as a band).
+  const cut = (x: number, f: number): number => c.by1 - h * f - (x - c.FX) * 0.4 + Math.floor(hash(x >> 1, 7, 331) * 3) - 1;
+  for (let y = Math.max(c.by0, Math.round(c.by1 - h * frac * 1.6)); y <= c.by1; y++)
     for (let x = c.bx0; x <= c.bx1; x++) {
       const i = y * c.CW + x;
       const v = c.pix[i]!;
       if (v < 0 || (v & 7) === 0 || isKept(v >> 3)) continue;
       // One tone darker over the lower part, two near the ground.
-      c.pix[i] = (v & ~7) | Math.max(0, (v & 7) - (y > yT2 ? 2 : 1));
+      const d = y > cut(x, frac * 0.4) ? 2 : y > cut(x, frac) ? 1 : 0;
+      if (d) c.pix[i] = (v & ~7) | Math.max(0, (v & 7) - d);
     }
   // At levels 1-2 a part is two or three pixels across and the rods' 1 px lit edge falls on a
   // tone the level merges with the base (level 1 keeps tones 0, 1, 2 and 4): the edge facing
