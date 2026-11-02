@@ -375,14 +375,16 @@ function hachimaki(c: Paper, r: ManRig, sway: number): void {
 /** The sōhei's katō: a white cowl wrapped round the head, an eye slit, falling to the shoulders. */
 function kato(c: Paper, r: ManRig): void {
   const L = c.L;
-  part(c, r.head, r.ha, ell(0.9, 1.0, -0.05, 0.0, 16).concat([]), (fx, fy) => {
+  part(c, r.head, r.ha, ell(0.78, 0.9, -0.05, 0.0, 16), (fx, fy) => {
     if (!r.back && fy > -0.2 && fy < 0.08 && fx > 0.05 && fx < 0.85) return L >= 4 && Math.abs(fx - 0.45) < 0.1 && fy > -0.15 ? code(SM.ink, 1) : code(SM.flesh, 1);
     const s = fx * 0.8 + fy * 0.5;
     if (L >= 4 && Math.abs(fy - fx * 0.35 + 0.45) < 0.06) return code(SM.cotton, 1); // a wrap fold
-    return code(SM.cotton, lit(c, 2, r.back ? s + 0.2 : s));
+    // From behind the cowl is turned from the light: a step down, with a fold down the back.
+    if (r.back && L >= 4 && Math.abs(fx + fy * 0.25) < 0.07) return code(SM.cotton, 1);
+    return code(SM.cotton, lit(c, r.back ? 1 : 2, r.back ? s + 0.2 : s));
   });
   // The cowl's tail falls over the shoulders and chest.
-  const drape: P2[] = r.back ? [[-0.95, 0.2], [0.95, 0.2], [1.25, 1.7], [0, 2.1], [-1.25, 1.7]] : [[-0.9, 0.25], [0.75, 0.45], [1.0, 1.5], [0.1, 1.95], [-1.3, 1.6]];
+  const drape: P2[] = r.back ? [[-0.8, 0.2], [0.8, 0.2], [1.05, 1.5], [0, 1.85], [-1.05, 1.5]] : [[-0.8, 0.25], [0.7, 0.45], [0.95, 1.4], [0.1, 1.8], [-1.15, 1.5]];
   part(c, r.head, r.ha * 0.4 + r.ta * 0.6, drape, (fx, fy) => (L >= 4 && Math.abs(fx * 0.6 - fy + 1.2) < 0.08 ? code(SM.cotton, 1) : code(SM.cotton, lit(c, 2, fx * 0.7 + fy * 0.3 + (r.back ? 0.2 : 0)))));
 }
 
@@ -590,7 +592,7 @@ export function horo(c: Paper, r: ManRig, sway: number, big = 1): void {
   const sw = c.qn(-sway * 0.5);
   const side: P2[] = [[0.2, -2.9], [-1.0, -3.6], [-2.4, -3.3], [-3.3, -2.0], [-3.6, -0.2], [-3.2, 1.4], [-2.2, 2.4], [-0.8, 2.6], [0.2, 2.0]];
   const pts: P2[] = r.back
-    ? [[-2.3, -3.1], [-1.0, -3.7], [1.0, -3.7], [2.3, -3.1], [2.6, -0.6], [2.2, 1.8], [1.0, 2.6], [-1.0, 2.6], [-2.2, 1.8], [-2.6, -0.6]]
+    ? [[-1.3, -3.4], [-0.5, -3.8], [0.5, -3.8], [1.3, -3.4], [2.3, -1.6], [2.7, 0.6], [2.2, 2.1], [1.0, 2.7], [-1.0, 2.7], [-2.2, 2.1], [-2.7, 0.6], [-2.3, -1.6]]
     : side;
   part(c, addP(at, [sw, 0]), r.ta * 0.5, pts.map((q) => [q[0] * big, q[1] * big] as P2), (fx, fy) => {
     // Gores of cloth fan down from the top pin like a sail's panels; each seam is a dark crease
@@ -602,7 +604,7 @@ export function horo(c: Paper, r: ManRig, sway: number, big = 1): void {
     const t = s < -0.45 + c.band ? 3 : s > 0.5 + c.band ? 1 : 2;
     if (L >= 2 && gore < (L >= 8 ? 0.1 : 0.16)) return code(SM.teamDk, Math.max(1, t));
     if (L >= 4 && gore > 0.12 && gore < 0.24 && t >= 2) return code(SM.team, Math.min(4, t + 1));
-    if (r.back && L >= 2 && Math.hypot(fx, fy + 0.4) < 0.75 * big) return code(SM.cotton, Math.hypot(fx, fy + 0.4) < 0.4 * big ? 2 : 3);
+    if (r.back && L >= 2 && Math.hypot(fx, fy + 1.4) < 0.45 * big) return code(SM.cotton, 2);
     return code(SM.team, t);
   });
 }
@@ -760,12 +762,12 @@ export function gunbai(c: Paper, grip: P2, deg: number): void {
 }
 
 /** A puff of powder smoke: a few grey clusters growing and drifting with `k` (0..1). */
-export function smoke(c: Paper, at: P2, k: number, seed: number): void {
+export function smoke(c: Paper, at: P2, k: number, seed: number, size = 1): void {
   if (k <= 0 || k > 1) return;
   for (let i = 0; i < 4; i++) {
     const a = hash(i, seed, 5) * 2 - 1;
-    const r = (0.5 + hash(i, seed, 7) * 0.5) * (0.6 + k * 1.4);
-    const p = c.q(addP(at, [i * 0.7 * (0.4 + k) + a * 0.3, -k * (0.6 + i * 0.35) + a * 0.4]));
+    const r = (0.5 + hash(i, seed, 7) * 0.5) * (0.6 + k * 1.4) * size;
+    const p = c.q(addP(at, [(i * 0.7 * (0.4 + k) + a * 0.3) * size, (-k * (0.6 + i * 0.35) + a * 0.4) * size]));
     c.blob(p, r, r * 0.85, SM.smoke, { tone: k > 0.7 ? 1 : 2 });
   }
 }

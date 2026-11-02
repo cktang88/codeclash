@@ -15,9 +15,9 @@ import { U } from '../../../game/units.ts';
 import { addP, DEG, rot, type P2, type Paper } from './core.ts';
 import { isBack, type Facing } from './facing.ts';
 import { registerPaperKind } from './registry.ts';
-import { ENGINE0, FOOT0, HORSE0, limb, poser, settle, swing, type EnginePose, type FootPose, type HorsePose, type KeySet } from './rig.ts';
+import { along, ENGINE0, FOOT0, HORSE0, limb, poseAt, poser, settle, swing, type EnginePose, type FootPose, type HorsePose, type KeySet } from './rig.ts';
 import {
-  CREW, drawMan, FIRE, flash, gunbai, horse, javelin, katana, leg, manRig, mul, naginata, ozutsu, SM, smoke, teppo, yari, yumi,
+  ARM_L, ARM_U, CREW, drawMan, FIRE, flash, gunbai, horse, javelin, katana, leg, manRig, mul, naginata, ozutsu, SM, smoke, teppo, yari, yumi,
   type Coat, type Held, type Kit, type ManRig,
 } from './samurai-parts.ts';
 
@@ -237,6 +237,13 @@ const BOW_KEYS: KeySet<FootPose> = {
 
 const GUN_REST = { nu: 16, nl: 92, fu: 40, bl: 150, sw: 2.2 };
 /** The teppō, with the shot's flash and smoke keyed to the frame. */
+/** Where the muzzle was at the shot (Shoot frame 5): the smoke stays there. */
+function firedMuzzle(c: Paper, back: boolean): P2 {
+  const p = poseAt(GUN_KEYS, Anim.Shoot, 5);
+  const r = manRig(c, p, back ? 'ne' : 'se', [p.px, -6.3 + p.py]);
+  const hand = along(along(r.shN, p.nu, ARM_U), p.nu + p.nl, ARM_L);
+  return addP(hand, mul(limb(p.bl), c.L <= 1 ? 9.6 : 7.1));
+}
 function heldTeppo(p: FootPose, anim: Anim, fr: number): Held {
   return {
     far: twoHands(p),
@@ -245,7 +252,8 @@ function heldTeppo(p: FootPose, anim: Anim, fr: number): Held {
       const muzzle = teppo(c, hand, deg, anim !== Anim.Die && anim !== Anim.Dead);
       if (anim === Anim.Shoot) {
         if (fr === 5 || fr === 6) flash(c, muzzle, deg, fr === 5 ? 1.2 : 0.8);
-        if (fr >= 5) smoke(c, addP(muzzle, mul(limb(deg), 0.8)), (fr - 4) / 8, 3);
+        // The smoke hangs where the shot was fired, while the gun comes down to reload.
+        if (fr >= 5) smoke(c, addP(firedMuzzle(c, r.back), mul(limb(90), 0.8)), (fr - 4) / 8, 3, 1.3);
       }
     },
   };
@@ -538,8 +546,8 @@ function bombard(c: Paper, e: EnginePose, facing: Facing, anim: Anim, fr: number
 function shotFx(c: Paper, muzzle: P2, e: EnginePose, anim: Anim, fr: number): void {
   if (anim !== Anim.Shoot) return;
   const deg = 90 - e.arm;
-  if (fr === 4 || fr === 5) flash(c, muzzle, deg, fr === 4 ? 2.0 : 1.4);
-  if (fr >= 4) smoke(c, addP(muzzle, mul(limb(deg), 1.4)), (fr - 3) / 9, 9);
+  if (fr === 4 || fr === 5) flash(c, muzzle, deg, fr === 4 ? 2.6 : 1.8);
+  if (fr >= 4) smoke(c, addP(muzzle, mul(limb(deg), 2.0)), (fr - 3) / 9, 9, 2.2);
 }
 
 // ------------------------------------------------------------------ registration
