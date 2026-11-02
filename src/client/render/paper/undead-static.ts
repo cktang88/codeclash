@@ -474,9 +474,9 @@ function horseArcherStatic(c: Paper): void {
   const p = poseAt(HORSE_ARCHER_KEYS, Anim.Idle, 0);
   const H = horseFrame(c, p, false);
   const at = (q: P2): P2 => addP(H.seat, q);
-  horseFar(c, H, p, { cloth: true });
+  horseFar(c, H, p, { cloth: true, mane: true });
   stout(c, at([0.9, -0.2]), at([2.2, 2.1]), 0.6, true);
-  horseBody(c, H, p, { cloth: true });
+  horseBody(c, H, p, { cloth: true, mane: true });
   // The pennon pole on the back.
   c.rod(at([-1.6, -3.2]), at([-2.4, -10.0]), 0.28, 0.24, UM.wood, { tone: 2 });
   c.shape([at([-2.4, -10.0]), at([-5.6, -9.4]), at([-4.6, -9.0]), at([-5.4, -8.5]), at([-2.4, -8.6])], (x, y) => (c.ly(y) < c.L * 0.5 ? code(UM.team, 3) : code(UM.team, 2)));
@@ -499,7 +499,7 @@ function horseArcherStatic(c: Paper): void {
   c.rod(at([-1.5, -4.5]), at([1.8, -0.7]), 0.55, 0.55, UM.team, { tone: 2 });
   stout(c, at([-0.5, -0.2]), at([1.0, 2.3]), 0.62, false);
   stout(c, at([1.0, 2.3]), at([0.3, 4.6]), 0.52, false);
-  horseNear(c, H, p, { cloth: true });
+  horseNear(c, H, p, { cloth: true, mane: true });
   c.rod(at([0.4, -5.4]), at([0.55, -6.0]), 0.5, 0.45, UM.bone, { tone: 1 });
   skull(c, at([0.8, -6.9]), -4, false);
   // The bow, half drawn, the near arm at the string.
