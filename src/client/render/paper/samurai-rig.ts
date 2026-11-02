@@ -109,6 +109,13 @@ export const FOOT_SPECS: Record<number, SSpec> = {
     walk: { weapon: 186, side: true },
     run: { upperArmN: -10, forearmN: 70, weapon: 104, both: true },
   },
+  10: {
+    nearDeg: 112.5, neNear: { el: [2.9, -9.8], hn: [3.4, -11.2] }, neFar: 'mirror', backBone: 'horo',
+    attack: 'fan', shoot: null, brace: 'command', die: 'back', smear: [1.2, 3.6],
+    // The fan held at the chest on the march; pointing ahead at the run.
+    walk: { upperArmN: 25, forearmN: 120, weapon: 140, side: true },
+    run: { upperArmN: 70, forearmN: 95, weapon: 110, side: true },
+  },
   3: {
     nearDeg: 167, farDeg: 180, neNear: 'mirror', neFar: { el: [-0.6, -9.0], hn: [2.0, -7.4] }, backBone: 'pelvis',
     attack: 'punch', shoot: 'kyudo', brace: 'ready', die: 'back',
@@ -596,6 +603,25 @@ const SWEEP: Author = (rw) => ({
   },
 });
 
+/**
+ * The gunbai's command: the lord raises the war fan high over his head (1-3), holds it there while
+ * the line looks to him (4), then sweeps it forward and down to point at the enemy with a step and
+ * a lean (5-6), holds the point (7-8), and brings it back to his chest (9-11).
+ */
+const FAN: Author = (rw) => ({
+  w: {
+    upperArmN: R(rw.upperArmN!, 11, [1, 130], [2, 165], [3, 172], [4, 172], [5, 130], [6, 96], [7, 92], [8, 92], [10, 100]),
+    forearmN: R(rw.forearmN!, 11, [1, 150], [2, 175], [3, 182], [4, 182], [5, 120], [6, 92], [7, 90], [8, 90], [10, 80]),
+    weapon: R(rw.weapon!, 11, [1, 160], [2, 180], [3, 188], [4, 188], [5, 140], [6, 98], [7, 92], [8, 92], [10, 105]),
+    head: T([0, rw.head!], [3, rw.head! + 4], [5, rw.head!], [7, rw.head! - 4], [9, rw.head!]),
+  },
+  dw: { spine: T([0, 0], [3, 6], [4, 6], [5, 0], [6, -10], [8, -10], [10, -3], [11, 0]), upperArmF: T([0, 0], [3, -6], [6, 10], [9, 0]) },
+  tAdd: {
+    pelvis: [T([0, 0], [3, -0.2], [4, -0.2], [6, 0.55], [8, 0.55], [10, 0.15], [11, 0]), T([0, 0], [6, 0.2], [8, 0.2], [11, 0])],
+    footTargetF: [T([0, 0], [4, 0], [5, 0.5], [6, 1.0], [9, 1.0], [10, 0.4], [11, 0]), T([0, 0], [4, -0.2], [5, -0.5], [6, 0], [11, 0])],
+  },
+});
+
 const ATTACKS: Record<Attack, { clip: string; o: MocapOpts; a: Author; extra: number[]; ev: AnimEvent[] }> = {
   kesa: { clip: 'cut-diagonal', o: { torso: 0.5, travel: 0, feet: 0.3 }, a: KESA, extra: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], ev: [{ f: 5, name: 'smear', len: 3, bone: 'weapon' }, { f: 7, name: 'strike' }] },
   thrust: { clip: 'thrust', o: { torso: 0.3, travel: 0.3, feet: 0.3 }, a: THRUST, extra: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], ev: [{ f: 4, name: 'smear', len: 1, bone: 'weapon' }, { f: 5, name: 'strike' }] },
@@ -603,7 +629,7 @@ const ATTACKS: Record<Attack, { clip: string; o: MocapOpts; a: Author; extra: nu
   punch: { clip: 'thrust', o: { torso: 0.3, travel: 0.3, feet: 0.3 }, a: PUNCH, extra: [3, 5, 6, 9], ev: [{ f: 5, name: 'strike' }] },
   butt: { clip: 'thrust', o: { torso: 0.3, travel: 0.3, feet: 0.3 }, a: BUTT, extra: [3, 5, 6, 9], ev: [{ f: 5, name: 'smear', len: 1, bone: 'weapon' }, { f: 5, name: 'strike' }] },
   sweep: { clip: 'chop', o: { torso: 0.3, travel: 0.3, feet: 0.3 }, a: SWEEP, extra: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], ev: [{ f: 5, name: 'smear', len: 3, bone: 'weapon' }, { f: 7, name: 'strike' }] },
-  fan: { clip: 'thrust', o: {}, a: KESA, extra: [], ev: [] },
+  fan: { clip: 'brace', o: { ref: 'first', torso: 0, travel: 0, feet: 0 }, a: FAN, extra: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], ev: [{ f: 5, name: 'smear', len: 2, bone: 'weapon' }, { f: 6, name: 'strike' }] },
 };
 
 /** Missiles: clip, capture options, authored arms, events, and a slot hidden while the missile is away. */
@@ -645,7 +671,12 @@ const BRACE: Record<Brace, Author> = {
     w: { head: T([0, rw.head! - 2]), upperArmN: T([0, 20]), forearmN: T([0, 70]), weapon: T([0, 78]) },
     tAdd: { pelvis: [T([0, 0.2]), T([0, 1.0])], footTargetF: [T([0, 1.0]), T([0, 0])], footTargetN: [T([0, -0.8]), T([0, 0])] },
   }),
-  command: () => ({}),
+  // Planted wide, the fan held out over the line, pointing.
+  command: (rw) => ({
+    dw: { spine: T([0, -6]) },
+    w: { head: T([0, rw.head!]), upperArmN: T([0, 110]), forearmN: T([0, 100]), weapon: T([0, 110]) },
+    tAdd: { pelvis: [T([0, 0.15]), T([0, 0.6])], footTargetF: [T([0, 0.9]), T([0, 0])], footTargetN: [T([0, -0.7]), T([0, 0])] },
+  }),
 };
 
 /** The fall back (die-back): the trunk ends flat, the hips bounce as the back lands (frame 8); the off hand lets go. */
