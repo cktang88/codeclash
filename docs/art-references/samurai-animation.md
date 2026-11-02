@@ -311,3 +311,15 @@ three mounted kinds, which share the horse), all under the 0.85 gate; the foot k
 Katana Samurai lint before the pass (level 1/2/4/8): no FAIL. Warnings left: aligned band ends 0.24-0.30, outline and figure vs
 ground ΔL 0.07-0.13, light-angle error at levels 1-2, mid-widest silhouettes. Level-1 silhouette:
 closest the Daimyō at 0.61.
+
+## In the battle
+
+`battle-perf.html?art=hd&seed=10&men=2000&pause=1&t=150` (Playwright, software GL, the level-8
+sheets in after about 110 s): `docs/screenshots/hd-sprites/samurai-anim-battle-s10-zoom1.png` and
+`samurai-anim-battle-s10-zoom5.png` (the Samurai army in the army colour teal: Yari Ashigaru in
+column with their sashimono, Yumi and Teppō Ashigaru, Hatamoto on their black horses with the horo,
+Sōhei; all at level 8, `__scene.hdLevel` 8 for the kinds in view).
+
+Known limits: at level 4 the faction's 21-colour palette is shared by eleven kinds, so the bay and
+chestnut horses lean grey-brown there (they are brown at level 8); the Ōzutsu's crew turn as rigid
+bodies (only their arms are jointed), as the Templar engine's crew.
