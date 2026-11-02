@@ -15,7 +15,7 @@ import { Anim } from '../contract.ts';
 import { along, limb, poseAt, snapDeg, type KeySet } from './rig.ts';
 import { bone, bow, crossbow, helm, hood, horseBody, horseFar, horseFrame, horseNear, lance, withHorseBulk, mul, pavise, planeLight, quiver, rag, robe, skull, spear, UM } from './undead-parts.ts';
 import {
-  BLACK_RIDER_KEYS, blackRider, boneJavelin, COLOSSUS_KEYS, colossus, DEATH_KNIGHT_KEYS, ghoulHead, greatHelm, HORSE_ARCHER_KEYS, lich, LICH_KEYS, lit, TREBUCHET_KEYS, trebuchet,
+  BLACK_RIDER_KEYS, boneJavelin, COLOSSUS_KEYS, colossus, DEATH_KNIGHT_KEYS, ghoulHead, greatHelm, HORSE_ARCHER_KEYS, lich, LICH_KEYS, lit, TREBUCHET_KEYS, trebuchet,
 } from './undead.ts';
 
 // ------------------------------------------------------------------ volumes
@@ -497,6 +497,42 @@ function horseArcherStatic(c: Paper): void {
   c.blob(nock, 0.48, 0.42, UM.bone, { tone: 2 });
 }
 
+/** The Black Rider: a hooded rider in a heavy grave-shroud that falls over the horse's flanks, a couched spear. */
+function blackRiderStatic(c: Paper): void {
+  const p = poseAt(BLACK_RIDER_KEYS, Anim.Idle, 0);
+  const H = horseFrame(c, p, false);
+  const at = (q: P2): P2 => addP(H.seat, q);
+  horseFar(c, H, p, { mane: true });
+  horseBody(c, H, p, { mane: true });
+  // The far sleeve to the reins.
+  vol(c, at([1.9, -4.5]), at([3.2, -2.6]), 1.4, 1.2, UM.shroud, { tone: 1, caps: false });
+  c.rod(at([3.2, -2.6]), at([4.4, -2.0]), 0.42, 0.38, UM.bone, { tone: 1 });
+  // The shroud: broad over the shoulders, a heavy fall over the flank, tatters streaming back.
+  const pts: P2[] = [at([-2.0, -4.7]), at([-0.6, -5.6]), at([1.6, -5.6]), at([2.6, -4.6]), at([2.8, -1.0]), at([2.2, 2.6]), at([0.2, 3.3]), at([-1.8, 2.9]), at([-3.6, 3.2]), at([-3.1, 1.8]), at([-5.0, 1.6]), at([-3.0, -1.0])];
+  plate(c, pts, UM.shroud, {
+    detail: (x, y, rx, ry) => {
+      // Heavy folds falling from the shoulders, the lit ridge beside each.
+      const f = rx * 3 + ry * 0.6;
+      const r = ((f % 1) + 1) % 1;
+      if (ry > -0.5 && r < 0.12) return code(UM.shroud, 1);
+      if (ry > -0.5 && r < 0.22) return code(UM.shroud, 3);
+      if (c.tex(x, y, 521, 3) < 0.05) return -2;
+      return code(UM.shroud, 2 + planeLight(rx, ry, 0.35));
+    },
+  });
+  // A team sash across the chest and its knot.
+  c.rod(at([-1.6, -4.6]), at([1.8, -1.6]), 0.7, 0.7, UM.team, { tone: 2 });
+  rag(c, at([1.4, -1.9]), at([2.2, -1.9]), 2.6, -0.5, UM.team, UM.teamDk, 523, { folds: false, tear: 0.4 });
+  hood(c, at([0.7, -7.0]), -4, false, UM.shroud, { skullFace: true });
+  horseNear(c, H, p, { mane: true });
+  // The spear couched under the near arm, the arm in its sleeve.
+  const hand = at([1.6, -2.6]);
+  spear(c, hand, 116, 8.2, 3.6, { blade: 1.8 });
+  vol(c, at([-1.7, -4.4]), at([-0.5, -2.6]), 1.5, 1.3, UM.shroud, { tone: 2, caps: false });
+  vol(c, at([-0.5, -2.6]), hand, 1.3, 1.0, UM.shroud, { tone: 2, caps: false });
+  c.blob(hand, 0.5, 0.45, UM.bone, { tone: 2 });
+}
+
 const bulky = (draw: (c: Paper) => void) => (c: Paper): void => withHorseBulk(1.45, () => draw(c));
 
 Object.assign(STATIC_KINDS, {
@@ -504,7 +540,7 @@ Object.assign(STATIC_KINDS, {
   2: { body: 'foot', draw: throwerStatic },
   3: { body: 'foot', draw: wraithStatic },
   4: { body: 'foot', draw: arbalestStatic },
-  5: { body: 'horse', draw: bulky(idleOf(BLACK_RIDER_KEYS, blackRider)) },
+  5: { body: 'horse', draw: bulky(blackRiderStatic) },
   6: { body: 'horse', draw: bulky(horseArcherStatic) },
   7: { body: 'horse', draw: bulky(deathKnightStatic) },
   8: { body: 'beast', draw: idleOf(COLOSSUS_KEYS, colossus) },
