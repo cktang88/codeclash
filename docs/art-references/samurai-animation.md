@@ -30,12 +30,20 @@ committed; the screenshots in `docs/screenshots/hd-sprites/samurai-anim-*.png` a
 - **Walk**: the katana in the near hand at the hip, the point up and back, clear of the body and
   below the head; the far arm swings; the kusazuri panels and the sode trail the thighs and arms.
 - **Run**: both hands on the hilt, the blade raised high for the charge.
-- **Attack: kesa-giri** on the cut-diagonal capture. 0 chūdan; 2-4 the blade lifted to *hassō* by
-  the near shoulder (the chest arched back 8°, the weight back); 5 the hips turn first; 6 the blade
-  falls through the diagonal (smear); 7 impact, the blade low and forward on the far side, the
-  front foot planted 1.6 units ahead in a deep stance (hips down 0.6), held on 8; 9-11 back to
-  chūdan. The far hand stays on the hilt by IK all through.
-- **Brace**: chūdan settled low, the blade levelled at the enemy's throat.
+- **Attack: kesa-giri** on the cut-diagonal capture. 0 chūdan; 1-4 both hands climb above the near
+  (right) shoulder to *hassō*/*jōdan*, the blade back over the head, the chest arched back 10° and
+  the shoulders coiled back; 5 the hips turn first while the hands are still high; 6-7 the blade
+  falls through the whole diagonal, shoulder height to past the far knee, one solid smear arc over
+  5-7; 7 impact with the front foot planted 1.7 units ahead in a deep stance (hips down 0.75, the
+  trunk folded 30° over the front thigh, the shoulders turned through); 8 *zanshin* held; 9-11 back
+  to chūdan. The far hand stays on the hilt by IK all through.
+- **Brace**: a deep chūdan: knees well bent, the front foot forward with the weight on it, the
+  trunk over the front thigh, the blade levelled at the enemy's throat.
+- **Sashimono**: the pole whips after the trunk in the cut and the hit (1.5 times its turn, two
+  frames late), streams back and flutters at the run, and stays steady in the walk (no boil).
+- **The katana** (`samurai-parts` `katana`): from level 4 one shape with its curve, a bright edge,
+  the lit flat and a dark back, a gilt-rimmed tsuba and the long black tsuka in a white diamond
+  wrap; drawn over the body in both facings.
 - **Hit, Die, Dead** as the Templar: the snap back with a flash and a step; the knock-down with the
   sword falling free and the sashimono going down with the body.
 
@@ -54,6 +62,12 @@ committed; the screenshots in `docs/screenshots/hd-sprites/samurai-anim-*.png` a
    slanted. The smear was a big pale fan over the head on two frames: now one frame on the blade.
 3. **Round 3**, against the kenjutsu photographs: the cut lacked commitment. The step is now long
    (1.6 units), the hips drop into it and the rear leg straightens; the trunk leans 22° at impact.
+
+4. **Round 4** (the coordinator's review): the blade was a thin grey line lost on the armour, now a
+   2-3 px blade with an edge highlight and a dark back, drawn over the near sode in NE; the cut was
+   a wrist flick, now hands above the right shoulder, a 1.7-unit step, the shoulders turning through
+   and the blade running shoulder to far knee under a solid arc; the brace was idle again, now a deep
+   low chūdan; the sashimono sways and lags in the run and the cut.
 
 Lint (level 1/2/4/8): no FAIL. Warnings left: aligned band ends 0.24-0.30, outline and figure vs
 ground ΔL 0.07-0.13, light-angle error at levels 1-2, mid-widest silhouettes. Level-1 silhouette:

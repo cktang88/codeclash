@@ -647,17 +647,45 @@ export function scabbard(c: Paper, r: ManRig): void {
 
 // ------------------------------------------------------------------ weapons
 
-/** Katana: a long slightly curved blade with a lit edge, the tsuba, the wrapped hilt. `deg` = where the tip points. */
+/**
+ * Katana: a long blade with its sori (the curve toward the back), drawn as one shape: a bright
+ * cutting edge, the lit flat, a dark back (mune); the habaki, a gilt-rimmed tsuba, and the tsuka in
+ * black with the white diamond wrap. `deg` = where the tip points. Below level 4 a plain tapered rod
+ * (a shape would only add stair-steps at 1-2 px a unit).
+ */
 export function katana(c: Paper, grip: P2, deg: number, length = 3.5): void {
   const d = limb(deg);
   const n: P2 = [-d[1], d[0]];
-  const g0 = addP(grip, mul(d, 0.5));
-  const mid = addP(addP(grip, mul(d, 0.5 + length * 0.55)), mul(n, 0.12));
-  const tip = addP(addP(grip, mul(d, 0.5 + length)), mul(n, 0.32));
-  c.rod(g0, mid, 0.28, 0.24, SM.steel, { shine: true });
-  c.rod(mid, tip, 0.24, 0.1, SM.steel, { shine: true });
-  c.blob(g0, 0.3, 0.3, SM.iron, { tone: 2 });
-  c.rod(addP(grip, mul(d, -0.75)), addP(grip, mul(d, 0.38)), 0.28, 0.26, SM.black, { tone: 2, detail: c.L >= 4 ? (_x, _y, u, v) => (frac(v * 4 + u * 0.5) < 0.25 ? code(SM.cotton, 2) : -1) : undefined });
+  const L = c.L;
+  const g0 = addP(grip, mul(d, 0.55));
+  const off = (t: number) => 0.34 * t * t; // the sori: the back bows out toward the tip
+  const half = (t: number) => 0.2 * (1 - t * 0.45) + (t > 0.9 ? -(t - 0.9) * 1.4 : 0);
+  if (L < 4) {
+    const mid = addP(addP(grip, mul(d, 0.55 + length * 0.55)), mul(n, off(0.55)));
+    const tip = addP(addP(grip, mul(d, 0.55 + length)), mul(n, off(1)));
+    c.rod(g0, mid, 0.3, 0.26, SM.steel, { shine: true });
+    c.rod(mid, tip, 0.26, 0.12, SM.steel, { shine: true });
+  } else {
+    const at = (t: number, side: number): P2 => addP(addP(g0, mul(d, length * t)), mul(n, off(t) + side * Math.max(0.02, half(t))));
+    const ts = [0, 0.15, 0.3, 0.45, 0.6, 0.75, 0.88, 0.95, 1];
+    const pts: P2[] = [...ts.map((t) => at(t, 1)), ...ts.slice().reverse().map((t) => at(t, -1))];
+    c.shape(pts, (x, y) => {
+      const p: P2 = [(x + 0.5 - c.FX) / L, (y + 0.5 - c.FY) / L];
+      const rel = sub(p, g0);
+      const t = Math.max(0, Math.min(1, (rel[0] * d[0] + rel[1] * d[1]) / length));
+      const across = (rel[0] * n[0] + rel[1] * n[1] - off(t)) / Math.max(0.05, half(t));
+      // The edge is on the -n side: a bright line; the back (+n) dark; the flat lit between.
+      if (across < -0.45) return code(SM.steel, 4);
+      if (across > 0.45) return code(SM.iron, 1);
+      return code(SM.steel, t > 0.92 ? 4 : 3);
+    });
+  }
+  // Habaki and tsuba.
+  c.rod(addP(grip, mul(d, 0.45)), addP(grip, mul(d, 0.7)), 0.3, 0.3, SM.gold, { tone: 3 });
+  c.blob(addP(grip, mul(d, 0.42)), L >= 4 ? 0.46 : 0.32, L >= 4 ? 0.46 : 0.32, SM.iron, { tone: 2, detail: L >= 4 ? (_x, _y, nx, ny) => (Math.hypot(nx, ny) > 0.72 ? code(SM.gold, nx + ny < 0 ? 3 : 2) : -1) : undefined });
+  // The tsuka: long enough for both hands, the wrap in diamonds.
+  c.rod(addP(grip, mul(d, -1.25)), addP(grip, mul(d, 0.3)), 0.34, 0.32, SM.black, { tone: 2, detail: L >= 4 ? (_x, _y, u, v) => (Math.abs(frac(v * 5) - 0.5) * 2 < 0.55 - Math.abs(u) * 0.5 ? code(SM.cotton, 2) : -1) : undefined });
+  c.blob(addP(grip, mul(d, -1.3)), 0.2, 0.2, SM.gold, { tone: 2 }); // the kashira
 }
 
 /** A pole weapon along `deg` through the grip: shaft from `butt` (units behind the grip) to `fore` (ahead). */
