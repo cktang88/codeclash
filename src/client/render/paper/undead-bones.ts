@@ -4,7 +4,22 @@
 
 import { U } from '../../../game/units.ts';
 import { registerFoot, type FootSpec } from './undead-foot.ts';
-import { GHOUL, LEGIONARY, THROWER } from './undead-static.ts';
+import { restPose, type DrawCtx } from './skeleton.ts';
+import { GHOUL, LEGIONARY, THROWER, WARDEN, type FootArt, type PieceOpts } from './undead-static.ts';
+
+/**
+ * A bow drawn on the frame: its draw from how far the nock (where the string hand is) has slid
+ * back along the arrow from rest (the key art's half draw), the arrow gone after the loose, the
+ * green fire flickering while it is on the string.
+ */
+function bowLive(ctx: DrawCtx): PieceOpts {
+  const p = ctx.posed, rest = restPose(p.skel, p.level, p.facing);
+  const d = (q: typeof p) => Math.hypot(q.byName.nock!.x - q.byName.itemF!.x, q.byName.nock!.y - q.byName.itemF!.y);
+  const draw = Math.max(0, Math.min(2.6, 1.5 + (d(p) - d(rest)) / 1.9));
+  const shooting = ctx.events.some((e) => e.name === 'release' || e.name === 'empty');
+  return { draw: Math.round(draw * 4) / 4, arrow: !ctx.events.some((e) => e.name === 'empty'), phase: shooting ? 0.75 : 0.25 };
+}
+const withLive = (art: FootArt, slot: string, live: (ctx: DrawCtx) => PieceOpts): FootArt => ({ ...art, pieces: art.pieces.map((p) => (p.slot === slot ? { ...p, live } : p)) });
 
 /** The Grave Legionary: a heavy cut with sword and shield, the shield wall, a fall back that comes apart. */
 // Specs are built when registering (not at module load): undead-static.ts and undead.ts import
@@ -91,7 +106,39 @@ const THROWER_SPEC = (): FootSpec => ({
   ],
 });
 
+/**
+ * The Wraith-Wardens (the Wraith Bows, recast): they glide, the cloak hiding the steps; a slow,
+ * deliberate draw of the bone longbow with a green-fire arrow; the hood and mask fall away.
+ */
+const WARDEN_SPEC = (): FootSpec => ({
+  art: withLive(WARDEN, 'farItem', bowLive),
+  nearDeg: 100,
+  farDeg: 93,
+  skull: { at: [0.9, -13.45], r: 1, ang: 0 },
+  attack: 'loose',
+  shoot: 'bow',
+  brace: 'ready',
+  die: 'back',
+  farHeld: true,
+  nocked: true,
+  lie: 2.6,
+  glide: true,
+  hunch: 4,
+  tilt: -8,
+  stiff: 1,
+  cloak: true,
+  neFirst: ['farItem'],
+  neLast: ['cloak'],
+  drops: [
+    { slot: 'farItem', holder: 'itemF', at: 4, land: { x: 5.6, y: -0.6, rot: -88, f: 7 } },
+    { slot: 'skull', holder: 'head', at: 8, land: { x: -6.6, y: -1.0, rot: -95, f: 10 } },
+    { slot: 'pauldronN', holder: 'chest', at: 9, land: { x: -3.4, y: -0.6, rot: 40, f: 11 } },
+    { slot: 'forearmF', holder: 'forearmF', at: 9, land: { x: 7.4, y: -0.5, rot: 95, f: 11 } },
+  ],
+});
+
 export function registerUndeadRigs(): void {
+  registerFoot(U.Archers, WARDEN_SPEC, true);
   registerFoot(U.Skirmishers, THROWER_SPEC, true);
   registerFoot(U.Spearmen, GHOUL_SPEC, false);
   registerFoot(U.HeavyInfantry, LEGIONARY_SPEC, false);
