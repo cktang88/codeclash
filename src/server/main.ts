@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { createServer } from './app.ts';
 import { loadConfig } from './config.ts';
-import { consoleLogger, errorMessage } from './log.ts';
+import { consoleLogger, errorMessage } from '../ingest/log.ts';
 
 if (existsSync('.env')) process.loadEnvFile('.env');
 const server = await createServer(loadConfig(process.env));

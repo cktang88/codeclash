@@ -3,15 +3,14 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
-import type { MeResponse, ProfileResponse } from '../protocol.ts';
+import type { MeResponse } from '../protocol.ts';
 import { loadAllGrammars } from '../measure/complexity.ts';
 import { createServer } from './app.ts';
-import { openDb, Store } from './store.ts';
+import { openDb, Store } from '../ingest/store.ts';
 import { loadConfig } from './config.ts';
-import { errorMessage, redactTokens, type Logger } from './log.ts';
-import { FakeGithub } from './testing/fakeGithub.ts';
-import { FIXTURE_REPO, previewFixture } from './testing/previewFixtures.ts';
-import { TokenVault } from './tokens.ts';
+import { errorMessage, redactTokens, type Logger } from '../ingest/log.ts';
+import { FakeGithub } from '../ingest/testing/fakeGithub.ts';
+import { TokenVault } from '../ingest/tokens.ts';
 
 beforeAll(() => loadAllGrammars());
 
@@ -84,7 +83,7 @@ async function boot(fake: FakeGithub = new FakeGithub(), lines: string[] = []) {
   const log: Logger = { info: record('info'), warn: record('warn'), error: record('error') };
   const server = await createServer(config, {
     log, clock: () => now.t, background: false, fetchImpl,
-    github: fake, previewGithub: fake, tokenClient: (token) => fake.as(token, VIEWER.login),
+    github: fake, tokenClient: (token) => fake.as(token, VIEWER.login),
   });
   await server.app.ready();
   return { server, now, lines };
@@ -127,7 +126,7 @@ describe('players’ sign-in tokens', () => {
     expect(JSON.stringify(server.store.user(VIEWER.id))).not.toContain(String(raw.token_enc));
 
     const bodies: string[] = [];
-    for (const url of ['/api/me', `/api/users/${VIEWER.login}`, '/api/rooms', '/api/health']) {
+    for (const url of ['/api/me', '/api/leagues', '/api/health']) {
       const res = await server.app.inject({ url, headers: { cookie } });
       bodies.push(res.body);
       expect(res.body).not.toContain(TOKEN);
@@ -135,11 +134,6 @@ describe('players’ sign-in tokens', () => {
     }
     const me = JSON.parse(bodies[0]!) as MeResponse;
     expect(me.user!.github).toEqual({ status: 'ok', storedAt: Date.UTC(2026, 9, 23, 12) });
-    const profile = JSON.parse(bodies[1]!) as ProfileResponse;
-    expect(profile.own?.github.status).toBe('ok');
-    // Someone else's view of the profile says nothing about the token.
-    const anon = (await server.app.inject({ url: `/api/users/${VIEWER.login}` })).json<ProfileResponse>();
-    expect(anon.own).toBeUndefined();
     expect(lines.join('\n')).not.toContain(TOKEN);
   });
 
@@ -161,10 +155,10 @@ describe('players’ sign-in tokens', () => {
   it('deleting the account deletes the token with the rest of the player', async () => {
     const { server } = await boot();
     const cookie = await oauthSignIn(server);
-    const created = await server.app.inject({ method: 'POST', url: '/api/rooms', headers: { cookie }, payload: { name: 'Mine', visibility: 'public', resetHour: 0, bots: 0 } });
-    // An owner deletes their rooms first.
+    const created = await server.app.inject({ method: 'POST', url: '/api/leagues', headers: { cookie }, payload: { name: 'Mine', visibility: 'public', resetHour: 0, bots: 0 } });
+    // An owner deletes their leagues first.
     expect((await server.app.inject({ method: 'DELETE', url: '/api/me', headers: { cookie } })).statusCode).toBe(409);
-    await server.app.inject({ method: 'DELETE', url: `/api/rooms/${created.json<{ slug: string }>().slug}`, headers: { cookie } });
+    await server.app.inject({ method: 'DELETE', url: `/api/leagues/${created.json<{ slug: string }>().slug}`, headers: { cookie } });
     const res = await server.app.inject({ method: 'DELETE', url: '/api/me', headers: { cookie } });
     expect(res.statusCode).toBe(204);
     expect(server.store.user(VIEWER.id)).toBeNull();
@@ -193,18 +187,4 @@ describe('players’ sign-in tokens', () => {
     expect(server.store.user(VIEWER.id)!.token!.valid).toBe(true);
   });
 
-  it('the army preview reads on a signed-in viewer’s own token, and on the server’s for anyone else', async () => {
-    const fake = previewFixture(Date.UTC(2026, 9, 23, 12));
-    const { server } = await boot(fake);
-    const cookie = await oauthSignIn(server);
-    const [owner, repo] = FIXTURE_REPO.split('/') as [string, string];
-    const mine = await server.app.inject({ url: `/api/preview/${owner}/${repo}`, headers: { cookie } });
-    expect(mine.statusCode).toBe(200);
-    expect(fake.charged(TOKEN)).toBeGreaterThan(0);
-    expect(fake.charged(null)).toBe(0);
-    // Another branch, so the shared cache does not answer; anonymous: the server's token.
-    const theirs = await server.app.inject({ url: `/api/preview/${owner}/${repo}?branch=main`, remoteAddress: '10.9.9.9' });
-    expect(theirs.statusCode).toBe(200);
-    expect(fake.charged(null)).toBeGreaterThan(0);
-  });
 });

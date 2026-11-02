@@ -1,113 +1,47 @@
 import cookie from '@fastify/cookie';
 import fastifyStatic from '@fastify/static';
-import websocket from '@fastify/websocket';
 import { randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import {
-  CHAT_MAX,
-  EMOTES,
-  WS_CLOSE_FORBIDDEN,
-  WS_CLOSE_NOT_FOUND,
-  type ArmoryResponse,
-  type DigestResponse,
-  type GithubLink,
-  type LegendsResponse,
-  type OrdersResponse,
-  type SeasonResponse,
-  type HookResponse,
-  type KeyframeResponse,
-  type LobbyResponse,
-  type MeResponse,
-  type ProfileResponse,
-  type UserRef,
-  type VersionResponse,
-  type WarSummary,
-} from '../protocol.ts';
-import { AWARDS } from '../rules/digest.ts';
-import { SIM_VERSION } from '../version.ts';
-import { generateMap } from '../sim/mapgen.ts';
-import type { MapDef } from '../sim/api.ts';
-import { decodeInput, type Replay } from '../sim/replay.ts';
+import { FACTION_IDS } from '../game/factions.ts';
+import type { DifficultyContext } from '../ingest/difficulty.ts';
+import type { GithubClient } from '../ingest/github.ts';
+import { registerHooks } from '../ingest/hooks.ts';
+import type { Parser } from '../ingest/parsePool.ts';
+import type { PushReport } from '../ingest/poller.ts';
+import type { UserRow } from '../ingest/store.ts';
+import type { UpstreamWatcher } from '../ingest/upstream.ts';
+import type { BattleView, CityView, GithubLink, LeagueCard, LeagueDetail, MeResponse } from '../protocol.ts';
 import { registerAuth, type AuthDeps } from './auth.ts';
-import type { RoomRow, Store, UserRow, WarRow } from './db.ts';
-import { registerHooks } from './hooks.ts';
-import type { Meta } from './meta.ts';
-import { DEFAULT_HERALDRY, FANFARES, KEEPS, TRIMS } from '../rules/meta.ts';
-import { EMBLEMS, PATTERNS } from '../rules/heraldry.ts';
-import { WS_CLOSE_TRY_LATER, type Hub } from './hub.ts';
-import type { DifficultyContext } from './difficulty.ts';
-import type { GithubClient } from './github.ts';
-import type { Parser } from './parsePool.ts';
-import type { PushReport } from './poller.ts';
-import type { UpstreamWatcher } from './upstream.ts';
-import { PREVIEW_COST, PREVIEW_STATUS, PreviewFailure, type Preview } from './preview.ts';
-import { isoDay, RoomFailure, Rooms, userRef } from './rooms.ts';
+import type { GameStore, LeagueRow } from './gameStore.ts';
+import { LeagueFailure, type Leagues } from './leagues.ts';
 import { readSession, SESSION_COOKIE } from './session.ts';
-import { TICK_MS } from '../sim/api.ts';
-import { validWebhookUrl } from './webhook.ts';
 
 export interface HttpDeps extends AuthDeps {
-  hub: Hub;
-  rooms: Rooms;
+  leagues: Leagues;
+  game: GameStore;
   github: GithubClient | null;
   onPush: (report: PushReport) => void;
-  meta?: Meta;
-  /** The army preview; absent, its endpoint answers 503. */
-  preview?: Preview | null;
-  /** Difficulty context and parsing for pushes the webhook delivers, as for the poller's. */
   context?: DifficultyContext | null;
   parser?: Parser | null;
-  /** Forks' deferred bonus: a webhook's merged pull request wakes its checks. */
   upstream?: UpstreamWatcher | null;
 }
-
-/** GitHub requests a viewer's own token keeps back for their ingestion when it reads a preview. */
-export const VIEWER_PREVIEW_RESERVE = 1_000;
 
 /** What the client may know of a player's stored token: whether there is one, never the token. */
 export function githubLink(user: UserRow): GithubLink {
   return { status: !user.token ? 'none' : user.token.valid ? 'ok' : 'invalid', storedAt: user.token?.storedAt ?? null };
 }
 
-/** Army previews one address may ask for a minute. */
-export const PREVIEW_PER_MINUTE = 10;
-
-const Name = z.string().trim().min(2).max(48);
-const CreateRoom = z.object({
-  name: Name,
+const CreateLeague = z.object({
+  name: z.string().trim().min(2).max(48),
   visibility: z.enum(['public', 'private']),
   resetHour: z.number().int().min(0).max(23),
-  bots: z.number().int().min(0).max(6),
+  bots: z.number().int().min(0).max(7),
 });
-const UpdateRoom = z.object({
-  name: Name.optional(),
-  visibility: z.enum(['public', 'private']).optional(),
-  resetHour: z.number().int().min(0).max(23).optional(),
-  bots: z.number().int().min(0).max(6).optional(),
-  webhookUrl: z.string().trim().max(500).nullable().optional(),
-});
-const ArmoryRequest = z
-  .object({
-    pattern: z.enum(PATTERNS),
-    emblem: z.enum(EMBLEMS),
-    keep: z.enum(KEEPS),
-    trim: z.enum(TRIMS),
-    fanfare: z.enum(FANFARES),
-    tassel: z.boolean(),
-    title: z.string().max(60).nullable(),
-  })
-  .partial();
+const Look = z.object({ faction: z.enum(FACTION_IDS as [string, ...string[]]), hue: z.number().int().min(0).max(359) });
 const SlugParams = z.object({ slug: z.string().regex(/^[a-z0-9-]{3,48}$/) });
-const WarParams = SlugParams.extend({ warId: z.coerce.number().int().positive() });
-const ClientMessage = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('resync') }),
-  z.object({ type: z.literal('emote'), emote: z.enum(EMOTES) }),
-  z.object({ type: z.literal('chat'), text: z.string().trim().min(1).max(CHAT_MAX) }),
-]);
-
 
 /** Fixed-window rate limiter keyed by user or address. */
 class Limiter {
@@ -128,156 +62,78 @@ class Limiter {
   }
 }
 
-/** The client's address for rate limits; injected test requests have no socket to read it from. */
-function addressOf(req: FastifyRequest): string {
-  try {
-    return req.ip ?? 'unknown';
-  } catch {
-    return 'unknown';
-  }
-}
-
 function fail(reply: FastifyReply, status: number, error: string, message: string) {
   return reply.code(status).send({ error, message });
 }
 
 function failure(reply: FastifyReply, err: unknown) {
-  if (err instanceof RoomFailure) {
-    const status = { not_found: 404, forbidden: 403, invalid: 400, full: 409, limit: 429, signed_out: 401 }[err.code];
+  if (err instanceof LeagueFailure) {
+    const status = { not_found: 404, forbidden: 403, invalid: 400, limit: 429, signed_out: 401 }[err.code];
     return fail(reply, status, err.code, err.message);
   }
-  // A malformed slug or war id in the path names nothing.
   if (err instanceof z.ZodError) return fail(reply, 404, 'not_found', 'Not found.');
   throw err;
 }
 
 export async function buildHttp(deps: HttpDeps): Promise<FastifyInstance> {
-  const { store, rooms, hub, config, clock } = deps;
+  const { store, leagues, game, config, clock } = deps;
   const app = Fastify({ logger: false, trustProxy: true, bodyLimit: 64 * 1024 });
   await app.register(cookie);
-  await app.register(websocket, { options: { maxPayload: 2048 } });
 
   const viewerOf = (req: FastifyRequest): UserRow | null => {
     const id = readSession(req.cookies[SESSION_COOKIE], config.sessionSecret, clock());
     return id === null ? null : store.user(id);
   };
-  const roomOf = (slug: string): RoomRow => {
-    const room = store.roomBySlug(slug);
-    if (!room) throw new RoomFailure('not_found', 'No such room.');
-    return room;
+  const inviteOf = (req: FastifyRequest): string | null => {
+    const q = req.query as Record<string, unknown>;
+    return typeof q.invite === 'string' ? q.invite : null;
   };
-  const viewable = (req: FastifyRequest, slug: string): { room: RoomRow; user: UserRow | null } => {
-    const room = roomOf(slug);
+  const leagueOf = (slug: string): LeagueRow => {
+    const l = game.leagueBySlug(slug);
+    if (!l) throw new LeagueFailure('not_found', 'No such league.');
+    return l;
+  };
+  const viewable = (req: FastifyRequest, league: LeagueRow) => {
     const user = viewerOf(req);
-    const invite = typeof (req.query as Record<string, unknown>).invite === 'string' ? ((req.query as Record<string, string>).invite ?? null) : null;
-    if (!rooms.canView(room, user?.id ?? null, invite)) throw new RoomFailure('forbidden', 'This room is private.');
-    return { room, user };
+    if (!leagues.canView(league, user?.id ?? null, inviteOf(req))) throw new LeagueFailure('forbidden', 'This league is private.');
+    return user;
   };
-  const ownerOf = (req: FastifyRequest, slug: string): { room: RoomRow; user: UserRow } => {
+  const signedIn = (req: FastifyRequest): UserRow => {
     const user = viewerOf(req);
-    if (!user) throw new RoomFailure('signed_out', 'Sign in first.');
-    const room = roomOf(slug);
-    if (room.ownerId !== user.id) throw new RoomFailure('forbidden', 'Only the room owner can do that.');
-    return { room, user };
-  };
-  /** Drops live sockets that lost access to a room (removed member, now private, rotated invite). */
-  const recheckViewers = (roomId: number) => {
-    const room = store.room(roomId);
-    if (room) hub.revalidate(roomId, (userId, invite) => rooms.canView(room, userId, invite), WS_CLOSE_FORBIDDEN, 'this room is private');
+    if (!user) throw new LeagueFailure('signed_out', 'Sign in first.');
+    return user;
   };
   const createLimit = new Limiter(3600_000, 10);
-  const chatLimit = new Limiter(10_000, 6);
-  const emoteLimit = new Limiter(10_000, 6);
-  const previewLimit = new Limiter(60_000, PREVIEW_PER_MINUTE);
-
-  // ------------------------------------------------------------- socket
-
-  hub.setHello((roomId, _socket, user) => {
-    const room = store.room(roomId);
-    const war = room ? rooms.war(roomId) : null;
-    if (!room || !war) return null;
-    return war.hello(
-      rooms.detail(room, user?.id ?? null),
-      user?.id ?? null,
-      { chat: store.chat(roomId, 50), presence: hub.presence(roomId), monuments: deps.meta?.monuments(room, war) ?? [] },
-      clock(),
-    );
-  });
-
-  app.get('/ws', { websocket: true }, (socket, req) => {
-    const q = req.query as Record<string, unknown>;
-    const slug = typeof q.room === 'string' ? q.room : '';
-    const invite = typeof q.invite === 'string' ? q.invite : null;
-    const room = /^[a-z0-9-]{3,48}$/.test(slug) ? store.roomBySlug(slug) : null;
-    if (!room) return socket.close(WS_CLOSE_NOT_FOUND, 'room not found');
-    const user = viewerOf(req);
-    if (!rooms.canView(room, user?.id ?? null, invite)) return socket.close(WS_CLOSE_FORBIDDEN, 'this room is private');
-    // The room exists but its war is between days (a failed rollover is retried within a second):
-    // a 4xxx close is final for the client, so ask it to come back instead.
-    if (!rooms.war(room.id)) return socket.close(WS_CLOSE_TRY_LATER, 'the war is being prepared');
-    const ref: UserRef | null = user ? { id: user.id, login: user.login, avatarUrl: user.avatarUrl } : null;
-    hub.add(room.id, socket, ref, invite, `ip:${addressOf(req)}`);
-    socket.on('message', (raw: Buffer) => {
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(raw.toString());
-      } catch {
-        return;
-      }
-      const msg = ClientMessage.safeParse(parsed);
-      if (!msg.success) return;
-      const now = clock();
-      if (msg.data.type === 'resync') {
-        // A hello carries a full snapshot; the hub rate-limits them per socket and per viewer, deferring rather
-        // than dropping so a client that asks twice in quick succession is not left waiting forever.
-        return hub.resync(room.id, socket);
-      }
-      if (!user) return;
-      const key = `u${user.id}`;
-      if (msg.data.type === 'emote') {
-        if (!emoteLimit.allow(key, now)) return;
-        const war = rooms.war(room.id);
-        hub.broadcast(room.id, { type: 'emote', login: user.login, p: war?.playerOf(user.id) ?? null, emote: msg.data.emote });
-        return;
-      }
-      if (!store.isMember(room.id, user.id) || !chatLimit.allow(key, now)) return;
-      const text = msg.data.text.replace(/[\u0000-\u001f\u007f]/g, ' ').trim();
-      if (!text) return;
-      const id = store.addChat(room.id, user.id, now, text);
-      hub.broadcast(room.id, { type: 'chat', message: { id, at: now, user: ref!, text } });
-    });
-  });
 
   // ---------------------------------------------------------------- me
 
   app.get('/api/me', async (req): Promise<MeResponse> => {
     const user = viewerOf(req);
     const base = { oauth: config.oauth !== null, devAuth: config.devAuth };
-    if (!user) return { user: null, rooms: [], ...base };
+    if (!user) return { user: null, leagues: [], ...base };
     return {
       user: {
-        ...userRef(user),
-        resting: user.restingDay === isoDay(clock()),
+        id: user.id, login: user.login, avatarUrl: user.avatarUrl, bot: false, ...leagues.look(user.id),
         hookUrl: user.hookSecret ? `${config.publicUrl}/hooks/github/${user.id}` : null,
-        streak: store.bestStreak(user.id),
         github: githubLink(user),
       },
-      rooms: store.roomsOf(user.id).map((r) => rooms.card(r)),
+      leagues: game.leaguesOf(user.id).map((l) => leagues.card(l)),
       ...base,
     };
   });
 
-  app.post('/api/me/rest', async (req, reply) => {
-    const user = viewerOf(req);
-    if (!user) return fail(reply, 401, 'signed_out', 'Sign in first.');
-    const on = z.object({ on: z.boolean() }).safeParse(req.body);
-    if (!on.success) return fail(reply, 400, 'invalid', 'Expected { on: boolean }.');
-    store.setRestingDay(user.id, on.data.on ? isoDay(clock()) : null);
-    return reply.code(204).send();
+  app.post('/api/me/look', async (req, reply) => {
+    try {
+      const user = signedIn(req);
+      const body = Look.safeParse(req.body);
+      if (!body.success) return fail(reply, 400, 'invalid', 'Expected { faction, hue }.');
+      leagues.setLook(user, body.data.faction as never, body.data.hue);
+      return reply.code(204).send();
+    } catch (err) {
+      return failure(reply, err);
+    }
   });
 
-  // Disconnect GitHub: the stored sign-in token is deleted (signing out keeps it). Ingestion falls back
-  // to the server's token; the player can revoke the grant itself at github.com/settings/applications.
   app.delete('/api/me/github', async (req, reply) => {
     const user = viewerOf(req);
     if (!user) return fail(reply, 401, 'signed_out', 'Sign in first.');
@@ -287,25 +143,20 @@ export async function buildHttp(deps: HttpDeps): Promise<FastifyInstance> {
     return reply.code(204).send();
   });
 
-  // Deleting an account deletes the stored token with everything else the server keeps of the player.
   app.delete('/api/me', async (req, reply) => {
     const user = viewerOf(req);
     if (!user) return fail(reply, 401, 'signed_out', 'Sign in first.');
-    const owned = store.roomsOf(user.id).filter((r) => r.ownerId === user.id);
-    if (owned.length > 0) return fail(reply, 409, 'owns_rooms', `Delete the rooms you own first (${owned.map((r) => r.name).join(', ')}).`);
-    for (const room of store.roomsOf(user.id)) {
-      rooms.leave(room, user.id);
-      recheckViewers(room.id);
-    }
+    const owned = game.leaguesOf(user.id).filter((l) => l.ownerId === user.id);
+    if (owned.length > 0) return fail(reply, 409, 'owns_leagues', `Delete the leagues you own first (${owned.map((l) => l.name).join(', ')}).`);
+    game.deleteUser(user.id);
     store.deleteUser(user.id);
-    deps.meta?.deleteUser(user.id);
     deps.pool?.forget(user.id);
     reply.clearCookie(SESSION_COOKIE, { path: '/' });
     deps.log.info('account deleted', { user: user.id });
     return reply.code(204).send();
   });
 
-  app.post('/api/me/hook', async (req, reply): Promise<HookResponse | void> => {
+  app.post('/api/me/hook', async (req, reply) => {
     const user = viewerOf(req);
     if (!user) return fail(reply, 401, 'signed_out', 'Sign in first.');
     const secret = randomBytes(24).toString('hex');
@@ -313,357 +164,97 @@ export async function buildHttp(deps: HttpDeps): Promise<FastifyInstance> {
     return { hookUrl: `${config.publicUrl}/hooks/github/${user.id}`, secret };
   });
 
-  app.get('/api/users/:login', async (req, reply): Promise<ProfileResponse | void> => {
-    const login = z.object({ login: z.string().regex(/^[A-Za-z0-9-]{1,39}$/) }).safeParse(req.params);
-    const user = login.success ? store.userByLogin(login.data.login) : null;
-    if (!user || user.bot) return fail(reply, 404, 'not_found', 'No such player.');
-    const viewer = viewerOf(req);
-    const records = store.lifetimesOf(user.id).flatMap((l) => {
-      const room = store.room(l.roomId);
-      if (!room || !rooms.canView(room, viewer?.id ?? null, null)) return [];
-      return [{ room: { slug: room.slug, name: room.name }, days: l.days, wins: l.wins, streak: l.streak, bestStreak: l.bestStreak, kills: l.kills, renown: l.renown, awards: l.awards }];
-    });
-    const totals = new Map<string, number>();
-    for (const r of records) for (const [k, v] of Object.entries(r.awards)) totals.set(k, (totals.get(k) ?? 0) + v);
-    const titles = [...totals.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .map(([id, n]) => `${n > 1 ? `${n}× ` : ''}${AWARDS.find((a) => a.id === id)?.title ?? id}`);
-    const own = viewer?.id === user.id ? { own: { github: githubLink(user) } } : {};
-    const meta = deps.meta;
-    if (!meta) return { user: userRef(user), ...own, records, titles };
-    const visible = (roomId: number) => {
-      const room = store.room(roomId);
-      return room !== null && rooms.canView(room, viewer?.id ?? null, null);
-    };
-    return {
-      user: userRef(user),
-      ...own,
-      records,
-      titles,
-      rank: meta.rank(user.id),
-      deeds: meta.deeds(user.id, visible),
-      rivalries: meta.rivalries(user.id, visible),
-      heraldry: meta.heraldryOf(user.id) ?? DEFAULT_HERALDRY,
-    };
-  });
+  // ---------------------------------------------------------------- leagues
 
-  // ------------------------------------------------------- the long loops
+  app.get('/api/leagues', async (): Promise<LeagueCard[]> => game.leagues().filter((l) => l.visibility === 'public').map((l) => leagues.card(l)));
 
-  app.get('/api/me/armory', async (req, reply): Promise<ArmoryResponse | void> => {
-    const user = viewerOf(req);
-    if (!user) return fail(reply, 401, 'signed_out', 'Sign in to visit your Armory.');
-    if (!deps.meta) return fail(reply, 404, 'not_found', 'The Armory is closed.');
-    return deps.meta.armory(user.id);
-  });
-
-  app.post('/api/me/armory', async (req, reply) => {
-    const user = viewerOf(req);
-    if (!user) return fail(reply, 401, 'signed_out', 'Sign in to visit your Armory.');
-    if (!deps.meta) return fail(reply, 404, 'not_found', 'The Armory is closed.');
-    const body = ArmoryRequest.safeParse(req.body);
-    if (!body.success) return fail(reply, 400, 'invalid', 'Choose a pattern, emblem, keep, trim, fanfare, tassel or title.');
-    const { armory, refused } = deps.meta.setArmory(user.id, body.data);
-    if (refused.length > 0) return reply.code(409).send({ error: 'locked', message: `Not yet unlocked: ${refused.join(', ')}.`, armory });
-    return armory;
-  });
-
-  app.get('/api/rooms/:slug/legends', async (req, reply): Promise<LegendsResponse | void> => {
+  app.post('/api/leagues', async (req, reply) => {
     try {
-      const { slug } = SlugParams.parse(req.params);
-      const { room } = viewable(req, slug);
-      return deps.meta?.legends(room.id) ?? { legends: [] };
+      const user = signedIn(req);
+      if (!createLimit.allow(`u${user.id}`, clock())) return fail(reply, 429, 'limit', 'Too many leagues created; try again later.');
+      const body = CreateLeague.safeParse(req.body);
+      if (!body.success) return fail(reply, 400, 'invalid', 'Name (2 to 48 characters), visibility, reset hour 0 to 23 and up to 7 bots.');
+      const league = leagues.create(user, body.data, clock());
+      return reply.code(201).send(leagues.card(league));
     } catch (err) {
       return failure(reply, err);
     }
   });
 
-  app.get('/api/rooms/:slug/season', async (req, reply): Promise<SeasonResponse | void> => {
+  app.get('/api/leagues/:slug', async (req, reply): Promise<LeagueDetail | void> => {
     try {
       const { slug } = SlugParams.parse(req.params);
-      const { room } = viewable(req, slug);
-      const day = rooms.war(room.id)?.meta.day ?? isoDay(clock());
-      return deps.meta?.season(room, day) ?? { season: day, standings: [], champion: null };
+      const league = leagueOf(slug);
+      const user = viewable(req, league);
+      return leagues.detail(league, user, clock());
     } catch (err) {
       return failure(reply, err);
     }
   });
 
-  app.get('/api/rooms/:slug/orders', async (req, reply): Promise<OrdersResponse | void> => {
+  app.delete('/api/leagues/:slug', async (req, reply) => {
     try {
       const { slug } = SlugParams.parse(req.params);
-      const { room } = viewable(req, slug);
-      const war = rooms.war(room.id);
-      return war && deps.meta ? deps.meta.orders(war) : { orders: [] };
-    } catch (err) {
-      return failure(reply, err);
-    }
-  });
-
-  // ------------------------------------------------------------- rooms
-
-  app.get('/api/rooms', async (): Promise<LobbyResponse> => ({
-    rooms: store
-      .rooms()
-      .filter((r) => r.visibility === 'public')
-      .map((r) => rooms.card(r))
-      .sort((a, b) => b.viewers - a.viewers || b.members - a.members),
-  }));
-
-  app.post('/api/rooms', async (req, reply) => {
-    const user = viewerOf(req);
-    if (!user) return fail(reply, 401, 'signed_out', 'Sign in to create a room.');
-    const body = CreateRoom.safeParse(req.body);
-    if (!body.success) return fail(reply, 400, 'invalid', 'Give the room a name of 2–48 characters, a visibility, a reset hour 0–23 and 0–6 bots.');
-    if (!createLimit.allow(`u${user.id}`, clock())) return fail(reply, 429, 'limit', 'Too many rooms created. Try again later.');
-    try {
-      const room = rooms.create(user, body.data, clock());
-      return { slug: room.slug };
-    } catch (err) {
-      return failure(reply, err);
-    }
-  });
-
-  app.get('/api/rooms/:slug', async (req, reply) => {
-    try {
-      const { slug } = SlugParams.parse(req.params);
-      const { room, user } = viewable(req, slug);
-      return rooms.detail(room, user?.id ?? null);
-    } catch (err) {
-      if (err instanceof z.ZodError) return fail(reply, 404, 'not_found', 'No such room.');
-      return failure(reply, err);
-    }
-  });
-
-  app.patch('/api/rooms/:slug', async (req, reply) => {
-    try {
-      const { slug } = SlugParams.parse(req.params);
-      const { room, user } = ownerOf(req, slug);
-      const body = UpdateRoom.safeParse(req.body);
-      if (!body.success) return fail(reply, 400, 'invalid', 'Invalid room settings.');
-      const webhookUrl = body.data.webhookUrl === '' ? null : body.data.webhookUrl;
-      if (webhookUrl && !validWebhookUrl(webhookUrl)) return fail(reply, 400, 'invalid', 'Use a Slack (hooks.slack.com/services/…) or Discord (discord.com/api/webhooks/…) webhook URL.');
-      const updated = rooms.update(room, { ...body.data, webhookUrl });
-      recheckViewers(room.id);
-      return rooms.detail(updated, user.id);
-    } catch (err) {
-      return failure(reply, err);
-    }
-  });
-
-  app.delete('/api/rooms/:slug', async (req, reply) => {
-    try {
-      const { slug } = SlugParams.parse(req.params);
-      const { room } = ownerOf(req, slug);
-      if (room.slug === 'commons') return fail(reply, 400, 'invalid', 'The Commons cannot be deleted.');
-      rooms.delete(room);
-      deps.meta?.deleteRoom(room.id);
-      hub.closeRoom(room.id, WS_CLOSE_NOT_FOUND, 'room deleted');
+      const league = leagueOf(slug);
+      const user = signedIn(req);
+      if (league.ownerId !== user.id) return fail(reply, 403, 'forbidden', 'Only the owner can delete a league.');
+      game.deleteLeague(league.id);
       return reply.code(204).send();
     } catch (err) {
       return failure(reply, err);
     }
   });
 
-  app.post('/api/rooms/:slug/join', async (req, reply) => {
+  app.post('/api/leagues/:slug/join', async (req, reply) => {
     try {
       const { slug } = SlugParams.parse(req.params);
-      const user = viewerOf(req);
-      if (!user) return fail(reply, 401, 'signed_out', 'Sign in to join.');
-      const room = roomOf(slug);
-      const invite = z.object({ invite: z.string().nullable().optional() }).safeParse(req.body).data?.invite ?? null;
-      rooms.join(room, user, invite, clock());
-      return rooms.detail(room, user.id);
-    } catch (err) {
-      return failure(reply, err);
-    }
-  });
-
-  app.post('/api/rooms/:slug/leave', async (req, reply) => {
-    try {
-      const { slug } = SlugParams.parse(req.params);
-      const user = viewerOf(req);
-      if (!user) return fail(reply, 401, 'signed_out', 'Sign in first.');
-      const room = roomOf(slug);
-      rooms.leave(room, user.id);
-      recheckViewers(room.id);
+      const league = leagueOf(slug);
+      const user = signedIn(req);
+      const invite = z.object({ invite: z.string().max(64).nullable().optional() }).safeParse(req.body ?? {});
+      leagues.join(league, user, (invite.success ? invite.data.invite : null) ?? inviteOf(req), clock());
       return reply.code(204).send();
     } catch (err) {
       return failure(reply, err);
     }
   });
 
-  app.post('/api/rooms/:slug/invite', async (req, reply) => {
+  app.post('/api/leagues/:slug/leave', async (req, reply) => {
     try {
       const { slug } = SlugParams.parse(req.params);
-      const { room, user } = ownerOf(req, slug);
-      const rotated = rooms.rotateInvite(room);
-      recheckViewers(room.id);
-      return rooms.detail(rotated, user.id);
+      const league = leagueOf(slug);
+      leagues.leave(league, signedIn(req).id);
+      return reply.code(204).send();
     } catch (err) {
       return failure(reply, err);
     }
   });
 
-  app.delete('/api/rooms/:slug/members/:userId', async (req, reply) => {
+  app.get('/api/leagues/:slug/city/:id', async (req, reply): Promise<CityView | void> => {
     try {
-      const { slug } = SlugParams.parse(req.params);
-      const target = z.coerce.number().int().safeParse((req.params as { userId?: string }).userId);
-      const { room, user } = ownerOf(req, slug);
-      if (!target.success || target.data === user.id) return fail(reply, 400, 'invalid', 'You cannot remove yourself.');
-      const updated = rooms.kick(room, target.data);
-      recheckViewers(room.id);
-      return rooms.detail(updated, user.id);
+      const p = SlugParams.extend({ id: z.coerce.number().int() }).parse(req.params);
+      const league = leagueOf(p.slug);
+      viewable(req, league);
+      if (!leagues.isMember(league, p.id)) return fail(reply, 404, 'not_found', 'Not a member of this league.');
+      return leagues.cityView(league, p.id, clock());
     } catch (err) {
       return failure(reply, err);
     }
   });
 
-  // There is no manual control: armies answer only to their players' pushes and the war council.
-  // Doctrine, rally and the War Cry are gone; a client from before then gets a clean refusal.
-  app.post('/api/rooms/:slug/command', async (_req, reply) =>
-    fail(reply, 410, 'gone', 'There is no manual control any more: your code is your only command.'),
-  );
-
-  app.get('/api/rooms/:slug/chronicle', async (req, reply) => {
+  app.get('/api/battles/:id', async (req, reply): Promise<BattleView | void> => {
     try {
-      const { slug } = SlugParams.parse(req.params);
-      const { room } = viewable(req, slug);
-      const since = z.coerce.number().int().min(0).catch(0).parse((req.query as { since?: string }).since);
-      const war = rooms.war(room.id);
-      return { entries: war ? war.chronicleSince(since, 500) : [] };
+      const { id } = z.object({ id: z.coerce.number().int().positive() }).parse(req.params);
+      const battle = game.battle(id);
+      if (!battle) return fail(reply, 404, 'not_found', 'No such battle.');
+      viewable(req, game.league(battle.leagueId)!);
+      reply.header('cache-control', 'public, max-age=3600');
+      return leagues.battleView(battle);
     } catch (err) {
       return failure(reply, err);
     }
   });
 
-  // -------------------------------------------------------------- wars
-
-  const summary = (w: WarRow): WarSummary => ({
-    id: w.id,
-    day: w.day,
-    status: w.status,
-    startsAt: w.startsAt,
-    endsAt: w.endsAt,
-    winner: w.winnerLogin ? { login: w.winnerLogin, hue: w.winnerHue ?? 0, renown: w.winnerRenown ?? 0 } : null,
-    players: w.header.players.length,
-    pushes: w.pushes,
-  });
-  const warOf = (req: FastifyRequest): { room: RoomRow; war: WarRow } => {
-    const { slug, warId } = WarParams.parse(req.params);
-    const { room } = viewable(req, slug);
-    const war = store.war(warId);
-    if (!war || war.roomId !== room.id) throw new RoomFailure('not_found', 'No such war.');
-    return { room, war };
-  };
-
-  app.get('/api/rooms/:slug/wars', async (req, reply) => {
-    try {
-      const { slug } = SlugParams.parse(req.params);
-      const { room } = viewable(req, slug);
-      return { wars: store.wars(room.id, 60).map(summary) };
-    } catch (err) {
-      return failure(reply, err);
-    }
-  });
-
-  app.get('/api/rooms/:slug/wars/:warId/digest', async (req, reply): Promise<DigestResponse | void> => {
-    try {
-      const { room, war } = warOf(req);
-      if (!war.digest) return fail(reply, 404, 'not_ready', 'This war is still being fought. Its digest is written at the reset hour.');
-      const map = generateMap({ seed: war.seed, slots: war.slots, members: war.members });
-      return {
-        room: { slug: room.slug, name: room.name },
-        war: summary(war),
-        digest: war.digest,
-        map: { radius: map.radius, ring: map.ring, centre: map.centre, centreKind: map.centreKind, seed: war.seed, sites: map.sites.map((s) => ({ kind: s.kind, x: Math.round(s.x), y: Math.round(s.y), slot: s.slot })), terrain: coarseTerrain(map, 2) },
-        players: war.header.players.map((pl, p) => ({ p, login: pl.login, hue: pl.hue, slot: pl.slot })),
-        timelapse: store.frames(war.id),
-      };
-    } catch (err) {
-      return failure(reply, err);
-    }
-  });
-
-  app.get('/api/rooms/:slug/wars/:warId/replay', async (req, reply): Promise<Replay | void> => {
-    try {
-      const { war } = warOf(req);
-      if (war.status !== 'ended') return fail(reply, 404, 'not_ready', 'Replays are available once the day is over.');
-      const replay: Replay = {
-        v: 1,
-        seed: war.seed,
-        slots: war.slots,
-        members: war.members,
-        tickMs: TICK_MS,
-        startsAt: war.startsAt,
-        endsAt: war.endsAt,
-        players: war.header.players.map(({ login, id, hue, slot, bot }) => ({ login, id, hue, slot, bot })),
-        repos: war.header.repos,
-        inputs: store.inputs(war.id).map((i) => i.data),
-      };
-      // Sanity: every input decodes, so a corrupt row fails here rather than in a viewer's browser.
-      for (const e of replay.inputs) decodeInput(e);
-      reply.header('content-disposition', `inline; filename="codeclash-${war.day}-${war.id}.json"`);
-      return replay;
-    } catch (err) {
-      return failure(reply, err);
-    }
-  });
-
-  app.get('/api/rooms/:slug/wars/:warId/keyframe', async (req, reply): Promise<KeyframeResponse | null | void> => {
-    try {
-      const { war } = warOf(req);
-      const tick = z.coerce.number().int().min(0).catch(0).parse((req.query as { tick?: string }).tick);
-      const snap = store.latestSnapshot(war.id, tick);
-      return snap ? { tick: snap.tick, snapshot: JSON.parse(snap.json) as KeyframeResponse['snapshot'] } : null;
-    } catch (err) {
-      return failure(reply, err);
-    }
-  });
-
-  // The army preview: what a public repository's latest commits would raise. Anyone may ask, signed in
-  // or not; it reads only public data. A signed-in viewer with a usable token of their own reads on it
-  // (their bucket, keeping VIEWER_PREVIEW_RESERVE for their ingestion); everyone else on the server's.
-  app.get('/api/preview/:owner/:repo', async (req, reply) => {
-    const { owner, repo } = req.params as { owner: string; repo: string };
-    const q = req.query as Record<string, unknown>;
-    const branch = typeof q.branch === 'string' && q.branch.trim() !== '' ? q.branch.trim() : null;
-    if (!deps.preview) return fail(reply, 503, 'unavailable', 'The scouts are not posted on this server.');
-    if (!previewLimit.allow(`ip:${addressOf(req)}`, clock())) {
-      reply.header('retry-after', '60');
-      return fail(reply, 429, 'rate_limited', `Ten musters a minute is the most the scouts can ride. Rest them a moment and try again.`);
-    }
-    try {
-      const user = viewerOf(req);
-      const own = user?.token?.valid && deps.pool?.hasBudget(user.id, VIEWER_PREVIEW_RESERVE + PREVIEW_COST) ? deps.pool.own(user.id) : null;
-      const { body, cached } = await deps.preview.preview(owner, repo, branch, own ? { github: own, reserve: VIEWER_PREVIEW_RESERVE } : undefined);
-      reply.header('cache-control', 'private, max-age=60');
-      reply.header('x-preview-cache', cached ? 'hit' : 'miss');
-      return { ...body, viewerHue: user ? (deps.meta?.latestHue(user.id) ?? null) : null };
-    } catch (err) {
-      if (err instanceof PreviewFailure) {
-        if (err.code === 'github_limited') reply.header('retry-after', '300');
-        return fail(reply, PREVIEW_STATUS[err.code], err.code, err.message);
-      }
-      throw err;
-    }
-  });
-
-  app.get('/api/health', async () => ({ ok: true, rooms: rooms.wars().length, spectators: hub.size, ingestion: deps.github !== null }));
-
-  // The version handshake: a page whose build differs from the server's simulation reloads, so an
-  // old cached build never lingers; `sw: false` is the service worker's kill switch.
-  app.get('/api/version', async (_req, reply) => {
-    reply.header('cache-control', 'no-store');
-    return { sim: SIM_VERSION, sw: config.serviceWorker } satisfies VersionResponse;
-  });
-  if (!config.serviceWorker) {
-    // Browsers re-fetch /sw.js on their own; a byte-different worker replaces the old one, and this
-    // one only clears its caches, unregisters itself and reloads the pages it controlled.
-    app.addHook('onRequest', async (req, reply) => {
-      if (req.method !== 'GET' || req.url.split('?')[0] !== '/sw.js') return;
-      return reply.header('cache-control', 'no-store').type('text/javascript').send(KILL_SW);
-    });
-  }
+  app.get('/api/health', async () => ({ ok: true, leagues: game.leagues().length, ingestion: deps.github !== null }));
 
   registerAuth(app, deps);
   registerHooks(app, { store, github: deps.github, log: deps.log, clock, onPush: deps.onPush, context: deps.context ?? null, parser: deps.parser ?? null, upstream: deps.upstream ?? null, pool: deps.pool ?? null });
@@ -673,50 +264,18 @@ export async function buildHttp(deps: HttpDeps): Promise<FastifyInstance> {
     await app.register(fastifyStatic, {
       root: clientDir,
       wildcard: false,
-      // Hashed build assets never change: cache them for good. The page and the worker must be
-      // revalidated every time, or a deploy would not reach returning viewers.
       setHeaders: (res, path) => {
         const p = path.replace(/\\/g, '/');
         if (p.includes('/assets/')) res.header('cache-control', 'public, max-age=31536000, immutable');
-        else if (p.endsWith('/index.html') || p.endsWith('/sw.js')) res.header('cache-control', 'no-cache');
+        else if (p.endsWith('/index.html')) res.header('cache-control', 'no-cache');
       },
     });
     app.setNotFoundHandler((req, reply) => {
       const path = req.url.split('?')[0]!;
-      // Only app routes fall back to the page; a missing asset (anything with a file extension) is a 404,
-      // or a browser would try to decode index.html as audio or an image.
-      // A previewed repository's name may end like a file (`/preview/vercel/next.js`): those are pages.
-      const asset = !path.startsWith('/preview/') && /\.[A-Za-z0-9]+$/.test(path.slice(path.lastIndexOf('/') + 1));
-      if (req.method !== 'GET' || asset || /^\/(api|auth|ws|hooks)(\/|$)/.test(path)) return reply.code(404).send({ error: 'not_found', message: 'Not found.' });
+      const asset = /\.[A-Za-z0-9]+$/.test(path.slice(path.lastIndexOf('/') + 1));
+      if (req.method !== 'GET' || asset || /^\/(api|auth|hooks)(\/|$)/.test(path)) return reply.code(404).send({ error: 'not_found', message: 'Not found.' });
       return reply.type('text/html').sendFile('index.html');
     });
   }
   return app;
-}
-
-/** The service worker served while it is switched off: it removes itself and everything it cached. */
-export const KILL_SW = `self.addEventListener('install', () => self.skipWaiting());
-self.addEventListener('activate', (event) => {
-  event.waitUntil((async () => {
-    for (const key of await caches.keys()) await caches.delete(key);
-    await self.registration.unregister();
-    for (const client of await self.clients.matchAll({ type: 'window' })) client.navigate(client.url);
-  })());
-});
-`;
-
-/** The nav grid sampled every `step` cells, for the digest's painted timelapse. */
-export function coarseTerrain(map: MapDef, step: number): NonNullable<DigestResponse['map']['terrain']> {
-  const cols = Math.ceil(map.navCols / step);
-  const rows = Math.ceil(map.navRows / step);
-  let cells = '';
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      const col = Math.min(map.navCols - 1, c * step + (step >> 1));
-      const row = Math.min(map.navRows - 1, r * step + (step >> 1));
-      const t = map.terrain[row * map.navCols + col] ?? 255;
-      cells += t === 255 ? '.' : String(Math.min(3, t));
-    }
-  }
-  return { cols, cell: map.navCell * step, originX: map.originX, originY: map.originY, cells };
 }

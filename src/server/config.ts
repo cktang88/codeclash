@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
-import { TOKEN_KEY_MIN_BYTES } from './tokens.ts';
+import { TOKEN_KEY_MIN_BYTES } from '../ingest/tokens.ts';
 
 // An empty value (`DEV_AUTH=` in a .env file) means unset, not a boot failure.
 const flag = (fallback: '0' | '1') =>
@@ -24,8 +24,7 @@ const EnvSchema = z
     DEV_AUTH: flag('0'),
     COMMONS: flag('1'),
     DAY_MINUTES: z.coerce.number().positive().optional().catch(undefined),
-    MAX_ROOMS_PER_USER: z.coerce.number().int().min(1).default(5),
-    MAX_LIVE_ROOMS: z.coerce.number().int().min(1).default(200),
+    MAX_LEAGUES_PER_USER: z.coerce.number().int().min(1).default(5),
     /** 0 is the service worker's kill switch: pages unregister it and drop its caches. */
     SERVICE_WORKER: flag('1'),
     /** Where local mirrors for the difficulty bonus's fallback live; unset: no mirrors. */
@@ -64,12 +63,11 @@ export interface Config {
   /** TOKEN_KEY; null: derived from SESSION_SECRET (when set) or random per boot, outside production only. */
   tokenKey: string | null;
   devAuth: boolean;
-  /** Seed a public room with sparring bots at boot. */
+  /** Seed a public league with sparring bots at boot. */
   commons: boolean;
-  /** Overrides the daily cycle with wars of this length, for local testing. */
+  /** Overrides the day with cycles of this length (a week is seven of them), for local testing. */
   dayMs: number | null;
-  maxRoomsPerUser: number;
-  maxLiveRooms: number;
+  maxLeaguesPerUser: number;
   /** Offer the service worker; false serves a self-unregistering one instead (the kill switch). */
   serviceWorker: boolean;
   /** Local mirrors for the difficulty bonus's fallback (MIRROR_DIR); null: none. */
@@ -95,8 +93,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     devAuth: e.DEV_AUTH,
     commons: e.COMMONS,
     dayMs: e.DAY_MINUTES ? Math.round(e.DAY_MINUTES * 60_000) : null,
-    maxRoomsPerUser: e.MAX_ROOMS_PER_USER,
-    maxLiveRooms: e.MAX_LIVE_ROOMS,
+    maxLeaguesPerUser: e.MAX_LEAGUES_PER_USER,
     serviceWorker: e.SERVICE_WORKER,
     mirrorDir: e.MIRROR_DIR ?? null,
     // Tests parse inline unless they ask for workers.

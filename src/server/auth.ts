@@ -2,11 +2,11 @@ import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import type { Config } from './config.ts';
-import type { Store } from './db.ts';
-import { fetchViewer, REQUEST_TIMEOUT_MS } from './github.ts';
-import type { GithubPool } from './githubPool.ts';
-import { errorMessage, type Logger } from './log.ts';
-import type { TokenVault } from './tokens.ts';
+import type { Store } from '../ingest/store.ts';
+import { fetchViewer, REQUEST_TIMEOUT_MS } from '../ingest/github.ts';
+import type { GithubPool } from '../ingest/githubPool.ts';
+import { errorMessage, type Logger } from '../ingest/log.ts';
+import type { TokenVault } from '../ingest/tokens.ts';
 import { issueSession, SESSION_COOKIE, SESSION_MAX_AGE_S } from './session.ts';
 
 const STATE_COOKIE = 'pf_oauth';
