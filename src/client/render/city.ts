@@ -78,6 +78,8 @@ export class CityScene {
   private props: { key: string; casts: Footprint[]; painted: PaintedProps } | null = null;
   /** Lantern glass on the props, in world pixels. */
   private lamps: [number, number][] = [];
+  /** HD: the night's light pools, painted once per rebuild (see lightPools). */
+  private pools: HTMLCanvasElement | null = null;
   private partCache = new Map<string, BuildingParts>();
   private key = '';
   private t = 0;
@@ -269,6 +271,7 @@ export class CityScene {
     }
     const arts: Art[] = [...this.ground!.arts, ...buildingArts, ...(this.props?.painted.arts ?? [])];
     this.lamps = this.props?.painted.lamps ?? [];
+    this.pools = null;
     this.glows = glows;
     const millKey = `mill:${tierOf(levels.granary)}`;
     if (levels.granary > 0) {
@@ -622,36 +625,19 @@ export class CityScene {
       g.globalAlpha = wa * (0.85 + 0.15 * Math.sin(t * 3 + art.x));
       g.drawImage(art.lights, art.x, art.y);
     }
-    // Light pools, additive and stepped in the light's own ramp, so the stone and ground around
-    // each source are lit band by band.
+    // No discs: the necropolis bakes its own light pools into its arts' lights canvases
+    // (Art.pooled); the scene adds only a 1-2 px bloom at each source, green for the grave-light,
+    // violet for the arcane, fire for the forges. (lightPools can pool more sources if wanted.)
     g.globalCompositeOperation = 'lighter';
     const pool = 0.18 + 0.47 * k;
-    const f = this.frame;
-    for (const art of this.arts) {
-      if (!art.lights || !art.canvas) continue;
-      g.globalAlpha = pool * 0.4;
-      const cx = (art.x + art.canvas.width / 2) / f.k - f.mx;
-      const cy = (art.y + art.canvas.height * 0.6) / f.k - f.my;
-      this.halo(g, 'glow', cx, cy, 72, 48);
-    }
-    for (const tc of this.torches) {
-      g.globalAlpha = Math.min(1, pool * 1.5) * (Math.sin(t * 11 + tc.x) > -0.6 ? 1 : 0.85);
-      this.halo(g, 'glow', tc.x, tc.y, 44, 36);
-    }
-    for (const [x, y] of this.ground?.lamps ?? []) {
-      g.globalAlpha = Math.min(1, pool * 1.4);
-      this.halo(g, 'glow', x, y, 32, 20);
-    }
-    for (const [x, y, c] of this.glows) {
-      const pulse = 0.8 + 0.2 * Math.sin(t * (c ? 1.6 : 4) + x);
-      g.globalAlpha = Math.min(1, pool * 1.6) * pulse;
-      this.halo(g, c ? 'violet' : 'glow', x, y, 48, 36);
-    }
-    // The forges stay true fire: the one warm note, the complement to all that green.
-    for (const [x, y] of this.forges) {
-      g.globalAlpha = Math.min(1, 0.4 + 0.6 * k);
-      this.halo(g, 'fire', x, y, 48, 48);
-    }
+    const ramps = [poolRamp(this.st.glow), VIOLET_POOL, FIRE_POOL];
+    const srcs: PoolSource[] = [];
+    for (const tc of this.torches) srcs.push({ x: tc.x, y: tc.y, z: 8, r: 22 });
+    for (const [x, y] of this.ground?.lamps ?? []) srcs.push({ x, y, z: 7, r: 16 });
+    for (const [x, y] of this.lamps) srcs.push({ x, y, z: 7, r: 16 });
+    for (const [x, y, c] of this.glows) srcs.push({ x, y, z: 6, r: 22, tint: c ? 1 : 0 });
+    for (const [x, y] of this.forges) srcs.push({ x, y, z: 2, r: 18, tint: 2 });
+    this.bloom(g, srcs, ramps, Math.min(1, 0.35 + pool));
     this.life.nightGlow(g, (x, y, w, h) => this.halo(g, 'glow', x, y, w, h), Math.max(0.25, k), this.frame);
     g.globalAlpha = 1;
     g.globalCompositeOperation = 'source-over';
@@ -687,23 +673,166 @@ export class CityScene {
         g.drawImage(art.lights, art.x, art.y);
       }
       g.globalCompositeOperation = 'lighter';
-      for (const tc of this.torches) {
-        g.globalAlpha = a * (Math.sin(t * 11 + tc.x) > -0.5 ? 1 : 0.8);
-        this.halo(g, 'fire', tc.x, tc.y, 32, 32);
-      }
+      if (this.mode === 'hd') {
+        // HD: warm pools on the surfaces each light reaches, not discs in the air. A faction town
+        // that bakes its own pools (Samurai) gets only the bloom at each source.
+        const src = this.poolSources();
+        if (this.st.id !== 'samurai') {
+          this.pools ??= this.lightPools(src);
+          g.globalAlpha = a * (0.92 + 0.08 * Math.sin(t * 9));
+          g.drawImage(this.pools, 0, 0);
+        }
+        this.bloom(g, src.filter((p) => p.z > 2), [FIRE_POOL], a * 0.6);
+      } else
+        for (const tc of this.torches) {
+          g.globalAlpha = a * (Math.sin(t * 11 + tc.x) > -0.5 ? 1 : 0.8);
+          this.halo(g, 'fire', tc.x, tc.y, 32, 32);
+        }
       // (Lit windows are emissive pixels with no pool: a pool at a building's centre lands on its
       // roof, which a window cannot light. Graveyard Keeper's night keeps the windows alone.)
       if (this.mode === 'hd') this.life.nightGlow(g, (x, y, w, h) => this.halo(g, 'glow', x, y, w, h), a, this.frame);
       g.globalAlpha = 1;
     }
     g.globalCompositeOperation = 'lighter';
-    for (const [x, y] of this.forges) {
-      g.globalAlpha = Math.min(1, 0.4 + 0.6 * night);
-      this.halo(g, 'fire', x, y, 48, 48);
-    }
+    // (HD forges light their pool in lightPools.)
+    if (this.mode !== 'hd')
+      for (const [x, y] of this.forges) {
+        g.globalAlpha = Math.min(1, 0.4 + 0.6 * night);
+        this.halo(g, 'fire', x, y, 48, 48);
+      }
     g.globalAlpha = 1;
     g.globalCompositeOperation = 'source-over';
     flat();
+  }
+
+  /** A 1-2 px bloom on each light source: a small cross of its hot colour (call in the flat transform, 'lighter'). */
+  private bloom(g: CanvasRenderingContext2D, sources: PoolSource[], ramps: [number, number, number][][], a: number): void {
+    const f = this.frame;
+    g.globalAlpha = a;
+    for (const s of sources) {
+      const c = (ramps[s.tint ?? 0] ?? ramps[0]!)[2]!;
+      g.fillStyle = `rgb(${c[0]},${c[1]},${c[2]})`;
+      const x = Math.floor((s.x + f.mx) * f.k);
+      const y = Math.floor((s.y + f.my) * f.k);
+      g.fillRect(x - 1, y, 3, 1);
+      g.fillRect(x, y - 1, 1, 3);
+    }
+  }
+
+  /** The light sources for the pools: torches, prop lanterns and forges (world pixels, a height, a reach). */
+  private poolSources(): PoolSource[] {
+    const out: PoolSource[] = [];
+    for (const tc of this.torches) out.push({ x: tc.x, y: tc.y, z: 8, r: 22 });
+    for (const [x, y] of this.lamps) out.push({ x, y, z: 7, r: 16 });
+    for (const [x, y] of this.forges) out.push({ x, y, z: 2, r: 18 });
+    return out;
+  }
+
+  /**
+   * Light pools (HD), after the user's town-displate target: each light warms the surfaces it
+   * reaches instead of hanging a disc in the air. On the ground the pool is an iso ellipse in
+   * world units, ragged at its edge (3×2 cell wobble and a low-frequency warp), stepped in three
+   * flat bands, and cut off where a building or a prop stands between the light and the ground
+   * (the recorded footprints). On walls it is a small upright patch, only on art that stands
+   * behind the light. Overlapping pools take the brighter band, never a sum. The result is one
+   * canvas laid with 'lighter', so every lit pixel moves up its own ramp, warmer and brighter.
+   * `ramps` are the band colours per tint, dim to hot (warm fire by default; the necropolis passes
+   * its grave-light green and arcane violet). The brightest band wins a pixel, with its tint.
+   */
+  lightPools(sources: PoolSource[], ramps: [number, number, number][][] = [FIRE_POOL]): HTMLCanvasElement {
+    const f = this.frame;
+    const W = f.w;
+    const H = f.h;
+    // Which art covers each pixel, and its depth (u + v); ground is -Infinity.
+    const cover = new Float32Array(W * H).fill(-Infinity);
+    const arts = [...this.arts].sort((a, b) => a.d - b.d);
+    for (const a of arts) {
+      if (!a.canvas) continue;
+      const m = alphaMask(a.canvas);
+      const cw = a.canvas.width;
+      const ch = a.canvas.height;
+      for (let y = 0; y < ch; y++) {
+        const by = a.y + y;
+        if (by < 0 || by >= H) continue;
+        for (let x = 0; x < cw; x++) {
+          if (!m[y * cw + x]) continue;
+          const bx = a.x + x;
+          if (bx >= 0 && bx < W) cover[by * W + bx] = a.d;
+        }
+      }
+    }
+    const casts = (this.props?.casts ?? []).filter((c) => c[4] >= 3);
+    const band = new Uint8Array(W * H);
+    const tintOf = new Uint8Array(W * H);
+    const ground = (x: number, y: number): [number, number] => {
+      const a = (x + 0.5) / f.k - f.mx - 256;
+      const b = 2 * ((y + 0.5) / f.k - f.my - 30);
+      return [(a + b) / 2, (b - a) / 2];
+    };
+    // Chunky clusters (6×4 buffer pixels, alternate columns dropped) for the ragged edge.
+    const cell = (x: number, y: number) => {
+      const cx = Math.floor(x / 6);
+      return poolHash(cx, (y + (cx & 1) * 2) >> 2);
+    };
+    for (const src of sources) {
+      // The foot of the light on the ground, and the footprints near it (not the one it hangs on).
+      const fx = (src.x + f.mx) * f.k;
+      const fy = (src.y + src.z + f.my) * f.k;
+      const [su, sv] = ground(fx, fy);
+      const ds = su + sv;
+      const R = src.r;
+      const near = casts.filter((c) => c[0] < su + R && c[2] > su - R && c[1] < sv + R && c[3] > sv - R && !(su >= c[0] - 0.5 && su <= c[2] + 0.5 && sv >= c[1] - 0.5 && sv <= c[3] + 0.5));
+      const x0 = Math.max(0, Math.floor(fx - 2 * R * f.k));
+      const x1 = Math.min(W - 1, Math.ceil(fx + 2 * R * f.k));
+      const y0 = Math.max(0, Math.floor(fy - (R + src.z + 6) * f.k));
+      const y1 = Math.min(H - 1, Math.ceil(fy + R * f.k));
+      const sxB = (src.x + f.mx) * f.k;
+      const syB = (src.y + f.my) * f.k;
+      for (let y = y0; y <= y1; y++)
+        for (let x = x0; x <= x1; x++) {
+          const i = y * W + x;
+          const wob = (cell(x, y) - 0.5) * 0.14;
+          let k = 0;
+          const da = cover[i]!;
+          if (da === -Infinity) {
+            const [u, v] = ground(x, y);
+            const warp = 1 + (poolHash(Math.floor(u / 4) + 77, Math.floor(v / 4)) - 0.5) * 0.35;
+            const d = (Math.hypot(u - su, v - sv) / R) * warp;
+            if (d >= 1) continue;
+            if (near.some((c) => blocks(su, sv, u, v, c))) continue;
+            k = 1 - d + wob;
+          } else {
+            // A wall or prop: lit only behind the light (facing it), in a small upright patch.
+            if (da > ds + 4 || da < ds - 36) continue;
+            const ex = (x - sxB) / (R * 0.55 * f.k);
+            const ey = (y - syB) / (R * 0.5 * f.k);
+            const d = Math.hypot(ex, ey);
+            if (d >= 1) continue;
+            k = Math.min(0.6, (1 - d) * 0.75 + wob);
+          }
+          const b = k > 0.62 ? 3 : k > 0.32 ? 2 : k > 0.06 ? 1 : 0;
+          if (b > band[i]!) {
+            band[i] = b;
+            tintOf[i] = src.tint ?? 0;
+          }
+        }
+    }
+    const c = document.createElement('canvas');
+    c.width = W;
+    c.height = H;
+    const ctx = c.getContext('2d')!;
+    const img = ctx.createImageData(W, H);
+    for (let i = 0; i < W * H; i++) {
+      const b = band[i]!;
+      if (!b) continue;
+      const col = (ramps[tintOf[i]!] ?? ramps[0]!)[b - 1]!;
+      img.data[i * 4] = col[0];
+      img.data[i * 4 + 1] = col[1];
+      img.data[i * 4 + 2] = col[2];
+      img.data[i * 4 + 3] = 255;
+    }
+    ctx.putImageData(img, 0, 0);
+    return c;
   }
 
   /**
@@ -933,6 +1062,65 @@ function stepped(w: number, h: number, rings: Ring[], ragged = false): HTMLCanva
     }
   x.putImageData(img, 0, 0);
   return c;
+}
+
+/** A light for the pools: a point in world pixels, its height above the ground and its reach (world units). */
+export interface PoolSource {
+  x: number;
+  y: number;
+  z: number;
+  r: number;
+  /** Which colour ramp (index into lightPools' `ramps`): 0 by default. */
+  tint?: number;
+}
+
+/** Pool bands, dim to hot: warm fire, and the necropolis's arcane violet. */
+const FIRE_POOL: [number, number, number][] = [[40, 20, 4], [78, 42, 10], [124, 74, 22]];
+const VIOLET_POOL: [number, number, number][] = [[30, 14, 52], [54, 28, 92], [86, 54, 140]];
+/** Pool bands from a light's css rgba colour (a style's `glow`). */
+function poolRamp(css: string): [number, number, number][] {
+  const m = css.match(/[0-9.]+/g)!.map(Number);
+  return [0.16, 0.3, 0.5].map((k) => [Math.round(m[0]! * k), Math.round(m[1]! * k), Math.round(m[2]! * k)] as [number, number, number]);
+}
+
+const masks = new WeakMap<HTMLCanvasElement, Uint8Array>();
+/** The opaque pixels of an art canvas (cached per canvas). */
+function alphaMask(c: HTMLCanvasElement): Uint8Array {
+  let m = masks.get(c);
+  if (!m) {
+    const d = c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data;
+    m = new Uint8Array(c.width * c.height);
+    for (let i = 0; i < m.length; i++) m[i] = d[i * 4 + 3]! > 0 ? 1 : 0;
+    masks.set(c, m);
+  }
+  return m;
+}
+
+/** Does a footprint stand between a light's foot (a) and a ground point (b)? Liang-Barsky. */
+function blocks(au: number, av: number, bu: number, bv: number, f: Footprint): boolean {
+  let t0 = 0;
+  let t1 = 1;
+  const du = bu - au;
+  const dv = bv - av;
+  const clip = (p: number, q: number): boolean => {
+    if (Math.abs(p) < 1e-9) return q >= 0;
+    const r = q / p;
+    if (p < 0) {
+      if (r > t1) return false;
+      if (r > t0) t0 = r;
+    } else {
+      if (r < t0) return false;
+      if (r < t1) t1 = r;
+    }
+    return true;
+  };
+  return clip(-du, au - f[0]) && clip(du, f[2] - au) && clip(-dv, av - f[1]) && clip(dv, f[3] - av) && t0 < t1 && t1 < 0.999;
+}
+
+function poolHash(x: number, y: number): number {
+  let h = (Math.imul(x | 0, 374761393) + Math.imul(y | 0, 668265263) + 977) | 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
 }
 
 /** A 32-bit hash of a string (the props key, for the ground's key). */

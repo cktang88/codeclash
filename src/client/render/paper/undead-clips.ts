@@ -21,6 +21,8 @@ export interface FootClipSpec {
   shoot: 'javelin' | 'bow' | 'crossbow' | null;
   /** How far the body lies above its lowest joint (a heavy robe spreads wider than the bones). */
   lie?: number;
+  /** It floats, bobbing above the ground (the Lich): the feet never take the weight. */
+  float?: boolean;
   /** A wraith: it glides, the feet sliding under the hem. */
   glide?: boolean;
   brace: 'shield' | 'spear' | 'ready' | 'staff' | 'aim';
@@ -69,10 +71,12 @@ const DISSOLVE: Author = () => ({
   w: { thighN: T([0, 0], [3, 10], [6, 70], [8, 90]), shinN: T([0, 0], [3, -20], [6, -80], [8, -95]), thighF: T([0, 0], [3, 12], [6, 75], [8, 92]), shinF: T([0, 0], [3, -25], [6, -85], [8, -100]) },
 });
 /** The robe collapses: the coat squashes down, and from the settle only the empty heap is left. */
-function dissolve(c: Clip): Clip {
+function dissolve(c: Clip, skel: SkeletonData): Clip {
+  const keep = new Set(['heap', 'wisp', 'smear', 'light', 'flash', 'cloak']);
+  const body = skel.slots.map((s) => s.name).filter((n) => !keep.has(n) && !n.endsWith('Drop'));
   return mapFacings(c, (a) => {
     const slots: NonNullable<AnimationData['slots']> = { ...(a.slots ?? {}) };
-    for (const n of ['thighN', 'shinN', 'footN', 'thighF', 'shinF', 'footF', 'upperArmN', 'forearmN', 'upperArmF', 'forearmF', 'torso', 'belt', 'skirt', 'pauldronN', 'pauldronF']) slots[n] = [{ f: 0, v: n }, { f: 8, v: null }];
+    for (const n of body) slots[n] = [{ f: 0, v: n }, { f: 8, v: null }];
     // The long cloak folds down into the heap first (it would reach through the ground as the robe sinks).
     slots.cloak = [{ f: 0, v: 'cloak' }, { f: 5, v: null }];
     slots.heap = [{ f: 0, v: null }, { f: 5, v: 'heap' }];
@@ -112,20 +116,20 @@ export function jerk(anim: AnimationData, warp: readonly number[], bones: Readon
  * the body) are lifted by the difference.
  */
 const TIPS = new Set(['thighN', 'shinN', 'footN', 'thighF', 'shinF', 'footF', 'upperArmN', 'forearmN', 'upperArmF', 'forearmF', 'head', 'chest']);
-export function groundClamp(skel: SkeletonData, clip: Clip, n: number, margin = 0.7): Clip {
-  const skip = (b: string) => b === 'root' || b.startsWith('drop_') || b.startsWith('footTarget') || b === 'grip2' || b === 'nock' || b === 'weapon' || b === 'itemF' || b === 'skirt' || b === 'cloak';
+export function groundClamp(skel: SkeletonData, clip: Clip, n: number, margin = 0.7, liftBone = 'pelvis', only?: (b: string) => boolean, from = 0): Clip {
+  const skip = (b: string) => (only ? !only(b) : b === 'root' || b.startsWith('drop_') || b.startsWith('footTarget') || b === 'grip2' || b === 'nock' || b === 'weapon' || b === 'itemF' || b === 'skirt' || b === 'cloak');
   return mapFacings(clip, (anim, facing) => {
     const tr: Key<[number, number]>[] = [];
     for (let f = 0; f < n; f++) {
       const l = sampleClip(anim, f, n, facing);
       const p = evaluate(skel, l, { level: 16, facing });
       let low = -Infinity;
-      for (const b of p.bones) if (!skip(b.name)) low = Math.max(low, b.y, TIPS.has(b.name) ? b.ty : -Infinity);
-      const lift = Math.min(0, -margin - low);
-      const pv = l.bones.pelvis ?? {};
+      for (const b of p.bones) if (!skip(b.name)) low = Math.max(low, b.y, only || TIPS.has(b.name) ? b.ty : -Infinity);
+      const lift = f < from ? 0 : Math.min(0, -margin - low);
+      const pv = l.bones[liftBone] ?? {};
       tr.push({ f, v: [pv.x ?? 0, (pv.y ?? 0) + Math.round(lift * 100) / 100], c: 'linear' });
     }
-    return { ...anim, bones: { ...(anim.bones ?? {}), pelvis: { ...(anim.bones?.pelvis ?? {}), translate: tr } } };
+    return { ...anim, bones: { ...(anim.bones ?? {}), [liftBone]: { ...(anim.bones?.[liftBone] ?? {}), translate: tr } } };
   });
 }
 /** A slot shows nothing from frame `from` until `to` (a thrown weapon gone from the hand). */
@@ -264,6 +268,25 @@ const BUTT: Author = (rw) => ({
   dw: { spine: T([0, 0], [3, 10], [5, -18], [6, -18], [9, -4], [11, 0]), jaw: T([0, -8], [3, -4], [5, -34], [6, -34], [8, -6], [11, -8]) },
   tAdd: { pelvis: [T([0, 0], [3, -0.4], [5, 0.6], [6, 0.65], [9, 0.2], [11, 0]), T([0, 0], [5, 0.2], [11, 0])], footTargetF: [T([0, 0], [3, 0], [5, 0.9], [6, 0.9], [9, 0.3], [11, 0]), T([0, 0], [3, 0], [4, -0.5], [5, 0], [11, 0])] },
 });
+/**
+ * The Lich-Marshal's spell: the witch-hand rises up and back over the crown while the trunk
+ * arches and the staff tips back, the fire in the hand swelling (1-3), held a beat (4); the hand
+ * is thrust out at the enemy and the witchfire flares and streams from it, the trunk driving
+ * forward over the staff (5), held (6-7); the hand sinks back, the fire dying down (8-11).
+ */
+const CAST: Author = (rw) => ({
+  w: {
+    upperArmF: R(rw.upperArmF!, 11, [1, 90], [2, 150], [3, 168], [4, 170], [5, 98], [6, 96], [7, 96], [9, 50]),
+    forearmF: R(rw.forearmF!, 11, [1, 140], [2, 190], [3, 205], [4, 206], [5, 94], [6, 92], [7, 92], [9, 40]),
+    weapon: R(rw.weapon!, 11, [2, 192], [4, 196], [5, 168], [7, 166], [9, 176]),
+  },
+  dw: {
+    spine: T([0, 0], [2, 10], [4, 14], [5, -12], [7, -14], [9, -4], [11, 0]),
+    head: T([0, 0], [2, 8], [4, 10], [5, -8], [7, -8], [10, 0]),
+    upperArmN: T([0, 0], [2, 10], [4, 12], [5, -6], [7, -6], [10, 0]),
+  },
+  tAdd: { pelvis: [T([0, 0], [3, -0.2], [5, 0.35], [7, 0.4], [10, 0], [11, 0]), T([0, 0])] },
+});
 export const SHOOTS: Record<'javelin', { clip: string; o: MocapOpts; a: Author; extra: number[]; ev: AnimEvent[]; warp: number[]; hide?: [string, number, number] }> = {
   javelin: { clip: 'javelin', o: { torso: 0.6, travel: 0.6, feet: 0.8 }, a: HURL, extra: [1, 2, 3, 4, 5, 6, 8, 10], ev: [{ f: 4, name: 'smear', len: 1, bone: 'weapon' }, { f: 5, name: 'release' }], warp: [0, 1, 2, 3, 3, 5, 6, 7, 8, 9, 10, 11], hide: ['weapon', 5, 10] },
 };
@@ -272,7 +295,14 @@ const ATTACKS: Record<FootAttack, { clip: string; o: MocapOpts; a: Author; extra
   cut: { clip: 'cut-diagonal', o: { torso: 0.4, travel: 0, feet: 0.3 }, a: HEAVY_CUT, extra: [2, 3, 5, 9, 10], ev: [{ f: 6, name: 'smear', len: 1, bone: 'weapon' }, { f: 7, name: 'strike' }], warp: [0, 1, 2, 3, 4, 4, 6, 7, 8, 9, 10, 11] },
   lunge: { clip: 'thrust', o: { torso: 0.3, travel: 0.3, feet: 0.3 }, a: LUNGE, extra: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], ev: [{ f: 4, name: 'smear', len: 1, bone: 'weapon' }, { f: 5, name: 'strike' }], warp: [0, 1, 2, 3, 3, 5, 6, 7, 8, 9, 10, 11] },
   hurl: { clip: 'thrust', o: { torso: 0.4, travel: 0.5, feet: 0.5 }, a: STAB, extra: [2, 3, 4, 5, 6, 8, 10], ev: [{ f: 5, name: 'strike' }], warp: [0, 1, 2, 3, 3, 5, 6, 7, 8, 9, 10, 11] },
-  cast: { clip: 'idle', o: { torso: 0.2, travel: 0, feet: 0 }, a: HEAVY_CUT, extra: [], ev: [], warp: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] },
+  cast: {
+    clip: 'idle',
+    o: { torso: 0, travel: 0, feet: 0 },
+    a: CAST,
+    extra: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+    ev: [...[1, 2, 3, 4, 5, 6, 7, 8, 9].map((k) => ({ f: k, name: 'flare', int: [0, 1, 2, 3, 3, 4, 4, 3, 2, 1][k]! })), { f: 5, name: 'bolt', len: 2 }, { f: 5, name: 'strike' }],
+    warp: [0, 1, 2, 3, 3, 5, 6, 7, 8, 9, 10, 11],
+  },
   butt: { clip: 'thrust', o: { torso: 0.4, travel: 0.5, feet: 0.5 }, a: BUTT, extra: [3, 5, 6, 9], ev: [{ f: 5, name: 'smear', len: 1, bone: 'weapon' }, { f: 5, name: 'strike' }], warp: [0, 1, 2, 3, 3, 5, 6, 7, 8, 9, 10, 11] },
   loose: { clip: 'thrust', o: { torso: 0.5, travel: 1, feet: 0.8 }, a: HEAVY_CUT, extra: [], ev: [], warp: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] },
 };
@@ -378,12 +408,14 @@ export function footClips(skel: SkeletonData, s: FootClipSpec): ClipSet {
   // One stop-motion hold a stride: the trunk, arms and skull freeze for two frames, then jerk on.
   // A wraith glides: the feet slide under the hem with a small shuffle and never lift, the body
   // does not bob, the cloak streams behind; only the stop-motion hold breaks the glide.
+  // (A floating figure glides a hand's breadth off the ground.)
+  const lift = s.float ? -0.3 : 0;
   const glideA = (lean: number, shuffle: number, bob: number, bobs: number, head = 0): Author => () => ({
     dw: { spine: T([0, lean]), chest: T([0, lean * 0.4]), jaw: T([0, -6]), ...(head ? { head: T([0, head]) } : {}) },
     tAdd: {
-      footTargetN: [T([0, shuffle], [6, -shuffle], [12, shuffle]), T([0, 0])],
-      footTargetF: [T([0, -shuffle], [6, shuffle], [12, -shuffle]), T([0, 0])],
-      pelvis: [T([0, 0]), Array.from({ length: bobs * 2 + 1 }, (_, i) => [(i * 12) / (bobs * 2), i % 2 ? -bob : 0] as [number, number])],
+      footTargetN: [T([0, shuffle], [6, -shuffle], [12, shuffle]), T([0, lift])],
+      footTargetF: [T([0, -shuffle], [6, shuffle], [12, -shuffle]), T([0, lift])],
+      pelvis: [T([0, 0]), Array.from({ length: bobs * 2 + 1 }, (_, i) => [(i * 12) / (bobs * 2), lift + (i % 2 ? -bob : 0)] as [number, number])],
     },
   });
   const glideKeys = (lean: number, shuffle: number, bob: number, bobs: number, head = 0) => (f: Facing) =>
@@ -403,7 +435,12 @@ export function footClips(skel: SkeletonData, s: FootClipSpec): ClipSet {
   // (The skull holds still: any turn or jerk of it in the idle reads as boil at this size and
   // fails the lint's head-churn gate.)
   const idleA: Author = (rw) => ({ w: { head: T([0, rw.head! + s.tilt]) }, dw: { jaw: T([0, -8]), spine: T([0, -s.hunch * 0.6]), chest: T([0, -s.hunch * 0.4]), ...(s.idle ?? {}) }, tAdd: { pelvis: [T([0, 0], [2, 0.15], [4, 0], [6, -0.15], [8, 0]), T([0, 0])] } });
-  const idle = withBreath(fc('idle', 8, true, (f) => mk(skel, f, 'idle', { ref: 'first', torso: 0, travel: 0.15, feet: 0 }, idleA, [2, 4, 4.5, 6, 6.5])), 1.0);
+  // Floating: hovering a hand's breadth off the ground, rising and sinking slowly.
+  const floatA: Author = () => {
+    const y = T([0, -0.15], [4, -0.4], [8, -0.15]);
+    return { tAdd: { pelvis: [T([0, 0]), y], footTargetN: [T([0, 0]), y], footTargetF: [T([0, 0]), y] } };
+  };
+  const idle = withBreath(fc('idle', 8, true, (f) => mk(skel, f, 'idle', { ref: 'first', torso: 0, travel: s.float ? 0 : 0.15, feet: 0 }, s.float ? both(idleA, floatA) : idleA, [2, 4, 4.5, 6, 6.5])), 1.0);
   // ---- the blow.
   const at = ATTACKS[s.attack];
   const attack = fc('attack', 12, false, (f) => mk(skel, f, at.clip, at.o, both(at.a, posture(s, 0.5, false)), at.extra), at.ev, 0, at.warp);
@@ -467,7 +504,7 @@ export function footClips(skel: SkeletonData, s: FootClipSpec): ClipSet {
       return { ...a, bones: { ...(a.bones ?? {}), pelvis: { ...(a.bones?.pelvis ?? {}), translate: sink }, chest: { ...(a.bones?.chest ?? {}), scaleY: [{ f: 0, v: 1 }, { f: 8, v: 1, c: EASE_IN }, { f: 10, v: 0.55 }, { f: 11, v: 0.6 }] } } };
     });
   const die = s.die === 'dissolve'
-    ? addDrops(skel, dissolve(fc('die', 12, false, (f) => mk(skel, f, 'hit', { torso: 0, absHeight: true, travel: 0, feet: 0 }, DISSOLVE, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]), [{ f: 8, name: 'land' }, ...[5, 6, 7, 8, 9, 10].map((k) => ({ f: k, name: 'wisp', int: k - 4 }))], 0)), 12, drops)
+    ? addDrops(skel, dissolve(fc('die', 12, false, (f) => mk(skel, f, 'hit', { torso: 0, absHeight: true, travel: 0, feet: 0 }, DISSOLVE, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]), [{ f: 8, name: 'land' }, ...[5, 6, 7, 8, 9, 10].map((k) => ({ f: k, name: 'wisp', int: k - 4 }))], 0), skel), 12, drops)
     : addDrops(skel, collapse(groundClamp(skel, fc('die', 12, false, dieKeys, [{ f: s.die === 'back' ? 7 : 9, name: 'land' }], 0), 12, s.lie ?? 0.7)), 12, drops);
 
   const dead = mapFacings(die, (a) => lastFrame(a, 'dead'));
