@@ -15,7 +15,7 @@ import { Anim } from '../contract.ts';
 import { along, limb, poseAt, snapDeg, type KeySet } from './rig.ts';
 import { bone, bow, crossbow, flame, frameOf, helm, hood, horseBody, horseFar, horseFrame, horseNear, lance, withHorseBulk, mul, pavise, planeLight, quiver, rag, robe, skull, spear, UM } from './undead-parts.ts';
 import {
-  BLACK_RIDER_KEYS, boneJavelin, COLOSSUS_KEYS, colossus, DEATH_KNIGHT_KEYS, ghoulHead, greatHelm, HORSE_ARCHER_KEYS, collar, lichChest, LICH_KEYS, spineCrown, lit, TREBUCHET_KEYS, trebuchet,
+  BLACK_RIDER_KEYS, boneJavelin, COLOSSUS_KEYS, colossus, DEATH_KNIGHT_KEYS, ghoulCranium, ghoulHead, ghoulJaw, greatHelm, HORSE_ARCHER_KEYS, collar, lichChest, LICH_KEYS, spineCrown, lit, TREBUCHET_KEYS, trebuchet,
 } from './undead.ts';
 
 // ------------------------------------------------------------------ volumes
@@ -231,6 +231,8 @@ function kiteShield(c: Paper, at: P2, h: number, w: number, tilt: number): void 
 
 /** A rusted arming sword held at `grip`, blade toward `deg`. */
 function bigSword(c: Paper, grip: P2, deg: number, len: number): void {
+  // At level 1 the blade is a two-pixel line: on the diagonal its steps are even.
+  if (c.L <= 1) deg = Math.round(deg / 45) * 45;
   const g0 = along(grip, deg, 0.55);
   const tip = along(g0, deg, len);
   c.rod(g0, tip, 0.8, 0.3, UM.steel, {
@@ -556,17 +558,52 @@ function fleshVol(c: Paper, a: P2, b: P2, wa: number, wb: number, far: boolean):
 }
 
 /** The Ghoul Spearman: a hunched, sinewy corpse-eater with a long spear and a rag tied under the blade. */
+export const GHOUL: FootArt = {
+  axis: 0.3,
+  ne: { N: 'shift', F: 'shift' },
+  J: {
+    pelvis: [-0.3, -5.9], waist: [0.25, -7.15], mid: [0.95, -8.6], neck: [1.6, -10.0], head: [2.6, -10.7],
+    hipN: [-1.0, -5.8], kneeN: [-0.3, -3.1], ankN: [-1.1, -0.6], hipF: [0.6, -5.8], kneeF: [2.2, -3.2], ankF: [1.6, -0.6],
+    shN: [0.9, -9.7], elN: [2.0, -7.5], hN: [3.3, -7.3], shF: [2.5, -9.6], elF: [3.6, -7.6], hF: [2.6, -6.4], grip: [2.6, -6.4],
+  },
+  pieces: [
+    // The far leg and the far arm on the haft.
+    { slot: 'thighF', bone: 'thighF', draw: (c, J) => fleshVol(c, J.hipF!, J.kneeF!, 1.35, 0.95, true) },
+    { slot: 'shinF', bone: 'shinF', draw: (c, J) => fleshVol(c, J.kneeF!, J.ankF!, 0.9, 0.7, true) },
+    { slot: 'footF', bone: 'footF', draw: (c, J) => c.rod(J.ankF!, addP(J.ankF!, [1.3, 0.4]), 0.5, 0.3, UM.flesh, { tone: 1 }) },
+    { slot: 'upperArmF', bone: 'upperArmF', draw: (c, J) => fleshVol(c, J.shF!, J.elF!, 1.0, 0.8, true) },
+    { slot: 'forearmF', bone: 'forearmF', draw: (c, J) => fleshVol(c, J.elF!, J.hF!, 0.8, 0.65, true) },
+    // The loincloth.
+    { slot: 'skirt', bone: 'skirt', cloth: true, draw: (c, _J, _b, o) => rag(c, [-1.6, -6.4], [1.2, -6.3], 2.7, 0.2 + (o.sway ?? 0), UM.rag, UM.rag, 473, { tear: 0.4 }) },
+    // The torso: a hunched mass, the spine's knobs along the back, ribs standing out.
+    { slot: 'torso', bone: 'spine', draw: (c, J, back) => ghoulBody(c, J.pelvis!, J.neck!, back) },
+    // The near leg: a bent, sinewy thigh, a long shin, a clawed foot.
+    { slot: 'thighN', bone: 'thighN', draw: (c, J) => fleshVol(c, J.hipN!, J.kneeN!, 1.45, 1.0, false) },
+    { slot: 'shinN', bone: 'shinN', draw: (c, J) => fleshVol(c, J.kneeN!, J.ankN!, 0.95, 0.7, false) },
+    { slot: 'footN', bone: 'footN', draw: (c, J) => c.rod(J.ankN!, addP(J.ankN!, [1.5, 0.45]), 0.6, 0.3, UM.flesh, { tone: 2 }) },
+    // The head, thrust forward: the jaw hangs open on its own bone.
+    { slot: 'jaw', bone: 'jaw', draw: (c, J, back) => void (back || ghoulJaw(c, J.head!, -10)) },
+    { slot: 'skull', bone: 'head', draw: (c, J, back) => (back ? ghoulHead(c, J.head!, -10, true) : ghoulCranium(c, J.head!, -10)) },
+    // The spear, upright, and the near arm gripping it.
+    { slot: 'weapon', bone: 'weapon', draw: (c, J) => void spear(c, J.hN!, 174, 9.5, 5.6, { blade: 2.0, rag: true, sway: 0 }) },
+    { slot: 'upperArmN', bone: 'upperArmN', draw: (c, J) => fleshVol(c, J.shN!, J.elN!, 1.1, 0.85, false) },
+    {
+      slot: 'forearmN',
+      bone: 'forearmN',
+      draw: (c, J) => {
+        const hand = J.hN!;
+        fleshVol(c, J.elN!, hand, 0.85, 0.7, false);
+        c.blob(hand, 0.55, 0.5, UM.flesh, { tone: 2 });
+        for (const d of [-20, 10]) c.rod(hand, along(hand, 120 + d, 0.7), 0.2, 0.08, UM.bone, { tone: 3 });
+      },
+    },
+  ],
+};
 function ghoulStatic(c: Paper): void {
-  const neck: P2 = [1.6, -10.0], pel: P2 = [-0.3, -5.9];
-  // The far leg and the far arm on the haft.
-  fleshVol(c, [0.6, -5.8], [2.2, -3.2], 1.35, 0.95, true);
-  fleshVol(c, [2.2, -3.2], [1.6, -0.6], 0.9, 0.7, true);
-  c.rod([1.6, -0.6], [2.9, -0.2], 0.5, 0.3, UM.flesh, { tone: 1 });
-  fleshVol(c, [2.5, -9.6], [3.6, -7.6], 1.0, 0.8, true);
-  fleshVol(c, [3.6, -7.6], [2.6, -6.4], 0.8, 0.65, true);
-  // The loincloth.
-  rag(c, [-1.6, -6.4], [1.2, -6.3], 2.7, 0.2, UM.rag, UM.rag, 473, { tear: 0.4 });
-  // The torso: a hunched mass, the spine's knobs along the back, ribs standing out.
+  drawPieces(c, GHOUL);
+}
+/** The ghoul's hunched trunk from the hips to the neck: ribs standing out in front, the spine's knobs along the back (from behind, the knobs and the shoulder blades). */
+function ghoulBody(c: Paper, pel: P2, neck: P2, bk: boolean): void {
   const s: P2 = [neck[0] - pel[0], neck[1] - pel[1]];
   const n: P2 = mul([-s[1], s[0]], 1 / Math.hypot(...s));
   const at = (t: number, w: number): P2 => addP(addP(pel, mul(s, t)), mul(n, w));
@@ -579,7 +616,11 @@ function ghoulStatic(c: Paper): void {
     detail: (x, y, rx, ry) => {
       const dx = (x + 0.5 - c.sx(pel[0])) / c.L, dy = (y + 0.5 - c.sy(pel[1])) / c.L;
       const t = (dx * s[0] + dy * s[1]) / Math.hypot(...s) ** 2, w = dx * n[0] + dy * n[1];
-      if (t > 0.4 && t < 0.88 && w > -0.4) {
+      if (bk) {
+        // The spine's ridge down the middle of the back and a shoulder blade under the skin.
+        if (Math.abs(w + 0.35) < 0.14 && t > 0.15) return code(UM.flesh, (Math.floor(t * 9) & 1) ? 3 : 1);
+        if (t > 0.6 && t < 0.85 && Math.abs(w - 0.45) < 0.1) return code(UM.flesh, 1);
+      } else if (t > 0.4 && t < 0.88 && w > -0.4) {
         const r = (t * Math.hypot(...s)) % 0.68;
         if (r < 0.14) return code(UM.flesh, 1);
         if (r < 0.28) return code(UM.flesh, 3);
@@ -590,19 +631,6 @@ function ghoulStatic(c: Paper): void {
     },
   });
   for (let i = 1; i < 6; i++) c.blob(at(i / 6, -back[Math.min(4, Math.round((i / 6) * 4))]! + 0.1), 0.3, 0.26, UM.flesh, { tone: 3 });
-  // The near leg: a bent, sinewy thigh, a long shin, a clawed foot.
-  fleshVol(c, [-1.0, -5.8], [-0.3, -3.1], 1.45, 1.0, false);
-  fleshVol(c, [-0.3, -3.1], [-1.1, -0.6], 0.95, 0.7, false);
-  c.rod([-1.1, -0.6], [0.4, -0.15], 0.6, 0.3, UM.flesh, { tone: 2 });
-  // The head, thrust forward.
-  ghoulHead(c, [2.6, -10.7], -10, false);
-  // The spear, upright, and the near arm gripping it.
-  const hand: P2 = [3.3, -7.3];
-  spear(c, hand, 174, 9.5, 5.6, { blade: 2.0, rag: true, sway: 0 });
-  fleshVol(c, [0.9, -9.7], [2.0, -7.5], 1.1, 0.85, false);
-  fleshVol(c, [2.0, -7.5], hand, 0.85, 0.7, false);
-  c.blob(hand, 0.55, 0.5, UM.flesh, { tone: 2 });
-  for (const d of [-20, 10]) c.rod(hand, along(hand, 120 + d, 0.7), 0.2, 0.08, UM.bone, { tone: 3 });
 }
 
 /** A skeleton's bone for key art: never under three pixels at level 8, knobbed at the joint. */
