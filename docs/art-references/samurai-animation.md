@@ -138,6 +138,22 @@ committed; the screenshots in `docs/screenshots/hd-sprites/samurai-anim-*.png` a
   buckles onto its knees, then its hind legs, the neck stretching out; the rider is pitched back
   over the cantle and the yari falls free.
 
+### Yabusame Archers (6)
+- **Idle** is the key art: the yumi across the horse's neck with an arrow nocked to the draw hand.
+  On the march and at the gallop the bow is carried braced (no string to the bobbing hand).
+- **Shoot: yabusame at the gallop** on the gallop keys: the bow raised over the head (1-2), drawn
+  to behind the ear while it comes down (3-5), held (6), loosed with the draw hand flying back (7),
+  held in zanshin (8-9), lowered for the next arrow (10-11); the string runs to the draw hand and the
+  bow bends with the draw. The rider leans a little forward over the neck and sits plumb while the
+  barrel pitches under him.
+- **Attack**: a stab with the arrow from the saddle.
+
+### Hatamoto Horse (7)
+- **Idle** is the key art: the katana raised, the horo on his back. **Run**: the katana held high
+  for the charge; the horo balloons (its bone stretched back 35% with a flutter) and trails.
+- **Attack: the cut at the charge**: the katana over the near shoulder, the rider leaning out over
+  the neck, the blade falling down the horse's near side under a solid smear, held, back up.
+
 ## Critique rounds
 
 ### Katana Samurai
@@ -244,6 +260,16 @@ warnings (41-68°) and jaggies at levels 1-2 on the skirmisher.
 3. **Round 3.** The light read from the bottom-right at levels 1-2 (bright legs and hooves under a
    dark rider): the lower legs and hooves are the darkest tone there, the barrel two big planes
    (croup and back lit, belly in shade), the tail lit with the croup.
+
+### Yabusame and Hatamoto
+1. **Round 1.** The yumi in NE was drawn over the horse; from behind it is on the horse's far side:
+   it now goes before the horse's body.
+2. **Round 2.** The top of the yabusame sprite churned in the walk (lint): the rider rotated with the
+   barrel's pitch, swinging the tall bow by whole steps, and the nocked string followed the bobbing
+   hand. The rider now sits plumb (Plate 626: the horse moves under him) and the bow is carried
+   braced off the shot.
+3. **Round 3.** At 13 px the horse archers' black bow over the horse and the white socks at its feet
+   inverted the light: the bow is a pale bamboo line and the socks drop out at level 1.
 
 Katana Samurai lint before the pass (level 1/2/4/8): no FAIL. Warnings left: aligned band ends 0.24-0.30, outline and figure vs
 ground ΔL 0.07-0.13, light-angle error at levels 1-2, mid-widest silhouettes. Level-1 silhouette:

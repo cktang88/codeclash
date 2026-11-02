@@ -99,7 +99,9 @@ function orders(s: HorseSpec, m: SMounted): { se: string[]; ne: string[] } {
   const nearArm = ['forearmN', 'handN', 'weapon', 'gripN', 'smear'];
   const front = s.neFront ?? false;
   const neRider = ['farItem', 'gripF', 'upperArmF', 'forearmF', 'handF', 'sodeF', ...(front ? nearArm : []), 'kusaFF', 'kusaFM', 'kusaFN', 'hipGear', 'torso', 'kusaBN', 'kusaBF', 'head', 'back', 'upperArmN', 'sodeN', ...(front ? [] : nearArm)];
-  const ne = ['weaponDrop', 'farDrop', ...HORSE_FAR.map(hs), ...RIDER_FAR_LEG, ...HORSE_BODY.map(hs), ...neRider.filter((p) => rider.includes(p as ManPiece) || p === 'smear'), ...RIDER_NEAR_LEG, 'abumi', 'flash'];
+  // From behind, what the far hand holds (the yumi) is on the horse's far side: behind its body.
+  const neFar = rider.includes('farItem') ? ['farItem', 'gripF'] : [];
+  const ne = ['weaponDrop', 'farDrop', ...HORSE_FAR.map(hs), ...RIDER_FAR_LEG, ...neFar, ...HORSE_BODY.map(hs), ...neRider.filter((p) => (rider.includes(p as ManPiece) || p === 'smear') && !neFar.includes(p)), ...RIDER_NEAR_LEG, 'abumi', 'flash'];
   return { se, ne };
 }
 
@@ -186,8 +188,10 @@ function horseParts(kind: number, m: SMounted, s: HorseSpec): AttachmentSet {
         const grip = withMap(partMap(x), () => mapPoint(rest[f].hnF));
         const len = Math.hypot(nock[0] - grip[0], nock[1] - grip[1]);
         const bend = drawing ? Math.max(0.05, Math.min(1, (len - 1.6) / 4.2)) : 0.05;
-        const loosed = ctx.events.some((e) => e.name === 'loosed');
-        yumi(c, grip, (s.farDeg ?? 176) + x.turned * 7.5, bend, loosed ? null : nock, !loosed);
+        // The arrow is on the string at rest and through the draw; on the march and the gallop the
+        // bow is carried braced (a string following the bobbing hand would churn the top of the sprite).
+        const nocked = drawing || ctx.events.some((e) => e.name === 'nocked');
+        yumi(c, grip, (s.farDeg ?? 176) + x.turned * 7.5, bend, nocked ? nock : null, nocked, true);
       },
     };
   }
@@ -273,7 +277,9 @@ function riderGait(bob: Track, n: number, s: HorseSpec, run: boolean): Author {
       lagged.push([f, Math.round((was - now) * 0.6 * 100) / 100]);
     }
     const w: Record<string, Track> = { head: T([0, rw.head! - (run ? 6 : 0)]) };
-    const dw: Record<string, Track> = run ? { spine: T([0, -12]) } : {};
+    // The rider sits plumb whatever the barrel's pitch (Plate 626: the horse moves under him), so the
+    // tall things he carries do not swing at the top of the sprite.
+    const dw: Record<string, Track> = run ? { pelvis: T([0, 0]), spine: T([0, -12]) } : { pelvis: T([0, 0]) };
     // At the charge: the yari couched level over the neck; the katana raised high; the bow held.
     if (run && s.ride === 'couch') Object.assign(w, { upperArmN: T([0, -10]), forearmN: T([0, 76]), weapon: T([0, s.charge]) });
     else if (run && s.ride === 'cut') Object.assign(w, { upperArmN: T([0, 150]), forearmN: T([0, 175]), weapon: T([0, s.charge]) });
@@ -352,7 +358,7 @@ function horseClips(skel: SkeletonData, s: HorseSpec, m: SMounted): ClipSet {
     const g = gaitKeys(name, f, run ? { pitch: 2.2, neck: 1.4, tail: -50 } : { pitch: 1.5, neck: 1.2, tail: -6 });
     return overlayKeys(g.keys, riderGait(g.bob, 12, s, run)(restWorld(skel, f), f));
   };
-  const idle = breath(fc('idle', 8, true, standKeys(8, skel)));
+  const idle = breath(fc('idle', 8, true, standKeys(8, skel), s.shoot ? [{ f: 0, name: 'nocked', len: 9 }] : []));
   let walk = fc('walk', 12, true, gait('horse-walk', false), [{ f: 0, name: 'step' }, { f: 3, name: 'step' }, { f: 6, name: 'step' }, { f: 9, name: 'step' }], 0.3);
   let run = fc('run', 12, true, gait('horse-gallop', true), [{ f: 3, name: 'step' }, { f: 5, name: 'step' }, { f: 6, name: 'step' }, { f: 10, name: 'step' }], 1);
   if (horo) {
@@ -374,7 +380,7 @@ function horseClips(skel: SkeletonData, s: HorseSpec, m: SMounted): ClipSet {
   if (horo && s.ride !== 'stab') attack = billow(attack, 12, 0.35);
   // Yabusame: the shot at the gallop.
   const shoot = s.shoot === 'kyudo'
-    ? fc('shoot', 12, false, galloping(YABUSAME, () => ({})), [{ f: 1, name: 'draw', len: 6 }, { f: 7, name: 'release' }, { f: 7, name: 'loosed', len: 3 }], 1)
+    ? fc('shoot', 12, false, galloping(YABUSAME, () => ({})), [{ f: 0, name: 'nocked', len: 1 }, { f: 1, name: 'draw', len: 6 }, { f: 7, name: 'release' }], 1)
     : attack;
   // Struck: the horse shies (head up, a half-step back), the rider snaps back; a flash.
   const shy: Author = () => ({ dw: { horseNeck: T([0, 14], [1, 20], [2, 10], [4, 0]), horseBody: T([0, 3], [1, 5], [2, 2], [4, 0]), horseHead: T([0, 8], [1, 10], [4, 0]) }, tAdd: { horseBody: [T([0, -0.3], [1, -0.5], [2, -0.3], [4, 0]), T([0, 0])] } });

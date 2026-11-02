@@ -694,7 +694,7 @@ export function shaft(c: Paper, grip: P2, deg: number, butt: number, fore: numbe
   const a = c.q(addP(grip, mul(d, -butt))), b = c.q(addP(grip, mul(d, fore)));
   // An upright pole rises over the figure, where the light is: it keeps the base tone.
   const upright = Math.abs(((deg % 360) + 360) % 360 - 180) < 35;
-  stick(c, a, b, w, mat, upright ? (c.L === 2 ? 3 : 2) : WT(c));
+  stick(c, a, b, w, mat, upright ? (c.L <= 2 ? 3 : 2) : WT(c));
   return [a, b];
 }
 
@@ -741,7 +741,7 @@ export function javelin(c: Paper, grip: P2, deg: number): void {
  * rattan bindings. `axis` is the bow's long direction (180 = upright), `bend` how far it is drawn
  * (0..1); with `nock` the string is pulled to that point and an arrow lies along it.
  */
-export function yumi(c: Paper, grip: P2, axis: number, bend: number, nock: P2 | null, arrow: boolean): void {
+export function yumi(c: Paper, grip: P2, axis: number, bend: number, nock: P2 | null, arrow: boolean, pale = false): void {
   const L = c.L;
   const up = limb(axis);
   const fwd: P2 = [-up[1], up[0]]; // toward the target for an upright bow (screen right)
@@ -758,7 +758,9 @@ export function yumi(c: Paper, grip: P2, axis: number, bend: number, nock: P2 | 
     // The rattan bindings from level 8; below, the bow is one unbroken line (two-pixel limbs cut
     // into segments at the same rows read as banding).
     const bind = L >= 8 && (i === 2 || i === 6 || i === 8);
-    if (L <= 4) c.line(pts[i]!, pts[i + 1]!, code(SM.black, WT(c)));
+    // (`pale`: at 13 px the horse archer's bow is a pale bamboo line: a black one standing high over
+    // the horse reads as the figure's shadow side.)
+    if (L <= 4) c.line(pts[i]!, pts[i + 1]!, L <= 1 && pale ? code(SM.wood, 4) : code(SM.black, WT(c)));
     else stick(c, pts[i]!, pts[i + 1]!, 0.26, bind ? SM.shu : SM.black, bind ? 3 : WT(c)); // lacquered rattan bindings
   }
   const top = pts[pts.length - 1]!, bot = pts[0]!;
