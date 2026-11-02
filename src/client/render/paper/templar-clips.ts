@@ -23,9 +23,9 @@ export interface ClipSpec {
   nearDeg?: number;
 }
 
-type Tracks = Parameters<typeof overlayKeys>[1];
+export type Tracks = Parameters<typeof overlayKeys>[1];
 /** Authored tracks for a facing, given the rest world angles (to start and end at rest). */
-type Author = (rw: Record<string, number>, f: Facing) => Tracks;
+export type Author = (rw: Record<string, number>, f: Facing) => Tracks;
 
 /** Cloth bones driven late by the body (templar-rig.ts lagCloth). */
 export function cloth(run: number): LagSpec[] {
@@ -36,15 +36,15 @@ export function cloth(run: number): LagSpec[] {
   ];
 }
 
-const T = (...kv: [number, number][]): Track => kv;
+export const T = (...kv: [number, number][]): Track => kv;
 /** A track from rest through the given keys and back to rest at `end`. */
-const R = (rest: number, end: number, ...kv: [number, number][]): Track => [[0, rest], ...kv, [end, rest]];
+export const R = (rest: number, end: number, ...kv: [number, number][]): Track => [[0, rest], ...kv, [end, rest]];
 const zero: [Track, Track] = [[[0, 0]], [[0, 0]]];
 
 // ------------------------------------------------------------------ attacks
 
 /** The cut (cut-diagonal: wind-up 3-4, strike 5-6, impact held 7-8): the blade up in front, over the shoulder, through on the diagonal with a step in. */
-const CUT: Author = (rw) => ({
+export const CUT: Author = (rw) => ({
   w: {
     upperArmN: R(rw.upperArmN!, 11, [2, 40], [4, 160], [5, 138], [6, 95], [7, 62], [8, 56], [10, 20]),
     forearmN: R(rw.forearmN!, 11, [2, 150], [4, 212], [5, 165], [6, 92], [7, 42], [8, 34], [10, 20]),
@@ -57,7 +57,7 @@ const CUT: Author = (rw) => ({
   },
 });
 /** The overarm spear thrust (thrust: the drive 3-5, held 5-6, slower back): the point travels level along the shaft. */
-const THRUST: Author = (rw) => ({
+export const THRUST: Author = (rw) => ({
   // 0-2 chamber: the spear comes down level over the shield and is drawn back past the ear, the
   // weight on the rear foot; 3-4 the drive: hips first, the front foot lunges, the arm shoots out
   // along the shaft; 5-6 held at full reach; 7-11 drawn back and brought up to the guard.
@@ -114,7 +114,7 @@ const JAVELIN: Author = (rw) => ({
   dw: { upperArmF: T([0, 0], [3, 40], [5, -10], [8, -15], [11, 0]), forearmF: T([0, 0], [3, 55], [5, 20], [11, 0]) },
 });
 /** The war bow (bow: raise 1-3, draw with the back 4-6, held, loose 7 with the draw hand flying back, the follow-through held). */
-const BOW: Author = (rw) => ({
+export const BOW: Author = (rw) => ({
   w: {
     upperArmF: R(rw.upperArmF!, 11, [2, 95], [4, 92], [7, 92], [8, 88], [10, 60]),
     forearmF: R(rw.forearmF!, 11, [2, 100], [4, 96], [7, 96], [8, 92], [10, 70]),
@@ -137,7 +137,7 @@ const CROSSBOW: Author = (rw) => ({
 // ------------------------------------------------------------------ the rest
 
 /** Struck: the struck shoulder and head snap back first, then the trunk; the rear foot steps back to catch the weight (over the capture's dropped hips). */
-const HIT: Author = () => ({
+export const HIT: Author = () => ({
   dw: {
     spine: T([0, 16], [1, 20], [2, 12], [3, 5], [4, 0]), head: T([0, 18], [1, 24], [2, 14], [3, 6], [4, 0]),
     upperArmN: T([0, 18], [1, 26], [2, 10], [4, 0]), forearmN: T([0, 30], [1, 40], [2, 16], [4, 0]),
@@ -147,7 +147,7 @@ const HIT: Author = () => ({
 });
 
 /** The shield block (Hit for shielded kinds): punch the shield out to meet the blow, the head ducks behind the rim; the blow jolts it back, the weight rocks onto the rear foot; back to guard. */
-const BLOCK: Author = () => ({
+export const BLOCK: Author = () => ({
   dw: {
     upperArmF: T([0, 0], [1, 30], [2, 18], [4, 0]), forearmF: T([0, 0], [1, 24], [2, 14], [4, 0]),
     spine: T([0, 0], [1, -6], [2, 5], [4, 0]), head: T([0, 0], [1, -8], [2, 2], [4, 0]),

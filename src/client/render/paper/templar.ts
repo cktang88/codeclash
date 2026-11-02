@@ -21,6 +21,7 @@ import { addP, type P2, type Paper } from './core.ts';
 import { isBack, type Facing } from './facing.ts';
 import { registerPaperKind, type PaperKindDef } from './registry.ts';
 import { registerFootRigs } from './templar-foot.ts';
+import { registerHorseRigs } from './templar-horse.ts';
 import { ENGINE0, FOOT0, HORSE0, poser, settle, swing, type BasePose, type EnginePose, type FootPose, type HorsePose, type KeySet } from './rig.ts';
 import {
   arrow, at, beauseant, bow, crossbow, daneAxe, horse, kite, man, paintAs, pavise, quiver, round, spear, sword, TM, trebuchet,
@@ -627,3 +628,4 @@ export type { Rig };
 // The kinds rebuilt on bones from the approved key art (templar-foot.ts) replace their pose-rig
 // figures above.
 registerFootRigs([0, 1, 2, 3, 4, 8]);
+registerHorseRigs([5, 6, 7, 10]);

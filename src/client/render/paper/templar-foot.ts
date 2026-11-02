@@ -71,7 +71,7 @@ export function neRest(R: ManRest, s: FootSpec): ManRest {
 /** The skirt's hem (key-art y) for a kit. */
 const hemOf = (k: SKit): number => (k.short ? -5.2 : -3.3);
 
-function joints(R: ManRest, s: FootSpec, k: SKit): Record<string, { from: P2; to: P2 }> {
+export function joints(R: ManRest, s: FootSpec, k: SKit): Record<string, { from: P2; to: P2 }> {
   const hN = handAt(R.elN, R.wrN), hF = handAt(R.elF, R.wrF);
   const pel: P2 = [(R.hipN[0] + R.hipF[0]) / 2, -6.55];
   const nd = s.nearDeg ?? 20, fd = s.farDeg ?? 0;
@@ -108,7 +108,7 @@ function joints(R: ManRest, s: FootSpec, k: SKit): Record<string, { from: P2; to
     dropW: { from: hN, to: along(hN, nd, 4) },
   };
 }
-const PARENT: Record<string, string | undefined> = {
+export const PARENT: Record<string, string | undefined> = {
   root: undefined, pelvis: 'root', spine: 'pelvis', chest: 'spine', neck: 'chest', head: 'neck',
   upperArmN: 'chest', forearmN: 'upperArmN', handN: 'forearmN', weapon: 'handN', grip2: 'weapon',
   upperArmF: 'chest', forearmF: 'upperArmF', handF: 'forearmF', itemF: 'handF',

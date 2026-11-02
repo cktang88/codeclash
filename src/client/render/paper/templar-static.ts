@@ -828,7 +828,7 @@ export const FOOT: Record<number, { kit: SKit; gear: SGear; dark: boolean }> = {
 
 // ------------------------------------------------------------------ the horse
 
-interface SHorse {
+export interface SHorse {
   coat: Mat;
   capar?: Mat | null;
   cloth?: boolean;
@@ -878,138 +878,193 @@ function formTone(ux: number, uy: number, masses: Mass[]): number {
  * long head; tapering legs with the knee, the hock, the fetlock and a broad hoof; a mane and tail
  * of strands. Muybridge for the legs, the Maciejowski horses and Medieval II for the mass.
  */
-function horseS(c: Paper, k: SHorse, part: 'far' | 'body'): void {
+/** The key art's horse joints (horse units, before HORSE_SCALE): leg tops, knees or hocks, fetlocks. */
+export const HJ = {
+  foreF: [[4.3, -6.6], [4.85, -3.3], [4.75, -1.25]] as [P2, P2, P2],
+  hindF: [[-3.6, -7.0], [-4.3, -3.5], [-4.1, -1.25]] as [P2, P2, P2],
+  foreN: [[3.9, -6.2], [4.3, -3.2], [4.15, -1.2]] as [P2, P2, P2],
+  hindN: [[-4.4, -6.6], [-5.25, -3.3], [-4.95, -1.2]] as [P2, P2, P2],
+  poll: [7.2, -14.9] as P2,
+  /** The head's own axis (frameAt degrees, clockwise from screen right). */
+  headDeg: 52,
+};
+/** The hoof's tip below a fetlock. */
+export const hoofAt = (fet: P2): P2 => addP(fet, [0.3, 0.85]);
+
+/** A piece of the horse, each drawn on its own (a rig part rides one bone). */
+export type HorsePiece =
+  | 'foreFU' | 'foreFL' | 'foreFH' | 'hindFU' | 'hindFL' | 'hindFH'
+  | 'tail' | 'barrel' | 'foreNU' | 'foreNL' | 'foreNH' | 'hindNU' | 'hindNL' | 'hindNH'
+  | 'neck' | 'mane' | 'head' | 'capar' | 'cloth' | 'saddle' | 'girth';
+export const HORSE_FAR: readonly HorsePiece[] = ['foreFU', 'foreFL', 'foreFH', 'hindFU', 'hindFL', 'hindFH'];
+export const HORSE_BODY: readonly HorsePiece[] = ['tail', 'barrel', 'foreNU', 'foreNL', 'foreNH', 'hindNU', 'hindNL', 'hindNH', 'neck', 'mane', 'head', 'capar', 'cloth', 'saddle', 'girth'];
+
+const HORSE_MASSES: Mass[] = [
+  { o: [0.2, -7.6], r: [4.6, 2.75] }, // barrel
+  { o: [-3.6, -8.0], r: [3.0, 2.9] }, // haunch
+  { o: [4.0, -7.9], r: [1.95, 2.5] }, // shoulder and chest
+];
+/** The caparison's outline (horse units): over the croup and barrel to the knees, up the neck. */
+export const CAPAR_PTS: P2[] = [
+  [-7.1, -8.2], [-6.6, -10.1], [-4.6, -11.05], [-2.3, -10.65], [0.3, -10.45], [2.5, -11.0], [4.2, -12.4], [5.6, -14.0], [7.0, -15.0], [7.95, -14.4], [7.6, -12.4],
+  [6.9, -10.3], [6.6, -7.6], [6.5, -4.4], [5.4, -4.05], [4.1, -4.45], [2.8, -4.05], [1.5, -4.45], [0.2, -4.05], [-1.1, -4.45], [-2.4, -4.05], [-3.7, -4.45], [-5.0, -4.05], [-6.2, -4.4], [-7.2, -4.2], [-7.4, -6.2],
+];
+
+/**
+ * A heavy horse in three-quarter profile, head to screen right, built from curves: a rounded
+ * barrel, a deep chest and a muscled shoulder, a round croup over the haunch, an arched neck, a
+ * long head; tapering legs with the knee, the hock, the fetlock and a broad hoof; a mane and tail
+ * of strands. Muybridge for the legs, the Maciejowski horses and Medieval II for the mass.
+ * One piece of it (horse units; the caller scales by HORSE_SCALE). `back`: the NE view.
+ */
+export function horsePiece(c: Paper, k: SHorse, p: HorsePiece, back = false): void {
   const m = k.coat;
-  const masses: Mass[] = [
-    { o: [0.2, -7.6], r: [4.6, 2.75] }, // barrel
-    { o: [-3.6, -8.0], r: [3.0, 2.9] }, // haunch
-    { o: [4.0, -7.9], r: [1.95, 2.5] }, // shoulder and chest
-  ];
-  const fore = (top: P2, knee: P2, fet: P2, far: boolean) => {
+  const leg = (j: [P2, P2, P2], fore: boolean, far: boolean, seg: 'U' | 'L' | 'H') => {
     const t = far ? 1 : 2;
-    // Forearm: muscled at the top, tapering into the flat knee.
-    vol(c, top, knee, [[0, 0.95], [0.3, 0.85], [0.8, 0.52], [1, 0.5]], m, { tone: t });
-    blob(c, knee, 0.52, 0.48, m, { tone: t });
-    // Cannon: a flat bone, then the fetlock knob, the pastern and the hoof.
-    vol(c, knee, fet, [[0, 0.42], [0.5, 0.36], [1, 0.4]], m, { tone: t - 1 });
-    hoofS(fet, far);
-  };
-  const hind = (stifle: P2, hock: P2, fet: P2, far: boolean) => {
-    const t = far ? 1 : 2;
-    // Gaskin: the second thigh, thick behind, narrowing to the point of the hock.
-    vol(c, stifle, hock, [[0, 1.2], [0.4, 0.95], [0.85, 0.55], [1, 0.5]], m, { tone: t });
-    blob(c, addP(hock, [-0.2, -0.05]), 0.5, 0.45, m, { tone: t + 1 });
-    vol(c, hock, fet, [[0, 0.46], [0.5, 0.38], [1, 0.4]], m, { tone: t - 1 });
-    hoofS(fet, far);
-  };
-  const hoofS = (fet: P2, far: boolean) => {
-    blob(c, fet, 0.48, 0.42, m, { tone: far ? 0 : 1 });
-    const hoof = addP(fet, [0.3, 0.85]);
-    vol(c, fet, hoof, [[0, 0.36], [1, 0.4]], m, { tone: far ? 0 : 1 });
-    c.shape([addP(hoof, [-0.5, -0.12]), addP(hoof, [0.55, -0.15]), addP(hoof, [0.75, 0.38]), addP(hoof, [-0.55, 0.38])], (_x, y) => code(TM.mane, y < c.sy(hoof[1] + 0.1) ? 2 : 1));
-  };
-  if (part === 'far') {
-    fore([4.3, -6.6], [4.85, -3.3], [4.75, -1.25], true);
-    hind([-3.6, -7.0], [-4.3, -3.5], [-4.1, -1.25], true);
-    return;
-  }
-  // The tail: a switch of strands from the croup, swinging slightly, lighter at the tips' edges.
-  for (let i = 0; i < 6; i++) {
-    const a: P2 = [-6.1 + i * 0.07, -9.5 + i * 0.05];
-    const b: P2 = [-6.9 - Math.sin(i * 1.7) * 0.45 + i * 0.12, -3.6 - (i % 3) * 0.35];
-    vol(c, a, lerp(a, b, 0.5), [[0, 0.32], [1, 0.3]], TM.mane, { tone: i % 2 ? 1 : 2 });
-    vol(c, lerp(a, b, 0.5), b, [[0, 0.3], [1, 0.08]], TM.mane, { tone: i % 3 === 0 ? 3 : i % 2 ? 1 : 2 });
-  }
-  // Body: barrel, chest, croup and quarters in one curved outline.
-  const body = smooth([
-    [2.6, -10.7], [0.4, -10.1], [-2.4, -10.3], [-4.5, -10.75], [-6.2, -9.7], [-6.55, -8.1], [-6.0, -6.6], [-4.8, -5.7],
-    [-2.8, -5.15], [0.2, -4.75], [2.9, -5.05], [4.5, -5.8], [5.75, -6.9], [6.15, -8.3], [5.4, -9.6], [4.2, -10.5],
-  ]);
-  shapeU(c, body, [0, 0], (x, y, ux, uy) => {
-    let t = formTone(ux, uy, masses);
-    // The grooves where the masses meet: behind the shoulder, in front of the stifle.
-    if (Math.abs(ux - (2.2 - (uy + 8) * 0.25)) < 0.14 && uy > -9.6 && uy < -5.6 && t > 1) t -= 1;
-    if (Math.abs(Math.hypot(ux + 4.3, uy + 8.3) - 2.3) < 0.13 && ux > -3.6 && uy > -9 && t > 1) t -= 1;
-    // Ribs faintly over the barrel, and dapples of grime.
-    if (Math.abs(((ux + 10) * 1.1) % 1 - 0.5) < 0.05 && ux > -1.6 && ux < 1.6 && uy > -7.6 && uy < -5.6 && t > 1) t -= 1;
-    if (c.tex(x, y, 21, 4) < 0.035) t -= 1;
-    return code(m, t);
-  });
-  // The near legs.
-  fore([3.9, -6.2], [4.3, -3.2], [4.15, -1.2], false);
-  hind([-4.4, -6.6], [-5.25, -3.3], [-4.95, -1.2], false);
-  // The neck: arched along the crest, deep at the base; lit along the crest, shade at the throat.
-  const neck = smooth([[2.3, -10.4], [3.6, -12.0], [5.2, -13.9], [6.6, -15.0], [7.6, -15.1], [8.2, -13.9], [7.6, -12.1], [6.7, -10.1], [6.1, -8.3], [4.6, -8.2]], 4);
-  shapeU(c, neck, [0, 0], (x, y, ux, uy) => {
-    // A curved tube: the normal from the neck's mid-line (crest to throat).
-    const along = (ux - 2.6) * 0.62 + (-uy - 10.2) * 0.78;
-    const mid: P2 = [2.9 + along * 0.62, -10.8 - along * 0.78 + 0.0];
-    const across = ((ux - mid[0]) * 0.78 + (uy - mid[1]) * 0.62) / 1.35;
-    let t = across < -0.45 ? 3 : across > 0.75 ? 1 : 2;
-    if (across < -0.75 && along > 1 && along < 5) t = 4;
-    if (Math.abs(across - 0.35) < 0.08 && along > 0.5 && along < 5) t -= 1; // the jugular groove
-    if (c.tex(x, y, 27, 4) < 0.035) t -= 1;
-    return code(m, t);
-  });
-  // The mane: strands falling from the crest onto the near side.
-  for (let i = 0; i < 10; i++) {
-    const k0 = i / 9;
-    const root: P2 = [2.7 + k0 * 4.4 - k0 * k0 * 0.4, -10.7 - k0 * 4.3];
-    const tip: P2 = addP(root, [0.45 + (i % 3) * 0.1, 0.6 + (i % 2) * 0.25]);
-    vol(c, root, tip, [[0, 0.34], [1, 0.12]], TM.mane, { tone: i % 3 === 0 ? 3 : 2 });
-  }
-  // The head in its own frame: along from the poll to the muzzle, across toward the jaw.
-  const poll: P2 = [7.2, -14.9];
-  const HF = frameAt(poll, 52);
-  const head = smooth([[-0.3, -0.62], [1.2, -0.72], [2.9, -0.48], [3.6, -0.3], [3.75, 0.25], [3.3, 0.68], [1.7, 0.82], [0.7, 1.35], [-0.25, 1.05], [-0.5, 0.3]], 4);
-  c.shape(head.map(([x, y]) => at(HF, x, y)), (x, y) => {
-    const [hx, hy] = local(c, HF, x, y);
-    if (Math.hypot(hx - 0.75, hy + 0.15) < 0.24) return code(TM.ink, 1); // eye
-    if (Math.hypot(hx - 0.68, hy + 0.3) < 0.12) return code(m, 4); // its catch-light above
-    if (Math.hypot(hx - 3.4, hy - 0.1) < 0.2) return code(TM.ink, 2); // nostril
-    if (within(c, hx - 0.25, 0.1) || within(c, hx - 2.6, 0.1) || (hy < -0.35 && hx > 0.25 && hx < 2.6 && within(c, hy + 0.5, 0.07))) return code(TM.leather, 2); // bridle
-    if (hx > 3.0) return code(m, hy < 0 ? 2 : 1); // the soft muzzle, darker
-    if (hx < 1.5 && hy > 0.55) return code(m, Math.hypot(hx - 0.7, hy - 0.8) < 0.35 ? 2 : 1); // the round jowl
-    if (hy < -0.45 && hx > 0.6 && hx < 2.4) return code(m, 4); // the lit nose bridge
-    return code(m, hy < -0.2 ? 3 : hy > 0.45 ? 1 : 2);
-  });
-  c.shape([at(HF, -0.25, -0.45), at(HF, -1.3, -0.8), at(HF, 0.2, -0.75)], () => code(m, 2));
-  lineK(c, at(HF, 2.7, 0.45), [3.0, -11.6], code(TM.leather, 1));
-  if (k.capar) {
-    // The caparison drapes over the curves: over the croup and the barrel to the knees, up the
-    // neck; heavy hanging folds with lit ridges, a scalloped hem, the red cross on the flank.
-    const cm = k.capar;
-    const capar = smooth([
-      [-7.1, -8.2], [-6.6, -10.1], [-4.6, -11.05], [-2.3, -10.65], [0.3, -10.45], [2.5, -11.0], [4.2, -12.4], [5.6, -14.0], [7.0, -15.0], [7.95, -14.4], [7.6, -12.4],
-      [6.9, -10.3], [6.6, -7.6], [6.5, -4.4], [5.4, -4.05], [4.1, -4.45], [2.8, -4.05], [1.5, -4.45], [0.2, -4.05], [-1.1, -4.45], [-2.4, -4.05], [-3.7, -4.45], [-5.0, -4.05], [-6.2, -4.4], [-7.2, -4.2], [-7.4, -6.2],
-    ], 3);
-    shapeU(c, capar, [0, 0], (x, y, ux, uy) => {
-      const vx = ux + 0.6, vy = uy + 7.6;
-      if ((within(c, vx, 0.62) && Math.abs(vy) < 2.2) || (within(c, vy + 0.4, 0.58) && Math.abs(vx) < 1.85)) return code(TM.red, vx < -0.25 ? 3 : 2);
-      let t = Math.min(3, formTone(ux, uy - 0.6, masses));
-      if (uy < -12.2 + (ux - 5) * 0.0) t = Math.max(t, 2);
-      // Folds hang straight down from the back, wider apart over the barrel.
-      if (uy > -9.8) {
-        const f = ((ux + 8) * 0.55 + Math.sin(uy * 0.9) * 0.05) % 1;
-        if (f < 0.11) t = Math.max(0, t - 1);
-        else if (f > 0.84 && f < 0.95) t = Math.min(4, t + 1);
+    const [top, mid, fet] = j;
+    if (seg === 'U') {
+      if (fore) {
+        // Forearm: muscled at the top, tapering into the flat knee.
+        vol(c, top, mid, [[0, 0.95], [0.3, 0.85], [0.8, 0.52], [1, 0.5]], m, { tone: t });
+        blob(c, mid, 0.52, 0.48, m, { tone: t });
+      } else {
+        // Gaskin: the second thigh, thick behind, narrowing to the point of the hock.
+        vol(c, top, mid, [[0, 1.2], [0.4, 0.95], [0.85, 0.55], [1, 0.5]], m, { tone: t });
+        blob(c, addP(mid, [-0.2, -0.05]), 0.5, 0.45, m, { tone: t + 1 });
       }
-      if (uy > -5.3 && c.tex(x, y, 59, 3) < 0.45) t = Math.max(0, t - 1);
-      // White cloth never drops to the deep tone: its shadow is a cool grey, not a brown hole.
-      return code(cm, Math.max(1, t));
-    });
-  } else if (k.cloth) {
-    shapeU(c, smooth([[-1.9, -10.2], [2.1, -10.4], [2.2, -7.2], [0.2, -6.8], [-1.8, -7.0]], 3), [0, -9], (_x, _y, ux, uy) => (uy > 1.6 ? code(TM.teamDk, 1) : code(TM.team, ux < -0.8 ? 3 : 2)));
+    } else if (seg === 'L') {
+      // Cannon: a flat bone.
+      vol(c, mid, fet, fore ? [[0, 0.42], [0.5, 0.36], [1, 0.4]] : [[0, 0.46], [0.5, 0.38], [1, 0.4]], m, { tone: t - 1 });
+    } else {
+      // The fetlock knob, the pastern and the hoof.
+      blob(c, fet, 0.48, 0.42, m, { tone: far ? 0 : 1 });
+      const hoof = hoofAt(fet);
+      vol(c, fet, hoof, [[0, 0.36], [1, 0.4]], m, { tone: far ? 0 : 1 });
+      const pts: P2[] = [addP(hoof, [-0.5, -0.12]), addP(hoof, [0.55, -0.15]), addP(hoof, [0.75, 0.38]), addP(hoof, [-0.55, 0.38])];
+      if (!XF) c.shape(pts, (_x, y) => code(TM.mane, y < c.sy(hoof[1] + 0.1) ? 2 : 1));
+      else shapeK(c, pts, (_x, _y, _ux, uy) => code(TM.mane, uy < hoof[1] + 0.1 + 0.5 / c.L ? 2 : 1));
+    }
+  };
+  switch (p) {
+    case 'foreFU': case 'foreFL': case 'foreFH': return leg(HJ.foreF, true, true, p[5] as 'U');
+    case 'hindFU': case 'hindFL': case 'hindFH': return leg(HJ.hindF, false, true, p[5] as 'U');
+    case 'foreNU': case 'foreNL': case 'foreNH': return leg(HJ.foreN, true, false, p[5] as 'U');
+    case 'hindNU': case 'hindNL': case 'hindNH': return leg(HJ.hindN, false, false, p[5] as 'U');
+    case 'tail':
+      // The tail: a switch of strands from the croup, swinging slightly, lighter at the tips' edges.
+      for (let i = 0; i < 6; i++) {
+        const a: P2 = [-6.1 + i * 0.07, -9.5 + i * 0.05];
+        const b: P2 = [-6.9 - Math.sin(i * 1.7) * 0.45 + i * 0.12, -3.6 - (i % 3) * 0.35];
+        vol(c, a, lerp(a, b, 0.5), [[0, 0.32], [1, 0.3]], TM.mane, { tone: i % 2 ? 1 : 2 });
+        vol(c, lerp(a, b, 0.5), b, [[0, 0.3], [1, 0.08]], TM.mane, { tone: i % 3 === 0 ? 3 : i % 2 ? 1 : 2 });
+      }
+      return;
+    case 'barrel': {
+      // Body: barrel, chest, croup and quarters in one curved outline.
+      const body = smooth([
+        [2.6, -10.7], [0.4, -10.1], [-2.4, -10.3], [-4.5, -10.75], [-6.2, -9.7], [-6.55, -8.1], [-6.0, -6.6], [-4.8, -5.7],
+        [-2.8, -5.15], [0.2, -4.75], [2.9, -5.05], [4.5, -5.8], [5.75, -6.9], [6.15, -8.3], [5.4, -9.6], [4.2, -10.5],
+      ]);
+      shapeU(c, body, [0, 0], (x, y, ux, uy) => {
+        let t = formTone(ux, uy, HORSE_MASSES);
+        // The grooves where the masses meet: behind the shoulder, in front of the stifle.
+        if (Math.abs(ux - (2.2 - (uy + 8) * 0.25)) < 0.14 && uy > -9.6 && uy < -5.6 && t > 1) t -= 1;
+        if (Math.abs(Math.hypot(ux + 4.3, uy + 8.3) - 2.3) < 0.13 && ux > -3.6 && uy > -9 && t > 1) t -= 1;
+        // Ribs faintly over the barrel, and dapples of grime.
+        if (Math.abs(((ux + 10) * 1.1) % 1 - 0.5) < 0.05 && ux > -1.6 && ux < 1.6 && uy > -7.6 && uy < -5.6 && t > 1) t -= 1;
+        if (c.tex(x, y, 21, 4) < 0.035) t -= 1;
+        return code(m, t);
+      });
+      return;
+    }
+    case 'neck': {
+      // The neck: arched along the crest, deep at the base; lit along the crest, shade at the throat.
+      const neck = smooth([[2.3, -10.4], [3.6, -12.0], [5.2, -13.9], [6.6, -15.0], [7.6, -15.1], [8.2, -13.9], [7.6, -12.1], [6.7, -10.1], [6.1, -8.3], [4.6, -8.2]], 4);
+      shapeU(c, neck, [0, 0], (x, y, ux, uy) => {
+        // A curved tube: the normal from the neck's mid-line (crest to throat).
+        const along = (ux - 2.6) * 0.62 + (-uy - 10.2) * 0.78;
+        const mid: P2 = [2.9 + along * 0.62, -10.8 - along * 0.78 + 0.0];
+        const across = ((ux - mid[0]) * 0.78 + (uy - mid[1]) * 0.62) / 1.35;
+        let t = across < -0.45 ? 3 : across > 0.75 ? 1 : 2;
+        if (across < -0.75 && along > 1 && along < 5) t = 4;
+        if (Math.abs(across - 0.35) < 0.08 && along > 0.5 && along < 5) t -= 1; // the jugular groove
+        if (c.tex(x, y, 27, 4) < 0.035) t -= 1;
+        return code(m, t);
+      });
+      return;
+    }
+    case 'mane':
+      // The mane: strands falling from the crest onto the near side.
+      for (let i = 0; i < 10; i++) {
+        const k0 = i / 9;
+        const root: P2 = [2.7 + k0 * 4.4 - k0 * k0 * 0.4, -10.7 - k0 * 4.3];
+        const tip: P2 = addP(root, [0.45 + (i % 3) * 0.1, 0.6 + (i % 2) * 0.25]);
+        vol(c, root, tip, [[0, 0.34], [1, 0.12]], TM.mane, { tone: i % 3 === 0 ? 3 : 2 });
+      }
+      return;
+    case 'head': {
+      // The head in its own frame: along from the poll to the muzzle, across toward the jaw.
+      const HF = frameAt(HJ.poll, HJ.headDeg);
+      const head = smooth([[-0.3, -0.62], [1.2, -0.72], [2.9, -0.48], [3.6, -0.3], [3.75, 0.25], [3.3, 0.68], [1.7, 0.82], [0.7, 1.35], [-0.25, 1.05], [-0.5, 0.3]], 4);
+      c.shape(head.map(([x, y]) => at(HF, x, y)), (x, y) => {
+        const [hx, hy] = local(c, HF, x, y);
+        if (!back && Math.hypot(hx - 0.75, hy + 0.15) < 0.24) return code(TM.ink, 1); // eye
+        if (!back && Math.hypot(hx - 0.68, hy + 0.3) < 0.12) return code(m, 4); // its catch-light above
+        if (Math.hypot(hx - 3.4, hy - 0.1) < 0.2) return code(TM.ink, 2); // nostril
+        if (within(c, hx - 0.25, 0.1) || within(c, hx - 2.6, 0.1) || (hy < -0.35 && hx > 0.25 && hx < 2.6 && within(c, hy + 0.5, 0.07))) return code(TM.leather, 2); // bridle
+        if (hx > 3.0) return code(m, hy < 0 ? 2 : 1); // the soft muzzle, darker
+        if (hx < 1.5 && hy > 0.55) return code(m, Math.hypot(hx - 0.7, hy - 0.8) < 0.35 ? 2 : 1); // the round jowl
+        if (hy < -0.45 && hx > 0.6 && hx < 2.4) return code(m, 4); // the lit nose bridge
+        return code(m, hy < -0.2 ? 3 : hy > 0.45 ? 1 : 2);
+      });
+      c.shape([at(HF, -0.25, -0.45), at(HF, -1.3, -0.8), at(HF, 0.2, -0.75)], () => code(m, 2));
+      // (at() points are already where the part map puts them; only the key-art end goes through T.)
+      c.line(at(HF, 2.7, 0.45), T([3.0, -11.6]), code(TM.leather, 1));
+      return;
+    }
+    case 'capar': {
+      if (!k.capar) return;
+      // The caparison drapes over the curves: over the croup and the barrel to the knees, up the
+      // neck; heavy hanging folds with lit ridges, a scalloped hem, the red cross on the flank.
+      const cm = k.capar;
+      shapeU(c, smooth(CAPAR_PTS, 3), [0, 0], (x, y, ux, uy) => {
+        const vx = ux + 0.6, vy = uy + 7.6;
+        if ((within(c, vx, 0.62) && Math.abs(vy) < 2.2) || (within(c, vy + 0.4, 0.58) && Math.abs(vx) < 1.85)) return code(TM.red, vx < -0.25 ? 3 : 2);
+        let t = Math.min(3, formTone(ux, uy - 0.6, HORSE_MASSES));
+        if (uy < -12.2 + (ux - 5) * 0.0) t = Math.max(t, 2);
+        // Folds hang straight down from the back, wider apart over the barrel.
+        if (uy > -9.8) {
+          const f = ((ux + 8) * 0.55 + Math.sin(uy * 0.9) * 0.05) % 1;
+          if (f < 0.11) t = Math.max(0, t - 1);
+          else if (f > 0.84 && f < 0.95) t = Math.min(4, t + 1);
+        }
+        if (uy > -5.3 && c.tex(x, y, 59, 3) < 0.45) t = Math.max(0, t - 1);
+        // White cloth never drops to the deep tone: its shadow is a cool grey, not a brown hole.
+        return code(cm, Math.max(1, t));
+      });
+      return;
+    }
+    case 'cloth':
+      if (!k.capar && k.cloth) shapeU(c, smooth([[-1.9, -10.2], [2.1, -10.4], [2.2, -7.2], [0.2, -6.8], [-1.8, -7.0]], 3), [0, -9], (_x, _y, ux, uy) => (uy > 1.6 ? code(TM.teamDk, 1) : code(TM.team, ux < -0.8 ? 3 : 2)));
+      return;
+    case 'saddle':
+      // Saddle: the cantle high behind, the pommel in front.
+      shapeU(c, smooth([[-1.6, -11.7], [-1.0, -11.8], [-0.6, -10.6], [1.4, -10.6], [1.9, -11.3], [2.3, -11.15], [2.0, -9.9], [-1.4, -9.8]], 3), [0, -10.5], (_x, _y, ux, uy) => code(TM.leather, uy < -0.8 ? 3 : ux > 1.6 ? 1 : 2));
+      return;
+    case 'girth':
+      if (!k.capar) vol(c, [0.5, -9.8], [0.7, -4.9], [[0, 0.18], [1, 0.18]], TM.leather, { tone: 1 });
+      return;
   }
-  // Saddle: the cantle high behind, the pommel in front; girth and stirrup leather.
-  shapeU(c, smooth([[-1.6, -11.7], [-1.0, -11.8], [-0.6, -10.6], [1.4, -10.6], [1.9, -11.3], [2.3, -11.15], [2.0, -9.9], [-1.4, -9.8]], 3), [0, -10.5], (_x, _y, ux, uy) => code(TM.leather, uy < -0.8 ? 3 : ux > 1.6 ? 1 : 2));
-  if (!k.capar) vol(c, [0.5, -9.8], [0.7, -4.9], [[0, 0.18], [1, 0.18]], TM.leather, { tone: 1 });
+}
+
+function horseS(c: Paper, k: SHorse, part: 'far' | 'body'): void {
+  for (const p of part === 'far' ? HORSE_FAR : HORSE_BODY) horsePiece(c, k, p);
 }
 
 /** The horse is drawn a size up against the man (a destrier stands ~1.6 m at the withers). */
-const HORSE_SCALE = 1.15;
+export const HORSE_SCALE = 1.15;
 /** Draws at `k` times the size about the foot point (the canvas' pixels per unit, scaled). */
-function scaled(c: Paper, k: number, draw: () => void): void {
+export function scaled(c: Paper, k: number, draw: () => void): void {
   const L = c.L;
   c.L = L * k;
   try {
@@ -1019,7 +1074,6 @@ function scaled(c: Paper, k: number, draw: () => void): void {
   }
 }
 
-/** A rider seated on the horse: thighs along its flank, a solid torso, his arms and head. */
 /** A rider's mantle: from the shoulders it spills back over the cantle and the horse's croup. */
 function riderCloak(c: Paper): void {
   const pts = smooth([[-2.8, -12.1], [0.4, -12.5], [2.7, -11.9], [1.6, -8.8], [-0.4, -5.9], [-3.4, -4.3], [-6.6, -4.1], [-6.9, -5.3], [-5.0, -7.6], [-3.6, -10.1]], 3);
@@ -1036,55 +1090,105 @@ function riderCloak(c: Paper): void {
   });
 }
 
+/** Where the rider's frame (a man's, feet at 0) sits on the horse: his pelvis in the saddle (figure units). */
+export const RIDER_SHIFT: P2 = [0.3 * 1.15, -10.6 * 1.15 + 6.5];
+/** The rider's own joints (his frame): the near leg along the flank to the stirrup, the far leg hidden. */
+export interface RiderRest extends ManRest {}
+const RIDER_NEAR = { el: [-2.65, -8.5] as P2, wr: [-1.6, -7.0] as P2 };
+export function riderRest(k: SKit, g: SGear): RiderRest {
+  const ne = g.near ?? RIDER_NEAR, fa = g.far ?? FAR_HIDDEN;
+  return {
+    hipN: [-0.4, -6.3], kneeN: [1.6, -3.9], ankN: [1.0, -1.1],
+    hipF: [0.6, -6.4], kneeF: [2.5, -4.0], ankF: [1.9, -1.3],
+    shN: J.shN, shF: J.shF, elN: ne.el, wrN: ne.wr, elF: fa.el, wrF: fa.wr, neck: J.neck, head: J.head,
+  };
+  void k;
+}
+export type RiderPiece =
+  | 'rThighN' | 'rShinN' | 'rFootN' | 'cloak' | 'behind' | 'upperArmF' | 'forearmF' | 'handF' | 'farItem'
+  | 'torso' | 'fur' | 'camail' | 'head' | 'front' | 'upperArmN' | 'forearmN' | 'handN' | 'pauldron' | 'weapon' | 'last';
+export const RIDER_PIECES: readonly RiderPiece[] = [
+  'rThighN', 'rShinN', 'rFootN', 'cloak', 'behind', 'upperArmF', 'forearmF', 'handF', 'farItem',
+  'torso', 'fur', 'camail', 'head', 'front', 'upperArmN', 'forearmN', 'handN', 'pauldron', 'weapon', 'last',
+];
+
+/** One piece of a rider (his frame; the caller shifts it to the saddle). `rig`: also the far arm the key art hides. */
+export function riderPiece(c: Paper, k: SKit, g: SGear, p: RiderPiece, R: RiderRest, o: { rig?: boolean; back?: boolean } = {}): void {
+  const back = o.back ?? false;
+  const farArm = !!g.far || !!o.rig;
+  const held = (it: { el: P2; wr: P2; draw?: SItem } | undefined, el: P2, wr: P2) => {
+    if (!it?.draw) return;
+    const h = T(handAt(el, wr)), turn = XF ? XF.deg : 0;
+    withMap(null, () => it.draw!(c, h, turn));
+  };
+  switch (p) {
+    case 'rThighN':
+      // The near leg: thigh forward and down along the flank…
+      vol(c, R.hipN, R.kneeN, [[0, 0.85], [1, 0.62]], k.legs, { tone: 2 });
+      blob(c, R.kneeN, 0.62, 0.58, k.legs, { tone: 2 });
+      return;
+    case 'rShinN':
+      // …the shin back to the stirrup.
+      vol(c, R.kneeN, R.ankN, [[0, 0.58], [0.3, 0.62], [1, 0.45]], k.legs, { tone: 1 });
+      return;
+    case 'rFootN': {
+      const ank = R.ankN;
+      shapeK(c, [addP(ank, [-0.5, -0.3]), addP(ank, [0.4, -0.3]), addP(ank, [1.25, 0.2]), addP(ank, [1.2, 0.5]), addP(ank, [-0.5, 0.5])], () => code(k.boots, 2));
+      vol(c, addP(ank, [0.1, 0.55]), addP(ank, [0.1, -2.6]), [[0, 0.1], [1, 0.1]], TM.leather, { tone: 1 }); // stirrup leather
+      return;
+    }
+    case 'cloak': if (k.cloak) riderCloak(c); return;
+    case 'behind': g.behind?.(c); return;
+    case 'upperArmF': if (farArm) upperArmS(c, R.shF, R.elF, k, true); return;
+    case 'forearmF': if (farArm) forearmS(c, R.elF, R.wrF, k, true); return;
+    case 'handF': if (farArm) handS(c, R.elF, R.wrF, k, true); return;
+    case 'farItem': held(g.far, R.elF, R.wrF); return;
+    case 'torso': riderTorsoS(c, k, back); return;
+    case 'fur': if (k.cloak) furS(c); return;
+    case 'camail': if (k.camail) camail(c, k.camail, back); return;
+    case 'head': helmS(c, k.helm, R.head, back, k.beard ?? true, k.camail ?? (isMailS(k.body) ? k.body : null)); return;
+    case 'front': g.front?.(c); return;
+    case 'upperArmN': upperArmS(c, R.shN, R.elN, k, false); return;
+    case 'forearmN': forearmS(c, R.elN, R.wrN, k, false); return;
+    case 'handN': handS(c, R.elN, R.wrN, k, false); return;
+    case 'pauldron': if (k.pauldrons) pauldronS(c, addP(R.shN, [-0.1, 0.1]), false); return;
+    case 'weapon': held(g.near, R.elN, R.wrN); return;
+    case 'last': g.last?.(c); return;
+  }
+}
+
+/** The rider's torso, with the coat skirt falling over the thigh. */
+function riderTorsoS(c: Paper, k: SKit, back: boolean): void {
+  const garment = k.coat ?? k.body;
+  shapeU(c, [[-0.75, -12.15], [0.85, -12.15], [2.45, -11.75], [2.6, -10.7], [2.3, -9.4], [1.75, -8.25], [2.0, -7.0], [3.2, -5.6], [2.8, -4.9], [0.6, -5.2], [-1.6, -5.4], [-2.4, -6.2], [-1.9, -7.4], [-1.8, -8.25], [-2.35, -9.4], [-2.6, -10.7], [-2.5, -11.75]], [0, 0], (x, y, ux, uy) => {
+    const side = ux + (uy + 9) * 0.12;
+    let t = side < -1.25 ? 3 : side > 1.35 ? 1 : 2;
+    if (uy < -10.6 && ux < 1.0) t = Math.max(t, 3);
+    if (uy > -8.45 && uy < -7.95) return code(k.belt ?? TM.leather, ux < -1.2 ? 3 : 2);
+    if (k.cross && uy > -11.5 && uy < -8.5) {
+      const vx = ux + (back ? -0.3 : 0.2);
+      if ((within(c, vx, 0.42) && uy > -11.35) || (within(c, uy + 10.25, 0.38) && Math.abs(vx) < 1.45)) return code(TM.red, vx < -0.2 ? 3 : 2);
+    }
+    if (uy > -7.6) {
+      const fx2 = ux * 0.6 + (uy + 7.6) * 0.5;
+      if (Math.abs(fx2 - 1.0) < 0.12 || Math.abs(fx2 - 2.0) < 0.12) return code(garment, t - 1);
+    }
+    if (isMailS(garment)) {
+      const r = mailTex(c, x, y, t > 2 ? -1 : t < 2 ? 1 : 0, t, garment);
+      if (r >= 0) return r;
+    }
+    return code(garment, t);
+  });
+}
+
 function riderS(c: Paper, k: SKit, g: SGear): void {
   // Shift the man's foot frame so his pelvis sits in the saddle.
-  const pel: P2 = [0.3 * HORSE_SCALE, -10.6 * HORSE_SCALE];
-  const dx = pel[0] - 0, dy = pel[1] - -6.5;
   const fx = c.FX, fy = c.FY;
-  c.FX = fx + Math.round(dx * c.L);
-  c.FY = fy + Math.round(dy * c.L);
+  c.FX = fx + Math.round(RIDER_SHIFT[0] * c.L);
+  c.FY = fy + Math.round(RIDER_SHIFT[1] * c.L);
   try {
-    // The near leg: thigh forward and down along the flank, the shin back to the stirrup.
-    const hip: P2 = [-0.4, -6.3], knee: P2 = [1.6, -3.9], ank: P2 = [1.0, -1.1];
-    vol(c, hip, knee, [[0, 0.85], [1, 0.62]], k.legs, { tone: 2 });
-    blob(c, knee, 0.62, 0.58, k.legs, { tone: 2 });
-    vol(c, knee, ank, [[0, 0.58], [0.3, 0.62], [1, 0.45]], k.legs, { tone: 1 });
-    c.shape([addP(ank, [-0.5, -0.3]), addP(ank, [0.4, -0.3]), addP(ank, [1.25, 0.2]), addP(ank, [1.2, 0.5]), addP(ank, [-0.5, 0.5])], () => code(k.boots, 2));
-    vol(c, addP(ank, [0.1, 0.55]), addP(ank, [0.1, -2.6]), [[0, 0.1], [1, 0.1]], TM.leather, { tone: 1 }); // stirrup leather
-    if (k.cloak) riderCloak(c);
-    g.behind?.(c);
-    if (g.far) armS(c, J.shF, g.far.el, g.far.wr, k, true);
-    if (g.far?.draw) g.far.draw(c, addP(g.far.wr, mul(sub(g.far.wr, g.far.el), 0.18)), 0);
-    // Torso, with the coat skirt falling over the thigh.
-    const garment = k.coat ?? k.body;
-    shapeU(c, [[-0.75, -12.15], [0.85, -12.15], [2.45, -11.75], [2.6, -10.7], [2.3, -9.4], [1.75, -8.25], [2.0, -7.0], [3.2, -5.6], [2.8, -4.9], [0.6, -5.2], [-1.6, -5.4], [-2.4, -6.2], [-1.9, -7.4], [-1.8, -8.25], [-2.35, -9.4], [-2.6, -10.7], [-2.5, -11.75]], [0, 0], (x, y, ux, uy) => {
-      const side = ux + (uy + 9) * 0.12;
-      let t = side < -1.25 ? 3 : side > 1.35 ? 1 : 2;
-      if (uy < -10.6 && ux < 1.0) t = Math.max(t, 3);
-      if (uy > -8.45 && uy < -7.95) return code(k.belt ?? TM.leather, ux < -1.2 ? 3 : 2);
-      if (k.cross && uy > -11.5 && uy < -8.5) {
-        const vx = ux + 0.2;
-        if ((within(c, vx, 0.42) && uy > -11.35) || (within(c, uy + 10.25, 0.38) && Math.abs(vx) < 1.45)) return code(TM.red, vx < -0.2 ? 3 : 2);
-      }
-      if (uy > -7.6) {
-        const fx2 = ux * 0.6 + (uy + 7.6) * 0.5;
-        if (Math.abs(fx2 - 1.0) < 0.12 || Math.abs(fx2 - 2.0) < 0.12) return code(garment, t - 1);
-      }
-      if (isMailS(garment)) {
-        const r = mailTex(c, x, y, t > 2 ? -1 : t < 2 ? 1 : 0, t, garment);
-        if (r >= 0) return r;
-      }
-      return code(garment, t);
-    });
-    if (k.cloak) furS(c);
-    if (k.camail) camail(c, k.camail, false);
-    helmS(c, k.helm, J.head, false, k.beard ?? true, k.camail ?? (isMailS(k.body) ? k.body : null));
-    g.front?.(c);
-    const ne = g.near ?? { el: [-2.65, -8.5] as P2, wr: [-1.6, -7.0] as P2 };
-    armS(c, J.shN, ne.el, ne.wr, k, false);
-    if (k.pauldrons) pauldronS(c, addP(J.shN, [-0.1, 0.1]), false);
-    ne.draw?.(c, addP(ne.wr, mul(sub(ne.wr, ne.el), 0.18)), 0);
-    g.last?.(c);
+    const R = riderRest(k, g);
+    for (const p of RIDER_PIECES) riderPiece(c, k, g, p, R);
   } finally {
     c.FX = fx;
     c.FY = fy;
