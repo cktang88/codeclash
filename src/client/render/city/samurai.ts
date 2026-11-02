@@ -754,7 +754,9 @@ function walls(P: Painter, a: PaintArgs, parts: BuildingParts): BuildingParts {
       // An earth bank (dorui) with a palisade of sharpened logs on it.
       frustum(P.px, u0, v0, 0, lu, lv, 2.5, 0.8, (f, p) => {
         const c = f === 'top' ? hex('#6a7a46') : f === 'left' ? hex('#7a6a4a') : hex('#5a4e3a');
-        return hash(Math.floor(p.u * 2), Math.floor(p.v * 2), 3) < 0.15 ? tone(c, 0.1) : c;
+        // Clods as 2-px dashes, rows offset by one (no lone pixels).
+        const y = Math.floor(p.v * 2);
+        return hash((Math.floor(p.u * 2) + (y & 1)) >> 1, y, 3) < 0.15 ? tone(c, 0.1) : c;
       });
       const len = along ? lu : lv;
       for (let i = 0; i < len; i += 1.5) {

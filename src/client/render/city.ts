@@ -76,13 +76,11 @@ export class CityScene {
   private partCache = new Map<string, BuildingParts>();
   private key = '';
   private t = 0;
-  private glow: HTMLCanvasElement;
-  private fire: HTMLCanvasElement;
-  private cloud: HTMLCanvasElement;
+  /** Stepped halos (rings of flat colour in the light's ramp), by name: see HALOS. */
+  private halos: Record<string, Ring[]>;
+  private haloCache = new Map<string, HTMLCanvasElement>();
   /** The necropolis's light: green and violet pools, and mist by day and by night. */
-  private violet: HTMLCanvasElement | null = null;
-  private mistDay: HTMLCanvasElement | null = null;
-  private mistNight: HTMLCanvasElement | null = null;
+  private necropolis = false;
   private ents: Ent[] = [];
   private nightNow = 0;
   /** Milliseconds the last draw took (for the preview's meter), and the last repaint of the buildings. */
@@ -114,14 +112,17 @@ export class CityScene {
     this.st = styleFor(faction, hue, hd);
     this.draw2 = new Draw(hd ? buildHdAtlas(faction, hue) : cityAtlas(faction, hue), hd ? new FolkHd(this.st) : new Folk(this.st), this.st, this.frame);
     this.life = new Life(seed, hd ? this.st : null);
-    this.fire = radial(24, 'rgba(255,170,70,0.55)', 'rgba(255,120,40,0)');
-    this.glow = hd ? radial(20, this.st.glow, this.st.glow.replace(/[\d.]+\)$/, '0)')) : this.fire;
-    this.cloud = radial(70, 'rgba(10,14,20,0.16)', 'rgba(10,14,20,0)');
-    if (hd && faction === 'undead') {
-      this.violet = radial(20, 'rgba(190,120,255,0.65)', 'rgba(150,80,255,0)');
-      this.mistDay = radial(40, 'rgba(196,192,224,0.5)', 'rgba(196,192,224,0)');
-      this.mistNight = radial(40, 'rgba(80,190,130,0.4)', 'rgba(60,160,110,0)');
-    }
+    const fire = ramp3([255, 112, 40], [255, 146, 58], [255, 186, 96], 0.55);
+    const glow = hd ? ramp3(...lightRamp(this.st.glow)) : fire;
+    this.halos = {
+      fire,
+      glow,
+      violet: ramp3([150, 80, 255], [180, 110, 255], [214, 168, 255], 0.65),
+      mistDay: [[1, 196, 192, 224, 0.1], [0.6, 200, 196, 228, 0.18]],
+      mistNight: [[1, 60, 160, 110, 0.08], [0.6, 80, 190, 130, 0.15]],
+      cloud: [[1, 10, 14, 20, 0.07], [0.6, 10, 14, 20, 0.13]],
+    };
+    this.necropolis = hd && faction === 'undead';
   }
 
   // ---------------------------------------------------------------- camera
@@ -130,15 +131,12 @@ export class CityScene {
   scale(): number {
     const W = this.frame.w;
     const H = this.frame.h;
-    if (this.mode === 'hd') {
-      // Whole numbers only: the fit rounded (1440p shows the 1280×720 buffer at exactly 2×).
-      const fit = Math.min(this.outW / W, this.outH / H);
-      const base = fit >= 1 ? Math.max(1, Math.round(fit)) : fit;
-      return base * this.zoom;
-    }
+    // Whole numbers only, in both arts (1440p shows the HD 1280×720 buffer at exactly 2×): the fit
+    // rounded, letterboxed when it rounds down and cropped (the camera pans) when it rounds up;
+    // never below 1×, so a page narrower than the buffer crops instead of shrinking the art.
     const fit = Math.min(this.outW / W, this.outH / H);
-    const s = fit * this.zoom;
-    return s >= 1.5 ? Math.round(s) : s;
+    if (this.mode === 'hd') return Math.max(1, Math.round(fit)) * this.zoom;
+    return Math.max(this.zoom, Math.round(fit * this.zoom));
   }
 
   private clamp(): void {
@@ -352,6 +350,17 @@ export class CityScene {
       g.drawImage(ground.base, 0, 0);
       g.drawImage(ground.crops[ci]!, ground.cropX ?? 0, ground.cropY ?? 0);
     }
+    // The night rig, part 1: the ground falls into the dark further than the buildings (whose own
+    // night palette is laid on in the sorted pass), so lit walls and moonlit edges stand off it.
+    const night0 = nightOf(mood.hour ?? localHour());
+    if (night0 > 0.01) {
+      const [gr, gg, gb] = this.necropolis ? [0.72, 0.72, 0.82] : [0.6, 0.64, 0.8];
+      const k = night0;
+      g.globalCompositeOperation = 'multiply';
+      g.fillStyle = `rgb(${Math.round(255 * (1 - (1 - gr) * k))},${Math.round(255 * (1 - (1 - gg) * k))},${Math.round(255 * (1 - (1 - gb) * k))})`;
+      g.fillRect(view.rx, view.ry, view.rw, view.rh);
+      g.globalCompositeOperation = 'source-over';
+    }
 
     // The sorted pass: buildings, walls, trees, people, beasts.
     const ents = this.ents;
@@ -371,6 +380,11 @@ export class CityScene {
           inWorld = false;
         }
         g.drawImage(a.canvas, a.x, a.y);
+        if (a.night && night0 > 0.01) {
+          g.globalAlpha = Math.min(1, night0);
+          g.drawImage(a.night, a.x, a.y);
+          g.globalAlpha = 1;
+        }
       } else {
         if (!inWorld) {
           world();
@@ -389,7 +403,26 @@ export class CityScene {
       else this.drawBanner(r, this.banners[i]!, t, i, m.streak >= 3);
     }
     this.life.overlay(r);
-    // Torch and forge flames.
+    // Cloud shadows drifting over by day.
+    if (night < 0.8) {
+      flat();
+      g.globalAlpha = 1 - night;
+      for (let i = 0; i < 2; i++) {
+        const x = ((t * 3 + i * 300 + this.seed % 200) % (WORLD_W + 300)) - 150;
+        const y = 40 + i * 120 + Math.sin(t * 0.05 + i) * 10;
+        this.halo(g, 'cloud', x, y, 140, 70);
+      }
+      g.globalAlpha = 1;
+      world();
+    }
+
+    // Light for the hour.
+    flat();
+    if (hd) this.gradeHd(g, night, view);
+    if (this.necropolis) this.lightNecropolis(g, night, t, world, flat);
+    else this.light(g, hour, night, t, world, flat);
+    // Torch and forge flames: emissive, so laid on after the grade.
+    world();
     const q = 1 / f.k;
     for (const [x, y] of this.forges) {
       const fl = 0.6 + 0.4 * Math.sin(t * 13 + x);
@@ -420,22 +453,6 @@ export class CityScene {
         g.fillStyle = '#ff8a2a';
         g.fillRect(tc.x - fl, tc.y - 1, 1, 1);
       }
-    // Cloud shadows drifting over by day.
-    if (night < 0.8) {
-      g.globalAlpha = 1 - night;
-      for (let i = 0; i < 2; i++) {
-        const x = ((t * 3 + i * 300 + this.seed % 200) % (WORLD_W + 300)) - 150;
-        const y = 40 + i * 120 + Math.sin(t * 0.05 + i) * 10;
-        g.drawImage(this.cloud, x - 70, y - 35, 140, 70);
-      }
-      g.globalAlpha = 1;
-    }
-
-    // Light for the hour.
-    flat();
-    if (hd) this.gradeHd(g, night, view);
-    if (this.violet) this.lightNecropolis(g, night, t, world, flat);
-    else this.light(g, hour, night, t, world, flat);
     flat();
 
     // To the screen through the camera. The finish (grade, vignette, grain) is laid on the
@@ -511,18 +528,20 @@ export class CityScene {
       c.height = H;
       const x = c.getContext('2d')!;
       const k = step / 24;
-      if (this.violet) {
-        const top = [170 - 96 * k, 160 - 96 * k, 215 - 80 * k];
-        const bot = [150 - 100 * k, 186 - 104 * k, 192 - 94 * k];
+      // Night darkens less than it used to: the arts' night palette and the ground's own dimming
+      // (draw()) carry the dark, so the value steps between roof, wall and ground survive.
+      if (this.necropolis) {
+        const top = [170 - 70 * k, 160 - 66 * k, 215 - 40 * k];
+        const bot = [150 - 64 * k, 186 - 78 * k, 192 - 50 * k];
         const sky = x.createLinearGradient(0, 0, 0, H);
         sky.addColorStop(0, `rgb(${top.map(Math.round).join(',')})`);
         sky.addColorStop(1, `rgb(${bot.map(Math.round).join(',')})`);
         x.fillStyle = sky;
       } else {
         // Night a cool blue; by day a faint warmth (what the classic amber lift does).
-        const r = 255 - 190 * k;
-        const gg = 252 - 170 * k;
-        const b = 240 - 95 * k;
+        const r = 255 - 150 * k;
+        const gg = 252 - 126 * k;
+        const b = 240 - 46 * k;
         x.fillStyle = `rgb(${Math.round(r)},${Math.round(gg)},${Math.round(b)})`;
       }
       x.fillRect(0, 0, W, H);
@@ -553,28 +572,27 @@ export class CityScene {
    * day; spectacular by night.
    */
   private lightNecropolis(g: CanvasRenderingContext2D, night: number, t: number, world: () => void, flat: () => void): void {
-    const W = this.frame.w;
-    const H = this.frame.h;
     const k = night;
+    void world;
     // (The sky's violet-to-teal light is in the one-pass grade, gradeHd.)
-    // Mist banks drifting over the grave fields and the yard.
-    world();
+    // Mist banks drifting over the grave fields and the yard: two flat bands each, not a blur.
+    flat();
     const banks: [number, number, number][] = [[60, 60, 0], [430, 70, 1], [80, 220, 2], [420, 230, 3], [250, 150, 4], [250, 20, 5]];
     for (const [bx, by, i] of banks) {
-      const x = bx + Math.sin(t * 0.04 + i * 1.7) * 30;
-      const y = by + Math.sin(t * 0.03 + i) * 6;
+      // The banks drift a whole world pixel at a time.
+      const x = Math.round(bx + Math.sin(t * 0.04 + i * 1.7) * 30);
+      const y = Math.round(by + Math.sin(t * 0.03 + i) * 6);
       if (k < 0.9) {
         g.globalCompositeOperation = 'source-over';
-        g.globalAlpha = 0.5 * (1 - k);
-        g.drawImage(this.mistDay!, x - 90, y - 26, 180, 52);
+        g.globalAlpha = 1 - k;
+        this.halo(g, 'mistDay', x, y, 180, 52);
       }
       if (k > 0.1) {
         g.globalCompositeOperation = 'lighter';
-        g.globalAlpha = 0.4 * k;
-        g.drawImage(this.mistNight!, x - 90, y - 26, 180, 52);
+        g.globalAlpha = k;
+        this.halo(g, 'mistNight', x, y, 180, 52);
       }
     }
-    flat();
     // Lit windows: faint by day, burning by night.
     g.globalCompositeOperation = 'source-over';
     const wa = 0.45 + 0.55 * Math.min(1, k * 1.5);
@@ -583,8 +601,8 @@ export class CityScene {
       g.globalAlpha = wa * (0.85 + 0.15 * Math.sin(t * 3 + art.x));
       g.drawImage(art.lights, art.x, art.y);
     }
-    // Light pools, additive, so the stone and ground around each source are lit.
-    world();
+    // Light pools, additive and stepped in the light's own ramp, so the stone and ground around
+    // each source are lit band by band.
     g.globalCompositeOperation = 'lighter';
     const pool = 0.18 + 0.47 * k;
     const f = this.frame;
@@ -593,35 +611,27 @@ export class CityScene {
       g.globalAlpha = pool * 0.4;
       const cx = (art.x + art.canvas.width / 2) / f.k - f.mx;
       const cy = (art.y + art.canvas.height * 0.6) / f.k - f.my;
-      g.drawImage(this.glow, cx - 36, cy - 24, 72, 48);
+      this.halo(g, 'glow', cx, cy, 72, 48);
     }
     for (const tc of this.torches) {
-      const fl = 0.8 + 0.2 * Math.sin(t * 11 + tc.x);
-      g.globalAlpha = pool * fl;
-      g.drawImage(this.glow, tc.x - 22, tc.y - 18, 44, 36);
-      g.globalAlpha = Math.min(1, pool * 1.4) * fl;
-      g.drawImage(this.glow, tc.x - 7, tc.y - 7, 14, 14);
+      g.globalAlpha = Math.min(1, pool * 1.5) * (Math.sin(t * 11 + tc.x) > -0.6 ? 1 : 0.85);
+      this.halo(g, 'glow', tc.x, tc.y, 44, 36);
     }
     for (const [x, y] of this.ground?.lamps ?? []) {
-      g.globalAlpha = pool * 0.8 * (0.85 + 0.15 * Math.sin(t * 5 + x));
-      g.drawImage(this.glow, x - 16, y - 9, 32, 20);
-      g.globalAlpha = Math.min(1, pool * 1.6);
-      g.drawImage(this.glow, x - 4, y - 4, 8, 8);
+      g.globalAlpha = Math.min(1, pool * 1.4);
+      this.halo(g, 'glow', x, y, 32, 20);
     }
     for (const [x, y, c] of this.glows) {
-      const pulse = 0.75 + 0.25 * Math.sin(t * (c ? 1.6 : 4) + x);
-      const img = c ? this.violet! : this.glow;
-      g.globalAlpha = Math.min(1, pool * 0.9) * pulse;
-      g.drawImage(img, x - 24, y - 18, 48, 36);
-      g.globalAlpha = Math.min(1, pool * 1.8) * pulse;
-      g.drawImage(img, x - 8, y - 8, 16, 16);
+      const pulse = 0.8 + 0.2 * Math.sin(t * (c ? 1.6 : 4) + x);
+      g.globalAlpha = Math.min(1, pool * 1.6) * pulse;
+      this.halo(g, c ? 'violet' : 'glow', x, y, 48, 36);
     }
     // The forges stay true fire: the one warm note, the complement to all that green.
     for (const [x, y] of this.forges) {
-      g.globalAlpha = (0.25 + 0.6 * k) * (0.8 + 0.2 * Math.sin(t * 9 + x));
-      g.drawImage(this.fire, x - 24, y - 24);
+      g.globalAlpha = Math.min(1, 0.4 + 0.6 * k);
+      this.halo(g, 'fire', x, y, 48, 48);
     }
-    this.life.nightGlow(g, this.glow, Math.max(0.25, k));
+    this.life.nightGlow(g, (x, y, w, h) => this.halo(g, 'glow', x, y, w, h), Math.max(0.25, k), this.frame);
     g.globalAlpha = 1;
     g.globalCompositeOperation = 'source-over';
     flat();
@@ -631,16 +641,14 @@ export class CityScene {
   private light(g: CanvasRenderingContext2D, hour: number, night: number, t: number, world: () => void, flat: () => void): void {
     const W = this.frame.w;
     const H = this.frame.h;
-    const undead = this.mode === 'hd' && this.st.id === 'undead';
-    const warm = Math.max(0, 1 - Math.min(Math.abs(hour - 6.5), Math.abs(hour - 19)) / 1.5) * (undead ? 0.4 : 1);
-    if ((night > 0.01 || undead) && this.mode !== 'hd') {
+    void world;
+    const warm = Math.max(0, 1 - Math.min(Math.abs(hour - 6.5), Math.abs(hour - 19)) / 1.5);
+    if (night > 0.01 && this.mode !== 'hd') {
+      // Classic night: a moderate cool multiply; the dark itself is in the arts' night palette and
+      // the ground's dimming (draw()).
       g.globalCompositeOperation = 'multiply';
       const k = night;
-      // The necropolis's night is bluer and greener, and even its day is overcast (a grey-violet
-      // veil, folded into the same pass); the others' night a cool blue.
-      const [r, gg, b] = undead ? [255 - 200 * k, 255 - 165 * k, 255 - 120 * k] : [255 - 190 * k, 255 - 170 * k, 255 - 110 * k];
-      const veil = undead ? [214 / 255, 210 / 255, 222 / 255] : [1, 1, 1];
-      g.fillStyle = `rgb(${Math.round(r * veil[0]!)},${Math.round(gg * veil[1]!)},${Math.round(b * veil[2]!)})`;
+      g.fillStyle = `rgb(${Math.round(255 - 150 * k)},${Math.round(255 - 128 * k)},${Math.round(255 - 56 * k)})`;
       g.fillRect(0, 0, W, H);
     }
     if (warm > 0.01) {
@@ -649,6 +657,7 @@ export class CityScene {
       g.fillRect(0, 0, W, H);
     }
     g.globalCompositeOperation = 'source-over';
+    flat();
     if (night > 0.15) {
       const a = Math.min(1, (night - 0.15) / 0.5);
       for (const art of this.arts) {
@@ -656,36 +665,43 @@ export class CityScene {
         g.globalAlpha = a * (0.8 + 0.2 * Math.sin(t * 3 + art.x));
         g.drawImage(art.lights, art.x, art.y);
       }
-      world();
       g.globalCompositeOperation = 'lighter';
       for (const tc of this.torches) {
-        g.globalAlpha = a * (0.75 + 0.25 * Math.sin(t * 11 + tc.x));
-        g.drawImage(this.fire, tc.x - 24, tc.y - 24);
+        g.globalAlpha = a * (Math.sin(t * 11 + tc.x) > -0.5 ? 1 : 0.8);
+        this.halo(g, 'fire', tc.x, tc.y, 32, 32);
       }
-      // Lit windows throw a little light of their own colour (lanterns, grave-light).
-      if (this.mode === 'hd') {
-        for (const art of this.arts) {
-          if (!art.lights || !art.canvas) continue;
-          g.globalAlpha = a * 0.35;
-          const f = this.frame;
-          const cx = (art.x + art.canvas.width / 2) / f.k - f.mx;
-          const cy = (art.y + art.canvas.height / 2) / f.k - f.my;
-          g.drawImage(this.glow, cx - 30, cy - 22, 60, 44);
-        }
-        this.life.nightGlow(g, this.glow, a);
-      }
+      // (Lit windows are emissive pixels with no pool: a pool at a building's centre lands on its
+      // roof, which a window cannot light. Graveyard Keeper's night keeps the windows alone.)
+      if (this.mode === 'hd') this.life.nightGlow(g, (x, y, w, h) => this.halo(g, 'glow', x, y, w, h), a, this.frame);
       g.globalAlpha = 1;
-      flat();
     }
-    world();
     g.globalCompositeOperation = 'lighter';
     for (const [x, y] of this.forges) {
-      g.globalAlpha = (0.25 + 0.6 * night) * (0.8 + 0.2 * Math.sin(t * 9 + x));
-      g.drawImage(this.fire, x - 24, y - 24);
+      g.globalAlpha = Math.min(1, 0.4 + 0.6 * night);
+      this.halo(g, 'fire', x, y, 48, 48);
     }
     g.globalAlpha = 1;
     g.globalCompositeOperation = 'source-over';
     flat();
+  }
+
+  /**
+   * A stepped halo (pixel-art-techniques §1.6, §5.1): 2-3 rings of flat colour in the light's
+   * ramp, rasterised at buffer resolution at a whole size and drawn at a whole buffer pixel, so
+   * the bands keep even widths at every zoom. Call in the flat transform; (x, y) is the centre and
+   * (w, h) the size in world pixels.
+   */
+  private halo(g: CanvasRenderingContext2D, name: string, x: number, y: number, w: number, h: number): void {
+    const f = this.frame;
+    const bw = Math.max(2, Math.round(w * f.k));
+    const bh = Math.max(2, Math.round(h * f.k));
+    const key = `${name}:${bw}x${bh}`;
+    let c = this.haloCache.get(key);
+    if (!c) {
+      c = stepped(bw, bh, this.halos[name]!, name.startsWith('mist') || name === 'cloud');
+      this.haloCache.set(key, c);
+    }
+    g.drawImage(c, Math.round((x + f.mx) * f.k - bw / 2), Math.round((y + f.my) * f.k - bh / 2));
   }
 
   private drawSails(r: Draw, hub: [number, number], a: number): void {
@@ -845,15 +861,56 @@ function mixC(a: number, b: number, k: number): number {
   return ((255 << 24) | (ch(16) << 16) | (ch(8) << 8) | ch(0)) >>> 0;
 }
 
-function radial(r: number, inner: string, outer: string): HTMLCanvasElement {
+/** A halo ring: outer radius (fraction of the halo), colour and alpha. Outer rings come first. */
+type Ring = [number, number, number, number, number];
+
+/** Three rings in a light's ramp: a dim outer band, a mid band, a hot core (alpha scaled by `a`). */
+function ramp3(outer: number[], mid: number[], core: number[], a: number): Ring[] {
+  return [
+    [1, outer[0]!, outer[1]!, outer[2]!, a * 0.18],
+    [0.64, mid[0]!, mid[1]!, mid[2]!, a * 0.28],
+    [0.32, core[0]!, core[1]!, core[2]!, a * 0.42],
+  ];
+}
+
+/** A light's ramp from its css rgba colour: the colour itself, then two small steps toward white. */
+function lightRamp(css: string): [number[], number[], number[], number] {
+  const m = css.match(/[0-9.]+/g)!.map(Number);
+  const c = [m[0]!, m[1]!, m[2]!];
+  const to = (k: number) => c.map((v) => Math.round(v + (255 - v) * k));
+  return [c, to(0.12), to(0.28), m[3] ?? 1];
+}
+
+/** A fixed hash of a row index, 0..1 (no Math.random: the same streaks on every load). */
+function rowHash(n: number): number {
+  let h = Math.imul(n + 17, 2654435761) | 0;
+  h = Math.imul(h ^ (h >>> 15), 2246822519);
+  return ((h ^ (h >>> 13)) >>> 0) / 4294967296;
+}
+
+/** An elliptical halo of flat rings, w×h buffer pixels. */
+function stepped(w: number, h: number, rings: Ring[], ragged = false): HTMLCanvasElement {
   const c = document.createElement('canvas');
-  c.width = c.height = r * 2;
+  c.width = w;
+  c.height = h;
   const x = c.getContext('2d')!;
-  const grd = x.createRadialGradient(r, r, 0, r, r, r);
-  grd.addColorStop(0, inner);
-  grd.addColorStop(1, outer);
-  x.fillStyle = grd;
-  x.fillRect(0, 0, r * 2, r * 2);
+  const img = x.createImageData(w, h);
+  for (let py = 0; py < h; py++)
+    for (let px = 0; px < w; px++) {
+      // Ragged (mist, cloud shadow): each pair of rows reaches its own width, so the bank breaks
+      // into horizontal streaks like layered fog instead of a disc.
+      const reach = ragged ? 0.7 + 0.45 * rowHash(py >> 1) : 1;
+      const d = Math.hypot((px + 0.5 - w / 2) / ((w / 2) * reach), (py + 0.5 - h / 2) / (h / 2));
+      let ring: Ring | null = null;
+      for (const r of rings) if (d <= r[0]) ring = r;
+      if (!ring) continue;
+      const i = (py * w + px) * 4;
+      img.data[i] = ring[1];
+      img.data[i + 1] = ring[2];
+      img.data[i + 2] = ring[3];
+      img.data[i + 3] = Math.round(ring[4] * 255);
+    }
+  x.putImageData(img, 0, 0);
   return c;
 }
 

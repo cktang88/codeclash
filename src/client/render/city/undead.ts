@@ -216,7 +216,9 @@ function pinnacle(P: Painter, u: number, v: number, z: number, h: number, seed: 
 function bonePile(P: Painter, u: number, v: number, r: number, h: number, seed: number): void {
   const st = P.st;
   mound(P.px, u, v, r, r * 0.8, h, (n, p) => {
-    const q = hash(Math.floor(p.u * P.k), Math.floor(p.v * P.k), seed);
+    // Skulls and dark gaps as 2-px dashes (rows offset by one), not single-pixel speckle.
+    const y = Math.floor(p.v * P.k);
+    const q = hash((Math.floor(p.u * P.k) + (y & 1)) >> 1, y, seed);
     const base = n > 0.35 ? st.fine[0] : n > -0.1 ? st.fine[1] : st.fine[2];
     if (q < 0.08) return tone(st.fine[3], 0.4);
     if (q > 0.92) return st.fine[3];

@@ -1,28 +1,32 @@
 // The finish over every scene: a cold-shadow, warm-light grade, a heavy vignette, film grain
 // and faint scanlines. `Post` does it with canvas compositing (the city view); `GlPost` does it
 // in one shader while blowing the battle's low-resolution buffer up to the page.
+//
+// Both work on the art-pixel grid (pixel-art-techniques §7.6): every effect is a function of the
+// art pixel, never of the device pixel, so each art pixel stays one flat block on screen. The grain
+// is static (it does not crawl or shimmer) and faint.
 
 import { compile } from './gl.ts';
 
 export class Post {
-  private grain: HTMLCanvasElement[] = [];
+  private grain: HTMLCanvasElement;
   private vignette: { w: number; h: number; canvas: HTMLCanvasElement } | null = null;
-  private frame = 0;
 
   constructor() {
-    for (let k = 0; k < 4; k++) {
-      const c = document.createElement('canvas');
-      c.width = c.height = 192;
-      const ctx = c.getContext('2d')!;
-      const img = ctx.createImageData(c.width, c.height);
-      for (let i = 0; i < img.data.length; i += 4) {
-        const v = Math.random() * 255;
-        img.data[i] = img.data[i + 1] = img.data[i + 2] = v;
-        img.data[i + 3] = 255;
-      }
-      ctx.putImageData(img, 0, 0);
-      this.grain.push(c);
+    // One fixed tile of grain, one value per art pixel (the buffer is at art resolution), from a
+    // hash so it is the same on every load.
+    const c = document.createElement('canvas');
+    c.width = c.height = 192;
+    const ctx = c.getContext('2d')!;
+    const img = ctx.createImageData(c.width, c.height);
+    for (let i = 0; i < img.data.length; i += 4) {
+      const p = i >> 2;
+      const v = 128 + (hash2(p % 192, (p / 192) | 0) - 0.5) * 255;
+      img.data[i] = img.data[i + 1] = img.data[i + 2] = v;
+      img.data[i + 3] = 255;
     }
+    ctx.putImageData(img, 0, 0);
+    this.grain = c;
   }
 
   private vignetteFor(w: number, h: number): HTMLCanvasElement {
@@ -52,14 +56,14 @@ export class Post {
     ctx.fillRect(x, y, w, h);
     ctx.globalCompositeOperation = 'source-over';
     ctx.drawImage(this.vignetteFor(w, h), x, y);
-    // Grain, a fresh tile each frame.
-    this.frame = (this.frame + 1) % 4;
+    // Grain: the fixed tile, anchored to the buffer (the world), faint. It used to be redrawn from
+    // a random tile at a random offset every frame, which made the whole picture shimmer.
     ctx.globalCompositeOperation = 'overlay';
-    ctx.globalAlpha = 0.09;
-    const tile = this.grain[this.frame]!;
-    const ox = Math.floor(Math.random() * tile.width);
-    const oy = Math.floor(Math.random() * tile.height);
-    for (let ty = y - oy; ty < y + h; ty += tile.height) for (let tx = x - ox; tx < x + w; tx += tile.width) ctx.drawImage(tile, tx, ty);
+    ctx.globalAlpha = 0.05;
+    const tile = this.grain;
+    const x0 = Math.floor(x / tile.width) * tile.width;
+    const y0 = Math.floor(y / tile.height) * tile.height;
+    for (let ty = y0; ty < y + h; ty += tile.height) for (let tx = x0; tx < x + w; tx += tile.width) ctx.drawImage(tile, tx, ty);
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = 'source-over';
     if (scanlines && px >= 3) {
@@ -68,6 +72,13 @@ export class Post {
     }
     ctx.restore();
   }
+}
+
+/** A lattice hash in 0..1 (stable grain). */
+function hash2(x: number, y: number): number {
+  let h = (Math.imul(x | 0, 374761393) + Math.imul(y | 0, 668265263)) | 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
 }
 
 const POST_VS = `#version 300 es
@@ -97,13 +108,18 @@ vec3 fetch(vec2 dev) {
 
 void main() {
   vec2 dev = vec2(gl_FragCoord.x, u_out.y - gl_FragCoord.y);
-  vec2 uv = dev / u_out;
+  // Everything below is a function of the art pixel under this device pixel: its centre stands in
+  // for the device position, so one art pixel is one flat block however large it is drawn.
+  vec2 cell = floor((dev - u_off) / u_px);
+  vec2 at = u_off + (cell + 0.5) * u_px;
+  vec2 uv = at / u_out;
   vec2 fromC = uv - 0.5;
   float edge = dot(fromC, fromC);
-  // A faint chromatic split toward the corners, a whole device pixel at most.
-  float ca = floor(edge * 4.0 + 0.3);
-  vec2 cdir = sign(fromC) * ca;
-  vec3 c = vec3(fetch(dev + cdir).r, fetch(dev).g, fetch(dev - cdir).b);
+  // A faint chromatic split toward the corners, by whole art pixels, half strength.
+  float ca = min(1.0, floor(edge * 4.0 + 0.3));
+  vec2 cdir = sign(fromC) * ca * u_px;
+  vec3 c0 = fetch(at);
+  vec3 c = vec3(mix(c0.r, fetch(at + cdir).r, 0.5), c0.g, mix(c0.b, fetch(at - cdir).b, 0.5));
 
   float l = dot(c, vec3(0.299, 0.587, 0.114));
   // Slight desaturation and contrast.
@@ -119,9 +135,9 @@ void main() {
   // Vignette.
   float v = smoothstep(0.9, 0.25, length(fromC * vec2(1.0, 0.85)) * 1.1);
   c *= mix(0.35, 1.0, v);
-  // Grain.
-  float g = hash(dev + fract(u_time) * 97.0) - 0.5;
-  c += g * 0.055;
+  // Grain: one static value per art pixel, faint.
+  float g = hash(cell) - 0.5;
+  c += g * 0.03;
   // Scanlines: darken the last device row of each buffer row.
   if (u_scan > 0.5 && u_px >= 3.0) {
     float row = mod(dev.y - u_off.y, u_px);
