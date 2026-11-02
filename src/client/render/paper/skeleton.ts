@@ -474,3 +474,279 @@ export function animationFromPoses(name: string, frames: number, loop: boolean, 
 
 /** The painted frame count and loop flag of an Anim (frames.ts). */
 export const animFrames = (a: Anim): { frames: number; loop: boolean } => ({ frames: FRAMES[a] ?? 8, loop: LOOPS.has(a) });
+
+// ------------------------------------------------------------------ evaluation: FK, then IK
+
+/** A bone posed for one frame: its origin and tip on whole pixels and its snapped world angle. */
+export interface BoneXf {
+  name: string;
+  i: number;
+  /** Origin (units, whole pixels at the level). */
+  x: number;
+  y: number;
+  /** Unsnapped world angle (deg); children inherit this. */
+  raw: number;
+  /** Snapped world angle step (0..47) and the angle in degrees (step · 7.5). */
+  step: number;
+  a: number;
+  /** Length (units, after scale-y) and scale-y (in 1/16ths). */
+  len: number;
+  sy: number;
+  /** Tip (units, whole pixels). */
+  tx: number;
+  ty: number;
+}
+
+/** A skeleton posed for one frame at one level and drawn facing. */
+export interface Posed {
+  skel: SkeletonData;
+  level: number;
+  facing: Facing;
+  bones: BoneXf[];
+  byName: Record<string, BoneXf>;
+  /** The attachment shown in each slot this frame. */
+  slots: Record<string, string | null>;
+  /** Slots back to front. */
+  order: string[];
+  events: AnimEvent[];
+  /** How far the ground correction moved the figure this frame (canvas px, + = down). */
+  lift: number;
+}
+
+interface Compiled {
+  idx: Map<string, number>;
+  parent: Int32Array;
+  /** Ground-IK target bones: they stay put when the ground correction moves the figure. */
+  groundTarget: Uint8Array;
+  ik: { d: IkData; i1: number; i2: number; it: number }[];
+}
+const COMPILED = new WeakMap<SkeletonData, Compiled>();
+
+function compile(skel: SkeletonData): Compiled {
+  const got = COMPILED.get(skel);
+  if (got) return got;
+  const idx = new Map<string, number>();
+  const parent = new Int32Array(skel.bones.length).fill(-1);
+  skel.bones.forEach((b, i) => {
+    if (idx.has(b.name)) throw new Error(`skeleton ${skel.name}: bone ${b.name} twice`);
+    if (b.parent !== undefined) {
+      const p = idx.get(b.parent);
+      if (p === undefined) throw new Error(`skeleton ${skel.name}: bone ${b.name}'s parent ${b.parent} must come before it`);
+      parent[i] = p;
+    }
+    idx.set(b.name, i);
+  });
+  const need = (n: string, what: string): number => {
+    const i = idx.get(n);
+    if (i === undefined) throw new Error(`skeleton ${skel.name}: ${what} names unknown bone ${n}`);
+    return i;
+  };
+  for (const s of skel.slots) need(s.bone, `slot ${s.name}`);
+  const groundTarget = new Uint8Array(skel.bones.length);
+  const ik = (skel.ik ?? []).map((d) => {
+    const c = { d, i1: need(d.bones[0], `ik ${d.name}`), i2: need(d.bones[1], `ik ${d.name}`), it: need(d.target, `ik ${d.name}`) };
+    if (parent[c.i2] !== c.i1) throw new Error(`skeleton ${skel.name}: ik ${d.name}: ${d.bones[1]} must be a child of ${d.bones[0]}`);
+    if (d.ground !== undefined) groundTarget[c.it] = 1;
+    return c;
+  });
+  const out = { idx, parent, groundTarget, ik };
+  COMPILED.set(skel, out);
+  return out;
+}
+
+export interface EvaluateOptions {
+  level: number;
+  /** The drawn facing (se or ne; mirrored facings are drawn from their partner). */
+  facing: Facing;
+  /** The previous frame of the same clip, for angle hysteresis. */
+  prev?: Posed;
+  /** Skip IK and the ground correction (the rest pose for key art). */
+  noIk?: boolean;
+}
+
+/**
+ * Poses a skeleton for one frame, deterministically:
+ * 1. FK, parents first: each bone's raw world angle is its parent's raw angle plus its own (rest +
+ *    keyed); the angle snaps to 7.5° with hysteresis against `prev`; its origin is placed from the
+ *    parent's *rounded* origin and *snapped* angle and rounded to whole pixels.
+ * 2. IK, in the skeleton's order: two-bone analytic IK (law of cosines, reach clamped to 0.999),
+ *    blended with FK by mix, then snapped by searching the neighbouring angle steps for the pair
+ *    whose pixel end lands nearest the target; the chain's descendants are placed again.
+ * 3. Ground: if a foot IK's target is on the ground, the figure (not the targets) moves by whole
+ *    pixels so the lowest planted foot stands exactly on its target.
+ */
+export function evaluate(skel: SkeletonData, locals: Locals, opts: EvaluateOptions): Posed {
+  const C = compile(skel);
+  const { level: L, facing } = opts;
+  const q = (v: number): number => Math.round(v * L) / L;
+  const bones = skel.bones;
+  const n = bones.length;
+  const prev = opts.prev && opts.prev.skel === skel && opts.prev.facing === facing && opts.prev.level === L ? opts.prev : undefined;
+  const lrot = new Float64Array(n), ox = new Float64Array(n), oy = new Float64Array(n), sy = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    const b = bones[i]!, f = b.facing?.[facing], l = locals.bones[b.name];
+    lrot[i] = (f?.rot ?? b.rot) + (l?.rot ?? 0);
+    ox[i] = (f?.x ?? b.x) + (l?.x ?? 0);
+    oy[i] = (f?.y ?? b.y) + (l?.y ?? 0);
+    sy[i] = Math.round((l?.sy ?? 1) * 16) / 16;
+  }
+  const out: BoneXf[] = new Array(n);
+  const fixed = new Uint8Array(n);
+  const place = (i: number): void => {
+    const b = bones[i]!, p = C.parent[i]!;
+    let raw: number, x: number, y: number;
+    if (p < 0) {
+      raw = fixed[i] ? out[i]!.raw : lrot[i]!;
+      x = q(ox[i]!);
+      y = q(oy[i]!);
+    } else {
+      const P = out[p]!;
+      raw = fixed[i] ? out[i]!.raw : (b.inherit === 'translation' ? 0 : P.raw) + lrot[i]!;
+      const w = rotStep([ox[i]!, oy[i]! * P.sy], P.step);
+      x = q(P.x + w[0]);
+      y = q(P.y + w[1]);
+    }
+    const step = fixed[i] ? out[i]!.step : snapStep(raw, prev?.bones[i]?.step);
+    const len = b.len * sy[i]!;
+    out[i] = { name: b.name, i, x, y, raw, step, a: step * SNAP_DEG, len, sy: sy[i]!, tx: q(x + sinStep(step) * len), ty: q(y + cosStep(step) * len) };
+  };
+  for (let i = 0; i < n; i++) place(i);
+
+  const isUnder = (j: number, root: number): boolean => {
+    for (let k = j; k >= 0; k = C.parent[k]!) if (k === root) return true;
+    return false;
+  };
+  const mixOf = (d: IkData): number => locals.ik[d.name]?.mix ?? d.mix;
+  if (!opts.noIk)
+    for (const { d, i1, i2, it } of C.ik) {
+      const mix = Math.max(0, Math.min(1, mixOf(d)));
+      if (mix <= 0) continue;
+      const bend = locals.ik[d.name]?.bend ?? d.bend;
+      const B1 = out[i1]!, B2 = out[i2]!, T = out[it]!;
+      const l1 = B1.len, l2 = B2.len;
+      const dx = T.x - B1.x, dy = T.y - B1.y;
+      const d0 = Math.sqrt(dx * dx + dy * dy);
+      if (d0 < 1e-9 || l1 <= 0 || l2 <= 0) continue;
+      const dd = Math.max(Math.abs(l1 - l2) + 1e-6, Math.min((l1 + l2) * 0.999, d0));
+      const ux = dx / d0, uy = dy / d0;
+      const cosA = Math.max(-1, Math.min(1, (l1 * l1 + dd * dd - l2 * l2) / (2 * l1 * dd)));
+      const sb = bend * Math.sqrt(1 - cosA * cosA);
+      // The middle joint: the target direction turned by ±alpha (no trig: a rotation by cos/sin).
+      const ex = B1.x + l1 * (ux * cosA + uy * sb), ey = B1.y + l1 * (uy * cosA - ux * sb);
+      const a1 = angleOf(ex - B1.x, ey - B1.y);
+      const a2 = angleOf(B1.x + ux * dd - ex, B1.y + uy * dd - ey);
+      const m1 = B1.raw + shortest(a1 - B1.raw) * mix, m2 = B2.raw + shortest(a2 - B2.raw) * mix;
+      let s1 = snapStep(m1, prev?.bones[i1]?.step), s2 = snapStep(m2, prev?.bones[i2]?.step);
+      if (mix >= 1) {
+        // Pixel-exact reach: of the neighbouring snapped pairs, the one whose end lands nearest
+        // the target (the hysteresis choice wins ties and near-ties).
+        let best = Infinity, b1 = s1, b2 = s2;
+        for (const e1 of [0, -1, 1])
+          for (const e2 of [0, -1, 1]) {
+            const k1 = wrapStep(s1 + e1), k2 = wrapStep(s2 + e2);
+            const w = rotStep([ox[i2]!, oy[i2]! * B1.sy], k1);
+            const jx = q(B1.x + w[0]), jy = q(B1.y + w[1]);
+            const fx = q(jx + sinStep(k2) * l2), fy = q(jy + cosStep(k2) * l2);
+            const err = ((fx - T.x) * L) ** 2 + ((fy - T.y) * L) ** 2 * 1.5;
+            const cost = err + 0.35 * (Math.abs(e1) + Math.abs(e2));
+            if (cost < best) [best, b1, b2] = [cost, k1, k2];
+          }
+        s1 = b1;
+        s2 = b2;
+      }
+      out[i1] = { ...B1, raw: s1 * SNAP_DEG, step: s1, a: s1 * SNAP_DEG };
+      out[i2] = { ...B2, raw: s2 * SNAP_DEG, step: s2, a: s2 * SNAP_DEG };
+      fixed[i1] = fixed[i2] = 1;
+      for (let j = i1; j < n; j++) if (isUnder(j, i1)) place(j);
+    }
+
+  // Ground: the lowest planted foot stands exactly on its target.
+  let lift = 0;
+  if (!opts.noIk) {
+    let lowest = -Infinity;
+    for (const { d, i2, it } of C.ik) {
+      if (d.ground === undefined || mixOf(d) < 1) continue;
+      const T = out[it]!, F = out[i2]!;
+      if (T.y < d.ground - 0.02) continue;
+      if (F.ty > lowest) {
+        lowest = F.ty;
+        lift = Math.round((T.y - F.ty) * L);
+      }
+    }
+    if (lift !== 0)
+      for (let i = 0; i < n; i++) {
+        if (C.groundTarget[i]) continue;
+        const b = out[i]!;
+        out[i] = { ...b, y: q(b.y + lift / L), ty: q(b.ty + lift / L) };
+      }
+  }
+
+  const byName: Record<string, BoneXf> = {};
+  for (const b of out) byName[b.name] = b;
+  const slots: Record<string, string | null> = {};
+  for (const s of skel.slots) slots[s.name] = s.name in locals.slots ? locals.slots[s.name]! : (s.attachment[facing] ?? s.attachment.all ?? null);
+  const order = locals.drawOrder?.[facing] ?? skel.drawOrder?.[facing] ?? skel.slots.map((s) => s.name);
+  return { skel, level: L, facing, bones: out, byName, slots, order, events: locals.events, lift };
+}
+
+const RESTS = new WeakMap<SkeletonData, Map<string, Posed>>();
+/** The rest (setup) pose at a level and facing: FK only (cached). */
+export function restPose(skel: SkeletonData, level: number, facing: Facing): Posed {
+  let m = RESTS.get(skel);
+  if (!m) RESTS.set(skel, (m = new Map()));
+  const key = `${level}|${facing}`;
+  let p = m.get(key);
+  if (!p) m.set(key, (p = evaluate(skel, emptyLocals(), { level, facing, noIk: true })));
+  return p;
+}
+
+const BAKES = new WeakMap<SkeletonData, WeakMap<object, Map<string, Posed[]>>>();
+/**
+ * Every frame of a clip, posed in order (frame f's hysteresis follows on from frame f-1). A loop is
+ * run twice and the second pass kept, so frame 0 follows on from the last frame too. Cached per
+ * skeleton, clip, level and facing.
+ */
+export function bakeClip(skel: SkeletonData, clip: Clip, level: number, facing: Facing, n: number = clipBase(clip).frames, loop: boolean = clipBase(clip).loop): Posed[] {
+  let bySkel = BAKES.get(skel);
+  if (!bySkel) BAKES.set(skel, (bySkel = new WeakMap()));
+  let byClip = bySkel.get(clip);
+  if (!byClip) bySkel.set(clip, (byClip = new Map()));
+  const key = `${level}|${facing}|${n}|${loop}`;
+  const got = byClip.get(key);
+  if (got) return got;
+  let prev: Posed | undefined;
+  const run = (): Posed[] => {
+    const out: Posed[] = [];
+    for (let f = 0; f < n; f++) {
+      prev = evaluate(skel, sampleClip(clip, f, n), { level, facing, prev });
+      out.push(prev);
+    }
+    return out;
+  };
+  let frames = run();
+  if (loop && n > 1) frames = run();
+  byClip.set(key, frames);
+  return frames;
+}
+
+/** The positions and angles of a posed skeleton as numbers (for hashing and comparing bakes). */
+export const posedNumbers = (p: Posed): number[] => p.bones.flatMap((b) => [b.x, b.y, b.step, b.tx, b.ty, b.sy]).concat(p.lift);
+
+/**
+ * Rotation offsets (Locals) that put the bones at the given world angles (deg), e.g. to drive a
+ * skeleton from an old FootPose. Bones not named keep their rest angle relative to their parent.
+ */
+export function localsFromWorld(skel: SkeletonData, world: Record<string, number>, facing: Facing = 'se'): Locals {
+  const C = compile(skel);
+  const out = emptyLocals();
+  const w = new Float64Array(skel.bones.length);
+  skel.bones.forEach((b, i) => {
+    const rest = b.facing?.[facing]?.rot ?? b.rot;
+    const p = C.parent[i]!;
+    const base = p >= 0 && b.inherit !== 'translation' ? w[p]! : 0;
+    const want = world[b.name];
+    w[i] = want ?? base + rest;
+    if (want !== undefined) out.bones[b.name] = { rot: want - base - rest };
+  });
+  return out;
+}

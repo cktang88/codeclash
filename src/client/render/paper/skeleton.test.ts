@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
-  acosDeg, angleOf, animationFromPoses, atan2Deg, bonesFromJoints, cosStep, curveAt, EASE, mixLocals, sampleAnimation, sampleClip, sinStep, snapStep, type AnimationData,
+  acosDeg, angleOf, animationFromPoses, atan2Deg, bonesFromJoints, cosStep, curveAt, EASE, emptyLocals, evaluate, mixLocals, sampleAnimation, sampleClip, sinStep, snapStep, type AnimationData, type SkeletonData,
 } from './skeleton.ts';
+import type { P2 } from './core.ts';
 
 describe('skeleton: maths', () => {
   it('has an exact sine table for the 48 snapped angles', () => {
@@ -57,6 +58,41 @@ describe('skeleton: maths', () => {
       expect(v).toBeGreaterThanOrEqual(last);
       last = v;
     }
+  });
+});
+
+describe('skeleton: evaluation', () => {
+  const leg: SkeletonData = {
+    name: 'leg',
+    body: 'foot',
+    bones: bonesFromJoints([
+      { name: 'root', from: [0, 0], to: [0, 0] },
+      { name: 'hip', parent: 'root', from: [0, -6], to: [0, -6] },
+      { name: 'thigh', parent: 'hip', from: [0, -6], to: [0.4, -3] },
+      { name: 'shin', parent: 'thigh', from: [0.4, -3], to: [0, -0.1] },
+      { name: 'target', parent: 'root', from: [0, -0.1], to: [0, -0.1] },
+    ]),
+    slots: [],
+    ik: [{ name: 'leg', bones: ['thigh', 'shin'], target: 'target', bend: 1, mix: 1 }],
+  };
+
+  it('puts every joint back on its rest position at rest, on whole pixels', () => {
+    for (const L of [1, 2, 4, 8]) {
+      const p = evaluate(leg, emptyLocals(), { level: L, facing: 'se', noIk: true });
+      expect(p.byName.thigh!.x).toBe(0);
+      expect(p.byName.shin!.x * L).toBe(Math.round(0.4 * L));
+      for (const b of p.bones) for (const v of [b.x, b.y, b.tx, b.ty]) expect(Number.isInteger(Math.round(v * L * 1e9) / 1e9)).toBe(true);
+    }
+  });
+
+  it('reaches an IK target within a pixel and bends the knee forward', () => {
+    for (const L of [1, 2, 4, 8])
+      for (const [tx, ty] of [[1, -0.5], [-1.2, -0.3], [0.5, -1.5], [2, -1]] as P2[]) {
+        const p = evaluate(leg, { ...emptyLocals(), bones: { target: { x: tx, y: ty + 0.1 } } }, { level: L, facing: 'se' });
+        const s = p.byName.shin!, t = p.byName.target!;
+        expect(Math.hypot(s.tx - t.x, s.ty - t.y) * L).toBeLessThanOrEqual(1.5);
+        expect(p.byName.thigh!.tx).toBeGreaterThan(Math.min(p.byName.thigh!.x, t.x) - 0.01);
+      }
   });
 });
 
