@@ -1,10 +1,12 @@
+> Written for the earlier ring-war game: where it speaks of armies, read *credited work* — the measurement rules (src/measure) are unchanged, and the game now reads them through `measure/credit.ts`.
+
 # Fair play: how the army could be gamed, and what stops it
 
 The goal: **a bigger contribution makes a better army, and nothing else does.** That includes play: there is **no manual control: your code is your only command.** Nobody can steer an army or time a buff to make up for less work; the same war council leads every army, and cheers in the room are just for show. Many small commits and one squashed commit give the same army, apart from timing. This page lists every gaming vector we could think of. For each one it gives the defense, the risk that remains, and what to do next.
 
-The tests are in [`src/rules/gaming.test.ts`](../src/rules/gaming.test.ts), which runs crafted diffs through `measurePush` the way the poller does, and [`src/sim/gaming.test.ts`](../src/sim/gaming.test.ts), which runs crafted ledgers through `armyFor` and `armyQuality`. A test passes when the gamed army is at most 10% stronger than the honest one. Strength is `quality × Σ count·√(hp·damage)`.
+The tests are in [`src/measure/gaming.test.ts`](../src/measure/gaming.test.ts), which runs crafted diffs through `measurePush` the way the poller does, and [`src/sim/gaming.test.ts`](../src/sim/gaming.test.ts), which runs crafted ledgers through `armyFor` and `armyQuality`. A test passes when the gamed army is at most 10% stronger than the honest one. Strength is `quality × Σ count·√(hp·damage)`.
 
-**The budget is linear** (DESIGN.md, *How many soldiers*): twice the real code raises twice the army. That rewards volume more than the old square roots did, so every line that passes for code now pays in full. Two things carry the weight: the ledger's filters, which keep padding from passing for code at all, and the daily cap with its knee (full value to 4000 lines, half to 8000, nothing beyond), which bounds whatever does pass.
+**The budget is linear** : twice the real code raises twice the army. That rewards volume more than the old square roots did, so every line that passes for code now pays in full. Two things carry the weight: the ledger's filters, which keep padding from passing for code at all, and the daily cap with its knee (full value to 4000 lines, half to 8000, nothing beyond), which bounds whatever does pass.
 
 "Before" gives what the attack earned before this pass.
 
@@ -27,14 +29,14 @@ The tests are in [`src/rules/gaming.test.ts`](../src/rules/gaming.test.ts), whic
     - A line with two names or values and some code around them counts, however short its names: `label.x = x;`, `y += len / 6;`, `x: number;`, `return 0;`. Style-sheet declarations such as `margin: 0;` count too. Comment frames (`/**`, ` *`, `*/`) count as blank lines, a comment is keyed by its text (single-line `/** … */` doc comments were all one key before), and `{/* … */}` in JSX is a comment.
   - **Filler.** Honest code leaves about one line in three uncounted, nearly all of it structure and repeated idioms (`ctx.beginPath();`, `display: flex;`). So a push may leave uncounted up to **0.5 lines per new credited code or test line, plus 2.5 per credited style-sheet line** (`FREE_PER_CODE`, `FREE_PER_STYLE`). Only what goes beyond that, plus everything past the daily cap, is *filler*, which frays the army. "New" means beyond the day's high-water mark of credited code, so writing, deleting and rewriting the same lines earns the allowance once. Padding pushed alone brings no code, so all of it is filler.
 - **Ragged armies (simulation, `armyQuality`).** Quality falls by up to 15% as filler goes from 15% to 50% of lines (`FILLER_RAMP`; it was 30% to 80% when every uncounted line was filler).
-- **Complexity rides on credited lines (ingestion, `rules/complexity.ts`).** Complexity is `branch points + function points + names ÷ 2`, read from syntax trees (DESIGN.md, *Sorting lines*), and every point of it is carried by a code key the push newly credits:
+- **Complexity rides on credited lines (ingestion, `measure/complexity.ts`).** Complexity is `branch points + function points + names ÷ 2`, read from syntax trees , and every point of it is carried by a code key the push newly credits:
   - A line's **branch points** are parsed from the line alone, in the smallest code that completes it, so they are a function of its text, like its key. A key stores what it carries when it is credited and gives exactly that back when it loses the credit, so any history telescopes to its squash, as the lines themselves do.
   - A **function** (3 points) needs 3 statement lines newly credited in the push, each serving one function only. Three of its credited lines carry it (its first line when new, then statements), and deleting any one of them undoes the whole function, so gutting a function after it is counted pays nothing.
   - A **link** (half a point per imported name the file's added code uses, at most 3 an import) is carried by the import's own line; each local module links once a day per player.
   - Lines that are repeats, near-duplicates past the shape cap, filler, generated or vendored carry nothing.
 - **Day memory (ingestion).** Each key remembers the most credit and the most removal credit it reached on earlier days. Only credit beyond that counts, so the same work is never paid twice across resets. Within one day, squash equivalence holds exactly. Balances and memory count for 7 days after they last moved (`LEDGER_LIVE_MS`) and are deleted after 8 (`LEDGER_KEEP_MS`).
 - **Purpose tallies (simulation, `applyDelta`).** Code, removed lines and the difficulty bonus are also tallied by purpose (a fix's bonus is fix work, `fixWork`). Undone lines come off the undoing push's own purpose first, then the others in order, so the tallies always sum to the totals: a feature written and then deleted under a `fix:` message leaves no Clerics behind.
-- **Forks wait for the upstream (ingestion, `server/upstream.ts`).** In a fork, edits of others' established code pay plain code credit at push time (M counts as 1, no effort credit). What the line bonus and effort credit would have paid is frozen with the push (from the push-time context, never re-read) and paid only once the commits are in the upstream's default branch: found by a compare against it, or a merged pull request from the fork branch holding all of the diff's commits, or a merge commit with the diff's patch id (a squash or rebase). It is credited after its day closes, capped with that day's immediate bonus as if it had paid at push time, as a one-off `upstream` input to the player's current war, at most one day's caps (3,800 lines) a UTC day; not found within 14 days, it pays nothing.
+- **Forks wait for the upstream (ingestion, `ingest/upstream.ts`).** In a fork, edits of others' established code pay plain code credit at push time (M counts as 1, no effort credit). What the line bonus and effort credit would have paid is frozen with the push (from the push-time context, never re-read) and paid only once the commits are in the upstream's default branch: found by a compare against it, or a merged pull request from the fork branch holding all of the diff's commits, or a merge commit with the diff's patch id (a squash or rebase). It is credited after its day closes, capped with that day's immediate bonus as if it had paid at push time, as a one-off `upstream` input to the player's current war, at most one day's caps (3,800 lines) a UTC day; not found within 14 days, it pays nothing.
 - **Repeat targets (ingestion, `applyPush`).** A file that held effort credit at the close of either of the two previous UTC days earns it again today only with at least `EFFORT_REPEAT_LINES` (10) modified lines instead of 3: token edits to the same file pay once in three days, real work on it every day. Its line bonus is not dampened. The rule reads earlier days' final states and today's file state only, so the push that crosses the threshold earns the credit and splitting today's pushes changes nothing.
 - **Effective ledger (simulation, `effectiveLedger`).** Each metric is bounded by the real code behind it:
   - code lines: in full to 4000 per war, at half value from 4000 to 8000, nothing beyond (at most 6000 lines' worth)
@@ -134,7 +136,7 @@ The tests are in [`src/rules/gaming.test.ts`](../src/rules/gaming.test.ts), whic
 
 ## The difficulty bonus, measured
 
-The bonus (DESIGN.md, *The difficulty bonus*) pays `f(modified) × (M − 1)` extra code lines for edits to others' established code, M at most ×3.2 (×1.5 behind the repository gate), the first 40 modified lines of a file in full and a square root beyond, at most 3 × the day's code and 2,000 lines a day.
+The bonus  pays `f(modified) × (M − 1)` extra code lines for edits to others' established code, M at most ×3.2 (×1.5 behind the repository gate), the first 40 modified lines of a file in full and a square root beyond, at most 3 × the day's code and 2,000 lines a day.
 
 On the hand-built fixtures (`server/testing/difficultyFixtures.ts`, `scripts/measure-difficulty.ts`), through the same pipeline ingestion runs:
 
@@ -151,7 +153,7 @@ A maintainer in a war (`MAINTAINERS=1 DAYS=128 pnpm tsx scripts/diagnose-war.ts 
 | The bonus as built (M ≤ 3.2) | 4% | 0.39 | 513 / 2,709 | 525 |
 | (M − 1) tripled, sensitivity only (64 days) | 5% | 0.63 | 487 / 2,776 | 1,526 (held to 3 × code) |
 
-**The effort credit** (DESIGN.md, *The effort credit*), tuned on the same simulation (128 seeded days, the same days for every setting; the bonus also counts toward veteran ranks). Maintainer wins (fair share 25%), by its push rate that day, and its budget against the greenfield median:
+**The effort credit** , tuned on the same simulation (128 seeded days, the same days for every setting; the bonus also counts toward veteran ranks). Maintainer wins (fair share 25%), by its push rate that day, and its budget against the greenfield median:
 
 | FILE_CREDIT | FILE_CAP | Wins | < 1.5 pushes/h | 2–4 /h (normal day) | ≥ 3 /h | Budget / greenfield | Bonus a day |
 |---|---|---|---|---|---|---|---|
@@ -199,7 +201,7 @@ With the effort credit (FILE_CREDIT 120, FILE_CAP 15), the same attacks:
 
 Three rules, from the effort credit's worst cases (rows 67 and 71): a fork's bonus pays only once its commits are upstream (rows 60, 71–76), token edits to the same file earn the effort credit at most once per player per 3 days (row 77), and edits must survive, which the same-day clawback already decides (row 78).
 
-**Attacks** (`src/rules/gaming.test.ts`, `GAMING_REPORT=1` prints them): strength over an honest 1,500-line day, as in the tables above.
+**Attacks** (`src/measure/gaming.test.ts`, `GAMING_REPORT=1` prints them): strength over an honest 1,500-line day, as in the tables above.
 
 | Attack | Before this pass | Now | Bonus lines |
 |---|---|---|---|
@@ -234,7 +236,7 @@ The first cut dampened every repeat, and it was the costly rule: the maintainer 
 
 ## The complexity pass, measured
 
-Branch points were a keyword count; now complexity is `branch points + 3 × new functions + ½ × imported names used`, read from syntax trees (DESIGN.md, *Sorting lines*). At the same time armies became twice the size (every budget weight and every unit count doubled; DESIGN.md, *How many soldiers*), so "before" and "now" below are each strength over the same honest day under its own rules.
+Branch points were a keyword count; now complexity is `branch points + 3 × new functions + ½ × imported names used`, read from syntax trees . At the same time armies became twice the size (every budget weight and every unit count doubled; DESIGN.md, *How many soldiers*), so "before" and "now" below are each strength over the same honest day under its own rules.
 
 **On this repository's last 81 commits** (`git show -U3` per commit through `measurePush`, each on a fresh ledger): 23,134 code lines; the keyword count found 5,636 branch points and the syntax tree 5,580; 729 new functions (2,187 points); 454 imported names used from local modules (227 points). Complexity 7,994, or 7,727 after the caps (0.33 a line). That is 1.42 points for each keyword branch point, so the budget's complexity term and the Knight, Troll and Dragon thresholds are the old branch ones × 1.42. Links are 2.8% of complexity. b0f0ae9 (ring conquest visuals and HUD): 1,770 lines, 510 → 507 branch points, 32 functions (+96), 29 names from 19 local modules (+14.5): complexity 617.5.
 
@@ -348,42 +350,42 @@ All players are measured the same way. A realistic day of features, fixes, tests
 
 ## Changes in the fork and repeat-target pass
 
-- `src/rules/difficulty.ts`: `EFFORT_REPEAT_DAYS`, `EFFORT_REPEAT_LINES`, `UPSTREAM_GIVE_UP_DAYS`, `UPSTREAM_PER_DAY`; `PushContext.upstream`, `upstreamOf`, `upstreamReward`; `RepoFacts.parent`
-- `src/rules/ledger.ts`: a fork's files are frozen as deferred with their multiplier, their bonus and effort credit go to `PushDelta.pending` instead of `bonus`; per-file effort history (repeat-target dampening); `dayBonusTotals`
-- `src/server/upstream.ts` (new): `patchId`, the daily checks, settling closed days into rewards; `src/server/db.ts`: `upstream_pending`, `upstream_days`, `upstream_paid`; `src/server/poller.ts` records pending rows and the day's immediate totals with the push; `src/server/hooks.ts` accepts `pull_request` closed-and-merged deliveries as a wake-up; `src/server/war.ts`, `rooms.ts`, `app.ts`: the reward as an `upstream` input to the player's current wars
-- `src/server/github.ts`: `compareStatus`, `closedPulls`, `pullCommits`, a fork's `parent` and default branches; `src/server/preview.ts`: "×3.2 pending upstream merge"
+- `src/measure/difficulty.ts`: `EFFORT_REPEAT_DAYS`, `EFFORT_REPEAT_LINES`, `UPSTREAM_GIVE_UP_DAYS`, `UPSTREAM_PER_DAY`; `PushContext.upstream`, `upstreamOf`, `upstreamReward`; `RepoFacts.parent`
+- `src/measure/ledger.ts`: a fork's files are frozen as deferred with their multiplier, their bonus and effort credit go to `PushDelta.pending` instead of `bonus`; per-file effort history (repeat-target dampening); `dayBonusTotals`
+- `src/ingest/upstream.ts` (new): `patchId`, the daily checks, settling closed days into rewards; `src/server/db.ts`: `upstream_pending`, `upstream_days`, `upstream_paid`; `src/ingest/poller.ts` records pending rows and the day's immediate totals with the push; `src/server/hooks.ts` accepts `pull_request` closed-and-merged deliveries as a wake-up; `src/server/war.ts`, `rooms.ts`, `app.ts`: the reward as an `upstream` input to the player's current wars
+- `src/ingest/github.ts`: `compareStatus`, `closedPulls`, `pullCommits`, a fork's `parent` and default branches; `src/server/preview.ts`: "×3.2 pending upstream merge"
 - `src/sim/api.ts`, `replay.ts`, `world.ts`: the `upstream` input, `[tick, 'upstream', p, repo, bonus, day]`: bonus lines added to the war's ledger without counting as a push (old replays decode as before)
 - `scripts/diagnose-war.ts`: dampening for maintainers (`DAMPEN=0` turns it off, `REPEAT_LINES=<n>` sets the threshold), the fork contributor persona (`FORKS`, `MERGE_RATE`), settings as `KEY=VALUE` arguments
 
 ## Changes in the difficulty-bonus pass
 
-- `src/rules/difficulty.ts` (new, pure): the multiplier, the per-file credit rule, the repository gate, line-age clamping, blame and history into a file's context
-- `src/rules/ledger.ts`: `measurePush` is `preparePush` (pure, worker-safe) then `applyPush` (the ledger); per-file day tallies of modified code, the frozen multiplier, the per-file and daily bonus; `PushDelta.bonus` and `difficulty`
-- `src/server/difficulty.ts` (new): REST facts per repository per day, one GraphQL query per diff, single-file retries, the mirror, neutral; `src/server/mirror.ts` (new): the bare partial-clone mirror
-- `src/server/github.ts`: GraphQL with its own rate-limit bucket, repository facts and languages, commit bases and author emails
+- `src/measure/difficulty.ts` (new, pure): the multiplier, the per-file credit rule, the repository gate, line-age clamping, blame and history into a file's context
+- `src/measure/ledger.ts`: `measurePush` is `preparePush` (pure, worker-safe) then `applyPush` (the ledger); per-file day tallies of modified code, the frozen multiplier, the per-file and daily bonus; `PushDelta.bonus` and `difficulty`
+- `src/ingest/difficulty.ts` (new): REST facts per repository per day, one GraphQL query per diff, single-file retries, the mirror, neutral; `src/ingest/mirror.ts` (new): the bare partial-clone mirror
+- `src/ingest/github.ts`: GraphQL with its own rate-limit bucket, repository facts and languages, commit bases and author emails
 - `src/server/parsePool.ts`, `parseWorker.ts` (new): parsing in worker threads
 - `src/sim/muster.ts`: `bonus` in the ledger and the budget's code term, through the knee and cap, at most `BONUS_PER_CODE` (3) × code; push inputs and replays carry `bonus` (written only when nonzero)
 - grammars vendored in `assets/grammars/` (`scripts/vendor-grammars.ts`), the grammar packages dropped from the dependencies
 
 ## Changes in the complexity pass
 
-- `src/rules/complexity.ts` (new, server only): tree-sitter parsing (`web-tree-sitter` and the grammars' `.wasm`, loaded lazily) for JavaScript, TypeScript, TSX, Python, Go, Rust, Java, Kotlin and Ruby:
+- `src/measure/complexity.ts` (new, server only): tree-sitter parsing (`web-tree-sitter` and the grammars' `.wasm`, loaded lazily) for JavaScript, TypeScript, TSX, Python, Go, Rust, Java, Kotlin and Ruby:
   - `lineBranches`: a line's decision points from its own syntax tree, set in the smallest code that completes it; constant conditions, strings, comments and identifiers do not count
   - `analyzeFile`: each hunk's new side parsed as a fragment; definitions wholly on added lines with their statement lines, and local imports with the names the added code uses
   - budgets: 1 MB of parsed text a push (hunks and lines), 250 ms a file; past them, keywords
-- `src/rules/ledger.ts`: complexity rides on credited code keys (`WEIGHT`, `FUNCTION_OF`, `FUNCTION` and the day's `LINKS` scopes); `PushDelta` gains `functions`, `links` and `modules`
+- `src/measure/ledger.ts`: complexity rides on credited code keys (`WEIGHT`, `FUNCTION_OF`, `FUNCTION` and the day's `LINKS` scopes); `PushDelta` gains `functions`, `links` and `modules`
 - `src/sim/muster.ts`: `complexityOf` (links at most a quarter, function points at most `code/8`, the whole at most `code/2`); the budget's complexity term; Knights, Trolls and Dragons from complexity; armies twice the size, counts in pairs and paid in pairs
 - `src/sim/stats.ts`, `src/sim/world.ts`, `src/sim/council.ts`: the room holds 4000 soldiers and an army 320 slots; walls 75 HP a slot; a tower looses up to 24 bolts; sieges wait for 50 soldiers (20 for breached walls)
 - push inputs, replays and snapshots carry `functions` and `links` (older ones decode with none); the preview, the chronicle, the digest's Architect and the HUD's ledger show complexity and its parts
 
 ## Changes in the filler pass
 
-- `src/rules/ledger.ts`:
+- `src/measure/ledger.ts`:
   - `fillerKind` replaces the two-letter-word rule: structure, fragments and literal data are told apart, and short statements with one-letter names count as code
   - comments are keyed by their text; comment frames count as blank lines
   - `PushDelta.uncounted`: every uncounted added line by kind, with the files holding most of each
   - filler is what a push leaves uncounted beyond `FREE_PER_CODE` (0.5) per new credited code or test line plus `FREE_PER_STYLE` (2.5) per credited style-sheet line, plus lines past the daily cap; new code is measured against the day's high-water mark
-- `src/rules/classify.ts`: `{/* … */}` in JSX is a comment
+- `src/measure/classify.ts`: `{/* … */}` in JSX is a comment
 - `src/sim/muster.ts`: `FILLER_RAMP` is 15% to 50% (was 30% to 80%)
 - `src/server/preview.ts` and `src/client/pages/Preview.tsx`: the reasons lead with the army size and what each part of the work added to it, say how it was spent on specialists, and name the kind and files of uncounted lines and of filler
 
@@ -393,7 +395,7 @@ All players are measured the same way. A realistic day of features, fixes, tests
   - the budget is linear: `BUDGET_PER_10K` (0.032 a code line, 0.07 a file, 0.01 a branch point, 0.004 a removed line), computed in whole numbers (`budgetOf`)
   - code lines count in full to `CODE_KNEE` (4000), half to `CODE_CAP` (8000), nothing beyond (`credited`); removed lines at most 4000
   - Paladins one per 300 fix lines and Rangers one per 500 (were 150 and 250), so fixes' linear wants take a third of the budget and Clerics still muster
-- `src/rules/ledger.ts`:
+- `src/measure/ledger.ts`:
   - style-sheet, markup and SQL shapes blank class and id selectors
   - `DAILY_CODE_CAP` is `CODE_CAP` (8000)
   - (tried and backed out: keying wrapped statements whole; see vector 5)
@@ -401,11 +403,11 @@ All players are measured the same way. A realistic day of features, fixes, tests
 
 ## Changes in the first pass
 
-- `src/rules/classify.ts`:
+- `src/measure/classify.ts`:
   - multi-line string tracking (template literals, `"""`, raw strings), with tagged templates and `${…}` interpolations understood and regex literals skipped
   - VHDL and `.m` comments
   - `.tex` and `.bib` count as docs
-- `src/rules/ledger.ts`:
+- `src/measure/ledger.ts`:
   - canonical keys and the Unicode folding
   - duplicate cap of 1
   - shape cap
