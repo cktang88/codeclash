@@ -1243,7 +1243,7 @@ export function footSkeleton(o: { name?: string; twoHanded?: boolean } = {}): Sk
 export function beastSkeleton(o: { name?: string; scale?: number } = {}): SkeletonData {
   const k = o.scale ?? 1.4;
   const s = scaleSkeleton(footSkeleton(), k, o.name ?? 'beast');
-  const bones = s.bones.map((b) => (b.name === 'spine' ? { ...b, rot: round6(b.rot + 18) } : b.name === 'neck' ? { ...b, rot: round6(b.rot - 14) } : b));
+  const bones = s.bones.map((b) => (b.name === 'spine' ? { ...b, rot: round6(b.rot - 18) } : b.name === 'neck' ? { ...b, rot: round6(b.rot + 14) } : b));
   const hi = bones.findIndex((b) => b.name === 'head');
   bones.splice(hi + 1, 0, { name: 'jaw', parent: 'head', len: round6(0.9 * k), x: round6(-0.35 * k), y: round6(0.45 * k), rot: 150 });
   const slots = [...s.slots, { name: 'jaw', bone: 'jaw', attachment: { all: 'jaw' } }];
@@ -1400,58 +1400,58 @@ export function footAnimations(o: { stride?: number; scale?: number } = {}): Par
   const wf = feetCycle(12, stride, 0.7, 6);
   const bob = [0.1, 0.3, 0, -0.12];
   const walk = animationFromPoses('walk', 12, true, wf.map((feet, i) =>
-    pk(i * 1.5, merge(STANCE, feet, { pelvis: { y: bob[i % 4]! }, spine: { rot: 3 }, upperArmF: { rot: 6 + 14 * [1, 0.7, 0, -0.7, -1, -0.7, 0, 0.7][i]! } })),
+    pk(i * 1.5, merge(STANCE, feet, { pelvis: { y: bob[i % 4]! }, spine: { rot: -3 }, upperArmF: { rot: 6 + 14 * [1, 0.7, 0, -0.7, -1, -0.7, 0, 0.7][i]! } })),
   ), [{ f: 0, name: 'step', str: 'N' }, { f: 6, name: 'step', str: 'F' }]);
 
   // Run: a shorter stance, a flight phase with both feet up, a forward lean and pumping arms.
   const rf = feetCycle(12, stride * 1.35, 1.5, 4.5);
   const rbob = [0.4, 0.2, -0.15, -0.35];
   const run = animationFromPoses('run', 12, true, rf.map((feet, i) =>
-    pk(i * 1.5, merge(feet, { pelvis: { x: 0.3, y: rbob[i % 4]! }, spine: { rot: 14 }, head: { rot: -10 }, upperArmN: { rot: 20 }, forearmN: { rot: 50 }, upperArmF: { rot: 28 * [1, 0.7, 0, -0.7, -1, -0.7, 0, 0.7][i]! }, forearmF: { rot: 50 } })),
+    pk(i * 1.5, merge(feet, { pelvis: { x: 0.3, y: rbob[i % 4]! }, spine: { rot: -14 }, head: { rot: 10 }, upperArmN: { rot: 20 }, forearmN: { rot: 50 }, upperArmF: { rot: 28 * [1, 0.7, 0, -0.7, -1, -0.7, 0, 0.7][i]! }, forearmF: { rot: 50 } })),
   ), [{ f: 0, name: 'step', str: 'N' }, { f: 6, name: 'step', str: 'F' }]);
 
   // Attack: anticipation (wind up, weight back), strike (lunge; smear), follow-through, recover.
   const attack = animationFromPoses('attack', 12, false, [
     pk(0, STANCE, EASE),
-    pk(3, { upperArmN: { rot: 150 }, forearmN: { rot: -20 }, weapon: { rot: 40 }, spine: { rot: -8 }, head: { rot: 6 }, pelvis: { x: -0.2 }, upperArmF: { rot: 20 }, forearmF: { rot: 30 } }, EASE_IN),
-    pk(5, { upperArmN: { rot: 70 }, forearmN: { rot: -10 }, weapon: { rot: -50 }, spine: { rot: 20 }, pelvis: { x: 0.45, y: 0.3 }, upperArmF: { rot: -12 }, forearmF: { rot: 30 } }, EASE_OUT),
-    pk(7, { upperArmN: { rot: 15 }, forearmN: { rot: -15 }, weapon: { rot: -95 }, spine: { rot: 24 }, pelvis: { x: 0.55, y: 0.35 }, upperArmF: { rot: -16 }, forearmF: { rot: 30 } }, EASE),
-    pk(11, merge(STANCE, { spine: { rot: 4 } })),
+    pk(3, { upperArmN: { rot: 150 }, forearmN: { rot: -20 }, weapon: { rot: 40 }, spine: { rot: 8 }, head: { rot: -6 }, pelvis: { x: -0.2 }, upperArmF: { rot: 20 }, forearmF: { rot: 30 } }, EASE_IN),
+    pk(5, { upperArmN: { rot: 70 }, forearmN: { rot: -10 }, weapon: { rot: -50 }, spine: { rot: -20 }, pelvis: { x: 0.45, y: 0.3 }, upperArmF: { rot: -12 }, forearmF: { rot: 30 } }, EASE_OUT),
+    pk(7, { upperArmN: { rot: 15 }, forearmN: { rot: -15 }, weapon: { rot: -95 }, spine: { rot: -24 }, pelvis: { x: 0.55, y: 0.35 }, upperArmF: { rot: -16 }, forearmF: { rot: 30 } }, EASE),
+    pk(11, merge(STANCE, { spine: { rot: -4 } })),
   ], [{ f: 4, name: 'smear', len: 2, bone: 'weapon' }, { f: 5, name: 'hit' }]);
 
   // Shoot: raise the bow arm, draw to the chin, release, recoil, recover.
   const shoot = animationFromPoses('shoot', 12, false, [
     pk(0, STANCE, EASE),
     pk(3, { upperArmF: { rot: 80 }, forearmF: { rot: -10 }, upperArmN: { rot: 70 }, forearmN: { rot: 60 }, weapon: { rot: -60 } }, EASE),
-    pk(6, { upperArmF: { rot: 82 }, forearmF: { rot: -8 }, upperArmN: { rot: 80 }, forearmN: { rot: 120 }, weapon: { rot: -60 }, spine: { rot: -4 } }, 'stepped'),
-    pk(7, { upperArmF: { rot: 82 }, forearmF: { rot: -8 }, upperArmN: { rot: 70 }, forearmN: { rot: 95 }, weapon: { rot: -60 }, spine: { rot: -4 } }, EASE_OUT),
-    pk(8, { upperArmF: { rot: 88 }, forearmF: { rot: -4 }, upperArmN: { rot: 66 }, forearmN: { rot: 85 }, weapon: { rot: -60 }, spine: { rot: -6 } }, EASE),
+    pk(6, { upperArmF: { rot: 82 }, forearmF: { rot: -8 }, upperArmN: { rot: 80 }, forearmN: { rot: 120 }, weapon: { rot: -60 }, spine: { rot: 4 } }, 'stepped'),
+    pk(7, { upperArmF: { rot: 82 }, forearmF: { rot: -8 }, upperArmN: { rot: 70 }, forearmN: { rot: 95 }, weapon: { rot: -60 }, spine: { rot: 4 } }, EASE_OUT),
+    pk(8, { upperArmF: { rot: 88 }, forearmF: { rot: -4 }, upperArmN: { rot: 66 }, forearmN: { rot: 85 }, weapon: { rot: -60 }, spine: { rot: 6 } }, EASE),
     pk(11, STANCE),
   ], [{ f: 7, name: 'release' }]);
 
   // Hit: thrown back, the head snaps back, arms fly; he steadies.
   const hit = animationFromPoses('hit', 5, false, [
     pk(0, STANCE, EASE_OUT),
-    pk(1, { spine: { rot: -14 }, head: { rot: -18 }, pelvis: { x: -0.35, y: 0.1 }, upperArmN: { rot: 35 }, forearmN: { rot: 50 }, upperArmF: { rot: 36 }, forearmF: { rot: 40 } }, EASE),
-    pk(2, { spine: { rot: -10 }, head: { rot: -10 }, pelvis: { x: -0.25 }, upperArmN: { rot: 25 }, forearmN: { rot: 45 }, upperArmF: { rot: 24 }, forearmF: { rot: 30 } }, EASE),
-    pk(4, merge(STANCE, { spine: { rot: -2 } })),
+    pk(1, { spine: { rot: 14 }, head: { rot: 18 }, pelvis: { x: -0.35, y: 0.1 }, upperArmN: { rot: 35 }, forearmN: { rot: 50 }, upperArmF: { rot: 36 }, forearmF: { rot: 40 } }, EASE),
+    pk(2, { spine: { rot: 10 }, head: { rot: 10 }, pelvis: { x: -0.25 }, upperArmN: { rot: 25 }, forearmN: { rot: 45 }, upperArmF: { rot: 24 }, forearmF: { rot: 30 } }, EASE),
+    pk(4, merge(STANCE, { spine: { rot: 2 } })),
   ]);
 
   // Die: the blow, the knees go (feet released from IK), he topples backwards about his feet.
-  const fall: Pose = { root: { rot: -88, y: -0.6 }, spine: { rot: -5 }, head: { rot: 30 }, thighN: { rot: 30 }, shinN: { rot: -20 }, thighF: { rot: 20 }, shinF: { rot: -20 }, upperArmN: { rot: 100 }, forearmN: { rot: 0 }, upperArmF: { rot: 90 }, forearmF: { rot: 10 }, weapon: { rot: 40 } };
+  const fall: Pose = { root: { rot: 88, y: -0.6 }, spine: { rot: 5 }, head: { rot: -30 }, thighN: { rot: 30 }, shinN: { rot: -20 }, thighF: { rot: 20 }, shinF: { rot: -20 }, upperArmN: { rot: 12 }, forearmN: { rot: 8 }, upperArmF: { rot: -6 }, forearmF: { rot: 14 }, weapon: { rot: 50 } };
   const off = { legN: 0, legF: 0 };
   const die = animationFromPoses('die', 12, false, [
     pk(0, STANCE, EASE_OUT, { legN: 1, legF: 1 }),
-    pk(2, { spine: { rot: -18 }, head: { rot: -20 }, upperArmN: { rot: 60 }, forearmN: { rot: 30 }, upperArmF: { rot: 40 }, forearmF: { rot: 30 } }, EASE, { legN: 1, legF: 1 }),
-    pk(5, { spine: { rot: -10 }, head: { rot: 20 }, pelvis: { y: 1.6 }, thighN: { rot: 40 }, shinN: { rot: -70 }, thighF: { rot: 30 }, shinF: { rot: -60 }, upperArmN: { rot: 30 }, forearmN: { rot: 40 }, upperArmF: { rot: 30 }, forearmF: { rot: 50 } }, EASE_IN, off),
-    pk(8, { root: { rot: -50, y: -0.2 }, spine: { rot: -10 }, head: { rot: 30 }, pelvis: { y: 1.0 }, thighN: { rot: 50 }, shinN: { rot: -60 }, thighF: { rot: 40 }, shinF: { rot: -50 }, upperArmN: { rot: 70 }, forearmN: { rot: 10 }, upperArmF: { rot: 60 }, forearmF: { rot: 20 } }, EASE_OUT, off),
+    pk(2, { spine: { rot: 18 }, head: { rot: 20 }, upperArmN: { rot: 60 }, forearmN: { rot: 30 }, upperArmF: { rot: 40 }, forearmF: { rot: 30 } }, EASE, { legN: 1, legF: 1 }),
+    pk(5, { spine: { rot: 10 }, head: { rot: -20 }, pelvis: { y: 1.6 }, thighN: { rot: 40 }, shinN: { rot: -70 }, thighF: { rot: 30 }, shinF: { rot: -60 }, upperArmN: { rot: 30 }, forearmN: { rot: 40 }, upperArmF: { rot: 30 }, forearmF: { rot: 50 } }, EASE_IN, off),
+    pk(8, { root: { rot: 50, y: -0.2 }, spine: { rot: 10 }, head: { rot: -30 }, pelvis: { y: 1.0 }, thighN: { rot: 50 }, shinN: { rot: -60 }, thighF: { rot: 40 }, shinF: { rot: -50 }, upperArmN: { rot: 70 }, forearmN: { rot: 10 }, upperArmF: { rot: 60 }, forearmF: { rot: 20 } }, EASE_OUT, off),
     pk(11, fall, undefined, off),
   ], [{ f: 11, name: 'land' }]);
   const dead = animationFromPoses('dead', 1, false, [pk(0, fall, undefined, off)]);
 
   // Brace: crouched behind the off-hand item held square, the weapon cocked over it; it breathes.
   const brace = animationFromPoses('brace', 8, true, [
-    pk(0, { pelvis: { x: 0.15, y: 0.6 }, spine: { rot: 14 }, head: { rot: -4 }, upperArmF: { rot: 60 }, forearmF: { rot: 25 }, upperArmN: { rot: 50 }, forearmN: { rot: 40 }, weapon: { rot: -20 } }),
+    pk(0, { pelvis: { x: 0.15, y: 0.6 }, spine: { rot: -14 }, head: { rot: 4 }, upperArmF: { rot: 60 }, forearmF: { rot: 25 }, upperArmN: { rot: 50 }, forearmN: { rot: 40 }, weapon: { rot: -20 } }),
   ]);
 
   return {
@@ -1537,8 +1537,8 @@ export function horseAnimations(): Partial<Record<Anim, Clip>> {
       horseHead: { rotate: [{ f: 0, v: -4, c: EASE }, { f: 6, v: 4, c: EASE }] },
       tail: { rotate: [{ f: 0, v: -15, c: EASE }, { f: 6, v: -25, c: EASE }] },
       pelvis: { translate: [{ f: 1.5, v: [0, 0.3], c: EASE }, { f: 7.5, v: [0, -0.2], c: EASE }] },
-      spine: { rotate: [{ f: 0, v: 14 }] },
-      head: { rotate: [{ f: 0, v: -10 }] },
+      spine: { rotate: [{ f: 0, v: -14 }] },
+      head: { rotate: [{ f: 0, v: 10 }] },
       upperArmN: { rotate: [{ f: 0, v: 40 }] },
       forearmN: { rotate: [{ f: 0, v: 30 }] },
       upperArmF: { rotate: [{ f: 0, v: 20 }] },
@@ -1559,16 +1559,16 @@ export function horseAnimations(): Partial<Record<Anim, Clip>> {
   };
   const over = (a: Anim): Track[] => [{ anim: idle }, { anim: riderOf(a), mode: 'replace' }];
   const fold: Pose = { foreNUpper: { rot: 60 }, foreNLower: { rot: -100 }, foreFUpper: { rot: 55 }, foreFLower: { rot: -95 }, hindNUpper: { rot: 50 }, hindNLower: { rot: -90 }, hindFUpper: { rot: 45 }, hindFLower: { rot: -85 } };
-  const down: Pose = merge(fold, { root: { y: 3 }, horseBody: { rot: -6 }, horseNeck: { rot: 40 }, horseHead: { rot: 20 }, spine: { rot: -30 }, pelvis: { x: -1.5, y: 1.0 }, head: { rot: 20 }, upperArmN: { rot: 90 }, upperArmF: { rot: 80 } });
+  const down: Pose = merge(fold, { root: { y: 3 }, horseBody: { rot: -6 }, horseNeck: { rot: -40 }, horseHead: { rot: -20 }, spine: { rot: 30 }, pelvis: { x: -1.5, y: 1.0 }, head: { rot: -20 }, upperArmN: { rot: 90 }, upperArmF: { rot: 80 } });
   const die = animationFromPoses('horse-die', 12, false, [
     pk(0, {}, EASE),
-    pk(3, { horseBody: { rot: 10 }, horseNeck: { rot: -14 }, foreNUpper: { rot: 30 }, foreFUpper: { rot: 25 }, spine: { rot: -12 } }, EASE_IN),
-    pk(7, merge(fold, { root: { y: 1.8 }, horseBody: { rot: -4 }, horseNeck: { rot: 20 }, spine: { rot: -24 }, pelvis: { x: -0.6, y: 0.4 } }), EASE_OUT),
+    pk(3, { horseBody: { rot: 10 }, horseNeck: { rot: 14 }, foreNUpper: { rot: 30 }, foreFUpper: { rot: 25 }, spine: { rot: 12 } }, EASE_IN),
+    pk(7, merge(fold, { root: { y: 1.8 }, horseBody: { rot: -4 }, horseNeck: { rot: -20 }, spine: { rot: 24 }, pelvis: { x: -0.6, y: 0.4 } }), EASE_OUT),
     pk(11, down),
   ], [{ f: 11, name: 'land' }]);
   const brace = animationFromPoses('horse-brace', 8, true, [
-    pk(0, { horseBody: { rot: 4 }, horseNeck: { rot: -8 }, foreNUpper: { rot: 10 }, foreFUpper: { rot: 8 }, hindNUpper: { rot: -6 }, hindFUpper: { rot: -6 }, spine: { rot: 6 }, upperArmN: { rot: 40 }, forearmN: { rot: 50 }, weapon: { rot: -60 } }, EASE),
-    pk(4, { horseBody: { rot: 4, y: 0.1 }, horseNeck: { rot: -12 }, foreNUpper: { rot: 10 }, foreFUpper: { rot: 8 }, hindNUpper: { rot: -6 }, hindFUpper: { rot: -6 }, spine: { rot: 6 }, upperArmN: { rot: 40 }, forearmN: { rot: 50 }, weapon: { rot: -60 } }, EASE),
+    pk(0, { horseBody: { rot: 4 }, horseNeck: { rot: 8 }, foreNUpper: { rot: 10 }, foreFUpper: { rot: 8 }, hindNUpper: { rot: -6 }, hindFUpper: { rot: -6 }, spine: { rot: -6 }, upperArmN: { rot: 40 }, forearmN: { rot: 50 }, weapon: { rot: -60 } }, EASE),
+    pk(4, { horseBody: { rot: 4, y: 0.1 }, horseNeck: { rot: 12 }, foreNUpper: { rot: 10 }, foreFUpper: { rot: 8 }, hindNUpper: { rot: -6 }, hindFUpper: { rot: -6 }, spine: { rot: -6 }, upperArmN: { rot: 40 }, forearmN: { rot: 50 }, weapon: { rot: -60 } }, EASE),
   ]);
   return {
     [Anim.Idle]: idle,
@@ -1576,7 +1576,7 @@ export function horseAnimations(): Partial<Record<Anim, Clip>> {
     [Anim.Run]: gallop,
     [Anim.Attack]: over(Anim.Attack),
     [Anim.Shoot]: over(Anim.Shoot),
-    [Anim.Hit]: [{ anim: idle }, { anim: riderOf(Anim.Hit), mode: 'replace' }, { anim: { name: 'horse-shy', frames: 5, loop: false, bones: { horseNeck: { rotate: [{ f: 0, v: 0 }, { f: 1, v: -15, c: EASE }, { f: 4, v: 0 }] } } } }],
+    [Anim.Hit]: [{ anim: idle }, { anim: riderOf(Anim.Hit), mode: 'replace' }, { anim: { name: 'horse-shy', frames: 5, loop: false, bones: { horseNeck: { rotate: [{ f: 0, v: 0 }, { f: 1, v: 15, c: EASE }, { f: 4, v: 0 }] } } } }],
     [Anim.Die]: die,
     [Anim.Dead]: animationFromPoses('horse-dead', 1, false, [pk(0, down)]),
     [Anim.Brace]: brace,
@@ -1587,17 +1587,17 @@ export function horseAnimations(): Partial<Record<Anim, Clip>> {
 export function engineAnimations(): Partial<Record<Anim, Clip>> {
   const idle: AnimationData = { name: 'engine-idle', frames: 8, loop: true, bones: { crewChest: { translate: [{ f: 0, v: [0, 0], c: EASE }, { f: 4, v: [0, -0.13], c: EASE }] } } };
   const throwIt = animationFromPoses('engine-throw', 12, false, [
-    pk(0, { crewChest: { rot: 10 }, crewArm: { rot: 30 } }, EASE),
-    pk(2, { arm: { rot: -6 }, crewChest: { rot: 20 }, crewArm: { rot: 60 }, crewForearm: { rot: 20 } }, EASE_IN),
-    pk(5, { arm: { rot: 150 }, sling: { rot: 90 }, crewChest: { rot: -6 }, crewArm: { rot: -20 } }, EASE_OUT),
-    pk(7, { arm: { rot: 175 }, sling: { rot: 200 }, crewChest: { rot: -8 }, crewArm: { rot: -10 } }, EASE),
-    pk(11, { arm: { rot: 40 }, sling: { rot: 30 }, crewChest: { rot: 24 }, crewArm: { rot: 70 }, crewForearm: { rot: 30 } }),
+    pk(0, { crewChest: { rot: -10 }, crewArm: { rot: 30 } }, EASE),
+    pk(2, { arm: { rot: -6 }, crewChest: { rot: -20 }, crewArm: { rot: 60 }, crewForearm: { rot: 20 } }, EASE_IN),
+    pk(5, { arm: { rot: 150 }, sling: { rot: 90 }, crewChest: { rot: 6 }, crewArm: { rot: -20 } }, EASE_OUT),
+    pk(7, { arm: { rot: 175 }, sling: { rot: 200 }, crewChest: { rot: 8 }, crewArm: { rot: -10 } }, EASE),
+    pk(11, { arm: { rot: 40 }, sling: { rot: 30 }, crewChest: { rot: -24 }, crewArm: { rot: 70 }, crewForearm: { rot: 30 } }),
   ], [{ f: 5, name: 'release' }]);
   const push = animationFromPoses('engine-push', 12, true, [0, 3, 6, 9].map((f, i) =>
-    pk(f, { root: { y: i % 2 ? -0.06 : 0 }, crewChest: { rot: 24 }, crewArm: { rot: 70 }, crewThigh: { rot: i < 2 ? 18 : -18 }, crewShin: { rot: i % 2 ? -30 : -6 } }, EASE)));
-  const hit = animationFromPoses('engine-hit', 5, false, [pk(0, {}), pk(1, { frame: { x: -0.25, rot: -3 }, crewChest: { rot: -20 } }, EASE), pk(4, {})]);
-  const wreck: Pose = { frame: { rot: -6, y: 0.4 }, post: { rot: -24 }, arm: { rot: 70 }, sling: { rot: -40 }, crewPelvis: { y: 2.4, x: 1.0 }, crewChest: { rot: -80 }, crewThigh: { rot: 70 }, crewShin: { rot: -40 } };
-  const die = animationFromPoses('engine-die', 12, false, [pk(0, {}, EASE), pk(4, { frame: { rot: -3 }, post: { rot: -8 }, crewChest: { rot: -30 } }, EASE_IN), pk(11, wreck)], [{ f: 11, name: 'land' }]);
+    pk(f, { root: { y: i % 2 ? -0.06 : 0 }, crewChest: { rot: -24 }, crewArm: { rot: 70 }, crewThigh: { rot: i < 2 ? 18 : -18 }, crewShin: { rot: i % 2 ? -30 : -6 } }, EASE)));
+  const hit = animationFromPoses('engine-hit', 5, false, [pk(0, {}), pk(1, { frame: { x: -0.25, rot: -3 }, crewChest: { rot: 20 } }, EASE), pk(4, {})]);
+  const wreck: Pose = { frame: { rot: -6, y: 0.4 }, post: { rot: -24 }, arm: { rot: 70 }, sling: { rot: -40 }, crewPelvis: { y: 2.4, x: 1.0 }, crewChest: { rot: 80 }, crewThigh: { rot: 70 }, crewShin: { rot: -40 } };
+  const die = animationFromPoses('engine-die', 12, false, [pk(0, {}, EASE), pk(4, { frame: { rot: -3 }, post: { rot: -8 }, crewChest: { rot: 30 } }, EASE_IN), pk(11, wreck)], [{ f: 11, name: 'land' }]);
   return {
     [Anim.Idle]: idle,
     [Anim.Walk]: push,
