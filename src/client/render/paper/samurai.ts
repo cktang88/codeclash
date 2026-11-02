@@ -576,7 +576,7 @@ registerPaperKind<EnginePose>('samurai', U.Artillery, { body: 'engine', keys: OZ
 
 // The kinds rebuilt from the key art on bones (samurai-rig.ts) replace the posed figures above.
 registerFootRigs([U.HeavyInfantry, U.Spearmen, U.Skirmishers, U.Archers, U.Crossbowmen, U.Shock, COMMANDER_KIND]);
-registerHorseRigs([U.LightCavalry]);
+registerHorseRigs([U.LightCavalry, U.HorseArchers, U.Knights]);
 
 // Kept for tests and the contact sheet.
 export const SAMURAI_KINDS = [U.HeavyInfantry, U.Spearmen, U.Skirmishers, U.Archers, U.Crossbowmen, U.LightCavalry, U.HorseArchers, U.Knights, U.Shock, U.Artillery, COMMANDER_KIND] as const;
