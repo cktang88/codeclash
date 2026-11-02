@@ -7,3 +7,6 @@ data
 .claude/worktrees
 playground/
 src/client/public/lab/
+
+# Downloaded art references: study copies, never committed (see .claude/skills/art-reference)
+references/
