@@ -146,6 +146,37 @@ const HD_ID = {
 const MISSILE_CLS = (cls: number, splash: number): 'stone' | 'bolt' | 'jav' | 'arrow' =>
   splash > 0 ? 'stone' : cls === U.Crossbowmen ? 'bolt' : cls === U.Skirmishers ? 'jav' : 'arrow';
 
+/** HD: a kind's sheet texture at a level, going up a band of rows at a time. */
+interface HdTex {
+  tex: WebGLTexture;
+  sheet: KindSheet;
+  t: number;
+  k: number;
+  L: number;
+  /** Rows of the sheet uploaded so far. */
+  rows: number;
+}
+const hdKey = (t: number, k: number, L: number) => (t * KIND_COUNT + k) * 16 + L;
+/**
+ * HD: bytes of sprite sheets sent to the GPU per frame at most (a real GPU takes a few ms for
+ * this, software GL a few hundred). One band always goes, so a sheet never stalls.
+ */
+const HD_UPLOAD_BYTES = 8 << 20;
+const MIN_BAND_ROWS = 32;
+
+/** Sends the next rows of an HD sheet, within `budget` bytes (at least one band); returns the bytes sent. */
+function uploadRows(gl: WebGL2RenderingContext, h: HdTex, budget: number): number {
+  const sh = h.sheet;
+  const row = sh.width * 4;
+  const rows = Math.min(sh.height - h.rows, Math.max(MIN_BAND_ROWS, Math.floor(budget / row)));
+  if (rows <= 0) return 0;
+  gl.bindTexture(gl.TEXTURE_2D, h.tex);
+  const px = sh.pixels;
+  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, h.rows, sh.width, rows, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(px.buffer, px.byteOffset + h.rows * row, rows * row));
+  h.rows += rows;
+  return rows * row;
+}
+
 /** Fills slot n of a reused parts list (skipping an empty batch); returns the next slot. */
 function setPart(out: Part[], n: number, batch: Batch, tex: WebGLTexture, w: number, h: number, texel: number, src: number): number {
   if (batch.n === 0) return n;
@@ -182,9 +213,7 @@ export class BattleScene {
   private hdLevel: Uint8Array[] = [new Uint8Array(KIND_COUNT).fill(1), new Uint8Array(KIND_COUNT).fill(1)];
   /** HD: a batch per army and kind for the hi-res sheets, and their textures by army:kind:level. */
   private hdBatch: Batch[][] = [];
-  private hdTex = new Map<string, WebGLTexture>();
-  /** HD: the sheet each texture was made from (a sheet the painter dropped and repainted is new). */
-  private hdTexSheet = new Map<string, KindSheet>();
+  private hdTex = new Map<number, HdTex>();
   /** HD: the sheet drawn this frame per army and kind (null: the level-1 grid). */
   private hdSheet: (KindSheet | null)[][] = [new Array<KindSheet | null>(KIND_COUNT).fill(null), new Array<KindSheet | null>(KIND_COUNT).fill(null)];
   /** HD: the effects sheet Scale2x'd to 2x and 4x, made when first zoomed that far. */
@@ -201,6 +230,8 @@ export class BattleScene {
   private pools: { x: number; y: number; r: number; a: number; at: number }[] = [];
   /** The atlas image versions last uploaded (HD grids fill in the background). */
   private atlasVer = [0, 0];
+  /** How many of each atlas's landed grid strips (Atlas.landed) its texture holds. */
+  private atlasStrips = [0, 0];
   private kindsPresent: number[][] = [[], []];
   /** HD: kinds of each army seen in view last frame (bit per kind): only they get the 8x sheets. */
   private seen = [0, 0];
@@ -516,7 +547,6 @@ export class BattleScene {
       // The HD sheets' textures and batches died with the context; they are rebuilt on demand.
       this.hdBatch = [];
       this.hdTex.clear();
-      this.hdTexSheet.clear();
       this.fxHi.clear();
       this.field?.lost();
       this.hdFxB = null;
@@ -554,6 +584,11 @@ export class BattleScene {
       stamps: new SpriteStream(gl, corners),
       unlisten,
     };
+    // The atlas textures hold the grids as they are now.
+    for (let t = 0; t < 2; t++) {
+      this.atlasVer[t] = this.atlases[t as 0 | 1].version ?? 0;
+      this.atlasStrips[t] = this.atlases[t as 0 | 1].landed?.length ?? 0;
+    }
     gfx.groundQuad.sprite(0, 0, 0, 0, g.w, g.h, 0, 0, -1e6);
     gfx.groundQuad.upload();
     this.gfx = gfx;
@@ -574,10 +609,9 @@ export class BattleScene {
     const gl = g.gl;
     const hdBatches = [...this.hdBatch.flat(), ...(this.hdFxB ? [this.hdFxB.decal, this.hdFxB.fx, this.hdFxB.soft, this.hdFxB.std] : [])];
     this.hdFxB = null;
-    const hdTextures = [...this.hdTex.values(), ...[...this.fxHi.values()].map((f) => f.tex)];
+    const hdTextures = [...[...this.hdTex.values()].map((h) => h.tex), ...[...this.fxHi.values()].map((f) => f.tex)];
     this.hdBatch = [];
     this.hdTex.clear();
-    this.hdTexSheet.clear();
     this.fxHi.clear();
     // A lost context has already freed everything.
     if (gl.isContextLost()) {
@@ -612,7 +646,7 @@ export class BattleScene {
   get spriteGpuBytes(): number {
     let b = 0;
     for (const a of this.atlases) b += a.image.width * a.image.height * 4;
-    for (const sh of this.hdTexSheet.values()) b += sh.width * sh.height * 4;
+    for (const h of this.hdTex.values()) b += h.rows * h.sheet.width * 4;
     return b;
   }
 
@@ -751,13 +785,26 @@ export class BattleScene {
     const zFar = -200;
     const zNear = this.ground.h + 200;
 
-    // HD grids arrive from the workers after the battle starts: upload them as they land.
-    this.atlases.forEach((a, t) => {
-      if ((a.version ?? 0) === this.atlasVer[t]) return;
-      this.atlasVer[t] = a.version ?? 0;
+    // HD grids arrive from the workers after the battle starts: upload them as they land, only
+    // the new kinds' strips when the painter says which (the whole grid is tens of MB).
+    for (let t = 0; t < 2; t++) {
+      const a = this.atlases[t as 0 | 1];
+      const ver = a.version ?? 0;
+      if (ver === this.atlasVer[t]) continue;
       gl.bindTexture(gl.TEXTURE_2D, gfx.atlasTex[t as 0 | 1]);
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, a.image);
-    });
+      const landed = a.landed;
+      if (landed && this.atlasVer[t]! >= 0 && this.atlasStrips[t]! <= landed.length) {
+        const h = a.cellH * 4;
+        for (let i = this.atlasStrips[t]!; i < landed.length; i++) {
+          const y = landed[i]! * h;
+          gl.pixelStorei(gl.UNPACK_SKIP_ROWS, y);
+          gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, y, a.image.width, Math.min(h, a.image.height - y), gl.RGBA, gl.UNSIGNED_BYTE, a.image);
+        }
+        gl.pixelStorei(gl.UNPACK_SKIP_ROWS, 0);
+      } else gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, a.image);
+      this.atlasVer[t] = ver;
+      this.atlasStrips[t] = landed?.length ?? 0;
+    }
     this.flushStamps(gfx, zFar, zNear);
     const tb = performance.now();
     this.build(gfx, alpha, dt);
@@ -872,23 +919,22 @@ export class BattleScene {
    */
   private pickLevels(gfx: Gfx, m: number): boolean {
     let any = false;
-    if (this.hdBatch.length === 0) this.hdBatch = [0, 1].map(() => Array.from({ length: KIND_COUNT }, () => new Batch(gfx.gl, gfx.corners, 256)));
+    const gl = gfx.gl;
+    if (this.hdBatch.length === 0) this.hdBatch = [0, 1].map(() => Array.from({ length: KIND_COUNT }, () => new Batch(gl, gfx.corners, 256)));
+    let budget = HD_UPLOAD_BYTES;
     for (let t = 0; t < 2; t++) {
       const atlas = this.atlases[t as 0 | 1];
       const lv = this.hdLevel[t]!;
       lv.fill(1);
       this.hdSheet[t]!.fill(null);
       for (const b of this.hdBatch[t]!) b.clear();
-      // Textures finer than the view are freed (they upload again from the painter's memory in a
-      // few ms when the view zooms back in): the GPU holds only what is drawn.
-      for (const [key, tex] of this.hdTex) {
-        const [kt, , kl] = key.split(':').map(Number);
-        if (kt === t && kl! > m) {
-          gfx.gl.deleteTexture(tex);
+      // Textures finer than the view are freed (they upload again from the painter's memory when
+      // the view zooms back in): the GPU holds only what is drawn.
+      for (const [key, h] of this.hdTex)
+        if (h.t === t && h.L > m) {
+          gl.deleteTexture(h.tex);
           this.hdTex.delete(key);
-          this.hdTexSheet.delete(key);
         }
-      }
       if (!atlas.sheet || !atlas.levels || m <= 1) continue;
       for (const k of this.kindsPresent[t]!) {
         // HD art: a kind with only its dead in view is drawn from the sheets up to 4x (the 8x ones
@@ -908,24 +954,43 @@ export class BattleScene {
             bestL = L;
           }
         }
-        // Only the drawn level of a kind in view stays on the GPU.
-        for (const L of atlas.levels) {
-          const key = `${t}:${k}:${L}`;
-          const tex = this.hdTex.get(key);
-          if (tex && (L !== bestL || this.hdTexSheet.get(key) !== best || !inView)) {
-            gfx.gl.deleteTexture(tex);
+        // The best sheet goes up a band of rows at a time, within the frame's budget (several
+        // 8x sheets landing together are hundreds of MB): until it is all there the kind is
+        // drawn from the finest level already up, else the level-1 grid.
+        let drawn: HdTex | null = null;
+        if (best && inView) {
+          const key = hdKey(t, k, bestL);
+          let h = this.hdTex.get(key);
+          if (h && h.sheet !== best) {
+            // The painter dropped and repainted it: a new sheet.
+            gl.deleteTexture(h.tex);
             this.hdTex.delete(key);
-            this.hdTexSheet.delete(key);
+            h = undefined;
+          }
+          if (!h) {
+            h = { tex: texture(gl, null, best.width, best.height), sheet: best, t, k, L: bestL, rows: 0 };
+            this.hdTex.set(key, h);
+          }
+          if (h.rows < best.height && budget > 0) budget -= uploadRows(gl, h, budget);
+          if (h.rows >= best.height) drawn = h;
+          else
+            for (const L of atlas.levels) {
+              const o = L < bestL ? this.hdTex.get(hdKey(t, k, L)) : undefined;
+              if (o && o.rows >= o.sheet.height) drawn = o;
+            }
+        }
+        // Only the drawn level of a kind in view stays on the GPU (and the one going up).
+        for (const L of atlas.levels) {
+          const key = hdKey(t, k, L);
+          const h = this.hdTex.get(key);
+          if (h && h !== drawn && !(inView && L === bestL && h.sheet === best)) {
+            gl.deleteTexture(h.tex);
+            this.hdTex.delete(key);
           }
         }
-        if (!best || !inView) continue;
-        const key = `${t}:${k}:${bestL}`;
-        if (!this.hdTex.has(key)) {
-          this.hdTex.set(key, texturePixels(gfx.gl, best.width, best.height, best.pixels));
-          this.hdTexSheet.set(key, best);
-        }
-        lv[k] = bestL;
-        this.hdSheet[t]![k] = best;
+        if (!drawn) continue;
+        lv[k] = drawn.L;
+        this.hdSheet[t]![k] = drawn.sheet;
         any = true;
       }
     }
@@ -953,7 +1018,7 @@ export class BattleScene {
         const L = this.hdLevel[t]![k]!;
         const sh = this.hdSheet[t]![k];
         if (b.n === 0 || L <= 1 || !sh) continue;
-        n = setPart(out, n, b, this.hdTex.get(`${t}:${k}:${L}`)!, sh.width, sh.height, L, 1);
+        n = setPart(out, n, b, this.hdTex.get(hdKey(t, k, L))!.tex, sh.width, sh.height, L, 1);
       }
     return n;
   }

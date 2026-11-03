@@ -92,6 +92,11 @@ export interface Atlas {
    * background); a renderer that uploaded `image` uploads it again.
    */
   version?: number;
+  /**
+   * HD painters only: the kinds whose strip of `image` (rows kind * 4 * cellH, 4 * cellH tall)
+   * has landed, in the order they landed, so a renderer can upload just the new strips.
+   */
+  landed?: readonly number[];
   /** HD painters only: the index of a frame in a KindSheet's rects (Shoot falls back, Die holds). */
   slot?(kind: number, anim: Anim, frame: number, dir: Dir): number;
 }

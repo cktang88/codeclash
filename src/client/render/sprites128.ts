@@ -3629,6 +3629,8 @@ interface Grid {
   painted: boolean[];
   /** Kinds landed so far (an atlas's `version`). */
   version: number;
+  /** Those kinds, in the order they landed (an atlas's `landed`). */
+  landed: number[];
 }
 const grids = new Map<string, Grid>();
 const GRIDS_KEPT = 4;
@@ -3644,7 +3646,7 @@ function gridOf(faction: string, hue: number, width: number): Grid {
   const image = document.createElement('canvas');
   image.width = width;
   image.height = KIND_COUNT * 4 * CELL_H;
-  g = { image, ctx: image.getContext('2d')!, painted: new Array<boolean>(KIND_COUNT).fill(false), version: 0 };
+  g = { image, ctx: image.getContext('2d')!, painted: new Array<boolean>(KIND_COUNT).fill(false), version: 0, landed: [] };
   grids.set(key, g);
   // An older army's grid lives on only while an atlas still draws it.
   while (grids.size > GRIDS_KEPT) grids.delete(grids.keys().next().value!);
@@ -3679,6 +3681,7 @@ function makeAtlas(faction: string, hue: number, hd64: boolean): Atlas {
   const land = (kind: number, g: KindSheet): void => {
     ctx.putImageData(new ImageData(new Uint8ClampedArray(g.pixels.buffer as ArrayBuffer, g.pixels.byteOffset, g.pixels.byteLength), g.width, g.height), 0, kind * 4 * CELL_H);
     grid.version++;
+    grid.landed.push(kind);
     if (typeof performance !== 'undefined') performance.mark?.('codeclash:grid', { detail: `${faction}:${hue}:${kind}` });
   };
   const ensure = (kind: number): void => {
@@ -3697,6 +3700,9 @@ function makeAtlas(faction: string, hue: number, hd64: boolean): Atlas {
   const atlas: Atlas = {
     get version() {
       return grid.version;
+    },
+    get landed() {
+      return grid.landed;
     },
     image,
     cellW: CELL_W,
