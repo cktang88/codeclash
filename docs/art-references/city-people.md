@@ -77,3 +77,49 @@ are recorded here. None of the files below is committed. The CC0 sprites were st
 - **Cache.** One atlas per town (`FolkAtlas`), on 1024×512 pages, with a night twin of each page. Frames
   are painted when first drawn, at up to 8 ms of painting per drawn frame. Past that budget a
   painted frame of the same clip stands in.
+
+## Critique rounds (against the references)
+
+1. **First draw.** Faces read as a dark mask, because the hair cap and beard covered all but three
+   columns. The near arm vanished into the body (same cloth, no line). The stride was a lunge, wider
+   than the Slavic woman's walk. A sack sat over the head. The wimple swallowed the face. The scythe
+   was held like a club. Fixes: the hair stays behind the ear and above the brow, beards only on the
+   jaw, a dark seam round the near arm, a shorter stride and toe-off, the load slung behind the head,
+   a bigger face opening, and a low scythe swing with a proper crescent blade.
+2. **In the towns at zoom 4.** The tenugui read as a blindfold (moved above the brow). Skeletons
+   were white mannequins next to the CC0 skeleton (they now have a ribcage over a dark hollow,
+   vertebrae, a pelvis and rags). Parasol canopies, staffs and the necromancer's skull hung at the
+   bottom of their shafts (fixed the tool direction). The furoshiki bundle disappeared into indigo
+   kimono (now green). The dog was a table on legs (now slimmer, legs angled, a curled tail).
+3. **Finish.** Colours per figure went down from about 40 to about 31 (the xave_pixel 32 px figure
+   has about 26): the lit outline is the material's own darkest tone and the arm seam is the cloth's
+   tone 0. Merchants carry a book, not planks. Night and day were checked in all three towns.
+
+## Checks
+
+- Classic is pixel-identical: classic screenshots of all three factions at level 12, day and night,
+  against master (438e2c0) differ in no pixel.
+- Folk pixel checks (frames of every look's walk, `folklint`): orphan pixels 9-11% of a figure (the
+  1 px eye, nose and buckle; the city lint warns above 12%), 25-32 colours per frame on average.
+  `pnpm pixel-lint --only=city --quick` has the same 3 failing checks as before (the buildings of the
+  undead and samurai towns), none from the folk.
+- Frame time (headless Chromium, SwiftShader, 2560×1440 output, all buildings at level 20, 60 s of
+  simulated warm-up, then 240 frames; p50 of `CityScene.lastCost`, master 438e2c0 → this branch):
+
+  | town | day, zoom 1 | day, zoom 4 | night, zoom 1 | night, zoom 4 |
+  |---|---|---|---|---|
+  | Templar | 8.7 → 9.2 ms | 7.6 → 7.8 ms | 10.9 → 10.8 ms | 8.4 → 8.5 ms |
+  | Samurai | 7.1 → 7.2 ms | 5.2 → 5.9 ms | 9.7 → 9.8 ms | 7.0 → 7.3 ms |
+  | Undead | 8.7 → 9.5 ms | 7.3 → 7.9 ms | 10.6 → 10.8 ms | 7.6 → 7.9 ms |
+
+  Painting is lazy, with up to 8 ms per drawn frame. In the first minute a level-20 day town paints
+  about 1,000 frames (mirror copies included) in 230-390 ms in total. The worst single frame while the
+  town is first shown is 70-190 ms (master: 40-80 ms). Figures that miss the budget borrow a painted
+  frame of their clip or wait a frame.
+- Memory: folk sheets 4.75 MB → 12 MB by day after a minute (three 1024×512 pages, each with its
+  night twin) and 3 → 8 MB at night (fewer people about).
+- `pnpm typecheck`, `vitest run` (542 tests) and `pnpm build` pass.
+
+Screenshots: `docs/screenshots/city-detail/people-<faction>-{before,after}-z4-day.png` (zoom 4, the
+yard at level 20), `people-<faction>-{before,after}-z8-day.png` (the same, doubled crop, as at
+zoom 8), and `people-templar-{before,after}-z4-night.png` and `people-undead-after-z4-night.png`.
