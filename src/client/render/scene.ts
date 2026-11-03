@@ -885,7 +885,7 @@ export class BattleScene {
           anim = Anim.Hit;
           start = hitAt;
           loop = false;
-        } else if (s.state === State.Routing || speed > s.s.speed * 1.2) anim = Anim.Run;
+        } else if (s.state === State.Routing || speed > s.s.speed * 1.2 || (speed > s.s.speed * 0.6 && (reg.mode === 'charge' || reg.mode === 'pursue'))) anim = Anim.Run;
         else if (speed > 3) anim = s.cls === U.Knights && stance === 'wedge' && speed > s.s.speed * 0.7 ? Anim.Run : Anim.Walk;
         else if (s.state === State.Fighting && BRACING.has(stance)) anim = Anim.Brace;
         // Facing: the way they move, else at their foe, else the regiment's front.
@@ -898,7 +898,8 @@ export class BattleScene {
       const tpf = this.tpfTab[s.team]![anim]!;
       // Marching blocks step together: one phase per regiment, a hair's offset per file.
       // Everything else (idling, routing) keeps a per-man phase so a crowd doesn't pulse.
-      const drilled = s.state === State.Fighting && (anim === Anim.Walk || anim === Anim.Run);
+      // (A chase or a charge run from too far has lost the step.)
+      const drilled = s.state === State.Fighting && (anim === Anim.Walk || anim === Anim.Run) && reg.mode !== 'pursue' && !reg.ragged;
       const phase = drilled ? s.reg * 0.71 + Math.round(s.sx / Math.max(1, reg.spacing)) * 0.12 : (i % 7) * 1.37;
       let f = loop ? Math.floor((T + phase) / tpf) % frames : Math.min(frames - 1, Math.floor((T - start) / tpf));
       if (f < 0) f = 0;
@@ -1007,8 +1008,10 @@ export class BattleScene {
       if (mx < x0 || mx > x1 || my < y0 || my > y1 + 100) continue;
       const dist = Math.sqrt((p.x1 - p.x0) ** 2 + (p.y1 - p.y0) ** 2);
       const look = MISSILE_CLS(p.cls, p.splash);
+      // The sim gives each missile its apex (bows lob higher for longer shots, crossbows a
+      // short arc, guns none); older replays fall back on one arc per look.
       const arc = look === 'bolt' || look === 'jav' ? 0.1 : look === 'stone' ? 0.45 : 0.3;
-      const h = dist * arc * PX;
+      const h = (p.arc ?? dist * arc) * PX;
       const lift = 9;
       const z = 4 * h * t * (1 - t) + (1 - t) * lift;
       // Screen velocity of the missile: along the ground, minus the climb.
@@ -1023,6 +1026,16 @@ export class BattleScene {
         r = this.missileRegions[look]![a]!;
       }
       gfx.fx.sprite(Math.round(mx), Math.round(my - z), r.u, r.v, r.w, r.h, r.ax, r.ay, my, 1, 1, 1, 1, 0, 1);
+      if (p.direct) {
+        // A flat shot leaves a straight streak behind it.
+        for (let k = 1; k <= 3; k++) {
+          const tk = Math.max(0, t - k * 0.04);
+          const zk = 4 * h * tk * (1 - tk) + (1 - tk) * lift;
+          const kx = this.mapX(p.x0 + (p.x1 - p.x0) * tk, p.y0 + (p.y1 - p.y0) * tk);
+          const ky = this.mapY(p.x0 + (p.x1 - p.x0) * tk, p.y0 + (p.y1 - p.y0) * tk) - zk;
+          gfx.soft.sprite(Math.round(kx), Math.round(ky), shadowRegion.u, shadowRegion.v, 1, 1, 0, 0, my, 0.85, 0.82, 0.7, 0.5 - k * 0.12);
+        }
+      }
     }
 
     // Particles.
