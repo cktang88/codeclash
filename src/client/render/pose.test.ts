@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Anim, type Dir } from './contract.ts';
 import { dirFor } from './iso.ts';
-import { facing } from './pose.ts';
+import { facing, settleTurn, TURN_HOLD } from './pose.ts';
 
 const N = NaN;
 
@@ -34,5 +34,36 @@ describe('facing', () => {
 
   it('keeps the old facing for a vector with no direction', () => {
     for (const prev of [0, 1, 2, 3] as Dir[]) expect(facing(Anim.Idle, 0, 0, N, N, false, N, N, 0, 0, prev)).toBe(prev);
+  });
+
+  it('keeps facing his foe while he shuffles or steps back in the melee', () => {
+    // Fighting toward +x (Dir 0 is toward the foe), giving ground at a walk toward -x: he backs off, facing the foe.
+    expect(facing(Anim.Walk, -6, 0, 8, 0, true, N, N, 1, 0, 0)).toBe(dirFor(8, 0, 0));
+    expect(facing(Anim.Brace, -5, 2, 8, 0, true, N, N, 1, 0, 0)).toBe(dirFor(8, 0, 0));
+    // Running (fleeing, a horseman riding off) he turns his back.
+    expect(facing(Anim.Run, -30, 0, 8, 0, true, N, N, 1, 0, 0)).toBe(dirFor(-30, 0, 0));
+    // A foe out of reach: he faces where he walks.
+    expect(facing(Anim.Walk, -6, 0, 40, 0, false, N, N, 1, 0, 0)).toBe(dirFor(-6, 0, 0));
+  });
+
+  it('does not turn to the regiment front while he flinches', () => {
+    // Facing NW (2), hit, no foe in reach: he recoils where he stands, not toward the front (Dir 0).
+    expect(facing(Anim.Hit, 0, 0, N, N, false, N, N, 1, 0, 2)).toBe(2);
+    // With his foe in reach he recoils facing the foe.
+    expect(facing(Anim.Hit, 0, 0, -8, 0, true, N, N, 1, 0, 0)).toBe(dirFor(-8, 0, 0));
+  });
+});
+
+describe('settleTurn', () => {
+  it('holds a new facing a moment before turning again', () => {
+    expect(settleTurn(1, 0, Anim.Walk, 0.5)).toBe(0);
+    expect(settleTurn(1, 0, Anim.Walk, TURN_HOLD - 0.01)).toBe(0);
+    expect(settleTurn(1, 0, Anim.Walk, TURN_HOLD)).toBe(1);
+    expect(settleTurn(0, 0, Anim.Walk, 0)).toBe(0);
+  });
+
+  it('turns at once to strike or loose', () => {
+    expect(settleTurn(2, 0, Anim.Attack, 0)).toBe(2);
+    expect(settleTurn(2, 0, Anim.Shoot, 0)).toBe(2);
   });
 });

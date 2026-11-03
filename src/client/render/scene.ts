@@ -24,7 +24,7 @@ import { Batch, cornerBuffer, dropTarget, SpriteProgram, SpriteStream, target, t
 import { paintGround, type Ground } from './ground.ts';
 import { projX, projY, PX, unproject } from './iso.ts';
 import { GlPost } from './post.ts';
-import { facing } from './pose.ts';
+import { facing, settleTurn } from './pose.ts';
 import { frameBox, NO_INSETS, zoomOutScale, type Insets } from './fit.ts';
 import { upscaleCanvas } from './upscale.ts';
 import { buildAtlas as buildClassic } from './sprites.ts';
@@ -259,6 +259,8 @@ export class BattleScene {
   private prevHp: Float32Array;
   private hurtAt: Float32Array;
   private dirs: Uint8Array;
+  /** When (tick + alpha) each man last turned (pose.ts settleTurn). */
+  private turnAt: Float32Array;
   /** World direction of each man's latest shot (NaN: none yet): an archer faces where he looses. */
   private aimX: Float32Array;
   private aimY: Float32Array;
@@ -365,6 +367,7 @@ export class BattleScene {
     this.prevHp = new Float32Array(n);
     this.hurtAt = new Float32Array(n).fill(-100);
     this.dirs = new Uint8Array(n);
+    this.turnAt = new Float32Array(n).fill(-100);
     this.aimX = new Float32Array(n).fill(NaN);
     this.aimY = new Float32Array(n).fill(NaN);
     this.stamped = new Uint8Array(n);
@@ -378,6 +381,7 @@ export class BattleScene {
     this.snapshot();
     if (from && from.battle === battle) {
       this.dirs.set(from.dirs);
+      this.turnAt.set(from.turnAt);
       this.hurtAt.set(from.hurtAt);
       this.aimX.set(from.aimX);
       this.aimY.set(from.aimY);
@@ -1361,7 +1365,8 @@ export class BattleScene {
       } else {
         const act = T - s.actedAt;
         const tgt = s.target >= 0 ? ss[s.target] : undefined;
-        const melee = s.s.range === 0 || (tgt !== undefined && (tgt.x - s.x) ** 2 + (tgt.y - s.y) ** 2 < 14 * 14);
+        const reach = tgt !== undefined && (tgt.x - s.x) ** 2 + (tgt.y - s.y) ** 2 < 14 * 14;
+        const melee = s.s.range === 0 || reach;
         const actAnim = melee ? Anim.Attack : Anim.Shoot;
         if (act >= 0 && act < lens[kind * ANIM_COUNT + actAnim]!) {
           anim = actAnim;
@@ -1372,13 +1377,19 @@ export class BattleScene {
           start = hitAt;
           loop = false;
         } else if (s.state === State.Routing || speed > s.s.speed * 1.2 || (speed > s.s.speed * 0.6 && (reg.mode === 'charge' || reg.mode === 'pursue'))) anim = Anim.Run;
-        else if (speed > 3) anim = s.cls === U.Knights && stance === 'wedge' && speed > s.s.speed * 0.7 ? Anim.Run : Anim.Walk;
+        // A man with his foe in reach who shuffles, gives ground or steps back to breathe (v14 P3)
+        // does it in his guard, facing the foe (docs/art-references/battle-cohesion.md, P3).
+        else if (speed > 3 && !(s.state === State.Fighting && reach && speed < s.s.speed * 0.6)) anim = s.cls === U.Knights && stance === 'wedge' && speed > s.s.speed * 0.7 ? Anim.Run : Anim.Walk;
         // Between blows a man in the fight stands in his guard (Brace), poised: blows leave it and
         // return to it. Out of reach of a foe he idles (or holds the regiment's braced stance).
         else if (s.state === State.Fighting && (BRACING.has(stance) || (tgt !== undefined && melee))) anim = Anim.Brace;
         // Facing: the way they move, else where they shoot or at their foe, else the regiment's front.
-        dir = facing(anim, s.vx, s.vy, tgt ? tgt.x - s.x : NaN, tgt ? tgt.y - s.y : NaN, melee, this.aimX[i]!, this.aimY[i]!, reg.fx, reg.fy, dir);
-        this.dirs[i] = dir;
+        const next = settleTurn(facing(anim, s.vx, s.vy, tgt ? tgt.x - s.x : NaN, tgt ? tgt.y - s.y : NaN, melee, this.aimX[i]!, this.aimY[i]!, reg.fx, reg.fy, dir), dir, anim, T - this.turnAt[i]!);
+        if (next !== dir) {
+          this.turnAt[i] = T;
+          dir = next;
+          this.dirs[i] = dir;
+        }
       }
       const frames = this.frameTab[s.team]![kind * ANIM_COUNT + anim]!;
       const tpf = this.tpfTab[s.team]![anim]!;

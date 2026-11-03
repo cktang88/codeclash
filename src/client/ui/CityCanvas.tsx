@@ -4,6 +4,7 @@ import type { FactionId } from '../../game/factions.ts';
 import { CityScene, MAX_ZOOM, MIN_ZOOM, type CityMood } from '../render/city.ts';
 import { cityArt } from '../settings.ts';
 import { useArtMode } from './useArtMode.ts';
+import { canvasSize } from './canvasSize.ts';
 import { CITY_SPEEDS, SpeedControls } from './SpeedControls.tsx';
 
 /**
@@ -38,21 +39,40 @@ export function CityCanvas(props: {
     const canvas = ref.current!;
     const scene = new CityScene(props.faction, props.hue, props.seed, mode);
     sceneRef.current = scene;
-    const dpr = () => Math.min(2, window.devicePixelRatio || 1);
+    // The canvas in device pixels, each a whole number k × k of the screen's (canvasSize: k = 2 on
+    // a 3x phone, where 1.5 × 1.5 made the art's rows and columns uneven), sized from its holder
+    // (the canvas's own size is set here, so measuring it would feed back).
+    const holder = canvas.parentElement!;
     const resize = () => {
-      canvas.width = Math.max(1, Math.round(canvas.clientWidth * dpr()));
-      canvas.height = Math.max(1, Math.round(canvas.clientHeight * dpr()));
+      const r = holder.getBoundingClientRect();
+      const d = window.devicePixelRatio || 1;
+      const { w, h, cssW, cssH } = canvasSize(Math.round(r.width * d), Math.round(r.height * d), d);
+      if (canvas.width !== w) canvas.width = w;
+      if (canvas.height !== h) canvas.height = h;
+      canvas.style.width = `${cssW}px`;
+      canvas.style.height = `${cssH}px`;
     };
     resize();
     const ro = new ResizeObserver(resize);
-    ro.observe(canvas);
+    ro.observe(holder);
+    // A change of devicePixelRatio alone (a window dragged to another screen, a page zoom).
+    let mq: MediaQueryList | null = null;
+    const onDpr = () => {
+      mq?.removeEventListener('change', onDpr);
+      mq = typeof matchMedia === 'function' ? matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`) : null;
+      mq?.addEventListener('change', onDpr);
+      resize();
+    };
+    onDpr();
 
     // Pointers: one drags, two pinch.
     const pts = new Map<number, { x: number; y: number }>();
     let pinch0 = 0;
+    /** A client point in canvas pixels. */
     const local = (e: PointerEvent) => {
       const r = canvas.getBoundingClientRect();
-      return { x: (e.clientX - r.left) * dpr(), y: (e.clientY - r.top) * dpr() };
+      const k = canvas.width / Math.max(1, r.width);
+      return { x: (e.clientX - r.left) * k, y: (e.clientY - r.top) * k };
     };
     const down = (e: PointerEvent) => {
       canvas.setPointerCapture(e.pointerId);
@@ -138,6 +158,7 @@ export function CityCanvas(props: {
     return () => {
       cancelAnimationFrame(raf);
       ro.disconnect();
+      mq?.removeEventListener('change', onDpr);
       canvas.removeEventListener('pointerdown', down);
       canvas.removeEventListener('pointermove', move);
       canvas.removeEventListener('pointerup', up);

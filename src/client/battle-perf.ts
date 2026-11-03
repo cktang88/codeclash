@@ -37,7 +37,9 @@ for (const team of [0, 1]) {
   const mine = real.soldiers.filter((s) => s.team === team);
   for (let k = mine.length; k < per; k++) {
     const src = mine[k % mine.length]!;
-    clones.push({ c: { ...src } as Soldier, src, dx: (rnd() - 0.5) * 8, dy: (rnd() - 0.5) * 8 });
+    // A plain copy of what the renderer reads (a spread would miss the accessors on Soldier's prototype: no regiment, no hit or rise times).
+    const c = { id: src.id, team: src.team, cls: src.cls, s: src.s, vet: src.vet, commander: src.commander } as unknown as Soldier;
+    clones.push({ c, src, dx: (rnd() - 0.5) * 8, dy: (rnd() - 0.5) * 8 });
   }
 }
 const sync = () => {
@@ -51,12 +53,20 @@ const sync = () => {
     c.actedAt = src.actedAt;
     c.diedAt = src.diedAt;
     c.target = src.target;
+    const w = c as unknown as Record<string, number>;
+    w.reg = src.reg;
+    w.hitAt = src.hitAt;
+    w.roseAt = src.roseAt;
+    w.sx = src.sx;
+    w.sy = src.sy;
   }
 };
 sync();
 // The scene sees the real battle with the clones appended.
 const view = Object.create(real) as Battle;
 Object.defineProperty(view, 'soldiers', { value: [...real.soldiers, ...clones.map((k) => k.c)] });
+// A clone is never raised (the battle's own arrays know nothing of it).
+Object.defineProperty(view, 'mayRise', { value: (i: number) => i < real.soldiers.length && real.mayRise(i) });
 
 // Until the sim sets Regiment.moraleState/morale, `morale=1` fakes them from morale and rout.
 const fakeMorale = q.get('morale') === '1';

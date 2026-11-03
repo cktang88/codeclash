@@ -70,7 +70,7 @@ describe('Poller', () => {
     expect(t.github.calls.notModified).toBe(1);
   });
 
-  it('reads a new branch from its head commit and falls back to it when compare fails', async () => {
+  it('reads a new branch whose default branch is unknown from its head commit, and falls back to it when compare fails', async () => {
     t.github.addEvent('Ana', pushEvent('100', 'ana/parser', ZERO, sha(5), NOW));
     t.github.addEvent('Ana', pushEvent('101', 'ana/parser', sha(8), sha(9), NOW));
     t.github.setCommit('ana/parser', sha(5), { commits: [commit(5, 'ana')], files: [sourceFile('a.rs', ['fn alpha() { beta() }'])] });
@@ -78,6 +78,21 @@ describe('Poller', () => {
     await t.poller.pollUser(7);
     expect(t.reports.map((r) => r.lines[Cat.Code])).toEqual([1, 1]);
     expect(t.github.calls.commit).toBe(2);
+  });
+
+  it('reads a new branch from its merge base with the default branch, as webhooks and discovery do', async () => {
+    t.github.repos.set('ana/parser', { fullName: 'ana/parser', private: false, defaultBranch: 'main' });
+    t.github.addEvent('Ana', pushEvent('100', 'ana/parser', ZERO, sha(5), NOW, 'refs/heads/feature'));
+    t.github.setCompare('ana/parser', 'main', sha(5), { commits: [commit(4, 'ana'), commit(5, 'ana')], files: [sourceFile('a.ts', calls(0, 6))], base: sha(1) });
+    t.github.setCommit('ana/parser', sha(5), { commits: [commit(5, 'ana')], files: [sourceFile('a.ts', calls(3, 6))], base: sha(4) });
+    await t.poller.pollUser(7);
+    expect(t.reports.map((r) => [r.commits, r.lines[Cat.Code]])).toEqual([[2, 6]]);
+    // A new repository's first push (the default branch itself) has no base: its head commit is read.
+    t.github.addEvent('Ana', pushEvent('101', 'ana/parser', ZERO, sha(9), NOW, 'refs/heads/main'));
+    t.github.setCommit('ana/parser', sha(9), { commits: [commit(9, 'ana')], files: [sourceFile('b.ts', calls(10, 12))] });
+    await t.poller.pollUser(7);
+    expect(t.reports.map((r) => r.commits)).toEqual([2, 1]);
+    expect(t.github.calls.compare).toBe(1);
   });
 
   it('skips tags, branch deletions, and pushes made only of other people’s or already-counted commits', async () => {
