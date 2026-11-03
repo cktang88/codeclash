@@ -273,7 +273,7 @@ class Store {
   readonly ea: Float64Array;
   /** 1 while he swings round the enemy's flank, away from his slot (P6: see `Battle.curl`). */
   readonly cu: Uint8Array;
-  /** P5: badly hurt, he makes his way to the rear of his file until this tick (and does not fight unless he must). */
+  /** P5: badly hurt, he makes his way to the rear of his file until this tick, and fights nobody meanwhile (not even a foe at hand). */
   readonly wd: Int32Array;
   constructor(n: number) {
     const f = () => new Float64Array(n);
