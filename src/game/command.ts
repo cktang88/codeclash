@@ -313,8 +313,9 @@ export interface Doctrine {
   auraRange: number;
   generalDeadShock: number;
   generalDead: number;
-  /** The general's horse (the Knights class) charges the nearest enemy when he falls. */
+  /** The general's horse (the Knights class) charges the nearest enemy when he falls, for this long (ticks). */
   revenge: boolean;
+  revengeFor: number;
 
   // S2 First spear, long chase.
   /** Chases run this much further and longer, and a block called back may go again this soon (ticks). */
@@ -366,7 +367,7 @@ const SHARED: Doctrine = {
   signal: false, signalMorale: 0, signalSpent: 0, signalLate: 0, signalEvery: 0, signalHold: 0, heldCharge: 1, heldShock: 1, recallTo: 0, recallRange: 0, knightFar: Infinity, knightTired: Infinity,
   withdrawals: 1, withdrawBehind: 0, withdrawBanner: 0, reforms: 0, reformAtBanner: false, shaken: 400,
   standFast: false, brothersGrief: 1,
-  aura: 1, auraRange: 1, generalDeadShock: 1, generalDead: 1, revenge: false,
+  aura: 1, auraRange: 1, generalDeadShock: 1, generalDead: 1, revenge: false, revengeFor: 0,
   chaseFar: 1, chaseTired: 1, recall: 120, firstSpear: 0, firstSpearNear: 0, firstSpearLift: 0, keenCharge: 0,
   ripple: 1, firstVolley: 0,
   tide: 1, tideNear: 0, unhalting: false, footRun: 1.45,
@@ -384,7 +385,11 @@ export const DOCTRINE: Record<FactionId, Doctrine> = {
     // T3 Not while the Beauséant flies.
     standFast: true, brothersGrief: 1.5,
   },
-  samurai: { ...SHARED },
+  samurai: {
+    ...SHARED,
+    // S1 The lord's uma-jirushi.
+    aura: 1.4, auraRange: 1.25, generalDeadShock: 1.75, generalDead: 1.4, revenge: true, revengeFor: 300,
+  },
   undead: {
     ...SHARED,
     // U1 The tide: slow and even, faster only near the Lich-Marshal; never halting, a lurch for a charge.

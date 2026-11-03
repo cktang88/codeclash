@@ -659,6 +659,8 @@ export class General {
   /** T1 The Marshal's charge: when he last gave the knights the signal (-1: not yet), and at whom. */
   signalAt = -1;
   signalTarget = -1;
+  /** S1: when the general fell and his horse rode to avenge him (-1: not). */
+  revengeAt = -1;
   /** The army's spirits on the day (from the general's rng): added to every regiment's morale. */
   readonly mood: number;
   /** A blunder: the knights go in before the lines meet. */
@@ -1858,6 +1860,14 @@ export class Battle {
         this.give(r, 'pursue');
         if (before !== 'pursue') this.announce(t, r, 'pursue', 'lets the horse loose on the fugitives');
         continue;
+      }
+      // S1: the daimyō has fallen; his hatamoto charge the nearest enemy to avenge him.
+      if (g.revengeAt >= 0 && this.tick - g.revengeAt < doc.revengeFor && r.role === 'shock-cav') {
+        const foe = this.nearestFoe(r, 0, Infinity);
+        if (foe) {
+          this.give(r, 'charge', foe.id);
+          continue;
+        }
       }
       // Our wing: enemy horse on it comes first.
       const wing = r.homeY < FIELD_H / 2 ? -1 : 1;
@@ -4276,6 +4286,11 @@ export class Battle {
         // T3: the brothers take their Marshal's death harder; S1: the samurai their daimyō's.
         const grief = doc.standFast && (o.cls === U.Knights || o.cls === U.Shock) && o.role !== 'command' ? doc.brothersGrief : 1;
         this.shake(o, MORALE.generalDeadShock * doc.generalDeadShock * grief);
+      }
+      // S1: his household horse charges to avenge him.
+      if (doc.revenge && this.teamRegs[team]!.some((o) => o.role === 'shock-cav' && o.alive > 0 && !o.routed)) {
+        this.generals[team]!.revengeAt = this.tick;
+        this.events.push({ tick: this.tick, team, kind: 'doctrine', cls: U.Knights, note: 'revenge' });
       }
       // The Lich-Marshal's will held the dead together: without it the host crumbles.
       if (this.fearless[team] && !this.crumbling[team]) {
