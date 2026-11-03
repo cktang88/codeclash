@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { Battle, BATTLE_VERSION, ballisticsOf, type Projectile } from './battle.ts';
+import { Battle, BATTLE_VERSION, ballisticsOf, State, type ArmySpec, type Projectile } from './battle.ts';
 import type { FactionId } from './factions.ts';
-import { placeRegiment, plainArmy } from './testing.ts';
+import { only, placeRegiment, plainArmy } from './testing.ts';
 import { U, UNIT_COUNT } from './units.ts';
 
 const counts = (pairs: [number, number][]) => {
@@ -146,5 +146,186 @@ describe('battle: missiles', () => {
       }
     }
     expect(best).toBeGreaterThanOrEqual(3);
+  });
+});
+
+/** The projectiles loosed since the last call. */
+const shotsOf = (b: Battle) => {
+  const seen = new Set<Projectile>();
+  return (): Projectile[] => {
+    const out: Projectile[] = [];
+    for (const p of b.projectiles) if (!seen.has(p)) {
+      seen.add(p);
+      out.push(p);
+    }
+    return out;
+  };
+};
+
+/** `men` shooters of `cls` (team 0) standing 150 from two blocks of heavy foot, both sides holding. */
+const butts = (faction: FactionId, cls: number, men = 30) => {
+  const b = new Battle({ version: BATTLE_VERSION, seed: 3, kind: 'daily', armies: [plainArmy(only(cls, men), 0, faction), plainArmy(only(U.HeavyInfantry, 60), 200)] });
+  b.generals[0].fixedPlan = 'hold';
+  b.generals[1].fixedPlan = 'hold';
+  const shooters = b.regiments.find((r) => r.team === 0)!;
+  placeRegiment(b, shooters, 700, 600, 1, 0);
+  b.regiments.filter((r) => r.team === 1).forEach((r, i) => placeRegiment(b, r, 850, 560 + i * 90, -1, 0));
+  return { b, shooters };
+};
+
+/** Shot ticks (sorted) split into bursts: a new burst after a pause of more than 3 ticks. */
+const bursts = (ticks: number[]): number[][] => {
+  const out: number[][] = [];
+  for (const t of ticks) {
+    const last = out[out.length - 1];
+    if (last && t - last[last.length - 1]! <= 3) last.push(t);
+    else out.push([t]);
+  }
+  return out;
+};
+
+/** Whether soldier `id` struck a blow on tick `t` (he acted, has a foe, and loosed nothing). */
+const struck = (b: Battle, id: number, t: number, shots: Projectile[]) => {
+  const s = b.soldiers[id]!;
+  return s.state === State.Fighting && s.actedAt === t && s.target >= 0 && !shots.some((p) => p.shooter === id);
+};
+
+describe('battle: missile drill (v9)', () => {
+  it('foot shooters never loose while their block walks or wheels; horse archers do', () => {
+    const MIX = [0.22, 0.2, 0.08, 0.12, 0.07, 0.07, 0.05, 0.03, 0.03, 0.005];
+    const army = (hue: number, faction: FactionId): ArmySpec => ({ ...plainArmy(MIX.map((f) => Math.round(300 * f)), hue, faction), commander: true });
+    let footShots = 0;
+    let movingTicks = 0;
+    let horseOnTheMove = 0;
+    for (const [seed, faction] of [[1, 'templar'], [2, 'samurai']] as const) {
+      const b = new Battle({ version: BATTLE_VERSION, seed, kind: 'daily', armies: [army(0, faction), army(200, faction)] });
+      const fresh = shotsOf(b);
+      // The tick on which each regiment last walked or wheeled.
+      const moved = new Map<number, number>();
+      while (!b.done() && b.tick < 1500) {
+        const before = b.regiments.map((r) => [r.ax, r.ay, r.fx, r.fy]);
+        b.step();
+        const t = b.tick - 1;
+        for (const r of b.regiments) {
+          const [ax, ay, fx, fy] = before[r.id]!;
+          if (r.ax === ax && r.ay === ay && r.fx === fx && r.fy === fy) continue;
+          moved.set(r.id, t);
+          if (r.role === 'missile' && r.alive > 0) movingTicks++;
+        }
+        for (const p of fresh()) {
+          const r = b.regiments[b.soldiers[p.shooter]!.reg]!;
+          if (r.role === 'horse-archer') {
+            if (moved.get(r.id) === t) horseOnTheMove++;
+          } else {
+            footShots++;
+            // Not while moving, nor in the moment after it halted.
+            expect(t - (moved.get(r.id) ?? -100), `${r.role} #${r.id} shot at ${t} in mode ${r.mode}`).toBeGreaterThanOrEqual(3);
+          }
+        }
+      }
+    }
+    expect(footShots).toBeGreaterThan(500);
+    // The shooters did move about (so the rule was put to the test), and horse archers shot riding.
+    expect(movingTicks).toBeGreaterThan(200);
+    expect(horseOnTheMove).toBeGreaterThan(20);
+  }, 60_000);
+
+  it('formed shooters loose in volleys on the word: the loaded men together, then a pause of a reload', () => {
+    // [faction, class, volley every (ticks)]: bows quickest, then crossbows, then matchlocks.
+    for (const [faction, cls, every] of [['templar', U.Archers, 21], ['templar', U.Crossbowmen, 44], ['samurai', U.Crossbowmen, 57]] as const) {
+      const { b } = butts(faction, cls);
+      const fresh = shotsOf(b);
+      // Each regiment keeps its own volley clock.
+      const ticks = new Map<number, number[]>();
+      while (b.tick < 240 && !b.done()) { // (until the foe walks up and they fire at will)
+        b.step();
+        for (const p of fresh()) {
+          if (p.team !== 0) continue;
+          const reg = b.soldiers[p.shooter]!.reg;
+          if (!ticks.has(reg)) ticks.set(reg, []);
+          ticks.get(reg)!.push(p.born);
+        }
+      }
+      const name = `${faction} ${cls}`;
+      const all = [...ticks.values()].reduce((n, t) => n + t.length, 0);
+      expect(all, name).toBeGreaterThan(cls === U.Archers ? 150 : 40);
+      const gaps: number[] = [];
+      let inVolleys = 0;
+      for (const [reg, t] of ticks) {
+        expect(b.regiments[reg]!.atWill, name).toBe(false);
+        // Nearly every shot is in a volley of three or more, each loosed within half a second.
+        const big = bursts(t).filter((v) => v.length >= 3);
+        inVolleys += big.reduce((n, v) => n + v.length, 0);
+        for (const v of big) expect(v[v.length - 1]! - v[0]!, name).toBeLessThan(5);
+        gaps.push(...big.slice(1).map((v, i) => v[0]! - big[i]![0]!));
+      }
+      expect(inVolleys, name).toBeGreaterThan(all * 0.9);
+      // Volleys a reload and the "make ready, present" beat apart.
+      gaps.sort((x, y) => x - y);
+      expect(gaps[gaps.length >> 1], name).toBe(every);
+    }
+  });
+
+  it('under a close charge they fire at will, point-blank, then sling bows and fight', () => {
+    // (Steadier than archers usually are, so that they stand to fight rather than run at once.)
+    const b = new Battle({ version: BATTLE_VERSION, seed: 2, kind: 'daily', armies: [{ ...plainArmy(only(U.Archers, 20)), moraleBonus: 40 }, plainArmy(only(U.Spearmen, 30), 200)] });
+    b.generals[0].fixedPlan = 'hold';
+    const bows = b.regiments.find((r) => r.team === 0)!;
+    const spears = b.regiments.find((r) => r.team === 1)!;
+    placeRegiment(b, bows, 700, 600, 1, 0);
+    placeRegiment(b, spears, 860, 600, -1, 0);
+    const fresh = shotsOf(b);
+    let volleyShots = 0;
+    let atWill = 0;
+    let flat = 0;
+    let engagedShots = 0;
+    let engaged = false;
+    let blows = 0;
+    while (b.tick < 600 && !b.done()) {
+      b.step();
+      const t = b.tick - 1;
+      const shots = fresh().filter((p) => p.team === 0);
+      for (const p of shots) {
+        if (bows.engaged) engagedShots++;
+        else if (bows.atWill) {
+          atWill++;
+          if (p.arc < Math.hypot(p.x1 - p.x0, p.y1 - p.y0) * 0.1) flat++;
+        } else volleyShots++;
+      }
+      engaged ||= bows.engaged;
+      for (const id of bows.members) if (struck(b, id, t, shots)) blows++;
+    }
+    // Volleys at range; at will as the spears came on, bows level at point-blank.
+    expect(volleyShots).toBeGreaterThan(40);
+    expect(atWill).toBeGreaterThan(10);
+    expect(flat).toBeGreaterThan(atWill * 0.3);
+    // Locked in melee nobody shoots: they fight.
+    expect(engaged).toBe(true);
+    expect(engagedShots).toBe(0);
+    expect(blows).toBeGreaterThan(8);
+  });
+
+  it('at-will fire runs straight into the melee, with no idle gap', () => {
+    // Light horse charges archers: arrows right up to the contact, and blows at once.
+    const b = new Battle({ version: BATTLE_VERSION, seed: 4, kind: 'daily', armies: [plainArmy(only(U.Archers, 40)), plainArmy(only(U.LightCavalry, 8), 200)] });
+    b.generals[0].fixedPlan = 'hold';
+    b.generals[1].rashKnights = true;
+    const bows = b.regiments.find((r) => r.team === 0)!;
+    placeRegiment(b, bows, 700, 600, 1, 0);
+    b.regiments.filter((r) => r.team === 1).forEach((r) => placeRegiment(b, r, 900, 600, -1, 0));
+    const fresh = shotsOf(b);
+    let lastAtWill = -1;
+    let firstBlow = -1;
+    while (b.tick < 600 && !b.done() && firstBlow < 0) {
+      b.step();
+      const t = b.tick - 1;
+      const shots = fresh().filter((p) => p.team === 0);
+      if (shots.length && bows.atWill) lastAtWill = t;
+      for (const id of bows.members) if (struck(b, id, t, shots)) firstBlow = t;
+    }
+    expect(lastAtWill).toBeGreaterThan(0);
+    expect(firstBlow).toBeGreaterThan(0);
+    // (The horse's impact stuns the men it hits for a moment.)
+    expect(firstBlow - lastAtWill).toBeLessThan(15);
   });
 });

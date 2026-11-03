@@ -285,3 +285,68 @@ describe('battle: a handful of horse against horse', () => {
     });
   }
 });
+
+describe('battle: shooters keep their front to the enemy', () => {
+  it('javelin men throw and fall back behind their line without wheeling the block round (v9)', () => {
+    // Two lines of spears with javelin men out in front of each. Until v8 the skirmishers, falling
+    // back, wheeled the whole loose block about (a slow pirouette, 140-180 degrees) and wheeled it
+    // back again when they halted; now each man turns about and the block keeps its front.
+    for (const seed of [1, 2, 3, 4]) {
+      const side = (hue: number) => plainArmy([0, 40, 40, 0, 0, 0, 0, 0, 0, 0], hue);
+      const b = new Battle({ version: BATTLE_VERSION, seed, kind: 'daily', armies: [side(0), side(200)] });
+      const jav = b.regiments.filter((r) => r.role === 'skirmish');
+      let fellBack = 0;
+      while (!b.done() && b.tick < 900) {
+        b.step();
+        for (const r of jav) {
+          if (r.alive === 0 || r.routed || r.mode === 'pursue' || r.mode === 'rally') continue;
+          if (r.mode === 'skirmish') fellBack++;
+          // The front stays within 75 degrees of the enemy's side of the field.
+          const dir = r.team === 0 ? 1 : -1;
+          expect(r.fx * dir, `seed ${seed} #${r.id} ${r.mode} at ${b.tick}`).toBeGreaterThan(0.25);
+        }
+      }
+      expect(fellBack, `seed ${seed}`).toBeGreaterThan(0);
+    }
+  });
+
+  it('archers stand well back, shoot from long range, and keep shooting over their line once it is locked in melee', () => {
+    let shots = 0;
+    let long = 0;
+    let overMelee = 0;
+    let ahead = 0;
+    let standing = 0;
+    battles(3, (b) => {
+      const seen = new Set<object>();
+      while (!b.done() && b.tick < 1500) {
+        b.step();
+        for (const p of b.projectiles) {
+          if (seen.has(p)) continue;
+          seen.add(p);
+          const s = b.soldiers[p.shooter]!;
+          if (s.cls !== U.Archers) continue;
+          const r = b.regiments[s.reg]!;
+          if (r.atWill) continue;
+          shots++;
+          if (Math.hypot(p.x1 - p.x0, p.y1 - p.y0) > s.s.range * 0.7) long++;
+          if (b.regiments[r.targetReg]?.engaged) overMelee++;
+        }
+        // Behind the foremost block of their own line (while there is one): out in front only
+        // when the line falls back or breaks behind them.
+        for (const r of b.regiments) {
+          if (r.cls !== U.Archers || r.role !== 'missile' || r.alive === 0 || r.routed || r.ammoLeft === 0) continue;
+          const dir = r.team === 0 ? 1 : -1;
+          let lead = -Infinity;
+          for (const o of b.regiments) if (o.team === r.team && o.role === 'line' && o.alive > 0 && !o.routed) lead = Math.max(lead, o.ax * dir);
+          if (lead === -Infinity) continue;
+          standing++;
+          if (r.ax * dir > lead) ahead++;
+        }
+      }
+    });
+    expect(shots).toBeGreaterThan(1000);
+    expect(long).toBeGreaterThan(shots * 0.6);
+    expect(overMelee).toBeGreaterThan(shots * 0.05);
+    expect(ahead).toBeLessThan(standing * 0.08);
+  }, 60_000);
+});

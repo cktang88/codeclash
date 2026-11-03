@@ -80,9 +80,12 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
       walls: 'Palisade & Tate',
     },
     // Mounted archery is the clan's art; its samurai hold under pressure. The price: ashigaru
-    // spears are peasant levies in a light okegawa cuirass.
+    // spears are peasant levies in a light okegawa cuirass. A matchlock loads slower than a
+    // crossbow spans (20-30 s against 15-30 s: docs/art-references/missile-drill.md) and hits
+    // harder: about as much shot in a minute, in fewer, heavier volleys.
     tweaks: {
       [U.HorseArchers]: { missileDamage: 1.1 },
+      [U.Crossbowmen]: { reload: 1.34, missileDamage: 1.3 },
       [U.HeavyInfantry]: { morale: 1.05 },
       [U.Spearmen]: { armour: 0.95 },
     },
@@ -128,7 +131,11 @@ export function factionStats(id: FactionId): UnitStats[] {
   for (let k = 0; k < UNIT_COUNT; k++) {
     const s: UnitStats = { ...STATS[k]! };
     const t = f.tweaks[k];
-    if (t) for (const [key, m] of Object.entries(t)) (s as unknown as Record<string, number>)[key] = (s as unknown as Record<string, number>)[key]! * (m as number);
+    if (t) {
+      for (const [key, m] of Object.entries(t)) (s as unknown as Record<string, number>)[key] = (s as unknown as Record<string, number>)[key]! * (m as number);
+      // Reloads count whole ticks.
+      s.reload = Math.round(s.reload);
+    }
     out.push(s);
   }
   return out;
