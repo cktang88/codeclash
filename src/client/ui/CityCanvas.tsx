@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { BuildingKey } from '../../game/city.ts';
 import type { FactionId } from '../../game/factions.ts';
 import { CityScene, MAX_ZOOM, MIN_ZOOM, type CityMood } from '../render/city.ts';
-import { artMode, type ArtMode } from '../settings.ts';
+import { artMode, cityArt } from '../settings.ts';
 import { CITY_SPEEDS, SpeedControls } from './SpeedControls.tsx';
 
 /**
@@ -29,10 +29,11 @@ export function CityCanvas(props: {
   const [clock, setClock] = useState<number | null>(null);
   const state = useRef({ ...props, speed, paused });
   state.current = { ...props, speed, paused };
-  // Classic or HD art (settings.ts); the scene is rebuilt when the player switches.
-  const [mode, setMode] = useState<ArtMode>(artMode);
+  // Classic or HD art (settings.ts; HD 64 is a battle mode, its city is HD); the scene is rebuilt
+  // when the player switches.
+  const [mode, setMode] = useState<'classic' | 'hd'>(() => cityArt(artMode()));
   useEffect(() => {
-    const on = (e: Event) => setMode((e as CustomEvent<ArtMode>).detail === 'hd' ? 'hd' : 'classic');
+    const on = () => setMode(cityArt(artMode()));
     window.addEventListener('codeclash:art', on);
     return () => window.removeEventListener('codeclash:art', on);
   }, []);

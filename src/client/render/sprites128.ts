@@ -17,6 +17,7 @@ import { U } from '../../game/units.ts';
 import { Anim, ANIM_COUNT, COMMANDER_KIND, KIND_COUNT, type Atlas, type BuildAtlas, type Dir, type KindSheet } from './contract.ts';
 import { FRAMES, LOOPS, TICKS } from './frames.ts';
 import { paintPaper, paperBlows, type PaperFrame } from './paper/index.ts';
+import { halveSheet } from './downscale.ts';
 
 export type { Atlas } from './contract.ts';
 
@@ -3417,6 +3418,8 @@ interface Job {
   hue: number;
   kind: number;
   level: number;
+  /** HD 64: the level-8 sheet halved (downscale.ts) into this level-4 sheet. */
+  half: boolean;
   done: ((s: KindSheet) => void)[];
 }
 
@@ -3476,7 +3479,7 @@ function pump(): void {
       if (slot.busy || workPool.queue.length === 0) continue;
       const job = workPool.queue.shift()!;
       slot.busy = job;
-      slot.w.postMessage({ faction: job.faction, hue: job.hue, kind: job.kind, level: job.level });
+      slot.w.postMessage({ faction: job.faction, hue: job.hue, kind: job.kind, level: job.level, half: job.half });
     }
     return;
   }
@@ -3485,20 +3488,30 @@ function pump(): void {
   setTimeout(() => {
     idleTimer = false;
     const job = workPool.queue.shift();
-    if (job) finishJob(job, job.level === 1 ? paintGrid(job.faction, job.hue, job.kind) : paintSheet(job.faction, job.hue, job.kind, job.level));
+    if (job) finishJob(job, sheetFor(job.faction, job.hue, job.kind, job.level, job.half));
     pump();
   }, 30);
 }
 
-function request(faction: string, hue: number, kind: number, level: number, done: (s: KindSheet) => void): void {
+/**
+ * What a worker paints for one job: the level-1 grid strip, a hi-res sheet, or (HD 64, `half`)
+ * the level-8 sheet halved into a level-4 one with the pixel-art reduction in downscale.ts.
+ */
+export function sheetFor(faction: string, hue: number, kind: number, level: number, half = false): KindSheet {
+  if (level === 1) return paintGrid(faction, hue, kind);
+  if (half) return halveSheet(paintSheet(faction, hue, kind, level * 2));
+  return paintSheet(faction, hue, kind, level);
+}
+
+function request(faction: string, hue: number, kind: number, level: number, done: (s: KindSheet) => void, half = false): void {
   startPool();
-  const key = `${faction}:${hue}:${kind}:${level}`;
+  const key = `${faction}:${hue}:${kind}:${level}${half ? ':half' : ''}`;
   const old = workPool.jobs.get(key);
   if (old) {
     old.done.push(done);
     return;
   }
-  const job: Job = { key, faction, hue, kind, level, done: [done] };
+  const job: Job = { key, faction, hue, kind, level, half, done: [done] };
   workPool.jobs.set(key, job);
   workPool.queue.push(job);
   pump();
@@ -3510,8 +3523,21 @@ function request(faction: string, hue: number, kind: number, level: number, done
  * at() asks for it. Levels 2, 4 and 8 are asked for with sheet() and painted by background
  * workers, a kind and a level at a time; at level 8 a man stands about 100 px tall.
  */
-export const buildAtlas: BuildAtlas = (faction, hue) => {
+export const buildAtlas: BuildAtlas = (faction, hue) => makeAtlas(faction, hue, false);
+
+/** HD 64 battle levels: native level 2, then the 128 art halved to 64 (level 4, from level 8). */
+export const LEVELS_64 = [2, 4] as const;
+
+/**
+ * One army's HD 64 sprites (battles only): the HD atlas, but its top level is the level-8 art
+ * halved to level 4 by the pixel-art reduction in downscale.ts (painted and halved in a worker,
+ * cached like any sheet). Same map size as HD, half the texels.
+ */
+export const buildAtlas64: BuildAtlas = (faction, hue) => makeAtlas(faction, hue, true);
+
+function makeAtlas(faction: string, hue: number, hd64: boolean): Atlas {
   setLevel(1);
+  const levels: readonly number[] = hd64 ? LEVELS_64 : LEVELS;
   const image = document.createElement('canvas');
   const blowTab = Array.from({ length: KIND_COUNT }, (_, k) => blowsOf(faction, k));
   // Wide enough for the kind with the most blows (their extra columns sit at the right).
@@ -3553,7 +3579,7 @@ export const buildAtlas: BuildAtlas = (faction, hue) => {
       ensure(kind);
       return [gridColOf(kind, a, frame, dir, blowTab[kind] ?? 1) * CELL_W, (kind * 4 + dir) * CELL_H];
     },
-    levels: LEVELS,
+    levels,
     sheet: (kind, level) => {
       const key = kind * 16 + level;
       const got = sheets.get(key);
@@ -3562,7 +3588,7 @@ export const buildAtlas: BuildAtlas = (faction, hue) => {
         got.h.used = now();
         return got.sheet;
       }
-      if (!asked.has(key) && kind >= 0 && kind < KIND_COUNT && (LEVELS as readonly number[]).includes(level)) {
+      if (!asked.has(key) && kind >= 0 && kind < KIND_COUNT && levels.includes(level)) {
         asked.add(key);
         request(faction, hue, kind, level, (sh) => {
           const h: Held = {
@@ -3576,11 +3602,11 @@ export const buildAtlas: BuildAtlas = (faction, hue) => {
           };
           sheets.set(key, { sheet: sh, h });
           hold(h);
-        });
+        }, hd64 && level === 4);
       }
       return null;
     },
     slot: (kind, a, frame, dir) => slotOf(kind, a, frame, dir, blowTab[kind] ?? 1),
   };
   return atlas;
-};
+}

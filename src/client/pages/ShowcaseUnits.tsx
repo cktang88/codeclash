@@ -6,6 +6,7 @@ import { buildAtlas as buildHd } from '../render/sprites128.ts';
 import { ArtSelect, FactionSelect } from '../ui/ShowcaseControls.tsx';
 import { CITY_SPEEDS, SpeedControls } from '../ui/SpeedControls.tsx';
 import { useArtMode } from '../ui/useArtMode.ts';
+import { isHdArt } from '../settings.ts';
 
 // The showcase's muster roll: every kind of a faction (rows) playing every animation (columns),
 // from the same atlases the battle draws with (HD: the paper-doll painter at detail level 2).
@@ -59,7 +60,7 @@ export function ShowcaseUnits() {
   const ref = useRef<HTMLCanvasElement>(null);
   const ctl = useRef({ speed, paused, dir });
   ctl.current = { speed, paused, dir };
-  const atlas = useMemo(() => (art === 'hd' ? buildHd : buildClassic)(faction, 215), [faction, art]);
+  const atlas = useMemo(() => (isHdArt(art) ? buildHd : buildClassic)(faction, 215), [faction, art]);
   const names = useMemo(() => [...FACTIONS[faction].units, FACTIONS[faction].commander], [faction]);
 
   useEffect(() => {

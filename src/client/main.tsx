@@ -10,6 +10,7 @@ import { LeaguePage } from './pages/League.tsx';
 import { linkProps, useRoute } from './route.ts';
 import { hsl } from './render/sprites.ts';
 import { ART_LABEL, useArtMode } from './ui/useArtMode.ts';
+import { ART_MODES, parseArt } from './settings.ts';
 import './styles.css';
 
 function Account({ me, onChange }: { me: MeResponse; onChange: () => void }) {
@@ -49,9 +50,10 @@ function Account({ me, onChange }: { me: MeResponse; onChange: () => void }) {
           </label>
           <label>
             Pixel art
-            <select value={art} onChange={(e) => setArt(e.target.value === 'hd' ? 'hd' : 'classic')}>
-              <option value="classic">{ART_LABEL.classic}</option>
-              <option value="hd">{ART_LABEL.hd}</option>
+            <select value={art} onChange={(e) => setArt(parseArt(e.target.value))}>
+              {ART_MODES.map((m) => (
+                <option key={m} value={m}>{ART_LABEL[m]}</option>
+              ))}
             </select>
           </label>
           <p className="muted small">

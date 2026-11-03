@@ -16,4 +16,4 @@ export function useArtMode(): [ArtMode, (mode: ArtMode) => void] {
   return [mode, setArtMode];
 }
 
-export const ART_LABEL: Record<ArtMode, string> = { classic: 'Classic 48', hd: 'HD 128' };
+export const ART_LABEL: Record<ArtMode, string> = { classic: 'Classic 48', hd: 'HD 128', hd64: 'HD 64' };

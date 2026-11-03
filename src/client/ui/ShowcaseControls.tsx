@@ -1,5 +1,6 @@
 import { FACTION_IDS, FACTIONS, type FactionId } from '../../game/factions.ts';
 import { ART_LABEL, useArtMode } from './useArtMode.ts';
+import { ART_MODES, parseArt } from '../settings.ts';
 
 // Small pickers shared by the showcase's tabs (pages/Demo.tsx).
 
@@ -23,9 +24,10 @@ export function ArtSelect() {
   return (
     <label className="inline">
       <span>Art</span>
-      <select value={art} onChange={(e) => setArt(e.target.value === 'hd' ? 'hd' : 'classic')}>
-        <option value="classic">{ART_LABEL.classic}</option>
-        <option value="hd">{ART_LABEL.hd}</option>
+      <select value={art} onChange={(e) => setArt(parseArt(e.target.value))}>
+        {ART_MODES.map((m) => (
+          <option key={m} value={m}>{ART_LABEL[m]}</option>
+        ))}
       </select>
     </label>
   );
