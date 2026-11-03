@@ -1186,9 +1186,9 @@ export class BattleScene {
         f.decal(`hoof${k}`, mx + (rng.next() - 0.5) * 2.5, my + (rng.next() - 0.5) * 1.2, now);
       }
       // Feet wear the grass flat; where men stand and fight, or horse pass, it churns to mud.
-      if ((i + tick) % 4 === 0) {
+      if ((i + tick) % 2 === 0) {
         const fighting = s.target >= 0 && tick - s.actedAt < 15;
-        if (v2 > 30 || fighting) f.mark(mx + (rng.next() - 0.5) * 2, my + (rng.next() - 0.5), s.s.mounted ? 2.8 : 1.9, 0, s.s.mounted ? 0.06 : fighting ? 0.035 : 0.018, now);
+        if (v2 > 30 || fighting) f.mark(mx + (rng.next() - 0.5) * 2.5, my + (rng.next() - 0.5) * 1.2, s.s.mounted ? 3.2 : 2.2, 0, s.s.mounted ? 0.14 : fighting ? 0.1 : 0.035, now);
       }
     }
     if (this.pools.length > 0) {

@@ -215,7 +215,7 @@ void main() {
         // A dark contact shadow at the root.
         vec2 e = (p - b - vec2(0.15, 0.05)) / vec2(1.25, 0.32);
         if (dot(e, e) < 1.0) shadow = min(shadow, 0.72);
-      } else if (k < 0.76) {
+      } else if (k < 0.67) {
         // A stone: lit upper left, a hard dark underside, a cast shadow down right.
         float rx = 0.55 + h01(hk) * 0.9;
         float ryy = rx * 0.6;
@@ -231,7 +231,7 @@ void main() {
         }
         vec2 e = (p - cc - vec2(rx * 0.35, ryy * 0.5)) / vec2(rx * 1.15, ryy * 0.9);
         if (dot(e, e) < 1.0) shadow = min(shadow, 0.62);
-      } else if (k < 0.82) {
+      } else if (k < 0.71) {
         // Pebbles: two or three small stones.
         for (int i = 0; i < 3; i++) {
           uint hb = hash3(cu.x, cu.y, 300u + uint(i));
@@ -246,7 +246,7 @@ void main() {
             cls = 0.5;
           }
         }
-      } else if (k < 0.95) {
+      } else if (k < 0.9) {
         // Flowers: a few heads on short stems; poppies, daisies, yellow and blue.
         if (onRoad || bare) continue;
         int kind = int(hk % 5u);
@@ -331,7 +331,7 @@ void main() {
   float age = clamp((u_now - mk.a * 510.0) / 50.0, 0.0, 1.0);
   if (bl > 0.14) c *= mix(vec3(0.66, 0.42, 0.38), vec3(0.56, 0.44, 0.4), age);
   if (bl > 0.3) {
-    vec3 pool = bl > 0.62 ? mix(hex(0x5c0e0c), hex(0x2e1210), age) : mix(hex(0x781612), hex(0x441410), age);
+    vec3 pool = bl > 0.62 ? mix(hex(0x520f0c), hex(0x2c1610), age) : mix(hex(0x6c1612), hex(0x3c1a12), age);
     if (bl < 0.37) pool = mix(hex(0x420c0a), hex(0x261410), age);
     // A wet glint on the lit lip of fresh blood: where the field falls off toward the upper left.
     if (age < 0.45 && bl > 0.4 && bl < 0.6 && hj < 0.55) {
@@ -367,8 +367,19 @@ interface FieldGl {
 }
 
 const TILE = 64;
-const MAX_DECALS = 24000;
-const MAX_HOOVES = 6000;
+/** Decals are kept in buckets of the map (so a frame looks only at those in view), each holding
+ * at most so many, the oldest overwritten: a trampled spot keeps its newest hoofprints. */
+const BUCKET_W = 96;
+const BUCKET_H = 48;
+const MAX_DECALS = 700;
+const MAX_HOOVES = 120;
+
+interface Bucket {
+  decals: Decal[];
+  decalAt: number;
+  hooves: Decal[];
+  hoofAt: number;
+}
 
 export class HdField {
   readonly W: number;
@@ -378,10 +389,8 @@ export class HdField {
   private readonly tilesX: number;
   private readonly dirty: Uint8Array;
   private anyDirty = true;
-  private decals: Decal[] = [];
-  private decalAt = 0;
-  private hooves: Decal[] = [];
-  private hoofAt = 0;
+  private readonly bucketsX: number;
+  private readonly buckets: (Bucket | undefined)[];
   private readonly sheets = new Map<number, HdSheet>();
   private g: FieldGl | null = null;
 
@@ -391,6 +400,8 @@ export class HdField {
     this.marks = new Uint8Array(this.W * this.H * 4);
     this.tilesX = Math.ceil(this.W / TILE);
     this.dirty = new Uint8Array(this.tilesX * Math.ceil(this.H / TILE)).fill(1);
+    this.bucketsX = Math.ceil(this.W / BUCKET_W);
+    this.buckets = new Array(this.bucketsX * Math.ceil(this.H / BUCKET_H));
   }
 
   // ------------------------------------------------------------------ marks (map px)
@@ -439,14 +450,22 @@ export class HdField {
   // ------------------------------------------------------------------ decals
 
   decal(name: string, x: number, y: number, t: number, blood = false): void {
+    if (x < 0 || y < 0 || x >= this.W || y >= this.H) return;
     const d: Decal = { id: fxId(name), x, y, t, blood };
+    const i = Math.floor(y / BUCKET_H) * this.bucketsX + Math.floor(x / BUCKET_W);
+    const b = (this.buckets[i] ??= { decals: [], decalAt: 0, hooves: [], hoofAt: 0 });
     if (name.startsWith('hoof')) {
-      if (this.hooves.length < MAX_HOOVES) this.hooves.push(d);
-      else this.hooves[this.hoofAt++ % MAX_HOOVES] = d;
-      return;
-    }
-    if (this.decals.length < MAX_DECALS) this.decals.push(d);
-    else this.decals[this.decalAt++ % MAX_DECALS] = d;
+      if (b.hooves.length < MAX_HOOVES) b.hooves.push(d);
+      else b.hooves[b.hoofAt++ % MAX_HOOVES] = d;
+    } else if (b.decals.length < MAX_DECALS) b.decals.push(d);
+    else b.decals[b.decalAt++ % MAX_DECALS] = d;
+  }
+
+  /** Decals on the ground, for tests and tools. */
+  get decalCount(): number {
+    let n = 0;
+    for (const b of this.buckets) if (b) n += b.decals.length + b.hooves.length;
+    return n;
   }
 
   /** Fills `batch` with the decals in view (map px window), from the level-L sheet. */
@@ -463,8 +482,17 @@ export class HdField {
         batch.sprite(Math.round(d.x * L) / L, Math.round(d.y * L) / L, r.u, r.v, r.w / L, r.h / L, r.ax / L, r.ay / L, -1e6, k, k * (1 - age * 0.25), k * (1 - age * 0.15), 1, 0, 1);
       }
     };
-    put(this.hooves);
-    put(this.decals);
+    const bx0 = Math.max(0, Math.floor(x0 / BUCKET_W));
+    const bx1 = Math.min(this.bucketsX - 1, Math.floor(x1 / BUCKET_W));
+    const by0 = Math.max(0, Math.floor(y0 / BUCKET_H));
+    const by1 = Math.min(Math.floor((this.H - 1) / BUCKET_H), Math.floor(y1 / BUCKET_H));
+    // Hoofprints first, under the blood and arrows.
+    for (const pass of [0, 1])
+      for (let by = by0; by <= by1; by++)
+        for (let bx = bx0; bx <= bx1; bx++) {
+          const b = this.buckets[by * this.bucketsX + bx];
+          if (b) put(pass === 0 ? b.hooves : b.decals);
+        }
   }
 
   // ------------------------------------------------------------------ sheets
