@@ -117,9 +117,12 @@ committed; the screenshots in `docs/screenshots/hd-sprites/samurai-anim-*.png` a
 - **Idle** is the key art: the gunbai raised forward, the horo on his back. **Walk**: the fan held at
   the chest; the horo swells a little. **Run**: the fan pointing ahead; the horo balloons (its frame's
   bone stretched back 30% and fluttering) and trails the trunk.
-- **Attack: the command** with the war fan: 1-3 raised high over the head; 4 held, the line looking
-  to him; 5-6 swept forward and down to point at the enemy with a step and a lean; 7-8 the point
-  held; 9-11 back to the chest.
+- **Attack: the command** with the war fan (a signal, not a blow): 1-2 lifted straight up over the
+  head, arm locked; 3-6 held there, rocking once, the line looking to him; 7-8 lowered to point
+  level at the enemy, upright, feet planted, no smear; 9-11 back to the chest. **Second blow: the
+  gunbai strike**: cocked back behind the helmet (1-4, never upright), snapped forward and down in
+  one frame with a long step, the hips dropping and the trunk over the front knee (5-6), held low
+  (7-8). See "Polish" below.
 - **Brace**: planted wide, the fan held out over the line.
 
 ### Yari Cavalry (5)
@@ -152,7 +155,9 @@ committed; the screenshots in `docs/screenshots/hd-sprites/samurai-anim-*.png` a
 - **Idle** is the key art: the katana raised, the horo on his back. **Run**: the katana held high
   for the charge; the horo balloons (its bone stretched back 35% with a flutter) and trails.
 - **Attack: the cut at the charge**: the katana over the near shoulder, the rider leaning out over
-  the neck, the blade falling down the horse's near side under a solid smear, held, back up.
+  the neck, the blade falling down the horse's near side under a crescent smear, held, back up.
+  Second blow kiri-age: the blade dropped low and back along the near flank, then rising ~160°
+  forward and up past the horse's shoulder (see "Polish" below); third blow tsuki over the neck.
 
 ### Ōzutsu (9)
 - The key art split into the gun (chocks, plank bed, cradle, the bronze barrel on its own bone, the
@@ -345,10 +350,10 @@ strips of the run's flight, the high kai and the level gun at level 4).
 | Teppō Ashigaru | matchlock | aim at the cheek, fire, recoil, reload; melee muzzle ram | (already level and straight; one melee blow) | shot unchanged (level, flash, recoil, ramrod reload); 2 blows: muzzle ram + butt-stroke (no smear on the muzzle end) |
 | Yari Cavalry | mounted yari | couched-lance lean, the arm nearly still | a western couch, not a thrust; one blow | one-handed thrust from the hip anchor, straight out along the shaft, rider leaning in; second blow an overhand stab down at men on foot |
 | Yabusame | daikyū from the saddle | kyūdō shot at the gallop, level | level | the high kai (as the foot archers), bow over the horse's neck, rider leaning back; the gallop under him |
-| Hatamoto Horse | katana, one hand (reins in the other) | one cut down the near side | one blow | 3 blows: the diagonal cut, kiri-age (round the back and rising past the horse's shoulder), tsuki over the neck |
+| Hatamoto Horse | katana, one hand (reins in the other) | one cut down the near side | one blow | 3 blows: the diagonal cut, kiri-age (low and back along the flank, rising ~160° past the horse's shoulder; a full circle until the polish below), tsuki over the neck |
 | Sōhei | naginata | one sweep | one blow | sweep, sliding thrust (the yari's), rising cut (blade round behind, low under the body, up and forward) |
 | Ōzutsu | bronze gun | fired with the barrel at its rest elevation (~9° up), muzzle kicking up at the shot frame | not level | the gunner lays the barrel level (3-5), it fires straight (6), the recoil kicks it 10° up (7) |
-| Daimyō | gunbai | command signal | one blow | command + gunbai strike (raised behind the head, chopped down one-handed) |
+| Daimyō | gunbai | command signal | one blow | command (fan held high, then pointed level) + gunbai strike (cocked behind the helmet, snapped down with the body behind it); made distinct in the polish below |
 
 ### The run (all foot kinds)
 
@@ -407,9 +412,100 @@ levels 1-2), plus `blowOffPalette` warnings on the teppō (1 px) and the ōzutsu
 
 ### Shortcomings
 
-- The daimyō's gunbai strike reads close to his command signal (both raise the fan and bring it
-  forward); it ends lower and faster, but at level 1 they are much alike.
-- Mounted kiri-age swings the arm through a full circle; at level 1-2 the frames behind the rider are
-  partly hidden by the horo.
+- (Fixed in the polish below: the daimyō's strike read like his signal; the mounted kiri-age swung
+  a full circle behind the horo; the smears were solid fans.)
 - The rear rank does not thrust shorter than the front rank (one animation per kind).
 - Angles are the research's estimates [est], checked against the photographs above, not mocap.
+
+## Polish (2026-11): sword smears, the daimyō's two blows, kiri-age, the palette
+
+The user's review of the contact sheets: in kesa-giri and shōmen the smear frames were huge pale
+solid wedges with radial ribs that read as the daimyō's war fan, not a blade's arc ("smears at L2
+are large solid fans"); the daimyō's strike looked like his command signal; the hatamoto's rising
+cut swung the arm through a full circle and the horo hid it. Contact sheets before and after in
+`docs/screenshots/anim-weapons/polish/samurai/`: `before-*` (as they were), `smear-*` (the new smear
+on every smeared kind), `after-k10-*` (daimyō), `after-k7-*` (hatamoto); each at level 8 and
+level 2, an SE and an NE row per blow. The full sheets in `anim-weapons/samurai/` are re-rendered.
+
+### References (sword smears)
+
+| Image | Licence | What we take from it |
+|---|---|---|
+| [Pixel art sword slash effect](https://opengameart.org/content/pixel-art-sword-slash-effect) ([sheet](https://opengameart.org/sites/default/files/pixel_art_sword_slash_sprites.png)), OpenGameArt | CC0 | A slash is a crescent: thin at the trailing end, thickest at the leading end, one clean curve in one pale colour; it grows over 2-3 frames and breaks into thin streaks as it fades. No ribs, no fill toward the pivot. |
+| [Slash FX tutorial #2, "Slash shape fundamentals"](https://jasontomlee.itch.io/slashfx/devlog/629732/tutorial-2-slash-shape-fundamentals) (images [1](https://img.itch.zone/aW1nLzEzOTAyMTA2LnBuZw==/original/1k%2BiWF.png), [2](https://img.itch.zone/aW1nLzEzOTAyMTEyLnBuZw==/original/lGiO74.png)) | study only | "Slashes tend to be curved like crescent moons"; the shape is a flag, the "trailing ends are narrower than the leading tip" (a narrow end implies speed); no stray pixels; the curve follows the swing; it lives 1-2 frames at the climax; the leading end meets the blade. |
+| [Saint11, *Motion Blur*](https://saint11.art/img/pixel-tutorials/MotionBlur.gif) (Pedro Medeiros) | study only | The smear types side by side: the solid swept wedge (what we had: a shape of its own that reads as an object), the crescent, the 2-colour streak, ghost blades. Lighter colours bleed over darker; darker colours for the fading part. |
+| `pixel-art-techniques.md` §4.1, `pixel-art-craft.md` (smears) | text | One frame (two for the big cuts), light front and darker tail; the smear connects a frame to the one before. |
+
+Study copies in the git-ignored `references/sword-smear/`.
+
+### What changed
+
+- **The smear** (`samurai-rig.ts` `crescentPart`, every Samurai kind, foot and mounted): a crescent
+  along the path the weapon's tip took since the last frame. The hand's travel and the blade's turn
+  are interpolated together, so a cut gives an arc and a thrust (jab, butt-stroke) a straight streak.
+  It lies at the weapon's reach from the fist and is never filled toward the hilt; thick only at the
+  leading end (6 px at level 8, 3 at level 4, 2 at level 2), tapering to nothing at the trailing end;
+  pale steel on the outer edge, steel inside, a darker inner rim where it is 3 px or more; at level 2
+  a 1 px line with a 2 px head. It is drawn under the blade, so the steel stays on top. The big cuts
+  (kesa-giri, shōmen, the sōhei's sweep and rising cut, the saddle cuts) smear on 2 frames (they had
+  3, the first being the wind-up's own arc over the head); the rest on 1. Same steel tones as before.
+- **Daimyō** (`FAN`, `FAN_STRIKE`): the signal holds the fan straight up for four frames (one rock),
+  then points it level, upright, feet planted, no smear. The strike never raises the fan upright: it
+  is cocked back behind the helmet, then snapped forward and down in one frame with a long step, the
+  hips dropping, trunk and chest pitching over the front knee, the free arm thrown back, ending below
+  the waist, one smear frame. At level 1 the signal is a stick standing over the head for six frames;
+  the strike a diagonal behind the head, then low in front.
+- **Hatamoto kiri-age** (`samurai-horse.ts` `SADDLE_RISE`): the point drops (1) and the blade falls
+  back low along the near flank, hand at the hip, the rider stooping out over the near side (2-4); it
+  rises forward and up past the horse's shoulder (5-6, smear) and ends high and forward (7): ~160°,
+  from -38° to 124°. It never goes over the shoulder, so the horo cannot hide it. The sword rider's
+  near arm and blade are now drawn over his near leg and stirrup (under them, the low wind-up was hidden).
+
+### Critique rounds
+
+1. **Round 1** (crescent, 3 smear frames): the crescents read as blade arcs, but the first smear frame
+   of each big cut was the wind-up's arc over the head, and the level-2 crescent was 2 px all along
+   (half-pixel steps landed on two pixels). Smears start a frame later and last 2 frames; level 2
+   steps whole pixels. Daimyō: the strike's in-between (frame 4) passed through upright, so for a
+   frame it was the signal; the trunk hardly pitched.
+2. **Round 2**: the strike keeps the fan cocked back through frame 4 and snaps on 5; trunk and chest
+   pitch further. Kiri-age: the low wind-up was hidden under the near leg and stirrup (draw order) and
+   its smear fell on the slow frames: the arm now draws over the leg, the smear is on the rising frames.
+3. **Round 3**: all smeared kinds re-checked at levels 8, 2 and 1 against the references: one clean
+   curve per frame, thick at the blade, no ribs; the daimyō's two blows apart at level 1; kiri-age
+   visible low, then rising in front of the horo.
+
+### Palette: per-kind tried again, the tone redirects kept
+
+Asked to replace the per-tone redirects (`LOW_TONES`, `L2_TONES`, `MID_TONES` in `samurai-static.ts`)
+with a per-kind palette (`setFactionPaletteOptions`, as the Templar and Undead). Lint over all eleven
+kinds (HD levels 1/2/4/8); the current state has 0 HD fails:
+
+| Variant | HD fail items |
+|---|---|
+| shared palette, redirects removed (and the deep-red merge) | 5: straight ramps k0/k2 L2, light angle k0/k2 L4, band ends k0 L2 |
+| per-kind, Templar options, redirects removed | 17 (band ends, light angle, outline and figure vs ground on k1/k10 L1, grey shadows k7/k8 L4, straight ramps) |
+| per-kind, no near-duplicate merging | 13 |
+| per-kind, merging [0.06, 0.1, 0.06, 0.04], dark rim from level 1 on k1 and k10 | 10 |
+| same, merging 0.2 or 0.3 at level 1 | 10-11 (band ends move to k1/k4 L1; outline vs ground k0 L1) |
+| same with `darkChroma` | 14 |
+| per-kind with the redirects kept | 6 (band ends k0/k3/k7 L1, figure vs ground k10 L1, light angle k9 L4, outline closed k1 L1) |
+
+A per-kind palette gives each kind the whole budget, which at level 1 brings back colours the shared
+palette merges (more aligned band ends, lit-side outlines that average out to the field), and the
+straight ramps and light-angle fails return without the redirects whichever palette is used. So the
+redirects stay; replacing them needs the army lacquer's and the indigo's ramps retuned at levels
+1-2, a palette job of its own.
+
+### Lint after the polish
+
+All eleven kinds, HD levels 1/2/4/8: **no FAIL** (the smear uses the same steel tones). Warnings as
+before.
+
+### Shortcomings (polish)
+
+- The crescent follows the weapon bone's reach: on the teppō's butt-stroke it is the muzzle end's
+  streak, not the butt's.
+- At level 1 the crescent is a 1-2 px line; on the mounted cuts it can merge with the horse's outline.
+- Kiri-age's low wind-up is a thin steel line over the black horse at level 8 and barely there at
+  levels 1-2 until the blade rises.
