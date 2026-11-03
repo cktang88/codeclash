@@ -1,7 +1,7 @@
 // Battle doctrines (DOCTRINE in command.ts, docs/faction-doctrines.md): each faction's visible
 // way of fighting, one test (or two) per doctrine.
 import { describe, expect, it } from 'vitest';
-import { Battle, BATTLE_VERSION, DOCTRINE, MORALE, REGROUP, State, type ArmySpec, type Regiment } from './battle.ts';
+import { Battle, BATTLE_VERSION, DOCTRINE, MORALE, REGROUP, RISE_TICKS, State, type ArmySpec, type Regiment } from './battle.ts';
 import type { FactionId } from './factions.ts';
 import { only, placeRegiment, plainArmy } from './testing.ts';
 import { emptyCounts, U, UNIT_COUNT } from './units.ts';
@@ -307,6 +307,27 @@ describe('doctrines: the Hollow Host', () => {
       expect(b.soldiers.some((s) => s.team === 1 && s.roseAt >= 0)).toBe(false);
     }
     expect(risen).toBeGreaterThan(5);
+  }, 60_000);
+
+  it('U3: a risen man gets up where he fell, and only then moves and fights', () => {
+    const b = battle(1, army(300, 'undead'), army(300, 'templar'));
+    const where = new Map<number, [number, number]>();
+    let checked = 0;
+    while (!b.done() && b.tick < 2400) {
+      b.step();
+      for (const s of b.soldiers) {
+        if (s.roseAt < 0 || s.state !== State.Fighting) continue;
+        const since = b.tick - s.roseAt;
+        if (since === 0) where.set(s.id, [s.x, s.y]);
+        const at = where.get(s.id);
+        if (!at || since >= RISE_TICKS) continue;
+        checked++;
+        expect(Math.hypot(s.x - at[0], s.y - at[1])).toBeLessThan(1);
+        expect(s.target).toBe(-1);
+        expect(s.actedAt).toBeLessThan(s.roseAt);
+      }
+    }
+    expect(checked).toBeGreaterThan(50);
   }, 60_000);
 
   it('U3: no raising once the Lich-Marshal has fallen', () => {

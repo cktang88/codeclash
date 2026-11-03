@@ -33,6 +33,9 @@ export { COHESION, DOCTRINE, MORALE, REGROUP, UNDEAD } from './command.ts';
  * - Horse locked in a melee breaks off to charge again (P4) by whom its men are fighting: sent
  *   at a block of the line but cutting down the shooters behind it, it rides them down (it went
  *   by its target alone, and broke off from archers it had caught).
+ * - U3: a man the Lich-Marshal raises gets up where he fell before he moves or fights
+ *   (`RISE_TICKS`, as long as the renderer's rise); nothing shoves him meanwhile. He walked off to
+ *   his place on the tick he rose, so the get-up was hardly seen.
  *
  * v14: looser, livelier battles (docs/art-references/battle-cohesion.md, section 6; COHESION and
  * each faction's DOCTRINE.loose in command.ts). Per-man variation comes from a hash of his id and
@@ -1601,7 +1604,8 @@ export class Battle {
       ky[k] = d.y[i]!;
       kr[k] = d.rad[i]!;
       const m = d.mass[i]!;
-      km[k] = m;
+      // (A man getting up from the dead is not shoved about: the press goes round him.)
+      km[k] = d.rose[i]! >= 0 && this.tick - d.rose[i]! < RISE_TICKS ? 50 : m;
       kt[k] = d.team[i]!;
       const fighting = d.state[i] === State.Fighting;
       kl[k] = fighting ? rf[d.reg[i]!]! : 0;
@@ -4262,6 +4266,11 @@ export class Battle {
     if (d.cd[i]! > 0) d.cd[i]!--;
     if (d.stun[i]! > 0) d.stun[i]!--;
     if (d.state[i] === State.Routing) return;
+    // U3: getting up from the dead, he fights nobody yet (see RISE_TICKS).
+    if (d.rose[i]! >= 0 && this.tick - d.rose[i]! < RISE_TICKS) {
+      d.target[i] = -1;
+      return;
+    }
     const r = this.regiments[d.reg[i]!]!;
     const mode = r.mode;
     if (mode === 'withdraw' || mode === 'skirmish') {
@@ -5098,6 +5107,12 @@ export class Battle {
 
   private move(i: number): void {
     const d = this.d;
+    // U3: a man the Lich-Marshal raised gets up where he fell before he goes anywhere.
+    if (d.rose[i]! >= 0 && this.tick - d.rose[i]! < RISE_TICKS) {
+      d.vx[i] = 0;
+      d.vy[i] = 0;
+      return;
+    }
     const r = this.regiments[d.reg[i]!]!;
     const spd = d.spd[i]!;
     const x = d.x[i]!;
@@ -5555,6 +5570,14 @@ function eagerness(faction: FactionId, cls: number, veteran: boolean, green: boo
   const e = EAGER_FACTION[faction]?.[cls] ?? EAGER[cls] ?? 0.3;
   return Math.max(0, Math.min(1, e + (veteran ? -0.1 : 0) + (green ? 0.1 : 0)));
 }
+
+/**
+ * U3: ticks a risen man takes to get up where he fell before he moves or fights: as long as the
+ * renderer's rise (`riseTicks` in src/client/render/contract.ts: RISE.hold plus the Die strip
+ * played back 1.5x slow, about 15 ticks; the game does not import from the client, so mirrored
+ * here, rounded up a little).
+ */
+export const RISE_TICKS = 16;
 
 /** A bombard's ball bounds on this far past its aim point, through at most this many men. */
 const CANNON_BOUND = 45;
