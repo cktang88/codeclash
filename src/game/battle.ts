@@ -27,7 +27,11 @@ import { FATIGUE, MORALE, newOrder, PERSONALITIES, PLANS, type CommanderTrait, t
 export type { CommanderTrait, MoraleState, Order, OrderKind, Personality, Plan } from './command.ts';
 export { MORALE } from './command.ts';
 
-export const BATTLE_VERSION = 4;
+/**
+ * v5: both sides think on the same ticks (they used to be out of step, which handed one side
+ * 60-75% of equal fights), and the horse rides round a line and kites the same way on both sides.
+ */
+export const BATTLE_VERSION = 5;
 /**
  * Mixed into every battle's seed. It was BATTLE_VERSION until v3, which kept v2's salt: a
  * version bump refuses old setups (BattleVersionError) but does not re-seed battles by itself.
@@ -266,6 +270,11 @@ export class Regiment {
   /** Centre of its living men. */
   cx = 0;
   cy = 0;
+  /**
+   * Its place in its own army's order of battle (0, 1, 2, ...): it thinks on the ticks where
+   * (tick + phase) % 5 === 0, the same ticks as the enemy's regiment with the same place.
+   */
+  phase = 0;
   /** Formation anchor (middle of the front rank) and facing (unit vector). */
   ax = 0;
   ay = 0;
@@ -740,6 +749,7 @@ export class Battle {
         reg.spacing = spacingFor(reg, reg.stance);
         reg.speed = st.speed;
         reg.fx = reg.dfx = dir;
+        reg.phase = this.teamRegs[team]!.length;
         this.regiments.push(reg);
         this.teamRegs[team]!.push(reg);
         regs.push(reg);
@@ -846,6 +856,7 @@ export class Battle {
       reg.spacing = spacingFor(reg, reg.stance);
       reg.speed = st.speed;
       reg.fx = reg.dfx = dir;
+      reg.phase = this.teamRegs[team]!.length;
       this.regiments.push(reg);
       this.teamRegs[team]!.push(reg);
       for (let i = 0; i <= 6; i++) {
@@ -1021,13 +1032,22 @@ export class Battle {
       this.updateFront(0);
       this.updateFront(1);
     }
-    // Each General thinks every 1.5 s, the two a little apart.
-    if (this.tick % 15 === 0) this.generalThink(0);
-    if (this.tick % 15 === 7) this.generalThink(1);
+    // Both sides think on the same ticks, and take turns to go first: each General every 1.5 s,
+    // each regiment every 0.5 s on the same tick as the enemy regiment with the same place in its
+    // order of battle (see `Regiment.phase`). (Until v4 a regiment's tick came from its id, so
+    // the second army's regiments were out of step with the first's by however many regiments
+    // the first had, and the Generals were 0.7 s apart: one side reacted to the other's moves
+    // sooner, and it won equal fights 60-75% of the time.)
+    if (this.tick % 15 === 0) {
+      const first = (this.tick / 15) % 2;
+      this.generalThink(first);
+      this.generalThink(1 - first);
+    }
     const regs = this.regiments;
-    for (let i = 0; i < regs.length; i++) {
-      const r = regs[i]!;
-      if ((this.tick + r.id) % 5 === 0) this.think(r);
+    const up = this.tick % 2 === 0;
+    for (let q = 0; q < regs.length; q++) {
+      const r = regs[up ? q : regs.length - 1 - q]!;
+      if ((this.tick + r.phase) % 5 === 0) this.think(r);
     }
     for (let i = 0; i < regs.length; i++) this.moveAnchor(regs[i]!);
     const d = this.d;
