@@ -283,7 +283,7 @@ export function thighS(c: Paper, hip: P2, knee: P2, k: SKit, far: boolean): void
   const g = legGirth(c);
   vol(c, hip, knee, [[0, 0.82 * g], [0.35, 0.8 * g], [0.8, 0.66 * g], [1, 0.62 * g]], k.legs, { tone: t });
   // Knee: the mail bulges over a padded knee.
-  blob(c, addP(knee, [0.05, 0.05]), 0.66, 0.6, k.legs, { tone: t, detail: isMailS(k.legs) ? (x, y, nx) => mailTex(c, x, y, nx < -0.2 ? -1 : 0, t, k.legs) : undefined });
+  blob(c, addP(knee, [0.05, 0.05]), 0.66, 0.6, k.legs, { tone: t, detail: isMailS(k.legs) ? (x, y, nx) => mailTex(c, x, y, c.litX(nx) < -0.2 ? -1 : 0, t, k.legs) : undefined });
 }
 /** The calf and the boot's leg with its cuff. */
 export function shinS(c: Paper, knee: P2, ank: P2, k: SKit, far: boolean): void {
@@ -336,7 +336,10 @@ function torsoS(c: Paper, k: SKit, back: boolean): void {
   const garment = k.coat ?? k.body;
   // The hauberk skirt shows below the surcoat hem, split for riding.
   if (k.coat && isMailS(k.body)) {
-    shapeU(c, [[-2.0, -7.2], [2.0, -7.2], [2.25, -3.0], [-2.15, -3.0]], [0, -7], (x, y, ux, uy) => mailTex(c, x, y, ux < -1.2 ? -1 : ux > 1.2 ? 1 : 0, 2, k.body) >= 0 ? mailTex(c, x, y, ux < -1.2 ? -1 : ux > 1.2 ? 1 : 0, 2, k.body) : code(k.body, ux < -1.2 ? 3 : ux > 1.2 ? 1 : 2) + (uy > 3.6 ? -1 : 0));
+    shapeU(c, [[-2.0, -7.2], [2.0, -7.2], [2.25, -3.0], [-2.15, -3.0]], [0, -7], (x, y, ux0, uy) => {
+      const ux = c.litX(ux0); // lighting only
+      return mailTex(c, x, y, ux < -1.2 ? -1 : ux > 1.2 ? 1 : 0, 2, k.body) >= 0 ? mailTex(c, x, y, ux < -1.2 ? -1 : ux > 1.2 ? 1 : 0, 2, k.body) : code(k.body, ux < -1.2 ? 3 : ux > 1.2 ? 1 : 2) + (uy > 3.6 ? -1 : 0);
+    });
   }
   // The skirt flares to the knee (a short tunic stops at mid-thigh), the hem stepping down toward
   // the back.
@@ -355,24 +358,24 @@ function torsoS(c: Paper, k: SKit, back: boolean): void {
     // the skirt's underside fall away.
     // The terminators wander with the cloth's folds (straight ones would run parallel to the
     // flanks: bands hugging the outline). Keyed to key-art height, so they ride with the cloth.
-    const side = ux + (uy + 9) * 0.12 + (c.L >= 4 ? 0.28 * Math.sin(uy * 2.3) : 0);
+    const side = c.litX(ux) + (uy + 9) * 0.12 + (c.L >= 4 ? 0.28 * Math.sin(uy * 2.3) : 0);
     // (At level 2 the lit flank is a 1 px column beside the base, starting under the belt with it: a stripe, so none.)
     let t = side < -1.25 && c.L !== 2 ? 3 : side > (k.shadeFrom ?? 1.35) ? 1 : 2;
-    if (uy < -10.6 && ux < 1.0) t = Math.max(t, 3); // shoulders' top plane
+    if (uy < -10.6 && c.litX(ux) < 1.0) t = Math.max(t, 3); // shoulders' top plane
     // At level 1 (three tones) the form is one gradient: the chest catches the light, the skirt
     // below the belt falls into shade, so the light reads from above.
     if (c.L < 2) t = uy < -9.4 && side < -0.4 ? 4 : uy < -8.45 ? 2 : 1;
     // Belt, with a buckle and a strap end hanging.
     if (uy > -8.45 && uy < -7.95) {
       if (Math.abs(ux - (back ? -0.6 : 0.45)) < 0.32) return code(TM.steel, uy < -8.2 ? 4 : 2);
-      return code(k.belt ?? TM.leather, ux < -1.2 ? 3 : 2);
+      return code(k.belt ?? TM.leather, c.litX(ux) < -1.2 ? 3 : 2);
     }
     if (!back && Math.abs(ux - 0.7) < 0.14 && uy > -7.95 && uy < -6.6) return code(k.belt ?? TM.leather, 1);
     // The cross on the chest (or the back): a broad red cross, its arms reaching the flanks.
     // (A chest cross the kite covers shows only as a 1 px red sliver beside it at level 2: none there.)
     if (k.cross && !(c.L === 2 && k.coveredCross) && uy > -11.5 && uy < (k.longCross ? hemY - 0.2 : -8.5)) {
       const vx = ux - crossX - (k.longCross ? (uy + 8) * 0.04 : 0);
-      if ((within(c, vx, k.longCross ? 0.48 : 0.42) && uy > -11.35 && !(uy > -8.45 && uy < -7.95)) || (within(c, uy + 10.25, 0.38) && Math.abs(vx) < 1.45)) return code(TM.red, vx < -0.2 ? 3 : side > 1.3 ? 1 : 2);
+      if ((within(c, vx, k.longCross ? 0.48 : 0.42) && uy > -11.35 && !(uy > -8.45 && uy < -7.95)) || (within(c, uy + 10.25, 0.38) && Math.abs(vx) < 1.45)) return code(TM.red, c.litX(vx) < -0.2 ? 3 : side > 1.3 ? 1 : 2);
     }
     // Skirt folds below the belt: three hanging folds, a dark channel with a lit ridge beside it,
     // drifting toward the back as they fall.
@@ -380,7 +383,7 @@ function torsoS(c: Paper, k: SKit, back: boolean): void {
       const fx = ux - (uy + 7.6) * 0.08;
       // (Below level 4 a fold is a 1 px column ending on the hem row with its neighbours: banding, so none.)
       for (const f0 of c.L >= 4 ? [-1.0, 0.25, 1.35] : []) {
-        const dd = fx - f0;
+        const dd = c.litX(fx - f0); // the ridge on the light's side of its channel
         // A fold: its shadowed channel, and the lit ridge beside it (a clear two-step contrast).
         // The ridge stops short of the hem, each fold at its own height, so ridge and channel do
         // not end on one row.
@@ -406,7 +409,7 @@ function torsoS(c: Paper, k: SKit, back: boolean): void {
 /** The mail cape over the shoulders, thickening the neck (the coif's skirt). */
 function camail(c: Paper, m: Mat, back: boolean): void {
   shapeU(c, [[-1.15, -13.3], [1.25, -13.3], [1.9, -12.1], [2.55, -11.45], [1.4, -10.85], [0.2, -11.0], [-1.1, -10.9], [-2.55, -11.35], [-1.85, -12.1]], [0, -12], (x, y, ux, uy) => {
-    const t = ux < -0.9 ? 3 : ux > 1.2 ? 1 : 2;
+    const t = c.litX(ux) < -0.9 ? 3 : c.litX(ux) > 1.2 ? 1 : 2;
     // A dagged lower edge: the rings end in a scalloped hem.
     if (uy > 0.75 + 0.18 * Math.sin(ux * 5)) return -1;
     const r = mailTex(c, x, y, t > 2 ? -1 : t < 2 ? 1 : 0, t, m);
@@ -425,8 +428,8 @@ function hoodCape(c: Paper, m: Mat, shadeFrom = 1.6): void {
     if (Math.hypot(ux - 0.7, uy - 0.6) < 0.38) return code(TM.white, Math.hypot(ux - 0.6, uy - 0.5) < 0.18 ? 4 : 2); // the scallop
     const fx = ux - uy * 0.3;
     if (Math.abs(fx + 0.9) < 0.13 || Math.abs(fx - 1.6) < 0.13) return code(m, 1);
-    if (Math.abs(fx + 1.15) < 0.12 || Math.abs(fx - 1.35) < 0.12) return code(m, 3);
-    return code(m, ux < -1.2 ? 3 : ux > shadeFrom ? 1 : 2);
+    if (c.lightX === 1 ? Math.abs(fx + 1.15) < 0.12 || Math.abs(fx - 1.35) < 0.12 : Math.abs(fx + 0.65) < 0.12 || Math.abs(fx - 1.85) < 0.12) return code(m, 3);
+    return code(m, c.litX(ux) < -1.2 ? 3 : c.litX(ux) > shadeFrom ? 1 : 2);
   });
 }
 
@@ -464,7 +467,7 @@ function helmS(c: Paper, h: SHelm, o: P2, back: boolean, beard: boolean, coif: M
     const gild = h === 'gilded';
     // A tall flat-topped barrel, wider than the head (DHM Topfhelm): 2.5 wide, 2.9 tall.
     shapeU(c, [[-1.15, -1.6], [1.15, -1.6], [1.3, -1.25], [1.35, 0.35], [1.25, 1.35], [-1.25, 1.35], [-1.35, 0.35], [-1.3, -1.25]].map((p) => addP(o, p as P2)), o, (x, y, ux, uy) => {
-      const lit = ux < -0.55 ? 1 : ux > 0.75 ? -1 : 0;
+      const lit = c.litX(ux) < -0.55 ? 1 : c.litX(ux) > 0.75 ? -1 : 0;
       const T = (q: number) => code(TM.steel, Math.max(0, Math.min(4, q)));
       if (uy < -1.4) return gild ? code(TM.gold, 3) : T(3);
       if (uy < -1.2) return T(2 + lit);
@@ -479,7 +482,7 @@ function helmS(c: Paper, h: SHelm, o: P2, back: boolean, beard: boolean, coif: M
       // Rivets along the lower rim; a dent; scratches.
       if (uy > 1.05 && c.lx(x) % 5 === 0) return T(4);
       if (c.tex(x, y, 61, 3) < 0.05) return T(1 + lit);
-      if (ux < -0.75 && uy > -1.0 && uy < 0.6) return T(4);
+      if (c.litX(ux) < -0.75 && uy > -1.0 && uy < 0.6) return T(4);
       return T(2 + lit);
     });
     return;
@@ -491,12 +494,15 @@ function helmS(c: Paper, h: SHelm, o: P2, back: boolean, beard: boolean, coif: M
     blob(c, addP(o, [-0.1, -0.05]), 1.3, 1.4, coif, {
       detail: (_x, _y, nx, ny) => {
         if (Math.abs(nx + 0.35 - ny * 0.25) < 0.08 && ny > -0.6) return code(coif, 1);
-        return code(coif, nx < -0.35 || ny < -0.6 ? 3 : nx > 0.55 ? 1 : 2);
+        return code(coif, c.litX(nx) < -0.35 || ny < -0.6 ? 3 : c.litX(nx) > 0.55 ? 1 : 2);
       },
     });
   } else if (coif) {
     // The coif: a mail hood round the face, thick at the cheeks and throat.
-    blob(c, addP(o, [-0.05, 0.1]), 1.2, 1.3, coif, { detail: (x, y, nx) => mailTex(c, x, y, nx < -0.3 ? -1 : nx > 0.4 ? 1 : 0, nx < -0.4 ? 3 : nx > 0.5 ? 1 : 2, coif) });
+    blob(c, addP(o, [-0.05, 0.1]), 1.2, 1.3, coif, { detail: (x, y, nx0) => {
+      const nx = c.litX(nx0);
+      return mailTex(c, x, y, nx < -0.3 ? -1 : nx > 0.4 ? 1 : 0, nx < -0.4 ? 3 : nx > 0.5 ? 1 : 2, coif);
+    } });
   } else blob(c, addP(o, [-0.15, -0.1]), 0.95, 1.0, TM.hair, { tone: 2 });
   if (!back) faceS(c, addP(o, [0.38, 0.25]), beard);
   if (h === 'kettle' || h === 'pilgrim') {
@@ -505,7 +511,7 @@ function helmS(c: Paper, h: SHelm, o: P2, back: boolean, beard: boolean, coif: M
     blob(c, addP(o, [0.05, -0.85]), 1.0, 0.72, m, { shine: !pil });
     // A wide brim, dished: the upper face lit, the underside in shadow, chewed and dented.
     shapeU(c, [[-1.9, -0.55], [-1.0, -0.85], [1.15, -0.85], [2.05, -0.5], [1.9, -0.25], [-1.75, -0.3]].map((p) => addP(o, p as P2)), o, (x, _y, ux, uy) => {
-      if (uy < -0.62) return code(m, ux < 0 ? 4 : 3);
+      if (uy < -0.62) return code(m, c.litX(ux) < 0 ? 4 : 3);
       if (!pil && hash(c.lx(x) >> 1, 1, 3) < 0.1) return code(TM.leather, 1);
       return code(m, uy > -0.38 ? 1 : 2);
     });
@@ -514,13 +520,13 @@ function helmS(c: Paper, h: SHelm, o: P2, back: boolean, beard: boolean, coif: M
   }
   if (h === 'nasal') {
     shapeU(c, [[-1.1, -0.3], [-0.75, -1.15], [0, -1.8], [0.75, -1.15], [1.1, -0.3]].map((p) => addP(o, p as P2)), o, (_x, _y, ux, uy) =>
-      code(TM.steel, uy > -0.45 ? 1 : ux < -0.3 ? 4 : ux > 0.45 ? 2 : 3));
+      code(TM.steel, uy > -0.45 ? 1 : c.litX(ux) < -0.3 ? 4 : c.litX(ux) > 0.45 ? 2 : 3));
     if (!back) vol(c, addP(o, [0.55, -0.45]), addP(o, [0.62, 0.5]), [[0, 0.14], [1, 0.12]], TM.steel, { tone: 3 });
     return;
   }
   if (h === 'turban') {
     vol(c, addP(o, [0, -1.3]), addP(o, [0.05, -2.2]), [[0, 0.22], [1, 0.06]], TM.steel, { tone: 3 });
-    blob(c, addP(o, [0, -0.65]), 1.25, 0.85, TM.white, { detail: (x, y, nx, ny) => ((c.ly(y) + (c.lx(x) >> 2)) % 4 === 0 ? code(TM.white, nx < 0 ? 2 : 1) : ny > 0.6 ? code(TM.white, 1) : -1) });
+    blob(c, addP(o, [0, -0.65]), 1.25, 0.85, TM.white, { detail: (x, y, nx, ny) => ((c.ly(y) + (c.lx(x) >> 2)) % 4 === 0 ? code(TM.white, c.litX(nx) < 0 ? 2 : 1) : ny > 0.6 ? code(TM.white, 1) : -1) });
     return;
   }
   if (h === 'hood') return;
@@ -546,7 +552,7 @@ function kiteS(c: Paper, ctr: P2, w: number, h: number, back: boolean, temple: b
     const yt = ly - top;
     const half = yt < h * 0.3 ? w * 0.48 : yt < h * 0.62 ? w * (0.48 - ((yt - h * 0.3) / (h * 0.32)) * 0.18) : w * 0.3 * (1 - (yt - h * 0.62) / (bot - top - h * 0.62));
     const edge = half - Math.abs(lx);
-    const u = lx / (w * 0.5);
+    const u = c.litX(lx) / (w * 0.5);
     // At level 1 the shield is four pixels across: rim and cross would eat it, so it is the
     // field (team colour, or the Temple's white under a black chief) lit from the left.
     if (c.L < 2) {
@@ -563,7 +569,7 @@ function kiteS(c: Paper, ctr: P2, w: number, h: number, back: boolean, temple: b
     // at the far edge.
     const t = u < -0.45 ? 3 : u > 0.35 && u < 0.8 ? 1 : 2;
     // Boss and rivets.
-    if (Math.hypot(lx - 0.0, ly - (top + h * 0.33)) < 0.42) return code(TM.steel, lx < 0 && ly < top + h * 0.33 ? 4 : 2);
+    if (Math.hypot(lx - 0.0, ly - (top + h * 0.33)) < 0.42) return code(TM.steel, c.litX(lx) < 0 && ly < top + h * 0.33 ? 4 : 2);
     if (edge < 0.55 && (c.ly(y) + c.lx(x)) % 9 === 0) return code(TM.steel, 3);
     if (temple) {
       if (ly < top + h * 0.22) return code(TM.black, t);
@@ -581,11 +587,12 @@ function roundS(c: Paper, ctr: P2, r: number, rim: Mat = TM.steel): void {
   blob(c, ctr, r * 0.86, r, TM.team, {
     detail: (x, y, nx, ny) => {
       const d = Math.hypot(nx, ny);
-      if (d > 0.88) return rim === TM.steel ? code(TM.steel, nx + ny < -0.4 ? 4 : nx + ny > 0.6 ? 1 : 2) : code(rim, nx + ny < -0.4 ? 2 : 1);
-      if (d < 0.22) return code(TM.steel, nx + ny < -0.1 ? 4 : 2);
+      const ln = c.litX(nx); // lighting only
+      if (d > 0.88) return rim === TM.steel ? code(TM.steel, ln + ny < -0.4 ? 4 : ln + ny > 0.6 ? 1 : 2) : code(rim, ln + ny < -0.4 ? 2 : 1);
+      if (d < 0.22) return code(TM.steel, ln + ny < -0.1 ? 4 : 2);
       if (d < 0.3) return code(TM.steel, 1);
       if (c.tex(x, y, 79, 3) < 0.05) return code(TM.wood, 2);
-      const t = nx < -0.45 ? 3 : nx > 0.4 ? 1 : 2;
+      const t = ln < -0.45 ? 3 : ln > 0.4 ? 1 : 2;
       return nx * ny > 0 ? code(TM.teamDk, t) : code(TM.team, t);
     },
   });
@@ -618,8 +625,9 @@ function cloakS(c: Paper, hemY = -0.55, sweep = 0, back = false): void {
     if (!back && ((within(c, ux - 3.15, 0.3) && Math.abs(uy + 10.4) < 0.95) || (within(c, uy + 10.55, 0.28) && Math.abs(ux - 3.15) < 0.6))) return code(TM.red, 2);
     // Folds: wide, deep, swinging out toward the hem; lit ridge then shadowed trough.
     const spread = (uy + 12.3) / 12;
-    const f = (((ux / (1 + spread * 0.35)) + 8) * 0.62) % 1;
-    let t = ux < -2.6 + spread ? 3 : ux > 3.0 + spread * 0.6 ? 1 : 2;
+    const lu = c.litX(ux); // lighting only
+    const f = (((lu / (1 + spread * 0.35)) + 8) * 0.62) % 1;
+    let t = lu < -2.6 + spread ? 3 : lu > 3.0 + spread * 0.6 ? 1 : 2;
     if (f < 0.16) t -= 1;
     else if (f < 0.3) t += 1;
     if (uy > hemY - 0.9 && c.tex(x, y, 57, 3) < 0.45) t -= 1;
@@ -636,7 +644,7 @@ function cloakS(c: Paper, hemY = -0.55, sweep = 0, back = false): void {
 function furS(c: Paper): void {
   shapeU(c, smooth([[-2.7, -12.4], [-1.0, -13.2], [1.2, -13.25], [2.9, -12.4], [2.4, -11.4], [0.8, -11.8], [-0.9, -11.75], [-2.4, -11.3]], 3), [0, -12.3], (x, y, ux, uy) => {
     const strand = (c.lx(x) + (c.ly(y) >> 1) * 2) % 4;
-    let t = ux < -1.3 ? 4 : ux > 1.6 ? 2 : 3;
+    let t = c.litX(ux) < -1.3 ? 4 : c.litX(ux) > 1.6 ? 2 : 3;
     if (strand === 0) t -= 1;
     if (uy > 0.55 && c.tex(x, y, 77, 2) < 0.5) return -1; // ragged lower edge
     return code(KM.fur, t);
@@ -650,7 +658,7 @@ function pauldronS(c: Paper, sh: P2, far: boolean): void {
     blob(c, o, 1.15 - i * 0.08, 0.55, TM.steel, {
       tone: far ? 1 : 2,
       detail: (_x, _y, nx, ny) => {
-        if (ny < -0.45 && nx < 0.3) return code(TM.steel, far ? 3 : 4); // lit rolled edge
+        if (ny < -0.45 && c.litX(nx) < 0.3) return code(TM.steel, far ? 3 : 4); // lit rolled edge
         if (ny > 0.55) return code(TM.steel, 0); // the lame's lower edge, in shadow
         if (Math.abs(nx + 0.55) < 0.14 && Math.abs(ny) < 0.2) return code(TM.steel, 4); // rivet
         return -1;
@@ -746,7 +754,7 @@ function paviseS(c: Paper, ctr: P2, w: number, h: number, deg: number): void {
   c.shape([at(F, -w / 2, -h / 2), at(F, w / 2, -h / 2 - 0.1), at(F, w / 2 - 0.05, h / 2), at(F, -w / 2 + 0.05, h / 2 + 0.1)], (x, y) => {
     const [lx, ly] = local(c, F, x, y);
     const ex = w / 2 - Math.abs(lx), ey = h / 2 - Math.abs(ly);
-    const u = lx / (w / 2);
+    const u = c.litX(lx) / (w / 2);
     // The rim, one band lit on the left (the figure's outline closes it: a darker line inside it
     // too would be a second outline, hugging the first).
     if (ex < 0.3 || ey < 0.3) return code(TM.white, u < 0 ? 3 : 2);
@@ -767,9 +775,9 @@ function ailetteS(c: Paper, at0: P2, deg: number): void {
   const F = frameAt(at0, deg);
   c.shape([at(F, -0.8, -1.2), at(F, 0.8, -1.2), at(F, 0.8, 0.4), at(F, -0.8, 0.4)], (x, y) => {
     const [lx, ly] = local(c, F, x, y);
-    if (Math.abs(lx) > 0.62 || ly < -1.02 || ly > 0.22) return code(TM.steel, lx < 0 ? 3 : 2);
+    if (Math.abs(lx) > 0.62 || ly < -1.02 || ly > 0.22) return code(TM.steel, c.litX(lx) < 0 ? 3 : 2);
     if (within(c, lx, 0.14) || within(c, ly + 0.4, 0.13)) return code(TM.white, 3);
-    return code(TM.team, lx < 0 ? 3 : 2);
+    return code(TM.team, c.litX(lx) < 0 ? 3 : 2);
   });
 }
 
@@ -899,7 +907,7 @@ interface Mass {
  * Form light at a point from the nearest mass: the key light from the upper left and a little
  * toward the viewer; four bands (deep, shade, body, lit) and a crisp highlight on the crown.
  */
-function formTone(ux: number, uy: number, masses: Mass[]): number {
+function formTone(ux: number, uy: number, masses: Mass[], lightX: 1 | -1 = 1): number {
   let best = Infinity, nx = 0, ny = 0;
   for (const m of masses) {
     const dx = (ux - m.o[0]) / m.r[0], dy = (uy - m.o[1]) / m.r[1];
@@ -909,7 +917,7 @@ function formTone(ux: number, uy: number, masses: Mass[]): number {
   const l = Math.min(1, Math.hypot(nx, ny));
   const nz = Math.sqrt(Math.max(0, 1 - l * l));
   // Light direction (normalised): left, up, toward the viewer.
-  const lam = -0.55 * nx - 0.62 * ny + 0.56 * nz;
+  const lam = -0.55 * (lightX === 1 ? nx : -nx) - 0.62 * ny + 0.56 * nz;
   return lam > 0.86 ? 4 : lam > 0.55 ? 3 : lam > 0.18 ? 2 : lam > -0.2 ? 1 : 0;
 }
 
@@ -1007,7 +1015,7 @@ export function horsePiece(c: Paper, k: SHorse, p: HorsePiece, back = false): vo
         [-2.8, -5.15], [0.2, -4.75], [2.9, -5.05], [4.5, -5.8], [5.75, -6.9], [6.15, -8.3], [5.4, -9.6], [4.2, -10.5],
       ]);
       shapeU(c, body, [0, 0], (x, y, ux, uy) => {
-        let t = formTone(ux, uy, HORSE_MASSES);
+        let t = formTone(ux, uy, HORSE_MASSES, c.lightX);
         // The grooves where the masses meet: behind the shoulder, in front of the stifle.
         if (Math.abs(ux - (2.2 - (uy + 8) * 0.25)) < 0.14 && uy > -9.6 && uy < -5.6 && t > 1) t -= 1;
         if (Math.abs(Math.hypot(ux + 4.3, uy + 8.3) - 2.3) < 0.13 && ux > -3.6 && uy > -9 && t > 1) t -= 1;
@@ -1073,12 +1081,12 @@ export function horsePiece(c: Paper, k: SHorse, p: HorsePiece, back = false): vo
       const hemY = -4.25 - up;
       shapeU(c, smooth(pts, 3), [0, 0], (x, y, ux, uy) => {
         const vx = ux + 0.6, vy = uy + 7.6;
-        if ((within(c, vx, 0.62) && Math.abs(vy) < 2.2) || (within(c, vy + 0.4, 0.58) && Math.abs(vx) < 1.85)) return code(TM.red, vx < -0.25 ? 3 : 2);
-        let t = Math.min(3, formTone(ux, uy - 0.6, HORSE_MASSES));
+        if ((within(c, vx, 0.62) && Math.abs(vy) < 2.2) || (within(c, vy + 0.4, 0.58) && Math.abs(vx) < 1.85)) return code(TM.red, c.litX(vx) < -0.25 ? 3 : 2);
+        let t = Math.min(3, formTone(ux, uy - 0.6, HORSE_MASSES, c.lightX));
         if (uy < -12.2 + (ux - 5) * 0.0) t = Math.max(t, 2);
         // Folds hang straight down from the back, wider apart over the barrel.
         if (uy > -9.8) {
-          const f = ((ux + 8) * 0.55 + Math.sin(uy * 0.9) * 0.05) % 1;
+          const f = ((c.litX(ux) + 8) * 0.55 + Math.sin(uy * 0.9) * 0.05) % 1;
           if (f < 0.11) t = Math.max(0, t - 1);
           else if (f > 0.84 && f < 0.95) t = Math.min(4, t + 1);
         }
@@ -1091,11 +1099,11 @@ export function horsePiece(c: Paper, k: SHorse, p: HorsePiece, back = false): vo
       return;
     }
     case 'cloth':
-      if (!k.capar && k.cloth) shapeU(c, smooth([[-1.9, -10.2], [2.1, -10.4], [2.2, -7.2], [0.2, -6.8], [-1.8, -7.0]], 3), [0, -9], (_x, _y, ux, uy) => (uy > 1.6 ? code(TM.teamDk, 1) : code(TM.team, ux < -0.8 ? 3 : 2)));
+      if (!k.capar && k.cloth) shapeU(c, smooth([[-1.9, -10.2], [2.1, -10.4], [2.2, -7.2], [0.2, -6.8], [-1.8, -7.0]], 3), [0, -9], (_x, _y, ux, uy) => (uy > 1.6 ? code(TM.teamDk, 1) : code(TM.team, c.litX(ux) < -0.8 ? 3 : 2)));
       return;
     case 'saddle':
       // Saddle: the cantle high behind, the pommel in front.
-      shapeU(c, smooth([[-1.6, -11.7], [-1.0, -11.8], [-0.6, -10.6], [1.4, -10.6], [1.9, -11.3], [2.3, -11.15], [2.0, -9.9], [-1.4, -9.8]], 3), [0, -10.5], (_x, _y, ux, uy) => code(TM.leather, uy < -0.8 ? 3 : ux > 1.6 ? 1 : 2));
+      shapeU(c, smooth([[-1.6, -11.7], [-1.0, -11.8], [-0.6, -10.6], [1.4, -10.6], [1.9, -11.3], [2.3, -11.15], [2.0, -9.9], [-1.4, -9.8]], 3), [0, -10.5], (_x, _y, ux, uy) => code(TM.leather, uy < -0.8 ? 3 : c.litX(ux) > 1.6 ? 1 : 2));
       return;
     case 'girth':
       if (!k.capar) vol(c, [0.5, -9.8], [0.7, -4.9], [[0, 0.18], [1, 0.18]], TM.leather, { tone: 1 });
@@ -1127,18 +1135,18 @@ function riderCloak(c: Paper, shade?: number, back = false): void {
     if ((within(c, ux - 1.9, 0.3) && Math.abs(uy + 10.5) < 0.95) || (within(c, uy + 10.65, 0.28) && Math.abs(ux - 1.9) < 0.6)) return code(TM.red, 2);
     // Seen from behind, the brothers' cross on the mantle's left shoulder (the Rule's red cross),
     // so each rider of a packed charge carries his accent (level 2 up, the knight kits).
-    if (back && shade !== undefined && c.L >= 2 && ((within(c, ux + 1.6, 0.36) && Math.abs(uy + 10.3) < 1.1) || (within(c, uy + 10.5, 0.32) && Math.abs(ux + 1.6) < 0.75))) return code(TM.red, ux < -1.7 ? 3 : 2);
+    if (back && shade !== undefined && c.L >= 2 && ((within(c, ux + 1.6, 0.36) && Math.abs(uy + 10.3) < 1.1) || (within(c, uy + 10.5, 0.32) && Math.abs(ux + 1.6) < 0.75))) return code(TM.red, c.litX(ux) < -1.7 ? 3 : 2);
     // Folds run from the shoulders down and back, fanning over the croup.
     const a = Math.atan2(uy + 12, ux - 0.5);
     const f = ((a * 4.2 + 10) % 1 + 1) % 1;
-    let t = ux < -3.0 || uy < -10.8 ? 3 : uy > -5.2 ? 1 : 2;
+    let t = c.litX(ux) < -3.0 || uy < -10.8 ? 3 : uy > -5.2 ? 1 : 2;
     if (f < 0.18) t -= 1;
     else if (f < 0.32) t += 1;
     if (uy > -5.0 && c.tex(x, y, 57, 3) < 0.45) t -= 1;
     if (shade !== undefined && c.L >= 2) {
       // The side of the mantle hanging away from the light falls into shade, and its hem turns
       // under: packed riders' backs are not one flat white (the brothers in the charge).
-      if (ux - (uy + 8) * 0.25 > shade) t = Math.min(t, 1);
+      if (c.litX(ux) - (uy + 8) * 0.25 > shade) t = Math.min(t, 1);
       if (uy > -4.1 - (ux + 6.6) * 0.29 - 0.5) t = Math.min(t, 1);
     }
     return code(TM.white, Math.max(1, Math.min(4, t)));
@@ -1216,13 +1224,13 @@ export function riderPiece(c: Paper, k: SKit, g: SGear, p: RiderPiece, R: RiderR
 function riderTorsoS(c: Paper, k: SKit, back: boolean): void {
   const garment = k.coat ?? k.body;
   shapeU(c, [[-0.75, -12.15], [0.85, -12.15], [2.45, -11.75], [2.6, -10.7], [2.3, -9.4], [1.75, -8.25], [2.0, -7.0], [3.2, -5.6], [2.8, -4.9], [0.6, -5.2], [-1.6, -5.4], [-2.4, -6.2], [-1.9, -7.4], [-1.8, -8.25], [-2.35, -9.4], [-2.6, -10.7], [-2.5, -11.75]], [0, 0], (x, y, ux, uy) => {
-    const side = ux + (uy + 9) * 0.12;
+    const side = c.litX(ux) + (uy + 9) * 0.12;
     let t = side < -1.25 ? 3 : side > (k.shadeFrom ?? 1.35) ? 1 : 2;
-    if (uy < -10.6 && ux < 1.0) t = Math.max(t, 3);
-    if (uy > -8.45 && uy < -7.95) return code(k.belt ?? TM.leather, ux < -1.2 ? 3 : 2);
+    if (uy < -10.6 && c.litX(ux) < 1.0) t = Math.max(t, 3);
+    if (uy > -8.45 && uy < -7.95) return code(k.belt ?? TM.leather, c.litX(ux) < -1.2 ? 3 : 2);
     if (k.cross && uy > -11.5 && uy < -8.5) {
       const vx = ux + (back ? -0.3 : 0.2);
-      if ((within(c, vx, 0.42) && uy > -11.35) || (within(c, uy + 10.25, 0.38) && Math.abs(vx) < 1.45)) return code(TM.red, vx < -0.2 ? 3 : 2);
+      if ((within(c, vx, 0.42) && uy > -11.35) || (within(c, uy + 10.25, 0.38) && Math.abs(vx) < 1.45)) return code(TM.red, c.litX(vx) < -0.2 ? 3 : 2);
     }
     if (uy > -7.6) {
       const fx2 = ux * 0.6 + (uy + 7.6) * 0.5;

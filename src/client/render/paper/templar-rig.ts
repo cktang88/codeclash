@@ -502,7 +502,7 @@ export function memoSkin(id: string, bones: readonly string[], draw: (c: Paper, 
       const p = ctx.posed, L = c.L;
       const B0 = p.byName[bones[0]!]!;
       const ax = Math.round(B0.x * L), ay = Math.round(B0.y * L);
-      let key = `${id}|${p.skel.name}|${p.facing}|${L}|${c.CW}x${c.CH}`;
+      let key = `${id}|${p.skel.name}|${p.facing}|${L}|${c.CW}x${c.CH}${c.lightX === 1 ? '' : '|m'}`;
       for (const b of bones) {
         const B = p.byName[b];
         if (B) key += `|${B.step},${Math.round(B.x * L) - ax},${Math.round(B.y * L) - ay},${B.sy}`;
@@ -511,6 +511,7 @@ export function memoSkin(id: string, bones: readonly string[], draw: (c: Paper, 
       if (!img) {
         const s = (SKIN_SCRATCH ??= new Paper());
         s.begin(L, { w: c.CW / L, h: c.CH / L, footY: c.FY / c.CH });
+        s.lightX = c.lightX;
         draw(s, ctx);
         img = { x0: 0, y0: 0, w: 0, h: 0, pix: new Int16Array(0), ord: new Int16Array(0), polys: s.order, ax, ay };
         if (s.bx1 >= s.bx0) {

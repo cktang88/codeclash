@@ -262,7 +262,7 @@ function okegawa(c: Paper, fx: number, fy: number, top: number, t: number, plate
     // broken dark dash, so rows neither stripe the dō nor end in line.
     const r2 = (fy - top - 0.06 * fx * fx) / 1.5;
     const k2 = frac(r2), p2 = 1 / (L * 1.5);
-    if (k2 < p2 && fx < 0.2 - Math.floor(r2) * 0.35) return code(plate, Math.min(4, t + 1));
+    if (k2 < p2 && c.litX(fx) < 0.2 - Math.floor(r2) * 0.35) return code(plate, Math.min(4, t + 1));
     if (k2 > 1 - p2 && frac((fx * L + Math.floor(r2) * 2.3) / 5) < 0.55) return code(plate, Math.max(0, t - 1));
     return code(plate, t);
   }
@@ -273,7 +273,7 @@ function okegawa(c: Paper, fx: number, fy: number, top: number, t: number, plate
     const p4 = Math.max(per, 1.15);
     const r4 = (fy - top - 0.06 * fx * fx) / p4, k4 = frac(r4), q4 = 1 / (L * p4), row = Math.floor(r4);
     if (k4 > 1 - q4 && frac((fx * L + row * 2.3) / 5) < 0.45) return code(plate, Math.max(1, t - 1));
-    if (k4 < q4 && t >= 2 && fx < 0.3 - row * 0.4) return code(plate, Math.min(4, t + 1));
+    if (k4 < q4 && t >= 2 && c.litX(fx) < 0.3 - row * 0.4) return code(plate, Math.min(4, t + 1));
     if (k4 > 0.4 && k4 < 0.4 + 1.2 * q4 && frac((fx + 4 + row * 0.3) / 0.9) < 0.18) return code(SM.gold, t >= 2 ? 3 : 2); // rivets
     return code(plate, t);
   }
@@ -382,10 +382,10 @@ function menpo(c: Paper, h: P2, lac: Lac): void {
     if (fy > 0.3 && fy < 0.38 && fx > 0.0 && fx < 0.72) return code(KM.silk, frac(fx * 9) < 0.5 ? 3 : 2); // moustache
     if (fy > 0.47 && fy < 0.53 && fx > 0.2 && fx < 0.6) return code(SM.ink, 0); // mouth slit
     if (fy > 0.62 && fx > 0.0 && fx < 0.55 && frac(fx * 8) < 0.5) return code(KM.silk, 2); // chin beard
-    return code(KM.mask, lit(c, 2, fx * 0.5 + fy * 0.5, 0.35, 0.45));
+    return code(KM.mask, lit(c, 2, c.litX(fx) * 0.5 + fy * 0.5, 0.35, 0.45));
   });
   // Yodare-kake: the laced throat guard hanging from the mask.
-  slab(c, h, S([[-0.65, 0.78], [0.85, 0.7], [0.95, 1.25], [-0.75, 1.35]]), (fx, fy) => kebiki(c, fx, fy, 0.75 * s, lit(c, 2, fx * 0.4, 0.4, 0.45), lac, { per: 0.32, bandRows: () => false }));
+  slab(c, h, S([[-0.65, 0.78], [0.85, 0.7], [0.95, 1.25], [-0.75, 1.35]]), (fx, fy) => kebiki(c, fx, fy, 0.75 * s, lit(c, 2, c.litX(fx) * 0.4, 0.4, 0.45), lac, { per: 0.32, bandRows: () => false }));
 }
 
 /** The kabuto's shikoro: flared laced lames behind the head (before the face); from behind it covers the nape, wide. */
@@ -395,7 +395,7 @@ function shikoro(c: Paper, h: P2, lac: Lac, back = false): void {
     ? [[-1.5, -0.5], [0.6, -0.55], [1.45, -0.3], [1.85, 0.55], [1.3, 1.15], [-0.2, 1.4], [-1.7, 1.45], [-2.5, 0.95], [-2.0, -0.15]]
     : [[-0.9, -0.45], [0.2, -0.5], [1.15, -0.3], [1.55, 0.55], [1.0, 0.95], [-0.2, 1.05], [-1.6, 1.3], [-2.5, 0.95], [-1.8, -0.15]];
   slab(c, h, pts.map((q) => [q[0] * s, q[1] * s] as P2), (fx, fy) => {
-    const t = lit(c, 2, fx * 0.3 + fy * 0.45, 0.45, 0.45);
+    const t = lit(c, 2, c.litX(fx) * 0.3 + fy * 0.45, 0.45, 0.45);
     return kebiki(c, fx, fy - 0.08 * fx, -0.4 * s, t, lac, { per: 0.62, bandRows: () => false });
   });
 }
@@ -412,8 +412,8 @@ function kabuto(c: Paper, h: P2, lac: Lac, crest: 'kuwagata' | 'crescent' | 'non
     const fx = fx0 / s, fy = fy0 / s;
     if (fy > -0.5 && fy < -0.36) return code(SM.gold, frac(fx * 3) < 0.25 ? 4 : 3); // koshimaki with rivets
     if (fy < -1.3 + Math.abs(fx - 0.0) * 0.12) return code(lac.plate, 4); // the crown catching the key light
-    if (fx > 0.75) return code(lac.plate, 1); // the far side
-    if (fx < -0.6) return code(lac.plate, 3); // the near side, lit
+    if (c.litX(fx) > 0.75) return code(lac.plate, 1); // the far side
+    if (c.litX(fx) < -0.6) return code(lac.plate, 3); // the near side, lit
     if (L >= 8 && Math.abs(fx - 0.1) < 0.05) return code(lac.plate, 3); // a lit ridge
     return code(lac.plate, 2);
   });
@@ -423,13 +423,13 @@ function kabuto(c: Paper, h: P2, lac: Lac, crest: 'kuwagata' | 'crescent' | 'non
     slab(c, h, S([[0.95, -0.35], [1.6, -0.75], [1.7, -0.1], [1.15, 0.1]]), (fx0) => (fx0 / s > 1.55 ? code(SM.gold, 3) : code(lac.plate, 2)));
     return;
   }
-  slab(c, h, S([[-0.4, -0.38], [1.25, -0.42], [1.42, -0.2], [-0.2, -0.16]]), (fx) => code(lac.plate, fx < 0.6 ? 3 : 2)); // mabizashi
+  slab(c, h, S([[-0.4, -0.38], [1.25, -0.42], [1.42, -0.2], [-0.2, -0.16]]), (fx) => code(lac.plate, c.litX(fx) < 0.6 ? 3 : 2)); // mabizashi
   // Fukigaeshi: the turned-back wings, gilt-edged, a gilt mon on the near one.
   slab(c, h, S([[-0.95, -0.42], [-1.95, -1.0], [-2.25, -0.2], [-1.85, 0.35], [-1.05, 0.0]]), (fx0, fy0) => {
     const fx = fx0 / s, fy = fy0 / s;
     if (fy < -0.78 || fx < -2.1) return code(SM.gold, 3);
     if (Math.hypot(fx + 1.6, fy + 0.25) < 0.22) return code(SM.gold, 2);
-    return code(lac.plate, lit(c, 3, fx * 0.5 + fy * 0.4, 0.4, 0.4));
+    return code(lac.plate, lit(c, 3, c.litX(fx) * 0.5 + fy * 0.4, 0.4, 0.4));
   });
   slab(c, h, S([[0.95, -0.35], [1.6, -0.75], [1.7, -0.1], [1.15, 0.1]]), (fx0) => (fx0 / s > 1.55 ? code(SM.gold, 2) : code(lac.plate, 1)));
   kabutoCrest(c, h, crest);
@@ -450,7 +450,7 @@ function kabutoCrest(c: Paper, h: P2, crest: 'kuwagata' | 'crescent' | 'none'): 
   } else if (crest === 'crescent') {
     const outer = ell(2.8, 1.65, 0.45, -2.75, 16, 10, 170);
     const inner = ell(2.35, 1.05, 0.45, -2.9, 16, 170, 10);
-    slab(c, h, outer.concat(inner), (fx, fy) => code(SM.gold, fx < -0.8 ? 4 : fx > 1.9 ? 1 : fy > -1.55 ? 2 : 3));
+    slab(c, h, outer.concat(inner), (fx, fy) => code(SM.gold, c.litX(fx) < -0.8 ? 4 : c.litX(fx) > 1.9 ? 1 : fy > -1.55 ? 2 : 3));
     slab(c, base, ell(0.34, 0.32, 0, 0, 12), () => code(SM.gold, 2));
   }
 }
@@ -463,11 +463,11 @@ function jingasa(c: Paper, h: P2, plate: Mat): void {
     const fx = fx0 / s, fy = fy0 / s;
     if (c.L <= 1) return code(plate, fy > -0.27 + Math.abs(fx) * 0.1 ? 2 : 3); // (at 13 px the hat is the top of the figure, in the light)
     if (fy > -0.27 + Math.abs(fx) * 0.1) return code(plate, 1); // the underside
-    if (Math.hypot(fx - 0.25, (fy + 0.75) * 1.6) < 0.3) return code(SM.gold, fx < 0.2 ? 3 : 2);
+    if (Math.hypot(fx - 0.25, (fy + 0.75) * 1.6) < 0.3) return code(SM.gold, c.litX(fx) < 0.2 ? 3 : 2);
     const top = -1.4 + Math.abs(fx) * ((1.4 - 0.3) / 2.4);
-    if (fy - top < 0.08 && fx < 0.5) return code(plate, 4); // lit crest line
+    if (fy - top < 0.08 && c.litX(fx) < 0.5) return code(plate, 4); // lit crest line
     if (frac((Math.atan2(fy + 1.4, fx) / DEG + 360) / 18) < 0.06) return code(plate, 2); // the ribs of the cone
-    return code(plate, lit(c, 3, fx * 0.7, 0.5, 0.55));
+    return code(plate, lit(c, 3, c.litX(fx) * 0.7, 0.5, 0.55));
   });
 }
 
@@ -498,9 +498,9 @@ function kato(c: Paper, h: P2, back = false): void {
       return code(SM.flesh, fx > 0.65 ? 1 : 2);
     }
     if (Math.abs(fy - fx * 0.35 + 0.45) < 0.05 || Math.abs(fy - fx * 0.3 - 0.45) < 0.05) return code(KM.silk, 1); // wrap folds
-    return code(KM.silk, lit(c, 2, fx * 0.7 + fy * 0.5, 0.4, 0.45));
+    return code(KM.silk, lit(c, 2, c.litX(fx) * 0.7 + fy * 0.5, 0.4, 0.45));
   });
-  slab(c, h, [[-0.8, 0.25], [0.7, 0.45], [0.95, 1.4], [0.1, 1.85], [-1.15, 1.55]].map((q) => [q[0]! * s, q[1]! * s] as P2), (fx, fy) => (Math.abs(fx * 0.6 - fy + 1.6) < 0.08 ? code(KM.silk, 1) : code(KM.silk, lit(c, 2, fx * 0.6 + fy * 0.3, 0.4, 0.5))));
+  slab(c, h, [[-0.8, 0.25], [0.7, 0.45], [0.95, 1.4], [0.1, 1.85], [-1.15, 1.55]].map((q) => [q[0]! * s, q[1]! * s] as P2), (fx, fy) => (Math.abs(fx * 0.6 - fy + 1.6) < 0.08 ? code(KM.silk, 1) : code(KM.silk, lit(c, 2, c.litX(fx) * 0.6 + fy * 0.3, 0.4, 0.5))));
 }
 
 /** The ayaigasa: the mounted archer's wide flat straw hat, woven in rings, with its chin cord. */
@@ -509,7 +509,7 @@ function kasa(c: Paper, h: P2): void {
   slab(c, h, ell(2.1 * s, 0.52 * s, 0.1, -0.62 * s, 22), (fx, fy) => {
     if (fy > -0.5 * s) return code(SM.straw, 1);
     if (frac(Math.hypot(fx - 0.1, (fy + 0.62 * s) * 4) / 0.45) < 0.16) return code(SM.straw, 1);
-    return code(SM.straw, lit(c, 3, fx * 0.4, 0.4, 0.5));
+    return code(SM.straw, lit(c, 3, c.litX(fx) * 0.4, 0.4, 0.5));
   });
   slab(c, addP(h, [0.1, -0.95 * s]), ell(0.62 * s, 0.38 * s, 0, 0, 14), (fx, fy) => code(SM.straw, fx + fy < -0.1 ? 4 : 2));
   vol(c, addP(h, [-0.45 * s, -0.35 * s]), addP(h, [0.2 * s, 0.85 * s]), 0.14, 0.14, 0.14, SM.lacquer, 1, { caps: [0, 0] });
@@ -523,7 +523,7 @@ function nape(c: Paper, h: P2, topknot: boolean): void {
     if (fx > 0.42 && fy > -0.15 && fy < 0.5) return code(SM.flesh, fx > 0.56 ? 1 : 2); // the cheek turning away
     if (Math.hypot(fx - 0.3, fy - 0.05) < 0.14) return code(SM.flesh, 1); // the near ear
     if (fy > 0.5) return code(SM.flesh, 1); // the nape
-    return code(SM.hair, lit(c, 2, fx * 0.6 + fy * 0.5, 0.4, 0.45));
+    return code(SM.hair, lit(c, 2, c.litX(fx) * 0.6 + fy * 0.5, 0.4, 0.45));
   });
   if (topknot) vol(c, addP(h, [-0.25 * s, -0.85 * s]), addP(h, [0.2 * s, -1.15 * s]), 0.36, 0.34, 0.3, SM.hair, 2);
 }
@@ -585,7 +585,7 @@ function head(c: Paper, b: Body, d: Dress, back = false): void {
 function fist(c: Paper, at: P2, mat: Mat, t: number): void {
   slab(c, at, ell(0.52, 0.46, 0.05, 0.1, 14), (fx, fy) => {
     if (fy < -0.12 && Math.abs(fx - 0.05) < 0.4 && frac(fx * 4 + 0.2) < 0.25) return code(mat, Math.max(0, t - 1)); // knuckles
-    return code(mat, lit(c, t, fx * 0.9 + fy * 0.7, 0.3, 0.4));
+    return code(mat, lit(c, t, c.litX(fx) * 0.9 + fy * 0.7, 0.3, 0.4));
   });
 }
 
@@ -648,7 +648,7 @@ function shin(c: Paper, kn: P2, an: P2, d: Dress, far: boolean): void {
         : frac(v * 3) < 0.09 ? code(KM.silk, 1) : -1,
     caps: [0.3, 0.15],
   });
-  slab(c, kn, ell(0.74, 0.56, 0, -0.05, 14), (fx, fy) => code(d.shin === 'suneate' ? KM.mask : d.legs, lit(c, t, fx * 0.8 + fy * 0.8, 0.3, 0.4)));
+  slab(c, kn, ell(0.74, 0.56, 0, -0.05, 14), (fx, fy) => code(d.shin === 'suneate' ? KM.mask : d.legs, lit(c, t, c.litX(fx) * 0.8 + fy * 0.8, 0.3, 0.4)));
 }
 /** The tabi and the waraji. */
 function footS(c: Paper, an: P2, far: boolean): void {
@@ -667,11 +667,11 @@ function leg(c: Paper, hip: P2, kn: P2, an: P2, d: Dress, far: boolean): void {
 const TORSO: P2[] = [[-2.2, -4.75], [-0.6, -5.05], [1.0, -5.0], [2.15, -4.65], [2.25, -2.9], [1.8, -0.1], [-1.75, -0.1], [-2.3, -2.9]];
 /** Form light on the dō: lit upper-left, the front plane turning to a shaded side past x ≈ 1.1. */
 const torsoTone = (c: Paper, fx: number, fy: number): number => {
-  let t = lit(c, 2, fx * 0.42 + (fy + 2.4) * 0.22, 0.5, 0.45);
+  let t = lit(c, 2, c.litX(fx) * 0.42 + (fy + 2.4) * 0.22, 0.5, 0.45);
   // The side plane's edge: slanted at 2 px a unit, so its columns do not all end on the dō's rim.
-  if (c.L !== 4 && fx > (c.L <= 2 ? 0.55 - fy * 0.28 : 1.15 - fy * 0.05)) t = Math.min(t, 1);
+  if (c.L !== 4 && c.litX(fx) > (c.L <= 2 ? 0.55 - fy * 0.28 : 1.15 - fy * 0.05)) t = Math.min(t, 1);
   // At 2 px a unit the chest takes the light as one plane (the dō's lit top reads as the key).
-  else if (c.L === 2 && fy < -3.0 && fx < 0.6) t = Math.min(4, t + 1);
+  else if (c.L === 2 && fy < -3.0 && c.litX(fx) < 0.6) t = Math.min(4, t + 1);
   return t;
 };
 
@@ -681,8 +681,8 @@ function torso(c: Paper, b: Body, d: Dress, back = false): void {
   if (d.body === 'gusoku') {
     slab(c, o, TORSO, (fx, fy) => {
       const t = torsoTone(c, fx, fy);
-      if (fy < -4.2) return code(d.lac.plate, fx < 0.4 ? Math.min(4, t + 1) : t); // the munaita (oshitsuke-ita behind), a lit plate
-      if (fy < -4.05) return code(SM.gold, fx < 0.4 ? 3 : 2); // gilt edge
+      if (fy < -4.2) return code(d.lac.plate, c.litX(fx) < 0.4 ? Math.min(4, t + 1) : t); // the munaita (oshitsuke-ita behind), a lit plate
+      if (fy < -4.05) return code(SM.gold, c.litX(fx) < 0.4 ? 3 : 2); // gilt edge
       // Kebiki rows: the top two rows the contrasting band (kata-iro).
       return kebiki(c, fx, fy, -4.05, t, d.lac, { bandRows: (r) => r === 0 });
     });
@@ -692,10 +692,10 @@ function torso(c: Paper, b: Body, d: Dress, back = false): void {
   } else if (d.body === 'okegawa') {
     slab(c, o, TORSO, (fx, fy) => {
       const t = torsoTone(c, fx, fy);
-      if (fy < -4.2) return code(d.lac.plate, fx < 0.4 ? Math.min(4, t + 1) : t);
+      if (fy < -4.2) return code(d.lac.plate, c.litX(fx) < 0.4 ? Math.min(4, t + 1) : t);
       // The clan mon in gold, a thin ring with a disc (front and back).
       const m = Math.hypot(fx - (back ? -0.15 : 0.15), (fy + 2.95) * 1.05);
-      if (m < 0.72) return m > 0.5 || m < 0.22 ? code(SM.gold, fx < 0.1 ? 3 : 2) : code(d.lac.plate, t);
+      if (m < 0.72) return m > 0.5 || m < 0.22 ? code(SM.gold, c.litX(fx) < 0.1 ? 3 : 2) : code(d.lac.plate, t);
       return okegawa(c, fx, fy, -4.2, t, d.lac.plate);
     });
   } else if (d.body === 'happi') {
@@ -730,12 +730,12 @@ function torso(c: Paper, b: Body, d: Dress, back = false): void {
       // The surcoat's back: one black panel from the shoulders to the hips, the house mon in gold.
       slab(c, o, [[-2.5, -5.0], [2.35, -4.85], [2.6, 0.6], [-2.65, 0.75]], (fx, fy) => {
         const m = Math.hypot(fx + 0.1, fy + 2.9);
-        if (m < 1.0) return m > 0.78 || m < 0.3 ? code(SM.gold, fx < 0 ? 3 : 2) : code(SM.black, 2);
+        if (m < 1.0) return m > 0.78 || m < 0.3 ? code(SM.gold, c.litX(fx) < 0 ? 3 : 2) : code(SM.black, 2);
         if (fy > 0.35) return code(SM.gold, 2);
-        return code(SM.black, lit(c, 2, fx * 0.35 + fy * 0.15, 0.45, 0.45));
+        return code(SM.black, lit(c, 2, c.litX(fx) * 0.35 + fy * 0.15, 0.45, 0.45));
       });
     } else {
-      slab(c, o, [[-2.4, -4.9], [-0.7, -5.1], [-0.9, 0.6], [-2.6, 0.7]], (fx, fy) => (fx > -1.05 || fy > 0.35 ? code(SM.gold, 2) : code(SM.black, lit(c, 2, fx * 0.5 + fy * 0.2, 0.4, 0.5))));
+      slab(c, o, [[-2.4, -4.9], [-0.7, -5.1], [-0.9, 0.6], [-2.6, 0.7]], (fx, fy) => (fx > -1.05 || fy > 0.35 ? code(SM.gold, 2) : code(SM.black, lit(c, 2, c.litX(fx) * 0.5 + fy * 0.2, 0.4, 0.5))));
       slab(c, o, [[1.0, -5.0], [2.35, -4.75], [2.55, 0.6], [1.15, 0.5]], (fx) => (fx < 1.3 ? code(SM.gold, 2) : code(SM.black, 1)));
     }
   }
@@ -744,12 +744,12 @@ function torso(c: Paper, b: Body, d: Dress, back = false): void {
   slab(c, o, [[-1.85, -0.45], [1.85, -0.5], [1.85, 0.15], [-1.85, 0.2]], (fx, fy) => {
     const f = frac((fx + 3) / 0.9 + fy * 0.4);
     // (At 2 px a unit the sash is in the dō's shadow: a pale band low on the figure would read as the light.)
-    if (c.L === 2) return code(m, fx < -1.0 ? 1 : 0);
+    if (c.L === 2) return code(m, c.litX(fx) < -1.0 ? 1 : 0);
     // (Its folds from level 8: below, short stripes across a band all start and end on its edges.)
-    if (c.L !== 1 && c.L < 8) return code(m, fx < -1.0 ? 2 : fx > 1.1 ? 0 : 1);
+    if (c.L !== 1 && c.L < 8) return code(m, c.litX(fx) < -1.0 ? 2 : c.litX(fx) > 1.1 ? 0 : 1);
     if (f < 0.1) return code(m, 0);
     if (f < 0.18) return code(m, 2);
-    return code(m, fx < -1.0 ? 2 : fx > 1.1 ? 0 : 1);
+    return code(m, c.litX(fx) < -1.0 ? 2 : c.litX(fx) > 1.1 ? 0 : 1);
   });
 }
 
@@ -765,23 +765,27 @@ function kusaPanel(c: Paper, b: Body, d: Dress, layer: 'back' | 'front', i: numb
   const o = addP(b.pel, [0, KUSA_TOP]);
   const robe = d.body === 'robe';
   const long = d.body === 'gusoku' ? 2.9 : robe ? 5.6 : 2.4;
-  const [x0, flare0, tone0] = (layer === 'back' ? KUSA_BACK : KUSA_FRONT)[i]!;
+  const panels = layer === 'back' ? KUSA_BACK : KUSA_FRONT;
+  const [x0, flare0] = panels[i]!;
+  // The panels' tones are the light across the skirt: drawn for a mirror, a panel takes the tone of
+  // the one at its mirrored place, so the lit panel ends up on the left.
+  const tone0 = panels[c.lightX === 1 ? i : panels.length - 1 - i]![2];
   // From behind the back panels face the light like the front ones did (the near one lit, left).
   const x = back ? -x0 : x0, flare = back ? -flare0 : flare0;
   // (At 2 px a unit the skirt sits a step down: below the dō it is in the trunk's shadow.)
-  const tone = Math.max(1, (back && layer === 'back' ? (x < 0 ? 3 : 2) : tone0) - (c.L === 2 ? 1 : 0));
+  const tone = Math.max(1, (back && layer === 'back' ? (c.litX(x) < 0 ? 3 : 2) : tone0) - (c.L === 2 ? 1 : 0));
   const w0 = robe ? 1.25 : 0.82, w1 = robe ? 1.55 : 1.05;
   const pts: P2[] = robe
     ? [[x - w0, 0], [x + w0, 0], [x + w1 + flare, long - 0.2], [x + flare, long + 0.15], [x - w1 + flare, long - 0.3]]
     : [[x - w0, 0], [x + w0, 0], [x + w1 + flare, long], [x - w1 + flare, long]];
   slab(c, o, pts, (fx, fy) => {
     const rel = fx - x - flare * (fy / long);
-    const t = lit(c, tone === 1 ? 1 : 2, rel * 0.7 + fy * 0.18 + (tone === 1 ? 0.3 : -0.1), 0.45, 0.5);
+    const t = lit(c, tone === 1 ? 1 : 2, c.litX(rel) * 0.7 + fy * 0.18 + (tone === 1 ? 0.3 : -0.1), 0.45, 0.5);
     if (robe) {
       const pleat = frac((rel + 3) / 0.7);
       if (fy > long - 0.35) return code(SM.black, Math.max(0, t - 1));
       if (pleat < 0.12) return code(SM.black, Math.max(0, t - 1));
-      if (pleat < 0.24 && rel < 0.4) return code(SM.black, Math.min(4, t + 1)); // lit pleat ridge
+      if (pleat < 0.24 && c.litX(rel) < 0.4) return code(SM.black, Math.min(4, t + 1)); // lit pleat ridge
       return code(SM.black, t);
     }
     if (fy > long - 0.3 && c.L >= 8) return code(d.lac.band, t); // the bound hem (hishinui), from level 8
@@ -816,7 +820,7 @@ function sode(c: Paper, sh: P2, far: boolean, big: boolean, lac: Lac, ang = 0, b
   const h = big ? 2.8 : 1.7;
   const dx = (far ? 0.45 : -0.45) * (back ? -1 : 1);
   partK(c, addP(sh, [dx, -0.1]), ang, [[-w, -0.1], [w, -0.25], [w + 0.18, h], [-w - 0.12, h + 0.1]], (fx, fy) => {
-    const t = far ? 1 : lit(c, 2, fx * 0.75 + fy * 0.12, 0.35, 0.5);
+    const t = far ? 1 : lit(c, 2, c.litX(fx) * 0.75 + fy * 0.12, 0.35, 0.5);
     if (fy < 0.2) return Math.abs(frac((fx + 3) / 0.6) - 0.5) < 0.12 ? code(SM.gold, 3) : code(lac.plate, far ? 2 : Math.min(4, t + 1));
     if (fy > h - 0.3) return code(lac.band, t);
     return kebiki(c, fx, fy, 0.2, t, lac, { per: 0.75, bandRows: (r) => r === 0 });
@@ -1003,11 +1007,11 @@ function tate(c: Paper): void {
     if (c.L <= 1) return code(SM.wood, fy < -7.0 ? 1 : 0);
     if (fy < -7.3 + fx * 0.15) return code(SM.wood, 3);
     // Plank seams only from level 8 (below, their parallel ends line up on the board's edges).
-    if (c.L < 8) return code(SM.wood, fx < 0.9 - (fy + 3.8) * 0.3 ? 2 : 1);
+    if (c.L < 8) return code(SM.wood, c.litX(fx) < 0.9 - (fy + 3.8) * 0.3 ? 2 : 1);
     if (plank < 0.1) return code(SM.wood, 0);
-    if (plank < 0.18 && fx < 1.0) return code(SM.wood, 3);
+    if (plank < 0.18 && c.litX(fx) < 1.0) return code(SM.wood, 3);
     if (Math.abs(fy + 6.4) < 0.25 || Math.abs(fy + 1.4) < 0.25) return code(SM.wood, Math.abs(fy + 6.4) < 0.1 || Math.abs(fy + 1.4) < 0.1 ? 2 : 0);
-    return code(SM.wood, fx < 0.9 ? 2 : 1);
+    return code(SM.wood, c.litX(fx) < 0.9 ? 2 : 1);
   });
 }
 
@@ -1082,7 +1086,7 @@ export const FOOT: Record<number, SFoot> = {
       hipGear: (c, b, back) => {
         const sx = back ? -1 : 1;
         const S = (p: P2[]) => p.map((q) => [q[0] * sx, q[1]] as P2);
-        slab(c, b.pel, S([[-2.3, -0.5], [-0.9, -0.55], [-0.9, 0.9], [-2.3, 0.95]]), (fx, fy) => (fy < -0.25 ? code(KM.redBrown, 3) : Math.hypot(fx * sx + 1.6, fy - 0.25) < 0.22 ? code(SM.gold, 3) : code(KM.redBrown, lit(c, 2, fx * 0.6, 0.4, 0.4))));
+        slab(c, b.pel, S([[-2.3, -0.5], [-0.9, -0.55], [-0.9, 0.9], [-2.3, 0.95]]), (fx, fy) => (fy < -0.25 ? code(KM.redBrown, 3) : Math.hypot(fx * sx + 1.6, fy - 0.25) < 0.22 ? code(SM.gold, 3) : code(KM.redBrown, lit(c, 2, c.litX(fx) * 0.6, 0.4, 0.4))));
         slab(c, addP(b.pel, [1.6 * sx, 0.6]), ell(0.75, 0.55, 0, 0, 14), (fx, fy) => (Math.hypot(fx, fy * 1.3) < 0.38 ? -1 : code(SM.straw, fx + fy < 0 ? 3 : 1)));
       },
       near: { draw: (c, h) => void teppo(c, mapPoint(h), 127.5 + mapTurn(), true), grip: SM.flesh },
@@ -1175,14 +1179,14 @@ export function horsePiece(c: Paper, hz: Horse, p: HorsePiece): void {
       return;
     }
     if (seg === 'L') {
-      if (fore) slab(c, mid, ell(0.58, 0.5, 0, 0, 12), (fx, fy) => code(H, lit(c, t, fx + fy, 0.3, 0.4))); // the knee
-      else slab(c, mid, [[-0.65, -0.4], [0.4, -0.45], [0.35, 0.4], [-0.5, 0.45], [-0.85, 0.0]], (fx, fy) => code(H, lit(c, t, fx + fy, 0.3, 0.4))); // the hock
+      if (fore) slab(c, mid, ell(0.58, 0.5, 0, 0, 12), (fx, fy) => code(H, lit(c, t, c.litX(fx) + fy, 0.3, 0.4))); // the knee
+      else slab(c, mid, [[-0.65, -0.4], [0.4, -0.45], [0.35, 0.4], [-0.5, 0.45], [-0.85, 0.0]], (fx, fy) => code(H, lit(c, t, c.litX(fx) + fy, 0.3, 0.4))); // the hock
       vol(c, mid, fet, 0.82 - (fore ? 0 : 0.02), 0.7, 0.72, sock, t, { caps: [0.1, 0.1] }); // cannon
-      slab(c, fet, ell(0.55, 0.45, 0.05, 0, 12), (fx, fy) => code(sock, lit(c, t, fx + fy, 0.3, 0.4))); // fetlock
+      slab(c, fet, ell(0.55, 0.45, 0.05, 0, 12), (fx, fy) => code(sock, lit(c, t, c.litX(fx) + fy, 0.3, 0.4))); // fetlock
       return;
     }
     vol(c, fet, addP(hoof, [-0.2, -0.45]), 0.6, 0.55, 0.6, sock, t, { caps: [0, 0] }); // pastern
-    slab(c, hoof, [[-0.75, -0.6], [0.15, -0.65], [0.65, 0.05], [-0.85, 0.05]], (fx) => code(SM.black, fx < -0.2 && L > 2 ? t + 1 : t)); // hoof
+    slab(c, hoof, [[-0.75, -0.6], [0.15, -0.65], [0.65, 0.05], [-0.85, 0.05]], (fx) => code(SM.black, c.litX(fx) < -0.2 && L > 2 ? t + 1 : t)); // hoof
   };
   switch (p) {
     case 'foreFU': legPart('foreF', 'U'); return;
@@ -1219,26 +1223,26 @@ export function horsePiece(c: Paper, hz: Horse, p: HorsePiece): void {
         // Below level 8 the barrel is two big planes in the key light: the croup and back lit, the
         // belly and the chest in shade (the palette there is too small for the muscle planes).
         if (L < 8) {
-          const s = (fy + 8.3) * 0.55 + fx * (L <= 1 ? 0.3 : 0.12);
+          const s = (fy + 8.3) * 0.55 + c.litX(fx) * (L <= 1 ? 0.3 : 0.12);
           return code(H, s < -0.35 ? 3 : s > 0.75 ? 1 : 2);
         }
         if (fy < -10.3 + Math.abs(fx + 0.8) * 0.06 && fx > -5.2 && fx < 3.4) return code(H, 4); // back rim
         if (belly) return code(H, 1);
-        if (hq < 1 && (fx + 3.7) * 0.7 + (fy + 8.7) * 0.7 < -0.4) return code(H, 3);
-        if (sh < 1 && (fx - 3.4) * 0.7 + (fy + 8.6) * 0.7 < -0.3) return code(H, 3);
+        if (hq < 1 && c.litX(fx + 3.7) * 0.7 + (fy + 8.7) * 0.7 < -0.4) return code(H, 3);
+        if (sh < 1 && c.litX(fx - 3.4) * 0.7 + (fy + 8.6) * 0.7 < -0.3) return code(H, 3);
         if (Math.abs(hq - 1) < 0.05 && fy > -9.0) return code(H, 1); // the stifle line
         if (Math.abs(sh - 1) < 0.05 && fx < 4.4) return code(H, 1); // the shoulder's back edge
-        const s = (fy + 8) * 0.35 + fx * 0.05;
+        const s = (fy + 8) * 0.35 + c.litX(fx) * 0.05;
         return code(H, s < -0.55 ? 3 : s > 0.45 ? 1 : 2);
       });
       return;
     }
     case 'cloth':
-      if (hz.cloth !== undefined) slab(c, [0, 0], curve([[-2.0, -10.4], [1.8, -10.7], [1.7, -6.9], [-2.1, -6.8]], 3), (fx, fy) => (fy > -7.35 ? code(SM.gold, fx < 0 ? 3 : 2) : code(hz.cloth!, lit(c, 2, fx * 0.4 + (fy + 8.7) * 0.4, 0.5, 0.45))));
+      if (hz.cloth !== undefined) slab(c, [0, 0], curve([[-2.0, -10.4], [1.8, -10.7], [1.7, -6.9], [-2.1, -6.8]], 3), (fx, fy) => (fy > -7.35 ? code(SM.gold, c.litX(fx) < 0 ? 3 : 2) : code(hz.cloth!, lit(c, 2, c.litX(fx) * 0.4 + (fy + 8.7) * 0.4, 0.5, 0.45))));
       return;
     case 'saddle':
       // The saddle, its pommel and cantle, the stirrup leather.
-      slab(c, [0, 0], [[-1.9, -10.9], [1.4, -11.0], [1.55, -10.2], [-2.0, -10.1]], (fx) => code(SM.lacquer, fx < -0.5 ? 3 : 2));
+      slab(c, [0, 0], [[-1.9, -10.9], [1.4, -11.0], [1.55, -10.2], [-2.0, -10.1]], (fx) => code(SM.lacquer, c.litX(fx) < -0.5 ? 3 : 2));
       vol(c, [1.2, -10.4], [1.6, -11.8], 0.65, 0.6, 0.5, SM.lacquer, 3, { rim: true });
       vol(c, [-1.8, -10.3], [-2.3, -11.6], 0.65, 0.6, 0.5, SM.lacquer, 2, { rim: true });
       vol(c, [0.2, -10.2], [0.5, -6.4], 0.22, 0.22, 0.22, SM.lacquer, 1);
@@ -1256,7 +1260,7 @@ export function horsePiece(c: Paper, hz: Horse, p: HorsePiece): void {
       // The arched neck: a curved crest from the withers to the poll, the jugular groove, the throat.
       const neck = curve([[2.6, -10.9], [4.0, -12.8], [5.9, -14.3], [7.3, -14.4], [7.9, -13.2], [7.0, -11.5], [6.1, -9.2], [5.2, -7.9], [3.6, -8.2]], 4);
       slab(c, [0, 0], neck, (fx, fy) => {
-        const s = (fx - 5) * 0.25 + (fy + 11) * 0.3;
+        const s = c.litX(fx - 5) * 0.25 + (fy + 11) * 0.3;
         if (Math.abs((fy + 9.0) + (fx - 6.0) * 1.15) < 0.1 && fx > 5.6 && fx < 7.0) return code(H, 1); // jugular groove
         // (Below level 8 the neck and head, far forward of the figure's centre, sit a step down.)
         const dn = L < 8 ? 1 : 0;
@@ -1287,9 +1291,9 @@ export function horsePiece(c: Paper, hz: Horse, p: HorsePiece): void {
         if (Math.hypot(fx - 9.45, fy + 10.3) < 0.14) return code(SM.ink, 1); // nostril
         const dn = L < 8 ? 1 : 0;
         if (L <= 2) return code(H, 1);
-        if (cheek < 1 && (fx - 7.4) + (fy + 12) < -0.2) return code(H, 3 - dn);
+        if (cheek < 1 && c.litX(fx - 7.4) + (fy + 12) < -0.2) return code(H, 3 - dn);
         if (Math.abs(cheek - 1) < 0.08 && fy > -12.2) return code(H, 1);
-        const s = (fx - 8) * 0.3 + (fy + 12) * 0.3;
+        const s = c.litX(fx - 8) * 0.3 + (fy + 12) * 0.3;
         return code(H, s < -0.5 ? 3 - dn : s > 0.45 ? 1 : 2 - dn);
       });
       vol(c, [7.0, -14.3], [6.7, -15.6], 0.55, 0.48, 0.12, H, 2, { caps: [0, 0.3] }); // near ear
@@ -1329,7 +1333,7 @@ export function riderBody(seat: P2, over: Partial<Body>): Body {
 
 /** The abumi: the lacquered slipper stirrup under the rider's foot. */
 export function abumi(c: Paper, an: P2): void {
-  slab(c, an, [[-0.4, 0.05], [1.5, 0.15], [1.4, 0.75], [-0.5, 0.65]], (fx) => code(SM.lacquer, fx < 0.4 ? 3 : 2));
+  slab(c, an, [[-0.4, 0.05], [1.5, 0.15], [1.4, 0.75], [-0.5, 0.65]], (fx) => code(SM.lacquer, c.litX(fx) < 0.4 ? 3 : 2));
 }
 
 /** A mounted kind's key art: the horse, and the rider's dress, stance and gear. */
@@ -1379,7 +1383,7 @@ export const MOUNTED: Record<number, SMounted> = {
       back: (c, b) => {
         vol(c, addP(b.pel, [-2.1, -1.0]), addP(b.pel, [-2.4, -4.4]), 1.1, 1.15, 1.0, SM.lacquer, 2, { rim: true });
         for (const dx of [-0.5, -0.1, 0.3]) vol(c, addP(b.pel, [-2.4 + dx, -4.3]), addP(b.pel, [-2.9 + dx * 1.6, -5.9]), 0.3, 0.32, 0.25, KM.silk, dx > 0 ? 2 : 3);
-        slab(c, b.pel, [[-1.3, 0.2], [1.4, 0.2], [2.4, 3.6], [-0.4, 3.9]], (fx, fy) => code(SM.straw, frac(fx * 0.9 + fy * 0.4) < 0.1 ? 1 : lit(c, 2, fx * 0.4 + fy * 0.15, 0.4, 0.5)));
+        slab(c, b.pel, [[-1.3, 0.2], [1.4, 0.2], [2.4, 3.6], [-0.4, 3.9]], (fx, fy) => code(SM.straw, frac(fx * 0.9 + fy * 0.4) < 0.1 ? 1 : lit(c, 2, c.litX(fx) * 0.4 + fy * 0.15, 0.4, 0.5)));
       },
       far: { draw: (c, h, _bk, b) => yumi(c, mapPoint(h), 176 + mapTurn(), 0.05, mapPoint(b.hnN), true, true), grip: SM.flesh },
       near: { grip: SM.flesh },
@@ -1425,7 +1429,7 @@ export const OZ_CREW: Record<'G' | 'L', SFoot & { o: P2 }> = {
         // The rammer and its swab.
         draw: (c, h) => {
           vol(c, addP(h, [0, 2.6]), addP(h, [0, -4.2]), 0.3, 0.3, 0.3, SM.wood, 2);
-          slab(c, addP(h, [0, -4.5]), ell(0.5, 0.42, 0, 0, 12), (fx, fy) => code(KM.silk, lit(c, 2, fx + fy, 0.3, 0.4)));
+          slab(c, addP(h, [0, -4.5]), ell(0.5, 0.42, 0, 0, 12), (fx, fy) => code(KM.silk, lit(c, 2, c.litX(fx) + fy, 0.3, 0.4)));
         },
         grip: SM.flesh,
       },
@@ -1444,7 +1448,7 @@ export const OZ_PIECES: readonly OzPiece[] = ['chocks', 'bed', 'cradle', 'barrel
 export function ozPiece(c: Paper, p: OzPiece): void {
   switch (p) {
     case 'chocks':
-      for (const x of [-3.0, 2.6]) slab(c, [x, 0], [[-0.8, -1.2], [0.8, -1.2], [0.85, 0.15], [-0.85, 0.15]], (fx, fy) => code(SM.wood, c.L <= 1 ? 0 : fy < -1.0 ? 4 : fx < -0.3 ? 2 : 1));
+      for (const x of [-3.0, 2.6]) slab(c, [x, 0], [[-0.8, -1.2], [0.8, -1.2], [0.85, 0.15], [-0.85, 0.15]], (fx, fy) => code(SM.wood, c.L <= 1 ? 0 : fy < -1.0 ? 4 : c.litX(fx) < -0.3 ? 2 : 1));
       return;
     case 'bed':
       slab(c, [0, 0], [[-4.6, -2.9], [4.4, -2.9], [4.6, -1.0], [-4.7, -1.0]], (fx, fy) => {
@@ -1455,7 +1459,7 @@ export function ozPiece(c: Paper, p: OzPiece): void {
       });
       return;
     case 'cradle':
-      slab(c, [0, 0], [[-3.4, -3.1], [1.0, -3.6], [1.0, -2.8], [-3.4, -2.8]], (fx) => code(SM.wood, fx < -1 ? 3 : 2));
+      slab(c, [0, 0], [[-3.4, -3.1], [1.0, -3.6], [1.0, -2.8], [-3.4, -2.8]], (fx) => code(SM.wood, c.litX(fx) < -1 ? 3 : 2));
       return;
     case 'barrel': {
       const { br, mz } = OZ;
@@ -1471,12 +1475,12 @@ export function ozPiece(c: Paper, p: OzPiece): void {
           return -1;
         },
       });
-      slab(c, mz, ell(1.0, 1.35, 0.05, 0, 16), (fx, fy) => (Math.hypot((fx - 0.25) / 0.55, fy / 0.8) < 1 ? code(SM.ink, 0) : code(SM.bronze, lit(c, 2, fx * 0.5 + fy * 0.6, 0.35, 0.45))));
-      slab(c, br, ell(1.15, 1.25, 0, 0, 16), (fx, fy) => code(SM.bronze, Math.hypot(fx + 0.3, fy + 0.3) < 0.35 ? 4 : lit(c, 1, fx * 0.6 + fy * 0.6, 0.4, 0.4)));
+      slab(c, mz, ell(1.0, 1.35, 0.05, 0, 16), (fx, fy) => (Math.hypot((fx - 0.25) / 0.55, fy / 0.8) < 1 ? code(SM.ink, 0) : code(SM.bronze, lit(c, 2, c.litX(fx) * 0.5 + fy * 0.6, 0.35, 0.45))));
+      slab(c, br, ell(1.15, 1.25, 0, 0, 16), (fx, fy) => code(SM.bronze, Math.hypot(fx + 0.3, fy + 0.3) < 0.35 ? 4 : lit(c, 1, c.litX(fx) * 0.6 + fy * 0.6, 0.4, 0.4)));
       return;
     }
     case 'block':
-      slab(c, [-6.3, 0], [[-0.9, -2.2], [0.9, -2.2], [1.0, 0.1], [-1.0, 0.1]], (fx, fy) => (Math.abs(fy + 1.6) < 0.15 || Math.abs(fy + 0.4) < 0.15 ? code(SM.iron, 2) : code(SM.wood, fx < -0.2 ? 3 : 2)));
+      slab(c, [-6.3, 0], [[-0.9, -2.2], [0.9, -2.2], [1.0, 0.1], [-1.0, 0.1]], (fx, fy) => (Math.abs(fy + 1.6) < 0.15 || Math.abs(fy + 0.4) < 0.15 ? code(SM.iron, 2) : code(SM.wood, c.litX(fx) < -0.2 ? 3 : 2)));
       return;
     case 'balls':
       for (const [x, y] of [[6.5, -0.4], [7.3, -0.4], [6.9, -1.05]] as P2[]) slab(c, [x, y], ell(0.42, 0.4, 0, 0, 12), (fx, fy) => code(SM.iron, fx + fy < -0.3 ? 3 : 1));

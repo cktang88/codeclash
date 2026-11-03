@@ -853,7 +853,7 @@ let partDraws = 0;
 /** How many part images have been drawn (cache misses), for tests and benches. */
 export const partDrawCount = (): number => partDraws;
 
-function partImage(att: Attachment, key: string, slotIndex: number, posed: Posed, bone: BoneXf, rest: BoneXf): PartImg {
+function partImage(att: Attachment, key: string, slotIndex: number, posed: Posed, bone: BoneXf, rest: BoneXf, lightX: 1 | -1): PartImg {
   let m = PARTS.get(att);
   if (!m) PARTS.set(att, (m = new Map()));
   const got = m.get(key);
@@ -862,6 +862,7 @@ function partImage(att: Attachment, key: string, slotIndex: number, posed: Posed
   const s = (SCRATCH ??= new Paper());
   const cv = BODIES[posed.skel.body].canvas;
   s.begin(posed.level, { w: cv.w * 2, h: cv.h * 2, footY: 0.5 });
+  s.lightX = lightX;
   // A stable order base per slot: the part's band offsets are the same whatever is drawn before it.
   const base = slotIndex * 32;
   s.order = base;
@@ -940,8 +941,9 @@ export function drawSkeleton(c: Paper, posed: Posed, atts: AttachmentSet, opts: 
       att.draw(c, partXf(bone, rb, [bone.x, bone.y]), ctx);
       continue;
     }
-    const key = `${skel.name}|${posed.facing}|${name}|${an}|${bone.step}|${bone.sy}|${posed.level}`;
-    blit(c, partImage(att, key, si, posed, bone, rb), [bone.x, bone.y]);
+    // A part drawn for a mirrored facing is lit from the other side: its own image.
+    const key = `${skel.name}|${posed.facing}|${name}|${an}|${bone.step}|${bone.sy}|${posed.level}${c.lightX === 1 ? '' : '|m'}`;
+    blit(c, partImage(att, key, si, posed, bone, rb, c.lightX), [bone.x, bone.y]);
   }
 }
 
@@ -1020,7 +1022,14 @@ export function paintSkeleton(rig: SkeletonRig, anim: Anim, frame: number, opts:
   const plan = planFacing(facing, rig.facings ?? DRAWN_DEFAULT);
   if (!plan) throw new Error(`skeleton ${rig.skel.name}: facing ${facing} is not drawn`);
   c.begin(opts.level, BODIES[rig.skel.body].canvas);
-  const posed = drawRigFrame(c, rig, anim, frame, plan.draw);
+  // Drawn with the light reversed when it is to be mirrored (see facing.ts drawFacing).
+  c.lightX = plan.mirror ? -1 : 1;
+  let posed: Posed;
+  try {
+    posed = drawRigFrame(c, rig, anim, frame, plan.draw);
+  } finally {
+    c.lightX = 1;
+  }
   if (plan.mirror) c.mirror();
   c.contact();
   c.clusters(opts.level >= 8 ? 4 : 3);
