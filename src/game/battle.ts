@@ -115,12 +115,14 @@ class Store {
   readonly hx: Float64Array;
   readonly hy: Float64Array;
   readonly hs: Float64Array;
+  /** Elevation of his last shot: 0 level (a gun, a bolt at close range) to 1 (a high lob). */
+  readonly aim: Float64Array;
   constructor(n: number) {
     const f = () => new Float64Array(n);
     const i = () => new Int32Array(n);
     this.x = f(); this.y = f(); this.vx = f(); this.vy = f(); this.hp = f(); this.imp = f();
     this.px = f(); this.py = f(); this.sx = f(); this.sy = f(); this.col = f(); this.row = i();
-    this.rad = f(); this.mass = f(); this.spd = f(); this.hx = f(); this.hy = f(); this.hs = f();
+    this.rad = f(); this.mass = f(); this.spd = f(); this.hx = f(); this.hy = f(); this.hs = f(); this.aim = f();
     this.state = new Uint8Array(n); this.team = new Uint8Array(n);
     this.reg = i(); this.target = i(); this.cd = i(); this.ammo = i();
     this.acted = i(); this.hit = i(); this.died = i(); this.kills = i(); this.stun = i();
@@ -173,6 +175,11 @@ export class Soldier {
   /** Knocked down or reeling from a charge: ticks left. */
   get stunned(): number { return this.d.stun[this.id]!; }
   get kills(): number { return this.d.kills[this.id]!; }
+  /**
+   * Elevation of his last shot, 0..1: bows lob (higher for a longer shot), crossbows shoot
+   * nearly flat, guns level; for the Shoot pose.
+   */
+  get aim(): number { return this.d.aim[this.id]!; }
   /** Slot offset within the regiment: across the front and in depth (0 = front rank, negative behind). */
   get sx(): number { return this.d.sx[this.id]!; }
   get sy(): number { return this.d.sy[this.id]!; }
@@ -349,6 +356,9 @@ export class Regiment {
   /** Shots tried since the last think: out of range, and loosed. */
   short = 0;
   loosed = 0;
+  /** Direct-fire shots held for friends in the line since the last think, and whose men they were. */
+  blockedShots = 0;
+  blocker = -1;
   constructor(
     readonly id: number,
     readonly team: number,
@@ -374,6 +384,27 @@ export interface Projectile {
   pierce: number;
   splash: number;
   shooter: number;
+  /** Height of the flight's apex above the ground, world units (0: a flat shot). */
+  arc: number;
+  /** Direct fire: it strikes the first man along its line (friend or foe), not where it lands. */
+  direct: boolean;
+  /** Men a cannonball can pass through (0 for anything else). */
+  pen: number;
+}
+
+/**
+ * How a class shoots. 'lob': bows, javelins and slings arc over the heads of anyone in between,
+ * less accurate the longer the shot. 'flat': crossbows shoot nearly flat (a short arc) and need a
+ * clear line past other regiments (their own ranks kneel or take turns); blocked, they loft the
+ * bolt over at half the accuracy. 'gun': matchlocks shoot level with a clear line or not at all,
+ * and the ball strikes the first man on its line. 'cannon': a bombard's ball flies flat, then
+ * bounds on along the ground through several men. 'siege': mangonels and trebuchets throw high.
+ */
+export type Ballistics = 'lob' | 'flat' | 'gun' | 'cannon' | 'siege';
+export function ballisticsOf(faction: FactionId, cls: number): Ballistics {
+  if (cls === U.Crossbowmen) return faction === 'samurai' ? 'gun' : 'flat';
+  if (cls === U.Artillery) return faction === 'samurai' ? 'cannon' : 'siege';
+  return 'lob';
 }
 
 export interface Stake {
@@ -554,6 +585,8 @@ export class Battle {
   brokenAt = -1;
   /** Each side's General. */
   readonly generals: [General, General];
+  /** Missiles each side has landed on its own men (direct-fire strikes and stray arrows). */
+  readonly ownGoals: [number, number] = [0, 0];
   private readonly d: Store;
   private readonly n: number;
   private readonly teamRegs: [Regiment[], Regiment[]] = [[], []];
@@ -575,11 +608,24 @@ export class Battle {
   private readonly kpy: Float64Array;
   /** Bow wave: how far ahead a galloping rider shoves enemy foot aside (0 for everyone else). */
   private readonly kw: Float64Array;
+  /** Whether anyone is galloping in this tick (most ticks nobody is). */
+  private bowWave = false;
+  private regFlags = new Uint8Array(0);
   /** Cells holding anyone, in index order. */
   private readonly busy: Int32Array;
   private busyN = 0;
   private readonly cellOf: Int32Array;
   private readonly tmp = new Float64Array(4);
+  /** Scratch for re-forming a regiment (see `assignSlots`). */
+  private slotLat = new Float64Array(256);
+  private slotFwd = new Float64Array(256);
+  /** How each class shoots, per team. */
+  private readonly fire: [Ballistics[], Ballistics[]];
+  /** Scratch for `lineHits`: men along a line and how far along. */
+  private readonly lineIds = new Int32Array(16);
+  private readonly lineT = new Float64Array(16);
+  private readonly cellSeen: Int32Array = new Int32Array(GW * GH);
+  private cellStamp = 0;
 
   /** The setup as fought: counts made whole men (see `sanitize`). */
   readonly setup: BattleSetup;
@@ -592,6 +638,7 @@ export class Battle {
     this.generals = [new General(0, setup.seed), new General(1, setup.seed)];
     this.scale = scaleFor(setup.armies[0].counts, setup.armies[1].counts);
     this.stats = [factionStats(setup.armies[0].faction), factionStats(setup.armies[1].faction)];
+    this.fire = [0, 1].map((t) => Array.from({ length: UNIT_COUNT }, (_, c) => ballisticsOf(setup.armies[t]!.faction, c))) as [Ballistics[], Ballistics[]];
     let n = 0;
     let most = 0;
     for (let t = 0; t < 2; t++) {
@@ -632,6 +679,7 @@ export class Battle {
     const m0 = this.ts[0].missile;
     const m1 = this.ts[1].missile;
     this.stance = [m0 > m1 * 1.25 ? 'hold' : 'press', m1 > m0 * 1.25 ? 'hold' : 'press'];
+    this.regFlags = new Uint8Array(this.regiments.length);
     for (const r of this.regiments) this.survey(r);
     this.updateFront(0);
     this.updateFront(1);
@@ -861,39 +909,50 @@ export class Battle {
       // front makes the left files of the new one), and within a file the man furthest forward
       // takes the front rank, so men do not have to walk through each other to their new places.
       const n = ids.length;
-      const fr = new Float64Array(n);
-      const lr = new Float64Array(n);
-      const slotC = new Float64Array(n);
-      const slotR = new Int32Array(n);
-      for (let i = 0; i < n; i++) {
-        const row = Math.floor(i / cols);
-        const inRow = Math.min(cols, n - row * cols);
-        slotR[i] = row;
-        slotC[i] = (i % cols) + (cols - inRow) / 2;
+      if (this.slotLat.length < n) {
+        this.slotLat = new Float64Array(n * 2);
+        this.slotFwd = new Float64Array(n * 2);
       }
-      const slots = Array.from({ length: n }, (_, i) => i).sort((a, b) => slotC[a]! - slotC[b]! || slotR[a]! - slotR[b]!);
-      const at = new Map<number, number>();
+      const lr = this.slotLat;
+      const fr = this.slotFwd;
+      // Men in order across the front (positions in `ids`).
+      const men: number[] = [];
       for (let i = 0; i < n; i++) {
         const id = ids[i]!;
         const dx = d.x[id]! - reg.ax;
         const dy = d.y[id]! - reg.ay;
         lr[i] = -dx * reg.fy + dy * reg.fx;
         fr[i] = dx * reg.fx + dy * reg.fy;
-        at.set(id, i);
+        men.push(i);
       }
-      const men = ids.slice().sort((a, b) => lr[at.get(a)!]! - lr[at.get(b)!]! || a - b);
+      men.sort((p, q) => lr[p]! - lr[q]! || p - q);
+      // Slots in row-major order are already grouped file by file once sorted by file then rank:
+      // file c (whole files first, the short last rank's files interleaved) — walk the files.
+      const rows = Math.ceil(n / cols);
+      const last = n - (rows - 1) * cols;
+      const off = (cols - last) / 2;
+      // File positions, left to right: whole files 0..cols-1, and the short rank's men at
+      // (j + off); a file at position f holds rows-1 men, plus one if a short-rank man sits on it.
+      const files: number[] = [];
+      for (let c = 0; c < cols; c++) files.push(c);
+      if (last < cols) for (let j = 0; j < last; j++) if (off % 1 !== 0) files.push(j + off);
+      files.sort((p, q) => p - q);
       let k = 0;
-      while (k < n) {
-        // One file: the slots sharing a file position.
-        let e = k + 1;
-        while (e < n && slotC[slots[e]!] === slotC[slots[k]!]) e++;
-        const file = men.slice(k, e).sort((a, b) => fr[at.get(b)!]! - fr[at.get(a)!]! || a - b);
+      const file: number[] = [];
+      for (const f of files) {
+        const whole = f % 1 === 0;
+        // Ranks in this file: whole files have rows-1 (or rows if the last rank is full or
+        // lands on this file), half files only the last rank.
+        const onLast = last === cols || (off % 1 === 0 && f >= off && f < off + last);
+        const deep = whole ? rows - 1 + (onLast ? 1 : 0) : 1;
+        file.length = 0;
+        for (let j = 0; j < deep && k < n; j++) file.push(men[k++]!);
+        file.sort((p, q) => fr[q]! - fr[p]! || p - q);
         for (let j = 0; j < file.length; j++) {
-          const sl = slots[k + j]!;
-          d.row[file[j]!] = slotR[sl]!;
-          d.col[file[j]!] = slotC[sl]!;
+          const id = ids[file[j]!]!;
+          d.row[id] = whole ? j : rows - 1;
+          d.col[id] = f;
         }
-        k = e;
       }
     } else {
       for (let i = 0; i < ids.length; i++) {
@@ -1032,7 +1091,20 @@ export class Battle {
     const items = this.items;
     const kx = this.kx;
     const ky = this.ky;
+    const kr = this.kr;
+    const km = this.km;
+    const kt = this.kt;
+    const kl = this.kl;
+    const kw = this.kw;
+    // Per regiment, for its standing men. Bit 0: skirmishers (they slip through their own lines).
+    // Bit 1: planted foot (braced or a pike wall) that a charge does not shove aside.
     const regs = this.regiments;
+    const rf = this.regFlags;
+    for (let j = 0; j < regs.length; j++) {
+      const r = regs[j]!;
+      rf[j] = (r.role === 'skirmish' ? 1 : 0) | (r.stance === 'braced' || r.stance === 'pikewall' ? 2 : 0);
+    }
+    let bow = false;
     for (let i = 0; i < n; i++) {
       const c = cellOf[i]!;
       if (c < 0) continue;
@@ -1040,17 +1112,20 @@ export class Battle {
       items[k] = i;
       kx[k] = d.x[i]!;
       ky[k] = d.y[i]!;
-      this.kr[k] = d.rad[i]!;
-      this.km[k] = d.mass[i]!;
-      this.kt[k] = d.team[i]!;
-      const r = regs[d.reg[i]!]!;
-      // Bit 0: a skirmisher (slips through his own lines). Bit 1: planted foot (braced or a pike
-      // wall) that a charge does not shove aside.
+      kr[k] = d.rad[i]!;
+      const m = d.mass[i]!;
+      km[k] = m;
+      kt[k] = d.team[i]!;
       const fighting = d.state[i] === State.Fighting;
-      this.kl[k] = (r.role === 'skirmish' && fighting ? 1 : 0) | (fighting && (r.stance === 'braced' || r.stance === 'pikewall') ? 2 : 0);
-      // Light horse shoulders men aside far less than barded destriers.
-      this.kw[k] = fighting && d.imp[i]! > 0.3 && d.mass[i]! > 2 ? d.imp[i]! * d.spd[i]! * TICK_S * (d.mass[i]! >= 4 ? 1 : 0.35) : 0;
+      kl[k] = fighting ? rf[d.reg[i]!]! : 0;
+      // A galloping rider's bow wave; light horse shoulders men aside far less than destriers.
+      const imp = d.imp[i]!;
+      if (fighting && imp > 0.3 && m > 2) {
+        kw[k] = imp * d.spd[i]! * TICK_S * (m >= 4 ? 1 : 0.35);
+        bow = true;
+      } else kw[k] = 0;
     }
+    this.bowWave = bow;
   }
 
   /** Calls `f` for each living soldier within `r` of (x, y); stop by returning true. */
@@ -2119,6 +2194,10 @@ export class Battle {
     if (best) {
       this.setMode(r, 'shoot');
       r.targetReg = best.id;
+      if (this.sidestep(r)) {
+        this.faceToward(r, best.cx, best.cy);
+        return;
+      }
       this.closeToShoot(r, best);
       this.faceToward(r, best.cx, best.cy);
       return;
@@ -2148,6 +2227,29 @@ export class Battle {
       this.goal(r, near.cx - (dx / q) * st.range * 0.8, near.cy - (dy / q) * st.range * 0.8);
       this.faceToward(r, near.cx, near.cy);
     }
+  }
+
+  /**
+   * Guns (and bombards) with friends in their line of fire: most of the shots since the last
+   * think were held, so the block steps sideways, away from the friends in the way, to open a
+   * line. Returns whether it moved.
+   */
+  private sidestep(r: Regiment): boolean {
+    const held = r.blockedShots;
+    const loosed = r.loosed;
+    r.blockedShots = 0;
+    if (held === 0 || held < loosed || r.blocker < 0) return false;
+    const b = this.regiments[r.blocker]!;
+    r.blocker = -1;
+    const lx = -r.fy;
+    const ly = r.fx;
+    const side = (r.cx - b.cx) * lx + (r.cy - b.cy) * ly >= 0 ? 1 : -1;
+    const step = r.role === 'siege' ? 6 : 14;
+    this.setMode(r, 'advance');
+    this.goal(r, r.ax + lx * side * step, r.ay + ly * side * step);
+    r.short = 0;
+    r.loosed = 0;
+    return true;
   }
 
   /**
@@ -2544,7 +2646,7 @@ export class Battle {
     }
     r.targetReg = best ? best.id : -1;
     this.setMode(r, best ? 'shoot' : 'hold');
-    this.goal(r, r.ax, r.ay);
+    if (!best || !this.sidestep(r)) this.goal(r, r.ax, r.ay);
     if (best) this.faceToward(r, best.cx, best.cy);
   }
 
@@ -2928,20 +3030,116 @@ export class Battle {
       d.cd[i] = 4;
       return;
     }
-    r.loosed++;
-    const flight = Math.max(3, Math.round((dist / st.projectileSpeed) * TICKS_PER_SECOND));
-    // Lead the target a little, and scatter more with distance.
-    const spread = 2 + dist * (st.role === 'siege' ? 0.05 : 0.03);
-    const lx = d.x[v]! + d.vx[v]! * flight * TICK_S * 0.8 + (this.rng.next() - 0.5) * 2 * spread;
-    const ly = d.y[v]! + d.vy[v]! * flight * TICK_S * 0.8 + (this.rng.next() - 0.5) * 2 * spread;
     const s = this.soldiers[i]!;
+    const kind = this.fire[s.team]![s.cls]!;
+    const flight = Math.max(3, Math.round((dist / st.projectileSpeed) * TICKS_PER_SECOND));
+    // Lead the target a little, and scatter more with distance: a lob most of all at long range.
+    const leadX = d.x[v]! + d.vx[v]! * flight * TICK_S * 0.8;
+    const leadY = d.y[v]! + d.vy[v]! * flight * TICK_S * 0.8;
+    const lobbed = kind === 'lob' || kind === 'siege';
+    let spread = 2 + dist * (kind === 'siege' ? 0.05 : kind === 'gun' ? 0.018 : kind === 'cannon' ? 0.02 : 0.03);
+    if (lobbed) spread += Math.max(0, dist - st.range * 0.5) * 0.04;
+    let lx = leadX + (this.rng.next() - 0.5) * 2 * spread;
+    let ly = leadY + (this.rng.next() - 0.5) * 2 * spread;
+    let lofted = false;
+    if (!lobbed) {
+      // Direct fire needs a clear line: whoever is first on it is who it hits (see `land`).
+      const n = this.lineHits(d.x[i]!, d.y[i]!, lx, ly, i, kind === 'flat' ? r.id : -1, 1);
+      const first = n > 0 ? this.lineIds[0]! : -1;
+      if (first >= 0 && d.team[first] === s.team) {
+        if (kind !== 'flat') {
+          // Friends in the way: hold fire (the rear ranks wait their turn).
+          r.blockedShots++;
+          r.blocker = d.reg[first]!;
+          d.cd[i] = 4 + this.rng.int(6);
+          return;
+        }
+        // A crossbowman lofts his bolt over them, much less surely.
+        lofted = true;
+        lx = leadX + (this.rng.next() - 0.5) * 4 * spread;
+        ly = leadY + (this.rng.next() - 0.5) * 4 * spread;
+      }
+    }
+    r.loosed++;
+    const lob = lobbed || lofted;
+    if (kind === 'cannon') {
+      // The ball bounds on along the ground beyond where it was aimed.
+      const ux = (lx - d.x[i]!) / (dist || 1);
+      const uy = (ly - d.y[i]!) / (dist || 1);
+      lx = clampX(lx + ux * CANNON_BOUND);
+      ly = clampY(ly + uy * CANNON_BOUND);
+    }
+    const range = st.range || 1;
+    const arc = kind === 'siege' ? dist * 0.5 : lob ? dist * (0.18 + 0.14 * (dist / range)) : kind === 'flat' ? dist * 0.06 : kind === 'cannon' ? dist * 0.02 : 0;
+    d.aim[i] = kind === 'siege' ? 0.85 : lob ? Math.min(1, 0.3 + 0.6 * (dist / range)) : kind === 'flat' ? 0.1 : 0;
     this.projectiles.push({
       team: s.team, cls: s.cls, x0: d.x[i]!, y0: d.y[i]!, x1: lx, y1: ly, born: this.tick, lands: this.tick + flight,
-      damage: st.missileDamage * (s.vet ? 1.1 : 1) * MISSILE_K, pierce: st.pierce, splash: st.role === 'siege' ? 9 : 0, shooter: i,
+      damage: st.missileDamage * (s.vet ? 1.1 : 1) * MISSILE_K, pierce: st.pierce, splash: kind === 'siege' ? 9 : 0, shooter: i,
+      arc, direct: !lob, pen: kind === 'cannon' ? CANNON_PEN : 0,
     });
     d.ammo[i]!--;
     d.acted[i] = this.tick;
     d.cd[i] = st.reload + this.rng.int(Math.max(2, Math.floor(st.reload / 5)));
+  }
+
+  /**
+   * Men whose bodies cross the line from (x0, y0) to (x1, y1), nearest first, at most `max`
+   * (into lineIds / lineT); `skip` is the shooter, `skipReg` a regiment to see through (-1 none).
+   */
+  private lineHits(x0: number, y0: number, x1: number, y1: number, skip: number, skipReg: number, max: number): number {
+    const d = this.d;
+    const lx = x1 - x0;
+    const ly = y1 - y0;
+    const L = sqrt(lx * lx + ly * ly) || 1;
+    const ux = lx / L;
+    const uy = ly / L;
+    const ids = this.lineIds;
+    const ts = this.lineT;
+    const cap = Math.min(max, ids.length);
+    let n = 0;
+    const seen = this.cellSeen;
+    const stamp = ++this.cellStamp;
+    const steps = Math.ceil(L / CELL) + 1;
+    for (let k = 0; k <= steps; k++) {
+      const px = x0 + ux * Math.min(L, k * CELL);
+      const py = y0 + uy * Math.min(L, k * CELL);
+      const cx0 = Math.max(0, Math.floor(px / CELL) - 1);
+      const cy0 = Math.max(0, Math.floor(py / CELL) - 1);
+      const cx1 = Math.min(GW - 1, cx0 + 2);
+      const cy1 = Math.min(GH - 1, cy0 + 2);
+      for (let cy = cy0; cy <= cy1; cy++) {
+        for (let cx = cx0; cx <= cx1; cx++) {
+          const c = cy * GW + cx;
+          if (seen[c] === stamp) continue;
+          seen[c] = stamp;
+          for (let q = this.grid[c]!; q < this.grid[c + 1]!; q++) {
+            const j = this.items[q]!;
+            if (j === skip || d.state[j]! > State.Routing || d.reg[j] === skipReg) continue;
+            const ex = d.x[j]! - x0;
+            const ey = d.y[j]! - y0;
+            const t = ex * ux + ey * uy;
+            if (t < 0 || t > L) continue;
+            const px2 = ex - ux * t;
+            const py2 = ey - uy * t;
+            const rr = d.rad[j]! * 0.85;
+            if (px2 * px2 + py2 * py2 > rr * rr) continue;
+            // Insert in order of t, keeping the nearest `cap`.
+            let w: number;
+            if (n < cap) w = n++;
+            else if (ts[cap - 1]! <= t) continue;
+            else w = cap - 1;
+            while (w > 0 && ts[w - 1]! > t) {
+              ids[w] = ids[w - 1]!;
+              ts[w] = ts[w - 1]!;
+              w--;
+            }
+            ids[w] = j;
+            ts[w] = t;
+          }
+        }
+      }
+    }
+    return n;
   }
 
   /**
@@ -3134,16 +3332,17 @@ export class Battle {
     const busy = this.busy;
     const items = this.items;
     const d = this.d;
+    const bow = this.bowWave;
     const total = grid[GW * GH]!;
     // Where everyone stands now (the cells are from the start of the tick: nobody moves far).
     for (let k = 0; k < total; k++) {
       const i = items[k]!;
       kx[k] = d.x[i]!;
       ky[k] = d.y[i]!;
-      kpx[k] = 0;
-      kpy[k] = 0;
       if (d.state[i]! > State.Routing) kl[k] = kl[k]! | 4;
     }
+    kpx.fill(0, 0, total);
+    kpy.fill(0, 0, total);
     for (let bi = 0; bi < this.busyN; bi++) {
       const c = busy[bi]!;
       const cx = c % GW;
@@ -3181,7 +3380,7 @@ export class Battle {
             const dy = yi - ky[kb]!;
             let minD = ri + kr[kb]!;
             const d2 = dx * dx + dy * dy;
-            if (d2 >= minD * minD && wi0 === 0 && kw[kb] === 0) continue;
+            if (d2 >= minD * minD && (!bow || (wi0 === 0 && kw[kb] === 0))) continue;
             const lj = kl[kb]!;
             if (lj & 4) continue;
             let ma = mi;
@@ -3428,6 +3627,22 @@ export class Battle {
 
   private land(p: Projectile): void {
     const d = this.d;
+    if (p.direct) {
+      // The first man along its line takes it, friend or foe; a cannonball goes on through
+      // several, losing force with each.
+      const n = this.lineHits(p.x0, p.y0, p.x1, p.y1, p.shooter, -1, p.pen > 0 ? p.pen : 1);
+      let force = 1;
+      for (let k = 0; k < n; k++) {
+        const j = this.lineIds[k]!;
+        const dmg = p.damage;
+        p.damage = dmg * force;
+        this.missileHit(j, p);
+        p.damage = dmg;
+        if (p.pen > 0) this.regiments[d.reg[j]!]!.morale -= 0.5;
+        force *= 0.7;
+      }
+      return;
+    }
     const radius = p.splash > 0 ? p.splash : 2.4;
     const R = radius + 4;
     const x0 = Math.max(0, Math.floor((p.x1 - R) / CELL));
@@ -3466,6 +3681,7 @@ export class Battle {
 
   private missileHit(o: number, p: Projectile): void {
     const d = this.d;
+    if (d.team[o] === p.team) this.ownGoals[p.team]!++;
     const army = this.setup.armies[d.team[o]!]!;
     const S = this.soldiers[o]!;
     // Shields stop missiles from the front.
@@ -3649,6 +3865,10 @@ function eagerness(faction: FactionId, cls: number, veteran: boolean, green: boo
   const e = EAGER_FACTION[faction]?.[cls] ?? EAGER[cls] ?? 0.3;
   return Math.max(0, Math.min(1, e + (veteran ? -0.1 : 0) + (green ? 0.1 : 0)));
 }
+
+/** A bombard's ball bounds on this far past its aim point, through at most this many men. */
+const CANNON_BOUND = 45;
+const CANNON_PEN = 5;
 
 /** Foot charges: the last stretch at a run. How far it can run before the ranks come apart (ticks). */
 const RUN_IN = 26;

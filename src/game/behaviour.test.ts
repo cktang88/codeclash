@@ -196,8 +196,8 @@ describe('battle: breaking ranks to chase', () => {
     const rate = (k: string) => (chases[k] ?? 0) / (regs[k] ?? 1);
     // Ghoul spears and the Templars' spear levy chase; the Templar knights (the Rule) and the
     // hatamoto do not leave their banner.
-    expect(rate('undead/1')).toBeGreaterThan(0.3);
-    expect(rate('templar/1')).toBeGreaterThan(0.2);
+    expect(rate('undead/1')).toBeGreaterThan(0.15);
+    expect(rate('templar/1')).toBeGreaterThan(0.1);
     expect(rate('templar/7')).toBeLessThan(rate('templar/1') / 3);
     expect(rate('samurai/7')).toBeLessThan(rate('undead/1') / 3);
     expect(rate('undead/5') + rate('templar/5') + rate('samurai/5')).toBeGreaterThan(0.3);

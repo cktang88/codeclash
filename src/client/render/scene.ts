@@ -997,8 +997,10 @@ export class BattleScene {
       if (mx < x0 || mx > x1 || my < y0 || my > y1 + 100) continue;
       const dist = Math.sqrt((p.x1 - p.x0) ** 2 + (p.y1 - p.y0) ** 2);
       const look = MISSILE_CLS(p.cls, p.splash);
+      // The sim gives each missile its apex (bows lob higher for longer shots, crossbows a
+      // short arc, guns none); older replays fall back on one arc per look.
       const arc = look === 'bolt' || look === 'jav' ? 0.1 : look === 'stone' ? 0.45 : 0.3;
-      const h = dist * arc * PX;
+      const h = (p.arc ?? dist * arc) * PX;
       const lift = 9;
       const z = 4 * h * t * (1 - t) + (1 - t) * lift;
       // Screen velocity of the missile: along the ground, minus the climb.
@@ -1013,6 +1015,16 @@ export class BattleScene {
         r = this.missileRegions[look]![a]!;
       }
       gfx.fx.sprite(Math.round(mx), Math.round(my - z), r.u, r.v, r.w, r.h, r.ax, r.ay, my, 1, 1, 1, 1, 0, 1);
+      if (p.direct) {
+        // A flat shot leaves a straight streak behind it.
+        for (let k = 1; k <= 3; k++) {
+          const tk = Math.max(0, t - k * 0.04);
+          const zk = 4 * h * tk * (1 - tk) + (1 - tk) * lift;
+          const kx = this.mapX(p.x0 + (p.x1 - p.x0) * tk, p.y0 + (p.y1 - p.y0) * tk);
+          const ky = this.mapY(p.x0 + (p.x1 - p.x0) * tk, p.y0 + (p.y1 - p.y0) * tk) - zk;
+          gfx.soft.sprite(Math.round(kx), Math.round(ky), shadowRegion.u, shadowRegion.v, 1, 1, 0, 0, my, 0.85, 0.82, 0.7, 0.5 - k * 0.12);
+        }
+      }
     }
 
     // Particles.
