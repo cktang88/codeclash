@@ -45,6 +45,14 @@ Reference only: no pixels were copied and no third-party image is committed. The
 - **Effects**: missiles at 32 angles, a ground shadow ellipse, dust (pale, sunlit, cavalry heavy),
   impact dust where arrows land, stone impact plumes and clods, sparks off armour, teppō and ōzutsu
   powder smoke and muzzle flash (Samurai), stakes. Blood drops and debris are 1-3 texel clusters.
+- **Standards** (`standards-hd.ts`): regimental and command standards, torn (wavering) and dropped
+  (broken) standards, stance glyphs and morale pips, painted at the view's density with the same
+  shapes, anchors and frames as the classic ones: folds in four ramp steps, a crisp emblem, a lit
+  pole and gilt finial, a fringe on the commander's cloth, ragged tears rather than missing squares.
+- **HD 64** gets all of it, capped at 4 texels per map px like its figures (`hdDensity`).
+- **Cost**: the ground is painted when the view moves; the marks and decals are composed into a
+  cached buffer at most every 0.6 battle seconds while they change (and every 2 s as blood ages);
+  other frames copy that buffer. Decals are bucketed by map area and appended, not rebuilt.
 
 ## Critique rounds (screenshots in `docs/screenshots/battlefield-hd/`)
 
@@ -59,3 +67,8 @@ Reference only: no pixels were copied and no third-party image is committed. The
    churns; dust was the ground's colour at 30% (invisible): now pale sunlit dust like refs 7-8,
    faint under marching feet, heavy under horse; marching dust filled the particle cap and starved
    gun smoke, so dust is capped and smoke and sparks have a reserve.
+4. Standards: the classic flags Scale2x'd beside 8x figures read as blocky stickers; repainted
+   per level (standards-hd.ts). Dust from fast-forwarded or hidden-tab steps piled up as fields of
+   identical cotton balls: particles now expire on battle time too, and cavalry dust is bigger and
+   fainter. Remaining: dust puffs still read a little like round balls (refs 5-7 have flatter,
+   wind-torn edges); glyphs are the classic 5x6 icons drawn in L-texel tiles.
