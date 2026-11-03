@@ -73,6 +73,20 @@ describe('classifyLine', () => {
     return lines.map((l) => classifyLine(l, syntax, state));
   };
 
+  it('reads a long line full of slashes in linear time', () => {
+    // A minified .mts, .vue or .svelte line (the minified check only knows .js, .ts and the like):
+    // each `/` used to rescan the whole line before it, which took minutes in the parse worker and,
+    // once that timed out, again on the main thread.
+    const line = Array.from({ length: 20_000 }, (_, i) => `a=b/c${i % 10};`).join('');
+    const started = Date.now();
+    expect(run('a.mts', [line, 'x = 1; /* open', 'y */'])).toEqual(['code', 'code', 'comment']);
+    expect(Date.now() - started).toBeLessThan(3_000);
+    // What precedes a `/` still decides whether it opens a regex (whose quotes are not strings).
+    expect(run('a.ts', ['x = ' + ' '.repeat(40) + "/'/; y = `", 'text`;'])).toEqual(['code', 'data']);
+    expect(run('a.ts', ['x = a ' + ' '.repeat(40) + "/ b; y = '/';", 'z();'])).toEqual(['code', 'code']);
+    expect(run('a.ts', ['f(xreturn /2/ 1, "`");', 'z();'])).toEqual(['code', 'code']);
+  });
+
   it('reads C-family line and block comments', () => {
     expect(run('a.ts', ['// note', 'const x = 1;', '/**', ' * doc', ' */', '', 'y(); /* tail', 'still comment */', 'z();'])).toEqual([
       'comment', 'code', 'comment', 'comment', 'comment', 'blank', 'code', 'comment', 'code',

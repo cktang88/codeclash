@@ -278,7 +278,7 @@ function openString(t: string, from: number, syntax: Syntax, state: { block: Blo
       continue;
     }
     // A JavaScript regex literal may hold quotes and backticks of its own.
-    if (ch === '/' && strings.some((s) => s.template) && REGEX_BEFORE.test(t.slice(0, i))) {
+    if (ch === '/' && strings.some((s) => s.template) && regexMayStart(t, i)) {
       const end = regexEnd(t, i + 1);
       if (end < 0) return;
       i = end;
@@ -290,6 +290,18 @@ function openString(t: string, from: number, syntax: Syntax, state: { block: Blo
 
 /** What may come just before a JavaScript regex literal (where a `/` cannot be division). */
 const REGEX_BEFORE = /(^|[(,=:[!&|?{};+\-*%<>~^]|\b(return|typeof|case|of|in))\s*$/;
+
+/**
+ * Whether a `/` at `i` may open a regex literal: REGEX_BEFORE read on what comes just before it.
+ * Only the last non-blank character or keyword matters, so it reads a short window, not the whole
+ * line before (which made a long line of slashes quadratic).
+ */
+function regexMayStart(t: string, i: number): boolean {
+  let j = i;
+  while (j > 0 && /\s/.test(t[j - 1]!)) j--;
+  // The longest keyword and the character before it (for `\b`) fit in 8.
+  return REGEX_BEFORE.test(t.slice(Math.max(0, j - 8), i));
+}
 
 /** From just inside a regex literal, the index just past its closing slash, or -1. */
 function regexEnd(t: string, i: number): number {
@@ -353,7 +365,7 @@ function codeOf(t: string, syntax: Syntax): string {
     const b = syntax.blocks.find((x) => s.startsWith(x.open, i));
     if (b) i += b.open.length - 1;
     else if (syntax.line.some((m) => s.startsWith(m, i))) return s.slice(0, i);
-    else if (js && s[i] === '/' && REGEX_BEFORE.test(s.slice(0, i))) {
+    else if (js && s[i] === '/' && regexMayStart(s, i)) {
       // A regex literal (`/^\/*/`) is not a comment opener either.
       const end = regexEnd(s, i + 1);
       if (end > 0) s = `${s.slice(0, i)}""${s.slice(end)}`;
