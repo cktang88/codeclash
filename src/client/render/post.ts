@@ -114,12 +114,8 @@ void main() {
   vec2 at = u_off + (cell + 0.5) * u_px;
   vec2 uv = at / u_out;
   vec2 fromC = uv - 0.5;
-  float edge = dot(fromC, fromC);
-  // A faint chromatic split toward the corners, by whole art pixels, half strength.
-  float ca = min(1.0, floor(edge * 4.0 + 0.3));
-  vec2 cdir = sign(fromC) * ca * u_px;
-  vec3 c0 = fetch(at);
-  vec3 c = vec3(mix(c0.r, fetch(at + cdir).r, 0.5), c0.g, mix(c0.b, fetch(at - cdir).b, 0.5));
+  // No chromatic split: it fringed every outline toward the corners with red/blue rainbows.
+  vec3 c = fetch(at);
 
   float l = dot(c, vec3(0.299, 0.587, 0.114));
   // Slight desaturation and contrast.
