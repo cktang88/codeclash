@@ -12,7 +12,7 @@ import {
 } from './skeleton.ts';
 import { bow, paintAs, TM } from './templar-parts.ts';
 import { buildAnim, facingClip, lagCloth, memoSkin, partMap, skinMap, smooth01, type ClipSet, type KP, type LagSpec, type Weights } from './templar-rig.ts';
-import { mocapFootClips } from './templar-clips.ts';
+import { mocapFootClips, type Blow, type RunCarry } from './templar-clips.ts';
 import { FOOT, handAt, manPiece, manRest, withMap, type ManPiece, type ManRest, type SGear, type SKit } from './templar-static.ts';
 
 // ------------------------------------------------------------------ per-kind rig facts
@@ -38,15 +38,20 @@ export interface FootSpec {
   twoHand?: number;
   /** Weapon reach for the smear (units from the fist). */
   smear?: [number, number];
+  /** Every melee blow, blow 0 first (templar-clips.ts BLOWS; default: just `attack`). */
+  blows?: readonly Blow[];
+  /** What the run carries, and whether heavy armour shortens it (templar-clips.ts runArms). */
+  carry?: RunCarry;
+  heavy?: boolean;
 }
 
 export const FOOT_SPECS: Record<number, FootSpec> = {
-  0: { nearDeg: 8, front: 'forearmF', neNear: 'mirror', neFar: 'shift', attack: 'cut', shoot: null, brace: 'shield', die: 'back', smear: [2.4, 6.0] },
-  1: { nearDeg: 180, front: 'forearmF', neNear: 'mirror', neFar: 'shift', attack: 'thrust', shoot: null, brace: 'spear', die: 'crumple', smear: [6.0, 12.5] },
-  2: { nearDeg: 120, farDeg: 180, front: 'pelvis', neNear: 'shift', neFar: 'mirror', attack: 'jab', shoot: 'javelin', brace: 'ready', die: 'crumple', smear: [3.0, 5.8] },
-  3: { farDeg: 174, front: 'pelvis', neNear: 'mirror', neFar: 'mirror', attack: 'punch', shoot: 'bow', brace: 'ready', die: 'back' },
-  4: { nearDeg: 118, front: 'pelvis', neNear: 'shift', neFar: 'shift', attack: 'butt', shoot: 'crossbow', brace: 'ready', die: 'crumple', smear: [1.0, 2.6] },
-  8: { nearDeg: 135, front: 'pelvis', neNear: 'shift', neFar: 'shift', attack: 'chop', shoot: null, brace: 'axe', die: 'back', twoHand: 2.6, smear: [4.0, 6.6] },
+  0: { nearDeg: 8, front: 'forearmF', neNear: 'mirror', neFar: 'shift', attack: 'cut', blows: ['cut', 'swordThrust', 'bash'], carry: 'sword', heavy: true, shoot: null, brace: 'shield', die: 'back', smear: [3.6, 5.8] },
+  1: { nearDeg: 180, front: 'forearmF', neNear: 'mirror', neFar: 'shift', attack: 'thrust', blows: ['thrust', 'underhand', 'shove'], carry: 'spear', shoot: null, brace: 'spear', die: 'crumple', smear: [6.0, 12.5] },
+  2: { nearDeg: 120, farDeg: 180, front: 'pelvis', neNear: 'shift', neFar: 'mirror', attack: 'jab', blows: ['jab', 'stab'], carry: 'javelin', shoot: 'javelin', brace: 'ready', die: 'crumple', smear: [3.0, 5.8] },
+  3: { farDeg: 174, front: 'pelvis', neNear: 'mirror', neFar: 'mirror', attack: 'punch', carry: 'bow', shoot: 'bow', brace: 'ready', die: 'back' },
+  4: { nearDeg: 118, front: 'pelvis', neNear: 'shift', neFar: 'shift', attack: 'butt', carry: 'crossbow', shoot: 'crossbow', brace: 'ready', die: 'crumple', smear: [1.0, 2.6] },
+  8: { nearDeg: 135, front: 'pelvis', neNear: 'shift', neFar: 'shift', attack: 'chop', blows: ['chop', 'axeCut', 'axeThrust'], carry: 'axe', heavy: true, shoot: null, brace: 'axe', die: 'back', twoHand: 2.6, smear: [4.0, 6.6] },
 };
 
 // ------------------------------------------------------------------ the skeleton
@@ -586,8 +591,8 @@ export function footRig(kind: number): SkeletonRig | undefined {
   const f = FOOT[kind], s = FOOT_SPECS[kind];
   if (!f || !s) return undefined;
   const skel = footSkel(kind, f.kit, f.gear, s);
-  const clips = mocapFootClips(skel, { ...s, farHeld: s.front === 'forearmF' || !!s.twoHand || s.shoot === 'crossbow', shield: s.front === 'forearmF' });
-  const rig: SkeletonRig = { skel, atts: footParts(f.kit, f.gear, s, f.dark), clips };
+  const { clips, attacks } = mocapFootClips(skel, { ...s, farHeld: s.front === 'forearmF' || !!s.twoHand || s.shoot === 'crossbow', shield: s.front === 'forearmF' });
+  const rig: SkeletonRig = { skel, atts: footParts(f.kit, f.gear, s, f.dark), clips, ...(attacks.length > 1 ? { attacks } : {}) };
   RIGS.set(kind, rig);
   return rig;
 }
