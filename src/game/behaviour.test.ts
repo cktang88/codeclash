@@ -28,6 +28,29 @@ const footFight = (cls: number, foe: number, seed = 2, back = 0) => {
   return { b, a, e };
 };
 
+describe('battle: the march', () => {
+  it('all formed foot marches at the drill’s pace, the heaviest included (formations.md 7.11: 11 u/s)', () => {
+    // Anchor speed over a second of a straight march toward an enemy far off, per class.
+    const pace = (cls: number) => {
+      const b = new Battle({ version: BATTLE_VERSION, seed: 3, kind: 'daily', armies: [plainArmy(only(cls, 30)), plainArmy(only(U.HeavyInfantry, 30), 200)] });
+      b.generals[0].fixedPlan = 'advance';
+      b.generals[1].fixedPlan = 'hold';
+      const a = b.regiments.find((r) => r.team === 0)!;
+      placeRegiment(b, b.regiments.find((r) => r.team === 1)!, 1500, 600, -1, 0);
+      placeRegiment(b, a, 200, 600, 1, 0);
+      while (b.tick < 80) b.step();
+      expect(a.mode).toBe('advance');
+      const x0 = a.ax;
+      while (b.tick < 90) b.step();
+      return a.ax - x0;
+    };
+    const heavy = pace(U.HeavyInfantry);
+    expect(heavy).toBeGreaterThan(10);
+    // (Line foot: missiles march in loose order, which sets its own pace.)
+    for (const cls of [U.Spearmen, U.Shock]) expect(Math.abs(pace(cls) / heavy - 1)).toBeLessThan(0.005);
+  });
+});
+
 describe('battle: infantry charges', () => {
   it('foot closes the last stretch at a run, gaining impetus, and the run is drawn as a run', () => {
     const { b, a } = footFight(U.HeavyInfantry, U.Spearmen);
@@ -217,6 +240,19 @@ describe('battle: breaking ranks to chase', () => {
     expect(longest).toBeLessThan(1.15);
     expect(loose).toBeGreaterThan(tight);
   }, 120_000);
+
+  it('a regiment that breaks in the middle of a chase is no longer chasing (and does not chase on when it rallies)', () => {
+    const { b, a } = footFight(U.Spearmen, U.HeavyInfantry);
+    for (let i = 0; i < 20; i++) b.step();
+    // Off after fugitives on its own, then its nerve goes.
+    a.chaseAt = b.tick;
+    a.chaseX = a.ax;
+    a.chaseY = a.ay;
+    a.morale = 0;
+    while (!a.routed && b.tick < 60) b.step();
+    expect(a.routed).toBe(true);
+    expect(a.chaseAt).toBe(-1);
+  });
 });
 
 const isHorse = (cls: number) => cls === U.LightCavalry || cls === U.HorseArchers || cls === U.Knights;

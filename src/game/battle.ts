@@ -28,6 +28,13 @@ export type { CommanderTrait, MoraleState, Order, OrderKind, Personality, Plan }
 export { MORALE } from './command.ts';
 
 /**
+ * v7: bug fixes. A crossbow bolt no longer strikes a man of its own regiment at landing (it was
+ * aimed past its own ranks, but landed on the first man along its line, comrade or not: some
+ * 30% of a crossbow block's hits were in its own front rank). A regiment that breaks while
+ * chasing fugitives stops chasing (it kept the chase, and ran on after it once it rallied).
+ * Shock troops march at the drill's 11 units a second like all formed foot (0.6 of their speed,
+ * 10.8, left them trailing the line).
+ *
  * v6: formations at game scale and horse that cannot turn on a dime. Regiments stand further
  * apart (18 between blocks), ranks a little deeper than files (horse much deeper: a horse is
  * longer than it is broad), light horse looser. Blocks wheel at a capped rate: foot about its
@@ -44,7 +51,7 @@ export { MORALE } from './command.ts';
  * one side won 60-75% of mirror matches, which side depending on the armies' size (see
  * `pnpm fairness`).
  */
-export const BATTLE_VERSION = 6;
+export const BATTLE_VERSION = 7;
 /**
  * Mixed into every battle's seed. It was BATTLE_VERSION until v3, which kept v2's salt: a
  * version bump refuses old setups (BattleVersionError) but does not re-seed battles by itself.
@@ -590,8 +597,9 @@ const RANK_STEP: Record<string, number> = { line: 1.1, missile: 1.05, skirmish: 
 const REG_GAP = 18;
 const ROW_GAP = 16;
 /**
- * Pace in each mode, a share of the men's speed. Foot marches at about 9 units a second (some 1.7
- * m/s: a brisk march, faster than life so a battle is not all approach) and keeps its full speed,
+ * Pace in each mode, a share of the men's speed. Formed foot marches at FOOT_MARCH, 11 units a
+ * second (about 2 m/s: a brisk march, faster than life so a battle is not all approach), whatever
+ * its share here (see `moveAnchor`), and keeps its full speed,
  * and the run, for the charge; horse approaches at a trot, rides round at a canter and gallops
  * only in the charge. See docs/art-references/formations.md, section 7.3.
  */
@@ -2914,6 +2922,8 @@ export class Battle {
     r.routAt = this.tick;
     r.quietSince = this.tick;
     r.targetReg = -1;
+    // A chase ends when the chasers break (else, rallied, they would run on after it at once).
+    r.chaseAt = -1;
     // Broken once too often, or too few left to stand again: shattered.
     const maxRallies = 1 + (r.veteran || this.setup.armies[r.team]!.moraleBonus >= 8 ? 1 : 0);
     const shattered = r.rallies >= maxRallies || r.alive < r.start * MORALE.shatterBelow || this.broken[r.team];
@@ -3009,8 +3019,9 @@ export class Battle {
     let pace = r.speed * PACE[r.mode];
     if (pace === 0) pace = r.speed * 0.25; // drift onto the spot
     // Formed foot marches at the drill's pace, whatever the men's speed (the heavy keep up; nobody
-    // hurries); skirmishers in open order go at a jog.
-    else if (!horse && r.role !== 'skirmish' && (r.mode === 'advance' || r.mode === 'reserve')) pace = Math.min(pace, FOOT_MARCH);
+    // hurries: shock troops, whose 0.6 of speed is 10.8, keep up too); skirmishers in open order
+    // go at a jog, and engines at their crews' crawl.
+    else if ((r.role === 'line' || r.role === 'missile') && (r.mode === 'advance' || r.mode === 'reserve')) pace = FOOT_MARCH;
     // Foot breaks into a run for a charge or a chase.
     if ((r.mode === 'charge' || r.mode === 'pursue') && !isCav(r)) pace *= FOOT_RUN;
     pace *= sd.pace * (1 - FATIGUE.pace * r.fatigue);
@@ -3802,8 +3813,10 @@ export class Battle {
     const d = this.d;
     if (p.direct) {
       // The first man along its line takes it, friend or foe; a cannonball goes on through
-      // several, losing force with each.
-      const n = this.lineHits(p.x0, p.y0, p.x1, p.y1, p.shooter, -1, p.pen > 0 ? p.pen : 1);
+      // several, losing force with each. A crossbow bolt passes its own regiment's ranks, as it
+      // did when it was aimed (see `shoot`): they kneel or take turns.
+      const own = this.fire[p.team]![p.cls] === 'flat' ? d.reg[p.shooter]! : -1;
+      const n = this.lineHits(p.x0, p.y0, p.x1, p.y1, p.shooter, own, p.pen > 0 ? p.pen : 1);
       let force = 1;
       for (let k = 0; k < n; k++) {
         const j = this.lineIds[k]!;
