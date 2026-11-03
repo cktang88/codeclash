@@ -15,6 +15,7 @@
     "typecheck": "tsc --noEmit",
     "grammars": "tsx scripts/vendor-grammars.ts",
     "bench": "tsx scripts/battle-bench.ts",
+    "fairness": "tsx scripts/battle-fairness.ts",
     "pixel-lint": "tsx scripts/pixel-lint.ts"
   },
   "dependencies": {
