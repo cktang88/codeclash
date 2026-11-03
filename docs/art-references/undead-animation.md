@@ -324,8 +324,55 @@ painter's, unchanged.
 - The Barrow Horse Archers' Parthian backward shot: our riders face forward in both drawn views,
   and turning the torso 120° needs a rider drawn from behind on a horse seen from the side; their
   Shoot is a forward volley aimed high instead.
-- The Death Knight's lance-to-sword change is a slot swap on the blow's first frame (no drawing of
-  the sword); since each swing picks a blow, a knight can show the lance one swing and the sword
-  the next.
+- ~~The Death Knight's lance-to-sword change is a slot swap on the blow's first frame~~ (fixed in
+  the polish round below).
 - The Corpse Trebuchet's crew are unchanged (their haul and winch were right).
-- Wraiths and the Lich glide; their run is the faster glide, not a leg cycle.
+- ~~Wraiths and the Lich glide; their run is the faster glide~~ (now a flight: polish round below).
+
+## Polish round: the Death Knight's sword, the wraiths' flight, the javelin reload, the port (November 2026)
+
+### References added
+
+| Source | Licence | Taken from it |
+|---|---|---|
+| ImogiaGames, *Ghost monster* (remix of Balmer's *Skeleton and Ghost spritesheets, Ars Notoria*): [anim-nme-ghost.png](https://opengameart.org/sites/default/files/anim-nme-ghost.png) ([page](https://opengameart.org/content/ghost-monster)), [skeleton-ghost-preview.png](https://opengameart.org/sites/default/files/skeleton-ghost-preview.png) ([page](https://opengameart.org/content/skeleton-and-ghost-spritesheets-ars-notoria)) | CC0 (study copies in `references/wraith-run/`, not committed) | A hooded wraith in flight: the body pitched forward, the robe tapering back into a tail that never touches the ground, its tip breaking into loose bright pixels. So the run lifts the robe, pitches it and trails afterimage pixels. |
+| OpenGameArt, *Upwards floating soul* (`sSoul.png`, [page](https://opengameart.org/content/upwards-floating-soul)) | CC0 | Four frames of a teardrop ghost: the tail lags and swings against the head; the motion is in the tail, the head steady. The wraiths' head is held (dw -2) while the robe and the ghost streaks move. |
+| OpenGameArt, *Ghost 5* (`Ghosts.png`, [page](https://opengameart.org/content/ghost-5)) | CC0 | A frilled hem that changes shape frame to frame as the body moves: the hem, not legs, carries the gait. |
+| Met 468633, knight aquamanile c. 1250 ([page](https://www.metmuseum.org/art/collection/search/468633)); Met 461052, knight aquamanile c. 1350 ([page](https://www.metmuseum.org/art/collection/search/461052)) (see `templar-animation.md`, polish round) | Public domain | The sword sheathed at the left hip of a mounted knight, hanging steeply by the saddle; the sword raised high behind the head before the cut. The Death Knight's scabbard and his draw-and-heave. |
+| `weapon-attacks.md` U3 (javelin: withdraw, block, release), U5 (crossbow), U8 (Death Knight) and `running.md` §5 (weapons at the port) | Our notes | The reload order and the carry. |
+
+### What changed
+
+| Unit | Before | Now |
+|---|---|---|
+| Death Knights (7) | The sword blows swapped the lance for the sword for the whole blow (frame 0), so a knight showed the lance one swing and the sword the next | **Lance-based, the sword drawn inside each sword blow.** The key art gains a sheathed war sword at the far hip (scabbard steep past the saddle; a steel chape and locket at level 8). In both sword blows: the fist carries the upright lance to the shield hand (1), is on the hilt at the far hip with the blade along the scabbard (2), heaves up (3-4), cuts (5-8), sheathes (9) and takes the lance back (10). Slots `weapon`/`weapon.sword`, `hip`/`hip.empty` and `farLance`/`farLance.held` swap from frame 2 to 9. Chosen over "all sword" because the idle, walk and charge all carry the lance: with this, every swing starts and ends as they do. |
+| Wraith-Wardens (3), Lich-Marshal (10) | Run = the glide leaned harder, faster bob | A **flight**: the robe lifted clear (0.8 units, the Lich 1.1), the body pitched 36 degrees forward, the legs trailing back up under the hem, the free arm swept back a frame late (the wardens' bow arm with the nocked bow low behind; the Lich's witch-hand, the staff carried slanting forward), a surge twice a cycle, the robe and cloak streaming (cloth run 3.2). A `ghost` extra draws **afterimage streaks** of the robe's own cloth behind it at four heights, each on its own beat, drifting back and breaking into loose pixels. |
+| Bone-Throwers (2), Shoot | After the throw the new javelin appeared point-forward in a raised fist in front of the face (frame 10) and swung back to the cocked carry (11) | The hand goes up behind the shoulder to the **fan on the back** and draws the next javelin point-up (9, now a keyed frame), brings it over the shoulder turning point-forward (10), settles into the carry (11): at most ~40 degrees a frame. |
+| Revenant Arbalests (4), Run | The crossbow at the port low across the body, brown on the brown gambeson at level 4 | Carried **higher and further out** (the fist 2.2 forward, 1.3 below the shoulder, the stock at 116 degrees) so the prod stands by the near shoulder clear of the body, and a **lit rim** (bone, lightest tone) along the stock's upper edge and the prod's tip while at the port (event `port` on the authored runs; from level 2). |
+
+### Critique rounds
+
+1. **Death Knight.** The first scabbard was dark leather on the dark barding and vanished; the
+   steel chape and locket carry it at level 8. At level 4 they pushed the aligned-band-ends check
+   over its gate (0.294 -> 0.301 FAIL), so below level 8 only the leather is drawn (0.295).
+2. **Wraiths.** First pass: the near arm could not trail (its IK holds the string hand on the
+   nock), and the streaks were dark, evenly stacked dashes that read as stripes. The bow arm now
+   trails instead (the string hand follows); the streaks are the cloth's lightest tones, four rows
+   on their own beats, set back from the robe's slanted back edge (the first set hid behind it).
+   With the bow arm swept far back, the bow in NE crossed the whole robe: the sweep was halved.
+3. **Javelin.** The keyed path was right but frame 9 was not a key (interpolated between 8 and 10):
+   added to the clip's extra keys, so the draw from the fan shows.
+4. **Arbalests.** Higher alone (fist 0.9 below the shoulder) put the prod in front of the face in
+   SE; at 1.3 below it sits by the shoulder, and the rim carries the stock across the gambeson.
+
+Contact sheets, before and after, every frame, SE above NE, level 4 x2:
+`docs/screenshots/anim-weapons/polish/u-k7-death-knights-blows-*.png`, `u-k3-wraiths-walk-run-*`,
+`u-k10-lich-walk-run-*`, `u-k2-bone-throwers-shoot-*` and `u-k4-arbalests-run-*`.
+
+Still short:
+- The Death Knight's sheathed sword is small and dark at levels 1-4 (the leather alone); it reads
+  in the blow, not at rest.
+- The wraiths' ghost streaks use the robe's own ramp (dark violet, the Lich's shroud): a paler
+  ghost would need a new material.
+- The wardens' run carries the bow drawn half-back behind them (the string hand stays on the nock).
+- The Bone-Throwers' withdraw (frame 0 to 1) is still one big step from the carry to the arm back.
