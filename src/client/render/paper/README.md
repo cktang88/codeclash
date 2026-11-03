@@ -111,6 +111,40 @@ the viewer: it is screen-left in SE and screen-right in NE. In NE:
 
 To hand-draw SW or NW instead of mirroring, list them in `facings`.
 
+#### The light in the mirrored facings
+
+A mirrored facing mirrors the geometry, **not the light**: SW and NW are drawn with the light
+reversed (`c.lightX === -1`, key light top-right) and then mirrored, so all four facings are lit
+from the top-left. `drawFacing` (and `paintSkeleton`) set it; your `draw` is called the same way
+as before. What follows the light by itself:
+- `poly` axes, so `rod`, every volume built on an axis (templar-static `vol`, samurai `vol`) and the `u` handed to a `detail`;
+- `blob`'s lit cluster and shadow crescent;
+- the outline and contact passes (they run after the mirror);
+- `planeLight` (undead), through `drawLightX()`.
+
+What you must do in hand-written shading: wrap the **x of every lighting term** in `c.litX(...)`.
+It returns `dx` as is in a facing drawn as seen and `-dx` in one drawn for a mirror. Geometry stays in
+plain x (where the cross, the eye, the visor bar or a fold is). Examples:
+
+```ts
+const lit = c.litX(ux) < -0.55 ? 1 : c.litX(ux) > 0.75 ? -1 : 0;   // helm: lit band, shaded flank
+code(SM.lacquer, lit(c, 2, c.litX(fx) * 0.8 + fy * 0.4));           // samurai plane light
+if (ny < -0.45 && c.litX(nx) < 0.3) return code(TM.steel, 4);       // a blob detail's highlight
+const dd = c.litX(fx - f0);                                          // a fold's lit ridge beside its channel
+```
+
+Measure from the part's own origin (`c.litX(fx - 5)`, not `c.litX(fx) - 5`): the mirrored part's
+origin is mirrored too. A tone picked from a table by position (samurai kusazuri) takes the entry at
+the mirrored position. Pixel passes inside a draw step toward the light with `i - c.lightX` and
+away with `i + c.lightX`, not `i - 1` (undead `shadeLower`, `keyLight`). Leave depth alone: the far
+arm or leg in shade is geometry, not light. A part cache that keys on the drawing must key on
+`c.lightX` too (`skeleton.ts` part images, `templar-rig.ts` `memoSkin`), and a scratch Paper takes
+the caller's `lightX`.
+
+`paper.test.ts` checks that a part drawn for a mirror and then mirrored equals the same part drawn
+where the mirror puts it. Before/after: `docs/screenshots/hd-sprites/mirror-light-before-after.png`;
+notes and references: `docs/art-references/mirror-light.md`.
+
 ## Animating with bones (`skeleton.ts`)
 
 The pose rig above moves anchors you compute by hand. `skeleton.ts` gives a figure real bones
@@ -216,6 +250,7 @@ All points are in figure units, with `(0, 0)` at the feet.
 | `c.blob(centre, rx, ry, mat, { tone, shine, detail })` | An ellipse with a light cluster offset to the top-left and a shadow crescent at the bottom-right: skulls, joints, pommels, plates. |
 | `c.shape(pts, shade)` / `c.poly(canvasPts, shade, axis?)` | Any polygon with your own shading rule. `shape` takes units, `poly` takes canvas px. |
 | `c.line(a, b, code)` | A 1 px line: bowstrings, cracks, seams. |
+| `c.litX(dx)`, `c.lightX`, `drawLightX()` | The light side (see "The light in the mirrored facings"): `litX` turns a horizontal offset in a lighting term so it is negative toward the light in every facing. |
 | `c.smear(pivot, from, to, r0, r1, mat)` | A solid motion arc for a weapon sweep: one shape, no blending. |
 | `code(mat, tone)` | A pixel code. Tones run 0 (deep) to 4 (light). A shade callback returns a code, or `-1` to leave the pixel. |
 
@@ -258,7 +293,7 @@ What the core does with your colours, so you don't have to:
 
 ## Passes (run by `index.ts` on every frame)
 
-1. **mirror**: SW and NW only.
+1. **mirror**: SW and NW only (drawn with `lightX = -1`, so the mirror keeps the light top-left).
 2. **contact**: an inner line on the **shadow side only**. A part's own rim darkens two tones where its right or lower neighbour is a part behind it. There is never a dark line all the way round a part (pillow shading).
 3. **clusters**: specks of one tone smaller than 3 px (4 at level 8) take their most common same-material neighbour.
 4. **steady**: anti-flicker with hysteresis against the previous frame of the same animation. A lone flip, or a one-step band flip with two neighbours agreeing, keeps last frame's tone. Paint an animation's frames in order on one `Paper`.
@@ -332,5 +367,7 @@ The Grave Legionary's current status (undead kind 0):
 A kind's sheet paints in a worker. Passes scan only the drawn bounding box. On the 4-core
 container, a paper kind takes about 90 ms at level 1, 140 ms at level 2, 300 ms at level 4 and
 700 ms at level 8 (`pnpm tsx scripts/sprite-bench.ts <faction> 1,2,4,8 <kinds>`). That is on a par
-with the ray-cast painter from level 4 up. Keep `poly` counts sane: a part per bone or plate, not
+with the ray-cast painter from level 4 up. Since the mirrored facings draw their own part images (lit from the
+other side), a sheet costs about 5% more CPU than with plain mirroring, after `begin` was changed to clear only the
+drawn box. Keep `poly` counts sane: a part per bone or plate, not
 per pixel.
