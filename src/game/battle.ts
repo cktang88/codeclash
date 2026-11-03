@@ -32,6 +32,8 @@ export { MORALE } from './command.ts';
  * aimed past its own ranks, but landed on the first man along its line, comrade or not: some
  * 30% of a crossbow block's hits were in its own front rank). A regiment that breaks while
  * chasing fugitives stops chasing (it kept the chase, and ran on after it once it rallied).
+ * Shock troops march at the drill's 11 units a second like all formed foot (0.6 of their speed,
+ * 10.8, left them trailing the line).
  *
  * v6: formations at game scale and horse that cannot turn on a dime. Regiments stand further
  * apart (18 between blocks), ranks a little deeper than files (horse much deeper: a horse is
@@ -595,8 +597,9 @@ const RANK_STEP: Record<string, number> = { line: 1.1, missile: 1.05, skirmish: 
 const REG_GAP = 18;
 const ROW_GAP = 16;
 /**
- * Pace in each mode, a share of the men's speed. Foot marches at about 9 units a second (some 1.7
- * m/s: a brisk march, faster than life so a battle is not all approach) and keeps its full speed,
+ * Pace in each mode, a share of the men's speed. Formed foot marches at FOOT_MARCH, 11 units a
+ * second (about 2 m/s: a brisk march, faster than life so a battle is not all approach), whatever
+ * its share here (see `moveAnchor`), and keeps its full speed,
  * and the run, for the charge; horse approaches at a trot, rides round at a canter and gallops
  * only in the charge. See docs/art-references/formations.md, section 7.3.
  */
@@ -3016,8 +3019,9 @@ export class Battle {
     let pace = r.speed * PACE[r.mode];
     if (pace === 0) pace = r.speed * 0.25; // drift onto the spot
     // Formed foot marches at the drill's pace, whatever the men's speed (the heavy keep up; nobody
-    // hurries); skirmishers in open order go at a jog.
-    else if (!horse && r.role !== 'skirmish' && (r.mode === 'advance' || r.mode === 'reserve')) pace = Math.min(pace, FOOT_MARCH);
+    // hurries: shock troops, whose 0.6 of speed is 10.8, keep up too); skirmishers in open order
+    // go at a jog, and engines at their crews' crawl.
+    else if ((r.role === 'line' || r.role === 'missile') && (r.mode === 'advance' || r.mode === 'reserve')) pace = FOOT_MARCH;
     // Foot breaks into a run for a charge or a chase.
     if ((r.mode === 'charge' || r.mode === 'pursue') && !isCav(r)) pace *= FOOT_RUN;
     pace *= sd.pace * (1 - FATIGUE.pace * r.fatigue);
