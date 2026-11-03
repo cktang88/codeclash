@@ -984,13 +984,22 @@ export interface SkeletonRig {
   skel: SkeletonData;
   atts: AttachmentSet;
   clips: Partial<Record<Anim, Clip>>;
+  /**
+   * Several melee blows: one clip per blow (blow 0 first), each a whole Attack (FRAMES[Attack]
+   * frames). When set it replaces `clips[Anim.Attack]`; the renderer picks a blow per man per
+   * swing. See README.md "Several blows".
+   */
+  attacks?: Clip[];
   /** Facings drawn by hand (default SE and NE). */
   facings?: readonly Facing[];
 }
 
-/** The clip, frame count and loop flag that paint an Anim (Dead: Die's last frame; missing: Idle). */
-export function clipOf(rig: SkeletonRig, anim: Anim, frame: number): { clip: Clip; n: number; loop: boolean; frame: number } {
-  const c = rig.clips[anim];
+/**
+ * The clip, frame count and loop flag that paint an Anim (Dead: Die's last frame; missing: Idle).
+ * `blow` picks one of `rig.attacks` for Attack.
+ */
+export function clipOf(rig: SkeletonRig, anim: Anim, frame: number, blow = 0): { clip: Clip; n: number; loop: boolean; frame: number } {
+  const c = anim === Anim.Attack && rig.attacks?.length ? rig.attacks[blow % rig.attacks.length] : rig.clips[anim];
   if (c) return { clip: c, n: animFrames(anim).frames, loop: animFrames(anim).loop, frame };
   if (anim === Anim.Dead && rig.clips[Anim.Die]) {
     const n = FRAMES[Anim.Die]!;
@@ -1002,9 +1011,9 @@ export function clipOf(rig: SkeletonRig, anim: Anim, frame: number): { clip: Cli
   return { clip: idle, n: f.frames, loop: f.loop, frame: frame % f.frames };
 }
 
-/** Draws an Anim's frame of a rig, codes only, on `c` (begun), in a drawn facing. */
-export function drawRigFrame(c: Paper, rig: SkeletonRig, anim: Anim, frame: number, facing: Facing): Posed {
-  const { clip, n, loop, frame: fr } = clipOf(rig, anim, frame);
+/** Draws an Anim's frame of a rig, codes only, on `c` (begun), in a drawn facing (Attack: of blow `blow`). */
+export function drawRigFrame(c: Paper, rig: SkeletonRig, anim: Anim, frame: number, facing: Facing, blow = 0): Posed {
+  const { clip, n, loop, frame: fr } = clipOf(rig, anim, frame, blow);
   const frames = bakeClip(rig.skel, clip, c.L, facing, n, loop);
   const posed = frames[fr % frames.length]!;
   const prev = fr > 0 ? frames[fr - 1] : loop ? frames[frames.length - 1] : undefined;
@@ -1017,7 +1026,8 @@ export function drawRigFrame(c: Paper, rig: SkeletonRig, anim: Anim, frame: numb
  * merge, anti-flicker against the previous frame painted on the same surface, the palette (`fp`, or
  * one built from this frame) and the coloured outline round the whole figure.
  */
-export function paintSkeleton(rig: SkeletonRig, anim: Anim, frame: number, opts: { level: number; facing?: Facing; hue?: number; paper?: Paper; fp?: FigurePalette }): SkeletonFrame {
+export function paintSkeleton(rig: SkeletonRig, anim: Anim, frame: number, opts: { level: number; facing?: Facing; hue?: number; paper?: Paper; fp?: FigurePalette; blow?: number }): SkeletonFrame {
+  const blow = anim === Anim.Attack ? (opts.blow ?? 0) : 0;
   const c = opts.paper ?? new Paper();
   const facing = opts.facing ?? 'se';
   const plan = planFacing(facing, rig.facings ?? DRAWN_DEFAULT);
@@ -1027,14 +1037,14 @@ export function paintSkeleton(rig: SkeletonRig, anim: Anim, frame: number, opts:
   c.lightX = plan.mirror ? -1 : 1;
   let posed: Posed;
   try {
-    posed = drawRigFrame(c, rig, anim, frame, plan.draw);
+    posed = drawRigFrame(c, rig, anim, frame, plan.draw, blow);
   } finally {
     c.lightX = 1;
   }
   if (plan.mirror) c.mirror();
   c.contact();
   c.clusters(opts.level >= 8 ? 4 : 3);
-  const id = `skel:${rig.skel.name}:${opts.level}:${anim}:${facing}`;
+  const id = `skel:${rig.skel.name}:${opts.level}:${anim}:${facing}${blow ? `:b${blow}` : ''}`;
   if (frame > 0 && c.last === `${id}:${frame - 1}`) c.steady();
   c.keep();
   c.last = `${id}:${frame}`;
@@ -1051,12 +1061,13 @@ export function skeletonKind(rig: SkeletonRig, opts: Omit<PaperKindDef<BasePose>
   const rest: BasePose = { px: 0, py: 0, tilt: 0, apart: 0, smear: null, sway: 0 };
   const poses: Partial<Record<Anim, BasePose[]>> = {};
   for (const a of Object.keys(rig.clips)) poses[Number(a) as Anim] = [rest];
+  if (rig.attacks?.length) poses[Anim.Attack] = [rest];
   return {
     ...opts,
     body: rig.skel.body,
     facings: rig.facings,
-    keys: { poses },
-    draw: (c, _p, facing, anim, frame) => void drawRigFrame(c, rig, anim, frame, facing),
+    keys: { poses, ...(rig.attacks?.length ? { attacks: rig.attacks.map(() => [rest]) } : {}) },
+    draw: (c, _p, facing, anim, frame, blow) => void drawRigFrame(c, rig, anim, frame, facing, blow),
   };
 }
 

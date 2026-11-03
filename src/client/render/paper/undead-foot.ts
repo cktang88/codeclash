@@ -298,15 +298,17 @@ export function footRig(kind: number, s: FootSpec): SkeletonRig {
  */
 /** The rig of a kind already built (after its first draw). */
 export const builtRig = (kind: number): SkeletonRig | undefined => RIGS.get(kind);
-export function registerFoot(kind: number, spec: () => FootSpec, shoots: boolean): void {
-  registerLazy(kind, 'foot', () => footRig(kind, spec()), shoots);
+export function registerFoot(kind: number, spec: () => FootSpec, shoots: boolean, blows = 1): void {
+  registerLazy(kind, 'foot', () => footRig(kind, spec()), shoots, blows);
 }
-export function registerLazy(kind: number, body: SkeletonData['body'], rig: () => SkeletonRig, shoots: boolean): void {
+/** `blows`: how many attack clips the rig will have (`SkeletonRig.attacks`); the rig is built lazily, so say it here. */
+export function registerLazy(kind: number, body: SkeletonData['body'], rig: () => SkeletonRig, shoots: boolean, blows = 1): void {
   const anims = [Anim.Idle, Anim.Walk, Anim.Run, Anim.Attack, Anim.Hit, Anim.Die, Anim.Dead, Anim.Brace, ...(shoots ? [Anim.Shoot] : [])];
   const rest: BasePose = { px: 0, py: 0, tilt: 0, apart: 0, smear: null, sway: 0 };
   registerPaperKind('undead', kind, {
     body,
     keys: { poses: Object.fromEntries(anims.map((a) => [a, [rest]])) },
-    draw: (c, _p, facing, anim, frame) => void drawRigFrame(c, rig(), anim, frame, facing),
+    blows,
+    draw: (c, _p, facing, anim, frame, blow) => void drawRigFrame(c, rig(), anim, frame, facing, blow),
   });
 }

@@ -16,7 +16,7 @@ import { FACTIONS, type FactionId } from '../../game/factions.ts';
 import { U } from '../../game/units.ts';
 import { Anim, ANIM_COUNT, COMMANDER_KIND, KIND_COUNT, type Atlas, type BuildAtlas, type Dir, type KindSheet } from './contract.ts';
 import { FRAMES, LOOPS, TICKS } from './frames.ts';
-import { paintPaper, type PaperFrame } from './paper/index.ts';
+import { paintPaper, paperBlows, type PaperFrame } from './paper/index.ts';
 
 export type { Atlas } from './contract.ts';
 
@@ -3161,15 +3161,50 @@ function armyColours(faction: string, hue: number): { fill: number[]; edge: numb
   return { fill, edge, looks };
 }
 
-/** Frame slots per kind: every (facing, animation, frame). */
+/** Frame slots per kind: every (facing, animation, frame) of blow 0. */
 const SLOTS = 4 * COLS;
+/** Frames in one melee blow. */
+const BLOW_N = FRAMES[Anim.Attack];
 
-/** Slot of a frame: Shoot borrows Attack for kinds that loose nothing, Die and Dead hold. */
-export function slotOf(kind: number, a: Anim, frame: number, dir: Dir): number {
+/**
+ * Melee blows of a kind (contract.ts `Atlas.blows`): paper kinds can register several attack
+ * clips; the ray-cast painter has one.
+ */
+export const blowsOf = (faction: string, kind: number): number => paperBlows(faction, kind);
+/**
+ * Slots in a kind's sheet with `blows` blows. Blow 0 keeps the classic slots (0..SLOTS-1); blows
+ * 1.. follow after them, a block of 4 facings × BLOW_N frames per blow.
+ */
+export const slotCount = (blows: number): number => SLOTS + (Math.max(1, blows) - 1) * 4 * BLOW_N;
+/** Grid columns of a kind with `blows` blows: blows 1.. get BLOW_N extra columns each, at the right. */
+export const gridCols = (blows: number): number => COLS + (Math.max(1, blows) - 1) * BLOW_N;
+
+/** Splits an Attack frame into (blow, frame in the blow); anything else is blow 0. */
+function blowOf(a: Anim, frame: number, blows: number): [number, number] {
+  if (a !== Anim.Attack || blows <= 1) return [0, frame];
+  const all = blows * BLOW_N;
+  const f = ((frame % all) + all) % all;
+  return [Math.floor(f / BLOW_N), f % BLOW_N];
+}
+
+/**
+ * Slot of a frame: Shoot borrows Attack (blow 0) for kinds that loose nothing, Die and Dead hold.
+ * Attack frame `b * BLOW_N + f` of a kind with `blows` blows is frame f of blow b.
+ */
+export function slotOf(kind: number, a: Anim, frame: number, dir: Dir, blows = 1): number {
   const b = a === Anim.Shoot && !SHOOTS.has(kind) ? Anim.Attack : a;
+  const [bl, fr] = blowOf(a, frame, blows);
+  if (bl > 0) return SLOTS + ((bl - 1) * 4 + dir) * BLOW_N + fr;
   const n = FRAMES[b];
-  const f = b === Anim.Die || b === Anim.Dead ? Math.min(Math.max(0, frame), n - 1) : ((frame % n) + n) % n;
+  const f = b === Anim.Die || b === Anim.Dead ? Math.min(Math.max(0, fr), n - 1) : ((fr % n) + n) % n;
   return dir * COLS + COL0[b]! + f;
+}
+
+/** Column of a frame in the level-1 grid (its row is kind * 4 + dir): blows 1.. sit right of COLS. */
+export function gridColOf(kind: number, a: Anim, frame: number, dir: Dir, blows = 1): number {
+  const [bl, fr] = blowOf(a, frame, blows);
+  if (bl > 0) return COLS + (bl - 1) * BLOW_N + fr;
+  return slotOf(kind, a, fr, dir) - dir * COLS;
 }
 
 /** One painted frame, trimmed: its slot, size, foot point and pixels. */
@@ -3222,12 +3257,16 @@ export function paintSheet(faction: string, hue: number, kind: number, level: nu
   useLevel(level);
   const scratch = new Uint32Array(W * H);
   const tiles: Tile[] = [];
+  const blows = blowsOf(faction, kind);
   for (let dir = 0; dir < 4; dir++)
     for (let a = 0; a < ANIM_COUNT; a++) {
       if (a === Anim.Shoot && !SHOOTS.has(kind)) continue;
-      for (let fr = 0; fr < FRAMES[a]!; fr++) {
-        const slot = dir * COLS + COL0[a]! + fr;
-        const pf = paintPaper(faction, kind, level, a as Anim, fr, dir as Dir, hue);
+      // Attack: every blow, one after another (blow 0 first, in its classic slots).
+      const runs = a === Anim.Attack ? blows : 1;
+      for (let at = 0; at < runs * FRAMES[a]!; at++) {
+        const fr = at % FRAMES[a]!;
+        const slot = at < FRAMES[a]! ? dir * COLS + COL0[a]! + fr : slotOf(kind, a as Anim, at, dir as Dir, blows);
+        const pf = paintPaper(faction, kind, level, a as Anim, at, dir as Dir, hue);
         if (pf) {
           tiles.push(paperTile(pf, slot));
           continue;
@@ -3272,7 +3311,7 @@ export function paintSheet(faction: string, hue: number, kind: number, level: nu
   }
   const pageH = y + rowH;
   const page = new Uint32Array(pageW * pageH);
-  const rects = new Int32Array(SLOTS * 6);
+  const rects = new Int32Array(slotCount(blows) * 6);
   tiles.forEach((t, i) => {
     const [px0, py0] = pos[i]!;
     for (let r = 0; r < t.h; r++) page.set(t.px.subarray(r * t.w, (r + 1) * t.w), (py0 + r) * pageW + px0);
@@ -3291,22 +3330,27 @@ export function paintGrid(faction: string, hue: number, kind: number): KindSheet
   const t0 = typeof performance !== 'undefined' ? performance.now() : 0;
   const { fill, edge, looks } = armyColours(faction, hue);
   useLevel(1);
-  const width = COLS * CELL_W, height = 4 * CELL_H;
+  // A kind with several blows gets their columns at the right (gridColOf).
+  const blows = blowsOf(faction, kind);
+  const width = gridCols(blows) * CELL_W, height = 4 * CELL_H;
   const out = new Uint32Array(width * height);
   for (let dir = 0; dir < 4; dir++)
     for (let a = 0; a < ANIM_COUNT; a++) {
       if (a === Anim.Shoot && !SHOOTS.has(kind)) continue;
-      for (let fr = 0; fr < FRAMES[a]!; fr++) {
+      const runs = a === Anim.Attack ? blows : 1;
+      for (let at = 0; at < runs * FRAMES[a]!; at++) {
+        const fr = at % FRAMES[a]!;
+        const col = at < FRAMES[a]! ? COL0[a]! + fr : gridColOf(kind, a as Anim, at, dir as Dir, blows);
         // Paper-doll kinds are drawn natively at level 1 (one unit per pixel), not downscaled.
-        const pf = paintPaper(faction, kind, 1, a as Anim, fr, dir as Dir, hue);
+        const pf = paintPaper(faction, kind, 1, a as Anim, at, dir as Dir, hue);
         if (pf) {
-          paperCell(pf, out, width, (COL0[a]! + fr) * CELL_W, dir * CELL_H);
+          paperCell(pf, out, width, col * CELL_W, dir * CELL_H);
           continue;
         }
         if (LV !== 1) useLevel(1);
         const sh = paint(looks, kind, a as Anim, fr, dir as Dir);
         prevOk = fr > 0;
-        finish(out, width, (COL0[a]! + fr) * CELL_W, dir * CELL_H, fill, edge, a === Anim.Dead ? null : sh, dir as Dir);
+        finish(out, width, col * CELL_W, dir * CELL_H, fill, edge, a === Anim.Dead ? null : sh, dir as Dir);
       }
     }
   const ms = typeof performance !== 'undefined' ? performance.now() - t0 : 0;
@@ -3469,7 +3513,9 @@ function request(faction: string, hue: number, kind: number, level: number, done
 export const buildAtlas: BuildAtlas = (faction, hue) => {
   setLevel(1);
   const image = document.createElement('canvas');
-  image.width = COLS * CELL_W;
+  const blowTab = Array.from({ length: KIND_COUNT }, (_, k) => blowsOf(faction, k));
+  // Wide enough for the kind with the most blows (their extra columns sit at the right).
+  image.width = gridCols(Math.max(...blowTab)) * CELL_W;
   image.height = KIND_COUNT * 4 * CELL_H;
   const ctx = image.getContext('2d')!;
   const painted: boolean[] = new Array<boolean>(KIND_COUNT).fill(false);
@@ -3501,10 +3547,11 @@ export const buildAtlas: BuildAtlas = (faction, hue) => {
     footX: FOOT_X,
     footY: FOOT_Y,
     frames: (kind, a) => FRAMES[anim(kind, a)],
+    blows: (kind) => blowTab[kind] ?? 1,
     ticksPerFrame: (a) => TICKS[a],
     at: (kind, a, frame, dir) => {
       ensure(kind);
-      return [(slotOf(kind, a, frame, dir) % COLS) * CELL_W, (kind * 4 + dir) * CELL_H];
+      return [gridColOf(kind, a, frame, dir, blowTab[kind] ?? 1) * CELL_W, (kind * 4 + dir) * CELL_H];
     },
     levels: LEVELS,
     sheet: (kind, level) => {
@@ -3533,7 +3580,7 @@ export const buildAtlas: BuildAtlas = (faction, hue) => {
       }
       return null;
     },
-    slot: slotOf,
+    slot: (kind, a, frame, dir) => slotOf(kind, a, frame, dir, blowTab[kind] ?? 1),
   };
   return atlas;
 };

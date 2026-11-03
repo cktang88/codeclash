@@ -1,6 +1,7 @@
 // The 2D paper-doll HD painter: entry point. See README.md for how to add a figure.
 
 import { Anim, type Dir } from '../contract.ts';
+import { FRAMES } from '../frames.ts';
 import { code, figurePalette, materialCount, materialNameOf, Paper, type FigurePalette, type RGB } from './core.ts';
 import { DRAWN_DEFAULT, drawFacing, facingOf, type Facing } from './facing.ts';
 import { factionPaletteOptions, factionPaletteVersion, paperKindFor, paperKinds, paperSupports, type PaperKind } from './registry.ts';
@@ -10,7 +11,7 @@ import './templar.ts';
 import './samurai.ts';
 import './undead.ts';
 
-export { paperKindFor, paperSupports, registerPaperKind, setFactionPaletteOptions, PAPER_LEVELS } from './registry.ts';
+export { paperBlows, paperKindFor, paperSupports, registerPaperKind, setFactionPaletteOptions, PAPER_LEVELS } from './registry.ts';
 export { Paper } from './core.ts';
 
 export interface PaperFrame {
@@ -28,10 +29,10 @@ const SHARED = new Paper();
 const SCRATCH = new Paper();
 
 /** Draws a frame's codes on `paper` (no colours): pose, facing, mirror, contact and cluster passes. */
-function drawCodes(paper: Paper, k: PaperKind, level: number, anim: Anim, frame: number, dir: Dir): void {
+function drawCodes(paper: Paper, k: PaperKind, level: number, anim: Anim, frame: number, dir: Dir, blow = 0): void {
   paper.begin(level, BODIES[k.body].canvas);
-  const pose = poseAt(k.keys, anim, frame);
-  drawFacing(paper, facingOf(dir), k.facings ?? DRAWN_DEFAULT, (f: Facing) => k.draw(paper, pose, f, anim, frame));
+  const pose = poseAt(k.keys, anim, frame, blow);
+  drawFacing(paper, facingOf(dir), k.facings ?? DRAWN_DEFAULT, (f: Facing) => k.draw(paper, pose, f, anim, frame, blow));
   paper.contact();
   paper.clusters(k.clusterMin?.(level) ?? (level >= 8 ? 4 : 3));
 }
@@ -49,10 +50,10 @@ function usedCodes(faction: string, level: number, kind?: number): Map<number, n
   if (got && got.n === kinds.length && got.mats === materialCount()) return got.codes;
   const codes = new Map<number, number>();
   for (const k of kinds)
-    for (const [anim, fr] of [[Anim.Idle, 0], [Anim.Attack, 4], [Anim.Die, 6]] as [Anim, number][])
+    for (const [anim, fr, blow] of [[Anim.Idle, 0, 0], ...Array.from({ length: k.blows }, (_, b) => [Anim.Attack, 4, b]), [Anim.Die, 6, 0]] as [Anim, number, number][])
       for (const dir of [0, 3] as Dir[]) {
         if (!paperSupports(faction, k.kind, anim, dir, level)) continue;
-        drawCodes(SCRATCH, k, level, anim, fr, dir);
+        drawCodes(SCRATCH, k, level, anim, fr, dir, blow);
         SCRATCH.codes(codes);
       }
   USED.set(key, { n: kinds.length, mats: materialCount(), codes });
@@ -81,13 +82,23 @@ export function factionPalette(faction: string, hue: number, level: number, kind
  * 8 ≈ a 128 figure), facing `dir`, in the army's heraldic hue. Null when the paper painter does
  * not draw that slot (paperSupports). Paint an animation's frames in order on one surface: each
  * frame's anti-flicker pass follows on from the previous one.
+ *
+ * Attack frames run blow after blow (contract.ts `Atlas.blows`): frame `b * FRAMES[Attack] + f`
+ * is frame f of blow b (paperBlows says how many). Frames past the last blow wrap.
  */
 export function paintPaper(faction: string, kind: number, level: number, anim: Anim, frame: number, dir: Dir, hue: number, paper: Paper = SHARED): PaperFrame | null {
   if (!paperSupports(faction, kind, anim, dir, level)) return null;
   const k = paperKindFor(faction, kind)!;
   const fp = factionPalette(faction, hue, level, kind);
-  drawCodes(paper, k, level, anim, frame, dir);
-  const id = `${faction}:${kind}:${level}:${anim}:${dir}:${hue}`;
+  let blow = 0;
+  if (anim === Anim.Attack && k.blows > 1) {
+    const n = FRAMES[Anim.Attack];
+    blow = Math.floor(frame / n) % k.blows;
+    frame %= n;
+  }
+  drawCodes(paper, k, level, anim, frame, dir, blow);
+  // Each blow is its own run of frames for the anti-flicker pass (blow 0 keeps the old id).
+  const id = `${faction}:${kind}:${level}:${anim}:${dir}:${hue}${blow ? `:b${blow}` : ''}`;
   if (frame > 0 && paper.last === `${id}:${frame - 1}`) paper.steady();
   paper.keep();
   paper.last = `${id}:${frame}`;

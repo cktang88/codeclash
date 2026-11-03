@@ -853,7 +853,7 @@ let midMergeTable: Map<number, number> | null = null;
 export function samuraiKind(rig: SkeletonRig): ReturnType<typeof skeletonKind> {
   const k = skeletonKind(rig);
   const draw = k.draw;
-  return { ...k, draw: (c, p, f, anim, fr) => { draw(c, p, f, anim, fr); lowMerge(c); } };
+  return { ...k, draw: (c, p, f, anim, fr, blow) => { draw(c, p, f, anim, fr, blow); lowMerge(c); } };
 }
 
 /** Registers the foot kinds drawn on bones (samurai.ts calls this after its own registrations, so these win). */

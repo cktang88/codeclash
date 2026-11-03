@@ -9,7 +9,10 @@ export const Anim = {
   Walk: 1,
   /** Charging or fleeing. */
   Run: 2,
-  /** A melee blow. */
+  /**
+   * A melee blow. A kind may have several different blows (`Atlas.blows`); they are laid out one
+   * after another in this animation's frames (see `Atlas.blows`).
+   */
   Attack: 3,
   /** Loosing a missile (bows, crossbows, javelins, the engine's throw). */
   Shoot: 4,
@@ -52,8 +55,19 @@ export interface Atlas {
   /** The point of a cell that stands on the ground (between the feet / under the horse). */
   footX: number;
   footY: number;
-  /** Frames in an animation for a kind (at least 1). */
+  /**
+   * Frames in an animation for a kind (at least 1). For Attack this is the length of ONE blow,
+   * whatever `blows` says, so timing code (play once from actedAt) needs no change.
+   */
   frames(kind: number, anim: Anim): number;
+  /**
+   * How many different melee blows a kind has (default 1 when absent). The Attack animation holds
+   * `blows × frames(kind, Attack)` frames, blow after blow: frame `b * n + f` (n = frames(kind,
+   * Attack), 0 <= f < n) is frame f of blow b, in `at` and `slot` alike. Frames 0..n-1 are blow 0,
+   * so a renderer that never asks for a blow gets exactly what it got before. Only Attack has blows
+   * (Shoot falling back to Attack uses blow 0).
+   */
+  blows?(kind: number): number;
   /** Ticks (0.1 s each) per frame for an animation, before the renderer's own speed-up. */
   ticksPerFrame(anim: Anim): number;
   /** Top-left of a frame's cell in `image`. */

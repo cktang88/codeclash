@@ -164,6 +164,8 @@ export class BattleScene {
   private frameTab: Uint16Array[] = [];
   private lenTab: Float32Array[] = [];
   private tpfTab: Float32Array[] = [];
+  /** Melee blows per kind, per army (Atlas.blows; 1 when the painter has one). */
+  private blowTab: Uint8Array[] = [];
   private missileRegions: Record<string, Region[]> = {};
   private puffRegions: Region[] = [];
   private regY: Float32Array;
@@ -208,6 +210,9 @@ export class BattleScene {
           lens[k * ANIM_COUNT + an] = frames[k * ANIM_COUNT + an]! * tpf[an]!;
         }
       this.frameTab.push(frames);
+      const blows = new Uint8Array(KIND_COUNT);
+      for (let k = 0; k < KIND_COUNT; k++) blows[k] = Math.max(1, Math.min(255, atlas.blows?.(k) ?? 1));
+      this.blowTab.push(blows);
       this.lenTab.push(lens);
       this.tpfTab.push(tpf);
     }
@@ -897,6 +902,12 @@ export class BattleScene {
       const phase = drilled ? s.reg * 0.71 + Math.round(s.sx / Math.max(1, reg.spacing)) * 0.12 : (i % 7) * 1.37;
       let f = loop ? Math.floor((T + phase) / tpf) % frames : Math.min(frames - 1, Math.floor((T - start) / tpf));
       if (f < 0) f = 0;
+      // Several blows (Atlas.blows): each man picks one per swing, from a hash of who he is and
+      // when he swung, so a regiment does not strike in lockstep. Blow b's frames follow blow 0's.
+      if (anim === Anim.Attack) {
+        const nb = this.blowTab[s.team]![kind]!;
+        if (nb > 1) f += frames * ((Math.imul(i * 0x9e3779b1 + Math.floor(s.actedAt * 10), 0x85ebca6b) >>> 16) % nb);
+      }
       const [u, vv] = atlas.at(kind, anim, f, dir);
       // No white hit flash: with hundreds of men trading blows it strobed the whole field. The hit
       // animation's recoil carries the blow (as in Total War).
