@@ -40,6 +40,11 @@ export interface DayTally {
   functions: number;
   links: number;
   bonus: number;
+  /**
+   * A fork's difficulty bonus credited once its commits reached the upstream (ingest/upstream.ts): already
+   * held to the caps of the day it was earned, so it is not held to this day's code again.
+   */
+  upstream: number;
   churn: number;
   filler: number;
   pushes: number;
@@ -53,6 +58,8 @@ export interface TallyDelta {
   functions?: number;
   links?: number;
   bonus?: number;
+  /** Upstream reward lines (DayTally `upstream`); absent in pushes. */
+  upstream?: number;
   churn: number;
   filler: number;
 }
@@ -64,7 +71,7 @@ export function int(n: unknown, min = -LIMIT): number {
 }
 
 export function emptyTally(): DayTally {
-  return { lines: new Array<number>(CAT_COUNT).fill(0), files: 0, branches: 0, functions: 0, links: 0, bonus: 0, churn: 0, filler: 0, pushes: 0 };
+  return { lines: new Array<number>(CAT_COUNT).fill(0), files: 0, branches: 0, functions: 0, links: 0, bonus: 0, upstream: 0, churn: 0, filler: 0, pushes: 0 };
 }
 
 /** Adds one push's change to a tally. */
@@ -75,6 +82,7 @@ export function addToTally(t: DayTally, d: TallyDelta): void {
   t.functions = Math.max(0, t.functions + int(d.functions));
   t.links = Math.max(0, t.links + int(d.links));
   t.bonus = Math.max(0, t.bonus + int(d.bonus));
+  t.upstream = Math.max(0, t.upstream + int(d.upstream));
   t.churn += int(d.churn, 0);
   t.filler += int(d.filler, 0);
   t.pushes += 1;
@@ -99,7 +107,7 @@ export function complexityOf(t: Pick<DayTally, 'branches' | 'functions' | 'links
 export function effectiveTally(t: DayTally): { code: number; bonus: number; removed: number; files: number; complexity: number } {
   const raw = Math.max(0, t.lines[Cat.Code]!);
   const code = credited(raw);
-  const bonus = credited(raw + Math.min(Math.max(0, t.bonus), BONUS_PER_CODE * raw)) - code;
+  const bonus = credited(raw + Math.min(Math.max(0, t.bonus), BONUS_PER_CODE * raw) + Math.max(0, t.upstream)) - code;
   const removed = Math.max(0, Math.min(CODE_KNEE, t.lines[Cat.Removed]!));
   const files = Math.min(t.files, 1 + fl(code / LINES_PER_FILE) + fl(removed / REMOVED_PER_FILE));
   return { code, bonus, removed, files, complexity: complexityOf(t, code).half / 2 };

@@ -327,6 +327,26 @@ describe('server sweep, second round', () => {
     }
   });
 
+  it('a fork’s upstream reward is credited whole, even on a day without code of its own', async () => {
+    const monday = weekOf(Date.UTC(2026, 10, 3), 0).weekStart;
+    const { server, now, signIn } = await boot(monday + 3_600_000);
+    const cookie = await signIn('ana');
+    const card = (await server.app.inject({ method: 'POST', url: '/api/leagues', headers: { cookie }, payload: { name: 'Fork Farm', visibility: 'public', resetHour: 0, bots: 0 } })).json<LeagueCard>();
+    const id = (await server.app.inject({ url: '/api/me', headers: { cookie } })).json<MeResponse>().user!.id;
+    const bonusOf = async () => (await server.app.inject({ url: `/api/leagues/${card.slug}/city/${id}`, headers: { cookie } })).json<CityView>().city.weekWork.bonus;
+    // The reward for commits merged upstream arrives the day after their push: the day it lands has no code.
+    now.t = monday + 2 * 3_600_000;
+    server.leagues.onUpstream({ userId: id, repo: 'ana/vite', bonus: 30 }, now.t);
+    now.t += 3_600_000;
+    expect(await bonusOf()).toBe(30);
+    // Nor is it held to a little code pushed the same day (the cap applied on the day it was earned).
+    server.leagues.onPush(push(id, 1), now.t);
+    server.leagues.onUpstream({ userId: id, repo: 'ana/vite', bonus: 100 }, now.t);
+    now.t += 3_600_000;
+    expect(await bonusOf()).toBe(130);
+    await server.shutdown();
+  });
+
   it('compares invite codes without short-circuiting', () => {
     expect(sameInvite('abc', 'abc')).toBe(true);
     expect(sameInvite('abd', 'abc')).toBe(false);

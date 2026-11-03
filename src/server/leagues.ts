@@ -96,7 +96,8 @@ export class Leagues {
   /** A fork's bonus credited once its commits reached the upstream: more code credit, now. */
   onUpstream(reward: { userId: number; repo: string; bonus: number }, now: number): void {
     const lines = new Array<number>(9).fill(0);
-    this.deps.game.addWork(reward.userId, now, reward.repo, 'upstream merge: difficulty bonus', { lines, files: 0, branches: 0, bonus: reward.bonus, churn: 0, filler: 0 });
+    // Held to the caps of the day it was earned already: not to this day's code (a quiet day would void it).
+    this.deps.game.addWork(reward.userId, now, reward.repo, 'upstream merge: difficulty bonus', { lines, files: 0, branches: 0, upstream: reward.bonus, churn: 0, filler: 0 });
   }
 
   private workOf(league: LeagueRow, id: number, from: number, until: number): WorkEvent[] {
