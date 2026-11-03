@@ -287,7 +287,7 @@ describe('battle: a handful of horse against horse', () => {
 });
 
 describe('battle: shooters keep their front to the enemy', () => {
-  it('javelin men throw and fall back behind their line without wheeling the block round (v9)', () => {
+  it('javelin men throw and fall back behind their line without wheeling the block round (v11)', () => {
     // Two lines of spears with javelin men out in front of each. Until v8 the skirmishers, falling
     // back, wheeled the whole loose block about (a slow pirouette, 140-180 degrees) and wheeled it
     // back again when they halted; now each man turns about and the block keeps its front.

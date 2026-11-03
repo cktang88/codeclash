@@ -28,13 +28,14 @@ function bench(men: number, seed: number, log = false): void {
   const ms = performance.now() - t0;
   const first = (kind: string) => b.events.find((e) => e.kind === kind)?.tick ?? -1;
   const routs = b.events.filter((e) => e.kind === 'rout').length;
-  const rallies = b.events.filter((e) => e.kind === 'rally').length;
+  const rallies = b.events.filter((e) => e.kind === 'rally' || e.kind === 'reform').length;
+  const joins = b.events.filter((e) => e.kind === 'joins').reduce((n, e) => n + (e.count ?? 0), 0);
   const charges = b.events.filter((e) => e.kind === 'charge').length;
   console.log(
     `${String(men).padStart(5)} men  ${String(b.soldiers.length).padStart(5)} figs  scale ${r.scale}  seed ${seed}  ` +
       `${(ms / 1000).toFixed(2)}s total  ${(sum / Math.max(1, r.ticks)).toFixed(2)} ms/step avg  ${worst.toFixed(1)} worst  ` +
       `| contact ${fmt(first('contact'))} first rout ${fmt(first('rout'))} break ${fmt(first('break'))} end ${fmt(r.ticks)}  ` +
-      `| winner ${r.winner} by ${r.reason}, ${routs} routs, ${rallies} rallies, ${charges} charges`,
+      `| winner ${r.winner} by ${r.reason}, ${routs} routs, ${rallies} rallies, ${joins} joined, ${charges} charges`,
   );
   if (!log) return;
   for (const [i, s] of r.sides.entries()) console.log(i, 'dead', s.dead.join(','), '| fled', s.fled.join(','), '| alive', s.alive.join(','), '| cmdr fell', s.commanderFell);

@@ -153,6 +153,8 @@ export function BattleView(props: {
         case 'contact': return `${who}’s line meets the enemy`;
         case 'waver': return `${who}’s ${unit} waver`;
         case 'rally': return `${who}’s ${unit} rally`;
+        case 'reform': return `${who}’s ${unit} re-form behind the line`;
+        case 'joins': return `Fugitives of ${who}’s ${f.short[e.fromCls ?? -1] ?? 'men'} fall in with the ${unit}`;
         case 'shattered': return `${who}’s ${unit} are shattered`;
         case 'break': return `${who}’s army breaks`;
         case 'stance': return `${who}’s ${unit} ${STANCE_WORDS[e.stance ?? ''] ?? 'change formation'}`;

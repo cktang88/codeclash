@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Battle, BATTLE_VERSION, ballisticsOf, State, type ArmySpec, type Projectile } from './battle.ts';
+import { Battle, BATTLE_VERSION, ballisticsOf, State, type ArmySpec, type Projectile, type Regiment } from './battle.ts';
 import type { FactionId } from './factions.ts';
 import { only, placeRegiment, plainArmy } from './testing.ts';
 import { U, UNIT_COUNT } from './units.ts';
@@ -190,7 +190,7 @@ const struck = (b: Battle, id: number, t: number, shots: Projectile[]) => {
   return s.state === State.Fighting && s.actedAt === t && s.target >= 0 && !shots.some((p) => p.shooter === id);
 };
 
-describe('battle: missile drill (v9)', () => {
+describe('battle: missile drill (v11)', () => {
   it('foot shooters never loose while their block walks or wheels; horse archers do', () => {
     const MIX = [0.22, 0.2, 0.08, 0.12, 0.07, 0.07, 0.05, 0.03, 0.03, 0.005];
     const army = (hue: number, faction: FactionId): ArmySpec => ({ ...plainArmy(MIX.map((f) => Math.round(300 * f)), hue, faction), commander: true });
@@ -303,6 +303,31 @@ describe('battle: missile drill (v9)', () => {
     expect(engaged).toBe(true);
     expect(engagedShots).toBe(0);
     expect(blows).toBeGreaterThan(8);
+  });
+
+  it('a man who falls in with a block of shooters mid-volley looses with its next volley', () => {
+    const { b } = butts('templar', U.Archers);
+    const [a, c] = b.regiments.filter((r) => r.team === 0) as [Regiment, Regiment];
+    placeRegiment(b, c, 700, 600 + a.width + 8, 1, 0);
+    // Between two of a's volleys, a loaded man of c (waiting for c's word) falls in with a.
+    let man = -1;
+    while (b.tick < 200 && man < 0) {
+      b.step();
+      if (b.tick < 40 || a.mode !== 'shoot' || a.volleyAt - b.tick < 3) continue;
+      man = c.members.find((id) => b.soldiers[id]!.cooldown === 0 && b.soldiers[id]!.ammo > 0) ?? -1;
+    }
+    expect(man).toBeGreaterThanOrEqual(0);
+    (b as unknown as { fallIn(i: number, from: Regiment, o: Regiment): void }).fallIn(man, c, a);
+    const next = a.volleyAt;
+    const fresh = shotsOf(b);
+    let at = -1;
+    while (b.tick < next + 10 && at < 0) {
+      b.step();
+      for (const p of fresh()) if (p.shooter === man) at = p.born;
+    }
+    // Not before the word, and in the volley's half second.
+    expect(at).toBeGreaterThanOrEqual(next);
+    expect(at).toBeLessThan(next + 5);
   });
 
   it('at-will fire runs straight into the melee, with no idle gap', () => {

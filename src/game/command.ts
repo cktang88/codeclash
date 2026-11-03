@@ -120,15 +120,100 @@ export const MORALE = {
   waverDefence: -4,
   /** Chance per think that a wavering regiment refuses an order to go forward. */
   refuse: 0.35,
-  /** Rally: chance per think once out of contact, and the lift from the general nearby. */
-  rallyChance: 0.12,
-  rallyNearGeneral: 0.15,
-  /** Per point of moraleBonus. */
-  rallyPerBonus: 0.01,
   /** Morale a rallied regiment comes back with, plus half the moraleBonus. */
   rallyMorale: 35,
   /** Breaking with less than this share left, or once too often: shattered. */
   shatterBelow: 0.25,
+} as const;
+
+/**
+ * Rallying and re-forming (battle.ts `thinkRouted`, `rallyOdds`) and fugitives falling in with
+ * another regiment of their own kind (`regroup`). The rules and odds follow the "Game rules
+ * suggested" of docs/art-references/rout-recovery.md; see docs/art-references/rally.md for how
+ * its metres became world units and how often each thing happens in a battle.
+ *
+ * Distances: the research gives metres (out of contact 100 m, standard < commander 150 m <
+ * reserve 300 m, joining 150 m). At the formation scale (about 5 units a metre) those would
+ * span the field, so they are compressed, keeping their order: roughly a unit a metre for the
+ * near ones, the reserve's 300 m to 240.
+ */
+export const REGROUP = {
+  /**
+   * Odds per check (every `check` ticks, 7.5 s) that a broken regiment out of contact rallies, by
+   * class (U order: heavy foot, spears, skirmishers, archers, crossbows, light horse, horse
+   * archers, knights, shock foot, engines): elite knights 0.35, horse and shock troops (veteran
+   * professionals) 0.20, trained foot 0.15, levies and missile men 0.05. A veteran regiment is at
+   * least `veteranFloor`, plus `veteranAdd`. Undead never rally (they hold or crumble).
+   */
+  odds: [0.15, 0.15, 0.05, 0.05, 0.05, 0.2, 0.2, 0.35, 0.2, 0] as readonly number[],
+  veteranFloor: 0.2,
+  veteranAdd: 0.05,
+  /** Ticks between rally checks. */
+  check: 20,
+  /** Lifts and blows to the odds (see rout-recovery.md 8.4). */
+  commander: 0.2,
+  standard: 0.15,
+  standardLost: -0.15,
+  reserve: 0.1,
+  enemyHorse: -0.2,
+  commanderDead: -0.15,
+  /** Per point of the army's moraleBonus. */
+  perBonus: 0.01,
+  /** Faction flavour: the samurai's lord's uma-jirushi (on top of `commander`), the Templars' Beauséant (any friendly banner within `banner`). */
+  samuraiLord: 0.2,
+  templarBanner: 0.2,
+  banner: 200,
+  /**
+   * Anchors, world units: the standard stands while at least `share` of the regiment's start
+   * (and `minMen`) are within `standardRange` of its centre; the commander within
+   * `commanderRange`; a formed (steady, unengaged) friendly regiment within `reserveRange`. A
+   * broken regiment rallies only with one of them, and only out of contact: no enemy block
+   * within 90 of its edge for 4 s. Enemy horse within `enemyHorseRange` weighs against it.
+   */
+  standardRange: 110,
+  commanderRange: 160,
+  reserveRange: 240,
+  enemyHorseRange: 200,
+  share: 0.3,
+  minMen: 6,
+  /** Men within this of the centre stop and form; stragglers further off run on. */
+  gather: 160,
+  /**
+   * Rallies a regiment gets: one (a second rout is final). Beyond them it may re-form `extra`
+   * more times, at `extraOdds` of the odds and only with its standard standing behind its own line.
+   */
+  rallies: 1,
+  extra: 0,
+  extraOdds: 0.5,
+  /** Shaken after rallying, ticks: it fights as if wavering and may balk at going forward. */
+  shaken: 400,
+
+  /** Fugitives joining another regiment. Ticks between looks: each running man is looked at once in this many ticks. */
+  every: 5,
+  /** A man must have run this long (ticks) before he can stop: the first panic carries him. */
+  minRun: 20,
+  /** How near the taking regiment's edge he must be, world units (150 m compressed). */
+  reach: 120,
+  /** At this share of his class's rally odds (with the lifts above), per check. */
+  joinOdds: 0.5,
+  /** Same class only; Templars join any regiment of their family (foot line, missile foot, horse). */
+  sameClass: true,
+  /** Within this share of the taking regiment's radius of its centre: at its standard (`standard` lift). */
+  standardNear: 0.6,
+  /** Enemies this near him make him run on: the chance times `enemyNearMul`. */
+  enemyNear: 40,
+  enemyNearMul: 0.25,
+  /** Badly hurt (under this share of his hit points): the chance times `hurtMul`. */
+  hurt: 0.4,
+  hurtMul: 0.5,
+  /** A man of a shattered regiment: the chance times this. */
+  shatteredMul: 0.5,
+  /** Morale the taking regiment loses per man taken in (fugitives bring their fear with them). */
+  moraleCost: 0.6,
+  /** A regiment takes men in only up to its starting strength times this. */
+  room: 1,
+  /** Ticks between ticker lines for one regiment taking men in. */
+  tellEvery: 150,
 } as const;
 
 /** Mode of a regiment counts as running for fatigue. */
