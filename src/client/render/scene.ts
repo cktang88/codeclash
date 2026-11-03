@@ -64,6 +64,8 @@ interface Particle {
   a: number;
   /** HD: which variant of the puff sprite. */
   v?: number;
+  /** HD: battle second it was raised (steps run without frames when skipping or hidden). */
+  t0?: number;
 }
 
 /** A decal waiting to be stamped into the ground: tex 0/1 = an army's atlas, 2 = effects. */
@@ -368,7 +370,8 @@ export class BattleScene {
     if (this.particles.length >= MAX_PARTICLES + (this.field && (kind === PK.Smoke || kind === PK.Spark) ? 800 : 0)) return;
     // HD: dust gives way, so marching thousands never crowd out blood, sparks and gun smoke.
     if (this.field && kind === PK.Dust && this.dustN++ >= MAX_PARTICLES / 2) return;
-    this.particles.push({ kind, x, y, z, vx, vy, vz, life: 0, max, size, r, g, b, a, v });
+    if (this.field) this.particles.push({ kind, x, y, z, vx, vy, vz, life: 0, max, size, r, g, b, a, v, t0: this.battle.tick * TICK_S });
+    else this.particles.push({ kind, x, y, z, vx, vy, vz, life: 0, max, size, r, g, b, a, v });
   }
 
   private mapX(x: number, y: number): number {
@@ -1179,9 +1182,9 @@ export class BattleScene {
       }
       const v2 = s.vx * s.vx + s.vy * s.vy;
       // Hooves and marching feet raise dust.
-      if (s.s.mounted ? v2 > 700 && rng.next() < 0.4 : v2 > 100 && rng.next() < 0.01) {
+      if (s.s.mounted ? v2 > 700 && rng.next() < 0.22 : v2 > 100 && rng.next() < 0.01) {
         const big = s.s.mounted ? 1 : 0;
-        this.spawn(PK.Dust, s.x - s.vx * 0.06 + (rng.next() - 0.5) * 3, s.y - s.vy * 0.06 + (rng.next() - 0.5) * 3, 1, -s.vx * 0.1 + (rng.next() - 0.5) * 6, -s.vy * 0.1 + (rng.next() - 0.5) * 6, 2 + rng.next() * 4, 1.6 + rng.next() * 1.4 + big, 2 + big * 3 + rng.next() * 2, 0.86, 0.76, 0.6, 0.32 + big * 0.3, rng.int(PUFF_VARIANTS));
+        this.spawn(PK.Dust, s.x - s.vx * 0.06 + (rng.next() - 0.5) * 3, s.y - s.vy * 0.06 + (rng.next() - 0.5) * 3, 1, -s.vx * 0.1 + (rng.next() - 0.5) * 6, -s.vy * 0.1 + (rng.next() - 0.5) * 6, 2 + rng.next() * 4, 1.6 + rng.next() * 1.4 + big, 2 + big * 4.5 + rng.next() * 2.5, 0.86, 0.76, 0.6, 0.3 + big * 0.18, rng.int(PUFF_VARIANTS));
       }
       // Hooves print the soil, the open heel behind.
       if (s.s.mounted && v2 > 300 && rng.next() < 0.22) {
@@ -1348,7 +1351,8 @@ export class BattleScene {
     this.dustN = 0;
     for (const p of ps) {
       p.life += dt;
-      if (p.life >= p.max) continue;
+      // Raised during steps no frame saw (skipping, a hidden tab): long gone by now.
+      if (p.life >= p.max || now - (p.t0 ?? now) > p.max + 0.5) continue;
       p.x += p.vx * dt;
       p.y += p.vy * dt;
       p.z += p.vz * dt;
