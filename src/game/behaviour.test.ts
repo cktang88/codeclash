@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Battle, BATTLE_VERSION, State, type ArmySpec, type BattleSetup } from './battle.ts';
+import { Battle, BATTLE_VERSION, MAX_TICKS, State, type ArmySpec, type BattleSetup } from './battle.ts';
 import type { FactionId } from './factions.ts';
 import { only, placeRegiment, plainArmy } from './testing.ts';
 import { U, UNIT_COUNT } from './units.ts';
@@ -256,3 +256,32 @@ describe('battle: breaking ranks to chase', () => {
 });
 
 const isHorse = (cls: number) => cls === U.LightCavalry || cls === U.HorseArchers || cls === U.Knights;
+
+describe('battle: a handful of horse against horse', () => {
+  // Until v8 these rode round each other at about 40 units until the time limit: the charge aimed
+  // 40 past its target, and a rider at a canter could not turn inside it (formations.md 7.11).
+  const cases: [string, number[], number[]][] = [
+    ['1 knight against 1 knight', only(U.Knights, 1), only(U.Knights, 1)],
+    ['1 light horse against 1 light horse', only(U.LightCavalry, 1), only(U.LightCavalry, 1)],
+    ['3 knights against 1 light horse', only(U.Knights, 3), only(U.LightCavalry, 1)],
+    ['2 knights against 1 light horse', only(U.Knights, 2), only(U.LightCavalry, 1)],
+    ['1 knight against 1 light horse', only(U.Knights, 1), only(U.LightCavalry, 1)],
+  ];
+  for (const [name, a, e] of cases) {
+    it(`${name}: they close, fight and finish well before the time limit`, () => {
+      for (let seed = 1; seed <= 3; seed++) {
+        const b = new Battle({ version: BATTLE_VERSION, seed, kind: 'daily', armies: [plainArmy(a), plainArmy(e, 200)] });
+        // The first blow (a charge may unhorse a lone rider before its block counts as engaged).
+        let melee = -1;
+        while (!b.done() && b.tick < MAX_TICKS) {
+          b.step();
+          if (melee < 0 && (b.regiments.some((r) => r.engaged) || b.soldiers.some((s) => s.hitAt >= 0))) melee = b.tick;
+        }
+        expect(melee, `seed ${seed}: never came to blows`).toBeGreaterThan(0);
+        expect(melee, `seed ${seed}: the first blow`).toBeLessThan(600);
+        expect(b.result!.reason, `seed ${seed}`).toBe('rout');
+        expect(b.result!.ticks, `seed ${seed}`).toBeLessThan(MAX_TICKS / 2);
+      }
+    });
+  }
+});

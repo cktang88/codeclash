@@ -28,6 +28,13 @@ export type { CommanderTrait, MoraleState, Order, OrderKind, Personality, Plan }
 export { MORALE } from './command.ts';
 
 /**
+ * v8: a charge that misses closes. A handful of horse against horse (a knight against a knight,
+ * a few knights against one light horseman) rode round each other at about 40 units until the
+ * time limit: the charge aimed 40 past its target, and at a canter the v6 turning circle was
+ * wider than the gap. A charge that has run 4 s without a blow now makes straight for its
+ * target, and a charging block whose goal lies inside its turning circle pulls up to a walk,
+ * which turns on the spot. Large blocks wheeling to a far goal are unchanged.
+ *
  * v7: bug fixes. A crossbow bolt no longer strikes a man of its own regiment at landing (it was
  * aimed past its own ranks, but landed on the first man along its line, comrade or not: some
  * 30% of a crossbow block's hits were in its own front rank). A regiment that breaks while
@@ -51,7 +58,7 @@ export { MORALE } from './command.ts';
  * one side won 60-75% of mirror matches, which side depending on the armies' size (see
  * `pnpm fairness`).
  */
-export const BATTLE_VERSION = 7;
+export const BATTLE_VERSION = 8;
 /**
  * Mixed into every battle's seed. It was BATTLE_VERSION until v3, which kept v2's salt: a
  * version bump refuses old setups (BattleVersionError) but does not re-seed battles by itself.
@@ -2686,7 +2693,11 @@ export class Battle {
         this.events.push({ tick: this.tick, team, kind: 'charge', cls: r.cls, reg: r.id });
       }
       this.setMode(r, 'charge');
-      this.goal(r, prey.cx + (dpx / dp) * 40, prey.cy + (dpy / dp) * 40);
+      // Aim through the target, so the charge carries into it; a charge that has run on without
+      // a blow (it rode past or round its target) makes straight for it instead, or it rides
+      // round it for good (see `moveAnchor`).
+      const past = this.tick - r.modeAt > CHARGE_MISSED ? 0 : 40;
+      this.goal(r, prey.cx + (dpx / dp) * past, prey.cy + (dpy / dp) * past);
       this.faceToward(r, prey.cx, prey.cy);
       return;
     }
@@ -3034,6 +3045,14 @@ export class Battle {
           // Horse goes where it faces and reins in to turn: it wheels in an arc, wider the faster
           // it rides, and cannot turn about at speed.
           pace *= al > 0.8 ? 1 : al > 0.3 ? 0.75 : 0.35;
+          // A charge whose target lies inside its turning circle would ride round it for good
+          // (until v8 two riders could circle each other to the time limit): pull up to a walk,
+          // which turns on the spot. The circle at speed v has radius v / w; the goal at (dx, dy)
+          // lies inside it when q^2 < 2 (v / w) |facing x (dx, dy)|.
+          if (r.mode === 'charge' && al < 0.95) {
+            const cr = r.fx * dy - r.fy * dx;
+            if (q * q * turnRate(r, true) < 2 * r.aspd * TICK_S * (cr < 0 ? -cr : cr)) pace = Math.min(pace, r.speed * HORSE_WALK);
+          }
           ux = r.fx;
           uy = r.fy;
         } else pace = Math.min(pace, r.speed * HORSE_WALK); // pulled up: it turns about at a walk
@@ -4082,6 +4101,8 @@ const HORSE_BRAKE = 24;
 const HORSE_REIN = 60;
 /** A walk, as a share of a horse's speed: slower than this a block may turn about or back. */
 const HORSE_WALK = 0.2;
+/** Ticks a charge may run without a blow before it gives up aiming through its target and makes straight for it. */
+const CHARGE_MISSED = 40;
 /** A rider going faster than this share of his speed turns at most 0.2 radians a tick (about 115 degrees a second): its cosine and sine. */
 const RIDER_FAST = 0.45;
 const RIDER_COS = 0.980066577841;

@@ -402,14 +402,15 @@ describe('battle: command and morale', () => {
     expect(b.commanderFell[1]).toBe(true);
     expect(b.events.some((e) => e.kind === 'commander' && e.team === 1)).toBe(true);
     for (let i = 0; i < before.length; i++) expect(after[i]!).toBeLessThanOrEqual(before[i]! - 15);
-    // Over several battles, the side that lost its general early loses most of them.
-    const lost = winsOf(6, (seed) => {
+    // Over several battles, the side that lost its general early loses most of them (about 82%
+    // of 60 seeds in v7 and v8; 6 seeds were too few to ask 5 of: v8 drew 3 of its first 6).
+    const lost = winsOf(20, (seed) => {
       const x = new Battle(setupOf(seed, army(300), army(300)));
       for (let i = 0; i < 300; i++) x.step();
       x.kill(x.commander[1]);
       return x.run().winner;
     });
-    expect(lost).toBeGreaterThanOrEqual(5);
+    expect(lost).toBeGreaterThanOrEqual(14);
   }, 60_000);
 
   it('regiments waver, break, rally and shatter; the city’s morale bonus helps', () => {
