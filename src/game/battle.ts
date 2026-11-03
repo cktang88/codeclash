@@ -1502,7 +1502,8 @@ export class Battle {
 
   /**
    * Whether fallen man `id` may yet be raised (U3): of a raising army whose Lich-Marshal still
-   * stands and whose host holds, of a class that rises, and never raised before. For the
+   * stands and whose host holds, of a class that rises, never raised before, and whose regiment
+   * still has men standing (`raise` puts him back in it). For the
    * renderer, which keeps such a corpse off the ground until it can no longer get up.
    */
   mayRise(id: number): boolean {
@@ -1510,7 +1511,8 @@ export class Battle {
     const t = d.team[id]!;
     if (this.doc[t]!.raiseEvery <= 0 || d.state[id] !== State.Dead || d.rose[id]! >= 0) return false;
     const s = this.soldiers[id]!;
-    if (s.commander || !RISES[s.cls]) return false;
+    // (A man rises back into his own regiment: once it has nobody left standing it never will.)
+    if (s.commander || !RISES[s.cls] || this.regiments[d.reg[id]!]!.alive === 0) return false;
     return !this.crumbling[t] && !this.broken[t] && !this.result && this.lordAlive(t);
   }
 

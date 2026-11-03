@@ -242,3 +242,20 @@ describe('battle: determinism rules (rng.ts)', () => {
     }
   });
 });
+
+describe('battle: the fallen who may rise (U3)', () => {
+  it('a corpse whose regiment is gone will never rise, and says so', () => {
+    const b = new Battle(setupOf(2, army(300, { faction: 'undead' }), army(300)));
+    let seen = 0;
+    while (!b.done()) {
+      b.step();
+      if (b.tick % 10 !== 0) continue;
+      for (const s of b.soldiers) {
+        if (s.team !== 0 || s.state !== State.Dead || !b.mayRise(s.id)) continue;
+        seen++;
+        expect(b.regiments[s.reg]!.alive, `regiment ${s.reg}`).toBeGreaterThan(0);
+      }
+    }
+    expect(seen).toBeGreaterThan(0);
+  }, 60_000);
+});
