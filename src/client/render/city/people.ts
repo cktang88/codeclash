@@ -12,14 +12,18 @@ export const FIG_FY = 15;
 /** Frames: 0-3 walk, 4 idle, 5-6 work (raise, strike). */
 export const FIG_FRAMES = 7;
 
-export type Work = 'none' | 'hammer' | 'scythe' | 'dig' | 'tend' | 'saw' | 'pray';
-export type Carry = 'none' | 'sack' | 'bucket' | 'staff' | 'book' | 'plank' | 'basket';
+/** The classic painter knows the first seven; 'sweep' is HD only (folk-people.ts). */
+export type Work = 'none' | 'hammer' | 'scythe' | 'dig' | 'tend' | 'saw' | 'pray' | 'sweep';
+/** The classic painter knows the first seven; the rest are HD only (folk-people.ts). */
+export type Carry = 'none' | 'sack' | 'bucket' | 'staff' | 'book' | 'plank' | 'basket' | 'parasol' | 'broom' | 'spade' | 'yoke' | 'lantern' | 'bundle' | 'tongs';
 
 export interface Look {
   body: Col;
   legs: Col;
   /** The classic painter knows the first six; the HD painter (people-hd.ts) knows them all. */
-  head: 'hair' | 'hood' | 'coif' | 'hat' | 'cap' | 'veil' | 'jingasa' | 'kasa' | 'shaved' | 'topknot' | 'eboshi' | 'skull' | 'cowl' | 'tenugui';
+  head:
+    | 'hair' | 'hood' | 'coif' | 'hat' | 'cap' | 'veil' | 'jingasa' | 'kasa' | 'shaved' | 'topknot' | 'eboshi' | 'skull' | 'cowl' | 'tenugui'
+    | 'straw' | 'wimple' | 'kerchief' | 'bun' | 'chaperon';
   hair: Col;
   robe: boolean;
   apron?: Col;
@@ -32,6 +36,18 @@ export interface Look {
   shamble?: boolean;
   eyes?: Col;
   rags?: boolean;
+  /** HD (folk-people.ts) only: the body, hair under a hat, a beard, trim, a cloth pattern, the legs' dress, wide sleeves. */
+  kind?: 'man' | 'woman' | 'child' | 'old' | 'skeleton' | 'zombie';
+  locks?: Col;
+  beard?: Col;
+  trim?: Col;
+  pattern?: 'kasuri' | 'stripe' | 'check';
+  lower?: 'hose' | 'hakama' | 'bare' | 'gaiters';
+  sleeves?: 'wide' | 'rolled';
+  /** A hood or kesa draped over the shoulders, in this colour. */
+  cape?: Col;
+  /** A sash worn crossways (the monk's kesa). */
+  kesa?: Col;
 }
 
 const OUT = hex('#140f0b');
