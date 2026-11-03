@@ -13,7 +13,7 @@ import type { Facing } from './facing.ts';
 import { registerPaperKind } from './registry.ts';
 import { SM, yumi } from './samurai-parts.ts';
 import {
-  BRACE, joints, KESA, KYUDO, lagCloth, neBody, PARENT, PIECE_BONE, PUNCH, R, samuraiKind, torsoWeightsAt,
+  BRACE, crescentPart, joints, KESA, KYUDO, lagCloth, neBody, PARENT, PIECE_BONE, PUNCH, R, samuraiKind, torsoWeightsAt,
   type Author, type SSpec, type Tracks,
 } from './samurai-rig.ts';
 import {
@@ -21,7 +21,7 @@ import {
   type Body, type HorsePiece, type ManPiece, type SMounted,
 } from './samurai-static.ts';
 import {
-  BREATH, bonesFromJoints, EASE, smearPart,
+  BREATH, bonesFromJoints, EASE,
   type AnimationData, type AnimEvent, type AttachmentSet, type Clip, type JointDef, type SkeletonData, type SkeletonRig, type SlotData,
 } from './skeleton.ts';
 import { HIT, T } from './templar-clips.ts';
@@ -95,13 +95,22 @@ function riderPieces(m: SMounted): ManPiece[] {
 function orders(s: HorseSpec, m: SMounted): { se: string[]; ne: string[] } {
   const rider = riderPieces(m);
   const se = ['weaponDrop', 'farDrop', ...HORSE_FAR.map(hs), ...RIDER_FAR_LEG, ...HORSE_BODY.map(hs), ...rider, ...RIDER_NEAR_LEG, 'abumi', 'flash'];
-  se.splice(se.indexOf('weapon') + 1, 0, 'smear');
-  const nearArm = ['forearmN', 'handN', 'weapon', 'gripN', 'smear'];
+  se.splice(se.indexOf('weapon'), 0, 'smear');
+  const nearArm = ['forearmN', 'handN', 'smear', 'weapon', 'gripN'];
   const front = s.neFront ?? false;
   const neRider = ['farItem', 'gripF', 'upperArmF', 'forearmF', 'handF', 'sodeF', ...(front ? nearArm : []), 'kusaFF', 'kusaFM', 'kusaFN', 'hipGear', 'torso', 'kusaBN', 'kusaBF', 'head', 'back', 'upperArmN', 'sodeN', ...(front ? [] : nearArm)];
   // From behind, what the far hand holds (the yumi) is on the horse's far side: behind its body.
   const neFar = rider.includes('farItem') ? ['farItem', 'gripF'] : [];
   const ne = ['weaponDrop', 'farDrop', ...HORSE_FAR.map(hs), ...RIDER_FAR_LEG, ...neFar, ...HORSE_BODY.map(hs), ...neRider.filter((p) => (rider.includes(p as ManPiece) || p === 'smear') && !neFar.includes(p)), ...RIDER_NEAR_LEG, 'abumi', 'flash'];
+  // A sword rider's hand and blade work outside his near leg (kiri-age starts low along the flank):
+  // over the leg and the stirrup, not under them.
+  if (s.ride === 'cut') {
+    for (const order of [se, ne]) {
+      const arm = nearArm.filter((p) => order.includes(p));
+      for (const p of arm) order.splice(order.indexOf(p), 1);
+      order.splice(order.indexOf('flash'), 0, ...arm);
+    }
+  }
   return { se, ne };
 }
 
@@ -174,7 +183,7 @@ function horseParts(kind: number, m: SMounted, s: HorseSpec): AttachmentSet {
   atts.abumi = (c, x, ctx) => withMap(partMap(x), () => abumi(c, rest[ctx.posed.facing].anN));
   atts.weaponDrop = (c, x, ctx) => withMap(partMap(x), () => manPiece(c, rest[ctx.posed.facing], dRide, m.gear, 'weapon', ctx.posed.facing === 'ne'));
   atts.farDrop = (c, x, ctx) => withMap(partMap(x), () => manPiece(c, rest[ctx.posed.facing], dRide, m.gear, 'farItem', ctx.posed.facing === 'ne'));
-  if (s.smear) atts.smear = smearPart('weapon', s.smear[0], s.smear[1], SM.steel);
+  if (s.smear) atts.smear = crescentPart('weapon', s.smear[1], SM.steel);
   if (s.shoot === 'kyudo') {
     // The yumi held across the horse's neck, the arrow nocked: its string runs to the draw hand,
     // and while the `draw` event runs the bow bends with the draw's length.
@@ -287,16 +296,35 @@ function riderGait(bob: Track, n: number, s: HorseSpec, run: boolean): Author {
   };
 }
 
-/** The couched yari at the charge: lowered into the couch, the rider leaning hard in; at the impact his trunk is driven back against the cantle; he settles. */
-const COUCH: Author = (rw) => ({
+/**
+ * The mounted yari thrust (weapon-attacks.md S6; bajutsu): the reins in the far hand, the yari in
+ * the near hand with its butt anchored at the hip. 1-3 the spear comes down from the upright carry,
+ * level, and is drawn back to the hip (the chamber); 4-5 the arm drives it straight out along its
+ * own line as the rider leans in over the neck, the point travelling level (no swing); 6 held at
+ * full reach; 7-9 withdrawn to the hip; 10-11 back up to the carry.
+ */
+const MOUNTED_THRUST: Author = (rw) => ({
   w: {
-    upperArmN: T([0, rw.upperArmN!], [2, -10], [4, -4], [5, 2], [6, -26], [7, -24], [9, -10], [11, rw.upperArmN!]),
-    forearmN: T([0, rw.forearmN!], [2, 76], [4, 82], [5, 86], [6, 70], [7, 72], [9, 76], [11, rw.forearmN!]),
-    // The tip dips onto the target at the impact, then kicks up as the shaft takes the blow.
-    weapon: T([0, rw.weapon!], [2, 97], [4, 100], [5, 106], [6, 92], [7, 94], [9, 97], [11, rw.weapon!]),
+    upperArmN: R(rw.upperArmN!, 11, [1, 10], [2, -25], [3, -30], [4, 30], [5, 62], [6, 62], [7, 30], [8, -10], [9, -12], [10, 20]),
+    forearmN: R(rw.forearmN!, 11, [1, 80], [2, 70], [3, 66], [4, 86], [5, 92], [6, 92], [7, 84], [8, 76], [9, 76], [10, 120]),
+    weapon: R(rw.weapon!, 11, [1, 112], [2, 97], [3, 97], [4, 95], [5, 94], [6, 94], [7, 96], [8, 97], [9, 100], [10, 150]),
     head: T([0, rw.head!]),
   },
-  dw: { spine: T([0, 0], [2, -10], [4, -22], [5, -26], [6, 10], [7, 12], [9, -2], [11, 0]), upperArmF: T([0, 0], [4, 12], [6, -8], [11, 0]) },
+  dw: { spine: T([0, 0], [2, 4], [3, 6], [4, -12], [5, -22], [6, -22], [8, -8], [11, 0]), upperArmF: T([0, 0], [4, 10], [6, 10], [9, 0]) },
+});
+/**
+ * The yari's second blow from the saddle: an overhand stab down at a man on foot. The spear is
+ * lifted over the head, point forward and down (1-3), then driven down past the horse's shoulder
+ * as the rider leans out (5-6), held, and drawn back up to the carry (8-11).
+ */
+const MOUNTED_DOWN: Author = (rw) => ({
+  w: {
+    upperArmN: R(rw.upperArmN!, 11, [1, 100], [2, 150], [3, 160], [4, 150], [5, 112], [6, 100], [7, 100], [9, 60], [10, 40]),
+    forearmN: R(rw.forearmN!, 11, [1, 140], [2, 170], [3, 175], [4, 150], [5, 96], [6, 80], [7, 82], [9, 90], [10, 120]),
+    weapon: R(rw.weapon!, 11, [1, 124], [2, 82], [3, 72], [4, 68], [5, 54], [6, 48], [7, 50], [9, 80], [10, 140]),
+    head: T([0, rw.head!], [5, rw.head! - 8], [7, rw.head! - 8], [9, rw.head!]),
+  },
+  dw: { spine: T([0, 0], [3, 6], [5, -18], [6, -24], [8, -20], [10, -4], [11, 0]) },
 });
 /** The cut from the saddle at the charge: the katana high over the near shoulder, the rider leaning out over the neck, the blade falling down the horse's near side, held, back up. */
 const SADDLE_CUT: Author = (rw) => ({
@@ -309,11 +337,35 @@ const SADDLE_CUT: Author = (rw) => ({
   dw: { spine: T([0, 0], [2, 8], [3, 10], [4, 2], [5, -12], [6, -24], [8, -24], [10, -6], [11, 0]) },
   tAdd: { chest: [T([0, 0], [3, -0.35], [6, 0.35], [8, 0.35], [11, 0]), T([0, 0])] },
 });
+/**
+ * Kiri-age from the saddle (the hatamoto's second blow), a rising cut of about 160°: the point is
+ * dropped (1) and the blade let fall back low along the horse's near flank, hand at the hip, the
+ * rider stooping out over the near side (2-4: low and back, under the horo, never over the
+ * shoulder); then it rises forward and up past the horse's shoulder in one arc (5-6), the rider
+ * straightening into it, and ends high and forward (7), held (8), back to the raised carry. The
+ * arm never swings over the top, so the horo never hides it. One-handed: the far hand keeps the reins.
+ */
+const SADDLE_RISE: Author = (rw) => ({
+  w: {
+    upperArmN: R(rw.upperArmN!, 11, [1, 70], [2, 8], [3, -22], [4, -26], [5, 14], [6, 70], [7, 118], [8, 122], [10, 140]),
+    forearmN: R(rw.forearmN!, 11, [1, 52], [2, -4], [3, -22], [4, -26], [5, 30], [6, 92], [7, 130], [8, 134], [10, 160]),
+    weapon: R(rw.weapon!, 11, [1, 14], [2, -18], [3, -34], [4, -38], [5, 40], [6, 96], [7, 124], [8, 128], [10, 150]),
+    head: T([0, rw.head!], [3, rw.head! - 10], [4, rw.head! - 10], [6, rw.head!], [7, rw.head! + 4], [8, rw.head! + 4], [10, rw.head!]),
+  },
+  dw: { spine: T([0, 0], [1, -4], [3, -16], [4, -18], [5, -10], [6, -2], [7, 6], [8, 6], [10, 0], [11, 0]) },
+});
+/** Tsuki from the saddle (the third blow): the raised blade brought level and driven straight forward over the horse's neck as the rider leans in; held; back up. */
+const SADDLE_THRUST: Author = (rw) => ({
+  w: {
+    upperArmN: R(rw.upperArmN!, 11, [1, 120], [2, 40], [3, 20], [4, 70], [5, 86], [6, 86], [8, 60], [10, 120]),
+    forearmN: R(rw.forearmN!, 11, [1, 130], [2, 80], [3, 70], [4, 90], [5, 94], [6, 94], [8, 90], [10, 150]),
+    weapon: R(rw.weapon!, 11, [1, 130], [2, 96], [3, 94], [4, 92], [5, 92], [6, 92], [8, 100], [10, 140]),
+    head: T([0, rw.head!]),
+  },
+  dw: { spine: T([0, 0], [3, 4], [4, -14], [5, -20], [6, -20], [8, -8], [11, 0]) },
+});
 /** Yabusame's shot at the gallop: the bow raised over the head, drawn to the ear while lowered, loosed with the hand flying back, held; the next arrow from the ebira. */
-const YABUSAME: Author = (rw, f) => {
-  const k = KYUDO(rw, f);
-  return { w: k.w, dw: { spine: T([0, -8]) } };
-};
+const YABUSAME: Author = (rw, f) => KYUDO(rw, f);
 
 /** The horse standing: hooves down, it breathes, the tail swishes, the head nods. */
 function standKeys(n: number, skel: SkeletonData, extra?: Author): (f: Facing) => KP[] {
@@ -329,7 +381,7 @@ function standKeys(n: number, skel: SkeletonData, extra?: Author): (f: Facing) =
   };
 }
 
-function horseClips(skel: SkeletonData, s: HorseSpec, m: SMounted): ClipSet {
+function horseClips(skel: SkeletonData, s: HorseSpec, m: SMounted, blowsOut?: Clip[]): ClipSet {
   // The mane trails the neck, streams back at the gallop; the sashimono and horo trail the trunk.
   const trail = (run: number, fall = false): LagSpec[] => [
     { bone: 'mane', follow: 'horseNeck', k: 0.6, lag: 1.5, bias: -28 * run, ...(run >= 1 ? { wave: [5, 2, 0.15] as [number, number, number] } : {}) },
@@ -373,11 +425,26 @@ function horseClips(skel: SkeletonData, s: HorseSpec, m: SMounted): ClipSet {
     const rw = restWorld(skel, f);
     return overlayKeys(overlayKeys(g.keys, extra(rw, f), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]), author(rw, f));
   };
-  let attack: Clip;
-  if (s.ride === 'couch') attack = fc('attack', 12, false, galloping(COUCH), [{ f: 5, name: 'smear', len: 1, bone: 'weapon' }, { f: 5, name: 'strike' }], 1);
-  else if (s.ride === 'cut') attack = fc('attack', 12, false, galloping(SADDLE_CUT), [{ f: 4, name: 'smear', len: 3, bone: 'weapon' }, { f: 7, name: 'strike' }], 1);
-  else attack = fc('attack', 12, false, (f) => overlayKeys(standKeys(11, skel)(f), PUNCH(restWorld(skel, f), f)), [{ f: 5, name: 'strike' }]);
-  if (horo && s.ride !== 'stab') attack = billow(attack, 12, 0.35);
+  // The blows at the gallop (README "Several blows"), blow 0 first.
+  const riding: { a: Author; ev: AnimEvent[] }[] =
+    s.ride === 'couch'
+      ? [
+          { a: MOUNTED_THRUST, ev: [{ f: 5, name: 'strike' }] },
+          { a: MOUNTED_DOWN, ev: [{ f: 5, name: 'smear', len: 1, bone: 'weapon' }, { f: 6, name: 'strike' }] },
+        ]
+      : s.ride === 'cut'
+        ? [
+            { a: SADDLE_CUT, ev: [{ f: 5, name: 'smear', len: 2, bone: 'weapon' }, { f: 7, name: 'strike' }] },
+            { a: SADDLE_RISE, ev: [{ f: 5, name: 'smear', len: 2, bone: 'weapon' }, { f: 6, name: 'strike' }] },
+            { a: SADDLE_THRUST, ev: [{ f: 5, name: 'strike' }] },
+          ]
+        : [];
+  const blowClip = (b: { a: Author; ev: AnimEvent[] }): Clip => {
+    const c = fc('attack', 12, false, galloping(b.a), b.ev, 1);
+    return horo ? billow(c, 12, 0.35) : c;
+  };
+  const attack: Clip = riding.length ? blowClip(riding[0]!) : fc('attack', 12, false, (f) => overlayKeys(standKeys(11, skel)(f), PUNCH(restWorld(skel, f), f)), [{ f: 5, name: 'strike' }]);
+  if (blowsOut && riding.length > 1) blowsOut.push(attack, ...riding.slice(1).map(blowClip));
   // Yabusame: the shot at the gallop.
   const shoot = s.shoot === 'kyudo'
     ? fc('shoot', 12, false, galloping(YABUSAME, () => ({})), [{ f: 0, name: 'nocked', len: 1 }, { f: 1, name: 'draw', len: 6 }, { f: 7, name: 'release' }], 1)
@@ -430,7 +497,8 @@ export function horseRig(kind: number): SkeletonRig | undefined {
   const m = MOUNTED[kind], s = HORSE_SPECS[kind];
   if (!m || !s) return undefined;
   const skel = horseSkel(kind, m, s);
-  const rig: SkeletonRig = { skel, atts: horseParts(kind, m, s), clips: horseClips(skel, s, m) };
+  const blows: Clip[] = [];
+  const rig: SkeletonRig = { skel, atts: horseParts(kind, m, s), clips: horseClips(skel, s, m, blows), ...(blows.length > 1 ? { attacks: blows } : {}) };
   RIGS.set(kind, rig);
   return rig;
 }

@@ -10,7 +10,8 @@ import { Battle, TICK_S, type Soldier } from '../game/battle.ts';
 import { demoSetup } from './demo.ts';
 import type { FactionId } from '../game/factions.ts';
 import { BattleScene } from './render/scene.ts';
-import { artMode, setArtMode, type ArtMode } from './settings.ts';
+import { artMode, nextArt, parseArt, setArtMode, type ArtMode } from './settings.ts';
+import { ART_LABEL } from './ui/useArtMode.ts';
 import { hdMemory } from './render/sprites128.ts';
 
 const q = new URLSearchParams(location.search);
@@ -68,14 +69,14 @@ const moraleTick = () => {
   }
 };
 moraleTick();
-const art: ArtMode = q.get('art') === 'hd' ? 'hd' : q.get('art') === 'classic' ? 'classic' : artMode();
+const art: ArtMode = q.get('art') ? parseArt(q.get('art')) : artMode();
 const scene = new BattleScene(view, art);
 // The art toggle: classic 48 px sprites or HD (up to 128 px), saved like the game's setting.
 const toggle = document.getElementById('art') as HTMLButtonElement | null;
 if (toggle) {
-  toggle.textContent = `art: ${art === 'hd' ? 'HD 128' : 'classic 48'} (switch)`;
+  toggle.textContent = `art: ${ART_LABEL[art]} (switch to ${ART_LABEL[nextArt(art)]})`;
   toggle.onclick = () => {
-    const next: ArtMode = art === 'hd' ? 'classic' : 'hd';
+    const next = nextArt(art);
     setArtMode(next);
     q.set('art', next);
     location.search = q.toString();
@@ -181,7 +182,7 @@ const loop = (now: number) => {
   perf.drawP95 = sorted[Math.floor(sorted.length * 0.95)] ?? 0;
   perf.fps = 1000 / (frames.reduce((a, b) => a + b, 0) / frames.length);
   perf.tick = real.tick;
-  perf.buffer = `${canvas.width}x${canvas.height} px=${scene.pixelScale(canvas.width, canvas.height)} art=${scene.art} zoom=${scene.camera.zoom}${scene.art === 'hd' ? ` hd-sheets=${hdMemory().sheets} ${(hdMemory().bytes / 1048576).toFixed(0)}MB js, gpu ${(scene.spriteGpuBytes / 1048576).toFixed(0)}MB` : ''}`;
+  perf.buffer = `${canvas.width}x${canvas.height} px=${scene.pixelScale(canvas.width, canvas.height)} art=${scene.art} zoom=${scene.camera.zoom}${scene.art !== 'classic' ? ` hd-sheets=${hdMemory().sheets} ${(hdMemory().bytes / 1048576).toFixed(0)}MB js, gpu ${(scene.spriteGpuBytes / 1048576).toFixed(0)}MB` : ''}`;
   if (q.get('hud') !== '0') {
     const alive = view.soldiers.filter((s) => s.state < 2).length;
     stats.textContent = `figures ${view.soldiers.length} (alive ${alive})  tick ${real.tick}\ndraw ${perf.drawMs.toFixed(2)} ms (p95 ${perf.drawP95.toFixed(2)})  fps ${perf.fps.toFixed(1)}\n${perf.buffer}${scene.error ? '\n' + scene.error : ''}`;

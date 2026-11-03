@@ -124,6 +124,12 @@ export const poser = <P extends BasePose>(rest: P) => (o: Partial<P> = {}): P =>
 /** A kind's animation: key poses per Anim, eased into the painted frames (FRAMES in frames.ts). */
 export interface KeySet<P extends BasePose> {
   poses: Partial<Record<Anim, P[]>>;
+  /**
+   * Several melee blows: one key list per blow (blow 0 first), each eased into a whole Attack
+   * (FRAMES[Attack] frames). When set it replaces `poses[Anim.Attack]`; the renderer picks a blow
+   * per man per swing. See README.md "Several blows".
+   */
+  attacks?: P[][];
   /** Easing of one segment (default: `defaultEase`). */
   ease?: (anim: Anim, k0: number, raw: number) => number;
   /** Secondary motion after the in-between: cloth sway, smears, follow-through. */
@@ -137,17 +143,18 @@ export const defaultEase = (anim: Anim, k0: number, raw: number): number => (ani
 /** The animations a key set can paint (Dead also from the last Die key). */
 export function animsOf(keys: KeySet<BasePose>): Anim[] {
   const out: Anim[] = [];
-  for (let a = 0; a < ANIM_COUNT; a++) if (keys.poses[a as Anim] || (a === Anim.Dead && keys.poses[Anim.Die])) out.push(a as Anim);
+  for (let a = 0; a < ANIM_COUNT; a++)
+    if (keys.poses[a as Anim] || (a === Anim.Dead && keys.poses[Anim.Die]) || (a === Anim.Attack && keys.attacks?.length)) out.push(a as Anim);
   return out;
 }
 
 /**
  * The pose of a painted frame. Looping animations spread their keys evenly around the loop; the
  * others go from the first key to the last. Missing animations fall back (Dead: the last Die key;
- * anything else: Idle).
+ * anything else: Idle). `blow` picks one of `keys.attacks` for Attack.
  */
-export function poseAt<P extends BasePose>(keys: KeySet<P>, anim: Anim, fr: number): P {
-  let ks = keys.poses[anim];
+export function poseAt<P extends BasePose>(keys: KeySet<P>, anim: Anim, fr: number, blow = 0): P {
+  let ks = anim === Anim.Attack && keys.attacks?.length ? keys.attacks[blow % keys.attacks.length] : keys.poses[anim];
   if (!ks && anim === Anim.Dead && keys.poses[Anim.Die]) ks = [keys.poses[Anim.Die]!.at(-1)!];
   ks ??= keys.poses[Anim.Idle]!;
   const n = FRAMES[anim] ?? 8;

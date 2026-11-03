@@ -6,11 +6,24 @@ import { buildAtlas as buildHd } from '../render/sprites128.ts';
 import { ArtSelect, FactionSelect } from '../ui/ShowcaseControls.tsx';
 import { CITY_SPEEDS, SpeedControls } from '../ui/SpeedControls.tsx';
 import { useArtMode } from '../ui/useArtMode.ts';
+import { isHdArt } from '../settings.ts';
 
 // The showcase's muster roll: every kind of a faction (rows) playing every animation (columns),
 // from the same atlases the battle draws with (HD: the paper-doll painter at detail level 2).
 
 const ANIM_NAMES = ['Idle', 'Walk', 'Run', 'Attack', 'Shoot', 'Hit', 'Die', 'Dead', 'Brace'];
+/** One column per animation, Attack split into one column per blow (empty where a kind has fewer). */
+type Col = { anim: Anim; blow: number; name: string };
+function columnsOf(at: Atlas): Col[] {
+  let most = 1;
+  for (let k = 0; k < KIND_COUNT; k++) most = Math.max(most, at.blows?.(k) ?? 1);
+  const cols: Col[] = [];
+  for (let a = 0; a < ANIM_COUNT; a++) {
+    if (a === Anim.Attack) for (let b = 0; b < most; b++) cols.push({ anim: a, blow: b, name: most > 1 ? `Attack ${b + 1}` : 'Attack' });
+    else cols.push({ anim: a as Anim, blow: 0, name: ANIM_NAMES[a]! });
+  }
+  return cols;
+}
 const DIRS: [Dir, string][] = [
   [0, 'Toward, right'],
   [1, 'Toward, left'],
@@ -18,10 +31,10 @@ const DIRS: [Dir, string][] = [
   [3, 'Away, right'],
 ];
 /**
- * Figures at 2× or 4×: the classic 48 px cell scaled up by whole pixels, or the HD painter's sheet at
+ * Figures at 2×, 4× or 8×: the classic 48 px cell scaled up by whole pixels, or the HD painter's sheet at
  * that detail level drawn 1:1. The box is a little wider than a knight on his horse at that size.
  */
-const SIZES = [2, 4] as const;
+const SIZES = [2, 4, 8] as const;
 const boxOf = (size: number) => size * 32;
 const HEAD = 26;
 /** Phones: a narrower name column (names wrap) and 2× figures, so more of the row shows. */
@@ -59,14 +72,15 @@ export function ShowcaseUnits() {
   const ref = useRef<HTMLCanvasElement>(null);
   const ctl = useRef({ speed, paused, dir });
   ctl.current = { speed, paused, dir };
-  const atlas = useMemo(() => (art === 'hd' ? buildHd : buildClassic)(faction, 215), [faction, art]);
+  const atlas = useMemo(() => (isHdArt(art) ? buildHd : buildClassic)(faction, 215), [faction, art]);
   const names = useMemo(() => [...FACTIONS[faction].units, FACTIONS[faction].commander], [faction]);
 
   useEffect(() => {
     const c = ref.current!;
     const BOX = boxOf(size);
     const LABEL = narrow() ? 92 : 172;
-    c.width = LABEL + BOX * ANIM_COUNT;
+    const cols = columnsOf(atlas);
+    c.width = LABEL + BOX * cols.length;
     c.height = HEAD + BOX * KIND_COUNT;
     const g = c.getContext('2d')!;
     let raf = 0;
@@ -83,7 +97,7 @@ export function ShowcaseUnits() {
       g.font = `${LABEL < 120 ? 13 : 15}px Georgia, serif`;
       g.textBaseline = 'middle';
       g.fillStyle = '#c9a24a';
-      for (let a = 0; a < ANIM_COUNT; a++) g.fillText(ANIM_NAMES[a]!, LABEL + a * BOX + 8, HEAD / 2);
+      cols.forEach((col, a) => g.fillText(col.name, LABEL + a * BOX + 8, HEAD / 2));
       for (let kind = 0; kind < KIND_COUNT; kind++) {
         const y = HEAD + kind * BOX;
         g.fillStyle = '#d9cfbd';
@@ -95,16 +109,24 @@ export function ShowcaseUnits() {
           else lines.push(w);
         }
         lines.forEach((l, j) => g.fillText(l, 6, y + BOX / 2 + (j - (lines.length - 1) / 2) * 17, LABEL - 10));
-        for (let a = 0; a < ANIM_COUNT; a++) {
+        for (let a = 0; a < cols.length; a++) {
           const x = LABEL + a * BOX;
+          const { anim, blow } = cols[a]!;
           g.save();
           g.beginPath();
           g.rect(x + 1, y + 1, BOX - 2, BOX - 2);
           g.clip();
           g.fillStyle = FIELD;
           g.fillRect(x + 1, y + 1, BOX - 2, BOX - 2);
-          const anim = a as Anim;
-          const f = frameAt(atlas, kind, anim, t + kind * 3);
+          if (blow >= (atlas.blows?.(kind) ?? 1)) {
+            // This kind has fewer blows: a dimmed, empty cell.
+            g.fillStyle = '#1d1a15';
+            g.fillRect(x + 1, y + 1, BOX - 2, BOX - 2);
+            g.restore();
+            continue;
+          }
+          // Blow b of the attack is frames b*n .. b*n+n-1 (contract.ts `blows`).
+          const f = frameAt(atlas, kind, anim, t + kind * 3) + blow * atlas.frames(kind, anim);
           const sh = atlas.sheet && atlas.slot && atlas.levels?.includes(size) ? atlas.sheet(kind, size) : null;
           if (sh) {
             const r = sh.rects.subarray(atlas.slot!(kind, anim, f, k.dir) * 6);

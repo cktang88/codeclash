@@ -10,13 +10,14 @@
 
 import { Anim, ANIM_COUNT, KIND_COUNT, type Atlas, type Dir, type KindSheet } from './render/contract.ts';
 import { buildAtlas as buildClassic } from './render/sprites.ts';
-import { buildAtlas as buildHd } from './render/sprites128.ts';
+import { buildAtlas as buildHd, buildAtlas64 as buildHd64 } from './render/sprites128.ts';
 import { FACTIONS, type FactionId } from '../game/factions.ts';
-import { artMode, setArtMode, type ArtMode } from './settings.ts';
+import { artMode, nextArt, parseArt, setArtMode, type ArtMode } from './settings.ts';
+import { ART_LABEL } from './ui/useArtMode.ts';
 
 const q = new URLSearchParams(location.search);
-const art: ArtMode = q.get('art') === 'hd' ? 'hd' : q.get('art') === 'classic' ? 'classic' : artMode();
-const buildAtlas = art === 'hd' ? buildHd : buildClassic;
+const art: ArtMode = q.get('art') ? parseArt(q.get('art')) : artMode();
+const buildAtlas = art === 'hd64' ? buildHd64 : art === 'hd' ? buildHd : buildClassic;
 const mode = q.get('mode') ?? 'grid';
 const zoom = Number(q.get('z') ?? 4);
 const hueA = Number(q.get('hue') ?? 215);
@@ -45,9 +46,9 @@ const info = document.getElementById('info')!;
 info.innerHTML =
   `${faction} · atlas ${A.image.width}×${A.image.height} · build ${(t1 - t0).toFixed(0)} / ${(t2 - t1).toFixed(0)} ms, full paint ${(t3 - t2).toFixed(0)} / ${(t4 - t3).toFixed(0)} ms · ` +
   ['grid', 'sheet', 'army', 'compare', 'lineup', 'bones'].map((m) => `<a href="?mode=${m}&faction=${faction}&art=${art}">${m}</a>`).join(' ') +
-  ` · art: <b>${art}</b> <button id="art">switch to ${art === 'hd' ? 'classic 48' : 'HD 128'}</button>`;
+  ` · art: <b>${art}</b> <button id="art">switch to ${ART_LABEL[nextArt(art)]}</button>`;
 document.getElementById('art')!.onclick = () => {
-  const next: ArtMode = art === 'hd' ? 'classic' : 'hd';
+  const next = nextArt(art);
   setArtMode(next);
   q.set('art', next);
   location.search = q.toString();

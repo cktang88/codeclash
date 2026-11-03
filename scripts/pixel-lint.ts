@@ -5,6 +5,8 @@
 //   pnpm pixel-lint --only=sprites        battle sprites only (classic 48 + HD levels 1, 2, 4, 8)
 //   pnpm pixel-lint --only=city,screens   the city renderer and on-screen scaling
 //   pnpm pixel-lint --quick               HD levels 1-2 only, two city tiers, no screens
+//   pnpm pixel-lint --only=sprites --hd64 also the HD 64 battle art (level-8 sheets halved, audited at level 4)
+//   pnpm pixel-lint --only=sprites --arts=hd64   the HD 64 art alone
 //   options: --factions=templar,undead --levels=1,4 --out=<dir> --shots=<dir> --strict (exit 1 on any fail)
 //
 // Writes <out>/pixel-lint.json and <out>/pixel-lint.md (default docs/art-references/pixel-lint/),
@@ -32,6 +34,10 @@ const quick = flag('quick');
 const only = new Set((arg('only') ?? 'sprites,city,screens,calibrate').split(','));
 const factions = (arg('factions')?.split(',') ?? [...FACTION_IDS]) as Faction[];
 const hdLevels = (arg('levels') ?? (quick ? '1,2' : '1,2,4,8')).split(',').map(Number);
+// Sprite arts: classic, HD and (with --hd64 or --arts=...,hd64) the HD 64 battle art.
+const arts = (arg('arts')?.split(',') ?? ['classic', 'hd', ...(flag('hd64') ? ['hd64'] : [])]) as Art[];
+/** Levels audited per art: HD 64 is one sheet, the level-8 art halved to level 4. */
+const levelsOf = (art: Art): number[] => (art === 'hd' ? hdLevels : art === 'hd64' ? [4] : [1]);
 const outDir = resolve(root, arg('out') ?? 'docs/art-references/pixel-lint');
 const shotDir = resolve(root, arg('shots') ?? 'docs/screenshots/audit');
 const log = (s: string) => process.stderr.write(s + '\n');
@@ -95,22 +101,29 @@ async function main(): Promise<void> {
     const P = await Painters.load(root);
     try {
       const idle0 = new Map<string, Frame>();
-      for (const art of ['classic', 'hd'] as Art[])
+      for (const art of arts)
         for (const f of factions) {
           const pal = P.palette(art, f);
           const info = rampInfo(pal);
           rep.ramps.push({ art, faction: f, ramps: info.filter((_, r) => pal.names[r]) });
           const names = [...FACTIONS[f].units, FACTIONS[f].commander];
-          for (const lv of art === 'hd' ? hdLevels : [1])
+          for (const lv of levelsOf(art))
             for (let kind = 0; kind < 11; kind++) {
               const t0 = performance.now();
               // HD: paper-doll colours differ per level (each level has its own master palette).
-              const palL = art === 'hd' ? P.palette(art, f, lv) : pal;
-              const { res, idle0: f0 } = auditSprite(P, art, f, kind, lv, names[kind]!, palL, art === 'hd' ? rampInfo(palL) : info);
+              const palL = art !== 'classic' ? P.palette(art, f, lv) : pal;
+              const { res, idle0: f0 } = auditSprite(P, art, f, kind, lv, names[kind]!, palL, art !== 'classic' ? rampInfo(palL) : info);
               rep.sprites.push(res);
               idle0.set(`${art}:${f}:${kind}:${lv}`, f0);
               log(`sprites ${art} ${f} k${kind} L${lv} ${Math.round(performance.now() - t0)} ms`);
             }
+          if (art === 'hd64') {
+            // HD 64: silhouettes of its own (level-4) idle frames, and their lineup.
+            const l4 = names.map((_, kind) => idle0.get(`${art}:${f}:${kind}:4`)!);
+            rep.silhouettes.push({ art, faction: f, pairs: silhouettes(l4, names) });
+            shot(`lineup-hd64-${f}.png`, M.upscale(stack([strip(l4.map((x) => onField(x.m))), strip(l4.map((x) => silhouette(x.m)))]), 2));
+            continue;
+          }
           const l1 = names.map((_, kind) => idle0.get(`${art}:${f}:${kind}:1`)!);
           rep.silhouettes.push({ art, faction: f, pairs: silhouettes(l1, names) });
           // The lineup: eleven kinds at level 1 on the field, and their silhouettes.
@@ -125,7 +138,7 @@ async function main(): Promise<void> {
       };
       const again = (r: SpriteResult) => P.frame(r.art, r.faction, r.kind, r.level, ANIM.Idle, 0, 0);
       const zoom = (r: SpriteResult) => (r.level >= 8 ? 3 : r.level >= 4 ? 4 : r.level >= 2 ? 6 : 8);
-      for (const art of ['classic', 'hd'] as Art[]) {
+      for (const art of arts) {
         for (const [id, fn] of [
           ['orphans', (m: Img) => M.clusterStats(m, M.opaque(m), M.ring(M.opaque(m), m.w, m.h)).orphans],
           ['blackRing', (m: Img) => {
@@ -137,14 +150,14 @@ async function main(): Promise<void> {
           ['hug', (m: Img) => { const k = M.opaque(m); return M.bandStats(m, k, M.ring(k, m.w, m.h)).hugIdx; }],
           ['checkers', (m: Img) => M.checkers(m, M.opaque(m)).idx],
         ] as [string, (m: Img) => number[]][]) {
-          const lv = art === 'hd' ? Math.max(...hdLevels.filter((l) => l <= 4)) : 1;
+          const lv = art === 'hd' ? Math.max(...hdLevels.filter((l) => l <= 4)) : art === 'hd64' ? 4 : 1;
           const r = worst(id, art, lv);
           if (!r) continue;
           const m = again(r).m;
           shot(`${id}-${art}-${r.faction}-k${r.kind}-L${r.level}.png`, M.upscale(strip([onField(m), onField(mark(m, fn(m), [255, 0, 255]))]), zoom(r)));
         }
         // Boil: the idle loop of the worst head churn, frames in a row, then what changed frame to frame.
-        const b = worst('idleHead', art, art === 'hd' ? Math.max(...hdLevels) : 1);
+        const b = worst('idleHead', art, art === 'hd' ? Math.max(...hdLevels) : art === 'hd64' ? 4 : 1);
         if (b) {
           const fr = framesOf(P, art, b.faction, b.kind, b.level, ANIM.Idle);
           const box = fr.reduce((a, f) => [Math.min(a[0]!, -f.ax), Math.min(a[1]!, -f.ay), Math.max(a[2]!, f.m.w - f.ax), Math.max(a[3]!, f.m.h - f.ay)], [0, 0, 0, 0]);
@@ -161,7 +174,7 @@ async function main(): Promise<void> {
         }
       }
       // Ramps actually painted: one strip per faction (HD), deep → light.
-      for (const art of ['classic', 'hd'] as Art[]) {
+      for (const art of arts.filter((a) => a !== 'hd64')) {
         const f = factions[0]!;
         const pal = P.palette(art, f);
         const used = new Set<number>();

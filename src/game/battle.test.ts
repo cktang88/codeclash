@@ -134,7 +134,9 @@ describe('battle: cavalry in melee', () => {
         const gone = k.targetReg;
         for (const id of b.regiments[gone]!.members) b.kill(id);
         for (let i = 0; i < 6; i++) b.step();
-        if (k.engaged && !k.routed) {
+        // (Since v4 the knights no longer stand inside the block they wiped out: they may have
+        // to ride a few strides to the next one, so they are charging it rather than locked yet.)
+        if ((k.engaged || k.mode === 'charge') && !k.routed) {
           expect(k.targetReg).not.toBe(gone);
           checked++;
         }

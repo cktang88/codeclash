@@ -18,7 +18,7 @@ let fails = 0;
 for (const r of rep.sprites.filter((x) => x.art === 'hd' && x.faction === faction && x.kind === kind)) {
   const rows = SPRITE_CHECKS.map((c) => ({ c, s: status(c, r), v: c.value(r) })).filter((x) => x.s === 'fail' || x.s === 'warn');
   fails += rows.filter((x) => x.s === 'fail').length;
-  console.log(`L${r.level} ${r.name}: ${rows.length ? rows.map((x) => `${x.s === 'fail' ? 'FAIL' : 'warn'} ${x.c.id}=${+x.v.toFixed(3)}`).join(', ') : 'all pass'}`);
+  console.log(`L${r.level} ${r.name}${(r.blows?.length ?? 1) > 1 ? ` (${r.blows.length} blows)` : ''}: ${rows.length ? rows.map((x) => `${x.s === 'fail' ? 'FAIL' : 'warn'} ${x.c.id}=${+x.v.toFixed(3)}`).join(', ') : 'all pass'}`);
 }
 const sil = rep.silhouettes.find((s) => s.art === 'hd' && s.faction === faction);
 const name = rep.sprites.find((x) => x.art === 'hd' && x.faction === faction && x.kind === kind)?.name;

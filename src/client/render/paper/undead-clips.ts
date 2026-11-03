@@ -14,6 +14,7 @@ import type { Facing } from './facing.ts';
 import { BREATH, EASE_IN, evaluate, sampleAnimation, sampleClip, type AnimationData, type AnimEvent, type BoneTimeline, type Clip, type Key, type SkeletonData } from './skeleton.ts';
 import { addDrops, facingClip, lagCloth, lastFrame, mapFacings, mocapKeys, overlayKeys, restWorld, type ClipSet, type Drop, type KP, type LagSpec, type MocapOpts, type Track } from './templar-rig.ts';
 import { BLOCK, CUT, HIT, R, T, type Author, type Tracks } from './templar-clips.ts';
+import { BLOWS, runKeys as authoredKeys, type RunStyle } from './undead-blows.ts';
 
 export type FootAttack = 'cut' | 'lunge' | 'hurl' | 'cast' | 'butt' | 'loose';
 export interface FootClipSpec {
@@ -43,6 +44,15 @@ export interface FootClipSpec {
   idle?: Record<string, Track>;
   /** A long robe or cloak that trails (a cloak bone), and how far the skirt trails. */
   cloak?: boolean;
+  /** The melee blows, blow 0 first (names in undead-blows.ts BLOWS, or a FootAttack); default `[attack]`. */
+  blows?: string[];
+  /** An authored run (undead-blows.ts runKeys) instead of the capture's, and how the weapon is carried in it. */
+  run?: RunStyle;
+  runArms?: (skel: SkeletonData) => Author;
+  /** The upper body holds a pose at these frames of the run (stop-motion), as a jerk warp. */
+  runWarp?: number[];
+  /** Bows: Shoot is aimed high (deg above level) to arc over the ranks; Attack stays the level shot. */
+  shootHigh?: number;
 }
 
 /** Cloth trailing the body late and heavy (rot hangs): the skirt behind the near thigh, the cloak behind the hips. */
@@ -191,7 +201,8 @@ const HURL: Author = (rw) => ({
   w: {
     upperArmN: R(rw.upperArmN!, 11, [1, 230], [2, 248], [3, 252], [4, 200], [5, 150], [6, 80], [8, 20], [10, 60]),
     forearmN: R(rw.forearmN!, 11, [1, 250], [2, 262], [3, 264], [4, 215], [5, 130], [6, 60], [8, 30], [10, 140]),
-    weapon: R(rw.weapon!, 11, [1, 96], [3, 96], [4, 104], [5, 112], [6, 112], [10, 100]),
+    // The javelin's point rises through the delivery and leaves the hand ~35° up (weapon-attacks.md T3: a 45° arc).
+    weapon: R(rw.weapon!, 11, [1, 104], [3, 110], [4, 122], [5, 128], [6, 128], [10, 104]),
   },
   dw: {
     spine: T([0, 0], [2, 14], [3, 16], [4, 2], [5, -14], [6, -24], [8, -22], [10, -6], [11, 0]),
@@ -222,15 +233,18 @@ const STAB: Author = (rw) => ({
  * back past the hood and holds there (8-9); it comes back to the string with the next arrow
  * (10-11). The hand rides the string by IK except while it flies back.
  */
-const BOW_SHOT: Author = (rw) => ({
+const bowShot = (up: number): Author => (rw) => ({
+  // `up`: the aim above level (deg). The bow arm, the bow and the arrow rise together; the body
+  // leans back from the hips to lift them (the shoulders stay square to the line of the arrow),
+  // the skull looks up along the shaft.
   w: {
-    upperArmF: R(rw.upperArmF!, 11, [2, 86], [6, 88], [7, 84], [9, 82]),
-    forearmF: R(rw.forearmF!, 11, [2, 92], [6, 92], [7, 90], [9, 90]),
-    itemF: R(rw.itemF!, 11, [2, 98], [6, 98], [7, 100], [9, 98]),
-    upperArmN: T([0, rw.upperArmN!], [6, rw.upperArmN!], [7, -70], [9, -76], [10, rw.upperArmN!]),
-    forearmN: T([0, rw.forearmN!], [6, rw.forearmN!], [7, 200], [9, 206], [10, rw.forearmN!]),
+    upperArmF: R(rw.upperArmF!, 11, [2, 86 + up * 0.85], [6, 88 + up * 0.85], [7, 84 + up * 0.85], [9, 82 + up * 0.85]),
+    forearmF: R(rw.forearmF!, 11, [2, 92 + up], [6, 92 + up], [7, 90 + up], [9, 90 + up]),
+    itemF: R(rw.itemF!, 11, [2, 98 + up], [6, 98 + up], [7, 100 + up], [9, 98 + up]),
+    upperArmN: T([0, rw.upperArmN!], [6, rw.upperArmN!], [7, -70 + up * 0.5], [9, -76 + up * 0.5], [10, rw.upperArmN!]),
+    forearmN: T([0, rw.forearmN!], [6, rw.forearmN!], [7, 200 + up], [9, 206 + up], [10, rw.forearmN!]),
   },
-  dw: { spine: T([0, 0], [2, 4], [6, 8], [7, 10], [9, 6], [11, 0]), head: T([0, 0], [2, -3], [6, -5], [9, -5], [11, 0]) },
+  dw: { spine: T([0, 0], [2, 4 + up * 0.25], [6, 8 + up * 0.25], [7, 10 + up * 0.25], [9, 6 + up * 0.25], [11, 0]), head: T([0, 0], [2, -3 + up * 0.5], [6, -5 + up * 0.5], [9, -5 + up * 0.5], [11, 0]) },
   // The nock slides back along the arrow past the jaw (a full draw), held, and snaps past braced on the loose.
   t: { nock: [T([0, 0]), T([0, 0], [2, 0.1], [3, -0.8], [4, -1.8], [5, -2.8], [6, -3.3], [6.5, -3.3], [7, 2.8], [9, 2.8], [10, 0.6], [11, 0])] },
   ik: { armN2h: T([0, 1], [6.5, 1], [7, 0], [9.5, 0], [10, 1]) },
@@ -352,7 +366,7 @@ function sumTracks(a: Track, b: Track): Track {
 }
 
 /** Every Anim of an undead foot kind. */
-export function footClips(skel: SkeletonData, s: FootClipSpec): ClipSet {
+export function footClips(skel: SkeletonData, s: FootClipSpec): ClipSet & { attacks?: Clip[] } {
   const has = (b: string) => skel.bones.some((x) => x.name === b);
   const cl = (run: number) => cloth(run, !!s.cloak && has('cloak'));
   const fc = (name: string, n: number, loop: boolean, keys: (f: Facing) => { keys: KP[]; ev: AnimEvent[] }, ev?: AnimEvent[], run = 0, warp?: number[]): Clip => {
@@ -430,7 +444,18 @@ export function footClips(skel: SkeletonData, s: FootClipSpec): ClipSet {
     return { ...m, keys: stiffen(m.keys, s.stiff * 0.6) };
   };
   // The glide at speed: leaning hard into it, a quicker bob, the cloak and hem streaming back.
-  const run = s.glide ? fc('run', 12, true, glideKeys(-26, 0.5, 0.22, 4, -14), [{ f: 0, name: 'step' }], 2.6) : fc('run', 12, true, runKeys, undefined, 1, [0, 1, 2, 2, 4, 5, 6, 7, 8, 8, 10, 11]);
+  // An authored run: flight, the bob reversed, the stride and carry of the body (undead-blows.ts).
+  const authoredRun = (r: RunStyle) => (f: Facing) => {
+    const rw = restWorld(skel, f);
+    const arms = s.runArms ? s.runArms(skel)(rw, f) : {};
+    const head: Author = () => ({ dw: { head: T([0, s.tilt]), jaw: T([0, -16]) } });
+    return { keys: overlayKeys(authoredKeys(r, f, 1), both(both(posture(s, 0.6, false), head), () => arms)(rw, f)), ev: [{ f: 0, name: 'step' }, { f: 6, name: 'step' }] as AnimEvent[] };
+  };
+  const run = s.glide
+    ? fc('run', 12, true, glideKeys(-26, 0.5, 0.22, 4, -14), [{ f: 0, name: 'step' }], 2.6)
+    : s.run
+      ? fc('run', 12, true, authoredRun(s.run), undefined, 1.4, s.runWarp)
+      : fc('run', 12, true, runKeys, undefined, 1, [0, 1, 2, 2, 4, 5, 6, 7, 8, 8, 10, 11]);
   // ---- idle: the chest rises a pixel, the weight sways from foot to foot, the jaw hangs open.
   // (The skull holds still: any turn or jerk of it in the idle reads as boil at this size and
   // fails the lint's head-churn gate.)
@@ -441,9 +466,15 @@ export function footClips(skel: SkeletonData, s: FootClipSpec): ClipSet {
     return { tAdd: { pelvis: [T([0, 0]), y], footTargetN: [T([0, 0]), y], footTargetF: [T([0, 0]), y] } };
   };
   const idle = withBreath(fc('idle', 8, true, (f) => mk(skel, f, 'idle', { ref: 'first', torso: 0, travel: s.float ? 0 : 0.15, feet: 0 }, s.float ? both(idleA, floatA) : idleA, [2, 4, 4.5, 6, 6.5])), 1.0);
-  // ---- the blow.
-  const at = ATTACKS[s.attack];
-  const attack = fc('attack', 12, false, (f) => mk(skel, f, at.clip, at.o, both(at.a, posture(s, 0.5, false)), at.extra), at.ev, 0, at.warp);
+  // ---- the blows (blow 0 is also the classic Attack).
+  const blowClip = (name: string): Clip => {
+    const nb = BLOWS[name];
+    if (nb) return fc('attack', 12, false, (f) => mk(skel, f, nb.clip, nb.o, both(nb.a(skel), posture(s, 0.5, false)), nb.extra), nb.ev, 0, nb.warp);
+    const at = ATTACKS[name as FootAttack];
+    return fc('attack', 12, false, (f) => mk(skel, f, at.clip, at.o, both(at.a, posture(s, 0.5, false)), at.extra), at.ev, 0, at.warp);
+  };
+  const attacks = (s.blows ?? [s.attack]).map(blowClip);
+  const attack = attacks[0]!;
   // ---- struck: the struck shoulder and the skull snap back, the jaw flaps, a half-step back to
   // catch the weight, a white flash; recovery over three frames, the skull last.
   const hitA: Author = (rw, f) => {
@@ -522,9 +553,11 @@ export function footClips(skel: SkeletonData, s: FootClipSpec): ClipSet {
   const brace = withBreath(fc('brace', 8, true, (f) => mk(skel, f, 'brace', { ref: 'mean', absHeight: true, travel: 1.0, torso: 0, feet: 0.4 }, both(BRACE[s.brace], posture(s, 0.5, false)))), 0.8);
   const out: ClipSet = { [Anim.Idle]: idle, [Anim.Walk]: walk, [Anim.Run]: run, [Anim.Attack]: attack, [Anim.Hit]: hit, [Anim.Die]: die, [Anim.Dead]: dead, [Anim.Brace]: brace };
   if (s.shoot === 'bow') {
-    const shoot = fc('shoot', 12, false, (f) => mk(skel, f, 'brace', { ref: 'first', torso: 0, travel: 0, feet: 0 }, both(BOW_SHOT, posture(s, 0.5, false)), [1, 2, 3, 4, 5, 6, 6.5, 7, 8, 9, 10, 11]), [{ f: 7, name: 'release' }, { f: 7, name: 'empty', len: 3 }], 0, [0, 1, 2, 3, 4, 5, 6, 6, 8, 9, 10, 11]);
-    out[Anim.Shoot] = shoot;
-    if (s.attack === 'loose') out[Anim.Attack] = shoot;
+    const bowClip = (up: number) => fc('shoot', 12, false, (f) => mk(skel, f, 'brace', { ref: 'first', torso: 0, travel: 0, feet: 0 }, both(bowShot(up), posture(s, 0.5, false)), [1, 2, 3, 4, 5, 6, 6.5, 7, 8, 9, 10, 11]), [{ f: 7, name: 'release' }, { f: 7, name: 'empty', len: 3 }], 0, [0, 1, 2, 3, 4, 5, 6, 6, 8, 9, 10, 11]);
+    const level = bowClip(0);
+    // Volleys go up at 30-45° and drop over the heads of the ranks in front; the point-blank shot is level.
+    out[Anim.Shoot] = s.shootHigh ? bowClip(s.shootHigh) : level;
+    if (s.attack === 'loose') out[Anim.Attack] = level;
   }
   if (s.shoot === 'crossbow') {
     out[Anim.Shoot] = fc('shoot', 12, false, (f) => mk(skel, f, 'brace', { ref: 'first', torso: 0, travel: 0.3, feet: 0 }, both(CRANK, posture(s, 0.5, false)), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]), [
@@ -540,5 +573,6 @@ export function footClips(skel: SkeletonData, s: FootClipSpec): ClipSet {
     if (sh.hide) shoot = hideSlot(shoot, ...sh.hide);
     out[Anim.Shoot] = shoot;
   }
+  if (s.blows && s.attack !== 'loose') return Object.assign(out, { attacks });
   return out;
 }

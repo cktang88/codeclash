@@ -75,6 +75,11 @@ export interface SpriteResult {
   ramps: { used: number; meanTones: number; straightPx: number; greyShadowPx: number; bandShare: number[]; accent: string };
   idle: M.TemporalStats;
   walk: M.TemporalStats;
+  /**
+   * Every melee blow (Attack; HD paper kinds may have several): per blow, its temporal stats
+   * (played once) and the off-palette pixels summed over its frames, in the front facing.
+   */
+  blows: { attack: M.TemporalStats; offPalette: number }[];
   /** Pixels a painter wrote that are in no ramp or outline table (blends, smears). */
   offPalette: number;
 }
@@ -194,9 +199,17 @@ export function analyseStatic(m: Img, p: Palette, info: RampInfo[]) {
   };
 }
 
-export function framesOf(P: Painters, art: Art, faction: Faction, kind: number, level: number, anim: number, dir = 0): Frame[] {
+export function framesOf(P: Painters, art: Art, faction: Faction, kind: number, level: number, anim: number, dir = 0, blow = 0): Frame[] {
   const n = P.frameCount(art, anim);
-  return Array.from({ length: n }, (_, f) => P.frame(art, faction, kind, level, anim, f, dir));
+  return Array.from({ length: n }, (_, f) => P.frame(art, faction, kind, level, anim, blow * n + f, dir));
+}
+
+/** Each melee blow of a kind: its frames' temporal stats and off-palette pixels. */
+function blowStats(P: Painters, art: Art, faction: Faction, kind: number, level: number, p: Palette): SpriteResult['blows'] {
+  return Array.from({ length: P.blows(art, faction, kind) }, (_, b) => {
+    const fr = framesOf(P, art, faction, kind, level, ANIM.Attack, 0, b);
+    return { attack: M.temporalStats(fr, false), offPalette: fr.reduce((s, f) => s + labels(f.m, p).off, 0) };
+  });
 }
 
 export function auditSprite(P: Painters, art: Art, faction: Faction, kind: number, level: number, name: string, p: Palette, info: RampInfo[]): { res: SpriteResult; idle0: Frame } {
@@ -215,6 +228,7 @@ export function auditSprite(P: Painters, art: Art, faction: Faction, kind: numbe
       ...s.res,
       idle: M.temporalStats(idle, true),
       walk: M.temporalStats(walk, true),
+      blows: blowStats(P, art, faction, kind, level, p),
     },
     idle0: f0,
   };

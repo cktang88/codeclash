@@ -55,6 +55,8 @@ export const SPRITE_CHECKS: Check<SpriteResult>[] = [
   { id: 'idleHead', row: 'M16', label: 'idle head boil', value: (r) => r.idle.headChurn, warn: k(0.03), fail: k(0.08), higherIsWorse: true, basis: 'guide: > 3% churn on a static part is boil (after the best ±2 px shift)', fmt: 'pct' },
   { id: 'walkHead', row: 'M16', label: 'walk head boil', value: (r) => r.walk.headChurn, warn: k(0.08), fail: k(0.15), higherIsWorse: true, basis: 'head moves rigidly in a walk; residual after the best shift', fmt: 'pct' },
   { id: 'flicker', row: 'M6/M16', label: 'A-B-A flicker', value: (r) => Math.max(r.idle.flicker, r.walk.flicker), warn: k(0.005), fail: k(0.015), higherIsWorse: true, basis: 'guide: any A-B-A flip; we allow 0.5%', fmt: 'pct' },
+  { id: 'blowFlicker', row: 'M6/M16', label: 'blow A-B-A flicker', value: (r) => Math.max(0, ...(r.blows ?? []).map((b) => b.attack.flicker)), warn: k(0.005), fail: k(NaN), higherIsWorse: true, basis: 'flicker in every melee blow (Attack, each blow of a kind with several); warn only', fmt: 'pct' },
+  { id: 'blowOffPalette', row: 'M10', label: 'blow off-palette px', value: (r) => (r.blows ?? []).reduce((s, b) => s + b.offPalette, 0), warn: k(0), fail: k(NaN), higherIsWorse: true, basis: 'pixels in no ramp or outline table, over every frame of every blow', fmt: 'int' },
   { id: 'idleShape', row: 'M16', label: 'idle silhouette change', value: (r) => r.idle.shapeChange, warn: k(0.05), fail: k(0.1), higherIsWorse: true, basis: 'Saint11: idle silhouette barely changes (≤ 1 px)', fmt: 'pct' },
   { id: 'offPalette', row: 'M10', label: 'off-palette px', value: (r) => r.offPalette, warn: k(0), fail: k(NaN), higherIsWorse: true, basis: 'pixels in no ramp or outline table', fmt: 'int' },
 ];
@@ -202,7 +204,7 @@ export function markdown(rep: LintReport): string {
   L.push('');
   // Sprite tables.
   const cols = SPRITE_CHECKS.filter((c) => ['colours', 'orphans', 'meanCluster', 'jaggies', 'blackRing', 'pillow', 'hug', 'stack', 'checkers', 'edgeVsGround', 'meanVsGround', 'straightRamp', 'midWidest', 'idleHead', 'walkHead', 'flicker'].includes(c.id));
-  for (const art of ['classic', 'hd']) {
+  for (const art of ['classic', 'hd', 'hd64']) {
     const rs = rep.sprites.filter((r) => r.art === art);
     if (!rs.length) continue;
     L.push(`## Sprites: ${art}`, '', `| faction | kind | L | ${cols.map((c) => c.label).join(' | ')} | F/W |`, `|---|---|---|${cols.map(() => '---|').join('')}---|`);

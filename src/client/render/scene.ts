@@ -26,8 +26,8 @@ import { dirFor, projX, projY, PX, unproject } from './iso.ts';
 import { GlPost } from './post.ts';
 import { upscaleCanvas } from './upscale.ts';
 import { buildAtlas as buildClassic } from './sprites.ts';
-import { buildAtlas as buildHd } from './sprites128.ts';
-import { artMode, type ArtMode } from '../settings.ts';
+import { buildAtlas as buildHd, buildAtlas64 as buildHd64 } from './sprites128.ts';
+import { artMode, isHdArt, type ArtMode } from '../settings.ts';
 
 export interface Camera {
   /** Whole-number zoom: 1 fits the field, each step adds one screen pixel per scene pixel. */
@@ -195,6 +195,8 @@ export class BattleScene {
   private frameTab: Uint16Array[] = [];
   private lenTab: Float32Array[] = [];
   private tpfTab: Float32Array[] = [];
+  /** Melee blows per kind, per army (Atlas.blows; 1 when the painter has one). */
+  private blowTab: Uint8Array[] = [];
   private missileRegions: Record<string, Region[]> = {};
   private puffRegions: Region[] = [];
   private regY: Float32Array;
@@ -208,9 +210,9 @@ export class BattleScene {
   constructor(readonly battle: Battle, art: ArtMode = artMode()) {
     this.art = art;
     this.ground = paintGround(battle.setup.seed);
-    if (art === 'hd') this.field = new HdField(this.ground);
+    if (isHdArt(art)) this.field = new HdField(this.ground);
     const [a, b] = battle.setup.armies;
-    const buildAtlas = art === 'hd' ? buildHd : buildClassic;
+    const buildAtlas = art === 'hd64' ? buildHd64 : art === 'hd' ? buildHd : buildClassic;
     this.atlases = [buildAtlas(a.faction, a.hue), buildAtlas(b.faction, b.hue)];
     // The painter fills kinds lazily, but the atlas goes to the GPU once: paint the kinds on the
     // field first (only those: a kind no one fields is never drawn).
@@ -240,6 +242,9 @@ export class BattleScene {
           lens[k * ANIM_COUNT + an] = frames[k * ANIM_COUNT + an]! * tpf[an]!;
         }
       this.frameTab.push(frames);
+      const blows = new Uint8Array(KIND_COUNT);
+      for (let k = 0; k < KIND_COUNT; k++) blows[k] = Math.max(1, Math.min(255, atlas.blows?.(k) ?? 1));
+      this.blowTab.push(blows);
       this.lenTab.push(lens);
       this.tpfTab.push(tpf);
     }
@@ -520,9 +525,18 @@ export class BattleScene {
     return b;
   }
 
+  /**
+   * HD art: the most scene-buffer pixels per map pixel (and so the finest sprite, ground and
+   * effects level drawn). HD 64 stops at 4, half of HD: its top sprite sheet is the 128 art halved
+   * to 4 texels per map pixel, and closer zooms only magnify it, ground and effects included.
+   */
+  get hdDensity(): number {
+    return this.art === 'hd64' ? 4 : 8;
+  }
+
   /** Highest zoom level for this scene's art. */
   get maxZoom(): number {
-    return this.art === 'hd' ? MAX_ZOOM_HD : MAX_ZOOM;
+    return isHdArt(this.art) ? MAX_ZOOM_HD : MAX_ZOOM;
   }
 
   /**
@@ -536,12 +550,12 @@ export class BattleScene {
     // Fit the field, rounding up a little: the parallelogram's far corners are mostly empty.
     const fit = Math.max(1, Math.floor(Math.min(W / (fw * 0.92), H / (fh * 1.15)) + 0.3));
     const z = Math.max(1, Math.round(this.camera.zoom));
-    if (this.art !== 'hd') {
+    if (!isHdArt(this.art)) {
       const s = fit + z - 1;
       return { s, m: 1, u: s };
     }
     const s = fit * 2 ** (z - 1);
-    const m = [8, 4, 2, 1].find((l) => s % l === 0)!;
+    const m = [8, 4, 2, 1].find((l) => s % l === 0 && l <= this.hdDensity)!;
     return { s, m, u: s / m };
   }
 
@@ -681,7 +695,7 @@ export class BattleScene {
     }
 
     // HD zoomed in: standards, missiles and puffs from a Scale2x'd copy of the effects sheet.
-    const fxF = this.art === 'hd' ? (v.m >= 4 ? 4 : v.m >= 2 ? 2 : 1) : 1;
+    const fxF = isHdArt(this.art) ? (v.m >= 4 ? 4 : v.m >= 2 ? 2 : 1) : 1;
     const fxT = this.fxTexture(gfx, fxF);
     const draws: [Batch, WebGLTexture, number, number, number, number][] = [
       [gfx.team[0], gfx.atlasTex[0], this.atlases[0].image.width, this.atlases[0].image.height, 1, 1],
@@ -941,7 +955,7 @@ export class BattleScene {
           anim = Anim.Hit;
           start = hitAt;
           loop = false;
-        } else if (s.state === State.Routing || speed > s.s.speed * 1.2) anim = Anim.Run;
+        } else if (s.state === State.Routing || speed > s.s.speed * 1.2 || (speed > s.s.speed * 0.6 && (reg.mode === 'charge' || reg.mode === 'pursue'))) anim = Anim.Run;
         else if (speed > 3) anim = s.cls === U.Knights && stance === 'wedge' && speed > s.s.speed * 0.7 ? Anim.Run : Anim.Walk;
         else if (s.state === State.Fighting && BRACING.has(stance)) anim = Anim.Brace;
         // Facing: the way they move, else at their foe, else the regiment's front.
@@ -954,10 +968,17 @@ export class BattleScene {
       const tpf = this.tpfTab[s.team]![anim]!;
       // Marching blocks step together: one phase per regiment, a hair's offset per file.
       // Everything else (idling, routing) keeps a per-man phase so a crowd doesn't pulse.
-      const drilled = s.state === State.Fighting && (anim === Anim.Walk || anim === Anim.Run);
+      // (A chase or a charge run from too far has lost the step.)
+      const drilled = s.state === State.Fighting && (anim === Anim.Walk || anim === Anim.Run) && reg.mode !== 'pursue' && !reg.ragged;
       const phase = drilled ? s.reg * 0.71 + Math.round(s.sx / Math.max(1, reg.spacing)) * 0.12 : (i % 7) * 1.37;
       let f = loop ? Math.floor((T + phase) / tpf) % frames : Math.min(frames - 1, Math.floor((T - start) / tpf));
       if (f < 0) f = 0;
+      // Several blows (Atlas.blows): each man picks one per swing, from a hash of who he is and
+      // when he swung, so a regiment does not strike in lockstep. Blow b's frames follow blow 0's.
+      if (anim === Anim.Attack) {
+        const nb = this.blowTab[s.team]![kind]!;
+        if (nb > 1) f += frames * ((Math.imul(i * 0x9e3779b1 + Math.floor(s.actedAt * 10), 0x85ebca6b) >>> 16) % nb);
+      }
       const [u, vv] = atlas.at(kind, anim, f, dir);
       // No white hit flash: with hundreds of men trading blows it strobed the whole field. The hit
       // animation's recoil carries the blow (as in Total War).
@@ -1061,7 +1082,7 @@ export class BattleScene {
         const dist = Math.sqrt((p.x1 - p.x0) ** 2 + (p.y1 - p.y0) ** 2);
         const look = MISSILE_CLS(p.cls, p.splash);
         const arc = look === 'bolt' || look === 'jav' ? 0.1 : look === 'stone' ? 0.45 : 0.3;
-        const h = dist * arc * PX;
+        const h = (p.arc ?? dist * arc) * PX;
         const lift = 9;
         const z = 4 * h * t * (1 - t) + (1 - t) * lift;
         // Screen velocity of the missile: along the ground, minus the climb.
@@ -1076,6 +1097,16 @@ export class BattleScene {
           r = this.missileRegions[look]![a]!;
         }
         gfx.fx.sprite(Math.round(mx), Math.round(my - z), r.u, r.v, r.w, r.h, r.ax, r.ay, my, 1, 1, 1, 1, 0, 1);
+        if (p.direct) {
+          // A flat shot leaves a straight streak behind it.
+          for (let k = 1; k <= 3; k++) {
+            const tk = Math.max(0, t - k * 0.04);
+            const zk = 4 * h * tk * (1 - tk) + (1 - tk) * lift;
+            const kx = this.mapX(p.x0 + (p.x1 - p.x0) * tk, p.y0 + (p.y1 - p.y0) * tk);
+            const ky = this.mapY(p.x0 + (p.x1 - p.x0) * tk, p.y0 + (p.y1 - p.y0) * tk) - zk;
+            gfx.soft.sprite(Math.round(kx), Math.round(ky), shadowRegion.u, shadowRegion.v, 1, 1, 0, 0, my, 0.85, 0.82, 0.7, 0.5 - k * 0.12);
+          }
+        }
       }
 
       // Particles.
@@ -1330,8 +1361,10 @@ export class BattleScene {
       if (mx < x0 || mx > x1 || my < y0 || my > y1 + 100) continue;
       const dist = Math.sqrt((p.x1 - p.x0) ** 2 + (p.y1 - p.y0) ** 2);
       const look = lookOf(p.cls, p.splash);
+      // The sim gives each missile its apex (bows lob higher for longer shots, crossbows a
+      // short arc, guns none); older replays fall back on one arc per look.
       const arc = look === 'bolt' || look === 'jav' ? 0.1 : look === 'stone' ? 0.45 : 0.3;
-      const h = dist * arc * PX;
+      const h = (p.arc ?? dist * arc) * PX;
       const lift = 9;
       const z = 4 * h * t * (1 - t) + (1 - t) * lift;
       const dz = (4 * h * (1 - 2 * t) - lift) / span;
@@ -1341,6 +1374,17 @@ export class BattleScene {
       const id = look === 'stone' ? HD_ID.stone : HD_ID[look] + (Math.round((Math.atan2(sy, sx) / (Math.PI * 2)) * ANGLES + ANGLES) % ANGLES);
       const r = R[id]!;
       B.fx.sprite(q(mx), q(my - z), r.u, r.v, r.w / L, r.h / L, r.ax / L, r.ay / L, my, 1, 1, 1, 1, 0, 1);
+      if (p.direct) {
+        // A flat shot leaves a straight streak behind it: a line of texels fading back.
+        const n = 3 * L;
+        for (let k = 1; k <= n; k++) {
+          const tk = Math.max(0, t - (k / L) * 0.04);
+          const zk = 4 * h * tk * (1 - tk) + (1 - tk) * lift;
+          const kx = this.mapX(p.x0 + (p.x1 - p.x0) * tk, p.y0 + (p.y1 - p.y0) * tk);
+          const ky = this.mapY(p.x0 + (p.x1 - p.x0) * tk, p.y0 + (p.y1 - p.y0) * tk) - zk;
+          B.soft.rect(q(kx), q(ky), 1 / L, 1 / L, my, 0.85, 0.82, 0.7, 0.55 - (k / n) * 0.45);
+        }
+      }
     }
 
     // Particles.

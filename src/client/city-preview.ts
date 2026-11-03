@@ -8,7 +8,7 @@ import { createRoot } from 'react-dom/client';
 import type { BuildingKey } from '../game/city.ts';
 import { isFaction, type FactionId } from '../game/factions.ts';
 import { CityScene, type CityMood } from './render/city.ts';
-import { artMode, setArtMode, type ArtMode } from './settings.ts';
+import { artMode, cityArt, parseArt, setArtMode, type ArtMode } from './settings.ts';
 import { CityCanvas } from './ui/CityCanvas.tsx';
 
 type Levels = Record<BuildingKey, number>;
@@ -36,7 +36,8 @@ if (q.has('level')) {
   SCENES.unshift({ name: `All at level ${n}`, levels: L(n, n, n, n, n, n, n, n), recruits: n * 2, mood: { hour: 11, streak: Math.min(6, n), army: army(Math.ceil(n / 3)) } });
 }
 // ?art=classic|hd picks the art mode (default: the saved setting); the button flips the setting.
-const art: ArtMode = q.get('art') === 'hd' ? 'hd' : q.get('art') === 'classic' ? 'classic' : artMode();
+// HD 64 changes battles only: its city is the HD city.
+const art: ArtMode = cityArt(q.get('art') ? parseArt(q.get('art')) : artMode());
 {
   const b = document.createElement('button');
   b.textContent = art === 'hd' ? 'Art: HD (switch to classic)' : 'Art: classic (switch to HD)';

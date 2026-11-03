@@ -203,6 +203,83 @@ zoom 5):
 
 At zoom 1 (the level-1 sprites) the knights stay one pale cavalry mass, which is the Medieval II read.
 
+## Weapon-true attacks, high-arc bows and real runs (November 2026)
+
+The user's notes: the spearmen swung instead of poking; every attack must fit its weapon; melee
+units need 2-3 blows; a run is not a fast walk (armour and shields change it); archers draw high to
+shoot over their own ranks, while crossbows shoot flat. The research these follow is
+`weapon-attacks.md` (T1-T10: grip, key poses, timing, mistakes) and `running.md` (walk vs run,
+armour §3, shield §4, spear §5, horse gaits §9). Their angles are tagged [est]; I checked them only
+against the mocap already in `paper/motion/*.json` (CMU punching, run, pitch and bow; Muybridge
+horse plates) and by eye on contact sheets. No new video or mocap was gathered.
+
+### Audit (before) and what changed
+
+| Unit | Weapon | What it did | What was wrong | Now |
+|---|---|---|---|---|
+| Sergeant-Brothers (0) | arming sword + kite | one diagonal cut; the shield swung out +16° and back −12° | one blow; the shield left the chest (T1 "shield drops"); run: sword forearm bent, but stride and lean as a light man's | 3 blows: cut (shield held on the chest), **sword thrust** from a hip guard along the blade with a step, **shield bash** with the blade cocked. Run: shield locked across the chest (no counter-swing), blade carried forward at shoulder height, heavy-armour stride (×0.78) and lift (×0.7) |
+| Spear Levy (1) | spear + round shield | the spear popped level in one frame, the fist barely moved, then the spear **swung up through an arc** back to upright | read as a swing, not a poke (T2's first mistake); no recoil; run: spear upright and still | 3 blows: **overhand** thrust (fist by the ear, point 84°, driven 4.6 units straight along the shaft and pulled back), **underhand** thrust (from the hip, point rising 101°), **shield shove** (spear held back, shield punched out with a 1.5-unit step). Run: spear sloped forward at the port, tip lagging 2 frames; shield locked |
+| Javelin Men (2) | javelins + buckler | underarm jab as an arm swing; throw released at 115° | the jab arced; release a little flat | 2 blows: **underarm jab** and **overhand stab**, both straight-line fist paths. Throw released rising ~35° (125°). Run: light runner (stride ×1.12, more flight), a javelin poised at the shoulder, bundle and buckler held to the chest |
+| Pilgrim Archers (3) | longbow | drew level (bow arm 92°, stave upright) | flat shot: cannot clear the front ranks | **Draw tilted 35° up** (`bowAuthor`): bow arm straight along the arrow, the stave square to it, the nock on the arrow line at the jaw, elbow back, trunk eased back. Run: the free arm pumps (elbow ~80-90°, ±34°), bow held low; light stride |
+| Genoese Crossbows (4) | crossbow + pavise | aim, loose, then the crossbow raised **point-up** while stooping | the span pose was wrong: a belt-hook span points the bow down onto its stirrup | Aim level (direct fire, 93-94°), loose with a kick back, then the bow swung **point-down to the stirrup**, the near foot steps into it, deep stoop to hook the belt claw, stand to span, bring it up. Run: crossbow at the port in both arms. One blow (butt-stroke): missile troops |
+| Turcopoles (5) | spear + shield, mounted | one overarm thrust (the old foot THRUST, arcing) | arc, one blow | 2 blows at the gallop: **overarm** and **underarm** straight thrusts. Walk: **trot** |
+| Turcopole Archers (6) | composite bow, mounted | drew level | flat | Draw tilted **20° up** (shooting from the flank, a shallower arc). Walk: trot. One melee blow (fist) |
+| Knight-Brothers (7) | couched lance + kite | couched lance at the gallop | one blow | 3 blows at the gallop: **couched lance**, **overarm** thrust (Bayeux Tapestry style), **underarm** thrust. No sword is drawn: the key art carries none, and a new drawn weapon was out of scope. Walk: trot |
+| Iron Brethren (8) | Dane axe, two hands | overhead chop | one blow; run: an ordinary run | 3 blows: **overhead chop**, **diagonal from the shoulder** (bit behind the head, down through the level and low across), **top-spike thrust** along the haft. Run: axe at the port in both fists, heavy stride |
+| Mangonel crew (9) | traction engine | crew haul the ropes, the arm whips over, the sling releases | nothing against the research (T10: the arm is the silhouette, the crew read as several men) | Unchanged. It does not walk or run on the field (the crew stand at the engine) |
+| Marshal (10) | sword + Beauséant, mounted | forehand cut from a stand | one blow | 3 blows: **forehand cut**, **rising backhand** from the far hip, **point** stabbed down at a man on foot. Walk: trot |
+
+### How
+
+- `templar-clips.ts`: `reach` (two-bone IK from a fist position, deterministic series trig) and
+  `fistPath`/`on` put a thrust's fist on the shaft's own line every frame, so the point travels
+  straight out and straight back; the weapon's world angle is held through the drive. `lunge`
+  gives the body under a straight blow: rock back at the chamber, hips forward and the
+  shield-side foot stepping in at the strike, back to rest.
+- Timing for every blow: rest 0, chamber 2, coil 3, drive 4, strike 5 (`strike` event), hold 6,
+  recoil 7, guard 8, settle 9-11 (about 35/15/50, as T1-T2 give). A smear only on the cuts.
+- Runs keep CMU 09_02 (flight at frames 4-5 and 10-11, hips lowest mid-stance and highest in
+  flight, the reverse of the walk) and lay per-carry arms over it (`runArms`). Heavy armour: a
+  shorter stride and less lift, 10° lean; light men: a longer stride, more flight, 14°.
+- `templar-horse.ts`: rider blows (`rides`), the trot built from Muybridge's walk with both
+  forelegs delayed a quarter stride (each fore then moves with the opposite hind), a two-per-stride
+  barrel bob and a still head. The gallop was already Muybridge's transverse order (trailing hind,
+  lead hind, trailing fore, lead fore, then the gathered suspension), and stays.
+
+### Critique rounds
+
+1. **Spear levy.** The overhand and underhand thrusts read as pokes at once. The shield shove
+   moved the shield about a unit, so it went up to +62° (upper arm) with a 1.5-unit lunge. In NE
+   that lifted the shield over the head, so the forearm was brought back to +36°: it now drives
+   forward rather than up.
+2. **Sergeant.** The thrust's chamber put the elbow straight back at shoulder height (a chicken
+   wing), with the fist behind the shoulder. The guard moved to the hip (fist 0.15 forward,
+   2.35 down from the shoulder, elbow down at the side). The cut's smear was a large white
+   crescent, so it was thinned to the outer blade (radii 3.6-5.8).
+3. **Lint and the rest.** The full lint showed one new HD FAIL: Pilgrim Archers L2 lightDir 175°,
+   although the archer's pixels were byte-identical. The lint credits a colour to the first kind
+   and material that paints it. The Sergeant's palette changed with his new blows, so the archers'
+   light fletching colour was now credited to their own steel ramp, which the reducer shares with
+   the slate cloak. The fletchings are drawn a tone lower at L1-2, and the check is back to its
+   baseline warning. The blows left unchanged (punch, butt, chop, cut) keep their old key
+   sampling, so their frames are as before.
+
+Contact sheets (ours): `docs/screenshots/anim-weapons/templar/`:
+- `k<kind>-blows-L8.png` or `-L4x2.png`: every blow; rows are blow 0, 1, 2 in SE, then NE.
+- `k<kind>-walk-run-L4x2.png` for the foot kinds and `k<kind>-trot-gallop-L4x2.png` for the mounted
+  kinds: walk SE and NE, then run SE and NE.
+- `k2/k3/k4/k6-shoot-L8.png`: the javelin throw, the high bow, the crossbow aim-loose-span and the
+  horse bow.
+
+What is still short:
+- The angles are the research's estimates, checked by eye, not against video.
+- In SE the Sergeant's sword thrust is partly hidden behind his own kite until it clears it at the
+  strike.
+- The Marshal's point is short in SE.
+- The trot has no suspension: it is a jog trot, since the walk plate's stances are long.
+- The knights carry no sword, so there is no sword blow for them.
+- Archers, crossbows and horse archers keep one melee blow each.
+
 ## Performance
 
 `pnpm tsx scripts/sprite-bench.ts templar 8 0,7`: a whole level-8 sheet takes 3.3 s for the
