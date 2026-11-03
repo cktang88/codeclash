@@ -16,7 +16,7 @@ import { FACTIONS, type FactionId } from '../../game/factions.ts';
 import { U } from '../../game/units.ts';
 import { Anim, ANIM_COUNT, COMMANDER_KIND, KIND_COUNT, type Atlas, type BuildAtlas, type Dir, type KindSheet } from './contract.ts';
 import { FRAMES, LOOPS, TICKS } from './frames.ts';
-import { paintPaper, paperBlows, type PaperFrame } from './paper/index.ts';
+import { paintPaper, paperBlows, paperSheetStart, type PaperFrame } from './paper/index.ts';
 import { halveSheet } from './downscale.ts';
 import { artVersion, cachedKeys } from './sheet-cache.ts';
 import type { PaintError } from './sprite-worker.ts';
@@ -3258,6 +3258,7 @@ export function paintSheet(faction: string, hue: number, kind: number, level: nu
   const t0 = typeof performance !== 'undefined' ? performance.now() : 0;
   const { fill, edge, looks } = armyColours(faction, hue);
   useLevel(level);
+  paperSheetStart();
   const scratch = new Uint32Array(W * H);
   const tiles: Tile[] = [];
   const blows = blowsOf(faction, kind);
@@ -3333,6 +3334,7 @@ export function paintGrid(faction: string, hue: number, kind: number): KindSheet
   const t0 = typeof performance !== 'undefined' ? performance.now() : 0;
   const { fill, edge, looks } = armyColours(faction, hue);
   useLevel(1);
+  paperSheetStart();
   // A kind with several blows gets their columns at the right (gridColOf).
   const blows = blowsOf(faction, kind);
   const width = gridCols(blows) * CELL_W, height = 4 * CELL_H;
