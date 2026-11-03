@@ -102,6 +102,15 @@ function orders(s: HorseSpec, m: SMounted): { se: string[]; ne: string[] } {
   // From behind, what the far hand holds (the yumi) is on the horse's far side: behind its body.
   const neFar = rider.includes('farItem') ? ['farItem', 'gripF'] : [];
   const ne = ['weaponDrop', 'farDrop', ...HORSE_FAR.map(hs), ...RIDER_FAR_LEG, ...neFar, ...HORSE_BODY.map(hs), ...neRider.filter((p) => (rider.includes(p as ManPiece) || p === 'smear') && !neFar.includes(p)), ...RIDER_NEAR_LEG, 'abumi', 'flash'];
+  // A sword rider's hand and blade work outside his near leg (kiri-age starts low along the flank):
+  // over the leg and the stirrup, not under them.
+  if (s.ride === 'cut') {
+    for (const order of [se, ne]) {
+      const arm = nearArm.filter((p) => order.includes(p));
+      for (const p of arm) order.splice(order.indexOf(p), 1);
+      order.splice(order.indexOf('flash'), 0, ...arm);
+    }
+  }
   return { se, ne };
 }
 
@@ -329,19 +338,21 @@ const SADDLE_CUT: Author = (rw) => ({
   tAdd: { chest: [T([0, 0], [3, -0.35], [6, 0.35], [8, 0.35], [11, 0]), T([0, 0])] },
 });
 /**
- * Kiri-age from the saddle (the hatamoto's second blow): the katana swung back over the near
- * shoulder and down behind (1-4), then round under and up past the horse's shoulder in one rising
- * arc, cutting up at a rider or a man on foot (5-7); held high (8) and back to the raised carry.
- * One-handed: the far hand keeps the reins.
+ * Kiri-age from the saddle (the hatamoto's second blow), a rising cut of about 160°: the point is
+ * dropped (1) and the blade let fall back low along the horse's near flank, hand at the hip, the
+ * rider stooping out over the near side (2-4: low and back, under the horo, never over the
+ * shoulder); then it rises forward and up past the horse's shoulder in one arc (5-6), the rider
+ * straightening into it, and ends high and forward (7), held (8), back to the raised carry. The
+ * arm never swings over the top, so the horo never hides it. One-handed: the far hand keeps the reins.
  */
 const SADDLE_RISE: Author = (rw) => ({
   w: {
-    upperArmN: T([0, rw.upperArmN!], [1, 170], [2, 220], [3, 275], [4, 300], [5, 365], [6, 420], [7, 478], [8, 482], [10, 490], [11, rw.upperArmN! + 360]),
-    forearmN: T([0, rw.forearmN!], [1, 190], [2, 240], [3, 290], [4, 315], [5, 378], [6, 438], [7, 496], [8, 500], [10, 515], [11, rw.forearmN! + 360]),
-    weapon: T([0, rw.weapon!], [1, 196], [2, 245], [3, 296], [4, 322], [5, 384], [6, 442], [7, 500], [8, 505], [10, 512], [11, rw.weapon! + 360]),
-    head: T([0, rw.head!], [4, rw.head! - 6], [7, rw.head! + 4], [9, rw.head!]),
+    upperArmN: R(rw.upperArmN!, 11, [1, 70], [2, 8], [3, -22], [4, -26], [5, 14], [6, 70], [7, 118], [8, 122], [10, 140]),
+    forearmN: R(rw.forearmN!, 11, [1, 52], [2, -4], [3, -22], [4, -26], [5, 30], [6, 92], [7, 130], [8, 134], [10, 160]),
+    weapon: R(rw.weapon!, 11, [1, 14], [2, -18], [3, -34], [4, -38], [5, 40], [6, 96], [7, 124], [8, 128], [10, 150]),
+    head: T([0, rw.head!], [3, rw.head! - 10], [4, rw.head! - 10], [6, rw.head!], [7, rw.head! + 4], [8, rw.head! + 4], [10, rw.head!]),
   },
-  dw: { spine: T([0, 0], [2, 6], [4, -10], [5, -16], [6, -6], [7, 4], [8, 4], [10, 0], [11, 0]) },
+  dw: { spine: T([0, 0], [1, -4], [3, -16], [4, -18], [5, -10], [6, -2], [7, 6], [8, 6], [10, 0], [11, 0]) },
 });
 /** Tsuki from the saddle (the third blow): the raised blade brought level and driven straight forward over the horse's neck as the rider leans in; held; back up. */
 const SADDLE_THRUST: Author = (rw) => ({
@@ -424,7 +435,7 @@ function horseClips(skel: SkeletonData, s: HorseSpec, m: SMounted, blowsOut?: Cl
       : s.ride === 'cut'
         ? [
             { a: SADDLE_CUT, ev: [{ f: 5, name: 'smear', len: 2, bone: 'weapon' }, { f: 7, name: 'strike' }] },
-            { a: SADDLE_RISE, ev: [{ f: 6, name: 'smear', len: 2, bone: 'weapon' }, { f: 7, name: 'strike' }] },
+            { a: SADDLE_RISE, ev: [{ f: 5, name: 'smear', len: 2, bone: 'weapon' }, { f: 6, name: 'strike' }] },
             { a: SADDLE_THRUST, ev: [{ f: 5, name: 'strike' }] },
           ]
         : [];
