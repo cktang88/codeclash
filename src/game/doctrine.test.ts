@@ -234,8 +234,8 @@ describe('doctrines: the Hollow Host', () => {
   }, 60_000);
 
   it('U2: a knight charge does not stun the dead, knocks them back less, and stalls sooner', () => {
-    const charge = (faction: FactionId) => {
-      const b = new Battle({ version: BATTLE_VERSION, seed: 3, kind: 'daily', armies: [plainArmy(only(U.Knights, 12)), plainArmy(only(U.HeavyInfantry, 30), 200, faction)] });
+    const charge = (faction: FactionId, seed: number) => {
+      const b = new Battle({ version: BATTLE_VERSION, seed, kind: 'daily', armies: [plainArmy(only(U.Knights, 12)), plainArmy(only(U.HeavyInfantry, 30), 200, faction)] });
       b.generals[1].fixedPlan = 'hold';
       b.generals[0].rashKnights = true;
       const f = b.regiments.find((r) => r.team === 1)!;
@@ -260,8 +260,11 @@ describe('doctrines: the Hollow Host', () => {
       }
       return { stunned, pushed };
     };
-    const dead = charge('undead');
-    const living = charge('templar');
+    // Over five charges: one charge's hardest push is one man's luck (since v14 a few riders,
+    // the eager, come in ahead of the rest).
+    const over = (faction: FactionId) => [1, 2, 3, 4, 5].map((seed) => charge(faction, seed)).reduce((a, c) => ({ stunned: a.stunned + c.stunned, pushed: a.pushed + c.pushed }));
+    const dead = over('undead');
+    const living = over('templar');
     expect(dead.stunned).toBe(0);
     expect(living.stunned).toBeGreaterThan(0);
     expect(dead.pushed).toBeLessThan(living.pushed * 0.6);

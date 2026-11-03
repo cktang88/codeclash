@@ -23,10 +23,10 @@
 import { factionStats, type FactionId } from './factions.ts';
 import { mixSeed, Rng } from './rng.ts';
 import { emptyCounts, U, UNIT_COUNT, type Counts, type Role, type UnitStats } from './units.ts';
-import { DOCTRINE, FATIGUE, MORALE, newOrder, REGROUP, PERSONALITIES, PLANS, UNDEAD, type CommanderTrait, type Doctrine, type MoraleState, type Order, type OrderKind, type Personality, type Plan } from './command.ts';
+import { COHESION, DOCTRINE, FATIGUE, MORALE, newOrder, REGROUP, PERSONALITIES, PLANS, UNDEAD, type CommanderTrait, type Doctrine, type MoraleState, type Order, type OrderKind, type Personality, type Plan } from './command.ts';
 
 export type { CommanderTrait, MoraleState, Order, OrderKind, Personality, Plan } from './command.ts';
-export { DOCTRINE, MORALE, REGROUP, UNDEAD } from './command.ts';
+export { COHESION, DOCTRINE, MORALE, REGROUP, UNDEAD } from './command.ts';
 
 /**
  * v14: looser, livelier battles (docs/art-references/battle-cohesion.md; COHESION in command.ts).
@@ -228,12 +228,14 @@ class Store {
   readonly hs: Float64Array;
   /** Elevation of his last shot: 0 level (a gun, a bolt at close range) to 1 (a high lob). */
   readonly aim: Float64Array;
+  /** His own eagerness, -1 (a laggard) to 1 (the first to close): see COHESION. */
+  readonly ea: Float64Array;
   constructor(n: number) {
     const f = () => new Float64Array(n);
     const i = () => new Int32Array(n);
     this.x = f(); this.y = f(); this.vx = f(); this.vy = f(); this.hp = f(); this.imp = f();
     this.px = f(); this.py = f(); this.sx = f(); this.sy = f(); this.col = f(); this.row = i();
-    this.rad = f(); this.mass = f(); this.spd = f(); this.hx = f(); this.hy = f(); this.hs = f(); this.aim = f();
+    this.rad = f(); this.mass = f(); this.spd = f(); this.hx = f(); this.hy = f(); this.hs = f(); this.aim = f(); this.ea = f();
     this.state = new Uint8Array(n); this.team = new Uint8Array(n);
     this.reg = i(); this.target = i(); this.cd = i(); this.ammo = i();
     this.acted = i(); this.hit = i(); this.died = i(); this.kills = i(); this.stun = i(); this.rose = i();
@@ -422,6 +424,8 @@ export class Regiment {
   engaged = false;
   /** An enemy block is close: its men look for foes. */
   contact = false;
+  /** 0..1: how near the nearest enemy block is (1 within reach): the eager pull ahead (COHESION.leadNear). */
+  closeIn = 0;
   routed = false;
   routAt = -1;
   quietSince = 0;
@@ -553,7 +557,7 @@ export class Regiment {
 /** Regiment fields that hold fractions (see the Regiment constructor). */
 const DOUBLE_FIELDS = [
   'arrows', 'cx', 'cy', 'ax', 'ay', 'fx', 'fy', 'dfx', 'dfy', 'tx', 'ty', 'vax', 'vay', 'aspd', 'morale', 'baseMorale', 'chaseX', 'chaseY', 'spacing', 'speed',
-  'width', 'depth', 'radius', 'recent', 'recentKills', 'flankShock', 'homeX', 'homeY', 'wx', 'wy', 'fatigue', 'enemyNear',
+  'width', 'depth', 'radius', 'recent', 'recentKills', 'flankShock', 'homeX', 'homeY', 'wx', 'wy', 'fatigue', 'enemyNear', 'closeIn',
 ] as const;
 
 export interface Projectile {
@@ -884,6 +888,8 @@ export class Battle {
   private readonly startTotal: [number, number] = [0, 0];
   private readonly startValue: [number, number] = [0, 0];
   private readonly figureScale: number;
+  /** Mixed into the hash that gives each man his eagerness (see `addSoldier`). */
+  private readonly salt: number;
   /**
    * Per-man morale shocks (MORALE.blockMen) scaled to the battle's block size: 1 up to blocks of
    * `blockMen`, less for the bigger blocks of a big battle, so a regiment feels the same share of
@@ -941,6 +947,7 @@ export class Battle {
     const setup = (this.setup = sanitize(given));
     this.rng = new Rng(mixSeed(setup.seed, SEED_SALT));
     this.parity = mixSeed(setup.seed, SEED_SALT, 9001) & 1;
+    this.salt = mixSeed(setup.seed, SEED_SALT, 4242);
     this.generals = [new General(0, setup.seed), new General(1, setup.seed)];
     this.scale = scaleFor(setup.armies[0].counts, setup.armies[1].counts);
     this.stats = [factionStats(setup.armies[0].faction), factionStats(setup.armies[1].faction)];
@@ -1015,6 +1022,7 @@ export class Battle {
     d.hit[id] = -100;
     d.died[id] = -1;
     d.rose[id] = -1;
+    d.ea[id] = hashUnit(id ^ this.salt);
     this.soldiers.push(new Soldier(d, id, team, cls, st, vet, commander));
     reg.members.push(id);
   }
@@ -2280,17 +2288,21 @@ export class Battle {
     // enemy close by, for being outnumbered.
     let contact = false;
     let near = 0;
+    let gap = Infinity;
     for (const o of this.teamRegs[1 - r.team]!) {
       if (o.alive === 0) continue;
       const dx = o.cx - r.cx;
       const dy = o.cy - r.cy;
       const rr = o.radius + r.radius + 24;
-      if (dx * dx + dy * dy < rr * rr) {
+      const q = dx * dx + dy * dy;
+      if (!o.routed && q < (rr + COHESION.nearFrom) * (rr + COHESION.nearFrom)) gap = Math.min(gap, sqrt(q) - rr);
+      if (q < rr * rr) {
         contact = true;
         if (!o.routed && o.engaged) near += o.alive * this.stats[o.team]![o.cls]!.value;
       }
     }
     r.contact = contact;
+    r.closeIn = contact ? 1 : gap < COHESION.nearFrom ? 1 - gap / COHESION.nearFrom : 0;
     r.enemyNear = near / this.stats[r.team]![r.cls]!.value;
   }
 
@@ -3021,9 +3033,10 @@ export class Battle {
     r.chargeAt = this.tick;
     r.ragged = false;
     r.charges++;
-    // Not every man runs as fast.
+    // Not every man runs as fast, and the eager run fastest (COHESION.chargePace).
     const d = this.d;
-    for (const id of r.members) d.hs[id] = 0.88 + this.rng.next() * 0.24;
+    const lead = this.doc[r.team]!.loose.lead;
+    for (const id of r.members) d.hs[id] = 1 + COHESION.chargePace * Math.max(-1, Math.min(1, (0.55 * d.ea[id]! + 0.45 * (this.rng.next() * 2 - 1)) * Math.min(1.2, lead)));
     if (r.charges === 1 || this.tick - r.modeAt > 100) this.events.push({ tick: this.tick, team: r.team, kind: 'charge', cls: r.cls, reg: r.id });
   }
 
@@ -4227,7 +4240,7 @@ export class Battle {
     const d = this.d;
     const tr = this.regiments[r.targetReg]!;
     if (tr.alive === 0) return;
-    const v = tr.engaged ? this.pickRear(tr, d.x[i]!, d.y[i]!, st.range) : this.pickInReach(tr, d.x[i]!, d.y[i]!, st.range);
+    const v = tr.engaged ? this.pickRear(tr, d.x[i]!, d.y[i]!, st.range) : this.pickInReach(tr, d.x[i]!, d.y[i]!, st.range, r.atWill);
     if (v < 0) {
       d.cd[i] = r.role === 'missile' && !r.atWill ? 1 : 4; // on the volley clock he tries again within the volley
       return;
@@ -4361,7 +4374,7 @@ export class Battle {
    * A man of regiment `r` to shoot at from (x, y): a few picked at random, the first within
    * `range` (a bowman aims at the part of a big block he can reach), else the nearest of them.
    */
-  private pickInReach(r: Regiment, x: number, y: number, range: number): number {
+  private pickInReach(r: Regiment, x: number, y: number, range: number, nearest = false): number {
     const d = this.d;
     let best = -1;
     let bd = Infinity;
@@ -4371,7 +4384,9 @@ export class Battle {
       const dx = d.x[id]! - x;
       const dy = d.y[id]! - y;
       const q = dx * dx + dy * dy;
-      if (q <= range * range && q >= 36) return id;
+      // (At will, the nearest of those he looks at: the eager men out in front draw the shots.)
+      if (q <= range * range && q >= 36 && !nearest) return id;
+      if (nearest && q < 36) continue;
       if (q < bd) {
         bd = q;
         best = id;
@@ -4741,6 +4756,30 @@ export class Battle {
     }
   }
 
+  /**
+   * P1 (COHESION): how far ahead of his slot (negative: behind) a man walks, along the block's
+   * facing: his eagerness and his file's (wider for green troops, narrower for veterans, by
+   * the faction's `loose.lead`), more as the enemy nears (`near` 0..1), within `leadCap` rank
+   * steps, plus a slow triangle wave along the files.
+   */
+  private lead(i: number, r: Regiment, near: number): number {
+    const d = this.d;
+    const L = this.doc[r.team]!.loose;
+    const C = COHESION;
+    const col = d.col[i]!;
+    // (The mix of two even spreads, scaled back up to the spread of one.)
+    const e = (C.fileShare * hashUnit((r.id * 977 + Math.round(col)) ^ this.salt) + (1 - C.fileShare) * d.ea[i]!) * C.fileNorm;
+    const cap = C.leadCap * rankStep(r);
+    let f: number;
+    if (d.mass[i]! > 2) f = e * C.horseLead * L.lead;
+    else {
+      f = e * (C.lead + C.leadNear * near) * L.lead * (r.veteran ? C.veteran : r.green ? C.green : 1);
+      const ph = ((this.tick + col * C.rippleFile) % C.ripplePeriod) / C.ripplePeriod;
+      f += (ph < 0.5 ? ph * 4 - 1 : 3 - ph * 4) * C.ripple * L.ripple;
+    }
+    return f > cap ? cap : f < -cap ? -cap : f;
+  }
+
   private move(i: number): void {
     const d = this.d;
     const r = this.regiments[d.reg[i]!]!;
@@ -4797,16 +4836,24 @@ export class Battle {
           cap = spd * (r.speed > 40 ? 1.2 : this.doc[r.team]!.footRun) * h;
         } else if (mode === 'charge' && !mounted) {
           // At a run, each man at his own pace: a ragged charge (run from too far) loses its ranks.
+          // The eager run ahead of their slots (P1).
           const h = d.hs[i]! || 1;
           const k = r.ragged ? 0.9 : 2.2;
-          vx = (r.vax / TICK_S) * h + (gx - x) * k;
-          vy = (r.vay / TICK_S) * h + (gy - y) * k;
+          const f = this.lead(i, r, 1);
+          vx = (r.vax / TICK_S) * h + (gx + r.fx * f - x) * k;
+          vy = (r.vay / TICK_S) * h + (gy + r.fy * f - y) * k;
           cap = spd * this.doc[r.team]!.footRun * 1.08;
         } else {
           const k = r.engaged ? 1 : rallying ? 0.7 : 2.5;
           if (rallying) cap = spd * 0.55;
-          vx = r.vax / TICK_S + (gx - x) * k;
-          vy = r.vay / TICK_S + (gy - y) * k;
+          // P1: on the march each man of the line strides a little ahead of or behind his slot,
+          // by his own eagerness and his file's, more so as the enemy comes near, and a slow wave
+          // runs along the files; a rider at the charge has his own line too. (Not shooters: they
+          // stand in their ranks to loose; and the dead, who never give a step, only on the march.)
+          let f = 0;
+          if (mounted ? mode === 'charge' : r.role === 'line' && (mode === 'advance' || mode === 'reserve' || (!r.engaged && (mode === 'hold' || mode === 'melee') && r.contact && this.doc[r.team]!.loose.stepBack))) f = this.lead(i, r, mounted ? 1 : r.closeIn);
+          vx = r.vax / TICK_S + (gx + r.fx * f - x) * k;
+          vy = r.vay / TICK_S + (gy + r.fy * f - y) * k;
           if (mode === 'charge' || mode === 'withdraw') cap = spd * 1.2;
         }
       }
@@ -5279,6 +5326,11 @@ function defaultStance(reg: Regiment): Stance {
 
 function rowWidth(list: Regiment[], gap: number): number {
   return list.reduce((w, r) => w + r.width + gap, 0) - gap;
+}
+
+/** A deterministic hash of an integer to -1..1 (Knuth's multiplicative hash; no Math.random). */
+function hashUnit(n: number): number {
+  return ((Math.imul(n | 0, 2654435761 | 0) >>> 0) % 2001) / 1000 - 1;
 }
 
 function cellIndex(x: number, y: number): number {

@@ -316,10 +316,12 @@ describe('battle: missile drill (v11)', () => {
       engaged ||= bows.engaged;
       for (const id of bows.members) if (struck(b, id, t, shots)) blows++;
     }
-    // Volleys at range; at will as the spears came on, bows level at point-blank.
+    // Volleys at range; at will as the spears came on, bows level at point-blank. (Since v14 the
+    // eager spearmen run in ahead of their ranks and close before a second volley at will: the
+    // flat shots are those of the first, at the men out in front.)
     expect(volleyShots).toBeGreaterThan(40);
     expect(atWill).toBeGreaterThan(10);
-    expect(flat).toBeGreaterThan(atWill * 0.3);
+    expect(flat).toBeGreaterThan(atWill * 0.15);
     // Locked in melee nobody shoots: they fight.
     expect(engaged).toBe(true);
     expect(engagedShots).toBe(0);

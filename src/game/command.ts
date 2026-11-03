@@ -259,6 +259,46 @@ export const FATIGUE = {
 } as const;
 
 /**
+ * Battle v14: how loosely men keep their places (docs/art-references/battle-cohesion.md, section
+ * 4). World units (about 0.19 m) and ticks (0.1 s). Each faction scales these by its doctrine's
+ * `loose` factors (`Looseness`). Per-man variation comes from a hash of the man's id and the
+ * battle's seed, waves from integer triangle waves: no trig, no Math.random.
+ */
+export const COHESION = {
+  // P1 The approach ripples: eager men stride ahead of their slots, laggards fall behind.
+  /** A man's eagerness (-1..1) carries him this far ahead of (or behind) his slot on the march... */
+  lead: 4.6,
+  /** ...and this much further as the enemy comes within `nearFrom` of the block's edge. */
+  leadNear: 5,
+  nearFrom: 90,
+  /** At most this many rank steps either way (he does not walk through the man ahead). */
+  leadCap: 1.25,
+  /** The share of a man's eagerness that his file shares (files surge together). */
+  fileShare: 0.5,
+  fileNorm: 1.41,
+  /** Veterans keep a narrower band, green troops a wider one. */
+  veteran: 0.6,
+  green: 1.3,
+  /** A slow wave along the files: this far, once every `ripplePeriod` ticks, `rippleFile` ticks later a file. */
+  ripple: 2.4,
+  ripplePeriod: 72,
+  rippleFile: 7,
+  /** Horse at the charge: a rider's lead (no two horses abreast). */
+  horseLead: 4,
+  /** A man's pace in a charge, 1 +- this (was 0.12): the eager run fastest. */
+  chargePace: 0.18,
+} as const;
+
+/** A faction's cohesion: COHESION's levers times these (1: as COHESION). */
+export interface Looseness {
+  /** P1: eagerness band on the march, and the wave along the files. */
+  lead: number;
+  ripple: number;
+  /** Whether its men ever give a step back: standing at the enemy's front, or out of measure in a melee (the dead never do). */
+  stepBack: boolean;
+}
+
+/**
  * Battle doctrines (docs/faction-doctrines.md): how each faction fights, in numbers. Every army
  * reads its own row; SHARED's values leave the common rules as they are. battle.ts names each
  * doctrine where it applies it (T1..T3 Templar, S1..S3 Samurai, U1..U3 Undead).
@@ -366,6 +406,9 @@ export interface Doctrine {
   raiseRange: number;
   raiseAfter: number;
   raiseHp: number;
+
+  /** Battle v14: how loosely its men keep their places (COHESION). */
+  loose: Looseness;
 }
 
 const SHARED: Doctrine = {
@@ -378,6 +421,7 @@ const SHARED: Doctrine = {
   tide: 1, tideNear: 0, unhalting: false, footRun: 1.45,
   knockback: 1, stun: true, drain: 1,
   raiseEvery: 0, raiseShare: 0, raiseCap: 0, raiseRange: 0, raiseAfter: 0, raiseHp: 0,
+  loose: { lead: 1, ripple: 1, stepBack: true },
 };
 
 export const DOCTRINE: Record<FactionId, Doctrine> = {
@@ -389,6 +433,8 @@ export const DOCTRINE: Record<FactionId, Doctrine> = {
     withdrawals: 2, withdrawBehind: 40, withdrawBanner: 300, reforms: 1, reformAtBanner: true, shaken: 250,
     // T3 Not while the Beauséant flies.
     standFast: true, brothersGrief: 1.5,
+    // The Rule: no brother leaves his place. A tight, even front.
+    loose: { lead: 0.5, ripple: 0.7, stepBack: true },
   },
   samurai: {
     ...SHARED,
@@ -398,6 +444,8 @@ export const DOCTRINE: Record<FactionId, Doctrine> = {
     chaseFar: 1.4, chaseTired: 1.4, recall: 80, firstSpear: 8, firstSpearNear: 240, firstSpearLift: 3, keenCharge: 140,
     // S3 Drilled teppō fire.
     ripple: 3, firstVolley: 8, screen: 14, screenBack: 60, screenHold: 150,
+    // S2 again: the keen run ahead for the first spear.
+    loose: { lead: 1.4, ripple: 1.1, stepBack: true },
   },
   undead: {
     ...SHARED,
@@ -407,5 +455,7 @@ export const DOCTRINE: Record<FactionId, Doctrine> = {
     knockback: 0.3, stun: false, drain: 1.3,
     // U3 What falls, rises.
     raiseEvery: 100, raiseShare: 0.008, raiseCap: 40, raiseRange: 240, raiseAfter: 30, raiseHp: 0.4,
+    // The tide shambles on, a ragged mass with no eager men and no laggards to speak of.
+    loose: { lead: 0.7, ripple: 1.3, stepBack: false },
   },
 };
