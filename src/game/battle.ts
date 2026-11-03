@@ -28,8 +28,11 @@ export type { CommanderTrait, MoraleState, Order, OrderKind, Personality, Plan }
 export { MORALE } from './command.ts';
 
 /**
- * v5: both sides think on the same ticks (they used to be out of step, which handed one side
- * 60-75% of equal fights), and the horse rides round a line and kites the same way on both sides.
+ * v5: no side bias. Both sides' regiments think and their men look for foes on the same ticks
+ * (they were out of step by the first army's size), which side goes first on even ticks is drawn
+ * from the seed, and the horse rides round a line and kites the same way on both sides. Until v4
+ * one side won 60-75% of mirror matches, which side depending on the armies' size (see
+ * `pnpm fairness`).
  */
 export const BATTLE_VERSION = 5;
 /**
