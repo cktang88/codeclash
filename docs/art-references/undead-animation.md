@@ -209,3 +209,123 @@ Warnings that remain (counted over the 44 kind-level reports), as a to-do list:
   trails on one bone each.
 - The horse itself does not come apart in the death (its drawing is one piece); the rider does.
 - The Trebuchet's crew are the parametric crewmen driven by a work-phase bone, not men on bones.
+
+## Weapons and runs: every blow fitted to its weapon (2026-11)
+
+The user: "Spear people animations totally wrong lol, isn't it more a poking action. Go through
+every soldier and make sure their attack animation actually fits their weapon", "many melee units
+probably need 2 or 3 attack animations", "running is not just a faster walk", "archers need to draw
+bows at an angle to shoot above the heads of troops". The research is `weapon-attacks.md` (U1-U10,
+with the T/S bases they adapt) and `running.md` (§3 armour, §4 shield, §5 spear carries, §8 undead
+gaits, §9 Muybridge gallop); the references behind both (Fiore and Wiktenauer, the gladius, the
+crossbow museum drawings, Muybridge's plates, Williams' run keys) are listed there. Each round below
+was compared against those notes and the motion references in `motion-reference.md`.
+
+Code: `paper/undead-blows.ts` (new: the line thrust, the authored run, every new blow), wired in
+`undead-clips.ts` (`FootClipSpec.blows`, `run`, `runArms`, `shootHigh`), `undead-horse.ts`
+(`MountSpec.blows`, `shootHigh`, the sword swap), `undead-beast.ts` (sweep, stomp, the Colossus'
+run), `undead-parts.ts` (`warSword`) and `undead-bones.ts` (each kind's choices and blow count).
+
+### Audit (before)
+
+| Unit | Weapon | What it did | What was wrong |
+|---|---|---|---|
+| Grave Legionaries | gladius + scutum | One blow: an overhead diagonal cut with the blade raised far above the helm. Run: the walk capture leaned forward, the blade waving, the shield arm free. | A gladius stabs first and the shield leads (U1); no shield punch; one blow. The run had no flight and the shield arm swung. |
+| Ghoul Spears | two-handed spear | One lunge thrust, but the spear snapped from upright to level in one frame and swung back up in an arc. Run: the walk capture, spear upright. | One blow; the lowering and the recovery read as a swing. The run was the walk with the spear upright. |
+| Bone-Throwers | bone javelins | Attack: an overarm "stab" whose arm keys (230-260°) turned the javelin round the head. Shoot: overarm hurl released level. | The stab was a swing; the release was flat (T3: a ~45° arc). One blow. Run = walk capture. |
+| Wraith Bows | longbow | Shoot and Attack the same level shot. | Volleys must go up 30-45° to clear the ranks (user, T4). The run is a glide (kept). |
+| Revenant Arbalests | crossbow | Attack: a "butt-stroke" that turned the crossbow 90° (a swing). Shoot: aim, loose, cranequin span (good). | One blow, and the butt-stroke was a swing of the prod. Run = walk capture, crossbow loose at the hip. |
+| Black Riders | spear from the saddle | Drawn up and back, then pivoted down (the shaft turning 25°). | The thrust rotated instead of driving along its line; one blow. |
+| Barrow Horse Archers | bow from the saddle | Shoot = Attack = level shot. | No high volley (the Parthian shot: see "Not done"). |
+| Death Knights | couched lance, kite shield | One blow: the couch (good). | No sword phase; the research asks for the heavy overhead cut with an apex pause and a diagonal (U8, T8 P4). |
+| Bone Colossus | femur club | One overhead smash (good). Run: the mocap run with a lean. | One blow; the run had a flight a heap that size cannot have. |
+| Corpse Trebuchet | engine crew | Shoot: haul, beam whip, sling release, winch (good). Attack: the crew beating with tools. | Fine; kept. |
+| Lich-Marshal | staff, witchfire | One blow: the cast. | One blow. |
+| Horses (all mounted) | | Muybridge gallop, but the whole horse took the stop-motion hold (frame 2 shown twice, 3 skipped). | The hold broke the four-beat footfall order. |
+
+### What changed
+
+- **Thrusts on a line** (`lineArm`): the fist is placed on the shaft's own line every frame and the
+  arm is solved for it by two-bone IK in the shoulder's frame; the shaft keeps its angle through
+  the chamber, the drive and the hold. The weapon comes into line during the anticipation (frames
+  1-2) and goes back to the carry at the end, so every blow begins and ends at rest and blows chain.
+- **Blows per kind** (blow 0 first):
+  - Legionaries (3): shield punch, then the gladius stab from behind the rim at the belly (the
+    shield shoved out with a step on the shield foot, the stab after it); a low stab under the rim
+    with the shield held up; the heavy diagonal cut kept as the third.
+  - Ghoul Spears (3): the rising lunge (shaft at 102°, a twitch on the held chamber, a long step);
+    the overhand stab from over the shoulder, point down (72°); a quick double jab low (86°).
+  - Bone-Throwers (2): overhand javelin stab, point dipping (80°); underarm jab rising (104°).
+    Shoot: the javelin's point rises through the delivery and leaves the hand ~35° up.
+  - Wraith Bows: Shoot is aimed 38° up (bow arm, bow and arrow rise together, the trunk leans back
+    from the hips, the skull looks up the shaft); Attack stays the level point-blank shot.
+  - Revenant Arbalests (2): the crossbow levelled and rammed out along its line; the club (a
+    crossbow is a blunt weapon in melee, so this one swings: overhead, held, down with the back).
+  - Black Riders (3): overhand down at a man on foot (66°), couched level (93°), low past the
+    horse's shoulder (50°), all on the line, the rider leaning into each.
+  - Barrow Horse Archers: Shoot aimed 34° up, Attack level.
+  - Death Knights (3): the couched lance; then the sword phase (the lance swapped for a blackened
+    war sword, `warSword`, by a slot key for the blow's length): the overhead cut heaved up over
+    the shoulder and **held two frames at the apex**, then the fall through the horse's shoulder
+    line with the trunk; the diagonal forehand cut from a flat chamber.
+  - Bone Colossus (3): the smash; the sweep (club drawn back low behind the hip, swept forward at
+    shin height with the torso, carried up through the front); the stomp (the foot heaved up, held,
+    slammed down with the heap dropping onto it, dust bursting at the foot).
+  - Lich-Marshal (2): the cast; the staff jab (the burning head driven out along the staff).
+- **Runs** (`runKeys`, 12 frames): a flight phase (both feet off, the hips highest) and the bob
+  reversed from the walk's (lowest at mid-stance); the foot rolls toe-down at push-off.
+  - Legionaries: heavy armoured run: 5 stance frames a step, one flight frame, a deep sink, the
+    shield arm locked up before the chest, the gladius forward at chest height point up, its tip
+    bouncing late.
+  - Ghoul Spears: crouching bounds: 3 stance frames, 3 in the air, the back folding on landing and
+    opening in flight, the spear low and level at port in both hands.
+  - Bone-Throwers: the skeleton's lope: long stride, two clean flight frames, a shallow down, the
+    free arm stiff (elbow ~135°) and out of phase, a hitch at contact (the upper body holds).
+  - Revenant Arbalests: heavy jog with the crossbow at port across the body.
+  - Bone Colossus: a lumbering heavy run that barely leaves the ground (one short lift), the heap
+    sinking hard onto each stance leg, the club carried up in front.
+  - Wraiths and the Lich keep their glide (they have no legs to run on); the run leans and streams.
+  - Horses: the Muybridge gallop keeps its beat: the stop-motion hold is on the rider's trunk, arms
+    and skull only, so the footfall order and the suspension frame are intact.
+
+### Critique rounds
+
+Contact sheets (level 4, SE above NE; rows = each blow, then Shoot; and Walk, Run):
+`docs/screenshots/anim-weapons/undead/k<kind>-<name>-blows.png` and `-walk-run.png`. Before (SE;
+rows Walk, Run, Attack[, Shoot]): `before-k<kind>.png`. The showcase Units tab (HD, 4×):
+`demo-units-se.png`, `demo-units-ne.png`.
+
+1. **First pass.** The thrusts read as pokes (the ghoul's three, the legionary's stab), but the
+   shield punch was too small to read (the shield arm turned 44°): now 62°, with the step. The
+   Colossus run floated four frames: its drawing places the hips from its own torso angle, so an
+   extra lean pulled the feet off the IK targets; the lean is cut to −4° and the flight to one
+   short lift. Flight frames were checked by measuring the gap under the lowest pixel per frame.
+2. **Second pass.** The Death Knight's sword vanished on the follow-through (iron on the black
+   horse): the blade is steel now and stops higher (44°), across the horse's neck. The javelin
+   left the hand flat: the point now rises to ~35°. The heavy run had flight in only one half of
+   the cycle (the trailing toe still down): the toe lifts on frame 11 as on frame 5.
+3. **Third pass, against the research.** No thrust turns its shaft during the drive; the ghoul's
+   chamber holds with a twitch (U2); the legionary's shield leads the stab (U1); the Death Knight
+   pauses at the apex (U8); the Colossus' stomp has its impact and dust (U9); the bows go up for
+   the volley. In the showcase the runs read as runs beside the walks (shield up, spear levelled,
+   flight).
+
+### Lint
+
+`pnpm pixel-lint --only=sprites --factions=undead`, then `kind-report` for kinds 0-10: **no FAIL
+on any HD kind at any level**, every blow audited (kind-report lists 3 blows for the Legionaries,
+Ghoul Spears, Black Riders, Death Knights and Colossus, 2 for the Bone-Throwers, Arbalests and
+Lich). Level-1 silhouette overlap stays under 0.85 (closest: Horse Archers vs Death Knights 0.83,
+Wraith Bows vs Lich 0.82). The 51 failed checks the run reports are all the classic (non-HD)
+painter's, unchanged.
+
+### Not done
+
+- The Barrow Horse Archers' Parthian backward shot: our riders face forward in both drawn views,
+  and turning the torso 120° needs a rider drawn from behind on a horse seen from the side; their
+  Shoot is a forward volley aimed high instead.
+- The Death Knight's lance-to-sword change is a slot swap on the blow's first frame (no drawing of
+  the sword); since each swing picks a blow, a knight can show the lance one swing and the sword
+  the next.
+- The Corpse Trebuchet's crew are unchanged (their haul and winch were right).
+- Wraiths and the Lich glide; their run is the faster glide, not a leg cycle.
