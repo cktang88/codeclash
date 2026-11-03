@@ -5,6 +5,8 @@
 //
 // Pure data and small pure helpers; deterministic like the rest of src/game.
 
+import type { FactionId } from './factions.ts';
+
 /** What a General can tell a regiment to do. */
 export type OrderKind = 'hold' | 'advance' | 'attack' | 'flank' | 'charge' | 'skirmish' | 'support' | 'reserve' | 'withdraw' | 'pursue';
 
@@ -255,3 +257,121 @@ export const FATIGUE = {
   combat: 8,
   pace: 0.25,
 } as const;
+
+/**
+ * Battle doctrines (docs/faction-doctrines.md): how each faction fights, in numbers. Every army
+ * reads its own row; SHARED's values leave the common rules as they are. battle.ts names each
+ * doctrine where it applies it (T1..T3 Templar, S1..S3 Samurai, U1..U3 Undead).
+ */
+export interface Doctrine {
+  // T1 The Marshal's charge: the knights wait for one signal, charge one target together, harder,
+  // and ride back to the Marshal's banner rather than chase.
+  /** The knights wait for the Marshal's signal (and his General never sends them in rashly). */
+  signal: boolean;
+  /** He gives it when an enemy block locked with our line falls under this morale... */
+  signalMorale: number;
+  /** ...or at the general charge, or after this tick whatever happens; then again at most every `signalEvery` ticks. */
+  signalLate: number;
+  signalEvery: number;
+  /** A signalled charge hits this much harder (force), and shakes its target this much more. */
+  heldCharge: number;
+  heldShock: number;
+  /** The cycle charge pulls back to this far in front of the Marshal when he is within `recallRange`. */
+  recallTo: number;
+  recallRange: number;
+  /** Knights' chase: at most this far (units) and this long (ticks). */
+  knightFar: number;
+  knightTired: number;
+
+  // T2 Re-form on the banner: wavering blocks are pulled back to a banner, more than once, and
+  // broken ones may re-form at any friendly banner.
+  /** Times the General may pull a wavering regiment out of the line. */
+  withdrawals: number;
+  /** It falls back this far behind the nearest banner within `withdrawBanner` (the Marshal, or a steady regiment of its family); 0: 90 straight back. */
+  withdrawBehind: number;
+  withdrawBanner: number;
+  /** Re-formings beyond the one rally (REGROUP.extra), and whether any friendly banner within REGROUP.banner will do for them (not only its own standard). */
+  reforms: number;
+  reformAtBanner: boolean;
+  /** Ticks a rallied regiment stays shaken (REGROUP.shaken). */
+  shaken: number;
+
+  // T3 Not while the Beauséant flies: the professed brothers (Knight-Brothers, Iron Brethren)
+  // do not break while the Marshal lives, and take his death harder.
+  standFast: boolean;
+  /** The general's death: the shock to the brothers, times MORALE.generalDeadShock. */
+  brothersGrief: number;
+
+  // S1 The lord's uma-jirushi: a stronger aura reaching further, a heavier blow when he falls,
+  // and his hatamoto charge to avenge him.
+  /** MORALE.aura, auraRange, generalDeadShock and generalDead, times these. */
+  aura: number;
+  auraRange: number;
+  generalDeadShock: number;
+  generalDead: number;
+  /** The general's horse (the Knights class) charges the nearest enemy when he falls. */
+  revenge: boolean;
+
+  // S2 First spear, long chase.
+  /** Chases run this much further and longer, and a block called back may go again this soon (ticks). */
+  chaseFar: number;
+  chaseTired: number;
+  recall: number;
+  /** The first block of the line to reach the enemy: morale for it, and for every block of ours within `firstSpearNear`. */
+  firstSpear: number;
+  firstSpearNear: number;
+  firstSpearLift: number;
+  /** Heavy foot charges any steady target within this (0: only a wavering one, archers in the open, or at the general charge). */
+  keenCharge: number;
+
+  // S3 Drilled teppō fire: the first volley of a block of guns all together (it shakes its
+  // target), then rank by rank.
+  /** Ranks that fire in turn after the first volley (1: whole volleys). */
+  ripple: number;
+  /** Morale the first volley of a block of guns costs its target. */
+  firstVolley: number;
+
+  // U1 The tide.
+  /** Foot marches at FOOT_MARCH times this, unless within `tideNear` of a living Lich-Marshal. */
+  tide: number;
+  tideNear: number;
+  /** The General never holds, refuses a wing, or halts to trade volleys. */
+  unhalting: boolean;
+  /** Foot's charge, times its speed (FOOT_RUN). */
+  footRun: number;
+
+  // U2 Unflinching: charges into them knock men back this much less, stun nobody, and lose
+  // their impetus this much faster.
+  knockback: number;
+  stun: boolean;
+  drain: number;
+
+  // U3 What falls, rises.
+  /** Ticks between the Lich-Marshal's raisings (0: never). */
+  raiseEvery: number;
+  /** At most this share of the host's start a raising (at least 1), and never more than `raiseCap`. */
+  raiseShare: number;
+  raiseCap: number;
+  /** Foot of his host fallen within this of him, dead at least `raiseAfter` ticks, rise with this share of their hit points. */
+  raiseRange: number;
+  raiseAfter: number;
+  raiseHp: number;
+}
+
+const SHARED: Doctrine = {
+  signal: false, signalMorale: 0, signalLate: 0, signalEvery: 0, heldCharge: 1, heldShock: 1, recallTo: 0, recallRange: 0, knightFar: Infinity, knightTired: Infinity,
+  withdrawals: 1, withdrawBehind: 0, withdrawBanner: 0, reforms: 0, reformAtBanner: false, shaken: 400,
+  standFast: false, brothersGrief: 1,
+  aura: 1, auraRange: 1, generalDeadShock: 1, generalDead: 1, revenge: false,
+  chaseFar: 1, chaseTired: 1, recall: 120, firstSpear: 0, firstSpearNear: 0, firstSpearLift: 0, keenCharge: 0,
+  ripple: 1, firstVolley: 0,
+  tide: 1, tideNear: 0, unhalting: false, footRun: 1.45,
+  knockback: 1, stun: true, drain: 1,
+  raiseEvery: 0, raiseShare: 0, raiseCap: 0, raiseRange: 0, raiseAfter: 0, raiseHp: 0,
+};
+
+export const DOCTRINE: Record<FactionId, Doctrine> = {
+  templar: { ...SHARED },
+  samurai: { ...SHARED },
+  undead: { ...SHARED },
+};
