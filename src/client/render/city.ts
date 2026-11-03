@@ -11,7 +11,7 @@
 
 import type { BuildingKey } from '../../game/city.ts';
 import type { FactionId } from '../../game/factions.ts';
-import { artMode, type ArtMode } from '../settings.ts';
+import { artMode, cityArt, type ArtMode } from '../settings.ts';
 import { cityAtlas } from './city/atlas.ts';
 import { buildAtlas as buildHdAtlas } from './sprites128.ts';
 import { CityBuild, sceneKey, type Built, type Levels, type Progress, type PropsBuilt, type Torch } from './city/build.ts';
@@ -55,7 +55,8 @@ const BUILD_BUDGET = 6;
 
 export class CityScene {
   readonly buffer: HTMLCanvasElement;
-  readonly mode: ArtMode;
+  /** The city's art: HD 64 is a battle mode, its city is the HD city (settings.ts cityArt). */
+  readonly mode: 'classic' | 'hd';
   readonly frame: Frame;
   private readonly g: CanvasRenderingContext2D;
   private readonly post = new Post();
@@ -117,8 +118,8 @@ export class CityScene {
     readonly seed: number,
     mode: ArtMode = artMode(),
   ) {
-    this.mode = mode;
-    const hd = mode === 'hd';
+    this.mode = cityArt(mode);
+    const hd = this.mode === 'hd';
     this.frame = hd ? HD : CLASSIC;
     this.cx = this.frame.w / 2;
     this.cy = this.frame.h / 2;

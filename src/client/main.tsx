@@ -28,14 +28,34 @@ function Account({ me, onChange }: { me: MeResponse; onChange: () => void }) {
     clearTimeout(saveHue.current);
     saveHue.current = setTimeout(() => void api.setLook(u.faction, h).then(onChange, onChange), 250);
   };
+  // The menu closes on Escape (focus back on its button) and on a press anywhere outside it.
+  const box = useRef<HTMLDivElement>(null);
+  const toggle = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const key = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      setOpen(false);
+      toggle.current?.focus();
+    };
+    const press = (e: PointerEvent) => {
+      if (!box.current?.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('keydown', key);
+    document.addEventListener('pointerdown', press);
+    return () => {
+      document.removeEventListener('keydown', key);
+      document.removeEventListener('pointerdown', press);
+    };
+  }, [open]);
   return (
-    <div className="account">
-      <button className="quiet" onClick={() => setOpen((o) => !o)}>
+    <div className="account" ref={box}>
+      <button ref={toggle} className="quiet" onClick={() => setOpen((o) => !o)} aria-expanded={open} aria-controls="account-menu">
         <span className="swatch" style={{ background: hsl(u.hue, 55, 38) }} />
         {u.login}
       </button>
       {open && (
-        <div className="panel account-menu">
+        <div className="panel account-menu" id="account-menu">
           <label>
             Faction
             <select value={u.faction} onChange={(e) => api.setLook(e.target.value, hue).then(onChange, onChange)}>
@@ -90,8 +110,8 @@ function App() {
         ) : null}
       </header>
       <main>
-        {route.page === 'home' && <Home me={me} />}
-        {route.page === 'league' && <LeaguePage slug={route.slug} tab={route.tab} member={route.member} me={me} />}
+        {route.page === 'home' && <Home me={me} onChange={load} />}
+        {route.page === 'league' && <LeaguePage slug={route.slug} tab={route.tab} member={route.member} me={me} onChange={load} />}
         {route.page === 'battle' && <BattlePage id={route.id} />}
         {route.page === 'demo' && <Demo />}
         {route.page === 'notfound' && <div className="page"><h1>Lost in the desert</h1><p><a {...linkProps('/')}>Return to the commandery</a></p></div>}

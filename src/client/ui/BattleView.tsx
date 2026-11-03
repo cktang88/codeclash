@@ -372,10 +372,10 @@ export function BattleView(props: {
               <button onClick={() => zoomTo(zoom - 1)} disabled={zoom <= 1} aria-label="Zoom out">−</button>
               <span className="mono">{zoom}×</span>
               <button onClick={() => zoomTo(zoom + 1)} disabled={zoom >= (sceneRef.current?.maxZoom ?? MAX_ZOOM)} aria-label="Zoom in">+</button>
-              <button onClick={() => { sceneRef.current?.fit(); setZoom(1); }} title="Fit the field">⤢</button>
-              <button className={scan ? 'on' : ''} onClick={() => setScan((x) => !x)} title="Scanlines">▤</button>
-              <button className={follow ? 'on' : ''} onClick={() => setFollow((x) => !x)} title="Follow the fighting">◎</button>
-              <button className={art !== 'classic' ? 'on' : ''} onClick={() => setArt(nextArt(art))} title={`Pixel art: ${ART_LABEL[art]} (switch to ${ART_LABEL[nextArt(art)]})`}>{art === 'hd64' ? 'HD64' : 'HD'}</button>
+              <button onClick={() => { sceneRef.current?.fit(); setZoom(1); }} title="Fit the field" aria-label="Fit the field">⤢</button>
+              <button className={scan ? 'on' : ''} onClick={() => setScan((x) => !x)} title="Scanlines" aria-label="Scanlines" aria-pressed={scan}>▤</button>
+              <button className={follow ? 'on' : ''} onClick={() => setFollow((x) => !x)} title="Follow the fighting" aria-label="Follow the fighting" aria-pressed={follow}>◎</button>
+              <button className={art !== 'classic' ? 'on' : ''} onClick={() => setArt(nextArt(art))} title={`Pixel art: ${ART_LABEL[art]} (switch to ${ART_LABEL[nextArt(art)]})`} aria-label={`Pixel art: ${ART_LABEL[art]}; switch to ${ART_LABEL[nextArt(art)]}`}>{art === 'hd64' ? 'HD64' : 'HD'}</button>
             </span>
           </div>
           {live.done && live.winner !== null && (
