@@ -25,13 +25,17 @@ import { paintGround, type Ground } from './ground.ts';
 import { projX, projY, PX, unproject } from './iso.ts';
 import { GlPost } from './post.ts';
 import { facing } from './pose.ts';
+import { frameBox, NO_INSETS, zoomOutScale, type Insets } from './fit.ts';
 import { upscaleCanvas } from './upscale.ts';
 import { buildAtlas as buildClassic } from './sprites.ts';
 import { buildAtlas as buildHd, buildAtlas64 as buildHd64 } from './sprites128.ts';
 import { artMode, isHdArt, type ArtMode } from '../settings.ts';
 
 export interface Camera {
-  /** Whole-number zoom: 1 fits the field, each step adds one screen pixel per scene pixel. */
+  /**
+   * Whole-number zoom: 1 fits the field, each step adds one screen pixel per scene pixel (HD:
+   * doubles). Below 1 (a small screen framing the armies, see frame()): a fraction of zoom 1's scale.
+   */
   zoom: number;
   /** World point at the centre of the view. */
   cx: number;
@@ -202,6 +206,8 @@ function setPart(out: Part[], n: number, batch: Batch, tex: WebGLTexture, w: num
 
 export class BattleScene {
   camera: Camera = { zoom: 1, cx: FIELD_W / 2, cy: FIELD_H / 2 };
+  /** The farthest zoom-out: 1, or the fraction below it that frame() needed to show everyone. */
+  minZoom = 1;
   scanlines = true;
   /** Ease the camera toward the thick of the fighting. */
   follow = false;
@@ -378,6 +384,7 @@ export class BattleScene {
       this.flying = new Set(from.flying);
       this.time = from.time;
       this.camera = { ...from.camera };
+      this.minZoom = from.minZoom;
       this.scanlines = from.scanlines;
       this.follow = from.follow;
     }
@@ -405,6 +412,11 @@ export class BattleScene {
    * on a canvas of W × H (the two arts' ladders differ: classic adds a pixel a level, HD doubles).
    */
   matchZoom(prev: BattleScene, W: number, H: number): void {
+    // Below 1 the scale is the same fraction of zoom 1's in every art.
+    if (prev.camera.zoom < 1) {
+      this.camera.zoom = prev.camera.zoom;
+      return;
+    }
     const want = prev.pixelScale(W, H);
     let best = 1;
     for (let z = 1; z <= this.maxZoom; z++) if (Math.abs(Math.log(this.scaleAt(W, H, z) / want)) < Math.abs(Math.log(this.scaleAt(W, H, best) / want)) - 1e-9) best = z;
@@ -795,6 +807,13 @@ export class BattleScene {
     const [fw, fh] = this.fieldPx();
     // Fit the field, rounding up a little: the parallelogram's far corners are mostly empty.
     const fit = Math.max(1, Math.floor(Math.min(W / (fw * 0.92), H / (fh * 1.15)) + 0.3));
+    if (zoom < 1) {
+      // Zoomed out past 1 (the armies framed on a small screen): whole device px per map px down
+      // to 1, then a fraction, the buffer drawn a map px a pixel and blown down nearest (post.ts).
+      const s = zoomOutScale(zoom, fit, W, H);
+      const m = s >= 1 && isHdArt(this.art) ? [8, 4, 2, 1].find((l) => s % l === 0 && l <= this.hdDensity)! : 1;
+      return { s, m, u: s / m };
+    }
     const z = Math.max(1, Math.round(zoom));
     if (!isHdArt(this.art)) {
       const s = fit + z - 1;
@@ -812,12 +831,53 @@ export class BattleScene {
    */
   zoomAt(out: HTMLCanvasElement, level: number, x: number, y: number): void {
     const [bx, by] = this.toWorld(out, x, y);
-    this.camera.zoom = Math.max(1, Math.min(this.maxZoom, Math.round(level)));
+    this.camera.zoom = level < 1 ? this.minZoom : Math.max(this.minZoom, Math.min(this.maxZoom, Math.round(level)));
     this.layout(out.width, out.height);
     const [ax, ay] = this.toWorld(out, x, y);
     this.camera.cx += bx - ax;
     this.camera.cy += by - ay;
     this.layout(out.width, out.height);
+  }
+
+  /** The next zoom level in (+1) or out (-1) from the current one. */
+  nextZoom(dir: 1 | -1): number {
+    const z = this.camera.zoom;
+    if (dir > 0) return z < 1 ? 1 : Math.min(this.maxZoom, Math.round(z) + 1);
+    return z <= 1 ? this.minZoom : Math.round(z) - 1;
+  }
+
+  /**
+   * The default view: everyone on the field (at the start, the whole deployment) framed in the
+   * part of a W × H canvas the HUD leaves clear (`insets`, device px), at zoom 1 when they fit
+   * there, else zoomed out below 1 just enough (frameBox). That zoom becomes the floor of the
+   * zoom-out. An empty field: the whole field, as fit().
+   */
+  frame(W: number, H: number, insets: Insets = NO_INSETS): void {
+    let x0 = Infinity;
+    let y0 = Infinity;
+    let x1 = -Infinity;
+    let y1 = -Infinity;
+    for (const s of this.battle.soldiers) {
+      if (s.state === State.Fled) continue;
+      const mx = this.mapX(s.x, s.y);
+      const my = this.mapY(s.x, s.y);
+      if (!(mx === mx && my === my)) continue;
+      if (mx < x0) x0 = mx;
+      if (mx > x1) x1 = mx;
+      if (my < y0) y0 = my;
+      if (my > y1) y1 = my;
+    }
+    // The figures stand up from their feet, a horseman's standard ~35 map px over him.
+    const box = x1 >= x0 ? { x0: x0 - 14, y0: y0 - 38, x1: x1 + 14, y1: y1 + 6 } : null;
+    const f = frameBox(box, W, H, insets, this.scaleAt(W, H, 1));
+    if (!f) {
+      this.minZoom = 1;
+      this.fit();
+      return;
+    }
+    this.minZoom = f.zoom;
+    this.camera.zoom = f.zoom;
+    [this.camera.cx, this.camera.cy] = unproject(f.mx + this.ground.ox, f.my + this.ground.oy);
   }
 
   /** The whole field in view. */
