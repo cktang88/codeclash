@@ -146,11 +146,12 @@ w.__switch = (to) => {
 // Whether every kind in view is drawn at the finest level the view can show (HD), and the
 // level-1 grids of every kind on the field have landed.
 w.__sharp = () => {
-  const s = scene as unknown as { view: { m: number }; atlases: { levels?: readonly number[]; version?: number }[]; kindsPresent: number[][]; seen: number[]; hdLevel: Uint8Array[] };
+  const s = scene as unknown as { view: { m: number; W: number }; atlases: { levels?: readonly number[]; version?: number }[]; kindsPresent: number[][]; seen: number[]; hdLevel: Uint8Array[] };
   const m = s.view.m;
   const want: number[] = [];
   const have: number[] = [];
-  let sharp = true;
+  // Not before the scene's first frame (its view, and so m, is not laid out yet).
+  let sharp = s.view.W > 1;
   s.atlases.forEach((a, t) => {
     if (!a.levels) return;
     if ((a.version ?? 0) < s.kindsPresent[t]!.length) sharp = false;
