@@ -305,6 +305,9 @@ describe('doctrines: the Hollow Host', () => {
       expect(r.sides[0].risen!.reduce((a, x) => a + x, 0)).toBe(raised);
       expect(r.sides[1].risen).toBeUndefined();
       expect(raised).toBe(team0.filter((s) => s.roseAt >= 0).length);
+      // No more than his share of the foot who fell (v16: by the fallen, not by the clock).
+      const fell = team0.filter((s) => ([U.HeavyInfantry, U.Spearmen, U.Skirmishers] as number[]).includes(s.cls) && (s.roseAt >= 0 || s.state === State.Dead)).length;
+      expect(raised).toBeLessThanOrEqual(DOCTRINE.undead.raiseShare * fell);
       risen += raised;
       // Dead, fled and alive still make up the start, class by class.
       for (const side of r.sides) for (let c = 0; c < UNIT_COUNT; c++) expect(side.dead[c]! + side.fled[c]! + side.alive[c]!).toBe(side.start[c]);

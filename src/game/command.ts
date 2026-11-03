@@ -496,9 +496,8 @@ export interface Doctrine {
   // U3 What falls, rises.
   /** Ticks between the Lich-Marshal's raisings (0: never). */
   raiseEvery: number;
-  /** At most this share of the host's start a raising (at least 1), and never more than `raiseCap`. */
+  /** This share of the foot of his host who fall while he stands rise again: each raising, as many as that comes to (of those within `raiseRange` of him). */
   raiseShare: number;
-  raiseCap: number;
   /** Foot of his host fallen within this of him, dead at least `raiseAfter` ticks, rise with this share of their hit points. */
   raiseRange: number;
   raiseAfter: number;
@@ -517,7 +516,7 @@ const SHARED: Doctrine = {
   ripple: 1, firstVolley: 0, screen: 0, screenBack: 0, screenHold: 0,
   tide: 1, tideNear: 0, unhalting: false, footRun: 1.45,
   knockback: 1, stun: true, drain: 1,
-  raiseEvery: 0, raiseShare: 0, raiseCap: 0, raiseRange: 0, raiseAfter: 0, raiseHp: 0,
+  raiseEvery: 0, raiseShare: 0, raiseRange: 0, raiseAfter: 0, raiseHp: 0,
   loose: { lead: 1, ripple: 1, stepBack: true, leash: 1, curl: 1, breathe: 1, surge: 1, lull: true },
 };
 
@@ -551,7 +550,7 @@ export const DOCTRINE: Record<FactionId, Doctrine> = {
     // U2 Unflinching: a charge into them barely knocks them back, stuns nobody, and stalls sooner.
     knockback: 0.3, stun: false, drain: 1.3,
     // U3 What falls, rises.
-    raiseEvery: 100, raiseShare: 0.008, raiseCap: 8, raiseRange: 240, raiseAfter: 30, raiseHp: 0.4,
+    raiseEvery: 100, raiseShare: 0.45, raiseRange: 240, raiseAfter: 30, raiseHp: 0.4,
     // The tide shambles on, a ragged mass with no eager men and no laggards to speak of.
     loose: { lead: 0.7, ripple: 1.3, stepBack: false, leash: 1, curl: 0, breathe: 0, surge: 0.6, lull: false },
   },

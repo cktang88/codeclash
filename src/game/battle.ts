@@ -911,6 +911,8 @@ export class Battle {
   readonly startFigures: [Counts, Counts] = [emptyCounts(), emptyCounts()];
   /** Figures per class the Lich-Marshal has raised (U3), per team. */
   readonly risen: [Counts, Counts] = [emptyCounts(), emptyCounts()];
+  /** U3: how many of the fallen the Lich-Marshal may yet raise, per team (`raiseShare` of each who falls). */
+  private readonly toRaise: [number, number] = [0, 0];
   tick = 0;
   /**
    * Which side goes first on even ticks (0: team 0), drawn from the seed. The sides take turns
@@ -1479,10 +1481,13 @@ export class Battle {
   /**
    * U3 What falls, rises: the Lich-Marshal raises his own fallen foot (heavy foot, spears,
    * skirmishers: no horse, Colossus or engines) lying within Doctrine.raiseRange of him, dead at
-   * least `raiseAfter` ticks, never raised before, whose regiment still stands: in id order, at
-   * most `raiseShare` of the host's start (at least one, never over `raiseCap`). Each stands up
-   * where he fell with `raiseHp` of his hit points and goes back into the files of his regiment.
-   * Not once he has fallen, nor once the host is crumbling or broken.
+   * least `raiseAfter` ticks, never raised before, whose regiment still stands: in id order, as
+   * many as he has in hand (`toRaise`: `raiseShare` of every man of those classes who has fallen
+   * while he stood). Each stands up where he fell with `raiseHp` of his hit points and goes
+   * back into the files of his regiment. Not once he has fallen, nor once the host is crumbling
+   * or broken. (Until v16 each pulse raised a share of the host's start, at most 8: so many a
+   * pulse, however fast the host was falling, and a longer battle, a bigger one, raised a greater
+   * share of it.)
    */
   private raise(t: number): void {
     const doc = this.doc[t]!;
@@ -1492,7 +1497,7 @@ export class Battle {
     const lx = d.x[cmd]!;
     const ly = d.y[cmd]!;
     const R2 = doc.raiseRange * doc.raiseRange;
-    const cap = Math.min(doc.raiseCap, Math.max(1, Math.round(doc.raiseShare * this.startTotal[t]!)));
+    const cap = Math.floor(this.toRaise[t]!);
     const end = t === 0 ? this.firstId[1] : this.n;
     let n = 0;
     for (let i = this.firstId[t]!; i < end && n < cap; i++) {
@@ -1518,6 +1523,7 @@ export class Battle {
       this.risen[t]![s.cls]!++;
       n++;
     }
+    this.toRaise[t]! -= n;
     if (n > 0) this.events.push({ tick: this.tick, team: t, kind: 'doctrine', cls: U.HeavyInfantry, note: 'raise', count: n * this.scale });
   }
 
@@ -1617,8 +1623,9 @@ export class Battle {
       ky[k] = d.y[i]!;
       kr[k] = d.rad[i]!;
       const m = d.mass[i]!;
-      // (A man getting up from the dead is not shoved about: the press goes round him.)
-      km[k] = d.rose[i]! >= 0 && this.tick - d.rose[i]! < RISE_TICKS ? 50 : m;
+      // (A man getting up from the dead is not shoved about: the press goes round him. Two
+      // getting up side by side leave each other be: see `separate`.)
+      km[k] = d.rose[i]! >= 0 && this.tick - d.rose[i]! < RISE_TICKS ? RISING_MASS : m;
       kt[k] = d.team[i]!;
       const fighting = d.state[i] === State.Fighting;
       kl[k] = fighting ? rf[d.reg[i]!]! : 0;
@@ -4820,6 +4827,10 @@ export class Battle {
     r.alive--;
     r.recent += 1 / r.start;
     r.reflow = true;
+    // U3: one more the Lich-Marshal may raise (a share of one), if he fell for the first time.
+    const side = d.team[t]!;
+    const raiser = this.doc[side]!;
+    if (raiser.raiseEvery > 0 && d.rose[t]! < 0 && RISES[this.soldiers[t]!.cls] && this.lordAlive(side)) this.toRaise[side]! += raiser.raiseShare;
     if (t === this.commander[d.team[t]!]) {
       const team = d.team[t]!;
       this.commanderFell[team] = true;
@@ -4944,6 +4955,7 @@ export class Battle {
             if (lj & 4) continue;
             let ma = mi;
             let mj = km[kb]!;
+            if (ma === RISING_MASS && mj === RISING_MASS) continue;
             let k = 1;
             // A rider's bow wave: rider and shove direction (sideways out of his path) if any.
             let rider = -1;
@@ -5637,6 +5649,8 @@ function eagerness(faction: FactionId, cls: number, veteran: boolean, green: boo
  * here, rounded up a little).
  */
 export const RISE_TICKS = 16;
+/** U3: the weight of a man getting up from the dead in the press (nothing shoves him: see `rebuildGrid`). */
+const RISING_MASS = 1e6;
 
 /** A bombard's ball bounds on this far past its aim point, through at most this many men. */
 const CANNON_BOUND = 45;
