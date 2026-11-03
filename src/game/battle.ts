@@ -232,6 +232,8 @@ class Store {
   readonly ea: Float64Array;
   /** 1 while he swings round the enemy's flank, away from his slot (P6: see `Battle.curl`). */
   readonly cu: Uint8Array;
+  /** P5: badly hurt, he makes his way to the rear of his file until this tick (and does not fight unless he must). */
+  readonly wd: Int32Array;
   constructor(n: number) {
     const f = () => new Float64Array(n);
     const i = () => new Int32Array(n);
@@ -240,7 +242,7 @@ class Store {
     this.rad = f(); this.mass = f(); this.spd = f(); this.hx = f(); this.hy = f(); this.hs = f(); this.aim = f(); this.ea = f();
     this.state = new Uint8Array(n); this.team = new Uint8Array(n); this.cu = new Uint8Array(n);
     this.reg = i(); this.target = i(); this.cd = i(); this.ammo = i();
-    this.acted = i(); this.hit = i(); this.died = i(); this.kills = i(); this.stun = i(); this.rose = i();
+    this.acted = i(); this.hit = i(); this.died = i(); this.kills = i(); this.stun = i(); this.rose = i(); this.wd = i();
   }
 }
 
@@ -472,6 +474,8 @@ export class Regiment {
   surgeUntil = -1;
   lullUntil = -1;
   lullAt = -1000;
+  /** P5: when its files last closed up on the fallen. */
+  reflowAt = -1000;
   ammoLeft = 0;
   homeY = 0;
   /** Withdrawal point for cycle charges. */
@@ -1333,7 +1337,8 @@ export class Battle {
     for (const id of reg.members) if (d.state[id] === State.Fighting) alive++;
     if (alive === 0) return;
     // Too few left for the frontage: re-form narrower.
-    if (reg.stance === 'wedge' || (reg.role !== 'siege' && reg.cols > 3 && alive < reg.cols * 2.2 && reg.stance !== 'column')) {
+    // (P5: a worn block of the line keeps its frontage, its files ragged, down to COHESION.narrowAt ranks.)
+    if (reg.stance === 'wedge' || (reg.role !== 'siege' && reg.cols > 3 && alive < reg.cols * (reg.role === 'line' ? COHESION.narrowAt : 2.2) && reg.stance !== 'column')) {
       this.assignSlots(reg, true);
       return;
     }
@@ -2371,7 +2376,12 @@ export class Battle {
     const doc = this.doc[r.team]!;
     if (doc.tide !== 1) r.nearLord = this.lordWithin(r.team, r.cx, r.cy, doc.tideNear);
     if (doc.firstSpear > 0 && r.engaged && r.role === 'line' && !r.routed) this.firstSpear(r);
-    if (r.reflow && !r.routed) this.closeRanks(r);
+    // P5: the files of the line close up on the fallen every 1.5-2.5 s (the regiment's own beat),
+    // not every think, so a hole in the front shows a moment before the man behind steps up.
+    if (r.reflow && !r.routed && (r.role !== 'line' || this.tick - r.reflowAt >= COHESION.reflow + ((r.id * 7) % COHESION.reflowSpread))) {
+      r.reflowAt = this.tick;
+      this.closeRanks(r);
+    }
     this.fatigue(r);
     if (r.routed) {
       this.thinkRouted(r);
@@ -4211,7 +4221,7 @@ export class Battle {
     }
     let t = d.target[i]!;
     if (t >= 0 && d.state[t]! > State.Routing) t = -1;
-    if (!r.contact) t = -1;
+    if (!r.contact || this.tick < d.wd[i]!) t = -1;
     // Look again every few ticks (staggered by his place in his own army, so that both sides
     // look on the same ticks): at once only for the men already fighting. (Until v4 this went
     // by id, which put the second army's men out of step with the first's by the first's size.)
@@ -4670,9 +4680,13 @@ export class Battle {
   private hurt(t: number, amount: number, by: number): void {
     const d = this.d;
     if (d.state[t]! > State.Routing) return;
+    const was = d.hp[t]!;
     d.hp[t]! -= amount;
     d.hit[t] = this.tick;
-    if (d.hp[t]! > 0) return;
+    if (d.hp[t]! > 0) {
+      if (d.state[t] === State.Fighting && d.row[t] === 0 && d.mass[t]! <= 2) this.wounded(t, was);
+      return;
+    }
     d.state[t] = State.Dead;
     d.died[t] = this.tick;
     d.vx[t] = 0;
@@ -4708,6 +4722,35 @@ export class Battle {
         this.events.push({ tick: this.tick, team, kind: 'crumble', cls: U.Knights, note: 'commander' });
       }
     }
+  }
+
+  /**
+   * P5: a man of the front rank of a block of the line, badly hurt (his hit points fall below
+   * COHESION.woundedAt of his full), may drop back through his file (on a `woundedBack` chance,
+   * a hash of his id): he and the rearmost man of his file change places, and he walks back
+   * through the ranks, reeling (`stun`). Not the dead, who feel nothing.
+   */
+  private wounded(t: number, was: number): void {
+    const d = this.d;
+    const full = this.soldiers[t]!.s.hp;
+    const C = COHESION;
+    if (d.hp[t]! > full * C.woundedAt || was <= full * C.woundedAt) return;
+    const r = this.regiments[d.reg[t]!]!;
+    if (r.role !== 'line' || r.routed || !this.doc[r.team]!.loose.stepBack || r.stance === 'wedge') return;
+    if ((hashUnit(t ^ this.salt ^ 0x5bd1) + 1) * 0.5 >= C.woundedBack) return;
+    const key = Math.round(d.col[t]! * 2);
+    let last = -1;
+    for (const id of r.members) {
+      if (id === t || d.state[id] !== State.Fighting || Math.round(d.col[id]! * 2) !== key) continue;
+      if (last < 0 || d.row[id]! > d.row[last]!) last = id;
+    }
+    if (last < 0) return;
+    d.row[t] = d.row[last]!;
+    d.sy[t] = d.sy[last]!;
+    d.row[last] = 0;
+    d.sy[last] = 0;
+    d.wd[t] = this.tick + C.woundedWalk;
+    d.target[t] = -1;
   }
 
   /**

@@ -352,6 +352,17 @@ export const COHESION = {
   lullFor: 18,
   lullSpread: 11,
   lullBack: 5,
+
+  // P5 The wounded drop back and holes stay open a moment.
+  /** A front-rank man brought below this share of his hit points may drop back through his file, on this chance, and fights nobody for this long as he goes. */
+  woundedAt: 0.35,
+  woundedBack: 0.35,
+  woundedWalk: 25,
+  /** Files close up on the fallen every `reflow` ticks (and up to `reflowSpread` more: each regiment its own beat; was every think, 5). */
+  reflow: 15,
+  reflowSpread: 11,
+  /** A worn block of the line re-forms narrower below this many ranks' worth of men (was 2.2, as for the rest). */
+  narrowAt: 1.6,
 } as const;
 
 /** A faction's cohesion: COHESION's levers times these (1: as COHESION). */
