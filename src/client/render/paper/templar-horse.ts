@@ -36,9 +36,10 @@ void CAPAR_PTS;
  * (underarm, driven forward and up from the hip). Swords: 'cut' (forehand), 'backhand' (rising
  * from the far side), 'point' (stabbed down at a man on foot). 'stab': the horse archer's fist.
  * 'sword': a lancer's sword blow (the lance handed to the bridle hand, the sword drawn from the
- * hip, a forehand cut, the sword sheathed and the lance taken back).
+ * hip, a forehand cut, the sword sheathed and the lance taken back). 'stave': the horse archer's
+ * bow rammed out along its stave at a man on foot.
  */
-type RiderAttack = 'couch' | 'thrust' | 'under' | 'cut' | 'backhand' | 'point' | 'stab' | 'sword';
+type RiderAttack = 'couch' | 'thrust' | 'under' | 'cut' | 'backhand' | 'point' | 'stab' | 'sword' | 'stave';
 interface HorseSpec extends FootSpec {
   ride: RiderAttack;
   /** Every blow, blow 0 first (default: just `ride`). */
@@ -48,7 +49,7 @@ interface HorseSpec extends FootSpec {
 }
 const HORSE_SPECS: Record<number, HorseSpec> = {
   5: { nearDeg: 180, front: 'forearmF', neNear: 'mirror', neFar: 'shift', attack: 'thrust', shoot: null, brace: 'spear', die: 'back', ride: 'thrust', rides: ['thrust', 'under'], charge: 98 },
-  6: { farDeg: 168, front: 'chest', neNear: 'mirror', neFar: 'mirror', attack: 'punch', shoot: 'bow', brace: 'ready', die: 'back', ride: 'stab', charge: 0 },
+  6: { farDeg: 168, front: 'chest', neNear: 'mirror', neFar: 'mirror', attack: 'punch', shoot: 'bow', brace: 'ready', die: 'back', ride: 'stab', rides: ['stab', 'stave'], charge: 0 },
   7: { nearDeg: 135, front: 'forearmF', neNear: 'mirror', neFar: 'shift', attack: 'thrust', shoot: null, brace: 'spear', die: 'back', ride: 'couch', rides: ['couch', 'thrust', 'sword'], charge: 96, smear: [2.4, 5.4] },
   10: { nearDeg: 135, farDeg: 180, front: 'chest', neNear: 'mirror', neFar: 'mirror', attack: 'cut', shoot: null, brace: 'ready', die: 'back', ride: 'cut', rides: ['cut', 'backhand', 'point'], charge: 120, smear: [2.4, 6.0] },
 };
@@ -488,14 +489,26 @@ const SWORD_SLOTS: Record<string, { f: number; v: string | null }[]> = {
 };
 const swordSlots = (c: Clip): Clip => mapFacings(c, (a) => ({ ...a, slots: { ...(a.slots ?? {}), ...SWORD_SLOTS } }));
 
+/**
+ * The bow-stave jab from the saddle: the bow turned in the bow hand until its upper limb points
+ * down at a man on foot beside the horse's shoulder, then rammed out along the stave (the foot
+ * archers' jab, steeper, the trunk leaning out over it); pulled back and stood upright.
+ */
+const RIDE_STAVE: Author = (rw, _f, A) => {
+  const P: P2 = [0.1, 0.9], d = 72;
+  return {
+    w: fistPath(rw, A!, 11, [[1, [0.1, 1.6], 1, 150], [2, P, 1, d], [3, on(P, d + 180, 0.5), 1, d], [4, on(P, d, 1.8), 1, d], [5, on(P, d, 3.7), 1, d], [6, on(P, d, 3.6), 1, d], [7, on(P, d, 1.3), 1, d], [8, P, 1, d], [9, [0.1, 1.6], 1, 140]], 'F'),
+    dw: { spine: T([0, 0], [3, 5], [5, -16], [6, -16], [8, -4], [11, 0]), upperArmN: T([0, 0], [3, 16], [5, 26], [6, 26], [8, 10], [11, 0]), forearmN: T([0, 0], [5, 30], [6, 30], [11, 0]) },
+  };
+};
 const STAB: Author = (rw) => ({
   w: { upperArmN: T([0, rw.upperArmN!], [3, -25], [5, 80], [6, 78], [9, 20], [11, rw.upperArmN!]), forearmN: T([0, rw.forearmN!], [3, 80], [5, 90], [6, 88], [9, 40], [11, rw.forearmN!]) },
   dw: { spine: T([0, 0], [3, 6], [5, -12], [8, -4], [11, 0]) },
 });
-const RIDES: Record<RiderAttack, Author> = { couch: COUCH, thrust: RIDE_THRUST, under: RIDE_UNDER, cut: RIDE_CUT, backhand: RIDE_BACKHAND, point: RIDE_POINT, stab: STAB, sword: RIDE_SWORD };
+const RIDES: Record<RiderAttack, Author> = { couch: COUCH, thrust: RIDE_THRUST, under: RIDE_UNDER, cut: RIDE_CUT, backhand: RIDE_BACKHAND, point: RIDE_POINT, stab: STAB, sword: RIDE_SWORD, stave: RIDE_STAVE };
 /** Each blow's events: a smear only on a cut's fastest frame, `strike` at the impact. */
 const RIDE_EV: Record<RiderAttack, AnimEvent[]> = {
-  couch: [{ f: 5, name: 'strike' }], thrust: [{ f: 5, name: 'strike' }], under: [{ f: 5, name: 'strike' }], stab: [{ f: 5, name: 'strike' }], point: [{ f: 5, name: 'strike' }],
+  couch: [{ f: 5, name: 'strike' }], stave: [{ f: 5, name: 'strike' }], thrust: [{ f: 5, name: 'strike' }], under: [{ f: 5, name: 'strike' }], stab: [{ f: 5, name: 'strike' }], point: [{ f: 5, name: 'strike' }],
   cut: [{ f: 6, name: 'smear', len: 1, bone: 'weapon' }, { f: 7, name: 'strike' }],
   backhand: [{ f: 5, name: 'smear', len: 1, bone: 'weapon' }, { f: 6, name: 'strike' }],
   sword: [{ f: 6, name: 'smear', len: 1, bone: 'weapon' }, { f: 7, name: 'strike' }],
