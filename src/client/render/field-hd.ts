@@ -398,7 +398,8 @@ export class HdField {
   private readonly tilesX: number;
   private readonly dirty: Uint8Array;
   private anyDirty = true;
-  private decalVer = 0;
+  /** Decals added since the batch was last filled (appended without a rebuild). */
+  private fresh: Decal[] = [];
   private decalKey = '';
   private decalBatch: Batch | null = null;
   private readonly bucketsX: number;
@@ -476,7 +477,7 @@ export class HdField {
   decal(name: string, x: number, y: number, t: number, blood = false): void {
     if (x < 0 || y < 0 || x >= this.W || y >= this.H) return;
     const d: Decal = { id: fxId(name), x, y, t, blood };
-    this.decalVer++;
+    this.fresh.push(d);
     const i = Math.floor(y / BUCKET_H) * this.bucketsX + Math.floor(x / BUCKET_W);
     const b = (this.buckets[i] ??= { decals: [], decalAt: 0, hooves: [], hoofAt: 0 });
     if (name.startsWith('hoof')) {
@@ -494,16 +495,12 @@ export class HdField {
   }
 
   /**
-   * Fills `batch` with the decals in view (map px window), from the level-L sheet. Returns
-   * false (and leaves the batch as it was) when nothing changed: no new decal, the same view, and
-   * less than a second for the blood to age.
+   * Fills `batch` with the decals in view (map px window), from the level-L sheet. With the same
+   * view and less than two seconds of ageing since the last fill, only the decals added since are
+   * appended. Returns false (the batch as it was) when nothing changed.
    */
   buildDecals(batch: Batch, L: number, x0: number, x1: number, y0: number, y1: number, now: number): boolean {
-    const key = `${this.decalVer}:${L}:${Math.floor(x0)}:${Math.floor(y0)}:${Math.floor(x1)}:${Math.floor(y1)}:${Math.floor(now)}`;
-    if (key === this.decalKey && batch === this.decalBatch) return false;
-    this.decalKey = key;
-    this.decalBatch = batch;
-    batch.clear();
+    const key = `${L}:${Math.floor(x0)}:${Math.floor(y0)}:${Math.floor(x1)}:${Math.floor(y1)}:${Math.floor(now / 2)}`;
     const regions = this.sheet(L).regions;
     const put = (list: Decal[]) => {
       for (const d of list) {
@@ -515,6 +512,16 @@ export class HdField {
         batch.sprite(Math.round(d.x * L) / L, Math.round(d.y * L) / L, r.u, r.v, r.w / L, r.h / L, r.ax / L, r.ay / L, -1e6, k, k * (1 - age * 0.25), k * (1 - age * 0.15), 1, 0, 1);
       }
     };
+    if (key === this.decalKey && batch === this.decalBatch) {
+      if (this.fresh.length === 0) return false;
+      put(this.fresh);
+      this.fresh.length = 0;
+      return true;
+    }
+    this.decalKey = key;
+    this.decalBatch = batch;
+    this.fresh.length = 0;
+    batch.clear();
     const bx0 = Math.max(0, Math.floor(x0 / BUCKET_W));
     const bx1 = Math.min(this.bucketsX - 1, Math.floor(x1 / BUCKET_W));
     const by0 = Math.max(0, Math.floor(y0 / BUCKET_H));
@@ -682,7 +689,9 @@ export class HdField {
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     }
     const wall = typeof performance !== 'undefined' ? performance.now() : 0;
-    const stale = g.compKey !== key || !g.compT || (g.marksChanged && wall - g.compAt > 200) || Math.abs(now - g.compNow) > 2;
+    // Throttled by both clocks: five times a second at most, and not more than every 0.3 battle
+    // seconds (a slow frame rate should not recompose every frame).
+    const stale = g.compKey !== key || !g.compT || (g.marksChanged && wall - g.compAt > 200 && Math.abs(now - g.compNow) >= 0.3) || Math.abs(now - g.compNow) > 2;
     if (stale) {
       g.compT = sized(g.compT);
       g.compKey = key;
