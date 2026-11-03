@@ -6,7 +6,8 @@
 import { createServer, type ViteDevServer } from 'vite';
 import type { Img, Frame } from './metrics.ts';
 
-export type Art = 'classic' | 'hd';
+/** 'hd64': the HD 64 battle art, level-8 sheets halved by src/client/render/downscale.ts (audited as level 4). */
+export type Art = 'classic' | 'hd' | 'hd64';
 export const FACTION_IDS = ['templar', 'samurai', 'undead'] as const;
 export type Faction = (typeof FACTION_IDS)[number];
 export const HUE = 215;
@@ -44,6 +45,10 @@ interface HdMod {
   __R: Record<string, number>;
   __FRAMES: readonly number[];
   __COLS: number;
+}
+interface HalfMod {
+  halveSheet: (sh: Sheet, how?: unknown) => Sheet;
+  HALVERS: Record<string, unknown>;
 }
 interface PaperMod {
   paperLintPalette: (f: string, hue: number) => { name: string; level: number; tones: RGB[]; edge: RGB }[];
@@ -87,7 +92,15 @@ export class Painters {
     private readonly classic: ClassicMod,
     private readonly hd: HdMod,
     private readonly paper: PaperMod,
+    private readonly half: HalfMod,
   ) {}
+
+  /** The HD 64 reduction used for art 'hd64' (a name in downscale.ts HALVERS; default the game's). */
+  halver = 'feature';
+  /** The reduction names downscale.ts offers (for scripts/hd64-compare.ts). */
+  get halvers(): string[] {
+    return Object.keys(this.half.HALVERS);
+  }
 
   static async load(root: string): Promise<Painters> {
     const g = globalThis as unknown as { document?: unknown };
@@ -113,7 +126,8 @@ export class Painters {
     const classic = (await server.ssrLoadModule('/src/client/render/sprites.ts')) as unknown as ClassicMod;
     const hd = (await server.ssrLoadModule('/src/client/render/sprites128.ts')) as unknown as HdMod;
     const paper = (await server.ssrLoadModule('/src/client/render/paper/index.ts')) as unknown as PaperMod;
-    return new Painters(server, classic, hd, paper);
+    const half = (await server.ssrLoadModule('/src/client/render/downscale.ts')) as unknown as HalfMod;
+    return new Painters(server, classic, hd, paper, half);
   }
 
   close(): Promise<void> {
@@ -121,16 +135,18 @@ export class Painters {
   }
 
   frameCount(art: Art, anim: number): number {
-    return (art === 'hd' ? this.hd.__FRAMES : this.classic.__FRAMES)[anim]!;
+    return (art !== 'classic' ? this.hd.__FRAMES : this.classic.__FRAMES)[anim]!;
   }
 
   /** Melee blows of a kind (HD paper kinds may have several; Attack frame b * n + f is frame f of blow b). */
   blows(art: Art, faction: Faction, kind: number): number {
-    return art === 'hd' ? this.hd.blowsOf(faction, kind) : 1;
+    return art !== 'classic' ? this.hd.blowsOf(faction, kind) : 1;
   }
 
   /** A faction's palette; for HD, `level` limits the paper-doll ramps to those painted at that level. */
   palette(art: Art, faction: Faction, level?: number): Palette {
+    // HD 64 frames are picked from the level-8 frames' own colours: the level-8 palette.
+    if (art === 'hd64') return this.palette('hd', faction, level === undefined ? undefined : 8);
     const mod = art === 'hd' ? this.hd : this.classic;
     const names: string[] = [];
     for (const [k, v] of Object.entries(mod.__R)) names[v] = k;
@@ -198,10 +214,19 @@ export class Painters {
   private sheets = new Map<string, Sheet>();
 
   /** Keeps only the sheets of one (faction, level) in memory: level 8 pages are large. */
-  private sheetOf(faction: Faction, kind: number, level: number): Sheet {
-    const k = `${faction}:${kind}:${level}`;
+  private sheetOf(faction: Faction, kind: number, level: number, half = false): Sheet {
+    const k = `${faction}:${kind}:${level}${half ? `:half:${this.halver}` : ''}`;
     let s = this.sheets.get(k);
     if (!s) {
+      if (half) {
+        // Keep the level-8 page for the other reductions of the same kind (the comparison script).
+        const src = this.sheetOf(faction, kind, 8);
+        const k8 = `${faction}:${kind}:8`;
+        for (const key of [...this.sheets.keys()]) if (key !== k8) this.sheets.delete(key);
+        s = this.half.halveSheet(src, this.half.HALVERS[this.halver]);
+        this.sheets.set(k, s);
+        return s;
+      }
       this.sheets.clear();
       s = level === 1 ? this.hd.paintGrid(faction, HUE, kind) : this.hd.paintSheet(faction, HUE, kind, level);
       this.sheets.set(k, s);
@@ -216,11 +241,11 @@ export class Painters {
       const [sx, sy] = at.at(kind, anim, fr, dir);
       return { m: cut(img, sx, sy, 48, 48), ax: this.classic.FOOT_X, ay: this.classic.FOOT_Y };
     }
-    const sh = this.sheetOf(faction, kind, level);
+    const sh = art === 'hd64' ? this.sheetOf(faction, kind, 8, true) : this.sheetOf(faction, kind, level);
     const page: Img = { w: sh.width, h: sh.height, d: sh.pixels };
     const blows = this.hd.blowsOf(faction, kind);
     const slot = this.hd.slotOf(kind, anim, fr, dir, blows);
-    if (level === 1) {
+    if (level === 1 && art === 'hd') {
       const col = this.hd.gridColOf(kind, anim, fr, dir, blows);
       return { m: cut(page, col * 48, dir * 48, 48, 48), ax: this.hd.FOOT_X, ay: this.hd.FOOT_Y };
     }

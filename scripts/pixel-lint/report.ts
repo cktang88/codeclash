@@ -204,7 +204,7 @@ export function markdown(rep: LintReport): string {
   L.push('');
   // Sprite tables.
   const cols = SPRITE_CHECKS.filter((c) => ['colours', 'orphans', 'meanCluster', 'jaggies', 'blackRing', 'pillow', 'hug', 'stack', 'checkers', 'edgeVsGround', 'meanVsGround', 'straightRamp', 'midWidest', 'idleHead', 'walkHead', 'flicker'].includes(c.id));
-  for (const art of ['classic', 'hd']) {
+  for (const art of ['classic', 'hd', 'hd64']) {
     const rs = rep.sprites.filter((r) => r.art === art);
     if (!rs.length) continue;
     L.push(`## Sprites: ${art}`, '', `| faction | kind | L | ${cols.map((c) => c.label).join(' | ')} | F/W |`, `|---|---|---|${cols.map(() => '---|').join('')}---|`);
