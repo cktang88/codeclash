@@ -6,6 +6,7 @@ import { code, figurePalette, materialCount, materialNameOf, Paper, type FigureP
 import { DRAWN_DEFAULT, drawFacing, facingOf, type Facing } from './facing.ts';
 import { factionPaletteOptions, factionPaletteVersion, paperKindFor, paperKinds, paperSupports, type PaperKind } from './registry.ts';
 import { BODIES, poseAt } from './rig.ts';
+import { clearSkinMemo } from './templar-rig.ts';
 // Faction figures register themselves on import.
 import './templar.ts';
 import './samurai.ts';
@@ -22,6 +23,15 @@ export interface PaperFrame {
   /** The foot point. */
   ax: number;
   ay: number;
+}
+
+/**
+ * Call before painting a sheet's frames: forgets the memos whose content depends on what was
+ * painted before (templar-rig.ts memoSkin), so a sheet's pixels depend only on its army, kind and
+ * level (the persistent cache names sheets by those alone).
+ */
+export function paperSheetStart(): void {
+  clearSkinMemo();
 }
 
 /** This thread's painting surface (each worker has its own module instance). */
@@ -48,6 +58,9 @@ function usedCodes(faction: string, level: number, kind?: number): Map<number, n
   const key = kind === undefined ? `${faction}:${level}` : `${faction}:${level}:k${kind}`;
   const got = USED.get(key);
   if (got && got.n === kinds.length && got.mats === materialCount()) return got.codes;
+  // From an empty skin memo, and leaving it empty: the codes do not depend on what was painted
+  // before, and the frame being painted does not depend on these samples (see paperSheetStart).
+  clearSkinMemo();
   const codes = new Map<number, number>();
   for (const k of kinds)
     for (const [anim, fr, blow] of [[Anim.Idle, 0, 0], ...Array.from({ length: k.blows }, (_, b) => [Anim.Attack, 4, b]), [Anim.Die, 6, 0]] as [Anim, number, number][])
@@ -57,6 +70,7 @@ function usedCodes(faction: string, level: number, kind?: number): Map<number, n
         SCRATCH.codes(codes);
       }
   USED.set(key, { n: kinds.length, mats: materialCount(), codes });
+  clearSkinMemo();
   return codes;
 }
 

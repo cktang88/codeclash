@@ -7,7 +7,7 @@ import { type P2, type Paper } from './core.ts';
 import type { Facing } from './facing.ts';
 import { registerPaperKind } from './registry.ts';
 import {
-  BREATH, bonesFromJoints, EASE, EASE_IN, EASE_OUT, skeletonKind, smearPart,
+  ALL_ANIMS, BREATH, bonesFromJoints, EASE, EASE_IN, EASE_OUT, lazySkeletonKind, smearPart,
   type AnimationData, type AnimEvent, type AttachmentSet, type DrawCtx, type FacingClips, type PartXf, type Track, type Clip, type JointDef, type SkeletonData, type SkeletonRig, type SlotData,
 } from './skeleton.ts';
 import { bow, paintAs, TM } from './templar-parts.ts';
@@ -600,8 +600,10 @@ export function footRig(kind: number): SkeletonRig | undefined {
 /** Registers the foot kinds drawn on bones (called by templar.ts after its own registrations, so these win). */
 export function registerFootRigs(kinds: readonly number[]): void {
   for (const k of kinds) {
-    const rig = footRig(k);
-    if (rig) registerPaperKind('templar', k, skeletonKind(rig));
+    const s = FOOT_SPECS[k];
+    if (!FOOT[k] || !s) continue;
+    // Built on the kind's first frame (mocapFootClips: one attack per blow).
+    registerPaperKind('templar', k, lazySkeletonKind({ body: 'foot', anims: ALL_ANIMS, blows: (s.blows ?? [s.attack]).length }, () => footRig(k)!));
   }
 }
 void buildAnim;

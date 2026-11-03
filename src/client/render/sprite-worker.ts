@@ -29,20 +29,38 @@ interface Req {
 
 const post = (sheet: KindSheet): void =>
   (self as unknown as { postMessage(m: unknown, t: Transferable[]): void }).postMessage(sheet, [sheet.pixels.buffer, sheet.rects.buffer]);
+/** A job that could not be painted: the main thread frees this worker and reports it (sprites128.ts). */
+export interface PaintError {
+  error: string;
+  key?: string;
+}
+const postError = (err: unknown, key?: string): void =>
+  (self as unknown as { postMessage(m: PaintError): void }).postMessage({ error: err instanceof Error ? `${err.name}: ${err.message}` : String(err), key });
 
 let painter: Promise<[typeof import('./sprites128.ts'), typeof import('./downscale.ts')]> | null = null;
-const loadPainter = () => (painter ??= Promise.all([import('./sprites128.ts'), import('./downscale.ts')]));
+const loadPainter = () =>
+  (painter ??= Promise.all([import('./sprites128.ts'), import('./downscale.ts')]).catch((e: unknown) => {
+    // A chunk that failed to load (a network blip, a deploy): try again on the next miss.
+    painter = null;
+    throw e;
+  }));
 
 self.onmessage = async (e: MessageEvent<Req>) => {
-  if (e.data.warm) return void loadPainter();
+  if (e.data.warm) return void loadPainter().catch(() => {});
   const { faction, hue, kind, level, half, from, version, key, cached } = e.data;
-  if (version && key && cached) {
-    const hit = await readSheet(version, key);
-    if (hit) return post(hit);
+  let sheet: KindSheet;
+  try {
+    if (version && key && cached) {
+      const hit = await readSheet(version, key);
+      if (hit) return post(hit);
+    }
+    const [{ sheetFor }, { halveSheet }] = await loadPainter();
+    // Level 1 is the classic-size grid strip; the rest are packed hi-res sheets.
+    sheet = from ? halveSheet(from) : sheetFor(faction, hue, kind, level, half);
+  } catch (err) {
+    // Every job is answered: one that is not leaves its pool slot busy for good.
+    return postError(err, key);
   }
-  const [{ sheetFor }, { halveSheet }] = await loadPainter();
-  // Level 1 is the classic-size grid strip; the rest are packed hi-res sheets.
-  const sheet = from ? halveSheet(from) : sheetFor(faction, hue, kind, level, half);
   if (!version || !key) return post(sheet);
   // Send it at once; pack and store a copy afterwards.
   const pixels = sheet.pixels.slice();

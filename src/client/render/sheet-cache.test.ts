@@ -30,7 +30,7 @@ describe('sheet cache packing', () => {
 
   it('declines more than 256 colours, and stores those raw', async () => {
     const px = new Uint32Array(300).map((_, i) => (0xff000000 | i) >>> 0);
-    const many = { level: 2, width: 300, height: 1, pixels: new Uint8ClampedArray(px.buffer), rects: new Int32Array([1, 2, 3, 4, 5, 6]), ms: 0 };
+    const many = { level: 2, width: 300, height: 1, pixels: new Uint8ClampedArray(px.buffer), rects: new Int32Array([1, 0, 3, 1, 5, 6]), ms: 0 };
     expect(indexPixels(many)).toBeNull();
     const back = await unpackSheet(await packSheet(many, null, new Uint8Array(many.pixels.buffer)));
     expect(back && same(back, many)).toBe(true);

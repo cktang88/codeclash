@@ -19,7 +19,7 @@ const PROXY = {
  * answers /__art-version with the hash of the files as they are now, edits included.
  */
 const ROOT = import.meta.dirname;
-const ART_SOURCES = [
+export const ART_SOURCES = [
   'src/client/render/paper',
   'src/client/render/sprites128.ts',
   'src/client/render/downscale.ts',

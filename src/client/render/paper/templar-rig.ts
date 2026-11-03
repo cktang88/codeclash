@@ -489,6 +489,15 @@ interface SkinImg {
 }
 const SKIN = new Map<string, SkinImg>();
 let SKIN_SCRATCH: Paper | null = null;
+/**
+ * Forgets every memoised skin. A skin is drawn from the first pose that gives its key (whole-pixel
+ * offsets) and reused for later poses with the same key, so what is in the memo decides pixels:
+ * the sheet painter clears it at the start of each sheet (paperSheetStart), so a sheet comes out
+ * the same whatever the thread painted before it.
+ */
+export function clearSkinMemo(): void {
+  SKIN.clear();
+}
 
 /**
  * A skinned part (cloth over several bones) whose image is reused while its bones keep their

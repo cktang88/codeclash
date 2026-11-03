@@ -13,7 +13,7 @@ import type { Facing } from './facing.ts';
 import { registerPaperKind } from './registry.ts';
 import { along as alongR } from './rig.ts';
 import {
-  BREATH, bonesFromJoints, dirStep, EASE, restPose, smearPart, skeletonKind, type Posed,
+  ALL_ANIMS, BREATH, bonesFromJoints, dirStep, EASE, lazySkeletonKind, restPose, smearPart, type Posed,
   type AnimationData, type AnimEvent, type AttachmentSet, type Clip, type DrawCtx, type JointDef, type PartXf, type SkeletonData, type SkeletonRig, type SlotData,
 } from './skeleton.ts';
 import { fromGuard, riderOnly } from './guard.ts';
@@ -770,7 +770,9 @@ export function horseRig(kind: number): SkeletonRig | undefined {
 /** Registers the mounted kinds drawn on bones (called by templar.ts after its own registrations). */
 export function registerHorseRigs(kinds: readonly number[]): void {
   for (const k of kinds) {
-    const rig = horseRig(k);
-    if (rig) registerPaperKind('templar', k, skeletonKind(rig));
+    const s = HORSE_SPECS[k];
+    if (!MOUNTED[k] || !s) continue;
+    // Built on the kind's first frame (horseClips: one attack per ride).
+    registerPaperKind('templar', k, lazySkeletonKind({ body: 'horse', anims: ALL_ANIMS, blows: (s.rides ?? [s.ride]).length }, () => horseRig(k)!));
   }
 }

@@ -76,8 +76,11 @@ function open(): Promise<IDBDatabase | null> {
   return opened;
 }
 
-/** Deletes sheets of other painter versions and, over the cap, the least recently used. */
-async function evict(db: IDBDatabase, version: string, extra = 0): Promise<void> {
+/**
+ * Deletes sheets of other painter versions and, over the cap, the least recently used. `cap` may
+ * depend on the bytes this version holds (plus `extra`, about to be written).
+ */
+async function evict(db: IDBDatabase, version: string, extra = 0, cap: number | ((total: number) => number) = DISK_CAP_BYTES): Promise<void> {
   const t = db.transaction([INDEX, DATA], 'readwrite');
   const idx = t.objectStore(INDEX), data = t.objectStore(DATA);
   const all = (await req(idx.getAll())) as Entry[];
@@ -93,8 +96,9 @@ async function evict(db: IDBDatabase, version: string, extra = 0): Promise<void>
     }
   }
   keep.sort((a, b) => a.used - b.used);
+  const limit = typeof cap === 'number' ? cap : cap(total);
   for (const e of keep) {
-    if (total <= DISK_CAP_BYTES) break;
+    if (total <= limit) break;
     idx.delete(e.id);
     data.delete(e.id);
     total -= e.bytes;
@@ -141,12 +145,29 @@ export async function readSheet(version: string, key: string): Promise<KindSheet
     const e = (await req(t.objectStore(INDEX).get(id))) as Entry | undefined;
     if (!e) return null;
     const p = (await req(t.objectStore(DATA).get(id))) as Packed | undefined;
-    if (!p) return null;
+    // A sheet that is not all there (data missing, cut short, or not adding up) is dropped, so
+    // the cache stops listing it (cachedKeys) and it is painted and stored afresh.
+    const sheet = p ? await unpackSheet(p).catch(() => null) : null;
+    if (!sheet) {
+      await drop(db, id);
+      return null;
+    }
     // Recently used: the last to go.
     db.transaction(INDEX, 'readwrite').objectStore(INDEX).put({ ...e, used: Date.now() });
-    return await unpackSheet(p);
+    return sheet;
   } catch {
     return null;
+  }
+}
+
+async function drop(db: IDBDatabase, id: string): Promise<void> {
+  try {
+    const t = db.transaction([INDEX, DATA], 'readwrite');
+    t.objectStore(INDEX).delete(id);
+    t.objectStore(DATA).delete(id);
+    await done(t);
+  } catch {
+    // Gone already, or storage unavailable.
   }
 }
 
@@ -156,12 +177,26 @@ export async function packSheet(sh: Omit<KindSheet, 'pixels'>, ix: { palette: Ui
   return { level: sh.level, width: sh.width, height: sh.height, rects: sh.rects, ms: sh.ms, palette: ix ? ix.palette : null, data };
 }
 
-/** The sheet back from packSheet(), or null if it does not add up. */
+/**
+ * The sheet back from packSheet(), or null if it does not add up: pixels not filling the page, a
+ * palette index past the palette, or a rect table that is ragged or reaches off the page.
+ */
 export async function unpackSheet(p: Omit<Packed, 'id'>): Promise<KindSheet | null> {
-  const raw = await gunzip(p.data);
-  const pixels = p.palette ? expandPixels(p.palette, new Uint8Array(raw)) : new Uint8ClampedArray(raw);
-  if (pixels.byteLength !== p.width * p.height * 4) return null;
-  return { level: p.level, width: p.width, height: p.height, pixels, rects: p.rects, ms: p.ms };
+  const { width: w, height: h, rects } = p;
+  if (!(Number.isInteger(w) && Number.isInteger(h) && w >= 0 && h >= 0) || !(rects instanceof Int32Array) || rects.length % 6) return null;
+  for (let i = 0; i < rects.length; i += 6) {
+    const x = rects[i]!, y = rects[i + 1]!, rw = rects[i + 2]!, rh = rects[i + 3]!;
+    if (x < 0 || y < 0 || rw < 0 || rh < 0 || x + rw > w || y + rh > h) return null;
+  }
+  const raw = new Uint8Array(await gunzip(p.data));
+  if (raw.byteLength !== (p.palette ? 1 : 4) * w * h) return null;
+  if (p.palette) {
+    let top = 0;
+    for (let i = 0; i < raw.length; i++) if (raw[i]! > top) top = raw[i]!;
+    if (raw.length && top >= p.palette.length) return null;
+  }
+  const pixels = p.palette ? expandPixels(p.palette, raw) : new Uint8ClampedArray(raw.buffer, raw.byteOffset, raw.byteLength);
+  return { level: p.level, width: w, height: h, pixels, rects, ms: p.ms };
 }
 
 /**
@@ -213,10 +248,21 @@ export async function writeSheet(version: string, key: string, sh: Omit<KindShee
       purged = version;
       await evict(db, version, bytes);
     }
-    const t = db.transaction([INDEX, DATA], 'readwrite');
-    t.objectStore(DATA).put(packed);
-    t.objectStore(INDEX).put({ id, version, bytes, used: Date.now() } satisfies Entry);
-    await done(t);
+    const put = (): Promise<void> => {
+      const t = db.transaction([INDEX, DATA], 'readwrite');
+      t.objectStore(DATA).put(packed);
+      t.objectStore(INDEX).put({ id, version, bytes, used: Date.now() } satisfies Entry);
+      return done(t);
+    };
+    try {
+      await put();
+    } catch (e) {
+      // The browser's quota can be well under the cache's own cap (a small disk, a private
+      // window): make room by dropping the least recently used quarter, and try once more.
+      if (!isQuota(e)) throw e;
+      await evict(db, version, bytes, (total) => Math.min(DISK_CAP_BYTES, total * 0.75));
+      await put();
+    }
     writes += bytes;
     // Every so often (and the first time per version, above): drop what is over the cap.
     if (writes > 16 * 1024 * 1024) {
@@ -228,6 +274,11 @@ export async function writeSheet(version: string, key: string, sh: Omit<KindShee
   }
 }
 let writes = 0;
+
+const isQuota = (e: unknown): boolean => {
+  const n = (e as { name?: string } | null)?.name;
+  return n === 'QuotaExceededError' || n === 'NS_ERROR_DOM_QUOTA_REACHED';
+};
 
 declare const __ART_VERSION__: string | undefined;
 

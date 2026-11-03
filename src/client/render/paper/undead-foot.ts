@@ -6,9 +6,8 @@
 import type { P2, Paper } from './core.ts';
 import type { Facing } from './facing.ts';
 import { Anim } from '../contract.ts';
-import type { BasePose } from './rig.ts';
 import { registerPaperKind } from './registry.ts';
-import { bonesFromJoints, drawRigFrame, restPose, smearPart, type Attachment, type AttachmentSet, type DrawCtx, type JointDef, type PartXf, type Posed, type SkeletonData, type SkeletonRig, type SlotData } from './skeleton.ts';
+import { bonesFromJoints, lazySkeletonKind, restPose, smearPart, type Attachment, type AttachmentSet, type DrawCtx, type JointDef, type PartXf, type Posed, type SkeletonData, type SkeletonRig, type SlotData } from './skeleton.ts';
 import { boneAff, type Aff } from './templar-rig.ts';
 import { boneMap, mapped, type UMap } from './undead-rig.ts';
 import { keyLight, type FootArt, type UJ, type UPiece } from './undead-static.ts';
@@ -305,11 +304,5 @@ export function registerFoot(kind: number, spec: () => FootSpec, shoots: boolean
 /** `blows`: how many attack clips the rig will have (`SkeletonRig.attacks`); the rig is built lazily, so say it here. */
 export function registerLazy(kind: number, body: SkeletonData['body'], rig: () => SkeletonRig, shoots: boolean, blows = 1): void {
   const anims = [Anim.Idle, Anim.Walk, Anim.Run, Anim.Attack, Anim.Hit, Anim.Die, Anim.Dead, Anim.Brace, ...(shoots ? [Anim.Shoot] : [])];
-  const rest: BasePose = { px: 0, py: 0, tilt: 0, apart: 0, smear: null, sway: 0 };
-  registerPaperKind('undead', kind, {
-    body,
-    keys: { poses: Object.fromEntries(anims.map((a) => [a, [rest]])) },
-    blows,
-    draw: (c, _p, facing, anim, frame, blow) => void drawRigFrame(c, rig(), anim, frame, facing, blow),
-  });
+  registerPaperKind('undead', kind, lazySkeletonKind({ body, anims, blows }, rig));
 }

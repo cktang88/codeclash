@@ -83,7 +83,10 @@ export function fromGuard(skel: SkeletonData, attack: Clip, guard: Clip, o: { n?
     for (const [k, v] of Object.entries(base.ik ?? {})) if (v.bend) (out.ik ??= {})[k] = { ...(out.ik?.[k] ?? {}), bend: v.bend };
     return out;
   };
-  return { byFacing: Object.fromEntries(facings.map((f) => [f, one(f)])) };
+  // Frames wholly in the guard are posed as the guard itself (bakeClip). Not for a rider's guard:
+  // his horse keeps the blow's gait under him, so the frame is not the guard's.
+  const at = only ? [] : env.slice(0, n).flatMap((w, f) => (w >= 1 ? [f] : []));
+  return { byFacing: Object.fromEntries(facings.map((f) => [f, one(f)])), ...(at.length ? { guard: { clip: guard, guardN, n, at } } : {}) };
 }
 
 /** Bones of a horse (and its harness): a rider's guard leaves them to the blow. */

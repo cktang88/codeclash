@@ -13,7 +13,7 @@ import type { Facing } from './facing.ts';
 import { registerPaperKind } from './registry.ts';
 import { SM, yumi } from './samurai-parts.ts';
 import {
-  BRACE, crescentPart, joints, KESA, KYUDO, lagCloth, neBody, PARENT, PIECE_BONE, PUNCH, R, samuraiKind, torsoWeightsAt,
+  BRACE, crescentPart, joints, KESA, KYUDO, lagCloth, lazySamuraiKind, neBody, PARENT, PIECE_BONE, PUNCH, R, torsoWeightsAt,
   type Author, type SSpec, type Tracks,
 } from './samurai-rig.ts';
 import {
@@ -21,7 +21,7 @@ import {
   type Body, type HorsePiece, type ManPiece, type SMounted,
 } from './samurai-static.ts';
 import {
-  BREATH, bonesFromJoints, EASE,
+  ALL_ANIMS, BREATH, bonesFromJoints, EASE,
   type AnimationData, type AnimEvent, type AttachmentSet, type Clip, type JointDef, type SkeletonData, type SkeletonRig, type SlotData,
 } from './skeleton.ts';
 import { HIT, T } from './templar-clips.ts';
@@ -382,6 +382,20 @@ function standKeys(n: number, skel: SkeletonData, extra?: Author): (f: Facing) =
   };
 }
 
+/** The blows at the gallop per ride (README "Several blows"), blow 0 first; none: the punch. */
+const RIDING: Record<Ride, readonly { a: Author; ev: AnimEvent[] }[]> = {
+  couch: [
+    { a: MOUNTED_THRUST, ev: [{ f: 5, name: 'strike' }] },
+    { a: MOUNTED_DOWN, ev: [{ f: 5, name: 'smear', len: 1, bone: 'weapon' }, { f: 6, name: 'strike' }] },
+  ],
+  cut: [
+    { a: SADDLE_CUT, ev: [{ f: 5, name: 'smear', len: 2, bone: 'weapon' }, { f: 7, name: 'strike' }] },
+    { a: SADDLE_RISE, ev: [{ f: 5, name: 'smear', len: 2, bone: 'weapon' }, { f: 6, name: 'strike' }] },
+    { a: SADDLE_THRUST, ev: [{ f: 5, name: 'strike' }] },
+  ],
+  stab: [],
+};
+
 function horseClips(skel: SkeletonData, s: HorseSpec, m: SMounted, blowsOut?: Clip[]): ClipSet {
   // The mane trails the neck, streams back at the gallop; the sashimono and horo trail the trunk.
   const trail = (run: number, fall = false): LagSpec[] => [
@@ -427,19 +441,7 @@ function horseClips(skel: SkeletonData, s: HorseSpec, m: SMounted, blowsOut?: Cl
     return overlayKeys(overlayKeys(g.keys, extra(rw, f), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]), author(rw, f));
   };
   // The blows at the gallop (README "Several blows"), blow 0 first.
-  const riding: { a: Author; ev: AnimEvent[] }[] =
-    s.ride === 'couch'
-      ? [
-          { a: MOUNTED_THRUST, ev: [{ f: 5, name: 'strike' }] },
-          { a: MOUNTED_DOWN, ev: [{ f: 5, name: 'smear', len: 1, bone: 'weapon' }, { f: 6, name: 'strike' }] },
-        ]
-      : s.ride === 'cut'
-        ? [
-            { a: SADDLE_CUT, ev: [{ f: 5, name: 'smear', len: 2, bone: 'weapon' }, { f: 7, name: 'strike' }] },
-            { a: SADDLE_RISE, ev: [{ f: 5, name: 'smear', len: 2, bone: 'weapon' }, { f: 6, name: 'strike' }] },
-            { a: SADDLE_THRUST, ev: [{ f: 5, name: 'strike' }] },
-          ]
-        : [];
+  const riding = RIDING[s.ride];
   // Brace: the rider's guard (guard.ts), the horse standing to receive: the yari levelled, the
   // katana raised, or the archer's free fist up; every blow leaves it and comes back to it.
   const braceA: Author = (rw, f) => ({
@@ -508,8 +510,10 @@ export function horseRig(kind: number): SkeletonRig | undefined {
 /** Registers the mounted kinds drawn on bones (samurai.ts calls this after its own registrations, so these win). */
 export function registerHorseRigs(kinds: readonly number[]): void {
   for (const k of kinds) {
-    const rig = horseRig(k);
-    if (rig) registerPaperKind('samurai', k, samuraiKind(rig));
+    const s = HORSE_SPECS[k];
+    if (!MOUNTED[k] || !s) continue;
+    // Built on the kind's first frame (horseClips: the rides at the gallop, when several).
+    registerPaperKind('samurai', k, lazySamuraiKind({ body: 'horse', anims: ALL_ANIMS, blows: Math.max(1, RIDING[s.ride].length) }, () => horseRig(k)!));
   }
 }
 
