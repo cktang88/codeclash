@@ -874,6 +874,8 @@ function figures(count: number, scale: number): number {
   return Math.max(1, Math.round(count / scale));
 }
 
+/** The general's household draws back from a block worth more than this many times itself (see `thinkCommand`). */
+const HOUSEHOLD_ODDS = 2;
 /** A block locked in melee that bows may still shoot over the fight into: deep enough to have rear ranks well clear of it. */
 const overMelee = (o: Regiment) => o.depth >= 14;
 const isCav = (r: Regiment) => r.role === 'flank' || r.role === 'shock-cav' || r.role === 'horse-archer';
@@ -3950,6 +3952,20 @@ export class Battle {
     // the middle of the enemy's ranks. The fearless Lich-Marshal, whose household never breaks,
     // fell in more than half of all battles.)
     const near = this.nearGap(r, reach, false);
+    // A block that outweighs the household HOUSEHOLD_ODDS times over it does not take on while it
+    // has a line to fall back behind: it draws back, straight away from the block's nearest man.
+    // (Until v16 it rode at whatever came near. In a big battle that was the big blocks of the
+    // enemy's second line, and the generals fell ever more often as battles grew: the
+    // Lich-Marshal in three battles of five at 2800 a side.)
+    if (near && ts.hasLine && near.alive * this.stats[near.team]![near.cls]!.value > HOUSEHOLD_ODDS * r.alive * this.stats[r.team]![r.cls]!.value) {
+      this.gapTo(r, near);
+      const dx = r.ax - this.tmp[0]!;
+      const dy = r.ay - this.tmp[1]!;
+      const q = sqrt(dx * dx + dy * dy) || 1;
+      this.setMode(r, 'withdraw');
+      this.goal(r, clampX(r.ax + (dx / q) * 2 * reach), clampY(r.ay + (dy / q) * 2 * reach));
+      return;
+    }
     if (near || r.engaged) {
       this.setMode(r, 'melee');
       r.targetReg = near ? near.id : r.targetReg;

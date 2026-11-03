@@ -245,7 +245,7 @@ describe('battle: determinism rules (rng.ts)', () => {
 
 describe('battle: the general’s household', () => {
   it('fights the enemy that comes within reach of its men, not one whose block’s bounding circle does', () => {
-    const b = new Battle(setupOf(1, army(300), only(U.HeavyInfantry, 2800, { commander: false })));
+    const b = new Battle(setupOf(1, army(300), only(U.Spearmen, 60, { commander: false })));
     const inside = b as unknown as { thinkCommand(r: Regiment): void; formUp(r: Regiment, x: number, y: number): void };
     const hh = b.regiments.find((r) => r.role === 'command')!;
     const foe = b.regiments.find((r) => r.team === 1)!;
@@ -265,6 +265,25 @@ describe('battle: the general’s household', () => {
     inside.thinkCommand(hh);
     expect(hh.mode).toBe('melee');
     expect(hh.ty).toBeLessThan(600 + 40);
+  });
+
+  it('draws back from a block that outweighs it more than twice over, while its army has a line', () => {
+    const b = new Battle(setupOf(1, army(300), only(U.HeavyInfantry, 2800, { commander: false })));
+    const inside = b as unknown as { thinkCommand(r: Regiment): void; formUp(r: Regiment, x: number, y: number): void; updateFront(t: number): void };
+    inside.updateFront(0);
+    const hh = b.regiments.find((r) => r.role === 'command')!;
+    const foe = b.regiments.find((r) => r.team === 1)!;
+    expect(foe.alive * 1.4).toBeGreaterThan(2 * hh.alive * 4.5);
+    hh.fx = hh.dfx = 1;
+    hh.fy = hh.dfy = 0;
+    inside.formUp(hh, 400, 600);
+    foe.fx = foe.dfx = -1;
+    foe.fy = foe.dfy = 0;
+    // Its nearest man 25 off the household's men, straight ahead of it.
+    inside.formUp(foe, 400 + 30, 600);
+    inside.thinkCommand(hh);
+    expect(hh.mode).toBe('withdraw');
+    expect(hh.tx).toBeLessThan(400);
   });
 });
 
