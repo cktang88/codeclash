@@ -407,6 +407,32 @@ Assumption: 2560 x 1440 window; a HUD of about 120 px at top and bottom leaves a
 
 ---
 
+### 7.11 What battle v6 implemented (November 2026)
+
+The sim took this section as guidance and kept what played well; where it departs, it says why.
+
+| Item | v5 | v6 | Research (above) |
+|---|---|---|---|
+| Line foot, file / rank | 5.3 / 5.3 | 5.3 / 5.8 | 5.0-5.5 / 5.5-6.0 |
+| Knights, file / rank | 9.0 / 9.0 | 9.0 / 13.1 (a wedge keeps 0.87 x file) | 6.0-6.5 closed |
+| Light horse, file / rank | 8.4 / 8.4 | 9.4 / 13.2 | 12-13 loose |
+| Gap between regiments in a line | 12 | 18 | 16-20 |
+| Gap between rows of regiments | 12 | 16 | 50-80 (second line) |
+| Foot march (advance, reserve) | 0.6 x speed (13 for line foot) | 11 u/s for all formed foot | 7-9 |
+| Foot charge run | 1.45 x speed (32) | unchanged | 14-16 |
+| Horse riding round / withdrawing | 0.95 / 1.0 x speed | 0.85 / 0.75 | canter 23-32 |
+| Horse charge | 1.0 x speed (52 knights) | unchanged | 48-55 |
+| Foot wheel | up to 86 deg/s, about 20 for a block 80 wide | 9 / (half width + 8) rad/s, 5-20 deg/s (about 10 for 80 wide) x stance (pike wall 0.35) | 5-10 |
+| Horse block turn | up to 86 deg/s | max(20, 50 - 0.6 v) deg/s: 50 standing, 38 trot, 29 canter, 20 gallop | trot 18-20, canter 15, gallop 10 |
+| Horse acceleration / braking | instant | 16 / 24 u/s^2 | about 6 / 10 |
+| One rider at speed | turns instantly | at most 0.2 rad a tick (115 deg/s) above 0.45 x speed | - |
+
+Departures:
+- Knights are not closed to 6.0-6.5: their collision circles are 7.6 across, so files cannot go below about 8.6 without overlap. The block is looser in depth instead, because a horse is longer than it is broad.
+- The march is 11 u/s, not 7-9: at 8 the 500-a-side battles had a long tail (some over the 300 s the tests allow, with remnants walking the width of the field), and slow heavy foot charged from too slow a start. 11 u/s keeps the median battle at about 96 s (v5 88 s).
+- Horse turns about twice the researched rate. At 10-15 deg/s horse that had ridden round a flank arrived beside its target and spent the charge wheeling onto it; horse then beat bows in only 28 of 48 matchups (v5: 44). At the v6 rates it wins 42 of 48, and a wheel at the gallop is still an arc some 150 units across. A block marching to a far goal rides the way it faces, slows to turn, and turns about only at a walk (`moveAnchor` in battle.ts).
+- The camera is unchanged. Classic and HD art draw at a whole number of screen pixels per map pixel, and 1 is the floor: at 2560 x 1440 zoom 1 shows the whole field (a 4,000-man deployment with room to spare), at 1920 x 1080 the deployment fits with the tip of a wing under the HUD banner, and at 1440 x 900 (device pixels) neither v5 nor v6 fits. See `docs/screenshots/formations/`.
+
 ## 8. Trade-offs
 
 - Real spacing vs readability. Keeping infantry at real spacing (5.3 units) costs nothing. Cavalry at real knee-to-knee (about 6 units) is tight but reads as a block; the sim's 9.0 spreads a charge into a line. Ranges are the biggest compromise: a real longbow could reach the far side of the field.

@@ -141,9 +141,10 @@ const builds: number[] = [];
 const perf = { frames: 0, buildMs: 0, drawMs: 0, drawP95: 0, fps: 0, figures: view.soldiers.length, tick: 0, buffer: '' };
 const stopAfter = num('frames', 0);
 const warmUntil = q.has('warm') ? performance.now() + num('warm', 0) : 0;
-const w = window as unknown as { __perf: typeof perf; __scene: BattleScene; __step: (n: number) => void; __done?: boolean };
+const w = window as unknown as { __perf: typeof perf; __scene: BattleScene; __battle: Battle; __step: (n: number) => void; __done?: boolean };
 w.__perf = perf;
 w.__scene = scene;
+w.__battle = real;
 w.__step = (n) => {
   for (let i = 0; i < n && !real.done(); i++) step();
 };
