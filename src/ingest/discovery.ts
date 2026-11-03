@@ -289,8 +289,10 @@ export class Discovery {
           before = defaultBranch && defaultBranch !== b.name && heads[defaultBranch] ? heads[defaultBranch]! : ZERO;
         }
         // A force-push needs nothing special: compare's base...head reads from their merge base, and
-        // commits already counted are left out by sha.
-        const report = await ingestPush({ ...this.deps, github: gh }, user, { repo: res.repo, ref: `refs/heads/${b.name}`, before, head: b.sha, at: now });
+        // commits already counted are left out by sha. A moved head does not say who pushed it (anyone
+        // with access to a shared repository may have), so only commits GitHub links to the player count;
+        // unlinked ones wait for the PushEvent, which names the pusher.
+        const report = await ingestPush({ ...this.deps, github: gh }, user, { repo: res.repo, ref: `refs/heads/${b.name}`, before, head: b.sha, at: now }, true);
         this.tries.delete(key);
         if (report) {
           out.reports.push(report);

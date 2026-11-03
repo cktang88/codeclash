@@ -274,6 +274,21 @@ describe('discovery beyond the events feed', () => {
     expect(t.reports).toHaveLength(1);
   });
 
+  it('never credits commits GitHub links to no account: discovery does not know who pushed them', async () => {
+    const t = setup();
+    await t.discovery.pollUser(ANA);
+    // Someone else pushes a commit whose email GitHub links to no account to a repository Ana watches.
+    t.github.pushTo(REPO, 'main', [commitMeta(sha(2), 'theirs')]);
+    t.github.setCompare(REPO, sha(1), sha(2), { commits: [{ sha: sha(2), authorLogin: null, message: 'theirs' }], files: [sourceFile('src/theirs.ts', calls(0, 8))], base: sha(1) });
+    t.advance(2 * MINUTE);
+    await t.discovery.pollUser(ANA);
+    expect(t.reports).toHaveLength(0);
+    // Had Ana pushed it herself, her PushEvent still counts it (the events feed names the pusher).
+    t.github.addEvent('Ana', pushEvent('100', REPO, sha(1), sha(2), t.now()));
+    await t.poller.pollUser(ANA);
+    expect(t.reports.map((r) => r.commits)).toEqual([1]);
+  });
+
   it('records exactly the report the PushEvent would have: determinism is unaffected', async () => {
     const viaEvents = setup();
     push(viaEvents, 1, 2);
