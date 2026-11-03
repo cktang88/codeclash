@@ -90,8 +90,8 @@ function App() {
         ) : null}
       </header>
       <main>
-        {route.page === 'home' && <Home me={me} />}
-        {route.page === 'league' && <LeaguePage slug={route.slug} tab={route.tab} member={route.member} me={me} />}
+        {route.page === 'home' && <Home me={me} onChange={load} />}
+        {route.page === 'league' && <LeaguePage slug={route.slug} tab={route.tab} member={route.member} me={me} onChange={load} />}
         {route.page === 'battle' && <BattlePage id={route.id} />}
         {route.page === 'demo' && <Demo />}
         {route.page === 'notfound' && <div className="page"><h1>Lost in the desert</h1><p><a {...linkProps('/')}>Return to the commandery</a></p></div>}

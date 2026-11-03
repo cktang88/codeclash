@@ -53,7 +53,8 @@ function Banner({ hue }: { hue: number }) {
   return <span className="swatch" style={{ background: hsl(hue, 55, 38) }} />;
 }
 
-export function LeaguePage({ slug, tab, member, me }: { slug: string; tab: string | null; member: number | null; me: MeResponse | null }) {
+/** `onChange` reloads the signed-in player after joining, leaving or deleting, so their league list stays true. */
+export function LeaguePage({ slug, tab, member, me, onChange }: { slug: string; tab: string | null; member: number | null; me: MeResponse | null; onChange?: () => void }) {
   const [loaded, setLoaded] = useState<{ slug: string; detail: LeagueDetail } | null>(null);
   const [failed, setFailed] = useState<{ slug: string; message: string } | null>(null);
   const now = useNow();
@@ -113,17 +114,26 @@ export function LeaguePage({ slug, tab, member, me }: { slug: string; tab: strin
       </header>
       <div className="league-actions">
         {!detail.viewer.member && signedIn && (
-          <button className="primary" onClick={() => api.join(slug).then(load, (e: Error) => setError(e.message))}>Swear to this league</button>
+          <button className="primary" onClick={() => api.join(slug).then(() => {
+            load();
+            onChange?.();
+          }, (e: Error) => setError(e.message))}>Swear to this league</button>
         )}
         {!signedIn && me?.oauth && <a className="button primary" href={`/auth/github?next=${encodeURIComponent(location.pathname + location.search)}`}>Sign in with GitHub to join</a>}
         {detail.invite && (
           <InviteLink url={`${location.origin}/l/${slug}?invite=${detail.invite}`} />
         )}
         {detail.viewer.member && !detail.viewer.owner && (
-          <button className="quiet" onClick={() => confirm('Leave this league?') && api.leave(slug).then(() => go('/'), (e: Error) => setError(e.message))}>Leave</button>
+          <button className="quiet" onClick={() => confirm('Leave this league?') && api.leave(slug).then(() => {
+            onChange?.();
+            go('/');
+          }, (e: Error) => setError(e.message))}>Leave</button>
         )}
         {detail.viewer.owner && (
-          <button className="quiet danger" onClick={() => confirm('Delete this league and its history for everyone?') && api.deleteLeague(slug).then(() => go('/'), (e: Error) => setError(e.message))}>Delete league</button>
+          <button className="quiet danger" onClick={() => confirm('Delete this league and its history for everyone?') && api.deleteLeague(slug).then(() => {
+            onChange?.();
+            go('/');
+          }, (e: Error) => setError(e.message))}>Delete league</button>
         )}
       </div>
       {error && <p className="error">{error}</p>}
