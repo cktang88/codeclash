@@ -10,7 +10,7 @@
 
 import { addP, code, DEG, defineMaterial, figurePalette, hash, oklchRgb, Paper, rot, type Mat, type P2, type RGB } from './core.ts';
 import { BODIES, type BodyType } from './rig.ts';
-import { at, beauseant, bow, crossbow, frameAt as frameAt0, isMail, lerp, local, mailTex as mailRows, mul, paintAs, spear, sub, sword, TM } from './templar-parts.ts';
+import { at, beauseant, bow, crossbow, frameAt as frameAt0, isMail, KNIGHT_PAIRS, lerp, local, mailTex as mailRows, mul, paintAs, spear, sub, sword, TK, TM, type ValueClass } from './templar-parts.ts';
 
 // ------------------------------------------------------------------ part maps (the rig)
 
@@ -92,6 +92,8 @@ const KM = {
   /** Fur collars: grey-white wolf and fox. */
   fur: defineMaterial('templar.k.fur', dye([0.24, 0.5, 0.66, 0.78, 0.87], [0.015, 0.02, 0.022, 0.02, 0.016], 70)),
 };
+// The charging brothers' silver mail gets the knight class's real shadows too.
+KNIGHT_PAIRS.push([KM.silver, TK.silver]);
 /** Mail, including the key art's silver. */
 const isMailS = (m: Mat): boolean => isMail(m) || m === KM.silver;
 
@@ -869,6 +871,8 @@ export interface SHorse {
   coat: Mat;
   capar?: Mat | null;
   cloth?: boolean;
+  /** Raise the caparison's hem by this much (units), showing more of the legs. */
+  caparUp?: number;
 }
 
 /** A closed Catmull-Rom curve through control points, sampled: organic outlines from a few points. */
@@ -1064,7 +1068,10 @@ export function horsePiece(c: Paper, k: SHorse, p: HorsePiece, back = false): vo
       // The caparison drapes over the curves: over the croup and the barrel to the knees, up the
       // neck; heavy hanging folds with lit ridges, a scalloped hem, the red cross on the flank.
       const cm = k.capar;
-      shapeU(c, smooth(CAPAR_PTS, 3), [0, 0], (x, y, ux, uy) => {
+      const up = k.caparUp ?? 0;
+      const pts = up ? CAPAR_PTS.map(([px, py]): P2 => [px, py > -5 ? py - up : py]) : CAPAR_PTS; // the hem points only
+      const hemY = -4.25 - up;
+      shapeU(c, smooth(pts, 3), [0, 0], (x, y, ux, uy) => {
         const vx = ux + 0.6, vy = uy + 7.6;
         if ((within(c, vx, 0.62) && Math.abs(vy) < 2.2) || (within(c, vy + 0.4, 0.58) && Math.abs(vx) < 1.85)) return code(TM.red, vx < -0.25 ? 3 : 2);
         let t = Math.min(3, formTone(ux, uy - 0.6, HORSE_MASSES));
@@ -1075,7 +1082,9 @@ export function horsePiece(c: Paper, k: SHorse, p: HorsePiece, back = false): vo
           if (f < 0.11) t = Math.max(0, t - 1);
           else if (f > 0.84 && f < 0.95) t = Math.min(4, t + 1);
         }
-        if (uy > -5.3 && c.tex(x, y, 59, 3) < 0.45) t = Math.max(0, t - 1);
+        if (uy > hemY - 1.05 && c.tex(x, y, 59, 3) < 0.45) t = Math.max(0, t - 1);
+        // The hem turns under and away from the light: a shadow band along it (level 2 up).
+        if (c.L >= 2 && uy > hemY - 0.45) t = Math.min(t, 1);
         // White cloth never drops to the deep tone: its shadow is a cool grey, not a brown hole.
         return code(cm, Math.max(1, t));
       });
@@ -1112,10 +1121,13 @@ export function scaled(c: Paper, k: number, draw: () => void): void {
 }
 
 /** A rider's mantle: from the shoulders it spills back over the cantle and the horse's croup. */
-function riderCloak(c: Paper): void {
+function riderCloak(c: Paper, shade?: number, back = false): void {
   const pts = smooth([[-2.8, -12.1], [0.4, -12.5], [2.7, -11.9], [1.6, -8.8], [-0.4, -5.9], [-3.4, -4.3], [-6.6, -4.1], [-6.9, -5.3], [-5.0, -7.6], [-3.6, -10.1]], 3);
   shapeU(c, pts, [0, 0], (x, y, ux, uy) => {
     if ((within(c, ux - 1.9, 0.3) && Math.abs(uy + 10.5) < 0.95) || (within(c, uy + 10.65, 0.28) && Math.abs(ux - 1.9) < 0.6)) return code(TM.red, 2);
+    // Seen from behind, the brothers' cross on the mantle's left shoulder (the Rule's red cross),
+    // so each rider of a packed charge carries his accent (level 2 up, the knight kits).
+    if (back && shade !== undefined && c.L >= 2 && ((within(c, ux + 1.6, 0.36) && Math.abs(uy + 10.3) < 1.1) || (within(c, uy + 10.5, 0.32) && Math.abs(ux + 1.6) < 0.75))) return code(TM.red, ux < -1.7 ? 3 : 2);
     // Folds run from the shoulders down and back, fanning over the croup.
     const a = Math.atan2(uy + 12, ux - 0.5);
     const f = ((a * 4.2 + 10) % 1 + 1) % 1;
@@ -1123,6 +1135,12 @@ function riderCloak(c: Paper): void {
     if (f < 0.18) t -= 1;
     else if (f < 0.32) t += 1;
     if (uy > -5.0 && c.tex(x, y, 57, 3) < 0.45) t -= 1;
+    if (shade !== undefined && c.L >= 2) {
+      // The side of the mantle hanging away from the light falls into shade, and its hem turns
+      // under: packed riders' backs are not one flat white (the brothers in the charge).
+      if (ux - (uy + 8) * 0.25 > shade) t = Math.min(t, 1);
+      if (uy > -4.1 - (ux + 6.6) * 0.29 - 0.5) t = Math.min(t, 1);
+    }
     return code(TM.white, Math.max(1, Math.min(4, t)));
   });
 }
@@ -1174,7 +1192,7 @@ export function riderPiece(c: Paper, k: SKit, g: SGear, p: RiderPiece, R: RiderR
       vol(c, addP(ank, [0.1, 0.55]), addP(ank, [0.1, -2.6]), [[0, 0.1], [1, 0.1]], TM.leather, { tone: 1 }); // stirrup leather
       return;
     }
-    case 'cloak': if (k.cloak) riderCloak(c); return;
+    case 'cloak': if (k.cloak) riderCloak(c, k.shadeFrom, back); return;
     case 'behind': g.behind?.(c); return;
     case 'upperArmF': if (farArm) upperArmS(c, R.shF, R.elF, k, true); return;
     case 'forearmF': if (farArm) forearmS(c, R.elF, R.wrF, k, true); return;
@@ -1232,12 +1250,12 @@ function riderS(c: Paper, k: SKit, g: SGear): void {
   }
 }
 
-const KNIGHT: SKit = { helm: 'great', body: KM.silver, coat: TM.white, cross: true, longCross: true, cloak: true, pauldrons: true, camail: KM.silver, sleeve: KM.silver, hand: TM.steel, legs: KM.silver, boots: KM.silver };
+const KNIGHT: SKit = { helm: 'great', body: KM.silver, coat: TM.white, cross: true, longCross: true, cloak: true, pauldrons: true, camail: KM.silver, sleeve: KM.silver, hand: TM.steel, legs: KM.silver, boots: KM.silver, shadeFrom: 0.2 };
 const MARSHAL: SKit = { ...KNIGHT, helm: 'gilded', belt: TM.gold };
 const TURCOPOLE: SKit = { helm: 'turban', body: TM.gambeson, coat: null, camail: TM.mailDk, sleeve: TM.gambeson, hand: TM.leather, legs: TM.wool, boots: TM.leather };
 const HORSE_ARCHER: SKit = { helm: 'turban', body: TM.wool, coat: null, camail: null, sleeve: TM.wool, hand: TM.flesh, legs: TM.wool, boots: TM.leather, belt: TM.team };
 
-export const MOUNTED: Record<number, { kit: SKit; horse: SHorse; gear: SGear; dark: boolean }> = {
+export const MOUNTED: Record<number, { kit: SKit; horse: SHorse; gear: SGear; dark: boolean; cls?: ValueClass }> = {
   5: {
     kit: TURCOPOLE,
     horse: { coat: TM.dun },
@@ -1259,8 +1277,11 @@ export const MOUNTED: Record<number, { kit: SKit; horse: SHorse; gear: SGear; da
   },
   7: {
     kit: KNIGHT,
-    horse: { coat: TM.grey, capar: TM.white },
+    // An iron-grey destrier under a shorter caparison: its legs and head show in a mid value
+    // between the white cloth and the grass, so a packed charge is not one white mass.
+    horse: { coat: TK.dapple, capar: TM.white, caparUp: 0.9 },
     dark: false,
+    cls: 'knight',
     gear: {
       front: (c) => kiteS(c, [2.1, -8.6], 3.8, 5.9, false, true, -6),
       near: { el: [-2.8, -8.9], wr: [-1.8, -7.3], draw: (c, h, d) => void spear(c, h, 135 + d, c.L < 2 ? 22 : 12.5, 3.5, { head: 1.3, pennon: 0.3, w: 0.36 }) },
@@ -1270,6 +1291,7 @@ export const MOUNTED: Record<number, { kit: SKit; horse: SHorse; gear: SGear; da
     kit: MARSHAL,
     horse: { coat: TM.grey, capar: TM.white },
     dark: false,
+    cls: 'knight',
     gear: {
       far: { el: [2.7, -9.7], wr: [3.0, -11.4], draw: (c, h, d) => beauseant(c, addP(h, [0, 0]), 180 + d, 0.35, 0) },
       near: { el: [-2.9, -8.9], wr: [-2.2, -7.1], draw: (c, h, d) => sword(c, h, 135 + d, 5.4) },
@@ -1363,7 +1385,7 @@ function drawKind(c: Paper, kind: number, level: number): boolean {
   c.begin(level, BODIES[body].canvas);
   if (foot) paintAs(c, foot.dark, () => manS(c, foot.kit, foot.gear));
   else if (rider)
-    paintAs(c, rider.dark, () => {
+    paintAs(c, rider.cls ?? rider.dark, () => {
       scaled(c, HORSE_SCALE, () => horseS(c, rider.horse, 'far'));
       scaled(c, HORSE_SCALE, () => horseS(c, rider.horse, 'body'));
       riderS(c, rider.kit, rider.gear);

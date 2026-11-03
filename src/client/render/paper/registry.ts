@@ -59,6 +59,8 @@ export function paperSupports(faction: string, kind: number, anim: Anim, dir: Di
  */
 export interface FactionPaletteOpts extends PaletteOpts {
   perKind?: boolean;
+  /** With `perKind`: options for single kinds, over the faction's. */
+  kinds?: Partial<Record<number, PaletteOpts>>;
 }
 const PALETTE_OPTS = new Map<string, FactionPaletteOpts>();
 let paletteOptsVersion = 0;

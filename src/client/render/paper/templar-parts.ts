@@ -122,6 +122,35 @@ const TL = {
 };
 
 /**
+ * The brothers in the charge (Knight-Brothers, the Marshal): the same whites and lights as the
+ * light class, but real shadows under them (a cool grey shade, a dark deep tone that is also the
+ * outline), so packed white riders part from each other the way the San Bevignate fresco parts
+ * its white horses and cloths, with dark contours; dark tack, hooves and a brighter cross.
+ */
+export const TK = {
+  white: defineMaterial('templar.whiteK', ramp([0.36, 0.6, 0.79, 0.86, 0.92], 0.024, 88, WARM_SHADOW)),
+  /** The Marshal's white destrier: shadowed like the cloth. */
+  grey: defineMaterial('templar.greyK', ramp([0.34, 0.56, 0.75, 0.82, 0.89], 0.016, 80, WARM_SHADOW)),
+  /** The brothers' iron-grey destriers: a mid value under the white caparison (it shows in the legs and head). */
+  dapple: defineMaterial('templar.dappleK', ramp([0.24, 0.38, 0.52, 0.63, 0.74], 0.014, 250, WARM_SHADOW)),
+  mane: defineMaterial('templar.maneK', ramp([0.2, 0.3, 0.42, 0.54, 0.66], 0.012, 70, WARM_SHADOW)),
+  steel: defineMaterial('templar.steelK', ramp([0.3, 0.52, 0.72, 0.81, 0.9], 0.02, 235, WARM_SHADOW)),
+  silver: defineMaterial('templar.silverK', ramp([0.28, 0.44, 0.62, 0.76, 0.9], 0.015, 240, WARM_SHADOW)),
+  ash: defineMaterial('templar.ashK', ramp([0.3, 0.52, 0.66, 0.74, 0.81], 0.045, 75)),
+  gold: defineMaterial('templar.goldK', ramp([0.32, 0.55, 0.7, 0.78, 0.86], 0.1, 85)),
+  /** The cross: brighter and more saturated against the white, with a dark deep tone. */
+  red: defineMaterial('templar.redK', ramp([0.22, 0.34, 0.45, 0.53, 0.6], 0.17, 27, [0.85, 1.1, 1.0, 0.85, 0.7])),
+};
+/**
+ * Further knight-class pairs from modules this one cannot import (templar-static's key-art dyes
+ * push theirs here at load: its silver mail).
+ */
+export const KNIGHT_PAIRS: [Mat, Mat][] = [];
+
+/** A figure's value class: dark, light, or the charging brothers ('knight'). */
+export type ValueClass = boolean | 'knight';
+
+/**
  * Every figure is one value class on the field: dark (sergeants, levies, archers, crossbowmen,
  * turcopoles, the engine crew) or light (the white-clad brothers on grey destriers). Its parts
  * are painted in that class's version of each material, so the whole silhouette and its outline
@@ -129,12 +158,20 @@ const TL = {
  * and a light figure's wooden lance is pale ash.
  */
 const REMAP = new Map<string, Int16Array>();
-function remapFor(dark: boolean, level: number): Int16Array {
+function remapFor(cls: ValueClass, level: number): Int16Array {
+  // At level 1 the brothers are the light class: a 13 px figure is mostly edge, and the knight
+  // class's dark deep tone (its outline) would sink it to the field's value.
+  const dark: ValueClass = cls === 'knight' && level <= 1 ? false : cls;
   const key = `${dark}:${Math.min(level, 4)}`;
   let t = REMAP.get(key);
   if (t && t.length >= materialCount() * 8) return t;
   t = new Int16Array(materialCount() * 8).map((_, i) => i);
-  const pairs: [Mat, Mat][] = dark && level <= 1
+  const pairs: [Mat, Mat][] = dark === 'knight'
+    ? [
+        [TM.white, TK.white], [TM.grey, TK.grey], [TM.steel, TK.steel], [TM.mail, TK.steel], [TM.mailDk, TK.steel], [TM.gold, TK.gold], [TM.red, TK.red],
+        [TM.mane, TK.mane], [TM.wood, TK.ash], [TM.ash, TK.ash], [TM.black, TM.black], ...KNIGHT_PAIRS,
+      ]
+    : dark && level <= 1
     ? // At level 1 the pale bits of a dark figure (a helm, a face: 2-3 px) keep the pale
       // materials: the 12-colour palette has no room for a second set of lights.
       // Oiled mail under a black surcoat is one dark mass at 13 px; as one material, the arm
@@ -145,14 +182,15 @@ function remapFor(dark: boolean, level: number): Int16Array {
     : level <= 2
       ? // At 13-26 px mail, helm steel, ash and buff leather are one pale grey mass (and the
         // small palettes have no room to tell them apart).
-        [[TM.mane, TL.mane], [TM.wood, TL.mane], [TM.ash, TL.mane], [TM.mailDk, TM.grey], [TM.mail, TM.grey], [TM.steel, TM.grey], [TM.leather, TL.mane], [TM.black, TL.black], [TM.team, TL.team], [TM.teamDk, TL.teamDk]]
+        // (The brothers' iron-grey destrier is the pale grey at 13 px: its legs would sit on the field's value.)
+        [[TM.mane, TL.mane], [TM.wood, TL.mane], [TM.ash, TL.mane], [TM.mailDk, TM.grey], [TM.mail, TM.grey], [TM.steel, TM.grey], [TM.leather, TL.mane], [TM.black, TL.black], [TM.team, TL.team], [TM.teamDk, TL.teamDk], [TK.dapple, TM.grey]]
       : [[TM.mane, TL.mane], [TM.wood, TM.ash], [TM.mailDk, TM.mail], [TM.leather, TL.leather], [TM.black, TL.black], [TM.team, TL.team], [TM.teamDk, TL.teamDk]];
   for (const [a, b] of pairs) for (let k = 0; k < 8; k++) t[a * 8 + k] = b * 8 + k;
   REMAP.set(key, t);
   return t;
 }
 /** Paints `draw` on `c` in a value class (see REMAP). */
-export function paintAs(c: Paper, dark: boolean, draw: () => void): void {
+export function paintAs(c: Paper, dark: ValueClass, draw: () => void): void {
   const t = remapFor(dark, c.L);
   const plot = c.plot;
   c.plot = (x: number, y: number, cd: number) => plot.call(c, x, y, cd >= 0 && cd < t.length ? t[cd]! : cd);
