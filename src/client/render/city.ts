@@ -9,22 +9,21 @@
 // screen, whole-number zoom steps), with each faction's own town: the Templar commandery, the
 // Samurai castle town (city/samurai.ts) and the Undead necropolis (city/undead.ts).
 
-import { BUILDINGS, type BuildingKey } from '../../game/city.ts';
+import type { BuildingKey } from '../../game/city.ts';
 import type { FactionId } from '../../game/factions.ts';
 import { artMode, type ArtMode } from '../settings.ts';
 import { cityAtlas } from './city/atlas.ts';
 import { buildAtlas as buildHdAtlas } from './sprites128.ts';
-import { paintBuilding, paintMill, rigFor, tierOf, WALL, wallHeights, type Art, type Banner, type BuildingParts } from './city/buildings.ts';
-import { paintGround, type Ground } from './city/ground.ts';
-import { groundKey, groundSteps, treesFor } from './city/ground-hd.ts';
+import { CityBuild, sceneKey, type Built, type Levels, type Progress, type PropsBuilt, type Torch } from './city/build.ts';
+import { RemoteBuild } from './city/build-remote.ts';
+import { WALL, type Art, type Banner } from './city/buildings.ts';
+import type { Ground } from './city/ground.ts';
 import { Draw, Life, type Ent, type Mood } from './city/life.ts';
 import { Folk } from './city/people.ts';
 import { FolkHd } from './city/people-hd.ts';
-import { CLASSIC, css, HD, WORLD_H, WORLD_W, type Footprint, type Frame } from './city/pixels.ts';
-import { paintProps, placeProps, propShadows, shadowAt, sunFor, type PaintedProps } from './city/props.ts';
+import { CLASSIC, css, HD, WORLD_H, WORLD_W, type Frame } from './city/pixels.ts';
+import { FIRE_POOL, lightPools, poolSources, type PoolSource } from './city/pools.ts';
 import { styleFor, type CityStyle } from './city/style.ts';
-import './city/samurai.ts';
-import './city/undead.ts';
 import { Post } from './post.ts';
 
 export const CITY_W = WORLD_W;
@@ -49,10 +48,10 @@ export interface CityMood {
 export const MIN_ZOOM = 1;
 export const MAX_ZOOM = 4;
 
-interface Torch {
-  x: number;
-  y: number;
-}
+export type { PoolSource };
+
+/** Main-thread budget per frame for a build job (ms), when there is no worker to build in. */
+const BUILD_BUDGET = 6;
 
 export class CityScene {
   readonly buffer: HTMLCanvasElement;
@@ -64,10 +63,16 @@ export class CityScene {
   private readonly draw2: Draw;
   private readonly life: Life;
   private ground: Ground | null = null;
-  /** HD: a ground being repainted a band at a time, and the key it is for. */
-  private groundJob: Generator<void, Ground> | null = null;
-  private groundJobKey = '';
-  private groundShownKey = '';
+  /** Builds the city for a set of levels (city/build.ts), with the caches of what it painted. */
+  private readonly builder: CityBuild;
+  /** HD: builds in the worker (city/build-remote.ts); null when there is none. */
+  private readonly remote: RemoteBuild | null;
+  /** What is shown, and the levels the build for `key` is wanted at (until it is in). */
+  private built: Built | null = null;
+  private want: { levels: Levels; progress: Progress | undefined } | null = null;
+  /** A build being run a slice per frame on the main thread (no worker, or the worker failed). */
+  private job: { key: string; gen: Generator<void, Built> } | null = null;
+  private populated = '';
   private arts: Art[] = [];
   private banners: Banner[] = [];
   private torches: Torch[] = [];
@@ -75,12 +80,11 @@ export class CityScene {
   private glows: [number, number, number][] = [];
   private mill: { art: Art; hub: [number, number] | null } | null = null;
   /** HD props (city/props.ts): placed and painted once per change of what stands on the ground. */
-  private props: { key: string; casts: Footprint[]; painted: PaintedProps } | null = null;
+  private props: PropsBuilt | null = null;
   /** Lantern glass on the props, in world pixels. */
   private lamps: [number, number][] = [];
   /** HD: the night's light pools, painted once per rebuild (see lightPools). */
   private pools: HTMLCanvasElement | null = null;
-  private partCache = new Map<string, BuildingParts>();
   private key = '';
   private t = 0;
   /** Stepped halos (rings of flat colour in the light's ramp), by name: see HALOS. */
@@ -90,9 +94,15 @@ export class CityScene {
   private necropolis = false;
   private ents: Ent[] = [];
   private nightNow = 0;
-  /** Milliseconds the last draw took (for the preview's meter), and the last repaint of the buildings. */
+  /**
+   * Milliseconds the last draw took (for the preview's meter); the main-thread build work of the
+   * last frame that had any (a synchronous build, a slice of a job, a swap); the time from a
+   * level change to its build being shown.
+   */
   lastCost = 0;
   lastRebuild = 0;
+  lastSettle = 0;
+  private asked = 0;
 
   // Camera: zoom of the world buffer, centred on (cx, cy) in buffer pixels.
   zoom = 1;
@@ -134,6 +144,13 @@ export class CityScene {
       cloud: [[1, 10, 14, 20, 0.07], [0.6, 10, 14, 20, 0.13]],
     };
     this.necropolis = hd && faction === 'undead';
+    this.builder = new CityBuild(this.st, this.frame, seed, hd);
+    this.remote = hd ? RemoteBuild.create(faction, hue, seed) : null;
+  }
+
+  /** A level change is still being built (the old city is shown meanwhile). */
+  get busy(): boolean {
+    return this.built?.key !== this.key;
   }
 
   // ---------------------------------------------------------------- camera
@@ -198,126 +215,73 @@ export class CityScene {
 
   // ---------------------------------------------------------------- building
 
-  /** A building's parts, repainted only when its own level (or scaffolding) changes. */
-  private parts(k: BuildingKey | 'keep', level: number, progress: number): BuildingParts {
-    const rising = progress > 0.45 ? 1 : 0;
-    const key = `${k}:${level}:${rising}`;
-    let p = this.partCache.get(key);
-    if (!p) {
-      p = paintBuilding(k, { st: this.st, level, progress, seed: this.seed }, this.frame);
-      // Keep one entry per building: drop this building's older levels.
-      for (const old of this.partCache.keys()) if (old.startsWith(k + ':')) this.partCache.delete(old);
-      this.partCache.set(key, p);
+  /**
+   * A new set of levels: the first build (and every classic one) is made at once; later HD ones in
+   * the worker, or a slice per frame here, while the old city stays on screen.
+   */
+  private schedule(levels: Levels, progress: Progress | undefined): void {
+    this.want = { levels: { ...levels }, progress: progress ? { ...progress } : undefined };
+    this.asked = performance.now();
+    this.job = null;
+    if (!this.built || this.mode !== 'hd') {
+      const first = !this.built;
+      this.adopt(this.builder.run(levels, progress, false));
+      // The worker builds the same city too: its caches warm for the next level change, and the
+      // night's pools come with it.
+      if (first) this.remote?.request(this.key, levels, progress);
+      return;
     }
-    return p;
+    if (this.remote && !this.remote.failed) this.remote.request(this.key, levels, progress);
+    else this.job = { key: this.key, gen: this.builder.steps(levels, progress, true) };
   }
 
-  private rebuild(levels: Record<BuildingKey, number>, mood: CityMood): void {
-    const st = this.st;
-    const maxLevel = Math.max(0, ...BUILDINGS.map((b) => levels[b.key] ?? 0));
-    const banners: Banner[] = [];
-    const torches: Torch[] = [];
-    const smoke: [number, number][] = [];
-    const forges: [number, number][] = [];
-    const bells: [number, number][] = [];
-    const stalls: [number, number][] = [];
-    const targets: [number, number][] = [];
-    const glows: [number, number, number][] = [];
-    const buildingArts: Art[] = [];
-    const footprints: Partial<Record<BuildingKey | 'keep', Footprint[]>> = {};
-    const buildingLamps: [number, number][] = [];
-    const keys: (BuildingKey | 'keep')[] = ['keep', ...BUILDINGS.map((b) => b.key)];
-    for (const k of keys) {
-      const level = k === 'keep' ? maxLevel : levels[k] ?? 0;
-      const p = this.parts(k, level, k === 'keep' ? 0 : mood.progress?.[k] ?? 0);
-      buildingArts.push(...p.arts);
-      banners.push(...p.banners);
-      torches.push(...p.torches.map(([x, y]) => ({ x, y })));
-      smoke.push(...p.smoke);
-      forges.push(...p.forges);
-      bells.push(...p.bells);
-      stalls.push(...p.stalls);
-      targets.push(...p.targets);
-      if (p.glows) glows.push(...p.glows);
-      footprints[k] = p.footprints ?? [];
-      if (p.lamps) buildingLamps.push(...p.lamps);
+  /** Take in a finished build from the worker, or run the main-thread job for a few ms. */
+  private pump(): void {
+    if (this.remote) {
+      const b = this.remote.take(this.key);
+      if (b) {
+        this.adopt(b);
+        return;
+      }
+      if (this.remote.failed && !this.job && this.want && this.built?.key !== this.key)
+        this.job = { key: this.key, gen: this.builder.steps(this.want.levels, this.want.progress, true) };
     }
-    // HD: the props and clutter (city/props.ts), placed clear of what the buildings recorded on
-    // the ground; their footprints and the buildings' make the cast shadows on the ground.
-    let propsKey = '';
-    if (this.mode === 'hd') {
-      const built = Object.values(footprints).flat() as Footprint[];
-      propsKey = built.map((f) => f.map((x) => Math.round(x)).join(',')).join(';');
-      if (this.props?.key !== propsKey) {
-        const placed = placeProps({ faction: st.id, seed: this.seed, levels, footprints, clear: treesFor(st.id).map(([u, v, r]) => [u, v, r * 0.7] as [number, number, number]) });
-        const painted = paintProps(placed, st, this.frame, (u, v) => shadowAt(u, v, built, sunFor(st.id).dir), rigFor(st.id));
-        this.props = { key: propsKey, casts: [...built, ...propShadows(placed)], painted };
-      }
-      const gk = groundKey(st, levels, maxLevel) + '|' + propsKey.length + ':' + hashStr(propsKey);
-      const casts = this.props!.casts;
-      if (!this.ground) {
-        // The first ground is painted at once; later ones a band per frame (see draw()).
-        const job = groundSteps(st, levels, maxLevel, this.frame, casts);
-        let r = job.next();
-        while (!r.done) r = job.next();
-        this.ground = r.value;
-        this.groundShownKey = gk;
-      } else if (gk !== this.groundShownKey && gk !== this.groundJobKey) {
-        this.groundJob = groundSteps(st, levels, maxLevel, this.frame, casts);
-        this.groundJobKey = gk;
-      }
-    } else {
-      this.props = null;
-      // Classic: the same ground as ever, repainted only when something it shows changes.
-      const gk = groundKey(st, levels, maxLevel);
-      if (!this.ground || gk !== this.groundShownKey) {
-        this.ground = paintGround(st, levels, maxLevel);
-        this.groundShownKey = gk;
-      }
-    }
-    const arts: Art[] = [...this.ground!.arts, ...buildingArts, ...(this.props?.painted.arts ?? [])];
-    this.lamps = [...(this.props?.painted.lamps ?? []), ...buildingLamps];
-    this.pools = null;
-    this.glows = glows;
-    const millKey = `mill:${tierOf(levels.granary)}`;
-    if (levels.granary > 0) {
-      if (!this.mill || this.partCache.get(millKey) === undefined) {
-        const m = paintMill(st, levels.granary, this.frame);
-        this.mill = m;
-        for (const old of this.partCache.keys()) if (old.startsWith('mill:')) this.partCache.delete(old);
-        this.partCache.set(millKey, { arts: [m.art], smoke: [], banners: [], torches: [], bells: [], forges: [], stalls: [], targets: [] });
-      }
-    } else this.mill = null;
-    if (this.mill) arts.push(this.mill.art);
-    this.arts = arts;
-    this.banners = banners;
-    this.torches = torches;
-    this.forges = forges;
-    const wt = tierOf(levels.walls);
-    const wh = wallHeights(wt);
-    this.life.wallFront = wh.front;
-    this.life.wallBack = wh.back;
-    this.life.anchors = { smoke, forges, targets, stalls, bells };
-    this.life.populate(levels, st);
-  }
-
-  /** HD: carry on repainting the ground a few bands at a time; swap it in when done. */
-  private stepGround(levels: Record<BuildingKey, number>, mood: CityMood): void {
-    const job = this.groundJob;
+    const job = this.job;
     if (!job) return;
     const t0 = performance.now();
-    while (performance.now() - t0 < 4) {
-      const r = job.next();
+    while (performance.now() - t0 < BUILD_BUDGET) {
+      const r = job.gen.next();
       if (r.done) {
-        this.ground = r.value;
-        this.groundShownKey = this.groundJobKey;
-        this.groundJob = null;
-        this.groundJobKey = '';
-        // The trees and fences come with the ground: refresh the sorted arts.
-        this.rebuild(levels, mood);
+        this.job = null;
+        this.adopt(r.value);
         return;
       }
     }
+  }
+
+  /** Show a finished build: everything at once. */
+  private adopt(b: Built): void {
+    this.built = b;
+    this.ground = b.ground;
+    this.arts = b.arts;
+    this.banners = b.banners;
+    this.torches = b.torches;
+    this.forges = b.forges;
+    this.glows = b.glows;
+    this.lamps = b.lamps;
+    this.mill = b.mill;
+    this.props = b.props;
+    this.pools = b.pools;
+    this.life.wallFront = b.wall.front;
+    this.life.wallBack = b.wall.back;
+    this.life.anchors = b.anchors;
+    // New people only when the levels changed (not for scaffolding, or the worker's copy of the same city).
+    const lk = JSON.stringify(b.levels);
+    if (lk !== this.populated) {
+      this.populated = lk;
+      this.life.populate(b.levels, this.st);
+    }
+    this.lastSettle = performance.now() - this.asked;
   }
 
   // ---------------------------------------------------------------- drawing
@@ -329,15 +293,15 @@ export class CityScene {
     this.clamp();
     const hd = this.mode === 'hd';
     const f = this.frame;
-    // Repaint only when a level changes or scaffolding goes up (not on every bit of progress).
-    const scaffold = Object.entries(mood.progress ?? {}).filter(([, p]) => (p ?? 0) > 0.45).map(([k]) => k).sort().join(',');
-    const key = JSON.stringify(levels) + '|' + scaffold;
+    // Rebuild only when a level changes or scaffolding goes up (not on every bit of progress).
+    const key = sceneKey(levels, mood.progress);
+    const r0 = performance.now();
+    const had = this.built;
     if (key !== this.key) {
       this.key = key;
-      const r0 = performance.now();
-      this.rebuild(levels, mood);
-      this.lastRebuild = performance.now() - r0;
-    } else if (this.groundJob) this.stepGround(levels, mood);
+      this.schedule(levels, mood.progress);
+    } else this.pump();
+    if (this.job || this.built !== had) this.lastRebuild = performance.now() - r0;
     dt = Math.max(0, Math.min(0.25, dt));
     this.t += dt;
     const t = this.t;
@@ -718,6 +682,7 @@ export class CityScene {
         // HD: warm pools on the surfaces each light reaches, not discs in the air. Buildings that bake
         // their own pools (Art.pooled) push no sources here; props lamps and forges always pool.
         const src = this.poolSources();
+        // (Made with the build; only the first, synchronous build leaves them to the first night.)
         this.pools ??= this.lightPools(src);
         g.globalAlpha = a * (0.92 + 0.08 * Math.sin(t * 9));
         g.drawImage(this.pools, 0, 0);
@@ -760,118 +725,12 @@ export class CityScene {
 
   /** The light sources for the pools: torches, prop lanterns and forges (world pixels, a height, a reach). */
   private poolSources(): PoolSource[] {
-    const out: PoolSource[] = [];
-    for (const tc of this.torches) out.push({ x: tc.x, y: tc.y, z: 8, r: 22 });
-    for (const [x, y] of this.lamps) out.push({ x, y, z: 7, r: 16 });
-    for (const [x, y] of this.forges) out.push({ x, y, z: 2, r: 18 });
-    return out;
+    return poolSources(this.torches, this.lamps, this.forges);
   }
 
-  /**
-   * Light pools (HD), after the user's town-displate target: each light warms the surfaces it
-   * reaches instead of hanging a disc in the air. On the ground the pool is an iso ellipse in
-   * world units, ragged at its edge (3×2 cell wobble and a low-frequency warp), stepped in three
-   * flat bands, and cut off where a building or a prop stands between the light and the ground
-   * (the recorded footprints). On walls it is a small upright patch, only on art that stands
-   * behind the light. Overlapping pools take the brighter band, never a sum. The result is one
-   * canvas laid with 'lighter', so every lit pixel moves up its own ramp, warmer and brighter.
-   * `ramps` are the band colours per tint, dim to hot (warm fire by default; the necropolis passes
-   * its grave-light green and arcane violet). The brightest band wins a pixel, with its tint.
-   */
+  /** The night's light pools for what is shown now (city/pools.ts). */
   lightPools(sources: PoolSource[], ramps: [number, number, number][][] = [FIRE_POOL]): HTMLCanvasElement {
-    const f = this.frame;
-    const W = f.w;
-    const H = f.h;
-    // Which art covers each pixel, and its depth (u + v); ground is -Infinity.
-    const cover = new Float32Array(W * H).fill(-Infinity);
-    const arts = [...this.arts].sort((a, b) => a.d - b.d);
-    for (const a of arts) {
-      if (!a.canvas) continue;
-      const m = alphaMask(a.canvas);
-      const cw = a.canvas.width;
-      const ch = a.canvas.height;
-      for (let y = 0; y < ch; y++) {
-        const by = a.y + y;
-        if (by < 0 || by >= H) continue;
-        for (let x = 0; x < cw; x++) {
-          if (!m[y * cw + x]) continue;
-          const bx = a.x + x;
-          if (bx >= 0 && bx < W) cover[by * W + bx] = a.d;
-        }
-      }
-    }
-    const casts = (this.props?.casts ?? []).filter((c) => c[4] >= 3);
-    const band = new Uint8Array(W * H);
-    const tintOf = new Uint8Array(W * H);
-    const ground = (x: number, y: number): [number, number] => {
-      const a = (x + 0.5) / f.k - f.mx - 256;
-      const b = 2 * ((y + 0.5) / f.k - f.my - 30);
-      return [(a + b) / 2, (b - a) / 2];
-    };
-    // Chunky clusters (6×4 buffer pixels, alternate columns dropped) for the ragged edge.
-    const cell = (x: number, y: number) => {
-      const cx = Math.floor(x / 6);
-      return poolHash(cx, (y + (cx & 1) * 2) >> 2);
-    };
-    for (const src of sources) {
-      // The foot of the light on the ground, and the footprints near it (not the one it hangs on).
-      const fx = (src.x + f.mx) * f.k;
-      const fy = (src.y + src.z + f.my) * f.k;
-      const [su, sv] = ground(fx, fy);
-      const ds = su + sv;
-      const R = src.r;
-      const near = casts.filter((c) => c[0] < su + R && c[2] > su - R && c[1] < sv + R && c[3] > sv - R && !(su >= c[0] - 0.5 && su <= c[2] + 0.5 && sv >= c[1] - 0.5 && sv <= c[3] + 0.5));
-      const x0 = Math.max(0, Math.floor(fx - 2 * R * f.k));
-      const x1 = Math.min(W - 1, Math.ceil(fx + 2 * R * f.k));
-      const y0 = Math.max(0, Math.floor(fy - (R + src.z + 6) * f.k));
-      const y1 = Math.min(H - 1, Math.ceil(fy + R * f.k));
-      const sxB = (src.x + f.mx) * f.k;
-      const syB = (src.y + f.my) * f.k;
-      for (let y = y0; y <= y1; y++)
-        for (let x = x0; x <= x1; x++) {
-          const i = y * W + x;
-          const wob = (cell(x, y) - 0.5) * 0.14;
-          let k = 0;
-          const da = cover[i]!;
-          if (da === -Infinity) {
-            const [u, v] = ground(x, y);
-            const warp = 1 + (poolHash(Math.floor(u / 4) + 77, Math.floor(v / 4)) - 0.5) * 0.35;
-            const d = (Math.hypot(u - su, v - sv) / R) * warp;
-            if (d >= 1) continue;
-            if (near.some((c) => blocks(su, sv, u, v, c))) continue;
-            k = 1 - d + wob;
-          } else {
-            // A wall or prop: lit only behind the light (facing it), in a small upright patch.
-            if (da > ds + 4 || da < ds - 36) continue;
-            const ex = (x - sxB) / (R * 0.55 * f.k);
-            const ey = (y - syB) / (R * 0.5 * f.k);
-            const d = Math.hypot(ex, ey);
-            if (d >= 1) continue;
-            k = Math.min(0.6, (1 - d) * 0.75 + wob);
-          }
-          const b = k > 0.62 ? 3 : k > 0.32 ? 2 : k > 0.06 ? 1 : 0;
-          if (b > band[i]!) {
-            band[i] = b;
-            tintOf[i] = src.tint ?? 0;
-          }
-        }
-    }
-    const c = document.createElement('canvas');
-    c.width = W;
-    c.height = H;
-    const ctx = c.getContext('2d')!;
-    const img = ctx.createImageData(W, H);
-    for (let i = 0; i < W * H; i++) {
-      const b = band[i]!;
-      if (!b) continue;
-      const col = (ramps[tintOf[i]!] ?? ramps[0]!)[b - 1]!;
-      img.data[i * 4] = col[0];
-      img.data[i * 4 + 1] = col[1];
-      img.data[i * 4 + 2] = col[2];
-      img.data[i * 4 + 3] = 255;
-    }
-    ctx.putImageData(img, 0, 0);
-    return c;
+    return lightPools(this.frame, this.arts, this.props?.casts ?? [], sources, ramps);
   }
 
   /**
@@ -1103,70 +962,12 @@ function stepped(w: number, h: number, rings: Ring[], ragged = false): HTMLCanva
   return c;
 }
 
-/** A light for the pools: a point in world pixels, its height above the ground and its reach (world units). */
-export interface PoolSource {
-  x: number;
-  y: number;
-  z: number;
-  r: number;
-  /** Which colour ramp (index into lightPools' `ramps`): 0 by default. */
-  tint?: number;
-}
-
-/** Pool bands, dim to hot: warm fire, and the necropolis's arcane violet. */
-const FIRE_POOL: [number, number, number][] = [[40, 20, 4], [78, 42, 10], [124, 74, 22]];
+/** Pool bands, dim to hot: the necropolis's arcane violet (warm fire is pools.ts FIRE_POOL). */
 const VIOLET_POOL: [number, number, number][] = [[30, 14, 52], [54, 28, 92], [86, 54, 140]];
 /** Pool bands from a light's css rgba colour (a style's `glow`). */
 function poolRamp(css: string): [number, number, number][] {
   const m = css.match(/[0-9.]+/g)!.map(Number);
   return [0.16, 0.3, 0.5].map((k) => [Math.round(m[0]! * k), Math.round(m[1]! * k), Math.round(m[2]! * k)] as [number, number, number]);
-}
-
-const masks = new WeakMap<HTMLCanvasElement, Uint8Array>();
-/** The opaque pixels of an art canvas (cached per canvas). */
-function alphaMask(c: HTMLCanvasElement): Uint8Array {
-  let m = masks.get(c);
-  if (!m) {
-    const d = c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data;
-    m = new Uint8Array(c.width * c.height);
-    for (let i = 0; i < m.length; i++) m[i] = d[i * 4 + 3]! > 0 ? 1 : 0;
-    masks.set(c, m);
-  }
-  return m;
-}
-
-/** Does a footprint stand between a light's foot (a) and a ground point (b)? Liang-Barsky. */
-function blocks(au: number, av: number, bu: number, bv: number, f: Footprint): boolean {
-  let t0 = 0;
-  let t1 = 1;
-  const du = bu - au;
-  const dv = bv - av;
-  const clip = (p: number, q: number): boolean => {
-    if (Math.abs(p) < 1e-9) return q >= 0;
-    const r = q / p;
-    if (p < 0) {
-      if (r > t1) return false;
-      if (r > t0) t0 = r;
-    } else {
-      if (r < t0) return false;
-      if (r < t1) t1 = r;
-    }
-    return true;
-  };
-  return clip(-du, au - f[0]) && clip(du, f[2] - au) && clip(-dv, av - f[1]) && clip(dv, f[3] - av) && t0 < t1 && t1 < 0.999;
-}
-
-function poolHash(x: number, y: number): number {
-  let h = (Math.imul(x | 0, 374761393) + Math.imul(y | 0, 668265263) + 977) | 0;
-  h = Math.imul(h ^ (h >>> 13), 1274126177);
-  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
-}
-
-/** A 32-bit hash of a string (the props key, for the ground's key). */
-function hashStr(s: string): number {
-  let h = 2166136261;
-  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
-  return h >>> 0;
 }
 
 function localHour(): number {

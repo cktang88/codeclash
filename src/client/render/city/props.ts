@@ -95,6 +95,9 @@ export interface PropAnimAt {
   fn: PropAnim;
   /** Buffer-pixel box it may draw in, for the on-screen test. */
   box: [number, number, number, number];
+  /** Where `fn` comes from (the prop's kind, and -1 for its anim or the index of its flicker), so a build made in a worker can name it (propAnimFn). */
+  kind?: string;
+  flick?: number;
 }
 
 /** A flickering flame: two art pixels that trade hot and warm, hashed per lamp so lamps flicker apart. */
@@ -545,14 +548,22 @@ export function paintProps(placed: Placed[], st: CityStyle, frame: Frame, inShad
       const x = Math.floor(px.X(p.u, p.v));
       const y = Math.floor(px.Y(p.u, p.v, 0));
       const at = { d: du + dv + 0.05, x, y, seed: p.n, box: [b[0] - 4, b[1] - 4, b[2] + 4, b[3] + 4] as [number, number, number, number] };
-      if (d.anim) anims.push({ ...at, fn: d.anim });
-      for (const [fu, fv, fz] of d.flicker ?? []) {
-        anims.push({ ...at, fn: flameAnim(fu, fv, fz) });
+      if (d.anim) anims.push({ ...at, fn: d.anim, kind: p.kind, flick: -1 });
+      for (const [j, [fu, fv, fz]] of (d.flicker ?? []).entries()) {
+        anims.push({ ...at, fn: flameAnim(fu, fv, fz), kind: p.kind, flick: j });
         lamps.push([px.X(p.u + fu, p.v + fv) / px.k - px.mx, px.Y(p.u + fu, p.v + fv, fz) / px.k - px.my]);
       }
     }
   }
   return { arts, lamps, anims };
+}
+
+/** The animation a PropAnimAt names by kind and flick (see PropAnimAt.kind). */
+export function propAnimFn(kind: string, flick: number): PropAnim {
+  const d = LIB.get(kind)!;
+  if (flick < 0) return d.anim!;
+  const [fu, fv, fz] = d.flicker![flick]!;
+  return flameAnim(fu, fv, fz);
 }
 
 // ------------------------------------------------------------------------------- shadows
