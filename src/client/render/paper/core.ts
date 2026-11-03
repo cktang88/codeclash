@@ -568,15 +568,21 @@ export class Paper {
     this.FX = Math.round(cw / 2);
     this.FY = Math.round(ch * size.footY);
     if (cw !== this.CW || ch !== this.CH) {
-      this.pix = new Int16Array(cw * ch);
-      this.ord = new Int16Array(cw * ch);
+      this.pix = new Int16Array(cw * ch).fill(-1);
+      this.ord = new Int16Array(cw * ch).fill(-1);
       this.prev = new Int16Array(cw * ch).fill(-1);
       this.last = '';
+    } else if (this.bx1 >= this.bx0) {
+      // Everything drawn lies in the drawn box (plot and the blits grow it; the passes only touch
+      // drawn pixels), so only its rows need clearing: a part's scratch canvas is mostly empty.
+      for (let y = this.by0; y <= this.by1; y++) {
+        const r = y * cw;
+        this.pix.fill(-1, r + this.bx0, r + this.bx1 + 1);
+        this.ord.fill(-1, r + this.bx0, r + this.bx1 + 1);
+      }
     }
     this.CW = cw;
     this.CH = ch;
-    this.pix.fill(-1);
-    this.ord.fill(-1);
     this.order = 0;
     this.bx0 = cw;
     this.by0 = ch;

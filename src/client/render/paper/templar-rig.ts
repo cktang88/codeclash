@@ -482,7 +482,7 @@ interface SkinImg {
   w: number;
   h: number;
   pix: Int16Array;
-  ord: Int16Array;
+  ord: Int16Array | Uint8Array;
   polys: number;
   ax: number;
   ay: number;
@@ -520,7 +520,7 @@ export function memoSkin(id: string, bones: readonly string[], draw: (c: Paper, 
           img.w = s.bx1 - s.bx0 + 1;
           img.h = s.by1 - s.by0 + 1;
           img.pix = new Int16Array(img.w * img.h);
-          img.ord = new Int16Array(img.w * img.h);
+          img.ord = img.polys <= 255 ? new Uint8Array(img.w * img.h) : new Int16Array(img.w * img.h);
           for (let y = 0; y < img.h; y++)
             for (let x = 0; x < img.w; x++) {
               const i = (s.by0 + y) * s.CW + s.bx0 + x;
