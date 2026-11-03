@@ -32,7 +32,18 @@ setFactionPaletteOptions('undead', { perKind: true, minDist: [0.1, 0.18, 0.1, 0.
   // The cloaked kinds (the Bone-Throwers' rag cape, the wraiths' violet, the Lich's shroud) are
   // mid-value cloth near the field's value: their pale lit-side rim and dark shade-side rim
   // averaged out to the grass. A dark rim all round, from level 1, sets them off the field.
-  kinds: { [U.Skirmishers]: DARK_RIM, [U.Archers]: DARK_RIM, [COMMANDER_KIND]: DARK_RIM },
+  kinds: {
+    [U.Skirmishers]: DARK_RIM,
+    [U.Archers]: DARK_RIM,
+    [COMMANDER_KIND]: DARK_RIM,
+    // The Legionary at level 2: the rust's shade and the bone's deep tone merged into one brown,
+    // so the lit breastplate and the shield's painted skull read as one bone-coloured mass lit
+    // from the right. A little less merging keeps them apart.
+    [U.HeavyInfantry]: { minDist: [0.1, 0.15, 0.1, 0.06] },
+    // The Colossus is char, rust and bone, all dark: merged by plain distance its dark char and
+    // rust fell on one brown at level 1. Merging by chroma keeps their hues.
+    [U.Shock]: { darkChroma: true },
+  },
 });
 
 // ------------------------------------------------------------------ poses
