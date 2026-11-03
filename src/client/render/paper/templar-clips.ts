@@ -7,6 +7,7 @@ import { Anim } from '../contract.ts';
 import type { P2 } from './core.ts';
 import type { Facing } from './facing.ts';
 import { acosDeg, angleOf, BREATH, restJoints, type AnimationData, type AnimEvent, type Clip, type SkeletonData } from './skeleton.ts';
+import { fromGuard } from './guard.ts';
 import { addDrops, facingClip, lagCloth, lastFrame, mapFacings, mocapKeys, overlayKeys, restWorld, type ClipSet, type Drop, type KP, type LagSpec, type MocapOpts, type Track } from './templar-rig.ts';
 
 /** A melee blow (one Attack clip). A kind lists 1-3 of them (`blows`), blow 0 first. */
@@ -429,13 +430,38 @@ const DIE_FWD: Author = () => ({
   ik: { armF2h: T([0, 1], [2, 0]) },
 });
 
-/** Brace: the shield wall (shield punched forward, blade over the rim), the spear set against horse (butt at the back foot, the point at a horse's chest), a ready crouch. */
-const BRACE: Record<ClipSpec['brace'], Author> = {
-  // Crouched behind the shield raised to the eyes, the sword drawn back ready to cut over or under it.
-  shield: () => ({ dw: { spine: T([0, -14]), head: T([0, -8]), upperArmF: T([0, 52]), forearmF: T([0, 44]) }, w: { upperArmN: T([0, 20]), forearmN: T([0, 85]), weapon: T([0, 112]) } }),
-  spear: () => ({ dw: { spine: T([0, -16]), head: T([0, 4]), upperArmF: T([0, 20]), forearmF: T([0, 16]) }, w: { upperArmN: T([0, 25]), forearmN: T([0, 80]), weapon: T([0, 118]) } }),
-  axe: () => ({ dw: { spine: T([0, -10]), head: T([0, -2]) }, w: { upperArmN: T([0, 40]), forearmN: T([0, 95]), weapon: T([0, 150]) } }),
-  ready: () => ({ dw: { spine: T([0, -10]), head: T([0, -2]), upperArmN: T([0, 10]), forearmN: T([0, 20]), upperArmF: T([0, 10]), forearmF: T([0, 15]) } }),
+/** A held fist: the arm's world angles that put the fist at `p` from its shoulder (and the item at `deg`). */
+export function holdFist(A: Arms, p: P2, elbow: 1 | -1, deg?: number, side: 'N' | 'F' = 'N'): Record<string, Track> {
+  const [u, f] = reach(side === 'N' ? A.uN : A.uF, side === 'N' ? A.fN : A.fF, p[0], p[1], elbow);
+  const out: Record<string, Track> = { [`upperArm${side}`]: T([0, u]), [`forearm${side}`]: T([0, f]) };
+  if (deg !== undefined) out[side === 'N' ? 'weapon' : 'itemF'] = T([0, deg]);
+  return out;
+}
+/** The fighting crouch under every guard: knees bent (hips down), the trunk forward over the lead foot, the head up. */
+export const crouch = (lean: number, low = 0.12): Tracks => ({ dw: { spine: T([0, lean]), head: T([0, -lean * 0.45]) }, tAdd: { pelvis: [T([0, 0.1]), T([0, low])] } });
+
+/**
+ * Brace is the man's **guard** (weapon-attacks.md "Guards"): what he stands in when the enemy is in
+ * reach and what every blow leaves from and comes back to (guard.ts). The shield wall, the spear
+ * set against horse and the crossbowman's crouch are guards already; the rest are the weapon's
+ * own ready stance.
+ */
+export type Guard = ClipSpec['brace'] | 'javelin' | 'bow' | 'crossbow';
+const BRACE: Record<Guard, Author> = {
+  // The high guard behind the shield (Maciejowski, I.33): the kite up to the chin covering the
+  // trunk, the sword fist cocked at the shoulder over the rim, the blade sloped up at the enemy.
+  shield: (_rw, _f, A = ARMS0) => merge(crouch(-12), { w: holdFist(A, [0.75, -0.35], 1, 114), dw: { upperArmF: T([0, 40]), forearmF: T([0, 34]) } }),
+  // The spear levelled underhand at the hip, point at a horse's chest, the shield forward.
+  spear: (_rw, _f, A = ARMS0) => merge(crouch(-14, 0.15), { w: holdFist(A, [-1.1, 2.55], 1, 106), dw: { upperArmF: T([0, 24]), forearmF: T([0, 20]) } }),
+  // The Dane axe across the body, the bit up by the near shoulder, both fists low and forward.
+  axe: (_rw, _f, A = ARMS0) => merge(crouch(-12, 0.15), { w: holdFist(A, [0.2, 1.6], 1, 146) }),
+  ready: () => merge(crouch(-10), { dw: { upperArmN: T([0, 10]), forearmN: T([0, 20]), upperArmF: T([0, 10]), forearmF: T([0, 15]) } }),
+  // A javelin kept underarm at the hip, point out; the buckler and the bundle forward.
+  javelin: (_rw, _f, A = ARMS0) => merge(crouch(-12, 0.12), { w: holdFist(A, [-0.9, 2.4], 1, 100), dw: { upperArmF: T([0, 24]), forearmF: T([0, 22]) } }),
+  // The bow held out before him in the bow hand, the upper limb leaning at the enemy; the free fist up.
+  bow: (_rw, _f, A = ARMS0) => merge(crouch(-10, 0.12), { w: { upperArmN: T([0, 34]), forearmN: T([0, 128]), ...holdFist(A, [1.2, 1.5], 1, 146, 'F') } }),
+  // The crossbow levelled at the belly like a club, the far hand under the prod (the stirrup jab's chamber).
+  crossbow: (_rw, _f, A = ARMS0) => merge(crouch(-12, 0.15), { w: holdFist(A, [-0.45, 2.3], 1, 100), dw: { upperArmF: T([0, 22]), forearmF: T([0, 10]) } }),
 };
 
 // ------------------------------------------------------------------ the run
@@ -567,7 +593,9 @@ export function mocapFootClips(skel: SkeletonData, s: ClipSpec): { clips: ClipSe
     const d = BLOWS[b];
     return fc('attack', 12, false, (f) => mk(skel, f, d.clip, d.o, d.author, d.x ?? EVERY), d.ev);
   };
-  const attacks = (s.blows ?? [s.attack]).map(blowClip);
+  // In a fight a man stands in his guard (the Brace clip) and every blow leaves it and comes back to it.
+  const brace = withBreath(fc('brace', 8, true, (f) => mk(skel, f, 'brace', { ref: 'mean', absHeight: true, travel: 1.0, torso: 0, feet: 0.4 }, BRACE[s.brace === 'ready' && s.shoot ? s.shoot : s.brace])), 0.6);
+  const attacks = (s.blows ?? [s.attack]).map((b) => fromGuard(skel, blowClip(b), brace));
   const attack = attacks[0]!;
   let shoot = attack;
   // The javelin leaves the hand at the release; the last frame takes the next from the bundle.
@@ -594,6 +622,5 @@ export function mocapFootClips(skel: SkeletonData, s: ClipSpec): { clips: ClipSe
   if (s.shield) drops.push({ holder: 'forearmF', bone: 'dropF', slot: 'frontDrop', from: 'front', at: back ? 5 : 5, land: back ? { x: 4.4, y: -0.45, rot: 84, f: 8 } : { x: -2.6, y: -0.45, rot: -80, f: 9 } });
   const die = addDrops(skel, fc('die', 12, false, dieKeys, [{ f: back ? 7 : 9, name: 'land' }]), 12, drops);
   const dead = mapFacings(die, (a) => lastFrame(a, 'dead'));
-  const brace = withBreath(fc('brace', 8, true, (f) => mk(skel, f, 'brace', { ref: 'mean', absHeight: true, travel: 1.0, torso: 0, feet: 0.4 }, BRACE[s.brace])), 0.6);
   return { clips: { [Anim.Idle]: idle, [Anim.Walk]: walk, [Anim.Run]: run, [Anim.Attack]: attack, [Anim.Shoot]: shoot, [Anim.Hit]: hit, [Anim.Die]: die, [Anim.Dead]: dead, [Anim.Brace]: brace }, attacks };
 }

@@ -16,7 +16,8 @@ import {
   BREATH, bonesFromJoints, dirStep, EASE, restPose, smearPart, skeletonKind, type Posed,
   type AnimationData, type AnimEvent, type AttachmentSet, type Clip, type DrawCtx, type JointDef, type PartXf, type SkeletonData, type SkeletonRig, type SlotData,
 } from './skeleton.ts';
-import { armsOf, bowAuthor, CUT, fistPath, HIT, on, R, reach, T, THRUST, UNDERHAND, cloth, type Arms, type Author, type Tracks } from './templar-clips.ts';
+import { fromGuard, riderOnly } from './guard.ts';
+import { ARMS0, armsOf, holdFist, bowAuthor, CUT, fistPath, HIT, on, R, reach, T, THRUST, UNDERHAND, cloth, type Arms, type Author, type Tracks } from './templar-clips.ts';
 import { joints, neRest, PARENT, type FootSpec } from './templar-foot.ts';
 import { bow, paintAs, pennon, RIG_CLOTH, sword, TM, type ValueClass } from './templar-parts.ts';
 import { at as atT, facingClip, lagCloth, lastFrame, mapFacings, memoSkin, overlayKeys, partMap, restWorld, skinMap, smooth01, type ClipSet, type KP, type LagSpec, type Track, type Weights } from './templar-rig.ts';
@@ -617,7 +618,21 @@ function horseClips(skel: SkeletonData, s: HorseSpec, fly?: Fly): { clips: ClipS
           return overlayKeys(overlayKeys(g.keys, drive(rw, f), [1, 2, 4, 7, 9]), RIDES[r](rw, f, armsOf(skel, f)), [3, 5, 6, 8, 10]);
         }, RIDE_EV[r], 1)
       : fc('attack', 12, false, (f) => overlayKeys(standKeys(11, horseLean)(f, skel), RIDES[r](restWorld(skel, f), f, armsOf(skel, f))), RIDE_EV[r]);
-  const attacks = (s.rides ?? [s.ride]).map((r) => (r === 'sword' ? swordSlots(blow(r)) : blow(r)));
+  // Brace is the rider's guard (guard.ts): the lance couched, the sword raised, the bow held out
+  // before him with the free fist up; every blow leaves it and comes back to it (the horse's own
+  // gait under a lancer's charge is left alone).
+  const braceA: Author = (rw, _f, A) => ({
+    dw: { horseNeck: T([0, 6]), horseHead: T([0, -4]), spine: T([0, -8]), ...(s.front === 'forearmF' ? { upperArmF: T([0, 18]), forearmF: T([0, 14]) } : {}) },
+    w: (s.ride === 'couch' || s.ride === 'thrust'
+      ? { upperArmN: T([0, -10]), forearmN: T([0, 76]), weapon: T([0, s.charge]) }
+      : s.ride === 'cut'
+        ? { upperArmN: T([0, 40]), forearmN: T([0, 110]), weapon: T([0, 130]) }
+        : s.shoot === 'bow'
+          ? { upperArmN: T([0, 30]), forearmN: T([0, 120]), ...holdFist(A ?? ARMS0, [1.1, 1.3], 1, 140, 'F') }
+          : { upperArmN: T([0, rw.upperArmN! + 10]) }) as Record<string, Track>,
+  });
+  const brace = breath(fc('brace', 8, true, (f) => standKeys(8, braceA)(f, skel)), 0.6);
+  const attacks = (s.rides ?? [s.ride]).map((r) => fromGuard(skel, r === 'sword' ? swordSlots(blow(r)) : blow(r), brace, { only: riderOnly }));
   const attack = attacks[0]!;
   // The horse archer shoots from the saddle at a shallower arc than the foot archers.
   const shoot = s.shoot === 'bow' ? fc('shoot', 12, false, (f) => overlayKeys(standKeys(11)(f, skel), bowAuthor(HORSE_BOW_ELEVATION)(restWorld(skel, f), f, armsOf(skel, f))), [{ f: 3, name: 'draw', len: 4 }, { f: 7, name: 'release' }]) : attack;
@@ -627,11 +642,6 @@ function horseClips(skel: SkeletonData, s: HorseSpec, fly?: Fly): { clips: ClipS
   const hit = fc('hit', 5, false, (f) => overlayKeys(overlayKeys(standKeys(4, shy)(f, skel), riderHit(restWorld(skel, f), f)), {}, [1, 2, 3]), []);
   const die = fc('die', 12, false, (f) => dieKeys(f), [{ f: 8, name: 'land' }]);
   const dead = mapFacings(die, (a) => lastFrame(a, 'dead'));
-  const braceA: Author = (rw) => ({
-    dw: { horseNeck: T([0, 6]), horseHead: T([0, -4]), spine: T([0, -6]), ...(s.front === 'forearmF' ? { upperArmF: T([0, 18]), forearmF: T([0, 14]) } : {}) },
-    w: (s.ride === 'couch' || s.ride === 'thrust' ? { upperArmN: T([0, -10]), forearmN: T([0, 76]), weapon: T([0, s.charge]) } : s.ride === 'cut' ? { upperArmN: T([0, 40]), forearmN: T([0, 110]), weapon: T([0, 130]) } : { upperArmN: T([0, rw.upperArmN! + 10]) }) as Record<string, Track>,
-  });
-  const brace = breath(fc('brace', 8, true, (f) => standKeys(8, braceA)(f, skel)), 0.6);
   return { clips: { [Anim.Idle]: idle, [Anim.Walk]: walk, [Anim.Run]: run, [Anim.Attack]: attack, [Anim.Shoot]: shoot, [Anim.Hit]: hit, [Anim.Die]: die, [Anim.Dead]: dead, [Anim.Brace]: brace }, attacks };
 
   /**
