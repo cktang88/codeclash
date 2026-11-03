@@ -33,6 +33,11 @@ export { COHESION, DOCTRINE, MORALE, REGROUP, UNDEAD } from './command.ts';
  * - Horse locked in a melee breaks off to charge again (P4) by whom its men are fighting: sent
  *   at a block of the line but cutting down the shooters behind it, it rides them down (it went
  *   by its target alone, and broke off from archers it had caught).
+ * - The general's household takes on an enemy whose men come within its reach (40), riding
+ *   for the nearest of them. It went by the blocks' bounding circles and rode for the block's
+ *   centre: against the big blocks of a big battle that drew the general from 100 and more away
+ *   into the enemy's ranks. The fearless Lich-Marshal, whose household never breaks, fell in more
+ *   than half of all battles (and the host crumbled), the living generals in up to 40% of big ones.
  * - U3: a man the Lich-Marshal raises gets up where he fell before he moves or fights
  *   (`RISE_TICKS`, as long as the renderer's rise); nothing shoves him meanwhile. He walked off to
  *   his place on the tick he rose, so the get-up was hardly seen.
@@ -3919,11 +3924,19 @@ export class Battle {
     const ts = this.ts[r.team]!;
     const dir = r.team === 0 ? 1 : -1;
     const reach = this.generals[r.team]!.trait === 'reckless-valour' ? 90 : 40;
-    const near = this.nearestFoe(r, 0, reach);
+    // The household fights what comes within `reach` of it, its nearest man, where he stands.
+    // (Until v15 it went by the blocks' bounding circles and rode for the centre of the block:
+    // against the big blocks of a big battle that took the general from 100 and more away into
+    // the middle of the enemy's ranks. The fearless Lich-Marshal, whose household never breaks,
+    // fell in more than half of all battles.)
+    const near = this.nearGap(r, reach, false);
     if (near || r.engaged) {
       this.setMode(r, 'melee');
       r.targetReg = near ? near.id : r.targetReg;
-      if (near) this.goal(r, near.cx, near.cy);
+      if (near) {
+        this.gapTo(r, near);
+        this.goal(r, this.tmp[0]!, this.tmp[1]!);
+      }
       return;
     }
     this.setMode(r, 'guard');

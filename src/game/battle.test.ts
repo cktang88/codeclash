@@ -3,7 +3,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { Battle, BATTLE_VERSION, FIELD_H, FIELD_W, fight, MAX_TICKS, State, type ArmySpec, type BattleSetup } from './battle.ts';
+import { Battle, BATTLE_VERSION, FIELD_H, FIELD_W, fight, MAX_TICKS, State, type ArmySpec, type BattleSetup, type Regiment } from './battle.ts';
 import { U, UNIT_COUNT } from './units.ts';
 
 const MIX = [0.22, 0.2, 0.08, 0.12, 0.07, 0.07, 0.05, 0.03, 0.03, 0.005];
@@ -240,6 +240,31 @@ describe('battle: determinism rules (rng.ts)', () => {
       const lines = code.split('\n').filter((l) => banned.test(l));
       expect(lines, f).toEqual([]);
     }
+  });
+});
+
+describe('battle: the general’s household', () => {
+  it('fights the enemy that comes within reach of its men, not one whose block’s bounding circle does', () => {
+    const b = new Battle(setupOf(1, army(300), only(U.HeavyInfantry, 2800, { commander: false })));
+    const inside = b as unknown as { thinkCommand(r: Regiment): void; formUp(r: Regiment, x: number, y: number): void };
+    const hh = b.regiments.find((r) => r.role === 'command')!;
+    const foe = b.regiments.find((r) => r.team === 1)!;
+    const stand = (r: Regiment, x: number, y: number, fx: number, fy: number) => {
+      r.fx = r.dfx = fx;
+      r.fy = r.dfy = fy;
+      inside.formUp(r, x, y);
+    };
+    stand(hh, 400, 600, 1, 0);
+    // A big block side-on to it: its end file 50 off, its bounding circle's edge much nearer.
+    stand(foe, 400 + foe.depth / 2, 600 + 50 + foe.width / 2, -1, 0);
+    expect(Math.hypot(foe.cx - hh.cx, foe.cy - hh.cy) - foe.radius - hh.radius).toBeLessThan(40);
+    inside.thinkCommand(hh);
+    expect(hh.mode).toBe('guard');
+    // Within reach of its men: it takes them on, riding for the nearest of them, not the block's middle.
+    stand(foe, 400 + foe.depth / 2, 600 + 25 + foe.width / 2, -1, 0);
+    inside.thinkCommand(hh);
+    expect(hh.mode).toBe('melee');
+    expect(hh.ty).toBeLessThan(600 + 40);
   });
 });
 
