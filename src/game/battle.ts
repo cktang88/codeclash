@@ -1119,6 +1119,8 @@ export class Battle {
     const d = this.d;
     const n = this.n;
     const cellOf = this.cellOf;
+    let lo = GW * GH;
+    let hi = -1;
     for (let i = 0; i < n; i++) {
       if (d.state[i]! > State.Routing) {
         cellOf[i] = -1;
@@ -1127,14 +1129,18 @@ export class Battle {
       const c = cellIndex(d.x[i]!, d.y[i]!);
       cellOf[i] = c;
       g[c + 1]!++;
+      if (c < lo) lo = c;
+      if (c > hi) hi = c;
     }
     const cells = GW * GH;
     const busy = this.busy;
     let nb = 0;
-    for (let c = 0; c < cells; c++) {
+    // Running totals over the occupied stretch only: before it they are all 0, after it all the total.
+    for (let c = lo; c <= hi; c++) {
       if (g[c + 1]! > 0) busy[nb++] = c;
       g[c + 1]! += g[c]!;
     }
+    if (hi >= 0) g.fill(g[hi + 1]!, hi + 2);
     this.busyN = nb;
     const fill = this.fill;
     fill.set(g.subarray(0, cells));
