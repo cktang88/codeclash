@@ -23,7 +23,8 @@ import { at as atT, facingClip, lagCloth, lastFrame, mapFacings, overlayKeys, re
 import { HIT, R, T, type Author, type Tracks } from './templar-clips.ts';
 import { FLASH, pieceAtt, registerLazy, trail } from './undead-foot.ts';
 import { both, groundClamp, jerk } from './undead-clips.ts';
-import { horseFrame, shadeLower, UM, type HorseLegs } from './undead-parts.ts';
+import { horseFrame, shadeLower, UM, warSword, type HorseLegs } from './undead-parts.ts';
+import { RIDER_BLOWS } from './undead-blows.ts';
 import { keyLight } from './undead-static.ts';
 import { seated, type MountArt, type PieceOpts, type UJ, type UPiece } from './undead-static.ts';
 import { MOTION, type MotionKey } from './motion/index.ts';
@@ -53,6 +54,10 @@ export interface MountSpec {
   smear?: [number, number];
   /** How much of the figure is in the low shade at level 1. */
   shadeL1?: number;
+  /** The melee blows from the saddle, blow 0 first: 'ride' (the kind's own `ride` blow) or names in undead-blows.ts RIDER_BLOWS. */
+  blows?: string[];
+  /** Bows: Shoot is aimed this high (deg above level) to arc over the ranks; Attack stays the level shot. */
+  shootHigh?: number;
 }
 
 // ------------------------------------------------------------------ the skeleton
@@ -284,6 +289,8 @@ function mountParts(s: MountSpec): AttachmentSet {
   // The light from above: the horse's legs and belly in shade (as the pose rig's horses were), then the key light.
   atts.light = { cache: false, draw: (c) => { keyLight(c); shadeLower(c, c.L <= 1 ? s.shadeL1 ?? 0.3 : 0.42); } };
   if (s.smear) atts.smear = smearPart('weapon', s.smear[0], s.smear[1], UM.steel);
+  // The sword phase: blows that swap the lance for the war sword (the same fist, along the weapon bone).
+  if (s.blows?.some((b) => RIDER_BLOWS[b]?.sword)) atts['weapon.sword'] = pieceAtt({ slot: 'weapon', bone: 'weapon', draw: (c, J) => warSword(c, J.hN!, s.nearDeg, c.L <= 1 ? 7.6 : 6.8) }, J, art.axis);
   return atts;
 }
 
@@ -383,20 +390,24 @@ const RIDE_THRUST: Author = (rw) => ({
   dw: { spine: T([0, 0], [3, 10], [5, -24], [6, -26], [8, -10], [11, 0]), head: T([0, 0], [3, 6], [5, -10], [7, -10], [10, 0]), jaw: T([0, -8], [3, -4], [5, -34], [6, -34], [8, -8]) },
 });
 /** The bow from the saddle (Barrow Horse Archers): raised to aim, the string back past the jaw, held, the loose, the hand flicked back, the next arrow. */
-const RIDE_BOW: Author = (rw) => ({
+const RIDE_BOW = (up: number): Author => (rw) => ({
+  // `up`: the aim above level (deg): the bow arm, the bow and the arrow rise together, the trunk leans back.
   w: {
-    upperArmF: R(rw.upperArmF!, 11, [2, 84], [6, 86], [7, 82], [9, 80]),
-    forearmF: R(rw.forearmF!, 11, [2, 92], [6, 92], [7, 90], [9, 90]),
-    itemF: R(rw.itemF!, 11, [2, 98], [6, 98], [7, 100], [9, 98]),
-    upperArmN: T([0, rw.upperArmN!], [6, rw.upperArmN!], [7, -60], [9, -64], [10, rw.upperArmN!]),
-    forearmN: T([0, rw.forearmN!], [6, rw.forearmN!], [7, 210], [9, 214], [10, rw.forearmN!]),
+    upperArmF: R(rw.upperArmF!, 11, [2, 84 + up * 0.85], [6, 86 + up * 0.85], [7, 82 + up * 0.85], [9, 80 + up * 0.85]),
+    forearmF: R(rw.forearmF!, 11, [2, 92 + up], [6, 92 + up], [7, 90 + up], [9, 90 + up]),
+    itemF: R(rw.itemF!, 11, [2, 98 + up], [6, 98 + up], [7, 100 + up], [9, 98 + up]),
+    upperArmN: T([0, rw.upperArmN!], [6, rw.upperArmN!], [7, -60 + up * 0.5], [9, -64 + up * 0.5], [10, rw.upperArmN!]),
+    forearmN: T([0, rw.forearmN!], [6, rw.forearmN!], [7, 210 + up], [9, 214 + up], [10, rw.forearmN!]),
   },
-  dw: { spine: T([0, 0], [2, 4], [6, 6], [7, 8], [9, 4], [11, 0]), jaw: T([0, -8], [5, -12], [7, -30], [8, -30], [10, -8]) },
+  dw: { spine: T([0, 0], [2, 4 + up * 0.25], [6, 6 + up * 0.25], [7, 8 + up * 0.25], [9, 4 + up * 0.25], [11, 0]), head: T([0, 0], [2, up * 0.5], [9, up * 0.5], [11, 0]), jaw: T([0, -8], [5, -12], [7, -30], [8, -30], [10, -8]) },
   t: { nock: [T([0, 0]), T([0, 0], [2, 0.1], [3, -0.6], [4, -1.3], [5, -1.9], [6, -2.2], [6.5, -2.2], [7, 1.6], [9, 1.6], [10, 0.4], [11, 0])] },
   ik: { armN2h: T([0, 1], [6.5, 1], [7, 0], [9.5, 0], [10, 1]) },
 });
 
-function mountClips(skel: SkeletonData, s: MountSpec): ClipSet {
+/** The rider's upper body (what the stop-motion holds freeze). */
+const RIDER_UPPER = new Set(['spine', 'chest', 'neck', 'head', 'jaw', 'upperArmN', 'forearmN', 'handN', 'weapon', 'upperArmF', 'forearmF', 'handF', 'itemF']);
+
+function mountClips(skel: SkeletonData, s: MountSpec): ClipSet & { attacks?: Clip[] } {
   const trailing = (run: number): LagSpec[] => [
     { bone: 'mane', follow: 'horseNeck', k: 0.6, lag: 2, bias: -24 * run, wave: [4 + 4 * run, 2, 0.15] },
     { bone: 'hcloth', follow: 'horseBody', k: 0.8, lag: 2, bias: -6 - 14 * run, plumb: 0.4, wave: [3 + 5 * run, 2, 0.3] },
@@ -405,8 +416,9 @@ function mountClips(skel: SkeletonData, s: MountSpec): ClipSet {
   ];
   const fc = (name: string, n: number, loop: boolean, keys: (f: Facing) => KP[], ev: AnimEvent[] = [], run = 0, warp?: number[]): Clip => {
     let c: Clip = facingClip(skel, name, n, loop, keys, ev);
-    // The dead horse's broken rhythm: the whole stride stops on a pose for a frame and lurches on.
-    if (warp) c = mapFacings(c, (a) => jerk(a, warp, new Set(skel.bones.map((b) => b.name))));
+    // The dead rider's stop-motion: his trunk, arms and skull stop on a pose for a frame and lurch
+    // on, while the horse keeps the gait's beat (a held stride would break the footfall order).
+    if (warp) c = mapFacings(c, (a) => jerk(a, warp, RIDER_UPPER));
     return lagCloth(skel, c, n, loop, trailing(run));
   };
   const breath = (c: Clip): Clip => {
@@ -431,8 +443,18 @@ function mountClips(skel: SkeletonData, s: MountSpec): ClipSet {
       const rw = restWorld(skel, f);
       return overlayKeys(overlayKeys(g.keys, drive(rw, f), [1, 2, 3, 4, 6, 7, 8, 9, 10]), both(a, posture)(rw, f));
     }, ev, 1);
-  const shot = fc('shoot', 12, false, (f) => overlayKeys(standKeys(11), both(RIDE_BOW, posture)(restWorld(skel, f), f), [6.5]), [{ f: 7, name: 'release' }, { f: 7, name: 'empty', len: 3 }]);
-  const attack = s.ride === 'bow' ? shot : strike(s.ride === 'couch' ? COUCH : RIDE_THRUST, [{ f: 5, name: 'strike' }]);
+  const bowClip = (up: number) => fc('shoot', 12, false, (f) => overlayKeys(standKeys(11), both(RIDE_BOW(up), posture)(restWorld(skel, f), f), [6.5]), [{ f: 7, name: 'release' }, { f: 7, name: 'empty', len: 3 }]);
+  const shot = bowClip(0);
+  const own = (): Clip => (s.ride === 'bow' ? shot : strike(s.ride === 'couch' ? COUCH : RIDE_THRUST, [{ f: 5, name: 'strike' }]));
+  // Each blow from the saddle; the sword blows swap the lance for the war sword for their length.
+  const blowOf = (name: string): Clip => {
+    const b = RIDER_BLOWS[name];
+    if (!b) return own();
+    const c = strike(b.a(skel), b.ev);
+    return b.sword ? mapFacings(c, (a) => ({ ...a, slots: { ...(a.slots ?? {}), weapon: [{ f: 0, v: 'weapon.sword' }] } })) : c;
+  };
+  const attacks = (s.blows ?? ['ride']).map(blowOf);
+  const attack = attacks[0]!;
   // Struck: the horse shies (head up, a half-step back, the jaw gaping), the rider snaps back; a flash.
   const shy: Author = () => ({ dw: { horseNeck: T([0, 14], [1, 20], [2, 10], [4, 0]), horseBody: T([0, 3], [1, 5], [2, 2], [4, 0]), horseHead: T([0, 8], [1, 10], [4, 0]) }, tAdd: { horseBody: [T([0, -0.3], [1, -0.5], [2, -0.3], [4, 0]), T([0, 0])] } });
   const riderHit: Author = (rw, f) => {
@@ -451,7 +473,9 @@ function mountClips(skel: SkeletonData, s: MountSpec): ClipSet {
   });
   const brace = breath(fc('brace', 8, true, (f) => overlayKeys(standKeys(8), braceA(restWorld(skel, f), f))));
   const out: ClipSet = { [Anim.Idle]: idle, [Anim.Walk]: walk, [Anim.Run]: run, [Anim.Attack]: attack, [Anim.Hit]: hit, [Anim.Die]: die, [Anim.Dead]: dead, [Anim.Brace]: brace };
-  if (s.ride === 'bow') out[Anim.Shoot] = shot;
+  // Volleys go up at 30-45° to drop over the ranks in front; the point-blank Attack is the level shot.
+  if (s.ride === 'bow') out[Anim.Shoot] = s.shootHigh ? bowClip(s.shootHigh) : shot;
+  if (s.blows) return Object.assign(out, { attacks });
   return out;
 
   /**
@@ -484,12 +508,15 @@ export function mountRig(kind: number, s: MountSpec): SkeletonRig {
   const got = RIGS.get(kind);
   if (got) return got;
   const skel = mountSkel(String(kind), s);
-  const rig: SkeletonRig = { skel, atts: mountParts(s), clips: mountClips(skel, s) };
+  const { attacks, ...clips } = mountClips(skel, s);
+  const rig: SkeletonRig = { skel, atts: mountParts(s), clips, ...(attacks ? { attacks } : {}) };
   RIGS.set(kind, rig);
   return rig;
 }
-export function registerMount(kind: number, spec: () => MountSpec, shoots: boolean): void {
-  registerLazy(kind, 'horse', () => mountRig(kind, spec()), shoots);
+/** The rig of a mounted kind already built (after its first draw). */
+export const builtMount = (kind: number): SkeletonRig | undefined => RIGS.get(kind);
+export function registerMount(kind: number, spec: () => MountSpec, shoots: boolean, blows = 1): void {
+  registerLazy(kind, 'horse', () => mountRig(kind, spec()), shoots, blows);
 }
 /** A key-art skull's jaw hinge and chin (keyJaw's frame), from its centre, radius and tilt. */
 export function jawOf(at: P2, r: number, deg: number): { hinge: P2; chin: P2 } {

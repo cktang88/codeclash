@@ -287,7 +287,8 @@ export function footRig(kind: number, s: FootSpec): SkeletonRig {
   const got = RIGS.get(kind);
   if (got) return got;
   const skel = footSkel(String(kind), s);
-  const rig: SkeletonRig = { skel, atts: footParts(s), clips: footClips(skel, s) };
+  const { attacks, ...clips } = footClips(skel, s);
+  const rig: SkeletonRig = { skel, atts: footParts(s), clips, ...(attacks ? { attacks } : {}) };
   RIGS.set(kind, rig);
   return rig;
 }

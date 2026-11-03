@@ -20,6 +20,7 @@ import { facingClip, lagCloth, lastFrame, mapFacings, mocapKeys, overlayKeys, re
 import { R, T, type Author } from './templar-clips.ts';
 import { FLASH, registerLazy, trail } from './undead-foot.ts';
 import { both, jerk } from './undead-clips.ts';
+import { runKeys } from './undead-blows.ts';
 import { flame, frameOf, shadeLower, UM } from './undead-parts.ts';
 import { keyLight } from './undead-static.ts';
 import { colossus, COLOSSUS_KEYS, trebuchet, TREBUCHET_KEYS } from './undead.ts';
@@ -102,7 +103,7 @@ function colossusSkel(): SkeletonData {
     if (b.from[0] !== a.from[0] || b.from[1] !== a.from[1] || b.to[0] !== a.to[0] || b.to[1] !== a.to[1]) d.facing = { ne: { from: b.from, to: b.to } };
     return d;
   });
-  const order = ['body', 'dust', 'flash'];
+  const order = ['body', 'dust', 'stomp', 'flash'];
   return {
     name: 'undead-colossus',
     body: 'beast',
@@ -110,6 +111,7 @@ function colossusSkel(): SkeletonData {
     slots: [
       { name: 'body', bone: 'root', attachment: { all: 'body' } },
       { name: 'dust', bone: 'root', attachment: { all: 'dust' } },
+      { name: 'stomp', bone: 'root', attachment: { all: 'stomp' } },
       { name: 'flash', bone: 'root', attachment: { all: 'flash' } },
     ],
     drawOrder: { se: order, ne: order },
@@ -168,11 +170,21 @@ function colossusParts(): AttachmentSet {
         dust(c, [head[0], Math.min(0, head[1] + 0.8)], e.int ?? 1);
       },
     },
+    // The stomp's dust bursts round the foot that came down.
+    stomp: {
+      cache: false,
+      draw: (c, _x, ctx) => {
+        const e = ctx.events.find((q) => q.name === 'stomp');
+        if (!e) return;
+        const t = ctx.posed.byName.footTargetN!;
+        dust(c, [t.x + 1.0, Math.min(0, t.y + 0.4)], e.int ?? 1);
+      },
+    },
     flash: FLASH,
   };
 }
 
-function colossusClips(skel: SkeletonData): ClipSet {
+function colossusClips(skel: SkeletonData): ClipSet & { attacks: Clip[] } {
   const fc = (name: string, n: number, loop: boolean, keys: (f: Facing) => KP[], ev: AnimEvent[] = [], warp?: number[], run = 0): Clip => {
     let c: Clip = facingClip(skel, name, n, loop, keys, ev);
     if (warp) c = mapFacings(c, (a) => jerk(a, warp, new Set(['head', 'jaw', 'upperArmN', 'forearmN', 'weapon', 'upperArmF', 'forearmF'])));
@@ -187,8 +199,18 @@ function colossusClips(skel: SkeletonData): ClipSet {
   // then jerk on.
   const roll: Author = () => ({ tAdd: { pelvis: [T([0, -0.2], [3, 0.15], [6, -0.2], [9, 0.15], [12, -0.2]), T([0, 0.25], [1, 0.45], [3, -0.1], [6, 0.25], [7, 0.45], [9, -0.1], [12, 0.25])] } });
   const walk = fc('walk', 12, true, (f) => mk(f, 'walk', { ref: 'mean', torso: 0, roll: 0.4, feet: 0.9, mirror: 12 }, both(roll, heavy), [0, 1, 3, 6, 7, 9]), [{ f: 0, name: 'step' }, { f: 6, name: 'step' }], [0, 1, 2, 2, 4, 5, 6, 7, 8, 8, 10, 11]);
-  const charge: Author = () => ({ dw: { pelvis: T([0, -10]), head: T([0, 6]) }, w: { weapon: T([0, 110]) } });
-  const run = fc('run', 12, true, (f) => mk(f, 'run', { ref: 'mean', torso: 0.4, roll: 0.4, feet: 0.8, mirror: 12 }, charge), [{ f: 0, name: 'step' }, { f: 6, name: 'step' }], [0, 1, 2, 2, 4, 5, 6, 7, 8, 8, 10, 11], 1);
+  // The charge: a heap this heavy cannot leave the ground for long. A short heavy-footed run, the
+  // hips sinking hard onto each stance leg and barely lifting off between (running.md §3.4), the
+  // heap pitched forward over the club held out in front, the club's head bouncing a frame late.
+  const charge: Author = () => ({ dw: { head: T([0, 6]) }, w: { weapon: T([0, 124], [3, 114], [6, 124], [9, 114], [12, 124]), upperArmN: T([0, 52]), forearmN: T([0, 80]) } });
+  const run = fc('run', 12, true, (f) => {
+    const keys = runKeys({ stride: 2.4, lift: 2.4, flight: 0.3, down: 1.0, lean: -4, head: 0, stance: 5, swing: 14, bend: 30, free: 'F' }, f, 0.7).map((k) => {
+      // The heap's trunk is its pelvis bone.
+      const { spine, ...dw } = k.dw ?? {};
+      return { ...k, dw: { ...dw, pelvis: spine ?? 0 } };
+    });
+    return overlayKeys(keys, charge(restWorld(skel, f), f));
+  }, [{ f: 0, name: 'step' }, { f: 6, name: 'step' }], [0, 1, 2, 2, 4, 5, 6, 7, 8, 8, 10, 11], 1);
   // The smash (chop: the rise, the drop, the impact held): heaved up over the hump (1-3), held at
   // the top (4), brought down (5) to the ground in front (6), the impact held three frames while
   // the dust bursts and the heap shudders down onto it (6-8); dragged back up (9-11).
@@ -202,6 +224,33 @@ function colossusClips(skel: SkeletonData): ClipSet {
     tAdd: { pelvis: [T([0, 0], [4, -0.3], [6, 0.6], [8, 0.65], [11, 0]), T([0, 0], [3, -0.35], [4, -0.4], [5, 0], [6, 0.7], [7, 0.85], [8, 0.7], [10, 0.2], [11, 0])] },
   });
   const attack = fc('attack', 12, false, (f) => mk(f, 'chop', { torso: 0.2, travel: 0.3, feet: 0.3 }, SMASH, [2, 3, 4, 5, 6, 7, 8, 10]), [{ f: 5, name: 'smear', len: 1 }, { f: 6, name: 'strike' }, ...[6, 7, 8, 9].map((k) => ({ f: k, name: 'dust', int: k - 5 }))], [0, 1, 2, 3, 4, 4, 6, 7, 8, 9, 10, 11]);
+  // The sweep (the naginata's arc at a giant's size, U9): the femur drawn back low behind the hip,
+  // the heap turned away from the enemy (1-3), held (4); swept forward along the ground at shin
+  // height with the whole torso (5-6), carried up through the front (7), held (8); dragged back (9-11).
+  const SWEEP: Author = (rw) => ({
+    w: {
+      upperArmN: R(rw.upperArmN!, 11, [2, -30], [3, -48], [4, -50], [5, 10], [6, 58], [7, 96], [8, 100], [10, 60]),
+      forearmN: R(rw.forearmN!, 11, [2, -20], [3, -40], [4, -42], [5, 30], [6, 76], [7, 120], [8, 124], [10, 90]),
+      weapon: R(rw.weapon!, 11, [2, -40], [3, -66], [4, -68], [5, 30], [6, 84], [7, 128], [8, 132], [10, 130]),
+    },
+    dw: { pelvis: T([0, 0], [3, 14], [4, 14], [5, -6], [6, -20], [7, -22], [8, -22], [10, -6], [11, 0]), head: T([0, 0], [3, -6], [6, 8], [8, 8], [11, 0]), jaw: T([0, 0], [3, -8], [5, -30], [6, -40], [8, -40], [10, -6], [11, 0]) },
+    tAdd: { pelvis: [T([0, 0], [3, -0.4], [6, 0.7], [8, 0.8], [11, 0]), T([0, 0], [3, 0.2], [6, 0.5], [8, 0.5], [11, 0])], footTargetF: [T([0, 0], [4, 0], [5, 1.4], [9, 1.4], [11, 0]), T([0, 0], [4, 0], [4.5, -0.9], [5, 0], [9, 0], [10, -0.5], [11, 0])] },
+  });
+  // The stomp: the near foot heaved up high, the heap rearing back over the other leg, the club
+  // raised for balance (1-3), held at the top (4); brought down (5) with the whole weight onto the
+  // ground in front, the heap dropping onto it, the impact held while the dust bursts (5-8).
+  const STOMP: Author = (rw) => ({
+    w: {
+      upperArmN: R(rw.upperArmN!, 11, [3, 95], [4, 98], [5, 60], [7, 52], [10, 45]),
+      forearmN: R(rw.forearmN!, 11, [3, 140], [4, 142], [5, 70], [7, 60], [10, 50]),
+      weapon: R(rw.weapon!, 11, [3, 170], [4, 172], [5, 120], [7, 110]),
+    },
+    dw: { pelvis: T([0, 0], [3, 16], [4, 18], [5, -12], [6, -16], [8, -16], [10, -4], [11, 0]), head: T([0, 0], [4, -10], [5, 8], [8, 8], [11, 0]), jaw: T([0, 0], [3, -10], [4, -12], [5, -40], [8, -40], [10, -6], [11, 0]) },
+    tAdd: {
+      pelvis: [T([0, 0], [3, -0.6], [4, -0.6], [5, 0.4], [8, 0.4], [11, 0]), T([0, 0], [3, -0.5], [4, -0.6], [5, 0.9], [6, 1.1], [8, 0.9], [10, 0.2], [11, 0])],
+      footTargetN: [T([0, 0], [3, 1.0], [4, 1.2], [5, 2.2], [9, 2.2], [11, 0]), T([0, 0], [2, -2.4], [3, -4.0], [4, -4.2], [4.8, -1.0], [5, 0], [9, 0], [10, -0.8], [11, 0])],
+    },
+  });
   const HITA: Author = () => ({ dw: { pelvis: T([0, 12], [1, 16], [2, 6], [4, 0]), head: T([0, -12], [1, -16], [4, 0]), jaw: T([0, -30], [1, -36], [3, -10], [4, 0]) }, tAdd: { pelvis: [T([0, -0.5], [1, -0.7], [2, -0.4], [4, 0]), T([0, 0.1], [1, 0.25], [4, 0])], footTargetN: [T([0, 0], [1, -0.9], [2, -1.0], [4, -0.4]), T([0, 0], [1, -0.5], [2, 0], [4, 0])] } });
   const hit = fc('hit', 5, false, (f) => mk(f, 'hit', { torso: 0, absHeight: false, travel: 0.4, feet: 0.4 }, HITA, [1, 2, 3]), []);
   // Death: it sags, the knees go and it kneels, the heap slides (5-7) and falls into a mound of bones (8-11).
@@ -215,14 +264,17 @@ function colossusClips(skel: SkeletonData): ClipSet {
   const dead = mapFacings(die, (a) => ({ ...lastFrame(a, 'dead'), events: [{ f: 0, name: 'apart', int: 2 }] }));
   const BRACE: Author = () => ({ dw: { pelvis: T([0, -6]) }, w: { upperArmN: T([0, 70]), forearmN: T([0, 120]), weapon: T([0, 100]) }, tAdd: { pelvis: [T([0, 0]), T([0, 0.8])] } });
   const brace = fc('brace', 8, true, (f) => mk(f, 'brace', { ref: 'mean', torso: 0, travel: 0.3, feet: 0.3 }, BRACE));
-  return { [Anim.Idle]: idle, [Anim.Walk]: walk, [Anim.Run]: run, [Anim.Attack]: attack, [Anim.Hit]: hit, [Anim.Die]: die, [Anim.Dead]: dead, [Anim.Brace]: brace };
+  const sweep = fc('attack', 12, false, (f) => mk(f, 'idle', { ref: 'first', torso: 0, travel: 0, feet: 0 }, SWEEP, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]), [{ f: 5, name: 'smear', len: 1 }, { f: 6, name: 'smear', len: 1 }, { f: 6, name: 'strike' }], [0, 1, 2, 3, 4, 4, 6, 7, 8, 9, 10, 11]);
+  const stomp = fc('attack', 12, false, (f) => mk(f, 'idle', { ref: 'first', torso: 0, travel: 0, feet: 0 }, STOMP, [1, 2, 3, 4, 4.8, 5, 6, 7, 8, 9, 10]), [{ f: 5, name: 'strike' }, ...[5, 6, 7, 8].map((k) => ({ f: k, name: 'stomp', int: k - 4 }))], [0, 1, 2, 3, 4, 4, 6, 7, 8, 9, 10, 11]);
+  return { [Anim.Idle]: idle, [Anim.Walk]: walk, [Anim.Run]: run, [Anim.Attack]: attack, [Anim.Hit]: hit, [Anim.Die]: die, [Anim.Dead]: dead, [Anim.Brace]: brace, attacks: [attack, sweep, stomp] };
 }
 
 let COL_RIG: SkeletonRig | undefined;
 const colossusRig = (): SkeletonRig => {
   if (COL_RIG) return COL_RIG;
   const skel = colossusSkel();
-  return (COL_RIG = { skel, atts: colossusParts(), clips: colossusClips(skel) });
+  const { attacks, ...clips } = colossusClips(skel);
+  return (COL_RIG = { skel, atts: colossusParts(), clips, attacks });
 };
 
 // ================================================================== the Corpse Trebuchet
@@ -365,6 +417,7 @@ const engineRig = (): SkeletonRig => {
 };
 
 export function registerBeasts(colossusKind: number, engineKind: number): void {
-  registerLazy(colossusKind, 'beast', colossusRig, false);
+  // The smash, the sweep and the stomp.
+  registerLazy(colossusKind, 'beast', colossusRig, false, 3);
   registerLazy(engineKind, 'engine', engineRig, true);
 }

@@ -5,6 +5,7 @@
 import { U } from '../../../game/units.ts';
 import { COMMANDER_KIND } from '../contract.ts';
 import { registerFoot, type FootSpec } from './undead-foot.ts';
+import { ARB_RUN_ARMS, GHOUL_RUN_ARMS, LEG_RUN_ARMS, RUNS, THROWER_RUN_ARMS } from './undead-blows.ts';
 import { restPose, type DrawCtx } from './skeleton.ts';
 import { UM } from './undead-parts.ts';
 import { registerBeasts } from './undead-beast.ts';
@@ -35,6 +36,10 @@ const LEGIONARY_SPEC = (): FootSpec => ({
   skull: { at: [0.85, -12.95], r: 1.1, ang: -4 },
   smear: [2.4, 7.2],
   attack: 'cut',
+  // The shield punch and the stab, the low stab under the rim, and the heavy cut (weapon-attacks.md U1).
+  blows: ['legPunchStab', 'legLowStab', 'cut'],
+  run: RUNS.legionary,
+  runArms: LEG_RUN_ARMS,
   shoot: null,
   brace: 'shield',
   die: 'back',
@@ -65,6 +70,10 @@ const GHOUL_SPEC = (): FootSpec => ({
   skull: { at: [2.6, -10.7], r: 1, ang: -10 },
   jaw: { hinge: [2.65, -10.27], chin: [3.55, -9.75] },
   attack: 'lunge',
+  // Thrusts only, the point on a line (U2): the rising lunge, the overhand stab, the double jab.
+  blows: ['ghoulLunge', 'ghoulHigh', 'ghoulJab'],
+  run: RUNS.ghoul,
+  runArms: GHOUL_RUN_ARMS,
   shoot: null,
   brace: 'spear',
   die: 'forward',
@@ -91,6 +100,10 @@ const THROWER_SPEC = (): FootSpec => ({
   nearDeg: 100,
   skull: { at: [0.8, -13.2], r: 1, ang: -4 },
   attack: 'hurl',
+  blows: ['throwerStab', 'throwerJab'],
+  run: RUNS.skeleton,
+  runArms: THROWER_RUN_ARMS,
+  runWarp: [0, 0, 2, 3, 4, 5, 6, 6, 8, 9, 10, 11],
   shoot: 'javelin',
   brace: 'ready',
   die: 'back',
@@ -124,6 +137,7 @@ const WARDEN_SPEC = (): FootSpec => ({
   skull: { at: [0.9, -13.45], r: 1, ang: 0 },
   attack: 'loose',
   shoot: 'bow',
+  shootHigh: 38,
   brace: 'ready',
   die: 'dissolve',
   farHeld: true,
@@ -163,6 +177,9 @@ const ARBALEST_SPEC = (): FootSpec => ({
   smear: [1.0, 3.2],
   smearMat: UM.wood,
   attack: 'butt',
+  blows: ['arbRam', 'arbClub'],
+  run: RUNS.arbalest,
+  runArms: ARB_RUN_ARMS,
   shoot: 'crossbow',
   brace: 'aim',
   die: 'back',
@@ -197,6 +214,7 @@ const LICH_SPEC = (): FootSpec => ({
   nearDeg: 178,
   skull: { at: [0.9, -13.4], r: 1, ang: -6 },
   attack: 'cast',
+  blows: ['cast', 'lichJab'],
   shoot: null,
   brace: 'staff',
   die: 'dissolve',
@@ -226,6 +244,8 @@ const BLACK_RIDER_SPEC = (): MountSpec => ({
   nearDeg: 116,
   jaw: jawOf([1.0, -6.9], 0.82, -6),
   ride: 'thrust',
+  // Thrusts on the spear's line (U6): overhand down at a man on foot, couched level, low past the horse's shoulder.
+  blows: ['riderDown', 'riderLevel', 'riderLow'],
   tilt: -8,
   hunch: 6,
   neLast: ['torso'],
@@ -243,6 +263,7 @@ const HORSE_ARCHER_SPEC = (): MountSpec => ({
   nearDeg: 96,
   farDeg: 96,
   ride: 'bow',
+  shootHigh: 34,
   nocked: true,
   tilt: 8,
   hunch: 6,
@@ -262,6 +283,9 @@ const DEATH_KNIGHT_SPEC = (): MountSpec => ({
   nearDeg: 174,
   jaw: jawOf([0.85, -6.75], 1.1, -4),
   ride: 'couch',
+  // The couched lance at the charge, then the sword phase (T8 P4, U8): the overhead cut with a pause at the apex, the diagonal forehand cut.
+  blows: ['ride', 'knightOverhead', 'knightDiagonal'],
+  smear: [1.4, 6.8],
   tilt: -10,
   hunch: 4,
   neFirst: ['front'],
@@ -276,13 +300,13 @@ const DEATH_KNIGHT_SPEC = (): MountSpec => ({
 
 export function registerUndeadRigs(): void {
   registerBeasts(U.Shock, U.Artillery);
-  registerMount(U.LightCavalry, BLACK_RIDER_SPEC, false);
+  registerMount(U.LightCavalry, BLACK_RIDER_SPEC, false, 3);
   registerMount(U.HorseArchers, HORSE_ARCHER_SPEC, true);
-  registerMount(U.Knights, DEATH_KNIGHT_SPEC, false);
-  registerFoot(COMMANDER_KIND, LICH_SPEC, false);
-  registerFoot(U.Crossbowmen, ARBALEST_SPEC, true);
+  registerMount(U.Knights, DEATH_KNIGHT_SPEC, false, 3);
+  registerFoot(COMMANDER_KIND, LICH_SPEC, false, 2);
+  registerFoot(U.Crossbowmen, ARBALEST_SPEC, true, 2);
   registerFoot(U.Archers, WARDEN_SPEC, true);
-  registerFoot(U.Skirmishers, THROWER_SPEC, true);
-  registerFoot(U.Spearmen, GHOUL_SPEC, false);
-  registerFoot(U.HeavyInfantry, LEGIONARY_SPEC, false);
+  registerFoot(U.Skirmishers, THROWER_SPEC, true, 2);
+  registerFoot(U.Spearmen, GHOUL_SPEC, false, 3);
+  registerFoot(U.HeavyInfantry, LEGIONARY_SPEC, false, 3);
 }

@@ -1217,3 +1217,25 @@ export function shadeLower(c: Paper, frac = 0.42): void {
     }
   for (const i of mark) c.pix[i] = (c.pix[i]! & ~7) | Math.max(c.pix[i]! & 7, lit);
 }
+
+/**
+ * The Death Knight's war sword (his sword phase, when the lance is spent): a long, broad, blackened
+ * blade from the fist along `deg`, a fuller, the edge pitted with rust, a broad cross-guard and a
+ * wheel pommel below the fist.
+ */
+export function warSword(c: Paper, grip: P2, deg: number, len = 6.8): void {
+  const g0 = along(grip, deg, 0.55);
+  const tip = along(grip, deg, len);
+  c.rod(g0, tip, 0.56, 0.2, UM.steel, {
+    shine: true,
+    detail: (x, y, u, v) => {
+      if (Math.abs(u) < 0.16 && v > 0.08 && v < 0.75) return code(UM.steel, 1); // the fuller
+      if (c.tex(x, y, 811) < 0.14 && v > 0.15) return code(UM.rust, 2);
+      return -1;
+    },
+  });
+  const side: P2 = [limb(deg + 90)[0] * 1.0, limb(deg + 90)[1] * 1.0];
+  c.rod(addP(g0, side), addP(g0, [-side[0], -side[1]]), 0.3, 0.3, UM.iron, { tone: 2 });
+  c.rod(grip, along(grip, deg + 180, 0.9), 0.3, 0.28, UM.leather, { tone: 1 });
+  c.blob(along(grip, deg + 180, 1.15), 0.34, 0.34, UM.iron, { shine: true });
+}
