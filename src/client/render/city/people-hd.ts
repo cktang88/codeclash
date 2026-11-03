@@ -344,7 +344,8 @@ export function undeadLooks(st: CityStyle): Looks {
         return { kind: 'skeleton', body: hex(pick(RAGS, h1(seed, 1) * 5)), legs: hex('#2e2a28'), head: 'skull', hair: hex('#2a2626'), robe: false, eyes: h1(seed, 4) < 0.5 ? green : undefined, work: 'none', carry };
       return {
         kind: 'zombie', body: hex(pick(RAGS, h1(seed, 1) * 5)), legs: hex('#2e2a28'),
-        head: h1(seed, 4) < 0.5 ? 'hair' : 'hood', hair: hex(pick(['#3a3430', '#5a5a52', '#2a2626'], seed)), locks: hex('#3a3430'),
+        // A hood is a grey-brown sackcloth (lit enough to show its shape against the dark ground).
+        head: h1(seed, 4) < 0.5 ? 'hair' : 'hood', hair: h1(seed, 4) < 0.5 ? hex(pick(['#3a3430', '#5a5a52', '#2a2626'], seed)) : hex(pick(['#5a5048', '#5a5a52', '#4e4650'], seed)), locks: hex('#3a3430'),
         robe: h1(seed, 2) < 0.3, skin: pick(dead, seed), shamble: carry === 'none', rags: true, work: 'none', carry,
       };
     },
@@ -356,7 +357,7 @@ export function undeadLooks(st: CityStyle): Looks {
     // Embalmers of the plague house: grey robes and a stained apron.
     infirmarer: (work = 'tend', carry = 'none') => ({ body: hex('#4a4a4e'), legs: hex('#2a2a2e'), head: 'coif', hair: hex('#8a8478'), robe: true, apron: hex('#8a7a62'), skin: hex('#a8a48e'), work, carry }),
     // Gravediggers: battered hats, spades.
-    farmer: (seed, work = 'dig') => ({ kind: 'zombie', body: hex(pick(['#4a4034', '#3a3a34', '#504436'], seed)), legs: hex('#2a2622'), head: 'hat', hair: hex('#2e2a26'), locks: hex('#3a3430'), robe: false, skin: pick(dead, seed + 1), rags: true, sleeves: 'rolled', work, carry: 'none' }),
+    farmer: (seed, work = 'dig') => ({ kind: 'zombie', body: hex(pick(['#4a4034', '#3a3a34', '#504436'], seed)), legs: hex('#2a2622'), head: 'hat', hair: hex('#54483e'), locks: hex('#3a3430'), robe: false, skin: pick(dead, seed + 1), rags: true, sleeves: 'rolled', work, carry: 'none' }),
     carpenter: (seed, work = 'hammer', carry = 'none') => ({ kind: 'skeleton', body: hex(pick(['#4a4038', '#3e3a34'], seed)), legs: hex('#2a2622'), head: 'skull', hair: hex('#2a2626'), robe: false, work, carry }),
     smith: () => ({ kind: 'skeleton', body: hex('#3e3a34'), legs: hex('#2a2622'), head: 'skull', hair: hex('#2a2626'), robe: false, eyes: green, work: 'hammer', carry: 'none' }),
     sergeant: (carry = 'none') => ({ kind: 'skeleton', body: hex('#3a3c38'), legs: hex('#24241f'), head: 'skull', hair: hex('#2a2626'), robe: false, sash: st.team, eyes: green, work: 'none', carry }),

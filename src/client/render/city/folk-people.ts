@@ -36,7 +36,7 @@ interface Build {
   leg: number;
   arm: number;
 }
-// Proportions (round 2): an adult is about 6.5-7 heads tall (a 5-6 px head on a 34-36 px figure),
+// Proportions (round 2): an adult is about 6-6.5 heads tall (a 5-6 px head on a 34-35 px figure),
 // shoulders wider than the hips on a man, limbs that taper but keep their mass, arms that reach
 // mid-thigh. A child's head is bigger for its body (about 4.5 heads).
 const MAN: Build = { thigh: 7.5, shin: 7.5, torso: 10.5, head: [2.6, 2.8], upper: 5.5, fore: 5, sw: 4.2, ww: 2.7, leg: 3.4, arm: 2.6 };
@@ -311,9 +311,8 @@ export function paintPerson(ctx: PaintCtx, L: Look, clip: FolkClip, f: number, b
       dot(c, h[0], h[1], code(mSkin, t + 1));
       return;
     }
-    // A fist of 2x2 or so: lit knuckles toward the light, a shade pixel under it.
+    // A fist of 2x2 or so, lit toward the light by the blob's own planes.
     c.blob([h[0] + 0.5, h[1] + 0.6], 1.25, 1.2, mSkin, { tone: t });
-    dot(c, h[0] + (c.litLeft() ? 0 : 1), h[1], code(mSkin, t + 1));
   };
   const legM = L.lower === 'bare' || kind === 'skeleton' ? mSkin : mLegs;
   const legW = L.lower === 'hakama' ? 4.4 : B.leg;
@@ -801,11 +800,21 @@ function paintHead(ctx: PaintCtx, L: Look, kind: string, hc: P2, rx: number, ry:
       const hatted = H === 'straw' || H === 'hat' || H === 'cap' || H === 'coif';
       // The face stays clear: everything forward of the ear and below the brow (under a hat, only
       // the hair at the back of the head shows).
-      oval(c, M, [cx - 0.6, cy - 1.4], rx + 0.4, ry - 0.6, mLocks, (nx, ny) => back || nx < -0.3 || (!hatted && ny < -0.3));
-      c.rod([x - 2, y - 1], [x - 2, y + (long ? 3 : 1)], 2.2, 1.8, mLocks, { tone: 1 });
-      if (back) c.blob([cx - 0.3, cy - 0.4], rx + 0.1, ry - 0.2, mLocks, { shine: true });
+      // Seen from behind, short hair stops above the nape: the skin of the neck and the ears
+      // show under it, so a dark head of hair reads as a head and not as a ball.
+      const nape = (ny: number) => long || ny < 0.42;
+      oval(c, M, [cx - 0.6, cy - 1.4], rx + 0.4, ry - 0.6, mLocks, (nx, ny) => (back ? nape(ny) : nx < -0.3 || (!hatted && ny < -0.3)));
+      if (!back || long) c.rod([x - 2, y - 1], [x - 2, y + (long ? 3 : 1)], 2.2, 1.8, mLocks, { tone: 1 });
+      if (back) {
+        oval(c, M, [cx - 0.3, cy - 0.4], rx + 0.1, ry - 0.2, mLocks, (_nx, ny) => nape(ny), 2);
+        dot(c, x - 1, y - 2, code(mLocks, 4));
+        dot(c, x, y - 2, code(mLocks, 3));
+      }
       if (face) features(x, y, true);
-      if (back) dot(c, x + 2, y + 1, code(mSkin, 1));
+      if (back) {
+        dot(c, x + 2, y + 1, code(mSkin, 1));
+        dot(c, x - 2, y + 1, code(mSkin, 3));
+      }
       break;
     }
     case 'topknot': {
