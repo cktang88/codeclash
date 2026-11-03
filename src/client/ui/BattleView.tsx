@@ -61,7 +61,11 @@ export function BattleView(props: {
   onDone?: () => void;
 }) {
   const { setup, ambient } = props;
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  // The canvas is made by the effect, inside this holder, and dropped with its WebGL context when
+  // the effect is cleaned up: a context outlives its scene otherwise (browsers cap them, and lose
+  // the oldest), and a remount (React's development double-mount) gets a fresh canvas.
+  const holderRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const sceneRef = useRef<BattleScene | null>(null);
   const [speed, setSpeed] = useState(1);
   const [paused, setPaused] = useState(false);
@@ -82,7 +86,10 @@ export function BattleView(props: {
 
   useEffect(() => {
     if (noGl) return;
-    const canvas = canvasRef.current!;
+    const canvas = document.createElement('canvas');
+    canvas.className = 'battle-canvas';
+    holderRef.current!.appendChild(canvas);
+    canvasRef.current = canvas;
     let battle = new Battle(setup);
     let sceneArt = artRef.current;
     let scene = new BattleScene(battle, sceneArt);
@@ -219,7 +226,9 @@ export function BattleView(props: {
     return () => {
       cancelAnimationFrame(raf);
       ro.disconnect();
-      scene.dispose();
+      scene.dispose(true);
+      canvas.remove();
+      if (canvasRef.current === canvas) canvasRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [setup, ambient]);
@@ -303,7 +312,7 @@ export function BattleView(props: {
   };
   // Wheel: a native listener, so the page doesn't scroll; trackpads accumulate small deltas.
   useEffect(() => {
-    const c = canvasRef.current;
+    const c = holderRef.current;
     if (!c || ambient) return;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
@@ -324,10 +333,9 @@ export function BattleView(props: {
   const seconds = live ? Math.floor(live.tick / TICKS_PER_SECOND) : 0;
   return (
     <div className={ambient ? 'battle ambient' : 'battle'}>
-      <canvas
-        ref={canvasRef}
-        className="battle-canvas"
-        style={ambient ? undefined : { touchAction: 'none' }}
+      <div
+        ref={holderRef}
+        className="battle-surface"
         onPointerDown={ambient ? undefined : onPointerDown}
         onPointerMove={ambient ? undefined : onPointerMove}
         onPointerUp={onPointerUp}

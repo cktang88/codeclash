@@ -690,6 +690,11 @@ main {
   background: #0b0907;
   overflow: hidden;
 }
+.battle-surface {
+  position: absolute;
+  inset: 0;
+  touch-action: none;
+}
 .battle-canvas {
   position: absolute;
   inset: 0;

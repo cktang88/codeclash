@@ -360,7 +360,10 @@ export class BattleScene {
   /** Whether this browser can draw battles at all. */
   static supported(): boolean {
     try {
-      return !!document.createElement('canvas').getContext('webgl2');
+      const gl = document.createElement('canvas').getContext('webgl2');
+      // A probe: hand the context back at once (browsers keep only so many).
+      gl?.getExtension('WEBGL_lose_context')?.loseContext();
+      return !!gl;
     } catch {
       return false;
     }
@@ -639,10 +642,19 @@ export class BattleScene {
     this.last.settled = false;
   }
 
-  /** Frees the GL resources (the canvas's context stays for the next scene). */
-  dispose(): void {
+  /**
+   * Frees the GL resources. The canvas's context stays for the next scene on it, unless `release`
+   * (the canvas is going away): then the context is given back too, as the browser keeps only a
+   * few and would otherwise hold this one until the canvas is collected.
+   */
+  dispose(release = false): void {
     const g = this.gfx;
     if (!g) return;
+    this.disposeGl(g);
+    if (release && !g.gl.isContextLost()) g.gl.getExtension('WEBGL_lose_context')?.loseContext();
+  }
+
+  private disposeGl(g: Gfx): void {
     g.unlisten();
     this.gfx = null;
     this.last.settled = false;
