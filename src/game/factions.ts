@@ -96,7 +96,7 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
     tweaks: {
       [U.HorseArchers]: { missileDamage: 1.1 },
       [U.Crossbowmen]: { reload: 1.34, missileDamage: 1.3 },
-      [U.HeavyInfantry]: { morale: 1.05, attack: 1.06 },
+      [U.HeavyInfantry]: { morale: 1.05 },
     },
     palette: { cloth: '#2c3550', clothShade: '#1a2034', trim: '#b5372b', metal: '#7d7a73', metalShade: '#45423d', leather: '#4b2c1d', skin: '#d6b089' },
     rule: 'Valour and the lord. The uma-jirushi: the daimyō heartens every block within 300 (1.6× the aura); his death is a heavier blow (35 morale, then −20 for the rest of the day) and his hatamoto charge the nearest enemy to avenge him. First spear, long chase: katana samurai run in at any enemy within 140, the first block to strike claims the first spear (+8 morale, +3 to those near it), and samurai and yari riders break ranks to chase readily, 1.4× as far and as long. Drilled teppō fire: the Teppō Ashigaru go out before the line, which waits up to 15 s behind them; their first volley is the whole block at once and costs its target 8 morale (the dead feel nothing); after it they fire rank by rank, and they fall back through the line when the enemy closes.',

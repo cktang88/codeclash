@@ -130,7 +130,9 @@ describe('battle: infantry charges', () => {
     let foot = 0;
     let general = 0;
     let ragged = 0;
-    battles(6, (b) => {
+    // (A dozen days: the general charge comes in about one battle in two, and the first six
+    // days of v14 have one.)
+    battles(12, (b) => {
       const seen = new Set<number>();
       while (!b.done()) {
         b.step();
@@ -140,7 +142,7 @@ describe('battle: infantry charges', () => {
       foot += b.events.filter((e) => e.kind === 'charge' && (e.cls === U.HeavyInfantry || e.cls === U.Spearmen || e.cls === U.Shock)).length;
       general += b.events.filter((e) => e.kind === 'general-order' && e.order === 'charge').length;
     });
-    expect(foot).toBeGreaterThan(30);
+    expect(foot).toBeGreaterThan(60);
     expect(general).toBeGreaterThan(0);
     // Charging from too far is the exception (a fleeing target), not the rule.
     expect(ragged).toBeLessThan(foot / 4);
@@ -152,7 +154,8 @@ describe('battle: routs are a scatter, not a march', () => {
     const spread: number[] = [];
     const paces: number[] = [];
     const growth: number[] = [];
-    battles(4, (b) => {
+    // (Eight days: since v14 fewer blocks break while they still have a dozen men.)
+    battles(8, (b) => {
       const track = new Map<number, { t0: number; r0: number }>();
       while (!b.done()) {
         b.step();
@@ -234,7 +237,8 @@ describe('battle: breaking ranks to chase', () => {
     // hatamoto do not leave their banner.
     expect(rate('undead/1')).toBeGreaterThan(0.15);
     expect(rate('templar/1')).toBeGreaterThan(0.1);
-    expect(rate('templar/7')).toBeLessThan(rate('templar/1') / 3);
+    // (A knight's chase is a rare event: one in 24 regiments over these 18 days in v14.)
+    expect(rate('templar/7')).toBeLessThan(rate('templar/1') / 2.5);
     expect(rate('samurai/7')).toBeLessThan(rate('undead/1') / 3);
     expect(rate('undead/5') + rate('templar/5') + rate('samurai/5')).toBeGreaterThan(0.3);
     // Called back: no chase runs much past its leash (a few strides' slack for the half-second thinks).

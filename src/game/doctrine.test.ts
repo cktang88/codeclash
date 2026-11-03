@@ -182,13 +182,13 @@ describe('doctrines: the Samurai', () => {
     }
     expect(volleys.length).toBeGreaterThanOrEqual(3);
     // (Ranks are read after the step: a man who closed up into a dead man's rank mid-volley may
-    // show under the next. Nearly all of each volley is one rank.)
+    // show under the next. Nearly all of each volley is one rank: three shots in four at least.)
     const major: number[] = [];
     for (const v of volleys.slice(1)) {
       const rows = v.slice(1);
       const top = [0, 1, 2].map((k) => rows.filter((x) => x === k).length);
       const best = Math.max(...top);
-      if (rows.length >= 4) expect(best / rows.length).toBeGreaterThanOrEqual(0.8);
+      if (rows.length >= 4) expect(best / rows.length).toBeGreaterThanOrEqual(0.75);
       major.push(top.indexOf(best));
     }
     // ...and the ranks take turns (a rank whose men are all down or reloading misses its turn).

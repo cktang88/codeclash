@@ -297,7 +297,7 @@ export const COHESION = {
   horseMelee: 30,
   /** Chance a think that horse in a clash of horse breaks off: the weaker side, the stronger. */
   breakWeaker: 0.6,
-  breakStronger: 0.3,
+  breakStronger: 0.1,
   /** At most this many cycles, and none once blown (fatigue). */
   cavCycles: 4,
   cavBlown: 0.7,
@@ -309,6 +309,8 @@ export const COHESION = {
   rideOut: 90,
   reform: 20,
   reformSpread: 11,
+  /** Horse that broke off a melee less than this long ago (ticks) is not tempted off after fugitives. */
+  cycleBusy: 200,
 
   // P2 + P6 Contact pulls men out of their slots, and overlaps curl round the flank.
   /** In contact the foot look this far for a foe (was 10), on this leash from their slots (was 9), the outer `edgeFiles` files on a longer one... */
@@ -335,6 +337,8 @@ export const COHESION = {
   pulse: 97,
   breathe: 15,
   breatheBack: 4,
+  /** ...while his weapon is not ready for this many ticks yet. */
+  breatheCd: 4,
   /** A block winning its fight (morale over `surgeMorale`) sends a run of 3-6 front files `surgeStep` forward, on this chance a think, for `surgeFor` ticks (and up to `surgeSpread` more). */
   surgeChance: 0.25,
   surgeMorale: 55,
@@ -502,7 +506,7 @@ export const DOCTRINE: Record<FactionId, Doctrine> = {
     // T3 Not while the Beauséant flies.
     standFast: true, brothersGrief: 1.5,
     // The Rule: no brother leaves his place. A tight, even front.
-    loose: { lead: 0.5, ripple: 0.7, stepBack: true, leash: 0.75, curl: 0.7, breathe: 0.6, surge: 0.7, lull: true },
+    loose: { lead: 0.5, ripple: 0.7, stepBack: true, leash: 1, curl: 0.9, breathe: 0.6, surge: 0.7, lull: true },
   },
   samurai: {
     ...SHARED,
@@ -513,7 +517,7 @@ export const DOCTRINE: Record<FactionId, Doctrine> = {
     // S3 Drilled teppō fire.
     ripple: 3, firstVolley: 8, screen: 14, screenBack: 60, screenHold: 150,
     // S2 again: the keen run ahead for the first spear.
-    loose: { lead: 1.4, ripple: 1.1, stepBack: true, leash: 1.1, curl: 1.3, breathe: 1, surge: 1.6, lull: true },
+    loose: { lead: 1.4, ripple: 1.1, stepBack: true, leash: 1, curl: 1.2, breathe: 1, surge: 1.3, lull: true },
   },
   undead: {
     ...SHARED,
@@ -524,6 +528,6 @@ export const DOCTRINE: Record<FactionId, Doctrine> = {
     // U3 What falls, rises.
     raiseEvery: 100, raiseShare: 0.008, raiseCap: 40, raiseRange: 240, raiseAfter: 30, raiseHp: 0.4,
     // The tide shambles on, a ragged mass with no eager men and no laggards to speak of.
-    loose: { lead: 0.7, ripple: 1.3, stepBack: false, leash: 1.3, curl: 0, breathe: 0, surge: 0.6, lull: false },
+    loose: { lead: 0.7, ripple: 1.3, stepBack: false, leash: 1, curl: 0, breathe: 0, surge: 0.6, lull: false },
   },
 };

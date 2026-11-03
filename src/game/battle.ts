@@ -3594,7 +3594,8 @@ export class Battle {
     const given = o.target >= 0 ? this.regiments[o.target]! : null;
     // Fugitives close by tempt the horse out of its place (eager horse readily, the Templars
     // seldom); once off after them it keeps on until called back (see below).
-    const fugitives = o.kind === 'pursue' || r.mode === 'charge' || r.engaged ? null : this.nearestFoe(r, 4, r.chaseAt >= 0 ? 300 : 200);
+    // (Not horse rallying to charge again (P4): it is re-forming, not looking for fugitives.)
+    const fugitives = o.kind === 'pursue' || r.mode === 'charge' || r.engaged || (r.chaseAt < 0 && r.cycles > 0 && this.tick - r.meleeAt < COHESION.cycleBusy) ? null : this.nearestFoe(r, 4, r.chaseAt >= 0 ? 300 : 200);
     if (fugitives && fugitives.alive >= 3 && (r.chaseAt >= 0 || (this.tick - r.recallAt >= this.doc[team]!.recall && r.moraleState === 'steady' && this.rng.chance(r.eager * 0.3)))) prey = fugitives;
     else if (o.kind === 'hold' || o.kind === 'reserve') {
       // On the wing: counter-charge horse that comes close, fight foot that walks into us.
@@ -3614,7 +3615,7 @@ export class Battle {
       this.goal(r, r.ax, r.ay);
       return;
     }
-    if (prey.routed && o.kind !== 'pursue' && r.chaseAt < 0 && (this.tick - r.recallAt < this.doc[team]!.recall || !this.rng.chance(0.05 + r.eager * 0.4))) {
+    if (prey.routed && o.kind !== 'pursue' && r.chaseAt < 0 && (this.tick - r.recallAt < this.doc[team]!.recall || (r.cycles > 0 && this.tick - r.meleeAt < COHESION.cycleBusy) || !this.rng.chance(0.05 + r.eager * 0.4))) {
       // Disciplined horse keeps to its work rather than chase fugitives on its own.
       prey = this.nearestFoe(r, 0, Infinity);
       if (!prey) {
@@ -3722,11 +3723,13 @@ export class Battle {
    * caught in the open it rides down).
    * Against horse after `horseMelee`: the weaker side (by `cavWorth`) breaks off first, more
    * likely than not each think, and the stronger often enough rallies too rather than chase
-   * deep. Never more than `cavCycles` times, nor blown (fatigue).
+   * deep. Never more than `cavCycles` times, nor blown (fatigue). Not against the dead, nor the
+   * dead themselves: a fresh charge buys nothing from men who feel no fear and barely reel (U2),
+   * so the horse stays and hacks; and the dead never give a step.
    */
   private breaksOff(r: Regiment, o: Regiment): boolean {
     const C = COHESION;
-    if (o.routed || r.cycles >= C.cavCycles || r.fatigue > C.cavBlown) return false;
+    if (o.routed || r.cycles >= C.cavCycles || r.fatigue > C.cavBlown || this.fearless[o.team] || !this.doc[r.team]!.loose.stepBack) return false;
     if (isCav(o)) {
       if (r.meleeTicks <= C.horseMelee) return false;
       return this.rng.chance(this.cavWorth(r) < this.cavWorth(o) ? C.breakWeaker : C.breakStronger);
@@ -3736,10 +3739,10 @@ export class Battle {
     return r.meleeTicks > (braced ? C.footBraced : C.footMelee);
   }
 
-  /** What a block of horse is worth in a clash of horse: men, class, heart, wind and losses. */
+  /** What a block of horse is worth in a clash of horse: men, class, wind and losses (the fearless's morale says nothing). */
   private cavWorth(r: Regiment): number {
     const v = this.stats[r.team]![r.cls]!.value;
-    return r.alive * v * (0.5 + r.morale / 200) * (1 - 0.4 * r.fatigue) * Math.max(0.5, 1 - r.recent * 4);
+    return r.alive * v * (1 - 0.4 * r.fatigue) * Math.max(0.5, 1 - r.recent * 4);
   }
 
   /**
@@ -3752,7 +3755,8 @@ export class Battle {
     const dir = team === 0 ? 1 : -1;
     const doc = this.doc[team]!;
     const C = COHESION;
-    r.toBanner = shock && doc.recallTo > 0 && this.lordWithin(team, r.cx, r.cy, doc.recallRange);
+    // (T1 is the Marshal's charge into foot: from a clash of horse the knights rally close by.)
+    r.toBanner = shock && !isCav(from) && doc.recallTo > 0 && this.lordWithin(team, r.cx, r.cy, doc.recallRange);
     if (r.toBanner) {
       const cmd = this.commander[team]!;
       r.wx = clampX(this.d.x[cmd]! + dir * doc.recallTo);
@@ -4909,12 +4913,15 @@ export class Battle {
   /**
    * P3 (COHESION): whether a man of a block in melee is out of measure this tick: his breather
    * (`breathe` ticks in every `pulse`, his phase from his id, so neighbours take turns; the
-   * faction's `loose.breathe`), or his block's lull. Foot only; the dead never.
+   * faction's `loose.breathe`) while he recovers from a blow (his weapon not ready for
+   * `breatheCd` ticks: he steps back between blows, so a breather costs him few), or his block's
+   * lull. Foot only; the dead never.
    */
   private outOfMeasure(i: number, r: Regiment): boolean {
     if (r.lullUntil > this.tick) return true;
     const b = this.doc[r.team]!.loose.breathe;
-    if (b <= 0 || this.d.mass[i]! > 2 || r.role === 'command') return false;
+    const d = this.d;
+    if (b <= 0 || d.cd[i]! <= COHESION.breatheCd || d.mass[i]! > 2 || r.role === 'command') return false;
     const C = COHESION;
     return (this.tick + ((i * 37) % C.pulse)) % C.pulse < C.breathe * b;
   }
@@ -5443,7 +5450,8 @@ function slotPos(o: Regiment, k: number, depth: number, out: Float64Array): void
  */
 const EAGER = [0.3, 0.55, 0.5, 0.35, 0.25, 0.85, 0.6, 0.55, 0.25, 0];
 const EAGER_FACTION: Partial<Record<FactionId, Partial<Record<number, number>>>> = {
-  templar: { [U.Knights]: 0.12, [U.Shock]: 0.15 },
+  // (v14: the knights 0.08, was 0.12: between their charges they are free more often, P4.)
+  templar: { [U.Knights]: 0.08, [U.Shock]: 0.15 },
   // S2 First spear, long chase: samurai and yari riders pour after fugitives; the hatamoto guard the lord.
   samurai: { [U.HeavyInfantry]: 0.6, [U.LightCavalry]: 0.95, [U.Knights]: 0.15, [U.Shock]: 0.5 },
   undead: { [U.Spearmen]: 0.95, [U.LightCavalry]: 0.9, [U.HeavyInfantry]: 0.1 },
