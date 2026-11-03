@@ -22,8 +22,9 @@ import { HdField } from './field-hd.ts';
 import { ANGLES, fxId, HOOVES, lookOf, PUFF_SIZES, PUFF_VARIANTS, SPLATS } from './fx-hd.ts';
 import { Batch, cornerBuffer, dropTarget, SpriteProgram, SpriteStream, target, texture, texturePixels, type Part, type Target } from './gl.ts';
 import { paintGround, type Ground } from './ground.ts';
-import { dirFor, projX, projY, PX, unproject } from './iso.ts';
+import { projX, projY, PX, unproject } from './iso.ts';
 import { GlPost } from './post.ts';
+import { facing } from './pose.ts';
 import { upscaleCanvas } from './upscale.ts';
 import { buildAtlas as buildClassic } from './sprites.ts';
 import { buildAtlas as buildHd, buildAtlas64 as buildHd64 } from './sprites128.ts';
@@ -250,6 +251,9 @@ export class BattleScene {
   private prevHp: Float32Array;
   private hurtAt: Float32Array;
   private dirs: Uint8Array;
+  /** World direction of each man's latest shot (NaN: none yet): an archer faces where he looses. */
+  private aimX: Float32Array;
+  private aimY: Float32Array;
   private stamped: Uint8Array;
   private regX: Float32Array;
   private frameTab: Uint16Array[] = [];
@@ -347,6 +351,8 @@ export class BattleScene {
     this.prevHp = new Float32Array(n);
     this.hurtAt = new Float32Array(n).fill(-100);
     this.dirs = new Uint8Array(n);
+    this.aimX = new Float32Array(n).fill(NaN);
+    this.aimY = new Float32Array(n).fill(NaN);
     this.stamped = new Uint8Array(n);
     this.regX = new Float32Array(battle.regiments.length);
     this.regY = new Float32Array(battle.regiments.length);
@@ -432,12 +438,22 @@ export class BattleScene {
     }
     // Missiles that came down this tick.
     const now = new Set(b.projectiles);
+    this.aimShots();
     for (const p of this.flying) {
       if (now.has(p)) continue;
       if (p.splash > 0) this.impact(p.x1, p.y1);
       else if (rng.next() < 0.3) this.stampFx(`stuck${rng.int(3)}`, p.x1, p.y1, 1);
     }
     this.flying = now;
+  }
+
+  /** Records the direction of the shots loosed this tick (call before `flying` is replaced). */
+  private aimShots(): void {
+    for (const p of this.battle.projectiles) {
+      if (this.flying.has(p) || p.shooter < 0 || p.shooter >= this.aimX.length) continue;
+      this.aimX[p.shooter] = p.x1 - p.x0;
+      this.aimY[p.shooter] = p.y1 - p.y0;
+    }
   }
 
   private kindOf(i: number): number {
@@ -1207,10 +1223,8 @@ export class BattleScene {
         // Between blows a man in the fight stands in his guard (Brace), poised: blows leave it and
         // return to it. Out of reach of a foe he idles (or holds the regiment's braced stance).
         else if (s.state === State.Fighting && (BRACING.has(stance) || (tgt !== undefined && melee))) anim = Anim.Brace;
-        // Facing: the way they move, else at their foe, else the regiment's front.
-        if (speed > 3 && anim !== Anim.Attack && anim !== Anim.Shoot) dir = dirFor(s.vx, s.vy, dir);
-        else if (tgt && (anim === Anim.Attack || anim === Anim.Shoot || (anim === Anim.Brace && melee))) dir = dirFor(tgt.x - s.x, tgt.y - s.y, dir);
-        else dir = dirFor(reg.fx, reg.fy, dir);
+        // Facing: the way they move, else where they shoot or at their foe, else the regiment's front.
+        dir = facing(anim, s.vx, s.vy, tgt ? tgt.x - s.x : NaN, tgt ? tgt.y - s.y : NaN, melee, this.aimX[i]!, this.aimY[i]!, reg.fx, reg.fy, dir);
         this.dirs[i] = dir;
       }
       const frames = this.frameTab[s.team]![kind * ANIM_COUNT + anim]!;
@@ -1497,6 +1511,7 @@ export class BattleScene {
     }
     // Missiles that came down this tick: craters, spent arrows standing in the dirt, a kick of dust.
     const live = new Set(b.projectiles);
+    this.aimShots();
     for (const p of this.flying) {
       if (live.has(p)) continue;
       if (p.splash > 0) {
