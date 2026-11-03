@@ -1,7 +1,10 @@
 // Paints HD sprite sheets off the main thread (see sprites128.ts): one kind at one level per message.
+// With a painter version, a sheet already in the persistent cache (sheet-cache.ts) is read from
+// it instead, and a freshly painted one is stored there after it has been sent back.
 
 import { sheetFor } from './sprites128.ts';
 import { halveSheet } from './downscale.ts';
+import { readSheet, writeSheet, indexPixels } from './sheet-cache.ts';
 import type { KindSheet } from './contract.ts';
 
 interface Req {
@@ -13,11 +16,28 @@ interface Req {
   half?: boolean;
   /** HD 64: the level-2×level sheet, already painted: only halve it. */
   from?: KindSheet;
+  /** The painter's version (persistent cache key), or null: no cache. */
+  version?: string | null;
+  /** The sheet's name in the cache. */
+  key?: string;
 }
 
-self.onmessage = (e: MessageEvent<Req>) => {
-  const { faction, hue, kind, level, half, from } = e.data;
+const post = (sheet: KindSheet): void =>
+  (self as unknown as { postMessage(m: unknown, t: Transferable[]): void }).postMessage(sheet, [sheet.pixels.buffer, sheet.rects.buffer]);
+
+self.onmessage = async (e: MessageEvent<Req>) => {
+  const { faction, hue, kind, level, half, from, version, key } = e.data;
+  if (version && key) {
+    const hit = await readSheet(version, key);
+    if (hit) return post(hit);
+  }
   // Level 1 is the classic-size grid strip; the rest are packed hi-res sheets.
   const sheet = from ? halveSheet(from) : sheetFor(faction, hue, kind, level, half);
-  (self as unknown as { postMessage(m: unknown, t: Transferable[]): void }).postMessage(sheet, [sheet.pixels.buffer, sheet.rects.buffer]);
+  if (!version || !key) return post(sheet);
+  // Send it at once; pack and store a copy afterwards.
+  const pixels = sheet.pixels.slice();
+  const meta = { level: sheet.level, width: sheet.width, height: sheet.height, rects: sheet.rects.slice(), ms: sheet.ms };
+  post(sheet);
+  const ix = indexPixels({ ...meta, pixels });
+  await writeSheet(version, key, meta, ix, ix ? undefined : new Uint8Array(pixels.buffer));
 };

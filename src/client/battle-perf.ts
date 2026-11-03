@@ -68,7 +68,9 @@ const moraleTick = () => {
 };
 moraleTick();
 const art: ArtMode = q.get('art') ? parseArt(q.get('art')) : artMode();
+performance.mark('codeclash:battle');
 let scene = new BattleScene(view, art);
+performance.mark('codeclash:scene');
 // The art toggle: classic 48 px sprites or HD (up to 128 px), saved like the game's setting.
 const toggle = document.getElementById('art') as HTMLButtonElement | null;
 if (toggle) {
@@ -188,6 +190,7 @@ const loop = (now: number) => {
   if (draws.length > 120) draws.shift();
   if (frames.length > 120) frames.shift();
   const sorted = [...draws].sort((a, b) => a - b);
+  if (perf.frames === 0) performance.mark('codeclash:first-frame');
   perf.frames++;
   perf.drawMs = draws.reduce((a, b) => a + b, 0) / draws.length;
   perf.drawP95 = sorted[Math.floor(sorted.length * 0.95)] ?? 0;

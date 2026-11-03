@@ -18,6 +18,7 @@ import { Anim, ANIM_COUNT, COMMANDER_KIND, KIND_COUNT, type Atlas, type BuildAtl
 import { FRAMES, LOOPS, TICKS } from './frames.ts';
 import { paintPaper, paperBlows, type PaperFrame } from './paper/index.ts';
 import { halveSheet } from './downscale.ts';
+import { artVersion } from './sheet-cache.ts';
 
 export type { Atlas } from './contract.ts';
 
@@ -3434,6 +3435,9 @@ const workPool = {
   jobs: new Map<string, Job>(),
   made: false,
   ok: false,
+  /** The persistent cache's painter version (null: no cache), once known: jobs wait for it. */
+  version: null as string | null,
+  ready: false,
 };
 
 function startPool(): void {
@@ -3464,6 +3468,12 @@ function startPool(): void {
       workPool.workers.push(slot);
     }
     workPool.ok = workPool.workers.length > 0;
+    if (workPool.ok)
+      void artVersion().then((v) => {
+        workPool.version = v;
+        workPool.ready = true;
+        pump();
+      });
   } catch {
     workPool.ok = false;
   }
@@ -3484,11 +3494,12 @@ function pump(): void {
   const stale = (j: Job): number => (j.level > 1 && t - j.asked > STALE_MS ? 1 : 0);
   workPool.queue.sort((p, q) => stale(p) - stale(q) || p.level - q.level);
   if (workPool.ok) {
+    if (!workPool.ready) return;
     for (const slot of workPool.workers) {
       if (slot.busy || workPool.queue.length === 0) continue;
       const job = workPool.queue.shift()!;
       slot.busy = job;
-      slot.w.postMessage({ faction: job.faction, hue: job.hue, kind: job.kind, level: job.level, half: job.half, from: job.from });
+      slot.w.postMessage({ faction: job.faction, hue: job.hue, kind: job.kind, level: job.level, half: job.half, from: job.from, version: workPool.version, key: job.key });
       // The worker has its copy of the source sheet.
       job.from = undefined;
     }
@@ -3557,6 +3568,8 @@ function storedSheet(faction: string, hue: number, kind: number, level: number, 
       if (store.has(key)) return;
       const h: Held = { bytes: sh.pixels.byteLength + sh.rects.byteLength, level, used: now(), drop: () => store.delete(key) };
       store.set(key, { sheet: sh, h });
+      // For profiles and the art-loading timings (docs/perf/art-loading.md).
+      if (typeof performance !== 'undefined') performance.mark?.('codeclash:sheet', { detail: key });
       hold(h);
     }, half);
   return null;
@@ -3622,6 +3635,7 @@ function makeAtlas(faction: string, hue: number, hd64: boolean): Atlas {
   const land = (kind: number, g: KindSheet): void => {
     ctx.putImageData(new ImageData(new Uint8ClampedArray(g.pixels.buffer as ArrayBuffer, g.pixels.byteOffset, g.pixels.byteLength), g.width, g.height), 0, kind * 4 * CELL_H);
     grid.version++;
+    if (typeof performance !== 'undefined') performance.mark?.('codeclash:grid', { detail: `${faction}:${hue}:${kind}` });
   };
   const ensure = (kind: number): void => {
     if (painted[kind] || kind < 0 || kind >= KIND_COUNT) return;
