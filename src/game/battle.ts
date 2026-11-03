@@ -27,7 +27,14 @@ import { FATIGUE, MORALE, newOrder, PERSONALITIES, PLANS, type CommanderTrait, t
 export type { CommanderTrait, MoraleState, Order, OrderKind, Personality, Plan } from './command.ts';
 export { MORALE } from './command.ts';
 
-export const BATTLE_VERSION = 4;
+/**
+ * v5: no side bias. Both sides' regiments think and their men look for foes on the same ticks
+ * (they were out of step by the first army's size), which side goes first on even ticks is drawn
+ * from the seed, and the horse rides round a line and kites the same way on both sides. Until v4
+ * one side won 60-75% of mirror matches, which side depending on the armies' size (see
+ * `pnpm fairness`).
+ */
+export const BATTLE_VERSION = 5;
 /**
  * Mixed into every battle's seed. It was BATTLE_VERSION until v3, which kept v2's salt: a
  * version bump refuses old setups (BattleVersionError) but does not re-seed battles by itself.
@@ -266,6 +273,11 @@ export class Regiment {
   /** Centre of its living men. */
   cx = 0;
   cy = 0;
+  /**
+   * Its place in its own army's order of battle (0, 1, 2, ...): it thinks on the ticks where
+   * (tick + phase) % 5 === 0, the same ticks as the enemy's regiment with the same place.
+   */
+  phase = 0;
   /** Formation anchor (middle of the front rank) and facing (unit vector). */
   ax = 0;
   ay = 0;
@@ -364,11 +376,28 @@ export class Regiment {
     readonly team: number,
     readonly cls: number,
     readonly role: Role | 'command',
-  ) {}
+  ) {
+    // Fields that will hold fractions get one first and then their starting value back, so the
+    // engine lays them out as doubles from the start. Otherwise each one's first fraction, in
+    // mid-battle, changes every regiment's hidden class and throws the hot code that reads
+    // regiments back to the interpreter. (Values are unchanged; this is only for speed.)
+    const self = this as unknown as Record<string, number>;
+    for (const k of DOUBLE_FIELDS) {
+      const v = self[k]!;
+      self[k] = 0.5;
+      self[k] = v;
+    }
+  }
   get firing(): boolean {
     return (this.mode === 'shoot' || this.mode === 'kite') && this.targetReg >= 0;
   }
 }
+
+/** Regiment fields that hold fractions (see the Regiment constructor). */
+const DOUBLE_FIELDS = [
+  'arrows', 'cx', 'cy', 'ax', 'ay', 'fx', 'fy', 'dfx', 'dfy', 'tx', 'ty', 'vax', 'vay', 'morale', 'baseMorale', 'chaseX', 'chaseY', 'spacing', 'speed',
+  'width', 'depth', 'radius', 'recent', 'recentKills', 'flankShock', 'homeX', 'homeY', 'wx', 'wy', 'fatigue', 'enemyNear',
+] as const;
 
 export interface Projectile {
   team: number;
@@ -575,6 +604,14 @@ export class Battle {
   /** Figures per class at the start, per team. */
   readonly startFigures: [Counts, Counts] = [emptyCounts(), emptyCounts()];
   tick = 0;
+  /**
+   * Which side goes first on even ticks (0: team 0), drawn from the seed. The sides take turns
+   * to go first, tick by tick; but two equal armies march in step, so the lines meet on a tick
+   * of the same parity every time for the same armies, and whoever went first on it struck the
+   * first blows. With a fixed order that handed one side (which one depended on the armies'
+   * size) up to two thirds of equal fights.
+   */
+  readonly parity: number;
   result: BattleResult | null = null;
   commander: [number, number] = [-1, -1];
   commanderFell: [boolean, boolean] = [false, false];
@@ -590,12 +627,19 @@ export class Battle {
   private readonly d: Store;
   private readonly n: number;
   private readonly teamRegs: [Regiment[], Regiment[]] = [[], []];
+  /** Each side's first soldier id: a man's place in his own army is his id less this. */
+  private readonly firstId: [number, number] = [0, 0];
   private readonly ts: [TeamState, TeamState];
   private readonly startTotal: [number, number] = [0, 0];
   private readonly startValue: [number, number] = [0, 0];
   private readonly figureScale: number;
   private readonly grid = new Int32Array(GW * GH + 1);
   private readonly fill = new Int32Array(GW * GH);
+  /**
+   * Per cell, how many of its men are of team 0. A cell's men are in id order, and team 0's ids
+   * come first, so team 0's are the first this many of the cell and team 1's the rest.
+   */
+  private readonly ofTeam0 = new Int32Array(GW * GH);
   private readonly items: Int32Array;
   /** Per grid slot (sorted by cell): position, radius, mass, team, loose (routing or skirmisher), and push. */
   private readonly kx: Float64Array;
@@ -635,6 +679,7 @@ export class Battle {
     if (given.version !== BATTLE_VERSION) throw new BattleVersionError(given.version);
     const setup = (this.setup = sanitize(given));
     this.rng = new Rng(mixSeed(setup.seed, SEED_SALT));
+    this.parity = mixSeed(setup.seed, SEED_SALT, 9001) & 1;
     this.generals = [new General(0, setup.seed), new General(1, setup.seed)];
     this.scale = scaleFor(setup.armies[0].counts, setup.armies[1].counts);
     this.stats = [factionStats(setup.armies[0].faction), factionStats(setup.armies[1].faction)];
@@ -666,6 +711,7 @@ export class Battle {
     const team = (): TeamState => ({ contactAt: -1, loss: 0, frontX: 0, lineDepth: 0, minY: 0, maxY: 0, midY: FIELD_H / 2, hasLine: false, engaged: false, contacted: false, missile: 0 });
     this.ts = [team(), team()];
     this.deploy(0);
+    this.firstId[1] = this.soldiers.length;
     this.deploy(1);
     for (let t = 0; t < 2; t++) {
       let p = 0;
@@ -740,6 +786,7 @@ export class Battle {
         reg.spacing = spacingFor(reg, reg.stance);
         reg.speed = st.speed;
         reg.fx = reg.dfx = dir;
+        reg.phase = this.teamRegs[team]!.length;
         this.regiments.push(reg);
         this.teamRegs[team]!.push(reg);
         regs.push(reg);
@@ -846,6 +893,7 @@ export class Battle {
       reg.spacing = spacingFor(reg, reg.stance);
       reg.speed = st.speed;
       reg.fx = reg.dfx = dir;
+      reg.phase = this.teamRegs[team]!.length;
       this.regiments.push(reg);
       this.teamRegs[team]!.push(reg);
       for (let i = 0; i <= 6; i++) {
@@ -1021,24 +1069,34 @@ export class Battle {
       this.updateFront(0);
       this.updateFront(1);
     }
-    // Each General thinks every 1.5 s, the two a little apart.
-    if (this.tick % 15 === 0) this.generalThink(0);
-    if (this.tick % 15 === 7) this.generalThink(1);
+    // Both sides think on the same ticks, and take turns to go first: each General every 1.5 s,
+    // each regiment every 0.5 s on the same tick as the enemy regiment with the same place in its
+    // order of battle (see `Regiment.phase`). (Until v4 a regiment's tick came from its id, so
+    // the second army's regiments were out of step with the first's by however many regiments
+    // the first had, and the Generals were 0.7 s apart: one side reacted to the other's moves
+    // sooner, and it won equal fights 60-75% of the time.)
+    if (this.tick % 15 === 0) {
+      const first = (this.tick / 15 + this.parity) % 2;
+      this.generalThink(first);
+      this.generalThink(1 - first);
+    }
     const regs = this.regiments;
-    for (let i = 0; i < regs.length; i++) {
-      const r = regs[i]!;
-      if ((this.tick + r.id) % 5 === 0) this.think(r);
+    const up = (this.tick + this.parity) % 2 === 0;
+    for (let q = 0; q < regs.length; q++) {
+      const r = regs[up ? q : regs.length - 1 - q]!;
+      if ((this.tick + r.phase) % 5 === 0) this.think(r);
     }
     for (let i = 0; i < regs.length; i++) this.moveAnchor(regs[i]!);
     const d = this.d;
     const n = this.n;
-    // Blows land in turn: alternate which side's men act first, so neither strikes first every tick.
-    if (this.tick % 2 === 0) {
+    // Blows land in turn: alternate which side's men act first, so neither strikes first every
+    // tick (and which goes first on even ticks is drawn: see `parity`).
+    if ((this.tick + this.parity) % 2 === 0) {
       for (let i = 0; i < n; i++) if (d.state[i]! <= State.Routing) this.act(i);
     } else {
       for (let i = n - 1; i >= 0; i--) if (d.state[i]! <= State.Routing) this.act(i);
     }
-    if (this.tick % 2 === 0) {
+    if ((this.tick + this.parity) % 2 === 0) {
       for (let i = 0; i < n; i++) if (d.state[i]! <= State.Routing) this.move(i);
     } else {
       for (let i = n - 1; i >= 0; i--) if (d.state[i]! <= State.Routing) this.move(i);
@@ -1069,6 +1127,11 @@ export class Battle {
     const d = this.d;
     const n = this.n;
     const cellOf = this.cellOf;
+    const of0 = this.ofTeam0;
+    of0.fill(0);
+    const first1 = this.firstId[1];
+    let lo = GW * GH;
+    let hi = -1;
     for (let i = 0; i < n; i++) {
       if (d.state[i]! > State.Routing) {
         cellOf[i] = -1;
@@ -1077,14 +1140,19 @@ export class Battle {
       const c = cellIndex(d.x[i]!, d.y[i]!);
       cellOf[i] = c;
       g[c + 1]!++;
+      if (i < first1) of0[c]!++;
+      if (c < lo) lo = c;
+      if (c > hi) hi = c;
     }
     const cells = GW * GH;
     const busy = this.busy;
     let nb = 0;
-    for (let c = 0; c < cells; c++) {
+    // Running totals over the occupied stretch only: before it they are all 0, after it all the total.
+    for (let c = lo; c <= hi; c++) {
       if (g[c + 1]! > 0) busy[nb++] = c;
       g[c + 1]! += g[c]!;
     }
+    if (hi >= 0) g.fill(g[hi + 1]!, hi + 2);
     this.busyN = nb;
     const fill = this.fill;
     fill.set(g.subarray(0, cells));
@@ -2539,7 +2607,10 @@ export class Battle {
       const wy = up ? e.minY - 70 : e.maxY + 70;
       const inSpan = r.cy > e.minY - 45 && r.cy < e.maxY + 45;
       this.setMode(r, 'flank');
-      if (inSpan) this.goal(r, Math.min(Math.max(r.cx, e.frontX - dir * 120), e.frontX + 120) - dir * 0, wy);
+      // Out to the side, no further than 120 from their front either way. (Until v4 this was
+      // clamped to [front - dir * 120, front + 120], an empty range for the right-hand army,
+      // whose horse first rode back to 120 short of the line on every pass.)
+      if (inSpan) this.goal(r, Math.min(Math.max(r.cx, e.frontX - 120), e.frontX + 120), wy);
       else this.goal(r, e.frontX + dir * (e.lineDepth + 60), wy);
       return;
     }
@@ -2593,13 +2664,15 @@ export class Battle {
     }
     const threat = this.nearGap(r, 35, false) ?? this.nearGap(r, 90, true);
     if (threat) {
-      // Ride away from it, sideways along the field, loosing as they go.
+      // Ride away from it, sideways along the field, loosing as they go. (The sideways turn is
+      // taken the same way by both armies: until v4 it was not mirrored, so the right-hand army's
+      // horse archers veered toward the edge where the left's veered toward the middle.)
       const dx = r.cx - threat.cx;
       const dy = r.cy - threat.cy;
       const q = sqrt(dx * dx + dy * dy) || 1;
       const ux = dx / q;
       const uy = dy / q;
-      const s = r.cy < FIELD_H / 2 ? -1 : 1;
+      const s = (r.cy < FIELD_H / 2 ? -1 : 1) * (r.team === 0 ? 1 : -1);
       this.goal(r, r.cx + ux * 80 - uy * 30 * s, r.cy + uy * 80 + ux * 30 * s);
       const t = this.shootable(r, st.range * 0.95, true);
       r.targetReg = t ? t.id : -1;
@@ -2941,8 +3014,10 @@ export class Battle {
     let t = d.target[i]!;
     if (t >= 0 && d.state[t]! > State.Routing) t = -1;
     if (!r.contact) t = -1;
-    // Look again every few ticks (staggered): at once only for the men already fighting.
-    else if ((this.tick + i) % (t < 0 ? 3 : 6) === 0) t = this.seek(i, r);
+    // Look again every few ticks (staggered by his place in his own army, so that both sides
+    // look on the same ticks): at once only for the men already fighting. (Until v4 this went
+    // by id, which put the second army's men out of step with the first's by the first's size.)
+    else if ((this.tick + i - this.firstId[d.team[i]!]!) % (t < 0 ? 3 : 6) === 0) t = this.seek(i, r);
     d.target[i] = t;
     const st = this.soldiers[i]!.s;
     if (t >= 0) {
@@ -2982,6 +3057,7 @@ export class Battle {
     const R2 = R * R;
     const L2 = (leash + R) * (leash + R);
     const grid = this.grid;
+    const of0 = this.ofTeam0;
     const items = this.items;
     const kx = this.kx;
     const ky = this.ky;
@@ -2991,9 +3067,10 @@ export class Battle {
       const row = cy * GW;
       for (let cx = x0; cx <= x1; cx++) {
         const c = row + cx;
-        const end = grid[c + 1]!;
-        for (let k = grid[c]!; k < end; k++) {
-          if (this.kt[k] === team) continue;
+        // Only the enemy's men in the cell (see `ofTeam0`).
+        const from = team === 0 ? grid[c]! + of0[c]! : grid[c]!;
+        const end = team === 0 ? grid[c + 1]! : grid[c]! + of0[c]!;
+        for (let k = from; k < end; k++) {
           const j = items[k]!;
           const sj = d.state[j]!;
           if (sj > State.Routing) continue;
@@ -3348,6 +3425,16 @@ export class Battle {
       const cx = c % GW;
       const cy = (c - cx) / GW;
       const a1 = grid[c + 1]!;
+      // Each pair once: this cell's later items and the cell to the right (contiguous in grid
+      // order), then the three cells below-left, below and below-right (contiguous too).
+      const end1 = cx + 1 < GW ? grid[c + 2]! : a1;
+      let r0 = 0;
+      let r1 = 0;
+      if (cy + 1 < GH) {
+        const row = c + GW;
+        r0 = grid[cx > 0 ? row - 1 : row]!;
+        r1 = grid[cx + 1 < GW ? row + 2 : row + 1]!;
+      }
       for (let ka = grid[c]!; ka < a1; ka++) {
         const li = kl[ka]!;
         if (li & 4) continue;
@@ -3359,22 +3446,9 @@ export class Battle {
         const wi0 = kw[ka]!;
         let pxi = 0;
         let pyi = 0;
-        // This cell (later items) and four of its neighbours: each pair once.
-        for (let nb = 0; nb < 5; nb++) {
-          let kb0: number;
-          let kb1: number;
-          let cc = c;
-          if (nb === 0) {
-            kb0 = ka + 1;
-            kb1 = a1;
-          } else {
-            const nx = cx + (nb === 1 || nb === 4 ? 1 : nb === 2 ? -1 : 0);
-            const ny = cy + (nb === 1 ? 0 : 1);
-            if (nx < 0 || nx >= GW || ny >= GH) continue;
-            cc = ny * GW + nx;
-            kb0 = grid[cc]!;
-            kb1 = grid[cc + 1]!;
-          }
+        for (let pass = 0; pass < 2; pass++) {
+          const kb0 = pass === 0 ? ka + 1 : r0;
+          const kb1 = pass === 0 ? end1 : r1;
           for (let kb = kb0; kb < kb1; kb++) {
             const dx = xi - kx[kb]!;
             const dy = yi - ky[kb]!;

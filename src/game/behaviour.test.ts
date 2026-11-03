@@ -83,8 +83,9 @@ describe('battle: infantry charges', () => {
       }
       return { drop: before - e.morale, stunned };
     };
-    // Morale the defenders (heavy foot) lose in the second after the first blow, over 4 fights.
-    const drop = (cls: number) => [1, 2, 3, 4].reduce((sum, seed) => sum + shock(cls, seed).drop, 0) / 4;
+    // Morale the defenders (heavy foot) lose in the second after the first blow, over 12 fights
+    // (heavy foot and spears are close: over 4, v5 timing changes alone swapped them).
+    const drop = (cls: number) => [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].reduce((sum, seed) => sum + shock(cls, seed).drop, 0) / 12;
     const knights = drop(U.Knights);
     const sh = drop(U.Shock);
     const heavy = drop(U.HeavyInfantry);
