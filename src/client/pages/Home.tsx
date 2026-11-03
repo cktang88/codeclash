@@ -102,7 +102,10 @@ export function Home({ me }: { me: MeResponse | null }) {
               <a className="button primary" href="/auth/dev?login=ana">Sign in (dev) as ana</a>
             ) : null}
             <a className="button" {...linkProps('/demo')}>Watch a battle</a>
+            <a className="button" {...linkProps('/demo?tab=city')}>Explore a town</a>
+            <a className="button" {...linkProps('/demo?tab=units')}>Meet the armies</a>
           </div>
+          <p className="muted small hero-note">No sign-in needed: battles, towns and every soldier are drawn right here in your browser.</p>
         </div>
       </section>
 

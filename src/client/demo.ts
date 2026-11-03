@@ -16,10 +16,25 @@ const NAMES: Record<FactionId, string[]> = {
   undead: ['The Barrow of Kings', 'The Drowned Legion', 'Host of the Ninth Grave', 'The Ashen Choir', 'Tomb of Saint Hollow', 'The Bone March'],
 };
 
-export function demoSetup(seed: number, men = 450): BattleSetup {
+/** Army sizes the showcase offers (men on the first side). */
+export const DEMO_SIZES: readonly { men: number; label: string }[] = [
+  { men: 150, label: 'A skirmish (150 men)' },
+  { men: 450, label: 'A daily battle (450 men)' },
+  { men: 1200, label: 'A strong day (1,200 men)' },
+  { men: 4000, label: 'A Grand Battle (4,000 men)' },
+];
+
+/**
+ * A sparring battle from a seed. `factions` picks either side's faction (null or omitted: the
+ * seed picks, as before, so a seed without choices gives the same battle it always did).
+ */
+export function demoSetup(seed: number, men = 450, factions?: readonly [FactionId | null | undefined, FactionId | null | undefined]): BattleSetup {
   const rng = new Rng(seed);
-  const fa = FACTION_IDS[rng.int(FACTION_IDS.length)]!;
-  const fb = FACTION_IDS[rng.int(FACTION_IDS.length)]!;
+  // Always draw both picks, so a chosen faction leaves the rest of the seed's battle unchanged.
+  const ra = FACTION_IDS[rng.int(FACTION_IDS.length)]!;
+  const rb = FACTION_IDS[rng.int(FACTION_IDS.length)]!;
+  const fa = factions?.[0] ?? ra;
+  const fb = factions?.[1] ?? rb;
   const na = NAMES[fa][rng.int(6)]!;
   let nb = NAMES[fb][rng.int(6)]!;
   if (nb === na) nb = NAMES[fb][(NAMES[fb].indexOf(nb) + 1) % 6]!;

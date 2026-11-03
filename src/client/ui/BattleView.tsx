@@ -6,6 +6,7 @@ import { UNIT_COUNT } from '../../game/units.ts';
 import { BattleScene, MAX_ZOOM } from '../render/scene.ts';
 import { hsl } from '../render/sprites.ts';
 import { n } from '../format.ts';
+import { BATTLE_SPEEDS, SpeedControls } from './SpeedControls.tsx';
 
 interface SideLive {
   fighting: number;
@@ -31,8 +32,6 @@ interface Ticker {
   team: number;
   grave: boolean;
 }
-
-const SPEEDS = [1, 2, 4, 8];
 
 function measure(b: Battle): Live {
   const sides: [SideLive, SideLive] = [
@@ -63,7 +62,7 @@ export function BattleView(props: {
   const { setup, ambient } = props;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const sceneRef = useRef<BattleScene | null>(null);
-  const [speed, setSpeed] = useState(ambient ? 1 : 1);
+  const [speed, setSpeed] = useState(1);
   const [paused, setPaused] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [scan, setScan] = useState(true);
@@ -94,6 +93,8 @@ export function BattleView(props: {
     let hudAt = 0;
     let restartAt = 0;
     let doneSent = false;
+    // Scripted checks (?probe): the battle, its scene and the draw alpha of the latest frame.
+    const probe = !ambient && /[?&]probe\b/.test(location.search) ? ((window as unknown as { battleProbe?: { at?: unknown } }).battleProbe = {} as { at?: unknown }) : null;
     const [a, b] = setup.armies;
     const STANCE_WORDS: Record<string, string> = {
       shieldwall: 'lock shields', pikewall: 'level their spears in a pike wall', wedge: 'form a wedge', loose: 'spread into loose order',
@@ -133,8 +134,11 @@ export function BattleView(props: {
       const dt = Math.min(0.1, Math.max(0, (now - last) / 1000));
       last = now;
       const c = ctl.current;
+      // Speed only sets how many fixed ticks run per real second; the sim steps exactly as at 1×, and
+      // the draw interpolates positions and animation frames between ticks (alpha), so ¼× stays smooth.
+      const rate = c.paused ? 0 : c.skipping ? 120 : ambient ? 0.7 : c.speed;
       if (!c.paused && !battle.done()) {
-        acc += dt * (c.skipping ? 120 : ambient ? 0.7 : c.speed);
+        acc += dt * rate;
         let steps = 0;
         const cap = c.skipping ? 160 : 24;
         while (acc >= TICK_S && steps < cap && !battle.done()) {
@@ -178,7 +182,10 @@ export function BattleView(props: {
         sceneRef.current = scene;
         setZoom(scene.camera.zoom);
       }
-      scene.draw(canvas, battle.done() ? 1 : Math.min(1, acc / TICK_S), dt);
+      // Dust, blood and smoke drift at the battle's pace too (frozen while paused).
+      const alpha = battle.done() ? 1 : Math.min(1, acc / TICK_S);
+      scene.draw(canvas, alpha, Math.min(0.25, dt * (battle.done() ? 1 : rate)));
+      if (probe) probe.at = { battle, scene, alpha, now };
       if (!ambient && now - hudAt > 200) {
         hudAt = now;
         setLive(measure(battle));
@@ -356,13 +363,9 @@ export function BattleView(props: {
           </ul>
           {/* Two groups that never split inside: on a narrow screen they stack as two rows. */}
           <div className="hud-controls">
-            <span className="hud-group">
-              <button onClick={() => setPaused((p) => !p)} disabled={live.done} title={paused ? 'Play' : 'Pause'}>{paused ? '▶' : '❚❚'}</button>
-              {SPEEDS.map((s) => (
-                <button key={s} className={speed === s ? 'on' : ''} onClick={() => setSpeed(s)}>{s}×</button>
-              ))}
+            <SpeedControls speeds={BATTLE_SPEEDS} speed={speed} paused={paused} onSpeed={setSpeed} onPause={setPaused} done={live.done}>
               <button onClick={() => setSkipping(true)} disabled={live.done || skipping} title="To the end" aria-label="To the end"><span className="hud-label">To the end </span>⏭</button>
-            </span>
+            </SpeedControls>
             <span className="hud-group">
               <button onClick={() => zoomTo(zoom - 1)} disabled={zoom <= 1} aria-label="Zoom out">−</button>
               <span className="mono">{zoom}×</span>

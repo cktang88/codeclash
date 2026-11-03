@@ -1,25 +1,99 @@
-import { useMemo, useState } from 'react';
-import { demoSetup } from '../demo.ts';
+import { useEffect, useMemo, useState } from 'react';
+import type { FactionId } from '../../game/factions.ts';
+import { DEMO_SIZES, demoSetup } from '../demo.ts';
 import { BattleView } from '../ui/BattleView.tsx';
+import { ArtSelect, FactionSelect } from '../ui/ShowcaseControls.tsx';
+import { ShowcaseCity } from './ShowcaseCity.tsx';
+import { ShowcaseUnits } from './ShowcaseUnits.tsx';
+
+// The public showcase: battles, towns and every figure, all drawn in the browser. No sign-in, no
+// server: everything here is made from a seed on the client.
+
+export type ShowcaseTab = 'battle' | 'city' | 'units';
+const TABS: [ShowcaseTab, string][] = [
+  ['battle', 'Battle'],
+  ['city', 'Town'],
+  ['units', 'Units'],
+];
+
+function tabOf(search: string): ShowcaseTab {
+  const t = new URLSearchParams(search).get('tab');
+  return t === 'city' || t === 'units' ? t : 'battle';
+}
+
+/** The tab, kept in the URL (/demo?tab=city) so a link or a reload lands on it. */
+function useTab(): [ShowcaseTab, (t: ShowcaseTab) => void] {
+  const [tab, setTab] = useState(() => tabOf(location.search));
+  useEffect(() => {
+    const on = () => setTab(tabOf(location.search));
+    window.addEventListener('popstate', on);
+    return () => window.removeEventListener('popstate', on);
+  }, []);
+  const pick = (t: ShowcaseTab) => {
+    const q = new URLSearchParams(location.search);
+    if (t === 'battle') q.delete('tab');
+    else q.set('tab', t);
+    const s = q.toString();
+    history.pushState(null, '', `${location.pathname}${s ? `?${s}` : ''}`);
+    setTab(t);
+  };
+  return [tab, pick];
+}
+
+const newSeed = () => Math.floor(Math.random() * 1e9);
+
+function BattleTab() {
+  const [seed, setSeed] = useState(newSeed);
+  const [men, setMen] = useState(450);
+  const [fa, setFa] = useState<FactionId | null>(null);
+  const [fb, setFb] = useState<FactionId | null>(null);
+  const setup = useMemo(() => demoSetup(seed, men, [fa, fb]), [seed, men, fa, fb]);
+  return (
+    <>
+      <div className="showcase-bar">
+        <FactionSelect label="Left" value={fa} onChange={setFa} />
+        <FactionSelect label="Right" value={fb} onChange={setFb} />
+        <label className="inline">
+          <span>Size</span>
+          <select value={men} onChange={(e) => setMen(Number(e.target.value))}>
+            {DEMO_SIZES.map((s) => (
+              <option key={s.men} value={s.men}>{s.label}</option>
+            ))}
+          </select>
+        </label>
+        <ArtSelect />
+        <button type="button" onClick={() => setSeed(newSeed())}>Another battle</button>
+      </div>
+      <BattleView key={`${seed}:${men}:${fa}:${fb}`} setup={setup} title={men > 1500 ? 'The Grand Battle' : 'Sparring'} />
+    </>
+  );
+}
 
 export function Demo() {
-  const [seed, setSeed] = useState(() => Math.floor(Math.random() * 1e9));
-  const [men, setMen] = useState(450);
-  const setup = useMemo(() => demoSetup(seed, men), [seed, men]);
+  const [tab, setTab] = useTab();
   return (
-    <div className="battle-page">
-      <div className="battle-crumbs">
-        <span>A sparring battle between two commanderies, fought in your browser.</span>
-        <span className="sep" />
-        <button onClick={() => setSeed(Math.floor(Math.random() * 1e9))}>Another</button>
-        <select value={men} onChange={(e) => setMen(Number(e.target.value))}>
-          <option value={150}>A skirmish (150 men)</option>
-          <option value={450}>A daily battle (450 men)</option>
-          <option value={1200}>A strong day (1,200 men)</option>
-          <option value={4000}>A Grand Battle (4,000 men)</option>
-        </select>
-      </div>
-      <BattleView key={`${seed}:${men}`} setup={setup} title={men > 1500 ? 'The Grand Battle' : 'Sparring'} />
+    <div className={`battle-page showcase showcase-on-${tab}`}>
+      <nav className="tabs showcase-tabs" aria-label="Showcase">
+        {TABS.map(([k, label]) => (
+          <a
+            key={k}
+            href={k === 'battle' ? '/demo' : `/demo?tab=${k}`}
+            className={tab === k ? 'on' : ''}
+            aria-current={tab === k ? 'page' : undefined}
+            onClick={(e) => {
+              if (e.metaKey || e.ctrlKey || e.button !== 0) return;
+              e.preventDefault();
+              setTab(k);
+            }}
+          >
+            {label}
+          </a>
+        ))}
+        <span className="showcase-note muted">Drawn in your browser; no sign-in needed.</span>
+      </nav>
+      {tab === 'battle' && <BattleTab />}
+      {tab === 'city' && <ShowcaseCity />}
+      {tab === 'units' && <ShowcaseUnits />}
     </div>
   );
 }
