@@ -109,31 +109,99 @@ its §9 brief; the Templar worked example is `templar-animation.md`. What these 
    light on the horse's bones): the lower body is in shade as the old figures had it. Level-1
    detail that lined up into bands (quilting, leg wraps, pavise planks) is plain at level 1.
 
+## Palette and lint clean-up
+
+Before/after (top row before, bottom row after; idle frame 0, SE):
+`undead-palette-before-after-L8.png`, `-L2.png` and `-L1.png` in `docs/screenshots/hd-sprites/`.
+The contact sheets `undead-anim-k<kind>-L8.png` are re-rendered.
+
+### References for this round
+
+| Reference | Licence | Taken from it |
+|---|---|---|
+| The approved key art, `docs/screenshots/hd-sprites/undead-static-L8.png` (and `undead-static-k*-L8-x3.png`) | Our own | The colours to hold: the ghoul's blue-grey, the wardens' deep violet, the Black Rider's violet-black shroud, bone, rust and the green soul-fire. Every round was compared with it. |
+| `templar-animation.md`, "Clean-up" | Our own notes | The cause of the moving lint fails, and the per-kind palette options. |
+| `pixel-art-mistakes.md` #7, #8 | Our own guide (from the sources it cites) | Near-duplicate colours break flat masses into stripes. A straight ramp (one hue from shadow to light) reads as flat, so hue-shift it. |
+| User targets `references/user-targets/armored-undead-x3.png`, `undead-unit-gstatic.jpg` | Study only | The Death Knight's lance is carried upright. The Legionary's pauldron is broad. |
+
+### What was wrong
+
+The cause was the one the Templar agent found. One master palette for the whole host folded every
+dark material onto a few browns:
+- at levels 1-2 the wardens' violet went team-blue, and the ghoul, the riders' shroud and the
+  arbalests' gambeson picked up greenish browns;
+- the lint credits a shared colour to the first material that lists it, so unrelated parts (a
+  rope belt and the shield's painted skull, the crossbow's iron and the gambeson) became one
+  "region";
+- any kind's colours re-decided every other kind's.
+
+### What changed
+
+- **Per-kind palettes** (`undead.ts`): `setFactionPaletteOptions('undead', { perKind: true,
+  minDist: [0.1, 0.18, 0.1, 0.06], keepChroma: 0.12, weightOutlines: true, kinds })`. Per kind:
+  - The Bone-Throwers, wardens and Lich take a dark rim all round, from level 1. They are
+    mid-value cloth: their pale lit-side rim and dark shade-side rim averaged out to the field's
+    value (edge vs ground). This uses a new additive core option, `PaletteOpts.litDarkFrom`; the
+    Templar and Samurai hash byte-identical.
+  - The Legionary uses a little less merging at level 2.
+  - The Colossus merges by chroma (`darkChroma`), so the char and rust keep their hues.
+  - The Arbalests merge near-duplicates harder at level 4.
+  - The Lich does no near-duplicate merging at level 2.
+- **Hue-turned ramps** (`undead-parts.ts` `hueTurn`): the ghoul's flesh and the wardens' violet
+  turn 7° a tone, bluer in the folds and warmer in the light. The base tone is unchanged. Both
+  had been straight ramps (straightRamp 0.74 and 0.45).
+- **Level-specific art:**
+  - Legionary, level 1: no rope belt (a row of bone pixels). The near pauldron is a touch larger
+    and further out, so the shoulder steps evenly down to the sword arm (jaggies 1.88 → 0.62).
+  - Death Knights: the lance stands upright, as the key-art notes describe it. The 6° lean made
+    an uneven 1-px staircase at level 4 (jaggies 1.67 → 1.47).
+  - Arbalests, level 1: the near knee sits a pixel lower than the far one. Both legs' wraps had
+    started on one row.
+  - The low shade at levels 1-2 is set per kind (`FootSpec.shadeL1`, new `shadeL2`) so the shade
+    line does not end on the rows where a robe's or coat's bands end:
+    - the wardens and the Lich go deeper at level 1 (0.6);
+    - the Bone-Throwers go shallower at level 2 (0.3);
+    - the wardens (0.5) and the Arbalests (0.6) go deeper at level 2.
+
+### Critique rounds
+
+1. **Opting in.** Against the key art, the colours came back: the wardens are violet again at
+   levels 1-2 (they had gone blue), the ghoul is blue-grey, the Black Rider's shroud is violet.
+   But with the materials now apart, the lint saw more: 18 FAILs, up from 10. Some were light
+   from the right (L1 regions whose lit pixels were another material's), some were straight
+   ramps, and some were bands.
+2. **Edges and ramps.** The dark rim cleared every edge-vs-ground fail. At level 8 the cloaked
+   kinds still read as before, with a crisper silhouette. The hue turn cleared the straight
+   ramps and moved the warden's level-2 light from 156° to 27°.
+3. **Level 1-2 structure.** The overlays (aligned runs, jaggy runs, light vector per region,
+   and a one-pixel-change sensitivity map) found the actual causes:
+   - the Legionary's belt joined the shield's skull to the forearm bones;
+   - the shoulder stepped 1-2-1-3;
+   - both of the Arbalest's knees ended on one row;
+   - the shade line ended level with the robes' folds.
+
+   After the fixes the before/after lineups were checked at each level. The Legionary's
+   level-1 hood now shows the aventail's grey, as the key art has it, and the Death Knight's
+   upright lance is still his level-1 signature.
+
 ## Lint status (`pnpm pixel-lint --only=sprites --factions=undead`, then `kind-report`)
 
-These pass for every kind:
-- level-1 silhouette overlap under 0.85 (closest pairs: Barrow Horse Archers vs Death Knights
-  0.84, Wraith-Wardens vs Lich 0.82, Black Riders vs Horse Archers 0.81; Legionary vs
-  Bone-Throwers is now 0.61-0.70);
-- idle and walk head churn (boil) under the fail line at every level, and idle head churn under
-  3% for every foot kind except the Bone-Throwers at level 2 (4%);
-- the light direction at level 8.
+There is **no FAIL for any Undead kind at any level** (`kind-report` exits 0 for kinds 0-10).
+- Level-1 silhouette overlap is under 0.85 everywhere. The closest pairs are Barrow Horse
+  Archers vs Death Knights (0.83) and Wraith-Wardens vs Lich (0.82).
+- Idle and walk boil are within the gate. Idle head churn is unchanged from before this round:
+  at most 4.3 % on the foot kinds (Bone-Throwers, level 1) and 5.7 % on the Trebuchet's crew.
+- Light angles of exactly 90° (all regions single-coloured) remain on the riders at level 1, the
+  Arbalests at levels 2 and 4, and the Lich at level 1. They pass, as the Templar's do.
 
-These FAILs remain, all level-specific pixel structure or value of the key art's materials:
-
-| Kind | Remaining FAILs |
-|---|---|
-| 0 Grave Legionary | jaggies L1 (1.88) |
-| 2 Bone-Throwers | edgeVsGround L1 (0.09), L8 (0.094) |
-| 3 Wraith-Wardens | edgeVsGround L1 (0.076), straightRamp L4 (0.44) |
-| 4 Revenant Arbalests | aligned L1 (0.37) |
-| 7 Death Knights | jaggies L4 (1.67) |
-| 8 Bone Colossus | lightDir L1 (121°) |
-| 10 Lich-Marshal | aligned L1 (0.30), edgeVsGround L1/L2 (0.096) |
-
-The edge values are the lit-side outlines of mid-value cloth (rag, violet, shroud) sitting near
-the field's value at levels 1-2; they move with the shared faction palette and are best fixed
-with it.
+Warnings that remain (counted over the 44 kind-level reports), as a to-do list:
+- base band share under 35 % (33);
+- aligned band ends 0.2-0.3 (32);
+- light angle 45-90° (18);
+- idle silhouette change (18);
+- figure vs ground ΔL 0.06-0.12 (9);
+- sel-out ΔL and jaggies (8 each);
+- idle and walk head churn (6 and 5).
 
 ## Not done yet
 
