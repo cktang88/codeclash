@@ -170,7 +170,10 @@ export function CityCanvas(props: {
   const zoom = (k: number) => sceneRef.current?.zoomAt(k);
   return (
     <div className="city-view">
-      <canvas ref={ref} className="city-canvas" style={{ touchAction: 'none', cursor: 'grab' }} />
+      {/* The picture's own box: the canvas is sized from it, and on a phone the controls sit below it, not on it. */}
+      <div className="city-pic">
+        <canvas ref={ref} className="city-canvas" style={{ touchAction: 'none', cursor: 'grab' }} />
+      </div>
       <div className="city-zoom" role="group" aria-label="Zoom the commandery">
         <button type="button" onClick={() => zoom(1)} title={`Zoom in (up to ${MAX_ZOOM}×)`} aria-label="Zoom in">+</button>
         <button type="button" onClick={() => zoom(-1)} title={`Zoom out (to ${MIN_ZOOM}×)`} aria-label="Zoom out">−</button>

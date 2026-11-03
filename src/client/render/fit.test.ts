@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { frameBox, MIN_SCALE, NO_INSETS, zoomOutScale } from './fit.ts';
+import { frameBox, MIN_SCALE, nextZoomFloor, NO_INSETS, zoomOutScale } from './fit.ts';
 
 // About the v7 grand deployment in map px (1,650 × 800 with the figures' heights).
 const box = { x0: 100, y0: 200, x1: 1750, y1: 1000 };
@@ -64,5 +64,22 @@ describe('zoomOutScale', () => {
     expect(zoomOutScale(0.3, 1, 1920, 923)).toBe(MIN_SCALE);
     // A 3000 px wide canvas at 0.5 would need a 6000 px buffer.
     expect(zoomOutScale(0.5, 1, 3000, 900) * 4096).toBeGreaterThanOrEqual(3000);
+  });
+});
+
+describe('nextZoomFloor', () => {
+  it('reframing on the same canvas never raises the floor (⤢ mid-battle)', () => {
+    const opening = nextZoomFloor(null, 0.5, 1170, 1800);
+    expect(opening.zoom).toBe(0.5);
+    // Fewer men standing: the frame fits at zoom 1, but the floor stays at the opening view's.
+    const later = nextZoomFloor(opening, 1, 1170, 1800);
+    expect(later.zoom).toBe(0.5);
+    // A wider frame still lowers it.
+    expect(nextZoomFloor(later, 0.4, 1170, 1800).zoom).toBe(0.4);
+  });
+
+  it('starts afresh on a new canvas size', () => {
+    const phone = nextZoomFloor(null, 0.5, 1170, 1800);
+    expect(nextZoomFloor(phone, 1, 2560, 1283)).toEqual({ zoom: 1, W: 2560, H: 1283 });
   });
 });

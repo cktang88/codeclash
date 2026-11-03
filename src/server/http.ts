@@ -87,6 +87,17 @@ export async function buildHttp(deps: HttpDeps): Promise<FastifyInstance> {
     reply.header('referrer-policy', 'same-origin');
     reply.header('x-content-type-options', 'nosniff');
   });
+  // Fastify's own refusals (a malformed JSON body, an oversized or unsupported one) answer in the
+  // app's {error, message} shape too, and anything unexpected is a plain 500 that leaks nothing.
+  app.setErrorHandler((err: { statusCode?: number; message?: string }, _req, reply) => {
+    const status = err.statusCode ?? 500;
+    if (status >= 400 && status < 500) {
+      const error = status === 413 ? 'too_large' : status === 415 ? 'unsupported' : status === 400 ? 'invalid' : 'bad_request';
+      return fail(reply, status, error, err.message || 'Bad request.');
+    }
+    deps.log.error('request failed', { message: err.message });
+    return fail(reply, 500, 'internal', 'Something went wrong.');
+  });
 
   const viewerOf = (req: FastifyRequest): UserRow | null => {
     const id = readSession(req.cookies[SESSION_COOKIE], config.sessionSecret, clock());

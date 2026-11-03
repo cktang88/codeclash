@@ -441,6 +441,10 @@ main {
   width: 100%;
   height: 100%;
 }
+.city-pic {
+  width: 100%;
+  height: 100%;
+}
 .city-canvas:active {
   cursor: grabbing;
 }
@@ -1064,6 +1068,37 @@ main {
   }
   .showcase-city {
     min-width: 0;
+  }
+  /* A phone's town is too small to put the controls on: the picture keeps its 16:9 and the speed
+     and zoom buttons share a strip below it. */
+  .city-stage {
+    aspect-ratio: auto;
+  }
+  .city-view {
+    height: auto;
+  }
+  .city-pic {
+    height: auto;
+    aspect-ratio: 16 / 9;
+  }
+  .city-speed {
+    position: static;
+    min-height: 2.2rem;
+    box-sizing: border-box;
+    border: 0;
+    border-top: 1px solid var(--line);
+    padding-right: 6.2rem;
+  }
+  .city-zoom {
+    right: 0.25rem;
+    bottom: 0.25rem;
+    flex-direction: row;
+  }
+  .city-zoom button {
+    width: 1.7rem;
+    height: 1.7rem;
+    font-size: 1rem;
+    justify-content: center;
   }
   .city-speed button {
     min-width: 0;

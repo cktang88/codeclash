@@ -10,6 +10,7 @@ import { hsl } from '../render/sprites.ts';
 import { n } from '../format.ts';
 import { BATTLE_SPEEDS, SpeedControls } from './SpeedControls.tsx';
 import { canvasSize } from './canvasSize.ts';
+import { tickerLine } from './tickerText.ts';
 
 interface SideLive {
   fighting: number;
@@ -135,44 +136,6 @@ export function BattleView(props: {
     reframe.current = true;
     // Scripted checks (?probe): the battle, its scene and the draw alpha of the latest frame.
     const probe = !ambient && /[?&]probe\b/.test(location.search) ? ((window as unknown as { battleProbe?: { at?: unknown } }).battleProbe = {} as { at?: unknown }) : null;
-    const [a, b] = setup.armies;
-    const STANCE_WORDS: Record<string, string> = {
-      shieldwall: 'lock shields', pikewall: 'level their spears in a pike wall', wedge: 'form a wedge', loose: 'spread into loose order',
-      braced: 'brace', column: 'form column', line: 'dress their line',
-    };
-    const say = (e: (typeof battle.events)[number]): string => {
-      const army = e.team === 0 ? a : b;
-      const f = FACTIONS[army.faction];
-      const who = army.name;
-      const unit = f.short[e.cls] ?? 'men';
-      switch (e.kind) {
-        case 'rout': return `${who}’s ${unit} break and run`;
-        case 'commander': return army.faction === 'samurai' ? `${who}’s ${f.commander} has fallen! His retainers scatter` : `${who}’s ${f.commander} has fallen`;
-        case 'charge': return `${who}’s ${unit} charge`;
-        case 'chase': return `${who}’s ${unit} break ranks to run down the fugitives`;
-        case 'contact': return `${who}’s line meets the enemy`;
-        case 'waver': return `${who}’s ${unit} waver`;
-        case 'rally': return `${who}’s ${unit} rally`;
-        case 'reform': return `${who}’s ${unit} re-form behind the line`;
-        case 'joins': return `Fugitives of ${who}’s ${f.short[e.fromCls ?? -1] ?? 'men'} fall in with the ${unit}`;
-        case 'shattered': return `${who}’s ${unit} are shattered`;
-        case 'break': return army.faction === 'undead' ? `${who}’s host is spent` : `${who}’s army breaks`;
-        case 'crumble': return e.note === 'commander' ? `Without its ${f.commander}, ${who}’s host begins to crumble` : `The last of ${who}’s dead crumble where they stand`;
-        case 'stance': return `${who}’s ${unit} ${STANCE_WORDS[e.stance ?? ''] ?? 'change formation'}`;
-        case 'general-order': return `${f.commander} of ${who} ${e.note ?? 'gives orders'}`;
-        case 'doctrine':
-          switch (e.note) {
-            case 'marshal-charge': return `The ${f.commander} of ${who} unfurls the Beauséant: the ${unit} charge as one`;
-            case 'banner': return `${who}’s ${unit} fall back on the banner and re-form`;
-            case 'stand-fast': return `${who}’s ${unit} will not leave the field while the banner flies`;
-            case 'revenge': return `${who}’s ${unit} charge to avenge their ${f.commander}`;
-            case 'first-spear': return `${who}’s ${unit} claim the first spear!`;
-            case 'raise': return `The ${f.commander} of ${who} raises ${e.count ?? 'some'} of the fallen`;
-            default: return '';
-          }
-        default: return '';
-      }
-    };
     // The canvas in device pixels, so each of its pixels is a whole number of the screen's: the
     // holder's size in device px (exact where the browser reports it; it also reports a change of
     // devicePixelRatio, a window dragged to another screen or a page zoom, with no layout change).
@@ -301,7 +264,10 @@ export function BattleView(props: {
         hudTick = battle.tick;
         setLive(measure(battle));
         if (battle.events.length > seen) {
-          const fresh = battle.events.slice(seen).map((e, i) => ({ id: seen + i, tick: e.tick, team: e.team, text: say(e), grave: e.kind === 'commander' || e.kind === 'break' || (e.kind === 'doctrine' && (e.note === 'marshal-charge' || e.note === 'raise')) }));
+          const fresh = battle.events
+            .slice(seen)
+            .map((e, i) => ({ id: seen + i, tick: e.tick, team: e.team, text: tickerLine(e, setup.armies), grave: e.kind === 'commander' || e.kind === 'break' || (e.kind === 'doctrine' && (e.note === 'marshal-charge' || e.note === 'raise')) }))
+            .filter((t) => t.text !== '');
           seen = battle.events.length;
           // Collapse a burst of routs into the latest few.
           setTicker((t) => [...fresh.reverse(), ...t].slice(0, 6));
