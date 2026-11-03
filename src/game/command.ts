@@ -389,6 +389,8 @@ export const DOCTRINE: Record<FactionId, Doctrine> = {
     ...SHARED,
     // S1 The lord's uma-jirushi.
     aura: 1.4, auraRange: 1.25, generalDeadShock: 1.75, generalDead: 1.4, revenge: true, revengeFor: 300,
+    // S2 First spear, long chase.
+    chaseFar: 1.4, chaseTired: 1.4, recall: 80, firstSpear: 8, firstSpearNear: 240, firstSpearLift: 3, keenCharge: 140,
   },
   undead: {
     ...SHARED,

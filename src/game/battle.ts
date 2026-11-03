@@ -659,6 +659,8 @@ export class General {
   /** T1 The Marshal's charge: when he last gave the knights the signal (-1: not yet), and at whom. */
   signalAt = -1;
   signalTarget = -1;
+  /** S2: when the first block of its line reached the enemy (-1: not yet). */
+  firstSpearAt = -1;
   /** S1: when the general fell and his horse rode to avenge him (-1: not). */
   revengeAt = -1;
   /** The army's spirits on the day (from the general's rng): added to every regiment's morale. */
@@ -1688,6 +1690,9 @@ export class Battle {
     const gap = sqrt(dx * dx + dy * dy) - e.radius - r.radius;
     if (gap > 160) return false;
     if (general) return true;
+    // S2: samurai heavy foot runs in at any enemy close enough.
+    const keen = this.doc[t]!.keenCharge;
+    if (keen > 0 && r.cls === U.HeavyInfantry && gap < keen) return true;
     if (e.moraleState === 'wavering' || e.moraleState === 'rallying') return true;
     if ((e.role === 'missile' || e.role === 'skirmish') && !e.engaged && gap < 110) {
       // Caught in the open: none of their line between us.
@@ -2192,6 +2197,7 @@ export class Battle {
     if (r.alive === 0) return;
     const doc = this.doc[r.team]!;
     if (doc.tide !== 1) r.nearLord = this.lordWithin(r.team, r.cx, r.cy, doc.tideNear);
+    if (doc.firstSpear > 0 && r.engaged && r.role === 'line' && !r.routed) this.firstSpear(r);
     if (r.reflow && !r.routed) this.closeRanks(r);
     this.fatigue(r);
     if (r.routed) {
@@ -2229,6 +2235,22 @@ export class Battle {
         break;
     }
     this.chooseStance(r);
+  }
+
+  /** S2: the first samurai block of the line to strike claims the first spear: heart for it and for those near it. */
+  private firstSpear(r: Regiment): void {
+    const g = this.generals[r.team]!;
+    if (g.firstSpearAt >= 0) return;
+    g.firstSpearAt = this.tick;
+    const doc = this.doc[r.team]!;
+    r.morale = Math.min(100, r.morale + doc.firstSpear);
+    for (const o of this.teamRegs[r.team]!) {
+      if (o === r || o.alive === 0 || o.routed) continue;
+      const dx = o.cx - r.cx;
+      const dy = o.cy - r.cy;
+      if (dx * dx + dy * dy < doc.firstSpearNear * doc.firstSpearNear) o.morale = Math.min(100, o.morale + doc.firstSpearLift);
+    }
+    this.events.push({ tick: this.tick, team: r.team, kind: 'doctrine', cls: r.cls, reg: r.id, note: 'first-spear' });
   }
 
   private fatigue(r: Regiment): void {
@@ -2885,9 +2907,11 @@ export class Battle {
       const prey = this.nearestFoe(r, 4, 220);
       const dx = r.ax - r.chaseX;
       const dy = r.ay - r.chaseY;
-      const far = 120 + 260 * r.eager;
+      // S2: the samurai chase further and longer.
+      const doc = this.doc[r.team]!;
+      const far = (120 + 260 * r.eager) * doc.chaseFar;
       const edge = prey ? (r.team === 0 ? FIELD_W - prey.cx : prey.cx) : 0;
-      const tired = this.tick - r.chaseAt > 80 + 220 * r.eager;
+      const tired = this.tick - r.chaseAt > (80 + 220 * r.eager) * doc.chaseTired;
       if (!prey || formed || tired || edge < 70 || (!won && dx * dx + dy * dy > far * far) || r.fatigue > 0.8) {
         r.chaseAt = -1;
         r.recallAt = this.tick;
@@ -4876,7 +4900,8 @@ function slotPos(o: Regiment, k: number, depth: number, out: Float64Array): void
 const EAGER = [0.3, 0.55, 0.5, 0.35, 0.25, 0.85, 0.6, 0.55, 0.25, 0];
 const EAGER_FACTION: Partial<Record<FactionId, Partial<Record<number, number>>>> = {
   templar: { [U.Knights]: 0.12, [U.Shock]: 0.15 },
-  samurai: { [U.Knights]: 0.15, [U.Shock]: 0.5 },
+  // S2 First spear, long chase: samurai and yari riders pour after fugitives; the hatamoto guard the lord.
+  samurai: { [U.HeavyInfantry]: 0.6, [U.LightCavalry]: 0.95, [U.Knights]: 0.15, [U.Shock]: 0.5 },
   undead: { [U.Spearmen]: 0.95, [U.LightCavalry]: 0.9, [U.HeavyInfantry]: 0.1 },
 };
 function eagerness(faction: FactionId, cls: number, veteran: boolean, green: boolean): number {
