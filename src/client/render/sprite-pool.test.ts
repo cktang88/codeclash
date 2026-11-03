@@ -1,0 +1,108 @@
+// The HD painter's worker pool (sprites128.ts) with fake workers: a job a worker fails is reported,
+// frees its worker, and is not asked again at once; a worker that dies is let go.
+
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import type { KindSheet } from './contract.ts';
+
+interface Msg {
+  kind: number;
+  level: number;
+  key: string;
+  warm?: boolean;
+}
+class FakeWorker {
+  static all: FakeWorker[] = [];
+  /** How the next job is answered. */
+  static answer: (m: Msg, w: FakeWorker) => void = () => {};
+  onmessage: ((e: { data: unknown }) => void) | null = null;
+  onerror: ((e: unknown) => void) | null = null;
+  onmessageerror: ((e: unknown) => void) | null = null;
+  posted: Msg[] = [];
+  terminated = false;
+  constructor() {
+    FakeWorker.all.push(this);
+  }
+  postMessage(m: Msg): void {
+    if (m.warm) return;
+    this.posted.push(m);
+    FakeWorker.answer(m, this);
+  }
+  terminate(): void {
+    this.terminated = true;
+  }
+  reply(data: unknown): void {
+    this.onmessage?.({ data });
+  }
+}
+const sheet = (level: number): KindSheet => ({ level, width: 1, height: 1, pixels: new Uint8ClampedArray(4), rects: new Int32Array(6), ms: 0 });
+const tick = () => new Promise((r) => setTimeout(r, 0));
+
+const G = globalThis as Record<string, unknown>;
+const saved = { Worker: G.Worker, document: G.document, ImageData: G.ImageData };
+
+describe('sprite worker pool', () => {
+  let mod: typeof import('./sprites128.ts');
+  beforeAll(async () => {
+    G.Worker = FakeWorker;
+    G.document = { createElement: () => ({ width: 0, height: 0, getContext: () => ({ putImageData() {} }) }) };
+    G.ImageData = class {};
+    // Two workers (cores - 2).
+    vi.stubGlobal('navigator', { hardwareConcurrency: 4 });
+    mod = await import('./sprites128.ts');
+  });
+  afterAll(() => {
+    vi.unstubAllGlobals();
+    Object.assign(G, saved);
+  });
+  const pending: [FakeWorker, Msg][] = [];
+
+  it('reports a failed job, frees its worker for the next, and does not ask again at once', async () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    FakeWorker.answer = (m, w) => void pending.push([w, m]);
+    const atlas = mod.buildAtlas('templar', 215);
+    // Start the pool (and let it find there is no persistent cache here).
+    expect(atlas.sheet!(0, 2)).toBeNull();
+    await tick();
+    const workers = FakeWorker.all.length;
+    expect(workers).toBeGreaterThan(0);
+    expect(pending.length).toBe(1);
+    // Fill every other worker, so the failing one is the only one free afterwards.
+    for (let k = 1; k < workers; k++) atlas.sheet!(k, 2);
+    expect(pending.length).toBe(workers);
+    const [w0, m0] = pending.shift()!;
+    expect(m0.key).toBe('templar:215:0:2');
+    w0.reply({ error: 'Error: boom', key: m0.key });
+    expect(errors).toHaveBeenCalled();
+    expect(String(errors.mock.calls[0]!.join(' '))).toContain('boom');
+    // Nothing stored for it; asking again right away does not paint it again.
+    expect(atlas.sheet!(0, 2)).toBeNull();
+    expect(pending.length).toBe(workers - 1);
+    // The worker is free: the next sheet goes to it.
+    atlas.sheet!(9, 2);
+    expect(pending.length).toBe(workers);
+    expect(pending.at(-1)![0]).toBe(w0);
+    // A sheet that does land is stored as usual.
+    const [w1, m1] = pending.pop()!;
+    w1.reply(sheet(m1.level));
+    expect(atlas.sheet!(9, 2)).not.toBeNull();
+    errors.mockRestore();
+  });
+
+  it('lets a worker that dies go, and gives its job to another', async () => {
+    // From the test above: every worker but one is still busy (their jobs unanswered).
+    expect(FakeWorker.all.length).toBe(2);
+    const atlas = mod.buildAtlas('samurai', 30);
+    atlas.sheet!(0, 2);
+    const [w, m] = pending.pop()!;
+    expect(m.key).toBe('samurai:30:0:2');
+    w.onerror?.({ message: 'crashed' });
+    expect(w.terminated).toBe(true);
+    // Its job waits for the other worker, which takes it as soon as it is free.
+    const [other, busy] = pending.shift()!;
+    expect(other).not.toBe(w);
+    other.reply(sheet(busy.level));
+    expect(pending.length).toBe(1);
+    expect(pending[0]![0]).toBe(other);
+    expect(pending[0]![1].key).toBe(m.key);
+  });
+});

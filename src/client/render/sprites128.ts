@@ -19,6 +19,7 @@ import { FRAMES, LOOPS, TICKS } from './frames.ts';
 import { paintPaper, paperBlows, type PaperFrame } from './paper/index.ts';
 import { halveSheet } from './downscale.ts';
 import { artVersion, cachedKeys } from './sheet-cache.ts';
+import type { PaintError } from './sprite-worker.ts';
 
 export type { Atlas } from './contract.ts';
 
@@ -3443,6 +3444,8 @@ interface Job {
   /** When a renderer last asked for it (the queue serves what is wanted now first). */
   asked: number;
   done: ((s: KindSheet) => void)[];
+  /** Called if it could not be painted. */
+  failed: (() => void)[];
 }
 
 /** Hi-res sheets are painted by a small pool of workers (or, without workers, on idle timeouts). */
@@ -3472,14 +3475,26 @@ function startPool(): void {
     for (let i = 0; i < n; i++) {
       const w = new Worker(new URL('./sprite-worker.ts', import.meta.url), { type: 'module' });
       const slot = { w, busy: null as Job | null };
-      w.onmessage = (e: MessageEvent<KindSheet>) => {
+      w.onmessage = (e: MessageEvent<KindSheet | PaintError>) => {
         const job = slot.busy;
         slot.busy = null;
-        if (job) finishJob(job, e.data);
+        if (job) {
+          if ('error' in e.data) failJob(job, e.data.error);
+          else finishJob(job, e.data);
+        }
         pump();
       };
-      w.onerror = () => {
-        // A worker that cannot start (old browser, strict CSP): paint here instead.
+      w.onmessageerror = () => {
+        const job = slot.busy;
+        slot.busy = null;
+        if (job) failJob(job, 'the sheet could not be read from the worker');
+        pump();
+      };
+      w.onerror = (e: ErrorEvent | Event) => {
+        // A worker that cannot start (old browser, strict CSP) or that died: let it go, and give
+        // its job to another (or paint here, when none is left).
+        if ('message' in e && e.message) console.error(`sprite worker: ${e.message}`);
+        w.terminate();
         workPool.workers = workPool.workers.filter((s) => s !== slot);
         if (slot.busy) workPool.queue.unshift(slot.busy);
         slot.busy = null;
@@ -3504,8 +3519,27 @@ function startPool(): void {
   }
 }
 
+/**
+ * Sheets that failed to paint, and when: not asked for again for a while (each ask would paint
+ * and fail again); the renderer draws the levels it has meanwhile.
+ */
+const failed = new Map<string, number>();
+const RETRY_FAILED_MS = 15000;
+const failedLately = (key: string): boolean => {
+  const t = failed.get(key);
+  return t !== undefined && now() - t < RETRY_FAILED_MS;
+};
+
+function failJob(job: Job, error: string): void {
+  workPool.jobs.delete(job.key);
+  failed.set(job.key, now());
+  console.error(`sprite sheet ${job.key} was not painted: ${error}`);
+  for (const f of job.failed) f();
+}
+
 function finishJob(job: Job, sheet: KindSheet): void {
   workPool.jobs.delete(job.key);
+  failed.delete(job.key);
   // Cached now, or in a moment (a lookup before the write lands misses and paints).
   if (workPool.version) workPool.cached.add(job.key);
   for (const d of job.done) d(sheet);
@@ -3553,7 +3587,15 @@ function pump(): void {
   setTimeout(() => {
     idleTimer = false;
     const job = workPool.queue.shift();
-    if (job) finishJob(job, job.from ? halveSheet(job.from) : sheetFor(job.faction, job.hue, job.kind, job.level, job.half));
+    if (job) {
+      let sh: KindSheet | null = null;
+      try {
+        sh = job.from ? halveSheet(job.from) : sheetFor(job.faction, job.hue, job.kind, job.level, job.half);
+      } catch (err) {
+        failJob(job, String(err));
+      }
+      if (sh) finishJob(job, sh);
+    }
     pump();
   }, 30);
 }
@@ -3570,16 +3612,17 @@ export function sheetFor(faction: string, hue: number, kind: number, level: numb
 
 const sheetKey = (faction: string, hue: number, kind: number, level: number, half: boolean): string => `${faction}:${hue}:${kind}:${level}${half ? ':half' : ''}`;
 
-function request(faction: string, hue: number, kind: number, level: number, done: (s: KindSheet) => void, half = false): void {
+function request(faction: string, hue: number, kind: number, level: number, done: (s: KindSheet) => void, half = false, fail?: () => void): void {
   startPool();
   const key = sheetKey(faction, hue, kind, level, half);
   const old = workPool.jobs.get(key);
   if (old) {
     old.done.push(done);
+    if (fail) old.failed.push(fail);
     old.asked = now();
     return;
   }
-  const job: Job = { key, faction, hue, kind, level, half, done: [done], asked: now() };
+  const job: Job = { key, faction, hue, kind, level, half, done: [done], failed: fail ? [fail] : [], asked: now() };
   // HD 64 after HD: the level-8 sheet may be in memory already; halving it is all that is left.
   if (half) job.from = store.get(sheetKey(faction, hue, kind, level * 2, false))?.sheet;
   workPool.jobs.set(key, job);
@@ -3607,7 +3650,7 @@ function storedSheet(faction: string, hue: number, kind: number, level: number, 
   }
   const job = workPool.jobs.get(key);
   if (job) job.asked = now();
-  else
+  else if (!failedLately(key))
     request(faction, hue, kind, level, (sh) => {
       if (store.has(key)) return;
       const h: Held = { bytes: sh.pixels.byteLength + sh.rects.byteLength, level, used: now(), drop: () => store.delete(key) };
@@ -3686,12 +3729,14 @@ function makeAtlas(faction: string, hue: number, hd64: boolean): Atlas {
   };
   const ensure = (kind: number): void => {
     if (painted[kind] || kind < 0 || kind >= KIND_COUNT) return;
+    if (failedLately(sheetKey(faction, hue, kind, 1, false))) return;
     painted[kind] = true;
     // With workers, the grid strip is painted off the main thread and lands a moment later
     // (the renderer re-uploads when `version` moves), so a battle starts without a stall.
     startPool();
     if (workPool.ok) {
-      request(faction, hue, kind, 1, (g) => land(kind, g));
+      // A strip that failed is asked for again later (failedLately).
+      request(faction, hue, kind, 1, (g) => land(kind, g), false, () => void (painted[kind] = false));
       return;
     }
     land(kind, paintGrid(faction, hue, kind));
