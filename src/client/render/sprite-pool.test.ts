@@ -106,3 +106,42 @@ describe('sprite worker pool', () => {
     expect(pending[0]![1].key).toBe(m.key);
   });
 });
+
+describe('sprite worker pool: HD 64 after HD', () => {
+  let mod: typeof import('./sprites128.ts');
+  const pending: [FakeWorker, Msg & { from?: KindSheet }][] = [];
+  beforeAll(async () => {
+    vi.resetModules();
+    FakeWorker.all = [];
+    G.Worker = FakeWorker;
+    G.document = { createElement: () => ({ width: 0, height: 0, getContext: () => ({ putImageData() {} }) }) };
+    G.ImageData = class {};
+    vi.stubGlobal('navigator', { hardwareConcurrency: 4 });
+    mod = await import('./sprites128.ts');
+  });
+  afterAll(() => {
+    vi.unstubAllGlobals();
+    Object.assign(G, saved);
+  });
+
+  it('halves the level-8 sheet HD is still painting instead of painting it a second time', async () => {
+    FakeWorker.answer = (m, w) => void pending.push([w, m]);
+    const hd = mod.buildAtlas('undead', 120);
+    expect(hd.sheet!(8, 8)).toBeNull();
+    await tick();
+    expect(pending.map(([, m]) => m.key)).toEqual(['undead:120:8:8']);
+    // Switched to HD 64 mid-paint: its level 4 is that level-8 sheet halved.
+    const hd64 = mod.buildAtlas64('undead', 120);
+    expect(hd64.sheet!(8, 4)).toBeNull();
+    // The other worker is free, but nothing paints level 8 a second time.
+    expect(pending.length).toBe(1);
+    const [w] = pending.shift()!;
+    const big = sheet(8);
+    w.reply(big);
+    // Now the halving goes out, from the painted sheet, which HD keeps too.
+    expect(pending.length).toBe(1);
+    expect(pending[0]![1].key).toBe('undead:120:8:4:half');
+    expect(pending[0]![1].from).toBe(big);
+    expect(hd.sheet!(8, 8)).toBe(big);
+  });
+});

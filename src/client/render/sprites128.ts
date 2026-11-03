@@ -3448,6 +3448,8 @@ interface Job {
   done: ((s: KindSheet) => void)[];
   /** Called if it could not be painted. */
   failed: (() => void)[];
+  /** HD 64: the level-8 job this halving waits for (not queued until that sheet lands). */
+  source?: Job;
 }
 
 /** Hi-res sheets are painted by a small pool of workers (or, without workers, on idle timeouts). */
@@ -3625,9 +3627,28 @@ function request(faction: string, hue: number, kind: number, level: number, done
     return;
   }
   const job: Job = { key, faction, hue, kind, level, half, done: [done], failed: fail ? [fail] : [], asked: now() };
-  // HD 64 after HD: the level-8 sheet may be in memory already; halving it is all that is left.
-  if (half) job.from = store.get(sheetKey(faction, hue, kind, level * 2, false))?.sheet;
   workPool.jobs.set(key, job);
+  if (half) {
+    // HD 64 after HD: the level-8 sheet may be in memory already; halving it is all that is left.
+    const src = sheetKey(faction, hue, kind, level * 2, false);
+    job.from = store.get(src)?.sheet;
+    // Or still being painted for HD (an art switch mid-paint): wait for it rather than paint it
+    // again beside it; if it fails, paint it here after all.
+    const source = job.from ? undefined : workPool.jobs.get(src);
+    if (source) {
+      job.source = source;
+      source.asked = now();
+      const go = (sh?: KindSheet): void => {
+        job.source = undefined;
+        job.from = sh;
+        workPool.queue.push(job);
+        pump();
+      };
+      source.done.push(go);
+      source.failed.push(() => go());
+      return;
+    }
+  }
   workPool.queue.push(job);
   pump();
 }
@@ -3651,7 +3672,11 @@ function storedSheet(faction: string, hue: number, kind: number, level: number, 
     return got.sheet;
   }
   const job = workPool.jobs.get(key);
-  if (job) job.asked = now();
+  if (job) {
+    job.asked = now();
+    // A halving waiting for its level-8 sheet keeps that sheet wanted.
+    if (job.source) job.source.asked = job.asked;
+  }
   else if (!failedLately(key))
     request(faction, hue, kind, level, (sh) => {
       if (store.has(key)) return;
