@@ -25,6 +25,7 @@ import {
   type AnimationData, type AnimEvent, type AttachmentSet, type Clip, type JointDef, type SkeletonData, type SkeletonRig, type SlotData,
 } from './skeleton.ts';
 import { HIT, T } from './templar-clips.ts';
+import { fromGuard, riderOnly } from './guard.ts';
 import { addDrops, at as atT, facingClip, lastFrame, mapFacings, overlayKeys, partMap, restWorld, skinMap, smooth01, type ClipSet, type Drop, type KP, type LagSpec, type Track, type Weights } from './templar-rig.ts';
 import { MOTION, type MotionKey } from './motion/index.ts';
 
@@ -439,11 +440,19 @@ function horseClips(skel: SkeletonData, s: HorseSpec, m: SMounted, blowsOut?: Cl
             { a: SADDLE_THRUST, ev: [{ f: 5, name: 'strike' }] },
           ]
         : [];
+  // Brace: the rider's guard (guard.ts), the horse standing to receive: the yari levelled, the
+  // katana raised, or the archer's free fist up; every blow leaves it and comes back to it.
+  const braceA: Author = (rw, f) => ({
+    dw: { horseNeck: T([0, 6]), horseHead: T([0, -4]), spine: T([0, -6]) },
+    w: (s.ride === 'couch' ? { upperArmN: T([0, -10]), forearmN: T([0, 76]), weapon: T([0, s.charge]) } : s.ride === 'cut' ? { upperArmN: T([0, 40]), forearmN: T([0, 100]), weapon: T([0, 120]) } : { upperArmN: T([0, rw.upperArmN! + 10]) }) as Record<string, Track>,
+    ...(void BRACE, void f, {}),
+  });
+  const brace = breath(fc('brace', 8, true, standKeys(8, skel, braceA)), 0.6);
   const blowClip = (b: { a: Author; ev: AnimEvent[] }): Clip => {
     const c = fc('attack', 12, false, galloping(b.a), b.ev, 1);
-    return horo ? billow(c, 12, 0.35) : c;
+    return fromGuard(skel, horo ? billow(c, 12, 0.35) : c, brace, { only: riderOnly });
   };
-  const attack: Clip = riding.length ? blowClip(riding[0]!) : fc('attack', 12, false, (f) => overlayKeys(standKeys(11, skel)(f), PUNCH(restWorld(skel, f), f)), [{ f: 5, name: 'strike' }]);
+  const attack: Clip = riding.length ? blowClip(riding[0]!) : fromGuard(skel, fc('attack', 12, false, (f) => overlayKeys(standKeys(11, skel)(f), PUNCH(restWorld(skel, f), f)), [{ f: 5, name: 'strike' }]), brace, { only: riderOnly });
   if (blowsOut && riding.length > 1) blowsOut.push(attack, ...riding.slice(1).map(blowClip));
   // Yabusame: the shot at the gallop.
   const shoot = s.shoot === 'kyudo'
@@ -457,13 +466,6 @@ function horseClips(skel: SkeletonData, s: HorseSpec, m: SMounted, blowsOut?: Cl
   if (m.gear.far?.draw) drops.push({ holder: 'itemF', bone: 'dropF', slot: 'farDrop', from: 'farItem', at: 3, land: { x: 9.0, y: -0.3, rot: 90 - (s.farDeg ?? 180), f: 7 } });
   const die = addDrops(skel, fc('die', 12, false, (f) => dieKeys(f), [{ f: 8, name: 'land' }]), 12, drops);
   const dead = mapFacings(die, (a) => lastFrame(a, 'dead'));
-  // Brace: the horse standing to receive, the rider's weapon levelled as for his foot cousin.
-  const braceA: Author = (rw, f) => ({
-    dw: { horseNeck: T([0, 6]), horseHead: T([0, -4]), spine: T([0, -6]) },
-    w: (s.ride === 'couch' ? { upperArmN: T([0, -10]), forearmN: T([0, 76]), weapon: T([0, s.charge]) } : s.ride === 'cut' ? { upperArmN: T([0, 40]), forearmN: T([0, 100]), weapon: T([0, 120]) } : { upperArmN: T([0, rw.upperArmN! + 10]) }) as Record<string, Track>,
-    ...(void BRACE, void f, {}),
-  });
-  const brace = breath(fc('brace', 8, true, standKeys(8, skel, braceA)), 0.6);
   return { [Anim.Idle]: idle, [Anim.Walk]: walk, [Anim.Run]: run, [Anim.Attack]: attack, [Anim.Shoot]: shoot, [Anim.Hit]: hit, [Anim.Die]: die, [Anim.Dead]: dead, [Anim.Brace]: brace };
 
   /**

@@ -26,6 +26,7 @@ import {
   type AnimationData, type FacingClips, type Key, type Posed, type AnimEvent, type AttachmentSet, type Clip, type JointDef, type SkeletonData, type SkeletonRig, type SlotData,
 } from './skeleton.ts';
 import { HIT, T } from './templar-clips.ts';
+import { fromGuard } from './guard.ts';
 import {
   addDrops, facingClip, lastFrame, mapFacings, mocapKeys, overlayKeys, partMap, restWorld, skinMap, smooth01,
   type ClipSet, type Drop, type KP, type LagSpec, type MocapOpts, type Track, type Weights,
@@ -1027,9 +1028,12 @@ export function footClips(skel: SkeletonData, s: SSpec, k: SFoot, blowsOut?: Cli
   let run = fc('run', 12, true, (f) => flight(mk(skel, f, 'run', { ref: 'mean', torso: 0.5, arms: armsRun, roll: 0.5, feet: 0.85, mirror: 12 }, runA)), [{ f: 0, name: 'step', str: 'N' }, { f: 6, name: 'step', str: 'F' }], 1);
   // Idle: the capture's slow weight shift, small (the key art must hold), and breathing.
   const idle = withBreath(fc('idle', 8, true, (f) => mk(skel, f, 'idle', { ref: 'first', torso: 0.1, travel: 0.16, feet: 0 })));
+  // Brace is the man's guard (kamae): in a fight he stands in it, and every blow leaves it and
+  // comes back to it (guard.ts).
+  const brace = withBreath(fc('brace', 8, true, (f) => mk(skel, f, 'brace', { ref: 'mean', absHeight: true, travel: 1.0, torso: 0, feet: 0.4 }, BRACE[s.brace])), 0.6);
   const blowClip = (a: Attack): Clip => {
     const at = ATTACKS[a];
-    return fc('attack', 12, false, (f) => mk(skel, f, at.clip, at.o, at.a, at.extra), at.ev);
+    return fromGuard(skel, fc('attack', 12, false, (f) => mk(skel, f, at.clip, at.o, at.a, at.extra), at.ev), brace);
   };
   const attack = blowClip(s.attack);
   // Every blow (README "Several blows"): blow 0 is the classic attack.
@@ -1074,7 +1078,6 @@ export function footClips(skel: SkeletonData, s: SSpec, k: SFoot, blowsOut?: Cli
   if (k.gear.far?.draw) drops.push({ holder: 'itemF', bone: 'dropF', slot: 'farDrop', from: 'farItem', at: back ? 4 : 5, land: back ? { x: 4.0, y: -0.3, rot: 90 - (s.farDeg ?? 180), f: 7 } : { x: -2.6, y: -0.3, rot: -90 - (s.farDeg ?? 180), f: 8 } });
   const die = addDrops(skel, fc('die', 12, false, dieK, [{ f: back ? 7 : 9, name: 'land' }]), 12, drops);
   const dead = mapFacings(die, (a) => lastFrame(a, 'dead'));
-  const brace = withBreath(fc('brace', 8, true, (f) => mk(skel, f, 'brace', { ref: 'mean', absHeight: true, travel: 1.0, torso: 0, feet: 0.4 }, BRACE[s.brace])), 0.6);
   const horo = k.gear.back && s.backBone === 'horo';
   // A weapon carried at the side shows in NE (drawn after the body, not behind it).
   const sideOrder = (c: Clip, cr: Carry): Clip => (s.neFront && cr.side ? mapFacings(c, (a, f) => (f === 'ne' ? { ...a, drawOrder: [{ f: 0, v: { ne: orders(s, k, false).ne } }] } : a)) : c);
