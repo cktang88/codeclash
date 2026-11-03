@@ -172,6 +172,8 @@ export class BattleScene {
   /** HD: its own randomness, so the classic effects' sequence is untouched. */
   private readonly hdRng = new Rng(11);
   /** HD: blood still spreading from the fallen: map point, radius, amount, tick due. */
+  /** HD: dust particles alive (counted each frame). */
+  private dustN = 0;
   private pools: { x: number; y: number; r: number; a: number; at: number }[] = [];
   /** The atlas image versions last uploaded (HD grids fill in the background). */
   private atlasVer = [0, 0];
@@ -362,7 +364,10 @@ export class BattleScene {
   }
 
   private spawn(kind: PK, x: number, y: number, z: number, vx: number, vy: number, vz: number, max: number, size: number, r: number, g: number, b: number, a: number, v = 0): void {
-    if (this.particles.length >= MAX_PARTICLES) return;
+    // HD: smoke and sparks get a reserve of their own (a melee's blood can fill the rest).
+    if (this.particles.length >= MAX_PARTICLES + (this.field && (kind === PK.Smoke || kind === PK.Spark) ? 800 : 0)) return;
+    // HD: dust gives way, so marching thousands never crowd out blood, sparks and gun smoke.
+    if (this.field && kind === PK.Dust && this.dustN++ >= MAX_PARTICLES / 2) return;
     this.particles.push({ kind, x, y, z, vx, vy, vz, life: 0, max, size, r, g, b, a, v });
   }
 
@@ -1142,7 +1147,7 @@ export class BattleScene {
       if (s.hp < this.prevHp[i]!) {
         this.hurtAt[i] = tick;
         const dead = s.state === State.Dead;
-        const n = dead ? 8 : 4;
+        const n = dead ? 6 : 3;
         const h = s.s.mounted ? 12 : 8;
         // A ring of drops bursting outward, some fine, some heavy.
         const a0 = rng.next() * Math.PI * 2;
@@ -1340,6 +1345,7 @@ export class BattleScene {
     const rng = this.hdRng;
     const drop = Math.max(1, Math.round(L * 0.3));
     let w = 0;
+    this.dustN = 0;
     for (const p of ps) {
       p.life += dt;
       if (p.life >= p.max) continue;
@@ -1360,6 +1366,7 @@ export class BattleScene {
         p.vz *= Math.exp(-dt * 0.8);
       }
       ps[w++] = p;
+      if (p.kind === PK.Dust) this.dustN++;
       const mx = this.mapX(p.x, p.y);
       const my = this.mapY(p.x, p.y);
       if (mx < x0 || mx > x1 || my < y0 || my > y1 + 60) continue;
