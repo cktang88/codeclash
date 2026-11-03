@@ -549,30 +549,56 @@ function horseClips(skel: SkeletonData, s: HorseSpec, fly?: Fly): { clips: ClipS
     return overlayKeys(g.keys, riderGait(g.bob, 12, s, run)(restWorld(skel, f), f));
   };
   /**
-   * The trot (running.md §9: cavalry advance at the trot, charge at the gallop): a two-beat gait
-   * in diagonal pairs. Muybridge's walk is a lateral four-beat (near hind, near fore, far hind, far
-   * fore a quarter-stride apart); delaying both forelegs by a quarter stride puts each fore in step
-   * with the opposite hind, so the plate's measured leg shapes and planted hooves move as diagonal
-   * pairs. The head stops nodding (a trotting horse carries it still) and the barrel bobs twice a
-   * stride, once per diagonal.
+   * The working trot (running.md section 9: cavalry advance at the trot, charge at the gallop): a
+   * two-beat gait in diagonal pairs, near fore with far hind, far fore with near hind, each pair
+   * on the ground for 5 of the 12 frames with a moment of suspension, all four hooves off, at each
+   * diagonal switch (frames 5 and 11), as Muybridge's trotting plates show (*Abe Edgington
+   * trotting*, *Occident*). Authored rather than read from a plate (we hold no trot capture): each
+   * hoof slides straight back along the ground while planted, then folds up and swings forward,
+   * the fore knee lifting higher than the hock; the barrel is lowest mid-stance and highest in the
+   * suspension, twice a stride, with a slight pitch onto the leading diagonal; the head is carried
+   * still, the neck barely pumping; the tail streams a little.
    */
   function trotKeys(f: Facing): { keys: KP[]; bob: Track } {
-    const g = gaitKeys(skel, 'horse-walk', f, { pitch: 0.6, neck: 0.4, head: 0, tail: -12 });
-    const byF = new Map(g.keys.map((k) => [k.f, k]));
-    const late = (fr: number) => byF.get((((fr - 3) % 12) + 12) % 12) ?? g.keys[0]!;
+    const stance = 5 / 12;
+    // Each leg's phase offset: the near-fore + far-hind diagonal leads, the other half a stride later.
+    const phase: Record<Leg, number> = { foreN: 0, hindF: 0, foreF: 0.5, hindN: 0.5 };
+    const reachX: Record<Leg, number> = { foreN: 1.45, foreF: 1.45, hindN: 1.3, hindF: 1.3 };
+    const lift: Record<Leg, number> = { foreN: 1.5, foreF: 1.5, hindN: 1.05, hindF: 1.05 };
+    const fold: Record<Leg, number> = { foreN: 62, foreF: 62, hindN: 38, hindF: 38 };
     const bob: [number, number][] = [];
-    const keys = g.keys.map((k): KP => {
-      const src = late(k.f);
-      const t = { ...(k.t ?? {}) }, w = { ...(k.w ?? {}) };
-      for (const L of ['foreN', 'foreF'] as const) {
-        t[`${L}Target`] = src.t![`${L}Target`]!;
-        w[`${L}Hoof`] = src.w![`${L}Hoof`]!;
+    const keys: KP[] = [];
+    for (let fr = 0; fr <= 12; fr++) {
+      const t: Record<string, P2> = {};
+      const w: Record<string, number> = {};
+      for (const L of LEGS) {
+        const ph = (((fr / 12 + phase[L]) % 1) + 1) % 1;
+        let x: number, y: number, hoof: number;
+        if (ph < stance - 1e-9) {
+          // Planted: the hoof stays on the ground while the body passes over it.
+          const u = ph / stance;
+          x = reachX[L] * (0.5 - u);
+          y = 0;
+          hoof = HOOF_REST;
+        } else {
+          // In the air: picked up already lifted (so the switch frames are clear of the ground), swung forward.
+          const u = (ph - stance) / (1 - stance);
+          const sw = sinD(180 * (0.24 + 0.62 * u));
+          x = reachX[L] * (-0.5 + (1 - cosD(180 * u)) / 2);
+          y = -lift[L] * sw;
+          hoof = Math.round(HOOF_REST - fold[L] * sw);
+        }
+        t[`${L}Target`] = [Math.round(x * S * 100) / 100, Math.round(y * S * 100) / 100];
+        w[`${L}Hoof`] = hoof;
       }
-      const dy = Math.round(0.22 * Math.cos((2 * Math.PI * 2 * (k.f - 1)) / 12) * 100) / 100;
-      bob.push([k.f, dy]);
+      // Lowest at mid-stance (frames 2 and 8), highest in the suspension (5 and 11).
+      const dy = Math.round(-0.24 * cosD((360 * (fr - 5)) / 6) * 100) / 100;
+      bob.push([fr, dy]);
       t.horseBody = [0, dy];
-      return { ...k, t, w };
-    });
+      const pitch = Math.round(1.6 * sinD((360 * fr) / 12) * 10) / 10;
+      keys.push({ f: fr, t, w, dw: { horseBody: pitch, horseNeck: Math.round(-pitch * 0.6 * 10) / 10, horseHead: 0, tail: Math.round((-14 + 4 * sinD((360 * fr) / 6)) * 10) / 10 } } as KP);
+    }
+    void f;
     return { keys, bob };
   }
   const idle = breath(fc('idle', 8, true, (f) => standKeys(8)(f, skel)));
