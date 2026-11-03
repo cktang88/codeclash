@@ -5,9 +5,11 @@ import { Battle, State, TICK_S, TICKS_PER_SECOND, type BattleSetup } from '../..
 import { FACTIONS } from '../../game/factions.ts';
 import { UNIT_COUNT } from '../../game/units.ts';
 import { BattleScene, MAX_ZOOM } from '../render/scene.ts';
+import type { Insets } from '../render/fit.ts';
 import { hsl } from '../render/sprites.ts';
 import { n } from '../format.ts';
 import { BATTLE_SPEEDS, SpeedControls } from './SpeedControls.tsx';
+import { canvasSize } from './canvasSize.ts';
 
 interface SideLive {
   fighting: number;
@@ -53,6 +55,24 @@ function measure(b: Battle): Live {
   return { tick: b.tick, done: b.done(), winner: b.result?.winner ?? null, sides, byClass };
 }
 
+/**
+ * Device px of `canvas` under the HUD: the banner along the top, the controls along the bottom
+ * (and a little air), or null while the HUD is not up yet.
+ */
+function hudInsets(canvas: HTMLCanvasElement): Insets | null {
+  const root = canvas.closest('.battle');
+  const top = root?.querySelector('.hud-top');
+  const bottom = root?.querySelector('.hud-controls');
+  if (!top || !bottom) return null;
+  const r = canvas.getBoundingClientRect();
+  if (!(r.width > 0 && r.height > 0)) return null;
+  const k = canvas.height / r.height;
+  const air = 6;
+  const t = top.getBoundingClientRect();
+  const b = bottom.getBoundingClientRect();
+  return { top: Math.max(0, t.bottom + air - r.top) * k, bottom: Math.max(0, r.bottom - b.top + air) * k, left: 0, right: 0 };
+}
+
 export function BattleView(props: {
   setup: BattleSetup;
   /** A background loop: no HUD, slow, restarts. */
@@ -83,6 +103,10 @@ export function BattleView(props: {
   ctl.current = { speed, paused, skipping };
   const onDoneRef = useRef(props.onDone);
   onDoneRef.current = props.onDone;
+  // The default view (BattleScene.frame: the armies framed clear of the HUD) is taken once the HUD
+  // is up, and again when the canvas resizes, until the viewer pans, zooms or follows; ⤢ asks again.
+  const untouched = useRef(true);
+  const reframe = useRef(true);
 
   useEffect(() => {
     if (noGl) return;
@@ -104,6 +128,11 @@ export function BattleView(props: {
     let hudTick = -1;
     let restartAt = 0;
     let doneSent = false;
+    // The canvas size the view was last framed for.
+    let framedW = 0;
+    let framedH = 0;
+    untouched.current = true;
+    reframe.current = true;
     // Scripted checks (?probe): the battle, its scene and the draw alpha of the latest frame.
     const probe = !ambient && /[?&]probe\b/.test(location.search) ? ((window as unknown as { battleProbe?: { at?: unknown } }).battleProbe = {} as { at?: unknown }) : null;
     const [a, b] = setup.armies;
@@ -131,18 +160,61 @@ export function BattleView(props: {
         default: return '';
       }
     };
+    // The canvas in device pixels, so each of its pixels is a whole number of the screen's: the
+    // holder's size in device px (exact where the browser reports it; it also reports a change of
+    // devicePixelRatio, a window dragged to another screen or a page zoom, with no layout change).
+    // Above 2 device px per CSS px (phones) the canvas takes every k-th: k = 2 on a 3x screen, and
+    // the browser shows each canvas pixel as exactly k × k device pixels (not 1.5 × 1.5).
+    const holder = holderRef.current!;
+    let devW = 0;
+    let devH = 0;
+    const measureHolder = () => {
+      const r = holder.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      devW = Math.round(r.width * dpr);
+      devH = Math.round(r.height * dpr);
+    };
     const resize = () => {
-      const dpr = Math.min(2, window.devicePixelRatio || 1);
-      const w = Math.max(1, Math.round(canvas.clientWidth * dpr));
-      const h = Math.max(1, Math.round(canvas.clientHeight * dpr));
-      // Setting a canvas's size, even to the same, clears it and reallocates its buffers (the
-      // observer also fires once on observe, right after the call above).
+      const { w, h, cssW, cssH } = canvasSize(devW, devH, window.devicePixelRatio || 1);
+      // Setting a canvas's size, even to the same, clears it and reallocates its buffers.
       if (canvas.width !== w) canvas.width = w;
       if (canvas.height !== h) canvas.height = h;
+      // Exactly w·k × h·k device px (100% of the holder could be a device px more or less, and
+      // the browser would stretch the whole picture by it).
+      const cw = `${cssW}px`;
+      const ch = `${cssH}px`;
+      if (canvas.style.width !== cw) canvas.style.width = cw;
+      if (canvas.style.height !== ch) canvas.style.height = ch;
     };
+    measureHolder();
     resize();
-    const ro = new ResizeObserver(resize);
-    ro.observe(canvas);
+    const ro = new ResizeObserver((entries) => {
+      const e = entries[entries.length - 1]!;
+      const box = e.devicePixelContentBoxSize?.[0];
+      measureHolder();
+      // The exact device size where the browser gives one that agrees with the layout's (an
+      // emulated devicePixelRatio, as in headless test runs, reports CSS px there).
+      if (box && Math.abs(box.inlineSize - devW) <= 1 && Math.abs(box.blockSize - devH) <= 1) {
+        devW = box.inlineSize;
+        devH = box.blockSize;
+      }
+      resize();
+    });
+    try {
+      ro.observe(holder, { box: 'device-pixel-content-box' });
+    } catch {
+      ro.observe(holder);
+    }
+    // Where the observer cannot see device pixels (Safari), a change of devicePixelRatio alone.
+    let mq: MediaQueryList | null = null;
+    const onDpr = () => {
+      mq?.removeEventListener('change', onDpr);
+      mq = typeof matchMedia === 'function' ? matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`) : null;
+      mq?.addEventListener('change', onDpr);
+      measureHolder();
+      resize();
+    };
+    onDpr();
 
     const loop = (now: number) => {
       // A frame's timestamp can precede the performance.now() taken when the effect ran: never step backwards
@@ -189,14 +261,22 @@ export function BattleView(props: {
         const prev = scene;
         sceneArt = artRef.current;
         prev.dispose();
-        scene = new BattleScene(battle, sceneArt);
-        scene.camera.zoom = Math.min(prev.camera.zoom, scene.maxZoom);
-        scene.camera.cx = prev.camera.cx;
-        scene.camera.cy = prev.camera.cy;
-        scene.scanlines = prev.scanlines;
-        scene.follow = prev.follow;
+        // The camera, facings and wounds carry over; the zoom is the new art's level nearest the
+        // old scale (classic adds a pixel a level, HD doubles: the same level number would jump).
+        scene = new BattleScene(battle, sceneArt, prev);
+        scene.matchZoom(prev, canvas.width, canvas.height);
         sceneRef.current = scene;
         setZoom(scene.camera.zoom);
+      }
+      if (!ambient && untouched.current && (reframe.current || canvas.width !== framedW || canvas.height !== framedH)) {
+        const insets = hudInsets(canvas);
+        if (insets) {
+          scene.frame(canvas.width, canvas.height, insets);
+          reframe.current = false;
+          framedW = canvas.width;
+          framedH = canvas.height;
+          setZoom(scene.camera.zoom);
+        }
       }
       // Dust, blood and smoke drift at the battle's pace too (frozen while paused).
       const alpha = battle.done() ? 1 : Math.min(1, acc / TICK_S);
@@ -226,6 +306,7 @@ export function BattleView(props: {
     return () => {
       cancelAnimationFrame(raf);
       ro.disconnect();
+      mq?.removeEventListener('change', onDpr);
       scene.dispose(true);
       canvas.remove();
       if (canvasRef.current === canvas) canvasRef.current = null;
@@ -255,12 +336,14 @@ export function BattleView(props: {
     const k = c.width / Math.max(1, r.width);
     return [(clientX - r.left) * k, (clientY - r.top) * k];
   };
-  const zoomTo = (level: number, clientX?: number, clientY?: number) => {
+  /** One zoom level in (+1) or out (-1), about a client point or the centre. */
+  const zoomBy = (dir: 1 | -1, clientX?: number, clientY?: number) => {
     const s = sceneRef.current;
     const c = canvasRef.current;
     if (!s || !c) return;
+    untouched.current = false;
     const [x, y] = clientX === undefined ? [c.width / 2, c.height / 2] : dev(clientX, clientY!);
-    s.zoomAt(c, level, x, y);
+    s.zoomAt(c, s.nextZoom(dir), x, y);
     setZoom(s.camera.zoom);
   };
   const stopFollow = () => follow && setFollow(false);
@@ -280,7 +363,7 @@ export function BattleView(props: {
       const now = e.timeStamp;
       const l = lastTap.current;
       if (l && now - l.t < 320 && Math.hypot(e.clientX - l.x, e.clientY - l.y) < 30) {
-        zoomTo((sceneRef.current?.camera.zoom ?? 1) + 1, e.clientX, e.clientY);
+        zoomBy(1, e.clientX, e.clientY);
         lastTap.current = null;
       } else lastTap.current = { t: now, x: e.clientX, y: e.clientY };
     }
@@ -294,6 +377,7 @@ export function BattleView(props: {
     const n = pointers.current.size;
     // With two fingers each moves the view by half its travel: together, the midpoint's.
     s.pan(((e.clientX - prev.x) * k) / n, ((e.clientY - prev.y) * k) / n);
+    if (e.clientX !== prev.x || e.clientY !== prev.y) untouched.current = false;
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     stopFollow();
     if (n === 2 && pinch.current) {
@@ -301,7 +385,7 @@ export function BattleView(props: {
       const d = Math.hypot(p!.x - q!.x, p!.y - q!.y);
       const ratio = d / Math.max(1, pinch.current.dist);
       if (ratio > 1.3 || ratio < 0.77) {
-        zoomTo(s.camera.zoom + (ratio > 1 ? 1 : -1), (p!.x + q!.x) / 2, (p!.y + q!.y) / 2);
+        zoomBy(ratio > 1 ? 1 : -1, (p!.x + q!.x) / 2, (p!.y + q!.y) / 2);
         pinch.current = { dist: d };
       }
     }
@@ -320,9 +404,9 @@ export function BattleView(props: {
       if (!s) return;
       wheelAcc.current += e.deltaMode === 1 ? e.deltaY * 40 : e.deltaY;
       if (Math.abs(wheelAcc.current) < 50) return;
-      const step = wheelAcc.current < 0 ? 1 : -1;
+      const step: 1 | -1 = wheelAcc.current < 0 ? 1 : -1;
       wheelAcc.current = 0;
-      zoomTo(s.camera.zoom + step, e.clientX, e.clientY);
+      zoomBy(step, e.clientX, e.clientY);
     };
     c.addEventListener('wheel', onWheel, { passive: false });
     return () => c.removeEventListener('wheel', onWheel);
@@ -340,7 +424,7 @@ export function BattleView(props: {
         onPointerMove={ambient ? undefined : onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
-        onDoubleClick={ambient ? undefined : (e) => zoomTo(zoom + 1, e.clientX, e.clientY)}
+        onDoubleClick={ambient ? undefined : (e) => zoomBy(1, e.clientX, e.clientY)}
       />
       {noGl && <div className="verdict"><div className="verdict-kicker">This browser cannot draw the battle (WebGL2 is unavailable).</div></div>}
       {!ambient && live && (
@@ -386,12 +470,12 @@ export function BattleView(props: {
               <button onClick={() => setSkipping(true)} disabled={live.done || skipping} title="To the end" aria-label="To the end"><span className="hud-label">To the end </span>⏭</button>
             </SpeedControls>
             <span className="hud-group">
-              <button onClick={() => zoomTo(zoom - 1)} disabled={zoom <= 1} aria-label="Zoom out">−</button>
-              <span className="mono">{zoom}×</span>
-              <button onClick={() => zoomTo(zoom + 1)} disabled={zoom >= (sceneRef.current?.maxZoom ?? MAX_ZOOM)} aria-label="Zoom in">+</button>
-              <button onClick={() => { sceneRef.current?.fit(); setZoom(1); }} title="Fit the field" aria-label="Fit the field">⤢</button>
+              <button onClick={() => zoomBy(-1)} disabled={zoom <= (sceneRef.current?.minZoom ?? 1)} aria-label="Zoom out">−</button>
+              <span className="mono">{zoom < 1 ? `${Math.round(zoom * 100)}%` : `${zoom}×`}</span>
+              <button onClick={() => zoomBy(1)} disabled={zoom >= (sceneRef.current?.maxZoom ?? MAX_ZOOM)} aria-label="Zoom in">+</button>
+              <button onClick={() => { untouched.current = true; reframe.current = true; setFollow(false); }} title="Frame the armies" aria-label="Frame the armies">⤢</button>
               <button className={scan ? 'on' : ''} onClick={() => setScan((x) => !x)} title="Scanlines" aria-label="Scanlines" aria-pressed={scan}>▤</button>
-              <button className={follow ? 'on' : ''} onClick={() => setFollow((x) => !x)} title="Follow the fighting" aria-label="Follow the fighting" aria-pressed={follow}>◎</button>
+              <button className={follow ? 'on' : ''} onClick={() => { untouched.current = false; setFollow((x) => !x); }} title="Follow the fighting" aria-label="Follow the fighting" aria-pressed={follow}>◎</button>
               <button className={art !== 'classic' ? 'on' : ''} onClick={() => setArt(nextArt(art))} title={`Pixel art: ${ART_LABEL[art]} (switch to ${ART_LABEL[nextArt(art)]})`} aria-label={`Pixel art: ${ART_LABEL[art]}; switch to ${ART_LABEL[nextArt(art)]}`}>{art === 'hd64' ? 'HD64' : 'HD'}</button>
             </span>
           </div>

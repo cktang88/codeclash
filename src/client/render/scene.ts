@@ -22,15 +22,20 @@ import { HdField } from './field-hd.ts';
 import { ANGLES, fxId, HOOVES, lookOf, PUFF_SIZES, PUFF_VARIANTS, SPLATS } from './fx-hd.ts';
 import { Batch, cornerBuffer, dropTarget, SpriteProgram, SpriteStream, target, texture, texturePixels, type Part, type Target } from './gl.ts';
 import { paintGround, type Ground } from './ground.ts';
-import { dirFor, projX, projY, PX, unproject } from './iso.ts';
+import { projX, projY, PX, unproject } from './iso.ts';
 import { GlPost } from './post.ts';
+import { facing } from './pose.ts';
+import { frameBox, NO_INSETS, zoomOutScale, type Insets } from './fit.ts';
 import { upscaleCanvas } from './upscale.ts';
 import { buildAtlas as buildClassic } from './sprites.ts';
 import { buildAtlas as buildHd, buildAtlas64 as buildHd64 } from './sprites128.ts';
 import { artMode, isHdArt, type ArtMode } from '../settings.ts';
 
 export interface Camera {
-  /** Whole-number zoom: 1 fits the field, each step adds one screen pixel per scene pixel. */
+  /**
+   * Whole-number zoom: 1 fits the field, each step adds one screen pixel per scene pixel (HD:
+   * doubles). Below 1 (a small screen framing the armies, see frame()): a fraction of zoom 1's scale.
+   */
   zoom: number;
   /** World point at the centre of the view. */
   cx: number;
@@ -201,6 +206,8 @@ function setPart(out: Part[], n: number, batch: Batch, tex: WebGLTexture, w: num
 
 export class BattleScene {
   camera: Camera = { zoom: 1, cx: FIELD_W / 2, cy: FIELD_H / 2 };
+  /** The farthest zoom-out: 1, or the fraction below it that frame() needed to show everyone. */
+  minZoom = 1;
   scanlines = true;
   /** Ease the camera toward the thick of the fighting. */
   follow = false;
@@ -250,6 +257,9 @@ export class BattleScene {
   private prevHp: Float32Array;
   private hurtAt: Float32Array;
   private dirs: Uint8Array;
+  /** World direction of each man's latest shot (NaN: none yet): an archer faces where he looses. */
+  private aimX: Float32Array;
+  private aimY: Float32Array;
   private stamped: Uint8Array;
   private regX: Float32Array;
   private frameTab: Uint16Array[] = [];
@@ -290,7 +300,11 @@ export class BattleScene {
   private readonly stampParts: Part[] = [];
   private view = { px: 1, m: 1, u: 1, bw: 1, bh: 1, vw: 1, vh: 1, camX: 0, camY: 0, offX: 0, offY: 0, W: 1, H: 1 };
 
-  constructor(readonly battle: Battle, art: ArtMode = artMode()) {
+  /**
+   * `from`: the scene that drew this battle until now (the art was switched mid-battle): its
+   * camera, facings, wounds and last snapshot carry over, so nothing turns, jumps or flinches.
+   */
+  constructor(readonly battle: Battle, art: ArtMode = artMode(), from?: BattleScene) {
     this.art = art;
     this.ground = paintGround(battle.setup.seed);
     if (isHdArt(art)) this.field = new HdField(this.ground, battle.setup.armies);
@@ -347,6 +361,8 @@ export class BattleScene {
     this.prevHp = new Float32Array(n);
     this.hurtAt = new Float32Array(n).fill(-100);
     this.dirs = new Uint8Array(n);
+    this.aimX = new Float32Array(n).fill(NaN);
+    this.aimY = new Float32Array(n).fill(NaN);
     this.stamped = new Uint8Array(n);
     this.regX = new Float32Array(battle.regiments.length);
     this.regY = new Float32Array(battle.regiments.length);
@@ -355,6 +371,56 @@ export class BattleScene {
       this.dirs[i] = s.team === 0 ? 0 : 2;
     }
     this.snapshot();
+    if (from && from.battle === battle) {
+      this.dirs.set(from.dirs);
+      this.hurtAt.set(from.hurtAt);
+      this.aimX.set(from.aimX);
+      this.aimY.set(from.aimY);
+      this.prevX.set(from.prevX);
+      this.prevY.set(from.prevY);
+      this.prevHp.set(from.prevHp);
+      this.regX.set(from.regX);
+      this.regY.set(from.regY);
+      this.flying = new Set(from.flying);
+      this.time = from.time;
+      this.camera = { ...from.camera };
+      this.minZoom = from.minZoom;
+      this.scanlines = from.scanlines;
+      this.follow = from.follow;
+    }
+    // The fallen already down (a scene made mid-battle) lie as corpses at once: afterStep only
+    // lays them as they finish falling, and a paused or finished battle steps no more.
+    const tick = battle.tick;
+    for (let i = 0; i < n; i++) {
+      const s = battle.soldiers[i]!;
+      if (s.state !== State.Dead || tick - s.diedAt < this.dieTicks(s.team, this.kindOf(i))) continue;
+      if (!this.field) {
+        this.stampCorpse(i);
+        continue;
+      }
+      // HD: drawn as a corpse, his pool soaked in already (as dark as its age says).
+      this.stamped[i] = 1;
+      const big = s.s.mounted ? 1.7 : 1;
+      const mx = this.mapX(s.x, s.y);
+      const my = this.mapY(s.x, s.y);
+      for (let k = 0; k < 4; k++) this.field.mark(mx + (k - 1.5) * 0.8 * big, my, (1.8 + k * 0.85) * big, 0.3, 0, s.diedAt * TICK_S);
+    }
+  }
+
+  /**
+   * After an art switch: the zoom level of this scene's ladder that draws closest to `prev`'s scale
+   * on a canvas of W × H (the two arts' ladders differ: classic adds a pixel a level, HD doubles).
+   */
+  matchZoom(prev: BattleScene, W: number, H: number): void {
+    // Below 1 the scale is the same fraction of zoom 1's in every art.
+    if (prev.camera.zoom < 1) {
+      this.camera.zoom = prev.camera.zoom;
+      return;
+    }
+    const want = prev.pixelScale(W, H);
+    let best = 1;
+    for (let z = 1; z <= this.maxZoom; z++) if (Math.abs(Math.log(this.scaleAt(W, H, z) / want)) < Math.abs(Math.log(this.scaleAt(W, H, best) / want)) - 1e-9) best = z;
+    this.camera.zoom = best;
   }
 
   /** Whether this browser can draw battles at all. */
@@ -432,12 +498,22 @@ export class BattleScene {
     }
     // Missiles that came down this tick.
     const now = new Set(b.projectiles);
+    this.aimShots();
     for (const p of this.flying) {
       if (now.has(p)) continue;
       if (p.splash > 0) this.impact(p.x1, p.y1);
       else if (rng.next() < 0.3) this.stampFx(`stuck${rng.int(3)}`, p.x1, p.y1, 1);
     }
     this.flying = now;
+  }
+
+  /** Records the direction of the shots loosed this tick (call before `flying` is replaced). */
+  private aimShots(): void {
+    for (const p of this.battle.projectiles) {
+      if (this.flying.has(p) || p.shooter < 0 || p.shooter >= this.aimX.length) continue;
+      this.aimX[p.shooter] = p.x1 - p.x0;
+      this.aimY[p.shooter] = p.y1 - p.y0;
+    }
   }
 
   private kindOf(i: number): number {
@@ -694,6 +770,11 @@ export class BattleScene {
     return this.scales(W, H).s;
   }
 
+  /** Device pixels per map pixel for a canvas of this size at zoom level `zoom`. */
+  scaleAt(W: number, H: number, zoom: number): number {
+    return this.scales(W, H, zoom).s;
+  }
+
   /** Bytes of sprite textures on the GPU: both armies' grids and the HD sheets uploaded now. */
   get spriteGpuBytes(): number {
     let b = 0;
@@ -722,11 +803,18 @@ export class BattleScene {
    * device pixel. HD art: each level doubles s, and the buffer draws the map m = 2, 4 or 8 times
    * larger, so the 2x, 4x and 8x sprite sheets land texel for pixel and never blur.
    */
-  private scales(W: number, H: number): { s: number; m: number; u: number } {
+  private scales(W: number, H: number, zoom = this.camera.zoom): { s: number; m: number; u: number } {
     const [fw, fh] = this.fieldPx();
     // Fit the field, rounding up a little: the parallelogram's far corners are mostly empty.
     const fit = Math.max(1, Math.floor(Math.min(W / (fw * 0.92), H / (fh * 1.15)) + 0.3));
-    const z = Math.max(1, Math.round(this.camera.zoom));
+    if (zoom < 1) {
+      // Zoomed out past 1 (the armies framed on a small screen): whole device px per map px down
+      // to 1, then a fraction, the buffer drawn a map px a pixel and blown down nearest (post.ts).
+      const s = zoomOutScale(zoom, fit, W, H);
+      const m = s >= 1 && isHdArt(this.art) ? [8, 4, 2, 1].find((l) => s % l === 0 && l <= this.hdDensity)! : 1;
+      return { s, m, u: s / m };
+    }
+    const z = Math.max(1, Math.round(zoom));
     if (!isHdArt(this.art)) {
       const s = fit + z - 1;
       return { s, m: 1, u: s };
@@ -743,12 +831,53 @@ export class BattleScene {
    */
   zoomAt(out: HTMLCanvasElement, level: number, x: number, y: number): void {
     const [bx, by] = this.toWorld(out, x, y);
-    this.camera.zoom = Math.max(1, Math.min(this.maxZoom, Math.round(level)));
+    this.camera.zoom = level < 1 ? this.minZoom : Math.max(this.minZoom, Math.min(this.maxZoom, Math.round(level)));
     this.layout(out.width, out.height);
     const [ax, ay] = this.toWorld(out, x, y);
     this.camera.cx += bx - ax;
     this.camera.cy += by - ay;
     this.layout(out.width, out.height);
+  }
+
+  /** The next zoom level in (+1) or out (-1) from the current one. */
+  nextZoom(dir: 1 | -1): number {
+    const z = this.camera.zoom;
+    if (dir > 0) return z < 1 ? 1 : Math.min(this.maxZoom, Math.round(z) + 1);
+    return z <= 1 ? this.minZoom : Math.round(z) - 1;
+  }
+
+  /**
+   * The default view: everyone on the field (at the start, the whole deployment) framed in the
+   * part of a W × H canvas the HUD leaves clear (`insets`, device px), at zoom 1 when they fit
+   * there, else zoomed out below 1 just enough (frameBox). That zoom becomes the floor of the
+   * zoom-out. An empty field: the whole field, as fit().
+   */
+  frame(W: number, H: number, insets: Insets = NO_INSETS): void {
+    let x0 = Infinity;
+    let y0 = Infinity;
+    let x1 = -Infinity;
+    let y1 = -Infinity;
+    for (const s of this.battle.soldiers) {
+      if (s.state === State.Fled) continue;
+      const mx = this.mapX(s.x, s.y);
+      const my = this.mapY(s.x, s.y);
+      if (!(mx === mx && my === my)) continue;
+      if (mx < x0) x0 = mx;
+      if (mx > x1) x1 = mx;
+      if (my < y0) y0 = my;
+      if (my > y1) y1 = my;
+    }
+    // The figures stand up from their feet, a horseman's standard ~35 map px over him.
+    const box = x1 >= x0 ? { x0: x0 - 14, y0: y0 - 38, x1: x1 + 14, y1: y1 + 6 } : null;
+    const f = frameBox(box, W, H, insets, this.scaleAt(W, H, 1));
+    if (!f) {
+      this.minZoom = 1;
+      this.fit();
+      return;
+    }
+    this.minZoom = f.zoom;
+    this.camera.zoom = f.zoom;
+    [this.camera.cx, this.camera.cy] = unproject(f.mx + this.ground.ox, f.my + this.ground.oy);
   }
 
   /** The whole field in view. */
@@ -1207,10 +1336,8 @@ export class BattleScene {
         // Between blows a man in the fight stands in his guard (Brace), poised: blows leave it and
         // return to it. Out of reach of a foe he idles (or holds the regiment's braced stance).
         else if (s.state === State.Fighting && (BRACING.has(stance) || (tgt !== undefined && melee))) anim = Anim.Brace;
-        // Facing: the way they move, else at their foe, else the regiment's front.
-        if (speed > 3 && anim !== Anim.Attack && anim !== Anim.Shoot) dir = dirFor(s.vx, s.vy, dir);
-        else if (tgt && (anim === Anim.Attack || anim === Anim.Shoot || (anim === Anim.Brace && melee))) dir = dirFor(tgt.x - s.x, tgt.y - s.y, dir);
-        else dir = dirFor(reg.fx, reg.fy, dir);
+        // Facing: the way they move, else where they shoot or at their foe, else the regiment's front.
+        dir = facing(anim, s.vx, s.vy, tgt ? tgt.x - s.x : NaN, tgt ? tgt.y - s.y : NaN, melee, this.aimX[i]!, this.aimY[i]!, reg.fx, reg.fy, dir);
         this.dirs[i] = dir;
       }
       const frames = this.frameTab[s.team]![kind * ANIM_COUNT + anim]!;
@@ -1497,6 +1624,7 @@ export class BattleScene {
     }
     // Missiles that came down this tick: craters, spent arrows standing in the dirt, a kick of dust.
     const live = new Set(b.projectiles);
+    this.aimShots();
     for (const p of this.flying) {
       if (live.has(p)) continue;
       if (p.splash > 0) {
