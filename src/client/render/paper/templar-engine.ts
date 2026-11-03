@@ -9,7 +9,7 @@ import { Anim } from '../contract.ts';
 import { code, type P2, type Paper } from './core.ts';
 import type { Facing } from './facing.ts';
 import { registerPaperKind } from './registry.ts';
-import { BREATH, bonesFromJoints, EASE, skeletonKind, type AnimEvent, type AttachmentSet, type Clip, type JointDef, type PartXf, type SkeletonData, type SkeletonRig, type SlotData } from './skeleton.ts';
+import { ALL_ANIMS, BREATH, bonesFromJoints, EASE, lazySkeletonKind, type AnimEvent, type AttachmentSet, type Clip, type JointDef, type PartXf, type SkeletonData, type SkeletonRig, type SlotData } from './skeleton.ts';
 import { T, type Author } from './templar-clips.ts';
 import { paintAs, TM } from './templar-parts.ts';
 import { facingClip, lastFrame, mapFacings, overlayKeys, partMap, restWorld, type ClipSet, type KP } from './templar-rig.ts';
@@ -180,6 +180,6 @@ export function engineRig(): SkeletonRig {
   return RIG;
 }
 export function registerEngineRig(kind: number): void {
-  registerPaperKind('templar', kind, skeletonKind(engineRig()));
+  registerPaperKind('templar', kind, lazySkeletonKind({ body: 'engine', anims: ALL_ANIMS, blows: 1 }, engineRig));
 }
 void EASE;

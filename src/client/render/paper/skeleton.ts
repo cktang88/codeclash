@@ -17,7 +17,7 @@
 // gives the same bytes in every browser and in Node. Math.sin / Math.cos / Math.atan2 are never
 // called while posing.
 
-import { Anim } from '../contract.ts';
+import { Anim, ANIM_COUNT } from '../contract.ts';
 import { FRAMES, LOOPS } from '../frames.ts';
 import { figurePalette, Paper, type FigurePalette, type Mat, type P2 } from './core.ts';
 import { DRAWN_DEFAULT, planFacing, type Facing } from './facing.ts';
@@ -1068,6 +1068,72 @@ export function skeletonKind(rig: SkeletonRig, opts: Omit<PaperKindDef<BasePose>
     facings: rig.facings,
     keys: { poses, ...(rig.attacks?.length ? { attacks: rig.attacks.map(() => [rest]) } : {}) },
     draw: (c, _p, facing, anim, frame, blow) => void drawRigFrame(c, rig, anim, frame, facing, blow),
+  };
+}
+
+/**
+ * What the paper registry needs to know of a rig before it is built: its body, the animations it
+ * has clips for, its melee blows and its hand-drawn facings. Declaring it lets a faction register
+ * every kind at load without building a rig (seconds of clip baking on the main thread, even in
+ * Classic); the rig is built on its kind's first painted frame.
+ */
+export interface RigShape {
+  body: BodyType;
+  anims: readonly Anim[];
+  blows: number;
+  facings?: readonly Facing[];
+}
+
+/** Every animation (a rig with a clip for each, Shoot included). */
+export const ALL_ANIMS: readonly Anim[] = Array.from({ length: ANIM_COUNT }, (_, a) => a as Anim);
+
+/** The shape `skeletonKind(rig)` registers for a built rig. */
+export function rigShape(rig: SkeletonRig): RigShape {
+  const anims = new Set(Object.keys(rig.clips).map(Number) as Anim[]);
+  if (rig.attacks?.length) anims.add(Anim.Attack);
+  return { body: rig.skel.body, anims: [...anims].sort((a, b) => a - b), blows: Math.max(1, rig.attacks?.length ?? 1), ...(rig.facings ? { facings: rig.facings } : {}) };
+}
+
+/** Where a built rig differs from the shape declared for it (empty: it matches). */
+export function shapeMismatch(rig: SkeletonRig, shape: RigShape): string[] {
+  const got = rigShape(rig), out: string[] = [];
+  if (got.body !== shape.body) out.push(`body ${got.body}, declared ${shape.body}`);
+  if (got.blows !== shape.blows) out.push(`blows ${got.blows}, declared ${shape.blows}`);
+  const anims = [...new Set(shape.anims)].sort((a, b) => a - b);
+  if (got.anims.join() !== anims.join()) out.push(`anims ${got.anims.join()}, declared ${anims.join()}`);
+  if ((got.facings ?? DRAWN_DEFAULT).join() !== (shape.facings ?? DRAWN_DEFAULT).join()) out.push(`facings ${got.facings?.join()}, declared ${shape.facings?.join()}`);
+  return out;
+}
+
+let built = 0;
+/** How many lazily registered rigs this thread has built so far (none until a frame is painted). */
+export const lazyRigsBuilt = (): number => built;
+
+/**
+ * `skeletonKind` for a rig built on first use: registered from its declared `shape`, built by
+ * `build` the first time a frame is drawn (and checked against the shape then: a rig that grew a
+ * blow or an animation its declaration lacks throws rather than paint into the wrong slots).
+ */
+export function lazySkeletonKind(shape: RigShape, build: () => SkeletonRig, opts: Omit<PaperKindDef<BasePose>, 'body' | 'keys' | 'draw' | 'facings' | 'blows'> = {}): PaperKindDef<BasePose> {
+  let rig: SkeletonRig | undefined;
+  const get = (): SkeletonRig => {
+    if (rig) return rig;
+    const r = build();
+    const bad = shapeMismatch(r, shape);
+    if (bad.length) throw new Error(`rig ${r.skel.name}: ${bad.join('; ')}`);
+    built++;
+    return (rig = r);
+  };
+  const rest: BasePose = { px: 0, py: 0, tilt: 0, apart: 0, smear: null, sway: 0 };
+  const poses: Partial<Record<Anim, BasePose[]>> = {};
+  for (const a of shape.anims) poses[a] = [rest];
+  return {
+    ...opts,
+    body: shape.body,
+    facings: shape.facings,
+    blows: shape.blows,
+    keys: { poses, ...(shape.blows > 1 ? { attacks: Array.from({ length: shape.blows }, () => [rest]) } : {}) },
+    draw: (c, _p, facing, anim, frame, blow) => void drawRigFrame(c, get(), anim, frame, facing, blow),
   };
 }
 

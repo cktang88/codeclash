@@ -11,9 +11,9 @@ import type { P2, Paper } from './core.ts';
 import type { Facing } from './facing.ts';
 import { registerPaperKind } from './registry.ts';
 import { flash as muzzleFlash, smoke } from './samurai-parts.ts';
-import { neBody, samuraiKind, type SSpec } from './samurai-rig.ts';
+import { lazySamuraiKind, neBody, type SSpec } from './samurai-rig.ts';
 import { manOrder, manPiece, OZ, OZ_CREW, OZ_PIECES, ozCrewBody, ozPiece, withMap, type Body, type ManPiece, type OzPiece } from './samurai-static.ts';
-import { bonesFromJoints, evaluate, sampleClip, type AnimEvent, type AttachmentSet, type Clip, type JointDef, type SkeletonData, type SkeletonRig, type SlotData } from './skeleton.ts';
+import { ALL_ANIMS, bonesFromJoints, evaluate, sampleClip, type AnimEvent, type AttachmentSet, type Clip, type JointDef, type SkeletonData, type SkeletonRig, type SlotData } from './skeleton.ts';
 import { T, type Author } from './templar-clips.ts';
 import { facingClip, lastFrame, mapFacings, overlayKeys, partMap, restWorld, type ClipSet, type KP } from './templar-rig.ts';
 
@@ -195,6 +195,6 @@ export function engineRig(): SkeletonRig {
   return RIG;
 }
 export function registerEngineRig(kind: number): void {
-  registerPaperKind('samurai', kind, samuraiKind(engineRig()));
+  registerPaperKind('samurai', kind, lazySamuraiKind({ body: 'engine', anims: ALL_ANIMS, blows: 1 }, engineRig));
 }
 void (null as unknown as Paper);

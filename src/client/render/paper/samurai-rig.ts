@@ -18,11 +18,12 @@
 import { Anim } from '../contract.ts';
 import { addP, code, type P2, type Paper } from './core.ts';
 import type { Facing } from './facing.ts';
-import { registerPaperKind } from './registry.ts';
+import { registerPaperKind, type PaperKindDef } from './registry.ts';
+import type { BasePose } from './rig.ts';
 import { flash as muzzleFlash, smoke, SM, stick, yumi } from './samurai-parts.ts';
 import { footBody, FOOT, KUSA_TOP, L2_TONES, LOW_MERGE, LOW_TONES, MID_MERGE, MID_TONES, manOrder, manPiece, mapPoint, withMap, type Body, type ManPiece, type SFoot } from './samurai-static.ts';
 import {
-  BREATH, bonesFromJoints, EASE, EASE_IN, EASE_OUT, emptyLocals, evaluate, sampleClip, shortest, skeletonKind,
+  ALL_ANIMS, BREATH, bonesFromJoints, EASE, EASE_IN, EASE_OUT, emptyLocals, evaluate, lazySkeletonKind, sampleClip, shortest, skeletonKind, type RigShape,
   type AnimationData, type FacingClips, type Key, type Posed, type AnimEvent, type AttachmentSet, type Clip, type JointDef, type SkeletonData, type SkeletonRig, type SlotData,
 } from './skeleton.ts';
 import { HIT, T } from './templar-clips.ts';
@@ -1141,16 +1142,27 @@ let l2MergeTable: Map<number, number> | null = null;
 
 /** A rig as a paper kind, its frames merged below level 4. */
 export function samuraiKind(rig: SkeletonRig): ReturnType<typeof skeletonKind> {
-  const k = skeletonKind(rig);
+  return lowMerged(skeletonKind(rig));
+}
+
+/** A kind's frames merged below level 4 (lowMerge after every draw). */
+function lowMerged(k: PaperKindDef<BasePose>): PaperKindDef<BasePose> {
   const draw = k.draw;
   return { ...k, draw: (c, p, f, anim, fr, blow) => { draw(c, p, f, anim, fr, blow); lowMerge(c); } };
+}
+
+/** `samuraiKind` for a rig built on its kind's first frame (see lazySkeletonKind). */
+export function lazySamuraiKind(shape: RigShape, build: () => SkeletonRig): PaperKindDef<BasePose> {
+  return lowMerged(lazySkeletonKind(shape, build));
 }
 
 /** Registers the foot kinds drawn on bones (samurai.ts calls this after its own registrations, so these win). */
 export function registerFootRigs(kinds: readonly number[]): void {
   for (const kd of kinds) {
-    const rig = footRig(kd);
-    if (rig) registerPaperKind('samurai', kd, samuraiKind(rig));
+    const s = FOOT_SPECS[kd];
+    if (!FOOT[kd] || !s) continue;
+    // Built on the kind's first frame (footClips: one attack per listed blow, when several).
+    registerPaperKind('samurai', kd, lazySamuraiKind({ body: 'foot', anims: ALL_ANIMS, blows: Math.max(1, s.blows?.length ?? 1) }, () => footRig(kd)!));
   }
 }
 
