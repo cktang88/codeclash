@@ -199,6 +199,8 @@ class Store {
   readonly acted: Int32Array;
   readonly hit: Int32Array;
   readonly died: Int32Array;
+  /** Tick the Lich-Marshal raised him (U3), or -1. */
+  readonly rose: Int32Array;
   readonly kills: Int32Array;
   readonly stun: Int32Array;
   /** A running man's own heading (unit vector) and pace (share of his speed). */
@@ -215,7 +217,7 @@ class Store {
     this.rad = f(); this.mass = f(); this.spd = f(); this.hx = f(); this.hy = f(); this.hs = f(); this.aim = f();
     this.state = new Uint8Array(n); this.team = new Uint8Array(n);
     this.reg = i(); this.target = i(); this.cd = i(); this.ammo = i();
-    this.acted = i(); this.hit = i(); this.died = i(); this.kills = i(); this.stun = i();
+    this.acted = i(); this.hit = i(); this.died = i(); this.kills = i(); this.stun = i(); this.rose = i();
   }
 }
 
@@ -266,6 +268,13 @@ export class Soldier {
   /** Tick it fell, or -1. */
   get diedAt(): number { return this.d.died[this.id]!; }
   set diedAt(v: number) { this.d.died[this.id] = v; }
+  /**
+   * Tick the Lich-Marshal raised him from the dead (U3 What falls, rises), or -1: a man raised
+   * stands again (state Fighting) where he fell, at `diedAt`; the renderer plays his fall
+   * backwards from here. A man rises once at most.
+   */
+  get roseAt(): number { return this.d.rose[this.id]!; }
+  set roseAt(v: number) { this.d.rose[this.id] = v; }
   /** Knocked down or reeling from a charge: ticks left. */
   get stunned(): number { return this.d.stun[this.id]!; }
   get kills(): number { return this.d.kills[this.id]!; }
@@ -573,11 +582,13 @@ export interface Stake {
 }
 
 export interface SideResult {
-  /** Men, not figures. */
+  /** Men, not figures. dead + fled + alive = start, a man raised from the dead counted where he ended. */
   start: Counts;
   dead: Counts;
   fled: Counts;
   alive: Counts;
+  /** Men the Lich-Marshal raised (U3), whatever became of them after (absent before v13 and for armies that do not raise). */
+  risen?: Counts;
   kills: number;
   commanderFell: boolean;
 }
@@ -797,6 +808,8 @@ export class Battle {
   readonly stats: [UnitStats[], UnitStats[]];
   /** Figures per class at the start, per team. */
   readonly startFigures: [Counts, Counts] = [emptyCounts(), emptyCounts()];
+  /** Figures per class the Lich-Marshal has raised (U3), per team. */
+  readonly risen: [Counts, Counts] = [emptyCounts(), emptyCounts()];
   tick = 0;
   /**
    * Which side goes first on even ticks (0: team 0), drawn from the seed. The sides take turns
@@ -966,6 +979,7 @@ export class Battle {
     d.acted[id] = -100;
     d.hit[id] = -100;
     d.died[id] = -1;
+    d.rose[id] = -1;
     this.soldiers.push(new Soldier(d, id, team, cls, st, vet, commander));
     reg.members.push(id);
   }
@@ -1336,6 +1350,8 @@ export class Battle {
     this.tick++;
     if (this.tick % 10 === 0) {
       if (this.crumbling[0] || this.crumbling[1]) this.crumble();
+      // U3: the Lich-Marshal's lantern pulses, and the fallen near him rise.
+      for (const t of [0, 1]) if (this.doc[t]!.raiseEvery > 0 && this.tick % this.doc[t]!.raiseEvery === 0) this.raise(t);
       this.checkEnd();
     }
   }
@@ -1347,6 +1363,51 @@ export class Battle {
       if (d.state[i] !== State.Fighting || !this.crumbling[d.team[i]!]) continue;
       this.hurt(i, this.soldiers[i]!.s.hp * UNDEAD.crumble, -1);
     }
+  }
+
+  /**
+   * U3 What falls, rises: the Lich-Marshal raises his own fallen foot (heavy foot, spears,
+   * skirmishers: no horse, Colossus or engines) lying within Doctrine.raiseRange of him, dead at
+   * least `raiseAfter` ticks, never raised before, whose regiment still stands: in id order, at
+   * most `raiseShare` of the host's start (at least one, never over `raiseCap`). Each stands up
+   * where he fell with `raiseHp` of his hit points and goes back into the files of his regiment.
+   * Not once he has fallen, nor once the host is crumbling or broken.
+   */
+  private raise(t: number): void {
+    const doc = this.doc[t]!;
+    if (this.crumbling[t] || this.broken[t] || !this.lordAlive(t)) return;
+    const d = this.d;
+    const cmd = this.commander[t]!;
+    const lx = d.x[cmd]!;
+    const ly = d.y[cmd]!;
+    const R2 = doc.raiseRange * doc.raiseRange;
+    const cap = Math.min(doc.raiseCap, Math.max(1, Math.round(doc.raiseShare * this.startTotal[t]!)));
+    const end = t === 0 ? this.firstId[1] : this.n;
+    let n = 0;
+    for (let i = this.firstId[t]!; i < end && n < cap; i++) {
+      if (d.state[i] !== State.Dead || d.rose[i]! >= 0 || this.tick - d.died[i]! < doc.raiseAfter) continue;
+      const s = this.soldiers[i]!;
+      if (s.commander || (s.cls !== U.HeavyInfantry && s.cls !== U.Spearmen && s.cls !== U.Skirmishers)) continue;
+      const dx = d.x[i]! - lx;
+      const dy = d.y[i]! - ly;
+      if (dx * dx + dy * dy > R2) continue;
+      const r = this.regiments[d.reg[i]!]!;
+      if (r.alive === 0) continue;
+      d.state[i] = State.Fighting;
+      d.hp[i] = s.s.hp * doc.raiseHp;
+      d.rose[i] = this.tick;
+      d.target[i] = -1;
+      d.imp[i] = 0;
+      d.stun[i] = 0;
+      d.cd[i] = 0;
+      d.vx[i] = 0;
+      d.vy[i] = 0;
+      r.alive++;
+      r.reflow = true;
+      this.risen[t]![s.cls]!++;
+      n++;
+    }
+    if (n > 0) this.events.push({ tick: this.tick, team: t, kind: 'doctrine', cls: U.HeavyInfantry, note: 'raise', count: n * this.scale });
   }
 
   /** A blow to a regiment's morale; the fearless take none. */
@@ -4982,7 +5043,9 @@ export class Battle {
         fled[c] = Math.min(start[c]! - dead[c]!, Math.round((fledF[c]! / f) * start[c]!));
         alive[c] = start[c]! - dead[c]! - fled[c]!;
       }
-      return { start, dead, fled, alive, kills: kills * this.scale, commanderFell: this.commanderFell[team]! };
+      const out: SideResult = { start, dead, fled, alive, kills: kills * this.scale, commanderFell: this.commanderFell[team]! };
+      if (this.doc[team]!.raiseEvery > 0) out.risen = this.risen[team]!.map((x) => x * this.scale);
+      return out;
     };
     return { winner, reason, ticks: this.tick, scale: this.scale, sides: [side(0), side(1)] };
   }

@@ -405,5 +405,7 @@ export const DOCTRINE: Record<FactionId, Doctrine> = {
     tide: 0.8, tideNear: 240, unhalting: true, footRun: 1.15,
     // U2 Unflinching: a charge into them barely knocks them back, stuns nobody, and stalls sooner.
     knockback: 0.3, stun: false, drain: 1.3,
+    // U3 What falls, rises.
+    raiseEvery: 100, raiseShare: 0.015, raiseCap: 12, raiseRange: 240, raiseAfter: 30, raiseHp: 0.4,
   },
 };
