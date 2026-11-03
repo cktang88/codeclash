@@ -373,6 +373,8 @@ const SHARED: Doctrine = {
 export const DOCTRINE: Record<FactionId, Doctrine> = {
   templar: {
     ...SHARED,
+    // T2 Re-form on the banner.
+    withdrawals: 2, withdrawBehind: 40, withdrawBanner: 300, reforms: 1, reformAtBanner: true, shaken: 250,
     // T3 Not while the Beauséant flies.
     standFast: true, brothersGrief: 1.5,
   },

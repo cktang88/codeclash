@@ -1596,8 +1596,16 @@ export class Battle {
       // Pull a wavering regiment out of the line once, if it can still get away and has men to save.
       if (!allIn && r.withdrawals < doc.withdrawals && r.moraleState === 'wavering' && !r.engaged && !r.contact && ts.contacted && r.alive > r.start * 0.4) {
         r.withdrawals++;
-        this.announce(t, r, 'withdraw', 'pulls a wavering regiment back to re-form');
-        this.give(r, 'withdraw', -1, 0, -1, r.cx - dir * 90, r.cy);
+        // T2 Re-form on the banner: a Templar block falls back behind the nearest banner (the
+        // Marshal, or a steady block of its own kind) rather than straight back.
+        const tmp = this.tmp;
+        if (doc.withdrawBehind > 0 && this.bannerFor(t, r, doc.withdrawBanner, tmp)) {
+          this.events.push({ tick: this.tick, team: t, kind: 'doctrine', cls: r.cls, reg: r.id, note: 'banner' });
+          this.give(r, 'withdraw', -1, 0, -1, clampX(tmp[0]! - dir * doc.withdrawBehind), clampY(tmp[1]!));
+        } else {
+          this.announce(t, r, 'withdraw', 'pulls a wavering regiment back to re-form');
+          this.give(r, 'withdraw', -1, 0, -1, r.cx - dir * 90, r.cy);
+        }
         continue;
       }
       if (r.order === 'withdraw' && r.moraleState !== 'steady' && this.tick - r.ord.at < 200 && !allIn) continue;
@@ -2374,6 +2382,44 @@ export class Battle {
     const dx = d.x[cmd]! - x;
     const dy = d.y[cmd]! - y;
     return dx * dx + dy * dy < R * R;
+  }
+
+  /**
+   * The nearest banner within `R` of regiment `r` (T2): the general, or a steady, unengaged
+   * regiment of `r`'s family; where it stands (a regiment's rear rank) to out[0], out[1].
+   * Whether there was one.
+   */
+  private bannerFor(team: number, r: Regiment, R: number, out: Float64Array): boolean {
+    let bd = R * R;
+    let found = false;
+    const d = this.d;
+    const cmd = this.commander[team]!;
+    if (cmd >= 0 && d.state[cmd] === State.Fighting) {
+      const dx = d.x[cmd]! - r.cx;
+      const dy = d.y[cmd]! - r.cy;
+      const q = dx * dx + dy * dy;
+      if (q < bd) {
+        bd = q;
+        out[0] = d.x[cmd]!;
+        out[1] = d.y[cmd]!;
+        found = true;
+      }
+    }
+    const f = family(r);
+    for (const o of this.teamRegs[team]!) {
+      if (o === r || o.alive < 4 || o.routed || o.engaged || o.moraleState !== 'steady' || family(o) !== f) continue;
+      const dx = o.cx - r.cx;
+      const dy = o.cy - r.cy;
+      const q = dx * dx + dy * dy;
+      if (q < bd) {
+        bd = q;
+        // Behind its rear rank.
+        out[0] = o.cx - (team === 0 ? 1 : -1) * o.depth * 0.5;
+        out[1] = o.cy;
+        found = true;
+      }
+    }
+    return found;
   }
 
   /** Whether a banner of `team` stands within REGROUP.banner of (x, y): a formed regiment (not skirmishers or engines), or the general's. */
