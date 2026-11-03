@@ -4,7 +4,7 @@ import { pusherOf, type PushContext } from '../measure/difficulty.ts';
 import { applyPush, dayBonusTotals, type PushDelta } from '../measure/ledger.ts';
 import type { Store, UserRow } from './store.ts';
 import type { DifficultyContext } from './difficulty.ts';
-import { EVENT_PAGES, GithubError, type CompareResult, type GithubClient } from './github.ts';
+import { EVENT_PAGES, GithubError, type CompareResult, type GithubClient, type PushEventLite } from './github.ts';
 import type { GithubPool } from './githubPool.ts';
 import { errorMessage, type Logger } from './log.ts';
 import { inlineParser, type Parser } from './parsePool.ts';
@@ -247,6 +247,18 @@ async function ingestOnce(
   return report;
 }
 
+/**
+ * Where a push's diff starts. A new branch (`before` all zeros) is read from its merge base with the
+ * repository's default branch, as webhooks and discovery read one, so all of its own commits count,
+ * not only the head; the default branch itself (a new repository) has no base, and its head is read.
+ */
+async function newBranchBase(github: GithubClient, e: Pick<PushEventLite, 'repo' | 'ref' | 'before' | 'head'>): Promise<string> {
+  if (!ZERO_SHA.test(e.before) || ZERO_SHA.test(e.head) || !e.ref.startsWith('refs/heads/')) return e.before;
+  const info = await github.repo(e.repo).catch(() => null);
+  const branch = e.ref.slice('refs/heads/'.length);
+  return info && !info.private && info.defaultBranch !== branch ? info.defaultBranch : e.before;
+}
+
 export class Poller {
   private timer: NodeJS.Timeout | null = null;
   private running = false;
@@ -344,7 +356,7 @@ export class Poller {
       for (const e of fresh) {
         const key = `${user.id}:${e.id}`;
         try {
-          await ingestPush(deps, user, { repo: e.repo, ref: e.ref, before: e.before, head: e.head, at: e.createdAt });
+          await ingestPush(deps, user, { repo: e.repo, ref: e.ref, before: await newBranchBase(github, e), head: e.head, at: e.createdAt });
           this.attempts.delete(key);
         } catch (err) {
           // Being rate limited says nothing about the push itself, so it does not use up its tries.
