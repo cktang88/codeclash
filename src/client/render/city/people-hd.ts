@@ -15,7 +15,7 @@ import type { CityStyle } from './style.ts';
 import type { Look } from './people.ts';
 
 /** Milliseconds of painting allowed per drawn frame before a missing frame borrows a painted one. */
-const PAINT_BUDGET = 6;
+const PAINT_BUDGET = 8;
 
 export class FolkHd {
   /** Sheet pixels per world pixel (Draw reads it to tell HD folk from classic). */
@@ -33,7 +33,7 @@ export class FolkHd {
     this.atlas = new FolkAtlas(rigFor(st.id));
     this.rig = folkRig(st.id);
     this.beasts = horsesFor(st);
-    this.cartBeast = st.id === 'samurai' ? { kind: 'ox', coat: hex('#2e2826'), mane: hex('#1a1614') } : this.beasts[3 % this.beasts.length]!;
+    this.cartBeast = st.id === 'samurai' ? { kind: 'ox', coat: hex('#4a3a30'), mane: hex('#1e1814') } : this.beasts[3 % this.beasts.length]!;
   }
 
   /** Start of a drawn frame (by its clock): the painting budget refills. */
@@ -48,9 +48,11 @@ export class FolkHd {
   private cell(key: string, size: { w: number; h: number; footY: number }, paint: (c: Paper, M: Mats) => void, fallback?: string): Cell | null {
     const got = this.atlas.get(key);
     if (got) return got;
-    if (fallback && this.spent > PAINT_BUDGET) {
-      const fb = this.atlas.get(fallback);
-      if (fb) return fb;
+    if (this.spent > PAINT_BUDGET) {
+      // Over budget: a painted frame of the same clip stands in; with none yet, the figure waits
+      // a frame or two (only while a town is first shown).
+      const fb = fallback ? this.atlas.get(fallback) : undefined;
+      if (fb || fallback) return fb ?? null;
     }
     const t0 = performance.now();
     const c = this.c;
