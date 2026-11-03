@@ -75,6 +75,15 @@ export const MORALE = {
   casualtiesTotal: 38,
   /** Per share of the regiment lost in the last few seconds (decaying): the rate matters more. */
   casualtyRate: 240,
+  /**
+   * Shocks that come a man or a missile at a time (blows from the flank or rear, charge impact,
+   * missiles falling, stones, fugitives taken in) are reckoned as shares of the regiment: each
+   * counts for a block of this many men, and for a bigger block in proportion less (until v13 they
+   * counted per head, so the bigger blocks of a big battle took several times the shock from the
+   * same share of their men hit, and living armies broke ever earlier as battles grew: against the
+   * fearless dead, who take no shock, that decided big battles).
+   */
+  blockMen: 35,
   /** Per enemy man in contact beyond 1.2 for each of ours, capped at 16. */
   outnumbered: 9,
   outnumberedCap: 16,

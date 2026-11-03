@@ -29,6 +29,16 @@ export type { CommanderTrait, MoraleState, Order, OrderKind, Personality, Plan }
 export { MORALE, REGROUP, UNDEAD } from './command.ts';
 
 /**
+ * v13: battle doctrines (docs/faction-doctrines.md; DOCTRINE in command.ts), and morale shocks
+ * that do not grow with the battle.
+ * - Shocks that came a man or a missile at a time (blows in flank and rear, charge impact,
+ *   missiles falling, stones and cannonballs, fugitives taken in) counted per head, but a
+ *   regiment's size grows with the battle (30-35 men at 250 a side, 116 at 2800): a big block
+ *   took three times the shock from the same share of its men hit, and in big battles living
+ *   armies broke with ever fewer losses. Against each other that cancelled out; against the
+ *   fearless undead it did not, and they won 70% of battles of 1500 men a side and more. They
+ *   now count for a block of MORALE.blockMen (35) men, and in proportion less for a bigger one.
+ *
  * v12: the dead know no fear (UNDEAD in command.ts; the faction's rule in factions.ts).
  * - Undead regiments (`fearless`) never waver, rout or rally: their morale is 100 and stays
  *   there, and nothing that moves morale (losses, charges, missiles, routs nearby, the general's
@@ -107,7 +117,7 @@ export { MORALE, REGROUP, UNDEAD } from './command.ts';
  * one side won 60-75% of mirror matches, which side depending on the armies' size (see
  * `pnpm fairness`).
  */
-export const BATTLE_VERSION = 12;
+export const BATTLE_VERSION = 13;
 /**
  * Mixed into every battle's seed. It was BATTLE_VERSION until v3, which kept v2's salt: a
  * version bump refuses old setups (BattleVersionError) but does not re-seed battles by itself.
@@ -711,6 +721,11 @@ function scaleFor(a: Counts, b: Counts): number {
   return Math.max(1, Math.ceil(n / MAX_FIGURES));
 }
 
+/** Men in a regiment of the line, for an army of `figures` figures: a big battle has big blocks, not a swarm of small ones. */
+function blockSize(figures: number): number {
+  return Math.max(30, Math.min(120, Math.round(2.2 * sqrt(figures))));
+}
+
 function figures(count: number, scale: number): number {
   if (count <= 0) return 0;
   return Math.max(1, Math.round(count / scale));
@@ -784,6 +799,12 @@ export class Battle {
   private readonly startTotal: [number, number] = [0, 0];
   private readonly startValue: [number, number] = [0, 0];
   private readonly figureScale: number;
+  /**
+   * Per-man morale shocks (MORALE.blockMen) scaled to the battle's block size: 1 up to blocks of
+   * `blockMen`, less for the bigger blocks of a big battle, so a regiment feels the same share of
+   * its men hit the same, whatever the size of the battle.
+   */
+  private readonly shockK: number;
   private readonly grid = new Int32Array(GW * GH + 1);
   private readonly fill = new Int32Array(GW * GH);
   /**
@@ -851,6 +872,7 @@ export class Battle {
     }
     this.n = n;
     this.figureScale = most;
+    this.shockK = Math.min(1, MORALE.blockMen / blockSize(most));
     this.d = new Store(n);
     this.items = new Int32Array(n);
     this.kx = new Float64Array(n);
@@ -918,7 +940,7 @@ export class Battle {
     const regs: Regiment[] = [];
     const vetLeft = army.veterans.slice();
     // Regiment size grows with the armies, so a big battle has big blocks, not a swarm of small ones.
-    const base = Math.max(30, Math.min(120, Math.round(2.2 * sqrt(this.figureScale))));
+    const base = blockSize(this.figureScale);
     // Engines go four to a battery, but never more than 32 batteries a side: an army of engines
     // would otherwise be hundreds of tiny regiments (slow to fight, deployed far off the field).
     const sizeOf = (role: Role, n: number): number =>
@@ -2437,7 +2459,7 @@ export class Battle {
     d.state[i] = State.Fighting;
     d.target[i] = -1;
     d.imp[i] = 0;
-    this.shake(o, REGROUP.moraleCost);
+    this.shake(o, REGROUP.moraleCost * this.shockK);
     o.absorbed++;
     o.joinPending++;
     o.joinFrom = from.id;
@@ -3944,10 +3966,10 @@ export class Battle {
       if (dot < -0.4) {
         attack += 20;
         defence *= 0.55;
-        dr.flankShock += MORALE.rearBlow;
+        dr.flankShock += MORALE.rearBlow * this.shockK;
       } else if (dot < 0.3) {
         attack += 9;
-        dr.flankShock += MORALE.flankBlow;
+        dr.flankShock += MORALE.flankBlow * this.shockK;
       }
     }
     const chance = Math.max(0.08, Math.min(0.92, 0.36 + (attack - defence) * 0.012));
@@ -4013,8 +4035,9 @@ export class Battle {
       d.stun[t] = planted ? 0 : as.mounted ? 8 + this.rng.int(6) : 2 + Math.round(as.charge * 0.3);
     }
     if (!routing) {
-      this.shake(dr, (rear ? MORALE.chargeRear : side ? MORALE.chargeFlank : MORALE.chargeFront) * force * (ds.mounted ? 0.6 : 1) * (as.mounted ? 1 : 0.2 + 0.04 * as.charge));
-      dr.flankShock += rear ? 0.6 : side ? 0.3 : 0;
+      const k = this.shockK;
+      this.shake(dr, (rear ? MORALE.chargeRear : side ? MORALE.chargeFlank : MORALE.chargeFront) * force * (ds.mounted ? 0.6 : 1) * (as.mounted ? 1 : 0.2 + 0.04 * as.charge) * k);
+      dr.flankShock += (rear ? 0.6 : side ? 0.3 : 0) * k;
     }
     // Each man hit takes some of the charge out of him: knights carry through a thin line, light
     // horse soon stalls.
@@ -4399,7 +4422,7 @@ export class Battle {
         p.damage = dmg * force;
         this.missileHit(j, p);
         p.damage = dmg;
-        if (p.pen > 0) this.shake(this.regiments[d.reg[j]!]!, 0.5);
+        if (p.pen > 0) this.shake(this.regiments[d.reg[j]!]!, 0.5 * this.shockK);
         force *= 0.7;
       }
       return;
@@ -4427,7 +4450,7 @@ export class Battle {
             // A stone kills whoever it lands among, friend or foe.
             if (d.team[j] === p.team && this.rng.next() > 0.5) continue;
             this.missileHit(j, p);
-            this.shake(this.regiments[d.reg[j]!]!, 0.6);
+            this.shake(this.regiments[d.reg[j]!]!, 0.6 * this.shockK);
           } else if (d2 < bd) {
             bd = d2;
             hit = j;
@@ -4451,14 +4474,14 @@ export class Battle {
     const uy = p.y0 - d.y[o]!;
     const un = sqrt(ux * ux + uy * uy) || 1;
     const front = (ux * r.fx + uy * r.fy) / un > 0.2;
-    r.arrows += 1;
+    r.arrows += this.shockK;
     const sd = STANCES[r.stance];
     const shield = S.s.shield + (r.stance === 'shieldwall' ? 0.35 : 0);
     if (p.splash === 0 && front && d.state[o] === State.Fighting && this.rng.next() < shield * (1 - p.pierce * 0.6)) return;
     const armour = S.s.armour * (1 - p.pierce);
     let dmg = p.damage * (50 / (50 + armour)) * (0.75 + this.rng.next() * 0.5) * (p.splash > 0 ? sd.stones : sd.missile);
     if (front) dmg *= 1 - army.pavise;
-    this.shake(r, 0.04);
+    this.shake(r, 0.04 * this.shockK);
     const shooter = p.shooter >= 0 && d.team[p.shooter] !== d.team[o] ? p.shooter : -1;
     this.hurt(o, dmg, shooter);
   }
