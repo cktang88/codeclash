@@ -373,11 +373,28 @@ export class Regiment {
     readonly team: number,
     readonly cls: number,
     readonly role: Role | 'command',
-  ) {}
+  ) {
+    // Fields that will hold fractions get one first and then their starting value back, so the
+    // engine lays them out as doubles from the start. Otherwise each one's first fraction, in
+    // mid-battle, changes every regiment's hidden class and throws the hot code that reads
+    // regiments back to the interpreter. (Values are unchanged; this is only for speed.)
+    const self = this as unknown as Record<string, number>;
+    for (const k of DOUBLE_FIELDS) {
+      const v = self[k]!;
+      self[k] = 0.5;
+      self[k] = v;
+    }
+  }
   get firing(): boolean {
     return (this.mode === 'shoot' || this.mode === 'kite') && this.targetReg >= 0;
   }
 }
+
+/** Regiment fields that hold fractions (see the Regiment constructor). */
+const DOUBLE_FIELDS = [
+  'arrows', 'cx', 'cy', 'ax', 'ay', 'fx', 'fy', 'dfx', 'dfy', 'tx', 'ty', 'vax', 'vay', 'morale', 'baseMorale', 'chaseX', 'chaseY', 'spacing', 'speed',
+  'width', 'depth', 'radius', 'recent', 'recentKills', 'flankShock', 'homeX', 'homeY', 'wx', 'wy', 'fatigue', 'enemyNear',
+] as const;
 
 export interface Projectile {
   team: number;
