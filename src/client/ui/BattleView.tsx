@@ -147,7 +147,7 @@ export function BattleView(props: {
       const unit = f.short[e.cls] ?? 'men';
       switch (e.kind) {
         case 'rout': return `${who}’s ${unit} break and run`;
-        case 'commander': return `${who}’s ${f.commander} has fallen`;
+        case 'commander': return army.faction === 'samurai' ? `${who}’s ${f.commander} has fallen! His retainers scatter` : `${who}’s ${f.commander} has fallen`;
         case 'charge': return `${who}’s ${unit} charge`;
         case 'chase': return `${who}’s ${unit} break ranks to run down the fugitives`;
         case 'contact': return `${who}’s line meets the enemy`;
@@ -160,6 +160,16 @@ export function BattleView(props: {
         case 'crumble': return e.note === 'commander' ? `Without its ${f.commander}, ${who}’s host begins to crumble` : `The last of ${who}’s dead crumble where they stand`;
         case 'stance': return `${who}’s ${unit} ${STANCE_WORDS[e.stance ?? ''] ?? 'change formation'}`;
         case 'general-order': return `${f.commander} of ${who} ${e.note ?? 'gives orders'}`;
+        case 'doctrine':
+          switch (e.note) {
+            case 'marshal-charge': return `The ${f.commander} of ${who} unfurls the Beauséant: the ${unit} charge as one`;
+            case 'banner': return `${who}’s ${unit} fall back on the banner and re-form`;
+            case 'stand-fast': return `${who}’s ${unit} will not leave the field while the banner flies`;
+            case 'revenge': return `${who}’s ${unit} charge to avenge their ${f.commander}`;
+            case 'first-spear': return `${who}’s ${unit} claim the first spear!`;
+            case 'raise': return `The ${f.commander} of ${who} raises ${e.count ?? 'some'} of the fallen`;
+            default: return '';
+          }
         default: return '';
       }
     };
@@ -291,7 +301,7 @@ export function BattleView(props: {
         hudTick = battle.tick;
         setLive(measure(battle));
         if (battle.events.length > seen) {
-          const fresh = battle.events.slice(seen).map((e, i) => ({ id: seen + i, tick: e.tick, team: e.team, text: say(e), grave: e.kind === 'commander' || e.kind === 'break' }));
+          const fresh = battle.events.slice(seen).map((e, i) => ({ id: seen + i, tick: e.tick, team: e.team, text: say(e), grave: e.kind === 'commander' || e.kind === 'break' || (e.kind === 'doctrine' && (e.note === 'marshal-charge' || e.note === 'raise')) }));
           seen = battle.events.length;
           // Collapse a burst of routs into the latest few.
           setTicker((t) => [...fresh.reverse(), ...t].slice(0, 6));

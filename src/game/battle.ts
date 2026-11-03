@@ -455,6 +455,8 @@ export class Regiment {
   retired = false;
   refuseUntil = -100;
   waverTold = -1000;
+  /** Last ticker line for its standing fast (T3). */
+  standTold = -1000;
   /** Enemy in contact, in men of this regiment's worth, for being outnumbered. */
   enemyNear = 0;
   veteran = false;
@@ -574,6 +576,14 @@ export interface BattleResult {
   sides: [SideResult, SideResult];
 }
 
+/**
+ * The doctrine moments the ticker tells (event 'doctrine', in `note`): the Marshal's signal (T1),
+ * a Templar block falling back on a banner (T2), the brothers standing fast at breaking point
+ * (T3), the daimyō's hatamoto charging to avenge him (S1), the first spear (S2), the dead rising
+ * (U3, `count` figures).
+ */
+export type DoctrineNote = 'marshal-charge' | 'banner' | 'stand-fast' | 'revenge' | 'first-spear' | 'raise';
+
 /** Things worth narrating as they happen: the viewer and the summary read these. */
 export interface BattleEvent {
   tick: number;
@@ -586,9 +596,9 @@ export interface BattleEvent {
    * as often as it may re-forms behind its line; 'joins': fugitives of regiment `from` (class
    * `fromCls`) fall in with regiment `reg` (`count` figures since its last 'joins'); 'crumble':
    * an undead host starts to crumble (`note` 'commander': its Lich-Marshal fell; 'spent': the
-   * army broke).
+   * army broke); 'doctrine': a faction's doctrine shows (`note` says which: see `DoctrineNote`).
    */
-  kind: 'rout' | 'commander' | 'charge' | 'contact' | 'rally' | 'break' | 'stance' | 'waver' | 'shattered' | 'general-order' | 'chase' | 'reform' | 'joins' | 'crumble';
+  kind: 'rout' | 'commander' | 'charge' | 'contact' | 'rally' | 'break' | 'stance' | 'waver' | 'shattered' | 'general-order' | 'chase' | 'reform' | 'joins' | 'crumble' | 'doctrine';
   cls: number;
   /** The regiment concerned (-1 for the whole army). */
   reg?: number;
@@ -2156,9 +2166,12 @@ export class Battle {
     if (cmd >= 0 && this.d.state[cmd] === State.Fighting) {
       const dx = this.d.x[cmd]! - r.cx;
       const dy = this.d.y[cmd]! - r.cy;
-      if (dx * dx + dy * dy < M.auraRange * M.auraRange) target += M.aura * (0.5 + this.generals[team]!.skill * 0.6);
+      // S1: the daimyō's uma-jirushi is seen further and heartens more (Doctrine.aura).
+      const doc = this.doc[team]!;
+      const range = M.auraRange * doc.auraRange;
+      if (dx * dx + dy * dy < range * range) target += M.aura * doc.aura * (0.5 + this.generals[team]!.skill * 0.6);
     }
-    if (this.commanderFell[team]) target -= M.generalDead;
+    if (this.commanderFell[team]) target -= M.generalDead * this.doc[team]!.generalDead;
     // The whole army's fortunes: a losing army loses heart, a winning one takes it.
     target -= Math.max(0, this.ts[team]!.loss - M.armyLossFrom) * M.armyLoss;
     target += Math.max(0, this.ts[1 - team]!.loss - M.armyLossFrom) * M.armyLoss * 0.5;
@@ -2168,6 +2181,17 @@ export class Battle {
     r.morale += (target - r.morale) * M.recover;
     if (r.morale > 100) r.morale = 100;
     if (r.morale < M.breakAt) {
+      // T3 Not while the Beauséant flies: the professed brothers do not leave the field while the
+      // Marshal lives. They hold at breaking point, wavering (and fighting worse), and die there.
+      if (this.doc[team]!.standFast && (r.cls === U.Knights || r.cls === U.Shock) && r.role !== 'command' && this.commander[team]! >= 0 && !this.commanderFell[team]) {
+        r.morale = M.breakAt;
+        if (r.moraleState !== 'wavering') r.moraleState = 'wavering';
+        if (this.tick - r.standTold > 300) {
+          r.standTold = this.tick;
+          this.events.push({ tick: this.tick, team, kind: 'doctrine', cls: r.cls, reg: r.id, note: 'stand-fast' });
+        }
+        return;
+      }
       this.rout(r);
       return;
     }
@@ -4105,7 +4129,12 @@ export class Battle {
       const team = d.team[t]!;
       this.commanderFell[team] = true;
       this.events.push({ tick: this.tick, team, kind: 'commander', cls: U.Knights });
-      for (const o of this.teamRegs[team]!) this.shake(o, MORALE.generalDeadShock);
+      const doc = this.doc[team]!;
+      for (const o of this.teamRegs[team]!) {
+        // T3: the brothers take their Marshal's death harder; S1: the samurai their daimyō's.
+        const grief = doc.standFast && (o.cls === U.Knights || o.cls === U.Shock) && o.role !== 'command' ? doc.brothersGrief : 1;
+        this.shake(o, MORALE.generalDeadShock * doc.generalDeadShock * grief);
+      }
       // The Lich-Marshal's will held the dead together: without it the host crumbles.
       if (this.fearless[team] && !this.crumbling[team]) {
         this.crumbling[team] = true;

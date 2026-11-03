@@ -371,7 +371,11 @@ const SHARED: Doctrine = {
 };
 
 export const DOCTRINE: Record<FactionId, Doctrine> = {
-  templar: { ...SHARED },
+  templar: {
+    ...SHARED,
+    // T3 Not while the Beauséant flies.
+    standFast: true, brothersGrief: 1.5,
+  },
   samurai: { ...SHARED },
   undead: {
     ...SHARED,
