@@ -189,12 +189,10 @@ export function BattleView(props: {
         const prev = scene;
         sceneArt = artRef.current;
         prev.dispose();
-        scene = new BattleScene(battle, sceneArt);
-        scene.camera.zoom = Math.min(prev.camera.zoom, scene.maxZoom);
-        scene.camera.cx = prev.camera.cx;
-        scene.camera.cy = prev.camera.cy;
-        scene.scanlines = prev.scanlines;
-        scene.follow = prev.follow;
+        // The camera, facings and wounds carry over; the zoom is the new art's level nearest the
+        // old scale (classic adds a pixel a level, HD doubles: the same level number would jump).
+        scene = new BattleScene(battle, sceneArt, prev);
+        scene.matchZoom(prev, canvas.width, canvas.height);
         sceneRef.current = scene;
         setZoom(scene.camera.zoom);
       }

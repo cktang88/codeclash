@@ -294,7 +294,11 @@ export class BattleScene {
   private readonly stampParts: Part[] = [];
   private view = { px: 1, m: 1, u: 1, bw: 1, bh: 1, vw: 1, vh: 1, camX: 0, camY: 0, offX: 0, offY: 0, W: 1, H: 1 };
 
-  constructor(readonly battle: Battle, art: ArtMode = artMode()) {
+  /**
+   * `from`: the scene that drew this battle until now (the art was switched mid-battle): its
+   * camera, facings, wounds and last snapshot carry over, so nothing turns, jumps or flinches.
+   */
+  constructor(readonly battle: Battle, art: ArtMode = artMode(), from?: BattleScene) {
     this.art = art;
     this.ground = paintGround(battle.setup.seed);
     if (isHdArt(art)) this.field = new HdField(this.ground, battle.setup.armies);
@@ -361,6 +365,50 @@ export class BattleScene {
       this.dirs[i] = s.team === 0 ? 0 : 2;
     }
     this.snapshot();
+    if (from && from.battle === battle) {
+      this.dirs.set(from.dirs);
+      this.hurtAt.set(from.hurtAt);
+      this.aimX.set(from.aimX);
+      this.aimY.set(from.aimY);
+      this.prevX.set(from.prevX);
+      this.prevY.set(from.prevY);
+      this.prevHp.set(from.prevHp);
+      this.regX.set(from.regX);
+      this.regY.set(from.regY);
+      this.flying = new Set(from.flying);
+      this.time = from.time;
+      this.camera = { ...from.camera };
+      this.scanlines = from.scanlines;
+      this.follow = from.follow;
+    }
+    // The fallen already down (a scene made mid-battle) lie as corpses at once: afterStep only
+    // lays them as they finish falling, and a paused or finished battle steps no more.
+    const tick = battle.tick;
+    for (let i = 0; i < n; i++) {
+      const s = battle.soldiers[i]!;
+      if (s.state !== State.Dead || tick - s.diedAt < this.dieTicks(s.team, this.kindOf(i))) continue;
+      if (!this.field) {
+        this.stampCorpse(i);
+        continue;
+      }
+      // HD: drawn as a corpse, his pool soaked in already (as dark as its age says).
+      this.stamped[i] = 1;
+      const big = s.s.mounted ? 1.7 : 1;
+      const mx = this.mapX(s.x, s.y);
+      const my = this.mapY(s.x, s.y);
+      for (let k = 0; k < 4; k++) this.field.mark(mx + (k - 1.5) * 0.8 * big, my, (1.8 + k * 0.85) * big, 0.3, 0, s.diedAt * TICK_S);
+    }
+  }
+
+  /**
+   * After an art switch: the zoom level of this scene's ladder that draws closest to `prev`'s scale
+   * on a canvas of W × H (the two arts' ladders differ: classic adds a pixel a level, HD doubles).
+   */
+  matchZoom(prev: BattleScene, W: number, H: number): void {
+    const want = prev.pixelScale(W, H);
+    let best = 1;
+    for (let z = 1; z <= this.maxZoom; z++) if (Math.abs(Math.log(this.scaleAt(W, H, z) / want)) < Math.abs(Math.log(this.scaleAt(W, H, best) / want)) - 1e-9) best = z;
+    this.camera.zoom = best;
   }
 
   /** Whether this browser can draw battles at all. */
@@ -710,6 +758,11 @@ export class BattleScene {
     return this.scales(W, H).s;
   }
 
+  /** Device pixels per map pixel for a canvas of this size at zoom level `zoom`. */
+  scaleAt(W: number, H: number, zoom: number): number {
+    return this.scales(W, H, zoom).s;
+  }
+
   /** Bytes of sprite textures on the GPU: both armies' grids and the HD sheets uploaded now. */
   get spriteGpuBytes(): number {
     let b = 0;
@@ -738,11 +791,11 @@ export class BattleScene {
    * device pixel. HD art: each level doubles s, and the buffer draws the map m = 2, 4 or 8 times
    * larger, so the 2x, 4x and 8x sprite sheets land texel for pixel and never blur.
    */
-  private scales(W: number, H: number): { s: number; m: number; u: number } {
+  private scales(W: number, H: number, zoom = this.camera.zoom): { s: number; m: number; u: number } {
     const [fw, fh] = this.fieldPx();
     // Fit the field, rounding up a little: the parallelogram's far corners are mostly empty.
     const fit = Math.max(1, Math.floor(Math.min(W / (fw * 0.92), H / (fh * 1.15)) + 0.3));
-    const z = Math.max(1, Math.round(this.camera.zoom));
+    const z = Math.max(1, Math.round(zoom));
     if (!isHdArt(this.art)) {
       const s = fit + z - 1;
       return { s, m: 1, u: s };
