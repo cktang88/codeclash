@@ -24,7 +24,7 @@ import { Batch, cornerBuffer, dropTarget, SpriteProgram, SpriteStream, target, t
 import { paintGround, type Ground } from './ground.ts';
 import { projX, projY, PX, unproject } from './iso.ts';
 import { GlPost } from './post.ts';
-import { facing, settleTurn } from './pose.ts';
+import { facing, settleTurn, stillRising } from './pose.ts';
 import { frameBox, NO_INSETS, zoomOutScale, type Insets } from './fit.ts';
 import { upscaleCanvas } from './upscale.ts';
 import { buildAtlas as buildClassic } from './sprites.ts';
@@ -267,6 +267,9 @@ export class BattleScene {
   private stamped: Uint8Array;
   /** Figures whose rising from the dead (Soldier.roseAt) has had its grave-light. */
   private rose: Uint8Array;
+  /** Where each risen man lay when he rose (NaN: not seen rising; pose.ts stillRising). */
+  private riseX: Float32Array;
+  private riseY: Float32Array;
   private regX: Float32Array;
   private frameTab: Uint16Array[] = [];
   private lenTab: Float32Array[] = [];
@@ -372,6 +375,8 @@ export class BattleScene {
     this.aimY = new Float32Array(n).fill(NaN);
     this.stamped = new Uint8Array(n);
     this.rose = new Uint8Array(n);
+    this.riseX = new Float32Array(n).fill(NaN);
+    this.riseY = new Float32Array(n).fill(NaN);
     this.regX = new Float32Array(battle.regiments.length);
     this.regY = new Float32Array(battle.regiments.length);
     for (let i = 0; i < n; i++) {
@@ -381,6 +386,8 @@ export class BattleScene {
     this.snapshot();
     if (from && from.battle === battle) {
       this.dirs.set(from.dirs);
+      this.riseX.set(from.riseX);
+      this.riseY.set(from.riseY);
       this.turnAt.set(from.turnAt);
       this.hurtAt.set(from.hurtAt);
       this.aimX.set(from.aimX);
@@ -641,6 +648,8 @@ export class BattleScene {
     this.rose[i] = 1;
     this.stamped[i] = 0;
     const s = this.battle.soldiers[i]!;
+    this.riseX[i] = s.x;
+    this.riseY[i] = s.y;
     const rng = this.field ? this.hdRng : this.rng;
     // A wisp of the faction's grave-green (docs/art-references/undead.md: one green light source)
     // seeping up out of the ground as he gets up, thinning as it rises.
@@ -1352,7 +1361,7 @@ export class BattleScene {
       const hitAt = Math.max(((s as unknown as { hitAt?: number }).hitAt ?? -100), this.hurtAt[i]!);
       const reg = b.regiments[s.reg]!;
       const stance = stanceOf(reg);
-      const rising = s.roseAt >= 0 && s.state !== State.Dead && T - s.roseAt < this.riseTicksOf(s.team, kind);
+      const rising = s.roseAt >= 0 && s.state !== State.Dead && stillRising(T - s.roseAt, this.riseTicksOf(s.team, kind), s.x - this.riseX[i]!, s.y - this.riseY[i]!);
       if (s.state === State.Dead) {
         anim = Anim.Die;
         start = s.diedAt;

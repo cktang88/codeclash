@@ -5,6 +5,7 @@ import { n } from '../format.ts';
 import { api } from '../api.ts';
 import { DAY_NAMES } from '../format.ts';
 import { linkProps } from '../route.ts';
+import { replayFit } from '../replay.ts';
 import { BattleView } from '../ui/BattleView.tsx';
 
 export function BattlePage({ id }: { id: number }) {
@@ -26,14 +27,23 @@ export function BattlePage({ id }: { id: number }) {
   const error = failed?.id === id ? failed.message : null;
   if (error) return <div className="page"><p className="error">{error}</p></div>;
   if (!view) return <div className="page"><p className="muted">The armies are forming up…</p></div>;
-  if (view.setup.version !== BATTLE_VERSION) {
+  const fit = replayFit(view.setup.version, BATTLE_VERSION);
+  if (fit !== 'same') {
     const c = view.card;
     const name = (i: 0 | 1) => (i === 0 ? c.a.login : (c.b?.login ?? 'Brigands'));
     return (
       <div className="page">
         <p><a {...linkProps(`/l/${view.league.slug}/battles`)}>← {view.league.name}</a></p>
         <h1>{name(c.winner)} held the field</h1>
-        <p className="muted">This battle was fought under an older version of the rules of war (v{view.setup.version}), so it cannot be replayed in this build. The result stands:</p>
+        {fit === 'newer' ? (
+          // A page left open across a deploy: the battle is new, the page is old.
+          <p className="muted">
+            The game has been updated since this page was loaded: this battle was fought under newer rules of war (v{view.setup.version}) than this page knows (v{BATTLE_VERSION}).{' '}
+            <a href={location.pathname} onClick={(e) => { e.preventDefault(); location.reload(); }}>Reload the page</a> to watch it. The result:
+          </p>
+        ) : (
+          <p className="muted">This battle was fought under an older version of the rules of war (v{view.setup.version}), so it cannot be replayed in this build. The result stands:</p>
+        )}
         <p>{name(0)}: {n(c.men[0])} men, {n(c.dead[0])} fell. {name(1)}: {n(c.men[1])} men, {n(c.dead[1])} fell.</p>
       </div>
     );
