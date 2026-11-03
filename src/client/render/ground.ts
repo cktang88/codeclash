@@ -14,7 +14,7 @@ const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5].map((v) => 
 export const MARGIN = 150;
 
 /** Smooth value noise on an unbounded lattice (hashed), so any world point is defined. */
-function valueNoise(rng: Rng, _x0: number, _y0: number, _w: number, _h: number, cell: number): (x: number, y: number) => number {
+function valueNoise(rng: Rng, _x0: number, _y0: number, _w: number, _h: number, cell: number): ((x: number, y: number) => number) & { salt: number } {
   const salt = Math.floor(rng.next() * 0x7fffffff);
   const lat = (ix: number, iy: number) => {
     let h = Math.imul(ix, 0x27d4eb2d) ^ Math.imul(iy, 0x165667b1) ^ salt;
@@ -23,7 +23,7 @@ function valueNoise(rng: Rng, _x0: number, _y0: number, _w: number, _h: number, 
     return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
   };
   const sm = (t: number) => t * t * (3 - 2 * t);
-  return (x, y) => {
+  const f = (x: number, y: number) => {
     const fx = x / cell;
     const fy = y / cell;
     const ix = Math.floor(fx);
@@ -36,6 +36,7 @@ function valueNoise(rng: Rng, _x0: number, _y0: number, _w: number, _h: number, 
     const d = lat(ix + 1, iy + 1);
     return a + (b - a) * tx + (c - a) * ty + (a - b - c + d) * tx * ty;
   };
+  return Object.assign(f, { salt });
 }
 
 type RGB = [number, number, number];
@@ -72,6 +73,17 @@ export interface Ground {
   props: Prop[];
   /** World y of the road's centre at x. */
   road(x: number): number;
+  /** The noise behind the paint, for the HD ground shader (field-hd.ts) to paint the same field. */
+  noise: GroundNoise;
+}
+
+/** Salts of the four value-noise layers (cells 110, 30, 6 and 45 world units) and the road. */
+export interface GroundNoise {
+  salts: [number, number, number, number];
+  roadY0: number;
+  roadBend: number;
+  roadPhase: number;
+  seed: number;
 }
 
 export function paintGround(seed: number): Ground {
@@ -222,5 +234,6 @@ export function paintGround(seed: number): Ground {
       props.push({ kind, x, y, variant: rng.int(3) });
     }
   }
-  return { canvas, ox, oy, w: W, h: H, props, road };
+  const noise: GroundNoise = { salts: [big.salt, mid.salt, fine.salt, mudN.salt], roadY0, roadBend, roadPhase, seed };
+  return { canvas, ox, oy, w: W, h: H, props, road, noise };
 }
