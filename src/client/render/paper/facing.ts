@@ -34,11 +34,22 @@ export function planFacing(f: Facing, drawn: readonly Facing[] = DRAWN_DEFAULT):
   return null;
 }
 
-/** Runs a draw for a facing on a fresh canvas, mirroring afterwards when the plan says so. */
+/**
+ * Runs a draw for a facing on a fresh canvas, mirroring afterwards when the plan says so. A
+ * facing drawn to be mirrored is drawn with the light reversed (`paper.lightX = -1`, key light
+ * top-right), so that after the mirror it is lit from the top-left like every other facing.
+ * Geometry is mirrored, the light is not. The outline and contact passes run after the mirror
+ * and need nothing.
+ */
 export function drawFacing(paper: Paper, f: Facing, drawn: readonly Facing[], draw: (facing: Facing) => void): boolean {
   const plan = planFacing(f, drawn);
   if (!plan) return false;
-  draw(plan.draw);
+  paper.lightX = plan.mirror ? -1 : 1;
+  try {
+    draw(plan.draw);
+  } finally {
+    paper.lightX = 1;
+  }
   if (plan.mirror) paper.mirror();
   return true;
 }

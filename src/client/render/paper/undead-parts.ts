@@ -3,6 +3,7 @@
 // agent; see README.md. The figures themselves are in undead.ts.
 
 import { addP, code, DEG, defineMaterial, hash, hslRamp, isKept, oklabRgb, oklchRamp, rgbOklab, rot, type P2, type Paper, type RGB } from './core.ts';
+import { drawLightX } from './core.ts'; // mirrored-facing light (separate line for an easy merge)
 import { along, limb, snapDeg } from './rig.ts';
 
 // ------------------------------------------------------------------ materials
@@ -501,7 +502,7 @@ export function rag(c: Paper, a: P2, b: P2, len: number, sway: number, m: number
 export const litStep = (c: Paper): number => (c.L <= 1 ? 2 : 1);
 
 export function planeLight(rx: number, ry: number, k = 0.42): number {
-  const s = -(rx * 0.62 + ry * 0.78);
+  const s = -((drawLightX() === 1 ? rx : -rx) * 0.62 + ry * 0.78); // (light side: see core drawLightX)
   return s > k ? 1 : s < -k ? -1 : 0;
 }
 
@@ -555,8 +556,8 @@ export function hood(c: Paper, at: P2, ang: number, back: boolean, m: number = U
     const [fx, fy] = rot([(x + 0.5 - cx) / L, (y + 0.5 - cy) / L], -ang * DEG);
     if (back) {
       if (L >= 2 && Math.abs(fx - 0.15 + fy * 0.15) < 0.12 && fy < 0.9) return code(m, 1); // the seam
-      if (fx < -0.8) return code(m, 3);
-      if (fx > 0.9) return code(m, 1);
+      if (c.litX(fx) < -0.8) return code(m, 3);
+      if (c.litX(fx) > 0.9) return code(m, 1);
       return code(m, 2);
     }
     // The face opening: an oval toward the forward side.
@@ -572,7 +573,7 @@ export function hood(c: Paper, at: P2, ang: number, back: boolean, m: number = U
       return code(UM.ink, 0);
     }
     // The lip of the hood round the face is lit; the crown lit top-left; the back in shade.
-    if (Math.hypot(ox / 0.98, oy / 1.15) < 1 && ox < 0 && oy < 0) return code(m, 2 + litStep(c));
+    if (Math.hypot(ox / 0.98, oy / 1.15) < 1 && c.litX(ox) < 0 && oy < 0) return code(m, 2 + litStep(c));
     if (fx < -0.2 && L >= 2 && Math.abs(fx + 0.55 - fy * 0.1) < 0.08) return code(m, 1);
     const lt = planeLight(fx / 1.5, fy / 1.6, 0.35);
     return code(m, 2 + (lt > 0 ? litStep(c) : lt));
@@ -718,7 +719,7 @@ export function pavise(c: Paper, at: P2, tilt: number, face: boolean, s = 1): vo
       if (Math.hypot(Math.abs(lx) - 0.36, ly + 0.45) < 0.24) return code(UM.ink, 1);
       if (Math.abs(lx) < 0.09 && ly > -0.15 && ly < 0.2) return code(UM.ink, 1);
       if (ly > 0.55 && (c.lx(x) & 1) === 0 && L >= 2) return code(UM.ink, 2);
-      return code(UM.bone, lx < 0 ? 3 : 2);
+      return code(UM.bone, c.litX(lx) < 0 ? 3 : 2);
     }
     if (hash(c.lx(x) >> 1, c.ly(y) >> 2, 153) < 0.06) return code(UM.wood, 1);
     // A dark stripe down the middle (the painted field's border) and the team field.
@@ -1191,7 +1192,7 @@ export function shadeLower(c: Paper, frac = 0.42): void {
   const h = c.by1 - c.by0;
   // The shade line slants up toward the far (right) side, away from the light, and steps
   // irregularly, so it never cuts every part on one row (that would read as a band).
-  const cut = (x: number, f: number): number => c.by1 - h * f - (x - c.FX) * 0.4 + Math.floor(hash(x >> 1, 7, 331) * 3) - 1;
+  const cut = (x: number, f: number): number => c.by1 - h * f - c.litX(x - c.FX) * 0.4 + Math.floor(hash(x >> 1, 7, 331) * 3) - 1;
   for (let y = Math.max(c.by0, Math.round(c.by1 - h * frac * 1.6)); y <= c.by1; y++)
     for (let x = c.bx0; x <= c.bx1; x++) {
       const i = y * c.CW + x;
@@ -1212,7 +1213,7 @@ export function shadeLower(c: Paper, frac = 0.42): void {
       const i = y * c.CW + x;
       const v = c.pix[i]!;
       if (v < 0 || isKept(v >> 3) || (v & 7) < 2) continue;
-      if (c.pix[i - 1]! < 0 || c.pix[i - c.CW]! < 0) mark.push(i);
+      if (c.pix[i - c.lightX]! < 0 || c.pix[i - c.CW]! < 0) mark.push(i);
     }
   for (const i of mark) c.pix[i] = (c.pix[i]! & ~7) | Math.max(c.pix[i]! & 7, lit);
 }

@@ -53,7 +53,7 @@ export function plate(c: Paper, pts: P2[], m: number, o: { tone?: number; rust?:
     if (o.rust && c.tex(x, y, o.seed ?? 401, 3) < o.rust * (0.5 + ry * 0.5)) return code(UM.rust, tone - (ry > 0.3 ? 1 : 0));
     const lt = planeLight(rx, ry, o.k ?? 0.4);
     // Hard metals catch a crisp specular: a short streak in the lit plane.
-    if ((m === UM.iron || m === UM.rust || m === UM.steel) && lt > 0 && Math.abs(rx + ry * 0.5 + 0.55) < 0.06) return code(m, 4);
+    if ((m === UM.iron || m === UM.rust || m === UM.steel) && lt > 0 && Math.abs(c.litX(rx) + ry * 0.5 + 0.55) < 0.06) return code(m, 4);
     return code(m, tone + lt);
   });
 }
@@ -139,7 +139,7 @@ function pauldron(c: Paper, sh: P2, far: boolean, s = 1): void {
     c.blob(addP(sh, [0, dy * s]), rx * s, ry * s, UM.rust, {
       tone: t + 1,
       detail: (x, y, nx, ny) => {
-        if (ny < -0.62 && nx < 0.3 && !far) return code(UM.steel, 3);
+        if (ny < -0.62 && c.litX(nx) < 0.3 && !far) return code(UM.steel, 3);
         if (ny > 0.6) return code(UM.rust, 0);
         if (c.tex(x, y, 421, 3) < 0.04 + (ny + 1) * 0.08) return code(UM.iron, ny > 0.2 ? 1 : 2);
         return -1;
@@ -392,7 +392,7 @@ function plateShin(c: Paper, knee: P2, ank: P2, far: boolean): void {
   const t = far ? 1 : 2;
   const g0 = addP(knee, mul([ank[0] - knee[0], ank[1] - knee[1]], 0.22));
   vol(c, g0, ank, 1.15, 1.0, UM.rust, { tone: t + 1, caps: false });
-  c.blob(knee, 0.78, 0.68, UM.rust, { tone: t + 1, detail: (_x, _y, nx, ny) => (ny < -0.5 && nx < 0.3 && !far ? code(UM.rust, 4) : ny > 0.5 ? code(UM.rust, 0) : -1) });
+  c.blob(knee, 0.78, 0.68, UM.rust, { tone: t + 1, detail: (_x, _y, nx, ny) => (ny < -0.5 && c.litX(nx) < 0.3 && !far ? code(UM.rust, 4) : ny > 0.5 ? code(UM.rust, 0) : -1) });
 }
 /** A broad iron (or leather) foot, toe forward. */
 function sabaton(c: Paper, ank: P2, m: number, far: boolean): void {
@@ -424,7 +424,7 @@ function plateLeg(c: Paper, hip: P2, knee: P2, ank: P2, far: boolean): void {
   plate(c, [addP(tp, [-0.9, -0.3]), addP(tp, [0.85, -0.35]), addP(tp, [0.95, 1.5]), addP(tp, [-0.8, 1.6])], UM.rust, { tone: t + 1, rim: !far });
   const g0 = addP(knee, mul([ank[0] - knee[0], ank[1] - knee[1]], 0.22));
   vol(c, g0, ank, 1.15, 1.0, UM.rust, { tone: t + 1, caps: false });
-  c.blob(knee, 0.78, 0.68, UM.rust, { tone: t + 1, detail: (_x, _y, nx, ny) => (ny < -0.5 && nx < 0.3 && !far ? code(UM.rust, 4) : ny > 0.5 ? code(UM.rust, 0) : -1) });
+  c.blob(knee, 0.78, 0.68, UM.rust, { tone: t + 1, detail: (_x, _y, nx, ny) => (ny < -0.5 && c.litX(nx) < 0.3 && !far ? code(UM.rust, 4) : ny > 0.5 ? code(UM.rust, 0) : -1) });
   const sab: P2[] = [addP(ank, [-0.7, -0.35]), addP(ank, [0.5, -0.45]), addP(ank, [1.35, 0.35]), addP(ank, [1.3, 0.75]), addP(ank, [-0.75, 0.75])];
   plate(c, sab, UM.rust, { tone: t });
 }
@@ -488,7 +488,7 @@ function kettleHat(c: Paper, at: P2, r: number, ang: number): void {
     // The kettle hat: a round bowl, a riveted band at its foot, a broad straight brim angled a
     // little down all round (its far side in shade, its near edge catching the light).
     const brim: P2[] = [R([-1.75, -0.3]), R([-1.2, -0.62]), R([1.3, -0.66]), R([1.85, -0.36]), R([1.7, -0.18]), R([-1.6, -0.12])];
-    plate(c, brim, UM.rust, { tone: 2, detail: (_x, _y, rx, ry) => (ry > 0.45 ? code(UM.rust, 1) : ry < -0.4 && rx < 0.4 ? code(UM.rust, 4) : -1) });
+    plate(c, brim, UM.rust, { tone: 2, detail: (_x, _y, rx, ry) => (ry > 0.45 ? code(UM.rust, 1) : ry < -0.4 && c.litX(rx) < 0.4 ? code(UM.rust, 4) : -1) });
     c.blob(R([0.05, -1.15]), 1.0 * r, 0.62 * r, UM.rust, {
       tone: 2,
       detail: (x, y, nx, ny) => {
@@ -990,7 +990,7 @@ function hornedPauldron(c: Paper, sh: P2, far: boolean, horn: number): void {
       tone: t + 1,
       detail: (_x, _y, nx, ny) => {
         if (ny > 0.62) return code(BRONZE, far ? 1 : 2); // the bronze edge of each lame
-        if (ny < -0.55 && nx < 0.2 && !far) return code(VIOLET, 4);
+        if (ny < -0.55 && c.litX(nx) < 0.2 && !far) return code(VIOLET, 4);
         return -1;
       },
     });
@@ -1011,8 +1011,8 @@ function deathMask(c: Paper, at: P2, r: number): void {
       if (Math.abs(fy + 0.35 - Math.abs(fx + 0.3) * 0.5) < 0.05 && fx < 0.0) return code(UM.ink, 1);
       if (Math.abs(fx + 0.38 - fy * 0.25) < 0.05 && fy > 0.05 && fy < 0.7) return code(UM.ink, 1);
       // Light from the top-left, the far cheek in shade.
-      if (fx > 0.45 || fy > 0.7) return code(UM.bone, 1);
-      if (fx < -0.2 && fy < -0.2) return code(UM.bone, 4);
+      if (c.litX(fx) > 0.45 || fy > 0.7) return code(UM.bone, 1);
+      if (c.litX(fx) < -0.2 && fy < -0.2) return code(UM.bone, 4);
       return -1;
     },
   });
@@ -1137,7 +1137,7 @@ function wardenHood(c: Paper, hd: P2, back: boolean): void {
       }
       const e = Math.hypot(fx / 1.05, fy / 1.35);
       if (e < 1) return code(UM.ink, 0); // the dark inside of the hood
-      if (e < 1.18) return code(VIOLET, fx < 0.3 && fy < 0.6 ? 4 : 2); // the lit rim
+      if (e < 1.18) return code(VIOLET, c.litX(fx) < 0.3 && fy < 0.6 ? 4 : 2); // the lit rim
       return code(VIOLET, 2 + planeLight(rx, ry, 0.3));
     },
   });
@@ -1483,8 +1483,9 @@ export function keyLight(c: Paper): void {
       }
       if (isKept(m)) continue;
       const hard = m === UM.iron || m === UM.rust || m === UM.steel || m === UM.bone || m === UM.mail;
-      const edge = (x + 1 <= c.bx1 && c.pix[i + 1]! < 0) || (y + 1 <= c.by1 && c.pix[i + CW]! < 0);
-      const inner = c.pix[i - 1]! >= 0 && c.pix[i - CW]! >= 0;
+      const lx = c.lightX; // the shadow side is +lx, the lit side -lx
+      const edge = (x + lx <= c.bx1 && x + lx >= c.bx0 && c.pix[i + lx]! < 0) || (y + 1 <= c.by1 && c.pix[i + CW]! < 0);
+      const inner = c.pix[i - lx]! >= 0 && c.pix[i - CW]! >= 0;
       // (Not at levels 1-2: there the rim is a third of a part and pulls its light to the bottom-right.)
       if (hard && edge && inner && c.L > 2 && (v & 7) <= 2) out[i] = (v & ~7) | ((v & 7) + 1);
     }

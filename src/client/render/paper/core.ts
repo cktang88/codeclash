@@ -487,6 +487,14 @@ export function figurePalette(hue: number, level: number, used: ReadonlyMap<numb
 // ------------------------------------------------------------------ the canvas
 
 /** Canvas size in figure units (one unit ≈ one map pixel at level 1), and where the feet stand. */
+/** The light side of the drawing in progress (the last `Paper.lightX` set): see `drawLightX`. */
+let DRAW_LIGHT_X: 1 | -1 = 1;
+/**
+ * `Paper.lightX` of the figure being drawn, for shading helpers that are handed no Paper (a plane
+ * light from a part's relative position). Prefer `c.litX` where a Paper is at hand.
+ */
+export const drawLightX = (): 1 | -1 => DRAW_LIGHT_X;
+
 export interface CanvasSize {
   /** Width in units: even, so mirroring keeps the foot point. */
   w: number;
@@ -527,6 +535,21 @@ export class Paper {
   oy = 0;
   /** The current part's band offset (-0.18..0.18), stable per part from frame to frame. */
   band = 0;
+  /**
+   * Which way the key light falls in what is being drawn: 1, from the top-left (a facing drawn as
+   * seen), or -1, from the top-right (a facing drawn to be mirrored, SW from SE and NW from NE, so
+   * that after the mirror it is lit from the top-left too). `drawFacing` sets it. The primitives
+   * (`poly` axes, `rod`, `blob`) follow it; hand-written shading reads its horizontal light terms
+   * through `litX`.
+   */
+  get lightX(): 1 | -1 {
+    return this.lx_;
+  }
+  set lightX(v: 1 | -1) {
+    this.lx_ = v;
+    DRAW_LIGHT_X = v;
+  }
+  private lx_: 1 | -1 = 1;
   /** Bounding box of what has been drawn (canvas px, inclusive); passes only scan it. */
   bx0 = 0;
   by0 = 0;
@@ -545,15 +568,21 @@ export class Paper {
     this.FX = Math.round(cw / 2);
     this.FY = Math.round(ch * size.footY);
     if (cw !== this.CW || ch !== this.CH) {
-      this.pix = new Int16Array(cw * ch);
-      this.ord = new Int16Array(cw * ch);
+      this.pix = new Int16Array(cw * ch).fill(-1);
+      this.ord = new Int16Array(cw * ch).fill(-1);
       this.prev = new Int16Array(cw * ch).fill(-1);
       this.last = '';
+    } else if (this.bx1 >= this.bx0) {
+      // Everything drawn lies in the drawn box (plot and the blits grow it; the passes only touch
+      // drawn pixels), so only its rows need clearing: a part's scratch canvas is mostly empty.
+      for (let y = this.by0; y <= this.by1; y++) {
+        const r = y * cw;
+        this.pix.fill(-1, r + this.bx0, r + this.bx1 + 1);
+        this.ord.fill(-1, r + this.bx0, r + this.bx1 + 1);
+      }
     }
     this.CW = cw;
     this.CH = ch;
-    this.pix.fill(-1);
-    this.ord.fill(-1);
     this.order = 0;
     this.bx0 = cw;
     this.by0 = ch;
@@ -603,6 +632,21 @@ export class Paper {
   }
 
   /**
+   * A horizontal offset as the light sees it (`dx * lightX`): negative toward the light, positive
+   * toward the shadow side, whichever way the facing will be mirrored. Wrap the x of every lighting
+   * term in hand-written shading with it (`lit < 0` bands, rim pixels, highlights, dapple placed
+   * by side), and only those: geometry (where a cross, an eye or a fold is) stays in plain x.
+   * In a facing drawn as seen it returns `dx` unchanged.
+   */
+  litX(dx: number): number {
+    return this.lightX === 1 ? dx : -dx;
+  }
+  /** Whether the light is on the left of what is being drawn (false while drawing for a mirror). */
+  litLeft(): boolean {
+    return this.lightX === 1;
+  }
+
+  /**
    * Fills a polygon (canvas px): a pixel is in when its centre is. `shade(x, y, u, v)` gets the
    * pixel and its position across (u: -1 lit edge .. 1 shadow edge) and along (v: 0..1) the part's
    * axis, when one is given, and returns a code.
@@ -627,13 +671,17 @@ export class Paper {
       len = Math.hypot(vx, vy) || 1;
       vx /= len;
       vy /= len;
-      // Across-axis unit pointing away from the light (top-left): +u is the shadow side.
+      // Across-axis unit pointing away from the light (top-left): +u is the shadow side. Worked
+      // out in the frame the figure is seen in (x mirrored while drawing for a mirror), so a
+      // mirrored facing's bands are exactly those of the same part drawn as seen.
+      const s = this.lightX;
       ux = -vy;
-      uy = vx;
+      uy = vx * s;
       if (ux * -1 + uy * -1 > 0) {
         ux = -ux;
         uy = -uy;
       }
+      ux *= s;
     }
     const xs: number[] = [];
     for (let y = iy0; y <= iy1; y++) {
@@ -727,8 +775,9 @@ export class Paper {
         if (d >= 0) return d;
       }
       if (small) return code(m, base);
-      const lit = Math.hypot(nx + 0.38, ny + 0.38);
-      const dk = nx * 0.7 + ny * 0.7;
+      const lx = this.lightX === 1 ? nx : -nx;
+      const lit = Math.hypot(lx + 0.38, ny + 0.38);
+      const dk = lx * 0.7 + ny * 0.7;
       if (opts.shine && lit < 0.28 + this.band * 0.5) return code(m, base + 2);
       if (lit < 0.62 + this.band) return code(m, base + 1);
       if (dk > 0.72 + this.band) return code(m, base - 2);

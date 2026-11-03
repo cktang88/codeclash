@@ -722,7 +722,7 @@ export function spear(c: Paper, grip: P2, deg: number, fwd: number, aft: number,
   c.shape([h0, addP(mid, mul(side, 0.42)), h1, sub(mid, mul(side, 0.42))], (x, y) => {
     const q = local(c, frameAt(h0, deg - 90), x, y);
     if (c.L >= 4 && Math.abs(q[1]) < 0.08) return code(TM.steel, 1);
-    return code(TM.steel, q[1] < 0 ? 4 : 2);
+    return code(TM.steel, (c.lightX === 1 ? q[1] < 0 : q[1] > 0) ? 4 : 2); // the half facing the light
   });
   c.rod(along(tip, deg + 180, 0.6), h0, 0.3, 0.3, TM.steel, { tone: 1 });
   // (The rig draws the pennon on its own cloth bones from level 2; at level 1 the lance's length differs.)
