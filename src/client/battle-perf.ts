@@ -1,5 +1,5 @@
 // Perf and screenshot harness for the battle renderer.
-//   /battle-perf.html?men=20000&per=2500&seed=3&t=0&speed=1&zoom=1&pause=0&sync=0&cx=&cy=&stances=0&morale=0&hud=1&scan=1&art=classic|hd
+//   /battle-perf.html?men=20000&per=2500&seed=3&t=0&speed=1&zoom=1&pause=0&sync=0&cx=&cy=&stances=0&morale=0&hud=1&scan=1&art=classic|hd|hd64&aim=0|1
 // `per` pads each side to that many figures with clones of the simulated ones (the sim caps a
 // side at MAX_FIGURES), so the renderer can be measured at crowd sizes the sim doesn't make.
 // `t` fast-forwards to that tick first; `sync=1` waits for the GPU after each draw so the
@@ -68,7 +68,7 @@ const moraleTick = () => {
 };
 moraleTick();
 const art: ArtMode = q.get('art') ? parseArt(q.get('art')) : artMode();
-const scene = new BattleScene(view, art);
+let scene = new BattleScene(view, art);
 // The art toggle: classic 48 px sprites or HD (up to 128 px), saved like the game's setting.
 const toggle = document.getElementById('art') as HTMLButtonElement | null;
 if (toggle) {
@@ -92,6 +92,12 @@ const step = () => {
 scene.camera.zoom = num('zoom', 1);
 if (q.has('cx')) scene.camera.cx = num('cx', 0);
 if (q.has('cy')) scene.camera.cy = num('cy', 0);
+// `aim=0` or `aim=1`: the camera on that side's centre (the art-loading timings look at troops).
+if (q.has('aim')) {
+  const mine = real.soldiers.filter((s) => s.team === num('aim', 0));
+  scene.camera.cx = mine.reduce((a, s) => a + s.x, 0) / Math.max(1, mine.length);
+  scene.camera.cy = mine.reduce((a, s) => a + s.y, 0) / Math.max(1, mine.length);
+}
 scene.scanlines = q.get('scan') !== '0';
 const canvas = document.getElementById('c') as HTMLCanvasElement;
 const stats = document.getElementById('stats')!;
@@ -115,9 +121,47 @@ const draws: number[] = [];
 const frames: number[] = [];
 const builds: number[] = [];
 const perf = { frames: 0, buildMs: 0, drawMs: 0, drawP95: 0, fps: 0, figures: view.soldiers.length, tick: 0, buffer: '' };
-const w = window as unknown as { __perf: typeof perf; __scene: BattleScene; __step: (n: number) => void };
+const w = window as unknown as {
+  __perf: typeof perf;
+  __scene: BattleScene;
+  __step: (n: number) => void;
+  __switch: (to: ArtMode) => void;
+  __sharp: () => { sharp: boolean; m: number; want: number[]; have: number[] };
+};
 w.__perf = perf;
 w.__scene = scene;
+// Swaps the scene's art in place, as BattleView does (for timing a mode switch).
+w.__switch = (to) => {
+  const prev = scene;
+  prev.dispose();
+  scene = new BattleScene(view, to);
+  scene.camera.zoom = Math.min(prev.camera.zoom, scene.maxZoom);
+  scene.camera.cx = prev.camera.cx;
+  scene.camera.cy = prev.camera.cy;
+  scene.scanlines = prev.scanlines;
+  w.__scene = scene;
+};
+// Whether every kind in view is drawn at the finest level the view can show (HD), and the
+// level-1 grids of every kind on the field have landed.
+w.__sharp = () => {
+  const s = scene as unknown as { view: { m: number }; atlases: { levels?: readonly number[]; version?: number }[]; kindsPresent: number[][]; seen: number[]; hdLevel: Uint8Array[] };
+  const m = s.view.m;
+  const want: number[] = [];
+  const have: number[] = [];
+  let sharp = true;
+  s.atlases.forEach((a, t) => {
+    if (!a.levels) return;
+    if ((a.version ?? 0) < s.kindsPresent[t]!.length) sharp = false;
+    const top = [1, ...a.levels].filter((l) => l <= m).pop()!;
+    for (const k of s.kindsPresent[t]!) {
+      if (!(s.seen[t]! & (1 << k))) continue;
+      want.push(top);
+      have.push(s.hdLevel[t]![k]!);
+      if (s.hdLevel[t]![k]! !== top && top > 1) sharp = false;
+    }
+  });
+  return { sharp, m, want, have };
+};
 w.__step = (n) => {
   for (let i = 0; i < n && !real.done(); i++) step();
 };
