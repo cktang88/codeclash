@@ -689,9 +689,9 @@ export class HdField {
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     }
     const wall = typeof performance !== 'undefined' ? performance.now() : 0;
-    // Throttled by both clocks: five times a second at most, and not more than every 0.3 battle
+    // Throttled by both clocks: at most every 0.3 s of wall time and 0.6 battle
     // seconds (a slow frame rate should not recompose every frame).
-    const stale = g.compKey !== key || !g.compT || (g.marksChanged && wall - g.compAt > 200 && Math.abs(now - g.compNow) >= 0.3) || Math.abs(now - g.compNow) > 2;
+    const stale = g.compKey !== key || !g.compT || (g.marksChanged && wall - g.compAt > 300 && Math.abs(now - g.compNow) >= 0.6) || Math.abs(now - g.compNow) > 2;
     if (stale) {
       g.compT = sized(g.compT);
       g.compKey = key;
