@@ -41,6 +41,11 @@ The LRU cap, the worker pool and the trimming and packing are unchanged. Frame c
 Shoot falls back to Attack for kinds that don't shoot (`slotOf` in `sprites128.ts`). A kind may
 register several attacks (see "Several blows" below).
 
+The HD 64 battle mode (`buildAtlas64`) has no level-8 sheet of its own: the worker paints your
+level-8 sheet and halves it with `downscale.ts` (every frame, every blow) into its level 4. What
+helps it: a closed 1-px outline, thin parts at least 2 px wide at level 8 or connected 1-px lines,
+glints as single bright pixels. See `docs/art-references/hd64-downscale.md`.
+
 ## Adding a kind
 
 ```ts
