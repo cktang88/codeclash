@@ -42,12 +42,14 @@ describe('several melee blows', () => {
     expect(paperBlows('blows-test', 0)).toBe(3);
     expect(paperBlows('blows-test', 1)).toBe(1);
     expect(paperBlows('blows-test', 2)).toBe(3);
-    // Every faction kind has one to three blows (README: keep it to 2-3).
+    // Every faction kind has 1-3 blows (README: keep it to 2-3 for melee kinds).
     for (const f of ['templar', 'samurai', 'undead'])
       for (let k = 0; k < 11; k++) {
         expect(paperBlows(f, k), `${f} ${k}`).toBeGreaterThanOrEqual(1);
         expect(paperBlows(f, k), `${f} ${k}`).toBeLessThanOrEqual(3);
       }
+    // The Templar melee kinds strike in several ways (templar-foot.ts / templar-horse.ts specs).
+    for (const k of [U.HeavyInfantry, U.Spearmen, U.Shock]) expect(paperBlows('templar', k), `templar ${k}`).toBe(3);
   });
 
   it('gives every blow its own slots and grid cells, blow 0 in the classic ones', () => {
