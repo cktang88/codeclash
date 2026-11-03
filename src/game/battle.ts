@@ -3546,6 +3546,7 @@ export class Battle {
         r.recallAt = this.tick;
         this.give(r, 'reserve', -1, 0, -1, r.homeX, r.homeY);
         this.setMode(r, 'withdraw');
+        r.toBanner = false;
         r.wx = r.homeX;
         r.wy = r.homeY;
         this.goal(r, r.homeX, r.homeY);

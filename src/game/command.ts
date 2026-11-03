@@ -393,7 +393,7 @@ export const DOCTRINE: Record<FactionId, Doctrine> = {
   samurai: {
     ...SHARED,
     // S1 The lord's uma-jirushi.
-    aura: 1.4, auraRange: 1.25, generalDeadShock: 1.75, generalDead: 1.4, revenge: true, revengeFor: 300,
+    aura: 1.6, auraRange: 1.25, generalDeadShock: 1.75, generalDead: 1.4, revenge: true, revengeFor: 300,
     // S2 First spear, long chase.
     chaseFar: 1.4, chaseTired: 1.4, recall: 80, firstSpear: 8, firstSpearNear: 240, firstSpearLift: 3, keenCharge: 140,
     // S3 Drilled teppō fire.
@@ -406,6 +406,6 @@ export const DOCTRINE: Record<FactionId, Doctrine> = {
     // U2 Unflinching: a charge into them barely knocks them back, stuns nobody, and stalls sooner.
     knockback: 0.3, stun: false, drain: 1.3,
     // U3 What falls, rises.
-    raiseEvery: 100, raiseShare: 0.015, raiseCap: 12, raiseRange: 240, raiseAfter: 30, raiseHp: 0.4,
+    raiseEvery: 100, raiseShare: 0.008, raiseCap: 40, raiseRange: 240, raiseAfter: 30, raiseHp: 0.4,
   },
 };
