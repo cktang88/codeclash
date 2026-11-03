@@ -993,7 +993,7 @@ function deathKnightStatic(c: Paper): void {
 // green-fire arrow on the string.
 
 // Hue-turned: blue-violet in the folds, a warmer violet in the light (not a straight ramp).
-const VIOLET = defineMaterial('undead.violet', hueTurn(oklchRamp({ l: 0.36, c: 0.11, h: 300, spread: 0.085 }), 7));
+export const VIOLET = defineMaterial('undead.violet', hueTurn(oklchRamp({ l: 0.36, c: 0.11, h: 300, spread: 0.085 }), 7));
 const BRONZE = defineMaterial('undead.bronze', oklchRamp({ l: 0.6, c: 0.1, h: 68, spread: 0.11 }));
 
 /** Bronze trim along a line (a 1-2 px band, lit on its upper side). */
@@ -1180,6 +1180,31 @@ export function soulWisp(c: Paper, t: number): void {
   flame(c, [0.4 + Math.sin(t * 1.3) * 0.4, -3.0 - t * 1.7], 1.8 + 2.0 * k, t * 0.17, { w: 0.45 + 0.6 * k });
   if (t >= 2) flame(c, [0.2, -1.6 - t * 1.1], 0.7 * k + 0.3, t * 0.31, { w: 0.18 + 0.2 * k });
 }
+/**
+ * A wraith's afterimage at the run (frame `f` of 12): broken streaks of its own cloth trailing
+ * back from the robe at a few heights, each a dash with a gap, drifting back two units a frame and
+ * fading to single pixels at the tail (the CC0 Ars Notoria ghost's tail breaking into loose
+ * pixels). Drawn behind the figure; deterministic (no noise but the frame and the row).
+ */
+export function ghostTrail(c: Paper, f: number, mat: number): void {
+  // Rows up the robe's back, which the run's lean slants forward toward the top.
+  const rows = [-2.6, -5.3, -7.6, -10.2];
+  const lens = [3.0, 2.2, 2.7, 1.6];
+  rows.forEach((y, i) => {
+    const drift = ((f + i * 4) % 6) / 6; // 0..1, each row on its own beat
+    const edge = -4.4 - y * 0.32; // the robe's back edge at this height
+    const x0 = edge - 0.4 - drift * 2.6;
+    const len = lens[i]! * (1 - drift * 0.55);
+    // The streak: a pale ghost of the cloth (its lightest tones), the tail a tone darker.
+    c.line([x0 - len * 0.45, y + drift * 0.3], [x0, y + drift * 0.3], code(mat, 4));
+    c.line([x0 - len, y + drift * 0.3], [x0 - len * 0.5, y + drift * 0.3], code(mat, 3));
+    // Breaking up into loose pixels behind it.
+    const tx = x0 - len - 0.9 - drift;
+    c.line([tx, y + 0.4], [tx, y + 0.4], code(mat, 3));
+    if (c.L >= 4 && drift > 0.3) c.line([tx - 1.2, y - 0.2], [tx - 1.2, y - 0.2], code(mat, 4));
+  });
+}
+
 function wardenStatic(c: Paper): void {
   drawPieces(c, WARDEN);
 }

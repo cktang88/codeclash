@@ -13,7 +13,7 @@ import { Anim } from '../contract.ts';
 import type { Facing } from './facing.ts';
 import { BREATH, EASE_IN, evaluate, sampleAnimation, sampleClip, type AnimationData, type AnimEvent, type BoneTimeline, type Clip, type Key, type SkeletonData } from './skeleton.ts';
 import { addDrops, facingClip, lagCloth, lastFrame, mapFacings, mocapKeys, overlayKeys, restWorld, type ClipSet, type Drop, type KP, type LagSpec, type MocapOpts, type Track } from './templar-rig.ts';
-import { BLOCK, CUT, HIT, R, T, type Author, type Tracks } from './templar-clips.ts';
+import { BLOCK, CUT, HIT, osc, R, T, type Author, type Tracks } from './templar-clips.ts';
 import { BLOWS, runKeys as authoredKeys, type RunStyle } from './undead-blows.ts';
 
 export type FootAttack = 'cut' | 'lunge' | 'hurl' | 'cast' | 'butt' | 'loose';
@@ -451,8 +451,39 @@ export function footClips(skel: SkeletonData, s: FootClipSpec): ClipSet & { atta
     const head: Author = () => ({ dw: { head: T([0, s.tilt]), jaw: T([0, -16]) } });
     return { keys: overlayKeys(authoredKeys(r, f, 1), both(both(posture(s, 0.6, false), head), () => arms)(rw, f)), ev: [{ f: 0, name: 'step' }, { f: 6, name: 'step' }] as AnimEvent[] };
   };
+  /**
+   * The wraith's run is a flight, not a faster glide (the CC0 Ars Notoria ghost and the floating
+   * soul in docs/art-references/undead-animation.md): the robe lifts clear of the ground and the
+   * body pitches forward over it, the legs trailing back up under the hem, the free arm swept back
+   * and trailing a frame late; the robe and cloak stream straight back; it surges on twice a cycle
+   * (forward and up, then settling), and leaves ghost pixels behind it (the `ghost` event, drawn by
+   * the kinds' `ghost` extra).
+   */
+  const flyA: Author = () => {
+    const up = s.float ? -1.1 : -0.8;
+    const ys = (a: number): Track => T([0, up + a * 0.5], [3, up], [6, up + a * 0.5], [9, up], [12, up + a * 0.5]);
+    const trailArm: Record<string, Track> = s.farHeld
+      // The bow arm swept back and low, the nocked bow trailing behind the robe (the string hand
+      // stays on the nock, by its IK, so both arms trail).
+      ? { upperArmF: osc(-22, 5, 0, 12, 2), forearmF: osc(-8, 6, 1, 12, 2), itemF: osc(70, 4, 1.5, 12, 2) }
+      // The staff carried slanting forward like a lance; the witch-hand swept back, trailing.
+      : { upperArmN: T([0, 24]), forearmN: T([0, 74]), weapon: T([0, 150]), upperArmF: osc(-50, 7, 0, 12, 2), forearmF: osc(-38, 9, 1, 12, 2) };
+    return {
+      w: trailArm,
+      dw: { spine: T([0, -36]), chest: T([0, -12]), head: T([0, -2]), jaw: T([0, -12]) },
+      tAdd: {
+        pelvis: [T([0, 0.15], [3, 0.55], [6, 0.15], [9, 0.55], [12, 0.15]), ys(0.35)],
+        footTargetN: [T([0, -1.4], [6, -1.9], [12, -1.4]), ys(0.2).map(([f, v]) => [f, v - 0.5] as [number, number])],
+        footTargetF: [T([0, -1.9], [6, -1.4], [12, -1.9]), ys(0.2).map(([f, v]) => [f, v - 0.7] as [number, number])],
+      },
+    };
+  };
+  const flyKeys = (f: Facing) =>
+    mk(skel, f, 'idle', { ref: 'first', torso: 0, travel: 0, feet: 0 }, both(flyA, posture(s, 0.5, false)), [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+  const ghostEv: AnimEvent[] = [{ f: 0, name: 'step' }, ...Array.from({ length: 12 }, (_, i) => ({ f: i, name: 'ghost', int: i }))];
+  const showGhost = (c: Clip): Clip => mapFacings(c, (a) => ({ ...a, slots: { ...(a.slots ?? {}), ghost: [{ f: 0, v: 'ghost' }] } }));
   const run = s.glide
-    ? fc('run', 12, true, glideKeys(-26, 0.5, 0.22, 4, -14), [{ f: 0, name: 'step' }], 2.6)
+    ? showGhost(fc('run', 12, true, flyKeys, ghostEv, 3.2))
     : s.run
       ? fc('run', 12, true, authoredRun(s.run), undefined, 1.4, s.runWarp)
       : fc('run', 12, true, runKeys, undefined, 1, [0, 1, 2, 2, 4, 5, 6, 7, 8, 8, 10, 11]);
