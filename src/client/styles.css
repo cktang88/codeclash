@@ -981,6 +981,22 @@ main {
   body {
     font-size: 16px;
   }
+  /* One line of top bar on a phone: the brand, the battle link and the account each wrapped onto two. */
+  .topbar {
+    gap: 0.7rem;
+    padding: 0.5rem 0.8rem;
+    white-space: nowrap;
+  }
+  .brand {
+    letter-spacing: 0.06em;
+  }
+  .topbar .account > button {
+    padding: 0.2em 0.5em;
+  }
+  .account-menu {
+    white-space: normal;
+    max-width: calc(100vw - 1.6rem);
+  }
   .hud-top {
     grid-template-columns: 1fr 1fr;
   }
