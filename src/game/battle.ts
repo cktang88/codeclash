@@ -29,6 +29,12 @@ export type { CommanderTrait, MoraleState, Order, OrderKind, Personality, Plan }
 export { DOCTRINE, MORALE, REGROUP, UNDEAD } from './command.ts';
 
 /**
+ * v14: looser, livelier battles (docs/art-references/battle-cohesion.md; COHESION in command.ts).
+ * - Room between blocks: 28 between regiments side by side (22 to 34 by the room the line has),
+ *   26 between rows, 24 between the archers' blocks, and 60 out to the horse on the wings, which
+ *   stands 16 before the line (were 18, 16, 14 and 36, level). The figures are drawn 2-3 times
+ *   life size and the old gaps all but vanished on screen.
+ *
  * v13: battle doctrines (docs/faction-doctrines.md; DOCTRINE in command.ts), and morale shocks
  * that do not grow with the battle.
  * - Shocks that came a man or a missile at a time (blows in flank and rear, charge impact,
@@ -130,7 +136,7 @@ export { DOCTRINE, MORALE, REGROUP, UNDEAD } from './command.ts';
  * one side won 60-75% of mirror matches, which side depending on the armies' size (see
  * `pnpm fairness`).
  */
-export const BATTLE_VERSION = 13;
+export const BATTLE_VERSION = 14;
 /**
  * Mixed into every battle's seed. It was BATTLE_VERSION until v3, which kept v2's salt: a
  * version bump refuses old setups (BattleVersionError) but does not re-seed battles by itself.
@@ -752,9 +758,23 @@ const GAP_IN_RANK: Record<string, number> = { line: 0.5, missile: 1.2, skirmish:
  * horse, which is longer than it is broad (knights: files 9 apart, ranks 13).
  */
 const RANK_STEP: Record<string, number> = { line: 1.1, missile: 1.05, skirmish: 1, flank: 1.4, 'shock-cav': 1.45, 'horse-archer': 1.15, siege: 1, command: 1.3 };
-/** Room between regiments side by side in a line, and between one row of regiments and the next behind it. */
-const REG_GAP = 18;
-const ROW_GAP = 16;
+/**
+ * Room between regiments side by side in a line (each army's own: REG_GAP where the line has
+ * room, closing to REG_GAP_MIN as a big army fills the field, and up to REG_GAP_MAX for a line
+ * of two or three blocks: see `deploy`), between one row of regiments and the next
+ * behind it, between the blocks of the archers' row, and from the line out to the horse on the
+ * wings. The figures are drawn 2-3 times life size, so a gap sized in metres all but vanishes on
+ * screen: these are sized to the drawn figure, two figures' width of ground between blocks
+ * (docs/art-references/battle-cohesion.md, section 3.5). Until v13: 18, 16, 14 and 36.
+ */
+const REG_GAP = 28;
+const REG_GAP_MIN = 22;
+const REG_GAP_MAX = 34;
+const ROW_GAP = 26;
+const MISSILE_GAP = 24;
+const WING_GAP = 60;
+/** The horse on the wings stands this far before the line ("slightly forward", as at Agincourt). */
+const WING_FORWARD = 16;
 /**
  * Pace in each mode, a share of the men's speed. Formed foot marches at FOOT_MARCH, 11 units a
  * second (about 2 m/s: a brisk march, faster than life so a battle is not all approach), whatever
@@ -1067,7 +1087,7 @@ export class Battle {
     const spears = line.filter((r) => r.cls === U.Spearmen);
     const maxFront = FIELD_H * 0.52;
     let k = line.length <= 3 ? line.length : Math.ceil(line.length * 0.6);
-    while (k > 1 && rowWidth(line.slice(0, k)) > maxFront) k--;
+    while (k > 1 && rowWidth(line.slice(0, k), REG_GAP_MIN) > maxFront) k--;
     const ends = Math.min(2, spears.length, k >= 3 ? 2 : 0);
     const centre = heavy.slice(0, k - ends);
     const spearUsed = spears.slice(0, ends + Math.max(0, k - ends - centre.length));
@@ -1082,7 +1102,12 @@ export class Battle {
     // Keeps a regiment's back rank on the field: a deep overflow row (an army of horse, archers
     // or engines) stands against the back edge instead of beyond it.
     const onField = (reg: Regiment, x: number): number => (dir > 0 ? Math.max(8 + reg.depth, x) : Math.min(FIELD_W - 8 - reg.depth, x));
-    const place = (list: Regiment[], depth: number, y0: number, y1: number, gap = REG_GAP): number => {
+    // The gap between the blocks of the line: half the room the first line leaves, within
+    // [REG_GAP_MIN, REG_GAP] (REG_GAP_MAX for a line of two or three blocks): a big army that
+    // fills the field closes up, and a small one stands well apart.
+    const firstW = first.reduce((w, r) => w + r.width, 0);
+    const regGap = first.length > 1 ? Math.max(REG_GAP_MIN, Math.min(first.length <= 3 ? REG_GAP_MAX : REG_GAP, ((maxFront - firstW) / (first.length - 1)) * 0.5)) : REG_GAP_MAX;
+    const place = (list: Regiment[], depth: number, y0: number, y1: number, gap = regGap): number => {
       // Lay regiments across the band between y0 and y1; overflow goes to further rows behind.
       let rank = 0;
       let i = 0;
@@ -1111,10 +1136,10 @@ export class Battle {
       }
       return rank;
     };
-    const half = Math.max(rowWidth(first), 160) / 2;
+    const half = Math.max(rowWidth(first, regGap), 160) / 2;
     const firstDepth = first.length ? place(first, 0, midY - half - 20, midY + half + 20) : 0;
     const missile = byRole('missile');
-    const missileDepth = place(missile, Math.max(14, firstDepth), midY - half - 60, midY + half + 60, 14);
+    const missileDepth = place(missile, Math.max(14, firstDepth), midY - half - 60, midY + half + 60, MISSILE_GAP);
     const behind = Math.max(14, firstDepth) + missileDepth;
     const secondDepth = place(second, behind, midY - half - 20, midY + half + 20);
     const skirm = byRole('skirmish');
@@ -1132,8 +1157,8 @@ export class Battle {
     const wingW = (list: Regiment[]) => Math.min(280, list.reduce((w, r) => Math.max(w, r.width), 0) * 2 + 22);
     const tw = wingW(top);
     const bw = wingW(bottom);
-    place(top, 0, Math.max(20, midY - half - 36 - tw), midY - half - 36, 22);
-    place(bottom, 0, midY + half + 36, Math.min(FIELD_H - 20, midY + half + 36 + bw), 22);
+    place(top, -WING_FORWARD, Math.max(20, midY - half - WING_GAP - tw), midY - half - WING_GAP, 22);
+    place(bottom, -WING_FORWARD, midY + half + WING_GAP, Math.min(FIELD_H - 20, midY + half + WING_GAP + bw), 22);
 
     // The commander and a bodyguard of knights behind the centre.
     if (army.commander) {
@@ -5252,8 +5277,8 @@ function defaultStance(reg: Regiment): Stance {
   return reg.role === 'missile' || reg.role === 'skirmish' || reg.role === 'horse-archer' ? 'loose' : 'line';
 }
 
-function rowWidth(list: Regiment[]): number {
-  return list.reduce((w, r) => w + r.width + REG_GAP, 0) - REG_GAP;
+function rowWidth(list: Regiment[], gap: number): number {
+  return list.reduce((w, r) => w + r.width + gap, 0) - gap;
 }
 
 function cellIndex(x: number, y: number): number {

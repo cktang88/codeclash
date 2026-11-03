@@ -211,8 +211,10 @@ describe('battle: breaking ranks to chase', () => {
         b.step();
         for (const r of b.regiments) {
           if (r.chaseAt < 0 || r.ord.kind === 'pursue' || r.alive < 8) continue;
-          farthest = Math.max(farthest, Math.hypot(r.ax - r.chaseX, r.ay - r.chaseY) / (isHorse(r.cls) ? 200 + 400 * r.eager : 120 + 260 * r.eager));
-          const L = (b.tick - r.chaseAt) / (isHorse(r.cls) ? 120 + 300 * r.eager : 80 + 220 * r.eager);
+          // (S2: the samurai's leash is DOCTRINE.chaseFar and chaseTired times longer.)
+          const doc = b.doc[r.team]!;
+          farthest = Math.max(farthest, Math.hypot(r.ax - r.chaseX, r.ay - r.chaseY) / ((isHorse(r.cls) ? 200 + 400 * r.eager : 120 + 260 * r.eager) * doc.chaseFar));
+          const L = (b.tick - r.chaseAt) / ((isHorse(r.cls) ? 120 + 300 * r.eager : 80 + 220 * r.eager) * doc.chaseTired);
           longest = Math.max(longest, L);
           // Loose: the men stand further apart than in their ranks.
           if (r.mode === 'pursue' && !isHorse(r.cls) && b.tick % 10 === 0) {
