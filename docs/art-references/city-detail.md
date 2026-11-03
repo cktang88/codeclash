@@ -98,3 +98,19 @@ committed. Every pixel of the city is painted by our code.
 6. **Props close up (×8).** Crates looked like loaves and bales were blotchy. Crates now have
    pale battens over dark boards and a brace, barrels have dark stave joints, and bales have
    straw lines and twine.
+
+## Checks
+
+- `pnpm pixel-lint --only=city`: the baseline before this pass had 2 failed checks, both Undead
+  HD. After it, Templar had 0 fails over its 20 scenes (classic and HD, tiers 0-4, day and night).
+  Building orphans in HD Templar measure 17-18% (warn above 12%, fail above 20%), after the
+  single-pixel tile crowns and stone pits were dropped. The other failed checks in the full city
+  lint are the Undead town's (its silhouette edge ΔL and iso runs), whose agent is working on them.
+- Classic is pixel-identical: screenshot diffs at levels 3, 8, 13 and 20, day and night, show no
+  differing pixel.
+- Frame time (headless Chromium, SwiftShader, 1280×720, scene 0, with the soldier sheets
+  painted; best of 3 interleaved runs against master at 7028ffa). Level 20, day, zoom 1:
+  4.7 → 6.7 ms. Level 20, night: 5.3 → 7.4 ms. Level 20, day, zoom 4: 5.1 → 4.3 ms. Level 5,
+  day: 3.3 → 5.2 ms. A rebuild (a level change) takes about 0.9-1.8 s, up from 0.4-1.6 s; that
+  covers painting the props and the cast shadows. The night's light pools are painted once, on
+  the first night frame after a rebuild.
