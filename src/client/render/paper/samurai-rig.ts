@@ -819,39 +819,43 @@ const RISING: Author = (rw) => ({
 });
 
 /**
- * The gunbai's command: the lord raises the war fan high over his head (1-3), holds it there while
- * the line looks to him (4), then sweeps it forward and down to point at the enemy with a step and
- * a lean (5-6), holds the point (7-8), and brings it back to his chest (9-11).
+ * The gunbai's command (a signal, not a blow): the lord lifts the war fan straight up over his
+ * head (1-2) and holds it there, arm locked, for four frames while the line looks to him, the fan
+ * rocking once (3-6); then lowers it to point level at the enemy (7-8), the trunk upright and the
+ * feet planted, and brings it back to his chest (9-11). No smear, no step, no lean: it must read
+ * apart from the strike below even at level 1 (the high held fan is the read).
  */
 const FAN: Author = (rw) => ({
   w: {
-    upperArmN: R(rw.upperArmN!, 11, [1, 130], [2, 165], [3, 172], [4, 172], [5, 130], [6, 96], [7, 92], [8, 92], [10, 100]),
-    forearmN: R(rw.forearmN!, 11, [1, 150], [2, 175], [3, 182], [4, 182], [5, 120], [6, 92], [7, 90], [8, 90], [10, 80]),
-    weapon: R(rw.weapon!, 11, [1, 160], [2, 180], [3, 188], [4, 188], [5, 140], [6, 98], [7, 92], [8, 92], [10, 105]),
-    head: T([0, rw.head!], [3, rw.head! + 4], [5, rw.head!], [7, rw.head! - 4], [9, rw.head!]),
+    upperArmN: R(rw.upperArmN!, 11, [1, 150], [2, 172], [3, 176], [4, 176], [5, 176], [6, 174], [7, 122], [8, 96], [9, 94], [10, 100]),
+    forearmN: R(rw.forearmN!, 11, [1, 172], [2, 182], [3, 184], [4, 184], [5, 184], [6, 182], [7, 120], [8, 92], [9, 90], [10, 80]),
+    weapon: R(rw.weapon!, 11, [1, 176], [2, 186], [3, 192], [4, 182], [5, 192], [6, 186], [7, 128], [8, 94], [9, 92], [10, 105]),
+    head: T([0, rw.head!], [2, rw.head! + 6], [6, rw.head! + 6], [8, rw.head!]),
   },
-  dw: { spine: T([0, 0], [3, 6], [4, 6], [5, 0], [6, -10], [8, -10], [10, -3], [11, 0]), upperArmF: T([0, 0], [3, -6], [6, 10], [9, 0]) },
+  dw: { spine: T([0, 0], [2, 5], [6, 5], [7, 0], [8, -3], [9, -3], [11, 0]), upperArmF: T([0, 0], [3, -4], [6, -4], [8, 0]) },
   tAdd: {
-    pelvis: [T([0, 0], [3, -0.2], [4, -0.2], [6, 0.55], [8, 0.55], [10, 0.15], [11, 0]), T([0, 0], [6, 0.2], [8, 0.2], [11, 0])],
-    footTargetF: [T([0, 0], [4, 0], [5, 0.5], [6, 1.0], [9, 1.0], [10, 0.4], [11, 0]), T([0, 0], [4, -0.2], [5, -0.5], [6, 0], [11, 0])],
+    pelvis: [T([0, 0], [2, -0.15], [6, -0.15], [8, 0.1], [10, 0.05], [11, 0]), T([0, 0], [11, 0])],
   },
 });
 
 /**
- * The daimyō's second blow: the iron-ribbed gunbai used as a club, raised behind the head (1-3) and
- * brought down hard forward (5-6), one-handed, with a half step; then back to the chest.
+ * The daimyō's second blow: the iron-ribbed gunbai used as a club. Cocked back by the ear, the
+ * forearm and the fan laid back behind the helmet, the trunk wound back (1-4: never raised upright,
+ * so it never passes for the signal); then snapped forward and down in one frame (4-5) with the whole body behind it: a long step, the hips
+ * dropping, the trunk pitching 20° over the front knee, the free arm thrown back; the fan ends
+ * well below level (6) and is held there (7-8) before he straightens (9-11). One frame of smear.
  */
 const FAN_STRIKE: Author = (rw) => ({
   w: {
-    upperArmN: R(rw.upperArmN!, 11, [1, 140], [2, 168], [3, 174], [4, 150], [5, 100], [6, 66], [7, 64], [9, 90]),
-    forearmN: R(rw.forearmN!, 11, [1, 172], [2, 200], [3, 208], [4, 172], [5, 110], [6, 66], [7, 64], [9, 100]),
-    weapon: R(rw.weapon!, 11, [1, 172], [2, 210], [3, 222], [4, 182], [5, 122], [6, 74], [7, 72], [9, 100]),
-    head: T([0, rw.head!], [3, rw.head! + 4], [6, rw.head! - 6], [8, rw.head! - 6], [10, rw.head!]),
+    upperArmN: R(rw.upperArmN!, 11, [1, 112], [2, 136], [3, 144], [4, 140], [5, 78], [6, 58], [7, 56], [8, 58], [9, 80], [10, 92]),
+    forearmN: R(rw.forearmN!, 11, [1, 196], [2, 222], [3, 232], [4, 226], [5, 72], [6, 46], [7, 44], [8, 48], [9, 80], [10, 92]),
+    weapon: R(rw.weapon!, 11, [1, 214], [2, 240], [3, 252], [4, 250], [5, 66], [6, 36], [7, 34], [8, 40], [9, 76], [10, 100]),
+    head: T([0, rw.head!], [3, rw.head! + 2], [5, rw.head! - 8], [8, rw.head! - 8], [10, rw.head!]),
   },
-  dw: { spine: T([0, 0], [3, 6], [5, -6], [6, -14], [8, -12], [10, -3], [11, 0]) },
+  dw: { spine: T([0, 0], [2, 8], [3, 10], [4, 10], [5, -20], [6, -26], [8, -24], [10, -6], [11, 0]), chest: T([0, 0], [3, 4], [4, 4], [5, -8], [6, -10], [8, -10], [10, -2], [11, 0]), upperArmF: T([0, 0], [3, 10], [4, 10], [5, -20], [8, -16], [10, 0]) },
   tAdd: {
-    pelvis: [T([0, 0], [3, -0.2], [5, 0.4], [6, 0.65], [8, 0.65], [10, 0.2], [11, 0]), T([0, 0], [6, 0.25], [8, 0.25], [11, 0])],
-    footTargetF: [T([0, 0], [4, 0], [5, 0.5], [6, 1.0], [9, 1.0], [10, 0.4], [11, 0]), T([0, 0], [4, -0.2], [5, -0.5], [6, 0], [11, 0])],
+    pelvis: [T([0, 0], [3, -0.35], [4, -0.3], [5, 0.8], [6, 1.1], [8, 1.1], [10, 0.35], [11, 0]), T([0, 0], [4, 0], [5, 0.45], [6, 0.65], [8, 0.65], [10, 0.2], [11, 0])],
+    footTargetF: [T([0, 0], [3, 0], [4, 0.4], [5, 1.5], [9, 1.5], [10, 0.5], [11, 0]), T([0, 0], [3, -0.2], [4, -0.6], [5, 0], [11, 0])],
   },
 });
 
@@ -864,12 +868,12 @@ const ATTACKS: Record<Attack, { clip: string; o: MocapOpts; a: Author; extra: nu
   under: { clip: 'thrust', o: { torso: 0.3, travel: 0.3, feet: 0.3 }, a: UNDER, extra: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], ev: [{ f: 5, name: 'strike' }] },
   stock: { clip: 'thrust', o: { torso: 0.3, travel: 0.3, feet: 0.3 }, a: STOCK, extra: [1, 2, 3, 4, 5, 6, 8, 9, 10], ev: [{ f: 5, name: 'strike' }] },
   rising: { clip: 'chop', o: { torso: 0.2, travel: 0.3, feet: 0.3 }, a: RISING, extra: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], ev: [{ f: 6, name: 'smear', len: 2, bone: 'weapon' }, { f: 7, name: 'strike' }] },
-  fanStrike: { clip: 'brace', o: { ref: 'first', torso: 0, travel: 0, feet: 0 }, a: FAN_STRIKE, extra: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], ev: [{ f: 5, name: 'smear', len: 2, bone: 'weapon' }, { f: 6, name: 'strike' }] },
+  fanStrike: { clip: 'brace', o: { ref: 'first', torso: 0, travel: 0, feet: 0 }, a: FAN_STRIKE, extra: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], ev: [{ f: 5, name: 'smear', len: 1, bone: 'weapon' }, { f: 5, name: 'strike' }] },
   jab: { clip: 'thrust', o: { torso: 0.3, travel: 0.3, feet: 0.3 }, a: JAB, extra: [2, 3, 4, 5, 6, 7, 8, 9, 10], ev: [{ f: 4, name: 'smear', len: 1, bone: 'weapon' }, { f: 5, name: 'strike' }] },
   punch: { clip: 'thrust', o: { torso: 0.3, travel: 0.3, feet: 0.3 }, a: PUNCH, extra: [3, 5, 6, 9], ev: [{ f: 5, name: 'strike' }] },
   butt: { clip: 'thrust', o: { torso: 0.3, travel: 0.3, feet: 0.3 }, a: BUTT, extra: [3, 5, 6, 9], ev: [{ f: 5, name: 'smear', len: 1, bone: 'weapon' }, { f: 5, name: 'strike' }] },
   sweep: { clip: 'chop', o: { torso: 0.3, travel: 0.3, feet: 0.3 }, a: SWEEP, extra: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], ev: [{ f: 6, name: 'smear', len: 2, bone: 'weapon' }, { f: 7, name: 'strike' }] },
-  fan: { clip: 'brace', o: { ref: 'first', torso: 0, travel: 0, feet: 0 }, a: FAN, extra: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], ev: [{ f: 5, name: 'smear', len: 2, bone: 'weapon' }, { f: 6, name: 'strike' }] },
+  fan: { clip: 'brace', o: { ref: 'first', torso: 0, travel: 0, feet: 0 }, a: FAN, extra: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], ev: [{ f: 8, name: 'strike' }] },
 };
 
 /** Missiles: clip, capture options, authored arms, events, and a slot hidden while the missile is away. */
