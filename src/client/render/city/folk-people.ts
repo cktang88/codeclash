@@ -313,13 +313,12 @@ export function paintPerson(ctx: PaintCtx, L: Look, clip: FolkClip, f: number, b
     limb([a[0] - 0.5, a[1] + 1], [a[0] + 2, a[1] + 1], 2, 1.8, mShoe, t);
   };
   const drawArm = (s: P2, e: P2, h: P2, t: number) => {
-    // The sleeve is the body's cloth as its own material, so a contact line parts arm from body.
-    const am = kind === 'skeleton' ? mSkin : M.of(L.body, 0.076);
+    const am = kind === 'skeleton' ? mSkin : mBody;
     if (t >= 2 && kind !== 'skeleton') {
       // The near arm lies over the body: a dark seam round it so it reads (pixel-art-craft §3).
-      const mo = M.of(mix(L.body, hex('#140c10'), 0.55));
-      limb(s, e, B.arm * sleeveC + 1.2, B.arm * (sleeveC > 1 ? 1.5 : 0.95) + 1.2, mo, 2);
-      limb(e, h, B.arm * (sleeveC > 1 ? 1.4 : 0.9) + 1.2, B.arm * (sleeveC > 1 ? 1.1 : 0.8) + 1.2, mo, 2);
+      // (The cloth's own darkest tone, so the seam adds no colour.)
+      limb(s, e, B.arm * sleeveC + 1.2, B.arm * (sleeveC > 1 ? 1.5 : 0.95) + 1.2, am, 0);
+      limb(e, h, B.arm * (sleeveC > 1 ? 1.4 : 0.9) + 1.2, B.arm * (sleeveC > 1 ? 1.1 : 0.8) + 1.2, L.sleeves === 'rolled' ? mSkin : am, 0);
     }
     limb(s, e, B.arm * sleeveC, B.arm * (sleeveC > 1 ? 1.5 : 0.95), am, t);
     limb(e, h, B.arm * (sleeveC > 1 ? 1.4 : 0.9), B.arm * (sleeveC > 1 ? 1.1 : 0.8), L.sleeves === 'rolled' ? mSkin : am, t);
