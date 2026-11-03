@@ -40,3 +40,18 @@ export function settleTurn(next: Dir, prev: Dir, anim: Anim, since: number): Dir
   if (next === prev || anim === Anim.Attack || anim === Anim.Shoot || since >= TURN_HOLD) return next;
   return prev;
 }
+
+/**
+ * World units a risen man may move from where he lay before his rise is cut short: the fall
+ * played backwards is a man on the ground, and one the battle already walks off would slide
+ * across the field as a heap of bones.
+ */
+export const RISE_SLIDE = 3;
+
+/**
+ * Whether a man raised from the dead is still drawn getting up: `since` ticks after he rose, of a
+ * rise `ticks` long, `dx, dy` from where he lay (NaN: not known, as for a scene made mid-rise).
+ */
+export function stillRising(since: number, ticks: number, dx: number, dy: number): boolean {
+  return since < ticks && dx * dx + dy * dy < RISE_SLIDE * RISE_SLIDE;
+}

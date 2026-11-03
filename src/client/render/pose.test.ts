@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Anim, type Dir } from './contract.ts';
 import { dirFor } from './iso.ts';
-import { facing, settleTurn, TURN_HOLD } from './pose.ts';
+import { facing, RISE_SLIDE, settleTurn, stillRising, TURN_HOLD } from './pose.ts';
 
 const N = NaN;
 
@@ -65,5 +65,19 @@ describe('settleTurn', () => {
   it('turns at once to strike or loose', () => {
     expect(settleTurn(2, 0, Anim.Attack, 0)).toBe(2);
     expect(settleTurn(2, 0, Anim.Shoot, 0)).toBe(2);
+  });
+});
+
+describe('stillRising', () => {
+  it('plays the rise while he gets up where he lay', () => {
+    expect(stillRising(0, 15, 0, 0)).toBe(true);
+    expect(stillRising(14.5, 15, 1, 1)).toBe(true);
+    expect(stillRising(15, 15, 0, 0)).toBe(false);
+  });
+
+  it('cuts it short once the battle walks him off (no heap sliding over the field)', () => {
+    expect(stillRising(3, 15, RISE_SLIDE, 0)).toBe(false);
+    expect(stillRising(3, 15, 10, 20)).toBe(false);
+    expect(stillRising(3, 15, NaN, NaN)).toBe(false);
   });
 });
