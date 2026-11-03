@@ -123,3 +123,133 @@ are recorded here. None of the files below is committed. The CC0 sprites were st
 Screenshots: `docs/screenshots/city-detail/people-<faction>-{before,after}-z4-day.png` (zoom 4, the
 yard at level 20), `people-<faction>-{before,after}-z8-day.png` (the same, doubled crop, as at
 zoom 8), and `people-templar-{before,after}-z4-night.png` and `people-undead-after-z4-night.png`.
+
+# Round 2 (quality pass after the user's review)
+
+The user's notes on round 1: a walker beside the dog looked broken in all three towns, the undead
+cowls were black balls on sticks, the shading was flat next to the battle units, the proportions were
+stubby and the beasts were thin.
+
+## More references
+
+Study copies in the git-ignored `references/city-people2/`.
+
+| Image | Source and licence | What I took from it |
+|---|---|---|
+| rehcub, *2d character monk*, https://opengameart.org/sites/default/files/monk.png (page https://opengameart.org/content/2d-character-monk) | CC0 | The hood is a dome with a point that falls back, and the face opening is a dark oval framed by the hood's lit edge. The robe widens like a bell from the cord belt to the hem, and its folds are long vertical dark ridges. The hands are held together in front. This became `paintHood` (the peaked shell, the opening, the gugel cape), the wider robe hem and the cultists' candle held in both hands. |
+| rmazanek, *Dog*, https://opengameart.org/sites/default/files/dog_medium.png and `dog_medium_sitframe.png` (page https://opengameart.org/content/dog-3) | CC0 | The husky has a deep chest and a tucked waist, a tail that curls up over the back, a wedge head with pricked ears, and a dark saddle that still leaves a lit line along the spine. The new `paintDog` uses two body masses, a lit back line, a shaded belly, a plumed tail and an ear triangle. |
+| Jason of GDN, *Dog Spritesheets*, https://opengameart.org/sites/default/files/spritesheet_brown.png (page https://opengameart.org/content/dog-spritesheets) | CC0 | At about 16 px a dog is a rounded block with legs, a raised head and a tail. Silhouette matters more than detail. The paws are a pixel wider than the legs. |
+| alizard, *Pixel wolf*, https://opengameart.org/sites/default/files/styles/medium/public/wolf_run.gif (page https://opengameart.org/content/pixel-wolf) | CC0 | The pale back runs over a darker belly in one long light plane, and the tail extends the line of the back. |
+| Our battle sheets: `docs/screenshots/hd-sprites/templar-anim-k0-L8.png`, `undead-anim-k5-L8.png` / `k7` (skeletal mounts), `undead-battle-hd-seed3-zoom5-knights.png` (hooded dead) | ours | The shading standard. Each material has four tones lit from the top-left, folds have a lit ridge, there is a dark coloured outline, fists are visible and the boots have soles. The skeletal horse has dark sinewed bones in the legs and ribs and a pale skull with a dark socket. The hooded dead show a **pale skull face** with two eye sockets inside a dark hood. That pale face is what makes a cowl read at a distance. |
+| User targets `references/user-targets/town-redbubble.png` (and displate, gstatic) | reference only | Warm wood and stone, and dark brown coloured outlines rather than black. Lit planes are clearly separated from shade. The figures have to hold that contrast. |
+
+## What was wrong, and the fixes
+
+- **The broken walker next to the dog.** I identified it by hiding entities one at a time and diffing the
+  frame (`who.cjs` in the scratchpad). It is a villager carrying a bucket (`villager(17, 'bucket')`, e.g. walker 8 in the
+  Templar yard), and the dog was at the same depth beside him. Three things combined:
+  - The bucket hung at the knee as a striped band across the legs, so the body read as cut in two.
+  - Dark hair and a beard (or, in the necropolis, a dark hood) made a dark ball at the top of the figure.
+  - The dog, kept at (u−4, v+3) from the walker it follows or wandering anywhere within 14 of him, sat
+    on or behind his body.
+
+  Depth sorting itself was correct (`d = u + v`, so the dog was drawn first). The fixes:
+  - The bucket is now a stave bucket hanging by its bail from a straight arm, drawn before the fist so
+    the hand closes over the bail. It has a lit rim, water and two hoops.
+  - In HD a following dog keeps 13 world px to the walker's heel side, at the same depth as his
+    feet. It wanders only on that side and runs to catch up. Classic keeps its old spot.
+  - Short hair seen from behind stops above the nape, and the neck and ears show under it.
+  - Hair and hats have a wider ramp with a lit sheen.
+  - Raised arms no longer cover the face. Sacks and bundles are slung on the back with a strap, and a
+    plank sits on the shoulder behind the head.
+- **Mirrored frames are lit from the top-left.** A west-facing frame is now painted as its own frame. It
+  is drawn with `Paper.lightX = −1` and then `Paper.mirror()`, the approach in `paper/facing.ts`.
+  The hand-written light terms (`oval`, kasa, jingasa, parasol, bucket, ear, hood rim) go through
+  `c.litX` / `c.litLeft()`. The atlas no longer copies the east-facing image flipped. It holds the
+  same number of cells as before, because the old flipped copies were cells too.
+- **Cowls.** `paintHood` draws a peaked shell, shaded by plane with a dark core on the lower right.
+  - A seam runs down the shell with a lit ridge beside it.
+  - The brow rim catches the light.
+  - A gugel cape widens past the shoulders. Its hem is a shade line under a lit band, and its front falls to a point.
+  - Inside a cowl is a pale skull face: brow, cheekbones and jaw, dark sockets with a green glint, and a nose hole. These are kept
+    colours, because the contact pass would sink a 3 px face into the shadow.
+  - On a plain hood the face is painted first and the shell goes round it. The contact pass then
+    draws the inner shadow along the opening.
+  - Undead cultists hold a candle in both hands, with a pale green flame.
+  - Shamblers lean 26°. Their hands reach forward and down, and rag tatters hang from the hem.
+- **Shading.**
+  - The body has four tones across its axis: a lit plane, the colour, a shade plane and a deep core on
+    the far edge. The tops of the shoulders are lit one or two steps higher.
+  - Folds are a valley line with a lit ridge on the light side.
+  - On the lit side the outline is two steps below the edge pixel (sel-out). On the shade side it stays
+    the material's darkest tone pulled toward the outline colour.
+  - Fists are 2×2 with a lit knuckle. Shoes are planted flat.
+- **Proportions.**
+  - Men: thigh 7.5, shin 7.5, torso 10.5, head 5.2×5.6, shoulders 8.4 across over a 5.4 waist.
+  - Women: a 4.8 waist, and gowns flaring to the hem.
+  - Children: a bigger head for their size.
+  - Measured, an adult is 35-36 art px tall with a 5-6 px head, so about 6.5 heads (7 with the hood or hat).
+  - Arms reach mid-thigh. Legs taper from 3.6 to 2.1 px, so there are no stick legs.
+  - The stride is shorter (15° instead of 20°), so the feet stay under the hips.
+- **Beasts.**
+  - Dog: a deep rounded chest and the haunch as two masses, a tucked waist, a lit back line, the belly
+    in shade, a plumed tail lit at the tip, an ear triangle and wider paws.
+  - Horses and oxen: lit tops on the quarters and the shoulder, a groove behind the shoulder and a
+    deep belly line.
+  - Bone horse: matches the battle mounts, with dark sinew-brown legs, ribs and spine over a near-black
+    hollow, a pale skull with a dark socket and a green eye.
+  - Crow: a stout body tapering to the tail, a round head and a pointed bill. The wing is never level
+    (up, half up, down, half down), so the bird is never a stick.
+
+## Critique rounds
+
+1. **Contact sheets** (`sheet.cjs` modes `hoods`, `bucket`, `dirs`, `roles`, `beasts`).
+   - Hoods read as long hair: the hanging tail rod and an unshaded cape. I removed the tail on hoods
+     (chaperons keep it) and gave the cape a pointed front and a hem line.
+   - The cowl's face vanished into the opening, so it became kept skull pixels.
+   - The sack carrier's raised arm hid his face, so the load went on the back.
+   - The plank crossed the mouth, so it moved to the shoulder, behind the head.
+   - The shambler's arms made a T with the cape, so they were lowered.
+2. **In the towns at zoom 4 and 2× crops, day and night, against the battle sheets.**
+   - The back of a dark head was still a ball, so the nape and ears now show, with a hair sheen.
+   - The dog trailed behind walkers' heads, so it now walks at the heel side.
+   - The undead hoods were too dark on the dark ground, so they are sackcloth greys now.
+   - Kasa and parasol light was mirrored wrong on west-facing frames, which `litX` fixed.
+3. **Final pass.**
+   - The gravediggers' felt hats were dark balls, so they got a lighter felt with a band and a lit crown.
+   - I compared night frames: the moonlit rim now runs along the hood, the cape and the bucket.
+   - What is still short of the battle sheets: the figures are about 35 px against the battle's
+     L8, so folds are single lines and faces are three or four pixels.
+
+## Checks (round 2)
+
+- **Classic is pixel-identical.** I took classic screenshots of all three factions at level 12, by day
+  and by night, from this branch and from master (648315d), and no pixel differs. In classic the dog's
+  spot, wander and pace go through the old code path.
+- **Frame time.** Measured as in round 1: headless Chromium (SwiftShader), 2560×1440, every building
+  at level 20, 60 s of warm-up, then 240 frames. The p50 of `CityScene.lastCost`, master → this branch:
+
+  | town | day, zoom 1 | day, zoom 4 | night, zoom 1 | night, zoom 4 |
+  |---|---|---|---|---|
+  | Templar | 9.3 → 9.0 ms | 7.6 → 7.7 ms | 10.2 → 11.0 ms | 8.0 → 8.5 ms |
+  | Samurai | 6.6 → 6.7 ms | 5.2 → 5.2 ms | 9.3 → 9.3 ms | 6.9 → 7.0 ms |
+  | Undead | 9.4 → 8.9 ms | 7.6 → 7.3 ms | 10.3 → 10.3 ms | 7.7 → 7.4 ms |
+
+  The worst change is Templar by night at +8%. Everything else is within ±6%. Because mirrored frames
+  are now painted rather than copied, a level-20 day town paints about 1,650-1,700 frames in its first
+  minute instead of about 1,000, which takes 380-440 ms of painting instead of 215-265 ms. That cost is
+  spread over the 8 ms per-frame budget. The worst warm-up frame went down, from 64-87 ms to 51-59 ms.
+- **Memory.** The folk sheets take the same space as before: 12.0 MB by day and 8.0 MB by night. Mirrored
+  cells take the place of the flipped copies.
+- **Folk pixel checks** (`folklint`, every look's 8-frame walk), master → this branch:
+  - Orphan pixels per figure: 9.3-11.3% → 11.2-12.8%. Most of them are single pixels that I put there
+    on purpose: diagonal runs of the new lit-side outline, the kasuri splashes and the skull face's
+    kept pixels.
+  - Colours per frame: 25-32 → 29-37. The new tones are the fourth body tone and the lit outline.
+  - Head boil across the walk: 0.
+- `tsc --noEmit`, `vitest run` (543 tests) and `pnpm build` pass.
+
+Screenshots, in `docs/screenshots/city-detail/`:
+- `people2-<faction>-{before,after}-z4-{day,night}.png`: zoom 4, the yard at level 20.
+- `people2-<faction>-{before,after}-z8-{day,night}.png`: a 2× crop of the same, as at zoom 8.
+- Contact sheets: `people2-templar-roles.png`, `people2-undead-hoods.png` and `people2-beasts-{templar,undead}.png`.
