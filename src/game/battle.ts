@@ -2616,13 +2616,15 @@ export class Battle {
     }
     const threat = this.nearGap(r, 35, false) ?? this.nearGap(r, 90, true);
     if (threat) {
-      // Ride away from it, sideways along the field, loosing as they go.
+      // Ride away from it, sideways along the field, loosing as they go. (The sideways turn is
+      // taken the same way by both armies: until v4 it was not mirrored, so the right-hand army's
+      // horse archers veered toward the edge where the left's veered toward the middle.)
       const dx = r.cx - threat.cx;
       const dy = r.cy - threat.cy;
       const q = sqrt(dx * dx + dy * dy) || 1;
       const ux = dx / q;
       const uy = dy / q;
-      const s = r.cy < FIELD_H / 2 ? -1 : 1;
+      const s = (r.cy < FIELD_H / 2 ? -1 : 1) * (r.team === 0 ? 1 : -1);
       this.goal(r, r.cx + ux * 80 - uy * 30 * s, r.cy + uy * 80 + ux * 30 * s);
       const t = this.shootable(r, st.range * 0.95, true);
       r.targetReg = t ? t.id : -1;
