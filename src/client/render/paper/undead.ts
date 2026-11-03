@@ -11,7 +11,7 @@ import { U } from '../../../game/units.ts';
 import { Anim, COMMANDER_KIND } from '../contract.ts';
 import { addP, code, DEG, hash, rot, type P2, type Paper } from './core.ts';
 import { isBack, type Facing } from './facing.ts';
-import { registerPaperKind } from './registry.ts';
+import { registerPaperKind, setFactionPaletteOptions } from './registry.ts';
 import { registerUndeadRigs } from './undead-bones.ts';
 import { along, BEAST0, ENGINE0, FOOT0, HORSE0, limb, poser, settle, snapDeg, swing, type BeastPose, type EnginePose, type FootPose, type HorsePose, type KeySet } from './rig.ts';
 import {
@@ -21,6 +21,19 @@ import {
 } from './undead-parts.ts';
 
 export { UM } from './undead-parts.ts';
+
+const DARK_RIM = { litDark: true, litDarkFrom: 1 } as const;
+// One master palette per kind (see docs/art-references/templar-animation.md, "The real cause of
+// the moving lint fails"): with one palette for the whole host, every dark material (rag, shroud,
+// char, leather, wood, rust, iron) folded onto the same few browns, so the shroud's violet was lost
+// at levels 1-2 and a kind's colours moved whenever another kind changed. See
+// docs/art-references/undead-animation.md, "Palette".
+setFactionPaletteOptions('undead', { perKind: true, minDist: [0.1, 0.18, 0.1, 0.06], keepChroma: 0.12, weightOutlines: true,
+  // The cloaked kinds (the Bone-Throwers' rag cape, the wraiths' violet, the Lich's shroud) are
+  // mid-value cloth near the field's value: their pale lit-side rim and dark shade-side rim
+  // averaged out to the grass. A dark rim all round, from level 1, sets them off the field.
+  kinds: { [U.Skirmishers]: DARK_RIM, [U.Archers]: DARK_RIM, [COMMANDER_KIND]: DARK_RIM },
+});
 
 // ------------------------------------------------------------------ poses
 

@@ -14,7 +14,7 @@ import { addP, code, DEG, defineMaterial, hash, isKept, oklchRamp, rot, type P2,
 import type { DrawCtx } from './skeleton.ts';
 import { Anim } from '../contract.ts';
 import { along, limb, poseAt, snapDeg, type HorsePose, type KeySet } from './rig.ts';
-import { bone, bow, crossbow, flame, frameOf, helm, hood, horseBody, horseFar, horseFrame, horseNear, lance, type HorseLegs, type HorseLook, withHorseBulk, mul, pavise, planeLight, quiver, rag, robe, skull, skullBack, spear, UM, type FramePose } from './undead-parts.ts';
+import { bone, bow, crossbow, flame, frameOf, helm, hood, hueTurn, horseBody, horseFar, horseFrame, horseNear, lance, type HorseLegs, type HorseLook, withHorseBulk, mul, pavise, planeLight, quiver, rag, robe, skull, skullBack, spear, UM, type FramePose } from './undead-parts.ts';
 import {
   BLACK_RIDER_KEYS, boneJavelin, COLOSSUS_KEYS, colossus, DEATH_KNIGHT_KEYS, ghoulCranium, ghoulHead, ghoulJaw, greatHelm, HORSE_ARCHER_KEYS, collar, lichChest, LICH_KEYS, spineCrown, lit, TREBUCHET_KEYS, trebuchet,
 } from './undead.ts';
@@ -961,7 +961,8 @@ function deathKnightStatic(c: Paper): void {
 // violet gauntlets and greaves, a ragged cloak to the ground, and a bone longbow with a
 // green-fire arrow on the string.
 
-const VIOLET = defineMaterial('undead.violet', oklchRamp({ l: 0.36, c: 0.11, h: 300, spread: 0.085 }));
+// Hue-turned: blue-violet in the folds, a warmer violet in the light (not a straight ramp).
+const VIOLET = defineMaterial('undead.violet', hueTurn(oklchRamp({ l: 0.36, c: 0.11, h: 300, spread: 0.085 }), 7));
 const BRONZE = defineMaterial('undead.bronze', oklchRamp({ l: 0.6, c: 0.1, h: 68, spread: 0.11 }));
 
 /** Bronze trim along a line (a 1-2 px band, lit on its upper side). */
