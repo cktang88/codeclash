@@ -373,5 +373,9 @@ const SHARED: Doctrine = {
 export const DOCTRINE: Record<FactionId, Doctrine> = {
   templar: { ...SHARED },
   samurai: { ...SHARED },
-  undead: { ...SHARED },
+  undead: {
+    ...SHARED,
+    // U1 The tide: slow and even, faster only near the Lich-Marshal; never halting, a lurch for a charge.
+    tide: 0.8, tideNear: 240, unhalting: true, footRun: 1.15,
+  },
 };
