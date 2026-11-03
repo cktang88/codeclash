@@ -150,15 +150,23 @@ faction; ± is one standard error (50%/√n).
 |---|---|---|---|---|
 | Undead vs Templar, v12 | 48.0 | 52.5 | 61.3 | 68.8 |
 | Undead vs Templar, v13 | 49.5 | 48.5 | 53.6 | 47.9 |
+| Undead vs Templar, v14 | 43.0 | 48.0 | 43.6 | 53.6 |
 | Undead vs Samurai, v12 | 50.5 | 53.0 | 67.5 | 73.8 |
 | Undead vs Samurai, v13 | 52.5 | 49.0 | 52.1 | 57.1 |
+| Undead vs Samurai, v14 | 47.5 | 37.0 | 45.7 | 59.3 |
 | Samurai vs Templar, v12 | 54.0 | 47.0 | 40.0 | 46.3 |
 | Samurai vs Templar, v13 | 49.0 | 55.5 | 44.3 | 44.3 |
+| Samurai vs Templar, v14 | 52.0 | 57.0 | 57.1 | 53.6 |
 
 200 battles a cell at 250 and 500 (±3.5%), 140 at 1500 and 2800 in v13 (±4.2%; v12: 80, ±5.6%).
 Mirrors (v13): Templar 48.8% (250 a side, 400 seeds), 51.0% (500, 200); Samurai and Undead 50.0%
 (500, 200 battles each way round). No battle ran to the time limit; the longest of these was
 292 s; means 121–170 s (undead and big battles the longest).
+
+v14 (battle cohesion, `docs/art-references/battle-cohesion.md` §6; samurai katana attack back to ×1.0): same
+battle counts. Mirror (Templar): 49.0% (250 a side, 400 seeds), 51.5% (500, 400 seeds; 57.0% over the first 200), 49.0% (1000, 200). No battle ran to the time limit;
+the longest was 315 s; means 110–159 s. Out of the 45–55% band: undead vs samurai at 500 (37.0%, z −3.7) and
+2800 (59.3%), undead vs Templar at 250 and 1500 (43–44%), samurai vs Templar at 500 and 1500 (57%).
 
 ## Palettes
 

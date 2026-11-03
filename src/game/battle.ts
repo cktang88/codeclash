@@ -4988,11 +4988,11 @@ export class Battle {
    */
   private outOfMeasure(i: number, r: Regiment): boolean {
     if (r.lullUntil > this.tick) return true;
-    const b = this.doc[r.team]!.loose.breathe;
     const d = this.d;
-    if (b <= 0 || d.cd[i]! <= COHESION.breatheCd || d.mass[i]! > 2 || r.role === 'command') return false;
+    if (d.cd[i]! <= COHESION.breatheCd || d.mass[i]! > 2 || r.role === 'command') return false;
+    const b = this.doc[r.team]!.loose.breathe;
     const C = COHESION;
-    return (this.tick + ((i * 37) % C.pulse)) % C.pulse < C.breathe * b;
+    return b > 0 && (this.tick + ((i * 37) % C.pulse)) % C.pulse < C.breathe * b;
   }
 
   /** P3: how far a man presses on, in a run of files surging forward (0 if not). */
@@ -5095,6 +5095,7 @@ export class Battle {
         let dx = d.x[t]! - x;
         let dy = d.y[t]! - y;
         const contact = d.rad[i]! + d.rad[t]! + 0.9;
+        let sg = 0;
         // P6: a man out past the end of the enemy's front closes on his foe from the flank side.
         if (!mounted && r.role === 'line' && d.imp[i]! <= 0.3 && this.wrapSide(i, t, r)) {
           dx += this.tmp[0]! * contact;
@@ -5111,10 +5112,10 @@ export class Battle {
           const v = Math.max(-spd * 0.5, Math.min(spd * 0.5, (q - contact - back) * 3)) / q;
           vx = dx * v;
           vy = dy * v;
-        } else if (q > contact - this.surge(i, r)) {
+        } else if (q > contact - (sg = r.surgeUntil > this.tick ? this.surge(i, r) : 0)) {
           // (In a surge his files press in: he leans into his foe, and the press drives the
           // enemy back a step: see `separate`.)
-          const v = Math.min(spd, (q - contact + this.surge(i, r)) * 4) / q;
+          const v = Math.min(spd, (q - contact + sg) * 4) / q;
           vx = dx * v;
           vy = dy * v;
         } else {
@@ -5166,7 +5167,7 @@ export class Battle {
           // stand in their ranks to loose; and the dead, who never give a step, only on the march.)
           let f = 0;
           if (mounted ? mode === 'charge' : r.role === 'line' && (mode === 'advance' || mode === 'reserve' || (!r.engaged && (mode === 'hold' || mode === 'melee') && r.contact && this.doc[r.team]!.loose.stepBack))) f = this.lead(i, r, mounted ? 1 : r.closeIn);
-          f += this.surge(i, r);
+          if (r.surgeUntil > this.tick) f += this.surge(i, r);
           let tx = gx + r.fx * f;
           let ty = gy + r.fy * f;
           d.cu[i] = 0;

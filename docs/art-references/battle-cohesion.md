@@ -535,6 +535,69 @@ The scratch scripts should become `scripts/battle-cohesion.ts`, running the §2.
 
 ---
 
+## 6. As built (battle v14)
+
+All of section 5's order of work is in `src/game/battle.ts` (v14 note) with its numbers in `COHESION` and each
+faction's `DOCTRINE.loose` (`src/game/command.ts`); tests in `src/game/cohesion.test.ts`. Departures from the plan:
+
+- **Gaps.** Side by side 28 where the line has room (22 for a big army that fills the field; 34 for a line of two or
+  three blocks), rows 26, archers 24, wings 60 and 16 *before* the line (the Agincourt touch also shortens the iso
+  box). Default framing at 1920×1080 (`/demo`, three seeds): unchanged at 150 and 450; 1,200 0.875–0.94 → 0.875;
+  4,000 unchanged (0.81). At 1440×900: 150 unchanged; 450 0.94 → 0.875–0.94; 1,200 0.69 → 0.63–0.69; 4,000 0.56–0.63
+  → 0.56–0.63. One zoom step at most. The optional "battle gap" was not built.
+- **P1.** As designed, plus: half of a man's eagerness is his file's (files surge together), and shooters keep
+  their ranks (stepping men threw their volleys off). At will, bowmen shoot the nearest of the men they look at.
+- **P4.** As designed (`rallyPoint()`, which T1 overrides), but: not against the dead and not by the dead (a recharge
+  buys nothing from the fearless, and the cycling handed them 25 points of win rate); the stronger side in a clash of
+  horse breaks off on 0.1 a think (not 0.3); T1's ride to the Marshal follows a charge into foot only; horse
+  re-forming is not tempted by fugitives for 20 s. Shooters caught in the open are ridden down, not cycled.
+- **P2 + P6.** As designed (leash 15/30, reach 15, curl as tangents of half the angle, 62–80°), plus `wrapSide`: a man
+  out past the end of the enemy's front closes on his foe from the flank side (the curl alone moved only idle men).
+  P6b's flank cost is −20. **Not where the dead fight**: with the long leash the undead won 77% of battles of
+  2,800 a side (they lose no heart while the living rout from losses), so in fights with the undead neither side
+  loosens in contact; the dead come on as one mass, which is also the doctrine.
+- **P3.** Breathers only while a man's weapon is not ready (a breather costs him few blows, so the undead, who never
+  breathe, gain little); `MELEE_K` unchanged, since battle length came out about the same.
+- **P7** (the drift to the right) was built, measured and removed: wrapping 25% → 25%, and every cross-faction cell
+  favoured team 0 by 8–20 points.
+- **P5.** As designed for the line (shooters keep the old re-forming, which their volley order depends on), with the
+  wounded walking back for 2.5 s instead of a stun.
+- **Per faction** (`loose`): Templar lead ×0.5, ripple ×0.7, breathers ×0.6, surges ×0.7, curl ×1; Samurai lead ×1.4,
+  ripple ×1.1, surges ×1.3, curl ×1.15; Undead lead ×0.7, ripple ×1.3, no curl, no breathers, no lulls, never a step back.
+
+### 6.1 Measured (24 battles at 1,200 a side unless noted; same scripts as section 2)
+
+| Measure | v13 | v14 all pairings | v14 living only (Templar–Samurai, 12) | Target |
+|---|---|---|---|---|
+| Gap between first-line blocks (units) | 18 | 28 (22–34) | 22–28 | 28 |
+| Slot distance on the march, p50 / p90 | 1.1 / 4.6 | 2.7 / 7.4 | 2.8 / 8.2 | 2.5–3.5 / 7–9 |
+| Stragglers (> 6 units out) | 8% | 17% | 20% | — |
+| Front depth at contact, mean (p90) | 10.7 (21.7) | 15.2 (26.4) | 18.1 (27.5) | ~16–20 |
+| Melee: furthest man past the contact line, p50 | 3.6 | 6.9 | 14.1 | 5–7 |
+| Melee: idle share of an engaged block | 57% | 53% | 54% | ≤ 45% |
+| Blows on flank + rear | 23% | 27% | 34% | 25–35% |
+| Fighters beyond the target's frontage (width ratio > 1.3) | 17% (24%) | 18% (27%) | 24% (33%) | ≥ 35% |
+| Blow CV / lull seconds | 0.38 / 3% | 0.44 / 6% | 0.50 / 11% | ≥ 0.5 / 8–15% |
+| Shock and light horse that broke off and came again | 14% (63 withdrawals) | 31% | 89% (191 withdrawals, 92 re-charges) | ≥ 60% |
+| Battle length, mean | 168 s | 139 s | 119 s (v13 155 s) | well under 360 s |
+
+The undead pairings pull the "all" column toward v13 by design (no loosening, no cycling, no breathers there).
+Shots: `docs/screenshots/cohesion-after/` (before/after pairs, the same seed and moment where the battle allows).
+
+### 6.2 Screenshot rounds (compared with #6 Pavia, #10 Tewkesbury, #1 Nagashino, #11 Medieval II)
+
+1. **P1 + P2/P6, before balance.** The approach reads as soft-edged blocks with a few men out front (Nagashino's
+   groups, faintly); at contact the Templar–Samurai centre churned into a band several ranks deep with banners still
+   marking each block (Pavia's contact faces), but the middle came close to the Medieval II blob.
+2. **After the cavalry cycle and P3.** Horse visibly rides out as a crowd, closes up and comes again (Bannerlord's
+   charge-and-pass); melee faces bow and kink (Tewkesbury). The wider gaps make each block and its banner read alone
+   at 1080p.
+3. **Final.** Against the undead the contact faces are v13-like again (the balance rule), so the looseness there is
+   in the approach and the cavalry only; Templar–Samurai fights keep the wrapped, interleaved faces. Remaining gap
+   with the references: reserve lines (Samurai two-rank spear lines standing in reserve) are still ruler-straight.
+
+---
+
 ## Sources
 
 - Thucydides 5.71–72: https://cts.perseids.org/read/greekLit/tlg0003/tlg001/1st1K-eng1/5.71.1-5.71.3 ; https://livius.org/sources/content/thucydides-historian/the-battle-of-mantinea-418-bce
