@@ -2083,7 +2083,10 @@ export class Battle {
         if (enemyCav && sqrt(bd) < 220) this.give(r, 'attack', enemyCav.id);
         else if (signal) {
           // The light horse goes with them, at the target's flank.
-          const q = sqrt((signal.cx - r.cx) ** 2 + (signal.cy - r.cy) ** 2) - signal.radius - r.radius;
+          // (Squares as products: `**` is Math.pow, which the spec lets each engine approximate.)
+          const sx = signal.cx - r.cx;
+          const sy = signal.cy - r.cy;
+          const q = sqrt(sx * sx + sy * sy) - signal.radius - r.radius;
           if (r.role === 'flank') this.give(r, 'flank', signal.id, 1);
           else this.give(r, q < 160 ? 'charge' : 'flank', signal.id, 3);
         } else if (g.signalAt >= 0) this.give(r, 'reserve', -1, 0, -1, clampX(this.d.x[cmd]! + dir * doc.recallTo), clampY(this.d.y[cmd]! + (r.homeY < FIELD_H / 2 ? -1 : 1) * 40));
