@@ -25,7 +25,7 @@ import { paintGround, type Ground } from './ground.ts';
 import { projX, projY, PX, unproject } from './iso.ts';
 import { GlPost } from './post.ts';
 import { facing, settleTurn, stillRising } from './pose.ts';
-import { frameBox, NO_INSETS, zoomOutScale, type Insets } from './fit.ts';
+import { frameBox, nextZoomFloor, NO_INSETS, zoomOutScale, type Insets, type ZoomFloor } from './fit.ts';
 import { upscaleCanvas } from './upscale.ts';
 import { buildAtlas as buildClassic } from './sprites.ts';
 import { buildAtlas as buildHd, buildAtlas64 as buildHd64 } from './sprites128.ts';
@@ -210,6 +210,8 @@ export class BattleScene {
   camera: Camera = { zoom: 1, cx: FIELD_W / 2, cy: FIELD_H / 2 };
   /** The farthest zoom-out: 1, or the fraction below it that frame() needed to show everyone. */
   minZoom = 1;
+  /** The floor frame() set and the canvas it was for: reframing on that canvas never raises it. */
+  private floor: ZoomFloor | null = null;
   scanlines = true;
   /** Ease the camera toward the thick of the fighting. */
   follow = false;
@@ -401,6 +403,7 @@ export class BattleScene {
       this.time = from.time;
       this.camera = { ...from.camera };
       this.minZoom = from.minZoom;
+      this.floor = from.floor;
       this.scanlines = from.scanlines;
       this.follow = from.follow;
     }
@@ -897,7 +900,7 @@ export class BattleScene {
    * The default view: everyone on the field (at the start, the whole deployment) framed in the
    * part of a W × H canvas the HUD leaves clear (`insets`, device px), at zoom 1 when they fit
    * there, else zoomed out below 1 just enough (frameBox). That zoom becomes the floor of the
-   * zoom-out. An empty field: the whole field, as fit().
+   * zoom-out, unless an earlier frame on this canvas set a lower one (nextZoomFloor). An empty field: the whole field, as fit().
    */
   frame(W: number, H: number, insets: Insets = NO_INSETS): void {
     let x0 = Infinity;
@@ -917,12 +920,13 @@ export class BattleScene {
     // The figures stand up from their feet, a horseman's standard ~35 map px over him.
     const box = x1 >= x0 ? { x0: x0 - 14, y0: y0 - 38, x1: x1 + 14, y1: y1 + 6 } : null;
     const f = frameBox(box, W, H, insets, this.scaleAt(W, H, 1));
+    // The floor only ever goes further out on this canvas (⤢ mid-battle keeps the opening one).
+    this.floor = nextZoomFloor(this.floor, f ? f.zoom : 1, W, H);
+    this.minZoom = this.floor.zoom;
     if (!f) {
-      this.minZoom = 1;
       this.fit();
       return;
     }
-    this.minZoom = f.zoom;
     this.camera.zoom = f.zoom;
     [this.camera.cx, this.camera.cy] = unproject(f.mx + this.ground.ox, f.my + this.ground.oy);
   }

@@ -67,3 +67,20 @@ export function frameBox(box: Box | null, W: number, H: number, insets: Insets, 
   const dy = Math.min(ch, H - t) / 2 + t - H / 2;
   return { zoom, mx: (box.x0 + box.x1) / 2 - dx / s, my: (box.y0 + box.y1) / 2 - dy / s };
 }
+
+/** The zoom-out floor and the canvas size (device px) it was set for. */
+export interface ZoomFloor {
+  zoom: number;
+  W: number;
+  H: number;
+}
+
+/**
+ * The zoom-out floor after framing at `zoom` on a W × H canvas. Reframing on the same canvas (⤢
+ * mid-battle, fewer men standing) never raises it: the viewer can still zoom out as far as the
+ * opening view. A new canvas size starts afresh, as zoom levels below 1 are fractions of its scale.
+ */
+export function nextZoomFloor(prev: ZoomFloor | null, zoom: number, W: number, H: number): ZoomFloor {
+  if (prev && prev.W === W && prev.H === H) return { zoom: Math.min(prev.zoom, zoom), W, H };
+  return { zoom, W, H };
+}
