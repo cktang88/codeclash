@@ -363,7 +363,14 @@ interface FieldGl {
   vao: WebGLVertexArrayObject;
   marks: WebGLTexture;
   baseT: Target | null;
+  /** The ground with its marks, as last composed; blitted into the scene each frame. */
+  compT: Target | null;
   key: string;
+  compKey: string;
+  /** Wall-clock ms and battle second of the last composition; whether marks changed since. */
+  compAt: number;
+  compNow: number;
+  marksChanged: boolean;
   sheets: Map<number, WebGLTexture>;
   standards: Map<number, WebGLTexture>;
 }
@@ -391,6 +398,9 @@ export class HdField {
   private readonly tilesX: number;
   private readonly dirty: Uint8Array;
   private anyDirty = true;
+  private decalVer = 0;
+  private decalKey = '';
+  private decalBatch: Batch | null = null;
   private readonly bucketsX: number;
   private readonly buckets: (Bucket | undefined)[];
   private readonly sheets = new Map<number, HdSheet>();
@@ -461,6 +471,7 @@ export class HdField {
   decal(name: string, x: number, y: number, t: number, blood = false): void {
     if (x < 0 || y < 0 || x >= this.W || y >= this.H) return;
     const d: Decal = { id: fxId(name), x, y, t, blood };
+    this.decalVer++;
     const i = Math.floor(y / BUCKET_H) * this.bucketsX + Math.floor(x / BUCKET_W);
     const b = (this.buckets[i] ??= { decals: [], decalAt: 0, hooves: [], hoofAt: 0 });
     if (name.startsWith('hoof')) {
@@ -477,8 +488,16 @@ export class HdField {
     return n;
   }
 
-  /** Fills `batch` with the decals in view (map px window), from the level-L sheet. */
-  buildDecals(batch: Batch, L: number, x0: number, x1: number, y0: number, y1: number, now: number): void {
+  /**
+   * Fills `batch` with the decals in view (map px window), from the level-L sheet. Returns
+   * false (and leaves the batch as it was) when nothing changed: no new decal, the same view, and
+   * less than a second for the blood to age.
+   */
+  buildDecals(batch: Batch, L: number, x0: number, x1: number, y0: number, y1: number, now: number): boolean {
+    const key = `${this.decalVer}:${L}:${Math.floor(x0)}:${Math.floor(y0)}:${Math.floor(x1)}:${Math.floor(y1)}:${Math.floor(now)}`;
+    if (key === this.decalKey && batch === this.decalBatch) return false;
+    this.decalKey = key;
+    this.decalBatch = batch;
     batch.clear();
     const regions = this.sheet(L).regions;
     const put = (list: Decal[]) => {
@@ -502,6 +521,7 @@ export class HdField {
           const b = this.buckets[by * this.bucketsX + bx];
           if (b) put(pass === 0 ? b.hooves : b.decals);
         }
+    return true;
   }
 
   // ------------------------------------------------------------------ sheets
@@ -569,7 +589,7 @@ export class HdField {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     this.dirty.fill(0);
     this.anyDirty = false;
-    this.g = { gl, base, comp, ub, uc, vao: gl.createVertexArray()!, marks, baseT: null, key: '', sheets: new Map(), standards: new Map() };
+    this.g = { gl, base, comp, ub, uc, vao: gl.createVertexArray()!, marks, baseT: null, compT: null, key: '', compKey: '', compAt: -1e9, compNow: -1e9, marksChanged: true, sheets: new Map(), standards: new Map() };
     return this.g;
   }
 
@@ -588,6 +608,7 @@ export class HdField {
     gl.deleteVertexArray(g.vao);
     gl.deleteTexture(g.marks);
     if (g.baseT) dropTarget(gl, g.baseT);
+    if (g.compT) dropTarget(gl, g.compT);
     for (const t of [...g.sheets.values(), ...g.standards.values()]) gl.deleteTexture(t);
   }
 
@@ -611,11 +632,16 @@ export class HdField {
     gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, 0);
     gl.pixelStorei(gl.UNPACK_SKIP_ROWS, 0);
     this.anyDirty = false;
+    g.marksChanged = true;
   }
 
   /**
    * Draws the ground with its marks into `scene` (bw × bh buffer px whose top-left is map px
    * (camX, camY), m buffer px per map px). Leaves `scene` bound.
+   *
+   * Both passes are cached: the ground is painted when the view moves, the marks laid over it
+   * when the view moves or, at most five times a second, when they changed (and every couple of
+   * seconds as blood ages); every other frame the composition is only copied into the scene.
    */
   drawGround(gl: WebGL2RenderingContext, scene: Target, camX: number, camY: number, bw: number, bh: number, m: number, now: number): void {
     const g = this.attach(gl);
@@ -627,14 +653,17 @@ export class HdField {
     gl.disable(gl.BLEND);
     gl.disable(gl.STENCIL_TEST);
     gl.bindVertexArray(g.vao);
-    // The ground itself, redrawn only when the view moved or resized.
     const key = `${camX}:${camY}:${bw}:${bh}:${m}`;
-    if (!g.baseT || g.baseT.w !== bw || g.baseT.h !== bh || g.key !== key) {
-      if (g.baseT && (g.baseT.w !== bw || g.baseT.h !== bh)) {
-        dropTarget(gl, g.baseT);
-        g.baseT = null;
+    const sized = (t: Target | null) => {
+      if (t && (t.w !== bw || t.h !== bh)) {
+        dropTarget(gl, t);
+        t = null;
       }
-      g.baseT ??= target(gl, bw, bh, false);
+      return t ?? target(gl, bw, bh, false);
+    };
+    // The ground itself, redrawn only when the view moved or resized.
+    if (!g.baseT || g.key !== key) {
+      g.baseT = sized(g.baseT);
       g.key = key;
       gl.bindFramebuffer(gl.FRAMEBUFFER, g.baseT.fbo);
       gl.viewport(0, 0, bw, bh);
@@ -647,24 +676,39 @@ export class HdField {
       gl.uniform3f(g.ub.u_road!, nz.roadY0, nz.roadBend, nz.roadPhase);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     }
+    const wall = typeof performance !== 'undefined' ? performance.now() : 0;
+    const stale = g.compKey !== key || !g.compT || (g.marksChanged && wall - g.compAt > 200) || Math.abs(now - g.compNow) > 2;
+    if (stale) {
+      g.compT = sized(g.compT);
+      g.compKey = key;
+      g.compAt = wall;
+      g.compNow = now;
+      g.marksChanged = false;
+      gl.bindFramebuffer(gl.FRAMEBUFFER, g.compT.fbo);
+      gl.viewport(0, 0, bw, bh);
+      gl.useProgram(g.comp);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, g.baseT.tex);
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, g.marks);
+      gl.uniform1i(g.uc.u_base!, 0);
+      gl.uniform1i(g.uc.u_marks!, 1);
+      gl.uniform2f(g.uc.u_cam!, camX, camY);
+      gl.uniform1f(g.uc.u_m!, m);
+      gl.uniform1ui(g.uc.u_seed!, seed);
+      gl.uniform2f(g.uc.u_msize!, this.W, this.H);
+      gl.uniform1f(g.uc.u_now!, now);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, null);
+      gl.activeTexture(gl.TEXTURE0);
+    }
+    gl.bindVertexArray(null);
+    // Copy the composition into the scene buffer.
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, g.compT!.fbo);
+    gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, scene.fbo);
+    gl.blitFramebuffer(0, 0, bw, bh, 0, 0, bw, bh, gl.COLOR_BUFFER_BIT, gl.NEAREST);
     gl.bindFramebuffer(gl.FRAMEBUFFER, scene.fbo);
     gl.viewport(0, 0, bw, bh);
-    gl.useProgram(g.comp);
-    gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, g.baseT.tex);
-    gl.activeTexture(gl.TEXTURE1);
-    gl.bindTexture(gl.TEXTURE_2D, g.marks);
-    gl.uniform1i(g.uc.u_base!, 0);
-    gl.uniform1i(g.uc.u_marks!, 1);
-    gl.uniform2f(g.uc.u_cam!, camX, camY);
-    gl.uniform1f(g.uc.u_m!, m);
-    gl.uniform1ui(g.uc.u_seed!, seed);
-    gl.uniform2f(g.uc.u_msize!, this.W, this.H);
-    gl.uniform1f(g.uc.u_now!, now);
-    gl.drawArrays(gl.TRIANGLES, 0, 3);
-    gl.activeTexture(gl.TEXTURE1);
-    gl.bindTexture(gl.TEXTURE_2D, null);
-    gl.activeTexture(gl.TEXTURE0);
-    gl.bindVertexArray(null);
   }
 }

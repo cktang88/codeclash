@@ -1339,7 +1339,6 @@ export class BattleScene {
   /** HD: the stakes, from the level-m sheet (and the HD batches cleared for the frame). */
   private stakesHd(gfx: Gfx, m: number): void {
     const B = this.hdBatches(gfx);
-    B.decal.clear();
     B.fx.clear();
     B.soft.clear();
     B.std.clear();
@@ -1361,7 +1360,7 @@ export class BattleScene {
     const R = f.sheet(L).regions;
     const q = (v: number) => Math.round(v * L) / L;
     const now = T * TICK_S;
-    f.buildDecals(B.decal, L, x0 - 24, x1 + 24, y0 - 12, y1 + 24, now);
+    const decalsChanged = f.buildDecals(B.decal, L, x0 - 24, x1 + 24, y0 - 12, y1 + 24, now);
 
     // Missiles in flight: an arc in the air, a small shadow on the ground.
     const dotR = R[HD_ID.dot]!;
@@ -1418,7 +1417,7 @@ export class BattleScene {
         p.vz -= (p.kind === PK.Spark ? 160 : 120) * dt;
         if (p.z <= 0) {
           // A drop soaks in where it lands.
-          if (p.kind === PK.Blood && rng.next() < 0.35) f.mark(this.mapX(p.x, p.y), this.mapY(p.x, p.y), 0.6 + p.size * 0.3, 0.22, 0, now);
+          if (p.kind === PK.Blood && rng.next() < 0.2) f.mark(this.mapX(p.x, p.y), this.mapY(p.x, p.y), 0.6 + p.size * 0.3, 0.22, 0, now);
           continue;
         }
       } else {
@@ -1452,7 +1451,7 @@ export class BattleScene {
       }
     }
     ps.length = w;
-    B.decal.upload();
+    if (decalsChanged) B.decal.upload();
     B.fx.upload();
     B.soft.upload();
     B.std.upload();
