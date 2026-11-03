@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { FACTIONS, type FactionId } from '../../game/factions.ts';
-import { Anim, ANIM_COUNT, KIND_COUNT, type Atlas, type Dir, type KindSheet } from '../render/contract.ts';
+import { Anim, KIND_COUNT, type Atlas, type Dir, type KindSheet } from '../render/contract.ts';
 import { buildAtlas as buildClassic } from '../render/sprites.ts';
 import { buildAtlas as buildHd } from '../render/sprites128.ts';
 import { ArtSelect, FactionSelect } from '../ui/ShowcaseControls.tsx';
@@ -11,16 +11,19 @@ import { isHdArt } from '../settings.ts';
 // The showcase's muster roll: every kind of a faction (rows) playing every animation (columns),
 // from the same atlases the battle draws with (HD: the paper-doll painter at detail level 2).
 
-const ANIM_NAMES = ['Idle', 'Walk', 'Run', 'Attack', 'Shoot', 'Hit', 'Die', 'Dead', 'Brace'];
+// Brace is the guard: the combat-ready stance every blow leaves from and returns to (contract.ts).
+const ANIM_NAMES = ['Idle', 'Walk', 'Run', 'Attack', 'Shoot', 'Hit', 'Die', 'Dead', 'Guard'];
+/** The columns' order: the guard right before the blows it starts them from. */
+const ORDER: readonly Anim[] = [Anim.Idle, Anim.Walk, Anim.Run, Anim.Brace, Anim.Attack, Anim.Shoot, Anim.Hit, Anim.Die, Anim.Dead];
 /** One column per animation, Attack split into one column per blow (empty where a kind has fewer). */
 type Col = { anim: Anim; blow: number; name: string };
 function columnsOf(at: Atlas): Col[] {
   let most = 1;
   for (let k = 0; k < KIND_COUNT; k++) most = Math.max(most, at.blows?.(k) ?? 1);
   const cols: Col[] = [];
-  for (let a = 0; a < ANIM_COUNT; a++) {
+  for (const a of ORDER) {
     if (a === Anim.Attack) for (let b = 0; b < most; b++) cols.push({ anim: a, blow: b, name: most > 1 ? `Attack ${b + 1}` : 'Attack' });
-    else cols.push({ anim: a as Anim, blow: 0, name: ANIM_NAMES[a]! });
+    else cols.push({ anim: a, blow: 0, name: ANIM_NAMES[a]! });
   }
   return cols;
 }

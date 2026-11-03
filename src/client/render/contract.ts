@@ -23,8 +23,12 @@ export const Anim = {
   /** The corpse, one frame, stamped on the ground. */
   Dead: 7,
   /**
-   * Braced stance, held in place: shield wall (shields locked forward), spear/pike wall (spears
-   * levelled forward), crossbows behind pavises, knights with lances couched at the trot. 1-2 frames.
+   * The guard: braced stance, held in place: shield wall (shields locked forward), spear/pike wall
+   * (spears levelled forward), crossbows behind pavises, knights with lances couched at the trot;
+   * for every melee kind it is the combat-ready guard (blade cocked, katana in kamae, knees bent).
+   * The renderer plays it for a regiment in a bracing stance and for any man in the fight with his
+   * foe in reach between blows, and every Attack blow starts and ends on its frame 0
+   * (paper/guard.ts), so blows chain from the guard without a pop.
    */
   Brace: 8,
 } as const;
@@ -33,7 +37,8 @@ export const ANIM_COUNT = 9;
 
 /**
  * Regiment stances (game/battle.ts Regiment.stance): how a block stands and moves. The renderer
- * picks Brace for 'shieldwall', 'pikewall' and 'braced' when not moving.
+ * picks Brace for 'shieldwall', 'pikewall' and 'braced' when not moving, and for a fighting man
+ * whose foe is in reach (his guard).
  */
 export type Stance = 'line' | 'column' | 'loose' | 'shieldwall' | 'pikewall' | 'wedge' | 'braced';
 

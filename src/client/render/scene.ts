@@ -896,10 +896,12 @@ export class BattleScene {
           loop = false;
         } else if (s.state === State.Routing || speed > s.s.speed * 1.2 || (speed > s.s.speed * 0.6 && (reg.mode === 'charge' || reg.mode === 'pursue'))) anim = Anim.Run;
         else if (speed > 3) anim = s.cls === U.Knights && stance === 'wedge' && speed > s.s.speed * 0.7 ? Anim.Run : Anim.Walk;
-        else if (s.state === State.Fighting && BRACING.has(stance)) anim = Anim.Brace;
+        // Between blows a man in the fight stands in his guard (Brace), poised: blows leave it and
+        // return to it. Out of reach of a foe he idles (or holds the regiment's braced stance).
+        else if (s.state === State.Fighting && (BRACING.has(stance) || (tgt !== undefined && melee))) anim = Anim.Brace;
         // Facing: the way they move, else at their foe, else the regiment's front.
         if (speed > 3 && anim !== Anim.Attack && anim !== Anim.Shoot) dir = dirFor(s.vx, s.vy, dir);
-        else if (tgt && (anim === Anim.Attack || anim === Anim.Shoot)) dir = dirFor(tgt.x - s.x, tgt.y - s.y, dir);
+        else if (tgt && (anim === Anim.Attack || anim === Anim.Shoot || (anim === Anim.Brace && melee))) dir = dirFor(tgt.x - s.x, tgt.y - s.y, dir);
         else dir = dirFor(reg.fx, reg.fy, dir);
         this.dirs[i] = dir;
       }
