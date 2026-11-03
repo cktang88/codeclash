@@ -119,20 +119,32 @@ export async function readSheet(version: string, key: string): Promise<KindSheet
     const db = await open();
     if (!db) return null;
     const id = idOf(version, key);
-    const t = db.transaction([INDEX, DATA], 'readwrite');
+    // Read-only, so the workers read side by side.
+    const t = db.transaction([INDEX, DATA], 'readonly');
     const e = (await req(t.objectStore(INDEX).get(id))) as Entry | undefined;
     if (!e) return null;
     const p = (await req(t.objectStore(DATA).get(id))) as Packed | undefined;
     if (!p) return null;
     // Recently used: the last to go.
-    t.objectStore(INDEX).put({ ...e, used: Date.now() });
-    const raw = await gunzip(p.data);
-    const pixels = p.palette ? expandPixels(p.palette, new Uint8Array(raw)) : new Uint8ClampedArray(raw);
-    if (pixels.byteLength !== p.width * p.height * 4) return null;
-    return { level: p.level, width: p.width, height: p.height, pixels, rects: p.rects, ms: p.ms };
+    db.transaction(INDEX, 'readwrite').objectStore(INDEX).put({ ...e, used: Date.now() });
+    return await unpackSheet(p);
   } catch {
     return null;
   }
+}
+
+/** A sheet packed for storage: palette-indexed when it can be, gzipped. */
+export async function packSheet(sh: Omit<KindSheet, 'pixels'>, ix: { palette: Uint32Array; index: Uint8Array } | null, raw?: Uint8Array): Promise<Omit<Packed, 'id'>> {
+  const data = await gzip(ix ? ix.index : raw!);
+  return { level: sh.level, width: sh.width, height: sh.height, rects: sh.rects, ms: sh.ms, palette: ix ? ix.palette : null, data };
+}
+
+/** The sheet back from packSheet(), or null if it does not add up. */
+export async function unpackSheet(p: Omit<Packed, 'id'>): Promise<KindSheet | null> {
+  const raw = await gunzip(p.data);
+  const pixels = p.palette ? expandPixels(p.palette, new Uint8Array(raw)) : new Uint8ClampedArray(raw);
+  if (pixels.byteLength !== p.width * p.height * 4) return null;
+  return { level: p.level, width: p.width, height: p.height, pixels, rects: p.rects, ms: p.ms };
 }
 
 /**
@@ -177,15 +189,14 @@ export async function writeSheet(version: string, key: string, sh: Omit<KindShee
   try {
     const db = await open();
     if (!db) return;
-    const data = await gzip(ix ? ix.index : raw!);
-    const id = idOf(version, key);
-    const bytes = data.size + sh.rects.byteLength + 256;
+    const packed: Packed = { id: idOf(version, key), ...(await packSheet(sh, ix, raw)) };
+    const id = packed.id;
+    const bytes = packed.data.size + sh.rects.byteLength + 256;
     if (purged !== version) {
       purged = version;
       await evict(db, version, bytes);
     }
     const t = db.transaction([INDEX, DATA], 'readwrite');
-    const packed: Packed = { id, level: sh.level, width: sh.width, height: sh.height, rects: sh.rects, ms: sh.ms, palette: ix ? ix.palette : null, data };
     t.objectStore(DATA).put(packed);
     t.objectStore(INDEX).put({ id, version, bytes, used: Date.now() } satisfies Entry);
     await done(t);
