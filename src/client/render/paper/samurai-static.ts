@@ -142,6 +142,39 @@ export const MID_MERGE: readonly [Mat, Mat][] = [
   [KM.silk, SM.cotton],
   [KM.mask, SM.iron],
   [SM.black, SM.lacquer],
+  // (The deep red lacquer is the red-brown here: its saturated maroon shade would take the army
+  // colour's shade's place in the palette.)
+  [KM.deepRed, KM.redBrown],
+];
+
+/**
+ * Single tones redirected below level 8 (code = material * 8 + tone), applied after the merges.
+ * The army colour's mid tone (the lacquered armour and the dark army cloth) would otherwise take a
+ * palette place of its own whenever the faction's figures show a little more armour (the extra
+ * blows, whose frames the palette samples), and the indigo sleeves and legs would lose their shade
+ * to it and light from the wrong side: at levels 1-2 the army colour's mid tone is its light tone
+ * (and at level 2 the indigo's: two tones of a cloth read at 26 px), at level 4 it is the indigo's
+ * (the two blues are one there anyway).
+ */
+export const LOW_TONES: readonly [number, number][] = [
+  [KM.lacTeam * 8 + 2, KM.lacTeam * 8 + 3],
+  [SM.teamDk * 8 + 2, SM.teamDk * 8 + 3],
+];
+/**
+ * Level 2 only: the indigo's mid tone is its light tone too (at level 1 it keeps its shade), and the
+ * off-whites' shade is the straw's light (the warm shadow the key art gives the cotton there),
+ * so the cotton's grey shade does not take the place of the steel's and the straw's.
+ */
+export const L2_TONES: readonly [number, number][] = [
+  ...LOW_TONES,
+  [SM.indigo * 8 + 2, SM.indigo * 8 + 3],
+  // (The army lacquer at 26 px: two tones, lit and shade; its in-between shade made straight bands.)
+  [KM.lacTeam * 8 + 1, KM.lacTeam * 8],
+  ...[SM.cotton, KM.silk].flatMap((m): [number, number][] => [[m * 8, SM.straw * 8 + 3], [m * 8 + 1, SM.straw * 8 + 3]]),
+];
+export const MID_TONES: readonly [number, number][] = [
+  [KM.lacTeam * 8 + 2, SM.indigo * 8 + 2],
+  [SM.teamDk * 8 + 2, SM.indigo * 8 + 2],
 ];
 
 /** An armour's colours: plate lacquer, the lacing, its contrasting band. */

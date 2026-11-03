@@ -42,8 +42,12 @@ describe('several melee blows', () => {
     expect(paperBlows('blows-test', 0)).toBe(3);
     expect(paperBlows('blows-test', 1)).toBe(1);
     expect(paperBlows('blows-test', 2)).toBe(3);
-    // Every current faction kind has one blow.
-    for (const f of ['templar', 'samurai', 'undead']) for (let k = 0; k < 11; k++) expect(paperBlows(f, k), `${f} ${k}`).toBe(1);
+    // Every faction kind has one to three blows (README "Several blows": keep it to 2-3).
+    for (const f of ['templar', 'samurai', 'undead'])
+      for (let k = 0; k < 11; k++) {
+        expect(paperBlows(f, k), `${f} ${k}`).toBeGreaterThanOrEqual(1);
+        expect(paperBlows(f, k), `${f} ${k}`).toBeLessThanOrEqual(3);
+      }
   });
 
   it('gives every blow its own slots and grid cells, blow 0 in the classic ones', () => {
