@@ -287,16 +287,35 @@ function riderGait(bob: Track, n: number, s: HorseSpec, run: boolean): Author {
   };
 }
 
-/** The couched yari at the charge: lowered into the couch, the rider leaning hard in; at the impact his trunk is driven back against the cantle; he settles. */
-const COUCH: Author = (rw) => ({
+/**
+ * The mounted yari thrust (weapon-attacks.md S6; bajutsu): the reins in the far hand, the yari in
+ * the near hand with its butt anchored at the hip. 1-3 the spear comes down from the upright carry,
+ * level, and is drawn back to the hip (the chamber); 4-5 the arm drives it straight out along its
+ * own line as the rider leans in over the neck, the point travelling level (no swing); 6 held at
+ * full reach; 7-9 withdrawn to the hip; 10-11 back up to the carry.
+ */
+const MOUNTED_THRUST: Author = (rw) => ({
   w: {
-    upperArmN: T([0, rw.upperArmN!], [2, -10], [4, -4], [5, 2], [6, -26], [7, -24], [9, -10], [11, rw.upperArmN!]),
-    forearmN: T([0, rw.forearmN!], [2, 76], [4, 82], [5, 86], [6, 70], [7, 72], [9, 76], [11, rw.forearmN!]),
-    // The tip dips onto the target at the impact, then kicks up as the shaft takes the blow.
-    weapon: T([0, rw.weapon!], [2, 97], [4, 100], [5, 106], [6, 92], [7, 94], [9, 97], [11, rw.weapon!]),
+    upperArmN: R(rw.upperArmN!, 11, [1, 10], [2, -25], [3, -30], [4, 30], [5, 62], [6, 62], [7, 30], [8, -10], [9, -12], [10, 20]),
+    forearmN: R(rw.forearmN!, 11, [1, 80], [2, 70], [3, 66], [4, 86], [5, 92], [6, 92], [7, 84], [8, 76], [9, 76], [10, 120]),
+    weapon: R(rw.weapon!, 11, [1, 112], [2, 97], [3, 97], [4, 95], [5, 94], [6, 94], [7, 96], [8, 97], [9, 100], [10, 150]),
     head: T([0, rw.head!]),
   },
-  dw: { spine: T([0, 0], [2, -10], [4, -22], [5, -26], [6, 10], [7, 12], [9, -2], [11, 0]), upperArmF: T([0, 0], [4, 12], [6, -8], [11, 0]) },
+  dw: { spine: T([0, 0], [2, 4], [3, 6], [4, -12], [5, -22], [6, -22], [8, -8], [11, 0]), upperArmF: T([0, 0], [4, 10], [6, 10], [9, 0]) },
+});
+/**
+ * The yari's second blow from the saddle: an overhand stab down at a man on foot. The spear is
+ * lifted over the head, point forward and down (1-3), then driven down past the horse's shoulder
+ * as the rider leans out (5-6), held, and drawn back up to the carry (8-11).
+ */
+const MOUNTED_DOWN: Author = (rw) => ({
+  w: {
+    upperArmN: R(rw.upperArmN!, 11, [1, 100], [2, 150], [3, 160], [4, 150], [5, 112], [6, 100], [7, 100], [9, 60], [10, 40]),
+    forearmN: R(rw.forearmN!, 11, [1, 140], [2, 170], [3, 175], [4, 150], [5, 96], [6, 80], [7, 82], [9, 90], [10, 120]),
+    weapon: R(rw.weapon!, 11, [1, 124], [2, 82], [3, 72], [4, 68], [5, 54], [6, 48], [7, 50], [9, 80], [10, 140]),
+    head: T([0, rw.head!], [5, rw.head! - 8], [7, rw.head! - 8], [9, rw.head!]),
+  },
+  dw: { spine: T([0, 0], [3, 6], [5, -18], [6, -24], [8, -20], [10, -4], [11, 0]) },
 });
 /** The cut from the saddle at the charge: the katana high over the near shoulder, the rider leaning out over the neck, the blade falling down the horse's near side, held, back up. */
 const SADDLE_CUT: Author = (rw) => ({
@@ -309,11 +328,33 @@ const SADDLE_CUT: Author = (rw) => ({
   dw: { spine: T([0, 0], [2, 8], [3, 10], [4, 2], [5, -12], [6, -24], [8, -24], [10, -6], [11, 0]) },
   tAdd: { chest: [T([0, 0], [3, -0.35], [6, 0.35], [8, 0.35], [11, 0]), T([0, 0])] },
 });
+/**
+ * Kiri-age from the saddle (the hatamoto's second blow): the katana swung back over the near
+ * shoulder and down behind (1-4), then round under and up past the horse's shoulder in one rising
+ * arc, cutting up at a rider or a man on foot (5-7); held high (8) and back to the raised carry.
+ * One-handed: the far hand keeps the reins.
+ */
+const SADDLE_RISE: Author = (rw) => ({
+  w: {
+    upperArmN: T([0, rw.upperArmN!], [1, 170], [2, 220], [3, 275], [4, 300], [5, 365], [6, 420], [7, 478], [8, 482], [10, 490], [11, rw.upperArmN! + 360]),
+    forearmN: T([0, rw.forearmN!], [1, 190], [2, 240], [3, 290], [4, 315], [5, 378], [6, 438], [7, 496], [8, 500], [10, 515], [11, rw.forearmN! + 360]),
+    weapon: T([0, rw.weapon!], [1, 196], [2, 245], [3, 296], [4, 322], [5, 384], [6, 442], [7, 500], [8, 505], [10, 512], [11, rw.weapon! + 360]),
+    head: T([0, rw.head!], [4, rw.head! - 6], [7, rw.head! + 4], [9, rw.head!]),
+  },
+  dw: { spine: T([0, 0], [2, 6], [4, -10], [5, -16], [6, -6], [7, 4], [8, 4], [10, 0], [11, 0]) },
+});
+/** Tsuki from the saddle (the third blow): the raised blade brought level and driven straight forward over the horse's neck as the rider leans in; held; back up. */
+const SADDLE_THRUST: Author = (rw) => ({
+  w: {
+    upperArmN: R(rw.upperArmN!, 11, [1, 120], [2, 40], [3, 20], [4, 70], [5, 86], [6, 86], [8, 60], [10, 120]),
+    forearmN: R(rw.forearmN!, 11, [1, 130], [2, 80], [3, 70], [4, 90], [5, 94], [6, 94], [8, 90], [10, 150]),
+    weapon: R(rw.weapon!, 11, [1, 130], [2, 96], [3, 94], [4, 92], [5, 92], [6, 92], [8, 100], [10, 140]),
+    head: T([0, rw.head!]),
+  },
+  dw: { spine: T([0, 0], [3, 4], [4, -14], [5, -20], [6, -20], [8, -8], [11, 0]) },
+});
 /** Yabusame's shot at the gallop: the bow raised over the head, drawn to the ear while lowered, loosed with the hand flying back, held; the next arrow from the ebira. */
-const YABUSAME: Author = (rw, f) => {
-  const k = KYUDO(rw, f);
-  return { w: k.w, dw: { spine: T([0, -8]) } };
-};
+const YABUSAME: Author = (rw, f) => KYUDO(rw, f);
 
 /** The horse standing: hooves down, it breathes, the tail swishes, the head nods. */
 function standKeys(n: number, skel: SkeletonData, extra?: Author): (f: Facing) => KP[] {
@@ -329,7 +370,7 @@ function standKeys(n: number, skel: SkeletonData, extra?: Author): (f: Facing) =
   };
 }
 
-function horseClips(skel: SkeletonData, s: HorseSpec, m: SMounted): ClipSet {
+function horseClips(skel: SkeletonData, s: HorseSpec, m: SMounted, blowsOut?: Clip[]): ClipSet {
   // The mane trails the neck, streams back at the gallop; the sashimono and horo trail the trunk.
   const trail = (run: number, fall = false): LagSpec[] => [
     { bone: 'mane', follow: 'horseNeck', k: 0.6, lag: 1.5, bias: -28 * run, ...(run >= 1 ? { wave: [5, 2, 0.15] as [number, number, number] } : {}) },
@@ -373,11 +414,26 @@ function horseClips(skel: SkeletonData, s: HorseSpec, m: SMounted): ClipSet {
     const rw = restWorld(skel, f);
     return overlayKeys(overlayKeys(g.keys, extra(rw, f), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]), author(rw, f));
   };
-  let attack: Clip;
-  if (s.ride === 'couch') attack = fc('attack', 12, false, galloping(COUCH), [{ f: 5, name: 'smear', len: 1, bone: 'weapon' }, { f: 5, name: 'strike' }], 1);
-  else if (s.ride === 'cut') attack = fc('attack', 12, false, galloping(SADDLE_CUT), [{ f: 4, name: 'smear', len: 3, bone: 'weapon' }, { f: 7, name: 'strike' }], 1);
-  else attack = fc('attack', 12, false, (f) => overlayKeys(standKeys(11, skel)(f), PUNCH(restWorld(skel, f), f)), [{ f: 5, name: 'strike' }]);
-  if (horo && s.ride !== 'stab') attack = billow(attack, 12, 0.35);
+  // The blows at the gallop (README "Several blows"), blow 0 first.
+  const riding: { a: Author; ev: AnimEvent[] }[] =
+    s.ride === 'couch'
+      ? [
+          { a: MOUNTED_THRUST, ev: [{ f: 5, name: 'strike' }] },
+          { a: MOUNTED_DOWN, ev: [{ f: 5, name: 'smear', len: 1, bone: 'weapon' }, { f: 6, name: 'strike' }] },
+        ]
+      : s.ride === 'cut'
+        ? [
+            { a: SADDLE_CUT, ev: [{ f: 4, name: 'smear', len: 3, bone: 'weapon' }, { f: 7, name: 'strike' }] },
+            { a: SADDLE_RISE, ev: [{ f: 5, name: 'smear', len: 3, bone: 'weapon' }, { f: 7, name: 'strike' }] },
+            { a: SADDLE_THRUST, ev: [{ f: 5, name: 'strike' }] },
+          ]
+        : [];
+  const blowClip = (b: { a: Author; ev: AnimEvent[] }): Clip => {
+    const c = fc('attack', 12, false, galloping(b.a), b.ev, 1);
+    return horo ? billow(c, 12, 0.35) : c;
+  };
+  const attack: Clip = riding.length ? blowClip(riding[0]!) : fc('attack', 12, false, (f) => overlayKeys(standKeys(11, skel)(f), PUNCH(restWorld(skel, f), f)), [{ f: 5, name: 'strike' }]);
+  if (blowsOut && riding.length > 1) blowsOut.push(attack, ...riding.slice(1).map(blowClip));
   // Yabusame: the shot at the gallop.
   const shoot = s.shoot === 'kyudo'
     ? fc('shoot', 12, false, galloping(YABUSAME, () => ({})), [{ f: 0, name: 'nocked', len: 1 }, { f: 1, name: 'draw', len: 6 }, { f: 7, name: 'release' }], 1)
@@ -430,7 +486,8 @@ export function horseRig(kind: number): SkeletonRig | undefined {
   const m = MOUNTED[kind], s = HORSE_SPECS[kind];
   if (!m || !s) return undefined;
   const skel = horseSkel(kind, m, s);
-  const rig: SkeletonRig = { skel, atts: horseParts(kind, m, s), clips: horseClips(skel, s, m) };
+  const blows: Clip[] = [];
+  const rig: SkeletonRig = { skel, atts: horseParts(kind, m, s), clips: horseClips(skel, s, m, blows), ...(blows.length > 1 ? { attacks: blows } : {}) };
   RIGS.set(kind, rig);
   return rig;
 }
