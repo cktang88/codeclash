@@ -2053,7 +2053,11 @@ interface EngineLook {
   wisp?: boolean;
 }
 
-/** True for the bodies that fall to bones (or an empty robe) instead of bleeding. */
+/**
+ * True for the bodies that fall to bones (or an empty robe) instead of bleeding. Their Die runs
+ * from standing to a heap of bones; played backwards (contract.ts RISE: a man the Lich-Marshal
+ * raises) the bones gather and stand, so keep every Die frame a pose between the two.
+ */
 const undead = (L: Look): boolean => (L.body ?? 'man') !== 'man' && L.body !== 'ghoul';
 
 /** One of the engine's crew, posed; the dead among the undead crews fall to bones. */

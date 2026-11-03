@@ -16,7 +16,7 @@
 import { Battle, FIELD_H, FIELD_W, State, TICK_S, type Projectile } from '../../game/battle.ts';
 import { Rng } from '../../game/rng.ts';
 import { U } from '../../game/units.ts';
-import { Anim, ANIM_COUNT, COMMANDER_KIND, KIND_COUNT, type Atlas, type Dir, type KindSheet, type Stance } from './contract.ts';
+import { Anim, ANIM_COUNT, COMMANDER_KIND, KIND_COUNT, riseFrame, riseTicks, type Atlas, type Dir, type KindSheet, type Stance } from './contract.ts';
 import { buildFx, type FxSheet, type Region } from './fx.ts';
 import { HdField } from './field-hd.ts';
 import { ANGLES, fxId, HOOVES, lookOf, PUFF_SIZES, PUFF_VARIANTS, SPLATS } from './fx-hd.ts';
@@ -49,6 +49,8 @@ const enum PK {
   Debris,
   /** HD: a spark off armour, a muzzle flash. */
   Spark,
+  /** A mote of grave-light rising where the dead get up (U3): a pixel of green, drifting up and fading. */
+  Wisp,
 }
 
 interface Particle {
@@ -261,6 +263,8 @@ export class BattleScene {
   private aimX: Float32Array;
   private aimY: Float32Array;
   private stamped: Uint8Array;
+  /** Figures whose rising from the dead (Soldier.roseAt) has had its grave-light. */
+  private rose: Uint8Array;
   private regX: Float32Array;
   private frameTab: Uint16Array[] = [];
   private lenTab: Float32Array[] = [];
@@ -364,6 +368,7 @@ export class BattleScene {
     this.aimX = new Float32Array(n).fill(NaN);
     this.aimY = new Float32Array(n).fill(NaN);
     this.stamped = new Uint8Array(n);
+    this.rose = new Uint8Array(n);
     this.regX = new Float32Array(battle.regiments.length);
     this.regY = new Float32Array(battle.regiments.length);
     for (let i = 0; i < n; i++) {
@@ -393,8 +398,11 @@ export class BattleScene {
     const tick = battle.tick;
     for (let i = 0; i < n; i++) {
       const s = battle.soldiers[i]!;
+      if (s.roseAt >= 0) this.rose[i] = 1;
       if (s.state !== State.Dead || tick - s.diedAt < this.dieTicks(s.team, this.kindOf(i))) continue;
       if (!this.field) {
+        // A corpse the Lich-Marshal may yet raise stays off the ground (it is drawn as a figure).
+        if (battle.mayRise(i)) continue;
         this.stampCorpse(i);
         continue;
       }
@@ -486,9 +494,11 @@ export class BattleScene {
         if (rng.next() < 0.12) this.stampFx(`splat${rng.int(4)}`, s.x + (rng.next() - 0.5) * 4, s.y + (rng.next() - 0.5) * 4, 0.7);
       }
       if (s.state === State.Dead) {
-        if (!this.stamped[i] && tick - s.diedAt >= this.dieTicks(s.team, this.kindOf(i))) this.stampCorpse(i);
+        // (Classic stamps corpses into the ground for good: one that may yet rise waits, drawn as a figure.)
+        if (!this.stamped[i] && tick - s.diedAt >= this.dieTicks(s.team, this.kindOf(i)) && !b.mayRise(i)) this.stampCorpse(i);
         continue;
       }
+      if (s.roseAt >= 0 && !this.rose[i]) this.graveLight(i);
       // Hooves and marching feet raise dust.
       const v2 = s.vx * s.vx + s.vy * s.vy;
       if (s.s.mounted ? v2 > 700 && rng.next() < 0.3 : v2 > 100 && rng.next() < 0.02) {
@@ -558,6 +568,10 @@ export class BattleScene {
     return o;
   }
 
+  private riseTicksOf(team: number, kind: number): number {
+    return riseTicks(this.frameTab[team]![kind * ANIM_COUNT + Anim.Die]!, this.tpfTab[team]![Anim.Die]!);
+  }
+
   private dieTicks(team: number, kind: number): number {
     const a = this.atlases[team as 0 | 1];
     return a.frames(kind, Anim.Die) * a.ticksPerFrame(Anim.Die);
@@ -577,8 +591,9 @@ export class BattleScene {
   }
 
   private spawn(kind: PK, x: number, y: number, z: number, vx: number, vy: number, vz: number, max: number, size: number, r: number, g: number, b: number, a: number, v = 0): void {
-    // HD: smoke and sparks get a reserve of their own (a melee's blood can fill the rest).
-    if (this.particles.length >= MAX_PARTICLES + (this.field && (kind === PK.Smoke || kind === PK.Spark) ? 800 : 0)) return;
+    // Smoke and sparks (HD), and the grave-light's green (any art), get a reserve of their own
+    // (a melee's blood can fill the rest).
+    if (this.particles.length >= MAX_PARTICLES + ((this.field && (kind === PK.Smoke || kind === PK.Spark)) || kind === PK.Wisp || (kind === PK.Smoke && g > r * 2) ? 800 : 0)) return;
     // HD: dust gives way, so marching thousands never crowd out blood, sparks and gun smoke.
     if (this.field && kind === PK.Dust && this.dustN++ >= MAX_PARTICLES / 2) return;
     // Dead particles are reused (thousands a second in a melee), all of one shape.
@@ -612,6 +627,25 @@ export class BattleScene {
   }
   private mapY(x: number, y: number): number {
     return projY(x, y) - this.ground.oy;
+  }
+
+  /**
+   * A man raised from the dead (U3): his corpse is no longer drawn on the ground (he gets up out
+   * of it, see `build`), and a faint green grave-light rises from where he lay.
+   */
+  private graveLight(i: number): void {
+    this.rose[i] = 1;
+    this.stamped[i] = 0;
+    const s = this.battle.soldiers[i]!;
+    const rng = this.field ? this.hdRng : this.rng;
+    // A wisp of the faction's grave-green (docs/art-references/undead.md: one green light source)
+    // seeping up out of the ground as he gets up, thinning as it rises.
+    for (let k = 0; k < 6; k++) {
+      this.spawn(PK.Smoke, s.x + (rng.next() - 0.5) * 5, s.y + (rng.next() - 0.5) * 3, 1 + k * 1.5, (rng.next() - 0.5) * 3, (rng.next() - 0.5) * 3, 7 + rng.next() * 6, 1.6 + rng.next() * 1.2, 2 + rng.int(3), 0.42, 1, 0.5, 0.6, rng.int(PUFF_VARIANTS));
+    }
+    for (let k = 0; k < 10; k++) {
+      this.spawn(PK.Wisp, s.x + (rng.next() - 0.5) * 6, s.y + (rng.next() - 0.5) * 4, rng.next() * 3, (rng.next() - 0.5) * 4, (rng.next() - 0.5) * 4, 10 + rng.next() * 12, 0.8 + rng.next() * 1.2, 1, 0.55, 1, 0.55, 1);
+    }
   }
 
   private stampFx(name: string, x: number, y: number, a: number, shade = 1): void {
@@ -1314,9 +1348,15 @@ export class BattleScene {
       const hitAt = Math.max(((s as unknown as { hitAt?: number }).hitAt ?? -100), this.hurtAt[i]!);
       const reg = b.regiments[s.reg]!;
       const stance = stanceOf(reg);
+      const rising = s.roseAt >= 0 && s.state !== State.Dead && T - s.roseAt < this.riseTicksOf(s.team, kind);
       if (s.state === State.Dead) {
         anim = Anim.Die;
         start = s.diedAt;
+        loop = false;
+      } else if (rising) {
+        // Raised from the dead: the fall played backwards (contract.ts RISE).
+        anim = Anim.Die;
+        start = s.roseAt;
         loop = false;
       } else {
         const act = T - s.actedAt;
@@ -1347,7 +1387,7 @@ export class BattleScene {
       // (A chase or a charge run from too far has lost the step.)
       const drilled = s.state === State.Fighting && (anim === Anim.Walk || anim === Anim.Run) && reg.mode !== 'pursue' && !reg.ragged;
       const phase = drilled ? s.reg * 0.71 + Math.round(s.sx / Math.max(1, reg.spacing)) * 0.12 : (i % 7) * 1.37;
-      let f = loop ? Math.floor((T + phase) / tpf) % frames : Math.min(frames - 1, Math.floor((T - start) / tpf));
+      let f = rising ? riseFrame(frames, tpf, T - start) : loop ? Math.floor((T + phase) / tpf) % frames : Math.min(frames - 1, Math.floor((T - start) / tpf));
       if (f < 0) f = 0;
       // Several blows (Atlas.blows): each man picks one per swing, from a hash of who he is and
       // when he swung, so a regiment does not strike in lockstep. Blow b's frames follow blow 0's.
@@ -1532,6 +1572,8 @@ export class BattleScene {
         const fade = 1 - p.life / p.max;
         if (p.kind === PK.Blood || p.kind === PK.Debris) {
           gfx.fx.rect(Math.round(mx), Math.round(my - p.z), p.size, 1, my, p.r, p.g, p.b, 1);
+        } else if (p.kind === PK.Wisp) {
+          gfx.soft.rect(Math.round(mx), Math.round(my - p.z), 1, 1, my + 3, p.r, p.g, p.b, p.a * Math.min(1, fade * 2));
         } else {
           const grow = p.kind === PK.Smoke ? p.life * 3.2 : p.life * 2.2;
           const r = this.puffRegions[Math.min(11, Math.ceil(p.size + grow))]!;
@@ -1599,6 +1641,7 @@ export class BattleScene {
         }
         continue;
       }
+      if (s.roseAt >= 0 && !this.rose[i]) this.graveLight(i);
       const v2 = s.vx * s.vx + s.vy * s.vy;
       // Hooves and marching feet raise dust.
       if (s.s.mounted ? v2 > 700 && rng.next() < 0.22 : v2 > 100 && rng.next() < 0.01) {
@@ -1818,6 +1861,9 @@ export class BattleScene {
       if (p.kind === PK.Blood || p.kind === PK.Debris) {
         const sz = (drop * p.size) / L;
         B.fx.rect(q(mx), q(my - p.z), sz, sz, my, p.r, p.g, p.b, 1);
+      } else if (p.kind === PK.Wisp) {
+        const sz = Math.max(1, Math.round(L * 0.25)) / L;
+        B.soft.rect(q(mx), q(my - p.z), sz, sz, my + 3, p.r, p.g, p.b, p.a * Math.min(1, fade * 2));
       } else if (p.kind === PK.Spark) {
         // A short streak, hot white at the head.
         const sz = Math.max(1, Math.round(L * 0.2)) / L;

@@ -174,7 +174,11 @@ describe('regroup: a broken regiment re-forms out of contact', () => {
       expect(b.events.some((e) => e.kind === 'rally' && e.reg === r.id)).toBe(true);
       expect(r.moraleState).toBe('rallying');
       expect(r.members.some((id) => b.soldiers[id]!.state === State.Fighting)).toBe(true);
-      // A second rout is final.
+      // A second rout is final (for Templars, T2: a third; see doctrine.test.ts).
+      rout(b, r);
+      expect(r.moraleState).toBe('broken');
+      r.rallies++;
+      r.routed = false;
       rout(b, r);
       expect(r.moraleState).toBe('shattered');
     }

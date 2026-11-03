@@ -5,6 +5,8 @@
 //
 // Pure data and small pure helpers; deterministic like the rest of src/game.
 
+import type { FactionId } from './factions.ts';
+
 /** What a General can tell a regiment to do. */
 export type OrderKind = 'hold' | 'advance' | 'attack' | 'flank' | 'charge' | 'skirmish' | 'support' | 'reserve' | 'withdraw' | 'pursue';
 
@@ -75,6 +77,15 @@ export const MORALE = {
   casualtiesTotal: 38,
   /** Per share of the regiment lost in the last few seconds (decaying): the rate matters more. */
   casualtyRate: 240,
+  /**
+   * Shocks that come a man or a missile at a time (blows from the flank or rear, charge impact,
+   * missiles falling, stones, fugitives taken in) are reckoned as shares of the regiment: each
+   * counts for a block of this many men, and for a bigger block in proportion less (until v13 they
+   * counted per head, so the bigger blocks of a big battle took several times the shock from the
+   * same share of their men hit, and living armies broke ever earlier as battles grew: against the
+   * fearless dead, who take no shock, that decided big battles).
+   */
+  blockMen: 35,
   /** Per enemy man in contact beyond 1.2 for each of ours, capped at 16. */
   outnumbered: 9,
   outnumberedCap: 16,
@@ -246,3 +257,155 @@ export const FATIGUE = {
   combat: 8,
   pace: 0.25,
 } as const;
+
+/**
+ * Battle doctrines (docs/faction-doctrines.md): how each faction fights, in numbers. Every army
+ * reads its own row; SHARED's values leave the common rules as they are. battle.ts names each
+ * doctrine where it applies it (T1..T3 Templar, S1..S3 Samurai, U1..U3 Undead).
+ */
+export interface Doctrine {
+  // T1 The Marshal's charge: the knights wait for one signal, charge one target together, harder,
+  // and ride back to the Marshal's banner rather than chase.
+  /** The knights wait for the Marshal's signal (and his General never sends them in rashly). */
+  signal: boolean;
+  /** He gives it when an enemy block locked with our line falls under this morale... */
+  signalMorale: number;
+  /** For the fearless (whose morale never falls): when it is down to this share of its men. */
+  signalSpent: number;
+  /** ...or at the general charge, or this long (ticks) after the lines met whatever happens; then again at most every `signalEvery` ticks. */
+  signalLate: number;
+  signalEvery: number;
+  /** A signal holds this long (ticks), or until its target is gone or runs. */
+  signalHold: number;
+  /** A signalled charge hits this much harder (force), and shakes its target this much more. */
+  heldCharge: number;
+  heldShock: number;
+  /** The cycle charge pulls back to this far in front of the Marshal when he is within `recallRange`. */
+  recallTo: number;
+  recallRange: number;
+  /** Knights' chase: at most this far (units) and this long (ticks). */
+  knightFar: number;
+  knightTired: number;
+
+  // T2 Re-form on the banner: wavering blocks are pulled back to a banner, more than once, and
+  // broken ones may re-form at any friendly banner.
+  /** Times the General may pull a wavering regiment out of the line. */
+  withdrawals: number;
+  /** It falls back this far behind the nearest banner within `withdrawBanner` (the Marshal, or a steady regiment of its family); 0: 90 straight back. */
+  withdrawBehind: number;
+  withdrawBanner: number;
+  /** Re-formings beyond the one rally (REGROUP.extra), and whether any friendly banner within REGROUP.banner will do for them (not only its own standard). */
+  reforms: number;
+  reformAtBanner: boolean;
+  /** Ticks a rallied regiment stays shaken (REGROUP.shaken). */
+  shaken: number;
+
+  // T3 Not while the Beauséant flies: the professed brothers (Knight-Brothers, Iron Brethren)
+  // do not break while the Marshal lives, and take his death harder.
+  standFast: boolean;
+  /** The general's death: the shock to the brothers, times MORALE.generalDeadShock. */
+  brothersGrief: number;
+
+  // S1 The lord's uma-jirushi: a stronger aura reaching further, a heavier blow when he falls,
+  // and his hatamoto charge to avenge him.
+  /** MORALE.aura, auraRange, generalDeadShock and generalDead, times these. */
+  aura: number;
+  auraRange: number;
+  generalDeadShock: number;
+  generalDead: number;
+  /** The general's horse (the Knights class) charges the nearest enemy when he falls, for this long (ticks). */
+  revenge: boolean;
+  revengeFor: number;
+
+  // S2 First spear, long chase.
+  /** Chases run this much further and longer, and a block called back may go again this soon (ticks). */
+  chaseFar: number;
+  chaseTired: number;
+  recall: number;
+  /** The first block of the line to reach the enemy: morale for it, and for every block of ours within `firstSpearNear`. */
+  firstSpear: number;
+  firstSpearNear: number;
+  firstSpearLift: number;
+  /** Heavy foot charges any steady target within this (0: only a wavering one, archers in the open, or at the general charge). */
+  keenCharge: number;
+
+  // S3 Drilled teppō fire: the first volley of a block of guns all together (it shakes its
+  // target), then rank by rank.
+  /** Ranks that fire in turn after the first volley (1: whole volleys). */
+  ripple: number;
+  /** Morale the first volley of a block of guns costs its target. */
+  firstVolley: number;
+  /** Guns stand this far before their line until the enemy is within `screenBack` (0: they stand behind it like any shooters). */
+  screen: number;
+  screenBack: number;
+  /** The line halts behind its guns while they fire, for this long at most (ticks after their first shot). */
+  screenHold: number;
+
+  // U1 The tide.
+  /** Foot marches at FOOT_MARCH times this, unless within `tideNear` of a living Lich-Marshal. */
+  tide: number;
+  tideNear: number;
+  /** The General never holds, refuses a wing, or halts to trade volleys. */
+  unhalting: boolean;
+  /** Foot's charge, times its speed (FOOT_RUN). */
+  footRun: number;
+
+  // U2 Unflinching: charges into them knock men back this much less, stun nobody, and lose
+  // their impetus this much faster.
+  knockback: number;
+  stun: boolean;
+  drain: number;
+
+  // U3 What falls, rises.
+  /** Ticks between the Lich-Marshal's raisings (0: never). */
+  raiseEvery: number;
+  /** At most this share of the host's start a raising (at least 1), and never more than `raiseCap`. */
+  raiseShare: number;
+  raiseCap: number;
+  /** Foot of his host fallen within this of him, dead at least `raiseAfter` ticks, rise with this share of their hit points. */
+  raiseRange: number;
+  raiseAfter: number;
+  raiseHp: number;
+}
+
+const SHARED: Doctrine = {
+  signal: false, signalMorale: 0, signalSpent: 0, signalLate: 0, signalEvery: 0, signalHold: 0, heldCharge: 1, heldShock: 1, recallTo: 0, recallRange: 0, knightFar: Infinity, knightTired: Infinity,
+  withdrawals: 1, withdrawBehind: 0, withdrawBanner: 0, reforms: 0, reformAtBanner: false, shaken: 400,
+  standFast: false, brothersGrief: 1,
+  aura: 1, auraRange: 1, generalDeadShock: 1, generalDead: 1, revenge: false, revengeFor: 0,
+  chaseFar: 1, chaseTired: 1, recall: 120, firstSpear: 0, firstSpearNear: 0, firstSpearLift: 0, keenCharge: 0,
+  ripple: 1, firstVolley: 0, screen: 0, screenBack: 0, screenHold: 0,
+  tide: 1, tideNear: 0, unhalting: false, footRun: 1.45,
+  knockback: 1, stun: true, drain: 1,
+  raiseEvery: 0, raiseShare: 0, raiseCap: 0, raiseRange: 0, raiseAfter: 0, raiseHp: 0,
+};
+
+export const DOCTRINE: Record<FactionId, Doctrine> = {
+  templar: {
+    ...SHARED,
+    // T1 The Marshal's charge.
+    signal: true, signalMorale: 45, signalSpent: 0.6, signalLate: 200, signalEvery: 250, signalHold: 300, heldCharge: 1.2, heldShock: 1.25, recallTo: 30, recallRange: 400, knightFar: 120, knightTired: 60,
+    // T2 Re-form on the banner.
+    withdrawals: 2, withdrawBehind: 40, withdrawBanner: 300, reforms: 1, reformAtBanner: true, shaken: 250,
+    // T3 Not while the Beauséant flies.
+    standFast: true, brothersGrief: 1.5,
+  },
+  samurai: {
+    ...SHARED,
+    // S1 The lord's uma-jirushi.
+    aura: 1.6, auraRange: 1.25, generalDeadShock: 1.75, generalDead: 1.4, revenge: true, revengeFor: 300,
+    // S2 First spear, long chase.
+    chaseFar: 1.4, chaseTired: 1.4, recall: 80, firstSpear: 8, firstSpearNear: 240, firstSpearLift: 3, keenCharge: 140,
+    // S3 Drilled teppō fire.
+    ripple: 3, firstVolley: 8, screen: 14, screenBack: 60, screenHold: 150,
+  },
+  undead: {
+    ...SHARED,
+    // U1 The tide: slow and even, faster only near the Lich-Marshal; never halting, a lurch for a charge.
+    tide: 0.8, tideNear: 240, unhalting: true, footRun: 1.15,
+    // U2 Unflinching: a charge into them barely knocks them back, stuns nobody, and stalls sooner.
+    knockback: 0.3, stun: false, drain: 1.3,
+    // U3 What falls, rises.
+    raiseEvery: 100, raiseShare: 0.008, raiseCap: 40, raiseRange: 240, raiseAfter: 30, raiseHp: 0.4,
+  },
+};

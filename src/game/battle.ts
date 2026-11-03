@@ -23,12 +23,35 @@
 import { factionStats, type FactionId } from './factions.ts';
 import { mixSeed, Rng } from './rng.ts';
 import { emptyCounts, U, UNIT_COUNT, type Counts, type Role, type UnitStats } from './units.ts';
-import { FATIGUE, MORALE, newOrder, REGROUP, PERSONALITIES, PLANS, UNDEAD, type CommanderTrait, type MoraleState, type Order, type OrderKind, type Personality, type Plan } from './command.ts';
+import { DOCTRINE, FATIGUE, MORALE, newOrder, REGROUP, PERSONALITIES, PLANS, UNDEAD, type CommanderTrait, type Doctrine, type MoraleState, type Order, type OrderKind, type Personality, type Plan } from './command.ts';
 
 export type { CommanderTrait, MoraleState, Order, OrderKind, Personality, Plan } from './command.ts';
-export { MORALE, REGROUP, UNDEAD } from './command.ts';
+export { DOCTRINE, MORALE, REGROUP, UNDEAD } from './command.ts';
 
 /**
+ * v13: battle doctrines (docs/faction-doctrines.md; DOCTRINE in command.ts), and morale shocks
+ * that do not grow with the battle.
+ * - Shocks that came a man or a missile at a time (blows in flank and rear, charge impact,
+ *   missiles falling, stones and cannonballs, fugitives taken in) counted per head, but a
+ *   regiment's size grows with the battle (30-35 men at 250 a side, 116 at 2800): a big block
+ *   took three times the shock from the same share of its men hit, and in big battles living
+ *   armies broke with ever fewer losses. Against each other that cancelled out; against the
+ *   fearless undead it did not, and they won 70% of battles of 1500 men a side and more. They
+ *   now count for a block of MORALE.blockMen (35) men, and in proportion less for a bigger one.
+ * - Three doctrines a faction (the numbers in DOCTRINE; event 'doctrine' for the ticker):
+ *   Templar T1 the Marshal's charge (knights wait for his signal, ride at one target 1.2x as
+ *   hard, back to his banner), T2 re-form on the banner (two withdrawals behind a banner, a
+ *   second re-forming at any banner, shaken 25 s), T3 not while the Beauséant flies (knights and
+ *   Iron Brethren do not rout while the Marshal lives). Samurai S1 the uma-jirushi (aura x1.6
+ *   within 300; his death a 35 shock, -20 after, and the hatamoto's revenge charge), S2 first
+ *   spear and long chase, S3 drilled teppō fire (guns before the line, a first volley that costs
+ *   8 morale, then rank by rank). Undead U1 the tide (0.8 pace away from the Lich, no halting, a
+ *   lurching charge), U2 unflinching (charges barely knock them back and stun nobody), U3 what
+ *   falls, rises (the Lich raises 0.8% of the host a pulse every 10 s; Soldier.roseAt,
+ *   SideResult.risen).
+ * - Stats: undead hit points 66% (was 69%); samurai katana attack x1.06 and no spear armour
+ *   malus; Templar knights lose their charge x1.1 and morale x1.05 (T1, T2 replace them).
+ *
  * v12: the dead know no fear (UNDEAD in command.ts; the faction's rule in factions.ts).
  * - Undead regiments (`fearless`) never waver, rout or rally: their morale is 100 and stays
  *   there, and nothing that moves morale (losses, charges, missiles, routs nearby, the general's
@@ -107,7 +130,7 @@ export { MORALE, REGROUP, UNDEAD } from './command.ts';
  * one side won 60-75% of mirror matches, which side depending on the armies' size (see
  * `pnpm fairness`).
  */
-export const BATTLE_VERSION = 12;
+export const BATTLE_VERSION = 13;
 /**
  * Mixed into every battle's seed. It was BATTLE_VERSION until v3, which kept v2's salt: a
  * version bump refuses old setups (BattleVersionError) but does not re-seed battles by itself.
@@ -189,6 +212,8 @@ class Store {
   readonly acted: Int32Array;
   readonly hit: Int32Array;
   readonly died: Int32Array;
+  /** Tick the Lich-Marshal raised him (U3), or -1. */
+  readonly rose: Int32Array;
   readonly kills: Int32Array;
   readonly stun: Int32Array;
   /** A running man's own heading (unit vector) and pace (share of his speed). */
@@ -205,7 +230,7 @@ class Store {
     this.rad = f(); this.mass = f(); this.spd = f(); this.hx = f(); this.hy = f(); this.hs = f(); this.aim = f();
     this.state = new Uint8Array(n); this.team = new Uint8Array(n);
     this.reg = i(); this.target = i(); this.cd = i(); this.ammo = i();
-    this.acted = i(); this.hit = i(); this.died = i(); this.kills = i(); this.stun = i();
+    this.acted = i(); this.hit = i(); this.died = i(); this.kills = i(); this.stun = i(); this.rose = i();
   }
 }
 
@@ -256,6 +281,13 @@ export class Soldier {
   /** Tick it fell, or -1. */
   get diedAt(): number { return this.d.died[this.id]!; }
   set diedAt(v: number) { this.d.died[this.id] = v; }
+  /**
+   * Tick the Lich-Marshal raised him from the dead (U3 What falls, rises), or -1: a man raised
+   * stands again (state Fighting) where he fell, at `diedAt`; the renderer plays his fall
+   * backwards from here. A man rises once at most.
+   */
+  get roseAt(): number { return this.d.rose[this.id]!; }
+  set roseAt(v: number) { this.d.rose[this.id] = v; }
   /** Knocked down or reeling from a charge: ticks left. */
   get stunned(): number { return this.d.stun[this.id]!; }
   get kills(): number { return this.d.kills[this.id]!; }
@@ -394,6 +426,9 @@ export class Regiment {
   chaseX = 0;
   chaseY = 0;
   recallAt = -1000;
+  /** T1: a charge on the Marshal's signal (it hits harder), and a withdrawal back to his banner. */
+  held = false;
+  toBanner = false;
   /** Charging: since when, and whether it ran so far the ranks have come apart. */
   chargeAt = -1;
   ragged = false;
@@ -439,12 +474,14 @@ export class Regiment {
   ord: Order = newOrder();
   /** Second line thrown in by the General. */
   committed = false;
-  /** Pulled out of the line once already. */
-  withdrew = false;
+  /** Times the General has pulled it out of the line (see Doctrine.withdrawals). */
+  withdrawals = 0;
   /** Skirmishers that have fallen back behind the line. */
   retired = false;
   refuseUntil = -100;
   waverTold = -1000;
+  /** Last ticker line for its standing fast (T3). */
+  standTold = -1000;
   /** Enemy in contact, in men of this regiment's worth, for being outnumbered. */
   enemyNear = 0;
   veteran = false;
@@ -464,6 +501,19 @@ export class Regiment {
    */
   volleyAt = 0;
   volleyEvery = 0;
+  /** Within reach of its own living general (U1: the dead march at full pace only near the Lich-Marshal). */
+  nearLord = true;
+  /**
+   * S3 Drilled teppō fire: shots loosed in the volley under way, whether its first volley has
+   * been fired, and whether it now fires rank by rank (`volleyN`: rank volleys since).
+   */
+  volleyShots = 0;
+  firstVolley = false;
+  rippling = false;
+  volleyN = 0;
+  /** S3: guns out before the line (`screened`: they got there), and passing through their own line (`slip`, like skirmishers). */
+  screened = false;
+  slip = false;
   /** Fire at will: an enemy is charging it or close (it drops volley discipline). */
   atWill = false;
   /** Last tick the anchor moved or the block wheeled. Foot shooters loose only standing still. */
@@ -545,11 +595,13 @@ export interface Stake {
 }
 
 export interface SideResult {
-  /** Men, not figures. */
+  /** Men, not figures. dead + fled + alive = start, a man raised from the dead counted where he ended. */
   start: Counts;
   dead: Counts;
   fled: Counts;
   alive: Counts;
+  /** Men the Lich-Marshal raised (U3), whatever became of them after (absent before v13 and for armies that do not raise). */
+  risen?: Counts;
   kills: number;
   commanderFell: boolean;
 }
@@ -561,6 +613,14 @@ export interface BattleResult {
   scale: number;
   sides: [SideResult, SideResult];
 }
+
+/**
+ * The doctrine moments the ticker tells (event 'doctrine', in `note`): the Marshal's signal (T1),
+ * a Templar block falling back on a banner (T2), the brothers standing fast at breaking point
+ * (T3), the daimyō's hatamoto charging to avenge him (S1), the first spear (S2), the dead rising
+ * (U3, `count` figures).
+ */
+export type DoctrineNote = 'marshal-charge' | 'banner' | 'stand-fast' | 'revenge' | 'first-spear' | 'raise';
 
 /** Things worth narrating as they happen: the viewer and the summary read these. */
 export interface BattleEvent {
@@ -574,9 +634,9 @@ export interface BattleEvent {
    * as often as it may re-forms behind its line; 'joins': fugitives of regiment `from` (class
    * `fromCls`) fall in with regiment `reg` (`count` figures since its last 'joins'); 'crumble':
    * an undead host starts to crumble (`note` 'commander': its Lich-Marshal fell; 'spent': the
-   * army broke).
+   * army broke); 'doctrine': a faction's doctrine shows (`note` says which: see `DoctrineNote`).
    */
-  kind: 'rout' | 'commander' | 'charge' | 'contact' | 'rally' | 'break' | 'stance' | 'waver' | 'shattered' | 'general-order' | 'chase' | 'reform' | 'joins' | 'crumble';
+  kind: 'rout' | 'commander' | 'charge' | 'contact' | 'rally' | 'break' | 'stance' | 'waver' | 'shattered' | 'general-order' | 'chase' | 'reform' | 'joins' | 'crumble' | 'doctrine';
   cls: number;
   /** The regiment concerned (-1 for the whole army). */
   reg?: number;
@@ -631,6 +691,15 @@ export class General {
   committed = 0;
   /** When it ordered the general charge (-1: not yet). */
   chargedAt = -1;
+  /** T1 The Marshal's charge: when he last gave the knights the signal (-1: not yet), and at whom. */
+  signalAt = -1;
+  signalTarget = -1;
+  /** S3: when its guns first opened fire from before the line (-1: not yet). */
+  gunsAt = -1;
+  /** S2: when the first block of its line reached the enemy (-1: not yet). */
+  firstSpearAt = -1;
+  /** S1: when the general fell and his horse rode to avenge him (-1: not). */
+  revengeAt = -1;
   /** The army's spirits on the day (from the general's rng): added to every regiment's morale. */
   readonly mood: number;
   /** A blunder: the knights go in before the lines meet. */
@@ -711,6 +780,11 @@ function scaleFor(a: Counts, b: Counts): number {
   return Math.max(1, Math.ceil(n / MAX_FIGURES));
 }
 
+/** Men in a regiment of the line, for an army of `figures` figures: a big battle has big blocks, not a swarm of small ones. */
+function blockSize(figures: number): number {
+  return Math.max(30, Math.min(120, Math.round(2.2 * sqrt(figures))));
+}
+
 function figures(count: number, scale: number): number {
   if (count <= 0) return 0;
   return Math.max(1, Math.round(count / scale));
@@ -732,6 +806,8 @@ const TAKE_IN: Record<Mode, boolean> = {
   hold: true, advance: true, charge: false, melee: false, shoot: true, skirmish: false, flank: false, kite: false, rout: false, reserve: true, guard: true,
   brace: true, withdraw: false, pursue: false, rally: false,
 };
+/** U3: the classes the Lich-Marshal raises: foot of the line and skirmishers (no horse, Colossus, archers or engines). */
+const RISES: readonly boolean[] = Array.from({ length: UNIT_COUNT }, (_, c) => c === U.HeavyInfantry || c === U.Spearmen || c === U.Skirmishers);
 const isFoot = (r: Regiment) => r.role === 'line' || r.role === 'missile' || r.role === 'skirmish';
 const clampX = (x: number) => Math.max(4, Math.min(FIELD_W - 4, x));
 const clampY = (y: number) => Math.max(4, Math.min(FIELD_H - 4, y));
@@ -747,6 +823,8 @@ export class Battle {
   readonly stats: [UnitStats[], UnitStats[]];
   /** Figures per class at the start, per team. */
   readonly startFigures: [Counts, Counts] = [emptyCounts(), emptyCounts()];
+  /** Figures per class the Lich-Marshal has raised (U3), per team. */
+  readonly risen: [Counts, Counts] = [emptyCounts(), emptyCounts()];
   tick = 0;
   /**
    * Which side goes first on even ticks (0: team 0), drawn from the seed. The sides take turns
@@ -773,6 +851,8 @@ export class Battle {
   brokenAt = -1;
   /** Each side's General. */
   readonly generals: [General, General];
+  /** Each side's battle doctrine (DOCTRINE in command.ts, by faction). */
+  readonly doc: [Doctrine, Doctrine];
   /** Missiles each side has landed on its own men (direct-fire strikes and stray arrows). */
   readonly ownGoals: [number, number] = [0, 0];
   private readonly d: Store;
@@ -784,6 +864,12 @@ export class Battle {
   private readonly startTotal: [number, number] = [0, 0];
   private readonly startValue: [number, number] = [0, 0];
   private readonly figureScale: number;
+  /**
+   * Per-man morale shocks (MORALE.blockMen) scaled to the battle's block size: 1 up to blocks of
+   * `blockMen`, less for the bigger blocks of a big battle, so a regiment feels the same share of
+   * its men hit the same, whatever the size of the battle.
+   */
+  private readonly shockK: number;
   private readonly grid = new Int32Array(GW * GH + 1);
   private readonly fill = new Int32Array(GW * GH);
   /**
@@ -839,6 +925,9 @@ export class Battle {
     this.scale = scaleFor(setup.armies[0].counts, setup.armies[1].counts);
     this.stats = [factionStats(setup.armies[0].faction), factionStats(setup.armies[1].faction)];
     this.fearless = [setup.armies[0].faction === 'undead', setup.armies[1].faction === 'undead'];
+    this.doc = [DOCTRINE[setup.armies[0].faction], DOCTRINE[setup.armies[1].faction]];
+    // T1: nobody charges without the Marshal's leave.
+    for (const t of [0, 1]) if (this.doc[t]!.signal) this.generals[t]!.rashKnights = false;
     this.fire = [0, 1].map((t) => Array.from({ length: UNIT_COUNT }, (_, c) => ballisticsOf(setup.armies[t]!.faction, c))) as [Ballistics[], Ballistics[]];
     let n = 0;
     let most = 0;
@@ -851,6 +940,7 @@ export class Battle {
     }
     this.n = n;
     this.figureScale = most;
+    this.shockK = Math.min(1, MORALE.blockMen / blockSize(most));
     this.d = new Store(n);
     this.items = new Int32Array(n);
     this.kx = new Float64Array(n);
@@ -904,6 +994,7 @@ export class Battle {
     d.acted[id] = -100;
     d.hit[id] = -100;
     d.died[id] = -1;
+    d.rose[id] = -1;
     this.soldiers.push(new Soldier(d, id, team, cls, st, vet, commander));
     reg.members.push(id);
   }
@@ -918,7 +1009,7 @@ export class Battle {
     const regs: Regiment[] = [];
     const vetLeft = army.veterans.slice();
     // Regiment size grows with the armies, so a big battle has big blocks, not a swarm of small ones.
-    const base = Math.max(30, Math.min(120, Math.round(2.2 * sqrt(this.figureScale))));
+    const base = blockSize(this.figureScale);
     // Engines go four to a battery, but never more than 32 batteries a side: an army of engines
     // would otherwise be hundreds of tiny regiments (slow to fight, deployed far off the field).
     const sizeOf = (role: Role, n: number): number =>
@@ -1253,7 +1344,7 @@ export class Battle {
       const fy = r.fy;
       this.moveAnchor(r);
       if (r.vax !== 0 || r.vay !== 0 || r.fx !== fx || r.fy !== fy) r.movedAt = this.tick;
-      if (r.role === 'missile') this.volleyClock(r);
+      if (r.role === 'missile' && r.alive > 0) this.volleyClock(r);
     }
     const d = this.d;
     const n = this.n;
@@ -1274,6 +1365,8 @@ export class Battle {
     this.tick++;
     if (this.tick % 10 === 0) {
       if (this.crumbling[0] || this.crumbling[1]) this.crumble();
+      // U3: the Lich-Marshal's lantern pulses, and the fallen near him rise.
+      for (const t of [0, 1]) if (this.doc[t]!.raiseEvery > 0 && this.tick % this.doc[t]!.raiseEvery === 0) this.raise(t);
       this.checkEnd();
     }
   }
@@ -1285,6 +1378,65 @@ export class Battle {
       if (d.state[i] !== State.Fighting || !this.crumbling[d.team[i]!]) continue;
       this.hurt(i, this.soldiers[i]!.s.hp * UNDEAD.crumble, -1);
     }
+  }
+
+  /**
+   * U3 What falls, rises: the Lich-Marshal raises his own fallen foot (heavy foot, spears,
+   * skirmishers: no horse, Colossus or engines) lying within Doctrine.raiseRange of him, dead at
+   * least `raiseAfter` ticks, never raised before, whose regiment still stands: in id order, at
+   * most `raiseShare` of the host's start (at least one, never over `raiseCap`). Each stands up
+   * where he fell with `raiseHp` of his hit points and goes back into the files of his regiment.
+   * Not once he has fallen, nor once the host is crumbling or broken.
+   */
+  private raise(t: number): void {
+    const doc = this.doc[t]!;
+    if (this.crumbling[t] || this.broken[t] || !this.lordAlive(t)) return;
+    const d = this.d;
+    const cmd = this.commander[t]!;
+    const lx = d.x[cmd]!;
+    const ly = d.y[cmd]!;
+    const R2 = doc.raiseRange * doc.raiseRange;
+    const cap = Math.min(doc.raiseCap, Math.max(1, Math.round(doc.raiseShare * this.startTotal[t]!)));
+    const end = t === 0 ? this.firstId[1] : this.n;
+    let n = 0;
+    for (let i = this.firstId[t]!; i < end && n < cap; i++) {
+      if (d.state[i] !== State.Dead || d.rose[i]! >= 0 || this.tick - d.died[i]! < doc.raiseAfter) continue;
+      const s = this.soldiers[i]!;
+      if (!RISES[s.cls] || s.commander) continue;
+      const dx = d.x[i]! - lx;
+      const dy = d.y[i]! - ly;
+      if (dx * dx + dy * dy > R2) continue;
+      const r = this.regiments[d.reg[i]!]!;
+      if (r.alive === 0) continue;
+      d.state[i] = State.Fighting;
+      d.hp[i] = s.s.hp * doc.raiseHp;
+      d.rose[i] = this.tick;
+      d.target[i] = -1;
+      d.imp[i] = 0;
+      d.stun[i] = 0;
+      d.cd[i] = 0;
+      d.vx[i] = 0;
+      d.vy[i] = 0;
+      r.alive++;
+      r.reflow = true;
+      this.risen[t]![s.cls]!++;
+      n++;
+    }
+    if (n > 0) this.events.push({ tick: this.tick, team: t, kind: 'doctrine', cls: U.HeavyInfantry, note: 'raise', count: n * this.scale });
+  }
+
+  /**
+   * Whether fallen man `id` may yet be raised (U3): of a raising army whose Lich-Marshal still
+   * stands and whose host holds, of a class that rises, and never raised before. For the
+   * renderer, which keeps such a corpse off the ground until it can no longer get up.
+   */
+  mayRise(id: number): boolean {
+    const d = this.d;
+    const t = d.team[id]!;
+    if (this.doc[t]!.raiseEvery <= 0 || d.state[id] !== State.Dead || d.rose[id]! >= 0) return false;
+    const s = this.soldiers[id]!;
+    if (s.commander || !RISES[s.cls]) return false;
+    return !this.crumbling[t] && !this.broken[t] && !this.result && this.lordAlive(t);
   }
 
   /** A blow to a regiment's morale; the fearless take none. */
@@ -1355,7 +1507,7 @@ export class Battle {
     const rf = this.regFlags;
     for (let j = 0; j < regs.length; j++) {
       const r = regs[j]!;
-      rf[j] = (r.role === 'skirmish' ? 1 : 0) | (r.stance === 'braced' || r.stance === 'pikewall' ? 2 : 0);
+      rf[j] = (r.role === 'skirmish' || r.slip ? 1 : 0) | (r.stance === 'braced' || r.stance === 'pikewall' ? 2 : 0);
     }
     let bow = false;
     for (let i = 0; i < n; i++) {
@@ -1513,6 +1665,7 @@ export class Battle {
   /** The General reads the field, keeps (or changes) its plan, and gives every regiment its order. */
   private generalThink(t: number): void {
     const g = this.generals[t]!;
+    const doc = this.doc[t]!;
     const ts = this.ts[t]!;
     const es = this.ts[1 - t]!;
     const dir = t === 0 ? 1 : -1;
@@ -1532,13 +1685,19 @@ export class Battle {
     if (plan === 'hold' && !ts.engaged && ts.hasLine) {
       if (g.holdUntil === 0) g.holdUntil = g.personality === 'cautious' ? 1100 : g.personality === 'aggressive' ? 650 : 900;
       if (this.tick < g.holdUntil && gap > 140) waiting = true;
-    } else if (!g.dueled && ours.missile > 0 && ours.missile >= theirs.missile * 0.5 && gap < 125 && gap > 60 && g.personality !== 'aggressive') {
+    } else if (!g.dueled && !doc.unhalting && ours.missile > 0 && ours.missile >= theirs.missile * 0.5 && gap < 125 && gap > 60 && g.personality !== 'aggressive') {
       // Halt in bow range and trade volleys for a while.
       g.dueled = true;
       g.haltUntil = this.tick + (g.personality === 'cautious' ? 170 : 120);
     }
     if (ts.engaged) g.haltUntil = 0;
     if (this.tick < g.haltUntil) waiting = true;
+    // S3: the line waits behind its guns while they fire before it (for `screenHold` at most).
+    if (doc.screen > 0 && !ts.engaged) {
+      const firing = this.teamRegs[t]!.some((r) => r.screened && !r.retired && r.mode === 'shoot' && r.alive > 0);
+      if (firing && g.gunsAt < 0) g.gunsAt = this.tick;
+      if (firing && this.tick - g.gunsAt < doc.screenHold) waiting = true;
+    }
     this.stance[t] = plan === 'hold' ? 'hold' : 'press';
 
     // Reserves: the second line stands behind the first until the General commits it.
@@ -1556,10 +1715,18 @@ export class Battle {
         continue;
       }
       // Pull a wavering regiment out of the line once, if it can still get away and has men to save.
-      if (!allIn && !r.withdrew && r.moraleState === 'wavering' && !r.engaged && !r.contact && ts.contacted && r.alive > r.start * 0.4) {
-        r.withdrew = true;
-        this.announce(t, r, 'withdraw', 'pulls a wavering regiment back to re-form');
-        this.give(r, 'withdraw', -1, 0, -1, r.cx - dir * 90, r.cy);
+      if (!allIn && r.withdrawals < doc.withdrawals && r.moraleState === 'wavering' && !r.engaged && !r.contact && ts.contacted && r.alive > r.start * 0.4) {
+        r.withdrawals++;
+        // T2 Re-form on the banner: a Templar block falls back behind the nearest banner (the
+        // Marshal, or a steady block of its own kind) rather than straight back.
+        const tmp = this.tmp;
+        if (doc.withdrawBehind > 0 && this.bannerFor(t, r, doc.withdrawBanner, tmp)) {
+          this.events.push({ tick: this.tick, team: t, kind: 'doctrine', cls: r.cls, reg: r.id, note: 'banner' });
+          this.give(r, 'withdraw', -1, 0, -1, clampX(tmp[0]! - dir * doc.withdrawBehind), clampY(tmp[1]!));
+        } else {
+          this.announce(t, r, 'withdraw', 'pulls a wavering regiment back to re-form');
+          this.give(r, 'withdraw', -1, 0, -1, r.cx - dir * 90, r.cy);
+        }
         continue;
       }
       if (r.order === 'withdraw' && r.moraleState !== 'steady' && this.tick - r.ord.at < 200 && !allIn) continue;
@@ -1632,6 +1799,9 @@ export class Battle {
     const gap = sqrt(dx * dx + dy * dy) - e.radius - r.radius;
     if (gap > 160) return false;
     if (general) return true;
+    // S2: samurai heavy foot runs in at any enemy close enough.
+    const keen = this.doc[t]!.keenCharge;
+    if (keen > 0 && r.cls === U.HeavyInfantry && gap < keen) return true;
     if (e.moraleState === 'wavering' || e.moraleState === 'rallying') return true;
     if ((e.role === 'missile' || e.role === 'skirmish') && !e.engaged && gap < 110) {
       // Caught in the open: none of their line between us.
@@ -1665,6 +1835,8 @@ export class Battle {
       hammer: ours.knights > 0 && ours.foot > theirs.foot * 0.7 ? 0.7 + (p === 'aggressive' ? 0.1 : 0) : 0,
       refuse: 0.3 + (p === 'cunning' ? 0.45 : 0) + (S < 1 ? 0.15 : 0),
     };
+    // U1 The tide: the dead neither stand and wait nor hold a wing back.
+    if (this.doc[t]!.unhalting) score.hold = score.refuse = 0;
     if (g.planAt >= 0) score[g.plan] += 0.3;
     let best: Plan = 'advance';
     for (const k of PLANS) if (score[k] > score[best]) best = k;
@@ -1785,6 +1957,11 @@ export class Battle {
     void theirs;
     const plan = g.plan;
     const early = g.personality === 'aggressive' || g.trait === 'reckless-valour';
+    const doc = this.doc[t]!;
+    // T1 The Marshal's charge: while he lives the knights go only on his signal, all at one target.
+    const marshal = doc.signal && this.lordAlive(t);
+    const signal = marshal ? this.marshalSignal(t, won) : null;
+    const dir = t === 0 ? 1 : -1;
     for (const r of this.teamRegs[t]!) {
       if (r.alive === 0 || r.routed) continue;
       if (!(r.role === 'flank' || r.role === 'shock-cav' || (r.role === 'horse-archer' && r.ammoLeft === 0))) continue;
@@ -1797,6 +1974,14 @@ export class Battle {
         this.give(r, 'pursue');
         if (before !== 'pursue') this.announce(t, r, 'pursue', 'lets the horse loose on the fugitives');
         continue;
+      }
+      // S1: the daimyō has fallen; his hatamoto charge the nearest enemy to avenge him.
+      if (g.revengeAt >= 0 && this.tick - g.revengeAt < doc.revengeFor && r.role === 'shock-cav') {
+        const foe = this.nearestFoe(r, 0, Infinity);
+        if (foe) {
+          this.give(r, 'charge', foe.id);
+          continue;
+        }
       }
       // Our wing: enemy horse on it comes first.
       const wing = r.homeY < FIELD_H / 2 ? -1 : 1;
@@ -1816,7 +2001,17 @@ export class Battle {
       const locked = this.nearestFoe(r, 3, Infinity);
       // An enemy with no line has no clash of lines to wait for (the knights would wait all day).
       const linesMet = ts.engaged || es.engaged || !es.hasLine;
-      if (r.role === 'shock-cav') {
+      if (marshal && (r.role === 'shock-cav' || (signal && r.role === 'flank'))) {
+        const cmd = this.commander[t]!;
+        if (enemyCav && sqrt(bd) < 220) this.give(r, 'attack', enemyCav.id);
+        else if (signal) {
+          // The light horse goes with them, at the target's flank.
+          const q = sqrt((signal.cx - r.cx) ** 2 + (signal.cy - r.cy) ** 2) - signal.radius - r.radius;
+          if (r.role === 'flank') this.give(r, 'flank', signal.id, 1);
+          else this.give(r, q < 160 ? 'charge' : 'flank', signal.id, 3);
+        } else if (g.signalAt >= 0) this.give(r, 'reserve', -1, 0, -1, clampX(this.d.x[cmd]! + dir * doc.recallTo), clampY(this.d.y[cmd]! + (r.homeY < FIELD_H / 2 ? -1 : 1) * 40));
+        else this.give(r, 'reserve', -1, 0, -1, r.homeX, r.homeY);
+      } else if (r.role === 'shock-cav') {
         const go = linesMet || (plan === 'envelop' && this.tick > 200) || (early && this.tick > 320) || g.rashKnights;
         if (enemyCav && sqrt(bd) < 220) this.give(r, 'attack', enemyCav.id);
         else if (!go || (refused && !linesMet)) this.give(r, 'reserve', -1, 0, -1, r.homeX, r.homeY);
@@ -1841,6 +2036,55 @@ export class Battle {
         this.announce(t, r, 'flank', r.ord.side === 3 ? `sends the ${r.role === 'shock-cav' ? 'knights' : 'horse'} into the enemy's rear on the ${this.sideName(t, tg.cy)}` : `sends the horse after the enemy's ${tg.role === 'siege' ? 'engines' : 'archers'}`);
       }
     }
+  }
+
+  /**
+   * T1: the Marshal's signal. Once the lines are locked, when an enemy block locked with ours
+   * falters (its morale under Doctrine.signalMorale; the fearless, when it is under
+   * `signalSpent` of its men), or at the general charge, or `signalLate` after contact, and his
+   * knights have re-formed, he unfurls the Beauséant: every knight rides at that one block (the
+   * weakest locked with our line, else the nearest archers). The signal holds `signalHold`
+   * ticks or until the block is gone or runs; then they rally to him for the next, at most
+   * every `signalEvery`. Returns the signal's target, or null.
+   */
+  private marshalSignal(t: number, won: boolean): Regiment | null {
+    const g = this.generals[t]!;
+    const doc = this.doc[t]!;
+    if (g.signalTarget >= 0) {
+      const e = this.regiments[g.signalTarget]!;
+      if (e.alive > 0 && !e.routed && this.tick - g.signalAt < doc.signalHold) return e;
+      g.signalTarget = -1;
+    }
+    const ts = this.ts[t]!;
+    const es = this.ts[1 - t]!;
+    if (won || !(ts.engaged || es.engaged || !es.hasLine)) return null;
+    if (g.signalAt >= 0 && this.tick - g.signalAt < doc.signalEvery) return null;
+    let ready: Regiment | null = null;
+    for (const r of this.teamRegs[t]!) {
+      if (r.role !== 'shock-cav' || r.alive === 0 || r.routed || r.engaged || r.mode === 'withdraw' || r.mode === 'charge') continue;
+      ready = r;
+      break;
+    }
+    if (!ready) return null;
+    let best: Regiment | null = null;
+    let bs = Infinity;
+    for (const e of this.teamRegs[1 - t]!) {
+      if (e.alive === 0 || e.routed || !e.engaged || !(isFoot(e) || e.role === 'command')) continue;
+      const score = e.morale + 40 * (e.alive / e.start);
+      if (score < bs) {
+        bs = score;
+        best = e;
+      }
+    }
+    const faltering = best !== null && (this.fearless[1 - t] ? best.alive < best.start * doc.signalSpent : best.morale < doc.signalMorale);
+    const late = ts.contactAt >= 0 && this.tick - ts.contactAt > doc.signalLate;
+    if (!faltering && g.chargedAt < 0 && !late) return null;
+    const target = best ?? this.nearestFoe(ready, 1, Infinity) ?? this.nearestFoe(ready, 0, Infinity);
+    if (!target) return null;
+    g.signalAt = this.tick;
+    g.signalTarget = target.id;
+    this.events.push({ tick: this.tick, team: t, kind: 'doctrine', cls: U.Knights, reg: target.id, note: 'marshal-charge', side: this.sideName(t, target.cy) });
+    return target;
   }
 
   /** Every regiment of the line in the pool gets a place against the enemy line: a front, a flank or a rear. */
@@ -2027,6 +2271,7 @@ export class Battle {
 
   private setMode(r: Regiment, m: Mode): void {
     if (r.mode === m) return;
+    if (m !== 'charge') r.held = false;
     if (m === 'shoot' && r.role !== 'missile') {
       // Skirmishers, horse archers and engines open up together, then each shoots as he can.
       const d = this.d;
@@ -2059,6 +2304,9 @@ export class Battle {
   private think(r: Regiment): void {
     this.survey(r);
     if (r.alive === 0) return;
+    const doc = this.doc[r.team]!;
+    if (doc.tide !== 1) r.nearLord = this.lordWithin(r.team, r.cx, r.cy, doc.tideNear);
+    if (doc.firstSpear > 0 && r.engaged && r.role === 'line' && !r.routed) this.firstSpear(r);
     if (r.reflow && !r.routed) this.closeRanks(r);
     this.fatigue(r);
     if (r.routed) {
@@ -2098,6 +2346,22 @@ export class Battle {
     this.chooseStance(r);
   }
 
+  /** S2: the first samurai block of the line to strike claims the first spear: heart for it and for those near it. */
+  private firstSpear(r: Regiment): void {
+    const g = this.generals[r.team]!;
+    if (g.firstSpearAt >= 0) return;
+    g.firstSpearAt = this.tick;
+    const doc = this.doc[r.team]!;
+    r.morale = Math.min(100, r.morale + doc.firstSpear);
+    for (const o of this.teamRegs[r.team]!) {
+      if (o === r || o.alive === 0 || o.routed) continue;
+      const dx = o.cx - r.cx;
+      const dy = o.cy - r.cy;
+      if (dx * dx + dy * dy < doc.firstSpearNear * doc.firstSpearNear) o.morale = Math.min(100, o.morale + doc.firstSpearLift);
+    }
+    this.events.push({ tick: this.tick, team: r.team, kind: 'doctrine', cls: r.cls, reg: r.id, note: 'first-spear' });
+  }
+
   private fatigue(r: Regiment): void {
     const m = r.mode;
     const run = m === 'charge' || m === 'withdraw' || m === 'pursue' || m === 'flank' || m === 'kite' || m === 'skirmish' || m === 'rout';
@@ -2124,9 +2388,12 @@ export class Battle {
     if (cmd >= 0 && this.d.state[cmd] === State.Fighting) {
       const dx = this.d.x[cmd]! - r.cx;
       const dy = this.d.y[cmd]! - r.cy;
-      if (dx * dx + dy * dy < M.auraRange * M.auraRange) target += M.aura * (0.5 + this.generals[team]!.skill * 0.6);
+      // S1: the daimyō's uma-jirushi is seen further and heartens more (Doctrine.aura).
+      const doc = this.doc[team]!;
+      const range = M.auraRange * doc.auraRange;
+      if (dx * dx + dy * dy < range * range) target += M.aura * doc.aura * (0.5 + this.generals[team]!.skill * 0.6);
     }
-    if (this.commanderFell[team]) target -= M.generalDead;
+    if (this.commanderFell[team]) target -= M.generalDead * this.doc[team]!.generalDead;
     // The whole army's fortunes: a losing army loses heart, a winning one takes it.
     target -= Math.max(0, this.ts[team]!.loss - M.armyLossFrom) * M.armyLoss;
     target += Math.max(0, this.ts[1 - team]!.loss - M.armyLossFrom) * M.armyLoss * 0.5;
@@ -2136,6 +2403,17 @@ export class Battle {
     r.morale += (target - r.morale) * M.recover;
     if (r.morale > 100) r.morale = 100;
     if (r.morale < M.breakAt) {
+      // T3 Not while the Beauséant flies: the professed brothers do not leave the field while the
+      // Marshal lives. They hold at breaking point, wavering (and fighting worse), and die there.
+      if (this.doc[team]!.standFast && (r.cls === U.Knights || r.cls === U.Shock) && r.role !== 'command' && this.commander[team]! >= 0 && !this.commanderFell[team]) {
+        r.morale = M.breakAt;
+        if (r.moraleState !== 'wavering') r.moraleState = 'wavering';
+        if (this.tick - r.standTold > 300) {
+          r.standTold = this.tick;
+          this.events.push({ tick: this.tick, team, kind: 'doctrine', cls: r.cls, reg: r.id, note: 'stand-fast' });
+        }
+        return;
+      }
       this.rout(r);
       return;
     }
@@ -2146,7 +2424,7 @@ export class Battle {
         this.events.push({ tick: this.tick, team, kind: 'waver', cls: r.cls, reg: r.id });
       }
     } else if (r.moraleState === 'wavering' && r.morale > M.waverAt + 8) r.moraleState = 'steady';
-    else if (r.moraleState === 'rallying' && this.tick - r.rallyAt >= REGROUP.shaken) r.moraleState = r.morale > M.waverAt + 8 ? 'steady' : 'wavering';
+    else if (r.moraleState === 'rallying' && this.tick - r.rallyAt >= this.doc[team]!.shaken) r.moraleState = r.morale > M.waverAt + 8 ? 'steady' : 'wavering';
   }
 
   private thinkRouted(r: Regiment): void {
@@ -2184,12 +2462,14 @@ export class Battle {
     r.rallyCheckAt = this.tick;
     // Rallied as often as it may (a second rout is final): only an `extra` re-forming, with its
     // standard standing behind its own line, and at lower odds.
+    const doc = this.doc[r.team]!;
     const reform = r.rallies >= REGROUP.rallies;
     const standard = this.together(r, REGROUP.standardRange) >= Math.max(REGROUP.minMen, r.start * REGROUP.share);
     // Too scattered for even a handful to stop together.
     if (!standard && this.together(r, REGROUP.gather) < REGROUP.minMen) return;
     if (reform) {
-      if (r.rallies >= REGROUP.rallies + REGROUP.extra || !standard) return;
+      // T2: a Templar block may re-form at any friendly banner, not only its own standard.
+      if (r.rallies >= REGROUP.rallies + REGROUP.extra + doc.reforms || !(standard || (doc.reformAtBanner && this.bannerNear(r.team, r.cx, r.cy)))) return;
       const ts = this.ts[r.team]!;
       const dir = r.team === 0 ? 1 : -1;
       if (ts.hasLine && (r.cx - ts.frontX) * dir > -30) return;
@@ -2306,6 +2586,72 @@ export class Battle {
       }
     }
     return p;
+  }
+
+  /** Whether `team`'s general is alive. */
+  private lordAlive(team: number): boolean {
+    const cmd = this.commander[team]!;
+    return cmd >= 0 && this.d.state[cmd] === State.Fighting;
+  }
+
+  /** Whether `team`'s general is alive and within `R` of (x, y). */
+  private lordWithin(team: number, x: number, y: number, R: number): boolean {
+    const d = this.d;
+    const cmd = this.commander[team]!;
+    if (cmd < 0 || d.state[cmd] !== State.Fighting) return false;
+    const dx = d.x[cmd]! - x;
+    const dy = d.y[cmd]! - y;
+    return dx * dx + dy * dy < R * R;
+  }
+
+  /**
+   * The nearest banner within `R` of regiment `r` (T2): the general, or a steady, unengaged
+   * regiment of `r`'s family; where it stands (a regiment's rear rank) to out[0], out[1].
+   * Whether there was one.
+   */
+  private bannerFor(team: number, r: Regiment, R: number, out: Float64Array): boolean {
+    let bd = R * R;
+    let found = false;
+    const d = this.d;
+    const cmd = this.commander[team]!;
+    if (cmd >= 0 && d.state[cmd] === State.Fighting) {
+      const dx = d.x[cmd]! - r.cx;
+      const dy = d.y[cmd]! - r.cy;
+      const q = dx * dx + dy * dy;
+      if (q < bd) {
+        bd = q;
+        out[0] = d.x[cmd]!;
+        out[1] = d.y[cmd]!;
+        found = true;
+      }
+    }
+    const f = family(r);
+    for (const o of this.teamRegs[team]!) {
+      if (o === r || o.alive < 4 || o.routed || o.engaged || o.moraleState !== 'steady' || family(o) !== f) continue;
+      const dx = o.cx - r.cx;
+      const dy = o.cy - r.cy;
+      const q = dx * dx + dy * dy;
+      if (q < bd) {
+        bd = q;
+        // Behind its rear rank.
+        out[0] = o.cx - (team === 0 ? 1 : -1) * o.depth * 0.5;
+        out[1] = o.cy;
+        found = true;
+      }
+    }
+    return found;
+  }
+
+  /** Whether a banner of `team` stands within REGROUP.banner of (x, y): a formed regiment (not skirmishers or engines), or the general's. */
+  private bannerNear(team: number, x: number, y: number): boolean {
+    const R = REGROUP.banner;
+    for (const o of this.teamRegs[team]!) {
+      if (o.alive < 4 || o.routed || o.role === 'siege' || o.role === 'skirmish') continue;
+      const dx = o.cx - x;
+      const dy = o.cy - y;
+      if (dx * dx + dy * dy < R * R) return true;
+    }
+    return false;
   }
 
   /**
@@ -2437,7 +2783,7 @@ export class Battle {
     d.state[i] = State.Fighting;
     d.target[i] = -1;
     d.imp[i] = 0;
-    this.shake(o, REGROUP.moraleCost);
+    this.shake(o, REGROUP.moraleCost * this.shockK);
     o.absorbed++;
     o.joinPending++;
     o.joinFrom = from.id;
@@ -2670,9 +3016,11 @@ export class Battle {
       const prey = this.nearestFoe(r, 4, 220);
       const dx = r.ax - r.chaseX;
       const dy = r.ay - r.chaseY;
-      const far = 120 + 260 * r.eager;
+      // S2: the samurai chase further and longer.
+      const doc = this.doc[r.team]!;
+      const far = (120 + 260 * r.eager) * doc.chaseFar;
       const edge = prey ? (r.team === 0 ? FIELD_W - prey.cx : prey.cx) : 0;
-      const tired = this.tick - r.chaseAt > 80 + 220 * r.eager;
+      const tired = this.tick - r.chaseAt > (80 + 220 * r.eager) * doc.chaseTired;
       if (!prey || formed || tired || edge < 70 || (!won && dx * dx + dy * dy > far * far) || r.fatigue > 0.8) {
         r.chaseAt = -1;
         r.recallAt = this.tick;
@@ -2683,7 +3031,7 @@ export class Battle {
       this.faceToward(r, prey.cx, prey.cy);
       return true;
     }
-    if (won || formed || r.engaged || this.tick - r.recallAt < 120) return false;
+    if (won || formed || r.engaged || this.tick - r.recallAt < this.doc[r.team]!.recall) return false;
     if (r.moraleState !== 'steady' || r.morale < 55 || r.fatigue > 0.5 || r.ord.kind === 'withdraw') return false;
     if ((r.role === 'missile' && r.ammoLeft > 0) || r.role === 'siege' || r.role === 'command') return false;
     if (r.line === 2 && !r.committed && r.eager < 0.7) return false;
@@ -2715,10 +3063,12 @@ export class Battle {
     const dir = r.team === 0 ? 1 : -1;
     if (r.engaged || this.nearGap(r, CONTACT_GAP, false)) {
       r.atWill = false;
+      r.slip = false;
       this.setMode(r, 'melee');
       this.goal(r, r.ax, r.ay);
       return;
     }
+    if (this.screen(r)) return;
     const threat = this.threatTo(r);
     if (threat) {
       // No time for the word: every man shoots as he can at the nearest foe (and the men he
@@ -2787,6 +3137,79 @@ export class Battle {
       this.goal(r, near.cx - (dx / q) * st.range * 0.8, near.cy - (dy / q) * st.range * 0.8);
       this.faceToward(r, near.cx, near.cy);
     }
+  }
+
+  /**
+   * S3: samurai guns go out before their line and fire from there, standing (as behind the
+   * fence at Nagashino: behind their own line a block of matchlocks, which needs a clear line of
+   * fire, has nothing it may shoot at in a big battle), and fall back through the line, at the
+   * double, when the enemy comes within `screenBack` (horse twice that) or their own line comes
+   * up to them. Returns whether it gave the block its orders.
+   */
+  private screen(r: Regiment): boolean {
+    const doc = this.doc[r.team]!;
+    if (doc.screen <= 0 || this.fire[r.team]![r.cls] !== 'gun') return false;
+    const ts = this.ts[r.team]!;
+    const es = this.ts[1 - r.team]!;
+    const dir = r.team === 0 ? 1 : -1;
+    const home = ts.frontX - dir * (ts.lineDepth + MISSILE_BEHIND);
+    if (r.mode === 'skirmish') {
+      // Falling back through the line.
+      this.goal(r, home, r.ay);
+      r.dfx = dir;
+      r.dfy = 0;
+      if ((r.ax - home) * dir < 8 || !ts.hasLine) {
+        r.slip = false;
+        this.setMode(r, 'hold');
+      }
+      return true;
+    }
+    if (r.retired || !ts.hasLine || !es.hasLine || (ts.engaged && !r.screened) || r.ammoLeft === 0 || this.tick < 30 || r.ord.kind === 'pursue') return false;
+    const ahead = (r.ax - ts.frontX) * dir;
+    if (ahead > r.depth + doc.screen) r.screened = true;
+    // Skirmishers are a target, not a threat: a formed block coming on, or horse, sends them back.
+    let threat = false;
+    for (const o of this.teamRegs[1 - r.team]!) {
+      if (o.alive === 0 || o.routed || o.role === 'skirmish') continue;
+      const R = doc.screenBack * (isCav(o) ? 2 : 1);
+      const dx = o.cx - r.cx;
+      const dy = o.cy - r.cy;
+      const rr = o.radius + r.radius + R;
+      if (dx * dx + dy * dy < rr * rr && this.gapTo(r, o) < R) {
+        threat = true;
+        break;
+      }
+    }
+    if (threat || ts.engaged || (r.screened && ahead < r.depth * 0.6)) {
+      r.retired = true;
+      r.slip = true;
+      r.atWill = false;
+      this.setMode(r, 'skirmish');
+      this.goal(r, home, r.ay);
+      r.dfx = dir;
+      r.dfy = 0;
+      return true;
+    }
+    r.slip = true;
+    r.atWill = false;
+    const st = this.stats[r.team]![r.cls]!;
+    const best = r.screened ? this.shootable(r, st.range * 0.95) : null;
+    if (best) {
+      this.setMode(r, 'shoot');
+      r.targetReg = best.id;
+      r.aimedAt = this.tick;
+      this.goal(r, r.ax, r.ay);
+      this.aimAt(r, best);
+      return true;
+    }
+    // Out before the line, keeping pace with it.
+    r.targetReg = -1;
+    this.setMode(r, 'advance');
+    // (A goal well ahead keeps them marching: one close by is walked to slowly.)
+    this.goal(r, ts.frontX + dir * (r.depth + doc.screen + 40), r.homeY + (ts.midY - FIELD_H / 2));
+    r.dfx = dir;
+    r.dfy = 0;
+    return true;
   }
 
   /**
@@ -3057,6 +3480,14 @@ export class Battle {
         const q = sqrt(dx * dx + dy * dy) || 1;
         r.wx = clampX(r.cx + (dx / q) * 120);
         r.wy = clampY(r.cy + (dy / q) * 120);
+        // T1: Templar knights ride back to the Marshal's banner to re-form for the next signal.
+        const doc = this.doc[team]!;
+        const cmd = this.commander[team]!;
+        r.toBanner = shock && doc.recallTo > 0 && this.lordWithin(team, r.cx, r.cy, doc.recallRange);
+        if (r.toBanner) {
+          r.wx = clampX(this.d.x[cmd]! + dir * doc.recallTo);
+          r.wy = clampY(this.d.y[cmd]! + (r.homeY < FIELD_H / 2 ? -1 : 1) * 40);
+        }
         this.setMode(r, 'withdraw');
         this.goal(r, r.wx, r.wy);
         return;
@@ -3067,7 +3498,7 @@ export class Battle {
     if (r.mode === 'withdraw') {
       const dx = r.wx - r.ax;
       const dy = r.wy - r.ay;
-      if (dx * dx + dy * dy > 18 * 18 && this.tick - r.modeAt < 70) return;
+      if (dx * dx + dy * dy > 18 * 18 && this.tick - r.modeAt < (r.toBanner ? 160 : 70)) return;
       this.setMode(r, 'hold');
       return;
     }
@@ -3079,7 +3510,7 @@ export class Battle {
     // Fugitives close by tempt the horse out of its place (eager horse readily, the Templars
     // seldom); once off after them it keeps on until called back (see below).
     const fugitives = o.kind === 'pursue' || r.mode === 'charge' || r.engaged ? null : this.nearestFoe(r, 4, r.chaseAt >= 0 ? 300 : 200);
-    if (fugitives && fugitives.alive >= 3 && (r.chaseAt >= 0 || (this.tick - r.recallAt >= 120 && r.moraleState === 'steady' && this.rng.chance(r.eager * 0.3)))) prey = fugitives;
+    if (fugitives && fugitives.alive >= 3 && (r.chaseAt >= 0 || (this.tick - r.recallAt >= this.doc[team]!.recall && r.moraleState === 'steady' && this.rng.chance(r.eager * 0.3)))) prey = fugitives;
     else if (o.kind === 'hold' || o.kind === 'reserve') {
       // On the wing: counter-charge horse that comes close, fight foot that walks into us.
       prey = this.nearestFoe(r, 2, 90) ?? this.nearestFoe(r, 0, 25);
@@ -3098,7 +3529,7 @@ export class Battle {
       this.goal(r, r.ax, r.ay);
       return;
     }
-    if (prey.routed && o.kind !== 'pursue' && r.chaseAt < 0 && (this.tick - r.recallAt < 120 || !this.rng.chance(0.05 + r.eager * 0.4))) {
+    if (prey.routed && o.kind !== 'pursue' && r.chaseAt < 0 && (this.tick - r.recallAt < this.doc[team]!.recall || !this.rng.chance(0.05 + r.eager * 0.4))) {
       // Disciplined horse keeps to its work rather than chase fugitives on its own.
       prey = this.nearestFoe(r, 0, Infinity);
       if (!prey) {
@@ -3119,12 +3550,16 @@ export class Battle {
       const edge = r.team === 0 ? FIELD_W - prey.cx : prey.cx;
       const dx = r.ax - r.chaseX;
       const dy = r.ay - r.chaseY;
-      const far = 200 + 400 * r.eager;
-      if (o.kind !== 'pursue' && (edge < 60 || dx * dx + dy * dy > far * far || this.tick - r.chaseAt > 120 + 300 * r.eager)) {
+      // T1: Templar knights barely leave the banner; S2: the samurai chase far.
+      const doc = this.doc[team]!;
+      const far = Math.min(shock ? doc.knightFar : Infinity, (200 + 400 * r.eager) * doc.chaseFar);
+      const tired = Math.min(shock ? doc.knightTired : Infinity, (120 + 300 * r.eager) * doc.chaseTired);
+      if (o.kind !== 'pursue' && (edge < 60 || dx * dx + dy * dy > far * far || this.tick - r.chaseAt > tired)) {
         r.chaseAt = -1;
         r.recallAt = this.tick;
         this.give(r, 'reserve', -1, 0, -1, r.homeX, r.homeY);
         this.setMode(r, 'withdraw');
+        r.toBanner = false;
         r.wx = r.homeX;
         r.wy = r.homeY;
         this.goal(r, r.homeX, r.homeY);
@@ -3180,6 +3615,8 @@ export class Battle {
       if (r.mode !== 'charge') {
         r.charges++;
         this.events.push({ tick: this.tick, team, kind: 'charge', cls: r.cls, reg: r.id });
+        // T1: launched on the Marshal's signal, at his target: the held charge.
+        r.held = shock && this.doc[team]!.signal && this.generals[team]!.signalTarget === prey.id;
       }
       this.setMode(r, 'charge');
       // Aim through the target, so the charge carries into it; a charge that has run on without
@@ -3427,7 +3864,7 @@ export class Battle {
     // Broken once too often (a second rout is final unless REGROUP.extra allows a re-forming, and
     // then only with enough of it left), or too few left to stand again: shattered. (The undead
     // never rout: see `fearless`.)
-    const spent = r.rallies >= REGROUP.rallies + REGROUP.extra || (r.rallies >= REGROUP.rallies && r.alive < Math.max(REGROUP.minMen, r.start * REGROUP.share));
+    const spent = r.rallies >= REGROUP.rallies + REGROUP.extra + this.doc[r.team]!.reforms || (r.rallies >= REGROUP.rallies && r.alive < Math.max(REGROUP.minMen, r.start * REGROUP.share));
     const shattered = spent || r.alive < r.start * MORALE.shatterBelow || this.broken[r.team];
     r.moraleState = shattered ? 'shattered' : 'broken';
     this.events.push({ tick: this.tick, team: r.team, kind: shattered ? 'shattered' : 'rout', cls: r.cls, reg: r.id });
@@ -3528,9 +3965,11 @@ export class Battle {
     // Formed foot marches at the drill's pace, whatever the men's speed (the heavy keep up; nobody
     // hurries: shock troops, whose 0.6 of speed is 10.8, keep up too); skirmishers in open order
     // go at a jog, and engines at their crews' crawl.
-    else if ((r.role === 'line' || r.role === 'missile') && (r.mode === 'advance' || r.mode === 'reserve')) pace = FOOT_MARCH;
+    else if ((r.role === 'line' || r.role === 'missile') && (r.mode === 'advance' || r.mode === 'reserve')) pace = FOOT_MARCH * (r.nearLord ? 1 : this.doc[r.team]!.tide);
     // Foot breaks into a run for a charge or a chase.
-    if ((r.mode === 'charge' || r.mode === 'pursue') && !isCav(r)) pace *= FOOT_RUN;
+    if ((r.mode === 'charge' || r.mode === 'pursue') && !isCav(r)) pace *= this.doc[r.team]!.footRun;
+    // S3: guns going out through their line, or back through it, go at the double.
+    if (r.slip && (r.mode === 'advance' || r.mode === 'skirmish')) pace = Math.max(pace, FOOT_MARCH * FOOT_RUN);
     pace *= sd.pace * (1 - FATIGUE.pace * r.fatigue);
     let ux = dx / q;
     let uy = dy / q;
@@ -3658,6 +4097,7 @@ export class Battle {
     if (this.tick - r.movedAt < 3) return false;
     if (r.role !== 'missile' || r.atWill) return true;
     const k = this.tick - r.volleyAt;
+    if (r.rippling && this.d.row[i]! % this.ranksOf(r) !== r.volleyN % this.ranksOf(r)) return false;
     return k >= (i * 3) % VOLLEY_SPREAD && k < VOLLEY_SPREAD;
   }
 
@@ -3672,7 +4112,33 @@ export class Battle {
     const t = this.tick;
     if (r.mode !== 'shoot' || r.atWill || r.movedAt === t) {
       r.volleyAt = t + VOLLEY_BEAT;
-    } else if (t >= r.volleyAt + VOLLEY_SPREAD) r.volleyAt += r.volleyEvery;
+    } else if (t >= r.volleyAt + VOLLEY_SPREAD) {
+      if (r.rippling) {
+        // S3: rank by rank, each rank's volley a share of the cycle after the last.
+        r.volleyAt += Math.ceil(r.volleyEvery / this.ranksOf(r));
+        r.volleyN++;
+      } else r.volleyAt += r.volleyEvery;
+    }
+    if (t === r.volleyAt + VOLLEY_SPREAD - 1 && r.volleyShots > 0) {
+      r.volleyShots = 0;
+      if (!r.firstVolley) {
+        r.firstVolley = true;
+        // S3: the first volley of a block of guns, all together, shakes its target; then rank by rank.
+        const doc = this.doc[r.team]!;
+        if (this.fire[r.team]![r.cls] === 'gun') {
+          if (doc.firstVolley > 0 && r.targetReg >= 0) this.shake(this.regiments[r.targetReg]!, doc.firstVolley);
+          if (doc.ripple > 1) {
+            r.rippling = true;
+            r.volleyN = 0;
+          }
+        }
+      }
+    }
+  }
+
+  /** S3: ranks that fire in turn (no more than the block has). */
+  private ranksOf(r: Regiment): number {
+    return Math.max(1, Math.min(this.doc[r.team]!.ripple, r.rows));
   }
 
   /** The foe this soldier should fight: near, in front of the block, within a short leash of his slot. */
@@ -3765,7 +4231,8 @@ export class Battle {
     let lofted = false;
     if (!lobbed) {
       // Direct fire needs a clear line: whoever is first on it is who it hits (see `land`).
-      const n = this.lineHits(d.x[i]!, d.y[i]!, lx, ly, i, kind === 'flat' ? r.id : -1, 1);
+      // Crossbows see past their own ranks (they kneel or take turns), and so do guns firing rank by rank (S3).
+      const n = this.lineHits(d.x[i]!, d.y[i]!, lx, ly, i, kind === 'flat' || r.rippling ? r.id : -1, 1);
       const first = n > 0 ? this.lineIds[0]! : -1;
       if (first >= 0 && d.team[first] === s.team) {
         if (kind !== 'flat') {
@@ -3782,6 +4249,7 @@ export class Battle {
       }
     }
     r.loosed++;
+    r.volleyShots++;
     const lob = lobbed || lofted;
     if (kind === 'cannon') {
       // The ball bounds on along the ground beyond where it was aimed.
@@ -3944,10 +4412,10 @@ export class Battle {
       if (dot < -0.4) {
         attack += 20;
         defence *= 0.55;
-        dr.flankShock += MORALE.rearBlow;
+        dr.flankShock += MORALE.rearBlow * this.shockK;
       } else if (dot < 0.3) {
         attack += 9;
-        dr.flankShock += MORALE.flankBlow;
+        dr.flankShock += MORALE.flankBlow * this.shockK;
       }
     }
     const chance = Math.max(0.08, Math.min(0.92, 0.36 + (attack - defence) * 0.012));
@@ -3987,10 +4455,14 @@ export class Battle {
     const routing = d.state[t] === State.Routing;
     const rear = !routing && dot < -0.4;
     const side = !routing && !rear && dot < 0.3;
-    const wedge = this.regiments[A.reg]!.stance === 'wedge';
+    const ar = this.regiments[A.reg]!;
+    const wedge = ar.stance === 'wedge';
+    // T1: a charge on the Marshal's signal hits harder and shakes more.
+    const ad = this.doc[A.team]!;
+    const held = ar.held ? ad.heldCharge : 1;
     // Braced shock troops take a charge on their front without giving ground.
     const planted = standing && frontal && dr.stance === 'braced';
-    const force = energy * (planted ? 0.3 : 1) * (wedge ? 1.25 : 1);
+    const force = energy * (planted ? 0.3 : 1) * (wedge ? 1.25 : 1) * held;
     const roll = 0.8 + this.rng.next() * 0.4;
     const dmg = (as.damage + as.charge * 0.9) * force * (rear ? 1.3 : 1) * MELEE_K * (50 / (50 + ds.armour)) * roll;
     this.hurt(t, dmg, a);
@@ -4006,19 +4478,23 @@ export class Battle {
     // Foot charges shock less than horse, the heavier the more (shock troops > heavy foot >
     // spears > levies): its charge bonus sets it.
     const foot = as.mounted ? 1 : 0.15 + 0.03 * as.charge;
-    const kb = planted ? 0 : (2 + 5 * energy) * (as.mass / (as.mass + ds.mass)) * foot * (wedge ? 1.5 : 1) * (dr.stance === 'loose' ? 0.7 : 1);
+    // U2 Unflinching: the dead barely reel and are not stunned (and the charge stalls in them).
+    const dd = this.doc[dr.team]!;
+    const kb = planted ? 0 : (2 + 5 * energy) * (as.mass / (as.mass + ds.mass)) * foot * (wedge ? 1.5 : 1) * (dr.stance === 'loose' ? 0.7 : 1) * dd.knockback;
     if (d.state[t]! <= State.Routing) {
       d.x[t] = clampX(d.x[t]! + (nx / m) * kb);
       d.y[t] = clampY(d.y[t]! + (ny / m) * kb);
-      d.stun[t] = planted ? 0 : as.mounted ? 8 + this.rng.int(6) : 2 + Math.round(as.charge * 0.3);
+      const stun = as.mounted ? 8 + this.rng.int(6) : 2 + Math.round(as.charge * 0.3);
+      d.stun[t] = planted || !dd.stun ? 0 : stun;
     }
     if (!routing) {
-      this.shake(dr, (rear ? MORALE.chargeRear : side ? MORALE.chargeFlank : MORALE.chargeFront) * force * (ds.mounted ? 0.6 : 1) * (as.mounted ? 1 : 0.2 + 0.04 * as.charge));
-      dr.flankShock += rear ? 0.6 : side ? 0.3 : 0;
+      const k = this.shockK;
+      this.shake(dr, (rear ? MORALE.chargeRear : side ? MORALE.chargeFlank : MORALE.chargeFront) * force * (ds.mounted ? 0.6 : 1) * (as.mounted ? 1 : 0.2 + 0.04 * as.charge) * k * (ar.held ? ad.heldShock : 1));
+      dr.flankShock += (rear ? 0.6 : side ? 0.3 : 0) * k;
     }
     // Each man hit takes some of the charge out of him: knights carry through a thin line, light
     // horse soon stalls.
-    d.imp[a] = Math.max(0, energy - (0.22 + 0.12 * ds.mass) * (wedge ? 0.55 : 1) * (planted ? 3 : 1) * (as.mounted && as.mass < 4 ? 1.7 : 1));
+    d.imp[a] = Math.max(0, energy - (0.22 + 0.12 * ds.mass) * (wedge ? 0.55 : 1) * (planted ? 3 : 1) * (as.mounted && as.mass < 4 ? 1.7 : 1) * dd.drain);
   }
 
   private hurt(t: number, amount: number, by: number): void {
@@ -4045,7 +4521,17 @@ export class Battle {
       const team = d.team[t]!;
       this.commanderFell[team] = true;
       this.events.push({ tick: this.tick, team, kind: 'commander', cls: U.Knights });
-      for (const o of this.teamRegs[team]!) this.shake(o, MORALE.generalDeadShock);
+      const doc = this.doc[team]!;
+      for (const o of this.teamRegs[team]!) {
+        // T3: the brothers take their Marshal's death harder; S1: the samurai their daimyō's.
+        const grief = doc.standFast && (o.cls === U.Knights || o.cls === U.Shock) && o.role !== 'command' ? doc.brothersGrief : 1;
+        this.shake(o, MORALE.generalDeadShock * doc.generalDeadShock * grief);
+      }
+      // S1: his household horse charges to avenge him.
+      if (doc.revenge && this.teamRegs[team]!.some((o) => o.role === 'shock-cav' && o.alive > 0 && !o.routed)) {
+        this.generals[team]!.revengeAt = this.tick;
+        this.events.push({ tick: this.tick, team, kind: 'doctrine', cls: U.Knights, note: 'revenge' });
+      }
       // The Lich-Marshal's will held the dead together: without it the host crumbles.
       if (this.fearless[team] && !this.crumbling[team]) {
         this.crumbling[team] = true;
@@ -4283,14 +4769,14 @@ export class Battle {
           const h = d.hs[i]! || 1;
           vx = (r.vax / TICK_S) * h + (lx - x) * 0.9;
           vy = (r.vay / TICK_S) * h + (ly - y) * 0.9;
-          cap = spd * (r.speed > 40 ? 1.2 : FOOT_RUN) * h;
+          cap = spd * (r.speed > 40 ? 1.2 : this.doc[r.team]!.footRun) * h;
         } else if (mode === 'charge' && !mounted) {
           // At a run, each man at his own pace: a ragged charge (run from too far) loses its ranks.
           const h = d.hs[i]! || 1;
           const k = r.ragged ? 0.9 : 2.2;
           vx = (r.vax / TICK_S) * h + (gx - x) * k;
           vy = (r.vay / TICK_S) * h + (gy - y) * k;
-          cap = spd * FOOT_RUN * 1.08;
+          cap = spd * this.doc[r.team]!.footRun * 1.08;
         } else {
           const k = r.engaged ? 1 : rallying ? 0.7 : 2.5;
           if (rallying) cap = spd * 0.55;
@@ -4390,7 +4876,8 @@ export class Battle {
       // The first man along its line takes it, friend or foe; a cannonball goes on through
       // several, losing force with each. A crossbow bolt passes its own regiment's ranks, as it
       // did when it was aimed (see `shoot`): they kneel or take turns.
-      const own = this.fire[p.team]![p.cls] === 'flat' ? d.reg[p.shooter]! : -1;
+      const sr = this.regiments[d.reg[p.shooter]!]!;
+      const own = this.fire[p.team]![p.cls] === 'flat' || sr.rippling ? sr.id : -1;
       const n = this.lineHits(p.x0, p.y0, p.x1, p.y1, p.shooter, own, p.pen > 0 ? p.pen : 1);
       let force = 1;
       for (let k = 0; k < n; k++) {
@@ -4399,7 +4886,7 @@ export class Battle {
         p.damage = dmg * force;
         this.missileHit(j, p);
         p.damage = dmg;
-        if (p.pen > 0) this.shake(this.regiments[d.reg[j]!]!, 0.5);
+        if (p.pen > 0) this.shake(this.regiments[d.reg[j]!]!, 0.5 * this.shockK);
         force *= 0.7;
       }
       return;
@@ -4427,7 +4914,7 @@ export class Battle {
             // A stone kills whoever it lands among, friend or foe.
             if (d.team[j] === p.team && this.rng.next() > 0.5) continue;
             this.missileHit(j, p);
-            this.shake(this.regiments[d.reg[j]!]!, 0.6);
+            this.shake(this.regiments[d.reg[j]!]!, 0.6 * this.shockK);
           } else if (d2 < bd) {
             bd = d2;
             hit = j;
@@ -4451,14 +4938,14 @@ export class Battle {
     const uy = p.y0 - d.y[o]!;
     const un = sqrt(ux * ux + uy * uy) || 1;
     const front = (ux * r.fx + uy * r.fy) / un > 0.2;
-    r.arrows += 1;
+    r.arrows += this.shockK;
     const sd = STANCES[r.stance];
     const shield = S.s.shield + (r.stance === 'shieldwall' ? 0.35 : 0);
     if (p.splash === 0 && front && d.state[o] === State.Fighting && this.rng.next() < shield * (1 - p.pierce * 0.6)) return;
     const armour = S.s.armour * (1 - p.pierce);
     let dmg = p.damage * (50 / (50 + armour)) * (0.75 + this.rng.next() * 0.5) * (p.splash > 0 ? sd.stones : sd.missile);
     if (front) dmg *= 1 - army.pavise;
-    this.shake(r, 0.04);
+    this.shake(r, 0.04 * this.shockK);
     const shooter = p.shooter >= 0 && d.team[p.shooter] !== d.team[o] ? p.shooter : -1;
     this.hurt(o, dmg, shooter);
   }
@@ -4586,7 +5073,9 @@ export class Battle {
         fled[c] = Math.min(start[c]! - dead[c]!, Math.round((fledF[c]! / f) * start[c]!));
         alive[c] = start[c]! - dead[c]! - fled[c]!;
       }
-      return { start, dead, fled, alive, kills: kills * this.scale, commanderFell: this.commanderFell[team]! };
+      const out: SideResult = { start, dead, fled, alive, kills: kills * this.scale, commanderFell: this.commanderFell[team]! };
+      if (this.doc[team]!.raiseEvery > 0) out.risen = this.risen[team]!.map((x) => x * this.scale);
+      return out;
     };
     return { winner, reason, ticks: this.tick, scale: this.scale, sides: [side(0), side(1)] };
   }
@@ -4630,7 +5119,8 @@ function slotPos(o: Regiment, k: number, depth: number, out: Float64Array): void
 const EAGER = [0.3, 0.55, 0.5, 0.35, 0.25, 0.85, 0.6, 0.55, 0.25, 0];
 const EAGER_FACTION: Partial<Record<FactionId, Partial<Record<number, number>>>> = {
   templar: { [U.Knights]: 0.12, [U.Shock]: 0.15 },
-  samurai: { [U.Knights]: 0.15, [U.Shock]: 0.5 },
+  // S2 First spear, long chase: samurai and yari riders pour after fugitives; the hatamoto guard the lord.
+  samurai: { [U.HeavyInfantry]: 0.6, [U.LightCavalry]: 0.95, [U.Knights]: 0.15, [U.Shock]: 0.5 },
   undead: { [U.Spearmen]: 0.95, [U.LightCavalry]: 0.9, [U.HeavyInfantry]: 0.1 },
 };
 function eagerness(faction: FactionId, cls: number, veteran: boolean, green: boolean): number {
