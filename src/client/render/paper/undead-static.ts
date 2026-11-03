@@ -889,6 +889,27 @@ export function drawMount(c: Paper, art: MountArt): void {
 }
 const mountPose = (keys: () => KeySet<HorsePose>) => (): HorseLegs => ({ ...poseAt(keys(), Anim.Idle, 0), neck: 47, nod: -16 });
 
+/**
+ * The Death Knight's war sword sheathed at the far (left) hip, for when the lance is spent: the
+ * scabbard hangs from the sword belt steeply back and down past the saddle over the bone barding,
+ * the hilt forward and up out of its throat (as the Templar knights carry theirs: the Met's
+ * c. 1250 knight aquamanile). `drawn`: the hilt gone, the scabbard empty.
+ */
+export function dkHipSword(c: Paper, J: Record<string, P2>, drawn: boolean): void {
+  // The steel chape and locket carry the dark leather on the dark barding at level 8; below it
+  // they are a band end more on a figure already at the lint's aligned-ends gate (L4 0.294).
+  const fine = c.L >= 8;
+  const th = addP(J.pelvis!, [0.9, 0.35]), ch = addP(J.pelvis!, [-1.1, 4.62]);
+  c.rod(th, ch, 0.44, 0.36, UM.leather, { tone: 2 });
+  if (fine) c.rod(addP(ch, [0.33, -0.72]), ch, 0.42, 0.34, UM.steel, { tone: 3 });
+  if (fine) c.rod(addP(th, [-0.08, 0.17]), addP(th, [-0.22, 0.5]), 0.48, 0.46, UM.steel, { tone: 3 });
+  if (drawn) return;
+  const g1 = addP(th, [0.5, -1.05]);
+  c.rod(addP(th, [-0.85, -0.42]), addP(th, [0.85, 0.42]), 0.28, 0.28, UM.iron, { tone: 2 });
+  c.rod(th, g1, 0.3, 0.28, UM.leather, { tone: 2 });
+  c.blob(addP(g1, [0.12, -0.25]), 0.36, 0.36, UM.iron, { shine: true });
+}
+
 /** The Death Knight: full black plate on a bone-barded horse, a great helm, the big kite shield, a lance. */
 export const DEATH_KNIGHT: MountArt = (() => {
   const pose = mountPose(() => DEATH_KNIGHT_KEYS);
@@ -907,10 +928,14 @@ export const DEATH_KNIGHT: MountArt = (() => {
       // The far leg in plate (mostly hidden by the horse).
       { slot: 'thighF', bone: 'thighF', draw: (c, J) => vol(c, J.hipF!, J.kneeF!, 1.4, 1.1, UM.iron, { tone: 1 }) },
       h.hBody,
+      // The shield hand's lance: empty in the key art; the sword blows hand the lance to it (undead-horse.ts).
+      { slot: 'farLance', bone: 'upperArmF', draw: () => undefined },
       // The far arm, and the kite shield on it held tight before the chest.
       { slot: 'upperArmF', bone: 'upperArmF', draw: (c, J) => vol(c, J.shF!, J.hF!, 1.4, 1.2, UM.iron, { tone: 1 }) },
       // The body: a broad black cuirass, a fauld of lames, a team surcoat skirt over the saddle.
       { slot: 'skirt', bone: 'skirt', cloth: true, clothLen: 2.8, draw: (c, J, _b, o) => rag(c, addP(J.pelvis!, [-1.5, -0.8]), addP(J.pelvis!, [1.7, -0.8]), 2.8, 0.1 + (o.sway ?? 0), UM.team, UM.teamDk, 501, { tear: 0.35 }) },
+      // The war sword at the far hip, the hilt under the cuirass's edge, the scabbard down past the saddle.
+      { slot: 'hip', bone: 'pelvis', draw: (c, J) => dkHipSword(c, J, false) },
       {
         slot: 'torso',
         bone: 'chest',
