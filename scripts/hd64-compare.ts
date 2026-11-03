@@ -108,6 +108,28 @@ async function main(): Promise<void> {
   const acc = new Map<string, Acc>();
   for (const c of ['native L4', ...cands]) acc.set(c, { n: 0, orphan: 0, edge: 0, cluster: 0, colours: 0, outline: 0, off: 0, extraParts: 0, flicker: 0, idleChurn: 0, ms: 0 });
   try {
+    if (process.argv.includes('--blows')) {
+      // Every melee blow of every kind, the chosen reduction: per blow, wind-up, strike and
+      // follow-through frames, the 128 source (1×) beside its HD 64 frame (2×).
+      P.halver = 'feature';
+      const n = P.frameCount('hd', ANIM.Attack);
+      for (const f of factions) {
+        const rs: Img[] = [];
+        for (const kind of kinds) {
+          const blows = P.blows('hd', f, kind);
+          const cells: { f: Frame; k: number }[] = [];
+          for (let b = 0; b < blows; b++)
+            for (const fr of [3, 5, 7]) {
+              cells.push({ f: P.frame('hd', f, kind, 8, ANIM.Attack, b * n + fr, 0), k: 1 });
+              cells.push({ f: P.frame('hd64', f, kind, 4, ANIM.Attack, b * n + fr, 0), k: 2 });
+            }
+          rs.push(row(cells));
+          log(`blows ${f} k${kind}: ${blows}`);
+        }
+        savePng(join(outDir, `blows-${f}.png`), stack(rs));
+      }
+      return;
+    }
     for (const f of factions) {
       const pal8 = P.palette('hd', f, 8), pal4 = P.palette('hd', f, 4);
       const info8 = rampInfo(pal8), info4 = rampInfo(pal4);
