@@ -21,6 +21,7 @@ import {
 } from './skeleton.ts';
 import { at as atT, facingClip, lagCloth, lastFrame, mapFacings, overlayKeys, restWorld, addDrops, type ClipSet, type Drop, type KP, type LagSpec, type Track } from './templar-rig.ts';
 import { HIT, R, T, type Author, type Tracks } from './templar-clips.ts';
+import { fromGuard, riderOnly } from './guard.ts';
 import { FLASH, pieceAtt, registerLazy, trail } from './undead-foot.ts';
 import { both, groundClamp, jerk } from './undead-clips.ts';
 import { horseFrame, lance, shadeLower, UM, warSword, type HorseLegs } from './undead-parts.ts';
@@ -469,7 +470,14 @@ function mountClips(skel: SkeletonData, s: MountSpec): ClipSet & { attacks?: Cli
     const c = strike(b.a(skel), b.ev);
     return b.sword ? mapFacings(c, (a) => ({ ...a, slots: { ...(a.slots ?? {}), ...SWORD_SLOTS } })) : c;
   };
-  const attacks = (s.blows ?? ['ride']).map(blowOf);
+  // Brace is the rider's guard (guard.ts): the lance or the sword levelled; every blow from the
+  // saddle leaves it and comes back to it (the gallop under it is left alone).
+  const braceA: Author = (rw) => ({
+    dw: { horseNeck: T([0, -6]), horseHead: T([0, 4]), spine: T([0, -6 - s.hunch]) },
+    w: (s.ride === 'bow' ? { head: T([0, rw.head! + s.tilt]) } : { upperArmN: T([0, -8]), forearmN: T([0, 78]), weapon: T([0, s.ride === 'couch' ? 96 : 100]), head: T([0, rw.head! + s.tilt]) }) as Record<string, Track>,
+  });
+  const brace = breath(fc('brace', 8, true, (f) => overlayKeys(standKeys(8), braceA(restWorld(skel, f), f))));
+  const attacks = (s.blows ?? ['ride']).map((n) => (s.ride === 'bow' && !RIDER_BLOWS[n] ? blowOf(n) : fromGuard(skel, blowOf(n), brace, { only: riderOnly })));
   const attack = attacks[0]!;
   // Struck: the horse shies (head up, a half-step back, the jaw gaping), the rider snaps back; a flash.
   const shy: Author = () => ({ dw: { horseNeck: T([0, 14], [1, 20], [2, 10], [4, 0]), horseBody: T([0, 3], [1, 5], [2, 2], [4, 0]), horseHead: T([0, 8], [1, 10], [4, 0]) }, tAdd: { horseBody: [T([0, -0.3], [1, -0.5], [2, -0.3], [4, 0]), T([0, 0])] } });
@@ -483,11 +491,6 @@ function mountClips(skel: SkeletonData, s: MountSpec): ClipSet & { attacks?: Cli
   const legBones = (b: string) => /^(fore|hind)[NF](Upper|Lower)$/.test(b);
   const die = addDrops(skel, groundClamp(skel, fc('die', 12, false, (f) => dieKeys(f), [{ f: 8, name: 'land' }, { f: 1, name: 'neigh', len: 4, int: 1 }]), 12, 0.6, 'horseBody', legBones, 1), 12, drops);
   const dead = mapFacings(die, (a) => lastFrame(a, 'dead'));
-  const braceA: Author = (rw) => ({
-    dw: { horseNeck: T([0, -6]), horseHead: T([0, 4]), spine: T([0, -6 - s.hunch]) },
-    w: (s.ride === 'bow' ? { head: T([0, rw.head! + s.tilt]) } : { upperArmN: T([0, -8]), forearmN: T([0, 78]), weapon: T([0, s.ride === 'couch' ? 96 : 100]), head: T([0, rw.head! + s.tilt]) }) as Record<string, Track>,
-  });
-  const brace = breath(fc('brace', 8, true, (f) => overlayKeys(standKeys(8), braceA(restWorld(skel, f), f))));
   const out: ClipSet = { [Anim.Idle]: idle, [Anim.Walk]: walk, [Anim.Run]: run, [Anim.Attack]: attack, [Anim.Hit]: hit, [Anim.Die]: die, [Anim.Dead]: dead, [Anim.Brace]: brace };
   // Volleys go up at 30-45° to drop over the ranks in front; the point-blank Attack is the level shot.
   if (s.ride === 'bow') out[Anim.Shoot] = s.shootHigh ? bowClip(s.shootHigh) : shot;

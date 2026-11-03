@@ -15,6 +15,7 @@ import { BREATH, EASE_IN, evaluate, sampleAnimation, sampleClip, type AnimationD
 import { addDrops, facingClip, lagCloth, lastFrame, mapFacings, mocapKeys, overlayKeys, restWorld, type ClipSet, type Drop, type KP, type LagSpec, type MocapOpts, type Track } from './templar-rig.ts';
 import { BLOCK, CUT, HIT, osc, R, T, type Author, type Tracks } from './templar-clips.ts';
 import { BLOWS, runKeys as authoredKeys, type RunStyle } from './undead-blows.ts';
+import { fromGuard } from './guard.ts';
 
 export type FootAttack = 'cut' | 'lunge' | 'hurl' | 'cast' | 'butt' | 'loose';
 export interface FootClipSpec {
@@ -508,7 +509,22 @@ export function footClips(skel: SkeletonData, s: FootClipSpec): ClipSet & { atta
     const at = ATTACKS[name as FootAttack];
     return fc('attack', 12, false, (f) => mk(skel, f, at.clip, at.o, both(at.a, posture(s, 0.5, false)), at.extra), at.ev, 0, at.warp);
   };
-  const attacks = (s.blows ?? [s.attack]).map(blowClip);
+  // ---- brace, by the weapon: the guard. In a fight he stands in it, and every blow leaves it
+  // and comes back to it (guard.ts).
+  const BRACE: Record<FootClipSpec['brace'] | 'javelin', Author> = {
+    // Crouched behind the shield raised to the eyes, the sword drawn back to cut over it.
+    shield: () => ({ dw: { spine: T([0, -14]), head: T([0, -8]), upperArmF: T([0, 52]), forearmF: T([0, 44]), jaw: T([0, -6]) }, w: { upperArmN: T([0, 20]), forearmN: T([0, 85]), weapon: T([0, 112]) } }),
+    spear: () => ({ dw: { spine: T([0, -16]), head: T([0, 4]), upperArmF: T([0, 20]), forearmF: T([0, 16]) }, w: { upperArmN: T([0, 25]), forearmN: T([0, 80]), weapon: T([0, 118]) } }),
+    // The staff brought forward at a slant in the near fist, its fire at the enemy, the trunk over it.
+    staff: () => ({ dw: { spine: T([0, -8]), head: T([0, -4]) }, w: { upperArmN: T([0, 28]), forearmN: T([0, 72]), weapon: T([0, 150]) } }),
+    // Down on one knee behind the levelled crossbow, the stock at the cheek, waiting.
+    aim: (rw) => ({ dw: { spine: T([0, -8]), head: T([0, -8]) }, w: { upperArmN: T([0, 40]), forearmN: T([0, 150]), weapon: T([0, 92]) }, tAdd: { pelvis: [T([0, 0]), T([0, 0.5])] } }),
+    ready: () => ({ dw: { spine: T([0, -10]), head: T([0, -2]), upperArmN: T([0, 10]), forearmN: T([0, 20]), upperArmF: T([0, 10]), forearmF: T([0, 15]) } }),
+    // A javelin kept underarm at the hip, its point out at the enemy, the bundle drawn in.
+    javelin: () => ({ dw: { spine: T([0, -10]), head: T([0, -2]), upperArmF: T([0, 12]), forearmF: T([0, 18]) }, w: { upperArmN: T([0, 18]), forearmN: T([0, 88]), weapon: T([0, 100]) } }),
+  };
+  const brace = withBreath(fc('brace', 8, true, (f) => mk(skel, f, 'brace', { ref: 'mean', absHeight: true, travel: 1.0, torso: 0, feet: 0.4 }, both(BRACE[s.brace === 'ready' && s.shoot === 'javelin' ? 'javelin' : s.brace], posture(s, 0.5, false)))), 0.8);
+  const attacks = (s.blows ?? [s.attack]).map((b) => fromGuard(skel, blowClip(b), brace));
   const attack = attacks[0]!;
   // ---- struck: the struck shoulder and the skull snap back, the jaw flaps, a half-step back to
   // catch the weight, a white flash; recovery over three frames, the skull last.
@@ -575,17 +591,6 @@ export function footClips(skel: SkeletonData, s: FootClipSpec): ClipSet & { atta
 
   const dead = mapFacings(die, (a) => lastFrame(a, 'dead'));
 
-  // ---- brace, by the weapon.
-  const BRACE: Record<FootClipSpec['brace'], Author> = {
-    // Crouched behind the shield raised to the eyes, the sword drawn back to cut over it.
-    shield: () => ({ dw: { spine: T([0, -14]), head: T([0, -8]), upperArmF: T([0, 52]), forearmF: T([0, 44]), jaw: T([0, -6]) }, w: { upperArmN: T([0, 20]), forearmN: T([0, 85]), weapon: T([0, 112]) } }),
-    spear: () => ({ dw: { spine: T([0, -16]), head: T([0, 4]), upperArmF: T([0, 20]), forearmF: T([0, 16]) }, w: { upperArmN: T([0, 25]), forearmN: T([0, 80]), weapon: T([0, 118]) } }),
-    staff: () => ({ dw: { spine: T([0, -6]), head: T([0, -4]) } }),
-    // Down on one knee behind the levelled crossbow, the stock at the cheek, waiting.
-    aim: (rw) => ({ dw: { spine: T([0, -8]), head: T([0, -8]) }, w: { upperArmN: T([0, 40]), forearmN: T([0, 150]), weapon: T([0, 92]) }, tAdd: { pelvis: [T([0, 0]), T([0, 0.5])] } }),
-    ready: () => ({ dw: { spine: T([0, -10]), head: T([0, -2]), upperArmN: T([0, 10]), forearmN: T([0, 20]), upperArmF: T([0, 10]), forearmF: T([0, 15]) } }),
-  };
-  const brace = withBreath(fc('brace', 8, true, (f) => mk(skel, f, 'brace', { ref: 'mean', absHeight: true, travel: 1.0, torso: 0, feet: 0.4 }, both(BRACE[s.brace], posture(s, 0.5, false)))), 0.8);
   const out: ClipSet = { [Anim.Idle]: idle, [Anim.Walk]: walk, [Anim.Run]: run, [Anim.Attack]: attack, [Anim.Hit]: hit, [Anim.Die]: die, [Anim.Dead]: dead, [Anim.Brace]: brace };
   if (s.shoot === 'bow') {
     const bowClip = (up: number) => fc('shoot', 12, false, (f) => mk(skel, f, 'brace', { ref: 'first', torso: 0, travel: 0, feet: 0 }, both(bowShot(up), posture(s, 0.5, false)), [1, 2, 3, 4, 5, 6, 6.5, 7, 8, 9, 10, 11]), [{ f: 7, name: 'release' }, { f: 7, name: 'empty', len: 3 }], 0, [0, 1, 2, 3, 4, 5, 6, 6, 8, 9, 10, 11]);

@@ -18,6 +18,7 @@ import { along, poseAt, type BeastPose, type EnginePose } from './rig.ts';
 import { bonesFromJoints, EASE, type AnimEvent, type AttachmentSet, type Clip, type DrawCtx, type JointDef, type SkeletonData, type SkeletonRig } from './skeleton.ts';
 import { facingClip, lagCloth, lastFrame, mapFacings, mocapKeys, overlayKeys, restWorld, type ClipSet, type KP, type Track } from './templar-rig.ts';
 import { R, T, type Author } from './templar-clips.ts';
+import { fromGuard } from './guard.ts';
 import { FLASH, registerLazy, trail } from './undead-foot.ts';
 import { both, jerk } from './undead-clips.ts';
 import { runKeys } from './undead-blows.ts';
@@ -266,7 +267,9 @@ function colossusClips(skel: SkeletonData): ClipSet & { attacks: Clip[] } {
   const brace = fc('brace', 8, true, (f) => mk(f, 'brace', { ref: 'mean', torso: 0, travel: 0.3, feet: 0.3 }, BRACE));
   const sweep = fc('attack', 12, false, (f) => mk(f, 'idle', { ref: 'first', torso: 0, travel: 0, feet: 0 }, SWEEP, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]), [{ f: 5, name: 'smear', len: 1 }, { f: 6, name: 'smear', len: 1 }, { f: 6, name: 'strike' }], [0, 1, 2, 3, 4, 4, 6, 7, 8, 9, 10, 11]);
   const stomp = fc('attack', 12, false, (f) => mk(f, 'idle', { ref: 'first', torso: 0, travel: 0, feet: 0 }, STOMP, [1, 2, 3, 4, 4.8, 5, 6, 7, 8, 9, 10]), [{ f: 5, name: 'strike' }, ...[5, 6, 7, 8].map((k) => ({ f: k, name: 'stomp', int: k - 4 }))], [0, 1, 2, 3, 4, 4, 6, 7, 8, 9, 10, 11]);
-  return { [Anim.Idle]: idle, [Anim.Walk]: walk, [Anim.Run]: run, [Anim.Attack]: attack, [Anim.Hit]: hit, [Anim.Die]: die, [Anim.Dead]: dead, [Anim.Brace]: brace, attacks: [attack, sweep, stomp] };
+  // The club raised over the heap is its guard: every blow leaves it and comes back to it (guard.ts).
+  const [gAttack, gSweep, gStomp] = [attack, sweep, stomp].map((c) => fromGuard(skel, c, brace));
+  return { [Anim.Idle]: idle, [Anim.Walk]: walk, [Anim.Run]: run, [Anim.Attack]: gAttack!, [Anim.Hit]: hit, [Anim.Die]: die, [Anim.Dead]: dead, [Anim.Brace]: brace, attacks: [gAttack!, gSweep!, gStomp!] };
 }
 
 let COL_RIG: SkeletonRig | undefined;
