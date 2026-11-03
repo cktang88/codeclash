@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { ART_LABEL, useArtMode } from './useArtMode.ts';
+import { nextArt } from '../settings.ts';
 import { Battle, State, TICK_S, TICKS_PER_SECOND, type BattleSetup } from '../../game/battle.ts';
 import { FACTIONS } from '../../game/factions.ts';
 import { UNIT_COUNT } from '../../game/units.ts';
@@ -373,7 +374,7 @@ export function BattleView(props: {
               <button onClick={() => { sceneRef.current?.fit(); setZoom(1); }} title="Fit the field">⤢</button>
               <button className={scan ? 'on' : ''} onClick={() => setScan((x) => !x)} title="Scanlines">▤</button>
               <button className={follow ? 'on' : ''} onClick={() => setFollow((x) => !x)} title="Follow the fighting">◎</button>
-              <button className={art === 'hd' ? 'on' : ''} onClick={() => setArt(art === 'hd' ? 'classic' : 'hd')} title={`Pixel art: ${ART_LABEL[art]} (switch to ${ART_LABEL[art === 'hd' ? 'classic' : 'hd']})`}>HD</button>
+              <button className={art !== 'classic' ? 'on' : ''} onClick={() => setArt(nextArt(art))} title={`Pixel art: ${ART_LABEL[art]} (switch to ${ART_LABEL[nextArt(art)]})`}>{art === 'hd64' ? 'HD64' : 'HD'}</button>
             </span>
           </div>
           {live.done && live.winner !== null && (

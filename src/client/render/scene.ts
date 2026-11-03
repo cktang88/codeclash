@@ -24,8 +24,8 @@ import { dirFor, projX, projY, PX, unproject } from './iso.ts';
 import { GlPost } from './post.ts';
 import { upscaleCanvas } from './upscale.ts';
 import { buildAtlas as buildClassic } from './sprites.ts';
-import { buildAtlas as buildHd } from './sprites128.ts';
-import { artMode, type ArtMode } from '../settings.ts';
+import { buildAtlas as buildHd, buildAtlas64 as buildHd64 } from './sprites128.ts';
+import { artMode, isHdArt, type ArtMode } from '../settings.ts';
 
 export interface Camera {
   /** Whole-number zoom: 1 fits the field, each step adds one screen pixel per scene pixel. */
@@ -180,7 +180,7 @@ export class BattleScene {
     this.art = art;
     this.ground = paintGround(battle.setup.seed);
     const [a, b] = battle.setup.armies;
-    const buildAtlas = art === 'hd' ? buildHd : buildClassic;
+    const buildAtlas = art === 'hd64' ? buildHd64 : art === 'hd' ? buildHd : buildClassic;
     this.atlases = [buildAtlas(a.faction, a.hue), buildAtlas(b.faction, b.hue)];
     // The painter fills kinds lazily, but the atlas goes to the GPU once: paint the kinds on the
     // field first (only those: a kind no one fields is never drawn).
@@ -477,9 +477,18 @@ export class BattleScene {
     return b;
   }
 
+  /**
+   * HD art: the most scene-buffer pixels per map pixel (and so the finest sprite, ground and
+   * effects level drawn). HD 64 stops at 4, half of HD: its top sprite sheet is the 128 art halved
+   * to 4 texels per map pixel, and closer zooms only magnify it, ground and effects included.
+   */
+  get hdDensity(): number {
+    return this.art === 'hd64' ? 4 : 8;
+  }
+
   /** Highest zoom level for this scene's art. */
   get maxZoom(): number {
-    return this.art === 'hd' ? MAX_ZOOM_HD : MAX_ZOOM;
+    return isHdArt(this.art) ? MAX_ZOOM_HD : MAX_ZOOM;
   }
 
   /**
@@ -493,12 +502,12 @@ export class BattleScene {
     // Fit the field, rounding up a little: the parallelogram's far corners are mostly empty.
     const fit = Math.max(1, Math.floor(Math.min(W / (fw * 0.92), H / (fh * 1.15)) + 0.3));
     const z = Math.max(1, Math.round(this.camera.zoom));
-    if (this.art !== 'hd') {
+    if (!isHdArt(this.art)) {
       const s = fit + z - 1;
       return { s, m: 1, u: s };
     }
     const s = fit * 2 ** (z - 1);
-    const m = [8, 4, 2, 1].find((l) => s % l === 0)!;
+    const m = [8, 4, 2, 1].find((l) => s % l === 0 && l <= this.hdDensity)!;
     return { s, m, u: s / m };
   }
 
@@ -637,7 +646,7 @@ export class BattleScene {
     gfx.groundQuad.draw();
 
     // HD zoomed in: standards, missiles and puffs from a Scale2x'd copy of the effects sheet.
-    const fxF = this.art === 'hd' ? (v.m >= 4 ? 4 : v.m >= 2 ? 2 : 1) : 1;
+    const fxF = isHdArt(this.art) ? (v.m >= 4 ? 4 : v.m >= 2 ? 2 : 1) : 1;
     const fxT = this.fxTexture(gfx, fxF);
     const draws: [Batch, WebGLTexture, number, number, number, number][] = [
       [gfx.team[0], gfx.atlasTex[0], this.atlases[0].image.width, this.atlases[0].image.height, 1, 1],
