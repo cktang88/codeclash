@@ -3422,6 +3422,8 @@ interface Job {
   half: boolean;
   /** HD 64: the level-8 sheet, when it is already painted (HD drew it): halved, not painted again. */
   from?: KindSheet;
+  /** When a renderer last asked for it (the queue serves what is wanted now first). */
+  asked: number;
   done: ((s: KindSheet) => void)[];
 }
 
@@ -3473,9 +3475,14 @@ function finishJob(job: Job, sheet: KindSheet): void {
 }
 
 let idleTimer = false;
+const STALE_MS = 1000;
 function pump(): void {
-  // Lower levels first: they are cheap, and they are what the camera falls back to.
-  workPool.queue.sort((p, q) => p.level - q.level);
+  // What a renderer asked for in the last second first (after an art switch or a zoom, the
+  // previous view's leftovers wait), level-1 grids always; then lower levels first: they are
+  // cheap, and they are what the camera falls back to.
+  const t = now();
+  const stale = (j: Job): number => (j.level > 1 && t - j.asked > STALE_MS ? 1 : 0);
+  workPool.queue.sort((p, q) => stale(p) - stale(q) || p.level - q.level);
   if (workPool.ok) {
     for (const slot of workPool.workers) {
       if (slot.busy || workPool.queue.length === 0) continue;
@@ -3515,9 +3522,10 @@ function request(faction: string, hue: number, kind: number, level: number, done
   const old = workPool.jobs.get(key);
   if (old) {
     old.done.push(done);
+    old.asked = now();
     return;
   }
-  const job: Job = { key, faction, hue, kind, level, half, done: [done] };
+  const job: Job = { key, faction, hue, kind, level, half, done: [done], asked: now() };
   // HD 64 after HD: the level-8 sheet may be in memory already; halving it is all that is left.
   if (half) job.from = store.get(sheetKey(faction, hue, kind, level * 2, false))?.sheet;
   workPool.jobs.set(key, job);
@@ -3542,7 +3550,9 @@ function storedSheet(faction: string, hue: number, kind: number, level: number, 
     got.h.used = now();
     return got.sheet;
   }
-  if (!workPool.jobs.has(key))
+  const job = workPool.jobs.get(key);
+  if (job) job.asked = now();
+  else
     request(faction, hue, kind, level, (sh) => {
       if (store.has(key)) return;
       const h: Held = { bytes: sh.pixels.byteLength + sh.rects.byteLength, level, used: now(), drop: () => store.delete(key) };
