@@ -3,7 +3,7 @@
 // back to it: frame 0 and the last frame of an Attack are the Brace clip's frame 0 exactly, and the
 // blow's own anticipation (its chamber) grows out of the guard over the first frames. Blows then
 // chain without a pop, and the renderer can hold the guard between them (scene.ts; contract.ts
-// Anim.Brace). See docs/art-references/weapon-attacks.md "Guards" and README "Several blows".
+// Anim.Brace). See docs/art-references/guards.md and README "Blows start from the guard".
 //
 // The blend works on the sampled channels (local rotations, translations, IK mixes), per drawn
 // facing, so it serves every faction's foot, mounted and beast kinds alike: the blow is authored

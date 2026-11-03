@@ -441,7 +441,7 @@ export function holdFist(A: Arms, p: P2, elbow: 1 | -1, deg?: number, side: 'N' 
 export const crouch = (lean: number, low = 0.12): Tracks => ({ dw: { spine: T([0, lean]), head: T([0, -lean * 0.45]) }, tAdd: { pelvis: [T([0, 0.1]), T([0, low])] } });
 
 /**
- * Brace is the man's **guard** (weapon-attacks.md "Guards"): what he stands in when the enemy is in
+ * Brace is the man's **guard** (docs/art-references/guards.md): what he stands in when the enemy is in
  * reach and what every blow leaves from and comes back to (guard.ts). The shield wall, the spear
  * set against horse and the crossbowman's crouch are guards already; the rest are the weapon's
  * own ready stance.

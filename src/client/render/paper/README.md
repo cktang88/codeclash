@@ -120,6 +120,19 @@ What else follows:
 - The atlas lays the blows out blow after blow: Attack frame `b * 12 + f` is frame f of blow b (`Atlas.blows` in `contract.ts`). Blow 0 keeps its old slots and grid cells; the others are added after them, so a one-blow kind paints exactly what it did.
 - The pixel lint audits every blow (`blowFlicker`, `blowOffPalette`; `kind-report` says how many blows a kind has). Every blow adds 4 × 12 frames to every sheet level, so keep it to 2-3.
 
+#### Blows start from the guard
+
+A man in a fight does not stand at rest between blows: he stands in his **guard** (the Brace clip:
+shield up and blade cocked, spear levelled, katana in chūdan, lance couched; see
+`docs/art-references/guards.md`), and the renderer plays it between blows when his foe is in reach
+(`scene.ts`). So every blow starts and ends on the guard's frame 0, and the blow's own
+anticipation grows out of it: wrap each blow clip with `fromGuard(skel, blow, brace)` (`guard.ts`).
+It samples the blow per frame and moves it toward the guard by `FROM_GUARD` (all of it at frames 0
+and 11, none from the chamber at 3 to the impact's hold at 8), blending *world* angles so an arm
+never whirls the long way round; slots, draw order and events stay the blow's. Riders pass
+`{ only: riderOnly }`, so the gallop under a lancer's blow is left alone. Author the blow from rest
+as before; author the guard as the Brace clip (held, breathing laid over).
+
 ### Body types and pose fields (`rig.ts`)
 
 | `body` | canvas (units) | use for | pose type and rest pose |
