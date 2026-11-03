@@ -67,9 +67,10 @@ function report(a: FactionId, b: FactionId, men: number, all: Bout[]): void {
   const len = all.map((x) => x.ticks / 10).sort((p, q) => p - q);
   const at = (q: number) => len[Math.min(len.length - 1, Math.floor(q * len.length))]!.toFixed(0);
   const mean = len.reduce((s, x) => s + x, 0) / Math.max(1, n);
+  const meanOf = (list: Bout[]) => (list.reduce((s, x) => s + x.ticks, 0) / Math.max(1, list.length) / 10).toFixed(0);
   console.log(
     `${a} vs ${b}, ${String(men).padStart(4)} a side, ${n} battles: ${a} won ${pct(share(all), n)} (as team 0 ${pct(share(as0), as0.length)}, as team 1 ${pct(share(as1), as1.length)}), z = ${z.toFixed(2)}` +
-      ` | length mean ${mean.toFixed(0)}s, median ${at(0.5)}s, p90 ${at(0.9)}s, max ${len[n - 1]!.toFixed(0)}s, to the time limit (${MAX_TICKS / 10}s) ${all.filter((x) => x.time).length}, draws ${all.filter((x) => x.draw).length}`,
+      ` | length mean ${mean.toFixed(0)}s (${a} won ${meanOf(all.filter((x) => x.aWon))}s, lost ${meanOf(all.filter((x) => !x.aWon))}s), median ${at(0.5)}s, p90 ${at(0.9)}s, max ${len[n - 1]!.toFixed(0)}s, to the time limit (${MAX_TICKS / 10}s) ${all.filter((x) => x.time).length}, draws ${all.filter((x) => x.draw).length}`,
   );
 }
 

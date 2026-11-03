@@ -1437,9 +1437,13 @@ export class BattleScene {
       const stance = stanceOf(r);
       if (stance !== 'line' && !cmd) flag(`glyph_${stance}`, poleX, top - regAy - 1, my + 0.6);
       // Morale pips: five, beside the pole under the cloth, coloured by how close to breaking.
+      // The fearless dead never break: always five, a grave-light green that gutters while the
+      // host crumbles (its Lich-Marshal fallen, or the host spent).
       const morale = Math.max(0, Math.min(100, (r as unknown as { morale?: number }).morale ?? 50));
-      const lit = Math.ceil(morale / 20);
-      const [pr, pg, pb] = morale > 60 ? [0.55, 0.75, 0.4] : morale > 30 ? [0.9, 0.7, 0.25] : [0.85, 0.2, 0.15];
+      const fearless = b.fearless[r.team];
+      const lit = fearless ? 5 : Math.ceil(morale / 20);
+      const glow = b.crumbling[r.team] ? 0.45 + 0.25 * Math.sin(T * 3.1 + i * 2.3) : 1;
+      const [pr, pg, pb] = fearless ? [0.4 * glow, 0.85 * glow, 0.5 * glow] : morale > 60 ? [0.55, 0.75, 0.4] : morale > 30 ? [0.9, 0.7, 0.25] : [0.85, 0.2, 0.15];
       const px0 = r.team === 1 ? poleX - 7 : poleX + 2;
       const py = top - regAy + 10;
       stdB.rect(px0 - 1, py - 1, 7, 3, my + 0.55, 0.07, 0.05, 0.04, 1);

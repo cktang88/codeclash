@@ -127,6 +127,27 @@ export const MORALE = {
 } as const;
 
 /**
+ * The undead (battle.ts `fearless`): they never waver, rout or rally, and morale rules pass them
+ * by. What holds them together is the Lich-Marshal's will: when he falls, or when the host is
+ * spent, it crumbles. Their low hit points (factions.ts) are the price of fearlessness.
+ */
+export const UNDEAD = {
+  /** A crumbling host: every man loses this share of his hit points a second... */
+  crumble: 0.02,
+  /** ...and fights worse (to attack and defence). */
+  crumbleAttack: -4,
+  crumbleDefence: -3,
+  /**
+   * The host is spent (the army breaks, and crumbles) when fewer than this share of its men
+   * stand, or fewer than `remnant` against `remnantOdds` times as many: no fear, but not
+   * enough of it left to hold the field.
+   */
+  spent: 0.08,
+  remnant: 0.2,
+  remnantOdds: 2,
+} as const;
+
+/**
  * Rallying and re-forming (battle.ts `thinkRouted`, `rallyOdds`) and fugitives falling in with
  * another regiment of their own kind (`regroup`). The rules and odds follow the "Game rules
  * suggested" of docs/art-references/rout-recovery.md; see docs/art-references/rally.md for how

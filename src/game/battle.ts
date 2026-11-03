@@ -23,12 +23,24 @@
 import { factionStats, type FactionId } from './factions.ts';
 import { mixSeed, Rng } from './rng.ts';
 import { emptyCounts, U, UNIT_COUNT, type Counts, type Role, type UnitStats } from './units.ts';
-import { FATIGUE, MORALE, newOrder, REGROUP, PERSONALITIES, PLANS, type CommanderTrait, type MoraleState, type Order, type OrderKind, type Personality, type Plan } from './command.ts';
+import { FATIGUE, MORALE, newOrder, REGROUP, PERSONALITIES, PLANS, UNDEAD, type CommanderTrait, type MoraleState, type Order, type OrderKind, type Personality, type Plan } from './command.ts';
 
 export type { CommanderTrait, MoraleState, Order, OrderKind, Personality, Plan } from './command.ts';
-export { MORALE, REGROUP } from './command.ts';
+export { MORALE, REGROUP, UNDEAD } from './command.ts';
 
 /**
+ * v12 (v11 is the volley-fire work on another branch): the dead know no fear (UNDEAD in
+ * command.ts; the faction's rule in factions.ts).
+ * - Undead regiments (`fearless`) never waver, rout or rally: their morale is 100 and stays
+ *   there, and nothing that moves morale (losses, charges, missiles, routs nearby, the general's
+ *   death) is reckoned for them, which also saves the work.
+ * - In exchange every undead class has 68% of its hit points (the Bone Colossus 80%, the
+ *   trebuchet unchanged): `DEAD_HP`, `COLOSSUS_HP` in factions.ts.
+ * - When the Lich-Marshal falls the host crumbles (`crumbling`, event 'crumble'): every man
+ *   standing loses 2% of his hit points a second, and fights at -4 attack, -3 defence.
+ * - An undead army breaks (and so loses) when under 8% of it stands, or under 20% against
+ *   twice as many; it does not run but crumbles where it stands until the pursuit window ends.
+ *
  * v10 (v9 is the volley-fire work on another branch): routs recover as they did in history
  * (docs/art-references/rout-recovery.md, rally.md; numbers in REGROUP, command.ts).
  * - Fugitives fall in with a formed regiment of their own side and class (Templars: of their
@@ -79,7 +91,7 @@ export { MORALE, REGROUP } from './command.ts';
  * one side won 60-75% of mirror matches, which side depending on the armies' size (see
  * `pnpm fairness`).
  */
-export const BATTLE_VERSION = 10;
+export const BATTLE_VERSION = 12;
 /**
  * Mixed into every battle's seed. It was BATTLE_VERSION until v3, which kept v2's salt: a
  * version bump refuses old setups (BattleVersionError) but does not re-seed battles by itself.
@@ -529,9 +541,11 @@ export interface BattleEvent {
    * notable stance; 'general-order': the General's plan or a big order (see `note`); 'chase':
    * a regiment breaks ranks on its own to chase fugitives; 'reform': a broken regiment rallied
    * as often as it may re-forms behind its line; 'joins': fugitives of regiment `from` (class
-   * `fromCls`) fall in with regiment `reg` (`count` figures since its last 'joins').
+   * `fromCls`) fall in with regiment `reg` (`count` figures since its last 'joins'); 'crumble':
+   * an undead host starts to crumble (`note` 'commander': its Lich-Marshal fell; 'spent': the
+   * army broke).
    */
-  kind: 'rout' | 'commander' | 'charge' | 'contact' | 'rally' | 'break' | 'stance' | 'waver' | 'shattered' | 'general-order' | 'chase' | 'reform' | 'joins';
+  kind: 'rout' | 'commander' | 'charge' | 'contact' | 'rally' | 'break' | 'stance' | 'waver' | 'shattered' | 'general-order' | 'chase' | 'reform' | 'joins' | 'crumble';
   cls: number;
   /** The regiment concerned (-1 for the whole army). */
   reg?: number;
@@ -544,7 +558,7 @@ export interface BattleEvent {
   plan?: Plan;
   /** Wing, as that side sees it. */
   side?: 'left' | 'centre' | 'right';
-  /** A short phrase for the ticker, after the General's title ("commits the reserve to the left"). */
+  /** A short phrase for the ticker, after the General's title ("commits the reserve to the left"); for 'crumble', why. */
   note?: string;
 }
 
@@ -712,6 +726,13 @@ export class Battle {
   result: BattleResult | null = null;
   commander: [number, number] = [-1, -1];
   commanderFell: [boolean, boolean] = [false, false];
+  /**
+   * Sides that know no fear (the undead): their regiments never waver, rout or rally; morale
+   * rules pass them by and their morale reads 100 (see `UNDEAD`).
+   */
+  readonly fearless: [boolean, boolean];
+  /** Sides whose host is crumbling (undead whose Lich-Marshal fell, or whose army is spent): see `crumble`. */
+  crumbling: [boolean, boolean] = [false, false];
   /** Whether each side waits for the enemy (it outshoots them) or presses the attack. */
   stance: ['hold' | 'press', 'hold' | 'press'] = ['press', 'press'];
   /** A side whose army has broken, and when (the pursuit runs on a little before the end). */
@@ -784,6 +805,7 @@ export class Battle {
     this.generals = [new General(0, setup.seed), new General(1, setup.seed)];
     this.scale = scaleFor(setup.armies[0].counts, setup.armies[1].counts);
     this.stats = [factionStats(setup.armies[0].faction), factionStats(setup.armies[1].faction)];
+    this.fearless = [setup.armies[0].faction === 'undead', setup.armies[1].faction === 'undead'];
     this.fire = [0, 1].map((t) => Array.from({ length: UNIT_COUNT }, (_, c) => ballisticsOf(setup.armies[t]!.faction, c))) as [Ballistics[], Ballistics[]];
     let n = 0;
     let most = 0;
@@ -907,6 +929,7 @@ export class Battle {
         reg.eager = eagerness(army.faction, cls, reg.veteran, reg.green);
         reg.baseMorale = reg.morale =
           st.morale + army.moraleBonus + (reg.veteran ? MORALE.veteran : vets > 0 ? MORALE.veteran / 2 : 0) + (st.morale >= 80 ? MORALE.elite : st.morale < 55 ? MORALE.levy : 0);
+        if (this.fearless[team]) reg.baseMorale = reg.morale = 100;
         shape(reg, m);
       }
     }
@@ -1003,7 +1026,7 @@ export class Battle {
         this.addSoldier(team, U.Knights, reg, st, true, i === 0, i === 0 ? 360 : st.hp * 1.2);
       }
       reg.start = reg.alive = reg.members.length;
-      reg.baseMorale = reg.morale = 95 + army.moraleBonus;
+      reg.baseMorale = reg.morale = this.fearless[team] ? 100 : 95 + army.moraleBonus;
       shape(reg, reg.members.length);
       this.formUp(reg, onField(reg, X(Math.max(14, firstDepth) + missileDepth * 0.5 + 4)), midY);
       reg.homeY = midY;
@@ -1208,7 +1231,24 @@ export class Battle {
     this.separate();
     this.flyProjectiles();
     this.tick++;
-    if (this.tick % 10 === 0) this.checkEnd();
+    if (this.tick % 10 === 0) {
+      if (this.crumbling[0] || this.crumbling[1]) this.crumble();
+      this.checkEnd();
+    }
+  }
+
+  /** A crumbling host (see UNDEAD): every man still standing loses a share of his hit points, each second. */
+  private crumble(): void {
+    const d = this.d;
+    for (let i = 0; i < this.n; i++) {
+      if (d.state[i] !== State.Fighting || !this.crumbling[d.team[i]!]) continue;
+      this.hurt(i, this.soldiers[i]!.s.hp * UNDEAD.crumble, -1);
+    }
+  }
+
+  /** A blow to a regiment's morale; the fearless take none. */
+  private shake(r: Regiment, by: number): void {
+    if (!this.fearless[r.team]) r.morale -= by;
   }
 
   /** Runs to the end (or `maxTicks` more) without drawing. */
@@ -2027,8 +2067,10 @@ export class Battle {
     r.recent *= 0.9;
     r.recentKills *= 0.9;
     r.arrows *= 0.8;
-    r.flankShock = Math.min(M.flankCap, r.flankShock * 0.9);
     const team = r.team;
+    // The dead know no fear: nothing to weigh (`arrows` still sets their stance).
+    if (this.fearless[team]) return;
+    r.flankShock = Math.min(M.flankCap, r.flankShock * 0.9);
     let target = r.baseMorale - M.casualtiesTotal * (1 - r.alive / r.start) - M.casualtyRate * r.recent - r.flankShock;
     target += Math.min(M.winning, Math.max(-6, (r.recentKills - r.recent) * 120));
     target -= Math.min(M.outnumberedCap, Math.max(0, r.enemyNear / Math.max(1, r.alive) - 1.2) * M.outnumbered);
@@ -2171,7 +2213,7 @@ export class Battle {
   private rallyOdds(team: number, cls: number, vet: boolean, x: number, y: number, standard: boolean | null, atStandard: boolean): number {
     const R = REGROUP;
     const army = this.setup.armies[team]!;
-    if (army.faction === 'undead') return -1;
+    if (this.fearless[team]) return -1;
     let p = R.odds[cls] ?? 0;
     if (vet) p = Math.max(p, R.veteranFloor) + R.veteranAdd;
     p += army.moraleBonus * R.perBonus;
@@ -2351,7 +2393,7 @@ export class Battle {
     d.state[i] = State.Fighting;
     d.target[i] = -1;
     d.imp[i] = 0;
-    o.morale -= REGROUP.moraleCost;
+    this.shake(o, REGROUP.moraleCost);
     o.absorbed++;
     o.joinPending++;
     o.joinFrom = from.id;
@@ -3246,7 +3288,7 @@ export class Battle {
   }
 
   private rout(r: Regiment): void {
-    if (r.routed) return;
+    if (r.routed || this.fearless[r.team]) return;
     r.routed = true;
     r.mode = 'rout';
     r.modeAt = this.tick;
@@ -3256,10 +3298,10 @@ export class Battle {
     // A chase ends when the chasers break (else, rallied, they would run on after it at once).
     r.chaseAt = -1;
     // Broken once too often (a second rout is final unless REGROUP.extra allows a re-forming, and
-    // then only with enough of it left), too few left to stand again, or undead (they hold or
-    // crumble): shattered.
+    // then only with enough of it left), or too few left to stand again: shattered. (The undead
+    // never rout: see `fearless`.)
     const spent = r.rallies >= REGROUP.rallies + REGROUP.extra || (r.rallies >= REGROUP.rallies && r.alive < Math.max(REGROUP.minMen, r.start * REGROUP.share));
-    const shattered = spent || this.setup.armies[r.team]!.faction === 'undead' || r.alive < r.start * MORALE.shatterBelow || this.broken[r.team];
+    const shattered = spent || r.alive < r.start * MORALE.shatterBelow || this.broken[r.team];
     r.moraleState = shattered ? 'shattered' : 'broken';
     this.events.push({ tick: this.tick, team: r.team, kind: shattered ? 'shattered' : 'rout', cls: r.cls, reg: r.id });
     const d = this.d;
@@ -3285,7 +3327,7 @@ export class Battle {
       if (o.routed || o === r || o.alive === 0) continue;
       const dx = o.cx - r.cx;
       const dy = o.cy - r.cy;
-      if (dx * dx + dy * dy < 150 * 150) o.morale -= o.role === 'command' ? 2 : MORALE.friendRout;
+      if (dx * dx + dy * dy < 150 * 150) this.shake(o, o.role === 'command' ? 2 : MORALE.friendRout);
     }
     for (const o of this.teamRegs[1 - r.team]!) {
       if (o.routed || o.alive === 0) continue;
@@ -3704,8 +3746,8 @@ export class Battle {
     const ar = this.regiments[A.reg]!;
     const sa = STANCES[ar.stance];
     const sd = STANCES[dr.stance];
-    let attack = as.attack * (A.vet ? 1.1 : 1) + sa.attack - ar.fatigue * FATIGUE.combat + (ar.moraleState === 'wavering' || ar.moraleState === 'rallying' ? MORALE.waverAttack : 0);
-    let defence = ds.defence * (D.vet ? 1.1 : 1) - dr.fatigue * FATIGUE.combat + (dr.moraleState === 'wavering' || dr.moraleState === 'rallying' ? MORALE.waverDefence : 0);
+    let attack = as.attack * (A.vet ? 1.1 : 1) + sa.attack - ar.fatigue * FATIGUE.combat + (ar.moraleState === 'wavering' || ar.moraleState === 'rallying' ? MORALE.waverAttack : 0) + (this.crumbling[ar.team] ? UNDEAD.crumbleAttack : 0);
+    let defence = ds.defence * (D.vet ? 1.1 : 1) - dr.fatigue * FATIGUE.combat + (dr.moraleState === 'wavering' || dr.moraleState === 'rallying' ? MORALE.waverDefence : 0) + (this.crumbling[dr.team] ? UNDEAD.crumbleDefence : 0);
     const routing = d.state[t] === State.Routing;
     if (routing) defence *= 0.2;
     else {
@@ -3784,7 +3826,7 @@ export class Battle {
       d.stun[t] = planted ? 0 : as.mounted ? 8 + this.rng.int(6) : 2 + Math.round(as.charge * 0.3);
     }
     if (!routing) {
-      dr.morale -= (rear ? MORALE.chargeRear : side ? MORALE.chargeFlank : MORALE.chargeFront) * force * (ds.mounted ? 0.6 : 1) * (as.mounted ? 1 : 0.2 + 0.04 * as.charge);
+      this.shake(dr, (rear ? MORALE.chargeRear : side ? MORALE.chargeFlank : MORALE.chargeFront) * force * (ds.mounted ? 0.6 : 1) * (as.mounted ? 1 : 0.2 + 0.04 * as.charge));
       dr.flankShock += rear ? 0.6 : side ? 0.3 : 0;
     }
     // Each man hit takes some of the charge out of him: knights carry through a thin line, light
@@ -3816,7 +3858,12 @@ export class Battle {
       const team = d.team[t]!;
       this.commanderFell[team] = true;
       this.events.push({ tick: this.tick, team, kind: 'commander', cls: U.Knights });
-      for (const o of this.teamRegs[team]!) o.morale -= MORALE.generalDeadShock;
+      for (const o of this.teamRegs[team]!) this.shake(o, MORALE.generalDeadShock);
+      // The Lich-Marshal's will held the dead together: without it the host crumbles.
+      if (this.fearless[team] && !this.crumbling[team]) {
+        this.crumbling[team] = true;
+        this.events.push({ tick: this.tick, team, kind: 'crumble', cls: U.Knights, note: 'commander' });
+      }
     }
   }
 
@@ -4165,7 +4212,7 @@ export class Battle {
         p.damage = dmg * force;
         this.missileHit(j, p);
         p.damage = dmg;
-        if (p.pen > 0) this.regiments[d.reg[j]!]!.morale -= 0.5;
+        if (p.pen > 0) this.shake(this.regiments[d.reg[j]!]!, 0.5);
         force *= 0.7;
       }
       return;
@@ -4193,7 +4240,7 @@ export class Battle {
             // A stone kills whoever it lands among, friend or foe.
             if (d.team[j] === p.team && this.rng.next() > 0.5) continue;
             this.missileHit(j, p);
-            this.regiments[d.reg[j]!]!.morale -= 0.6;
+            this.shake(this.regiments[d.reg[j]!]!, 0.6);
           } else if (d2 < bd) {
             bd = d2;
             hit = j;
@@ -4224,7 +4271,7 @@ export class Battle {
     const armour = S.s.armour * (1 - p.pierce);
     let dmg = p.damage * (50 / (50 + armour)) * (0.75 + this.rng.next() * 0.5) * (p.splash > 0 ? sd.stones : sd.missile);
     if (front) dmg *= 1 - army.pavise;
-    r.morale -= 0.04;
+    this.shake(r, 0.04);
     const shooter = p.shooter >= 0 && d.team[p.shooter] !== d.team[o] ? p.shooter : -1;
     this.hurt(o, dmg, shooter);
   }
@@ -4240,11 +4287,22 @@ export class Battle {
       if (this.broken[t]) continue;
       const f = fighting[t]!;
       const o = fighting[1 - t]!;
-      // The army breaks when nobody stands, or a last remnant faces a host.
-      if (f === 0 || f < this.startTotal[t]! * 0.08 || (f < this.startTotal[t]! * 0.2 && o > f * 1.6)) {
+      // The army breaks when nobody stands, or a last remnant faces a host. The fearless dead
+      // stand longer, but a host that is spent breaks too: it does not run, it crumbles (see
+      // UNDEAD), and the pursuit window below cuts the rest down.
+      const n0 = this.startTotal[t]!;
+      const breaks = this.fearless[t]
+        ? f === 0 || f < n0 * UNDEAD.spent || (f < n0 * UNDEAD.remnant && o > f * UNDEAD.remnantOdds)
+        : f === 0 || f < n0 * 0.08 || (f < n0 * 0.2 && o > f * 1.6);
+      if (breaks) {
         this.broken[t] = true;
         if (this.brokenAt < 0) this.brokenAt = this.tick;
         this.events.push({ tick: this.tick, team: t, kind: 'break', cls: 0 });
+        if (this.fearless[t]) {
+          if (!this.crumbling[t]) this.events.push({ tick: this.tick, team: t, kind: 'crumble', cls: 0, note: 'spent' });
+          this.crumbling[t] = true;
+          continue;
+        }
         for (const r of this.teamRegs[t]!) {
           if (r.alive > 0 && !r.routed) this.rout(r);
           else if (r.routed) r.moraleState = 'shattered';

@@ -181,10 +181,11 @@ describe('regroup: a broken regiment re-forms out of contact', () => {
     expect(rallied).toBeGreaterThan(0);
   }, 60_000);
 
-  it('undead never rally: they hold or crumble', () => {
+  it('undead never break, so never rally (undead.test.ts)', () => {
     const { b, r } = rallyScene(1, 'undead');
-    expect(r.moraleState).toBe('shattered');
-    for (let t = 0; t < 400 && !b.done(); t++) b.step();
-    expect(r.routed).toBe(true);
+    expect(r.moraleState).toBe('steady');
+    expect(r.routed).toBe(false);
+    for (let t = 0; t < 100 && !b.done(); t++) b.step();
+    expect(b.events.some((e) => e.kind === 'rally' || e.kind === 'rout')).toBe(false);
   }, 60_000);
 });

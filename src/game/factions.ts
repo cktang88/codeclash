@@ -25,11 +25,20 @@ export interface FactionDef {
   /** Main palette for sprites: cloth, trim, metal, leather, skin. */
   palette: { cloth: string; clothShade: string; trim: string; metal: string; metalShade: string; leather: string; skin: string };
   /**
-   * A proposed faction rule, in words, for the battle sim to implement later (docs/factions.md).
-   * Not simulated yet: the tweaks alone keep the faction balanced today.
+   * The faction's rule, in words (docs/factions.md). The Undead's is simulated (battle.ts
+   * `fearless`, UNDEAD in command.ts); the Samurai's is still only a proposal.
    */
   rule?: string;
 }
+
+/**
+ * The undead's hit points, as a share of everyone else's: the price of never routing. Tuned so
+ * that they win about as often against the Templars and the Samurai as before they were
+ * fearless (`pnpm fairness --factions undead,templar`; see docs/factions.md).
+ */
+export const DEAD_HP = 0.68;
+/** The Bone Colossus keeps a little more. */
+export const COLOSSUS_HP = 0.8;
 
 export const FACTIONS: Record<FactionId, FactionDef> = {
   templar: {
@@ -109,15 +118,23 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
       hospital: 'Charnel Pit',
       walls: 'Barrow Walls',
     },
-    // The dead do not fear and the Colossus is a hill of bone; but sinew bowstrings are rotten,
-    // so their archery is the weakest of the three.
+    // The dead know no fear (they never rout: battle.ts `fearless`), but dry bone and rotten
+    // sinew break easily: every class of them has far fewer hit points (`DEAD_HP`). The
+    // Colossus, a hill of bone, keeps a little more; the trebuchet is timber like anyone's.
+    // Sinew bowstrings are rotten too, so their archery is the weakest of the three.
     tweaks: {
-      [U.HeavyInfantry]: { morale: 1.05 },
-      [U.Shock]: { hp: 1.05 },
-      [U.Archers]: { missileDamage: 0.9 },
+      [U.HeavyInfantry]: { hp: DEAD_HP },
+      [U.Spearmen]: { hp: DEAD_HP },
+      [U.Skirmishers]: { hp: DEAD_HP },
+      [U.Archers]: { hp: DEAD_HP, missileDamage: 0.9 },
+      [U.Crossbowmen]: { hp: DEAD_HP },
+      [U.LightCavalry]: { hp: DEAD_HP },
+      [U.HorseArchers]: { hp: DEAD_HP },
+      [U.Knights]: { hp: DEAD_HP },
+      [U.Shock]: { hp: COLOSSUS_HP },
     },
     palette: { cloth: '#2e2b2a', clothShade: '#1a1817', trim: '#5f8f4e', metal: '#6c6f68', metalShade: '#3a3c38', leather: '#3d3128', skin: '#d8d0b4' },
-    rule: 'The dead do not rout: below 15 morale a regiment crumbles instead (1% hp/s); if the Lich-Marshal falls, the whole host crumbles at 2% hp/s.',
+    rule: 'The dead know no fear: they never waver, rout or rally, but have 68% of the living’s hit points (the Bone Colossus 80%; the trebuchet is timber). If the Lich-Marshal falls, the whole host crumbles: every man loses 2% of his hit points a second and fights worse. A host down to its last 8% (or its last fifth, against twice as many) is spent: the battle is lost and it crumbles the same way.',
   },
 };
 

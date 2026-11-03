@@ -72,20 +72,27 @@ read 60–61% with 20–80 seeds).
 All inside the 40–60% window. Iterations: first pass (Spearmen armour ×0.90, Undead HI morale ×1.10,
 Colossus hp ×1.10) gave Samurai 46.9% and Undead 56.9% (60% at 400 men); the final values above.
 
-### Proposed faction rules (for the battle sim, later)
+### Faction rules
 
-Stored as `FactionDef.rule` (text only; nothing reads it yet). Implementing either needs a
-re-balance with the script above.
+Stored as `FactionDef.rule` (text for the player). The Undead's is simulated since battle v12;
+the Samurai's is still a proposal. Implementing one needs a re-balance (`pnpm fairness
+--factions a,b`).
 
 - **Samurai: Teppō volley.** The first volley of each Teppō regiment costs its target an extra 8
   morale (the shock of gunfire at Nagashino). Small, one-shot, and flavourful; counter-balance by
   dropping HeavyInfantry morale ×1.05 if it tests strong.
-- **Undead: the dead do not rout.** A regiment below 15 morale does not flee; it *crumbles*,
-  losing 1% hp per second until it is destroyed or its morale climbs back. If the Lich-Marshal
-  falls, every regiment crumbles at 2% hp/s. One branch in `battle.ts` where `r.morale < 15` calls
-  `this.rout(r)`, gated on the faction. When it lands, remove the Undead HeavyInfantry morale tweak
-  (it is a stand-in) and consider speed ×0.95 on infantry as the price. Chronicle line: "the
-  legionaries crumble" instead of "break and run".
+- **Undead: the dead know no fear** (built in battle v12; `fearless` in `battle.ts`, `UNDEAD` in
+  `command.ts`). Undead regiments never waver, rout or rally, and no morale rule touches them
+  (morale reads 100). The price is hit points: every class has 68% of its own (`DEAD_HP`; the
+  Colossus 80%, `COLOSSUS_HP`; the trebuchet, timber, unchanged), which replaced the stand-in
+  HeavyInfantry morale ×1.05 and Colossus hp ×1.05 tweaks. If the Lich-Marshal falls, the whole
+  host crumbles: every man loses 2% of his hit points a second and fights at -4 attack, -3
+  defence. An undead army is spent (and loses) under 8% standing, or under 20% against twice as
+  many, and crumbles where it stands rather than running. The proposed "below 15 morale a
+  regiment crumbles at 1% hp/s" was dropped: with no fear there is no morale to fall below.
+  Balance (`pnpm fairness --factions undead,templar` and `undead,samurai`, 200 seeds both ways
+  round, 250 and 500 a side): DEAD_HP 0.65 left the undead at 38–47%, 0.7 at 50–60%, 0.68 at
+  about their old rates. Battles with undead run some 20 s longer (no rout cascade on their side).
 
 ## Palettes
 

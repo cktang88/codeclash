@@ -156,7 +156,8 @@ export function BattleView(props: {
         case 'reform': return `${who}’s ${unit} re-form behind the line`;
         case 'joins': return `Fugitives of ${who}’s ${f.short[e.fromCls ?? -1] ?? 'men'} fall in with the ${unit}`;
         case 'shattered': return `${who}’s ${unit} are shattered`;
-        case 'break': return `${who}’s army breaks`;
+        case 'break': return army.faction === 'undead' ? `${who}’s host is spent` : `${who}’s army breaks`;
+        case 'crumble': return e.note === 'commander' ? `Without its ${f.commander}, ${who}’s host begins to crumble` : `The last of ${who}’s dead crumble where they stand`;
         case 'stance': return `${who}’s ${unit} ${STANCE_WORDS[e.stance ?? ''] ?? 'change formation'}`;
         case 'general-order': return `${f.commander} of ${who} ${e.note ?? 'gives orders'}`;
         default: return '';
