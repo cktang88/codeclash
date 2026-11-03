@@ -120,7 +120,8 @@ export function finish(p: Paper, mats: Mats, outline: Col = OUT): Sprite | null 
       const dark = mats.ramps[(nb >> 3) - MAT0]?.[0];
       const base = dark ? rgb(dark[0], dark[1], dark[2]) : OUT;
       const lit = (r >= 0 || d >= 0) && l < 0 && u < 0;
-      data[i] = lit ? mix(base, outline, 0.35) : mix(base, outline, 0.68);
+      // One outline colour per material in shade; the lit side reuses the material's darkest tone.
+      data[i] = lit ? base : mix(base, outline, 0.6);
       cls[i] = 4;
     }
   return { w, h, data, cls, fx: p.FX - x0, fy: p.FY - y0 };
@@ -280,6 +281,3 @@ export function oval(c: Paper, M: Mats, ctr: P2, rx: number, ry: number, m: numb
     return M.code(m, base);
   });
 }
-
-/** Figure units to canvas pixels for a polygon. */
-export const toPx = (c: Paper, pts: readonly P2[]): P2[] => pts.map((p) => [c.sx(p[0]), c.sy(p[1])] as P2);
