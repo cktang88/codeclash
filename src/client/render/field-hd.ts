@@ -459,7 +459,7 @@ export class HdField {
     this.anyDirty = true;
   }
 
-  /** New decals in view: compose the ground again (at most five times a second). */
+  /** New decals in view: compose the ground again (throttled, see drawGround). */
   decalsChanged(): void {
     if (this.g) this.g.marksChanged = true;
   }
@@ -652,7 +652,7 @@ export class HdField {
    * (camX, camY), m buffer px per map px). Leaves `scene` bound.
    *
    * Both passes are cached: the ground is painted when the view moves, the marks laid over it
-   * when the view moves or, at most five times a second, when they changed (and every couple of
+   * when the view moves or, every 0.6 battle seconds at most, when they changed (and every couple of
    * seconds as blood ages); every other frame the composition is only copied into the scene.
    */
   drawGround(gl: WebGL2RenderingContext, scene: Target, camX: number, camY: number, bw: number, bh: number, m: number, now: number, decals: () => void): void {
