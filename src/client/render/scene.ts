@@ -20,7 +20,7 @@ import { Anim, ANIM_COUNT, COMMANDER_KIND, KIND_COUNT, type Atlas, type Dir, typ
 import { buildFx, type FxSheet, type Region } from './fx.ts';
 import { HdField } from './field-hd.ts';
 import { ANGLES, fxId, HOOVES, lookOf, PUFF_SIZES, PUFF_VARIANTS, SPLATS } from './fx-hd.ts';
-import { Batch, cornerBuffer, dropTarget, SpriteProgram, target, texture, texturePixels, type Target } from './gl.ts';
+import { Batch, cornerBuffer, dropTarget, SpriteProgram, SpriteStream, target, texture, texturePixels, type Part, type Target } from './gl.ts';
 import { paintGround, type Ground } from './ground.ts';
 import { dirFor, projX, projY, PX, unproject } from './iso.ts';
 import { GlPost } from './post.ts';
@@ -103,6 +103,13 @@ interface Gfx {
   soft: Batch;
   groundQuad: Batch;
   stamp: [Batch, Batch, Batch];
+  /**
+   * The batches above go to the GPU through these, each drawn in one call per 8 textures: the
+   * alpha-tested sprites (twice: shadows, then solid), the blended ones, and the ground stamps.
+   */
+  solid: SpriteStream;
+  softs: SpriteStream;
+  stamps: SpriteStream;
   /** Detaches the context-loss listeners. */
   unlisten: () => void;
 }
@@ -138,6 +145,21 @@ const HD_ID = {
 
 const MISSILE_CLS = (cls: number, splash: number): 'stone' | 'bolt' | 'jav' | 'arrow' =>
   splash > 0 ? 'stone' : cls === U.Crossbowmen ? 'bolt' : cls === U.Skirmishers ? 'jav' : 'arrow';
+
+/** Fills slot n of a reused parts list (skipping an empty batch); returns the next slot. */
+function setPart(out: Part[], n: number, batch: Batch, tex: WebGLTexture, w: number, h: number, texel: number, src: number): number {
+  if (batch.n === 0) return n;
+  const p = out[n];
+  if (p) {
+    p.batch = batch;
+    p.tex = tex;
+    p.w = w;
+    p.h = h;
+    p.texel = texel;
+    p.src = src;
+  } else out[n] = { batch, tex, w, h, texel, src };
+  return n + 1;
+}
 
 export class BattleScene {
   camera: Camera = { zoom: 1, cx: FIELD_W / 2, cy: FIELD_H / 2 };
@@ -197,14 +219,29 @@ export class BattleScene {
   private tpfTab: Float32Array[] = [];
   /** Melee blows per kind, per army (Atlas.blows; 1 when the painter has one). */
   private blowTab: Uint8Array[] = [];
+  /**
+   * Per army, the atlas cell (u, v) and HD slot of every (kind, anim, frame, dir), filled on first
+   * use (-1: not yet): the atlas answers with a fresh array, and the per-figure loop asks thousands
+   * of times a frame. `maxF` is the most frames any kind's animation has (blows included).
+   */
+  private uvTab: Int32Array[] = [];
+  private slotTab: Int32Array[] = [];
+  private maxF = 1;
+  /** The props' regions and map points (they never move). */
+  private propDraw: { r: Region; mx: number; my: number }[] = [];
   private missileRegions: Record<string, Region[]> = {};
   private puffRegions: Region[] = [];
+  private stakeRegions: Region[] = [];
   private regY: Float32Array;
   private flying = new Set<Projectile>();
   private particles: Particle[] = [];
   private stamps: Stamp[] = [];
   private time = 0;
   /** Last frame's view, for toWorld and pan. */
+  /** Stream parts, reused frame to frame (setPart). */
+  private readonly solidParts: Part[] = [];
+  private readonly softParts: Part[] = [];
+  private readonly stampParts: Part[] = [];
   private view = { px: 1, m: 1, u: 1, bw: 1, bh: 1, vw: 1, vh: 1, camX: 0, camY: 0, offX: 0, offY: 0, W: 1, H: 1 };
 
   constructor(readonly battle: Battle, art: ArtMode = artMode()) {
@@ -247,8 +284,15 @@ export class BattleScene {
       this.blowTab.push(blows);
       this.lenTab.push(lens);
       this.tpfTab.push(tpf);
+      for (let k = 0; k < KIND_COUNT; k++) for (let an = 0; an < ANIM_COUNT; an++) this.maxF = Math.max(this.maxF, frames[k * ANIM_COUNT + an]! * (an === Anim.Attack ? blows[k]! : 1));
     }
+    for (let t = 0; t < 2; t++) {
+      this.uvTab.push(new Int32Array(KIND_COUNT * ANIM_COUNT * this.maxF * 4 * 2).fill(-1));
+      this.slotTab.push(new Int32Array(KIND_COUNT * ANIM_COUNT * this.maxF * 4).fill(-1));
+    }
+    this.propDraw = this.ground.props.map((p) => ({ r: this.fxSheet.get(`${p.kind}${p.variant}`), mx: this.mapX(p.x, p.y), my: this.mapY(p.x, p.y) }));
     for (const look of ['arrow', 'bolt', 'jav']) this.missileRegions[look] = Array.from({ length: 16 }, (_, i) => this.fxSheet.get(`${look}${i}`));
+    this.stakeRegions = [this.fxSheet.get('stake0'), this.fxSheet.get('stake1')];
     const sizes = [1, 2, 3, 4, 5, 6, 7, 9, 11];
     for (let d = 0; d <= 11; d++) this.puffRegions[d] = this.fxSheet.get(`puff${sizes.find((q) => q >= d) ?? 11}`);
     const n = battle.soldiers.length;
@@ -352,6 +396,43 @@ export class BattleScene {
     return s.commander ? COMMANDER_KIND : s.cls;
   }
 
+  /** Index of (kind, anim, frame, dir) in uvTab/slotTab, or -1 if the frame is out of the table. */
+  private cellIndex(kind: number, anim: Anim, f: number, dir: Dir): number {
+    if (f < 0 || f >= this.maxF) return -1;
+    return ((kind * ANIM_COUNT + anim) * this.maxF + f) * 4 + dir;
+  }
+
+  /** The atlas cell of a frame (cached Atlas.at): u, then v at out[1]. */
+  private cellU(team: number, kind: number, anim: Anim, f: number, dir: Dir): number {
+    const i = this.cellIndex(kind, anim, f, dir);
+    const tab = this.uvTab[team]!;
+    if (i < 0) {
+      const [u, v] = this.atlases[team as 0 | 1].at(kind, anim, f, dir);
+      this.cellV = v;
+      return u;
+    }
+    if (tab[i * 2]! < 0) {
+      const [u, v] = this.atlases[team as 0 | 1].at(kind, anim, f, dir);
+      tab[i * 2] = u;
+      tab[i * 2 + 1] = v;
+    }
+    this.cellV = tab[i * 2 + 1]!;
+    return tab[i * 2]!;
+  }
+  /** v of the last cellU(). */
+  private cellV = 0;
+
+  /** The HD sheet slot of a frame (cached Atlas.slot). */
+  private slotOf(team: number, kind: number, anim: Anim, f: number, dir: Dir): number {
+    const i = this.cellIndex(kind, anim, f, dir);
+    const atlas = this.atlases[team as 0 | 1];
+    if (i < 0) return atlas.slot!(kind, anim, f, dir);
+    const tab = this.slotTab[team]!;
+    let o = tab[i]!;
+    if (o < 0) o = tab[i] = atlas.slot!(kind, anim, f, dir);
+    return o;
+  }
+
   private dieTicks(team: number, kind: number): number {
     const a = this.atlases[team as 0 | 1];
     return a.frames(kind, Anim.Die) * a.ticksPerFrame(Anim.Die);
@@ -405,7 +486,8 @@ export class BattleScene {
     const s = this.battle.soldiers[i]!;
     const atlas = this.atlases[s.team as 0 | 1];
     const kind = this.kindOf(i);
-    const [u, v] = atlas.at(kind, Anim.Dead, 0, this.dirs[i] as Dir);
+    const u = this.cellU(s.team, kind, Anim.Dead, 0, this.dirs[i] as Dir);
+    const v = this.cellV;
     this.stamps.push({ tex: s.team, x: Math.round(this.mapX(s.x, s.y)), y: Math.round(this.mapY(s.x, s.y)), u, v, w: atlas.cellW, h: atlas.cellH, ax: atlas.footX, ay: atlas.footY, shade: 0.78, a: 1, solid: false, r: 0, g: 0, b: 0 });
   }
 
@@ -467,12 +549,20 @@ export class BattleScene {
       soft: new Batch(gl, corners, 1024),
       groundQuad: new Batch(gl, corners, 1),
       stamp: [new Batch(gl, corners, 64), new Batch(gl, corners, 64), new Batch(gl, corners, 256)],
+      solid: new SpriteStream(gl, corners),
+      softs: new SpriteStream(gl, corners),
+      stamps: new SpriteStream(gl, corners),
       unlisten,
     };
     gfx.groundQuad.sprite(0, 0, 0, 0, g.w, g.h, 0, 0, -1e6);
     gfx.groundQuad.upload();
     this.gfx = gfx;
     return gfx;
+  }
+
+  /** HD tools: composes the ground at the next draw, from scratch or only what changed (field-hd.ts). */
+  invalidateGround(full = true): void {
+    this.field?.invalidate(full);
   }
 
   /** Frees the GL resources (the canvas's context stays for the next scene). */
@@ -496,6 +586,7 @@ export class BattleScene {
     }
     this.field?.dispose();
     for (const b of [...g.team, g.fx, g.soft, g.groundQuad, ...g.stamp, ...hdBatches]) b.dispose();
+    for (const st of [g.solid, g.softs, g.stamps]) st.dispose();
     for (const t of [...g.atlasTex, g.fxTex, ...hdTextures]) gl.deleteTexture(t);
     dropTarget(gl, g.ground);
     if (g.scene) dropTarget(gl, g.scene);
@@ -697,18 +788,26 @@ export class BattleScene {
     // HD zoomed in: standards, missiles and puffs from a Scale2x'd copy of the effects sheet.
     const fxF = isHdArt(this.art) ? (v.m >= 4 ? 4 : v.m >= 2 ? 2 : 1) : 1;
     const fxT = this.fxTexture(gfx, fxF);
-    const draws: [Batch, WebGLTexture, number, number, number, number][] = [
-      [gfx.team[0], gfx.atlasTex[0], this.atlases[0].image.width, this.atlases[0].image.height, 1, 1],
-      [gfx.team[1], gfx.atlasTex[1], this.atlases[1].image.width, this.atlases[1].image.height, 1, 1],
-      ...this.hdDraws(),
-      [gfx.fx, fxT.tex, fxT.w, fxT.h, fxF, fxF],
-    ];
+    // Every alpha-tested batch, in the order they used to be drawn one by one (depth ties).
+    const S = this.solidParts;
+    let n = 0;
+    n = setPart(S, n, gfx.team[0], gfx.atlasTex[0], this.atlases[0].image.width, this.atlases[0].image.height, 1, 1);
+    n = setPart(S, n, gfx.team[1], gfx.atlasTex[1], this.atlases[1].image.width, this.atlases[1].image.height, 1, 1);
+    n = this.hdParts(S, n);
+    n = setPart(S, n, gfx.fx, fxT.tex, fxT.w, fxT.h, fxF, fxF);
     // HD: missiles and stakes from the level-m effects sheet.
-    if (this.field && this.hdFxB) {
-      draws.push([this.hdFxB.fx, this.field.sheetTexture(gl, v.m), this.field.sheet(v.m).w, this.field.sheet(v.m).h, v.m, 1]);
+    const hdFx = this.field && this.hdFxB ? this.field.sheet(v.m) : null;
+    if (this.field && this.hdFxB && hdFx) {
+      n = setPart(S, n, this.hdFxB.fx, this.field.sheetTexture(gl, v.m), hdFx.w, hdFx.h, v.m, 1);
       const st = this.field.standards(v.m);
-      draws.push([this.hdFxB.std, this.field.standardsTexture(gl, v.m), st.w, st.h, v.m, 1]);
+      n = setPart(S, n, this.hdFxB.std, this.field.standardsTexture(gl, v.m), st.w, st.h, v.m, 1);
     }
+    gfx.solid.set(S, n);
+    // Dust, smoke, missile shadows.
+    let ns = setPart(this.softParts, 0, gfx.soft, fxT.tex, fxT.w, fxT.h, fxF, fxF);
+    if (this.field && this.hdFxB && hdFx) ns = setPart(this.softParts, ns, this.hdFxB.soft, this.field.sheetTexture(gl, v.m), hdFx.w, hdFx.h, v.m, 1);
+    gfx.softs.set(this.softParts, ns);
+
     // Shadows: once per pixel, however many fall on it.
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
@@ -716,10 +815,7 @@ export class BattleScene {
     gl.stencilFunc(gl.EQUAL, 0, 0xff);
     gl.stencilOp(gl.KEEP, gl.KEEP, gl.INCR);
     P.shadow(true, SHEAR_X, SHEAR_Y, SHADOW);
-    for (const [b, t, w, h, tx, sc] of draws) {
-      P.tex(t, w, h, tx, sc);
-      b.draw();
-    }
+    gfx.solid.draw(P);
     P.shadow(false);
     gl.disable(gl.STENCIL_TEST);
 
@@ -727,20 +823,11 @@ export class BattleScene {
     gl.disable(gl.BLEND);
     gl.enable(gl.DEPTH_TEST);
     gl.depthFunc(gl.LEQUAL);
-    for (const [b, t, w, h, tx, sc] of draws) {
-      P.tex(t, w, h, tx, sc);
-      b.draw();
-    }
+    gfx.solid.draw(P);
     // Dust, smoke, missile shadows.
     gl.enable(gl.BLEND);
     gl.depthMask(false);
-    P.tex(fxT.tex, fxT.w, fxT.h, fxF, fxF);
-    gfx.soft.draw();
-    if (this.field && this.hdFxB) {
-      const sh = this.field.sheet(v.m);
-      P.tex(this.field.sheetTexture(gl, v.m), sh.w, sh.h, v.m, 1);
-      this.hdFxB.soft.draw();
-    }
+    gfx.softs.draw(P);
     gl.depthMask(true);
     gl.disable(gl.DEPTH_TEST);
     gl.disable(gl.BLEND);
@@ -768,19 +855,13 @@ export class BattleScene {
     gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ZERO, gl.ONE);
     const P = gfx.prog;
     P.use(0, 0, g.w, g.h, zFar, zNear);
-    const texs: [WebGLTexture, number, number][] = [
-      [gfx.atlasTex[0], this.atlases[0].image.width, this.atlases[0].image.height],
-      [gfx.atlasTex[1], this.atlases[1].image.width, this.atlases[1].image.height],
-      [gfx.fxTex, this.fxSheet.canvas.width, this.fxSheet.canvas.height],
-    ];
-    // Effects first (blood under the bodies), then the bodies.
-    for (const k of [2, 0, 1]) {
-      const b = gfx.stamp[k]!;
-      if (b.n === 0) continue;
-      b.upload();
-      P.tex(texs[k]![0], texs[k]![1], texs[k]![2]);
-      b.draw();
-    }
+    // Effects first (blood under the bodies), then the bodies: one draw, in that order.
+    const T = this.stampParts;
+    let n = setPart(T, 0, gfx.stamp[2], gfx.fxTex, this.fxSheet.canvas.width, this.fxSheet.canvas.height, 1, 1);
+    n = setPart(T, n, gfx.stamp[0], gfx.atlasTex[0], this.atlases[0].image.width, this.atlases[0].image.height, 1, 1);
+    n = setPart(T, n, gfx.stamp[1], gfx.atlasTex[1], this.atlases[1].image.width, this.atlases[1].image.height, 1, 1);
+    gfx.stamps.set(T, n);
+    gfx.stamps.draw(P);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     gl.disable(gl.BLEND);
   }
@@ -864,18 +945,17 @@ export class BattleScene {
     return hi;
   }
 
-  /** HD batches to draw this frame: [batch, texture, width, height, texels per map px, 1]. */
-  private hdDraws(): [Batch, WebGLTexture, number, number, number, number][] {
-    const out: [Batch, WebGLTexture, number, number, number, number][] = [];
+  /** HD: the per-kind sheet batches drawn this frame, as stream parts from `n` on. */
+  private hdParts(out: Part[], n: number): number {
     for (let t = 0; t < this.hdBatch.length; t++)
       for (let k = 0; k < KIND_COUNT; k++) {
         const b = this.hdBatch[t]![k]!;
         const L = this.hdLevel[t]![k]!;
         const sh = this.hdSheet[t]![k];
         if (b.n === 0 || L <= 1 || !sh) continue;
-        out.push([b, this.hdTex.get(`${t}:${k}:${L}`)!, sh.width, sh.height, L, 1]);
+        n = setPart(out, n, b, this.hdTex.get(`${t}:${k}:${L}`)!, sh.width, sh.height, L, 1);
       }
-    return out;
+    return n;
   }
 
   /** HD: a fallen man drawn at full detail over his low-res stamp (beneath everyone standing). */
@@ -889,7 +969,7 @@ export class BattleScene {
     if (mx < x0 || mx > x1 || my < y0 || my > y1) return;
     const atlas = this.atlases[s.team as 0 | 1];
     const sh = this.hdSheet[s.team]![kind]!;
-    const o = atlas.slot!(kind, Anim.Dead, 0, this.dirs[i] as Dir) * 6;
+    const o = this.slotOf(s.team, kind, Anim.Dead, 0, this.dirs[i] as Dir) * 6;
     const r = sh.rects;
     this.hdBatch[s.team]![kind]!.sprite(Math.round(mx), Math.round(my), r[o]!, r[o + 1]!, r[o + 2]! / L, r[o + 3]! / L, r[o + 4]! / L, r[o + 5]! / L, -1e5, 0.78, 0.78, 0.75, 1, 0, 1);
   }
@@ -985,7 +1065,6 @@ export class BattleScene {
         const nb = this.blowTab[s.team]![kind]!;
         if (nb > 1) f += frames * ((Math.imul(i * 0x9e3779b1 + Math.floor(s.actedAt * 10), 0x85ebca6b) >>> 16) % nb);
       }
-      const [u, vv] = atlas.at(kind, anim, f, dir);
       // No white hit flash: with hundreds of men trading blows it strobed the whole field. The hit
       // animation's recoil carries the blow (as in Total War).
       const flash = 0;
@@ -1000,23 +1079,23 @@ export class BattleScene {
       const lv = hd ? this.hdLevel[s.team]![kind]! : 1;
       if (lv > 1) {
         const sh = this.hdSheet[s.team]![kind]!;
-        const o = atlas.slot!(kind, anim, f, dir) * 6;
+        const o = this.slotOf(s.team, kind, anim, f, dir) * 6;
         const r = sh.rects;
         this.hdBatch[s.team]![kind]!.sprite(Math.round((fmx + jx) * m) / m, Math.round((fmy + jy) * m) / m, r[o]!, r[o + 1]!, r[o + 2]! / lv, r[o + 3]! / lv, r[o + 4]! / lv, r[o + 5]! / lv, fmy, 1, 1, 1, 1, flash);
-      } else team[s.team as 0 | 1].sprite(Math.round(fmx + jx), Math.round(fmy + jy), u, vv, atlas.cellW, atlas.cellH, atlas.footX, atlas.footY, fmy, 1, 1, 1, 1, flash);
+      } else {
+        const u = this.cellU(s.team, kind, anim, f, dir);
+        team[s.team as 0 | 1].sprite(Math.round(fmx + jx), Math.round(fmy + jy), u, this.cellV, atlas.cellW, atlas.cellH, atlas.footX, atlas.footY, fmy, 1, 1, 1, 1, flash);
+      }
     }
 
     // Props and stakes.
-    for (const p of this.ground.props) {
-      const r = fx.get(`${p.kind}${p.variant}`);
-      const mx = this.mapX(p.x, p.y);
-      const my = this.mapY(p.x, p.y);
+    for (const { r, mx, my } of this.propDraw) {
       if (mx < x0 - 40 || mx > x1 + 40 || my < y0 || my > y1 + 40) continue;
       gfx.fx.sprite(Math.round(mx), Math.round(my), r.u, r.v, r.w, r.h, r.ax, r.ay, my);
     }
     if (this.field) this.stakesHd(gfx, m);
     else for (const k of b.stakes) {
-      const r = fx.get(`stake${k.team === 0 ? 0 : 1}`);
+      const r = this.stakeRegions[k.team === 0 ? 0 : 1]!;
       for (let y = k.y0; y <= k.y1; y += 3) {
         const mx = this.mapX(k.x, y);
         const my = this.mapY(k.x, y);
@@ -1126,6 +1205,8 @@ export class BattleScene {
 
       // Particles.
       const ps = this.particles;
+      const damp = Math.exp(-dt * 2.2);
+      const dampZ = Math.exp(-dt * 0.8);
       let w = 0;
       for (const p of ps) {
         p.life += dt;
@@ -1142,10 +1223,9 @@ export class BattleScene {
             continue;
           }
         } else {
-          const damp = Math.exp(-dt * 2.2);
           p.vx *= damp;
           p.vy *= damp;
-          p.vz *= Math.exp(-dt * 0.8);
+          p.vz *= dampZ;
         }
         ps[w++] = p;
         const mx = this.mapX(p.x, p.y);
@@ -1164,11 +1244,6 @@ export class BattleScene {
       ps.length = w;
     }
 
-    team[0].upload();
-    team[1].upload();
-    for (const row of this.hdBatch) for (const bt of row) bt.upload();
-    gfx.fx.upload();
-    gfx.soft.upload();
   }
 
   // ---------------------------------------------------------------- HD battlefield (field-hd.ts)
@@ -1310,10 +1385,11 @@ export class BattleScene {
     const v = this.view;
     const gl = gfx.gl;
     const P = gfx.prog;
-    f.drawGround(gl, gfx.scene!, v.camX, v.camY, v.bw, v.bh, v.m, this.battle.tick * TICK_S, () => {
+    f.drawGround(gl, gfx.scene!, v.camX, v.camY, v.bw, v.bh, v.m, this.battle.tick * TICK_S, (age) => {
       const d = this.hdFxB?.decal;
       if (!d || d.n === 0) return;
       P.use(v.camX, v.camY, v.bw, v.bh, -200, this.ground.h + 200, v.m);
+      P.now(age);
       const sh = f.sheet(v.m);
       P.tex(f.sheetTexture(gl, v.m), sh.w, sh.h, v.m, 1);
       d.draw();
@@ -1335,8 +1411,8 @@ export class BattleScene {
       return;
     }
     const atlas = this.atlases[s.team as 0 | 1];
-    const [u, v] = atlas.at(kind, Anim.Dead, 0, this.dirs[i] as Dir);
-    this.gfx!.team[s.team as 0 | 1].sprite(Math.round(mx), Math.round(my), u, v, atlas.cellW, atlas.cellH, atlas.footX, atlas.footY, -1e5, 0.78, 0.78, 0.75, 1, 0, 1);
+    const u = this.cellU(s.team, kind, Anim.Dead, 0, this.dirs[i] as Dir);
+    this.gfx!.team[s.team as 0 | 1].sprite(Math.round(mx), Math.round(my), u, this.cellV, atlas.cellW, atlas.cellH, atlas.footX, atlas.footY, -1e5, 0.78, 0.78, 0.75, 1, 0, 1);
   }
 
   /** HD: the stakes, from the level-m sheet (and the HD batches cleared for the frame). */
@@ -1363,7 +1439,7 @@ export class BattleScene {
     const R = f.sheet(L).regions;
     const q = (v: number) => Math.round(v * L) / L;
     const now = T * TICK_S;
-    const decalsChanged = f.buildDecals(B.decal, L, x0 - 24, x1 + 24, y0 - 12, y1 + 24, now);
+    f.buildDecals(B.decal, L, x0 - 24, x1 + 24, y0 - 12, y1 + 24);
 
     // Missiles in flight: an arc in the air, a small shadow on the ground.
     const dotR = R[HD_ID.dot]!;
@@ -1407,6 +1483,8 @@ export class BattleScene {
     const ps = this.particles;
     const rng = this.hdRng;
     const drop = Math.max(1, Math.round(L * 0.3));
+    const damp = Math.exp(-dt * 2.2);
+    const dampZ = Math.exp(-dt * 0.8);
     let w = 0;
     this.dustN = 0;
     for (const p of ps) {
@@ -1424,10 +1502,9 @@ export class BattleScene {
           continue;
         }
       } else {
-        const damp = Math.exp(-dt * 2.2);
         p.vx *= damp;
         p.vy *= damp;
-        p.vz *= Math.exp(-dt * 0.8);
+        p.vz *= dampZ;
       }
       ps[w++] = p;
       if (p.kind === PK.Dust) this.dustN++;
@@ -1454,13 +1531,6 @@ export class BattleScene {
       }
     }
     ps.length = w;
-    if (decalsChanged) {
-      B.decal.upload();
-      f.decalsChanged();
-    }
-    B.fx.upload();
-    B.soft.upload();
-    B.std.upload();
   }
 }
 

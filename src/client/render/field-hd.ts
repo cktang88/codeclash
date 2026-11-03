@@ -18,8 +18,8 @@
 // All of it lives on the CPU too, so a lost WebGL context is rebuilt from it.
 
 import { FIELD_H, FIELD_W } from '../../game/battle.ts';
-import { buildFxHd, fxId, type HdSheet } from './fx-hd.ts';
-import { compile, dropTarget, target, texturePixels, type Batch, type Target } from './gl.ts';
+import { buildFxHd, fxId, HOOVES, type HdSheet } from './fx-hd.ts';
+import { compile, dropTarget, INST, target, texturePixels, type Batch, type Target } from './gl.ts';
 import type { Ground } from './ground.ts';
 import { PX, SQUASH } from './iso.ts';
 import { buildStandardsHd, type StdArmy } from './standards-hd.ts';
@@ -352,7 +352,18 @@ interface Decal {
   /** Battle seconds when it fell; blood darkens from it. */
   t: number;
   blood: boolean;
+  /** Its instance in the decal batch of generation `gen` (-1: not in it). */
+  slot: number;
+  gen: number;
 }
+
+/** The first hoofprint's sprite id (hoofprints have their own, smaller ring per bucket). */
+const HOOF0 = fxId('hoof0');
+const isHoof = (id: number) => id >= HOOF0 && id < HOOF0 + HOOVES;
+/** Blood decals darken over this many battle seconds (and the marks' blood with them). */
+const BLOOD_AGE_S = 50;
+/** The clock blood is drawn at: battle seconds in steps of this, so all of it ages in step. */
+const AGE_STEP_S = 2;
 
 interface FieldGl {
   gl: WebGL2RenderingContext;
@@ -367,10 +378,13 @@ interface FieldGl {
   compT: Target | null;
   key: string;
   compKey: string;
-  /** Wall-clock ms and battle second of the last composition; whether marks changed since. */
+  /**
+   * Wall-clock ms and battle second of the last composition, and the blood clock it drew
+   * (battle seconds in AGE_STEP_S steps).
+   */
   compAt: number;
   compNow: number;
-  marksChanged: boolean;
+  compAge: number;
   sheets: Map<number, WebGLTexture>;
   standards: Map<number, WebGLTexture>;
 }
@@ -396,12 +410,27 @@ export class HdField {
   /** RGBA per map px: blood, wear, unused, time of the last blood (seconds / 2). */
   readonly marks: Uint8Array;
   private readonly tilesX: number;
+  private readonly tilesY: number;
+  /** Map tiles whose marks changed since the marks texture was last updated. */
   private readonly dirty: Uint8Array;
   private anyDirty = true;
-  /** Decals added since the batch was last filled (appended without a rebuild). */
+  /** Map tiles whose look (marks or decals) changed since the ground was last composed. */
+  private readonly cdirty: Uint8Array;
+  private anyCdirty = true;
+  /** Per map tile, the battle second blood last fell there (its colour ages for BLOOD_AGE_S). */
+  private readonly bloodT: Float32Array;
+  /**
+   * Decals added since the batch was last filled, each with the decal its ring slot overwrote
+   * (or null): they go into the batch without a rebuild, a new one taking the slot of the one it
+   * replaced, so the batch holds what a rebuild would.
+   */
   private fresh: Decal[] = [];
+  private freshOld: (Decal | null)[] = [];
   private decalKey = '';
   private decalBatch: Batch | null = null;
+  private decalGen = 0;
+  /** Batch instances rewritten in place since the last upload. */
+  private rewritten: number[] = [];
   private readonly bucketsX: number;
   private readonly buckets: (Bucket | undefined)[];
   private readonly sheets = new Map<number, HdSheet>();
@@ -419,7 +448,10 @@ export class HdField {
     this.H = ground.h;
     this.marks = new Uint8Array(this.W * this.H * 4);
     this.tilesX = Math.ceil(this.W / TILE);
-    this.dirty = new Uint8Array(this.tilesX * Math.ceil(this.H / TILE)).fill(1);
+    this.tilesY = Math.ceil(this.H / TILE);
+    this.dirty = new Uint8Array(this.tilesX * this.tilesY).fill(1);
+    this.cdirty = new Uint8Array(this.tilesX * this.tilesY).fill(1);
+    this.bloodT = new Float32Array(this.tilesX * this.tilesY).fill(-1e9);
     this.bucketsX = Math.ceil(this.W / BUCKET_W);
     this.buckets = new Array(this.bucketsX * Math.ceil(this.H / BUCKET_H));
   }
@@ -455,13 +487,26 @@ export class HdField {
         }
         if (aw > 0) m[i + 1] = Math.min(255, m[i + 1]! + aw * f);
       }
-    for (let ty = Math.floor(y0 / TILE); ty <= Math.floor(y1 / TILE); ty++) for (let tx = Math.floor(x0 / TILE); tx <= Math.floor(x1 / TILE); tx++) this.dirty[ty * this.tilesX + tx] = 1;
-    this.anyDirty = true;
+    // The compose pass samples the marks with a linear filter and looks a little up-left (the
+    // wet lip): a tile's look can change from a mark up to 2 px past its edge.
+    this.touch(x0 - 2, x1 + 2, y0 - 2, y1 + 2, blood > 0 ? t : -1, true);
   }
 
-  /** New decals in view: compose the ground again (throttled, see drawGround). */
-  decalsChanged(): void {
-    if (this.g) this.g.marksChanged = true;
+  /** Flags the tiles over map box [x0, x1] × [y0, y1] to compose again (and, `marks`, to upload). */
+  private touch(x0: number, x1: number, y0: number, y1: number, bloodT: number, marks: boolean): void {
+    const tx0 = Math.max(0, Math.floor(x0 / TILE));
+    const tx1 = Math.min(this.tilesX - 1, Math.floor(x1 / TILE));
+    const ty0 = Math.max(0, Math.floor(y0 / TILE));
+    const ty1 = Math.min(this.tilesY - 1, Math.floor(y1 / TILE));
+    for (let ty = ty0; ty <= ty1; ty++)
+      for (let tx = tx0; tx <= tx1; tx++) {
+        const i = ty * this.tilesX + tx;
+        if (marks) this.dirty[i] = 1;
+        this.cdirty[i] = 1;
+        if (bloodT > this.bloodT[i]!) this.bloodT[i] = bloodT;
+      }
+    if (marks) this.anyDirty = true;
+    this.anyCdirty = true;
   }
 
   /** How bloody the ground is at a map point, 0..1 (for placing pools). */
@@ -475,16 +520,35 @@ export class HdField {
   // ------------------------------------------------------------------ decals
 
   decal(name: string, x: number, y: number, t: number, blood = false): void {
+    this.decalId(fxId(name), x, y, t, blood);
+  }
+
+  /** A decal by sprite id (fxId), so a caller in a loop builds no names. */
+  decalId(id: number, x: number, y: number, t: number, blood = false): void {
     if (x < 0 || y < 0 || x >= this.W || y >= this.H) return;
-    const d: Decal = { id: fxId(name), x, y, t, blood };
-    this.fresh.push(d);
+    const d: Decal = { id, x, y, t, blood, slot: -1, gen: -1 };
     const i = Math.floor(y / BUCKET_H) * this.bucketsX + Math.floor(x / BUCKET_W);
     const b = (this.buckets[i] ??= { decals: [], decalAt: 0, hooves: [], hoofAt: 0 });
-    if (name.startsWith('hoof')) {
+    let old: Decal | null = null;
+    if (isHoof(id)) {
       if (b.hooves.length < MAX_HOOVES) b.hooves.push(d);
-      else b.hooves[b.hoofAt++ % MAX_HOOVES] = d;
+      else {
+        const k = b.hoofAt++ % MAX_HOOVES;
+        old = b.hooves[k]!;
+        b.hooves[k] = d;
+      }
     } else if (b.decals.length < MAX_DECALS) b.decals.push(d);
-    else b.decals[b.decalAt++ % MAX_DECALS] = d;
+    else {
+      const k = b.decalAt++ % MAX_DECALS;
+      old = b.decals[k]!;
+      b.decals[k] = d;
+    }
+    this.fresh.push(d);
+    this.freshOld.push(old);
+    // The ground under it (and under the one it replaced) is composed again.
+    const r = this.sheet(1).regions[id]!;
+    this.touch(x - r.ax - 1, x - r.ax + r.w + 1, y - r.ay - 1, y - r.ay + r.h + 1, blood ? t : -1, false);
+    if (old) this.touch(old.x - 16, old.x + 16, old.y - 16, old.y + 16, -1, false);
   }
 
   /** Decals on the ground, for tests and tools. */
@@ -495,32 +559,77 @@ export class HdField {
   }
 
   /**
-   * Fills `batch` with the decals in view (map px window), from the level-L sheet. With the same
-   * view and less than two seconds of ageing since the last fill, only the decals added since are
-   * appended. Returns false (the batch as it was) when nothing changed.
+   * Fills `batch` with the decals in view (map px window), from the level-L sheet, and sends it to
+   * the GPU. A blood decal carries the second it fell and the sprite shader darkens it with age
+   * (mode 2), so ageing needs no refill. With the same view only the decals added since go in: a
+   * new one takes the instance of the one it overwrote, else it is appended. Returns false (the
+   * batch as it was) when nothing changed.
    */
-  buildDecals(batch: Batch, L: number, x0: number, x1: number, y0: number, y1: number, now: number): boolean {
-    const key = `${L}:${Math.floor(x0)}:${Math.floor(y0)}:${Math.floor(x1)}:${Math.floor(y1)}:${Math.floor(now / 2)}`;
+  buildDecals(batch: Batch, L: number, x0: number, x1: number, y0: number, y1: number): boolean {
+    const key = `${L}:${Math.floor(x0)}:${Math.floor(y0)}:${Math.floor(x1)}:${Math.floor(y1)}`;
     const regions = this.sheet(L).regions;
-    const put = (list: Decal[]) => {
-      for (const d of list) {
-        if (d.x < x0 || d.x > x1 || d.y < y0 || d.y > y1) continue;
-        const r = regions[d.id]!;
-        // Blood darkens from red to maroon-brown over about a minute.
-        const age = d.blood ? Math.min(1, Math.max(0, (now - d.t) / 50)) : 0;
-        const k = 1 - age * 0.45;
-        batch.sprite(Math.round(d.x * L) / L, Math.round(d.y * L) / L, r.u, r.v, r.w / L, r.h / L, r.ax / L, r.ay / L, -1e6, k, k * (1 - age * 0.25), k * (1 - age * 0.15), 1, 0, 1);
+    let gen = this.decalGen;
+    const put = (d: Decal, slot: number) => {
+      const inView = d.x >= x0 && d.x <= x1 && d.y >= y0 && d.y <= y1;
+      if (slot < 0) {
+        if (!inView) return;
+        slot = batch.n;
+        batch.alloc();
       }
+      const o = slot * INST;
+      const r = regions[d.id]!;
+      const D = batch.data;
+      d.slot = slot;
+      d.gen = gen;
+      D[o] = Math.round(d.x * L) / L;
+      D[o + 1] = Math.round(d.y * L) / L;
+      // Out of view (it replaced one in view): an empty quad.
+      D[o + 2] = inView ? r.w / L : 0;
+      D[o + 3] = inView ? r.h / L : 0;
+      D[o + 4] = r.u;
+      D[o + 5] = r.v;
+      D[o + 6] = r.ax / L;
+      D[o + 7] = r.ay / L;
+      D[o + 8] = D[o + 9] = D[o + 10] = D[o + 11] = 1;
+      D[o + 12] = -1e6;
+      // Blood: the second it fell, and mode 2 (tinted by age in the shader).
+      D[o + 13] = d.blood ? d.t : 0;
+      D[o + 14] = d.blood ? 2 : 0;
+      D[o + 15] = 1;
     };
     if (key === this.decalKey && batch === this.decalBatch) {
       if (this.fresh.length === 0) return false;
-      put(this.fresh);
+      const n0 = batch.n;
+      const rw = this.rewritten;
+      rw.length = 0;
+      for (let i = 0; i < this.fresh.length; i++) {
+        const d = this.fresh[i]!;
+        const old = this.freshOld[i];
+        if (old && old.gen === gen && old.slot >= 0) {
+          put(d, old.slot);
+          old.slot = -1;
+          rw.push(d.slot);
+        } else put(d, -1);
+      }
       this.fresh.length = 0;
+      this.freshOld.length = 0;
+      if (batch.n === n0 && rw.length === 0) return false;
+      // The appended tail, and the rewritten instances (one by one while they are few).
+      if (rw.length > 64) {
+        let lo = n0;
+        for (const k of rw) if (k < lo) lo = k;
+        batch.upload(lo);
+      } else {
+        batch.upload(n0);
+        for (const k of rw) batch.uploadRange(k, k + 1);
+      }
       return true;
     }
     this.decalKey = key;
     this.decalBatch = batch;
+    this.decalGen = ++gen;
     this.fresh.length = 0;
+    this.freshOld.length = 0;
     batch.clear();
     const bx0 = Math.max(0, Math.floor(x0 / BUCKET_W));
     const bx1 = Math.min(this.bucketsX - 1, Math.floor(x1 / BUCKET_W));
@@ -531,8 +640,9 @@ export class HdField {
       for (let by = by0; by <= by1; by++)
         for (let bx = bx0; bx <= bx1; bx++) {
           const b = this.buckets[by * this.bucketsX + bx];
-          if (b) put(pass === 0 ? b.hooves : b.decals);
+          if (b) for (const d of pass === 0 ? b.hooves : b.decals) put(d, -1);
         }
+    batch.upload();
     return true;
   }
 
@@ -601,7 +711,7 @@ export class HdField {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     this.dirty.fill(0);
     this.anyDirty = false;
-    this.g = { gl, base, comp, ub, uc, vao: gl.createVertexArray()!, marks, baseT: null, compT: null, key: '', compKey: '', compAt: -1e9, compNow: -1e9, marksChanged: true, sheets: new Map(), standards: new Map() };
+    this.g = { gl, base, comp, ub, uc, vao: gl.createVertexArray()!, marks, baseT: null, compT: null, key: '', compKey: '', compAt: -1e9, compNow: -1e9, compAge: -1e9, sheets: new Map(), standards: new Map() };
     return this.g;
   }
 
@@ -624,40 +734,58 @@ export class HdField {
     for (const t of [...g.sheets.values(), ...g.standards.values()]) gl.deleteTexture(t);
   }
 
+  /** Sends the changed tiles of the marks to the GPU, a run of tiles along a row at a time. */
   private upload(g: FieldGl): void {
     if (!this.anyDirty) return;
     const gl = g.gl;
     gl.bindTexture(gl.TEXTURE_2D, g.marks);
     gl.pixelStorei(gl.UNPACK_ROW_LENGTH, this.W);
-    for (let i = 0; i < this.dirty.length; i++) {
-      if (!this.dirty[i]) continue;
-      this.dirty[i] = 0;
-      const tx = (i % this.tilesX) * TILE;
-      const ty = Math.floor(i / this.tilesX) * TILE;
-      const w = Math.min(TILE, this.W - tx);
-      const h = Math.min(TILE, this.H - ty);
-      gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, tx);
-      gl.pixelStorei(gl.UNPACK_SKIP_ROWS, ty);
-      gl.texSubImage2D(gl.TEXTURE_2D, 0, tx, ty, w, h, gl.RGBA, gl.UNSIGNED_BYTE, this.marks);
-    }
+    for (let ty = 0; ty < this.tilesY; ty++)
+      for (let tx = 0; tx < this.tilesX; tx++) {
+        if (!this.dirty[ty * this.tilesX + tx]) continue;
+        let tx1 = tx;
+        while (tx1 + 1 < this.tilesX && this.dirty[ty * this.tilesX + tx1 + 1]) tx1++;
+        for (let k = tx; k <= tx1; k++) this.dirty[ty * this.tilesX + k] = 0;
+        const x = tx * TILE;
+        const y = ty * TILE;
+        const w = Math.min((tx1 + 1) * TILE, this.W) - x;
+        const h = Math.min(TILE, this.H - y);
+        gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, x);
+        gl.pixelStorei(gl.UNPACK_SKIP_ROWS, y);
+        gl.texSubImage2D(gl.TEXTURE_2D, 0, x, y, w, h, gl.RGBA, gl.UNSIGNED_BYTE, this.marks);
+        tx = tx1;
+      }
     gl.pixelStorei(gl.UNPACK_ROW_LENGTH, 0);
     gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, 0);
     gl.pixelStorei(gl.UNPACK_SKIP_ROWS, 0);
     this.anyDirty = false;
-    g.marksChanged = true;
+  }
+
+  /**
+   * Tools: composes the ground at the next draw, from scratch (`full`), or just what changed since
+   * the last composition (no throttle). The two must give the same picture.
+   */
+  invalidate(full: boolean): void {
+    if (!this.g) return;
+    if (full) this.g.compKey = '';
+    else this.g.compAt = this.g.compNow = -1e9;
   }
 
   /**
    * Draws the ground with its marks into `scene` (bw × bh buffer px whose top-left is map px
-   * (camX, camY), m buffer px per map px). Leaves `scene` bound.
+   * (camX, camY), m buffer px per map px). Leaves `scene` bound. `decals(age)` draws the decal
+   * batch (blood tinted at battle second `age`) into the bound target.
    *
    * Both passes are cached: the ground is painted when the view moves, the marks laid over it
-   * when the view moves or, every 0.6 battle seconds at most, when they changed (and every couple of
-   * seconds as blood ages); every other frame the composition is only copied into the scene.
+   * when the view moves or, every 0.6 battle seconds at most, where they changed: only the map
+   * tiles marked or decalled since are composed again (scissored), and the marks texture is sent
+   * only then, a row of tiles at a time. Blood is coloured at a clock that moves in AGE_STEP_S
+   * steps; at each step the tiles whose blood is still darkening are composed again, all at the
+   * same clock, so neighbouring tiles never differ in age. Every other frame the composition is
+   * only copied into the scene.
    */
-  drawGround(gl: WebGL2RenderingContext, scene: Target, camX: number, camY: number, bw: number, bh: number, m: number, now: number, decals: () => void): void {
+  drawGround(gl: WebGL2RenderingContext, scene: Target, camX: number, camY: number, bw: number, bh: number, m: number, now: number, decals: (age: number) => void): void {
     const g = this.attach(gl);
-    this.upload(g);
     const gr = this.ground;
     const nz = gr.noise;
     const seed = (nz.seed * 2654435761) >>> 0;
@@ -688,37 +816,99 @@ export class HdField {
       gl.uniform3f(g.ub.u_road!, nz.roadY0, nz.roadBend, nz.roadPhase);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     }
+    const age = Math.floor(now / AGE_STEP_S) * AGE_STEP_S;
+    const full = g.compKey !== key || !g.compT;
+    if (!full && age !== g.compAge) {
+      // The blood clock stepped: the tiles whose blood was still darkening at the last one.
+      for (let i = 0; i < this.bloodT.length; i++)
+        if (this.bloodT[i]! + BLOOD_AGE_S + AGE_STEP_S >= g.compAge) {
+          this.cdirty[i] = 1;
+          this.anyCdirty = true;
+        }
+    }
     const wall = typeof performance !== 'undefined' ? performance.now() : 0;
-    // Throttled by both clocks: at most every 0.3 s of wall time and 0.6 battle
-    // seconds (a slow frame rate should not recompose every frame).
-    const stale = g.compKey !== key || !g.compT || (g.marksChanged && wall - g.compAt > 300 && Math.abs(now - g.compNow) >= 0.6) || Math.abs(now - g.compNow) > 2;
+    // Throttled by both clocks: at most every 0.3 s of wall time and 0.6 battle seconds (a slow
+    // frame rate should not recompose every frame), but at once when the blood clock steps.
+    const stale = full || (this.anyCdirty && ((wall - g.compAt > 300 && Math.abs(now - g.compNow) >= 0.6) || age !== g.compAge));
     if (stale) {
+      // Where to compose: everything, or the runs of changed tiles in view (a few map px wider).
+      const runs = this.runs;
+      runs.length = 0;
+      let area = 0;
+      if (!full) {
+        const tx0 = Math.max(0, Math.floor(camX / TILE));
+        const tx1 = Math.min(this.tilesX - 1, Math.floor((camX + bw / m) / TILE));
+        const ty0 = Math.max(0, Math.floor(camY / TILE));
+        const ty1 = Math.min(this.tilesY - 1, Math.floor((camY + bh / m) / TILE));
+        for (let ty = ty0; ty <= ty1; ty++)
+          for (let tx = tx0; tx <= tx1; tx++) {
+            if (!this.cdirty[ty * this.tilesX + tx]) continue;
+            let e = tx;
+            while (e + 1 <= tx1 && this.cdirty[ty * this.tilesX + e + 1]) e++;
+            const x0 = Math.max(0, Math.floor((tx * TILE - 3 - camX) * m));
+            const x1 = Math.min(bw, Math.ceil(((e + 1) * TILE + 3 - camX) * m));
+            const y0 = Math.max(0, Math.floor((ty * TILE - 3 - camY) * m));
+            const y1 = Math.min(bh, Math.ceil(((ty + 1) * TILE + 3 - camY) * m));
+            if (x1 > x0 && y1 > y0) {
+              runs.push(x0, y0, x1 - x0, y1 - y0);
+              area += (x1 - x0) * (y1 - y0);
+            }
+            tx = e;
+          }
+      }
+      // Mostly changed, or many scattered runs: one pass over everything is cheaper.
+      const whole = full || area > bw * bh * 0.6 || runs.length > 4 * 48;
+      this.cdirty.fill(0);
+      this.anyCdirty = false;
+      this.upload(g);
       g.compT = sized(g.compT);
       g.compKey = key;
       g.compAt = wall;
       g.compNow = now;
-      g.marksChanged = false;
-      gl.bindFramebuffer(gl.FRAMEBUFFER, g.compT.fbo);
-      gl.viewport(0, 0, bw, bh);
-      gl.useProgram(g.comp);
-      gl.activeTexture(gl.TEXTURE0);
-      gl.bindTexture(gl.TEXTURE_2D, g.baseT.tex);
-      gl.activeTexture(gl.TEXTURE1);
-      gl.bindTexture(gl.TEXTURE_2D, g.marks);
-      gl.uniform1i(g.uc.u_base!, 0);
-      gl.uniform1i(g.uc.u_marks!, 1);
-      gl.uniform2f(g.uc.u_cam!, camX, camY);
-      gl.uniform1f(g.uc.u_m!, m);
-      gl.uniform1ui(g.uc.u_seed!, seed);
-      gl.uniform2f(g.uc.u_msize!, this.W, this.H);
-      gl.uniform1f(g.uc.u_now!, now);
-      gl.drawArrays(gl.TRIANGLES, 0, 3);
-      gl.activeTexture(gl.TEXTURE1);
-      gl.bindTexture(gl.TEXTURE_2D, null);
-      gl.activeTexture(gl.TEXTURE0);
-      gl.bindVertexArray(null);
-      // The decals, baked in flat (thousands of them late in a battle: not redrawn each frame).
-      decals();
+      g.compAge = age;
+      if (whole || runs.length > 0) {
+        gl.bindFramebuffer(gl.FRAMEBUFFER, g.compT.fbo);
+        gl.viewport(0, 0, bw, bh);
+        gl.useProgram(g.comp);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, g.baseT.tex);
+        gl.activeTexture(gl.TEXTURE1);
+        gl.bindTexture(gl.TEXTURE_2D, g.marks);
+        gl.uniform1i(g.uc.u_base!, 0);
+        gl.uniform1i(g.uc.u_marks!, 1);
+        gl.uniform2f(g.uc.u_cam!, camX, camY);
+        gl.uniform1f(g.uc.u_m!, m);
+        gl.uniform1ui(g.uc.u_seed!, seed);
+        gl.uniform2f(g.uc.u_msize!, this.W, this.H);
+        gl.uniform1f(g.uc.u_now!, age);
+        let bx0 = 0;
+        let by0 = 0;
+        let bx1 = bw;
+        let by1 = bh;
+        if (whole) gl.drawArrays(gl.TRIANGLES, 0, 3);
+        else {
+          gl.enable(gl.SCISSOR_TEST);
+          bx0 = by0 = 1e9;
+          bx1 = by1 = -1e9;
+          for (let i = 0; i < runs.length; i += 4) {
+            gl.scissor(runs[i]!, runs[i + 1]!, runs[i + 2]!, runs[i + 3]!);
+            gl.drawArrays(gl.TRIANGLES, 0, 3);
+            bx0 = Math.min(bx0, runs[i]!);
+            by0 = Math.min(by0, runs[i + 1]!);
+            bx1 = Math.max(bx1, runs[i]! + runs[i + 2]!);
+            by1 = Math.max(by1, runs[i + 1]! + runs[i + 3]!);
+          }
+          // The decals over what was composed (redrawing one over itself changes nothing).
+          gl.scissor(bx0, by0, bx1 - bx0, by1 - by0);
+        }
+        gl.activeTexture(gl.TEXTURE1);
+        gl.bindTexture(gl.TEXTURE_2D, null);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindVertexArray(null);
+        // The decals, baked in flat (thousands of them late in a battle: not redrawn each frame).
+        decals(age);
+        gl.disable(gl.SCISSOR_TEST);
+      }
     }
     gl.bindVertexArray(null);
     // Copy the composition into the scene buffer.
@@ -728,4 +918,8 @@ export class HdField {
     gl.bindFramebuffer(gl.FRAMEBUFFER, scene.fbo);
     gl.viewport(0, 0, bw, bh);
   }
+
+  /** Scissor rects (x, y, w, h in buffer px) of the tile runs composed this frame (reused). */
+  private readonly runs: number[] = [];
 }
+
