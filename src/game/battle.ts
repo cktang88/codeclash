@@ -874,6 +874,8 @@ function figures(count: number, scale: number): number {
   return Math.max(1, Math.round(count / scale));
 }
 
+/** Late in the day (ticks): every regiment left goes in (see `generalThink`, `drawn`). */
+const LATE = 2400;
 /** The general's household draws back from a block worth more than this many times itself (see `thinkCommand`). */
 const HOUSEHOLD_ODDS = 2;
 /** A block locked in melee that bows may still shoot over the fight into: deep enough to have rear ranks well clear of it. */
@@ -1811,10 +1813,10 @@ export class Battle {
     // Late in the day, or with the first line gone, everyone left goes in.
     let firstLine = 0;
     for (const r of regs) if (r.role === 'line' && r.alive > 0 && !r.routed && (r.line !== 2 || r.committed)) firstLine++;
-    const allIn = firstLine === 0 || this.tick > 2400;
+    const allIn = firstLine === 0 || this.tick > LATE;
     for (const r of regs) {
       if (r.alive === 0 || r.routed) continue;
-      const lineLike = r.role === 'line' || (r.role === 'missile' && r.ammoLeft === 0);
+      const lineLike = r.role === 'line' || this.drawn(r);
       if (!lineLike) continue;
       if (won && !r.engaged) {
         this.give(r, 'pursue');
@@ -1884,7 +1886,7 @@ export class Battle {
     // Missiles, skirmishers, engines, the bodyguard.
     for (const r of regs) {
       if (r.alive === 0 || r.routed) continue;
-      if (r.role === 'missile' && r.ammoLeft > 0) this.give(r, plan === 'hold' && waiting ? 'hold' : 'advance');
+      if (r.role === 'missile' && !this.drawn(r)) this.give(r, plan === 'hold' && waiting ? 'hold' : 'advance');
       else if (r.role === 'skirmish') this.give(r, won ? 'pursue' : 'skirmish');
       else if (r.role === 'horse-archer' && r.ammoLeft > 0) this.give(r, won ? 'pursue' : 'skirmish');
       else if (r.role === 'siege') this.give(r, 'hold');
@@ -2466,7 +2468,7 @@ export class Battle {
         this.thinkLine(r);
         break;
       case 'missile':
-        if (r.ammoLeft === 0) this.thinkLine(r);
+        if (this.drawn(r)) this.thinkLine(r);
         else this.thinkMissile(r);
         break;
       case 'skirmish':
@@ -2490,6 +2492,16 @@ export class Battle {
         break;
     }
     this.chooseStance(r);
+  }
+
+  /**
+   * Shooters who fight as foot of the line: out of shot, or late in the day (LATE) with no line
+   * of their own left before them. (Until v16 they shot on while they had shot: in the biggest
+   * battles the last of both armies were often blocks of archers trading arrows at long range
+   * until the time limit.)
+   */
+  private drawn(r: Regiment): boolean {
+    return r.role === 'missile' && (r.ammoLeft === 0 || (this.tick > LATE && !this.ts[r.team]!.hasLine));
   }
 
   /** S2: the first samurai block of the line to strike claims the first spear: heart for it and for those near it. */
@@ -4074,7 +4086,7 @@ export class Battle {
         break;
       }
       case 'missile':
-        s = r.engaged || r.mode === 'melee' || r.ammoLeft === 0 ? 'line' : 'loose';
+        s = r.engaged || r.mode === 'melee' || this.drawn(r) ? 'line' : 'loose';
         urgent = r.engaged;
         break;
       case 'skirmish':
