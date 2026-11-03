@@ -125,9 +125,9 @@ export function finish(p: Paper, mats: Mats, outline: Col = OUT): Sprite | null 
       const lit = (r >= 0 || d >= 0) && l < 0 && u < 0;
       const kept = mats.keep[(nb >> 3) - MAT0];
       if (lit && ramp && !kept) {
-        // Facing the light: two steps below the edge pixel (sel-out), at least tone 1.
-        const t = Math.max(1, (nb & 7) - 2);
-        const c = ramp[t]!;
+        // Facing the light: the material's tone 1 (sel-out), one colour per material so the line
+        // stays a clean run (a tone that followed the edge pixel speckled it with orphans).
+        const c = ramp[1]!;
         data[i] = mix(rgb(c[0], c[1], c[2]), base, 0.35);
       } else data[i] = lit ? base : mix(base, outline, 0.6);
       cls[i] = 4;

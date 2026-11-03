@@ -311,9 +311,8 @@ export function paintPerson(ctx: PaintCtx, L: Look, clip: FolkClip, f: number, b
       dot(c, h[0], h[1], code(mSkin, t + 1));
       return;
     }
-    // A fist of 2x2 or so: lit knuckles toward the light, a shade pixel under it.
+    // A fist of 2x2 or so, lit toward the light by the blob's own planes.
     c.blob([h[0] + 0.5, h[1] + 0.6], 1.25, 1.2, mSkin, { tone: t });
-    dot(c, h[0] + (c.litLeft() ? 0 : 1), h[1], code(mSkin, t + 1));
   };
   const legM = L.lower === 'bare' || kind === 'skeleton' ? mSkin : mLegs;
   const legW = L.lower === 'hakama' ? 4.4 : B.leg;
