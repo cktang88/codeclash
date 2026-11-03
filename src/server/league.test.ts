@@ -327,6 +327,25 @@ describe('server sweep, second round', () => {
     }
   });
 
+  it('no other site may frame the pages (whose buttons leave and delete leagues), and invite links do not leak in Referer', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cc-client-'));
+    writeFileSync(join(dir, 'index.html'), '<!doctype html><title>Code Clash</title>');
+    const config = loadConfig({ NODE_ENV: 'test', DATABASE_PATH: ':memory:', COMMONS: '0', CLIENT_DIR: dir, PUBLIC_URL: 'http://cc.test' });
+    const server = await createServer(config, { log: silentLogger, background: false, github: null });
+    try {
+      for (const url of ['/league/night-watch?invite=abc', '/index.html', '/api/me', '/auth/logout']) {
+        const res = await server.app.inject({ url });
+        expect(res.headers['content-security-policy'], url).toContain("frame-ancestors 'none'");
+        expect(res.headers['x-frame-options'], url).toBe('DENY');
+        expect(res.headers['referrer-policy'], url).toBe('same-origin');
+        expect(res.headers['x-content-type-options'], url).toBe('nosniff');
+      }
+    } finally {
+      await server.shutdown();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('a fork’s upstream reward is credited whole, even on a day without code of its own', async () => {
     const monday = weekOf(Date.UTC(2026, 10, 3), 0).weekStart;
     const { server, now, signIn } = await boot(monday + 3_600_000);
