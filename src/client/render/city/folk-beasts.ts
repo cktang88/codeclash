@@ -9,7 +9,7 @@
 // for the dog's trot, the CC0 chicken sheet for the hen, Hiroshige's Mishima for the pack horse.
 
 import type { Paper, P2 } from '../paper/core.ts';
-import { dirOf, dot, ip, oval, step, type Mats } from './folk-paint.ts';
+import { dot, ip, oval, step, type Mats } from './folk-paint.ts';
 import { hex, mix, tone, type Col } from './pixels.ts';
 
 export type HorseClip = 'walk' | 'idle' | 'graze' | 'toss';
@@ -344,5 +344,4 @@ export function paintCart(c: Paper, M: Mats, wood: Col, load: [Col, Col], f: num
     c.line([cx + Math.cos(a) * (r - 1), cy + Math.sin(a) * (r - 1)], [cx - Math.cos(a) * (r - 1), cy - Math.sin(a) * (r - 1)], M.code(ms, 2));
   }
   c.blob([cx + 0.5, cy + 0.5], 1.2, 1.2, M.of(hex('#5a5058')));
-  void dirOf;
 }

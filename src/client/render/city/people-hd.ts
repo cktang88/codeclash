@@ -252,7 +252,7 @@ export function templarLooks(st: CityStyle): Looks {
         return { kind: 'child', body: hex(pick(TUNICS, h1(seed, 1) * 8)), legs: hex(pick(HOSE, seed)), head: 'hair', hair, robe: false, work: 'none', carry: 'none' };
       if (r < 0.48)
         // A merchant: a long robe of good cloth, a chaperon, a beard, a purse at the belt.
-        return { body: hex(pick(['#7a2a26', '#2e4a6a', '#4a2e4a'], seed)), legs: hex('#2a2420'), robe: true, head: 'chaperon', hair: hex(pick(['#2a2420', '#6a2420', '#3a4a2a'], seed + 1)), beard: hair, sash: hex('#c8a24a'), trim: hex('#c8b89a'), work: 'none', carry };
+        return { body: hex(pick(['#7a2a26', '#2e4a6a', '#4a2e4a'], seed)), legs: hex('#2a2420'), robe: true, head: 'chaperon', hair: hex(pick(['#2a2420', '#6a2420', '#3a4a2a'], seed + 1)), beard: hair, sash: hex('#c8a24a'), trim: hex('#c8b89a'), work: 'none', carry: carry === 'plank' || carry === 'sack' ? 'book' : carry };
       const heads: Look['head'][] = ['hood', 'coif', 'straw', 'hair'];
       const head = pick(heads, h1(seed, 3) * 4);
       return {

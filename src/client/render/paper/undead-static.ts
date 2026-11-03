@@ -750,7 +750,9 @@ function wrapShin(c: Paper, knee: P2, ank: P2, far: boolean): void {
     // (At level 1 the wraps would be stripes lined up across both legs: plain there.)
     detail: (_x, y, u) => (c.L > 1 && (c.ly(y) % Math.max(3, Math.round(c.L * 0.45))) === 0 ? code(UM.bone, t - 1) : u < -0.3 ? code(UM.bone, t + 1) : -1),
   });
-  c.blob(knee, 0.62, 0.55, UM.rag, { tone: t });
+  // (At level 1 the near knee sits a pixel lower than the far one: the two legs' wraps starting
+  // on one row read as a band across both.)
+  c.blob(c.L <= 1 && !far ? addP(knee, [0, 1]) : knee, 0.62, 0.55, UM.rag, { tone: t });
 }
 /** A leather boot, toe forward. */
 function leatherBoot(c: Paper, ank: P2, far: boolean): void {

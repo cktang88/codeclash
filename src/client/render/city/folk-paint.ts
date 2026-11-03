@@ -120,7 +120,8 @@ export function finish(p: Paper, mats: Mats, outline: Col = OUT): Sprite | null 
       const dark = mats.ramps[(nb >> 3) - MAT0]?.[0];
       const base = dark ? rgb(dark[0], dark[1], dark[2]) : OUT;
       const lit = (r >= 0 || d >= 0) && l < 0 && u < 0;
-      data[i] = lit ? mix(base, outline, 0.35) : mix(base, outline, 0.68);
+      // One outline colour per material in shade; the lit side reuses the material's darkest tone.
+      data[i] = lit ? base : mix(base, outline, 0.6);
       cls[i] = 4;
     }
   return { w, h, data, cls, fx: p.FX - x0, fy: p.FY - y0 };
@@ -157,6 +158,8 @@ export interface Cell {
   /** Foot point inside the cell, in art pixels. */
   fx: number;
   fy: number;
+  /** Its mirror image (west-facing), made on first use. */
+  m?: Cell;
 }
 
 /**
@@ -186,15 +189,23 @@ export class FolkAtlas {
     return this.cells.has(key);
   }
 
-  add(key: string, s: Sprite): Cell {
-    if (this.sx + s.w + 1 > this.W) {
+  /** Room for a w×h cell on the shelves (a new page when the last one is full). */
+  private place(w: number, h: number): { page: number; x: number; y: number } {
+    if (this.sx + w + 1 > this.W) {
       this.sx = 0;
       this.sy += this.rowH + 1;
       this.rowH = 0;
     }
-    if (!this.pages.length || this.sy + s.h + 1 > this.H) this.newPage();
-    const page = this.pages.length - 1;
-    const cell: Cell = { page, x: this.sx, y: this.sy, w: s.w, h: s.h, fx: s.fx, fy: s.fy };
+    if (!this.pages.length || this.sy + h + 1 > this.H) this.newPage();
+    const at = { page: this.pages.length - 1, x: this.sx, y: this.sy };
+    this.sx += w + 1;
+    this.rowH = Math.max(this.rowH, h);
+    return at;
+  }
+
+  add(key: string, s: Sprite): Cell {
+    const cell: Cell = { ...this.place(s.w, s.h), w: s.w, h: s.h, fx: s.fx, fy: s.fy };
+    const page = cell.page;
     const ctx = this.pages[page]!.getContext('2d')!;
     const img = ctx.createImageData(s.w, s.h);
     new Uint32Array(img.data.buffer).set(s.data);
@@ -205,10 +216,24 @@ export class FolkAtlas {
     const nc = nightCanvas(px, 0, 0, s.w, s.h, this.night);
     // The night rig gives the outline its moonlit rim; detail pixels (glows) keep their colour.
     this.nights[page]!.getContext('2d')!.drawImage(nc, cell.x, cell.y);
-    this.sx += s.w + 1;
-    this.rowH = Math.max(this.rowH, s.h);
     this.cells.set(key, cell);
     return cell;
+  }
+
+  /** The mirror image of a cell, copied flipped into the atlas once (so a draw needs no transform). */
+  private mirrorOf(c: Cell): Cell {
+    if (c.m) return c.m;
+    const m: Cell = { ...this.place(c.w, c.h), w: c.w, h: c.h, fx: c.w - c.fx, fy: c.fy };
+    for (const [src, dst] of [[this.pages, this.pages], [this.nights, this.nights]] as const) {
+      const g = dst[m.page]!.getContext('2d')!;
+      g.save();
+      g.translate(m.x + m.w, m.y);
+      g.scale(-1, 1);
+      g.drawImage(src[c.page]!, c.x, c.y, c.w, c.h, 0, 0, c.w, c.h);
+      g.restore();
+    }
+    c.m = m;
+    return m;
   }
 
   private newPage(): void {
@@ -235,19 +260,11 @@ export class FolkAtlas {
    * pixels are 1/k of it; mirrored about the foot line for the west-facing directions; the night
    * twin laid over at `night` opacity.
    */
-  blit(g: CanvasRenderingContext2D, c: Cell, X: number, Y: number, k: number, mirror: boolean, night: number): void {
+  blit(g: CanvasRenderingContext2D, c0: Cell, X: number, Y: number, k: number, mirror: boolean, night: number): void {
+    const c = mirror ? this.mirrorOf(c0) : c0;
     const dw = c.w / k, dh = c.h / k;
     const top = Y - c.fy / k;
-    const one = (img: HTMLCanvasElement) => {
-      if (!mirror) g.drawImage(img, c.x, c.y, c.w, c.h, X - c.fx / k, top, dw, dh);
-      else {
-        g.save();
-        g.translate(X + c.fx / k, top);
-        g.scale(-1, 1);
-        g.drawImage(img, c.x, c.y, c.w, c.h, 0, 0, dw, dh);
-        g.restore();
-      }
-    };
+    const one = (img: HTMLCanvasElement) => g.drawImage(img, c.x, c.y, c.w, c.h, X - c.fx / k, top, dw, dh);
     if (night < 0.99) one(this.pages[c.page]!);
     if (night > 0.01) {
       const a = g.globalAlpha;
@@ -280,6 +297,3 @@ export function oval(c: Paper, M: Mats, ctr: P2, rx: number, ry: number, m: numb
     return M.code(m, base);
   });
 }
-
-/** Figure units to canvas pixels for a polygon. */
-export const toPx = (c: Paper, pts: readonly P2[]): P2[] => pts.map((p) => [c.sx(p[0]), c.sy(p[1])] as P2);
