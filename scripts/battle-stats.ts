@@ -10,8 +10,8 @@
 //       hand), standing idle and running, and regiments broken. Compare the rows across sizes:
 //       whichever moves most with the size of the battle points at what grows with it.
 //   pnpm battle-stats ladder --factions undead,templar [--sizes 120,250,500,1000,2000,2800] [--seeds 40]
-//       A's share of the wins, the length, how often each general fell and each side's
-//       regiments broken, for the standard army at each size: where the curve bends shows
+//       A's share of the wins, the length, how often each general fell, each side's regiments
+//       broken, B's rallied and its men fallen in with another regiment, for the standard army at each size: where the curve bends shows
 //       at what size a mechanism starts to tell.
 // All take --jobs N (default 4): the seeds are shared among N worker processes.
 import { spawn } from 'node:child_process';
@@ -143,7 +143,12 @@ function ladder(mine: number[]): Tally {
         add(t, `${men}:ticks`, r.ticks);
         if (bt.commanderFell[aTeam]) add(t, `${men}:aFell`);
         if (bt.commanderFell[1 - aTeam]) add(t, `${men}:bFell`);
-        for (const e of bt.events) if (e.kind === 'rout' || e.kind === 'shattered') add(t, `${men}:${e.team === aTeam ? 'aBroke' : 'bBroke'}`);
+        for (const e of bt.events) {
+          const who = e.team === aTeam ? 'a' : 'b';
+          if (e.kind === 'rout' || e.kind === 'shattered') add(t, `${men}:${who}Broke`);
+          if (e.kind === 'rally' || e.kind === 'reform') add(t, `${men}:${who}Rallied`);
+          if (e.kind === 'joins') add(t, `${men}:${who}Joined`, e.count ?? 0);
+        }
         add(t, `${men}:regs`, bt.regiments.filter((g) => g.team === aTeam).length);
         const line = bt.regiments.filter((g) => g.team === aTeam && g.role === 'line');
         add(t, `${men}:block`, line.reduce((s, g) => s + g.start, 0) / Math.max(1, line.length));
@@ -187,10 +192,10 @@ function report(t: Tally): void {
     }
   } else {
     console.log(`${fa} against ${fb}, the standard army: ${fa}'s share of the wins by size`);
-    console.log(['men', 'battles', 'won', 'length', 'timeout', 'A gen fell', 'B gen fell', 'A broke', 'B broke', 'regs', 'line block'].map((s) => s.padStart(11)).join(''));
+    console.log(['men', 'battles', 'won', 'length', 'timeout', 'A gen fell', 'B gen fell', 'A broke', 'B broke', 'B rallied', 'B fell in', 'regs', 'line block'].map((s) => s.padStart(11)).join(''));
     for (const men of arg('sizes', '120,250,500,1000,2000,2800').split(',').map(Number)) {
       const n = g(`${men}:n`);
-      console.log([men, n, pct(g(`${men}:win`), n), `${(g(`${men}:ticks`) / n / 10).toFixed(0)}s`, g(`${men}:time`), pct(g(`${men}:aFell`), n), pct(g(`${men}:bFell`), n), f1(g(`${men}:aBroke`) / n), f1(g(`${men}:bBroke`) / n), f1(g(`${men}:regs`) / n), f1(g(`${men}:block`) / n)].map((s) => String(s).padStart(11)).join(''));
+      console.log([men, n, pct(g(`${men}:win`), n), `${(g(`${men}:ticks`) / n / 10).toFixed(0)}s`, g(`${men}:time`), pct(g(`${men}:aFell`), n), pct(g(`${men}:bFell`), n), f1(g(`${men}:aBroke`) / n), f1(g(`${men}:bBroke`) / n), f1(g(`${men}:bRallied`) / n), f1(g(`${men}:bJoined`) / n), f1(g(`${men}:regs`) / n), f1(g(`${men}:block`) / n)].map((s) => String(s).padStart(11)).join(''));
     }
   }
 }
