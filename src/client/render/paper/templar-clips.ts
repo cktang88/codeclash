@@ -58,7 +58,7 @@ export interface Arms {
 /** Authored tracks for a facing, given the rest world angles (to start and end at rest) and the arms (Templar `mk` passes them; other callers may not). */
 export type Author = (rw: Record<string, number>, f: Facing, arms?: Arms) => Tracks;
 /** Arms when a caller passes none (a Templar foot soldier's). */
-const ARMS0: Arms = { uN: 2.5, fN: 2.4, uF: 2.4, fF: 1.25, sh: [3.0, 0.2] };
+export const ARMS0: Arms = { uN: 2.5, fN: 2.4, uF: 2.4, fF: 1.25, sh: [3.0, 0.2] };
 
 /** The arms of a skeleton in a facing (the man's bones, on foot or in the saddle). */
 export function armsOf(skel: SkeletonData, facing: Facing): Arms {
@@ -221,7 +221,7 @@ export const THRUST: Author = (rw, _f, A = ARMS0) => {
 };
 
 /** The underhand spear thrust: the spear dropped to the hip, point at the belly, then driven forward and up along the shaft; pulled back to the hip and brought upright. */
-const UNDERHAND: Author = (rw, _f, A = ARMS0) => {
+export const UNDERHAND: Author = (rw, _f, A = ARMS0) => {
   const P: P2 = [-1.25, 2.9], d = 101;
   return merge(lunge({ c: 3, s: 5, h: 6, r: 8, back: 0.4, fwd: 0.75, step: 1.0, lean: -10, coil: 3, low: 0.45 }), {
     w: fistPath(rw, A, 11, [[1, [-0.7, 2.3], 1, 145], [2, P, 1, d], [3, on(P, d + 180, 0.35), 1, d], [4, on(P, d, 2.1), 1, d], [5, on(P, d, 4.2), 1, d], [6, on(P, d, 4.1), 1, d], [7, on(P, d, 1.4), 1, d], [8, P, 1, d], [9, [-0.8, 2.4], 1, 140], [10, [-0.4, 2.2], 1, 168]]),
@@ -468,8 +468,8 @@ function hideSlot(c: Clip, slot: string, from: number, to: number): Clip {
 
 const EVERY = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 /** Each blow: its author, the capture under it, and its events (a smear only on a cut's fastest frame; `strike` on the impact). */
-const BLOWS: Record<Blow, { author: Author; clip: string; o: MocapOpts; ev: AnimEvent[] }> = {
-  cut: { author: CUT_TIGHT, clip: 'cut-diagonal', o: { torso: 0.4, travel: 0, feet: 0.3 }, ev: [{ f: 6, name: 'smear', len: 1, bone: 'weapon' }, { f: 7, name: 'strike' }] },
+const BLOWS: Record<Blow, { author: Author; clip: string; o: MocapOpts; ev: AnimEvent[]; x?: number[] }> = {
+  cut: { author: CUT_TIGHT, clip: 'cut-diagonal', o: { torso: 0.4, travel: 0, feet: 0.3 }, ev: [{ f: 6, name: 'smear', len: 1, bone: 'weapon' }, { f: 7, name: 'strike' }], x: [2, 10] },
   swordThrust: { author: SWORD_THRUST, clip: 'thrust', o: { torso: 0.2, travel: 0, feet: 0 }, ev: [{ f: 5, name: 'strike' }] },
   bash: { author: BASH, clip: 'thrust', o: { torso: 0.2, travel: 0, feet: 0 }, ev: [{ f: 5, name: 'strike' }] },
   thrust: { author: THRUST, clip: 'thrust', o: { torso: 0.2, travel: 0, feet: 0 }, ev: [{ f: 5, name: 'strike' }] },
@@ -477,9 +477,9 @@ const BLOWS: Record<Blow, { author: Author; clip: string; o: MocapOpts; ev: Anim
   shove: { author: SHOVE, clip: 'thrust', o: { torso: 0.2, travel: 0, feet: 0 }, ev: [{ f: 5, name: 'strike' }] },
   jab: { author: JAB, clip: 'thrust', o: { torso: 0.2, travel: 0, feet: 0 }, ev: [{ f: 5, name: 'strike' }] },
   stab: { author: STAB, clip: 'thrust', o: { torso: 0.2, travel: 0, feet: 0 }, ev: [{ f: 5, name: 'strike' }] },
-  punch: { author: PUNCH, clip: 'thrust', o: { torso: 0.6, travel: 1, feet: 1 }, ev: [{ f: 5, name: 'strike' }] },
-  butt: { author: BUTT, clip: 'thrust', o: { torso: 0.5, travel: 1, feet: 0.8 }, ev: [{ f: 5, name: 'smear', len: 1, bone: 'weapon' }, { f: 5, name: 'strike' }] },
-  chop: { author: CHOP, clip: 'chop', o: { torso: 0.7, travel: 1, feet: 0.6 }, ev: [{ f: 6, name: 'smear', len: 1, bone: 'weapon' }, { f: 7, name: 'strike' }] },
+  punch: { author: PUNCH, clip: 'thrust', o: { torso: 0.6, travel: 1, feet: 1 }, ev: [{ f: 5, name: 'strike' }], x: [] },
+  butt: { author: BUTT, clip: 'thrust', o: { torso: 0.5, travel: 1, feet: 0.8 }, ev: [{ f: 5, name: 'smear', len: 1, bone: 'weapon' }, { f: 5, name: 'strike' }], x: [] },
+  chop: { author: CHOP, clip: 'chop', o: { torso: 0.7, travel: 1, feet: 0.6 }, ev: [{ f: 6, name: 'smear', len: 1, bone: 'weapon' }, { f: 7, name: 'strike' }], x: [] },
   axeCut: { author: AXE_CUT, clip: 'cut-diagonal', o: { torso: 0.3, travel: 0, feet: 0 }, ev: [{ f: 5, name: 'smear', len: 1, bone: 'weapon' }, { f: 6, name: 'strike' }] },
   axeThrust: { author: AXE_THRUST, clip: 'thrust', o: { torso: 0.2, travel: 0, feet: 0 }, ev: [{ f: 5, name: 'strike' }] },
 };
@@ -533,7 +533,7 @@ export function mocapFootClips(skel: SkeletonData, s: ClipSpec): { clips: ClipSe
   const idle = withBreath(fc('idle', 8, true, (f) => mk(skel, f, 'idle', { ref: 'first', torso: 0.1, travel: 0.16, feet: 0 })));
   const blowClip = (b: Blow): Clip => {
     const d = BLOWS[b];
-    return fc('attack', 12, false, (f) => mk(skel, f, d.clip, d.o, d.author, EVERY), d.ev);
+    return fc('attack', 12, false, (f) => mk(skel, f, d.clip, d.o, d.author, d.x ?? EVERY), d.ev);
   };
   const attacks = (s.blows ?? [s.attack]).map(blowClip);
   const attack = attacks[0]!;

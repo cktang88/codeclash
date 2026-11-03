@@ -849,7 +849,7 @@ export const FOOT: Record<number, { kit: SKit; gear: SGear; dark: boolean }> = {
     dark: true,
     gear: {
       // The quiver hangs at the near hip, in front, its fletchings standing above the belt.
-      front: (c) => { vol(c, [-1.5, -8.1], [-1.0, -5.3], [[0, 0.5], [1, 0.42]], TM.leather, { tone: 2, detail: (_x, _y, _u, v) => (Math.abs(v - 0.2) < 0.04 ? code(TM.leather, 1) : -1) }); for (const k of [-0.3, 0, 0.3]) vol(c, [-1.5 + k, -8.0], [-1.7 + k * 1.4, -9.0], [[0, 0.16], [1, 0.22]], TM.white, { tone: 3 }); },
+      front: (c) => { vol(c, [-1.5, -8.1], [-1.0, -5.3], [[0, 0.5], [1, 0.42]], TM.leather, { tone: 2, detail: (_x, _y, _u, v) => (Math.abs(v - 0.2) < 0.04 ? code(TM.leather, 1) : -1) }); for (const k of [-0.3, 0, 0.3]) vol(c, [-1.5 + k, -8.0], [-1.7 + k * 1.4, -9.0], [[0, 0.16], [1, 0.22]], TM.white, { tone: c.L <= 2 ? 2 : 3 }); },
       far: { el: [2.8, -8.8], wr: [3.2, -7.0], draw: (c, h, d) => bow(c, c.L < 2 ? addP(h, [1.2, -0.5]) : h, 174 + d, c.L < 2 ? 17 : 13.4, 0, null) },
       near: { el: [-2.95, -8.8], wr: [-2.7, -6.6] },
     },
