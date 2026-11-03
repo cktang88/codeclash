@@ -170,7 +170,7 @@ export class BattleScene {
   /** HD: the battlefield at the figures' texel density (ground, marks, decals; field-hd.ts). */
   private readonly field: HdField | null = null;
   /** HD: batches for ground decals, missiles and stakes (alpha-tested), and puffs (blended). */
-  private hdFxB: { decal: Batch; fx: Batch; soft: Batch } | null = null;
+  private hdFxB: { decal: Batch; fx: Batch; soft: Batch; std: Batch } | null = null;
   /** HD: its own randomness, so the classic effects' sequence is untouched. */
   private readonly hdRng = new Rng(11);
   /** HD: blood still spreading from the fallen: map point, radius, amount, tick due. */
@@ -210,7 +210,7 @@ export class BattleScene {
   constructor(readonly battle: Battle, art: ArtMode = artMode()) {
     this.art = art;
     this.ground = paintGround(battle.setup.seed);
-    if (isHdArt(art)) this.field = new HdField(this.ground);
+    if (isHdArt(art)) this.field = new HdField(this.ground, battle.setup.armies);
     const [a, b] = battle.setup.armies;
     const buildAtlas = art === 'hd64' ? buildHd64 : art === 'hd' ? buildHd : buildClassic;
     this.atlases = [buildAtlas(a.faction, a.hue), buildAtlas(b.faction, b.hue)];
@@ -482,7 +482,7 @@ export class BattleScene {
     g.unlisten();
     this.gfx = null;
     const gl = g.gl;
-    const hdBatches = [...this.hdBatch.flat(), ...(this.hdFxB ? [this.hdFxB.decal, this.hdFxB.fx, this.hdFxB.soft] : [])];
+    const hdBatches = [...this.hdBatch.flat(), ...(this.hdFxB ? [this.hdFxB.decal, this.hdFxB.fx, this.hdFxB.soft, this.hdFxB.std] : [])];
     this.hdFxB = null;
     const hdTextures = [...this.hdTex.values(), ...[...this.fxHi.values()].map((f) => f.tex)];
     this.hdBatch = [];
@@ -704,7 +704,11 @@ export class BattleScene {
       [gfx.fx, fxT.tex, fxT.w, fxT.h, fxF, fxF],
     ];
     // HD: missiles and stakes from the level-m effects sheet.
-    if (this.field && this.hdFxB) draws.push([this.hdFxB.fx, this.field.sheetTexture(gl, v.m), this.field.sheet(v.m).w, this.field.sheet(v.m).h, v.m, 1]);
+    if (this.field && this.hdFxB) {
+      draws.push([this.hdFxB.fx, this.field.sheetTexture(gl, v.m), this.field.sheet(v.m).w, this.field.sheet(v.m).h, v.m, 1]);
+      const st = this.field.standards(v.m);
+      draws.push([this.hdFxB.std, this.field.standardsTexture(gl, v.m), st.w, st.h, v.m, 1]);
+    }
     // Shadows: once per pixel, however many fall on it.
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
@@ -1022,6 +1026,16 @@ export class BattleScene {
     // flickering when wavering, dropped in the dirt when broken, raised again on a rally. At
     // zoom 2+ a stance glyph above and a morale pip bar beside the pole.
     const closeUp = this.camera.zoom >= 2;
+    // HD art: the standards come from a sheet painted at the view's density, like the figures.
+    const std = this.field ? this.field.standards(m) : null;
+    const stdB = this.field ? this.hdBatches(gfx).std : gfx.fx;
+    const sk = std ? m : 1; // texels per map px of the standards' sheet
+    const at = (v: number) => (std ? Math.round(v * m) / m : Math.round(v));
+    const flag = (name: string, x: number, y: number, depth: number): Region => {
+      const g = std ? std.byName.get(name)! : fx.get(name);
+      stdB.sprite(x, y, g.u, g.v, g.w / sk, g.h / sk, g.ax / sk, g.ay / sk, depth, 1, 1, 1, 1, 0, 1);
+      return g;
+    };
     for (let i = 0; i < b.regiments.length; i++) {
       const r = b.regiments[i]!;
       if (r.alive < 4 || r.role === 'siege' || r.role === 'skirmish') continue;
@@ -1029,13 +1043,12 @@ export class BattleScene {
       if (ms === 'shattered') continue;
       const cx = this.regX[i]! + (r.cx - this.regX[i]!) * alpha;
       const cy = this.regY[i]! + (r.cy - this.regY[i]!) * alpha;
-      const mx = Math.round(this.mapX(cx, cy));
+      const mx = at(this.mapX(cx, cy));
       const my = this.mapY(cx, cy);
       if (mx < x0 || mx > x1 || my < y0 || my > y1 + 30) continue;
       const cmd = r.role === 'command';
       if (ms === 'broken') {
-        const d = fx.get(`dropped${cmd ? 'cmd' : ''}${r.team}`);
-        gfx.fx.sprite(mx, Math.round(my), d.u, d.v, d.w, d.h, d.ax, d.ay, my - 0.5, 1, 1, 1, 1, 0, 1);
+        flag(`dropped${cmd ? 'cmd' : ''}${r.team}`, mx, at(my), my - 0.5);
         continue;
       }
       const mounted = r.role === 'flank' || r.role === 'shock-cav' || r.role === 'horse-archer' || cmd;
@@ -1044,26 +1057,26 @@ export class BattleScene {
       const frame = wavering ? Math.floor(T * 1.3 + i * 1.3 + Math.sin(T * 0.7 + i) * 2) & 3 : Math.floor(T / 2.5 + i * 1.3) & 3; // & 3, not % 4: never negative (T < 0 before the first tick)
       const bob = ms === 'rallying' ? Math.round(Math.abs(Math.sin(T * 0.6)) * 3) : 0;
       if (wavering && Math.sin(T * 2.1 + i * 5.3) > 0.82) continue;
-      const reg = fx.get(`${wavering ? 'torn' : ''}${cmd ? 'cmd' : wavering ? '' : 'ban'}${r.team}_${frame}`);
-      const top = Math.round(my) - (mounted ? 14 : 9) - bob;
-      gfx.fx.sprite(mx, top, reg.u, reg.v, reg.w, reg.h, reg.ax, reg.ay, my + 0.5, 1, 1, 1, 1, 0, 1);
+      const top = at(my) - (mounted ? 14 : 9) - bob;
+      const reg = flag(`${wavering ? 'torn' : ''}${cmd ? 'cmd' : wavering ? '' : 'ban'}${r.team}_${frame}`, mx, top, my + 0.5);
       if (!closeUp) continue;
-      const poleX = mx - reg.ax + (r.team === 1 ? 10 : 1);
+      const regAx = reg.ax / sk;
+      const regAy = reg.ay / sk;
+      const poleX = mx - regAx + (r.team === 1 ? 10 : 1);
       const stance = stanceOf(r);
-      if (stance !== 'line' && !cmd) {
-        const g = fx.get(`glyph_${stance}`);
-        gfx.fx.sprite(poleX, top - reg.ay - 1, g.u, g.v, g.w, g.h, g.ax, g.ay, my + 0.6, 1, 1, 1, 1, 0, 1);
-      }
+      if (stance !== 'line' && !cmd) flag(`glyph_${stance}`, poleX, top - regAy - 1, my + 0.6);
       // Morale pips: five, beside the pole under the cloth, coloured by how close to breaking.
       const morale = Math.max(0, Math.min(100, (r as unknown as { morale?: number }).morale ?? 50));
       const lit = Math.ceil(morale / 20);
       const [pr, pg, pb] = morale > 60 ? [0.55, 0.75, 0.4] : morale > 30 ? [0.9, 0.7, 0.25] : [0.85, 0.2, 0.15];
       const px0 = r.team === 1 ? poleX - 7 : poleX + 2;
-      const py = top - reg.ay + 10;
-      gfx.fx.rect(px0 - 1, py - 1, 7, 3, my + 0.55, 0.07, 0.05, 0.04, 1);
+      const py = top - regAy + 10;
+      stdB.rect(px0 - 1, py - 1, 7, 3, my + 0.55, 0.07, 0.05, 0.04, 1);
+      // HD: each pip a texel short of its cell, so they stay separate squares at any density.
+      const pip = std && m >= 2 ? 1 - 1 / m : 1;
       for (let k = 0; k < 5; k++) {
         const on = k < lit;
-        gfx.fx.rect(px0 + (r.team === 1 ? 4 - k : k), py, 1, 1, my + 0.6, on ? pr : 0.25, on ? pg : 0.22, on ? pb : 0.2, 1);
+        stdB.rect(px0 + (r.team === 1 ? 4 - k : k), py, pip, pip, my + 0.6, on ? pr : 0.25, on ? pg : 0.22, on ? pb : 0.2, 1);
       }
     }
 
@@ -1162,8 +1175,8 @@ export class BattleScene {
   // (m texels per map px). Kept apart from the classic path, which is unchanged.
 
   /** HD: the batches for ground decals, missiles and stakes, and puffs, made on first use. */
-  private hdBatches(gfx: Gfx): { decal: Batch; fx: Batch; soft: Batch } {
-    return (this.hdFxB ??= { decal: new Batch(gfx.gl, gfx.corners, 1024), fx: new Batch(gfx.gl, gfx.corners, 1024), soft: new Batch(gfx.gl, gfx.corners, 1024) });
+  private hdBatches(gfx: Gfx): { decal: Batch; fx: Batch; soft: Batch; std: Batch } {
+    return (this.hdFxB ??= { decal: new Batch(gfx.gl, gfx.corners, 1024), fx: new Batch(gfx.gl, gfx.corners, 1024), soft: new Batch(gfx.gl, gfx.corners, 1024), std: new Batch(gfx.gl, gfx.corners, 256) });
   }
 
   /** HD: what a step did to the field: blood, sparks, dust, hoofprints, trampling, missiles, smoke. */
@@ -1329,6 +1342,7 @@ export class BattleScene {
     B.decal.clear();
     B.fx.clear();
     B.soft.clear();
+    B.std.clear();
     const R = this.field!.sheet(m).regions;
     for (const k of this.battle.stakes) {
       const r = R[HD_ID.stake + (k.team === 0 ? 0 : 1)]!;
@@ -1441,6 +1455,7 @@ export class BattleScene {
     B.decal.upload();
     B.fx.upload();
     B.soft.upload();
+    B.std.upload();
   }
 }
 

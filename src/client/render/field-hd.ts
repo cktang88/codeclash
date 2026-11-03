@@ -22,6 +22,7 @@ import { buildFxHd, fxId, type HdSheet } from './fx-hd.ts';
 import { compile, dropTarget, target, texturePixels, type Batch, type Target } from './gl.ts';
 import type { Ground } from './ground.ts';
 import { PX, SQUASH } from './iso.ts';
+import { buildStandardsHd, type StdArmy } from './standards-hd.ts';
 
 const VS = `#version 300 es
 void main() {
@@ -364,6 +365,7 @@ interface FieldGl {
   baseT: Target | null;
   key: string;
   sheets: Map<number, WebGLTexture>;
+  standards: Map<number, WebGLTexture>;
 }
 
 const TILE = 64;
@@ -392,9 +394,16 @@ export class HdField {
   private readonly bucketsX: number;
   private readonly buckets: (Bucket | undefined)[];
   private readonly sheets = new Map<number, HdSheet>();
+  private readonly stdSheets = new Map<number, ReturnType<typeof buildStandardsHd>>();
   private g: FieldGl | null = null;
 
-  constructor(private readonly ground: Ground) {
+  constructor(
+    private readonly ground: Ground,
+    private readonly armies: readonly [StdArmy, StdArmy] = [
+      { hue: 0, faction: 'templar' },
+      { hue: 200, faction: 'templar' },
+    ],
+  ) {
     this.W = ground.w;
     this.H = ground.h;
     this.marks = new Uint8Array(this.W * this.H * 4);
@@ -519,6 +528,27 @@ export class HdField {
     return t;
   }
 
+  /** The two armies' standards at level L (the same names as the classic fx sheet). */
+  standards(L: number): ReturnType<typeof buildStandardsHd> {
+    let s = this.stdSheets.get(L);
+    if (!s) {
+      s = buildStandardsHd(this.armies, L);
+      this.stdSheets.set(L, s);
+    }
+    return s;
+  }
+
+  standardsTexture(gl: WebGL2RenderingContext, L: number): WebGLTexture {
+    const g = this.attach(gl);
+    let t = g.standards.get(L);
+    if (!t) {
+      const s = this.standards(L);
+      t = texturePixels(gl, s.w, s.h, s.pixels);
+      g.standards.set(L, t);
+    }
+    return t;
+  }
+
   // ------------------------------------------------------------------ GL
 
   private attach(gl: WebGL2RenderingContext): FieldGl {
@@ -539,7 +569,7 @@ export class HdField {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     this.dirty.fill(0);
     this.anyDirty = false;
-    this.g = { gl, base, comp, ub, uc, vao: gl.createVertexArray()!, marks, baseT: null, key: '', sheets: new Map() };
+    this.g = { gl, base, comp, ub, uc, vao: gl.createVertexArray()!, marks, baseT: null, key: '', sheets: new Map(), standards: new Map() };
     return this.g;
   }
 
@@ -558,7 +588,7 @@ export class HdField {
     gl.deleteVertexArray(g.vao);
     gl.deleteTexture(g.marks);
     if (g.baseT) dropTarget(gl, g.baseT);
-    for (const t of g.sheets.values()) gl.deleteTexture(t);
+    for (const t of [...g.sheets.values(), ...g.standards.values()]) gl.deleteTexture(t);
   }
 
   private upload(g: FieldGl): void {
