@@ -107,13 +107,18 @@ addEventListener('resize', resize);
 const target = num('t', 0);
 for (let i = 0; i < target && !real.done(); i++) step();
 
-// `focus=1`: centre the view on the thick of the fighting once fast-forwarded (screenshots).
-if (q.get('focus') === '1') {
+// `focus=1`: centre the view on the thick of the fighting once fast-forwarded (screenshots);
+// `focus=cls:N[:team]` on soldiers of class N (of that side) shooting, fighting or on the move.
+const focus = q.get('focus');
+if (focus === '1' || focus?.startsWith('cls:')) {
+  const [, c, t] = focus.split(':');
+  const cls = focus.startsWith('cls:') ? Number(c) : -1;
+  const side = t === undefined ? -1 : Number(t);
   let sx = 0;
   let sy = 0;
   let n = 0;
   for (const s of real.soldiers)
-    if (s.state === 0 && real.tick - s.actedAt < 20) {
+    if (s.state === 0 && (cls < 0 ? real.tick - s.actedAt < 20 : s.cls === cls && (side < 0 || s.team === side) && (real.tick - s.actedAt < 30 || s.vx * s.vx + s.vy * s.vy > 100))) {
       sx += s.x;
       sy += s.y;
       n++;

@@ -1174,9 +1174,9 @@ export class BattleScene {
       }
       const v2 = s.vx * s.vx + s.vy * s.vy;
       // Hooves and marching feet raise dust.
-      if (s.s.mounted ? v2 > 700 && rng.next() < 0.4 : v2 > 100 && rng.next() < 0.025) {
+      if (s.s.mounted ? v2 > 700 && rng.next() < 0.4 : v2 > 100 && rng.next() < 0.01) {
         const big = s.s.mounted ? 1 : 0;
-        this.spawn(PK.Dust, s.x - s.vx * 0.06 + (rng.next() - 0.5) * 3, s.y - s.vy * 0.06 + (rng.next() - 0.5) * 3, 1, -s.vx * 0.1 + (rng.next() - 0.5) * 6, -s.vy * 0.1 + (rng.next() - 0.5) * 6, 2 + rng.next() * 4, 1.6 + rng.next() * 1.4 + big, 2 + big * 3 + rng.next() * 2, 0.5, 0.43, 0.32, 0.3, rng.int(PUFF_VARIANTS));
+        this.spawn(PK.Dust, s.x - s.vx * 0.06 + (rng.next() - 0.5) * 3, s.y - s.vy * 0.06 + (rng.next() - 0.5) * 3, 1, -s.vx * 0.1 + (rng.next() - 0.5) * 6, -s.vy * 0.1 + (rng.next() - 0.5) * 6, 2 + rng.next() * 4, 1.6 + rng.next() * 1.4 + big, 2 + big * 3 + rng.next() * 2, 0.86, 0.76, 0.6, 0.32 + big * 0.3, rng.int(PUFF_VARIANTS));
       }
       // Hooves print the soil, the open heel behind.
       if (s.s.mounted && v2 > 300 && rng.next() < 0.22) {
@@ -1209,7 +1209,7 @@ export class BattleScene {
       }
       const look = lookOf(p.cls, p.splash) as 'arrow' | 'bolt' | 'jav';
       if (rng.next() < 0.35) f.decal(`stuck_${look}${rng.int(3)}`, this.mapX(p.x1, p.y1), this.mapY(p.x1, p.y1), now);
-      if (rng.next() < 0.3) this.spawn(PK.Dust, p.x1, p.y1, 0.5, (rng.next() - 0.5) * 8, (rng.next() - 0.5) * 8, 3 + rng.next() * 3, 0.7 + rng.next() * 0.5, 1 + rng.int(2), 0.5, 0.43, 0.32, 0.35, rng.int(PUFF_VARIANTS));
+      if (rng.next() < 0.3) this.spawn(PK.Dust, p.x1, p.y1, 0.5, (rng.next() - 0.5) * 8, (rng.next() - 0.5) * 8, 3 + rng.next() * 3, 0.7 + rng.next() * 0.5, 1 + rng.int(2), 0.8, 0.7, 0.55, 0.5, rng.int(PUFF_VARIANTS));
     }
     // New shots: the teppō and the ōzutsu fire in a billow of white powder smoke.
     for (const p of b.projectiles) {
