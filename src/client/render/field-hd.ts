@@ -458,6 +458,11 @@ export class HdField {
     this.anyDirty = true;
   }
 
+  /** New decals in view: compose the ground again (at most five times a second). */
+  decalsChanged(): void {
+    if (this.g) this.g.marksChanged = true;
+  }
+
   /** How bloody the ground is at a map point, 0..1 (for placing pools). */
   bloodAt(x: number, y: number): number {
     const px = Math.floor(x);
@@ -643,7 +648,7 @@ export class HdField {
    * when the view moves or, at most five times a second, when they changed (and every couple of
    * seconds as blood ages); every other frame the composition is only copied into the scene.
    */
-  drawGround(gl: WebGL2RenderingContext, scene: Target, camX: number, camY: number, bw: number, bh: number, m: number, now: number): void {
+  drawGround(gl: WebGL2RenderingContext, scene: Target, camX: number, camY: number, bw: number, bh: number, m: number, now: number, decals: () => void): void {
     const g = this.attach(gl);
     this.upload(g);
     const gr = this.ground;
@@ -702,6 +707,9 @@ export class HdField {
       gl.activeTexture(gl.TEXTURE1);
       gl.bindTexture(gl.TEXTURE_2D, null);
       gl.activeTexture(gl.TEXTURE0);
+      gl.bindVertexArray(null);
+      // The decals, baked in flat (thousands of them late in a battle: not redrawn each frame).
+      decals();
     }
     gl.bindVertexArray(null);
     // Copy the composition into the scene buffer.

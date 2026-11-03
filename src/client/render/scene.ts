@@ -1303,19 +1303,20 @@ export class BattleScene {
     }
   }
 
-  /** HD: the ground with its marks, then the decals flat on it. */
+  /** HD: the ground with its marks and the decals flat on it (composed, cached; field-hd.ts). */
   private drawGroundHd(gfx: Gfx, f: HdField): void {
     const v = this.view;
     const gl = gfx.gl;
-    f.drawGround(gl, gfx.scene!, v.camX, v.camY, v.bw, v.bh, v.m, this.battle.tick * TICK_S);
     const P = gfx.prog;
-    P.use(v.camX, v.camY, v.bw, v.bh, -200, this.ground.h + 200, v.m);
-    const d = this.hdFxB?.decal;
-    if (d && d.n > 0) {
+    f.drawGround(gl, gfx.scene!, v.camX, v.camY, v.bw, v.bh, v.m, this.battle.tick * TICK_S, () => {
+      const d = this.hdFxB?.decal;
+      if (!d || d.n === 0) return;
+      P.use(v.camX, v.camY, v.bw, v.bh, -200, this.ground.h + 200, v.m);
       const sh = f.sheet(v.m);
       P.tex(f.sheetTexture(gl, v.m), sh.w, sh.h, v.m, 1);
       d.draw();
-    }
+    });
+    P.use(v.camX, v.camY, v.bw, v.bh, -200, this.ground.h + 200, v.m);
   }
 
   /** HD: a fallen man, every frame (nothing is stamped into the HD ground). */
@@ -1451,7 +1452,10 @@ export class BattleScene {
       }
     }
     ps.length = w;
-    if (decalsChanged) B.decal.upload();
+    if (decalsChanged) {
+      B.decal.upload();
+      f.decalsChanged();
+    }
     B.fx.upload();
     B.soft.upload();
     B.std.upload();
