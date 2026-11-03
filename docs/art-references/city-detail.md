@@ -114,3 +114,67 @@ committed. Every pixel of the city is painted by our code.
   day: 3.3 → 5.2 ms. A rebuild (a level change) takes about 0.9-1.8 s, up from 0.4-1.6 s; that
   covers painting the props and the cast shadows. The night's light pools are painted once, on
   the first night frame after a rebuild.
+
+## Rebuild performance (level changes without the stall)
+
+A level change used to rebuild the HD city in one go inside `draw()`: the changed building, then
+all the props placed and painted again, then the night's light pools on the next night frame,
+while the ground followed a band at a time (and for those frames the new buildings stood on the
+old ground). Profiled with Playwright in `city-preview.html?art=hd&faction=…` (mid town, levels
+5-10), per piece: a building 4-25 ms, the keep 13-82 ms, the walls 66-118 ms, placing the props
+2-5 ms, painting them 28-50 ms, the ground 158-177 ms in 10-13 steps with single steps of
+43-58 ms, the light pools 69-95 ms. Most of it is per-pixel shading in the kits' painters, so it
+cannot be cut into 6 ms slices without making every kit resumable.
+
+What changed:
+
+- **The build is a job** (`src/client/render/city/build.ts`, `CityBuild.steps`): a generator, like
+  `groundSteps`, that yields after each piece of real work and returns a whole `Built` (arts,
+  ground, props, mill, pools, anchors). Each piece is cached by what it depends on, so only what
+  changed is repainted: a building by key, level and scaffolding (with its night and lights
+  canvases; the last two levels per building are kept), the props by the footprints and every
+  building's tier, the ground by its key and the shadows, the mill by the granary's level, the
+  pools by the arts and the lights. The light pools moved to `city/pools.ts` as a generator too.
+- **HD builds run in a worker** (`build-worker.ts`, OffscreenCanvas through a tiny
+  `document.createElement` shim in `worker-dom.ts`; `build-remote.ts` on the scene's side). The
+  worker keeps one `CityBuild` per scene, coalesces a burst of changes to the latest, and sends
+  each canvas once as an ImageBitmap; later builds name canvases by id. Without a worker (or if it
+  fails) the scene runs the same job on the main thread under a 6 ms budget per frame.
+- **The swap is atomic**: the old city stays on screen until the new `Built` is complete, then
+  `adopt()` swaps everything at once (new people only when the levels changed). The first paint
+  and classic stay synchronous; right after the first paint the worker builds the same city once,
+  which warms its caches and brings the night's pools, so no pools are made on the main thread
+  after that.
+- Two small hooks outside `city.ts`: props anims carry their `kind`/`flick` so a worker build can
+  name the function again (`propAnimFn`, props.ts), and `Px.clear()` now also clears the light
+  classes. That was a real bug: the Undead `sunlit` reads the class of the pixel above, which kept
+  whatever the previous building left there, so a building's art depended on what was painted
+  before it and an incremental rebuild could not match a full one.
+
+Correctness: `pnpm tsx scripts/city-rebuild-check.ts` builds six level sequences per faction
+(level-ups, tier changes, walls, a burst of changes landing before the last build is in,
+scaffolding, a drop and a rise) through the worker and through the main-thread job, and compares
+every art, lights and night canvas, the ground and crops, the pools, anims and anchors with a
+fresh synchronous build of the final levels: all 36 HD sequences are pixel-identical, and the
+classic ones too. Fresh synchronous builds are pixel-identical to the code before this change
+(HD and classic, six level sets per faction, the layers and the full day and night frames).
+
+Numbers (headless Chromium, 1280×720, mid town, day and night for each faction, frame by frame;
+the machine was shared, load average 7-11 on 4 cores, so single frames are noisy and idle frames
+alone spike to 40-100 ms). "Build work" is the main-thread time spent on the rebuild in one frame
+(the old `rebuild`/`stepGround`/pools, the new `schedule`/`pump`/pools and the worker reply).
+
+| change | worst frame before | median before | worst frame after | median after | until the new city is shown, after |
+|---|---|---|---|---|---|
+| level-up (same tier) | 203 ms | 14 ms (night 58-203) | 16 ms | 3 ms | median ~200 ms |
+| tier change (building, keep) | 340 ms | 182 ms | 8 ms | 3 ms | 300-1750 ms, avg 900 |
+| walls level | 377 ms | 202 ms | 4 ms | 1 ms | 190-670 ms |
+| five buildings at once | 567 ms | 214 ms | 4 ms | 3 ms | 300-1560 ms |
+
+Before, a level-up by day was shown in one frame (5-28 ms) but cost 58-203 ms at night (the pools);
+a tier change showed the new building at once on the old ground and finished 0.3-1.6 s later.
+After, the remaining main-thread cost is the worker reply (3-8 ms: wrapping the new bitmaps in
+canvases) and the swap (0.2 ms, populate 0.1 ms). The first change after opening can wait 1-3 s,
+while the worker is still on its warm-up build. The first paint stays synchronous: 470-1090 ms
+(510-790 ms before; the same work, plus noise).
+`pnpm tsx scripts/city-rebuild-check.ts --bench` prints these numbers.
