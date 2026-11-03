@@ -447,7 +447,7 @@ function horseClips(skel: SkeletonData, s: HorseSpec, fly?: Fly): ClipSet {
   // Struck: the horse shies (head up, a half-step back), the rider snaps back; a flash.
   const shy: Author = () => ({ dw: { horseNeck: T([0, 14], [1, 20], [2, 10], [4, 0]), horseBody: T([0, 3], [1, 5], [2, 2], [4, 0]), horseHead: T([0, 8], [1, 10], [4, 0]) }, tAdd: { horseBody: [T([0, -0.3], [1, -0.5], [2, -0.3], [4, 0]), T([0, 0])] } });
   const riderHit: Author = (rw, f) => ({ dw: HIT(rw, f).dw });
-  const hit = fc('hit', 5, false, (f) => overlayKeys(overlayKeys(standKeys(4, shy)(f, skel), riderHit(restWorld(skel, f), f)), {}, [1, 2, 3]), [{ f: 0, name: 'flash' }]);
+  const hit = fc('hit', 5, false, (f) => overlayKeys(overlayKeys(standKeys(4, shy)(f, skel), riderHit(restWorld(skel, f), f)), {}, [1, 2, 3]), []);
   const die = fc('die', 12, false, (f) => dieKeys(f), [{ f: 8, name: 'land' }]);
   const dead = mapFacings(die, (a) => lastFrame(a, 'dead'));
   const braceA: Author = (rw) => ({

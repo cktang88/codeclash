@@ -302,6 +302,11 @@ export interface PaletteOpts {
    * pale figures that crowd together, a dark rim is what parts one from the next (level 2 up).
    */
   litDark?: boolean;
+  /**
+   * With `litDark`: the lowest level it applies at (default 2). Level 1 for mid-value figures whose
+   * lit-side sel-out outline averages out to the field's value (a light rim beside a dark one).
+   */
+  litDarkFrom?: number;
 }
 
 /** Shifts a ramp's lightness so its base tone keeps GROUND_DL away from the battlefield green. */
@@ -476,7 +481,7 @@ export function figurePalette(hue: number, level: number, used: ReadonlyMap<numb
   // outline would read as light from the inside, so the lit side keeps the part's own colour
   // (sel-out). From level 4 the lit outline is a step below the edge pixel, at least tone 1.
   // (Not at level 1: a 13 px figure is a third outline, and a dark ring all round makes it dark.)
-  return { rgb, fills: n, fillOf, keep, dark, selOut: level <= 2, ...(o.litDark && level >= 2 ? { litDark: true } : {}) };
+  return { rgb, fills: n, fillOf, keep, dark, selOut: level <= 2, ...(o.litDark && level >= (o.litDarkFrom ?? 2) ? { litDark: true } : {}) };
 }
 
 // ------------------------------------------------------------------ the canvas

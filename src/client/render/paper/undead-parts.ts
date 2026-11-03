@@ -2,7 +2,7 @@
 // skulls, ribcages, rags, weapons, shields, the skeletal horse). Owned by the undead faction
 // agent; see README.md. The figures themselves are in undead.ts.
 
-import { addP, code, DEG, defineMaterial, hash, hslRamp, isKept, oklchRamp, rot, type P2, type Paper } from './core.ts';
+import { addP, code, DEG, defineMaterial, hash, hslRamp, isKept, oklabRgb, oklchRamp, rgbOklab, rot, type P2, type Paper, type RGB } from './core.ts';
 import { drawLightX } from './core.ts'; // mirrored-facing light (separate line for an easy merge)
 import { along, limb, snapDeg } from './rig.ts';
 
@@ -12,6 +12,20 @@ import { along, limb, snapDeg } from './rig.ts';
  * The Legionary's ramps: frozen on the first (HSL) ramp generator, so this figure stays as
  * approved. Low-key: yellowed brown-stained bone, rust, dull mail and iron.
  */
+/**
+ * A ramp with its hues turned by `step` degrees a tone away from the base (the base tone kept):
+ * cool deep tones, warm lights. A low-chroma or near-ambient material otherwise comes out a
+ * straight ramp (one hue from the shadow to the light, pixel-art-mistakes #8).
+ */
+export function hueTurn(ramp: RGB[], step: number): RGB[] {
+  return ramp.map((c, i) => {
+    if (i === 2) return c;
+    const [L, a, b] = rgbOklab(c);
+    const t = (i - 2) * step * DEG, cs = Math.cos(t), sn = Math.sin(t);
+    return oklabRgb(L, a * cs - b * sn, a * sn + b * cs);
+  });
+}
+
 export const UM = {
   bone: defineMaterial('undead.bone', hslRamp(42, 0.28, 0.5, 18, 55)),
   rust: defineMaterial('undead.rust', hslRamp(20, 0.45, 0.3, 355, 35)),
@@ -26,7 +40,7 @@ export const UM = {
   // New kinds (OKLCH): corpse-grey ghoul skin, a bluish dead grey (the Crypt Ghoul's pallor),
   // apart from the yellowed bone; and the grave shroud of wraiths, riders and the lich, a
   // purple-black that reads darker than the brown rag.
-  flesh: defineMaterial('undead.flesh', oklchRamp({ l: 0.42, c: 0.03, h: 290, spread: 0.085 })),
+  flesh: defineMaterial('undead.flesh', hueTurn(oklchRamp({ l: 0.42, c: 0.03, h: 290, spread: 0.085 }), 7)),
   // Charred, grave-blackened bone: the skeletal horses and the colossus' limbs. Dark on the
   // field, so the pale skulls and ribs and the green fire stand out from it.
   char: defineMaterial('undead.char', oklchRamp({ l: 0.36, c: 0.03, h: 55, spread: 0.075 })),

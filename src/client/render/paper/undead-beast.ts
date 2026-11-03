@@ -203,7 +203,7 @@ function colossusClips(skel: SkeletonData): ClipSet {
   });
   const attack = fc('attack', 12, false, (f) => mk(f, 'chop', { torso: 0.2, travel: 0.3, feet: 0.3 }, SMASH, [2, 3, 4, 5, 6, 7, 8, 10]), [{ f: 5, name: 'smear', len: 1 }, { f: 6, name: 'strike' }, ...[6, 7, 8, 9].map((k) => ({ f: k, name: 'dust', int: k - 5 }))], [0, 1, 2, 3, 4, 4, 6, 7, 8, 9, 10, 11]);
   const HITA: Author = () => ({ dw: { pelvis: T([0, 12], [1, 16], [2, 6], [4, 0]), head: T([0, -12], [1, -16], [4, 0]), jaw: T([0, -30], [1, -36], [3, -10], [4, 0]) }, tAdd: { pelvis: [T([0, -0.5], [1, -0.7], [2, -0.4], [4, 0]), T([0, 0.1], [1, 0.25], [4, 0])], footTargetN: [T([0, 0], [1, -0.9], [2, -1.0], [4, -0.4]), T([0, 0], [1, -0.5], [2, 0], [4, 0])] } });
-  const hit = fc('hit', 5, false, (f) => mk(f, 'hit', { torso: 0, absHeight: false, travel: 0.4, feet: 0.4 }, HITA, [1, 2, 3]), [{ f: 0, name: 'flash' }]);
+  const hit = fc('hit', 5, false, (f) => mk(f, 'hit', { torso: 0, absHeight: false, travel: 0.4, feet: 0.4 }, HITA, [1, 2, 3]), []);
   // Death: it sags, the knees go and it kneels, the heap slides (5-7) and falls into a mound of bones (8-11).
   const DIE: Author = (rw) => ({
     w: { thighN: T([0, rw.thighN!], [2, 30], [4, 70], [7, 80]), shinN: T([0, rw.shinN!], [2, -60], [4, -100], [7, -110]), thighF: T([0, rw.thighF!], [2, 40], [4, 72], [7, 80]), shinF: T([0, rw.shinF!], [2, -50], [4, -95], [7, -105]), weapon: T([0, rw.weapon!], [1, 190], [3, 120], [5, 80]) },
@@ -349,7 +349,7 @@ function engineClips(skel: SkeletonData): ClipSet {
     [Anim.Run]: fc('run', 12, true, HAUL(2), haulEv(12)),
     [Anim.Attack]: fc('attack', 12, false, FIGHT),
     [Anim.Shoot]: throwIt,
-    [Anim.Hit]: fc('hit', 5, false, HIT, [{ f: 0, name: 'flash' }]),
+    [Anim.Hit]: fc('hit', 5, false, HIT, []),
     [Anim.Die]: die,
     [Anim.Dead]: dead,
     [Anim.Brace]: fc('brace', 8, true, IDLE),

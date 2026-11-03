@@ -781,7 +781,7 @@ export function footClips(skel: SkeletonData, s: SSpec, k: SFoot): ClipSet {
   }
   // Struck: the shoulder and head snap back, the trunk follows, the rear foot steps back; a flash.
   const hitA: Author = (rw, f) => ({ ...HIT(rw, f), ...(s.nearDeg >= 160 ? { w: { weapon: T([0, rw.weapon! - 4], [1, rw.weapon! - 6], [4, rw.weapon!]) } } : {}) });
-  const hit = fc('hit', 5, false, (f) => mk(skel, f, 'hit', { torso: 0, absHeight: true, travel: 0.55, feet: 0.6 }, hitA, [1, 2, 3]), [{ f: 0, name: 'flash' }]);
+  const hit = fc('hit', 5, false, (f) => mk(skel, f, 'hit', { torso: 0, absHeight: true, travel: 0.55, feet: 0.6 }, hitA, [1, 2, 3]), []);
   const back = s.die === 'back';
   const fast = (f: number) => (f <= 6 ? f * 0.7 : 4.2 + ((f - 6) * 6.8) / 5);
   const dieK = (f: Facing) => mk(skel, f, back ? 'die-back' : 'die-forward', { torso: 1, absHeight: true, legsFK: true, arms: { N: 1, F: 1 }, ...(back ? {} : { retime: fast }) }, back ? DIE_BACK : DIE_FWD, [8, 9]);

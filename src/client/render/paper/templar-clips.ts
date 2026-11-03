@@ -265,7 +265,7 @@ export function mocapFootClips(skel: SkeletonData, s: ClipSpec): ClipSet {
     const h = hitA(rw, f), b = BLOCK(rw, f);
     return { ...h, dw: { ...h.dw, upperArmF: b.dw!.upperArmF!, forearmF: b.dw!.forearmF! } };
   };
-  const hit = fc('hit', 5, false, (f) => mk(skel, f, 'hit', { torso: 0, absHeight: true, travel: 0.55, feet: 0.6 }, s.shield ? hitS : hitA, [1, 2, 3]), [{ f: 0, name: 'flash' }]);
+  const hit = fc('hit', 5, false, (f) => mk(skel, f, 'hit', { torso: 0, absHeight: true, travel: 0.55, feet: 0.6 }, s.shield ? hitS : hitA, [1, 2, 3]), []);
   const dieName = s.die === 'back' ? 'die-back' : 'die-forward';
   // die-forward is a get-up played backwards: its first half is too slow for a man losing his legs.
   const fast = (f: number) => (f <= 6 ? f * 0.7 : 4.2 + ((f - 6) * 6.8) / 5);

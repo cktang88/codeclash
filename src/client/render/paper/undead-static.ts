@@ -14,7 +14,7 @@ import { addP, code, DEG, defineMaterial, hash, isKept, oklchRamp, rot, type P2,
 import type { DrawCtx } from './skeleton.ts';
 import { Anim } from '../contract.ts';
 import { along, limb, poseAt, snapDeg, type HorsePose, type KeySet } from './rig.ts';
-import { bone, bow, crossbow, flame, frameOf, helm, hood, horseBody, horseFar, horseFrame, horseNear, lance, type HorseLegs, type HorseLook, withHorseBulk, mul, pavise, planeLight, quiver, rag, robe, skull, skullBack, spear, UM, type FramePose } from './undead-parts.ts';
+import { bone, bow, crossbow, flame, frameOf, helm, hood, hueTurn, horseBody, horseFar, horseFrame, horseNear, lance, type HorseLegs, type HorseLook, withHorseBulk, mul, pavise, planeLight, quiver, rag, robe, skull, skullBack, spear, UM, type FramePose } from './undead-parts.ts';
 import {
   BLACK_RIDER_KEYS, boneJavelin, COLOSSUS_KEYS, colossus, DEATH_KNIGHT_KEYS, ghoulCranium, ghoulHead, ghoulJaw, greatHelm, HORSE_ARCHER_KEYS, collar, lichChest, LICH_KEYS, spineCrown, lit, TREBUCHET_KEYS, trebuchet,
 } from './undead.ts';
@@ -339,7 +339,9 @@ export const LEGIONARY: FootArt = {
     { slot: 'pauldronF', bone: 'chest', draw: (c, J) => pauldron(c, J.shF!, true, 1.1) },
     // The big skull kite shield tight on the far forearm.
     { slot: 'front', bone: 'forearmF', draw: (c, J, back) => (back ? kiteShieldBack : kiteShield)(c, addP(J.hF!, [-1.05, -0.8]), 6.9, 4.3, -4) },
-    { slot: 'pauldronN', bone: 'chest', draw: (c, J) => pauldron(c, J.shN!, false, 1.15) },
+    // (At level 1 the near pauldron is a little larger and further out, so the shoulder steps
+    // evenly down from the bascinet to the sword arm instead of in a jagged 1-2-1-3.)
+    { slot: 'pauldronN', bone: 'chest', draw: (c, J) => (c.L <= 1 ? pauldron(c, addP(J.shN!, [-0.3, 0]), false, 1.3) : pauldron(c, J.shN!, false, 1.15)) },
     // The sword held low and back, the long blade slanting past the near leg.
     { slot: 'weapon', bone: 'weapon', draw: (c, J) => bigSword(c, J.hN!, -40, 7.4) },
     { slot: 'upperArmN', bone: 'upperArmN', draw: (c, J) => armUpper(c, J.shN!, J.elN!, false) },
@@ -371,7 +373,9 @@ function legionaryFauld(c: Paper): void {
     const y = -7.7 + i * 0.55;
     plate(c, [[-1.8 - i * 0.12, y], [2.1 + i * 0.1, y - 0.05], [2.2 + i * 0.12, y + 0.6], [-1.9 - i * 0.14, y + 0.65]], UM.rust, { tone: 2, rim: true });
   }
-  // A rope belt over it, its knot hanging.
+  // A rope belt over it, its knot hanging (not at level 1, where it is a pixel row of bone
+  // joining the shield's skull to the forearm bones).
+  if (c.L <= 1) return;
   c.rod([-1.9, -7.55], [2.3, -7.65], 0.34, 0.34, UM.bone, { tone: 1, detail: (x) => ((c.lx(x) >> 1) & 1 ? code(UM.bone, 2) : -1) });
   c.rod([0.4, -7.5], [0.2, -6.0], 0.26, 0.22, UM.bone, { tone: 1 });
 }
@@ -941,7 +945,7 @@ export const DEATH_KNIGHT: MountArt = (() => {
       h.hNear,
       // The lance, upright with its pennon, and the armoured near arm.
       // (At level 1 the lance is drawn longer: the Knights' signature against the other riders.)
-      { slot: 'weapon', bone: 'weapon', draw: (c, J, _b, o) => void lance(c, J.hN!, 174, c.L <= 1 ? 14 : 10.5, 3.0, { pennon: true, sway: 0.3 + (o.sway ?? 0), vamplate: true }) },
+      { slot: 'weapon', bone: 'weapon', draw: (c, J, _b, o) => void lance(c, J.hN!, 180, c.L <= 1 ? 14 : 10.5, 3.0, { pennon: true, sway: 0.3 + (o.sway ?? 0), vamplate: true }) },
       { slot: 'pauldronN', bone: 'chest', draw: (c, J) => pauldron(c, addP(J.shN!, [0, -0.2]), false, 1.15) },
       { slot: 'upperArmN', bone: 'upperArmN', draw: (c, J) => vol(c, J.shN!, J.elN!, 1.3, 1.1, UM.iron, { tone: 2 }) },
       { slot: 'forearmN', bone: 'forearmN', draw: (c, J) => vol(c, J.elN!, J.hN!, 1.05, 1.1, UM.iron, { tone: 2, shine: true }) },
@@ -961,7 +965,8 @@ function deathKnightStatic(c: Paper): void {
 // violet gauntlets and greaves, a ragged cloak to the ground, and a bone longbow with a
 // green-fire arrow on the string.
 
-const VIOLET = defineMaterial('undead.violet', oklchRamp({ l: 0.36, c: 0.11, h: 300, spread: 0.085 }));
+// Hue-turned: blue-violet in the folds, a warmer violet in the light (not a straight ramp).
+const VIOLET = defineMaterial('undead.violet', hueTurn(oklchRamp({ l: 0.36, c: 0.11, h: 300, spread: 0.085 }), 7));
 const BRONZE = defineMaterial('undead.bronze', oklchRamp({ l: 0.6, c: 0.1, h: 68, spread: 0.11 }));
 
 /** Bronze trim along a line (a 1-2 px band, lit on its upper side). */

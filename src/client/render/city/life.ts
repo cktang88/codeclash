@@ -11,7 +11,7 @@ import {
   carpenterLook, CART_FX, CART_FY, CART_H, CART_W, chaplainLook, CROW_H, CROW_W, DOG_FX, DOG_FY, DOG_H, DOG_W, farmerLook, FIG_FX, FIG_FY, FIG_H, FIG_W,
   Folk, HEN_H, HEN_W, HORSE_FX, HORSE_FY, HORSE_H, HORSE_W, infirmarerLook, monkLook, sergeantLook, squireLook, villagerLook, type Look,
 } from './people.ts';
-import { samuraiLooks, undeadLooks, type FolkHd, type Looks } from './people-hd.ts';
+import { folkSeed, samuraiLooks, templarLooks, undeadLooks, type FolkHd, type Looks } from './people-hd.ts';
 import { CLASSIC, css, hash, sx, sy, WORLD_W, type Frame } from './pixels.ts';
 import { NODES, route, type Place } from './roads.ts';
 import type { CityStyle } from './style.ts';
@@ -47,6 +47,10 @@ export class Draw {
   readonly k: number;
   /** Sheet pixels per world pixel in the folk's sheets. */
   readonly d: number;
+  /** HD: the townsfolk painter (folk-*.ts), or null in classic. */
+  readonly hdFolk: FolkHd | null;
+  /** 0 day .. 1 night (HD folk lay their night palette over at this opacity). */
+  night = 0;
   constructor(
     readonly atlas: Atlas,
     readonly folk: Folk | FolkHd,
@@ -55,6 +59,7 @@ export class Draw {
   ) {
     this.k = frame.k;
     this.d = 'density' in folk ? folk.density : 1;
+    this.hdFolk = 'density' in folk ? folk : null;
   }
   /** Snap a world-pixel coordinate to the art pixel grid. */
   snap(x: number): number {
@@ -72,11 +77,50 @@ export class Draw {
     const d = this.d;
     this.g.drawImage(img, col * cw * d, row * ch * d, cw * d, ch * d, this.snap(x), this.snap(y), cw, ch);
   }
-  figure(look: Look, frame: number, dir: Dir, u: number, v: number, z = 0): void {
-    this.sheet(this.folk.figure(look), FIG_W, FIG_H, FIG_FX, FIG_FY, frame, dir, u, v, z);
+  /**
+   * A townsperson. `frame` is the classic frame (0-3 walk, 4 idle, 5-6 work); HD folk play their
+   * longer clips from `phase` (the walk: one per two steps) or the clock.
+   */
+  figure(look: Look, frame: number, dir: Dir, u: number, v: number, z = 0, phase?: number): void {
+    const hd = this.hdFolk;
+    if (hd) {
+      hd.person(this.g, look, frame, dir, this.snap(sx(u, v)), this.snap(sy(u, v, z)), this.t, this.night, folkSeed(u, v), phase);
+      return;
+    }
+    const folk = this.folk as Folk;
+    this.sheet(folk.figure(look), FIG_W, FIG_H, FIG_FX, FIG_FY, frame, dir, u, v, z);
   }
-  horse(coat: number, frame: number, dir: Dir, u: number, v: number, z = 0): void {
-    this.sheet(this.folk.horse[coat % this.folk.horse.length]!, HORSE_W, HORSE_H, HORSE_FX, HORSE_FY, frame, dir, u, v, z);
+  /** A horse (`cart`: the beast in the cart's shafts, an ox in the castle town). */
+  horse(coat: number, frame: number, dir: Dir, u: number, v: number, z = 0, phase?: number, cart = false): void {
+    const hd = this.hdFolk;
+    if (hd) {
+      hd.horse(this.g, coat, frame, dir, this.snap(sx(u, v)), this.snap(sy(u, v, z)), this.t, this.night, folkSeed(u, v), phase, cart);
+      return;
+    }
+    const folk = this.folk as Folk;
+    this.sheet(folk.horse[coat % folk.horse.length]!, HORSE_W, HORSE_H, HORSE_FX, HORSE_FY, frame, dir, u, v, z);
+  }
+  /** A dog: 0-1 trotting, 2 and 3 standing about. */
+  dog(frame: number, dir: Dir, u: number, v: number, phase?: number): void {
+    const hd = this.hdFolk;
+    if (hd) return hd.dog(this.g, frame, dir, this.snap(sx(u, v)), this.snap(sy(u, v)), this.t, this.night, folkSeed(u, v), phase);
+    this.sheet((this.folk as Folk).dog, DOG_W, DOG_H, DOG_FX, DOG_FY, frame, dir, u, v);
+  }
+  hen(frame: number, dir: Dir, u: number, v: number): void {
+    const hd = this.hdFolk;
+    if (hd) return hd.hen(this.g, frame, dir, this.snap(sx(u, v)), this.snap(sy(u, v)), this.night);
+    this.sheet((this.folk as Folk).hen, HEN_W, HEN_H, 3, 6, frame, dir, u, v);
+  }
+  cart(frame: number, dir: Dir, u: number, v: number): void {
+    const hd = this.hdFolk;
+    if (hd) return hd.cart(this.g, frame, dir, this.snap(sx(u, v)), this.snap(sy(u, v)), this.night);
+    this.sheet((this.folk as Folk).cart, CART_W, CART_H, CART_FX, CART_FY, frame, dir, u, v);
+  }
+  /** A crow in flight at a screen point (world pixels). */
+  crow(frame: number, row: number, x: number, y: number): void {
+    const hd = this.hdFolk;
+    if (hd) return hd.crow(this.g, frame, row, this.snap(x), this.snap(y), this.night);
+    this.cell((this.folk as Folk).crow, CROW_W, CROW_H, frame, row, x, y);
   }
   /** A soldier from the battle atlas; `time` in seconds drives the animation. */
   soldier(kind: number, anim: Anim, time: number, dir: Dir, u: number, v: number, z = 0): void {
@@ -342,10 +386,10 @@ class Walker implements Ent {
         const [cu, cv] = this.behind(12);
         const cartDir: Dir = this.dir;
         const back = this.dir === 2 || this.dir === 3;
-        const drawCart = () => r.sheet(r.folk.cart, CART_W, CART_H, CART_FX, CART_FY, Math.floor(this.dist / 3) % 2, cartDir, cu, cv);
-        const drawHorse = () => r.horse(this.coat, hf, this.dir, this.u, this.v);
+        const drawCart = () => r.cart(r.hdFolk ? Math.floor(this.dist / 1.5) % 4 : Math.floor(this.dist / 3) % 2, cartDir, cu, cv);
+        const drawHorse = () => r.horse(this.coat, hf, this.dir, this.u, this.v, 0, this.dist / 9, true);
         r.shadow(cu, cv, 12);
-        r.shadow(this.u, this.v, 10);
+        if (!r.hdFolk) r.shadow(this.u, this.v, 10);
         if (back) {
           drawHorse();
           drawCart();
@@ -354,15 +398,15 @@ class Walker implements Ent {
           drawHorse();
         }
         // The carter walks at the horse's head.
-        r.figure(this.look, frame, this.dir, this.u + 3, this.v + 3);
+        r.figure(this.look, frame, this.dir, this.u + 3, this.v + 3, 0, this.dist / 8.8);
         return;
       }
       const [hu, hv] = this.behind(8);
       const back = this.dir === 2 || this.dir === 3;
-      if (!back) r.horse(this.coat, hf, this.dir, hu, hv);
-      r.shadow(this.u, this.v);
-      r.figure(this.look, frame, this.dir, this.u, this.v);
-      if (back) r.horse(this.coat, hf, this.dir, hu, hv);
+      if (!back) r.horse(this.coat, hf, this.dir, hu, hv, 0, this.dist / 9);
+      if (!r.hdFolk) r.shadow(this.u, this.v);
+      r.figure(this.look, frame, this.dir, this.u, this.v, 0, this.dist / 8.8);
+      if (back) r.horse(this.coat, hf, this.dir, hu, hv, 0, this.dist / 9);
       return;
     }
     if (this.companion === 'litter') {
@@ -373,19 +417,19 @@ class Walker implements Ent {
       const x1 = Math.floor(sx(bu, bv));
       const y1 = Math.floor(sy(bu, bv)) - 7;
       const back = this.dir === 2 || this.dir === 3;
-      const second = () => r.figure(this.look, (frame + 2) % 4, this.dir, bu, bv);
+      const second = () => r.figure(this.look, (frame + 2) % 4, this.dir, bu, bv, 0, this.dist / 8.8 + 0.5);
       if (!back) second();
-      else r.figure(this.look, frame, this.dir, this.u, this.v);
+      else r.figure(this.look, frame, this.dir, this.u, this.v, 0, this.dist / 8.8);
       r.line(x0, y0, x1, y1, css(r.st.timber[2]));
       r.line(x0, y0 - 1, x1, y1 - 1, '#d8d0bc');
       r.line(Math.round((x0 * 2 + x1) / 3), Math.round((y0 * 2 + y1) / 3) - 2, Math.round((x0 + x1 * 2) / 3), Math.round((y0 + y1 * 2) / 3) - 2, '#6b5a3e');
       r.px((x0 * 2 + x1) / 3, (y0 * 2 + y1) / 3 - 2, css(r.st.skin));
-      if (!back) r.figure(this.look, frame, this.dir, this.u, this.v);
+      if (!back) r.figure(this.look, frame, this.dir, this.u, this.v, 0, this.dist / 8.8);
       else second();
       return;
     }
-    r.shadow(this.u, this.v);
-    r.figure(this.look, frame, this.dir, this.u, this.v);
+    if (!r.hdFolk) r.shadow(this.u, this.v);
+    r.figure(this.look, frame, this.dir, this.u, this.v, 0, this.dist / 8.8);
   }
 }
 
@@ -439,11 +483,11 @@ class Beast implements Ent {
     const moving = Math.hypot(this.tu - this.u, this.tv - this.v) >= 0.8;
     if (this.kind === 'dog') {
       const f = moving ? Math.floor(this.dist / 2) % 2 : this.wait > 3 ? 2 : 3;
-      r.shadow(this.u, this.v, 6);
-      r.sheet(r.folk.dog, DOG_W, DOG_H, DOG_FX, DOG_FY, f, this.dir, this.u, this.v);
+      if (!r.hdFolk) r.shadow(this.u, this.v, 6);
+      r.dog(f, this.dir, this.u, this.v, this.dist / 7);
     } else {
       const f = moving ? 0 : Math.floor(r.t * 3 + this.home[0]) % 5 === 0 ? 1 : 0;
-      r.sheet(r.folk.hen, HEN_W, HEN_H, 3, 6, f, this.dir, this.u, this.v);
+      r.hen(f, this.dir, this.u, this.v);
     }
   }
 }
@@ -547,7 +591,8 @@ export class Life {
   /** Rebuild the population for new levels (keeps nothing; called rarely). */
   populate(levels: Record<BuildingKey, number>, st: CityStyle): void {
     this.levels = levels;
-    if (!this.hd || this.hd.id === 'templar') this.L = classicLooks(st);
+    if (!this.hd) this.L = classicLooks(st);
+    else if (this.hd.id === 'templar') this.L = templarLooks(st);
     const R = this.rand;
     const total = Object.values(levels).reduce((a, b) => a + b, 0);
     this.walkers = [];
@@ -732,6 +777,7 @@ export class Life {
     if (!levels) return;
     const m = this.mood;
     const busy = (m.idle ? 0.55 : m.streak >= 3 ? 1 : 0.85) * (1 - 0.6 * m.night);
+    r.night = m.night;
     for (const w of this.walkers) {
       if (w.hidden || (w.rank > busy && w.companion === 'none')) continue;
       w.d = w.u + w.v;
@@ -810,7 +856,8 @@ export class Life {
     // The smith at the forge.
     if (levels.barracks > 0) {
       const strike = Math.floor(t * 2.2) % 2;
-      ent(24, 136, (r) => r.figure(this.L.carpenter(2, 'hammer'), 5 + strike, 0, 24, 136));
+      const smith = this.L.smith ? this.L.smith() : this.L.carpenter(2, 'hammer');
+      ent(24, 136, (r) => r.figure(smith, 5 + strike, 0, 24, 136));
       if (strike && this.rand.next() < 0.3) this.emit(sx(26.5, 136), sy(26.5, 136, 4), 2, this.rand.range(-10, 10), -this.rand.range(10, 20), 0.35);
     }
 
@@ -867,7 +914,7 @@ export class Life {
         const cyc = (t * 0.3 + i * 1.3) % 6;
         const f = cyc < 3 ? 5 : cyc < 3.4 ? 6 : 4;
         ent(u, v, (r) => {
-          r.shadow(u, v, 10);
+          if (!r.hdFolk) r.shadow(u, v, 10);
           r.horse(i, f, i % 2 ? 1 : 0, u, v);
         });
       }
@@ -1351,7 +1398,7 @@ export class Life {
     for (const c of this.crows) {
       const f = Math.floor(r.t * 6 + c.ph) % 2;
       const y = c.y + Math.sin(r.t * 2 + c.ph) * 2;
-      r.cell(r.folk.crow, CROW_W, CROW_H, f, c.vx > 0 ? 0 : 1, Math.floor(c.x), Math.floor(y));
+      r.crow(r.hdFolk ? Math.floor(r.t * 9 + c.ph) % 4 : f, c.vx > 0 ? 0 : 1, Math.floor(c.x), Math.floor(y));
       // Their shadow on the ground, far below.
       g.fillStyle = 'rgba(20,14,8,0.15)';
       g.fillRect(Math.floor(c.x) + 8, Math.floor(y) + 40, 3, hd ? q : 1);

@@ -165,7 +165,7 @@ function engineClips(skel: SkeletonData): ClipSet {
     [Anim.Run]: fc('run', 12, true, SHIFT),
     [Anim.Attack]: shot,
     [Anim.Shoot]: shot,
-    [Anim.Hit]: fc('hit', 5, false, HITA, [{ f: 0, name: 'flash' }]),
+    [Anim.Hit]: fc('hit', 5, false, HITA, []),
     [Anim.Die]: die,
     [Anim.Dead]: mapFacings(die, (a) => lastFrame(a, 'dead')),
     [Anim.Brace]: breath(fc('brace', 8, true, BRACE)),
