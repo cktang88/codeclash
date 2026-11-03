@@ -13,7 +13,8 @@
 // line (a front to fight, or an open flank to wrap), archers loose volleys at blocks that are
 // not locked with friends, cavalry rides round the wings to charge archers and the rear and
 // then pulls out to charge again, spears brace, and broken regiments run, rallying once if
-// nobody chases them. Morale settles toward what a regiment's situation is worth (losses,
+// nobody chases them and something to rally on is near (their fugitives may also fall in with a
+// formed regiment of their kind). Morale settles toward what a regiment's situation is worth (losses,
 // the rate of loss, being taken in flank or rear, the general nearby) and charges shock it.
 //
 // Hot per-soldier data lives in typed arrays (struct of arrays); the `Soldier` objects are
@@ -22,12 +23,32 @@
 import { factionStats, type FactionId } from './factions.ts';
 import { mixSeed, Rng } from './rng.ts';
 import { emptyCounts, U, UNIT_COUNT, type Counts, type Role, type UnitStats } from './units.ts';
-import { FATIGUE, MORALE, newOrder, PERSONALITIES, PLANS, type CommanderTrait, type MoraleState, type Order, type OrderKind, type Personality, type Plan } from './command.ts';
+import { FATIGUE, MORALE, newOrder, REGROUP, PERSONALITIES, PLANS, type CommanderTrait, type MoraleState, type Order, type OrderKind, type Personality, type Plan } from './command.ts';
 
 export type { CommanderTrait, MoraleState, Order, OrderKind, Personality, Plan } from './command.ts';
-export { MORALE } from './command.ts';
+export { MORALE, REGROUP } from './command.ts';
 
 /**
+ * v10 (v9 is the volley-fire work on another branch): routs recover as they did in history
+ * (docs/art-references/rout-recovery.md, rally.md; numbers in REGROUP, command.ts).
+ * - Fugitives fall in with a formed regiment of their own side and class (Templars: of their
+ *   family, foot line, missile foot or horse) that is steady, not engaged, standing (hold,
+ *   advance, reserve, guard, shoot, brace) and short of its starting strength, when they pass
+ *   within 120 of its edge: each running man is looked at every 0.5 s, at half his class's
+ *   rally odds, less with an enemy close or badly hurt. He moves to its roll and to the back of
+ *   its shortest file, keeps his own class, stats and wounds; it loses 0.6 morale a man.
+ *   Event 'joins'. `Soldier.reg` now reads the live roll.
+ * - A broken regiment rallies on a check every 2 s, once out of contact, with odds by class
+ *   (knights 0.35, horse and shock troops 0.2, trained foot 0.15, levies and missile men 0.05,
+ *   veterans at least 0.2 + 0.05), lifted by the commander within 160 (+0.2, samurai +0.4), its
+ *   own standard standing (+0.15: at least 30% of its start within 110 of its centre; -0.15 if
+ *   not), a formed reserve within 240 (+0.1), for Templars any banner within 200 (+0.2), and
+ *   lowered by enemy horse within 200 (-0.2) or the commander dead (-0.15). It needs one of
+ *   those anchors. Only men within 160 of its centre stop; stragglers run on. Once, for every
+ *   regiment (was twice for veterans and high-morale cities): a second rout is final. Shaken
+ *   (fights as wavering, may balk at going forward) for 40 s (was 4 s). Undead never rally.
+ * - REGROUP.extra (0) allows further re-formings behind the line at lower odds ('reform').
+ *
  * v8: a charge that misses closes. A handful of horse against horse (a knight against a knight,
  * a few knights against one light horseman) rode round each other at about 40 units until the
  * time limit: the charge aimed 40 past its target, and at a canter the v6 turning circle was
@@ -58,7 +79,7 @@ export { MORALE } from './command.ts';
  * one side won 60-75% of mirror matches, which side depending on the armies' size (see
  * `pnpm fairness`).
  */
-export const BATTLE_VERSION = 8;
+export const BATTLE_VERSION = 10;
 /**
  * Mixed into every battle's seed. It was BATTLE_VERSION until v3, which kept v2's salt: a
  * version bump refuses old setups (BattleVersionError) but does not re-seed battles by itself.
@@ -170,11 +191,15 @@ export class Soldier {
     readonly id: number,
     readonly team: number,
     readonly cls: number,
-    readonly reg: number,
     readonly s: UnitStats,
     readonly vet: boolean,
     readonly commander: boolean,
   ) {}
+  /**
+   * His regiment's id. Not fixed: a fugitive may fall in with another regiment of his side (see
+   * `Battle.regroup`), keeping his own class and stats.
+   */
+  get reg(): number { return this.d.reg[this.id]!; }
   get x(): number { return this.d.x[this.id]!; }
   set x(v: number) { this.d.x[this.id] = v; }
   get y(): number { return this.d.y[this.id]!; }
@@ -372,6 +397,13 @@ export class Regiment {
   moraleState: MoraleState = 'steady';
   rallies = 0;
   rallyAt = -1000;
+  /** Fugitives of other regiments it has taken in (figures), and those not yet told in the ticker (and from whom, last). */
+  absorbed = 0;
+  joinPending = 0;
+  joinFrom = -1;
+  joinTold = -1000;
+  /** Last rally check while broken (see REGROUP.check). */
+  rallyCheckAt = -1000;
   /** 0..1: running and fighting tire men; rest restores them. */
   fatigue = 0;
   /** The General's current order (kind, for overlays) and its details. */
@@ -495,12 +527,18 @@ export interface BattleEvent {
    * 'contact': a side's line first meets the enemy; 'break': a whole army gives way;
    * 'waver', 'rout', 'rally', 'shattered': a regiment's morale; 'stance': a regiment takes a
    * notable stance; 'general-order': the General's plan or a big order (see `note`); 'chase':
-   * a regiment breaks ranks on its own to chase fugitives.
+   * a regiment breaks ranks on its own to chase fugitives; 'reform': a broken regiment rallied
+   * as often as it may re-forms behind its line; 'joins': fugitives of regiment `from` (class
+   * `fromCls`) fall in with regiment `reg` (`count` figures since its last 'joins').
    */
-  kind: 'rout' | 'commander' | 'charge' | 'contact' | 'rally' | 'break' | 'stance' | 'waver' | 'shattered' | 'general-order' | 'chase';
+  kind: 'rout' | 'commander' | 'charge' | 'contact' | 'rally' | 'break' | 'stance' | 'waver' | 'shattered' | 'general-order' | 'chase' | 'reform' | 'joins';
   cls: number;
   /** The regiment concerned (-1 for the whole army). */
   reg?: number;
+  /** 'joins': the regiment the men came from, its class, and how many figures. */
+  from?: number;
+  fromCls?: number;
+  count?: number;
   stance?: Stance;
   order?: OrderKind;
   plan?: Plan;
@@ -636,6 +674,17 @@ function figures(count: number, scale: number): number {
 const isCav = (r: Regiment) => r.role === 'flank' || r.role === 'shock-cav' || r.role === 'horse-archer';
 /** Mounted blocks: the horse and the general's household. */
 const isMounted = (r: Regiment) => isCav(r) || r.role === 'command';
+/**
+ * Who may fall in with whom (REGROUP): 1 foot of the line, 2 foot that shoots (archers,
+ * crossbows, skirmishers), 3 horse; 0 never (engines, the general's household).
+ */
+const family = (r: Regiment): number =>
+  r.role === 'line' ? 1 : r.role === 'missile' || r.role === 'skirmish' ? 2 : r.role === 'flank' || r.role === 'shock-cav' || r.role === 'horse-archer' ? 3 : 0;
+/** Modes in which a steady regiment stands formed enough to take fugitives in. */
+const TAKE_IN: Record<Mode, boolean> = {
+  hold: true, advance: true, charge: false, melee: false, shoot: true, skirmish: false, flank: false, kite: false, rout: false, reserve: true, guard: true,
+  brace: true, withdraw: false, pursue: false, rally: false,
+};
 const isFoot = (r: Regiment) => r.role === 'line' || r.role === 'missile' || r.role === 'skirmish';
 const clampX = (x: number) => Math.max(4, Math.min(FIELD_W - 4, x));
 const clampY = (y: number) => Math.max(4, Math.min(FIELD_H - 4, y));
@@ -703,6 +752,10 @@ export class Battle {
   /** Whether anyone is galloping in this tick (most ticks nobody is). */
   private bowWave = false;
   private regFlags = new Uint8Array(0);
+  /** Per regiment, during `regroup`: the family of fugitives it would take in (see `family`), 0 none. */
+  private takeIn = new Uint8Array(0);
+  /** Per team, during `regroup`: the regiments taking fugitives in. */
+  private readonly takers: [Regiment[], Regiment[]] = [[], []];
   /** Cells holding anyone, in index order. */
   private readonly busy: Int32Array;
   private busyN = 0;
@@ -774,6 +827,7 @@ export class Battle {
     const m1 = this.ts[1].missile;
     this.stance = [m0 > m1 * 1.25 ? 'hold' : 'press', m1 > m0 * 1.25 ? 'hold' : 'press'];
     this.regFlags = new Uint8Array(this.regiments.length);
+    this.takeIn = new Uint8Array(this.regiments.length);
     for (const r of this.regiments) this.survey(r);
     this.updateFront(0);
     this.updateFront(1);
@@ -795,7 +849,7 @@ export class Battle {
     d.acted[id] = -100;
     d.hit[id] = -100;
     d.died[id] = -1;
-    this.soldiers.push(new Soldier(d, id, team, cls, reg.id, st, vet, commander));
+    this.soldiers.push(new Soldier(d, id, team, cls, st, vet, commander));
     reg.members.push(id);
   }
 
@@ -1135,6 +1189,7 @@ export class Battle {
       const r = regs[up ? q : regs.length - 1 - q]!;
       if ((this.tick + r.phase) % 5 === 0) this.think(r);
     }
+    if ((this.tick + 2) % REGROUP.every === 0) this.regroup();
     for (let i = 0; i < regs.length; i++) this.moveAnchor(regs[i]!);
     const d = this.d;
     const n = this.n;
@@ -2005,7 +2060,7 @@ export class Battle {
         this.events.push({ tick: this.tick, team, kind: 'waver', cls: r.cls, reg: r.id });
       }
     } else if (r.moraleState === 'wavering' && r.morale > M.waverAt + 8) r.moraleState = 'steady';
-    else if (r.moraleState === 'rallying' && this.tick - r.rallyAt >= 40) r.moraleState = r.morale > M.waverAt + 8 ? 'steady' : 'wavering';
+    else if (r.moraleState === 'rallying' && this.tick - r.rallyAt >= REGROUP.shaken) r.moraleState = r.morale > M.waverAt + 8 ? 'steady' : 'wavering';
   }
 
   private thinkRouted(r: Regiment): void {
@@ -2037,18 +2092,32 @@ export class Battle {
       }
     }
     if (this.tick - r.routAt < 60 || this.tick - r.quietSince < 40) return;
-    if (r.alive < Math.max(6, r.start * MORALE.shatterBelow)) return;
-    // Rally: likelier near the general, for veterans, and with the city's morale bonus.
-    const army = this.setup.armies[r.team]!;
-    let p = MORALE.rallyChance + army.moraleBonus * MORALE.rallyPerBonus + (r.veteran ? 0.08 : 0);
-    const cmd = this.commander[r.team]!;
-    if (cmd >= 0 && this.d.state[cmd] === State.Fighting) {
-      const dx = this.d.x[cmd]! - r.cx;
-      const dy = this.d.y[cmd]! - r.cy;
-      if (dx * dx + dy * dy < 320 * 320) p += MORALE.rallyNearGeneral;
-    } else p *= 0.4;
+    if (r.alive < Math.max(REGROUP.minMen, r.start * MORALE.shatterBelow)) return;
+    // Out of contact, a check every few seconds (REGROUP.check).
+    if (this.tick - r.rallyCheckAt < REGROUP.check) return;
+    r.rallyCheckAt = this.tick;
+    // Rallied as often as it may (a second rout is final): only an `extra` re-forming, with its
+    // standard standing behind its own line, and at lower odds.
+    const reform = r.rallies >= REGROUP.rallies;
+    const standard = this.together(r, REGROUP.standardRange) >= Math.max(REGROUP.minMen, r.start * REGROUP.share);
+    // Too scattered for even a handful to stop together.
+    if (!standard && this.together(r, REGROUP.gather) < REGROUP.minMen) return;
+    if (reform) {
+      if (r.rallies >= REGROUP.rallies + REGROUP.extra || !standard) return;
+      const ts = this.ts[r.team]!;
+      const dir = r.team === 0 ? 1 : -1;
+      if (ts.hasLine && (r.cx - ts.frontX) * dir > -30) return;
+    }
+    let p = this.rallyOdds(r.team, r.cls, r.veteran, r.cx, r.cy, standard, false);
+    if (p < 0) return;
+    if (reform) p *= REGROUP.extraOdds;
     if (!this.rng.chance(p)) return;
-    // They stop, turn and form up where they stand.
+    // They stop, turn and form up about their centre; stragglers further off run on.
+    const army = this.setup.armies[r.team]!;
+    const d = this.d;
+    const far2 = REGROUP.gather * REGROUP.gather;
+    const ox = r.cx;
+    const oy = r.cy;
     r.routed = false;
     r.rallies++;
     r.rallyAt = this.tick;
@@ -2056,10 +2125,26 @@ export class Battle {
     r.morale = MORALE.rallyMorale + army.moraleBonus * 0.5;
     r.recent = 0;
     r.flankShock = 0;
-    const d = this.d;
+    let n = 0;
+    let sx = 0;
+    let sy = 0;
     for (const id of r.members) {
-      if (d.state[id] === State.Routing) d.state[id] = State.Fighting;
+      if (d.state[id] === State.Routing) {
+        const dx = d.x[id]! - ox;
+        const dy = d.y[id]! - oy;
+        if (dx * dx + dy * dy > far2) continue;
+        d.state[id] = State.Fighting;
+      }
       d.target[id] = -1;
+      if (d.state[id] === State.Fighting) {
+        n++;
+        sx += d.x[id]!;
+        sy += d.y[id]!;
+      }
+    }
+    if (n > 0) {
+      r.cx = sx / n;
+      r.cy = sy / n;
     }
     const e = this.ts[1 - r.team]!;
     const fx = e.frontX - r.cx >= 0 ? 1 : -1;
@@ -2074,7 +2159,242 @@ export class Battle {
     r.targetReg = -1;
     this.give(r, 'hold');
     this.setMode(r, 'rally');
-    this.events.push({ tick: this.tick, team: r.team, kind: 'rally', cls: r.cls, reg: r.id });
+    this.events.push({ tick: this.tick, team: r.team, kind: reform ? 'reform' : 'rally', cls: r.cls, reg: r.id });
+  }
+
+  /**
+   * Odds per check (REGROUP) that men of class `cls` at (x, y) rally: by class and veterancy,
+   * with the anchors and threats about them (rout-recovery.md 8.4). `standard`: whether their
+   * own regiment's standard still stands (null: they are joining another regiment, whose
+   * standard is close when `atStandard`). -1: they cannot rally (no anchor, or undead).
+   */
+  private rallyOdds(team: number, cls: number, vet: boolean, x: number, y: number, standard: boolean | null, atStandard: boolean): number {
+    const R = REGROUP;
+    const army = this.setup.armies[team]!;
+    if (army.faction === 'undead') return -1;
+    let p = R.odds[cls] ?? 0;
+    if (vet) p = Math.max(p, R.veteranFloor) + R.veteranAdd;
+    p += army.moraleBonus * R.perBonus;
+    // Joining: the regiment they join is their anchor.
+    let anchor = standard !== false;
+    if (standard === true || atStandard) p += R.standard;
+    else if (standard === false) p += R.standardLost;
+    const d = this.d;
+    const cmd = this.commander[team]!;
+    if (cmd >= 0 && d.state[cmd] === State.Fighting) {
+      const dx = d.x[cmd]! - x;
+      const dy = d.y[cmd]! - y;
+      if (dx * dx + dy * dy < R.commanderRange * R.commanderRange) {
+        p += R.commander + (army.faction === 'samurai' ? R.samuraiLord : 0);
+        anchor = true;
+      }
+    } else if (this.commanderFell[team]) p += R.commanderDead;
+    // A formed regiment of their own side near (a reserve); for Templars, any banner standing.
+    let reserve = false;
+    let banner = false;
+    for (const o of this.teamRegs[team]!) {
+      if (o.alive < 4 || o.routed || o.role === 'siege' || o.role === 'skirmish') continue;
+      const dx = o.cx - x;
+      const dy = o.cy - y;
+      const q = dx * dx + dy * dy;
+      if (q < R.banner * R.banner) banner = true;
+      if (o.role !== 'command' && !o.engaged && o.moraleState === 'steady' && q < R.reserveRange * R.reserveRange) reserve = true;
+    }
+    if (reserve && standard !== null) {
+      p += R.reserve;
+      anchor = true;
+    }
+    if (banner && army.faction === 'templar') {
+      p += R.templarBanner;
+      anchor = true;
+    }
+    if (!anchor) return -1;
+    for (const o of this.teamRegs[1 - team]!) {
+      if (o.alive === 0 || o.routed || !isCav(o)) continue;
+      const dx = o.cx - x;
+      const dy = o.cy - y;
+      const rr = R.enemyHorseRange + o.radius;
+      if (dx * dx + dy * dy < rr * rr) {
+        p += R.enemyHorse;
+        break;
+      }
+    }
+    return p;
+  }
+
+  /**
+   * Which fugitives a regiment of class `cls` and role family `f` takes in (REGROUP.sameClass):
+   * men of its own class; for Templars (the Beauséant rule), of its family. 0: none.
+   */
+  private takerKey(team: number, cls: number, f: number): number {
+    if (f === 0) return 0;
+    return !REGROUP.sameClass || this.setup.armies[team]!.faction === 'templar' ? 32 + f : 1 + cls;
+  }
+
+  /**
+   * Fugitives fall in with a formed friend of their own kind (REGROUP): each running man, once
+   * every few ticks, looks for a steady, unengaged regiment of his class with room in it within
+   * reach of him. Found, he may stop and join it, at the back of its files, at half the odds of
+   * rallying (rout-recovery.md 8.6).
+   */
+  private regroup(): void {
+    const regs = this.regiments;
+    const ok = this.takeIn;
+    const takers = this.takers;
+    takers[0].length = 0;
+    takers[1].length = 0;
+    for (let j = 0; j < regs.length; j++) {
+      const o = regs[j]!;
+      const can = !o.routed && o.alive > 0 && o.alive < o.start * REGROUP.room && !o.engaged && o.moraleState === 'steady' && TAKE_IN[o.mode] && !this.broken[o.team];
+      ok[j] = can ? this.takerKey(o.team, o.cls, family(o)) : 0;
+      if (ok[j]! > 0) takers[o.team]!.push(o);
+    }
+    if (takers[0].length === 0 && takers[1].length === 0) return;
+    const d = this.d;
+    const n = this.n;
+    const up = (this.tick + this.parity) % 2 === 0;
+    const per = (REGROUP.joinOdds * REGROUP.every) / REGROUP.check;
+    for (let q = 0; q < n; q++) {
+      const i = up ? q : n - 1 - q;
+      if (d.state[i] !== State.Routing) continue;
+      const team = d.team[i]!;
+      if (this.broken[team] || takers[team]!.length === 0) continue;
+      const r = regs[d.reg[i]!]!;
+      if (this.tick - r.routAt < REGROUP.minRun) continue;
+      const S = this.soldiers[i]!;
+      const key = this.takerKey(team, S.cls, family(r));
+      if (key === 0) continue;
+      const x = d.x[i]!;
+      const y = d.y[i]!;
+      const o = this.friendNear(takers[team]!, key, r.id, x, y);
+      if (!o) continue;
+      const sx = o.cx - x;
+      const sy = o.cy - y;
+      const sr = o.radius * REGROUP.standardNear;
+      let p = this.rallyOdds(team, S.cls, S.vet, x, y, null, sx * sx + sy * sy < sr * sr);
+      if (p <= 0) continue;
+      p *= per;
+      if (this.enemyWithin(x, y, team, REGROUP.enemyNear)) p *= REGROUP.enemyNearMul;
+      if (d.hp[i]! < S.s.hp * REGROUP.hurt) p *= REGROUP.hurtMul;
+      if (r.moraleState === 'shattered') p *= REGROUP.shatteredMul;
+      if (!this.rng.chance(p)) continue;
+      this.fallIn(i, r, o);
+      // Full now (or no longer steady): it takes no more this round.
+      if (o.alive >= o.start * REGROUP.room || o.moraleState !== 'steady') ok[o.id] = 0;
+    }
+    for (let j = 0; j < regs.length; j++) {
+      const o = regs[j]!;
+      if (o.joinPending === 0 || this.tick - o.joinTold < REGROUP.tellEvery) continue;
+      const from = regs[o.joinFrom]!;
+      this.events.push({ tick: this.tick, team: o.team, kind: 'joins', cls: o.cls, reg: o.id, from: from.id, fromCls: from.cls, count: o.joinPending });
+      o.joinPending = 0;
+      o.joinTold = this.tick;
+    }
+  }
+
+  /** Of `list`, the regiment taking `key` (see `takeIn`) whose edge is nearest (x, y), within REGROUP.reach; never `own`. */
+  private friendNear(list: Regiment[], key: number, own: number, x: number, y: number): Regiment | null {
+    const ok = this.takeIn;
+    let best: Regiment | null = null;
+    let bd: number = REGROUP.reach;
+    for (const o of list) {
+      if (o.id === own || ok[o.id] !== key) continue;
+      const dx = o.cx - x;
+      const dy = o.cy - y;
+      const far = o.radius + bd;
+      if (dx * dx + dy * dy >= far * far) continue;
+      const q = sqrt(dx * dx + dy * dy) - o.radius;
+      if (q < bd) {
+        bd = q;
+        best = o;
+      }
+    }
+    return best;
+  }
+
+  /** Whether a standing enemy of `team` is within `R` of (x, y). */
+  private enemyWithin(x: number, y: number, team: number, R: number): boolean {
+    const d = this.d;
+    const x0 = Math.max(0, Math.floor((x - R) / CELL));
+    const x1 = Math.min(GW - 1, Math.floor((x + R) / CELL));
+    const y0 = Math.max(0, Math.floor((y - R) / CELL));
+    const y1 = Math.min(GH - 1, Math.floor((y + R) / CELL));
+    const R2 = R * R;
+    for (let cy = y0; cy <= y1; cy++) {
+      for (let cx = x0; cx <= x1; cx++) {
+        const c = cy * GW + cx;
+        for (let k = this.grid[c]!; k < this.grid[c + 1]!; k++) {
+          const j = this.items[k]!;
+          if (d.team[j] === team || d.state[j] !== State.Fighting) continue;
+          const dx = d.x[j]! - x;
+          const dy = d.y[j]! - y;
+          if (dx * dx + dy * dy <= R2) return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Man `i`, running from `from`, falls in with `o`: he leaves `from`'s roll for `o`'s (keeping
+   * his own class, stats, wounds and ammunition) and takes a place at the back of its shortest
+   * file, the one nearest him. The regiment's spirits dip a little.
+   */
+  private fallIn(i: number, from: Regiment, o: Regiment): void {
+    const d = this.d;
+    const k = from.members.indexOf(i);
+    if (k >= 0) from.members.splice(k, 1);
+    from.alive--;
+    d.reg[i] = o.id;
+    o.members.push(i);
+    o.alive++;
+    d.state[i] = State.Fighting;
+    d.target[i] = -1;
+    d.imp[i] = 0;
+    o.morale -= REGROUP.moraleCost;
+    o.absorbed++;
+    o.joinPending++;
+    o.joinFrom = from.id;
+    if (o.stance === 'wedge') {
+      this.assignSlots(o, true);
+      return;
+    }
+    const cols = Math.max(1, o.cols);
+    const counts = new Int32Array(cols);
+    for (const id of o.members) {
+      if (id === i || d.state[id] !== State.Fighting) continue;
+      counts[Math.max(0, Math.min(cols - 1, Math.round(d.col[id]!)))]!++;
+    }
+    const lat = -(d.x[i]! - o.ax) * o.fy + (d.y[i]! - o.ay) * o.fx;
+    const near = lat / Math.max(1, o.spacing) + (cols - 1) / 2;
+    let best = 0;
+    let bs = Infinity;
+    for (let c = 0; c < cols; c++) {
+      const s = counts[c]! * 1000 + Math.abs(c - near);
+      if (s < bs) {
+        bs = s;
+        best = c;
+      }
+    }
+    d.col[i] = best;
+    d.row[i] = counts[best]!;
+    this.slotOffsets(o);
+    // Short last ranks sit between files: let the files close up and settle any doubled place.
+    o.reflow = true;
+  }
+
+  /** A broken regiment's running men within `range` of their centre. */
+  private together(r: Regiment, range: number): number {
+    const d = this.d;
+    const far2 = range * range;
+    let n = 0;
+    for (const id of r.members) {
+      if (d.state[id] !== State.Routing) continue;
+      const dx = d.x[id]! - r.cx;
+      const dy = d.y[id]! - r.cy;
+      if (dx * dx + dy * dy <= far2) n++;
+    }
+    return n;
   }
 
   /** A wavering captain may balk at an order to go forward. */
@@ -2935,9 +3255,11 @@ export class Battle {
     r.targetReg = -1;
     // A chase ends when the chasers break (else, rallied, they would run on after it at once).
     r.chaseAt = -1;
-    // Broken once too often, or too few left to stand again: shattered.
-    const maxRallies = 1 + (r.veteran || this.setup.armies[r.team]!.moraleBonus >= 8 ? 1 : 0);
-    const shattered = r.rallies >= maxRallies || r.alive < r.start * MORALE.shatterBelow || this.broken[r.team];
+    // Broken once too often (a second rout is final unless REGROUP.extra allows a re-forming, and
+    // then only with enough of it left), too few left to stand again, or undead (they hold or
+    // crumble): shattered.
+    const spent = r.rallies >= REGROUP.rallies + REGROUP.extra || (r.rallies >= REGROUP.rallies && r.alive < Math.max(REGROUP.minMen, r.start * REGROUP.share));
+    const shattered = spent || this.setup.armies[r.team]!.faction === 'undead' || r.alive < r.start * MORALE.shatterBelow || this.broken[r.team];
     r.moraleState = shattered ? 'shattered' : 'broken';
     this.events.push({ tick: this.tick, team: r.team, kind: shattered ? 'shattered' : 'rout', cls: r.cls, reg: r.id });
     const d = this.d;

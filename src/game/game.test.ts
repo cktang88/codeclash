@@ -414,7 +414,9 @@ describe('battle: command and morale', () => {
   }, 60_000);
 
   it('regiments waver, break, rally and shatter; the city’s morale bonus helps', () => {
-    const b = new Battle(setupOf(5, army(600), army(600)));
+    // Seed 1: since v10 a regiment rallies only out of contact and with something to rally on,
+    // and in about half of these battles none does (seed 5 had none).
+    const b = new Battle(setupOf(1, army(600), army(600)));
     const states = new Set<string>();
     while (!b.done()) {
       b.step();

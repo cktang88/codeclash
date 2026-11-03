@@ -181,3 +181,7 @@ Scripts (scratch, not committed): `measure.ts` (sizes) and `detentry.ts` + `pw/d
 - **Setup**: 405–417 bytes of JSON, ~210 bytes gzip.
 
 Note: the brief assumed battles of 900–3,000 ticks; with the bench armies they lasted 650–2,620 ticks (65–262 s). Grand battles with larger, mixed armies will be at the long end, which the "every 2nd/5th tick" upper bounds above cover.
+
+## Version log
+
+- **v10** (v9 is reserved for the volley-fire branch): routs recover. Fugitives may fall in with a steady, unengaged regiment of their side and class that has room (Templars: of their family), and a broken regiment rallies only out of contact, with an anchor (its standard, the commander, a formed reserve), with odds by class from `docs/art-references/rout-recovery.md`; a second rout is final, and undead never rally. A man's regiment can change during a battle (`Soldier.reg` reads the live roll). New events `joins` and `reform`. See the v10 note in `src/game/battle.ts` and `REGROUP` in `src/game/command.ts`.
