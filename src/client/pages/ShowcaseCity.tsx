@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { BUILDINGS, MAX_LEVEL, type BuildingKey } from '../../game/city.ts';
 import { FACTIONS, type FactionId } from '../../game/factions.ts';
 import type { CityMood } from '../render/city.ts';
@@ -60,6 +60,13 @@ export function ShowcaseCity() {
   // Either a preset (index) or every building at one level (null).
   const [preset, setPreset] = useState<number | null>(3);
   const [level, setLevel] = useState(12);
+  // The town follows the slider once the thumb rests: each new set of levels is a whole rebuild (HD
+  // builds in a worker, one after another), so a drag across twenty levels must not queue twenty.
+  const [built, setBuilt] = useState(12);
+  useEffect(() => {
+    const t = setTimeout(() => setBuilt(level), 250);
+    return () => clearTimeout(t);
+  }, [level]);
   const [time, setTime] = useState<Time>('day');
   const [hour, setHour] = useState(12);
   const [festive, setFestive] = useState(true);
@@ -81,13 +88,13 @@ export function ShowcaseCity() {
     const base: Preset =
       preset !== null
         ? PRESETS[preset]!
-        : { name: `Level ${level}`, levels: all(level), recruits: level * 2, mood: { army: army(Math.ceil(level / 3)), wins: Math.floor(level / 6) } };
+        : { name: `Level ${built}`, levels: all(built), recruits: built * 2, mood: { army: army(Math.ceil(built / 3)), wins: Math.floor(built / 6) } };
     const streak = festive ? Math.max(6, base.mood.streak ?? 0) : Math.min(2, base.mood.streak ?? 0);
     const fixed = TIMES.find(([k]) => k === time)?.[2];
     const h = time === 'live' ? undefined : time === 'hour' ? hour : time === 'cycle' ? hour : fixed;
     const mood: CityMood = { ...base.mood, streak, idle, marching, hour: h };
     return { levels: base.levels, recruits: idle ? Math.ceil(base.recruits / 2) : base.recruits, mood };
-  }, [preset, level, festive, idle, marching, time, hour]);
+  }, [preset, built, festive, idle, marching, time, hour]);
 
   return (
     <>
