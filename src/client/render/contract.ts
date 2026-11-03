@@ -18,7 +18,10 @@ export const Anim = {
   Shoot: 4,
   /** Flinching from a wound. */
   Hit: 5,
-  /** Falling: played once, ends on the corpse. */
+  /**
+   * Falling: played once, ends on the corpse. Played backwards it is getting up (see `RISE`): a
+   * painter's Die must read in reverse too, from the corpse back to standing.
+   */
   Die: 6,
   /** The corpse, one frame, stamped on the ground. */
   Dead: 7,
@@ -34,6 +37,26 @@ export const Anim = {
 } as const;
 export type Anim = (typeof Anim)[keyof typeof Anim];
 export const ANIM_COUNT = 9;
+
+/**
+ * Rising from the dead (the undead's "What falls, rises": game Soldier.roseAt). The renderer plays
+ * Die backwards from the corpse: the figure lies still for `hold` ticks, then each frame lasts
+ * `slow` times its time in the fall (a slow heave off the ground, then up: the CC0 "Skeleton Rise"
+ * strip, docs/art-references/doctrines.md). A risen corpse is no longer drawn on the ground.
+ */
+export const RISE = { hold: 4, slow: 1.5 } as const;
+
+/** Ticks a rise takes for a Die of `frames` frames at `ticksPerFrame`. */
+export function riseTicks(frames: number, ticksPerFrame: number): number {
+  return RISE.hold + Math.ceil(frames * ticksPerFrame * RISE.slow);
+}
+
+/** The Die frame to draw `since` ticks after a figure began to rise (the last frame first), or -1 once he stands. */
+export function riseFrame(frames: number, ticksPerFrame: number, since: number): number {
+  if (since >= riseTicks(frames, ticksPerFrame)) return -1;
+  const k = Math.floor(Math.max(0, since - RISE.hold) / (ticksPerFrame * RISE.slow));
+  return Math.max(0, frames - 1 - k);
+}
 
 /**
  * Regiment stances (game/battle.ts Regiment.stance): how a block stands and moves. The renderer

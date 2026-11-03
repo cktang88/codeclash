@@ -793,6 +793,8 @@ const TAKE_IN: Record<Mode, boolean> = {
   hold: true, advance: true, charge: false, melee: false, shoot: true, skirmish: false, flank: false, kite: false, rout: false, reserve: true, guard: true,
   brace: true, withdraw: false, pursue: false, rally: false,
 };
+/** U3: the classes the Lich-Marshal raises: foot of the line and skirmishers (no horse, Colossus, archers or engines). */
+const RISES: readonly boolean[] = Array.from({ length: UNIT_COUNT }, (_, c) => c === U.HeavyInfantry || c === U.Spearmen || c === U.Skirmishers);
 const isFoot = (r: Regiment) => r.role === 'line' || r.role === 'missile' || r.role === 'skirmish';
 const clampX = (x: number) => Math.max(4, Math.min(FIELD_W - 4, x));
 const clampY = (y: number) => Math.max(4, Math.min(FIELD_H - 4, y));
@@ -1387,7 +1389,7 @@ export class Battle {
     for (let i = this.firstId[t]!; i < end && n < cap; i++) {
       if (d.state[i] !== State.Dead || d.rose[i]! >= 0 || this.tick - d.died[i]! < doc.raiseAfter) continue;
       const s = this.soldiers[i]!;
-      if (s.commander || (s.cls !== U.HeavyInfantry && s.cls !== U.Spearmen && s.cls !== U.Skirmishers)) continue;
+      if (!RISES[s.cls] || s.commander) continue;
       const dx = d.x[i]! - lx;
       const dy = d.y[i]! - ly;
       if (dx * dx + dy * dy > R2) continue;
@@ -1408,6 +1410,20 @@ export class Battle {
       n++;
     }
     if (n > 0) this.events.push({ tick: this.tick, team: t, kind: 'doctrine', cls: U.HeavyInfantry, note: 'raise', count: n * this.scale });
+  }
+
+  /**
+   * Whether fallen man `id` may yet be raised (U3): of a raising army whose Lich-Marshal still
+   * stands and whose host holds, of a class that rises, and never raised before. For the
+   * renderer, which keeps such a corpse off the ground until it can no longer get up.
+   */
+  mayRise(id: number): boolean {
+    const d = this.d;
+    const t = d.team[id]!;
+    if (this.doc[t]!.raiseEvery <= 0 || d.state[id] !== State.Dead || d.rose[id]! >= 0) return false;
+    const s = this.soldiers[id]!;
+    if (s.commander || !RISES[s.cls]) return false;
+    return !this.crumbling[t] && !this.broken[t] && !this.result && this.lordAlive(t);
   }
 
   /** A blow to a regiment's morale; the fearless take none. */
