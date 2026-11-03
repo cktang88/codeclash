@@ -38,7 +38,8 @@ animation, frame, level) it asks `paintPaper(faction, kind, level, anim, frame, 
 
 The LRU cap, the worker pool and the trimming and packing are unchanged. Frame counts are shared
 (`render/frames.ts`): Idle 8, Walk 12, Run 12, Attack 12, Shoot 12, Hit 5, Die 12, Dead 1, Brace 8.
-Shoot falls back to Attack for kinds that don't shoot (`slotOf` in `sprites128.ts`).
+Shoot falls back to Attack for kinds that don't shoot (`slotOf` in `sprites128.ts`). A kind may
+register several attacks (see "Several blows" below).
 
 ## Adding a kind
 
@@ -76,6 +77,43 @@ The kind takes over in HD mode as soon as it is registered. Every animation with
 by paper. An animation without keys falls back as follows: Dead takes the last Die key; Shoot on a
 melee kind becomes Attack (`slotOf`). Give every animation in `contract.ts` its keys, so that
 `paperSupports` covers the whole sheet (the unit test in `paper.test.ts` checks the Legionary does).
+
+### Several blows (attack variety)
+
+A melee kind can have 2-3 different attacks ("blows"): an overhead cut, a thrust, a backhand. In
+battle each man picks one per swing (a hash of the man and the swing's tick), so a regiment does
+not strike in lockstep. Each blow is a whole Attack (12 frames, `FRAMES[Attack]`), authored like
+the single attack: anticipation, strike, overshoot, recover. Blow 0 comes first and is the one the
+city and the previews show.
+
+Bone rigs (`*-clips.ts` / `*-rig.ts`): list the clips in `attacks` on the `SkeletonRig`. It replaces
+`clips[Anim.Attack]` (keep that set too, or leave it out).
+
+```ts
+const rig: SkeletonRig = {
+  skel, atts,
+  clips: { ...clips, [Anim.Attack]: overhead },   // the classic single attack (= blow 0)
+  attacks: [overhead, thrust, backhand],          // every blow, blow 0 first
+};
+registerPaperKind('templar', U.HeavyInfantry, skeletonKind(rig));   // paperBlows(...) === 3
+```
+
+Key sets (`KeySet`): `attacks: [keysA, keysB, keysC]`, one key list per blow, replacing
+`poses[Anim.Attack]`:
+
+```ts
+const KEYS: KeySet<FootPose> = { poses: { [Anim.Idle]: [...], /* ... */ }, attacks: [cutKeys, thrustKeys, backhandKeys] };
+```
+
+A rig that is built lazily (undead `registerLazy` / `registerFoot`) cannot be asked how many
+clips it has at registration: pass the count (`registerFoot(kind, spec, false, 3)`, or `blows: 3`
+on any `PaperKindDef`), and give the rig the same number of `attacks`.
+
+What else follows:
+- `draw(c, pose, facing, anim, frame, blow)` gets the blow as a 6th argument (`frame` counts within the blow). A wrapper around another kind's `draw` must pass it on (see `samuraiKind`).
+- `secondary(out, anim, frame, ...)` runs per blow as usual; `paintSkeleton(rig, Anim.Attack, f, { blow })` paints one blow.
+- The atlas lays the blows out blow after blow: Attack frame `b * 12 + f` is frame f of blow b (`Atlas.blows` in `contract.ts`). Blow 0 keeps its old slots and grid cells; the others are added after them, so a one-blow kind paints exactly what it did.
+- The pixel lint audits every blow (`blowFlicker`, `blowOffPalette`; `kind-report` says how many blows a kind has). Every blow adds 4 × 12 frames to every sheet level, so keep it to 2-3.
 
 ### Body types and pose fields (`rig.ts`)
 
