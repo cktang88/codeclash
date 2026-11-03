@@ -177,7 +177,7 @@ export { COHESION, DOCTRINE, MORALE, REGROUP, UNDEAD } from './command.ts';
  * one side won 60-75% of mirror matches, which side depending on the armies' size (see
  * `pnpm fairness`).
  */
-export const BATTLE_VERSION = 15;
+export const BATTLE_VERSION = 16;
 /**
  * Mixed into every battle's seed. It was BATTLE_VERSION until v3, which kept v2's salt: a
  * version bump refuses old setups (BattleVersionError) but does not re-seed battles by itself.
@@ -552,6 +552,8 @@ export class Regiment {
   standTold = -1000;
   /** Enemy in contact, in men of this regiment's worth, for being outnumbered. */
   enemyNear = 0;
+  /** Friends fighting close by, in men of this regiment's worth (see `survey`). */
+  friendNear = 0;
   veteran = false;
   /** Green troops fear missiles more. */
   green = false;
@@ -615,7 +617,7 @@ export class Regiment {
 /** Regiment fields that hold fractions (see the Regiment constructor). */
 const DOUBLE_FIELDS = [
   'arrows', 'cx', 'cy', 'ax', 'ay', 'fx', 'fy', 'dfx', 'dfy', 'tx', 'ty', 'vax', 'vay', 'aspd', 'morale', 'baseMorale', 'chaseX', 'chaseY', 'spacing', 'speed',
-  'width', 'depth', 'radius', 'recent', 'recentKills', 'flankShock', 'homeX', 'homeY', 'wx', 'wy', 'fatigue', 'enemyNear', 'closeIn',
+  'width', 'depth', 'radius', 'recent', 'recentKills', 'flankShock', 'homeX', 'homeY', 'wx', 'wy', 'fatigue', 'enemyNear', 'friendNear', 'closeIn',
 ] as const;
 
 export interface Projectile {
@@ -2382,7 +2384,21 @@ export class Battle {
     }
     r.contact = contact;
     r.closeIn = contact ? 1 : gap < COHESION.nearFrom ? 1 - gap / COHESION.nearFrom : 0;
-    r.enemyNear = near / this.stats[r.team]![r.cls]!.value;
+    const own = this.stats[r.team]![r.cls]!.value;
+    r.enemyNear = near / own;
+    // And the friends fighting alongside it, by the same measure: outnumbered is the enemy
+    // close by against ours close by, not against this block alone.
+    let friends = 0;
+    if (near > 0 && !this.fearless[r.team]) {
+      for (const o of this.teamRegs[r.team]!) {
+        if (o === r || o.alive === 0 || o.routed || !o.engaged) continue;
+        const dx = o.cx - r.cx;
+        const dy = o.cy - r.cy;
+        const rr = o.radius + r.radius + 24;
+        if (dx * dx + dy * dy < rr * rr) friends += o.alive * this.stats[o.team]![o.cls]!.value;
+      }
+    }
+    r.friendNear = friends / own;
   }
 
   private setMode(r: Regiment, m: Mode): void {
@@ -2502,7 +2518,7 @@ export class Battle {
     r.flankShock = Math.min(M.flankCap, r.flankShock * 0.9);
     let target = r.baseMorale - M.casualtiesTotal * (1 - r.alive / r.start) - M.casualtyRate * r.recent - r.flankShock;
     target += Math.min(M.winning, Math.max(-6, (r.recentKills - r.recent) * 120));
-    target -= Math.min(M.outnumberedCap, Math.max(0, r.enemyNear / Math.max(1, r.alive) - 1.2) * M.outnumbered);
+    target -= Math.min(M.outnumberedCap, Math.max(0, r.enemyNear / Math.max(1, r.alive + r.friendNear) - M.outnumberedFrom) * M.outnumbered);
     target -= Math.min(20, r.arrows * M.missileFear * (r.green ? M.greenFear : 1));
     target -= r.fatigue * M.fatigue;
     const cmd = this.commander[team]!;
@@ -4116,12 +4132,22 @@ export class Battle {
       d.hy[id] = (by + bx * t) / q;
       d.hs[id] = 0.78 + this.rng.next() * 0.4;
     }
-    // Panic spreads to neighbours; the enemy takes heart.
+    // Panic spreads to neighbours, as hard as the share of the men about them that broke; the
+    // enemy takes heart.
+    const R2 = MORALE.friendRoutRange * MORALE.friendRoutRange;
+    let about = r.alive;
     for (const o of this.teamRegs[r.team]!) {
       if (o.routed || o === r || o.alive === 0) continue;
       const dx = o.cx - r.cx;
       const dy = o.cy - r.cy;
-      if (dx * dx + dy * dy < 150 * 150) this.shake(o, o.role === 'command' ? 2 : MORALE.friendRout);
+      if (dx * dx + dy * dy < R2) about += o.alive;
+    }
+    const panic = Math.min(MORALE.friendRoutCap, (MORALE.friendRout * r.alive) / Math.max(1, about));
+    for (const o of this.teamRegs[r.team]!) {
+      if (o.routed || o === r || o.alive === 0) continue;
+      const dx = o.cx - r.cx;
+      const dy = o.cy - r.cy;
+      if (dx * dx + dy * dy < R2) this.shake(o, o.role === 'command' ? 2 : panic);
     }
     for (const o of this.teamRegs[1 - r.team]!) {
       if (o.routed || o.alive === 0) continue;

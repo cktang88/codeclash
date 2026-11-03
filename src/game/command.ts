@@ -86,8 +86,15 @@ export const MORALE = {
    * fearless dead, who take no shock, that decided big battles).
    */
   blockMen: 35,
-  /** Per enemy man in contact beyond 1.2 for each of ours, capped at 16. */
-  outnumbered: 9,
+  /**
+   * Outnumbered: per unit of the odds beyond `outnumberedFrom`, capped. The odds are the enemy
+   * fighting close by (blocks in contact with it) against ours fighting close by, the block itself
+   * and its friends in contact with it, by value. Until v16 they were against the block alone (9
+   * a unit): on the crowded field of a big battle every block counted two or three times its
+   * strength about it, and the dead, who know no fear, gained by it.
+   */
+  outnumbered: 15,
+  outnumberedFrom: 1.2,
   outnumberedCap: 16,
   /** Each blow from the flank or rear adds to a decaying shock, capped. */
   flankBlow: 0.35,
@@ -105,8 +112,15 @@ export const MORALE = {
   /** The general dead: a shock to every regiment, and a lasting malus. */
   generalDeadShock: 20,
   generalDead: 14,
-  /** A friendly regiment breaking within 150: shock. */
-  friendRout: 7,
+  /**
+   * A friendly regiment breaking within `friendRoutRange`: a shock of this much times its share of
+   * the men about it (its own and those of every friend within range that still stands), at most
+   * `friendRoutCap`. Until v16 every rout was a shock of 7 to every friend in range: the crowded
+   * field of a big battle spread each rout to more blocks.
+   */
+  friendRout: 60,
+  friendRoutCap: 14,
+  friendRoutRange: 150,
   /** An enemy regiment breaking within 250: a lift. */
   enemyRout: 5,
   /** Per share of the army's value lost beyond `armyLossFrom` (half as much lift for the enemy). */

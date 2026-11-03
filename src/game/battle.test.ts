@@ -3,7 +3,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { Battle, BATTLE_VERSION, FIELD_H, FIELD_W, fight, MAX_TICKS, State, type ArmySpec, type BattleSetup, type Regiment } from './battle.ts';
+import { Battle, BATTLE_VERSION, FIELD_H, FIELD_W, fight, MAX_TICKS, MORALE, State, type ArmySpec, type BattleSetup, type Regiment } from './battle.ts';
 import { U, UNIT_COUNT } from './units.ts';
 
 const MIX = [0.22, 0.2, 0.08, 0.12, 0.07, 0.07, 0.05, 0.03, 0.03, 0.005];
@@ -283,4 +283,41 @@ describe('battle: the fallen who may rise (U3)', () => {
     }
     expect(seen).toBeGreaterThan(0);
   }, 60_000);
+});
+
+// v16: what grew with the size of a battle (the field stays the same: a big battle is a crowded one).
+describe('battle: morale that does not grow with the battle (v16)', () => {
+  type Inside = { rout(r: Regiment): void; survey(r: Regiment): void; drawn(r: Regiment): boolean; ts: { hasLine: boolean }[] };
+  it('a rout shakes the friends about it by its share of the men there, not 7 each however many they are', () => {
+    for (const men of [250, 2800]) {
+      const b = new Battle(setupOf(1, army(men), army(men)));
+      const inside = b as unknown as Inside;
+      const r = b.regiments.find((x) => x.team === 0 && x.role === 'line')!;
+      const near = b.regiments.filter((o) => o.team === 0 && o !== r && Math.hypot(o.cx - r.cx, o.cy - r.cy) < MORALE.friendRoutRange);
+      expect(near.length).toBeGreaterThan(0);
+      const about = r.alive + near.reduce((a, o) => a + o.alive, 0);
+      const panic = Math.min(MORALE.friendRoutCap, (MORALE.friendRout * r.alive) / about);
+      const before = near.map((o) => o.morale);
+      inside.rout(r);
+      near.forEach((o, i) => expect(before[i]! - o.morale).toBeCloseTo(o.role === 'command' ? 2 : panic, 6));
+    }
+  });
+
+  it('outnumbered weighs the enemy close by against ours close by, not against the block alone', () => {
+    const b = new Battle(setupOf(1, army(500), army(500)));
+    const inside = b as unknown as Inside;
+    const [r, friend] = b.regiments.filter((x) => x.team === 0 && x.role === 'line');
+    const foe = b.regiments.find((x) => x.team === 1 && x.role === 'line' && x.cls === r!.cls)!;
+    // The foe and the friend both right by it, and both fighting.
+    foe.cx = r!.cx + 10;
+    foe.cy = r!.cy;
+    friend!.cx = r!.cx;
+    friend!.cy = r!.cy + 10;
+    foe.engaged = true;
+    friend!.engaged = true;
+    inside.survey(r!);
+    expect(r!.enemyNear).toBeGreaterThan(0);
+    expect(r!.friendNear * b.stats[0][r!.cls]!.value).toBeCloseTo(friend!.alive * b.stats[0][friend!.cls]!.value, 6);
+  });
+
 });
