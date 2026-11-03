@@ -320,7 +320,7 @@ export const COHESION = {
   edgeOut: 0.6,
   /**
    * A file beyond the end of the enemy's front swings round it: by an angle whose half's tangent
-   * is `curlBase` + `curlPerFile` a file further out (0.5: 53 degrees), at most `curlMax` (0.77: 75).
+   * is `curlBase` + `curlPerFile` a file further out (0.6: 62 degrees), at most `curlMax` (0.84: 80).
    */
   curlBase: 0.6,
   curlPerFile: 0.1,
@@ -329,6 +329,25 @@ export const COHESION = {
   lean: 2,
   /** P6b: what a place on the flank of an enemy block locked with a friend costs over its front (90 otherwise). */
   flankEngaged: -20,
+
+  // P3 The melee breathes.
+  /** A man in melee is out of measure `breathe` ticks in every `pulse` (neighbours in turn), `breatheBack` back from his foe. */
+  pulse: 97,
+  breathe: 15,
+  breatheBack: 4,
+  /** A block winning its fight (morale over `surgeMorale`) sends a run of 3-6 front files `surgeStep` forward, on this chance a think, for `surgeFor` ticks (and up to `surgeSpread` more). */
+  surgeChance: 0.25,
+  surgeMorale: 55,
+  surgeStep: 4,
+  surgeFor: 20,
+  surgeSpread: 11,
+  /** Two blocks locked front to front, both tired past `lullTired`, ease off `lullBack` for `lullFor` ticks (and up to `lullSpread` more), on this chance a think, at most every `lullEvery`. */
+  lullTired: 0.15,
+  lullChance: 0.3,
+  lullEvery: 120,
+  lullFor: 18,
+  lullSpread: 11,
+  lullBack: 5,
 } as const;
 
 /** A faction's cohesion: COHESION's levers times these (1: as COHESION). */
@@ -341,6 +360,10 @@ export interface Looseness {
   /** P2: the leash in contact (and the rear ranks' lean); P6: how far overlapping files swing round a flank (0: never). */
   leash: number;
   curl: number;
+  /** P3: breathers (0: never), surges, and whether its lines ever lull. */
+  breathe: number;
+  surge: number;
+  lull: boolean;
 }
 
 /**
@@ -466,7 +489,7 @@ const SHARED: Doctrine = {
   tide: 1, tideNear: 0, unhalting: false, footRun: 1.45,
   knockback: 1, stun: true, drain: 1,
   raiseEvery: 0, raiseShare: 0, raiseCap: 0, raiseRange: 0, raiseAfter: 0, raiseHp: 0,
-  loose: { lead: 1, ripple: 1, stepBack: true, leash: 1, curl: 1 },
+  loose: { lead: 1, ripple: 1, stepBack: true, leash: 1, curl: 1, breathe: 1, surge: 1, lull: true },
 };
 
 export const DOCTRINE: Record<FactionId, Doctrine> = {
@@ -479,7 +502,7 @@ export const DOCTRINE: Record<FactionId, Doctrine> = {
     // T3 Not while the Beauséant flies.
     standFast: true, brothersGrief: 1.5,
     // The Rule: no brother leaves his place. A tight, even front.
-    loose: { lead: 0.5, ripple: 0.7, stepBack: true, leash: 0.75, curl: 0.7 },
+    loose: { lead: 0.5, ripple: 0.7, stepBack: true, leash: 0.75, curl: 0.7, breathe: 0.6, surge: 0.7, lull: true },
   },
   samurai: {
     ...SHARED,
@@ -490,7 +513,7 @@ export const DOCTRINE: Record<FactionId, Doctrine> = {
     // S3 Drilled teppō fire.
     ripple: 3, firstVolley: 8, screen: 14, screenBack: 60, screenHold: 150,
     // S2 again: the keen run ahead for the first spear.
-    loose: { lead: 1.4, ripple: 1.1, stepBack: true, leash: 1.1, curl: 1.3 },
+    loose: { lead: 1.4, ripple: 1.1, stepBack: true, leash: 1.1, curl: 1.3, breathe: 1, surge: 1.6, lull: true },
   },
   undead: {
     ...SHARED,
@@ -501,6 +524,6 @@ export const DOCTRINE: Record<FactionId, Doctrine> = {
     // U3 What falls, rises.
     raiseEvery: 100, raiseShare: 0.008, raiseCap: 40, raiseRange: 240, raiseAfter: 30, raiseHp: 0.4,
     // The tide shambles on, a ragged mass with no eager men and no laggards to speak of.
-    loose: { lead: 0.7, ripple: 1.3, stepBack: false, leash: 1.3, curl: 0 },
+    loose: { lead: 0.7, ripple: 1.3, stepBack: false, leash: 1.3, curl: 0, breathe: 0, surge: 0.6, lull: false },
   },
 };

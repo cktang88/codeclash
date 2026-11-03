@@ -466,6 +466,12 @@ export class Regiment {
   /** P4: times it has broken off a melee to charge again, and re-forming (closing up) until this tick. */
   cycles = 0;
   reformUntil = -1;
+  /** P3: a run of `surgeN` files from file `surgeCol` presses forward until `surgeUntil`; a lull until `lullUntil`, the last at `lullAt`. */
+  surgeCol = 0;
+  surgeN = 0;
+  surgeUntil = -1;
+  lullUntil = -1;
+  lullAt = -1000;
   ammoLeft = 0;
   homeY = 0;
   /** Withdrawal point for cycle charges. */
@@ -2908,6 +2914,7 @@ export class Battle {
       if (r.mode !== 'melee') r.meleeTicks = 0;
       r.meleeTicks += 5;
       this.setMode(r, 'melee');
+      this.pulse(r);
       // Press: lean into the fight, never turn while locked.
       r.dfx = r.fx;
       r.dfy = r.fy;
@@ -3041,6 +3048,29 @@ export class Battle {
       this.setMode(r, 'hold');
       this.goal(r, r.ax, r.ay);
     }
+  }
+
+  /**
+   * P3: the melee breathes. A block winning its fight locally (killing faster than it loses), in
+   * good heart, now and then sends a run of 3-6 front files surging forward for 2-3 s (the
+   * faction's `loose.surge`); two tired blocks locked front to front fall back out of measure
+   * together for 1.5-2.5 s, a lull, at most every `lullEvery` ticks (never the dead).
+   */
+  private pulse(r: Regiment): void {
+    const C = COHESION;
+    const L = this.doc[r.team]!.loose;
+    const t = this.tick;
+    if (r.surgeUntil <= t && L.surge > 0 && r.recentKills > r.recent && r.morale > C.surgeMorale && r.cols >= 4 && this.rng.chance(C.surgeChance * L.surge)) {
+      r.surgeN = 3 + this.rng.int(4);
+      r.surgeCol = this.rng.int(Math.max(1, r.cols - r.surgeN + 1));
+      r.surgeUntil = t + C.surgeFor + this.rng.int(C.surgeSpread);
+    }
+    const o = r.targetReg >= 0 ? this.regiments[r.targetReg]! : null;
+    if (!o || !o.engaged || o.routed || !L.lull || !this.doc[o.team]!.loose.lull || r.lullUntil > t) return;
+    if (t - r.lullAt < C.lullEvery || t - o.lullAt < C.lullEvery || r.fatigue < C.lullTired || o.fatigue < C.lullTired) return;
+    if (!this.rng.chance(C.lullChance)) return;
+    r.lullAt = o.lullAt = t;
+    r.lullUntil = o.lullUntil = t + C.lullFor + this.rng.int(C.lullSpread);
   }
 
   /** Foot breaks into a run for the last stretch (the cavalry's charge is in `thinkCav`). */
@@ -4205,7 +4235,7 @@ export class Battle {
         this.impact(i, t);
         return;
       }
-      if (q <= reach * reach && d.cd[i] === 0) this.strike(i, t);
+      if (q <= reach * reach && d.cd[i] === 0 && !this.outOfMeasure(i, r)) this.strike(i, t);
       return;
     }
     if (d.ammo[i]! > 0 && d.cd[i] === 0 && r.firing && this.mayLoose(i, r)) this.shoot(i, r, st);
@@ -4877,6 +4907,26 @@ export class Battle {
   }
 
   /**
+   * P3 (COHESION): whether a man of a block in melee is out of measure this tick: his breather
+   * (`breathe` ticks in every `pulse`, his phase from his id, so neighbours take turns; the
+   * faction's `loose.breathe`), or his block's lull. Foot only; the dead never.
+   */
+  private outOfMeasure(i: number, r: Regiment): boolean {
+    if (r.lullUntil > this.tick) return true;
+    const b = this.doc[r.team]!.loose.breathe;
+    if (b <= 0 || this.d.mass[i]! > 2 || r.role === 'command') return false;
+    const C = COHESION;
+    return (this.tick + ((i * 37) % C.pulse)) % C.pulse < C.breathe * b;
+  }
+
+  /** P3: how far a man presses on, in a run of files surging forward (0 if not). */
+  private surge(i: number, r: Regiment): number {
+    if (r.surgeUntil <= this.tick) return 0;
+    const c = this.d.col[i]! - r.surgeCol;
+    return c >= 0 && c < r.surgeN ? COHESION.surgeStep : 0;
+  }
+
+  /**
    * P6 (COHESION): where a man whose slot lies beyond the end of the enemy block's front (his
    * block fights its front, wider than it) goes instead: his slot swung about that end of the
    * enemy's front, toward its flank and rear, the further the further out his file stands
@@ -4979,8 +5029,16 @@ export class Battle {
           vx = (dx / q) * spd * 1.15;
           vy = (dy / q) * spd * 1.15;
           cap = spd * 1.2;
-        } else if (q > contact) {
-          const v = Math.min(spd, (q - contact) * 4) / q;
+        } else if (!mounted && this.outOfMeasure(i, r)) {
+          // P3: a breather (or the whole front's lull): a step or two back out of measure, at a walk.
+          const back = r.lullUntil > this.tick ? COHESION.lullBack : COHESION.breatheBack;
+          const v = Math.max(-spd * 0.5, Math.min(spd * 0.5, (q - contact - back) * 3)) / q;
+          vx = dx * v;
+          vy = dy * v;
+        } else if (q > contact - this.surge(i, r)) {
+          // (In a surge his files press in: he leans into his foe, and the press drives the
+          // enemy back a step: see `separate`.)
+          const v = Math.min(spd, (q - contact + this.surge(i, r)) * 4) / q;
           vx = dx * v;
           vy = dy * v;
         } else {
@@ -5032,6 +5090,7 @@ export class Battle {
           // stand in their ranks to loose; and the dead, who never give a step, only on the march.)
           let f = 0;
           if (mounted ? mode === 'charge' : r.role === 'line' && (mode === 'advance' || mode === 'reserve' || (!r.engaged && (mode === 'hold' || mode === 'melee') && r.contact && this.doc[r.team]!.loose.stepBack))) f = this.lead(i, r, mounted ? 1 : r.closeIn);
+          f += this.surge(i, r);
           let tx = gx + r.fx * f;
           let ty = gy + r.fy * f;
           d.cu[i] = 0;
