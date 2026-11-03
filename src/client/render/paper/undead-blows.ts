@@ -338,8 +338,8 @@ export function holdArm(skel: SkeletonData, hand: P2, deg: number, bob = 0, arm:
 export const LEG_RUN_ARMS = (skel: SkeletonData): Author => () => ({ w: holdArm(skel, [1.5, 1.9], 118, 3), dw: { upperArmF: T([0, 30]), forearmF: T([0, 26]) } });
 /** The ghoul's spear held low and level at port in both hands, point forward, the tip dipping late. */
 export const GHOUL_RUN_ARMS = (skel: SkeletonData): Author => () => ({ w: holdArm(skel, [1.7, 2.5], 98, 5) });
-/** The Arbalest's crossbow at port across the body, both hands on it. */
-export const ARB_RUN_ARMS = (skel: SkeletonData): Author => () => ({ w: holdArm(skel, [1.0, 2.3], 132, 4) });
+/** The Arbalest's crossbow at port, carried high before the chest so its prod stands clear of the body by the near shoulder, both hands on it. */
+export const ARB_RUN_ARMS = (skel: SkeletonData): Author => () => ({ w: holdArm(skel, [2.2, 1.3], 116, 4) });
 /** The thrower's javelin hand stays at the shoulder; the tip bobs. */
 export const THROWER_RUN_ARMS = (_skel: SkeletonData): Author => (rw) => ({ w: { weapon: T([0, rw.weapon! - 4], [3, rw.weapon! - 9], [6, rw.weapon! - 4], [9, rw.weapon! - 9], [12, rw.weapon! - 4]) } });
 

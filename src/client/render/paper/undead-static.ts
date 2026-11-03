@@ -273,6 +273,8 @@ export interface PieceOpts {
   t?: number;
   /** A horse's pose (mounted figures: the horse is drawn whole from it). */
   horse?: HorseLegs;
+  /** A pale rim along a carried weapon (the arbalest's crossbow at the port, over the brown gambeson). */
+  rim?: boolean;
 }
 /**
  * One piece of a figure: drawn with the key art's own calls from its joints `J` (the SE rest, or
@@ -824,7 +826,7 @@ export const ARBALEST: FootArt = {
     { slot: 'jaw', bone: 'jaw', draw: (c, J, back) => void (back || keyJaw(c, addP(J.head!, [0.15, 0.2]), 1.08, -4)) },
     { slot: 'helm', bone: 'head', draw: (c, J) => coifCap(c, J.head!) },
     // The crossbow levelled at the hip, the near arm on the stock.
-    { slot: 'weapon', bone: 'weapon', draw: (c, J, _b, o) => arbalestBow(c, J.hN!, (o.draw ?? 1) > 0.5, o.t ?? 0) },
+    { slot: 'weapon', bone: 'weapon', draw: (c, J, _b, o) => arbalestBow(c, J.hN!, (o.draw ?? 1) > 0.5, o.t ?? 0, o.rim) },
     { slot: 'upperArmN', bone: 'upperArmN', draw: (c, J) => vol(c, J.shN!, J.elN!, 1.35, 1.15, UM.rag, { tone: 2, caps: false }) },
     {
       slot: 'forearmN',
@@ -840,8 +842,17 @@ export const ARBALEST: FootArt = {
  * The heavy crossbow at the stock's grip, spanned or not; while it is being spanned (`crank` 1..4)
  * the cranequin sits on the butt, its gear box and the handle a quarter turn on each frame.
  */
-function arbalestBow(c: Paper, grip: P2, spanned: boolean, crank: number): void {
+function arbalestBow(c: Paper, grip: P2, spanned: boolean, crank: number, rim = false): void {
   crossbow(c, grip, 88, spanned, 1.45);
+  // At the port the stock lies over the gambeson, the same brown: a lit rim along its upper edge
+  // and the prod's tips catch the light (from level 2; below it the stock is a line anyway).
+  if (rim && c.L >= 2) {
+    const up = limb(88 + 90);
+    const k = 1.45, off = 0.36 * k;
+    c.line(addP(along(grip, 268, 1.1 * k), mul(up, off)), addP(along(grip, 88, 2.2 * k), mul(up, off)), code(UM.bone, 3));
+    const front = along(grip, 88, 2.4 * k);
+    c.line(addP(front, mul(limb(178), 1.5 * k)), addP(front, mul(limb(178), 0.4 * k)), code(UM.bone, 3));
+  }
   if (!crank) return;
   const box = along(grip, 268, 1.7);
   c.rod(box, along(grip, 88, 1.2), 0.18, 0.18, UM.bone, { tone: 3 }); // the cord to the string

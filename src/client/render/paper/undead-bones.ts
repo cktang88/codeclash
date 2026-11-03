@@ -170,7 +170,7 @@ const WARDEN_SPEC = (): FootSpec => ({
 /** The crossbow drawn on the frame: unspanned from the loose until it is wound back; the cranequin's handle turning. */
 function crossbowLive(ctx: DrawCtx): PieceOpts {
   const crank = ctx.events.find((e) => e.name === 'crank');
-  return { draw: ctx.events.some((e) => e.name === 'empty') ? 0 : 1, t: crank ? (crank.int ?? 0) + 1 : 0 };
+  return { draw: ctx.events.some((e) => e.name === 'empty') ? 0 : 1, t: crank ? (crank.int ?? 0) + 1 : 0, rim: ctx.events.some((e) => e.name === 'port') };
 }
 
 /** The Revenant Arbalests: the shot and a crank-spanning reload, a butt-stroke, aiming from a crouch; the pavise falls off the back as it comes apart. */

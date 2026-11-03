@@ -452,7 +452,8 @@ export function footClips(skel: SkeletonData, s: FootClipSpec): ClipSet & { atta
     const rw = restWorld(skel, f);
     const arms = s.runArms ? s.runArms(skel)(rw, f) : {};
     const head: Author = () => ({ dw: { head: T([0, s.tilt]), jaw: T([0, -16]) } });
-    return { keys: overlayKeys(authoredKeys(r, f, 1), both(both(posture(s, 0.6, false), head), () => arms)(rw, f)), ev: [{ f: 0, name: 'step' }, { f: 6, name: 'step' }] as AnimEvent[] };
+    // `port`: a weapon carried at the port (the arbalest's crossbow takes a lit rim).
+    return { keys: overlayKeys(authoredKeys(r, f, 1), both(both(posture(s, 0.6, false), head), () => arms)(rw, f)), ev: [{ f: 0, name: 'step' }, { f: 6, name: 'step' }, { f: 0, name: 'port', len: 12 }] as AnimEvent[] };
   };
   /**
    * The wraith's run is a flight, not a faster glide (the CC0 Ars Notoria ghost and the floating
