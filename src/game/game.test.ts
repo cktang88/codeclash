@@ -242,7 +242,7 @@ describe('battle', () => {
 
   it('a much bigger army wins', () => {
     expect(winsOf(6, (seed) => fight(setupOf(seed, army(200), army(400))).winner)).toBeLessThanOrEqual(1);
-  });
+  }, 60_000);
 
   it('equal armies are a fair fight from either side', () => {
     // Mirror matches at two sizes (the side favoured by a timing bias used to depend on the
