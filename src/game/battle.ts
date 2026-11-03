@@ -537,6 +537,8 @@ export class Regiment {
   rallyCheckAt = -1000;
   /** 0..1: running and fighting tire men; rest restores them. */
   fatigue = 0;
+  /** Share of its men at a foe's reach at the last think (see `fatigue`). */
+  fightShare = 0;
   /** The General's current order (kind, for overlays) and its details. */
   order: OrderKind = 'hold';
   ord: Order = newOrder();
@@ -617,7 +619,7 @@ export class Regiment {
 /** Regiment fields that hold fractions (see the Regiment constructor). */
 const DOUBLE_FIELDS = [
   'arrows', 'cx', 'cy', 'ax', 'ay', 'fx', 'fy', 'dfx', 'dfy', 'tx', 'ty', 'vax', 'vay', 'aspd', 'morale', 'baseMorale', 'chaseX', 'chaseY', 'spacing', 'speed',
-  'width', 'depth', 'radius', 'recent', 'recentKills', 'flankShock', 'homeX', 'homeY', 'wx', 'wy', 'fatigue', 'enemyNear', 'friendNear', 'closeIn',
+  'width', 'depth', 'radius', 'recent', 'recentKills', 'flankShock', 'homeX', 'homeY', 'wx', 'wy', 'fatigue', 'fightShare', 'enemyNear', 'friendNear', 'closeIn',
 ] as const;
 
 export interface Projectile {
@@ -2358,6 +2360,7 @@ export class Battle {
     }
     r.radius = sqrt(far) + 3;
     r.engaged = engaged >= Math.max(2, n * 0.06) || (n < 8 && engaged > 0);
+    r.fightShare = engaged / n;
     if (r.engaged) r.everEngaged = true;
     // Keep the anchor with the men: a block held by the enemy does not walk on without them.
     if (fighting > 0 && !r.routed) {
@@ -2523,7 +2526,7 @@ export class Battle {
   private fatigue(r: Regiment): void {
     const m = r.mode;
     const run = m === 'charge' || m === 'withdraw' || m === 'pursue' || m === 'flank' || m === 'kite' || m === 'skirmish' || m === 'rout';
-    const k = run ? FATIGUE.run * (isCav(r) ? 0.6 : 1) : r.engaged ? FATIGUE.fight : m === 'advance' || m === 'reserve' ? 0.001 : FATIGUE.rest;
+    const k = run ? FATIGUE.run * (isCav(r) ? 0.6 : 1) : r.engaged ? FATIGUE.fight * Math.min(1, r.fightShare / FATIGUE.fightShare) : m === 'advance' || m === 'reserve' ? 0.001 : FATIGUE.rest;
     r.fatigue = Math.max(0, Math.min(1, r.fatigue + k + (m === 'charge' && r.ragged ? FATIGUE.run * 1.5 : 0)));
   }
 

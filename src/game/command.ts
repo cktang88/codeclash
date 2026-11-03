@@ -266,6 +266,13 @@ export const REGROUP = {
 export const FATIGUE = {
   run: 0.011,
   fight: 0.005,
+  /**
+   * A block in a melee tires at `fight` with this share of its men at a foe's reach, in proportion
+   * less with fewer: the rear ranks of a deep block rest. (Until v16 every block in a melee tired
+   * at `fight`. The deep blocks of a big battle fight on half as long again, and by the end every
+   * living block was spent and losing heart for it: the dead, who feel no fatigue's fear, were not.)
+   */
+  fightShare: 0.55,
   rest: -0.012,
   /** At full fatigue: attack and defence lost, and pace lost (share). */
   combat: 8,
