@@ -35,6 +35,8 @@ function useTab(): [ShowcaseTab, (t: ShowcaseTab) => void] {
     else q.set('tab', t);
     const s = q.toString();
     history.pushState(null, '', `${location.pathname}${s ? `?${s}` : ''}`);
+    // Tell the app too (as route.ts go() does): its sign-in link returns to the address shown.
+    window.dispatchEvent(new PopStateEvent('popstate'));
     setTab(t);
   };
   return [tab, pick];
