@@ -335,6 +335,11 @@ export interface Doctrine {
   ripple: number;
   /** Morale the first volley of a block of guns costs its target. */
   firstVolley: number;
+  /** Guns stand this far before their line until the enemy is within `screenBack` (0: they stand behind it like any shooters). */
+  screen: number;
+  screenBack: number;
+  /** The line halts behind its guns while they fire, for this long at most (ticks after their first shot). */
+  screenHold: number;
 
   // U1 The tide.
   /** Foot marches at FOOT_MARCH times this, unless within `tideNear` of a living Lich-Marshal. */
@@ -369,7 +374,7 @@ const SHARED: Doctrine = {
   standFast: false, brothersGrief: 1,
   aura: 1, auraRange: 1, generalDeadShock: 1, generalDead: 1, revenge: false, revengeFor: 0,
   chaseFar: 1, chaseTired: 1, recall: 120, firstSpear: 0, firstSpearNear: 0, firstSpearLift: 0, keenCharge: 0,
-  ripple: 1, firstVolley: 0,
+  ripple: 1, firstVolley: 0, screen: 0, screenBack: 0, screenHold: 0,
   tide: 1, tideNear: 0, unhalting: false, footRun: 1.45,
   knockback: 1, stun: true, drain: 1,
   raiseEvery: 0, raiseShare: 0, raiseCap: 0, raiseRange: 0, raiseAfter: 0, raiseHp: 0,
@@ -391,6 +396,8 @@ export const DOCTRINE: Record<FactionId, Doctrine> = {
     aura: 1.4, auraRange: 1.25, generalDeadShock: 1.75, generalDead: 1.4, revenge: true, revengeFor: 300,
     // S2 First spear, long chase.
     chaseFar: 1.4, chaseTired: 1.4, recall: 80, firstSpear: 8, firstSpearNear: 240, firstSpearLift: 3, keenCharge: 140,
+    // S3 Drilled teppō fire.
+    ripple: 3, firstVolley: 8, screen: 14, screenBack: 60, screenHold: 150,
   },
   undead: {
     ...SHARED,

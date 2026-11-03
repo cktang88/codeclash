@@ -481,6 +481,17 @@ export class Regiment {
   volleyEvery = 0;
   /** Within reach of its own living general (U1: the dead march at full pace only near the Lich-Marshal). */
   nearLord = true;
+  /**
+   * S3 Drilled teppō fire: shots loosed in the volley under way, whether its first volley has
+   * been fired, and whether it now fires rank by rank (`volleyN`: rank volleys since).
+   */
+  volleyShots = 0;
+  firstVolley = false;
+  rippling = false;
+  volleyN = 0;
+  /** S3: guns out before the line (`screened`: they got there), and passing through their own line (`slip`, like skirmishers). */
+  screened = false;
+  slip = false;
   /** Fire at will: an enemy is charging it or close (it drops volley discipline). */
   atWill = false;
   /** Last tick the anchor moved or the block wheeled. Foot shooters loose only standing still. */
@@ -659,6 +670,8 @@ export class General {
   /** T1 The Marshal's charge: when he last gave the knights the signal (-1: not yet), and at whom. */
   signalAt = -1;
   signalTarget = -1;
+  /** S3: when its guns first opened fire from before the line (-1: not yet). */
+  gunsAt = -1;
   /** S2: when the first block of its line reached the enemy (-1: not yet). */
   firstSpearAt = -1;
   /** S1: when the general fell and his horse rode to avenge him (-1: not). */
@@ -1302,7 +1315,7 @@ export class Battle {
       const fy = r.fy;
       this.moveAnchor(r);
       if (r.vax !== 0 || r.vay !== 0 || r.fx !== fx || r.fy !== fy) r.movedAt = this.tick;
-      if (r.role === 'missile') this.volleyClock(r);
+      if (r.role === 'missile' && r.alive > 0) this.volleyClock(r);
     }
     const d = this.d;
     const n = this.n;
@@ -1404,7 +1417,7 @@ export class Battle {
     const rf = this.regFlags;
     for (let j = 0; j < regs.length; j++) {
       const r = regs[j]!;
-      rf[j] = (r.role === 'skirmish' ? 1 : 0) | (r.stance === 'braced' || r.stance === 'pikewall' ? 2 : 0);
+      rf[j] = (r.role === 'skirmish' || r.slip ? 1 : 0) | (r.stance === 'braced' || r.stance === 'pikewall' ? 2 : 0);
     }
     let bow = false;
     for (let i = 0; i < n; i++) {
@@ -1589,6 +1602,12 @@ export class Battle {
     }
     if (ts.engaged) g.haltUntil = 0;
     if (this.tick < g.haltUntil) waiting = true;
+    // S3: the line waits behind its guns while they fire before it (for `screenHold` at most).
+    if (doc.screen > 0 && !ts.engaged) {
+      const firing = this.teamRegs[t]!.some((r) => r.screened && !r.retired && r.mode === 'shoot' && r.alive > 0);
+      if (firing && g.gunsAt < 0) g.gunsAt = this.tick;
+      if (firing && this.tick - g.gunsAt < doc.screenHold) waiting = true;
+    }
     this.stance[t] = plan === 'hold' ? 'hold' : 'press';
 
     // Reserves: the second line stands behind the first until the General commits it.
@@ -2954,10 +2973,12 @@ export class Battle {
     const dir = r.team === 0 ? 1 : -1;
     if (r.engaged || this.nearGap(r, CONTACT_GAP, false)) {
       r.atWill = false;
+      r.slip = false;
       this.setMode(r, 'melee');
       this.goal(r, r.ax, r.ay);
       return;
     }
+    if (this.screen(r)) return;
     const threat = this.threatTo(r);
     if (threat) {
       // No time for the word: every man shoots as he can at the nearest foe (and the men he
@@ -3026,6 +3047,79 @@ export class Battle {
       this.goal(r, near.cx - (dx / q) * st.range * 0.8, near.cy - (dy / q) * st.range * 0.8);
       this.faceToward(r, near.cx, near.cy);
     }
+  }
+
+  /**
+   * S3: samurai guns go out before their line and fire from there, standing (as behind the
+   * fence at Nagashino: behind their own line a block of matchlocks, which needs a clear line of
+   * fire, has nothing it may shoot at in a big battle), and fall back through the line, at the
+   * double, when the enemy comes within `screenBack` (horse twice that) or their own line comes
+   * up to them. Returns whether it gave the block its orders.
+   */
+  private screen(r: Regiment): boolean {
+    const doc = this.doc[r.team]!;
+    if (doc.screen <= 0 || this.fire[r.team]![r.cls] !== 'gun') return false;
+    const ts = this.ts[r.team]!;
+    const es = this.ts[1 - r.team]!;
+    const dir = r.team === 0 ? 1 : -1;
+    const home = ts.frontX - dir * (ts.lineDepth + MISSILE_BEHIND);
+    if (r.mode === 'skirmish') {
+      // Falling back through the line.
+      this.goal(r, home, r.ay);
+      r.dfx = dir;
+      r.dfy = 0;
+      if ((r.ax - home) * dir < 8 || !ts.hasLine) {
+        r.slip = false;
+        this.setMode(r, 'hold');
+      }
+      return true;
+    }
+    if (r.retired || !ts.hasLine || !es.hasLine || (ts.engaged && !r.screened) || r.ammoLeft === 0 || this.tick < 30 || r.ord.kind === 'pursue') return false;
+    const ahead = (r.ax - ts.frontX) * dir;
+    if (ahead > r.depth + doc.screen) r.screened = true;
+    // Skirmishers are a target, not a threat: a formed block coming on, or horse, sends them back.
+    let threat = false;
+    for (const o of this.teamRegs[1 - r.team]!) {
+      if (o.alive === 0 || o.routed || o.role === 'skirmish') continue;
+      const R = doc.screenBack * (isCav(o) ? 2 : 1);
+      const dx = o.cx - r.cx;
+      const dy = o.cy - r.cy;
+      const rr = o.radius + r.radius + R;
+      if (dx * dx + dy * dy < rr * rr && this.gapTo(r, o) < R) {
+        threat = true;
+        break;
+      }
+    }
+    if (threat || ts.engaged || (r.screened && ahead < r.depth * 0.6)) {
+      r.retired = true;
+      r.slip = true;
+      r.atWill = false;
+      this.setMode(r, 'skirmish');
+      this.goal(r, home, r.ay);
+      r.dfx = dir;
+      r.dfy = 0;
+      return true;
+    }
+    r.slip = true;
+    r.atWill = false;
+    const st = this.stats[r.team]![r.cls]!;
+    const best = r.screened ? this.shootable(r, st.range * 0.95) : null;
+    if (best) {
+      this.setMode(r, 'shoot');
+      r.targetReg = best.id;
+      r.aimedAt = this.tick;
+      this.goal(r, r.ax, r.ay);
+      this.aimAt(r, best);
+      return true;
+    }
+    // Out before the line, keeping pace with it.
+    r.targetReg = -1;
+    this.setMode(r, 'advance');
+    // (A goal well ahead keeps them marching: one close by is walked to slowly.)
+    this.goal(r, ts.frontX + dir * (r.depth + doc.screen + 40), r.homeY + (ts.midY - FIELD_H / 2));
+    r.dfx = dir;
+    r.dfy = 0;
+    return true;
   }
 
   /**
@@ -3783,6 +3877,8 @@ export class Battle {
     else if ((r.role === 'line' || r.role === 'missile') && (r.mode === 'advance' || r.mode === 'reserve')) pace = FOOT_MARCH * (r.nearLord ? 1 : this.doc[r.team]!.tide);
     // Foot breaks into a run for a charge or a chase.
     if ((r.mode === 'charge' || r.mode === 'pursue') && !isCav(r)) pace *= this.doc[r.team]!.footRun;
+    // S3: guns going out through their line, or back through it, go at the double.
+    if (r.slip && (r.mode === 'advance' || r.mode === 'skirmish')) pace = Math.max(pace, FOOT_MARCH * FOOT_RUN);
     pace *= sd.pace * (1 - FATIGUE.pace * r.fatigue);
     let ux = dx / q;
     let uy = dy / q;
@@ -3910,6 +4006,7 @@ export class Battle {
     if (this.tick - r.movedAt < 3) return false;
     if (r.role !== 'missile' || r.atWill) return true;
     const k = this.tick - r.volleyAt;
+    if (r.rippling && this.d.row[i]! % this.ranksOf(r) !== r.volleyN % this.ranksOf(r)) return false;
     return k >= (i * 3) % VOLLEY_SPREAD && k < VOLLEY_SPREAD;
   }
 
@@ -3924,7 +4021,33 @@ export class Battle {
     const t = this.tick;
     if (r.mode !== 'shoot' || r.atWill || r.movedAt === t) {
       r.volleyAt = t + VOLLEY_BEAT;
-    } else if (t >= r.volleyAt + VOLLEY_SPREAD) r.volleyAt += r.volleyEvery;
+    } else if (t >= r.volleyAt + VOLLEY_SPREAD) {
+      if (r.rippling) {
+        // S3: rank by rank, each rank's volley a share of the cycle after the last.
+        r.volleyAt += Math.ceil(r.volleyEvery / this.ranksOf(r));
+        r.volleyN++;
+      } else r.volleyAt += r.volleyEvery;
+    }
+    if (t === r.volleyAt + VOLLEY_SPREAD - 1 && r.volleyShots > 0) {
+      r.volleyShots = 0;
+      if (!r.firstVolley) {
+        r.firstVolley = true;
+        // S3: the first volley of a block of guns, all together, shakes its target; then rank by rank.
+        const doc = this.doc[r.team]!;
+        if (this.fire[r.team]![r.cls] === 'gun') {
+          if (doc.firstVolley > 0 && r.targetReg >= 0) this.shake(this.regiments[r.targetReg]!, doc.firstVolley);
+          if (doc.ripple > 1) {
+            r.rippling = true;
+            r.volleyN = 0;
+          }
+        }
+      }
+    }
+  }
+
+  /** S3: ranks that fire in turn (no more than the block has). */
+  private ranksOf(r: Regiment): number {
+    return Math.max(1, Math.min(this.doc[r.team]!.ripple, r.rows));
   }
 
   /** The foe this soldier should fight: near, in front of the block, within a short leash of his slot. */
@@ -4017,7 +4140,8 @@ export class Battle {
     let lofted = false;
     if (!lobbed) {
       // Direct fire needs a clear line: whoever is first on it is who it hits (see `land`).
-      const n = this.lineHits(d.x[i]!, d.y[i]!, lx, ly, i, kind === 'flat' ? r.id : -1, 1);
+      // Crossbows see past their own ranks (they kneel or take turns), and so do guns firing rank by rank (S3).
+      const n = this.lineHits(d.x[i]!, d.y[i]!, lx, ly, i, kind === 'flat' || r.rippling ? r.id : -1, 1);
       const first = n > 0 ? this.lineIds[0]! : -1;
       if (first >= 0 && d.team[first] === s.team) {
         if (kind !== 'flat') {
@@ -4034,6 +4158,7 @@ export class Battle {
       }
     }
     r.loosed++;
+    r.volleyShots++;
     const lob = lobbed || lofted;
     if (kind === 'cannon') {
       // The ball bounds on along the ground beyond where it was aimed.
@@ -4660,7 +4785,8 @@ export class Battle {
       // The first man along its line takes it, friend or foe; a cannonball goes on through
       // several, losing force with each. A crossbow bolt passes its own regiment's ranks, as it
       // did when it was aimed (see `shoot`): they kneel or take turns.
-      const own = this.fire[p.team]![p.cls] === 'flat' ? d.reg[p.shooter]! : -1;
+      const sr = this.regiments[d.reg[p.shooter]!]!;
+      const own = this.fire[p.team]![p.cls] === 'flat' || sr.rippling ? sr.id : -1;
       const n = this.lineHits(p.x0, p.y0, p.x1, p.y1, p.shooter, own, p.pen > 0 ? p.pen : 1);
       let force = 1;
       for (let k = 0; k < n; k++) {
