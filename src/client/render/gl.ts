@@ -84,8 +84,12 @@ export function dropTarget(gl: WebGL2RenderingContext, t: Target): void {
 
 // ------------------------------------------------------------------ sprite shaders
 
-/** Textures one sprite draw call can sample (WebGL2 guarantees 16 fragment units). */
-export const PARTS = 8;
+/**
+ * Textures one sprite draw call can sample (WebGL2 guarantees 16 fragment units). The fragment
+ * shader picks one by branching, and a SIMD rasteriser (SwiftShader) pays for every branch: on
+ * software GL 8 cost ~10% more GPU time a frame than 2, 4 about 3%, for half the draw calls of 2.
+ */
+export const PARTS = 4;
 /** u_end of a part that never ends (every later instance is still in it). */
 const NO_END = 0x7fffffff;
 
@@ -339,6 +343,7 @@ export class SpriteStream {
   private readonly parts: Part[] = [];
   private readonly starts: number[] = [];
   private total = 0;
+  private staging = new Float32Array(0);
 
   constructor(
     private readonly gl: WebGL2RenderingContext,
@@ -370,10 +375,18 @@ export class SpriteStream {
       this.cap = Math.max(bytes, Math.ceil(this.cap * 1.5), 1024 * INST * 4);
       gl.bufferData(gl.ARRAY_BUFFER, this.cap, gl.STREAM_DRAW);
     }
+    if (this.parts.length === 1) {
+      const b = this.parts[0]!.batch;
+      gl.bufferSubData(gl.ARRAY_BUFFER, 0, b.data, 0, b.n * INST);
+      return;
+    }
+    // Several: gathered into one array and sent in one call (a call per batch costs more than the copy).
+    if (this.staging.length < n * INST) this.staging = new Float32Array(Math.max(n * INST, Math.ceil(this.staging.length * 1.5)));
     for (let i = 0; i < this.parts.length; i++) {
       const b = this.parts[i]!.batch;
-      gl.bufferSubData(gl.ARRAY_BUFFER, this.starts[i]! * INST * 4, b.data, 0, b.n * INST);
+      this.staging.set(b.data.subarray(0, b.n * INST), this.starts[i]! * INST);
     }
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, this.staging, 0, n * INST);
   }
 
   /** Instances set this frame. */

@@ -104,7 +104,7 @@ interface Gfx {
   groundQuad: Batch;
   stamp: [Batch, Batch, Batch];
   /**
-   * The batches above go to the GPU through these, each drawn in one call per 8 textures: the
+   * The batches above go to the GPU through these, each drawn in one call per 4 textures (PARTS): the
    * alpha-tested sprites (twice: shadows, then solid), the blended ones, and the ground stamps.
    */
   solid: SpriteStream;

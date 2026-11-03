@@ -858,8 +858,16 @@ export class HdField {
             const y0 = Math.max(0, Math.floor((ty * TILE - 3 - camY) * m));
             const y1 = Math.min(bh, Math.ceil(((ty + 1) * TILE + 3 - camY) * m));
             if (x1 > x0 && y1 > y0) {
-              runs.push(x0, y0, x1 - x0, y1 - y0);
-              area += (x1 - x0) * (y1 - y0);
+              // The same span in the row above grows down instead (one scissored pass, not two).
+              let k = runs.length - 4;
+              while (k >= 0 && !(runs[k] === x0 && runs[k + 2] === x1 - x0 && runs[k + 1]! + runs[k + 3]! >= y0)) k -= 4;
+              if (k >= 0) {
+                area += (x1 - x0) * (y1 - runs[k + 1]! - runs[k + 3]!);
+                runs[k + 3] = y1 - runs[k + 1]!;
+              } else {
+                runs.push(x0, y0, x1 - x0, y1 - y0);
+                area += (x1 - x0) * (y1 - y0);
+              }
             }
             tx = e;
           }
