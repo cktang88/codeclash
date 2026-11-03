@@ -29,6 +29,23 @@ export type { CommanderTrait, MoraleState, Order, OrderKind, Personality, Plan }
 export { COHESION, DOCTRINE, MORALE, REGROUP, UNDEAD } from './command.ts';
 
 /**
+ * v16: nothing grows with the size of the battle that should not (the undead won two thirds of
+ * battles of 2800 a side). The field stays the same size, so a big battle is a crowded and a long
+ * one, and four things the living felt (and the fearless dead did not) grew with it:
+ * - Outnumbered counted every engaged enemy block touching a block against that block alone:
+ *   in a crowded field two to three and a half times its strength, a steady 6-10 morale lost.
+ *   It now weighs the enemy close by against ours close by (`friendNear`; MORALE.outnumbered).
+ * - A friend's rout shook every friend within 150 by 7, and on a crowded field there are more
+ *   of them (5 a rout at 2800 a side, 3.4 at 500): now by its share of the men about it.
+ * - Fatigue grew by the clock for every block in a melee, and the deep blocks of a big battle
+ *   fight half as long again: now by the share of its men at a foe's reach (`fightShare`).
+ * - The general's household rode at whatever came within 40: on a crowded field the enemy's
+ *   second line, and the Lich-Marshal fell in 59% of battles of 2800 a side. It now draws back
+ *   from a block that outweighs it twice over while its army has a line (HOUSEHOLD_ODDS).
+ * And U3 raises a share of the fallen (`toRaise`), not so many a pulse by the clock (longer battles
+ * raised more); risers do not shove each other; late in the day shooters with no line of their
+ * own left go in (`drawn`: big battles ended in archers trading arrows to the time limit).
+ *
  * v15: fixes from a sweep of the sim.
  * - Horse locked in a melee breaks off to charge again (P4) by whom its men are fighting: sent
  *   at a block of the line but cutting down the shooters behind it, it rides them down (it went
@@ -876,6 +893,8 @@ function figures(count: number, scale: number): number {
   return Math.max(1, Math.round(count / scale));
 }
 
+/** A block of the fearless is as good as shaken (for the General sending a reserve at it) with fewer than this share of its men. */
+const SPENT_BLOCK = 0.6;
 /** Late in the day (ticks): every regiment left goes in (see `generalThink`, `drawn`). */
 const LATE = 2400;
 /** The general's household draws back from a block worth more than this many times itself (see `thinkCommand`). */
@@ -2026,7 +2045,12 @@ export class Battle {
       let worst = Infinity;
       for (const e of this.teamRegs[1 - t]!) {
         if (e.alive === 0 || e.routed || !e.engaged || isCav(e) || e.role === 'command') continue;
-        const shaky = e.morale + (g.personality === 'aggressive' ? -10 : 0) + (g.plan === 'refuse' && (e.cy - FIELD_H / 2) * g.strong > 0 ? -15 : 0);
+        // (The fearless never waver: a block of theirs is as good as shaken once it is down to
+        // SPENT_BLOCK of its men. Until v16 the living never sent their reserve round the dead's
+        // flanks, only to plug a gap once a block of theirs had broken; in a big battle, with most
+        // of the line in the second row, the dead's reserve came in fresh and theirs did not.)
+        const morale = this.fearless[e.team] ? (e.alive < e.start * SPENT_BLOCK ? 50 : 100) : e.morale;
+        const shaky = morale + (g.personality === 'aggressive' ? -10 : 0) + (g.plan === 'refuse' && (e.cy - FIELD_H / 2) * g.strong > 0 ? -15 : 0);
         if (shaky > 55 || shaky >= worst) continue;
         for (const k of [1, 2]) {
           slotPos(e, k, 30, tmp);
