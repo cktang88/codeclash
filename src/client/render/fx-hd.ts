@@ -201,8 +201,11 @@ function paintMissile(img: Img, px: number, py: number, dx: number, dy: number, 
       const side = rx * nx + ry * ny;
       const sm = side / L;
       if (back < to - 0.5 / L || back > from + 0.5 / L) continue;
-      const lit = side * litSide > 0.25;
-      const shade = side * litSide < -0.25;
+      // Lit and shaded sides only where the shaft is two texels or more across: on a one-texel
+      // line they would alternate along it as single-texel noise.
+      const wide = shaftHalf >= 0.8;
+      const lit = wide && side * litSide > 0.25;
+      const shade = wide && side * litSide < -0.25;
       let col = 0;
       // Head: a leaf of iron (a bodkin for bolts), its lit edge catching the light.
       if (to === 0 && back < s.head) {
@@ -511,7 +514,7 @@ function stone(L: number): [Img, number, number] {
       const q = ux * ux + uy * uy;
       const rough = 0.08 * Math.sin(Math.atan2(uy, ux) * 5);
       if (q > 1 + rough) continue;
-      const light = ux * LX + uy * LY + Math.sqrt(Math.max(0, 1 - q)) * 0.4 + (bayer(x, y) - 0.5) * 0.25;
+      const light = ux * LX + uy * LY + Math.sqrt(Math.max(0, 1 - q)) * 0.4;
       img.set(x, y, tones[light > 0.75 ? 0 : light > 0.3 ? 1 : light > -0.2 ? 2 : 3]!);
     }
   if (L >= 2) img.outline(C.out);
