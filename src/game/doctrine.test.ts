@@ -63,10 +63,11 @@ describe('doctrines: the Templars', () => {
     }
     expect(DOCTRINE.templar.withdrawals).toBe(2);
     expect(DOCTRINE.samurai.withdrawals).toBe(1);
-    // Over a few battles Templar blocks fall back on a banner, and some come back twice.
+    // Over a dozen battles Templar blocks fall back on a banner, and some come back twice (in
+    // two or three battles of twelve: a rare sight).
     let banner = 0;
     let twice = 0;
-    for (const seed of [1, 2, 3, 4, 5, 6]) {
+    for (const seed of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]) {
       const b = battle(seed, army(600, 'templar'), army(600, 'samurai'));
       b.run();
       banner += b.events.filter((e) => e.kind === 'doctrine' && e.note === 'banner').length;

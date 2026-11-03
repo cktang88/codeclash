@@ -287,6 +287,28 @@ export const COHESION = {
   horseLead: 4,
   /** A man's pace in a charge, 1 +- this (was 0.12): the eager run fastest. */
   chargePace: 0.18,
+
+  // P4 Horse breaks off, rallies and comes again.
+  /** Ticks out of a melee before its clock starts again (a charge flickers in and out). */
+  meleeGone: 30,
+  /** Ticks of melee before horse breaks off: against foot, braced spears, and horse. */
+  footMelee: 45,
+  footBraced: 15,
+  horseMelee: 30,
+  /** Chance a think that horse in a clash of horse breaks off: the weaker side, the stronger. */
+  breakWeaker: 0.6,
+  breakStronger: 0.3,
+  /** At most this many cycles, and none once blown (fatigue). */
+  cavCycles: 4,
+  cavBlown: 0.7,
+  /** It rides this far (and up to `rideFarSpread` more) away from the fight, bent this much toward its own side... */
+  rideFar: 150,
+  rideFarSpread: 40,
+  homeward: 0.6,
+  /** ...for at most this long (ticks), as a loose crowd, then closes up for this long (and up to `reformSpread` more). */
+  rideOut: 90,
+  reform: 20,
+  reformSpread: 11,
 } as const;
 
 /** A faction's cohesion: COHESION's levers times these (1: as COHESION). */

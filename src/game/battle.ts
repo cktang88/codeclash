@@ -458,7 +458,12 @@ export class Regiment {
   recentKills = 0;
   flankShock = 0;
   meleeTicks = 0;
+  /** Last tick it was locked in melee (P4: its melee clock survives a flicker out of it). */
+  meleeAt = -1000;
   charges = 0;
+  /** P4: times it has broken off a melee to charge again, and re-forming (closing up) until this tick. */
+  cycles = 0;
+  reformUntil = -1;
   ammoLeft = 0;
   homeY = 0;
   /** Withdrawal point for cycle charges. */
@@ -3506,26 +3511,20 @@ export class Battle {
       r.targetReg = prey0 ? prey0.id : -1;
     }
     if (r.engaged && r.mode !== 'withdraw') {
-      if (r.mode !== 'melee') r.meleeTicks = 0;
+      // (A charge that rides through and back into the fight flickers between charge and melee
+      // from one think to the next: the melee's clock runs on unless it has been out of the
+      // fight a while. Until v14 every flicker reset it, and few cycle charges ever came.)
+      if (r.mode !== 'melee' && this.tick - r.meleeAt > COHESION.meleeGone) r.meleeTicks = 0;
+      r.meleeAt = this.tick;
       r.meleeTicks += 5;
       this.setMode(r, 'melee');
-      const footPrey = prey0 && !prey0.routed && (prey0.role === 'line' || prey0.role === 'command');
-      const braced = prey0 && (prey0.stance === 'pikewall' || prey0.stance === 'braced');
-      if (prey0 && footPrey && r.meleeTicks > (braced ? 15 : 45)) {
-        // Cycle charge: pull out, re-form, and come again.
-        const dx = r.cx - prey0.cx;
-        const dy = r.cy - prey0.cy;
-        const q = sqrt(dx * dx + dy * dy) || 1;
-        r.wx = clampX(r.cx + (dx / q) * 120);
-        r.wy = clampY(r.cy + (dy / q) * 120);
-        // T1: Templar knights ride back to the Marshal's banner to re-form for the next signal.
-        const doc = this.doc[team]!;
-        const cmd = this.commander[team]!;
-        r.toBanner = shock && doc.recallTo > 0 && this.lordWithin(team, r.cx, r.cy, doc.recallRange);
-        if (r.toBanner) {
-          r.wx = clampX(this.d.x[cmd]! + dir * doc.recallTo);
-          r.wy = clampY(this.d.y[cmd]! + (r.homeY < FIELD_H / 2 ? -1 : 1) * 40);
-        }
+      if (prey0 && this.breaksOff(r, prey0)) {
+        // Cycle charge: break off, ride back as a loose crowd to re-form on the rally point, and
+        // come again (P4).
+        this.rallyPoint(r, prey0, shock);
+        r.cycles++;
+        r.meleeTicks = 0;
+        for (const id of r.members) this.d.hs[id] = 0.85 + this.rng.next() * 0.3;
         this.setMode(r, 'withdraw');
         this.goal(r, r.wx, r.wy);
         return;
@@ -3536,11 +3535,13 @@ export class Battle {
     if (r.mode === 'withdraw') {
       const dx = r.wx - r.ax;
       const dy = r.wy - r.ay;
-      if (dx * dx + dy * dy > 18 * 18 && this.tick - r.modeAt < (r.toBanner ? 160 : 70)) return;
+      if (dx * dx + dy * dy > 18 * 18 && this.tick - r.modeAt < (r.toBanner ? 160 : COHESION.rideOut)) return;
+      // There: rein in, close up knee to knee (see `move`), wheel and come again.
       this.setMode(r, 'hold');
+      r.reformUntil = this.tick + COHESION.reform + this.rng.int(COHESION.reformSpread);
       return;
     }
-    if (r.mode === 'hold' && r.charges > 0 && this.tick - r.modeAt < 15) return;
+    if (r.mode === 'hold' && r.charges > 0 && this.tick < Math.max(r.reformUntil, r.modeAt + 15)) return;
 
     // The order's target, or one of opportunity.
     let prey: Regiment | null = null;
@@ -3667,6 +3668,67 @@ export class Battle {
     }
     this.setMode(r, 'flank');
     this.goal(r, prey.cx - (dpx / dp) * 90, prey.cy - (dpy / dp) * 90);
+  }
+
+  /**
+   * P4: whether horse locked in a melee breaks off to charge again. Against foot of the line
+   * (and the general's household) after COHESION.footMelee ticks, braced spears sooner (shooters
+   * caught in the open it rides down).
+   * Against horse after `horseMelee`: the weaker side (by `cavWorth`) breaks off first, more
+   * likely than not each think, and the stronger often enough rallies too rather than chase
+   * deep. Never more than `cavCycles` times, nor blown (fatigue).
+   */
+  private breaksOff(r: Regiment, o: Regiment): boolean {
+    const C = COHESION;
+    if (o.routed || r.cycles >= C.cavCycles || r.fatigue > C.cavBlown) return false;
+    if (isCav(o)) {
+      if (r.meleeTicks <= C.horseMelee) return false;
+      return this.rng.chance(this.cavWorth(r) < this.cavWorth(o) ? C.breakWeaker : C.breakStronger);
+    }
+    if (o.role !== 'line' && o.role !== 'command') return false;
+    const braced = o.stance === 'pikewall' || o.stance === 'braced';
+    return r.meleeTicks > (braced ? C.footBraced : C.footMelee);
+  }
+
+  /** What a block of horse is worth in a clash of horse: men, class, heart, wind and losses. */
+  private cavWorth(r: Regiment): number {
+    const v = this.stats[r.team]![r.cls]!.value;
+    return r.alive * v * (0.5 + r.morale / 200) * (1 - 0.4 * r.fatigue) * Math.max(0.5, 1 - r.recent * 4);
+  }
+
+  /**
+   * P4: where horse that breaks off re-forms (`wx`, `wy`): COHESION.rideOut... away from the
+   * fight, bent back toward its own side. T1 overrides it: Templar knights within the Marshal's
+   * `recallRange` ride back to his banner (`toBanner`).
+   */
+  private rallyPoint(r: Regiment, from: Regiment, shock: boolean): void {
+    const team = r.team;
+    const dir = team === 0 ? 1 : -1;
+    const doc = this.doc[team]!;
+    const C = COHESION;
+    r.toBanner = shock && doc.recallTo > 0 && this.lordWithin(team, r.cx, r.cy, doc.recallRange);
+    if (r.toBanner) {
+      const cmd = this.commander[team]!;
+      r.wx = clampX(this.d.x[cmd]! + dir * doc.recallTo);
+      r.wy = clampY(this.d.y[cmd]! + (r.homeY < FIELD_H / 2 ? -1 : 1) * 40);
+      return;
+    }
+    let dx = r.cx - from.cx;
+    let dy = r.cy - from.cy;
+    let q = sqrt(dx * dx + dy * dy) || 1;
+    dx = dx / q - dir * C.homeward;
+    dy = dy / q;
+    q = sqrt(dx * dx + dy * dy) || 1;
+    const far = C.rideFar + this.rng.int(C.rideFarSpread);
+    r.wx = clampX(r.cx + (dx / q) * far);
+    r.wy = Math.max(30, Math.min(FIELD_H - 30, r.cy + (dy / q) * far));
+    // Against the edge of the field: back toward its own side and the middle instead.
+    const gx = r.wx - r.cx;
+    const gy = r.wy - r.cy;
+    if (gx * gx + gy * gy < far * far * 0.36) {
+      r.wx = clampX(r.cx - dir * far * 0.9);
+      r.wy = Math.max(30, Math.min(FIELD_H - 30, r.cy + (FIELD_H / 2 - r.cy) * 0.25));
+    }
   }
 
   private thinkHorseArcher(r: Regiment): void {
@@ -4823,9 +4885,19 @@ export class Battle {
         const gy = r.ay + r.fy * d.sy[i]! + r.fx * d.sx[i]!;
         // In a melee the rear ranks close up gently: they back the front, they do not shove
         // it through the enemy. Men who have just rallied drift back into their ranks.
-        const rallying = r.mode === 'rally' && this.tick - r.modeAt < 60;
         const mode = r.mode;
-        if (mode === 'pursue') {
+        // P4: horse that has broken off closes up again on its rally point, at a walk.
+        const rallying = (mode === 'rally' && this.tick - r.modeAt < 60) || (mode === 'hold' && this.tick < r.reformUntil);
+        if (mode === 'withdraw' && mounted) {
+          // P4: breaking off is no parade: each rider at his own pace toward a place spread about
+          // his slot, a loose crowd riding for the rally point.
+          const lx = gx + (gx - r.ax) * 0.6 + (((i * 7) % 11) - 5) * 2;
+          const ly = gy + (gy - r.ay) * 0.6 + (((i * 5) % 9) - 4) * 2;
+          const h = d.hs[i]! || 1;
+          vx = (r.vax / TICK_S) * h + (lx - x) * 0.8;
+          vy = (r.vay / TICK_S) * h + (ly - y) * 0.8;
+          cap = spd * 1.2 * h;
+        } else if (mode === 'pursue') {
           // A chase is a loose crowd: each man at his own pace toward a place well spread about
           // his slot.
           const lx = gx + (gx - r.ax) * 1.4 + (((i * 7) % 11) - 5) * 1.5;
