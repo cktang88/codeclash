@@ -230,13 +230,15 @@ class Store {
   readonly aim: Float64Array;
   /** His own eagerness, -1 (a laggard) to 1 (the first to close): see COHESION. */
   readonly ea: Float64Array;
+  /** 1 while he swings round the enemy's flank, away from his slot (P6: see `Battle.curl`). */
+  readonly cu: Uint8Array;
   constructor(n: number) {
     const f = () => new Float64Array(n);
     const i = () => new Int32Array(n);
     this.x = f(); this.y = f(); this.vx = f(); this.vy = f(); this.hp = f(); this.imp = f();
     this.px = f(); this.py = f(); this.sx = f(); this.sy = f(); this.col = f(); this.row = i();
     this.rad = f(); this.mass = f(); this.spd = f(); this.hx = f(); this.hy = f(); this.hs = f(); this.aim = f(); this.ea = f();
-    this.state = new Uint8Array(n); this.team = new Uint8Array(n);
+    this.state = new Uint8Array(n); this.team = new Uint8Array(n); this.cu = new Uint8Array(n);
     this.reg = i(); this.target = i(); this.cd = i(); this.ammo = i();
     this.acted = i(); this.hit = i(); this.died = i(); this.kills = i(); this.stun = i(); this.rose = i();
   }
@@ -1753,7 +1755,9 @@ export class Battle {
         continue;
       }
       // Pull a wavering regiment out of the line once, if it can still get away and has men to save.
-      if (!allIn && r.withdrawals < doc.withdrawals && r.moraleState === 'wavering' && !r.engaged && !r.contact && ts.contacted && r.alive > r.start * 0.4) {
+      // (T2: a Templar block, not locked in the fight, may be pulled back even with the enemy
+      // close: since v14 a block in the line is seldom out of contact for long.)
+      if (!allIn && r.withdrawals < doc.withdrawals && r.moraleState === 'wavering' && !r.engaged && (!r.contact || (doc.withdrawBehind > 0 && r.enemyNear === 0)) && ts.contacted && r.alive > r.start * 0.4) {
         r.withdrawals++;
         // T2 Re-form on the banner: a Templar block falls back behind the nearest banner (the
         // Marshal, or a steady block of its own kind) rather than straight back.
@@ -2157,6 +2161,8 @@ export class Battle {
     }
     const cost = new Float64Array(ours.length * E * 4);
     const tmp = this.tmp;
+    const C = COHESION;
+    const curl = this.doc[t]!.loose.curl;
     for (let i = 0; i < ours.length; i++) {
       const r = ours[i]!;
       for (let e = 0; e < E; e++) {
@@ -2172,7 +2178,11 @@ export class Battle {
             if (k === 0 || (px > 10 && px < FIELD_W - 10 && py > 10 && py < FIELD_H - 10 && !this.blocked(px, py, o, r.depth))) {
               const dx = px - r.ax;
               const dy = py - r.ay;
-              c = sqrt(dx * dx + dy * dy) + (k === 0 ? 0 : k === 3 ? 170 : r.committed ? 20 : 90);
+              // P6: the flank of an enemy block already locked with one of ours is the place to
+              // go for a block with nothing in front of it (more so for those who wrap: the
+              // faction's `loose.curl`).
+              const flank = o.engaged && k !== 3 ? Math.max(C.flankEngaged, 90 - 110 * Math.min(1, curl)) : 90;
+              c = sqrt(dx * dx + dy * dy) + (k === 0 ? 0 : k === 3 ? 170 : r.committed ? Math.min(20, flank) : flank);
               if (r.targetReg === o.id && r.slot === k) c -= 60;
             }
           }
@@ -2231,6 +2241,8 @@ export class Battle {
     let fighting = 0;
     let msx = 0;
     let msy = 0;
+    let mx = 0;
+    let my = 0;
     for (const id of r.members) {
       const st = d.state[id]!;
       if (st > State.Routing) continue;
@@ -2238,10 +2250,14 @@ export class Battle {
       sx += d.x[id]!;
       sy += d.y[id]!;
       ammo += d.ammo[id]!;
-      if (st === State.Fighting) {
+      if (st === State.Fighting && !d.cu[id]) {
+        // (Men swinging round the enemy's flank are out of their places by design: the anchor
+        // keeps to the rest.)
         fighting++;
         msx += d.sx[id]!;
         msy += d.sy[id]!;
+        mx += d.x[id]!;
+        my += d.y[id]!;
       }
     }
     r.alive = n;
@@ -2276,8 +2292,8 @@ export class Battle {
     if (fighting > 0 && !r.routed) {
       msx /= fighting;
       msy /= fighting;
-      const ix = r.cx - (r.fx * msy - r.fy * msx);
-      const iy = r.cy - (r.fy * msy + r.fx * msx);
+      const ix = mx / fighting - (r.fx * msy - r.fy * msx);
+      const iy = my / fighting - (r.fy * msy + r.fx * msx);
       const dx = r.ax - ix;
       const dy = r.ay - iy;
       const q = sqrt(dx * dx + dy * dy);
@@ -4165,7 +4181,16 @@ export class Battle {
     // Look again every few ticks (staggered by his place in his own army, so that both sides
     // look on the same ticks): at once only for the men already fighting. (Until v4 this went
     // by id, which put the second army's men out of step with the first's by the first's size.)
-    else if ((this.tick + i - this.firstId[d.team[i]!]!) % (t < 0 ? 3 : 6) === 0) t = this.seek(i, r);
+    else if ((this.tick + i - this.firstId[d.team[i]!]!) % (t < 0 ? 3 : 6) === 0) {
+      t = this.seek(i, r);
+      // Falling back on the General's word, a man fights only a foe at hand.
+      if (t >= 0 && mode === 'reserve' && r.ord.kind === 'withdraw') {
+        const ex = d.x[t]! - d.x[i]!;
+        const ey = d.y[t]! - d.y[i]!;
+        const reach = d.rad[i]! + d.rad[t]! + 3;
+        if (ex * ex + ey * ey > reach * reach) t = -1;
+      }
+    }
     const st = this.soldiers[i]!.s;
     // A shooter with a foe at hand drops his bow and draws (0.6 s), however long his reload.
     if (t >= 0 && d.target[i]! < 0 && st.range > 0 && d.cd[i]! > 6) d.cd[i] = 6;
@@ -4241,13 +4266,21 @@ export class Battle {
     return Math.max(1, Math.min(this.doc[r.team]!.ripple, r.rows));
   }
 
-  /** The foe this soldier should fight: near, in front of the block, within a short leash of his slot. */
+  /**
+   * The foe this soldier should fight: near, in front of the block, within a short leash of his
+   * slot. P2: in contact the foot look further and the leash grows (longer still for the outer
+   * files, who also prefer foes on their outer side: they step out round the enemy's flank).
+   */
   private seek(i: number, r: Regiment): number {
     const d = this.d;
     const mounted = d.mass[i]! > 2;
     const pursue = r.mode === 'pursue';
-    const R = pursue ? 24 : mounted ? 15 : 10;
-    const leash = pursue || r.role === 'command' || r.mode === 'rally' ? 1e9 : mounted ? 34 : 9;
+    const C = COHESION;
+    const near = !mounted && !pursue && r.contact && r.role === 'line';
+    const edge = near && (d.sx[i]! < 0 ? -d.sx[i]! : d.sx[i]!) > r.width * 0.5 - r.spacing * C.edgeFiles;
+    const R = pursue ? 24 : mounted ? 15 : near ? C.reachNear : 10;
+    const leash = pursue || r.role === 'command' || r.mode === 'rally' ? 1e9 : mounted ? 34 : near ? (edge ? C.leashEdge : C.leashNear) * this.doc[r.team]!.loose.leash : 9;
+    const sxi = d.sx[i]!;
     const x = d.x[i]!;
     const y = d.y[i]!;
     const gx = r.ax + r.fx * d.sy[i]! - r.fy * d.sx[i]!;
@@ -4287,6 +4320,7 @@ export class Battle {
           const ly = ky[k]! - gy;
           if (lx * lx + ly * ly > L2) continue;
           if (!mounted && dx * fx + dy * fy < 0) s *= 1.7;
+          if (edge && (dx * -fy + dy * fx) * sxi > 0) s *= C.edgeOut;
           if (sj === State.Routing) s = pursue ? s * 0.6 : s * 3 + 30;
           if (s < bs) {
             bs = s;
@@ -4842,6 +4876,75 @@ export class Battle {
     return f > cap ? cap : f < -cap ? -cap : f;
   }
 
+  /**
+   * P6 (COHESION): where a man whose slot lies beyond the end of the enemy block's front (his
+   * block fights its front, wider than it) goes instead: his slot swung about that end of the
+   * enemy's front, toward its flank and rear, the further the further out his file stands
+   * (`curlBase` + `curlPerFile` a file beyond, at most `curlMax`, as tangents of half the
+   * angle: no trig), times the faction's `loose.curl`. Puts the point in tmp[0], tmp[1] and
+   * returns true; false when he is not beyond it.
+   */
+  private curl(i: number, r: Regiment, gx: number, gy: number): boolean {
+    const L = this.doc[r.team]!.loose;
+    if (L.curl <= 0) return false;
+    const o = this.regiments[r.targetReg]!;
+    if (o.alive === 0 || o.routed || o.fx * r.fx + o.fy * r.fy > -0.3) return false;
+    const C = COHESION;
+    const lox = -o.fy;
+    const loy = o.fx;
+    const lat = (gx - o.ax) * lox + (gy - o.ay) * loy;
+    const half = o.width * 0.5;
+    const beyond = (lat < 0 ? -lat : lat) - half - r.spacing * 0.5;
+    if (beyond <= 0) return false;
+    const sg = lat < 0 ? -1 : 1;
+    // About the end of the enemy's front: outward (u) and into the enemy's depth (b).
+    const ux = lox * sg;
+    const uy = loy * sg;
+    const px = o.ax + ux * half;
+    const py = o.ay + uy * half;
+    const vx = gx - px;
+    const vy = gy - py;
+    const a = vx * ux + vy * uy;
+    const b = -(vx * o.fx + vy * o.fy);
+    const t = Math.min(C.curlMax, C.curlBase + (C.curlPerFile * beyond) / r.spacing) * L.curl;
+    const c = (1 - t * t) / (1 + t * t);
+    const s = (2 * t) / (1 + t * t);
+    const a2 = a * c - b * s;
+    // (No deeper than the enemy's rear rank and a little: round the flank, not off behind it.)
+    const b2 = Math.min(o.depth + 6, a * s + b * c);
+    this.tmp[0] = px + ux * a2 - o.fx * b2;
+    this.tmp[1] = py + uy * a2 - o.fy * b2;
+    void i;
+    return true;
+  }
+
+  /**
+   * P6: whether man `i`, fighting `t`, stands out past the end of the front of `t`'s block (at
+   * its end file or beyond, before its rear): then the side he should take his foe from, a unit
+   * vector outward along that block's front and a little back toward its rear, in tmp[0], tmp[1]
+   * (so he steps round the corner rather than up to the front).
+   */
+  private wrapSide(i: number, t: number, r: Regiment): boolean {
+    const L = this.doc[r.team]!.loose;
+    if (L.curl <= 0) return false;
+    const d = this.d;
+    const o = this.regiments[d.reg[t]!]!;
+    if (o.routed || o.role === 'siege') return false;
+    const lox = -o.fy;
+    const loy = o.fx;
+    const ex = d.x[i]! - o.ax;
+    const ey = d.y[i]! - o.ay;
+    const lat = ex * lox + ey * loy;
+    const ahead = ex * o.fx + ey * o.fy;
+    if ((lat < 0 ? -lat : lat) < o.width * 0.5 - o.spacing * 0.5 || ahead < -o.depth) return false;
+    const sg = lat < 0 ? -1 : 1;
+    const back = 0.45 * Math.min(1, L.curl);
+    const m = sqrt(1 + back * back);
+    this.tmp[0] = (lox * sg - o.fx * back) / m;
+    this.tmp[1] = (loy * sg - o.fy * back) / m;
+    return true;
+  }
+
   private move(i: number): void {
     const d = this.d;
     const r = this.regiments[d.reg[i]!]!;
@@ -4863,10 +4966,15 @@ export class Battle {
     } else {
       const t = d.target[i]!;
       if (t >= 0) {
-        const dx = d.x[t]! - x;
-        const dy = d.y[t]! - y;
-        const q = sqrt(dx * dx + dy * dy) || 1;
+        let dx = d.x[t]! - x;
+        let dy = d.y[t]! - y;
         const contact = d.rad[i]! + d.rad[t]! + 0.9;
+        // P6: a man out past the end of the enemy's front closes on his foe from the flank side.
+        if (!mounted && r.role === 'line' && d.imp[i]! <= 0.3 && this.wrapSide(i, t, r)) {
+          dx += this.tmp[0]! * contact;
+          dy += this.tmp[1]! * contact;
+        }
+        const q = sqrt(dx * dx + dy * dy) || 1;
         if (d.imp[i]! > 0.3) {
           vx = (dx / q) * spd * 1.15;
           vy = (dy / q) * spd * 1.15;
@@ -4924,8 +5032,22 @@ export class Battle {
           // stand in their ranks to loose; and the dead, who never give a step, only on the march.)
           let f = 0;
           if (mounted ? mode === 'charge' : r.role === 'line' && (mode === 'advance' || mode === 'reserve' || (!r.engaged && (mode === 'hold' || mode === 'melee') && r.contact && this.doc[r.team]!.loose.stepBack))) f = this.lead(i, r, mounted ? 1 : r.closeIn);
-          vx = r.vax / TICK_S + (gx + r.fx * f - x) * k;
-          vy = r.vay / TICK_S + (gy + r.fy * f - y) * k;
+          let tx = gx + r.fx * f;
+          let ty = gy + r.fy * f;
+          d.cu[i] = 0;
+          if (!mounted && r.role === 'line' && r.contact && (r.engaged || mode === 'melee' || mode === 'hold') && r.slot === 0 && r.targetReg >= 0 && this.curl(i, r, gx, gy)) {
+            // P6: a file beyond the end of the enemy's front swings round its flank.
+            tx = this.tmp[0]!;
+            ty = this.tmp[1]!;
+            d.cu[i] = 1;
+          } else if (r.engaged && d.row[i]! > 0) {
+            // P2: the rear ranks lean on the front, into its gaps.
+            const L = COHESION.lean * this.doc[r.team]!.loose.leash;
+            tx += r.fx * L;
+            ty += r.fy * L;
+          }
+          vx = r.vax / TICK_S + (tx - x) * k;
+          vy = r.vay / TICK_S + (ty - y) * k;
           if (mode === 'charge' || mode === 'withdraw') cap = spd * 1.2;
         }
       }

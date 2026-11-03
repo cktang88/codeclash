@@ -416,16 +416,18 @@ describe('battle: command and morale', () => {
   }, 60_000);
 
   it('regiments waver, break, rally and shatter; the city’s morale bonus helps', () => {
-    // Seed 2: since v10 a regiment rallies only out of contact and with something to rally on,
-    // and in some of these battles none does (in v13, seeds 1 and 5).
-    const b = new Battle(setupOf(2, army(600), army(600)));
+    // Over a few battles: since v10 a regiment rallies only out of contact and with something to
+    // rally on, and in some battles none does (in v13, seeds 1 and 5; in v14, seed 2).
     const states = new Set<string>();
-    while (!b.done()) {
-      b.step();
-      for (const r of b.regiments) states.add(r.moraleState);
+    for (const seed of [2, 3, 4]) {
+      const b = new Battle(setupOf(seed, army(600), army(600)));
+      while (!b.done()) {
+        b.step();
+        for (const r of b.regiments) states.add(r.moraleState);
+      }
+      for (const k of ['waver', 'rout', 'shattered'] as const) expect(b.events.some((e) => e.kind === k)).toBe(true);
     }
     expect([...states].sort()).toEqual(['broken', 'rallying', 'shattered', 'steady', 'wavering']);
-    for (const k of ['waver', 'rout', 'shattered'] as const) expect(b.events.some((e) => e.kind === k)).toBe(true);
     // The Chapter House's morale bonus, on either side.
     // Clearly more often than not: 60 of 100 battles (about two in three today).
     let bonus = 0;

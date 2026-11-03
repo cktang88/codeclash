@@ -244,6 +244,7 @@ describe('doctrines: the Hollow Host', () => {
       placeRegiment(b, b.regiments.find((r) => r.team === 0)!, 750, 600, 1, 0);
       let stunned = 0;
       let pushed = 0;
+      let hits = 0;
       let contact = -1;
       const x0 = new Map<number, number>();
       while (!b.done() && b.tick < 400 && (contact < 0 || b.tick - contact < 20)) {
@@ -255,20 +256,22 @@ describe('doctrines: the Hollow Host', () => {
           if (s.stunned > 0) stunned++;
           if (s.hitAt === b.tick - 1 || s.hitAt === b.tick) {
             if (contact < 0) contact = b.tick;
-            pushed = Math.max(pushed, s.x - x0.get(id)!);
+            pushed += Math.max(0, s.x - x0.get(id)!);
+            hits++;
           }
         }
       }
-      return { stunned, pushed };
+      return { stunned, pushed, hits };
     };
-    // Over five charges: one charge's hardest push is one man's luck (since v14 a few riders,
-    // the eager, come in ahead of the rest).
-    const over = (faction: FactionId) => [1, 2, 3, 4, 5].map((seed) => charge(faction, seed)).reduce((a, c) => ({ stunned: a.stunned + c.stunned, pushed: a.pushed + c.pushed }));
+    // How far a man is driven back the tick he is hit, on average over five charges (one
+    // charge's hardest push is one man's luck: since v14 a few riders, the eager, come in ahead
+    // of the rest, and the dead swarm on a long leash).
+    const over = (faction: FactionId) => [1, 2, 3, 4, 5].map((seed) => charge(faction, seed)).reduce((a, c) => ({ stunned: a.stunned + c.stunned, pushed: a.pushed + c.pushed, hits: a.hits + c.hits }));
     const dead = over('undead');
     const living = over('templar');
     expect(dead.stunned).toBe(0);
     expect(living.stunned).toBeGreaterThan(0);
-    expect(dead.pushed).toBeLessThan(living.pushed * 0.6);
+    expect(dead.pushed / dead.hits).toBeLessThan((living.pushed / living.hits) * 0.6);
   });
 
   it('U3: the fallen near the Lich-Marshal rise, once each, and every man is still accounted for', () => {
