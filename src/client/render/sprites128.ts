@@ -3394,20 +3394,29 @@ function release(h: Held): void {
 }
 
 /**
- * When a renderer last asked for any sheet. Idleness is measured up to it, not up to now: a frame
- * that takes over a second (a slow machine, a software GL) must not find every sheet idle and
- * drop what the very next frame asks for again.
+ * When a renderer last asked for any sheet, and the usual gap between its frames (asks more than
+ * 30 ms apart). Idleness is measured up to the last ask, and a sheet is idle only when several
+ * frames went by without it: a frame that takes over a second (a slow machine, a software GL)
+ * must not find every sheet idle and drop what the very next frame asks for again.
  */
 let lastAsk = 0;
+let frameGap = 16;
+function asked(): void {
+  const t = now();
+  const gap = t - lastAsk;
+  if (gap > 30 && gap < 10000) frameGap += (gap - frameGap) * 0.2;
+  lastAsk = t;
+}
 
 function trim(force = false): void {
   const wall = now();
   if (!force && wall - lastTrim < 500) return;
   lastTrim = wall;
   const t = lastAsk || wall;
-  for (const h of [...held]) if (h.level >= 8 && t - h.used > IDLE_8X_MS) release(h);
+  const slack = 3 * frameGap;
+  for (const h of [...held]) if (h.level >= 8 && t - h.used > IDLE_8X_MS + slack) release(h);
   if (heldBytes <= HD_CAP_BYTES) return;
-  const old = [...held].filter((h) => t - h.used > 1000).sort((p, q) => p.used - q.used);
+  const old = [...held].filter((h) => t - h.used > 1000 + slack).sort((p, q) => p.used - q.used);
   for (const h of old) {
     if (heldBytes <= HD_CAP_BYTES) break;
     release(h);
@@ -3500,8 +3509,9 @@ function pump(): void {
   // rest. Among the wanted, level 2 and the finest level asked for a kind go before the levels
   // between (zoomed in to 8x: 2, then 8, then 4, so the view is sharp sooner); lower levels
   // first otherwise: they are cheap, and they are what the camera falls back to.
-  const t = now();
-  const fresh = (j: Job): boolean => t - j.asked <= STALE_MS;
+  // Up to the renderer's latest ask, a few frames' slack (as for the memory, above).
+  const t = lastAsk || now();
+  const fresh = (j: Job): boolean => t - j.asked <= STALE_MS + 3 * frameGap;
   const top = new Map<string, number>();
   for (const j of workPool.jobs.values()) {
     const ak = `${j.faction}:${j.hue}:${j.kind}`;
@@ -3574,7 +3584,7 @@ const store = new Map<string, { sheet: KindSheet; h: Held }>();
 function storedSheet(faction: string, hue: number, kind: number, level: number, half: boolean): KindSheet | null {
   const key = sheetKey(faction, hue, kind, level, half);
   const got = store.get(key);
-  lastAsk = now();
+  asked();
   if (got) {
     got.h.used = lastAsk;
     return got.sheet;
