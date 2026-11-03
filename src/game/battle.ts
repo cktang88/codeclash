@@ -599,6 +599,8 @@ export class Battle {
   private readonly d: Store;
   private readonly n: number;
   private readonly teamRegs: [Regiment[], Regiment[]] = [[], []];
+  /** Each side's first soldier id: a man's place in his own army is his id less this. */
+  private readonly firstId: [number, number] = [0, 0];
   private readonly ts: [TeamState, TeamState];
   private readonly startTotal: [number, number] = [0, 0];
   private readonly startValue: [number, number] = [0, 0];
@@ -675,6 +677,7 @@ export class Battle {
     const team = (): TeamState => ({ contactAt: -1, loss: 0, frontX: 0, lineDepth: 0, minY: 0, maxY: 0, midY: FIELD_H / 2, hasLine: false, engaged: false, contacted: false, missile: 0 });
     this.ts = [team(), team()];
     this.deploy(0);
+    this.firstId[1] = this.soldiers.length;
     this.deploy(1);
     for (let t = 0; t < 2; t++) {
       let p = 0;
@@ -2966,8 +2969,10 @@ export class Battle {
     let t = d.target[i]!;
     if (t >= 0 && d.state[t]! > State.Routing) t = -1;
     if (!r.contact) t = -1;
-    // Look again every few ticks (staggered): at once only for the men already fighting.
-    else if ((this.tick + i) % (t < 0 ? 3 : 6) === 0) t = this.seek(i, r);
+    // Look again every few ticks (staggered by his place in his own army, so that both sides
+    // look on the same ticks): at once only for the men already fighting. (Until v4 this went
+    // by id, which put the second army's men out of step with the first's by the first's size.)
+    else if ((this.tick + i - this.firstId[d.team[i]!]!) % (t < 0 ? 3 : 6) === 0) t = this.seek(i, r);
     d.target[i] = t;
     const st = this.soldiers[i]!.s;
     if (t >= 0) {
