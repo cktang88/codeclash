@@ -36,7 +36,7 @@ const PushPayload = z
     before: z.string(),
     after: z.string(),
     deleted: z.boolean().optional().default(false),
-    repository: z.object({ full_name: z.string(), private: z.boolean().optional().default(false) }).loose(),
+    repository: z.object({ full_name: z.string(), private: z.boolean().optional().default(false), default_branch: z.string().nullable().optional() }).loose(),
     sender: z.object({ id: z.number().int() }).loose().nullable().optional(),
     pusher: z.object({ name: z.string().nullable().optional() }).loose().nullable().optional(),
   })
@@ -128,11 +128,16 @@ export function registerHooks(app: FastifyInstance, deps: HookDeps): void {
       if (!deps.github) return reply.code(503).send({ error: 'GitHub ingestion is not configured' });
       if (!allow(user.id, deps.clock())) return reply.code(429).send({ error: 'too many deliveries' });
 
+      // A new branch (`before` all zeros) is read from its merge base with the default branch, as
+      // discovery reads one, so all of its own commits count, not only the head.
+      const branch = parsed.ref.slice('refs/heads/'.length);
+      const fallback = parsed.repository.default_branch;
+      const before = /^0+$/.test(parsed.before) && fallback && fallback !== branch ? fallback : parsed.before;
       try {
         const report = await ingestPush({ ...deps, github: deps.pool?.forUser(user.id) ?? deps.github }, user, {
           repo: parsed.repository.full_name,
           ref: parsed.ref,
-          before: parsed.before,
+          before,
           head: parsed.after,
           at: deps.clock(),
         }, true);

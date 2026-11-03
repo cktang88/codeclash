@@ -656,8 +656,17 @@ main {
 
 /* ------------------------------------------------------------------ battle */
 
+/* The field fills what the top bar leaves, whatever its height (signed in, or wrapped on a phone, it is
+   taller than 54px, and a fixed calc pushed the battle controls below the fold). */
+.app.full {
+  height: 100vh;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
 .app.full main {
-  height: calc(100vh - 54px);
+  flex: 1;
+  min-height: 0;
 }
 .battle-page {
   height: 100%;
@@ -777,6 +786,12 @@ main {
   padding: 0;
   pointer-events: none;
   max-width: 28rem;
+}
+/* Below this width the controls wrap onto two rows: the ticker sits above both, not behind the second. */
+@media (max-width: 1000px) {
+  .ticker {
+    bottom: 7.4rem;
+  }
 }
 .ticker li {
   background: rgba(10, 8, 6, 0.7);
@@ -971,6 +986,22 @@ main {
   html,
   body {
     font-size: 16px;
+  }
+  /* One line of top bar on a phone: the brand, the battle link and the account each wrapped onto two. */
+  .topbar {
+    gap: 0.7rem;
+    padding: 0.5rem 0.8rem;
+    white-space: nowrap;
+  }
+  .brand {
+    letter-spacing: 0.06em;
+  }
+  .topbar .account > button {
+    padding: 0.2em 0.5em;
+  }
+  .account-menu {
+    white-space: normal;
+    max-width: calc(100vw - 1.6rem);
   }
   .hud-top {
     grid-template-columns: 1fr 1fr;

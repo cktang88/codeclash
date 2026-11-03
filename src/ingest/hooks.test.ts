@@ -101,6 +101,19 @@ describe('registerHooks', () => {
     expect(t.github.calls.compare).toBe(0);
   });
 
+  it('reads a new branch from its merge base with the default branch, so every one of its commits counts', async () => {
+    const one = { sha: sha(3), authorLogin: 'ana', authorId: 7, message: 'Second' };
+    const two = { sha: sha(4), authorLogin: 'ana', authorId: 7, message: 'First' };
+    t.github.setCompare('ana/parser', 'main', sha(3), { commits: [two, one], files: [sourceFile('a.ts', ['startServer(config, logger);', 'stopServer(config, logger);'])], base: sha(1) });
+    t.github.setCommit('ana/parser', sha(3), { commits: [one], files: [sourceFile('a.ts', ['stopServer(config, logger);'])], base: sha(4) });
+    const res = await signed('push', payload({ ref: 'refs/heads/feature', before: ZERO, after: sha(3), created: true, repository: { full_name: 'ana/parser', private: false, default_branch: 'main' } }));
+    expect(res.json()).toEqual({ ok: true, counted: true });
+    expect(t.reports[0]).toMatchObject({ commits: 2, lines: expect.arrayContaining([2]) });
+    // A new repository's first push has no base to compare with: its head commit is read.
+    await signed('push', payload({ ref: 'refs/heads/main', before: ZERO, after: sha(3), repository: { full_name: 'ana/parser', private: false, default_branch: 'main' } }));
+    expect(t.github.calls.compare).toBe(1);
+  });
+
   it('counts a push delivered by both the webhook and the event feed once', async () => {
     await signed('push', payload());
     t.github.addEvent('ana', pushEvent('100', 'ana/parser', sha(1), sha(2), NOW));

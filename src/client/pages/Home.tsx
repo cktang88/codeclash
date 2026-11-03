@@ -82,7 +82,8 @@ function CreateLeague({ onDone }: { onDone: (slug: string) => void }) {
   );
 }
 
-export function Home({ me }: { me: MeResponse | null }) {
+/** `onChange` reloads the signed-in player (their league list) after founding a league. */
+export function Home({ me, onChange }: { me: MeResponse | null; onChange?: () => void }) {
   const [pub, setPub] = useState<LeagueCard[]>([]);
   const hero = useMemo(() => demoSetup(Math.floor(Math.random() * 1e9), 380), []);
   useEffect(() => {
@@ -132,7 +133,12 @@ export function Home({ me }: { me: MeResponse | null }) {
         <section>
           <h2>Your leagues</h2>
           <LeagueList leagues={me.leagues} empty="You have not sworn to any league yet. Found one, or join a public one below." />
-          <CreateLeague onDone={(slug) => go(`/l/${slug}`)} />
+          <CreateLeague
+            onDone={(slug) => {
+              onChange?.();
+              go(`/l/${slug}`);
+            }}
+          />
         </section>
       )}
       <section>

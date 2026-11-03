@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { FactionId } from '../../game/factions.ts';
 import { DEMO_SIZES, demoSetup } from '../demo.ts';
+import { browserClick } from '../route.ts';
 import { BattleView } from '../ui/BattleView.tsx';
 import { ArtSelect, FactionSelect } from '../ui/ShowcaseControls.tsx';
 import { ShowcaseCity } from './ShowcaseCity.tsx';
@@ -35,6 +36,8 @@ function useTab(): [ShowcaseTab, (t: ShowcaseTab) => void] {
     else q.set('tab', t);
     const s = q.toString();
     history.pushState(null, '', `${location.pathname}${s ? `?${s}` : ''}`);
+    // Tell the app too (as route.ts go() does): its sign-in link returns to the address shown.
+    window.dispatchEvent(new PopStateEvent('popstate'));
     setTab(t);
   };
   return [tab, pick];
@@ -81,7 +84,7 @@ export function Demo() {
             className={tab === k ? 'on' : ''}
             aria-current={tab === k ? 'page' : undefined}
             onClick={(e) => {
-              if (e.metaKey || e.ctrlKey || e.button !== 0) return;
+              if (browserClick(e)) return;
               e.preventDefault();
               setTab(k);
             }}

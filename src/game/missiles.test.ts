@@ -100,6 +100,29 @@ describe('battle: missiles', () => {
     expect(deep).toBeLessThanOrEqual(hits * 0.2);
   });
 
+  it('crossbowmen shoot past their own ranks: no bolt strikes a man of the regiment that loosed it', () => {
+    // A block of crossbowmen in close order: the rear ranks shoot through the front (their own
+    // ranks kneel or take turns, see `Ballistics`), so a bolt sees past them at landing too.
+    for (const faction of ['templar', 'undead'] as const) {
+      const b = new Battle({ version: BATTLE_VERSION, seed: 2, kind: 'daily', armies: [plainArmy(counts([[U.Crossbowmen, 30]]), 0, faction), plainArmy(counts([[U.HeavyInfantry, 40]]), 200)] });
+      b.pinStance(0, U.Crossbowmen, 'line');
+      b.generals[0].fixedPlan = 'hold';
+      b.generals[1].fixedPlan = 'hold';
+      const xb = b.regiments.find((r) => r.team === 0)!;
+      b.regiments.filter((r) => r.team === 1).forEach((r, i) => placeRegiment(b, r, 830, 560 + i * 80, -1, 0));
+      placeRegiment(b, xb, 700, 600, 1, 0);
+      let loosed = 0;
+      const seen = new Set<Projectile>();
+      while (b.tick < 200 && !b.done()) {
+        b.step();
+        for (const p of b.projectiles) if (p.team === 0 && !seen.has(p)) seen.add(p) && loosed++;
+      }
+      expect(loosed).toBeGreaterThan(20);
+      // Team 0 is only this regiment: every own goal would be a bolt in a comrade's back.
+      expect(b.ownGoals[0]).toBe(0);
+    }
+  });
+
   it('a cannonball bounds on through several men in a file', () => {
     const b = new Battle({ version: BATTLE_VERSION, seed: 5, kind: 'daily', armies: [plainArmy(counts([[U.Artillery, 4]]), 0, 'samurai'), plainArmy(counts([[U.HeavyInfantry, 60]]), 200)] });
     b.generals[0].fixedPlan = 'hold';

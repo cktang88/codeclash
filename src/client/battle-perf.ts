@@ -154,11 +154,13 @@ const w = window as unknown as {
   __scene: BattleScene;
   __step: (n: number) => void;
   __done?: boolean;
+  __battle: Battle;
   __switch: (to: ArtMode) => void;
   __sharp: () => { sharp: boolean; m: number; want: number[]; have: number[] };
 };
 w.__perf = perf;
 w.__scene = scene;
+w.__battle = real;
 // Swaps the scene's art in place, as BattleView does (for timing a mode switch).
 w.__switch = (to) => {
   const prev = scene;
