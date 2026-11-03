@@ -3393,10 +3393,18 @@ function release(h: Held): void {
   h.drop();
 }
 
+/**
+ * When a renderer last asked for any sheet. Idleness is measured up to it, not up to now: a frame
+ * that takes over a second (a slow machine, a software GL) must not find every sheet idle and
+ * drop what the very next frame asks for again.
+ */
+let lastAsk = 0;
+
 function trim(force = false): void {
-  const t = now();
-  if (!force && t - lastTrim < 500) return;
-  lastTrim = t;
+  const wall = now();
+  if (!force && wall - lastTrim < 500) return;
+  lastTrim = wall;
+  const t = lastAsk || wall;
   for (const h of [...held]) if (h.level >= 8 && t - h.used > IDLE_8X_MS) release(h);
   if (heldBytes <= HD_CAP_BYTES) return;
   const old = [...held].filter((h) => t - h.used > 1000).sort((p, q) => p.used - q.used);
@@ -3566,8 +3574,9 @@ const store = new Map<string, { sheet: KindSheet; h: Held }>();
 function storedSheet(faction: string, hue: number, kind: number, level: number, half: boolean): KindSheet | null {
   const key = sheetKey(faction, hue, kind, level, half);
   const got = store.get(key);
+  lastAsk = now();
   if (got) {
-    got.h.used = now();
+    got.h.used = lastAsk;
     return got.sheet;
   }
   const job = workPool.jobs.get(key);
