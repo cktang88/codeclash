@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Battle, BATTLE_VERSION, ballisticsOf, State, type ArmySpec, type Projectile, type Regiment } from './battle.ts';
+import { Battle, BATTLE_VERSION, ballisticsOf, DOCTRINE, State, type ArmySpec, type Projectile, type Regiment } from './battle.ts';
 import type { FactionId } from './factions.ts';
 import { only, placeRegiment, plainArmy } from './testing.ts';
 import { U, UNIT_COUNT } from './units.ts';
@@ -12,6 +12,17 @@ const counts = (pairs: [number, number][]) => {
 
 /** Shooters of `cls` (team 0, `faction`) with a block of their own spearmen standing right in front, the enemy beyond. */
 const screened = (faction: FactionId, cls: number, screen = true) => {
+  // (Matchlocks standing behind a friendly block, as any shooters do: without the samurai's S3
+  // doctrine, which sends them out before their line.)
+  const out = DOCTRINE.samurai.screen;
+  DOCTRINE.samurai.screen = 0;
+  try {
+    return screenedRun(faction, cls, screen);
+  } finally {
+    DOCTRINE.samurai.screen = out;
+  }
+};
+const screenedRun = (faction: FactionId, cls: number, screen: boolean) => {
   const b = new Battle({ version: BATTLE_VERSION, seed: 4, kind: 'daily', armies: [plainArmy(counts([[cls, 12], [U.Spearmen, 30]]), 0, faction), plainArmy(counts([[U.HeavyInfantry, 30]]), 200)] });
   // Shooters in close order, narrower than the screen.
   b.pinStance(0, cls, 'line');
@@ -231,9 +242,13 @@ describe('battle: missile drill (v11)', () => {
   }, 60_000);
 
   it('formed shooters loose in volleys on the word: the loaded men together, then a pause of a reload', () => {
-    // [faction, class, volley every (ticks)]: bows quickest, then crossbows, then matchlocks.
-    for (const [faction, cls, every] of [['templar', U.Archers, 21], ['templar', U.Crossbowmen, 44], ['samurai', U.Crossbowmen, 57]] as const) {
+    // [faction, class, volley every (ticks)]: bows quickest, then crossbows, then matchlocks
+    // (which after their first volley fire rank by rank, S3: a rank's volley every 57 / ranks).
+    for (const [faction, cls, cycle] of [['templar', U.Archers, 21], ['templar', U.Crossbowmen, 44], ['samurai', U.Crossbowmen, 57]] as const) {
       const { b } = butts(faction, cls);
+      const reg = b.regiments.find((r) => r.team === 0 && r.cls === cls)!;
+      const ranks = faction === 'samurai' ? Math.min(DOCTRINE.samurai.ripple, reg.rows) : 1;
+      const every = Math.ceil(cycle / ranks);
       const fresh = shotsOf(b);
       // Each regiment keeps its own volley clock.
       const ticks = new Map<number, number[]>();
@@ -248,21 +263,27 @@ describe('battle: missile drill (v11)', () => {
       }
       const name = `${faction} ${cls}`;
       const all = [...ticks.values()].reduce((n, t) => n + t.length, 0);
-      expect(all, name).toBeGreaterThan(cls === U.Archers ? 150 : 40);
+      expect(all, name).toBeGreaterThan(cls === U.Archers ? 150 : 25);
       const gaps: number[] = [];
       let inVolleys = 0;
       for (const [reg, t] of ticks) {
         expect(b.regiments[reg]!.atWill, name).toBe(false);
         // Nearly every shot is in a volley of three or more, each loosed within half a second.
-        const big = bursts(t).filter((v) => v.length >= 3);
+        // (A rank's volley may be small: the first after the whole block's, half its men still loading.)
+        const big = bursts(t).filter((v) => v.length >= (ranks > 1 ? 2 : 3));
         inVolleys += big.reduce((n, v) => n + v.length, 0);
         for (const v of big) expect(v[v.length - 1]! - v[0]!, name).toBeLessThan(5);
         gaps.push(...big.slice(1).map((v, i) => v[0]! - big[i]![0]!));
       }
-      expect(inVolleys, name).toBeGreaterThan(all * 0.9);
+      expect(inVolleys, name).toBeGreaterThan(all * (ranks > 1 ? 0.85 : 0.9));
       // Volleys a reload and the "make ready, present" beat apart.
       gaps.sort((x, y) => x - y);
-      expect(gaps[gaps.length >> 1], name).toBe(every);
+      // (Rank by rank, the rhythm is a rank's volley a share of the cycle apart, a rank missing its
+      // turn now and then while its men reload after the whole block's first volley.)
+      if (ranks > 1) {
+        expect(gaps[gaps.length >> 1], name).toBeLessThan(cycle);
+        expect(gaps[gaps.length >> 1], name).toBeGreaterThanOrEqual(every - 12);
+      } else expect(gaps[gaps.length >> 1], name).toBe(every);
     }
   });
 

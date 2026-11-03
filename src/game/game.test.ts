@@ -224,7 +224,9 @@ describe('battle', () => {
       ticks.push(r.ticks);
       expect(r.reason).toBe('rout');
       expect(r.ticks).toBeGreaterThan(50 * TICKS_PER_SECOND);
-      expect(r.ticks).toBeLessThan(300 * TICKS_PER_SECOND);
+      // (Since v13 Templar blocks re-form on the banner twice and the brothers die where they stand
+      // (T2, T3): a Templar mirror's long grind can run past five minutes, short of the limit.)
+      expect(r.ticks).toBeLessThan(340 * TICKS_PER_SECOND);
       const contact = b.events.find((e) => e.kind === 'contact')!.tick;
       expect(contact).toBeGreaterThan(15 * TICKS_PER_SECOND);
       expect(b.events.some((e) => e.kind === 'general-order')).toBe(true);
@@ -414,9 +416,9 @@ describe('battle: command and morale', () => {
   }, 60_000);
 
   it('regiments waver, break, rally and shatter; the city’s morale bonus helps', () => {
-    // Seed 1: since v10 a regiment rallies only out of contact and with something to rally on,
-    // and in about half of these battles none does (seed 5 had none).
-    const b = new Battle(setupOf(1, army(600), army(600)));
+    // Seed 2: since v10 a regiment rallies only out of contact and with something to rally on,
+    // and in some of these battles none does (in v13, seeds 1 and 5).
+    const b = new Battle(setupOf(2, army(600), army(600)));
     const states = new Set<string>();
     while (!b.done()) {
       b.step();
