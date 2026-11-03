@@ -451,33 +451,43 @@ class Beast implements Ent {
     readonly rank: number,
     public follow: Walker | null = null,
     /**
-     * Where a dog keeps to beside the one it follows (u back, v across). HD figures are wider
-     * than the classic ones: the dog walks a body's width off, so the two never overlap at the
-     * same depth (a figure half hidden behind the dog read as a broken body).
+     * HD: the dog keeps a body's width to the side of the one it follows, on the side he walks
+     * away from (his heels), level with his feet, and runs to catch up. Classic keeps its old
+     * spot (u - 4, v + 3) and pace. (A dog behind a walker's head or under his arm read as a
+     * broken figure.)
      */
-    readonly gap: [number, number] = [4, 3],
+    readonly hd = false,
   ) {
     this.u = this.tu = home[0] + rand.range(-radius, radius);
     this.v = this.tv = home[1] + rand.range(-radius, radius);
   }
+  /** Where a following dog stands relative to its walker (u, v). */
+  private spot(w: Walker): [number, number] {
+    if (!this.hd) return [-4, 3];
+    // Screen x is u - v and depth u + v: (±6.5, ∓6.5) is 13 world px to one side at the same depth.
+    const side = w.dir === 1 || w.dir === 2 ? 1 : -1;
+    return [side * 6.5, -side * 6.5];
+  }
   update(dt: number): void {
     if (this.follow && !this.follow.hidden) {
-      this.tu = this.follow.u - this.gap[0];
-      this.tv = this.follow.v + this.gap[1];
+      const [gu, gv] = this.spot(this.follow);
+      this.tu = this.follow.u + gu;
+      this.tv = this.follow.v + gv;
     }
     const du = this.tu - this.u;
     const dv = this.tv - this.v;
     const len = Math.hypot(du, dv);
-    const speed = this.kind === 'dog' ? (len > 8 ? 26 : 12) : 6;
+    const speed = this.kind === 'dog' ? (len > (this.hd ? 3 : 8) ? 26 : 12) : 6;
     if (len < 0.8) {
       this.wait -= dt;
       if (this.wait <= 0) {
         this.wait = this.rand.range(1, this.kind === 'dog' ? 6 : 3);
         const c = this.follow && !this.follow.hidden ? [this.follow.u, this.follow.v] : this.home;
-        if (this.follow && !this.follow.hidden && this.gap[0] !== 4) {
+        if (this.follow && !this.follow.hidden && this.hd) {
           // HD: a following dog sniffs about on its own side of the walker, never across him.
-          this.tu = c[0]! - this.gap[0] + this.rand.range(-3, 3);
-          this.tv = c[1]! + this.gap[1] + this.rand.range(-3, 3);
+          const [gu, gv] = this.spot(this.follow);
+          this.tu = c[0]! + gu + this.rand.range(-2, 2);
+          this.tv = c[1]! + gv + this.rand.range(-2, 2);
         } else {
           this.tu = c[0]! + this.rand.range(-this.radius, this.radius);
           this.tv = c[1]! + this.rand.range(-this.radius, this.radius);
@@ -644,7 +654,7 @@ export class Life {
     }
     if (levels.workshop > 0) this.walkers.push(new Walker('workshop', this.L.carpenter(1, 'none', 'plank'), ['workshop', 'yard', 'out', 'forge'], 9, -1.5, new Rand(700), 'none', 0, 0.2, {}, { out: true }));
     const dogs = Math.min(3, 1 + Math.floor(total / 40));
-    for (let i = 0; i < dogs; i++) this.beasts.push(new Beast('dog', NODES.yard as unknown as [number, number], 14, new Rand(800 + i), i / 3, this.walkers[i * 3] ?? null, this.hd ? [7, 6] : [4, 3]));
+    for (let i = 0; i < dogs; i++) this.beasts.push(new Beast('dog', NODES.yard as unknown as [number, number], 14, new Rand(800 + i), i / 3, this.walkers[i * 3] ?? null, !!this.hd));
     this.fieldPos = FIELDS.map((_, i) => hash(i, 3) * 40);
     this.stuck = [];
   }
