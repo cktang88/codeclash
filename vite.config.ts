@@ -59,6 +59,8 @@ export default defineConfig({
   root: 'src/client',
   plugins: [react(), artVersionPlugin()],
   build: { outDir: '../../dist/client', emptyOutDir: true },
+  // Module workers, so the sprite worker can load the painter only when it has to paint.
+  worker: { format: 'es' },
   server: { port: 5173, proxy: PROXY },
   preview: { proxy: PROXY },
   test: { root: '.', include: ['src/**/*.test.ts'] },
