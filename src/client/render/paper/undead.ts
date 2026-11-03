@@ -35,7 +35,12 @@ setFactionPaletteOptions('undead', { perKind: true, minDist: [0.1, 0.18, 0.1, 0.
   kinds: {
     [U.Skirmishers]: DARK_RIM,
     [U.Archers]: DARK_RIM,
-    [COMMANDER_KIND]: DARK_RIM,
+    // The Lich at level 2: no near-duplicate merging, so its shroud's folds keep their own tones
+    // instead of running together into long bands.
+    [COMMANDER_KIND]: { ...DARK_RIM, minDist: [0.1, 0, 0.1, 0.06] },
+    // The Arbalests at level 4: their rag, leather, wood and rust are all dark browns; merging the
+    // near-duplicates harder keeps each material one flat mass with a lit edge, not stripes.
+    [U.Crossbowmen]: { minDist: [0.1, 0.18, 0.25, 0.06] },
     // The Legionary at level 2: the rust's shade and the bone's deep tone merged into one brown,
     // so the lit breastplate and the shield's painted skull read as one bone-coloured mass lit
     // from the right. A little less merging keeps them apart.

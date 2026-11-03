@@ -39,6 +39,8 @@ export interface FootSpec extends FootClipSpec {
   nocked?: boolean;
   /** How much of the figure is in the low shade at level 1 (default 0.36). */
   shadeL1?: number;
+  /** The same at level 2 (default 0.42). */
+  shadeL2?: number;
   /** Slots not drawn from behind (a far arm reaching across, hidden by the body). */
   neHide?: string[];
 }
@@ -251,14 +253,14 @@ export const FLASH: Attachment = {
   },
 };
 /** The key art's light: soul-fire lights the bone near it, a rim on hard edges turned from the key. */
-export const lightAtt = (l1 = 0.36): Attachment => ({
+export const lightAtt = (l1 = 0.36, l2 = 0.42): Attachment => ({
   cache: false,
   draw: (c) => {
     keyLight(c);
     // At levels 1-2 a figure is 13-26 px tall: the light from above has to show as a darker
     // lower body, or each part's light reads from the side (the lint's light direction). How
     // much of it is in shade at level 1 is the kind's (the shade line must not cut its bands).
-    if (c.L <= 2) shadeLower(c, c.L <= 1 ? l1 : 0.42);
+    if (c.L <= 2) shadeLower(c, c.L <= 1 ? l1 : l2);
   },
 });
 export const LIGHT = lightAtt();
@@ -273,7 +275,7 @@ function footParts(s: FootSpec): AttachmentSet {
     atts[`${d.slot}Drop`] = pieceAtt({ ...p, bone: `drop_${d.slot}`, cloth: false }, J, s.art.axis);
   }
   atts.flash = FLASH;
-  atts.light = lightAtt(s.shadeL1);
+  atts.light = lightAtt(s.shadeL1, s.shadeL2);
   if (s.smear) atts.smear = smearPart('weapon', s.smear[0], s.smear[1], s.smearMat ?? UM.steel);
   return atts;
 }
