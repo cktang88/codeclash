@@ -22,7 +22,7 @@ import { registerPaperKind } from './registry.ts';
 import { flash as muzzleFlash, smoke, SM, stick, yumi } from './samurai-parts.ts';
 import { footBody, FOOT, KUSA_TOP, L2_TONES, LOW_MERGE, LOW_TONES, MID_MERGE, MID_TONES, manOrder, manPiece, mapPoint, withMap, type Body, type ManPiece, type SFoot } from './samurai-static.ts';
 import {
-  BREATH, bonesFromJoints, EASE, EASE_IN, EASE_OUT, emptyLocals, evaluate, sampleClip, shortest, skeletonKind, smearPart,
+  BREATH, bonesFromJoints, EASE, EASE_IN, EASE_OUT, emptyLocals, evaluate, sampleClip, shortest, skeletonKind,
   type AnimationData, type FacingClips, type Key, type Posed, type AnimEvent, type AttachmentSet, type Clip, type JointDef, type SkeletonData, type SkeletonRig, type SlotData,
 } from './skeleton.ts';
 import { HIT, T } from './templar-clips.ts';
@@ -240,9 +240,11 @@ const EXTRA: Record<string, { bone: string; att: string | null }> = {
 
 function orders(s: SSpec, k: SFoot, front = s.neFront): { se: string[]; ne: string[] } {
   const se = ['weaponDrop', 'farDrop', ...manOrder(k.gear)];
-  se.splice(se.indexOf('weapon') + 1, 0, 'smear', 'ramrod');
+  // The smear under the blade (the steel stays on top of its own sweep).
+  se.splice(se.indexOf('weapon'), 0, 'smear');
+  se.splice(se.indexOf('weapon') + 1, 0, 'ramrod');
   se.push('scene', 'fx', 'flash');
-  const nearArm = ['forearmN', 'handN', 'weapon', 'gripN', 'smear', 'ramrod'];
+  const nearArm = ['forearmN', 'handN', 'smear', 'weapon', 'gripN', 'ramrod'];
   const ne = ['scene', 'weaponDrop', 'farDrop', 'farItem', 'gripF', 'upperArmF', 'forearmF', 'handF', 'sodeF'];
   if (front) ne.push(...nearArm);
   ne.push('kusaFF', 'kusaFM', 'kusaFN', 'thighF', 'shinF', 'footF', 'thighN', 'shinN', 'footN', 'haidateF', 'haidateN', 'hipGear', 'torso', 'kusaBN', 'kusaBF', 'head', 'back', 'upperArmN', 'sodeN');
@@ -281,6 +283,59 @@ export function footSkel(kind: number, k: SFoot, s: SSpec): SkeletonData {
       { name: 'legF', bones: ['thighF', 'shinF'], target: 'footTargetF', bend: 1, mix: 1, ground: b.anF[1] },
       { name: 'armF2h', bones: ['upperArmF', 'forearmF'], target: 'grip2', bend: farBend, mix: s.twoHand ? 1 : 0 },
     ],
+  };
+}
+
+// ------------------------------------------------------------------ the blade's smear
+
+/**
+ * A sword smear (docs/art-references/samurai-animation.md, "Smears"): a thin crescent along the
+ * path the weapon's tip took since the last frame, never a filled wedge. It is cut along the
+ * tip's real path (the hand's travel and the blade's turn interpolated together, so a cut gives
+ * an arc and a thrust a straight streak) at radius `reach` from the fist, and is thick only at its
+ * leading end, next to the blade, tapering to nothing at the trailing end (SlashFX's "flag"
+ * shape; Saint11's crescent). Pale on its outer edge, steel inside, a darker inner rim; 1 px
+ * (2 at the head) at level 2. It is drawn under the blade, so the steel stays on top.
+ */
+export function crescentPart(bone: string, reach: number, mat: number): AttachmentSet[string] {
+  return {
+    cache: false,
+    draw: (c, _x, ctx) => {
+      if (!ctx.events.some((e) => e.name === 'smear')) return;
+      const now = ctx.posed.byName[bone], was = ctx.prev?.byName[bone];
+      if (!now || !was) return;
+      const L = c.L;
+      const span = shortest(now.a - was.a);
+      const tipAt = (t: number): [number, number, number, number] => {
+        const a = ((was.a + span * t) * Math.PI) / 180;
+        const dx = Math.sin(a), dy = Math.cos(a);
+        const px = was.x + (now.x - was.x) * t, py = was.y + (now.y - was.y) * t;
+        return [c.sx(px + dx * reach), c.sy(py + dy * reach), dx, dy];
+      };
+      const [x0, y0] = tipAt(0), [x1, y1] = tipAt(1);
+      // The tip's path length in px (the chord understates an arc: add the arc's own length).
+      const path = Math.max(Math.hypot(x1 - x0, y1 - y0), (Math.abs(span) * Math.PI * reach * L) / 180);
+      if (path < 2.5 * L) return;
+      const head = L >= 8 ? 6 : L >= 4 ? 3 : L >= 2 ? 2 : 1;
+      const n = Math.ceil(path * 2) + 2;
+      const done = new Set<number>();
+      for (let i = 0; i <= n; i++) {
+        const t = i / n;
+        const [tx, ty, dx, dy] = tipAt(t);
+        // Thick at the head (t = 1), thinning to a point at the tail.
+        const th = Math.max(t > 0.08 ? 1 : 0, head * Math.pow(t, 1.4));
+        // Low levels step whole pixels: a 1 px line, 2 px only at the head.
+        for (let d = 0; d < th; d += L <= 2 ? 1 : 0.5) {
+          const X = Math.floor(tx - dx * d), Y = Math.floor(ty - dy * d);
+          const key = Y * 4096 + X;
+          if (done.has(key)) continue;
+          done.add(key);
+          // Outer edge pale, the body steel, the innermost row darker (only where it is 3+ px thick).
+          const tone = L <= 2 ? 3 : d < 1 ? 4 : th >= 3 && d >= th - 1 ? 2 : 3;
+          c.plot(X, Y, code(mat, tone));
+        }
+      }
+    },
   };
 }
 
@@ -323,7 +378,7 @@ export function footParts(kind: number, k: SFoot, s: SSpec): AttachmentSet {
         }
     },
   };
-  if (s.smear) atts.smear = smearPart('weapon', s.smear[0], s.smear[1], SM.steel);
+  if (s.smear) atts.smear = crescentPart('weapon', s.smear[1], SM.steel);
   if (s.shoot === 'teppo') {
     // The shot: the pan flashes a beat before the muzzle (frame 6), the muzzle flash on 6-7, and
     // the smoke where the muzzle was, swelling and drifting up and back as he reloads. Each
@@ -801,19 +856,19 @@ const FAN_STRIKE: Author = (rw) => ({
 });
 
 const ATTACKS: Record<Attack, { clip: string; o: MocapOpts; a: Author; extra: number[]; ev: AnimEvent[] }> = {
-  kesa: { clip: 'cut-diagonal', o: { torso: 0.5, travel: 0, feet: 0.3 }, a: KESA, extra: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], ev: [{ f: 5, name: 'smear', len: 3, bone: 'weapon' }, { f: 7, name: 'strike' }] },
-  shomen: { clip: 'cut-overhead', o: { torso: 0.4, travel: 0, feet: 0.3 }, a: SHOMEN, extra: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], ev: [{ f: 5, name: 'smear', len: 3, bone: 'weapon' }, { f: 7, name: 'strike' }] },
+  kesa: { clip: 'cut-diagonal', o: { torso: 0.5, travel: 0, feet: 0.3 }, a: KESA, extra: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], ev: [{ f: 6, name: 'smear', len: 2, bone: 'weapon' }, { f: 7, name: 'strike' }] },
+  shomen: { clip: 'cut-overhead', o: { torso: 0.4, travel: 0, feet: 0.3 }, a: SHOMEN, extra: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], ev: [{ f: 6, name: 'smear', len: 2, bone: 'weapon' }, { f: 7, name: 'strike' }] },
   tsuki: { clip: 'thrust', o: { torso: 0.3, travel: 0.3, feet: 0.3 }, a: TSUKI, extra: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], ev: [{ f: 4, name: 'strike' }] },
   thrust: { clip: 'thrust', o: { torso: 0.3, travel: 0.3, feet: 0.3 }, a: THRUST, extra: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], ev: [{ f: 5, name: 'strike' }] },
   beat: { clip: 'chop', o: { torso: 0.3, travel: 0.3, feet: 0.3 }, a: BEAT, extra: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], ev: [{ f: 6, name: 'smear', len: 1, bone: 'weapon' }, { f: 7, name: 'strike' }] },
   under: { clip: 'thrust', o: { torso: 0.3, travel: 0.3, feet: 0.3 }, a: UNDER, extra: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], ev: [{ f: 5, name: 'strike' }] },
   stock: { clip: 'thrust', o: { torso: 0.3, travel: 0.3, feet: 0.3 }, a: STOCK, extra: [1, 2, 3, 4, 5, 6, 8, 9, 10], ev: [{ f: 5, name: 'strike' }] },
-  rising: { clip: 'chop', o: { torso: 0.2, travel: 0.3, feet: 0.3 }, a: RISING, extra: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], ev: [{ f: 5, name: 'smear', len: 3, bone: 'weapon' }, { f: 7, name: 'strike' }] },
+  rising: { clip: 'chop', o: { torso: 0.2, travel: 0.3, feet: 0.3 }, a: RISING, extra: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], ev: [{ f: 6, name: 'smear', len: 2, bone: 'weapon' }, { f: 7, name: 'strike' }] },
   fanStrike: { clip: 'brace', o: { ref: 'first', torso: 0, travel: 0, feet: 0 }, a: FAN_STRIKE, extra: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], ev: [{ f: 5, name: 'smear', len: 2, bone: 'weapon' }, { f: 6, name: 'strike' }] },
   jab: { clip: 'thrust', o: { torso: 0.3, travel: 0.3, feet: 0.3 }, a: JAB, extra: [2, 3, 4, 5, 6, 7, 8, 9, 10], ev: [{ f: 4, name: 'smear', len: 1, bone: 'weapon' }, { f: 5, name: 'strike' }] },
   punch: { clip: 'thrust', o: { torso: 0.3, travel: 0.3, feet: 0.3 }, a: PUNCH, extra: [3, 5, 6, 9], ev: [{ f: 5, name: 'strike' }] },
   butt: { clip: 'thrust', o: { torso: 0.3, travel: 0.3, feet: 0.3 }, a: BUTT, extra: [3, 5, 6, 9], ev: [{ f: 5, name: 'smear', len: 1, bone: 'weapon' }, { f: 5, name: 'strike' }] },
-  sweep: { clip: 'chop', o: { torso: 0.3, travel: 0.3, feet: 0.3 }, a: SWEEP, extra: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], ev: [{ f: 5, name: 'smear', len: 3, bone: 'weapon' }, { f: 7, name: 'strike' }] },
+  sweep: { clip: 'chop', o: { torso: 0.3, travel: 0.3, feet: 0.3 }, a: SWEEP, extra: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], ev: [{ f: 6, name: 'smear', len: 2, bone: 'weapon' }, { f: 7, name: 'strike' }] },
   fan: { clip: 'brace', o: { ref: 'first', torso: 0, travel: 0, feet: 0 }, a: FAN, extra: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], ev: [{ f: 5, name: 'smear', len: 2, bone: 'weapon' }, { f: 6, name: 'strike' }] },
 };
 

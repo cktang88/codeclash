@@ -13,7 +13,7 @@ import type { Facing } from './facing.ts';
 import { registerPaperKind } from './registry.ts';
 import { SM, yumi } from './samurai-parts.ts';
 import {
-  BRACE, joints, KESA, KYUDO, lagCloth, neBody, PARENT, PIECE_BONE, PUNCH, R, samuraiKind, torsoWeightsAt,
+  BRACE, crescentPart, joints, KESA, KYUDO, lagCloth, neBody, PARENT, PIECE_BONE, PUNCH, R, samuraiKind, torsoWeightsAt,
   type Author, type SSpec, type Tracks,
 } from './samurai-rig.ts';
 import {
@@ -21,7 +21,7 @@ import {
   type Body, type HorsePiece, type ManPiece, type SMounted,
 } from './samurai-static.ts';
 import {
-  BREATH, bonesFromJoints, EASE, smearPart,
+  BREATH, bonesFromJoints, EASE,
   type AnimationData, type AnimEvent, type AttachmentSet, type Clip, type JointDef, type SkeletonData, type SkeletonRig, type SlotData,
 } from './skeleton.ts';
 import { HIT, T } from './templar-clips.ts';
@@ -95,8 +95,8 @@ function riderPieces(m: SMounted): ManPiece[] {
 function orders(s: HorseSpec, m: SMounted): { se: string[]; ne: string[] } {
   const rider = riderPieces(m);
   const se = ['weaponDrop', 'farDrop', ...HORSE_FAR.map(hs), ...RIDER_FAR_LEG, ...HORSE_BODY.map(hs), ...rider, ...RIDER_NEAR_LEG, 'abumi', 'flash'];
-  se.splice(se.indexOf('weapon') + 1, 0, 'smear');
-  const nearArm = ['forearmN', 'handN', 'weapon', 'gripN', 'smear'];
+  se.splice(se.indexOf('weapon'), 0, 'smear');
+  const nearArm = ['forearmN', 'handN', 'smear', 'weapon', 'gripN'];
   const front = s.neFront ?? false;
   const neRider = ['farItem', 'gripF', 'upperArmF', 'forearmF', 'handF', 'sodeF', ...(front ? nearArm : []), 'kusaFF', 'kusaFM', 'kusaFN', 'hipGear', 'torso', 'kusaBN', 'kusaBF', 'head', 'back', 'upperArmN', 'sodeN', ...(front ? [] : nearArm)];
   // From behind, what the far hand holds (the yumi) is on the horse's far side: behind its body.
@@ -174,7 +174,7 @@ function horseParts(kind: number, m: SMounted, s: HorseSpec): AttachmentSet {
   atts.abumi = (c, x, ctx) => withMap(partMap(x), () => abumi(c, rest[ctx.posed.facing].anN));
   atts.weaponDrop = (c, x, ctx) => withMap(partMap(x), () => manPiece(c, rest[ctx.posed.facing], dRide, m.gear, 'weapon', ctx.posed.facing === 'ne'));
   atts.farDrop = (c, x, ctx) => withMap(partMap(x), () => manPiece(c, rest[ctx.posed.facing], dRide, m.gear, 'farItem', ctx.posed.facing === 'ne'));
-  if (s.smear) atts.smear = smearPart('weapon', s.smear[0], s.smear[1], SM.steel);
+  if (s.smear) atts.smear = crescentPart('weapon', s.smear[1], SM.steel);
   if (s.shoot === 'kyudo') {
     // The yumi held across the horse's neck, the arrow nocked: its string runs to the draw hand,
     // and while the `draw` event runs the bow bends with the draw's length.
@@ -423,8 +423,8 @@ function horseClips(skel: SkeletonData, s: HorseSpec, m: SMounted, blowsOut?: Cl
         ]
       : s.ride === 'cut'
         ? [
-            { a: SADDLE_CUT, ev: [{ f: 4, name: 'smear', len: 3, bone: 'weapon' }, { f: 7, name: 'strike' }] },
-            { a: SADDLE_RISE, ev: [{ f: 5, name: 'smear', len: 3, bone: 'weapon' }, { f: 7, name: 'strike' }] },
+            { a: SADDLE_CUT, ev: [{ f: 5, name: 'smear', len: 2, bone: 'weapon' }, { f: 7, name: 'strike' }] },
+            { a: SADDLE_RISE, ev: [{ f: 6, name: 'smear', len: 2, bone: 'weapon' }, { f: 7, name: 'strike' }] },
             { a: SADDLE_THRUST, ev: [{ f: 5, name: 'strike' }] },
           ]
         : [];
