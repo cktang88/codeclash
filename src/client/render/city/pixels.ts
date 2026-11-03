@@ -126,6 +126,9 @@ export class Px {
     for (let y = this.y0; y <= this.y1; y++) {
       this.data.fill(0, y * this.w + this.x0, y * this.w + this.x1 + 1);
       this.depth.fill(-1e9, y * this.w + this.x0, y * this.w + this.x1 + 1);
+      // The light classes too: a painter that reads a neighbour's class (undead sunlit) must not
+      // see the last building's, or a building's art would depend on what was painted before it.
+      this.cls.fill(0, y * this.w + this.x0, y * this.w + this.x1 + 1);
     }
     this.x0 = this.y0 = Infinity;
     this.x1 = this.y1 = -1;
