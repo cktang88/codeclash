@@ -614,14 +614,15 @@ export class HdField {
       this.fresh.length = 0;
       this.freshOld.length = 0;
       if (batch.n === n0 && rw.length === 0) return false;
-      // The appended tail, and the rewritten instances (one by one while they are few).
-      if (rw.length > 64) {
-        let lo = n0;
-        for (const k of rw) if (k < lo) lo = k;
-        batch.upload(lo);
-      } else {
-        batch.upload(n0);
-        for (const k of rw) batch.uploadRange(k, k + 1);
+      // The appended tail, and the rewritten instances in runs: a bucket's decals sit together
+      // in the batch and its ring is overwritten in order, so they cluster.
+      batch.upload(n0);
+      rw.sort((p, q) => p - q);
+      for (let i = 0; i < rw.length; ) {
+        let j = i;
+        while (j + 1 < rw.length && rw[j + 1]! - rw[j]! <= 8) j++;
+        batch.uploadRange(rw[i]!, rw[j]! + 1);
+        i = j + 1;
       }
       return true;
     }

@@ -63,9 +63,9 @@ interface Particle {
   b: number;
   a: number;
   /** HD: which variant of the puff sprite. */
-  v?: number;
+  v: number;
   /** HD: battle second it was raised (steps run without frames when skipping or hidden). */
-  t0?: number;
+  t0: number;
 }
 
 /** A decal waiting to be stamped into the ground: tex 0/1 = an army's atlas, 2 = effects. */
@@ -273,6 +273,8 @@ export class BattleScene {
   private regY: Float32Array;
   private flying = new Set<Projectile>();
   private particles: Particle[] = [];
+  /** Dead particles, for spawn() to reuse. */
+  private spare: Particle[] = [];
   private stamps: Stamp[] = [];
   private time = 0;
   /** Last frame's view, for toWorld and pan. */
@@ -500,8 +502,30 @@ export class BattleScene {
     if (this.particles.length >= MAX_PARTICLES + (this.field && (kind === PK.Smoke || kind === PK.Spark) ? 800 : 0)) return;
     // HD: dust gives way, so marching thousands never crowd out blood, sparks and gun smoke.
     if (this.field && kind === PK.Dust && this.dustN++ >= MAX_PARTICLES / 2) return;
-    if (this.field) this.particles.push({ kind, x, y, z, vx, vy, vz, life: 0, max, size, r, g, b, a, v, t0: this.battle.tick * TICK_S });
-    else this.particles.push({ kind, x, y, z, vx, vy, vz, life: 0, max, size, r, g, b, a, v });
+    // Dead particles are reused (thousands a second in a melee), all of one shape.
+    const p = this.spare.pop();
+    const t0 = this.battle.tick * TICK_S;
+    if (!p) {
+      this.particles.push({ kind, x, y, z, vx, vy, vz, life: 0, max, size, r, g, b, a, v, t0 });
+      return;
+    }
+    p.kind = kind;
+    p.x = x;
+    p.y = y;
+    p.z = z;
+    p.vx = vx;
+    p.vy = vy;
+    p.vz = vz;
+    p.life = 0;
+    p.max = max;
+    p.size = size;
+    p.r = r;
+    p.g = g;
+    p.b = b;
+    p.a = a;
+    p.v = v;
+    p.t0 = t0;
+    this.particles.push(p);
   }
 
   private mapX(x: number, y: number): number {
@@ -1337,7 +1361,10 @@ export class BattleScene {
       let w = 0;
       for (const p of ps) {
         p.life += dt;
-        if (p.life >= p.max) continue;
+        if (p.life >= p.max) {
+          this.spare.push(p);
+          continue;
+        }
         p.x += p.vx * dt;
         p.y += p.vy * dt;
         p.z += p.vz * dt;
@@ -1347,6 +1374,7 @@ export class BattleScene {
             if (p.kind === PK.Blood && this.rng.next() < 0.35) {
               this.stamps.push({ tex: 2, x: Math.round(this.mapX(p.x, p.y)), y: Math.round(this.mapY(p.x, p.y)), u: 0, v: 0, w: 1, h: 1, ax: 0, ay: 0, shade: 1, a: 0.75, solid: true, r: 0.24, g: 0.05, b: 0.04 });
             }
+            this.spare.push(p);
             continue;
           }
         } else {
@@ -1617,7 +1645,10 @@ export class BattleScene {
     for (const p of ps) {
       p.life += dt;
       // Raised during steps no frame saw (skipping, a hidden tab): long gone by now.
-      if (p.life >= p.max || now - (p.t0 ?? now) > p.max + 0.5) continue;
+      if (p.life >= p.max || now - p.t0 > p.max + 0.5) {
+        this.spare.push(p);
+        continue;
+      }
       p.x += p.vx * dt;
       p.y += p.vy * dt;
       p.z += p.vz * dt;
@@ -1626,6 +1657,7 @@ export class BattleScene {
         if (p.z <= 0) {
           // A drop soaks in where it lands.
           if (p.kind === PK.Blood && rng.next() < 0.2) f.mark(this.mapX(p.x, p.y), this.mapY(p.x, p.y), 0.6 + p.size * 0.3, 0.22, 0, now);
+          this.spare.push(p);
           continue;
         }
       } else {
