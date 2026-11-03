@@ -2559,7 +2559,10 @@ export class Battle {
       const wy = up ? e.minY - 70 : e.maxY + 70;
       const inSpan = r.cy > e.minY - 45 && r.cy < e.maxY + 45;
       this.setMode(r, 'flank');
-      if (inSpan) this.goal(r, Math.min(Math.max(r.cx, e.frontX - dir * 120), e.frontX + 120) - dir * 0, wy);
+      // Out to the side, no further than 120 from their front either way. (Until v4 this was
+      // clamped to [front - dir * 120, front + 120], an empty range for the right-hand army,
+      // whose horse first rode back to 120 short of the line on every pass.)
+      if (inSpan) this.goal(r, Math.min(Math.max(r.cx, e.frontX - 120), e.frontX + 120), wy);
       else this.goal(r, e.frontX + dir * (e.lineDepth + 60), wy);
       return;
     }
