@@ -880,7 +880,7 @@ export class BattleScene {
           anim = Anim.Hit;
           start = hitAt;
           loop = false;
-        } else if (s.state === State.Routing || speed > s.s.speed * 1.2) anim = Anim.Run;
+        } else if (s.state === State.Routing || speed > s.s.speed * 1.2 || (speed > s.s.speed * 0.6 && (reg.mode === 'charge' || reg.mode === 'pursue'))) anim = Anim.Run;
         else if (speed > 3) anim = s.cls === U.Knights && stance === 'wedge' && speed > s.s.speed * 0.7 ? Anim.Run : Anim.Walk;
         else if (s.state === State.Fighting && BRACING.has(stance)) anim = Anim.Brace;
         // Facing: the way they move, else at their foe, else the regiment's front.
@@ -893,7 +893,8 @@ export class BattleScene {
       const tpf = this.tpfTab[s.team]![anim]!;
       // Marching blocks step together: one phase per regiment, a hair's offset per file.
       // Everything else (idling, routing) keeps a per-man phase so a crowd doesn't pulse.
-      const drilled = s.state === State.Fighting && (anim === Anim.Walk || anim === Anim.Run);
+      // (A chase or a charge run from too far has lost the step.)
+      const drilled = s.state === State.Fighting && (anim === Anim.Walk || anim === Anim.Run) && reg.mode !== 'pursue' && !reg.ragged;
       const phase = drilled ? s.reg * 0.71 + Math.round(s.sx / Math.max(1, reg.spacing)) * 0.12 : (i % 7) * 1.37;
       let f = loop ? Math.floor((T + phase) / tpf) % frames : Math.min(frames - 1, Math.floor((T - start) / tpf));
       if (f < 0) f = 0;

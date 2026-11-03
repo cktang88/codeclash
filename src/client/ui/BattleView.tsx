@@ -109,6 +109,7 @@ export function BattleView(props: {
         case 'rout': return `${who}’s ${unit} break and run`;
         case 'commander': return `${who}’s ${f.commander} has fallen`;
         case 'charge': return `${who}’s ${unit} charge`;
+        case 'chase': return `${who}’s ${unit} break ranks to run down the fugitives`;
         case 'contact': return `${who}’s line meets the enemy`;
         case 'waver': return `${who}’s ${unit} waver`;
         case 'rally': return `${who}’s ${unit} rally`;

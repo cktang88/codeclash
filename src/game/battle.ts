@@ -111,12 +111,16 @@ class Store {
   readonly died: Int32Array;
   readonly kills: Int32Array;
   readonly stun: Int32Array;
+  /** A running man's own heading (unit vector) and pace (share of his speed). */
+  readonly hx: Float64Array;
+  readonly hy: Float64Array;
+  readonly hs: Float64Array;
   constructor(n: number) {
     const f = () => new Float64Array(n);
     const i = () => new Int32Array(n);
     this.x = f(); this.y = f(); this.vx = f(); this.vy = f(); this.hp = f(); this.imp = f();
     this.px = f(); this.py = f(); this.sx = f(); this.sy = f(); this.col = f(); this.row = i();
-    this.rad = f(); this.mass = f(); this.spd = f();
+    this.rad = f(); this.mass = f(); this.spd = f(); this.hx = f(); this.hy = f(); this.hs = f();
     this.state = new Uint8Array(n); this.team = new Uint8Array(n);
     this.reg = i(); this.target = i(); this.cd = i(); this.ammo = i();
     this.acted = i(); this.hit = i(); this.died = i(); this.kills = i(); this.stun = i();
@@ -285,6 +289,16 @@ export class Regiment {
   routed = false;
   routAt = -1;
   quietSince = 0;
+  /** 0..1: how readily its men break ranks to chase a beaten enemy (levies, horse, ghouls high; the Templars' Rule low). */
+  eager = 0.4;
+  /** Chasing fugitives on its own: since when (-1: not), from where, and when it was last called back. */
+  chaseAt = -1;
+  chaseX = 0;
+  chaseY = 0;
+  recallAt = -1000;
+  /** Charging: since when, and whether it ran so far the ranks have come apart. */
+  chargeAt = -1;
+  ragged = false;
   spacing = 5;
   speed = 20;
   cols = 1;
@@ -394,9 +408,10 @@ export interface BattleEvent {
   /**
    * 'contact': a side's line first meets the enemy; 'break': a whole army gives way;
    * 'waver', 'rout', 'rally', 'shattered': a regiment's morale; 'stance': a regiment takes a
-   * notable stance; 'general-order': the General's plan or a big order (see `note`).
+   * notable stance; 'general-order': the General's plan or a big order (see `note`); 'chase':
+   * a regiment breaks ranks on its own to chase fugitives.
    */
-  kind: 'rout' | 'commander' | 'charge' | 'contact' | 'rally' | 'break' | 'stance' | 'waver' | 'shattered' | 'general-order';
+  kind: 'rout' | 'commander' | 'charge' | 'contact' | 'rally' | 'break' | 'stance' | 'waver' | 'shattered' | 'general-order' | 'chase';
   cls: number;
   /** The regiment concerned (-1 for the whole army). */
   reg?: number;
@@ -445,6 +460,8 @@ export class General {
   haltUntil = 0;
   dueled = false;
   committed = 0;
+  /** When it ordered the general charge (-1: not yet). */
+  chargedAt = -1;
   /** The army's spirits on the day (from the general's rng): added to every regiment's morale. */
   readonly mood: number;
   /** A blunder: the knights go in before the lines meet. */
@@ -690,6 +707,7 @@ export class Battle {
         reg.start = reg.alive = m;
         reg.veteran = vets > m / 2;
         reg.green = !reg.veteran && st.morale < 60;
+        reg.eager = eagerness(army.faction, cls, reg.veteran, reg.green);
         reg.baseMorale = reg.morale =
           st.morale + army.moraleBonus + (reg.veteran ? MORALE.veteran : vets > 0 ? MORALE.veteran / 2 : 0) + (st.morale >= 80 ? MORALE.elite : st.morale < 55 ? MORALE.levy : 0);
         shape(reg, m);
@@ -1230,6 +1248,20 @@ export class Battle {
     }
     if (g.useReserve) this.commitReserves(t, ours);
     this.assignLines(t, pool);
+    // The general charge: when the enemy line wavers (many of its blocks shaken or running),
+    // every block of ours that is not already locked goes in at a run.
+    let shaken = 0;
+    let line = 0;
+    for (const e of this.teamRegs[1 - t]!) {
+      if (e.alive === 0 || e.role !== 'line') continue;
+      line++;
+      if (e.routed || e.moraleState === 'wavering') shaken++;
+    }
+    const generalCharge = ts.contacted && line > 0 && shaken >= Math.max(2, line * 0.45) && g.personality !== 'cautious';
+    if (generalCharge && g.chargedAt < 0) {
+      g.chargedAt = this.tick;
+      this.announce(t, null, 'charge', 'orders a general charge as the enemy line wavers');
+    }
     for (const r of pool) {
       if (r.targetReg < 0) {
         this.give(r, 'reserve');
@@ -1242,6 +1274,7 @@ export class Battle {
         if (!near) hold = true;
       }
       if (hold) this.give(r, 'hold', r.targetReg, r.slot);
+      else if (!r.engaged && this.shouldCharge(t, r, generalCharge)) this.give(r, 'charge', r.targetReg, r.slot);
       else this.give(r, r.slot === 0 ? 'attack' : 'flank', r.targetReg, r.slot);
     }
 
@@ -1255,6 +1288,38 @@ export class Battle {
       else if (r.role === 'command') this.give(r, 'support');
     }
     this.cavalryOrders(t, ours, theirs, won);
+  }
+
+  /**
+   * Whether a block of the line should charge its target rather than walk into it: the general
+   * charge, a target that is wavering, or archers and skirmishers caught in the open close by
+   * (with nothing of theirs in between). Not when it is spent, or shaken itself.
+   */
+  private shouldCharge(t: number, r: Regiment, general: boolean): boolean {
+    if (r.fatigue > 0.6 || r.moraleState !== 'steady' || r.targetReg < 0) return false;
+    const e = this.regiments[r.targetReg]!;
+    if (e.alive === 0 || e.routed) return false;
+    const dx = e.cx - r.cx;
+    const dy = e.cy - r.cy;
+    const gap = sqrt(dx * dx + dy * dy) - e.radius - r.radius;
+    if (gap > 160) return false;
+    if (general) return true;
+    if (e.moraleState === 'wavering' || e.moraleState === 'rallying') return true;
+    if ((e.role === 'missile' || e.role === 'skirmish') && !e.engaged && gap < 110) {
+      // Caught in the open: none of their line between us.
+      for (const o of this.teamRegs[1 - t]!) {
+        if (o === e || o.alive === 0 || o.routed || o.role !== 'line') continue;
+        const ox = o.cx - r.cx;
+        const oy = o.cy - r.cy;
+        const along = (ox * dx + oy * dy) / (dx * dx + dy * dy || 1);
+        if (along <= 0 || along >= 1) continue;
+        const px = ox - dx * along;
+        const py = oy - dy * along;
+        if (px * px + py * py < (o.radius + 10) * (o.radius + 10)) return false;
+      }
+      return true;
+    }
+    return false;
   }
 
   private choosePlan(t: number, ours: Forces, theirs: Forces): void {
@@ -1706,7 +1771,7 @@ export class Battle {
     const m = r.mode;
     const run = m === 'charge' || m === 'withdraw' || m === 'pursue' || m === 'flank' || m === 'kite' || m === 'skirmish' || m === 'rout';
     const k = run ? FATIGUE.run * (isCav(r) ? 0.6 : 1) : r.engaged ? FATIGUE.fight : m === 'advance' || m === 'reserve' ? 0.001 : FATIGUE.rest;
-    r.fatigue = Math.max(0, Math.min(1, r.fatigue + k));
+    r.fatigue = Math.max(0, Math.min(1, r.fatigue + k + (m === 'charge' && r.ragged ? FATIGUE.run * 1.5 : 0)));
   }
 
   /** Morale settles toward what the regiment's plight is worth (see MORALE); shocks knock it down at once. */
@@ -1753,6 +1818,20 @@ export class Battle {
 
   private thinkRouted(r: Regiment): void {
     r.mode = 'rout';
+    // Panic: now and then a man veers, but they all bend toward their own edge.
+    const dm = this.d;
+    const edge = r.team === 0 ? -1 : 1;
+    for (const id of r.members) {
+      if (dm.state[id] !== State.Routing || !this.rng.chance(0.3)) continue;
+      const sw = (this.rng.next() - 0.5) * 0.9;
+      let x = dm.hx[id]! - dm.hy[id]! * sw + edge * 0.18;
+      let y = dm.hy[id]! + dm.hx[id]! * sw;
+      const m = sqrt(x * x + y * y) || 1;
+      x /= m;
+      y /= m;
+      dm.hx[id] = x;
+      dm.hy[id] = y;
+    }
     if (this.broken[r.team] || r.moraleState === 'shattered') return;
     // Pursued? Anyone of the enemy close behind keeps them running.
     for (const o of this.teamRegs[1 - r.team]!) {
@@ -1796,9 +1875,10 @@ export class Battle {
     r.fy = r.dfy = 0;
     r.stance = defaultStance(r);
     r.spacing = spacingFor(r, r.stance);
-    this.assignSlots(r, false);
     r.ax = r.tx = r.cx + fx * r.depth * 0.5;
     r.ay = r.ty = r.cy;
+    // Each man takes the place nearest him, and they drift back into ranks (see `move`).
+    this.assignSlots(r, true);
     r.targetReg = -1;
     this.give(r, 'hold');
     this.setMode(r, 'rally');
@@ -1821,6 +1901,7 @@ export class Battle {
   private thinkLine(r: Regiment): void {
     const st = this.stats[r.team]![r.cls]!;
     const o = r.ord;
+    if (this.chase(r)) return;
     if (r.engaged) {
       if (r.mode !== 'melee') r.meleeTicks = 0;
       r.meleeTicks += 5;
@@ -1877,6 +1958,7 @@ export class Battle {
       case 'pursue': {
         const prey = this.nearestFoe(r, 4, 300) ?? this.nearestFoe(r, 0, 300);
         if (prey) {
+          if (r.mode !== 'pursue') for (const id of r.members) this.d.hs[id] = 0.8 + this.rng.next() * 0.4;
           this.setMode(r, 'pursue');
           this.goal(r, prey.cx, prey.cy);
           this.faceToward(r, prey.cx, prey.cy);
@@ -1899,6 +1981,9 @@ export class Battle {
         const q = sqrt(dx * dx + dy * dy);
         r.dfx = tmp[2]!;
         r.dfy = tmp[3]!;
+        // The last stretch at a run: further when ordered to charge (a wavering enemy, archers
+        // caught in the open, the general charge), and not when already spent.
+        const launch = (o.kind === 'charge' ? 75 : 45) * (r.fatigue > 0.7 ? 0.5 : 1);
         if (o.kind === 'hold' && q > 50) {
           this.setMode(r, 'hold');
           this.goal(r, r.ax, r.ay);
@@ -1906,12 +1991,12 @@ export class Battle {
           // Counter-charge whatever comes close.
           const close = this.nearestFoe(r, 0, 35);
           if (close && !isCav(close)) {
-            this.setMode(r, 'charge');
+            this.startCharge(r);
             this.goal(r, close.cx, close.cy);
             this.faceToward(r, close.cx, close.cy);
           }
-        } else if (q < 42) {
-          this.setMode(r, 'charge');
+        } else if (q < launch || (r.mode === 'charge' && q < launch * 1.6)) {
+          this.startCharge(r);
           this.goal(r, px + tmp[2]! * 12, py + tmp[3]! * 12);
         } else {
           this.setMode(r, 'advance');
@@ -1954,6 +2039,70 @@ export class Battle {
       this.setMode(r, 'hold');
       this.goal(r, r.ax, r.ay);
     }
+  }
+
+  /** Foot breaks into a run for the last stretch (the cavalry's charge is in `thinkCav`). */
+  private startCharge(r: Regiment): void {
+    if (r.mode === 'charge') {
+      // Run too far and the ranks come apart and the men tire.
+      if (!r.ragged && this.tick - r.chargeAt > RUN_IN) r.ragged = true;
+      return;
+    }
+    this.setMode(r, 'charge');
+    r.chargeAt = this.tick;
+    r.ragged = false;
+    r.charges++;
+    // Not every man runs as fast.
+    const d = this.d;
+    for (const id of r.members) d.hs[id] = 0.88 + this.rng.next() * 0.24;
+    if (r.charges === 1 || this.tick - r.modeAt > 100) this.events.push({ tick: this.tick, team: r.team, kind: 'charge', cls: r.cls, reg: r.id });
+  }
+
+  /**
+   * Breaking ranks to chase: a regiment not locked with a formed enemy, in good heart, with
+   * fugitives close by may go after them on its own (eager troops readily, disciplined ones
+   * seldom), loose, cutting down the stragglers. It comes back when the chase has run its
+   * course (time or distance, by its eagerness), when formed enemy comes near, or when the
+   * fugitives are gone or near their own edge. Returns whether it is chasing.
+   */
+  private chase(r: Regiment): boolean {
+    const won = r.ord.kind === 'pursue';
+    const formed = this.nearestFoe(r, 0, 30);
+    if (r.chaseAt >= 0) {
+      const prey = this.nearestFoe(r, 4, 220);
+      const dx = r.ax - r.chaseX;
+      const dy = r.ay - r.chaseY;
+      const far = 120 + 260 * r.eager;
+      const edge = prey ? (r.team === 0 ? FIELD_W - prey.cx : prey.cx) : 0;
+      const tired = this.tick - r.chaseAt > 80 + 220 * r.eager;
+      if (!prey || formed || tired || edge < 70 || (!won && dx * dx + dy * dy > far * far) || r.fatigue > 0.8) {
+        r.chaseAt = -1;
+        r.recallAt = this.tick;
+        return false;
+      }
+      this.setMode(r, 'pursue');
+      this.goal(r, prey.cx, prey.cy);
+      this.faceToward(r, prey.cx, prey.cy);
+      return true;
+    }
+    if (won || formed || r.engaged || this.tick - r.recallAt < 120) return false;
+    if (r.moraleState !== 'steady' || r.morale < 55 || r.fatigue > 0.5 || r.ord.kind === 'withdraw') return false;
+    if ((r.role === 'missile' && r.ammoLeft > 0) || r.role === 'siege' || r.role === 'command') return false;
+    if (r.line === 2 && !r.committed && r.eager < 0.7) return false;
+    const prey = this.nearestFoe(r, 4, isCav(r) ? 200 : 100);
+    if (!prey || prey.alive < 3) return false;
+    const discipline = this.generals[r.team]!.trait === 'iron-discipline' ? 0.3 : 1;
+    if (!this.rng.chance(r.eager * 0.3 * discipline)) return false;
+    this.events.push({ tick: this.tick, team: r.team, kind: 'chase', cls: r.cls, reg: r.id });
+    r.chaseAt = this.tick;
+    r.chaseX = r.ax;
+    r.chaseY = r.ay;
+    const d = this.d;
+    for (const id of r.members) d.hs[id] = 0.8 + this.rng.next() * 0.4;
+    this.setMode(r, 'pursue');
+    this.goal(r, prey.cx, prey.cy);
+    this.faceToward(r, prey.cx, prey.cy);
+    return true;
   }
 
   private thinkMissile(r: Regiment): void {
@@ -2172,6 +2321,11 @@ export class Battle {
     const e = this.ts[1 - team]!;
     const dir = team === 0 ? 1 : -1;
     const o = r.ord;
+    // A chase that has turned into something else is over.
+    if (r.chaseAt >= 0 && r.mode !== 'pursue') {
+      r.chaseAt = -1;
+      r.recallAt = this.tick;
+    }
     if (this.tick < (shock ? 60 : 40)) {
       this.setMode(r, 'hold');
       return;
@@ -2214,7 +2368,11 @@ export class Battle {
     // The order's target, or one of opportunity.
     let prey: Regiment | null = null;
     const given = o.target >= 0 ? this.regiments[o.target]! : null;
-    if (o.kind === 'hold' || o.kind === 'reserve') {
+    // Fugitives close by tempt the horse out of its place (eager horse readily, the Templars
+    // seldom); once off after them it keeps on until called back (see below).
+    const fugitives = o.kind === 'pursue' || r.mode === 'charge' || r.engaged ? null : this.nearestFoe(r, 4, r.chaseAt >= 0 ? 300 : 200);
+    if (fugitives && fugitives.alive >= 3 && (r.chaseAt >= 0 || (this.tick - r.recallAt >= 120 && r.moraleState === 'steady' && this.rng.chance(r.eager * 0.3)))) prey = fugitives;
+    else if (o.kind === 'hold' || o.kind === 'reserve') {
       // On the wing: counter-charge horse that comes close, fight foot that walks into us.
       prey = this.nearestFoe(r, 2, 90) ?? this.nearestFoe(r, 0, 25);
       if (!prey) {
@@ -2232,12 +2390,44 @@ export class Battle {
       this.goal(r, r.ax, r.ay);
       return;
     }
+    if (prey.routed && o.kind !== 'pursue' && r.chaseAt < 0 && (this.tick - r.recallAt < 120 || !this.rng.chance(0.05 + r.eager * 0.4))) {
+      // Disciplined horse keeps to its work rather than chase fugitives on its own.
+      prey = this.nearestFoe(r, 0, Infinity);
+      if (!prey) {
+        this.setMode(r, 'hold');
+        this.goal(r, r.ax, r.ay);
+        return;
+      }
+    }
     r.targetReg = prey.id;
     if (prey.routed) {
+      // Run them down, but not off the field: disciplined horse is called back sooner.
+      if (r.chaseAt < 0) {
+        if (o.kind !== 'pursue') this.events.push({ tick: this.tick, team, kind: 'chase', cls: r.cls, reg: r.id });
+        r.chaseAt = this.tick;
+        r.chaseX = r.ax;
+        r.chaseY = r.ay;
+      }
+      const edge = r.team === 0 ? FIELD_W - prey.cx : prey.cx;
+      const dx = r.ax - r.chaseX;
+      const dy = r.ay - r.chaseY;
+      const far = 200 + 400 * r.eager;
+      if (o.kind !== 'pursue' && (edge < 60 || dx * dx + dy * dy > far * far || this.tick - r.chaseAt > 120 + 300 * r.eager)) {
+        r.chaseAt = -1;
+        r.recallAt = this.tick;
+        this.give(r, 'reserve', -1, 0, -1, r.homeX, r.homeY);
+        this.setMode(r, 'withdraw');
+        r.wx = r.homeX;
+        r.wy = r.homeY;
+        this.goal(r, r.homeX, r.homeY);
+        return;
+      }
+      if (r.mode !== 'pursue') for (const id of r.members) this.d.hs[id] = 0.8 + this.rng.next() * 0.4;
       this.setMode(r, 'pursue');
       this.goal(r, prey.cx + prey.fx * 10, prey.cy + prey.fy * 10);
       return;
     }
+    r.chaseAt = -1;
     // Ride round the enemy line rather than through it.
     // Prey behind the enemy line: out past the end of the line, then round behind it.
     const behindFront = (prey.cx - e.frontX) * dir > 15;
@@ -2521,10 +2711,22 @@ export class Battle {
     r.moraleState = shattered ? 'shattered' : 'broken';
     this.events.push({ tick: this.tick, team: r.team, kind: shattered ? 'shattered' : 'rout', cls: r.cls, reg: r.id });
     const d = this.d;
+    // Each man runs his own way: away from the enemy that broke them and toward his own edge,
+    // in a fan, at his own pace (the strong outrun the wounded).
+    const tmp = this.tmp;
+    this.fleeFrom(r, tmp);
+    const bx = tmp[0]!;
+    const by = tmp[1]!;
     for (const id of r.members) {
       if (d.state[id] === State.Fighting) d.state[id] = State.Routing;
       d.target[id] = -1;
       d.imp[id] = 0;
+      const t = (this.rng.next() - 0.5) * 1.6;
+      // (1, t) rotated onto the base heading.
+      const q = sqrt(1 + t * t);
+      d.hx[id] = (bx - by * t) / q;
+      d.hy[id] = (by + bx * t) / q;
+      d.hs[id] = 0.78 + this.rng.next() * 0.4;
     }
     // Panic spreads to neighbours; the enemy takes heart.
     for (const o of this.teamRegs[r.team]!) {
@@ -2540,6 +2742,35 @@ export class Battle {
       if (dx * dx + dy * dy < 250 * 250) o.morale = Math.min(100, o.morale + MORALE.enemyRout);
     }
   }
+  /** Which way a broken regiment runs (unit vector to out[0], out[1]): away from the nearest enemy, toward its own edge. */
+  private fleeFrom(r: Regiment, out: Float64Array): void {
+    const edge = r.team === 0 ? -1 : 1;
+    let ex = 0;
+    let ey = 0;
+    let bd = Infinity;
+    for (const o of this.teamRegs[1 - r.team]!) {
+      if (o.alive === 0 || o.routed) continue;
+      const dx = r.cx - o.cx;
+      const dy = r.cy - o.cy;
+      const q = dx * dx + dy * dy;
+      if (q < bd) {
+        bd = q;
+        ex = dx;
+        ey = dy;
+      }
+    }
+    let x = edge;
+    let y = 0;
+    if (bd < 250 * 250) {
+      const q = sqrt(bd) || 1;
+      x = (ex / q) * 0.6 + edge * 0.55;
+      y = (ey / q) * 0.6;
+    }
+    const m = sqrt(x * x + y * y) || 1;
+    out[0] = x / m;
+    out[1] = y / m;
+  }
+
   /** Walks each regiment's anchor toward its goal and wheels it toward its facing, once a tick. */
   private moveAnchor(r: Regiment): void {
     r.vax = 0;
@@ -2577,6 +2808,8 @@ export class Battle {
     if (q < 0.3) return;
     let pace = r.speed * PACE[r.mode];
     if (pace === 0) pace = r.speed * 0.25; // drift onto the spot
+    // Foot breaks into a run for a charge or a chase.
+    if ((r.mode === 'charge' || r.mode === 'pursue') && !isCav(r)) pace *= FOOT_RUN;
     pace *= sd.pace * (1 - FATIGUE.pace * r.fatigue);
     if (marching) {
       // March facing the way it goes; a block slows while it wheels.
@@ -2833,14 +3066,17 @@ export class Battle {
       ny = d.y[t]! - d.y[a]!;
       m = sqrt(nx * nx + ny * ny) || 1;
     }
-    const kb = planted ? 0 : (2 + 5 * energy) * (as.mass / (as.mass + ds.mass)) * (as.mounted ? 1 : 0.3) * (wedge ? 1.5 : 1) * (dr.stance === 'loose' ? 0.7 : 1);
+    // Foot charges shock less than horse, the heavier the more (shock troops > heavy foot >
+    // spears > levies): its charge bonus sets it.
+    const foot = as.mounted ? 1 : 0.15 + 0.03 * as.charge;
+    const kb = planted ? 0 : (2 + 5 * energy) * (as.mass / (as.mass + ds.mass)) * foot * (wedge ? 1.5 : 1) * (dr.stance === 'loose' ? 0.7 : 1);
     if (d.state[t]! <= State.Routing) {
       d.x[t] = clampX(d.x[t]! + (nx / m) * kb);
       d.y[t] = clampY(d.y[t]! + (ny / m) * kb);
-      d.stun[t] = planted ? 0 : as.mounted ? 8 + this.rng.int(6) : 3;
+      d.stun[t] = planted ? 0 : as.mounted ? 8 + this.rng.int(6) : 2 + Math.round(as.charge * 0.3);
     }
     if (!routing) {
-      dr.morale -= (rear ? MORALE.chargeRear : side ? MORALE.chargeFlank : MORALE.chargeFront) * force * (ds.mounted ? 0.6 : 1) * (as.mounted ? 1 : 0.4);
+      dr.morale -= (rear ? MORALE.chargeRear : side ? MORALE.chargeFlank : MORALE.chargeFront) * force * (ds.mounted ? 0.6 : 1) * (as.mounted ? 1 : 0.2 + 0.04 * as.charge);
       dr.flankShock += rear ? 0.6 : side ? 0.3 : 0;
     }
     // Each man hit takes some of the charge out of him: knights carry through a thin line, light
@@ -3064,11 +3300,14 @@ export class Battle {
     let vy: number;
     let cap = spd * 1.15;
     const routing = d.state[i] === State.Routing;
+    const mounted = d.mass[i]! > 2;
     if (routing) {
-      const gx = d.team[i] === 0 ? -40 : FIELD_W + 40;
-      vx = gx > x ? spd * 1.05 : -spd * 1.05;
-      vy = ((i % 7) - 3) * 1.2;
-      cap = spd * 1.1;
+      // Each his own way and pace (see `rout`); hard by the top or bottom edge, along it.
+      const v = spd * 1.05 * d.hs[i]!;
+      vx = d.hx[i]! * v;
+      vy = d.hy[i]! * v;
+      if ((y < 12 && vy < 0) || (y > FIELD_H - 12 && vy > 0)) vy = 0;
+      cap = spd * 1.25;
     } else {
       const t = d.target[i]!;
       if (t >= 0) {
@@ -3093,18 +3332,38 @@ export class Battle {
         const gx = r.ax + r.fx * d.sy[i]! - r.fy * d.sx[i]!;
         const gy = r.ay + r.fy * d.sy[i]! + r.fx * d.sx[i]!;
         // In a melee the rear ranks close up gently: they back the front, they do not shove
-        // it through the enemy.
-        const k = r.engaged ? 1 : 2.5;
-        vx = r.vax / TICK_S + (gx - x) * k;
-        vy = r.vay / TICK_S + (gy - y) * k;
-        if (r.mode === 'charge' || r.mode === 'withdraw' || r.mode === 'pursue') cap = spd * 1.2;
+        // it through the enemy. Men who have just rallied drift back into their ranks.
+        const rallying = r.mode === 'rally' && this.tick - r.modeAt < 60;
+        const mode = r.mode;
+        if (mode === 'pursue') {
+          // A chase is a loose crowd: each man at his own pace toward a place well spread about
+          // his slot.
+          const lx = gx + (gx - r.ax) * 1.4 + (((i * 7) % 11) - 5) * 1.5;
+          const ly = gy + (gy - r.ay) * 1.4 + (((i * 5) % 9) - 4) * 1.5;
+          const h = d.hs[i]! || 1;
+          vx = (r.vax / TICK_S) * h + (lx - x) * 0.9;
+          vy = (r.vay / TICK_S) * h + (ly - y) * 0.9;
+          cap = spd * (r.speed > 40 ? 1.2 : FOOT_RUN) * h;
+        } else if (mode === 'charge' && !mounted) {
+          // At a run, each man at his own pace: a ragged charge (run from too far) loses its ranks.
+          const h = d.hs[i]! || 1;
+          const k = r.ragged ? 0.9 : 2.2;
+          vx = (r.vax / TICK_S) * h + (gx - x) * k;
+          vy = (r.vay / TICK_S) * h + (gy - y) * k;
+          cap = spd * FOOT_RUN * 1.08;
+        } else {
+          const k = r.engaged ? 1 : rallying ? 0.7 : 2.5;
+          if (rallying) cap = spd * 0.55;
+          vx = r.vax / TICK_S + (gx - x) * k;
+          vy = r.vay / TICK_S + (gy - y) * k;
+          if (mode === 'charge' || mode === 'withdraw') cap = spd * 1.2;
+        }
       }
     }
     if (d.stun[i]! > 0) {
       vx *= 0.3;
       vy *= 0.3;
     }
-    const mounted = d.mass[i]! > 2;
     // Stakes: the enemy's horses balk and bleed.
     if (mounted && !routing && this.stakes.length > 0) {
       for (const k of this.stakes) {
@@ -3122,7 +3381,7 @@ export class Battle {
       vy = (vy / vm) * vmax;
     }
     // Galloping (or running) in at a charge builds impetus; anything else bleeds it.
-    if (this.soldiers[i]!.s.charge > 0 && r.mode === 'charge' && vm > spd * 0.7) d.imp[i] = Math.min(1, d.imp[i]! + (mounted ? 0.08 : 0.15));
+    if (this.soldiers[i]!.s.charge > 0 && r.mode === 'charge' && vm > spd * 0.7) d.imp[i] = Math.min(mounted || !r.ragged ? 1 : Math.max(0.35, 1 - (this.tick - r.chargeAt - RUN_IN) * 0.04), d.imp[i]! + (mounted ? 0.08 : 0.15));
     else if (d.imp[i]! > 0) d.imp[i] = d.imp[i]! < 0.05 ? 0 : d.imp[i]! * (mounted && vm > spd * 0.6 ? 0.93 : 0.8);
     // Men pressed by others do not walk into them: the part of his stride that goes into the
     // press is dropped (a galloping rider ploughs on; his bow wave moves them instead), and the
@@ -3374,6 +3633,26 @@ function slotPos(o: Regiment, k: number, depth: number, out: Float64Array): void
     out[3] = -ly * s;
   }
 }
+
+/**
+ * How readily a class breaks ranks to chase: levies and horse are keen, drilled heavy foot
+ * less, the Templar knights (the Rule forbids leaving the banner) and the hatamoto least; the
+ * dead (ghoul spears, black riders) chase anything that runs.
+ */
+const EAGER = [0.3, 0.55, 0.5, 0.35, 0.25, 0.85, 0.6, 0.55, 0.25, 0];
+const EAGER_FACTION: Partial<Record<FactionId, Partial<Record<number, number>>>> = {
+  templar: { [U.Knights]: 0.12, [U.Shock]: 0.15 },
+  samurai: { [U.Knights]: 0.15, [U.Shock]: 0.5 },
+  undead: { [U.Spearmen]: 0.95, [U.LightCavalry]: 0.9, [U.HeavyInfantry]: 0.1 },
+};
+function eagerness(faction: FactionId, cls: number, veteran: boolean, green: boolean): number {
+  const e = EAGER_FACTION[faction]?.[cls] ?? EAGER[cls] ?? 0.3;
+  return Math.max(0, Math.min(1, e + (veteran ? -0.1 : 0) + (green ? 0.1 : 0)));
+}
+
+/** Foot charges: the last stretch at a run. How far it can run before the ranks come apart (ticks). */
+const RUN_IN = 26;
+const FOOT_RUN = 1.45;
 
 function lineOrder(cls: number): number {
   // Centre-out order for the line: the heaviest in the middle.
