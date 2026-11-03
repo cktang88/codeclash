@@ -195,14 +195,17 @@ const LUNGE: Author = (rw) => ({
  * back at shoulder height with the javelin along the forearm and the trunk leans back over the
  * bent rear leg (1-3); the front leg blocks, the hips stop and the chest whips over them (4); the
  * javelin leaves the hand high in front of the head, the jaw gaping (5); the arm comes down across
- * the body (6-8); the hand goes back over the shoulder for the next one (9-11).
+ * the body (6-8); the hand goes up behind the shoulder to the fan on the back and draws the next
+ * one out point-up (9), brings it over the shoulder, turning it point-forward (10), and settles
+ * into the cocked carry (11). The javelin only ever turns a quarter a frame: it used to reappear
+ * point-forward in a raised fist in front of the face and swing back to the carry.
  */
 const HURL: Author = (rw) => ({
   w: {
-    upperArmN: R(rw.upperArmN!, 11, [1, 230], [2, 248], [3, 252], [4, 200], [5, 150], [6, 80], [8, 20], [10, 60]),
-    forearmN: R(rw.forearmN!, 11, [1, 250], [2, 262], [3, 264], [4, 215], [5, 130], [6, 60], [8, 30], [10, 140]),
+    upperArmN: R(rw.upperArmN!, 11, [1, 230], [2, 248], [3, 252], [4, 200], [5, 150], [6, 80], [8, 20], [9, -58], [10, -44]),
+    forearmN: R(rw.forearmN!, 11, [1, 250], [2, 262], [3, 264], [4, 215], [5, 130], [6, 60], [8, 30], [9, 196], [10, 180]),
     // The javelin's point rises through the delivery and leaves the hand ~35° up (weapon-attacks.md T3: a 45° arc).
-    weapon: R(rw.weapon!, 11, [1, 104], [3, 110], [4, 122], [5, 128], [6, 128], [10, 104]),
+    weapon: R(rw.weapon!, 11, [1, 104], [3, 110], [4, 122], [5, 128], [6, 128], [8, 128], [9, 168], [10, 134]),
   },
   dw: {
     spine: T([0, 0], [2, 14], [3, 16], [4, 2], [5, -14], [6, -24], [8, -22], [10, -6], [11, 0]),
@@ -302,7 +305,7 @@ const CAST: Author = (rw) => ({
   tAdd: { pelvis: [T([0, 0], [3, -0.2], [5, 0.35], [7, 0.4], [10, 0], [11, 0]), T([0, 0])] },
 });
 export const SHOOTS: Record<'javelin', { clip: string; o: MocapOpts; a: Author; extra: number[]; ev: AnimEvent[]; warp: number[]; hide?: [string, number, number] }> = {
-  javelin: { clip: 'javelin', o: { torso: 0.6, travel: 0.6, feet: 0.8 }, a: HURL, extra: [1, 2, 3, 4, 5, 6, 8, 10], ev: [{ f: 4, name: 'smear', len: 1, bone: 'weapon' }, { f: 5, name: 'release' }], warp: [0, 1, 2, 3, 3, 5, 6, 7, 8, 9, 10, 11], hide: ['weapon', 5, 10] },
+  javelin: { clip: 'javelin', o: { torso: 0.6, travel: 0.6, feet: 0.8 }, a: HURL, extra: [1, 2, 3, 4, 5, 6, 8, 9, 10], ev: [{ f: 4, name: 'smear', len: 1, bone: 'weapon' }, { f: 5, name: 'release' }], warp: [0, 1, 2, 3, 3, 5, 6, 7, 8, 9, 10, 11], hide: ['weapon', 5, 9] },
 };
 
 const ATTACKS: Record<FootAttack, { clip: string; o: MocapOpts; a: Author; extra: number[]; ev: AnimEvent[]; warp: number[] }> = {
