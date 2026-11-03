@@ -632,6 +632,11 @@ export class Battle {
   private readonly figureScale: number;
   private readonly grid = new Int32Array(GW * GH + 1);
   private readonly fill = new Int32Array(GW * GH);
+  /**
+   * Per cell, how many of its men are of team 0. A cell's men are in id order, and team 0's ids
+   * come first, so team 0's are the first this many of the cell and team 1's the rest.
+   */
+  private readonly ofTeam0 = new Int32Array(GW * GH);
   private readonly items: Int32Array;
   /** Per grid slot (sorted by cell): position, radius, mass, team, loose (routing or skirmisher), and push. */
   private readonly kx: Float64Array;
@@ -1119,6 +1124,9 @@ export class Battle {
     const d = this.d;
     const n = this.n;
     const cellOf = this.cellOf;
+    const of0 = this.ofTeam0;
+    of0.fill(0);
+    const first1 = this.firstId[1];
     let lo = GW * GH;
     let hi = -1;
     for (let i = 0; i < n; i++) {
@@ -1129,6 +1137,7 @@ export class Battle {
       const c = cellIndex(d.x[i]!, d.y[i]!);
       cellOf[i] = c;
       g[c + 1]!++;
+      if (i < first1) of0[c]!++;
       if (c < lo) lo = c;
       if (c > hi) hi = c;
     }
@@ -3045,6 +3054,7 @@ export class Battle {
     const R2 = R * R;
     const L2 = (leash + R) * (leash + R);
     const grid = this.grid;
+    const of0 = this.ofTeam0;
     const items = this.items;
     const kx = this.kx;
     const ky = this.ky;
@@ -3054,9 +3064,10 @@ export class Battle {
       const row = cy * GW;
       for (let cx = x0; cx <= x1; cx++) {
         const c = row + cx;
-        const end = grid[c + 1]!;
-        for (let k = grid[c]!; k < end; k++) {
-          if (this.kt[k] === team) continue;
+        // Only the enemy's men in the cell (see `ofTeam0`).
+        const from = team === 0 ? grid[c]! + of0[c]! : grid[c]!;
+        const end = team === 0 ? grid[c + 1]! : grid[c]! + of0[c]!;
+        for (let k = from; k < end; k++) {
           const j = items[k]!;
           const sj = d.state[j]!;
           if (sj > State.Routing) continue;
