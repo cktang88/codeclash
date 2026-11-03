@@ -12,7 +12,10 @@ describe('HD effects sheet', () => {
         expect(r.u >= 0 && r.v >= 0 && r.u + r.w <= s.w && r.v + r.h <= s.h).toBe(true);
         expect(r.ax >= 0 && r.ax < r.w && r.ay >= 0 && r.ay < r.h).toBe(true);
       }
-      for (let i = 3; i < s.pixels.length; i += 4) expect(s.pixels[i] === 0 || s.pixels[i] === 255).toBe(true);
+      // Count, then assert once: one expect per pixel took seconds at level 8 and timed out under load.
+      let soft = 0;
+      for (let i = 3; i < s.pixels.length; i += 4) if (s.pixels[i] !== 0 && s.pixels[i] !== 255) soft++;
+      expect(soft).toBe(0);
     });
   }
 

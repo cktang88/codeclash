@@ -2508,6 +2508,23 @@ function finish(out: Uint32Array, iw: number, ox: number, oy: number, fill: numb
  * building an atlas costs almost nothing up front and no frame ever waits for more than one kind.
  */
 export const buildAtlas: BuildAtlas = (faction, hue) => {
+  // The last few armies' atlases are kept: a new scene or an art switch back finds them painted.
+  const key = `${faction}:${hue}`;
+  const got = BUILT.get(key);
+  if (got) {
+    BUILT.delete(key);
+    BUILT.set(key, got);
+    return got;
+  }
+  const atlas = makeAtlas(faction, hue);
+  BUILT.set(key, atlas);
+  while (BUILT.size > BUILT_KEPT) BUILT.delete(BUILT.keys().next().value!);
+  return atlas;
+};
+const BUILT = new Map<string, Atlas>();
+const BUILT_KEPT = 4;
+
+function makeAtlas(faction: FactionId, hue: number): Atlas {
   const looks = looksFor(faction);
   const ramps = makeRamps(paletteFor(faction, hue), hue);
   looks.ramps?.(ramps, hue);
@@ -2566,4 +2583,4 @@ export const buildAtlas: BuildAtlas = (faction, hue) => {
     },
   };
   return atlas;
-};
+}
