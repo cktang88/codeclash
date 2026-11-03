@@ -36,7 +36,7 @@ interface Build {
   leg: number;
   arm: number;
 }
-// Proportions (round 2): an adult is about 6.5-7 heads tall (a 5-6 px head on a 34-36 px figure),
+// Proportions (round 2): an adult is about 6-6.5 heads tall (a 5-6 px head on a 34-35 px figure),
 // shoulders wider than the hips on a man, limbs that taper but keep their mass, arms that reach
 // mid-thigh. A child's head is bigger for its body (about 4.5 heads).
 const MAN: Build = { thigh: 7.5, shin: 7.5, torso: 10.5, head: [2.6, 2.8], upper: 5.5, fore: 5, sw: 4.2, ww: 2.7, leg: 3.4, arm: 2.6 };

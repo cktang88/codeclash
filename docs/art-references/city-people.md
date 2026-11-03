@@ -188,7 +188,7 @@ Study copies in the git-ignored `references/city-people2/`.
   - Men: thigh 7.5, shin 7.5, torso 10.5, head 5.2×5.6, shoulders 8.4 across over a 5.4 waist.
   - Women: a 4.8 waist, and gowns flaring to the hem.
   - Children: a bigger head for their size.
-  - Measured, an adult is 35-36 art px tall with a 5-6 px head, so about 6.5 heads (7 with the hood or hat).
+  - From the rig, a standing man is about 34-35 art px from sole to crown (outline included) with a head of about 5.6 px, so about 6 heads, or 6.5 counting a hat or hood (round 1: 31 px with a 7 px head, 4.5 heads).
   - Arms reach mid-thigh. Legs taper from 3.6 to 2.1 px, so there are no stick legs.
   - The stride is shorter (15° instead of 20°), so the feet stay under the hips.
 - **Beasts.**
