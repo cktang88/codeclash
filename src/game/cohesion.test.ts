@@ -193,6 +193,23 @@ describe('cohesion: horse breaks off, rallies and charges again (P4)', () => {
     inside.rallyPoint(knights, horse, true);
     expect(knights.toBanner).toBe(false);
   });
+
+  it('horse sent at a block of the line that is cutting down the archers behind it does not break off', () => {
+    const b = battle(3, army(600, 'templar'), army(600, 'templar'));
+    const inside = b as unknown as { breaksOff(r: Regiment, o: Regiment): boolean; d: { target: Int32Array } };
+    while (b.tick < 5) b.step();
+    const knights = b.regiments.find((r) => r.team === 0 && r.role === 'shock-cav')!;
+    const foot = b.regiments.find((r) => r.team === 1 && r.role === 'line')!;
+    const bows = b.regiments.find((r) => r.team === 1 && r.role === 'missile')!;
+    knights.meleeTicks = 100;
+    const fightAll = (o: Regiment) => knights.members.forEach((id, k) => (inside.d.target[id] = o.members[k % o.members.length]!));
+    // Its target is the foot; its men fight the foot: it breaks off to charge again.
+    fightAll(foot);
+    expect(inside.breaksOff(knights, foot)).toBe(true);
+    // Its target is the foot, but its men are among the archers: it rides them down.
+    fightAll(bows);
+    expect(inside.breaksOff(knights, foot)).toBe(false);
+  });
 });
 
 describe('cohesion: no side bias', () => {

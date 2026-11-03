@@ -29,6 +29,11 @@ export type { CommanderTrait, MoraleState, Order, OrderKind, Personality, Plan }
 export { COHESION, DOCTRINE, MORALE, REGROUP, UNDEAD } from './command.ts';
 
 /**
+ * v15: fixes from a sweep of the sim.
+ * - Horse locked in a melee breaks off to charge again (P4) by whom its men are fighting: sent
+ *   at a block of the line but cutting down the shooters behind it, it rides them down (it went
+ *   by its target alone, and broke off from archers it had caught).
+ *
  * v14: looser, livelier battles (docs/art-references/battle-cohesion.md, section 6; COHESION and
  * each faction's DOCTRINE.loose in command.ts). Per-man variation comes from a hash of his id and
  * the seed (`hashUnit`), waves from triangle waves, angles from tangents of half the angle.
@@ -160,7 +165,7 @@ export { COHESION, DOCTRINE, MORALE, REGROUP, UNDEAD } from './command.ts';
  * one side won 60-75% of mirror matches, which side depending on the armies' size (see
  * `pnpm fairness`).
  */
-export const BATTLE_VERSION = 14;
+export const BATTLE_VERSION = 15;
 /**
  * Mixed into every battle's seed. It was BATTLE_VERSION until v3, which kept v2's salt: a
  * version bump refuses old setups (BattleVersionError) but does not re-seed battles by itself.
@@ -3775,7 +3780,22 @@ export class Battle {
     }
     if (o.role !== 'line' && o.role !== 'command') return false;
     const braced = o.stance === 'pikewall' || o.stance === 'braced';
-    return r.meleeTicks > (braced ? C.footBraced : C.footMelee);
+    if (r.meleeTicks <= (braced ? C.footBraced : C.footMelee)) return false;
+    // Its target is the block it was sent at; its men may be cutting down the shooters behind
+    // it (or beside it) instead. Those it rides down: it breaks off only if most of its men
+    // are fighting foot of the line or the household. (Until the sweep after v14 it went by the
+    // target alone, and broke off from archers it had caught.)
+    const d = this.d;
+    let line = 0;
+    let shooters = 0;
+    for (const id of r.members) {
+      const t = d.target[id]!;
+      if (t < 0 || d.state[id] !== State.Fighting) continue;
+      const role = this.regiments[d.reg[t]!]!.role;
+      if (role === 'missile' || role === 'skirmish' || role === 'siege') shooters++;
+      else line++;
+    }
+    return line >= shooters;
   }
 
   /** What a block of horse is worth in a clash of horse: men, class, wind and losses (the fearless's morale says nothing). */
