@@ -27,7 +27,7 @@ import { FATIGUE, MORALE, newOrder, PERSONALITIES, PLANS, type CommanderTrait, t
 export type { CommanderTrait, MoraleState, Order, OrderKind, Personality, Plan } from './command.ts';
 export { MORALE } from './command.ts';
 
-export const BATTLE_VERSION = 3;
+export const BATTLE_VERSION = 4;
 /**
  * Mixed into every battle's seed. It was BATTLE_VERSION until v3, which kept v2's salt: a
  * version bump refuses old setups (BattleVersionError) but does not re-seed battles by itself.
@@ -88,7 +88,7 @@ class Store {
   readonly hp: Float64Array;
   /** Charge impetus 0..1. */
   readonly imp: Float64Array;
-  /** Separation push accumulated this tick (units per second). */
+  /** Last tick's separation push (units per second): `move` does not walk back into it. */
   readonly px: Float64Array;
   readonly py: Float64Array;
   /** Slot offset in the regiment: across the front (sx) and along the facing (sy, 0 = front rank). */
@@ -556,6 +556,8 @@ export class Battle {
   private readonly kl: Uint8Array;
   private readonly kpx: Float64Array;
   private readonly kpy: Float64Array;
+  /** Bow wave: how far ahead a galloping rider shoves enemy foot aside (0 for everyone else). */
+  private readonly kw: Float64Array;
   /** Cells holding anyone, in index order. */
   private readonly busy: Int32Array;
   private busyN = 0;
@@ -594,6 +596,7 @@ export class Battle {
     this.kl = new Uint8Array(n);
     this.kpx = new Float64Array(n);
     this.kpy = new Float64Array(n);
+    this.kw = new Float64Array(n);
     this.busy = new Int32Array(Math.min(n, GW * GH) + 1);
     this.cellOf = new Int32Array(n);
     const team = (): TeamState => ({ contactAt: -1, loss: 0, frontX: 0, lineDepth: 0, minY: 0, maxY: 0, midY: FIELD_H / 2, hasLine: false, engaged: false, contacted: false, missile: 0 });
@@ -835,6 +838,45 @@ export class Battle {
           d.col[id] = (cols - 1) / 2 + j - row / 2;
         }
       }
+    } else if (keepOrder && ids.length > cols) {
+      // Re-forming: each man takes the nearest file to where he stands (the left of the old
+      // front makes the left files of the new one), and within a file the man furthest forward
+      // takes the front rank, so men do not have to walk through each other to their new places.
+      const n = ids.length;
+      const fr = new Float64Array(n);
+      const lr = new Float64Array(n);
+      const slotC = new Float64Array(n);
+      const slotR = new Int32Array(n);
+      for (let i = 0; i < n; i++) {
+        const row = Math.floor(i / cols);
+        const inRow = Math.min(cols, n - row * cols);
+        slotR[i] = row;
+        slotC[i] = (i % cols) + (cols - inRow) / 2;
+      }
+      const slots = Array.from({ length: n }, (_, i) => i).sort((a, b) => slotC[a]! - slotC[b]! || slotR[a]! - slotR[b]!);
+      const at = new Map<number, number>();
+      for (let i = 0; i < n; i++) {
+        const id = ids[i]!;
+        const dx = d.x[id]! - reg.ax;
+        const dy = d.y[id]! - reg.ay;
+        lr[i] = -dx * reg.fy + dy * reg.fx;
+        fr[i] = dx * reg.fx + dy * reg.fy;
+        at.set(id, i);
+      }
+      const men = ids.slice().sort((a, b) => lr[at.get(a)!]! - lr[at.get(b)!]! || a - b);
+      let k = 0;
+      while (k < n) {
+        // One file: the slots sharing a file position.
+        let e = k + 1;
+        while (e < n && slotC[slots[e]!] === slotC[slots[k]!]) e++;
+        const file = men.slice(k, e).sort((a, b) => fr[at.get(b)!]! - fr[at.get(a)!]! || a - b);
+        for (let j = 0; j < file.length; j++) {
+          const sl = slots[k + j]!;
+          d.row[file[j]!] = slotR[sl]!;
+          d.col[file[j]!] = slotC[sl]!;
+        }
+        k = e;
+      }
     } else {
       for (let i = 0; i < ids.length; i++) {
         const id = ids[i]!;
@@ -919,12 +961,12 @@ export class Battle {
     } else {
       for (let i = n - 1; i >= 0; i--) if (d.state[i]! <= State.Routing) this.act(i);
     }
-    this.collide();
     if (this.tick % 2 === 0) {
       for (let i = 0; i < n; i++) if (d.state[i]! <= State.Routing) this.move(i);
     } else {
       for (let i = n - 1; i >= 0; i--) if (d.state[i]! <= State.Routing) this.move(i);
     }
+    this.separate();
     this.flyProjectiles();
     this.tick++;
     if (this.tick % 10 === 0) this.checkEnd();
@@ -983,7 +1025,13 @@ export class Battle {
       this.kr[k] = d.rad[i]!;
       this.km[k] = d.mass[i]!;
       this.kt[k] = d.team[i]!;
-      this.kl[k] = d.state[i] === State.Routing || regs[d.reg[i]!]!.role === 'skirmish' ? 1 : 0;
+      const r = regs[d.reg[i]!]!;
+      // Bit 0: a skirmisher (slips through his own lines). Bit 1: planted foot (braced or a pike
+      // wall) that a charge does not shove aside.
+      const fighting = d.state[i] === State.Fighting;
+      this.kl[k] = (r.role === 'skirmish' && fighting ? 1 : 0) | (fighting && (r.stance === 'braced' || r.stance === 'pikewall') ? 2 : 0);
+      // Light horse shoulders men aside far less than barded destriers.
+      this.kw[k] = fighting && d.imp[i]! > 0.3 && d.mass[i]! > 2 ? d.imp[i]! * d.spd[i]! * TICK_S * (d.mass[i]! >= 4 ? 1 : 0.35) : 0;
     }
   }
 
@@ -1558,7 +1606,9 @@ export class Battle {
       const dx = r.ax - ix;
       const dy = r.ay - iy;
       const q = sqrt(dx * dx + dy * dy);
-      const leash = Math.max(8, r.speed * PACE[r.mode] * 0.6);
+      // Locked in melee the anchor stays with the men: run ahead of them, it would have the rear
+      // ranks shove the front through the enemy.
+      const leash = r.engaged ? 1.5 : Math.max(8, r.speed * PACE[r.mode] * 0.6);
       if (q > leash) {
         r.ax = ix + (dx * leash) / q;
         r.ay = iy + (dy * leash) / q;
@@ -2793,7 +2843,9 @@ export class Battle {
       dr.morale -= (rear ? MORALE.chargeRear : side ? MORALE.chargeFlank : MORALE.chargeFront) * force * (ds.mounted ? 0.6 : 1) * (as.mounted ? 1 : 0.4);
       dr.flankShock += rear ? 0.6 : side ? 0.3 : 0;
     }
-    d.imp[a] = Math.max(0, energy - (0.22 + 0.12 * ds.mass) * (wedge ? 0.55 : 1) * (planted ? 3 : 1));
+    // Each man hit takes some of the charge out of him: knights carry through a thin line, light
+    // horse soon stalls.
+    d.imp[a] = Math.max(0, energy - (0.22 + 0.12 * ds.mass) * (wedge ? 0.55 : 1) * (planted ? 3 : 1) * (as.mounted && as.mass < 4 ? 1.7 : 1));
   }
 
   private hurt(t: number, amount: number, by: number): void {
@@ -2824,8 +2876,15 @@ export class Battle {
     }
   }
 
-  /** Overlapping soldiers push apart, heavier ones less; skirmishers slip through their own lines. */
-  private collide(): void {
+  /**
+   * Nobody stands inside anybody: after everyone has moved, overlapping men are pushed apart
+   * (heavier ones less), pair by pair in grid order so a press resolves rather than jitters.
+   * Skirmishers squeeze through their own lines. A galloping rider shoves enemy foot aside a
+   * stride ahead of him (unless they stand braced), so a charge opens a lane through a line
+   * instead of riding through men. The correction is kept (`px`, `py`) so that next tick `move`
+   * does not walk a man straight back into whoever pushed him.
+   */
+  private separate(): void {
     const grid = this.grid;
     const kx = this.kx;
     const ky = this.ky;
@@ -2833,30 +2892,43 @@ export class Battle {
     const km = this.km;
     const kt = this.kt;
     const kl = this.kl;
+    const kw = this.kw;
     const kpx = this.kpx;
     const kpy = this.kpy;
     const busy = this.busy;
+    const items = this.items;
+    const d = this.d;
     const total = grid[GW * GH]!;
-    kpx.fill(0, 0, total);
-    kpy.fill(0, 0, total);
+    // Where everyone stands now (the cells are from the start of the tick: nobody moves far).
+    for (let k = 0; k < total; k++) {
+      const i = items[k]!;
+      kx[k] = d.x[i]!;
+      ky[k] = d.y[i]!;
+      kpx[k] = 0;
+      kpy[k] = 0;
+      if (d.state[i]! > State.Routing) kl[k] = kl[k]! | 4;
+    }
     for (let bi = 0; bi < this.busyN; bi++) {
       const c = busy[bi]!;
       const cx = c % GW;
       const cy = (c - cx) / GW;
       const a1 = grid[c + 1]!;
       for (let ka = grid[c]!; ka < a1; ka++) {
-        const xi = kx[ka]!;
-        const yi = ky[ka]!;
+        const li = kl[ka]!;
+        if (li & 4) continue;
+        let xi = kx[ka]!;
+        let yi = ky[ka]!;
         const ri = kr[ka]!;
         const mi = km[ka]!;
         const ti = kt[ka]!;
-        const li = kl[ka]!;
+        const wi0 = kw[ka]!;
         let pxi = 0;
         let pyi = 0;
         // This cell (later items) and four of its neighbours: each pair once.
         for (let nb = 0; nb < 5; nb++) {
           let kb0: number;
           let kb1: number;
+          let cc = c;
           if (nb === 0) {
             kb0 = ka + 1;
             kb1 = a1;
@@ -2864,49 +2936,121 @@ export class Battle {
             const nx = cx + (nb === 1 || nb === 4 ? 1 : nb === 2 ? -1 : 0);
             const ny = cy + (nb === 1 ? 0 : 1);
             if (nx < 0 || nx >= GW || ny >= GH) continue;
-            const cc = ny * GW + nx;
+            cc = ny * GW + nx;
             kb0 = grid[cc]!;
             kb1 = grid[cc + 1]!;
           }
           for (let kb = kb0; kb < kb1; kb++) {
             const dx = xi - kx[kb]!;
             const dy = yi - ky[kb]!;
-            const minD = ri + kr[kb]!;
+            let minD = ri + kr[kb]!;
             const d2 = dx * dx + dy * dy;
+            if (d2 >= minD * minD && wi0 === 0 && kw[kb] === 0) continue;
+            const lj = kl[kb]!;
+            if (lj & 4) continue;
+            let ma = mi;
+            let mj = km[kb]!;
+            let k = 1;
+            // A rider's bow wave: rider and shove direction (sideways out of his path) if any.
+            let rider = -1;
+            if (kt[kb] !== ti) {
+              const wj = kw[kb]!;
+              if (wi0 > 0 && (lj & 2) === 0 && mj <= 2) {
+                const a = items[ka]!;
+                if (d.vx[a]! * dx + d.vy[a]! * dy < 0) {
+                  minD += wi0;
+                  ma *= 3;
+                  rider = a;
+                }
+              } else if (wj > 0 && (li & 2) === 0 && mi <= 2) {
+                const b = items[kb]!;
+                if (d.vx[b]! * dx + d.vy[b]! * dy > 0) {
+                  minD += wj;
+                  mj *= 3;
+                  rider = b;
+                }
+              }
+            } else if (((li | lj) & 1) !== 0) k = 0.3;
             if (d2 >= minD * minD) continue;
-            const k = kt[kb] === ti && (li === 1 || kl[kb] === 1) ? 2 : 13;
             const dd = sqrt(d2);
+            if (rider < 0 && kt[kb] !== ti) {
+              // A horse run onto braced foot is stopped dead.
+              if (wi0 > 0 && (lj & 2) !== 0) d.imp[items[ka]!] = 0;
+              else if (kw[kb]! > 0 && (li & 2) !== 0) d.imp[items[kb]!] = 0;
+            }
+            if (rider >= 0 && dd < ri + kr[kb]!) {
+              // He could not get out of the way (men packed behind him): the horse is checked.
+              d.imp[rider] = d.imp[rider]! * (d.mass[rider]! >= 4 ? 0.88 : 0.6);
+              ma = mi;
+              mj = km[kb]!;
+            }
             let ux: number;
             let uy: number;
-            if (dd < 0.01) {
-              ux = 0.7;
-              uy = 0.7;
+            if (rider >= 0) {
+              // Thrown aside: half along the charge, mostly out to the side he stood on.
+              const vx = d.vx[rider]!;
+              const vy = d.vy[rider]!;
+              const vq = sqrt(vx * vx + vy * vy) || 1;
+              const fx = vx / vq;
+              const fy = vy / vq;
+              // Man relative to the rider.
+              const sgn = rider === items[ka] ? -1 : 1;
+              const rx = dx * sgn;
+              const ry = dy * sgn;
+              const side = rx * -fy + ry * fx >= 0 ? 1 : -1;
+              let mx = fx * 0.5 - fy * side;
+              let my = fy * 0.5 + fx * side;
+              const mq = sqrt(mx * mx + my * my);
+              mx /= mq;
+              my /= mq;
+              // u points from kb to ka: the man moves along u if he is ka, along -u if kb.
+              ux = mx * sgn;
+              uy = my * sgn;
+            } else if (dd < 0.01) {
+              ux = (ka & 1) === 0 ? 0.6 : -0.6;
+              uy = 0.8;
             } else {
               ux = dx / dd;
               uy = dy / dd;
             }
             const f = (minD - dd) * k;
-            const mj = km[kb]!;
-            const wi = mj / (mi + mj);
-            pxi += ux * f * wi;
-            pyi += uy * f * wi;
-            kpx[kb]! -= ux * f * (1 - wi);
-            kpy[kb]! -= uy * f * (1 - wi);
+            const wi = mj / (ma + mj);
+            const ax = ux * f * wi;
+            const ay = uy * f * wi;
+            const bx = ux * f * (1 - wi);
+            const by = uy * f * (1 - wi);
+            xi += ax;
+            yi += ay;
+            pxi += ax;
+            pyi += ay;
+            kx[kb]! -= bx;
+            ky[kb]! -= by;
+            kpx[kb]! -= bx;
+            kpy[kb]! -= by;
           }
         }
+        kx[ka] = xi;
+        ky[ka] = yi;
         kpx[ka]! += pxi;
         kpy[ka]! += pyi;
       }
     }
-    // Back from grid order to soldier order.
-    const d = this.d;
-    const items = this.items;
+    // Back from grid order to soldier order: positions, and the push as a velocity.
     d.px.fill(0);
     d.py.fill(0);
     for (let k = 0; k < total; k++) {
+      if (kl[k]! & 4) continue;
       const i = items[k]!;
-      d.px[i] = kpx[k]!;
-      d.py[i] = kpy[k]!;
+      const qx = kpx[k]!;
+      const qy = kpy[k]!;
+      if (qx === 0 && qy === 0) continue;
+      const routing = d.state[i] === State.Routing;
+      d.x[i] = routing ? kx[k]! : clampX(kx[k]!);
+      d.y[i] = clampY(ky[k]!);
+      d.px[i] = qx / TICK_S;
+      d.py[i] = qy / TICK_S;
+      d.vx[i]! += qx / TICK_S;
+      d.vy[i]! += qy / TICK_S;
     }
   }
 
@@ -2931,7 +3075,7 @@ export class Battle {
         const dx = d.x[t]! - x;
         const dy = d.y[t]! - y;
         const q = sqrt(dx * dx + dy * dy) || 1;
-        const contact = d.rad[i]! + d.rad[t]! + 0.5;
+        const contact = d.rad[i]! + d.rad[t]! + 0.9;
         if (d.imp[i]! > 0.3) {
           vx = (dx / q) * spd * 1.15;
           vy = (dy / q) * spd * 1.15;
@@ -2948,13 +3092,14 @@ export class Battle {
         // Keep formation: match the anchor's pace and close on the slot.
         const gx = r.ax + r.fx * d.sy[i]! - r.fy * d.sx[i]!;
         const gy = r.ay + r.fy * d.sy[i]! + r.fx * d.sx[i]!;
-        vx = r.vax / TICK_S + (gx - x) * 2.5;
-        vy = r.vay / TICK_S + (gy - y) * 2.5;
+        // In a melee the rear ranks close up gently: they back the front, they do not shove
+        // it through the enemy.
+        const k = r.engaged ? 1 : 2.5;
+        vx = r.vax / TICK_S + (gx - x) * k;
+        vy = r.vay / TICK_S + (gy - y) * k;
         if (r.mode === 'charge' || r.mode === 'withdraw' || r.mode === 'pursue') cap = spd * 1.2;
       }
     }
-    vx += d.px[i]!;
-    vy += d.py[i]!;
     if (d.stun[i]! > 0) {
       vx *= 0.3;
       vy *= 0.3;
@@ -2978,7 +3123,20 @@ export class Battle {
     }
     // Galloping (or running) in at a charge builds impetus; anything else bleeds it.
     if (this.soldiers[i]!.s.charge > 0 && r.mode === 'charge' && vm > spd * 0.7) d.imp[i] = Math.min(1, d.imp[i]! + (mounted ? 0.08 : 0.15));
-    else if (d.imp[i]! > 0) d.imp[i] = d.imp[i]! < 0.05 ? 0 : d.imp[i]! * 0.8;
+    else if (d.imp[i]! > 0) d.imp[i] = d.imp[i]! < 0.05 ? 0 : d.imp[i]! * (mounted && vm > spd * 0.6 ? 0.93 : 0.8);
+    // Men pressed by others do not walk into them: the part of his stride that goes into the
+    // press is dropped (a galloping rider ploughs on; his bow wave moves them instead), and the
+    // press itself moves him.
+    const px = d.px[i]!;
+    const py = d.py[i]!;
+    const pm = sqrt(px * px + py * py);
+    if (pm > 0.05 && !(mounted && d.imp[i]! > 0.3)) {
+      const into = (vx * px + vy * py) / pm;
+      if (into < 0) {
+        vx -= (px / pm) * into;
+        vy -= (py / pm) * into;
+      }
+    }
     d.vx[i] = vx;
     d.vy[i] = vy;
     let nx = x + vx * TICK_S;
