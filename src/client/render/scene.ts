@@ -13,11 +13,13 @@
 //        from the foot's screen y, so no sorting) → dust, smoke and missile shadows (blended).
 //   3. A post shader blows the buffer up with nearest pixels and grades it.
 
-import { Battle, FIELD_H, FIELD_W, State, type Projectile } from '../../game/battle.ts';
+import { Battle, FIELD_H, FIELD_W, State, TICK_S, type Projectile } from '../../game/battle.ts';
 import { Rng } from '../../game/rng.ts';
 import { U } from '../../game/units.ts';
 import { Anim, ANIM_COUNT, COMMANDER_KIND, KIND_COUNT, type Atlas, type Dir, type KindSheet, type Stance } from './contract.ts';
 import { buildFx, type FxSheet, type Region } from './fx.ts';
+import { HdField } from './field-hd.ts';
+import { ANGLES, fxId, HOOVES, lookOf, PUFF_SIZES, PUFF_VARIANTS, SPLATS } from './fx-hd.ts';
 import { Batch, cornerBuffer, dropTarget, SpriteProgram, target, texture, texturePixels, type Target } from './gl.ts';
 import { paintGround, type Ground } from './ground.ts';
 import { dirFor, projX, projY, PX, unproject } from './iso.ts';
@@ -40,6 +42,8 @@ const enum PK {
   Dust,
   Smoke,
   Debris,
+  /** HD: a spark off armour, a muzzle flash. */
+  Spark,
 }
 
 interface Particle {
@@ -58,6 +62,10 @@ interface Particle {
   g: number;
   b: number;
   a: number;
+  /** HD: which variant of the puff sprite. */
+  v?: number;
+  /** HD: battle second it was raised (steps run without frames when skipping or hidden). */
+  t0?: number;
 }
 
 /** A decal waiting to be stamped into the ground: tex 0/1 = an army's atlas, 2 = effects. */
@@ -117,6 +125,17 @@ type MoraleState = 'steady' | 'wavering' | 'broken' | 'rallying' | 'shattered';
 /** A regiment's morale state; the sim is adding `moraleState` (read loosely until it lands). */
 const moraleOf = (r: { routed: boolean }): MoraleState => (r as { moraleState?: MoraleState }).moraleState ?? (r.routed ? 'broken' : 'steady');
 
+// HD effects sheet ids (fx-hd.ts), resolved once.
+const HD_ID = {
+  dot: fxId('dot'),
+  stone: fxId('stone'),
+  stake: fxId('stake0'),
+  puff: fxId(`puff${PUFF_SIZES[0]}_0`),
+  arrow: fxId('arrow0'),
+  bolt: fxId('bolt0'),
+  jav: fxId('jav0'),
+};
+
 const MISSILE_CLS = (cls: number, splash: number): 'stone' | 'bolt' | 'jav' | 'arrow' =>
   splash > 0 ? 'stone' : cls === U.Crossbowmen ? 'bolt' : cls === U.Skirmishers ? 'jav' : 'arrow';
 
@@ -148,11 +167,23 @@ export class BattleScene {
   private hdSheet: (KindSheet | null)[][] = [new Array<KindSheet | null>(KIND_COUNT).fill(null), new Array<KindSheet | null>(KIND_COUNT).fill(null)];
   /** HD: the effects sheet Scale2x'd to 2x and 4x, made when first zoomed that far. */
   private fxHi = new Map<number, { tex: WebGLTexture; w: number; h: number }>();
+  /** HD: the battlefield at the figures' texel density (ground, marks, decals; field-hd.ts). */
+  private readonly field: HdField | null = null;
+  /** HD: batches for ground decals, missiles and stakes (alpha-tested), and puffs (blended). */
+  private hdFxB: { decal: Batch; fx: Batch; soft: Batch; std: Batch } | null = null;
+  /** HD: its own randomness, so the classic effects' sequence is untouched. */
+  private readonly hdRng = new Rng(11);
+  /** HD: blood still spreading from the fallen: map point, radius, amount, tick due. */
+  /** HD: dust particles alive (counted each frame). */
+  private dustN = 0;
+  private pools: { x: number; y: number; r: number; a: number; at: number }[] = [];
   /** The atlas image versions last uploaded (HD grids fill in the background). */
   private atlasVer = [0, 0];
   private kindsPresent: number[][] = [[], []];
   /** HD: kinds of each army seen in view last frame (bit per kind): only they get the 8x sheets. */
   private seen = [0, 0];
+  /** HD art: kinds of each army with corpses in view last frame. */
+  private seenDead = [0, 0];
 
   private prevX: Float32Array;
   private prevY: Float32Array;
@@ -179,6 +210,7 @@ export class BattleScene {
   constructor(readonly battle: Battle, art: ArtMode = artMode()) {
     this.art = art;
     this.ground = paintGround(battle.setup.seed);
+    if (isHdArt(art)) this.field = new HdField(this.ground, battle.setup.armies);
     const [a, b] = battle.setup.armies;
     const buildAtlas = art === 'hd64' ? buildHd64 : art === 'hd' ? buildHd : buildClassic;
     this.atlases = [buildAtlas(a.faction, a.hue), buildAtlas(b.faction, b.hue)];
@@ -269,6 +301,10 @@ export class BattleScene {
 
   /** Call after each battle.step(): blood for the wounded, the fallen stamped, missiles landed. */
   afterStep(): void {
+    if (this.field) {
+      this.afterStepHd(this.field);
+      return;
+    }
     const b = this.battle;
     const ss = b.soldiers;
     const rng = this.rng;
@@ -334,9 +370,13 @@ export class BattleScene {
     }
   }
 
-  private spawn(kind: PK, x: number, y: number, z: number, vx: number, vy: number, vz: number, max: number, size: number, r: number, g: number, b: number, a: number): void {
-    if (this.particles.length >= MAX_PARTICLES) return;
-    this.particles.push({ kind, x, y, z, vx, vy, vz, life: 0, max, size, r, g, b, a });
+  private spawn(kind: PK, x: number, y: number, z: number, vx: number, vy: number, vz: number, max: number, size: number, r: number, g: number, b: number, a: number, v = 0): void {
+    // HD: smoke and sparks get a reserve of their own (a melee's blood can fill the rest).
+    if (this.particles.length >= MAX_PARTICLES + (this.field && (kind === PK.Smoke || kind === PK.Spark) ? 800 : 0)) return;
+    // HD: dust gives way, so marching thousands never crowd out blood, sparks and gun smoke.
+    if (this.field && kind === PK.Dust && this.dustN++ >= MAX_PARTICLES / 2) return;
+    if (this.field) this.particles.push({ kind, x, y, z, vx, vy, vz, life: 0, max, size, r, g, b, a, v, t0: this.battle.tick * TICK_S });
+    else this.particles.push({ kind, x, y, z, vx, vy, vz, life: 0, max, size, r, g, b, a, v });
   }
 
   private mapX(x: number, y: number): number {
@@ -396,9 +436,12 @@ export class BattleScene {
       this.hdTex.clear();
       this.hdTexSheet.clear();
       this.fxHi.clear();
+      this.field?.lost();
+      this.hdFxB = null;
       this.atlasVer = [-1, -1];
       this.stamps.length = 0;
-      for (let i = 0; i < this.stamped.length; i++) if (this.stamped[i]) this.restampCorpse(i);
+      // HD keeps its marks and decals on the CPU and draws the dead each frame.
+      if (!this.field) for (let i = 0; i < this.stamped.length; i++) if (this.stamped[i]) this.restampCorpse(i);
     };
     canvas.addEventListener('webglcontextlost', onLost);
     canvas.addEventListener('webglcontextrestored', onRestored);
@@ -439,14 +482,19 @@ export class BattleScene {
     g.unlisten();
     this.gfx = null;
     const gl = g.gl;
-    const hdBatches = this.hdBatch.flat();
+    const hdBatches = [...this.hdBatch.flat(), ...(this.hdFxB ? [this.hdFxB.decal, this.hdFxB.fx, this.hdFxB.soft, this.hdFxB.std] : [])];
+    this.hdFxB = null;
     const hdTextures = [...this.hdTex.values(), ...[...this.fxHi.values()].map((f) => f.tex)];
     this.hdBatch = [];
     this.hdTex.clear();
     this.hdTexSheet.clear();
     this.fxHi.clear();
     // A lost context has already freed everything.
-    if (gl.isContextLost()) return;
+    if (gl.isContextLost()) {
+      this.field?.lost();
+      return;
+    }
+    this.field?.dispose();
     for (const b of [...g.team, g.fx, g.soft, g.groundQuad, ...g.stamp, ...hdBatches]) b.dispose();
     for (const t of [...g.atlasTex, g.fxTex, ...hdTextures]) gl.deleteTexture(t);
     dropTarget(gl, g.ground);
@@ -638,12 +686,13 @@ export class BattleScene {
     gl.disable(gl.DEPTH_TEST);
     gl.disable(gl.BLEND);
     gl.disable(gl.STENCIL_TEST);
-    P.tex(gfx.ground.tex, this.ground.w, this.ground.h);
-    // Zoomed past the ground's own resolution (HD), the ground is smoothed rather than blocky.
-    const gf = v.m > 1 ? gl.LINEAR : gl.NEAREST;
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gf);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gf);
-    gfx.groundQuad.draw();
+    if (this.field) this.drawGroundHd(gfx, this.field);
+    else {
+      P.tex(gfx.ground.tex, this.ground.w, this.ground.h);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+      gfx.groundQuad.draw();
+    }
 
     // HD zoomed in: standards, missiles and puffs from a Scale2x'd copy of the effects sheet.
     const fxF = isHdArt(this.art) ? (v.m >= 4 ? 4 : v.m >= 2 ? 2 : 1) : 1;
@@ -654,6 +703,12 @@ export class BattleScene {
       ...this.hdDraws(),
       [gfx.fx, fxT.tex, fxT.w, fxT.h, fxF, fxF],
     ];
+    // HD: missiles and stakes from the level-m effects sheet.
+    if (this.field && this.hdFxB) {
+      draws.push([this.hdFxB.fx, this.field.sheetTexture(gl, v.m), this.field.sheet(v.m).w, this.field.sheet(v.m).h, v.m, 1]);
+      const st = this.field.standards(v.m);
+      draws.push([this.hdFxB.std, this.field.standardsTexture(gl, v.m), st.w, st.h, v.m, 1]);
+    }
     // Shadows: once per pixel, however many fall on it.
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
@@ -681,6 +736,11 @@ export class BattleScene {
     gl.depthMask(false);
     P.tex(fxT.tex, fxT.w, fxT.h, fxF, fxF);
     gfx.soft.draw();
+    if (this.field && this.hdFxB) {
+      const sh = this.field.sheet(v.m);
+      P.tex(this.field.sheetTexture(gl, v.m), sh.w, sh.h, v.m, 1);
+      this.hdFxB.soft.draw();
+    }
     gl.depthMask(true);
     gl.disable(gl.DEPTH_TEST);
     gl.disable(gl.BLEND);
@@ -750,14 +810,17 @@ export class BattleScene {
       }
       if (!atlas.sheet || !atlas.levels || m <= 1) continue;
       for (const k of this.kindsPresent[t]!) {
-        const inView = !!(this.seen[t]! & (1 << k));
+        // HD art: a kind with only its dead in view is drawn from the sheets up to 4x (the 8x ones
+        // are tens of MB a kind: only the living in view earn them).
+        const live = !!(this.seen[t]! & (1 << k));
+        const inView = live || !!(this.seenDead[t]! & (1 << k));
         // The finest painted level no finer than the view. Asking for the levels keeps them
         // fresh in the painter's memory (and starts painting the ones still missing); the 8x
         // sheets (tens of MB a kind) are asked for only by kinds actually in view.
         let best: KindSheet | null = null;
         let bestL = 1;
         for (const L of atlas.levels) {
-          if (L > m || (L >= 8 && !inView)) break;
+          if (L > m || (L >= 8 && !live)) break;
           const sh = atlas.sheet(k, L);
           if (sh) {
             best = sh;
@@ -847,6 +910,7 @@ export class BattleScene {
     const m = v.m;
     const hd = this.pickLevels(gfx, m);
     this.seen[0] = this.seen[1] = 0;
+    this.seenDead[0] = this.seenDead[1] = 0;
     gfx.fx.clear();
     gfx.soft.clear();
     const fx = this.fxSheet;
@@ -857,7 +921,8 @@ export class BattleScene {
       if (s.state === State.Fled) continue;
       if (this.stamped[i]) {
         // HD, zoomed in: the corpse stamped into the low-res ground is drawn over at full detail.
-        if (hd) this.hdCorpse(i, x0, x1, y0, y1);
+        if (this.field) this.corpseHd(i, hd, x0, x1, y0, y1);
+        else if (hd) this.hdCorpse(i, x0, x1, y0, y1);
         continue;
       }
       const wx = this.prevX[i]! + (s.x - this.prevX[i]!) * alpha;
@@ -949,7 +1014,8 @@ export class BattleScene {
       if (mx < x0 - 40 || mx > x1 + 40 || my < y0 || my > y1 + 40) continue;
       gfx.fx.sprite(Math.round(mx), Math.round(my), r.u, r.v, r.w, r.h, r.ax, r.ay, my);
     }
-    for (const k of b.stakes) {
+    if (this.field) this.stakesHd(gfx, m);
+    else for (const k of b.stakes) {
       const r = fx.get(`stake${k.team === 0 ? 0 : 1}`);
       for (let y = k.y0; y <= k.y1; y += 3) {
         const mx = this.mapX(k.x, y);
@@ -962,6 +1028,16 @@ export class BattleScene {
     // flickering when wavering, dropped in the dirt when broken, raised again on a rally. At
     // zoom 2+ a stance glyph above and a morale pip bar beside the pole.
     const closeUp = this.camera.zoom >= 2;
+    // HD art: the standards come from a sheet painted at the view's density, like the figures.
+    const std = this.field ? this.field.standards(m) : null;
+    const stdB = this.field ? this.hdBatches(gfx).std : gfx.fx;
+    const sk = std ? m : 1; // texels per map px of the standards' sheet
+    const at = (v: number) => (std ? Math.round(v * m) / m : Math.round(v));
+    const flag = (name: string, x: number, y: number, depth: number): Region => {
+      const g = std ? std.byName.get(name)! : fx.get(name);
+      stdB.sprite(x, y, g.u, g.v, g.w / sk, g.h / sk, g.ax / sk, g.ay / sk, depth, 1, 1, 1, 1, 0, 1);
+      return g;
+    };
     for (let i = 0; i < b.regiments.length; i++) {
       const r = b.regiments[i]!;
       if (r.alive < 4 || r.role === 'siege' || r.role === 'skirmish') continue;
@@ -969,13 +1045,12 @@ export class BattleScene {
       if (ms === 'shattered') continue;
       const cx = this.regX[i]! + (r.cx - this.regX[i]!) * alpha;
       const cy = this.regY[i]! + (r.cy - this.regY[i]!) * alpha;
-      const mx = Math.round(this.mapX(cx, cy));
+      const mx = at(this.mapX(cx, cy));
       const my = this.mapY(cx, cy);
       if (mx < x0 || mx > x1 || my < y0 || my > y1 + 30) continue;
       const cmd = r.role === 'command';
       if (ms === 'broken') {
-        const d = fx.get(`dropped${cmd ? 'cmd' : ''}${r.team}`);
-        gfx.fx.sprite(mx, Math.round(my), d.u, d.v, d.w, d.h, d.ax, d.ay, my - 0.5, 1, 1, 1, 1, 0, 1);
+        flag(`dropped${cmd ? 'cmd' : ''}${r.team}`, mx, at(my), my - 0.5);
         continue;
       }
       const mounted = r.role === 'flank' || r.role === 'shock-cav' || r.role === 'horse-archer' || cmd;
@@ -984,32 +1059,315 @@ export class BattleScene {
       const frame = wavering ? Math.floor(T * 1.3 + i * 1.3 + Math.sin(T * 0.7 + i) * 2) & 3 : Math.floor(T / 2.5 + i * 1.3) & 3; // & 3, not % 4: never negative (T < 0 before the first tick)
       const bob = ms === 'rallying' ? Math.round(Math.abs(Math.sin(T * 0.6)) * 3) : 0;
       if (wavering && Math.sin(T * 2.1 + i * 5.3) > 0.82) continue;
-      const reg = fx.get(`${wavering ? 'torn' : ''}${cmd ? 'cmd' : wavering ? '' : 'ban'}${r.team}_${frame}`);
-      const top = Math.round(my) - (mounted ? 14 : 9) - bob;
-      gfx.fx.sprite(mx, top, reg.u, reg.v, reg.w, reg.h, reg.ax, reg.ay, my + 0.5, 1, 1, 1, 1, 0, 1);
+      const top = at(my) - (mounted ? 14 : 9) - bob;
+      const reg = flag(`${wavering ? 'torn' : ''}${cmd ? 'cmd' : wavering ? '' : 'ban'}${r.team}_${frame}`, mx, top, my + 0.5);
       if (!closeUp) continue;
-      const poleX = mx - reg.ax + (r.team === 1 ? 10 : 1);
+      const regAx = reg.ax / sk;
+      const regAy = reg.ay / sk;
+      const poleX = mx - regAx + (r.team === 1 ? 10 : 1);
       const stance = stanceOf(r);
-      if (stance !== 'line' && !cmd) {
-        const g = fx.get(`glyph_${stance}`);
-        gfx.fx.sprite(poleX, top - reg.ay - 1, g.u, g.v, g.w, g.h, g.ax, g.ay, my + 0.6, 1, 1, 1, 1, 0, 1);
-      }
+      if (stance !== 'line' && !cmd) flag(`glyph_${stance}`, poleX, top - regAy - 1, my + 0.6);
       // Morale pips: five, beside the pole under the cloth, coloured by how close to breaking.
       const morale = Math.max(0, Math.min(100, (r as unknown as { morale?: number }).morale ?? 50));
       const lit = Math.ceil(morale / 20);
       const [pr, pg, pb] = morale > 60 ? [0.55, 0.75, 0.4] : morale > 30 ? [0.9, 0.7, 0.25] : [0.85, 0.2, 0.15];
       const px0 = r.team === 1 ? poleX - 7 : poleX + 2;
-      const py = top - reg.ay + 10;
-      gfx.fx.rect(px0 - 1, py - 1, 7, 3, my + 0.55, 0.07, 0.05, 0.04, 1);
+      const py = top - regAy + 10;
+      stdB.rect(px0 - 1, py - 1, 7, 3, my + 0.55, 0.07, 0.05, 0.04, 1);
+      // HD: each pip a texel short of its cell, so they stay separate squares at any density.
+      const pip = std && m >= 2 ? 1 - 1 / m : 1;
       for (let k = 0; k < 5; k++) {
         const on = k < lit;
-        gfx.fx.rect(px0 + (r.team === 1 ? 4 - k : k), py, 1, 1, my + 0.6, on ? pr : 0.25, on ? pg : 0.22, on ? pb : 0.2, 1);
+        stdB.rect(px0 + (r.team === 1 ? 4 - k : k), py, pip, pip, my + 0.6, on ? pr : 0.25, on ? pg : 0.22, on ? pb : 0.2, 1);
       }
     }
 
-    // Missiles in flight: an arc in the air, a dot of shadow on the ground.
-    const shadowRegion = fx.get('puff1');
+    if (this.field) this.buildHd(this.field, gfx, T, dt, x0, x1, y0, y1);
+    else {
+      // Missiles in flight: an arc in the air, a dot of shadow on the ground.
+      const shadowRegion = fx.get('puff1');
+      for (const p of b.projectiles) {
+        const span = Math.max(1, p.lands - p.born);
+        const t = Math.min(1, Math.max(0, (T - p.born) / span));
+        const gx = p.x0 + (p.x1 - p.x0) * t;
+        const gy = p.y0 + (p.y1 - p.y0) * t;
+        const mx = this.mapX(gx, gy);
+        const my = this.mapY(gx, gy);
+        if (mx < x0 || mx > x1 || my < y0 || my > y1 + 100) continue;
+        const dist = Math.sqrt((p.x1 - p.x0) ** 2 + (p.y1 - p.y0) ** 2);
+        const look = MISSILE_CLS(p.cls, p.splash);
+        const arc = look === 'bolt' || look === 'jav' ? 0.1 : look === 'stone' ? 0.45 : 0.3;
+        const h = (p.arc ?? dist * arc) * PX;
+        const lift = 9;
+        const z = 4 * h * t * (1 - t) + (1 - t) * lift;
+        // Screen velocity of the missile: along the ground, minus the climb.
+        const dz = (4 * h * (1 - 2 * t) - lift) / span;
+        const sx = (this.mapX(p.x1, p.y1) - this.mapX(p.x0, p.y0)) / span;
+        const sy = (this.mapY(p.x1, p.y1) - this.mapY(p.x0, p.y0)) / span - dz;
+        gfx.soft.sprite(Math.round(mx), Math.round(my), shadowRegion.u, shadowRegion.v, 1, 1, 0, 0, my, 0.05, 0.04, 0.03, 0.45);
+        let r: Region;
+        if (look === 'stone') r = fx.get('stone');
+        else {
+          const a = Math.round((Math.atan2(sy, sx) / (Math.PI * 2)) * 16 + 16) % 16;
+          r = this.missileRegions[look]![a]!;
+        }
+        gfx.fx.sprite(Math.round(mx), Math.round(my - z), r.u, r.v, r.w, r.h, r.ax, r.ay, my, 1, 1, 1, 1, 0, 1);
+        if (p.direct) {
+          // A flat shot leaves a straight streak behind it.
+          for (let k = 1; k <= 3; k++) {
+            const tk = Math.max(0, t - k * 0.04);
+            const zk = 4 * h * tk * (1 - tk) + (1 - tk) * lift;
+            const kx = this.mapX(p.x0 + (p.x1 - p.x0) * tk, p.y0 + (p.y1 - p.y0) * tk);
+            const ky = this.mapY(p.x0 + (p.x1 - p.x0) * tk, p.y0 + (p.y1 - p.y0) * tk) - zk;
+            gfx.soft.sprite(Math.round(kx), Math.round(ky), shadowRegion.u, shadowRegion.v, 1, 1, 0, 0, my, 0.85, 0.82, 0.7, 0.5 - k * 0.12);
+          }
+        }
+      }
+
+      // Particles.
+      const ps = this.particles;
+      let w = 0;
+      for (const p of ps) {
+        p.life += dt;
+        if (p.life >= p.max) continue;
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        p.z += p.vz * dt;
+        if (p.kind === PK.Blood || p.kind === PK.Debris) {
+          p.vz -= 120 * dt;
+          if (p.z <= 0) {
+            if (p.kind === PK.Blood && this.rng.next() < 0.35) {
+              this.stamps.push({ tex: 2, x: Math.round(this.mapX(p.x, p.y)), y: Math.round(this.mapY(p.x, p.y)), u: 0, v: 0, w: 1, h: 1, ax: 0, ay: 0, shade: 1, a: 0.75, solid: true, r: 0.24, g: 0.05, b: 0.04 });
+            }
+            continue;
+          }
+        } else {
+          const damp = Math.exp(-dt * 2.2);
+          p.vx *= damp;
+          p.vy *= damp;
+          p.vz *= Math.exp(-dt * 0.8);
+        }
+        ps[w++] = p;
+        const mx = this.mapX(p.x, p.y);
+        const my = this.mapY(p.x, p.y);
+        if (mx < x0 || mx > x1 || my < y0 || my > y1 + 60) continue;
+        const fade = 1 - p.life / p.max;
+        if (p.kind === PK.Blood || p.kind === PK.Debris) {
+          gfx.fx.rect(Math.round(mx), Math.round(my - p.z), p.size, 1, my, p.r, p.g, p.b, 1);
+        } else {
+          const grow = p.kind === PK.Smoke ? p.life * 3.2 : p.life * 2.2;
+          const r = this.puffRegions[Math.min(11, Math.ceil(p.size + grow))]!;
+          const a = p.a * Math.min(1, fade * 1.6) * Math.min(1, p.life * 6);
+          gfx.soft.sprite(Math.round(mx), Math.round(my - p.z), r.u, r.v, r.w, r.h, r.ax, r.ay, my + 2, p.r, p.g, p.b, a);
+        }
+      }
+      ps.length = w;
+    }
+
+    team[0].upload();
+    team[1].upload();
+    for (const row of this.hdBatch) for (const bt of row) bt.upload();
+    gfx.fx.upload();
+    gfx.soft.upload();
+  }
+
+  // ---------------------------------------------------------------- HD battlefield (field-hd.ts)
+  //
+  // In the HD art the ground, its marks and every effect are drawn at the figures' texel density
+  // (m texels per map px). Kept apart from the classic path, which is unchanged.
+
+  /** HD: the batches for ground decals, missiles and stakes, and puffs, made on first use. */
+  private hdBatches(gfx: Gfx): { decal: Batch; fx: Batch; soft: Batch; std: Batch } {
+    return (this.hdFxB ??= { decal: new Batch(gfx.gl, gfx.corners, 1024), fx: new Batch(gfx.gl, gfx.corners, 1024), soft: new Batch(gfx.gl, gfx.corners, 1024), std: new Batch(gfx.gl, gfx.corners, 256) });
+  }
+
+  /** HD: what a step did to the field: blood, sparks, dust, hoofprints, trampling, missiles, smoke. */
+  private afterStepHd(f: HdField): void {
+    const b = this.battle;
+    const ss = b.soldiers;
+    const rng = this.hdRng;
+    const tick = b.tick;
+    const now = tick * TICK_S;
+    for (let i = 0; i < ss.length; i++) {
+      const s = ss[i]!;
+      if (s.state === State.Fled) continue;
+      const mx = this.mapX(s.x, s.y);
+      const my = this.mapY(s.x, s.y);
+      if (s.hp < this.prevHp[i]!) {
+        this.hurtAt[i] = tick;
+        const dead = s.state === State.Dead;
+        const n = dead ? 6 : 3;
+        const h = s.s.mounted ? 12 : 8;
+        // A ring of drops bursting outward, some fine, some heavy.
+        const a0 = rng.next() * Math.PI * 2;
+        for (let k = 0; k < n * 2; k++) {
+          const a = a0 + (k / (n * 2)) * Math.PI * 2 + (rng.next() - 0.5) * 0.5;
+          const sp = 10 + rng.next() * 24;
+          const dark = rng.next() < 0.45;
+          this.spawn(PK.Blood, s.x, s.y, h + rng.next() * 3, Math.cos(a) * sp, Math.sin(a) * sp, 6 + rng.next() * 18, 0.9, 1 + rng.int(2), dark ? 0.34 : 0.58, dark ? 0.04 : 0.07, 0.04, 1);
+        }
+        // Steel on mail and plate: a few sparks.
+        if (!dead && s.s.armour >= 30 && rng.next() < 0.4) {
+          const ns = 3 + rng.int(3);
+          for (let k = 0; k < ns; k++) this.spawn(PK.Spark, s.x, s.y, h - 1 + rng.next() * 3, (rng.next() - 0.5) * 60, (rng.next() - 0.5) * 60, 12 + rng.next() * 26, 0.16 + rng.next() * 0.16, 1, 1, 0.88, 0.52, 1);
+        }
+        // Blood soaks in where he stands, and spatters.
+        f.mark(mx + (rng.next() - 0.5) * 2.5, my + (rng.next() - 0.5) * 1.2, 1.1 + rng.next() * 1.4, dead ? 0.3 : 0.15, 0, now);
+        if (rng.next() < 0.3) f.decal(`splat${rng.int(SPLATS)}`, mx + (rng.next() - 0.5) * 4, my + (rng.next() - 0.5) * 2, now, true);
+      }
+      if (s.state === State.Dead) {
+        if (!this.stamped[i] && tick - s.diedAt >= this.dieTicks(s.team, this.kindOf(i))) {
+          // Down: drawn as a corpse from now on, and his pool spreads for a few seconds.
+          this.stamped[i] = 1;
+          const big = s.s.mounted ? 1.7 : 1;
+          const cx = mx + (rng.next() - 0.5) * 2 * big;
+          const cy = my + (rng.next() - 0.5) * big;
+          for (let k = 0; k < 4; k++) this.pools.push({ x: cx + (rng.next() - 0.5) * 2.4 * big, y: cy + (rng.next() - 0.5) * 1.1 * big, r: (1.8 + k * 0.85) * big, a: 0.3, at: tick + k * 8 });
+        }
+        continue;
+      }
+      const v2 = s.vx * s.vx + s.vy * s.vy;
+      // Hooves and marching feet raise dust.
+      if (s.s.mounted ? v2 > 700 && rng.next() < 0.22 : v2 > 100 && rng.next() < 0.01) {
+        const big = s.s.mounted ? 1 : 0;
+        this.spawn(PK.Dust, s.x - s.vx * 0.06 + (rng.next() - 0.5) * 3, s.y - s.vy * 0.06 + (rng.next() - 0.5) * 3, 1, -s.vx * 0.1 + (rng.next() - 0.5) * 6, -s.vy * 0.1 + (rng.next() - 0.5) * 6, 2 + rng.next() * 4, 1.6 + rng.next() * 1.4 + big, 2 + big * 4.5 + rng.next() * 2.5, 0.86, 0.76, 0.6, 0.3 + big * 0.18, rng.int(PUFF_VARIANTS));
+      }
+      // Hooves print the soil, the open heel behind.
+      if (s.s.mounted && v2 > 300 && rng.next() < 0.22) {
+        const sx = -projX(s.vx, s.vy);
+        const sy = -projY(s.vx, s.vy);
+        const k = (Math.round(((Math.atan2(sy, sx) - 0.4) / (Math.PI * 2)) * HOOVES) + HOOVES * 4) % HOOVES;
+        f.decal(`hoof${k}`, mx + (rng.next() - 0.5) * 2.5, my + (rng.next() - 0.5) * 1.2, now);
+      }
+      // Feet wear the grass flat; where men stand and fight, or horse pass, it churns to mud.
+      if ((i + tick) % 2 === 0) {
+        const fighting = s.target >= 0 && tick - s.actedAt < 15;
+        if (v2 > 30 || fighting) f.mark(mx + (rng.next() - 0.5) * 2.5, my + (rng.next() - 0.5) * 1.2, s.s.mounted ? 3.2 : 2.2, 0, s.s.mounted ? 0.14 : fighting ? 0.1 : 0.035, now);
+      }
+    }
+    if (this.pools.length > 0) {
+      let w = 0;
+      for (const p of this.pools) {
+        if (p.at <= tick) f.mark(p.x, p.y, p.r, p.a, 0, now);
+        else this.pools[w++] = p;
+      }
+      this.pools.length = w;
+    }
+    // Missiles that came down this tick: craters, spent arrows standing in the dirt, a kick of dust.
+    const live = new Set(b.projectiles);
+    for (const p of this.flying) {
+      if (live.has(p)) continue;
+      if (p.splash > 0) {
+        this.impactHd(f, p.x1, p.y1, now);
+        continue;
+      }
+      const look = lookOf(p.cls, p.splash) as 'arrow' | 'bolt' | 'jav';
+      if (rng.next() < 0.35) f.decal(`stuck_${look}${rng.int(3)}`, this.mapX(p.x1, p.y1), this.mapY(p.x1, p.y1), now);
+      if (rng.next() < 0.3) this.spawn(PK.Dust, p.x1, p.y1, 0.5, (rng.next() - 0.5) * 8, (rng.next() - 0.5) * 8, 3 + rng.next() * 3, 0.7 + rng.next() * 0.5, 1 + rng.int(2), 0.8, 0.7, 0.55, 0.5, rng.int(PUFF_VARIANTS));
+    }
+    // New shots: the teppō and the ōzutsu fire in a billow of white powder smoke.
     for (const p of b.projectiles) {
+      if (this.flying.has(p)) continue;
+      const bombard = p.cls === U.Artillery;
+      if ((p.cls !== U.Crossbowmen && !bombard) || b.setup.armies[p.team]?.faction !== 'samurai') continue;
+      const sh = ss[p.shooter];
+      const x = sh ? sh.x : p.x0;
+      const y = sh ? sh.y : p.y0;
+      const l = Math.hypot(p.x1 - p.x0, p.y1 - p.y0) || 1;
+      const ux = (p.x1 - p.x0) / l;
+      const uy = (p.y1 - p.y0) / l;
+      const k = bombard ? 2.2 : 1;
+      const n = bombard ? 14 : 5;
+      for (let j = 0; j < n; j++) {
+        const g = 0.8 + rng.next() * 0.12;
+        const out = (1 + rng.next() * 3) * k;
+        this.spawn(PK.Smoke, x + ux * out, y + uy * out, (bombard ? 4 : 7) + rng.next() * 2, ux * (5 + rng.next() * 12) * k + 2, uy * (5 + rng.next() * 12) * k, 2 + rng.next() * 3, (2.6 + rng.next() * 2.6) * (bombard ? 1.4 : 1), (bombard ? 3 : 2) + rng.int(3), g, g, g * 0.97, 0.75, rng.int(PUFF_VARIANTS));
+      }
+      for (let j = 0; j < (bombard ? 6 : 3); j++) this.spawn(PK.Spark, x + ux * 2 * k, y + uy * 2 * k, bombard ? 4 : 7, ux * 40 + (rng.next() - 0.5) * 20, uy * 40 + (rng.next() - 0.5) * 20, rng.next() * 10, 0.1 + rng.next() * 0.08, 1, 1, 0.8, 0.4, 1);
+    }
+    this.flying = live;
+  }
+
+  /** HD: a stone comes down: a crater, churned earth, a plume of dust and thrown clods. */
+  private impactHd(f: HdField, x: number, y: number, now: number): void {
+    const rng = this.hdRng;
+    const mx = this.mapX(x, y);
+    const my = this.mapY(x, y);
+    f.decal(`crater${rng.int(2)}`, mx, my, now);
+    f.mark(mx, my, 7, 0, 0.5, now);
+    for (let k = 0; k < 12; k++) {
+      const g = 0.3 + rng.next() * 0.12;
+      this.spawn(PK.Smoke, x + (rng.next() - 0.5) * 7, y + (rng.next() - 0.5) * 7, 2 + rng.next() * 5, (rng.next() - 0.5) * 16, (rng.next() - 0.5) * 16, 6 + rng.next() * 9, 2.2 + rng.next() * 1.8, 3 + rng.int(5), g, g * 0.88, g * 0.72, 0.6, rng.int(PUFF_VARIANTS));
+    }
+    for (let k = 0; k < 14; k++) {
+      const g = rng.next() < 0.5 ? 0.24 : 0.38;
+      this.spawn(PK.Debris, x, y, 2, (rng.next() - 0.5) * 55, (rng.next() - 0.5) * 55, 30 + rng.next() * 40, 1.5, 1 + rng.int(2), g, g * 0.86, g * 0.68, 1);
+    }
+  }
+
+  /** HD: the ground with its marks and the decals flat on it (composed, cached; field-hd.ts). */
+  private drawGroundHd(gfx: Gfx, f: HdField): void {
+    const v = this.view;
+    const gl = gfx.gl;
+    const P = gfx.prog;
+    f.drawGround(gl, gfx.scene!, v.camX, v.camY, v.bw, v.bh, v.m, this.battle.tick * TICK_S, () => {
+      const d = this.hdFxB?.decal;
+      if (!d || d.n === 0) return;
+      P.use(v.camX, v.camY, v.bw, v.bh, -200, this.ground.h + 200, v.m);
+      const sh = f.sheet(v.m);
+      P.tex(f.sheetTexture(gl, v.m), sh.w, sh.h, v.m, 1);
+      d.draw();
+    });
+    P.use(v.camX, v.camY, v.bw, v.bh, -200, this.ground.h + 200, v.m);
+  }
+
+  /** HD: a fallen man, every frame (nothing is stamped into the HD ground). */
+  private corpseHd(i: number, hd: boolean, x0: number, x1: number, y0: number, y1: number): void {
+    const s = this.battle.soldiers[i]!;
+    const kind = this.kindOf(i);
+    const mx = this.mapX(s.x, s.y);
+    const my = this.mapY(s.x, s.y);
+    if (mx < x0 || mx > x1 || my < y0 || my > y1) return;
+    // In view: its kind keeps (or gets) a hi-res sheet.
+    this.seenDead[s.team] = this.seenDead[s.team]! | (1 << kind);
+    if (hd && this.hdLevel[s.team]![kind]! > 1) {
+      this.hdCorpse(i, x0, x1, y0, y1);
+      return;
+    }
+    const atlas = this.atlases[s.team as 0 | 1];
+    const [u, v] = atlas.at(kind, Anim.Dead, 0, this.dirs[i] as Dir);
+    this.gfx!.team[s.team as 0 | 1].sprite(Math.round(mx), Math.round(my), u, v, atlas.cellW, atlas.cellH, atlas.footX, atlas.footY, -1e5, 0.78, 0.78, 0.75, 1, 0, 1);
+  }
+
+  /** HD: the stakes, from the level-m sheet (and the HD batches cleared for the frame). */
+  private stakesHd(gfx: Gfx, m: number): void {
+    const B = this.hdBatches(gfx);
+    B.fx.clear();
+    B.soft.clear();
+    B.std.clear();
+    const R = this.field!.sheet(m).regions;
+    for (const k of this.battle.stakes) {
+      const r = R[HD_ID.stake + (k.team === 0 ? 0 : 1)]!;
+      for (let y = k.y0; y <= k.y1; y += 3) {
+        const mx = this.mapX(k.x, y);
+        const my = this.mapY(k.x, y);
+        B.fx.sprite(Math.round(mx * m) / m, Math.round(my * m) / m, r.u, r.v, r.w / m, r.h / m, r.ax / m, r.ay / m, my);
+      }
+    }
+  }
+
+  /** HD: decals, missiles in flight and particles, from the level-m sheet. */
+  private buildHd(f: HdField, gfx: Gfx, T: number, dt: number, x0: number, x1: number, y0: number, y1: number): void {
+    const B = this.hdBatches(gfx);
+    const L = this.view.m;
+    const R = f.sheet(L).regions;
+    const q = (v: number) => Math.round(v * L) / L;
+    const now = T * TICK_S;
+    const decalsChanged = f.buildDecals(B.decal, L, x0 - 24, x1 + 24, y0 - 12, y1 + 24, now);
+
+    // Missiles in flight: an arc in the air, a small shadow on the ground.
+    const dotR = R[HD_ID.dot]!;
+    for (const p of this.battle.projectiles) {
       const span = Math.max(1, p.lands - p.born);
       const t = Math.min(1, Math.max(0, (T - p.born) / span));
       const gx = p.x0 + (p.x1 - p.x0) * t;
@@ -1018,52 +1376,51 @@ export class BattleScene {
       const my = this.mapY(gx, gy);
       if (mx < x0 || mx > x1 || my < y0 || my > y1 + 100) continue;
       const dist = Math.sqrt((p.x1 - p.x0) ** 2 + (p.y1 - p.y0) ** 2);
-      const look = MISSILE_CLS(p.cls, p.splash);
+      const look = lookOf(p.cls, p.splash);
       // The sim gives each missile its apex (bows lob higher for longer shots, crossbows a
       // short arc, guns none); older replays fall back on one arc per look.
       const arc = look === 'bolt' || look === 'jav' ? 0.1 : look === 'stone' ? 0.45 : 0.3;
       const h = (p.arc ?? dist * arc) * PX;
       const lift = 9;
       const z = 4 * h * t * (1 - t) + (1 - t) * lift;
-      // Screen velocity of the missile: along the ground, minus the climb.
       const dz = (4 * h * (1 - 2 * t) - lift) / span;
       const sx = (this.mapX(p.x1, p.y1) - this.mapX(p.x0, p.y0)) / span;
       const sy = (this.mapY(p.x1, p.y1) - this.mapY(p.x0, p.y0)) / span - dz;
-      gfx.soft.sprite(Math.round(mx), Math.round(my), shadowRegion.u, shadowRegion.v, 1, 1, 0, 0, my, 0.05, 0.04, 0.03, 0.45);
-      let r: Region;
-      if (look === 'stone') r = fx.get('stone');
-      else {
-        const a = Math.round((Math.atan2(sy, sx) / (Math.PI * 2)) * 16 + 16) % 16;
-        r = this.missileRegions[look]![a]!;
-      }
-      gfx.fx.sprite(Math.round(mx), Math.round(my - z), r.u, r.v, r.w, r.h, r.ax, r.ay, my, 1, 1, 1, 1, 0, 1);
+      B.soft.sprite(q(mx), q(my), dotR.u, dotR.v, dotR.w / L, dotR.h / L, dotR.ax / L, dotR.ay / L, my, 0.05, 0.04, 0.03, 0.45);
+      const id = look === 'stone' ? HD_ID.stone : HD_ID[look] + (Math.round((Math.atan2(sy, sx) / (Math.PI * 2)) * ANGLES + ANGLES) % ANGLES);
+      const r = R[id]!;
+      B.fx.sprite(q(mx), q(my - z), r.u, r.v, r.w / L, r.h / L, r.ax / L, r.ay / L, my, 1, 1, 1, 1, 0, 1);
       if (p.direct) {
-        // A flat shot leaves a straight streak behind it.
-        for (let k = 1; k <= 3; k++) {
-          const tk = Math.max(0, t - k * 0.04);
+        // A flat shot leaves a straight streak behind it: a line of texels fading back.
+        const n = 3 * L;
+        for (let k = 1; k <= n; k++) {
+          const tk = Math.max(0, t - (k / L) * 0.04);
           const zk = 4 * h * tk * (1 - tk) + (1 - tk) * lift;
           const kx = this.mapX(p.x0 + (p.x1 - p.x0) * tk, p.y0 + (p.y1 - p.y0) * tk);
           const ky = this.mapY(p.x0 + (p.x1 - p.x0) * tk, p.y0 + (p.y1 - p.y0) * tk) - zk;
-          gfx.soft.sprite(Math.round(kx), Math.round(ky), shadowRegion.u, shadowRegion.v, 1, 1, 0, 0, my, 0.85, 0.82, 0.7, 0.5 - k * 0.12);
+          B.soft.rect(q(kx), q(ky), 1 / L, 1 / L, my, 0.85, 0.82, 0.7, 0.55 - (k / n) * 0.45);
         }
       }
     }
 
     // Particles.
     const ps = this.particles;
+    const rng = this.hdRng;
+    const drop = Math.max(1, Math.round(L * 0.3));
     let w = 0;
+    this.dustN = 0;
     for (const p of ps) {
       p.life += dt;
-      if (p.life >= p.max) continue;
+      // Raised during steps no frame saw (skipping, a hidden tab): long gone by now.
+      if (p.life >= p.max || now - (p.t0 ?? now) > p.max + 0.5) continue;
       p.x += p.vx * dt;
       p.y += p.vy * dt;
       p.z += p.vz * dt;
-      if (p.kind === PK.Blood || p.kind === PK.Debris) {
-        p.vz -= 120 * dt;
+      if (p.kind === PK.Blood || p.kind === PK.Debris || p.kind === PK.Spark) {
+        p.vz -= (p.kind === PK.Spark ? 160 : 120) * dt;
         if (p.z <= 0) {
-          if (p.kind === PK.Blood && this.rng.next() < 0.35) {
-            this.stamps.push({ tex: 2, x: Math.round(this.mapX(p.x, p.y)), y: Math.round(this.mapY(p.x, p.y)), u: 0, v: 0, w: 1, h: 1, ax: 0, ay: 0, shade: 1, a: 0.75, solid: true, r: 0.24, g: 0.05, b: 0.04 });
-          }
+          // A drop soaks in where it lands.
+          if (p.kind === PK.Blood && rng.next() < 0.2) f.mark(this.mapX(p.x, p.y), this.mapY(p.x, p.y), 0.6 + p.size * 0.3, 0.22, 0, now);
           continue;
         }
       } else {
@@ -1073,26 +1430,37 @@ export class BattleScene {
         p.vz *= Math.exp(-dt * 0.8);
       }
       ps[w++] = p;
+      if (p.kind === PK.Dust) this.dustN++;
       const mx = this.mapX(p.x, p.y);
       const my = this.mapY(p.x, p.y);
       if (mx < x0 || mx > x1 || my < y0 || my > y1 + 60) continue;
       const fade = 1 - p.life / p.max;
       if (p.kind === PK.Blood || p.kind === PK.Debris) {
-        gfx.fx.rect(Math.round(mx), Math.round(my - p.z), p.size, 1, my, p.r, p.g, p.b, 1);
+        const sz = (drop * p.size) / L;
+        B.fx.rect(q(mx), q(my - p.z), sz, sz, my, p.r, p.g, p.b, 1);
+      } else if (p.kind === PK.Spark) {
+        // A short streak, hot white at the head.
+        const sz = Math.max(1, Math.round(L * 0.2)) / L;
+        B.soft.rect(q(mx), q(my - p.z), sz, sz, my + 3, 1, 0.95, 0.75, 1);
+        B.soft.rect(q(mx - p.vx * 0.012), q(my - p.z + p.vz * 0.012), sz, sz, my + 3, p.r, p.g * 0.8, p.b * 0.5, Math.min(1, fade * 2));
       } else {
         const grow = p.kind === PK.Smoke ? p.life * 3.2 : p.life * 2.2;
-        const r = this.puffRegions[Math.min(11, Math.ceil(p.size + grow))]!;
+        const d = p.size + grow;
+        let si = 0;
+        while (si < PUFF_SIZES.length - 1 && PUFF_SIZES[si]! < d) si++;
+        const r = R[HD_ID.puff + si * PUFF_VARIANTS + ((p.v ?? 0) % PUFF_VARIANTS)]!;
         const a = p.a * Math.min(1, fade * 1.6) * Math.min(1, p.life * 6);
-        gfx.soft.sprite(Math.round(mx), Math.round(my - p.z), r.u, r.v, r.w, r.h, r.ax, r.ay, my + 2, p.r, p.g, p.b, a);
+        B.soft.sprite(q(mx), q(my - p.z), r.u, r.v, r.w / L, r.h / L, r.ax / L, r.ay / L, my + 2, p.r, p.g, p.b, a);
       }
     }
     ps.length = w;
-
-    team[0].upload();
-    team[1].upload();
-    for (const row of this.hdBatch) for (const bt of row) bt.upload();
-    gfx.fx.upload();
-    gfx.soft.upload();
+    if (decalsChanged) {
+      B.decal.upload();
+      f.decalsChanged();
+    }
+    B.fx.upload();
+    B.soft.upload();
+    B.std.upload();
   }
 }
 
