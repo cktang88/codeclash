@@ -28,13 +28,23 @@ export type { CommanderTrait, MoraleState, Order, OrderKind, Personality, Plan }
 export { MORALE } from './command.ts';
 
 /**
+ * v6: formations at game scale and horse that cannot turn on a dime. Regiments stand further
+ * apart (18 between blocks), ranks a little deeper than files (horse much deeper: a horse is
+ * longer than it is broad), light horse looser. Blocks wheel at a capped rate: foot about its
+ * middle (some 10 degrees a second for a block 80 wide), horse the slower the faster it rides
+ * (50 degrees a second at a stand, 20 at the gallop), riding where it faces, so it wheels in arcs
+ * and turns about only at a walk; it gathers speed and reins in over seconds, and each rider at
+ * speed swings round at most about 115 degrees a second. Foot marches at the drill's 11 units a
+ * second (was its speed x 0.6, 13 for most), horse rides round at a canter; charges keep their
+ * speed. See docs/art-references/formations.md.
+ *
  * v5: no side bias. Both sides' regiments think and their men look for foes on the same ticks
  * (they were out of step by the first army's size), which side goes first on even ticks is drawn
  * from the seed, and the horse rides round a line and kites the same way on both sides. Until v4
  * one side won 60-75% of mirror matches, which side depending on the armies' size (see
  * `pnpm fairness`).
  */
-export const BATTLE_VERSION = 5;
+export const BATTLE_VERSION = 6;
 /**
  * Mixed into every battle's seed. It was BATTLE_VERSION until v3, which kept v2's salt: a
  * version bump refuses old setups (BattleVersionError) but does not re-seed battles by itself.
@@ -292,6 +302,8 @@ export class Regiment {
   /** Anchor movement this tick, world units. */
   vax = 0;
   vay = 0;
+  /** Horse: the block's pace, units a second (it gathers speed and reins in over time, see `moveAnchor`). */
+  aspd = 0;
   mode: Mode = 'hold';
   modeAt = 0;
   morale = 50;
@@ -395,7 +407,7 @@ export class Regiment {
 
 /** Regiment fields that hold fractions (see the Regiment constructor). */
 const DOUBLE_FIELDS = [
-  'arrows', 'cx', 'cy', 'ax', 'ay', 'fx', 'fy', 'dfx', 'dfy', 'tx', 'ty', 'vax', 'vay', 'morale', 'baseMorale', 'chaseX', 'chaseY', 'spacing', 'speed',
+  'arrows', 'cx', 'cy', 'ax', 'ay', 'fx', 'fy', 'dfx', 'dfy', 'tx', 'ty', 'vax', 'vay', 'aspd', 'morale', 'baseMorale', 'chaseX', 'chaseY', 'spacing', 'speed',
   'width', 'depth', 'radius', 'recent', 'recentKills', 'flankShock', 'homeX', 'homeY', 'wx', 'wy', 'fatigue', 'enemyNear',
 ] as const;
 
@@ -563,10 +575,29 @@ const MELEE_K = 2.0;
 const MISSILE_K = 1.5;
 const FRIENDLY_FIRE = 0.25;
 const RATIO: Record<string, number> = { line: 3.6, missile: 5, skirmish: 6, flank: 2.4, 'shock-cav': 2.2, 'horse-archer': 2.6, siege: 99, command: 2 };
-const GAP_IN_RANK: Record<string, number> = { line: 0.5, missile: 1.2, skirmish: 3.5, flank: 1.6, 'shock-cav': 1.4, 'horse-archer': 2.4, siege: 10, command: 2 };
+/**
+ * Room between men across the front, beyond their own breadth (see `spacingFor`). Close-order foot
+ * stands about a metre a file (5.3 units at about 0.19 m a unit); horse knee to knee with a little
+ * play, light horse looser. See docs/art-references/formations.md, section 7.2.
+ */
+const GAP_IN_RANK: Record<string, number> = { line: 0.5, missile: 1.2, skirmish: 3.5, flank: 2.6, 'shock-cav': 1.4, 'horse-archer': 2.4, siege: 10, command: 2 };
+/**
+ * Ranks stand further apart than files: a little for foot, so the ranks read, and much more for
+ * horse, which is longer than it is broad (knights: files 9 apart, ranks 13).
+ */
+const RANK_STEP: Record<string, number> = { line: 1.1, missile: 1.05, skirmish: 1, flank: 1.4, 'shock-cav': 1.45, 'horse-archer': 1.15, siege: 1, command: 1.3 };
+/** Room between regiments side by side in a line, and between one row of regiments and the next behind it. */
+const REG_GAP = 18;
+const ROW_GAP = 16;
+/**
+ * Pace in each mode, a share of the men's speed. Foot marches at about 9 units a second (some 1.7
+ * m/s: a brisk march, faster than life so a battle is not all approach) and keeps its full speed,
+ * and the run, for the charge; horse approaches at a trot, rides round at a canter and gallops
+ * only in the charge. See docs/art-references/formations.md, section 7.3.
+ */
 const PACE: Record<Mode, number> = {
-  hold: 0, advance: 0.6, charge: 1, melee: 0.1, shoot: 0, skirmish: 0.95, flank: 0.95, kite: 1, rout: 0, reserve: 0.6, guard: 0.6,
-  brace: 0, withdraw: 1, pursue: 1, rally: 0,
+  hold: 0, advance: 0.6, charge: 1, melee: 0.1, shoot: 0, skirmish: 0.65, flank: 0.85, kite: 0.9, rout: 0, reserve: 0.6, guard: 0.5,
+  brace: 0, withdraw: 0.75, pursue: 1, rally: 0,
 };
 /** Modes in which a far goal turns the block toward its line of march. */
 const MARCH: Record<Mode, boolean> = {
@@ -588,6 +619,8 @@ function figures(count: number, scale: number): number {
 }
 
 const isCav = (r: Regiment) => r.role === 'flank' || r.role === 'shock-cav' || r.role === 'horse-archer';
+/** Mounted blocks: the horse and the general's household. */
+const isMounted = (r: Regiment) => isCav(r) || r.role === 'command';
 const isFoot = (r: Regiment) => r.role === 'line' || r.role === 'missile' || r.role === 'skirmish';
 const clampX = (x: number) => Math.max(4, Math.min(FIELD_W - 4, x));
 const clampY = (y: number) => Math.max(4, Math.min(FIELD_H - 4, y));
@@ -832,7 +865,7 @@ export class Battle {
     // Keeps a regiment's back rank on the field: a deep overflow row (an army of horse, archers
     // or engines) stands against the back edge instead of beyond it.
     const onField = (reg: Regiment, x: number): number => (dir > 0 ? Math.max(8 + reg.depth, x) : Math.min(FIELD_W - 8 - reg.depth, x));
-    const place = (list: Regiment[], depth: number, y0: number, y1: number, gap = 12): number => {
+    const place = (list: Regiment[], depth: number, y0: number, y1: number, gap = REG_GAP): number => {
       // Lay regiments across the band between y0 and y1; overflow goes to further rows behind.
       let rank = 0;
       let i = 0;
@@ -857,20 +890,20 @@ export class Battle {
           deepest = Math.max(deepest, reg.depth);
           y += reg.width + gap;
         }
-        rank += deepest + 12;
+        rank += deepest + ROW_GAP;
       }
       return rank;
     };
     const half = Math.max(rowWidth(first), 160) / 2;
     const firstDepth = first.length ? place(first, 0, midY - half - 20, midY + half + 20) : 0;
     const missile = byRole('missile');
-    const missileDepth = place(missile, Math.max(14, firstDepth), midY - half - 60, midY + half + 60, 10);
+    const missileDepth = place(missile, Math.max(14, firstDepth), midY - half - 60, midY + half + 60, 14);
     const behind = Math.max(14, firstDepth) + missileDepth;
     const secondDepth = place(second, behind, midY - half - 20, midY + half + 20);
     const skirm = byRole('skirmish');
     if (skirm.length) {
       const sd = Math.max(...skirm.map((r) => r.depth));
-      place(skirm, -36 - sd, midY - half - 40, midY + half + 40, 16);
+      place(skirm, -36 - sd, midY - half - 40, midY + half + 40, 22);
     }
     place(byRole('siege'), behind + secondDepth + 30, midY - half, midY + half, 30);
 
@@ -879,11 +912,11 @@ export class Battle {
     const top: Regiment[] = [];
     const bottom: Regiment[] = [];
     wings.forEach((r, i) => (i % 2 === 0 ? top : bottom).push(r));
-    const wingW = (list: Regiment[]) => Math.min(260, list.reduce((w, r) => Math.max(w, r.width), 0) * 2 + 14);
+    const wingW = (list: Regiment[]) => Math.min(280, list.reduce((w, r) => Math.max(w, r.width), 0) * 2 + 22);
     const tw = wingW(top);
     const bw = wingW(bottom);
-    place(top, 0, Math.max(20, midY - half - 30 - tw), midY - half - 30, 14);
-    place(bottom, 0, midY + half + 30, Math.min(FIELD_H - 20, midY + half + 30 + bw), 14);
+    place(top, 0, Math.max(20, midY - half - 36 - tw), midY - half - 36, 22);
+    place(bottom, 0, midY + half + 36, Math.min(FIELD_H - 20, midY + half + 36 + bw), 22);
 
     // The commander and a bodyguard of knights behind the centre.
     if (army.commander) {
@@ -1017,15 +1050,16 @@ export class Battle {
   private slotOffsets(reg: Regiment): void {
     const d = this.d;
     const mid = (reg.cols - 1) / 2;
+    const step = rankStep(reg);
     let rows = 0;
     for (const id of reg.members) {
       if (d.state[id] !== State.Fighting) continue;
       d.sx[id] = (d.col[id]! - mid) * reg.spacing;
-      d.sy[id] = -d.row[id]! * reg.spacing * (reg.stance === 'wedge' ? 0.87 : 1);
+      d.sy[id] = -d.row[id]! * step;
       if (d.row[id]! + 1 > rows) rows = d.row[id]! + 1;
     }
     reg.rows = Math.max(1, rows);
-    reg.depth = (reg.rows - 1) * reg.spacing * (reg.stance === 'wedge' ? 0.87 : 1) + 4;
+    reg.depth = (reg.rows - 1) * step + 4;
   }
 
   /** Files close up: in each file the men step forward into the ranks of the fallen. */
@@ -2638,7 +2672,7 @@ export class Battle {
         return;
       }
     }
-    if (dp < 130 || r.mode === 'charge') {
+    if (dp < 160 || r.mode === 'charge') {
       if (r.mode !== 'charge') {
         r.charges++;
         this.events.push({ tick: this.tick, team, kind: 'charge', cls: r.cls, reg: r.id });
@@ -2950,52 +2984,99 @@ export class Battle {
   private moveAnchor(r: Regiment): void {
     r.vax = 0;
     r.vay = 0;
-    if (r.alive === 0 || r.routed) return;
+    if (r.alive === 0 || r.routed) {
+      r.aspd = 0;
+      return;
+    }
+    const horse = isMounted(r);
     const dx = r.tx - r.ax;
     const dy = r.ty - r.ay;
     const q = sqrt(dx * dx + dy * dy);
     let wx = r.dfx;
     let wy = r.dfy;
-    const marching = q > 30 && MARCH[r.mode];
+    // Horse rides a far goal the way it faces, so it needs room to wheel: close in, it walks.
+    const marching = q > (horse ? HORSE_REIN : 30) && MARCH[r.mode];
     if (marching) {
       wx = dx / q;
       wy = dy / q;
     }
-    // Wheel: the wider the block, the slower it turns.
+    this.wheel(r, wx, wy, horse);
+    if (q < 0.3) {
+      r.aspd = 0;
+      return;
+    }
     const sd = STANCES[r.stance];
-    const w = Math.min(0.15, Math.max(0.012, (r.speed * TICK_S * 0.8) / (r.width * 0.5 + 8))) * sd.turn;
+    let pace = r.speed * PACE[r.mode];
+    if (pace === 0) pace = r.speed * 0.25; // drift onto the spot
+    // Formed foot marches at the drill's pace, whatever the men's speed (the heavy keep up; nobody
+    // hurries); skirmishers in open order go at a jog.
+    else if (!horse && r.role !== 'skirmish' && (r.mode === 'advance' || r.mode === 'reserve')) pace = Math.min(pace, FOOT_MARCH);
+    // Foot breaks into a run for a charge or a chase.
+    if ((r.mode === 'charge' || r.mode === 'pursue') && !isCav(r)) pace *= FOOT_RUN;
+    pace *= sd.pace * (1 - FATIGUE.pace * r.fatigue);
+    let ux = dx / q;
+    let uy = dy / q;
+    const al = r.fx * ux + r.fy * uy;
+    if (marching) {
+      if (horse) {
+        if (al > 0.3 || r.aspd > r.speed * HORSE_WALK) {
+          // Horse goes where it faces and reins in to turn: it wheels in an arc, wider the faster
+          // it rides, and cannot turn about at speed.
+          pace *= al > 0.8 ? 1 : al > 0.3 ? 0.75 : 0.35;
+          ux = r.fx;
+          uy = r.fy;
+        } else pace = Math.min(pace, r.speed * HORSE_WALK); // pulled up: it turns about at a walk
+      } else {
+        // March facing the way it goes; a block slows while it wheels.
+        pace *= al > 0.8 ? 1 : al > 0.3 ? 0.5 : 0.25;
+      }
+    } else {
+      if (q > 3) pace *= 0.7;
+      // Horse backs or sidles only at a walk.
+      if (horse && al < 0.3) pace = Math.min(pace, r.speed * HORSE_WALK);
+    }
+    if (horse) {
+      // Momentum: horse gathers speed and reins in over seconds (locked in a fight it is stopped).
+      const v = r.aspd;
+      r.aspd = r.engaged ? pace : pace > v ? Math.min(pace, v + HORSE_ACCEL * TICK_S) : Math.max(pace, v - HORSE_BRAKE * TICK_S);
+      pace = r.aspd;
+    }
+    const step = Math.min(q, pace * TICK_S);
+    r.vax = ux * step;
+    r.vay = uy * step;
+    r.ax += r.vax;
+    r.ay += r.vay;
+  }
+
+  /**
+   * Turns the regiment's facing toward (wx, wy) at its rate: foot wheels about its middle, wider
+   * blocks slower, horse the slower the faster it rides (see `turnRate`).
+   */
+  private wheel(r: Regiment, wx: number, wy: number, horse: boolean): void {
+    const w = turnRate(r, horse);
     const dot = r.fx * wx + r.fy * wy;
     if (dot > 1 - w * w * 0.5) {
       r.fx = wx;
       r.fy = wy;
-    } else {
-      const cr = r.fx * wy - r.fy * wx;
-      const s = cr >= 0 ? w : -w;
-      const c = 1 - w * w * 0.5;
-      let nx = r.fx * c - r.fy * s;
-      let ny = r.fx * s + r.fy * c;
-      const m = sqrt(nx * nx + ny * ny);
-      nx /= m;
-      ny /= m;
-      r.fx = nx;
-      r.fy = ny;
+      return;
     }
-    if (q < 0.3) return;
-    let pace = r.speed * PACE[r.mode];
-    if (pace === 0) pace = r.speed * 0.25; // drift onto the spot
-    // Foot breaks into a run for a charge or a chase.
-    if ((r.mode === 'charge' || r.mode === 'pursue') && !isCav(r)) pace *= FOOT_RUN;
-    pace *= sd.pace * (1 - FATIGUE.pace * r.fatigue);
-    if (marching) {
-      // March facing the way it goes; a block slows while it wheels.
-      const al = (r.fx * dx + r.fy * dy) / q;
-      pace *= al > 0.8 ? 1 : al > 0.3 ? 0.5 : 0.25;
-    } else if (q > 3) pace *= 0.7;
-    const step = Math.min(q, pace * TICK_S);
-    r.vax = (dx / q) * step;
-    r.vay = (dy / q) * step;
-    r.ax += r.vax;
-    r.ay += r.vay;
+    let cr = r.fx * wy - r.fy * wx;
+    if (cr > -1e-9 && cr < 1e-9) {
+      // Turning about: both armies turn the same way in the mirror (toward the middle of the
+      // field, or toward the enemy when facing along it).
+      const dir = r.team === 0 ? 1 : -1;
+      cr = r.fx > 0.5 || r.fx < -0.5 ? r.fx * (FIELD_H / 2 - r.ay) : -r.fy * dir;
+      if (cr === 0) cr = 1;
+    }
+    const s = cr >= 0 ? w : -w;
+    const c = 1 - w * w * 0.5;
+    let nx = r.fx * c - r.fy * s;
+    let ny = r.fx * s + r.fy * c;
+    const m = sqrt(nx * nx + ny * ny);
+    nx /= m;
+    ny /= m;
+    r.fx = nx;
+    r.fy = ny;
   }
 
   // ------------------------------------------------------------------ soldiers
@@ -3633,6 +3714,24 @@ export class Battle {
         }
       }
     }
+    if (mounted) {
+      // A horse at speed cannot turn on the spot: it swings round at most 0.2 radians a tick
+      // (it may slow as much as it likes, but not speed up, while it turns).
+      const ox = d.vx[i]!;
+      const oy = d.vy[i]!;
+      const om = sqrt(ox * ox + oy * oy);
+      if (om > spd * RIDER_FAST) {
+        const wm = sqrt(vx * vx + vy * vy);
+        if (wm > 0.5 && ox * vx + oy * vy < RIDER_COS * om * wm) {
+          let cr = ox * vy - oy * vx;
+          if (cr === 0) cr = ox * (FIELD_H / 2 - y) || 1;
+          const sn = cr > 0 ? RIDER_SIN : -RIDER_SIN;
+          const m = Math.min(om, wm) / om;
+          vx = (ox * RIDER_COS - oy * sn) * m;
+          vy = (ox * sn + oy * RIDER_COS) * m;
+        }
+      }
+    }
     if (d.stun[i]! > 0) {
       vx *= 0.3;
       vy *= 0.3;
@@ -3944,6 +4043,46 @@ function eagerness(faction: FactionId, cls: number, veteran: boolean, green: boo
 const CANNON_BOUND = 45;
 const CANNON_PEN = 5;
 
+/** Radians a tick for a turn of one degree a second. */
+const DEG = (Math.PI / 180) * TICK_S;
+/**
+ * Foot wheels about the middle of its front: its flank man walks this pace (units a second), so
+ * a block 80 wide turns about 10 degrees a second; never under 5 or over 20 (a pike block a third
+ * of that). Open order turns quicker: each man simply turns.
+ */
+const FOOT_WHEEL = 9;
+/** Foot's marching pace, units a second (about 2 m/s, a quick march: life's 1.3 would make a battle mostly approach). */
+const FOOT_MARCH = 11;
+/**
+ * Horse: degrees a second at a stand, and how much less for each unit a second faster, down to
+ * the gallop's 20 (a trot about 38, a canter 29). That is about twice the real rate (a canter
+ * about 15, a gallop 10: formations.md, 7.5), so horse can still be got round a flank and onto
+ * its target on one screen; a wheel at the gallop is still an arc some 150 units across.
+ * Gathering speed and reining in, units a second squared (a standing start reaches the gallop
+ * in about 85 units). A goal nearer than HORSE_REIN is walked to rather than ridden at.
+ */
+const HORSE_TURN = 50;
+const HORSE_TURN_PER = 0.6;
+const HORSE_TURN_MIN = 20;
+const HORSE_ACCEL = 16;
+const HORSE_BRAKE = 24;
+const HORSE_REIN = 60;
+/** A walk, as a share of a horse's speed: slower than this a block may turn about or back. */
+const HORSE_WALK = 0.2;
+/** A rider going faster than this share of his speed turns at most 0.2 radians a tick (about 115 degrees a second): its cosine and sine. */
+const RIDER_FAST = 0.45;
+const RIDER_COS = 0.980066577841;
+const RIDER_SIN = 0.198669330795;
+
+function turnRate(r: Regiment, horse: boolean): number {
+  const sd = STANCES[r.stance];
+  if (horse) return Math.max(HORSE_TURN_MIN, HORSE_TURN - HORSE_TURN_PER * r.aspd) * DEG * sd.turn;
+  let w = Math.max(5 * DEG, Math.min(20 * DEG, (FOOT_WHEEL * TICK_S) / (r.width * 0.5 + 8)));
+  if (r.role === 'skirmish') w *= 2;
+  else if (r.role === 'missile') w *= 1.5;
+  return w * sd.turn;
+}
+
 /** Foot charges: the last stretch at a run. How far it can run before the ranks come apart (ticks). */
 const RUN_IN = 26;
 const FOOT_RUN = 1.45;
@@ -3977,7 +4116,7 @@ function shape(reg: Regiment, n: number): void {
   reg.cols = cols;
   reg.rows = Math.max(1, Math.ceil(n / cols));
   reg.width = (cols - 1) * reg.spacing + 4;
-  reg.depth = (reg.rows - 1) * reg.spacing + 4;
+  reg.depth = (reg.rows - 1) * rankStep(reg) + 4;
   reg.radius = sqrt(reg.width * reg.width + reg.depth * reg.depth) * 0.5 + 3;
 }
 
@@ -3986,12 +4125,17 @@ function spacingFor(reg: Regiment, s: Stance): number {
   return reg.rad * 2 + GAP_IN_RANK[reg.role]! * sd.gap + sd.add;
 }
 
+/** Distance from one rank to the next (a wedge's ranks are offset by half a file, so closer). */
+function rankStep(reg: Regiment): number {
+  return reg.spacing * (reg.stance === 'wedge' ? 0.87 : RANK_STEP[reg.role]!);
+}
+
 function defaultStance(reg: Regiment): Stance {
   return reg.role === 'missile' || reg.role === 'skirmish' || reg.role === 'horse-archer' ? 'loose' : 'line';
 }
 
 function rowWidth(list: Regiment[]): number {
-  return list.reduce((w, r) => w + r.width + 12, 0) - 12;
+  return list.reduce((w, r) => w + r.width + REG_GAP, 0) - REG_GAP;
 }
 
 function cellIndex(x: number, y: number): number {

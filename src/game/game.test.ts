@@ -319,8 +319,12 @@ describe('battle: stances', () => {
     expect(wedge).toBeGreaterThan(line);
   }, 30_000);
 
-  /** Archers shoot at a block of heavy foot that waits for them, pinned to a stance; returns the foot's dead. */
-  function shot(seed: number, stance: Stance, ticks = 700): number {
+  /**
+   * Archers shoot at a block of heavy foot that waits for them, pinned to a stance; returns the
+   * foot's dead. (90 s: since v6 the archers march into bow range at the drill's pace and loose
+   * their first shafts at about 48 s, not 32 s.)
+   */
+  function shot(seed: number, stance: Stance, ticks = 900): number {
     const b = new Battle(setupOf(seed, only(U.Archers, 150), only(U.HeavyInfantry, 100)));
     b.generals[1].fixedPlan = 'hold';
     b.pinStance(1, U.HeavyInfantry, stance);
