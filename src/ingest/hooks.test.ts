@@ -15,6 +15,7 @@ async function setup() {
   const reports: PushReport[] = [];
   store.upsertUser({ id: 7, nodeId: 'U_7', login: 'ana', avatarUrl: '', createdAtGithub: 0, joinedAt: 0, bot: false });
   store.setHookSecret(7, SECRET);
+  github.repos.set('ana/parser', { fullName: 'ana/parser', private: false, defaultBranch: 'main' });
   const deps = { store, github, log: silentLogger, clock: () => NOW, onPush: (r: PushReport) => reports.push(r) };
   const app = Fastify();
   registerHooks(app, deps);
@@ -101,6 +102,18 @@ describe('registerHooks', () => {
     expect(t.github.calls.compare).toBe(0);
   });
 
+  it('asks GitHub whether the repository is public: the signed payload is the member’s own word', async () => {
+    // The server's token may see private repositories; a forged `private: false` must not get a private push read and credited.
+    t.github.addRepo('ana/secret', [], { private: true });
+    t.github.setCompare('ana/secret', sha(1), sha(2), { commits: [{ sha: sha(2), authorLogin: 'ana', authorId: 7, message: 'Private work' }], files: [sourceFile('a.ts', ['a()'])] });
+    const res = await signed('push', payload({ repository: { full_name: 'ana/secret', private: false } }));
+    expect(res.json()).toEqual({ ok: true, ignored: 'private' });
+    // Nor one GitHub does not show at all.
+    expect((await signed('push', payload({ repository: { full_name: 'ana/gone', private: false } }))).json()).toEqual({ ok: true, ignored: 'private' });
+    expect(t.reports).toHaveLength(0);
+    expect(t.github.calls.compare).toBe(0);
+  });
+
   it('reads a new branch from its merge base with the default branch, so every one of its commits counts', async () => {
     const one = { sha: sha(3), authorLogin: 'ana', authorId: 7, message: 'Second' };
     const two = { sha: sha(4), authorLogin: 'ana', authorId: 7, message: 'First' };
@@ -138,6 +151,7 @@ describe('registerHooks and the difficulty bonus', () => {
     const store = new Store(openDb(':memory:'));
     const github = new FakeGithub();
     installVite(github);
+    github.repos.set(VITE_REPO.toLowerCase(), { fullName: VITE_REPO, private: false, defaultBranch: 'main' });
     store.upsertUser({ id: MAINTAINER.id, nodeId: 'U', login: MAINTAINER.login, avatarUrl: '', createdAtGithub: 0, joinedAt: 0, bot: false });
     store.setHookSecret(MAINTAINER.id, SECRET);
     const reports: PushReport[] = [];

@@ -83,7 +83,7 @@ The tests are in [`src/measure/gaming.test.ts`](../src/measure/gaming.test.ts), 
 | 31 | Docs and config spam | 20k docs or config lines | At most 2 Heralds and 3 Sappers | Low | test "spam", "support alone" |
 | 32 | Skipping tests and comments | Untested code turned half the Footmen into stronger Berserkers | A third of the Footmen become Berserkers, and each Berserker takes the place of 2 Footmen. Before: +11% | Low | test "leaving out tests" |
 | 33 | Push spam | Hundreds of pushes | The army comes from the ledger, not from push count | Low | — |
-| 34 | Webhook replay or forgery | Resend a signed delivery | HMAC, push-id and SHA dedup, 20 deliveries a minute | Low | `hooks.test.ts` |
+| 34 | Webhook replay or forgery | Resend a signed delivery | HMAC, push-id and SHA dedup, 20 deliveries a minute; the payload's `private: false` is not trusted (GitHub is asked, so a private repository the server's token can see is never read) | Low | `hooks.test.ts` |
 | 35 | Co-author trailers or author spoofing | `Co-authored-by:`, or a foreign author email | A commit counts when GitHub links its author to the user's account id; without a linked account the author login must match, and webhooks refuse such commits. Events whose actor is another account (a renamed login taken over) are skipped | Low | `poller.test.ts` |
 | 36 | Sockpuppet accounts | Several accounts in one room | One army per account; owners can remove members | **Medium** | Recommend a floor on account age and activity (`createdAtGithub` is stored) |
 | 37 | Binary and lockfile churn | Regenerate lockfiles, images | Lockfiles count as generated; binaries are ignored | Low | existing |
