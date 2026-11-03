@@ -18,6 +18,7 @@ import { Anim, ANIM_COUNT, COMMANDER_KIND, KIND_COUNT, type Atlas, type BuildAtl
 import { FRAMES, LOOPS, TICKS } from './frames.ts';
 import { paintPaper, paperBlows, type PaperFrame } from './paper/index.ts';
 import { halveSheet } from './downscale.ts';
+import { artVersion, cachedKeys } from './sheet-cache.ts';
 
 export type { Atlas } from './contract.ts';
 
@@ -3392,13 +3393,30 @@ function release(h: Held): void {
   h.drop();
 }
 
-function trim(force = false): void {
+/**
+ * When a renderer last asked for any sheet, and the usual gap between its frames (asks more than
+ * 30 ms apart). Idleness is measured up to the last ask, and a sheet is idle only when several
+ * frames went by without it: a frame that takes over a second (a slow machine, a software GL)
+ * must not find every sheet idle and drop what the very next frame asks for again.
+ */
+let lastAsk = 0;
+let frameGap = 16;
+function asked(): void {
   const t = now();
-  if (!force && t - lastTrim < 500) return;
-  lastTrim = t;
-  for (const h of [...held]) if (h.level >= 8 && t - h.used > IDLE_8X_MS) release(h);
+  const gap = t - lastAsk;
+  if (gap > 30 && gap < 10000) frameGap += (gap - frameGap) * 0.2;
+  lastAsk = t;
+}
+
+function trim(force = false): void {
+  const wall = now();
+  if (!force && wall - lastTrim < 500) return;
+  lastTrim = wall;
+  const t = lastAsk || wall;
+  const slack = 3 * frameGap;
+  for (const h of [...held]) if (h.level >= 8 && t - h.used > IDLE_8X_MS + slack) release(h);
   if (heldBytes <= HD_CAP_BYTES) return;
-  const old = [...held].filter((h) => t - h.used > 1000).sort((p, q) => p.used - q.used);
+  const old = [...held].filter((h) => t - h.used > 1000 + slack).sort((p, q) => p.used - q.used);
   for (const h of old) {
     if (heldBytes <= HD_CAP_BYTES) break;
     release(h);
@@ -3420,6 +3438,10 @@ interface Job {
   level: number;
   /** HD 64: the level-8 sheet halved (downscale.ts) into this level-4 sheet. */
   half: boolean;
+  /** HD 64: the level-8 sheet, when it is already painted (HD drew it): halved, not painted again. */
+  from?: KindSheet;
+  /** When a renderer last asked for it (the queue serves what is wanted now first). */
+  asked: number;
   done: ((s: KindSheet) => void)[];
 }
 
@@ -3430,6 +3452,13 @@ const workPool = {
   jobs: new Map<string, Job>(),
   made: false,
   ok: false,
+  /** The persistent cache's painter version (null: no cache), once known: jobs wait for it. */
+  version: null as string | null,
+  /** The sheets the persistent cache holds for that version (and those painted since). */
+  cached: new Set<string>(),
+  /** Whether the workers were told to load the painter (a sheet is coming the cache lacks). */
+  warmed: false,
+  ready: false,
 };
 
 function startPool(): void {
@@ -3460,6 +3489,16 @@ function startPool(): void {
       workPool.workers.push(slot);
     }
     workPool.ok = workPool.workers.length > 0;
+    if (workPool.ok)
+      void artVersion()
+        .then(async (v) => {
+          workPool.version = v;
+          if (v) workPool.cached = await cachedKeys(v);
+        })
+        .finally(() => {
+          workPool.ready = true;
+          pump();
+        });
   } catch {
     workPool.ok = false;
   }
@@ -3467,19 +3506,45 @@ function startPool(): void {
 
 function finishJob(job: Job, sheet: KindSheet): void {
   workPool.jobs.delete(job.key);
+  // Cached now, or in a moment (a lookup before the write lands misses and paints).
+  if (workPool.version) workPool.cached.add(job.key);
   for (const d of job.done) d(sheet);
 }
 
 let idleTimer = false;
+const STALE_MS = 1000;
 function pump(): void {
-  // Lower levels first: they are cheap, and they are what the camera falls back to.
-  workPool.queue.sort((p, q) => p.level - q.level);
+  // Level-1 grids first (the first frame waits for them), then what a renderer asked for in the
+  // last second (after an art switch or a zoom, the previous view's leftovers wait), then the
+  // rest. Among the wanted, level 2 and the finest level asked for a kind go before the levels
+  // between (zoomed in to 8x: 2, then 8, then 4, so the view is sharp sooner); lower levels
+  // first otherwise: they are cheap, and they are what the camera falls back to.
+  // Up to the renderer's latest ask, a few frames' slack (as for the memory, above).
+  const t = lastAsk || now();
+  const fresh = (j: Job): boolean => t - j.asked <= STALE_MS + 3 * frameGap;
+  const top = new Map<string, number>();
+  for (const j of workPool.jobs.values()) {
+    const ak = `${j.faction}:${j.hue}:${j.kind}`;
+    if (fresh(j) && j.level > (top.get(ak) ?? 0)) top.set(ak, j.level);
+  }
+  const rank = (j: Job): number =>
+    j.level === 1 ? 0 : !fresh(j) ? 3 : j.level <= 2 || j.level >= (top.get(`${j.faction}:${j.hue}:${j.kind}`) ?? 0) ? 1 : 2;
+  workPool.queue.sort((p, q) => rank(p) - rank(q) || p.level - q.level);
   if (workPool.ok) {
+    if (!workPool.ready) return;
     for (const slot of workPool.workers) {
       if (slot.busy || workPool.queue.length === 0) continue;
       const job = workPool.queue.shift()!;
       slot.busy = job;
-      slot.w.postMessage({ faction: job.faction, hue: job.hue, kind: job.kind, level: job.level, half: job.half });
+      const cached = workPool.cached.has(job.key);
+      // The first sheet to paint: every worker starts loading the painter (seconds) at once.
+      if (!cached && !workPool.warmed) {
+        workPool.warmed = true;
+        for (const s of workPool.workers) s.w.postMessage({ warm: true });
+      }
+      slot.w.postMessage({ faction: job.faction, hue: job.hue, kind: job.kind, level: job.level, half: job.half, from: job.from, version: workPool.version, key: job.key, cached });
+      // The worker has its copy of the source sheet.
+      job.from = undefined;
     }
     return;
   }
@@ -3488,7 +3553,7 @@ function pump(): void {
   setTimeout(() => {
     idleTimer = false;
     const job = workPool.queue.shift();
-    if (job) finishJob(job, sheetFor(job.faction, job.hue, job.kind, job.level, job.half));
+    if (job) finishJob(job, job.from ? halveSheet(job.from) : sheetFor(job.faction, job.hue, job.kind, job.level, job.half));
     pump();
   }, 30);
 }
@@ -3503,18 +3568,87 @@ export function sheetFor(faction: string, hue: number, kind: number, level: numb
   return paintSheet(faction, hue, kind, level);
 }
 
+const sheetKey = (faction: string, hue: number, kind: number, level: number, half: boolean): string => `${faction}:${hue}:${kind}:${level}${half ? ':half' : ''}`;
+
 function request(faction: string, hue: number, kind: number, level: number, done: (s: KindSheet) => void, half = false): void {
   startPool();
-  const key = `${faction}:${hue}:${kind}:${level}${half ? ':half' : ''}`;
+  const key = sheetKey(faction, hue, kind, level, half);
   const old = workPool.jobs.get(key);
   if (old) {
     old.done.push(done);
+    old.asked = now();
     return;
   }
-  const job: Job = { key, faction, hue, kind, level, half, done: [done] };
+  const job: Job = { key, faction, hue, kind, level, half, done: [done], asked: now() };
+  // HD 64 after HD: the level-8 sheet may be in memory already; halving it is all that is left.
+  if (half) job.from = store.get(sheetKey(faction, hue, kind, level * 2, false))?.sheet;
   workPool.jobs.set(key, job);
   workPool.queue.push(job);
   pump();
+}
+
+// ------------------------------------------------------------------ the sheet store
+
+/**
+ * Every hi-res sheet painted, by army, kind and level, shared by every atlas: a new scene for the
+ * same armies, an art switch (HD and HD 64 share their level-2 sheets and level-1 grids) and
+ * switching back find what is still held (memory: the LRU above) instead of painting it again.
+ */
+const store = new Map<string, { sheet: KindSheet; h: Held }>();
+
+/** A painted sheet, or null while it is painted (the first ask starts it, in the background). */
+function storedSheet(faction: string, hue: number, kind: number, level: number, half: boolean): KindSheet | null {
+  const key = sheetKey(faction, hue, kind, level, half);
+  const got = store.get(key);
+  asked();
+  if (got) {
+    got.h.used = lastAsk;
+    return got.sheet;
+  }
+  const job = workPool.jobs.get(key);
+  if (job) job.asked = now();
+  else
+    request(faction, hue, kind, level, (sh) => {
+      if (store.has(key)) return;
+      const h: Held = { bytes: sh.pixels.byteLength + sh.rects.byteLength, level, used: now(), drop: () => store.delete(key) };
+      store.set(key, { sheet: sh, h });
+      // For profiles and the art-loading timings (docs/perf/art-loading.md).
+      if (typeof performance !== 'undefined') performance.mark?.('codeclash:sheet', { detail: key });
+      hold(h);
+    }, half);
+  return null;
+}
+
+/**
+ * The level-1 grid image of an army (every kind's 48×48 cells), shared by its HD and HD 64
+ * atlases and kept for the last few armies, so an art switch or a new scene starts with it drawn.
+ */
+interface Grid {
+  image: HTMLCanvasElement;
+  ctx: CanvasRenderingContext2D;
+  painted: boolean[];
+  /** Kinds landed so far (an atlas's `version`). */
+  version: number;
+}
+const grids = new Map<string, Grid>();
+const GRIDS_KEPT = 4;
+
+function gridOf(faction: string, hue: number, width: number): Grid {
+  const key = `${faction}:${hue}`;
+  let g = grids.get(key);
+  if (g) {
+    grids.delete(key);
+    grids.set(key, g);
+    return g;
+  }
+  const image = document.createElement('canvas');
+  image.width = width;
+  image.height = KIND_COUNT * 4 * CELL_H;
+  g = { image, ctx: image.getContext('2d')!, painted: new Array<boolean>(KIND_COUNT).fill(false), version: 0 };
+  grids.set(key, g);
+  // An older army's grid lives on only while an atlas still draws it.
+  while (grids.size > GRIDS_KEPT) grids.delete(grids.keys().next().value!);
+  return g;
 }
 
 /**
@@ -3538,13 +3672,15 @@ export const buildAtlas64: BuildAtlas = (faction, hue) => makeAtlas(faction, hue
 function makeAtlas(faction: string, hue: number, hd64: boolean): Atlas {
   setLevel(1);
   const levels: readonly number[] = hd64 ? LEVELS_64 : LEVELS;
-  const image = document.createElement('canvas');
   const blowTab = Array.from({ length: KIND_COUNT }, (_, k) => blowsOf(faction, k));
   // Wide enough for the kind with the most blows (their extra columns sit at the right).
-  image.width = gridCols(Math.max(...blowTab)) * CELL_W;
-  image.height = KIND_COUNT * 4 * CELL_H;
-  const ctx = image.getContext('2d')!;
-  const painted: boolean[] = new Array<boolean>(KIND_COUNT).fill(false);
+  const grid = gridOf(faction, hue, gridCols(Math.max(...blowTab)) * CELL_W);
+  const { image, ctx, painted } = grid;
+  const land = (kind: number, g: KindSheet): void => {
+    ctx.putImageData(new ImageData(new Uint8ClampedArray(g.pixels.buffer as ArrayBuffer, g.pixels.byteOffset, g.pixels.byteLength), g.width, g.height), 0, kind * 4 * CELL_H);
+    grid.version++;
+    if (typeof performance !== 'undefined') performance.mark?.('codeclash:grid', { detail: `${faction}:${hue}:${kind}` });
+  };
   const ensure = (kind: number): void => {
     if (painted[kind] || kind < 0 || kind >= KIND_COUNT) return;
     painted[kind] = true;
@@ -3552,21 +3688,16 @@ function makeAtlas(faction: string, hue: number, hd64: boolean): Atlas {
     // (the renderer re-uploads when `version` moves), so a battle starts without a stall.
     startPool();
     if (workPool.ok) {
-      request(faction, hue, kind, 1, (g) => {
-        ctx.putImageData(new ImageData(new Uint8ClampedArray(g.pixels), g.width, g.height), 0, kind * 4 * CELL_H);
-        atlas.version = (atlas.version ?? 0) + 1;
-      });
+      request(faction, hue, kind, 1, (g) => land(kind, g));
       return;
     }
-    const g = paintGrid(faction, hue, kind);
-    ctx.putImageData(new ImageData(new Uint8ClampedArray(g.pixels), g.width, g.height), 0, kind * 4 * CELL_H);
-    atlas.version = (atlas.version ?? 0) + 1;
+    land(kind, paintGrid(faction, hue, kind));
   };
-  const sheets = new Map<number, { sheet: KindSheet; h: Held }>();
-  const asked = new Set<number>();
   const anim = (kind: number, a: Anim): Anim => (a === Anim.Shoot && !SHOOTS.has(kind) ? Anim.Attack : a);
   const atlas: Atlas = {
-    version: 0,
+    get version() {
+      return grid.version;
+    },
     image,
     cellW: CELL_W,
     cellH: CELL_H,
@@ -3581,30 +3712,9 @@ function makeAtlas(faction: string, hue: number, hd64: boolean): Atlas {
     },
     levels,
     sheet: (kind, level) => {
-      const key = kind * 16 + level;
-      const got = sheets.get(key);
       trim();
-      if (got) {
-        got.h.used = now();
-        return got.sheet;
-      }
-      if (!asked.has(key) && kind >= 0 && kind < KIND_COUNT && levels.includes(level)) {
-        asked.add(key);
-        request(faction, hue, kind, level, (sh) => {
-          const h: Held = {
-            bytes: sh.pixels.byteLength + sh.rects.byteLength,
-            level,
-            used: now(),
-            drop: () => {
-              sheets.delete(key);
-              asked.delete(key);
-            },
-          };
-          sheets.set(key, { sheet: sh, h });
-          hold(h);
-        }, hd64 && level === 4);
-      }
-      return null;
+      if (kind < 0 || kind >= KIND_COUNT || !levels.includes(level)) return null;
+      return storedSheet(faction, hue, kind, level, hd64 && level === 4);
     },
     slot: (kind, a, frame, dir) => slotOf(kind, a, frame, dir, blowTab[kind] ?? 1),
   };

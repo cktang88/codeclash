@@ -1,5 +1,5 @@
 // Perf and screenshot harness for the battle renderer.
-//   /battle-perf.html?men=20000&per=2500&seed=3&t=0&speed=1&zoom=1&pause=0&sync=0&cx=&cy=&stances=0&morale=0&hud=1&scan=1&art=classic|hd
+//   /battle-perf.html?men=20000&per=2500&seed=3&t=0&speed=1&zoom=1&pause=0&sync=0&cx=&cy=&stances=0&morale=0&hud=1&scan=1&art=classic|hd|hd64&aim=0|1
 //     &fa=templar&fb=undead (either side's faction) &frames=N (stop after N draws: a still for screenshot diffs)
 // `per` pads each side to that many figures with clones of the simulated ones (the sim caps a
 // side at MAX_FIGURES), so the renderer can be measured at crowd sizes the sim doesn't make.
@@ -70,7 +70,9 @@ const moraleTick = () => {
 };
 moraleTick();
 const art: ArtMode = q.get('art') ? parseArt(q.get('art')) : artMode();
-const scene = new BattleScene(view, art);
+performance.mark('codeclash:battle');
+let scene = new BattleScene(view, art);
+performance.mark('codeclash:scene');
 // The art toggle: classic 48 px sprites or HD (up to 128 px), saved like the game's setting.
 const toggle = document.getElementById('art') as HTMLButtonElement | null;
 if (toggle) {
@@ -94,6 +96,12 @@ const step = () => {
 scene.camera.zoom = num('zoom', 1);
 if (q.has('cx')) scene.camera.cx = num('cx', 0);
 if (q.has('cy')) scene.camera.cy = num('cy', 0);
+// `aim=0` or `aim=1`: the camera on that side's centre (the art-loading timings look at troops).
+if (q.has('aim')) {
+  const mine = real.soldiers.filter((s) => s.team === num('aim', 0));
+  scene.camera.cx = mine.reduce((a, s) => a + s.x, 0) / Math.max(1, mine.length);
+  scene.camera.cy = mine.reduce((a, s) => a + s.y, 0) / Math.max(1, mine.length);
+}
 scene.scanlines = q.get('scan') !== '0';
 const canvas = document.getElementById('c') as HTMLCanvasElement;
 const stats = document.getElementById('stats')!;
@@ -141,9 +149,49 @@ const builds: number[] = [];
 const perf = { frames: 0, buildMs: 0, drawMs: 0, drawP95: 0, fps: 0, figures: view.soldiers.length, tick: 0, buffer: '' };
 const stopAfter = num('frames', 0);
 const warmUntil = q.has('warm') ? performance.now() + num('warm', 0) : 0;
-const w = window as unknown as { __perf: typeof perf; __scene: BattleScene; __step: (n: number) => void; __done?: boolean };
+const w = window as unknown as {
+  __perf: typeof perf;
+  __scene: BattleScene;
+  __step: (n: number) => void;
+  __done?: boolean;
+  __switch: (to: ArtMode) => void;
+  __sharp: () => { sharp: boolean; m: number; want: number[]; have: number[] };
+};
 w.__perf = perf;
 w.__scene = scene;
+// Swaps the scene's art in place, as BattleView does (for timing a mode switch).
+w.__switch = (to) => {
+  const prev = scene;
+  prev.dispose();
+  scene = new BattleScene(view, to);
+  scene.camera.zoom = Math.min(prev.camera.zoom, scene.maxZoom);
+  scene.camera.cx = prev.camera.cx;
+  scene.camera.cy = prev.camera.cy;
+  scene.scanlines = prev.scanlines;
+  w.__scene = scene;
+};
+// Whether every kind in view is drawn at the finest level the view can show (HD), and the
+// level-1 grids of every kind on the field have landed.
+w.__sharp = () => {
+  const s = scene as unknown as { view: { m: number; W: number }; atlases: { levels?: readonly number[]; version?: number }[]; kindsPresent: number[][]; seen: number[]; hdLevel: Uint8Array[] };
+  const m = s.view.m;
+  const want: number[] = [];
+  const have: number[] = [];
+  // Not before the scene's first frame (its view, and so m, is not laid out yet).
+  let sharp = s.view.W > 1;
+  s.atlases.forEach((a, t) => {
+    if (!a.levels) return;
+    if ((a.version ?? 0) < s.kindsPresent[t]!.length) sharp = false;
+    const top = [1, ...a.levels].filter((l) => l <= m).pop()!;
+    for (const k of s.kindsPresent[t]!) {
+      if (!(s.seen[t]! & (1 << k))) continue;
+      want.push(top);
+      have.push(s.hdLevel[t]![k]!);
+      if (s.hdLevel[t]![k]! !== top && top > 1) sharp = false;
+    }
+  });
+  return { sharp, m, want, have };
+};
 w.__step = (n) => {
   for (let i = 0; i < n && !real.done(); i++) step();
 };
@@ -177,6 +225,7 @@ const loop = (now: number) => {
   if (draws.length > 120) draws.shift();
   if (frames.length > 120) frames.shift();
   const sorted = [...draws].sort((a, b) => a - b);
+  if (perf.frames === 0 && !warming) performance.mark('codeclash:first-frame');
   if (!warming) perf.frames++;
   perf.drawMs = draws.reduce((a, b) => a + b, 0) / draws.length;
   perf.drawP95 = sorted[Math.floor(sorted.length * 0.95)] ?? 0;

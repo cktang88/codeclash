@@ -855,40 +855,75 @@ export class Paper {
     for (const i of mark) PIX[i] = (PIX[i]! & ~7) | Math.max(0, (PIX[i]! & 7) - 2);
   }
 
-  /** Clusters of one colour smaller than `min` pixels take their most common same-material neighbour. */
+  /** Scratch for `clusters` (kept between calls: it runs on every frame painted). */
+  private clSeen = new Uint32Array(0);
+  private clGen = 0;
+  private clStack = new Int32Array(0);
+  private clMembers = new Int32Array(0);
+
+  /**
+   * Clusters of one colour smaller than `min` pixels take their most common same-material
+   * neighbour (ties: the neighbour met first, members in flood order, each one's neighbours left,
+   * right, up, down).
+   */
   clusters(min: number): void {
     const { CW, CH, pix: PIX } = this;
-    const seen = new Uint8Array(CW * CH);
-    const stack: number[] = [], members: number[] = [];
-    const [bx0, by0, bx1, by1] = this.box(0, 0);
-    for (let i0 = by0 * CW + bx0; i0 <= by1 * CW + bx1; i0++) {
-      const x0 = i0 % CW;
-      if (x0 < bx0 || x0 > bx1) continue;
-      const v = PIX[i0]!;
-      if (v < 0 || seen[i0]) continue;
-      stack.length = members.length = 0;
-      stack.push(i0);
-      seen[i0] = 1;
-      while (stack.length) {
-        const i = stack.pop()!;
-        members.push(i);
-        for (const j of [i - 1, i + 1, i - CW, i + CW]) {
-          if (j < 0 || j >= CW * CH || seen[j] || PIX[j] !== v) continue;
-          seen[j] = 1;
-          stack.push(j);
-        }
-      }
-      if (members.length >= min || isKept(v >> 3)) continue;
-      const count = new Map<number, number>();
-      for (const i of members)
-        for (const j of [i - 1, i + 1, i - CW, i + CW]) {
-          const u = PIX[j];
-          if (u !== undefined && u >= 0 && u !== v && u >> 3 === v >> 3) count.set(u, (count.get(u) ?? 0) + 1);
-        }
-      let best = -1, bn = 0;
-      for (const [u, n] of count) if (n > bn) [best, bn] = [u, n];
-      if (best >= 0) for (const i of members) PIX[i] = best;
+    const N = CW * CH;
+    if (this.clSeen.length !== N) {
+      this.clSeen = new Uint32Array(N);
+      this.clStack = new Int32Array(N);
+      this.clMembers = new Int32Array(N);
+      this.clGen = 0;
     }
+    // A generation mark instead of clearing a seen map every call.
+    if (++this.clGen >= 0xffffffff) {
+      this.clSeen.fill(0);
+      this.clGen = 1;
+    }
+    const gen = this.clGen;
+    const seen = this.clSeen, stack = this.clStack, members = this.clMembers;
+    const cu: number[] = [], cn: number[] = [];
+    const [bx0, by0, bx1, by1] = this.box(0, 0);
+    for (let y = by0; y <= by1; y++)
+      for (let i0 = y * CW + bx0, e = y * CW + bx1; i0 <= e; i0++) {
+        const v = PIX[i0]!;
+        if (v < 0 || seen[i0] === gen) continue;
+        // Flood fill (4-neighbours, by index: as before, a row's ends touch the next row's).
+        let sp = 0, mn = 0;
+        stack[sp++] = i0;
+        seen[i0] = gen;
+        while (sp) {
+          const i = stack[--sp]!;
+          members[mn++] = i;
+          let j = i - 1;
+          if (j >= 0 && seen[j] !== gen && PIX[j] === v) (seen[j] = gen), (stack[sp++] = j);
+          j = i + 1;
+          if (j < N && seen[j] !== gen && PIX[j] === v) (seen[j] = gen), (stack[sp++] = j);
+          j = i - CW;
+          if (j >= 0 && seen[j] !== gen && PIX[j] === v) (seen[j] = gen), (stack[sp++] = j);
+          j = i + CW;
+          if (j < N && seen[j] !== gen && PIX[j] === v) (seen[j] = gen), (stack[sp++] = j);
+        }
+        if (mn >= min || isKept(v >> 3)) continue;
+        // Same-material neighbour colours and how often they touch, in the order first met.
+        cu.length = cn.length = 0;
+        const mat = v >> 3;
+        for (let m = 0; m < mn; m++) {
+          const i = members[m]!;
+          for (let d = 0; d < 4; d++) {
+            const j = d === 0 ? i - 1 : d === 1 ? i + 1 : d === 2 ? i - CW : i + CW;
+            if (j < 0 || j >= N) continue;
+            const u = PIX[j]!;
+            if (u < 0 || u === v || u >> 3 !== mat) continue;
+            const at = cu.indexOf(u);
+            if (at < 0) cu.push(u), cn.push(1);
+            else cn[at]!++;
+          }
+        }
+        let best = -1, bn = 0;
+        for (let c = 0; c < cu.length; c++) if (cn[c]! > bn) (best = cu[c]!), (bn = cn[c]!);
+        if (best >= 0) for (let m = 0; m < mn; m++) PIX[members[m]!] = best;
+      }
   }
 
   /**
