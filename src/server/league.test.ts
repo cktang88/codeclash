@@ -366,6 +366,20 @@ describe('server sweep, second round', () => {
     await server.shutdown();
   });
 
+  it('a malformed JSON body is refused in the app\'s {error, message} shape', async () => {
+    const { server, signIn } = await boot(Date.UTC(2026, 10, 3));
+    const cookie = await signIn('ana');
+    const bad = await server.app.inject({ method: 'POST', url: '/api/leagues', headers: { cookie, 'content-type': 'application/json' }, payload: '{"name": ' });
+    expect(bad.statusCode).toBe(400);
+    const body = bad.json<Record<string, unknown>>();
+    expect(Object.keys(body).sort()).toEqual(['error', 'message']);
+    expect(body.error).toBe('invalid');
+    expect(typeof body.message).toBe('string');
+    const big = await server.app.inject({ method: 'POST', url: '/api/leagues', headers: { cookie, 'content-type': 'application/json' }, payload: JSON.stringify({ name: 'x'.repeat(70 * 1024) }) });
+    expect(big.statusCode).toBe(413);
+    expect(big.json()).toMatchObject({ error: 'too_large' });
+  });
+
   it('compares invite codes without short-circuiting', () => {
     expect(sameInvite('abc', 'abc')).toBe(true);
     expect(sameInvite('abd', 'abc')).toBe(false);
