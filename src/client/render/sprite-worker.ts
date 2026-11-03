@@ -21,6 +21,10 @@ interface Req {
   version?: string | null;
   /** The sheet's name in the cache. */
   key?: string;
+  /** Whether the cache holds it (else it is painted without a lookup). */
+  cached?: boolean;
+  /** Only load the painter now: sheets are coming that the cache does not hold. */
+  warm?: boolean;
 }
 
 const post = (sheet: KindSheet): void =>
@@ -30,8 +34,9 @@ let painter: Promise<[typeof import('./sprites128.ts'), typeof import('./downsca
 const loadPainter = () => (painter ??= Promise.all([import('./sprites128.ts'), import('./downscale.ts')]));
 
 self.onmessage = async (e: MessageEvent<Req>) => {
-  const { faction, hue, kind, level, half, from, version, key } = e.data;
-  if (version && key) {
+  if (e.data.warm) return void loadPainter();
+  const { faction, hue, kind, level, half, from, version, key, cached } = e.data;
+  if (version && key && cached) {
     const hit = await readSheet(version, key);
     if (hit) return post(hit);
   }

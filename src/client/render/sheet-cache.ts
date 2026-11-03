@@ -104,6 +104,23 @@ async function evict(db: IDBDatabase, version: string, extra = 0): Promise<void>
 
 const idOf = (version: string, key: string): string => `${version}|${key}`;
 
+/**
+ * The keys of every sheet cached for a painter version (read once, on the main thread, so the
+ * workers try the cache only for sheets it holds: a lookup that misses can wait seconds behind
+ * another worker's write, and a miss needs no lookup at all).
+ */
+export async function cachedKeys(version: string): Promise<Set<string>> {
+  try {
+    const db = await open();
+    if (!db) return new Set();
+    const ids = (await req(db.transaction(INDEX, 'readonly').objectStore(INDEX).getAllKeys())) as string[];
+    const pre = `${version}|`;
+    return new Set(ids.filter((id) => id.startsWith(pre)).map((id) => id.slice(pre.length)));
+  } catch {
+    return new Set();
+  }
+}
+
 async function gzip(bytes: Uint8Array): Promise<Blob> {
   const s = new Blob([bytes as Uint8Array<ArrayBuffer>]).stream().pipeThrough(new CompressionStream('gzip'));
   return new Response(s).blob();

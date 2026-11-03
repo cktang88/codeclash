@@ -18,7 +18,7 @@ import { Anim, ANIM_COUNT, COMMANDER_KIND, KIND_COUNT, type Atlas, type BuildAtl
 import { FRAMES, LOOPS, TICKS } from './frames.ts';
 import { paintPaper, paperBlows, type PaperFrame } from './paper/index.ts';
 import { halveSheet } from './downscale.ts';
-import { artVersion } from './sheet-cache.ts';
+import { artVersion, cachedKeys } from './sheet-cache.ts';
 
 export type { Atlas } from './contract.ts';
 
@@ -3454,6 +3454,10 @@ const workPool = {
   ok: false,
   /** The persistent cache's painter version (null: no cache), once known: jobs wait for it. */
   version: null as string | null,
+  /** The sheets the persistent cache holds for that version (and those painted since). */
+  cached: new Set<string>(),
+  /** Whether the workers were told to load the painter (a sheet is coming the cache lacks). */
+  warmed: false,
   ready: false,
 };
 
@@ -3486,11 +3490,15 @@ function startPool(): void {
     }
     workPool.ok = workPool.workers.length > 0;
     if (workPool.ok)
-      void artVersion().then((v) => {
-        workPool.version = v;
-        workPool.ready = true;
-        pump();
-      });
+      void artVersion()
+        .then(async (v) => {
+          workPool.version = v;
+          if (v) workPool.cached = await cachedKeys(v);
+        })
+        .finally(() => {
+          workPool.ready = true;
+          pump();
+        });
   } catch {
     workPool.ok = false;
   }
@@ -3498,6 +3506,8 @@ function startPool(): void {
 
 function finishJob(job: Job, sheet: KindSheet): void {
   workPool.jobs.delete(job.key);
+  // Cached now, or in a moment (a lookup before the write lands misses and paints).
+  if (workPool.version) workPool.cached.add(job.key);
   for (const d of job.done) d(sheet);
 }
 
@@ -3526,7 +3536,13 @@ function pump(): void {
       if (slot.busy || workPool.queue.length === 0) continue;
       const job = workPool.queue.shift()!;
       slot.busy = job;
-      slot.w.postMessage({ faction: job.faction, hue: job.hue, kind: job.kind, level: job.level, half: job.half, from: job.from, version: workPool.version, key: job.key });
+      const cached = workPool.cached.has(job.key);
+      // The first sheet to paint: every worker starts loading the painter (seconds) at once.
+      if (!cached && !workPool.warmed) {
+        workPool.warmed = true;
+        for (const s of workPool.workers) s.w.postMessage({ warm: true });
+      }
+      slot.w.postMessage({ faction: job.faction, hue: job.hue, kind: job.kind, level: job.level, half: job.half, from: job.from, version: workPool.version, key: job.key, cached });
       // The worker has its copy of the source sheet.
       job.from = undefined;
     }
