@@ -61,9 +61,10 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
       hospital: 'Hospital',
       walls: 'Walls & Pavises',
     },
-    // The Order's knights are its pride: a harder charge; its foot archers are pilgrims, a touch weaker.
+    // The Order's knights charge harder on the Marshal's signal (the T1 doctrine, in place of the
+    // old charge x1.1) and hold their morale; its foot archers are pilgrims, a touch weaker.
     tweaks: {
-      [U.Knights]: { charge: 1.1, morale: 1.05 },
+      [U.Knights]: { morale: 1.05 },
       [U.Archers]: { missileDamage: 0.95 },
     },
     palette: { cloth: '#d9d2bf', clothShade: '#9d9480', trim: '#9c1c1c', metal: '#9aa0a6', metalShade: '#5b6066', leather: '#5a3b24', skin: '#c8a07a' },

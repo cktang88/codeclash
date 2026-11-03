@@ -404,6 +404,9 @@ export class Regiment {
   chaseX = 0;
   chaseY = 0;
   recallAt = -1000;
+  /** T1: a charge on the Marshal's signal (it hits harder), and a withdrawal back to his banner. */
+  held = false;
+  toBanner = false;
   /** Charging: since when, and whether it ran so far the ranks have come apart. */
   chargeAt = -1;
   ragged = false;
@@ -653,6 +656,9 @@ export class General {
   committed = 0;
   /** When it ordered the general charge (-1: not yet). */
   chargedAt = -1;
+  /** T1 The Marshal's charge: when he last gave the knights the signal (-1: not yet), and at whom. */
+  signalAt = -1;
+  signalTarget = -1;
   /** The army's spirits on the day (from the general's rng): added to every regiment's morale. */
   readonly mood: number;
   /** A blunder: the knights go in before the lines meet. */
@@ -875,6 +881,8 @@ export class Battle {
     this.stats = [factionStats(setup.armies[0].faction), factionStats(setup.armies[1].faction)];
     this.fearless = [setup.armies[0].faction === 'undead', setup.armies[1].faction === 'undead'];
     this.doc = [DOCTRINE[setup.armies[0].faction], DOCTRINE[setup.armies[1].faction]];
+    // T1: nobody charges without the Marshal's leave.
+    for (const t of [0, 1]) if (this.doc[t]!.signal) this.generals[t]!.rashKnights = false;
     this.fire = [0, 1].map((t) => Array.from({ length: UNIT_COUNT }, (_, c) => ballisticsOf(setup.armies[t]!.faction, c))) as [Ballistics[], Ballistics[]];
     let n = 0;
     let most = 0;
@@ -1833,6 +1841,11 @@ export class Battle {
     void theirs;
     const plan = g.plan;
     const early = g.personality === 'aggressive' || g.trait === 'reckless-valour';
+    const doc = this.doc[t]!;
+    // T1 The Marshal's charge: while he lives the knights go only on his signal, all at one target.
+    const marshal = doc.signal && this.lordAlive(t);
+    const signal = marshal ? this.marshalSignal(t, won) : null;
+    const dir = t === 0 ? 1 : -1;
     for (const r of this.teamRegs[t]!) {
       if (r.alive === 0 || r.routed) continue;
       if (!(r.role === 'flank' || r.role === 'shock-cav' || (r.role === 'horse-archer' && r.ammoLeft === 0))) continue;
@@ -1864,7 +1877,17 @@ export class Battle {
       const locked = this.nearestFoe(r, 3, Infinity);
       // An enemy with no line has no clash of lines to wait for (the knights would wait all day).
       const linesMet = ts.engaged || es.engaged || !es.hasLine;
-      if (r.role === 'shock-cav') {
+      if (marshal && (r.role === 'shock-cav' || (signal && r.role === 'flank'))) {
+        const cmd = this.commander[t]!;
+        if (enemyCav && sqrt(bd) < 220) this.give(r, 'attack', enemyCav.id);
+        else if (signal) {
+          // The light horse goes with them, at the target's flank.
+          const q = sqrt((signal.cx - r.cx) ** 2 + (signal.cy - r.cy) ** 2) - signal.radius - r.radius;
+          if (r.role === 'flank') this.give(r, 'flank', signal.id, 1);
+          else this.give(r, q < 160 ? 'charge' : 'flank', signal.id, 3);
+        } else if (g.signalAt >= 0) this.give(r, 'reserve', -1, 0, -1, clampX(this.d.x[cmd]! + dir * doc.recallTo), clampY(this.d.y[cmd]! + (r.homeY < FIELD_H / 2 ? -1 : 1) * 40));
+        else this.give(r, 'reserve', -1, 0, -1, r.homeX, r.homeY);
+      } else if (r.role === 'shock-cav') {
         const go = linesMet || (plan === 'envelop' && this.tick > 200) || (early && this.tick > 320) || g.rashKnights;
         if (enemyCav && sqrt(bd) < 220) this.give(r, 'attack', enemyCav.id);
         else if (!go || (refused && !linesMet)) this.give(r, 'reserve', -1, 0, -1, r.homeX, r.homeY);
@@ -1889,6 +1912,55 @@ export class Battle {
         this.announce(t, r, 'flank', r.ord.side === 3 ? `sends the ${r.role === 'shock-cav' ? 'knights' : 'horse'} into the enemy's rear on the ${this.sideName(t, tg.cy)}` : `sends the horse after the enemy's ${tg.role === 'siege' ? 'engines' : 'archers'}`);
       }
     }
+  }
+
+  /**
+   * T1: the Marshal's signal. Once the lines are locked, when an enemy block locked with ours
+   * falters (its morale under Doctrine.signalMorale; the fearless, when it is under
+   * `signalSpent` of its men), or at the general charge, or `signalLate` after contact, and his
+   * knights have re-formed, he unfurls the Beauséant: every knight rides at that one block (the
+   * weakest locked with our line, else the nearest archers). The signal holds `signalHold`
+   * ticks or until the block is gone or runs; then they rally to him for the next, at most
+   * every `signalEvery`. Returns the signal's target, or null.
+   */
+  private marshalSignal(t: number, won: boolean): Regiment | null {
+    const g = this.generals[t]!;
+    const doc = this.doc[t]!;
+    if (g.signalTarget >= 0) {
+      const e = this.regiments[g.signalTarget]!;
+      if (e.alive > 0 && !e.routed && this.tick - g.signalAt < doc.signalHold) return e;
+      g.signalTarget = -1;
+    }
+    const ts = this.ts[t]!;
+    const es = this.ts[1 - t]!;
+    if (won || !(ts.engaged || es.engaged || !es.hasLine)) return null;
+    if (g.signalAt >= 0 && this.tick - g.signalAt < doc.signalEvery) return null;
+    let ready: Regiment | null = null;
+    for (const r of this.teamRegs[t]!) {
+      if (r.role !== 'shock-cav' || r.alive === 0 || r.routed || r.engaged || r.mode === 'withdraw' || r.mode === 'charge') continue;
+      ready = r;
+      break;
+    }
+    if (!ready) return null;
+    let best: Regiment | null = null;
+    let bs = Infinity;
+    for (const e of this.teamRegs[1 - t]!) {
+      if (e.alive === 0 || e.routed || !e.engaged || !(isFoot(e) || e.role === 'command')) continue;
+      const score = e.morale + 40 * (e.alive / e.start);
+      if (score < bs) {
+        bs = score;
+        best = e;
+      }
+    }
+    const faltering = best !== null && (this.fearless[1 - t] ? best.alive < best.start * doc.signalSpent : best.morale < doc.signalMorale);
+    const late = ts.contactAt >= 0 && this.tick - ts.contactAt > doc.signalLate;
+    if (!faltering && g.chargedAt < 0 && !late) return null;
+    const target = best ?? this.nearestFoe(ready, 1, Infinity) ?? this.nearestFoe(ready, 0, Infinity);
+    if (!target) return null;
+    g.signalAt = this.tick;
+    g.signalTarget = target.id;
+    this.events.push({ tick: this.tick, team: t, kind: 'doctrine', cls: U.Knights, reg: target.id, note: 'marshal-charge', side: this.sideName(t, target.cy) });
+    return target;
   }
 
   /** Every regiment of the line in the pool gets a place against the enemy line: a front, a flank or a rear. */
@@ -2075,6 +2147,7 @@ export class Battle {
 
   private setMode(r: Regiment, m: Mode): void {
     if (r.mode === m) return;
+    if (m !== 'charge') r.held = false;
     if (m === 'shoot' && r.role !== 'missile') {
       // Skirmishers, horse archers and engines open up together, then each shoots as he can.
       const d = this.d;
@@ -2372,6 +2445,12 @@ export class Battle {
       }
     }
     return p;
+  }
+
+  /** Whether `team`'s general is alive. */
+  private lordAlive(team: number): boolean {
+    const cmd = this.commander[team]!;
+    return cmd >= 0 && this.d.state[cmd] === State.Fighting;
   }
 
   /** Whether `team`'s general is alive and within `R` of (x, y). */
@@ -3183,6 +3262,14 @@ export class Battle {
         const q = sqrt(dx * dx + dy * dy) || 1;
         r.wx = clampX(r.cx + (dx / q) * 120);
         r.wy = clampY(r.cy + (dy / q) * 120);
+        // T1: Templar knights ride back to the Marshal's banner to re-form for the next signal.
+        const doc = this.doc[team]!;
+        const cmd = this.commander[team]!;
+        r.toBanner = shock && doc.recallTo > 0 && this.lordWithin(team, r.cx, r.cy, doc.recallRange);
+        if (r.toBanner) {
+          r.wx = clampX(this.d.x[cmd]! + dir * doc.recallTo);
+          r.wy = clampY(this.d.y[cmd]! + (r.homeY < FIELD_H / 2 ? -1 : 1) * 40);
+        }
         this.setMode(r, 'withdraw');
         this.goal(r, r.wx, r.wy);
         return;
@@ -3193,7 +3280,7 @@ export class Battle {
     if (r.mode === 'withdraw') {
       const dx = r.wx - r.ax;
       const dy = r.wy - r.ay;
-      if (dx * dx + dy * dy > 18 * 18 && this.tick - r.modeAt < 70) return;
+      if (dx * dx + dy * dy > 18 * 18 && this.tick - r.modeAt < (r.toBanner ? 160 : 70)) return;
       this.setMode(r, 'hold');
       return;
     }
@@ -3245,8 +3332,11 @@ export class Battle {
       const edge = r.team === 0 ? FIELD_W - prey.cx : prey.cx;
       const dx = r.ax - r.chaseX;
       const dy = r.ay - r.chaseY;
-      const far = 200 + 400 * r.eager;
-      if (o.kind !== 'pursue' && (edge < 60 || dx * dx + dy * dy > far * far || this.tick - r.chaseAt > 120 + 300 * r.eager)) {
+      // T1: Templar knights barely leave the banner; S2: the samurai chase far.
+      const doc = this.doc[team]!;
+      const far = Math.min(shock ? doc.knightFar : Infinity, (200 + 400 * r.eager) * doc.chaseFar);
+      const tired = Math.min(shock ? doc.knightTired : Infinity, (120 + 300 * r.eager) * doc.chaseTired);
+      if (o.kind !== 'pursue' && (edge < 60 || dx * dx + dy * dy > far * far || this.tick - r.chaseAt > tired)) {
         r.chaseAt = -1;
         r.recallAt = this.tick;
         this.give(r, 'reserve', -1, 0, -1, r.homeX, r.homeY);
@@ -3306,6 +3396,8 @@ export class Battle {
       if (r.mode !== 'charge') {
         r.charges++;
         this.events.push({ tick: this.tick, team, kind: 'charge', cls: r.cls, reg: r.id });
+        // T1: launched on the Marshal's signal, at his target: the held charge.
+        r.held = shock && this.doc[team]!.signal && this.generals[team]!.signalTarget === prey.id;
       }
       this.setMode(r, 'charge');
       // Aim through the target, so the charge carries into it; a charge that has run on without
@@ -4113,10 +4205,14 @@ export class Battle {
     const routing = d.state[t] === State.Routing;
     const rear = !routing && dot < -0.4;
     const side = !routing && !rear && dot < 0.3;
-    const wedge = this.regiments[A.reg]!.stance === 'wedge';
+    const ar = this.regiments[A.reg]!;
+    const wedge = ar.stance === 'wedge';
+    // T1: a charge on the Marshal's signal hits harder and shakes more.
+    const ad = this.doc[A.team]!;
+    const held = ar.held ? ad.heldCharge : 1;
     // Braced shock troops take a charge on their front without giving ground.
     const planted = standing && frontal && dr.stance === 'braced';
-    const force = energy * (planted ? 0.3 : 1) * (wedge ? 1.25 : 1);
+    const force = energy * (planted ? 0.3 : 1) * (wedge ? 1.25 : 1) * held;
     const roll = 0.8 + this.rng.next() * 0.4;
     const dmg = (as.damage + as.charge * 0.9) * force * (rear ? 1.3 : 1) * MELEE_K * (50 / (50 + ds.armour)) * roll;
     this.hurt(t, dmg, a);
@@ -4143,7 +4239,7 @@ export class Battle {
     }
     if (!routing) {
       const k = this.shockK;
-      this.shake(dr, (rear ? MORALE.chargeRear : side ? MORALE.chargeFlank : MORALE.chargeFront) * force * (ds.mounted ? 0.6 : 1) * (as.mounted ? 1 : 0.2 + 0.04 * as.charge) * k);
+      this.shake(dr, (rear ? MORALE.chargeRear : side ? MORALE.chargeFlank : MORALE.chargeFront) * force * (ds.mounted ? 0.6 : 1) * (as.mounted ? 1 : 0.2 + 0.04 * as.charge) * k * (ar.held ? ad.heldShock : 1));
       dr.flankShock += (rear ? 0.6 : side ? 0.3 : 0) * k;
     }
     // Each man hit takes some of the charge out of him: knights carry through a thin line, light

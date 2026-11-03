@@ -270,9 +270,13 @@ export interface Doctrine {
   signal: boolean;
   /** He gives it when an enemy block locked with our line falls under this morale... */
   signalMorale: number;
-  /** ...or at the general charge, or after this tick whatever happens; then again at most every `signalEvery` ticks. */
+  /** For the fearless (whose morale never falls): when it is down to this share of its men. */
+  signalSpent: number;
+  /** ...or at the general charge, or this long (ticks) after the lines met whatever happens; then again at most every `signalEvery` ticks. */
   signalLate: number;
   signalEvery: number;
+  /** A signal holds this long (ticks), or until its target is gone or runs. */
+  signalHold: number;
   /** A signalled charge hits this much harder (force), and shakes its target this much more. */
   heldCharge: number;
   heldShock: number;
@@ -359,7 +363,7 @@ export interface Doctrine {
 }
 
 const SHARED: Doctrine = {
-  signal: false, signalMorale: 0, signalLate: 0, signalEvery: 0, heldCharge: 1, heldShock: 1, recallTo: 0, recallRange: 0, knightFar: Infinity, knightTired: Infinity,
+  signal: false, signalMorale: 0, signalSpent: 0, signalLate: 0, signalEvery: 0, signalHold: 0, heldCharge: 1, heldShock: 1, recallTo: 0, recallRange: 0, knightFar: Infinity, knightTired: Infinity,
   withdrawals: 1, withdrawBehind: 0, withdrawBanner: 0, reforms: 0, reformAtBanner: false, shaken: 400,
   standFast: false, brothersGrief: 1,
   aura: 1, auraRange: 1, generalDeadShock: 1, generalDead: 1, revenge: false,
@@ -373,6 +377,8 @@ const SHARED: Doctrine = {
 export const DOCTRINE: Record<FactionId, Doctrine> = {
   templar: {
     ...SHARED,
+    // T1 The Marshal's charge.
+    signal: true, signalMorale: 45, signalSpent: 0.6, signalLate: 200, signalEvery: 250, signalHold: 300, heldCharge: 1.2, heldShock: 1.25, recallTo: 30, recallRange: 400, knightFar: 120, knightTired: 60,
     // T2 Re-form on the banner.
     withdrawals: 2, withdrawBehind: 40, withdrawBanner: 300, reforms: 1, reformAtBanner: true, shaken: 250,
     // T3 Not while the Beauséant flies.
