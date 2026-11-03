@@ -3487,12 +3487,21 @@ function finishJob(job: Job, sheet: KindSheet): void {
 let idleTimer = false;
 const STALE_MS = 1000;
 function pump(): void {
-  // What a renderer asked for in the last second first (after an art switch or a zoom, the
-  // previous view's leftovers wait), level-1 grids always; then lower levels first: they are
-  // cheap, and they are what the camera falls back to.
+  // Level-1 grids first (the first frame waits for them), then what a renderer asked for in the
+  // last second (after an art switch or a zoom, the previous view's leftovers wait), then the
+  // rest. Among the wanted, level 2 and the finest level asked for a kind go before the levels
+  // between (zoomed in to 8x: 2, then 8, then 4, so the view is sharp sooner); lower levels
+  // first otherwise: they are cheap, and they are what the camera falls back to.
   const t = now();
-  const stale = (j: Job): number => (j.level > 1 && t - j.asked > STALE_MS ? 1 : 0);
-  workPool.queue.sort((p, q) => stale(p) - stale(q) || p.level - q.level);
+  const fresh = (j: Job): boolean => t - j.asked <= STALE_MS;
+  const top = new Map<string, number>();
+  for (const j of workPool.jobs.values()) {
+    const ak = `${j.faction}:${j.hue}:${j.kind}`;
+    if (fresh(j) && j.level > (top.get(ak) ?? 0)) top.set(ak, j.level);
+  }
+  const rank = (j: Job): number =>
+    j.level === 1 ? 0 : !fresh(j) ? 3 : j.level <= 2 || j.level >= (top.get(`${j.faction}:${j.hue}:${j.kind}`) ?? 0) ? 1 : 2;
+  workPool.queue.sort((p, q) => rank(p) - rank(q) || p.level - q.level);
   if (workPool.ok) {
     if (!workPool.ready) return;
     for (const slot of workPool.workers) {
