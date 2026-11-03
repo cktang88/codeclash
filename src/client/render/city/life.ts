@@ -474,8 +474,14 @@ class Beast implements Ent {
       if (this.wait <= 0) {
         this.wait = this.rand.range(1, this.kind === 'dog' ? 6 : 3);
         const c = this.follow && !this.follow.hidden ? [this.follow.u, this.follow.v] : this.home;
-        this.tu = c[0]! + this.rand.range(-this.radius, this.radius);
-        this.tv = c[1]! + this.rand.range(-this.radius, this.radius);
+        if (this.follow && !this.follow.hidden && this.gap[0] !== 4) {
+          // HD: a following dog sniffs about on its own side of the walker, never across him.
+          this.tu = c[0]! - this.gap[0] + this.rand.range(-3, 3);
+          this.tv = c[1]! + this.gap[1] + this.rand.range(-3, 3);
+        } else {
+          this.tu = c[0]! + this.rand.range(-this.radius, this.radius);
+          this.tv = c[1]! + this.rand.range(-this.radius, this.radius);
+        }
       }
       return;
     }

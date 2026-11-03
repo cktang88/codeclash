@@ -801,11 +801,21 @@ function paintHead(ctx: PaintCtx, L: Look, kind: string, hc: P2, rx: number, ry:
       const hatted = H === 'straw' || H === 'hat' || H === 'cap' || H === 'coif';
       // The face stays clear: everything forward of the ear and below the brow (under a hat, only
       // the hair at the back of the head shows).
-      oval(c, M, [cx - 0.6, cy - 1.4], rx + 0.4, ry - 0.6, mLocks, (nx, ny) => back || nx < -0.3 || (!hatted && ny < -0.3));
-      c.rod([x - 2, y - 1], [x - 2, y + (long ? 3 : 1)], 2.2, 1.8, mLocks, { tone: 1 });
-      if (back) c.blob([cx - 0.3, cy - 0.4], rx + 0.1, ry - 0.2, mLocks, { shine: true });
+      // Seen from behind, short hair stops above the nape: the skin of the neck and the ears
+      // show under it, so a dark head of hair reads as a head and not as a ball.
+      const nape = (ny: number) => long || ny < 0.42;
+      oval(c, M, [cx - 0.6, cy - 1.4], rx + 0.4, ry - 0.6, mLocks, (nx, ny) => (back ? nape(ny) : nx < -0.3 || (!hatted && ny < -0.3)));
+      if (!back || long) c.rod([x - 2, y - 1], [x - 2, y + (long ? 3 : 1)], 2.2, 1.8, mLocks, { tone: 1 });
+      if (back) {
+        oval(c, M, [cx - 0.3, cy - 0.4], rx + 0.1, ry - 0.2, mLocks, (_nx, ny) => nape(ny), 2);
+        dot(c, x - 1, y - 2, code(mLocks, 4));
+        dot(c, x, y - 2, code(mLocks, 3));
+      }
       if (face) features(x, y, true);
-      if (back) dot(c, x + 2, y + 1, code(mSkin, 1));
+      if (back) {
+        dot(c, x + 2, y + 1, code(mSkin, 1));
+        dot(c, x - 2, y + 1, code(mSkin, 3));
+      }
       break;
     }
     case 'topknot': {

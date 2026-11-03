@@ -344,7 +344,8 @@ export function undeadLooks(st: CityStyle): Looks {
         return { kind: 'skeleton', body: hex(pick(RAGS, h1(seed, 1) * 5)), legs: hex('#2e2a28'), head: 'skull', hair: hex('#2a2626'), robe: false, eyes: h1(seed, 4) < 0.5 ? green : undefined, work: 'none', carry };
       return {
         kind: 'zombie', body: hex(pick(RAGS, h1(seed, 1) * 5)), legs: hex('#2e2a28'),
-        head: h1(seed, 4) < 0.5 ? 'hair' : 'hood', hair: hex(pick(['#3a3430', '#5a5a52', '#2a2626'], seed)), locks: hex('#3a3430'),
+        // A hood is a grey-brown sackcloth (lit enough to show its shape against the dark ground).
+        head: h1(seed, 4) < 0.5 ? 'hair' : 'hood', hair: h1(seed, 4) < 0.5 ? hex(pick(['#3a3430', '#5a5a52', '#2a2626'], seed)) : hex(pick(['#5a5048', '#5a5a52', '#4e4650'], seed)), locks: hex('#3a3430'),
         robe: h1(seed, 2) < 0.3, skin: pick(dead, seed), shamble: carry === 'none', rags: true, work: 'none', carry,
       };
     },
