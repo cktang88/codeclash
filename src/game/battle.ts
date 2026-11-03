@@ -29,11 +29,35 @@ export type { CommanderTrait, MoraleState, Order, OrderKind, Personality, Plan }
 export { COHESION, DOCTRINE, MORALE, REGROUP, UNDEAD } from './command.ts';
 
 /**
- * v14: looser, livelier battles (docs/art-references/battle-cohesion.md; COHESION in command.ts).
+ * v14: looser, livelier battles (docs/art-references/battle-cohesion.md, section 6; COHESION and
+ * each faction's DOCTRINE.loose in command.ts). Per-man variation comes from a hash of his id and
+ * the seed (`hashUnit`), waves from triangle waves, angles from tangents of half the angle.
  * - Room between blocks: 28 between regiments side by side (22 to 34 by the room the line has),
  *   26 between rows, 24 between the archers' blocks, and 60 out to the horse on the wings, which
  *   stands 16 before the line (were 18, 16, 14 and 36, level). The figures are drawn 2-3 times
  *   life size and the old gaps all but vanished on screen.
+ * - P1 A ragged approach: each man of the line walks up to 4.6 ahead of or behind his slot (his
+ *   eagerness, half shared with his file; 5 more as the enemy nears; at most 1.25 ranks), a slow
+ *   wave runs along the files, a charge's pace spread is +-18% (was +-12%), riders at the charge
+ *   have their own line. At will, bowmen shoot the nearest man they look at.
+ * - P4 Horse breaks off, rallies and comes again: the melee clock no longer resets when a charge
+ *   flickers out of the fight; horse breaks off from horse too (the weaker side first) and rides
+ *   back 150-190 as a loose crowd to `rallyPoint` (T1: Templar knights from foot to the Marshal),
+ *   closes up over 2-3 s and charges again, four times at most. Not against the dead, nor the dead.
+ * - P2 + P6 Contact loosens the ranks and overlaps wrap: in contact the foot of the line look 15
+ *   for a foe on a leash of 15 (outer files 30, preferring the outer side); files beyond the end
+ *   of the enemy's front swing round it (`curl`), men out there close on their foes from the
+ *   flank side (`wrapSide`), rear ranks lean on the front, and a block with nothing in front of
+ *   it takes the flank of an enemy locked with a friend. Not against the dead: before the tide
+ *   the living keep their ranks.
+ * - P3 The melee breathes: a man steps out of measure between blows, 15 ticks in 97 in turn with
+ *   his neighbours; a winning block surges a run of files forward; two tired blocks ease off
+ *   together for a moment. The dead never breathe nor lull.
+ * - P5 The wounded drop back through their file, the files of the line close up every 1.5-2.5 s
+ *   (holes show), and a worn block of the line keeps its frontage down to 1.6 ranks of men.
+ * - Balance: T2 may pull a wavering block back in contact if no locked enemy is near; Templar
+ *   knights' eagerness to chase 0.08 (was 0.12); samurai katana attack x1.0 (was x1.06).
+ * - P7 (a drift to the right) was tried and dropped: it gave team 0 an edge.
  *
  * v13: battle doctrines (docs/faction-doctrines.md; DOCTRINE in command.ts), and morale shocks
  * that do not grow with the battle.
@@ -2173,7 +2197,7 @@ export class Battle {
     const cost = new Float64Array(ours.length * E * 4);
     const tmp = this.tmp;
     const C = COHESION;
-    const curl = this.doc[t]!.loose.curl;
+    const curl = this.fearless[1 - t] ? 0 : this.doc[t]!.loose.curl;
     for (let i = 0; i < ours.length; i++) {
       const r = ours[i]!;
       for (let e = 0; e < E; e++) {
@@ -4320,7 +4344,9 @@ export class Battle {
     const mounted = d.mass[i]! > 2;
     const pursue = r.mode === 'pursue';
     const C = COHESION;
-    const near = !mounted && !pursue && r.contact && r.role === 'line';
+    // (Not where the dead fight: the tide comes on as one mass, and the living keep their ranks
+    // before it.)
+    const near = !mounted && !pursue && r.contact && r.role === 'line' && !this.fearless[0] && !this.fearless[1];
     const edge = near && (d.sx[i]! < 0 ? -d.sx[i]! : d.sx[i]!) > r.width * 0.5 - r.spacing * C.edgeFiles;
     const R = pursue ? 24 : mounted ? 15 : near ? C.reachNear : 10;
     const leash = pursue || r.role === 'command' || r.mode === 'rally' ? 1e9 : mounted ? 34 : near ? (edge ? C.leashEdge : C.leashNear) * this.doc[r.team]!.loose.leash : 9;
@@ -4986,7 +5012,7 @@ export class Battle {
    */
   private curl(i: number, r: Regiment, gx: number, gy: number): boolean {
     const L = this.doc[r.team]!.loose;
-    if (L.curl <= 0) return false;
+    if (L.curl <= 0 || this.fearless[1 - r.team]) return false;
     const o = this.regiments[r.targetReg]!;
     if (o.alive === 0 || o.routed || o.fx * r.fx + o.fy * r.fy > -0.3) return false;
     const C = COHESION;
@@ -5026,7 +5052,7 @@ export class Battle {
    */
   private wrapSide(i: number, t: number, r: Regiment): boolean {
     const L = this.doc[r.team]!.loose;
-    if (L.curl <= 0) return false;
+    if (L.curl <= 0 || this.fearless[1 - r.team]) return false;
     const d = this.d;
     const o = this.regiments[d.reg[t]!]!;
     if (o.routed || o.role === 'siege') return false;

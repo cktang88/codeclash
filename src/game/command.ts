@@ -517,7 +517,7 @@ export const DOCTRINE: Record<FactionId, Doctrine> = {
     // T3 Not while the Beauséant flies.
     standFast: true, brothersGrief: 1.5,
     // The Rule: no brother leaves his place. A tight, even front.
-    loose: { lead: 0.5, ripple: 0.7, stepBack: true, leash: 1, curl: 0.9, breathe: 0.6, surge: 0.7, lull: true },
+    loose: { lead: 0.5, ripple: 0.7, stepBack: true, leash: 1, curl: 1, breathe: 0.6, surge: 0.7, lull: true },
   },
   samurai: {
     ...SHARED,
@@ -528,7 +528,7 @@ export const DOCTRINE: Record<FactionId, Doctrine> = {
     // S3 Drilled teppō fire.
     ripple: 3, firstVolley: 8, screen: 14, screenBack: 60, screenHold: 150,
     // S2 again: the keen run ahead for the first spear.
-    loose: { lead: 1.4, ripple: 1.1, stepBack: true, leash: 1, curl: 1.2, breathe: 1, surge: 1.3, lull: true },
+    loose: { lead: 1.4, ripple: 1.1, stepBack: true, leash: 1, curl: 1.15, breathe: 1, surge: 1.3, lull: true },
   },
   undead: {
     ...SHARED,
