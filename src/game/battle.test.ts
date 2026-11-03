@@ -1,5 +1,7 @@
 // Regression tests for battle.ts bugs found in the sweep of degenerate armies: armies of one
 // kind only, a general alone, armies too deep for the field, and the end at the time limit.
+import { readdirSync, readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { Battle, BATTLE_VERSION, FIELD_H, FIELD_W, fight, MAX_TICKS, State, type ArmySpec, type BattleSetup } from './battle.ts';
 import { U, UNIT_COUNT } from './units.ts';
@@ -223,5 +225,37 @@ describe('battle: the end', () => {
     expect(a.result).toEqual(b.result);
     expect(a.events).toEqual(b.events);
     expect(a.soldiers.map((s) => [s.x, s.y, s.hp, s.state])).toEqual(b.soldiers.map((s) => [s.x, s.y, s.hp, s.state]));
+  }, 60_000);
+});
+
+describe('battle: determinism rules (rng.ts)', () => {
+  it('the game code uses no engine-approximated maths, clock or Math.random', () => {
+    // `**` is Math.pow, which, like the trigonometry and logarithms, the spec lets each engine
+    // approximate: a browser could fight a different battle from the server.
+    const dir = fileURLToPath(new URL('.', import.meta.url));
+    const banned = /Math\.(random|pow|exp|expm1|log\w*|sin|cos|tan|asin|acos|atan2?|sinh|cosh|tanh|hypot|cbrt)\b|\*\*|Date\.now|new Date|performance\.now/;
+    for (const f of readdirSync(dir)) {
+      if (!f.endsWith('.ts') || f.endsWith('.test.ts')) continue;
+      const code = readFileSync(dir + f, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '').replace(/'[^'\n]*'|`[^`\n]*`/g, "''");
+      const lines = code.split('\n').filter((l) => banned.test(l));
+      expect(lines, f).toEqual([]);
+    }
+  });
+});
+
+describe('battle: the fallen who may rise (U3)', () => {
+  it('a corpse whose regiment is gone will never rise, and says so', () => {
+    const b = new Battle(setupOf(2, army(300, { faction: 'undead' }), army(300)));
+    let seen = 0;
+    while (!b.done()) {
+      b.step();
+      if (b.tick % 10 !== 0) continue;
+      for (const s of b.soldiers) {
+        if (s.team !== 0 || s.state !== State.Dead || !b.mayRise(s.id)) continue;
+        seen++;
+        expect(b.regiments[s.reg]!.alive, `regiment ${s.reg}`).toBeGreaterThan(0);
+      }
+    }
+    expect(seen).toBeGreaterThan(0);
   }, 60_000);
 });
