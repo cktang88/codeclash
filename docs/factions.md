@@ -44,15 +44,17 @@ day's fallen: here they are dug up rather than nursed.)
 
 | Faction | Tweak | Why |
 |---|---|---|
-| Templar | Knights charge ×1.10, morale ×1.05; Archers missileDamage ×0.95 | (shipped) |
-| Samurai | **HorseArchers missileDamage ×1.10** | Yabusame, the clan's signature art. Horse archers are 5% of the standard mix and fragile; +10% damage is a flavour edge, not a swing. |
-| Samurai | **HeavyInfantry morale ×1.05** | Bushidō: the katana line holds a little longer. |
-| Samurai | **Spearmen armour ×0.95** | Ashigaru are peasant levies in an okegawa cuirass. Started at ×0.90; the balance run showed Samurai slightly weak at small sizes, so it was halved. |
-| Undead | **HeavyInfantry morale ×1.05** | The dead feel little fear. Stand-in for the no-rout rule until the sim implements it (then remove it). Started ×1.10; trimmed for balance. |
-| Undead | **Shock hp ×1.05** | The Bone Colossus is a hill of fused bone. Started ×1.10; it made the host 59–60% at 400 men, so halved. |
-| Undead | **Archers missileDamage ×0.90** | Rotten sinew bowstrings: the weakest archery of the three factions. |
+Since battle v13 the factions differ mostly by their **doctrines** (below, and
+`docs/faction-doctrines.md`); the stat tweaks are what is left.
 
-Each faction uses exactly 3 tweak entries, all within ±10%.
+| Faction | Tweak | Why |
+|---|---|---|
+| Templar | Archers missileDamage ×0.95 | Pilgrim archers. The knights' charge ×1.10 and morale ×1.05 went in v13: the Marshal's charge (T1) and re-forming on the banner (T2) replaced them. |
+| Samurai | **HorseArchers missileDamage ×1.10** | Yabusame, the clan's signature art. Horse archers are 5% of the standard mix and fragile; +10% damage is a flavour edge, not a swing. |
+| Samurai | **HeavyInfantry morale ×1.05, attack ×1.06** | Bushidō: the katana line holds a little longer and cuts harder (attack added in v13's balance). The Spearmen armour ×0.95 malus went in v13. |
+| Samurai | Crossbowmen (teppō) reload ×1.34, missileDamage ×1.3 | The matchlock: fewer, heavier volleys (v11). |
+| Undead | **every class but the Colossus and the trebuchet: hp ×0.66** (`DEAD_HP`; Colossus ×0.8) | The price of never routing (v12: 0.69; v13, with the doctrines: 0.66). |
+| Undead | **Archers missileDamage ×0.90** | Rotten sinew bowstrings: the weakest archery of the three factions. |
 
 ### Balance results
 
@@ -72,18 +74,59 @@ read 60–61% with 20–80 seeds).
 All inside the 40–60% window. Iterations: first pass (Spearmen armour ×0.90, Undead HI morale ×1.10,
 Colossus hp ×1.10) gave Samurai 46.9% and Undead 56.9% (60% at 400 men); the final values above.
 
-### Faction rules
+### Faction rules and doctrines (battle v13)
 
-Stored as `FactionDef.rule` (text for the player). The Undead's is simulated since battle v12;
-the Samurai's is still a proposal. Implementing one needs a re-balance (`pnpm fairness
---factions a,b`).
+Stored as `FactionDef.rule` (text for the player); all simulated. The numbers live in `DOCTRINE`
+(`src/game/command.ts`), one row per faction; `docs/faction-doctrines.md` has the research and
+design. The ticker tells each doctrine's moment (event `doctrine`).
 
-- **Samurai: Teppō volley.** The first volley of each Teppō regiment costs its target an extra 8
-  morale (the shock of gunfire at Nagashino). Small, one-shot, and flavourful; counter-balance by
-  dropping HeavyInfantry morale ×1.05 if it tests strong.
+- **Templar: discipline.**
+  - *T1 The Marshal's charge.* While the Marshal lives the Knight-Brothers never go in early or
+    rashly: they wait in their place (still answering enemy horse within 220) until his signal,
+    given once the lines are locked and an enemy block locked with ours falls under 45 morale
+    (for the undead: under 60% of its men), or at the general charge, or 20 s after contact; then
+    at most every 25 s, once the knights have re-formed. On it every knight block rides at that
+    one block (the light horse at its flank), and the charge hits 1.2× as hard and shakes 1.25× as
+    much. After each charge they ride back to 30 in front of the Marshal, and they chase at most
+    120 units and 6 s. Ticker: *the Marshal unfurls the Beauséant*.
+  - *T2 Re-form on the banner.* A wavering block may be pulled out of the line twice (others
+    once), falling back 40 behind the nearest banner within 300 (the Marshal, or a steady block of
+    its family); a broken one may re-form once more after its rally (others: a second rout is
+    final), at any friendly banner within 200; a rallied block is shaken 25 s (others 40).
+  - *T3 Not while the Beauséant flies.* Knight-Brothers and Iron Brethren at breaking point hold
+    there, wavering, while the Marshal lives; when he falls they take 1.5× the shock (30). The
+    army breaking still routs them.
+- **Samurai: valour and the lord.**
+  - *S1 The uma-jirushi.* The daimyō's aura is 1.6× as strong (16 at full skill) and reaches 300
+    (others 240); his death is a 35 shock (others 20) and −20 for the rest of the day (others −14),
+    and for 30 s his hatamoto charge the nearest enemy to avenge him.
+  - *S2 First spear, long chase.* Katana samurai charge any enemy within 140. The first samurai
+    block of the line to reach the enemy claims the first spear: +8 morale, +3 to every block
+    within 240. Katana samurai (0.6) and yari riders (0.95) break ranks to chase readily; chases
+    run 1.4× as far and as long, and a block called back may go again after 8 s (others 12).
+  - *S3 Drilled teppō fire.* The teppō go out 14 before the line (through it, like skirmishers)
+    and fire from there; the line waits behind them up to 15 s while they do. They fall back
+    through it when a formed enemy comes within 60 (horse 120), when the line comes up to them, or
+    at contact. Their first volley is the whole block at once and costs its target 8 morale (the
+    old "Teppō volley" rule, now simulated; the undead feel nothing); after it they fire rank by
+    rank, up to three ranks a third of the cycle apart, each rank shooting past the others.
+    Behind the line of a big army a matchlock, which needs a clear line of fire, found almost
+    nothing to shoot (0.3 shots a man at 1500 a side, against 2.9 at 250); before it, 1.7.
+- **Undead: the tide** (with *the dead know no fear*, below).
+  - *U1 The tide.* Their formed foot marches at 0.8 of the drill's pace except within 240 of a
+    living Lich-Marshal; their General never holds, refuses a wing or halts to trade volleys;
+    their foot charges at a lurch (×1.15 speed, others ×1.45).
+  - *U2 Unflinching.* A charge into them knocks men back 0.3 as far, stuns nobody, and loses its
+    impetus 1.3× as fast per man hit. The damage is unchanged.
+  - *U3 What falls, rises.* Every 10 s while the Lich-Marshal lives (and the host neither crumbles
+    nor is spent), his fallen foot (heavy foot, spears, skirmishers) within 240 of him, dead 3 s or
+    more and never raised before, whose regiment still stands, get up with 40% of their hit
+    points and go back into their files: at most 0.8% of the host's start a time (at least one).
+    `Soldier.roseAt` marks them (the renderer plays their fall backwards, with a green
+    grave-light); `SideResult.risen` counts them, and dead + fled + alive still make the start.
 - **Undead: the dead know no fear** (built in battle v12; `fearless` in `battle.ts`, `UNDEAD` in
   `command.ts`). Undead regiments never waver, rout or rally, and no morale rule touches them
-  (morale reads 100). The price is hit points: every class has 69% of its own (`DEAD_HP`; the
+  (morale reads 100). The price is hit points: every class has 66% of its own (69% in v12; `DEAD_HP`; the
   Colossus 80%, `COLOSSUS_HP`; the trebuchet, timber, unchanged), which replaced the stand-in
   HeavyInfantry morale ×1.05 and Colossus hp ×1.05 tweaks. If the Lich-Marshal falls, the whole
   host crumbles: every man loses 2% of his hit points a second and fights at -4 attack, -3
@@ -97,6 +140,25 @@ the Samurai's is still a proposal. Implementing one needs a re-balance (`pnpm fa
   0.69 gives 45.8% / 54.5% and 52.0% / 55.0% (each ±2.5%), as close to the old rates as the
   noise allows. Battles with undead run some 20–30 s longer (no rout cascade on their side):
   mean 117–120 s before, 138–147 s after, none to the time limit.
+
+### Balance with the doctrines (battle v13)
+
+`pnpm fairness --factions a,b`, the standard mix, both sides of the field. Win rate of the first
+faction; ± is one standard error (50%/√n).
+
+| Matchup (first faction's wins) | 250 | 500 | 1500 | 2800 |
+|---|---|---|---|---|
+| Undead vs Templar, v12 | 48.0 | 52.5 | 61.3 | 68.8 |
+| Undead vs Templar, v13 | 49.5 | 48.5 | 53.6 | 47.9 |
+| Undead vs Samurai, v12 | 50.5 | 53.0 | 67.5 | 73.8 |
+| Undead vs Samurai, v13 | 52.5 | 49.0 | 52.1 | 57.1 |
+| Samurai vs Templar, v12 | 54.0 | 47.0 | 40.0 | 46.3 |
+| Samurai vs Templar, v13 | 49.0 | 55.5 | 44.3 | 44.3 |
+
+200 battles a cell at 250 and 500 (±3.5%), 140 at 1500 and 2800 in v13 (±4.2%; v12: 80, ±5.6%).
+Mirrors (v13): Templar 48.8% (250 a side, 400 seeds), 51.0% (500, 200); Samurai and Undead 50.0%
+(500, 200 battles each way round). No battle ran to the time limit; the longest of these was
+292 s; means 121–170 s (undead and big battles the longest).
 
 ## Palettes
 

@@ -1,6 +1,7 @@
 # Faction battle doctrines
 
-Design only, with no code changes yet. The user asked for factions that fight **noticeably differently**, for example
+**Built in battle v13** (the recommended set of section 6; see section 9 for where the build
+departs from this design). Originally design only. The user asked for factions that fight **noticeably differently**, for example
 "Templars reform more often to banners". Today the three factions differ by at most three
 ±10% stat tweaks (`src/game/factions.ts`), a few rally and eagerness constants
 (`REGROUP.samuraiLord`, `REGROUP.templarBanner`, `EAGER_FACTION` in `battle.ts`), and the rules
@@ -621,6 +622,36 @@ That gives each faction a visible way to lose as well as to win.
 Checks at each step: `pnpm typecheck`, `pnpm test`, `pnpm build`, `pnpm fairness`.
 
 ---
+
+## 9. As built (battle v13)
+
+All nine recommended doctrines are in `battle.ts`, their numbers in `DOCTRINE` (`command.ts`), the
+player's text in `FactionDef.rule` and `docs/factions.md`, tests in `src/game/doctrine.test.ts`.
+Where the build departs from the design above:
+
+- **T1.** The late signal is 20 s after the lines meet (not tick 1500, which most battles never
+  reach), and against the undead, whose morale never falls, a locked block "falters" at 60% of its
+  men. A signal holds 30 s or until its target is gone. The Turcopoles get the target the same
+  General think (no 10-tick delay). The knights' morale ×1.05 went too (T2's price).
+- **T2.** As designed, plus `shaken` 250. The withdrawal point is behind the banner block's rear
+  rank, not its centre.
+- **S1.** Aura ×1.6 (the balance runs wanted more than ×1.4); the revenge charge lasts 30 s.
+- **S2.** As designed; the optional early reserve was not needed.
+- **S3.** Rank fire alone did little: behind a big army's line a matchlock, which needs a clear
+  line of fire, had nothing to shoot (0.3 shots a man at 1500 a side against 2.9 at 250, a large
+  part of the samurai's weakness in big battles). So the teppō go out 14 before their line, as
+  behind the fence at Nagashino, and the line waits for them (up to 15 s); they fall back through
+  it (slipping through like skirmishers) when a formed enemy is within 60, when the line comes up,
+  or at contact. A rippling rank shoots past its own block's other ranks. The first-volley shock
+  (8 morale, through `shake()`) is the old faction rule, now simulated.
+- **U1, U2.** As designed.
+- **U3.** The raise is a plain 0.8% of the host a pulse (the cap of 12 made it a size-dependent
+  rule: 1.6% of a 250 army, 0.4% of a 2800 one), with undead hit points 66%. A risen man may die
+  again and does not rise twice; `SideResult.risen` counts the raised. The renderer plays Die
+  backwards (`contract.ts` `RISE`) with a green grave-light; classic art keeps a corpse that may
+  still rise off the ground texture.
+- **Big battles.** Before the doctrines, v13 fixed why the undead won 70% of big battles: per-man
+  morale shocks counted per head while blocks grow with the battle (`MORALE.blockMen`).
 
 ## Sources
 

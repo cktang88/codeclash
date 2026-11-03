@@ -38,6 +38,19 @@ export { DOCTRINE, MORALE, REGROUP, UNDEAD } from './command.ts';
  *   armies broke with ever fewer losses. Against each other that cancelled out; against the
  *   fearless undead it did not, and they won 70% of battles of 1500 men a side and more. They
  *   now count for a block of MORALE.blockMen (35) men, and in proportion less for a bigger one.
+ * - Three doctrines a faction (the numbers in DOCTRINE; event 'doctrine' for the ticker):
+ *   Templar T1 the Marshal's charge (knights wait for his signal, ride at one target 1.2x as
+ *   hard, back to his banner), T2 re-form on the banner (two withdrawals behind a banner, a
+ *   second re-forming at any banner, shaken 25 s), T3 not while the Beauséant flies (knights and
+ *   Iron Brethren do not rout while the Marshal lives). Samurai S1 the uma-jirushi (aura x1.6
+ *   within 300; his death a 35 shock, -20 after, and the hatamoto's revenge charge), S2 first
+ *   spear and long chase, S3 drilled teppō fire (guns before the line, a first volley that costs
+ *   8 morale, then rank by rank). Undead U1 the tide (0.8 pace away from the Lich, no halting, a
+ *   lurching charge), U2 unflinching (charges barely knock them back and stun nobody), U3 what
+ *   falls, rises (the Lich raises 0.8% of the host a pulse every 10 s; Soldier.roseAt,
+ *   SideResult.risen).
+ * - Stats: undead hit points 66% (was 69%); samurai katana attack x1.06 and no spear armour
+ *   malus; Templar knights lose their charge x1.1 and morale x1.05 (T1, T2 replace them).
  *
  * v12: the dead know no fear (UNDEAD in command.ts; the faction's rule in factions.ts).
  * - Undead regiments (`fearless`) never waver, rout or rally: their morale is 100 and stays
