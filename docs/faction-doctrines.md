@@ -635,7 +635,7 @@ Where the build departs from the design above:
   General think (no 10-tick delay). The knights' morale ×1.05 went too (T2's price).
 - **T2.** As designed, plus `shaken` 250. The withdrawal point is behind the banner block's rear
   rank, not its centre.
-- **S1.** Aura ×1.6 (the balance runs wanted more than ×1.4); the revenge charge lasts 30 s.
+- **S1.** Aura ×1.6 (the balance runs wanted more than ×1.4); the revenge charge lasts 30 s. v15: ×1.35, once the general's household no longer rode into the enemy's blocks and the daimyō lived through most battles.
 - **S2.** As designed; the optional early reserve was not needed.
 - **S3.** Rank fire alone did little: behind a big army's line a matchlock, which needs a clear
   line of fire, had nothing to shoot (0.3 shots a man at 1500 a side against 2.9 at 250, a large
@@ -646,7 +646,9 @@ Where the build departs from the design above:
   (8 morale, through `shake()`) is the old faction rule, now simulated.
 - **U1, U2.** As designed.
 - **U3.** The raise is a plain 0.8% of the host a pulse (the cap of 12 made it a size-dependent
-  rule: 1.6% of a 250 army, 0.4% of a 2800 one), with undead hit points 66%. A risen man may die
+  rule: 1.6% of a 250 army, 0.4% of a 2800 one), with undead hit points 66%. v15 brings back a cap, of 8 figures a pulse:
+  with the household fix the Lich-Marshal lives through most battles, and a raising that grew with
+  the host won the undead 64% of battles of 1500 a side against the Templars (49% with the cap). A risen man may die
   again and does not rise twice; `SideResult.risen` counts the raised. The renderer plays Die
   backwards (`contract.ts` `RISE`) with a green grave-light; classic art keeps a corpse that may
   still rise off the ground texture.

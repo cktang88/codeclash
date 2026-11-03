@@ -522,13 +522,13 @@ export const DOCTRINE: Record<FactionId, Doctrine> = {
   samurai: {
     ...SHARED,
     // S1 The lord's uma-jirushi.
-    aura: 1.6, auraRange: 1.25, generalDeadShock: 1.75, generalDead: 1.4, revenge: true, revengeFor: 300,
+    aura: 1.35, auraRange: 1.25, generalDeadShock: 1.75, generalDead: 1.4, revenge: true, revengeFor: 300,
     // S2 First spear, long chase.
     chaseFar: 1.4, chaseTired: 1.4, recall: 80, firstSpear: 8, firstSpearNear: 240, firstSpearLift: 3, keenCharge: 140,
     // S3 Drilled teppō fire.
     ripple: 3, firstVolley: 8, screen: 14, screenBack: 60, screenHold: 150,
     // S2 again: the keen run ahead for the first spear.
-    loose: { lead: 1.4, ripple: 1.1, stepBack: true, leash: 1, curl: 1.15, breathe: 1, surge: 1.3, lull: true },
+    loose: { lead: 1.4, ripple: 1.1, stepBack: true, leash: 1, curl: 1, breathe: 1, surge: 1, lull: true },
   },
   undead: {
     ...SHARED,
@@ -537,7 +537,7 @@ export const DOCTRINE: Record<FactionId, Doctrine> = {
     // U2 Unflinching: a charge into them barely knocks them back, stuns nobody, and stalls sooner.
     knockback: 0.3, stun: false, drain: 1.3,
     // U3 What falls, rises.
-    raiseEvery: 100, raiseShare: 0.008, raiseCap: 40, raiseRange: 240, raiseAfter: 30, raiseHp: 0.4,
+    raiseEvery: 100, raiseShare: 0.008, raiseCap: 8, raiseRange: 240, raiseAfter: 30, raiseHp: 0.4,
     // The tide shambles on, a ragged mass with no eager men and no laggards to speak of.
     loose: { lead: 0.7, ripple: 1.3, stepBack: false, leash: 1, curl: 0, breathe: 0, surge: 0.6, lull: false },
   },

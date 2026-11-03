@@ -38,6 +38,10 @@ export { COHESION, DOCTRINE, MORALE, REGROUP, UNDEAD } from './command.ts';
  *   centre: against the big blocks of a big battle that drew the general from 100 and more away
  *   into the enemy's ranks. The fearless Lich-Marshal, whose household never breaks, fell in more
  *   than half of all battles (and the host crumbled), the living generals in up to 40% of big ones.
+ * - Balance after it: the Lich-Marshal now lives through most battles, so his raising is capped at
+ *   8 figures a pulse (DOCTRINE.undead.raiseCap, was 40, which never bit); the daimyō, too, so
+ *   his aura is 1.35x (was 1.6x); the samurai's wrap and surges (DOCTRINE.samurai.loose curl,
+ *   surge) are 1 (were 1.15, 1.3: since v14 they had won 57% of battles against the Templars).
  * - U3: a man the Lich-Marshal raises gets up where he fell before he moves or fights
  *   (`RISE_TICKS`, as long as the renderer's rise); nothing shoves him meanwhile. He walked off to
  *   his place on the tick he rose, so the get-up was hardly seen.

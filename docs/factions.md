@@ -97,7 +97,7 @@ design. The ticker tells each doctrine's moment (event `doctrine`).
     there, wavering, while the Marshal lives; when he falls they take 1.5× the shock (30). The
     army breaking still routs them.
 - **Samurai: valour and the lord.**
-  - *S1 The uma-jirushi.* The daimyō's aura is 1.6× as strong (16 at full skill) and reaches 300
+  - *S1 The uma-jirushi.* The daimyō's aura is 1.35× as strong (13.5 at full skill; 1.6× until v15) and reaches 300
     (others 240); his death is a 35 shock (others 20) and −20 for the rest of the day (others −14),
     and for 30 s his hatamoto charge the nearest enemy to avenge him.
   - *S2 First spear, long chase.* Katana samurai charge any enemy within 140. The first samurai
@@ -121,7 +121,7 @@ design. The ticker tells each doctrine's moment (event `doctrine`).
   - *U3 What falls, rises.* Every 10 s while the Lich-Marshal lives (and the host neither crumbles
     nor is spent), his fallen foot (heavy foot, spears, skirmishers) within 240 of him, dead 3 s or
     more and never raised before, whose regiment still stands, get up with 40% of their hit
-    points and go back into their files: at most 0.8% of the host's start a time (at least one).
+    points and go back into their files: at most 0.8% of the host's start a time (at least one, never more than 8 figures: v15).
     `Soldier.roseAt` marks them (the renderer plays their fall backwards, with a green
     grave-light); `SideResult.risen` counts them, and dead + fled + alive still make the start.
 - **Undead: the dead know no fear** (built in battle v12; `fearless` in `battle.ts`, `UNDEAD` in
@@ -157,6 +157,9 @@ faction; ± is one standard error (50%/√n).
 | Samurai vs Templar, v12 | 54.0 | 47.0 | 40.0 | 46.3 |
 | Samurai vs Templar, v13 | 49.0 | 55.5 | 44.3 | 44.3 |
 | Samurai vs Templar, v14 | 52.0 | 57.0 | 57.1 | 53.6 |
+| Undead vs Templar, v15 | 56.0 | 46.0 | 49.0 | 67.0 |
+| Undead vs Samurai, v15 | 39.0 | 45.0 | 56.0 | 67.0 |
+| Samurai vs Templar, v15 | 43.0 | 52.0 | 55.0 | 55.0 |
 
 200 battles a cell at 250 and 500 (±3.5%), 140 at 1500 and 2800 in v13 (±4.2%; v12: 80, ±5.6%).
 Mirrors (v13): Templar 48.8% (250 a side, 400 seeds), 51.0% (500, 200); Samurai and Undead 50.0%
@@ -167,6 +170,16 @@ v14 (battle cohesion, `docs/art-references/battle-cohesion.md` §6; samurai kata
 battle counts. Mirror (Templar): 49.0% (250 a side, 400 seeds), 51.5% (500, 400 seeds; 57.0% over the first 200), 49.0% (1000, 200). No battle ran to the time limit;
 the longest was 315 s; means 110–159 s. Out of the 45–55% band: undead vs samurai at 500 (37.0%, z −3.7) and
 2800 (59.3%), undead vs Templar at 250 and 1500 (43–44%), samurai vs Templar at 500 and 1500 (57%).
+
+v15 (the sweep after v14: the general's household no longer rides into the middle of any block
+whose bounding circle comes within 40, so the Lich-Marshal, who fell in over half of all battles
+and took his host with him, lives through most of them; raising capped at 8 figures a pulse;
+daimyō aura 1.35×; samurai curl and surge 1): 100 battles a cell (±5%). Out of the 45–55% band:
+the undead win two thirds of battles of 2800 a side (the cause was not found: battles of 2800 run
+about 200 s against 180 s at 1500, and the raising, now at most 3% of the host in them, is not it);
+the samurai beat the undead 61% at 250 and lose 57% to the Templars there; undead vs Templar at
+250 and undead vs samurai at 1500 are at 56%. No battle ran to the time limit. Mirror (Templar): 51.5%
+(500 a side, 200 seeds), 49.0% (250, 200 seeds).
 
 ## Palettes
 
