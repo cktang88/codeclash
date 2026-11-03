@@ -584,6 +584,14 @@ export class Battle {
   /** Figures per class at the start, per team. */
   readonly startFigures: [Counts, Counts] = [emptyCounts(), emptyCounts()];
   tick = 0;
+  /**
+   * Which side goes first on even ticks (0: team 0), drawn from the seed. The sides take turns
+   * to go first, tick by tick; but two equal armies march in step, so the lines meet on a tick
+   * of the same parity every time for the same armies, and whoever went first on it struck the
+   * first blows. With a fixed order that handed one side (which one depended on the armies'
+   * size) up to two thirds of equal fights.
+   */
+  readonly parity: number;
   result: BattleResult | null = null;
   commander: [number, number] = [-1, -1];
   commanderFell: [boolean, boolean] = [false, false];
@@ -646,6 +654,7 @@ export class Battle {
     if (given.version !== BATTLE_VERSION) throw new BattleVersionError(given.version);
     const setup = (this.setup = sanitize(given));
     this.rng = new Rng(mixSeed(setup.seed, SEED_SALT));
+    this.parity = mixSeed(setup.seed, SEED_SALT, 9001) & 1;
     this.generals = [new General(0, setup.seed), new General(1, setup.seed)];
     this.scale = scaleFor(setup.armies[0].counts, setup.armies[1].counts);
     this.stats = [factionStats(setup.armies[0].faction), factionStats(setup.armies[1].faction)];
@@ -1042,12 +1051,12 @@ export class Battle {
     // the first had, and the Generals were 0.7 s apart: one side reacted to the other's moves
     // sooner, and it won equal fights 60-75% of the time.)
     if (this.tick % 15 === 0) {
-      const first = (this.tick / 15) % 2;
+      const first = (this.tick / 15 + this.parity) % 2;
       this.generalThink(first);
       this.generalThink(1 - first);
     }
     const regs = this.regiments;
-    const up = this.tick % 2 === 0;
+    const up = (this.tick + this.parity) % 2 === 0;
     for (let q = 0; q < regs.length; q++) {
       const r = regs[up ? q : regs.length - 1 - q]!;
       if ((this.tick + r.phase) % 5 === 0) this.think(r);
@@ -1055,13 +1064,14 @@ export class Battle {
     for (let i = 0; i < regs.length; i++) this.moveAnchor(regs[i]!);
     const d = this.d;
     const n = this.n;
-    // Blows land in turn: alternate which side's men act first, so neither strikes first every tick.
-    if (this.tick % 2 === 0) {
+    // Blows land in turn: alternate which side's men act first, so neither strikes first every
+    // tick (and which goes first on even ticks is drawn: see `parity`).
+    if ((this.tick + this.parity) % 2 === 0) {
       for (let i = 0; i < n; i++) if (d.state[i]! <= State.Routing) this.act(i);
     } else {
       for (let i = n - 1; i >= 0; i--) if (d.state[i]! <= State.Routing) this.act(i);
     }
-    if (this.tick % 2 === 0) {
+    if ((this.tick + this.parity) % 2 === 0) {
       for (let i = 0; i < n; i++) if (d.state[i]! <= State.Routing) this.move(i);
     } else {
       for (let i = n - 1; i >= 0; i--) if (d.state[i]! <= State.Routing) this.move(i);
