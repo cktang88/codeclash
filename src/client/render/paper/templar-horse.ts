@@ -410,12 +410,19 @@ const RIDE_BACKHAND: Author = (rw) => ({
   },
   dw: { spine: T([0, 0], [3, 8], [5, -6], [6, -12], [8, -10], [11, 0]), head: T([0, 0], [6, -4], [11, 0]) },
 });
-/** The point: the sword reversed overhand, the fist by the ear, stabbed straight down along the blade at a man on foot; pulled back up. */
-const RIDE_POINT: Author = (rw, _f, A) => {
-  const P: P2 = [-0.3, -1.1], d = 50;
+/**
+ * The point: the sword raised overhand, the fist above the ear, then stabbed long and down along
+ * the blade at a man on foot beside the horse's shoulder; the rider leans out over the neck and
+ * stands in the stirrups (the hips up and forward) to give it reach; pulled back up.
+ */
+const RIDE_POINT: Author = (rw, f, A) => {
+  // Seen from the front (SE) the blade crosses the white neck: it drops steeper, so the point
+  // ends below the neck's line, at the man beside the horse's chest.
+  const P: P2 = [-0.2, -1.5], d = f === 'ne' ? 62 : 50;
   return {
-    w: fistPath(rw, A!, 11, [[1, [0, -0.4], -1, 120], [2, P, -1, d], [3, on(P, d + 180, 0.4), -1, d], [4, on(P, d, 2.0), -1, d], [5, on(P, d, 4.0), -1, d], [6, on(P, d, 3.9), -1, d], [7, on(P, d, 1.4), -1, d], [8, P, -1, d], [10, [-0.4, 0.5], 1, 110]]),
-    dw: { spine: T([0, 0], [3, 6], [5, -16], [6, -16], [8, -6], [11, 0]), head: T([0, 0], [5, -8], [6, -8], [11, 0]) },
+    w: fistPath(rw, A!, 11, [[1, [0, -0.6], -1, 120], [2, P, -1, d], [3, on(P, d + 180, 0.4), -1, d], [4, on(P, d, 2.6), -1, d], [5, on(P, d, 5.6), -1, d], [6, on(P, d, 5.5), -1, d], [7, on(P, d, 2.1), -1, d], [8, P, -1, d], [10, [-0.4, 0.5], 1, 110]]),
+    dw: { spine: T([0, 0], [3, 6], [5, -34], [6, -34], [8, -10], [11, 0]), head: T([0, 0], [5, 4], [6, 4], [11, 0]) },
+    tAdd: { pelvis: [T([0, 0], [3, -0.1], [5, 0.9], [6, 0.9], [8, 0.2], [11, 0]), T([0, 0], [3, 0], [5, -0.35], [6, -0.35], [8, 0], [11, 0])] },
   };
 };
 const STAB: Author = (rw) => ({
