@@ -165,9 +165,11 @@ export const UNDEAD = {
   /**
    * The host is spent (the army breaks, and crumbles) when fewer than this share of its men
    * stand, or fewer than `remnant` against `remnantOdds` times as many: no fear, but not
-   * enough of it left to hold the field.
+   * enough of it left to hold the field. (0.08 until v16: once the Lich-Marshal lived through
+   * most battles, two hosts of the dead at 2800 a side ground on to the time limit in one battle
+   * in eight.)
    */
-  spent: 0.08,
+  spent: 0.15,
   remnant: 0.2,
   remnantOdds: 2,
 } as const;

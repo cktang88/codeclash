@@ -130,7 +130,7 @@ design. The ticker tells each doctrine's moment (event `doctrine`).
   Colossus 80%, `COLOSSUS_HP`; the trebuchet, timber, unchanged), which replaced the stand-in
   HeavyInfantry morale ×1.05 and Colossus hp ×1.05 tweaks. If the Lich-Marshal falls, the whole
   host crumbles: every man loses 2% of his hit points a second and fights at -4 attack, -3
-  defence. An undead army is spent (and loses) under 8% standing, or under 20% against twice as
+  defence. An undead army is spent (and loses) under 15% standing (8% until v16), or under 20% against twice as
   many, and crumbles where it stands rather than running. The proposed "below 15 morale a
   regiment crumbles at 1% hp/s" was dropped: with no fear there is no morale to fall below.
   Balance (`pnpm fairness --factions undead,templar` and `undead,samurai`, 200 seeds both ways
