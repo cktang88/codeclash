@@ -8,6 +8,7 @@ import { BattleScene, MAX_ZOOM } from '../render/scene.ts';
 import { hsl } from '../render/sprites.ts';
 import { n } from '../format.ts';
 import { BATTLE_SPEEDS, SpeedControls } from './SpeedControls.tsx';
+import { canvasSize } from './canvasSize.ts';
 
 interface SideLive {
   fighting: number;
@@ -131,18 +132,61 @@ export function BattleView(props: {
         default: return '';
       }
     };
+    // The canvas in device pixels, so each of its pixels is a whole number of the screen's: the
+    // holder's size in device px (exact where the browser reports it; it also reports a change of
+    // devicePixelRatio, a window dragged to another screen or a page zoom, with no layout change).
+    // Above 2 device px per CSS px (phones) the canvas takes every k-th: k = 2 on a 3x screen, and
+    // the browser shows each canvas pixel as exactly k × k device pixels (not 1.5 × 1.5).
+    const holder = holderRef.current!;
+    let devW = 0;
+    let devH = 0;
+    const measureHolder = () => {
+      const r = holder.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      devW = Math.round(r.width * dpr);
+      devH = Math.round(r.height * dpr);
+    };
     const resize = () => {
-      const dpr = Math.min(2, window.devicePixelRatio || 1);
-      const w = Math.max(1, Math.round(canvas.clientWidth * dpr));
-      const h = Math.max(1, Math.round(canvas.clientHeight * dpr));
-      // Setting a canvas's size, even to the same, clears it and reallocates its buffers (the
-      // observer also fires once on observe, right after the call above).
+      const { w, h, cssW, cssH } = canvasSize(devW, devH, window.devicePixelRatio || 1);
+      // Setting a canvas's size, even to the same, clears it and reallocates its buffers.
       if (canvas.width !== w) canvas.width = w;
       if (canvas.height !== h) canvas.height = h;
+      // Exactly w·k × h·k device px (100% of the holder could be a device px more or less, and
+      // the browser would stretch the whole picture by it).
+      const cw = `${cssW}px`;
+      const ch = `${cssH}px`;
+      if (canvas.style.width !== cw) canvas.style.width = cw;
+      if (canvas.style.height !== ch) canvas.style.height = ch;
     };
+    measureHolder();
     resize();
-    const ro = new ResizeObserver(resize);
-    ro.observe(canvas);
+    const ro = new ResizeObserver((entries) => {
+      const e = entries[entries.length - 1]!;
+      const box = e.devicePixelContentBoxSize?.[0];
+      measureHolder();
+      // The exact device size where the browser gives one that agrees with the layout's (an
+      // emulated devicePixelRatio, as in headless test runs, reports CSS px there).
+      if (box && Math.abs(box.inlineSize - devW) <= 1 && Math.abs(box.blockSize - devH) <= 1) {
+        devW = box.inlineSize;
+        devH = box.blockSize;
+      }
+      resize();
+    });
+    try {
+      ro.observe(holder, { box: 'device-pixel-content-box' });
+    } catch {
+      ro.observe(holder);
+    }
+    // Where the observer cannot see device pixels (Safari), a change of devicePixelRatio alone.
+    let mq: MediaQueryList | null = null;
+    const onDpr = () => {
+      mq?.removeEventListener('change', onDpr);
+      mq = typeof matchMedia === 'function' ? matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`) : null;
+      mq?.addEventListener('change', onDpr);
+      measureHolder();
+      resize();
+    };
+    onDpr();
 
     const loop = (now: number) => {
       // A frame's timestamp can precede the performance.now() taken when the effect ran: never step backwards
@@ -224,6 +268,7 @@ export function BattleView(props: {
     return () => {
       cancelAnimationFrame(raf);
       ro.disconnect();
+      mq?.removeEventListener('change', onDpr);
       scene.dispose(true);
       canvas.remove();
       if (canvasRef.current === canvas) canvasRef.current = null;
