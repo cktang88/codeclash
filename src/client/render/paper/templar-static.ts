@@ -612,6 +612,8 @@ export interface SGear {
   far?: { el: P2; wr: P2; draw?: SItem };
   /** Last, over everything. */
   last?: (c: Paper) => void;
+  /** A sword sheathed at the far (left) hip, under the body (`drawn`: the scabbard empty). */
+  hip?: (c: Paper, drawn: boolean) => void;
 }
 
 /**
@@ -1168,10 +1170,10 @@ export function riderRest(k: SKit, g: SGear): RiderRest {
   void k;
 }
 export type RiderPiece =
-  | 'rThighN' | 'rShinN' | 'rFootN' | 'cloak' | 'behind' | 'upperArmF' | 'forearmF' | 'handF' | 'farItem'
+  | 'rThighN' | 'rShinN' | 'rFootN' | 'cloak' | 'behind' | 'hip' | 'upperArmF' | 'forearmF' | 'handF' | 'farItem'
   | 'torso' | 'fur' | 'camail' | 'head' | 'front' | 'upperArmN' | 'forearmN' | 'handN' | 'pauldron' | 'weapon' | 'last';
 export const RIDER_PIECES: readonly RiderPiece[] = [
-  'rThighN', 'rShinN', 'rFootN', 'cloak', 'behind', 'upperArmF', 'forearmF', 'handF', 'farItem',
+  'hip', 'rThighN', 'rShinN', 'rFootN', 'cloak', 'behind', 'upperArmF', 'forearmF', 'handF', 'farItem',
   'torso', 'fur', 'camail', 'head', 'front', 'upperArmN', 'forearmN', 'handN', 'pauldron', 'weapon', 'last',
 ];
 
@@ -1202,6 +1204,7 @@ export function riderPiece(c: Paper, k: SKit, g: SGear, p: RiderPiece, R: RiderR
     }
     case 'cloak': if (k.cloak) riderCloak(c, k.shadeFrom, back); return;
     case 'behind': g.behind?.(c); return;
+    case 'hip': g.hip?.(c, false); return;
     case 'upperArmF': if (farArm) upperArmS(c, R.shF, R.elF, k, true); return;
     case 'forearmF': if (farArm) forearmS(c, R.elF, R.wrF, k, true); return;
     case 'handF': if (farArm) handS(c, R.elF, R.wrF, k, true); return;
@@ -1263,6 +1266,24 @@ const MARSHAL: SKit = { ...KNIGHT, helm: 'gilded', belt: TM.gold };
 const TURCOPOLE: SKit = { helm: 'turban', body: TM.gambeson, coat: null, camail: TM.mailDk, sleeve: TM.gambeson, hand: TM.leather, legs: TM.wool, boots: TM.leather };
 const HORSE_ARCHER: SKit = { helm: 'turban', body: TM.wool, coat: null, camail: null, sleeve: TM.wool, hand: TM.flesh, legs: TM.wool, boots: TM.leather, belt: TM.team };
 
+/**
+ * The knight's arming sword sheathed at his left (far) hip, the side away from us in both drawn
+ * views: the belt holds the scabbard's throat at the hip and it hangs steeply back and down past
+ * the saddle (not parallel to the lance), the chape below the near thigh (the Met's c. 1250 knight aquamanile, 468633;
+ * Oakeshott's cruciform hilt from the Met's c. 1400 sword, 23367). Under the body, so only the
+ * hilt's end and the scabbard behind the rider show; `drawn`: the hilt gone, the scabbard empty.
+ */
+function hipSword(c: Paper, drawn: boolean): void {
+  const throat: P2 = [0.55, -6.9], chape: P2 = [-1.55, -2.35];
+  vol(c, throat, chape, [[0, 0.3], [0.85, 0.26], [1, 0.2]], TM.leather, { tone: 1, detail: (_x, _y, _u, v) => (v > 0.9 ? code(TM.steel, 1) : v < 0.07 ? code(TM.steel, 2) : -1) });
+  if (drawn) return;
+  // The hilt forward and up out of the throat: the cross, the leather grip, the wheel pommel.
+  const g0: P2 = [1.25, -7.15], g1: P2 = [2.15, -7.75];
+  vol(c, [0.85, -7.6], [1.6, -6.65], [[0, 0.16], [1, 0.16]], TM.steel, { tone: 2 });
+  vol(c, g0, g1, [[0, 0.17], [1, 0.15]], TM.leather, { tone: 2 });
+  blob(c, [2.35, -7.9], 0.24, 0.24, TM.steel, { tone: 3 });
+}
+
 export const MOUNTED: Record<number, { kit: SKit; horse: SHorse; gear: SGear; dark: boolean; cls?: ValueClass }> = {
   5: {
     kit: TURCOPOLE,
@@ -1293,6 +1314,8 @@ export const MOUNTED: Record<number, { kit: SKit; horse: SHorse; gear: SGear; da
     gear: {
       front: (c) => kiteS(c, [2.1, -8.6], 3.8, 5.9, false, true, -6),
       near: { el: [-2.8, -8.9], wr: [-1.8, -7.3], draw: (c, h, d) => void spear(c, h, 135 + d, c.L < 2 ? 22 : 12.5, 3.5, { head: 1.3, pennon: 0.3, w: 0.36 }) },
+      // The sword for when the lance breaks.
+      hip: hipSword,
     },
   },
   10: {

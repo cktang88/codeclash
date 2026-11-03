@@ -271,14 +271,71 @@ Contact sheets (ours): `docs/screenshots/anim-weapons/templar/`:
 - `k2/k3/k4/k6-shoot-L8.png`: the javelin throw, the high bow, the crossbow aim-loose-span and the
   horse bow.
 
-What is still short:
-- The angles are the research's estimates, checked by eye, not against video.
-- In SE the Sergeant's sword thrust is partly hidden behind his own kite until it clears it at the
-  strike.
-- The Marshal's point is short in SE.
-- The trot has no suspension: it is a jog trot, since the walk plate's stances are long.
-- The knights carry no sword, so there is no sword blow for them.
-- Archers, crossbows and horse archers keep one melee blow each.
+What was still short after this round (all five fixed in the polish round below):
+- The angles are the research's estimates, checked by eye, not against video (still true).
+- In SE the Sergeant's sword thrust was partly hidden behind his own kite until the strike.
+- The Marshal's point was short in SE.
+- The trot had no suspension: it was a jog trot, since the walk plate's stances are long.
+- The knights carried no sword, so there was no sword blow for them.
+- Archers, crossbows and horse archers kept one melee blow each.
+
+## Polish round: the blade over the shield, the knights' sword, second blows, the trot (November 2026)
+
+### References added
+
+| Source | Licence | Taken from it |
+|---|---|---|
+| Met 468633, *Aquamanile in the form of a mounted knight*, c. 1250: [image](https://images.metmuseum.org/CRDImages/md/web-large/DP122618.jpg) ([page](https://www.metmuseum.org/art/collection/search/468633)) | Public domain (Met Open Access); study copy in `references/knight-sword/` | A great-helmed knight with the sword belt low on the hips and the scabbard hanging steeply at his left hip beside the saddle, not slung back along the horse. So the Knight-Brothers' scabbard hangs from the far hip, steep, past the saddle. |
+| Met 461052, *Aquamanile in the form of a knight on horseback*, c. 1350: [image](https://images.metmuseum.org/CRDImages/rl/web-large/DP123982.jpg) ([page](https://www.metmuseum.org/art/collection/search/461052)) | Public domain | The sword arm raised high above the helm, the blade (broken off) held up behind the head: the wind-up of the mounted forehand cut. Frame 4 of the sword blow. |
+| Met 32832, *Initial A with the Battle of the Maccabees*, c. 1360-70: [image](https://images.metmuseum.org/CRDImages/md/web-large/DP164982.jpg) ([page](https://www.metmuseum.org/art/collection/search/32832)) | Public domain | Mounted men-at-arms cutting with arming swords: the blade held up and back at about 45 degrees over the shoulder, then falling on the diagonal; the shield kept on the bridle arm. The cut's arc and the shield staying put. |
+| Met 23367, *Sword*, c. 1400: [image](https://images.metmuseum.org/CRDImages/aa/web-large/DT759.jpg) ([page](https://www.metmuseum.org/art/collection/search/23367)) | Public domain | The cruciform hilt: a straight cross a little curved, a leather grip, a wheel pommel, the blade about 4.5 grips long. The sheathed hilt's three parts at level 8. |
+| Met 27619, *Sword pommel with the arms of Pierre de Dreux*, c. 1240-50: [image](https://images.metmuseum.org/CRDImages/aa/web-large/DP255030.jpg) ([page](https://www.metmuseum.org/art/collection/search/27619)) | Public domain | The disc (wheel) pommel of the Templars' own century, drawn as a round steel blob. |
+| Muybridge, *Abe Edgington trotting* and *Occident* (1878) | Public domain (known plates; not downloaded this round) | The trot's diagonal pairs and the brief moment with all four hooves off between them. Our walk plate cannot give it, so the trot is authored. |
+| `weapon-attacks.md` T1 (the shield stays on the chest, the thrust over the rim), T4-T5 and T7 (missile men's last resorts), T8 P4 (the sword after the lance) | Our notes | The blows' choice and timing. |
+
+Searches on Wikimedia Commons for the Maciejowski Bible's mounted cuts were rate-limited (HTTP 429)
+this round, so the Met's open-access objects stood in for the manuscript.
+
+### What changed
+
+| Unit | Before | Now |
+|---|---|---|
+| Sergeant-Brothers (0), blow 1 | The thrust's guard at the hip: in SE the blade ran behind the kite until the strike | **Over the rim**: the fist at the shoulder, elbow down, the blade laid level across the shield's top edge (frames 2-8) and driven straight out 3.8 units along its line; the shield eased down and in (-14 degrees at the strike). The blade reads in SE and NE in every frame. |
+| Marshal (10), blow 2 | The point at a man on foot drove 4.0 units from the ear and ended over the white neck in SE | The fist chambers higher and drives **5.6 units**; the rider leans out 34 degrees and rises in the stirrups (hips up and forward 0.9); in SE the blade drops at 50 degrees (62 in NE) so the point ends past the neck's line. |
+| Knight-Brothers (7) | No sword; blows couch, overarm, underarm | Key art: an **arming sword sheathed at the far hip** (scabbard steep past the saddle, chape below the thigh, hilt under the shield). Blow 2 is now the **sword**: the lance lifted upright and handed to the bridle hand (1-2), the sword drawn from the hip (2-3) into a high wind-up (4), a forehand cut with a smear (5-7), follow-through low (8), sheathed (9), the lance taken back (10). Slots swap `weapon`/`sword`, `farItem`/`farLance` and `hip`/`hipEmpty` from frame 2 to 9, and the pennon's fly bones are hidden while the lance is in the far hand (its pennon is drawn on the lance there). Every swing begins and ends with the lance carried, so blows chain in any order. |
+| Pilgrim Archers (3) | One blow (fist) | + **bow-stave jab**: the bow turned so its upper limb points at the face, rammed out 3.6 units along the stave with a step, pulled back and stood upright. |
+| Genoese Crossbows (4) | One blow (butt-stroke) | + **stirrup-end jab**: the crossbow levelled at the belly and rammed out along the stock so the iron stirrup strikes, the far hand forward under the prod. |
+| Turcopole Archers (6) | One blow (fist) | + **stave jab from the saddle**, driven down at 72 degrees at a man by the horse's shoulder, the rider leaning out. |
+| All Templar horses, walk | A jog trot re-timed from the walk plate, no suspension | An **authored working trot**: diagonal pairs (near fore + far hind, far fore + near hind) each planted 5 of 12 frames, the hoof sliding straight back while down; picked up already lifted and swung forward, the fore knee higher than the hock; **all four hooves off at frames 5 and 11** (2-3 px clear at level 4); the barrel lowest mid-stance, highest in the suspension, a 1.6-degree pitch. |
+
+### Critique rounds
+
+1. **Sergeant.** Moving the guard to the shoulder with the elbow raised (overhand) put the blade
+   over the shield in SE but stuck the elbow up in a hump in NE at the strike; with the elbow down
+   and the fist forward of the shoulder the arm straightens along the blade in both views.
+2. **Marshal.** Lengthening the drive alone left the blade over the white neck in SE (steel on
+   white): the reach is bounded by the arm, so the extra comes from the lean and the stirrups, and
+   SE drops steeper so the point leaves the neck's silhouette.
+3. **Knights.** The first scabbard ran back along the saddle at the lance's own angle and read as
+   part of the lance; it now hangs steeply. The first stave jab for the horse archer was the foot
+   jab, level: from the saddle it now points down at a man on foot. The crossbow's far hand rose
+   to the shoulder (looked like a raised fist); it now stays low under the prod.
+4. **Trot.** The first pass lifted only 0-1 px at the switch frames (the swing began on the
+   ground); the swing now starts already lifted (sin from 0.24 to 0.86 of a half turn), so both
+   switch frames clear the ground.
+
+Contact sheets, before and after, every frame, SE above NE, level 4 x2:
+`docs/screenshots/anim-weapons/polish/t-k0-sergeant-blows-*.png`, `t-k10-marshal-blows-*`,
+`t-k7-knights-blows-*`, `t-k3-archers-blows-*`, `t-k4-crossbows-blows-*`,
+`t-k6-horse-archers-blows-*`, `t-k7-knights-trot-*` and `t-k5-turcopoles-trot-*`.
+
+Still short:
+- The horse archers' bow is dark on the bay horse in SE, so the stave jab reads mostly in NE.
+- The stave jab's lower limb shows behind the archer in NE (a bow held at the grip has two limbs).
+- The sergeant's thrust now passes in front of the face in SE at the chamber (frames 2-3).
+- The knights' sheathed hilt is hidden by the kite in SE and the scabbard by the leg in NE; the
+  sword is seen mostly in the blow.
+- The trot is authored, not measured: no trot plate is in `motion/`.
 
 ## Performance
 

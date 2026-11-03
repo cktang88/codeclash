@@ -338,8 +338,8 @@ export function holdArm(skel: SkeletonData, hand: P2, deg: number, bob = 0, arm:
 export const LEG_RUN_ARMS = (skel: SkeletonData): Author => () => ({ w: holdArm(skel, [1.5, 1.9], 118, 3), dw: { upperArmF: T([0, 30]), forearmF: T([0, 26]) } });
 /** The ghoul's spear held low and level at port in both hands, point forward, the tip dipping late. */
 export const GHOUL_RUN_ARMS = (skel: SkeletonData): Author => () => ({ w: holdArm(skel, [1.7, 2.5], 98, 5) });
-/** The Arbalest's crossbow at port across the body, both hands on it. */
-export const ARB_RUN_ARMS = (skel: SkeletonData): Author => () => ({ w: holdArm(skel, [1.0, 2.3], 132, 4) });
+/** The Arbalest's crossbow at port, carried high before the chest so its prod stands clear of the body by the near shoulder, both hands on it. */
+export const ARB_RUN_ARMS = (skel: SkeletonData): Author => () => ({ w: holdArm(skel, [2.2, 1.3], 116, 4) });
 /** The thrower's javelin hand stays at the shoulder; the tip bobs. */
 export const THROWER_RUN_ARMS = (_skel: SkeletonData): Author => (rw) => ({ w: { weapon: T([0, rw.weapon! - 4], [3, rw.weapon! - 9], [6, rw.weapon! - 4], [9, rw.weapon! - 9], [12, rw.weapon! - 4]) } });
 
@@ -378,16 +378,27 @@ const RIDER_LOW = (skel: SkeletonData): Author => (rw) => ({
   dw: ride(3, 5, 9, -34),
 });
 /**
+ * The Death Knight's sword is drawn and sheathed inside each sword blow (undead-horse.ts
+ * SWORD_SLOTS): at frame 1 the near fist carries the upright lance across to the shield hand,
+ * which keeps it; at 2 the fist is on the hilt at the far hip, the blade still along the scabbard
+ * (back and down); then the blow. At 9 the blade goes back down the scabbard and at 10 the fist
+ * takes the lance again. The arm keys of those frames: [upperArmN, forearmN, weapon].
+ */
+const HAND_OVER = [44, 112, 180] as const;
+const AT_HIP = [16, 74, 334] as const;
+
+/**
  * Death Knights, the sword phase, blow 1: the heavy overhead cut (U8: Zornhut, a pause at the
- * apex, the weight in the fall): the sword heaved up and back over the shoulder (1-3), held at
- * the top two frames, the skull up (3-4); it falls through the horse's shoulder line with the
- * trunk (5-6), the follow-through held low by the stirrup (7-8); raised again (9-11).
+ * apex, the weight in the fall): the sword drawn from the hip (1-2) and heaved up and back over
+ * the shoulder, held at the top two frames, the skull up (3-4); it falls through the horse's
+ * shoulder line with the trunk (5-6), the follow-through held low by the stirrup (7-8); sheathed
+ * and the lance taken back (9-10).
  */
 const KNIGHT_OVERHEAD = (): Author => (rw) => ({
   w: {
-    upperArmN: R(rw.upperArmN!, 11, [1, 70], [2, 150], [3, 166], [4, 166], [5, 128], [6, 72], [7, 30], [8, 26], [10, 0]),
-    forearmN: R(rw.forearmN!, 11, [1, 140], [2, 210], [3, 228], [4, 228], [5, 160], [6, 80], [7, 30], [8, 26], [10, 40]),
-    weapon: R(rw.weapon!, 11, [1, 180], [2, 236], [3, 252], [4, 252], [5, 170], [6, 76], [7, 44], [8, 40], [10, 120]),
+    upperArmN: R(rw.upperArmN!, 11, [1, HAND_OVER[0]], [2, AT_HIP[0]], [3, 166], [4, 166], [5, 128], [6, 72], [7, 30], [8, 26], [9, AT_HIP[0]], [10, HAND_OVER[0]]),
+    forearmN: R(rw.forearmN!, 11, [1, HAND_OVER[1]], [2, AT_HIP[1]], [3, 228], [4, 228], [5, 160], [6, 80], [7, 30], [8, 26], [9, AT_HIP[1]], [10, HAND_OVER[1]]),
+    weapon: R(rw.weapon!, 11, [1, HAND_OVER[2]], [2, AT_HIP[2]], [3, 252], [4, 252], [5, 170], [6, 76], [7, 44], [8, 40], [9, AT_HIP[2]], [10, HAND_OVER[2]]),
   },
   dw: {
     spine: T([0, 0], [2, 8], [3, 12], [4, 12], [5, -10], [6, -28], [7, -32], [8, -32], [10, -8], [11, 0]),
@@ -396,12 +407,12 @@ const KNIGHT_OVERHEAD = (): Author => (rw) => ({
     upperArmF: T([0, 0], [3, 8], [6, -8], [11, 0]),
   },
 });
-/** Death Knights, blow 2: the diagonal forehand cut: the blade drawn back flat over the shoulder (2-3), held (4), cut down and across through the line of the enemy's neck (5-6), through past the horse's neck (7), held, back up (9-11). */
+/** Death Knights, blow 2: the diagonal forehand cut: the sword drawn from the hip (1-2) and laid back flat over the shoulder (3), held (4), cut down and across through the line of the enemy's neck (5-6), through past the horse's neck (7), held (8), sheathed and the lance taken back (9-10). */
 const KNIGHT_DIAGONAL = (): Author => (rw) => ({
   w: {
-    upperArmN: R(rw.upperArmN!, 11, [2, 110], [3, 120], [4, 120], [5, 112], [6, 80], [7, 46], [8, 44], [10, 10]),
-    forearmN: R(rw.forearmN!, 11, [2, 210], [3, 236], [4, 236], [5, 160], [6, 96], [7, 64], [8, 60], [10, 50]),
-    weapon: R(rw.weapon!, 11, [2, 250], [3, 268], [4, 268], [5, 170], [6, 104], [7, 58], [8, 52], [10, 130]),
+    upperArmN: R(rw.upperArmN!, 11, [1, HAND_OVER[0]], [2, AT_HIP[0]], [3, 120], [4, 120], [5, 112], [6, 80], [7, 46], [8, 44], [9, AT_HIP[0]], [10, HAND_OVER[0]]),
+    forearmN: R(rw.forearmN!, 11, [1, HAND_OVER[1]], [2, AT_HIP[1]], [3, 236], [4, 236], [5, 160], [6, 96], [7, 64], [8, 60], [9, AT_HIP[1]], [10, HAND_OVER[1]]),
+    weapon: R(rw.weapon!, 11, [1, HAND_OVER[2]], [2, AT_HIP[2]], [3, 268], [4, 268], [5, 170], [6, 104], [7, 58], [8, 52], [9, AT_HIP[2]], [10, HAND_OVER[2]]),
   },
   dw: { ...ride(4, 6, 10, -26), upperArmF: T([0, 0], [4, 10], [6, -8], [11, 0]) },
 });

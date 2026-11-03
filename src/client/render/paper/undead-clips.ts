@@ -13,7 +13,7 @@ import { Anim } from '../contract.ts';
 import type { Facing } from './facing.ts';
 import { BREATH, EASE_IN, evaluate, sampleAnimation, sampleClip, type AnimationData, type AnimEvent, type BoneTimeline, type Clip, type Key, type SkeletonData } from './skeleton.ts';
 import { addDrops, facingClip, lagCloth, lastFrame, mapFacings, mocapKeys, overlayKeys, restWorld, type ClipSet, type Drop, type KP, type LagSpec, type MocapOpts, type Track } from './templar-rig.ts';
-import { BLOCK, CUT, HIT, R, T, type Author, type Tracks } from './templar-clips.ts';
+import { BLOCK, CUT, HIT, osc, R, T, type Author, type Tracks } from './templar-clips.ts';
 import { BLOWS, runKeys as authoredKeys, type RunStyle } from './undead-blows.ts';
 
 export type FootAttack = 'cut' | 'lunge' | 'hurl' | 'cast' | 'butt' | 'loose';
@@ -195,14 +195,17 @@ const LUNGE: Author = (rw) => ({
  * back at shoulder height with the javelin along the forearm and the trunk leans back over the
  * bent rear leg (1-3); the front leg blocks, the hips stop and the chest whips over them (4); the
  * javelin leaves the hand high in front of the head, the jaw gaping (5); the arm comes down across
- * the body (6-8); the hand goes back over the shoulder for the next one (9-11).
+ * the body (6-8); the hand goes up behind the shoulder to the fan on the back and draws the next
+ * one out point-up (9), brings it over the shoulder, turning it point-forward (10), and settles
+ * into the cocked carry (11). The javelin only ever turns a quarter a frame: it used to reappear
+ * point-forward in a raised fist in front of the face and swing back to the carry.
  */
 const HURL: Author = (rw) => ({
   w: {
-    upperArmN: R(rw.upperArmN!, 11, [1, 230], [2, 248], [3, 252], [4, 200], [5, 150], [6, 80], [8, 20], [10, 60]),
-    forearmN: R(rw.forearmN!, 11, [1, 250], [2, 262], [3, 264], [4, 215], [5, 130], [6, 60], [8, 30], [10, 140]),
+    upperArmN: R(rw.upperArmN!, 11, [1, 230], [2, 248], [3, 252], [4, 200], [5, 150], [6, 80], [8, 20], [9, -58], [10, -44]),
+    forearmN: R(rw.forearmN!, 11, [1, 250], [2, 262], [3, 264], [4, 215], [5, 130], [6, 60], [8, 30], [9, 196], [10, 180]),
     // The javelin's point rises through the delivery and leaves the hand ~35° up (weapon-attacks.md T3: a 45° arc).
-    weapon: R(rw.weapon!, 11, [1, 104], [3, 110], [4, 122], [5, 128], [6, 128], [10, 104]),
+    weapon: R(rw.weapon!, 11, [1, 104], [3, 110], [4, 122], [5, 128], [6, 128], [8, 128], [9, 168], [10, 134]),
   },
   dw: {
     spine: T([0, 0], [2, 14], [3, 16], [4, 2], [5, -14], [6, -24], [8, -22], [10, -6], [11, 0]),
@@ -302,7 +305,7 @@ const CAST: Author = (rw) => ({
   tAdd: { pelvis: [T([0, 0], [3, -0.2], [5, 0.35], [7, 0.4], [10, 0], [11, 0]), T([0, 0])] },
 });
 export const SHOOTS: Record<'javelin', { clip: string; o: MocapOpts; a: Author; extra: number[]; ev: AnimEvent[]; warp: number[]; hide?: [string, number, number] }> = {
-  javelin: { clip: 'javelin', o: { torso: 0.6, travel: 0.6, feet: 0.8 }, a: HURL, extra: [1, 2, 3, 4, 5, 6, 8, 10], ev: [{ f: 4, name: 'smear', len: 1, bone: 'weapon' }, { f: 5, name: 'release' }], warp: [0, 1, 2, 3, 3, 5, 6, 7, 8, 9, 10, 11], hide: ['weapon', 5, 10] },
+  javelin: { clip: 'javelin', o: { torso: 0.6, travel: 0.6, feet: 0.8 }, a: HURL, extra: [1, 2, 3, 4, 5, 6, 8, 9, 10], ev: [{ f: 4, name: 'smear', len: 1, bone: 'weapon' }, { f: 5, name: 'release' }], warp: [0, 1, 2, 3, 3, 5, 6, 7, 8, 9, 10, 11], hide: ['weapon', 5, 9] },
 };
 
 const ATTACKS: Record<FootAttack, { clip: string; o: MocapOpts; a: Author; extra: number[]; ev: AnimEvent[]; warp: number[] }> = {
@@ -449,10 +452,42 @@ export function footClips(skel: SkeletonData, s: FootClipSpec): ClipSet & { atta
     const rw = restWorld(skel, f);
     const arms = s.runArms ? s.runArms(skel)(rw, f) : {};
     const head: Author = () => ({ dw: { head: T([0, s.tilt]), jaw: T([0, -16]) } });
-    return { keys: overlayKeys(authoredKeys(r, f, 1), both(both(posture(s, 0.6, false), head), () => arms)(rw, f)), ev: [{ f: 0, name: 'step' }, { f: 6, name: 'step' }] as AnimEvent[] };
+    // `port`: a weapon carried at the port (the arbalest's crossbow takes a lit rim).
+    return { keys: overlayKeys(authoredKeys(r, f, 1), both(both(posture(s, 0.6, false), head), () => arms)(rw, f)), ev: [{ f: 0, name: 'step' }, { f: 6, name: 'step' }, { f: 0, name: 'port', len: 12 }] as AnimEvent[] };
   };
+  /**
+   * The wraith's run is a flight, not a faster glide (the CC0 Ars Notoria ghost and the floating
+   * soul in docs/art-references/undead-animation.md): the robe lifts clear of the ground and the
+   * body pitches forward over it, the legs trailing back up under the hem, the free arm swept back
+   * and trailing a frame late; the robe and cloak stream straight back; it surges on twice a cycle
+   * (forward and up, then settling), and leaves ghost pixels behind it (the `ghost` event, drawn by
+   * the kinds' `ghost` extra).
+   */
+  const flyA: Author = () => {
+    const up = s.float ? -1.1 : -0.8;
+    const ys = (a: number): Track => T([0, up + a * 0.5], [3, up], [6, up + a * 0.5], [9, up], [12, up + a * 0.5]);
+    const trailArm: Record<string, Track> = s.farHeld
+      // The bow arm swept back and low, the nocked bow trailing behind the robe (the string hand
+      // stays on the nock, by its IK, so both arms trail).
+      ? { upperArmF: osc(-22, 5, 0, 12, 2), forearmF: osc(-8, 6, 1, 12, 2), itemF: osc(70, 4, 1.5, 12, 2) }
+      // The staff carried slanting forward like a lance; the witch-hand swept back, trailing.
+      : { upperArmN: T([0, 24]), forearmN: T([0, 74]), weapon: T([0, 150]), upperArmF: osc(-50, 7, 0, 12, 2), forearmF: osc(-38, 9, 1, 12, 2) };
+    return {
+      w: trailArm,
+      dw: { spine: T([0, -36]), chest: T([0, -12]), head: T([0, -2]), jaw: T([0, -12]) },
+      tAdd: {
+        pelvis: [T([0, 0.15], [3, 0.55], [6, 0.15], [9, 0.55], [12, 0.15]), ys(0.35)],
+        footTargetN: [T([0, -1.4], [6, -1.9], [12, -1.4]), ys(0.2).map(([f, v]) => [f, v - 0.5] as [number, number])],
+        footTargetF: [T([0, -1.9], [6, -1.4], [12, -1.9]), ys(0.2).map(([f, v]) => [f, v - 0.7] as [number, number])],
+      },
+    };
+  };
+  const flyKeys = (f: Facing) =>
+    mk(skel, f, 'idle', { ref: 'first', torso: 0, travel: 0, feet: 0 }, both(flyA, posture(s, 0.5, false)), [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+  const ghostEv: AnimEvent[] = [{ f: 0, name: 'step' }, ...Array.from({ length: 12 }, (_, i) => ({ f: i, name: 'ghost', int: i }))];
+  const showGhost = (c: Clip): Clip => mapFacings(c, (a) => ({ ...a, slots: { ...(a.slots ?? {}), ghost: [{ f: 0, v: 'ghost' }] } }));
   const run = s.glide
-    ? fc('run', 12, true, glideKeys(-26, 0.5, 0.22, 4, -14), [{ f: 0, name: 'step' }], 2.6)
+    ? showGhost(fc('run', 12, true, flyKeys, ghostEv, 3.2))
     : s.run
       ? fc('run', 12, true, authoredRun(s.run), undefined, 1.4, s.runWarp)
       : fc('run', 12, true, runKeys, undefined, 1, [0, 1, 2, 2, 4, 5, 6, 7, 8, 8, 10, 11]);

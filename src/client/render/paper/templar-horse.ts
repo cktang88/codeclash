@@ -16,9 +16,9 @@ import {
   BREATH, bonesFromJoints, dirStep, EASE, restPose, smearPart, skeletonKind, type Posed,
   type AnimationData, type AnimEvent, type AttachmentSet, type Clip, type DrawCtx, type JointDef, type PartXf, type SkeletonData, type SkeletonRig, type SlotData,
 } from './skeleton.ts';
-import { armsOf, bowAuthor, CUT, fistPath, HIT, on, R, T, THRUST, UNDERHAND, cloth, type Arms, type Author, type Tracks } from './templar-clips.ts';
+import { armsOf, bowAuthor, CUT, fistPath, HIT, on, R, reach, T, THRUST, UNDERHAND, cloth, type Arms, type Author, type Tracks } from './templar-clips.ts';
 import { joints, neRest, PARENT, type FootSpec } from './templar-foot.ts';
-import { bow, paintAs, RIG_CLOTH, TM, type ValueClass } from './templar-parts.ts';
+import { bow, paintAs, pennon, RIG_CLOTH, sword, TM, type ValueClass } from './templar-parts.ts';
 import { at as atT, facingClip, lagCloth, lastFrame, mapFacings, memoSkin, overlayKeys, partMap, restWorld, skinMap, smooth01, type ClipSet, type KP, type LagSpec, type Track, type Weights } from './templar-rig.ts';
 import {
   CAPAR_PTS, HJ, hoofAt, HORSE_BODY, HORSE_FAR, HORSE_SCALE, horsePiece, MOUNTED, RIDER_PIECES, RIDER_SHIFT, riderPiece, riderRest, scaled, withMap,
@@ -35,8 +35,11 @@ void CAPAR_PTS;
  * 'thrust' (overarm, stabbed down over the horse's shoulder, as on the Bayeux Tapestry), 'under'
  * (underarm, driven forward and up from the hip). Swords: 'cut' (forehand), 'backhand' (rising
  * from the far side), 'point' (stabbed down at a man on foot). 'stab': the horse archer's fist.
+ * 'sword': a lancer's sword blow (the lance handed to the bridle hand, the sword drawn from the
+ * hip, a forehand cut, the sword sheathed and the lance taken back). 'stave': the horse archer's
+ * bow rammed out along its stave at a man on foot.
  */
-type RiderAttack = 'couch' | 'thrust' | 'under' | 'cut' | 'backhand' | 'point' | 'stab';
+type RiderAttack = 'couch' | 'thrust' | 'under' | 'cut' | 'backhand' | 'point' | 'stab' | 'sword' | 'stave';
 interface HorseSpec extends FootSpec {
   ride: RiderAttack;
   /** Every blow, blow 0 first (default: just `ride`). */
@@ -46,8 +49,8 @@ interface HorseSpec extends FootSpec {
 }
 const HORSE_SPECS: Record<number, HorseSpec> = {
   5: { nearDeg: 180, front: 'forearmF', neNear: 'mirror', neFar: 'shift', attack: 'thrust', shoot: null, brace: 'spear', die: 'back', ride: 'thrust', rides: ['thrust', 'under'], charge: 98 },
-  6: { farDeg: 168, front: 'chest', neNear: 'mirror', neFar: 'mirror', attack: 'punch', shoot: 'bow', brace: 'ready', die: 'back', ride: 'stab', charge: 0 },
-  7: { nearDeg: 135, front: 'forearmF', neNear: 'mirror', neFar: 'shift', attack: 'thrust', shoot: null, brace: 'spear', die: 'back', ride: 'couch', rides: ['couch', 'thrust', 'under'], charge: 96 },
+  6: { farDeg: 168, front: 'chest', neNear: 'mirror', neFar: 'mirror', attack: 'punch', shoot: 'bow', brace: 'ready', die: 'back', ride: 'stab', rides: ['stab', 'stave'], charge: 0 },
+  7: { nearDeg: 135, front: 'forearmF', neNear: 'mirror', neFar: 'shift', attack: 'thrust', shoot: null, brace: 'spear', die: 'back', ride: 'couch', rides: ['couch', 'thrust', 'sword'], charge: 96, smear: [2.4, 5.4] },
   10: { nearDeg: 135, farDeg: 180, front: 'chest', neNear: 'mirror', neFar: 'mirror', attack: 'cut', shoot: null, brace: 'ready', die: 'back', ride: 'cut', rides: ['cut', 'backhand', 'point'], charge: 120, smear: [2.4, 6.0] },
 };
 /** How high the horse archers aim (degrees): a shallower arc than the foot archers', shooting from the flank. */
@@ -133,11 +136,11 @@ const HPIECE_BONE: Record<HorsePiece, string> = {
 };
 const RPIECE_BONE = (s: FootSpec): Record<RiderPiece, string> => ({
   rThighN: 'thighN', rShinN: 'shinN', rFootN: 'footN', cloak: 'chest', behind: 'chest', upperArmF: 'upperArmF', forearmF: 'forearmF', handF: 'handF', farItem: 'itemF',
-  torso: 'pelvis', fur: 'chest', camail: 'chest', head: 'head', front: s.front === 'pelvis' ? 'chest' : s.front, upperArmN: 'upperArmN', forearmN: 'forearmN', handN: 'handN',
+  hip: 'pelvis', torso: 'pelvis', fur: 'chest', camail: 'chest', head: 'head', front: s.front === 'pelvis' ? 'chest' : s.front, upperArmN: 'upperArmN', forearmN: 'forearmN', handN: 'handN',
   pauldron: 'chest', weapon: 'weapon', last: 'chest',
 });
 const hs = (p: HorsePiece) => `h_${p}`;
-const RIDER_NE: readonly string[] = ['front', 'farItem', 'upperArmF', 'forearmF', 'handF', 'rThighN', 'rShinN', 'rFootN', 'torso', 'cloak', 'fur', 'camail', 'head', 'behind', 'upperArmN', 'forearmN', 'handN', 'pauldron', 'weapon', 'smear', 'last', 'flash'];
+const RIDER_NE: readonly string[] = ['front', 'farItem', 'upperArmF', 'forearmF', 'handF', 'hip', 'rThighN', 'rShinN', 'rFootN', 'torso', 'cloak', 'fur', 'camail', 'head', 'behind', 'upperArmN', 'forearmN', 'handN', 'pauldron', 'weapon', 'smear', 'last', 'flash'];
 const ORDER_SE = [...HORSE_FAR.map(hs), ...HORSE_BODY.map(hs), ...RIDER_PIECES, 'smear', 'flash'];
 const ORDER_NE = [...HORSE_FAR.map(hs), ...HORSE_BODY.map(hs), ...RIDER_NE];
 
@@ -278,6 +281,33 @@ function horseParts(k: SKit, g: SGear, horse: SHorse, s: HorseSpec, dark: ValueC
       },
     };
   }
+  if (g.hip) {
+    // The lancer's sword blow: the sword in the hand, the scabbard empty, the lance in the bridle hand.
+    const blade: SGear = { ...g, near: { ...g.near!, draw: (c, h, d) => sword(c, h, (s.nearDeg ?? 135) + d, 5.4) } };
+    const lance = g.near!.draw!;
+    const bridle: SGear = {
+      ...g,
+      far: {
+        el: rest.se.elF, wr: rest.se.wrF,
+        draw: (c, h, d) => {
+          // The far fist holds the lance upright; its pennon is drawn on it (the fly bones ride the near hand's weapon).
+          lance(c, h, (s.farDeg ?? 0) + d - (s.nearDeg ?? 135));
+          if (c.L >= 2) pennon(c, alongR(h, (s.farDeg ?? 0) + d, 12.5 - 0.55), (s.farDeg ?? 0) + d, 0.3);
+        },
+      },
+    };
+    const draw = (gg: SGear, p: RiderPiece, c: Paper, m: PartMap, f: Facing, drawn = false) => {
+      RIG_CLOTH.on = true;
+      try {
+        paintAs(c, dark, () => withMap(shiftMap(m), () => (p === 'hip' ? gg.hip!(c, drawn) : riderPiece(c, k, gg, p, rest[f], { rig: true, back: f === 'ne' }))));
+      } finally {
+        RIG_CLOTH.on = false;
+      }
+    };
+    atts.sword = (c, x, ctx) => draw(blade, 'weapon', c, partMap(x), ctx.posed.facing);
+    atts.farLance = (c, x, ctx) => draw(bridle, 'farItem', c, partMap(x), ctx.posed.facing);
+    atts.hipEmpty = (c, x, ctx) => draw(g, 'hip', c, partMap(x), ctx.posed.facing, true);
+  }
   if (fly) atts.fly = { cache: false, draw: (c, _x, ctx) => paintAs(c, dark, () => flyCloth(c, ctx.posed, fly)) };
   if (s.smear) {
     const sm = smearPart('weapon', s.smear[0], s.smear[1], TM.steel);
@@ -410,24 +440,78 @@ const RIDE_BACKHAND: Author = (rw) => ({
   },
   dw: { spine: T([0, 0], [3, 8], [5, -6], [6, -12], [8, -10], [11, 0]), head: T([0, 0], [6, -4], [11, 0]) },
 });
-/** The point: the sword reversed overhand, the fist by the ear, stabbed straight down along the blade at a man on foot; pulled back up. */
-const RIDE_POINT: Author = (rw, _f, A) => {
-  const P: P2 = [-0.3, -1.1], d = 50;
+/**
+ * The point: the sword raised overhand, the fist above the ear, then stabbed long and down along
+ * the blade at a man on foot beside the horse's shoulder; the rider leans out over the neck and
+ * stands in the stirrups (the hips up and forward) to give it reach; pulled back up.
+ */
+const RIDE_POINT: Author = (rw, f, A) => {
+  // Seen from the front (SE) the blade crosses the white neck: it drops steeper, so the point
+  // ends below the neck's line, at the man beside the horse's chest.
+  const P: P2 = [-0.2, -1.5], d = f === 'ne' ? 62 : 50;
   return {
-    w: fistPath(rw, A!, 11, [[1, [0, -0.4], -1, 120], [2, P, -1, d], [3, on(P, d + 180, 0.4), -1, d], [4, on(P, d, 2.0), -1, d], [5, on(P, d, 4.0), -1, d], [6, on(P, d, 3.9), -1, d], [7, on(P, d, 1.4), -1, d], [8, P, -1, d], [10, [-0.4, 0.5], 1, 110]]),
-    dw: { spine: T([0, 0], [3, 6], [5, -16], [6, -16], [8, -6], [11, 0]), head: T([0, 0], [5, -8], [6, -8], [11, 0]) },
+    w: fistPath(rw, A!, 11, [[1, [0, -0.6], -1, 120], [2, P, -1, d], [3, on(P, d + 180, 0.4), -1, d], [4, on(P, d, 2.6), -1, d], [5, on(P, d, 5.6), -1, d], [6, on(P, d, 5.5), -1, d], [7, on(P, d, 2.1), -1, d], [8, P, -1, d], [10, [-0.4, 0.5], 1, 110]]),
+    dw: { spine: T([0, 0], [3, 6], [5, -34], [6, -34], [8, -10], [11, 0]), head: T([0, 0], [5, 4], [6, 4], [11, 0]) },
+    tAdd: { pelvis: [T([0, 0], [3, -0.1], [5, 0.9], [6, 0.9], [8, 0.2], [11, 0]), T([0, 0], [3, 0], [5, -0.35], [6, -0.35], [8, 0], [11, 0])] },
+  };
+};
+/**
+ * The lancer's sword (weapon-attacks.md T8 P4; the Maccabees initial, Met 32832, and the c. 1350
+ * aquamanile, Met 461052: the blade raised high behind the head, then cut down on the diagonal).
+ * The lance is lifted upright and handed to the bridle hand (1-2), the near hand crosses to the
+ * left hip and draws (2-3) up into the wind-up over the shoulder (4); the forehand cut falls past
+ * the horse's shoulder (5-7, the smear at 6) and follows through low (8); the blade goes back
+ * along the scabbard (9) and the near hand takes the lance back (10). The slots are swapped by
+ * `swordSlots`.
+ */
+const RIDE_SWORD: Author = (rw, _f, A) => {
+  const a = A!;
+  const fist = (p: P2, e: 1 | -1) => reach(a.uN, a.fN, p[0], p[1], e);
+  const [uL, fL] = fist([1.3, 0.9], 1); // the lance brought upright across the chest
+  const [uH, fH] = fist([2.0, 2.7], 1); // the fist on the hilt at the left hip
+  const [uD, fD] = fist([0.6, -0.9], -1); // drawn up past the face
+  return {
+    w: {
+      upperArmN: R(rw.upperArmN!, 11, [1, uL], [2, uH], [3, uD], [4, 160], [5, 138], [6, 95], [7, 62], [8, 56], [9, uH], [10, uL]),
+      forearmN: R(rw.forearmN!, 11, [1, fL], [2, fH], [3, fD], [4, 212], [5, 165], [6, 92], [7, 42], [8, 34], [9, fH], [10, fL]),
+      weapon: R(rw.weapon!, 11, [1, 172], [2, 304], [3, 214], [4, 228], [5, 172], [6, 92], [7, 40], [8, 30], [9, 304], [10, 172]),
+      itemF: R(rw.itemF!, 11, [1, rw.itemF!], [2, 174], [9, 174], [10, rw.itemF!]),
+    },
+    dw: { spine: T([0, 0], [3, 4], [4, 8], [6, -12], [8, -14], [10, -4], [11, 0]), head: T([0, 0], [4, -4], [7, 4], [11, 0]) },
+  };
+};
+/** The sword blow's slot swaps: the sword from the scabbard into the hand, the lance into the bridle hand (its fly cloth, on the near hand's weapon bone, hidden meanwhile). */
+const SWORD_SLOTS: Record<string, { f: number; v: string | null }[]> = {
+  weapon: [{ f: 0, v: 'weapon' }, { f: 2, v: 'sword' }, { f: 10, v: 'weapon' }],
+  farItem: [{ f: 0, v: 'farItem' }, { f: 2, v: 'farLance' }, { f: 10, v: 'farItem' }],
+  hip: [{ f: 0, v: 'hip' }, { f: 2, v: 'hipEmpty' }, { f: 10, v: 'hip' }],
+  fly: [{ f: 0, v: 'fly' }, { f: 2, v: null }, { f: 10, v: 'fly' }],
+};
+const swordSlots = (c: Clip): Clip => mapFacings(c, (a) => ({ ...a, slots: { ...(a.slots ?? {}), ...SWORD_SLOTS } }));
+
+/**
+ * The bow-stave jab from the saddle: the bow turned in the bow hand until its upper limb points
+ * down at a man on foot beside the horse's shoulder, then rammed out along the stave (the foot
+ * archers' jab, steeper, the trunk leaning out over it); pulled back and stood upright.
+ */
+const RIDE_STAVE: Author = (rw, _f, A) => {
+  const P: P2 = [0.1, 0.9], d = 72;
+  return {
+    w: fistPath(rw, A!, 11, [[1, [0.1, 1.6], 1, 150], [2, P, 1, d], [3, on(P, d + 180, 0.5), 1, d], [4, on(P, d, 1.8), 1, d], [5, on(P, d, 3.7), 1, d], [6, on(P, d, 3.6), 1, d], [7, on(P, d, 1.3), 1, d], [8, P, 1, d], [9, [0.1, 1.6], 1, 140]], 'F'),
+    dw: { spine: T([0, 0], [3, 5], [5, -16], [6, -16], [8, -4], [11, 0]), upperArmN: T([0, 0], [3, 16], [5, 26], [6, 26], [8, 10], [11, 0]), forearmN: T([0, 0], [5, 30], [6, 30], [11, 0]) },
   };
 };
 const STAB: Author = (rw) => ({
   w: { upperArmN: T([0, rw.upperArmN!], [3, -25], [5, 80], [6, 78], [9, 20], [11, rw.upperArmN!]), forearmN: T([0, rw.forearmN!], [3, 80], [5, 90], [6, 88], [9, 40], [11, rw.forearmN!]) },
   dw: { spine: T([0, 0], [3, 6], [5, -12], [8, -4], [11, 0]) },
 });
-const RIDES: Record<RiderAttack, Author> = { couch: COUCH, thrust: RIDE_THRUST, under: RIDE_UNDER, cut: RIDE_CUT, backhand: RIDE_BACKHAND, point: RIDE_POINT, stab: STAB };
+const RIDES: Record<RiderAttack, Author> = { couch: COUCH, thrust: RIDE_THRUST, under: RIDE_UNDER, cut: RIDE_CUT, backhand: RIDE_BACKHAND, point: RIDE_POINT, stab: STAB, sword: RIDE_SWORD, stave: RIDE_STAVE };
 /** Each blow's events: a smear only on a cut's fastest frame, `strike` at the impact. */
 const RIDE_EV: Record<RiderAttack, AnimEvent[]> = {
-  couch: [{ f: 5, name: 'strike' }], thrust: [{ f: 5, name: 'strike' }], under: [{ f: 5, name: 'strike' }], stab: [{ f: 5, name: 'strike' }], point: [{ f: 5, name: 'strike' }],
+  couch: [{ f: 5, name: 'strike' }], stave: [{ f: 5, name: 'strike' }], thrust: [{ f: 5, name: 'strike' }], under: [{ f: 5, name: 'strike' }], stab: [{ f: 5, name: 'strike' }], point: [{ f: 5, name: 'strike' }],
   cut: [{ f: 6, name: 'smear', len: 1, bone: 'weapon' }, { f: 7, name: 'strike' }],
   backhand: [{ f: 5, name: 'smear', len: 1, bone: 'weapon' }, { f: 6, name: 'strike' }],
+  sword: [{ f: 6, name: 'smear', len: 1, bone: 'weapon' }, { f: 7, name: 'strike' }],
 };
 
 /** The horse standing: hooves down, it breathes, the tail swishes, the head nods. */
@@ -465,30 +549,56 @@ function horseClips(skel: SkeletonData, s: HorseSpec, fly?: Fly): { clips: ClipS
     return overlayKeys(g.keys, riderGait(g.bob, 12, s, run)(restWorld(skel, f), f));
   };
   /**
-   * The trot (running.md §9: cavalry advance at the trot, charge at the gallop): a two-beat gait
-   * in diagonal pairs. Muybridge's walk is a lateral four-beat (near hind, near fore, far hind, far
-   * fore a quarter-stride apart); delaying both forelegs by a quarter stride puts each fore in step
-   * with the opposite hind, so the plate's measured leg shapes and planted hooves move as diagonal
-   * pairs. The head stops nodding (a trotting horse carries it still) and the barrel bobs twice a
-   * stride, once per diagonal.
+   * The working trot (running.md section 9: cavalry advance at the trot, charge at the gallop): a
+   * two-beat gait in diagonal pairs, near fore with far hind, far fore with near hind, each pair
+   * on the ground for 5 of the 12 frames with a moment of suspension, all four hooves off, at each
+   * diagonal switch (frames 5 and 11), as Muybridge's trotting plates show (*Abe Edgington
+   * trotting*, *Occident*). Authored rather than read from a plate (we hold no trot capture): each
+   * hoof slides straight back along the ground while planted, then folds up and swings forward,
+   * the fore knee lifting higher than the hock; the barrel is lowest mid-stance and highest in the
+   * suspension, twice a stride, with a slight pitch onto the leading diagonal; the head is carried
+   * still, the neck barely pumping; the tail streams a little.
    */
   function trotKeys(f: Facing): { keys: KP[]; bob: Track } {
-    const g = gaitKeys(skel, 'horse-walk', f, { pitch: 0.6, neck: 0.4, head: 0, tail: -12 });
-    const byF = new Map(g.keys.map((k) => [k.f, k]));
-    const late = (fr: number) => byF.get((((fr - 3) % 12) + 12) % 12) ?? g.keys[0]!;
+    const stance = 5 / 12;
+    // Each leg's phase offset: the near-fore + far-hind diagonal leads, the other half a stride later.
+    const phase: Record<Leg, number> = { foreN: 0, hindF: 0, foreF: 0.5, hindN: 0.5 };
+    const reachX: Record<Leg, number> = { foreN: 1.45, foreF: 1.45, hindN: 1.3, hindF: 1.3 };
+    const lift: Record<Leg, number> = { foreN: 1.5, foreF: 1.5, hindN: 1.05, hindF: 1.05 };
+    const fold: Record<Leg, number> = { foreN: 62, foreF: 62, hindN: 38, hindF: 38 };
     const bob: [number, number][] = [];
-    const keys = g.keys.map((k): KP => {
-      const src = late(k.f);
-      const t = { ...(k.t ?? {}) }, w = { ...(k.w ?? {}) };
-      for (const L of ['foreN', 'foreF'] as const) {
-        t[`${L}Target`] = src.t![`${L}Target`]!;
-        w[`${L}Hoof`] = src.w![`${L}Hoof`]!;
+    const keys: KP[] = [];
+    for (let fr = 0; fr <= 12; fr++) {
+      const t: Record<string, P2> = {};
+      const w: Record<string, number> = {};
+      for (const L of LEGS) {
+        const ph = (((fr / 12 + phase[L]) % 1) + 1) % 1;
+        let x: number, y: number, hoof: number;
+        if (ph < stance - 1e-9) {
+          // Planted: the hoof stays on the ground while the body passes over it.
+          const u = ph / stance;
+          x = reachX[L] * (0.5 - u);
+          y = 0;
+          hoof = HOOF_REST;
+        } else {
+          // In the air: picked up already lifted (so the switch frames are clear of the ground), swung forward.
+          const u = (ph - stance) / (1 - stance);
+          const sw = sinD(180 * (0.24 + 0.62 * u));
+          x = reachX[L] * (-0.5 + (1 - cosD(180 * u)) / 2);
+          y = -lift[L] * sw;
+          hoof = Math.round(HOOF_REST - fold[L] * sw);
+        }
+        t[`${L}Target`] = [Math.round(x * S * 100) / 100, Math.round(y * S * 100) / 100];
+        w[`${L}Hoof`] = hoof;
       }
-      const dy = Math.round(0.22 * Math.cos((2 * Math.PI * 2 * (k.f - 1)) / 12) * 100) / 100;
-      bob.push([k.f, dy]);
+      // Lowest at mid-stance (frames 2 and 8), highest in the suspension (5 and 11).
+      const dy = Math.round(-0.24 * cosD((360 * (fr - 5)) / 6) * 100) / 100;
+      bob.push([fr, dy]);
       t.horseBody = [0, dy];
-      return { ...k, t, w };
-    });
+      const pitch = Math.round(1.6 * sinD((360 * fr) / 12) * 10) / 10;
+      keys.push({ f: fr, t, w, dw: { horseBody: pitch, horseNeck: Math.round(-pitch * 0.6 * 10) / 10, horseHead: 0, tail: Math.round((-14 + 4 * sinD((360 * fr) / 6)) * 10) / 10 } } as KP);
+    }
+    void f;
     return { keys, bob };
   }
   const idle = breath(fc('idle', 8, true, (f) => standKeys(8)(f, skel)));
@@ -507,7 +617,7 @@ function horseClips(skel: SkeletonData, s: HorseSpec, fly?: Fly): { clips: ClipS
           return overlayKeys(overlayKeys(g.keys, drive(rw, f), [1, 2, 4, 7, 9]), RIDES[r](rw, f, armsOf(skel, f)), [3, 5, 6, 8, 10]);
         }, RIDE_EV[r], 1)
       : fc('attack', 12, false, (f) => overlayKeys(standKeys(11, horseLean)(f, skel), RIDES[r](restWorld(skel, f), f, armsOf(skel, f))), RIDE_EV[r]);
-  const attacks = (s.rides ?? [s.ride]).map(blow);
+  const attacks = (s.rides ?? [s.ride]).map((r) => (r === 'sword' ? swordSlots(blow(r)) : blow(r)));
   const attack = attacks[0]!;
   // The horse archer shoots from the saddle at a shallower arc than the foot archers.
   const shoot = s.shoot === 'bow' ? fc('shoot', 12, false, (f) => overlayKeys(standKeys(11)(f, skel), bowAuthor(HORSE_BOW_ELEVATION)(restWorld(skel, f), f, armsOf(skel, f))), [{ f: 3, name: 'draw', len: 4 }, { f: 7, name: 'release' }]) : attack;

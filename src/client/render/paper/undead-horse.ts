@@ -12,7 +12,7 @@
 // lurches on), a mane of rotten shroud trailing. See docs/art-references/undead-animation.md.
 
 import { Anim, COMMANDER_KIND } from '../contract.ts';
-import { Paper, type P2 } from './core.ts';
+import { addP, Paper, type P2 } from './core.ts';
 import type { Facing } from './facing.ts';
 import { along } from './rig.ts';
 import {
@@ -23,9 +23,9 @@ import { at as atT, facingClip, lagCloth, lastFrame, mapFacings, overlayKeys, re
 import { HIT, R, T, type Author, type Tracks } from './templar-clips.ts';
 import { FLASH, pieceAtt, registerLazy, trail } from './undead-foot.ts';
 import { both, groundClamp, jerk } from './undead-clips.ts';
-import { horseFrame, shadeLower, UM, warSword, type HorseLegs } from './undead-parts.ts';
+import { horseFrame, lance, shadeLower, UM, warSword, type HorseLegs } from './undead-parts.ts';
 import { RIDER_BLOWS } from './undead-blows.ts';
-import { keyLight } from './undead-static.ts';
+import { dkHipSword, keyLight } from './undead-static.ts';
 import { seated, type MountArt, type PieceOpts, type UJ, type UPiece } from './undead-static.ts';
 import { MOTION, type MotionKey } from './motion/index.ts';
 
@@ -290,11 +290,27 @@ function mountParts(s: MountSpec): AttachmentSet {
   atts.light = { cache: false, draw: (c) => { keyLight(c); shadeLower(c, c.L <= 1 ? s.shadeL1 ?? 0.3 : 0.42); } };
   if (s.smear) atts.smear = smearPart('weapon', s.smear[0], s.smear[1], UM.steel);
   // The sword phase: blows that swap the lance for the war sword (the same fist, along the weapon bone).
-  if (s.blows?.some((b) => RIDER_BLOWS[b]?.sword)) atts['weapon.sword'] = pieceAtt({ slot: 'weapon', bone: 'weapon', draw: (c, J) => warSword(c, J.hN!, s.nearDeg, c.L <= 1 ? 7.6 : 6.8) }, J, art.axis);
+  if (s.blows?.some((b) => RIDER_BLOWS[b]?.sword)) {
+    atts['weapon.sword'] = pieceAtt({ slot: 'weapon', bone: 'weapon', draw: (c, J) => warSword(c, J.hN!, s.nearDeg, c.L <= 1 ? 7.6 : 6.8) }, J, art.axis);
+    // The scabbard emptied, and the lance held upright in the shield hand while the sword is out.
+    atts['hip.empty'] = pieceAtt({ slot: 'hip', bone: 'pelvis', draw: (c, J) => dkHipSword(c, J, true) }, J, art.axis);
+    atts['farLance.held'] = pieceAtt({ slot: 'farLance', bone: 'upperArmF', draw: (c, J) => void lance(c, addP(J.hF!, [0.1, -0.3]), 180, c.L <= 1 ? 14 : 10.5, 3.0, { pennon: true, sway: 0.3, vamplate: true }) }, J, art.axis);
+  }
   return atts;
 }
 
 // ------------------------------------------------------------------ the clips
+
+/**
+ * A sword blow's slots (frame 2 to 9): the war sword out of the scabbard and in the hand, the
+ * scabbard empty, the lance upright in the shield hand. Every swing begins and ends with the lance
+ * carried, as the idle, the walk and the charge show it, so blows chain in any order.
+ */
+const SWORD_SLOTS: Record<string, { f: number; v: string | null }[]> = {
+  weapon: [{ f: 0, v: 'weapon' }, { f: 2, v: 'weapon.sword' }, { f: 10, v: 'weapon' }],
+  hip: [{ f: 0, v: 'hip' }, { f: 2, v: 'hip.empty' }, { f: 10, v: 'hip' }],
+  farLance: [{ f: 0, v: 'farLance' }, { f: 2, v: 'farLance.held' }, { f: 10, v: 'farLance' }],
+};
 
 const wrap = (d: number) => d - 360 * Math.floor(d / 360 + 0.5);
 const sinD = (d: number) => Math.sin((d * Math.PI) / 180), cosD = (d: number) => Math.cos((d * Math.PI) / 180);
@@ -451,7 +467,7 @@ function mountClips(skel: SkeletonData, s: MountSpec): ClipSet & { attacks?: Cli
     const b = RIDER_BLOWS[name];
     if (!b) return own();
     const c = strike(b.a(skel), b.ev);
-    return b.sword ? mapFacings(c, (a) => ({ ...a, slots: { ...(a.slots ?? {}), weapon: [{ f: 0, v: 'weapon.sword' }] } })) : c;
+    return b.sword ? mapFacings(c, (a) => ({ ...a, slots: { ...(a.slots ?? {}), ...SWORD_SLOTS } })) : c;
   };
   const attacks = (s.blows ?? ['ride']).map(blowOf);
   const attack = attacks[0]!;

@@ -20,7 +20,7 @@ export type Blow =
   // the Dane axe, two hands
   | 'chop' | 'axeCut' | 'axeThrust'
   // the missile men's last resort
-  | 'butt' | 'punch';
+  | 'butt' | 'punch' | 'staveJab' | 'stirrupJab';
 
 /** How a kind carries its gear at the run (docs/art-references/running.md §4-6). */
 export type RunCarry = 'sword' | 'spear' | 'javelin' | 'bow' | 'crossbow' | 'axe';
@@ -190,13 +190,18 @@ export const CUT: Author = (rw) => ({
 /** The Templar cut: the same, but the shield stays on the chest through it (it firms up as the arm goes over, never swings out and back). */
 const CUT_TIGHT: Author = (rw, f, A) => ({ ...CUT(rw, f, A), dw: { upperArmF: T([0, 0], [4, 8], [6, 4], [8, 2], [11, 0]), forearmF: T([0, 0], [4, 10], [6, 8], [11, 0]) } });
 
-/** The sword thrust from the guard: the fist at the hip, the point level at chest height; driven straight out along the blade with a step, the shield up; pulled straight back. */
+/**
+ * The sword thrust over the shield rim (the high guard of the sword-and-shield man, Maciejowski
+ * and I.33: the fist at the shoulder, the blade laid level over the shield's top edge, the point
+ * at the face); driven straight out along the blade with a step, while the shield is eased down
+ * and turned edge-on so the blade clears it in every facing; pulled straight back.
+ */
 const SWORD_THRUST: Author = (rw, _f, A = ARMS0) => {
-  const P: P2 = [0.15, 2.35], d = 97;
+  const P: P2 = [0.3, -0.55], d = 92;
   return merge(lunge({ c: 3, s: 5, h: 6, r: 8, back: 0.4, fwd: 0.75, step: 1.0, lean: -12, coil: 5 }), {
-    w: fistPath(rw, A, 11, [[1, [0.2, 2.6], 1, 60], [2, P, 1, d], [3, on(P, d + 180, 0.5), 1, d], [4, on(P, d, 1.8), 1, d], [5, on(P, d, 3.4), 1, d], [6, on(P, d, 3.3), 1, d], [7, on(P, d, 1.1), 1, d], [8, P, 1, d], [9, [0.0, 2.5], 1, 55], [10, [-0.1, 2.9], 1, 20]]),
-    // The shield up to the eyes over the thrust.
-    dw: { upperArmF: T([0, 0], [2, 14], [5, 10], [8, 14], [11, 0]), forearmF: T([0, 0], [2, 20], [5, 16], [8, 18], [11, 0]) },
+    w: fistPath(rw, A, 11, [[1, [0.1, 1.2], 1, 120], [2, P, 1, d], [3, on(P, d + 180, 0.5), 1, d], [4, on(P, d, 2.0), 1, d], [5, on(P, d, 3.8), 1, d], [6, on(P, d, 3.7), 1, d], [7, on(P, d, 1.3), 1, d], [8, P, 1, d], [9, [0.1, 1.1], 1, 110], [10, [-0.1, 2.4], 1, 40]]),
+    // The shield lowered a touch and drawn in against the chest as the blade goes over it.
+    dw: { upperArmF: T([0, 0], [2, -4], [5, -14], [6, -14], [8, -4], [11, 0]), forearmF: T([0, 0], [2, -6], [5, -16], [6, -16], [8, -6], [11, 0]) },
   });
 };
 
@@ -262,6 +267,31 @@ const BUTT: Author = (rw) => ({
   w: { upperArmN: R(rw.upperArmN!, 11, [3, rw.upperArmN! - 25], [5, rw.upperArmN! + 45], [6, rw.upperArmN! + 48]), weapon: R(rw.weapon!, 11, [3, rw.weapon! - 30], [5, rw.weapon! + 40], [6, rw.weapon! + 40]) },
   dw: { upperArmF: T([0, 0], [3, -15], [5, 30], [6, 32], [11, 0]), forearmF: T([0, 0], [5, 20], [11, 0]) },
 });
+/**
+ * The bow-stave jab (the archer's second resort): the bow turned from upright to point its upper
+ * limb at the enemy's face, then rammed straight out along the stave from the far shoulder with a
+ * step, like a short staff; pulled back and stood upright again. The near hand comes up to guard.
+ */
+export const STAVE_JAB: Author = (rw, _f, A = ARMS0) => {
+  const P: P2 = [-0.2, 1.6], d = 98;
+  return merge(lunge({ c: 3, s: 5, h: 6, r: 8, back: 0.45, fwd: 0.9, step: 1.1, lean: -14, coil: 5 }), {
+    w: fistPath(rw, A, 11, [[1, [0.1, 2.0], 1, 150], [2, P, 1, d], [3, on(P, d + 180, 0.5), 1, d], [4, on(P, d, 1.8), 1, d], [5, on(P, d, 3.6), 1, d], [6, on(P, d, 3.5), 1, d], [7, on(P, d, 1.2), 1, d], [8, P, 1, d], [9, [0.1, 2.0], 1, 140]], 'F'),
+    dw: { upperArmN: T([0, 0], [3, 20], [5, 34], [6, 34], [8, 14], [11, 0]), forearmN: T([0, 0], [3, 40], [5, 60], [6, 60], [8, 24], [11, 0]) },
+  });
+};
+/**
+ * The crossbow's stirrup-end jab (after the butt-stroke): the bow levelled at the belly, the near
+ * fist on the stock at the hip and the far hand under the prod, then rammed straight out along the
+ * stock so the iron stirrup takes the blow; pulled back and brought up to the carry.
+ */
+const STIRRUP_JAB: Author = (rw, _f, A = ARMS0) => {
+  const P: P2 = [-0.5, 2.3], d = 93;
+  return merge(lunge({ c: 3, s: 5, h: 6, r: 8, back: 0.45, fwd: 0.85, step: 1.05, lean: -14, coil: 5, low: 0.35 }), {
+    w: fistPath(rw, A, 11, [[1, [-0.3, 2.4], 1, 108], [2, P, 1, d], [3, on(P, d + 180, 0.45), 1, d], [4, on(P, d, 1.7), 1, d], [5, on(P, d, 3.3), 1, d], [6, on(P, d, 3.2), 1, d], [7, on(P, d, 1.1), 1, d], [8, P, 1, d], [10, [-0.3, 2.4], 1, 110]]),
+    // The far hand forward under the prod, travelling with the stock.
+    dw: { upperArmF: T([0, 0], [2, 22], [3, 18], [5, 42], [6, 42], [7, 28], [8, 22], [11, 0]), forearmF: T([0, 0], [2, 10], [3, 8], [5, 14], [6, 14], [8, 10], [11, 0]) },
+  });
+};
 /** The two-handed overhead chop (chop: up past vertical 3-4, the drop 5-6, the bit lagging the hands, the strike held 7-8). */
 const CHOP: Author = (rw) => ({
   w: {
@@ -481,6 +511,8 @@ const BLOWS: Record<Blow, { author: Author; clip: string; o: MocapOpts; ev: Anim
   butt: { author: BUTT, clip: 'thrust', o: { torso: 0.5, travel: 1, feet: 0.8 }, ev: [{ f: 5, name: 'smear', len: 1, bone: 'weapon' }, { f: 5, name: 'strike' }], x: [] },
   chop: { author: CHOP, clip: 'chop', o: { torso: 0.7, travel: 1, feet: 0.6 }, ev: [{ f: 6, name: 'smear', len: 1, bone: 'weapon' }, { f: 7, name: 'strike' }], x: [] },
   axeCut: { author: AXE_CUT, clip: 'cut-diagonal', o: { torso: 0.3, travel: 0, feet: 0 }, ev: [{ f: 5, name: 'smear', len: 1, bone: 'weapon' }, { f: 6, name: 'strike' }] },
+  staveJab: { author: STAVE_JAB, clip: 'thrust', o: { torso: 0.2, travel: 0, feet: 0 }, ev: [{ f: 5, name: 'strike' }] },
+  stirrupJab: { author: STIRRUP_JAB, clip: 'thrust', o: { torso: 0.2, travel: 0, feet: 0 }, ev: [{ f: 5, name: 'strike' }] },
   axeThrust: { author: AXE_THRUST, clip: 'thrust', o: { torso: 0.2, travel: 0, feet: 0 }, ev: [{ f: 5, name: 'strike' }] },
 };
 

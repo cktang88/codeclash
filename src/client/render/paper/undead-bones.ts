@@ -10,7 +10,7 @@ import { restPose, type DrawCtx } from './skeleton.ts';
 import { UM } from './undead-parts.ts';
 import { registerBeasts } from './undead-beast.ts';
 import { jawOf, registerMount, type MountSpec } from './undead-horse.ts';
-import { ARBALEST, BLACK_RIDER, DEATH_KNIGHT, GHOUL, HORSE_ARCHER, LEGIONARY, LICH, lichHeap, soulWisp, THROWER, WARDEN, wardenHeap, type FootArt, type PieceOpts } from './undead-static.ts';
+import { ARBALEST, BLACK_RIDER, DEATH_KNIGHT, ghostTrail, GHOUL, HORSE_ARCHER, LEGIONARY, LICH, lichHeap, soulWisp, THROWER, VIOLET, WARDEN, wardenHeap, type FootArt, type PieceOpts } from './undead-static.ts';
 
 /**
  * A bow drawn on the frame: its draw from how far the nock (where the string hand is) has slid
@@ -126,6 +126,9 @@ const THROWER_SPEC = (): FootSpec => ({
   shadeL2: 0.3,
 });
 
+/** The run's afterimage frame (event `ghost`), 1-based (0: none). */
+const ghostLive = (ctx: DrawCtx): PieceOpts => ({ t: (ctx.events.find((e) => e.name === 'ghost')?.int ?? -1) + 1 });
+
 /**
  * The Wraith-Wardens (the Wraith Bows, recast): they glide, the cloak hiding the steps; a slow,
  * deliberate draw of the bone longbow with a green-fire arrow; the hood and mask fall away.
@@ -143,6 +146,7 @@ const WARDEN_SPEC = (): FootSpec => ({
   farHeld: true,
   nocked: true,
   extras: [
+    { slot: 'ghost', bone: 'root', live: ghostLive, draw: (c, _J, _b, o) => void (o.t && ghostTrail(c, o.t - 1, VIOLET)) },
     { slot: 'heap', bone: 'root', draw: (c, _J, back) => wardenHeap(c, back) },
     { slot: 'wisp', bone: 'root', top: true, live: (ctx) => ({ t: ctx.events.find((e) => e.name === 'wisp')?.int ?? 0 }), draw: (c, _J, _b, o) => void (o.t && soulWisp(c, o.t)) },
   ],
@@ -166,7 +170,7 @@ const WARDEN_SPEC = (): FootSpec => ({
 /** The crossbow drawn on the frame: unspanned from the loose until it is wound back; the cranequin's handle turning. */
 function crossbowLive(ctx: DrawCtx): PieceOpts {
   const crank = ctx.events.find((e) => e.name === 'crank');
-  return { draw: ctx.events.some((e) => e.name === 'empty') ? 0 : 1, t: crank ? (crank.int ?? 0) + 1 : 0 };
+  return { draw: ctx.events.some((e) => e.name === 'empty') ? 0 : 1, t: crank ? (crank.int ?? 0) + 1 : 0, rim: ctx.events.some((e) => e.name === 'port') };
 }
 
 /** The Revenant Arbalests: the shot and a crank-spanning reload, a butt-stroke, aiming from a crouch; the pavise falls off the back as it comes apart. */
@@ -228,6 +232,7 @@ const LICH_SPEC = (): FootSpec => ({
   neFirst: [],
   neLast: ['cloak', 'mantleN', 'mantleF'],
   extras: [
+    { slot: 'ghost', bone: 'root', live: ghostLive, draw: (c, _J, _b, o) => void (o.t && ghostTrail(c, o.t - 1, UM.shroud)) },
     { slot: 'heap', bone: 'root', draw: (c, _J, back) => lichHeap(c, back) },
     { slot: 'wisp', bone: 'root', top: true, live: (ctx) => ({ t: ctx.events.find((e) => e.name === 'wisp')?.int ?? 0 }), draw: (c, _J, _b, o) => void (o.t && soulWisp(c, o.t)) },
   ],

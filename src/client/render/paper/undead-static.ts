@@ -273,6 +273,8 @@ export interface PieceOpts {
   t?: number;
   /** A horse's pose (mounted figures: the horse is drawn whole from it). */
   horse?: HorseLegs;
+  /** A pale rim along a carried weapon (the arbalest's crossbow at the port, over the brown gambeson). */
+  rim?: boolean;
 }
 /**
  * One piece of a figure: drawn with the key art's own calls from its joints `J` (the SE rest, or
@@ -824,7 +826,7 @@ export const ARBALEST: FootArt = {
     { slot: 'jaw', bone: 'jaw', draw: (c, J, back) => void (back || keyJaw(c, addP(J.head!, [0.15, 0.2]), 1.08, -4)) },
     { slot: 'helm', bone: 'head', draw: (c, J) => coifCap(c, J.head!) },
     // The crossbow levelled at the hip, the near arm on the stock.
-    { slot: 'weapon', bone: 'weapon', draw: (c, J, _b, o) => arbalestBow(c, J.hN!, (o.draw ?? 1) > 0.5, o.t ?? 0) },
+    { slot: 'weapon', bone: 'weapon', draw: (c, J, _b, o) => arbalestBow(c, J.hN!, (o.draw ?? 1) > 0.5, o.t ?? 0, o.rim) },
     { slot: 'upperArmN', bone: 'upperArmN', draw: (c, J) => vol(c, J.shN!, J.elN!, 1.35, 1.15, UM.rag, { tone: 2, caps: false }) },
     {
       slot: 'forearmN',
@@ -840,8 +842,17 @@ export const ARBALEST: FootArt = {
  * The heavy crossbow at the stock's grip, spanned or not; while it is being spanned (`crank` 1..4)
  * the cranequin sits on the butt, its gear box and the handle a quarter turn on each frame.
  */
-function arbalestBow(c: Paper, grip: P2, spanned: boolean, crank: number): void {
+function arbalestBow(c: Paper, grip: P2, spanned: boolean, crank: number, rim = false): void {
   crossbow(c, grip, 88, spanned, 1.45);
+  // At the port the stock lies over the gambeson, the same brown: a lit rim along its upper edge
+  // and the prod's tips catch the light (from level 2; below it the stock is a line anyway).
+  if (rim && c.L >= 2) {
+    const up = limb(88 + 90);
+    const k = 1.45, off = 0.36 * k;
+    c.line(addP(along(grip, 268, 1.1 * k), mul(up, off)), addP(along(grip, 88, 2.2 * k), mul(up, off)), code(UM.bone, 3));
+    const front = along(grip, 88, 2.4 * k);
+    c.line(addP(front, mul(limb(178), 1.5 * k)), addP(front, mul(limb(178), 0.4 * k)), code(UM.bone, 3));
+  }
   if (!crank) return;
   const box = along(grip, 268, 1.7);
   c.rod(box, along(grip, 88, 1.2), 0.18, 0.18, UM.bone, { tone: 3 }); // the cord to the string
@@ -889,6 +900,27 @@ export function drawMount(c: Paper, art: MountArt): void {
 }
 const mountPose = (keys: () => KeySet<HorsePose>) => (): HorseLegs => ({ ...poseAt(keys(), Anim.Idle, 0), neck: 47, nod: -16 });
 
+/**
+ * The Death Knight's war sword sheathed at the far (left) hip, for when the lance is spent: the
+ * scabbard hangs from the sword belt steeply back and down past the saddle over the bone barding,
+ * the hilt forward and up out of its throat (as the Templar knights carry theirs: the Met's
+ * c. 1250 knight aquamanile). `drawn`: the hilt gone, the scabbard empty.
+ */
+export function dkHipSword(c: Paper, J: Record<string, P2>, drawn: boolean): void {
+  // The steel chape and locket carry the dark leather on the dark barding at level 8; below it
+  // they are a band end more on a figure already at the lint's aligned-ends gate (L4 0.294).
+  const fine = c.L >= 8;
+  const th = addP(J.pelvis!, [0.9, 0.35]), ch = addP(J.pelvis!, [-1.1, 4.62]);
+  c.rod(th, ch, 0.44, 0.36, UM.leather, { tone: 2 });
+  if (fine) c.rod(addP(ch, [0.33, -0.72]), ch, 0.42, 0.34, UM.steel, { tone: 3 });
+  if (fine) c.rod(addP(th, [-0.08, 0.17]), addP(th, [-0.22, 0.5]), 0.48, 0.46, UM.steel, { tone: 3 });
+  if (drawn) return;
+  const g1 = addP(th, [0.5, -1.05]);
+  c.rod(addP(th, [-0.85, -0.42]), addP(th, [0.85, 0.42]), 0.28, 0.28, UM.iron, { tone: 2 });
+  c.rod(th, g1, 0.3, 0.28, UM.leather, { tone: 2 });
+  c.blob(addP(g1, [0.12, -0.25]), 0.36, 0.36, UM.iron, { shine: true });
+}
+
 /** The Death Knight: full black plate on a bone-barded horse, a great helm, the big kite shield, a lance. */
 export const DEATH_KNIGHT: MountArt = (() => {
   const pose = mountPose(() => DEATH_KNIGHT_KEYS);
@@ -907,10 +939,14 @@ export const DEATH_KNIGHT: MountArt = (() => {
       // The far leg in plate (mostly hidden by the horse).
       { slot: 'thighF', bone: 'thighF', draw: (c, J) => vol(c, J.hipF!, J.kneeF!, 1.4, 1.1, UM.iron, { tone: 1 }) },
       h.hBody,
+      // The shield hand's lance: empty in the key art; the sword blows hand the lance to it (undead-horse.ts).
+      { slot: 'farLance', bone: 'upperArmF', draw: () => undefined },
       // The far arm, and the kite shield on it held tight before the chest.
       { slot: 'upperArmF', bone: 'upperArmF', draw: (c, J) => vol(c, J.shF!, J.hF!, 1.4, 1.2, UM.iron, { tone: 1 }) },
       // The body: a broad black cuirass, a fauld of lames, a team surcoat skirt over the saddle.
       { slot: 'skirt', bone: 'skirt', cloth: true, clothLen: 2.8, draw: (c, J, _b, o) => rag(c, addP(J.pelvis!, [-1.5, -0.8]), addP(J.pelvis!, [1.7, -0.8]), 2.8, 0.1 + (o.sway ?? 0), UM.team, UM.teamDk, 501, { tear: 0.35 }) },
+      // The war sword at the far hip, the hilt under the cuirass's edge, the scabbard down past the saddle.
+      { slot: 'hip', bone: 'pelvis', draw: (c, J) => dkHipSword(c, J, false) },
       {
         slot: 'torso',
         bone: 'chest',
@@ -968,7 +1004,7 @@ function deathKnightStatic(c: Paper): void {
 // green-fire arrow on the string.
 
 // Hue-turned: blue-violet in the folds, a warmer violet in the light (not a straight ramp).
-const VIOLET = defineMaterial('undead.violet', hueTurn(oklchRamp({ l: 0.36, c: 0.11, h: 300, spread: 0.085 }), 7));
+export const VIOLET = defineMaterial('undead.violet', hueTurn(oklchRamp({ l: 0.36, c: 0.11, h: 300, spread: 0.085 }), 7));
 const BRONZE = defineMaterial('undead.bronze', oklchRamp({ l: 0.6, c: 0.1, h: 68, spread: 0.11 }));
 
 /** Bronze trim along a line (a 1-2 px band, lit on its upper side). */
@@ -1155,6 +1191,31 @@ export function soulWisp(c: Paper, t: number): void {
   flame(c, [0.4 + Math.sin(t * 1.3) * 0.4, -3.0 - t * 1.7], 1.8 + 2.0 * k, t * 0.17, { w: 0.45 + 0.6 * k });
   if (t >= 2) flame(c, [0.2, -1.6 - t * 1.1], 0.7 * k + 0.3, t * 0.31, { w: 0.18 + 0.2 * k });
 }
+/**
+ * A wraith's afterimage at the run (frame `f` of 12): broken streaks of its own cloth trailing
+ * back from the robe at a few heights, each a dash with a gap, drifting back two units a frame and
+ * fading to single pixels at the tail (the CC0 Ars Notoria ghost's tail breaking into loose
+ * pixels). Drawn behind the figure; deterministic (no noise but the frame and the row).
+ */
+export function ghostTrail(c: Paper, f: number, mat: number): void {
+  // Rows up the robe's back, which the run's lean slants forward toward the top.
+  const rows = [-2.6, -5.3, -7.6, -10.2];
+  const lens = [3.0, 2.2, 2.7, 1.6];
+  rows.forEach((y, i) => {
+    const drift = ((f + i * 4) % 6) / 6; // 0..1, each row on its own beat
+    const edge = -4.4 - y * 0.32; // the robe's back edge at this height
+    const x0 = edge - 0.4 - drift * 2.6;
+    const len = lens[i]! * (1 - drift * 0.55);
+    // The streak: a pale ghost of the cloth (its lightest tones), the tail a tone darker.
+    c.line([x0 - len * 0.45, y + drift * 0.3], [x0, y + drift * 0.3], code(mat, 4));
+    c.line([x0 - len, y + drift * 0.3], [x0 - len * 0.5, y + drift * 0.3], code(mat, 3));
+    // Breaking up into loose pixels behind it.
+    const tx = x0 - len - 0.9 - drift;
+    c.line([tx, y + 0.4], [tx, y + 0.4], code(mat, 3));
+    if (c.L >= 4 && drift > 0.3) c.line([tx - 1.2, y - 0.2], [tx - 1.2, y - 0.2], code(mat, 4));
+  });
+}
+
 function wardenStatic(c: Paper): void {
   drawPieces(c, WARDEN);
 }
