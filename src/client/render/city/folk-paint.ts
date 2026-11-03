@@ -113,15 +113,23 @@ export function finish(p: Paper, mats: Mats, outline: Col = OUT): Sprite | null 
         cls[i] = kept ? 0 : t >= 3 ? 1 : t === 2 ? 2 : 3;
         continue;
       }
-      // Outline: right or below the figure is the shade side, left or above the lit side.
+      // Outline: the side facing the light (the pixel is left of or above the figure) takes a
+      // step below the edge pixel's own tone (at least tone 1): a coloured, lighter line; the
+      // shade side takes the material's darkest tone, pulled toward the outline colour.
       const l = at(x - 1, y), r = at(x + 1, y), u = at(x, y - 1), d = at(x, y + 1);
       const nb = [r, d, l, u].find((n) => n >= 0 && !mats.keep[(n >> 3) - MAT0]) ?? [r, d, l, u].find((n) => n >= 0);
       if (nb === undefined) continue;
-      const dark = mats.ramps[(nb >> 3) - MAT0]?.[0];
+      const ramp = mats.ramps[(nb >> 3) - MAT0];
+      const dark = ramp?.[0];
       const base = dark ? rgb(dark[0], dark[1], dark[2]) : OUT;
       const lit = (r >= 0 || d >= 0) && l < 0 && u < 0;
-      // One outline colour per material in shade; the lit side reuses the material's darkest tone.
-      data[i] = lit ? base : mix(base, outline, 0.6);
+      const kept = mats.keep[(nb >> 3) - MAT0];
+      if (lit && ramp && !kept) {
+        // Facing the light: two steps below the edge pixel (sel-out), at least tone 1.
+        const t = Math.max(1, (nb & 7) - 2);
+        const c = ramp[t]!;
+        data[i] = mix(rgb(c[0], c[1], c[2]), base, 0.35);
+      } else data[i] = lit ? base : mix(base, outline, 0.6);
       cls[i] = 4;
     }
   return { w, h, data, cls, fx: p.FX - x0, fy: p.FY - y0 };
@@ -289,8 +297,9 @@ export function oval(c: Paper, M: Mats, ctr: P2, rx: number, ry: number, m: numb
   c.poly(pts, (x, y) => {
     const nx = (x + 0.5 - cx) / rx, ny = (y + 0.5 - cy) / ry;
     if (!keep(nx, ny)) return -1;
-    const lit = Math.hypot(nx + 0.38, ny + 0.38);
-    const dk = nx * 0.7 + ny * 0.7;
+    const lx = c.litX(nx);
+    const lit = Math.hypot(lx + 0.38, ny + 0.38);
+    const dk = lx * 0.7 + ny * 0.7;
     if (lit < 0.62) return M.code(m, base + 1);
     if (dk > 0.72) return M.code(m, base - 2);
     if (dk > 0.32) return M.code(m, base - 1);

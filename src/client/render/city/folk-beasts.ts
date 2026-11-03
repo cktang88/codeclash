@@ -57,7 +57,10 @@ export function paintHorse(c: Paper, M: Mats, H: BeastLook, clip: HorseClip, f: 
   const mCoat = M.of(H.coat);
   const mMane = M.of(H.mane);
   const mHoof = M.of(ox ? hex('#3a3028') : HOOF);
-  const mBone = M.of(BONE);
+  // The bone horse matches the battle sheets' skeletal mounts (paper/undead-horse.ts): dark,
+  // sinewed bones in the legs and ribs, a pale skull.
+  const mBone = M.of(bones ? hex('#6a5848') : BONE, 0.1);
+  const mSkull = M.of(BONE, 0.09);
   const bodyM = bones ? mBone : mCoat;
   // Body: an ox is longer, lower and deeper; a horse's barrel sits on longer legs.
   const by = ox ? -15 : -18;
@@ -114,18 +117,24 @@ export function paintHorse(c: Paper, M: Mats, H: BeastLook, clip: HorseClip, f: 
   }
   // Barrel: a long ellipse, deeper at the chest; the ox carries a hump at the withers.
   if (bones) {
-    // Ribs: pale bars over a dark hollow, a spine along the top, the pelvis behind.
-    oval(c, M, [body[0] + 0.5, body[1]], 11, 5.2, M.of(hex('#3a3236')), () => true, 1);
+    // Ribs: bars over a dark hollow, a spine along the top, the pelvis behind.
+    oval(c, M, [body[0] + 0.5, body[1]], 11, 5.2, M.of(hex('#221c20')), () => true, 1);
     c.rod([body[0] - 11, body[1] - 4], [body[0] + 9, body[1] - 5], 1.8, 1.8, mBone, { tone: 3 });
-    for (let k = -6; k <= 8; k += 2) c.rod([body[0] + k, body[1] - 4], [body[0] + k + 1, body[1] + 3.5 - Math.abs(k - 2) * 0.2], 1.3, 1.1, mBone, { tone: 2 });
-    c.blob([body[0] - 9, body[1] - 2], 3, 2.6, mBone);
+    for (let k = -6; k <= 8; k += 2) c.rod([body[0] + k, body[1] - 4], [body[0] + k + 1, body[1] + 3.5 - Math.abs(k - 2) * 0.2], 1.3, 1.1, mBone, { tone: 3 });
+    c.blob([body[0] - 9, body[1] - 2], 3, 2.6, mBone, { shine: true });
   } else {
     c.blob([body[0] + 0.5, body[1]], ox ? 13 : 11.5, ox ? 6.6 : 5.6, mCoat);
     c.blob([body[0] + 6, body[1] - 0.5], ox ? 6 : 5, ox ? 6.6 : 5.4, mCoat);
     c.blob([body[0] - 7, body[1] - 1], ox ? 6 : 5, ox ? 6 : 5.2, mCoat);
     if (ox) c.blob([body[0] + 7, body[1] - 6], 3.4, 2, mCoat);
-    // Belly shade and a highlight along the back.
+    // Mass and muscle: a highlight along the back, the lit tops of the quarters and the shoulder,
+    // the belly line in deep shade and the groove where the shoulder meets the barrel.
     c.line([body[0] - 6, body[1] - (ox ? 6 : 5)], [body[0] + 4, body[1] - (ox ? 6 : 5)], M.code(mCoat, 3));
+    const ry = ox ? 6.4 : 5.4;
+    c.blob([body[0] - 7.5, body[1] - 2.6], 2.6, 1.3, mCoat, { tone: 3, shine: true });
+    c.blob([body[0] + 6, body[1] - 2], 1.8, 1.3, mCoat, { tone: 3 });
+    c.line([body[0] - 4, body[1] + ry - 0.5], [body[0] + 5, body[1] + ry - 0.5], M.code(mCoat, 0));
+    c.line([body[0] + 3.5, body[1] - 2], [body[0] + 2.5, body[1] + 3], M.code(mCoat, 1));
   }
   // Tack.
   if (H.tack === 'caparison' && H.cloth !== undefined) {
@@ -171,8 +180,9 @@ export function paintHorse(c: Paper, M: Mats, H: BeastLook, clip: HorseClip, f: 
       const q: P2 = [wither[0] + ((poll[0] - wither[0]) * k) / 4, wither[1] + ((poll[1] - wither[1]) * k) / 4];
       dot(c, q[0], q[1] - 1, M.code(mBone, 3));
     }
-    c.rod(poll, muzzle, 3.4, 2.2, mBone, { tone: 2 });
+    c.rod(poll, muzzle, 3.6, 2.4, mSkull, { tone: 2, shine: true });
     dot(c, poll[0] + 1, poll[1] + 1, M.code(M.of(INK, 0.07, true), 2));
+    dot(c, poll[0] + 2, poll[1] + 1, M.code(M.of(INK, 0.07, true), 2));
     if (H.eye !== undefined) dot(c, poll[0] + 1, poll[1] + 1, M.code(M.of(H.eye, 0.07, true), 2));
     c.line([poll[0] + 2, muzzle[1] - 0.5], [muzzle[0], muzzle[1] - 0.5], M.code(M.of(INK, 0.07, true), 2));
   } else {
@@ -203,62 +213,75 @@ export function paintHorse(c: Paper, M: Mats, H: BeastLook, clip: HorseClip, f: 
   }
 }
 
-/** A dog: walk (a trot, diagonal pairs), sit, stand wagging. */
+/**
+ * A dog: walk (a trot, diagonal pairs), sit, stand wagging. Round 2, after the CC0 husky and
+ * wolf sheets (OpenGameArt): a deep rounded chest and a tucked waist, the haunch a second mass,
+ * the back lit along its line, a plumed tail carried up in a curve, a wedge head with a pricked ear.
+ */
 export function paintDog(c: Paper, M: Mats, coat: Col, clip: 'walk' | 'sit' | 'stand', f: number): void {
-  const m = M.of(coat);
-  const md = M.of(tone(coat, 0.3));
-  const mBack = M.of(tone(coat, 0.45));
+  const m = M.of(coat, 0.09);
+  const md = M.of(tone(coat, 0.28), 0.09);
   const mInk = M.of(INK, 0.07, true);
   const p = f / 8;
   const sit = clip === 'sit';
   const walk = clip === 'walk';
   const bob = walk && f % 4 === 1 ? -1 : 0;
   // Trunk: from the haunch to the chest (sitting: upright on the haunches).
-  const haunch: P2 = sit ? [-2, -3] : [-4, -8 + bob];
-  const chest: P2 = sit ? [2, -8] : [3, -8.5 + bob];
+  const haunch: P2 = sit ? [-2, -3.5] : [-4.5, -8 + bob];
+  const chest: P2 = sit ? [2, -8.5] : [3.5, -8.5 + bob];
   const leg = (top: P2, far: boolean, ph: number, hind: boolean) => {
     const q = walk ? (p + ph) % 1 : 0;
-    const a = walk ? 28 * Math.cos(q * TAU) : hind ? -8 : 6;
+    const a = walk ? 26 * Math.cos(q * TAU) : hind ? -8 : 6;
     const lift = walk && q > 0.5 ? Math.sin(((q - 0.5) / 0.5) * Math.PI) : 0;
     const mm = far ? md : m;
-    const k = ip(step(top, a + (hind ? -10 : 0), 3.5));
-    const e = ip(step(k, a + (hind ? 12 : 0) - (hind ? -25 : 50) * lift, 3.5));
-    c.rod(top, k, hind ? 2.2 : 1.7, 1.3, mm, { tone: far ? 1 : 2 });
-    c.rod(k, e, 1.2, 1.1, mm, { tone: far ? 1 : 2 });
-    c.rod([e[0], e[1] + 0.5], [e[0] + 1.5, e[1] + 0.5], 1.4, 1.2, mm, { tone: far ? 1 : 2 });
+    const t = far ? 1 : 2;
+    const k = ip(step(top, a + (hind ? -14 : 0), 3.6));
+    const e = ip(step(k, a + (hind ? 16 : 0) - (hind ? -25 : 50) * lift, 3.4));
+    c.rod(top, k, hind ? 2.8 : 2.2, 1.6, mm, { tone: t });
+    c.rod(k, e, 1.5, 1.3, mm, { tone: t });
+    // The paw, a little wider than the leg, flat on the ground.
+    c.rod([e[0] - 0.3, e[1] + 0.4], [e[0] + 1.4, e[1] + 0.4], 1.6, 1.4, mm, { tone: t });
   };
   if (sit) {
     leg([chest[0] - 0.5, chest[1] + 2], true, 0, false);
   } else {
-    leg([haunch[0] - 1, haunch[1] + 1.5], true, 0.5, true);
-    leg([chest[0] - 1, chest[1] + 2], true, 0, false);
+    leg([haunch[0] - 0.5, haunch[1] + 1.5], true, 0.5, true);
+    leg([chest[0] - 1, chest[1] + 2.5], true, 0, false);
   }
-  // Tail: up in a curve, wagging when it stands.
+  // Tail: a plume carried up in a curve (wagging when it stands), lit along its top.
   const wag = clip === 'stand' ? [0, 1, 2, 1][f % 4]! : walk ? f % 2 : 0;
-  const tb: P2 = sit ? [-4, -2] : [haunch[0] - 2, haunch[1] - 1];
-  c.rod(tb, [tb[0] - 2 + wag * 0.6, tb[1] - 3 - wag * 0.4], 1.8, 1.4, m, { tone: 2 });
-  c.rod([tb[0] - 2 + wag * 0.6, tb[1] - 3 - wag * 0.4], [tb[0] - 1.5 + wag, tb[1] - 5], 1.4, 1, md, { tone: 2 });
-  c.rod(haunch, chest, 4.2, 4.8, m);
-  c.blob([haunch[0] + 0.5, haunch[1] + 0.3], 2.4, 2.2, m);
-  // A darker saddle along the back.
-  c.line([haunch[0], haunch[1] - 2.5], [chest[0] - 1, chest[1] - 2.5], M.code(mBack, 2));
+  const tb: P2 = sit ? [-4.5, -2.5] : [haunch[0] - 2, haunch[1] - 1.5];
+  const tm: P2 = [tb[0] - 2.5 + wag * 0.5, tb[1] - 2.5 - wag * 0.3];
+  const tt: P2 = [tb[0] - 2 + wag, tb[1] - 5.5 + wag * 0.3];
+  c.rod(tb, tm, 2.4, 2.4, m, { tone: 2 });
+  c.rod(tm, tt, 2.2, 1.2, m, { tone: 2 });
+  dot(c, tt[0] + 0.5, tt[1], M.code(m, 4));
+  // The body: the deep chest and the haunch as two masses, joined by a tucked waist.
+  c.rod([haunch[0] + 1, haunch[1] - 0.3], [chest[0] - 1, chest[1] - 0.6], 4.6, 4.6, m);
+  c.blob([haunch[0] + 0.3, haunch[1] + 0.2], 2.8, 2.7, m);
+  c.blob([chest[0] + 0.2, chest[1] + 0.3], 3, 3.2, m);
+  // The lit line of the back, and the belly in shade.
+  if (!sit) {
+    c.line([haunch[0] - 1, haunch[1] - 2.4], [chest[0] - 1, chest[1] - 2.8], M.code(m, 4));
+    c.line([haunch[0] + 2, haunch[1] + 2.3], [chest[0] - 2, chest[1] + 2.6], M.code(m, 0));
+  } else c.line([-3.5, -5], [0.5, -9.5], M.code(m, 4));
   if (sit) {
     c.blob([-2.5, -2], 3, 2.2, m);
     c.rod([-1, -0.5], [1.5, -0.5], 1.6, 1.4, m);
-    leg([chest[0] + 0.5, chest[1] + 2], false, 0, false);
+    leg([chest[0] + 0.5, chest[1] + 2.5], false, 0, false);
   } else {
-    leg([haunch[0], haunch[1] + 1.5], false, 0, true);
-    leg([chest[0], chest[1] + 2], false, 0.5, false);
+    leg([haunch[0] + 0.5, haunch[1] + 1.5], false, 0, true);
+    leg([chest[0], chest[1] + 2.5], false, 0.5, false);
   }
-  // Neck, head, muzzle, ears up, an eye, a black nose.
-  const hd: P2 = sit ? [4, -12] : [6, -11.5 + bob];
-  c.rod([chest[0], chest[1] - 1], hd, 3.4, 2.8, m);
-  c.blob([hd[0] + 0.5, hd[1] + 0.5], 2.3, 2.1, m);
-  c.rod([hd[0] + 1.5, hd[1] + 1], [hd[0] + 4, hd[1] + 1.5], 2, 1.5, m, { tone: 2 });
-  dot(c, hd[0] + 4, hd[1] + 1, M.code(mInk, 2));
+  // Neck, head, muzzle, a pricked ear, an eye, a black nose.
+  const hd: P2 = sit ? [4.5, -13] : [6.5, -12 + bob];
+  c.rod([chest[0] + 0.5, chest[1] - 1], hd, 3.6, 3, m);
+  c.blob([hd[0] + 0.5, hd[1] + 0.5], 2.4, 2.2, m);
+  c.rod([hd[0] + 1.5, hd[1] + 1], [hd[0] + 4.4, hd[1] + 1.6], 2.2, 1.5, m, { tone: 2 });
+  dot(c, hd[0] + 4.5, hd[1] + 1, M.code(mInk, 2));
   dot(c, hd[0] + 1, hd[1], M.code(mInk, 2));
-  c.rod([hd[0] - 0.5, hd[1] - 1], [hd[0] - 1, hd[1] - 3.5], 1.8, 1, md, { tone: 2 });
-  c.rod([hd[0] + 0.5, hd[1] - 1.5], [hd[0] + 0.5, hd[1] - 3.5], 1.4, 1, m, { tone: 3 });
+  // The ear: a triangle pricked up, its inside in shade.
+  c.shape([[hd[0] - 1.4, hd[1] - 0.6], [hd[0] - 0.6, hd[1] - 4], [hd[0] + 0.8, hd[1] - 0.8]], (x) => M.code(m, x + 0.5 < c.sx(hd[0] - 0.4) === c.litLeft() ? 3 : 1));
 }
 
 /** A hen: stand, peck, step. */
@@ -285,13 +308,15 @@ export function paintHen(c: Paper, M: Mats, white: Col, brown: Col, f: number): 
 export function paintCrow(c: Paper, M: Mats, f: number, carrion: boolean): void {
   const m = M.of(carrion ? hex('#2a2430') : hex('#24222a'));
   const s = carrion ? 1.7 : 1.35;
-  c.rod([-4 * s, 0], [3 * s, 0], 2.4 * s, 1.8, m, { tone: 2 });
-  c.blob([3.5 * s, -0.5], 1.4, 1.4, m);
-  dot(c, 5 * s, 0, M.code(M.of(carrion ? hex('#c8bca0') : hex('#5a5048')), 2));
+  // A stout body tapering to the tail, a round head, a pointed bill (never a stick).
+  c.rod([-4 * s, 0.3], [2.5 * s, -0.2], 2.2 * s, 2.8 * s, m, { tone: 2 });
+  c.blob([3.4 * s, -0.6], 1.5 * s, 1.4 * s, m, { shine: true });
+  c.rod([4.4 * s, -0.4], [5.6 * s, 0], 1.2, 0.8, M.of(carrion ? hex('#c8bca0') : hex('#4a4440')), { tone: 2 });
   if (carrion) dot(c, 4 * s, -1, M.code(M.of(hex('#c03a2a'), 0.07, true), 2));
   // Tail fan.
   c.poly([[-4 * s, -0.5], [-7 * s, -1.5], [-7 * s, 1.5], [-4 * s, 0.8]].map((q) => [c.sx(q[0]!), c.sy(q[1]!)] as P2), () => M.code(m, 1));
-  const wing = [-5, -1, 4, -1][f % 4]!;
+  // Up, half up, down, half down: the wing always shows as a wedge.
+  const wing = [-5, -2.5, 4, 1.5][f % 4]!;
   const span = 7 * s;
   const tip: P2 = [-2 * s, wing * s];
   c.poly(

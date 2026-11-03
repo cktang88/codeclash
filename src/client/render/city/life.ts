@@ -450,14 +450,20 @@ class Beast implements Ent {
     readonly rand: Rand,
     readonly rank: number,
     public follow: Walker | null = null,
+    /**
+     * Where a dog keeps to beside the one it follows (u back, v across). HD figures are wider
+     * than the classic ones: the dog walks a body's width off, so the two never overlap at the
+     * same depth (a figure half hidden behind the dog read as a broken body).
+     */
+    readonly gap: [number, number] = [4, 3],
   ) {
     this.u = this.tu = home[0] + rand.range(-radius, radius);
     this.v = this.tv = home[1] + rand.range(-radius, radius);
   }
   update(dt: number): void {
     if (this.follow && !this.follow.hidden) {
-      this.tu = this.follow.u - 4;
-      this.tv = this.follow.v + 3;
+      this.tu = this.follow.u - this.gap[0];
+      this.tv = this.follow.v + this.gap[1];
     }
     const du = this.tu - this.u;
     const dv = this.tv - this.v;
@@ -632,7 +638,7 @@ export class Life {
     }
     if (levels.workshop > 0) this.walkers.push(new Walker('workshop', this.L.carpenter(1, 'none', 'plank'), ['workshop', 'yard', 'out', 'forge'], 9, -1.5, new Rand(700), 'none', 0, 0.2, {}, { out: true }));
     const dogs = Math.min(3, 1 + Math.floor(total / 40));
-    for (let i = 0; i < dogs; i++) this.beasts.push(new Beast('dog', NODES.yard as unknown as [number, number], 14, new Rand(800 + i), i / 3, this.walkers[i * 3] ?? null));
+    for (let i = 0; i < dogs; i++) this.beasts.push(new Beast('dog', NODES.yard as unknown as [number, number], 14, new Rand(800 + i), i / 3, this.walkers[i * 3] ?? null, this.hd ? [7, 6] : [4, 3]));
     this.fieldPos = FIELDS.map((_, i) => hash(i, 3) * 40);
     this.stuck = [];
   }

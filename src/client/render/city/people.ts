@@ -15,7 +15,7 @@ export const FIG_FRAMES = 7;
 /** The classic painter knows the first seven; 'sweep' is HD only (folk-people.ts). */
 export type Work = 'none' | 'hammer' | 'scythe' | 'dig' | 'tend' | 'saw' | 'pray' | 'sweep';
 /** The classic painter knows the first seven; the rest are HD only (folk-people.ts). */
-export type Carry = 'none' | 'sack' | 'bucket' | 'staff' | 'book' | 'plank' | 'basket' | 'parasol' | 'broom' | 'spade' | 'yoke' | 'lantern' | 'bundle' | 'tongs';
+export type Carry = 'none' | 'sack' | 'bucket' | 'staff' | 'book' | 'plank' | 'basket' | 'parasol' | 'broom' | 'spade' | 'yoke' | 'lantern' | 'bundle' | 'tongs' | 'candle';
 
 export interface Look {
   body: Col;
