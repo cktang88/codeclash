@@ -33,7 +33,7 @@ export { MORALE, REGROUP, UNDEAD } from './command.ts';
  * - Undead regiments (`fearless`) never waver, rout or rally: their morale is 100 and stays
  *   there, and nothing that moves morale (losses, charges, missiles, routs nearby, the general's
  *   death) is reckoned for them, which also saves the work.
- * - In exchange every undead class has 68% of its hit points (the Bone Colossus 80%, the
+ * - In exchange every undead class has 69% of its hit points (the Bone Colossus 80%, the
  *   trebuchet unchanged): `DEAD_HP`, `COLOSSUS_HP` in factions.ts.
  * - When the Lich-Marshal falls the host crumbles (`crumbling`, event 'crumble'): every man
  *   standing loses 2% of his hit points a second, and fights at -4 attack, -3 defence.

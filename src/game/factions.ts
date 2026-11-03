@@ -36,7 +36,7 @@ export interface FactionDef {
  * that they win about as often against the Templars and the Samurai as before they were
  * fearless (`pnpm fairness --factions undead,templar`; see docs/factions.md).
  */
-export const DEAD_HP = 0.68;
+export const DEAD_HP = 0.69;
 /** The Bone Colossus keeps a little more. */
 export const COLOSSUS_HP = 0.8;
 
@@ -137,7 +137,7 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
       [U.Shock]: { hp: COLOSSUS_HP },
     },
     palette: { cloth: '#2e2b2a', clothShade: '#1a1817', trim: '#5f8f4e', metal: '#6c6f68', metalShade: '#3a3c38', leather: '#3d3128', skin: '#d8d0b4' },
-    rule: 'The dead know no fear: they never waver, rout or rally, but have 68% of the living’s hit points (the Bone Colossus 80%; the trebuchet is timber). If the Lich-Marshal falls, the whole host crumbles: every man loses 2% of his hit points a second and fights worse. A host down to its last 8% (or its last fifth, against twice as many) is spent: the battle is lost and it crumbles the same way.',
+    rule: 'The dead know no fear: they never waver, rout or rally, but have 69% of the living’s hit points (the Bone Colossus 80%; the trebuchet is timber). If the Lich-Marshal falls, the whole host crumbles: every man loses 2% of his hit points a second and fights worse. A host down to its last 8% (or its last fifth, against twice as many) is spent: the battle is lost and it crumbles the same way.',
   },
 };
 

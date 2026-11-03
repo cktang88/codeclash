@@ -83,7 +83,7 @@ the Samurai's is still a proposal. Implementing one needs a re-balance (`pnpm fa
   dropping HeavyInfantry morale ×1.05 if it tests strong.
 - **Undead: the dead know no fear** (built in battle v12; `fearless` in `battle.ts`, `UNDEAD` in
   `command.ts`). Undead regiments never waver, rout or rally, and no morale rule touches them
-  (morale reads 100). The price is hit points: every class has 68% of its own (`DEAD_HP`; the
+  (morale reads 100). The price is hit points: every class has 69% of its own (`DEAD_HP`; the
   Colossus 80%, `COLOSSUS_HP`; the trebuchet, timber, unchanged), which replaced the stand-in
   HeavyInfantry morale ×1.05 and Colossus hp ×1.05 tweaks. If the Lich-Marshal falls, the whole
   host crumbles: every man loses 2% of his hit points a second and fights at -4 attack, -3
@@ -91,8 +91,12 @@ the Samurai's is still a proposal. Implementing one needs a re-balance (`pnpm fa
   many, and crumbles where it stands rather than running. The proposed "below 15 morale a
   regiment crumbles at 1% hp/s" was dropped: with no fear there is no morale to fall below.
   Balance (`pnpm fairness --factions undead,templar` and `undead,samurai`, 200 seeds both ways
-  round, 250 and 500 a side): DEAD_HP 0.65 left the undead at 38–47%, 0.7 at 50–60%, 0.68 at
-  about their old rates. Battles with undead run some 20 s longer (no rout cascade on their side).
+  round, 250 and 500 a side, on v11's missile drill): before, the undead won 51.3% / 50.5% of
+  their battles against the Templars (250 / 500 a side) and 53.3% / 56.8% against the Samurai.
+  DEAD_HP 0.68 gave 43.5% / 52.3% and 53.5% / 58.5%; 0.7 gave 52.3% / 56.0% and 53.3% / 60.3%;
+  0.69 gives 45.8% / 54.5% and 52.0% / 55.0% (each ±2.5%), as close to the old rates as the
+  noise allows. Battles with undead run some 20–30 s longer (no rout cascade on their side):
+  mean 117–120 s before, 138–147 s after, none to the time limit.
 
 ## Palettes
 
