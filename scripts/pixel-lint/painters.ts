@@ -35,7 +35,9 @@ interface ClassicMod {
 interface HdMod {
   paintSheet: (f: string, hue: number, kind: number, level: number) => Sheet;
   paintGrid: (f: string, hue: number, kind: number) => Sheet;
-  slotOf: (kind: number, a: number, frame: number, dir: number) => number;
+  slotOf: (kind: number, a: number, frame: number, dir: number, blows?: number) => number;
+  gridColOf: (kind: number, a: number, frame: number, dir: number, blows?: number) => number;
+  blowsOf: (faction: string, kind: number) => number;
   FOOT_X: number;
   FOOT_Y: number;
   __armyColours: (f: string, hue: number) => { fill: number[]; edge: number[] };
@@ -120,6 +122,11 @@ export class Painters {
 
   frameCount(art: Art, anim: number): number {
     return (art === 'hd' ? this.hd.__FRAMES : this.classic.__FRAMES)[anim]!;
+  }
+
+  /** Melee blows of a kind (HD paper kinds may have several; Attack frame b * n + f is frame f of blow b). */
+  blows(art: Art, faction: Faction, kind: number): number {
+    return art === 'hd' ? this.hd.blowsOf(faction, kind) : 1;
   }
 
   /** A faction's palette; for HD, `level` limits the paper-doll ramps to those painted at that level. */
@@ -211,10 +218,10 @@ export class Painters {
     }
     const sh = this.sheetOf(faction, kind, level);
     const page: Img = { w: sh.width, h: sh.height, d: sh.pixels };
-    const slot = this.hd.slotOf(kind, anim, fr, dir);
+    const blows = this.hd.blowsOf(faction, kind);
+    const slot = this.hd.slotOf(kind, anim, fr, dir, blows);
     if (level === 1) {
-      const cols = this.hd.__COLS;
-      const col = slot - dir * cols;
+      const col = this.hd.gridColOf(kind, anim, fr, dir, blows);
       return { m: cut(page, col * 48, dir * 48, 48, 48), ax: this.hd.FOOT_X, ay: this.hd.FOOT_Y };
     }
     const r = sh.rects.subarray(slot * 6, slot * 6 + 6);
