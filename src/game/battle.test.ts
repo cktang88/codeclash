@@ -339,7 +339,7 @@ describe('battle: morale that does not grow with the battle (v16)', () => {
     expect(r!.friendNear * b.stats[0][r!.cls]!.value).toBeCloseTo(friend!.alive * b.stats[0][friend!.cls]!.value, 6);
   });
 
-  it('late in the day, shooters with no line of their own left before them go in like foot of the line', () => {
+  it('late in the day, shooters with no line of their own left before them, or idle, go in like foot of the line', () => {
     const b = new Battle(setupOf(1, army(500), army(500)));
     const inside = b as unknown as Inside;
     const bows = b.regiments.find((x) => x.team === 0 && x.role === 'missile')!;
@@ -347,7 +347,11 @@ describe('battle: morale that does not grow with the battle (v16)', () => {
     expect(inside.drawn(bows)).toBe(false);
     b.tick = 2401;
     expect(inside.drawn(bows)).toBe(true);
+    // With a line still before them: only once they have had nothing to shoot at for 15 s.
     inside.ts[0]!.hasLine = true;
+    bows.aimedAt = b.tick - 10;
     expect(inside.drawn(bows)).toBe(false);
+    bows.aimedAt = b.tick - 200;
+    expect(inside.drawn(bows)).toBe(true);
   });
 });

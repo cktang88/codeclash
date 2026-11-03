@@ -1908,7 +1908,7 @@ export class Battle {
     for (const r of regs) {
       if (r.alive === 0 || r.routed) continue;
       if (r.role === 'missile' && !this.drawn(r)) this.give(r, plan === 'hold' && waiting ? 'hold' : 'advance');
-      else if (r.role === 'skirmish') this.give(r, won ? 'pursue' : 'skirmish');
+      else if (r.role === 'skirmish' && !this.drawn(r)) this.give(r, won ? 'pursue' : 'skirmish');
       else if (r.role === 'horse-archer' && r.ammoLeft > 0) this.give(r, won ? 'pursue' : 'skirmish');
       else if (r.role === 'siege') this.give(r, 'hold');
       else if (r.role === 'command') this.give(r, 'support');
@@ -2499,7 +2499,8 @@ export class Battle {
         else this.thinkMissile(r);
         break;
       case 'skirmish':
-        this.thinkSkirmish(r);
+        if (this.drawn(r)) this.thinkLine(r);
+        else this.thinkSkirmish(r);
         break;
       case 'flank':
         this.thinkCav(r, false);
@@ -2522,13 +2523,18 @@ export class Battle {
   }
 
   /**
-   * Shooters who fight as foot of the line: out of shot, or late in the day (LATE) with no line
-   * of their own left before them. (Until v16 they shot on while they had shot: in the biggest
-   * battles the last of both armies were often blocks of archers trading arrows at long range
-   * until the time limit.)
+   * Shooters and skirmishers who fight as foot of the line: shooters out of shot; and late in the
+   * day (LATE), with no line of their own left before them, or idle (shooters with nothing to
+   * shoot at for MISSILE_SEEK, skirmishers fallen back behind the line). (Until v16 they kept
+   * their shot to the end: in the biggest battles, which run long, the last of both armies were
+   * often blocks of archers trading arrows at long range, or standing idle behind a melee of a
+   * few blocks, until the time limit.)
    */
   private drawn(r: Regiment): boolean {
-    return r.role === 'missile' && (r.ammoLeft === 0 || (this.tick > LATE && !this.ts[r.team]!.hasLine));
+    if (r.role === 'missile' && r.ammoLeft === 0) return true;
+    if (this.tick <= LATE || (r.role !== 'missile' && r.role !== 'skirmish')) return false;
+    if (!this.ts[r.team]!.hasLine) return true;
+    return r.role === 'missile' ? this.tick - r.aimedAt > MISSILE_SEEK : r.retired;
   }
 
   /** S2: the first samurai block of the line to strike claims the first spear: heart for it and for those near it. */
