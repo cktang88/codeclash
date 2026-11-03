@@ -30,7 +30,8 @@ export { MORALE } from './command.ts';
 /**
  * v7: bug fixes. A crossbow bolt no longer strikes a man of its own regiment at landing (it was
  * aimed past its own ranks, but landed on the first man along its line, comrade or not: some
- * 30% of a crossbow block's hits were in its own front rank).
+ * 30% of a crossbow block's hits were in its own front rank). A regiment that breaks while
+ * chasing fugitives stops chasing (it kept the chase, and ran on after it once it rallied).
  *
  * v6: formations at game scale and horse that cannot turn on a dime. Regiments stand further
  * apart (18 between blocks), ranks a little deeper than files (horse much deeper: a horse is
@@ -2918,6 +2919,8 @@ export class Battle {
     r.routAt = this.tick;
     r.quietSince = this.tick;
     r.targetReg = -1;
+    // A chase ends when the chasers break (else, rallied, they would run on after it at once).
+    r.chaseAt = -1;
     // Broken once too often, or too few left to stand again: shattered.
     const maxRallies = 1 + (r.veteran || this.setup.armies[r.team]!.moraleBonus >= 8 ? 1 : 0);
     const shattered = r.rallies >= maxRallies || r.alive < r.start * MORALE.shatterBelow || this.broken[r.team];

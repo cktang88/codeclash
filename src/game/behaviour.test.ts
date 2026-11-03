@@ -217,6 +217,19 @@ describe('battle: breaking ranks to chase', () => {
     expect(longest).toBeLessThan(1.15);
     expect(loose).toBeGreaterThan(tight);
   }, 120_000);
+
+  it('a regiment that breaks in the middle of a chase is no longer chasing (and does not chase on when it rallies)', () => {
+    const { b, a } = footFight(U.Spearmen, U.HeavyInfantry);
+    for (let i = 0; i < 20; i++) b.step();
+    // Off after fugitives on its own, then its nerve goes.
+    a.chaseAt = b.tick;
+    a.chaseX = a.ax;
+    a.chaseY = a.ay;
+    a.morale = 0;
+    while (!a.routed && b.tick < 60) b.step();
+    expect(a.routed).toBe(true);
+    expect(a.chaseAt).toBe(-1);
+  });
 });
 
 const isHorse = (cls: number) => cls === U.LightCavalry || cls === U.HorseArchers || cls === U.Knights;
