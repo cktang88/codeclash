@@ -243,12 +243,15 @@ describe('battle', () => {
   });
 
   it('equal armies are a fair fight from either side', () => {
-    const left = winsOf(10, (seed) => fight(setupOf(seed, army(250), army(250))).winner);
-    expect(left).toBeGreaterThanOrEqual(2);
-    // Known issue, older than v4: the left side wins mirror matches more often than it should
-    // (v3: 31 of seeds 1-40, v4: 33), so 9 of these 10 is not a fluke; to be hunted down.
-    expect(left).toBeLessThanOrEqual(9);
-  }, 30_000);
+    // Mirror matches at two sizes (the side favoured by a timing bias used to depend on the
+    // armies' size). Until v5 the left side won 33 of these 40 at 250 a side; over 800 seeds v5
+    // gives it 48% at 250 and 120 a side. 13-27 of 40 is a fair coin at p ~ 0.04.
+    for (const n of [250, 120]) {
+      const left = winsOf(40, (seed) => fight(setupOf(seed, army(n), army(n))).winner);
+      expect(left).toBeGreaterThanOrEqual(13);
+      expect(left).toBeLessThanOrEqual(27);
+    }
+  }, 120_000);
 
   it('a tenth more men usually wins, but not always', () => {
     const wins = winsOf(20, (seed) => fight(setupOf(seed, army(330), army(300))).winner);
