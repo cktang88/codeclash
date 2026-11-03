@@ -20,7 +20,10 @@ describe('doctrines: the Templars', () => {
     // 1000 a side: two regiments of Knight-Brothers.
     let signals = 0;
     let recalled = 0;
-    for (const seed of [1, 2, 3]) {
+    // (Six days: a cycle charge of the knights from foot does not come in every battle; in v15
+    // none of the first three days has one.)
+    const seeds = [1, 2, 3, 4, 5, 6];
+    for (const seed of seeds) {
       const b = battle(seed, army(1000, 'templar'), army(1000, 'samurai'));
       const g = b.generals[0];
       expect(g.rashKnights).toBe(false);
@@ -48,9 +51,9 @@ describe('doctrines: the Templars', () => {
         }
       }
     }
-    expect(signals).toBe(3);
+    expect(signals).toBe(seeds.length);
     expect(recalled).toBeGreaterThan(0);
-  }, 120_000);
+  }, 240_000);
 
   it('T2: a broken Templar block may re-form after its rally; a samurai one is shattered', () => {
     for (const f of ['templar', 'samurai'] as const) {
