@@ -453,7 +453,7 @@ export function footClips(skel: SkeletonData, s: FootClipSpec): ClipSet {
     const b = BLOCK(rw, f);
     return { ...base, dw: { ...base.dw, upperArmF: b.dw!.upperArmF!, forearmF: b.dw!.forearmF! } };
   };
-  const hit = fc('hit', 5, false, (f) => mk(skel, f, 'hit', { torso: 0, absHeight: true, travel: 0.55, feet: 0.6 }, hitA, [1, 2, 3]), [{ f: 0, name: 'flash' }]);
+  const hit = fc('hit', 5, false, (f) => mk(skel, f, 'hit', { torso: 0, absHeight: true, travel: 0.55, feet: 0.6 }, hitA, [1, 2, 3]), []);
   // ---- the death: the fall from the capture, then it comes apart.
   const dieName = s.die === 'back' ? 'die-back' : s.die === 'forward' ? 'die-forward' : 'die-crumple';
   const fast = (f: number) => (f <= 6 ? f * 0.7 : 4.2 + ((f - 6) * 6.8) / 5);

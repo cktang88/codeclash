@@ -439,7 +439,7 @@ function mountClips(skel: SkeletonData, s: MountSpec): ClipSet {
     const h = HIT(rw, f);
     return { dw: { ...h.dw, jaw: T([0, -28], [1, -30], [2, -6], [3, -14], [4, -8]), head: T([0, 22 + s.tilt], [1, 28 + s.tilt], [2, 14], [3, 4], [4, s.tilt]) } };
   };
-  const hit = fc('hit', 5, false, (f) => overlayKeys(overlayKeys(standKeys(4), shy(restWorld(skel, f), f)), riderHit(restWorld(skel, f), f), [1, 2, 3]), [{ f: 0, name: 'flash' }, { f: 0, name: 'neigh', len: 2, int: 1 }]);
+  const hit = fc('hit', 5, false, (f) => overlayKeys(overlayKeys(standKeys(4), shy(restWorld(skel, f), f)), riderHit(restWorld(skel, f), f), [1, 2, 3]), [{ f: 0, name: 'neigh', len: 2, int: 1 }]);
   const drops: Drop[] = s.drops.map((d) => ({ holder: d.holder, bone: `drop_${d.slot}`, slot: `${d.slot}Drop`, from: d.slot, at: d.at, land: d.land }));
   // The folded legs never go through the ground: the barrel is held up on them.
   const legBones = (b: string) => /^(fore|hind)[NF](Upper|Lower)$/.test(b);

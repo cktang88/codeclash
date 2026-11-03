@@ -385,7 +385,7 @@ function horseClips(skel: SkeletonData, s: HorseSpec, m: SMounted): ClipSet {
   // Struck: the horse shies (head up, a half-step back), the rider snaps back; a flash.
   const shy: Author = () => ({ dw: { horseNeck: T([0, 14], [1, 20], [2, 10], [4, 0]), horseBody: T([0, 3], [1, 5], [2, 2], [4, 0]), horseHead: T([0, 8], [1, 10], [4, 0]) }, tAdd: { horseBody: [T([0, -0.3], [1, -0.5], [2, -0.3], [4, 0]), T([0, 0])] } });
   const riderHit: Author = (rw, f) => ({ dw: HIT(rw, f).dw });
-  const hit = fc('hit', 5, false, (f) => overlayKeys(overlayKeys(standKeys(4, skel, shy)(f), riderHit(restWorld(skel, f), f)), {}, [1, 2, 3]), [{ f: 0, name: 'flash' }]);
+  const hit = fc('hit', 5, false, (f) => overlayKeys(overlayKeys(standKeys(4, skel, shy)(f), riderHit(restWorld(skel, f), f)), {}, [1, 2, 3]), []);
   const drops: Drop[] = m.gear.near?.draw ? [{ holder: 'weapon', bone: 'dropW', slot: 'weaponDrop', from: 'weapon', at: 3, land: { x: -7.0, y: -0.25, rot: 270 - s.nearDeg, f: 7 } }] : [];
   if (m.gear.far?.draw) drops.push({ holder: 'itemF', bone: 'dropF', slot: 'farDrop', from: 'farItem', at: 3, land: { x: 9.0, y: -0.3, rot: 90 - (s.farDeg ?? 180), f: 7 } });
   const die = addDrops(skel, fc('die', 12, false, (f) => dieKeys(f), [{ f: 8, name: 'land' }]), 12, drops);

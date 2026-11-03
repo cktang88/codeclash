@@ -898,7 +898,9 @@ export class BattleScene {
       let f = loop ? Math.floor((T + phase) / tpf) % frames : Math.min(frames - 1, Math.floor((T - start) / tpf));
       if (f < 0) f = 0;
       const [u, vv] = atlas.at(kind, anim, f, dir);
-      const flash = T - hitAt < 0.6 ? 0.3 : 0;
+      // No white hit flash: with hundreds of men trading blows it strobed the whole field. The hit
+      // animation's recoil carries the blow (as in Total War).
+      const flash = 0;
       // Routers stagger: a pixel of jitter that changes every few ticks.
       let jx = 0;
       let jy = 0;
