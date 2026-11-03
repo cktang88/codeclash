@@ -377,5 +377,7 @@ export const DOCTRINE: Record<FactionId, Doctrine> = {
     ...SHARED,
     // U1 The tide: slow and even, faster only near the Lich-Marshal; never halting, a lurch for a charge.
     tide: 0.8, tideNear: 240, unhalting: true, footRun: 1.15,
+    // U2 Unflinching: a charge into them barely knocks them back, stuns nobody, and stalls sooner.
+    knockback: 0.3, stun: false, drain: 1.3,
   },
 };
