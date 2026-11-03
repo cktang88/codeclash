@@ -92,6 +92,9 @@ export function BattleView(props: {
     let last = performance.now();
     let acc = 0;
     let hudAt = 0;
+    // The battle and tick the HUD last showed: paused, it is not re-rendered for nothing.
+    let hudBattle: Battle | null = null;
+    let hudTick = -1;
     let restartAt = 0;
     let doneSent = false;
     // Scripted checks (?probe): the battle, its scene and the draw alpha of the latest frame.
@@ -123,8 +126,12 @@ export function BattleView(props: {
     };
     const resize = () => {
       const dpr = Math.min(2, window.devicePixelRatio || 1);
-      canvas.width = Math.max(1, Math.round(canvas.clientWidth * dpr));
-      canvas.height = Math.max(1, Math.round(canvas.clientHeight * dpr));
+      const w = Math.max(1, Math.round(canvas.clientWidth * dpr));
+      const h = Math.max(1, Math.round(canvas.clientHeight * dpr));
+      // Setting a canvas's size, even to the same, clears it and reallocates its buffers (the
+      // observer also fires once on observe, right after the call above).
+      if (canvas.width !== w) canvas.width = w;
+      if (canvas.height !== h) canvas.height = h;
     };
     resize();
     const ro = new ResizeObserver(resize);
@@ -188,8 +195,10 @@ export function BattleView(props: {
       const alpha = battle.done() ? 1 : Math.min(1, acc / TICK_S);
       scene.draw(canvas, alpha, Math.min(0.25, dt * (battle.done() ? 1 : rate)));
       if (probe) probe.at = { battle, scene, alpha, now };
-      if (!ambient && now - hudAt > 200) {
+      if (!ambient && now - hudAt > 200 && (battle !== hudBattle || battle.tick !== hudTick)) {
         hudAt = now;
+        hudBattle = battle;
+        hudTick = battle.tick;
         setLive(measure(battle));
         if (battle.events.length > seen) {
           const fresh = battle.events.slice(seen).map((e, i) => ({ id: seen + i, tick: e.tick, team: e.team, text: say(e), grave: e.kind === 'commander' || e.kind === 'break' }));

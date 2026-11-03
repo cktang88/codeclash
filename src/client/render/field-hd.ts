@@ -761,6 +761,13 @@ export class HdField {
     this.anyDirty = false;
   }
 
+  /** Whether a draw at battle second `now` would compose the ground again (marks or decals waiting). */
+  composePending(now: number): boolean {
+    const g = this.g;
+    if (!g || !this.anyCdirty) return false;
+    return Math.abs(now - g.compNow) >= 0.6 || Math.floor(now / AGE_STEP_S) * AGE_STEP_S !== g.compAge;
+  }
+
   /**
    * Tools: composes the ground at the next draw, from scratch (`full`), or just what changed since
    * the last composition (no throttle). The two must give the same picture.

@@ -141,6 +141,13 @@ const HD_ID = {
   arrow: fxId('arrow0'),
   bolt: fxId('bolt0'),
   jav: fxId('jav0'),
+  // Decals (consecutive ids per family, see fx-hd.ts).
+  splat: fxId('splat0'),
+  hoof: fxId('hoof0'),
+  crater: fxId('crater0'),
+  stuck_arrow: fxId('stuck_arrow0'),
+  stuck_bolt: fxId('stuck_bolt0'),
+  stuck_jav: fxId('stuck_jav0'),
 };
 
 const MISSILE_CLS = (cls: number, splash: number): 'stone' | 'bolt' | 'jav' | 'arrow' =>
@@ -269,6 +276,12 @@ export class BattleScene {
   private stamps: Stamp[] = [];
   private time = 0;
   /** Last frame's view, for toWorld and pan. */
+  /** What the last frame drew (draw() skips a paused frame that would be the same). */
+  private last = { canvas: null as HTMLCanvasElement | null, W: 0, H: 0, tick: -1, alpha: -1, zoom: 0, cx: 0, cy: 0, scan: true, v0: -1, v1: -1, settled: false };
+  /** Whether the last frame drew everything at its final look (no sheet still painting or going up). */
+  private settled = false;
+  /** Paused frames not drawn because nothing changed (for tools). */
+  skipped = 0;
   /** Stream parts, reused frame to frame (setPart). */
   private readonly solidParts: Part[] = [];
   private readonly softParts: Part[] = [];
@@ -544,6 +557,7 @@ export class BattleScene {
       if (this.gfx?.canvas !== canvas) return;
       this.gfx.unlisten();
       this.gfx = null;
+      this.last.settled = false;
       // The HD sheets' textures and batches died with the context; they are rebuilt on demand.
       this.hdBatch = [];
       this.hdTex.clear();
@@ -598,6 +612,7 @@ export class BattleScene {
   /** HD tools: composes the ground at the next draw, from scratch or only what changed (field-hd.ts). */
   invalidateGround(full = true): void {
     this.field?.invalidate(full);
+    this.last.settled = false;
   }
 
   /** Frees the GL resources (the canvas's context stays for the next scene). */
@@ -606,6 +621,7 @@ export class BattleScene {
     if (!g) return;
     g.unlisten();
     this.gfx = null;
+    this.last.settled = false;
     const gl = g.gl;
     const hdBatches = [...this.hdBatch.flat(), ...(this.hdFxB ? [this.hdFxB.decal, this.hdFxB.fx, this.hdFxB.soft, this.hdFxB.std] : [])];
     this.hdFxB = null;
@@ -773,6 +789,32 @@ export class BattleScene {
     if (out.width < 1 || out.height < 1) return;
     const gfx = this.init(out);
     if (!gfx) return;
+    // Paused (no time passes) with nothing changed and nothing still loading: the canvas already
+    // shows this frame (the page keeps it until something is drawn), so draw nothing.
+    const f = this.last;
+    const now = this.battle.tick * TICK_S;
+    if (
+      dt === 0 &&
+      f.settled &&
+      f.canvas === out &&
+      f.W === out.width &&
+      f.H === out.height &&
+      f.tick === this.battle.tick &&
+      f.alpha === alpha &&
+      f.zoom === this.camera.zoom &&
+      f.cx === this.camera.cx &&
+      f.cy === this.camera.cy &&
+      f.scan === this.scanlines &&
+      f.v0 === (this.atlases[0].version ?? 0) &&
+      f.v1 === (this.atlases[1].version ?? 0) &&
+      this.stamps.length === 0 &&
+      !this.field?.composePending(now)
+    ) {
+      this.skipped++;
+      this.lastBuildMs = 0;
+      this.lastDrawMs = performance.now() - t0;
+      return;
+    }
     const gl = gfx.gl;
     this.time += dt;
     if (this.follow) this.followAction(dt);
@@ -880,6 +922,19 @@ export class BattleScene {
     gl.disable(gl.BLEND);
 
     gfx.post.apply(gfx.scene.tex, v.W, v.H, v.offX, v.offY, v.u, this.time, this.scanlines);
+    f.canvas = out;
+    f.W = out.width;
+    f.H = out.height;
+    f.tick = this.battle.tick;
+    f.alpha = alpha;
+    // As laid out (the camera is clamped to the field): what the next frame will compare.
+    f.zoom = this.camera.zoom;
+    f.cx = this.camera.cx;
+    f.cy = this.camera.cy;
+    f.scan = this.scanlines;
+    f.v0 = this.atlases[0].version ?? 0;
+    f.v1 = this.atlases[1].version ?? 0;
+    f.settled = this.settled;
     this.lastDrawMs = performance.now() - t0;
   }
 
@@ -919,6 +974,7 @@ export class BattleScene {
    */
   private pickLevels(gfx: Gfx, m: number): boolean {
     let any = false;
+    this.settled = true;
     const gl = gfx.gl;
     if (this.hdBatch.length === 0) this.hdBatch = [0, 1].map(() => Array.from({ length: KIND_COUNT }, () => new Batch(gl, gfx.corners, 256)));
     let budget = HD_UPLOAD_BYTES;
@@ -946,14 +1002,18 @@ export class BattleScene {
         // sheets (tens of MB a kind) are asked for only by kinds actually in view.
         let best: KindSheet | null = null;
         let bestL = 1;
+        let wantL = 1;
         for (const L of atlas.levels) {
           if (L > m || (L >= 8 && !live)) break;
+          wantL = L;
           const sh = atlas.sheet(k, L);
           if (sh) {
             best = sh;
             bestL = L;
           }
         }
+        // A finer sheet still being painted: the picture will change by itself.
+        if (inView && bestL < wantL) this.settled = false;
         // The best sheet goes up a band of rows at a time, within the frame's budget (several
         // 8x sheets landing together are hundreds of MB): until it is all there the kind is
         // drawn from the finest level already up, else the level-1 grid.
@@ -973,11 +1033,13 @@ export class BattleScene {
           }
           if (h.rows < best.height && budget > 0) budget -= uploadRows(gl, h, budget);
           if (h.rows >= best.height) drawn = h;
-          else
+          else {
+            this.settled = false;
             for (const L of atlas.levels) {
               const o = L < bestL ? this.hdTex.get(hdKey(t, k, L)) : undefined;
               if (o && o.rows >= o.sheet.height) drawn = o;
             }
+          }
         }
         // Only the drawn level of a kind in view stays on the GPU (and the one going up).
         for (const L of atlas.levels) {
@@ -1353,7 +1415,7 @@ export class BattleScene {
         }
         // Blood soaks in where he stands, and spatters.
         f.mark(mx + (rng.next() - 0.5) * 2.5, my + (rng.next() - 0.5) * 1.2, 1.1 + rng.next() * 1.4, dead ? 0.3 : 0.15, 0, now);
-        if (rng.next() < 0.3) f.decal(`splat${rng.int(SPLATS)}`, mx + (rng.next() - 0.5) * 4, my + (rng.next() - 0.5) * 2, now, true);
+        if (rng.next() < 0.3) f.decalId(HD_ID.splat + rng.int(SPLATS), mx + (rng.next() - 0.5) * 4, my + (rng.next() - 0.5) * 2, now, true);
       }
       if (s.state === State.Dead) {
         if (!this.stamped[i] && tick - s.diedAt >= this.dieTicks(s.team, this.kindOf(i))) {
@@ -1377,7 +1439,7 @@ export class BattleScene {
         const sx = -projX(s.vx, s.vy);
         const sy = -projY(s.vx, s.vy);
         const k = (Math.round(((Math.atan2(sy, sx) - 0.4) / (Math.PI * 2)) * HOOVES) + HOOVES * 4) % HOOVES;
-        f.decal(`hoof${k}`, mx + (rng.next() - 0.5) * 2.5, my + (rng.next() - 0.5) * 1.2, now);
+        f.decalId(HD_ID.hoof + k, mx + (rng.next() - 0.5) * 2.5, my + (rng.next() - 0.5) * 1.2, now);
       }
       // Feet wear the grass flat; where men stand and fight, or horse pass, it churns to mud.
       if ((i + tick) % 2 === 0) {
@@ -1402,7 +1464,7 @@ export class BattleScene {
         continue;
       }
       const look = lookOf(p.cls, p.splash) as 'arrow' | 'bolt' | 'jav';
-      if (rng.next() < 0.35) f.decal(`stuck_${look}${rng.int(3)}`, this.mapX(p.x1, p.y1), this.mapY(p.x1, p.y1), now);
+      if (rng.next() < 0.35) f.decalId((look === 'arrow' ? HD_ID.stuck_arrow : look === 'bolt' ? HD_ID.stuck_bolt : HD_ID.stuck_jav) + rng.int(3), this.mapX(p.x1, p.y1), this.mapY(p.x1, p.y1), now);
       if (rng.next() < 0.3) this.spawn(PK.Dust, p.x1, p.y1, 0.5, (rng.next() - 0.5) * 8, (rng.next() - 0.5) * 8, 3 + rng.next() * 3, 0.7 + rng.next() * 0.5, 1 + rng.int(2), 0.8, 0.7, 0.55, 0.5, rng.int(PUFF_VARIANTS));
     }
     // New shots: the teppō and the ōzutsu fire in a billow of white powder smoke.
@@ -1433,7 +1495,7 @@ export class BattleScene {
     const rng = this.hdRng;
     const mx = this.mapX(x, y);
     const my = this.mapY(x, y);
-    f.decal(`crater${rng.int(2)}`, mx, my, now);
+    f.decalId(HD_ID.crater + rng.int(2), mx, my, now);
     f.mark(mx, my, 7, 0, 0.5, now);
     for (let k = 0; k < 12; k++) {
       const g = 0.3 + rng.next() * 0.12;
