@@ -190,13 +190,18 @@ export const CUT: Author = (rw) => ({
 /** The Templar cut: the same, but the shield stays on the chest through it (it firms up as the arm goes over, never swings out and back). */
 const CUT_TIGHT: Author = (rw, f, A) => ({ ...CUT(rw, f, A), dw: { upperArmF: T([0, 0], [4, 8], [6, 4], [8, 2], [11, 0]), forearmF: T([0, 0], [4, 10], [6, 8], [11, 0]) } });
 
-/** The sword thrust from the guard: the fist at the hip, the point level at chest height; driven straight out along the blade with a step, the shield up; pulled straight back. */
+/**
+ * The sword thrust over the shield rim (the high guard of the sword-and-shield man, Maciejowski
+ * and I.33: the fist at the shoulder, the blade laid level over the shield's top edge, the point
+ * at the face); driven straight out along the blade with a step, while the shield is eased down
+ * and turned edge-on so the blade clears it in every facing; pulled straight back.
+ */
 const SWORD_THRUST: Author = (rw, _f, A = ARMS0) => {
-  const P: P2 = [0.15, 2.35], d = 97;
+  const P: P2 = [0.3, -0.55], d = 92;
   return merge(lunge({ c: 3, s: 5, h: 6, r: 8, back: 0.4, fwd: 0.75, step: 1.0, lean: -12, coil: 5 }), {
-    w: fistPath(rw, A, 11, [[1, [0.2, 2.6], 1, 60], [2, P, 1, d], [3, on(P, d + 180, 0.5), 1, d], [4, on(P, d, 1.8), 1, d], [5, on(P, d, 3.4), 1, d], [6, on(P, d, 3.3), 1, d], [7, on(P, d, 1.1), 1, d], [8, P, 1, d], [9, [0.0, 2.5], 1, 55], [10, [-0.1, 2.9], 1, 20]]),
-    // The shield up to the eyes over the thrust.
-    dw: { upperArmF: T([0, 0], [2, 14], [5, 10], [8, 14], [11, 0]), forearmF: T([0, 0], [2, 20], [5, 16], [8, 18], [11, 0]) },
+    w: fistPath(rw, A, 11, [[1, [0.1, 1.2], 1, 120], [2, P, 1, d], [3, on(P, d + 180, 0.5), 1, d], [4, on(P, d, 2.0), 1, d], [5, on(P, d, 3.8), 1, d], [6, on(P, d, 3.7), 1, d], [7, on(P, d, 1.3), 1, d], [8, P, 1, d], [9, [0.1, 1.1], 1, 110], [10, [-0.1, 2.4], 1, 40]]),
+    // The shield lowered a touch and drawn in against the chest as the blade goes over it.
+    dw: { upperArmF: T([0, 0], [2, -4], [5, -14], [6, -14], [8, -4], [11, 0]), forearmF: T([0, 0], [2, -6], [5, -16], [6, -16], [8, -6], [11, 0]) },
   });
 };
 
