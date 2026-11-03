@@ -79,6 +79,14 @@ export async function buildHttp(deps: HttpDeps): Promise<FastifyInstance> {
   const { store, leagues, game, config, clock } = deps;
   const app = Fastify({ logger: false, trustProxy: true, bodyLimit: 64 * 1024 });
   await app.register(cookie);
+  // No other site may frame a page (its buttons leave and delete leagues and accounts), and a private
+  // league's invite in the address bar is not sent to other sites (avatars, GitHub links) as a Referer.
+  app.addHook('onSend', async (_req, reply) => {
+    reply.header('content-security-policy', "frame-ancestors 'none'");
+    reply.header('x-frame-options', 'DENY');
+    reply.header('referrer-policy', 'same-origin');
+    reply.header('x-content-type-options', 'nosniff');
+  });
 
   const viewerOf = (req: FastifyRequest): UserRow | null => {
     const id = readSession(req.cookies[SESSION_COOKIE], config.sessionSecret, clock());
