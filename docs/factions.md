@@ -121,7 +121,8 @@ design. The ticker tells each doctrine's moment (event `doctrine`).
   - *U3 What falls, rises.* Every 10 s while the Lich-Marshal lives (and the host neither crumbles
     nor is spent), his fallen foot (heavy foot, spears, skirmishers) within 240 of him, dead 3 s or
     more and never raised before, whose regiment still stands, get up with 40% of their hit
-    points and go back into their files: at most 0.8% of the host's start a time (at least one, never more than 8 figures: v15).
+    points and go back into their files: 45% of the foot of his host who fall while he stands (v16; until
+    then at most 0.8% of the host's start a time, never more than 8 figures, by the clock).
     `Soldier.roseAt` marks them (the renderer plays their fall backwards, with a green
     grave-light); `SideResult.risen` counts them, and dead + fled + alive still make the start.
 - **Undead: the dead know no fear** (built in battle v12; `fearless` in `battle.ts`, `UNDEAD` in
@@ -160,6 +161,9 @@ faction; ± is one standard error (50%/√n).
 | Undead vs Templar, v15 | 56.0 | 46.0 | 49.0 | 67.0 |
 | Undead vs Samurai, v15 | 39.0 | 45.0 | 56.0 | 67.0 |
 | Samurai vs Templar, v15 | 43.0 | 52.0 | 55.0 | 55.0 |
+| Undead vs Templar, v16 | 45.0 | 47.0 | 48.5 | 56.0 |
+| Undead vs Samurai, v16 | 41.5 | 44.5 | 41.5 | 55.5 |
+| Samurai vs Templar, v16 | 51.5 | 47.5 | 52.5 | 51.5 |
 
 200 battles a cell at 250 and 500 (±3.5%), 140 at 1500 and 2800 in v13 (±4.2%; v12: 80, ±5.6%).
 Mirrors (v13): Templar 48.8% (250 a side, 400 seeds), 51.0% (500, 200); Samurai and Undead 50.0%
@@ -180,6 +184,27 @@ about 200 s against 180 s at 1500, and the raising, now at most 3% of the host i
 the samurai beat the undead 61% at 250 and lose 57% to the Templars there; undead vs Templar at
 250 and undead vs samurai at 1500 are at 56%. No battle ran to the time limit. Mirror (Templar): 51.5%
 (500 a side, 200 seeds), 49.0% (250, 200 seeds).
+
+v16 (`pnpm battle-stats` for the diagnosis): 200 battles a cell (±3.5%). Why the undead won two
+thirds of battles of 2800 a side: the field stays the same size, so a big battle is a crowded and a
+long one, and morale rules the living felt but the fearless dead did not grew with it. Outnumbered
+counted every engaged enemy block touching a block against that block alone (2-2.6 times its
+strength in any clash, 3.5 at 2800 a side: it now weighs the enemy close by against ours close by);
+a friend's rout shook every friend within 150 by 7 (5 of them a rout at 2800, 3.4 at 500: now by
+its share of the men about it); fatigue grew by the clock in battles that run half as long again
+(now by the share of a block's men fighting); and the living sent no reserve at the dead's blocks,
+whose morale never falls, while most of a big army's line stands in its second row (62% at 2800,
+31% at 500). Removing fatigue's fear alone took the undead at 2800 from 67% to 49% and left 500
+alone; outnumbered and the rout shock each moved 2800 more than 500. Besides: the general's
+household rode into the enemy's big blocks (the Lich-Marshal fell in 59% of battles at 2800, 22% at
+250; now 5-15%), U3 raised by the clock (now a share of the fallen), and big battles ended in archer
+duels to the time limit. Out of the 45-55% band: undead vs samurai at 250 and 1500 (41.5%, z -2.4)
+and, just, both undead matchups at 2800 (55.5-56%): the undead still gain some 10 points from 1500
+to 2800 a side, the cause not yet isolated (per class the numbers barely move between the two; the
+undead win the shorter of those battles). No cross-faction battle ran to the time limit (longest
+353 s). Mirrors, 100 battles a cell, team 0's share: Templar 54/48/50/52%, Samurai 48/40/54/56%,
+Undead 48/58/46/52% (250/500/1500/2800); two hosts of the dead at 2800 a side run 289 s on average,
+the longest 351 s, none to the limit (26 of 200 before the undead's spent threshold went to 15%).
 
 ## Palettes
 

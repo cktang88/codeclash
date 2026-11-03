@@ -648,7 +648,12 @@ Where the build departs from the design above:
 - **U3.** The raise is a plain 0.8% of the host a pulse (the cap of 12 made it a size-dependent
   rule: 1.6% of a 250 army, 0.4% of a 2800 one), with undead hit points 66%. v15 brings back a cap, of 8 figures a pulse:
   with the household fix the Lich-Marshal lives through most battles, and a raising that grew with
-  the host won the undead 64% of battles of 1500 a side against the Templars (49% with the cap). A risen man may die
+  the host won the undead 64% of battles of 1500 a side against the Templars (49% with the cap).
+  v16 raises a share of the fallen instead (45% of the foot who fall while he stands, as many as
+  have fallen in his hand at each pulse, of those within his reach): by the clock, a big battle,
+  which runs longer, raised a greater share of its host, and the cap of 8 bit only in big ones.
+  The general's household no longer rides into blocks that outweigh it twice over (v16), so the
+  Lich-Marshal falls in some 5-15% of battles. A risen man may die
   again and does not rise twice; `SideResult.risen` counts the raised. The renderer plays Die
   backwards (`contract.ts` `RISE`) with a green grave-light; classic art keeps a corpse that may
   still rise off the ground texture.
