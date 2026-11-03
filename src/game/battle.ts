@@ -29,8 +29,7 @@ export type { CommanderTrait, MoraleState, Order, OrderKind, Personality, Plan }
 export { MORALE, REGROUP, UNDEAD } from './command.ts';
 
 /**
- * v12 (v11 is the volley-fire work on another branch): the dead know no fear (UNDEAD in
- * command.ts; the faction's rule in factions.ts).
+ * v12: the dead know no fear (UNDEAD in command.ts; the faction's rule in factions.ts).
  * - Undead regiments (`fearless`) never waver, rout or rally: their morale is 100 and stays
  *   there, and nothing that moves morale (losses, charges, missiles, routs nearby, the general's
  *   death) is reckoned for them, which also saves the work.
@@ -41,7 +40,24 @@ export { MORALE, REGROUP, UNDEAD } from './command.ts';
  * - An undead army breaks (and so loses) when under 8% of it stands, or under 20% against
  *   twice as many; it does not run but crumbles where it stands until the pursuit window ends.
  *
- * v10 (v9 is the volley-fire work on another branch): routs recover as they did in history
+ * v11: missile drill (docs/art-references/missile-drill.md). Foot stops to shoot: no man looses
+ * while his block walks or wheels, nor for 0.3 s after it halts (horse archers still shoot on
+ * the move). Bows, crossbows and guns loose volleys on the word: the loaded men within half a
+ * second, a reload and a 0.6 s "make ready, present" beat apart, and a beat after the block
+ * halts (until v10 each man reloaded on his own and the fire soon drifted into a steady patter).
+ * Reloads: bows 15 ticks (a volley every 2.1 s), crossbows 38 (4.4 s), teppō 51 (5.7 s, each
+ * ball 1.3x), engines 140: about as many arrows in a battle as before. An enemy within 50 units,
+ * or charging from 100, makes them fire at will, bows flat at point-blank; an enemy at their
+ * front (8 units) or a melee makes them sling bows and fight, and a man with a foe at hand draws
+ * in 0.6 s whatever his reload (until v10 they drew swords as soon as an enemy block's bounding
+ * circle came within a few units, often 30 or more short of contact, and stood idle). They stand
+ * 24 behind their line's rear rank, wheel only for a target more than 25 degrees off their
+ * front, look for targets along the line after 15 s idle, and bows lob over a melee into a deep
+ * block's rear ranks. Blocked guns step clear of the block in the way in one move, at the double.
+ * Skirmishers and shooters fall back by an about-turn instead of wheeling the block round
+ * (javelin men pirouetted).
+ *
+ * v10: routs recover as they did in history
  * (docs/art-references/rout-recovery.md, rally.md; numbers in REGROUP, command.ts).
  * - Fugitives fall in with a formed regiment of their own side and class (Templars: of their
  *   family, foot line, missile foot or horse) that is steady, not engaged, standing (hold,
@@ -441,6 +457,21 @@ export class Regiment {
   /** Direct-fire shots held for friends in the line since the last think, and whose men they were. */
   blockedShots = 0;
   blocker = -1;
+  /**
+   * Formed missile foot: the volley clock. The next volley is ordered at `volleyAt`; the loaded
+   * men loose together over the next VOLLEY_SPREAD ticks, and the next comes `volleyEvery` later
+   * (the reload and the "make ready, present" beat). See `moveAnchor` and `mayLoose`.
+   */
+  volleyAt = 0;
+  volleyEvery = 0;
+  /** Fire at will: an enemy is charging it or close (it drops volley discipline). */
+  atWill = false;
+  /** Last tick the anchor moved or the block wheeled. Foot shooters loose only standing still. */
+  movedAt = -100;
+  /** Stepping sideways to open a line of fire (see `sidestep`) until this tick. */
+  stepUntil = -1;
+  /** Last tick it had something to shoot at (long idle, it goes looking along the line). */
+  aimedAt = -100;
   constructor(
     readonly id: number,
     readonly team: number,
@@ -685,6 +716,8 @@ function figures(count: number, scale: number): number {
   return Math.max(1, Math.round(count / scale));
 }
 
+/** A block locked in melee that bows may still shoot over the fight into: deep enough to have rear ranks well clear of it. */
+const overMelee = (o: Regiment) => o.depth >= 14;
 const isCav = (r: Regiment) => r.role === 'flank' || r.role === 'shock-cav' || r.role === 'horse-archer';
 /** Mounted blocks: the horse and the general's household. */
 const isMounted = (r: Regiment) => isCav(r) || r.role === 'command';
@@ -840,7 +873,7 @@ export class Battle {
       let p = 0;
       for (let i = 0; i < n; i++) {
         const s = this.soldiers[i]!;
-        if (s.team === t && s.s.range > 0 && s.s.role !== 'siege') p += s.s.missileDamage / s.s.reload;
+        if (s.team === t && s.s.range > 0 && s.s.role !== 'siege') p += s.s.missileDamage / fireEvery(s.s);
         if (s.team === t) this.startTotal[t]!++;
       }
       this.ts[t]!.missile = p;
@@ -911,6 +944,7 @@ export class Battle {
         reg.speed = st.speed;
         reg.fx = reg.dfx = dir;
         reg.phase = this.teamRegs[team]!.length;
+        reg.volleyEvery = fireEvery(st);
         this.regiments.push(reg);
         this.teamRegs[team]!.push(reg);
         regs.push(reg);
@@ -1213,7 +1247,14 @@ export class Battle {
       if ((this.tick + r.phase) % 5 === 0) this.think(r);
     }
     if ((this.tick + 2) % REGROUP.every === 0) this.regroup();
-    for (let i = 0; i < regs.length; i++) this.moveAnchor(regs[i]!);
+    for (let i = 0; i < regs.length; i++) {
+      const r = regs[i]!;
+      const fx = r.fx;
+      const fy = r.fy;
+      this.moveAnchor(r);
+      if (r.vax !== 0 || r.vay !== 0 || r.fx !== fx || r.fy !== fy) r.movedAt = this.tick;
+      if (r.role === 'missile') this.volleyClock(r);
+    }
     const d = this.d;
     const n = this.n;
     // Blows land in turn: alternate which side's men act first, so neither strikes first every
@@ -1439,7 +1480,7 @@ export class Battle {
       if (isCav(r)) f.cav += v;
       else if (r.role !== 'siege' && r.role !== 'command') f.foot += v;
       if (r.role === 'shock-cav') f.knights += v;
-      if ((r.role === 'missile' || r.role === 'horse-archer' || r.role === 'skirmish') && r.ammoLeft > 0) f.missile += (r.alive * st.missileDamage) / st.reload;
+      if ((r.role === 'missile' || r.role === 'horse-archer' || r.role === 'skirmish') && r.ammoLeft > 0) f.missile += (r.alive * st.missileDamage) / fireEvery(st);
       if (r.cy < mid) f.wingLow += v;
       else f.wingHigh += v;
     }
@@ -1986,10 +2027,13 @@ export class Battle {
 
   private setMode(r: Regiment, m: Mode): void {
     if (r.mode === m) return;
-    if (m === 'shoot') {
-      // A fresh volley: everyone looses within half a second.
+    if (m === 'shoot' && r.role !== 'missile') {
+      // Skirmishers, horse archers and engines open up together, then each shoots as he can.
       const d = this.d;
       for (const id of r.members) if (d.cd[id]! > 5) d.cd[id] = this.rng.int(6);
+    } else if (m === 'shoot' && r.volleyAt < this.tick + VOLLEY_BEAT) {
+      // Formed shooters: "make ready... present..." before the first volley.
+      r.volleyAt = this.tick + VOLLEY_BEAT;
     }
     r.mode = m;
     r.modeAt = this.tick;
@@ -2659,26 +2703,50 @@ export class Battle {
     return true;
   }
 
+  /**
+   * Bows, crossbows and guns stand well back and shoot volleys: behind their own line, from long
+   * range, over the heads of the line (bows lob over a melee into the enemy's rear ranks). They
+   * stop to shoot, and when long idle go looking for a target along the line. An enemy close
+   * or charging makes them fire at will (`threatTo`); at contact they sling bows and fight.
+   */
   private thinkMissile(r: Regiment): void {
     const ts = this.ts[r.team]!;
     const st = this.stats[r.team]![r.cls]!;
     const dir = r.team === 0 ? 1 : -1;
-    if (r.engaged || this.nearestFoe(r, 1, 6) || this.nearestFoe(r, 0, 4)) {
+    if (r.engaged || this.nearGap(r, CONTACT_GAP, false)) {
+      r.atWill = false;
       this.setMode(r, 'melee');
       this.goal(r, r.ax, r.ay);
       return;
     }
+    const threat = this.threatTo(r);
+    if (threat) {
+      // No time for the word: every man shoots as he can at the nearest foe (and the men he
+      // reaches fight him: see `act`). They stand: no wheeling, a man shoots where he must.
+      r.atWill = true;
+      r.targetReg = threat.id;
+      r.aimedAt = this.tick;
+      this.setMode(r, 'shoot');
+      this.goal(r, r.ax, r.ay);
+      r.dfx = r.fx;
+      r.dfy = r.fy;
+      return;
+    }
+    r.atWill = false;
+    // Finish a step sideways before standing to shoot again.
+    if (this.tick < r.stepUntil) return;
     // Targets of opportunity, the General's pick first.
-    const best = this.shootable(r, st.range * 0.95);
+    const best = this.shootable(r, st.range * 0.95, false, this.fire[r.team]![r.cls] === 'lob');
     if (best) {
       this.setMode(r, 'shoot');
       r.targetReg = best.id;
+      r.aimedAt = this.tick;
       if (this.sidestep(r)) {
         this.faceToward(r, best.cx, best.cy);
         return;
       }
       this.closeToShoot(r, best);
-      this.faceToward(r, best.cx, best.cy);
+      this.aimAt(r, best);
       return;
     }
     r.targetReg = -1;
@@ -2687,12 +2755,25 @@ export class Battle {
       this.goal(r, r.ax, r.ay);
       return;
     }
-    // Follow the line, a little behind it.
+    // Keep well behind the line: step up only when far behind it, and back when it falls back.
     if (ts.hasLine) {
-      const x = ts.frontX - dir * (ts.lineDepth + 14);
+      const back = ts.lineDepth + MISSILE_BEHIND;
+      let x = ts.frontX - dir * back;
+      let y = r.homeY + (ts.midY - FIELD_H / 2);
+      const near = this.tick - r.aimedAt > MISSILE_SEEK ? this.nearestFoe(r, 0, Infinity) : null;
+      if (near) {
+        // Idle a long while (the fight has moved off along the line): go to bow range of the
+        // nearest enemy, but never past their usual place behind the line.
+        const dx = near.cx - r.cx;
+        const dy = near.cy - r.cy;
+        const q = sqrt(dx * dx + dy * dy) || 1;
+        x = dir * Math.min((near.cx - (dx / q) * st.range * 0.85) * dir, x * dir);
+        y = near.cy - (dy / q) * st.range * 0.85;
+      }
       const behind = (x - r.ax) * dir;
-      this.setMode(r, Math.abs(behind) > 6 ? 'advance' : 'hold');
-      this.goal(r, Math.abs(behind) > 6 ? x : r.ax, r.homeY + (ts.midY - FIELD_H / 2));
+      const move = behind > 20 || behind < -6 || (near !== null && Math.abs(y - r.ay) > 20);
+      this.setMode(r, move ? 'advance' : 'hold');
+      this.goal(r, move ? x : r.ax, move ? y : r.ay);
       r.dfx = dir;
       r.dfy = 0;
       return;
@@ -2705,6 +2786,43 @@ export class Battle {
       this.setMode(r, 'advance');
       this.goal(r, near.cx - (dx / q) * st.range * 0.8, near.cy - (dy / q) * st.range * 0.8);
       this.faceToward(r, near.cx, near.cy);
+    }
+  }
+
+  /**
+   * The enemy that makes a block of shooters fire at will: the nearest one not locked with our
+   * men whose men are within AT_WILL_GAP of its front, or one charging it from twice as far.
+   */
+  private threatTo(r: Regiment): Regiment | null {
+    let best: Regiment | null = null;
+    let bd = Infinity;
+    for (const o of this.teamRegs[1 - r.team]!) {
+      if (o.alive === 0 || o.routed || o.engaged) continue;
+      const reach = o.mode === 'charge' && o.targetReg === r.id ? AT_WILL_GAP * 2 : AT_WILL_GAP;
+      const dx = o.cx - r.cx;
+      const dy = o.cy - r.cy;
+      const rr = o.radius + r.radius + reach;
+      if (dx * dx + dy * dy > rr * rr) continue;
+      const g = this.gapTo(r, o);
+      if (g < reach && g < bd) {
+        bd = g;
+        best = o;
+      }
+    }
+    return best;
+  }
+
+  /** Wheels a block of shooters to face `o` only when it is well off its front (men shoot a little to either side). */
+  private aimAt(r: Regiment, o: Regiment): void {
+    const dx = o.cx - r.ax;
+    const dy = o.cy - r.ay;
+    const q = sqrt(dx * dx + dy * dy);
+    if (q < 1) return;
+    if ((dx * r.fx + dy * r.fy) / q < 0.9) this.faceToward(r, o.cx, o.cy);
+    else {
+      // Close enough to its front: stop any wheel toward an old target where it is.
+      r.dfx = r.fx;
+      r.dfy = r.fy;
     }
   }
 
@@ -2722,10 +2840,15 @@ export class Battle {
     r.blocker = -1;
     const lx = -r.fy;
     const ly = r.fx;
-    const side = (r.cx - b.cx) * lx + (r.cy - b.cy) * ly >= 0 ? 1 : -1;
-    const step = r.role === 'siege' ? 6 : 14;
+    const off = (r.cx - b.cx) * lx + (r.cy - b.cy) * ly;
+    const side = off >= 0 ? 1 : -1;
+    // Engines edge along; shooters step clear of the block in the way in one move (they shoot
+    // only standing, in volleys: a step at a time between volleys would take all day).
+    const clear = (b.width + r.width) / 2 + 4 - (off < 0 ? -off : off);
+    const step = r.role === 'siege' ? 6 : Math.max(14, Math.min(60, clear));
     this.setMode(r, 'advance');
     this.goal(r, r.ax + lx * side * step, r.ay + ly * side * step);
+    r.stepUntil = this.tick + Math.ceil((step / (FOOT_MARCH * FOOT_RUN)) * TICKS_PER_SECOND);
     r.short = 0;
     r.loosed = 0;
     return true;
@@ -2804,13 +2927,14 @@ export class Battle {
    * The best block to shoot at within `range` of the regiment: not locked with our own men.
    * `reach`: measured from the regiment's front to the target's nearest man (skirmishers and
    * horse archers, who shoot at close range and must not stand inside their own retreat
-   * distance); otherwise from centre to centre, less half the target's spread.
+   * distance); otherwise from centre to centre, less half the target's spread. `over`: bows may
+   * lob over a melee into a deep block's rear ranks (`overMelee`), if nothing better offers.
    */
-  private shootable(r: Regiment, range: number, reach = false): Regiment | null {
+  private shootable(r: Regiment, range: number, reach = false, over = false): Regiment | null {
     let best: Regiment | null = null;
     let bs = Infinity;
     for (const o of this.teamRegs[1 - r.team]!) {
-      if (o.alive === 0 || o.routed || o.engaged) continue;
+      if (o.alive === 0 || o.routed || (o.engaged && !(over && overMelee(o)))) continue;
       const dx = o.cx - r.cx;
       const dy = o.cy - r.cy;
       const c = sqrt(dx * dx + dy * dy);
@@ -2820,6 +2944,7 @@ export class Battle {
       // Big blocks and horse first; keep the same target when it's still good.
       let s = q - (isCav(o) ? 20 : 0) - (o.id === r.targetReg ? 30 : 0) - (o.id === r.ord.target ? 40 : 0) - Math.min(40, o.alive * 0.3);
       if (o.role === 'skirmish') s += 25;
+      if (o.engaged) s += 60;
       if (s < bs) {
         bs = s;
         best = o;
@@ -2865,6 +2990,8 @@ export class Battle {
     }
     if (r.mode === 'skirmish' && !noLine) {
       this.goal(r, home, r.ay);
+      r.dfx = dir;
+      r.dfy = 0;
       if ((r.ax - home) * dir < 8) this.setMode(r, 'reserve');
       return;
     }
@@ -2886,7 +3013,7 @@ export class Battle {
       this.setMode(r, 'shoot');
       r.targetReg = best.id;
       this.closeToShoot(r, best, true);
-      this.faceToward(r, best.cx, best.cy);
+      this.aimAt(r, best);
       return;
     }
     const near = this.nearestFoe(r, 0, Infinity);
@@ -3380,7 +3507,12 @@ export class Battle {
     let wx = r.dfx;
     let wy = r.dfy;
     // Horse rides a far goal the way it faces, so it needs room to wheel: close in, it walks.
-    const marching = q > (horse ? HORSE_REIN : 30) && MARCH[r.mode];
+    // Shooters fall back by an about-turn, man by man: the block keeps its front toward the enemy
+    // and does not wheel round. (Until v9 javelin men falling back behind their line wheeled the
+    // whole loose block about, a slow pirouette, and back again when they halted.)
+    // Likewise a block of shooters stepping sideways to open a line of fire sidles at the double, facing front.
+    const aboutTurn = !horse && (r.role === 'skirmish' || r.role === 'missile') && q > 30 && MARCH[r.mode] && (dx * r.dfx + dy * r.dfy < -0.3 * q || this.tick < r.stepUntil);
+    const marching = !aboutTurn && q > (horse ? HORSE_REIN : 30) && MARCH[r.mode];
     if (marching) {
       wx = dx / q;
       wy = dy / q;
@@ -3425,7 +3557,9 @@ export class Battle {
         pace *= al > 0.8 ? 1 : al > 0.3 ? 0.5 : 0.25;
       }
     } else {
-      if (q > 3) pace *= 0.7;
+      // Skirmishers run back at their pace; a formed block of shooters steps back slowly, in order.
+      if (aboutTurn) pace *= this.tick < r.stepUntil ? FOOT_RUN : r.role === 'skirmish' ? 1 : 0.5;
+      else if (q > 3) pace *= 0.7;
       // Horse backs or sidles only at a walk.
       if (horse && al < 0.3) pace = Math.min(pace, r.speed * HORSE_WALK);
     }
@@ -3493,8 +3627,10 @@ export class Battle {
     // look on the same ticks): at once only for the men already fighting. (Until v4 this went
     // by id, which put the second army's men out of step with the first's by the first's size.)
     else if ((this.tick + i - this.firstId[d.team[i]!]!) % (t < 0 ? 3 : 6) === 0) t = this.seek(i, r);
-    d.target[i] = t;
     const st = this.soldiers[i]!.s;
+    // A shooter with a foe at hand drops his bow and draws (0.6 s), however long his reload.
+    if (t >= 0 && d.target[i]! < 0 && st.range > 0 && d.cd[i]! > 6) d.cd[i] = 6;
+    d.target[i] = t;
     if (t >= 0) {
       const dx = d.x[t]! - d.x[i]!;
       const dy = d.y[t]! - d.y[i]!;
@@ -3508,7 +3644,35 @@ export class Battle {
       if (q <= reach * reach && d.cd[i] === 0) this.strike(i, t);
       return;
     }
-    if (d.ammo[i]! > 0 && d.cd[i] === 0 && r.firing) this.shoot(i, r, st);
+    if (d.ammo[i]! > 0 && d.cd[i] === 0 && r.firing && this.mayLoose(i, r)) this.shoot(i, r, st);
+  }
+
+  /**
+   * Whether a loaded man may loose now. Horse archers shoot on the move. Foot stops to shoot:
+   * not while the block walks or wheels, nor for a moment after it halts. Formed missile foot
+   * then looses on the word: each loaded man in the volley's half second (in a fixed order, so
+   * the volley ripples down the line), unless it fires at will.
+   */
+  private mayLoose(i: number, r: Regiment): boolean {
+    if (isMounted(r)) return true;
+    if (this.tick - r.movedAt < 3) return false;
+    if (r.role !== 'missile' || r.atWill) return true;
+    const k = this.tick - r.volleyAt;
+    return k >= (i * 3) % VOLLEY_SPREAD && k < VOLLEY_SPREAD;
+  }
+
+  /**
+   * The volley clock of a block of formed missile foot. While it is not standing to shoot in
+   * order (moving, out of 'shoot', or firing at will), the next volley is a beat away: "make
+   * ready, present" comes as soon as it halts, and whoever is loaded looses (a man who joined the
+   * block, or reloaded while it walked, included). Standing, each volley follows the last by the
+   * reload and the beat.
+   */
+  private volleyClock(r: Regiment): void {
+    const t = this.tick;
+    if (r.mode !== 'shoot' || r.atWill || r.movedAt === t) {
+      r.volleyAt = t + VOLLEY_BEAT;
+    } else if (t >= r.volleyAt + VOLLEY_SPREAD) r.volleyAt += r.volleyEvery;
   }
 
   /** The foe this soldier should fight: near, in front of the block, within a short leash of his slot. */
@@ -3572,14 +3736,17 @@ export class Battle {
     const d = this.d;
     const tr = this.regiments[r.targetReg]!;
     if (tr.alive === 0) return;
-    const v = this.pickInReach(tr, d.x[i]!, d.y[i]!, st.range);
-    if (v < 0) return;
+    const v = tr.engaged ? this.pickRear(tr, d.x[i]!, d.y[i]!, st.range) : this.pickInReach(tr, d.x[i]!, d.y[i]!, st.range);
+    if (v < 0) {
+      d.cd[i] = r.role === 'missile' && !r.atWill ? 1 : 4; // on the volley clock he tries again within the volley
+      return;
+    }
     const dx = d.x[v]! - d.x[i]!;
     const dy = d.y[v]! - d.y[i]!;
     const dist = sqrt(dx * dx + dy * dy);
     if (dist > st.range || dist < 6) {
       if (dist > st.range) r.short++;
-      d.cd[i] = 4;
+      d.cd[i] = r.role === 'missile' && !r.atWill ? 1 : 4;
       return;
     }
     const s = this.soldiers[i]!;
@@ -3589,8 +3756,10 @@ export class Battle {
     const leadX = d.x[v]! + d.vx[v]! * flight * TICK_S * 0.8;
     const leadY = d.y[v]! + d.vy[v]! * flight * TICK_S * 0.8;
     const lobbed = kind === 'lob' || kind === 'siege';
+    // At will against a foe close at hand, bows shoot flat, point-blank (and as surely as a crossbow).
+    const flatBow = r.atWill && kind === 'lob' && dist < POINT_BLANK;
     let spread = 2 + dist * (kind === 'siege' ? 0.05 : kind === 'gun' ? 0.018 : kind === 'cannon' ? 0.02 : 0.03);
-    if (lobbed) spread += Math.max(0, dist - st.range * 0.5) * 0.04;
+    if (lobbed && !flatBow) spread += Math.max(0, dist - st.range * 0.5) * 0.04;
     let lx = leadX + (this.rng.next() - 0.5) * 2 * spread;
     let ly = leadY + (this.rng.next() - 0.5) * 2 * spread;
     let lofted = false;
@@ -3603,7 +3772,7 @@ export class Battle {
           // Friends in the way: hold fire (the rear ranks wait their turn).
           r.blockedShots++;
           r.blocker = d.reg[first]!;
-          d.cd[i] = 4 + this.rng.int(6);
+          d.cd[i] = r.role === 'missile' && !r.atWill ? 1 : 4 + this.rng.int(6);
           return;
         }
         // A crossbowman lofts his bolt over them, much less surely.
@@ -3622,8 +3791,8 @@ export class Battle {
       ly = clampY(ly + uy * CANNON_BOUND);
     }
     const range = st.range || 1;
-    const arc = kind === 'siege' ? dist * 0.5 : lob ? dist * (0.18 + 0.14 * (dist / range)) : kind === 'flat' ? dist * 0.06 : kind === 'cannon' ? dist * 0.02 : 0;
-    d.aim[i] = kind === 'siege' ? 0.85 : lob ? Math.min(1, 0.3 + 0.6 * (dist / range)) : kind === 'flat' ? 0.1 : 0;
+    const arc = kind === 'siege' ? dist * 0.5 : flatBow ? dist * 0.05 : lob ? dist * (0.18 + 0.14 * (dist / range)) : kind === 'flat' ? dist * 0.06 : kind === 'cannon' ? dist * 0.02 : 0;
+    d.aim[i] = kind === 'siege' ? 0.85 : flatBow ? 0.1 : lob ? Math.min(1, 0.3 + 0.6 * (dist / range)) : kind === 'flat' ? 0.1 : 0;
     this.projectiles.push({
       team: s.team, cls: s.cls, x0: d.x[i]!, y0: d.y[i]!, x1: lx, y1: ly, born: this.tick, lands: this.tick + flight,
       damage: st.missileDamage * (s.vet ? 1.1 : 1) * MISSILE_K, pierce: st.pierce, splash: kind === 'siege' ? 9 : 0, shooter: i,
@@ -3631,7 +3800,8 @@ export class Battle {
     });
     d.ammo[i]!--;
     d.acted[i] = this.tick;
-    d.cd[i] = st.reload + this.rng.int(Math.max(2, Math.floor(st.reload / 5)));
+    // On the volley clock a man is loaded again in time for the next word; at will, each at his own pace.
+    d.cd[i] = st.reload + this.rng.int(r.role === 'missile' && !r.atWill ? 3 : Math.max(2, Math.floor(st.reload / 5)));
   }
 
   /**
@@ -3715,6 +3885,23 @@ export class Battle {
       }
     }
     return best >= 0 ? best : this.pickMember(r);
+  }
+
+  /**
+   * Over a melee: a man in the rear ranks of `r` (the back half of its depth, away from the
+   * fight at its front) within `range` of (x, y), or -1.
+   */
+  private pickRear(r: Regiment, x: number, y: number, range: number): number {
+    const d = this.d;
+    const back = r.depth * 0.5;
+    for (let tries = 0; tries < 6; tries++) {
+      const id = r.members[this.rng.int(r.members.length)]!;
+      if (d.state[id]! > State.Routing || d.sy[id]! > -back) continue;
+      const dx = d.x[id]! - x;
+      const dy = d.y[id]! - y;
+      if (dx * dx + dy * dy <= range * range) return id;
+    }
+    return -1;
   }
 
   private pickMember(r: Regiment): number {
@@ -4465,6 +4652,33 @@ const DEG = (Math.PI / 180) * TICK_S;
 const FOOT_WHEEL = 9;
 /** Foot's marching pace, units a second (about 2 m/s, a quick march: life's 1.3 would make a battle mostly approach). */
 const FOOT_MARCH = 11;
+/**
+ * Volley fire (see docs/art-references/missile-drill.md). Formed missile foot looses on the
+ * word: the loaded men together within VOLLEY_SPREAD ticks (half a second), the next volley a
+ * reload and a VOLLEY_BEAT later ("make ready... present... loose": 0.6 s), so the quick
+ * loaders wait for the order. After the block halts, the first volley comes a beat later.
+ */
+const VOLLEY_SPREAD = 5;
+const VOLLEY_BEAT = 6;
+/**
+ * Fire at will: an enemy whose nearest men are this close to the front (or one charging the
+ * block from twice as far) is no target for volleys. 50 units is under a second for charging
+ * horse and two for running foot: less than one volley's cycle (2.3 s for bows), so waiting for
+ * the word would mean being ridden down with loaded bows. Each man shoots as he can, and bows
+ * shoot flat, point-blank.
+ */
+const AT_WILL_GAP = 50;
+const POINT_BLANK = 60;
+/** After this long (ticks) with nothing to shoot at, missile foot goes looking for a target along its line. */
+const MISSILE_SEEK = 150;
+/** An enemy man this close to the front of a block of shooters is at contact: they fight. */
+const CONTACT_GAP = 8;
+/** Missile foot keeps this far behind its line's rear rank. */
+const MISSILE_BEHIND = 24;
+/** Ticks between one man's shots, as the Generals reckon it: formed missile foot keeps to the volley clock. */
+export function fireEvery(st: UnitStats): number {
+  return st.role === 'missile' ? st.reload + VOLLEY_BEAT : st.reload;
+}
 /**
  * Horse: degrees a second at a stand, and how much less for each unit a second faster, down to
  * the gallop's 20 (a trot about 38, a canter 29). That is about twice the real rate (a canter
