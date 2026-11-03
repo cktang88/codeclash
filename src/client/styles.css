@@ -787,6 +787,12 @@ main {
   pointer-events: none;
   max-width: 28rem;
 }
+/* Below this width the controls wrap onto two rows: the ticker sits above both, not behind the second. */
+@media (max-width: 1000px) {
+  .ticker {
+    bottom: 7.4rem;
+  }
+}
 .ticker li {
   background: rgba(10, 8, 6, 0.7);
   border-left: 2px solid var(--line2);
