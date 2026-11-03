@@ -28,6 +28,10 @@ export type { CommanderTrait, MoraleState, Order, OrderKind, Personality, Plan }
 export { MORALE } from './command.ts';
 
 /**
+ * v7: bug fixes. A crossbow bolt no longer strikes a man of its own regiment at landing (it was
+ * aimed past its own ranks, but landed on the first man along its line, comrade or not: some
+ * 30% of a crossbow block's hits were in its own front rank).
+ *
  * v6: formations at game scale and horse that cannot turn on a dime. Regiments stand further
  * apart (18 between blocks), ranks a little deeper than files (horse much deeper: a horse is
  * longer than it is broad), light horse looser. Blocks wheel at a capped rate: foot about its
@@ -44,7 +48,7 @@ export { MORALE } from './command.ts';
  * one side won 60-75% of mirror matches, which side depending on the armies' size (see
  * `pnpm fairness`).
  */
-export const BATTLE_VERSION = 6;
+export const BATTLE_VERSION = 7;
 /**
  * Mixed into every battle's seed. It was BATTLE_VERSION until v3, which kept v2's salt: a
  * version bump refuses old setups (BattleVersionError) but does not re-seed battles by itself.
@@ -3802,8 +3806,10 @@ export class Battle {
     const d = this.d;
     if (p.direct) {
       // The first man along its line takes it, friend or foe; a cannonball goes on through
-      // several, losing force with each.
-      const n = this.lineHits(p.x0, p.y0, p.x1, p.y1, p.shooter, -1, p.pen > 0 ? p.pen : 1);
+      // several, losing force with each. A crossbow bolt passes its own regiment's ranks, as it
+      // did when it was aimed (see `shoot`): they kneel or take turns.
+      const own = this.fire[p.team]![p.cls] === 'flat' ? d.reg[p.shooter]! : -1;
+      const n = this.lineHits(p.x0, p.y0, p.x1, p.y1, p.shooter, own, p.pen > 0 ? p.pen : 1);
       let force = 1;
       for (let k = 0; k < n; k++) {
         const j = this.lineIds[k]!;
