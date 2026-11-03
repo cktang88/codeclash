@@ -18,7 +18,7 @@ import {
 } from './skeleton.ts';
 import { BOW, CUT, HIT, T, THRUST, cloth, type Author, type Tracks } from './templar-clips.ts';
 import { joints, neRest, PARENT, type FootSpec } from './templar-foot.ts';
-import { bow, paintAs, RIG_CLOTH, TM } from './templar-parts.ts';
+import { bow, paintAs, RIG_CLOTH, TM, type ValueClass } from './templar-parts.ts';
 import { at as atT, facingClip, lagCloth, lastFrame, mapFacings, memoSkin, overlayKeys, partMap, restWorld, skinMap, smooth01, type ClipSet, type KP, type LagSpec, type Track, type Weights } from './templar-rig.ts';
 import {
   CAPAR_PTS, HJ, hoofAt, HORSE_BODY, HORSE_FAR, HORSE_SCALE, horsePiece, MOUNTED, RIDER_PIECES, RIDER_SHIFT, riderPiece, riderRest, scaled, withMap,
@@ -226,7 +226,7 @@ const riderCloakWeights: Weights = ([x, y]) => {
   return [['chest', 1 - c], ['cloak', c * (1 - hb)], ['horseBody', c * hb]];
 };
 
-function horseParts(k: SKit, g: SGear, horse: SHorse, s: HorseSpec, dark: boolean, fly?: Fly): AttachmentSet {
+function horseParts(k: SKit, g: SGear, horse: SHorse, s: HorseSpec, dark: ValueClass, fly?: Fly): AttachmentSet {
   const rest: Record<Facing, RiderRest> = { se: riderRest(k, g), ne: neRest(riderRest(k, g), s), sw: riderRest(k, g), nw: riderRest(k, g) };
   const atts: AttachmentSet = {};
   for (const p of [...HORSE_FAR, ...HORSE_BODY]) {
@@ -574,7 +574,7 @@ export function horseRig(kind: number): SkeletonRig | undefined {
   const m = MOUNTED[kind], s = HORSE_SPECS[kind];
   if (!m || !s) return undefined;
   const skel = horseSkel(kind, m.kit, m.gear, s);
-  const rig: SkeletonRig = { skel, atts: horseParts(m.kit, m.gear, m.horse, s, m.dark, FLY[kind]), clips: horseClips(skel, s, FLY[kind]) };
+  const rig: SkeletonRig = { skel, atts: horseParts(m.kit, m.gear, m.horse, s, m.cls ?? m.dark, FLY[kind]), clips: horseClips(skel, s, FLY[kind]) };
   RIGS.set(kind, rig);
   return rig;
 }

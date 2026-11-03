@@ -291,11 +291,17 @@ export interface PaletteOpts {
   /**
    * A coloured tone (C ≥ 0.05) does not map to a near-grey fill (C < 0.025) when a coloured fill
    * of a hue within 40° is within this much of the nearest (mistakes guide #9: no grey shadows
-   * on coloured materials; a red cross's shadow stays red).
+   * on coloured materials; a red cross's shadow stays red); nor a light near-neutral (L > 0.5,
+   * C < 0.03) to a saturated fill (C ≥ 0.06) when a neutral one is (white cloth does not turn gilt).
    */
   keepChroma?: number;
   /** Weight the dark outline candidates by their material's pixels when merging them to the budget. */
   weightOutlines?: boolean;
+  /**
+   * The outline is the dark colour all round, the lit side too (no sel-out or lit outline): for
+   * pale figures that crowd together, a dark rim is what parts one from the next (level 2 up).
+   */
+  litDark?: boolean;
 }
 
 /** Shifts a ramp's lightness so its base tone keeps GROUND_DL away from the battlefield green. */
@@ -330,6 +336,8 @@ export interface FigurePalette {
   selOut: boolean;
   /** Per fill colour: dark-side outline colour. */
   dark: Int16Array;
+  /** The lit side takes the dark outline too (PaletteOpts.litDark). */
+  litDark?: boolean;
 }
 
 interface Cand {
@@ -435,7 +443,7 @@ export function figurePalette(hue: number, level: number, used: ReadonlyMap<numb
     };
     const near = fills[fillOf[c]!]!.lab, cc = ch(lab);
     const ok: ((f: Lab) => boolean) | null =
-      cc >= 0.05 && ch(near) < 0.025 ? (f) => ch(f) >= 0.035 && hueOff(f, lab) < 40 : null;
+      cc >= 0.05 && ch(near) < 0.025 ? (f) => ch(f) >= 0.035 && hueOff(f, lab) < 40 : cc < 0.03 && lab[0] > 0.5 && ch(near) >= 0.06 ? (f) => ch(f) < 0.035 : null;
     if (!ok) continue;
     const g = labDist(lab, near);
     let bi = -1, bd = g + o.keepChroma;
@@ -467,7 +475,8 @@ export function figurePalette(hue: number, level: number, used: ReadonlyMap<numb
   // At levels 1-2 a figure is 13-26 px tall and its parts are mostly one tone: a darker lit
   // outline would read as light from the inside, so the lit side keeps the part's own colour
   // (sel-out). From level 4 the lit outline is a step below the edge pixel, at least tone 1.
-  return { rgb, fills: n, fillOf, keep, dark, selOut: level <= 2 };
+  // (Not at level 1: a 13 px figure is a third outline, and a dark ring all round makes it dark.)
+  return { rgb, fills: n, fillOf, keep, dark, selOut: level <= 2, ...(o.litDark && level >= 2 ? { litDark: true } : {}) };
 }
 
 // ------------------------------------------------------------------ the canvas
@@ -920,7 +929,7 @@ export class Paper {
         if (j < 0) continue;
         const nb = ci[j]!;
         const n = Math.hypot(nx, ny);
-        if (n > 0 && (nx * kx + ny * ky) / n > 0.3) {
+        if (n > 0 && (nx * kx + ny * ky) / n > 0.3 && !fp.litDark) {
           // Lit side: a step below the edge pixel's tone, at least tone 1 (always lighter than
           // the dark outline, never darker than the part's own shade next to it).
           const v = PIX[j]!;

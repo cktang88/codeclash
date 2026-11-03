@@ -71,7 +71,7 @@ export function factionPalette(faction: string, hue: number, level: number, kind
   const key = k === undefined ? `${faction}:${hue}:${level}` : `${faction}:${hue}:${level}:k${k}`;
   const got = PALETTES.get(key);
   if (got && got.codes === codes && got.v === factionPaletteVersion()) return got.fp;
-  const fp = figurePalette(hue, level, codes, opts);
+  const fp = figurePalette(hue, level, codes, k === undefined ? opts : { ...opts, ...opts?.kinds?.[k] });
   PALETTES.set(key, { codes, v: factionPaletteVersion(), fp });
   return fp;
 }

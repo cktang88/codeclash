@@ -35,7 +35,11 @@ const pose = poser(FOOT0);
 // dyes survive at levels 1-2 (the levy's ochre, the pilgrims' slate) and a kind's colours no longer
 // shift when another kind changes; near-duplicate colours merge (most at level 2, where they broke
 // flat masses into stripes). See docs/art-references/templar-animation.md, "Palette".
-setFactionPaletteOptions('templar', { perKind: true, minDist: [0.1, 0.18, 0.1, 0.06], keepChroma: 0.12, weightOutlines: true });
+setFactionPaletteOptions('templar', { perKind: true, minDist: [0.1, 0.18, 0.1, 0.06], keepChroma: 0.12, weightOutlines: true,
+  // The charging brothers (Knight-Brothers, the Marshal): a dark rim all round, so packed white
+  // riders part from each other (the San Bevignate fresco's dark contours).
+  kinds: { 7: { litDark: true }, [COMMANDER_KIND]: { litDark: true } },
+});
 
 /** Registers a Templar kind with the paper painter (every kind is drawn on paper). */
 function register<P extends BasePose>(faction: 'templar', kind: number, def: PaperKindDef<P>): void {
