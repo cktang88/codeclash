@@ -364,6 +364,12 @@ export interface Track {
 /** A clip authored per drawn facing (mocap projected for SE and for NE). Missing facings use SE. */
 export interface FacingClips {
   byFacing: Partial<Record<Facing, AnimationData | Track[]>>;
+  /**
+   * A blow laid onto the guard (guard.ts fromGuard): frames `at` (of `n`) are wholly the guard, and
+   * bakeClip poses them as the guard clip's frame 0 exactly (its `guardN` frames, looping, as
+   * Brace is painted), so the snapping's hysteresis cannot leave a bone a step off at the ends.
+   */
+  guard?: { clip: Clip; guardN: number; n: number; at: readonly number[] };
 }
 /** What plays for an Anim: one animation, or layers (the first is the base, e.g. a stance plus breathing), or either per facing. */
 export type Clip = AnimationData | Track[] | FacingClips;
@@ -735,10 +741,16 @@ export function bakeClip(skel: SkeletonData, clip: Clip, level: number, facing: 
   const got = byClip.get(key);
   if (got) return got;
   let prev: Posed | undefined;
+  const guard = !Array.isArray(clip) && 'byFacing' in clip && clip.guard?.n === n ? clip.guard : undefined;
   const run = (): Posed[] => {
     const out: Posed[] = [];
     for (let f = 0; f < n; f++) {
       prev = evaluate(skel, sampleClip(clip, f, n, facing), { level, facing, prev });
+      if (guard?.at.includes(f)) {
+        // The guard's own pose; the blow's slots, draw order and events.
+        const g = bakeClip(skel, guard.clip, level, facing, guard.guardN, true)[0]!;
+        prev = { ...g, slots: prev.slots, order: prev.order, events: prev.events };
+      }
       out.push(prev);
     }
     return out;
