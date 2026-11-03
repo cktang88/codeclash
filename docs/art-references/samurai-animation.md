@@ -323,3 +323,93 @@ Sōhei; all at level 8, `__scene.hdLevel` 8 for the kinds in view).
 Known limits: at level 4 the faction's 21-colour palette is shared by eleven kinds, so the bay and
 chestnut horses lean grey-brown there (they are brown at level 8); the Ōzutsu's crew turn as rigid
 bodies (only their arms are jointed), as the Templar engine's crew.
+
+## Weapon audit (2026-11): attacks that fit the weapon, several blows, a real run
+
+The user's review: "spear people animations totally wrong, isn't it more a poking action"; every
+attack must fit its weapon (the katana is two-handed); melee units want 2-3 blows; running is not
+a fast walk; archers loose high over their own ranks while guns and cannon shoot straight. Research:
+`weapon-attacks.md` (S1-S10) and `running.md`. Code: `samurai-rig.ts` (foot), `samurai-horse.ts`
+(mounted), `samurai-engine.ts` (ōzutsu). Contact sheets: `docs/screenshots/anim-weapons/samurai/`
+(each unit: every blow, the shot and the run, SE then NE row per animation, level 8; zoomed
+strips of the run's flight, the high kai and the level gun at level 4).
+
+### Audit
+
+| Unit | Weapon | What it did | What was wrong | Now |
+|---|---|---|---|---|
+| Katana Samurai | katana, two hands | one blow, kesa-giri; run with both hands holding the blade high | one blow only; far hand gripped beside the hilt, not at the kashira; run had no flight (feet pinned) | 3 blows: kesa-giri (diagonal, ends low past the far knee, shoulders turned), shōmen (vertical, ends level at head height, trunk square, right foot stamps), tsuki (level thrust on a lunge); left hand at the kashira a fist below the right (`grip2`); run with the blade low at the hip in the right hand, the left arm driving |
+| Yari Ashigaru | nagae-yari | thrust with arms only, the shaft rigid in both fists | no sliding: the rear hand did not drive the butt; one blow | thrust: the rear hand drives, the shaft slides 1.2 units through the front hand along its own line (`handN` turned onto the shaft, `weapon` translated along it); second blow the overhead beat-down; run levelled two-handed with the tip bouncing a frame behind |
+| Nage-yari | short javelins | jab; throw on Shoot | one melee blow | jab + underhand thrust; throw unchanged (withdraw, block, release on 5, the javelin leaves the hand) |
+| Yumi Ashigaru | yumi (asymmetric) | hassetsu with kai level, arrow pointing ~14° *down* | shot level, not over the heads of the front rank | kai laid high: trunk leans back 16°, bow arm at 155°, draw hand at the cheek with the elbow high, the bow tilted 36° square to the arrow: the arrow (nock to grip, measured on the posed bones) stands ~42° up; hanare throws the hand back along it; run with the free (arrow) arm driving |
+| Teppō Ashigaru | matchlock | aim at the cheek, fire, recoil, reload; melee muzzle ram | (already level and straight; one melee blow) | shot unchanged (level, flash, recoil, ramrod reload); 2 blows: muzzle ram + butt-stroke (no smear on the muzzle end) |
+| Yari Cavalry | mounted yari | couched-lance lean, the arm nearly still | a western couch, not a thrust; one blow | one-handed thrust from the hip anchor, straight out along the shaft, rider leaning in; second blow an overhand stab down at men on foot |
+| Yabusame | daikyū from the saddle | kyūdō shot at the gallop, level | level | the high kai (as the foot archers), bow over the horse's neck, rider leaning back; the gallop under him |
+| Hatamoto Horse | katana, one hand (reins in the other) | one cut down the near side | one blow | 3 blows: the diagonal cut, kiri-age (round the back and rising past the horse's shoulder), tsuki over the neck |
+| Sōhei | naginata | one sweep | one blow | sweep, sliding thrust (the yari's), rising cut (blade round behind, low under the body, up and forward) |
+| Ōzutsu | bronze gun | fired with the barrel at its rest elevation (~9° up), muzzle kicking up at the shot frame | not level | the gunner lays the barrel level (3-5), it fires straight (6), the recoil kicks it 10° up (7) |
+| Daimyō | gunbai | command signal | one blow | command + gunbai strike (raised behind the head, chopped down one-handed) |
+
+### The run (all foot kinds)
+
+The captured run (`motion/run.json`) has a flight (frames 4-5, 10-11), but the ground pass pinned
+it away: in the flight frames the trailing ankle sat below the clip's *mean* ankle, was clamped to
+the ground, and the ground correction pulled the whole figure down by up to 1.1 units, so the body
+was *lowest* in the air (the walk's bob, running.md mistake #4). Now:
+- the flight frames lift both foot targets (0.55 units, heavy armour 0.4), so nothing pins the body;
+  the gap under both feet shows from level 1;
+- the bob is laid on: lowest at mid-stance (frames 1-2, 7-8), highest in flight;
+- the trunk leans 13° from the hips, the head drops; the free arm drives (0.95 of the capture's swing),
+  the arrow hand too;
+- the sode and kusazuri drop a frame after each landing and lift in the flight (lamellar bounce);
+- long shafts (yari, naginata) pivot in the rigid hands, the tip dipping after the landing;
+- heavy armour (Katana Samurai, Daimyō): one flight frame per stride, a smaller bob (running.md §3.4).
+The horses already galloped on Muybridge's transverse gallop (hind far, hind near, fore far, fore
+near, then the gathered suspension): checked against *The Horse in Motion* (below).
+
+### References looked at this round
+
+| Image | Licence | Taken from it |
+|---|---|---|
+| [Yabusame-1.jpg](https://commons.wikimedia.org/wiki/File:Yabusame-1.jpg) | Commons (CC BY-SA, study only) | The rider stands in the stirrups and leans forward over the neck at the gallop; the bow towers above the head, gripped low; the draw hand at the ear; the arrow points nearly level at a target beside him (our battle shot is laid high instead, per the brief). |
+| [Kendo Men Strike.jpg](https://commons.wikimedia.org/wiki/File:Kendo_Men_Strike.jpg) | Commons (CC BY-SA, study only) | Shōmen: both hands on the hilt, arms straight forward, the blade ends level at the head, the right foot forward, trunk square. Our shōmen ends at 96°, level. |
+| [The Horse in Motion](https://commons.wikimedia.org/wiki/File:The_Horse_in_Motion.jpg) (Muybridge 1878) | Public domain | The gathered suspension (legs folded under the barrel) and the footfall order; the rider sits nearly upright, slightly forward, and does not swing with the barrel. |
+| [Japanese kyūdōka draws a daikyū](https://commons.wikimedia.org/wiki/File:Japanese_Kyudoka_Draws_Daikyu_Longbow.png) | Public domain | (As above) the asymmetric grip a third up the bow; the draw hand behind the ear with the elbow high. |
+| Research notes `weapon-attacks.md` S1-S10, `running.md` §1-3, §5, §9-11 | text | Grips, key poses, timing, the run's phases and armour cues. |
+
+Study copies in the git-ignored `references/samurai-weapons/`.
+
+### Critique rounds
+
+1. **Round 1** (first sheets): the run showed no flight (probe: both feet on the ground in frames
+   4-5, pelvis lowest at frame 11): fixed by lifting the flight targets (above). The yari beat-down
+   smeared a 9-unit fan over two frames: one frame now. The sōhei's rising cut drove the blade into
+   the ground behind him: the wind-up keeps the arms higher and the blade 20° off vertical. The
+   teppō's butt-stroke smeared the muzzle end (the smear reach is the muzzle's): no smear.
+2. **Round 2** (the kai): rotating the dōjō kai by 38° left the arrow almost level, because the draw
+   hand swung back behind the head and the near shoulder sits well behind in the three-quarter view.
+   The high kai is now authored by its own geometry (lean back, bow arm 155°, the hand at the cheek,
+   elbow over the shoulder) and measured on the posed bones: ~42° from nock to grip.
+3. **Round 3** (lint): the shared faction palette samples attack frame 4 of every blow, so the new
+   blows moved colours at levels 2-4: the army colour's mid tone took a palette place and the indigo
+   lost its shade (light angle 98-114° at level 4, straight ramps at level 2 on the Katana Samurai
+   and the skirmisher), and the deep red lacquer's maroon shade took another. Per-kind palettes (the
+   Templar and Undead fix) were tried and failed more checks without retuning; instead single tones
+   are redirected below level 8 (`samurai-static` `LOW_TONES`, `L2_TONES`, `MID_TONES`; the deep red
+   is the red-brown at level 4). The level-4 palette is now the same as before the blows.
+
+### Lint after the audit
+
+All eleven kinds, levels 1/2/4/8: **no FAIL**. Level-1 silhouettes: closest pairs 0.83 (the mounted
+kinds, sharing the horse), foot kinds 0.66-0.75, all under 0.85. Warnings as before (aligned band
+ends 0.2-0.3, figure/outline vs ground ΔL, mid-widest silhouettes, a few light-angle warnings at
+levels 1-2), plus `blowOffPalette` warnings on the teppō (1 px) and the ōzutsu (its smoke).
+
+### Shortcomings
+
+- The daimyō's gunbai strike reads close to his command signal (both raise the fan and bring it
+  forward); it ends lower and faster, but at level 1 they are much alike.
+- Mounted kiri-age swings the arm through a full circle; at level 1-2 the frames behind the rider are
+  partly hidden by the horo.
+- The rear rank does not thrust shorter than the front rank (one animation per kind).
+- Angles are the research's estimates [est], checked against the photographs above, not mocap.
