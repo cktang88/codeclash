@@ -133,9 +133,14 @@ export function registerHooks(app: FastifyInstance, deps: HookDeps): void {
       const branch = parsed.ref.slice('refs/heads/'.length);
       const fallback = parsed.repository.default_branch;
       const before = /^0+$/.test(parsed.before) && fallback && fallback !== branch ? fallback : parsed.before;
+      const github = deps.pool?.forUser(user.id) ?? deps.github;
       try {
-        const report = await ingestPush({ ...deps, github: deps.pool?.forUser(user.id) ?? deps.github }, user, {
-          repo: parsed.repository.full_name,
+        // The payload is signed by the member, so its `private: false` is only their word; the server's
+        // token may see private repositories. GitHub says whether it is public (an unchanged answer is a free 304).
+        const info = await github.repo(parsed.repository.full_name);
+        if (!info || info.private) return reply.code(202).send({ ok: true, ignored: 'private' });
+        const report = await ingestPush({ ...deps, github }, user, {
+          repo: info.fullName,
           ref: parsed.ref,
           before,
           head: parsed.after,
