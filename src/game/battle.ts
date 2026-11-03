@@ -3405,6 +3405,16 @@ export class Battle {
       const cx = c % GW;
       const cy = (c - cx) / GW;
       const a1 = grid[c + 1]!;
+      // Each pair once: this cell's later items and the cell to the right (contiguous in grid
+      // order), then the three cells below-left, below and below-right (contiguous too).
+      const end1 = cx + 1 < GW ? grid[c + 2]! : a1;
+      let r0 = 0;
+      let r1 = 0;
+      if (cy + 1 < GH) {
+        const row = c + GW;
+        r0 = grid[cx > 0 ? row - 1 : row]!;
+        r1 = grid[cx + 1 < GW ? row + 2 : row + 1]!;
+      }
       for (let ka = grid[c]!; ka < a1; ka++) {
         const li = kl[ka]!;
         if (li & 4) continue;
@@ -3416,22 +3426,9 @@ export class Battle {
         const wi0 = kw[ka]!;
         let pxi = 0;
         let pyi = 0;
-        // This cell (later items) and four of its neighbours: each pair once.
-        for (let nb = 0; nb < 5; nb++) {
-          let kb0: number;
-          let kb1: number;
-          let cc = c;
-          if (nb === 0) {
-            kb0 = ka + 1;
-            kb1 = a1;
-          } else {
-            const nx = cx + (nb === 1 || nb === 4 ? 1 : nb === 2 ? -1 : 0);
-            const ny = cy + (nb === 1 ? 0 : 1);
-            if (nx < 0 || nx >= GW || ny >= GH) continue;
-            cc = ny * GW + nx;
-            kb0 = grid[cc]!;
-            kb1 = grid[cc + 1]!;
-          }
+        for (let pass = 0; pass < 2; pass++) {
+          const kb0 = pass === 0 ? ka + 1 : r0;
+          const kb1 = pass === 0 ? end1 : r1;
           for (let kb = kb0; kb < kb1; kb++) {
             const dx = xi - kx[kb]!;
             const dy = yi - ky[kb]!;
