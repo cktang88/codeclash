@@ -163,8 +163,8 @@ export function paintHorse(c: Paper, M: Mats, H: BeastLook, clip: HorseClip, f: 
   const chew = down ? f % 2 : 0;
   const nod = walk ? (f % 4 === 1 ? 1 : 0) : clip === 'idle' && f === 2 ? 1 : 0;
   const wither: P2 = [body[0] + (ox ? 9 : 8), body[1] - (ox ? 3 : 4)];
-  const poll: P2 = down ? [body[0] + (ox ? 16 : 17), body[1] + (ox ? 6 : 11)] : ox ? [body[0] + 16, body[1] - 4 + nod] : [body[0] + 14, body[1] - 12 - toss * 2 + nod];
-  const muzzle: P2 = down ? [poll[0] + 2, poll[1] + 5 - chew] : ox ? [poll[0] + 4, poll[1] + 4] : [poll[0] + 5 - toss, poll[1] + 6 - toss * 2];
+  const poll: P2 = down ? [body[0] + (ox ? 16 : 17), body[1] + (ox ? 6 : 11)] : ox ? [body[0] + 16, body[1] - 4 + nod] : [body[0] + 16, body[1] - 11 - toss * 2 + nod];
+  const muzzle: P2 = down ? [poll[0] + 2, poll[1] + 5 - chew] : ox ? [poll[0] + 4, poll[1] + 4] : [poll[0] + 6 - toss, poll[1] + 5 - toss * 2];
   if (bones) {
     c.rod(wither, poll, 2, 1.6, mBone, { tone: 2 });
     for (let k = 1; k <= 3; k++) {
@@ -177,7 +177,7 @@ export function paintHorse(c: Paper, M: Mats, H: BeastLook, clip: HorseClip, f: 
     c.line([poll[0] + 2, muzzle[1] - 0.5], [muzzle[0], muzzle[1] - 0.5], M.code(M.of(INK, 0.07, true), 2));
   } else {
     c.rod(wither, poll, ox ? 7 : 6.5, ox ? 5 : 3.8, mCoat, { tone: 2 });
-    c.rod(poll, muzzle, ox ? 4.4 : 4, ox ? 3.6 : 2.8, mCoat, { tone: 2 });
+    c.rod(poll, muzzle, ox ? 4.4 : 4.4, ox ? 3.6 : 3, mCoat, { tone: 2 });
     // Eye, nostril, ear; a dark muzzle on the bay and the ox.
     const mInk = M.of(INK, 0.07, true);
     const ex = poll[0] + (muzzle[0] - poll[0]) * 0.2, ey = poll[1] + (muzzle[1] - poll[1]) * 0.2;
@@ -206,51 +206,59 @@ export function paintHorse(c: Paper, M: Mats, H: BeastLook, clip: HorseClip, f: 
 /** A dog: walk (a trot, diagonal pairs), sit, stand wagging. */
 export function paintDog(c: Paper, M: Mats, coat: Col, clip: 'walk' | 'sit' | 'stand', f: number): void {
   const m = M.of(coat);
-  const md = M.of(tone(coat, 0.35));
+  const md = M.of(tone(coat, 0.3));
+  const mBack = M.of(tone(coat, 0.45));
   const mInk = M.of(INK, 0.07, true);
   const p = f / 8;
   const sit = clip === 'sit';
-  const by = sit ? -6 : -8;
-  const legs: [number, boolean, number][] = [[-4, true, 0.5], [4, true, 0], [-3, false, 0], [5, false, 0.5]];
-  const leg = (x: number, far: boolean, ph: number, hind: boolean) => {
-    const q = clip === 'walk' ? (p + ph) % 1 : 0;
-    const a = clip === 'walk' ? 26 * Math.cos(q * TAU) : 0;
-    const lift = clip === 'walk' && q > 0.5 ? Math.sin(((q - 0.5) / 0.5) * Math.PI) : 0;
-    const top: P2 = [x, by + 1];
-    if (sit && hind) {
-      c.blob([x + 0.5, -2.5], 2.6, 2.2, far ? md : m);
-      c.rod([x + 1, -1], [x + 3, -1], 1.6, 1.4, far ? md : m);
-      return;
-    }
-    const k = ip(step(top, a, 3.5));
-    const e = ip(step(k, a - (hind ? -20 : 40) * lift, sit ? 4.5 : 3.5));
-    c.rod(top, k, 2.2, 1.8, far ? md : m, { tone: far ? 1 : 2 });
-    c.rod(k, e, 1.6, 1.4, far ? md : m, { tone: far ? 1 : 2 });
-    dot(c, e[0] + 1, e[1] - 0.5, M.code(far ? md : m, 1));
+  const walk = clip === 'walk';
+  const bob = walk && f % 4 === 1 ? -1 : 0;
+  // Trunk: from the haunch to the chest (sitting: upright on the haunches).
+  const haunch: P2 = sit ? [-2, -3] : [-4, -8 + bob];
+  const chest: P2 = sit ? [2, -8] : [3, -8.5 + bob];
+  const leg = (top: P2, far: boolean, ph: number, hind: boolean) => {
+    const q = walk ? (p + ph) % 1 : 0;
+    const a = walk ? 28 * Math.cos(q * TAU) : hind ? -8 : 6;
+    const lift = walk && q > 0.5 ? Math.sin(((q - 0.5) / 0.5) * Math.PI) : 0;
+    const mm = far ? md : m;
+    const k = ip(step(top, a + (hind ? -10 : 0), 3.5));
+    const e = ip(step(k, a + (hind ? 12 : 0) - (hind ? -25 : 50) * lift, 3.5));
+    c.rod(top, k, hind ? 2.2 : 1.7, 1.3, mm, { tone: far ? 1 : 2 });
+    c.rod(k, e, 1.2, 1.1, mm, { tone: far ? 1 : 2 });
+    c.rod([e[0], e[1] + 0.5], [e[0] + 1.5, e[1] + 0.5], 1.4, 1.2, mm, { tone: far ? 1 : 2 });
   };
-  for (const [x, far, ph] of legs) if (far) leg(x, true, ph, x < 0);
-  // Tail: up and wagging.
-  const wag = clip === 'stand' ? [0, 1, 2, 1][f % 4]! : clip === 'walk' ? (f % 2) : 0;
-  c.rod([-5, by - 1], [-8 + wag * 0.5, by - 4 - wag], 1.6, 1.2, m, { tone: 2 });
-  // Body.
   if (sit) {
-    c.blob([-1, by + 0.5], 4.4, 3.2, m);
-    c.blob([2, by - 1.5], 3, 3.2, m);
+    leg([chest[0] - 0.5, chest[1] + 2], true, 0, false);
   } else {
-    c.blob([0.5, by], 5.6, 2.8, m);
-    c.blob([3.5, by - 0.5], 2.8, 2.8, m);
+    leg([haunch[0] - 1, haunch[1] + 1.5], true, 0.5, true);
+    leg([chest[0] - 1, chest[1] + 2], true, 0, false);
   }
+  // Tail: up in a curve, wagging when it stands.
+  const wag = clip === 'stand' ? [0, 1, 2, 1][f % 4]! : walk ? f % 2 : 0;
+  const tb: P2 = sit ? [-4, -2] : [haunch[0] - 2, haunch[1] - 1];
+  c.rod(tb, [tb[0] - 2 + wag * 0.6, tb[1] - 3 - wag * 0.4], 1.8, 1.4, m, { tone: 2 });
+  c.rod([tb[0] - 2 + wag * 0.6, tb[1] - 3 - wag * 0.4], [tb[0] - 1.5 + wag, tb[1] - 5], 1.4, 1, md, { tone: 2 });
+  c.rod(haunch, chest, 4.2, 4.8, m);
+  c.blob([haunch[0] + 0.5, haunch[1] + 0.3], 2.4, 2.2, m);
   // A darker saddle along the back.
-  c.line([-4, by - 2], [3, by - 2.5], M.code(md, 2));
-  for (const [x, far, ph] of legs) if (!far) leg(x, false, ph, x < 0);
-  // Head: skull, snout, ears up, an eye, a black nose.
-  const hx = sit ? 4 : 6, hy = sit ? by - 5 : by - 3;
-  c.blob([hx + 0.5, hy + 0.5], 2.4, 2.2, m);
-  c.rod([hx + 2, hy + 1.5], [hx + 4.5, hy + 2], 2, 1.6, m, { tone: 2 });
-  dot(c, hx + 5, hy + 1.5, M.code(mInk, 2));
-  dot(c, hx + 1.5, hy, M.code(mInk, 2));
-  c.rod([hx - 0.5, hy - 1], [hx - 0.5, hy - 3.5], 1.6, 1, md, { tone: 2 });
-  dot(c, hx + 1, hy - 2.5, M.code(md, 2));
+  c.line([haunch[0], haunch[1] - 2.5], [chest[0] - 1, chest[1] - 2.5], M.code(mBack, 2));
+  if (sit) {
+    c.blob([-2.5, -2], 3, 2.2, m);
+    c.rod([-1, -0.5], [1.5, -0.5], 1.6, 1.4, m);
+    leg([chest[0] + 0.5, chest[1] + 2], false, 0, false);
+  } else {
+    leg([haunch[0], haunch[1] + 1.5], false, 0, true);
+    leg([chest[0], chest[1] + 2], false, 0.5, false);
+  }
+  // Neck, head, muzzle, ears up, an eye, a black nose.
+  const hd: P2 = sit ? [4, -12] : [6, -11.5 + bob];
+  c.rod([chest[0], chest[1] - 1], hd, 3.4, 2.8, m);
+  c.blob([hd[0] + 0.5, hd[1] + 0.5], 2.3, 2.1, m);
+  c.rod([hd[0] + 1.5, hd[1] + 1], [hd[0] + 4, hd[1] + 1.5], 2, 1.5, m, { tone: 2 });
+  dot(c, hd[0] + 4, hd[1] + 1, M.code(mInk, 2));
+  dot(c, hd[0] + 1, hd[1], M.code(mInk, 2));
+  c.rod([hd[0] - 0.5, hd[1] - 1], [hd[0] - 1, hd[1] - 3.5], 1.8, 1, md, { tone: 2 });
+  c.rod([hd[0] + 0.5, hd[1] - 1.5], [hd[0] + 0.5, hd[1] - 3.5], 1.4, 1, m, { tone: 3 });
 }
 
 /** A hen: stand, peck, step. */
@@ -276,7 +284,7 @@ export function paintHen(c: Paper, M: Mats, white: Col, brown: Col, f: number): 
 /** A crow in flight (wings up, level, down, level); the necropolis's carrion birds are bigger and ragged. */
 export function paintCrow(c: Paper, M: Mats, f: number, carrion: boolean): void {
   const m = M.of(carrion ? hex('#2a2430') : hex('#24222a'));
-  const s = carrion ? 1.3 : 1;
+  const s = carrion ? 1.7 : 1.35;
   c.rod([-4 * s, 0], [3 * s, 0], 2.4 * s, 1.8, m, { tone: 2 });
   c.blob([3.5 * s, -0.5], 1.4, 1.4, m);
   dot(c, 5 * s, 0, M.code(M.of(carrion ? hex('#c8bca0') : hex('#5a5048')), 2));
@@ -321,8 +329,9 @@ export function paintCart(c: Paper, M: Mats, wood: Col, load: [Col, Col], f: num
     },
   );
   // The wheel: a rim of eight segments, four spokes that turn.
-  const cx = 0, cy = -6.5, r = 6;
-  const mr = M.of(tone(wood, 0.2));
+  const cx = 0, cy = -7, r = 6.5;
+  const mr = M.of(tone(wood, 0.45));
+  const ms = M.of(tone(wood, -0.15));
   const pts: P2[] = [];
   for (let i = 0; i < 16; i++) {
     const a = (i / 16) * TAU;
@@ -332,7 +341,7 @@ export function paintCart(c: Paper, M: Mats, wood: Col, load: [Col, Col], f: num
   const o = (f % 4) * (Math.PI / 8);
   for (let k = 0; k < 4; k++) {
     const a = o + (k * Math.PI) / 4;
-    c.line([cx + Math.cos(a) * (r - 1), cy + Math.sin(a) * (r - 1)], [cx - Math.cos(a) * (r - 1), cy - Math.sin(a) * (r - 1)], M.code(mr, 2));
+    c.line([cx + Math.cos(a) * (r - 1), cy + Math.sin(a) * (r - 1)], [cx - Math.cos(a) * (r - 1), cy - Math.sin(a) * (r - 1)], M.code(ms, 2));
   }
   c.blob([cx + 0.5, cy + 0.5], 1.2, 1.2, M.of(hex('#5a5058')));
   void dirOf;

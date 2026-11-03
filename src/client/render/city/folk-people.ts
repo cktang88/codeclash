@@ -351,7 +351,8 @@ export function paintPerson(ctx: PaintCtx, L: Look, clip: FolkClip, f: number, b
   // A sack or a cloth bundle slung on the shoulder, behind the head.
   if (L.carry === 'sack' || L.carry === 'bundle') {
     const s0: P2 = [sh[0] - 4, sh[1] - 2];
-    const m = M.of(L.carry === 'sack' ? hex('#b8a372') : hex('#4a5a7a'));
+    // A sack of grain, or goods wrapped in a furoshiki (green, with a pale arabesque).
+    const m = M.of(L.carry === 'sack' ? hex('#b8a372') : hex('#3e6a52'));
     c.blob(s0, 4, 3, m);
     if (L.carry === 'bundle') c.line([s0[0] - 3, s0[1] - 1], [s0[0] + 3, s0[1] + 1], code(M.of(hex('#d8ceb4')), 3));
     else c.line([s0[0] + 2, s0[1] - 3], [s0[0] + 3, s0[1] - 2], code(m, 1));
@@ -446,23 +447,24 @@ function drawTool(ctx: PaintCtx, L: Look, clip: FolkClip, hand: P2, P: Pose, beh
       break;
     }
     case 'staff': {
-      c.rod(at(-12), at(9), 1.5, 1.5, wood, { tone: t });
+      // Positive along the tool is up (the tool points up from the hand).
+      c.rod(at(-9), at(12), 1.5, 1.5, wood, { tone: t });
       if (L.eyes) {
         // The necromancer's staff: a skull on top with a coal in it.
-        const s = at(-13.5);
+        const s = at(13.5);
         c.blob(s, 2, 1.8, M.of(BONE));
         dot(c, s[0] + 0.5, s[1], M.code(M.of(L.eyes, 0.075, true), 2));
         dot(c, s[0] - 0.5, s[1] + 1, M.code(M.of(INK, 0.075, true), 2));
       } else {
-        const s = at(-12.5);
+        const s = at(12.5);
         dot(c, s[0], s[1], M.code(wood, 3));
       }
       break;
     }
     case 'parasol': {
       // A wagasa: oiled-paper canopy on bamboo ribs, the shaft held up beside the head.
-      c.rod(at(-6), at(13), 1.1, 1.1, M.of(hex('#c9a862')), { tone: t });
-      const top = at(-13);
+      c.rod(at(-3), at(12), 1.1, 1.1, M.of(hex('#c9a862')), { tone: t });
+      const top = at(13);
       const col = L.trim ?? hex('#b5372b');
       const m = M.of(col);
       const pts: P2[] = [];
