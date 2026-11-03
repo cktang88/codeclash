@@ -45,7 +45,11 @@ export class FolkHd {
   }
 
   /** A painted cell, painting it now if the budget allows (or if nothing can stand in). */
-  private cell(key: string, size: { w: number; h: number; footY: number }, paint: (c: Paper, M: Mats) => void, fallback?: string): Cell | null {
+  private cell(key0: string, size: { w: number; h: number; footY: number }, paint: (c: Paper, M: Mats) => void, fallback0?: string, mirror = false): Cell | null {
+    // A west-facing frame is painted as its own frame, drawn with the light reversed and then
+    // flipped (paper/facing.ts), so it is lit from the top-left like the east-facing one.
+    const key = mirror ? key0 + '|m' : key0;
+    const fallback = fallback0 && mirror ? fallback0 + '|m' : fallback0;
     const got = this.atlas.get(key);
     if (got) return got;
     if (this.spent > PAINT_BUDGET) {
@@ -57,8 +61,11 @@ export class FolkHd {
     const t0 = performance.now();
     const c = this.c;
     c.begin(1, size);
+    c.lightX = mirror ? -1 : 1;
     const M = new Mats(this.rig);
     paint(c, M);
+    if (mirror) c.mirror();
+    c.lightX = 1;
     c.contact();
     c.clusters(2);
     const s = finish(c, M);
@@ -110,9 +117,9 @@ export class FolkHd {
     const back = dir === 2 || dir === 3;
     const lk = this.lookKey(look);
     const key = `p|${lk}|${clip}|${f}|${back ? 1 : 0}`;
-    const cell = this.cell(key, PERSON_CANVAS, (c, M) => paintPerson({ c, M, skin: this.st.skin, faction: this.st.id }, look, clip, f, back), `p|${lk}|${clip}|0|${back ? 1 : 0}`);
+    const cell = this.cell(key, PERSON_CANVAS, (c, M) => paintPerson({ c, M, skin: this.st.skin, faction: this.st.id }, look, clip, f, back), `p|${lk}|${clip}|0|${back ? 1 : 0}`, dir === 1 || dir === 2);
     this.contact(g, X, Y, look.kind === 'child' ? 7 : 9, night);
-    if (cell) this.atlas.blit(g, cell, X, Y, 2, dir === 1 || dir === 2, night);
+    if (cell) this.atlas.blit(g, cell, X, Y, 2, false, night);
   }
 
   /**
@@ -133,9 +140,9 @@ export class FolkHd {
       f = Math.floor((t * (clip === 'graze' ? 1.2 : 0.8) + seed) * n) % n;
     }
     const key = `h|${cart ? 'cart' : coat % this.beasts.length}|${clip}|${f}`;
-    const cell = this.cell(key, HORSE_CANVAS, (c, M) => paintHorse(c, M, H, clip, f), `h|${cart ? 'cart' : coat % this.beasts.length}|${clip}|0`);
+    const cell = this.cell(key, HORSE_CANVAS, (c, M) => paintHorse(c, M, H, clip, f), `h|${cart ? 'cart' : coat % this.beasts.length}|${clip}|0`, dir === 1 || dir === 2);
     this.contact(g, X, Y, 22, night);
-    if (cell) this.atlas.blit(g, cell, X, Y, 2, dir === 1 || dir === 2, night);
+    if (cell) this.atlas.blit(g, cell, X, Y, 2, false, night);
   }
 
   /** A dog: classic frames 0-1 trot, 2 sitting, 3 standing. */
@@ -144,17 +151,17 @@ export class FolkHd {
     const clip = frame <= 1 ? 'walk' : frame === 2 ? 'sit' : 'stand';
     const f = clip === 'walk' ? (phase !== undefined ? Math.floor((((phase % 1) + 1) % 1) * 8) % 8 : frame * 4) : clip === 'stand' ? Math.floor(t * 6 + seed * 4) % 4 : 0;
     const coat = this.st.id === 'undead' ? hex('#5a5652') : this.st.id === 'samurai' ? hex('#b07a44') : hex('#7a5838');
-    const cell = this.cell(`d|${clip}|${f}`, DOG_CANVAS, (c, M) => paintDog(c, M, coat, clip, f), `d|${clip}|0`);
+    const cell = this.cell(`d|${clip}|${f}`, DOG_CANVAS, (c, M) => paintDog(c, M, coat, clip, f), `d|${clip}|0`, dir === 1 || dir === 2);
     this.contact(g, X, Y, 9, night);
-    if (cell) this.atlas.blit(g, cell, X, Y, 2, dir === 1 || dir === 2, night);
+    if (cell) this.atlas.blit(g, cell, X, Y, 2, false, night);
   }
 
   /** A hen: 0 standing, 1 pecking. */
   hen(g: CanvasRenderingContext2D, frame: number, dir: Dir, X: number, Y: number, night: number): void {
     const undead = this.st.id === 'undead';
-    const cell = this.cell(`e|${frame}`, HEN_CANVAS, (c, M) => (undead ? paintHen(c, M, hex('#2a2830'), hex('#16141a'), frame) : paintHen(c, M, hex('#d8cfba'), hex('#a0703a'), frame)));
+    const cell = this.cell(`e|${frame}`, HEN_CANVAS, (c, M) => (undead ? paintHen(c, M, hex('#2a2830'), hex('#16141a'), frame) : paintHen(c, M, hex('#d8cfba'), hex('#a0703a'), frame)), undefined, dir === 1 || dir === 2);
     this.contact(g, X, Y, 5, night);
-    if (cell) this.atlas.blit(g, cell, X, Y, 2, dir === 1 || dir === 2, night);
+    if (cell) this.atlas.blit(g, cell, X, Y, 2, false, night);
   }
 
   /** The cart: frame 0-3 turns the wheel. */
@@ -163,15 +170,15 @@ export class FolkHd {
     const f = frame % 4;
     const wood = id === 'undead' ? hex('#4a4440') : id === 'samurai' ? hex('#8a6a46') : hex('#7a5434');
     const load: [Col, Col] = id === 'undead' ? [hex('#cfc8b8'), hex('#8a8478')] : id === 'samurai' ? [hex('#d8be82'), hex('#8a7040')] : [hex('#d8c79a'), hex('#b8a372')];
-    const cell = this.cell(`c|${f}`, CART_CANVAS, (c, M) => paintCart(c, M, wood, load, f, id === 'samurai'));
-    if (cell) this.atlas.blit(g, cell, X, Y, 2, dir === 1 || dir === 2, night);
+    const cell = this.cell(`c|${f}`, CART_CANVAS, (c, M) => paintCart(c, M, wood, load, f, id === 'samurai'), undefined, dir === 1 || dir === 2);
+    if (cell) this.atlas.blit(g, cell, X, Y, 2, false, night);
   }
 
   /** A crow in flight at a screen point (world pixels); `row` 0 flies east, 1 west. */
   crow(g: CanvasRenderingContext2D, f: number, row: number, X: number, Y: number, night: number): void {
     const carrion = this.st.id === 'undead';
-    const cell = this.cell(`w|${f % 4}`, CROW_CANVAS, (c, M) => paintCrow(c, M, f % 4, carrion));
-    if (cell) this.atlas.blit(g, cell, X, Y, 2, row === 1, night);
+    const cell = this.cell(`w|${f % 4}`, CROW_CANVAS, (c, M) => paintCrow(c, M, f % 4, carrion), undefined, row === 1);
+    if (cell) this.atlas.blit(g, cell, X, Y, 2, false, night);
   }
 
   /** Bytes the atlas holds (day and night pages). */
@@ -342,7 +349,8 @@ export function undeadLooks(st: CityStyle): Looks {
       };
     },
     // Cultists of the Black Chapel: deep cowls, green-lit eyes.
-    monk: (carry = 'none', work = 'pray') => ({ body: hex('#24222a'), legs: hex('#16141a'), head: 'cowl', hair: hex('#2e2a34'), robe: true, sash: hex('#3a5a34'), eyes: green, sleeves: 'wide', skin: dead[0]!, work, carry }),
+    // A candle held out before them (round 2): the cowl has a lit rim and a face in it now.
+    monk: (carry = 'none', work = 'pray') => ({ body: hex('#2e2b36'), legs: hex('#1a181f'), head: 'cowl', hair: hex('#3e3848'), robe: true, sash: hex('#3a5a34'), eyes: green, sleeves: 'wide', skin: dead[0]!, work, carry: carry === 'none' ? 'candle' : carry }),
     // The necromancer: black and violet, a skull-staff.
     chaplain: () => ({ body: hex('#2a2234'), legs: hex('#18141e'), head: 'cowl', hair: hex('#3a2e46'), robe: true, sash: green, trim: hex('#5a4a6a'), eyes: green, sleeves: 'wide', skin: dead[0]!, work: 'none', carry: 'staff' }),
     // Embalmers of the plague house: grey robes and a stained apron.
