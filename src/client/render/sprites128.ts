@@ -3420,6 +3420,8 @@ interface Job {
   level: number;
   /** HD 64: the level-8 sheet halved (downscale.ts) into this level-4 sheet. */
   half: boolean;
+  /** HD 64: the level-8 sheet, when it is already painted (HD drew it): halved, not painted again. */
+  from?: KindSheet;
   done: ((s: KindSheet) => void)[];
 }
 
@@ -3479,7 +3481,9 @@ function pump(): void {
       if (slot.busy || workPool.queue.length === 0) continue;
       const job = workPool.queue.shift()!;
       slot.busy = job;
-      slot.w.postMessage({ faction: job.faction, hue: job.hue, kind: job.kind, level: job.level, half: job.half });
+      slot.w.postMessage({ faction: job.faction, hue: job.hue, kind: job.kind, level: job.level, half: job.half, from: job.from });
+      // The worker has its copy of the source sheet.
+      job.from = undefined;
     }
     return;
   }
@@ -3488,7 +3492,7 @@ function pump(): void {
   setTimeout(() => {
     idleTimer = false;
     const job = workPool.queue.shift();
-    if (job) finishJob(job, sheetFor(job.faction, job.hue, job.kind, job.level, job.half));
+    if (job) finishJob(job, job.from ? halveSheet(job.from) : sheetFor(job.faction, job.hue, job.kind, job.level, job.half));
     pump();
   }, 30);
 }
@@ -3503,18 +3507,81 @@ export function sheetFor(faction: string, hue: number, kind: number, level: numb
   return paintSheet(faction, hue, kind, level);
 }
 
+const sheetKey = (faction: string, hue: number, kind: number, level: number, half: boolean): string => `${faction}:${hue}:${kind}:${level}${half ? ':half' : ''}`;
+
 function request(faction: string, hue: number, kind: number, level: number, done: (s: KindSheet) => void, half = false): void {
   startPool();
-  const key = `${faction}:${hue}:${kind}:${level}${half ? ':half' : ''}`;
+  const key = sheetKey(faction, hue, kind, level, half);
   const old = workPool.jobs.get(key);
   if (old) {
     old.done.push(done);
     return;
   }
   const job: Job = { key, faction, hue, kind, level, half, done: [done] };
+  // HD 64 after HD: the level-8 sheet may be in memory already; halving it is all that is left.
+  if (half) job.from = store.get(sheetKey(faction, hue, kind, level * 2, false))?.sheet;
   workPool.jobs.set(key, job);
   workPool.queue.push(job);
   pump();
+}
+
+// ------------------------------------------------------------------ the sheet store
+
+/**
+ * Every hi-res sheet painted, by army, kind and level, shared by every atlas: a new scene for the
+ * same armies, an art switch (HD and HD 64 share their level-2 sheets and level-1 grids) and
+ * switching back find what is still held (memory: the LRU above) instead of painting it again.
+ */
+const store = new Map<string, { sheet: KindSheet; h: Held }>();
+
+/** A painted sheet, or null while it is painted (the first ask starts it, in the background). */
+function storedSheet(faction: string, hue: number, kind: number, level: number, half: boolean): KindSheet | null {
+  const key = sheetKey(faction, hue, kind, level, half);
+  const got = store.get(key);
+  if (got) {
+    got.h.used = now();
+    return got.sheet;
+  }
+  if (!workPool.jobs.has(key))
+    request(faction, hue, kind, level, (sh) => {
+      if (store.has(key)) return;
+      const h: Held = { bytes: sh.pixels.byteLength + sh.rects.byteLength, level, used: now(), drop: () => store.delete(key) };
+      store.set(key, { sheet: sh, h });
+      hold(h);
+    }, half);
+  return null;
+}
+
+/**
+ * The level-1 grid image of an army (every kind's 48×48 cells), shared by its HD and HD 64
+ * atlases and kept for the last few armies, so an art switch or a new scene starts with it drawn.
+ */
+interface Grid {
+  image: HTMLCanvasElement;
+  ctx: CanvasRenderingContext2D;
+  painted: boolean[];
+  /** Kinds landed so far (an atlas's `version`). */
+  version: number;
+}
+const grids = new Map<string, Grid>();
+const GRIDS_KEPT = 4;
+
+function gridOf(faction: string, hue: number, width: number): Grid {
+  const key = `${faction}:${hue}`;
+  let g = grids.get(key);
+  if (g) {
+    grids.delete(key);
+    grids.set(key, g);
+    return g;
+  }
+  const image = document.createElement('canvas');
+  image.width = width;
+  image.height = KIND_COUNT * 4 * CELL_H;
+  g = { image, ctx: image.getContext('2d')!, painted: new Array<boolean>(KIND_COUNT).fill(false), version: 0 };
+  grids.set(key, g);
+  // An older army's grid lives on only while an atlas still draws it.
+  while (grids.size > GRIDS_KEPT) grids.delete(grids.keys().next().value!);
+  return g;
 }
 
 /**
@@ -3538,13 +3605,14 @@ export const buildAtlas64: BuildAtlas = (faction, hue) => makeAtlas(faction, hue
 function makeAtlas(faction: string, hue: number, hd64: boolean): Atlas {
   setLevel(1);
   const levels: readonly number[] = hd64 ? LEVELS_64 : LEVELS;
-  const image = document.createElement('canvas');
   const blowTab = Array.from({ length: KIND_COUNT }, (_, k) => blowsOf(faction, k));
   // Wide enough for the kind with the most blows (their extra columns sit at the right).
-  image.width = gridCols(Math.max(...blowTab)) * CELL_W;
-  image.height = KIND_COUNT * 4 * CELL_H;
-  const ctx = image.getContext('2d')!;
-  const painted: boolean[] = new Array<boolean>(KIND_COUNT).fill(false);
+  const grid = gridOf(faction, hue, gridCols(Math.max(...blowTab)) * CELL_W);
+  const { image, ctx, painted } = grid;
+  const land = (kind: number, g: KindSheet): void => {
+    ctx.putImageData(new ImageData(new Uint8ClampedArray(g.pixels.buffer as ArrayBuffer, g.pixels.byteOffset, g.pixels.byteLength), g.width, g.height), 0, kind * 4 * CELL_H);
+    grid.version++;
+  };
   const ensure = (kind: number): void => {
     if (painted[kind] || kind < 0 || kind >= KIND_COUNT) return;
     painted[kind] = true;
@@ -3552,21 +3620,16 @@ function makeAtlas(faction: string, hue: number, hd64: boolean): Atlas {
     // (the renderer re-uploads when `version` moves), so a battle starts without a stall.
     startPool();
     if (workPool.ok) {
-      request(faction, hue, kind, 1, (g) => {
-        ctx.putImageData(new ImageData(new Uint8ClampedArray(g.pixels), g.width, g.height), 0, kind * 4 * CELL_H);
-        atlas.version = (atlas.version ?? 0) + 1;
-      });
+      request(faction, hue, kind, 1, (g) => land(kind, g));
       return;
     }
-    const g = paintGrid(faction, hue, kind);
-    ctx.putImageData(new ImageData(new Uint8ClampedArray(g.pixels), g.width, g.height), 0, kind * 4 * CELL_H);
-    atlas.version = (atlas.version ?? 0) + 1;
+    land(kind, paintGrid(faction, hue, kind));
   };
-  const sheets = new Map<number, { sheet: KindSheet; h: Held }>();
-  const asked = new Set<number>();
   const anim = (kind: number, a: Anim): Anim => (a === Anim.Shoot && !SHOOTS.has(kind) ? Anim.Attack : a);
   const atlas: Atlas = {
-    version: 0,
+    get version() {
+      return grid.version;
+    },
     image,
     cellW: CELL_W,
     cellH: CELL_H,
@@ -3581,30 +3644,9 @@ function makeAtlas(faction: string, hue: number, hd64: boolean): Atlas {
     },
     levels,
     sheet: (kind, level) => {
-      const key = kind * 16 + level;
-      const got = sheets.get(key);
       trim();
-      if (got) {
-        got.h.used = now();
-        return got.sheet;
-      }
-      if (!asked.has(key) && kind >= 0 && kind < KIND_COUNT && levels.includes(level)) {
-        asked.add(key);
-        request(faction, hue, kind, level, (sh) => {
-          const h: Held = {
-            bytes: sh.pixels.byteLength + sh.rects.byteLength,
-            level,
-            used: now(),
-            drop: () => {
-              sheets.delete(key);
-              asked.delete(key);
-            },
-          };
-          sheets.set(key, { sheet: sh, h });
-          hold(h);
-        }, hd64 && level === 4);
-      }
-      return null;
+      if (kind < 0 || kind >= KIND_COUNT || !levels.includes(level)) return null;
+      return storedSheet(faction, hue, kind, level, hd64 && level === 4);
     },
     slot: (kind, a, frame, dir) => slotOf(kind, a, frame, dir, blowTab[kind] ?? 1),
   };
