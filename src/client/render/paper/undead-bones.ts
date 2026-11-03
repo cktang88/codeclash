@@ -110,6 +110,7 @@ const THROWER_SPEC = (): FootSpec => ({
     { slot: 'upperArmF', holder: 'upperArmF', at: 9, land: { x: 2.0, y: -0.5, rot: -95, f: 11 } },
     { slot: 'shinF', holder: 'shinF', at: 9, land: { x: 5.8, y: -0.5, rot: 88, f: 11 } },
   ],
+  shadeL2: 0.3,
 });
 
 /**
@@ -139,12 +140,13 @@ const WARDEN_SPEC = (): FootSpec => ({
   cloak: true,
   neFirst: ['farItem'],
   neLast: ['cloak'],
-  shadeL1: 0.3,
+  shadeL1: 0.6,
   drops: [
     // The bow falls from the hand; the mask in its hood drops onto the empty robe.
     { slot: 'farItem', holder: 'itemF', at: 3, land: { x: 1.6, y: -0.35, rot: -86, f: 6 } },
     { slot: 'skull', holder: 'head', at: 6, land: { x: 1.4, y: -0.9, rot: -20, f: 9 } },
   ],
+  shadeL2: 0.5,
 });
 
 /** The crossbow drawn on the frame: unspanned from the loose until it is wound back; the cranequin's handle turning. */
@@ -181,6 +183,7 @@ const ARBALEST_SPEC = (): FootSpec => ({
     { slot: 'forearmN', holder: 'forearmN', at: 9, land: { x: 1.4, y: -0.5, rot: 90, f: 11 } },
     { slot: 'shinF', holder: 'shinF', at: 9, land: { x: 6.8, y: -0.5, rot: -88, f: 11 } },
   ],
+  shadeL2: 0.6,
 });
 
 /** The witchfire in the Lich's hand and on its staff, swelling through the cast (events `flare`) and streaming from the palm (`bolt`). */
@@ -210,7 +213,7 @@ const LICH_SPEC = (): FootSpec => ({
     { slot: 'heap', bone: 'root', draw: (c, _J, back) => lichHeap(c, back) },
     { slot: 'wisp', bone: 'root', top: true, live: (ctx) => ({ t: ctx.events.find((e) => e.name === 'wisp')?.int ?? 0 }), draw: (c, _J, _b, o) => void (o.t && soulWisp(c, o.t)) },
   ],
-  shadeL1: 0.42,
+  shadeL1: 0.6,
   drops: [
     { slot: 'weapon', holder: 'weapon', at: 3, land: { x: -0.6, y: -0.3, rot: -88, f: 6 } },
     { slot: 'skull', holder: 'head', at: 6, land: { x: 1.8, y: -1.2, rot: 30, f: 9 } },
