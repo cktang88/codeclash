@@ -12,13 +12,21 @@
 //   pnpm battle-stats ladder --factions undead,templar [--sizes 120,250,500,1000,2000,2800] [--seeds 40]
 //       A's share of the wins, the length, how often each general fell, each side's regiments
 //       broken, B's rallied and its men fallen in with another regiment, for the standard army at each size: where the curve bends shows
-//       at what size a mechanism starts to tell.
+//       at what size a mechanism starts to tell. The last columns give the layout of A's line:
+//       blocks in its first line and the men of its biggest Shock block (one block until the
+//       class outgrows a line block, so it grows with the army while the others grow with its
+//       square root: a step in the layout can move the win rate as much as any rule).
+//   pnpm battle-stats mirror --factions undead [--sizes 250,500,1500,2800] [--seeds 400]
+//       Side bias: the standard army of one faction against itself, one battle a seed (hues 0
+//       and 200): team 0's share of the wins and its z against a fair coin, the length, how often
+//       each general fell and how many each side raised. (`pnpm fairness --factions a,a` fights
+//       each mirror twice, the same battle both ways round, so it always reads 50%.)
 // All take --jobs N (default 4): the seeds are shared among N worker processes.
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { Battle, BATTLE_VERSION, State, type ArmySpec } from '../src/game/battle.ts';
 import { isFaction, type FactionId } from '../src/game/factions.ts';
-import { emptyCounts, UNIT_COUNT } from '../src/game/units.ts';
+import { emptyCounts, U, UNIT_COUNT } from '../src/game/units.ts';
 
 const MIX = [0.22, 0.2, 0.08, 0.12, 0.07, 0.07, 0.05, 0.03, 0.03, 0.005];
 const NAMES = ['heavy', 'spears', 'skirm', 'archers', 'xbow', 'lighthorse', 'horsebow', 'knights', 'shock', 'engines'];
@@ -32,7 +40,8 @@ function arg(name: string, dflt: string): string {
   return i >= 0 ? process.argv[i + 1]! : dflt;
 }
 const mode = process.argv[2] ?? 'types';
-const [fa, fb] = arg('factions', 'undead,templar').split(',') as [FactionId, FactionId];
+const given = arg('factions', 'undead,templar').split(',') as FactionId[];
+const [fa, fb] = [given[0]!, given[1] ?? given[0]!];
 if (!isFaction(fa) || !isFaction(fb)) throw new Error('--factions takes two of templar, samurai, undead');
 const seeds = Number(arg('seeds', mode === 'types' ? '20' : '40'));
 const jobs = Math.max(1, Number(arg('jobs', '4')));
@@ -152,7 +161,27 @@ function ladder(mine: number[]): Tally {
         add(t, `${men}:regs`, bt.regiments.filter((g) => g.team === aTeam).length);
         const line = bt.regiments.filter((g) => g.team === aTeam && g.role === 'line');
         add(t, `${men}:block`, line.reduce((s, g) => s + g.start, 0) / Math.max(1, line.length));
+        add(t, `${men}:first`, line.filter((g) => g.line === 1).length);
+        add(t, `${men}:shock`, Math.max(0, ...line.filter((g) => g.cls === U.Shock).map((g) => g.start)));
       });
+    }
+  }
+  return t;
+}
+
+function mirror(mine: number[]): Tally {
+  const t: Tally = {};
+  for (const men of arg('sizes', '250,500,1500,2800').split(',').map(Number)) {
+    for (const seed of mine) {
+      const r = new Battle({ version: BATTLE_VERSION, seed, kind: 'daily', armies: [army(standard(men), fa, 0, true), army(standard(men), fa, 200, true)] }).run();
+      add(t, `${men}:n`);
+      if (r.winner === 0) add(t, `${men}:win0`);
+      if (r.reason === 'time') add(t, `${men}:time`);
+      add(t, `${men}:ticks`, r.ticks);
+      for (const side of [0, 1] as const) {
+        if (r.sides[side].commanderFell) add(t, `${men}:fell${side}`);
+        add(t, `${men}:risen${side}`, (r.sides[side].risen ?? []).reduce((a, b) => a + b, 0));
+      }
     }
   }
   return t;
@@ -190,19 +219,27 @@ function report(t: Tally): void {
         }
       }
     }
+  } else if (mode === 'mirror') {
+    console.log(`${fa} against ${fa}, the standard army, one battle a seed: team 0's share of the wins (z against a fair coin)`);
+    console.log(['men', 'battles', 'team 0 won', 'z', 'length', 'timeout', '0 gen fell', '1 gen fell', '0 risen', '1 risen'].map((s) => s.padStart(11)).join(''));
+    for (const men of arg('sizes', '250,500,1500,2800').split(',').map(Number)) {
+      const n = g(`${men}:n`);
+      const z = (g(`${men}:win0`) - n / 2) / Math.sqrt(Math.max(1, n) / 4);
+      console.log([men, n, pct(g(`${men}:win0`), n), z.toFixed(2), `${(g(`${men}:ticks`) / n / 10).toFixed(0)}s`, g(`${men}:time`), pct(g(`${men}:fell0`), n), pct(g(`${men}:fell1`), n), f1(g(`${men}:risen0`) / n), f1(g(`${men}:risen1`) / n)].map((s) => String(s).padStart(11)).join(''));
+    }
   } else {
     console.log(`${fa} against ${fb}, the standard army: ${fa}'s share of the wins by size`);
-    console.log(['men', 'battles', 'won', 'length', 'timeout', 'A gen fell', 'B gen fell', 'A broke', 'B broke', 'B rallied', 'B fell in', 'regs', 'line block'].map((s) => s.padStart(11)).join(''));
+    console.log(['men', 'battles', 'won', 'length', 'timeout', 'A gen fell', 'B gen fell', 'A broke', 'B broke', 'B rallied', 'B fell in', 'regs', 'line block', 'first line', 'shock blk'].map((s) => s.padStart(11)).join(''));
     for (const men of arg('sizes', '120,250,500,1000,2000,2800').split(',').map(Number)) {
       const n = g(`${men}:n`);
-      console.log([men, n, pct(g(`${men}:win`), n), `${(g(`${men}:ticks`) / n / 10).toFixed(0)}s`, g(`${men}:time`), pct(g(`${men}:aFell`), n), pct(g(`${men}:bFell`), n), f1(g(`${men}:aBroke`) / n), f1(g(`${men}:bBroke`) / n), f1(g(`${men}:bRallied`) / n), f1(g(`${men}:bJoined`) / n), f1(g(`${men}:regs`) / n), f1(g(`${men}:block`) / n)].map((s) => String(s).padStart(11)).join(''));
+      console.log([men, n, pct(g(`${men}:win`), n), `${(g(`${men}:ticks`) / n / 10).toFixed(0)}s`, g(`${men}:time`), pct(g(`${men}:aFell`), n), pct(g(`${men}:bFell`), n), f1(g(`${men}:aBroke`) / n), f1(g(`${men}:bBroke`) / n), f1(g(`${men}:bRallied`) / n), f1(g(`${men}:bJoined`) / n), f1(g(`${men}:regs`) / n), f1(g(`${men}:block`) / n), f1(g(`${men}:first`) / n), f1(g(`${men}:shock`) / n)].map((s) => String(s).padStart(11)).join(''));
     }
   }
 }
 
 const shard = process.argv.indexOf('--shard');
-const run = mode === 'duels' ? duels : mode === 'types' ? types : mode === 'ladder' ? ladder : null;
-if (!run) throw new Error('battle-stats duels | types | ladder');
+const run = mode === 'duels' ? duels : mode === 'types' ? types : mode === 'ladder' ? ladder : mode === 'mirror' ? mirror : null;
+if (!run) throw new Error('battle-stats duels | types | ladder | mirror');
 if (shard >= 0) {
   const [k, of] = process.argv[shard + 1]!.split('/').map(Number);
   const mine = Array.from({ length: seeds }, (_, i) => i + 1).filter((s) => s % of! === k);

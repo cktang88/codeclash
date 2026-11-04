@@ -164,6 +164,8 @@ faction; ± is one standard error (50%/√n).
 | Undead vs Templar, v16 | 45.0 | 47.0 | 48.5 | 56.0 |
 | Undead vs Samurai, v16 | 41.5 | 44.5 | 41.5 | 55.5 |
 | Samurai vs Templar, v16 | 51.5 | 47.5 | 52.5 | 51.5 |
+| Undead vs Samurai, v16, 400 battles a cell | 45.5 | 45.8 | 44.5 | 56.3 |
+| Undead vs Templar, v16, 400 battles a cell | 45.5 | 47.5 | 50.0 | 54.8 |
 
 200 battles a cell at 250 and 500 (±3.5%), 140 at 1500 and 2800 in v13 (±4.2%; v12: 80, ±5.6%).
 Mirrors (v13): Templar 48.8% (250 a side, 400 seeds), 51.0% (500, 200); Samurai and Undead 50.0%
@@ -205,6 +207,47 @@ undead win the shorter of those battles). No cross-faction battle ran to the tim
 353 s). Mirrors, 100 battles a cell, team 0's share: Templar 54/48/50/52%, Samurai 48/40/54/56%,
 Undead 48/58/46/52% (250/500/1500/2800); two hosts of the dead at 2800 a side run 289 s on average,
 the longest 351 s, none to the limit (26 of 200 before the undead's spent threshold went to 15%).
+
+v16 measured again (no rule changed; `pnpm fairness --seeds 200`, 400 battles a cell, ±2.5%; the
+two rows above marked "400 battles a cell"). **Mirrors:** `pnpm battle-stats mirror`, one battle
+a seed, 400 seeds a cell, team 0's share: Samurai 48.3 / 50.3 / 50.3 / 53.3%, Undead 51.5 / 52.0 /
+54.8 / 53.5% (250 / 500 / 1500 / 2800), every cell within 2σ, and Undead at 250 and 500 again
+over seeds 401–2000: 51.9% and 51.1% (z 1.6 and 0.9). The 40% and 58% of the 100-seed run were
+noise (seeds 1–100 alone still read 45% and 57%). No side bias was found. (`pnpm fairness
+--factions a,a` cannot measure one: it fights each seed twice, the same battle both ways round.)
+
+**Undead vs Samurai is not a samurai matter.** At 400 battles a cell the undead do as well
+against the Samurai as against the Templars, within the noise at every size (the 41.5% cells of
+200 battles were noise too). Per class (`pnpm battle-stats types`) the samurai deal and take what
+the Templars do, with one exception, the teppō: against the dead at 250 a side, 5 shots a man in a battle against the Templars'
+crossbows' 11.5, and three fifths of their damage, because the S3 screen seldom fires before it falls back
+(at 250 a side the enemy horse fighting on a wing passes within 120 of the guns at some 20 s and
+sends them back before they are out; at 1500 the enemy line comes within 60 first). Against the
+Templars the first volley's morale shock makes up for it; against the dead nothing does. Letting
+the guns ignore horse locked in a fight and stand to 40 changed neither matchup beyond the noise,
+so it was not taken.
+
+**The undead's curve with size is a layout effect, not a rule that grows with the battle.**
+Undead vs Samurai, 200 battles a cell: 48.5% at 1000 a side, 44.5% at 1500, 38.5% at 1900, 45.0%
+at 2200, 50.0% at 2500, 56.3% at 2800. It is not smooth: it steps with the order of battle
+(`battle-stats ladder` now prints the first line's blocks and the biggest Shock block). From 1900
+up the first line is five blocks with one block of Shock foot in its middle, and the undead win
+more as that block grows (57, 66, 75, 84 men: 38.5, 45, 50, 56%): the Shock class (3% of the mix)
+is one block until it outgrows a line block, so it grows with the army while every other block
+grows with its square root. Without any Shock foot the undead win 52.5% at 1500 and 57.5% at
+2800; with the Shock foot split in blocks of half a line block, 40.5% and 44.5% (against the
+Templars 38.5% and 44.0%). A Bone Colossus block loses 85–100% of its duels against Sōhei or Iron
+Brethren of its size (30 to 84 men), so its worth in the line comes from never breaking there. Every rule switched off kept the step from 1500 to 2800
+(undead's share at 1500 → 2800, 200 battles each): no raising 16.0 → 24.5, no tide 42.0 → 51.5,
+generals who cannot fall 41.5 → 53.5, no rout shock to friends 35.5 → 51.5, no outnumbered 32.0 →
+45.0, the living's reserve against blocks of the dead at 80% (not 60%) 40.5 → 57.0, the dead's
+reserve feeding their thinning blocks 49.0 → 66.0, the living never plugging a gap against the
+dead 44.0 → 61.5, the dead never sending their reserve round a flank 30.0 → 43.0, the Colossus at
+full hit points 51.0 → 65.0. Only an undead host that routs like the living, at full hit points,
+turned it round (72.0 → 58.0). Left as it is: the four sizes of the table land on the band's
+edges; a rule of the factions moves every size alike, and only the order of battle changes the
+shape, which would change every army's deployment (a design decision: how big a block of Shock
+foot should be, for every faction, so that the line looks alike at every size).
 
 ## Palettes
 
