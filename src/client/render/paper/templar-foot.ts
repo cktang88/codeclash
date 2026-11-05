@@ -11,7 +11,7 @@ import {
   type AnimationData, type AnimEvent, type AttachmentSet, type DrawCtx, type FacingClips, type PartXf, type Track, type Clip, type JointDef, type SkeletonData, type SkeletonRig, type SlotData,
 } from './skeleton.ts';
 import { bow, paintAs, TM } from './templar-parts.ts';
-import { buildAnim, facingClip, lagCloth, memoSkin, partMap, skinMap, smooth01, type ClipSet, type KP, type LagSpec, type Weights } from './templar-rig.ts';
+import { buildAnim, facingClip, lagCloth, memoSkin, partMap, skinMap, smooth01, weightSlots, type ClipSet, type KP, type LagSpec, type Weights } from './templar-rig.ts';
 import { mocapFootClips, type Blow, type RunCarry } from './templar-clips.ts';
 import { FOOT, handAt, manPiece, manRest, withMap, type ManPiece, type ManRest, type SGear, type SKit } from './templar-static.ts';
 
@@ -178,6 +178,7 @@ export function footSkel(kind: number, k: SKit, g: SGear, s: FootSpec): Skeleton
 function torsoWeights(k: SKit, facing: Facing): Weights {
   const hem = hemOf(k);
   const sg = facing === 'ne' ? -1 : 1;
+  const w = weightSlots(['chest', 'spine', 'pelvis', 'skirtN', 'skirtF']);
   return ([x, y]) => {
     const a = smooth01((-9.3 - y) / 1.1);
     const b = smooth01((-7.9 - y) / 1.0);
@@ -185,12 +186,13 @@ function torsoWeights(k: SKit, facing: Facing): Weights {
     // One sheet over both legs: the sides blend across the whole width, so the hem never pinches.
     const nside = 0.5 + 0.5 * Math.max(-1, Math.min(1, (0.3 - x * sg) / 2.6));
     const low = 1 - b;
-    return [['chest', a], ['spine', b - a], ['pelvis', low * (1 - sk)], ['skirtN', low * sk * nside], ['skirtF', low * sk * (1 - nside)]];
+    return w(a, b - a, low * (1 - sk), low * sk * nside, low * sk * (1 - nside));
   };
 }
+const CLOAK_W = weightSlots(['chest', 'cloak']);
 const cloakWeights: Weights = ([, y]) => {
   const c = smooth01((y + 10.6) / 7.5) * 0.92;
-  return [['chest', 1 - c], ['cloak', c]];
+  return CLOAK_W(1 - c, c);
 };
 
 function footParts(k: SKit, g: SGear, s: FootSpec, dark: boolean): AttachmentSet {

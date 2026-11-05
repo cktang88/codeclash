@@ -515,6 +515,20 @@ export type Shade = (x: number, y: number, u: number, v: number) => number;
  * move by integer offsets; each part gets its own band offset (`band`) so bands do not line up
  * across parallel parts.
  */
+/** Math.hypot(nx, ny) for the outline's normals (each of nx, ny is -2..2), by (nx + 2) · 5 + ny + 2. */
+const HYPOT_5 = Float64Array.from({ length: 25 }, (_, i) => Math.hypot(Math.floor(i / 5) - 2, (i % 5) - 2));
+
+/** Paper's own `plot` (poly inlines it unless a caller has put another on the instance). */
+let PLOT: Paper['plot'];
+
+const PACKED = new WeakMap<RGB[], number[]>();
+/** A palette's colours packed as little-endian RGBA words (cached per palette). */
+function packedOf(rgb: RGB[]): number[] {
+  let p = PACKED.get(rgb);
+  if (!p || p.length !== rgb.length) PACKED.set(rgb, (p = rgb.map(([r, g, b]) => ((255 << 24) | (b << 16) | (g << 8) | r) >>> 0)));
+  return p;
+}
+
 export class Paper {
   /** Canvas pixels per figure unit (the detail level: 1, 2, 4 or 8). */
   L = 8;
@@ -589,7 +603,18 @@ export class Paper {
     this.bx1 = this.by1 = -1;
   }
 
+  /**
+   * Code remaps in force (templar-parts `paintAs`), innermost last: a code drawn is passed through
+   * each, innermost first. Empty for almost every figure.
+   */
+  remaps: Int16Array[] = [];
+
   plot(x: number, y: number, c: number): void {
+    const rm = this.remaps;
+    for (let k = rm.length - 1; k >= 0; k--) {
+      const t = rm[k]!;
+      if (c >= 0 && c < t.length) c = t[c]!;
+    }
     if (x < 0 || y < 0 || x >= this.CW || y >= this.CH || c < 0) return;
     const i = y * this.CW + x;
     this.pix[i] = c;
@@ -639,11 +664,11 @@ export class Paper {
    * In a facing drawn as seen it returns `dx` unchanged.
    */
   litX(dx: number): number {
-    return this.lightX === 1 ? dx : -dx;
+    return this.lx_ === 1 ? dx : -dx;
   }
   /** Whether the light is on the left of what is being drawn (false while drawing for a mirror). */
   litLeft(): boolean {
-    return this.lightX === 1;
+    return this.lx_ === 1;
   }
 
   /**
@@ -684,24 +709,55 @@ export class Paper {
       ux *= s;
     }
     const xs: number[] = [];
+    // Plotting is inlined (every pixel is inside the canvas here, and the remaps are applied as
+    // plot applies them) unless a caller has swapped `plot` for its own.
+    const own = this.plot !== PLOT;
+    const PIX = this.pix, ORD = this.ord;
+    const n = pts.length;
+    const ax = axis ? axis.a[0] : 0, ay = axis ? axis.a[1] : 0, hw = axis ? axis.w / 2 : 1;
     for (let y = iy0; y <= iy1; y++) {
       const cy = y + 0.5;
       xs.length = 0;
-      for (let i = 0; i < pts.length; i++) {
-        const a = pts[i]!, b = pts[(i + 1) % pts.length]!;
+      for (let i = 0; i < n; i++) {
+        const a = pts[i]!, b = pts[i + 1 === n ? 0 : i + 1]!;
         if ((a[1] <= cy && b[1] > cy) || (b[1] <= cy && a[1] > cy)) xs.push(a[0] + ((cy - a[1]) / (b[1] - a[1])) * (b[0] - a[0]));
       }
-      xs.sort((p, q) => p - q);
+      // Ascending (an insertion sort: a row crosses a handful of edges).
+      for (let i = 1; i < xs.length; i++) {
+        const t = xs[i]!;
+        let j = i - 1;
+        while (j >= 0 && xs[j]! > t) {
+          xs[j + 1] = xs[j]!;
+          j--;
+        }
+        xs[j + 1] = t;
+      }
       for (let k = 0; k + 1 < xs.length; k += 2) {
         const xa = Math.max(0, Math.ceil(xs[k]! - 0.5)), xb = Math.min(CW - 1, Math.floor(xs[k + 1]! - 0.5));
         for (let x = xa; x <= xb; x++) {
           let u = 0, v = 0;
           if (axis) {
-            const dx = x + 0.5 - axis.a[0], dy = cy - axis.a[1];
-            u = (dx * ux + dy * uy) / (axis.w / 2);
+            const dx = x + 0.5 - ax, dy = cy - ay;
+            u = (dx * ux + dy * uy) / hw;
             v = (dx * vx + dy * vy) / len;
           }
-          this.plot(x, y, shade(x, y, u, v));
+          let c = shade(x, y, u, v);
+          if (own) {
+            this.plot(x, y, c);
+            continue;
+          }
+          for (let k = this.remaps.length - 1; k >= 0; k--) {
+            const t = this.remaps[k]!;
+            if (c >= 0 && c < t.length) c = t[c]!;
+          }
+          if (c < 0) continue;
+          const i = y * CW + x;
+          PIX[i] = c;
+          ORD[i] = this.order;
+          if (x < this.bx0) this.bx0 = x;
+          if (x > this.bx1) this.bx1 = x;
+          if (y < this.by0) this.by0 = y;
+          if (y > this.by1) this.by1 = y;
         }
       }
     }
@@ -734,9 +790,10 @@ export class Paper {
     ];
     const base = opts.tone ?? 2;
     const w = Math.max(ha, hb);
+    const detail = opts.detail, shine = opts.shine;
     this.poly(pts, (x, y, u, v) => {
-      if (opts.detail) {
-        const d = opts.detail(x, y, u, v);
+      if (detail) {
+        const d = detail(x, y, u, v);
         if (d >= 0) return d;
       }
       if (w < 1.5) return code(m, base);
@@ -744,10 +801,10 @@ export class Paper {
       // Bands in pixels, not fractions, so thin rods stay readable: 1 px lit edge, 1 px dark edge.
       // The lit edge stops short of the ends and the dark edge runs nearly full length, so the
       // bands do not end on the same row (flat banding).
-      if (px < -w + 1.2 && v > 0.1 + this.band * 0.3 && v < 0.86 + this.band * 0.3) return code(m, base + (opts.shine ? 2 : 1));
+      if (px < -w + 1.2 && v > 0.1 + this.band * 0.3 && v < 0.86 + this.band * 0.3) return code(m, base + (shine ? 2 : 1));
       if (px > w - 1.2 && v > 0.03 && v < 0.97) return code(m, base - 2);
       if (u > 0.25 + this.band) return code(m, base - 1);
-      if (opts.shine && Math.abs(u + 0.45) < 0.12 && v > 0.15 && v < 0.6) return code(m, base + 2);
+      if (shine && Math.abs(u + 0.45) < 0.12 && v > 0.15 && v < 0.6) return code(m, base + 2);
       return code(m, base);
     }, { a: A, b: B, w: 2 * w });
   }
@@ -768,17 +825,19 @@ export class Paper {
     }
     const base = opts.tone ?? 2;
     const small = Math.min(RX, RY) < 1.6;
+    const detail = opts.detail, shine = opts.shine;
+    const lightX = this.lightX;
     this.poly(pts, (x, y) => {
       const nx = (x + 0.5 - cx) / RX, ny = (y + 0.5 - cy) / RY;
-      if (opts.detail) {
-        const d = opts.detail(x, y, nx, ny);
+      if (detail) {
+        const d = detail(x, y, nx, ny);
         if (d >= 0) return d;
       }
       if (small) return code(m, base);
-      const lx = this.lightX === 1 ? nx : -nx;
+      const lx = lightX === 1 ? nx : -nx;
       const lit = Math.hypot(lx + 0.38, ny + 0.38);
       const dk = lx * 0.7 + ny * 0.7;
-      if (opts.shine && lit < 0.28 + this.band * 0.5) return code(m, base + 2);
+      if (shine && lit < 0.28 + this.band * 0.5) return code(m, base + 2);
       if (lit < 0.62 + this.band) return code(m, base + 1);
       if (dk > 0.72 + this.band) return code(m, base - 2);
       if (dk > 0.32 + this.band) return code(m, base - 1);
@@ -824,8 +883,9 @@ export class Paper {
 
   /** Flips what has been drawn left-right about the foot point (south-west from south-east). */
   mirror(): void {
-    const { CW, CH, pix, ord } = this;
-    for (let y = 0; y < CH; y++) {
+    const { CW, pix, ord } = this;
+    // Rows outside the drawn box are empty (-1 in both), so reversing them would change nothing.
+    for (let y = Math.max(0, this.by0), y1 = Math.min(this.CH - 1, this.by1); y <= y1; y++) {
       const r = y * CW;
       pix.subarray(r, r + CW).reverse();
       ord.subarray(r, r + CW).reverse();
@@ -840,8 +900,9 @@ export class Paper {
    * way round (pillow shading).
    */
   contact(): void {
-    const { CW, CH, pix: PIX, ord: ORD } = this;
-    const mark: number[] = [];
+    const { CW, pix: PIX, ord: ORD } = this;
+    // The marks are applied after the scan: every test reads the codes as drawn.
+    let mark = this.marks, n = 0;
     const [x0, y0, x1, y1] = this.box(0, 1);
     for (let y = y0; y <= y1; y++)
       for (let x = x0; x <= x1; x++) {
@@ -850,9 +911,19 @@ export class Paper {
         if (v < 0) continue;
         const o = ORD[i]!;
         const a = PIX[i + 1]!, b = PIX[i + CW]!;
-        if ((a >= 0 && ORD[i + 1]! < o && a >> 3 !== v >> 3) || (b >= 0 && ORD[i + CW]! < o && b >> 3 !== v >> 3)) mark.push(i);
+        if ((a >= 0 && ORD[i + 1]! < o && a >> 3 !== v >> 3) || (b >= 0 && ORD[i + CW]! < o && b >> 3 !== v >> 3)) {
+          if (n === mark.length) {
+            const grown = new Int32Array(Math.max(1024, mark.length * 2));
+            grown.set(mark);
+            mark = this.marks = grown;
+          }
+          mark[n++] = i;
+        }
       }
-    for (const i of mark) PIX[i] = (PIX[i]! & ~7) | Math.max(0, (PIX[i]! & 7) - 2);
+    for (let k = 0; k < n; k++) {
+      const i = mark[k]!;
+      PIX[i] = (PIX[i]! & ~7) | Math.max(0, (PIX[i]! & 7) - 2);
+    }
   }
 
   /** Scratch for `clusters` (kept between calls: it runs on every frame painted). */
@@ -860,6 +931,13 @@ export class Paper {
   private clGen = 0;
   private clStack = new Int32Array(0);
   private clMembers = new Int32Array(0);
+  /** Scratch for `contact`. */
+  private marks = new Int32Array(0);
+  /** Scratch for `colours`. */
+  private ciBuf = new Int16Array(0);
+  /** `colours(fp, true)`'s output, and the span of it the last frame wrote. */
+  private outBuf = new Uint32Array(0);
+  private outSpan: [number, number] = [0, 0];
 
   /**
    * Clusters of one colour smaller than `min` pixels take their most common same-material
@@ -869,7 +947,8 @@ export class Paper {
   clusters(min: number): void {
     const { CW, CH, pix: PIX } = this;
     const N = CW * CH;
-    if (this.clSeen.length !== N) {
+    // (Kept at the largest size seen: one surface paints kinds of every body size in turn.)
+    if (this.clSeen.length < N) {
       this.clSeen = new Uint32Array(N);
       this.clStack = new Int32Array(N);
       this.clMembers = new Int32Array(N);
@@ -964,48 +1043,78 @@ export class Paper {
    * every code goes to its fill colour in `fp`; single-pixel islands of a colour (orphans) take
    * their most common neighbour (inks and glows excepted); then the outline, a pixel outside the
    * figure beside it, takes the lit outline where the edge faces the light (from the edge
-   * normal) and the dark outline elsewhere.
+   * normal) and the dark outline elsewhere. Every pixel it sets lies in the drawn box grown by
+   * one, and `opaqueBox` gives the box of those it made opaque. With `reuse`, the result is this
+   * surface's own buffer, overwritten by the next call: copy what you keep.
    */
-  colours(fp: FigurePalette): Uint32Array {
+  colours(fp: FigurePalette, reuse = false): Uint32Array {
     const { CW, CH, pix: PIX } = this;
     const N = CW * CH;
-    const ci = new Int16Array(N).fill(-1);
     const [bx0, by0, bx1, by1] = this.box(0, 0);
-    for (let i = by0 * CW + bx0; i <= by1 * CW + bx1; i++) {
-      const v = PIX[i]!;
-      if (v >= 0) ci[i] = fp.fillOf[v]!;
-    }
+    // The fill colour per pixel, -1 where nothing is drawn. A scratch kept between frames: the
+    // passes below read only the drawn box and two pixels round it, so only that is cleared.
+    // (Nothing is drawn outside the drawn box: every code there is -1.)
+    if (this.ciBuf.length < N) this.ciBuf = new Int16Array(N);
+    const ci = this.ciBuf;
+    const cx0 = Math.max(0, bx0 - 2), cx1 = Math.min(CW - 1, bx1 + 2);
+    for (let y = Math.max(0, by0 - 2), ye = Math.min(CH - 1, by1 + 2); y <= ye; y++) ci.fill(-1, y * CW + cx0, y * CW + cx1 + 1);
+    const fillOf = fp.fillOf;
+    for (let y = by0; y <= by1; y++)
+      for (let i = y * CW + bx0, e = y * CW + bx1; i <= e; i++) {
+        const v = PIX[i]!;
+        if (v >= 0) ci[i] = fillOf[v]!;
+      }
     // Orphans, twice (a fix can leave a new island).
     const cnt = new Int32Array(fp.fills);
+    const keep = fp.keep;
     const [ix0, iy0, ix1, iy1] = this.box(0, 1);
     for (let pass = 0; pass < 2; pass++)
       for (let y = iy0; y <= iy1; y++)
         for (let x = ix0; x <= ix1; x++) {
           const i = y * CW + x;
           const v = ci[i]!;
-          if (v < 0 || fp.keep[v]) continue;
+          if (v < 0 || keep[v]) continue;
           if (ci[i - 1] === v || ci[i + 1] === v || ci[i - CW] === v || ci[i + CW] === v) continue;
           cnt.fill(0);
           let best = -1, bn = 0;
-          for (const j of [i - 1, i + 1, i - CW, i + CW, i - CW - 1, i - CW + 1, i + CW - 1, i + CW + 1]) {
+          // The eight neighbours: 4-neighbours count double (that is what makes the pixel part of
+          // a cluster), in the order left, right, up, down, then the corners.
+          for (let n = 0; n < 8; n++) {
+            const j = n === 0 ? i - 1 : n === 1 ? i + 1 : n === 2 ? i - CW : n === 3 ? i + CW : n === 4 ? i - CW - 1 : n === 5 ? i - CW + 1 : n === 6 ? i + CW - 1 : i + CW + 1;
             const u = ci[j]!;
-            if (u < 0 || fp.keep[u]) continue;
-            // 4-neighbours count double: that is what makes the pixel part of a cluster.
-            cnt[u]! += j === i - 1 || j === i + 1 || j === i - CW || j === i + CW ? 2 : 1;
-            if (cnt[u]! > bn) [best, bn] = [u, cnt[u]!];
+            if (u < 0 || keep[u]) continue;
+            const c = (cnt[u]! += n < 4 ? 2 : 1);
+            if (c > bn) (best = u), (bn = c);
           }
           if (best >= 0 && bn >= 2) ci[i] = best;
         }
-    const out = new Uint32Array(N);
-    const packed = fp.rgb.map(([r, g, b]) => ((255 << 24) | (b << 16) | (g << 8) | r) >>> 0);
-    const [kx, ky] = KEY_LIGHT;
     const [ox0, oy0, ox1, oy1] = this.box(1, 0);
-    for (let y = oy0; y <= oy1; y++)
+    let out: Uint32Array;
+    if (!reuse) out = new Uint32Array(N);
+    else {
+      // The surface's own output buffer, overwritten by the next frame: only what the last frame
+      // wrote (its box's rows) needs clearing.
+      if (this.outBuf.length !== N) this.outBuf = new Uint32Array(N);
+      else this.outBuf.fill(0, this.outSpan[0], this.outSpan[1]);
+      out = this.outBuf;
+      this.outSpan[0] = oy0 * CW;
+      this.outSpan[1] = Math.max(oy0, oy1 + 1) * CW;
+    }
+    const packed = packedOf(fp.rgb);
+    const [kx, ky] = KEY_LIGHT;
+    // The box of the opaque pixels written (`opaqueBox`), row by row.
+    let qx0 = CW, qy0 = CH, qx1 = -1, qy1 = -1;
+    for (let y = oy0; y <= oy1; y++) {
+      let lo = -1, hi = -1;
       for (let x = ox0; x <= ox1; x++) {
         const i = y * CW + x;
         const v = ci[i]!;
         if (v >= 0) {
           out[i] = packed[v]!;
+          if (out[i]! >>> 24) {
+            if (lo < 0) lo = x;
+            hi = x;
+          }
           continue;
         }
         // Outline: outward normal from the filled 4-neighbours (the pixel it outlines is the
@@ -1017,14 +1126,32 @@ export class Paper {
         if (y < CH - 1 && ci[i + CW]! >= 0) (ny -= 1, (j = j < 0 ? i + CW : j));
         if (j < 0) continue;
         const nb = ci[j]!;
-        const n = Math.hypot(nx, ny);
+        const n = HYPOT_5[(nx + 2) * 5 + ny + 2]!;
         if (n > 0 && (nx * kx + ny * ky) / n > 0.3 && !fp.litDark) {
           // Lit side: a step below the edge pixel's tone, at least tone 1 (always lighter than
           // the dark outline, never darker than the part's own shade next to it).
           const v = PIX[j]!;
           out[i] = fp.selOut ? packed[nb]! : packed[fp.fillOf[(v & ~7) | Math.max(1, (v & 7) - 1)]!]!;
         } else out[i] = packed[fp.dark[nb]!]!;
+        if (out[i]! >>> 24) {
+          if (lo < 0) lo = x;
+          hi = x;
+        }
       }
+      if (lo < 0) continue;
+      if (lo < qx0) qx0 = lo;
+      if (hi > qx1) qx1 = hi;
+      if (y < qy0) qy0 = y;
+      qy1 = y;
+    }
+    this.opaque = [qx0, qy0, qx1, qy1];
     return out;
   }
+
+  /** The last `colours` call's opaque pixels: their bounding box (inclusive; empty: x1 < x0). */
+  opaqueBox(): [number, number, number, number] {
+    return [...this.opaque];
+  }
+  private opaque: [number, number, number, number] = [0, 0, -1, -1];
 }
+PLOT = Paper.prototype.plot;
