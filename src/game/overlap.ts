@@ -125,7 +125,8 @@ export function blockCrossings(b: Battle, min = 4): Crossing[] {
       if (p.team !== q.team) continue;
       const dx = p.cx - q.cx;
       const dy = p.cy - q.cy;
-      if (dx * dx + dy * dy > (p.radius + q.radius) ** 2) continue;
+      const rr = p.radius + q.radius;
+      if (dx * dx + dy * dy > rr * rr) continue;
       let inA = 0;
       let inB = 0;
       for (const id of q.members) {
