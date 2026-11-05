@@ -24,3 +24,11 @@ With the field 2–3× larger and arrows reaching about 3× farther, a mark on e
 - Every hit still sprays drops in the air. Only a kill, a hit in melee (his target within reach and struck lately) or a bad wound (below 40% hp after losing more than 15% in one hit; half of them) marks the soil. Drops from other hits do not stain where they land, and only kills and melee hits leave splat decals.
 - A kill's pool spreads a little past the body (`scene.ts`, `pools`).
 - As a stain ages over 50 s it settles into the soil: the thin tint turns from red to darkened earth, and the thin rim of a pool sinks into it (`field-hd.ts` compose shader). This needs no extra recomposition.
+
+## What the undead shed (HD and classic)
+
+This follows `undead.md` (ref 8: undead deaths end in a bone heap, never blood; one green light source) and the bodies as `sprites128.ts` draws them. No new images were gathered. The rules match the blood rules above: the ground is marked only at kills and in melee, and old marks age into the soil. Living factions are unchanged.
+- **Bone** (legionaries, skirmishers, arbalests, riders, Death Knights, the Colossus, the Lich-Marshal): a hit throws a ring of bone-white and grey single-pixel chips and a breath of pale grave dust. The chips stain nothing. A kill scuffs the earth a little paler (the wear channel), and so, faintly, does a melee hit. There is no pool.
+- **Ghouls** (flesh): a dark, faintly green ichor where blood would be, with the same rules for drops, kills, melee and bad wounds. It soaks into a new marks channel (B) as a near-black slick that dulls with age. There is no wet glint and no red splat decal.
+- **Wraiths** (spirit): a few motes of green witchfire, more when one falls, and no mark on the ground.
+- Classic art: no red pool sprite under undead corpses, bone chips in place of drops, and a ghoul's drops stamp dark.
