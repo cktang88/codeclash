@@ -573,6 +573,9 @@ function compile(skel: SkeletonData): Compiled {
   return out;
 }
 
+/** The IK's snapped pairs tried round the solution, in order (the hysteresis choice first). */
+const NEAR_STEPS = [0, -1, 1] as const;
+
 export interface EvaluateOptions {
   level: number;
   /** The drawn facing (se or ne; mirrored facings are drawn from their partner). */
@@ -621,9 +624,10 @@ export function evaluate(skel: SkeletonData, locals: Locals, opts: EvaluateOptio
     } else {
       const P = out[p]!;
       raw = fixed[i] ? out[i]!.raw : (b.inherit === 'translation' ? 0 : P.raw) + lrot[i]!;
-      const w = rotStep([ox[i]!, oy[i]! * P.sy], P.step);
-      x = q(P.x + w[0]);
-      y = q(P.y + w[1]);
+      // rotStep([ox, oy · sy], step), written out.
+      const px = ox[i]!, py = oy[i]! * P.sy, sn = sinStep(P.step), cs = cosStep(P.step);
+      x = q(P.x + (px * cs + py * sn));
+      y = q(P.y + (-px * sn + py * cs));
     }
     const step = fixed[i] ? out[i]!.step : snapStep(raw, prev?.bones[i]?.step);
     const len = b.len * sy[i]!;
@@ -660,15 +664,22 @@ export function evaluate(skel: SkeletonData, locals: Locals, opts: EvaluateOptio
         // Pixel-exact reach: of the neighbouring snapped pairs, the one whose end lands nearest
         // the target (the hysteresis choice wins ties and near-ties).
         let best = Infinity, b1 = s1, b2 = s2;
-        for (const e1 of [0, -1, 1])
-          for (const e2 of [0, -1, 1]) {
+        const px = ox[i2]!, py = oy[i2]! * B1.sy;
+        for (let a = 0; a < 3; a++)
+          for (let b = 0; b < 3; b++) {
+            const e1 = NEAR_STEPS[a]!, e2 = NEAR_STEPS[b]!;
             const k1 = wrapStep(s1 + e1), k2 = wrapStep(s2 + e2);
-            const w = rotStep([ox[i2]!, oy[i2]! * B1.sy], k1);
-            const jx = q(B1.x + w[0]), jy = q(B1.y + w[1]);
+            // rotStep([px, py], k1), written out.
+            const sn = sinStep(k1), cs = cosStep(k1);
+            const jx = q(B1.x + (px * cs + py * sn)), jy = q(B1.y + (-px * sn + py * cs));
             const fx = q(jx + sinStep(k2) * l2), fy = q(jy + cosStep(k2) * l2);
             const err = ((fx - T.x) * L) ** 2 + ((fy - T.y) * L) ** 2 * 1.5;
             const cost = err + 0.35 * (Math.abs(e1) + Math.abs(e2));
-            if (cost < best) [best, b1, b2] = [cost, k1, k2];
+            if (cost < best) {
+              best = cost;
+              b1 = k1;
+              b2 = k2;
+            }
           }
         s1 = b1;
         s2 = b2;
