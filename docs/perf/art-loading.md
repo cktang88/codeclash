@@ -153,3 +153,92 @@ marked on the performance timeline (`codeclash:sheet`, `codeclash:grid`, with th
   them in a few hundred ms) the frame that uploads them all is long (8 s in software GL; ~300 MB
   of texels). Uploading at most a few per frame, or `texStorage2D` + `texSubImage2D` in bands,
   would spread it. The level-1 grid canvas is re-uploaded whole each time a kind's strip lands.
+
+## HD at the zoom the view needs (cc/hd-load)
+
+The complaint: in the battle demo at 4x zoom with HD art, every figure stayed on the 48-px grid
+art for minutes. Measured with `battle-perf.html?art=hd&zoom=4&pause=1&t=0&aim=0` (20 000 men,
+the view on 5 kinds) and `/demo` (450 men, the same seeded battle each run, zoomed to 4x with the
++ button, the camera on the left army), production builds, headless Chromium with SwiftShader,
+on a shared 4-core machine (load average 13-35 throughout: absolute times are several times what
+a desktop sees; compare columns). `__hdPool()` in battle-perf lists every job the workers answered
+(its ask, whether the cache had it, when it went out and how long it took); partial sheets are
+marked `codeclash:partial` on the timeline.
+
+### What was wrong
+
+1. **The queue painted everything at levels 2 and 4 before anything at the level the view
+   needed.** `pickLevels` asked every level up to the view's for every kind on the field, in view
+   or not, and the queue ordered by level: at 8x the 5 kinds in view got their 8x sheets only
+   after all 22 kinds (both armies) had been painted at 2 and then 4 (44 sheets).
+2. **Two workers on four cores** (cores - 2).
+3. **The cache lost sheets and stalled reads.** A worker took its next job before its cache write
+   had committed; the write transaction then stayed open through the whole next paint (its
+   completion is delivered to the worker's thread), blocking every other worker's cache reads
+   ("hits" of 20 s), and a page closed meanwhile lost the sheet (second visits missed it).
+4. **One frame waited 29 s on the GPU** (software GL) in the effects sheet's `getImageData`
+   (the Scale2x of the effects at a new zoom) on a GPU-backed canvas.
+5. Once all sheets were there (a second visit), the per-frame upload budget went to the first
+   kinds' 8x sheets while the others stayed on the grid.
+
+### What was done
+
+- `Atlas.sheet(kind, level, ask)` (`contract.ts` `SheetAsk`): `need` (in view, the level drawn),
+  `fallback` (in view, level 2: shown in seconds), `prefetch` (levels between, kinds out of view:
+  painted once nothing is needed), `peek` (never starts a paint). The queue serves, among what
+  was asked in the last second: level 2 of kinds in view, their level-1 grids, what they need,
+  the other grids, prefetches; ties go to coarse levels, then kinds in view.
+- The pool is cores - 1 workers (3 on 4 cores).
+- A sheet a view needs at 4x or 8x comes in two goes: Idle, Brace, Walk, Advance, the first blow
+  and Shoot are painted first and sent as a partial sheet (`KindSheet.partial`: Run, later blows
+  and Hit borrow a painted frame; Die and Dead come from the grid until the whole sheet lands).
+  The whole sheet is byte for byte what it was (the runs are packed in the old order; checked for
+  every faction and kind at levels 2, 4 and some at 8, and in `sprite-progressive.test.ts`). The
+  partial lands after about half of the sheet's paint time.
+- The worker finishes its cache write before its next job.
+- Affinity: a free worker takes, among jobs as wanted as the head of the queue, one of a faction
+  and level it has painted (its rigs and palette are warm), else one no other worker is warm for.
+- The scene uploads every in-view kind's coarse sheet before any finer one, keeps a partial
+  sheet on screen while the whole one uploads, skips a sheet over `MAX_TEXTURE_SIZE`, and falls
+  back to the grid frame by frame where a sheet has no frame.
+- The effects sheet canvas is CPU-backed (`willReadFrequently`).
+
+### Before and after
+
+Production builds: before = 86f196e, after = this branch (with the paint-speed merge). Seconds
+since navigation, two runs each (base/new, then new/base). "Visible" means the kinds the view
+shows; "8x" counts a partial 8x sheet.
+
+| battle-perf, zoom 4, HD 128 | Before | After |
+|---|---|---|
+| First visit: first frame | 13.0, 12.5 | 4.4, 4.4 |
+| First visit: first kind at 2x | 29.5, 28.3 | 21.9, 26.2 |
+| First visit: every visible kind at 2x or finer | 35.1, 35.4 | 21.9, 26.4 |
+| First visit: first kind at 8x | 73.1, 71.6 | 21.9, 26.4 |
+| **First visit: every visible kind at 8x** | **114.3, 113.4** | **28.6, 33.0** |
+| First visit: sheets painted by then | 49, 48 | 10, 13 |
+| Second visit: every visible kind at 8x | 19.9, 20.6 | 27.5, 26.9 |
+
+| /demo, 450 men, zoomed to 4x at ~5.5 s, HD 128 | Before | After |
+|---|---|---|
+| First visit: first kind at 2x | 52.2, 48.5 | 47.2, 41.3 |
+| First visit: first kind at 8x | 104.5, 109.8 | 63.1, 56.9 |
+| **First visit: every visible kind at 8x** | **113.2, 120.8** | **67.9, 62.9** |
+| Second visit: every visible kind at 8x | 142.7, 159.2 | 66.8, 57.9 |
+
+Paint cost per sheet, Node (templar kinds 0, 3, 7; cold; before → after, the after includes the
+paint-speed merge): level 2 0.35/0.22/0.85 s → 0.38/0.15/0.50 s; level 4 0.94/0.59/2.2 s →
+0.35/0.20/1.07 s; level 8 2.4/1.5/7.9 s → 0.86/0.71/3.2 s.
+
+### Left for others
+
+- **Frames that stall at a new zoom in software GL.** In both pages the frames right after the
+  view goes to 4x take 15-40 s in SwiftShader with the main thread idle (the GPU process is busy;
+  CPU profile of /demo: 26 of 28 s idle). Every sheet of a second visit is in memory 4.7 s after
+  navigation, yet the first HD frame shows at ~19 s; on /demo's second visit the sheets are there
+  in a few seconds and HD shows at 43 s. This is what's left of "the demo sits on 48-px art" here,
+  and it also explains the second-visit row above (the stall now comes after the first frame
+  instead of before it). It is in the frame (ground and buffer at 8x), not in the sprite pipeline:
+  for the frame-perf work (cc/frame-perf has a tiled ground cache).
+- A level-1 grid costs as much to paint as level 2 (0.3-0.9 s a kind): the paint is per frame,
+  not per pixel, at the bottom levels.
