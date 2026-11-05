@@ -1032,11 +1032,6 @@ export class Paper {
     this.prev.set(this.pix);
   }
 
-  /** The canvas box (inclusive) that holds every pixel `colours` sets: the drawn box grown by one. */
-  outBox(): [number, number, number, number] {
-    return this.box(1, 0);
-  }
-
   /** The codes painted and their pixel counts (to build a faction's master palette). */
   codes(into: Map<number, number> = new Map()): Map<number, number> {
     for (const v of this.pix) if (v >= 0) into.set(v, (into.get(v) ?? 0) + 1);
@@ -1049,8 +1044,8 @@ export class Paper {
    * their most common neighbour (inks and glows excepted); then the outline, a pixel outside the
    * figure beside it, takes the lit outline where the edge faces the light (from the edge
    * normal) and the dark outline elsewhere. Every pixel it sets lies in the drawn box grown by
-   * one (`outBox`). With `reuse`, the result is this surface's own buffer, overwritten by the
-   * next call: copy what you keep.
+   * one, and `opaqueBox` gives the box of those it made opaque. With `reuse`, the result is this
+   * surface's own buffer, overwritten by the next call: copy what you keep.
    */
   colours(fp: FigurePalette, reuse = false): Uint32Array {
     const { CW, CH, pix: PIX } = this;
@@ -1107,12 +1102,19 @@ export class Paper {
     }
     const packed = packedOf(fp.rgb);
     const [kx, ky] = KEY_LIGHT;
-    for (let y = oy0; y <= oy1; y++)
+    // The box of the opaque pixels written (`opaqueBox`), row by row.
+    let qx0 = CW, qy0 = CH, qx1 = -1, qy1 = -1;
+    for (let y = oy0; y <= oy1; y++) {
+      let lo = -1, hi = -1;
       for (let x = ox0; x <= ox1; x++) {
         const i = y * CW + x;
         const v = ci[i]!;
         if (v >= 0) {
           out[i] = packed[v]!;
+          if (out[i]! >>> 24) {
+            if (lo < 0) lo = x;
+            hi = x;
+          }
           continue;
         }
         // Outline: outward normal from the filled 4-neighbours (the pixel it outlines is the
@@ -1131,8 +1133,25 @@ export class Paper {
           const v = PIX[j]!;
           out[i] = fp.selOut ? packed[nb]! : packed[fp.fillOf[(v & ~7) | Math.max(1, (v & 7) - 1)]!]!;
         } else out[i] = packed[fp.dark[nb]!]!;
+        if (out[i]! >>> 24) {
+          if (lo < 0) lo = x;
+          hi = x;
+        }
       }
+      if (lo < 0) continue;
+      if (lo < qx0) qx0 = lo;
+      if (hi > qx1) qx1 = hi;
+      if (y < qy0) qy0 = y;
+      qy1 = y;
+    }
+    this.opaque = [qx0, qy0, qx1, qy1];
     return out;
   }
+
+  /** The last `colours` call's opaque pixels: their bounding box (inclusive; empty: x1 < x0). */
+  opaqueBox(): [number, number, number, number] {
+    return [...this.opaque];
+  }
+  private opaque: [number, number, number, number] = [0, 0, -1, -1];
 }
 PLOT = Paper.prototype.plot;

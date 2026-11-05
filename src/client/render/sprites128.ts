@@ -3234,17 +3234,17 @@ interface Tile {
 /** A paper-doll frame (paper/index.ts) trimmed to what it covers. */
 function paperTile(pf: PaperFrame, slot: number): Tile {
   const src = new Uint32Array(pf.pixels.buffer, pf.pixels.byteOffset, pf.width * pf.height);
-  let x0 = pf.width, y0 = pf.height, x1 = -1, y1 = -1;
-  // Only the frame's painted box can hold opaque pixels (the whole frame when it gives none).
-  const [bx0, by0, bx1, by1] = pf.box ?? [0, 0, pf.width - 1, pf.height - 1];
-  for (let y = by0; y <= by1; y++)
-    for (let x = bx0; x <= bx1; x++)
-      if (src[y * pf.width + x]! >>> 24) {
-        if (x < x0) x0 = x;
-        if (x > x1) x1 = x;
-        if (y < y0) y0 = y;
-        if (y > y1) y1 = y;
-      }
+  // The box of the opaque pixels: the frame's own when it gives it, else found here.
+  let [x0, y0, x1, y1] = pf.box ?? [pf.width, pf.height, -1, -1];
+  if (!pf.box)
+    for (let y = 0; y < pf.height; y++)
+      for (let x = 0; x < pf.width; x++)
+        if (src[y * pf.width + x]! >>> 24) {
+          if (x < x0) x0 = x;
+          if (x > x1) x1 = x;
+          if (y < y0) y0 = y;
+          if (y > y1) y1 = y;
+        }
   if (x1 < x0) x0 = x1 = Math.min(pf.width - 1, pf.ax), y0 = y1 = Math.min(pf.height - 1, pf.ay);
   const w = x1 - x0 + 1, h = y1 - y0 + 1;
   const px = new Uint32Array(w * h);

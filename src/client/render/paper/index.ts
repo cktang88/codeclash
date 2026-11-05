@@ -23,7 +23,10 @@ export interface PaperFrame {
   /** The foot point. */
   ax: number;
   ay: number;
-  /** A box (inclusive x0, y0, x1, y1) that holds every pixel painted: nothing outside it is set. */
+  /**
+   * The bounding box (inclusive x0, y0, x1, y1) of the frame's opaque pixels, exactly (none:
+   * x1 < x0). Frames from paintPaper always carry it.
+   */
   box?: [number, number, number, number];
 }
 
@@ -123,7 +126,7 @@ export function paintPaper(faction: string, kind: number, level: number, anim: A
   paper.keep();
   paper.last = `${id}:${frame}`;
   const out = paper.colours(fp, opts.reuse);
-  return { width: paper.CW, height: paper.CH, pixels: new Uint8ClampedArray(out.buffer, out.byteOffset, out.length * 4), ax: paper.FX, ay: paper.FY, box: paper.outBox() };
+  return { width: paper.CW, height: paper.CH, pixels: new Uint8ClampedArray(out.buffer, out.byteOffset, out.length * 4), ax: paper.FX, ay: paper.FY, box: paper.opaqueBox() };
 }
 
 /**
