@@ -39,6 +39,18 @@ export { COHESION, DOCTRINE, MORALE, REGROUP, UNDEAD } from './command.ts';
  * - Scale: field 2400 x 2400, armies 1300 apart, blocks, lines and wings two to three times
  *   further apart, missile ranges about 0.7 of Total War's (bows 590, crossbows 470, horse
  *   archers 420, javelins 140, engines 1100), MAX_TICKS 6000.
+ * - Reloads at the new ranges (docs/art-references/missile-drill.md, "Rates of fire"): a volley
+ *   of bows every 5 s (was 2.1), crossbows 12 s (4.4), teppō 17.7 s (5.7; each ball 1.45x, was
+ *   1.3x), horse archers 5.5 s (2.6), javelins 3 s (2.6), engines 30 s (14); at will bows shoot
+ *   at the burst rate (BOW_BURST, 0.6 of the reload). Arrows 36 a man (24), horse archers 30
+ *   (22), javelins 4 (5). A shot at a target faster than a jog scatters with the way it goes in
+ *   the shot's flight (LEAD_ERR): galloping horse is hard to hit at long range.
+ * - Horse against shooters (`horseStrike`): outshot by bows and crossbows that stand off
+ *   (STRIKE_OUTSHOT) before the lines meet, a General forms all his horse up just out of their
+ *   reach and sends it in together, the knights with it (T1: on the Marshal's signal, again at the
+ *   next shooters as soon as the last are gone). The light horse used to ride at the archers alone
+ *   from the start while the Templar knights waited for a clash of lines that never came: horse
+ *   beat bows at equal value in 2 battles of 12, now 12 of 12.
  */
 /**
  * v16: nothing grows with the size of the battle that should not (the undead won two thirds of

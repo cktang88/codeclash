@@ -718,6 +718,22 @@ The assertions in `collision.test.ts` are unchanged. Two other tests needed chan
 - **Pursuit of horse that rides out.** Horse that wins a clash still charges after a beaten block that
   is riding out. It often catches it re-forming, which is realistic but makes some cycles one-shot.
 
+
+### 7.6 Horse against shooters at the new ranges (after the scale rework)
+
+At three times the bowshot the light horse rode at the archers alone from the first second, and
+the Templar knights waited for the Marshal's signal, which needs the lines to meet; against an
+army that holds and shoots they never do, so the knights stood at home (in one traced battle
+until 200 s) while the light horse and then the foot were shot and ground down. Horse beat bows
+at equal value in 2 battles of 12. A commander outshot (`horseStrike`: the enemy's bows and
+crossbows worth twice his own, before the lines meet) forms all his horse up 60 beyond their
+reach, level with its places, at a trot; when every block is there (or after 30 s, or as soon
+as any is shot at) it all goes in at once, the knights with it (T1: the Marshal gives the signal
+with the order, at the shooters, and again at the next as soon as the last are gone; shooters in
+the open are ridden down from the front, not taken in the rear). It crosses the 600 of the
+beaten zone in about 12 s, under arrows that mostly miss riders at the gallop (missile-drill.md,
+"Rates of fire (v17)"). Horse now beats bows in 12 of 12.
+
 ---
 
 ## Sources
