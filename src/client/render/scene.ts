@@ -1776,7 +1776,7 @@ export class BattleScene {
           const ichor = shed === Shed.Ichor;
           f.mark(mx + (rng.next() - 0.5) * 2.5, my + (rng.next() - 0.5) * 1.2, dead || melee ? 1.1 + rng.next() * 1.4 : 0.9 + rng.next() * 0.6, ichor ? 0 : amt, 0, now, ichor ? amt : 0);
           if (!ichor && rng.next() < (dead ? 0.45 : melee ? 0.22 : 0)) f.decalId(HD_ID.splat + rng.int(SPLATS), mx + (rng.next() - 0.5) * 4, my + (rng.next() - 0.5) * 2, now, true);
-        } else if (!wet && (dead || melee)) f.mark(mx + (rng.next() - 0.5) * 2, my + (rng.next() - 0.5) * 1, dead ? 2.2 : 1.3, 0, dead ? 0.2 : 0.07, now);
+        } else if (!wet && (dead || melee)) f.mark(mx + (rng.next() - 0.5) * 2, my + (rng.next() - 0.5) * 1, dead ? 2.6 : 1.3, 0, dead ? 0.32 : 0.07, now);
       }
       if (s.state === State.Dead) {
         if (!this.stamped[i] && tick - s.diedAt >= this.dieTicks(s.team, this.kindOf(i))) {
