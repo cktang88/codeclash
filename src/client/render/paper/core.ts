@@ -600,7 +600,18 @@ export class Paper {
     this.bx1 = this.by1 = -1;
   }
 
+  /**
+   * Code remaps in force (templar-parts `paintAs`), innermost last: a code drawn is passed through
+   * each, innermost first. Empty for almost every figure.
+   */
+  remaps: Int16Array[] = [];
+
   plot(x: number, y: number, c: number): void {
+    const rm = this.remaps;
+    for (let k = rm.length - 1; k >= 0; k--) {
+      const t = rm[k]!;
+      if (c >= 0 && c < t.length) c = t[c]!;
+    }
     if (x < 0 || y < 0 || x >= this.CW || y >= this.CH || c < 0) return;
     const i = y * this.CW + x;
     this.pix[i] = c;
@@ -695,8 +706,8 @@ export class Paper {
       ux *= s;
     }
     const xs: number[] = [];
-    // Plotting is inlined (every pixel is inside the canvas here) unless a caller has swapped
-    // `plot` for its own (templar-parts paintAs remaps the codes).
+    // Plotting is inlined (every pixel is inside the canvas here, and the remaps are applied as
+    // plot applies them) unless a caller has swapped `plot` for its own.
     const own = this.plot !== PLOT;
     const PIX = this.pix, ORD = this.ord;
     const n = pts.length;
@@ -727,10 +738,14 @@ export class Paper {
             u = (dx * ux + dy * uy) / hw;
             v = (dx * vx + dy * vy) / len;
           }
-          const c = shade(x, y, u, v);
+          let c = shade(x, y, u, v);
           if (own) {
             this.plot(x, y, c);
             continue;
+          }
+          for (let k = this.remaps.length - 1; k >= 0; k--) {
+            const t = this.remaps[k]!;
+            if (c >= 0 && c < t.length) c = t[c]!;
           }
           if (c < 0) continue;
           const i = y * CW + x;
