@@ -411,6 +411,22 @@ export class Soldier {
   /** Slot offset within the regiment: across the front and in depth (0 = front rank, negative behind). */
   get sx(): number { return this.d.sx[this.id]!; }
   get sy(): number { return this.d.sy[this.id]!; }
+  /** His rank in the block (0 = front rank). Read-only, for the renderer (see `facesRear`). */
+  get row(): number { return this.d.row[this.id]!; }
+  /** On a horse (by his class). Read-only, for the renderer. */
+  get mounted(): boolean { return this.d.mt[this.id] === 1; }
+  /** P6: swinging round the enemy's flank, away from his slot (see `Battle.curl`). Read-only, for the renderer. */
+  get curling(): boolean { return this.d.cu[this.id] === 1; }
+}
+
+/**
+ * Whether a man of rank `row` (`mounted` or not) of block `r` is one of its rear half that faces
+ * about at `tick` against an enemy at its back while the block is locked to its front: the rule
+ * `Battle.seek` applies (`Regiment.rearUntil`). Read-only, for the renderer: he faces the block's
+ * rear, not its front.
+ */
+export function facesRear(r: Regiment, row: number, mounted: boolean, tick: number): boolean {
+  return r.rearUntil > tick && !mounted && row >= Math.max(1, r.rows >> 1);
 }
 
 /**
@@ -4866,7 +4882,8 @@ export class Battle {
     // can get at: round the end of the fight, or into a gap. Every fourth look (1.2 s) while he does.
     const idle = line && (r.role === 'line' || r.mode === 'melee') && d.idl[i]! > 0 ? this.tick - d.idl[i]! : 0;
     const roam = idle > C.patience * (1 - C.patienceEager * d.ea[i]!) && (loose || C.roamDead) && (this.tick + i - this.firstId[d.team[i]!]!) % 12 === 0;
-    // The rear half of a block locked to its front, with an enemy at its back, faces about.
+    // The rear half of a block locked to its front, with an enemy at its back, faces about
+    // (the renderer reads the same rule through `facesRear`: keep them alike).
     const rear = r.rearUntil > this.tick && !mounted && d.row[i]! >= Math.max(1, r.rows >> 1);
     const reach = near || rear ? C.reachNear : 10;
     const R = pursue ? 24 : mounted ? 15 : roam ? Math.max(reach, C.roamReach * r.spacing) : reach;

@@ -60,6 +60,9 @@ const sync = () => {
     w.roseAt = src.roseAt;
     w.sx = src.sx;
     w.sy = src.sy;
+    w.row = src.row;
+    (c as unknown as Record<string, boolean>).mounted = src.mounted;
+    (c as unknown as Record<string, boolean>).curling = src.curling;
   }
 };
 sync();
