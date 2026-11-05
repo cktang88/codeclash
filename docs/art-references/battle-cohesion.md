@@ -757,7 +757,7 @@ Context measures, which are not faults:
 - **wrapping:** the share of fighters standing beyond the end of their foe's front.
 - **march-wave:** the spread of the front rank along the facing while advancing, in units.
 
-### 8.2 Before and after
+### 8.2 Before and after (v16 field, before the merge)
 
 The faults are in % of the samples they apply to.
 
@@ -825,20 +825,58 @@ What `--why` showed in v16:
 - **Spears** brace against horse that is fighting someone else only when it is within 40.
 - **Facings against wheels** (`turnFoot`, `faceAbout`). A foot block that must turn a long way faces round man by man and re-forms when that is quicker than the wheel. It does not face with enemy horse about. A block locked to its front turns only its rear ranks on an enemy behind it. Details and sources are in `formations.md` section 2.5.1.
 
-### 8.4 Balance and speed
+### 8.4 After the merge with the scale and cavalry work (field 2400 x 2400)
 
-The fairness and bench figures are in the commit messages and the v17 report. In short:
+The same audit on the merged branch: v17 base (scale and cavalry, no foot work) against v17 with the foot work.
 
-- Mirror and faction matches stay within noise of v16.
-- Undead against the living moved toward 50%, from 38-43%.
-- Battles are about 10% shorter.
-- The sim's time per tick is within a few per cent.
+| Measure | All 8, base | All 8, foot | Templar-Samurai, base | Templar-Samurai, foot |
+|---|---|---|---|---|
+| idle-free-foe | 0.35 | **0.12** | 0.16 | **0.04** |
+| idle-near-fight | 2.42 | **1.63** | 0.99 | 0.94 |
+| idle-gap | 0.46 | **0.23** | 0.23 | **0.16** |
+| walks-away | 0.86 | **0.67** | 0.93 | **0.71** |
+| foe-ignored | 1.13 | **0.39** | 1.09 | **0.27** |
+| stacked | 0.098 | 0.071 | 0.099 | 0.076 |
+| jumps | 0 | 0 | 0 | 0 |
+| block-idle | 0.19 | **0.11** | 0.18 | 0.10 |
+| missile-idle (report) | 21.5 | 25.3 | 29.0 | 31.6 |
+| engaged-idle (context) | 57.2 | 55.9 | 62.3 | 58.6 |
+| wrapping (context) | 25.4 | 28.5 | 29.9 | 30.8 |
+| march-wave (context, units) | 2.55 | 2.35 | 3.56 | 2.92 |
 
-### 8.5 Not done
+The march-wave is lower because the line now bends smoothly (each man dresses on his neighbours), where before it was the scatter of each man's own lead. The approach is still ragged; the slot-distance test in `cohesion.test.ts` (P1) passes unchanged.
+
+### 8.5 Balance and speed
+
+**Before the merge** (v16 field):
+
+- Mirror: 53.0% at 250 a side (200 seeds), 50% at 1,000.
+- Factions, 120 battles each, against v16:
+  - Templar–Samurai: 50.0% (v16 50.8%) and 43.3% (51.7%).
+  - Undead–Templar: 41.7% (42.5%) and 53.3% (39.2%).
+  - Undead–Samurai: 41.7% (38.3%) and 55.8% (50.0%).
+- Horse against bows: 56% of 120 days (v16 62%).
+
+**After the merge**, 80 battles each:
+
+| Match | v17 base | v17 with foot |
+|---|---|---|
+| Templar–Samurai, 250 / 1,000 | 38.8% / 36.3% | 35.0% / 45.0% |
+| Undead–Templar, 250 / 1,000 | 37.5% / 43.8% | 46.3% / 40.0% |
+| Undead–Samurai, 250 / 1,000 | 30.0% / 36.3% | 27.5% / 43.8% |
+| Mirror, 250 (200 seeds) | 50.5% | 55.0% (z 1.4) |
+
+- The base was already uneven after the scale change: the Samurai are strong. That is not this work.
+- Battle length is unchanged.
+
+**Speed** (the first 2,000 ticks, 2,800 a side, best of 2): base 1.37-1.45 ms a tick, foot 1.62-1.79. The foot battles are further into the melee by then (they end in about 1,700 ticks), so part of the gap is more fighting to compute. Station keeping and the wider look are most of the rest, about 10% on an equal workload before the merge.
+
+### 8.6 Not done
 
 - **Idle men face their regiment's front.** The renderer turns a man to his foe only when he has one, so an idle rear-ranker of a block that has turned its rear ranks about still shows his back to the enemy. That fix is in `scene.ts`, which belongs to the renderer.
 - **missile-idle stays high.** Most of it is shooters with a target block whose men are out of their reach, or whose shots are held for friends in the line of fire. Ranges belong to the scale agent.
 - **Wide lines do not turn in sections.**
+- **`game.test` "horse beats bows at equal value" fails on the merged branch.** It is 5 of 30 days, and it fails on the base too since the scale change. Another agent owns it.
 ---
 
 ## Sources
