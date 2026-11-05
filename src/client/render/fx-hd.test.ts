@@ -55,3 +55,45 @@ describe('HD field marks', () => {
     expect(f.decalCount).toBe(1);
   });
 });
+
+describe('HD ground cache window', () => {
+  const ground = { w: 4000, h: 2000, ox: 0, oy: 0, props: [], road: () => 0, noise: { salts: [1, 2, 3, 4], roadY0: 0, roadBend: 0, roadPhase: 0, seed: 1 } } as unknown as Ground;
+  // The view's tiles, in CT-texel tiles: [x0, x1] × [y0, y1].
+  const viewTiles = (camX: number, camY: number, bw: number, bh: number, m: number, t: number) => [Math.floor((camX * m) / t), Math.floor((camX * m + bw - 1) / t), Math.floor((camY * m) / t), Math.floor((camY * m + bh - 1) / t)] as const;
+
+  it('always holds the view, with a margin on every side when the ground goes on', () => {
+    const f = new HdField(ground);
+    for (const [cx, cy, m] of [[1000, 500, 2], [0, 0, 1], [3000, 1500, 4], [1234.5, 777.25, 2], [1999, 999, 8]] as const) {
+      f.plan(cx, cy, 1600, 900, m);
+      const w = f.cacheWindow;
+      const [x0, x1, y0, y1] = viewTiles(cx, cy, 1600, 900, m, w.tile);
+      expect(w.wx0 <= x0 && w.wx0 + w.nx > x1 && w.wy0 <= y0 && w.wy0 + w.ny > y1).toBe(true);
+      // A static view in the middle of the field: margin both ways.
+      if (cx === 1000) expect(x0 - w.wx0 > 0 && w.wx0 + w.nx - 1 - x1 > 0 && y0 - w.wy0 > 0 && w.wy0 + w.ny - 1 - y1 > 0).toBe(true);
+      expect(w.nx * w.ny * w.tile * w.tile).toBeLessThanOrEqual(16 * 1024 * 1024);
+    }
+  });
+
+  it('leans the margin toward the way the view scrolls, and holds the view throughout', () => {
+    const f = new HdField(ground);
+    let lead = 0;
+    for (let i = 0; i < 40; i++) {
+      const cx = 1000 + i * 8;
+      f.plan(cx, 600, 1600, 900, 2);
+      const w = f.cacheWindow;
+      const [x0, x1] = viewTiles(cx, 600, 1600, 900, 2, w.tile);
+      expect(w.wx0 <= x0 && w.wx0 + w.nx > x1).toBe(true);
+      lead = w.wx0 + w.nx - 1 - x1 - (x0 - w.wx0);
+    }
+    // Scrolling east: more tiles ahead (east) than behind.
+    expect(lead).toBeGreaterThan(0);
+  });
+
+  it('covers no more than the ground and the view when zoomed far out', () => {
+    const f = new HdField(ground);
+    f.plan(0, 0, 4200, 2100, 1);
+    const w = f.cacheWindow;
+    expect(w.nx).toBeLessThanOrEqual(Math.ceil(4200 / w.tile) + 1);
+    expect(w.ny).toBeLessThanOrEqual(Math.ceil(2100 / w.tile) + 1);
+  });
+});

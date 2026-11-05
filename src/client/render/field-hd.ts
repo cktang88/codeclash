@@ -876,6 +876,12 @@ export class HdField {
   private readonly baseRuns: number[] = [];
   private readonly compRuns: number[] = [];
 
+  /** The ground cache's window as last planned: level, size in CT-texel tiles, first tile (tools, tests). */
+  get cacheWindow(): { m: number; nx: number; ny: number; wx0: number; wy0: number; tile: number } {
+    const p = this.pl;
+    return { m: p.m, nx: p.nx, ny: p.ny, wx0: p.wx0, wy0: p.wy0, tile: CT };
+  }
+
   /**
    * Places the cache window for a view of bw × bh buffer px whose top-left is map px (camX, camY)
    * at m texels per map px. Call once a frame, before buildDecals and drawGround.
