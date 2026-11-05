@@ -30,7 +30,7 @@ import { HIT, T } from './templar-clips.ts';
 import { fromGuard, guardWalk } from './guard.ts';
 import {
   addDrops, facingClip, lastFrame, mapFacings, mocapKeys, overlayKeys, partMap, restWorld, skinMap, smooth01,
-  type ClipSet, type Drop, type KP, type LagSpec, type MocapOpts, type Track, type Weights,
+  weightSlots, type ClipSet, type Drop, type KP, type LagSpec, type MocapOpts, type Track, type Weights,
 } from './templar-rig.ts';
 
 // ------------------------------------------------------------------ per-kind rig facts
@@ -344,11 +344,14 @@ export function crescentPart(bone: string, reach: number, mat: number): Attachme
 // ------------------------------------------------------------------ the parts
 
 /** The dō over the pelvis, spine and chest (key-art y): rigid plates, bending at the waist. */
-export const torsoWeightsAt = (dy: number): Weights => ([, y0]) => {
-  const y = y0 - dy;
-  const a = smooth01((-9.2 - y) / 1.0);
-  const b = smooth01((-7.7 - y) / 1.0);
-  return [['chest', a], ['spine', b - a], ['pelvis', 1 - b]];
+export const torsoWeightsAt = (dy: number): Weights => {
+  const w = weightSlots(['chest', 'spine', 'pelvis']);
+  return ([, y0]) => {
+    const y = y0 - dy;
+    const a = smooth01((-9.2 - y) / 1.0);
+    const b = smooth01((-7.7 - y) / 1.0);
+    return w(a, b - a, 1 - b);
+  };
 };
 const torsoWeights = torsoWeightsAt(0);
 
@@ -448,9 +451,14 @@ export function lagCloth(skel: SkeletonData, clip: Clip, n: number, loop: boolea
   const one = (anim: AnimationData, facing: Facing): AnimationData => {
     const L = 16;
     const rest = evaluate(skel, emptyLocals(), { level: L, facing, noIk: true });
+    // Each frame is posed once (evaluate without a previous frame is a pure function of it),
+    // however many cloth bones read it.
+    const posed = new Map<number, Posed>();
     const at = (t: number): Posed => {
       const tt = loop ? t - n * Math.floor(t / n) : Math.max(0, Math.min(n - 1, t));
-      return evaluate(skel, sampleClip(anim, tt, n, facing), { level: L, facing });
+      let p = posed.get(tt);
+      if (!p) posed.set(tt, (p = evaluate(skel, sampleClip(anim, tt, n, facing), { level: L, facing })));
+      return p;
     };
     const rw = restWorld(skel, facing);
     const bones = { ...(anim.bones ?? {}) };

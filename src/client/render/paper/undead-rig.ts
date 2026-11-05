@@ -145,20 +145,35 @@ function mappedPoly(c: Paper, m: UMap, toU: (p: P2) => P2, toP: (u: P2) => P2, p
   }
   const iy0 = Math.max(0, Math.floor(y0)), iy1 = Math.min(CH - 1, Math.ceil(y1));
   const xs: number[] = [];
+  const FX = c.FX, FY = c.FY;
+  // The pixel centre in units, handed to the map (one array, refilled per pixel: the map reads it
+  // at once, and its answer is read before the next pixel).
+  const at: P2 = [0, 0];
   for (let y = iy0; y <= iy1; y++) {
     const cy = y + 0.5;
     xs.length = 0;
     for (let i = 0; i < fw.length; i++) {
-      const a = fw[i]!, b = fw[(i + 1) % fw.length]!;
+      const a = fw[i]!, b = fw[i + 1 === fw.length ? 0 : i + 1]!;
       if ((a[1] <= cy && b[1] > cy) || (b[1] <= cy && a[1] > cy)) xs.push(a[0] + ((cy - a[1]) / (b[1] - a[1])) * (b[0] - a[0]));
     }
-    xs.sort((p, q) => p - q);
+    // Ascending (an insertion sort: a row crosses a handful of edges).
+    for (let i = 1; i < xs.length; i++) {
+      const t = xs[i]!;
+      let j = i - 1;
+      while (j >= 0 && xs[j]! > t) {
+        xs[j + 1] = xs[j]!;
+        j--;
+      }
+      xs[j + 1] = t;
+    }
     for (let k = 0; k + 1 < xs.length; k += 2) {
       const xa = Math.max(0, Math.ceil(xs[k]! - 0.5)), xb = Math.min(CW - 1, Math.floor(xs[k + 1]! - 0.5));
       for (let x = xa; x <= xb; x++) {
-        // The rest pixel this one shows.
-        const r = toP(m.inv(toU([x + 0.5, cy])));
-        const xr = Math.floor(r[0]), yr = Math.floor(r[1]);
+        // The rest pixel this one shows: toP(m.inv(toU([x + 0.5, cy]))), written out.
+        at[0] = (x + 0.5 - FX) / L;
+        at[1] = (cy - FY) / L;
+        const rest = m.inv(at);
+        const xr = Math.floor(FX + rest[0] * L), yr = Math.floor(FY + rest[1] * L);
         let u = 0, v = 0;
         if (axis) {
           const dx = xr + 0.5 - axis.a[0], dy = yr + 0.5 - axis.a[1];
