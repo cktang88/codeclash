@@ -515,6 +515,9 @@ export type Shade = (x: number, y: number, u: number, v: number) => number;
  * move by integer offsets; each part gets its own band offset (`band`) so bands do not line up
  * across parallel parts.
  */
+/** Math.hypot(nx, ny) for the outline's normals (each of nx, ny is -2..2), by (nx + 2) · 5 + ny + 2. */
+const HYPOT_5 = Float64Array.from({ length: 25 }, (_, i) => Math.hypot(Math.floor(i / 5) - 2, (i % 5) - 2));
+
 /** Paper's own `plot` (poly inlines it unless a caller has put another on the instance). */
 let PLOT: Paper['plot'];
 
@@ -1121,7 +1124,7 @@ export class Paper {
         if (y < CH - 1 && ci[i + CW]! >= 0) (ny -= 1, (j = j < 0 ? i + CW : j));
         if (j < 0) continue;
         const nb = ci[j]!;
-        const n = Math.hypot(nx, ny);
+        const n = HYPOT_5[(nx + 2) * 5 + ny + 2]!;
         if (n > 0 && (nx * kx + ny * ky) / n > 0.3 && !fp.litDark) {
           // Lit side: a step below the edge pixel's tone, at least tone 1 (always lighter than
           // the dark outline, never darker than the part's own shade next to it).

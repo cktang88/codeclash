@@ -601,22 +601,32 @@ export function memoSkin(id: string, bones: readonly string[], draw: (c: Paper, 
         SKIN.set(key, img);
       }
       const dx = ax - img.ax + img.x0, dy = ay - img.ay + img.y0;
-      for (let y = 0; y < img.h; y++) {
+      // The image's rows and columns that land on the canvas.
+      const xa = Math.max(0, -dx), xb = Math.min(img.w, c.CW - dx);
+      const ya = Math.max(0, -dy), yb = Math.min(img.h, c.CH - dy);
+      const PIX = c.pix, ORD = c.ord, CW = c.CW, order = c.order, ip = img.pix, io = img.ord, w = img.w;
+      let x0 = c.bx0, x1 = c.bx1, y0 = c.by0, y1 = c.by1;
+      for (let y = ya; y < yb; y++) {
         const Y = dy + y;
-        if (Y < 0 || Y >= c.CH) continue;
-        for (let x = 0; x < img.w; x++) {
-          const v = img.pix[y * img.w + x]!;
-          const X = dx + x;
-          if (v < 0 || X < 0 || X >= c.CW) continue;
-          const i = Y * c.CW + X;
-          c.pix[i] = v;
-          c.ord[i] = c.order + img.ord[y * img.w + x]!;
-          if (X < c.bx0) c.bx0 = X;
-          if (X > c.bx1) c.bx1 = X;
-          if (Y < c.by0) c.by0 = Y;
-          if (Y > c.by1) c.by1 = Y;
+        let lo = -1, hi = -1;
+        for (let x = xa, s = y * w + xa, i = Y * CW + dx + xa; x < xb; x++, s++, i++) {
+          const v = ip[s]!;
+          if (v < 0) continue;
+          PIX[i] = v;
+          ORD[i] = order + io[s]!;
+          if (lo < 0) lo = x;
+          hi = x;
         }
+        if (lo < 0) continue;
+        if (dx + lo < x0) x0 = dx + lo;
+        if (dx + hi > x1) x1 = dx + hi;
+        if (Y < y0) y0 = Y;
+        if (Y > y1) y1 = Y;
       }
+      c.bx0 = x0;
+      c.bx1 = x1;
+      c.by0 = y0;
+      c.by1 = y1;
       c.order += img.polys;
     },
   };
