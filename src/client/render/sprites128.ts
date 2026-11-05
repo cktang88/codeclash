@@ -3672,8 +3672,9 @@ const STALE_MS = 1000;
 function pump(): void {
   // Wanted now (asked within the last second, up to the renderer's latest ask with a few frames'
   // slack, as for the memory above) before what was wanted before an art switch or a zoom:
-  //   0. the level-1 grids of kinds in view (what a kind is drawn from until any HD sheet lands),
-  //   1. 'fallback': the cheap level 2 of kinds in view (seconds sooner than the level they need),
+  //   0. the coarsest HD level (2) of kinds in view: a view zoomed in draws them from it, and it
+  //      paints as fast as a level-1 grid,
+  //   1. the level-1 grids of kinds in view (else drawn from the grid until an HD sheet lands),
   //   2. 'need': the level the view draws, for kinds in view,
   //   3. the other grids (the zoomed-out field), then 4. 'prefetch', coarse levels first,
   //   5. anything no longer asked for.
@@ -3684,9 +3685,10 @@ function pump(): void {
   for (const j of workPool.jobs.values()) if (j.level > 1 && j.want <= WANT.fallback && fresh(j)) inView.add(`${j.faction}:${j.hue}:${j.kind}`);
   const rank = (j: Job): number => {
     // Grids are asked for once, when a kind first shows: never stale.
-    if (j.level === 1) return inView.has(`${j.faction}:${j.hue}:${j.kind}`) ? 0 : 3;
+    if (j.level === 1) return inView.has(`${j.faction}:${j.hue}:${j.kind}`) ? 1 : 3;
     if (!fresh(j)) return 5;
-    return j.want === WANT.fallback ? 1 : j.want === WANT.need ? 2 : 4;
+    if (j.want === WANT.prefetch) return 4;
+    return j.level <= 2 ? 0 : 2;
   };
   // Coarse levels first within a rank, then kinds in view (prefetching the levels between).
   const away = (j: Job): number => (inView.has(`${j.faction}:${j.hue}:${j.kind}`) ? 0 : 1);

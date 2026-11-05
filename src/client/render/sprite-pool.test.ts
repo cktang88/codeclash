@@ -169,7 +169,7 @@ describe('sprite worker pool: what the view needs first', () => {
     return m;
   };
 
-  it('paints the grids of kinds in view, their fallbacks, then what they need, then the rest', async () => {
+  it('paints the fallbacks of kinds in view, their grids, then what they need, then the rest', async () => {
     FakeWorker.answer = (m, w) => void pending.push([w, m]);
     const atlas = mod.buildAtlas('templar', 40);
     // The first ask takes the only worker.
@@ -186,7 +186,7 @@ describe('sprite worker pool: what the view needs first', () => {
     atlas.sheet!(2, 2, 'peek');
     const order: string[] = [];
     while (pending.length) order.push(next().key);
-    expect(order).toEqual(['templar:40:5:2', 'templar:40:1:1', 'templar:40:1:2', 'templar:40:1:8', 'templar:40:0:1', 'templar:40:2:1', 'templar:40:0:2', 'templar:40:1:4', 'templar:40:2:4']);
+    expect(order).toEqual(['templar:40:5:2', 'templar:40:1:2', 'templar:40:1:1', 'templar:40:1:8', 'templar:40:0:1', 'templar:40:2:1', 'templar:40:0:2', 'templar:40:1:4', 'templar:40:2:4']);
     // A peek never paints.
     expect(atlas.sheet!(2, 2, 'peek')).toBeNull();
     expect(pending.length).toBe(0);
