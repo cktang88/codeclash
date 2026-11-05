@@ -1408,8 +1408,9 @@ export class BattleScene {
     gfx.soft.clear();
     const fx = this.fxSheet;
 
-    // HD: kinds within a screen of the view count as in view for their sheets (pickLevels), so a
-    // scroll meets them already sharp instead of popping from the grid to the sheet.
+    // HD: kinds within a screen of the view get their sheets up to 4x ready (pickLevels, as for
+    // the dead in view; the 8x ones stay for the living in view: tens of MB a kind), so a scroll
+    // meets them sharp instead of popping from the level-1 grid.
     const nearHd = this.atlases[0].sheet !== undefined || this.atlases[1].sheet !== undefined;
     const px0 = x0 - v.vw;
     const px1 = x1 + v.vw;
@@ -1430,7 +1431,7 @@ export class BattleScene {
       const fmx = this.mapX(wx, wy);
       const fmy = this.mapY(wx, wy);
       if (fmx < x0 || fmx > x1 || fmy < y0 || fmy > y1) {
-        if (nearHd && fmx >= px0 && fmx <= px1 && fmy >= py0 && fmy <= py1) this.seen[s.team] = this.seen[s.team]! | (1 << (s.commander ? COMMANDER_KIND : s.cls));
+        if (nearHd && fmx >= px0 && fmx <= px1 && fmy >= py0 && fmy <= py1) this.seenDead[s.team] = this.seenDead[s.team]! | (1 << (s.commander ? COMMANDER_KIND : s.cls));
         continue;
       }
       const atlas = this.atlases[s.team as 0 | 1];
