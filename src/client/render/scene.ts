@@ -277,6 +277,8 @@ export class BattleScene {
   private seen = [0, 0];
   /** HD art: kinds of each army with corpses in view last frame. */
   private seenDead = [0, 0];
+  /** HD: kinds of each army within a screen of the view last frame, not in it (frame-perf: their sheets up to 4x are prefetched for a scroll). */
+  private seenNear = [0, 0];
 
   private prevX: Float32Array;
   private prevY: Float32Array;
@@ -1343,7 +1345,9 @@ export class BattleScene {
         const L0 = atlas.levels[0]!;
         for (const L of atlas.levels) {
           if (L > wantL) break;
-          const ask: SheetAsk = !inView ? (L === L0 ? 'prefetch' : 'peek') : L === wantL ? 'need' : L === L0 ? 'fallback' : 'prefetch';
+          // (Within a screen of the view, every level up to 4x is prefetched: a scroll meets it sharp.)
+          const near = !!(this.seenNear[t]! & (1 << k));
+          const ask: SheetAsk = !inView ? (L === L0 || near ? 'prefetch' : 'peek') : L === wantL ? 'need' : L === L0 ? 'fallback' : 'prefetch';
           const sh = atlas.sheet(k, L, ask);
           // A sheet larger than the GPU takes (a small GPU, the 8x sheets) is never drawn.
           if (!sh || sh.width > gfx.maxTex || sh.height > gfx.maxTex) continue;
@@ -1499,13 +1503,14 @@ export class BattleScene {
     const hd = this.pickLevels(gfx, m);
     this.seen[0] = this.seen[1] = 0;
     this.seenDead[0] = this.seenDead[1] = 0;
+    this.seenNear[0] = this.seenNear[1] = 0;
     gfx.fx.clear();
     gfx.soft.clear();
     const fx = this.fxSheet;
 
-    // HD: kinds within a screen of the view get their sheets up to 4x ready (pickLevels, as for
-    // the dead in view; the 8x ones stay for the living in view: tens of MB a kind), so a scroll
-    // meets them sharp instead of popping from the level-1 grid.
+    // HD: kinds within a screen of the view (seenNear) have their sheets up to 4x prefetched
+    // (pickLevels; the 8x ones stay for the living in view), so a scroll meets them sharp instead
+    // of popping from the level-1 grid.
     const nearHd = this.atlases[0].sheet !== undefined || this.atlases[1].sheet !== undefined;
     const px0 = x0 - v.vw;
     const px1 = x1 + v.vw;
@@ -1526,7 +1531,7 @@ export class BattleScene {
       const fmx = this.mapX(wx, wy);
       const fmy = this.mapY(wx, wy);
       if (fmx < x0 || fmx > x1 || fmy < y0 || fmy > y1) {
-        if (nearHd && fmx >= px0 && fmx <= px1 && fmy >= py0 && fmy <= py1) this.seenDead[s.team] = this.seenDead[s.team]! | (1 << (s.commander ? COMMANDER_KIND : s.cls));
+        if (nearHd && fmx >= px0 && fmx <= px1 && fmy >= py0 && fmy <= py1) this.seenNear[s.team] = this.seenNear[s.team]! | (1 << (s.commander ? COMMANDER_KIND : s.cls));
         continue;
       }
       const atlas = this.atlases[s.team as 0 | 1];
@@ -2058,7 +2063,7 @@ export class BattleScene {
     const my = this.mapY(s.x, s.y);
     if (mx < x0 || mx > x1 || my < y0 || my > y1) {
       // Within a screen: its kind's sheet is kept ready for a scroll (pickLevels).
-      if (mx >= px0 && mx <= px1 && my >= py0 && my <= py1) this.seenDead[s.team] = this.seenDead[s.team]! | (1 << kind);
+      if (mx >= px0 && mx <= px1 && my >= py0 && my <= py1) this.seenNear[s.team] = this.seenNear[s.team]! | (1 << kind);
       return;
     }
     // In view: its kind keeps (or gets) a hi-res sheet.
