@@ -105,7 +105,8 @@ export interface Crossing {
  * routed, the men of one standing inside the other's footprint (the rectangle its places cover,
  * from its anchor, facing, width and depth, less a man's breadth at the edges). Skirmishers and
  * blocks passing through their own line on purpose (`slip`, falling back as skirmishers) are left
- * out: that is drill; so are blocks chasing, a loose crowd. A pair counts when at least `min` men of either stand in the other.
+ * out: that is drill; so are blocks chasing, a loose crowd, and two blocks both in open order
+ * (archers among archers pass through each other's files). A pair counts when at least `min` men of either stand in the other.
  */
 export function blockCrossings(b: Battle, min = 4): Crossing[] {
   const regs = b.regiments.filter((r) => r.alive >= 6 && !r.routed && r.role !== 'skirmish' && r.role !== 'siege' && !r.slip && r.mode !== 'skirmish' && r.mode !== 'pursue');
@@ -122,7 +123,7 @@ export function blockCrossings(b: Battle, min = 4): Crossing[] {
     const p = regs[i]!;
     for (let j = i + 1; j < regs.length; j++) {
       const q = regs[j]!;
-      if (p.team !== q.team) continue;
+      if (p.team !== q.team || (p.stance === 'loose' && q.stance === 'loose')) continue;
       const dx = p.cx - q.cx;
       const dy = p.cy - q.cy;
       const rr = p.radius + q.radius;

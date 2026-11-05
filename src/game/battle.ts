@@ -628,6 +628,13 @@ export class Regiment {
   facedAt = -1000;
   /** Faced in place against horse (see `turnFoot`): it stands as it turned, to re-form later. */
   inPlace = false;
+  /** Held up by a friend in its way (`giveWay`): when last, and by whom. */
+  blockedAt = -1000;
+  blockedBy = -1;
+  /** ...and the way round it: an offset to its goal, kept until `dodgeUntil`. */
+  dodgeX = 0;
+  dodgeY = 0;
+  dodgeUntil = -1;
   /** When a block that faced round stands re-formed (its shooters loose only then). */
   formedAt = -1000;
   rearUntil = -1;
@@ -741,7 +748,7 @@ export class Regiment {
 /** Regiment fields that hold fractions (see the Regiment constructor). */
 const DOUBLE_FIELDS = [
   'arrows', 'cx', 'cy', 'ax', 'ay', 'fx', 'fy', 'dfx', 'dfy', 'tx', 'ty', 'vax', 'vay', 'aspd', 'morale', 'baseMorale', 'chaseX', 'chaseY', 'spacing', 'speed',
-  'width', 'depth', 'radius', 'recent', 'recentKills', 'flankShock', 'homeX', 'homeY', 'wx', 'wy', 'fatigue', 'fightShare', 'enemyNear', 'friendNear', 'closeIn',
+  'dodgeX', 'dodgeY', 'width', 'depth', 'radius', 'recent', 'recentKills', 'flankShock', 'homeX', 'homeY', 'wx', 'wy', 'fatigue', 'fightShare', 'enemyNear', 'friendNear', 'closeIn',
 ] as const;
 
 export interface Projectile {
@@ -4653,6 +4660,8 @@ export class Battle {
       return;
     }
     const horse = isMounted(r);
+    // A goal in a friend's place is taken: the block stands beside him instead (`clearGoal`).
+    if ((this.tick + r.phase) % 5 === 0 && !r.engaged && !r.slip && r.role !== 'skirmish' && r.mode !== 'pursue' && r.mode !== 'charge' && r.mode !== 'withdraw') this.clearGoal(r);
     const dx = r.tx - r.ax;
     const dy = r.ty - r.ay;
     const q = sqrt(dx * dx + dy * dy);
@@ -4779,6 +4788,8 @@ export class Battle {
     const c1y = ay - fy * r.depth * 0.5;
     for (const o of this.teamRegs[r.team]!) {
       if (o === r || o.alive === 0 || o.routed || o.role === 'skirmish' || o.slip || o.mode === 'skirmish' || o.mode === 'pursue') continue;
+      // (Two bodies in open order pass through each other's files: archers among archers.)
+      if (r.stance === 'loose' && o.stance === 'loose') continue;
       const dx = o.cx - r.cx;
       const dy = o.cy - r.cy;
       const reach = o.radius + r.radius + r.spacing + 8;
@@ -4820,6 +4831,79 @@ export class Battle {
   }
 
   /**
+   * A block whose goal (its front's middle at tx, ty, facing dfx, dfy) would put it in the place
+   * of a friend with the right of way moves its goal out sideways, along that friend's front, to
+   * the side it stands on now: shooters sent to the same spot stand side by side, not five deep.
+   */
+  private clearGoal(r: Regiment): void {
+    // Held up behind a friend on the way: make for the ground beside him, his flank on the side
+    // it stands on (as far forward as its goal), and on from there.
+    // (The way round holds for a while: its captain's orders put the goal back each word.)
+    if (this.tick - r.blockedAt <= 5 && r.blockedBy >= 0) {
+      const o = this.regiments[r.blockedBy]!;
+      const lx = -o.fy;
+      const ly = o.fx;
+      const ocx = o.ax - o.fx * o.depth * 0.5;
+      const ocy = o.ay - o.fy * o.depth * 0.5;
+      const gl = (r.tx + r.dodgeX - ocx) * lx + (r.ty + r.dodgeY - ocy) * ly;
+      const need = o.width * 0.5 + r.width * 0.5 + Math.max(r.spacing, o.spacing);
+      if (Math.abs(gl) < need) {
+        let side = (r.cx - ocx) * lx + (r.cy - ocy) * ly;
+        if (side > -1e-6 && side < 1e-6) side = (FIELD_H / 2 - ocy) * ly + (FIELD_W / 2 - ocx) * lx;
+        const shift = (side >= 0 ? need : -need) - gl;
+        r.dodgeX += lx * shift;
+        r.dodgeY += ly * shift;
+      }
+      r.dodgeUntil = this.tick + COHESION.dodgeFor;
+    }
+    if (this.tick < r.dodgeUntil) {
+      r.tx = clampX(r.tx + r.dodgeX);
+      r.ty = clampY(r.ty + r.dodgeY);
+    } else r.dodgeX = r.dodgeY = 0;
+    for (let k = 0; k < 3; k++) {
+      let worst = 0;
+      let shift = 0;
+      let ux = 0;
+      let uy = 0;
+      const cx = r.tx - r.dfx * r.depth * 0.5;
+      const cy = r.ty - r.dfy * r.depth * 0.5;
+      for (const o of this.teamRegs[r.team]!) {
+        if (o === r || o.alive === 0 || o.routed || o.role === 'skirmish' || o.slip || o.mode === 'pursue' || o.mode === 'skirmish' || !this.rightOfWay(o, r)) continue;
+        if (r.stance === 'loose' && o.stance === 'loose') continue;
+        const ocx = o.ax - o.fx * o.depth * 0.5;
+        const ocy = o.ay - o.fy * o.depth * 0.5;
+        const ex = cx - ocx;
+        const ey = cy - ocy;
+        const reach = o.radius + r.radius + r.spacing;
+        if (ex * ex + ey * ey > reach * reach) continue;
+        const g = Math.max(r.spacing, o.spacing);
+        // Overlap along the friend's front and along his depth (r's extents projected on each).
+        const lx = -o.fy;
+        const ly = o.fx;
+        const ra = r.width * 0.5 * Math.abs(-r.dfy * lx + r.dfx * ly) + r.depth * 0.5 * Math.abs(r.dfx * lx + r.dfy * ly);
+        const rb = r.width * 0.5 * Math.abs(-r.dfy * o.fx + r.dfx * o.fy) + r.depth * 0.5 * Math.abs(r.dfx * o.fx + r.dfy * o.fy);
+        const along = ex * lx + ey * ly;
+        const across = ra + o.width * 0.5 + g - Math.abs(along);
+        const deep = rb + o.depth * 0.5 + g * 0.5 - Math.abs(ex * o.fx + ey * o.fy);
+        if (across <= 0 || deep <= 0) continue;
+        if (across * deep > worst) {
+          worst = across * deep;
+          // To the side it stands on now (or, level with him, the side toward the field's middle).
+          let side = (r.cx - ocx) * lx + (r.cy - ocy) * ly;
+          if (side > -1e-6 && side < 1e-6) side = along !== 0 ? along : (FIELD_H / 2 - ocy) * ly + (FIELD_W / 2 - ocx) * lx;
+          const sg = side >= 0 ? 1 : -1;
+          shift = sg * (o.width * 0.5 + g + ra) - along;
+          ux = lx;
+          uy = ly;
+        }
+      }
+      if (worst === 0) return;
+      r.tx = clampX(r.tx + ux * shift);
+      r.ty = clampY(r.ty + uy * shift);
+    }
+  }
+
+  /**
    * Officers keep their blocks out of each other (battle v17): a block about to step (sx, sy) into a
    * friendly block drops the part of its step that goes into it and goes round toward its goal
    * instead (or halts); one already standing in a block with the right of way (`rightOfWay`: two
@@ -4857,6 +4941,9 @@ export class Battle {
     }
     // Still going deeper into a friend: halt (and only back out of one with the right of way).
     if ((sx !== 0 || sy !== 0) && this.crowded(r, r.ax + sx, r.ay + sy, r.fx, r.fy, true) > this.crowded(r, r.ax, r.ay, r.fx, r.fy, true) + 0.01) {
+      // (Held up by him: `clearGoal` looks for the way past at the next word.)
+      r.blockedAt = this.tick;
+      r.blockedBy = this.gWho;
       const now = this.crowded(r, r.ax, r.ay, r.fx, r.fy);
       const out = now > 0 ? Math.min(now, pace * TICK_S * 0.5) : 0;
       sx = this.gx * out;
@@ -4888,7 +4975,7 @@ export class Battle {
     if (r.role === 'siege' || r.role === 'command' || r.stance === 'wedge' || r.stance === 'column') return;
     const cav = this.horseNear(r);
     // Faced in place against horse, it takes its proper frontage again once the horse rides off.
-    if (r.inPlace && !cav && this.tick - r.facedAt >= C.faceEvery) {
+    if (r.inPlace && !cav && this.tick - r.facedAt >= C.faceEvery && !this.reformCrowded(r)) {
       const width = r.width;
       this.faceAbout(r, r.fx, r.fy, false);
       r.inPlace = false;
@@ -4957,6 +5044,24 @@ export class Battle {
     if (this.crowded(r, r.cx + wx * h, r.cy + wy * h, wx, wy, true) > this.crowded(r, r.ax, r.ay, r.fx, r.fy, true) + 0.05) return;
     this.faceAbout(r, wx, wy, !threat);
     r.formedAt = this.tick + Math.ceil(faceTicks);
+  }
+
+  /** Whether the block, re-formed to its proper frontage about where it stands, would stand in a friend (it stays as it is). */
+  private reformCrowded(r: Regiment): boolean {
+    const cols = r.cols;
+    const rows = r.rows;
+    const width = r.width;
+    const depth = r.depth;
+    const radius = r.radius;
+    shape(r, r.alive);
+    const h = r.depth * 0.5;
+    const crowd = this.crowded(r, r.cx + r.fx * h, r.cy + r.fy * h, r.fx, r.fy, true);
+    r.cols = cols;
+    r.rows = rows;
+    r.width = width;
+    r.depth = depth;
+    r.radius = radius;
+    return crowd > this.crowded(r, r.ax, r.ay, r.fx, r.fy, true) + 0.05;
   }
 
   /** Enemy horse within COHESION.faceHorse of a block, not riding off to rally (see `turnFoot`). */
