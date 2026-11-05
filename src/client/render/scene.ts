@@ -1662,6 +1662,17 @@ export class BattleScene {
     return (this.hdFxB ??= { decal: new Batch(gfx.gl, gfx.corners, 1024), fx: new Batch(gfx.gl, gfx.corners, 1024), soft: new Batch(gfx.gl, gfx.corners, 1024), std: new Batch(gfx.gl, gfx.corners, 256) });
   }
 
+  /** HD: whether a man is at grips with a foe (his target within arm's reach, struck at lately): an archer shooting is not. */
+  private inMelee(s: Battle['soldiers'][number], tick: number): boolean {
+    if (tick - s.actedAt >= 15) return false;
+    const t = s.target >= 0 ? this.battle.soldiers[s.target] : undefined;
+    if (!t) return false;
+    const r = s.s.radius + t.s.radius + 7;
+    const dx = t.x - s.x;
+    const dy = t.y - s.y;
+    return dx * dx + dy * dy <= r * r;
+  }
+
   /** HD: what a step did to the field: blood, sparks, dust, hoofprints, trampling, missiles, smoke. */
   private afterStepHd(f: HdField): void {
     const b = this.battle;
@@ -1677,24 +1688,34 @@ export class BattleScene {
       if (s.hp < this.prevHp[i]!) {
         this.hurtAt[i] = tick;
         const dead = s.state === State.Dead;
+        // What the ground keeps (as on a Total War field, it darkens where the fighting was): the
+        // spray of every hit is seen in the air, but only a kill, a hit in the press of a melee or
+        // a bad wound leaves blood on the ground. A block walking on under arrows leaves no trail.
+        const full = s.s.hp > 0 ? s.s.hp : 1;
+        const melee = this.inMelee(s, tick);
+        const bad = s.hp < full * 0.4 && this.prevHp[i]! - s.hp > full * 0.15;
+        const soaks = dead || melee || bad;
         const n = dead ? 6 : 3;
         const h = s.s.mounted ? 12 : 8;
-        // A ring of drops bursting outward, some fine, some heavy.
+        // A ring of drops bursting outward, some fine, some heavy (v 1: they stain where they land).
         const a0 = rng.next() * Math.PI * 2;
         for (let k = 0; k < n * 2; k++) {
           const a = a0 + (k / (n * 2)) * Math.PI * 2 + (rng.next() - 0.5) * 0.5;
           const sp = 10 + rng.next() * 24;
           const dark = rng.next() < 0.45;
-          this.spawn(PK.Blood, s.x, s.y, h + rng.next() * 3, Math.cos(a) * sp, Math.sin(a) * sp, 6 + rng.next() * 18, 0.9, 1 + rng.int(2), dark ? 0.34 : 0.58, dark ? 0.04 : 0.07, 0.04, 1);
+          this.spawn(PK.Blood, s.x, s.y, h + rng.next() * 3, Math.cos(a) * sp, Math.sin(a) * sp, 6 + rng.next() * 18, 0.9, 1 + rng.int(2), dark ? 0.34 : 0.58, dark ? 0.04 : 0.07, 0.04, dead || melee ? 1 : 0);
         }
         // Steel on mail and plate: a few sparks.
         if (!dead && s.s.armour >= 30 && rng.next() < 0.4) {
           const ns = 3 + rng.int(3);
           for (let k = 0; k < ns; k++) this.spawn(PK.Spark, s.x, s.y, h - 1 + rng.next() * 3, (rng.next() - 0.5) * 60, (rng.next() - 0.5) * 60, 12 + rng.next() * 26, 0.16 + rng.next() * 0.16, 1, 1, 0.88, 0.52, 1);
         }
-        // Blood soaks in where he stands, and spatters.
-        f.mark(mx + (rng.next() - 0.5) * 2.5, my + (rng.next() - 0.5) * 1.2, 1.1 + rng.next() * 1.4, dead ? 0.3 : 0.15, 0, now);
-        if (rng.next() < 0.3) f.decalId(HD_ID.splat + rng.int(SPLATS), mx + (rng.next() - 0.5) * 4, my + (rng.next() - 0.5) * 2, now, true);
+        // Blood soaks in where he stands, and spatters: where he falls, where men fight, or a bad
+        // wound now and then (a small dark stain, no splash).
+        if (soaks && (dead || melee || rng.next() < 0.5)) {
+          f.mark(mx + (rng.next() - 0.5) * 2.5, my + (rng.next() - 0.5) * 1.2, dead || melee ? 1.1 + rng.next() * 1.4 : 0.9 + rng.next() * 0.6, dead ? 0.3 : melee ? 0.15 : 0.12, 0, now);
+          if (rng.next() < (dead ? 0.45 : melee ? 0.22 : 0)) f.decalId(HD_ID.splat + rng.int(SPLATS), mx + (rng.next() - 0.5) * 4, my + (rng.next() - 0.5) * 2, now, true);
+        }
       }
       if (s.state === State.Dead) {
         if (!this.stamped[i] && tick - s.diedAt >= this.dieTicks(s.team, this.kindOf(i))) {
@@ -1909,7 +1930,7 @@ export class BattleScene {
         p.vz -= (p.kind === PK.Spark ? 160 : 120) * dt;
         if (p.z <= 0) {
           // A drop soaks in where it lands.
-          if (p.kind === PK.Blood && rng.next() < 0.2) f.mark(this.mapX(p.x, p.y), this.mapY(p.x, p.y), 0.6 + p.size * 0.3, 0.22, 0, now);
+          if (p.kind === PK.Blood && p.v === 1 && rng.next() < 0.2) f.mark(this.mapX(p.x, p.y), this.mapY(p.x, p.y), 0.6 + p.size * 0.3, 0.22, 0, now);
           this.spare.push(p);
           continue;
         }
