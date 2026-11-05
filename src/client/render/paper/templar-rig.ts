@@ -209,9 +209,14 @@ export function lagCloth(skel: SkeletonData, clip: Clip, n: number, loop: boolea
     const base: Clip = anim;
     const L = 16;
     const rest = evaluate(skel, emptyLocals(), { level: L, facing, noIk: true });
+    // Each frame is posed once (evaluate without a previous frame is a pure function of it),
+    // however many cloth bones read it.
+    const posed = new Map<number, Posed>();
     const at = (t: number): Posed => {
       const tt = loop ? t - n * Math.floor(t / n) : Math.max(0, Math.min(n - 1, t));
-      return evaluate(skel, sampleClip(base, tt, n, facing), { level: L, facing });
+      let p = posed.get(tt);
+      if (!p) posed.set(tt, (p = evaluate(skel, sampleClip(base, tt, n, facing), { level: L, facing })));
+      return p;
     };
     const rw = restWorld(skel, facing);
     const bones = { ...(anim.bones ?? {}) };
