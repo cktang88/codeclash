@@ -515,6 +515,17 @@ export type Shade = (x: number, y: number, u: number, v: number) => number;
  * move by integer offsets; each part gets its own band offset (`band`) so bands do not line up
  * across parallel parts.
  */
+/** Paper's own `plot` (poly inlines it unless a caller has put another on the instance). */
+let PLOT: Paper['plot'];
+
+const PACKED = new WeakMap<RGB[], number[]>();
+/** A palette's colours packed as little-endian RGBA words (cached per palette). */
+function packedOf(rgb: RGB[]): number[] {
+  let p = PACKED.get(rgb);
+  if (!p || p.length !== rgb.length) PACKED.set(rgb, (p = rgb.map(([r, g, b]) => ((255 << 24) | (b << 16) | (g << 8) | r) >>> 0)));
+  return p;
+}
+
 export class Paper {
   /** Canvas pixels per figure unit (the detail level: 1, 2, 4 or 8). */
   L = 8;
@@ -684,24 +695,51 @@ export class Paper {
       ux *= s;
     }
     const xs: number[] = [];
+    // Plotting is inlined (every pixel is inside the canvas here) unless a caller has swapped
+    // `plot` for its own (templar-parts paintAs remaps the codes).
+    const own = this.plot !== PLOT;
+    const PIX = this.pix, ORD = this.ord;
+    const n = pts.length;
+    const ax = axis ? axis.a[0] : 0, ay = axis ? axis.a[1] : 0, hw = axis ? axis.w / 2 : 1;
     for (let y = iy0; y <= iy1; y++) {
       const cy = y + 0.5;
       xs.length = 0;
-      for (let i = 0; i < pts.length; i++) {
-        const a = pts[i]!, b = pts[(i + 1) % pts.length]!;
+      for (let i = 0; i < n; i++) {
+        const a = pts[i]!, b = pts[i + 1 === n ? 0 : i + 1]!;
         if ((a[1] <= cy && b[1] > cy) || (b[1] <= cy && a[1] > cy)) xs.push(a[0] + ((cy - a[1]) / (b[1] - a[1])) * (b[0] - a[0]));
       }
-      xs.sort((p, q) => p - q);
+      // Ascending (an insertion sort: a row crosses a handful of edges).
+      for (let i = 1; i < xs.length; i++) {
+        const t = xs[i]!;
+        let j = i - 1;
+        while (j >= 0 && xs[j]! > t) {
+          xs[j + 1] = xs[j]!;
+          j--;
+        }
+        xs[j + 1] = t;
+      }
       for (let k = 0; k + 1 < xs.length; k += 2) {
         const xa = Math.max(0, Math.ceil(xs[k]! - 0.5)), xb = Math.min(CW - 1, Math.floor(xs[k + 1]! - 0.5));
         for (let x = xa; x <= xb; x++) {
           let u = 0, v = 0;
           if (axis) {
-            const dx = x + 0.5 - axis.a[0], dy = cy - axis.a[1];
-            u = (dx * ux + dy * uy) / (axis.w / 2);
+            const dx = x + 0.5 - ax, dy = cy - ay;
+            u = (dx * ux + dy * uy) / hw;
             v = (dx * vx + dy * vy) / len;
           }
-          this.plot(x, y, shade(x, y, u, v));
+          const c = shade(x, y, u, v);
+          if (own) {
+            this.plot(x, y, c);
+            continue;
+          }
+          if (c < 0) continue;
+          const i = y * CW + x;
+          PIX[i] = c;
+          ORD[i] = this.order;
+          if (x < this.bx0) this.bx0 = x;
+          if (x > this.bx1) this.bx1 = x;
+          if (y < this.by0) this.by0 = y;
+          if (y > this.by1) this.by1 = y;
         }
       }
     }
@@ -824,8 +862,9 @@ export class Paper {
 
   /** Flips what has been drawn left-right about the foot point (south-west from south-east). */
   mirror(): void {
-    const { CW, CH, pix, ord } = this;
-    for (let y = 0; y < CH; y++) {
+    const { CW, pix, ord } = this;
+    // Rows outside the drawn box are empty (-1 in both), so reversing them would change nothing.
+    for (let y = Math.max(0, this.by0), y1 = Math.min(this.CH - 1, this.by1); y <= y1; y++) {
       const r = y * CW;
       pix.subarray(r, r + CW).reverse();
       ord.subarray(r, r + CW).reverse();
@@ -860,6 +899,8 @@ export class Paper {
   private clGen = 0;
   private clStack = new Int32Array(0);
   private clMembers = new Int32Array(0);
+  /** Scratch for `colours`. */
+  private ciBuf = new Int16Array(0);
 
   /**
    * Clusters of one colour smaller than `min` pixels take their most common same-material
@@ -969,35 +1010,43 @@ export class Paper {
   colours(fp: FigurePalette): Uint32Array {
     const { CW, CH, pix: PIX } = this;
     const N = CW * CH;
-    const ci = new Int16Array(N).fill(-1);
     const [bx0, by0, bx1, by1] = this.box(0, 0);
+    // The fill colour per pixel, -1 where nothing is drawn. A scratch kept between frames: the
+    // passes below read only the drawn box's rows and two rows round it, so only those are cleared.
+    if (this.ciBuf.length < N) this.ciBuf = new Int16Array(N);
+    const ci = this.ciBuf;
+    ci.fill(-1, Math.max(0, by0 - 2) * CW, (Math.min(CH - 1, by1 + 2) + 1) * CW);
+    const fillOf = fp.fillOf;
     for (let i = by0 * CW + bx0; i <= by1 * CW + bx1; i++) {
       const v = PIX[i]!;
-      if (v >= 0) ci[i] = fp.fillOf[v]!;
+      if (v >= 0) ci[i] = fillOf[v]!;
     }
     // Orphans, twice (a fix can leave a new island).
     const cnt = new Int32Array(fp.fills);
+    const keep = fp.keep;
     const [ix0, iy0, ix1, iy1] = this.box(0, 1);
     for (let pass = 0; pass < 2; pass++)
       for (let y = iy0; y <= iy1; y++)
         for (let x = ix0; x <= ix1; x++) {
           const i = y * CW + x;
           const v = ci[i]!;
-          if (v < 0 || fp.keep[v]) continue;
+          if (v < 0 || keep[v]) continue;
           if (ci[i - 1] === v || ci[i + 1] === v || ci[i - CW] === v || ci[i + CW] === v) continue;
           cnt.fill(0);
           let best = -1, bn = 0;
-          for (const j of [i - 1, i + 1, i - CW, i + CW, i - CW - 1, i - CW + 1, i + CW - 1, i + CW + 1]) {
+          // The eight neighbours: 4-neighbours count double (that is what makes the pixel part of
+          // a cluster), in the order left, right, up, down, then the corners.
+          for (let n = 0; n < 8; n++) {
+            const j = n === 0 ? i - 1 : n === 1 ? i + 1 : n === 2 ? i - CW : n === 3 ? i + CW : n === 4 ? i - CW - 1 : n === 5 ? i - CW + 1 : n === 6 ? i + CW - 1 : i + CW + 1;
             const u = ci[j]!;
-            if (u < 0 || fp.keep[u]) continue;
-            // 4-neighbours count double: that is what makes the pixel part of a cluster.
-            cnt[u]! += j === i - 1 || j === i + 1 || j === i - CW || j === i + CW ? 2 : 1;
-            if (cnt[u]! > bn) [best, bn] = [u, cnt[u]!];
+            if (u < 0 || keep[u]) continue;
+            const c = (cnt[u]! += n < 4 ? 2 : 1);
+            if (c > bn) (best = u), (bn = c);
           }
           if (best >= 0 && bn >= 2) ci[i] = best;
         }
     const out = new Uint32Array(N);
-    const packed = fp.rgb.map(([r, g, b]) => ((255 << 24) | (b << 16) | (g << 8) | r) >>> 0);
+    const packed = packedOf(fp.rgb);
     const [kx, ky] = KEY_LIGHT;
     const [ox0, oy0, ox1, oy1] = this.box(1, 0);
     for (let y = oy0; y <= oy1; y++)
@@ -1028,3 +1077,4 @@ export class Paper {
     return out;
   }
 }
+PLOT = Paper.prototype.plot;
