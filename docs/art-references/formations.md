@@ -283,7 +283,7 @@ Common pattern across these: they keep spacing and turning as per-unit settings,
 
 ### 7.1 Anchor
 
-- 1 world unit = 0.19 m. Keep FIELD_W 1600 x FIELD_H 1200 (about 304 x 228 m).
+- 1 world unit = 0.19 m. Keep FIELD_W 1600 x FIELD_H 1200 (about 304 x 228 m). (Superseded: the field is 2400 x 2400 since the scale rework, see battle-scale.md.)
 - Man-width (line file interval) = 5.3 units = 1.0 m.
 - Check: the sim's own line file interval of 5.3 units gives 1.0 m, the sourced close-order file width (0.9 m) plus a small margin.
 

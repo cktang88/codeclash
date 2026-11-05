@@ -22,7 +22,7 @@
 
 import { factionStats, type FactionId } from './factions.ts';
 import { mixSeed, Rng } from './rng.ts';
-import { emptyCounts, U, UNIT_COUNT, type Counts, type Role, type UnitStats } from './units.ts';
+import { emptyCounts, STATS, U, UNIT_COUNT, type Counts, type Role, type UnitStats } from './units.ts';
 import { COHESION, DOCTRINE, FATIGUE, MORALE, newOrder, REGROUP, PERSONALITIES, PLANS, UNDEAD, type CommanderTrait, type Doctrine, type MoraleState, type Order, type OrderKind, type Personality, type Plan } from './command.ts';
 
 export type { CommanderTrait, MoraleState, Order, OrderKind, Personality, Plan } from './command.ts';
@@ -207,13 +207,23 @@ export class BattleVersionError extends Error {
     super(`battle recorded under rules v${version}; this build fights v${BATTLE_VERSION}`);
   }
 }
-/** The field, in world units (a man is about five across). Armies face each other along x. */
-export const FIELD_W = 1600;
-export const FIELD_H = 1200;
+/**
+ * The field, in world units (a man is about five across, 0.19 m a unit): about 455 m square, room
+ * for two armies deployed beyond bowshot and for the horse to go round a flank, while a broken
+ * block still has about as far to run to its own edge as before (where it rallies or flees: a
+ * longer field let the living rally far more often, and the dead never rally). Until the scale
+ * rework it was 1600 x 1200; see docs/art-references/battle-scale.md. Armies face each other along x.
+ */
+export const FIELD_W = 2400;
+export const FIELD_H = 2400;
 export const TICK_S = 0.1;
 export const TICKS_PER_SECOND = 10;
-/** Battles end here at the latest, decided on the strength left (six minutes). */
-export const MAX_TICKS = 3600;
+/**
+ * Battles end here at the latest, decided on the strength left (ten minutes: the armies now
+ * deploy twice as far apart and shoot from three times as far, so the approach alone takes about
+ * a minute; it was six minutes, see docs/art-references/battle-scale.md).
+ */
+export const MAX_TICKS = 6000;
 /** Figures per side at most; bigger armies are drawn with each figure standing for several men. */
 export const MAX_FIGURES = 2800;
 
@@ -823,8 +833,13 @@ const sqrt = Math.sqrt;
 const CELL = 8;
 const GW = FIELD_W / CELL;
 const GH = FIELD_H / CELL;
-/** Front-to-front distance between the armies at deployment. */
-const GAP = 600;
+/**
+ * Front-to-front distance between the armies at deployment (about 250 m): beyond the reach of
+ * the bows behind either line (ARCHER_RANGE), so the battle opens with an advance into bowshot.
+ */
+const GAP = 1300;
+/** The archers' range: the General's sense of "bowshot" (see `generalThink`). */
+const ARCHER_RANGE = STATS[U.Archers]!.range;
 /** Global lethality: tuned so a clash of equal lines lasts about a minute. */
 const MELEE_K = 2.0;
 const MISSILE_K = 1.5;
@@ -833,9 +848,10 @@ const RATIO: Record<string, number> = { line: 3.6, missile: 5, skirmish: 6, flan
 /**
  * Room between men across the front, beyond their own breadth (see `spacingFor`). Close-order foot
  * stands about a metre a file (5.3 units at about 0.19 m a unit); horse knee to knee with a little
- * play, light horse looser. See docs/art-references/formations.md, section 7.2.
+ * play, light horse looser (horse and missile foot a little looser since the scale rework:
+ * docs/art-references/formations.md, section 7.2, and battle-scale.md).
  */
-const GAP_IN_RANK: Record<string, number> = { line: 0.5, missile: 1.2, skirmish: 3.5, flank: 2.6, 'shock-cav': 1.4, 'horse-archer': 2.4, siege: 10, command: 2 };
+const GAP_IN_RANK: Record<string, number> = { line: 0.5, missile: 1.4, skirmish: 3.5, flank: 3, 'shock-cav': 1.8, 'horse-archer': 2.8, siege: 10, command: 2 };
 /**
  * Ranks stand further apart than files: a little for foot, so the ranks read, and much more for
  * horse, which is longer than it is broad (knights: files 9 apart, ranks 13).
@@ -848,16 +864,23 @@ const RANK_STEP: Record<string, number> = { line: 1.1, missile: 1.05, skirmish: 
  * behind it, between the blocks of the archers' row, and from the line out to the horse on the
  * wings. The figures are drawn 2-3 times life size, so a gap sized in metres all but vanishes on
  * screen: these are sized to the drawn figure, two figures' width of ground between blocks
- * (docs/art-references/battle-cohesion.md, section 3.5). Until v13: 18, 16, 14 and 36.
+ * (docs/art-references/battle-cohesion.md, section 3.5). Until v13: 18, 16, 14 and 36; until the
+ * scale rework 28 (22..34), 26, 24 and 60, which read as blocks shoulder to shoulder. Now about
+ * three quarters of a block's front between blocks (12 m: room to wheel and for a fleeing block
+ * to pass), a second line 15 m behind the first, the horse 30 m out on the wings
+ * (docs/art-references/battle-scale.md).
  */
-const REG_GAP = 28;
-const REG_GAP_MIN = 22;
-const REG_GAP_MAX = 34;
-const ROW_GAP = 26;
-const MISSILE_GAP = 24;
-const WING_GAP = 60;
+const REG_GAP = 64;
+const REG_GAP_MIN = 44;
+const REG_GAP_MAX = 80;
+const ROW_GAP = 80;
+const MISSILE_GAP = 56;
+const WING_GAP = 150;
 /** The horse on the wings stands this far before the line ("slightly forward", as at Agincourt). */
-const WING_FORWARD = 16;
+const WING_FORWARD = 30;
+/** Skirmishers stand this far before the line, engines this far behind the last row. */
+const SKIRMISH_AHEAD = 80;
+const SIEGE_BEHIND = 80;
 /**
  * Pace in each mode, a share of the men's speed. Formed foot marches at FOOT_MARCH, 11 units a
  * second (about 2 m/s: a brisk march, faster than life so a battle is not all approach), whatever
@@ -895,8 +918,13 @@ function figures(count: number, scale: number): number {
 
 /** A block of the fearless is as good as shaken (for the General sending a reserve at it) with fewer than this share of its men. */
 const SPENT_BLOCK = 0.6;
-/** Late in the day (ticks): every regiment left goes in (see `generalThink`, `drawn`). */
-const LATE = 2400;
+/**
+ * Late in the day (ticks): every regiment left goes in (see `generalThink`, `drawn`). Two thirds
+ * of MAX_TICKS (2400 of 3600 until the scale rework).
+ */
+const LATE = 4000;
+/** A refused wing holds back until this tick at most (1200 until the scale rework: the approach now takes twice as long). */
+const REFUSE_UNTIL = 2000;
 /** The general's household draws back from a block worth more than this many times itself (see `thinkCommand`). */
 const HOUSEHOLD_ODDS = 2;
 /** A block locked in melee that bows may still shoot over the fight into: deep enough to have rear ranks well clear of it. */
@@ -1211,7 +1239,10 @@ export class Battle {
         let width = 0;
         while (i < list.length) {
           const w = list[i]!.width;
-          if (row.length > 0 && width + w + gap > y1 - y0) break;
+          // (`width` counts the gap after each block in the row: the last one needs none. Until
+          // the scale rework this counted it, which with a gap over the band's 40 of slack sent
+          // the last block of the line to a row of its own behind.)
+          if (row.length > 0 && width + w > y1 - y0) break;
           row.push(list[i]!);
           width += w + gap;
           i++;
@@ -1234,26 +1265,26 @@ export class Battle {
     const half = Math.max(rowWidth(first, regGap), 160) / 2;
     const firstDepth = first.length ? place(first, 0, midY - half - 20, midY + half + 20) : 0;
     const missile = byRole('missile');
-    const missileDepth = place(missile, Math.max(14, firstDepth), midY - half - 60, midY + half + 60, MISSILE_GAP);
+    const missileDepth = place(missile, Math.max(14, firstDepth), midY - half - 120, midY + half + 120, MISSILE_GAP);
     const behind = Math.max(14, firstDepth) + missileDepth;
     const secondDepth = place(second, behind, midY - half - 20, midY + half + 20);
     const skirm = byRole('skirmish');
     if (skirm.length) {
       const sd = Math.max(...skirm.map((r) => r.depth));
-      place(skirm, -36 - sd, midY - half - 40, midY + half + 40, 22);
+      place(skirm, -SKIRMISH_AHEAD - sd, midY - half - 80, midY + half + 80, 50);
     }
-    place(byRole('siege'), behind + secondDepth + 30, midY - half, midY + half, 30);
+    place(byRole('siege'), behind + secondDepth + SIEGE_BEHIND, midY - half, midY + half, 60);
 
     // Wings: cavalry split above and below the line; knights at the back of each wing.
     const wings = [...byRole('flank'), ...byRole('horse-archer'), ...byRole('shock-cav')];
     const top: Regiment[] = [];
     const bottom: Regiment[] = [];
     wings.forEach((r, i) => (i % 2 === 0 ? top : bottom).push(r));
-    const wingW = (list: Regiment[]) => Math.min(280, list.reduce((w, r) => Math.max(w, r.width), 0) * 2 + 22);
+    const wingW = (list: Regiment[]) => Math.min(400, list.reduce((w, r) => Math.max(w, r.width), 0) * 2 + 50);
     const tw = wingW(top);
     const bw = wingW(bottom);
-    place(top, -WING_FORWARD, Math.max(20, midY - half - WING_GAP - tw), midY - half - WING_GAP, 22);
-    place(bottom, -WING_FORWARD, midY + half + WING_GAP, Math.min(FIELD_H - 20, midY + half + WING_GAP + bw), 22);
+    place(top, -WING_FORWARD, Math.max(20, midY - half - WING_GAP - tw), midY - half - WING_GAP, 50);
+    place(bottom, -WING_FORWARD, midY + half + WING_GAP, Math.min(FIELD_H - 20, midY + half + WING_GAP + bw), 50);
 
     // The commander and a bodyguard of knights behind the centre.
     if (army.commander) {
@@ -1812,10 +1843,12 @@ export class Battle {
     // When to go forward.
     let waiting = this.tick < 30;
     if (plan === 'hold' && !ts.engaged && ts.hasLine) {
-      if (g.holdUntil === 0) g.holdUntil = g.personality === 'cautious' ? 1100 : g.personality === 'aggressive' ? 650 : 900;
+      // (Until the scale rework 1100, 650 and 900: the enemy now has twice as far to come.)
+      if (g.holdUntil === 0) g.holdUntil = g.personality === 'cautious' ? 1900 : g.personality === 'aggressive' ? 1150 : 1550;
       if (this.tick < g.holdUntil && gap > 140) waiting = true;
-    } else if (!g.dueled && !doc.unhalting && ours.missile > 0 && ours.missile >= theirs.missile * 0.5 && gap < 125 && gap > 60 && g.personality !== 'aggressive') {
-      // Halt in bow range and trade volleys for a while.
+    } else if (!g.dueled && !doc.unhalting && ours.missile > 0 && ours.missile >= theirs.missile * 0.5 && gap < ARCHER_RANGE * 0.72 && gap > ARCHER_RANGE * 0.34 && g.personality !== 'aggressive') {
+      // Halt in bow range and trade volleys for a while: our archers, a row behind our line, reach
+      // the enemy's front. (Until the scale rework 60 < gap < 125, with bows of 175.)
       g.dueled = true;
       g.haltUntil = this.tick + (g.personality === 'cautious' ? 170 : 120);
     }
@@ -1894,7 +1927,7 @@ export class Battle {
         continue;
       }
       let hold = waiting && !r.engaged;
-      if (plan === 'refuse' && !r.engaged && !r.committed && (r.homeY - FIELD_H / 2) * g.strong < -20 && this.tick < 1200) {
+      if (plan === 'refuse' && !r.engaged && !r.committed && (r.homeY - FIELD_H / 2) * g.strong < -20 && this.tick < REFUSE_UNTIL) {
         // The refused wing stays back until the enemy comes to it.
         const near = this.nearestFoe(r, 0, 130);
         if (!near) hold = true;
@@ -3161,7 +3194,7 @@ export class Battle {
     }
     if (best) {
       this.setMode(r, 'reserve');
-      this.goal(r, best.ax - best.fx * (best.depth + 30), best.ay - best.fy * (best.depth + 30));
+      this.goal(r, best.ax - best.fx * (best.depth + RESERVE_BEHIND), best.ay - best.fy * (best.depth + RESERVE_BEHIND));
       r.dfx = best.fx;
       r.dfy = best.fy;
       return;
@@ -4295,7 +4328,7 @@ export class Battle {
       if (o.routed || o.alive === 0) continue;
       const dx = o.cx - r.cx;
       const dy = o.cy - r.cy;
-      if (dx * dx + dy * dy < 250 * 250) o.morale = Math.min(100, o.morale + MORALE.enemyRout);
+      if (dx * dx + dy * dy < MORALE.enemyRoutRange * MORALE.enemyRoutRange) o.morale = Math.min(100, o.morale + MORALE.enemyRout);
     }
   }
   /** Which way a broken regiment runs (unit vector to out[0], out[1]): away from the nearest enemy, toward its own edge. */
@@ -6091,13 +6124,18 @@ const VOLLEY_BEAT = 6;
  * shoot flat, point-blank.
  */
 const AT_WILL_GAP = 50;
-const POINT_BLANK = 60;
+const POINT_BLANK = 100;
 /** After this long (ticks) with nothing to shoot at, missile foot goes looking for a target along its line. */
 const MISSILE_SEEK = 150;
 /** An enemy man this close to the front of a block of shooters is at contact: they fight. */
 const CONTACT_GAP = 8;
-/** Missile foot keeps this far behind its line's rear rank. */
-const MISSILE_BEHIND = 24;
+/**
+ * Missile foot keeps this far behind its line's rear rank (24 until the scale rework; about a
+ * ROW_GAP now, where it deploys), and the second line this far behind the block of the first it
+ * follows (30), clear of the archers between them.
+ */
+const MISSILE_BEHIND = 70;
+const RESERVE_BEHIND = 170;
 /** Ticks between one man's shots, as the Generals reckon it: formed missile foot keeps to the volley clock. */
 export function fireEvery(st: UnitStats): number {
   return st.role === 'missile' ? st.reload + VOLLEY_BEAT : st.reload;
