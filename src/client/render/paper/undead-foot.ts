@@ -299,10 +299,11 @@ export function footRig(kind: number, s: FootSpec): SkeletonRig {
 /** The rig of a kind already built (after its first draw). */
 export const builtRig = (kind: number): SkeletonRig | undefined => RIGS.get(kind);
 export function registerFoot(kind: number, spec: () => FootSpec, shoots: boolean, blows = 1): void {
-  registerLazy(kind, 'foot', () => footRig(kind, spec()), shoots, blows);
+  // Hand-to-hand foot also walk in their guard near the foe (contract.ts Anim.Advance; undead-clips.ts).
+  registerLazy(kind, 'foot', () => footRig(kind, spec()), shoots, blows, !shoots);
 }
 /** `blows`: how many attack clips the rig will have (`SkeletonRig.attacks`); the rig is built lazily, so say it here. */
-export function registerLazy(kind: number, body: SkeletonData['body'], rig: () => SkeletonRig, shoots: boolean, blows = 1): void {
-  const anims = [Anim.Idle, Anim.Walk, Anim.Run, Anim.Attack, Anim.Hit, Anim.Die, Anim.Dead, Anim.Brace, ...(shoots ? [Anim.Shoot] : [])];
+export function registerLazy(kind: number, body: SkeletonData['body'], rig: () => SkeletonRig, shoots: boolean, blows = 1, advances = false): void {
+  const anims = [Anim.Idle, Anim.Walk, Anim.Run, Anim.Attack, Anim.Hit, Anim.Die, Anim.Dead, Anim.Brace, ...(shoots ? [Anim.Shoot] : []), ...(advances ? [Anim.Advance] : [])];
   registerPaperKind('undead', kind, lazySkeletonKind({ body, anims, blows }, rig));
 }

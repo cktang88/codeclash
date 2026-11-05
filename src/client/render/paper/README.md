@@ -37,7 +37,9 @@ animation, frame, level) it asks `paintPaper(faction, kind, level, anim, frame, 
 - Otherwise the old ray-cast painter draws that slot.
 
 The LRU cap, the worker pool and the trimming and packing are unchanged. Frame counts are shared
-(`render/frames.ts`): Idle 8, Walk 12, Run 12, Attack 12, Shoot 12, Hit 5, Die 12, Dead 1, Brace 8.
+(`render/frames.ts`): Idle 8, Walk 12, Run 12, Attack 12, Shoot 12, Hit 5, Die 12, Dead 1, Brace 8, Advance 12.
+Advance (walking in the guard) is painted only by kinds that register it (the hand-to-hand foot,
+`WITH_ADVANCE`, built by `guard.ts` `guardWalk`); every other kind's atlas answers it with Walk.
 Shoot falls back to Attack for kinds that don't shoot (`slotOf` in `sprites128.ts`). A kind may
 register several attacks (see "Several blows" below).
 

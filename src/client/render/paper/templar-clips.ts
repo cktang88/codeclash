@@ -6,8 +6,8 @@
 import { Anim } from '../contract.ts';
 import type { P2 } from './core.ts';
 import type { Facing } from './facing.ts';
-import { acosDeg, angleOf, BREATH, restJoints, type AnimationData, type AnimEvent, type Clip, type SkeletonData } from './skeleton.ts';
-import { fromGuard } from './guard.ts';
+import { acosDeg, angleOf, BREATH, GUARD_SWAY, restJoints, type AnimationData, type AnimEvent, type Clip, type SkeletonData } from './skeleton.ts';
+import { fromGuard, guardWalk } from './guard.ts';
 import { addDrops, facingClip, lagCloth, lastFrame, mapFacings, mocapKeys, overlayKeys, restWorld, type ClipSet, type Drop, type KP, type LagSpec, type MocapOpts, type Track } from './templar-rig.ts';
 
 /** A melee blow (one Attack clip). A kind lists 1-3 of them (`blows`), blow 0 first. */
@@ -553,6 +553,13 @@ export function mocapFootClips(skel: SkeletonData, s: ClipSpec): { clips: ClipSe
     const b = c as { byFacing: Record<'se' | 'ne', never> };
     return { byFacing: { se: [{ anim: b.byFacing.se }, { anim: BREATH, alpha }], ne: [{ anim: b.byFacing.ne }, { anim: BREATH, alpha }] } };
   };
+  // The guard alive (skeleton.ts GUARD_SWAY): a man who fights hand to hand sways, probes and
+  // settles between blows instead of standing frozen; shooters keep their aim steady.
+  const alive = (c: Clip, alpha = 1): Clip => {
+    if (s.shoot) return withBreath(c, alpha);
+    const b = c as { byFacing: Record<'se' | 'ne', never> };
+    return { byFacing: { se: [{ anim: b.byFacing.se }, { anim: BREATH, alpha }, { anim: GUARD_SWAY }], ne: [{ anim: b.byFacing.ne }, { anim: BREATH, alpha }, { anim: GUARD_SWAY }] } };
+  };
   const sword = s.attack === 'cut' || s.attack === 'punch';
   // Locomotion: the march (drilled troops) and the run; the arm that carries the weapon swings from the capture, the shield arm rides with the trunk.
   // A tall thing carried (a spear, a javelin bundle, a bow, an axe) is held steady against the
@@ -594,7 +601,7 @@ export function mocapFootClips(skel: SkeletonData, s: ClipSpec): { clips: ClipSe
     return fc('attack', 12, false, (f) => mk(skel, f, d.clip, d.o, d.author, d.x ?? EVERY), d.ev);
   };
   // In a fight a man stands in his guard (the Brace clip) and every blow leaves it and comes back to it.
-  const brace = withBreath(fc('brace', 8, true, (f) => mk(skel, f, 'brace', { ref: 'mean', absHeight: true, travel: 1.0, torso: 0, feet: 0.4 }, BRACE[s.brace === 'ready' && s.shoot ? s.shoot : s.brace])), 0.6);
+  const brace = alive(fc('brace', 8, true, (f) => mk(skel, f, 'brace', { ref: 'mean', absHeight: true, travel: 1.0, torso: 0, feet: 0.4 }, BRACE[s.brace === 'ready' && s.shoot ? s.shoot : s.brace])), 0.6);
   const attacks = (s.blows ?? [s.attack]).map((b) => fromGuard(skel, blowClip(b), brace));
   const attack = attacks[0]!;
   let shoot = attack;
@@ -622,5 +629,8 @@ export function mocapFootClips(skel: SkeletonData, s: ClipSpec): { clips: ClipSe
   if (s.shield) drops.push({ holder: 'forearmF', bone: 'dropF', slot: 'frontDrop', from: 'front', at: back ? 5 : 5, land: back ? { x: 4.4, y: -0.45, rot: 84, f: 8 } : { x: -2.6, y: -0.45, rot: -80, f: 9 } });
   const die = addDrops(skel, fc('die', 12, false, dieKeys, [{ f: back ? 7 : 9, name: 'land' }]), 12, drops);
   const dead = mapFacings(die, (a) => lastFrame(a, 'dead'));
-  return { clips: { [Anim.Idle]: idle, [Anim.Walk]: walk, [Anim.Run]: run, [Anim.Attack]: attack, [Anim.Shoot]: shoot, [Anim.Hit]: hit, [Anim.Die]: die, [Anim.Dead]: dead, [Anim.Brace]: brace }, attacks };
+  const clips: ClipSet = { [Anim.Idle]: idle, [Anim.Walk]: walk, [Anim.Run]: run, [Anim.Attack]: attack, [Anim.Shoot]: shoot, [Anim.Hit]: hit, [Anim.Die]: die, [Anim.Dead]: dead, [Anim.Brace]: brace };
+  // A man who fights hand to hand walks in his guard near the foe (contract.ts Anim.Advance).
+  if (!s.shoot) clips[Anim.Advance] = guardWalk(skel, walk, brace);
+  return { clips, attacks };
 }

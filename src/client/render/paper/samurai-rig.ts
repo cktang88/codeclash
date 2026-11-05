@@ -23,11 +23,11 @@ import type { BasePose } from './rig.ts';
 import { flash as muzzleFlash, smoke, SM, stick, yumi } from './samurai-parts.ts';
 import { footBody, FOOT, KUSA_TOP, L2_TONES, LOW_MERGE, LOW_TONES, MID_MERGE, MID_TONES, manOrder, manPiece, mapPoint, withMap, type Body, type ManPiece, type SFoot } from './samurai-static.ts';
 import {
-  ALL_ANIMS, BREATH, bonesFromJoints, EASE, EASE_IN, EASE_OUT, emptyLocals, evaluate, lazySkeletonKind, sampleClip, shortest, skeletonKind, type RigShape,
+  ALL_ANIMS, WITH_ADVANCE, BREATH, GUARD_SWAY, bonesFromJoints, EASE, EASE_IN, EASE_OUT, emptyLocals, evaluate, lazySkeletonKind, sampleClip, shortest, skeletonKind, type RigShape,
   type AnimationData, type FacingClips, type Key, type Posed, type AnimEvent, type AttachmentSet, type Clip, type JointDef, type SkeletonData, type SkeletonRig, type SlotData,
 } from './skeleton.ts';
 import { HIT, T } from './templar-clips.ts';
-import { fromGuard } from './guard.ts';
+import { fromGuard, guardWalk } from './guard.ts';
 import {
   addDrops, facingClip, lastFrame, mapFacings, mocapKeys, overlayKeys, partMap, restWorld, skinMap, smooth01,
   type ClipSet, type Drop, type KP, type LagSpec, type MocapOpts, type Track, type Weights,
@@ -957,6 +957,13 @@ export function footClips(skel: SkeletonData, s: SSpec, k: SFoot, blowsOut?: Cli
     const b = c as { byFacing: Record<'se' | 'ne', never> };
     return { byFacing: { se: [{ anim: b.byFacing.se }, { anim: BREATH, alpha }], ne: [{ anim: b.byFacing.ne }, { anim: BREATH, alpha }] } };
   };
+  // The guard alive (skeleton.ts GUARD_SWAY): a man who fights hand to hand sways, probes and
+  // settles between blows instead of standing frozen; shooters keep their aim steady.
+  const alive = (c: Clip, alpha = 1): Clip => {
+    if (s.shoot) return withBreath(c, alpha);
+    const b = c as { byFacing: Record<'se' | 'ne', never> };
+    return { byFacing: { se: [{ anim: b.byFacing.se }, { anim: BREATH, alpha }, { anim: GUARD_SWAY }], ne: [{ anim: b.byFacing.ne }, { anim: BREATH, alpha }, { anim: GUARD_SWAY }] } };
+  };
   // The horo balloons as the man runs (its frame's bone stretched back), and swells a little in a walk.
   const billow = (c: Clip, n: number, amt: number): Clip =>
     mapFacings(c, (a) => {
@@ -1031,7 +1038,7 @@ export function footClips(skel: SkeletonData, s: SSpec, k: SFoot, blowsOut?: Cli
   const idle = withBreath(fc('idle', 8, true, (f) => mk(skel, f, 'idle', { ref: 'first', torso: 0.1, travel: 0.16, feet: 0 })));
   // Brace is the man's guard (kamae): in a fight he stands in it, and every blow leaves it and
   // comes back to it (guard.ts).
-  const brace = withBreath(fc('brace', 8, true, (f) => mk(skel, f, 'brace', { ref: 'mean', absHeight: true, travel: 1.0, torso: 0, feet: 0.4 }, BRACE[s.brace])), 0.6);
+  const brace = alive(fc('brace', 8, true, (f) => mk(skel, f, 'brace', { ref: 'mean', absHeight: true, travel: 1.0, torso: 0, feet: 0.4 }, BRACE[s.brace])), 0.6);
   const blowClip = (a: Attack): Clip => {
     const at = ATTACKS[a];
     return fromGuard(skel, fc('attack', 12, false, (f) => mk(skel, f, at.clip, at.o, at.a, at.extra), at.ev), brace);
@@ -1094,6 +1101,8 @@ export function footClips(skel: SkeletonData, s: SSpec, k: SFoot, blowsOut?: Cli
     [Anim.Die]: die,
     [Anim.Dead]: dead,
     [Anim.Brace]: brace,
+    // A man who fights hand to hand walks in his guard near the foe (contract.ts Anim.Advance).
+    ...(s.shoot ? {} : { [Anim.Advance]: guardWalk(skel, walk, brace) }),
   };
 }
 
@@ -1162,7 +1171,7 @@ export function registerFootRigs(kinds: readonly number[]): void {
     const s = FOOT_SPECS[kd];
     if (!FOOT[kd] || !s) continue;
     // Built on the kind's first frame (footClips: one attack per listed blow, when several).
-    registerPaperKind('samurai', kd, lazySamuraiKind({ body: 'foot', anims: ALL_ANIMS, blows: Math.max(1, s.blows?.length ?? 1) }, () => footRig(kd)!));
+    registerPaperKind('samurai', kd, lazySamuraiKind({ body: 'foot', anims: s.shoot ? ALL_ANIMS : WITH_ADVANCE, blows: Math.max(1, s.blows?.length ?? 1) }, () => footRig(kd)!));
   }
 }
 

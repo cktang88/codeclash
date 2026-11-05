@@ -24,9 +24,9 @@ export const FOOT_X = 24;
 export const FOOT_Y = 38;
 
 /** Frames per animation, indexed by Anim. */
-const FRAMES = [4, 6, 6, 4, 4, 2, 5, 1, 2] as const;
+const FRAMES = [4, 6, 6, 4, 4, 2, 5, 1, 2, 0] as const;
 /** Ticks (0.1 s) per frame, indexed by Anim. */
-const TICKS = [4, 2, 1, 1, 2, 2, 2, 1, 4] as const;
+const TICKS = [4, 2, 1, 1, 2, 2, 2, 1, 4, 2] as const;
 const COL0: number[] = [];
 {
   let c = 0;
@@ -2569,7 +2569,8 @@ function makeAtlas(faction: FactionId, hue: number): Atlas {
     setTimeout(idle, 16);
   };
   if (typeof setTimeout === 'function') setTimeout(idle, 50);
-  const anim = (kind: number, a: Anim): Anim => (a === Anim.Shoot && !SHOOTS.has(kind) ? Anim.Attack : a);
+  // Shoot borrows Attack for kinds that loose nothing; the classic figures walk in guard as they walk (FRAMES[Advance] = 0).
+  const anim = (kind: number, a: Anim): Anim => (a === Anim.Shoot && !SHOOTS.has(kind) ? Anim.Attack : a === Anim.Advance ? Anim.Walk : a);
   const atlas: Atlas = {
     image,
     cellW: W,

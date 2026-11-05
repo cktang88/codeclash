@@ -11,11 +11,11 @@
 
 import { Anim } from '../contract.ts';
 import type { Facing } from './facing.ts';
-import { BREATH, EASE_IN, evaluate, sampleAnimation, sampleClip, type AnimationData, type AnimEvent, type BoneTimeline, type Clip, type Key, type SkeletonData } from './skeleton.ts';
+import { BREATH, GUARD_SWAY, EASE_IN, evaluate, sampleAnimation, sampleClip, type AnimationData, type AnimEvent, type BoneTimeline, type Clip, type Key, type SkeletonData } from './skeleton.ts';
 import { addDrops, facingClip, lagCloth, lastFrame, mapFacings, mocapKeys, overlayKeys, restWorld, type ClipSet, type Drop, type KP, type LagSpec, type MocapOpts, type Track } from './templar-rig.ts';
 import { BLOCK, CUT, HIT, osc, R, T, type Author, type Tracks } from './templar-clips.ts';
 import { BLOWS, runKeys as authoredKeys, type RunStyle } from './undead-blows.ts';
-import { fromGuard } from './guard.ts';
+import { fromGuard, guardWalk } from './guard.ts';
 
 export type FootAttack = 'cut' | 'lunge' | 'hurl' | 'cast' | 'butt' | 'loose';
 export interface FootClipSpec {
@@ -383,6 +383,13 @@ export function footClips(skel: SkeletonData, s: FootClipSpec): ClipSet & { atta
     const b = c as { byFacing: Record<'se' | 'ne', never> };
     return { byFacing: { se: [{ anim: b.byFacing.se }, { anim: BREATH, alpha }], ne: [{ anim: b.byFacing.ne }, { anim: BREATH, alpha }] } };
   };
+  // The guard alive (skeleton.ts GUARD_SWAY): a man who fights hand to hand sways, probes and
+  // settles between blows instead of standing frozen; shooters keep their aim steady.
+  const alive = (c: Clip, alpha = 1): Clip => {
+    if (s.shoot) return withBreath(c, alpha);
+    const b = c as { byFacing: Record<'se' | 'ne', never> };
+    return { byFacing: { se: [{ anim: b.byFacing.se }, { anim: BREATH, alpha }, { anim: GUARD_SWAY }], ne: [{ anim: b.byFacing.ne }, { anim: BREATH, alpha }, { anim: GUARD_SWAY }] } };
+  };
   const sword = s.attack === 'cut';
   // The weapon arm is carried steady (a blade swinging through the head's zone boils); the free arm swings.
   const gaitArms = (g: number): MocapOpts['arms'] => ({ N: sword ? g * 0.4 : 0, F: s.farHeld ? 0 : g });
@@ -523,7 +530,7 @@ export function footClips(skel: SkeletonData, s: FootClipSpec): ClipSet & { atta
     // A javelin kept underarm at the hip, its point out at the enemy, the bundle drawn in.
     javelin: () => ({ dw: { spine: T([0, -10]), head: T([0, -2]), upperArmF: T([0, 12]), forearmF: T([0, 18]) }, w: { upperArmN: T([0, 18]), forearmN: T([0, 88]), weapon: T([0, 100]) } }),
   };
-  const brace = withBreath(fc('brace', 8, true, (f) => mk(skel, f, 'brace', { ref: 'mean', absHeight: true, travel: 1.0, torso: 0, feet: 0.4 }, both(BRACE[s.brace === 'ready' && s.shoot === 'javelin' ? 'javelin' : s.brace], posture(s, 0.5, false)))), 0.8);
+  const brace = alive(fc('brace', 8, true, (f) => mk(skel, f, 'brace', { ref: 'mean', absHeight: true, travel: 1.0, torso: 0, feet: 0.4 }, both(BRACE[s.brace === 'ready' && s.shoot === 'javelin' ? 'javelin' : s.brace], posture(s, 0.5, false)))), 0.8);
   const attacks = (s.blows ?? [s.attack]).map((b) => fromGuard(skel, blowClip(b), brace));
   const attack = attacks[0]!;
   // ---- struck: the struck shoulder and the skull snap back, the jaw flaps, a half-step back to
@@ -592,6 +599,8 @@ export function footClips(skel: SkeletonData, s: FootClipSpec): ClipSet & { atta
   const dead = mapFacings(die, (a) => lastFrame(a, 'dead'));
 
   const out: ClipSet = { [Anim.Idle]: idle, [Anim.Walk]: walk, [Anim.Run]: run, [Anim.Attack]: attack, [Anim.Hit]: hit, [Anim.Die]: die, [Anim.Dead]: dead, [Anim.Brace]: brace };
+  // A man who fights hand to hand walks in his guard near the foe (contract.ts Anim.Advance).
+  if (!s.shoot) out[Anim.Advance] = guardWalk(skel, walk, brace);
   if (s.shoot === 'bow') {
     const bowClip = (up: number) => fc('shoot', 12, false, (f) => mk(skel, f, 'brace', { ref: 'first', torso: 0, travel: 0, feet: 0 }, both(bowShot(up), posture(s, 0.5, false)), [1, 2, 3, 4, 5, 6, 6.5, 7, 8, 9, 10, 11]), [{ f: 7, name: 'release' }, { f: 7, name: 'empty', len: 3 }], 0, [0, 1, 2, 3, 4, 5, 6, 6, 8, 9, 10, 11]);
     const level = bowClip(0);

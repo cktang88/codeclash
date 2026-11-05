@@ -17,6 +17,7 @@ import { U } from '../../game/units.ts';
 import { Anim, ANIM_COUNT, COMMANDER_KIND, KIND_COUNT, type Atlas, type BuildAtlas, type Dir, type KindSheet } from './contract.ts';
 import { FRAMES, LOOPS, TICKS } from './frames.ts';
 import { paintPaper, paperBlows, paperSheetStart, type PaperFrame } from './paper/index.ts';
+import { paperKindFor } from './paper/registry.ts';
 import { halveSheet } from './downscale.ts';
 import { artVersion, cachedKeys } from './sheet-cache.ts';
 import type { PaintError } from './sprite-worker.ts';
@@ -32,7 +33,7 @@ export const FOOT_Y = 38;
  * Key poses per animation (indexed by Anim): the poses below are authored on these, and the
  * painted frames are in-betweened from them.
  */
-const KEYS = [4, 6, 6, 4, 4, 2, 5, 1, 2] as const;
+const KEYS = [4, 6, 6, 4, 4, 2, 5, 1, 2, 6] as const;
 
 /** Key time of a painted frame: a fraction of the way between key poses. */
 function keyTime(anim: Anim, fr: number): number {
@@ -51,6 +52,11 @@ const COL0: number[] = [];
 const COLS = COL0[ANIM_COUNT - 1]! + FRAMES[ANIM_COUNT - 1]!;
 /** Kinds that loose missiles; the others reuse their Attack frames for Shoot. */
 const SHOOTS = new Set<number>([U.Skirmishers, U.Archers, U.Crossbowmen, U.HorseArchers, U.Artillery]);
+/**
+ * Whether a faction's kind paints its own Advance (walking in guard, contract.ts): paper kinds that
+ * register it. The others answer Advance with their Walk frames (slotOf), and paint nothing for it.
+ */
+export const advancesOf = (faction: string, kind: number): boolean => paperKindFor(faction, kind)?.anims.has(Anim.Advance) ?? false;
 
 // ------------------------------------------------------------------ colour
 
@@ -3195,11 +3201,12 @@ function blowOf(a: Anim, frame: number, blows: number): [number, number] {
 }
 
 /**
- * Slot of a frame: Shoot borrows Attack (blow 0) for kinds that loose nothing, Die and Dead hold.
+ * Slot of a frame: Shoot borrows Attack (blow 0) for kinds that loose nothing, Advance borrows
+ * Walk for kinds that do not paint it (`adv`, advancesOf), Die and Dead hold.
  * Attack frame `b * BLOW_N + f` of a kind with `blows` blows is frame f of blow b.
  */
-export function slotOf(kind: number, a: Anim, frame: number, dir: Dir, blows = 1): number {
-  const b = a === Anim.Shoot && !SHOOTS.has(kind) ? Anim.Attack : a;
+export function slotOf(kind: number, a: Anim, frame: number, dir: Dir, blows = 1, adv = false): number {
+  const b = a === Anim.Shoot && !SHOOTS.has(kind) ? Anim.Attack : a === Anim.Advance && !adv ? Anim.Walk : a;
   const [bl, fr] = blowOf(a, frame, blows);
   if (bl > 0) return SLOTS + ((bl - 1) * 4 + dir) * BLOW_N + fr;
   const n = FRAMES[b];
@@ -3208,10 +3215,10 @@ export function slotOf(kind: number, a: Anim, frame: number, dir: Dir, blows = 1
 }
 
 /** Column of a frame in the level-1 grid (its row is kind * 4 + dir): blows 1.. sit right of COLS. */
-export function gridColOf(kind: number, a: Anim, frame: number, dir: Dir, blows = 1): number {
+export function gridColOf(kind: number, a: Anim, frame: number, dir: Dir, blows = 1, adv = false): number {
   const [bl, fr] = blowOf(a, frame, blows);
   if (bl > 0) return COLS + (bl - 1) * BLOW_N + fr;
-  return slotOf(kind, a, fr, dir) - dir * COLS;
+  return slotOf(kind, a, fr, dir, 1, adv) - dir * COLS;
 }
 
 /** One painted frame, trimmed: its slot, size, foot point and pixels. */
@@ -3266,9 +3273,11 @@ export function paintSheet(faction: string, hue: number, kind: number, level: nu
   const scratch = new Uint32Array(W * H);
   const tiles: Tile[] = [];
   const blows = blowsOf(faction, kind);
+  const adv = advancesOf(faction, kind);
   for (let dir = 0; dir < 4; dir++)
     for (let a = 0; a < ANIM_COUNT; a++) {
       if (a === Anim.Shoot && !SHOOTS.has(kind)) continue;
+      if (a === Anim.Advance && !adv) continue;
       // Attack: every blow, one after another (blow 0 first, in its classic slots).
       const runs = a === Anim.Attack ? blows : 1;
       for (let at = 0; at < runs * FRAMES[a]!; at++) {
@@ -3343,9 +3352,11 @@ export function paintGrid(faction: string, hue: number, kind: number): KindSheet
   const blows = blowsOf(faction, kind);
   const width = gridCols(blows) * CELL_W, height = 4 * CELL_H;
   const out = new Uint32Array(width * height);
+  const adv = advancesOf(faction, kind);
   for (let dir = 0; dir < 4; dir++)
     for (let a = 0; a < ANIM_COUNT; a++) {
       if (a === Anim.Shoot && !SHOOTS.has(kind)) continue;
+      if (a === Anim.Advance && !adv) continue;
       const runs = a === Anim.Attack ? blows : 1;
       for (let at = 0; at < runs * FRAMES[a]!; at++) {
         const fr = at % FRAMES[a]!;
@@ -3772,7 +3783,8 @@ function makeAtlas(faction: string, hue: number, hd64: boolean): Atlas {
     }
     land(kind, paintGrid(faction, hue, kind));
   };
-  const anim = (kind: number, a: Anim): Anim => (a === Anim.Shoot && !SHOOTS.has(kind) ? Anim.Attack : a);
+  const advTab = Array.from({ length: KIND_COUNT }, (_, k) => advancesOf(faction, k));
+  const anim = (kind: number, a: Anim): Anim => (a === Anim.Shoot && !SHOOTS.has(kind) ? Anim.Attack : a === Anim.Advance && !advTab[kind] ? Anim.Walk : a);
   const atlas: Atlas = {
     get version() {
       return grid.version;
@@ -3790,7 +3802,7 @@ function makeAtlas(faction: string, hue: number, hd64: boolean): Atlas {
     ticksPerFrame: (a) => TICKS[a],
     at: (kind, a, frame, dir) => {
       ensure(kind);
-      return [gridColOf(kind, a, frame, dir, blowTab[kind] ?? 1) * CELL_W, (kind * 4 + dir) * CELL_H];
+      return [gridColOf(kind, a, frame, dir, blowTab[kind] ?? 1, advTab[kind]) * CELL_W, (kind * 4 + dir) * CELL_H];
     },
     levels,
     sheet: (kind, level) => {
@@ -3798,7 +3810,7 @@ function makeAtlas(faction: string, hue: number, hd64: boolean): Atlas {
       if (kind < 0 || kind >= KIND_COUNT || !levels.includes(level)) return null;
       return storedSheet(faction, hue, kind, level, hd64 && level === 4);
     },
-    slot: (kind, a, frame, dir) => slotOf(kind, a, frame, dir, blowTab[kind] ?? 1),
+    slot: (kind, a, frame, dir) => slotOf(kind, a, frame, dir, blowTab[kind] ?? 1, advTab[kind]),
   };
   return atlas;
 }

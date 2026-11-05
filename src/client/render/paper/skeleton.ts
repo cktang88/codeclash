@@ -1096,8 +1096,13 @@ export interface RigShape {
   facings?: readonly Facing[];
 }
 
-/** Every animation (a rig with a clip for each, Shoot included). */
-export const ALL_ANIMS: readonly Anim[] = Array.from({ length: ANIM_COUNT }, (_, a) => a as Anim);
+/**
+ * The animations every rig has a clip for (Shoot included). Anim.Advance (walking in guard) is
+ * not among them: only melee foot kinds paint it (WITH_ADVANCE), the atlas gives the rest Walk.
+ */
+export const ALL_ANIMS: readonly Anim[] = Array.from({ length: ANIM_COUNT }, (_, a) => a as Anim).filter((a) => a !== Anim.Advance);
+/** ALL_ANIMS and the walk in guard (a melee foot kind). */
+export const WITH_ADVANCE: readonly Anim[] = [...ALL_ANIMS, Anim.Advance];
 
 /** The shape `skeletonKind(rig)` registers for a built rig. */
 export function rigShape(rig: SkeletonRig): RigShape {
@@ -1469,6 +1474,28 @@ export const BREATH: AnimationData = {
   frames: 8,
   loop: true,
   bones: { chest: { translate: [{ f: 0, v: [0, 0], c: EASE }, { f: 4, v: [0, -0.13], c: EASE }] } },
+};
+
+/**
+ * The guard alive (an overlay for Anim.Brace): a man squared up to the enemy is never still. Over
+ * the 8-frame loop he leans in and probes with the weapon (the point dips forward and up, the hips
+ * go onto the front leg), draws back to cover, rocks onto the back leg and settles. The feet stay
+ * planted (IK), so the hips moving bend the knees. Zero at frames 0 and 8: a blow leaves the
+ * guard's frame 0 exactly (guard.ts), so this never pops a blow. See docs/art-references/guards.md
+ * "The guard alive". Rotations are a step or so of snapDeg (7.5°), enough to show at battle zoom.
+ */
+export const GUARD_SWAY: AnimationData = {
+  name: 'guard-sway',
+  frames: 8,
+  loop: true,
+  bones: {
+    pelvis: { translate: [{ f: 0, v: [0, 0], c: EASE }, { f: 2, v: [0.35, 0.3], c: EASE }, { f: 4, v: [0.05, 0.1], c: EASE }, { f: 6, v: [-0.3, 0.05], c: EASE }, { f: 8, v: [0, 0] }] },
+    spine: { rotate: [{ f: 0, v: 0, c: EASE }, { f: 2, v: -7, c: EASE }, { f: 4, v: -2, c: EASE }, { f: 6, v: 5, c: EASE }, { f: 8, v: 0 }] },
+    head: { rotate: [{ f: 0, v: 0, c: EASE }, { f: 2, v: 5, c: EASE }, { f: 4, v: 1, c: EASE }, { f: 6, v: -4, c: EASE }, { f: 8, v: 0 }] },
+    upperArmN: { rotate: [{ f: 0, v: 0, c: EASE }, { f: 2, v: 12, c: EASE }, { f: 4, v: 3, c: EASE }, { f: 6, v: -8, c: EASE }, { f: 8, v: 0 }] },
+    forearmN: { rotate: [{ f: 0, v: 0, c: EASE }, { f: 2, v: 6, c: EASE }, { f: 4, v: 0, c: EASE }, { f: 6, v: -6, c: EASE }, { f: 8, v: 0 }] },
+    upperArmF: { rotate: [{ f: 0, v: 0, c: EASE }, { f: 2, v: 6, c: EASE }, { f: 4, v: 1, c: EASE }, { f: 6, v: -4, c: EASE }, { f: 8, v: 0 }] },
+  },
 };
 
 /**

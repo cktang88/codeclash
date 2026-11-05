@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { U } from '../../../game/units.ts';
 import { Anim, ANIM_COUNT, type Dir } from '../contract.ts';
 import { FRAMES } from '../frames.ts';
-import { gridColOf, gridCols, paintGrid, paintSheet, slotCount, slotOf } from '../sprites128.ts';
+import { advancesOf, gridColOf, gridCols, paintGrid, paintSheet, slotCount, slotOf } from '../sprites128.ts';
 import { M, Paper } from './core.ts';
 import { paintPaper, paperBlows, registerPaperKind } from './index.ts';
 import { along, FOOT0, poser, type FootPose } from './rig.ts';
@@ -60,20 +60,37 @@ describe('several melee blows', () => {
           if (a === Anim.Shoot && kind !== U.Archers) continue;
           const n = a === Anim.Attack ? 3 * N : FRAMES[a]!;
           for (let f = 0; f < n; f++) {
-            const s = slotOf(kind, a as Anim, f, dir, 3);
+            const s = slotOf(kind, a as Anim, f, dir, 3, true);
             expect(seen.has(s), `slot ${a}/${f}/${dir}`).toBe(false);
             seen.add(s);
             expect(s).toBeLessThan(slotCount(3));
-            const col = gridColOf(kind, a as Anim, f, dir, 3);
+            const col = gridColOf(kind, a as Anim, f, dir, 3, true);
             expect(col).toBeLessThan(gridCols(3));
             const cell = `${dir}:${col}`;
             expect(cells.has(cell)).toBe(false);
             cells.add(cell);
             // Blow 0 (and every other anim) is where it always was.
-            if (f < FRAMES[a]!) expect(s).toBe(slotOf(kind, a as Anim, f, dir));
+            if (f < FRAMES[a]!) expect(s).toBe(slotOf(kind, a as Anim, f, dir, 1, true));
           }
         }
     }
+  });
+
+  it('walks in guard (Advance) only where a kind paints it, else borrows its Walk', () => {
+    for (const f of [0, 5, 11]) {
+      expect(slotOf(U.Archers, Anim.Advance, f, 2)).toBe(slotOf(U.Archers, Anim.Walk, f, 2));
+      expect(slotOf(U.Spearmen, Anim.Advance, f, 2, 1, true)).not.toBe(slotOf(U.Spearmen, Anim.Walk, f, 2));
+    }
+    for (const faction of ['templar', 'samurai', 'undead']) {
+      expect(advancesOf(faction, U.Spearmen), `${faction} spears`).toBe(true);
+      expect(advancesOf(faction, U.HeavyInfantry), `${faction} heavy foot`).toBe(true);
+      expect(advancesOf(faction, U.Archers), `${faction} archers`).toBe(false);
+      expect(advancesOf(faction, U.Knights), `${faction} knights`).toBe(false);
+    }
+    const sheet = paintSheet('templar', 215, U.Spearmen, 2);
+    const at = (a: Anim) => sheet.rects.slice(slotOf(U.Spearmen, a, 3, 0, 1, true) * 6, slotOf(U.Spearmen, a, 3, 0, 1, true) * 6 + 4).join();
+    expect(at(Anim.Advance)).not.toBe(at(Anim.Walk));
+    expect(sheet.rects[slotOf(U.Spearmen, Anim.Advance, 3, 0, 1, true) * 6 + 2]).toBeGreaterThan(0);
   });
 
   it('paints different frames for each blow', () => {

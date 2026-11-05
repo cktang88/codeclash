@@ -69,6 +69,40 @@ only the rider's bones, so a lancer's gallop is left alone. The authored blows a
 between blows, as well as for a regiment in a bracing stance; out of reach he idles. The showcase
 Units tab calls the column **Guard** and shows it just before the blows.
 
+## The guard alive, and walking in it
+
+Date: 2026-11-05. The user: after a cavalry charge "the people just stand still, and their spears
+are vertical ... they should be more dynamic". Two causes, measured on demo battles (seeds 7, 11,
+23, 450 men):
+
+- The guard was one key plus `BREATH` (a 0.13-unit chest rise): all 8 Brace frames painted
+  identical at battle levels, so a man between blows (about 60% of the time within 25 units of a
+  foe) was a statue.
+- A man in the fight who stepped faster than a shuffle, and a whole block once the horse wheeled
+  off to charge again, played Walk or Idle, which carry the spear upright: with enemy horse 25-120
+  units off, 35-75% of the spearmen were drawn with spears raised.
+
+What changed:
+
+- `skeleton.ts` `GUARD_SWAY`, layered on every hand-to-hand foot kind's Brace (templar-clips,
+  samurai-rig, undead-clips): over the loop he leans in onto the front leg and probes with the
+  point, draws back to cover, rocks onto the back leg and settles, feet planted. Zero at frames 0
+  and 8, so blows still leave the guard's frame 0 exactly (guard.test.ts). Shooters keep a steady
+  aim (no sway).
+- `contract.ts` `Anim.Advance` (12 frames, `guard.ts` `guardWalk`): the walk's legs, hips and trunk
+  under the guard's arms, weapon and shield, held at the guard's world angles, so the spear stays
+  levelled at the foe over the stride. Painted by the hand-to-hand foot of all three factions; the
+  atlas answers it with Walk for every other kind (as Shoot falls back to Attack).
+- `scene.ts`: a hand-to-hand man "in the fight" (his block engaged or touching an enemy block, an
+  enemy block within ~50 of its edge, or his foe within 40) walks in Advance and stands in Brace
+  instead of Walk and Idle; walking in guard he keeps his front to his foe (`pose.ts`). Far from
+  the enemy blocks still march and stand with spears upright. Measured after: with enemy horse
+  25-120 units off, 0-2% of spearmen show a raised spear.
+
+References: the Fiore spear page above (the spear held level in a long stance, "never upright"
+within reach) and the Blue Knight sheet (guard and walk-in-guard share the arms) are the ones this
+follows; no new images were gathered for this pass.
+
 ## Critique rounds
 
 1. **Wiring.** The first blend lerped local angles: the Knight-Brothers' thrust whirled the lance

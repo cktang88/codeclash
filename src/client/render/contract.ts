@@ -34,9 +34,17 @@ export const Anim = {
    * (paper/guard.ts), so blows chain from the guard without a pop.
    */
   Brace: 8,
+  /**
+   * Walking in his guard: the legs of the walk under the arms of the Brace (spear levelled, shield
+   * up, blade cocked). The renderer plays it for a man in the fight who steps, presses, gives
+   * ground or closes on a foe near at hand, where Walk would shoulder his weapon upright. Melee
+   * foot kinds paint it; for every other kind the atlas answers it with Walk (as Shoot falls back
+   * to Attack), so painters that have no such clip need nothing.
+   */
+  Advance: 9,
 } as const;
 export type Anim = (typeof Anim)[keyof typeof Anim];
-export const ANIM_COUNT = 9;
+export const ANIM_COUNT = 10;
 
 /**
  * Rising from the dead (the undead's "What falls, rises": game Soldier.roseAt). The renderer plays

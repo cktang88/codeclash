@@ -1381,6 +1381,13 @@ export class BattleScene {
         const reach = tgt !== undefined && (tgt.x - s.x) ** 2 + (tgt.y - s.y) ** 2 < 14 * 14;
         const melee = s.s.range === 0 || reach;
         const actAnim = melee ? Anim.Attack : Anim.Shoot;
+        // In the fight: his block is locked in or touching an enemy block, an enemy block is close
+        // (closeIn, the eager pull: within ~50 of its edge), or his own foe is near. A man who
+        // fights hand to hand keeps his guard there (spear levelled, shield up), standing or
+        // stepping, instead of shouldering his weapon upright as on the march: after a charge
+        // breaks on the spears and the horse wheels off to come again, the levy stays squared up.
+        const near = tgt !== undefined && (tgt.x - s.x) ** 2 + (tgt.y - s.y) ** 2 < 40 * 40;
+        const inFight = s.state === State.Fighting && s.s.range === 0 && (reg.engaged || reg.contact || reg.closeIn > 0.4 || near);
         if (act >= 0 && act < lens[kind * ANIM_COUNT + actAnim]!) {
           anim = actAnim;
           start = s.actedAt;
@@ -1392,10 +1399,11 @@ export class BattleScene {
         } else if (s.state === State.Routing || speed > s.s.speed * 1.2 || (speed > s.s.speed * 0.6 && (reg.mode === 'charge' || reg.mode === 'pursue'))) anim = Anim.Run;
         // A man with his foe in reach who shuffles, gives ground or steps back to breathe (v14 P3)
         // does it in his guard, facing the foe (docs/art-references/battle-cohesion.md, P3).
-        else if (speed > 3 && !(s.state === State.Fighting && reach && speed < s.s.speed * 0.6)) anim = s.cls === U.Knights && stance === 'wedge' && speed > s.s.speed * 0.7 ? Anim.Run : Anim.Walk;
+        // Stepping in the fight, he walks in his guard (Anim.Advance; kinds without one walk).
+        else if (speed > 3 && !(s.state === State.Fighting && reach && speed < s.s.speed * 0.6)) anim = s.cls === U.Knights && stance === 'wedge' && speed > s.s.speed * 0.7 ? Anim.Run : inFight ? Anim.Advance : Anim.Walk;
         // Between blows a man in the fight stands in his guard (Brace), poised: blows leave it and
         // return to it. Out of reach of a foe he idles (or holds the regiment's braced stance).
-        else if (s.state === State.Fighting && (BRACING.has(stance) || (tgt !== undefined && melee))) anim = Anim.Brace;
+        else if (s.state === State.Fighting && (BRACING.has(stance) || (tgt !== undefined && melee) || inFight)) anim = Anim.Brace;
         // Facing: the way they move, else where they shoot or at their foe, else the regiment's front.
         const next = settleTurn(facing(anim, s.vx, s.vy, tgt ? tgt.x - s.x : NaN, tgt ? tgt.y - s.y : NaN, melee, this.aimX[i]!, this.aimY[i]!, reg.fx, reg.fy, dir), dir, anim, T - this.turnAt[i]!);
         if (next !== dir) {

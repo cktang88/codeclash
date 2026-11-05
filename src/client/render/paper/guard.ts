@@ -92,3 +92,37 @@ export function fromGuard(skel: SkeletonData, attack: Clip, guard: Clip, o: { n?
 /** Bones of a horse (and its harness): a rider's guard leaves them to the blow. */
 export const HORSE_BONE = /^(root|horse|tail|saddle|capar|mane|fore[FN]|hind[FN]|bridle|rein)/;
 export const riderOnly = (bone: string): boolean => !HORSE_BONE.test(bone);
+
+/** Bones that hold the weapon and the shield: the guard's, over a walk's legs (guardWalk). */
+export const ARM_BONE = /^(upperArm|forearm|hand|weapon|grip|item|offhand|shield)/;
+
+/**
+ * Walking in his guard (Anim.Advance): every frame of the walk `walk` (n frames, looping) with the
+ * arms, weapon and shield of the guard's frame 0 (`guard`, guardN frames). The arm bones take the
+ * guard's *world* angles (blend, as in fromGuard), so the spear stays levelled at the foe however
+ * the trunk sways over the stride, and the walk's legs, hips and trunk carry him. Slots, draw
+ * order, bends and the footfall events are the walk's. See docs/art-references/guards.md.
+ */
+export function guardWalk(skel: SkeletonData, walk: Clip, guard: Clip, o: { n?: number; guardN?: number; facings?: readonly Facing[]; arms?: (bone: string) => boolean } = {}): Clip {
+  const { n = 12, guardN = 8, facings = ['se', 'ne'], arms = (b: string) => ARM_BONE.test(b) } = o;
+  const one = (f: Facing): AnimationData => {
+    const base = clipBase(walk, f);
+    const g = sampleClip(guard, 0, guardN, f);
+    const poses: PoseKey[] = [];
+    for (let fr = 0; fr < n; fr++) {
+      const a = sampleClip(walk, fr, n, f);
+      const ik: Record<string, number> = {};
+      for (const k of new Set([...Object.keys(a.ik), ...Object.keys(g.ik)])) {
+        const m = arms(k) ? (g.ik[k]?.mix ?? a.ik[k]?.mix) : (a.ik[k]?.mix ?? g.ik[k]?.mix);
+        if (m !== undefined) ik[k] = m;
+      }
+      poses.push({ f: fr, bones: blend(skel, f, a, g, 1, arms), ...(Object.keys(ik).length ? { ik } : {}) });
+    }
+    const out = animationFromPoses('advance', n, true, poses, base.events ? [...base.events] : []);
+    if (base.slots) out.slots = base.slots;
+    if (base.drawOrder) out.drawOrder = base.drawOrder;
+    for (const [k, v] of Object.entries(base.ik ?? {})) if (v.bend) (out.ik ??= {})[k] = { ...(out.ik?.[k] ?? {}), bend: v.bend };
+    return out;
+  };
+  return { byFacing: Object.fromEntries(facings.map((f) => [f, one(f)])) };
+}

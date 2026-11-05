@@ -18,6 +18,13 @@ describe('facing', () => {
     expect(facing(Anim.Shoot, 30, 0, N, N, false, -40, 5, front[0], front[1], 0)).toBe(dirFor(-40, 5, 0));
   });
 
+  it('walking in his guard, keeps his front to his foe even as he gives ground', () => {
+    // Backing off toward -x from a foe at +x (out of reach): he still faces the foe.
+    expect(facing(Anim.Advance, -20, 0, 30, 0, false, N, N, front[0], front[1], 0)).toBe(dirFor(30, 0, 0));
+    // No foe of his own: the way he moves.
+    expect(facing(Anim.Advance, 0, 20, N, N, false, N, N, front[0], front[1], 0)).toBe(dirFor(0, 20, 0));
+  });
+
   it('keeps the regiment front for a shooter with no shot yet', () => {
     expect(facing(Anim.Shoot, 0, 0, N, N, false, N, N, 0, 1, 0)).toBe(dirFor(0, 1, 0));
   });

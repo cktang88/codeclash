@@ -17,6 +17,8 @@ import { dirFor } from './iso.ts';
 export function facing(anim: Anim, vx: number, vy: number, tdx: number, tdy: number, melee: boolean, adx: number, ady: number, fx: number, fy: number, prev: Dir): Dir {
   const hasTarget = tdx === tdx;
   const engaged = hasTarget && melee;
+  // Walking in his guard (pressing, giving ground, closing) he keeps his front to his foe.
+  if (anim === Anim.Advance && hasTarget) return dirFor(tdx, tdy, prev);
   if (vx * vx + vy * vy > 9 && anim !== Anim.Attack && anim !== Anim.Shoot && (anim === Anim.Run || !engaged)) return dirFor(vx, vy, prev);
   if (anim === Anim.Hit) return engaged ? dirFor(tdx, tdy, prev) : prev;
   if (engaged && anim !== Anim.Shoot) return dirFor(tdx, tdy, prev);
