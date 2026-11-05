@@ -427,7 +427,7 @@ interface FieldGl {
 
 const TILE = 64;
 /** Ground cache tiles, in buffer texels. */
-const CT = 128;
+const CT = 64;
 /** The most texels a ground cache target holds (two of them: 64 MB each at most). */
 const MAX_CACHE_PX = 16 * 1024 * 1024;
 const NO_TILE = -1;
