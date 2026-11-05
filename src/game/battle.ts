@@ -3748,8 +3748,10 @@ export class Battle {
     if (rush) prey = rush;
     else if (fugitives && fugitives.alive >= 3 && (r.chaseAt >= 0 || (this.tick - r.recallAt >= this.doc[team]!.recall && r.moraleState === 'steady' && this.rng.chance(r.eager * 0.3)))) prey = fugitives;
     else if (o.kind === 'hold' || o.kind === 'reserve') {
-      // On the wing: counter-charge horse that comes close, fight foot that walks into us.
-      prey = this.nearestFoe(r, 2, 90) ?? this.nearestFoe(r, 0, 25);
+      // On the wing: counter-charge horse that comes close, fight foot that walks into us. (T1:
+      // Templar knights held back by the Marshal ride back to their place from foot instead:
+      // the Rule forbids a charge without his word.)
+      prey = this.nearestFoe(r, 2, 90) ?? (shock && this.doc[team]!.signal && this.lordAlive(team) ? null : this.nearestFoe(r, 0, 25));
       if (!prey) {
         this.setMode(r, 'hold');
         this.goal(r, Number.isNaN(o.x) ? r.ax : o.x, Number.isNaN(o.y) ? r.ay : o.y);
@@ -3825,12 +3827,15 @@ export class Battle {
       return;
     }
     // RIDER: no horseman rides at the points of braced spears while there is a way round. Facing
-    // the front of a block set against horse (not yet locked in a fight), the horse takes foot
-    // locked in the fight or shooters close by instead; failing those, it rides out round the
+    // the front of a block set against horse (not yet locked in a fight), horse free to choose
+    // takes foot locked in the fight or shooters close by instead; failing those, it rides out round the
     // end of the spears and charges from the side. (Not a rash general's knights: they charge
     // headlong, as at Courtrai and Mansourah.)
     if (r.mode !== 'charge' && isFoot(prey) && !prey.engaged && (prey.stance === 'pikewall' || prey.stance === 'braced') && !(shock && this.generals[team]!.rashKnights)) {
-      const alt = this.nearestFoe(r, 3, RIDER.spurn) ?? this.nearestFoe(r, 1, RIDER.spurn);
+      // (Horse held back, and the Templar knights, whose one target is the Marshal's, keep to
+      // the one they have.)
+      const free = o.kind !== 'hold' && o.kind !== 'reserve' && !this.doc[team]!.signal;
+      const alt = free ? this.nearestFoe(r, 3, RIDER.spurn) ?? this.nearestFoe(r, 1, RIDER.spurn) : null;
       if (alt && alt !== prey && alt.stance !== 'pikewall' && alt.stance !== 'braced') {
         prey = alt;
         r.targetReg = prey.id;
@@ -4000,7 +4005,7 @@ export class Battle {
       this.thinkCav(r, false);
       return;
     }
-    const threat = this.nearGap(r, 35, false) ?? this.nearGap(r, 90, true);
+    const threat = this.nearGap(r, RIDER.haFoot, false) ?? this.nearGap(r, 90, true);
     if (threat) {
       // Ride away from it, sideways along the field, loosing as they go. (The sideways turn is
       // taken the same way by both armies: until v4 it was not mirrored, so the right-hand army's
@@ -4483,6 +4488,13 @@ export class Battle {
       if (d.stun[i]! > 0) return;
       if (d.imp[i]! > 0.3 && q <= (reach + 1.2) * (reach + 1.2)) {
         this.impact(i, t);
+        return;
+      }
+      // RIDER: a rider stuck among spears, his charge spent and badly hurt, pulls his horse out
+      // of it for a moment (and may come at them again) rather than stand and be gutted.
+      if (d.mass[i]! > 2 && r.role !== 'command' && d.imp[i]! <= 0.3 && this.soldiers[t]!.s.antiCav > 1.5 && d.hp[i]! < this.soldiers[i]!.s.hp * RIDER.spearHurt && this.tick - d.hit[i]! < 3) {
+        d.wd[i] = this.tick + RIDER.spearOut;
+        d.target[i] = -1;
         return;
       }
       if (q <= reach * reach && d.cd[i] === 0 && !this.outOfMeasure(i, r)) this.strike(i, t);
@@ -5584,7 +5596,12 @@ export class Battle {
         // P4: horse that has broken off closes up again on its rally point, at a walk.
         const rallying = (mode === 'rally' && this.tick - r.modeAt < 60) || (mode === 'hold' && this.tick < r.reformUntil);
         if (mounted) d.cu[i] = 0;
-        if (r.role === 'horse-archer' && (mode === 'kite' || mode === 'shoot' || mode === 'advance') && this.pressed(i)) {
+        if (mounted && this.tick < d.wd[i]! && this.pressed(i)) {
+          // RIDER: pulling out of the spears (see `act`): away from the nearest, at a canter.
+          vx = this.tmp[0]! * spd * 0.6;
+          vy = this.tmp[1]! * spd * 0.6;
+          d.cu[i] = 1;
+        } else if (r.role === 'horse-archer' && (mode === 'kite' || mode === 'shoot' || mode === 'advance') && this.pressed(i)) {
           // RIDER: a horse archer with a foe at his horse's flank does not sit and wait for the
           // block to move: he rides off himself, away from the man and back toward his place.
           const ex = gx - x;
@@ -6117,7 +6134,9 @@ const RIDER_SIN = 0.198669330795;
  * braced spears looks for easier prey (`thinkCav`); how near the rally point the middle of
  * its riders must be for the ride out to be over; how near enemy horse riding at it must be
  * for horse re-forming to break off the re-form and meet it; how near a foe must be for a horse
- * archer to ride off from him by himself.
+ * archer to ride off from him by himself; under what share of his hit points a rider hit
+ * among spears pulls out of them, and for how long (ticks); the gap to foot at which horse
+ * archers ride off (until the sweep after v16, 35: foot closing at a run caught them).
  */
 const RIDER = {
   hunt: 40,
@@ -6131,6 +6150,9 @@ const RIDER = {
   there: 25,
   meet: 90,
   pressed: 15,
+  spearHurt: 0.5,
+  spearOut: 20,
+  haFoot: 50,
 };
 /** RIDER: the pace (a share of his speed) of a rider riding round to the flank on his own. */
 const RIDER_FREE = 0.8;

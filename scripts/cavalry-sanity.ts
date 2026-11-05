@@ -13,8 +13,8 @@
 //             while that block had an open flank (no friend of its within 20 of either end),
 //             per charge launched.
 //   behind    rider-seconds of a block riding out (withdraw, or re-forming after it) more than
-//             2 s into it, with the rider still within 10 units of an enemy (left behind, stuck
-//             in the fight), per withdrawal.
+//             2 s into it, with the rider still within 10 units of an enemy and under half his
+//             speed (left behind, stuck in the fight), per withdrawal.
 //   ha-close  per mille of the ticks of horse archers with arrows left, outside a chase, with
 //             an enemy within 12 units while not in a chase (they should keep their distance).
 import { Battle, State, type Regiment, type Soldier } from '../src/game/battle.ts';
@@ -130,7 +130,7 @@ function watch(b: Battle, t: Tally, maxTicks = 3600): void {
         if (haClose) t.haClose += 0.1;
       }
       const oa = outAt.get(r.id);
-      if (oa !== undefined && b.tick - oa > 20 && closeFoe) t.behind += 0.1;
+      if (oa !== undefined && b.tick - oa > 20 && closeFoe && sp < s.s.speed * 0.5) t.behind += 0.1;
       // Riding into the front of braced spears with an open flank (once per rider per charge).
       if (r.mode !== 'charge') hitPike[i] = 0;
       else if (!hitPike[i] && sp > s.s.speed * 0.5 && s.target >= 0) {
