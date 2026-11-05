@@ -1405,13 +1405,20 @@ export class BattleScene {
     gfx.soft.clear();
     const fx = this.fxSheet;
 
+    // HD: kinds within a screen of the view count as in view for their sheets (pickLevels), so a
+    // scroll meets them already sharp instead of popping from the grid to the sheet.
+    const nearHd = this.atlases[0].sheet !== undefined || this.atlases[1].sheet !== undefined;
+    const px0 = x0 - v.vw;
+    const px1 = x1 + v.vw;
+    const py0 = y0 - v.vh;
+    const py1 = y1 + v.vh;
     // Soldiers.
     for (let i = 0; i < ss.length; i++) {
       const s = ss[i]!;
       if (s.state === State.Fled) continue;
       if (this.stamped[i]) {
         // HD, zoomed in: the corpse stamped into the low-res ground is drawn over at full detail.
-        if (this.field) this.corpseHd(i, hd, x0, x1, y0, y1);
+        if (this.field) this.corpseHd(i, hd, x0, x1, y0, y1, px0, px1, py0, py1);
         else if (hd) this.hdCorpse(i, x0, x1, y0, y1);
         continue;
       }
@@ -1419,7 +1426,10 @@ export class BattleScene {
       const wy = this.prevY[i]! + (s.y - this.prevY[i]!) * alpha;
       const fmx = this.mapX(wx, wy);
       const fmy = this.mapY(wx, wy);
-      if (fmx < x0 || fmx > x1 || fmy < y0 || fmy > y1) continue;
+      if (fmx < x0 || fmx > x1 || fmy < y0 || fmy > y1) {
+        if (nearHd && fmx >= px0 && fmx <= px1 && fmy >= py0 && fmy <= py1) this.seen[s.team] = this.seen[s.team]! | (1 << (s.commander ? COMMANDER_KIND : s.cls));
+        continue;
+      }
       const atlas = this.atlases[s.team as 0 | 1];
       const kind = s.commander ? COMMANDER_KIND : s.cls;
       this.seen[s.team] = this.seen[s.team]! | (1 << kind);
@@ -1941,12 +1951,16 @@ export class BattleScene {
   }
 
   /** HD: a fallen man, every frame (nothing is stamped into the HD ground). */
-  private corpseHd(i: number, hd: boolean, x0: number, x1: number, y0: number, y1: number): void {
+  private corpseHd(i: number, hd: boolean, x0: number, x1: number, y0: number, y1: number, px0: number, px1: number, py0: number, py1: number): void {
     const s = this.battle.soldiers[i]!;
     const kind = this.kindOf(i);
     const mx = this.mapX(s.x, s.y);
     const my = this.mapY(s.x, s.y);
-    if (mx < x0 || mx > x1 || my < y0 || my > y1) return;
+    if (mx < x0 || mx > x1 || my < y0 || my > y1) {
+      // Within a screen: its kind's sheet is kept ready for a scroll (pickLevels).
+      if (mx >= px0 && mx <= px1 && my >= py0 && my <= py1) this.seenDead[s.team] = this.seenDead[s.team]! | (1 << kind);
+      return;
+    }
     // In view: its kind keeps (or gets) a hi-res sheet.
     this.seenDead[s.team] = this.seenDead[s.team]! | (1 << kind);
     if (hd && this.hdLevel[s.team]![kind]! > 1) {
