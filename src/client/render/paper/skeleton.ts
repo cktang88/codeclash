@@ -860,16 +860,20 @@ interface PartImg {
   ord: Int16Array | Uint8Array;
   polys: number;
 }
-const PARTS = new WeakMap<object, Map<string, PartImg>>();
+const PARTS = new WeakMap<object, Map<string, Map<number, Map<number, PartImg>>>>();
 let SCRATCH: Paper | null = null;
 let partDraws = 0;
 /** How many part images have been drawn (cache misses), for tests and benches. */
 export const partDrawCount = (): number => partDraws;
 
-function partImage(att: Attachment, key: string, slotIndex: number, posed: Posed, bone: BoneXf, rest: BoneXf, lightX: 1 | -1): PartImg {
-  let m = PARTS.get(att);
-  if (!m) PARTS.set(att, (m = new Map()));
-  const got = m.get(key);
+function partImage(att: Attachment, name: string, step: number, sy: number, slotIndex: number, posed: Posed, bone: BoneXf, rest: BoneXf, lightX: 1 | -1): PartImg {
+  let byName = PARTS.get(att);
+  if (!byName) PARTS.set(att, (byName = new Map()));
+  let byStep = byName.get(name);
+  if (!byStep) byName.set(name, (byStep = new Map()));
+  let bySy = byStep.get(step);
+  if (!bySy) byStep.set(step, (bySy = new Map()));
+  const got = bySy.get(sy);
   if (got) return got;
   partDraws++;
   const s = (SCRATCH ??= new Paper());
@@ -895,28 +899,39 @@ function partImage(att: Attachment, key: string, slotIndex: number, posed: Posed
         img.ord[y * img.w + x] = s.pix[i]! >= 0 ? s.ord[i]! - base : 0;
       }
   }
-  m.set(key, img);
+  bySy.set(sy, img);
   return img;
 }
 
 function blit(c: Paper, img: PartImg, o: P2): void {
   const bx = c.FX + Math.round(o[0] * c.L) + img.x0, by = c.FY + Math.round(o[1] * c.L) + img.y0;
-  for (let y = 0; y < img.h; y++) {
+  // The image's rows and columns that land on the canvas.
+  const xa = Math.max(0, -bx), xb = Math.min(img.w, c.CW - bx);
+  const ya = Math.max(0, -by), yb = Math.min(img.h, c.CH - by);
+  const PIX = c.pix, ORD = c.ord, CW = c.CW, order = c.order;
+  const ip = img.pix, io = img.ord, w = img.w;
+  let x0 = c.bx0, x1 = c.bx1, y0 = c.by0, y1 = c.by1;
+  for (let y = ya; y < yb; y++) {
     const Y = by + y;
-    if (Y < 0 || Y >= c.CH) continue;
-    for (let x = 0; x < img.w; x++) {
-      const v = img.pix[y * img.w + x]!;
-      const X = bx + x;
-      if (v < 0 || X < 0 || X >= c.CW) continue;
-      const i = Y * c.CW + X;
-      c.pix[i] = v;
-      c.ord[i] = c.order + img.ord[y * img.w + x]!;
-      if (X < c.bx0) c.bx0 = X;
-      if (X > c.bx1) c.bx1 = X;
-      if (Y < c.by0) c.by0 = Y;
-      if (Y > c.by1) c.by1 = Y;
+    let lo = -1, hi = -1;
+    for (let x = xa, s = y * w + xa, i = Y * CW + bx + xa; x < xb; x++, s++, i++) {
+      const v = ip[s]!;
+      if (v < 0) continue;
+      PIX[i] = v;
+      ORD[i] = order + io[s]!;
+      if (lo < 0) lo = x;
+      hi = x;
     }
+    if (lo < 0) continue;
+    if (bx + lo < x0) x0 = bx + lo;
+    if (bx + hi > x1) x1 = bx + hi;
+    if (Y < y0) y0 = Y;
+    if (Y > y1) y1 = Y;
   }
+  c.bx0 = x0;
+  c.bx1 = x1;
+  c.by0 = y0;
+  c.by1 = y1;
   c.order += img.polys;
 }
 
@@ -938,8 +953,10 @@ const asAtt = (a: Attachment | DrawPart): Attachment => {
 export function drawSkeleton(c: Paper, posed: Posed, atts: AttachmentSet, opts: { prev?: Posed; only?: (slot: string) => boolean } = {}): void {
   const skel = posed.skel;
   const rest = restPose(skel, posed.level, posed.facing);
-  const slotIdx = new Map(skel.slots.map((s, i) => [s.name, i] as const));
+  const slotIdx = slotIndex(skel);
   const ctx: DrawCtx = { posed, prev: opts.prev, events: posed.events };
+  const mirrored = c.lightX !== 1;
+  const prefixes = partPrefixes(skel, posed.facing, posed.level, mirrored);
   for (const name of posed.order) {
     if (opts.only && !opts.only(name)) continue;
     const si = slotIdx.get(name);
@@ -954,10 +971,30 @@ export function drawSkeleton(c: Paper, posed: Posed, atts: AttachmentSet, opts: 
       att.draw(c, partXf(bone, rb, [bone.x, bone.y]), ctx);
       continue;
     }
-    // A part drawn for a mirrored facing is lit from the other side: its own image.
-    const key = `${skel.name}|${posed.facing}|${name}|${an}|${bone.step}|${bone.sy}|${posed.level}${c.lightX === 1 ? '' : '|m'}`;
-    blit(c, partImage(att, key, si, posed, bone, rb, c.lightX), [bone.x, bone.y]);
+    // A part drawn for a mirrored facing is lit from the other side: its own image. Images are
+    // found by (skeleton name, facing, slot, attachment, level, mirrored), then angle step and scale-y.
+    let byName = prefixes[si]!.get(an);
+    if (byName === undefined) prefixes[si]!.set(an, (byName = `${skel.name}|${posed.facing}|${name}|${an}|${posed.level}${mirrored ? '|m' : ''}`));
+    blit(c, partImage(att, byName, bone.step, bone.sy, si, posed, bone, rb, c.lightX), [bone.x, bone.y]);
   }
+}
+
+const SLOT_IDX = new WeakMap<SkeletonData['slots'], Map<string, number>>();
+/** Slot name → index in the skeleton's slots (cached per slot list). */
+function slotIndex(skel: SkeletonData): Map<string, number> {
+  let m = SLOT_IDX.get(skel.slots);
+  if (!m) SLOT_IDX.set(skel.slots, (m = new Map(skel.slots.map((s, i) => [s.name, i] as const))));
+  return m;
+}
+const PREFIXES = new WeakMap<SkeletonData, Map<string, Map<string, string>[]>>();
+/** Per slot: attachment name → the part cache's name for it (built once per skeleton, facing, level, mirror). */
+function partPrefixes(skel: SkeletonData, facing: Facing, level: number, mirrored: boolean): Map<string, string>[] {
+  let bySkel = PREFIXES.get(skel);
+  if (!bySkel) PREFIXES.set(skel, (bySkel = new Map()));
+  const k = `${facing}|${level}|${mirrored ? 1 : 0}|${skel.name}|${skel.slots.length}`;
+  let got = bySkel.get(k);
+  if (!got) bySkel.set(k, (got = skel.slots.map(() => new Map<string, string>())));
+  return got;
 }
 
 /** Forgets every cached part image (after editing a part's drawing at run time). */
