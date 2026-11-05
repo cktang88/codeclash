@@ -95,6 +95,7 @@ uniform vec2 u_off;     // device px of the buffer's top-left on the canvas
 uniform float u_px;     // device px per buffer px
 uniform float u_time;
 uniform float u_scan;
+uniform float u_direct; // the scene was drawn at the canvas's size (zoomed out: scene.ts): one texel a device px
 out vec4 o;
 
 float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
@@ -115,7 +116,7 @@ void main() {
   vec2 uv = at / u_out;
   vec2 fromC = uv - 0.5;
   // No chromatic split: it fringed every outline toward the corners with red/blue rainbows.
-  vec3 c = fetch(at);
+  vec3 c = u_direct > 0.5 ? texelFetch(u_scene, ivec2(dev), 0).rgb : fetch(at);
 
   float l = dot(c, vec3(0.299, 0.587, 0.114));
   // Slight desaturation and contrast.
@@ -150,11 +151,14 @@ export class GlPost {
   constructor(private readonly gl: WebGL2RenderingContext) {
     this.prog = compile(gl, POST_VS, POST_FS);
     this.vao = gl.createVertexArray()!;
-    for (const k of ['u_scene', 'u_out', 'u_off', 'u_px', 'u_time', 'u_scan']) this.u[k] = gl.getUniformLocation(this.prog, k);
+    for (const k of ['u_scene', 'u_out', 'u_off', 'u_px', 'u_time', 'u_scan', 'u_direct']) this.u[k] = gl.getUniformLocation(this.prog, k);
   }
 
-  /** Draws `scene` (a w×h buffer) onto the canvas at `px` device pixels per buffer pixel. */
-  apply(scene: WebGLTexture, outW: number, outH: number, offX: number, offY: number, px: number, time: number, scanlines: boolean): void {
+  /**
+   * Draws `scene` (a w×h buffer) onto the canvas at `px` device pixels per buffer pixel; `direct`:
+   * `scene` is the canvas's size and already holds, at each device px, the buffer px it would show.
+   */
+  apply(scene: WebGLTexture, outW: number, outH: number, offX: number, offY: number, px: number, time: number, scanlines: boolean, direct = false): void {
     const gl = this.gl;
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.viewport(0, 0, outW, outH);
@@ -170,6 +174,7 @@ export class GlPost {
     gl.uniform1f(this.u.u_px!, px);
     gl.uniform1f(this.u.u_time!, time);
     gl.uniform1f(this.u.u_scan!, scanlines ? 1 : 0);
+    gl.uniform1f(this.u.u_direct!, direct ? 1 : 0);
     gl.bindVertexArray(this.vao);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   }

@@ -124,10 +124,19 @@ async function one(browser, name, url) {
   if (mode === 'shot') {
     // Deterministic: a fake clock from here on, `frames` frames at 60 fps, a tick every 6.
     await page.evaluate(FAKECLOCK);
-    const { b64, selfFull } = await page.evaluate(async (frames) => {
+    const { b64, selfFull } = await page.evaluate(async ({ frames, pan }) => {
       const s = window.__scene;
       const cv = document.getElementById('c');
+      const cx0 = s.camera.cx;
+      const cy0 = s.camera.cy;
       for (let i = 0; i < frames; i++) {
+        // pan=: the same sweep as perf mode (east and back, drifting south), ending where it is.
+        if (pan) {
+          const ph = i % 240;
+          const k = ph < 120 ? ph : 240 - ph;
+          s.camera.cx = cx0 + (k - 60) * pan;
+          s.camera.cy = cy0 + (k - 60) * pan * 0.33;
+        }
         if (i % 6 === 0) window.__step(1);
         window.__tick(1000 / 60);
         s.draw(cv, (i % 6) / 6, 1 / 60);
@@ -154,7 +163,7 @@ async function one(browser, name, url) {
       let str = '';
       for (let i = 0; i < px.length; i += 0x8000) str += String.fromCharCode(...px.subarray(i, i + 0x8000));
       return { b64: btoa(str), selfFull };
-    }, frames);
+    }, { frames, pan: Number(o.pan ?? 0) });
     await page.close();
     if (selfFull !== null) console.log(name, 'incremental vs full compose: differing bytes', selfFull);
     return { name, errs, px: Buffer.from(b64, 'base64') };

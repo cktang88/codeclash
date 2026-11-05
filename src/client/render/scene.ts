@@ -331,7 +331,7 @@ export class BattleScene {
   private readonly solidParts: Part[] = [];
   private readonly softParts: Part[] = [];
   private readonly stampParts: Part[] = [];
-  private view = { px: 1, m: 1, u: 1, bw: 1, bh: 1, vw: 1, vh: 1, camX: 0, camY: 0, offX: 0, offY: 0, W: 1, H: 1 };
+  private view = { px: 1, m: 1, u: 1, bw: 1, bh: 1, vw: 1, vh: 1, camX: 0, camY: 0, offX: 0, offY: 0, W: 1, H: 1, direct: false, tw: 1, th: 1 };
 
   /**
    * `from`: the scene that drew this battle until now (the art was switched mid-battle): its
@@ -1011,7 +1011,12 @@ export class BattleScene {
     // The camera snaps to whole buffer pixels, so nothing crawls as it pans.
     const camX = Math.round((mcx - vw / 2) * m) / m;
     const camY = Math.round((mcy - vh / 2) * m) / m;
-    this.view = { px, m, u, bw, bh, vw, vh, camX, camY, offX: Math.floor((W - bw * u) / 2), offY: Math.floor((H - bh * u) / 2), W, H };
+    // Zoomed out below a device px per buffer px, the buffer would be larger than the canvas (up
+    // to 1 / MIN_SCALE² as many px) only for the post pass to keep one px in so many: the scene is
+    // drawn at the canvas's size instead, each device px as the buffer px it would show (the
+    // same picture, a fraction of the fill).
+    const direct = u < 1;
+    this.view = { px, m, u, bw, bh, vw, vh, camX, camY, offX: Math.floor((W - bw * u) / 2), offY: Math.floor((H - bh * u) / 2), W, H, direct, tw: direct ? W : bw, th: direct ? H : bh };
   }
 
   private followAction(dt: number): void {
@@ -1081,9 +1086,9 @@ export class BattleScene {
     if (this.follow) this.followAction(dt);
     this.layout(out.width, out.height);
     const v = this.view;
-    if (!gfx.scene || gfx.scene.w !== v.bw || gfx.scene.h !== v.bh) {
+    if (!gfx.scene || gfx.scene.w !== v.tw || gfx.scene.h !== v.th) {
       if (gfx.scene) dropTarget(gl, gfx.scene);
-      gfx.scene = target(gl, v.bw, v.bh, true);
+      gfx.scene = target(gl, v.tw, v.th, true);
     }
     const zFar = -200;
     const zNear = this.ground.h + 200;
@@ -1121,13 +1126,13 @@ export class BattleScene {
     // The scene, into the low-resolution buffer.
     const P = gfx.prog;
     gl.bindFramebuffer(gl.FRAMEBUFFER, gfx.scene.fbo);
-    gl.viewport(0, 0, v.bw, v.bh);
+    gl.viewport(0, 0, v.tw, v.th);
     gl.clearColor(0.04, 0.035, 0.03, 1);
     gl.clearDepth(1);
     gl.clearStencil(0);
     gl.depthMask(true);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
-    P.use(v.camX, v.camY, v.bw, v.bh, zFar, zNear, v.m);
+    this.useView(P, zFar, zNear);
 
     gl.disable(gl.DEPTH_TEST);
     gl.disable(gl.BLEND);
@@ -1197,7 +1202,7 @@ export class BattleScene {
     this.fence(gl);
     const tp = performance.now();
     lp.sprites = tp - tsh;
-    gfx.post.apply(gfx.scene.tex, v.W, v.H, v.offX, v.offY, v.u, this.time, this.scanlines);
+    gfx.post.apply(gfx.scene.tex, v.W, v.H, v.offX, v.offY, v.u, this.time, this.scanlines, v.direct);
     this.fence(gl);
     lp.post = performance.now() - tp;
     f.canvas = out;
@@ -1541,8 +1546,9 @@ export class BattleScene {
       if (mx < x0 - 40 || mx > x1 + 40 || my < y0 || my > y1 + 40) continue;
       gfx.fx.sprite(Math.round(mx), Math.round(my), r.u, r.v, r.w, r.h, r.ax, r.ay, my);
     }
-    if (this.field) this.stakesHd(gfx, m);
+    if (this.field) this.stakesHd(gfx, m, x0, x1, y0, y1);
     else for (const k of b.stakes) {
+      if (!this.stakesInView(k, x0, x1, y0, y1)) continue;
       const r = this.stakeRegions[k.team === 0 ? 0 : 1]!;
       for (let y = k.y0; y <= k.y1; y += 3) {
         const mx = this.mapX(k.x, y);
@@ -1912,16 +1918,26 @@ export class BattleScene {
     const v = this.view;
     const gl = gfx.gl;
     const P = gfx.prog;
-    f.drawGround(gl, gfx.scene!, v.camX, v.camY, v.bw, v.bh, v.m, this.battle.tick * TICK_S, (age) => {
+    f.drawGround(gl, gfx.scene!, v.camX, v.camY, v.bw, v.bh, v.m, this.battle.tick * TICK_S, v.direct ? v : null, (age, camX, camY, w, h) => {
       const d = this.hdFxB?.decal;
       if (!d || d.n === 0) return;
-      P.use(v.camX, v.camY, v.bw, v.bh, -200, this.ground.h + 200, v.m);
+      P.use(camX, camY, w, h, -200, this.ground.h + 200, v.m);
       P.now(age);
       const sh = f.sheet(v.m);
       P.tex(f.sheetTexture(gl, v.m), sh.w, sh.h, v.m, 1);
       d.draw();
     });
-    P.use(v.camX, v.camY, v.bw, v.bh, -200, this.ground.h + 200, v.m);
+    this.useView(P, -200, this.ground.h + 200);
+  }
+
+  /**
+   * The sprite program on the scene target: the buffer, or zoomed out (view.direct) the canvas's
+   * size, each device px drawn as the buffer px it would show (gl.ts useDirect).
+   */
+  private useView(P: SpriteProgram, zFar: number, zNear: number): void {
+    const v = this.view;
+    if (v.direct) P.useDirect(v.camX, v.camY, v.W, v.H, zFar, zNear, v.bw, v.bh, v.u, v.offX, v.offY);
+    else P.use(v.camX, v.camY, v.bw, v.bh, zFar, zNear, v.m);
   }
 
   /** HD: a fallen man, every frame (nothing is stamped into the HD ground). */
@@ -1943,13 +1959,23 @@ export class BattleScene {
   }
 
   /** HD: the stakes, from the level-m sheet (and the HD batches cleared for the frame). */
-  private stakesHd(gfx: Gfx, m: number): void {
+  /** Whether any of a line of stakes (its ends' map box, a stake's height and more round it) is in view. */
+  private stakesInView(k: { x: number; y0: number; y1: number }, x0: number, x1: number, y0: number, y1: number): boolean {
+    const ax = this.mapX(k.x, k.y0);
+    const bx = this.mapX(k.x, k.y1);
+    const ay = this.mapY(k.x, k.y0);
+    const by = this.mapY(k.x, k.y1);
+    return Math.max(ax, bx) >= x0 - 40 && Math.min(ax, bx) <= x1 + 40 && Math.max(ay, by) >= y0 - 40 && Math.min(ay, by) <= y1 + 40;
+  }
+
+  private stakesHd(gfx: Gfx, m: number, x0: number, x1: number, y0: number, y1: number): void {
     const B = this.hdBatches(gfx);
     B.fx.clear();
     B.soft.clear();
     B.std.clear();
     const R = this.field!.sheet(m).regions;
     for (const k of this.battle.stakes) {
+      if (!this.stakesInView(k, x0, x1, y0, y1)) continue;
       const r = R[HD_ID.stake + (k.team === 0 ? 0 : 1)]!;
       for (let y = k.y0; y <= k.y1; y += 3) {
         const mx = this.mapX(k.x, y);
@@ -1966,7 +1992,8 @@ export class BattleScene {
     const R = f.sheet(L).regions;
     const q = (v: number) => Math.round(v * L) / L;
     const now = T * TICK_S;
-    f.buildDecals(B.decal, L, x0 - 24, x1 + 24, y0 - 12, y1 + 24);
+    f.plan(this.view.camX, this.view.camY, this.view.bw, this.view.bh, L);
+    f.buildDecals(B.decal, L);
 
     // Missiles in flight: an arc in the air, a small shadow on the ground.
     const dotR = R[HD_ID.dot]!;
