@@ -230,26 +230,119 @@ function kiteShield(c: Paper, at: P2, h: number, w: number, tilt: number): void 
   });
 }
 
-/** A rusted arming sword held at `grip`, blade toward `deg`. */
-function bigSword(c: Paper, grip: P2, deg: number, len: number): void {
-  // At level 1 the blade is a two-pixel line: on the diagonal its steps are even.
-  if (c.L <= 1) deg = Math.round(deg / 45) * 45;
-  const g0 = along(grip, deg, 0.55);
-  const tip = along(g0, deg, len);
-  c.rod(g0, tip, 0.8, 0.3, UM.steel, {
-    shine: true,
-    detail: (x, y, u, v) => {
-      if (v > 0.25 && v < 0.9 && hash(Math.round(v * 16), 0, 451) < 0.22 && u > 0.4) return -1; // chips
-      if (c.tex(x, y, 453) < 0.14 && v > 0.1) return code(UM.rust, 2);
-      if (Math.abs(u) < 0.1 && v < 0.75) return code(UM.steel, 1); // the fuller
-      return -1;
-    },
+/**
+ * The Grave Legionary's scutum (docs/art-references/undead-blows-weapons.md): a tall curved
+ * rectangle, about 1.05 m by 0.6 m (8.4 by 4.6 units) as the three-quarter view shows it, from the
+ * chin to below the knee. A rusted rim, the iron umbo (boss) in the middle on its square plate, the
+ * spina (the wooden rib) running up and down from it, the painted skull on the team field above;
+ * curved, so the light runs down it in a band (lit left of the middle, the far edge in shade).
+ * `at` is its centre.
+ */
+export function scutum(c: Paper, at: P2, h: number, w: number, tilt: number): void {
+  tilt = snapDeg(tilt);
+  const R = (p: P2): P2 => addP(at, rot(p, tilt * DEG));
+  const hw = w / 2, hh = h / 2, k = 0.55;
+  const pts: P2[] = [R([-hw + k, -hh]), R([hw - k, -hh - 0.1]), R([hw, -hh + k]), R([hw, hh - k]), R([hw - k, hh]), R([-hw + k, hh + 0.1]), R([-hw, hh - k]), R([-hw, -hh + k])];
+  const cx = c.sx(at[0]), cy = c.sy(at[1]), L = c.L;
+  const ub = 0.78 + Math.min(0.12, 0.12 / L); // the umbo's radius
+  c.shape(pts, (x, y) => {
+    const [lx, ly] = rot([(x + 0.5 - cx) / L, (y + 0.5 - cy) / L], -tilt * DEG);
+    const edge = Math.min(hw - Math.abs(lx), hh - Math.abs(ly));
+    // The curve: the band of light a third in from the lit edge, the far third in shade.
+    const u = c.litX(lx) / hw;
+    const lt = u < -0.15 && u > -0.75 ? 1 : u > 0.5 ? -1 : 0;
+    if (edge < 0.3) return code(UM.rust, 2 + lt);
+    // The umbo on its square plate.
+    const d = Math.hypot(lx, ly);
+    if (d < ub) {
+      const ul = c.litX(lx) + ly;
+      return code(UM.steel, ul < -0.45 ? 4 : ul > 0.5 ? 1 : 2);
+    }
+    if (Math.abs(lx) < ub + 0.4 && Math.abs(ly) < ub + 0.4) return code(UM.iron, 2 + Math.min(0, lt) + (ly < -ub ? 1 : 0));
+    // The painted skull above the boss: it has to read at a distance (and never as a cross).
+    const sy0 = -hh * 0.5, sr = w * 0.29;
+    const sx = lx, sy = ly - sy0;
+    if (Math.hypot(sx * 1.0, sy * 1.08) < sr || (Math.abs(sx) < sr * 0.62 && sy > 0 && sy < sr * 1.3)) {
+      if (Math.hypot(Math.abs(sx) - sr * 0.4, sy - sr * 0.08) < sr * 0.27) return code(UM.ink, 1);
+      if (sy > sr * 0.95 && (c.lx(x) & 1) === 0 && L >= 2) return code(UM.ink, 2);
+      return code(UM.bone, 2 + (lt > 0 ? 1 : 0));
+    }
+    // The spina, down from the boss.
+    if (Math.abs(lx) < 0.22 && ly > 0) return code(UM.rust, 1 + Math.max(0, lt));
+    // Scars and chipped paint showing the boards, a rust streak down from the boss.
+    if (hash(c.lx(x) >> 1, c.ly(y) >> 2, 461) < 0.05) return code(UM.wood, 1);
+    if (Math.abs(lx - 0.5 + ly * 0.15) < 0.09 && ly > ub + 0.5) return code(UM.teamDk, 1);
+    return code(UM.team, 2 + lt);
   });
-  const side = limb(deg + 90);
-  c.rod(addP(g0, mul(side, 1.0)), addP(g0, mul(side, -1.0)), 0.36, 0.36, UM.iron, { tone: 2 });
-  c.rod(grip, along(grip, deg + 180, 1.0), 0.34, 0.3, UM.leather, { tone: 2 });
-  c.blob(along(grip, deg + 180, 1.15), 0.34, 0.34, UM.iron, { shine: true });
 }
+/** The scutum from behind: the boards, the horizontal grip behind the boss, the rim. */
+export function scutumBack(c: Paper, at: P2, h: number, w: number, tilt: number): void {
+  tilt = snapDeg(tilt);
+  const R = (p: P2): P2 => addP(at, rot(p, tilt * DEG));
+  const hw = w / 2, hh = h / 2, k = 0.55;
+  const pts: P2[] = [R([-hw + k, -hh]), R([hw - k, -hh - 0.1]), R([hw, -hh + k]), R([hw, hh - k]), R([hw - k, hh]), R([-hw + k, hh + 0.1]), R([-hw, hh - k]), R([-hw, -hh + k])];
+  const cx = c.sx(at[0]), cy = c.sy(at[1]), L = c.L;
+  c.shape(pts, (x, y) => {
+    const [lx, ly] = rot([(x + 0.5 - cx) / L, (y + 0.5 - cy) / L], -tilt * DEG);
+    const edge = Math.min(hw - Math.abs(lx), hh - Math.abs(ly));
+    const u = c.litX(lx) / hw;
+    const lt = u > 0.45 ? -1 : 0;
+    if (edge < 0.3) return code(UM.rust, 2 + lt);
+    // The grip across the back of the boss, and the boss's hollow.
+    if (Math.abs(ly) < 0.3 && Math.abs(lx) < 1.5) return code(UM.leather, 2);
+    if (Math.abs(ly) < 0.95 && Math.abs(lx) < 0.95) return code(UM.wood, 0);
+    if (L <= 1) return code(UM.wood, 2 + lt);
+    const plank = (lx + w) * 1.2;
+    if (Math.abs((plank % 1) - 0.5) > 0.42) return code(UM.wood, lt < 0 ? 0 : 1);
+    return code(UM.wood, (hash(Math.floor(plank), c.ly(y) >> 2, 463) < 0.2 ? 1 : 2) + lt);
+  });
+}
+
+/**
+ * The gladius (the Mainz/Pompeii short sword, docs/art-references/undead-blows-weapons.md): a broad,
+ * parallel-edged blade about 50 cm long (4 units) with a short triangular point, a round wooden
+ * guard, a ribbed grip and a ball pommel; about 70 cm in all. Held at `grip`, the blade toward `deg`.
+ */
+export function gladius(c: Paper, grip: P2, deg: number): void {
+  // At level 1 the blade is a two-pixel bar: on the diagonal its steps are even.
+  if (c.L <= 1) deg = Math.round(deg / 45) * 45;
+  const BL = 4.0, W = 0.5;
+  const g0 = along(grip, deg, 0.5);
+  const side = limb(deg + 90);
+  const shoulder = along(g0, deg, BL * 0.8), tip = along(g0, deg, BL);
+  const pts: P2[] = [addP(g0, mul(side, W)), addP(shoulder, mul(side, W * 0.9)), tip, addP(shoulder, mul(side, -W * 0.9)), addP(g0, mul(side, -W))];
+  const ax = c.sx(g0[0]), ay = c.sy(g0[1]);
+  const [vx, vy] = limb(deg);
+  c.shape(pts, (x, y) => {
+    const dx = x + 0.5 - ax, dy = y + 0.5 - ay;
+    const across = (dx * vy - dy * vx) / c.L, alongB = (dx * vx + dy * vy) / c.L;
+    if (c.tex(x, y, 455) < 0.14 && alongB > 0.4) return code(UM.rust, 2);
+    if (c.L >= 4 && Math.abs(across) < 0.08 && alongB < BL * 0.75) return code(UM.steel, 1); // the midrib
+    // The half toward the light is bright, the other dark.
+    const px = dx / c.L - alongB * vx, py = dy / c.L - alongB * vy;
+    return c.litX(px) + py < 0 ? code(UM.steel, 3) : code(UM.steel, 1);
+  });
+  c.blob(along(grip, deg, 0.3), 0.55, 0.5, UM.wood, { tone: 2 });
+  c.rod(grip, along(grip, deg + 180, 0.75), 0.34, 0.32, UM.leather, { tone: 2 });
+  c.blob(along(grip, deg + 180, 0.95), 0.42, 0.4, UM.wood, { tone: 2, shine: true });
+}
+
+// ------------------------------------------------------------------ weapon sizes
+//
+// Measured against the 14-unit (1.75 m) figure: a unit is about 12.5 cm
+// (docs/art-references/undead-blows-weapons.md).
+
+/** The ghoul's spear, units before and behind the near fist: 21 in all (2.6 m). */
+export const GHOUL_SPEAR: [number, number] = [13.5, 7.5];
+/** The bone javelin: 10.5 units (1.3 m), a third behind the fist. */
+export const JAVELIN = 10.5;
+/** The Black Rider's spear: 20 units (2.5 m). */
+export const RIDER_SPEAR: [number, number] = [15, 5];
+/** The Death Knight's lance: 28.5 units (3.6 m); at level 1 a little shorter so the couched point stays in the 48-px cell. */
+export const LANCE: [number, number] = [23, 5.5];
+export const lanceFwd = (c: Paper): number => (c.L <= 1 ? 19 : LANCE[0]);
+/** The arbalest's crossbow scale: a stock of 6.3 units (80 cm), a prod of 5.4 (70 cm). (1.85 tipped the gambeson into the team blue in the colour budget.) */
+export const ARBALEST_K = 1.7;
 
 // ------------------------------------------------------------------ kinds
 
@@ -339,13 +432,13 @@ export const LEGIONARY: FootArt = {
     { slot: 'jaw', bone: 'jaw', draw: (c, J, back) => void (back || keyJaw(c, addP(J.head!, [0.1, 0.2]), 1.1, -4)) },
     { slot: 'helm', bone: 'head', draw: (c, J) => bascinetBowl(c, J.head!, UM.rust) },
     { slot: 'pauldronF', bone: 'chest', draw: (c, J) => pauldron(c, J.shF!, true, 1.1) },
-    // The big skull kite shield tight on the far forearm.
-    { slot: 'front', bone: 'forearmF', draw: (c, J, back) => (back ? kiteShieldBack : kiteShield)(c, addP(J.hF!, [-1.05, -0.8]), 6.9, 4.3, -4) },
+    // The big scutum tight on the far forearm, chin to knee (held upright as the arm swings: undead-bones.ts `shieldLive`).
+    { slot: 'front', bone: 'forearmF', draw: (c, J, back, o) => (back ? scutumBack : scutum)(c, addP(J.hF!, [-0.95, -0.25]), 8.4, 4.6, o.t ?? 0) },
     // (At level 1 the near pauldron is a little larger and further out, so the shoulder steps
     // evenly down from the bascinet to the sword arm instead of in a jagged 1-2-1-3.)
     { slot: 'pauldronN', bone: 'chest', draw: (c, J) => (c.L <= 1 ? pauldron(c, addP(J.shN!, [-0.3, 0]), false, 1.3) : pauldron(c, J.shN!, false, 1.15)) },
-    // The sword held low and back, the long blade slanting past the near leg.
-    { slot: 'weapon', bone: 'weapon', draw: (c, J) => bigSword(c, J.hN!, -40, 7.4) },
+    // The gladius held low and back, the broad short blade slanting past the near leg.
+    { slot: 'weapon', bone: 'weapon', draw: (c, J) => gladius(c, J.hN!, -40) },
     { slot: 'upperArmN', bone: 'upperArmN', draw: (c, J) => armUpper(c, J.shN!, J.elN!, false) },
     { slot: 'forearmN', bone: 'forearmN', draw: (c, J) => armFore(c, J.elN!, J.hN!, false) },
   ],
@@ -604,7 +697,7 @@ export const GHOUL: FootArt = {
     { slot: 'jaw', bone: 'jaw', draw: (c, J, back) => void (back || ghoulJaw(c, J.head!, -10)) },
     { slot: 'skull', bone: 'head', draw: (c, J, back) => (back ? ghoulHead(c, J.head!, -10, true) : ghoulCranium(c, J.head!, -10)) },
     // The spear, upright, and the near arm gripping it.
-    { slot: 'weapon', bone: 'weapon', draw: (c, J) => void spear(c, J.hN!, 174, 9.5, 5.6, { blade: 2.0, rag: true, sway: 0 }) },
+    { slot: 'weapon', bone: 'weapon', draw: (c, J) => void spear(c, J.hN!, 174, GHOUL_SPEAR[0], GHOUL_SPEAR[1], { blade: 2.3, rag: c.L !== 2, sway: 0 }) },
     { slot: 'upperArmN', bone: 'upperArmN', draw: (c, J) => fleshVol(c, J.shN!, J.elN!, 1.1, 0.85, false) },
     {
       slot: 'forearmN',
@@ -689,7 +782,7 @@ export const THROWER: FootArt = {
     { slot: 'neckBone', bone: 'neck', draw: (c, J) => c.rod(J.neck!, addP(J.neck!, [0.2, -0.6]), 0.5, 0.45, UM.bone, { tone: 1 }) },
     { slot: 'skull', bone: 'head', draw: (c, J, back) => hood(c, J.head!, -4, back, UM.rag, { skullFace: true }) },
     // The near arm, cocked with a javelin over the shoulder.
-    { slot: 'weapon', bone: 'weapon', draw: (c, J) => boneJavelin(c, J.hN!, 100, 6.4) },
+    { slot: 'weapon', bone: 'weapon', draw: (c, J) => boneJavelin(c, J.hN!, 90, JAVELIN) },
     { slot: 'upperArmN', bone: 'upperArmN', draw: (c, J) => stout(c, J.shN!, J.elN!, 0.58, false) },
     {
       slot: 'forearmN',
@@ -843,12 +936,14 @@ export const ARBALEST: FootArt = {
  * the cranequin sits on the butt, its gear box and the handle a quarter turn on each frame.
  */
 function arbalestBow(c: Paper, grip: P2, spanned: boolean, crank: number, rim = false): void {
-  crossbow(c, grip, 88, spanned, 1.45);
+  // (At level 1 the old size: the stock is a line there, and the longer one bands with the arm.)
+  const K = c.L <= 1 ? 1.45 : ARBALEST_K;
+  crossbow(c, grip, 88, spanned, K);
   // At the port the stock lies over the gambeson, the same brown: a lit rim along its upper edge
   // and the prod's tips catch the light (from level 2; below it the stock is a line anyway).
   if (rim && c.L >= 2) {
     const up = limb(88 + 90);
-    const k = 1.45, off = 0.36 * k;
+    const k = K, off = 0.36 * k;
     c.line(addP(along(grip, 268, 1.1 * k), mul(up, off)), addP(along(grip, 88, 2.2 * k), mul(up, off)), code(UM.bone, 3));
     const front = along(grip, 88, 2.4 * k);
     c.line(addP(front, mul(limb(178), 1.5 * k)), addP(front, mul(limb(178), 0.4 * k)), code(UM.bone, 3));
@@ -983,7 +1078,7 @@ export const DEATH_KNIGHT: MountArt = (() => {
       h.hNear,
       // The lance, upright with its pennon, and the armoured near arm.
       // (At level 1 the lance is drawn longer: the Knights' signature against the other riders.)
-      { slot: 'weapon', bone: 'weapon', draw: (c, J, _b, o) => void lance(c, J.hN!, 180, c.L <= 1 ? 14 : 10.5, 3.0, { pennon: true, sway: 0.3 + (o.sway ?? 0), vamplate: true }) },
+      { slot: 'weapon', bone: 'weapon', draw: (c, J, _b, o) => void lance(c, J.hN!, 180, lanceFwd(c), LANCE[1], { pennon: true, sway: 0.3 + (o.sway ?? 0), vamplate: true }) },
       { slot: 'pauldronN', bone: 'chest', draw: (c, J) => pauldron(c, addP(J.shN!, [0, -0.2]), false, 1.15) },
       { slot: 'upperArmN', bone: 'upperArmN', draw: (c, J) => vol(c, J.shN!, J.elN!, 1.3, 1.1, UM.iron, { tone: 2 }) },
       { slot: 'forearmN', bone: 'forearmN', draw: (c, J) => vol(c, J.elN!, J.hN!, 1.05, 1.1, UM.iron, { tone: 2, shine: true }) },
@@ -1336,7 +1431,7 @@ export const BLACK_RIDER: MountArt = (() => {
       h.hNear,
       // The spear couched under the near arm, the arm in its sleeve.
       // (At level 1 the couched spear reaches further, the Riders' signature.)
-      { slot: 'weapon', bone: 'weapon', draw: (c, J) => void spear(c, J.hN!, 116, c.L <= 1 ? 11 : 8.2, 3.6, { blade: 1.8 }) },
+      { slot: 'weapon', bone: 'weapon', draw: (c, J) => void spear(c, J.hN!, 116, RIDER_SPEAR[0], RIDER_SPEAR[1], { blade: 2.2 }) },
       { slot: 'upperArmN', bone: 'upperArmN', draw: (c, J) => vol(c, J.shN!, J.elN!, 1.5, 1.3, UM.shroud, { tone: 2, caps: false }) },
       {
         slot: 'forearmN',

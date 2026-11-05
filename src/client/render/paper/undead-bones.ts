@@ -27,17 +27,28 @@ const bowLiveOf = (restDraw: number, size: number) => (ctx: DrawCtx): PieceOpts 
 const bowLive = bowLiveOf(1.5, 9.5);
 const withLive = (art: FootArt, slot: string, live: (ctx: DrawCtx) => PieceOpts): FootArt => ({ ...art, pieces: art.pieces.map((p) => (p.slot === slot ? { ...p, live } : p)) });
 
+/**
+ * The scutum is held by a grip across its back, so it stays upright as the forearm swings (Trajan's
+ * Column: the shields stand straight however the arm moves): drawn turned back by most of the
+ * forearm's turn from rest.
+ */
+const shieldLive = (ctx: DrawCtx): PieceOpts => {
+  const p = ctx.posed, rest = restPose(p.skel, p.level, p.facing);
+  const d = ((p.byName.forearmF!.a - rest.byName.forearmF!.a + 540) % 360) - 180;
+  return { t: Math.round(d * 0.85) };
+};
+
 /** The Grave Legionary: a heavy cut with sword and shield, the shield wall, a fall back that comes apart. */
 // Specs are built when registering (not at module load): undead-static.ts and undead.ts import
 // each other, and the key art's constants must be initialised first.
 const LEGIONARY_SPEC = (): FootSpec => ({
-  art: LEGIONARY,
+  art: withLive(LEGIONARY, 'front', shieldLive),
   nearDeg: -40,
   skull: { at: [0.85, -12.95], r: 1.1, ang: -4 },
-  smear: [2.4, 7.2],
+  smear: [1.2, 4.6],
   attack: 'cut',
-  // The shield punch and the stab, the low stab under the rim, and the heavy cut (weapon-attacks.md U1).
-  blows: ['legPunchStab', 'legLowStab', 'cut'],
+  // The thrust from behind the scutum, the umbo punch, the overhand stab over the rim (weapon-attacks.md U1, undead-blows-weapons.md).
+  blows: ['legThrust', 'legPunch', 'legOverhand'],
   run: RUNS.legionary,
   runArms: LEG_RUN_ARMS,
   shoot: null,
@@ -70,8 +81,10 @@ const GHOUL_SPEC = (): FootSpec => ({
   skull: { at: [2.6, -10.7], r: 1, ang: -10 },
   jaw: { hinge: [2.65, -10.27], chin: [3.55, -9.75] },
   attack: 'lunge',
-  // Thrusts only, the point on a line (U2): the rising lunge, the overhand stab, the double jab.
-  blows: ['ghoulLunge', 'ghoulHigh', 'ghoulJab'],
+  // The rising lunge and the overhead stab on the point's line (U2), and the two-handed sweep (the swing that turns the shaft).
+  blows: ['ghoulLunge', 'ghoulHigh', 'ghoulSweep'],
+  smear: [10, 13.5],
+  smearMat: UM.wood,
   run: RUNS.ghoul,
   runArms: GHOUL_RUN_ARMS,
   shoot: null,
@@ -97,7 +110,7 @@ const GHOUL_SPEC = (): FootSpec => ({
 /** The Bone-Throwers: an overarm hurl of bone javelins (and the same stab held), a fall back that comes apart. */
 const THROWER_SPEC = (): FootSpec => ({
   art: THROWER,
-  nearDeg: 100,
+  nearDeg: 90,
   skull: { at: [0.8, -13.2], r: 1, ang: -4 },
   attack: 'hurl',
   blows: ['throwerStab', 'throwerJab'],
@@ -249,8 +262,9 @@ const BLACK_RIDER_SPEC = (): MountSpec => ({
   nearDeg: 116,
   jaw: jawOf([1.0, -6.9], 0.82, -6),
   ride: 'thrust',
-  // Thrusts on the spear's line (U6): overhand down at a man on foot, couched level, low past the horse's shoulder.
-  blows: ['riderDown', 'riderLevel', 'riderLow'],
+  // Overhand down at a man on foot and couched level on the spear's line (U6), and the beat swung down past the horse's head.
+  blows: ['riderDown', 'riderLevel', 'riderSweep'],
+  smear: [11.5, 15],
   tilt: -8,
   hunch: 6,
   neLast: ['torso'],
@@ -288,9 +302,9 @@ const DEATH_KNIGHT_SPEC = (): MountSpec => ({
   nearDeg: 174,
   jaw: jawOf([0.85, -6.75], 1.1, -4),
   ride: 'couch',
-  // The couched lance at the charge, then the sword phase (T8 P4, U8): the overhead cut with a pause at the apex, the diagonal forehand cut.
-  blows: ['ride', 'knightOverhead', 'knightDiagonal'],
-  smear: [1.4, 6.8],
+  // The couched lance at the charge, then the sword phase (T8 P4, U8): the overhead cut with a pause at the apex, the thrust down at a man on foot.
+  blows: ['ride', 'knightOverhead', 'knightThrust'],
+  smear: [1.4, 8.2],
   tilt: -10,
   hunch: 4,
   neFirst: ['front'],

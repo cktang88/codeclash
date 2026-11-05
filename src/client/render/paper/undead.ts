@@ -534,8 +534,9 @@ export const THROWER_KEYS: KeySet<FootPose> = {
 
 /** A sharpened bone javelin: a long shin bone, its knuckle the butt, splintered to a point. */
 export function boneJavelin(c: Paper, hand: P2, deg: number, len: number): void {
-  const butt = along(hand, deg + 180, len * 0.35);
-  const tip = along(hand, deg, len * 0.65);
+  // Held a little behind the balance, as a javelin is thrown: under a third of it behind the fist.
+  const butt = along(hand, deg + 180, len * 0.3);
+  const tip = along(hand, deg, len * 0.7);
   c.blob(butt, 0.3, 0.28, UM.bone, { tone: 2 });
   c.rod(butt, tip, 0.34, 0.12, UM.bone, { tone: 3, detail: (_x, _y, _u, v) => (v > 0.8 ? code(UM.bone, 1) : -1) });
 }
@@ -1353,6 +1354,8 @@ function bigSkull(c: Paper, at: P2, r: number, ang: number, jaw: number, back: b
   });
 }
 
+/** The colossus's femur club: 10.5 units from the fist (a giant's thigh bone, as long as a man is tall to the shoulder). */
+export const COLOSSUS_CLUB = 10.5;
 export function colossus(c: Paper, p: BeastPose, facing: Facing, _anim: Anim, frame: number): void {
   const back = isBack(facing);
   const K = 1.75;
@@ -1454,9 +1457,9 @@ export function colossus(c: Paper, p: BeastPose, facing: Facing, _anim: Anim, fr
   // The near arm and the femur club.
   const hand = handAt(F, F.shN, p.nu, p.nl, 1.06);
   const deg = p.bl + F.tilt;
-  if (p.smear !== null) c.smear(hand, p.smear + F.tilt, deg, 3, 8.5 * E, UM.bone, { tone: 2 });
+  if (p.smear !== null) c.smear(hand, p.smear + F.tilt, deg, 3, COLOSSUS_CLUB, UM.bone, { tone: 2 });
   if (back) arm(F.shN, p.nu, p.nl, false);
-  femur(c, along(hand, deg + 180, 0.6), deg, 8.5 * E, 0.85);
+  femur(c, along(hand, deg + 180, 0.6), deg, COLOSSUS_CLUB, 1.05);
   if (!back) arm(F.shN, p.nu, p.nl, false);
 }
 

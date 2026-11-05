@@ -24,7 +24,7 @@ import { both, jerk } from './undead-clips.ts';
 import { runKeys } from './undead-blows.ts';
 import { flame, frameOf, shadeLower, UM } from './undead-parts.ts';
 import { keyLight } from './undead-static.ts';
-import { colossus, COLOSSUS_KEYS, trebuchet, TREBUCHET_KEYS } from './undead.ts';
+import { colossus, COLOSSUS_CLUB, COLOSSUS_KEYS, trebuchet, TREBUCHET_KEYS } from './undead.ts';
 
 const add = (a: P2, b: P2): P2 => [a[0] + b[0], a[1] + b[1]];
 const r6 = (v: number) => Math.round(v * 1e6) / 1e6;
@@ -167,7 +167,7 @@ function colossusParts(): AttachmentSet {
         if (!e) return;
         // Where the femur's head meets the ground.
         const w = ctx.posed.byName.weapon!;
-        const head = along([w.x, w.y], w.a, 8.5);
+        const head = along([w.x, w.y], w.a, COLOSSUS_CLUB);
         dust(c, [head[0], Math.min(0, head[1] + 0.8)], e.int ?? 1);
       },
     },
