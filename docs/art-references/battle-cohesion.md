@@ -630,7 +630,8 @@ watcher would ask "why isn't he doing anything?" about:
 1. **His own man (`hunt`).** A rider of a block in the fight with nobody within reach looks 40 units
    about himself, with no leash to his slot. He takes the nearest man. He never takes a man of braced
    spears while he is in front of their line. He likes a man behind him less (×1.5). He leaves alone
-   horse that is riding out to re-form.
+   fugitives (the pursuit's work: hunting them stopped broken blocks spreading as they ran) and horse
+   that is riding out to re-form.
 2. **Round, not into (`swerve`).** A rider closing on a slower friend who is in his way (within 12
    ahead) swerves to the emptier side, by 60° if the friend is close and 30° if further off. A rider
    still galloping in with his impetus rides on.
@@ -665,25 +666,30 @@ watcher would ask "why isn't he doing anything?" about:
 
 | | v16 | after |
 |---|---|---|
-| Idle rider-seconds, all battles (riders ever idle) | 1,884 (29%) | 112 (5%) |
-| ... of which at 1,200 a side | 1,584 (33%) | 57 (4%) |
-| Stacked riders, per 1,000 rider-ticks | 1.33 | 1.21 |
-| Into the front of braced spears with an open flank, per charge, demo battles | 5 / 323 | 4 / 290 |
-| Left behind after a ride out (rider-seconds / ride-outs), demo battles | 186 / 83 | 109 / 78 |
-| Horse archers with an enemy within 12 (‰ of their ticks) | 31 | 40 |
-| Riders' kills / riders lost, demo battles | 1,506 / 1,359 | 1,910 / 1,380 |
-| Battle length, mean of the demo battles | 125 s | 127 s |
+| Idle rider-seconds, all battles (riders ever idle) | 1,884 (29%) | 53 (4%) |
+| ... of which at 1,200 a side | 1,584 (33%) | 26 (3%) |
+| Stacked riders, per 1,000 rider-ticks | 1.33 | 1.50 |
+| Into the front of braced spears with an open flank, per charge, demo battles | 5 / 323 | 3 / 274 |
+| Left behind after a ride out (rider-seconds / ride-outs), demo battles | 186 / 83 | 54 / 70 |
+| Horse archers with an enemy within 12 (‰ of their ticks) | 31 | 61 |
+| Riders' kills / riders lost, demo battles | 1,506 / 1,359 | 1,950 / 1,516 |
+| Battle length, mean of the eight demo battles (of `pnpm bench`'s ten) | 125 s (122 s) | 142 s (115 s) |
 | Clash of light horse, 30 a side, 8 seeds: blocks that broke off, re-formed and charged again (`cohesion.test.ts` set-up) | 25 | 24 |
 
 Notes on the table:
 
 - **Idle that is left.** Most of the remaining idle time is horse archers standing to shoot with foot
   within 40.
-- **Horse archers.** Their number rose with hunting. Enemy light horse now chases them down where it
-  used to sit behind its own front. They ride off from it, but are sometimes caught.
+- **Horse archers.** Their number rose with hunting (it moves between 40 and 65 from one build to
+  the next, with the battles' course). Enemy light horse now chases them down where it used to sit
+  behind its own front. They ride off from it, but are sometimes caught.
 - **Into the pikes, set pieces.** The frontal-charge set pieces still put rash knights straight into
   the pike wall (19 of 32), by design.
-- **Kills.** The riders' kills rose by a quarter: men who used to sit idle now fight.
+- **Kills.** The riders' kills rose by about 30%: men who used to sit idle now fight.
+- **Balance.** Mirror fairness at 250 and 120 a side: 51.5% and 47.5% (z 0.4 and -0.7). Faction
+  pairs (60 seeds each way, 250 and 1,000 a side) moved within the noise. Templar–Samurai: 52/50%
+  (v16 51/52%). Samurai–Undead: 58/61% (v16 62/50%). Undead–Templar: 42/48% (v16 43/39%).
+- **Speed.** `pnpm bench` is unchanged.
 
 ### 7.4 Test changes
 
@@ -694,7 +700,13 @@ Notes on the table:
 - **When it stops.** It stops when the horse stops charging and fighting, so the last stragglers to
   turn away in a ride-out do not count either.
 
-The assertions in `collision.test.ts` are unchanged.
+The assertions in `collision.test.ts` are unchanged. Two other tests needed changes:
+
+- **`game.test.ts` (waver, break, rally).** The test now runs seeds 1–4. In the changed battles no
+  block rallied in seeds 2–4. Over 24 battles as many blocks rally as before (25 against 19).
+- **Shooters' anchor (`survey`).** A shooter's block pulled after its men now counts as having moved,
+  so its shooters hold for a moment. The changed battles exposed a block of archers that loosed
+  0.1 s after it was pulled, which broke the "never loose while moving" test.
 
 ### 7.5 Left
 

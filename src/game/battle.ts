@@ -2401,6 +2401,8 @@ export class Battle {
       if (q > leash) {
         r.ax = ix + (dx * leash) / q;
         r.ay = iy + (dy * leash) / q;
+        // (A block pulled after its men has moved: its shooters do not loose this moment.)
+        r.movedAt = this.tick;
       }
     }
     // In contact: an enemy block close enough that its men should look for foes. Count the
@@ -4631,8 +4633,8 @@ export class Battle {
   /**
    * RIDER: a rider of a block in the fight who has nobody within his reach picks his own foe
    * within `RIDER.hunt`: the nearest, but never a man of braced spears while he is before their
-   * front, nor one behind him if one lies ahead (×`RIDER.behind`), and the
-   * running last; not horse riding out to re-form. No leash: he knows the men about him, not
+   * front, nor one behind him if one lies ahead (×`RIDER.behind`); not fugitives, nor horse
+   * riding out to re-form. No leash: he knows the men about him, not
    * his slot.
    */
   private hunt(i: number, r: Regiment): number {
@@ -4664,8 +4666,8 @@ export class Battle {
         const end = team === 0 ? grid[c + 1]! : grid[c]! + of0[c]!;
         for (let k = from; k < end; k++) {
           const j = items[k]!;
-          const sj = d.state[j]!;
-          if (sj > State.Routing) continue;
+          // (Men still fighting: fugitives are for the horse let loose on them.)
+          if (d.state[j] !== State.Fighting) continue;
           const dx = kx[k]! - x;
           const dy = ky[k]! - y;
           let s = dx * dx + dy * dy;
@@ -4676,7 +4678,6 @@ export class Battle {
           // (Not across the front of braced spears: the way to their men is round their end.)
           if ((o.stance === 'pikewall' || o.stance === 'braced') && d.mass[j]! <= 2 && (x - o.ax) * o.fx + (y - o.ay) * o.fy > -2) continue;
           if (vx * dx + vy * dy < 0) s *= RIDER.behind;
-          if (sj === State.Routing) s = s * 3 + 30;
           if (s < bs) {
             bs = s;
             best = j;
