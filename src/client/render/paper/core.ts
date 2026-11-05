@@ -929,7 +929,8 @@ export class Paper {
   clusters(min: number): void {
     const { CW, CH, pix: PIX } = this;
     const N = CW * CH;
-    if (this.clSeen.length !== N) {
+    // (Kept at the largest size seen: one surface paints kinds of every body size in turn.)
+    if (this.clSeen.length < N) {
       this.clSeen = new Uint32Array(N);
       this.clStack = new Int32Array(N);
       this.clMembers = new Int32Array(N);

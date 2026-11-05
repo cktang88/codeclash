@@ -53,6 +53,24 @@ export function boneAff(b: BoneXf, rest: BoneXf, lift: P2 = [0, 0]): Aff {
 export type Weights = (p: P2) => [string, number][];
 
 /**
+ * A weights result that is filled in place: `w(a, b, ...)` sets the named bones' weights in order
+ * and returns the same array every call (skinMap reads it at once; it runs per pixel shaded, so
+ * a fresh array per call was most of what the cloth allocated).
+ */
+export function weightSlots(names: readonly string[]): (a: number, b: number, c?: number, d?: number, e?: number) => [string, number][] {
+  const out: [string, number][] = names.map((n) => [n, 0]);
+  if (names.length > 5) throw new Error('weightSlots: at most 5 bones');
+  return (a, b, c, d, e) => {
+    out[0]![1] = a;
+    out[1]![1] = b;
+    if (out.length > 2) out[2]![1] = c!;
+    if (out.length > 3) out[3]![1] = d!;
+    if (out.length > 4) out[4]![1] = e!;
+    return out;
+  };
+}
+
+/**
  * A skinned map: each point moves by its bones' transforms blended by `weights`. The inverse (for
  * shading) is found by fixed-point iteration on the locally linear blend.
  */
@@ -72,7 +90,9 @@ export function skinMap(posed: Posed, weights: Weights): PartMap {
   const blend = (p: P2): void => {
     let s0 = 0, s1 = 0, s2 = 0, s3 = 0, s4 = 0, s5 = 0;
     let tot = 0;
-    for (const [n, w] of weights(p)) {
+    const ws = weights(p);
+    for (let k = 0; k < ws.length; k++) {
+      const n = ws[k]![0], w = ws[k]![1];
       if (w <= 0) continue;
       const m = aff(n);
       s0 = s0 + m[0] * w;
