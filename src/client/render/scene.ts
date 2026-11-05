@@ -1015,7 +1015,7 @@ export class BattleScene {
     // to 1 / MIN_SCALE² as many px) only for the post pass to keep one px in so many: the scene is
     // drawn at the canvas's size instead, each device px as the buffer px it would show (the
     // same picture, a fraction of the fill).
-    const direct = u < 1;
+    const direct = u < 1 && !this.bufferOnly;
     this.view = { px, m, u, bw, bh, vw, vh, camX, camY, offX: Math.floor((W - bw * u) / 2), offY: Math.floor((H - bh * u) / 2), W, H, direct, tw: direct ? W : bw, th: direct ? H : bh };
   }
 
@@ -1038,7 +1038,9 @@ export class BattleScene {
 
   // ---------------------------------------------------------------- drawing
 
-  /** Paints the battle onto `out` (a WebGL2 canvas this scene owns) at tick + alpha. */
+  /** Tools: zoomed out, draw the buffer larger than the canvas as before (to compare). */
+  bufferOnly = false;
+
   /** CPU ms of the last drawn frame's parts (tools: battle-render-bench.mjs). */
   readonly lastPasses = { upload: 0, build: 0, ground: 0, shadows: 0, sprites: 0, post: 0 };
   /** Tools: wait for the GPU after each part of a frame, so lastPasses times the GPU's work too. */
@@ -1048,6 +1050,7 @@ export class BattleScene {
     if (this.syncPasses) gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, this.px1);
   }
 
+  /** Paints the battle onto `out` (a WebGL2 canvas this scene owns) at tick + alpha. */
   draw(out: HTMLCanvasElement, alpha: number, dt: number): void {
     const t0 = performance.now();
     // A collapsed canvas (display: none, a 0-height flex child) has nothing to draw into, and a
