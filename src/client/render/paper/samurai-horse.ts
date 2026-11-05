@@ -40,7 +40,7 @@ interface HorseSpec extends SSpec {
 const HORSE_SPECS: Record<number, HorseSpec> = {
   5: {
     nearDeg: 180, twoHand: false, neNear: 'mirror', neFar: 'mirror', backBone: 'banner', attack: 'thrust', shoot: null, brace: 'yari', die: 'back',
-    walk: {}, run: {}, ride: 'couch', charge: 97, smear: [9, 13],
+    walk: {}, run: {}, ride: 'couch', charge: 97, smear: [9, 15.5],
   },
   6: {
     nearDeg: 160, farDeg: 176, neNear: 'mirror', neFar: { el: [-0.6, -9.1], hn: [2.0, -7.6] }, backBone: 'pelvis', attack: 'punch', shoot: 'kyudo', brace: 'ready', die: 'back',
@@ -48,7 +48,7 @@ const HORSE_SPECS: Record<number, HorseSpec> = {
   },
   7: {
     nearDeg: 150, neNear: { el: [0.4, -13.4], hn: [1.6, -15.0] }, neFar: 'mirror', backBone: 'horo', attack: 'kesa', shoot: null, brace: 'chudan', die: 'back',
-    walk: {}, run: {}, ride: 'cut', charge: 160, smear: [1.4, 5.0],
+    walk: {}, run: {}, ride: 'cut', charge: 160, smear: [1.4, 6.8],
   },
 };
 
@@ -327,6 +327,23 @@ const MOUNTED_DOWN: Author = (rw) => ({
   },
   dw: { spine: T([0, 0], [3, 6], [5, -18], [6, -24], [8, -20], [10, -4], [11, 0]) },
 });
+/**
+ * The yari's third blow from the saddle: tsuki-age, the rising thrust at another rider. The point
+ * is dropped low by the horse's shoulder and the hand drawn back to the hip (1-3), then the rider
+ * rises in the abumi and drives the spear up and forward along its own line at a horseman's chest
+ * (4-5, the point some 40° above level), held (6), and brought back down to the couch (8-11). Its
+ * read against the other two: the only blow that ends pointing *up*.
+ */
+const MOUNTED_RISE: Author = (rw) => ({
+  w: {
+    upperArmN: R(rw.upperArmN!, 11, [1, -10], [2, -30], [3, -34], [4, 30], [5, 78], [6, 80], [7, 60], [9, 0], [10, -6]),
+    forearmN: R(rw.forearmN!, 11, [1, 70], [2, 60], [3, 58], [4, 104], [5, 128], [6, 130], [7, 116], [9, 84], [10, 80]),
+    weapon: R(rw.weapon!, 11, [1, 86], [2, 76], [3, 74], [4, 112], [5, 128], [6, 130], [7, 124], [9, 104], [10, 98]),
+    head: T([0, rw.head!], [3, rw.head! - 4], [5, rw.head! + 8], [7, rw.head! + 8], [9, rw.head!]),
+  },
+  dw: { spine: T([0, 0], [2, -8], [3, -10], [4, 2], [5, 8], [6, 8], [8, 0], [11, 0]), upperArmF: T([0, 0], [4, -6], [6, -6], [9, 0]) },
+  tAdd: { pelvis: [T([0, 0]), T([0, 0], [3, 0.15], [4, -0.3], [5, -0.55], [7, -0.5], [9, -0.1], [11, 0])] },
+});
 /** The cut from the saddle at the charge: the katana high over the near shoulder, the rider leaning out over the neck, the blade falling down the horse's near side, held, back up. */
 const SADDLE_CUT: Author = (rw) => ({
   w: {
@@ -387,6 +404,7 @@ const RIDING: Record<Ride, readonly { a: Author; ev: AnimEvent[] }[]> = {
   couch: [
     { a: MOUNTED_THRUST, ev: [{ f: 5, name: 'strike' }] },
     { a: MOUNTED_DOWN, ev: [{ f: 5, name: 'smear', len: 1, bone: 'weapon' }, { f: 6, name: 'strike' }] },
+    { a: MOUNTED_RISE, ev: [{ f: 5, name: 'strike' }] },
   ],
   cut: [
     { a: SADDLE_CUT, ev: [{ f: 5, name: 'smear', len: 2, bone: 'weapon' }, { f: 7, name: 'strike' }] },

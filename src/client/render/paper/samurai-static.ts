@@ -1012,14 +1012,35 @@ export interface SFoot {
   gear: SGear;
 }
 
+/** The katana's blade, units from the habaki (a 70 cm nagasa on a 14-unit, 1.65 m man; with the tsuka ~1 m). */
+export const KATANA_BLADE = 6.0;
+/**
+ * The nagae-yari (3.6 m: 31 units on a 14-unit man): the shaft behind and ahead of the near hand
+ * upright (the butt at the ground), the butt when levelled (the hands slide up the shaft), the blade.
+ */
+export const YARI = { butt: 8.0, fore: 21.0, level: 17.5, blade: 2.0 };
+/** The rider's yari (2.9 m). */
+export const HORSE_YARI = { butt: 7.0, fore: 16.0, level: 10.5, blade: 1.8 };
+
 /** A naginata held upright: a lacquered shaft, a gilt collar, a long broad curved blade. */
 function bigNaginata(c: Paper, hand: P2, butt: number, fore: number): void {
   const a = addP(hand, [butt * 0.13, butt]);
   const top = addP(hand, [-fore * 0.13, -fore]);
+  if (c.L <= 1) {
+    // At 13 px a sub-pixel round shaft breaks up at some angles: one unbroken line, the blade a
+    // pale line on from it (as the javelin).
+    const tip = addP(top, [-0.6, -4.8]);
+    c.line(c.q(mapPoint(a)), c.q(mapPoint(top)), code(SM.wood, 2));
+    c.line(c.q(mapPoint(top)), c.q(mapPoint(tip)), code(SM.steel, 3));
+    return;
+  }
   vol(c, a, top, 0.36, 0.36, 0.34, SM.wood, 2, { caps: [0.1, 0], detail: (un, v) => (v < 0.06 ? code(SM.iron, 2) : un < -0.4 && frac(v * 6) < 0.1 ? code(SM.wood, 4) : -1) });
   vol(c, addP(top, [0.06, 0.55]), addP(top, [-0.02, -0.15]), 0.5, 0.5, 0.5, SM.gold, 3, { caps: [0, 0], rim: true });
-  const pts: P2[] = [[-0.25, 0], [0.32, 0], [0.62, -1.4], [0.75, -2.8], [0.45, -3.9], [-0.1, -4.6], [0.05, -3.4], [-0.15, -1.8]];
-  slab(c, addP(top, [-0.05, -0.1]), pts, (fx, fy) => {
+  // (The long blade of the Ushiwakamaru-and-Benkei print: ~60 cm, a quarter of the weapon, 5.4 units.)
+  const BL = 1.18;
+  const pts: P2[] = ([[-0.25, 0], [0.32, 0], [0.62, -1.4], [0.75, -2.8], [0.45, -3.9], [-0.1, -4.6], [0.05, -3.4], [-0.15, -1.8]] as P2[]).map(([x, y]) => [x, y * BL] as P2);
+  slab(c, addP(top, [-0.05, -0.1]), pts, (fx, fy0) => {
+    const fy = fy0 / BL;
     const mid = -0.05 + Math.max(0, -fy - 1.5) * 0.12;
     if (fx < mid - 0.12) return code(SM.steel, 4);
     if (Math.abs(fx - mid) < 0.06 && fy > -3.2) return code(SM.steel, 1);
@@ -1056,7 +1077,7 @@ export const FOOT: Record<number, SFoot> = {
     gear: {
       back: (c, b) => sashimono(c, addP(b.pel, [-1.6, -3.4])),
       hipGear: (c, b) => swords(c, b),
-      near: { draw: (c, h) => katana(c, mapPoint(h), 135 + mapTurn(), 5.0), grip: SM.lacquer },
+      near: { draw: (c, h) => katana(c, mapPoint(h), 135 + mapTurn(), KATANA_BLADE), grip: SM.lacquer },
     },
   },
   /** 1: Yari Ashigaru: the nagae-yari upright in both hands; red-brown okegawa-dō with the clan mon, jingasa, sashimono. */
@@ -1067,7 +1088,7 @@ export const FOOT: Record<number, SFoot> = {
       back: (c, b) => sashimono(c, addP(b.pel, [-1.6, -3.4]), 9.0, 1.8, 4.0),
       // (At 13 px the shaft stands a pixel outside the body, so it reads as the silhouette's edge,
       // not a seam cut through the figure.)
-      near: { draw: (c, h) => yari(c, c.L <= 1 ? addP(mapPoint(h), [-1, 0]) : mapPoint(h), 180 + mapTurn(), 8.0, 15.5), grip: SM.flesh },
+      near: { draw: (c, h) => yari(c, c.L <= 1 && Math.abs(mapTurn()) < 30 ? addP(mapPoint(h), [-1, 0]) : mapPoint(h), 180 + mapTurn(), YARI.butt, YARI.fore, YARI.level, YARI.blade), grip: SM.flesh },
     },
   },
   /** 2: Nage-yari Skirmishers: a javelin cocked overhead, the bundle on the back, a team happi. */
@@ -1132,7 +1153,7 @@ export const FOOT: Record<number, SFoot> = {
   8: {
     d: { head: 'kato', body: 'robe', lac: BLACK_GOLD, sode: 'none', sleeve: SM.black, legs: SM.black, shin: 'robe' },
     over: { hnN: [-0.9, -8.6], elN: [-2.8, -8.7], hnF: [-0.85, -6.9], elF: [1.2, -7.5], anN: [-1.0, -0.45], anF: [1.15, -0.5], knN: [-1.1, -3.4], knF: [1.15, -3.4] },
-    gear: { near: { draw: (c, h) => bigNaginata(c, h, 5.2, 7.4), grip: SM.flesh } },
+    gear: { near: { draw: (c, h) => bigNaginata(c, h, 5.2, 8.6), grip: SM.flesh } },
   },
   /** 10: Daimyō: black lacquer and gilt, team kebiki with a gold band, the crescent, the horo, the war fan. */
   10: {
@@ -1404,7 +1425,7 @@ export const MOUNTED: Record<number, SMounted> = {
     over: { hnN: [-1.4, -8.6], elN: [-2.6, -8.6], hnF: [2.6, -7.0], elF: [2.4, -8.4] },
     gear: {
       back: (c, b) => sashimono(c, addP(b.pel, [-1.6, -3.4]), 8.4, 1.8, 3.8),
-      near: { draw: (c, h) => yari(c, mapPoint(h), 180 + mapTurn(), 6.0, 13.0), grip: SM.flesh },
+      near: { draw: (c, h) => yari(c, mapPoint(h), 180 + mapTurn(), HORSE_YARI.butt, HORSE_YARI.fore, HORSE_YARI.level, HORSE_YARI.blade), grip: SM.flesh },
     },
   },
   /** 6: Yabusame Archers: a chestnut with socks; the ayaigasa, the yumi braced, the ebira and mukabaki. */
@@ -1429,7 +1450,7 @@ export const MOUNTED: Record<number, SMounted> = {
     over: { hnN: [-1.3, -15.0], elN: [-3.2, -13.4], hnF: [2.6, -7.2], elF: [2.4, -8.6] },
     gear: {
       back: (c, b) => horo(c, addP(b.pel, [-1.2, -3.6]), 1.1),
-      near: { draw: (c, h) => katana(c, mapPoint(h), 150 + mapTurn(), 4.3), grip: KM.deepRed },
+      near: { draw: (c, h) => katana(c, mapPoint(h), 150 + mapTurn(), KATANA_BLADE), grip: KM.deepRed },
     },
   },
 };
