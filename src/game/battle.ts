@@ -74,6 +74,14 @@ export { COHESION, DOCTRINE, MORALE, REGROUP, UNDEAD } from './command.ts';
  *   its frontage again once the horse has gone; horse charging or riding round at it is a threat
  *   to turn to from 150. A block locked to its front turns its rear ranks about on an enemy
  *   behind it (`rearUntil`).
+ * - Friendly blocks keep out of each other (`giveWay`, `crowded`, `rightOfWay`; measured by
+ *   scripts/battle-crossing.ts): a block about to march into a friend goes round toward its goal
+ *   or halts; one standing in a friend with the right of way (engaged, standing, charging, then
+ *   marching; the first in the order of battle between equals) backs out; wheels and facings that
+ *   would sweep into a friend stop short; no two reserves stand behind the same block. Not
+ *   skirmishers, shooters falling back through their line, chases, or horse at the charge or
+ *   riding out. Two friendly blocks stood in each other a quarter deep or more 2.7 times a second
+ *   sampled in grand battles; 0.3 now, mostly horse charging horse.
  */
 /**
  * v16: nothing grows with the size of the battle that should not (the undead won two thirds of
@@ -4944,6 +4952,9 @@ export class Battle {
     if (!threat && c < 0) walk -= r.depth * c;
     const faceTicks = C.faceDelay + C.faceDress + walk / (FOOT_MARCH * TICK_S);
     if (threat ? faceTicks > wheelTicks || c > 0.5 : faceTicks * C.faceMargin > wheelTicks) return;
+    // (Not if the block re-formed to its new front would stand in a friend: it wheels, which stops short.)
+    const h = r.depth * 0.5;
+    if (this.crowded(r, r.cx + wx * h, r.cy + wy * h, wx, wy, true) > this.crowded(r, r.ax, r.ay, r.fx, r.fy, true) + 0.05) return;
     this.faceAbout(r, wx, wy, !threat);
     r.formedAt = this.tick + Math.ceil(faceTicks);
   }
