@@ -2068,7 +2068,7 @@ export class Battle {
       const dy = e.cy - r.cy;
       const far = reach + e.radius + r.radius;
       if (dx * dx + dy * dy > far * far) continue;
-      for (const k of [1, 2]) {
+      for (let k = 1; k <= 2; k++) {
         slotPos(e, k, r.depth, tmp);
         const px = tmp[0]!;
         const py = tmp[1]!;
@@ -4374,7 +4374,7 @@ export class Battle {
     }
     // Foot facing a big turn (or under threat close by) faces round, man by man, and re-forms,
     // when that is quicker than wheeling the whole block (see `turnFoot`).
-    if (!horse && (this.tick + r.phase) % 5 === 0) this.turnFoot(r, wx, wy);
+    if (!horse && (this.tick + r.phase) % 5 === 0) this.turnFoot(r, wx, wy, marching);
     this.wheel(r, wx, wy, horse);
     if (q < 0.3) {
       r.aspd = 0;
@@ -4450,12 +4450,17 @@ export class Battle {
    * to its front: its rear ranks turn about instead (`rearUntil`, see `seek`). Not wedges, columns
    * or engines.
    */
-  private turnFoot(r: Regiment, wx: number, wy: number): void {
+  private turnFoot(r: Regiment, wx: number, wy: number, marching: boolean): void {
     const C = COHESION;
     const c = r.fx * wx + r.fy * wy;
     if (c > C.faceMinCos || r.alive < 2 || r.engaged || r.routed) return;
     if (r.role === 'siege' || r.role === 'command' || r.stance === 'wedge' || r.stance === 'column') return;
     if (this.tick - r.facedAt < C.faceEvery) return;
+    // Not with enemy horse about (unless it is riding off): a block that turns about and starts
+    // re-forming as horse rides at it, or among the horse already in the fight, is caught in
+    // disorder (Patay); it wheels to meet it, as before.
+    const cav = this.nearestFoe(r, 2, C.faceHorse);
+    if (cav && cav.mode !== 'withdraw' && cav.mode !== 'rally') return;
     const m = sqrt(wx * wx + wy * wy);
     if (m < 1e-9) return;
     wx /= m;
@@ -4495,6 +4500,8 @@ export class Battle {
       if (q > walk) walk = q;
     }
     const threat = this.nearestFoe(r, 0, C.faceThreat) !== null;
+    // On the march, with no enemy close, it wheels as it goes.
+    if (marching && !threat) return;
     // The countermarch: turning away from the old front, the front-rankers walk through to the new one.
     if (!threat && c < 0) walk -= r.depth * c;
     const faceTicks = C.faceDelay + C.faceDress + walk / (FOOT_MARCH * TICK_S);
@@ -4524,13 +4531,22 @@ export class Battle {
     if (n === 0) return;
     cx /= n;
     cy /= n;
+    // The new front rank stands where the foremost man now stands toward the new front, not
+    // beyond it: the block dresses back on him, nobody walks on into an enemy at that side.
+    let front = 0;
+    for (const id of r.members) {
+      if (d.state[id] !== State.Fighting) continue;
+      const f = (d.x[id]! - cx) * wx + (d.y[id]! - cy) * wy;
+      if (f > front) front = f;
+    }
     r.fx = r.dfx = wx;
     r.fy = r.dfy = wy;
     r.ax = cx;
     r.ay = cy;
     this.assignSlots(r, true, countermarch);
-    r.ax = cx + wx * (r.depth - 4) * 0.5;
-    r.ay = cy + wy * (r.depth - 4) * 0.5;
+    const ahead = Math.min(front, (r.depth - 4) * 0.5);
+    r.ax = cx + wx * ahead;
+    r.ay = cy + wy * ahead;
     // A block standing where it was keeps standing (its goal moves with its front).
     const gx = r.tx - oax;
     const gy = r.ty - oay;
@@ -4709,9 +4725,9 @@ export class Battle {
     const edge = near && (d.sx[i]! < 0 ? -d.sx[i]! : d.sx[i]!) > r.width * 0.5 - r.spacing * C.edgeFiles;
     // Initiative: a man of the line who has stood in contact without a foe for longer than his
     // patience (the eager soonest) looks further, for an enemy nobody of ours is fighting that he
-    // can get at: round the end of the fight, or into a gap. Every other look while he does.
+    // can get at: round the end of the fight, or into a gap. Every fourth look (1.2 s) while he does.
     const idle = line && (r.role === 'line' || r.mode === 'melee') && d.idl[i]! > 0 ? this.tick - d.idl[i]! : 0;
-    const roam = idle > C.patience * (1 - C.patienceEager * d.ea[i]!) && (loose || C.roamDead) && ((this.tick + i) & 1) === 0;
+    const roam = idle > C.patience * (1 - C.patienceEager * d.ea[i]!) && (loose || C.roamDead) && (this.tick + i - this.firstId[d.team[i]!]!) % 12 === 0;
     // The rear half of a block locked to its front, with an enemy at its back, faces about.
     const rear = r.rearUntil > this.tick && !mounted && d.row[i]! >= Math.max(1, r.rows >> 1);
     const reach = near || rear ? C.reachNear : 10;
@@ -4761,16 +4777,18 @@ export class Battle {
           if (s > R2) continue;
           const lx = kx[k]! - gx;
           const ly = ky[k]! - gy;
+          const far = lx * lx + ly * ly > L2;
+          if (far && !line) continue;
           const h = ri + d.rad[j]! + 3;
           const hh = h * h;
           const at = s <= hh;
           // (A foe at hand he fights wherever he stands.)
-          if (!(line && at) && lx * lx + ly * ly > L2) continue;
+          if (far && !at) continue;
           if (line) {
             const a = att[j]! - (j === cur ? 1 : 0);
-            // Beyond his usual reach, only a foe on foot nobody is fighting, whom he can get at
-            // (foot does not go hunting horsemen).
-            if (!at && s > reach2 && (a > 0 || sj === State.Routing || d.mt[j] || !this.open(x, y, j))) continue;
+            // Beyond his usual reach, only a foe on foot whom at most `roamJoin` of ours are
+            // fighting, and whom he can get at (foot does not go hunting horsemen).
+            if (!at && s > reach2 && (a > C.roamJoin || sj === State.Routing || d.mt[j] || !this.open(x, y, j))) continue;
             // One that others are fighting already less readily than one alone...
             if (a > 0) s *= 1 + C.crowd * (a < 3 ? a : 3);
             // ...but any foe at hand before one he would have to turn from him to reach.
@@ -5505,7 +5523,7 @@ export class Battle {
    * from each, a rank behind him), as a real man dresses on his neighbours: he cannot see the
    * whole line. A line on the move bends and ripples, and straightens itself over time. With the
    * man ahead fallen, in contact, he steps up into the hole, keeping station on the men beside it.
-   * Neighbours who are off fighting far from their places (or swinging round a flank) do not count.
+   * Neighbours who are fighting a foe (or swinging round a flank) do not count.
    * Puts the point in tmp[0], tmp[1]; false when he has nobody to dress on.
    */
   private station(i: number, r: Regiment, tx: number, ty: number): boolean {
@@ -5523,9 +5541,10 @@ export class Battle {
     let ox = tx;
     let oy = ty;
     if (row > 0 && r.contact) {
-      // The man ahead of him is down: he takes his place.
+      // The man ahead of him is down: he takes his place (unless an enemy has stepped into it:
+      // then he fights him from where he stands).
       const a = nb[(row - 1) * K + ck]!;
-      if (a >= 0 && d.state[a] !== State.Fighting) {
+      if (a >= 0 && d.state[a] !== State.Fighting && !this.enemyAt(tx + fx * step, ty + fy * step, d.team[i]!, d.rad[i]! * 2 + 1)) {
         row--;
         ox += fx * step;
         oy += fy * step;
@@ -5535,13 +5554,12 @@ export class Battle {
     let sy = 0;
     let w = 0;
     const base = row * K;
-    const stray = C.leashNear * C.leashNear;
     // (lateral unit: -fy, fx)
     for (let side = -2; side <= 2; side += 4) {
       const kk = ck + side;
       if (kk < 0 || kk >= K) continue;
       const j = nb[base + kk]!;
-      if (j < 0 || j === i || !this.dresses(j, r, stray)) continue;
+      if (j < 0 || j === i || !this.dresses(j, r)) continue;
       sx += d.x[j]! + fy * sp * (side > 0 ? 1 : -1);
       sy += d.y[j]! - fx * sp * (side > 0 ? 1 : -1);
       w++;
@@ -5549,7 +5567,7 @@ export class Battle {
     if (row > 0) {
       const ab = (row - 1) * K;
       const a = nb[ab + ck]!;
-      if (a >= 0 && a !== i && this.dresses(a, r, stray)) {
+      if (a >= 0 && a !== i && this.dresses(a, r)) {
         sx += (d.x[a]! - fx * step) * C.dressAhead;
         sy += (d.y[a]! - fy * step) * C.dressAhead;
         w += C.dressAhead;
@@ -5559,7 +5577,7 @@ export class Battle {
           const kk = ck + side;
           if (kk < 0 || kk >= K) continue;
           const j = nb[ab + kk]!;
-          if (j < 0 || j === i || !this.dresses(j, r, stray)) continue;
+          if (j < 0 || j === i || !this.dresses(j, r)) continue;
           sx += d.x[j]! - fx * step + fy * sp * 0.5 * side;
           sy += d.y[j]! - fy * step - fx * sp * 0.5 * side;
           w++;
@@ -5577,15 +5595,39 @@ export class Battle {
     return true;
   }
 
-  /** Whether man `j` of block `r` is one to dress on: standing in it, not far from his place. */
-  private dresses(j: number, r: Regiment, stray2: number): boolean {
+  /** Whether a standing man of the enemy of `team` is within `R` of (x, y) (the grid of this tick). */
+  private enemyAt(x: number, y: number, team: number, R: number): boolean {
     const d = this.d;
-    if (d.state[j] !== State.Fighting || d.reg[j] !== r.id || d.cu[j] !== 0) return false;
-    const gx = r.ax + r.fx * d.sy[j]! - r.fy * d.sx[j]!;
-    const gy = r.ay + r.fy * d.sy[j]! + r.fx * d.sx[j]!;
-    const ex = d.x[j]! - gx;
-    const ey = d.y[j]! - gy;
-    return ex * ex + ey * ey < stray2;
+    const x0 = Math.max(0, Math.floor((x - R) / CELL));
+    const x1 = Math.min(GW - 1, Math.floor((x + R) / CELL));
+    const y0 = Math.max(0, Math.floor((y - R) / CELL));
+    const y1 = Math.min(GH - 1, Math.floor((y + R) / CELL));
+    const R2 = R * R;
+    for (let cy = y0; cy <= y1; cy++) {
+      for (let cx = x0; cx <= x1; cx++) {
+        const c = cy * GW + cx;
+        const from = team === 0 ? this.grid[c]! + this.ofTeam0[c]! : this.grid[c]!;
+        const end = team === 0 ? this.grid[c + 1]! : this.grid[c]! + this.ofTeam0[c]!;
+        for (let k = from; k < end; k++) {
+          const j = this.items[k]!;
+          if (d.state[j] !== State.Fighting) continue;
+          const dx = d.x[j]! - x;
+          const dy = d.y[j]! - y;
+          if (dx * dx + dy * dy <= R2) return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Whether man `j` of block `r` is one to dress on: standing in it, in his place in the ranks.
+   * (Not a man fighting a foe: he stands where his foe puts him, and dressing on him drew the men
+   * beside him on into the enemy.)
+   */
+  private dresses(j: number, r: Regiment): boolean {
+    const d = this.d;
+    return d.state[j] === State.Fighting && d.reg[j] === r.id && d.cu[j] === 0 && d.target[j]! < 0;
   }
 
   private move(i: number): void {
@@ -5707,8 +5749,8 @@ export class Battle {
           }
           // Foot keeps station on the men beside and ahead of him more than on his place in the
           // block: the line bends and dresses itself, and he steps up into a hole before him.
-          // (Not shooters standing to loose: they keep their ranks, as for P1.)
-          if (!mounted && d.cu[i] === 0 && (r.role === 'line' || mode === 'melee') && this.station(i, r, tx, ty)) {
+          // (Not shooters and skirmishers: they keep their ranks to loose, as for P1, and fight as a loose crowd.)
+          if (!mounted && d.cu[i] === 0 && r.role === 'line' && this.station(i, r, tx, ty)) {
             tx = this.tmp[0]!;
             ty = this.tmp[1]!;
           }

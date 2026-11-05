@@ -143,6 +143,10 @@ A facing is quick but has costs:
 - **With an enemy within 50 of it** (`faceThreat`), it faces for any turn of 60 degrees and more that facing makes quicker, without the margin. There is no time to countermarch, so the walk is shorter. Smaller turns under threat stay wheels: blocks that faced every few degrees toward horse riding round them never showed a flank, and horse then beat bows in only 19 to 22 of 40 matchups, against 26 to 27 before.
 - **A block that has faced round has no front until it has re-formed** (`formedAt`, the estimated facing time). Blows and charges from before it count as from the flank, and its shooters do not loose until then.
 - **It never faces for under about 25 degrees** (`faceMinCos`). Blocks of horse never face: horses cannot face in place (section 3.4). Wedges, columns and engines do not face either.
+- **On the march, with no enemy close, it wheels as it goes.**
+- **With enemy horse within 150** (`faceHorse`), unless that horse is riding off to rally, it wheels. A block that turns about and re-forms as horse rides at it, or among horse already in the fight, is caught in disorder (Patay).
+  - Without this rule the heavy foot beside the archers faced round onto horse fighting there, about 7 times a battle.
+  - Horse then beat bows in only 50% of 120 matchups, against 62% in v16. With the rule it wins 53%; without any facing, 62%.
 - **The facing itself.** Every man turns at once (the regiment's facing changes on the spot). The block's places are laid out afresh about where its men stand, at the new facing, with the same frontage. A man with a foe at hand fights him from where he stands.
   - Under threat, each man takes the place nearest him, so after an about-turn the old rear ranks are the front.
   - With time to spare the sim countermarches: each man keeps his old rank, so the front-rankers walk through to the new front. The time estimate adds the block's depth times the share of the turn past 90 degrees.

@@ -360,6 +360,8 @@ export const COHESION = {
   patienceEager: 0.6,
   roamReach: 5.5,
   roamDead: true,
+  /** ...or one that at most this many of ours fight already (he makes it two on one rather than stand by). */
+  roamJoin: 1,
   /**
    * Station keeping: a man of a foot block makes this share for his place in it (with his lead),
    * the rest for where the men beside him and ahead of him put him (the man ahead in his file
@@ -382,6 +384,8 @@ export const COHESION = {
   faceDelay: 5,
   faceDress: 15,
   faceEvery: 30,
+  /** ...nor with enemy horse within this of it (unless riding off to rally). */
+  faceHorse: 150,
   rearTurn: 30,
   /** A reserve block goes in on its own for an open enemy flank within this many times its width and depth (and 20) of it. */
   initiative: 1,
