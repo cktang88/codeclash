@@ -24,7 +24,8 @@ import { Batch, cornerBuffer, dropTarget, SpriteProgram, SpriteStream, target, t
 import { paintGround, type Ground } from './ground.ts';
 import { projX, projY, PX, unproject } from './iso.ts';
 import { GlPost } from './post.ts';
-import { facing, settleTurn, stillRising } from './pose.ts';
+import { facing, settleTurn, stillRising, turnVia, TURN_HOLD, TURN_STEP } from './pose.ts';
+import { AnimTrack, blankFacts, isGait, pickAnim } from './animstate.ts';
 import { frameBox, nextZoomFloor, NO_INSETS, zoomOutScale, type Insets, type ZoomFloor } from './fit.ts';
 import { upscaleCanvas } from './upscale.ts';
 import { buildAtlas as buildClassic } from './sprites.ts';
@@ -258,11 +259,18 @@ export class BattleScene {
 
   private prevX: Float32Array;
   private prevY: Float32Array;
-  private prevHp: Float32Array;
+  private prevHp: Float64Array;
   private hurtAt: Float32Array;
   private dirs: Uint8Array;
-  /** When (tick + alpha) each man last turned (pose.ts settleTurn). */
+  /** When (tick + alpha) each man last turned (pose.ts settleTurn), and the facing he turned from. */
   private turnAt: Float32Array;
+  private leftDir: Uint8Array;
+  /** Each man's clip, its start and stride across frames (animstate.ts). */
+  private anims: AnimTrack;
+  private readonly facts = blankFacts();
+  /** The way each man last moved (world velocity above a crawl): a walker who pauses a tick keeps facing it. */
+  private moveX: Float32Array;
+  private moveY: Float32Array;
   /** World direction of each man's latest shot (NaN: none yet): an archer faces where he looses. */
   private aimX: Float32Array;
   private aimY: Float32Array;
@@ -369,10 +377,14 @@ export class BattleScene {
     const n = battle.soldiers.length;
     this.prevX = new Float32Array(n);
     this.prevY = new Float32Array(n);
-    this.prevHp = new Float32Array(n);
+    this.prevHp = new Float64Array(n);
     this.hurtAt = new Float32Array(n).fill(-100);
     this.dirs = new Uint8Array(n);
     this.turnAt = new Float32Array(n).fill(-100);
+    this.leftDir = new Uint8Array(n).fill(255);
+    this.anims = new AnimTrack(n);
+    this.moveX = new Float32Array(n);
+    this.moveY = new Float32Array(n);
     this.aimX = new Float32Array(n).fill(NaN);
     this.aimY = new Float32Array(n).fill(NaN);
     this.stamped = new Uint8Array(n);
@@ -391,6 +403,10 @@ export class BattleScene {
       this.riseX.set(from.riseX);
       this.riseY.set(from.riseY);
       this.turnAt.set(from.turnAt);
+      this.leftDir.set(from.leftDir);
+      this.anims.copy(from.anims);
+      this.moveX.set(from.moveX);
+      this.moveY.set(from.moveY);
       this.hurtAt.set(from.hurtAt);
       this.aimX.set(from.aimX);
       this.aimY.set(from.aimY);
@@ -1359,26 +1375,25 @@ export class BattleScene {
       const lens = this.lenTab[s.team]!;
       let anim: Anim = Anim.Idle;
       let start = 0;
-      let loop = true;
       let dir = this.dirs[i] as Dir;
       const speed = Math.sqrt(s.vx * s.vx + s.vy * s.vy);
       const hitAt = Math.max(((s as unknown as { hitAt?: number }).hitAt ?? -100), this.hurtAt[i]!);
       const reg = b.regiments[s.reg]!;
       const stance = stanceOf(reg);
       const rising = s.roseAt >= 0 && s.state !== State.Dead && stillRising(T - s.roseAt, this.riseTicksOf(s.team, kind), s.x - this.riseX[i]!, s.y - this.riseY[i]!);
-      if (s.state === State.Dead) {
-        anim = Anim.Die;
-        start = s.diedAt;
-        loop = false;
-      } else if (rising) {
-        // Raised from the dead: the fall played backwards (contract.ts RISE).
-        anim = Anim.Die;
-        start = s.roseAt;
-        loop = false;
+      const frameRow = this.frameTab[s.team]!;
+      const tpfRow = this.tpfTab[s.team]!;
+      const track = this.anims;
+      if (s.state === State.Dead || rising) {
+        // Falling; or raised from the dead: the fall played backwards (contract.ts RISE).
+        anim = track.resolve(i, Anim.Die, T, rising ? s.roseAt : s.diedAt, frameRow, kind * ANIM_COUNT, tpfRow, 0);
+        start = rising ? s.roseAt : s.diedAt;
       } else {
         const act = T - s.actedAt;
         const tgt = s.target >= 0 ? ss[s.target] : undefined;
-        const reach = tgt !== undefined && (tgt.x - s.x) ** 2 + (tgt.y - s.y) ** 2 < 14 * 14;
+        const tdx = tgt ? tgt.x - s.x : NaN;
+        const tdy = tgt ? tgt.y - s.y : NaN;
+        const reach = tgt !== undefined && tdx * tdx + tdy * tdy < 14 * 14;
         const melee = s.s.range === 0 || reach;
         const actAnim = melee ? Anim.Attack : Anim.Shoot;
         // In the fight: his block is locked in or touching an enemy block, an enemy block is close
@@ -1386,40 +1401,59 @@ export class BattleScene {
         // fights hand to hand keeps his guard there (spear levelled, shield up), standing or
         // stepping, instead of shouldering his weapon upright as on the march: after a charge
         // breaks on the spears and the horse wheels off to come again, the levy stays squared up.
-        const near = tgt !== undefined && (tgt.x - s.x) ** 2 + (tgt.y - s.y) ** 2 < 40 * 40;
+        const near = tgt !== undefined && tdx * tdx + tdy * tdy < 40 * 40;
         const inFight = s.state === State.Fighting && s.s.range === 0 && (reg.engaged || reg.contact || reg.closeIn > 0.4 || near);
-        if (act >= 0 && act < lens[kind * ANIM_COUNT + actAnim]!) {
-          anim = actAnim;
-          start = s.actedAt;
-          loop = false;
-        } else if (T - hitAt < lens[kind * ANIM_COUNT + Anim.Hit]!) {
-          anim = Anim.Hit;
-          start = hitAt;
-          loop = false;
-        } else if (s.state === State.Routing || speed > s.s.speed * 1.2 || (speed > s.s.speed * 0.6 && (reg.mode === 'charge' || reg.mode === 'pursue'))) anim = Anim.Run;
-        // A man with his foe in reach who shuffles, gives ground or steps back to breathe (v14 P3)
-        // does it in his guard, facing the foe (docs/art-references/battle-cohesion.md, P3).
-        // Stepping in the fight, he walks in his guard (Anim.Advance; kinds without one walk).
-        else if (speed > 3 && !(s.state === State.Fighting && reach && speed < s.s.speed * 0.6)) anim = s.cls === U.Knights && stance === 'wedge' && speed > s.s.speed * 0.7 ? Anim.Run : inFight ? Anim.Advance : Anim.Walk;
-        // Between blows a man in the fight stands in his guard (Brace), poised: blows leave it and
-        // return to it. Out of reach of a foe he idles (or holds the regiment's braced stance).
-        else if (s.state === State.Fighting && (BRACING.has(stance) || (tgt !== undefined && melee) || inFight)) anim = Anim.Brace;
+        // What the sim calls for (animstate.ts pickAnim): a blow or a shot, a flinch, the run (routing,
+        // charging, pursuing), a step (in his guard when in the fight: Anim.Advance, kinds without one
+        // walk; a man with his foe in reach who shuffles in the press stands in it), else his guard
+        // between blows (Brace) or, out of reach of a foe, idling. The track then holds a clip
+        // through a tick's pause, carries the stride across gaits and enters the guard at frame 0.
+        const fa = this.facts;
+        fa.act = act;
+        fa.actAnim = actAnim;
+        fa.actLen = this.lenTab[s.team]![kind * ANIM_COUNT + actAnim]!;
+        fa.hit = T - hitAt;
+        fa.hitLen = this.lenTab[s.team]![kind * ANIM_COUNT + Anim.Hit]!;
+        fa.routing = s.state === State.Routing;
+        fa.speed = speed;
+        fa.top = s.s.speed;
+        fa.charging = reg.mode === 'charge' || reg.mode === 'pursue';
+        fa.fighting = s.state === State.Fighting;
+        fa.reach = reach;
+        fa.inFight = inFight;
+        fa.wedge = s.cls === U.Knights && stance === 'wedge';
+        fa.guard = BRACING.has(stance) || (tgt !== undefined && melee) || inFight;
+        const want = pickAnim(fa, track.anim[i] as Anim);
+        start = want === Anim.Hit ? hitAt : s.actedAt;
+        // Marching blocks step together: one phase per regiment, a hair's offset per file.
+        // Everything else (idling, routing) keeps a per-man phase so a crowd doesn't pulse.
+        // (A chase or a charge run from too far has lost the step.)
+        const drilled = s.state === State.Fighting && (want === Anim.Walk || want === Anim.Run) && reg.mode !== 'pursue' && !reg.ragged;
+        const phase = drilled ? s.reg * 0.71 + Math.round(s.sx / Math.max(1, reg.spacing)) * 0.12 : (i % 7) * 1.37;
+        anim = track.resolve(i, want, T, start, frameRow, kind * ANIM_COUNT, tpfRow, phase);
         // Facing: the way they move, else where they shoot or at their foe, else the regiment's front.
-        const next = settleTurn(facing(anim, s.vx, s.vy, tgt ? tgt.x - s.x : NaN, tgt ? tgt.y - s.y : NaN, melee, this.aimX[i]!, this.aimY[i]!, reg.fx, reg.fy, dir), dir, anim, T - this.turnAt[i]!);
+        // A man still in his stride through the sim's pauses keeps facing the way he went.
+        if (speed > 3) {
+          this.moveX[i] = s.vx;
+          this.moveY[i] = s.vy;
+        }
+        const gait = isGait(anim) && speed <= 3;
+        const vx = gait ? this.moveX[i]! : s.vx;
+        const vy = gait ? this.moveY[i]! : s.vy;
+        const left = this.leftDir[i]!;
+        const next = settleTurn(facing(anim, vx, vy, tdx, tdy, melee, this.aimX[i]!, this.aimY[i]!, reg.fx, reg.fy, dir), dir, anim, T - this.turnAt[i]!, left === 255 ? -1 : (left as Dir));
         if (next !== dir) {
-          this.turnAt[i] = T;
-          dir = next;
+          // A half turn goes through the quarter between (pose.ts turnVia), shown for TURN_STEP.
+          const via = anim === Anim.Attack || anim === Anim.Shoot ? next : turnVia(dir, next, vx * vx + vy * vy > 9 ? vx : tgt ? tdx : reg.fx, vx * vx + vy * vy > 9 ? vy : tgt ? tdy : reg.fy);
+          this.turnAt[i] = via === next ? T : T - (TURN_HOLD - TURN_STEP);
+          this.leftDir[i] = via === next ? dir : 255;
+          dir = via;
           this.dirs[i] = dir;
         }
       }
-      const frames = this.frameTab[s.team]![kind * ANIM_COUNT + anim]!;
-      const tpf = this.tpfTab[s.team]![anim]!;
-      // Marching blocks step together: one phase per regiment, a hair's offset per file.
-      // Everything else (idling, routing) keeps a per-man phase so a crowd doesn't pulse.
-      // (A chase or a charge run from too far has lost the step.)
-      const drilled = s.state === State.Fighting && (anim === Anim.Walk || anim === Anim.Run) && reg.mode !== 'pursue' && !reg.ragged;
-      const phase = drilled ? s.reg * 0.71 + Math.round(s.sx / Math.max(1, reg.spacing)) * 0.12 : (i % 7) * 1.37;
-      let f = rising ? riseFrame(frames, tpf, T - start) : loop ? Math.floor((T + phase) / tpf) % frames : Math.min(frames - 1, Math.floor((T - start) / tpf));
+      const frames = frameRow[kind * ANIM_COUNT + anim]!;
+      const tpf = tpfRow[anim]!;
+      let f = rising ? riseFrame(frames, tpf, T - start) : track.frame(i, T, frames, tpf);
       if (f < 0) f = 0;
       // Several blows (Atlas.blows): each man picks one per swing, from a hash of who he is and
       // when he swung, so a regiment does not strike in lockstep. Blow b's frames follow blow 0's.

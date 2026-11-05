@@ -1,7 +1,7 @@
 // Which way a figure faces, from what it is doing (pure: no DOM, testable in Node).
 
 import { Anim, type Dir } from './contract.ts';
-import { dirFor } from './iso.ts';
+import { dirFor, screenDir } from './iso.ts';
 
 /**
  * A figure's facing this frame: the way he moves (but a man with his foe in reach who is not
@@ -36,10 +36,12 @@ export const TURN_HOLD = 5;
 
 /**
  * The facing to draw: `next` (from facing()), unless he turned from `prev` less than TURN_HOLD
- * ticks ago (`since`); a blow or a shot turns him at once.
+ * ticks ago (`since`), or less than twice that if `next` is `left`, the facing he turned from (a
+ * man torn between his foe and the way he steps would otherwise swing back and forth at every
+ * hold's end); a blow or a shot turns him at once.
  */
-export function settleTurn(next: Dir, prev: Dir, anim: Anim, since: number): Dir {
-  if (next === prev || anim === Anim.Attack || anim === Anim.Shoot || since >= TURN_HOLD) return next;
+export function settleTurn(next: Dir, prev: Dir, anim: Anim, since: number, left: Dir | -1 = -1): Dir {
+  if (next === prev || anim === Anim.Attack || anim === Anim.Shoot || since >= (next === left ? 2 * TURN_HOLD : TURN_HOLD)) return next;
   return prev;
 }
 
@@ -56,4 +58,22 @@ export const RISE_SLIDE = 3;
  */
 export function stillRising(since: number, ticks: number, dx: number, dy: number): boolean {
   return since < ticks && dx * dx + dy * dy < RISE_SLIDE * RISE_SLIDE;
+}
+
+/**
+ * Ticks a man about-facing shows the facing between before he completes the turn (a half turn,
+ * SE to NW, is a quarter and then another, not a flip: the figure seems to turn rather than pop).
+ */
+export const TURN_STEP = 1;
+
+/**
+ * The facing to show on the way from `prev` to `next`: for a half turn (opposite facings), the
+ * quarter between them nearer the way he turns to (world `dx, dy`); otherwise `next` itself.
+ */
+export function turnVia(prev: Dir, next: Dir, dx: number, dy: number): Dir {
+  if (((next - prev) & 3) !== 2) return next;
+  const [sx, sy] = screenDir(dx, dy);
+  if (sx === 0 && sy === 0) return ((prev + 1) & 3) as Dir;
+  // Near the screen's horizontal: the quarter with the target's left/right; else its up/down.
+  return (Math.abs(sy) < Math.abs(sx) ? next ^ 3 : next ^ 1) as Dir;
 }
