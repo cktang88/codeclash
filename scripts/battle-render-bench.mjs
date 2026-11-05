@@ -37,7 +37,7 @@ const which = (o.which ?? 'both') === 'both' ? ['base', 'cur'] : [o.which];
 const runs = Number(o.runs ?? 1);
 const frames = Number(o.frames ?? 120);
 const query = new URLSearchParams({ men: o.men ?? '4000', seed: o.seed ?? '3', t: o.t ?? '600', pause: '1', hud: '0', frames: '1', art: o.art ?? 'hd', zoom: o.zoom ?? '1', scan: '1' });
-for (const k of ['fa', 'fb', 'focus', 'cx', 'cy', 'per']) if (o[k]) query.set(k, o[k]);
+for (const k of ['fa', 'fb', 'focus', 'cx', 'cy', 'per', 'frame']) if (o[k]) query.set(k, o[k]);
 
 const GLWRAP = `
 (() => {
@@ -169,8 +169,12 @@ async function one(browser, name, url) {
   if (prof) await cdp.send('HeapProfiler.enable');
   if (prof) await cdp.send('HeapProfiler.startSampling', { samplingInterval: 256, includeObjectsCollectedByMinorGC: true, includeObjectsCollectedByMajorGC: true });
   const r = await page.evaluate(
-    async ({ frames, sync }) => {
+    async ({ frames, sync, pan, zoomEvery }) => {
       const s = window.__scene;
+      s.syncPasses = sync;
+      const cx0 = s.camera.cx;
+      const cy0 = s.camera.cy;
+      const z0 = s.camera.zoom;
       const cv = document.getElementById('c');
       const gl = cv.getContext('webgl2');
       const px1 = new Uint8Array(4);
@@ -181,12 +185,25 @@ async function one(browser, name, url) {
         orig();
         stepMs += performance.now() - t;
       };
-      const out = { draw: [], build: [], wall: [], after: 0, steps: 0, gl: {}, bytes: {}, perFrameDraws: [] };
+      const out = { passes: {}, draw: [], build: [], wall: [], after: 0, steps: 0, gl: {}, bytes: {}, perFrameDraws: [] };
       const G = window.__gl;
       for (let i = 0; i < frames; i++) {
         if (i % 6 === 0) {
           window.__step(1);
           out.steps++;
+        }
+        // pan=<world units a frame>: the camera sweeps east and back (a triangle wave over 120
+        // frames) and drifts south at a third of the speed, as a player scrolling the map does.
+        if (pan) {
+          const ph = i % 240;
+          const k = ph < 120 ? ph : 240 - ph;
+          s.camera.cx = cx0 + (k - 60) * pan;
+          s.camera.cy = cy0 + (k - 60) * pan * 0.33;
+        }
+        // zoomEvery=N: step the zoom in and out (1, 2, 3, 2, 1, ...) every N frames.
+        if (zoomEvery && i % zoomEvery === 0) {
+          const seq = [z0, z0 * 2, z0 * 3, z0 * 2];
+          s.camera.zoom = Math.min(s.maxZoom, seq[(i / zoomEvery) % 4]);
         }
         G.n = {};
         G.bytes = {};
@@ -198,6 +215,7 @@ async function one(browser, name, url) {
         G.on = false;
         out.draw.push(s.lastDrawMs);
         out.build.push(s.lastBuildMs);
+        if (s.lastPasses) for (const k in s.lastPasses) (out.passes[k] ||= []).push(s.lastPasses[k]);
         out.wall.push(t1 - t0);
         out.perFrameDraws.push((G.n.drawArrays || 0) + (G.n.drawArraysInstanced || 0));
         for (const k in G.n) out.gl[k] = (out.gl[k] || 0) + G.n[k];
@@ -218,12 +236,13 @@ async function one(browser, name, url) {
       G.on = false;
       out.paused = { ms: +(tp / 30).toFixed(3), skipped: (s.skipped ?? 0) - sk0, glCalls: Object.values(G.n).reduce((a, b) => a + b, 0) };
       out.after = stepMs;
+      out.view = { zoom: +s.camera.zoom.toFixed(3), bw: s.view.bw, bh: s.view.bh, m: s.view.m, u: +s.view.u.toFixed(3), canvas: cv.width + 'x' + cv.height };
       out.per = G.per;
       out.tex = G.tex;
       s.afterStep = orig;
       return out;
     },
-    { frames, sync: o.sync === '1' },
+    { frames, sync: o.sync === '1', pan: Number(o.pan ?? 0), zoomEvery: Number(o.zoomEvery ?? 0) },
   );
   if (cpu) {
     const { profile: cp } = await cdp.send('Profiler.stop');
@@ -301,7 +320,9 @@ for (let k = 0; k < runs; k++)
       who: w,
       draw: stat(r.draw),
       build: stat(r.build),
+      passes: Object.fromEntries(Object.entries(r.passes).map(([k, v]) => [k, stat(v).mean])),
       ...(o.sync === '1' ? { wall: stat(r.wall) } : {}),
+      view: r.view,
       afterStepMs: +(r.after / r.steps).toFixed(3),
       glPerFrame: Object.fromEntries(Object.entries(r.gl).map(([k, v]) => [k, +(v / F).toFixed(2)]).sort()),
       bytesPerFrame: Object.fromEntries(Object.entries(r.bytes).map(([k, v]) => [k, Math.round(v / F)])),

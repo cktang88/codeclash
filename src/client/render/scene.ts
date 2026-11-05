@@ -1034,6 +1034,15 @@ export class BattleScene {
   // ---------------------------------------------------------------- drawing
 
   /** Paints the battle onto `out` (a WebGL2 canvas this scene owns) at tick + alpha. */
+  /** CPU ms of the last drawn frame's parts (tools: battle-render-bench.mjs). */
+  readonly lastPasses = { upload: 0, build: 0, ground: 0, shadows: 0, sprites: 0, post: 0 };
+  /** Tools: wait for the GPU after each part of a frame, so lastPasses times the GPU's work too. */
+  syncPasses = false;
+  private readonly px1 = new Uint8Array(4);
+  private fence(gl: WebGL2RenderingContext): void {
+    if (this.syncPasses) gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, this.px1);
+  }
+
   draw(out: HTMLCanvasElement, alpha: number, dt: number): void {
     const t0 = performance.now();
     // A collapsed canvas (display: none, a 0-height flex child) has nothing to draw into, and a
@@ -1099,10 +1108,15 @@ export class BattleScene {
       this.atlasVer[t] = ver;
       this.atlasStrips[t] = landed?.length ?? 0;
     }
+    this.fence(gl);
+    const tu = performance.now();
     this.flushStamps(gfx, zFar, zNear);
     const tb = performance.now();
     this.build(gfx, alpha, dt);
     this.lastBuildMs = performance.now() - tb;
+    const lp = this.lastPasses;
+    lp.upload = tb - tu;
+    lp.build = this.lastBuildMs;
 
     // The scene, into the low-resolution buffer.
     const P = gfx.prog;
@@ -1118,6 +1132,7 @@ export class BattleScene {
     gl.disable(gl.DEPTH_TEST);
     gl.disable(gl.BLEND);
     gl.disable(gl.STENCIL_TEST);
+    const tg = performance.now();
     if (this.field) this.drawGroundHd(gfx, this.field);
     else {
       P.tex(gfx.ground.tex, this.ground.w, this.ground.h);
@@ -1125,6 +1140,9 @@ export class BattleScene {
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
       gfx.groundQuad.draw();
     }
+    this.fence(gl);
+    const ts = performance.now();
+    lp.ground = ts - tg;
 
     // HD zoomed in: standards, missiles and puffs from a Scale2x'd copy of the effects sheet.
     const fxF = isHdArt(this.art) ? (v.m >= 4 ? 4 : v.m >= 2 ? 2 : 1) : 1;
@@ -1159,6 +1177,9 @@ export class BattleScene {
     gfx.solid.draw(P);
     P.shadow(false);
     gl.disable(gl.STENCIL_TEST);
+    this.fence(gl);
+    const tsh = performance.now();
+    lp.shadows = tsh - ts;
 
     // Everything solid, depth-tested by the foot's screen y.
     gl.disable(gl.BLEND);
@@ -1173,7 +1194,12 @@ export class BattleScene {
     gl.disable(gl.DEPTH_TEST);
     gl.disable(gl.BLEND);
 
+    this.fence(gl);
+    const tp = performance.now();
+    lp.sprites = tp - tsh;
     gfx.post.apply(gfx.scene.tex, v.W, v.H, v.offX, v.offY, v.u, this.time, this.scanlines);
+    this.fence(gl);
+    lp.post = performance.now() - tp;
     f.canvas = out;
     f.W = out.width;
     f.H = out.height;
