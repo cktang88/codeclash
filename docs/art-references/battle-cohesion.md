@@ -732,7 +732,9 @@ as any is shot at) it all goes in at once, the knights with it (T1: the Marshal 
 with the order, at the shooters, and again at the next as soon as the last are gone; shooters in
 the open are ridden down from the front, not taken in the rear). It crosses the 600 of the
 beaten zone in about 12 s, under arrows that mostly miss riders at the gallop (missile-drill.md,
-"Rates of fire (v17)"). Horse now beats bows in 12 of 12.
+"Rates of fire (v17)"). Horse now beats bows in 12 of 12 (28 of 30 after the foot work of
+section 8, which had it at 5 of 30). Templar knights held for the signal whose enemy horse is
+gone wait for the word rather than ride on at the shooters behind it.
 
 ---
 
@@ -891,7 +893,7 @@ The march-wave is lower because the line now bends smoothly (each man dresses on
 - **Idle men face their regiment's front.** The renderer turns a man to his foe only when he has one, so an idle rear-ranker of a block that has turned its rear ranks about still shows his back to the enemy. That fix is in `scene.ts`, which belongs to the renderer.
 - **missile-idle stays high.** Most of it is shooters with a target block whose men are out of their reach, or whose shots are held for friends in the line of fire. Ranges belong to the scale agent.
 - **Wide lines do not turn in sections.**
-- **`game.test` "horse beats bows at equal value" fails on the merged branch.** It is 5 of 30 days, and it fails on the base too since the scale change. Another agent owns it.
+- **`game.test` "horse beats bows at equal value" failed on the merged branch** (5 of 30 days). Fixed by the horse work in section 7.6: 28 of 30.
 ---
 
 ## Sources

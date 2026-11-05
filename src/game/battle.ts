@@ -50,7 +50,8 @@ export { COHESION, DOCTRINE, MORALE, REGROUP, UNDEAD } from './command.ts';
  *   reach and sends it in together, the knights with it (T1: on the Marshal's signal, again at the
  *   next shooters as soon as the last are gone). The light horse used to ride at the archers alone
  *   from the start while the Templar knights waited for a clash of lines that never came: horse
- *   beat bows at equal value in 2 battles of 12, now 12 of 12.
+ *   beat bows at equal value in 5 battles of 30 (2 of 12 before the foot work), now 28 of 30.
+ *   T1 knights whose enemy horse is gone no longer ride on at the shooters behind it unbidden.
  * - Foot (battle-cohesion.md section 8; scripts/battle-sanity.ts audits it): each man keeps
  *   station on the men beside and ahead of him (35% his place, `station`), so a line on the move
  *   bends and dresses itself, and steps up into the hole of a fallen man ahead. He fights a foe at
