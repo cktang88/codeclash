@@ -539,6 +539,15 @@ export class Regiment {
   /** P4: times it has broken off a melee to charge again, and re-forming (closing up) until this tick. */
   cycles = 0;
   reformUntil = -1;
+  /**
+   * Foot (battle v17): when it last faced round (each man turning where he stands, the block
+   * re-forming to the new front: see `turnFoot`), and until when the rear ranks of a block locked
+   * to its front turn about against an enemy at its back (see `seek`).
+   */
+  facedAt = -1000;
+  /** When a block that faced round stands re-formed (its shooters loose only then). */
+  formedAt = -1000;
+  rearUntil = -1;
   /** P3: a run of `surgeN` files from file `surgeCol` presses forward until `surgeUntil`; a lull until `lullUntil`, the last at `lullAt`. */
   surgeCol = 0;
   surgeN = 0;
@@ -1319,7 +1328,7 @@ export class Battle {
    * Gives each living man a file and rank, row by row; a short last rank is centred. With
    * `keepOrder` the men are taken front rank first (so the order they stood in is kept).
    */
-  private assignSlots(reg: Regiment, keepOrder: boolean): void {
+  private assignSlots(reg: Regiment, keepOrder: boolean, byRank = false): void {
     const d = this.d;
     const ids: number[] = [];
     for (const id of reg.members) if (d.state[id] === State.Fighting) ids.push(id);
@@ -1379,7 +1388,9 @@ export class Battle {
         const deep = whole ? rows - 1 + (onLast ? 1 : 0) : 1;
         file.length = 0;
         for (let j = 0; j < deep && k < n; j++) file.push(men[k++]!);
-        file.sort((p, q) => fr[q]! - fr[p]! || p - q);
+        // (Countermarching, `byRank`: the front-rankers keep the front, wherever they stand now.)
+        if (byRank) file.sort((p, q) => d.row[ids[p]!]! - d.row[ids[q]!]! || fr[q]! - fr[p]! || p - q);
+        else file.sort((p, q) => fr[q]! - fr[p]! || p - q);
         for (let j = 0; j < file.length; j++) {
           const id = ids[file[j]!]!;
           d.row[id] = whole ? j : rows - 1;
@@ -1387,6 +1398,11 @@ export class Battle {
         }
       }
     } else {
+      if (keepOrder) {
+        // (A single rank: left to right as they stand toward the front, which may be a new one.)
+        const lat = (id: number) => -(d.x[id]! - reg.ax) * reg.fy + (d.y[id]! - reg.ay) * reg.fx;
+        ids.sort((a, b) => lat(a) - lat(b) || a - b);
+      }
       for (let i = 0; i < ids.length; i++) {
         const id = ids[i]!;
         const row = Math.floor(i / cols);
@@ -2472,6 +2488,8 @@ export class Battle {
       if (q > leash) {
         r.ax = ix + (dx * leash) / q;
         r.ay = iy + (dy * leash) / q;
+        // (Its place moved with its men: it walked, for shooters waiting to loose.)
+        r.movedAt = this.tick;
       }
     }
     // In contact: an enemy block close enough that its men should look for foes. Count the
@@ -3113,6 +3131,9 @@ export class Battle {
       r.meleeTicks += 5;
       this.setMode(r, 'melee');
       this.pulse(r);
+      // Locked to its front, it does not face about for an enemy at its back: its rear ranks do.
+      const back = this.nearestFoe(r, 0, COHESION.rearTurn);
+      if (back && back.id !== r.targetReg && (back.cx - r.cx) * r.fx + (back.cy - r.cy) * r.fy < -r.depth * 0.25) r.rearUntil = this.tick + 10;
       // Press: lean into the fight, never turn while locked.
       r.dfx = r.fx;
       r.dfy = r.fy;
@@ -3123,7 +3144,9 @@ export class Battle {
     // Spears set against horse.
     if (st.antiCav > 1.5) {
       const cav = this.nearestFoe(r, 2, 150);
-      if (cav && (cav.mode === 'charge' || cav.mode === 'flank' || cav.mode === 'melee')) {
+      // (Horse locked in a fight with someone else, out of a few strides, is no threat to brace
+      // against: spears stand braced while the whole fight goes on beside them otherwise.)
+      if (cav && (cav.mode === 'charge' || cav.mode === 'flank' || (cav.mode === 'melee' && (cav.targetReg === r.id || this.nearestFoe(r, 2, 40) !== null)))) {
         this.setMode(r, 'brace');
         this.goal(r, r.ax, r.ay);
         this.faceToward(r, cav.cx, cav.cy);
@@ -4349,6 +4372,9 @@ export class Battle {
       wx = dx / q;
       wy = dy / q;
     }
+    // Foot facing a big turn (or under threat close by) faces round, man by man, and re-forms,
+    // when that is quicker than wheeling the whole block (see `turnFoot`).
+    if (!horse && (this.tick + r.phase) % 5 === 0) this.turnFoot(r, wx, wy);
     this.wheel(r, wx, wy, horse);
     if (q < 0.3) {
       r.aspd = 0;
@@ -4408,6 +4434,113 @@ export class Battle {
     r.vay = uy * step;
     r.ax += r.vax;
     r.ay += r.vay;
+  }
+
+  /**
+   * Foot turning a long way: facing against wheeling (battle v17; formations.md, "Facings and
+   * wheels"). A wheel pivots the whole block about the middle of its front, the outer files
+   * walking the arc, so it takes the longer the wider the block (`turnRate`). A facing turns
+   * every man where he stands at once (Aelian's klisis and metabole), then the block re-forms to
+   * the new front, each man walking to the nearest place in it: it takes the longest of those
+   * walks, plus a moment to dress. The block does whichever is quicker (a facing only when it
+   * saves a good part of the wheel: `COHESION.faceMargin`); with an enemy close it faces for any
+   * turn of `faceMinCos` and more. Under threat each man takes the place nearest him, so after an
+   * about-turn the old rear rank is the front; with time to spare the front-rankers file through
+   * to the new front (the countermarch), which adds to the walk. Never a block locked in a fight
+   * to its front: its rear ranks turn about instead (`rearUntil`, see `seek`). Not wedges, columns
+   * or engines.
+   */
+  private turnFoot(r: Regiment, wx: number, wy: number): void {
+    const C = COHESION;
+    const c = r.fx * wx + r.fy * wy;
+    if (c > C.faceMinCos || r.alive < 2 || r.engaged || r.routed) return;
+    if (r.role === 'siege' || r.role === 'command' || r.stance === 'wedge' || r.stance === 'column') return;
+    if (this.tick - r.facedAt < C.faceEvery) return;
+    const m = sqrt(wx * wx + wy * wy);
+    if (m < 1e-9) return;
+    wx /= m;
+    wy /= m;
+    // The wheel: as many steps of `turnRate` as the angle takes (stepped as `wheel` steps, no trig).
+    const w = turnRate(r, false);
+    const cw = 1 - w * w * 0.5;
+    const sw = (r.fx * wy - r.fy * wx >= 0 ? 1 : -1) * w;
+    let ux = r.fx;
+    let uy = r.fy;
+    let wheelTicks = 0;
+    while (ux * wx + uy * wy < cw && wheelTicks < 1000) {
+      const nx = ux * cw - uy * sw;
+      uy = ux * sw + uy * cw;
+      ux = nx;
+      const q = sqrt(ux * ux + uy * uy);
+      ux /= q;
+      uy /= q;
+      wheelTicks++;
+    }
+    // The facing: the longest walk from the block as it stands (half-width a, half-depth b about
+    // its middle) to the nearest place in the same block turned to the new front.
+    const a = r.width * 0.5;
+    const b = r.depth * 0.5;
+    let walk = 0;
+    for (let k = 0; k < 4; k++) {
+      const x = k & 1 ? a : -a;
+      const y = k & 2 ? b : -b;
+      // Corner in world terms (lateral x along (-fy, fx), forward y along (fx, fy)), then in the new frame.
+      const px = -r.fy * x + r.fx * y;
+      const py = r.fx * x + r.fy * y;
+      const nx = -wy * px + wx * py;
+      const ny = wx * px + wy * py;
+      const ex = nx > a ? nx - a : nx < -a ? -a - nx : 0;
+      const ey = ny > b ? ny - b : ny < -b ? -b - ny : 0;
+      const q = sqrt(ex * ex + ey * ey);
+      if (q > walk) walk = q;
+    }
+    const threat = this.nearestFoe(r, 0, C.faceThreat) !== null;
+    // The countermarch: turning away from the old front, the front-rankers walk through to the new one.
+    if (!threat && c < 0) walk -= r.depth * c;
+    const faceTicks = C.faceDelay + C.faceDress + walk / (FOOT_MARCH * TICK_S);
+    if (threat ? faceTicks > wheelTicks || c > 0.5 : faceTicks * C.faceMargin > wheelTicks) return;
+    this.faceAbout(r, wx, wy, !threat);
+    r.formedAt = this.tick + Math.ceil(faceTicks);
+  }
+
+  /**
+   * Every man of the block faces (wx, wy) where he stands, and the block's places are laid out
+   * afresh about where its men stand, its frontage restored (see `turnFoot`): each man takes the
+   * nearest file, and in it the place nearest the new front, or (`countermarch`) his old rank.
+   */
+  private faceAbout(r: Regiment, wx: number, wy: number, countermarch: boolean): void {
+    const d = this.d;
+    const oax = r.ax;
+    const oay = r.ay;
+    let n = 0;
+    let cx = 0;
+    let cy = 0;
+    for (const id of r.members) {
+      if (d.state[id] !== State.Fighting) continue;
+      n++;
+      cx += d.x[id]!;
+      cy += d.y[id]!;
+    }
+    if (n === 0) return;
+    cx /= n;
+    cy /= n;
+    r.fx = r.dfx = wx;
+    r.fy = r.dfy = wy;
+    r.ax = cx;
+    r.ay = cy;
+    this.assignSlots(r, true, countermarch);
+    r.ax = cx + wx * (r.depth - 4) * 0.5;
+    r.ay = cy + wy * (r.depth - 4) * 0.5;
+    // A block standing where it was keeps standing (its goal moves with its front).
+    const gx = r.tx - oax;
+    const gy = r.ty - oay;
+    if (gx * gx + gy * gy < 4) {
+      r.tx = r.ax;
+      r.ty = r.ay;
+    }
+    r.facedAt = this.tick;
+    r.movedAt = this.tick;
+    for (const id of r.members) d.cu[id] = 0;
   }
 
   /**
@@ -4510,6 +4643,8 @@ export class Battle {
   private mayLoose(i: number, r: Regiment): boolean {
     if (isMounted(r)) return true;
     if (this.tick - r.movedAt < 3) return false;
+    // (Faced round, the block shoots once it has re-formed: as soon as a wheel would, or sooner.)
+    if (this.tick < r.formedAt) return false;
     if (r.role !== 'missile' || r.atWill) return true;
     const k = this.tick - r.volleyAt;
     if (r.rippling && this.d.row[i]! % this.ranksOf(r) !== r.volleyN % this.ranksOf(r)) return false;
@@ -4577,7 +4712,9 @@ export class Battle {
     // can get at: round the end of the fight, or into a gap. Every other look while he does.
     const idle = line && (r.role === 'line' || r.mode === 'melee') && d.idl[i]! > 0 ? this.tick - d.idl[i]! : 0;
     const roam = idle > C.patience * (1 - C.patienceEager * d.ea[i]!) && (loose || C.roamDead) && ((this.tick + i) & 1) === 0;
-    const reach = near ? C.reachNear : 10;
+    // The rear half of a block locked to its front, with an enemy at its back, faces about.
+    const rear = r.rearUntil > this.tick && !mounted && d.row[i]! >= Math.max(1, r.rows >> 1);
+    const reach = near || rear ? C.reachNear : 10;
     const R = pursue ? 24 : mounted ? 15 : roam ? Math.max(reach, C.roamReach * r.spacing) : reach;
     const leash = pursue || roam || r.role === 'command' || r.mode === 'rally' ? 1e9 : mounted ? 34 : near ? (edge ? C.leashEdge : C.leashNear) * this.doc[r.team]!.loose.leash : 9;
     const sxi = d.sx[i]!;
@@ -4639,7 +4776,7 @@ export class Battle {
             // ...but any foe at hand before one he would have to turn from him to reach.
             if (!at) s += hh * (1 + 3 * C.crowd);
           }
-          if (!mounted && dx * fx + dy * fy < 0) s *= 1.7;
+          if (!mounted && dx * fx + dy * fy < 0 !== rear) s *= 1.7;
           if (edge && (dx * -fy + dy * fx) * sxi > 0) s *= C.edgeOut;
           if (sj === State.Routing) s = pursue ? s * 0.6 : s * 3 + 30;
           if (s < bs) {
@@ -4868,7 +5005,10 @@ export class Battle {
     const ux = d.x[a]! - d.x[t]!;
     const uy = d.y[a]! - d.y[t]!;
     const un = sqrt(ux * ux + uy * uy) || 1;
-    return (ux * dr.fx + uy * dr.fy) / un;
+    const dot = (ux * dr.fx + uy * dr.fy) / un;
+    // A block that has just faced round and is still re-forming (see `turnFoot`) has no front yet:
+    // a blow or a charge from before it takes it as in flank.
+    return this.tick < dr.formedAt && dot > 0.29 ? 0.29 : dot;
   }
 
   private strike(a: number, t: number): void {

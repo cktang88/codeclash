@@ -367,6 +367,22 @@ export const COHESION = {
    */
   dressSlot: 0.35,
   dressAhead: 1,
+  /**
+   * Facings against wheels (battle.ts `turnFoot`; formations.md): foot turning more than
+   * `faceMinCos` (cosine: about 25 degrees) faces round man by man and re-forms when that is
+   * quicker than the wheel by `faceMargin` (with an enemy within `faceThreat` of it: for 60
+   * degrees and more, whenever it is quicker at all). A facing costs `faceDelay` ticks (the word) and
+   * `faceDress` (dressing the new front) and the longest walk to a new place; then not again for
+   * `faceEvery` ticks. A block locked to its front turns its rear ranks about against an enemy
+   * within `rearTurn` of it at its back.
+   */
+  faceMinCos: 0.9,
+  faceMargin: 1.1,
+  faceThreat: 50,
+  faceDelay: 5,
+  faceDress: 15,
+  faceEvery: 30,
+  rearTurn: 30,
   /** A reserve block goes in on its own for an open enemy flank within this many times its width and depth (and 20) of it. */
   initiative: 1,
   /**

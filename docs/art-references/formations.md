@@ -122,6 +122,55 @@ Practical: a deep close-order block of 12 to 16 ranks is well sourced. A 2 to 3 
 - Countermarch: not sourced in my results.
 - Column-to-line deployment: not sourced in numbers. [E] A column of 16 files deployed to a line in 6 to 10 s.
 
+### 2.5.1 Facings against wheels (battle v17)
+
+The drill books separate two ways for a block to change front [S, 30-33]:
+
+- **Facings**, where every man turns where he stands, at once: Aelian's *klisis* (a quarter turn to either hand) and *metabole* (the about-turn, 180 degrees) [S, 30].
+- **Wheels**, where the whole block pivots like a door: *epistrophe* (90 degrees) and *perispasmos* (180) [S, 30]. A wheel is slow and needs room, because the outer file walks the arc.
+
+A facing is quick but has costs:
+
+- After a quarter facing the old files are ranks: the block is deep and narrow toward its new front.
+- After an about-turn the rear rank, the worst men, stands in front. That is why the **countermarch** existed: the front-rankers file through the block to the new front, so the best men face the enemy again (Aelian 27, via the Suda) [S, 31].
+- In 18th- and 19th-century drill, turns (facings) were the quick move in action and wheels the slow drill-field move. Battalions changed front company by company, not as one rigid block [S, 32, 33].
+- A wide line did not pivot as one: the outer man of a wheel walks an arc of (angle x width), so the time grows with the frontage. Wide formations broke the turn into parts, or faced and re-formed.
+
+**How the sim does it** (`turnFoot` and `faceAbout` in battle.ts; numbers in `COHESION.face*` in command.ts):
+
+- **It picks whichever is quicker.** The wheel's time is the angle stepped at the block's own wheel rate (`turnRate`: 9 units a second at the end of a pivot about the middle, so the wider the block, the slower). The facing's time is a moment for the word (`faceDelay`, 0.5 s), a moment to dress (`faceDress`, 1.5 s), and the longest walk any man needs to the nearest place in the block turned to the new front, at the drill's march pace.
+- **It faces only when the facing saves at least a tenth** of the wheel (`faceMargin` 1.1).
+- **With an enemy within 50 of it** (`faceThreat`), it faces for any turn of 60 degrees and more that facing makes quicker, without the margin. There is no time to countermarch, so the walk is shorter. Smaller turns under threat stay wheels: blocks that faced every few degrees toward horse riding round them never showed a flank, and horse then beat bows in only 19 to 22 of 40 matchups, against 26 to 27 before.
+- **A block that has faced round has no front until it has re-formed** (`formedAt`, the estimated facing time). Blows and charges from before it count as from the flank, and its shooters do not loose until then.
+- **It never faces for under about 25 degrees** (`faceMinCos`). Blocks of horse never face: horses cannot face in place (section 3.4). Wedges, columns and engines do not face either.
+- **The facing itself.** Every man turns at once (the regiment's facing changes on the spot). The block's places are laid out afresh about where its men stand, at the new facing, with the same frontage. A man with a foe at hand fights him from where he stands.
+  - Under threat, each man takes the place nearest him, so after an about-turn the old rear ranks are the front.
+  - With time to spare the sim countermarches: each man keeps his old rank, so the front-rankers walk through to the new front. The time estimate adds the block's depth times the share of the turn past 90 degrees.
+  - While the men walk to their new places the line is ragged and dresses on neighbours (station keeping, `battle-cohesion.md` section 7).
+- **A block locked in a fight to its front never faces about.** When an enemy block comes within 30 of its back, its rear half turns on it: those men prefer foes behind them, and the front fights on (`rearUntil`, `seek`).
+- **Once faced, a block does not face again for 3 s** (`faceEvery`).
+
+**The crossover.** These are the turns at which a block of line foot standing still faces rather than wheels, with no enemy near and today's spacing (5.3 a file, 5.8 a rank). The 20-man and 120-man rows are real block sizes; the others are the same rule for wider blocks, such as the scale agent's looser spacing would make.
+
+| Block | Width x depth (units) | Wheels | Faces |
+|---|---|---|---|
+| 20 men (smallest block) | 46 x 16 | up to 60 degrees | 90 degrees and more |
+| 60 men | 78 x 21 | up to 50 | 60 and more |
+| 120 men (largest block, big battles) | 110 x 33 | up to 45 | 50 and more |
+| 200 men | 142 x 45 | up to 40 | 45 and more |
+| 400 men | 200 x 62 | up to 40 | 45 and more |
+
+- With an enemy close the facing comes sooner.
+- In a demo battle a regiment faces round one to two times (60-130 facings in battles of 36-57 regiments).
+- Tests are in `src/game/facing.test.ts`:
+  - An about-turn under threat takes under 2 s. A wheel would take about 12 s for the same block.
+  - A countermarch puts the old front rank in front, and the block is ragged and then re-formed within 8 s.
+  - A 110-wide block faces 90 degrees and is re-formed in under three quarters of the time a wheel would take to come round. It also faces 60 degrees, but wheels 30.
+  - A 20-man block wheels 30 and 60 degrees.
+  - A block locked to its front keeps its facing while its rear ranks fight an enemy behind it.
+
+**Not done:** wide lines turning in sections (company wheels). The facing-and-re-form, with each man dressing on his neighbours, does a similar job. The renderer still shows an idle man facing his regiment's front: a rear-ranker turned about shows it only when he has a foe.
+
 ### 2.6 Skirmishers
 
 - Loose order is the defence against missiles. [W, Three Kingdoms wiki] "Loose formation widens the gaps between soldiers, which makes them harder to hit with arrows but weakens their charge resistance." Source: [Total War Wiki, Three Kingdoms formations](https://totalwar.fandom.com/wiki/Formation_(Total_War:_Three_Kingdoms)).
@@ -492,6 +541,10 @@ Retrieved 2026-11-03. Wikipedia text is CC BY-SA; forum and fan-wiki content is 
 27. [Steam: Rome II Emperor Edition changelog](https://steamcommunity.com/sharedfiles/filedetails/changelog/682220674) (weak source; spacing side effects).
 28. [Steam: Attila comments](https://steamcommunity.com/sharedfiles/filedetails/comments/602335357) (weak source; cavalry speed remark).
 29. [Total War Academy: battle category](https://academy.totalwar.com/category/battle/) (redirected; Thrones of Britannia spacing claim from search snippet only).
+30. [Markham's 1626 glossary of Aelian's motions (Lexicons of Early Modern English)](https://leme.library.utoronto.ca/lexicons/354). Facings (klisis, metabole) against wheels (epistrophe, perispasmos).
+31. [Suda On Line, epsilon 1616: the countermarches (Aelian 27)](https://www.cs.uky.edu/~raphael/sol/sol-entries/epsilon/1616). Why the front-rankers file through after an about-turn.
+32. [Kabinettskriege: two methods of wheeling in eighteenth-century drill](https://kabinettskriege.blogspot.com/2017/12/two-methods-of-wheeling-on-eighteenth.html). Wheels are slow and need room; changing front by parts.
+33. [Authentic Campaigner forum: drill bits, wheel versus turn](https://www.authentic-campaigner.com/forum/military-forums/camp-of-instruction/9807-drill-bits-wheel-versus-turn) (forum). Hardee-era turns as the combat move, wheels as the drill-field move; changing front company by company.
 
 ---
 
