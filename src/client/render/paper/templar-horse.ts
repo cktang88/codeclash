@@ -20,7 +20,7 @@ import { fromGuard, riderOnly } from './guard.ts';
 import { ARMS0, armsOf, holdFist, bowAuthor, CUT, fistPath, HIT, on, R, reach, T, cloth, type Arms, type Author, type Tracks } from './templar-clips.ts';
 import { joints, neRest, PARENT, type FootSpec } from './templar-foot.ts';
 import { bow, paintAs, pennon, RIG_CLOTH, sword, TM, type ValueClass } from './templar-parts.ts';
-import { at as atT, facingClip, lagCloth, lastFrame, mapFacings, memoSkin, overlayKeys, partMap, restWorld, skinMap, smooth01, type ClipSet, type KP, type LagSpec, type Track, type Weights } from './templar-rig.ts';
+import { at as atT, facingClip, lagCloth, lastFrame, mapFacings, memoSkin, overlayKeys, partMap, restWorld, skinMap, smooth01, weightSlots, type ClipSet, type KP, type LagSpec, type Track, type Weights } from './templar-rig.ts';
 import {
   CAPAR_PTS, HJ, hoofAt, HORSE_BODY, HORSE_BOW_LEN, HORSE_FAR, HORSE_SCALE, LANCE_FWD, SWORD_LEN, horsePiece, MOUNTED, RIDER_PIECES, RIDER_SHIFT, riderPiece, riderRest, scaled, withMap,
   type HorsePiece, type PartMap, type RiderPiece, type RiderRest, type SGear, type SHorse, type SKit,
@@ -210,34 +210,38 @@ const scaleMap = (m: PartMap): PartMap => ({
 const shiftMap = (m: PartMap): PartMap => ({ f: (p) => m.f(add(p, RIDER_SHIFT)), inv: (p) => sub(m.inv(p), RIDER_SHIFT), deg: m.deg });
 
 /** The caparison over the barrel and up the neck (horse units for the weights). */
+const CAPAR_W = weightSlots(['horseBody', 'horseNeck', 'caparF', 'caparR']);
 const caparWeights: Weights = ([x, y]) => {
   const hx = x / S, hy = y / S;
   const n = smooth01((hx - 3.6) / 1.8) * smooth01((-hy - 10.2) / 1.6);
   // The skirt below the barrel hangs from it and trails: front and rear halves on their own hem bones.
   const hem = smooth01((hy + 8.6) / 4.2) * 0.95 * (1 - n);
   const front = smooth01((hx + 1.2) / 3.8);
-  return [['horseBody', (1 - n) - hem], ['horseNeck', n], ['caparF', hem * front], ['caparR', hem * (1 - front)]];
+  return CAPAR_W((1 - n) - hem, n, hem * front, hem * (1 - front));
 };
 /** The mane: the strands' roots on the crest ride the neck, their ends the trailing mane bone. */
+const MANE_W = weightSlots(['horseNeck', 'mane']);
 const maneWeights: Weights = ([x, y]) => {
   const hx = x / S, hy = y / S;
   // Distance below the crest line (from [2.7, -10.7] to [7.1, -15.0]).
   const d = ((hx - 2.7) * 0.7 + (hy + 10.7) * 0.715) * 1;
   const m = smooth01(d / 0.8);
-  return [['horseNeck', 1 - m], ['mane', m]];
+  return MANE_W(1 - m, m);
 };
 /** The rider's torso: chest, spine, pelvis (rider frame for the weights). */
+const RIDER_TORSO_W = weightSlots(['chest', 'spine', 'pelvis']);
 const riderTorsoWeights: Weights = ([, y]) => {
   const ry = y - RIDER_SHIFT[1];
   const a = smooth01((-9.3 - ry) / 1.1), b = smooth01((-7.9 - ry) / 1.0);
-  return [['chest', a], ['spine', b - a], ['pelvis', 1 - b]];
+  return RIDER_TORSO_W(a, b - a, 1 - b);
 };
 /** The rider's mantle: from the shoulders, trailing late (cloak), spilling over the croup (it lies on the horse). */
+const RIDER_CLOAK_W = weightSlots(['chest', 'cloak', 'horseBody']);
 const riderCloakWeights: Weights = ([x, y]) => {
   const rx = x - RIDER_SHIFT[0], ry = y - RIDER_SHIFT[1];
   const c = smooth01((ry + 10.6) / 5);
   const hb = smooth01((-rx - 1.5) / 2.5) * smooth01((ry + 8) / 3);
-  return [['chest', 1 - c], ['cloak', c * (1 - hb)], ['horseBody', c * hb]];
+  return RIDER_CLOAK_W(1 - c, c * (1 - hb), c * hb);
 };
 
 function horseParts(k: SKit, g: SGear, horse: SHorse, s: HorseSpec, dark: ValueClass, fly?: Fly): AttachmentSet {

@@ -66,6 +66,7 @@ function partK(c: Paper, at: P2, ang: number, pts: P2[], shade: (fx: number, fy:
   }
   const m = XF;
   const a = snapDeg(ang) * DEG;
+  const cosA = Math.cos(-a), sinA = Math.sin(-a);
   const o = c.q(at);
   const key = pts.map((p) => addP(o, rot(p, a)));
   const dense: P2[] = [];
@@ -78,12 +79,17 @@ function partK(c: Paper, at: P2, ang: number, pts: P2[], shade: (fx: number, fy:
     const w = m.f(p);
     return [c.sx(w[0]), c.sy(w[1])] as P2;
   }), (x, y) => {
-    const k = m.inv([(x + 0.5 - c.FX) / c.L, (y + 0.5 - c.FY) / c.L]);
-    const f = rot([k[0] - o[0], k[1] - o[1]], -a);
-    return shade(f[0], f[1], x, y);
+    // The pixel's centre back in key-art units (one point refilled per pixel: the map reads it at
+    // once), then into the part's frame: rot([k - o], -a), written out with its cos and sin taken once.
+    PX[0] = (x + 0.5 - c.FX) / c.L;
+    PX[1] = (y + 0.5 - c.FY) / c.L;
+    const k = m.inv(PX);
+    const dx = k[0] - o[0], dy = k[1] - o[1];
+    return shade(dx * cosA - dy * sinA, dx * sinA + dy * cosA, x, y);
   });
 }
 
+const PX: P2 = [0, 0];
 const frac = (v: number) => v - Math.floor(v);
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 const norm = (p: P2): P2 => {

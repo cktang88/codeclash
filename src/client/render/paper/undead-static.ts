@@ -1604,46 +1604,107 @@ const FIRELIT = defineMaterial('undead.firelit', oklchRamp({ l: 0.6, c: 0.05, h:
  *   silhouette edge go a step lighter, so the figure separates from the dark field there too.
  */
 export function keyLight(c: Paper): void {
-  const { CW } = c;
-  const glow: number[] = [];
+  const { CW, bx0, by0, bx1, by1 } = c;
+  const PIX = c.pix;
+  if (bx1 < bx0) return;
+  const GLOW = UM.glow;
   // Light sources are the bodies of fire (flames, the burning chest), not the eye points: a glow
-  // pixel counts only inside a 5 x 5 patch of glow.
-  const isGlow = (i: number) => c.pix[i]! >= 0 && c.pix[i]! >> 3 === UM.glow;
-  for (let y = c.by0 + 2; y <= c.by1 - 2; y++)
-    for (let x = c.bx0 + 2; x <= c.bx1 - 2; x++) {
-      let n = 0;
-      for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) if (isGlow((y + dy) * CW + x + dx)) n++;
-      if (n >= 22) glow.push(x, y);
+  // pixel counts only inside a 5 x 5 patch of glow. (Counted with a summed-area table of the glow
+  // pixels over the drawn box: the same counts as testing all 25 pixels of every patch.)
+  const w = bx1 - bx0 + 1, h = by1 - by0 + 1;
+  let glowN = 0;
+  for (let y = by0; y <= by1; y++)
+    for (let i = y * CW + bx0, e = y * CW + bx1; i <= e; i++) {
+      const v = PIX[i]!;
+      if (v >= 0 && v >> 3 === GLOW) glowN++;
     }
+  let glow: Int32Array = NO_GLOW;
+  let gn = 0;
+  if (glowN >= 22) {
+    const W1 = w + 1;
+    const sat = satScratch((h + 1) * W1);
+    sat.fill(0, 0, W1);
+    for (let y = 0; y < h; y++) {
+      let row = 0;
+      const r = (y + 1) * W1, rp = y * W1, src = (by0 + y) * CW + bx0;
+      sat[r] = 0;
+      for (let x = 0; x < w; x++) {
+        const v = PIX[src + x]!;
+        if (v >= 0 && v >> 3 === GLOW) row++;
+        sat[r + x + 1] = sat[rp + x + 1]! + row;
+      }
+    }
+    const pts: number[] = [];
+    for (let y = by0 + 2; y <= by1 - 2; y++)
+      for (let x = bx0 + 2; x <= bx1 - 2; x++) {
+        // The patch (x-2..x+2, y-2..y+2) in box coordinates, as sums over [a, b) ranges.
+        const ax = x - 2 - bx0, bx = x + 3 - bx0, ay = (y - 2 - by0) * W1, byy = (y + 3 - by0) * W1;
+        const n = sat[byy + bx]! - sat[ay + bx]! - sat[byy + ax]! + sat[ay + ax]!;
+        if (n >= 22) pts.push(x, y);
+      }
+    glow = Int32Array.from(pts);
+    gn = pts.length;
+  }
   const R = 2.2 * c.L;
-  const lit = new Set([UM.bone, UM.char, UM.flesh]);
-  const out = c.pix.slice();
-  for (let y = c.by0; y <= c.by1; y++)
-    for (let x = c.bx0; x <= c.bx1; x++) {
+  const R2 = R * R, NEAR2 = (R * 0.45) ** 2;
+  // The nearest glow point, column by column: dv holds, per box pixel, the distance down or up to
+  // the nearest glow point in its own column (FAR: none). A pixel's squared distance to the
+  // nearest point is then the least dx² + dv² over the columns within reach: a point out of reach
+  // (|dx| ≥ R) cannot light it, so leaving those columns out decides the light exactly as before.
+  const Rc = Math.ceil(R);
+  let dv: Int32Array | null = null;
+  if (gn) {
+    dv = dvScratch(w * h);
+    dv.fill(FAR, 0, w * h);
+    for (let k = 0; k < gn; k += 2) dv[(glow[k + 1]! - by0) * w + glow[k]! - bx0] = 0;
+    for (let x = 0; x < w; x++) {
+      for (let y = 1, i = w + x; y < h; y++, i += w) if (dv[i - w]! + 1 < dv[i]!) dv[i] = dv[i - w]! + 1;
+      for (let y = h - 2, i = (h - 2) * w + x; y >= 0; y--, i -= w) if (dv[i + w]! + 1 < dv[i]!) dv[i] = dv[i + w]! + 1;
+    }
+  }
+  const BONE = UM.bone, CHAR = UM.char, FLESH = UM.flesh;
+  const IRON = UM.iron, RUST = UM.rust, STEEL = UM.steel, MAIL = UM.mail;
+  const lx = c.lightX; // the shadow side is +lx, the lit side -lx
+  const rim = c.L > 2;
+  // Changes are gathered and applied after the scan: every test reads the figure as drawn.
+  const changed: number[] = [];
+  for (let y = by0; y <= by1; y++)
+    for (let x = bx0; x <= bx1; x++) {
       const i = y * CW + x;
-      const v = c.pix[i]!;
+      const v = PIX[i]!;
       if (v < 0) continue;
       const m = v >> 3;
-      if (glow.length && lit.has(m)) {
+      if (dv && (m === BONE || m === CHAR || m === FLESH)) {
         let d2 = Infinity;
-        for (let k = 0; k < glow.length; k += 2) {
-          const dx = glow[k]! - x, dy = glow[k + 1]! - y;
-          const dd = dx * dx + dy * dy;
+        const bx = x - bx0, row = (y - by0) * w;
+        for (let xx = Math.max(0, bx - Rc), xe = Math.min(w - 1, bx + Rc); xx <= xe; xx++) {
+          const ddy = dv[row + xx]!;
+          if (ddy === FAR) continue;
+          const ddx = xx - bx;
+          const dd = ddx * ddx + ddy * ddy;
           if (dd < d2) d2 = dd;
         }
-        if (d2 < R * R) {
-          const near = d2 < (R * 0.45) ** 2;
-          out[i] = code(FIRELIT, (v & 7) + (near ? 1 : 0));
+        if (d2 < R2) {
+          const near = d2 < NEAR2;
+          changed.push(i, code(FIRELIT, (v & 7) + (near ? 1 : 0)));
           continue;
         }
       }
-      if (isKept(m)) continue;
-      const hard = m === UM.iron || m === UM.rust || m === UM.steel || m === UM.bone || m === UM.mail;
-      const lx = c.lightX; // the shadow side is +lx, the lit side -lx
-      const edge = (x + lx <= c.bx1 && x + lx >= c.bx0 && c.pix[i + lx]! < 0) || (y + 1 <= c.by1 && c.pix[i + CW]! < 0);
-      const inner = c.pix[i - lx]! >= 0 && c.pix[i - CW]! >= 0;
       // (Not at levels 1-2: there the rim is a third of a part and pulls its light to the bottom-right.)
-      if (hard && edge && inner && c.L > 2 && (v & 7) <= 2) out[i] = (v & ~7) | ((v & 7) + 1);
+      if (!rim || (v & 7) > 2) continue;
+      if (isKept(m)) continue;
+      const hard = m === IRON || m === RUST || m === STEEL || m === BONE || m === MAIL;
+      if (!hard) continue;
+      const edge = (x + lx <= bx1 && x + lx >= bx0 && PIX[i + lx]! < 0) || (y + 1 <= by1 && PIX[i + CW]! < 0);
+      if (!edge) continue;
+      const inner = PIX[i - lx]! >= 0 && PIX[i - CW]! >= 0;
+      if (inner) changed.push(i, (v & ~7) | ((v & 7) + 1));
     }
-  c.pix.set(out);
+  for (let k = 0; k < changed.length; k += 2) PIX[changed[k]!] = changed[k + 1]!;
 }
+const NO_GLOW = new Int32Array(0);
+const FAR = 0x3fffffff;
+let DV = new Int32Array(0);
+const dvScratch = (n: number): Int32Array => (DV.length >= n ? DV : (DV = new Int32Array(n)));
+let SAT = new Int32Array(0);
+const satScratch = (n: number): Int32Array => (SAT.length >= n ? SAT : (SAT = new Int32Array(n)));

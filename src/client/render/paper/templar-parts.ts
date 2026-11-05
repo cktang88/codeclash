@@ -192,12 +192,14 @@ function remapFor(cls: ValueClass, level: number): Int16Array {
 /** Paints `draw` on `c` in a value class (see REMAP). */
 export function paintAs(c: Paper, dark: ValueClass, draw: () => void): void {
   const t = remapFor(dark, c.L);
-  const plot = c.plot;
-  c.plot = (x: number, y: number, cd: number) => plot.call(c, x, y, cd >= 0 && cd < t.length ? t[cd]! : cd);
+  // The remap applies to every code plotted while `draw` runs (inside a nested paintAs, the inner
+  // table first, then this one). When any paintAs ends, every remap ends with it, as when the
+  // remap was an own `plot` on the surface that the end deleted.
+  c.remaps.push(t);
   try {
     draw();
   } finally {
-    Reflect.deleteProperty(c, 'plot');
+    c.remaps.length = 0;
   }
 }
 

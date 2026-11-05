@@ -53,6 +53,24 @@ export function boneAff(b: BoneXf, rest: BoneXf, lift: P2 = [0, 0]): Aff {
 export type Weights = (p: P2) => [string, number][];
 
 /**
+ * A weights result that is filled in place: `w(a, b, ...)` sets the named bones' weights in order
+ * and returns the same array every call (skinMap reads it at once; it runs per pixel shaded, so
+ * a fresh array per call was most of what the cloth allocated).
+ */
+export function weightSlots(names: readonly string[]): (a: number, b: number, c?: number, d?: number, e?: number) => [string, number][] {
+  const out: [string, number][] = names.map((n) => [n, 0]);
+  if (names.length > 5) throw new Error('weightSlots: at most 5 bones');
+  return (a, b, c, d, e) => {
+    out[0]![1] = a;
+    out[1]![1] = b;
+    if (out.length > 2) out[2]![1] = c!;
+    if (out.length > 3) out[3]![1] = d!;
+    if (out.length > 4) out[4]![1] = e!;
+    return out;
+  };
+}
+
+/**
  * A skinned map: each point moves by its bones' transforms blended by `weights`. The inverse (for
  * shading) is found by fixed-point iteration on the locally linear blend.
  */
@@ -67,27 +85,60 @@ export function skinMap(posed: Posed, weights: Weights): PartMap {
     }
     return m;
   };
-  const blend = (p: P2): Aff => {
-    const out: Aff = [0, 0, 0, 0, 0, 0];
+  let lastWs: [string, number][] | null = null;
+  const byPlace: Aff[] = [], placeName: string[] = [];
+  // The blend of the bones' maps at a point, into b0..b5 (no arrays: it runs per pixel shaded).
+  let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0;
+  const blend = (p: P2): void => {
+    let s0 = 0, s1 = 0, s2 = 0, s3 = 0, s4 = 0, s5 = 0;
     let tot = 0;
-    for (const [n, w] of weights(p)) {
+    const ws = weights(p);
+    // A weights function that fills one array (weightSlots) names the same bones in the same
+    // places every call: their maps are looked up once per place, when first weighted.
+    if (ws !== lastWs) {
+      lastWs = ws;
+      byPlace.length = 0;
+    }
+    for (let k = 0; k < ws.length; k++) {
+      const e = ws[k]!;
+      const w = e[1];
       if (w <= 0) continue;
-      const m = aff(n);
-      for (let i = 0; i < 6; i++) out[i] = out[i]! + m[i]! * w;
+      let m = byPlace[k];
+      if (m === undefined || placeName[k] !== e[0]) {
+        m = byPlace[k] = aff(e[0]);
+        placeName[k] = e[0];
+      }
+      s0 = s0 + m[0] * w;
+      s1 = s1 + m[1] * w;
+      s2 = s2 + m[2] * w;
+      s3 = s3 + m[3] * w;
+      s4 = s4 + m[4] * w;
+      s5 = s5 + m[5] * w;
       tot += w;
     }
-    if (tot <= 0) return [1, 0, 0, 1, 0, 0];
-    for (let i = 0; i < 6; i++) out[i] = out[i]! / tot;
-    return out;
+    if (tot <= 0) {
+      b0 = 1, b1 = 0, b2 = 0, b3 = 1, b4 = 0, b5 = 0;
+      return;
+    }
+    b0 = s0 / tot, b1 = s1 / tot, b2 = s2 / tot, b3 = s3 / tot, b4 = s4 / tot, b5 = s5 / tot;
   };
   const deg = (posed.byName.chest ? posed.byName.chest.step - rest.byName.chest!.step : 0) * SNAP_DEG;
   return {
-    f: (p) => apply(blend(p), p),
+    f: (p) => {
+      blend(p);
+      return [b0 * p[0] + b1 * p[1] + b4, b2 * p[0] + b3 * p[1] + b5];
+    },
     inv: (p) => {
       let q = p;
       // Two steps of the fixed point from the blend at the figure point itself: the bones of one
       // piece of cloth turn by a step or two from each other, so it has converged to well under a pixel.
-      for (let i = 0; i < 2; i++) q = invert(blend(q), p);
+      // (invert(blend(q), p), written out.)
+      for (let i = 0; i < 2; i++) {
+        blend(q);
+        const det = b0 * b3 - b1 * b2 || 1e-9;
+        const x = p[0] - b4, y = p[1] - b5;
+        q = [(b3 * x - b1 * y) / det, (-b2 * x + b0 * y) / det];
+      }
       return q;
     },
     deg,
@@ -191,9 +242,14 @@ export function lagCloth(skel: SkeletonData, clip: Clip, n: number, loop: boolea
     const base: Clip = anim;
     const L = 16;
     const rest = evaluate(skel, emptyLocals(), { level: L, facing, noIk: true });
+    // Each frame is posed once (evaluate without a previous frame is a pure function of it),
+    // however many cloth bones read it.
+    const posed = new Map<number, Posed>();
     const at = (t: number): Posed => {
       const tt = loop ? t - n * Math.floor(t / n) : Math.max(0, Math.min(n - 1, t));
-      return evaluate(skel, sampleClip(base, tt, n, facing), { level: L, facing });
+      let p = posed.get(tt);
+      if (!p) posed.set(tt, (p = evaluate(skel, sampleClip(base, tt, n, facing), { level: L, facing })));
+      return p;
     };
     const rw = restWorld(skel, facing);
     const bones = { ...(anim.bones ?? {}) };
@@ -558,22 +614,32 @@ export function memoSkin(id: string, bones: readonly string[], draw: (c: Paper, 
         SKIN.set(key, img);
       }
       const dx = ax - img.ax + img.x0, dy = ay - img.ay + img.y0;
-      for (let y = 0; y < img.h; y++) {
+      // The image's rows and columns that land on the canvas.
+      const xa = Math.max(0, -dx), xb = Math.min(img.w, c.CW - dx);
+      const ya = Math.max(0, -dy), yb = Math.min(img.h, c.CH - dy);
+      const PIX = c.pix, ORD = c.ord, CW = c.CW, order = c.order, ip = img.pix, io = img.ord, w = img.w;
+      let x0 = c.bx0, x1 = c.bx1, y0 = c.by0, y1 = c.by1;
+      for (let y = ya; y < yb; y++) {
         const Y = dy + y;
-        if (Y < 0 || Y >= c.CH) continue;
-        for (let x = 0; x < img.w; x++) {
-          const v = img.pix[y * img.w + x]!;
-          const X = dx + x;
-          if (v < 0 || X < 0 || X >= c.CW) continue;
-          const i = Y * c.CW + X;
-          c.pix[i] = v;
-          c.ord[i] = c.order + img.ord[y * img.w + x]!;
-          if (X < c.bx0) c.bx0 = X;
-          if (X > c.bx1) c.bx1 = X;
-          if (Y < c.by0) c.by0 = Y;
-          if (Y > c.by1) c.by1 = Y;
+        let lo = -1, hi = -1;
+        for (let x = xa, s = y * w + xa, i = Y * CW + dx + xa; x < xb; x++, s++, i++) {
+          const v = ip[s]!;
+          if (v < 0) continue;
+          PIX[i] = v;
+          ORD[i] = order + io[s]!;
+          if (lo < 0) lo = x;
+          hi = x;
         }
+        if (lo < 0) continue;
+        if (dx + lo < x0) x0 = dx + lo;
+        if (dx + hi > x1) x1 = dx + hi;
+        if (Y < y0) y0 = Y;
+        if (Y > y1) y1 = Y;
       }
+      c.bx0 = x0;
+      c.bx1 = x1;
+      c.by0 = y0;
+      c.by1 = y1;
       c.order += img.polys;
     },
   };

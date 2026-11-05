@@ -23,6 +23,11 @@ export interface PaperFrame {
   /** The foot point. */
   ax: number;
   ay: number;
+  /**
+   * The bounding box (inclusive x0, y0, x1, y1) of the frame's opaque pixels, exactly (none:
+   * x1 < x0). Frames from paintPaper always carry it.
+   */
+  box?: [number, number, number, number];
 }
 
 /**
@@ -100,8 +105,11 @@ export function factionPalette(faction: string, hue: number, level: number, kind
  *
  * Attack frames run blow after blow (contract.ts `Atlas.blows`): frame `b * FRAMES[Attack] + f`
  * is frame f of blow b (paperBlows says how many). Frames past the last blow wrap.
+ *
+ * `opts.reuse`: the frame's pixels are the surface's own buffer, overwritten by the next frame
+ * painted on it (for a caller that copies each frame out at once, such as the sheet packer).
  */
-export function paintPaper(faction: string, kind: number, level: number, anim: Anim, frame: number, dir: Dir, hue: number, paper: Paper = SHARED): PaperFrame | null {
+export function paintPaper(faction: string, kind: number, level: number, anim: Anim, frame: number, dir: Dir, hue: number, paper: Paper = SHARED, opts: { reuse?: boolean } = {}): PaperFrame | null {
   if (!paperSupports(faction, kind, anim, dir, level)) return null;
   const k = paperKindFor(faction, kind)!;
   const fp = factionPalette(faction, hue, level, kind);
@@ -117,8 +125,8 @@ export function paintPaper(faction: string, kind: number, level: number, anim: A
   if (frame > 0 && paper.last === `${id}:${frame - 1}`) paper.steady();
   paper.keep();
   paper.last = `${id}:${frame}`;
-  const out = paper.colours(fp);
-  return { width: paper.CW, height: paper.CH, pixels: new Uint8ClampedArray(out.buffer), ax: paper.FX, ay: paper.FY };
+  const out = paper.colours(fp, opts.reuse);
+  return { width: paper.CW, height: paper.CH, pixels: new Uint8ClampedArray(out.buffer, out.byteOffset, out.length * 4), ax: paper.FX, ay: paper.FY, box: paper.opaqueBox() };
 }
 
 /**
