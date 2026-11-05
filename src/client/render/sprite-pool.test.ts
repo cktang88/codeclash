@@ -215,3 +215,45 @@ describe('sprite worker pool: what the view needs first', () => {
     expect(pending[0]![1].progressive).toBe(false);
   });
 });
+
+describe('sprite worker pool: affinity', () => {
+  let mod: typeof import('./sprites128.ts');
+  const pending: [FakeWorker, Msg][] = [];
+  beforeAll(async () => {
+    vi.resetModules();
+    FakeWorker.all = [];
+    G.Worker = FakeWorker;
+    G.document = { createElement: () => ({ width: 0, height: 0, getContext: () => ({ putImageData() {} }) }) };
+    G.ImageData = class {};
+    // Two workers.
+    vi.stubGlobal('navigator', { hardwareConcurrency: 3 });
+    mod = await import('./sprites128.ts');
+  });
+  afterAll(() => {
+    vi.unstubAllGlobals();
+    Object.assign(G, saved);
+  });
+
+  it("gives a worker more of the faction and level it has painted, and does not start one faction's level on every worker", async () => {
+    FakeWorker.answer = (m, w) => void pending.push([w, m]);
+    const tem = mod.buildAtlas('templar', 10);
+    const sam = mod.buildAtlas('samurai', 10);
+    tem.sheet!(0, 8, 'need');
+    await tick();
+    tem.sheet!(5, 2, 'need');
+    const [a, ma] = pending[0]!;
+    const [b, mb] = pending[1]!;
+    expect([ma.key, mb.key]).toEqual(['templar:10:0:8', 'templar:10:5:2']);
+    pending.length = 0;
+    const done = (w: FakeWorker, level: number) => w.reply({ level, width: 1, height: 1, pixels: new Uint8ClampedArray(4), rects: new Int32Array(6), ms: 0 });
+    // Both busy; templar and samurai 8x wait, templar first in the queue.
+    tem.sheet!(1, 8, 'need');
+    sam.sheet!(0, 8, 'need');
+    // B (warm for neither) takes samurai: A is the one warm for templar 8x.
+    done(b, 2);
+    expect(pending.map(([w, m]) => [w === b, m.key])).toEqual([[true, 'samurai:10:0:8']]);
+    done(a, 8);
+    expect(pending.at(-1)![0]).toBe(a);
+    expect(pending.at(-1)![1].key).toBe('templar:10:1:8');
+  });
+});

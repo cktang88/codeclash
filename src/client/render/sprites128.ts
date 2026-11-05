@@ -3561,9 +3561,21 @@ const stats = {
 /** SheetAsk as a rank: lower is painted sooner. 'peek' never starts a job. */
 const WANT: Record<Exclude<SheetAsk, 'peek'>, number> = { need: 0, fallback: 1, prefetch: 2 };
 
+/**
+ * A painting worker: its job, and the (faction, level) pairs it has painted. A worker builds a
+ * faction's rigs and samples its palette at a level once, a second or two before its first sheet
+ * of them: the queue gives it more of the same where it can (affinity).
+ */
+interface Slot {
+  w: Worker;
+  busy: Job | null;
+  warm: Set<string>;
+}
+const warmKey = (j: Job): string => `${j.faction}:${j.level}`;
+
 /** Hi-res sheets are painted by a small pool of workers (or, without workers, on idle timeouts). */
 const workPool = {
-  workers: [] as { w: Worker; busy: Job | null }[],
+  workers: [] as Slot[],
   queue: [] as Job[],
   jobs: new Map<string, Job>(),
   made: false,
@@ -3589,7 +3601,7 @@ function startPool(): void {
     const n = Math.max(1, Math.min(8, cores - 1));
     for (let i = 0; i < n; i++) {
       const w = new Worker(new URL('./sprite-worker.ts', import.meta.url), { type: 'module' });
-      const slot = { w, busy: null as Job | null };
+      const slot: Slot = { w, busy: null, warm: new Set() };
       w.onmessage = (e: MessageEvent<KindSheet | PaintError>) => {
         const job = slot.busy;
         if (!('error' in e.data) && e.data.partial) {
@@ -3695,12 +3707,30 @@ function pump(): void {
   // Coarse levels first within a rank, then kinds in view (prefetching the levels between).
   const away = (j: Job): number => (inView.has(`${j.faction}:${j.hue}:${j.kind}`) ? 0 : 1);
   workPool.queue.sort((p, q) => rank(p) - rank(q) || p.level - q.level || away(p) - away(q));
+  const head = workPool.queue[0];
+  const headRank = head ? rank(head) : 0;
+  /**
+   * The job a free worker takes: among those as wanted as the head of the queue (same rank and
+   * level), the first it is warm for, else the first no other worker is warm for (one faction's
+   * first sheets are not spread over every worker, each building its rigs), else the head.
+   */
+  const pick = (slot: Slot): number => {
+    let cold = -1;
+    for (let i = 0; i < workPool.queue.length; i++) {
+      const j = workPool.queue[i]!;
+      if (rank(j) !== headRank || j.level !== head!.level) break;
+      if (workPool.cached.has(j.key) || slot.warm.has(warmKey(j))) return i;
+      if (cold < 0 && !workPool.workers.some((o) => o !== slot && o.warm.has(warmKey(j)))) cold = i;
+    }
+    return Math.max(0, cold);
+  };
   if (workPool.ok) {
     if (!workPool.ready) return;
     for (const slot of workPool.workers) {
       if (slot.busy || workPool.queue.length === 0) continue;
-      const job = workPool.queue.shift()!;
+      const job = workPool.queue.splice(pick(slot), 1)[0]!;
       slot.busy = job;
+      if (!workPool.cached.has(job.key)) slot.warm.add(warmKey(job));
       job.sent = now();
       const cached = workPool.cached.has(job.key);
       // The first sheet to paint: every worker starts loading the painter (seconds) at once.
