@@ -42,7 +42,7 @@ describe('frameBox', () => {
     expect(zoomOutScale(f.zoom, 2, 3000, 1500)).toBe(1);
   });
 
-  it('never goes below half scale (a phone shows what it can)', () => {
+  it('never goes below MIN_SCALE (a phone shows what it can)', () => {
     const f = frameBox(box, 585, 974, hud, 1)!;
     expect(zoomOutScale(f.zoom, 1, 585, 974)).toBe(MIN_SCALE);
   });
@@ -61,7 +61,9 @@ describe('zoomOutScale', () => {
     expect(zoomOutScale(0.5, 3, 4000, 2000)).toBe(1);
     expect(zoomOutScale(2 / 3, 3, 4000, 2000)).toBe(2);
     expect(zoomOutScale(0.8125, 1, 1920, 923)).toBe(0.8125);
-    expect(zoomOutScale(0.3, 1, 1920, 923)).toBe(MIN_SCALE);
+    expect(zoomOutScale(0.2, 1, 1280, 720)).toBe(MIN_SCALE);
+    // (A 1920 px wide canvas stops short of it, at the 4096 px buffer: 1920 / 4096.)
+    expect(zoomOutScale(0.2, 1, 1920, 923)).toBe(1920 / 4096);
     // A 3000 px wide canvas at 0.5 would need a 6000 px buffer.
     expect(zoomOutScale(0.5, 1, 3000, 900) * 4096).toBeGreaterThanOrEqual(3000);
   });

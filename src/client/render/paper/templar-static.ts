@@ -769,7 +769,7 @@ function paviseS(c: Paper, ctr: P2, w: number, h: number, deg: number): void {
 
 /** A fan of spare javelins in the shield hand. */
 function javelinsS(c: Paper, hand: P2, turn = 0): void {
-  for (const d of [-10, 0, 10]) spear(c, addP(hand, [d * 0.01, 0]), 180 + d + turn, 7.6, 1.8, { head: 1.1, w: 0.28, wood: c.L < 2 ? TM.ink : TM.gambeson });
+  for (const d of [-10, 0, 10]) spear(c, addP(hand, [d * 0.01, 0]), 180 + d + turn, 9.0, 2.4, { head: 1.2, w: 0.28, wood: c.L < 2 ? TM.ink : TM.gambeson });
 }
 
 /** The Iron Brethren's ailettes: square boards on the shoulders in the army colour. */
@@ -786,7 +786,7 @@ function ailetteS(c: Paper, at0: P2, deg: number): void {
 /** A Dane axe with a long haft and a broad crescent bit. */
 function daneAxeS(c: Paper, grip: P2, deg: number): void {
   const d = mul([Math.sin(deg * DEG), Math.cos(deg * DEG)], 1);
-  const top = addP(grip, mul(d, 6.4)), butt = sub(grip, mul(d, 3.0));
+  const top = addP(grip, mul(d, 7.8)), butt = sub(grip, mul(d, 3.6));
   vol(c, butt, top, [[0, 0.2], [1, 0.18]], TM.ash, { tone: 2 });
   if (c.L < 2) lineK(c, butt, top, code(TM.ash, 2));
   const out: P2 = [d[1] * -1, d[0]]; // forward of the haft (perpendicular)
@@ -818,15 +818,26 @@ const XBOW: SKit = { helm: 'kettle', body: TM.wool, coat: null, quilted: true, c
 // and layered pauldrons, the heavy white mantle with a fur collar, steel gauntlets, a wide stance.
 const BRETHREN: SKit = { helm: 'great', body: KM.silver, coat: KM.sable, cross: true, longCross: true, cloak: true, pauldrons: true, wide: true, camail: KM.silver, sleeve: KM.silver, hand: TM.steel, legs: KM.silver, boots: KM.silver };
 
+/**
+ * Weapon sizes against the 14-unit man (1 unit ~ 12.5 cm): an arming sword 7 from the grip (Met
+ * 23367: blade 81 cm, 102 cm overall), the knight's lance 23 ahead of the fist and 5 behind (3.5-4 m),
+ * the horse archer's composite bow 9.6 (~1.2 m). docs/art-references/templar-blows-weapons.md.
+ */
+export const SWORD_LEN = 7.0;
+export const LANCE_FWD = 23;
+export const HORSE_BOW_LEN = 9.6;
+
 export const FOOT: Record<number, { kit: SKit; gear: SGear; dark: boolean }> = {
   0: {
     kit: SERGEANT,
     dark: true,
     gear: {
       // The kite covers the torso from the shoulder to the knee, its inner edge on the centre line.
-      front: (c) => kiteS(c, [1.75, -8.1], 4.3, 6.8, false, false),
-      // The sword hangs point-down at his side, clear of the shield (the D2R Paladin's stance).
-      near: { el: [-3.05, -8.75], wr: [-3.1, -6.5], draw: (c, h, d) => sword(c, h, 8 + d, 5.4) },
+      front: (c) => kiteS(c, [1.75, -8.45], 4.4, 7.6, false, false),
+      // The sword held low at his side, a full arming sword (Met 23367: an 81 cm blade, ~0.47 H),
+      // its point trailing back clear of the shield and the ground (straight down it would stand
+      // in the earth: the fist hangs at 0.44 H).
+      near: { el: [-3.05, -8.75], wr: [-3.1, -6.5], draw: (c, h, d) => sword(c, h, -36 + d, SWORD_LEN) },
     },
   },
   1: {
@@ -835,7 +846,7 @@ export const FOOT: Record<number, { kit: SKit; gear: SGear; dark: boolean }> = {
     gear: {
       // A big round shield held close; the spear grounded, half again his height.
       front: (c) => roundS(c, [1.85, -8.6], 2.75, TM.leather),
-      near: { el: [-2.95, -8.9], wr: [-2.5, -7.0], draw: (c, h, d) => void spear(c, h, 180 + d, 12.5, 6.4, { head: 1.9, w: 0.34, tone: c.L >= 4 ? 1 : 2 }) }, // a dark haft beside the pale gambeson
+      near: { el: [-2.95, -8.9], wr: [-2.5, -7.0], draw: (c, h, d) => void spear(c, h, 180 + d, 14.2, 6.6, { head: 2.0, w: 0.34, tone: c.L >= 4 ? 1 : 2 }) }, // a dark haft beside the pale gambeson
     },
   },
   2: {
@@ -843,7 +854,7 @@ export const FOOT: Record<number, { kit: SKit; gear: SGear; dark: boolean }> = {
     dark: true,
     gear: {
       far: { el: [2.85, -8.9], wr: [3.35, -7.4], draw: (c, h, d) => { javelinsS(c, h, d); roundS(c, addP(h, [0.55, 0.1]), c.L < 2 ? 1.9 : 1.35); } },
-      near: { el: [-2.95, -9.0], wr: [-2.2, -7.2], draw: (c, h, d) => void spear(c, h, 120 + d, 5.6, 2.4, { head: 1.15, w: 0.3, wood: c.L < 2 ? TM.ink : TM.gambeson }) },
+      near: { el: [-2.95, -9.0], wr: [-2.2, -7.2], draw: (c, h, d) => void spear(c, h, 120 + d, 7.4, 3.2, { head: 1.3, w: 0.3, wood: c.L < 2 ? TM.ink : TM.gambeson }) },
     },
   },
   3: {
@@ -1291,7 +1302,7 @@ export const MOUNTED: Record<number, { kit: SKit; horse: SHorse; gear: SGear; da
     dark: false,
     gear: {
       front: (c) => roundS(c, [2.0, -9.0], 2.2),
-      near: { el: [-2.8, -8.9], wr: [-2.0, -7.4], draw: (c, h, d) => void spear(c, h, 180 + d, 13.0, 4.5, { head: 1.5, pennon: 0.4, w: 0.3 }) },
+      near: { el: [-2.8, -8.9], wr: [-2.0, -7.4], draw: (c, h, d) => void spear(c, h, 180 + d, 16.0, 5.0, { head: 1.6, pennon: 0.4, w: 0.3 }) },
     },
   },
   6: {
@@ -1300,7 +1311,7 @@ export const MOUNTED: Record<number, { kit: SKit; horse: SHorse; gear: SGear; da
     dark: true,
     gear: {
       behind: (c) => { vol(c, [-2.4, -7.6], [-3.4, -5.6], [[0, 0.45], [1, 0.4]], TM.leather, { tone: 2 }); for (const k of [-0.25, 0.05, 0.3]) vol(c, [-2.4 + k, -7.5], [-2.2 + k * 1.3, -8.4], [[0, 0.15], [1, 0.2]], TM.white, { tone: 3 }); },
-      far: { el: [2.9, -9.6], wr: [3.6, -8.6], draw: (c, h, d) => bow(c, c.L < 2 ? addP(h, [1.4, -1.0]) : h, 168 + d, c.L < 2 ? 15 : 8.6, 0, null) },
+      far: { el: [2.9, -9.6], wr: [3.6, -8.6], draw: (c, h, d) => bow(c, c.L < 2 ? addP(h, [1.4, -1.0]) : h, 168 + d, c.L < 2 ? 15 : HORSE_BOW_LEN, 0, null) },
       near: { el: [-2.8, -8.9], wr: [-1.6, -7.4] },
     },
   },
@@ -1312,8 +1323,8 @@ export const MOUNTED: Record<number, { kit: SKit; horse: SHorse; gear: SGear; da
     dark: false,
     cls: 'knight',
     gear: {
-      front: (c) => kiteS(c, [2.1, -8.6], 3.8, 5.9, false, true, -6),
-      near: { el: [-2.8, -8.9], wr: [-1.8, -7.3], draw: (c, h, d) => void spear(c, h, 135 + d, c.L < 2 ? 22 : 12.5, 3.5, { head: 1.3, pennon: 0.3, w: 0.36 }) },
+      front: (c) => kiteS(c, [2.1, -8.8], 4.0, 6.5, false, true, -6),
+      near: { el: [-2.8, -8.9], wr: [-1.8, -7.3], draw: (c, h, d) => void spear(c, h, 135 + d, c.L < 2 ? 22 : LANCE_FWD, 5.0, { head: 1.5, pennon: 0.3, w: 0.36 }) },
       // The sword for when the lance breaks.
       hip: hipSword,
     },
@@ -1325,7 +1336,7 @@ export const MOUNTED: Record<number, { kit: SKit; horse: SHorse; gear: SGear; da
     cls: 'knight',
     gear: {
       far: { el: [2.7, -9.7], wr: [3.0, -11.4], draw: (c, h, d) => beauseant(c, addP(h, [0, 0]), 180 + d, 0.35, 0) },
-      near: { el: [-2.9, -8.9], wr: [-2.2, -7.1], draw: (c, h, d) => sword(c, h, 135 + d, 5.4) },
+      near: { el: [-2.9, -8.9], wr: [-2.2, -7.1], draw: (c, h, d) => sword(c, h, 135 + d, SWORD_LEN) },
     },
   },
 };

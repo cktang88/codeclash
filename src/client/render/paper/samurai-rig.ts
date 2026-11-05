@@ -20,7 +20,7 @@ import { addP, code, type P2, type Paper } from './core.ts';
 import type { Facing } from './facing.ts';
 import { registerPaperKind, type PaperKindDef } from './registry.ts';
 import type { BasePose } from './rig.ts';
-import { flash as muzzleFlash, smoke, SM, stick, yumi } from './samurai-parts.ts';
+import { flash as muzzleFlash, smoke, SM, stick, TEPPO_MUZZLE, yumi } from './samurai-parts.ts';
 import { footBody, FOOT, KUSA_TOP, L2_TONES, LOW_MERGE, LOW_TONES, MID_MERGE, MID_TONES, manOrder, manPiece, mapPoint, withMap, type Body, type ManPiece, type SFoot } from './samurai-static.ts';
 import {
   ALL_ANIMS, WITH_ADVANCE, BREATH, GUARD_SWAY, bonesFromJoints, EASE, EASE_IN, EASE_OUT, emptyLocals, evaluate, lazySkeletonKind, sampleClip, shortest, skeletonKind, type RigShape,
@@ -35,7 +35,7 @@ import {
 
 // ------------------------------------------------------------------ per-kind rig facts
 
-type Attack = 'kesa' | 'shomen' | 'tsuki' | 'thrust' | 'beat' | 'jab' | 'under' | 'punch' | 'butt' | 'stock' | 'sweep' | 'rising' | 'fan' | 'fanStrike';
+type Attack = 'kesa' | 'shomen' | 'tsuki' | 'do' | 'thrust' | 'beat' | 'harai' | 'jab' | 'under' | 'punch' | 'butt' | 'stock' | 'sweep' | 'rising' | 'fan' | 'fanStrike';
 type Shoot = 'javelin' | 'kyudo' | 'teppo' | null;
 type Brace = 'chudan' | 'yari' | 'ready' | 'kneel' | 'naginata' | 'command';
 type ArmNE = 'mirror' | 'shift' | { el: P2; hn: P2 };
@@ -93,7 +93,7 @@ export interface SSpec {
 export const FOOT_SPECS: Record<number, SSpec> = {
   0: {
     nearDeg: 135, twoHand: true, neNear: { el: [2.45, -8.7], hn: [1.0, -8.4] }, neFar: { el: [-0.7, -8.4], hn: [1.55, -7.95] }, backBone: 'banner',
-    attack: 'kesa', blows: ['kesa', 'shomen', 'tsuki'], shoot: null, brace: 'chudan', die: 'back', smear: [1.4, 6.0],
+    attack: 'kesa', blows: ['kesa', 'do', 'tsuki'], shoot: null, brace: 'chudan', die: 'back', smear: [1.4, 7.0],
     // Both hands on the tsuka, right above left: the left (far) hand at the kashira, a fist below the right.
     grip2: -0.9, heavy: true,
     // The blade carried in the near hand at the hip, point up and back, clear of the body and below the head.
@@ -104,7 +104,7 @@ export const FOOT_SPECS: Record<number, SSpec> = {
   },
   1: {
     nearDeg: 180, twoHand: true, neNear: 'mirror', neFar: { el: [-0.2, -7.7], hn: [1.45, -6.6] }, backBone: 'banner',
-    attack: 'thrust', blows: ['thrust', 'beat'], shoot: null, brace: 'yari', die: 'forward', smear: [6.0, 15.0],
+    attack: 'thrust', blows: ['thrust', 'beat', 'harai'], shoot: null, brace: 'yari', die: 'forward', smear: [6.0, 13.0],
     // The yari carried upright at the shoulder, steady (a tall pole sweeping would boil), the far arm free.
     walk: { weapon: 177, side: true },
     // The charge: levelled at the hip in both hands, the point forward and a little down.
@@ -119,7 +119,7 @@ export const FOOT_SPECS: Record<number, SSpec> = {
   },
   8: {
     nearDeg: 187.5, twoHand: true, neNear: 'mirror', neFar: { el: [-1.0, -7.6], hn: [0.95, -6.9] }, backBone: 'pelvis',
-    attack: 'sweep', blows: ['sweep', 'thrust', 'rising'], shoot: null, brace: 'naginata', die: 'forward', smear: [5.4, 8.6],
+    attack: 'sweep', blows: ['sweep', 'thrust', 'rising'], shoot: null, brace: 'naginata', die: 'forward', smear: [5.4, 10.5],
     // Carried upright in the near hand, steady; the far arm free.
     walk: { weapon: 186, side: true },
     run: { upperArmN: -10, forearmN: 70, weapon: 104, both: true, bounce: true },
@@ -539,13 +539,13 @@ export const KESA: Author = (rw) => ({
  * pulls the shaft back through the front hand; 10-11 raised to the slope. Also the sōhei's
  * naginata thrust (S9: "shaft pushes forward, rear hand slides up").
  */
-const THRUST: Author = (rw) => ({
+const THRUST: Author = (rw, f) => ({
   w: {
     upperArmN: R(rw.upperArmN!, 11, [1, -8], [2, -30], [3, -14], [4, 30], [5, 38], [6, 38], [8, 0], [9, -8], [10, 20]),
     forearmN: R(rw.forearmN!, 11, [1, 72], [2, 56], [3, 70], [4, 90], [5, 94], [6, 94], [8, 78], [9, 72], [10, 100]),
     // The hand turns to lie along the shaft, so the shaft can slide through it.
-    handN: R(rw.handN!, 11, [1, 97], [9, 97], [10, 130]),
-    weapon: R(rw.weapon!, 11, [1, 97], [9, 97], [10, 140]),
+    handN: R(rw.handN!, 11, [1, 102], [9, 102], [10, 130]),
+    weapon: R(rw.weapon!, 11, [1, 102], [9, 102], [10, 140]),
     head: T([0, rw.head!]),
   },
   dw: { spine: T([0, 0], [2, 8], [3, 0], [4, -12], [6, -13], [8, -4], [11, 0]) },
@@ -553,7 +553,33 @@ const THRUST: Author = (rw) => ({
     pelvis: [T([0, 0], [1, -0.1], [2, -0.55], [3, 0.25], [4, 1.1], [6, 1.15], [8, 0.5], [10, 0.1], [11, 0]), T([0, 0], [1, 0.2], [2, 0.3], [4, 0.55], [6, 0.55], [8, 0.25], [11, 0])],
     footTargetF: [T([0, 0], [2, 0], [3, 0.8], [4, 1.7], [6, 1.7], [8, 0.8], [10, 0.1], [11, 0]), T([0, 0], [2, 0], [3, -0.55], [4, 0], [6, 0], [7, -0.3], [8, 0], [9, -0.2], [10, 0])],
     // The slide: the shaft (and the rear hand gripping it) runs along the hand's line.
-    weapon: [T([0, 0]), T([0, 0], [2, -0.4], [3, 0.2], [4, 1.1], [6, 1.2], [8, 0.3], [9, 0], [11, 0])],
+    // (From behind the near hand is a step further forward: the slide is shorter, so the 3.6 m
+    // shaft's point stays inside the canvas.)
+    weapon: [T([0, 0]), f === 'ne' ? T([0, 0], [2, -2.4], [3, -0.9], [4, 0.3], [6, 0.35], [8, 0], [9, 0], [11, 0]) : T([0, 0], [2, -2.0], [3, 0], [4, 2.2], [6, 2.3], [8, 0.4], [9, 0], [11, 0])],
+  },
+});
+
+/**
+ * Harai-tsuki (sōjutsu's beat-aside and thrust; the jūkendō match photograph's low levelled line):
+ * from the set point the shaft is swept down and across in a short hard arc (1-3: the enemy's point
+ * knocked aside, a smear at 3), the man sinking low, then a long low thrust on a lunge, the shaft
+ * sliding forward through the front hand (5-6, the point at the belly, a lower line than the plain
+ * thrust's), held (7), drawn back and raised to the set (8-11). Strikes a frame later than the
+ * thrust, from a beat no other blow has.
+ */
+const HARAI: Author = (rw, f) => ({
+  w: {
+    upperArmN: R(rw.upperArmN!, 11, [1, 22], [2, 4], [3, -10], [4, -22], [5, 12], [6, 40], [7, 40], [8, 10], [10, 10]),
+    forearmN: R(rw.forearmN!, 11, [1, 66], [2, 56], [3, 56], [4, 62], [5, 80], [6, 90], [7, 90], [8, 76], [10, 70]),
+    handN: R(rw.handN!, 11, [1, 96], [2, 66], [3, 54], [4, 64], [5, 80], [6, 82], [7, 82], [8, 90], [9, 96], [10, 112]),
+    weapon: R(rw.weapon!, 11, [1, 96], [2, 66], [3, 54], [4, 64], [5, 80], [6, 82], [7, 82], [8, 90], [9, 96], [10, 112]),
+    head: T([0, rw.head!], [3, rw.head! - 4], [7, rw.head! - 4], [9, rw.head!]),
+  },
+  dw: { spine: T([0, 0], [1, -4], [2, -8], [3, -12], [4, -4], [5, -14], [6, -18], [7, -18], [9, -6], [11, 0]) },
+  tAdd: {
+    pelvis: [T([0, 0], [2, 0.2], [3, 0.25], [4, -0.3], [5, 0.7], [6, 1.45], [7, 1.45], [9, 0.5], [11, 0]), T([0, 0], [2, 0.35], [3, 0.5], [4, 0.5], [6, 0.75], [7, 0.75], [9, 0.3], [11, 0])],
+    footTargetF: [T([0, 0], [4, 0], [5, 1.0], [6, 2.0], [8, 2.0], [10, 0.7], [11, 0]), T([0, 0], [4, 0], [5, -0.6], [6, 0], [11, 0])],
+    weapon: [T([0, 0]), f === 'ne' ? T([0, 0], [3, 0.3], [4, -1.4], [5, -0.4], [6, 0.4], [7, 0.45], [8, 0], [11, 0]) : T([0, 0], [3, 0.3], [4, -0.9], [5, 0.4], [6, 1.8], [7, 1.9], [8, 0.4], [9, 0], [11, 0])],
   },
 });
 
@@ -563,11 +589,11 @@ const THRUST: Author = (rw) => ({
  * 4 the top; 5-6 slammed forward and down through a wide arc (smear), the weight driving onto the
  * front foot; 7 the shaft strikes, the point below level; 8 it bounces; 9-11 back up to the slope.
  */
-const BEAT: Author = (rw) => ({
+const BEAT: Author = (rw, f) => ({
   w: {
     upperArmN: R(rw.upperArmN!, 11, [1, 70], [2, 140], [3, 158], [4, 158], [5, 136], [6, 92], [7, 60], [8, 62], [9, 40], [10, 25]),
     forearmN: R(rw.forearmN!, 11, [1, 120], [2, 170], [3, 186], [4, 186], [5, 158], [6, 104], [7, 74], [8, 78], [9, 80], [10, 100]),
-    weapon: R(rw.weapon!, 11, [1, 186], [2, 194], [3, 198], [4, 196], [5, 152], [6, 104], [7, 70], [8, 76], [9, 88], [10, 130]),
+    weapon: R(rw.weapon!, 11, [1, 186], [2, 194], [3, 198], [4, 196], [5, 152], [6, f === 'ne' ? 142 : 104], [7, 70], [8, 76], [9, 88], [10, 130]),
     head: T([0, rw.head!], [3, rw.head! + 4], [5, rw.head!], [7, rw.head! - 8], [8, rw.head! - 8], [10, rw.head!]),
   },
   dw: { spine: T([0, 0], [2, 6], [3, 9], [4, 9], [5, 2], [6, -10], [7, -16], [8, -15], [10, -4], [11, 0]) },
@@ -578,22 +604,24 @@ const BEAT: Author = (rw) => ({
 });
 
 /**
- * Shōmen-uchi (S1's straight cut): both hands rise straight up from chūdan to jōdan, the blade back
- * over the head (1-4), then the sword falls in one vertical line, arms extending forward, and stops
- * level at the enemy's head height (6-7), not low across the body as kesa-giri does; the trunk stays
- * square (no shoulder turn) and leans 18° over a stamping step of the right (near) foot.
+ * Shōmen-uchi (S1's straight cut; the kendō men strike): the fastest of the katana's blows. Both
+ * hands throw the sword straight up from chūdan to furikaburi, the blade back over the head (1-2),
+ * then it falls in one vertical line as the right (near) foot leaps forward (fumikomi, a flight of
+ * 0.9 units at 3) and the arms extend high: the cut lands at 5 at the enemy's head, the blade
+ * pointing a little *above* level and the trunk upright (kesa-giri ends low, folded over the front
+ * thigh, at 7). Held (5-7, zanshin), then back to chūdan.
  */
 const SHOMEN: Author = (rw) => ({
   w: {
-    upperArmN: R(rw.upperArmN!, 11, [1, 110], [2, 160], [3, 172], [4, 174], [5, 150], [6, 112], [7, 86], [8, 84], [9, 70], [10, 50]),
-    forearmN: R(rw.forearmN!, 11, [1, 160], [2, 196], [3, 206], [4, 206], [5, 170], [6, 120], [7, 92], [8, 92], [9, 90], [10, 88]),
-    weapon: R(rw.weapon!, 11, [1, 175], [2, 212], [3, 226], [4, 228], [5, 188], [6, 128], [7, 96], [8, 98], [9, 102], [10, 112]),
-    head: T([0, rw.head!], [3, rw.head! + 4], [5, rw.head!], [7, rw.head! - 6], [8, rw.head! - 6], [10, rw.head!]),
+    upperArmN: R(rw.upperArmN!, 11, [1, 130], [2, 172], [3, 160], [4, 136], [5, 128], [6, 128], [7, 126], [8, 112], [10, 70]),
+    forearmN: R(rw.forearmN!, 11, [1, 182], [2, 208], [3, 180], [4, 136], [5, 122], [6, 122], [7, 120], [8, 110], [10, 94]),
+    weapon: R(rw.weapon!, 11, [1, 204], [2, 230], [3, 190], [4, 124], [5, 104], [6, 104], [7, 103], [8, 104], [10, 104]),
+    head: T([0, rw.head!], [2, rw.head! + 4], [3, rw.head!], [5, rw.head! - 2], [8, rw.head! - 2], [10, rw.head!]),
   },
-  dw: { spine: T([0, 0], [2, 4], [3, 6], [4, 6], [5, 0], [6, -10], [7, -18], [8, -18], [10, -6], [11, 0]) },
+  dw: { spine: T([0, 0], [1, 4], [2, 6], [3, 0], [4, -6], [5, -8], [7, -8], [9, -4], [11, 0]) },
   tAdd: {
-    pelvis: [T([0, 0], [3, -0.2], [4, -0.25], [6, 0.6], [7, 0.9], [8, 0.9], [10, 0.3], [11, 0]), T([0, 0], [6, 0.25], [7, 0.45], [8, 0.45], [10, 0.15], [11, 0])],
-    footTargetN: [T([0, 0], [4, 0], [5, 0.6], [6, 1.4], [9, 1.35], [10, 0.6], [11, 0]), T([0, 0], [4, -0.3], [5, -0.6], [6, 0], [11, 0])],
+    pelvis: [T([0, 0], [2, -0.2], [3, 0.6], [4, 1.35], [5, 1.55], [7, 1.5], [9, 0.6], [11, 0]), T([0, 0], [2, 0], [3, -0.25], [4, 0.2], [5, 0.35], [7, 0.35], [9, 0.15], [11, 0])],
+    footTargetN: [T([0, 0], [2, 0], [3, 1.2], [4, 2.2], [8, 2.1], [10, 0.8], [11, 0]), T([0, 0], [2, 0], [3, -0.9], [4, 0], [11, 0])],
   },
 });
 
@@ -611,10 +639,37 @@ const TSUKI: Author = (rw) => ({
   },
   dw: { spine: T([0, 0], [2, 6], [3, 0], [4, -14], [6, -15], [8, -5], [11, 0]) },
   tAdd: {
-    pelvis: [T([0, 0], [2, -0.4], [3, 0.3], [4, 1.2], [6, 1.25], [8, 0.5], [10, 0.1], [11, 0]), T([0, 0], [2, 0.1], [4, 0.4], [6, 0.4], [8, 0.2], [11, 0])],
-    footTargetN: [T([0, 0], [2, 0], [3, 0.9], [4, 1.8], [7, 1.8], [9, 0.7], [11, 0]), T([0, 0], [2, 0], [3, -0.6], [4, 0], [11, 0])],
+    pelvis: [T([0, 0], [2, -0.45], [3, 0.5], [4, 1.7], [6, 1.75], [8, 0.7], [10, 0.15], [11, 0]), T([0, 0], [2, 0.1], [4, 0.6], [6, 0.6], [8, 0.25], [11, 0])],
+    footTargetN: [T([0, 0], [2, 0], [3, 1.1], [4, 2.4], [7, 2.4], [9, 0.9], [11, 0]), T([0, 0], [2, 0], [3, -0.6], [4, 0], [11, 0])],
   },
 });
+
+/**
+ * Dō-giri (S1's fourth cut; kendō's nuki-dō): the horizontal cut to the flank. 1-3 the hands drop to
+ * the near hip and the blade is laid back, level behind him (waki-gamae), the trunk wound back;
+ * 4 it comes round toward the viewer (the blade foreshortened as it points at us); 5 the cut, the
+ * blade level at the enemy's waist, the hands low and forward, a long low step past the enemy;
+ * 6-8 the blade carries on through and round to trail low behind him, the hands at the far hip
+ * (nuki-dō's zanshin, passed the enemy), the man still low; 9-11 back up to chūdan. Its read: low and level all through,
+ * never over the head (kesa-giri and shōmen rise first; tsuki never turns the blade).
+ */
+const DO: Author = (rw) => ({
+  w: {
+    upperArmN: R(rw.upperArmN!, 11, [1, 0], [2, -30], [3, -40], [4, -8], [5, 50], [6, 40], [7, 20], [8, 18], [10, 30]),
+    forearmN: R(rw.forearmN!, 11, [1, 60], [2, 30], [3, 20], [4, 50], [5, 86], [6, 70], [7, 48], [8, 46], [10, 80]),
+    weapon: T([0, rw.weapon!], [1, 200], [2, 250], [3, 262], [4, 330], [5, 450], [6, 400], [7, 330], [8, 322], [9, 360], [10, 420], [11, rw.weapon! + 360]),
+    head: T([0, rw.head!], [3, rw.head! + 2], [5, rw.head! - 4], [8, rw.head! - 6], [10, rw.head!]),
+  },
+  dw: { spine: T([0, 0], [2, 6], [3, 8], [4, -6], [5, -20], [6, -24], [8, -24], [10, -8], [11, 0]), chest: T([0, 0], [3, 6], [5, -6], [8, -8], [11, 0]) },
+  tAdd: {
+    pelvis: [T([0, 0], [3, -0.4], [4, 0.4], [5, 1.4], [6, 1.9], [8, 2.0], [10, 0.7], [11, 0]), T([0, 0], [3, 0.2], [4, 0.5], [5, 0.85], [8, 0.85], [10, 0.3], [11, 0])],
+    chest: [T([0, 0], [3, -0.4], [5, 0.3], [8, 0.4], [11, 0]), T([0, 0])],
+    footTargetF: [T([0, 0], [3, 0], [4, 1.0], [5, 2.2], [9, 2.2], [10, 0.9], [11, 0]), T([0, 0], [3, 0], [4, -0.6], [5, 0], [11, 0])],
+    footTargetN: [T([0, 0], [6, 0], [7, 0.6], [9, 0.6], [11, 0]), T([0, 0], [6, 0], [7, -0.4], [8, 0], [11, 0])],
+  },
+});
+/** The dō's blade foreshortened as it swings round toward the viewer and away (scale-y on the weapon bone, 1 at the guard). */
+const DO_FORESHORTEN: [number, number][] = [[0, 1], [3, 1], [4, 0.45], [5, 1], [6, 0.6], [7, 0.8], [8, 0.8], [9, 0.6], [10, 0.85], [11, 1]];
 
 /**
  * The nage-yari jab: from the cocked javelin overhead, the weight back, then an overhand stab
@@ -785,14 +840,14 @@ const STOCK: Author = (rw) => ({
  */
 const SWEEP: Author = (rw) => ({
   w: {
-    upperArmN: R(rw.upperArmN!, 11, [1, 70], [2, 130], [3, 150], [4, 140], [5, 110], [6, 75], [7, 50], [8, 46], [10, 30]),
-    forearmN: R(rw.forearmN!, 11, [1, 150], [2, 190], [3, 205], [4, 180], [5, 120], [6, 80], [7, 55], [8, 50], [10, 70]),
-    weapon: R(rw.weapon!, 11, [1, 215], [2, 245], [3, 262], [4, 236], [5, 160], [6, 95], [7, 58], [8, 50], [10, 120]),
-    head: T([0, rw.head!], [3, rw.head! + 6], [5, rw.head!], [7, rw.head! - 10], [8, rw.head! - 10], [10, rw.head!]),
+    upperArmN: R(rw.upperArmN!, 11, [1, 70], [2, 130], [3, 150], [4, 140], [5, 100], [6, 56], [7, 26], [8, 22], [10, 30]),
+    forearmN: R(rw.forearmN!, 11, [1, 150], [2, 190], [3, 205], [4, 180], [5, 112], [6, 70], [7, 52], [8, 48], [10, 70]),
+    weapon: R(rw.weapon!, 11, [1, 215], [2, 245], [3, 262], [4, 236], [5, 150], [6, 98], [7, 76], [8, 72], [10, 120]),
+    head: T([0, rw.head!], [3, rw.head! + 6], [5, rw.head!], [7, rw.head! - 12], [8, rw.head! - 12], [10, rw.head!]),
   },
-  dw: { spine: T([0, 0], [2, 8], [3, 12], [4, 6], [5, -6], [6, -16], [7, -24], [8, -24], [10, -6], [11, 0]) },
+  dw: { spine: T([0, 0], [2, 8], [3, 12], [4, 6], [5, -8], [6, -20], [7, -30], [8, -30], [10, -6], [11, 0]) },
   tAdd: {
-    pelvis: [T([0, 0], [3, -0.45], [4, -0.3], [5, 0.3], [6, 0.8], [7, 1.0], [8, 1.0], [10, 0.35], [11, 0]), T([0, 0], [3, -0.1], [5, 0.2], [7, 0.65], [8, 0.65], [10, 0.2], [11, 0])],
+    pelvis: [T([0, 0], [3, -0.45], [4, -0.3], [5, 0.3], [6, 0.85], [7, 1.1], [8, 1.1], [10, 0.35], [11, 0]), T([0, 0], [3, -0.1], [5, 0.3], [7, 1.0], [8, 1.0], [10, 0.3], [11, 0])],
     chest: [T([0, 0], [3, -0.35], [4, -0.3], [6, 0.25], [7, 0.4], [8, 0.4], [10, 0.1], [11, 0]), T([0, 0])],
     footTargetF: [T([0, 0], [4, 0], [5, 0.7], [6, 1.5], [9, 1.45], [10, 0.6], [11, 0]), T([0, 0], [4, -0.2], [5, -0.6], [6, 0], [9, 0], [10, -0.3], [11, 0])],
   },
@@ -863,7 +918,9 @@ const FAN_STRIKE: Author = (rw) => ({
 
 const ATTACKS: Record<Attack, { clip: string; o: MocapOpts; a: Author; extra: number[]; ev: AnimEvent[] }> = {
   kesa: { clip: 'cut-diagonal', o: { torso: 0.5, travel: 0, feet: 0.3 }, a: KESA, extra: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], ev: [{ f: 6, name: 'smear', len: 2, bone: 'weapon' }, { f: 7, name: 'strike' }] },
-  shomen: { clip: 'cut-overhead', o: { torso: 0.4, travel: 0, feet: 0.3 }, a: SHOMEN, extra: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], ev: [{ f: 6, name: 'smear', len: 2, bone: 'weapon' }, { f: 7, name: 'strike' }] },
+  shomen: { clip: 'cut-overhead', o: { torso: 0.4, travel: 0, feet: 0.3 }, a: SHOMEN, extra: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], ev: [{ f: 3, name: 'smear', len: 2, bone: 'weapon' }, { f: 5, name: 'strike' }] },
+  do: { clip: 'cut-diagonal', o: { torso: 0.3, travel: 0, feet: 0.3 }, a: DO, extra: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], ev: [{ f: 5, name: 'smear', len: 1, bone: 'weapon' }, { f: 5, name: 'strike' }] },
+  harai: { clip: 'thrust', o: { torso: 0.3, travel: 0.3, feet: 0.3 }, a: HARAI, extra: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], ev: [{ f: 3, name: 'smear', len: 1, bone: 'weapon' }, { f: 6, name: 'strike' }] },
   tsuki: { clip: 'thrust', o: { torso: 0.3, travel: 0.3, feet: 0.3 }, a: TSUKI, extra: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], ev: [{ f: 4, name: 'strike' }] },
   thrust: { clip: 'thrust', o: { torso: 0.3, travel: 0.3, feet: 0.3 }, a: THRUST, extra: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], ev: [{ f: 5, name: 'strike' }] },
   beat: { clip: 'chop', o: { torso: 0.3, travel: 0.3, feet: 0.3 }, a: BEAT, extra: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], ev: [{ f: 6, name: 'smear', len: 1, bone: 'weapon' }, { f: 7, name: 'strike' }] },
@@ -1041,7 +1098,9 @@ export function footClips(skel: SkeletonData, s: SSpec, k: SFoot, blowsOut?: Cli
   const brace = alive(fc('brace', 8, true, (f) => mk(skel, f, 'brace', { ref: 'mean', absHeight: true, travel: 1.0, torso: 0, feet: 0.4 }, BRACE[s.brace])), 0.6);
   const blowClip = (a: Attack): Clip => {
     const at = ATTACKS[a];
-    return fromGuard(skel, fc('attack', 12, false, (f) => mk(skel, f, at.clip, at.o, at.a, at.extra), at.ev), brace);
+    let c = fc('attack', 12, false, (f) => mk(skel, f, at.clip, at.o, at.a, at.extra), at.ev);
+    if (a === 'do') c = mapFacings(c, (an) => ({ ...an, bones: { ...(an.bones ?? {}), weapon: { ...(an.bones?.weapon ?? {}), scaleY: DO_FORESHORTEN.map(([f, v]) => ({ f, v })) } } }));
+    return fromGuard(skel, c, brace);
   };
   const attack = blowClip(s.attack);
   // Every blow (README "Several blows"): blow 0 is the classic attack.
@@ -1057,7 +1116,7 @@ export function footClips(skel: SkeletonData, s: SSpec, k: SFoot, blowsOut?: Cli
         const p = evaluate(skel, sampleClip(a, 6, 12, f), { level: 16, facing: f });
         const w = p.byName.weapon!;
         const deg = w.step * 7.5;
-        const mz: P2 = [Math.round((w.x + Math.sin((deg * Math.PI) / 180) * 7.1) * 100) / 100, Math.round((w.y + Math.cos((deg * Math.PI) / 180) * 7.1) * 100) / 100];
+        const mz: P2 = [Math.round((w.x + Math.sin((deg * Math.PI) / 180) * TEPPO_MUZZLE) * 100) / 100, Math.round((w.y + Math.cos((deg * Math.PI) / 180) * TEPPO_MUZZLE) * 100) / 100];
         const pan: P2 = [Math.round((w.x + Math.sin((deg * Math.PI) / 180) * 0.6) * 100) / 100, Math.round((w.y + Math.cos((deg * Math.PI) / 180) * 0.6 - 0.35) * 100) / 100];
         const ev: AnimEvent[] = [
           { f: 6, name: 'pan', str: `${pan[0]},${pan[1]},${deg}` },

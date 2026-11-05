@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Anim, type Dir } from './contract.ts';
 import { dirFor } from './iso.ts';
-import { facing, RISE_SLIDE, settleTurn, stillRising, TURN_HOLD } from './pose.ts';
+import { facing, RISE_SLIDE, settleTurn, stillRising, turnVia, TURN_HOLD } from './pose.ts';
 
 const N = NaN;
 
@@ -86,5 +86,23 @@ describe('stillRising', () => {
     expect(stillRising(3, 15, RISE_SLIDE, 0)).toBe(false);
     expect(stillRising(3, 15, 10, 20)).toBe(false);
     expect(stillRising(3, 15, NaN, NaN)).toBe(false);
+  });
+});
+
+describe('turnVia and turning back', () => {
+  it('passes a half turn through a quarter beside both facings', () => {
+    for (const prev of [0, 1, 2, 3] as const) {
+      const next = ((prev + 2) & 3) as 0 | 1 | 2 | 3;
+      const v = turnVia(prev, next, 1, 0.3);
+      expect(((v - prev) & 3) % 2).toBe(1);
+      expect(((v - next) & 3) % 2).toBe(1);
+    }
+    expect(turnVia(0, 1, 1, 0)).toBe(1);
+    expect(turnVia(0, 0, 1, 0)).toBe(0);
+  });
+  it('holds longer before turning back to the facing just left', () => {
+    expect(settleTurn(1, 0, Anim.Walk, TURN_HOLD, 1)).toBe(0);
+    expect(settleTurn(1, 0, Anim.Walk, 2 * TURN_HOLD, 1)).toBe(1);
+    expect(settleTurn(3, 0, Anim.Walk, TURN_HOLD, 1)).toBe(3);
   });
 });

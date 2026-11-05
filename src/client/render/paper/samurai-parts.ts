@@ -662,6 +662,8 @@ export function katana(c: Paper, grip: P2, deg: number, length = 3.5): void {
   const off = (t: number) => 0.34 * t * t; // the sori: the back bows out toward the tip
   const half = (t: number) => 0.2 * (1 - t * 0.45) + (t > 0.9 ? -(t - 0.9) * 1.4 : 0);
   if (L < 4) {
+    // (At 13 px a 6-px blade's long pale rim is most of the figure's outline on the field: 5 px.)
+    if (L <= 1) length = Math.min(length, 5.0);
     const mid = addP(addP(grip, mul(d, 0.55 + length * 0.55)), mul(n, off(0.55)));
     const tip = addP(addP(grip, mul(d, 0.55 + length)), mul(n, off(1)));
     c.rod(g0, mid, 0.3, 0.26, SM.steel, { shine: true });
@@ -699,12 +701,25 @@ export function shaft(c: Paper, grip: P2, deg: number, butt: number, fore: numbe
   return [a, b];
 }
 
-/** Nagae-yari: a very long lacquered shaft, a gilt collar and a narrow straight blade. */
-export function yari(c: Paper, grip: P2, deg: number, butt = 7, fore = 13): void {
-  const [, b] = shaft(c, grip, deg, butt, fore, SM.wood, 0.24);
+/**
+ * Nagae-yari: a very long lacquered shaft, a gilt collar and a narrow straight blade (the su-yari
+ * head, ~20 cm). `butt`/`fore` are the shaft behind and ahead of the near hand with the spear
+ * upright (the butt at the ground); with `levelButt` the hands slide up the shaft as it comes down
+ * (the shaft's length kept): a levelled pike is held well back from its point, as pikemen held it,
+ * and that keeps the levelled point inside the figure's canvas (docs/art-references/samurai-blows-weapons.md).
+ */
+export function yari(c: Paper, grip: P2, deg: number, butt = 7, fore = 13, levelButt?: number, blade = 1.6): void {
+  let bt = butt;
+  if (levelButt !== undefined) {
+    // 1 with the spear upright, 0 level or lower; eased, and a pure function of the snapped angle.
+    const up = Math.max(0, Math.min(1, -Math.cos((Math.round(deg / 7.5) * 7.5 * Math.PI) / 180)));
+    const k = up * up * (3 - 2 * up);
+    bt = levelButt + (butt - levelButt) * k;
+  }
+  const [, b] = shaft(c, grip, deg, bt, fore + butt - bt, SM.wood, 0.24);
   const d = limb(deg);
   c.rod(addP(b, mul(d, -0.5)), b, 0.32, 0.3, SM.gold, { tone: 2 });
-  c.rod(b, addP(b, mul(d, 1.6)), 0.3, 0.06, SM.steel, { shine: true });
+  c.rod(b, addP(b, mul(d, blade)), 0.3, 0.06, SM.steel, { shine: true });
 }
 
 /** Naginata: a long shaft with a broad curved blade; the gilt habaki and a dark collar. */
@@ -729,12 +744,12 @@ export function javelin(c: Paper, grip: P2, deg: number): void {
   if (c.L <= 1) {
     // (Snapped to a clean 1:1 or level line: a shallow one-pixel diagonal stair-steps.)
     const d0 = limb(Math.round(deg / 45) * 45);
-    c.line(c.q(addP(grip, mul(d0, -2.4))), c.q(addP(grip, mul(d0, 3.6))), code(SM.wood, 3));
-    c.line(c.q(addP(grip, mul(d0, 3.6))), c.q(addP(grip, mul(d0, 4.6))), code(SM.steel, 3));
+    c.line(c.q(addP(grip, mul(d0, -2.8))), c.q(addP(grip, mul(d0, 4.4))), code(SM.wood, 3));
+    c.line(c.q(addP(grip, mul(d0, 4.4))), c.q(addP(grip, mul(d0, 5.4))), code(SM.steel, 3));
     return;
   }
-  const [, b] = shaft(c, grip, deg, 2.4, 3.6, SM.wood, 0.2);
-  c.rod(b, addP(b, mul(limb(deg), 1.0)), 0.3, 0.06, SM.steel, { shine: true });
+  const [, b] = shaft(c, grip, deg, 2.8, 4.4, SM.wood, 0.2);
+  c.rod(b, addP(b, mul(limb(deg), 1.1)), 0.3, 0.06, SM.steel, { shine: true });
 }
 
 /**
@@ -746,7 +761,10 @@ export function yumi(c: Paper, grip: P2, axis: number, bend: number, nock: P2 | 
   const L = c.L;
   const up = limb(axis);
   const fwd: P2 = [-up[1], up[0]]; // toward the target for an upright bow (screen right)
-  const lo = 5.2, hi = 10.4;
+  // A 2.1 m yumi on a 1.65 m man (lo + hi = 18.2 units), gripped a third of the way up.
+  // (The horse archer's pale bow at 13 px keeps its old size: a taller pale line on the near side
+  // turns the figure's light round.)
+  const lo = pale && L <= 1 ? 5.2 : 6.0, hi = pale && L <= 1 ? 10.4 : 12.2;
   const pts: P2[] = [];
   const bulge = 1.15 + bend * 0.9;
   for (let i = 0; i <= 10; i++) {
@@ -786,18 +804,21 @@ export function yumi(c: Paper, grip: P2, axis: number, bend: number, nock: P2 | 
   c.rod(addP(grip, mul(up, -0.35)), addP(grip, mul(up, 0.45)), 0.32, 0.32, SM.shu, { tone: 2 });
 }
 
+/** The teppō's muzzle, units along the barrel from the near hand (the gun ~1.3 m with the stock). */
+export const TEPPO_MUZZLE = 8.2;
+
 /** The teppō: a long octagonal iron barrel in a short wooden stock, brass bands, the lock, a slow match. */
 export function teppo(c: Paper, grip: P2, deg: number, lit_: boolean): P2 {
   const d = limb(deg);
   const n: P2 = [-d[1], d[0]];
-  const butt = c.q(addP(addP(grip, mul(d, -1.6)), mul(n, 0.15)));
-  const fore = c.q(addP(grip, mul(d, 3.6)));
+  const butt = c.q(addP(addP(grip, mul(d, c.L <= 1 ? -1.6 : -2.1)), mul(n, 0.15)));
+  const fore = c.q(addP(grip, mul(d, 4.2)));
   // At level 1 the gun is drawn long: it is the gunner's signature at 13 px.
-  const muzzle = c.q(addP(grip, mul(d, c.L <= 1 ? 9.6 : 7.1)));
+  const muzzle = c.q(addP(grip, mul(d, c.L <= 1 ? 9.6 : TEPPO_MUZZLE)));
   c.rod(butt, fore, 0.5, 0.36, SM.wood, { tone: WT(c) });
   if (c.L <= 1) stick(c, addP(grip, mul(d, 0.3)), muzzle, 0.28, SM.iron, 1);
   else c.rod(addP(grip, mul(d, 0.3)), muzzle, 0.28, 0.26, SM.iron, { shine: true });
-  if (c.L >= 2) for (const k of [2.2, 4.6]) c.rod(addP(grip, mul(d, k)), addP(grip, mul(d, k + 0.25)), 0.44, 0.44, SM.gold, { tone: 2 });
+  if (c.L >= 2) for (const k of [2.6, 5.6]) c.rod(addP(grip, mul(d, k)), addP(grip, mul(d, k + 0.25)), 0.44, 0.44, SM.gold, { tone: 2 });
   c.rod(addP(grip, mul(d, 0.2)), addP(grip, mul(d, 0.95)), 0.42, 0.4, SM.gold, { tone: 3 });
   c.blob(muzzle, 0.2, 0.2, SM.iron, { tone: 1 });
   // The serpentine and its glowing match.

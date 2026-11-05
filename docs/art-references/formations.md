@@ -150,7 +150,7 @@ A facing is quick but has costs:
 - **The facing itself.** Every man turns at once (the regiment's facing changes on the spot). The block's places are laid out afresh about where its men stand, at the new facing, with the same frontage. A man with a foe at hand fights him from where he stands.
   - Under threat, each man takes the place nearest him, so after an about-turn the old rear ranks are the front.
   - With time to spare the sim countermarches: each man keeps his old rank, so the front-rankers walk through to the new front. The time estimate adds the block's depth times the share of the turn past 90 degrees.
-  - While the men walk to their new places the line is ragged and dresses on neighbours (station keeping, `battle-cohesion.md` section 7).
+  - While the men walk to their new places the line is ragged and dresses on neighbours (station keeping, `battle-cohesion.md` section 8).
 - **A block locked in a fight to its front never faces about.** When an enemy block comes within 30 of its back, its rear half turns on it: those men prefer foes behind them, and the front fights on (`rearUntil`, `seek`).
 - **Once faced, a block does not face again for 3 s** (`faceEvery`).
 
@@ -336,7 +336,7 @@ Common pattern across these: they keep spacing and turning as per-unit settings,
 
 ### 7.1 Anchor
 
-- 1 world unit = 0.19 m. Keep FIELD_W 1600 x FIELD_H 1200 (about 304 x 228 m).
+- 1 world unit = 0.19 m. Keep FIELD_W 1600 x FIELD_H 1200 (about 304 x 228 m). (Superseded: the field is 2400 x 2400 since the scale rework, see battle-scale.md.)
 - Man-width (line file interval) = 5.3 units = 1.0 m.
 - Check: the sim's own line file interval of 5.3 units gives 1.0 m, the sourced close-order file width (0.9 m) plus a small margin.
 

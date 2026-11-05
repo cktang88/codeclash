@@ -21,9 +21,11 @@ export interface Box {
 
 /**
  * The smallest scale (device px per map px) a zoomed-out view goes to: below half, nearest
- * sampling drops more pixels than it keeps (one-pixel outlines vanish).
+ * sampling drops more pixels than it keeps (one-pixel outlines vanish), but since the field
+ * doubled (docs/art-references/battle-scale.md) a 1280 x 720 window needs 3/8 to show both armies
+ * deployed: the blocks then read as Total War's do from high up, dark masses under their standards.
  */
-export const MIN_SCALE = 0.5;
+export const MIN_SCALE = 0.375;
 /** Scene-buffer px a side at most (every WebGL2 device renders to 4096). */
 export const MAX_BUFFER = 4096;
 

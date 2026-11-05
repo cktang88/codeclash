@@ -64,7 +64,10 @@ export type CommanderTrait = 'iron-discipline' | 'hawk-eyed' | 'reckless-valour'
 /**
  * Morale, per regiment, every half second. Morale settles toward a target (base minus the
  * situation) at `recover` per think; shocks (charges, the general's death, routs nearby) knock
- * it at once. All the numbers are morale points out of 100.
+ * it at once. All the numbers are morale points out of 100. The ranges (world units) that reach
+ * from one regiment to its neighbours grew about 1.4 times in the scale rework, with the room
+ * between blocks (aura 240, friend's rout 150, enemy's rout 250, banner 200, commander 160,
+ * reserve 240, enemy horse 200, fugitives' reach 120; docs/art-references/battle-scale.md).
  */
 export const MORALE = {
   /** Start: the class's morale plus the army's moraleBonus, and: */
@@ -108,7 +111,7 @@ export const MORALE = {
   mood: 12,
   /** The general alive within `auraRange` (scaled 0.8..1.1 by his skill). */
   aura: 10,
-  auraRange: 240,
+  auraRange: 340,
   /** The general dead: a shock to every regiment, and a lasting malus. */
   generalDeadShock: 20,
   generalDead: 14,
@@ -120,9 +123,10 @@ export const MORALE = {
    */
   friendRout: 60,
   friendRoutCap: 14,
-  friendRoutRange: 150,
-  /** An enemy regiment breaking within 250: a lift. */
+  friendRoutRange: 210,
+  /** An enemy regiment breaking within `enemyRoutRange`: a lift. */
   enemyRout: 5,
+  enemyRoutRange: 350,
   /** Per share of the army's value lost beyond `armyLossFrom` (half as much lift for the enemy). */
   armyLoss: 45,
   armyLossFrom: 0.25,
@@ -210,7 +214,7 @@ export const REGROUP = {
   /** Faction flavour: the samurai's lord's uma-jirushi (on top of `commander`), the Templars' Beauséant (any friendly banner within `banner`). */
   samuraiLord: 0.2,
   templarBanner: 0.2,
-  banner: 200,
+  banner: 280,
   /**
    * Anchors, world units: the standard stands while at least `share` of the regiment's start
    * (and `minMen`) are within `standardRange` of its centre; the commander within
@@ -219,9 +223,9 @@ export const REGROUP = {
    * within 90 of its edge for 4 s. Enemy horse within `enemyHorseRange` weighs against it.
    */
   standardRange: 110,
-  commanderRange: 160,
-  reserveRange: 240,
-  enemyHorseRange: 200,
+  commanderRange: 220,
+  reserveRange: 340,
+  enemyHorseRange: 280,
   share: 0.3,
   minMen: 6,
   /** Men within this of the centre stop and form; stragglers further off run on. */
@@ -241,7 +245,7 @@ export const REGROUP = {
   /** A man must have run this long (ticks) before he can stop: the first panic carries him. */
   minRun: 20,
   /** How near the taking regiment's edge he must be, world units (150 m compressed). */
-  reach: 120,
+  reach: 170,
   /** At this share of his class's rally odds (with the lifts above), per check. */
   joinOdds: 0.5,
   /** Same class only; Templars join any regiment of their family (foot line, missile foot, horse). */
@@ -579,9 +583,9 @@ export const DOCTRINE: Record<FactionId, Doctrine> = {
   templar: {
     ...SHARED,
     // T1 The Marshal's charge.
-    signal: true, signalMorale: 45, signalSpent: 0.6, signalLate: 200, signalEvery: 250, signalHold: 300, heldCharge: 1.2, heldShock: 1.25, recallTo: 30, recallRange: 400, knightFar: 120, knightTired: 60,
+    signal: true, signalMorale: 45, signalSpent: 0.6, signalLate: 200, signalEvery: 250, signalHold: 300, heldCharge: 1.2, heldShock: 1.25, recallTo: 30, recallRange: 560, knightFar: 120, knightTired: 60,
     // T2 Re-form on the banner.
-    withdrawals: 2, withdrawBehind: 40, withdrawBanner: 300, reforms: 1, reformAtBanner: true, shaken: 250,
+    withdrawals: 2, withdrawBehind: 60, withdrawBanner: 420, reforms: 1, reformAtBanner: true, shaken: 250,
     // T3 Not while the Beauséant flies.
     standFast: true, brothersGrief: 1.5,
     // The Rule: no brother leaves his place. A tight, even front.
@@ -592,7 +596,7 @@ export const DOCTRINE: Record<FactionId, Doctrine> = {
     // S1 The lord's uma-jirushi.
     aura: 1.35, auraRange: 1.25, generalDeadShock: 1.75, generalDead: 1.4, revenge: true, revengeFor: 300,
     // S2 First spear, long chase.
-    chaseFar: 1.4, chaseTired: 1.4, recall: 80, firstSpear: 8, firstSpearNear: 240, firstSpearLift: 3, keenCharge: 140,
+    chaseFar: 1.4, chaseTired: 1.4, recall: 80, firstSpear: 8, firstSpearNear: 340, firstSpearLift: 3, keenCharge: 140,
     // S3 Drilled teppō fire.
     ripple: 3, firstVolley: 8, screen: 14, screenBack: 60, screenHold: 150,
     // S2 again: the keen run ahead for the first spear.
@@ -601,11 +605,13 @@ export const DOCTRINE: Record<FactionId, Doctrine> = {
   undead: {
     ...SHARED,
     // U1 The tide: slow and even, faster only near the Lich-Marshal; never halting, a lurch for a charge.
-    tide: 0.8, tideNear: 240, unhalting: true, footRun: 1.15,
+    tide: 0.8, tideNear: 500, unhalting: true, footRun: 1.15,
     // U2 Unflinching: a charge into them barely knocks them back, stuns nobody, and stalls sooner.
     knockback: 0.3, stun: false, drain: 1.3,
     // U3 What falls, rises.
-    raiseEvery: 100, raiseShare: 0.45, raiseRange: 240, raiseAfter: 30, raiseHp: 0.4,
+    // (tideNear and raiseRange were 240 until the scale rework: with the blocks spread wider and
+    // the Lich-Marshal further behind his line, 500 reaches the same share of his host.)
+    raiseEvery: 100, raiseShare: 0.45, raiseRange: 500, raiseAfter: 30, raiseHp: 0.4,
     // The tide shambles on, a ragged mass with no eager men and no laggards to speak of.
     loose: { lead: 0.7, ripple: 1.3, stepBack: false, leash: 1, curl: 0, breathe: 0, surge: 0.6, lull: false },
   },

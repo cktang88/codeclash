@@ -253,7 +253,8 @@ describe('battle', () => {
       expect(left).toBeGreaterThanOrEqual(13);
       expect(left).toBeLessThanOrEqual(27);
     }
-  }, 120_000);
+    // (240 s: since the scale rework a battle runs about 1.6 times as long.)
+  }, 240_000);
 
   it('a tenth more men usually wins, but not always', () => {
     const wins = winsOf(20, (seed) => fight(setupOf(seed, army(330), army(300))).winner);
@@ -328,10 +329,12 @@ describe('battle: stances', () => {
   /**
    * Archers shoot at a block of heavy foot that waits for them, pinned to a stance; returns the
    * foot's dead. (90 s: since v6 the archers march into bow range at the drill's pace and loose
-   * their first shafts at about 48 s, not 32 s.)
+   * their first shafts at about 48 s, not 32 s. Since the scale rework 180 s and 300 archers, not
+   * 150: the armies deploy twice as far apart, and from three times as far the shafts scatter
+   * wide; 150 emptied their quivers at the waiting foot from 560 for 3 dead a battle.)
    */
-  function shot(seed: number, stance: Stance, ticks = 900): number {
-    const b = new Battle(setupOf(seed, only(U.Archers, 150), only(U.HeavyInfantry, 100)));
+  function shot(seed: number, stance: Stance, ticks = 1800): number {
+    const b = new Battle(setupOf(seed, only(U.Archers, 300), only(U.HeavyInfantry, 100)));
     b.generals[1].fixedPlan = 'hold';
     b.pinStance(1, U.HeavyInfantry, stance);
     for (let i = 0; i < ticks && !b.done(); i++) b.step();
@@ -424,10 +427,12 @@ describe('battle: command and morale', () => {
 
   it('regiments waver, break, rally and shatter; the city’s morale bonus helps', () => {
     // Over a few battles: since v10 a regiment rallies only out of contact and with something to
-    // rally on, and in some battles none does (in v13, seeds 1 and 5; in v14, seed 2).
+    // rally on, and in some battles none does (in v13, seeds 1 and 5; in v14, seed 2; with the
+    // riders who think for themselves, seeds 2-6 and 8, though over 24 battles as many blocks
+    // rally as before).
     const states = new Set<string>();
     const kinds = new Set<string>();
-    for (const seed of [2, 3, 4]) {
+    for (const seed of [1, 2, 3, 4]) {
       const b = new Battle(setupOf(seed, army(600), army(600)));
       while (!b.done()) {
         b.step();

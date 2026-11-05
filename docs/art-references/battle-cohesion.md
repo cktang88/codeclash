@@ -598,7 +598,130 @@ Shots: `docs/screenshots/cohesion-after/` (before/after pairs, the same seed and
 
 ---
 
-## 7. Each man his own captain (battle v17)
+## 7. Riders who think for themselves (cavalry, the sweep after v16)
+
+The user's second complaint, verbatim: "Especially units at the back of a charge post charge, and also
+units don't flow around to flank each other — everything is too rigid and stupid, each soldier gotta
+think for itself! [...] there shouldn't be a single person on the battlefield where you wonder why
+aren't they doing X, or why they're so stupid." This section is the cavalry half (foot is done
+separately). Everything is in `src/game/battle.ts` under `RIDER`; the measure is
+`scripts/cavalry-sanity.ts`.
+
+### 7.1 What a real rider does, and what ours did [M]
+
+Measured with `npx tsx scripts/cavalry-sanity.ts` (four set-piece charges from `frontalCharge`, run on
+for 40 s, and the `/demo` battles, seeds 3, 7, 11, 23, at 450 and 1,200 men), it counts the riders a
+watcher would ask "why isn't he doing anything?" about:
+
+- **Idle:** standing still for over 2 s, no foe in reach, the enemy within 40 units. In v16 a third of
+  all riders spent time like this, 1,880 rider-seconds over the eight battles. Nearly all (1,380 s)
+  were the back ranks of a block of horse in a melee: the front had stopped against the enemy, and
+  the men behind sat in their slots behind it, because a rider looked for a foe only 15 units from
+  himself and 34 from his slot.
+- **Stacked:** riders standing inside one another.
+- **Into the pikes:** riders galloping into the front of braced spears or a pike wall that had an open
+  flank (no friend of its within 20 of an end).
+- **Left behind:** riders still within 10 of an enemy and under half their speed 2 s after their block
+  rode out to re-form.
+- **Horse archers caught:** horse archers with arrows left with an enemy within 12.
+
+### 7.2 Changes
+
+1. **His own man (`hunt`).** A rider of a block in the fight with nobody within reach looks 40 units
+   about himself, with no leash to his slot. He takes the nearest man. He never takes a man of braced
+   spears while he is in front of their line. He likes a man behind him less (×1.5). He leaves alone
+   fugitives (the pursuit's work: hunting them stopped broken blocks spreading as they ran) and horse
+   that is riding out to re-form.
+2. **Round, not into (`swerve`).** A rider closing on a slower friend who is in his way (within 12
+   ahead) swerves to the emptier side, by 60° if the friend is close and 30° if further off. A rider
+   still galloping in with his impetus rides on.
+3. **Round to the flank (`flankPoint`).** A rider with no foe within 40, whose block is fighting foot,
+   rides round the end of that block on his own side and comes in at its flank, where `hunt` finds
+   him a man. Before its front he rides along it 20 units off, not across its spears. Against horse he
+   finds his own man or keeps his place: a block of horse moves too fast to ride round alone, and
+   trying it made clashes of horse one-sided (the cycle-charge test fell from 25 cycles to 9).
+4. **Out by his own path.** Breaking off, each rider rides at his own pace for his own spot about the
+   rally point. That spot is his place in the block, 1.4× looser, facing back toward the fight. Each
+   turns within his own turning circle. The whole block no longer wheels about its middle. The ride
+   out ends when the middle of the riders is within 25 of the rally point. The block then takes up
+   the frame they are already standing in, facing the fight. They close up from there and come again.
+5. **Meet, don't wait.** Horse re-forming that sees enemy horse within 90 riding at it breaks off the
+   re-form and counter-charges.
+6. **No horseman rides at the points (`thinkCav`).** Horse about to charge the front of braced spears
+   or a pike wall first looks for easier prey within 250: foot locked in a fight, or shooters. It does
+   this only when its order leaves it free to (not held back, and not the Templar knights, who ride at
+   the Marshal's target). Failing that, it rides out round the end of the spears and charges from the
+   side. A rash general's knights still charge headlong (Courtrai, Mansourah).
+7. **Out of the spears.** A rider with his charge spent who is hit in a fight with spearmen while
+   under half his hit points pulls his horse out for 2 s, then may come at them again.
+8. **Horse archers keep off.** A horse archer with an enemy within 15 rides off from him himself,
+   back toward his place. The block now rides off from foot 50 away (it was 35).
+9. **Two bugs found by the measure.**
+   - Horse sent at the rear of a deep block in a melee could stand for good at the "swing out to its
+     side" point: its middle was still level with the block's side. It now goes on round to the rear.
+   - The Rule held: Templar knights held back by a living Marshal no longer charge foot that comes
+     near. They ride back to their place.
+
+### 7.3 Measured (same seeds; v16 → after)
+
+| | v16 | after |
+|---|---|---|
+| Idle rider-seconds, all battles (riders ever idle) | 1,884 (29%) | 53 (4%) |
+| ... of which at 1,200 a side | 1,584 (33%) | 26 (3%) |
+| Stacked riders, per 1,000 rider-ticks | 1.33 | 1.50 |
+| Into the front of braced spears with an open flank, per charge, demo battles | 5 / 323 | 3 / 274 |
+| Left behind after a ride out (rider-seconds / ride-outs), demo battles | 186 / 83 | 54 / 70 |
+| Horse archers with an enemy within 12 (‰ of their ticks) | 31 | 61 |
+| Riders' kills / riders lost, demo battles | 1,506 / 1,359 | 1,950 / 1,516 |
+| Battle length, mean of the eight demo battles (of `pnpm bench`'s ten) | 125 s (122 s) | 142 s (115 s) |
+| Clash of light horse, 30 a side, 8 seeds: blocks that broke off, re-formed and charged again (`cohesion.test.ts` set-up) | 25 | 24 |
+
+Notes on the table:
+
+- **Idle that is left.** Most of the remaining idle time is horse archers standing to shoot with foot
+  within 40.
+- **Horse archers.** Their number rose with hunting (it moves between 40 and 65 from one build to
+  the next, with the battles' course). Enemy light horse now chases them down where it used to sit
+  behind its own front. They ride off from it, but are sometimes caught.
+- **Into the pikes, set pieces.** The frontal-charge set pieces still put rash knights straight into
+  the pike wall (19 of 32), by design.
+- **Kills.** The riders' kills rose by about 30%: men who used to sit idle now fight.
+- **Balance.** Mirror fairness at 250 and 120 a side: 51.5% and 47.5% (z 0.4 and -0.7). Faction
+  pairs (60 seeds each way, 250 and 1,000 a side) moved within the noise. Templar–Samurai: 52/50%
+  (v16 51/52%). Samurai–Undead: 58/61% (v16 62/50%). Undead–Templar: 42/48% (v16 43/39%).
+- **Speed.** `pnpm bench` is unchanged.
+
+### 7.4 Test changes
+
+`frontalCharge` (`src/game/testing.ts`) measures how far a charge got into foot *through its front*:
+
+- **Riders who ride round.** A rider who rides round the end of the block and comes in at its side or
+  rear is no longer counted as having broken in.
+- **When it stops.** It stops when the horse stops charging and fighting, so the last stragglers to
+  turn away in a ride-out do not count either.
+
+The assertions in `collision.test.ts` are unchanged. Two other tests needed changes:
+
+- **`game.test.ts` (waver, break, rally).** The test now runs seeds 1–4. In the changed battles no
+  block rallied in seeds 2–4. Over 24 battles as many blocks rally as before (25 against 19).
+- **Shooters' anchor (`survey`).** A shooter's block pulled after its men now counts as having moved,
+  so its shooters hold for a moment. The changed battles exposed a block of archers that loosed
+  0.1 s after it was pulled, which broke the "never loose while moving" test.
+
+### 7.5 Left
+
+- **The charge itself is still a formed block.** It closes on its slots at spring 2.5, so a re-charge
+  from a loose rally looks tidy again within a second or two. A softer spring for horse at the
+  charge would keep the line ragged.
+- **Horse archers.** They still stand to shoot with foot a little over 40 away. A Cantabrian circle
+  (riders loosing on the move in a loop) would replace the standing volley.
+- **Pursuit of horse that rides out.** Horse that wins a clash still charges after a beaten block that
+  is riding out. It often catches it re-forming, which is realistic but makes some cycles one-shot.
+
+
+---
+
+## 8. Each man his own captain: foot (battle v17)
 
 The user's next complaint was that the battle was still too rigid and stupid:
 
@@ -606,7 +729,7 @@ The user's next complaint was that the battle was still too rigid and stupid:
 > they only know about the people next to them [...] there shouldn't be a single person on the
 > battlefield where you wonder why aren't they doing X."
 
-### 7.1 The audit: `scripts/battle-sanity.ts`
+### 8.1 The audit: `scripts/battle-sanity.ts`
 
 The script fights demo battles (`demoSetup`, seeds 3, 7, 11 and 23 at 450 and 1,200 men) and checks every man every 0.2 s. It counts the states a real soldier would not be in.
 
@@ -634,7 +757,7 @@ Context measures, which are not faults:
 - **wrapping:** the share of fighters standing beyond the end of their foe's front.
 - **march-wave:** the spread of the front rank along the facing while advancing, in units.
 
-### 7.2 Before and after
+### 8.2 Before and after
 
 The faults are in % of the samples they apply to.
 
@@ -678,7 +801,7 @@ What `--why` showed in v16:
 - **block-idle** was second-line blocks standing in reserve beside an enemy block whose flank was open. The other cases were spears braced against horse that was fighting someone else.
 - **Shock foot (mass 2.4) were taken for horse** wherever the code tested `mass > 2`. That covered choosing a foe, the horse's turning limit, the breathers, the wounded and the rider's bow wave. Mounted is now by class (`Store.mt`).
 
-### 7.3 What changed (battle.ts unless noted; numbers in `COHESION`, command.ts)
+### 8.3 What changed (battle.ts unless noted; numbers in `COHESION`, command.ts)
 
 - **Station keeping (`station`, `dresses`, `Regiment.nb`).**
   - A man of a foot block makes 35% for his place in the block (`dressSlot`), with his P1 lead. The other 65% is where the men beside him and the man ahead in his file put him: a file's width from each, a rank behind.
@@ -702,7 +825,7 @@ What `--why` showed in v16:
 - **Spears** brace against horse that is fighting someone else only when it is within 40.
 - **Facings against wheels** (`turnFoot`, `faceAbout`). A foot block that must turn a long way faces round man by man and re-forms when that is quicker than the wheel. It does not face with enemy horse about. A block locked to its front turns only its rear ranks on an enemy behind it. Details and sources are in `formations.md` section 2.5.1.
 
-### 7.4 Balance and speed
+### 8.4 Balance and speed
 
 The fairness and bench figures are in the commit messages and the v17 report. In short:
 
@@ -711,7 +834,7 @@ The fairness and bench figures are in the commit messages and the v17 report. In
 - Battles are about 10% shorter.
 - The sim's time per tick is within a few per cent.
 
-### 7.5 Not done
+### 8.5 Not done
 
 - **Idle men face their regiment's front.** The renderer turns a man to his foe only when he has one, so an idle rear-ranker of a block that has turned its rear ranks about still shows his back to the enemy. That fix is in `scene.ts`, which belongs to the renderer.
 - **missile-idle stays high.** Most of it is shooters with a target block whose men are out of their reach, or whose shots are held for friends in the line of fire. Ranges belong to the scale agent.

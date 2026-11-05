@@ -23,7 +23,7 @@ export function placeRegiment(b: Battle, r: Regiment, x: number, y: number, fx: 
 }
 
 export interface ChargeRun {
-  /** How far the deepest rider got past the foot's front rank (world units) in the charge. */
+  /** How far the deepest rider got past the foot's front rank (world units) in the charge, through its front (not round its end). */
   deepest: number;
   /** How far past it the riders who hit got on average, at most, in the charge. */
   mean: number;
@@ -51,16 +51,26 @@ export function frontalCharge(horse: number, foot: number, stance: Stance, men =
   const footDepth = f.depth;
   const fx = f.fx;
   const fy = f.fy;
+  // Riders who rode round the end of the foot (out past its flank, level with it) and came at
+  // it from the side or behind: they did not get into it through its front, and are not counted.
+  const round = new Uint8Array(b.soldiers.length);
   while (!b.done() && b.tick < 400 && (contact < 0 || b.tick - contact < 30)) {
     b.step();
     let sum = 0;
     let n = 0;
+    // (The charge and the melee it ends in; not the ride out, when the last riders to turn
+    // away are a handful of stragglers, nor whatever comes after.)
+    if (contact >= 0 && h.every((r) => r.mode !== 'charge' && r.mode !== 'melee')) break;
     for (const s of b.soldiers) {
       if (s.team !== 0 || s.state !== State.Fighting) continue;
       const dx = s.x - f.ax;
       const dy = s.y - f.ay;
-      if (Math.abs(-dx * fy + dy * fx) > f.width / 2 + 2) continue;
       const into = -(dx * fx + dy * fy);
+      if (Math.abs(-dx * fy + dy * fx) > f.width / 2 + 2) {
+        if (into > -8) round[s.id] = 1;
+        continue;
+      }
+      if (round[s.id]) continue;
       if (into > -8) {
         if (contact < 0) contact = b.tick;
         sum += into;

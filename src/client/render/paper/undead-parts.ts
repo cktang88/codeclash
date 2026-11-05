@@ -735,8 +735,8 @@ export function pavise(c: Paper, at: P2, tilt: number, face: boolean, s = 1): vo
 export function lance(c: Paper, hand: P2, deg: number, fwd: number, back: number, o: { pennon?: boolean; sway?: number; vamplate?: boolean } = {}): P2 {
   const tail = along(hand, deg + 180, back);
   const tip = along(hand, deg, fwd);
-  c.rod(tail, tip, 0.34, 0.2, UM.wood, { tone: 2 });
-  c.rod(along(tip, deg + 180, 0.9), along(tip, deg, 0.3), 0.36, 0.1, UM.steel, { tone: 2, shine: true });
+  c.rod(tail, tip, 0.36, 0.22, UM.wood, { tone: 2 });
+  c.rod(along(tip, deg + 180, 1.3), along(tip, deg, 0.3), 0.42, 0.1, UM.steel, { tone: 2, shine: true });
   if (o.vamplate) c.rod(along(hand, deg + 180, 0.1), along(hand, deg, 0.6), 0.5, 0.95, UM.iron, { tone: 2 });
   if (o.pennon) {
     const s = o.sway ?? 0;
@@ -1077,7 +1077,7 @@ export function horseBody(c: Paper, H: HorseFrame, p: HorseLegs, look: HorseLook
       const top = P([x, -1.6]), mid = P([x - 0.6, 0.9]), end = P([x - 0.3, belly(x - 0.3) - 0.1]);
       const lt = i < 3 ? 1 : 0;
       c.rod(top, mid, 0.42, 0.38, HB, { tone: (H.back ? 2 : 2 + lt) });
-      c.rod(mid, end, 0.38, 0.3, HB, { tone: c.L === 2 ? 1 : 2 });
+      c.rod(mid, end, 0.38, 0.3, HB, { tone: 2 });
     }
     // The sternum along the bottom of the chest.
     c.rod(P([4.6, 2.3]), P([0.6, belly(0.6)]), 0.42, 0.36, HB, { tone: 1 });

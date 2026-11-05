@@ -114,39 +114,73 @@ const step = (lift: number, land: number, dx: number, back: number): [Track, Tra
 ];
 
 // ------------------------------------------------------------------ Grave Legionaries (gladius + scutum)
+//
+// Three blows that differ in silhouette and in beat (docs/art-references/undead-blows-weapons.md):
+// the thrust (quick, strike at 4, the blade level at the belly past the shield's edge), the umbo
+// punch (heavy, strike at 5, the shield driven a stride out with the body behind it, the blade kept
+// back), the overhand stab (slow, held high three frames, strike at 6, the point coming down over
+// the shield's rim). The dead's beat: the chamber stops dead (a held frame) and the strike jerks out.
 
 /**
- * Blow 0, the shield punch and the stab (U1): the gladius comes up level at the hip, drawn back
- * behind the shield (1-2); the shield is punched out with a step in on the shield foot (3), held
- * against the enemy (4); the gladius drives out from behind its rim at the belly, the shoulder
- * behind it (5), held at full reach (6-7); drawn back behind the shield (8-9), and down (10-11).
+ * Blow 0, the thrust from behind the scutum (U1; Trajan's Column, the auxiliary's low point): the
+ * fist drawn back to the hip behind the shield (1-2), a dead stop (2-3), the gladius driven out
+ * level from behind the shield's edge at the belly, the shoulder and a short step behind it (4),
+ * held at full reach (5-6), drawn back behind the shield (7-9); the shield stays put, so the
+ * blade is what moves.
  */
-const LEG_PUNCH_STAB = (skel: SkeletonData): Author => (rw) => ({
-  w: lineArm(skel, rw, { deg: 96, base: [0.9, 3.0], s: T([2, -1.2], [3, -1.8], [4, -1.8], [5, 2.6], [6, 3.0], [7, 3.0], [9, 0.2]), from: 2, to: 9 }),
+const LEG_THRUST = (skel: SkeletonData): Author => (rw) => ({
+  w: lineArm(skel, rw, { deg: 92, base: [1.3, 3.0], s: T([1, -1.2], [2, -2.2], [3, -2.2], [4, 3.2], [5, 3.8], [6, 3.8], [8, 0.6], [9, 0]), from: 1, to: 9 }),
   dw: {
-    upperArmF: T([0, 0], [1, 6], [2, 14], [3, 62], [4, 64], [5, 40], [7, 30], [9, 10], [11, 0]),
-    forearmF: T([0, 0], [2, -4], [3, -10], [4, -10], [6, -4], [11, 0]),
-    spine: T([0, 0], [2, 5], [3, -10], [4, -10], [5, -20], [7, -22], [9, -6], [11, 0]),
-    head: T([0, 0], [3, -4], [5, -8], [7, -8], [10, 0]),
-    jaw: jaw([0, -8], [2, -4], [3, -26], [4, -10], [5, -36], [7, -36], [8, -6], [11, -8]),
+    upperArmF: T([0, 0], [2, 6], [4, 4], [6, 4], [9, 2], [11, 0]),
+    spine: T([0, 0], [2, 6], [3, 6], [4, -16], [6, -18], [8, -6], [11, 0]),
+    head: T([0, 0], [3, 4], [4, -6], [7, -6], [10, 0]),
+    jaw: jaw([0, -8], [3, -4], [4, -30], [6, -34], [7, -6], [11, -8]),
   },
   tAdd: {
-    pelvis: [T([0, 0], [2, -0.3], [3, 0.6], [4, 0.6], [5, 0.95], [7, 1.0], [9, 0.35], [11, 0]), T([0, 0], [3, 0.15], [5, 0.3], [7, 0.3], [11, 0])],
-    footTargetF: step(2, 3, 1.3, 9),
+    pelvis: [T([0, 0], [2, -0.4], [3, -0.4], [4, 1.0], [6, 1.1], [8, 0.3], [11, 0]), T([0, 0], [4, 0.2], [6, 0.2], [11, 0])],
+    footTargetF: step(3, 4, 1.2, 8),
   },
 });
-/** Blow 1, the low stab under the shield's rim: the shield up and still, a short chamber at the hip, the point driven level into the belly, held, drawn back. */
-const LEG_LOW_STAB = (skel: SkeletonData): Author => (rw) => ({
-  w: lineArm(skel, rw, { deg: 86, base: [0.7, 3.3], s: T([2, -1.4], [3, -1.9], [4, 2.4], [5, 2.9], [6, 2.9], [8, 0.6], [9, 0]), from: 2, to: 9 }),
+/**
+ * Blow 1, the umbo punch (U1 P2): the scutum drawn in to the chest and the weight rocked back onto
+ * the rear foot (1-3), a lurch (the skull snaps back at 3); then the whole body is thrown in behind
+ * the boss, a long step on the shield foot and the shield driven out at arm's length into the
+ * enemy's face (5), held against him with a shudder (6-7), and hauled back (8-11). The gladius is
+ * kept cocked at the hip, point out, behind the shield, for the stab that follows.
+ */
+const LEG_PUNCH = (skel: SkeletonData): Author => (rw) => ({
+  w: lineArm(skel, rw, { deg: 98, base: [0.4, 2.9], s: T([1, -1.0], [3, -1.8], [5, -1.4], [7, -1.4], [9, -0.4]), from: 1, to: 9 }),
   dw: {
-    upperArmF: T([0, 0], [2, 16], [6, 18], [9, 8], [11, 0]),
-    forearmF: T([0, 0], [2, 8], [6, 8], [11, 0]),
-    spine: T([0, 0], [2, 4], [3, 6], [4, -14], [6, -18], [8, -6], [11, 0]),
-    jaw: jaw([0, -8], [3, -4], [4, -32], [6, -36], [7, -6], [11, -8]),
+    upperArmF: T([0, 0], [1, -6], [3, -14], [4, -8], [5, 66], [6, 70], [7, 66], [8, 30], [10, 6], [11, 0]),
+    forearmF: T([0, 0], [3, 12], [5, -22], [7, -20], [9, -6], [11, 0]),
+    spine: T([0, 0], [2, 10], [3, 12], [4, 6], [5, -24], [6, -26], [7, -22], [9, -8], [11, 0]),
+    head: T([0, 0], [2, 4], [3, 14], [4, 4], [5, -10], [7, -10], [10, 0]),
+    jaw: jaw([0, -8], [2, -10], [3, -2], [5, -36], [6, -38], [7, -30], [8, -8], [11, -8]),
   },
   tAdd: {
-    pelvis: [T([0, 0], [3, -0.35], [4, 0.6], [6, 0.7], [8, 0.25], [11, 0]), T([0, 0], [4, 0.2], [6, 0.25], [11, 0])],
-    footTargetF: step(3, 4, 0.9, 8),
+    pelvis: [T([0, 0], [2, -0.6], [3, -0.7], [4, -0.2], [5, 1.5], [6, 1.6], [7, 1.5], [9, 0.5], [11, 0]), T([0, 0], [3, 0.1], [5, 0.35], [7, 0.35], [11, 0])],
+    footTargetF: step(3, 5, 2.0, 9),
+  },
+});
+/**
+ * Blow 2, the overhand stab over the rim (Trajan's Column scene XXIV, the raised fist; Vegetius'
+ * punctim at the face): the fist heaved up over the shoulder, the point turned down at the enemy's
+ * face over the top of the shield (1-2), held there unmoving three frames (2-4, the dead's wait), then
+ * driven down along its line over the shield's rim (5), held at the neck (6-7), and drawn back (8-10).
+ * The shield is held up to the eyes all through it.
+ */
+const LEG_OVERHAND = (skel: SkeletonData): Author => (rw) => ({
+  w: lineArm(skel, rw, { deg: 62, base: [0.9, -1.4], s: T([1, -0.4], [2, -1.5], [4, -1.6], [5, 2.6], [6, 3.0], [7, 3.0], [8, 1.0], [9, 0]), from: 1, to: 9 }),
+  dw: {
+    upperArmF: T([0, 0], [2, 16], [7, 16], [10, 4], [11, 0]),
+    forearmF: T([0, 0], [2, 10], [7, 10], [11, 0]),
+    spine: T([0, 0], [2, 8], [4, 9], [5, -14], [6, -20], [7, -20], [9, -6], [11, 0]),
+    head: T([0, 0], [2, 6], [4, 6], [6, -10], [8, -4], [10, 0]),
+    jaw: jaw([0, -8], [2, -6], [4, -6], [5, -24], [6, -38], [7, -38], [8, -8], [11, -8]),
+  },
+  tAdd: {
+    pelvis: [T([0, 0], [2, -0.3], [4, -0.35], [5, 0.5], [6, 0.9], [7, 0.9], [9, 0.3], [11, 0]), T([0, 0], [2, -0.25], [4, -0.3], [5, 0], [6, 0.35], [7, 0.35], [11, 0])],
+    footTargetF: step(4, 6, 1.2, 9),
   },
 });
 
@@ -167,23 +201,42 @@ const ghoulLunge = (chamber: number, drive: number, back: number, dx: number): T
 });
 /** Blow 0, the rising lunge (U2): lowered into line, drawn back past the hip and held with a twitch (2-4), driven up at the belly with the long step (5), held (6-7), drawn back (8-9), raised (10-11). */
 const GHOUL_LUNGE = (skel: SkeletonData): Author => (rw) => ({
-  ...ghoulLunge(4, 5, 9, 1.6),
-  w: lineArm(skel, rw, { deg: 102, base: [1.9, 2.3], s: T([2, -1.4], [3, -2.0], [4, -2.1], [5, 2.0], [6, 2.4], [7, 2.4], [8, 0.4], [9, 0]), from: 2, to: 9 }),
+  ...ghoulLunge(4, 5, 9, 1.8),
+  w: lineArm(skel, rw, { deg: 100, base: [1.9, 2.4], s: T([2, -1.6], [3, -2.3], [4, -2.4], [5, 2.4], [6, 2.9], [7, 2.9], [8, 0.4], [9, 0]), from: 2, to: 9 }),
 });
-/** Blow 1, the overhand stab: the spear raised over the shoulder, point down at the face (2-3), held (4), driven down along the shaft (5), held (6-7), drawn back up (8-9). */
+/**
+ * Blow 1, the overhead stab (Fiore's posta di finestra; the yari's overhand): the spear heaved up
+ * over the head in both hands, the shaft above the skull, the point down at the face (2-3), held
+ * (4), driven down along the shaft (5-6), held (7), drawn back up and down to the guard (8-11).
+ * The point arrives a frame later than the lunge's.
+ */
 const GHOUL_HIGH = (skel: SkeletonData): Author => (rw) => ({
-  ...ghoulLunge(4, 5, 9, 1.2),
-  w: lineArm(skel, rw, { deg: 72, base: [1.5, -0.5], s: T([2, -0.8], [3, -1.4], [4, -1.5], [5, 2.0], [6, 2.4], [7, 2.4], [8, 0.2], [9, 0]), from: 2, to: 9 }),
+  ...ghoulLunge(4, 6, 10, 1.2),
+  w: lineArm(skel, rw, { deg: 74, base: [1.2, -2.2], s: T([2, -0.8], [3, -1.6], [4, -1.7], [5, 0.8], [6, 2.4], [7, 2.6], [8, 1.0], [10, 0]), from: 2, to: 10 }),
 });
-/** Blow 2, the double jab, low: two short pokes at the knee and the groin (3 and 6), the second the deeper, no step until it. */
-const GHOUL_JAB = (skel: SkeletonData): Author => (rw) => {
-  const b = ghoulLunge(5, 6, 9, 1.0);
-  return {
-    ...b,
-    dw: { ...b.dw, spine: T([0, 0], [2, 6], [3, -10], [4, 2], [5, 6], [6, -18], [8, -20], [9, -6], [11, 0]) },
-    w: lineArm(skel, rw, { deg: 86, base: [1.6, 2.7], s: T([2, -0.9], [3, 1.6], [4, -0.5], [5, -0.9], [6, 2.2], [7, 2.4], [8, 2.4], [9, 0]), from: 2, to: 9 }),
-  };
-};
+/**
+ * Blow 2, the two-handed sweep (the CC0 skeleton spearman's swing on OpenGameArt; the ashigaru's
+ * beating with the long spear, weapon-attacks.md S2): the spear heaved up and back until it stands
+ * over the ghoul's head (1-3), a dead stop (4), then brought round and down in one arc with the
+ * whole back (5, the smear), the point slamming down at a man's head and dragged low (6-7), and
+ * lifted back into line (8-11). A swing, not a thrust: the only blow of the three that turns the shaft.
+ */
+const GHOUL_SWEEP: BlowDef['a'] = () => (rw) => ({
+  w: {
+    upperArmN: R(rw.upperArmN!, 11, [1, 70], [2, 120], [3, 146], [4, 148], [5, 100], [6, 52], [7, 46], [9, 30]),
+    forearmN: R(rw.forearmN!, 11, [1, 120], [2, 168], [3, 192], [4, 194], [5, 130], [6, 74], [7, 66], [9, 80]),
+    weapon: R(rw.weapon!, 11, [1, 140], [2, 168], [3, 186], [4, 188], [5, 128], [6, 70], [7, 62], [9, 88]),
+  },
+  dw: {
+    spine: T([0, 0], [2, 8], [3, 14], [4, 15], [5, -8], [6, -26], [7, -28], [9, -8], [11, 0]),
+    head: T([0, 0], [3, 8], [4, 8], [5, -4], [6, -12], [8, -4], [11, 0]),
+    jaw: jaw([0, -8], [3, -6], [4, -2], [5, -22], [6, -38], [7, -38], [9, -6], [11, -8]),
+  },
+  tAdd: {
+    pelvis: [T([0, 0], [3, -0.6], [4, -0.6], [5, 0.4], [6, 1.1], [7, 1.2], [9, 0.4], [11, 0]), T([0, 0], [3, -0.1], [6, 0.45], [7, 0.5], [11, 0])],
+    footTargetF: step(4, 6, 1.4, 9),
+  },
+});
 
 // ------------------------------------------------------------------ Bone-Throwers (javelin in hand)
 
@@ -236,11 +289,12 @@ const LICH_JAB = (skel: SkeletonData): Author => (rw) => ({
 const smear = (f: number): AnimEvent => ({ f, name: 'smear', len: 1, bone: 'weapon' });
 const strike = (f: number): AnimEvent => ({ f, name: 'strike' });
 export const BLOWS: Record<string, BlowDef> = {
-  legPunchStab: { clip: 'idle', o: STILL, a: LEG_PUNCH_STAB, extra: EVERY, ev: [strike(3), strike(5)], warp: holdAt(3) },
-  legLowStab: { clip: 'idle', o: STILL, a: LEG_LOW_STAB, extra: EVERY, ev: [strike(4)], warp: holdAt(2) },
+  legThrust: { clip: 'idle', o: STILL, a: LEG_THRUST, extra: EVERY, ev: [strike(4)], warp: holdAt(2) },
+  legPunch: { clip: 'idle', o: STILL, a: LEG_PUNCH, extra: EVERY, ev: [strike(5)], warp: holdAt(3) },
+  legOverhand: { clip: 'idle', o: STILL, a: LEG_OVERHAND, extra: EVERY, ev: [strike(6)], warp: W0 },
   ghoulLunge: { clip: 'idle', o: STILL, a: GHOUL_LUNGE, extra: [...EVERY, 3.5, 4.5], ev: [strike(5)], warp: W0 },
-  ghoulHigh: { clip: 'idle', o: STILL, a: GHOUL_HIGH, extra: [...EVERY, 3.5, 4.5], ev: [strike(5)], warp: W0 },
-  ghoulJab: { clip: 'idle', o: STILL, a: GHOUL_JAB, extra: [...EVERY, 4.5, 5.5], ev: [strike(3), strike(6)], warp: W0 },
+  ghoulHigh: { clip: 'idle', o: STILL, a: GHOUL_HIGH, extra: [...EVERY, 3.5, 4.5], ev: [strike(6)], warp: W0 },
+  ghoulSweep: { clip: 'idle', o: STILL, a: GHOUL_SWEEP, extra: EVERY, ev: [smear(5), smear(6), strike(6)], warp: W0 },
   throwerStab: { clip: 'idle', o: STILL, a: THROWER_STAB, extra: EVERY, ev: [strike(5)], warp: holdAt(3) },
   throwerJab: { clip: 'idle', o: STILL, a: THROWER_JAB, extra: EVERY, ev: [strike(5)], warp: holdAt(3) },
   arbRam: { clip: 'idle', o: STILL, a: ARB_RAM, extra: EVERY, ev: [strike(4)], warp: holdAt(3) },
@@ -372,10 +426,19 @@ const RIDER_LEVEL = (skel: SkeletonData): Author => (rw) => ({
   w: lineArm(skel, rw, { deg: 93, base: [1.0, 1.9], s: T([2, -0.8], [3, -1.2], [4, 1.6], [5, 2.1], [6, 2.1], [8, 0.3], [9, 0]), from: 2, to: 9 }),
   dw: { ...ride(3, 5, 9, -28), upperArmF: T([0, 0], [3, 10], [5, -6], [9, 0]) },
 });
-/** Black Riders, blow 2: the stab down past the horse's shoulder at a man under the hooves, the rider leaning far out over it. */
-const RIDER_LOW = (skel: SkeletonData): Author => (rw) => ({
-  w: lineArm(skel, rw, { deg: 50, base: [1.3, 1.0], s: T([2, -0.8], [3, -1.2], [4, 1.7], [5, 2.3], [6, 2.3], [8, 0.4], [9, 0]), from: 2, to: 9 }),
-  dw: ride(3, 5, 9, -34),
+/**
+ * Black Riders, blow 2, the beat (the Bayeux Tapestry's riders with the spear raised overhand, the
+ * yari's tataki): the spear swung up until it stands over the rider (2-3), held a frame (4), and
+ * brought round and down in one arc past the horse's head onto a man on foot (5, the smear), the
+ * point dragged low (6-7), lifted back into the couch (8-11).
+ */
+const RIDER_SWEEP = (): Author => (rw) => ({
+  w: {
+    upperArmN: R(rw.upperArmN!, 11, [2, 130], [3, 150], [4, 152], [5, 104], [6, 56], [7, 50], [9, 20]),
+    forearmN: R(rw.forearmN!, 11, [2, 170], [3, 196], [4, 198], [5, 140], [6, 84], [7, 78], [9, 76]),
+    weapon: R(rw.weapon!, 11, [2, 160], [3, 184], [4, 186], [5, 130], [6, 66], [7, 58], [9, 96]),
+  },
+  dw: { ...ride(4, 6, 10, -30), upperArmF: T([0, 0], [4, 12], [6, -10], [11, 0]) },
 });
 /**
  * The Death Knight's sword is drawn and sheathed inside each sword blow (undead-horse.ts
@@ -407,21 +470,31 @@ const KNIGHT_OVERHEAD = (): Author => (rw) => ({
     upperArmF: T([0, 0], [3, 8], [6, -8], [11, 0]),
   },
 });
-/** Death Knights, blow 2: the diagonal forehand cut: the sword drawn from the hip (1-2) and laid back flat over the shoulder (3), held (4), cut down and across through the line of the enemy's neck (5-6), through past the horse's neck (7), held (8), sheathed and the lance taken back (9-10). */
-const KNIGHT_DIAGONAL = (): Author => (rw) => ({
-  w: {
-    upperArmN: R(rw.upperArmN!, 11, [1, HAND_OVER[0]], [2, AT_HIP[0]], [3, 120], [4, 120], [5, 112], [6, 80], [7, 46], [8, 44], [9, AT_HIP[0]], [10, HAND_OVER[0]]),
-    forearmN: R(rw.forearmN!, 11, [1, HAND_OVER[1]], [2, AT_HIP[1]], [3, 236], [4, 236], [5, 160], [6, 96], [7, 64], [8, 60], [9, AT_HIP[1]], [10, HAND_OVER[1]]),
-    weapon: R(rw.weapon!, 11, [1, HAND_OVER[2]], [2, AT_HIP[2]], [3, 268], [4, 268], [5, 170], [6, 104], [7, 58], [8, 52], [9, AT_HIP[2]], [10, HAND_OVER[2]]),
-  },
-  dw: { ...ride(4, 6, 10, -26), upperArmF: T([0, 0], [4, 10], [6, -8], [11, 0]) },
-});
+/**
+ * Death Knights, blow 2, the downward thrust (weapon-attacks.md T8 P4; Fiore's mounted plays, the
+ * point at a man on foot): the sword drawn from the hip (1-2), its point turned down and forward
+ * over the shield's rim and drawn back by the shoulder (3), held (4), driven out along its line over
+ * the horse's neck with the rider's weight behind it (5-6), held (7), drawn back (8),
+ * sheathed and the lance taken back (9-10). A thrust where the overhead is a cut: the blade keeps its angle.
+ */
+const KNIGHT_THRUST = (skel: SkeletonData): Author => (rw) => {
+  const l = lineArm(skel, rw, { deg: 84, base: [1.6, -0.5], s: T([3, -1.0], [4, -1.1], [5, 0.9], [6, 1.3], [7, 1.3], [8, 0.2]), from: 3, to: 8 });
+  // The hand-over and the draw (frames 1-2, 9-10) round the line; the blade kept on the forward side of the turn.
+  const wrapIn = (tr: Track, k: 0 | 1 | 2, ref: number): Track => {
+    const mid = tr.filter(([f]) => f >= 3 && f <= 8).map(([f, v]) => [f, near(v, ref)] as [number, number]);
+    return [tr[0]!, [1, HAND_OVER[k]], [2, AT_HIP[k]], ...mid, [9, AT_HIP[k]], [10, HAND_OVER[k]], [11, tr[0]![1]]];
+  };
+  return {
+    w: { upperArmN: wrapIn(l.upperArmN!, 0, AT_HIP[0] + 40), forearmN: wrapIn(l.forearmN!, 1, AT_HIP[1]), weapon: wrapIn(l.weapon!, 2, AT_HIP[2] + 60) },
+    dw: { ...ride(4, 6, 10, -34), upperArmF: T([0, 0], [4, 10], [6, -10], [11, 0]) },
+  };
+};
 
 /** Rider blows by name, with their events. */
 export const RIDER_BLOWS: Record<string, { a: (skel: SkeletonData) => Author; ev: AnimEvent[]; sword?: boolean }> = {
   riderDown: { a: RIDER_DOWN, ev: [strike(5)] },
   riderLevel: { a: RIDER_LEVEL, ev: [strike(5)] },
-  riderLow: { a: RIDER_LOW, ev: [strike(5)] },
+  riderSweep: { a: RIDER_SWEEP, ev: [smear(5), smear(6), strike(6)] },
   knightOverhead: { a: KNIGHT_OVERHEAD, ev: [smear(5), smear(6), strike(6)], sword: true },
-  knightDiagonal: { a: KNIGHT_DIAGONAL, ev: [smear(5), smear(6), strike(6)], sword: true },
+  knightThrust: { a: KNIGHT_THRUST, ev: [strike(6)], sword: true },
 };

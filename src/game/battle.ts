@@ -22,12 +22,38 @@
 
 import { factionStats, type FactionId } from './factions.ts';
 import { mixSeed, Rng } from './rng.ts';
-import { emptyCounts, U, UNIT_COUNT, type Counts, type Role, type UnitStats } from './units.ts';
+import { emptyCounts, STATS, U, UNIT_COUNT, type Counts, type Role, type UnitStats } from './units.ts';
 import { COHESION, DOCTRINE, FATIGUE, MORALE, newOrder, REGROUP, PERSONALITIES, PLANS, UNDEAD, type CommanderTrait, type Doctrine, type MoraleState, type Order, type OrderKind, type Personality, type Plan } from './command.ts';
 
 export type { CommanderTrait, MoraleState, Order, OrderKind, Personality, Plan } from './command.ts';
 export { COHESION, DOCTRINE, MORALE, REGROUP, UNDEAD } from './command.ts';
 
+/**
+ * v17: men and riders think for themselves, on a field of real size
+ * (docs/art-references/battle-cohesion.md section 7, battle-scale.md).
+ * - Horse: a rider with no foe in reach while his block fights finds his own within 40, rides
+ *   round slower friends, rides round the end of an engaged foot block to its flank, pulls out
+ *   of spears when his charge is spent and he is hurt, and withdraws by his own path to his own
+ *   spot at the rally point (the block no longer wheels as one). Free horse takes another
+ *   target or the flank rather than charging braced spears head-on.
+ * - Scale: field 2400 x 2400, armies 1300 apart, blocks, lines and wings two to three times
+ *   further apart, missile ranges about 0.7 of Total War's (bows 590, crossbows 470, horse
+ *   archers 420, javelins 140, engines 1100), MAX_TICKS 6000.
+ * - Foot (battle-cohesion.md section 8; scripts/battle-sanity.ts audits it): each man keeps
+ *   station on the men beside and ahead of him (35% his place, `station`), so a line on the move
+ *   bends and dresses itself, and steps up into the hole of a fallen man ahead. He fights a foe at
+ *   hand wherever he stands, before any other; men spread along the enemy front (`crowd`); idle
+ *   past his patience he looks 5.5 files about him for a foot enemy at most one of ours fights and
+ *   whom he can get at (`open`), round the flank or through a gap. A man swinging round a flank
+ *   keeps his leash from where he is (he walked past the enemy he was sent for). A reserve block
+ *   takes an open enemy flank close by on its own (`initiative`). Spears brace against horse
+ *   fighting someone else only within 40. Mounted is by class, not weight (`Store.mt`: shock foot,
+ *   mass 2.4, were taken for horse).
+ * - Foot facings (formations.md 2.5.1): a block turning far faces round man by man and re-forms
+ *   (countermarching, with time) when that is quicker than its wheel, which is slow for a wide
+ *   block (`turnFoot`, `faceAbout`); not with enemy horse about. Until re-formed it has no front.
+ *   A block locked to its front turns its rear ranks about on an enemy behind it (`rearUntil`).
+ */
 /**
  * v16: nothing grows with the size of the battle that should not (the undead won two thirds of
  * battles of 2800 a side). The field stays the same size, so a big battle is a crowded and a long
@@ -194,7 +220,7 @@ export { COHESION, DOCTRINE, MORALE, REGROUP, UNDEAD } from './command.ts';
  * one side won 60-75% of mirror matches, which side depending on the armies' size (see
  * `pnpm fairness`).
  */
-export const BATTLE_VERSION = 16;
+export const BATTLE_VERSION = 17;
 /**
  * Mixed into every battle's seed. It was BATTLE_VERSION until v3, which kept v2's salt: a
  * version bump refuses old setups (BattleVersionError) but does not re-seed battles by itself.
@@ -207,13 +233,23 @@ export class BattleVersionError extends Error {
     super(`battle recorded under rules v${version}; this build fights v${BATTLE_VERSION}`);
   }
 }
-/** The field, in world units (a man is about five across). Armies face each other along x. */
-export const FIELD_W = 1600;
-export const FIELD_H = 1200;
+/**
+ * The field, in world units (a man is about five across, 0.19 m a unit): about 455 m square, room
+ * for two armies deployed beyond bowshot and for the horse to go round a flank, while a broken
+ * block still has about as far to run to its own edge as before (where it rallies or flees: a
+ * longer field let the living rally far more often, and the dead never rally). Until the scale
+ * rework it was 1600 x 1200; see docs/art-references/battle-scale.md. Armies face each other along x.
+ */
+export const FIELD_W = 2400;
+export const FIELD_H = 2400;
 export const TICK_S = 0.1;
 export const TICKS_PER_SECOND = 10;
-/** Battles end here at the latest, decided on the strength left (six minutes). */
-export const MAX_TICKS = 3600;
+/**
+ * Battles end here at the latest, decided on the strength left (ten minutes: the armies now
+ * deploy twice as far apart and shoot from three times as far, so the approach alone takes about
+ * a minute; it was six minutes, see docs/art-references/battle-scale.md).
+ */
+export const MAX_TICKS = 6000;
 /** Figures per side at most; bigger armies are drawn with each figure standing for several men. */
 export const MAX_FIGURES = 2800;
 
@@ -845,8 +881,13 @@ const sqrt = Math.sqrt;
 const CELL = 8;
 const GW = FIELD_W / CELL;
 const GH = FIELD_H / CELL;
-/** Front-to-front distance between the armies at deployment. */
-const GAP = 600;
+/**
+ * Front-to-front distance between the armies at deployment (about 250 m): beyond the reach of
+ * the bows behind either line (ARCHER_RANGE), so the battle opens with an advance into bowshot.
+ */
+const GAP = 1300;
+/** The archers' range: the General's sense of "bowshot" (see `generalThink`). */
+const ARCHER_RANGE = STATS[U.Archers]!.range;
 /** Global lethality: tuned so a clash of equal lines lasts about a minute. */
 const MELEE_K = 2.0;
 const MISSILE_K = 1.5;
@@ -855,9 +896,10 @@ const RATIO: Record<string, number> = { line: 3.6, missile: 5, skirmish: 6, flan
 /**
  * Room between men across the front, beyond their own breadth (see `spacingFor`). Close-order foot
  * stands about a metre a file (5.3 units at about 0.19 m a unit); horse knee to knee with a little
- * play, light horse looser. See docs/art-references/formations.md, section 7.2.
+ * play, light horse looser (horse and missile foot a little looser since the scale rework:
+ * docs/art-references/formations.md, section 7.2, and battle-scale.md).
  */
-const GAP_IN_RANK: Record<string, number> = { line: 0.5, missile: 1.2, skirmish: 3.5, flank: 2.6, 'shock-cav': 1.4, 'horse-archer': 2.4, siege: 10, command: 2 };
+const GAP_IN_RANK: Record<string, number> = { line: 0.5, missile: 1.4, skirmish: 3.5, flank: 3, 'shock-cav': 1.8, 'horse-archer': 2.8, siege: 10, command: 2 };
 /**
  * Ranks stand further apart than files: a little for foot, so the ranks read, and much more for
  * horse, which is longer than it is broad (knights: files 9 apart, ranks 13).
@@ -870,16 +912,23 @@ const RANK_STEP: Record<string, number> = { line: 1.1, missile: 1.05, skirmish: 
  * behind it, between the blocks of the archers' row, and from the line out to the horse on the
  * wings. The figures are drawn 2-3 times life size, so a gap sized in metres all but vanishes on
  * screen: these are sized to the drawn figure, two figures' width of ground between blocks
- * (docs/art-references/battle-cohesion.md, section 3.5). Until v13: 18, 16, 14 and 36.
+ * (docs/art-references/battle-cohesion.md, section 3.5). Until v13: 18, 16, 14 and 36; until the
+ * scale rework 28 (22..34), 26, 24 and 60, which read as blocks shoulder to shoulder. Now about
+ * three quarters of a block's front between blocks (12 m: room to wheel and for a fleeing block
+ * to pass), a second line 15 m behind the first, the horse 30 m out on the wings
+ * (docs/art-references/battle-scale.md).
  */
-const REG_GAP = 28;
-const REG_GAP_MIN = 22;
-const REG_GAP_MAX = 34;
-const ROW_GAP = 26;
-const MISSILE_GAP = 24;
-const WING_GAP = 60;
+const REG_GAP = 64;
+const REG_GAP_MIN = 44;
+const REG_GAP_MAX = 80;
+const ROW_GAP = 80;
+const MISSILE_GAP = 56;
+const WING_GAP = 150;
 /** The horse on the wings stands this far before the line ("slightly forward", as at Agincourt). */
-const WING_FORWARD = 16;
+const WING_FORWARD = 30;
+/** Skirmishers stand this far before the line, engines this far behind the last row. */
+const SKIRMISH_AHEAD = 80;
+const SIEGE_BEHIND = 80;
 /**
  * Pace in each mode, a share of the men's speed. Formed foot marches at FOOT_MARCH, 11 units a
  * second (about 2 m/s: a brisk march, faster than life so a battle is not all approach), whatever
@@ -917,8 +966,13 @@ function figures(count: number, scale: number): number {
 
 /** A block of the fearless is as good as shaken (for the General sending a reserve at it) with fewer than this share of its men. */
 const SPENT_BLOCK = 0.6;
-/** Late in the day (ticks): every regiment left goes in (see `generalThink`, `drawn`). */
-const LATE = 2400;
+/**
+ * Late in the day (ticks): every regiment left goes in (see `generalThink`, `drawn`). Two thirds
+ * of MAX_TICKS (2400 of 3600 until the scale rework).
+ */
+const LATE = 4000;
+/** A refused wing holds back until this tick at most (1200 until the scale rework: the approach now takes twice as long). */
+const REFUSE_UNTIL = 2000;
 /** The general's household draws back from a block worth more than this many times itself (see `thinkCommand`). */
 const HOUSEHOLD_ODDS = 2;
 /** A block locked in melee that bows may still shoot over the fight into: deep enough to have rear ranks well clear of it. */
@@ -1234,7 +1288,10 @@ export class Battle {
         let width = 0;
         while (i < list.length) {
           const w = list[i]!.width;
-          if (row.length > 0 && width + w + gap > y1 - y0) break;
+          // (`width` counts the gap after each block in the row: the last one needs none. Until
+          // the scale rework this counted it, which with a gap over the band's 40 of slack sent
+          // the last block of the line to a row of its own behind.)
+          if (row.length > 0 && width + w > y1 - y0) break;
           row.push(list[i]!);
           width += w + gap;
           i++;
@@ -1257,26 +1314,26 @@ export class Battle {
     const half = Math.max(rowWidth(first, regGap), 160) / 2;
     const firstDepth = first.length ? place(first, 0, midY - half - 20, midY + half + 20) : 0;
     const missile = byRole('missile');
-    const missileDepth = place(missile, Math.max(14, firstDepth), midY - half - 60, midY + half + 60, MISSILE_GAP);
+    const missileDepth = place(missile, Math.max(14, firstDepth), midY - half - 120, midY + half + 120, MISSILE_GAP);
     const behind = Math.max(14, firstDepth) + missileDepth;
     const secondDepth = place(second, behind, midY - half - 20, midY + half + 20);
     const skirm = byRole('skirmish');
     if (skirm.length) {
       const sd = Math.max(...skirm.map((r) => r.depth));
-      place(skirm, -36 - sd, midY - half - 40, midY + half + 40, 22);
+      place(skirm, -SKIRMISH_AHEAD - sd, midY - half - 80, midY + half + 80, 50);
     }
-    place(byRole('siege'), behind + secondDepth + 30, midY - half, midY + half, 30);
+    place(byRole('siege'), behind + secondDepth + SIEGE_BEHIND, midY - half, midY + half, 60);
 
     // Wings: cavalry split above and below the line; knights at the back of each wing.
     const wings = [...byRole('flank'), ...byRole('horse-archer'), ...byRole('shock-cav')];
     const top: Regiment[] = [];
     const bottom: Regiment[] = [];
     wings.forEach((r, i) => (i % 2 === 0 ? top : bottom).push(r));
-    const wingW = (list: Regiment[]) => Math.min(280, list.reduce((w, r) => Math.max(w, r.width), 0) * 2 + 22);
+    const wingW = (list: Regiment[]) => Math.min(400, list.reduce((w, r) => Math.max(w, r.width), 0) * 2 + 50);
     const tw = wingW(top);
     const bw = wingW(bottom);
-    place(top, -WING_FORWARD, Math.max(20, midY - half - WING_GAP - tw), midY - half - WING_GAP, 22);
-    place(bottom, -WING_FORWARD, midY + half + WING_GAP, Math.min(FIELD_H - 20, midY + half + WING_GAP + bw), 22);
+    place(top, -WING_FORWARD, Math.max(20, midY - half - WING_GAP - tw), midY - half - WING_GAP, 50);
+    place(bottom, -WING_FORWARD, midY + half + WING_GAP, Math.min(FIELD_H - 20, midY + half + WING_GAP + bw), 50);
 
     // The commander and a bodyguard of knights behind the centre.
     if (army.commander) {
@@ -1859,10 +1916,12 @@ export class Battle {
     // When to go forward.
     let waiting = this.tick < 30;
     if (plan === 'hold' && !ts.engaged && ts.hasLine) {
-      if (g.holdUntil === 0) g.holdUntil = g.personality === 'cautious' ? 1100 : g.personality === 'aggressive' ? 650 : 900;
+      // (Until the scale rework 1100, 650 and 900: the enemy now has twice as far to come.)
+      if (g.holdUntil === 0) g.holdUntil = g.personality === 'cautious' ? 1900 : g.personality === 'aggressive' ? 1150 : 1550;
       if (this.tick < g.holdUntil && gap > 140) waiting = true;
-    } else if (!g.dueled && !doc.unhalting && ours.missile > 0 && ours.missile >= theirs.missile * 0.5 && gap < 125 && gap > 60 && g.personality !== 'aggressive') {
-      // Halt in bow range and trade volleys for a while.
+    } else if (!g.dueled && !doc.unhalting && ours.missile > 0 && ours.missile >= theirs.missile * 0.5 && gap < ARCHER_RANGE * 0.72 && gap > ARCHER_RANGE * 0.34 && g.personality !== 'aggressive') {
+      // Halt in bow range and trade volleys for a while: our archers, a row behind our line, reach
+      // the enemy's front. (Until the scale rework 60 < gap < 125, with bows of 175.)
       g.dueled = true;
       g.haltUntil = this.tick + (g.personality === 'cautious' ? 170 : 120);
     }
@@ -1948,7 +2007,7 @@ export class Battle {
         continue;
       }
       let hold = waiting && !r.engaged;
-      if (plan === 'refuse' && !r.engaged && !r.committed && (r.homeY - FIELD_H / 2) * g.strong < -20 && this.tick < 1200) {
+      if (plan === 'refuse' && !r.engaged && !r.committed && (r.homeY - FIELD_H / 2) * g.strong < -20 && this.tick < REFUSE_UNTIL) {
         // The refused wing stays back until the enemy comes to it.
         const near = this.nearestFoe(r, 0, 130);
         if (!near) hold = true;
@@ -2488,7 +2547,7 @@ export class Battle {
       if (q > leash) {
         r.ax = ix + (dx * leash) / q;
         r.ay = iy + (dy * leash) / q;
-        // (Its place moved with its men: it walked, for shooters waiting to loose.)
+        // (A block pulled after its men has moved: its shooters do not loose this moment.)
         r.movedAt = this.tick;
       }
     }
@@ -3253,7 +3312,7 @@ export class Battle {
     }
     if (best) {
       this.setMode(r, 'reserve');
-      this.goal(r, best.ax - best.fx * (best.depth + 30), best.ay - best.fy * (best.depth + 30));
+      this.goal(r, best.ax - best.fx * (best.depth + RESERVE_BEHIND), best.ay - best.fy * (best.depth + RESERVE_BEHIND));
       r.dfx = best.fx;
       r.dfy = best.fy;
       return;
@@ -3789,6 +3848,7 @@ export class Battle {
         // Cycle charge: break off, ride back as a loose crowd to re-form on the rally point, and
         // come again (P4).
         this.rallyPoint(r, prey0, shock);
+        this.rallyFacing(r, prey0.cx, prey0.cy);
         r.cycles++;
         r.meleeTicks = 0;
         for (const id of r.members) this.d.hs[id] = 0.85 + this.rng.next() * 0.3;
@@ -3802,13 +3862,34 @@ export class Battle {
     if (r.mode === 'withdraw') {
       const dx = r.wx - r.ax;
       const dy = r.wy - r.ay;
-      if (dx * dx + dy * dy > 18 * 18 && this.tick - r.modeAt < (r.toBanner ? 160 : COHESION.rideOut)) return;
-      // There: rein in, close up knee to knee (see `move`), wheel and come again.
+      // (Its riders ride each for his own spot (see `move`): it is there when they are.)
+      const cx = r.wx - r.cx;
+      const cy = r.wy - r.cy;
+      const there = r.role !== 'command' && cx * cx + cy * cy < RIDER.there * RIDER.there;
+      if (!there && dx * dx + dy * dy > 18 * 18 && this.tick - r.modeAt < (r.toBanner ? 160 : COHESION.rideOut)) return;
+      // There: rein in, close up knee to knee (see `move`), wheel and come again. (The riders
+      // came in facing the fight, each to his own spot: the block is already about, and does
+      // not wheel round its middle.)
       this.setMode(r, 'hold');
+      if (r.role !== 'command') {
+        // The block's frame is where its men are, facing the fight: its front half its depth
+        // before their middle.
+        r.fx = r.dfx;
+        r.fy = r.dfy;
+        r.ax = r.cx + r.fx * r.depth * 0.5;
+        r.ay = r.cy + r.fy * r.depth * 0.5;
+        r.aspd = 0;
+      }
       r.reformUntil = this.tick + COHESION.reform + this.rng.int(COHESION.reformSpread);
       return;
     }
-    if (r.mode === 'hold' && r.charges > 0 && this.tick < Math.max(r.reformUntil, r.modeAt + 15)) return;
+    // RIDER: horse coming at it while it re-forms it does not wait for: it meets it at the gallop.
+    let rush: Regiment | null = null;
+    if (r.mode === 'hold' && r.charges > 0 && this.tick < Math.max(r.reformUntil, r.modeAt + 15)) {
+      rush = this.nearestFoe(r, 2, RIDER.meet);
+      if (!rush || (rush.mode !== 'charge' && rush.mode !== 'pursue') || (rush.vax * (r.cx - rush.cx) + rush.vay * (r.cy - rush.cy) <= 0)) return;
+      r.reformUntil = this.tick;
+    }
 
     // The order's target, or one of opportunity.
     let prey: Regiment | null = null;
@@ -3817,10 +3898,13 @@ export class Battle {
     // seldom); once off after them it keeps on until called back (see below).
     // (Not horse rallying to charge again (P4): it is re-forming, not looking for fugitives.)
     const fugitives = o.kind === 'pursue' || r.mode === 'charge' || r.engaged || (r.chaseAt < 0 && r.cycles > 0 && this.tick - r.meleeAt < COHESION.cycleBusy) ? null : this.nearestFoe(r, 4, r.chaseAt >= 0 ? 300 : 200);
-    if (fugitives && fugitives.alive >= 3 && (r.chaseAt >= 0 || (this.tick - r.recallAt >= this.doc[team]!.recall && r.moraleState === 'steady' && this.rng.chance(r.eager * 0.3)))) prey = fugitives;
+    if (rush) prey = rush;
+    else if (fugitives && fugitives.alive >= 3 && (r.chaseAt >= 0 || (this.tick - r.recallAt >= this.doc[team]!.recall && r.moraleState === 'steady' && this.rng.chance(r.eager * 0.3)))) prey = fugitives;
     else if (o.kind === 'hold' || o.kind === 'reserve') {
-      // On the wing: counter-charge horse that comes close, fight foot that walks into us.
-      prey = this.nearestFoe(r, 2, 90) ?? this.nearestFoe(r, 0, 25);
+      // On the wing: counter-charge horse that comes close, fight foot that walks into us. (T1:
+      // Templar knights held back by the Marshal ride back to their place from foot instead:
+      // the Rule forbids a charge without his word.)
+      prey = this.nearestFoe(r, 2, 90) ?? (shock && this.doc[team]!.signal && this.lordAlive(team) ? null : this.nearestFoe(r, 0, 25));
       if (!prey) {
         this.setMode(r, 'hold');
         this.goal(r, Number.isNaN(o.x) ? r.ax : o.x, Number.isNaN(o.y) ? r.ay : o.y);
@@ -3869,6 +3953,7 @@ export class Battle {
         r.toBanner = false;
         r.wx = r.homeX;
         r.wy = r.homeY;
+        this.rallyFacing(r, prey.cx, prey.cy);
         this.goal(r, r.homeX, r.homeY);
         return;
       }
@@ -3894,6 +3979,35 @@ export class Battle {
       else this.goal(r, e.frontX + dir * (e.lineDepth + 60), wy);
       return;
     }
+    // RIDER: no horseman rides at the points of braced spears while there is a way round. Facing
+    // the front of a block set against horse (not yet locked in a fight), horse free to choose
+    // takes foot locked in the fight or shooters close by instead; failing those, it rides out round the
+    // end of the spears and charges from the side. (Not a rash general's knights: they charge
+    // headlong, as at Courtrai and Mansourah.)
+    if (r.mode !== 'charge' && isFoot(prey) && !prey.engaged && (prey.stance === 'pikewall' || prey.stance === 'braced') && !(shock && this.generals[team]!.rashKnights)) {
+      // (Horse held back, and the Templar knights, whose one target is the Marshal's, keep to
+      // the one they have.)
+      const free = o.kind !== 'hold' && o.kind !== 'reserve' && !this.doc[team]!.signal;
+      const alt = free ? this.nearestFoe(r, 3, RIDER.spurn) ?? this.nearestFoe(r, 1, RIDER.spurn) : null;
+      if (alt && alt !== prey && alt.stance !== 'pikewall' && alt.stance !== 'braced') {
+        prey = alt;
+        r.targetReg = prey.id;
+      } else {
+        const lox = -prey.fy;
+        const loy = prey.fx;
+        const ex = r.cx - prey.ax;
+        const ey = r.cy - prey.ay;
+        const ahead = ex * prey.fx + ey * prey.fy;
+        const lat = ex * lox + ey * loy;
+        if (ahead > -10 && (lat < 0 ? -lat : lat) < prey.width * 0.5 + r.width * 0.5 + 10) {
+          const sg = lat < 0 ? -1 : 1;
+          const out = prey.width * 0.5 + r.width * 0.5 + 40;
+          this.setMode(r, 'flank');
+          this.goal(r, clampX(prey.ax + lox * sg * out - prey.fx * prey.depth * 0.5), clampY(prey.ay + loy * sg * out - prey.fy * prey.depth * 0.5));
+          return;
+        }
+      }
+    }
     // Against foot locked in melee (or when told to): come at its rear.
     const rear = isFoot(prey) && (prey.engaged || (o.kind === 'flank' && o.side === 3));
     const dpx = prey.cx - r.cx;
@@ -3909,12 +4023,15 @@ export class Battle {
       if (side > -prey.depth * 0.5 - 10 && ex * ex + ey * ey > 30 * 30 && r.mode !== 'charge') {
         this.setMode(r, 'flank');
         // Swing out to its side first if we're in front of it.
-        if (side > 0) {
-          const lx = -prey.fy;
-          const ly = prey.fx;
-          const s = (r.cx - prey.cx) * lx + (r.cy - prey.cy) * ly >= 0 ? 1 : -1;
-          this.goal(r, prey.cx + lx * s * (prey.width * 0.5 + 50) - prey.fx * 20, prey.cy + ly * s * (prey.width * 0.5 + 50) - prey.fy * 20);
-        } else this.goal(r, rx, ry);
+        // (Once there, on round to the rear: until the sweep after v16 a block whose middle
+        // was still level with the side of a deep block stood at that point for good.)
+        const lx = -prey.fy;
+        const ly = prey.fx;
+        const s = (r.cx - prey.cx) * lx + (r.cy - prey.cy) * ly >= 0 ? 1 : -1;
+        const sx = prey.cx + lx * s * (prey.width * 0.5 + 50) - prey.fx * 20;
+        const sy = prey.cy + ly * s * (prey.width * 0.5 + 50) - prey.fy * 20;
+        if (side > 0 && (sx - r.ax) * (sx - r.ax) + (sy - r.ay) * (sy - r.ay) > 25 * 25) this.goal(r, sx, sy);
+        else this.goal(r, rx, ry);
         return;
       }
     }
@@ -4017,6 +4134,20 @@ export class Battle {
     }
   }
 
+  /** RIDER: horse riding out faces, at its rally point, back toward (x, y): its `dfx`, `dfy`. */
+  private rallyFacing(r: Regiment, x: number, y: number): void {
+    const dx = x - r.wx;
+    const dy = y - r.wy;
+    const q = sqrt(dx * dx + dy * dy);
+    if (q < 1) {
+      r.dfx = r.team === 0 ? 1 : -1;
+      r.dfy = 0;
+      return;
+    }
+    r.dfx = dx / q;
+    r.dfy = dy / q;
+  }
+
   private thinkHorseArcher(r: Regiment): void {
     const st = this.stats[r.team]![r.cls]!;
     if (this.tick < 40) {
@@ -4027,7 +4158,7 @@ export class Battle {
       this.thinkCav(r, false);
       return;
     }
-    const threat = this.nearGap(r, 35, false) ?? this.nearGap(r, 90, true);
+    const threat = this.nearGap(r, RIDER.haFoot, false) ?? this.nearGap(r, 90, true);
     if (threat) {
       // Ride away from it, sideways along the field, loosing as they go. (The sideways turn is
       // taken the same way by both armies: until v4 it was not mirrored, so the right-hand army's
@@ -4315,7 +4446,7 @@ export class Battle {
       if (o.routed || o.alive === 0) continue;
       const dx = o.cx - r.cx;
       const dy = o.cy - r.cy;
-      if (dx * dx + dy * dy < 250 * 250) o.morale = Math.min(100, o.morale + MORALE.enemyRout);
+      if (dx * dx + dy * dy < MORALE.enemyRoutRange * MORALE.enemyRoutRange) o.morale = Math.min(100, o.morale + MORALE.enemyRout);
     }
   }
   /** Which way a broken regiment runs (unit vector to out[0], out[1]): away from the nearest enemy, toward its own edge. */
@@ -4644,6 +4775,13 @@ export class Battle {
         this.impact(i, t);
         return;
       }
+      // RIDER: a rider stuck among spears, his charge spent and badly hurt, pulls his horse out
+      // of it for a moment (and may come at them again) rather than stand and be gutted.
+      if (d.mt[i] && r.role !== 'command' && d.imp[i]! <= 0.3 && this.soldiers[t]!.s.antiCav > 1.5 && d.hp[i]! < this.soldiers[i]!.s.hp * RIDER.spearHurt && this.tick - d.hit[i]! < 3) {
+        d.wd[i] = this.tick + RIDER.spearOut;
+        d.target[i] = -1;
+        return;
+      }
       if (q <= reach * reach && d.cd[i] === 0 && !this.outOfMeasure(i, r)) this.strike(i, t);
       return;
     }
@@ -4804,6 +4942,8 @@ export class Battle {
         }
       }
     }
+    // A rider with nobody at hand while his block fights looks further, for himself (RIDER).
+    if (best < 0 && mounted && !pursue && r.role !== 'command' && (r.engaged || r.mode === 'melee')) return this.hunt(i, r);
     return best;
   }
 
@@ -4829,6 +4969,223 @@ export class Battle {
     }
     if (fwd > -o.depth * 0.5) return row === 0;
     return row >= o.rows - 1;
+  }
+
+  /**
+   * RIDER: a rider of a block in the fight who has nobody within his reach picks his own foe
+   * within `RIDER.hunt`: the nearest, but never a man of braced spears while he is before their
+   * front, nor one behind him if one lies ahead (×`RIDER.behind`); not fugitives, nor horse
+   * riding out to re-form. No leash: he knows the men about him, not
+   * his slot.
+   */
+  private hunt(i: number, r: Regiment): number {
+    const d = this.d;
+    const R = RIDER.hunt;
+    const x = d.x[i]!;
+    const y = d.y[i]!;
+    const vx = d.vx[i]!;
+    const vy = d.vy[i]!;
+    const team = d.team[i]!;
+    const x0 = Math.max(0, Math.floor((x - R) / CELL));
+    const x1 = Math.min(GW - 1, Math.floor((x + R) / CELL));
+    const y0 = Math.max(0, Math.floor((y - R) / CELL));
+    const y1 = Math.min(GH - 1, Math.floor((y + R) / CELL));
+    const grid = this.grid;
+    const of0 = this.ofTeam0;
+    const items = this.items;
+    const kx = this.kx;
+    const ky = this.ky;
+    const regs = this.regiments;
+    const R2 = R * R;
+    let best = -1;
+    let bs = Infinity;
+    for (let cy = y0; cy <= y1; cy++) {
+      const row = cy * GW;
+      for (let cx = x0; cx <= x1; cx++) {
+        const c = row + cx;
+        const from = team === 0 ? grid[c]! + of0[c]! : grid[c]!;
+        const end = team === 0 ? grid[c + 1]! : grid[c]! + of0[c]!;
+        for (let k = from; k < end; k++) {
+          const j = items[k]!;
+          // (Men still fighting: fugitives are for the horse let loose on them.)
+          if (d.state[j] !== State.Fighting) continue;
+          const dx = kx[k]! - x;
+          const dy = ky[k]! - y;
+          let s = dx * dx + dy * dy;
+          if (s > R2) continue;
+          const o = regs[d.reg[j]!]!;
+          // (Horse riding out to re-form he lets go: he does not ride off after it alone.)
+          if (o.mode === 'withdraw') continue;
+          // (Not across the front of braced spears: the way to their men is round their end.)
+          if ((o.stance === 'pikewall' || o.stance === 'braced') && d.mass[j]! <= 2 && (x - o.ax) * o.fx + (y - o.ay) * o.fy > -2) continue;
+          if (vx * dx + vy * dy < 0) s *= RIDER.behind;
+          if (s < bs) {
+            bs = s;
+            best = j;
+          }
+        }
+      }
+    }
+    void r;
+    return best;
+  }
+
+  /**
+   * RIDER: a rider does not ride into the back of a friend who is slower than he is: when one
+   * stands in his way (within `RIDER.look` ahead, closer than their two radii across), he swerves
+   * toward the emptier side, harder the nearer the friend. Rewrites (vx, vy) in tmp[0], tmp[1]
+   * and returns true when he swerves.
+   */
+  private swerve(i: number, vx: number, vy: number): boolean {
+    const d = this.d;
+    const vm = sqrt(vx * vx + vy * vy);
+    if (vm < d.spd[i]! * 0.25) return false;
+    const ux = vx / vm;
+    const uy = vy / vm;
+    const x = d.x[i]!;
+    const y = d.y[i]!;
+    const ri = d.rad[i]!;
+    const look = RIDER.look;
+    const team = d.team[i]!;
+    const grid = this.grid;
+    const of0 = this.ofTeam0;
+    const items = this.items;
+    const kx = this.kx;
+    const ky = this.ky;
+    const kr = this.kr;
+    const mx = x + ux * look * 0.5;
+    const my = y + uy * look * 0.5;
+    const R = look * 0.5 + 4;
+    const x0 = Math.max(0, Math.floor((mx - R) / CELL));
+    const x1 = Math.min(GW - 1, Math.floor((mx + R) / CELL));
+    const y0 = Math.max(0, Math.floor((my - R) / CELL));
+    const y1 = Math.min(GH - 1, Math.floor((my + R) / CELL));
+    let near = Infinity;
+    let nlat = 0;
+    let left = 0;
+    let right = 0;
+    for (let cy = y0; cy <= y1; cy++) {
+      const row = cy * GW;
+      for (let cx = x0; cx <= x1; cx++) {
+        const c = row + cx;
+        // Only his own side's men in the cell (see `ofTeam0`).
+        const from = team === 0 ? grid[c]! : grid[c]! + of0[c]!;
+        const end = team === 0 ? grid[c]! + of0[c]! : grid[c + 1]!;
+        for (let k = from; k < end; k++) {
+          const j = items[k]!;
+          if (j === i || d.state[j] !== State.Fighting) continue;
+          const ex = kx[k]! - x;
+          const ey = ky[k]! - y;
+          const along = ex * ux + ey * uy;
+          if (along <= 0 || along > look) continue;
+          const lat = ey * ux - ex * uy;
+          const w = ri + kr[k]! + 1;
+          if (lat > -3 * w && lat < 3 * w) {
+            if (lat > 0) left++;
+            else right++;
+          }
+          if (lat <= -w || lat >= w) continue;
+          // Only a friend he is closing on.
+          if ((vx - d.vx[j]!) * ux + (vy - d.vy[j]!) * uy < vm * 0.3) continue;
+          if (along < near) {
+            near = along;
+            nlat = lat;
+          }
+        }
+      }
+    }
+    if (near === Infinity) return false;
+    // To the emptier side; if even, away from the friend in his way (or, dead ahead, to his own file's side).
+    const sg = left < right ? 1 : right < left ? -1 : nlat > 0.3 ? -1 : nlat < -0.3 ? 1 : d.sx[i]! >= 0 ? 1 : -1;
+    const hard = near < look * 0.5;
+    const a = hard ? 0.5 : 0.866;
+    const b = hard ? 0.866 : 0.5;
+    const px = -uy * sg;
+    const py = ux * sg;
+    this.tmp[0] = (ux * a + px * b) * vm;
+    this.tmp[1] = (uy * a + py * b) * vm;
+    return true;
+  }
+
+  /**
+   * RIDER: whether an enemy stands within `RIDER.pressed` of rider `i`: then the unit vector
+   * away from the nearest in tmp[0], tmp[1].
+   */
+  private pressed(i: number): boolean {
+    const d = this.d;
+    const x = d.x[i]!;
+    const y = d.y[i]!;
+    const R = RIDER.pressed;
+    const team = d.team[i]!;
+    const grid = this.grid;
+    const of0 = this.ofTeam0;
+    const items = this.items;
+    const kx = this.kx;
+    const ky = this.ky;
+    const x0 = Math.max(0, Math.floor((x - R) / CELL));
+    const x1 = Math.min(GW - 1, Math.floor((x + R) / CELL));
+    const y0 = Math.max(0, Math.floor((y - R) / CELL));
+    const y1 = Math.min(GH - 1, Math.floor((y + R) / CELL));
+    let bs = R * R;
+    let bx = 0;
+    let by = 0;
+    for (let cy = y0; cy <= y1; cy++) {
+      const row = cy * GW;
+      for (let cx = x0; cx <= x1; cx++) {
+        const c = row + cx;
+        const from = team === 0 ? grid[c]! + of0[c]! : grid[c]!;
+        const end = team === 0 ? grid[c + 1]! : grid[c]! + of0[c]!;
+        for (let k = from; k < end; k++) {
+          if (d.state[items[k]!] !== State.Fighting) continue;
+          const dx = x - kx[k]!;
+          const dy = y - ky[k]!;
+          const q = dx * dx + dy * dy;
+          if (q < bs) {
+            bs = q;
+            bx = dx;
+            by = dy;
+          }
+        }
+      }
+    }
+    if (bx === 0 && by === 0) return false;
+    const q = sqrt(bs);
+    this.tmp[0] = bx / q;
+    this.tmp[1] = by / q;
+    return true;
+  }
+
+  /**
+   * RIDER: where a rider goes whose block is in the fight but who has no foe within
+   * `RIDER.hunt` (he sits behind his own front, or the fight moved off): round the end of the
+   * enemy block his block fights, on his own side of it, to come at its flank. Puts the point
+   * in tmp[0], tmp[1] and returns true; false when there is no such block near (he rejoins his
+   * place).
+   */
+  private flankPoint(i: number, r: Regiment): boolean {
+    if (r.targetReg < 0) return false;
+    const o = this.regiments[r.targetReg]!;
+    // (Foot only: horse moves too fast to be ridden round alone; in a clash of horse he finds a
+    // man of his own (`hunt`) or keeps his place.)
+    if (o.alive === 0 || o.routed || !isFoot(o)) return false;
+    const d = this.d;
+    const x = d.x[i]!;
+    const y = d.y[i]!;
+    const ex = o.cx - x;
+    const ey = o.cy - y;
+    if (ex * ex + ey * ey > RIDER.rejoin * RIDER.rejoin) return false;
+    const lox = -o.fy;
+    const loy = o.fx;
+    const lat = (x - o.ax) * lox + (y - o.ay) * loy;
+    const sg = lat < 0 ? -1 : 1;
+    const out = o.width * 0.5 + RIDER.flankOut;
+    // Before its front he rides out along it, a little off it, to its end; past its end, in at
+    // its side.
+    const ahead = (x - o.ax) * o.fx + (y - o.ay) * o.fy;
+    const back = ahead > -2 && (lat < 0 ? -lat : lat) < out - 4 ? -RIDER.flankOff : o.depth * 0.5;
+    this.tmp[0] = o.ax + lox * sg * out - o.fx * back;
+    this.tmp[1] = o.ay + loy * sg * out - o.fy * back;
+    return true;
   }
 
   private shoot(i: number, r: Regiment, st: UnitStats): void {
@@ -5687,6 +6044,15 @@ export class Battle {
           vx = 0;
           vy = 0;
         }
+        // RIDER: he rides round a friend in his way rather than into his back, and is out of his
+        // place while he goes for his own man (the anchor keeps to the rest).
+        if (mounted) {
+          if (q > contact + 2 && d.imp[i]! <= 0.3 && this.swerve(i, vx, vy)) {
+            vx = this.tmp[0]!;
+            vy = this.tmp[1]!;
+          }
+          d.cu[i] = q > contact + 6 ? 1 : 0;
+        }
       } else {
         // Keep formation: match the anchor's pace and close on the slot.
         const gx = r.ax + r.fx * d.sy[i]! - r.fy * d.sx[i]!;
@@ -5696,7 +6062,62 @@ export class Battle {
         const mode = r.mode;
         // P4: horse that has broken off closes up again on its rally point, at a walk.
         const rallying = (mode === 'rally' && this.tick - r.modeAt < 60) || (mode === 'hold' && this.tick < r.reformUntil);
-        if (mode === 'withdraw' && mounted) {
+        if (mounted) d.cu[i] = 0;
+        if (mounted && this.tick < d.wd[i]! && this.pressed(i)) {
+          // RIDER: pulling out of the spears (see `act`): away from the nearest, at a canter.
+          vx = this.tmp[0]! * spd * 0.6;
+          vy = this.tmp[1]! * spd * 0.6;
+          d.cu[i] = 1;
+        } else if (r.role === 'horse-archer' && (mode === 'kite' || mode === 'shoot' || mode === 'advance') && this.pressed(i)) {
+          // RIDER: a horse archer with a foe at his horse's flank does not sit and wait for the
+          // block to move: he rides off himself, away from the man and back toward his place.
+          const ex = gx - x;
+          const ey = gy - y;
+          const q = sqrt(ex * ex + ey * ey) || 1;
+          const w = Math.min(1, q / 30);
+          vx = (this.tmp[0]! * (1 - w * 0.5) + (ex / q) * w * 0.5) * spd * 0.9;
+          vy = (this.tmp[1]! * (1 - w * 0.5) + (ey / q) * w * 0.5) * spd * 0.9;
+          if (this.swerve(i, vx, vy)) {
+            vx = this.tmp[0]!;
+            vy = this.tmp[1]!;
+          }
+          d.cu[i] = 1;
+        } else if (mounted && (r.engaged || mode === 'melee') && r.role !== 'command' && this.flankPoint(i, r)) {
+          // RIDER: nobody to fight where he is (behind his own front, say): he rides round to the
+          // end of the enemy block and comes at its flank (where `hunt` finds him a man), round
+          // any friend in his way, not into his back.
+          const ex = this.tmp[0]! - x;
+          const ey = this.tmp[1]! - y;
+          const q = sqrt(ex * ex + ey * ey) || 1;
+          const v = Math.min(spd * RIDER_FREE, q * 2) / q;
+          vx = ex * v;
+          vy = ey * v;
+          if (this.swerve(i, vx, vy)) {
+            vx = this.tmp[0]!;
+            vy = this.tmp[1]!;
+          }
+          d.cu[i] = 1;
+        } else if (mode === 'withdraw' && mounted && r.role !== 'command') {
+          // RIDER: breaking off, each rider turns out of the fight by his own path (his own
+          // turning circle: see below) and rides at his own pace for his own spot about the
+          // rally point, his place in the block that will re-form there facing the fight, spread
+          // out (`RIDER.rallySpread`): no wheel of the whole block about its middle.
+          const sx = d.sx[i]! * RIDER.rallySpread + (((i * 7) % 11) - 5) * 1.5;
+          const sy = d.sy[i]! * RIDER.rallySpread + (((i * 5) % 9) - 4) * 1.5;
+          const ex = r.wx + r.dfx * sy - r.dfy * sx - x;
+          const ey = r.wy + r.dfy * sy + r.dfx * sx - y;
+          const q = sqrt(ex * ex + ey * ey) || 1;
+          const h = d.hs[i]! || 1;
+          const v = Math.min(spd * PACE.withdraw * h, q * 1.5) / q;
+          vx = ex * v;
+          vy = ey * v;
+          if (this.swerve(i, vx, vy)) {
+            vx = this.tmp[0]!;
+            vy = this.tmp[1]!;
+          }
+          cap = spd * 1.2 * h;
+          d.cu[i] = 1;
+        } else if (mode === 'withdraw' && mounted) {
           // P4: breaking off is no parade: each rider at his own pace toward a place spread about
           // his slot, a loose crowd riding for the rally point.
           const lx = gx + (gx - r.ax) * 0.6 + (((i * 7) % 11) - 5) * 2;
@@ -6143,13 +6564,18 @@ const VOLLEY_BEAT = 6;
  * shoot flat, point-blank.
  */
 const AT_WILL_GAP = 50;
-const POINT_BLANK = 60;
+const POINT_BLANK = 100;
 /** After this long (ticks) with nothing to shoot at, missile foot goes looking for a target along its line. */
 const MISSILE_SEEK = 150;
 /** An enemy man this close to the front of a block of shooters is at contact: they fight. */
 const CONTACT_GAP = 8;
-/** Missile foot keeps this far behind its line's rear rank. */
-const MISSILE_BEHIND = 24;
+/**
+ * Missile foot keeps this far behind its line's rear rank (24 until the scale rework; about a
+ * ROW_GAP now, where it deploys), and the second line this far behind the block of the first it
+ * follows (30), clear of the archers between them.
+ */
+const MISSILE_BEHIND = 70;
+const RESERVE_BEHIND = 170;
 /** Ticks between one man's shots, as the Generals reckon it: formed missile foot keeps to the volley clock. */
 export function fireEvery(st: UnitStats): number {
   return st.role === 'missile' ? st.reload + VOLLEY_BEAT : st.reload;
@@ -6176,6 +6602,39 @@ const CHARGE_MISSED = 40;
 const RIDER_FAST = 0.45;
 const RIDER_COS = 0.980066577841;
 const RIDER_SIN = 0.198669330795;
+
+/**
+ * Each rider thinks for himself, knowing the men about him (see `hunt`, `swerve`, `flankPoint`):
+ * how far he looks for a foe of his own when his block fights and none is at hand; how much
+ * less he likes a foe behind him; how far ahead he looks for a
+ * friend in his way; how far out past the end of the enemy's front he rides to come at its
+ * flank (and how far off its front he rides along it to get there), and beyond what distance from that block he rejoins his place instead; how much
+ * looser than his place in the block his spot at the rally point is; how far horse facing
+ * braced spears looks for easier prey (`thinkCav`); how near the rally point the middle of
+ * its riders must be for the ride out to be over; how near enemy horse riding at it must be
+ * for horse re-forming to break off the re-form and meet it; how near a foe must be for a horse
+ * archer to ride off from him by himself; under what share of his hit points a rider hit
+ * among spears pulls out of them, and for how long (ticks); the gap to foot at which horse
+ * archers ride off (until the sweep after v16, 35: foot closing at a run caught them).
+ */
+const RIDER = {
+  hunt: 40,
+  behind: 1.5,
+  look: 12,
+  flankOut: 10,
+  flankOff: 20,
+  rejoin: 140,
+  rallySpread: 1.4,
+  spurn: 250,
+  there: 25,
+  meet: 90,
+  pressed: 15,
+  spearHurt: 0.5,
+  spearOut: 20,
+  haFoot: 50,
+};
+/** RIDER: the pace (a share of his speed) of a rider riding round to the flank on his own. */
+const RIDER_FREE = 0.8;
 
 function turnRate(r: Regiment, horse: boolean): number {
   const sd = STANCES[r.stance];

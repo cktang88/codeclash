@@ -1,6 +1,7 @@
 // Perf and screenshot harness for the battle renderer.
 //   /battle-perf.html?men=20000&per=2500&seed=3&t=0&speed=1&zoom=1&pause=0&sync=0&cx=&cy=&stances=0&morale=0&hud=1&scan=1&art=classic|hd|hd64&aim=0|1
 //     &fa=templar&fb=undead (either side's faction) &frames=N (stop after N draws: a still for screenshot diffs)
+//     &frame=1 (the default view: everyone framed, as the game opens; overrides zoom/cx/cy)
 // `per` pads each side to that many figures with clones of the simulated ones (the sim caps a
 // side at MAX_FIGURES), so the renderer can be measured at crowd sizes the sim doesn't make.
 // `t` fast-forwards to that tick first; `sync=1` waits for the GPU after each draw so the
@@ -147,6 +148,9 @@ if (focus === '1' || focus?.startsWith('cls:')) {
     scene.camera.cy = sy / n + num('dy', 0);
   }
 }
+
+// `frame=1`: the game's default view instead of `zoom`/`cx`/`cy`: everyone on the field framed (BattleScene.frame).
+if (q.get('frame') === '1') scene.frame(canvas.width, canvas.height);
 
 const speed = num('speed', 1);
 const pause = q.get('pause') === '1';
