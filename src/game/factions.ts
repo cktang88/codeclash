@@ -91,13 +91,13 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
     },
     // Mounted archery is the clan's art; its samurai hold under pressure. The price: ashigaru
     // spears are peasant levies in a light okegawa cuirass. A matchlock loads slower than a
-    // crossbow spans (20-30 s against 15-30 s: docs/art-references/missile-drill.md) and hits
-    // harder: about as much shot in a minute, in fewer, heavier volleys. It reaches less far: a
+    // crossbow spans (20-40 s against 15-30 s: docs/art-references/missile-drill.md; 18 s against
+    // 12 in the game) and hits harder: nearly as much shot in a minute, in fewer, heavier volleys. It reaches less far: a
     // matchlock's ball was aimed at 50 to 100 m, a crossbow's bolt at about 150
     // (docs/art-references/battle-scale.md).
     tweaks: {
       [U.HorseArchers]: { missileDamage: 1.1 },
-      [U.Crossbowmen]: { reload: 1.34, missileDamage: 1.3, range: 0.75 },
+      [U.Crossbowmen]: { reload: 1.5, missileDamage: 1.45, range: 0.75 },
       [U.HeavyInfantry]: { morale: 1.05 },
     },
     palette: { cloth: '#2c3550', clothShade: '#1a2034', trim: '#b5372b', metal: '#7d7a73', metalShade: '#45423d', leather: '#4b2c1d', skin: '#d6b089' },
