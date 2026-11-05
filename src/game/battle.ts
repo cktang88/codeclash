@@ -29,6 +29,18 @@ export type { CommanderTrait, MoraleState, Order, OrderKind, Personality, Plan }
 export { COHESION, DOCTRINE, MORALE, REGROUP, UNDEAD } from './command.ts';
 
 /**
+ * v17: men and riders think for themselves, on a field of real size
+ * (docs/art-references/battle-cohesion.md section 7, battle-scale.md).
+ * - Horse: a rider with no foe in reach while his block fights finds his own within 40, rides
+ *   round slower friends, rides round the end of an engaged foot block to its flank, pulls out
+ *   of spears when his charge is spent and he is hurt, and withdraws by his own path to his own
+ *   spot at the rally point (the block no longer wheels as one). Free horse takes another
+ *   target or the flank rather than charging braced spears head-on.
+ * - Scale: field 2400 x 2400, armies 1300 apart, blocks, lines and wings two to three times
+ *   further apart, missile ranges about 0.7 of Total War's (bows 590, crossbows 470, horse
+ *   archers 420, javelins 140, engines 1100), MAX_TICKS 6000.
+ */
+/**
  * v16: nothing grows with the size of the battle that should not (the undead won two thirds of
  * battles of 2800 a side). The field stays the same size, so a big battle is a crowded and a long
  * one, and four things the living felt (and the fearless dead did not) grew with it:
@@ -194,7 +206,7 @@ export { COHESION, DOCTRINE, MORALE, REGROUP, UNDEAD } from './command.ts';
  * one side won 60-75% of mirror matches, which side depending on the armies' size (see
  * `pnpm fairness`).
  */
-export const BATTLE_VERSION = 16;
+export const BATTLE_VERSION = 17;
 /**
  * Mixed into every battle's seed. It was BATTLE_VERSION until v3, which kept v2's salt: a
  * version bump refuses old setups (BattleVersionError) but does not re-seed battles by itself.
