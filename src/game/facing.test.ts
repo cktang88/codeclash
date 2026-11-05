@@ -138,6 +138,45 @@ describe('foot: facings and wheels', () => {
     expect(b30.r.fx).toBe(1);
   }, 30_000);
 
+  it('horse appearing on its flank: the block faces it in place within a second, deep and narrow, and re-forms when the horse is gone', () => {
+    const b = new Battle({ version: BATTLE_VERSION, seed: 1, kind: 'daily', armies: [plainArmy(only(U.LightCavalry, 12)), plainArmy(only(U.HeavyInfantry, 2800), 200)] });
+    b.generals[1].fixedPlan = 'hold';
+    const f = b.regiments.filter((r) => r.team === 1).sort((p, q) => q.alive - p.alive)[0]!;
+    const horse = b.regiments.filter((r) => r.team === 0);
+    placeRegiment(b, f, 1200, 1200, -1, 0);
+    const cols = f.cols;
+    const width = f.width;
+    const wheel = wheelTicks(f, Math.PI / 2);
+    horse.forEach((h, i) => placeRegiment(b, h, 1200 + i * 30, 1200 + f.width / 2 + 140, 0, -1));
+    settle(b);
+    const d = inside(b).d;
+    const x0 = f.members.map((id) => d.x[id]!);
+    const y0 = f.members.map((id) => d.y[id]!);
+    let turned = -1;
+    while (b.tick < 60 && turned < 0) {
+      b.step();
+      const hx = horse[0]!.cx - f.cx;
+      const hy = horse[0]!.cy - f.cy;
+      if ((f.fx * hx + f.fy * hy) / Math.hypot(hx, hy) > 0.9) turned = b.tick;
+    }
+    // Round in about a second, where the wheel of a block this wide takes many.
+    expect(turned).toBeGreaterThan(0);
+    expect(turned).toBeLessThanOrEqual(10);
+    expect(wheel).toBeGreaterThan(50);
+    // In place: deep and narrow to its new front, and nobody walked off to a new place.
+    expect(f.inPlace).toBe(true);
+    expect(f.width).toBeLessThan(width * 0.6);
+    let moved = 0;
+    f.members.forEach((id, k) => (moved += Math.hypot(d.x[id]! - x0[k]!, d.y[id]! - y0[k]!)));
+    expect(moved / f.members.length).toBeLessThan(f.spacing);
+    // The horse gone (far off), it takes its frontage again.
+    horse.forEach((h, i) => placeRegiment(b, h, 300 + i * 30, 200, -1, 0));
+    settle(b);
+    while (!b.done() && b.tick < turned + 80 && f.inPlace) b.step();
+    expect(f.inPlace).toBe(false);
+    expect(f.cols).toBe(cols);
+  });
+
   it('a block locked to its front does not face about for an enemy at its back: its rear ranks turn on him', () => {
     const b = new Battle({ version: BATTLE_VERSION, seed: 2, kind: 'daily', armies: [plainArmy(only(U.HeavyInfantry, 40)), plainArmy(only(U.HeavyInfantry, 70), 200)] });
     const r = b.regiments.find((x) => x.team === 0)!;
