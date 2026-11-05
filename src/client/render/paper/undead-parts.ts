@@ -1193,13 +1193,20 @@ export function shadeLower(c: Paper, frac = 0.42): void {
   // The shade line slants up toward the far (right) side, away from the light, and steps
   // irregularly, so it never cuts every part on one row (that would read as a band).
   const cut = (x: number, f: number): number => c.by1 - h * f - c.litX(x - c.FX) * 0.4 + Math.floor(hash(x >> 1, 7, 331) * 3) - 1;
+  // The two shade lines, worked out once per column.
+  const w = c.bx1 - c.bx0 + 1;
+  const cut2 = new Float64Array(w), cut1 = new Float64Array(w);
+  for (let x = c.bx0; x <= c.bx1; x++) {
+    cut2[x - c.bx0] = cut(x, frac * 0.4);
+    cut1[x - c.bx0] = cut(x, frac);
+  }
   for (let y = Math.max(c.by0, Math.round(c.by1 - h * frac * 1.6)); y <= c.by1; y++)
     for (let x = c.bx0; x <= c.bx1; x++) {
       const i = y * c.CW + x;
       const v = c.pix[i]!;
       if (v < 0 || (v & 7) === 0 || isKept(v >> 3)) continue;
       // One tone darker over the lower part, two near the ground.
-      const d = y > cut(x, frac * 0.4) ? 2 : y > cut(x, frac) ? 1 : 0;
+      const d = y > cut2[x - c.bx0]! ? 2 : y > cut1[x - c.bx0]! ? 1 : 0;
       if (d) c.pix[i] = (v & ~7) | Math.max(0, (v & 7) - d);
     }
   // At levels 1-2 a part is two or three pixels across and the rods' 1 px lit edge falls on a

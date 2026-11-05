@@ -1647,19 +1647,19 @@ export function keyLight(c: Paper): void {
   }
   const R = 2.2 * c.L;
   const R2 = R * R, NEAR2 = (R * 0.45) ** 2;
-  // The glow points in square buckets at least R wide: a point within R of a pixel lies in the
-  // pixel's bucket or one of its eight neighbours, so the nearest point found there decides the
-  // light exactly as the nearest of all of them would (any farther one is out of reach).
-  const G = Math.max(1, Math.ceil(R));
-  const gw = Math.floor(w / G) + 1, gh = Math.floor(h / G) + 1;
-  let head: Int32Array | null = null, next: Int32Array | null = null;
+  // The nearest glow point, column by column: dv holds, per box pixel, the distance down or up to
+  // the nearest glow point in its own column (FAR: none). A pixel's squared distance to the
+  // nearest point is then the least dx² + dv² over the columns within reach: a point out of reach
+  // (|dx| ≥ R) cannot light it, so leaving those columns out decides the light exactly as before.
+  const Rc = Math.ceil(R);
+  let dv: Int32Array | null = null;
   if (gn) {
-    head = new Int32Array(gw * gh).fill(-1);
-    next = new Int32Array(gn >> 1);
-    for (let k = 0; k < gn; k += 2) {
-      const cell = Math.floor((glow[k + 1]! - by0) / G) * gw + Math.floor((glow[k]! - bx0) / G);
-      next[k >> 1] = head[cell]!;
-      head[cell] = k >> 1;
+    dv = dvScratch(w * h);
+    dv.fill(FAR, 0, w * h);
+    for (let k = 0; k < gn; k += 2) dv[(glow[k + 1]! - by0) * w + glow[k]! - bx0] = 0;
+    for (let x = 0; x < w; x++) {
+      for (let y = 1, i = w + x; y < h; y++, i += w) if (dv[i - w]! + 1 < dv[i]!) dv[i] = dv[i - w]! + 1;
+      for (let y = h - 2, i = (h - 2) * w + x; y >= 0; y--, i -= w) if (dv[i + w]! + 1 < dv[i]!) dv[i] = dv[i + w]! + 1;
     }
   }
   const BONE = UM.bone, CHAR = UM.char, FLESH = UM.flesh;
@@ -1674,16 +1674,16 @@ export function keyLight(c: Paper): void {
       const v = PIX[i]!;
       if (v < 0) continue;
       const m = v >> 3;
-      if (head && (m === BONE || m === CHAR || m === FLESH)) {
+      if (dv && (m === BONE || m === CHAR || m === FLESH)) {
         let d2 = Infinity;
-        const cx = Math.floor((x - bx0) / G), cy = Math.floor((y - by0) / G);
-        for (let gy = Math.max(0, cy - 1); gy <= Math.min(gh - 1, cy + 1); gy++)
-          for (let gx = Math.max(0, cx - 1); gx <= Math.min(gw - 1, cx + 1); gx++)
-            for (let k = head[gy * gw + gx]!; k >= 0; k = next![k]!) {
-              const dx = glow[2 * k]! - x, dy = glow[2 * k + 1]! - y;
-              const dd = dx * dx + dy * dy;
-              if (dd < d2) d2 = dd;
-            }
+        const bx = x - bx0, row = (y - by0) * w;
+        for (let xx = Math.max(0, bx - Rc), xe = Math.min(w - 1, bx + Rc); xx <= xe; xx++) {
+          const ddy = dv[row + xx]!;
+          if (ddy === FAR) continue;
+          const ddx = xx - bx;
+          const dd = ddx * ddx + ddy * ddy;
+          if (dd < d2) d2 = dd;
+        }
         if (d2 < R2) {
           const near = d2 < NEAR2;
           changed.push(i, code(FIRELIT, (v & 7) + (near ? 1 : 0)));
@@ -1703,5 +1703,8 @@ export function keyLight(c: Paper): void {
   for (let k = 0; k < changed.length; k += 2) PIX[changed[k]!] = changed[k + 1]!;
 }
 const NO_GLOW = new Int32Array(0);
+const FAR = 0x3fffffff;
+let DV = new Int32Array(0);
+const dvScratch = (n: number): Int32Array => (DV.length >= n ? DV : (DV = new Int32Array(n)));
 let SAT = new Int32Array(0);
 const satScratch = (n: number): Int32Array => (SAT.length >= n ? SAT : (SAT = new Int32Array(n)));
