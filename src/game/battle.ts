@@ -52,6 +52,10 @@ export { COHESION, DOCTRINE, MORALE, REGROUP, UNDEAD } from './command.ts';
  *   from the start while the Templar knights waited for a clash of lines that never came: horse
  *   beat bows at equal value in 5 battles of 30 (2 of 12 before the foot work), now 28 of 30.
  *   T1 knights whose enemy horse is gone no longer ride on at the shooters behind it unbidden.
+ *   Measured on the merged branch (250 a side, 200 battles a pair): mirror 49.5% at 250, 51.8% at
+ *   120 (600 seeds); undead-templar 37.0% -> 33-36%, undead-samurai 32.5% -> 31-32%,
+ *   samurai-templar 54.5% -> 55%: within the noise (3.5 points) but for undead-templar, left
+ *   to the balance pass. Battles run about a fifth longer (median 205 s against 175).
  * - Foot (battle-cohesion.md section 8; scripts/battle-sanity.ts audits it): each man keeps
  *   station on the men beside and ahead of him (35% his place, `station`), so a line on the move
  *   bends and dresses itself, and steps up into the hole of a fallen man ahead. He fights a foe at
