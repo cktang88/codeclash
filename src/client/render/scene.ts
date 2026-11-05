@@ -1240,6 +1240,38 @@ export class BattleScene {
     const gl = gfx.gl;
     if (this.hdBatch.length === 0) this.hdBatch = [0, 1].map(() => Array.from({ length: KIND_COUNT }, () => new Batch(gl, gfx.corners, 256)));
     let budget = HD_UPLOAD_BYTES;
+    // First, every kind in view with nothing hi-res up gets its coarsest painted sheet up (a few
+    // MB), so no kind waits on the grid while another's 8x sheet takes the frame's budget (a
+    // second visit reads every sheet from the cache at once).
+    for (let t = 0; t < 2 && m > 1; t++) {
+      const atlas = this.atlases[t as 0 | 1];
+      if (!atlas.sheet || !atlas.levels) continue;
+      const L0 = atlas.levels[0]!;
+      for (const k of this.kindsPresent[t]!) {
+        if (budget <= 0) break;
+        if (!((this.seen[t]! | this.seenDead[t]!) & (1 << k))) continue;
+        let isUp = false;
+        for (const L of atlas.levels) {
+          const h = L <= m ? this.hdTex.get(hdKey(t, k, L)) : undefined;
+          if (h && h.rows >= h.sheet.height) isUp = true;
+        }
+        if (isUp) continue;
+        const sh = atlas.sheet(k, L0, 'peek');
+        if (!sh || sh.width > gfx.maxTex || sh.height > gfx.maxTex) continue;
+        const key = hdKey(t, k, L0);
+        let h = this.hdTex.get(key);
+        if (h && h.sheet !== sh) {
+          dropHd(gl, h);
+          this.hdTex.delete(key);
+          h = undefined;
+        }
+        if (!h) {
+          h = { tex: texture(gl, null, sh.width, sh.height), sheet: sh, t, k, L: L0, rows: 0 };
+          this.hdTex.set(key, h);
+        }
+        budget -= uploadRows(gl, h, budget);
+      }
+    }
     for (let t = 0; t < 2; t++) {
       const atlas = this.atlases[t as 0 | 1];
       const lv = this.hdLevel[t]!;
