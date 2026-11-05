@@ -84,6 +84,7 @@ describe('cohesion: a ragged approach (P1)', () => {
 
 describe('cohesion: overlapping files wrap the flank (P6)', () => {
   /** A wide samurai block (120) against a narrow one (30), with the faction's curl times `curl`: the share of its fighters past the narrow block's frontage, and of their blows at its flank. */
+  // (Eight seeds: since v17 the men also go round on their own initiative, curl or not, and over four the flank share swung either way.)
   function wrap(curl: number): { past: number; flank: number } {
     let out = 0;
     let inn = 0;
@@ -92,7 +93,7 @@ describe('cohesion: overlapping files wrap the flank (P6)', () => {
     const keep = DOCTRINE.samurai.loose.curl;
     DOCTRINE.samurai.loose.curl = keep * curl;
     try {
-      for (const seed of [1, 2, 3, 4]) {
+      for (const seed of [1, 2, 3, 4, 5, 6, 7, 8]) {
         const b = new Battle({ version: BATTLE_VERSION, seed, kind: 'daily', armies: [plainArmy(only(U.HeavyInfantry, 120), 0, 'samurai'), plainArmy(only(U.HeavyInfantry, 30), 200, 'templar')] });
         b.generals[1].fixedPlan = 'hold';
         const w = b.regiments.find((r) => r.team === 0)!;

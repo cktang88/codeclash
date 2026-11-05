@@ -5980,11 +5980,12 @@ export class Battle {
   /**
    * Whether man `j` of block `r` is one to dress on: standing in it, in his place in the ranks.
    * (Not a man fighting a foe: he stands where his foe puts him, and dressing on him drew the men
-   * beside him on into the enemy.)
+   * beside him on into the enemy. Nor one reeling from a charge: dressing on men thrown aside by
+   * horse opened the lane wider.)
    */
   private dresses(j: number, r: Regiment): boolean {
     const d = this.d;
-    return d.state[j] === State.Fighting && d.reg[j] === r.id && d.cu[j] === 0 && d.target[j]! < 0;
+    return d.state[j] === State.Fighting && d.reg[j] === r.id && d.cu[j] === 0 && d.target[j]! < 0 && d.stun[j] === 0;
   }
 
   private move(i: number): void {

@@ -27,7 +27,7 @@
 // Context (not faults): the idle share of men in engaged blocks with no foe in reach; the share of
 // fighters standing beyond the end of their foe's block's front (wrapping); the front rank's
 // spread along the facing while advancing (how wavy a line on the move is, units).
-import { Battle, fireEvery, State, TICK_S } from '../src/game/battle.ts';
+import { Battle, FIELD_H, FIELD_W, fireEvery, MAX_TICKS, State, TICK_S } from '../src/game/battle.ts';
 import { demoSetup } from '../src/client/demo.ts';
 import { isFaction, type FactionId } from '../src/game/factions.ts';
 import { writeFileSync } from 'node:fs';
@@ -41,7 +41,7 @@ const SEEDS = arg('seeds', '3,7,11,23').split(',').map(Number);
 const SIZES = arg('sizes', '450,1200').split(',').map(Number);
 const FACTIONS = arg('factions', '').split(',').filter(isFaction) as FactionId[];
 const JSON_OUT = arg('json', '');
-const MAX = Number(arg('ticks', '3600'));
+const MAX = Number(arg('ticks', String(MAX_TICKS)));
 const EVERY = 2;
 
 const FAULTS = ['idle-free-foe', 'idle-near-fight', 'idle-gap', 'walks-away', 'foe-ignored', 'stacked', 'jumps', 'block-idle', 'missile-idle'] as const;
@@ -74,8 +74,8 @@ function why(f: string, b: Battle, i: number): void {
 function audit(b: Battle, T: Tally): void {
   const d = (b as any).d;
   const n = b.soldiers.length;
-  const W = Math.ceil(1700 / CELL);
-  const H = Math.ceil(1300 / CELL);
+  const W = Math.ceil((FIELD_W + 100) / CELL);
+  const H = Math.ceil((FIELD_H + 100) / CELL);
   const head = new Int32Array(W * H).fill(-1);
   const next = new Int32Array(n);
   const cellOf = (x: number, y: number) => Math.max(0, Math.min(W - 1, Math.floor((x + 50) / CELL))) + Math.max(0, Math.min(H - 1, Math.floor((y + 50) / CELL))) * W;
