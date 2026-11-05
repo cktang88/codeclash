@@ -121,8 +121,18 @@ Left for the balance pass that follows the behaviour work in flight (BATTLE_VERS
 
 ## Renderer
 
-The field projects to about 4200 x 2100 map px (was 2300 x 1060), so the default view (`frame`)
-opens zoomed out (50 to 70% on a desktop window) to show both armies; zoom in for the men. The
-ground canvas and the HD marks field grow with the field (about 9 Mpx, 36 MB each, against 3.6
-Mpx), and painting the ground at the start of a battle takes about 2.5 times as long. The
-battle-perf harness takes `frame=1` for the game's opening view.
+The field projects to about 4200 x 2100 map px with its margin (was 2750 x 1300), so the default
+view (`frame`) opens zoomed out to show both armies deployed: 50% on a 1600 x 900 window, 38% on
+1280 x 720. The zoom-out floor (`fit.ts` MIN_SCALE) drops from 1/2 to 3/8 for that: from that
+high the blocks read as Total War's do, dark masses under their standards (total-war-battles.md,
+reference 1); zoom in for the men. The ground canvas and the HD marks field grow with the field
+(about 9 Mpx, 36 MB each, against 3.6 Mpx), and building the scene at the start of a battle took
+about 2.4 times as long in the measurements (classic art, a loaded machine: 2.3 s against 5.5 s
+for the larger, longer field tried first). The battle-perf harness takes `frame=1` for the game's
+opening view.
+
+## Measured after (pnpm bench, an unloaded machine)
+
+Contact at 48 to 71 s (24 to 29 before), battles over at 155 to 212 s (98 to 152), none near
+the 600 s limit; 0.3 to 1.4 ms a step (0.4 to 1.8 before: the larger grid is emptier). The
+mirror match stays fair (`pnpm fairness`: 48.0% at 250 a side, 43.5% at 120, z -0.57 and -1.84).
