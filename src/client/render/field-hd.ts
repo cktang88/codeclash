@@ -330,8 +330,10 @@ void main() {
   // Blood: soaked into the soil first, then pooled, a clotted rim, darkening with age.
   float bl = mk.r + (sj - 0.5) * 0.32 + (hj - 0.5) * 0.05;
   float age = clamp((u_now - mk.a * 510.0) / 50.0, 0.0, 1.0);
-  if (bl > 0.14) c *= mix(vec3(0.66, 0.42, 0.38), vec3(0.56, 0.44, 0.4), age);
-  if (bl > 0.3) {
+  // A thin stain soaks into the earth as it dries: from a red tint to the soil darkened, and the
+  // thin rim of a pool sinks into it, so old blood reads as dark ground, not red marks.
+  if (bl > 0.14 + age * 0.04) c *= mix(vec3(0.66, 0.42, 0.38), vec3(0.62, 0.53, 0.47), age);
+  if (bl > 0.3 + age * 0.06) {
     vec3 pool = bl > 0.62 ? mix(hex(0x520f0c), hex(0x2c1610), age) : mix(hex(0x6c1612), hex(0x3c1a12), age);
     if (bl < 0.37) pool = mix(hex(0x420c0a), hex(0x261410), age);
     // A wet glint on the lit lip of fresh blood: where the field falls off toward the upper left.

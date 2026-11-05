@@ -17,3 +17,10 @@ Applied:
 - pools with a dark core and droplets
 - lumpy two-tone smoke puffs, darker for stone impacts
 - arrows with a dark head, a brown shaft and pale fletching
+
+## Blood on the ground at battle scale (HD)
+
+With the field 2–3× larger and arrows reaching about 3× farther, a mark on every hit left lines of red behind blocks advancing under fire. The ground now keeps blood the way a Total War field does: it darkens where the fighting and dying happened, and the open ground crossed under arrows stays clean. No new images were gathered for this pass. It builds on reference #3 above: blood on the ground is dark, not saturated red.
+- Every hit still sprays drops in the air. Only a kill, a hit in melee (his target within reach and struck lately) or a bad wound (below 40% hp after losing more than 15% in one hit; half of them) marks the soil. Drops from other hits do not stain where they land, and only kills and melee hits leave splat decals.
+- A kill's pool spreads a little past the body (`scene.ts`, `pools`).
+- As a stain ages over 50 s it settles into the soil: the thin tint turns from red to darkened earth, and the thin rim of a pool sinks into it (`field-hd.ts` compose shader). This needs no extra recomposition.

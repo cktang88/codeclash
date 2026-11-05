@@ -84,6 +84,7 @@ describe('cohesion: a ragged approach (P1)', () => {
 
 describe('cohesion: overlapping files wrap the flank (P6)', () => {
   /** A wide samurai block (120) against a narrow one (30), with the faction's curl times `curl`: the share of its fighters past the narrow block's frontage, and of their blows at its flank. */
+  // (Eight seeds: since v17 the men also go round on their own initiative, curl or not, and over four the flank share swung either way.)
   function wrap(curl: number): { past: number; flank: number } {
     let out = 0;
     let inn = 0;
@@ -92,7 +93,7 @@ describe('cohesion: overlapping files wrap the flank (P6)', () => {
     const keep = DOCTRINE.samurai.loose.curl;
     DOCTRINE.samurai.loose.curl = keep * curl;
     try {
-      for (const seed of [1, 2, 3, 4]) {
+      for (const seed of [1, 2, 3, 4, 5, 6, 7, 8]) {
         const b = new Battle({ version: BATTLE_VERSION, seed, kind: 'daily', armies: [plainArmy(only(U.HeavyInfantry, 120), 0, 'samurai'), plainArmy(only(U.HeavyInfantry, 30), 200, 'templar')] });
         b.generals[1].fixedPlan = 'hold';
         const w = b.regiments.find((r) => r.team === 0)!;
@@ -227,17 +228,21 @@ describe('cohesion: no side bias', () => {
 
   it('the cohesion rules are mirrored: lead, curl and lulls look the same from either side', () => {
     // Two identical blocks set up in mirror image: each side's men stand as far from their
-    // slots, and as many swing round a flank, within a few per cent.
-    const b = new Battle({ version: BATTLE_VERSION, seed: 5, kind: 'daily', armies: [plainArmy(only(U.HeavyInfantry, 90), 0, 'samurai'), plainArmy(only(U.HeavyInfantry, 90), 200, 'samurai')] });
-    const [a, c] = [b.regiments.find((r) => r.team === 0)!, b.regiments.find((r) => r.team === 1)!];
-    placeRegiment(b, a, 700, 600, 1, 0);
-    placeRegiment(b, c, 900, 600, -1, 0);
+    // slots, and as many swing round a flank, within a few per cent. (Over four seeds: since v17
+    // each man dresses on his neighbours and picks his own fight, and one fight's course, who
+    // gives ground where, moves a side's mean by a third either way.)
     const dev: [number[], number[]] = [[], []];
-    while (!b.done() && b.tick < 300) {
-      b.step();
-      if (b.tick % 5) continue;
-      slotDistances(b, a, dev[0]);
-      slotDistances(b, c, dev[1]);
+    for (const seed of [5, 6, 7, 8]) {
+      const b = new Battle({ version: BATTLE_VERSION, seed, kind: 'daily', armies: [plainArmy(only(U.HeavyInfantry, 90), 0, 'samurai'), plainArmy(only(U.HeavyInfantry, 90), 200, 'samurai')] });
+      const [a, c] = [b.regiments.find((r) => r.team === 0)!, b.regiments.find((r) => r.team === 1)!];
+      placeRegiment(b, a, 700, 600, 1, 0);
+      placeRegiment(b, c, 900, 600, -1, 0);
+      while (!b.done() && b.tick < 300) {
+        b.step();
+        if (b.tick % 5) continue;
+        slotDistances(b, a, dev[0]);
+        slotDistances(b, c, dev[1]);
+      }
     }
     const mean = (x: number[]) => x.reduce((p, q) => p + q, 0) / x.length;
     expect(Math.abs(mean(dev[0]) - mean(dev[1]))).toBeLessThan(0.25 * Math.max(mean(dev[0]), mean(dev[1])));

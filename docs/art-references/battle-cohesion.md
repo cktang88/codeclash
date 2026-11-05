@@ -736,6 +736,164 @@ beaten zone in about 12 s, under arrows that mostly miss riders at the gallop (m
 
 ---
 
+## 8. Each man his own captain: foot (battle v17)
+
+The user's next complaint was that the battle was still too rigid and stupid:
+
+> "Each soldier gotta think for itself! [...] formation is something individual units aspire to do, but
+> they only know about the people next to them [...] there shouldn't be a single person on the
+> battlefield where you wonder why aren't they doing X."
+
+### 8.1 The audit: `scripts/battle-sanity.ts`
+
+The script fights demo battles (`demoSetup`, seeds 3, 7, 11 and 23 at 450 and 1,200 men) and checks every man every 0.2 s. It counts the states a real soldier would not be in.
+
+- **"Idle"** means a man with no foe, moving under 2 units a second.
+- **"In reach"** is the reach `survey` uses: both men's radii plus 3.
+- Run it with `--why` to break each fault down by what the men were doing.
+
+The faults it counts:
+
+| Measure | A man (or block) who... | Out of |
+|---|---|---|
+| idle-free-foe | is idle over 3 s with an enemy on foot within 30 whom nobody of ours is fighting, with no enemy between them | foot within 30 of an enemy |
+| idle-near-fight | is idle over 3 s within 30 of an enemy while his block is locked in melee (partly right: rear ranks backing the front) | the same men, in engaged blocks |
+| idle-gap | is idle over 2 s in an engaged block, an enemy within 20, with the ground a step toward that enemy free of friends | the same, enemy within 20 |
+| walks-away | walks away from an enemy in reach at over 3 units a second, without routing. Excused: an order to fall back, a skirmisher falling back, the wounded going to the rear, a breather, or closing on his own foe | foot with an enemy in reach |
+| foe-ignored | has an enemy in reach and no foe for over 1 s | the same |
+| stacked | stands in a friend (centres under half the two radii apart) | all men |
+| jumps | moves over 2.2 times his speed in a tick, outside a charge or a chase | formed foot |
+| block-idle | is a block of the line, not fighting, within 60 of an enemy block locked with ours, for over 10 s | blocks of the line |
+| missile-idle (report only) | is a loaded shooter with an enemy block in range who has not loosed for twice his reload plus 3 s | the same |
+
+Context measures, which are not faults:
+
+- **engaged-idle:** the share of an engaged block with no foe in reach.
+- **wrapping:** the share of fighters standing beyond the end of their foe's front.
+- **march-wave:** the spread of the front rank along the facing while advancing, in units.
+
+### 8.2 Before and after (v16 field, before the merge)
+
+The faults are in % of the samples they apply to.
+
+**All eight demo battles** (2 Undead–Templar, 4 Templar–Templar, 2 Samurai–Samurai):
+
+| Measure | v16 | v17 |
+|---|---|---|
+| idle-free-foe | 0.39 | **0.11** |
+| idle-near-fight | 2.99 | **1.72** |
+| idle-gap | 0.42 | **0.24** |
+| walks-away | 1.18 | **0.66** |
+| foe-ignored | 2.83 | **0.33** |
+| stacked | 0.36 | 0.22 |
+| jumps | 0.000 | 0.000 |
+| block-idle | 2.66 | **0.70** |
+| missile-idle (report) | 42.3 | 45.4 |
+| engaged-idle (context) | 58.5 | 54.1 |
+| wrapping (context) | 26.6 | 30.7 |
+| march-wave (context, units) | 3.18 | 2.82 |
+
+**The same seeds, Templar against Samurai:**
+
+| Measure | v16 | v17 |
+|---|---|---|
+| idle-free-foe | 0.17 | **0.05** |
+| idle-near-fight | 1.64 | **0.69** |
+| idle-gap | 0.37 | **0.12** |
+| walks-away | 0.90 | **0.71** |
+| foe-ignored | 1.40 | **0.14** |
+| stacked | 0.18 | 0.22 |
+| block-idle | 1.73 | **0.77** |
+| missile-idle (report) | 42.6 | 49.8 |
+| engaged-idle (context) | 56.3 | 53.3 |
+| wrapping (context) | 28.7 | 32.2 |
+| march-wave (context, units) | 3.88 | 3.22 |
+
+What `--why` showed in v16:
+
+- **foe-ignored** was mostly men swinging round a flank (P6). Their leash ran from their old place in the block, so they walked past the very enemy they had been sent round for.
+- **walks-away** was mostly men turning from an enemy at hand to go for the one they had picked earlier.
+- **block-idle** was second-line blocks standing in reserve beside an enemy block whose flank was open. The other cases were spears braced against horse that was fighting someone else.
+- **Shock foot (mass 2.4) were taken for horse** wherever the code tested `mass > 2`. That covered choosing a foe, the horse's turning limit, the breathers, the wounded and the rider's bow wave. Mounted is now by class (`Store.mt`).
+
+### 8.3 What changed (battle.ts unless noted; numbers in `COHESION`, command.ts)
+
+- **Station keeping (`station`, `dresses`, `Regiment.nb`).**
+  - A man of a foot block makes 35% for his place in the block (`dressSlot`), with his P1 lead. The other 65% is where the men beside him and the man ahead in his file put him: a file's width from each, a rank behind.
+  - So a line on the move bends and dresses itself, as each man sees only his neighbours. A wheel bends rather than turning as a ruler.
+  - When the man ahead falls, in contact, he steps up into the hole and dresses on the men beside it. He does not wait for the files to close (P5's 1.5-2.5 s).
+    - Not if an enemy has stepped into the hole: then he fights him from where he stands.
+  - Men fighting a foe do not count as neighbours. They stand where their foes put them, and dressing on them drew the men beside them into the enemy: enemy overlap p99 rose from 0.90 to 1.06 radii (`collision.test.ts`, limit 1). It is 0.92 now.
+  - Only foot of the line keeps station this way. Shooters keep their ranks, because their volleys depend on it. Skirmishers fight as a loose crowd: a line of archers that closed up behind every fallen man stopped knights charging through it.
+- **Choosing a foe (`seek`).**
+  - A foe at hand comes before any other, and is fought wherever the man stands: no leash.
+  - A foe others are fighting counts as 1 + 0.5 a man further (`crowd`), so men spread along the enemy front.
+  - A curling man's leash runs from where he is.
+- **Initiative (`seek`, `open`, `Store.idl`).**
+  - A man in contact with no foe for longer than his patience (2 s, the eager sooner) looks 5.5 files about him, every 1.2 s. He looks for an enemy on foot whom at most one of ours fights (he makes it two on one rather than stand by, `roamJoin`) and whom he can get at: the outer file to a man beside the block, its front rank to a man before it, its rear rank to a man behind.
+  - Then he goes for him: round the end of the fight, through a gap, or onto the flank.
+  - Foot does not go hunting horsemen.
+  - This applies against the undead too (`roamDead`). Fairness is in 7.4.
+- **The captain's initiative (`initiative`).**
+  - An uncommitted reserve block, steady and not spent, goes in on its own when it sees the open flank of an enemy block locked with ours. The flank must lie within its own width plus depth plus 20, with nobody of ours already going there.
+  - The ticker says the general "sees a reserve [...] go for an open flank on its own".
+- **Spears** brace against horse that is fighting someone else only when it is within 40.
+- **Facings against wheels** (`turnFoot`, `faceAbout`). A foot block that must turn a long way faces round man by man and re-forms when that is quicker than the wheel. It does not face with enemy horse about. A block locked to its front turns only its rear ranks on an enemy behind it. Details and sources are in `formations.md` section 2.5.1.
+
+### 8.4 After the merge with the scale and cavalry work (field 2400 x 2400)
+
+The same audit on the merged branch: v17 base (scale and cavalry, no foot work) against v17 with the foot work.
+
+| Measure | All 8, base | All 8, foot | Templar-Samurai, base | Templar-Samurai, foot |
+|---|---|---|---|---|
+| idle-free-foe | 0.35 | **0.12** | 0.16 | **0.04** |
+| idle-near-fight | 2.42 | **1.63** | 0.99 | 0.94 |
+| idle-gap | 0.46 | **0.23** | 0.23 | **0.16** |
+| walks-away | 0.86 | **0.67** | 0.93 | **0.71** |
+| foe-ignored | 1.13 | **0.39** | 1.09 | **0.27** |
+| stacked | 0.098 | 0.071 | 0.099 | 0.076 |
+| jumps | 0 | 0 | 0 | 0 |
+| block-idle | 0.19 | **0.11** | 0.18 | 0.10 |
+| missile-idle (report) | 21.5 | 25.3 | 29.0 | 31.6 |
+| engaged-idle (context) | 57.2 | 55.9 | 62.3 | 58.6 |
+| wrapping (context) | 25.4 | 28.5 | 29.9 | 30.8 |
+| march-wave (context, units) | 2.55 | 2.35 | 3.56 | 2.92 |
+
+The march-wave is lower because the line now bends smoothly (each man dresses on his neighbours), where before it was the scatter of each man's own lead. The approach is still ragged; the slot-distance test in `cohesion.test.ts` (P1) passes unchanged.
+
+### 8.5 Balance and speed
+
+**Before the merge** (v16 field):
+
+- Mirror: 53.0% at 250 a side (200 seeds), 50% at 1,000.
+- Factions, 120 battles each, against v16:
+  - Templar–Samurai: 50.0% (v16 50.8%) and 43.3% (51.7%).
+  - Undead–Templar: 41.7% (42.5%) and 53.3% (39.2%).
+  - Undead–Samurai: 41.7% (38.3%) and 55.8% (50.0%).
+- Horse against bows: 56% of 120 days (v16 62%).
+
+**After the merge**, 80 battles each:
+
+| Match | v17 base | v17 with foot |
+|---|---|---|
+| Templar–Samurai, 250 / 1,000 | 38.8% / 36.3% | 35.0% / 45.0% |
+| Undead–Templar, 250 / 1,000 | 37.5% / 43.8% | 46.3% / 40.0% |
+| Undead–Samurai, 250 / 1,000 | 30.0% / 36.3% | 27.5% / 43.8% |
+| Mirror, 250 (200 seeds) | 50.5% | 55.0% (z 1.4) |
+
+- The base was already uneven after the scale change: the Samurai are strong. That is not this work.
+- Battle length is unchanged.
+
+**Speed** (the first 2,000 ticks, 2,800 a side, best of 2): base 1.37-1.45 ms a tick, foot 1.62-1.79. The foot battles are further into the melee by then (they end in about 1,700 ticks), so part of the gap is more fighting to compute. Station keeping and the wider look are most of the rest, about 10% on an equal workload before the merge.
+
+### 8.6 Not done
+
+- **Idle men face their regiment's front.** The renderer turns a man to his foe only when he has one, so an idle rear-ranker of a block that has turned its rear ranks about still shows his back to the enemy. That fix is in `scene.ts`, which belongs to the renderer.
+- **missile-idle stays high.** Most of it is shooters with a target block whose men are out of their reach, or whose shots are held for friends in the line of fire. Ranges belong to the scale agent.
+- **Wide lines do not turn in sections.**
+- **`game.test` "horse beats bows at equal value" fails on the merged branch.** It is 5 of 30 days, and it fails on the base too since the scale change. Another agent owns it.
+---
+
 ## Sources
 
 - Thucydides 5.71–72: https://cts.perseids.org/read/greekLit/tlg0003/tlg001/1st1K-eng1/5.71.1-5.71.3 ; https://livius.org/sources/content/thucydides-historian/the-battle-of-mantinea-418-bce

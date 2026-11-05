@@ -274,10 +274,12 @@ describe('battle: the matchups', () => {
   const bows = { [U.Archers]: 0.5, [U.Crossbowmen]: 0.2, [U.HeavyInfantry]: 0.3 };
   const spears = { [U.Spearmen]: 0.8, [U.HeavyInfantry]: 0.2 };
   it('horse beats bows at equal value', () => {
-    // (Twelve days: since v14 the horse's edge is narrower, 7-10 of these 12 by version against
-    // 11 in v13: it breaks off from the foot among the bows to charge again.)
-    expect(winsOf(12, (seed) => fight(setupOf(seed, valued(V, horse), valued(V, bows))).winner)).toBeGreaterThanOrEqual(7);
-  }, 30_000);
+    // (Since v14 the horse's edge is narrower, 7-10 of the first 12 days by version against 11 in
+    // v13: it breaks off from the foot among the bows to charge again. Since v17 narrower still,
+    // 56% of 120 days against 62% in v16: the heavy foot beside the bows turns on horse among
+    // them, and faces round to meet it when it rides off; 12 days swung 3-8 on that alone.)
+    expect(winsOf(30, (seed) => fight(setupOf(seed, valued(V, horse), valued(V, bows))).winner)).toBeGreaterThanOrEqual(16);
+  }, 60_000);
   it('spears hold against horse at equal value', () => {
     expect(winsOf(6, (seed) => fight(setupOf(seed, valued(V, spears), valued(V, horse))).winner)).toBeGreaterThanOrEqual(5);
   }, 30_000);
@@ -392,8 +394,11 @@ describe('battle: command and morale', () => {
       b.generals[0].useReserve = false;
       const ra = a.run();
       const rb = b.run();
-      if (a.events.some((e) => e.kind === 'general-order' && e.team === 0 && e.order === 'support')) committed++;
-      expect(b.events.some((e) => e.kind === 'general-order' && e.team === 0 && e.order === 'support')).toBe(false);
+      // (Since v17 a reserve also goes in on its own for an open flank close by: the General's
+      // leave to use the reserve covers that too, and it is as much a committed reserve.)
+      const reserveIn = (x: Battle) => x.events.some((e) => e.kind === 'general-order' && e.team === 0 && (e.order === 'support' || (e.order === 'flank' && (e.note ?? '').includes('on its own'))));
+      if (reserveIn(a)) committed++;
+      expect(reserveIn(b)).toBe(false);
       if (ra.winner !== rb.winner || ra.ticks !== rb.ticks || ra.sides[1].dead.join() !== rb.sides[1].dead.join()) changed++;
     }
     expect(committed).toBeGreaterThanOrEqual(2);
