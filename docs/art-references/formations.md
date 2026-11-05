@@ -144,9 +144,15 @@ A facing is quick but has costs:
 - **A block that has faced round has no front until it has re-formed** (`formedAt`, the estimated facing time). Blows and charges from before it count as from the flank, and its shooters do not loose until then.
 - **It never faces for under about 25 degrees** (`faceMinCos`). Blocks of horse never face: horses cannot face in place (section 3.4). Wedges, columns and engines do not face either.
 - **On the march, with no enemy close, it wheels as it goes.**
-- **With enemy horse within 150** (`faceHorse`), unless that horse is riding off to rally, it wheels. A block that turns about and re-forms as horse rides at it, or among horse already in the fight, is caught in disorder (Patay).
-  - Without this rule the heavy foot beside the archers faced round onto horse fighting there, about 7 times a battle.
-  - Horse then beat bows in only 50% of 120 matchups, against 62% in v16. With the rule it wins 53%; without any facing, 62%.
+- **With enemy horse within 150** (`faceHorse`), unless that horse is riding off to rally, the block **faces in place** (`faceInPlace`). It does this whenever facing beats the wheel, which costs only `faceDelay`, so in practice for any turn past the threshold:
+  - Every man turns where he stands, at once (Aelian's klisis), and nobody walks to a new place.
+  - The block takes its new front with the shape it has. After a quarter turn the old files are its ranks, so it is deep and narrow toward the horse, as foot stood against horse.
+  - Spears brace as before.
+  - Once the horse has ridden off or is beyond 150, the block re-forms to its proper frontage, and has no front while it does.
+  - Horse charging or riding round at a block of the line is a threat to turn to from 150, not only from 45.
+  - What gets foot ridden down is a long re-forming walk under the horse, not the facing itself. Patay was a column caught on the march and still deploying.
+  - The first version of this rule had the block wheel instead whenever horse was near. Across six demo battles 1,555 turns past the threshold were left wheeling that way, while horse rode round the flank or charged again.
+  - Horse against bows (`game.test`) is 11 of 80 days on the merged base, with or without in-place facing. That failure belongs to the base and is being re-tuned on cc/horse-vs-bows.
 - **The facing itself.** Every man turns at once (the regiment's facing changes on the spot). The block's places are laid out afresh about where its men stand, at the new facing, with the same frontage. A man with a foe at hand fights him from where he stands.
   - Under threat, each man takes the place nearest him, so after an about-turn the old rear ranks are the front.
   - With time to spare the sim countermarches: each man keeps his old rank, so the front-rankers walk through to the new front. The time estimate adds the block's depth times the share of the turn past 90 degrees.
@@ -172,6 +178,7 @@ A facing is quick but has costs:
   - A 110-wide block faces 90 degrees and is re-formed in under three quarters of the time a wheel would take to come round. It also faces 60 degrees, but wheels 30.
   - A 20-man block wheels 30 and 60 degrees.
   - A block locked to its front keeps its facing while its rear ranks fight an enemy behind it.
+  - Horse appears on the flank of a 110-wide block. The block is round toward it within 1 s (its wheel would take over 5 s), deep and narrow, and nobody walked more than a file. It re-forms its frontage once the horse is gone.
 
 **Not done:** wide lines turning in sections (company wheels). The facing-and-re-form, with each man dressing on his neighbours, does a similar job. The renderer still shows an idle man facing his regiment's front: a rear-ranker turned about shows it only when he has a foe.
 
