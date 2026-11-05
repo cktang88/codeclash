@@ -519,8 +519,8 @@ export function footClips(skel: SkeletonData, s: FootClipSpec): ClipSet & { atta
   // ---- brace, by the weapon: the guard. In a fight he stands in it, and every blow leaves it
   // and comes back to it (guard.ts).
   const BRACE: Record<FootClipSpec['brace'] | 'javelin', Author> = {
-    // Crouched behind the shield raised to the eyes, the sword drawn back to cut over it.
-    shield: () => ({ dw: { spine: T([0, -14]), head: T([0, -8]), upperArmF: T([0, 52]), forearmF: T([0, 44]), jaw: T([0, -6]) }, w: { upperArmN: T([0, 20]), forearmN: T([0, 85]), weapon: T([0, 112]) } }),
+    // Crouched behind the scutum raised to the eyes, the gladius forward at the hip by its edge, point at the enemy.
+    shield: () => ({ dw: { spine: T([0, -14]), head: T([0, -8]), upperArmF: T([0, 52]), forearmF: T([0, 44]), jaw: T([0, -6]) }, w: { upperArmN: T([0, 18]), forearmN: T([0, 86]), weapon: T([0, 100]) } }),
     spear: () => ({ dw: { spine: T([0, -16]), head: T([0, 4]), upperArmF: T([0, 20]), forearmF: T([0, 16]) }, w: { upperArmN: T([0, 25]), forearmN: T([0, 80]), weapon: T([0, 118]) } }),
     // The staff brought forward at a slant in the near fist, its fire at the enemy, the trunk over it.
     staff: () => ({ dw: { spine: T([0, -8]), head: T([0, -4]) }, w: { upperArmN: T([0, 28]), forearmN: T([0, 72]), weapon: T([0, 150]) } }),

@@ -26,7 +26,7 @@ import { FLASH, pieceAtt, registerLazy, trail } from './undead-foot.ts';
 import { both, groundClamp, jerk } from './undead-clips.ts';
 import { horseFrame, lance, shadeLower, UM, warSword, type HorseLegs } from './undead-parts.ts';
 import { RIDER_BLOWS } from './undead-blows.ts';
-import { dkHipSword, keyLight } from './undead-static.ts';
+import { dkHipSword, keyLight, LANCE, lanceFwd } from './undead-static.ts';
 import { seated, type MountArt, type PieceOpts, type UJ, type UPiece } from './undead-static.ts';
 import { MOTION, type MotionKey } from './motion/index.ts';
 
@@ -292,10 +292,10 @@ function mountParts(s: MountSpec): AttachmentSet {
   if (s.smear) atts.smear = smearPart('weapon', s.smear[0], s.smear[1], UM.steel);
   // The sword phase: blows that swap the lance for the war sword (the same fist, along the weapon bone).
   if (s.blows?.some((b) => RIDER_BLOWS[b]?.sword)) {
-    atts['weapon.sword'] = pieceAtt({ slot: 'weapon', bone: 'weapon', draw: (c, J) => warSword(c, J.hN!, s.nearDeg, c.L <= 1 ? 7.6 : 6.8) }, J, art.axis);
+    atts['weapon.sword'] = pieceAtt({ slot: 'weapon', bone: 'weapon', draw: (c, J) => warSword(c, J.hN!, s.nearDeg, c.L <= 1 ? 8.6 : 8.2) }, J, art.axis);
     // The scabbard emptied, and the lance held upright in the shield hand while the sword is out.
     atts['hip.empty'] = pieceAtt({ slot: 'hip', bone: 'pelvis', draw: (c, J) => dkHipSword(c, J, true) }, J, art.axis);
-    atts['farLance.held'] = pieceAtt({ slot: 'farLance', bone: 'upperArmF', draw: (c, J) => void lance(c, addP(J.hF!, [0.1, -0.3]), 180, c.L <= 1 ? 14 : 10.5, 3.0, { pennon: true, sway: 0.3, vamplate: true }) }, J, art.axis);
+    atts['farLance.held'] = pieceAtt({ slot: 'farLance', bone: 'upperArmF', draw: (c, J) => void lance(c, addP(J.hF!, [0.1, -0.3]), 180, lanceFwd(c), LANCE[1], { pennon: true, sway: 0.3, vamplate: true }) }, J, art.axis);
   }
   return atts;
 }
