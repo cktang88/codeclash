@@ -1135,6 +1135,10 @@ export class Battle {
   private busyN = 0;
   private readonly cellOf: Int32Array;
   private readonly tmp = new Float64Array(4);
+  /** `crowded`: the axis to back out along, and from whom. */
+  private gx = 0;
+  private gy = 0;
+  private gWho = 0;
   /** Scratch for re-forming a regiment (see `assignSlots`). */
   private slotLat = new Float64Array(256);
   private slotFwd = new Float64Array(256);
@@ -2202,6 +2206,8 @@ export class Battle {
       if (o === r || o.role !== 'line' || o.alive === 0 || o.routed || (o.line === 2 && !o.committed)) continue;
       let q = (o.cx - r.cx) * (o.cx - r.cx) + (o.cy - r.cy) * (o.cy - r.cy);
       if (g.plan === 'refuse') q -= (o.homeY - FIELD_H / 2) * g.strong * 400;
+      // (Not behind a block another reserve already stands behind: two would stand in one place.)
+      for (const x of this.teamRegs[t]!) if (x !== r && x.order === 'reserve' && x.ord.friend === o.id && x.alive > 0 && !x.routed) q += 1e6;
       if (q < bd) {
         bd = q;
         best = o;
@@ -4658,9 +4664,22 @@ export class Battle {
     // Foot facing a big turn (or under threat close by) faces round, man by man, and re-forms,
     // when that is quicker than wheeling the whole block (see `turnFoot`).
     if (!horse && (this.tick + r.phase) % 5 === 0) this.turnFoot(r, wx, wy, marching);
+    // A wheel that would sweep the block into a friend with the right of way stops short (`crowded`).
+    const ofx = r.fx;
+    const ofy = r.fy;
+    const yields = this.yields(r, aboutTurn && this.tick >= r.stepUntil) && (!horse || (r.mode !== 'charge' && r.mode !== 'withdraw' && r.mode !== 'rally'));
+    const before = yields && (wx !== ofx || wy !== ofy) ? this.crowded(r, r.ax, r.ay, ofx, ofy) : 0;
     this.wheel(r, wx, wy, horse);
+    if (yields && (r.fx !== ofx || r.fy !== ofy)) {
+      const after = this.crowded(r, r.ax, r.ay, r.fx, r.fy);
+      if (after > 0 && after > before + 0.05) {
+        r.fx = ofx;
+        r.fy = ofy;
+      }
+    }
     if (q < 0.3) {
       r.aspd = 0;
+      if (yields) this.giveWay(r, 0, 0, r.speed * 0.25);
       return;
     }
     const sd = STANCES[r.stance];
@@ -4713,10 +4732,132 @@ export class Battle {
       pace = r.aspd;
     }
     const step = Math.min(q, pace * TICK_S);
+    if (yields) {
+      this.giveWay(r, ux * step, uy * step, pace);
+      return;
+    }
     r.vax = ux * step;
     r.vay = uy * step;
     r.ax += r.vax;
     r.ay += r.vay;
+  }
+
+  /**
+   * Whether a block gives way to friendly blocks (battle v17, `giveWay`): formed foot on the move
+   * or standing, not locked in a fight, not skirmishers or shooters falling back through their own
+   * line (that is drill), nor a chase (a loose crowd).
+   */
+  private yields(r: Regiment, fallingBack: boolean): boolean {
+    return !r.engaged && !fallingBack && !r.slip && r.role !== 'skirmish' && r.role !== 'siege' && r.role !== 'command' && r.mode !== 'pursue' && r.mode !== 'skirmish' && r.mode !== 'rout';
+  }
+
+  /** Which of two friendly blocks has the right of way: locked in a fight, then standing, then charging, then marching; the first in the order of battle between equals. */
+  private rightOfWay(o: Regiment, r: Regiment): boolean {
+    const rank = (x: Regiment) => (x.engaged ? 4 : x.mode === 'melee' || x.mode === 'hold' || x.mode === 'brace' || x.mode === 'guard' || x.mode === 'shoot' ? 3 : x.mode === 'charge' ? 2 : 1);
+    const a = rank(o);
+    const b = rank(r);
+    return a > b || (a === b && o.phase < r.phase);
+  }
+
+  /**
+   * How far block `r`, its front's middle at (ax, ay) and facing (fx, fy), would stand in a
+   * friendly block that has the right of way over it (`any`: in any friendly block; its footprint
+   * and a file's room about each),
+   * the deepest such (0: clear); the axis to back out along (away from that friend) in gx, gy.
+   */
+  private crowded(r: Regiment, ax: number, ay: number, fx: number, fy: number, any = false): number {
+    let worst = 0;
+    const c1x = ax - fx * r.depth * 0.5;
+    const c1y = ay - fy * r.depth * 0.5;
+    for (const o of this.teamRegs[r.team]!) {
+      if (o === r || o.alive === 0 || o.routed || o.role === 'skirmish' || o.slip || o.mode === 'skirmish' || o.mode === 'pursue') continue;
+      const dx = o.cx - r.cx;
+      const dy = o.cy - r.cy;
+      const reach = o.radius + r.radius + r.spacing + 8;
+      if (dx * dx + dy * dy > reach * reach || (!any && !this.rightOfWay(o, r))) continue;
+      const g = Math.max(r.spacing, o.spacing) * 0.5;
+      const a1 = r.width * 0.5 + g;
+      const b1 = r.depth * 0.5 + g;
+      const a2 = o.width * 0.5;
+      const b2 = o.depth * 0.5;
+      const c2x = o.ax - o.fx * o.depth * 0.5;
+      const c2y = o.ay - o.fy * o.depth * 0.5;
+      const ex = c1x - c2x;
+      const ey = c1y - c2y;
+      // Separating axes: each block's across and along.
+      let pen = Infinity;
+      let nx = 0;
+      let ny = 0;
+      for (let k = 0; k < 4; k++) {
+        const ux = k === 0 ? -fy : k === 1 ? fx : k === 2 ? -o.fy : o.fx;
+        const uy = k === 0 ? fx : k === 1 ? fy : k === 2 ? o.fx : o.fy;
+        const ra = a1 * Math.abs(-fy * ux + fx * uy) + b1 * Math.abs(fx * ux + fy * uy);
+        const rb = a2 * Math.abs(-o.fy * ux + o.fx * uy) + b2 * Math.abs(o.fx * ux + o.fy * uy);
+        const along = ex * ux + ey * uy;
+        const over = ra + rb - Math.abs(along);
+        if (over < pen) {
+          pen = over;
+          nx = along >= 0 ? ux : -ux;
+          ny = along >= 0 ? uy : -uy;
+        }
+      }
+      if (pen > worst) {
+        worst = pen;
+        this.gx = nx;
+        this.gy = ny;
+        this.gWho = o.id;
+      }
+    }
+    return worst;
+  }
+
+  /**
+   * Officers keep their blocks out of each other (battle v17): a block about to step (sx, sy) into a
+   * friendly block drops the part of its step that goes into it and goes round toward its goal
+   * instead (or halts); one already standing in a block with the right of way (`rightOfWay`: two
+   * reserves sent behind the same block) backs out of it. Sets the anchor's move.
+   */
+  private giveWay(r: Regiment, sx: number, sy: number, pace: number): void {
+    const s0 = sqrt(sx * sx + sy * sy);
+    for (let pass = 0; pass < 2; pass++) {
+      // (Nobody marches into a friend, whoever has the right of way: the one behind halts or goes round.)
+      const pen = this.crowded(r, r.ax + sx, r.ay + sy, r.fx, r.fy, true);
+      if (pen <= 0) break;
+      const nx = this.gx;
+      const ny = this.gy;
+      const into = sx * nx + sy * ny;
+      if (into < 0) {
+        sx -= nx * into;
+        sy -= ny * into;
+        // Round the friend, toward the goal's side of him (or the side it already stands on).
+        if (-into > 0.3 * s0) {
+          const o = this.regiments[this.gWho]!;
+          let side = (r.tx - r.ax) * -ny + (r.ty - r.ay) * nx;
+          if (side > -1e-9 && side < 1e-9) side = (r.cx - o.cx) * -ny + (r.cy - o.cy) * nx;
+          const sg = side >= 0 ? 1 : -1;
+          sx += -ny * sg * -into;
+          sy += nx * sg * -into;
+        }
+      }
+      // Standing in one with the right of way already: back out.
+      const now = this.crowded(r, r.ax, r.ay, r.fx, r.fy);
+      if (now > 0 && pass === 0) {
+        const out = Math.min(now, pace * TICK_S * 0.5);
+        sx += this.gx * out;
+        sy += this.gy * out;
+      }
+    }
+    // Still going deeper into a friend: halt (and only back out of one with the right of way).
+    if ((sx !== 0 || sy !== 0) && this.crowded(r, r.ax + sx, r.ay + sy, r.fx, r.fy, true) > this.crowded(r, r.ax, r.ay, r.fx, r.fy, true) + 0.01) {
+      const now = this.crowded(r, r.ax, r.ay, r.fx, r.fy);
+      const out = now > 0 ? Math.min(now, pace * TICK_S * 0.5) : 0;
+      sx = this.gx * out;
+      sy = this.gy * out;
+    }
+    r.vax = sx;
+    r.vay = sy;
+    r.ax += sx;
+    r.ay += sy;
   }
 
   /**
