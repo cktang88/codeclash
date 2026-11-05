@@ -170,6 +170,10 @@ void main() {
       uvec2 cu = uvec2(ivec2(ci));
       uint h0 = hash3(cu.x, cu.y, 101u);
       vec2 b = (ci + vec2(h01(h0), h01(h0 * 747796405u + 1u))) * vec2(CW, CH);
+      // Out of this cell's reach first: the noise and hashes below are most of the shader's cost,
+      // and most of the 12 cells looked at reach no texel here (the result is the same).
+      vec2 q = p - b;
+      if (abs(q.x) > 2.6 || q.y < -3.6 || q.y > 1.2) continue;
       vec2 bw = world(b);
       float br = abs(bw.y - road(bw.x));
       float clump = gnoise(bw, 26.0, u_salt.y ^ 0x5bd1e995u);
@@ -183,8 +187,6 @@ void main() {
         if (k > 0.5) continue;
         k = 0.7;
       }
-      vec2 q = p - b;
-      if (abs(q.x) > 2.6 || q.y < -3.6 || q.y > 1.2) continue;
       if (k < 0.58) {
         // A tuft: three to five tapering blades fanning up from one root, the left edge of each
         // blade lit, dry or green with the zone.
@@ -432,8 +434,12 @@ const NO_TILE = -1;
 /** A world tile (texel tile coordinates, which may be negative) as one int. */
 const tileKey = (tx: number, ty: number) => (ty + 4096) * 8192 + (tx + 4096);
 const mod = (a: number, n: number) => ((a % n) + n) % n;
-/** Texels of margin tiles painted a frame, as a share of the view's area (4 tiles at least). */
-const PREFETCH_SHARE = 0.25;
+/**
+ * Margin tiles painted a frame, as a share of the view's area (2 tiles at least), or twice what a
+ * scroll brings into view a frame if more. The ground shader is heavy: on a weak or software GPU
+ * a quarter of the view a frame cost seconds a frame for seconds after a zoom.
+ */
+const PREFETCH_SHARE = 1 / 16;
 /** Decals are kept in buckets of the map (so a frame looks only at those in view), each holding
  * at most so many, the oldest overwritten: a trampled spot keeps its newest hoofprints. */
 const BUCKET_W = 96;
@@ -864,6 +870,14 @@ export class HdField {
   // of the cache (up to four rectangles where it wraps). Scrolling meets painted ground, and a
   // static view repaints nothing.
 
+  /** Tools: wait for the GPU after each ground pass and time them (ms; texels painted). */
+  syncParts = false;
+  readonly lastParts = { base: 0, comp: 0, decals: 0, baseTexels: 0, compTexels: 0 };
+  private sync(gl: WebGL2RenderingContext): number {
+    if (this.syncParts) gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
+    return typeof performance !== 'undefined' ? performance.now() : 0;
+  }
+
   /** The cache window for this frame (plan()). */
   private readonly pl = { m: -1, nx: 0, ny: 0, bw: 0, bh: 0, cx: 0, cy: 0, wx0: 0, wy0: 0, vx: 0, vy: 0, pcx: 0, pcy: 0 };
   /** Whether some tile of the window is still to be painted (the margin, a share a frame). */
@@ -1048,6 +1062,7 @@ export class HdField {
     const vy1 = Math.floor((cy + bh - 1) / CT);
     const cand = this.cand;
     let nc = 0;
+    let visibleNew = 0;
     for (let ty = wy0; ty < wy0 + ny; ty++)
       for (let tx = wx0; tx < wx0 + nx; tx++) {
         const slot = mod(ty, ny) * nx + mod(tx, nx);
@@ -1058,13 +1073,18 @@ export class HdField {
         const dy = ty < vy0 ? vy0 - ty : ty > vy1 ? ty - vy1 : 0;
         if (dx === 0 && dy === 0) {
           todo[slot] = need;
+          visibleNew++;
           continue;
         }
         // Ahead of the scroll counts as half a tile nearer.
         const ahead = (tx > vx1 && p.vx > 0) || (tx < vx0 && p.vx < 0) || (ty > vy1 && p.vy > 0) || (ty < vy0 && p.vy < 0);
         cand[nc++] = (Math.max(dx, dy) * 2 - (ahead ? 1 : 0)) * 1048576 + slot * 4 + need;
       }
-    let budget = Math.max(4, Math.floor((PREFETCH_SHARE * bw * bh) / (CT * CT)));
+    // A frame that paints much of the view (a zoom, a jump) paints no margin besides.
+    const vt = (vx1 - vx0 + 1) * (vy1 - vy0 + 1);
+    const scroll = Math.ceil(((Math.abs(p.vx) * (vy1 - vy0 + 1) + Math.abs(p.vy) * (vx1 - vx0 + 1)) / CT) * 2);
+    const per = Math.max(2, Math.floor((PREFETCH_SHARE * bw * bh) / (CT * CT)), scroll);
+    let budget = visibleNew > vt / 4 ? 0 : per;
     if (nc > 0) {
       const sorted = cand.subarray(0, nc).sort();
       for (let k = 0; k < nc && budget > 0; k++, budget--) {
@@ -1072,7 +1092,8 @@ export class HdField {
         todo[v >> 2] = v & 3;
       }
     }
-    this.prefetching = nc > Math.max(4, Math.floor((PREFETCH_SHARE * bw * bh) / (CT * CT)));
+    // Some margin still to paint (budget left over means every candidate went this frame).
+    this.prefetching = nc > 0 && budget <= 0;
     // Runs of slots along a row (not across the wrap), grown down over the same span: x, y, w,
     // h (cache px), and the world texel minus the cache px over them.
     const runs = (out: number[], want: (t: number) => boolean) => {
@@ -1099,7 +1120,12 @@ export class HdField {
     runs(this.compRuns, (t) => t !== 0);
     const B = this.baseRuns;
     const C = this.compRuns;
+    const lp = this.lastParts;
+    lp.base = lp.comp = lp.decals = lp.baseTexels = lp.compTexels = 0;
+    for (let i = 0; i < B.length; i += 6) lp.baseTexels += B[i + 2]! * B[i + 3]!;
+    for (let i = 0; i < C.length; i += 6) lp.compTexels += C[i + 2]! * C[i + 3]!;
     if (C.length > 0) {
+      let t0 = this.sync(gl);
       gl.enable(gl.SCISSOR_TEST);
       if (B.length > 0) {
         gl.bindFramebuffer(gl.FRAMEBUFFER, baseT.fbo);
@@ -1117,6 +1143,8 @@ export class HdField {
         }
         for (let i = 0; i < todo.length; i++) if (todo[i] === 1) g.baseOwn[i] = this.slotKey(i, nx, ny, wx0, wy0);
       }
+      let t1 = this.sync(gl);
+      lp.base = t1 - t0;
       this.upload(g);
       gl.bindFramebuffer(gl.FRAMEBUFFER, compT.fbo);
       gl.viewport(0, 0, CW, CH);
@@ -1140,6 +1168,8 @@ export class HdField {
       gl.bindTexture(gl.TEXTURE_2D, null);
       gl.activeTexture(gl.TEXTURE0);
       gl.bindVertexArray(null);
+      t0 = this.sync(gl);
+      lp.comp = t0 - t1;
       // The decals, baked in flat (thousands of them late in a battle: not redrawn each frame):
       // one draw per part of the cache the window wraps into, scissored to the runs' box there
       // (a decal is opaque where drawn, so redrawing one over itself changes nothing).
@@ -1166,6 +1196,8 @@ export class HdField {
         decals(g.compAge, ox / m, oy / m, CW, CH);
       }
       gl.disable(gl.SCISSOR_TEST);
+      t1 = this.sync(gl);
+      lp.decals = t1 - t0;
       for (let i = 0; i < todo.length; i++) if (todo[i] !== 0) g.compOwn[i] = this.slotKey(i, nx, ny, wx0, wy0);
     }
     if (direct) {
