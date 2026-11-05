@@ -43,7 +43,7 @@ export { COHESION, DOCTRINE, MORALE, REGROUP, UNDEAD } from './command.ts';
  *   of bows every 5 s (was 2.1), crossbows 12 s (4.4), teppō 17.7 s (5.7; each ball 1.45x, was
  *   1.3x), horse archers 5.5 s (2.6), javelins 3 s (2.6), engines 30 s (14); at will bows shoot
  *   at the burst rate (BOW_BURST, 0.6 of the reload). Arrows 36 a man (24), horse archers 30
- *   (22), javelins 4 (5). A shot at a target faster than a run (30 a second) scatters with the way it goes in
+ *   (22), javelins 4 (5). A shot at a target faster than a run (35 a second) scatters with the way it goes in
  *   the shot's flight (LEAD_ERR): galloping horse is hard to hit at long range.
  * - Horse against shooters (`horseStrike`): outshot by bows and crossbows that stand off
  *   (STRIKE_OUTSHOT) before the lines meet, a General forms all his horse up just out of their
@@ -6687,7 +6687,7 @@ const VOLLEY_SPREAD = 5;
  */
 const LEAD_ERR = 0.3;
 /** A target this slow (units a second: foot at the march or the run) is led true; horse at the canter or gallop is not. */
-const LEAD_EASY = 30;
+const LEAD_EASY = 35;
 const VOLLEY_BEAT = 6;
 /**
  * Fire at will: an enemy whose nearest men are this close to the front (or one charging the
