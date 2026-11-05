@@ -85,16 +85,29 @@ export function skinMap(posed: Posed, weights: Weights): PartMap {
     }
     return m;
   };
+  let lastWs: [string, number][] | null = null;
+  const byPlace: Aff[] = [], placeName: string[] = [];
   // The blend of the bones' maps at a point, into b0..b5 (no arrays: it runs per pixel shaded).
   let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0;
   const blend = (p: P2): void => {
     let s0 = 0, s1 = 0, s2 = 0, s3 = 0, s4 = 0, s5 = 0;
     let tot = 0;
     const ws = weights(p);
+    // A weights function that fills one array (weightSlots) names the same bones in the same
+    // places every call: their maps are looked up once per place, when first weighted.
+    if (ws !== lastWs) {
+      lastWs = ws;
+      byPlace.length = 0;
+    }
     for (let k = 0; k < ws.length; k++) {
-      const n = ws[k]![0], w = ws[k]![1];
+      const e = ws[k]!;
+      const w = e[1];
       if (w <= 0) continue;
-      const m = aff(n);
+      let m = byPlace[k];
+      if (m === undefined || placeName[k] !== e[0]) {
+        m = byPlace[k] = aff(e[0]);
+        placeName[k] = e[0];
+      }
       s0 = s0 + m[0] * w;
       s1 = s1 + m[1] * w;
       s2 = s2 + m[2] * w;
