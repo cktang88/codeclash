@@ -155,8 +155,11 @@ export class Draw {
         const r = sh.rects;
         const w = r[i + 2]!;
         const h = r[i + 3]!;
-        if (w > 0 && h > 0) this.g.drawImage(page, r[i]!, r[i + 1]!, w, h, x - r[i + 4]! / k, y - r[i + 5]! / k, w / k, h / k);
-        return;
+        // (A partial sheet, KindSheet.partial, lacks some frames: those come from the grid.)
+        if (w > 0 && h > 0) {
+          this.g.drawImage(page, r[i]!, r[i + 1]!, w, h, x - r[i + 4]! / k, y - r[i + 5]! / k, w / k, h / k);
+          return;
+        }
       }
     }
     const [cx, cy] = a.at(kind, anim, frame, dir);

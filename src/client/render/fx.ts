@@ -94,7 +94,7 @@ class Sheet {
   readonly regions = new Map<string, Region>();
   constructor(readonly size: number) {
     this.canvas.width = this.canvas.height = size;
-    this.ctx = this.canvas.getContext('2d')!;
+    this.ctx = this.canvas.getContext('2d', { willReadFrequently: true })!;
   }
   put(name: string, p: Px, ax: number, ay: number): void {
     if (this.x + p.w + 1 > this.size) {

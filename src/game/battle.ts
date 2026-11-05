@@ -1104,7 +1104,14 @@ export class Battle {
    * its men hit the same, whatever the size of the battle.
    */
   private readonly shockK: number;
-  private readonly grid = new Int32Array(GW * GH + 1);
+  /**
+   * Per cell, where its men start and end in `items` (sorted by cell, then id). Only the cells
+   * holding anyone (`busy`) are set; every other cell reads start = end = 0.
+   */
+  private readonly grid = new Int32Array(GW * GH);
+  private readonly gridEnd = new Int32Array(GW * GH);
+  /** Men in the grid this tick. */
+  private gridTotal = 0;
   private readonly fill = new Int32Array(GW * GH);
   /**
    * Per cell, how many of its men are of team 0. A cell's men are in id order, and team 0's ids
@@ -1126,6 +1133,8 @@ export class Battle {
   /** Whether anyone is galloping in this tick (most ticks nobody is). */
   private bowWave = false;
   private regFlags = new Uint8Array(0);
+  /** Per regiment, its `rankStep` for this tick's moves (see `step`). */
+  private regStep = new Float64Array(0);
   /** Per regiment, during `regroup`: the family of fugitives it would take in (see `family`), 0 none. */
   private takeIn = new Uint8Array(0);
   /** Per team, during `regroup`: the regiments taking fugitives in. */
@@ -1133,6 +1142,9 @@ export class Battle {
   /** Cells holding anyone, in index order. */
   private readonly busy: Int32Array;
   private busyN = 0;
+  /** Scratch for sorting `busy`. */
+  private readonly busyTmp: Int32Array;
+  private readonly busyCount = new Int32Array(Math.max(GW, GH) + 1);
   private readonly cellOf: Int32Array;
   private readonly tmp = new Float64Array(4);
   /** Scratch for re-forming a regiment (see `assignSlots`). */
@@ -1188,6 +1200,7 @@ export class Battle {
     this.kpy = new Float64Array(n);
     this.kw = new Float64Array(n);
     this.busy = new Int32Array(Math.min(n, GW * GH) + 1);
+    this.busyTmp = new Int32Array(this.busy.length);
     this.cellOf = new Int32Array(n);
     const team = (): TeamState => ({ contactAt: -1, loss: 0, frontX: 0, lineDepth: 0, minY: 0, maxY: 0, midY: FIELD_H / 2, hasLine: false, engaged: false, contacted: false, missile: 0 });
     this.ts = [team(), team()];
@@ -1207,6 +1220,7 @@ export class Battle {
     const m1 = this.ts[1].missile;
     this.stance = [m0 > m1 * 1.25 ? 'hold' : 'press', m1 > m0 * 1.25 ? 'hold' : 'press'];
     this.regFlags = new Uint8Array(this.regiments.length);
+    this.regStep = new Float64Array(this.regiments.length);
     this.takeIn = new Uint8Array(this.regiments.length);
     for (const r of this.regiments) this.survey(r);
     this.updateFront(0);
@@ -1631,6 +1645,9 @@ export class Battle {
     } else {
       for (let i = n - 1; i >= 0; i--) if (d.state[i]! <= State.Routing) this.act(i);
     }
+    // (Each regiment's rank step, for `lead` and `station`: nothing in the moves changes it.)
+    const regStep = this.regStep;
+    for (let j = 0; j < regs.length; j++) regStep[j] = rankStep(regs[j]!);
     if ((this.tick + this.parity) % 2 === 0) {
       for (let i = 0; i < n; i++) if (d.state[i]! <= State.Routing) this.move(i);
     } else {
@@ -1742,15 +1759,22 @@ export class Battle {
 
   private rebuildGrid(): void {
     const g = this.grid;
-    g.fill(0);
+    const ge = this.gridEnd;
     const d = this.d;
     const n = this.n;
     const cellOf = this.cellOf;
     const of0 = this.ofTeam0;
-    of0.fill(0);
+    const busy = this.busy;
+    // Only last tick's cells need clearing: every other cell is already empty (start = end = 0).
+    for (let b = 0; b < this.busyN; b++) {
+      const c = busy[b]!;
+      g[c] = 0;
+      ge[c] = 0;
+      of0[c] = 0;
+    }
     const first1 = this.firstId[1];
-    let lo = GW * GH;
-    let hi = -1;
+    let nb = 0;
+    // Count each cell's men (in `gridEnd` for now), noting each cell as it fills.
     for (let i = 0; i < n; i++) {
       if (d.state[i]! > State.Routing) {
         cellOf[i] = -1;
@@ -1758,23 +1782,23 @@ export class Battle {
       }
       const c = cellIndex(d.x[i]!, d.y[i]!);
       cellOf[i] = c;
-      g[c + 1]!++;
+      if (ge[c]!++ === 0) busy[nb++] = c;
       if (i < first1) of0[c]!++;
-      if (c < lo) lo = c;
-      if (c > hi) hi = c;
     }
-    const cells = GW * GH;
-    const busy = this.busy;
-    let nb = 0;
-    // Running totals over the occupied stretch only: before it they are all 0, after it all the total.
-    for (let c = lo; c <= hi; c++) {
-      if (g[c + 1]! > 0) busy[nb++] = c;
-      g[c + 1]! += g[c]!;
-    }
-    if (hi >= 0) g.fill(g[hi + 1]!, hi + 2);
     this.busyN = nb;
+    this.sortBusy(nb);
+    // Lay the cells out in cell order, each one's men contiguous (as a running total over every
+    // cell would, without walking the empty ones).
     const fill = this.fill;
-    fill.set(g.subarray(0, cells));
+    let off = 0;
+    for (let b = 0; b < nb; b++) {
+      const c = busy[b]!;
+      g[c] = off;
+      fill[c] = off;
+      off += ge[c]!;
+      ge[c] = off;
+    }
+    this.gridTotal = off;
     const items = this.items;
     const kx = this.kx;
     const ky = this.ky;
@@ -1817,6 +1841,27 @@ export class Battle {
     this.bowWave = bow;
   }
 
+  /** Sorts the first `nb` busy cells into index order: a radix sort, by column and then by row. */
+  private sortBusy(nb: number): void {
+    const busy = this.busy;
+    const tmp = this.busyTmp;
+    const cnt = this.busyCount;
+    cnt.fill(0);
+    for (let b = 0; b < nb; b++) cnt[(busy[b]! % GW) + 1]!++;
+    for (let k = 0; k < GW; k++) cnt[k + 1]! += cnt[k]!;
+    for (let b = 0; b < nb; b++) {
+      const c = busy[b]!;
+      tmp[cnt[c % GW]!++] = c;
+    }
+    cnt.fill(0);
+    for (let b = 0; b < nb; b++) cnt[((tmp[b]! / GW) | 0) + 1]!++;
+    for (let k = 0; k < GH; k++) cnt[k + 1]! += cnt[k]!;
+    for (let b = 0; b < nb; b++) {
+      const c = tmp[b]!;
+      busy[cnt[(c / GW) | 0]!++] = c;
+    }
+  }
+
   /** Calls `f` for each living soldier within `r` of (x, y); stop by returning true. */
   near(x: number, y: number, r: number, f: (s: Soldier, d2: number) => boolean | void): void {
     const x0 = Math.max(0, Math.floor((x - r) / CELL));
@@ -1827,7 +1872,7 @@ export class Battle {
     for (let cy = y0; cy <= y1; cy++) {
       for (let cx = x0; cx <= x1; cx++) {
         const c = cy * GW + cx;
-        for (let k = this.grid[c]!; k < this.grid[c + 1]!; k++) {
+        for (let k = this.grid[c]!; k < this.gridEnd[c]!; k++) {
           const i = this.items[k]!;
           if (this.d.state[i]! > State.Routing) continue;
           const dx = this.d.x[i]! - x;
@@ -3236,7 +3281,7 @@ export class Battle {
     for (let cy = y0; cy <= y1; cy++) {
       for (let cx = x0; cx <= x1; cx++) {
         const c = cy * GW + cx;
-        for (let k = this.grid[c]!; k < this.grid[c + 1]!; k++) {
+        for (let k = this.grid[c]!; k < this.gridEnd[c]!; k++) {
           const j = this.items[k]!;
           if (d.team[j] === team || d.state[j] !== State.Fighting) continue;
           const dx = d.x[j]! - x;
@@ -4983,12 +5028,11 @@ export class Battle {
         if (ex * ex + ey * ey > reach * reach) t = -1;
       }
     }
-    const st = this.soldiers[i]!.s;
     // (Since when he has stood in contact without a foe: see `seek`.)
     if (t >= 0) d.idl[i] = 0;
     else if (d.idl[i] === 0 && r.contact) d.idl[i] = this.tick || 1;
     // A shooter with a foe at hand drops his bow and draws (0.6 s), however long his reload.
-    if (t >= 0 && d.target[i]! < 0 && st.range > 0 && d.cd[i]! > 6) d.cd[i] = 6;
+    if (t >= 0 && d.target[i]! < 0 && this.soldiers[i]!.s.range > 0 && d.cd[i]! > 6) d.cd[i] = 6;
     d.target[i] = t;
     if (t >= 0) {
       const dx = d.x[t]! - d.x[i]!;
@@ -5010,7 +5054,7 @@ export class Battle {
       if (q <= reach * reach && d.cd[i] === 0 && !this.outOfMeasure(i, r)) this.strike(i, t);
       return;
     }
-    if (d.ammo[i]! > 0 && d.cd[i] === 0 && r.firing && this.mayLoose(i, r)) this.shoot(i, r, st);
+    if (d.ammo[i]! > 0 && d.cd[i] === 0 && r.firing && this.mayLoose(i, r)) this.shoot(i, r, this.soldiers[i]!.s);
   }
 
   /**
@@ -5115,6 +5159,7 @@ export class Battle {
     const reach2 = reach * reach;
     const L2 = (leash + R) * (leash + R);
     const grid = this.grid;
+    const gridEnd = this.gridEnd;
     const of0 = this.ofTeam0;
     const items = this.items;
     const kx = this.kx;
@@ -5130,7 +5175,7 @@ export class Battle {
         const c = row + cx;
         // Only the enemy's men in the cell (see `ofTeam0`).
         const from = team === 0 ? grid[c]! + of0[c]! : grid[c]!;
-        const end = team === 0 ? grid[c + 1]! : grid[c]! + of0[c]!;
+        const end = team === 0 ? gridEnd[c]! : grid[c]! + of0[c]!;
         for (let k = from; k < end; k++) {
           const j = items[k]!;
           const sj = d.state[j]!;
@@ -5217,6 +5262,7 @@ export class Battle {
     const y0 = Math.max(0, Math.floor((y - R) / CELL));
     const y1 = Math.min(GH - 1, Math.floor((y + R) / CELL));
     const grid = this.grid;
+    const gridEnd = this.gridEnd;
     const of0 = this.ofTeam0;
     const items = this.items;
     const kx = this.kx;
@@ -5230,7 +5276,7 @@ export class Battle {
       for (let cx = x0; cx <= x1; cx++) {
         const c = row + cx;
         const from = team === 0 ? grid[c]! + of0[c]! : grid[c]!;
-        const end = team === 0 ? grid[c + 1]! : grid[c]! + of0[c]!;
+        const end = team === 0 ? gridEnd[c]! : grid[c]! + of0[c]!;
         for (let k = from; k < end; k++) {
           const j = items[k]!;
           // (Men still fighting: fugitives are for the horse let loose on them.)
@@ -5261,9 +5307,21 @@ export class Battle {
    * stands in his way (within `RIDER.look` ahead, closer than their two radii across), he swerves
    * toward the emptier side, harder the nearer the friend. Rewrites (vx, vy) in tmp[0], tmp[1]
    * and returns true when he swerves.
+   *
+   * (A small shell, which the engine inlines, over `swerveAt`, which it does not: the velocity
+   * goes through the scratch, so it is not boxed on the heap for the call.)
    */
   private swerve(i: number, vx: number, vy: number): boolean {
+    this.tmp[0] = vx;
+    this.tmp[1] = vy;
+    return this.swerveAt(i);
+  }
+
+  /** `swerve`, given (vx, vy) in tmp[0], tmp[1]. */
+  private swerveAt(i: number): boolean {
     const d = this.d;
+    const vx = this.tmp[0]!;
+    const vy = this.tmp[1]!;
     const vm = sqrt(vx * vx + vy * vy);
     if (vm < d.spd[i]! * 0.25) return false;
     const ux = vx / vm;
@@ -5274,6 +5332,7 @@ export class Battle {
     const look = RIDER.look;
     const team = d.team[i]!;
     const grid = this.grid;
+    const gridEnd = this.gridEnd;
     const of0 = this.ofTeam0;
     const items = this.items;
     const kx = this.kx;
@@ -5296,7 +5355,7 @@ export class Battle {
         const c = row + cx;
         // Only his own side's men in the cell (see `ofTeam0`).
         const from = team === 0 ? grid[c]! : grid[c]! + of0[c]!;
-        const end = team === 0 ? grid[c]! + of0[c]! : grid[c + 1]!;
+        const end = team === 0 ? grid[c]! + of0[c]! : gridEnd[c]!;
         for (let k = from; k < end; k++) {
           const j = items[k]!;
           if (j === i || d.state[j] !== State.Fighting) continue;
@@ -5344,6 +5403,7 @@ export class Battle {
     const R = RIDER.pressed;
     const team = d.team[i]!;
     const grid = this.grid;
+    const gridEnd = this.gridEnd;
     const of0 = this.ofTeam0;
     const items = this.items;
     const kx = this.kx;
@@ -5360,7 +5420,7 @@ export class Battle {
       for (let cx = x0; cx <= x1; cx++) {
         const c = row + cx;
         const from = team === 0 ? grid[c]! + of0[c]! : grid[c]!;
-        const end = team === 0 ? grid[c + 1]! : grid[c]! + of0[c]!;
+        const end = team === 0 ? gridEnd[c]! : grid[c]! + of0[c]!;
         for (let k = from; k < end; k++) {
           if (d.state[items[k]!] !== State.Fighting) continue;
           const dx = x - kx[k]!;
@@ -5524,7 +5584,7 @@ export class Battle {
           const c = cy * GW + cx;
           if (seen[c] === stamp) continue;
           seen[c] = stamp;
-          for (let q = this.grid[c]!; q < this.grid[c + 1]!; q++) {
+          for (let q = this.grid[c]!; q < this.gridEnd[c]!; q++) {
             const j = this.items[q]!;
             if (j === skip || d.state[j]! > State.Routing || d.reg[j] === skipReg) continue;
             const ex = d.x[j]! - x0;
@@ -5822,6 +5882,7 @@ export class Battle {
    */
   private separate(): void {
     const grid = this.grid;
+    const gridEnd = this.gridEnd;
     const kx = this.kx;
     const ky = this.ky;
     const kr = this.kr;
@@ -5835,7 +5896,7 @@ export class Battle {
     const items = this.items;
     const d = this.d;
     const bow = this.bowWave;
-    const total = grid[GW * GH]!;
+    const total = this.gridTotal;
     // Where everyone stands now (the cells are from the start of the tick: nobody moves far).
     for (let k = 0; k < total; k++) {
       const i = items[k]!;
@@ -5849,16 +5910,22 @@ export class Battle {
       const c = busy[bi]!;
       const cx = c % GW;
       const cy = (c - cx) / GW;
-      const a1 = grid[c + 1]!;
+      const a1 = gridEnd[c]!;
       // Each pair once: this cell's later items and the cell to the right (contiguous in grid
       // order), then the three cells below-left, below and below-right (contiguous too).
-      const end1 = cx + 1 < GW ? grid[c + 2]! : a1;
+      // (A cell holds anyone exactly when its end is above 0.)
+      const end1 = cx + 1 < GW && gridEnd[c + 1]! > 0 ? gridEnd[c + 1]! : a1;
       let r0 = 0;
       let r1 = 0;
       if (cy + 1 < GH) {
         const row = c + GW;
-        r0 = grid[cx > 0 ? row - 1 : row]!;
-        r1 = grid[cx + 1 < GW ? row + 2 : row + 1]!;
+        const lo = cx > 0 ? row - 1 : row;
+        const hi = cx + 1 < GW ? row + 1 : row;
+        for (let q = lo; q <= hi; q++) {
+          if (gridEnd[q]! === 0) continue;
+          if (r1 === 0) r0 = grid[q]!;
+          r1 = gridEnd[q]!;
+        }
       }
       for (let ka = grid[c]!; ka < a1; ka++) {
         const li = kl[ka]!;
@@ -6002,7 +6069,7 @@ export class Battle {
     const col = d.col[i]!;
     // (The mix of two even spreads, scaled back up to the spread of one.)
     const e = (C.fileShare * hashUnit((r.id * 977 + Math.round(col)) ^ this.salt) + (1 - C.fileShare) * d.ea[i]!) * C.fileNorm;
-    const cap = C.leadCap * rankStep(r);
+    const cap = C.leadCap * this.regStep[r.id]!;
     let f: number;
     if (d.mt[i]) f = e * C.horseLead * L.lead;
     else {
@@ -6043,8 +6110,18 @@ export class Battle {
    * (`curlBase` + `curlPerFile` a file beyond, at most `curlMax`, as tangents of half the
    * angle: no trig), times the faction's `loose.curl`. Puts the point in tmp[0], tmp[1] and
    * returns true; false when he is not beyond it.
+   * (A shell over `curlAt`, passing the slot through the scratch: see `swerve`.)
    */
   private curl(i: number, r: Regiment, gx: number, gy: number): boolean {
+    this.tmp[0] = gx;
+    this.tmp[1] = gy;
+    return this.curlAt(i, r);
+  }
+
+  /** `curl`, given (gx, gy) in tmp[0], tmp[1]. */
+  private curlAt(i: number, r: Regiment): boolean {
+    const gx = this.tmp[0]!;
+    const gy = this.tmp[1]!;
     const L = this.doc[r.team]!.loose;
     if (L.curl <= 0 || this.fearless[1 - r.team]) return false;
     const o = this.regiments[r.targetReg]!;
@@ -6114,8 +6191,18 @@ export class Battle {
    * man ahead fallen, in contact, he steps up into the hole, keeping station on the men beside it.
    * Neighbours who are fighting a foe (or swinging round a flank) do not count.
    * Puts the point in tmp[0], tmp[1]; false when he has nobody to dress on.
+   * (A shell over `stationAt`, passing the point through the scratch: see `swerve`.)
    */
   private station(i: number, r: Regiment, tx: number, ty: number): boolean {
+    this.tmp[0] = tx;
+    this.tmp[1] = ty;
+    return this.stationAt(i, r);
+  }
+
+  /** `station`, given (tx, ty) in tmp[0], tmp[1]. */
+  private stationAt(i: number, r: Regiment): boolean {
+    const tx = this.tmp[0]!;
+    const ty = this.tmp[1]!;
     const d = this.d;
     const nb = r.nb;
     const K = r.nbK;
@@ -6126,7 +6213,7 @@ export class Battle {
     const fx = r.fx;
     const fy = r.fy;
     const sp = r.spacing;
-    const step = rankStep(r);
+    const step = this.regStep[r.id]!;
     let ox = tx;
     let oy = ty;
     if (row > 0 && r.contact) {
@@ -6196,7 +6283,7 @@ export class Battle {
       for (let cx = x0; cx <= x1; cx++) {
         const c = cy * GW + cx;
         const from = team === 0 ? this.grid[c]! + this.ofTeam0[c]! : this.grid[c]!;
-        const end = team === 0 ? this.grid[c + 1]! : this.grid[c]! + this.ofTeam0[c]!;
+        const end = team === 0 ? this.gridEnd[c]! : this.grid[c]! + this.ofTeam0[c]!;
         for (let k = from; k < end; k++) {
           const j = this.items[k]!;
           if (d.state[j] !== State.Fighting) continue;
@@ -6453,7 +6540,7 @@ export class Battle {
       vy = (vy / vm) * vmax;
     }
     // Galloping (or running) in at a charge builds impetus; anything else bleeds it.
-    if (this.soldiers[i]!.s.charge > 0 && r.mode === 'charge' && vm > spd * 0.7) d.imp[i] = Math.min(mounted || !r.ragged ? 1 : Math.max(0.35, 1 - (this.tick - r.chargeAt - RUN_IN) * 0.04), d.imp[i]! + (mounted ? 0.08 : 0.15));
+    if (r.mode === 'charge' && this.soldiers[i]!.s.charge > 0 && vm > spd * 0.7) d.imp[i] = Math.min(mounted || !r.ragged ? 1 : Math.max(0.35, 1 - (this.tick - r.chargeAt - RUN_IN) * 0.04), d.imp[i]! + (mounted ? 0.08 : 0.15));
     else if (d.imp[i]! > 0) d.imp[i] = d.imp[i]! < 0.05 ? 0 : d.imp[i]! * (mounted && vm > spd * 0.6 ? 0.93 : 0.8);
     // Men pressed by others do not walk into them: the part of his stride that goes into the
     // press is dropped (a galloping rider ploughs on; his bow wave moves them instead), and the
@@ -6530,7 +6617,7 @@ export class Battle {
     for (let cy = y0; cy <= y1; cy++) {
       for (let cx = x0; cx <= x1; cx++) {
         const c = cy * GW + cx;
-        for (let k = this.grid[c]!; k < this.grid[c + 1]!; k++) {
+        for (let k = this.grid[c]!; k < this.gridEnd[c]!; k++) {
           const j = this.items[k]!;
           if (d.state[j]! > State.Routing) continue;
           const dx = d.x[j]! - p.x1;
@@ -6942,9 +7029,15 @@ function spacingFor(reg: Regiment, s: Stance): number {
   return reg.rad * 2 + GAP_IN_RANK[reg.role]! * sd.gap + sd.add;
 }
 
+/**
+ * RANK_STEP as a map: a lookup by a role held in a variable reads a fraction out of a plain
+ * object by copying it onto the heap (this runs for every man every tick), out of a Map without.
+ */
+const RANK_STEP_OF = new Map<string, number>(Object.entries(RANK_STEP));
+
 /** Distance from one rank to the next (a wedge's ranks are offset by half a file, so closer). */
 function rankStep(reg: Regiment): number {
-  return reg.spacing * (reg.stance === 'wedge' ? 0.87 : RANK_STEP[reg.role]!);
+  return reg.spacing * (reg.stance === 'wedge' ? 0.87 : RANK_STEP_OF.get(reg.role)!);
 }
 
 function defaultStance(reg: Regiment): Stance {

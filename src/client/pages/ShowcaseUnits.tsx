@@ -131,8 +131,9 @@ export function ShowcaseUnits() {
           // Blow b of the attack is frames b*n .. b*n+n-1 (contract.ts `blows`).
           const f = frameAt(atlas, kind, anim, t + kind * 3) + blow * atlas.frames(kind, anim);
           const sh = atlas.sheet && atlas.slot && atlas.levels?.includes(size) ? atlas.sheet(kind, size) : null;
-          if (sh) {
-            const r = sh.rects.subarray(atlas.slot!(kind, anim, f, k.dir) * 6);
+          const r = sh ? sh.rects.subarray(atlas.slot!(kind, anim, f, k.dir) * 6) : null;
+          // (A partial sheet, KindSheet.partial, lacks some frames: those come from the grid.)
+          if (sh && r && r[2]! > 0) {
             g.drawImage(canvasOf(sh), r[0]!, r[1]!, r[2]!, r[3]!, x + BOX / 2 - r[4]!, y + Math.round(BOX * 0.82) - r[5]!, r[2]!, r[3]!);
           } else {
             // Classic, or HD before its sheet is painted: the 48 px cell scaled up, foot on the same line.
