@@ -74,6 +74,12 @@ export { COHESION, DOCTRINE, MORALE, REGROUP, UNDEAD } from './command.ts';
  *   its frontage again once the horse has gone; horse charging or riding round at it is a threat
  *   to turn to from 150. A block locked to its front turns its rear ranks about on an enemy
  *   behind it (`rearUntil`).
+ * - Reloads, slower still (missile-drill.md, "Review after the merge"): those above were the best
+ *   men's bursts. Bows loose a volley every 7.5 s (the 6-8 a minute heavy war bows keep up), at
+ *   will every 5 s (BOW_BURST 0.72), 24 arrows a man; teppō every 30 s (about 2 a minute), 9
+ *   balls; the undead's Revenant Arbalests are heavy cranequin crossbows, every 29 s, each bolt
+ *   1.6x and pierce 0.74, 9 bolts. Genoese crossbows (12 s), horse archers, javelins and engines
+ *   as they were.
  */
 /**
  * v16: nothing grows with the size of the battle that should not (the undead won two thirds of
@@ -6809,7 +6815,7 @@ const AT_WILL_GAP = 50;
  * At will, bows reload in this share of their volley reload: the 10-12 a minute a war bow manages
  * in a short burst, against the sustained, aimed 5-6 (docs/art-references/missile-drill.md).
  */
-const BOW_BURST = 0.6;
+const BOW_BURST = 0.72;
 const POINT_BLANK = 100;
 /** After this long (ticks) with nothing to shoot at, missile foot goes looking for a target along its line. */
 const MISSILE_SEEK = 150;

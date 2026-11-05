@@ -119,7 +119,7 @@ into it, never halt to shoot and never rally, lose ground (`pnpm fairness --fact
 
 Left for the balance pass that follows the behaviour work in flight (BATTLE_VERSION bump).
 
-Then, in v17 still: reloads near history's (a bow volley every 5 s, crossbows 12 s, teppō 17.7 s,
+Then, in v17 still: reloads near history's (a bow volley every 7.5 s, crossbows 12 s, teppō 30 s,
 engines 30 s: missile-drill.md, "Rates of fire (v17)"), galloping horse hard to hit at long range,
 and horse that forms up out of bowshot and goes in together when outshot (`horseStrike`;
 battle-cohesion.md section 7). Measured after them: see the v17 changelog in battle.ts.
