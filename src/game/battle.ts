@@ -1133,6 +1133,8 @@ export class Battle {
   /** Whether anyone is galloping in this tick (most ticks nobody is). */
   private bowWave = false;
   private regFlags = new Uint8Array(0);
+  /** Per regiment, its `rankStep` for this tick's moves (see `step`). */
+  private regStep = new Float64Array(0);
   /** Per regiment, during `regroup`: the family of fugitives it would take in (see `family`), 0 none. */
   private takeIn = new Uint8Array(0);
   /** Per team, during `regroup`: the regiments taking fugitives in. */
@@ -1218,6 +1220,7 @@ export class Battle {
     const m1 = this.ts[1].missile;
     this.stance = [m0 > m1 * 1.25 ? 'hold' : 'press', m1 > m0 * 1.25 ? 'hold' : 'press'];
     this.regFlags = new Uint8Array(this.regiments.length);
+    this.regStep = new Float64Array(this.regiments.length);
     this.takeIn = new Uint8Array(this.regiments.length);
     for (const r of this.regiments) this.survey(r);
     this.updateFront(0);
@@ -1642,6 +1645,9 @@ export class Battle {
     } else {
       for (let i = n - 1; i >= 0; i--) if (d.state[i]! <= State.Routing) this.act(i);
     }
+    // (Each regiment's rank step, for `lead` and `station`: nothing in the moves changes it.)
+    const regStep = this.regStep;
+    for (let j = 0; j < regs.length; j++) regStep[j] = rankStep(regs[j]!);
     if ((this.tick + this.parity) % 2 === 0) {
       for (let i = 0; i < n; i++) if (d.state[i]! <= State.Routing) this.move(i);
     } else {
@@ -5022,12 +5028,11 @@ export class Battle {
         if (ex * ex + ey * ey > reach * reach) t = -1;
       }
     }
-    const st = this.soldiers[i]!.s;
     // (Since when he has stood in contact without a foe: see `seek`.)
     if (t >= 0) d.idl[i] = 0;
     else if (d.idl[i] === 0 && r.contact) d.idl[i] = this.tick || 1;
     // A shooter with a foe at hand drops his bow and draws (0.6 s), however long his reload.
-    if (t >= 0 && d.target[i]! < 0 && st.range > 0 && d.cd[i]! > 6) d.cd[i] = 6;
+    if (t >= 0 && d.target[i]! < 0 && this.soldiers[i]!.s.range > 0 && d.cd[i]! > 6) d.cd[i] = 6;
     d.target[i] = t;
     if (t >= 0) {
       const dx = d.x[t]! - d.x[i]!;
@@ -5049,7 +5054,7 @@ export class Battle {
       if (q <= reach * reach && d.cd[i] === 0 && !this.outOfMeasure(i, r)) this.strike(i, t);
       return;
     }
-    if (d.ammo[i]! > 0 && d.cd[i] === 0 && r.firing && this.mayLoose(i, r)) this.shoot(i, r, st);
+    if (d.ammo[i]! > 0 && d.cd[i] === 0 && r.firing && this.mayLoose(i, r)) this.shoot(i, r, this.soldiers[i]!.s);
   }
 
   /**
@@ -6064,7 +6069,7 @@ export class Battle {
     const col = d.col[i]!;
     // (The mix of two even spreads, scaled back up to the spread of one.)
     const e = (C.fileShare * hashUnit((r.id * 977 + Math.round(col)) ^ this.salt) + (1 - C.fileShare) * d.ea[i]!) * C.fileNorm;
-    const cap = C.leadCap * rankStep(r);
+    const cap = C.leadCap * this.regStep[r.id]!;
     let f: number;
     if (d.mt[i]) f = e * C.horseLead * L.lead;
     else {
@@ -6208,7 +6213,7 @@ export class Battle {
     const fx = r.fx;
     const fy = r.fy;
     const sp = r.spacing;
-    const step = rankStep(r);
+    const step = this.regStep[r.id]!;
     let ox = tx;
     let oy = ty;
     if (row > 0 && r.contact) {
@@ -6535,7 +6540,7 @@ export class Battle {
       vy = (vy / vm) * vmax;
     }
     // Galloping (or running) in at a charge builds impetus; anything else bleeds it.
-    if (this.soldiers[i]!.s.charge > 0 && r.mode === 'charge' && vm > spd * 0.7) d.imp[i] = Math.min(mounted || !r.ragged ? 1 : Math.max(0.35, 1 - (this.tick - r.chargeAt - RUN_IN) * 0.04), d.imp[i]! + (mounted ? 0.08 : 0.15));
+    if (r.mode === 'charge' && this.soldiers[i]!.s.charge > 0 && vm > spd * 0.7) d.imp[i] = Math.min(mounted || !r.ragged ? 1 : Math.max(0.35, 1 - (this.tick - r.chargeAt - RUN_IN) * 0.04), d.imp[i]! + (mounted ? 0.08 : 0.15));
     else if (d.imp[i]! > 0) d.imp[i] = d.imp[i]! < 0.05 ? 0 : d.imp[i]! * (mounted && vm > spd * 0.6 ? 0.93 : 0.8);
     // Men pressed by others do not walk into them: the part of his stride that goes into the
     // press is dropped (a galloping rider ploughs on; his bow wave moves them instead), and the
