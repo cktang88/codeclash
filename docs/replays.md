@@ -98,7 +98,7 @@ ALTER TABLE battles ADD COLUMN stream_key TEXT;                           -- obj
 
 ### 3. Checksum trail
 
-- Every 50 ticks (5 s), and at the final tick, the sim hashes all figures in id order: FNV-1a 32 over the two 32-bit halves of the float64 bits of `x, y, hp, state`, chained from the previous value. It is stored as little-endian `uint32[]` (3600 ticks at most, so ≤ 73 entries, ≤ 292 bytes; measured 52–208 bytes).
+- Every 50 ticks (5 s), and at the final tick, the sim hashes all figures in id order: FNV-1a 32 over the two 32-bit halves of the float64 bits of `x, y, hp, state`, chained from the previous value. It is stored as little-endian `uint32[]` (MAX_TICKS, 6000 ticks since the scale rework, at most, so ≤ 121 entries, ≤ 484 bytes; measured 52–208 bytes at the old 3600).
 - Cost: 4–18 ms a battle in V8, 0.5–1% of the sim.
 - The client computes the same thing while it plays. On the first mismatch it stops trusting the re-sim, reports `{battleId, version, tick, ua}` to the server, and switches to the stream (below). The trail also makes a cheap server audit possible: "re-run 1% of last month's battles with their bundle, compare the trails".
 - The trail is put in the bundle (`simHash`), so it is frozen with the version. Use FNV-1a (or xxhash32), not a cryptographic hash: it is for detecting divergence, not for security.

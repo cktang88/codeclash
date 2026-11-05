@@ -180,6 +180,9 @@ const butts = (faction: FactionId, cls: number, men = 30) => {
   b.generals[1].fixedPlan = 'hold';
   const shooters = b.regiments.find((r) => r.team === 0)!;
   placeRegiment(b, shooters, 700, 600, 1, 0);
+  // Any other block of them a little behind, out of the way (left where it deployed it would
+  // stand before the butts since the field grew: docs/art-references/battle-scale.md).
+  b.regiments.filter((r) => r.team === 0 && r !== shooters).forEach((r, i) => placeRegiment(b, r, 500, 600 + (i + 1) * 70, 1, 0));
   b.regiments.filter((r) => r.team === 1).forEach((r, i) => placeRegiment(b, r, 850, 560 + i * 90, -1, 0));
   return { b, shooters };
 };

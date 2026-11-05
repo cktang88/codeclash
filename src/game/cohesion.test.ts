@@ -2,7 +2,7 @@
 // command.ts). Ragged approach (P1), cavalry that rallies and charges again (P4), files that wrap
 // an overlapped flank (P6), wider gaps between blocks, and no side bias from any of it.
 import { describe, expect, it } from 'vitest';
-import { Battle, BATTLE_VERSION, DOCTRINE, State, type ArmySpec, type Regiment } from './battle.ts';
+import { Battle, BATTLE_VERSION, DOCTRINE, FIELD_H, State, type ArmySpec, type Regiment } from './battle.ts';
 import type { FactionId } from './factions.ts';
 import { only, placeRegiment, plainArmy } from './testing.ts';
 import { emptyCounts, U } from './units.ts';
@@ -26,11 +26,12 @@ function slotDistances(b: Battle, r: Regiment, out: number[]): void {
     out.push(Math.hypot(d.x[id]! - gx, d.y[id]! - gy));
   }
 }
-const FIELD_MID = 600;
+const FIELD_MID = FIELD_H / 2;
 const pct = (a: number[], p: number) => a.slice().sort((x, y) => x - y)[Math.min(a.length - 1, Math.floor(a.length * p))]!;
 
 describe('cohesion: room between blocks', () => {
-  it('blocks of the line stand 22-34 apart, the horse on the wings 60 out', () => {
+  // (Since the scale rework, docs/art-references/battle-scale.md: 44-80 apart and 150 out; until then 22-34 and 60.)
+  it('blocks of the line stand 44-80 apart, the horse on the wings 150 out', () => {
     for (const men of [250, 1200, 2800]) {
       const b = battle(3, army(men, 'templar'), army(men, 'samurai'));
       for (const team of [0, 1]) {
@@ -38,16 +39,16 @@ describe('cohesion: room between blocks', () => {
         expect(first.length).toBeGreaterThan(1);
         for (let i = 1; i < first.length; i++) {
           const gap = first[i]!.ay - first[i]!.width / 2 - (first[i - 1]!.ay + first[i - 1]!.width / 2);
-          expect(gap).toBeGreaterThanOrEqual(22 - 1e-6);
-          expect(gap).toBeLessThanOrEqual(34 + 1e-6);
+          expect(gap).toBeGreaterThanOrEqual(44 - 1e-6);
+          expect(gap).toBeLessThanOrEqual(80 + 1e-6);
         }
         // The horse on the wings: well clear of the line's ends, its first row a little before it.
         const top = Math.min(...first.map((r) => r.ay - r.width / 2));
         const bottom = Math.max(...first.map((r) => r.ay + r.width / 2));
         const wings = b.regiments.filter((x) => x.team === team && (x.role === 'flank' || x.role === 'shock-cav' || x.role === 'horse-archer'));
         for (const r of wings) {
-          if (r.ay - r.width / 2 > FIELD_MID) expect(r.ay - r.width / 2 - bottom).toBeGreaterThanOrEqual(59);
-          else expect(top - (r.ay + r.width / 2)).toBeGreaterThanOrEqual(59);
+          if (r.ay - r.width / 2 > FIELD_MID) expect(r.ay - r.width / 2 - bottom).toBeGreaterThanOrEqual(149);
+          else expect(top - (r.ay + r.width / 2)).toBeGreaterThanOrEqual(149);
         }
         expect(Math.max(...wings.map((r) => (r.ax - first[0]!.ax) * r.fx))).toBeGreaterThan(10);
       }
@@ -59,10 +60,13 @@ describe('cohesion: a ragged approach (P1)', () => {
     const by: Record<string, number[]> = { templar: [], samurai: [], undead: [] };
     for (const [fa, fb] of [['templar', 'samurai'], ['samurai', 'undead'], ['undead', 'templar']] as const) {
       const b = battle(7, army(600, fa), army(600, fb));
-      while (!b.done() && b.tick < 240) {
+      // The approach to about contact (60 s; it was 24 s until the scale rework, when the armies
+      // deployed half as far apart), blocks marching in line: on the long approach they now march
+      // much of the way in column, whose men keep their files.
+      while (!b.done() && b.tick < 600) {
         b.step();
         if (b.tick % 10) continue;
-        for (const r of b.regiments) if (r.role === 'line' && r.mode === 'advance' && !r.routed) slotDistances(b, r, by[b.setup.armies[r.team]!.faction]!);
+        for (const r of b.regiments) if (r.role === 'line' && r.mode === 'advance' && r.stance !== 'column' && !r.routed) slotDistances(b, r, by[b.setup.armies[r.team]!.faction]!);
       }
     }
     const all = [...by.templar!, ...by.samurai!, ...by.undead!];

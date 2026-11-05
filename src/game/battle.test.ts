@@ -345,7 +345,7 @@ describe('battle: morale that does not grow with the battle (v16)', () => {
     const bows = b.regiments.find((x) => x.team === 0 && x.role === 'missile')!;
     inside.ts[0]!.hasLine = false;
     expect(inside.drawn(bows)).toBe(false);
-    b.tick = 2401;
+    b.tick = 4001; // LATE (2400 until the scale rework: battles now open with a longer advance)
     expect(inside.drawn(bows)).toBe(true);
     // With a line still before them: only once they have had nothing to shoot at for 15 s.
     inside.ts[0]!.hasLine = true;

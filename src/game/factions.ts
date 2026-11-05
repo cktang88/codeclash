@@ -92,14 +92,16 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
     // Mounted archery is the clan's art; its samurai hold under pressure. The price: ashigaru
     // spears are peasant levies in a light okegawa cuirass. A matchlock loads slower than a
     // crossbow spans (20-30 s against 15-30 s: docs/art-references/missile-drill.md) and hits
-    // harder: about as much shot in a minute, in fewer, heavier volleys.
+    // harder: about as much shot in a minute, in fewer, heavier volleys. It reaches less far: a
+    // matchlock's ball was aimed at 50 to 100 m, a crossbow's bolt at about 150
+    // (docs/art-references/battle-scale.md).
     tweaks: {
       [U.HorseArchers]: { missileDamage: 1.1 },
-      [U.Crossbowmen]: { reload: 1.34, missileDamage: 1.3 },
+      [U.Crossbowmen]: { reload: 1.34, missileDamage: 1.3, range: 0.75 },
       [U.HeavyInfantry]: { morale: 1.05 },
     },
     palette: { cloth: '#2c3550', clothShade: '#1a2034', trim: '#b5372b', metal: '#7d7a73', metalShade: '#45423d', leather: '#4b2c1d', skin: '#d6b089' },
-    rule: 'Valour and the lord. The uma-jirushi: the daimyō heartens every block within 300 (1.35× the aura); his death is a heavier blow (35 morale, then −20 for the rest of the day) and his hatamoto charge the nearest enemy to avenge him. First spear, long chase: katana samurai run in at any enemy within 140, the first block to strike claims the first spear (+8 morale, +3 to those near it), and samurai and yari riders break ranks to chase readily, 1.4× as far and as long. Drilled teppō fire: the Teppō Ashigaru go out before the line, which waits up to 15 s behind them; their first volley is the whole block at once and costs its target 8 morale (the dead feel nothing); after it they fire rank by rank, and they fall back through the line when the enemy closes.',
+    rule: 'Valour and the lord. The uma-jirushi: the daimyō heartens every block within 425 (1.35× the aura); his death is a heavier blow (35 morale, then −20 for the rest of the day) and his hatamoto charge the nearest enemy to avenge him. First spear, long chase: katana samurai run in at any enemy within 140, the first block to strike claims the first spear (+8 morale, +3 to those near it), and samurai and yari riders break ranks to chase readily, 1.4× as far and as long. Drilled teppō fire: the Teppō Ashigaru go out before the line, which waits up to 15 s behind them; their first volley is the whole block at once and costs its target 8 morale (the dead feel nothing); after it they fire rank by rank, and they fall back through the line when the enemy closes.',
   },
   undead: {
     id: 'undead',
@@ -137,7 +139,7 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
       [U.Shock]: { hp: COLOSSUS_HP },
     },
     palette: { cloth: '#2e2b2a', clothShade: '#1a1817', trim: '#5f8f4e', metal: '#6c6f68', metalShade: '#3a3c38', leather: '#3d3128', skin: '#d8d0b4' },
-    rule: 'The dead know no fear: they never waver, rout or rally, but have 66% of the living’s hit points (the Bone Colossus 80%; the trebuchet is timber). The tide: their foot marches at 0.8 of the living’s pace except within 240 of the Lich-Marshal, never halts to shoot or holds back, and charges at a lurch. Unflinching: a charge into them barely knocks them back, stuns nobody and stalls sooner. What falls, rises: every 10 s the Lich-Marshal raises fallen foot of his host within 240 of him (45% of the foot who fall while he stands rise again in time) with 40% of their hit points. If he falls, the raising stops and the whole host crumbles: every man loses 2% of his hit points a second and fights worse. A host down to its last 15% (or its last fifth, against twice as many) is spent: the battle is lost and it crumbles the same way.',
+    rule: 'The dead know no fear: they never waver, rout or rally, but have 66% of the living’s hit points (the Bone Colossus 80%; the trebuchet is timber). The tide: their foot marches at 0.8 of the living’s pace except within 500 of the Lich-Marshal, never halts to shoot or holds back, and charges at a lurch. Unflinching: a charge into them barely knocks them back, stuns nobody and stalls sooner. What falls, rises: every 10 s the Lich-Marshal raises fallen foot of his host within 500 of him (45% of the foot who fall while he stands rise again in time) with 40% of their hit points. If he falls, the raising stops and the whole host crumbles: every man loses 2% of his hit points a second and fights worse. A host down to its last 15% (or its last fifth, against twice as many) is spent: the battle is lost and it crumbles the same way.',
   },
 };
 
