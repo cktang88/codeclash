@@ -5302,9 +5302,21 @@ export class Battle {
    * stands in his way (within `RIDER.look` ahead, closer than their two radii across), he swerves
    * toward the emptier side, harder the nearer the friend. Rewrites (vx, vy) in tmp[0], tmp[1]
    * and returns true when he swerves.
+   *
+   * (A small shell, which the engine inlines, over `swerveAt`, which it does not: the velocity
+   * goes through the scratch, so it is not boxed on the heap for the call.)
    */
   private swerve(i: number, vx: number, vy: number): boolean {
+    this.tmp[0] = vx;
+    this.tmp[1] = vy;
+    return this.swerveAt(i);
+  }
+
+  /** `swerve`, given (vx, vy) in tmp[0], tmp[1]. */
+  private swerveAt(i: number): boolean {
     const d = this.d;
+    const vx = this.tmp[0]!;
+    const vy = this.tmp[1]!;
     const vm = sqrt(vx * vx + vy * vy);
     if (vm < d.spd[i]! * 0.25) return false;
     const ux = vx / vm;
@@ -6093,8 +6105,18 @@ export class Battle {
    * (`curlBase` + `curlPerFile` a file beyond, at most `curlMax`, as tangents of half the
    * angle: no trig), times the faction's `loose.curl`. Puts the point in tmp[0], tmp[1] and
    * returns true; false when he is not beyond it.
+   * (A shell over `curlAt`, passing the slot through the scratch: see `swerve`.)
    */
   private curl(i: number, r: Regiment, gx: number, gy: number): boolean {
+    this.tmp[0] = gx;
+    this.tmp[1] = gy;
+    return this.curlAt(i, r);
+  }
+
+  /** `curl`, given (gx, gy) in tmp[0], tmp[1]. */
+  private curlAt(i: number, r: Regiment): boolean {
+    const gx = this.tmp[0]!;
+    const gy = this.tmp[1]!;
     const L = this.doc[r.team]!.loose;
     if (L.curl <= 0 || this.fearless[1 - r.team]) return false;
     const o = this.regiments[r.targetReg]!;
@@ -6164,8 +6186,18 @@ export class Battle {
    * man ahead fallen, in contact, he steps up into the hole, keeping station on the men beside it.
    * Neighbours who are fighting a foe (or swinging round a flank) do not count.
    * Puts the point in tmp[0], tmp[1]; false when he has nobody to dress on.
+   * (A shell over `stationAt`, passing the point through the scratch: see `swerve`.)
    */
   private station(i: number, r: Regiment, tx: number, ty: number): boolean {
+    this.tmp[0] = tx;
+    this.tmp[1] = ty;
+    return this.stationAt(i, r);
+  }
+
+  /** `station`, given (tx, ty) in tmp[0], tmp[1]. */
+  private stationAt(i: number, r: Regiment): boolean {
+    const tx = this.tmp[0]!;
+    const ty = this.tmp[1]!;
     const d = this.d;
     const nb = r.nb;
     const K = r.nbK;
@@ -6992,9 +7024,15 @@ function spacingFor(reg: Regiment, s: Stance): number {
   return reg.rad * 2 + GAP_IN_RANK[reg.role]! * sd.gap + sd.add;
 }
 
+/**
+ * RANK_STEP as a map: a lookup by a role held in a variable reads a fraction out of a plain
+ * object by copying it onto the heap (this runs for every man every tick), out of a Map without.
+ */
+const RANK_STEP_OF = new Map<string, number>(Object.entries(RANK_STEP));
+
 /** Distance from one rank to the next (a wedge's ranks are offset by half a file, so closer). */
 function rankStep(reg: Regiment): number {
-  return reg.spacing * (reg.stance === 'wedge' ? 0.87 : RANK_STEP[reg.role]!);
+  return reg.spacing * (reg.stance === 'wedge' ? 0.87 : RANK_STEP_OF.get(reg.role)!);
 }
 
 function defaultStance(reg: Regiment): Stance {
