@@ -907,6 +907,43 @@ Foot now faces horse in place: see `formations.md` §2.5.1. Measured on the merg
 - Mirror: 50.5% at 250 a side (200 seeds).
 - Speed: unchanged, 1.43-1.62 ms a tick against 1.49-1.68 for the first 2,000 ticks at 2,800 a side.
 
+### 8.5b Friendly blocks keep out of each other (follow-up)
+
+The user saw "two friendly regiments intersecting at an angle like an X shape [...] regiments basically should never run into each other".
+
+**The measure.** `scripts/battle-crossing.ts` uses `blockCrossings` in `overlap.ts`. It counts, for each pair of friendly formed blocks, the men of one standing inside the other's footprint, over 18 grand battles (`demoSetup`, seeds 1-6 at 1,500, 2,800 and 4,000 men). Some cases are drill or loose order and are left out: skirmishers, shooters passing back through their line, chases, and two bodies both in open order.
+
+| | v17 base | With giving way |
+|---|---|---|
+| Crossing block-pairs, per sampled second | 3.23 | 0.32 |
+| ...through a quarter of a block or more | 1.94 | 0.15 |
+
+**The causes, by `--why`:**
+- Two reserves sent behind the same first-line block (the largest share).
+- Reserves and second lines marching through the archers.
+- Blocks wheeling or facing into a neighbour.
+- Two blocks of the line fighting the same enemy, one at its front and one at its flank.
+
+**The fix** (`giveWay`, `crowded`, `rightOfWay`, `clearGoal` in battle.ts):
+- **Nobody marches into a friend.** A block about to step into one drops the part of its step that goes in, and goes round toward its goal or halts.
+- **Held up behind a friend, it makes for the ground beside him** and keeps that way round for 6 s (`dodgeFor`).
+- **A block standing in a friend with the right of way backs out.** The right of way goes to the block locked in a fight, then one standing, then one charging, then one marching. Between equals, the first in the order of battle has it.
+- **A goal in a friend's place is moved out sideways** along his front.
+- **Wheels, facings and re-forming stop short** when they would sweep into a friend.
+- **No two reserves stand behind the same block.**
+- **Exempt:** skirmishers, shooters falling back, chases, horse at the charge or riding out, and two bodies both in open order. Archers among archers stack as before: with them giving way, the back row of a large body of archers stood out of range, which halved the arrows that landed.
+
+**What is left.** Most of what remains is horse against horse at the charge or riding out (cavalry's paths), and the general's household among the archers.
+
+**Effect on the battle:**
+- Sanity measures change little. block-idle rose from 0.11 to 0.35 and wrapping fell from 29% to 25%: blocks no longer pile into a fight through their friends.
+- Mirror fairness at 250 a side: 47.5% (200 seeds).
+- Speed: 1.32-1.64 ms a tick against the base's 1.23-1.45, for the first 2,000 ticks at 2,800 a side.
+
+**Tests:** `src/game/crossing.test.ts`.
+- Grand battles: blocks of foot a quarter deep in a friend under 0.1 per sampled second (base 2.06).
+- A set piece of two friendly blocks ordered across each other's roads: at most 5% of either stands in the other (base 20%), and both reach their goals.
+
 ### 8.6 Not done
 
 - **Idle men face their regiment's front.** The renderer turns a man to his foe only when he has one, so an idle rear-ranker of a block that has turned its rear ranks about still shows his back to the enemy. That fix is in `scene.ts`, which belongs to the renderer.

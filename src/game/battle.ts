@@ -79,9 +79,11 @@ export { COHESION, DOCTRINE, MORALE, REGROUP, UNDEAD } from './command.ts';
  *   or halts; one standing in a friend with the right of way (engaged, standing, charging, then
  *   marching; the first in the order of battle between equals) backs out; wheels and facings that
  *   would sweep into a friend stop short; no two reserves stand behind the same block. Not
- *   skirmishers, shooters falling back through their line, chases, or horse at the charge or
- *   riding out. Two friendly blocks stood in each other a quarter deep or more 2.7 times a second
- *   sampled in grand battles; 0.3 now, mostly horse charging horse.
+ *   skirmishers, shooters falling back through their line, chases, horse at the charge or riding
+ *   out, or two bodies in open order (archers among archers). A block held up behind a friend
+ *   makes for the ground beside him (`clearGoal`, `dodgeFor`). Two friendly blocks stood in each
+ *   other a quarter deep or more 1.9 times a second sampled in grand battles; 0.15 now, mostly
+ *   horse charging horse.
  */
 /**
  * v16: nothing grows with the size of the battle that should not (the undead won two thirds of
