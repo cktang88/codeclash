@@ -348,6 +348,52 @@ export const COHESION = {
   /** ...and prefer foes on their outer side (distance squared times this). */
   edgeOut: 0.6,
   /**
+   * Battle v17, each man his own captain. Choosing a foe: one that others of ours fight already
+   * counts as 1 + `crowd` a man more (at most three), so men spread along the enemy front rather
+   * than crowd one foe; but any foe at hand comes before one he would have to turn from him to
+   * reach.
+   */
+  crowd: 0.5,
+  /**
+   * Initiative: a man of the line in contact with no foe for `patience` ticks (the eager
+   * `patienceEager` of it sooner, laggards later) looks `roamReach` files' widths about him for
+   * an enemy nobody is fighting whom he can get at (round the end of the fight, or through a gap),
+   * and goes for him. `roamDead`: against the undead too.
+   */
+  patience: 20,
+  patienceEager: 0.6,
+  roamReach: 5.5,
+  roamDead: true,
+  /** ...or one that at most this many of ours fight already (he makes it two on one rather than stand by). */
+  roamJoin: 1,
+  /**
+   * Station keeping: a man of a foot block makes this share for his place in it (with his lead),
+   * the rest for where the men beside him and ahead of him put him (the man ahead in his file
+   * counts as `dressAhead` of the men beside).
+   */
+  dressSlot: 0.35,
+  dressAhead: 1,
+  /**
+   * Facings against wheels (battle.ts `turnFoot`; formations.md): foot turning more than
+   * `faceMinCos` (cosine: about 25 degrees) faces round man by man and re-forms when that is
+   * quicker than the wheel by `faceMargin` (with an enemy within `faceThreat` of it: for 60
+   * degrees and more, whenever it is quicker at all). A facing costs `faceDelay` ticks (the word) and
+   * `faceDress` (dressing the new front) and the longest walk to a new place; then not again for
+   * `faceEvery` ticks. A block locked to its front turns its rear ranks about against an enemy
+   * within `rearTurn` of it at its back.
+   */
+  faceMinCos: 0.9,
+  faceMargin: 1.1,
+  faceThreat: 50,
+  faceDelay: 5,
+  faceDress: 15,
+  faceEvery: 30,
+  /** ...nor with enemy horse within this of it (unless riding off to rally). */
+  faceHorse: 150,
+  rearTurn: 30,
+  /** A reserve block goes in on its own for an open enemy flank within this many times its width and depth (and 20) of it. */
+  initiative: 1,
+  /**
    * A file beyond the end of the enemy's front swings round it: by an angle whose half's tangent
    * is `curlBase` + `curlPerFile` a file further out (0.6: 62 degrees), at most `curlMax` (0.84: 80).
    */

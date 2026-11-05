@@ -236,7 +236,11 @@ describe('battle: breaking ranks to chase', () => {
     // Ghoul spears and the Templars' spear levy chase; the Templar knights (the Rule) and the
     // hatamoto do not leave their banner.
     expect(rate('undead/1')).toBeGreaterThan(0.15);
-    expect(rate('templar/1')).toBeGreaterThan(0.1);
+    // (v17: the levy has fewer openings to chase, 0.10 a regiment over 54 days against 0.29 in v16:
+    // its men fight on round the enemy's flanks and its reserves go in on their own, so it is
+    // more often still locked with a formed enemy when the fugitives run past. It still chases,
+    // and far more than the knights.)
+    expect(rate('templar/1')).toBeGreaterThan(0.05);
     // (A knight's chase is a rare event: one in 24 regiments over these 18 days in v14.)
     expect(rate('templar/7')).toBeLessThan(rate('templar/1') / 2.5);
     expect(rate('samurai/7')).toBeLessThan(rate('undead/1') / 3);
