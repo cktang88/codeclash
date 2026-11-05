@@ -390,6 +390,8 @@ export const COHESION = {
   faceEvery: 30,
   /** With enemy horse within this of it (not riding off to rally) it faces in place, with no re-forming walk, and re-forms once the horse is gone. */
   faceHorse: 150,
+  /** A block held up behind a friend makes for the ground beside him, and keeps that way round this long after it was last held up (ticks). */
+  dodgeFor: 60,
   rearTurn: 30,
   /** A reserve block goes in on its own for an open enemy flank within this many times its width and depth (and 20) of it. */
   initiative: 1,

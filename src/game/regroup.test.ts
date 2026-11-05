@@ -138,7 +138,8 @@ describe('regroup: fugitives fall in with a formed regiment of their kind', () =
         }
         before = now;
       });
-      expect(engagedTicks).toBeGreaterThan(50);
+      // (The fight lasts a while: since v17 the two blocks keep out of each other's ground, and this scene's fight ends a few ticks sooner.)
+      expect(engagedTicks).toBeGreaterThan(30);
     }
   }, 60_000);
 
