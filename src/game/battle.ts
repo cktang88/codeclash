@@ -73,7 +73,11 @@ export { COHESION, DOCTRINE, MORALE, REGROUP, UNDEAD } from './command.ts';
  *   stands at once, the block deep and narrow to its new front after a quarter turn, and it takes
  *   its frontage again once the horse has gone; horse charging or riding round at it is a threat
  *   to turn to from 150. A block locked to its front turns its rear ranks about on an enemy
- *   behind it (`rearUntil`).
+ *   behind it (`rearUntil`). Horse locked in a fight with another block counts only within 40
+ *   (COHESION.faceHorseNear, as spears brace): the line blocks beside such a fight faced it and
+ *   stood deep and narrow, front turned from the enemy foot, through the whole melee (7.6% of
+ *   their time, 4.8% after), the line came apart and the enemy got in among the archers (long
+ *   shots 55% of a bowman's volleys, 65% after, 66% before facing in place).
  * - Reloads, slower still (missile-drill.md, "Review after the merge"): those above were the best
  *   men's bursts. Bows loose a volley every 7.5 s (the 6-8 a minute heavy war bows keep up), at
  *   will every 5 s (BOW_BURST 0.72), 24 arrows a man; teppō every 30 s (about 2 a minute), 9
@@ -4813,10 +4817,30 @@ export class Battle {
     r.formedAt = this.tick + Math.ceil(faceTicks);
   }
 
-  /** Enemy horse within COHESION.faceHorse of a block, not riding off to rally (see `turnFoot`). */
+  /**
+   * The nearest enemy horse within COHESION.faceHorse of a block that threatens it (see
+   * `turnFoot`): not riding off to rally, and not locked in a fight with another block unless it
+   * is at hand (within COHESION.faceHorseNear), as spears brace (`thinkLine`). A block of the line
+   * that faced in place toward horse busy with its neighbour stood deep and narrow, its front
+   * turned from the enemy foot, all through the melee (it cannot re-form while engaged): its
+   * neighbours were taken in flank and the line came apart, and the archers behind it found the
+   * enemy in among them (behaviour.test.ts, archers shooting from long range).
+   */
   private horseNear(r: Regiment): Regiment | null {
-    const cav = this.nearestFoe(r, 2, COHESION.faceHorse);
-    return cav && cav.mode !== 'withdraw' && cav.mode !== 'rally' ? cav : null;
+    const C = COHESION;
+    let best: Regiment | null = null;
+    let bd: number = C.faceHorse;
+    for (const o of this.teamRegs[1 - r.team]!) {
+      if (o.alive === 0 || o.routed || !isCav(o) || o.mode === 'withdraw' || o.mode === 'rally') continue;
+      const dx = o.cx - r.cx;
+      const dy = o.cy - r.cy;
+      const q = sqrt(dx * dx + dy * dy) - o.radius - r.radius;
+      if (q >= bd) continue;
+      if (o.mode === 'melee' && o.targetReg !== r.id && q >= C.faceHorseNear) continue;
+      bd = q;
+      best = o;
+    }
+    return best;
   }
 
   /**

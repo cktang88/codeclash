@@ -390,6 +390,8 @@ export const COHESION = {
   faceEvery: 30,
   /** With enemy horse within this of it (not riding off to rally) it faces in place, with no re-forming walk, and re-forms once the horse is gone. */
   faceHorse: 150,
+  /** ...but horse locked in a fight with another block only from this close (as spears brace). */
+  faceHorseNear: 40,
   rearTurn: 30,
   /** A reserve block goes in on its own for an open enemy flank within this many times its width and depth (and 20) of it. */
   initiative: 1,
