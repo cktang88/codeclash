@@ -184,6 +184,13 @@ interface HdTex {
   L: number;
   /** Rows of the sheet uploaded so far. */
   rows: number;
+  /** The whole sheet going up while this partial one (KindSheet.partial) is drawn. */
+  next?: HdTex;
+}
+/** Frees an HD sheet texture (and the one going up to replace it). */
+function dropHd(gl: WebGL2RenderingContext, h: HdTex): void {
+  gl.deleteTexture(h.tex);
+  if (h.next) gl.deleteTexture(h.next.tex);
 }
 const hdKey = (t: number, k: number, L: number) => (t * KIND_COUNT + k) * 16 + L;
 /**
@@ -826,7 +833,7 @@ export class BattleScene {
     const gl = g.gl;
     const hdBatches = [...this.hdBatch.flat(), ...(this.hdFxB ? [this.hdFxB.decal, this.hdFxB.fx, this.hdFxB.soft, this.hdFxB.std] : [])];
     this.hdFxB = null;
-    const hdTextures = [...[...this.hdTex.values()].map((h) => h.tex), ...[...this.fxHi.values()].map((f) => f.tex)];
+    const hdTextures = [...[...this.hdTex.values()].flatMap((h) => (h.next ? [h.tex, h.next.tex] : [h.tex])), ...[...this.fxHi.values()].map((f) => f.tex)];
     this.hdBatch = [];
     this.hdTex.clear();
     this.fxHi.clear();
@@ -868,7 +875,7 @@ export class BattleScene {
   get spriteGpuBytes(): number {
     let b = 0;
     for (const a of this.atlases) b += a.image.width * a.image.height * 4;
-    for (const h of this.hdTex.values()) b += h.rows * h.sheet.width * 4;
+    for (const h of this.hdTex.values()) b += h.rows * h.sheet.width * 4 + (h.next ? h.next.rows * h.next.sheet.width * 4 : 0);
     return b;
   }
 
@@ -1243,7 +1250,7 @@ export class BattleScene {
       // the view zooms back in): the GPU holds only what is drawn.
       for (const [key, h] of this.hdTex)
         if (h.t === t && h.L > m) {
-          gl.deleteTexture(h.tex);
+          dropHd(gl, h);
           this.hdTex.delete(key);
         }
       if (!atlas.sheet || !atlas.levels || m <= 1) continue;
@@ -1295,7 +1302,7 @@ export class BattleScene {
           let h = this.hdTex.get(key);
           if (h && h.sheet !== sh) {
             // The painter dropped and repainted it: a new sheet.
-            gl.deleteTexture(h.tex);
+            dropHd(gl, h);
             this.hdTex.delete(key);
             h = undefined;
           }
@@ -1305,10 +1312,32 @@ export class BattleScene {
           }
           return h;
         };
-        if (best && inView) {
+        const cur = best && inView ? this.hdTex.get(hdKey(t, k, bestL)) : undefined;
+        if (best && cur && cur.sheet !== best && cur.sheet.partial && cur.rows >= cur.sheet.height) {
+          // The whole sheet replaces a partial one that is up: drawn from the partial one until
+          // the whole one is all there.
+          if (cur.next && cur.next.sheet !== best) {
+            gl.deleteTexture(cur.next.tex);
+            cur.next = undefined;
+          }
+          const nx = (cur.next ??= { tex: texture(gl, null, best.width, best.height), sheet: best, t, k, L: bestL, rows: 0 });
+          if (budget > 0) budget -= uploadRows(gl, nx, budget);
+          if (nx.rows >= best.height) {
+            gl.deleteTexture(cur.tex);
+            this.hdTex.set(hdKey(t, k, bestL), nx);
+            drawn = going = nx;
+          } else {
+            drawn = going = cur;
+            this.settled = false;
+          }
+        } else if (best && inView) {
           const h = (going = up(bestL, best));
-          if (h.rows >= best.height) drawn = h;
-          else {
+          if (h.rows >= best.height && !best.partial) drawn = h;
+          else if (h.rows >= best.height) {
+            // A partial sheet: drawn, but the whole one is still to come.
+            drawn = h;
+            this.settled = false;
+          } else {
             this.settled = false;
             for (const L of atlas.levels) {
               const o = L < bestL ? this.hdTex.get(hdKey(t, k, L)) : undefined;
@@ -1328,7 +1357,7 @@ export class BattleScene {
           const key = hdKey(t, k, L);
           const h = this.hdTex.get(key);
           if (h && h !== drawn && h !== going && h !== goingCoarse) {
-            gl.deleteTexture(h.tex);
+            dropHd(gl, h);
             this.hdTex.delete(key);
           }
         }
@@ -1367,20 +1396,24 @@ export class BattleScene {
     return n;
   }
 
-  /** HD: a fallen man drawn at full detail over his low-res stamp (beneath everyone standing). */
-  private hdCorpse(i: number, x0: number, x1: number, y0: number, y1: number): void {
+  /**
+   * HD: a fallen man drawn at full detail over his low-res stamp (beneath everyone standing).
+   * False when his kind's sheet has no corpse yet (a partial sheet): he is drawn from the grid.
+   */
+  private hdCorpse(i: number, x0: number, x1: number, y0: number, y1: number): boolean {
     const s = this.battle.soldiers[i]!;
     const kind = this.kindOf(i);
     const L = this.hdLevel[s.team]![kind]!;
-    if (L <= 1) return;
-    const mx = this.mapX(s.x, s.y);
-    const my = this.mapY(s.x, s.y);
-    if (mx < x0 || mx > x1 || my < y0 || my > y1) return;
-    const atlas = this.atlases[s.team as 0 | 1];
+    if (L <= 1) return false;
     const sh = this.hdSheet[s.team]![kind]!;
     const o = this.slotOf(s.team, kind, Anim.Dead, 0, this.dirs[i] as Dir) * 6;
     const r = sh.rects;
+    if (r[o + 2]! <= 0) return false;
+    const mx = this.mapX(s.x, s.y);
+    const my = this.mapY(s.x, s.y);
+    if (mx < x0 || mx > x1 || my < y0 || my > y1) return true;
     this.hdBatch[s.team]![kind]!.sprite(Math.round(mx), Math.round(my), r[o]!, r[o + 1]!, r[o + 2]! / L, r[o + 3]! / L, r[o + 4]! / L, r[o + 5]! / L, -1e5, 0.78, 0.78, 0.75, 1, 0, 1);
+    return true;
   }
 
   /** Fills the instance buffers for this frame. */
@@ -1529,9 +1562,10 @@ export class BattleScene {
         jy = ((h >>> 2) & 1) - 0.5;
       }
       const lv = hd ? this.hdLevel[s.team]![kind]! : 1;
-      if (lv > 1) {
+      // A partial sheet (KindSheet.partial) lacks some frames (w = 0): those come from the grid.
+      const o = lv > 1 ? this.slotOf(s.team, kind, anim, f, dir) * 6 : 0;
+      if (lv > 1 && this.hdSheet[s.team]![kind]!.rects[o + 2]! > 0) {
         const sh = this.hdSheet[s.team]![kind]!;
-        const o = this.slotOf(s.team, kind, anim, f, dir) * 6;
         const r = sh.rects;
         this.hdBatch[s.team]![kind]!.sprite(Math.round((fmx + jx) * m) / m, Math.round((fmy + jy) * m) / m, r[o]!, r[o + 1]!, r[o + 2]! / lv, r[o + 3]! / lv, r[o + 4]! / lv, r[o + 5]! / lv, fmy, 1, 1, 1, 1, flash);
       } else {
@@ -1937,10 +1971,7 @@ export class BattleScene {
     if (mx < x0 || mx > x1 || my < y0 || my > y1) return;
     // In view: its kind keeps (or gets) a hi-res sheet.
     this.seenDead[s.team] = this.seenDead[s.team]! | (1 << kind);
-    if (hd && this.hdLevel[s.team]![kind]! > 1) {
-      this.hdCorpse(i, x0, x1, y0, y1);
-      return;
-    }
+    if (hd && this.hdLevel[s.team]![kind]! > 1 && this.hdCorpse(i, x0, x1, y0, y1)) return;
     const atlas = this.atlases[s.team as 0 | 1];
     const u = this.cellU(s.team, kind, Anim.Dead, 0, this.dirs[i] as Dir);
     this.gfx!.team[s.team as 0 | 1].sprite(Math.round(mx), Math.round(my), u, this.cellV, atlas.cellW, atlas.cellH, atlas.footX, atlas.footY, -1e5, 0.78, 0.78, 0.75, 1, 0, 1);

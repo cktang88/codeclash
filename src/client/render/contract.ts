@@ -152,6 +152,12 @@ export interface KindSheet {
   rects: Int32Array;
   /** Milliseconds it took to paint. */
   ms: number;
+  /**
+   * A first look while the rest paints (HD painters): the animations seen most are painted; Run,
+   * further blows and Hit borrow Walk, the first blow and the Brace, and Die and Dead are empty
+   * (w = 0: the renderer draws those frames from the grid). The whole sheet follows.
+   */
+  partial?: boolean;
 }
 
 export type BuildAtlas = (faction: FactionId, hue: number) => Atlas;

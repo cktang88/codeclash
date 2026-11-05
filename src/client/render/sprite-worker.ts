@@ -25,6 +25,8 @@ interface Req {
   cached?: boolean;
   /** Only load the painter now: sheets are coming that the cache does not hold. */
   warm?: boolean;
+  /** Send a partial sheet first (KindSheet.partial), then the whole one. */
+  progressive?: boolean;
 }
 
 const post = (sheet: KindSheet): void =>
@@ -55,7 +57,7 @@ let writing: Promise<void> = Promise.resolve();
 self.onmessage = async (e: MessageEvent<Req>) => {
   if (e.data.warm) return void loadPainter().catch(() => {});
   await writing;
-  const { faction, hue, kind, level, half, from, version, key, cached } = e.data;
+  const { faction, hue, kind, level, half, from, version, key, cached, progressive } = e.data;
   let sheet: KindSheet;
   try {
     if (version && key && cached) {
@@ -64,7 +66,7 @@ self.onmessage = async (e: MessageEvent<Req>) => {
     }
     const [{ sheetFor }, { halveSheet }] = await loadPainter();
     // Level 1 is the classic-size grid strip; the rest are packed hi-res sheets.
-    sheet = from ? halveSheet(from) : sheetFor(faction, hue, kind, level, half);
+    sheet = from ? halveSheet(from) : sheetFor(faction, hue, kind, level, half, progressive ? post : undefined);
   } catch (err) {
     // Every job is answered: one that is not leaves its pool slot busy for good.
     return postError(err, key);
