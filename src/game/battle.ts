@@ -3419,8 +3419,6 @@ export class Battle {
     if (threat) {
       // No time for the word: every man shoots as he can at the nearest foe (and the men he
       // reaches fight him: see `act`). They stand: no wheeling, a man shoots where he must.
-      // Bowmen finish the arrow they are nocking at the burst rate (BOW_BURST).
-      if (!r.atWill && this.fire[r.team]![r.cls] === 'lob') for (const id of r.members) this.d.cd[id] = Math.round(this.d.cd[id]! * BOW_BURST);
       r.atWill = true;
       r.targetReg = threat.id;
       r.aimedAt = this.tick;

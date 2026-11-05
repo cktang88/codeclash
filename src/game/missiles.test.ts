@@ -368,9 +368,9 @@ describe('battle: missile drill (v11)', () => {
     b.generals[1].rashKnights = true;
     const bows = b.regiments.find((r) => r.team === 0)!;
     placeRegiment(b, bows, 700, 600, 1, 0);
-    // (250 apart: see above; from 200 the last volley flies as the horse is 100 away, and nobody
+    // (300 apart: see above; from 200 the last volley flies as the horse is 100 away, and nobody
     // has reloaded by the time it is in among them.)
-    b.regiments.filter((r) => r.team === 1).forEach((r) => placeRegiment(b, r, 950, 600, -1, 0));
+    b.regiments.filter((r) => r.team === 1).forEach((r) => placeRegiment(b, r, 1000, 600, -1, 0));
     const fresh = shotsOf(b);
     let lastAtWill = -1;
     let firstBlow = -1;
