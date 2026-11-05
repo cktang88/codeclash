@@ -1447,8 +1447,9 @@ export class BattleScene {
         const left = this.leftDir[i]!;
         const curling = s.curling === true && !tgt && reg.targetReg >= 0;
         const foeReg = curling ? b.regiments[reg.targetReg] : undefined;
-        const fr = ownFront(reg.fx, reg.fy, facesRear(reg, s.row, s.mounted === true, b.tick), curling, foeReg ? foeReg.ax - s.x : NaN, foeReg ? foeReg.ay - s.y : NaN, this.front);
-        const next = settleTurn(facing(anim, vx, vy, tdx, tdy, melee, this.aimX[i]!, this.aimY[i]!, fr.x, fr.y, dir), dir, anim, T - this.turnAt[i]!, left === 255 ? -1 : (left as Dir));
+        const rear = facesRear(reg, s.row, s.mounted === true, b.tick);
+        const fr = ownFront(reg.fx, reg.fy, rear, curling, foeReg ? foeReg.ax - s.x : NaN, foeReg ? foeReg.ay - s.y : NaN, this.front);
+        const next = settleTurn(facing(anim, vx, vy, tdx, tdy, melee, this.aimX[i]!, this.aimY[i]!, fr.x, fr.y, dir, rear && !curling), dir, anim, T - this.turnAt[i]!, left === 255 ? -1 : (left as Dir));
         if (next !== dir) {
           // A half turn goes through the quarter between (pose.ts turnVia), shown for TURN_STEP.
           const via = anim === Anim.Attack || anim === Anim.Shoot ? next : turnVia(dir, next, vx * vx + vy * vy > 9 ? vx : tgt ? tdx : fr.x, vx * vx + vy * vy > 9 ? vy : tgt ? tdy : fr.y);

@@ -13,13 +13,16 @@ import { dirFor, screenDir } from './iso.ts';
  *
  * `vx, vy`: his velocity; `tdx, tdy`: toward his foe (NaN: none); `melee`: the foe is in reach
  * (or he has no missile); `adx, ady`: his latest shot (NaN: none yet); `fx, fy`: his own
- * front (ownFront); `prev`: last frame's facing (hysteresis, see dirFor).
+ * front (ownFront); `hold`: he keeps his own front while he steps in his guard (see above); `prev`: last frame's facing (hysteresis, see dirFor).
  */
-export function facing(anim: Anim, vx: number, vy: number, tdx: number, tdy: number, melee: boolean, adx: number, ady: number, fx: number, fy: number, prev: Dir): Dir {
+export function facing(anim: Anim, vx: number, vy: number, tdx: number, tdy: number, melee: boolean, adx: number, ady: number, fx: number, fy: number, prev: Dir, hold = false): Dir {
   const hasTarget = tdx === tdx;
   const engaged = hasTarget && melee;
-  // Walking in his guard (pressing, giving ground, closing) he keeps his front to his foe.
+  // Walking in his guard (pressing, giving ground, closing) he keeps his front to his foe; with
+  // none, a man who `hold`s his own front (a rear-ranker turned about, closing on the press
+  // behind him) keeps it.
   if (anim === Anim.Advance && hasTarget) return dirFor(tdx, tdy, prev);
+  if (anim === Anim.Advance && hold) return dirFor(fx, fy, prev);
   if (vx * vx + vy * vy > 9 && anim !== Anim.Attack && anim !== Anim.Shoot && (anim === Anim.Run || !engaged)) return dirFor(vx, vy, prev);
   if (anim === Anim.Hit) return engaged ? dirFor(tdx, tdy, prev) : prev;
   if (engaged && anim !== Anim.Shoot) return dirFor(tdx, tdy, prev);

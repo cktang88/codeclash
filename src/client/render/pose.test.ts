@@ -132,6 +132,9 @@ describe('ownFront: each man faces where he himself faces', () => {
     // An idle or bracing rear-ranker with no foe of his own is drawn facing the rear...
     expect(facing(Anim.Idle, 0, 0, N, N, false, N, N, f.x, f.y, 0)).toBe(dirFor(-1, 0, 0));
     expect(facing(Anim.Brace, 0, 0, N, N, false, N, N, f.x, f.y, 0)).toBe(dirFor(-1, 0, 0));
+    // Stepping in his guard (closing on the press behind him) he keeps facing the rear...
+    expect(facing(Anim.Advance, 6, 0, N, N, false, N, N, f.x, f.y, 0, true)).toBe(dirFor(-1, 0, 0));
+    expect(facing(Anim.Advance, 6, 0, N, N, false, N, N, f.x, f.y, 0)).toBe(dirFor(6, 0, 0));
     // ...but one walking still faces his way, and one with a foe in reach faces him.
     expect(facing(Anim.Walk, 0, 20, N, N, false, N, N, f.x, f.y, 0)).toBe(dirFor(0, 20, 0));
     expect(facing(Anim.Brace, 0, 0, 0, 6, true, N, N, f.x, f.y, 0)).toBe(dirFor(0, 6, 0));
