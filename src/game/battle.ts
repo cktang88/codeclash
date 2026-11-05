@@ -805,6 +805,12 @@ export class General {
   /** T1 The Marshal's charge: when he last gave the knights the signal (-1: not yet), and at whom. */
   signalAt = -1;
   signalTarget = -1;
+  /**
+   * Outshot, before the lines meet: when it first formed its horse up out of bowshot (-1: not
+   * yet), and when it sent it all in at the shooters together (-1: not yet). See `horseStrike`.
+   */
+  stageAt = -1;
+  strikeAt = -1;
   /** S3: when its guns first opened fire from before the line (-1: not yet). */
   gunsAt = -1;
   /** S2: when the first block of its line reached the enemy (-1: not yet). */
@@ -2141,8 +2147,9 @@ export class Battle {
     const doc = this.doc[t]!;
     // T1 The Marshal's charge: while he lives the knights go only on his signal, all at one target.
     const marshal = doc.signal && this.lordAlive(t);
-    const signal = marshal ? this.marshalSignal(t, won) : null;
     const dir = t === 0 ? 1 : -1;
+    const strike = won ? null : this.horseStrike(t, ours, theirs);
+    const signal = marshal ? this.marshalSignal(t, won) : null;
     for (const r of this.teamRegs[t]!) {
       if (r.alive === 0 || r.routed) continue;
       if (!(r.role === 'flank' || r.role === 'shock-cav' || (r.role === 'horse-archer' && r.ammoLeft === 0))) continue;
@@ -2182,7 +2189,11 @@ export class Battle {
       const locked = this.nearestFoe(r, 3, Infinity);
       // An enemy with no line has no clash of lines to wait for (the knights would wait all day).
       const linesMet = ts.engaged || es.engaged || !es.hasLine;
-      if (marshal && (r.role === 'shock-cav' || (signal && r.role === 'flank'))) {
+      if (strike === 'stage' && r.role !== 'horse-archer' && !(enemyCav && sqrt(bd) < 220)) {
+        // Outshot: form up just out of bowshot, all the horse together, and wait for the word.
+        this.stagePoint(t, r);
+        this.give(r, 'reserve', -1, 0, -1, this.tmp[0]!, this.tmp[1]!);
+      } else if (marshal && (r.role === 'shock-cav' || (signal && r.role === 'flank'))) {
         const cmd = this.commander[t]!;
         if (enemyCav && sqrt(bd) < 220) this.give(r, 'attack', enemyCav.id);
         else if (signal) {
@@ -2191,15 +2202,17 @@ export class Battle {
           const sx = signal.cx - r.cx;
           const sy = signal.cy - r.cy;
           const q = sqrt(sx * sx + sy * sy) - signal.radius - r.radius;
-          if (r.role === 'flank') this.give(r, 'flank', signal.id, 1);
-          else this.give(r, q < 160 ? 'charge' : 'flank', signal.id, 3);
+          // (Shooters caught in the open are ridden straight down, not taken in the rear.)
+          const open = signal.role === 'missile' || signal.role === 'skirmish' || signal.role === 'siege';
+          if (r.role === 'flank') this.give(r, 'flank', signal.id, open ? 0 : 1);
+          else this.give(r, q < 160 ? 'charge' : 'flank', signal.id, open ? 0 : 3);
         } else if (g.signalAt >= 0) this.give(r, 'reserve', -1, 0, -1, clampX(this.d.x[cmd]! + dir * doc.recallTo), clampY(this.d.y[cmd]! + (r.homeY < FIELD_H / 2 ? -1 : 1) * 40));
         else this.give(r, 'reserve', -1, 0, -1, r.homeX, r.homeY);
       } else if (r.role === 'shock-cav') {
-        const go = linesMet || (plan === 'envelop' && this.tick > 200) || (early && this.tick > 320) || g.rashKnights;
+        const go = linesMet || strike === 'go' || (plan === 'envelop' && this.tick > 200) || (early && this.tick > 320) || g.rashKnights;
         if (enemyCav && sqrt(bd) < 220) this.give(r, 'attack', enemyCav.id);
         else if (!go || (refused && !linesMet)) this.give(r, 'reserve', -1, 0, -1, r.homeX, r.homeY);
-        else if (locked) this.give(r, 'flank', locked.id, 3);
+        else if (locked && !(strike === 'go' && shooters && !linesMet)) this.give(r, 'flank', locked.id, 3);
         else if (shooters) this.give(r, 'flank', shooters.id, 0);
         else {
           const any = this.nearestFoe(r, 0, Infinity);
@@ -2223,6 +2236,73 @@ export class Battle {
   }
 
   /**
+   * Outshot by an enemy that stands off (its shooting worth more than STRIKE_OUTSHOT times ours)
+   * before the lines meet, a General does not feed his horse into the arrows a block at a time,
+   * nor leave it standing under them: he forms it up just out of their reach (`stagePoint`), and
+   * when it is all there (or STRIKE_WAIT after he gave the order, or as soon as any of it is shot
+   * at) sends it all in at once, the knights with it (T1: on the Marshal's signal), so it crosses
+   * the beaten zone at the gallop in some ten seconds. 'stage', 'go', or null (not outshot, or
+   * the lines have met first).
+   */
+  private horseStrike(t: number, ours: Forces, theirs: Forces): 'stage' | 'go' | null {
+    const g = this.generals[t]!;
+    if (g.strikeAt >= 0) return 'go';
+    const ts = this.ts[t]!;
+    const es = this.ts[1 - t]!;
+    if (ts.engaged || es.engaged || !es.hasLine || this.tick < 20) return null;
+    if (theirs.missile < 1 || theirs.missile < STRIKE_OUTSHOT * ours.missile) return null;
+    let horse = 0;
+    let there = 0;
+    let shot = false;
+    for (const r of this.teamRegs[t]!) {
+      if (r.alive === 0 || r.routed || (r.role !== 'flank' && r.role !== 'shock-cav')) continue;
+      horse++;
+      if (!this.stagePoint(t, r)) return null;
+      const dx = this.tmp[0]! - r.cx;
+      const dy = this.tmp[1]! - r.cy;
+      if (dx * dx + dy * dy < STRIKE_THERE * STRIKE_THERE) there++;
+      for (const e of this.teamRegs[1 - t]!) {
+        if (e.alive === 0 || e.routed || e.role !== 'missile' || e.ammoLeft === 0) continue;
+        const ex = e.cx - r.cx;
+        const ey = e.cy - r.cy;
+        const reach = this.stats[1 - t]![e.cls]!.range + e.radius + r.radius;
+        if (ex * ex + ey * ey < reach * reach) shot = true;
+      }
+    }
+    if (horse === 0) return null;
+    if (g.stageAt < 0) {
+      g.stageAt = this.tick;
+      this.announce(t, null, 'reserve', 'forms his horse up out of bowshot');
+    }
+    if (there < horse && !shot && this.tick - g.stageAt < STRIKE_WAIT) return 'stage';
+    g.strikeAt = this.tick;
+    this.announce(t, null, 'flank', 'sends all his horse at the archers together');
+    return 'go';
+  }
+
+  /**
+   * Where block `r` of horse forms up out of bowshot (into tmp): STRIKE_MARGIN beyond the reach of
+   * the enemy's foremost shooters, level with its own place in the line (knights a length
+   * behind the light horse), never back behind that place. False if they have no shooters.
+   */
+  private stagePoint(t: number, r: Regiment): boolean {
+    const dir = t === 0 ? 1 : -1;
+    let front = Infinity;
+    for (const e of this.teamRegs[1 - t]!) {
+      if (e.alive === 0 || e.routed || e.role !== 'missile' || e.ammoLeft === 0) continue;
+      // Its reach toward us, along the axis of the field.
+      const x = (e.cx * dir - e.radius) - this.stats[1 - t]![e.cls]!.range;
+      if (x < front) front = x;
+    }
+    if (front === Infinity) return false;
+    let x = front * dir - dir * (STRIKE_MARGIN + r.radius + (r.role === 'shock-cav' ? 50 : 0));
+    if ((x - r.homeX) * dir < 0) x = r.homeX;
+    this.tmp[0] = clampX(x);
+    this.tmp[1] = r.homeY;
+    return true;
+  }
+
+  /**
    * T1: the Marshal's signal. Once the lines are locked, when an enemy block locked with ours
    * falters (its morale under Doctrine.signalMorale; the fearless, when it is under
    * `signalSpent` of its men), or at the general charge, or `signalLate` after contact, and his
@@ -2241,8 +2321,11 @@ export class Battle {
     }
     const ts = this.ts[t]!;
     const es = this.ts[1 - t]!;
-    if (won || !(ts.engaged || es.engaged || !es.hasLine)) return null;
-    if (g.signalAt >= 0 && this.tick - g.signalAt < doc.signalEvery) return null;
+    // (Outshot, the horse sent in together at the shooters: he gives the signal with it, and
+    // again at the next shooters as soon as the last are gone.)
+    const strike = g.strikeAt >= 0 && !(ts.engaged || es.engaged);
+    if (won || !(ts.engaged || es.engaged || !es.hasLine || g.strikeAt >= 0)) return null;
+    if (!strike && g.signalAt >= 0 && this.tick - g.signalAt < doc.signalEvery) return null;
     let ready: Regiment | null = null;
     for (const r of this.teamRegs[t]!) {
       if (r.role !== 'shock-cav' || r.alive === 0 || r.routed || r.engaged || r.mode === 'withdraw' || r.mode === 'charge') continue;
@@ -2262,7 +2345,7 @@ export class Battle {
     }
     const faltering = best !== null && (this.fearless[1 - t] ? best.alive < best.start * doc.signalSpent : best.morale < doc.signalMorale);
     const late = ts.contactAt >= 0 && this.tick - ts.contactAt > doc.signalLate;
-    if (!faltering && g.chargedAt < 0 && !late) return null;
+    if (!faltering && g.chargedAt < 0 && !late && g.strikeAt < 0) return null;
     const target = best ?? this.nearestFoe(ready, 1, Infinity) ?? this.nearestFoe(ready, 0, Infinity);
     if (!target) return null;
     g.signalAt = this.tick;
@@ -3800,8 +3883,13 @@ export class Battle {
       // the Rule forbids a charge without his word.)
       prey = this.nearestFoe(r, 2, 90) ?? (shock && this.doc[team]!.signal && this.lordAlive(team) ? null : this.nearestFoe(r, 0, 25));
       if (!prey) {
-        this.setMode(r, 'hold');
-        this.goal(r, Number.isNaN(o.x) ? r.ax : o.x, Number.isNaN(o.y) ? r.ay : o.y);
+        const gx = Number.isNaN(o.x) ? r.ax : o.x;
+        const gy = Number.isNaN(o.y) ? r.ay : o.y;
+        // Forming up out of bowshot (`horseStrike`), it walks and trots to its place rather than drift there.
+        const g = this.generals[team]!;
+        const far = (gx - r.ax) * (gx - r.ax) + (gy - r.ay) * (gy - r.ay) > STRIKE_THERE * STRIKE_THERE;
+        this.setMode(r, far && g.stageAt >= 0 && g.strikeAt < 0 ? 'advance' : 'hold');
+        this.goal(r, gx, gy);
         r.dfx = dir;
         r.dfy = 0;
         return;
@@ -6158,6 +6246,15 @@ const CONTACT_GAP = 8;
  */
 const MISSILE_BEHIND = 70;
 const RESERVE_BEHIND = 170;
+/**
+ * Horse against shooters (`horseStrike`): outshot this many times over, it forms up STRIKE_MARGIN
+ * out of their reach, waits until every block is within STRIKE_THERE of its place (STRIKE_WAIT at
+ * most), and goes in together.
+ */
+const STRIKE_OUTSHOT = 2;
+const STRIKE_MARGIN = 60;
+const STRIKE_THERE = 80;
+const STRIKE_WAIT = 300;
 /** Ticks between one man's shots, as the Generals reckon it: formed missile foot keeps to the volley clock. */
 export function fireEvery(st: UnitStats): number {
   return st.role === 'missile' ? st.reload + VOLLEY_BEAT : st.reload;
