@@ -598,6 +598,116 @@ Shots: `docs/screenshots/cohesion-after/` (before/after pairs, the same seed and
 
 ---
 
+## 7. Riders who think for themselves (cavalry, the sweep after v16)
+
+The user's second complaint, verbatim: "Especially units at the back of a charge post charge, and also
+units don't flow around to flank each other — everything is too rigid and stupid, each soldier gotta
+think for itself! [...] there shouldn't be a single person on the battlefield where you wonder why
+aren't they doing X, or why they're so stupid." This section is the cavalry half (foot is done
+separately). Everything is in `src/game/battle.ts` under `RIDER`; the measure is
+`scripts/cavalry-sanity.ts`.
+
+### 7.1 What a real rider does, and what ours did [M]
+
+Measured with `npx tsx scripts/cavalry-sanity.ts` (four set-piece charges from `frontalCharge`, run on
+for 40 s, and the `/demo` battles, seeds 3, 7, 11, 23, at 450 and 1,200 men), it counts the riders a
+watcher would ask "why isn't he doing anything?" about:
+
+- **Idle:** standing still for over 2 s, no foe in reach, the enemy within 40 units. In v16 a third of
+  all riders spent time like this, 1,880 rider-seconds over the eight battles. Nearly all (1,380 s)
+  were the back ranks of a block of horse in a melee: the front had stopped against the enemy, and
+  the men behind sat in their slots behind it, because a rider looked for a foe only 15 units from
+  himself and 34 from his slot.
+- **Stacked:** riders standing inside one another.
+- **Into the pikes:** riders galloping into the front of braced spears or a pike wall that had an open
+  flank (no friend of its within 20 of an end).
+- **Left behind:** riders still within 10 of an enemy and under half their speed 2 s after their block
+  rode out to re-form.
+- **Horse archers caught:** horse archers with arrows left with an enemy within 12.
+
+### 7.2 Changes
+
+1. **His own man (`hunt`).** A rider of a block in the fight with nobody within reach looks 40 units
+   about himself, with no leash to his slot. He takes the nearest man. He never takes a man of braced
+   spears while he is in front of their line. He likes a man behind him less (×1.5). He leaves alone
+   horse that is riding out to re-form.
+2. **Round, not into (`swerve`).** A rider closing on a slower friend who is in his way (within 12
+   ahead) swerves to the emptier side, by 60° if the friend is close and 30° if further off. A rider
+   still galloping in with his impetus rides on.
+3. **Round to the flank (`flankPoint`).** A rider with no foe within 40, whose block is fighting foot,
+   rides round the end of that block on his own side and comes in at its flank, where `hunt` finds
+   him a man. Before its front he rides along it 20 units off, not across its spears. Against horse he
+   finds his own man or keeps his place: a block of horse moves too fast to ride round alone, and
+   trying it made clashes of horse one-sided (the cycle-charge test fell from 25 cycles to 9).
+4. **Out by his own path.** Breaking off, each rider rides at his own pace for his own spot about the
+   rally point. That spot is his place in the block, 1.4× looser, facing back toward the fight. Each
+   turns within his own turning circle. The whole block no longer wheels about its middle. The ride
+   out ends when the middle of the riders is within 25 of the rally point. The block then takes up
+   the frame they are already standing in, facing the fight. They close up from there and come again.
+5. **Meet, don't wait.** Horse re-forming that sees enemy horse within 90 riding at it breaks off the
+   re-form and counter-charges.
+6. **No horseman rides at the points (`thinkCav`).** Horse about to charge the front of braced spears
+   or a pike wall first looks for easier prey within 250: foot locked in a fight, or shooters. It does
+   this only when its order leaves it free to (not held back, and not the Templar knights, who ride at
+   the Marshal's target). Failing that, it rides out round the end of the spears and charges from the
+   side. A rash general's knights still charge headlong (Courtrai, Mansourah).
+7. **Out of the spears.** A rider with his charge spent who is hit in a fight with spearmen while
+   under half his hit points pulls his horse out for 2 s, then may come at them again.
+8. **Horse archers keep off.** A horse archer with an enemy within 15 rides off from him himself,
+   back toward his place. The block now rides off from foot 50 away (it was 35).
+9. **Two bugs found by the measure.**
+   - Horse sent at the rear of a deep block in a melee could stand for good at the "swing out to its
+     side" point: its middle was still level with the block's side. It now goes on round to the rear.
+   - The Rule held: Templar knights held back by a living Marshal no longer charge foot that comes
+     near. They ride back to their place.
+
+### 7.3 Measured (same seeds; v16 → after)
+
+| | v16 | after |
+|---|---|---|
+| Idle rider-seconds, all battles (riders ever idle) | 1,884 (29%) | 112 (5%) |
+| ... of which at 1,200 a side | 1,584 (33%) | 57 (4%) |
+| Stacked riders, per 1,000 rider-ticks | 1.33 | 1.21 |
+| Into the front of braced spears with an open flank, per charge, demo battles | 5 / 323 | 4 / 290 |
+| Left behind after a ride out (rider-seconds / ride-outs), demo battles | 186 / 83 | 109 / 78 |
+| Horse archers with an enemy within 12 (‰ of their ticks) | 31 | 40 |
+| Riders' kills / riders lost, demo battles | 1,506 / 1,359 | 1,910 / 1,380 |
+| Battle length, mean of the demo battles | 125 s | 127 s |
+| Clash of light horse, 30 a side, 8 seeds: blocks that broke off, re-formed and charged again (`cohesion.test.ts` set-up) | 25 | 24 |
+
+Notes on the table:
+
+- **Idle that is left.** Most of the remaining idle time is horse archers standing to shoot with foot
+  within 40.
+- **Horse archers.** Their number rose with hunting. Enemy light horse now chases them down where it
+  used to sit behind its own front. They ride off from it, but are sometimes caught.
+- **Into the pikes, set pieces.** The frontal-charge set pieces still put rash knights straight into
+  the pike wall (19 of 32), by design.
+- **Kills.** The riders' kills rose by a quarter: men who used to sit idle now fight.
+
+### 7.4 Test changes
+
+`frontalCharge` (`src/game/testing.ts`) measures how far a charge got into foot *through its front*:
+
+- **Riders who ride round.** A rider who rides round the end of the block and comes in at its side or
+  rear is no longer counted as having broken in.
+- **When it stops.** It stops when the horse stops charging and fighting, so the last stragglers to
+  turn away in a ride-out do not count either.
+
+The assertions in `collision.test.ts` are unchanged.
+
+### 7.5 Left
+
+- **The charge itself is still a formed block.** It closes on its slots at spring 2.5, so a re-charge
+  from a loose rally looks tidy again within a second or two. A softer spring for horse at the
+  charge would keep the line ragged.
+- **Horse archers.** They still stand to shoot with foot a little over 40 away. A Cantabrian circle
+  (riders loosing on the move in a loop) would replace the standing volley.
+- **Pursuit of horse that rides out.** Horse that wins a clash still charges after a beaten block that
+  is riding out. It often catches it re-forming, which is realistic but makes some cycles one-shot.
+
+---
+
 ## Sources
 
 - Thucydides 5.71–72: https://cts.perseids.org/read/greekLit/tlg0003/tlg001/1st1K-eng1/5.71.1-5.71.3 ; https://livius.org/sources/content/thucydides-historian/the-battle-of-mantinea-418-bce
