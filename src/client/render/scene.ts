@@ -1724,7 +1724,7 @@ export class BattleScene {
           const big = s.s.mounted ? 1.7 : 1;
           const cx = mx + (rng.next() - 0.5) * 2 * big;
           const cy = my + (rng.next() - 0.5) * big;
-          for (let k = 0; k < 4; k++) this.pools.push({ x: cx + (rng.next() - 0.5) * 2.4 * big, y: cy + (rng.next() - 0.5) * 1.1 * big, r: (1.8 + k * 0.85) * big, a: 0.3, at: tick + k * 8 });
+          for (let k = 0; k < 4; k++) this.pools.push({ x: cx + (rng.next() - 0.5) * 2.4 * big, y: cy + (rng.next() - 0.5) * 1.1 * big, r: (2 + k * 1.05) * big, a: 0.3, at: tick + k * 8 });
         }
         continue;
       }
