@@ -2148,7 +2148,7 @@ export class Battle {
     // T1 The Marshal's charge: while he lives the knights go only on his signal, all at one target.
     const marshal = doc.signal && this.lordAlive(t);
     const dir = t === 0 ? 1 : -1;
-    const strike = won ? null : this.horseStrike(t, ours, theirs);
+    const strike = won ? null : this.horseStrike(t);
     const signal = marshal ? this.marshalSignal(t, won) : null;
     for (const r of this.teamRegs[t]!) {
       if (r.alive === 0 || r.routed) continue;
@@ -2236,7 +2236,7 @@ export class Battle {
   }
 
   /**
-   * Outshot by an enemy that stands off (its shooting worth more than STRIKE_OUTSHOT times ours)
+   * Outshot by an enemy that stands off (its bows and crossbows worth more than STRIKE_OUTSHOT times ours)
    * before the lines meet, a General does not feed his horse into the arrows a block at a time,
    * nor leave it standing under them: he forms it up just out of their reach (`stagePoint`), and
    * when it is all there (or STRIKE_WAIT after he gave the order, or as soon as any of it is shot
@@ -2244,13 +2244,16 @@ export class Battle {
    * the beaten zone at the gallop in some ten seconds. 'stage', 'go', or null (not outshot, or
    * the lines have met first).
    */
-  private horseStrike(t: number, ours: Forces, theirs: Forces): 'stage' | 'go' | null {
+  private horseStrike(t: number): 'stage' | 'go' | null {
     const g = this.generals[t]!;
     if (g.strikeAt >= 0) return 'go';
     const ts = this.ts[t]!;
     const es = this.ts[1 - t]!;
     if (ts.engaged || es.engaged || !es.hasLine || this.tick < 20) return null;
-    if (theirs.missile < 1 || theirs.missile < STRIKE_OUTSHOT * ours.missile) return null;
+    // (Their bows and crossbows against ours: javelins and horse archers do not keep horse at bay.)
+    const mine = this.volleyFire(t);
+    const foe = this.volleyFire(1 - t);
+    if (foe < 1 || foe < STRIKE_OUTSHOT * mine) return null;
     let horse = 0;
     let there = 0;
     let shot = false;
@@ -2278,6 +2281,17 @@ export class Battle {
     g.strikeAt = this.tick;
     this.announce(t, null, 'flank', 'sends all his horse at the archers together');
     return 'go';
+  }
+
+  /** A side's formed shooters with shot left (bows, crossbows, guns): damage a tick, as `forces` reckons it. */
+  private volleyFire(t: number): number {
+    let f = 0;
+    for (const r of this.teamRegs[t]!) {
+      if (r.alive === 0 || r.routed || r.role !== 'missile' || r.ammoLeft === 0) continue;
+      const st = this.stats[t]![r.cls]!;
+      f += (r.alive * st.missileDamage) / fireEvery(st);
+    }
+    return f;
   }
 
   /**
