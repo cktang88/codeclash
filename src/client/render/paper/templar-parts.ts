@@ -802,21 +802,24 @@ export function quiver(c: Paper, top: P2, deg: number): void {
 
 /** A crossbow: a stock along deg from the grip, the steel prod across its front, the string. */
 export function crossbow(c: Paper, grip: P2, deg: number, spanned: number): void {
-  const nose = along(grip, deg, 2.0);
-  const butt = along(grip, deg + 180, 1.6);
+  // Met 23336: 90 cm long, the prod 75 cm across (a man is ~14 units of 12.5 cm).
+  // (At level 1 a little smaller: the full size lines its pixel runs up with the pavise's.)
+  const k = c.L < 2 ? 0.8 : 1;
+  const nose = along(grip, deg, 3.4 * k);
+  const butt = along(grip, deg + 180, 2.5 * k);
   const side = limb(deg + 90);
-  const prodC = along(nose, deg + 180, 0.15);
-  const pa = addP(prodC, mul(side, 1.5)), pb = sub(prodC, mul(side, 1.5));
-  const bendK = 0.25 + spanned * 0.35;
+  const prodC = along(nose, deg + 180, 0.2);
+  const pa = addP(prodC, mul(side, 2.7 * k)), pb = sub(prodC, mul(side, 2.7 * k));
+  const bendK = 0.4 + spanned * 0.5;
   const pa2 = along(pa, deg + 180, bendK), pb2 = along(pb, deg + 180, bendK);
-  const nut = along(grip, deg, 0.2 + (1 - spanned) * 1.5);
+  const nut = along(grip, deg, 0.3 + (1 - spanned) * 2.6);
   c.line(pa2, nut, code(TM.white, 2));
   c.line(nut, pb2, code(TM.white, 2));
   c.rod(butt, nose, 0.5, 0.42, TM.wood, { tone: 3 });
   c.rod(pa2, prodC, 0.34, 0.4, TM.steel, { tone: 3 });
   c.rod(prodC, pb2, 0.4, 0.34, TM.steel, { tone: 2 });
   // The stirrup at the nose.
-  c.rod(along(nose, deg, 0.1), along(nose, deg, 0.7), 0.3, 0.3, TM.steel, { tone: 1 });
+  c.rod(along(nose, deg, 0.1), along(nose, deg, 0.9), 0.3, 0.3, TM.steel, { tone: 1 });
 }
 
 /**

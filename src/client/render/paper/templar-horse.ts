@@ -17,12 +17,12 @@ import {
   type AnimationData, type AnimEvent, type AttachmentSet, type Clip, type DrawCtx, type JointDef, type PartXf, type SkeletonData, type SkeletonRig, type SlotData,
 } from './skeleton.ts';
 import { fromGuard, riderOnly } from './guard.ts';
-import { ARMS0, armsOf, holdFist, bowAuthor, CUT, fistPath, HIT, on, R, reach, T, THRUST, UNDERHAND, cloth, type Arms, type Author, type Tracks } from './templar-clips.ts';
+import { ARMS0, armsOf, holdFist, bowAuthor, CUT, fistPath, HIT, on, R, reach, T, cloth, type Arms, type Author, type Tracks } from './templar-clips.ts';
 import { joints, neRest, PARENT, type FootSpec } from './templar-foot.ts';
 import { bow, paintAs, pennon, RIG_CLOTH, sword, TM, type ValueClass } from './templar-parts.ts';
 import { at as atT, facingClip, lagCloth, lastFrame, mapFacings, memoSkin, overlayKeys, partMap, restWorld, skinMap, smooth01, type ClipSet, type KP, type LagSpec, type Track, type Weights } from './templar-rig.ts';
 import {
-  CAPAR_PTS, HJ, hoofAt, HORSE_BODY, HORSE_FAR, HORSE_SCALE, horsePiece, MOUNTED, RIDER_PIECES, RIDER_SHIFT, riderPiece, riderRest, scaled, withMap,
+  CAPAR_PTS, HJ, hoofAt, HORSE_BODY, HORSE_BOW_LEN, HORSE_FAR, HORSE_SCALE, LANCE_FWD, SWORD_LEN, horsePiece, MOUNTED, RIDER_PIECES, RIDER_SHIFT, riderPiece, riderRest, scaled, withMap,
   type HorsePiece, type PartMap, type RiderPiece, type RiderRest, type SGear, type SHorse, type SKit,
 } from './templar-static.ts';
 import { MOTION, type MotionKey } from './motion/index.ts';
@@ -51,8 +51,8 @@ interface HorseSpec extends FootSpec {
 const HORSE_SPECS: Record<number, HorseSpec> = {
   5: { nearDeg: 180, front: 'forearmF', neNear: 'mirror', neFar: 'shift', attack: 'thrust', shoot: null, brace: 'spear', die: 'back', ride: 'thrust', rides: ['thrust', 'under'], charge: 98 },
   6: { farDeg: 168, front: 'chest', neNear: 'mirror', neFar: 'mirror', attack: 'punch', shoot: 'bow', brace: 'ready', die: 'back', ride: 'stab', rides: ['stab', 'stave'], charge: 0 },
-  7: { nearDeg: 135, front: 'forearmF', neNear: 'mirror', neFar: 'shift', attack: 'thrust', shoot: null, brace: 'spear', die: 'back', ride: 'couch', rides: ['couch', 'thrust', 'sword'], charge: 96, smear: [2.4, 5.4] },
-  10: { nearDeg: 135, farDeg: 180, front: 'chest', neNear: 'mirror', neFar: 'mirror', attack: 'cut', shoot: null, brace: 'ready', die: 'back', ride: 'cut', rides: ['cut', 'backhand', 'point'], charge: 120, smear: [2.4, 6.0] },
+  7: { nearDeg: 135, front: 'forearmF', neNear: 'mirror', neFar: 'shift', attack: 'thrust', shoot: null, brace: 'spear', die: 'back', ride: 'couch', rides: ['couch', 'thrust', 'sword'], charge: 96, smear: [3.0, 7.4] },
+  10: { nearDeg: 135, farDeg: 180, front: 'chest', neNear: 'mirror', neFar: 'mirror', attack: 'cut', shoot: null, brace: 'ready', die: 'back', ride: 'cut', rides: ['cut', 'backhand', 'point'], charge: 120, smear: [3.0, 7.6] },
 };
 /** How high the horse archers aim (degrees): a shallower arc than the foot archers', shooting from the flank. */
 const HORSE_BOW_ELEVATION = 20;
@@ -77,8 +77,8 @@ interface Fly {
   follow: number;
 }
 const FLY: Partial<Record<number, Fly>> = {
-  5: { kind: 'pennon', parent: 'weapon', deg: 180, at: 11.9, height: 1.1, len: 2.8, drop: 0.5, n: 2, follow: 0.3 },
-  7: { kind: 'pennon', parent: 'weapon', deg: 135, at: 11.4, height: 1.1, len: 2.8, drop: 0.45, n: 2, follow: 0.3 },
+  5: { kind: 'pennon', parent: 'weapon', deg: 180, at: 14.9, height: 1.1, len: 2.8, drop: 0.5, n: 2, follow: 0.3 },
+  7: { kind: 'pennon', parent: 'weapon', deg: 135, at: LANCE_FWD - 1.1, height: 1.1, len: 2.8, drop: 0.45, n: 2, follow: 0.3 },
   10: { kind: 'banner', parent: 'itemF', deg: 180, at: 6.95, height: 3.4, len: 4.4, drop: 0.5, n: 3, follow: 0.35 },
 };
 
@@ -276,7 +276,7 @@ function horseParts(k: SKit, g: SGear, horse: SHorse, s: HorseSpec, dark: ValueC
         const hn = ctx.posed.byName.handN!;
         const nock: P2 = [hn.tx, hn.ty];
         paintAs(c, dark, () => {
-          bow(c, c.L < 2 ? [x.o[0] + 1.4, x.o[1] - 1.0] : x.o, (s.farDeg ?? 168) + x.turned * 7.5, c.L < 2 ? 15 : 8.6, drawing ? 1 : 0, drawing ? nock : null);
+          bow(c, c.L < 2 ? [x.o[0] + 1.4, x.o[1] - 1.0] : x.o, (s.farDeg ?? 168) + x.turned * 7.5, c.L < 2 ? 15 : HORSE_BOW_LEN, drawing ? 1 : 0, drawing ? nock : null);
           if (drawing) c.rod(nock, [x.o[0] + (x.o[0] - nock[0]) * 0.25, x.o[1] + (x.o[1] - nock[1]) * 0.25], 0.14, 0.12, TM.ash, { tone: 3 });
         });
       },
@@ -284,7 +284,7 @@ function horseParts(k: SKit, g: SGear, horse: SHorse, s: HorseSpec, dark: ValueC
   }
   if (g.hip) {
     // The lancer's sword blow: the sword in the hand, the scabbard empty, the lance in the bridle hand.
-    const blade: SGear = { ...g, near: { ...g.near!, draw: (c, h, d) => sword(c, h, (s.nearDeg ?? 135) + d, 5.4) } };
+    const blade: SGear = { ...g, near: { ...g.near!, draw: (c, h, d) => sword(c, h, (s.nearDeg ?? 135) + d, SWORD_LEN) } };
     const lance = g.near!.draw!;
     const bridle: SGear = {
       ...g,
@@ -293,7 +293,7 @@ function horseParts(k: SKit, g: SGear, horse: SHorse, s: HorseSpec, dark: ValueC
         draw: (c, h, d) => {
           // The far fist holds the lance upright; its pennon is drawn on it (the fly bones ride the near hand's weapon).
           lance(c, h, (s.farDeg ?? 0) + d - (s.nearDeg ?? 135));
-          if (c.L >= 2) pennon(c, alongR(h, (s.farDeg ?? 0) + d, 12.5 - 0.55), (s.farDeg ?? 0) + d, 0.3);
+          if (c.L >= 2) pennon(c, alongR(h, (s.farDeg ?? 0) + d, LANCE_FWD - 0.55), (s.farDeg ?? 0) + d, 0.3);
         },
       },
     };
@@ -409,24 +409,42 @@ function riderGait(bob: Track, n: number, s: HorseSpec, run: boolean): Author {
 
 /** Rider attacks from the saddle. */
 const COUCH: Author = (rw) => ({
-  // The lance comes down from the slope into the couch under the arm, the rider leans into it; at
-  // the impact his trunk is driven back against the cantle and the shoulder recoils; he settles.
+  // The couched lance at the charge (Bayeux scene 52, Fiore's mounted plays): the tip lifts as the
+  // rider gathers and sits back (2-3), then the whole man drives in over the neck, the fist pushed
+  // forward and the point dropped onto the target (5); the impact throws his trunk back against
+  // the cantle and kicks the tip up (6-7); he settles into the couch again.
   w: {
-    upperArmN: T([0, rw.upperArmN!], [2, -10], [4, -4], [5, 0], [6, -26], [7, -24], [9, -10], [11, rw.upperArmN!]),
-    forearmN: T([0, rw.forearmN!], [2, 78], [4, 84], [5, 88], [6, 70], [7, 72], [9, 78], [11, rw.forearmN!]),
-    // The tip dips onto the target at the impact, then kicks up as the shaft takes the blow.
-    weapon: T([0, rw.weapon!], [2, 96], [4, 100], [5, 106], [6, 92], [7, 94], [9, 96], [11, rw.weapon!]),
+    upperArmN: T([0, rw.upperArmN!], [2, -16], [3, -18], [4, -4], [5, 10], [6, -24], [7, -22], [9, -10], [11, rw.upperArmN!]),
+    forearmN: T([0, rw.forearmN!], [2, 74], [3, 72], [4, 84], [5, 92], [6, 70], [7, 72], [9, 78], [11, rw.forearmN!]),
+    weapon: T([0, rw.weapon!], [2, 110], [3, 114], [4, 98], [5, 86], [6, 108], [7, 104], [9, 98], [11, rw.weapon!]),
   },
-  dw: { spine: T([0, 0], [2, -10], [4, -22], [5, -26], [6, 10], [7, 12], [9, -2], [11, 0]), head: T([0, 0], [4, -8], [5, -10], [6, 8], [8, 0]), upperArmF: T([0, 0], [4, 12], [6, -8], [11, 0]) },
+  dw: { spine: T([0, 0], [2, 6], [3, 8], [4, -18], [5, -30], [6, 12], [7, 14], [9, -2], [11, 0]), head: T([0, 0], [3, 4], [5, -12], [6, 8], [8, 0]), upperArmF: T([0, 0], [4, 12], [6, -8], [11, 0]) },
 });
-/** The foot thrusts from the saddle: the arms and trunk only (the horse carries the lunge). */
+/**
+ * The overarm stab from the saddle (Bayeux scene 52: the spear raised over the head, stabbed down
+ * at the men on foot): the fist lifted above the helm (1-3), the point driven steeply down along
+ * the shaft past the horse's shoulder (5), the rider leaning out over it; drawn back up and
+ * couched again.
+ */
 const RIDE_THRUST: Author = (rw, f, A) => {
-  const t = THRUST(rw, f, A);
-  return { w: t.w, dw: { ...t.dw } };
+  const P: P2 = [-0.4, -2.3], d = f === 'ne' ? 66 : 60;
+  return {
+    w: fistPath(rw, A!, 11, [[1, [-0.2, -0.4], -1, 110], [2, [-0.4, -1.8], -1, 80], [3, P, -1, d], [4, on(P, d, 1.8), -1, d], [5, on(P, d, 4.2), -1, d], [6, on(P, d, 4.1), -1, d], [7, on(P, d, 1.6), -1, d], [8, P, -1, d], [9, [-0.4, -0.9], -1, 84], [10, [-0.6, 0.8], 1, 94]]),
+    dw: { spine: T([0, 0], [3, 8], [5, -22], [6, -22], [8, -6], [11, 0]), head: T([0, 0], [5, 6], [6, 6], [11, 0]), upperArmF: T([0, 0], [3, 10], [5, 6], [11, 0]) },
+  };
 };
-const RIDE_UNDER: Author = (rw, f, A) => {
-  const t = UNDERHAND(rw, f, A);
-  return { w: t.w, dw: { ...t.dw } };
+/**
+ * The underarm thrust (the Turcopoles' light lance, held low): drawn back along the shaft under
+ * the arm (3), then driven long and level from the hip at a rider's chest, the trunk lunging
+ * over the neck (6), held; drawn back to the couch. Low and level where the overarm stab is high
+ * and steep.
+ */
+const RIDE_UNDER: Author = (rw, _f, A) => {
+  const P: P2 = [-2.0, 1.5], d = 96;
+  return {
+    w: fistPath(rw, A!, 11, [[1, [-1.2, 1.4], 1, 98], [2, [-1.8, 1.5], 1, 97], [3, P, 1, d], [4, on(P, d + 180, 0.4), 1, d], [5, on(P, d, 2.6), 1, d], [6, on(P, d, 4.9), 1, 94], [7, on(P, d, 4.8), 1, 94], [8, on(P, d, 2.0), 1, d], [9, [-1.4, 1.5], 1, 97], [10, [-1.0, 1.4], 1, 98]]),
+    dw: { spine: T([0, 0], [3, 8], [4, 8], [6, -26], [7, -26], [9, -8], [11, 0]), head: T([0, 0], [6, -8], [7, -8], [11, 0]), upperArmF: T([0, 0], [6, -10], [11, 0]) },
+  };
 };
 const RIDE_CUT: Author = (rw, f) => {
   const t = CUT(rw, f);
@@ -509,7 +527,7 @@ const STAB: Author = (rw) => ({
 const RIDES: Record<RiderAttack, Author> = { couch: COUCH, thrust: RIDE_THRUST, under: RIDE_UNDER, cut: RIDE_CUT, backhand: RIDE_BACKHAND, point: RIDE_POINT, stab: STAB, sword: RIDE_SWORD, stave: RIDE_STAVE };
 /** Each blow's events: a smear only on a cut's fastest frame, `strike` at the impact. */
 const RIDE_EV: Record<RiderAttack, AnimEvent[]> = {
-  couch: [{ f: 5, name: 'strike' }], stave: [{ f: 5, name: 'strike' }], thrust: [{ f: 5, name: 'strike' }], under: [{ f: 5, name: 'strike' }], stab: [{ f: 5, name: 'strike' }], point: [{ f: 5, name: 'strike' }],
+  couch: [{ f: 5, name: 'strike' }], stave: [{ f: 5, name: 'strike' }], thrust: [{ f: 5, name: 'strike' }], under: [{ f: 6, name: 'strike' }], stab: [{ f: 5, name: 'strike' }], point: [{ f: 5, name: 'strike' }],
   cut: [{ f: 6, name: 'smear', len: 1, bone: 'weapon' }, { f: 7, name: 'strike' }],
   backhand: [{ f: 5, name: 'smear', len: 1, bone: 'weapon' }, { f: 6, name: 'strike' }],
   sword: [{ f: 6, name: 'smear', len: 1, bone: 'weapon' }, { f: 7, name: 'strike' }],

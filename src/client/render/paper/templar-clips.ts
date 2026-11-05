@@ -15,11 +15,11 @@ export type Blow =
   // sword and shield
   | 'cut' | 'swordThrust' | 'bash'
   // spear and shield
-  | 'thrust' | 'underhand' | 'shove'
+  | 'thrust' | 'underhand' | 'shove' | 'spearButt'
   // a javelin kept in the hand
   | 'jab' | 'stab'
   // the Dane axe, two hands
-  | 'chop' | 'axeCut' | 'axeThrust'
+  | 'chop' | 'axeCut' | 'axeRise' | 'axeThrust'
   // the missile men's last resort
   | 'butt' | 'punch' | 'staveJab' | 'stirrupJab';
 
@@ -206,32 +206,55 @@ const SWORD_THRUST: Author = (rw, _f, A = ARMS0) => {
   });
 };
 
-/** The shield bash: the blade cocked over the shoulder, the shield driven out with the body behind it; the cut that would follow is held. */
-const BASH: Author = (rw) =>
-  merge(lunge({ c: 3, s: 5, h: 6, r: 8, back: 0.45, fwd: 1.1, step: 1.25, lean: -16, coil: 6 }), {
-    w: {
-      upperArmN: R(rw.upperArmN!, 11, [2, 60], [3, 140], [5, 150], [7, 150], [8, 130], [9, 80], [10, 30]),
-      forearmN: R(rw.forearmN!, 11, [2, 150], [3, 200], [5, 205], [7, 205], [8, 175], [9, 100], [10, 30]),
-      weapon: R(rw.weapon!, 11, [2, 170], [3, 215], [5, 222], [7, 222], [8, 190], [9, 110], [10, 40]),
-    },
-    dw: { upperArmF: T([0, 0], [3, -8], [4, 22], [5, 40], [6, 42], [8, 14], [11, 0]), forearmF: T([0, 0], [3, -4], [5, 30], [6, 30], [8, 10], [11, 0]) },
+/**
+ * The shield bash and the stab under it (the sword-and-buckler "shield strike" of I.33 and the
+ * Maciejowski shield walls): the blade drawn back low at the hip, point forward, while the kite is
+ * punched out with the whole weight behind it at 3-4; while the foe reels the point goes in under
+ * the rim at 7. Two beats, early and low, where the cut is one late beat high over the shoulder.
+ */
+const BASH: Author = (rw, _f, A = ARMS0) => {
+  const P: P2 = [-1.5, 2.35], d = 98;
+  return merge(lunge({ c: 2, s: 4, h: 5, r: 9, back: 0.4, fwd: 1.25, step: 1.45, lean: -19, coil: 5, low: 0.4 }), {
+    w: fistPath(rw, A, 11, [[1, [-0.7, 2.1], 1, 104], [2, [-1.3, 2.3], 1, 100], [3, P, 1, d], [4, P, 1, d], [5, on(P, d + 180, 0.3), 1, d], [6, on(P, d, 1.6), 1, d], [7, on(P, d, 3.9), 1, d], [8, on(P, d, 3.7), 1, d], [9, on(P, d, 1.2), 1, d], [10, [-0.4, 1.4], 1, 108]]),
+    // The kite driven out from the chest at 3-4 and held while the stab goes in, drawn back by 9.
+    dw: { upperArmF: T([0, 0], [2, -12], [3, 34], [4, 62], [5, 64], [7, 46], [8, 36], [9, 12], [11, 0]), forearmF: T([0, 0], [2, -8], [3, 24], [4, 42], [5, 42], [8, 26], [9, 8], [11, 0]) },
   });
+};
 
 /** The overhand spear thrust over the shield rim: the spear brought level over the shoulder, the fist by the ear, then driven straight out and down along the shaft at face height; pulled straight back to the chamber, then shouldered. */
 export const THRUST: Author = (rw, _f, A = ARMS0) => {
   const P: P2 = [-1.0, -1.25], d = 84;
   return merge(lunge({ c: 3, s: 5, h: 6, r: 8, back: 0.45, fwd: 0.8, step: 1.05, lean: -14, coil: 6 }), {
-    w: fistPath(rw, A, 11, [[1, [-0.3, -0.4], -1, 130], [2, P, -1, d], [3, on(P, d + 180, 0.45), -1, d], [4, on(P, d, 2.3), -1, d], [5, on(P, d, 4.6), -1, d], [6, on(P, d, 4.5), -1, d], [7, on(P, d, 1.5), -1, d], [8, P, -1, d], [9, [-0.5, -0.6], -1, 125], [10, [-0.2, 0.6], 1, 165]]),
+    w: fistPath(rw, A, 11, [[1, [-0.3, -0.4], -1, 130], [2, P, -1, d], [3, on(P, d + 180, 0.45), -1, d], [4, on(P, d, 2.3), -1, d], [5, on(P, d, 4.6), -1, d], [6, on(P, d, 4.5), -1, d], [7, on(P, d, 1.5), -1, d], [8, P, -1, d], [9, [-0.9, 0.2], -1, 96], [10, [-1.0, 1.6], 1, 102]]),
     dw: { upperArmF: T([0, 0], [3, 10], [5, 6], [8, 10], [11, 0]), forearmF: T([0, 0], [3, 10], [5, 8], [8, 10], [11, 0]) },
   });
 };
 
-/** The underhand spear thrust: the spear dropped to the hip, point at the belly, then driven forward and up along the shaft; pulled back to the hip and brought upright. */
+/**
+ * The underhand thrust from the low guard (Fiore's *tutta porta di ferro*): a slow chamber, the
+ * spear drawn far back along its own line at the hip (3-4), then a long, low lunge with the knees
+ * deep, the point dipped at the chamber and rising from the hip into the belly or a horse's chest (6), held; drawn back
+ * level to the guard. Slower and lower than the overhand thrust, which strikes at 5 from the ear.
+ */
 export const UNDERHAND: Author = (rw, _f, A = ARMS0) => {
-  const P: P2 = [-1.25, 2.9], d = 101;
-  return merge(lunge({ c: 3, s: 5, h: 6, r: 8, back: 0.4, fwd: 0.75, step: 1.0, lean: -10, coil: 3, low: 0.45 }), {
-    w: fistPath(rw, A, 11, [[1, [-0.7, 2.3], 1, 145], [2, P, 1, d], [3, on(P, d + 180, 0.35), 1, d], [4, on(P, d, 2.1), 1, d], [5, on(P, d, 4.2), 1, d], [6, on(P, d, 4.1), 1, d], [7, on(P, d, 1.4), 1, d], [8, P, 1, d], [9, [-0.8, 2.4], 1, 140], [10, [-0.4, 2.2], 1, 168]]),
-    dw: { upperArmF: T([0, 0], [3, 10], [5, 8], [8, 10], [11, 0]), forearmF: T([0, 0], [3, 12], [5, 10], [8, 12], [11, 0]) },
+  const P: P2 = [-2.3, 2.5], d = 100;
+  return merge(lunge({ c: 4, s: 6, h: 7, r: 9, back: 0.6, fwd: 1.3, step: 1.6, lean: -19, coil: 4, low: 0.75 }), {
+    w: fistPath(rw, A, 11, [[1, [-1.3, 2.55], 1, 104], [2, [-1.9, 2.55], 1, 101], [3, P, 1, 92], [4, on(P, d + 180, 0.45), 1, 90], [5, on(P, d, 2.4), 1, 100], [6, on(P, d, 5.0), 1, 108], [7, on(P, d, 4.9), 1, 108], [8, on(P, d, 2.2), 1, 102], [9, [-1.6, 2.5], 1, 103], [10, [-1.2, 2.55], 1, 106]]),
+    dw: { upperArmF: T([0, 0], [3, 10], [6, 8], [8, 10], [11, 0]), forearmF: T([0, 0], [3, 12], [6, 10], [8, 12], [11, 0]) },
+  });
+};
+
+/**
+ * The butt strike (Fiore's spear plays; the *colpo del calcio* of the staff): the spear swung up and
+ * over (1-2) until the point trails behind and low and the butt leads, then the butt rammed up into
+ * the face along the shaft with the round shield shoved out beside it (5); swung back over to the
+ * guard. The one blow whose shaft slopes the other way.
+ */
+const SPEAR_BUTT: Author = (rw, _f, A = ARMS0) => {
+  const P: P2 = [-1.3, 0.7], b = 112, d = b + 180;
+  return merge(lunge({ c: 3, s: 5, h: 6, r: 8, back: 0.45, fwd: 1.0, step: 1.25, lean: -15, coil: 7 }), {
+    w: fistPath(rw, A, 11, [[1, [-0.8, 1.5], 1, 150], [2, [-1.1, 0.5], 1, 220], [3, P, 1, d], [4, on(P, b, 1.4), 1, d], [5, on(P, b, 3.5), 1, d], [6, on(P, b, 3.4), 1, d], [7, on(P, b, 1.2), 1, d], [8, P, 1, 250], [9, [-0.9, 1.2], 1, 185], [10, [-1.0, 2.1], 1, 125]]),
+    dw: { upperArmF: T([0, 0], [3, -6], [4, 26], [5, 44], [6, 44], [8, 12], [11, 0]), forearmF: T([0, 0], [4, 20], [5, 30], [6, 30], [8, 8], [11, 0]) },
   });
 };
 
@@ -313,6 +336,17 @@ const AXE_CUT: Author = (rw) =>
       forearmN: R(rw.forearmN!, 11, [2, 130], [3, 158], [4, 160], [5, 108], [6, 64], [7, 24], [8, 22], [10, 40]),
       weapon: R(rw.weapon!, 11, [2, 200], [3, 242], [4, 248], [5, 150], [6, 76], [7, 26], [8, 22], [10, 90]),
     },
+  });
+/**
+ * The rising stroke with the Dane axe (Bayeux, the huscarls' axes swung at the horses' heads and
+ * legs): the bit let fall forward and down past the knees, swung back low behind the hip (3-4, the
+ * haft level behind him), then whipped forward under and up through the knee and the horse's
+ * chest (6-7) to finish high in front; the trunk coils back and drives forward over it. A low,
+ * pendulum blow, where the chop falls from overhead and the spike goes straight.
+ */
+const AXE_RISE: Author = (rw, _f, A = ARMS0) =>
+  merge(lunge({ c: 4, s: 6, h: 7, r: 9, back: 0.45, fwd: 0.95, step: 1.15, lean: -20, coil: 9, low: 0.55 }), {
+    w: fistPath(rw, A, 11, [[1, [-0.3, 2.3], 1, 80], [2, [-0.9, 2.7], 1, 15], [3, [-1.5, 2.4], 1, -48], [4, [-1.7, 2.3], 1, -68], [5, [-0.7, 2.9], 1, 10], [6, [0.7, 2.5], 1, 78], [7, [1.5, 1.2], 1, 128], [8, [1.5, 0.9], 1, 140], [9, [1.0, 1.3], 1, 146], [10, [0.4, 1.6], 1, 146]]),
   });
 /** The axe's top spike rammed forward along the haft, both fists low, the body behind it. */
 const AXE_THRUST: Author = (rw, _f, A = ARMS0) => {
@@ -527,9 +561,10 @@ const EVERY = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 const BLOWS: Record<Blow, { author: Author; clip: string; o: MocapOpts; ev: AnimEvent[]; x?: number[] }> = {
   cut: { author: CUT_TIGHT, clip: 'cut-diagonal', o: { torso: 0.4, travel: 0, feet: 0.3 }, ev: [{ f: 6, name: 'smear', len: 1, bone: 'weapon' }, { f: 7, name: 'strike' }], x: [2, 10] },
   swordThrust: { author: SWORD_THRUST, clip: 'thrust', o: { torso: 0.2, travel: 0, feet: 0 }, ev: [{ f: 5, name: 'strike' }] },
-  bash: { author: BASH, clip: 'thrust', o: { torso: 0.2, travel: 0, feet: 0 }, ev: [{ f: 5, name: 'strike' }] },
+  bash: { author: BASH, clip: 'thrust', o: { torso: 0.2, travel: 0, feet: 0 }, ev: [{ f: 4, name: 'strike' }, { f: 7, name: 'strike' }] },
   thrust: { author: THRUST, clip: 'thrust', o: { torso: 0.2, travel: 0, feet: 0 }, ev: [{ f: 5, name: 'strike' }] },
-  underhand: { author: UNDERHAND, clip: 'thrust', o: { torso: 0.2, travel: 0, feet: 0 }, ev: [{ f: 5, name: 'strike' }] },
+  underhand: { author: UNDERHAND, clip: 'thrust', o: { torso: 0.2, travel: 0, feet: 0 }, ev: [{ f: 6, name: 'strike' }] },
+  spearButt: { author: SPEAR_BUTT, clip: 'thrust', o: { torso: 0.2, travel: 0, feet: 0 }, ev: [{ f: 5, name: 'strike' }] },
   shove: { author: SHOVE, clip: 'thrust', o: { torso: 0.2, travel: 0, feet: 0 }, ev: [{ f: 5, name: 'strike' }] },
   jab: { author: JAB, clip: 'thrust', o: { torso: 0.2, travel: 0, feet: 0 }, ev: [{ f: 5, name: 'strike' }] },
   stab: { author: STAB, clip: 'thrust', o: { torso: 0.2, travel: 0, feet: 0 }, ev: [{ f: 5, name: 'strike' }] },
@@ -539,6 +574,7 @@ const BLOWS: Record<Blow, { author: Author; clip: string; o: MocapOpts; ev: Anim
   axeCut: { author: AXE_CUT, clip: 'cut-diagonal', o: { torso: 0.3, travel: 0, feet: 0 }, ev: [{ f: 5, name: 'smear', len: 1, bone: 'weapon' }, { f: 6, name: 'strike' }] },
   staveJab: { author: STAVE_JAB, clip: 'thrust', o: { torso: 0.2, travel: 0, feet: 0 }, ev: [{ f: 5, name: 'strike' }] },
   stirrupJab: { author: STIRRUP_JAB, clip: 'thrust', o: { torso: 0.2, travel: 0, feet: 0 }, ev: [{ f: 5, name: 'strike' }] },
+  axeRise: { author: AXE_RISE, clip: 'cut-diagonal', o: { torso: 0.3, travel: 0, feet: 0 }, ev: [{ f: 6, name: 'smear', len: 1, bone: 'weapon' }, { f: 7, name: 'strike' }] },
   axeThrust: { author: AXE_THRUST, clip: 'thrust', o: { torso: 0.2, travel: 0, feet: 0 }, ev: [{ f: 5, name: 'strike' }] },
 };
 
