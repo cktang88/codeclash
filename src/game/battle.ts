@@ -4028,6 +4028,9 @@ export class Battle {
       }
     } else if (o.kind === 'pursue') prey = this.nearestFoe(r, 4, Infinity) ?? this.nearestFoe(r, 0, Infinity);
     else if (given && given.alive > 0 && !given.routed) prey = given;
+    // (T1: knights whose horse is gone, with no signal given, look for more horse or wait for the
+    // Marshal's word: they do not ride on at the shooters behind it on their own.)
+    else if (shock && this.doc[team]!.signal && this.lordAlive(team) && this.generals[team]!.signalTarget < 0) prey = this.nearestFoe(r, 2, 300);
     else prey = this.nearestFoe(r, 2, 300) ?? this.nearestFoe(r, 1, Infinity) ?? this.nearestFoe(r, 4, 260) ?? this.nearestFoe(r, 3, Infinity) ?? this.nearestFoe(r, 0, Infinity);
     if (!prey) {
       this.setMode(r, 'hold');
