@@ -1029,9 +1029,14 @@ function bigNaginata(c: Paper, hand: P2, butt: number, fore: number): void {
   if (c.L <= 1) {
     // At 13 px a sub-pixel round shaft breaks up at some angles: one unbroken line, the blade a
     // pale line on from it (as the javelin).
-    const tip = addP(top, [-0.6, -4.8]);
-    c.line(c.q(mapPoint(a)), c.q(mapPoint(top)), code(SM.wood, 2));
-    c.line(c.q(mapPoint(top)), c.q(mapPoint(tip)), code(SM.steel, 3));
+    // (Snapped to a clean upright, 1:1 or level line: a shallow one-pixel slant stair-steps.)
+    const A = mapPoint(a), B = mapPoint(top);
+    const len = Math.hypot(B[0] - A[0], B[1] - A[1]);
+    const ang = Math.round(Math.atan2(B[0] - A[0], B[1] - A[1]) / (Math.PI / 4)) * (Math.PI / 4);
+    const d: P2 = [Math.sin(ang), Math.cos(ang)];
+    const B1 = addP(A, [d[0] * len, d[1] * len]), T1 = addP(A, [d[0] * (len + 4.8), d[1] * (len + 4.8)]);
+    c.line(c.q(A), c.q(B1), code(SM.wood, 2));
+    c.line(c.q(B1), c.q(T1), code(SM.steel, 3));
     return;
   }
   vol(c, a, top, 0.36, 0.36, 0.34, SM.wood, 2, { caps: [0.1, 0], detail: (un, v) => (v < 0.06 ? code(SM.iron, 2) : un < -0.4 && frac(v * 6) < 0.1 ? code(SM.wood, 4) : -1) });

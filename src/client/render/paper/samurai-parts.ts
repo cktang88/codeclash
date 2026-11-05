@@ -662,6 +662,8 @@ export function katana(c: Paper, grip: P2, deg: number, length = 3.5): void {
   const off = (t: number) => 0.34 * t * t; // the sori: the back bows out toward the tip
   const half = (t: number) => 0.2 * (1 - t * 0.45) + (t > 0.9 ? -(t - 0.9) * 1.4 : 0);
   if (L < 4) {
+    // (At 13 px a 6-px blade's long pale rim is most of the figure's outline on the field: 5 px.)
+    if (L <= 1) length = Math.min(length, 5.0);
     const mid = addP(addP(grip, mul(d, 0.55 + length * 0.55)), mul(n, off(0.55)));
     const tip = addP(addP(grip, mul(d, 0.55 + length)), mul(n, off(1)));
     c.rod(g0, mid, 0.3, 0.26, SM.steel, { shine: true });
@@ -760,7 +762,9 @@ export function yumi(c: Paper, grip: P2, axis: number, bend: number, nock: P2 | 
   const up = limb(axis);
   const fwd: P2 = [-up[1], up[0]]; // toward the target for an upright bow (screen right)
   // A 2.1 m yumi on a 1.65 m man (lo + hi = 18.2 units), gripped a third of the way up.
-  const lo = 6.0, hi = 12.2;
+  // (The horse archer's pale bow at 13 px keeps its old size: a taller pale line on the near side
+  // turns the figure's light round.)
+  const lo = pale && L <= 1 ? 5.2 : 6.0, hi = pale && L <= 1 ? 10.4 : 12.2;
   const pts: P2[] = [];
   const bulge = 1.15 + bend * 0.9;
   for (let i = 0; i <= 10; i++) {
@@ -807,10 +811,10 @@ export const TEPPO_MUZZLE = 8.2;
 export function teppo(c: Paper, grip: P2, deg: number, lit_: boolean): P2 {
   const d = limb(deg);
   const n: P2 = [-d[1], d[0]];
-  const butt = c.q(addP(addP(grip, mul(d, -2.1)), mul(n, 0.15)));
+  const butt = c.q(addP(addP(grip, mul(d, c.L <= 1 ? -1.6 : -2.1)), mul(n, 0.15)));
   const fore = c.q(addP(grip, mul(d, 4.2)));
   // At level 1 the gun is drawn long: it is the gunner's signature at 13 px.
-  const muzzle = c.q(addP(grip, mul(d, c.L <= 1 ? 10.4 : TEPPO_MUZZLE)));
+  const muzzle = c.q(addP(grip, mul(d, c.L <= 1 ? 9.6 : TEPPO_MUZZLE)));
   c.rod(butt, fore, 0.5, 0.36, SM.wood, { tone: WT(c) });
   if (c.L <= 1) stick(c, addP(grip, mul(d, 0.3)), muzzle, 0.28, SM.iron, 1);
   else c.rod(addP(grip, mul(d, 0.3)), muzzle, 0.28, 0.26, SM.iron, { shine: true });

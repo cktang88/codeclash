@@ -92,6 +92,16 @@ What tells them apart is given as *impact frame / silhouette at impact*.
 Contact sheets (our art only) were made with `scripts/guard-sheets.ts --factions=samurai
 --level=4 --scale=2` into a scratch folder; they are not committed.
 
+## Lint
+
+`pixel-lint --only=sprites --factions=samurai --arts=hd` (levels 1-8): base 0 failed checks; the first
+pass of this change 4 (all level 1, idle frame: the teppō's aligned band ends 0.33, the katana
+samurai's outline vs ground 0.098, the yabusame's light angle 110°, the sōhei's jaggies 1.85).
+Fixed by keeping the level-1 drawings of the teppō (9.6 + 1.6), the horse archer's pale yumi and the
+katana (5-unit blade) at their old 13-px sizes, and drawing the level-1 naginata as lines snapped to
+45°: 0 failed checks. Level-1 silhouettes: closest pair Yabusame / Hatamoto 0.82 (gate 0.85, was the
+same pair before).
+
 ## Still short
 
 - The naginata sweep's end pose (low, forward) is close to its gedan guard; it is told apart by its

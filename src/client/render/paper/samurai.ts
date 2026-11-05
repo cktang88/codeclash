@@ -247,7 +247,7 @@ function firedMuzzle(c: Paper, back: boolean): P2 {
   const p = poseAt(GUN_KEYS, Anim.Shoot, 5);
   const r = manRig(c, p, back ? 'ne' : 'se', [p.px, -6.3 + p.py]);
   const hand = along(along(r.shN, p.nu, ARM_U), p.nu + p.nl, ARM_L);
-  return addP(hand, mul(limb(p.bl), c.L <= 1 ? 10.4 : TEPPO_MUZZLE));
+  return addP(hand, mul(limb(p.bl), c.L <= 1 ? 9.6 : TEPPO_MUZZLE));
 }
 function heldTeppo(p: FootPose, anim: Anim, fr: number): Held {
   return {
