@@ -68,8 +68,12 @@ export { COHESION, DOCTRINE, MORALE, REGROUP, UNDEAD } from './command.ts';
  *   mass 2.4, were taken for horse).
  * - Foot facings (formations.md 2.5.1): a block turning far faces round man by man and re-forms
  *   (countermarching, with time) when that is quicker than its wheel, which is slow for a wide
- *   block (`turnFoot`, `faceAbout`); not with enemy horse about. Until re-formed it has no front.
- *   A block locked to its front turns its rear ranks about on an enemy behind it (`rearUntil`).
+ *   block (`turnFoot`, `faceAbout`). Until re-formed it has no front. With enemy horse within
+ *   150 (not riding off) it faces in place instead (`faceInPlace`): every man turns where he
+ *   stands at once, the block deep and narrow to its new front after a quarter turn, and it takes
+ *   its frontage again once the horse has gone; horse charging or riding round at it is a threat
+ *   to turn to from 150. A block locked to its front turns its rear ranks about on an enemy
+ *   behind it (`rearUntil`).
  */
 /**
  * v16: nothing grows with the size of the battle that should not (the undead won two thirds of
@@ -614,6 +618,8 @@ export class Regiment {
    * to its front turn about against an enemy at its back (see `seek`).
    */
   facedAt = -1000;
+  /** Faced in place against horse (see `turnFoot`): it stands as it turned, to re-form later. */
+  inPlace = false;
   /** When a block that faced round stands re-formed (its shooters loose only then). */
   formedAt = -1000;
   rearUntil = -1;
@@ -1548,6 +1554,12 @@ export class Battle {
       this.assignSlots(reg, true);
       return;
     }
+    this.compactFiles(reg);
+  }
+
+  /** In each file the men take the ranks in order from the front (closing up on the fallen). */
+  private compactFiles(reg: Regiment): void {
+    const d = this.d;
     const keys = 2 * reg.cols + 2;
     const files: number[][] = [];
     for (let k = 0; k < keys; k++) files.push([]);
@@ -3342,8 +3354,10 @@ export class Battle {
         return;
       }
     }
-    // A threat on the flank or rear: wheel to meet it.
-    const threat = this.nearestFoe(r, 0, 45);
+    // A threat on the flank or rear: wheel to meet it (or face it: see `turnFoot`). Horse
+    // charging or riding round at this block is a threat from further off.
+    const horse = this.horseNear(r);
+    const threat = (horse && (horse.mode === 'charge' || horse.mode === 'flank') && horse.targetReg === r.id ? horse : null) ?? this.nearestFoe(r, 0, 45);
     if (threat && threat.id !== o.target && o.kind !== 'withdraw') {
       const dx = threat.cx - r.cx;
       const dy = threat.cy - r.cy;
@@ -4721,15 +4735,19 @@ export class Battle {
    */
   private turnFoot(r: Regiment, wx: number, wy: number, marching: boolean): void {
     const C = COHESION;
-    const c = r.fx * wx + r.fy * wy;
-    if (c > C.faceMinCos || r.alive < 2 || r.engaged || r.routed) return;
+    if (r.alive < 2 || r.engaged || r.routed) return;
     if (r.role === 'siege' || r.role === 'command' || r.stance === 'wedge' || r.stance === 'column') return;
-    if (this.tick - r.facedAt < C.faceEvery) return;
-    // Not with enemy horse about (unless it is riding off): a block that turns about and starts
-    // re-forming as horse rides at it, or among the horse already in the fight, is caught in
-    // disorder (Patay); it wheels to meet it, as before.
-    const cav = this.nearestFoe(r, 2, C.faceHorse);
-    if (cav && cav.mode !== 'withdraw' && cav.mode !== 'rally') return;
+    const cav = this.horseNear(r);
+    // Faced in place against horse, it takes its proper frontage again once the horse rides off.
+    if (r.inPlace && !cav && this.tick - r.facedAt >= C.faceEvery) {
+      const width = r.width;
+      this.faceAbout(r, r.fx, r.fy, false);
+      r.inPlace = false;
+      r.formedAt = this.tick + Math.ceil(C.faceDress + Math.abs(r.width - width) * 0.5 / (FOOT_MARCH * TICK_S));
+      return;
+    }
+    const c = r.fx * wx + r.fy * wy;
+    if (c > C.faceMinCos || this.tick - r.facedAt < C.faceEvery) return;
     const m = sqrt(wx * wx + wy * wy);
     if (m < 1e-9) return;
     wx /= m;
@@ -4768,6 +4786,16 @@ export class Battle {
       const q = sqrt(ex * ex + ey * ey);
       if (q > walk) walk = q;
     }
+    // Enemy horse about: every man faces it where he stands, at once (Aelian's klisis), and the
+    // block stands as it is, deep and narrow to its new front after a quarter turn: no walk to
+    // new places with horse at hand. It re-forms its frontage when the horse has ridden off.
+    if (cav) {
+      if (C.faceDelay < wheelTicks) {
+        this.faceInPlace(r, wx, wy);
+        r.formedAt = this.tick + C.faceDelay;
+      }
+      return;
+    }
     const threat = this.nearestFoe(r, 0, C.faceThreat) !== null;
     // On the march, with no enemy close, it wheels as it goes.
     if (marching && !threat) return;
@@ -4777,6 +4805,65 @@ export class Battle {
     if (threat ? faceTicks > wheelTicks || c > 0.5 : faceTicks * C.faceMargin > wheelTicks) return;
     this.faceAbout(r, wx, wy, !threat);
     r.formedAt = this.tick + Math.ceil(faceTicks);
+  }
+
+  /** Enemy horse within COHESION.faceHorse of a block, not riding off to rally (see `turnFoot`). */
+  private horseNear(r: Regiment): Regiment | null {
+    const cav = this.nearestFoe(r, 2, COHESION.faceHorse);
+    return cav && cav.mode !== 'withdraw' && cav.mode !== 'rally' ? cav : null;
+  }
+
+  /**
+   * Every man of the block faces (wx, wy) where he stands and stays there: its places are where
+   * its men stand, in the new frame, to the nearest file and rank (the old files become its ranks
+   * after a quarter turn), so nobody walks. `turnFoot` re-forms it later.
+   */
+  private faceInPlace(r: Regiment, wx: number, wy: number): void {
+    const d = this.d;
+    const lx = -wy;
+    const ly = wx;
+    let minL = Infinity;
+    let maxL = -Infinity;
+    let maxF = -Infinity;
+    for (const id of r.members) {
+      if (d.state[id] !== State.Fighting) continue;
+      const l = d.x[id]! * lx + d.y[id]! * ly;
+      const f = d.x[id]! * wx + d.y[id]! * wy;
+      if (l < minL) minL = l;
+      if (l > maxL) maxL = l;
+      if (f > maxF) maxF = f;
+    }
+    if (minL > maxL) return;
+    const sp = r.spacing;
+    const step = rankStep(r);
+    const cols = Math.max(1, Math.round((maxL - minL) / sp) + 1);
+    for (const id of r.members) {
+      if (d.state[id] !== State.Fighting) continue;
+      const l = d.x[id]! * lx + d.y[id]! * ly;
+      const f = d.x[id]! * wx + d.y[id]! * wy;
+      d.col[id] = Math.max(0, Math.min(cols - 1, Math.round((l - minL) / sp)));
+      d.row[id] = Math.max(0, Math.round((maxF - f) / step));
+    }
+    r.fx = r.dfx = wx;
+    r.fy = r.dfy = wy;
+    r.cols = cols;
+    r.width = (cols - 1) * sp + 4;
+    const oax = r.ax;
+    const oay = r.ay;
+    // The front's middle, where the foremost men stand.
+    const mid = (minL + maxL) * 0.5;
+    r.ax = lx * mid + wx * maxF;
+    r.ay = ly * mid + wy * maxF;
+    // (Each file's men in rank order, two in one place moved one back: see `closeRanks`.)
+    this.compactFiles(r);
+    if ((r.tx - oax) * (r.tx - oax) + (r.ty - oay) * (r.ty - oay) < 4) {
+      r.tx = r.ax;
+      r.ty = r.ay;
+    }
+    r.inPlace = true;
+    r.facedAt = this.tick;
+    r.movedAt = this.tick;
+    for (const id of r.members) d.cu[id] = 0;
   }
 
   /**

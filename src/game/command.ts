@@ -388,7 +388,7 @@ export const COHESION = {
   faceDelay: 5,
   faceDress: 15,
   faceEvery: 30,
-  /** ...nor with enemy horse within this of it (unless riding off to rally). */
+  /** With enemy horse within this of it (not riding off to rally) it faces in place, with no re-forming walk, and re-forms once the horse is gone. */
   faceHorse: 150,
   rearTurn: 30,
   /** A reserve block goes in on its own for an open enemy flank within this many times its width and depth (and 20) of it. */

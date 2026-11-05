@@ -154,8 +154,8 @@ describe('battle: routs are a scatter, not a march', () => {
     const spread: number[] = [];
     const paces: number[] = [];
     const growth: number[] = [];
-    // (Eight days: since v14 fewer blocks break while they still have a dozen men.)
-    battles(8, (b) => {
+    // (Twelve days: since v14 fewer blocks break while they still have a dozen men, and since v17 blocks facing horse in place break deep or wide, so eight swung about the bar.)
+    battles(12, (b) => {
       const track = new Map<number, { t0: number; r0: number }>();
       while (!b.done()) {
         b.step();

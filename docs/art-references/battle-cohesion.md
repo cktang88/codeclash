@@ -888,6 +888,25 @@ The march-wave is lower because the line now bends smoothly (each man dresses on
 
 **Speed** (the first 2,000 ticks, 2,800 a side, best of 2): base 1.37-1.45 ms a tick, foot 1.62-1.79. The foot battles are further into the melee by then (they end in about 1,700 ticks), so part of the gap is more fighting to compute. Station keeping and the wider look are most of the rest, about 10% on an equal workload before the merge.
 
+### 8.5a Facing horse in place (follow-up)
+
+Foot now faces horse in place: see `formations.md` §2.5.1. Measured on the merged base, which already has the foot work, against the same with in-place facing:
+
+| Measure | Before | After |
+|---|---|---|
+| idle-free-foe | 0.12 | 0.05 |
+| idle-near-fight | 1.63 | 1.53 |
+| idle-gap | 0.23 | 0.15 |
+| walks-away | 0.67 | 0.67 |
+| foe-ignored | 0.39 | 0.42 |
+| stacked | 0.071 | 0.092 |
+| block-idle | 0.11 | 0.25 |
+| missile-idle | 25.3 | 24.0 |
+| wrapping | 28.5 | 25.4 |
+
+- Mirror: 50.5% at 250 a side (200 seeds).
+- Speed: unchanged, 1.43-1.62 ms a tick against 1.49-1.68 for the first 2,000 ticks at 2,800 a side.
+
 ### 8.6 Not done
 
 - **Idle men face their regiment's front.** The renderer turns a man to his foe only when he has one, so an idle rear-ranker of a block that has turned its rear ranks about still shows his back to the enemy. That fix is in `scene.ts`, which belongs to the renderer.
