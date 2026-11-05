@@ -41,9 +41,13 @@ export function withMap<T>(m: PartMap | null, draw: () => T): T {
 const T = (p: P2): P2 => (XF ? XF.f(p) : p);
 /** A canvas pixel's centre back in key-art units. */
 const back = (c: Paper, x: number, y: number): P2 => {
-  const p: P2 = [(x + 0.5 - c.FX) / c.L, (y + 0.5 - c.FY) / c.L];
+  // One point refilled per pixel: the maps read it at once, and shapeK reads the answer at once.
+  const p = BACK;
+  p[0] = (x + 0.5 - c.FX) / c.L;
+  p[1] = (y + 0.5 - c.FY) / c.L;
   return XF ? XF.inv(p) : p;
 };
+const BACK: P2 = [0, 0];
 /** A frame for a key-art point and angle, turned with the part. */
 // frameAt turns clockwise on screen, rig angles counter-clockwise: a part turned by +d turns its frames by -d.
 const frameAt = (o: P2, deg: number) => frameAt0(T(o), deg - (XF ? XF.deg : 0));
