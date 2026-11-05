@@ -54,6 +54,18 @@ const enum PK {
   Wisp,
 }
 
+/**
+ * What a hit body sheds (docs/art-references/undead.md: the dead fall to bone, never blood). The
+ * living bleed; of the Hollow Host the ghouls (flesh) ooze a dark ichor, the wraiths (spirit) spill
+ * witchfire, and every other (bone) throws bone chips and grave dust.
+ */
+const enum Shed {
+  Blood,
+  Ichor,
+  Bone,
+  Witchfire,
+}
+
 interface Particle {
   kind: PK;
   /** World position on the ground, and height above it in map pixels. */
@@ -246,7 +258,7 @@ export class BattleScene {
   /** HD: blood still spreading from the fallen: map point, radius, amount, tick due. */
   /** HD: dust particles alive (counted each frame). */
   private dustN = 0;
-  private pools: { x: number; y: number; r: number; a: number; at: number }[] = [];
+  private pools: { x: number; y: number; r: number; a: number; ichor: boolean; at: number }[] = [];
   /** The atlas image versions last uploaded (HD grids fill in the background). */
   private atlasVer = [0, 0];
   /** How many of each atlas's landed grid strips (Atlas.landed) its texture holds. */
@@ -514,14 +526,19 @@ export class BattleScene {
         const dead = s.state === State.Dead;
         const n = dead ? 6 : 3;
         const h = s.s.mounted ? 12 : 8;
-        // A ring of single drops bursting outward (see docs/art-references/battle-effects.md).
+        const shed = this.shedOf(i);
+        // A ring of single drops bursting outward (see docs/art-references/battle-effects.md); a ghoul's dark ichor (v 2).
+        const ichor = shed === Shed.Ichor;
         const a0 = rng.next() * Math.PI * 2;
-        for (let k = 0; k < n * 2; k++) {
+        if (shed === Shed.Bone || shed === Shed.Witchfire) this.shedDry(shed, s.x, s.y, h, dead, rng);
+        else for (let k = 0; k < n * 2; k++) {
           const a = a0 + (k / (n * 2)) * Math.PI * 2;
           const sp = 14 + rng.next() * 18;
-          this.spawn(PK.Blood, s.x, s.y, h + rng.next() * 3, Math.cos(a) * sp, Math.sin(a) * sp, 6 + rng.next() * 18, 0.9, 1, rng.next() < 0.5 ? 0.42 : 0.6, 0.05, 0.04, 1);
+          const dark = rng.next() < 0.5;
+          if (ichor) this.spawn(PK.Blood, s.x, s.y, h + rng.next() * 3, Math.cos(a) * sp, Math.sin(a) * sp, 6 + rng.next() * 18, 0.9, 1, dark ? 0.1 : 0.17, dark ? 0.11 : 0.19, dark ? 0.07 : 0.11, 1, 2);
+          else this.spawn(PK.Blood, s.x, s.y, h + rng.next() * 3, Math.cos(a) * sp, Math.sin(a) * sp, 6 + rng.next() * 18, 0.9, 1, dark ? 0.42 : 0.6, 0.05, 0.04, 1);
         }
-        if (rng.next() < 0.12) this.stampFx(`splat${rng.int(4)}`, s.x + (rng.next() - 0.5) * 4, s.y + (rng.next() - 0.5) * 4, 0.7);
+        if (shed === Shed.Blood && rng.next() < 0.12) this.stampFx(`splat${rng.int(4)}`, s.x + (rng.next() - 0.5) * 4, s.y + (rng.next() - 0.5) * 4, 0.7);
       }
       if (s.state === State.Dead) {
         // (Classic stamps corpses into the ground for good: one that may yet rise waits, drawn as a figure.)
@@ -689,7 +706,8 @@ export class BattleScene {
     this.stamped[i] = 1;
     const s = this.battle.soldiers[i]!;
     const rng = this.rng;
-    const pools = s.s.mounted ? 2 : 1;
+    // (The undead leave no red pool: bone falls dry, a ghoul's ichor is in the drops.)
+    const pools = this.shedOf(i) !== Shed.Blood ? 0 : s.s.mounted ? 2 : 1;
     for (let k = 0; k < pools; k++) this.stampFx(`pool${rng.int(6)}`, s.x + (rng.next() - 0.5) * 3 * pools, s.y + (rng.next() - 0.5) * 3, 0.7);
     this.restampCorpse(i);
   }
@@ -1621,7 +1639,8 @@ export class BattleScene {
           p.vz -= 120 * dt;
           if (p.z <= 0) {
             if (p.kind === PK.Blood && this.rng.next() < 0.35) {
-              this.stamps.push({ tex: 2, x: Math.round(this.mapX(p.x, p.y)), y: Math.round(this.mapY(p.x, p.y)), u: 0, v: 0, w: 1, h: 1, ax: 0, ay: 0, shade: 1, a: 0.75, solid: true, r: 0.24, g: 0.05, b: 0.04 });
+              const ichor = p.v === 2;
+              this.stamps.push({ tex: 2, x: Math.round(this.mapX(p.x, p.y)), y: Math.round(this.mapY(p.x, p.y)), u: 0, v: 0, w: 1, h: 1, ax: 0, ay: 0, shade: 1, a: 0.75, solid: true, r: ichor ? 0.1 : 0.24, g: ichor ? 0.11 : 0.05, b: ichor ? 0.07 : 0.04 });
             }
             this.spare.push(p);
             continue;
@@ -1662,6 +1681,36 @@ export class BattleScene {
     return (this.hdFxB ??= { decal: new Batch(gfx.gl, gfx.corners, 1024), fx: new Batch(gfx.gl, gfx.corners, 1024), soft: new Batch(gfx.gl, gfx.corners, 1024), std: new Batch(gfx.gl, gfx.corners, 256) });
   }
 
+  /** What soldier i sheds when hit (the undead bodies as sprites128.ts's UNDEAD_FOOT and UNDEAD_RIDERS draw them). */
+  private shedOf(i: number): Shed {
+    const s = this.battle.soldiers[i]!;
+    if (this.battle.setup.armies[s.team]?.faction !== 'undead') return Shed.Blood;
+    if (s.commander) return Shed.Bone;
+    return s.cls === U.Spearmen ? Shed.Ichor : s.cls === U.Archers ? Shed.Witchfire : Shed.Bone;
+  }
+
+  /** Bone chips and a breath of grave dust off a struck skeleton; witchfire motes off a wraith. */
+  private shedDry(shed: Shed, x: number, y: number, h: number, dead: boolean, rng: Rng): void {
+    if (shed === Shed.Witchfire) {
+      for (let k = 0; k < (dead ? 10 : 4); k++)
+        this.spawn(PK.Wisp, x + (rng.next() - 0.5) * 3, y + (rng.next() - 0.5) * 2, h * (0.4 + rng.next() * 0.6), (rng.next() - 0.5) * 10, (rng.next() - 0.5) * 10, 6 + rng.next() * 10, 0.4 + rng.next() * (dead ? 0.9 : 0.4), 1, 0.55, 1, 0.55, 1);
+      return;
+    }
+    const a0 = rng.next() * Math.PI * 2;
+    const n = dead ? 7 : 3;
+    for (let k = 0; k < n; k++) {
+      const a = a0 + (k / n) * Math.PI * 2 + (rng.next() - 0.5) * 0.6;
+      const sp = 8 + rng.next() * 18;
+      const g = rng.next() < 0.6 ? 0.86 : 0.62;
+      this.spawn(PK.Debris, x, y, h + rng.next() * 2, Math.cos(a) * sp, Math.sin(a) * sp, 10 + rng.next() * 16, 0.9, 1, g, g * 0.95, g * 0.8, 1);
+    }
+    if (this.field)
+      for (let k = 0; k < (dead ? 3 : 1); k++) {
+        const g = 0.74 + rng.next() * 0.08;
+        this.spawn(PK.Dust, x + (rng.next() - 0.5) * 3, y + (rng.next() - 0.5) * 3, 1 + rng.next() * (dead ? 4 : h * 0.6), (rng.next() - 0.5) * 6, (rng.next() - 0.5) * 6, 2 + rng.next() * 3, 1 + rng.next() * 0.8, 2 + rng.int(dead ? 3 : 2), g, g * 0.97, g * 0.9, 0.35, rng.int(PUFF_VARIANTS));
+      }
+  }
+
   /** HD: whether a man is at grips with a foe (his target within arm's reach, struck at lately): an archer shooting is not. */
   private inMelee(s: Battle['soldiers'][number], tick: number): boolean {
     if (tick - s.actedAt >= 15) return false;
@@ -1697,14 +1746,22 @@ export class BattleScene {
         const soaks = dead || melee || bad;
         const n = dead ? 6 : 3;
         const h = s.s.mounted ? 12 : 8;
-        // A ring of drops bursting outward, some fine, some heavy (v 1: they stain where they land).
-        const a0 = rng.next() * Math.PI * 2;
-        for (let k = 0; k < n * 2; k++) {
-          const a = a0 + (k / (n * 2)) * Math.PI * 2 + (rng.next() - 0.5) * 0.5;
-          const sp = 10 + rng.next() * 24;
-          const dark = rng.next() < 0.45;
-          this.spawn(PK.Blood, s.x, s.y, h + rng.next() * 3, Math.cos(a) * sp, Math.sin(a) * sp, 6 + rng.next() * 18, 0.9, 1 + rng.int(2), dark ? 0.34 : 0.58, dark ? 0.04 : 0.07, 0.04, dead || melee ? 1 : 0);
-        }
+        const shed = this.shedOf(i);
+        const wet = shed === Shed.Blood || shed === Shed.Ichor;
+        // A ring of drops bursting outward, some fine, some heavy (v 1 blood, 2 ichor: they stain
+        // where they land). Bone and spirit shed dry (chips, dust, witchfire) and stain nothing.
+        if (wet) {
+          const a0 = rng.next() * Math.PI * 2;
+          const ichor = shed === Shed.Ichor;
+          for (let k = 0; k < n * 2; k++) {
+            const a = a0 + (k / (n * 2)) * Math.PI * 2 + (rng.next() - 0.5) * 0.5;
+            const sp = 10 + rng.next() * 24;
+            const dark = rng.next() < 0.45;
+            const v = dead || melee ? (ichor ? 2 : 1) : 0;
+            if (ichor) this.spawn(PK.Blood, s.x, s.y, h + rng.next() * 3, Math.cos(a) * sp, Math.sin(a) * sp, 6 + rng.next() * 18, 0.9, 1 + rng.int(2), dark ? 0.1 : 0.17, dark ? 0.11 : 0.19, dark ? 0.07 : 0.11, 1, v);
+            else this.spawn(PK.Blood, s.x, s.y, h + rng.next() * 3, Math.cos(a) * sp, Math.sin(a) * sp, 6 + rng.next() * 18, 0.9, 1 + rng.int(2), dark ? 0.34 : 0.58, dark ? 0.04 : 0.07, 0.04, 1, v);
+          }
+        } else this.shedDry(shed, s.x, s.y, h, dead, rng);
         // Steel on mail and plate: a few sparks.
         if (!dead && s.s.armour >= 30 && rng.next() < 0.4) {
           const ns = 3 + rng.int(3);
@@ -1712,10 +1769,14 @@ export class BattleScene {
         }
         // Blood soaks in where he stands, and spatters: where he falls, where men fight, or a bad
         // wound now and then (a small dark stain, no splash).
-        if (soaks && (dead || melee || rng.next() < 0.5)) {
-          f.mark(mx + (rng.next() - 0.5) * 2.5, my + (rng.next() - 0.5) * 1.2, dead || melee ? 1.1 + rng.next() * 1.4 : 0.9 + rng.next() * 0.6, dead ? 0.3 : melee ? 0.15 : 0.12, 0, now);
-          if (rng.next() < (dead ? 0.45 : melee ? 0.22 : 0)) f.decalId(HD_ID.splat + rng.int(SPLATS), mx + (rng.next() - 0.5) * 4, my + (rng.next() - 0.5) * 2, now, true);
-        }
+        // Ichor soaks in as blood does (no red splash); bone and spirit only scuff the earth pale
+        // where one falls or the press is thick.
+        if (wet && soaks && (dead || melee || rng.next() < 0.5)) {
+          const amt = dead ? 0.3 : melee ? 0.15 : 0.12;
+          const ichor = shed === Shed.Ichor;
+          f.mark(mx + (rng.next() - 0.5) * 2.5, my + (rng.next() - 0.5) * 1.2, dead || melee ? 1.1 + rng.next() * 1.4 : 0.9 + rng.next() * 0.6, ichor ? 0 : amt, 0, now, ichor ? amt : 0);
+          if (!ichor && rng.next() < (dead ? 0.45 : melee ? 0.22 : 0)) f.decalId(HD_ID.splat + rng.int(SPLATS), mx + (rng.next() - 0.5) * 4, my + (rng.next() - 0.5) * 2, now, true);
+        } else if (!wet && (dead || melee)) f.mark(mx + (rng.next() - 0.5) * 2, my + (rng.next() - 0.5) * 1, dead ? 2.2 : 1.3, 0, dead ? 0.2 : 0.07, now);
       }
       if (s.state === State.Dead) {
         if (!this.stamped[i] && tick - s.diedAt >= this.dieTicks(s.team, this.kindOf(i))) {
@@ -1724,7 +1785,10 @@ export class BattleScene {
           const big = s.s.mounted ? 1.7 : 1;
           const cx = mx + (rng.next() - 0.5) * 2 * big;
           const cy = my + (rng.next() - 0.5) * big;
-          for (let k = 0; k < 4; k++) this.pools.push({ x: cx + (rng.next() - 0.5) * 2.4 * big, y: cy + (rng.next() - 0.5) * 1.1 * big, r: (2 + k * 1.05) * big, a: 0.3, at: tick + k * 8 });
+          // (The bone and the spirit leave no pool; a ghoul's is ichor.)
+          const shed = this.shedOf(i);
+          if (shed === Shed.Blood || shed === Shed.Ichor)
+            for (let k = 0; k < 4; k++) this.pools.push({ x: cx + (rng.next() - 0.5) * 2.4 * big, y: cy + (rng.next() - 0.5) * 1.1 * big, r: (2 + k * 1.05) * big, a: shed === Shed.Ichor ? 0.26 : 0.3, ichor: shed === Shed.Ichor, at: tick + k * 8 });
         }
         continue;
       }
@@ -1751,7 +1815,7 @@ export class BattleScene {
     if (this.pools.length > 0) {
       let w = 0;
       for (const p of this.pools) {
-        if (p.at <= tick) f.mark(p.x, p.y, p.r, p.a, 0, now);
+        if (p.at <= tick) f.mark(p.x, p.y, p.r, p.ichor ? 0 : p.a, 0, now, p.ichor ? p.a : 0);
         else this.pools[w++] = p;
       }
       this.pools.length = w;
@@ -1930,7 +1994,7 @@ export class BattleScene {
         p.vz -= (p.kind === PK.Spark ? 160 : 120) * dt;
         if (p.z <= 0) {
           // A drop soaks in where it lands.
-          if (p.kind === PK.Blood && p.v === 1 && rng.next() < 0.2) f.mark(this.mapX(p.x, p.y), this.mapY(p.x, p.y), 0.6 + p.size * 0.3, 0.22, 0, now);
+          if (p.kind === PK.Blood && p.v > 0 && rng.next() < 0.2) f.mark(this.mapX(p.x, p.y), this.mapY(p.x, p.y), 0.6 + p.size * 0.3, p.v === 1 ? 0.22 : 0, 0, now, p.v === 2 ? 0.22 : 0);
           this.spare.push(p);
           continue;
         }
