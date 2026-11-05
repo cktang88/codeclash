@@ -45,8 +45,16 @@ const loadPainter = () =>
     throw e;
   }));
 
+/**
+ * The cache write of the last sheet painted. The next job waits for it: a write transaction left
+ * open while this thread paints for seconds (its completion is delivered to this thread) holds up
+ * every other worker's cache reads, and a page closed meanwhile loses the sheet from the cache.
+ */
+let writing: Promise<void> = Promise.resolve();
+
 self.onmessage = async (e: MessageEvent<Req>) => {
   if (e.data.warm) return void loadPainter().catch(() => {});
+  await writing;
   const { faction, hue, kind, level, half, from, version, key, cached } = e.data;
   let sheet: KindSheet;
   try {
@@ -67,5 +75,6 @@ self.onmessage = async (e: MessageEvent<Req>) => {
   const meta = { level: sheet.level, width: sheet.width, height: sheet.height, rects: sheet.rects.slice(), ms: sheet.ms };
   post(sheet);
   const ix = indexPixels({ ...meta, pixels });
-  await writeSheet(version, key, meta, ix, ix ? undefined : new Uint8Array(pixels.buffer));
+  writing = writeSheet(version, key, meta, ix, ix ? undefined : new Uint8Array(pixels.buffer));
+  await writing;
 };

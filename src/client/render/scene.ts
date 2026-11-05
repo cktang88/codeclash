@@ -16,7 +16,7 @@
 import { Battle, facesRear, FIELD_H, FIELD_W, State, TICK_S, type Projectile } from '../../game/battle.ts';
 import { Rng } from '../../game/rng.ts';
 import { U } from '../../game/units.ts';
-import { Anim, ANIM_COUNT, COMMANDER_KIND, KIND_COUNT, riseFrame, riseTicks, type Atlas, type Dir, type KindSheet, type Stance } from './contract.ts';
+import { Anim, ANIM_COUNT, COMMANDER_KIND, KIND_COUNT, riseFrame, riseTicks, type Atlas, type Dir, type KindSheet, type SheetAsk, type Stance } from './contract.ts';
 import { buildFx, type FxSheet, type Region } from './fx.ts';
 import { HdField } from './field-hd.ts';
 import { ANGLES, fxId, HOOVES, lookOf, PUFF_SIZES, PUFF_VARIANTS, SPLATS } from './fx-hd.ts';
@@ -132,6 +132,8 @@ interface Gfx {
   stamps: SpriteStream;
   /** Detaches the context-loss listeners. */
   unlisten: () => void;
+  /** The largest texture side the GPU takes (an HD sheet over it is drawn from a coarser level). */
+  maxTex: number;
 }
 
 /** Sun: ground offset of a shadow per pixel of height (long, late-afternoon, toward the viewer's right). */
@@ -356,7 +358,7 @@ export class BattleScene {
       // finds them ready (not at once: the grids come first, and the start should not stutter).
       if (atlas.sheet && typeof setTimeout === 'function')
         setTimeout(() => {
-          for (const lv of [2, 4]) for (const k of this.kindsPresent[t]!) atlas.sheet!(k, lv);
+          for (const lv of [2, 4]) for (const k of this.kindsPresent[t]!) atlas.sheet!(k, lv, 'prefetch');
         }, 2500);
     });
     this.fxSheet = buildFx([a, b], battle.setup.seed);
@@ -786,6 +788,7 @@ export class BattleScene {
       softs: new SpriteStream(gl, corners),
       stamps: new SpriteStream(gl, corners),
       unlisten,
+      maxTex: Number(gl.getParameter(gl.MAX_TEXTURE_SIZE)) || 4096,
     };
     // The atlas textures hold the grids as they are now.
     for (let t = 0; t < 2; t++) {
@@ -1249,41 +1252,61 @@ export class BattleScene {
         // are tens of MB a kind: only the living in view earn them).
         const live = !!(this.seen[t]! & (1 << k));
         const inView = live || !!(this.seenDead[t]! & (1 << k));
-        // The finest painted level no finer than the view. Asking for the levels keeps them
-        // fresh in the painter's memory (and starts painting the ones still missing); the 8x
-        // sheets (tens of MB a kind) are asked for only by kinds actually in view.
-        let best: KindSheet | null = null;
-        let bestL = 1;
+        // The level the view draws this kind at: the finest no finer than the view (the 8x sheets,
+        // tens of MB a kind, only for the living in view).
         let wantL = 1;
         for (const L of atlas.levels) {
           if (L > m || (L >= 8 && !live)) break;
           wantL = L;
-          const sh = atlas.sheet(k, L);
-          if (sh) {
-            best = sh;
-            bestL = L;
+        }
+        // Asking keeps a sheet fresh in the painter's memory and orders the painting: for a kind
+        // in view, the level drawn is needed and the coarsest is a fallback (cheap: shown in
+        // seconds while the needed one paints), the levels between are painted after anything
+        // needed; a kind out of view only has its coarsest prefetched (for a pan).
+        let best: KindSheet | null = null;
+        let bestL = 1;
+        let coarse: KindSheet | null = null;
+        let coarseL = 1;
+        const L0 = atlas.levels[0]!;
+        for (const L of atlas.levels) {
+          if (L > wantL) break;
+          const ask: SheetAsk = !inView ? (L === L0 ? 'prefetch' : 'peek') : L === wantL ? 'need' : L === L0 ? 'fallback' : 'prefetch';
+          const sh = atlas.sheet(k, L, ask);
+          // A sheet larger than the GPU takes (a small GPU, the 8x sheets) is never drawn.
+          if (!sh || sh.width > gfx.maxTex || sh.height > gfx.maxTex) continue;
+          if (!coarse) {
+            coarse = sh;
+            coarseL = L;
           }
+          best = sh;
+          bestL = L;
         }
         // A finer sheet still being painted: the picture will change by itself.
         if (inView && bestL < wantL) this.settled = false;
         // The best sheet goes up a band of rows at a time, within the frame's budget (several
         // 8x sheets landing together are hundreds of MB): until it is all there the kind is
-        // drawn from the finest level already up, else the level-1 grid.
+        // drawn from the finest level already up; with none up, the coarsest painted level goes
+        // up first (a few MB: one frame), else the level-1 grid.
         let drawn: HdTex | null = null;
-        if (best && inView) {
-          const key = hdKey(t, k, bestL);
+        let going: HdTex | null = null;
+        let goingCoarse: HdTex | null = null;
+        const up = (L: number, sh: KindSheet): HdTex => {
+          const key = hdKey(t, k, L);
           let h = this.hdTex.get(key);
-          if (h && h.sheet !== best) {
+          if (h && h.sheet !== sh) {
             // The painter dropped and repainted it: a new sheet.
             gl.deleteTexture(h.tex);
             this.hdTex.delete(key);
             h = undefined;
           }
           if (!h) {
-            h = { tex: texture(gl, null, best.width, best.height), sheet: best, t, k, L: bestL, rows: 0 };
+            h = { tex: texture(gl, null, sh.width, sh.height), sheet: sh, t, k, L, rows: 0 };
             this.hdTex.set(key, h);
           }
-          if (h.rows < best.height && budget > 0) budget -= uploadRows(gl, h, budget);
+          return h;
+        };
+        if (best && inView) {
+          const h = (going = up(bestL, best));
           if (h.rows >= best.height) drawn = h;
           else {
             this.settled = false;
@@ -1291,13 +1314,20 @@ export class BattleScene {
               const o = L < bestL ? this.hdTex.get(hdKey(t, k, L)) : undefined;
               if (o && o.rows >= o.sheet.height) drawn = o;
             }
+            if (!drawn && coarse && coarseL < bestL) {
+              const c = (goingCoarse = up(coarseL, coarse));
+              if (c.rows < coarse.height && budget > 0) budget -= uploadRows(gl, c, budget);
+              if (c.rows >= coarse.height) drawn = c;
+            }
+            if (budget > 0) budget -= uploadRows(gl, h, budget);
+            if (h.rows >= best.height) drawn = h;
           }
         }
         // Only the drawn level of a kind in view stays on the GPU (and the one going up).
         for (const L of atlas.levels) {
           const key = hdKey(t, k, L);
           const h = this.hdTex.get(key);
-          if (h && h !== drawn && !(inView && L === bestL && h.sheet === best)) {
+          if (h && h !== drawn && h !== going && h !== goingCoarse) {
             gl.deleteTexture(h.tex);
             this.hdTex.delete(key);
           }

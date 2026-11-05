@@ -14,7 +14,7 @@
 
 import { FACTIONS, type FactionId } from '../../game/factions.ts';
 import { U } from '../../game/units.ts';
-import { Anim, ANIM_COUNT, COMMANDER_KIND, KIND_COUNT, type Atlas, type BuildAtlas, type Dir, type KindSheet } from './contract.ts';
+import { Anim, ANIM_COUNT, COMMANDER_KIND, KIND_COUNT, type Atlas, type BuildAtlas, type Dir, type KindSheet, type SheetAsk } from './contract.ts';
 import { FRAMES, LOOPS, TICKS } from './frames.ts';
 import { paintPaper, paperBlows, paperSheetStart, type PaperFrame } from './paper/index.ts';
 import { paperKindFor } from './paper/registry.ts';
@@ -3460,12 +3460,26 @@ interface Job {
   from?: KindSheet;
   /** When a renderer last asked for it (the queue serves what is wanted now first). */
   asked: number;
+  /** How much that ask wanted it: WANT (need, fallback, prefetch). */
+  want: number;
+  /** When it went to a worker (for the stats). */
+  sent?: number;
   done: ((s: KindSheet) => void)[];
   /** Called if it could not be painted. */
   failed: (() => void)[];
   /** HD 64: the level-8 job this halving waits for (not queued until that sheet lands). */
   source?: Job;
 }
+
+/** What the background painter did so far (battle-perf.html `__hdPool()`, the art-loading timings). */
+const stats = {
+  failed: 0,
+  /** Jobs answered: key, want, whether the cache was asked, when sent (ms) and how long it took. */
+  log: [] as { key: string; want: number; cached: boolean; sent: number; ms: number; ok: boolean }[],
+};
+
+/** SheetAsk as a rank: lower is painted sooner. 'peek' never starts a job. */
+const WANT: Record<Exclude<SheetAsk, 'peek'>, number> = { need: 0, fallback: 1, prefetch: 2 };
 
 /** Hi-res sheets are painted by a small pool of workers (or, without workers, on idle timeouts). */
 const workPool = {
@@ -3489,8 +3503,10 @@ function startPool(): void {
   if (typeof Worker === 'undefined') return;
   try {
     const cores = typeof navigator !== 'undefined' && navigator.hardwareConcurrency ? navigator.hardwareConcurrency : 2;
-    // Leave the main thread and the simulation a core of their own.
-    const n = Math.max(1, Math.min(6, cores - 2));
+    // Leave the main thread (which runs the simulation too) a core of its own; the rest paint.
+    // (cores - 2 left 2 of 4 cores painting while the main thread, a paused or light battle,
+    // mostly waits for them.)
+    const n = Math.max(1, Math.min(8, cores - 1));
     for (let i = 0; i < n; i++) {
       const w = new Worker(new URL('./sprite-worker.ts', import.meta.url), { type: 'module' });
       const slot = { w, busy: null as Job | null };
@@ -3498,6 +3514,8 @@ function startPool(): void {
         const job = slot.busy;
         slot.busy = null;
         if (job) {
+          stats.log.push({ key: job.key, want: job.want, cached: workPool.cached.has(job.key), sent: Math.round(job.sent ?? 0), ms: Math.round(now() - (job.sent ?? now())), ok: !('error' in e.data) });
+          if (stats.log.length > 400) stats.log.shift();
           if ('error' in e.data) failJob(job, e.data.error);
           else finishJob(job, e.data);
         }
@@ -3550,6 +3568,7 @@ const failedLately = (key: string): boolean => {
 };
 
 function failJob(job: Job, error: string): void {
+  stats.failed++;
   workPool.jobs.delete(job.key);
   failed.set(job.key, now());
   console.error(`sprite sheet ${job.key} was not painted: ${error}`);
@@ -3567,21 +3586,24 @@ function finishJob(job: Job, sheet: KindSheet): void {
 let idleTimer = false;
 const STALE_MS = 1000;
 function pump(): void {
-  // Level-1 grids first (the first frame waits for them), then what a renderer asked for in the
-  // last second (after an art switch or a zoom, the previous view's leftovers wait), then the
-  // rest. Among the wanted, level 2 and the finest level asked for a kind go before the levels
-  // between (zoomed in to 8x: 2, then 8, then 4, so the view is sharp sooner); lower levels
-  // first otherwise: they are cheap, and they are what the camera falls back to.
-  // Up to the renderer's latest ask, a few frames' slack (as for the memory, above).
+  // Wanted now (asked within the last second, up to the renderer's latest ask with a few frames'
+  // slack, as for the memory above) before what was wanted before an art switch or a zoom:
+  //   0. the level-1 grids of kinds in view (what a kind is drawn from until any HD sheet lands),
+  //   1. 'fallback': the cheap level 2 of kinds in view (seconds sooner than the level they need),
+  //   2. 'need': the level the view draws, for kinds in view,
+  //   3. the other grids (the zoomed-out field), then 4. 'prefetch', coarse levels first,
+  //   5. anything no longer asked for.
+  // A kind is in view when it has a fresh 'need' or 'fallback' job.
   const t = lastAsk || now();
   const fresh = (j: Job): boolean => t - j.asked <= STALE_MS + 3 * frameGap;
-  const top = new Map<string, number>();
-  for (const j of workPool.jobs.values()) {
-    const ak = `${j.faction}:${j.hue}:${j.kind}`;
-    if (fresh(j) && j.level > (top.get(ak) ?? 0)) top.set(ak, j.level);
-  }
-  const rank = (j: Job): number =>
-    j.level === 1 ? 0 : !fresh(j) ? 3 : j.level <= 2 || j.level >= (top.get(`${j.faction}:${j.hue}:${j.kind}`) ?? 0) ? 1 : 2;
+  const inView = new Set<string>();
+  for (const j of workPool.jobs.values()) if (j.level > 1 && j.want <= WANT.fallback && fresh(j)) inView.add(`${j.faction}:${j.hue}:${j.kind}`);
+  const rank = (j: Job): number => {
+    // Grids are asked for once, when a kind first shows: never stale.
+    if (j.level === 1) return inView.has(`${j.faction}:${j.hue}:${j.kind}`) ? 0 : 3;
+    if (!fresh(j)) return 5;
+    return j.want === WANT.fallback ? 1 : j.want === WANT.need ? 2 : 4;
+  };
   workPool.queue.sort((p, q) => rank(p) - rank(q) || p.level - q.level);
   if (workPool.ok) {
     if (!workPool.ready) return;
@@ -3589,6 +3611,7 @@ function pump(): void {
       if (slot.busy || workPool.queue.length === 0) continue;
       const job = workPool.queue.shift()!;
       slot.busy = job;
+      job.sent = now();
       const cached = workPool.cached.has(job.key);
       // The first sheet to paint: every worker starts loading the painter (seconds) at once.
       if (!cached && !workPool.warmed) {
@@ -3631,17 +3654,29 @@ export function sheetFor(faction: string, hue: number, kind: number, level: numb
 
 const sheetKey = (faction: string, hue: number, kind: number, level: number, half: boolean): string => `${faction}:${hue}:${kind}:${level}${half ? ':half' : ''}`;
 
-function request(faction: string, hue: number, kind: number, level: number, done: (s: KindSheet) => void, half = false, fail?: () => void): void {
+/**
+ * A fresh ask for a job: how much it is wanted is the strongest ask since it went stale (a
+ * prefetch of a sheet a view needs leaves it needed).
+ */
+function askJob(job: Job, want: number): void {
+  const t = now();
+  if (want <= job.want || t - job.asked > STALE_MS + 3 * frameGap) job.want = want;
+  job.asked = t;
+  // A halving waiting for its level-8 sheet keeps that sheet wanted as much.
+  if (job.source) askJob(job.source, job.want);
+}
+
+function request(faction: string, hue: number, kind: number, level: number, done: (s: KindSheet) => void, half = false, fail?: () => void, want = WANT.need): void {
   startPool();
   const key = sheetKey(faction, hue, kind, level, half);
   const old = workPool.jobs.get(key);
   if (old) {
     old.done.push(done);
     if (fail) old.failed.push(fail);
-    old.asked = now();
+    askJob(old, want);
     return;
   }
-  const job: Job = { key, faction, hue, kind, level, half, done: [done], failed: fail ? [fail] : [], asked: now() };
+  const job: Job = { key, faction, hue, kind, level, half, done: [done], failed: fail ? [fail] : [], asked: now(), want };
   workPool.jobs.set(key, job);
   if (half) {
     // HD 64 after HD: the level-8 sheet may be in memory already; halving it is all that is left.
@@ -3652,7 +3687,7 @@ function request(faction: string, hue: number, kind: number, level: number, done
     const source = job.from ? undefined : workPool.jobs.get(src);
     if (source) {
       job.source = source;
-      source.asked = now();
+      askJob(source, want);
       const go = (sh?: KindSheet): void => {
         job.source = undefined;
         job.from = sh;
@@ -3678,7 +3713,7 @@ function request(faction: string, hue: number, kind: number, level: number, done
 const store = new Map<string, { sheet: KindSheet; h: Held }>();
 
 /** A painted sheet, or null while it is painted (the first ask starts it, in the background). */
-function storedSheet(faction: string, hue: number, kind: number, level: number, half: boolean): KindSheet | null {
+function storedSheet(faction: string, hue: number, kind: number, level: number, half: boolean, ask: SheetAsk = 'need'): KindSheet | null {
   const key = sheetKey(faction, hue, kind, level, half);
   const got = store.get(key);
   asked();
@@ -3686,12 +3721,9 @@ function storedSheet(faction: string, hue: number, kind: number, level: number, 
     got.h.used = lastAsk;
     return got.sheet;
   }
+  if (ask === 'peek') return null;
   const job = workPool.jobs.get(key);
-  if (job) {
-    job.asked = now();
-    // A halving waiting for its level-8 sheet keeps that sheet wanted.
-    if (job.source) job.source.asked = job.asked;
-  }
+  if (job) askJob(job, WANT[ask]);
   else if (!failedLately(key))
     request(faction, hue, kind, level, (sh) => {
       if (store.has(key)) return;
@@ -3700,8 +3732,12 @@ function storedSheet(faction: string, hue: number, kind: number, level: number, 
       // For profiles and the art-loading timings (docs/perf/art-loading.md).
       if (typeof performance !== 'undefined') performance.mark?.('codeclash:sheet', { detail: key });
       hold(h);
-    }, half);
+    }, half, undefined, WANT[ask]);
   return null;
+}
+
+export function hdPoolStats(): { workers: number; queued: number; failed: number; log: typeof stats.log } {
+  return { workers: workPool.workers.length, queued: workPool.queue.length, failed: stats.failed, log: stats.log };
 }
 
 /**
@@ -3805,10 +3841,10 @@ function makeAtlas(faction: string, hue: number, hd64: boolean): Atlas {
       return [gridColOf(kind, a, frame, dir, blowTab[kind] ?? 1, advTab[kind]) * CELL_W, (kind * 4 + dir) * CELL_H];
     },
     levels,
-    sheet: (kind, level) => {
+    sheet: (kind, level, ask) => {
       trim();
       if (kind < 0 || kind >= KIND_COUNT || !levels.includes(level)) return null;
-      return storedSheet(faction, hue, kind, level, hd64 && level === 4);
+      return storedSheet(faction, hue, kind, level, hd64 && level === 4, ask);
     },
     slot: (kind, a, frame, dir) => slotOf(kind, a, frame, dir, blowTab[kind] ?? 1, advTab[kind]),
   };
