@@ -3419,6 +3419,8 @@ export class Battle {
     if (threat) {
       // No time for the word: every man shoots as he can at the nearest foe (and the men he
       // reaches fight him: see `act`). They stand: no wheeling, a man shoots where he must.
+      // Bowmen finish the arrow they are nocking at the burst rate (BOW_BURST).
+      if (!r.atWill && this.fire[r.team]![r.cls] === 'lob') for (const id of r.members) this.d.cd[id] = Math.round(this.d.cd[id]! * BOW_BURST);
       r.atWill = true;
       r.targetReg = threat.id;
       r.aimedAt = this.tick;
@@ -5055,7 +5057,9 @@ export class Battle {
     d.ammo[i]!--;
     d.acted[i] = this.tick;
     // On the volley clock a man is loaded again in time for the next word; at will, each at his own pace.
-    d.cd[i] = st.reload + this.rng.int(r.role === 'missile' && !r.atWill ? 3 : Math.max(2, Math.floor(st.reload / 5)));
+    // (At will, a bowman nocks and looses as fast as he can draw, with no long aim: the burst rate.)
+    const reload = r.atWill && kind === 'lob' && r.role === 'missile' ? Math.round(st.reload * BOW_BURST) : st.reload;
+    d.cd[i] = reload + this.rng.int(r.role === 'missile' && !r.atWill ? 3 : Math.max(2, Math.floor(reload / 5)));
   }
 
   /**
@@ -6234,6 +6238,11 @@ const VOLLEY_BEAT = 6;
  * shoot flat, point-blank.
  */
 const AT_WILL_GAP = 50;
+/**
+ * At will, bows reload in this share of their volley reload: the 10-12 a minute a war bow manages
+ * in a short burst, against the sustained, aimed 5-6 (docs/art-references/missile-drill.md).
+ */
+const BOW_BURST = 0.6;
 const POINT_BLANK = 100;
 /** After this long (ticks) with nothing to shoot at, missile foot goes looking for a target along its line. */
 const MISSILE_SEEK = 150;

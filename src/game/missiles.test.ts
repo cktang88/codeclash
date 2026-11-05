@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { Battle, BATTLE_VERSION, ballisticsOf, DOCTRINE, State, type ArmySpec, type Projectile, type Regiment } from './battle.ts';
-import type { FactionId } from './factions.ts';
+import { Battle, BATTLE_VERSION, ballisticsOf, DOCTRINE, fireEvery, State, type ArmySpec, type Projectile, type Regiment } from './battle.ts';
+import { factionStats, type FactionId } from './factions.ts';
 import { only, placeRegiment, plainArmy } from './testing.ts';
 import { U, UNIT_COUNT } from './units.ts';
 
@@ -246,8 +246,10 @@ describe('battle: missile drill (v11)', () => {
 
   it('formed shooters loose in volleys on the word: the loaded men together, then a pause of a reload', () => {
     // [faction, class, volley every (ticks)]: bows quickest, then crossbows, then matchlocks
-    // (which after their first volley fire rank by rank, S3: a rank's volley every 57 / ranks).
-    for (const [faction, cls, cycle] of [['templar', U.Archers, 21], ['templar', U.Crossbowmen, 44], ['samurai', U.Crossbowmen, 57]] as const) {
+    // (which after their first volley fire rank by rank, S3: a rank's volley every 177 / ranks).
+    // Since the v17 reloads: 5 s, 12 s and 17.7 s (docs/art-references/missile-drill.md).
+    for (const [faction, cls, cycle] of [['templar', U.Archers, 50], ['templar', U.Crossbowmen, 120], ['samurai', U.Crossbowmen, 177]] as const) {
+      expect(fireEvery(factionStats(faction)[cls]!), `${faction} ${cls}`).toBe(cycle);
       const { b } = butts(faction, cls);
       const reg = b.regiments.find((r) => r.team === 0 && r.cls === cls)!;
       const ranks = faction === 'samurai' ? Math.min(DOCTRINE.samurai.ripple, reg.rows) : 1;
@@ -255,7 +257,7 @@ describe('battle: missile drill (v11)', () => {
       const fresh = shotsOf(b);
       // Each regiment keeps its own volley clock.
       const ticks = new Map<number, number[]>();
-      while (b.tick < 240 && !b.done()) { // (until the foe walks up and they fire at will)
+      while (b.tick < 600 && !b.done()) { // (until the foe walks up and they fire at will)
         b.step();
         for (const p of fresh()) {
           if (p.team !== 0) continue;
@@ -297,7 +299,10 @@ describe('battle: missile drill (v11)', () => {
     const bows = b.regiments.find((r) => r.team === 0)!;
     const spears = b.regiments.find((r) => r.team === 1)!;
     placeRegiment(b, bows, 700, 600, 1, 0);
-    placeRegiment(b, spears, 860, 600, -1, 0);
+    // (200 apart: with the v17 reloads, a volley every 5 s, whether a block gets its at-will shots
+    // off before the foe is in among it turns on where the last volley fell in its run-in. From
+    // 160 on this seed the last volley came as the spears broke into their charge.)
+    placeRegiment(b, spears, 900, 600, -1, 0);
     const fresh = shotsOf(b);
     let volleyShots = 0;
     let atWill = 0;
@@ -363,7 +368,9 @@ describe('battle: missile drill (v11)', () => {
     b.generals[1].rashKnights = true;
     const bows = b.regiments.find((r) => r.team === 0)!;
     placeRegiment(b, bows, 700, 600, 1, 0);
-    b.regiments.filter((r) => r.team === 1).forEach((r) => placeRegiment(b, r, 900, 600, -1, 0));
+    // (250 apart: see above; from 200 the last volley flies as the horse is 100 away, and nobody
+    // has reloaded by the time it is in among them.)
+    b.regiments.filter((r) => r.team === 1).forEach((r) => placeRegiment(b, r, 950, 600, -1, 0));
     const fresh = shotsOf(b);
     let lastAtWill = -1;
     let firstBlow = -1;
