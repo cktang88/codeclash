@@ -13,7 +13,7 @@
 //        from the foot's screen y, so no sorting) → dust, smoke and missile shadows (blended).
 //   3. A post shader blows the buffer up with nearest pixels and grades it.
 
-import { Battle, FIELD_H, FIELD_W, State, TICK_S, type Projectile } from '../../game/battle.ts';
+import { Battle, facesRear, FIELD_H, FIELD_W, State, TICK_S, type Projectile } from '../../game/battle.ts';
 import { Rng } from '../../game/rng.ts';
 import { U } from '../../game/units.ts';
 import { Anim, ANIM_COUNT, COMMANDER_KIND, KIND_COUNT, riseFrame, riseTicks, type Atlas, type Dir, type KindSheet, type Stance } from './contract.ts';
@@ -24,7 +24,7 @@ import { Batch, cornerBuffer, dropTarget, SpriteProgram, SpriteStream, target, t
 import { paintGround, type Ground } from './ground.ts';
 import { projX, projY, PX, unproject } from './iso.ts';
 import { GlPost } from './post.ts';
-import { facing, settleTurn, stillRising, turnVia, TURN_HOLD, TURN_STEP } from './pose.ts';
+import { facing, ownFront, settleTurn, stillRising, turnVia, TURN_HOLD, TURN_STEP, type Vec } from './pose.ts';
 import { AnimTrack, blankFacts, isGait, pickAnim } from './animstate.ts';
 import { frameBox, nextZoomFloor, NO_INSETS, zoomOutScale, type Insets, type ZoomFloor } from './fit.ts';
 import { upscaleCanvas } from './upscale.ts';
@@ -268,6 +268,8 @@ export class BattleScene {
   /** Each man's clip, its start and stride across frames (animstate.ts). */
   private anims: AnimTrack;
   private readonly facts = blankFacts();
+  /** Scratch for each man's own front (pose.ts ownFront). */
+  private readonly front: Vec = { x: 1, y: 0 };
   /** The way each man last moved (world velocity above a crawl): a walker who pauses a tick keeps facing it. */
   private moveX: Float32Array;
   private moveY: Float32Array;
@@ -1431,7 +1433,9 @@ export class BattleScene {
         const drilled = s.state === State.Fighting && (want === Anim.Walk || want === Anim.Run) && reg.mode !== 'pursue' && !reg.ragged;
         const phase = drilled ? s.reg * 0.71 + Math.round(s.sx / Math.max(1, reg.spacing)) * 0.12 : (i % 7) * 1.37;
         anim = track.resolve(i, want, T, start, frameRow, kind * ANIM_COUNT, tpfRow, phase);
-        // Facing: the way they move, else where they shoot or at their foe, else the regiment's front.
+        // Facing: the way they move, else where they shoot or at their foe, else his own front
+        // (pose.ts ownFront: the regiment's, its rear for a rear-ranker turned about, the enemy
+        // block for a man swinging round its flank).
         // A man still in his stride through the sim's pauses keeps facing the way he went.
         if (speed > 3) {
           this.moveX[i] = s.vx;
@@ -1441,10 +1445,13 @@ export class BattleScene {
         const vx = gait ? this.moveX[i]! : s.vx;
         const vy = gait ? this.moveY[i]! : s.vy;
         const left = this.leftDir[i]!;
-        const next = settleTurn(facing(anim, vx, vy, tdx, tdy, melee, this.aimX[i]!, this.aimY[i]!, reg.fx, reg.fy, dir), dir, anim, T - this.turnAt[i]!, left === 255 ? -1 : (left as Dir));
+        const curling = s.curling === true && !tgt && reg.targetReg >= 0;
+        const foeReg = curling ? b.regiments[reg.targetReg] : undefined;
+        const fr = ownFront(reg.fx, reg.fy, facesRear(reg, s.row, s.mounted === true, b.tick), curling, foeReg ? foeReg.ax - s.x : NaN, foeReg ? foeReg.ay - s.y : NaN, this.front);
+        const next = settleTurn(facing(anim, vx, vy, tdx, tdy, melee, this.aimX[i]!, this.aimY[i]!, fr.x, fr.y, dir), dir, anim, T - this.turnAt[i]!, left === 255 ? -1 : (left as Dir));
         if (next !== dir) {
           // A half turn goes through the quarter between (pose.ts turnVia), shown for TURN_STEP.
-          const via = anim === Anim.Attack || anim === Anim.Shoot ? next : turnVia(dir, next, vx * vx + vy * vy > 9 ? vx : tgt ? tdx : reg.fx, vx * vx + vy * vy > 9 ? vy : tgt ? tdy : reg.fy);
+          const via = anim === Anim.Attack || anim === Anim.Shoot ? next : turnVia(dir, next, vx * vx + vy * vy > 9 ? vx : tgt ? tdx : fr.x, vx * vx + vy * vy > 9 ? vy : tgt ? tdy : fr.y);
           this.turnAt[i] = via === next ? T : T - (TURN_HOLD - TURN_STEP);
           this.leftDir[i] = via === next ? dir : 255;
           dir = via;

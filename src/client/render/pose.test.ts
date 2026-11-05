@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { Anim, type Dir } from './contract.ts';
 import { dirFor } from './iso.ts';
-import { facing, RISE_SLIDE, settleTurn, stillRising, turnVia, TURN_HOLD } from './pose.ts';
+import { facesRear, type Regiment } from '../../game/battle.ts';
+import { facing, ownFront, RISE_SLIDE, settleTurn, stillRising, turnVia, TURN_HOLD, TURN_STEP, type Vec } from './pose.ts';
 
 const N = NaN;
 
@@ -104,5 +105,72 @@ describe('turnVia and turning back', () => {
     expect(settleTurn(1, 0, Anim.Walk, TURN_HOLD, 1)).toBe(0);
     expect(settleTurn(1, 0, Anim.Walk, 2 * TURN_HOLD, 1)).toBe(1);
     expect(settleTurn(3, 0, Anim.Walk, TURN_HOLD, 1)).toBe(3);
+  });
+});
+
+describe('ownFront: each man faces where he himself faces', () => {
+  const out: Vec = { x: 0, y: 0 };
+  // A block facing +x, locked to its front, with an enemy at its back until tick 110.
+  const reg = { fx: 1, fy: 0, rows: 6, rearUntil: 110 } as unknown as Regiment;
+
+  it("is the regiment's front for a man of the front half, or with no enemy behind", () => {
+    expect(facesRear(reg, 2, false, 100)).toBe(false);
+    expect(ownFront(1, 0, false, false, N, N, out)).toEqual({ x: 1, y: 0 });
+    // Once the threat behind has passed (rearUntil), the rear half faces the front again.
+    expect(facesRear(reg, 5, false, 110)).toBe(false);
+  });
+
+  it('turns the rear half about, foot only, as the sim does (battle.ts seek)', () => {
+    expect(facesRear(reg, 3, false, 100)).toBe(true);
+    expect(facesRear(reg, 5, false, 100)).toBe(true);
+    expect(facesRear(reg, 3, true, 100)).toBe(false);
+    // A two-rank block turns its second rank; a single rank turns nobody but rank 1 and on.
+    expect(facesRear({ ...reg, rows: 2 } as Regiment, 1, false, 100)).toBe(true);
+    expect(facesRear({ ...reg, rows: 1 } as Regiment, 0, false, 100)).toBe(false);
+    const f = ownFront(1, 0, facesRear(reg, 4, false, 100), false, N, N, out);
+    expect([f.x, f.y + 0]).toEqual([-1, 0]);
+    // An idle or bracing rear-ranker with no foe of his own is drawn facing the rear...
+    expect(facing(Anim.Idle, 0, 0, N, N, false, N, N, f.x, f.y, 0)).toBe(dirFor(-1, 0, 0));
+    expect(facing(Anim.Brace, 0, 0, N, N, false, N, N, f.x, f.y, 0)).toBe(dirFor(-1, 0, 0));
+    // ...but one walking still faces his way, and one with a foe in reach faces him.
+    expect(facing(Anim.Walk, 0, 20, N, N, false, N, N, f.x, f.y, 0)).toBe(dirFor(0, 20, 0));
+    expect(facing(Anim.Brace, 0, 0, 0, 6, true, N, N, f.x, f.y, 0)).toBe(dirFor(0, 6, 0));
+  });
+
+  it('faces the enemy block a man swings round the flank of, standing', () => {
+    const f = ownFront(1, 0, false, true, 0, 30, out);
+    expect(facing(Anim.Idle, 0, 0, N, N, false, N, N, f.x, f.y, 0)).toBe(dirFor(0, 30, 0));
+    // Swinging round, the way he goes.
+    expect(facing(Anim.Walk, 20, -10, N, N, false, N, N, f.x, f.y, 0)).toBe(dirFor(20, -10, 0));
+    // No block known (or on top of it): his own front.
+    expect(ownFront(1, 0, false, true, N, N, out)).toEqual({ x: 1, y: 0 });
+    const g = ownFront(1, 0, true, true, 0, 0, out);
+    expect([g.x, g.y + 0]).toEqual([-1, 0]);
+  });
+
+  it('turns a rear-ranker about through a quarter, then holds (a lapse of the threat behind does not flick him back)', () => {
+    // Drawn facing the front, the rear half turns about at T = 0: settleTurn then turnVia, as scene.ts does.
+    const front = dirFor(1, 0, 0);
+    let dir = front;
+    let turnAt = -100;
+    const seen: number[] = [];
+    for (let T = 0; T < 4 * TURN_HOLD; T += 0.25) {
+      // The threat behind lapses for a tick and a half just after he turned.
+      const rear = T < 2 || T >= 3.5;
+      const f = ownFront(1, 0, rear, false, N, N, out);
+      const next = settleTurn(facing(Anim.Idle, 0, 0, N, N, false, N, N, f.x, f.y, dir), dir, Anim.Idle, T - turnAt);
+      if (next !== dir) {
+        const via = turnVia(dir, next, f.x, f.y);
+        turnAt = via === next ? T : T - (TURN_HOLD - TURN_STEP);
+        dir = via;
+        seen.push(dir);
+      }
+    }
+    // A quarter, then the rear: never straight from front to rear.
+    expect(seen[0]).not.toBe(dirFor(-1, 0, 0));
+    expect(((seen[0]! - front) & 3) % 2).toBe(1);
+    expect(seen[1]).toBe(dirFor(-1, 0, 0));
+    // And no more turns: the lapse fell within his hold.
+    expect(seen.length).toBe(2);
   });
 });

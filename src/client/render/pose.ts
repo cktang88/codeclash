@@ -8,11 +8,12 @@ import { dirFor, screenDir } from './iso.ts';
  * running keeps facing the foe as he shuffles, gives ground or steps back in the press); else,
  * loosing a missile, where the shot goes (a horse archer wheeling away shoots over his shoulder,
  * archers shoot at a block off their front); else at the foe he strikes or squares up to; else
- * his regiment's front. Flinching from a wound turns nobody (the foe in reach, else as he was).
+ * his own front (ownFront: his regiment's, its rear for a rear-ranker turned about, the enemy
+ * block for a man swinging round its flank). Flinching from a wound turns nobody (the foe in reach, else as he was).
  *
  * `vx, vy`: his velocity; `tdx, tdy`: toward his foe (NaN: none); `melee`: the foe is in reach
- * (or he has no missile); `adx, ady`: his latest shot (NaN: none yet); `fx, fy`: the regiment's
- * front; `prev`: last frame's facing (hysteresis, see dirFor).
+ * (or he has no missile); `adx, ady`: his latest shot (NaN: none yet); `fx, fy`: his own
+ * front (ownFront); `prev`: last frame's facing (hysteresis, see dirFor).
  */
 export function facing(anim: Anim, vx: number, vy: number, tdx: number, tdy: number, melee: boolean, adx: number, ady: number, fx: number, fy: number, prev: Dir): Dir {
   const hasTarget = tdx === tdx;
@@ -25,6 +26,34 @@ export function facing(anim: Anim, vx: number, vy: number, tdx: number, tdy: num
   if (anim === Anim.Shoot && !hasTarget && adx === adx) return dirFor(adx, ady, prev);
   if (hasTarget && (anim === Anim.Attack || anim === Anim.Shoot || (anim === Anim.Brace && melee))) return dirFor(tdx, tdy, prev);
   return dirFor(fx, fy, prev);
+}
+
+/** A world direction, filled in place (no allocation per figure). */
+export interface Vec {
+  x: number;
+  y: number;
+}
+
+/**
+ * The front a man with no foe of his own squares to (facing()'s `fx, fy`), filled into `out`:
+ * his regiment's front (`fx, fy`), but the rear half of a block locked to its front that has faced
+ * about against an enemy at its back (`rear`, battle.ts facesRear) faces its rear; and a man
+ * swinging round the enemy's flank (`curling`, Soldier.curling) faces the block he goes round
+ * (`ex, ey`: from him to that block; NaN: none). A block that has faced round has its new front at
+ * once (battle.ts faceAbout), so its men, standing or re-forming, already face it.
+ */
+export function ownFront(fx: number, fy: number, rear: boolean, curling: boolean, ex: number, ey: number, out: Vec): Vec {
+  if (curling && ex === ex && ex * ex + ey * ey > 1e-6) {
+    out.x = ex;
+    out.y = ey;
+  } else if (rear) {
+    out.x = -fx;
+    out.y = -fy;
+  } else {
+    out.x = fx;
+    out.y = fy;
+  }
+  return out;
 }
 
 /**
