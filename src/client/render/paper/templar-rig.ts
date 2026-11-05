@@ -490,19 +490,33 @@ interface SkinImg {
 const SKIN = new Map<string, SkinImg>();
 let SKIN_SCRATCH: Paper | null = null;
 /**
- * Forgets every memoised skin. A skin is drawn from the first pose that gives its key (whole-pixel
- * offsets) and reused for later poses with the same key, so what is in the memo decides pixels:
- * the sheet painter clears it at the start of each sheet (paperSheetStart), so a sheet comes out
- * the same whatever the thread painted before it.
+ * Forgets every memoised skin. A skin's image depends on its key alone (memoSkin draws it at a
+ * fixed place), so this changes no pixels: the sheet painter calls it at the start of each sheet
+ * (paperSheetStart) to keep the memo's size down.
  */
 export function clearSkinMemo(): void {
   SKIN.clear();
 }
 
 /**
+ * `posed` moved by whole pixels (dx, dy canvas px at level L), every bone and tip. Positions are
+ * worked out from whole pixels, so a bone lands on the same number whatever pose it came from.
+ */
+function shifted(posed: Posed, L: number, dx: number, dy: number): Posed {
+  const mv = (v: number, d: number): number => (Math.round(v * L) + d) / L;
+  const bones = posed.bones.map((b) => ({ ...b, x: mv(b.x, dx), y: mv(b.y, dy), tx: mv(b.tx, dx), ty: mv(b.ty, dy) }));
+  return { ...posed, bones, byName: Object.fromEntries(bones.map((b) => [b.name, b])) };
+}
+
+/**
  * A skinned part (cloth over several bones) whose image is reused while its bones keep their
  * snapped angles and their whole-pixel offsets from one another: it is drawn once on a scratch
  * surface and blitted, moved with its first bone (as the skeleton's part cache does for rigid parts).
+ *
+ * The image is drawn with the pose moved so that the first bone sits on its rest-pose origin,
+ * not where this pose has it: the same cloth drawn at another whole-pixel place on the canvas can
+ * come out a pixel different (sampling at pixel centres), so drawing it where the first pose to
+ * give the key happened to stand made the pixels depend on what was painted before.
  */
 export function memoSkin(id: string, bones: readonly string[], draw: (c: Paper, ctx: DrawCtx) => void): Attachment {
   return {
@@ -510,8 +524,11 @@ export function memoSkin(id: string, bones: readonly string[], draw: (c: Paper, 
     draw: (c, _x, ctx) => {
       const p = ctx.posed, L = c.L;
       const B0 = p.byName[bones[0]!]!;
+      const R0 = restPose(p.skel, p.level, p.facing).byName[bones[0]!]!;
       const ax = Math.round(B0.x * L), ay = Math.round(B0.y * L);
-      let key = `${id}|${p.skel.name}|${p.facing}|${L}|${c.CW}x${c.CH}${c.lightX === 1 ? '' : '|m'}`;
+      const rx = Math.round(R0.x * L), ry = Math.round(R0.y * L);
+      // skinMap's shading angle follows the chest's step whether or not the chest is a skin bone.
+      let key = `${id}|${p.skel.name}|${p.facing}|${L}|${c.CW}x${c.CH}${c.lightX === 1 ? '' : '|m'}|c${p.byName.chest?.step ?? ''}`;
       for (const b of bones) {
         const B = p.byName[b];
         if (B) key += `|${B.step},${Math.round(B.x * L) - ax},${Math.round(B.y * L) - ay},${B.sy}`;
@@ -521,8 +538,8 @@ export function memoSkin(id: string, bones: readonly string[], draw: (c: Paper, 
         const s = (SKIN_SCRATCH ??= new Paper());
         s.begin(L, { w: c.CW / L, h: c.CH / L, footY: c.FY / c.CH });
         s.lightX = c.lightX;
-        draw(s, ctx);
-        img = { x0: 0, y0: 0, w: 0, h: 0, pix: new Int16Array(0), ord: new Int16Array(0), polys: s.order, ax, ay };
+        draw(s, { ...ctx, posed: shifted(p, L, rx - ax, ry - ay), prev: undefined });
+        img = { x0: 0, y0: 0, w: 0, h: 0, pix: new Int16Array(0), ord: new Int16Array(0), polys: s.order, ax: rx, ay: ry };
         if (s.bx1 >= s.bx0) {
           img.x0 = s.bx0;
           img.y0 = s.by0;

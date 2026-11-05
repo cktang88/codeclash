@@ -26,9 +26,10 @@ export interface PaperFrame {
 }
 
 /**
- * Call before painting a sheet's frames: forgets the memos whose content depends on what was
- * painted before (templar-rig.ts memoSkin), so a sheet's pixels depend only on its army, kind and
- * level (the persistent cache names sheets by those alone).
+ * Call before painting a sheet's frames: forgets the skinned-cloth memo (templar-rig.ts memoSkin)
+ * to keep its size down. Its images depend on their keys alone, so this changes no pixels: a
+ * sheet's pixels depend only on its army, kind and level (the persistent cache names sheets by
+ * those alone; skin-memo.test.ts and determinism.test.ts hold it to that).
  */
 export function paperSheetStart(): void {
   clearSkinMemo();
@@ -58,8 +59,8 @@ function usedCodes(faction: string, level: number, kind?: number): Map<number, n
   const key = kind === undefined ? `${faction}:${level}` : `${faction}:${level}:k${kind}`;
   const got = USED.get(key);
   if (got && got.n === kinds.length && got.mats === materialCount()) return got.codes;
-  // From an empty skin memo, and leaving it empty: the codes do not depend on what was painted
-  // before, and the frame being painted does not depend on these samples (see paperSheetStart).
+  // The skin memo is cleared around the samples for its size only: its images depend on their
+  // keys alone (see paperSheetStart).
   clearSkinMemo();
   const codes = new Map<number, number>();
   for (const k of kinds)
