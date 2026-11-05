@@ -7,7 +7,9 @@
 //   cold   the first paintSheet of that (kind, level): clip bakes, part images and the level's
 //          palette sampling included, as a fresh worker pays them
 //   warm   (--warm) the same sheet painted again with every cache hot: the per-frame cost alone
-// Frames are counted from the sheet's rects, so the per-frame cost is printed too.
+// Frames are counted from the sheet's rects, so the per-frame cost is printed too. Times are the
+// process's CPU time (user + system), which a busy machine disturbs far less than the wall clock;
+// --wall times by the clock instead.
 // Profile with: node --import tsx --cpu-prof --cpu-prof-dir=/tmp/prof scripts/sprite-bench.ts ...
 import { writeFileSync } from 'node:fs';
 import { paintSheet } from '../src/client/render/sprites128.ts';
@@ -23,6 +25,12 @@ const kinds = (args[2] ?? '0,1,2,3,4,5,6,7,8,9,10').split(',').map(Number);
 const warm = flags.includes('--warm');
 const jsonOut = flags.find((f) => f.startsWith('--json='))?.slice(7);
 const HUE = 215;
+const wall = flags.includes('--wall');
+const clock = (): number => {
+  if (wall) return performance.now();
+  const u = process.cpuUsage();
+  return (u.user + u.system) / 1000;
+};
 
 interface Level {
   cold: number;
@@ -42,19 +50,19 @@ const cell = (x: Level) => `${r(x.cold)}${warm ? `/${r(x.warm!)}` : ''}`;
 for (const faction of factions)
   for (const k of kinds) {
     const before = lazyRigsBuilt();
-    const t0 = performance.now();
+    const t0 = clock();
     paintPaper(faction, k, 1, Anim.Idle, 0, 0, HUE, new Paper());
-    const row: Row = { faction, kind: k, rig: performance.now() - t0, rigsBuilt: lazyRigsBuilt() - before, lv: {} };
+    const row: Row = { faction, kind: k, rig: clock() - t0, rigsBuilt: lazyRigsBuilt() - before, lv: {} };
     rows.push(row);
     for (const lv of levels) {
-      const t1 = performance.now();
+      const t1 = clock();
       const s = paintSheet(faction, HUE, k, lv);
-      const x: Level = { cold: performance.now() - t1, frames: 0 };
+      const x: Level = { cold: clock() - t1, frames: 0 };
       for (let i = 2; i < s.rects.length; i += 6) if (s.rects[i]! > 0) x.frames++;
       if (warm) {
-        const t2 = performance.now();
+        const t2 = clock();
         paintSheet(faction, HUE, k, lv);
-        x.warm = performance.now() - t2;
+        x.warm = clock() - t2;
       }
       row.lv[lv] = x;
     }
@@ -64,7 +72,7 @@ for (const faction of factions)
     });
     console.log(`${faction.padEnd(8)}${String(k).padStart(3)}  rig ${String(r(row.rig)).padStart(5)}ms (${row.rigsBuilt} built)  ${lvs.join('  ')}`);
   }
-console.log(`\ntotals, ms (cold${warm ? '/warm' : ''})`);
+console.log(`\ntotals, ${wall ? 'wall' : 'CPU'} ms (cold${warm ? '/warm' : ''})`);
 const total = (rs: Row[], lv: number, f: (x: Level) => number) => r(rs.reduce((s, x) => s + f(x.lv[lv]!), 0));
 for (const g of [...factions, 'all']) {
   const rs = g === 'all' ? rows : rows.filter((x) => x.faction === g);
