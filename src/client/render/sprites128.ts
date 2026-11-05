@@ -3235,8 +3235,10 @@ interface Tile {
 function paperTile(pf: PaperFrame, slot: number): Tile {
   const src = new Uint32Array(pf.pixels.buffer, pf.pixels.byteOffset, pf.width * pf.height);
   let x0 = pf.width, y0 = pf.height, x1 = -1, y1 = -1;
-  for (let y = 0; y < pf.height; y++)
-    for (let x = 0; x < pf.width; x++)
+  // Only the frame's painted box can hold opaque pixels (the whole frame when it gives none).
+  const [bx0, by0, bx1, by1] = pf.box ?? [0, 0, pf.width - 1, pf.height - 1];
+  for (let y = by0; y <= by1; y++)
+    for (let x = bx0; x <= bx1; x++)
       if (src[y * pf.width + x]! >>> 24) {
         if (x < x0) x0 = x;
         if (x > x1) x1 = x;
@@ -3283,7 +3285,7 @@ export function paintSheet(faction: string, hue: number, kind: number, level: nu
       for (let at = 0; at < runs * FRAMES[a]!; at++) {
         const fr = at % FRAMES[a]!;
         const slot = at < FRAMES[a]! ? dir * COLS + COL0[a]! + fr : slotOf(kind, a as Anim, at, dir as Dir, blows);
-        const pf = paintPaper(faction, kind, level, a as Anim, at, dir as Dir, hue);
+        const pf = paintPaper(faction, kind, level, a as Anim, at, dir as Dir, hue, undefined, { reuse: true });
         if (pf) {
           tiles.push(paperTile(pf, slot));
           continue;
@@ -3362,7 +3364,7 @@ export function paintGrid(faction: string, hue: number, kind: number): KindSheet
         const fr = at % FRAMES[a]!;
         const col = at < FRAMES[a]! ? COL0[a]! + fr : gridColOf(kind, a as Anim, at, dir as Dir, blows);
         // Paper-doll kinds are drawn natively at level 1 (one unit per pixel), not downscaled.
-        const pf = paintPaper(faction, kind, 1, a as Anim, at, dir as Dir, hue);
+        const pf = paintPaper(faction, kind, 1, a as Anim, at, dir as Dir, hue, undefined, { reuse: true });
         if (pf) {
           paperCell(pf, out, width, col * CELL_W, dir * CELL_H);
           continue;

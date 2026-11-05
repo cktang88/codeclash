@@ -67,27 +67,45 @@ export function skinMap(posed: Posed, weights: Weights): PartMap {
     }
     return m;
   };
-  const blend = (p: P2): Aff => {
-    const out: Aff = [0, 0, 0, 0, 0, 0];
+  // The blend of the bones' maps at a point, into b0..b5 (no arrays: it runs per pixel shaded).
+  let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0;
+  const blend = (p: P2): void => {
+    let s0 = 0, s1 = 0, s2 = 0, s3 = 0, s4 = 0, s5 = 0;
     let tot = 0;
     for (const [n, w] of weights(p)) {
       if (w <= 0) continue;
       const m = aff(n);
-      for (let i = 0; i < 6; i++) out[i] = out[i]! + m[i]! * w;
+      s0 = s0 + m[0] * w;
+      s1 = s1 + m[1] * w;
+      s2 = s2 + m[2] * w;
+      s3 = s3 + m[3] * w;
+      s4 = s4 + m[4] * w;
+      s5 = s5 + m[5] * w;
       tot += w;
     }
-    if (tot <= 0) return [1, 0, 0, 1, 0, 0];
-    for (let i = 0; i < 6; i++) out[i] = out[i]! / tot;
-    return out;
+    if (tot <= 0) {
+      b0 = 1, b1 = 0, b2 = 0, b3 = 1, b4 = 0, b5 = 0;
+      return;
+    }
+    b0 = s0 / tot, b1 = s1 / tot, b2 = s2 / tot, b3 = s3 / tot, b4 = s4 / tot, b5 = s5 / tot;
   };
   const deg = (posed.byName.chest ? posed.byName.chest.step - rest.byName.chest!.step : 0) * SNAP_DEG;
   return {
-    f: (p) => apply(blend(p), p),
+    f: (p) => {
+      blend(p);
+      return [b0 * p[0] + b1 * p[1] + b4, b2 * p[0] + b3 * p[1] + b5];
+    },
     inv: (p) => {
       let q = p;
       // Two steps of the fixed point from the blend at the figure point itself: the bones of one
       // piece of cloth turn by a step or two from each other, so it has converged to well under a pixel.
-      for (let i = 0; i < 2; i++) q = invert(blend(q), p);
+      // (invert(blend(q), p), written out.)
+      for (let i = 0; i < 2; i++) {
+        blend(q);
+        const det = b0 * b3 - b1 * b2 || 1e-9;
+        const x = p[0] - b4, y = p[1] - b5;
+        q = [(b3 * x - b1 * y) / det, (-b2 * x + b0 * y) / det];
+      }
       return q;
     },
     deg,

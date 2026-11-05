@@ -901,6 +901,9 @@ export class Paper {
   private clMembers = new Int32Array(0);
   /** Scratch for `colours`. */
   private ciBuf = new Int16Array(0);
+  /** `colours(fp, true)`'s output, and the span of it the last frame wrote. */
+  private outBuf = new Uint32Array(0);
+  private outSpan: [number, number] = [0, 0];
 
   /**
    * Clusters of one colour smaller than `min` pixels take their most common same-material
@@ -994,6 +997,11 @@ export class Paper {
     this.prev.set(this.pix);
   }
 
+  /** The canvas box (inclusive) that holds every pixel `colours` sets: the drawn box grown by one. */
+  outBox(): [number, number, number, number] {
+    return this.box(1, 0);
+  }
+
   /** The codes painted and their pixel counts (to build a faction's master palette). */
   codes(into: Map<number, number> = new Map()): Map<number, number> {
     for (const v of this.pix) if (v >= 0) into.set(v, (into.get(v) ?? 0) + 1);
@@ -1005,9 +1013,11 @@ export class Paper {
    * every code goes to its fill colour in `fp`; single-pixel islands of a colour (orphans) take
    * their most common neighbour (inks and glows excepted); then the outline, a pixel outside the
    * figure beside it, takes the lit outline where the edge faces the light (from the edge
-   * normal) and the dark outline elsewhere.
+   * normal) and the dark outline elsewhere. Every pixel it sets lies in the drawn box grown by
+   * one (`outBox`). With `reuse`, the result is this surface's own buffer, overwritten by the
+   * next call: copy what you keep.
    */
-  colours(fp: FigurePalette): Uint32Array {
+  colours(fp: FigurePalette, reuse = false): Uint32Array {
     const { CW, CH, pix: PIX } = this;
     const N = CW * CH;
     const [bx0, by0, bx1, by1] = this.box(0, 0);
@@ -1045,10 +1055,20 @@ export class Paper {
           }
           if (best >= 0 && bn >= 2) ci[i] = best;
         }
-    const out = new Uint32Array(N);
+    const [ox0, oy0, ox1, oy1] = this.box(1, 0);
+    let out: Uint32Array;
+    if (!reuse) out = new Uint32Array(N);
+    else {
+      // The surface's own output buffer, overwritten by the next frame: only what the last frame
+      // wrote (its box's rows) needs clearing.
+      if (this.outBuf.length !== N) this.outBuf = new Uint32Array(N);
+      else this.outBuf.fill(0, this.outSpan[0], this.outSpan[1]);
+      out = this.outBuf;
+      this.outSpan[0] = oy0 * CW;
+      this.outSpan[1] = Math.max(oy0, oy1 + 1) * CW;
+    }
     const packed = packedOf(fp.rgb);
     const [kx, ky] = KEY_LIGHT;
-    const [ox0, oy0, ox1, oy1] = this.box(1, 0);
     for (let y = oy0; y <= oy1; y++)
       for (let x = ox0; x <= ox1; x++) {
         const i = y * CW + x;
