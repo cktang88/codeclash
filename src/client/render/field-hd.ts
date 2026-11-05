@@ -7,7 +7,8 @@
 //     would: tufts of blades lit on one side, stones lit upper left with a contact shadow, pebbles,
 //     flowers, cracks, short grass strokes. That pass is cached and only redrawn when the view moves.
 //   - The marks: a map-pixel field on the CPU (uploaded by dirty tiles) of blood soaked into the
-//     soil (R), how trodden and churned the ground is (G), and when blood last fell there (A). A
+//     soil (R), how trodden and churned the ground is (G), the undead's dark ichor (B, drawn as
+//     blood is but near black, never red) and when blood or ichor last fell there (A). A
 //     second pass, every frame, thresholds that smooth field per texel against a jitter noise, so
 //     a pool has a crisp, clotted, ragged edge at any level: soaked soil darkens, a pool forms, its
 //     rim clots dark, fresh blood is red and wet (a glint on the lit lip) and darkens to maroon and
@@ -304,7 +305,7 @@ void main() {
   vec2 T = floor(u_cam * u_m + 0.5) + floor(gl_FragCoord.xy);
   vec2 p = (T + 0.5) / u_m;
   vec4 mk = texture(u_marks, p / u_msize);
-  if (mk.r + mk.g < 0.004) { o = vec4(c, 1.0); return; }
+  if (mk.r + mk.g + mk.b < 0.004) { o = vec4(c, 1.0); return; }
   float hj = hT(T, 21u);
   float sj = vn(p, 0.75, 22u) * 0.7 + vn(p, 2.3, 23u) * 0.3;
   float d = bayer(u_m >= 8.0 ? floor(T / 2.0) : T);
@@ -328,20 +329,25 @@ void main() {
   }
 
   // Blood: soaked into the soil first, then pooled, a clotted rim, darkening with age.
-  float bl = mk.r + (sj - 0.5) * 0.32 + (hj - 0.5) * 0.05;
+  // Ichor (B) soaks and pools as blood does; its share of the wet sets the colour.
+  float wet = mk.r + mk.b;
+  float ich = mk.b / max(wet, 0.004);
+  float bl = wet + (sj - 0.5) * 0.32 + (hj - 0.5) * 0.05;
   float age = clamp((u_now - mk.a * 510.0) / 50.0, 0.0, 1.0);
   // A thin stain soaks into the earth as it dries: from a red tint to the soil darkened, and the
   // thin rim of a pool sinks into it, so old blood reads as dark ground, not red marks.
-  if (bl > 0.14 + age * 0.04) c *= mix(vec3(0.66, 0.42, 0.38), vec3(0.62, 0.53, 0.47), age);
+  if (bl > 0.14 + age * 0.04) c *= mix(mix(vec3(0.66, 0.42, 0.38), vec3(0.62, 0.53, 0.47), age), mix(vec3(0.5, 0.52, 0.44), vec3(0.62, 0.58, 0.52), age), ich);
   if (bl > 0.3 + age * 0.06) {
     vec3 pool = bl > 0.62 ? mix(hex(0x520f0c), hex(0x2c1610), age) : mix(hex(0x6c1612), hex(0x3c1a12), age);
     if (bl < 0.37) pool = mix(hex(0x420c0a), hex(0x261410), age);
     // A wet glint on the lit lip of fresh blood: where the field falls off toward the upper left.
-    if (age < 0.45 && bl > 0.4 && bl < 0.6 && hj < 0.55) {
+    if (age < 0.45 && ich < 0.5 && bl > 0.4 && bl < 0.6 && hj < 0.55) {
       float up = texture(u_marks, (p - vec2(0.7, 0.45)) / u_msize).r;
       if (up < mk.r - 0.06) pool = hex(0xa23a2c);
     }
-    c = pool;
+    // Ichor: a black, faintly green slick, going dull as it soaks in.
+    vec3 slick = bl > 0.62 ? mix(hex(0x1c2016), hex(0x221e18), age) : mix(hex(0x262a1c), hex(0x2c271e), age);
+    c = mix(pool, slick, ich);
   }
   o = vec4(c, 1.0);
 }`;
@@ -462,9 +468,10 @@ export class HdField {
 
   /**
    * Adds to the marks in a soft ellipse rx × rx/2 map px (flat on the iso ground) around (x, y):
-   * `blood` and `wear` 0..1 at the centre; `t` the battle second (blood darkens from it).
+   * `blood` and `wear` 0..1 at the centre; `t` the battle second (blood darkens from it);
+   * `ichor` 0..1, the undead's dark ichor, soaks and ages as blood does.
    */
-  mark(x: number, y: number, rx: number, blood: number, wear: number, t: number): void {
+  mark(x: number, y: number, rx: number, blood: number, wear: number, t: number, ichor = 0): void {
     const ry = rx * 0.5;
     const x0 = Math.max(0, Math.floor(x - rx));
     const x1 = Math.min(this.W - 1, Math.ceil(x + rx));
@@ -475,6 +482,7 @@ export class HdField {
     const tb = Math.min(255, Math.max(1, Math.round(t / 2)));
     const ab = blood * 255;
     const aw = wear * 255;
+    const ai = ichor * 255;
     for (let py = y0; py <= y1; py++)
       for (let px = x0; px <= x1; px++) {
         const dx = (px + 0.5 - x) / rx;
@@ -488,10 +496,14 @@ export class HdField {
           if (m[i + 3]! < tb) m[i + 3] = tb;
         }
         if (aw > 0) m[i + 1] = Math.min(255, m[i + 1]! + aw * f);
+        if (ai > 0) {
+          m[i + 2] = Math.min(255, m[i + 2]! + ai * f);
+          if (m[i + 3]! < tb) m[i + 3] = tb;
+        }
       }
     // The compose pass samples the marks with a linear filter and looks a little up-left (the
     // wet lip): a tile's look can change from a mark up to 2 px past its edge.
-    this.touch(x0 - 2, x1 + 2, y0 - 2, y1 + 2, blood > 0 ? t : -1, true);
+    this.touch(x0 - 2, x1 + 2, y0 - 2, y1 + 2, blood > 0 || ichor > 0 ? t : -1, true);
   }
 
   /** Flags the tiles over map box [x0, x1] × [y0, y1] to compose again (and, `marks`, to upload). */
