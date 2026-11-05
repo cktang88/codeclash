@@ -1,6 +1,8 @@
 // Hashes battle outcomes (winner, ticks, every figure's final x/y/hp/state, events) and times each step:
 // a performance change that should not alter results must leave every hash as it was.
 //   npx tsx scripts/sim-hash.ts [sizes=450,2000,2800] [seeds=10] [factions=1]
+// (cpu is process.cpuUsage: it leaves out other processes on a busy machine, but counts the
+// engine's helper threads. Compare timings run back to back: on a shared machine they drift.)
 import { Battle, BATTLE_VERSION, type ArmySpec } from '../src/game/battle.ts';
 import { UNIT_COUNT } from '../src/game/units.ts';
 import type { FactionId } from '../src/game/factions.ts';
