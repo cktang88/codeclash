@@ -650,11 +650,11 @@ export class Paper {
    * In a facing drawn as seen it returns `dx` unchanged.
    */
   litX(dx: number): number {
-    return this.lightX === 1 ? dx : -dx;
+    return this.lx_ === 1 ? dx : -dx;
   }
   /** Whether the light is on the left of what is being drawn (false while drawing for a mirror). */
   litLeft(): boolean {
-    return this.lightX === 1;
+    return this.lx_ === 1;
   }
 
   /**
@@ -772,9 +772,10 @@ export class Paper {
     ];
     const base = opts.tone ?? 2;
     const w = Math.max(ha, hb);
+    const detail = opts.detail, shine = opts.shine;
     this.poly(pts, (x, y, u, v) => {
-      if (opts.detail) {
-        const d = opts.detail(x, y, u, v);
+      if (detail) {
+        const d = detail(x, y, u, v);
         if (d >= 0) return d;
       }
       if (w < 1.5) return code(m, base);
@@ -782,10 +783,10 @@ export class Paper {
       // Bands in pixels, not fractions, so thin rods stay readable: 1 px lit edge, 1 px dark edge.
       // The lit edge stops short of the ends and the dark edge runs nearly full length, so the
       // bands do not end on the same row (flat banding).
-      if (px < -w + 1.2 && v > 0.1 + this.band * 0.3 && v < 0.86 + this.band * 0.3) return code(m, base + (opts.shine ? 2 : 1));
+      if (px < -w + 1.2 && v > 0.1 + this.band * 0.3 && v < 0.86 + this.band * 0.3) return code(m, base + (shine ? 2 : 1));
       if (px > w - 1.2 && v > 0.03 && v < 0.97) return code(m, base - 2);
       if (u > 0.25 + this.band) return code(m, base - 1);
-      if (opts.shine && Math.abs(u + 0.45) < 0.12 && v > 0.15 && v < 0.6) return code(m, base + 2);
+      if (shine && Math.abs(u + 0.45) < 0.12 && v > 0.15 && v < 0.6) return code(m, base + 2);
       return code(m, base);
     }, { a: A, b: B, w: 2 * w });
   }
@@ -806,17 +807,19 @@ export class Paper {
     }
     const base = opts.tone ?? 2;
     const small = Math.min(RX, RY) < 1.6;
+    const detail = opts.detail, shine = opts.shine;
+    const lightX = this.lightX;
     this.poly(pts, (x, y) => {
       const nx = (x + 0.5 - cx) / RX, ny = (y + 0.5 - cy) / RY;
-      if (opts.detail) {
-        const d = opts.detail(x, y, nx, ny);
+      if (detail) {
+        const d = detail(x, y, nx, ny);
         if (d >= 0) return d;
       }
       if (small) return code(m, base);
-      const lx = this.lightX === 1 ? nx : -nx;
+      const lx = lightX === 1 ? nx : -nx;
       const lit = Math.hypot(lx + 0.38, ny + 0.38);
       const dk = lx * 0.7 + ny * 0.7;
-      if (opts.shine && lit < 0.28 + this.band * 0.5) return code(m, base + 2);
+      if (shine && lit < 0.28 + this.band * 0.5) return code(m, base + 2);
       if (lit < 0.62 + this.band) return code(m, base + 1);
       if (dk > 0.72 + this.band) return code(m, base - 2);
       if (dk > 0.32 + this.band) return code(m, base - 1);
@@ -879,8 +882,9 @@ export class Paper {
    * way round (pillow shading).
    */
   contact(): void {
-    const { CW, CH, pix: PIX, ord: ORD } = this;
-    const mark: number[] = [];
+    const { CW, pix: PIX, ord: ORD } = this;
+    // The marks are applied after the scan: every test reads the codes as drawn.
+    let mark = this.marks, n = 0;
     const [x0, y0, x1, y1] = this.box(0, 1);
     for (let y = y0; y <= y1; y++)
       for (let x = x0; x <= x1; x++) {
@@ -889,9 +893,19 @@ export class Paper {
         if (v < 0) continue;
         const o = ORD[i]!;
         const a = PIX[i + 1]!, b = PIX[i + CW]!;
-        if ((a >= 0 && ORD[i + 1]! < o && a >> 3 !== v >> 3) || (b >= 0 && ORD[i + CW]! < o && b >> 3 !== v >> 3)) mark.push(i);
+        if ((a >= 0 && ORD[i + 1]! < o && a >> 3 !== v >> 3) || (b >= 0 && ORD[i + CW]! < o && b >> 3 !== v >> 3)) {
+          if (n === mark.length) {
+            const grown = new Int32Array(Math.max(1024, mark.length * 2));
+            grown.set(mark);
+            mark = this.marks = grown;
+          }
+          mark[n++] = i;
+        }
       }
-    for (const i of mark) PIX[i] = (PIX[i]! & ~7) | Math.max(0, (PIX[i]! & 7) - 2);
+    for (let k = 0; k < n; k++) {
+      const i = mark[k]!;
+      PIX[i] = (PIX[i]! & ~7) | Math.max(0, (PIX[i]! & 7) - 2);
+    }
   }
 
   /** Scratch for `clusters` (kept between calls: it runs on every frame painted). */
@@ -899,6 +913,8 @@ export class Paper {
   private clGen = 0;
   private clStack = new Int32Array(0);
   private clMembers = new Int32Array(0);
+  /** Scratch for `contact`. */
+  private marks = new Int32Array(0);
   /** Scratch for `colours`. */
   private ciBuf = new Int16Array(0);
   /** `colours(fp, true)`'s output, and the span of it the last frame wrote. */
@@ -1022,15 +1038,18 @@ export class Paper {
     const N = CW * CH;
     const [bx0, by0, bx1, by1] = this.box(0, 0);
     // The fill colour per pixel, -1 where nothing is drawn. A scratch kept between frames: the
-    // passes below read only the drawn box's rows and two rows round it, so only those are cleared.
+    // passes below read only the drawn box and two pixels round it, so only that is cleared.
+    // (Nothing is drawn outside the drawn box: every code there is -1.)
     if (this.ciBuf.length < N) this.ciBuf = new Int16Array(N);
     const ci = this.ciBuf;
-    ci.fill(-1, Math.max(0, by0 - 2) * CW, (Math.min(CH - 1, by1 + 2) + 1) * CW);
+    const cx0 = Math.max(0, bx0 - 2), cx1 = Math.min(CW - 1, bx1 + 2);
+    for (let y = Math.max(0, by0 - 2), ye = Math.min(CH - 1, by1 + 2); y <= ye; y++) ci.fill(-1, y * CW + cx0, y * CW + cx1 + 1);
     const fillOf = fp.fillOf;
-    for (let i = by0 * CW + bx0; i <= by1 * CW + bx1; i++) {
-      const v = PIX[i]!;
-      if (v >= 0) ci[i] = fillOf[v]!;
-    }
+    for (let y = by0; y <= by1; y++)
+      for (let i = y * CW + bx0, e = y * CW + bx1; i <= e; i++) {
+        const v = PIX[i]!;
+        if (v >= 0) ci[i] = fillOf[v]!;
+      }
     // Orphans, twice (a fix can leave a new island).
     const cnt = new Int32Array(fp.fills);
     const keep = fp.keep;
