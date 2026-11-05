@@ -5022,10 +5022,10 @@ export class Battle {
     const flatBow = r.atWill && kind === 'lob' && dist < POINT_BLANK;
     let spread = 2 + dist * (kind === 'siege' ? 0.05 : kind === 'gun' ? 0.018 : kind === 'cannon' ? 0.02 : 0.03);
     if (lobbed && !flatBow) spread += Math.max(0, dist - st.range * 0.5) * 0.04;
-    // A moving target is guessed at, not known: the further it goes while the shot is in the air,
-    // the wider the miss (riders at the gallop at long range most of all; marching foot hardly).
+    // A fast-moving target is guessed at, not known: the further it goes while the shot is in the
+    // air, the wider the miss (riders at the gallop at long range most of all; marching foot not).
     const vt = sqrt(d.vx[v]! * d.vx[v]! + d.vy[v]! * d.vy[v]!);
-    spread += vt * flight * TICK_S * LEAD_ERR;
+    if (vt > LEAD_EASY) spread += (vt - LEAD_EASY) * flight * TICK_S * LEAD_ERR;
     let lx = leadX + (this.rng.next() - 0.5) * 2 * spread;
     let ly = leadY + (this.rng.next() - 0.5) * 2 * spread;
     let lofted = false;
@@ -6236,11 +6236,13 @@ const FOOT_MARCH = 11;
  */
 const VOLLEY_SPREAD = 5;
 /**
- * A shot at a moving target misses by up to this share of the way the target goes while the
- * shot flies (on top of the scatter with range): the shooter leads it, but only by guess. A
- * rider at the gallop 500 away moves some 120 in an arrow's flight, a marching file 20.
+ * A shot at a fast-moving target misses by up to this share of the way the target goes, beyond
+ * LEAD_EASY, while the shot flies (on top of the scatter with range): the shooter leads it, but
+ * only by guess. A rider at the gallop 500 away moves some 120 in an arrow's flight.
  */
 const LEAD_ERR = 0.3;
+/** A target this slow (units a second: a block at the march, or a man at a jog) is led true. */
+const LEAD_EASY = 20;
 const VOLLEY_BEAT = 6;
 /**
  * Fire at will: an enemy whose nearest men are this close to the front (or one charging the
