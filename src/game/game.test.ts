@@ -226,7 +226,10 @@ describe('battle', () => {
       expect(r.ticks).toBeGreaterThan(50 * TICKS_PER_SECOND);
       // (Since v13 Templar blocks re-form on the banner twice and the brothers die where they stand
       // (T2, T3): a Templar mirror's long grind can run past five minutes, short of the limit.)
-      expect(r.ticks).toBeLessThan(340 * TICKS_PER_SECOND);
+      // (Since the v17 reloads, a bow volley every 5 s rather than 2.1, battles run a fifth longer,
+      // median about 205 s against 175; a battle whose lines fall apart after the first clash and
+      // come on again across the field ran 438 s. The time limit is 600 s.)
+      expect(r.ticks).toBeLessThan(450 * TICKS_PER_SECOND);
       const contact = b.events.find((e) => e.kind === 'contact')!.tick;
       expect(contact).toBeGreaterThan(15 * TICKS_PER_SECOND);
       expect(b.events.some((e) => e.kind === 'general-order')).toBe(true);
