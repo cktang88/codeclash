@@ -13,6 +13,7 @@ const CLS = ['heavy', 'spear', 'skirm', 'archer', 'xbow', 'lightcav', 'horsearch
 const still = new Map<number, number>();
 const rows = new Map<string, { n: number; note: string }>();
 const byBlock = new Map<number, number>();
+const byMode = new Map<string, number>();
 while (!b.done()) {
   b.step();
   for (const s of b.soldiers) {
@@ -58,10 +59,12 @@ while (!b.done()) {
       e.note = `K${r.id} t${r.team} ${CLS[r.cls]} ${r.mode}/${r.ord.kind} eng ${r.engaged ? 1 : 0} tgt ${r.targetReg} alive ${r.alive}; nearest foe ${Math.sqrt(nd).toFixed(0)} u (${CLS[n.cls]}, ${busy ? 'busy with ours' : 'free'}), friends in between ${between}`;
       rows.set(key, e);
       byBlock.set(r.id, (byBlock.get(r.id) ?? 0) + 0.1);
+      byMode.set(r.mode, (byMode.get(r.mode) ?? 0) + 0.1);
     }
   }
 }
 console.log(`seed ${seed} / ${men}: idle rider-seconds by block`);
 for (const [id, v] of [...byBlock].sort((a, c) => c[1] - a[1])) console.log(`  ${id}: ${v.toFixed(1)} rider-s`);
+console.log(`by mode: ${[...byMode].sort((a, c) => c[1] - a[1]).map(([m, v]) => `${m} ${v.toFixed(1)}`).join(', ')} rider-s (total ${[...byMode.values()].reduce((a, c) => a + c, 0).toFixed(1)})`);
 console.log('5 s windows (rider-ticks idle):');
 for (const [k, e] of rows) if (e.n >= 10) console.log(`  ${k.padEnd(12)} ${String(e.n).padStart(4)}  ${e.note}`);
