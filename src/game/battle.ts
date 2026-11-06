@@ -208,6 +208,21 @@ export { COHESION, DOCTRINE, MORALE, REGROUP, UNDEAD } from './command.ts';
  *   dead as battles grew (undead-templar 44% at 250, 59% at 1000, 71% at 2000); samurai-templar
  *   56 -> 52 at 1000. With it the price of never routing is eased back: DEAD_HP 0.72 (0.71).
  *   300 battles a cell (docs/factions.md, v17 reach balance).
+ * - Command steadied (QA review 2, #5 and #7; scripts/qa/command-probe.ts). A reserve keeps the
+ *   friend it backs (RESERVE_KEEP, then until another is RESERVE_SWITCH nearer), stands behind
+ *   him as seen from the enemy, and moves or turns only past a dead band, sidestepping short
+ *   shifts facing front; one that has faced a threat close by keeps facing it (RESERVE_WARY).
+ *   The household's post moves along the line only past POST_ALONG, stands POST_STAND after a
+ *   move and keeps clear of the engines. Line foot deploys from column into line BOWSHOT_MARGIN
+ *   short of the enemy foot shooters' reach (it kept column to 240 u of any foe), and a block
+ *   holding for a flank slot faces the enemy, not along its line. Over 36 pairings at 450:
+ *   reserves change friend 0.89 -> 0.30 times a minute and wheel on the spot 2.8 -> 0.9° a
+ *   second; oscillate flags for the household 46 -> 17, for reserves of the line 62 -> 53; line
+ *   foot in column inside bowshot 6.5% -> 0; blocks facing over 45° off the enemy at deployment
+ *   45 of 441 -> 0. (The wider blocks on the march cost a little: oscillate flags for line foot
+ *   marching to a flank 14 -> 32, stragglers 12 -> 43, all flags 416 -> 430.) The side gap the review
+ *   saw in samurai-undead (team 0 +11) did not hold on fresh seeds (301-500 at 250: 49.0 / 49.5);
+ *   a swapped pairing mirrors exactly until the men's own draws part it (side-fair.test.ts).
  */
 /**
  * v16: nothing grows with the size of the battle that should not (the undead won two thirds of
