@@ -29,12 +29,16 @@ function horseAtBows(cls: number, riders: number, bows: number, gap: number, see
 }
 
 describe('horse wounds', () => {
-  it('massed bows unhorse a good share of knights charging them across the open', () => {
-    // (Until v17 HORSE the armour soaked every arrow: 20 knights reached 120 bows untouched.)
+  it('massed bows wreck a charge of knights across the open: unhorsed, dead, broken', () => {
+    // (Until v17 HORSE the armour soaked every arrow: 20 knights reached 120 bows untouched and
+    // rode them down. Round 2: the bows shoot fast and flat as the horse closes, a horse falling at
+    // the gallop may crush its rider, and the bows go out to finish the fallen and the running.)
     for (const seed of [1, 2, 3]) {
       const b = horseAtBows(U.Knights, 20, 120, 600, seed);
       while (!b.done() && b.tick < 600) b.step();
-      expect(b.unhorsed[0], `seed ${seed}`).toBeGreaterThanOrEqual(8);
+      expect(b.unhorsed[0], `seed ${seed}`).toBeGreaterThanOrEqual(10);
+      expect(b.soldiers.filter((s) => s.team === 0 && s.state === State.Dead).length, `seed ${seed}`).toBeGreaterThanOrEqual(3);
+      expect(b.result?.winner, `seed ${seed}`).toBe(1);
       const d = (b as unknown as Inside).d;
       for (const s of b.soldiers) {
         if (!s.dismounted) continue;
@@ -47,12 +51,40 @@ describe('horse wounds', () => {
     }
   });
 
-  it('a charge that reaches a smaller body of bows still wins, at a price in horses', () => {
-    for (const seed of [1, 2, 3]) {
+  it('against a smaller body of bows the charge mostly gets home, at a heavy price', () => {
+    let wins = 0;
+    let dead = 0;
+    for (const seed of [1, 2, 3, 4, 5, 6, 7, 8]) {
       const b = horseAtBows(U.Knights, 20, 60, 600, seed);
       while (!b.done() && b.tick < 900) b.step();
-      expect(b.result?.winner, `seed ${seed}`).toBe(0);
-      expect(b.unhorsed[0], `seed ${seed}`).toBeGreaterThan(0);
+      if (b.result?.winner === 0) wins++;
+      dead += b.soldiers.filter((s) => s.team === 0 && s.state === State.Dead).length;
+      expect(b.unhorsed[0], `seed ${seed}`).toBeGreaterThanOrEqual(5);
+    }
+    // (6 of 8 days, 15 dead and 78 unhorsed of 160 knights.)
+    expect(wins).toBeGreaterThanOrEqual(4);
+    expect(wins).toBeLessThan(8);
+    expect(dead).toBeGreaterThanOrEqual(5);
+  });
+
+  it('bows locked in a fight with foot are still ridden down by horse', () => {
+    for (const seed of [1, 2, 3]) {
+      const b = new Battle({ version: BATTLE_VERSION, seed, kind: 'daily', armies: [plainArmy(counts([[U.Knights, 20], [U.HeavyInfantry, 60]]), 0), plainArmy(counts([[U.Archers, 60], [U.HeavyInfantry, 60]]), 200)] });
+      b.generals[1].fixedPlan = 'hold';
+      b.generals[0].fixedPlan = 'advance';
+      const of = (t: number, k: number) => b.regiments.filter((r) => r.team === t && r.cls === k);
+      let y = 1100;
+      for (const r of of(1, U.Archers)) {
+        placeRegiment(b, r, 1300, y, -1, 0);
+        y += r.width + 20;
+      }
+      placeRegiment(b, of(0, U.HeavyInfantry)[0]!, 1290, 1100 + (y - 1100) / 2, 1, 0);
+      placeRegiment(b, of(1, U.HeavyInfantry)[0]!, 1500, 1100, -1, 0);
+      of(0, U.Knights).forEach((r, i) => placeRegiment(b, r, 1000, 1100 + i * 60, 1, 0));
+      const bows = b.soldiers.filter((s) => s.team === 1 && s.cls === U.Archers);
+      while (!b.done() && b.tick < 600) b.step();
+      expect(bows.filter((s) => s.state === State.Fighting).length, `seed ${seed}`).toBe(0);
+      expect(bows.filter((s) => s.state === State.Dead).length, `seed ${seed}`).toBeGreaterThanOrEqual(10);
     }
   });
 

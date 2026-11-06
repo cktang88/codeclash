@@ -56,6 +56,51 @@ now: a knight as its heavy foot, a lancer as its spearman, a horse archer as its
 (`src/client/render/scene.ts`, `AFOOT`). A proper unhorsed-rider look (and a dead horse left on
 the field) is still to draw from references.
 
+## Round 2: archers kill knights
+
+### Rate of fire
+
+- The commonly cited burst rate of a skilled war-bowman is 10-12 aimed arrows a minute, but it
+  can't be kept up for long; about 5-6 a minute can be kept up for ten minutes (Hardy, *Longbow*,
+  1976, "confidently allow" ten a minute; modern warbow archers). Sources:
+  [Tastes of History, "archers shooting twelve arrows a minute"](https://www.tastesofhistory.co.uk/post/dispelling-some-myths-archers-shooting-twelve-arrows-a-minute),
+  [archeryhistorian.com, English longbow](https://archeryhistorian.com/english-longbow/),
+  [Society of Archer-Antiquaries forum](https://soa.org.uk/sm/index.php?msg=82117),
+  [Ethnographic Arms & Armour forum (Hardy quoted)](https://id33158.securedata.net/svaerd/vb/showthread.php?p=142807).
+  Archers carried 60-72 arrows, three to six minutes at the full rate. A claim of 20 aimed a minute
+  appears only in a forum post and isn't used.
+- The sim already had volleys every 7.5 s (8 a minute, kept up) and at will every 5 s (12 a
+  minute, `BOW_BURST`). At horse coming on inside about 100 m nothing needs ranging: the man
+  draws, looses straight at the mass of horses and draws again. The sim uses 4 s (15 a minute,
+  `RAPID.reload`), for the minute or so a charge takes. Inside about 50 m the bows shoot flat
+  (`RAPID.flat`) at the horses' chests. Only the horse's pace across the line of the shot scatters
+  it: a rider coming straight on rides onto the arrow.
+
+### Knights dead, not just unhorsed
+
+- **Falls.** Falling with a horse at the gallop killed and maimed: the rider was pinned under it,
+  or ridden over by those behind (the heaps at Crécy). `crush`: 40% of falls at the gallop, a
+  further 30-90% of his hit points. A rider coming on behind rides into the fallen horse, and his
+  own may go down (`trip`).
+- **The fallen finished.** At Crécy the Welsh and Cornish knifemen went out among the fallen; at
+  Agincourt the archers did the same with mallets, hatchets and daggers. In the sim, foot with no
+  foe go out to an enemy rider unhorsed within 100 (about 19 m) while he is down, badly hurt or
+  running, two at most to a man (`fallen`). A man down, or caught running on foot, is struck
+  through the gaps of his harness (armour x0.35). One lying dazed is shot through them (armour
+  x0.6, no shield).
+- **Plate on foot.** It is slow going (pace 17, running at 0.8 of that) and winded (defence a
+  further x0.85). A mounted knight in good order keeps his full armour against arrows on his body
+  (only the bodkin at short range helps).
+
+### Charges that break
+
+- To a block of horse a rider unhorsed is a rider lost (`lossShare`). The block loses heart as
+  its horses go down, and a charge that has lost heart shocks the foot it reaches half as much
+  (`waverShock`). Other foot then go for its horses (`footShare`), so a handful of wavering
+  riders is pulled down rather than routing a large block of bows.
+- A horse brought down heartens the men who shot it (counted as a kill for their spirits).
+- Bows met in the flank (they shoot no faster there) or locked with foot are still ridden down.
+
 ## Measured (scripts/duel.ts, seeds 1-6)
 
 See the v17 changelog bullet at the top of `battle.ts` for the numbers before and after.

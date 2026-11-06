@@ -15,7 +15,7 @@ describe('battle: the matchups', () => {
   const horse = { [U.LightCavalry]: 0.5, [U.Knights]: 0.3, [U.HeavyInfantry]: 0.2 };
   const bows = { [U.Archers]: 0.5, [U.Crossbowmen]: 0.2, [U.HeavyInfantry]: 0.3 };
   const spears = { [U.Spearmen]: 0.8, [U.HeavyInfantry]: 0.2 };
-  it('horse is not helpless against bows at equal value (since v17 HORSE the bows have the edge)', () => {
+  it('bows beat horse that rides at them at equal value (since v17 HORSE: Crécy)', () => {
     // (Since v14 the horse's edge is narrower, 7-10 of the first 12 days by version against 11 in
     // v13: it breaks off from the foot among the bows to charge again. Since v17 narrower still,
     // 56% of 120 days against 62% in v16: the heavy foot beside the bows turns on horse among
@@ -29,11 +29,14 @@ describe('battle: the matchups', () => {
     // its own noise; cavalry alone 77 of 120, missiles alone 73). 58 of the first 120 now. So
     // 120 days, and horse is not beaten by bows; whether to give it its edge back is a balance call.)
     // Since v17 HORSE (docs/art-references/horse-wounds.md) the arrows that strike a rider mostly
-    // strike his horse, and a horse shot down or bolting leaves him on foot: some 45 of the horse
-    // army's 131 riders are unhorsed a battle, and horse wins 39 of the 120 days (58 before). That
-    // is Crécy and Agincourt: bows in numbers beat horse that has to ride at them across the open
-    // (in duels a charge that reaches the bows still wins). So now: horse is not helpless.
-    expect(winsOf(120, (seed) => fight(setupOf(seed, valued(V, horse), valued(V, bows))).winner)).toBeGreaterThanOrEqual(30);
+    // strike his horse, and a horse shot down or bolting leaves him on foot: horse won 39 of the
+    // 120 days (58 before). Round 2 (the bows shoot fast and flat as the horse closes, a rider
+    // unhorsed is a rider lost to his block's spirits, the fallen are finished): 3 of 120, about
+    // 60 of the 131 riders unhorsed and 65 dead a battle. That is Crécy: the General's horse
+    // strike (`horseStrike`) sends all its horse at the bows together across the open, and massed
+    // bows shoot it to pieces. (Horse that takes bows in the flank, or bows locked with foot,
+    // still rides them down: horse.test.ts.) So now: the bows win, and win big.
+    expect(winsOf(120, (seed) => fight(setupOf(seed, valued(V, horse), valued(V, bows))).winner)).toBeLessThanOrEqual(15);
   }, 170_000);
   it('spears hold against horse at equal value', () => {
     expect(winsOf(6, (seed) => fight(setupOf(seed, valued(V, spears), valued(V, horse))).winner)).toBeGreaterThanOrEqual(5);
