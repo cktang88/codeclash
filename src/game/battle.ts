@@ -280,6 +280,12 @@ export { COHESION, DOCTRINE, MORALE, REGROUP, UNDEAD } from './command.ts';
  *   Demo seeds 1-4 at 450: spears braced with the horse fighting a friend 1,641 of 4,427
  *   man-seconds braced (37%, longest 14 s) -> 270 (8%, longest 8 s). Knights on 120 spears
  *   (game-matchups, three days): spears in line kill 17 riders (was 10) and lose 97 (was 88).
+ * - QA review 3 #3. Skirmishers with no line of their own to fall back behind give ground before
+ *   slower foot (`thinkSkirmish`, SKIRM.back): once its men are within 70 they run back (at 0.9 of
+ *   their speed, `giving`) to 125 from them, halt, throw, and back again, while they have javelins
+ *   and ground behind them. They stood and threw until the foot was on them. 30 skirmishers v 48
+ *   undead spears, four days: cut down with javelins in hand 48 -> 0 of 120, javelins thrown
+ *   357 -> 480, spears felled 18 -> 41. (Out of javelins they still go in: someone must end it.)
  */
 /**
  * v16: nothing grows with the size of the battle that should not (the undead won two thirds of
@@ -913,6 +919,8 @@ export class Regiment {
   withdrawals = 0;
   /** Skirmishers that have fallen back behind the line. */
   retired = false;
+  /** Skirmishers with no line of their own giving ground before foot (QA3 #3: see `thinkSkirmish`). */
+  giving = false;
   refuseUntil = -100;
   waverTold = -1000;
   /** Last ticker line for its standing fast (T3). */
@@ -5144,6 +5152,26 @@ export class Battle {
       return;
     }
     if (this.tick < 30) return;
+    // QA3 #3: with no line of their own to fall back behind, they give ground before slower foot
+    // coming on (Lechaeum): back out of its reach at a run while it is still SKIRM.back off, halt
+    // and throw, and back again; they fight only once out of javelins, or with no ground behind
+    // them (the field's edge). Until then they stood and threw until the foot was on them, and
+    // were cut down by men who could never have caught them.
+    r.giving = false;
+    if (noLine && r.ammoLeft > 0) {
+      const foot = this.nearGap(r, SKIRM.back, false);
+      if (foot && !isCav(foot) && foot.speed < r.speed * SKIRM.faster) {
+        this.standOff(r, foot, SKIRM.backTo);
+        const bx = r.tx - r.ax;
+        const by = r.ty - r.ay;
+        if (bx * bx + by * by > SKIRM.room * SKIRM.room) {
+          this.setMode(r, 'skirmish');
+          r.targetReg = foot.id;
+          r.giving = true;
+          return;
+        }
+      }
+    }
     const best = this.shootable(r, st.range * 0.9, true);
     if (best) {
       this.setMode(r, 'shoot');
@@ -6312,6 +6340,8 @@ export class Battle {
     if ((r.mode === 'charge' || r.mode === 'pursue') && !isCav(r)) pace *= this.doc[r.team]!.footRun;
     // S3: guns going out through their line, or back through it, go at the double.
     if (r.slip && (r.mode === 'advance' || r.mode === 'skirmish')) pace = Math.max(pace, FOOT_MARCH * FOOT_RUN);
+    // Skirmishers giving ground (QA3 #3) run as fast as they can keep together.
+    if (r.giving && r.mode === 'skirmish') pace = Math.max(pace, r.speed * SKIRM.run);
     // Shooters running for cover from horse (`takeCover`) run as fast as they can keep together.
     if (r.slip && r.coverReg >= 0) pace = Math.max(pace, r.speed * COVER.run);
     pace *= sd.pace * (1 - FATIGUE.pace * r.fatigue);
@@ -9213,7 +9243,13 @@ function spreadAt(kind: Ballistics, q: number, range: number, flatBow: boolean):
  * back below `spent` a man; their place behind the line moves only when the line has moved
  * `deadband`.
  */
-const SKIRM = { out: 1.5, spent: 0.35, deadband: 30 };
+/**
+ * Skirmishers: out again with `out` javelins a man; spent under `spent`; their rest spot behind the
+ * line moves when the line has moved `deadband`. With no line of their own (QA3 #3) they give
+ * ground before foot slower than `faster` of their speed once its men are within `back`, to
+ * `backTo` from them, while that is at least `room` of ground behind them, at `run` of their speed.
+ */
+const SKIRM = { out: 1.5, spent: 0.35, deadband: 30, back: 70, backTo: 125, faster: 0.85, room: 30, run: 0.9 };
 /**
  * Crossbows (direct fire, not the samurai's guns, whose doctrine is S3) stand `screen` before
  * their line while the lines are apart, and fall back through it when enemy foot comes within

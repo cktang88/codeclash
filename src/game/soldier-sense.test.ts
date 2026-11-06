@@ -84,4 +84,33 @@ describe('QA3: each man fights like a man', () => {
       expect(braced, `seed ${seed}`).toBeLessThan(15);
     }
   });
+
+  it('skirmishers with no line of their own give ground before slower foot, throwing, not stand to be caught (#3)', () => {
+    // 30 samurai skirmishers, nothing else, 140 u from 48 undead spears. Until QA3 they stood and
+    // threw until the spears were on them: 48 of 120 over these days cut down with javelins still
+    // in hand (357 thrown, 18 spears felled); now they back off, halt, throw and back off again.
+    let caught = 0;
+    let thrown = 0;
+    for (const seed of [1, 2, 3, 4]) {
+      const b = new Battle({ version: BATTLE_VERSION, seed, kind: 'daily', armies: [plainArmy(counts([[U.Skirmishers, 30]]), 0, 'samurai'), plainArmy(counts([[U.Spearmen, 48]]), 200, 'undead')] });
+      const A = b.regiments.filter((r) => r.team === 0);
+      const B = b.regiments.filter((r) => r.team === 1);
+      A.forEach((r, k) => placeRegiment(b, r, 1130, 1180 + k * 40, 1, 0));
+      B.forEach((r, k) => placeRegiment(b, r, 1270, 1170 + k * 60, -1, 0));
+      const men = A.flatMap((r) => r.members);
+      const ammo = new Map<number, number>();
+      while (b.tick < 600 && !b.done()) {
+        for (const i of men) if (b.soldiers[i]!.state !== State.Dead) ammo.set(i, b.soldiers[i]!.ammo);
+        b.step();
+        for (const i of men) {
+          if (b.soldiers[i]!.state !== State.Dead || !ammo.has(i)) continue;
+          if (ammo.get(i)! > 0) caught++;
+          ammo.delete(i);
+        }
+      }
+      for (const i of men) thrown += 4 - b.soldiers[i]!.ammo;
+    }
+    expect(caught).toBeLessThan(8);
+    expect(thrown).toBeGreaterThan(420);
+  });
 });
