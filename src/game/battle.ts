@@ -150,7 +150,7 @@ export { COHESION, DOCTRINE, MORALE, REGROUP, UNDEAD } from './command.ts';
  *   reach the spearman fights at -15 attack, -8 defence. Horse whose charge is spent is held too;
  *   a charge still meets the brace and pike-wall rules. Sergeants coming at spears' front: 95% of
  *   those fighting a spearman stood inside his point within the first minute, now 57%. Balance:
- *   the yari levy damage x0.9, defence x0.8 (docs/factions.md, v17 weapon reach); the pairs stay
+ *   the yari levy damage x0.8, defence x0.8 (docs/factions.md, v17 weapon reach); the pairs stay
  *   within the noise of before at 250 and 1000 a side but samurai-templar at 250 (49 -> 56).
  */
 /**

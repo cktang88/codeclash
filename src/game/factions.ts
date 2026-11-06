@@ -106,7 +106,7 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
       [U.HeavyInfantry]: { morale: 1.05 },
       // The yari outreaches every other spear (weapon reach, battle v17): the price is in the levy
       // who carries it, a peasant in a light okegawa cuirass, poor at close quarters.
-      [U.Spearmen]: { damage: 0.9, defence: 0.8 },
+      [U.Spearmen]: { damage: 0.8, defence: 0.8 },
     },
     // The nagae-yari (3.6 m drawn, held toward the butt) reaches furthest of any foot: its
     // second rank strikes past the first. The sōhei's naginata outreaches a sword.

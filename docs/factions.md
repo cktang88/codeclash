@@ -53,7 +53,7 @@ Since battle v13 the factions differ mostly by their **doctrines** (below, and
 | Samurai | **HorseArchers missileDamage ×1.10** | Yabusame, the clan's signature art. Horse archers are 5% of the standard mix and fragile; +10% damage is a flavour edge, not a swing. |
 | Samurai | **HeavyInfantry morale ×1.05, attack ×1.06** | Bushidō: the katana line holds a little longer and cuts harder (attack added in v13's balance). The Spearmen armour ×0.95 malus went in v13. |
 | Samurai | Crossbowmen (teppō) reload ×1.34, missileDamage ×1.3 | The matchlock: fewer, heavier volleys (v11). |
-| Samurai | **Spearmen damage ×0.9, defence ×0.8** | Weapon reach (v17): the yari (reach 19.5, against the Templar spear's 16 and the ghoul's 13) outreaches every spear and its second rank strikes past the first; the price is the peasant levy who carries it, in a light okegawa cuirass. Without it the samurai won 67% against the Templars at 250 a side. |
+| Samurai | **Spearmen damage ×0.8, defence ×0.8** | Weapon reach (v17): the yari (reach 19.5, against the Templar spear's 16 and the ghoul's 13) outreaches every spear and its second rank strikes past the first; the price is the peasant levy who carries it, in a light okegawa cuirass. Without it the samurai won 67% against the Templars at 250 a side. |
 | All | **Weapon reach** (`UnitStats.reach`, factions' `reach`) | Templar spear 16, yari 19.5, ghoul spear 13; naginata 9, other shock foot 4; everything else 1.6. See `docs/art-references/weapon-reach.md`. |
 | Undead | **every class but the Colossus and the trebuchet: hp ×0.71** (`DEAD_HP`; Colossus ×0.8) | The price of never routing (v12: 0.69; v13, with the doctrines: 0.66; v17, at real scale: 0.71). |
 | Undead | **Archers missileDamage ×0.90** | Rotten sinew bowstrings: the weakest archery of the three factions. |
@@ -294,7 +294,8 @@ first (sergeants against spear levy at equal value, a whole army of each: 30 of 
 leakier (a held man gets in by luck 0.03 a look times one and his shield, by a gap 0.2, the
 heaviest foot three times as often) and a held man is hard to hurt (a thrust at him lands 0.4 as
 often), the ranks behind a Templar or ghoul spear's front strike only a foe come round to them,
-and the yari levy pays for the yari (damage ×0.9, defence ×0.8). Pair runner, the same seeds
+and the yari levy pays for the yari (damage ×0.8, defence ×0.8; ×0.9 and ×0.8 before the merge of
+the routing and cavalry fixes, which gave the samurai 64% against the Templars over 80 battles). Pair runner, the same seeds
 before and after (300 battles a cell at 250, ±2.9; 200 at 1000, ±3.5):
 
 | Matchup (first faction's wins) | 250 before | 250 after | 1000 before | 1000 after |
@@ -302,6 +303,11 @@ before and after (300 battles a cell at 250, ±2.9; 200 at 1000, ±3.5):
 | Undead vs Templar | 53.7 | 56.0 | 45.0 | 41.0 |
 | Undead vs Samurai | 56.0 | 55.7 | 43.0 | 45.0 |
 | Samurai vs Templar | 49.3 | 56.0 | 56.5 | 54.5 |
+
+After merging master (routing, rally and cavalry fixes) and the yari damage at ×0.8, against
+master on the same seeds (80 battles a cell at 250, ±5.6; 40 at 1000, ±7.9): undead-templar 57.5
+(master 55.0) / 47.5 (70.0), undead-samurai 45.0 (47.5) / 45.0 (42.5), samurai-templar 56.3
+(52.5) / 50.0 (65.0); the Templar mirror 50.0 (team 0 45% in `battle-fairness.ts`, 40 seeds).
 
 Tried and dropped (each 200-300 battles): a defence bonus for a held man instead of the 0.4
 (clipped by the 8% floor of a blow's chance); the dead walking onto the points (getting in twice
