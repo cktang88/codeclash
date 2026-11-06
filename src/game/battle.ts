@@ -267,6 +267,13 @@ export { COHESION, DOCTRINE, MORALE, REGROUP, UNDEAD } from './command.ts';
  *   shoves a riser (RISE_TICKS): nearly every deep overlap of foes in the collision battles was a
  *   man just risen. Collision battles (seeds 1-8, 320 against 340): foes' overlap p99 1.10 -> 0.45
  *   of a man's radius, p95 0.34 -> 0.27; as many risen (the cap, not the ground, sets how many).
+ * - QA review 3 #1 (docs/qa/battle-realism-review-3.md; scripts/qa/soldier-sense.ts). The front
+ *   rank fences with the front rank (`seek`): past a body's length, nobody takes as his foe a man
+ *   standing behind his own front rank or file (`open`), unless that man is at him; nor do pikes
+ *   striking past their own front. A spear's front rank reached over the enemy's at his second and
+ *   third ranks, who (short of a pike) could not answer and stood stabbed at with no foe. Spear on
+ *   spear (48 Templar spears v 48 yari, seeds 1-6): men struck at with no foe of their own 3.9% ->
+ *   1.3% of their time; demo seeds 1-4 at 450: 0.05-0.36% -> 0.03-0.15%.
  */
 /**
  * v16: nothing grows with the size of the battle that should not (the undead won two thirds of
@@ -7088,6 +7095,11 @@ export class Battle {
           const at = s <= hh;
           // (A man striking past the front rank takes only a foe his point reaches from his place.)
           if (sup && s > (h + REACH.lean) * (h + REACH.lean)) continue;
+          // (QA3 #1: nor, past his body's length, a man standing behind his own front rank (or
+          // file): the man before him covers him. A spear's front rank fences with the front rank
+          // facing it; it does not reach over it at the second rank, who, short of a pike, could
+          // not answer; nor does a pike striking past its own front. Unless that man is at him.)
+          if (!mounted && d.row[j]! > 0 && d.target[j] !== i && s > (ri + d.rad[j]! + 3) * (ri + d.rad[j]! + 3) && !this.open(x, y, j)) continue;
           // (A foe at hand he fights wherever he stands.)
           if (far && !at) continue;
           if (line) {

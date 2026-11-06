@@ -1,0 +1,64 @@
+// QA round 3 (docs/qa/battle-realism-review-3.md): single men doing what no real man would, in
+// small set pieces. Each test stages a few blocks by hand and measures the men one by one.
+import { describe, expect, it } from 'vitest';
+import { Battle, BATTLE_VERSION, State } from './battle.ts';
+import { U, UNIT_COUNT } from './units.ts';
+import type { FactionId } from './factions.ts';
+import { placeRegiment, plainArmy } from './testing.ts';
+
+type Side = [cls: number, men: number][];
+const counts = (side: Side): number[] => {
+  const k = new Array<number>(UNIT_COUNT).fill(0);
+  for (const [c, n] of side) k[c]! += n;
+  return k;
+};
+
+/** Two sides' blocks of a class side by side, fronts `gap` apart, facing each other across x = 1200. */
+function faceOff(a: Side, fa: FactionId, bSide: Side, fb: FactionId, seed: number, gap = 80): Battle {
+  const b = new Battle({ version: BATTLE_VERSION, seed, kind: 'daily', armies: [plainArmy(counts(a), 0, fa), plainArmy(counts(bSide), 200, fb)] });
+  for (const team of [0, 1] as const) {
+    const regs = b.regiments.filter((r) => r.team === team);
+    let y = 1200 - regs.reduce((s, r) => s + r.width + 8, -8) / 2;
+    for (const r of regs) {
+      placeRegiment(b, r, team === 0 ? 1200 - gap / 2 : 1200 + gap / 2, y + r.width / 2, team === 0 ? 1 : -1, 0);
+      y += r.width + 8;
+    }
+  }
+  return b;
+}
+
+interface D { x: Float64Array; y: Float64Array; rad: Float64Array; rc: Float64Array; target: Int32Array; state: Uint8Array; row: Int32Array; wd: Int32Array }
+
+/**
+ * Share of man-ticks (men still fighting) in which a man has no foe of his own while an enemy who
+ * has him as his foe stands within that enemy's reach of him: struck at, and not answering.
+ */
+function struckIdle(b: Battle, ticks: number): number {
+  const d = (b as unknown as { d: D }).d;
+  const n = b.soldiers.length;
+  let men = 0;
+  let idle = 0;
+  while (!b.done() && b.tick < ticks) {
+    b.step();
+    if (b.tick % 2) continue;
+    for (let j = 0; j < n; j++) {
+      if (d.state[j] === State.Fighting) men++;
+      const i = d.target[j]!;
+      if (i < 0 || d.state[j] !== State.Fighting || d.state[i] !== State.Fighting || d.target[i]! >= 0 || b.tick < d.wd[i]!) continue;
+      if (Math.hypot(d.x[j]! - d.x[i]!, d.y[j]! - d.y[i]!) <= d.rad[i]! + d.rad[j]! + d.rc[j]! + 2) idle++;
+    }
+  }
+  return idle / Math.max(1, men);
+}
+
+describe('QA3: each man fights like a man', () => {
+  it('spear on spear: the front ranks fence; the ranks behind them are not speared where they cannot answer (#1)', () => {
+    // Until QA3 a man of a spear's front rank (and the pikes striking past it) took as his foe the
+    // man behind the enemy's front rank as readily as the man before him: in this set piece 3.9 %
+    // of the men's time was spent stabbed at by a foe they could not reach, nearly all of it in
+    // the second and third ranks.
+    let sum = 0;
+    for (const seed of [1, 2, 3]) sum += struckIdle(faceOff([[U.Spearmen, 48]], 'templar', [[U.Spearmen, 48]], 'samurai', seed), 600);
+    expect(sum / 3).toBeLessThan(0.02);
+  });
+});
