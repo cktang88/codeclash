@@ -899,6 +899,8 @@ export interface BattleEvent {
   note?: string;
 }
 
+type HorsePlan = 'contest' | 'screen' | 'wait';
+
 interface Forces {
   value: number;
   foot: number;
@@ -966,6 +968,16 @@ export class General {
   fightFrom = -1;
   offUntil = -1;
   lastStand = false;
+  /**
+   * QA review #10: how it uses its light horse before the lines meet, by the plan and the odds
+   * (`choosePlan`): 'contest' rides at the enemy's horse (or round at his shooters) from
+   * `horseFrom`; 'screen' keeps it on its wing level with the line and meets horse that comes
+   * at it (HORSE_SCREEN); 'wait' keeps it back for when the lines have met. `horseDelay`: how
+   * long (ticks, 0-40 s, from its own rng) it lets the day open before it sends horse out.
+   */
+  horse: HorsePlan = 'contest';
+  horseFrom = 0;
+  readonly horseDelay: number;
   /** The army's spirits on the day (from the general's rng): added to every regiment's morale. */
   readonly mood: number;
   /** A blunder: the knights go in before the lines meet. */
@@ -977,6 +989,8 @@ export class General {
     this.skill = 0.55 + this.rng.next() * 0.4;
     this.rashKnights = this.rng.next() < (1 - this.skill) * 0.4;
     this.mood = (this.rng.next() - 0.5) * 2 * MORALE.mood;
+    // (Its own stream, so the draws above and the plan's stay as they were.)
+    this.horseDelay = new Rng(mixSeed(seed, SEED_SALT, 7101 + team)).int(HORSE_DELAY);
   }
 }
 
@@ -1107,6 +1121,15 @@ const POST_EASE = 0.15;
 const POST_DEADBAND = 30;
 /** The household turns its horse to ride a goal farther than this, rather than back (horse otherwise needs HORSE_REIN). */
 const POST_REIN = 20;
+/**
+ * QA review #10, the light horse before the lines meet (`General.horse`): the most a general lets
+ * the day open before sending it out (ticks); how near enemy horse must come for horse screening
+ * a wing, or held back, to ride at it; how far behind the line's front it keeps on its wing.
+ */
+const HORSE_DELAY = 400;
+const HORSE_SCREEN = 320;
+const HORSE_MEET = 220;
+const HORSE_WING = 40;
 /** A block locked in melee that bows may still shoot over the fight into: deep enough to have rear ranks well clear of it. */
 const overMelee = (o: Regiment) => o.depth >= 14;
 const isCav = (r: Regiment) => r.role === 'flank' || r.role === 'shock-cav' || r.role === 'horse-archer';
@@ -2282,6 +2305,25 @@ export class Battle {
       best = ok[g.rng.int(ok.length)]!;
     }
     if (g.fixedPlan) best = g.fixedPlan;
+    // QA review #10: the light horse by the plan and the odds. (Until v17 it rode at the enemy's
+    // horse on its wing from the first moment, whatever the plan: in 24 battles of 24 the first
+    // blow of the day was the two light-horse wings meeting at 18 s.) Sweeping round the wings,
+    // or with the better horse, it goes out to drive the enemy's off; outshooting him, or keeping
+    // the knights for the hammer, it waits to exploit; standing to let the archers work, or with
+    // the weaker horse, it screens its wing. Each general lets the day open his own while first.
+    const horse: HorsePlan =
+      best === 'envelop' ? 'contest'
+      : best === 'hold' ? (C > 1.4 ? 'contest' : 'screen')
+      : best === 'hammer' ? (C > 1.4 ? 'contest' : 'wait')
+      : M > 1.25 ? 'wait'
+      : C < 0.8 ? 'screen'
+      : p === 'cautious' && C < 1.2 ? 'screen'
+      : 'contest';
+    if (horse !== g.horse || g.planAt < 0) {
+      g.horse = horse;
+      const k = best === 'envelop' ? 0.25 : p === 'aggressive' ? 0.4 : p === 'cautious' ? 1.5 : 1;
+      g.horseFrom = this.tick + Math.round(g.horseDelay * k);
+    }
     // Overload the wing where the enemy is weaker.
     const low = theirs.wingLow * noise();
     const high = theirs.wingHigh * noise();
@@ -2508,8 +2550,15 @@ export class Battle {
           this.give(r, any ? 'charge' : 'reserve', any ? any.id : -1);
         }
       } else {
+        // (QA review #10: before the lines meet, by the general's use of his horse.)
+        const free = linesMet || (g.horse === 'contest' && this.tick >= g.horseFrom);
+        const meet = enemyCav !== null && sqrt(bd) < (g.horse === 'screen' ? HORSE_SCREEN : HORSE_MEET);
         if (refused && !(enemyCav && sqrt(bd) < 200)) this.give(r, 'reserve', -1, 0, -1, r.homeX, r.homeY);
-        else if (enemyCav) this.give(r, 'attack', enemyCav.id);
+        else if (!free && !meet) {
+          // On its wing, level with the line (a little behind its front), not left at the start.
+          const x = ts.hasLine && (ts.frontX - dir * HORSE_WING - r.homeX) * dir > 0 ? ts.frontX - dir * HORSE_WING : r.homeX;
+          this.give(r, 'reserve', -1, 0, -1, clampX(x), r.homeY);
+        } else if (enemyCav) this.give(r, 'attack', enemyCav.id);
         else if (shooters) this.give(r, 'flank', shooters.id, 0);
         else if (locked) this.give(r, 'flank', locked.id, 3);
         else {
