@@ -342,6 +342,8 @@ export class BattleScene {
   private aimX: Float32Array;
   private aimY: Float32Array;
   private stamped: Uint8Array;
+  /** 1 once a fallen man's fall direction has been chosen (fallDir); cleared when he rises. */
+  private fell: Uint8Array;
   /** Figures whose rising from the dead (Soldier.roseAt) has had its grave-light. */
   private rose: Uint8Array;
   /** Where each risen man lay when he rose (NaN: not seen rising; pose.ts stillRising). */
@@ -457,6 +459,7 @@ export class BattleScene {
     this.aimX = new Float32Array(n).fill(NaN);
     this.aimY = new Float32Array(n).fill(NaN);
     this.stamped = new Uint8Array(n);
+    this.fell = new Uint8Array(n);
     this.rose = new Uint8Array(n);
     this.riseX = new Float32Array(n).fill(NaN);
     this.riseY = new Float32Array(n).fill(NaN);
@@ -470,6 +473,7 @@ export class BattleScene {
     if (from) this.revealAt = this.revealMs = 0;
     if (from && from.battle === battle) {
       this.dirs.set(from.dirs);
+      this.fell.set(from.fell);
       this.riseX.set(from.riseX);
       this.riseY.set(from.riseY);
       this.turnAt.set(from.turnAt);
@@ -499,6 +503,7 @@ export class BattleScene {
     for (let i = 0; i < n; i++) {
       const s = battle.soldiers[i]!;
       if (s.roseAt >= 0) this.rose[i] = 1;
+      if (s.state === State.Dead) this.fallDir(i);
       if (s.state !== State.Dead || tick - s.diedAt < this.dieTicks(s.team, this.kindOf(i))) continue;
       if (!this.field) {
         // A corpse the Lich-Marshal may yet raise stays off the ground (it is drawn as a figure).
@@ -798,6 +803,7 @@ export class BattleScene {
   private graveLight(i: number): void {
     this.rose[i] = 1;
     this.stamped[i] = 0;
+    this.fell[i] = 0;
     const s = this.battle.soldiers[i]!;
     this.riseX[i] = s.x;
     this.riseY[i] = s.y;
@@ -817,8 +823,25 @@ export class BattleScene {
     this.stamps.push({ tex: 2, x: Math.round(this.mapX(x, y)), y: Math.round(this.mapY(x, y)), u: r.u, v: r.v, w: r.w, h: r.h, ax: r.ax, ay: r.ay, shade, a, solid: false, r: 0, g: 0, b: 0 });
   }
 
+  /**
+   * The way a man falls, chosen once as he goes down: his facing at the blow turned by one of the
+   * four directions from a hash of who he is. Men who die side by side in a block faced the same
+   * way, so without it a rank fell as one stamp repeated (every corpse the same body, the same way
+   * round: battle screenshots, docs/art-references/battle-dead.md); men struck fall every way.
+   * Cleared when he rises, so a second death falls afresh.
+   */
+  private fallDir(i: number): Dir {
+    if (!this.fell[i]) {
+      this.fell[i] = 1;
+      const h = Math.imul((i + 1) * 0x9e3779b1, 0x85ebca6b) >>> 0;
+      this.dirs[i] = (this.dirs[i]! ^ ((h >>> 13) & 3)) as Dir;
+    }
+    return this.dirs[i] as Dir;
+  }
+
   private stampCorpse(i: number): void {
     this.stamped[i] = 1;
+    this.fallDir(i);
     const s = this.battle.soldiers[i]!;
     const rng = this.rng;
     // (The undead leave no red pool: bone falls dry, a ghoul's ichor is in the drops.)
@@ -1698,6 +1721,7 @@ export class BattleScene {
       const tpfRow = this.tpfTab[s.team]!;
       const track = this.anims;
       if (s.state === State.Dead || rising) {
+        if (s.state === State.Dead) dir = this.fallDir(i);
         // Falling; or raised from the dead: the fall played backwards (contract.ts RISE).
         anim = track.resolve(i, Anim.Die, T, rising ? s.roseAt : s.diedAt, frameRow, kind * ANIM_COUNT, tpfRow, 0);
         start = rising ? s.roseAt : s.diedAt;
@@ -2100,6 +2124,7 @@ export class BattleScene {
         if (!this.stamped[i] && tick - s.diedAt >= this.dieTicks(s.team, this.kindOf(i))) {
           // Down: drawn as a corpse from now on, and his pool spreads for a few seconds.
           this.stamped[i] = 1;
+          this.fallDir(i);
           const big = s.s.mounted ? 1.7 : 1;
           const cx = mx + (rng.next() - 0.5) * 2 * big;
           const cy = my + (rng.next() - 0.5) * big;
