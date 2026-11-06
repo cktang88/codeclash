@@ -1121,6 +1121,8 @@ const POST_EASE = 0.15;
 const POST_DEADBAND = 30;
 /** The household turns its horse to ride a goal farther than this, rather than back (horse otherwise needs HORSE_REIN). */
 const POST_REIN = 20;
+/** The household's post stands behind the blocks behind the middle of the line, but never further than this behind its front. */
+const POST_BACK = 320;
 /**
  * QA review #10, the light horse before the lines meet (`General.horse`): the most a general lets
  * the day open before sending it out (ticks); how near enemy horse must come for horse screening
@@ -1135,6 +1137,12 @@ const overMelee = (o: Regiment) => o.depth >= 14;
 const isCav = (r: Regiment) => r.role === 'flank' || r.role === 'shock-cav' || r.role === 'horse-archer';
 /** Mounted blocks: the horse and the general's household. */
 const isMounted = (r: Regiment) => isCav(r) || r.role === 'command';
+/**
+ * The general's household rides through the files of its own archers, who open for it (QA
+ * review #6: held up in the gap between two blocks of them, it was shunted to and fro there,
+ * some 280 units behind its post).
+ */
+const archersPass = (r: Regiment, o: Regiment) => r.role === 'command' && o.role === 'missile' && !o.engaged;
 /**
  * Who may fall in with whom (REGROUP): 1 foot of the line, 2 foot that shoots (archers,
  * crossbows, skirmishers), 3 horse; 0 never (engines, the general's household).
@@ -2974,6 +2982,7 @@ export class Battle {
     const friends = this.teamRegs[r.team]!;
     const obstacle = (o: Regiment): boolean => {
       if (o === r || o.alive === 0 || o.routed || o.role === 'skirmish' || o.role === 'siege' || o.slip || o.mode === 'skirmish' || o.mode === 'pursue' || o.mode === 'rout') return false;
+      if (archersPass(r, o)) return false;
       if (isMounted(o) && (o.mode === 'charge' || o.mode === 'withdraw' || o.mode === 'flank') && this.rightOfWay(r, o)) return false;
       return true;
     };
@@ -4349,7 +4358,7 @@ export class Battle {
       r.meleeAt = this.tick;
       r.meleeTicks += 5;
       this.setMode(r, 'melee');
-      if (prey0 && (this.breaksOff(r, prey0) || this.inOurRanks(r))) {
+      if (prey0 && (this.breaksOff(r, prey0) || this.inOurRanks(r) || this.idleRanks(r))) {
         // Cycle charge: break off, ride back as a loose crowd to re-form on the rally point, and
         // come again (P4).
         this.rallyPoint(r, prey0, shock);
@@ -4624,6 +4633,27 @@ export class Battle {
     return n > 0 && among >= n * RIDER.ranksShare;
   }
 
+  /**
+   * QA review #14: horse locked in a fight with half or more of its riders (RIDER.idleShare)
+   * standing at the back of it with no foe they can get at for RIDER.idleFor (packed behind
+   * their own front riders, or behind our foot) breaks off to charge again, as often as a cycle
+   * charge may. (Until v17 the knights stood there for the rest of the melee: 6.7% of riders
+   * idle over two seconds with an enemy within 40, 12.5% at 2800 a side.)
+   */
+  private idleRanks(r: Regiment): boolean {
+    const C = COHESION;
+    if (r.cycles >= C.cavCycles || r.fatigue > C.cavBlown || !this.doc[r.team]!.loose.stepBack) return false;
+    const d = this.d;
+    let n = 0;
+    let idle = 0;
+    for (const id of r.members) {
+      if (d.state[id] !== State.Fighting) continue;
+      n++;
+      if (d.target[id]! < 0 && d.idl[id]! > 0 && this.tick - d.idl[id]! > RIDER.idleFor) idle++;
+    }
+    return n > 0 && idle >= n * RIDER.idleShare;
+  }
+
   /** What a block of horse is worth in a clash of horse: men, class, wind and losses (the fearless's morale says nothing). */
   private cavWorth(r: Regiment): number {
     const v = this.stats[r.team]![r.cls]!.value;
@@ -4765,8 +4795,17 @@ export class Battle {
     let px: number;
     let py: number;
     if (ts.hasLine) {
-      px = ts.frontX - dir * (ts.lineDepth + 55);
+      // (Behind the blocks that stand behind the line there, too, the archers and the second
+      // line: a post inside them had the household shoved to and fro about them.)
       py = ts.midY;
+      let back = ts.lineDepth + 55;
+      for (const o of this.teamRegs[t]!) {
+        if (o === r || o.alive === 0 || o.routed || isCav(o) || o.role === 'skirmish' || o.role === 'siege') continue;
+        if ((o.cy > py ? o.cy - py : py - o.cy) > o.radius + 30) continue;
+        const behind = (ts.frontX - o.cx) * dir + o.radius + 35;
+        if (behind > back && behind < POST_BACK) back = behind;
+      }
+      px = ts.frontX - dir * back;
     } else {
       let k = 0;
       let x = 0;
@@ -4830,14 +4869,16 @@ export class Battle {
     let threat = 0;
     let danger: Regiment | null = null;
     let dg = Infinity;
+    // (Drawing back, it keeps on until they are a little further off: no to and fro at the edge.)
+    const wary = HOUSEHOLD.wary * (r.mode === 'withdraw' ? 1.4 : 1);
     for (const o of this.teamRegs[1 - t]!) {
       if (o.alive === 0 || o.routed) continue;
       const dx = o.cx - r.cx;
       const dy = o.cy - r.cy;
-      const rr = o.radius + r.radius + HOUSEHOLD.wary;
+      const rr = o.radius + r.radius + wary;
       if (dx * dx + dy * dy > rr * rr) continue;
       const q = this.gapTo(r, o);
-      if (q > HOUSEHOLD.wary) continue;
+      if (q > wary) continue;
       threat += val(o) * (o.moraleState === 'wavering' ? 0.5 : 1);
       if (q < dg) {
         dg = q;
@@ -4866,8 +4907,12 @@ export class Battle {
       let q = sqrt(ux * ux + uy * uy) || 1;
       ux /= q;
       uy /= q;
-      const hx = g.guardX - r.ax;
-      const hy = g.guardY - r.ay;
+      // (Toward his post, unless they stand by it: then back, toward our own edge.)
+      const ex = g.guardX - this.tmp[0]!;
+      const ey = g.guardY - this.tmp[1]!;
+      const safe = ex * ex + ey * ey > HOUSEHOLD.wary * HOUSEHOLD.wary;
+      const hx = safe ? g.guardX - r.ax : -dir * 100;
+      const hy = safe ? g.guardY - r.ay : 0;
       const h = sqrt(hx * hx + hy * hy);
       if (h > 1) {
         ux += hx / h;
@@ -5096,7 +5141,10 @@ export class Battle {
     }
     const horse = isMounted(r);
     // A goal in a friend's place is taken: the block stands beside him instead (`clearGoal`).
-    if ((this.tick + r.phase) % 5 === 0 && !r.engaged && !r.slip && r.role !== 'skirmish' && r.mode !== 'pursue' && r.mode !== 'charge' && r.mode !== 'withdraw') this.clearGoal(r);
+    // (Not horse riding round to a flank: `rideRound` has its way past friends already, and
+    // this put the goal back beside the friend it stood by, where the knights halted for good:
+    // QA review #14.)
+    if ((this.tick + r.phase) % 5 === 0 && !r.engaged && !r.slip && r.role !== 'skirmish' && r.mode !== 'pursue' && r.mode !== 'charge' && r.mode !== 'withdraw' && !(horse && r.mode === 'flank')) this.clearGoal(r);
     const dx = r.tx - r.ax;
     const dy = r.ty - r.ay;
     const q = sqrt(dx * dx + dy * dy);
@@ -5227,6 +5275,7 @@ export class Battle {
       if (o === r || o.alive === 0 || o.routed || o.role === 'skirmish' || o.slip || o.mode === 'skirmish' || o.mode === 'pursue') continue;
       // (Two bodies in open order pass through each other's files: archers among archers.)
       if (r.stance === 'loose' && o.stance === 'loose' && (isMounted(r) || isMounted(o))) continue;
+      if (archersPass(r, o)) continue;
       const dx = o.cx - r.cx;
       const dy = o.cy - r.cy;
       const reach = o.radius + r.radius + r.spacing + 8;
@@ -5307,6 +5356,7 @@ export class Battle {
       for (const o of this.teamRegs[r.team]!) {
         if (o === r || o.alive === 0 || o.routed || o.role === 'skirmish' || o.slip || o.mode === 'pursue' || o.mode === 'skirmish' || !this.rightOfWay(o, r)) continue;
         if (r.stance === 'loose' && o.stance === 'loose' && (isMounted(r) || isMounted(o))) continue;
+      if (archersPass(r, o)) continue;
         const ocx = o.ax - o.fx * o.depth * 0.5;
         const ocy = o.ay - o.fy * o.depth * 0.5;
         const ex = cx - ocx;
@@ -5873,6 +5923,11 @@ export class Battle {
             if (a > 0) s *= 1 + C.crowd * (a < 3 ? a : 3);
             // ...but any foe at hand before one he would have to turn from him to reach.
             if (!at) s += hh * (1 + 3 * C.crowd);
+          } else if (mounted && !at) {
+            // QA review #14: a rider, too, before a foe whom two or more of ours ring already
+            // (he would stand behind them), takes one he can get at.
+            const a = att[j]! - (j === cur ? 1 : 0);
+            if (a > 1) s *= 1 + RIDER.crowd * (a < 4 ? a - 1 : 3);
           }
           if (!mounted && dx * fx + dy * fy < 0 !== rear) s *= 1.7;
           if (edge && (dx * -fy + dy * fx) * sxi > 0) s *= C.edgeOut;
@@ -5975,6 +6030,9 @@ export class Battle {
           // (Nor a man our own foot is fighting at its front: another stretch, a flank or the rear.)
           if (foot.length > 0 && this.covered(j, i, foot)) continue;
           if (vx * dx + vy * dy < 0) s *= RIDER.behind;
+          // (One whom two or more of ours ring already less readily: QA review #14.)
+          const a = d.att[j]!;
+          if (a > 1) s *= 1 + RIDER.crowd * (a < 4 ? a - 1 : 3);
           if (s < bs) {
             bs = s;
             best = j;
@@ -5983,6 +6041,39 @@ export class Battle {
       }
     }
     void r;
+    return best;
+  }
+
+  /** The nearest enemy man still fighting within `R` of man `i` (-1: none). */
+  private foeAt(i: number, R: number): number {
+    const d = this.d;
+    const x = d.x[i]!;
+    const y = d.y[i]!;
+    const team = d.team[i]!;
+    const x0 = Math.max(0, Math.floor((x - R) / CELL));
+    const x1 = Math.min(GW - 1, Math.floor((x + R) / CELL));
+    const y0 = Math.max(0, Math.floor((y - R) / CELL));
+    const y1 = Math.min(GH - 1, Math.floor((y + R) / CELL));
+    let best = -1;
+    let bs = R * R;
+    for (let cy = y0; cy <= y1; cy++) {
+      for (let cx = x0; cx <= x1; cx++) {
+        const c = cy * GW + cx;
+        const from = team === 0 ? this.grid[c]! + this.ofTeam0[c]! : this.grid[c]!;
+        const end = team === 0 ? this.gridEnd[c]! : this.grid[c]! + this.ofTeam0[c]!;
+        for (let k = from; k < end; k++) {
+          const j = this.items[k]!;
+          if (d.state[j] !== State.Fighting) continue;
+          const dx = this.kx[k]! - x;
+          const dy = this.ky[k]! - y;
+          const q = dx * dx + dy * dy;
+          if (q < bs) {
+            bs = q;
+            best = j;
+          }
+        }
+      }
+    }
     return best;
   }
 
@@ -7186,9 +7277,31 @@ export class Battle {
           const ey = r.ty + r.dfy * sy + r.dfx * sx - y;
           const q = sqrt(ex * ex + ey * ey) || 1;
           const h = d.hs[i]! || 1;
-          const v = Math.min(spd * PACE.withdraw * h, q * 1.5) / q;
+          let v = Math.min(spd * PACE.withdraw * h, q * 1.5) / q;
           vx = ex * v;
           vy = ey * v;
+          // QA review #14: a foe at his horse's head on the way to his spot (he was fighting on
+          // the far side of him), he turns out round him, away from him, first: he does not ride
+          // into him and stand there. (Until v17 riders were left in contact under half their
+          // speed some 3 s a rider each time horse broke off.)
+          const j = this.foeAt(i, RIDER.clear);
+          if (j >= 0) {
+            let ax = x - d.x[j]!;
+            let ay = y - d.y[j]!;
+            const m = sqrt(ax * ax + ay * ay) || 1;
+            ax /= m;
+            ay /= m;
+            const along = (ex * ax + ey * ay) / q;
+            if (along < 0.3) {
+              // Round him: the part of his way across the line to the foe, and off from him.
+              let wx = ex / q - along * ax + ax;
+              let wy = ey / q - along * ay + ay;
+              const w = sqrt(wx * wx + wy * wy) || 1;
+              v = (spd * PACE.withdraw * h) / w;
+              vx = wx * v;
+              vy = wy * v;
+            }
+          }
           if (this.swerve(i, vx, vy)) {
             vx = this.tmp[0]!;
             vy = this.tmp[1]!;
@@ -7715,7 +7828,9 @@ const RIDER_SIN = 0.198669330795;
  * for horse re-forming to break off the re-form and meet it (and how far a horse's length and room
  * clears a friend, `rideRound`; how far before our own foot's front a foe counts as its own,
  * `covered`, the pace, a share of his speed, at which a rider in their ranks rides out of
- * them, and the share of a block's riders in them at which it breaks off, `inOurRanks`); how near a foe must be for a horse
+ * them, and the share of a block's riders in them at which it breaks off, `inOurRanks`; how long
+ * a rider stands without a foe he can get at, and the share of a block's riders so, at which it
+ * breaks off, `idleRanks`; how much less he likes a foe ringed by ours, by each past the first); how near a foe must be for a horse
  * archer to ride off from him by himself; under what share of his hit points a rider hit
  * among spears pulls out of them, and for how long (ticks); the gap to foot at which horse
  * archers ride off (until the sweep after v16, 35: foot closing at a run caught them).
@@ -7739,6 +7854,10 @@ const RIDER = {
   spearHurt: 0.5,
   spearOut: 20,
   haFoot: 50,
+  clear: 9,
+  idleFor: 20,
+  idleShare: 0.5,
+  crowd: 0.5,
 };
 /** RIDER: the pace (a share of his speed) of a rider riding round to the flank on his own. */
 const RIDER_FREE = 0.8;
