@@ -113,6 +113,15 @@ export { COHESION, DOCTRINE, MORALE, REGROUP, UNDEAD } from './command.ts';
  *   Riders riding out make for their spots about that point. The household deploys behind the
  *   archers and the second line. Pairs with horse a quarter deep in a friend: 0.157 a second
  *   sampled in grand battles, now 0.024; the charge lands as soon as before.
+ * - Knights keep out of our own foot's ranks (battle-cohesion.md 8.5e): a rider behind our foot
+ *   fighting an enemy block does not take a man at that foot's front (`covered`) but another
+ *   stretch, a flank or the rear (`hunt`); one in our foot's ranks rides out of them, at the
+ *   gallop too (`amongFoot`); horse with three in ten of its riders there breaks off and charges
+ *   again (`inOurRanks`). The household keeping its place gives way like any block (`yields`).
+ *   `blockCrossings` no longer counts the places of horse locked in a fight. Grand battles: pairs
+ *   with horse 0.032 a second sampled, now 0.018 (a quarter deep: 0.010, now 0.009); knights in
+ *   melee among our foot in melee, 56 samples, now none in the top pairs; the household, 11 now 2.
+ *   Horse kills over 30 battles: 5,337 then 5,166 (losses 3,003, 2,989), length 232 s then 229 s.
  */
 /**
  * v16: nothing grows with the size of the battle that should not (the undead won two thirds of

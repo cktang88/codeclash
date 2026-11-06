@@ -1012,6 +1012,40 @@ A spot counts as taken when another block of shooters stands there or is making 
 - Grand battles: pairs with horse through a quarter of a block, neither locked in a fight, under 0.04 per sampled second (before: 0.19). Household pairs under 0.05.
 - The column-of-horse set piece above.
 
+### 8.5e Knights keep out of our own foot's ranks; the household gives way (follow-up)
+
+8.5d left two things: knights fighting among our own foot when both are locked in melee with the same enemy block, and the household caught in its archers as they march past it. Real knights do not wade into their own foot's ranks. They hit another stretch of the enemy front, a flank or the rear, or pull out and charge again.
+
+**The fix:**
+- **`covered`.** A rider behind the front of our foot, within its frontage, does not take a man our foot is fighting at its front (within 8 of it). That goes for his first pick (`seek`) and for his own search (`hunt`). He takes another stretch, the flank or the rear (`flankPoint`). A rider at that foot's flank, or past its front, still takes the man.
+- **`amongFoot`.** A rider who finds himself in our foot's ranks rides out to their nearer flank, or back out of their rear, at 0.6 of his speed. This holds at the gallop too, and he then picks another man.
+- **`inOurRanks`.** A block of horse locked in a fight with three in ten of its riders in our foot's ranks breaks off and charges again, as a cycle charge does (not blown, not more than four times). Its next ride goes round the foot (`rideRound`).
+- **The household gives way.** While it keeps its place (guard or hold), it gives way to friendly blocks like any other block (`yields` → `giveWay`, by `rightOfWay`). It does not give way when drawing back from a block too big for it, or when riding to fight.
+
+**The measure.**
+- **`blockCrossings` change.** It no longer counts the places of horse locked in a fight: its riders fight where they stand, and foot men standing in its places are not in it. Its riders standing in another block's places still count.
+- **Riders in our ranks.** `scripts/battle-crossing.ts` also counts riders pressed into our foot's ranks (two foot friends within touch).
+- **Results.** Same 18 grand battles, with the new rule applied to both runs:
+
+| | Before | After |
+|---|---|---|
+| Pairs with horse in them, per sampled second | 0.032 | 0.018 |
+| ...through a quarter of a block or more | 0.010 | 0.009 |
+| Knights in melee among our foot in melee (samples, top pairs) | 56 | 0 |
+| Household pairs (samples) | 11 | 2 |
+| Riders pressed into our foot's ranks, per sampled second | 0.05 | 0.05 |
+
+**Not timid.**
+- **Horse kills.** Over 30 demo battles at 700 a side, horse killed 5,166 (before: 5,337) and lost 2,989 (before: 3,003). Battles ran 229 s (before: 232 s).
+- **Fairness.** Mirror fairness was 50.5% at both 250 and 120 a side.
+- **Speed.** `pnpm bench` is unchanged.
+
+**What is left:**
+- **Foot marching into the places of horse that is riding round or holding.** Spears bracing, or a block advancing, into knights in reserve. This is the largest remaining pair, about 12 samples. Foot's `crowded` sees horse as a rectangle, and horse at the charge or riding out is exempt from giving way.
+- **Two blocks of light horse charging the same enemy horse.** This still happens at the edges (about 6 samples).
+
+**Tests:** `src/game/crossing.test.ts`, a set piece. `covered` is true for a rider behind our foot's front and false for one past its end, and `amongFoot` likewise. Riders standing in our foot's ranks ride out within 6 s.
+
 ### 8.6 Not done
 
 - **Idle men face their regiment's front.** The renderer turns a man to his foe only when he has one, so an idle rear-ranker of a block that has turned its rear ranks about still shows his back to the enemy. That fix is in `scene.ts`, which belongs to the renderer.
