@@ -267,6 +267,35 @@ export { COHESION, DOCTRINE, MORALE, REGROUP, UNDEAD } from './command.ts';
  *   shoves a riser (RISE_TICKS): nearly every deep overlap of foes in the collision battles was a
  *   man just risen. Collision battles (seeds 1-8, 320 against 340): foes' overlap p99 1.10 -> 0.45
  *   of a man's radius, p95 0.34 -> 0.27; as many risen (the cap, not the ground, sets how many).
+ * - QA review 3 #1 (docs/qa/battle-realism-review-3.md; scripts/qa/soldier-sense.ts). The front
+ *   rank fences with the front rank (`seek`): past a body's length, nobody takes as his foe a man
+ *   standing behind his own front rank or file (`open`), unless that man is at him; nor do pikes
+ *   striking past their own front. A spear's front rank reached over the enemy's at his second and
+ *   third ranks, who (short of a pike) could not answer and stood stabbed at with no foe. Spear on
+ *   spear (48 Templar spears v 48 yari, seeds 1-6): men struck at with no foe of their own 3.9% ->
+ *   1.3% of their time; demo seeds 1-4 at 450: 0.05-0.36% -> 0.03-0.15%.
+ * - QA review 3 #2 (scripts/qa/brace-idle.ts). Spears go in at enemy horse locked in a fight with
+ *   a friend of theirs close by (`thinkLine`), unless other horse is coming at them: they stood
+ *   braced against horse that was not coming, 30 u from knights hacking at the foot beside them.
+ *   Demo seeds 1-4 at 450: spears braced with the horse fighting a friend 1,641 of 4,427
+ *   man-seconds braced (37%, longest 14 s) -> 270 (8%, longest 8 s). Knights on 120 spears
+ *   (game-matchups, three days): spears in line kill 17 riders (was 10) and lose 97 (was 88).
+ * - QA review 3 #3. Skirmishers with no line of their own to fall back behind give ground before
+ *   slower foot (`thinkSkirmish`, SKIRM.back): once its men are within 70 they run back (at 0.9 of
+ *   their speed, `giving`) to 125 from them, halt, throw, and back again, while they have javelins
+ *   and ground behind them. They stood and threw until the foot was on them. 30 skirmishers v 48
+ *   undead spears, four days: cut down with javelins in hand 48 -> 0 of 120, javelins thrown
+ *   357 -> 480, spears felled 18 -> 41. (Out of javelins they still go in: someone must end it.)
+ * - QA review 3 #5 (scripts/qa/skirm-rest.ts). Retired skirmishers shot at where they rest behind
+ *   the line (`thinkSkirmish`, SKIRM.shelter*) go back out of the enemy's bowshot (or 400 back),
+ *   and come back to their place only once it is out of bowshot. The enemy's shooters, holding
+ *   their arrows off the melee, picked the men standing clear behind it, and spent skirmishers
+ *   were shot down there to the last man. Demo seeds 1-4 at 450 (with HORSE): shot dead while
+ *   retired 19 -> 6, man-seconds under arrows 640 -> 367. Set piece (soldier-sense.test.ts):
+ *   they broke under the arrows within 30 s on three days of four, now on none.
+ * - QA review 3: the household weighs itself by what its riders have left (`thinkCommand`): a
+ *   bloodied household of seven took on a block of 37 as if fresh, and (after #5, in s3/450
+ *   undead v samurai) the Lich-Marshal fell with it 18 s before his host broke.
  * - Horse wounds (`HORSE`, `horseHit`, `dismount`, `afootAct`/`afootMove`; UnitStats `horse`,
  *   `barding`; docs/art-references/horse-wounds.md). Arrows soaked into a knight's armour and killed
  *   none; at Crécy and Agincourt it was the horses that went down. A missile striking a rider strikes
@@ -947,6 +976,10 @@ export class Regiment {
   withdrawals = 0;
   /** Skirmishers that have fallen back behind the line. */
   retired = false;
+  /** Retired skirmishers last shot at where they rested (QA3 #5: see `thinkSkirmish`). */
+  shelterAt = -1000;
+  /** Skirmishers with no line of their own giving ground before foot (QA3 #3: see `thinkSkirmish`). */
+  giving = false;
   refuseUntil = -100;
   waverTold = -1000;
   /** Last ticker line for its standing fast (T3). */
@@ -4111,6 +4144,17 @@ export class Battle {
       // (Horse locked in a fight with someone else, out of a few strides, is no threat to brace
       // against: spears stand braced while the whole fight goes on beside them otherwise.)
       if (cav && (cav.mode === 'charge' || cav.mode === 'flank' || (cav.mode === 'melee' && (cav.targetReg === r.id || this.nearestFoe(r, 2, 40) !== null)))) {
+        // QA3 #2: horse locked in a fight with a friend of ours close by, and no other coming at
+        // us: the spears go in at it (horse at a stand among foot is what spears are for), not
+        // stand braced against horse that is not coming. (Until then 39 spears stood braced 14 s
+        // 30 u from knights hacking at the heavy foot beside them: over a third of all the time
+        // spears stood braced in the demo battles.)
+        if (cav.mode === 'melee' && cav.engaged && cav.targetReg !== r.id && o.kind !== 'withdraw' && !this.horseComing(r, 150, false)) {
+          this.startCharge(r);
+          this.goal(r, cav.cx, cav.cy);
+          this.faceToward(r, cav.cx, cav.cy);
+          return;
+        }
         this.setMode(r, 'brace');
         this.goal(r, r.ax, r.ay);
         this.faceToward(r, cav.cx, cav.cy);
@@ -5140,7 +5184,19 @@ export class Battle {
     }
     // Their place behind the line, which follows the line only when it has moved SKIRM.deadband
     // (`frontX` jumps whenever a block of the line is committed, charges or falls back).
-    const hx = ts.frontX - dir * (ts.lineDepth + 70);
+    let hx = ts.frontX - dir * (ts.lineDepth + 70);
+    // QA3 #5: shot at where they rest (the enemy's shooters, holding their arrows off the melee,
+    // pick the men standing clear behind it), they go back out of the enemy's bowshot, or as far
+    // as SKIRM.shelterFar. Until then they stood 70 behind the line and were shot
+    // down to the last man, out of javelins and with nothing to answer with.
+    if (retired && (r.mode === 'reserve' || r.mode === 'shoot') && r.arrows > SKIRM.shot && !this.nearGap(r, 60, false)) r.shelterAt = this.tick;
+    // (Once shot at, they do not come back into the arrows: back to their place only once it is
+    // out of the enemy's bowshot, or after a while with their place clear of arrows.)
+    if (this.tick - r.shelterAt < SKIRM.shelterFor || (r.shelterAt > -1000 && this.bowshotAt(r.team, hx, r.ay, r.radius))) {
+      let back = SKIRM.shelterStep;
+      while (back < SKIRM.shelterFar && this.bowshotAt(r.team, hx - dir * back, r.ay, r.radius)) back += SKIRM.shelterStep;
+      hx = clampX(hx - dir * back);
+    }
     if (r.restAt < 0 || Math.abs(hx - r.restX) > SKIRM.deadband) {
       r.restX = hx;
       r.restAt = this.tick;
@@ -5184,6 +5240,26 @@ export class Battle {
       return;
     }
     if (this.tick < 30) return;
+    // QA3 #3: with no line of their own to fall back behind, they give ground before slower foot
+    // coming on (Lechaeum): back out of its reach at a run while it is still SKIRM.back off, halt
+    // and throw, and back again; they fight only once out of javelins, or with no ground behind
+    // them (the field's edge). Until then they stood and threw until the foot was on them, and
+    // were cut down by men who could never have caught them.
+    r.giving = false;
+    if (noLine && r.ammoLeft > 0) {
+      const foot = this.nearGap(r, SKIRM.back, false);
+      if (foot && !isCav(foot) && foot.speed < r.speed * SKIRM.faster) {
+        this.standOff(r, foot, SKIRM.backTo);
+        const bx = r.tx - r.ax;
+        const by = r.ty - r.ay;
+        if (bx * bx + by * by > SKIRM.room * SKIRM.room) {
+          this.setMode(r, 'skirmish');
+          r.targetReg = foot.id;
+          r.giving = true;
+          return;
+        }
+      }
+    }
     const best = this.shootable(r, st.range * 0.9, true);
     if (best) {
       this.setMode(r, 'shoot');
@@ -5977,7 +6053,18 @@ export class Battle {
     // the household fought to its last rider, 300-440 units ahead of what was left of his
     // army. The Lich-Marshal fell in a quarter of all battles, the other generals in 6-8%.)
     const val = (o: Regiment) => o.alive * this.stats[o.team]![o.cls]!.value;
-    const ours = val(r);
+    // (QA3: weighed by what its riders have left in them: a household of seven, three of them
+    // bleeding, is not seven fresh riders. Until then a bloodied household took on a block of 37
+    // as if fresh, and the Lich-Marshal fell with it before his host broke.)
+    let left = 0;
+    let riders = 0;
+    const full = this.stats[t]![r.cls]!.hp;
+    for (const id of r.members) {
+      if (this.d.state[id] !== State.Fighting || this.soldiers[id]!.commander) continue;
+      riders++;
+      left += Math.min(1, this.d.hp[id]! / full);
+    }
+    const ours = val(r) * (riders > 0 ? left / riders : 1);
     const near = this.nearGap(r, reach, false);
     let threat = 0;
     let danger: Regiment | null = null;
@@ -6352,6 +6439,8 @@ export class Battle {
     if ((r.mode === 'charge' || r.mode === 'pursue') && !isCav(r)) pace *= this.doc[r.team]!.footRun;
     // S3: guns going out through their line, or back through it, go at the double.
     if (r.slip && (r.mode === 'advance' || r.mode === 'skirmish')) pace = Math.max(pace, FOOT_MARCH * FOOT_RUN);
+    // Skirmishers giving ground (QA3 #3) run as fast as they can keep together.
+    if (r.giving && r.mode === 'skirmish') pace = Math.max(pace, r.speed * SKIRM.run);
     // Shooters running for cover from horse (`takeCover`) run as fast as they can keep together.
     if (r.slip && r.coverReg >= 0) pace = Math.max(pace, r.speed * COVER.run);
     pace *= sd.pace * (1 - FATIGUE.pace * r.fatigue);
@@ -7165,6 +7254,11 @@ export class Battle {
           const at = s <= hh;
           // (A man striking past the front rank takes only a foe his point reaches from his place.)
           if (sup && s > (h + REACH.lean) * (h + REACH.lean)) continue;
+          // (QA3 #1: nor, past his body's length, a man standing behind his own front rank (or
+          // file): the man before him covers him. A spear's front rank fences with the front rank
+          // facing it; it does not reach over it at the second rank, who, short of a pike, could
+          // not answer; nor does a pike striking past its own front. Unless that man is at him.)
+          if (!mounted && d.row[j]! > 0 && d.target[j] !== i && s > (ri + d.rad[j]! + 3) * (ri + d.rad[j]! + 3) && !this.open(x, y, j)) continue;
           // (A foe at hand he fights wherever he stands.)
           if (far && !at) continue;
           if (line) {
@@ -9573,7 +9667,15 @@ function spreadAt(kind: Ballistics, q: number, range: number, flatBow: boolean):
  * back below `spent` a man; their place behind the line moves only when the line has moved
  * `deadband`.
  */
-const SKIRM = { out: 1.5, spent: 0.35, deadband: 30 };
+/**
+ * Skirmishers: out again with `out` javelins a man; spent under `spent`; their rest spot behind the
+ * line moves when the line has moved `deadband`. With no line of their own (QA3 #3) they give
+ * ground before foot slower than `faster` of their speed once its men are within `back`, to
+ * `backTo` from them, while that is at least `room` of ground behind them, at `run` of their speed.
+ * Retired and shot at (`arrows` over `shot`: QA3 #5), they rest further back, by `shelterStep`s
+ * until out of the enemy's bowshot or `shelterFar`, for `shelterFor` ticks.
+ */
+const SKIRM = { out: 1.5, spent: 0.35, deadband: 30, back: 70, backTo: 125, faster: 0.85, room: 30, run: 0.9, shot: 1, shelterFor: 300, shelterStep: 50, shelterFar: 400 };
 /**
  * Crossbows (direct fire, not the samurai's guns, whose doctrine is S3) stand `screen` before
  * their line while the lines are apart, and fall back through it when enemy foot comes within
