@@ -284,6 +284,22 @@ export { COHESION, DOCTRINE, MORALE, REGROUP, UNDEAD } from './command.ts';
  *   down before). Light horse at 60 bows: 1-5 of 30 unhorsed; horse archers trading shots with 60
  *   bows: 11-16 of 30. Knights into samurai spears: 11-17 of 20 unhorsed, lost as before. Horse
  *   against bows at equal value (game-matchups): 39 of 120 days, 58 before.
+ * - Horse wounds, round 2: archers kill knights. Bows standing to horse charging or riding at them
+ *   loose at will inside 100 m (`threatTo(r, true)`, RAPID): every 4 s (15 a minute, against 12
+ *   in a burst), and flat inside 50 m, where only the horse's pace across the line scatters the
+ *   shot (not at horse come round on their flank). A horse falling at the gallop may pin or
+ *   trample its rider (`crush`: 40%, a further 30-90% of his hit points), and one riding into it
+ *   goes down on its knees too (`trip`). To a block of horse a rider unhorsed is a rider lost
+ *   (`lossShare`), and a horse brought down heartens those who shot it. Foot with no foe go out to
+ *   finish an enemy rider unhorsed within 100 while he is down, badly hurt or running (`fallen`):
+ *   daggers find the gaps of a man down or caught running (`downArmour`), arrows those of a man
+ *   lying dazed (`shotDown`, no shield); a knight unhorsed runs at 0.8 of a man's pace and defends
+ *   at 0.85 more. A charge that has lost heart shocks half as much (`waverShock`), and other foot
+ *   then go for its horses (`footShare`). Duels (8 seeds, 20 knights at bows that hold, 600 off),
+ *   dead / unhorsed / bows dead, round 1 -> round 2: 120 bows 0 / 13-20 / 36-64 (knights won or
+ *   held the field) -> 1-7 / 10-15 / 0-6 (the charge breaks every time); 60 bows 0 / 1-12 / 28-46
+ *   (knights won 8 of 8) -> 0-5 / 6-13 / 0-45 (7 of 8). Bows locked with foot are still ridden
+ *   down (17-27 of 60 dead). Horse against bows at equal value (game-matchups): 3 of 120 days.
  */
 /**
  * v16: nothing grows with the size of the battle that should not (the undead won two thirds of
@@ -3207,7 +3223,8 @@ export class Battle {
       if (st > State.Routing || (formed && st === State.Routing)) continue;
       if (afoot && d.dm[id] === 1) continue;
       const t = d.target[id]!;
-      if (t >= 0) {
+      // (A man finishing a rider on the ground is not his block's fight: see `fallen`.)
+      if (t >= 0 && !(d.dm[t]! > 0 && d.stun[t]! > 0 && !isMounted(r))) {
         const ex = d.x[t]! - d.x[id]!;
         const ey = d.y[t]! - d.y[id]!;
         // (In the fight: within his own reach or his foe's: a man held at the points is fighting.)
@@ -3525,7 +3542,10 @@ export class Battle {
     // The dead know no fear: nothing to weigh (`arrows` still sets their stance).
     if (this.fearless[team]) return;
     r.flankShock = Math.min(M.flankCap, r.flankShock * 0.9);
-    let target = r.baseMorale - M.casualtiesTotal * (1 - r.alive / r.start) - M.casualtyRate * r.recent - r.flankShock;
+    // HORSE: to a block of horse a rider unhorsed is half a rider lost.
+    let up = r.alive;
+    if (isMounted(r) && !r.routed) for (const id of r.members) if (this.d.dm[id] === 1 && this.d.state[id] === State.Fighting) up -= HORSE.lossShare;
+    let target = r.baseMorale - M.casualtiesTotal * (1 - up / r.start) - M.casualtyRate * r.recent - r.flankShock;
     target += Math.min(M.winning, Math.max(-6, (r.recentKills - r.recent) * 120));
     target -= Math.min(M.outnumberedCap, Math.max(0, r.enemyNear / Math.max(1, r.alive + r.friendNear) - M.outnumberedFrom) * M.outnumbered);
     target -= Math.min(20, r.arrows * M.missileFear * (r.green ? M.greenFear : 1));
@@ -4358,7 +4378,7 @@ export class Battle {
     }
     if (this.screen(r)) return;
     if (this.takeCover(r, st)) return;
-    const threat = this.threatTo(r);
+    const threat = this.threatTo(r, true);
     if (threat) {
       // No time for the word: every man shoots as he can at the nearest foe (and the men he
       // reaches fight him: see `act`). They stand: no wheeling, a man shoots where he must.
@@ -4762,12 +4782,16 @@ export class Battle {
    * The enemy that makes a block of shooters fire at will: the nearest one not locked with our
    * men whose men are within AT_WILL_GAP of its front, or one charging it from twice as far.
    */
-  private threatTo(r: Regiment): Regiment | null {
+  private threatTo(r: Regiment, rapid = false): Regiment | null {
     let best: Regiment | null = null;
     let bd = Infinity;
+    const bows = rapid && this.fire[r.team]![r.cls] === 'lob';
     for (const o of this.teamRegs[1 - r.team]!) {
       if (o.alive === 0 || o.routed || o.engaged) continue;
-      const reach = o.mode === 'charge' && o.targetReg === r.id ? AT_WILL_GAP * 2 : AT_WILL_GAP;
+      // HORSE (RAPID, `rapid`): bows standing to it loose as fast as they can draw at horse coming
+      // on at them within 100 m.
+      const coming = bows && isCav(o) && (o.mode === 'charge' || o.mode === 'flank') && (o.targetReg === r.id || o.vax * (r.cx - o.cx) + o.vay * (r.cy - o.cy) > 0);
+      const reach = coming ? RAPID.range : o.mode === 'charge' && o.targetReg === r.id ? AT_WILL_GAP * 2 : AT_WILL_GAP;
       const dx = o.cx - r.cx;
       const dy = o.cy - r.cy;
       const rr = o.radius + r.radius + reach;
@@ -6873,6 +6897,7 @@ export class Battle {
     }
     let t = d.target[i]!;
     if (t >= 0 && d.state[t]! > State.Routing) t = -1;
+    const was = t;
     if (!r.contact || this.tick < d.wd[i]!) {
       t = -1;
       d.idl[i] = 0;
@@ -6891,6 +6916,13 @@ export class Battle {
         const reach = d.rad[i]! + d.rad[t]! + d.rc[i]! + 1.4;
         if (ex * ex + ey * ey > reach * reach) t = -1;
       }
+    }
+    // HORSE: a man of the foot with no foe goes out to an enemy rider unhorsed close by, while he
+    // is down or badly hurt (`fallen`).
+    if (t < 0 && !d.mt[i] && d.dm[i] === 0 && this.tick >= d.wd[i]! && r.role !== 'siege' && r.role !== 'command') {
+      t = this.fallen(i, was);
+      // (Out of his place on his own errand: his block's anchor keeps to the rest, as for P6.)
+      if (t >= 0) d.cu[i] = 1;
     }
     // REACH: a man held at a spear's points presses on them, and now and then gets in, by a gap
     // beside his spearman or by luck; once in, he stays in while he is inside the point.
@@ -7553,6 +7585,9 @@ export class Battle {
     let spread = 0;
     let flatBow = false;
     const splash = kind === 'siege' ? SIEGE_SPLASH : 0;
+    // HORSE: horse coming on at us (RAPID).
+    const horseOn = isCav(tr) && (tr.mode === 'charge' || tr.mode === 'flank' || tr.mode === 'advance' || tr.mode === 'pursue');
+    let onFront = true;
     for (let tries = 0; tries < DANGER.tries; tries++) {
       const c = tr.engaged ? this.pickRear(tr, d.x[i]!, d.y[i]!, st.range) : this.pickInReach(tr, d.x[i]!, d.y[i]!, st.range, r.atWill);
       if (c < 0) break;
@@ -7570,12 +7605,17 @@ export class Battle {
       // Lead the target a little, and scatter more with distance: a lob most of all at long range.
       const lx0 = d.x[c]! + d.vx[c]! * fl * TICK_S * 0.8;
       const ly0 = d.y[c]! + d.vy[c]! * fl * TICK_S * 0.8;
-      // At will against a foe close at hand, bows shoot flat, point-blank (and as surely as a crossbow).
-      const fb = r.atWill && kind === 'lob' && q < POINT_BLANK;
+      // At will against a foe close at hand, bows shoot flat, point-blank (and as surely as a crossbow);
+      // against horse coming on, from further (RAPID).
+      // (Not at horse come round on their flank or rear: men turning about in their ranks to meet
+      // it shoot no faster, nor flat, than any at will.)
+      onFront = (dx * r.fx + dy * r.fy) / (q || 1) > 0.3;
+      const fb = r.atWill && kind === 'lob' && q < (horseOn && onFront ? RAPID.flat : POINT_BLANK);
       let sp = spreadAt(kind, q, st.range, fb);
       // A fast-moving target is guessed at, not known: the further it goes while the shot is in the
       // air, the wider the miss (riders at the gallop at long range most of all; marching foot not).
-      const vt = sqrt(d.vx[c]! * d.vx[c]! + d.vy[c]! * d.vy[c]!);
+      // (Shot flat, only his pace across the line counts: one riding straight at the bow rides onto it.)
+      const vt = fb ? Math.abs(d.vx[c]! * dy - d.vy[c]! * dx) / (q || 1) : sqrt(d.vx[c]! * d.vx[c]! + d.vy[c]! * d.vy[c]!);
       if (vt > LEAD_EASY) sp += (vt - LEAD_EASY) * fl * TICK_S * LEAD_ERR;
       v = c;
       dist = q;
@@ -7661,7 +7701,7 @@ export class Battle {
     d.acted[i] = this.tick;
     // On the volley clock a man is loaded again in time for the next word; at will, each at his own pace.
     // (At will, a bowman nocks and looses as fast as he can draw, with no long aim: the burst rate.)
-    const reload = r.atWill && kind === 'lob' && r.role === 'missile' ? Math.round(st.reload * BOW_BURST) : st.reload;
+    const reload = r.atWill && kind === 'lob' && r.role === 'missile' ? Math.round(st.reload * (horseOn && onFront && dist < RAPID.range ? RAPID.reload : BOW_BURST)) : st.reload;
     d.cd[i] = reload + this.rng.int(r.role === 'missile' && !r.atWill ? 3 : Math.max(2, Math.floor(reload / 5)));
   }
 
@@ -7990,13 +8030,14 @@ export class Battle {
     let damage = as.damage;
     if (ds.mounted) damage *= as.antiCav * (ar.stance === 'pikewall' ? 1.4 : 1);
     const roll = 0.8 + this.rng.next() * 0.4;
-    // HORSE: a spear goes for the horse as often as the man.
-    if (ds.mounted && as.antiCav > 1.5 && d.hh[t]! > 0 && dr.role !== 'command' && this.rng.next() < HORSE.spearShare) {
+    // HORSE: a spear goes for the horse as often as the man; other foot for its legs and bridle.
+    // (Other foot pull down only riders whose charge has lost heart: HORSE.footShare.)
+    if (ds.mounted && !as.mounted && d.hh[t]! > 0 && dr.role !== 'command' && this.rng.next() < (as.antiCav > 1.5 ? HORSE.spearShare : dr.moraleState === 'wavering' ? HORSE.footShare : 0)) {
       this.horseHit(t, damage * roll * MELEE_K, 0, this.facing(a, t, dr) > 0.25, a);
       return;
     }
-    // HORSE: a rider thrown and not yet up is stabbed through the gaps of his harness.
-    const armour = d.dm[t] && d.stun[t]! > 0 && !routing ? ds.armour * HORSE.downArmour : ds.armour;
+    // HORSE: a rider thrown and not yet up, or caught running on foot, is stabbed through the gaps of his harness.
+    const armour = d.dm[t] && (d.stun[t]! > 0 || routing) ? ds.armour * HORSE.downArmour : ds.armour;
     this.hurt(t, damage * roll * MELEE_K * (50 / (50 + armour)), a);
   }
 
@@ -8063,7 +8104,9 @@ export class Battle {
     }
     if (!routing) {
       const k = this.shockK;
-      this.shake(dr, (rear ? MORALE.chargeRear : side ? MORALE.chargeFlank : MORALE.chargeFront) * force * (ds.mounted ? 0.6 : 1) * (as.mounted ? 1 : 0.2 + 0.04 * as.charge) * k * (ar.held ? ad.heldShock : 1));
+      // (HORSE: a charge of horse that has lost heart on the way in shocks less.)
+      const faint = as.mounted && ar.moraleState === 'wavering' ? HORSE.waverShock : 1;
+      this.shake(dr, (rear ? MORALE.chargeRear : side ? MORALE.chargeFlank : MORALE.chargeFront) * force * faint * (ds.mounted ? 0.6 : 1) * (as.mounted ? 1 : 0.2 + 0.04 * as.charge) * k * (ar.held ? ad.heldShock : 1));
       dr.flankShock += (rear ? 0.6 : side ? 0.3 : 0) * k;
     }
     // Each man hit takes some of the charge out of him: knights carry through a thin line, light
@@ -8169,7 +8212,7 @@ export class Battle {
       reach: 1.6,
       charge: 0,
       attack: st.attack * HORSE.footAttack,
-      defence: st.defence * HORSE.footDefence,
+      defence: st.defence * HORSE.footDefence * (cls === U.Knights ? HORSE.plateWinded : 1),
       damage: st.damage * HORSE.footDamage,
       shield: st.shield * 0.6,
       range: 0,
@@ -8215,6 +8258,12 @@ export class Battle {
     d.stun[i] = HORSE.stun + this.rng.int(HORSE.stunVar) + (gallop ? 10 : 0) + (S.cls === U.Knights ? HORSE.plateStun : 0);
     this.unhorsed[d.team[i]!]!++;
     this.shake(r, HORSE.downShock * this.shockK);
+    // (A rider lost to his block; a horse brought down heartens those who did it.)
+    r.recent += HORSE.lossShare / r.start;
+    if (by >= 0) {
+      const br = this.regiments[d.reg[by]!]!;
+      br.recentKills += 1 / br.start;
+    }
     if (gallop && v > 1) {
       // The riders on his heels ride into the fallen horse, or round it.
       const ux = vx / v;
@@ -8226,10 +8275,16 @@ export class Battle {
         const ahead = ex * ux + ey * uy;
         if (ahead < 0 || ahead > HORSE.pile * 2 || Math.abs(ex * uy - ey * ux) > HORSE.pile * 0.5) continue;
         d.imp[j]! *= 0.5;
-        if (this.rng.next() < HORSE.pileTrip) d.stun[j] = Math.max(d.stun[j]!, 6);
+        if (this.rng.next() < HORSE.pileTrip) {
+          // He rides into the fallen horse: his own goes down on its knees, or over.
+          d.stun[j] = Math.max(d.stun[j]!, 6);
+          if (d.hh[j]! > 0) this.horseHit(j, HORSE.trip, 0, true, -1);
+        }
       }
     }
-    this.hurt(i, foot.hp * (HORSE.fall + this.rng.next() * HORSE.fallVar) * (gallop ? HORSE.fallGallop : 1), by);
+    // At the gallop he may be pinned under the horse, or ridden over by those behind.
+    const crush = gallop && this.rng.next() < HORSE.crush ? HORSE.crushHurt + this.rng.next() * HORSE.crushVar : 0;
+    this.hurt(i, foot.hp * ((HORSE.fall + this.rng.next() * HORSE.fallVar) * (gallop ? HORSE.fallGallop : 1) + crush), by);
   }
 
   /**
@@ -8251,6 +8306,52 @@ export class Battle {
     const dy = d.y[t]! - d.y[i]!;
     const reach = d.rad[i]! + d.rad[t]! + d.rc[i]! + 1.4;
     if (dx * dx + dy * dy <= reach * reach && d.cd[i] === 0) this.strike(i, t);
+  }
+
+  /**
+   * HORSE: a man of the foot not in a fight goes for an enemy rider unhorsed within `finish` of
+   * him while that rider is down (dazed), badly hurt or running (on foot in plate he cannot get
+   * away) and at most one of ours is at him already:
+   * archers with their mallets and daggers, foot with whatever it has. `cur`: the one he is after.
+   */
+  private fallen(i: number, cur: number): number {
+    const d = this.d;
+    const ok = (j: number) => d.dm[j]! > 0 && (d.state[j] === State.Routing || (d.state[j] === State.Fighting && (d.stun[j]! > 0 || d.hp[j]! < this.soldiers[j]!.s.hp * HORSE.finishHp)));
+    if (cur >= 0 && ok(cur)) {
+      const ex = d.x[cur]! - d.x[i]!;
+      const ey = d.y[cur]! - d.y[i]!;
+      if (ex * ex + ey * ey < HORSE.finish * HORSE.finish * 2.25) return cur;
+    }
+    if ((this.tick + i) % 4 !== 0 || this.unhorsed[1 - d.team[i]!] === 0) return -1;
+    const R = HORSE.finish;
+    const x = d.x[i]!;
+    const y = d.y[i]!;
+    const team = d.team[i]!;
+    const x0 = Math.max(0, Math.floor((x - R) / CELL));
+    const x1 = Math.min(GW - 1, Math.floor((x + R) / CELL));
+    const y0 = Math.max(0, Math.floor((y - R) / CELL));
+    const y1 = Math.min(GH - 1, Math.floor((y + R) / CELL));
+    let best = -1;
+    let bs = R * R;
+    for (let cy = y0; cy <= y1; cy++) {
+      for (let cx = x0; cx <= x1; cx++) {
+        const c = cy * GW + cx;
+        const from = team === 0 ? this.grid[c]! + this.ofTeam0[c]! : this.grid[c]!;
+        const end = team === 0 ? this.gridEnd[c]! : this.grid[c]! + this.ofTeam0[c]!;
+        for (let k = from; k < end; k++) {
+          const j = this.items[k]!;
+          if (!ok(j) || d.att[j]! > 1) continue;
+          const dx = this.kx[k]! - x;
+          const dy = this.ky[k]! - y;
+          const q = dx * dx + dy * dy;
+          if (q < bs) {
+            bs = q;
+            best = j;
+          }
+        }
+      }
+    }
+    return best;
   }
 
   /**
@@ -8826,7 +8927,8 @@ export class Battle {
       // other tick he looks ahead for an enemy close in his way (see `dodge`; his captain looks
       // further, every half second).
       if (((this.tick + i) & 1) === 0) this.dodge(i, d.team[i] === 0 ? -1 : 1, 20);
-      const v = spd * 1.05 * d.hs[i]!;
+      // (HORSE: a knight unhorsed runs heavily in his plate.)
+      const v = spd * 1.05 * d.hs[i]! * (d.dm[i] && this.soldiers[i]!.cls === U.Knights ? HORSE.plateRun : 1);
       vx = d.hx[i]! * v;
       vy = d.hy[i]! * v;
       if ((y < 12 && vy < 0) || (y > FIELD_H - 12 && vy > 0)) vy = 0;
@@ -8873,6 +8975,12 @@ export class Battle {
           vy = d.vy[t]! + (dy / q) * close;
           cap = spd * 1.2;
           d.cu[i] = 1;
+        } else if (!mounted && d.dm[t] && d.state[t] === State.Routing) {
+          // HORSE: a man after a rider unhorsed and running runs him down (`fallen`).
+          const close = Math.max(spd * 0.3, (q - contact) * 4);
+          vx = d.vx[t]! + (dx / q) * close;
+          vy = d.vy[t]! + (dy / q) * close;
+          cap = spd * 1.15;
         } else if (d.imp[i]! > 0.3 && !held && (mounted || q > contact)) {
           // (A spear runs in to its point, not past it: two lines running in meet in one stride.)
           const v = mounted || d.rc[i]! < REACH.long ? spd * 1.15 : Math.min(spd * 1.15, (q - contact) * 5);
@@ -9247,9 +9355,11 @@ export class Battle {
       this.horseHit(o, p.damage * sd.missile, pierce, front, shooter0);
       return;
     }
-    const shield = S.s.shield + (r.stance === 'shieldwall' ? 0.35 : 0);
+    // (HORSE: a rider thrown and lying dazed has no shield up, and is shot through the gaps.)
+    const down = d.dm[o]! > 0 && d.stun[o]! > 0;
+    const shield = down ? 0 : S.s.shield + (r.stance === 'shieldwall' ? 0.35 : 0);
     if (p.splash === 0 && front && d.state[o] === State.Fighting && this.rng.next() < shield * (1 - pierce * 0.6)) return;
-    const armour = S.s.armour * (1 - pierce);
+    const armour = S.s.armour * (1 - pierce) * (down ? HORSE.shotDown : 1);
     let dmg = p.damage * (50 / (50 + armour)) * (0.75 + this.rng.next() * 0.5) * (p.splash > 0 ? sd.stones : sd.missile);
     if (front) dmg *= 1 - army.pavise;
     this.shake(r, 0.04 * this.shockK);
@@ -9538,6 +9648,14 @@ const AT_WILL_GAP = 50;
  */
 const BOW_BURST = 0.72;
 const POINT_BLANK = 100;
+/**
+ * HORSE (round 2): horse coming on at a block of bows that shoots at will. Inside `range` (about
+ * 100 m) the bowmen shoot as fast as they can draw, `reload` of the volley reload (4 s: the 15 a
+ * minute a war bow manages for a minute or two when nothing needs ranging, against 12 aimed in a
+ * burst, BOW_BURST), and inside `flat` (about 50 m) they shoot flat at the horses' chests, where a
+ * rider coming straight on needs no lead across: only his crossing pace scatters the shot.
+ */
+const RAPID = { range: 520, flat: 260, reload: 0.58 } as const;
 /** After this long (ticks) with nothing to shoot at, missile foot goes looking for a target along its line. */
 const MISSILE_SEEK = 150;
 /** An enemy man this close to the front of a block of shooters is at contact: they fight. */
@@ -9671,6 +9789,14 @@ const HORSE = {
   stun: 15,
   stunVar: 20,
   plateStun: 15,
+  lossShare: 1,
+  crush: 0.4,
+  shotDown: 0.6,
+  crushHurt: 0.3,
+  crushVar: 0.6,
+  trip: 22,
+  finish: 100,
+  finishHp: 0.6,
   downDefence: 0.4,
   downArmour: 0.35,
   pile: 9,
@@ -9678,9 +9804,13 @@ const HORSE = {
   downShock: 1.2,
   woundShock: 0.15,
   spearShare: 0.35,
+  footShare: 0.3,
+  waverShock: 0.5,
   impale: 45,
   footAttack: 0.75,
   footDefence: 0.8,
+  plateWinded: 0.85,
+  plateRun: 0.8,
   footDamage: 0.8,
   atHand: 12,
   joinFight: 45,
