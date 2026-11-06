@@ -1336,6 +1336,8 @@ const POST_STAND = 60;
 const POST_CLEAR = 60;
 /** Within this of its spot (and the spot not just moved) the household stands where it is. */
 const POST_STEADY = 25;
+/** A household spent to a handful falls back at most this far to keep out of bowshot. */
+const POST_SHY = 400;
 /** The household turns its horse to ride a goal farther than this, rather than back (horse otherwise needs HORSE_REIN). */
 const POST_REIN = 8;
 /** The household's post stands behind the blocks behind the middle of the line, but never further than this behind its front. */
@@ -5837,6 +5839,19 @@ export class Battle {
     // post that followed every shift had the household jigging. It moves along the line only
     // once its spot has drifted POST_ALONG off, and after a move it stands for POST_STAND unless
     // its spot has gone well off: HOUSEHOLD.ahead.)
+    // (A household cut down to a handful keeps out of the enemy's bowshot: a lone general at his
+    // post behind the line was shot down where he stood, the Lich-Marshal among them, before his
+    // host broke. It falls back toward our edge, POST_SHY at most.)
+    if (r.alive <= r.start * HOUSEHOLD.spent) {
+      let back = 0;
+      while (back < POST_SHY && this.bowshotAt(t, clampX(g.postX - dir * back), g.postY, r.radius + 20)) back += 40;
+      if (back > 0) {
+        g.postX = clampX(g.postX - dir * back);
+        g.guardX = g.postX;
+        g.guardY = g.postY;
+        g.guardAt = this.tick;
+      }
+    }
     const gx = g.postX - g.guardX;
     const gy = g.postY - g.guardY;
     const off = (gx * gx) / (POST_DEADBAND * POST_DEADBAND) + (gy * gy) / (POST_ALONG * POST_ALONG);
@@ -6026,12 +6041,17 @@ export class Battle {
 
   /** Whether a block stands within `margin` of the reach of an enemy block of foot shooters with arrows left (edge to edge). */
   private inBowshot(r: Regiment, margin: number): boolean {
-    const st = this.stats[1 - r.team]!;
-    for (const o of this.teamRegs[1 - r.team]!) {
+    return this.bowshotAt(r.team, r.cx, r.cy, r.radius + margin);
+  }
+
+  /** Whether (x, y), and `pad` about it, lies within the reach of an enemy block of foot shooters (of team `t`'s enemy) with arrows left. */
+  private bowshotAt(t: number, x: number, y: number, pad: number): boolean {
+    const st = this.stats[1 - t]!;
+    for (const o of this.teamRegs[1 - t]!) {
       if (o.alive === 0 || o.routed || o.role !== 'missile' || o.ammoLeft === 0) continue;
-      const far = st[o.cls]!.range + margin + o.radius + r.radius;
-      const dx = o.cx - r.cx;
-      const dy = o.cy - r.cy;
+      const far = st[o.cls]!.range + pad + o.radius;
+      const dx = o.cx - x;
+      const dy = o.cy - y;
       if (dx * dx + dy * dy < far * far) return true;
     }
     return false;
