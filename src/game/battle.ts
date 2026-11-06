@@ -346,6 +346,24 @@ export { COHESION, DOCTRINE, MORALE, REGROUP, UNDEAD } from './command.ts';
  *   out); 30 horse archers against 60 bows: 11-15 unhorsed -> 0. Horse against bows at equal
  *   value: still 3 of 120 days (the horse army's 33 foot cannot pin the bows; they come on and
  *   shoot the horse where it waits).
+ * - Terrain (terrain.ts, docs/battle-terrain.md; `BattleSetup.terrain`): league and demo battles
+ *   are fought on ground generated from the seed, point-symmetric about the centre so each army
+ *   has the same before it, woods and soft ground kept out of both deployment zones: one or two
+ *   pairs of gentle hills (5-13 m), one or two pairs of woods, half the time a stream between the
+ *   armies with fords, half the time soft patches. Set pieces and setups without it stay flat,
+ *   and fight exactly as before. Uphill slows (x 1 - 2 grade) and tires; the man above has up to
+ *   +5 attack, a charge down a slope up to 1.25x its force; height adds missile reach (1.2 x the
+ *   height above the target). Woods slow (foot 0.62, horse 0.35), break ranks (men swerve round
+ *   trees and keep their places loosely), stop charges (impetus at most 0.15), break shield and
+ *   pike walls, take a share of missiles and hide a block deep in them. Water: pace 0.35, no
+ *   impetus, -8 attack, -10 defence. Blocks choose ground: a holding block steps up to a crest
+ *   before it, shooters waiting take a wood's edge, horse keeps out of woods and off prey in them,
+ *   a block goes by a ford if it is not far out of the way (far further under fire), nobody
+ *   charges into a wood or across water, and a General with a crest before his line leans to
+ *   holding it. Set pieces (terrain-pieces.ts, scripts/terrain-sanity.ts): sixty heavy foot holding
+ *   a hill top lose 88 men over six days to sixty attacking against 129 on the flat; sixteen
+ *   knights charging downhill take 411 hit points off heavy foot in 2 s against 296, into a wood
+ *   58 against 389.
  */
 /**
  * v16: nothing grows with the size of the battle that should not (the undead won two thirds of
