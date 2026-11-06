@@ -219,6 +219,20 @@ export { COHESION, DOCTRINE, MORALE, REGROUP, UNDEAD } from './command.ts';
  *   loosed in 67%, now 81-86% (waiting on the clock with most men loaded 7.5% -> under 0.5%;
  *   "shuffling" 10.7% -> 3-6%, what is left of it walks to a new firing spot), crossbows 75%,
  *   now 79-84% (waiting 9.4% -> 0.5%, shuffling 2.7% -> 0.4-1.8%).
+ * - Foot shooters take cover from horse (QA review 2 #1, `takeCover`, COVER). Archers and
+ *   crossbowmen who see enemy horse coming at them (charging or making for them, or riding their
+ *   way at a trot or better, within 420) and have a formed block of our foot they can reach before
+ *   the horse could (at 0.9 of their speed, against the horse's pace or 0.75 of its gallop) run for
+ *   its far side, through our ranks if need be, 4 s before the last moment they still could: they
+ *   keep shooting while the horse is far off. There they stand and shoot (the danger-close and
+ *   clear-line rules as ever) until no horse is near. Behind their own stakes, or with no friend in
+ *   reach, they stand and shoot, fire at will at the last, and no longer step out toward the horse.
+ *   Not toward the enemy's foot. Set piece (cover.test.ts: 24 knights 400 off, 24 archers 150
+ *   before 120 spears, six days): archers lost 88%, now 11%; knights lost 76%, now 72-83%.
+ *   scripts/qa/caught-shooters.ts, 36 pairings at 450: shooters cut down by riders 909 -> 624
+ *   (13-16% -> 9-11% of all shooters), blocks caught by horse 70 -> 64 of 234 (the rest: no friend
+ *   in reach, horse never seen coming, or horse riding round the friend); demo seeds 1-4: 240 ->
+ *   99 men, 14 -> 9 blocks. Horse beats bows (game-matchups, 60 days) 33 -> 37.
  */
 /**
  * v16: nothing grows with the size of the battle that should not (the undead won two thirds of
@@ -896,6 +910,12 @@ export class Regiment {
    */
   restFx = 1;
   restFy = 0;
+  /**
+   * Formed missile foot taking cover from enemy horse (v17, QA2 #1; see `takeCover`): the friendly
+   * block it falls back on (-1 none), and the horse it saw coming (-1 none).
+   */
+  coverReg = -1;
+  horseFrom = -1;
   /** Stepping sideways to open a line of fire (see `sidestep`) until this tick. */
   stepUntil = -1;
   /** Last tick it had something to shoot at (long idle, it goes looking along the line). */
@@ -4160,6 +4180,7 @@ export class Battle {
       return;
     }
     if (this.screen(r)) return;
+    if (this.takeCover(r, st)) return;
     const threat = this.threatTo(r);
     if (threat) {
       // No time for the word: every man shoots as he can at the nearest foe (and the men he
@@ -4186,7 +4207,12 @@ export class Battle {
         this.faceToward(r, best.cx, best.cy);
         return;
       }
-      this.closeToShoot(r, best);
+      // (Horse coming at it: it stands, and does not step out to meet it: `takeCover`.)
+      if (r.horseFrom >= 0) {
+        this.goal(r, r.ax, r.ay);
+        r.short = 0;
+        r.loosed = 0;
+      } else this.closeToShoot(r, best);
       // Standing on top of another block of shooters (both stopped where they came into range):
       // the later in the order of battle steps off to its own spot, as near as it stands now.
       {
@@ -4327,6 +4353,232 @@ export class Battle {
     r.dfx = dir;
     r.dfy = 0;
     return true;
+  }
+
+  /**
+   * Foot shooters and horse (v17, QA review 2 #1). Archers and crossbowmen did not wait in the
+   * open for horse they saw coming: they fell back behind or among their own foot (at Crecy and
+   * Agincourt they stood beside the men-at-arms and behind stakes), and shot from there. With
+   * enemy horse coming at the block (`horseComing`) and a formed friendly block near enough to
+   * reach before the horse can (`coverSpot`), the block keeps shooting while the horse is still
+   * far off, and runs for the far side of the friend when the horse is about COVER.slack seconds
+   * of its gallop from the last moment it could still get there. It stands and shoots there,
+   * keeping its friend between it and the horse, until no enemy horse is within COVER.release.
+   * Behind its own stakes, or with no friend in reach, it stands and shoots, and fires at will at
+   * the last (`threatTo`); it does not step out toward the horse. Returns whether it gave the
+   * block its orders. Until v17 any threat meant "stand and shoot": a block of archers was caught
+   * in the open, hand to hand, by horse it had seen 5-10 s off, with its own spearmen 150 away.
+   */
+  private takeCover(r: Regiment, st: UnitStats): boolean {
+    const horse = this.horseComing(r, r.coverReg >= 0 ? COVER.release : COVER.warn, r.coverReg >= 0);
+    r.horseFrom = horse ? horse.id : -1;
+    const leave = (): boolean => {
+      if (r.coverReg >= 0) {
+        r.coverReg = -1;
+        r.slip = false;
+      }
+      return false;
+    };
+    if (!horse || this.behindStakes(r, horse)) return leave();
+    // At hand already: no time to run, every man shoots as he can (and the men it reaches fight).
+    if (this.threatTo(r) === horse && r.coverReg < 0) return leave();
+    // (The horse's time to it: at the pace it rides now, or most of a gallop if it is gathering speed.)
+    let f = r.coverReg >= 0 ? this.regiments[r.coverReg]! : null;
+    if (f && (f.alive === 0 || f.routed || !this.coverSpot(r, f, horse))) f = null;
+    if (!f) {
+      // The friend it can reach soonest, and before the horse could get there: its run to the
+      // spot against the horse's (at the pace it rides now, or most of a gallop if it is
+      // gathering speed).
+      const hs = Math.max(horse.aspd, horse.speed * COVER.pace);
+      let bt = Infinity;
+      let spare = 0;
+      for (const o of this.teamRegs[r.team]!) {
+        if (!this.coverSpot(r, o, horse)) continue;
+        const x = this.tmp[0]!;
+        const y = this.tmp[1]!;
+        const t = sqrt((x - r.ax) * (x - r.ax) + (y - r.ay) * (y - r.ay)) / (r.speed * COVER.run);
+        const th = Math.max(0, sqrt((x - horse.cx) * (x - horse.cx) + (y - horse.cy) * (y - horse.cy)) - horse.radius - COVER.closeIn) / hs;
+        if (t <= th && t < bt) {
+          bt = t;
+          spare = th - t;
+          f = o;
+        }
+      }
+      // None it would reach before the horse: it stands. Time in hand: it shoots on.
+      if (!f) return leave();
+      if (spare > COVER.slack) return false;
+      this.coverSpot(r, f, horse);
+    }
+    // (In cover already, it stays where it stands while its spot shifts a little with the
+    // friend and the horse: shuffling after it, it would never shoot.)
+    const there = r.coverReg === f.id && r.mode !== 'advance' ? COVER.stay : COVER.there;
+    r.coverReg = f.id;
+    const x = this.tmp[0]!;
+    const y = this.tmp[1]!;
+    const dx = x - r.ax;
+    const dy = y - r.ay;
+    r.atWill = false;
+    if (dx * dx + dy * dy > there * there) {
+      // Running for it, through our own ranks if need be, facing the horse.
+      r.slip = true;
+      r.targetReg = -1;
+      this.setMode(r, 'advance');
+      this.goal(r, x, y);
+      const hx = horse.cx - r.cx;
+      const hy = horse.cy - r.cy;
+      const q = sqrt(hx * hx + hy * hy) || 1;
+      r.dfx = hx / q;
+      r.dfy = hy / q;
+      return true;
+    }
+    // There: it stands and shoots over or past its friend (the danger-close rules hold its shots
+    // when the horse is in among our men).
+    r.slip = false;
+    if (this.threatTo(r)) return false;
+    if (there === COVER.there) this.goal(r, x, y);
+    else this.goal(r, r.ax, r.ay);
+    const best = this.shootable(r, st.range * 0.95, false, this.fire[r.team]![r.cls] === 'lob');
+    if (best) {
+      this.setMode(r, 'shoot');
+      r.targetReg = best.id;
+      r.aimedAt = this.tick;
+      this.aimAt(r, best);
+    } else {
+      this.setMode(r, 'hold');
+      r.targetReg = -1;
+      this.faceToward(r, horse.cx, horse.cy);
+    }
+    return true;
+  }
+
+  /**
+   * The nearest enemy horse (not horse archers, unless charging it) within `warn` of block `r`'s
+   * front that is coming at it: charging it or making for it, or riding toward it at a trot or
+   * better, whatever it is about (`any`: any horse within `warn`).
+   */
+  private horseComing(r: Regiment, warn: number, any: boolean): Regiment | null {
+    let best: Regiment | null = null;
+    let bd = warn;
+    for (const o of this.teamRegs[1 - r.team]!) {
+      // (Horse riding off to re-form, or after fugitives, counts too if it rides this way: until v17
+      // light horse falling back rode down archers standing in its road.)
+      if (o.alive === 0 || o.routed || !isCav(o) || o.mode === 'rally') continue;
+      const mine = o.targetReg === r.id && o.mode !== 'pursue' && o.mode !== 'withdraw';
+      if (o.role === 'horse-archer' && !(mine && o.mode === 'charge')) continue;
+      const dx = o.cx - r.cx;
+      const dy = o.cy - r.cy;
+      const c = sqrt(dx * dx + dy * dy) || 1;
+      if (c - o.radius - r.radius > bd) continue;
+      if (!any && !mine && o.engaged) continue;
+      // (Closing: its pace toward the block, units a second.)
+      const closing = -(o.vax * dx + o.vay * dy) / c / TICK_S;
+      if (!any && !mine && closing < o.speed * COVER.closing) continue;
+      // (Riding off, it is no reason to stay in cover, unless still close.)
+      if (any && !mine && closing < -o.speed * COVER.closing && c - o.radius - r.radius > COVER.near) continue;
+      const g = this.gapTo(r, o);
+      if (g < bd) {
+        bd = g;
+        best = o;
+      }
+    }
+    return best;
+  }
+
+  /** Whether a formed block of foot of the enemy of `team` (not running) is within `range` of (x, y). */
+  private enemyFootNear(team: number, x: number, y: number, range: number): boolean {
+    for (const o of this.teamRegs[1 - team]!) {
+      if (o.alive === 0 || o.routed || !isFoot(o)) continue;
+      const dx = o.cx - x;
+      const dy = o.cy - y;
+      const rr = o.radius + range;
+      if (dx * dx + dy * dy < rr * rr) return true;
+    }
+    return false;
+  }
+
+  /** Whether block `r` stands just behind a row of its own stakes, `horse` beyond them, before its front. */
+  private behindStakes(r: Regiment, horse: Regiment): boolean {
+    for (const k of this.stakes) {
+      if (k.team !== r.team || r.ay < k.y0 || r.ay > k.y1) continue;
+      const ahead = k.x - r.ax;
+      const far = horse.cx - r.ax;
+      if (Math.abs(ahead) < COVER.stakes && ahead * far > 0 && Math.abs(far) > Math.abs(ahead) && Math.abs(horse.cy - r.ay) < Math.abs(far)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Where block `r` takes cover from `horse` behind friend `f` (see `takeCover`): the side of
+   * f's block away from the horse (its rear, front or a flank, whichever faces most away), its
+   * own front COVER.gap from f's edge, beside any other block of shooters already there. Puts it
+   * in tmp[0], tmp[1]; false if f is no cover: not formed foot of the line, too small, out of
+   * reach (COVER.reach), out toward the enemy's foot (COVER.fwd), with other enemies
+   * close by the spot, or the way there past the horse.
+   */
+  private coverSpot(r: Regiment, f: Regiment, horse: Regiment): boolean {
+    if (f === r || f.alive < COVER.men || f.routed || f.role !== 'line' || f.mode === 'pursue' || f.mode === 'rout' || f.stance === 'column') return false;
+    const ux0 = f.cx - horse.cx;
+    const uy0 = f.cy - horse.cy;
+    const uq = sqrt(ux0 * ux0 + uy0 * uy0) || 1;
+    const ux = ux0 / uq;
+    const uy = uy0 / uq;
+    const lx = -f.fy;
+    const ly = f.fx;
+    const a = ux * f.fx + uy * f.fy;
+    const l = ux * lx + uy * ly;
+    // The side away from the horse, in f's own frame (so the spot holds still as the horse rides about).
+    const side = (a < 0 ? -a : a) >= (l < 0 ? -l : l);
+    const sx = side ? (a < 0 ? -f.fx : f.fx) : l < 0 ? -lx : lx;
+    const sy = side ? (a < 0 ? -f.fy : f.fy) : l < 0 ? -ly : ly;
+    // (Further back from a friend locked in a fight: out of the riders' reach over his ranks.)
+    const ext = (side ? f.depth : f.width) * 0.5 + (f.engaged ? COVER.gapFight : COVER.gap);
+    const dir = r.team === 0 ? 1 : -1;
+    const along = (side ? f.width : f.depth) * 0.5;
+    // Along that side: the middle first, then a block's width either way (one beside the next,
+    // the outer ones half covered: wide blocks of archers behind a narrow one of spears).
+    const step = r.width + MISSILE_GAP;
+    for (let k = 0; k < 5; k++) {
+      const n = (k + 1) >> 1;
+      const off = ((k & 1) === 1 ? n : -n) * step;
+      if (k > 0 && (off < 0 ? -off : off) > along + step) continue;
+      const x = f.cx + sx * ext - sy * off;
+      const y = f.cy + sy * ext + sx * off;
+      if (x < 10 || x > FIELD_W - 10 || y < 10 || y > FIELD_H - 10) continue;
+      const dx = x - r.ax;
+      const dy = y - r.ay;
+      const d = sqrt(dx * dx + dy * dy);
+      if (d > COVER.reach) continue;
+      // Back toward our own side, or along it: not out toward the enemy's foot (with none near,
+      // any side of the friend, wherever the horse rides).
+      if ((x - r.ax) * dir > COVER.fwd && this.enemyFootNear(r.team, x, y, COVER.foot)) continue;
+      if (d > COVER.there && this.spotTaken(r, x, y, -sy, sx, -sx, -sy)) continue;
+      // Not toward the horse: the way there passes no nearer it than the block stands now.
+      if (d > COVER.there) {
+        const hx = horse.cx - r.ax;
+        const hy = horse.cy - r.ay;
+        const t = Math.max(0, Math.min(1, (hx * dx + hy * dy) / (d * d)));
+        const px = hx - dx * t;
+        const py = hy - dy * t;
+        if (px * px + py * py < (hx * hx + hy * hy) * 0.5) continue;
+      }
+      // No other enemy close by it.
+      let clear = true;
+      for (const o of this.teamRegs[1 - r.team]!) {
+        if (o === horse || o.alive === 0 || o.routed) continue;
+        const ex = o.cx - x;
+        const ey = o.cy - y;
+        const rr = o.radius + COVER.clear;
+        if (ex * ex + ey * ey < rr * rr) {
+          clear = false;
+          break;
+        }
+      }
+      if (!clear) continue;
+      this.tmp[0] = x;
+      this.tmp[1] = y;
+      return true;
+    }
+    return false;
   }
 
   /**
@@ -5678,6 +5930,8 @@ export class Battle {
     if ((r.mode === 'charge' || r.mode === 'pursue') && !isCav(r)) pace *= this.doc[r.team]!.footRun;
     // S3: guns going out through their line, or back through it, go at the double.
     if (r.slip && (r.mode === 'advance' || r.mode === 'skirmish')) pace = Math.max(pace, FOOT_MARCH * FOOT_RUN);
+    // Shooters running for cover from horse (`takeCover`) run as fast as they can keep together.
+    if (r.slip && r.coverReg >= 0) pace = Math.max(pace, r.speed * COVER.run);
     pace *= sd.pace * (1 - FATIGUE.pace * r.fatigue);
     let ux = dx / q;
     let uy = dy / q;
@@ -5705,7 +5959,8 @@ export class Battle {
       }
     } else {
       // Skirmishers run back at their pace; a formed block of shooters steps back slowly, in order.
-      if (aboutTurn) pace *= this.tick < r.stepUntil ? FOOT_RUN : r.role === 'skirmish' ? 1 : 0.5;
+      // (Shooters running for cover from horse, `takeCover`, run.)
+      if (aboutTurn) pace *= this.tick < r.stepUntil ? FOOT_RUN : r.role === 'skirmish' || r.coverReg >= 0 ? 1 : 0.5;
       else if (q > 3) pace *= 0.7;
       // Horse backs or sidles only at a walk.
       if (horse && al < 0.3) pace = Math.min(pace, r.speed * HORSE_WALK);
@@ -8569,6 +8824,22 @@ const SKIRM = { out: 1.5, spent: 0.35, deadband: 30 };
  * charge of horse before their line were ridden down), or the line comes up to them (`screen`).
  */
 const FLAT_SCREEN = { screen: 14, back: 70, horse: 420 };
+/**
+ * Foot shooters taking cover from horse (v17, QA review 2 #1; see `takeCover`). `warn`: horse
+ * coming within this of the block's front is watched; `closing`: riding toward it at this share
+ * of its speed or more counts as coming at it; `release`: it leaves cover once no horse is this
+ * near. `run`: the shooters run for cover at this share of their speed; the horse's ride to the
+ * same spot is reckoned at its pace or `pace` of its speed, whichever is more, to `closeIn` short
+ * of it. `slack`: they run this many seconds before the last moment they still could; `reach`: cover no
+ * further than this; `gap`: its front this far behind the friend's ranks (`gapFight` when he is
+ * locked in a fight); `there`: arrived
+ * within this; `men`: a friend this strong at least; `clear`: no other enemy within this of the
+ * spot; `stakes`: its own stakes within this before its front are cover enough. In cover it
+ * stays put while its spot is within `stay`, and horse riding off further than `near` does not
+ * keep it there. Cover is never more than `fwd` toward the enemy's side of the field with enemy
+ * foot within `foot` of it.
+ */
+const COVER = { warn: 420, closing: 0.3, release: 480, closeIn: 20, pace: 0.75, run: 0.9, slack: 4, reach: 260, gap: 20, gapFight: 45, there: 6, stay: 25, near: 150, fwd: 20, foot: 300, men: 12, clear: 80, stakes: 30 };
 /** Crossbows and guns blocked by our own men look this far along the line for a clear one, this much at a time. */
 const LANE_SEARCH = 200;
 const LANE_STEP = 20;
