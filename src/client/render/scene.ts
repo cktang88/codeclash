@@ -28,7 +28,7 @@ import { GlPost } from './post.ts';
 import { ELBOW, FoeGrid } from './foes.ts';
 import { facing, ownFront, settleTurn, stillRising, turnVia, TURN_HOLD, TURN_STEP, type Vec } from './pose.ts';
 import { AnimTrack, blankFacts, isGait, pickAnim } from './animstate.ts';
-import { dieFrame, dieLen, fallFacing, lunge, REACT, Reactions, recoil, slide, weave } from './react.ts';
+import { dieFrame, dieLen, fallFacing, lunge, REACT, Reactions, recoil, slide, STAGGER, weave } from './react.ts';
 import { frameBox, nextZoomFloor, NO_INSETS, zoomOutScale, type Insets, type ZoomFloor } from './fit.ts';
 import { upscaleCanvas } from './upscale.ts';
 import { buildAtlas as buildClassic } from './sprites.ts';
@@ -1321,6 +1321,12 @@ export class BattleScene {
     return dieLen(a.frames(kind, Anim.Die), a.ticksPerFrame(Anim.Die));
   }
 
+  /** Ticks of a fall's stagger (react.ts dieFrame: the frames before the topple). */
+  private staggerTicks(team: number, kind: number): number {
+    const a = this.atlases[team as 0 | 1];
+    return dieLen(Math.min(STAGGER, a.frames(kind, Anim.Die)), a.ticksPerFrame(Anim.Die));
+  }
+
   private impact(x: number, y: number): void {
     const rng = this.rng;
     this.stampFx(`crater${rng.int(2)}`, x, y, 0.85);
@@ -1414,6 +1420,7 @@ export class BattleScene {
       const s = this.battle.soldiers[i]!;
       const r = this.react;
       const fresh = r.fall(i, s.diedAt >= 0 ? s.diedAt : this.battle.tick, s.s.mounted);
+      r.face[i] = this.dirs[i]!;
       const toward = fresh ? dirFor(-r.blowX[i]!, -r.blowY[i]!, this.dirs[i] as Dir) : -1;
       this.dirs[i] = fallFacing(i, toward, this.dirs[i]!) as Dir;
     }
@@ -2306,7 +2313,9 @@ export class BattleScene {
       const tpfRow = this.tpfTab[s.team]!;
       const track = this.anims;
       if (s.state === State.Dead || rising) {
+        // (Through the stagger he keeps the way he faced; he turns to his fall as he topples.)
         if (s.state === State.Dead) dir = this.fallDir(i);
+        if (s.state === State.Dead && T - s.diedAt < this.staggerTicks(s.team, kind)) dir = this.react.face[i] as Dir;
         // Falling; or raised from the dead: the fall played backwards (contract.ts RISE).
         anim = track.resolve(i, Anim.Die, T, rising ? s.roseAt : s.diedAt, frameRow, kind * ANIM_COUNT, tpfRow, 0);
         start = rising ? s.roseAt : s.diedAt;
@@ -2402,12 +2411,15 @@ export class BattleScene {
         const fa = this.facts;
         const mt = s.s.mounted;
         const tg = s.target >= 0 ? ss[s.target] : undefined;
+        // Room to step in: no closer than body to body (men the sim has pressed together, one
+        // in front of the other on screen, would be drawn inside each other).
+        const room = tg ? Math.max(0, Math.sqrt((tg.x - s.x) ** 2 + (tg.y - s.y) ** 2) - s.s.radius - tg.s.radius) : 0;
         if (anim === Anim.Attack && tg) {
           const dx = tg.x - s.x;
           const dy = tg.y - s.y;
           const d = Math.sqrt(dx * dx + dy * dy);
           if (d > 1e-3) {
-            const k = (lunge((T - start) / Math.max(1e-3, fa.actLen)) * (mt ? REACT.lungeMounted : REACT.lunge)) / d;
+            const k = (lunge((T - start) / Math.max(1e-3, fa.actLen)) * Math.min(room * 0.7, mt ? REACT.lungeMounted : REACT.lunge)) / d;
             ox += dx * k;
             oy += dy * k;
           }
@@ -2425,7 +2437,7 @@ export class BattleScene {
           const dy = front ? tg.y - s.y : this.front.y;
           const d = Math.sqrt(dx * dx + dy * dy);
           if (d > 1e-3) {
-            const k = (weave(T, (i * 0.618034) % 1) * REACT.weave) / d;
+            const k = (weave(T, (i * 0.618034) % 1) * (front ? Math.min(REACT.weave, room * 0.3) : REACT.weave)) / d;
             ox += dx * k;
             oy += dy * k;
           }

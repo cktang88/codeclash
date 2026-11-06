@@ -122,6 +122,8 @@ export class Reactions {
   readonly fallY: Float32Array;
   /** The latest blow of his the scene has looked at (actedAt), so each is counted once. */
   readonly seen: Float32Array;
+  /** The way he faced when struck down: kept through the stagger, before he turns as he topples. */
+  readonly face: Uint8Array;
   constructor(n: number) {
     const f = (v: number) => new Float32Array(n).fill(v);
     this.blowAt = f(-100);
@@ -133,9 +135,11 @@ export class Reactions {
     this.fallX = f(0);
     this.fallY = f(0);
     this.seen = f(-100);
+    this.face = new Uint8Array(n);
   }
   copy(o: Reactions): void {
     for (const k of ['blowAt', 'blowX', 'blowY', 'parryAt', 'parryX', 'parryY', 'fallX', 'fallY', 'seen'] as const) this[k].set(o[k]);
+    this.face.set(o.face);
   }
   /** A blow (or a missile, a charge) landed on `t` at `tick`, struck from (dx, dy) relative to him (toward the striker). */
   hurt(t: number, tick: number, dx: number, dy: number): void {

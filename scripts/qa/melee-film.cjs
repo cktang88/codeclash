@@ -92,6 +92,7 @@ const [out, query, count = '12', sub = '0.5', port = '5391', crop = '640x400'] =
       sc.draw(c, a, 0);
       window.__hold = true;
     }, alpha);
+    if (process.env.TRACE) console.log(await page.evaluate((id) => { const sc = window.__scene, s = window.__battle.soldiers[id]; return JSON.stringify({ t: window.__battle.tick, dir: sc.dirs[id], face: sc.react?.face[id], anim: sc.anims.anim[id], st: s.state, x: s.x.toFixed(1), y: s.y.toFixed(1), fx: sc.react?.fallX[id]?.toFixed(2), fy: sc.react?.fallY[id]?.toFixed(2) }); }, Number(process.env.TRACE)));
     const file = `${out}-${String(k).padStart(2, '0')}.png`;
     await page.screenshot({ path: file, clip: { x: 640 - cw / 2, y: 400 - ch / 2 - Number(process.env.LIFT ?? 0), width: cw, height: ch } });
     files.push(file);
