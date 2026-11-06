@@ -6,6 +6,8 @@ import type { TerrainSpec } from './terrain.ts';
 import { groundPreset, only, placeRegiment, plainArmy } from './testing.ts';
 import { U } from './units.ts';
 
+const sq = (v: number): number => v * v;
+
 const C = 1200;
 
 function duelOf(a: number, na: number, b: number, nb: number, ground: TerrainSpec | 'flat', seed: number): { b: Battle; ra: Regiment; rb: Regiment } {
@@ -45,7 +47,7 @@ export function march(ground: 'flat' | 'up' | 'wood' | 'stream', horse = false):
         if (m.state !== State.Fighting) continue;
         const gx = ra.ax + ra.fx * m.sy - ra.fy * m.sx;
         const gy = ra.ay + ra.fy * m.sy + ra.fx * m.sx;
-        q += Math.sqrt((m.x - gx) ** 2 + (m.y - gy) ** 2);
+        q += Math.sqrt(sq(m.x - gx) + sq(m.y - gy));
         n++;
       }
       spread = Math.max(spread, q / (n || 1));
@@ -98,7 +100,7 @@ export function chargeAt(ground: 'flat' | 'down' | 'wood', seed = 3): { hpLost: 
         const s = b.soldiers[id]!;
         for (const jd of rb.members) {
           const t = b.soldiers[jd]!;
-          if ((s.x - t.x) ** 2 + (s.y - t.y) ** 2 < 100) {
+          if (sq(s.x - t.x) + sq(s.y - t.y) < 100) {
             contact = b.tick;
             break;
           }
@@ -169,7 +171,7 @@ export function crossing(withFord: boolean, fire: boolean): { fordMiss: number; 
     ra.ord.x = 1400;
     ra.ord.y = C;
     b.step();
-    miss = Math.min(miss, Math.sqrt((ra.ax - fx) ** 2 + (ra.ay - (C + 250)) ** 2));
+    miss = Math.min(miss, Math.sqrt(sq(ra.ax - fx) + sq(ra.ay - (C + 250))));
     let w = 0;
     for (const id of ra.members) if (b.terrain.groundAt(b.soldiers[id]!.x, b.soldiers[id]!.y) === 4) w++;
     wet = Math.max(wet, w);
@@ -208,7 +210,7 @@ export function archersEdge(): { depth: number; moved: number } {
   for (const r of b.regiments) if (r.team === 1) placeRegiment(b, r, 2100, C + (r.id % 2 ? 80 : -80), -1, 0);
   while (b.tick < 300) b.step();
   const T = b.terrain;
-  return { depth: T.woodDepth[T.index(ra.cx, ra.cy)]!, moved: Math.sqrt((ra.ax - 760) ** 2 + (ra.ay - C) ** 2) };
+  return { depth: T.woodDepth[T.index(ra.cx, ra.cy)]!, moved: Math.sqrt(sq(ra.ax - 760) + sq(ra.ay - C)) };
 }
 
 /** Light horse (A, ordered at foot standing in a wood 300 off) : the deepest any rider got into the wood in 40 s. */
