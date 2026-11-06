@@ -48,6 +48,23 @@ facing his killer to facing away in the frame he died.
   corpse draw), a riser gets up back onto his spot. A body landing raises a ring of dust, and the
   bone of the undead clatters (`landed`).
 
-## Critique rounds
+- **Room to step in**: the lunge and the weave toward a foe go no further than the room between
+  the two bodies (the sim presses men together; one in front of the other on screen would be
+  drawn inside each other).
+- **Facing through the stagger**: he keeps the way he faced while he staggers and turns to his
+  fall's facing as he topples (frame 5), where the body's motion hides the turn.
 
-See `docs/screenshots/anim2/` and the round notes in the commit messages.
+## Critique rounds (`docs/screenshots/anim2/`, made with `scripts/qa/melee-film.cjs`)
+
+1. Isolated deaths (`ISOLATE=1 DEATH=team`: the dying man and the nearest foe alone, time run on
+   without the sim) against Muybridge and the Dark Knight death: the Die clips already had the
+   stagger, but it played in 0.2 s and the man flipped facing as he was hit. Slowed the stagger,
+   added the slide back from the blow, faced the blow. The undead rider's horse goes down under
+   him (`death-undead-rider.jpg`); the legionary comes apart into a heap (`death-undead-legionary.jpg`).
+2. Crowd filmstrips at zoom 3-4 (`piece=1 ... n=36`) against the Total War press: the shifts
+   (1.5 units) were lost in the crowd and the weave jumped when a blow started; one weave under
+   every clip, larger shifts, a slower Hit.
+3. Duelling pairs (`PAIR=n`: n pairs of men trading blows, the rest off the field) against the
+   Dark Knight impact/block: an axe blow taken on the undead shield reads as a block and a jolt
+   (`duel-templar-axe-vs-undead-parry.jpg`); men pressed one in front of the other were drawn
+   inside each other by the lunge (fixed: room to step in); the fall's facing turn moved to the topple.
