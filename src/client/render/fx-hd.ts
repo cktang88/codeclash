@@ -8,6 +8,7 @@
 // See docs/art-references/battlefield-hd.md for the references these follow.
 
 import { U } from '../../game/units.ts';
+import { HORSE_COATS, HORSE_FRAMES, horseDead, horseRun, type HorseImg } from './horse-fx.ts';
 
 /** A sprite on an HD sheet, in texels; (ax, ay) is the texel that lands on the map point. */
 export interface HdRegion {
@@ -37,6 +38,8 @@ export const PUFF_SIZES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14] as const;
 export const PUFF_VARIANTS = 3;
 export const SPLATS = 6;
 export const HOOVES = 4;
+/** Angles of a missile standing in a man or his shield (its tip's screen direction). */
+export const PIN_ANGLES = 8;
 
 /** Every sprite name, in a fixed order, so the scene can address regions by number. */
 const NAMES: string[] = [];
@@ -54,6 +57,10 @@ for (let k = 0; k < HOOVES; k++) name(`hoof${k}`);
 for (let k = 0; k < 2; k++) name(`stake${k}`);
 name('stone');
 name('dot');
+for (const look of ['arrow', 'bolt', 'jav']) for (let a = 0; a < PIN_ANGLES; a++) name(`pin_${look}${a}`);
+// A riderless horse: id horse_run0_0_0 + (coat * 2 + left) * HORSE_FRAMES + frame; down: horse_dead0_0 + coat * 2 + left.
+for (let c = 0; c < HORSE_COATS; c++) for (let l = 0; l < 2; l++) for (let f = 0; f < HORSE_FRAMES; f++) name(`horse_run${c}_${l}_${f}`);
+for (let c = 0; c < HORSE_COATS; c++) for (let l = 0; l < 2; l++) name(`horse_dead${c}_${l}`);
 
 /** The id of a sprite name on every HD sheet. */
 export function fxId(n: string): number {
@@ -285,6 +292,25 @@ function stuck(look: MissileLook, k: number, L: number): [Img, number, number] {
         img.set(gx + x, gy + y, y <= 0 && x < 0 ? dirtLit : dirt);
       }
   return [img, gx, gy];
+}
+
+/**
+ * A missile standing in a man or his shield: the shaft and fletching out of him, its tip `a` of
+ * PIN_ANGLES round (screen), the anchor where it went in. No dirt, and less of it shows than of
+ * one in the ground (ref Bayeux: a short shaft and pale feathers jutting from the shield face).
+ */
+function pin(look: MissileLook, a: number, L: number): [Img, number, number] {
+  const s = SPEC[look];
+  const vis = look === 'jav' ? 5 : look === 'bolt' ? 3.4 : 5;
+  const buried = s.len - vis;
+  const ang = (a / PIN_ANGLES) * Math.PI * 2;
+  const dx = Math.cos(ang);
+  const dy = Math.sin(ang);
+  const R = Math.ceil((vis + 1.4) * L) + 2;
+  const img = new Img(R * 2 + 1, R * 2 + 1);
+  paintMissile(img, R + 0.5 + dx * buried * L, R + 0.5 + dy * buried * L, dx, dy, look, L, s.len, buried, 1);
+  if (L >= 4) img.outline(C.out);
+  return [img, R, R];
 }
 
 // ---------------------------------------------------------------------------- puffs
@@ -548,6 +574,17 @@ export function buildFxHd(L: number): HdSheet {
   for (let k = 0; k < 2; k++) put(`stake${k}`, stake(k, L));
   put('stone', stone(L));
   put('dot', dot(L));
+  for (const look of ['arrow', 'bolt', 'jav'] as const) for (let a = 0; a < PIN_ANGLES; a++) put(`pin_${look}${a}`, pin(look, a, L));
+  const horse = (h: HorseImg): [Img, number, number] => {
+    const img = new Img(h.w, h.h);
+    for (let i = 0; i < h.px.length; i++) if (h.px[i]) img.px[i] = rgba(h.px[i]!);
+    return [img, h.ax, h.ay];
+  };
+  for (let c = 0; c < HORSE_COATS; c++)
+    for (let l = 0; l < 2; l++) {
+      for (let f = 0; f < HORSE_FRAMES; f++) put(`horse_run${c}_${l}_${f}`, horse(horseRun(c, f, l === 1, L)));
+      put(`horse_dead${c}_${l}`, horse(horseDead(c, l === 1, L)));
+    }
   // Shelf-pack, tallest first, into a sheet 2048 texels wide (512 at level 1).
   const W = L >= 4 ? 2048 : L >= 2 ? 1024 : 512;
   const order = imgs.map((_, i) => i).sort((a, b) => imgs[b]![0].h - imgs[a]![0].h);

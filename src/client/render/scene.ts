@@ -19,7 +19,8 @@ import { U } from '../../game/units.ts';
 import { Anim, ANIM_COUNT, COMMANDER_KIND, KIND_COUNT, riseFrame, riseTicks, type Atlas, type Dir, type KindSheet, type SheetAsk, type Stance } from './contract.ts';
 import { buildFx, type FxSheet, type Region } from './fx.ts';
 import { HdField } from './field-hd.ts';
-import { ANGLES, fxId, HOOVES, lookOf, PUFF_SIZES, PUFF_VARIANTS, SPLATS } from './fx-hd.ts';
+import { HORSE_COATS, HORSE_FRAMES } from './horse-fx.ts';
+import { ANGLES, fxId, HOOVES, lookOf, PIN_ANGLES, PUFF_SIZES, PUFF_VARIANTS, SPLATS } from './fx-hd.ts';
 import { Batch, cornerBuffer, dropTarget, SpriteProgram, SpriteStream, target, texture, texturePixels, type Part, type Target } from './gl.ts';
 import { paintGround, type Ground } from './ground.ts';
 import { projX, projY, PX, unproject } from './iso.ts';
@@ -147,6 +148,17 @@ const SHADOW: [number, number, number, number] = [0.07, 0.06, 0.1, 0.42];
 const MAX_PARTICLES = 3000;
 /** Atmosphere: dust puffs raised a tick, at most, across the moving men in view (scene.ts atmosTick). */
 const DUST_PER_TICK = 45;
+/** Standards: ticks a fallen standard lies before a man takes it up, and how near (world units) he must be. */
+const STD_PICKUP = 30;
+const STD_REACH = 30;
+/** Ticks a standard takes to be hoisted upright again. */
+const STD_HOIST = 8;
+/** Missiles a man can carry stuck in him or his shield, and for how many ticks after the last. */
+const PIN_MAX = 3;
+const PIN_LIFE = 250;
+/** A riderless horse bolts this many ticks before it is gone from the field; at most this many dead horses are kept. */
+const HORSE_BOLT = 90;
+const HORSES_DOWN = 400;
 /** Highest zoom level (1 fits the field). */
 export const MAX_ZOOM = 8;
 /** Highest zoom level with the HD art, where each level doubles the scale (8x: the 128 px sprites 1:1). */
@@ -202,6 +214,11 @@ const HD_ID = {
   hoof: fxId('hoof0'),
   crater: fxId('crater0'),
   stuck_arrow: fxId('stuck_arrow0'),
+  pin_arrow: fxId('pin_arrow0'),
+  horse_run: fxId('horse_run0_0_0'),
+  horse_dead: fxId('horse_dead0_0'),
+  pin_bolt: fxId('pin_bolt0'),
+  pin_jav: fxId('pin_jav0'),
   stuck_bolt: fxId('stuck_bolt0'),
   stuck_jav: fxId('stuck_jav0'),
 };
@@ -310,6 +327,34 @@ export class BattleScene {
   private dustScale = 1;
   /** Atmosphere: the breeze carrying smoke and dust, battle units a second (gusts slowly; client-side only). */
   private windX = 5;
+  /** Standards (docs/art-references/battle-fx-2.md): each regiment's bearer (a soldier id, -1 none). */
+  private bearer = new Int32Array(0);
+  /** Tick his standard went down (-1: up, or never raised), where, and tick the new bearer raised it. */
+  private stdDownAt = new Int32Array(0);
+  private stdDownX = new Float32Array(0);
+  private stdDownY = new Float32Array(0);
+  private stdUpAt = new Float32Array(0);
+  /**
+   * Missiles standing in men and their shields (docs/art-references/battle-fx-2.md): up to
+   * PIN_MAX a man, each its look and angle, its offset on him (half map px) and whether on his
+   * near side; cleared when he dies or PIN_LIFE after the last.
+   */
+  private pinN = new Uint8Array(0);
+  private pinAt = new Float32Array(0);
+  private pinLook = new Uint8Array(0);
+  private pinOx = new Int8Array(0);
+  private pinOy = new Int8Array(0);
+  private pinned: number[] = [];
+  /** Men hurt this tick (ids), for landed missiles to find the man they struck. */
+  private hurtNow: number[] = [];
+  /** Riders on horseback last tick (an unhorsing is the step off it). */
+  private wasMounted = new Uint8Array(0);
+  /** Horses that lost their riders: bolting off riderless, or down where they fell (dead: the list's tail is kept to HORSES_DOWN). */
+  private horses: { x: number; y: number; vx: number; vy: number; at: number; coat: number; dead: boolean }[] = [];
+  /** Classic: the riderless horse's regions, by id offset as on the HD sheet. */
+  private horseRegions: Region[] = [];
+  /** Standards left lying where they fell when no man of the block was near to take them up. */
+  private lostStd: { x: number; y: number; team: number; cmd: boolean }[] = [];
   private windY = -2.5;
   private pools: { x: number; y: number; r: number; a: number; ichor: boolean; at: number }[] = [];
   /** The atlas image versions last uploaded (HD grids fill in the background). */
@@ -391,6 +436,8 @@ export class BattleScene {
   private propDraw: { r: Region; mx: number; my: number }[] = [];
   private missileRegions: Record<string, Region[]> = {};
   private puffRegions: Region[] = [];
+  /** Classic: a missile standing in a man, by angle. */
+  private pinRegions: Region[] = [];
   private stakeRegions: Region[] = [];
   private regY: Float32Array;
   private flying = new Set<Projectile>();
@@ -471,12 +518,25 @@ export class BattleScene {
     for (const look of ['arrow', 'bolt', 'jav']) this.missileRegions[look] = Array.from({ length: 16 }, (_, i) => this.fxSheet.get(`${look}${i}`));
     this.stakeRegions = [this.fxSheet.get('stake0'), this.fxSheet.get('stake1')];
     const sizes = [1, 2, 3, 4, 5, 6, 7, 9, 11];
+    for (let a = 0; a < PIN_ANGLES; a++) this.pinRegions[a] = this.fxSheet.get(`pin${a}`);
+    for (let c = 0; c < HORSE_COATS; c++)
+      for (let l = 0; l < 2; l++) {
+        for (let f = 0; f < HORSE_FRAMES; f++) this.horseRegions[(c * 2 + l) * HORSE_FRAMES + f] = this.fxSheet.get(`horse_run${c}_${l}_${f}`);
+        this.horseRegions[HORSE_COATS * 2 * HORSE_FRAMES + c * 2 + l] = this.fxSheet.get(`horse_dead${c}_${l}`);
+      }
     for (let d = 0; d <= 11; d++) this.puffRegions[d] = this.fxSheet.get(`puff${sizes.find((q) => q >= d) ?? 11}`);
     const n = battle.soldiers.length;
     this.prevX = new Float32Array(n);
     this.prevY = new Float32Array(n);
     this.prevHp = new Float64Array(n);
     this.prevV2 = new Float32Array(n);
+    this.wasMounted = new Uint8Array(n);
+    for (let i = 0; i < n; i++) this.wasMounted[i] = battle.soldiers[i]!.s.mounted ? 1 : 0;
+    this.pinN = new Uint8Array(n);
+    this.pinAt = new Float32Array(n);
+    this.pinLook = new Uint8Array(n * PIN_MAX);
+    this.pinOx = new Int8Array(n * PIN_MAX);
+    this.pinOy = new Int8Array(n * PIN_MAX);
     this.engaged = new Uint8Array(n);
     this.hurtAt = new Float32Array(n).fill(-100);
     this.dirs = new Uint8Array(n);
@@ -519,6 +579,15 @@ export class BattleScene {
       this.regX.set(from.regX);
       this.regY.set(from.regY);
       this.flying = new Set(from.flying);
+      // Who carries each standard, and those down or lost, carry over too.
+      this.bearer = from.bearer.slice();
+      this.stdDownAt = from.stdDownAt.slice();
+      this.stdDownX = from.stdDownX.slice();
+      this.stdDownY = from.stdDownY.slice();
+      this.stdUpAt = from.stdUpAt.slice();
+      this.lostStd = from.lostStd.slice();
+      this.wasMounted.set(from.wasMounted);
+      this.horses = from.horses.map((h) => ({ ...h }));
       this.time = from.time;
       this.camera = { ...from.camera };
       this.minZoom = from.minZoom;
@@ -611,11 +680,20 @@ export class BattleScene {
     const rng = this.rng;
     const tick = b.tick;
     this.atmosTick();
+    this.standardsTick();
+    this.pinsTick();
+    this.hurtNow.length = 0;
+    this.horsesTick(rng);
     for (let i = 0; i < ss.length; i++) {
       const s = ss[i]!;
+      if (this.wasMounted[i] && !s.s.mounted) {
+        this.wasMounted[i] = 0;
+        if (s.dismounted) this.unhorsed(i, rng, null);
+      }
       if (s.state === State.Fled) continue;
       if (s.hp < this.prevHp[i]!) {
         this.hurtAt[i] = tick;
+        this.hurtNow.push(i);
         const dead = s.state === State.Dead;
         const n = dead ? 6 : 3;
         const h = s.s.mounted ? 12 : 8;
@@ -652,6 +730,7 @@ export class BattleScene {
     for (const p of this.flying) {
       if (now.has(p)) continue;
       if (p.splash > 0) this.impact(p.x1, p.y1);
+      else if (this.pinMissile(p, rng)) continue;
       else if (rng.next() < 0.3) this.stampFx(`stuck${rng.int(3)}`, p.x1, p.y1, 1);
     }
     this.flying = now;
@@ -670,6 +749,305 @@ export class BattleScene {
   //
   // Dust under blocks on the move, gun smoke that hangs over the line and drifts downwind, and
   // the shock of contact (docs/art-references/battle-atmosphere.md). Both arts; spawn() pools.
+
+  /** Standards: the arrays sized to the regiments (made on first use). */
+  private stdArrays(): void {
+    const n = this.battle.regiments.length;
+    if (this.bearer.length === n) return;
+    this.bearer = new Int32Array(n).fill(-1);
+    this.stdDownAt = new Int32Array(n).fill(-1);
+    this.stdDownX = new Float32Array(n);
+    this.stdDownY = new Float32Array(n);
+    this.stdUpAt = new Float32Array(n).fill(-1e9);
+  }
+
+  /** The man of regiment `ri` standing nearest (x, y) and still in its ranks, or -1. */
+  private nearestOf(ri: number, x: number, y: number): { i: number; d2: number } {
+    const b = this.battle;
+    const ss = b.soldiers;
+    let best = -1;
+    let bd = Infinity;
+    for (const j of b.regiments[ri]!.members) {
+      const s = ss[j]!;
+      if (s.state !== State.Fighting || s.reg !== ri) continue;
+      const dx = s.x - x;
+      const dy = s.y - y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < bd) {
+        bd = d2;
+        best = j;
+      }
+    }
+    return { i: best, d2: bd };
+  }
+
+  /**
+   * Per tick: who carries each regiment's standard. One of its men bears it (first the one
+   * nearest its centre). When he falls, or the block breaks, it goes down where he stood
+   * (ref Bayeux: the standard stands in the ranks, and men fall round it); after a few seconds
+   * the man nearest takes it up and raises it again. If the block has moved on, it is left lying
+   * on the field and the block raises its spare.
+   */
+  private standardsTick(): void {
+    this.stdArrays();
+    const b = this.battle;
+    const ss = b.soldiers;
+    const tick = b.tick;
+    for (let ri = 0; ri < b.regiments.length; ri++) {
+      const r = b.regiments[ri]!;
+      if (r.role === 'siege' || r.role === 'skirmish') continue;
+      const ms = moraleOf(r);
+      const down = ms === 'broken' || ms === 'shattered' || r.alive < 4;
+      const k = this.bearer[ri]!;
+      if (k >= 0) {
+        const s = ss[k]!;
+        if (s.state === State.Fighting && s.reg === ri && !down) continue;
+        // He fell, left the block, or it broke: the standard goes down where he was.
+        this.bearer[ri] = -1;
+        this.stdDownAt[ri] = tick;
+        this.stdDownX[ri] = s.x;
+        this.stdDownY[ri] = s.y;
+        continue;
+      }
+      if (down) continue;
+      const at = this.stdDownAt[ri]!;
+      if (at < 0) {
+        // Never raised yet: the man nearest the centre bears it from the start.
+        this.bearer[ri] = this.nearestOf(ri, r.cx, r.cy).i;
+        continue;
+      }
+      if (tick - at < STD_PICKUP) continue;
+      const near = this.nearestOf(ri, this.stdDownX[ri]!, this.stdDownY[ri]!);
+      if (near.i < 0) continue;
+      if (near.d2 > STD_REACH * STD_REACH) {
+        // The block has gone on: the standard stays in the dirt, and its spare is raised.
+        if (this.lostStd.length >= 64) this.lostStd.shift();
+        this.lostStd.push({ x: this.stdDownX[ri]!, y: this.stdDownY[ri]!, team: r.team, cmd: r.role === 'command' });
+        this.bearer[ri] = this.nearestOf(ri, r.cx, r.cy).i;
+      } else this.bearer[ri] = near.i;
+      this.stdDownAt[ri] = -1;
+      this.stdUpAt[ri] = tick;
+    }
+  }
+
+  /**
+   * A missile came down at (x1, y1): if it struck a man (he was hurt this tick, standing where it
+   * fell) it stays in him; if it fell on a man with a shield who took no hurt, in his shield
+   * (ref Bayeux: shields bristling with arrows). Returns whether it stuck in someone. Bullets and
+   * stones never do; nothing is tracked off-screen.
+   */
+  private pinMissile(p: Projectile, rng: Rng): boolean {
+    if (p.splash > 0) return false;
+    const b = this.battle;
+    if (p.cls === U.Crossbowmen && b.setup.armies[p.team]?.faction === 'samurai') return false;
+    if (!this.nearView(p.x1, p.y1, 20)) return false;
+    const ss = b.soldiers;
+    let who = -1;
+    let bd = Infinity;
+    for (const j of this.hurtNow) {
+      const s = ss[j]!;
+      if (s.team === p.team) continue;
+      const dx = s.x - p.x1;
+      const dy = s.y - p.y1;
+      const d2 = dx * dx + dy * dy;
+      const r = s.s.radius + 1.5;
+      if (d2 < r * r && d2 < bd) {
+        bd = d2;
+        who = j;
+      }
+    }
+    let shield = false;
+    if (who < 0) {
+      // Unhurt: a shield took it, if one stood there (the nearest man of the block it fell on).
+      for (let ri = 0; ri < b.regiments.length; ri++) {
+        const r = b.regiments[ri]!;
+        if (r.team === p.team || r.alive === 0) continue;
+        const ex = r.cx - p.x1;
+        const ey = r.cy - p.y1;
+        if (ex * ex + ey * ey > 90 * 90) continue;
+        for (const j of r.members) {
+          const s = ss[j]!;
+          if (s.state !== State.Fighting) continue;
+          const dx = s.x - p.x1;
+          const dy = s.y - p.y1;
+          const d2 = dx * dx + dy * dy;
+          const rr = s.s.radius + 3;
+          if (d2 < rr * rr && d2 < bd) {
+            bd = d2;
+            who = j;
+          }
+        }
+      }
+      if (who < 0) return false;
+      // A shield catches most; mail and plate hold a glancing shaft now and then.
+      const st = ss[who]!.s;
+      shield = st.shield > 0;
+      if (rng.next() >= (shield ? 0.85 : st.armour >= 30 ? 0.3 : 0)) return false;
+    }
+    const s = ss[who]!;
+    if (s.state === State.Dead || s.state === State.Fled) return false;
+    // Where it points: its flight at the end of the arc, on screen (as buildHd draws it).
+    const span = Math.max(1, p.lands - p.born);
+    const look = lookOf(p.cls, p.splash) as 'arrow' | 'bolt' | 'jav';
+    const dist = Math.hypot(p.x1 - p.x0, p.y1 - p.y0);
+    const arc = look === 'bolt' || look === 'jav' ? 0.1 : 0.3;
+    const h = (p.arc ?? dist * arc) * PX;
+    const tx = this.mapX(p.x1, p.y1) - this.mapX(p.x0, p.y0);
+    const ty = this.mapY(p.x1, p.y1) - this.mapY(p.x0, p.y0) + 4 * h + 9;
+    const a = (Math.round((Math.atan2(ty, tx) / (Math.PI * 2)) * PIN_ANGLES) + PIN_ANGLES) % PIN_ANGLES;
+    let n = this.pinN[who]!;
+    if (n === 0) this.pinned.push(who);
+    // A full man: the oldest gives way.
+    const k = n < PIN_MAX ? n : rng.int(PIN_MAX);
+    if (n < PIN_MAX) this.pinN[who] = ++n;
+    this.pinAt[who] = b.tick;
+    const o = who * PIN_MAX + k;
+    // On the side it came from, at the height of his body (or his shield), in half map px.
+    const side = tx > 0 ? -1 : 1;
+    const mounted = s.s.mounted;
+    const near = ty < 0 || rng.next() < (mounted ? 0.5 : 0.75);
+    this.pinLook[o] = (look === 'arrow' ? 0 : look === 'bolt' ? 1 : 2) * PIN_ANGLES + a + (near ? 128 : 0);
+    this.pinOx[o] = Math.round((side * (shield ? 1.6 : 0.6 + rng.next() * 1.2) + (rng.next() - 0.5)) * 2);
+    this.pinOy[o] = -Math.round(((mounted ? 7 : 3.5) + rng.next() * (shield ? 2.5 : 3.5)) * 2);
+    return true;
+  }
+
+  /** The missiles standing in men, drawn on them just before (near side) or behind (far side) their figures. */
+  private drawPins(gfx: Gfx, alpha: number, m: number, x0: number, x1: number, y0: number, y1: number): void {
+    const ss = this.battle.soldiers;
+    const hd = this.field ? this.field.sheet(m).regions : null;
+    const B = hd ? this.hdBatches(gfx).fx : gfx.fx;
+    for (const i of this.pinned) {
+      const s = ss[i]!;
+      const wx = this.prevX[i]! + (s.x - this.prevX[i]!) * alpha;
+      const wy = this.prevY[i]! + (s.y - this.prevY[i]!) * alpha;
+      const fmx = this.mapX(wx, wy);
+      const fmy = this.mapY(wx, wy);
+      if (fmx < x0 || fmx > x1 || fmy < y0 || fmy > y1) continue;
+      // Where his figure stands (as the figure loop rounds it).
+      const bx = hd ? Math.round(fmx * m) / m : Math.round(fmx);
+      const by = hd ? Math.round(fmy * m) / m : Math.round(fmy);
+      const n = this.pinN[i]!;
+      for (let k = 0; k < n; k++) {
+        const o = i * PIN_MAX + k;
+        const code = this.pinLook[o]!;
+        const near = code >= 128;
+        const id = code & 127;
+        const x = bx + this.pinOx[o]! / 2;
+        const y = by + this.pinOy[o]! / 2;
+        const depth = fmy + (near ? 0.6 : -0.3);
+        if (hd) {
+          const r = hd[HD_ID.pin_arrow + id]!;
+          B.sprite(Math.round(x * m) / m, Math.round(y * m) / m, r.u, r.v, r.w / m, r.h / m, r.ax / m, r.ay / m, depth, 1, 1, 1, 1, 0, 1);
+        } else {
+          const r = this.pinRegions[id % PIN_ANGLES]!;
+          B.sprite(Math.round(x), Math.round(y), r.u, r.v, r.w, r.h, r.ax, r.ay, depth, 1, 1, 1, 1, 0, 1);
+        }
+      }
+    }
+  }
+
+  /**
+   * A rider is unhorsed (game Soldier.dismounted): his horse is left on the field. The sim does
+   * not say whether it fell or bolted, so it is guessed here: a horse brought down at the gallop
+   * mostly falls (Uccello's San Romano: horses down among the lances), otherwise it more often
+   * bolts off riderless, away from the enemy (the Bayeux Tapestry's loose horses). The dead have
+   * no horses (theirs is bone, and it shatters).
+   */
+  private unhorsed(i: number, rng: Rng, f: HdField | null): void {
+    const b = this.battle;
+    const s = b.soldiers[i]!;
+    const faction = b.setup.armies[s.team]?.faction;
+    if (faction === 'undead') {
+      this.shedDry(Shed.Bone, s.x, s.y, 10, true, rng);
+      return;
+    }
+    const h = Math.imul(i + 1, 0x9e3779b1) >>> 0;
+    const coat = faction === 'templar' ? ((h >>> 8) % 10 < 7 ? 0 : 1) : (h >>> 8) % HORSE_COATS;
+    const galloping = this.prevV2[i]! > 900;
+    const dead = rng.next() < (galloping ? 0.65 : 0.35);
+    const pvx = s.x - this.prevX[i]!;
+    const pvy = s.y - this.prevY[i]!;
+    if (dead) {
+      // Down a length ahead of where he was thrown, its blood soaking in under it.
+      const l = Math.hypot(pvx, pvy);
+      const x = s.x + (l > 0.1 ? (pvx / l) * 3 : 0);
+      const y = s.y + (l > 0.1 ? (pvy / l) * 3 : 0);
+      this.horses.push({ x, y, vx: pvx, vy: pvy, at: b.tick, coat, dead: true });
+      if (f) f.mark(this.mapX(x, y), this.mapY(x, y), 3.2, 0.3, 0.2, b.tick * TICK_S);
+      for (let k = 0; k < 4; k++) this.spawn(PK.Dust, x + (rng.next() - 0.5) * 6, y + (rng.next() - 0.5) * 4, 0.5, (rng.next() - 0.5) * 12, (rng.next() - 0.5) * 12, 2 + rng.next() * 3, 1.4 + rng.next(), 3 + rng.int(2), 1.06, 0.95, 0.76, 0.3, rng.int(PUFF_VARIANTS));
+    } else {
+      // Bolting: away from the enemy, the way his block faces, give or take.
+      const r = b.regiments[s.reg];
+      const a = Math.atan2(-(r?.fy ?? 0), -(r?.fx ?? 1)) + (rng.next() - 0.5) * 1.6;
+      const sp = 48 + rng.next() * 14;
+      this.horses.push({ x: s.x, y: s.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, at: b.tick, coat, dead: false });
+    }
+    // Keep the dead to a bound (the oldest go first; a bolting horse is soon gone anyway).
+    if (this.horses.length > HORSES_DOWN) this.horses.splice(0, this.horses.length - HORSES_DOWN);
+  }
+
+  /** Per tick: bolting horses run on, kick up dust, and are gone after a while. */
+  private horsesTick(rng: Rng): void {
+    const tick = this.battle.tick;
+    let w = 0;
+    for (const h of this.horses) {
+      if (!h.dead) {
+        if (tick - h.at > HORSE_BOLT) continue;
+        h.x += h.vx * TICK_S;
+        h.y += h.vy * TICK_S;
+        if (rng.next() < 0.35 && this.nearView(h.x, h.y, 30)) {
+          const g = 1.08 + rng.next() * 0.1;
+          this.spawn(PK.Dust, h.x - h.vx * 0.1 + (rng.next() - 0.5) * 4, h.y - h.vy * 0.1 + (rng.next() - 0.5) * 4, 0.3, -h.vx * 0.1, -h.vy * 0.1, 2 + rng.next() * 4, 2.6 + rng.next() * 2, 3 + rng.int(3), g, g * 0.9, g * 0.72, 0.18, rng.int(PUFF_VARIANTS));
+        }
+      }
+      this.horses[w++] = h;
+    }
+    this.horses.length = w;
+  }
+
+  /** Riderless horses: the dead on the ground, the bolting ones at the gallop (between ticks). */
+  private drawHorses(gfx: Gfx, alpha: number, T: number, m: number, x0: number, x1: number, y0: number, y1: number): void {
+    const hd = this.field ? this.field.sheet(m).regions : null;
+    const B = hd ? this.hdBatches(gfx).fx : gfx.fx;
+    const deadBase = HORSE_COATS * 2 * HORSE_FRAMES;
+    for (const h of this.horses) {
+      const k = h.dead ? 0 : Math.min(1, alpha);
+      const x = h.x + h.vx * TICK_S * k;
+      const y = h.y + h.vy * TICK_S * k;
+      const mx = this.mapX(x, y);
+      const my = this.mapY(x, y);
+      if (mx < x0 - 20 || mx > x1 + 20 || my < y0 || my > y1 + 20) continue;
+      const left = projX(h.vx, h.vy) < 0 ? 1 : 0;
+      // Strides: about two and a half a second.
+      const f = Math.floor((T - h.at) * 0.4 + (h.coat + h.at) * 0.37) & 3;
+      const off = h.dead ? deadBase + h.coat * 2 + left : (h.coat * 2 + left) * HORSE_FRAMES + f;
+      const depth = h.dead ? -1e5 : my;
+      if (hd) {
+        const r = hd[(h.dead ? HD_ID.horse_dead + h.coat * 2 + left : HD_ID.horse_run + off)]!;
+        B.sprite(Math.round(mx * m) / m, Math.round(my * m) / m, r.u, r.v, r.w / m, r.h / m, r.ax / m, r.ay / m, depth, h.dead ? 0.9 : 1, h.dead ? 0.9 : 1, h.dead ? 0.88 : 1, 1, 0, 1);
+      } else {
+        const r = this.horseRegions[off]!;
+        B.sprite(Math.round(mx), Math.round(my), r.u, r.v, r.w, r.h, r.ax, r.ay, depth, 1, 1, 1, 1, 0, 1);
+      }
+    }
+  }
+
+  /** Per tick: men who died or whose missiles are old lose them. */
+  private pinsTick(): void {
+    const ss = this.battle.soldiers;
+    const tick = this.battle.tick;
+    let w = 0;
+    for (const i of this.pinned) {
+      const s = ss[i]!;
+      if (s.state === State.Dead || s.state === State.Fled || tick - this.pinAt[i]! > PIN_LIFE || this.pinN[i] === 0) {
+        this.pinN[i] = 0;
+        continue;
+      }
+      this.pinned[w++] = i;
+    }
+    this.pinned.length = w;
+  }
 
   /** Whether a battle point is in the last frame's view, give or take `margin` map px (nothing is raised off-screen). */
   private nearView(x: number, y: number, margin: number): boolean {
@@ -2039,6 +2417,8 @@ export class BattleScene {
         gfx.fx.sprite(Math.round(mx), Math.round(my), r.u, r.v, r.w, r.h, r.ax, r.ay, my);
       }
     }
+    if (this.pinned.length > 0) this.drawPins(gfx, alpha, m, x0, x1, y0, y1);
+    if (this.horses.length > 0) this.drawHorses(gfx, alpha, T, m, x0, x1, y0, y1);
 
     // Standards over each regiment, showing its morale: full and waving when steady, torn and
     // flickering when wavering, dropped in the dirt when broken, raised again on a rally. At
@@ -2054,26 +2434,46 @@ export class BattleScene {
       stdB.sprite(x, y, g.u, g.v, g.w / sk, g.h / sk, g.ax / sk, g.ay / sk, depth, 1, 1, 1, 1, 0, 1);
       return g;
     };
+    if (this.bearer.length !== b.regiments.length) this.standardsTick();
+    // Standards lost on the field, where they fell.
+    for (const l of this.lostStd) {
+      const mx = at(this.mapX(l.x, l.y));
+      const my = this.mapY(l.x, l.y);
+      if (mx < x0 || mx > x1 || my < y0 || my > y1 + 30) continue;
+      flag(`dropped${l.cmd ? 'cmd' : ''}${l.team}`, mx, at(my), my - 0.5);
+    }
     for (let i = 0; i < b.regiments.length; i++) {
       const r = b.regiments[i]!;
-      if (r.alive < 4 || r.role === 'siege' || r.role === 'skirmish') continue;
+      if (r.role === 'siege' || r.role === 'skirmish') continue;
       const ms = moraleOf(r);
-      if (ms === 'shattered') continue;
-      const cx = this.regX[i]! + (r.cx - this.regX[i]!) * alpha;
-      const cy = this.regY[i]! + (r.cy - this.regY[i]!) * alpha;
-      const mx = at(this.mapX(cx, cy));
-      const my = this.mapY(cx, cy);
-      if (mx < x0 || mx > x1 || my < y0 || my > y1 + 30) continue;
       const cmd = r.role === 'command';
-      if (ms === 'broken') {
+      const k = this.bearer[i]!;
+      if (k < 0) {
+        // Down: in the dirt where its bearer fell (or the block broke), until it is taken up.
+        if (this.stdDownAt[i]! < 0) continue;
+        const dx = this.stdDownX[i]!;
+        const dy = this.stdDownY[i]!;
+        const mx = at(this.mapX(dx, dy));
+        const my = this.mapY(dx, dy);
+        if (mx < x0 || mx > x1 || my < y0 || my > y1 + 30) continue;
         flag(`dropped${cmd ? 'cmd' : ''}${r.team}`, mx, at(my), my - 0.5);
         continue;
       }
-      const mounted = r.role === 'flank' || r.role === 'shock-cav' || r.role === 'horse-archer' || cmd;
+      if (r.alive < 4 || ms === 'shattered' || ms === 'broken') continue;
+      // Carried by its bearer, where he is drawn.
+      const s = ss[k]!;
+      const cx = this.prevX[k]! + (s.x - this.prevX[k]!) * alpha;
+      const cy = this.prevY[k]! + (s.y - this.prevY[k]!) * alpha;
+      const mx = at(this.mapX(cx, cy));
+      const my = this.mapY(cx, cy);
+      if (mx < x0 || mx > x1 || my < y0 || my > y1 + 30) continue;
+      const mounted = s.s.mounted;
       const wavering = ms === 'wavering';
       // Wavering cloth flaps fast and fitfully; a rallying standard is hoisted with a bob.
       const frame = wavering ? Math.floor(T * 1.3 + i * 1.3 + Math.sin(T * 0.7 + i) * 2) & 3 : Math.floor(T / 2.5 + i * 1.3) & 3; // & 3, not % 4: never negative (T < 0 before the first tick)
-      const bob = ms === 'rallying' ? Math.round(Math.abs(Math.sin(T * 0.6)) * 3) : 0;
+      // Taken up again: it rises from his hands to its full height over a moment.
+      const hoist = Math.max(0, 1 - (T - this.stdUpAt[i]!) / STD_HOIST);
+      const bob = (ms === 'rallying' ? Math.round(Math.abs(Math.sin(T * 0.6)) * 3) : 0) + Math.round(hoist * 6);
       if (wavering && Math.sin(T * 2.1 + i * 5.3) > 0.82) continue;
       const top = at(my) - (mounted ? 14 : 9) - bob;
       const reg = flag(`${wavering ? 'torn' : ''}${cmd ? 'cmd' : wavering ? '' : 'ban'}${r.team}_${frame}`, mx, top, my + 0.5);
@@ -2259,13 +2659,22 @@ export class BattleScene {
     const tick = b.tick;
     const now = tick * TICK_S;
     this.atmosTick();
+    this.standardsTick();
+    this.pinsTick();
+    this.hurtNow.length = 0;
+    this.horsesTick(rng);
     for (let i = 0; i < ss.length; i++) {
       const s = ss[i]!;
+      if (this.wasMounted[i] && !s.s.mounted) {
+        this.wasMounted[i] = 0;
+        if (s.dismounted) this.unhorsed(i, rng, f);
+      }
       if (s.state === State.Fled) continue;
       const mx = this.mapX(s.x, s.y);
       const my = this.mapY(s.x, s.y);
       if (s.hp < this.prevHp[i]!) {
         this.hurtAt[i] = tick;
+        this.hurtNow.push(i);
         const dead = s.state === State.Dead;
         // What the ground keeps (as on a Total War field, it darkens where the fighting was): the
         // spray of every hit is seen in the air, but only a kill, a hit in the press of a melee or
@@ -2359,6 +2768,7 @@ export class BattleScene {
         this.impactHd(f, p.x1, p.y1, now);
         continue;
       }
+      if (this.pinMissile(p, rng)) continue;
       const look = lookOf(p.cls, p.splash) as 'arrow' | 'bolt' | 'jav';
       if (rng.next() < 0.35) f.decalId((look === 'arrow' ? HD_ID.stuck_arrow : look === 'bolt' ? HD_ID.stuck_bolt : HD_ID.stuck_jav) + rng.int(3), this.mapX(p.x1, p.y1), this.mapY(p.x1, p.y1), now);
       if (rng.next() < 0.3) this.spawn(PK.Dust, p.x1, p.y1, 0.5, (rng.next() - 0.5) * 8, (rng.next() - 0.5) * 8, 3 + rng.next() * 3, 0.7 + rng.next() * 0.5, 1 + rng.int(2), 0.8, 0.7, 0.55, 0.5, rng.int(PUFF_VARIANTS));

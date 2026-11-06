@@ -5,6 +5,7 @@
 
 import { FACTIONS, type FactionId } from '../../game/factions.ts';
 import { hsl } from './sprites.ts';
+import { HORSE_COATS, HORSE_FRAMES, horseDead, horseRun, type HorseImg } from './horse-fx.ts';
 
 /** An army as the effects sheet needs it: its heraldic hue and its faction's colours. */
 export interface FxArmy {
@@ -412,6 +413,29 @@ export function buildFx(armies: [FxArmy, FxArmy], seed: number): FxSheet {
     p.line(1, 4, 1 + lean, 1, '#5a4630');
     p.set(1 + lean, 0, '#b9b09a');
     s.put(`stuck${k}`, p, 1, 4);
+  }
+  // A riderless horse, bolting or down (horse-fx.ts), at one pixel a map px.
+  const horse = (name: string, h: HorseImg) => {
+    const p = new Px(h.w, h.h);
+    for (let i = 0; i < h.px.length; i++) if (h.px[i]) p.c[i] = h.px[i]!;
+    s.put(name, p, h.ax, h.ay);
+  };
+  for (let c = 0; c < HORSE_COATS; c++)
+    for (let l = 0; l < 2; l++) {
+      for (let f = 0; f < HORSE_FRAMES; f++) horse(`horse_run${c}_${l}_${f}`, horseRun(c, f, l === 1, 1));
+      horse(`horse_dead${c}_${l}`, horseDead(c, l === 1, 1));
+    }
+  // A missile standing in a man or his shield: two texels of shaft from where it went in, back
+  // against its flight, and a pale fletching (its tip pointing `a` of eight round).
+  for (let a = 0; a < 8; a++) {
+    const ang = (a / 8) * Math.PI * 2;
+    const p = new Px(7, 7);
+    const bx = -Math.cos(ang);
+    const by = -Math.sin(ang);
+    p.set(3 + bx, 3 + by, '#5a4630');
+    p.set(3 + bx * 2, 3 + by * 2, '#5a4630');
+    p.set(3 + bx * 3, 3 + by * 3, '#d8d0bc');
+    s.put(`pin${a}`, p, 3, 3);
   }
   for (let a = 0; a < 16; a++) {
     const ang = (a / 16) * Math.PI * 2;
