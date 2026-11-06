@@ -486,6 +486,15 @@ void main() {
   o = vec4(c, 1.0);
 }`;
 
+// Pass B where no marks are near: the ground as it is (what pass B gives there).
+const CLEAN_FS = `#version 300 es
+precision highp float;
+uniform sampler2D u_base;
+out vec4 o;
+void main() {
+  o = vec4(texelFetch(u_base, ivec2(gl_FragCoord.xy), 0).rgb, 1.0);
+}`;
+
 // Zoomed out (scene.ts view.direct): the view copied out of the cache onto a target the canvas's
 // size, each device px the cache px the post pass would pick from a buffer (post.ts fetch()).
 const COPY_FS = `#version 300 es
@@ -527,6 +536,8 @@ interface FieldGl {
   gl: WebGL2RenderingContext;
   base: WebGLProgram;
   comp: WebGLProgram;
+  clean: WebGLProgram;
+  uclean: WebGLUniformLocation | null;
   copy: WebGLProgram;
   ucopy: Record<string, WebGLUniformLocation | null>;
   ub: Record<string, WebGLUniformLocation | null>;
@@ -605,6 +616,8 @@ export class HdField {
   /** Map tiles whose look (marks or decals) changed since the ground was last composed. */
   private readonly cdirty: Uint8Array;
   private anyCdirty = true;
+  /** Map tiles with marks on or within 2 px of them (marks only ever grow). */
+  private readonly marked: Uint8Array;
   /** Per map tile, the battle second blood last fell there (its colour ages for BLOOD_AGE_S). */
   private readonly bloodT: Float32Array;
   /**
@@ -640,6 +653,7 @@ export class HdField {
     this.dirty = new Uint8Array(this.tilesX * this.tilesY).fill(1);
     this.cdirty = new Uint8Array(this.tilesX * this.tilesY).fill(1);
     this.bloodT = new Float32Array(this.tilesX * this.tilesY).fill(-1e9);
+    this.marked = new Uint8Array(this.tilesX * this.tilesY);
     this.bucketsX = Math.ceil(this.W / BUCKET_W);
     this.buckets = new Array(this.bucketsX * Math.ceil(this.H / BUCKET_H));
   }
@@ -695,7 +709,7 @@ export class HdField {
     for (let ty = ty0; ty <= ty1; ty++)
       for (let tx = tx0; tx <= tx1; tx++) {
         const i = ty * this.tilesX + tx;
-        if (marks) this.dirty[i] = 1;
+        if (marks) this.dirty[i] = this.marked[i] = 1;
         this.cdirty[i] = 1;
         if (bloodT > this.bloodT[i]!) this.bloodT[i] = bloodT;
       }
@@ -911,6 +925,7 @@ export class HdField {
     const base = compile(gl, VS, BASE_FS);
     const comp = compile(gl, VS, MARKS_FS);
     const copy = compile(gl, VS, COPY_FS);
+    const clean = compile(gl, VS, CLEAN_FS);
     const ucopy: Record<string, WebGLUniformLocation | null> = {};
     for (const k of ['u_src', 'u_dir', 'u_dirb', 'u_cs']) ucopy[k] = gl.getUniformLocation(copy, k);
     const ub: Record<string, WebGLUniformLocation | null> = {};
@@ -929,7 +944,7 @@ export class HdField {
     this.anyDirty = false;
     const vao = gl.createVertexArray()!;
     const cells = this.bakeCells(gl, vao);
-    this.g = { gl, base, comp, copy, ucopy, ub, uc, vao, marks, cells, baseT: null, compT: null, cm: -1, nx: 0, ny: 0, baseOwn: new Int32Array(0), compOwn: new Int32Array(0), compAt: -1e9, compNow: -1e9, compAge: -1e9, sheets: new Map(), standards: new Map() };
+    this.g = { gl, base, comp, clean, uclean: gl.getUniformLocation(clean, 'u_base'), copy, ucopy, ub, uc, vao, marks, cells, baseT: null, compT: null, cm: -1, nx: 0, ny: 0, baseOwn: new Int32Array(0), compOwn: new Int32Array(0), compAt: -1e9, compNow: -1e9, compAge: -1e9, sheets: new Map(), standards: new Map() };
     return this.g;
   }
 
@@ -999,6 +1014,7 @@ export class HdField {
     gl.deleteProgram(g.base);
     gl.deleteProgram(g.comp);
     gl.deleteProgram(g.copy);
+    gl.deleteProgram(g.clean);
     gl.deleteVertexArray(g.vao);
     gl.deleteTexture(g.marks);
     gl.deleteTexture(g.cells);
@@ -1066,7 +1082,7 @@ export class HdField {
 
   /** Tools: wait for the GPU after each ground pass and time them (ms; texels painted). */
   syncParts = false;
-  readonly lastParts = { base: 0, comp: 0, decals: 0, baseTexels: 0, compTexels: 0 };
+  readonly lastParts = { base: 0, comp: 0, decals: 0, baseTexels: 0, compTexels: 0, cleanTexels: 0 };
   private sync(gl: WebGL2RenderingContext): number {
     if (this.syncParts) gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
     return typeof performance !== 'undefined' ? performance.now() : 0;
@@ -1083,6 +1099,8 @@ export class HdField {
   private cand = new Float64Array(0);
   private readonly baseRuns: number[] = [];
   private readonly compRuns: number[] = [];
+  private readonly markRuns: number[] = [];
+  private readonly cleanRuns: number[] = [];
 
   /** The ground cache's window as last planned: level, size in CT-texel tiles, first tile (tools, tests). */
   get cacheWindow(): { m: number; nx: number; ny: number; wx0: number; wy0: number; tile: number } {
@@ -1310,14 +1328,24 @@ export class HdField {
         }
       }
     };
-    runs(this.baseRuns, (t) => t === 1);
+    // Composed tiles with no marks near them are the ground as it is (pass B would only copy it):
+    // a plain copy paints them (bit 4 of todo).
+    for (let ty = wy0; ty < wy0 + ny; ty++)
+      for (let tx = wx0; tx < wx0 + nx; tx++) {
+        const slot = mod(ty, ny) * nx + mod(tx, nx);
+        if (todo[slot] !== 0 && !this.markedNear(tx, ty, m)) todo[slot] = todo[slot]! | 4;
+      }
+    runs(this.baseRuns, (t) => (t & 3) === 1);
     runs(this.compRuns, (t) => t !== 0);
+    runs(this.markRuns, (t) => t !== 0 && (t & 4) === 0);
+    runs(this.cleanRuns, (t) => (t & 4) !== 0);
     const B = this.baseRuns;
     const C = this.compRuns;
     const lp = this.lastParts;
-    lp.base = lp.comp = lp.decals = lp.baseTexels = lp.compTexels = 0;
+    lp.base = lp.comp = lp.decals = lp.baseTexels = lp.compTexels = lp.cleanTexels = 0;
     for (let i = 0; i < B.length; i += 6) lp.baseTexels += B[i + 2]! * B[i + 3]!;
     for (let i = 0; i < C.length; i += 6) lp.compTexels += C[i + 2]! * C[i + 3]!;
+    for (let i = 0; i < this.cleanRuns.length; i += 6) lp.cleanTexels += this.cleanRuns[i + 2]! * this.cleanRuns[i + 3]!;
     if (C.length > 0) {
       let t0 = this.sync(gl);
       gl.enable(gl.SCISSOR_TEST);
@@ -1339,7 +1367,7 @@ export class HdField {
           gl.scissor(B[i]!, B[i + 1]!, B[i + 2]!, B[i + 3]!);
           gl.drawArrays(gl.TRIANGLES, 0, 3);
         }
-        for (let i = 0; i < todo.length; i++) if (todo[i] === 1) g.baseOwn[i] = this.slotKey(i, nx, ny, wx0, wy0);
+        for (let i = 0; i < todo.length; i++) if ((todo[i]! & 3) === 1) g.baseOwn[i] = this.slotKey(i, nx, ny, wx0, wy0);
       }
       let t1 = this.sync(gl);
       lp.base = t1 - t0;
@@ -1357,10 +1385,20 @@ export class HdField {
       gl.uniform1ui(g.uc.u_seed!, seed);
       gl.uniform2f(g.uc.u_msize!, this.W, this.H);
       gl.uniform1f(g.uc.u_now!, g.compAge);
-      for (let i = 0; i < C.length; i += 6) {
-        gl.uniform2f(g.uc.u_cam!, C[i + 4]! / m, C[i + 5]! / m);
-        gl.scissor(C[i]!, C[i + 1]!, C[i + 2]!, C[i + 3]!);
+      const M = this.markRuns;
+      for (let i = 0; i < M.length; i += 6) {
+        gl.uniform2f(g.uc.u_cam!, M[i + 4]! / m, M[i + 5]! / m);
+        gl.scissor(M[i]!, M[i + 1]!, M[i + 2]!, M[i + 3]!);
         gl.drawArrays(gl.TRIANGLES, 0, 3);
+      }
+      const K = this.cleanRuns;
+      if (K.length > 0) {
+        gl.useProgram(g.clean);
+        gl.uniform1i(g.uclean!, 0);
+        for (let i = 0; i < K.length; i += 6) {
+          gl.scissor(K[i]!, K[i + 1]!, K[i + 2]!, K[i + 3]!);
+          gl.drawArrays(gl.TRIANGLES, 0, 3);
+        }
       }
       gl.activeTexture(gl.TEXTURE1);
       gl.bindTexture(gl.TEXTURE_2D, null);
@@ -1436,6 +1474,22 @@ export class HdField {
     }
     gl.bindFramebuffer(gl.FRAMEBUFFER, scene.fbo);
     gl.viewport(0, 0, bw, bh);
+  }
+
+  /**
+   * Whether the marks are anywhere near the cache tile (tx, ty) at level m: under it or within the
+   * few map px pass B samples around a texel (the map tiles a mark flags reach 2 px past it, and
+   * pass B's cache tiles are taken 3 px wider, as for a changed mark).
+   */
+  private markedNear(tx: number, ty: number, m: number): boolean {
+    // (Clamped to the map, as the marks texture is sampled: off it, its edge.)
+    const cl = (v: number, n: number) => Math.max(0, Math.min(n - 1, v));
+    const x0 = cl(Math.floor(((tx * CT) / m - 3) / TILE), this.tilesX);
+    const x1 = cl(Math.floor((((tx + 1) * CT) / m + 3) / TILE), this.tilesX);
+    const y0 = cl(Math.floor(((ty * CT) / m - 3) / TILE), this.tilesY);
+    const y1 = cl(Math.floor((((ty + 1) * CT) / m + 3) / TILE), this.tilesY);
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) if (this.marked[y * this.tilesX + x]) return true;
+    return false;
   }
 
   /** The world tile of the window held by cache slot i. */
