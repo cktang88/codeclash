@@ -748,7 +748,6 @@ export class Regiment {
   dangerShots = 0;
   /** Skirmishers: their place behind the line (see `thinkSkirmish`), and when it was set (-1 not yet). */
   restX = 0;
-  restY = 0;
   restAt = -1;
   /** Shots loosed since the last think (against `dangerShots`). */
   fired = 0;
@@ -807,7 +806,7 @@ export class Regiment {
 /** Regiment fields that hold fractions (see the Regiment constructor). */
 const DOUBLE_FIELDS = [
   'arrows', 'cx', 'cy', 'ax', 'ay', 'fx', 'fy', 'dfx', 'dfy', 'tx', 'ty', 'gx0', 'gy0', 'rideX', 'rideY', 'vax', 'vay', 'aspd', 'morale', 'baseMorale', 'chaseX', 'chaseY', 'spacing', 'speed',
-  'dodgeX', 'dodgeY', 'width', 'depth', 'radius', 'recent', 'recentKills', 'flankShock', 'homeX', 'homeY', 'wx', 'wy', 'fatigue', 'fightShare', 'enemyNear', 'friendNear', 'closeIn', 'restX', 'restY',
+  'dodgeX', 'dodgeY', 'width', 'depth', 'radius', 'recent', 'recentKills', 'flankShock', 'homeX', 'homeY', 'wx', 'wy', 'fatigue', 'fightShare', 'enemyNear', 'friendNear', 'closeIn', 'restX',
 ] as const;
 
 export interface Projectile {
@@ -3967,7 +3966,7 @@ export class Battle {
     let threat = false;
     for (const o of this.teamRegs[1 - r.team]!) {
       if (o.alive === 0 || o.routed || o.role === 'skirmish') continue;
-      const R = back * (isCav(o) ? 2 : 1);
+      const R = isCav(o) ? (gun ? back * 2 : FLAT_SCREEN.horse) : back;
       const dx = o.cx - r.cx;
       const dy = o.cy - r.cy;
       const rr = o.radius + r.radius + R;
@@ -4363,17 +4362,14 @@ export class Battle {
       this.setMode(r, 'advance');
     }
     // Their place behind the line, which follows the line only when it has moved SKIRM.deadband
-    // (`frontX` jumps whenever a block of the line is committed, charges or falls back). A spent
-    // block guards a flank: behind the nearer end of the line.
+    // (`frontX` jumps whenever a block of the line is committed, charges or falls back).
     const hx = ts.frontX - dir * (ts.lineDepth + 70);
-    const hy = !sortie && ts.hasLine ? (r.ay < ts.midY ? ts.minY + r.width * 0.5 : ts.maxY - r.width * 0.5) : r.ay;
-    if (r.restAt < 0 || Math.abs(hx - r.restX) > SKIRM.deadband || Math.abs(hy - r.restY) > SKIRM.deadband) {
+    if (r.restAt < 0 || Math.abs(hx - r.restX) > SKIRM.deadband) {
       r.restX = hx;
-      r.restY = hy;
       r.restAt = this.tick;
     }
     const home = r.restX;
-    const homeY = sortie ? r.ay : r.restY;
+    const homeY = r.ay;
     if (r.ord.kind === 'pursue') {
       const prey = this.nearestFoe(r, 4, 300);
       if (prey && !this.nearestFoe(r, 0, 120)) {
@@ -7841,10 +7837,11 @@ function spreadAt(kind: Ballistics, q: number, range: number, flatBow: boolean):
 const SKIRM = { out: 1.5, spent: 0.35, deadband: 30 };
 /**
  * Crossbows (direct fire, not the samurai's guns, whose doctrine is S3) stand `screen` before
- * their line while the lines are apart, and fall back through it when the enemy comes within
- * `back` (horse twice that) or the line comes up to them (`screen`).
+ * their line while the lines are apart, and fall back through it when enemy foot comes within
+ * `back`, horse within `horse` (a crossbow is spanned in 10 s and more: men who stood to take a
+ * charge of horse before their line were ridden down), or the line comes up to them (`screen`).
  */
-const FLAT_SCREEN = { screen: 14, back: 70 };
+const FLAT_SCREEN = { screen: 14, back: 70, horse: 420 };
 /** Crossbows and guns blocked by our own men look this far along the line for a clear one, this much at a time. */
 const LANE_SEARCH = 200;
 const LANE_STEP = 20;
