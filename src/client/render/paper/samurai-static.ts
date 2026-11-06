@@ -504,7 +504,11 @@ function jingasa(c: Paper, h: P2, plate: Mat): void {
     if (fy > -0.27 + Math.abs(fx) * 0.1) return code(plate, 1); // the underside
     if (Math.hypot(fx - 0.25, (fy + 0.75) * 1.6) < 0.3) return code(SM.gold, c.litX(fx) < 0.2 ? 3 : 2);
     const top = -1.4 + Math.abs(fx) * ((1.4 - 0.3) / 2.4);
-    if (fy - top < 0.08 && c.litX(fx) < 0.5) return code(plate, 4); // lit crest line
+    // The lit crest line; below level 8 a broad sheen down the lit face of the cone (Met jingasa
+    // 22064, 27593: the lacquer's one big highlight is what reads of a hat from above), so a block
+    // seen from behind is not a field of flat dark discs.
+    if (fy - top < (c.L < 8 ? 0.3 : 0.08) && c.litX(fx) < 0.5) return code(plate, 4);
+    if (c.L < 8 && fy - top < 0.6 && c.litX(fx) < -0.3) return code(plate, 3);
     if (frac((Math.atan2(fy + 1.4, fx) / DEG + 360) / 18) < 0.06) return code(plate, 2); // the ribs of the cone
     return code(plate, lit(c, 3, c.litX(fx) * 0.7, 0.5, 0.55));
   });
@@ -793,7 +797,9 @@ function torso(c: Paper, b: Body, d: Dress, back = false): void {
   slab(c, o, [[-1.85, -0.45], [1.85, -0.5], [1.85, 0.15], [-1.85, 0.2]], (fx, fy) => {
     const f = frac((fx + 3) / 0.9 + fy * 0.4);
     // (At 2 px a unit the sash is in the dō's shadow: a pale band low on the figure would read as the light.)
-    if (c.L === 2) return code(m, c.litX(fx) < -1.0 ? 1 : 0);
+    // (The ashigaru's white cotton obi stays pale: the one light band across a dark armour, Met
+    // gusoku 24975; the others' sashes keep to the dō's shadow.)
+    if (c.L === 2) return m === KM.silk && d.body === 'okegawa' ? code(m, c.litX(fx) < -1.0 ? 2 : 1) : code(m, c.litX(fx) < -1.0 ? 1 : 0);
     // (Its folds from level 8: below, short stripes across a band all start and end on its edges.)
     if (c.L !== 1 && c.L < 8) return code(m, c.litX(fx) < -1.0 ? 2 : c.litX(fx) > 1.1 ? 0 : 1);
     if (f < 0.1) return code(m, 0);
@@ -1133,10 +1139,14 @@ export const FOOT: Record<number, SFoot> = {
   },
   /** 3: Yumi Ashigaru at rest: the yumi braced upright, an arrow in hand, the ebira at the hip. */
   3: {
-    d: { ...ASHIGARU, head: 'hachimaki', lac: { ...REDBROWN_TEAM, plate: SM.lacquer } },
+    // (The house's red-brown okashi-gusoku, as the yari men: in black lacquer the archers and
+    // gunners were near-black masses at battle zoom.)
+    d: { ...ASHIGARU, head: 'hachimaki' },
     over: { hnF: [2.55, -7.4], elF: [2.6, -9.0], hnN: [-1.6, -6.4], elN: [-2.6, -8.3] },
     gear: {
       back: (c, b) => {
+        // (No sashimono: in the walk the bow is held still while the trunk rolls, and a flag beside
+        // it swung against it through the head's zone, boiling.)
         vol(c, addP(b.pel, [-2.0, 1.6]), addP(b.pel, [-3.4, -2.6]), 1.3, 1.35, 1.2, SM.lacquer, 2, { rim: c.L >= 8, detail: (_un, v) => (Math.abs(v - 0.3) < 0.04 ? code(SM.gold, 2) : -1) });
         // (The fletchings a step down: three pale tufts on the silhouette's rim would light it.)
         for (const dx of [-0.45, 0.0, 0.45]) vol(c, addP(b.pel, [-3.4 + dx, -2.5]), addP(b.pel, [-4.0 + dx * 1.7, -4.4]), 0.34, 0.36, 0.28, KM.silk, dx > 0 ? 1 : 2);
@@ -1155,9 +1165,10 @@ export const FOOT: Record<number, SFoot> = {
   },
   /** 4: Teppō Ashigaru at port arms beside a planted tate; the dōran and the coiled match. */
   4: {
-    d: { ...ASHIGARU, lac: { ...REDBROWN_TEAM, plate: SM.lacquer } },
+    d: ASHIGARU,
     over: { hnN: [-1.35, -7.6], elN: [-2.7, -8.2], hnF: [0.95, -9.25], elF: [2.15, -8.0] },
     gear: {
+      back: (c, b) => sashimono(c, addP(b.pel, [-1.6, -3.4]), 8.4, 1.7, 3.6),
       hipGear: (c, b, back) => {
         const sx = back ? -1 : 1;
         const S = (p: P2[]) => p.map((q) => [q[0] * sx, q[1]] as P2);

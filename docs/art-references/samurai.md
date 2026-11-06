@@ -44,3 +44,26 @@ edge one tone down round it. Rounds: (1) a larger opening read at level 8 but at
 and eyes fused into a black visor bar; (2) eyes only below level 8, at 0.12 of the opening, vanished
 at level 4; (3) eyes at 0.22 below level 8, no brows: two dark eyes in a flesh window at level 4, and
 in battle the block reads as hooded men. Pixel lint (HD, kind 8): no new warnings or failures.
+
+## Ashigaru blocks with value structure (cc/art3, round 2)
+
+At zoom 2 (level 2) the archers' and gunners' blocks read as near-black masses: their dō was black
+lacquer (`SM.lacquer`), the obi was drawn in the dō's shadow, the jingasa was one dark tone, and
+only the yari men carried a sashimono. References (in `references/ashigaru/`, study only):
+
+| Image | Licence | What was taken |
+|---|---|---|
+| [Met 24975, Armor (Gusoku)](https://images.metmuseum.org/CRDImages/aa/web-large/DT5334.jpg) ([page](https://www.metmuseum.org/art/collection/search/24975)) | CC0 | Dark plates, but the white cotton obi round the waist is the brightest band on the figure; the lacing and binding break the plates into rows. |
+| [Met 22064, War Hat (Jingasa)](https://images.metmuseum.org/CRDImages/aa/web-large/1268.jpg) ([page](https://www.metmuseum.org/art/collection/search/22064)) and [Met 27593](https://images.metmuseum.org/CRDImages/aa/web-large/LC-L_2004_41_13-002.JPG) ([page](https://www.metmuseum.org/art/collection/search/27593)) | CC0 | A lacquered cone: one broad highlight down the lit face, the rest dark. |
+| [Met 893323, Kuniyoshi, The Fourth Battle at Kawanakajima](https://images.metmuseum.org/CRDImages/as/web-large/DP149164.jpg) ([page](https://www.metmuseum.org/art/collection/search/893323)) | CC0 | Foot soldiers of one house in the same red-brown and the same flags: the block reads by one colour and the rows of sashimono above it. |
+| Total War: Shogun 2, Steam store screenshots ([store](https://store.steampowered.com/app/201270/)) | (c) SEGA, reference only | Ashigaru blocks from above: a sea of sashimono in the clan colour over darker armour, the white of faces, obi and leg wraps between. |
+
+What changed (`samurai-static.ts`): the archers and gunners wear the yari men's red-brown
+okashi-gusoku; the gunners carry a sashimono (the archers do not: in their walk the bow is held
+still while the trunk rolls, and a flag beside it swung against the bow through the head's zone,
+failing the walk-boil lint at level 8); the ashigaru's white obi stays pale at level 2; the jingasa
+has a broad sheen on its lit face below level 8. Rounds: (1) red-brown dō and sashimono on both
+(archer walk boil 0.19 FAIL); (2) a shorter flag, still 0.18; the archers' flag dropped; (3) the
+obi and jingasa sheen. Pixel lint: 0 fails (as before); "figure vs ground" warns 17 -> 20 (the
+red-brown is lighter than the black, closer to the lint's green preview field; on the battle's
+sandy field the blocks now read as men).
