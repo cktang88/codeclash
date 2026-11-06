@@ -95,11 +95,17 @@ const KM = {
   sable: defineMaterial('templar.k.sable', dye([0.66, 0.2, 0.25, 0.31, 0.38], [0.01, 0.012, 0.014, 0.012, 0.01], 285)),
   /** Fur collars: grey-white wolf and fox. */
   fur: defineMaterial('templar.k.fur', dye([0.24, 0.5, 0.66, 0.78, 0.87], [0.015, 0.02, 0.022, 0.02, 0.016], 70)),
+  /**
+   * The Iron Brethren's mail under the white surcoat: mid grey iron, two steps below the surcoat's
+   * shadow, so mail and cloth stay apart when the palette merges near neutrals (the silver had
+   * folded into the white at levels 2-4: a white man from helm to heel). Met hauberk 32781.
+   */
+  iron: defineMaterial('templar.k.iron', dye([0.24, 0.4, 0.52, 0.63, 0.76], [0.012, 0.016, 0.02, 0.018, 0.014], 240)),
 };
 // The charging brothers' silver mail gets the knight class's real shadows too.
 KNIGHT_PAIRS.push([KM.silver, TK.silver]);
 /** Mail, including the key art's silver. */
-const isMailS = (m: Mat): boolean => isMail(m) || m === KM.silver;
+const isMailS = (m: Mat): boolean => isMail(m) || m === KM.silver || m === KM.iron;
 
 // ------------------------------------------------------------------ mail
 
@@ -818,9 +824,12 @@ const LEVY: SKit = { helm: 'nasal', body: KM.ochre, coat: null, quilted: true, c
 const JAVELIN: SKit = { helm: 'cap', body: KM.madder, coat: null, short: true, pouch: true, camail: null, sleeve: KM.madder, hand: TM.flesh, legs: KM.wraps, boots: TM.leather, belt: TM.team };
 const ARCHER: SKit = { helm: 'hood', hood: KM.slate, body: KM.slate, coat: null, short: true, camail: null, sleeve: KM.slate, hand: TM.flesh, legs: TM.wool, boots: TM.leather, shadeFrom: 0.45 };
 const XBOW: SKit = { helm: 'kettle', body: TM.wool, coat: null, quilted: true, camail: TM.mailDk, sleeve: TM.wool, hand: TM.leather, legs: TM.wool, boots: TM.leather, belt: TM.team };
-// The Iron Brethren as the painted Templar: a black tabard with the long red cross over silver mail
-// and layered pauldrons, the heavy white mantle with a fur collar, steel gauntlets, a wide stance.
-const BRETHREN: SKit = { helm: 'great', body: KM.silver, coat: KM.sable, cross: true, longCross: true, cloak: true, pauldrons: true, wide: true, camail: KM.silver, sleeve: KM.silver, hand: TM.steel, legs: KM.silver, boots: KM.silver };
+// The Iron Brethren are knights fighting on foot, so they wear the knights' white (the sergeants
+// wear black): the white surcoat to the knee with the red cross, belted over silver mail, layered
+// pauldrons, steel gauntlets, a wide stance. No mantle: the brothers fought in the surcoat (Morgan
+// Bible, Medieval II), and a mantle to the ankles hid the whole man from behind, a blank white
+// sheet half again the width of a man (QA battle-realism #9; docs/art-references/templar-brethren-hd.md).
+const BRETHREN: SKit = { helm: 'great', body: KM.iron, coat: TM.white, cross: true, pauldrons: true, wide: true, camail: KM.iron, sleeve: KM.iron, hand: TM.steel, legs: KM.iron, boots: KM.iron };
 
 /**
  * Weapon sizes against the 14-unit man (1 unit ~ 12.5 cm): an arming sword 7 from the grip (Met
