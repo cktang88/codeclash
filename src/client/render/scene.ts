@@ -2418,14 +2418,14 @@ export class BattleScene {
         const pk = recoil(T - re.parryAt[i]!, 0.5, 2.6) * REACT.parry * (mt ? 0.5 : 1);
         ox += re.parryX[i]! * pk;
         oy += re.parryY[i]! * pk;
-        // Between blows in the fight: the front rank weaves at its foes, the ranks behind lean in.
-        if (!mt && (anim === Anim.Brace || anim === Anim.Advance) && fa.inFight) {
-          const front = fa.reach;
-          const dx = front && tg ? tg.x - s.x : this.front.x;
-          const dy = front && tg ? tg.y - s.y : this.front.y;
+        // In the fight: in and out at his foe, leaning on the backs in front (under every clip).
+        if (!mt && fa.inFight) {
+          const front = fa.reach && tg !== undefined;
+          const dx = front ? tg.x - s.x : this.front.x;
+          const dy = front ? tg.y - s.y : this.front.y;
           const d = Math.sqrt(dx * dx + dy * dy);
           if (d > 1e-3) {
-            const k = (weave(T, (i * 0.618034) % 1, front) * (front ? REACT.weave : REACT.press)) / d;
+            const k = (weave(T, (i * 0.618034) % 1) * REACT.weave) / d;
             ox += dx * k;
             oy += dy * k;
           }

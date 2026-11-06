@@ -13,19 +13,18 @@
 /** How far each motion carries a man (world units; a man is about 14 tall, a rank 8-10 deep). */
 export const REACT = {
   /** Into his blow at the strike, and a little back in the chamber (lunge). */
-  lunge: 1.6,
-  lungeMounted: 0.6,
+  lunge: 2.2,
+  lungeMounted: 0.8,
   /** Driven back by a blow that lands, a missile or a charge. */
-  recoil: 1.5,
-  recoilMounted: 0.5,
+  recoil: 1.9,
+  recoilMounted: 0.6,
   /** Rocked back on his guard by a blow parried or taken on the shield. */
-  parry: 0.75,
+  parry: 0.9,
   /** Staggered back away from the death blow as he falls (the corpse lies there). */
   slide: 2.6,
   slideMounted: 1.2,
-  /** In the fight between blows: the front rank weaves in and out, the ranks behind lean in. */
-  weave: 0.55,
-  press: 0.7,
+  /** In the fight: in and out at his foe, leaning on the backs in front (weave). */
+  weave: 0.9,
 } as const;
 
 const sm = (u: number): number => (u <= 0 ? 0 : u >= 1 ? 1 : u * u * (3 - 2 * u));
@@ -82,17 +81,16 @@ export function slide(t: number, len: number): number {
 }
 
 /**
- * Between blows in the fight: a front-ranker weaves in and out at his foe (-0.5..1 of REACT.weave),
- * a man behind leans in on the backs in front and eases off (0..1 of REACT.press), each on a
- * cycle of his own (`phase`, 0..1) so a rank never pulses as one. `T` in ticks.
+ * In the fight: a man weaves in and out at his foe and leans on the backs in front of him
+ * (-0.3..1 of REACT.weave, toward his foe or his front), each on a cycle of his own (`phase`,
+ * 0..1) whose reach swells and fades on a slower beat, so a rank never pulses as one and the line
+ * is never ruler-straight. `T` in ticks. Laid under every clip he plays in the fight (his blows'
+ * lunges add to it), so a blow or a flinch starting never jumps him off it.
  */
-export function weave(T: number, phase: number, front: boolean): number {
-  const p = front ? 26 : 19;
+export function weave(T: number, phase: number): number {
+  const p = 22 + phase * 8;
   const a = ((T / p + phase) % 1) * Math.PI * 2;
-  // (Its reach swells and fades on a slower beat of its own, so no two cycles are alike.)
-  if (front) return 0.2 + 0.8 * Math.sin(a) * (0.75 + 0.25 * Math.sin((T / p) * 0.37 * Math.PI * 2 + phase * 7));
-  const s = 0.5 + 0.5 * Math.sin(a);
-  return s * s;
+  return 0.35 + 0.65 * Math.sin(a) * (0.7 + 0.3 * Math.sin((T / p) * 0.37 * Math.PI * 2 + phase * 7));
 }
 
 /**

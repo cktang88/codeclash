@@ -66,15 +66,15 @@ describe('react: the body answers the fight', () => {
     expect(r.parryAt[2]).toBe(-100);
   });
 
-  it('the press: front-rankers weave both ways, the ranks behind only lean in', () => {
-    let lo = 1, hi = -1, rlo = 1;
+  it('the press: in and out, mostly leaning in, never two men in step', () => {
+    let lo = 1, hi = -1;
     for (let t = 0; t < 200; t += 0.25) {
-      lo = Math.min(lo, weave(t, 0.3, true));
-      hi = Math.max(hi, weave(t, 0.3, true));
-      rlo = Math.min(rlo, weave(t, 0.3, false));
+      lo = Math.min(lo, weave(t, 0.3));
+      hi = Math.max(hi, weave(t, 0.3));
+      expect(Math.abs(weave(t + 0.25, 0.3) - weave(t, 0.3))).toBeLessThan(0.1);
     }
     expect(lo).toBeLessThan(0);
-    expect(hi).toBeGreaterThan(0.6);
-    expect(rlo).toBeGreaterThanOrEqual(0);
+    expect(hi).toBeGreaterThan(0.8);
+    expect(weave(50, 0.1)).not.toBeCloseTo(weave(50, 0.6), 2);
   });
 });
