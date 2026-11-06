@@ -11,18 +11,18 @@ const counts = (pairs: [number, number][]) => {
 };
 
 /** Shooters of `cls` (team 0, `faction`) with a block of their own spearmen standing right in front, the enemy beyond. */
-const screened = (faction: FactionId, cls: number, screen = true) => {
+const screened = (faction: FactionId, cls: number, screen = true, foeX = 840) => {
   // (Matchlocks standing behind a friendly block, as any shooters do: without the samurai's S3
   // doctrine, which sends them out before their line.)
   const out = DOCTRINE.samurai.screen;
   DOCTRINE.samurai.screen = 0;
   try {
-    return screenedRun(faction, cls, screen);
+    return screenedRun(faction, cls, screen, foeX);
   } finally {
     DOCTRINE.samurai.screen = out;
   }
 };
-const screenedRun = (faction: FactionId, cls: number, screen: boolean) => {
+const screenedRun = (faction: FactionId, cls: number, screen: boolean, foeX: number) => {
   const b = new Battle({ version: BATTLE_VERSION, seed: 4, kind: 'daily', armies: [plainArmy(counts([[cls, 12], [U.Spearmen, 30]]), 0, faction), plainArmy(counts([[U.HeavyInfantry, 30]]), 200)] });
   // Shooters in close order, narrower than the screen.
   b.pinStance(0, cls, 'line');
@@ -33,7 +33,7 @@ const screenedRun = (faction: FactionId, cls: number, screen: boolean) => {
   const foe = b.regiments.find((r) => r.team === 1)!;
   placeRegiment(b, shooters, 700, 600, 1, 0);
   placeRegiment(b, spears, screen ? 745 : 700, screen ? 600 : 300, 1, 0);
-  placeRegiment(b, foe, 840, 600, -1, 0);
+  placeRegiment(b, foe, foeX, 600, -1, 0);
   const shots: Projectile[] = [];
   const seen = new Set<Projectile>();
   let spearHurt = 0;
@@ -65,7 +65,10 @@ describe('battle: missiles', () => {
 
   it('archers loose over the heads of a friendly block; matchlocks behind it hold fire (and step out to find a line)', () => {
     const bows = screened('templar', U.Archers);
-    const guns = screened('samurai', U.Crossbowmen);
+    // (The enemy a little further off for the guns: since v17 a ball is never fired at a block
+    // locked with our own men, and at 840 the enemy is at the spears before the guns have
+    // stepped clear.)
+    const guns = screened('samurai', U.Crossbowmen, true, 870);
     // Arrows from the first volley on, high over the spearmen, landing among the enemy. (One
     // volley of all 12 before the spearmen go in: since v17 the next comes 7.5 s later.)
     expect(bows.shots.length).toBeGreaterThanOrEqual(12);
@@ -80,7 +83,7 @@ describe('battle: missiles', () => {
       expect(p.direct).toBe(true);
     }
     // Held fire, then stepped sideways out from behind the screen to shoot past it.
-    const open = screened('samurai', U.Crossbowmen, false);
+    const open = screened('samurai', U.Crossbowmen, false, 870);
     const firstOpen = open.shots[0]?.born ?? Infinity;
     const firstScreened = guns.shots[0]?.born ?? Infinity;
     const early = (x: Projectile[]) => x.filter((p) => p.born < 50).length;
@@ -145,20 +148,19 @@ describe('battle: missiles', () => {
     const foe = b.regiments.filter((r) => r.team === 1);
     placeRegiment(b, guns, 600, 600, 1, 0);
     foe.forEach((r, i) => placeRegiment(b, r, 860 + i * 80, 600 + (i - (foe.length - 1) / 2) * 0, -1, 0));
-    let best = 0;
-    const balls = new Map<Projectile, number>();
+    // Men each ball strikes (since v17 along its flight, as it reaches them, not all as it lands).
+    const struckBy = new Map<Projectile, number>();
+    const inside = b as unknown as { missileHit(o: number, p: Projectile): void };
+    const hit0 = inside.missileHit.bind(b);
+    inside.missileHit = (o, p) => {
+      struckBy.set(p, (struckBy.get(p) ?? 0) + 1);
+      hit0(o, p);
+    };
     while (b.tick < 600 && !b.done()) {
       b.step();
-      for (const p of b.projectiles) if (p.team === 0 && !balls.has(p)) balls.set(p, p.lands);
-      for (const [p, lands] of balls) {
-        if (lands !== b.tick - 1) continue;
-        expect(p.pen).toBeGreaterThan(1);
-        const hit = b.soldiers.filter((s) => s.team === 1 && s.hitAt === lands).length;
-        best = Math.max(best, hit);
-        balls.delete(p);
-      }
+      for (const p of b.projectiles) if (p.team === 0) expect(p.pen).toBeGreaterThan(1);
     }
-    expect(best).toBeGreaterThanOrEqual(3);
+    expect(Math.max(0, ...struckBy.values())).toBeGreaterThanOrEqual(3);
   });
 });
 
