@@ -22,6 +22,7 @@
 
 import { factionStats, type FactionId } from './factions.ts';
 import { mixSeed, Rng } from './rng.ts';
+import { Ground, Terrain, TERRAIN, type TerrainKind } from './terrain.ts';
 import { emptyCounts, STATS, U, UNIT_COUNT, type Counts, type Role, type UnitStats } from './units.ts';
 import { COHESION, DOCTRINE, FATIGUE, MORALE, newOrder, REGROUP, PERSONALITIES, PLANS, UNDEAD, type CommanderTrait, type Doctrine, type MoraleState, type Order, type OrderKind, type Personality, type Plan } from './command.ts';
 
@@ -565,6 +566,12 @@ export interface BattleSetup {
   seed: number;
   kind: 'daily' | 'grand';
   armies: [ArmySpec, ArmySpec];
+  /**
+   * The ground (battle v17, terrain.ts): 'field' generates hills, woods, a stream and soft
+   * ground from the seed; 'flat' (or none given: set pieces, tests, battles recorded before it)
+   * is the bare field.
+   */
+  terrain?: TerrainKind;
 }
 
 export const enum State {
@@ -989,6 +996,12 @@ export class Regiment {
   friendAt = -1;
   resX = NaN;
   resY = NaN;
+  /** TERRAIN: the crest a holding block stepped up to (`standGround`), NaN none chosen yet. */
+  hillX = NaN;
+  hillY = NaN;
+  /** TERRAIN: the spot at a wood's edge a block of shooters holding took (`standGround`), NaN none. */
+  edgeX = NaN;
+  edgeY = NaN;
   /** When a reserve last turned to face a threat close by (`thinkLine`). */
   threatAt = -1000;
   /** Times the General has pulled it out of the line (see Doctrine.withdrawals). */
@@ -1095,7 +1108,7 @@ export class Regiment {
 /** Regiment fields that hold fractions (see the Regiment constructor). */
 const DOUBLE_FIELDS = [
   'arrows', 'cx', 'cy', 'ax', 'ay', 'fx', 'fy', 'dfx', 'dfy', 'tx', 'ty', 'gx0', 'gy0', 'rideX', 'rideY', 'vax', 'vay', 'aspd', 'morale', 'baseMorale', 'chaseX', 'chaseY', 'spacing', 'speed',
-  'dodgeX', 'dodgeY', 'width', 'depth', 'radius', 'recent', 'recentKills', 'flankShock', 'homeX', 'homeY', 'wx', 'wy', 'fatigue', 'fightShare', 'enemyNear', 'friendNear', 'closeIn', 'restX',
+  'dodgeX', 'dodgeY', 'hillX', 'hillY', 'edgeX', 'edgeY', 'width', 'depth', 'radius', 'recent', 'recentKills', 'flankShock', 'homeX', 'homeY', 'wx', 'wy', 'fatigue', 'fightShare', 'enemyNear', 'friendNear', 'closeIn', 'restX',
 ] as const;
 
 export interface Projectile {
@@ -1609,6 +1622,10 @@ export class Battle {
 
   /** The setup as fought: counts made whole men (see `sanitize`). */
   readonly setup: BattleSetup;
+  /** The ground (terrain.ts; the renderer reads it from here). */
+  readonly terrain: Terrain;
+  /** Bare, level ground: every terrain rule is skipped (and the battle is as before terrain). */
+  private readonly flat: boolean;
 
   constructor(given: BattleSetup) {
     // A setup recorded under another version of the rules would replay as a different battle.
@@ -1618,6 +1635,8 @@ export class Battle {
     this.parity = mixSeed(setup.seed, SEED_SALT, 9001) & 1;
     this.salt = mixSeed(setup.seed, SEED_SALT, 4242);
     this.generals = [new General(0, setup.seed), new General(1, setup.seed)];
+    this.terrain = new Terrain(setup.terrain === 'field' ? 'field' : 'flat', FIELD_W, FIELD_H, setup.seed);
+    this.flat = this.terrain.flat;
     this.scale = scaleFor(setup.armies[0].counts, setup.armies[1].counts);
     this.stats = [factionStats(setup.armies[0].faction), factionStats(setup.armies[1].faction)];
     this.fearless = [setup.armies[0].faction === 'undead', setup.armies[1].faction === 'undead'];
@@ -3746,7 +3765,14 @@ export class Battle {
     const m = r.mode;
     const run = m === 'charge' || m === 'withdraw' || m === 'pursue' || m === 'flank' || m === 'kite' || m === 'skirmish' || m === 'rout';
     const k = run ? FATIGUE.run * (isCav(r) ? 0.6 : 1) : r.engaged ? FATIGUE.fight * Math.min(1, r.fightShare / FATIGUE.fightShare) : m === 'advance' || m === 'reserve' ? 0.001 : FATIGUE.rest;
-    r.fatigue = Math.max(0, Math.min(1, r.fatigue + k + (m === 'charge' && r.ragged ? FATIGUE.run * 1.5 : 0)));
+    let climb = 0;
+    // TERRAIN: climbing tires, the more at a run.
+    if (!this.flat && (r.vax !== 0 || r.vay !== 0)) {
+      const v = sqrt(r.vax * r.vax + r.vay * r.vay);
+      const g = this.terrain.grade(this.terrain.index(r.ax, r.ay), r.vax / v, r.vay / v);
+      if (g > 0) climb = g * (run ? TERRAIN.climbRunTire : TERRAIN.climbTire);
+    }
+    r.fatigue = Math.max(0, Math.min(1, r.fatigue + k + climb + (m === 'charge' && r.ragged ? FATIGUE.run * 1.5 : 0)));
   }
 
   /** Morale settles toward what the regiment's plight is worth (see MORALE); shocks knock it down at once. */
@@ -5336,7 +5362,9 @@ export class Battle {
       const c = sqrt(dx * dx + dy * dy);
       if (reach && c - o.radius - r.radius > range) continue;
       const q = reach ? this.gapTo(r, o) : c - o.radius * 0.5;
-      if (q > range) continue;
+      // TERRAIN: further from above; and not a block hidden in a wood, or behind one.
+      if (q > (this.flat ? range : range + this.reachAdd(r.cx, r.cy, o.cx, o.cy, range))) continue;
+      if (!this.flat && !this.seen(r, o, c)) continue;
       // Danger close (v17, QA #3): not a block whose men stand among ours, nor one we cannot
       // reach over a melee without our own men under the scatter.
       if (!this.clearTarget(r, o, Math.max(1, c), this.fire[r.team]![r.cls]!, this.stats[r.team]![r.cls]!)) continue;
@@ -5350,6 +5378,27 @@ export class Battle {
       }
     }
     return best;
+  }
+
+  /** TERRAIN: the reach a shot from (x0, y0) gains on a target at (x1, y1) from the height between them. */
+  private reachAdd(x0: number, y0: number, x1: number, y1: number, range: number): number {
+    const T = this.terrain;
+    const add = (T.height[T.index(x0, y0)]! - T.height[T.index(x1, y1)]!) * TERRAIN.reachPerHeight;
+    const most = range * TERRAIN.reachShare;
+    return add > most ? most : add < -most ? -most : add;
+  }
+
+  /**
+   * TERRAIN: whether block `r` can see block `o` (`c` apart, centre to centre): not when `o` stands
+   * deep in a wood (unless close), nor across a stretch of trees between them (their own edges
+   * left out: men at a wood's edge see out of it and are seen).
+   */
+  private seen(r: Regiment, o: Regiment, c: number): boolean {
+    const T = this.terrain;
+    if (T.woods.length === 0) return true;
+    const io = T.index(o.cx, o.cy);
+    if (T.woodDepth[io]! > TERRAIN.hideDepth && c > TERRAIN.hideNear + o.radius) return false;
+    return T.woodOnLine(r.cx, r.cy, o.cx, o.cy, r.radius * 0.5 + TERRAIN.hideDepth, o.radius * 0.5 + TERRAIN.hideDepth, TERRAIN.edge) <= TERRAIN.sightWood;
   }
 
   private thinkSkirmish(r: Regiment): void {
@@ -6733,6 +6782,9 @@ export class Battle {
     pace *= sd.pace * (1 - FATIGUE.pace * r.fatigue);
     let ux = dx / q;
     let uy = dy / q;
+    // TERRAIN: the block goes at the pace of the ground under its front (its middle and either
+    // end), up or down the slope it is walking: its men there keep up, those on worse ground lag.
+    if (!this.flat) pace *= this.groundPace(r, ux, uy, horse);
     const al = r.fx * ux + r.fy * uy;
     if (marching) {
       if (horse) {
@@ -6778,6 +6830,20 @@ export class Battle {
     r.vay = uy * step;
     r.ax += r.vax;
     r.ay += r.vay;
+  }
+
+  /**
+   * TERRAIN: a block's pace on its ground, going (ux, uy): the mean of the ground's pace (with
+   * its slope that way) at the middle of its front and at either end.
+   */
+  private groundPace(r: Regiment, ux: number, uy: number, horse: boolean): number {
+    const T = this.terrain;
+    const h = r.width * 0.5;
+    const lx = -r.fy * h;
+    const ly = r.fx * h;
+    const vx = ux * 10;
+    const vy = uy * 10;
+    return (T.pace(T.index(r.ax, r.ay), vx, vy, horse) + T.pace(T.index(r.ax + lx, r.ay + ly), vx, vy, horse) + T.pace(T.index(r.ax - lx, r.ay - ly), vx, vy, horse)) / 3;
   }
 
   /**
@@ -7945,6 +8011,8 @@ export class Battle {
     if (tr.alive === 0) return;
     const s = this.soldiers[i]!;
     const kind = this.fire[s.team]![s.cls]!;
+    // TERRAIN: from higher ground a shot carries further (and from lower, less).
+    const reach = this.flat ? st.range : st.range + this.reachAdd(d.x[i]!, d.y[i]!, tr.cx, tr.cy, st.range);
     const lobbed = kind === 'lob' || kind === 'siege';
     const retry = r.role === 'missile' && !r.atWill ? 1 : 4;
     // v17 (QA #3): a flat shot (crossbow, gun, bombard) cannot go over a melee: its bolt or ball
@@ -7970,12 +8038,12 @@ export class Battle {
     const horseOn = isCav(tr) && (tr.mode === 'charge' || tr.mode === 'flank' || tr.mode === 'advance' || tr.mode === 'pursue');
     let onFront = true;
     for (let tries = 0; tries < DANGER.tries; tries++) {
-      const c = tr.engaged ? this.pickRear(tr, d.x[i]!, d.y[i]!, st.range) : this.pickInReach(tr, d.x[i]!, d.y[i]!, st.range, r.atWill);
+      const c = tr.engaged ? this.pickRear(tr, d.x[i]!, d.y[i]!, reach) : this.pickInReach(tr, d.x[i]!, d.y[i]!, reach, r.atWill);
       if (c < 0) break;
       const dx = d.x[c]! - d.x[i]!;
       const dy = d.y[c]! - d.y[i]!;
       const q = sqrt(dx * dx + dy * dy);
-      if (q > st.range || q < 6) {
+      if (q > reach || q < 6) {
         if (v < 0) {
           v = c;
           dist = q;
@@ -8027,8 +8095,8 @@ export class Battle {
       d.cd[i] = retry; // on the volley clock he tries again within the volley
       return;
     }
-    if (dist > st.range || dist < 6) {
-      if (dist > st.range) r.short++;
+    if (dist > reach || dist < 6) {
+      if (dist > reach) r.short++;
       d.cd[i] = retry;
       return;
     }
@@ -8309,6 +8377,8 @@ export class Battle {
     if (d.state[t] !== State.Fighting || d.mt[t] || d.stun[t]! > 0 || this.tick < d.wd[t]! || d.cu[t]) return false;
     const o = this.regiments[d.reg[t]!]!;
     if (o.routed || this.tick < o.formedAt || o.stance === 'column') return false;
+    // TERRAIN: no spear wall among trees or in a stream.
+    if (!this.flat && this.terrain.ground[this.terrain.index(d.x[t]!, d.y[t]!)]! >= Ground.Wood) return false;
     const m = o.mode;
     if (m === 'pursue' || m === 'rout' || m === 'withdraw' || m === 'skirmish') return false;
     const back = facesRear(o, d.row[t]!, false, this.tick);
@@ -8400,6 +8470,20 @@ export class Battle {
       // (Not a horse: it cannot be held back from the points, and is gutted on them.)
       else if (!d.mt[t] && this.held(t, a)) fence = REACH.heldHit;
       if (d.rc[a]! >= REACH.long && d.rc[t]! >= REACH.long && dot > 0.3) fence = REACH.fence;
+      // TERRAIN: the man above strikes down with his weight behind it, the man below up the
+      // slope; a man in the water has no footing; in a wood the ranks of a shield or pike wall
+      // are broken by the trees.
+      if (!this.flat) {
+        const T = this.terrain;
+        const ia = T.index(d.x[a]!, d.y[a]!);
+        const it = T.index(d.x[t]!, d.y[t]!);
+        const G = TERRAIN.heightGrade;
+        const down = -T.grade(ia, ex / (q || 1), ey / (q || 1));
+        attack += TERRAIN.heightAttack * (down > G ? G : down < -G ? -G : down);
+        if (T.ground[ia] === Ground.Water) attack -= TERRAIN.waterAttack;
+        if (T.ground[it] === Ground.Water) defence -= TERRAIN.waterDefence;
+        else if (T.ground[it] === Ground.Wood && sd.defence > 0) defence -= sd.defence * (1 - TERRAIN.woodStance);
+      }
       if (dot < -0.4) {
         attack += 20;
         defence *= 0.55;
@@ -8463,7 +8547,14 @@ export class Battle {
     const held = ar.held ? ad.heldCharge : 1;
     // Braced shock troops take a charge on their front without giving ground.
     const planted = standing && frontal && dr.stance === 'braced';
-    const force = energy * (planted ? 0.3 : 1) * (wedge ? 1.25 : 1) * held;
+    let force = energy * (planted ? 0.3 : 1) * (wedge ? 1.25 : 1) * held;
+    // TERRAIN: a charge down a slope hits harder, one up it softer.
+    if (!this.flat) {
+      const vx = d.vx[a]!;
+      const vy = d.vy[a]!;
+      const v = sqrt(vx * vx + vy * vy);
+      if (v > 1) force *= Math.max(TERRAIN.chargeMin, Math.min(TERRAIN.chargeMax, 1 - TERRAIN.chargeK * this.terrain.grade(this.terrain.index(d.x[a]!, d.y[a]!), vx / v, vy / v)));
+    }
     const roll = 0.8 + this.rng.next() * 0.4;
     const dmg = (as.damage + as.charge * 0.9) * force * (rear ? 1.3 : 1) * MELEE_K * (50 / (50 + ds.armour)) * roll;
     this.hurt(t, dmg, a);
@@ -9597,6 +9688,22 @@ export class Battle {
     // Galloping (or running) in at a charge builds impetus; anything else bleeds it.
     if (r.mode === 'charge' && this.soldiers[i]!.s.charge > 0 && vm > spd * 0.7) d.imp[i] = Math.min(mounted || !r.ragged ? 1 : Math.max(0.35, 1 - (this.tick - r.chargeAt - RUN_IN) * 0.04), d.imp[i]! + (mounted ? 0.08 : 0.15));
     else if (d.imp[i]! > 0) d.imp[i] = d.imp[i]! < 0.05 ? 0 : d.imp[i]! * (mounted && vm > spd * 0.6 ? 0.93 : 0.8);
+    // TERRAIN: the ground and the slope set his pace (up a hill slower, down it a little faster);
+    // in a wood each man picks his own way among the trees, at his own pace, so the line goes
+    // ragged; and no charge carries through trees or water.
+    if (!this.flat) {
+      const T = this.terrain;
+      const ti = T.index(x, y);
+      const gr = T.ground[ti]!;
+      let k = T.pace(ti, vx, vy, mounted);
+      if (gr === Ground.Wood) k *= 1 + TERRAIN.woodRagged * d.ea[i]!;
+      vx *= k;
+      vy *= k;
+      if (gr >= Ground.Wood) {
+        const most = gr === Ground.Water ? TERRAIN.waterImpetus : TERRAIN.woodImpetus;
+        if (d.imp[i]! > most) d.imp[i] = most;
+      }
+    }
     // Men pressed by others do not walk into them: the part of his stride that goes into the
     // press is dropped (a galloping rider ploughs on; his bow wave moves them instead), and the
     // press itself moves him.
@@ -9735,6 +9842,15 @@ export class Battle {
       const q = sqrt(ex * ex + ey * ey);
       const close = Math.max(0, Math.min(1, (HORSE.closeFar - q) / (HORSE.closeFar - HORSE.closeNear)));
       pierce = Math.min(0.9, pierce + HORSE.bodkin * close);
+    }
+    // TERRAIN: among trees the branches and trunks take many missiles (at a wood's edge fewer).
+    if (!this.flat && p.splash === 0) {
+      const T = this.terrain;
+      const io = T.index(d.x[o]!, d.y[o]!);
+      if (T.ground[io] === Ground.Wood) {
+        const cover = (p.direct ? TERRAIN.coverDirect : TERRAIN.coverLob) * (T.woodDepth[io]! < TERRAIN.edge ? TERRAIN.coverEdge : 1);
+        if (this.rng.next() < cover) return;
+      }
     }
     const shooter0 = p.shooter >= 0 && d.team[p.shooter] !== d.team[o] ? p.shooter : -1;
     if (p.splash === 0 && d.mt[o] && d.hh[o]! > 0 && r.role !== 'command' && this.rng.next() < HORSE.share) {
