@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { FACTIONS, type FactionId } from '../../game/factions.ts';
-import { Anim, KIND_COUNT, type Atlas, type Dir, type KindSheet } from '../render/contract.ts';
+import { Anim, cellQuad, KIND_COUNT, type Atlas, type Dir, type KindSheet } from '../render/contract.ts';
 import { buildAtlas as buildClassic } from '../render/sprites.ts';
 import { buildAtlas as buildHd } from '../render/sprites128.ts';
 import { ArtSelect, FactionSelect } from '../ui/ShowcaseControls.tsx';
@@ -137,8 +137,9 @@ export function ShowcaseUnits() {
             g.drawImage(canvasOf(sh), r[0]!, r[1]!, r[2]!, r[3]!, x + BOX / 2 - r[4]!, y + Math.round(BOX * 0.82) - r[5]!, r[2]!, r[3]!);
           } else {
             // Classic, or HD before its sheet is painted: the 48 px cell scaled up, foot on the same line.
-            const [sx, sy] = atlas.at(kind, anim, f, k.dir);
-            g.drawImage(atlas.image, sx, sy, atlas.cellW, atlas.cellH, x + BOX / 2 - atlas.footX * size, y + Math.round(BOX * 0.82) - atlas.footY * size, atlas.cellW * size, atlas.cellH * size);
+            // (Trimmed to what the cell paints: Atlas.trim.)
+            const [sx, sy, w, h, ax, ay] = cellQuad(atlas, ...atlas.at(kind, anim, f, k.dir));
+            if (w > 0) g.drawImage(atlas.image, sx, sy, w, h, x + BOX / 2 - ax * size, y + Math.round(BOX * 0.82) - ay * size, w * size, h * size);
           }
           g.restore();
         }

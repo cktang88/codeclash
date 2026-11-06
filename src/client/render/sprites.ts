@@ -14,7 +14,7 @@
 
 import { FACTIONS, type FactionId } from '../../game/factions.ts';
 import { U } from '../../game/units.ts';
-import { Anim, ANIM_COUNT, COMMANDER_KIND, KIND_COUNT, type Atlas, type BuildAtlas, type Dir } from './contract.ts';
+import { Anim, ANIM_COUNT, cellTrims, COMMANDER_KIND, KIND_COUNT, type Atlas, type BuildAtlas, type Dir } from './contract.ts';
 
 export type { Atlas } from './contract.ts';
 
@@ -2545,6 +2545,8 @@ function makeAtlas(faction: FactionId, hue: number): Atlas {
   image.height = KIND_COUNT * 4 * H;
   const ctx = image.getContext('2d')!;
   const painted: boolean[] = new Array<boolean>(KIND_COUNT).fill(false);
+  // Each cell's painted box, so the renderers draw it and not the whole 48 × 48 cell.
+  const trims = cellTrims(W, H);
   const ensure = (kind: number): void => {
     if (painted[kind] || kind < 0 || kind >= KIND_COUNT) return;
     painted[kind] = true;
@@ -2559,6 +2561,7 @@ function makeAtlas(faction: FactionId, hue: number): Atlas {
         }
       }
     ctx.putImageData(img, 0, kind * 4 * H);
+    trims.land(kind, out, image.width);
   };
   // Fill the remaining kinds in the background, one per slice.
   let next = 0;
@@ -2586,6 +2589,7 @@ function makeAtlas(faction: FactionId, hue: number): Atlas {
       const f = b === Anim.Die || b === Anim.Dead ? Math.min(Math.max(0, frame), n - 1) : ((frame % n) + n) % n;
       return [(COL0[b]! + f) * W, (kind * 4 + dir) * H];
     },
+    trim: trims.trim,
   };
   return atlas;
 }
