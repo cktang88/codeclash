@@ -10,6 +10,7 @@
 - Record the references used in `docs/art-references/<subject>.md` (URL, licence, what was learned).
 - References are for study. Only commit third-party image files that are CC0 or otherwise licensed for redistribution, and credit them in README.md. Never commit non-free assets (the old 3D pack is a cautionary tale).
 - Delegate design and drawing to subagents (game design, sprites, renderer, city, UI), each told to follow this section, and run them in parallel where their files don't overlap.
+- The classic ray-cast painter (`src/client/render/sprites.ts`) is frozen: keep it working, but don't fix its pixel-lint fails or improve its art. All art effort goes to the HD paper-doll painter (`src/client/render/paper/**`).
 - Every art change is verified with screenshots (Playwright: `require('playwright')`, `chromium.launch()`), looked at, and iterated at least three rounds.
 
 ## Iterating on battles: small and headless
