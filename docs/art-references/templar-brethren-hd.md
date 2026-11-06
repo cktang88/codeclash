@@ -58,3 +58,40 @@ Width at level 8 (idle): SE 10.9 -> 10.3 units, NE 15.4 -> 14.5 (the axe), the o
    it so the level-8 palette keeps a hue drift: edge and light FAILs gone; the figure reads white
    surcoat over steel at 2, 4 and 8 (`fixes/09-brethren-L248-final.png`) and in HD 64
    (`fixes/09-brethren-hd64-after.png`).
+
+## Pixel-lint pass (cc/art3): the axe that did not read, banding, the limp
+
+`pnpm pixel-lint --only=sprites --factions=templar --kinds=8` failed the Brethren on aligned band
+ends (M2) at levels 1 and 4 and on walk head boil (M16) at level 8; at level 1 the axe was not there
+at all in the screenshots (a pale ash haft on a white surcoat, the bit a light-blue blob by the helm).
+
+References studied for this pass (downloaded to `references/brethren/` and `references/battle/`,
+study only, none committed):
+
+| Image | Licence | What was taken |
+|---|---|---|
+| [Met 32832, Initial A with the Battle of the Maccabees](https://images.metmuseum.org/CRDImages/md/web-large/DP164982.jpg) ([page](https://www.metmuseum.org/art/collection/search/32832)) | CC0 | Every weapon is drawn as a dark shaft against the light cloth and sky; the blades are the lightest thing in the picture. A polearm reads by its line, not by its head. |
+| [Met 23346, Ornamental plaque of a knight on horseback, c. 1300](https://images.metmuseum.org/CRDImages/aa/web-large/DP281672.jpg) ([page](https://www.metmuseum.org/art/collection/search/23346)) | CC0 | The great helm as a flat-topped box with one dark slit; the arm and weapon break the body's outline in one clear diagonal. |
+| [Met 32781, Hauberk of Mail](https://images.metmuseum.org/CRDImages/aa/web-large/62436.jpg) ([page](https://www.metmuseum.org/art/collection/search/32781)) | CC0 | Mail is a mid grey of small rows; at 13-50 px it is a value, not a texture. |
+| Medieval II: Total War, Steam store screenshot [`0000000848`](https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4700/0000000848.1920x1080.jpg) ([store](https://store.steampowered.com/app/4700/)) | (c) SEGA, reference only | Dismounted knights march with an even stride, feet close to the line of travel; the shoulder lames fan down the arm, each narrower than the last. |
+| Wargroove, Steam store screenshot [`ss_e457861c…`](https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/607050/ss_e457861ccc57d21b4ce6ee7a116bcfdab9b23cb9.1920x1080.jpg) ([store](https://store.steampowered.com/app/607050/)) | (c) Chucklefish, reference only | At ~16-20 px a unit is read by its weapon: a polearm is one chunky dark line with a light head, exaggerated in length. |
+| Songs of Conquest, Steam store screenshot [`ss_4363a4c6…`](https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/867210/ss_4363a4c6d46e4a86e975538fa53000aa8fdad561.1920x1080.jpg) ([store](https://store.steampowered.com/app/867210/)) | (c) Lavapotion, reference only | Small pixel figures seen from above keep a light top and a darker contour; banners and weapons stand above the head. |
+
+What changed (`templar-static.ts`, `templar-clips.ts`, `templar-foot.ts`):
+
+- **The haft** at levels 1 and 4 is one clean pixel line in a new kept material `templar.k.haft`:
+  pale ash (tone 4) where it stands clear of the man over the grass, and, where it crosses his body,
+  the contact pass steps it to a dark oiled shaft (tone 2) that reads across the white surcoat. Its
+  deep tone is the light class's pale one, so the figure's rim stays light. At level 4 the old 1.6 px
+  ash band stepped down the surcoat in 2 px stairs, which was most of the banding. (Level 2's ten
+  colours have no room for it; the ash stays there.)
+- **Pauldrons**: the three lames fan down and out, each narrower than the one above, instead of
+  three equal bars stacked on one column.
+- **Skirt folds** (all foot kinds, level 4 up): each fold starts at its own height under the belt
+  and opens from a point; ridges are short. The shadow under the breast is a crescent, not a bar.
+- **The walk**: the wide guard stance closes up to the usual track when walking. Left at its width
+  the legs could not reach the long stride's contacts in the second half-cycle and the hips dropped
+  3 px in one frame, a limp that boiled the whole head zone.
+
+Lint, kind 8, before -> after: aligned band ends L1 0.349 -> 0.20, L4 0.329 -> 0.278; walk head
+boil L8 0.156 -> 0.147. No other Templar kind changed status.

@@ -24,3 +24,23 @@ but not downloaded; revisit for teppō volley lines behind the palisade.
 | 8 | Helmet (*Zukinnari Kabuto*), 16th c. (Met 24014) | https://www.metmuseum.org/art/collection/search/24014 — Public domain (Met Open Access) | The kabuto bowl sits low with a wide flaring shikoro (neck guard) and turned-back fukigaeshi, and the crest is a tall gold-and-vermilion shape above. In pixels: a dark bowl, a laced vermilion flare at the back and sides, and a 2-px gold crest. The daimyō gets a 5-px crescent. |
 | 9 | Kawanakajima print and Met gusoku, re-studied at sprite scale (refs 2, 4) | as above | At game scale the dark lacquer must stay near-black rather than blue: our first pass used `#2c3550` and whole blocks read as blue blobs, so lacquer became `#2a2a31` and the team-hue sashimono carries all the colour. Seen from behind, a regiment is a field of flags, as in the print. |
 | 10 | sebshady, *Samurai Sprites* (OGA, CC0), re-studied (ref 7) | **CC0** | The katana as a pale 1-px arc that sweeps through the attack; the fall to the side. |
+
+## The sōhei's katō shows a face (cc/art3)
+
+At battle zoom (HD, zoom 4) a block of sōhei read as rows of blank cream eggs: the katō's eye slit
+was one pixel high at level 4 and merged into the cowl's tan there, so nothing said "man" under
+the cloth. References, study only (in `references/samurai/`):
+
+| Image | Licence | What was taken |
+|---|---|---|
+| [Met 58396, inrō with Yoshitsune and Benkei on the Gojō Bridge](https://images.metmuseum.org/CRDImages/as/web-large/81_1_325_O3.JPG) ([page](https://www.metmuseum.org/art/collection/search/58396)) | CC0 | Benkei's head wrap leaves brows, eyes and cheeks bare in an oval opening; the cloth frames the face with a dark inner edge. |
+| [Met 58349, box with Benkei and a bell](https://images.metmuseum.org/CRDImages/as/web-large/DT220564.jpg) ([page](https://www.metmuseum.org/art/collection/search/58349)) | CC0 | The cowl as a mass of wrapped folds round a visible face; the eyes are the darkest thing on the head. |
+| [Met 44989, Yoshitsune and Benkei putting to flight the ghosts (Hokusai school print)](https://images.metmuseum.org/CRDImages/as/web-large/DP124562.jpg) ([page](https://www.metmuseum.org/art/collection/search/44989)) | CC0 | The monk's face is a strong light shape inside the dark of the wrap and the robe; the eye is a bold black stroke. |
+| [Met 57836, Illustrated Story of Yoshitsune](https://images.metmuseum.org/CRDImages/as/web-large/LC-JIB_145_004_crd.jpg) ([page](https://www.metmuseum.org/art/collection/search/57836)) | CC0 | Even in line, the hooded men read by the face opening and the eyes; the hood's silhouette alone does not. |
+
+What changed (`samurai-static.ts`, `kato`): an oval opening shows the face (flesh, darker on the
+shade side and under the brow), the eyes as two dark marks, brows at level 8, and the wrap's inner
+edge one tone down round it. Rounds: (1) a larger opening read at level 8 but at level 4 the brows
+and eyes fused into a black visor bar; (2) eyes only below level 8, at 0.12 of the opening, vanished
+at level 4; (3) eyes at 0.22 below level 8, no brows: two dark eyes in a flesh window at level 4, and
+in battle the block reads as hooded men. Pixel lint (HD, kind 8): no new warnings or failures.

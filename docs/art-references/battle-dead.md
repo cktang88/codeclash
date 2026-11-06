@@ -21,3 +21,22 @@ but in HD the purple robes of fallen riders turned to mud; (2) HD at 0.62
 (`fixes/15-undead-corpses-hd-before-after.jpg`): the dead stay below the living without losing
 their colours; (3) checked a later moment (seed 3, 2,800 men, t1400, HD): bone heaps lie under
 the standing skeleton blocks, which stay the brightest bone on the field.
+
+## The fallen fall every way (cc/art3)
+
+Battle screenshots (HD, seed 1, 1,200 men, t700, zoom 2) showed a rank of dead as one stamp
+repeated: men who die side by side in a block faced the same way, so every corpse was the same body
+lying the same way round (the undead horses most of all: a row of identical black slugs). References,
+study only (in `references/dead/`):
+
+| Image | Licence | What was taken |
+|---|---|---|
+| [Met 447301, "Gav and Talhand in Battle", Shahnama folio, c. 1430-40](https://images.metmuseum.org/CRDImages/is/web-large/DP215841.jpg) ([page](https://www.metmuseum.org/art/collection/search/447301)) | CC0 | The fallen horse lies on its back, legs up, under the living ones; riders down at every angle. No two dead lie alike. |
+| [Met 338534, Battle Scene (drawing), 1590-1646](https://images.metmuseum.org/CRDImages/dp/web-large/DP809193.jpg) ([page](https://www.metmuseum.org/art/collection/search/338534)) | CC0 | Along the bottom the dead lie head left, head right, face down, face up: the variety of direction is what reads as a heap of men rather than a pattern. |
+| [Met 201860, The Battle of Pavia (carved box), c. 1700](https://images.metmuseum.org/CRDImages/es/web-large/SF55_79_1ab_img1.jpg) ([page](https://www.metmuseum.org/art/collection/search/201860)) | CC0 | Two fallen under the hooves lie crossing each other, heads at opposite ends. |
+| Rome: Total War Remastered, Steam store screenshot ([store](https://store.steampowered.com/app/885970/)) | (c) SEGA, reference only | Downed horses and men behind the charging line lie in all directions, each its own shape. |
+
+What was done (`src/client/render/scene.ts`, `fallDir`): the way a man falls is chosen once as he
+goes down, his facing at the blow turned by one of the four directions from a hash of who he is,
+and the corpse keeps it. Cleared when he rises, so a second death falls afresh. No sheet changes:
+the Die and Dead frames already exist for all four facings.

@@ -108,49 +108,153 @@ function pole(img: Img, L: number, px: number, y0: number, H: number): void {
   }
 }
 
-/** A standard: 12 × 22 map px with its pole foot at (1 or 10, 21), as the classic one. */
+/**
+ * A standard: 12 × 22 map px with its pole foot at (1 or 10, 21), as the classic one. Each faction
+ * flies its own cloth, as Total War's unit banners tell the armies apart by shape before colour
+ * (docs/art-references/banners.md): the Templars a swallowtailed pennon with a cross pattée (the
+ * Marshal the Beauséant, sable over argent); the samurai the nobori, a tall cloth hung down the pole
+ * from a crossbar, the mon near its head; the undead a ragged gonfalon hung from a crossbar, cut to
+ * a point and tattered, a skull on it. The hanging cloths stay above row 9, where the morale pips sit.
+ */
 function banner(army: StdArmy, command: boolean, frame: number, left: boolean, torn: boolean, L: number): [Img, number, number] {
   const W = 12;
   const H = 22;
   const img = new Img(W * L, H * L);
   const polX = left ? W - 2 : 1;
-  const cw = command ? 9 : 8;
-  const ch = command ? 7 : 6;
   const c = ramp(army, command);
   const ph = frame * (Math.PI / 2);
-  const markW = Math.max(1, Math.round(L * (command ? 1.1 : 0.95)));
-  const markX = Math.floor(cw / 2) - (command ? 0 : 1) + 0.5;
-  const markY = Math.floor(ch / 2) + 0.5;
-  const swallow = !command; // regimental cloths end in a swallowtail, as the classic ones
-  for (let ty = 0; ty < H * L; ty++)
-    for (let tx = 0; tx < W * L; tx++) {
-      // Distance out from the pole along the cloth (map px), and down the cloth.
-      const ux = (left ? polX - (tx + 0.5) / L : (tx + 0.5) / L - polX - 1) ;
-      if (ux < 0 || ux > cw) continue;
-      const wave = Math.sin(ux * 0.9 - ph) * (ux / cw) * 1.6;
-      const vy = (ty + 0.5) / L - 2 - wave;
-      if (vy < 0 || vy > ch) continue;
-      // Swallowtail: a notch cut into the fly end.
-      if (swallow && ux > cw - 1.6 && Math.abs(vy - ch / 2) < (ux - (cw - 1.6)) * 0.9) continue;
-      // Tattered: ragged tears at the fly and a few holes, from noise at about a map px.
-      if (torn) {
-        const n = vnoise(ux * 1.3, vy * 1.3 + frame * 0.7, command ? 5 : 3);
-        if (ux > cw - 3.2 && n < (ux - (cw - 3.2)) * 0.32) continue;
-        if (n > 0.86) continue;
-      }
-      // Folds: the light along the wave's slope; deeper shade in the troughs.
-      const lit = Math.sin(ux * 0.9 - ph + 0.8);
-      let col = lit > 0.55 ? c.light : lit > -0.05 ? c.base : lit > -0.6 ? c.shade : c.deep;
-      // The emblem: a cross of the mark colour, crisp at this level.
-      const onMark = Math.abs(ux - markX) * L < markW / 2 || Math.abs(vy - markY) * L < markW / 2;
-      if (onMark && !(!command && ux > cw - 2.5)) col = lit < -0.6 ? shade(c.mark, 0.72) : lit > 0.55 ? shade(c.mark, 1.08) : c.mark;
-      // The commander's cloth: a fringe of the mark colour along the foot (level 2 up).
-      if (command && L >= 2 && vy > ch - 0.45 && Math.floor(tx / Math.max(1, L / 4)) % 2 === 0) col = shade(c.mark, 0.9);
-      img.set(tx, ty, word(col));
-    }
-  pole(img, L, polX, 2, H);
+  const draw = army.faction === 'samurai' ? nobori : army.faction === 'undead' ? gonfalon : pennon;
+  const top = draw(img, c, army, command, ph, frame, left, torn, L, polX);
+  pole(img, L, polX, top, H);
   if (L >= 2) img.outline(OUT);
   return [img, polX * L, (H - 1) * L];
+}
+
+type Ramp = ReturnType<typeof ramp>;
+/** Calls `px(ux, vy, tx, ty)` for every texel: ux map px out from the pole (0 at its outer edge), vy map px down. */
+function cloth(img: Img, L: number, polX: number, left: boolean, px: (ux: number, vy: number) => RGB | null): void {
+  for (let ty = 0; ty < img.h; ty++)
+    for (let tx = 0; tx < img.w; tx++) {
+      const ux = left ? polX - (tx + 0.5) / L : (tx + 0.5) / L - polX - 1;
+      if (ux < -0.6) continue;
+      const col = px(ux, (ty + 0.5) / L);
+      if (col) img.set(tx, ty, word(col));
+    }
+}
+const tone = (c: Ramp, lit: number): RGB => (lit > 0.55 ? c.light : lit > -0.05 ? c.base : lit > -0.6 ? c.shade : c.deep);
+const markTone = (mark: RGB, lit: number): RGB => (lit < -0.6 ? shade(mark, 0.72) : lit > 0.55 ? shade(mark, 1.08) : mark);
+
+/** The Templars: a swallowtailed pennon, flying out from the pole, a cross pattée on it; the Marshal's Beauséant. */
+function pennon(img: Img, c: Ramp, _army: StdArmy, command: boolean, ph: number, frame: number, left: boolean, torn: boolean, L: number, polX: number): number {
+  const cw = command ? 9 : 8;
+  const ch = command ? 7 : 6;
+  const markW = Math.max(1, Math.round(L * (command ? 1.1 : 0.95)));
+  const markX = cw / 2 - 0.3;
+  const markY = ch / 2;
+  // The Beauséant: the upper half sable, the lower argent (the Order's war banner).
+  const sable: Ramp = { deep: [14, 12, 12], shade: [26, 23, 22], base: [40, 36, 34], light: [62, 57, 52], mark: c.mark };
+  const argent: Ramp = { deep: [140, 132, 116], shade: [182, 174, 156], base: [222, 214, 196], light: [244, 239, 226], mark: c.mark };
+  cloth(img, L, polX, left, (ux, y) => {
+    if (ux < 0 || ux > cw) return null;
+    const wave = Math.sin(ux * 0.9 - ph) * (ux / cw) * 1.6;
+    const vy = y - 2 - wave;
+    if (vy < 0 || vy > ch) return null;
+    if (!command && ux > cw - 1.6 && Math.abs(vy - ch / 2) < (ux - (cw - 1.6)) * 0.9) return null; // the swallowtail
+    if (torn) {
+      const n = vnoise(ux * 1.3, vy * 1.3 + frame * 0.7, command ? 5 : 3);
+      if (ux > cw - 3.2 && n < (ux - (cw - 3.2)) * 0.32) return null;
+      if (n > 0.86) return null;
+    }
+    const lit = Math.sin(ux * 0.9 - ph + 0.8);
+    if (command) {
+      if (L >= 2 && vy > ch - 0.45 && Math.floor(ux * L / Math.max(1, L / 4)) % 2 === 0) return shade(c.mark, 0.9); // the fringe
+      return tone(vy < ch / 2 ? sable : argent, lit);
+    }
+    // The cross pattée: arms that flare toward their ends, clear of the cloth's edges.
+    const dx = Math.abs(ux - markX), dy = Math.abs(vy - markY);
+    const half = (d: number) => markW / 2 / L + 0.22 * d;
+    if ((dx < half(dy) && dy < 2.2) || (dy < half(dx) && dx < 2.5)) return markTone(c.mark, lit);
+    return tone(c, lit);
+  });
+  return 2;
+}
+
+/**
+ * The samurai: the nobori, a tall cloth down the pole from a crossbar at its head. Every samurai
+ * already carries a sashimono in the army colour, so a regiment's nobori is the paper-white cloth
+ * with the army colour in a band at its head and a large mon (Met 53912, a nobori: pale cloth, the
+ * mon dark and big); the lord's is his own dark cloth with a gilt mon.
+ */
+function nobori(img: Img, c: Ramp, _army: StdArmy, command: boolean, ph: number, frame: number, left: boolean, torn: boolean, L: number, polX: number): number {
+  const cw = command ? 5.2 : 4.4;
+  const y0 = 1.2;
+  const y1 = 8.8;
+  const paper: Ramp = { deep: [120, 112, 96], shade: [176, 168, 148], base: [226, 220, 202], light: [244, 241, 230], mark: c.mark };
+  const field = command ? c : paper;
+  const mark: RGB = command ? [226, 186, 92] : c.base;
+  const monY = y0 + cw * 0.5 + 1.1;
+  const monR = cw * (command ? 0.3 : 0.36);
+  cloth(img, L, polX, left, (ux, y) => {
+    // The crossbar (the yokoage) along the cloth's head.
+    if (y >= y0 - 0.55 && y < y0 && ux >= -0.2 && ux < cw + 0.5) return ux > cw * 0.5 ? [58, 42, 26] : [110, 84, 54];
+    if (y < y0 || y > y1) return null;
+    // Tied to the pole along one side, the free edge swaying a little, more toward the foot.
+    const k = (y - y0) / (y1 - y0);
+    const sway = Math.sin(y * 0.8 - ph) * 0.45 * k;
+    if (ux < 0 || ux > cw + sway) return null;
+    if (torn) {
+      const n = vnoise(ux * 1.4, y * 1.3 + frame * 0.7, command ? 6 : 4);
+      if (y > y1 - 2.6 && n < (y - (y1 - 2.6)) * 0.3) return null;
+      if (n > 0.87) return null;
+    }
+    // Folds run down the cloth: light on the crests of the sway.
+    const lit = Math.sin(y * 0.8 - ph + 0.8 + ux * 0.5) * 0.8 + (ux < 0.6 ? -0.3 : 0);
+    // The mon: a pale disc with a ring of the cloth inside it (level 4 up), crisp.
+    const d = Math.hypot(ux - cw / 2, y - monY);
+    if (d < monR) return L >= 4 && Math.abs(d - monR * 0.55) < 0.5 / L + 0.12 ? tone(field, lit) : command ? markTone(mark, lit) : tone(c, lit);
+    // The army colour in a band across the head of a regiment's cloth.
+    if (!command && y < y0 + 1.15) return tone(c, lit);
+    return tone(field, lit);
+  });
+  return y0 - 0.55;
+}
+
+/** The undead: a gonfalon hung from a crossbar, cut to a point and always ragged, a skull on it. */
+function gonfalon(img: Img, c0: Ramp, army: StdArmy, command: boolean, ph: number, frame: number, left: boolean, torn: boolean, L: number, polX: number): number {
+  // The army colour gone dull and dark, as dyed cloth left in a grave.
+  const c: Ramp = command ? c0 : { deep: hsl(army.hue, 34, 10), shade: hsl(army.hue, 38, 17), base: hsl(army.hue, 42, 27), light: hsl(army.hue, 44, 38), mark: c0.mark };
+  const bone: RGB = [216, 206, 178];
+  const cw = command ? 7.4 : 6.6;
+  const y0 = 2.0;
+  const mid = cw / 2;
+  cloth(img, L, polX, left, (ux, y) => {
+    // The crossbar, standing out past the cloth on both sides.
+    if (y >= y0 - 0.5 && y < y0 && ux >= -0.2 && ux < cw + 0.4) return ux > cw * 0.6 ? [58, 42, 26] : [96, 74, 50];
+    if (y < y0) return null;
+    // It hangs and swings as one sheet from the bar, the foot furthest.
+    const sway = Math.sin(ph) * 0.55 * ((y - y0) / 7);
+    const x = ux - sway;
+    if (x < 0.15 || x > cw) return null;
+    // Cut to a point at the foot, the edge chewed: tatters always, more when wavering.
+    const bottom = 6.3 + 2.4 * (1 - Math.abs(x - mid) / mid);
+    const n = vnoise(x * 1.6, y * 1.1 + frame * 0.5, command ? 8 : 6);
+    if (y > bottom - (torn ? 1.6 : 0.7) * n) return null;
+    if (y > bottom - 2.4 && n > 0.78) return null;
+    if (torn && n > 0.84) return null;
+    if ((x < 0.6 || x > cw - 0.45) && n > 0.7) return null;
+    const lit = Math.sin(x * 1.1 - ph * 0.5 + 0.4) * 0.7 + (y > bottom - 1.2 ? -0.5 : 0);
+    // The skull: a pale dome over a jaw, two dark sockets (level 2 up), a crisp edge.
+    const sx = x - mid, sy = y - (y0 + 2.4);
+    const dome = Math.hypot(sx / 1.15, sy / 1.0) < 1;
+    const jaw = Math.abs(sx) < 0.62 && sy >= 0.4 && sy < 1.4;
+    if (dome || jaw) {
+      if (L >= 2 && Math.abs(sy - 0.15) < 0.32 && Math.abs(Math.abs(sx) - 0.45) < 0.28) return [24, 18, 14];
+      if (L >= 2 && jaw && sy > 0.85 && Math.floor((sx + 2) * L * 1.5) % 2 === 0) return shade(bone, 0.6);
+      return markTone(bone, lit);
+    }
+    return tone(c, lit);
+  });
+  return y0 - 0.5;
 }
 
 /** A broken regiment's standard in the dirt: the pole down, the cloth crumpled beside it. */

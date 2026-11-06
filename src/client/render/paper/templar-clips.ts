@@ -43,6 +43,8 @@ export interface ClipSpec {
   /** What the run carries, and whether heavy armour shortens it. */
   carry?: RunCarry;
   heavy?: boolean;
+  /** Feet apart at rest (units, across the body; the usual stance is 3.0, the brothers' wide guard more). */
+  stance?: number;
 }
 
 export type Tracks = Parameters<typeof overlayKeys>[1];
@@ -606,9 +608,13 @@ export function mocapFootClips(skel: SkeletonData, s: ClipSpec): { clips: ClipSe
   // contact, the shoulders counter-swinging against the hips, the sword carried angled up.
   // In the stance the feet stand 3 units apart across the body; walking, they track close to the
   // line of travel, so the two half-strides look alike.
+  // A wide guard (the Iron Brethren's) closes up to the usual track too: left at its width, the legs
+  // could not reach the long stride's contacts and the hips dropped 3 px in one frame (a limp, and
+  // the whole head zone boiled).
+  const wideIn = Math.max(0, ((s.stance ?? 3.0) - 3.0) / 2);
   const track = (f: Facing, k: number): Record<string, [Track, Track]> => {
     const sd = f === 'ne' ? -1 : 1;
-    return { footTargetN: [T([0, 1.1 * k * sd]), T([0, 0])], footTargetF: [T([0, -1.1 * k * sd]), T([0, 0])] };
+    return { footTargetN: [T([0, (1.1 * k + wideIn) * sd]), T([0, 0])], footTargetF: [T([0, -(1.1 * k + wideIn) * sd]), T([0, 0])] };
   };
   const walkA: Author = (rw, f) => {
     const bob = T([0, 0.12], [1, 0.25], [2, 0.12], [3, -0.12], [4, -0.15], [5, 0], [6, 0.12], [7, 0.25], [8, 0.12], [9, -0.12], [10, -0.15], [11, 0]);
