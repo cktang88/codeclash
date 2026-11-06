@@ -3743,7 +3743,8 @@ export class Battle {
     const m = r.mode;
     if (m === 'melee' || m === 'pursue' || m === 'rout' || m === 'charge') return;
     const T = this.terrain;
-    if (isMounted(r) && T.woods.length > 0) this.skirtWoods(r);
+    // (Not a rash general's knights sent in: see `thinkCav`.)
+    if (isMounted(r) && T.woods.length > 0 && !(r.role === 'shock-cav' && r.ord.kind === 'charge' && this.generals[r.team]!.rashKnights)) this.skirtWoods(r);
     if (T.stream && T.stream.fords.length > 0 && T.wetCrossing(r.ax, r.ay, r.tx, r.ty) >= 0) {
       const dx = r.tx - r.ax;
       const dy = r.ty - r.ay;
@@ -3865,6 +3866,9 @@ export class Battle {
             const y = r.ay + oy;
             const dep = T.woodDepth[T.index(x, y)]!;
             if (dep < TERRAIN.edgeIn[0] || dep > TERRAIN.edgeIn[1]) continue;
+            // (The whole front among the trees: both its ends too, facing the enemy.)
+            const hw = r.width * 0.5;
+            if (T.woodDepth[T.index(x, y - hw)]! < TERRAIN.edgeIn[0] || T.woodDepth[T.index(x, y + hw)]! < TERRAIN.edgeIn[0]) continue;
             // (Seeing out toward the enemy, not into the trees: open ground before it.)
             if (T.ground[T.index(x + dir * 48, y)] === Ground.Wood) continue;
             bd = q;
@@ -5859,8 +5863,9 @@ export class Battle {
       }
     }
     // TERRAIN: horse does not ride into a wood after foot (it cannot charge among trees, and
-    // would be cut down there): other prey in the open, or it waits outside.
-    if (!this.flat && !prey.routed && !r.engaged && o.kind !== 'charge' && this.inWood(prey)) {
+    // would be cut down there), whoever orders it, but for a rash general's knights sent in:
+    // other prey in the open, or it waits outside.
+    if (!this.flat && !prey.routed && !r.engaged && !(shock && o.kind === 'charge' && this.generals[team]!.rashKnights) && this.inWood(prey)) {
       const alt = this.foeInOpen(r);
       if (!alt) {
         this.setMode(r, 'hold');
@@ -9623,6 +9628,9 @@ export class Battle {
     let cap = spd * 1.15;
     const routing = d.state[i] === State.Routing;
     const mounted = d.mt[i] === 1;
+    // TERRAIN: the ground he stands on (see below).
+    const ti = this.flat ? 0 : this.terrain.index(x, y);
+    const inWood = !this.flat && this.terrain.ground[ti] === Ground.Wood;
     if (routing) {
       // Each his own way and pace (see `rout`); hard by the top or bottom edge, along it. Every
       // other tick he looks ahead for an enemy close in his way (see `dodge`; his captain looks
@@ -9835,7 +9843,8 @@ export class Battle {
           vy = (r.vay / TICK_S) * h + (gy + r.fy * f - y) * k;
           cap = spd * this.doc[r.team]!.footRun * 1.08;
         } else {
-          const k = r.engaged ? 1 : rallying ? 0.7 : 2.5;
+          // (TERRAIN: among trees he cannot keep his place, only make his way toward it.)
+          const k = (r.engaged ? 1 : rallying ? 0.7 : 2.5) * (inWood ? TERRAIN.woodHold : 1);
           if (rallying) cap = spd * 0.55;
           // P1: on the march each man of the line strides a little ahead of or behind his slot,
           // by his own eagerness and his file's, more so as the enemy comes near, and a slow wave
@@ -9917,12 +9926,18 @@ export class Battle {
     // ragged; and no charge carries through trees or water.
     if (!this.flat) {
       const T = this.terrain;
-      const ti = T.index(x, y);
       const gr = T.ground[ti]!;
       let k = T.pace(ti, vx, vy, mounted);
-      if (gr === Ground.Wood) k *= 1 + TERRAIN.woodRagged * d.ea[i]!;
       vx *= k;
       vy *= k;
+      if (gr === Ground.Wood) {
+        // (His own pace, and his own way round the tree before him: a new one in each patch.)
+        const j = hashUnit((i * 73856093) ^ (ti * 19349663));
+        const e = 1 + TERRAIN.woodRagged * d.ea[i]!;
+        const sx = -vy * j * TERRAIN.woodSwerve;
+        vy = (vy + vx * j * TERRAIN.woodSwerve) * e;
+        vx = (vx + sx) * e;
+      }
       if (gr >= Ground.Wood) {
         const most = gr === Ground.Water ? TERRAIN.waterImpetus : TERRAIN.woodImpetus;
         if (d.imp[i]! > most) d.imp[i] = most;

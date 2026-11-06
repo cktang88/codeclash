@@ -75,6 +75,10 @@ export const TERRAIN = {
   downMax: 1.12,
   /** In a wood each man goes at his own pace: his eagerness (-1..1) times this, a ragged line. */
   woodRagged: 0.22,
+  /** ... and steps round the trees: sideways up to this share of his pace, his own way in each cell. */
+  woodSwerve: 0.5,
+  /** ... and keeps to his place in the ranks only this share as hard as on open ground. */
+  woodHold: 0.3,
   /** Impetus a man can carry in a wood (a charge does not go through trees) and in water. */
   woodImpetus: 0.15,
   waterImpetus: 0,
@@ -114,8 +118,8 @@ export const TERRAIN = {
   /** Horse keeps this far out of woods. */
   horseRoom: 24,
   /** Foot and horse go round by a ford if it adds no more than this (or `detourFire` under fire). */
-  detour: 300,
-  detourShare: 0.6,
+  detour: 120,
+  detourShare: 0.3,
   detourFire: 650,
 } as const;
 
