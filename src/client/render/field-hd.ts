@@ -37,7 +37,6 @@ precision highp int;
 uniform vec2 u_cam;   // map px at the buffer's top-left (a whole number of texels)
 uniform float u_m;    // texels (buffer px) per map px
 uniform uint u_seed;
-out vec4 o;
 
 const float BAY[16] = float[16](0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0);
 float bayer(vec2 t) {
@@ -63,9 +62,12 @@ float vn(vec2 p, float cell, uint k) {
 vec3 hex(int v) { return vec3(float((v >> 16) & 255), float((v >> 8) & 255), float(v & 255)) / 255.0; }
 `;
 
-// Pass A: the ground itself, cached per view. Alpha carries what the texel is (0 soil, 0.25 a
-// blade or flower, 0.5 a stone), so the marks pass knows what trampling flattens.
-const BASE_FS = `${COMMON}
+// The ground's noise, and its scattered things (tufts, stones, pebbles, flowers, cracks): one
+// candidate per cell of CW x CH map px, at a hashed spot in it. Whether a cell holds one, which,
+// and the box it can paint in depend only on the cell, so they are baked once per field into a
+// texture (CELL_FS) and pass A looks them up instead of computing the noise and hashes for each
+// texel and each of the cells around it.
+const GROUND_LIB = `${COMMON}
 uniform vec2 u_org;   // projected px of map px (0, 0)
 uniform uvec4 u_salt; // the classic ground's four noise layers
 uniform vec3 u_road;  // y0, bend, phase
@@ -104,6 +106,110 @@ float segDist(vec2 p, vec2 a, vec2 b, out float t) {
   t = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);
   return length(pa - ba * t);
 }
+
+const float CW = 4.0;
+const float CH = 2.5;
+
+// A cell's thing: x = kind (0 none, 1 tuft, 2 stone, 3 pebbles, 4 flowers, 5 crack) | 8 on the
+// road | the box it can reach (lo x, hi x: 7 bits; lo y, hi y: 6 bits; 1/8 map px from the cell's
+// corner less (2.75, 3.75)); y = its hash. The box is conservative (any level, m >= 1) and within
+// the reach pass A tests.
+uvec2 cellInfo(vec2 ci) {
+  uvec2 cu = uvec2(ivec2(ci));
+  uint h0 = hash3(cu.x, cu.y, 101u);
+  vec2 b = (ci + vec2(h01(h0), h01(h0 * 747796405u + 1u))) * vec2(CW, CH);
+  vec2 bw = world(b);
+  float br = abs(bw.y - road(bw.x));
+  float clump = gnoise(bw, 26.0, u_salt.y ^ 0x5bd1e995u);
+  float dens = 0.1 + smoothstep(0.3, 0.75, clump) * 0.85;
+  float pick = h01(hash3(cu.x, cu.y, 102u));
+  if (pick > dens) return uvec2(0u);
+  float k = h01(hash3(cu.x, cu.y, 103u));
+  uint hk = hash3(cu.x, cu.y, 104u);
+  bool rd = br < 7.0;
+  if (rd) {
+    // Pale pebbles on the road.
+    if (k > 0.5) return uvec2(0u);
+    k = 0.7;
+  }
+  uint kind = k < 0.58 ? 1u : k < 0.67 ? 2u : k < 0.71 ? 3u : k < 0.9 ? 4u : 5u;
+  // What it can paint (the widest line pass A draws is 0.5 map px, at m = 1).
+  vec2 lo = b, hi = b;
+  if (kind == 1u) {
+    int nb = 3 + int(hk % 3u);
+    float fn = float(nb);
+    float sc = 0.7 + h01(hk * 3u + 1u) * 0.6;
+    for (int i = 0; i < 5; i++) {
+      if (i >= nb) break;
+      uint hb = hash3(cu.x, cu.y, 200u + uint(i));
+      float o2 = (float(i) - (fn - 1.0) * 0.5);
+      vec2 root = b + vec2(o2 * 0.42, 0.0);
+      vec2 tip = b + vec2(o2 * (0.9 + h01(hb) * 0.6) + (h01(hb * 5u) - 0.5) * 0.6, -(1.2 + h01(hb * 9u) * 1.5) * sc);
+      lo = min(lo, min(root, tip) - 0.5);
+      hi = max(hi, max(root, tip) + 0.5);
+    }
+    vec2 e = b + vec2(0.15, 0.05);
+    lo = min(lo, e - vec2(1.25, 0.32));
+    hi = max(hi, e + vec2(1.25, 0.32));
+  } else if (kind == 2u) {
+    float rx = 0.55 + h01(hk) * 0.9;
+    float ryy = rx * 0.6;
+    vec2 cc = b + vec2(0.0, -ryy * 0.55);
+    lo = min(lo, cc - vec2(rx, ryy) * 1.05);
+    hi = max(hi, cc + vec2(rx, ryy) * 1.05);
+    vec2 e = cc + vec2(rx * 0.35, ryy * 0.5);
+    lo = min(lo, e - vec2(rx * 1.15, ryy * 0.9));
+    hi = max(hi, e + vec2(rx * 1.15, ryy * 0.9));
+  } else if (kind == 3u) {
+    for (int i = 0; i < 3; i++) {
+      uint hb = hash3(cu.x, cu.y, 300u + uint(i));
+      vec2 cc = b + vec2((h01(hb) - 0.5) * 2.2, (h01(hb * 3u) - 0.5) * 0.9);
+      float r = max(0.18 + h01(hb * 5u) * 0.25, 0.5);
+      lo = min(lo, cc - vec2(r, r * 0.7));
+      hi = max(hi, cc + vec2(r, r * 0.7));
+    }
+  } else if (kind == 4u) {
+    for (int i = 0; i < 3; i++) {
+      uint hb = hash3(cu.x, cu.y, 400u + uint(i));
+      vec2 hc = b + vec2((h01(hb) - 0.5) * 1.8, -0.5 - h01(hb * 3u) * 0.9);
+      float r = max(0.2 + h01(hb * 7u) * 0.1, 0.5);
+      lo = min(lo, hc - vec2(max(r, 0.5), max(r * 0.8, 0.5)));
+      hi = max(hi, hc + vec2(0.1, 0.8) + 0.5);
+      hi = max(hi, hc + vec2(r, r * 0.8));
+    }
+  } else {
+    float len = 1.2 + h01(hk) * 2.0;
+    vec2 a = b - vec2(len * 0.5, 0.0);
+    vec2 e2 = b + vec2(len * 0.5, (h01(hk * 3u) - 0.5) * 0.8);
+    vec2 mid = (a + e2) * 0.5 + vec2(0.0, (h01(hk * 5u) - 0.5) * 0.5);
+    lo = min(lo, min(min(a, e2), mid) - 0.5);
+    hi = max(hi, max(max(a, e2), mid) + 0.5);
+  }
+  // Within pass A's reach test, and a 16th of a map px wider for rounding.
+  lo = max(lo, b - vec2(2.6, 3.6)) - 0.0625;
+  hi = min(hi, b + vec2(2.6, 1.2)) + 0.0625;
+  vec2 o0 = ci * vec2(CW, CH) - vec2(2.75, 3.75);
+  uvec2 ql = uvec2(clamp(floor((lo - o0) * 8.0), vec2(0.0), vec2(127.0, 63.0)));
+  uvec2 qh = uvec2(clamp(ceil((hi - o0) * 8.0), vec2(0.0), vec2(127.0, 63.0)));
+  return uvec2(kind | (rd ? 8u : 0u) | (ql.x << 4) | (qh.x << 11) | (ql.y << 18) | (qh.y << 24), hk);
+}
+`;
+
+// The bake: one texel per cell, the cell u_cell0 at texel (0, 0).
+const CELL_FS = `${GROUND_LIB}
+uniform ivec2 u_cell0;
+out uvec4 o;
+void main() {
+  o = uvec4(cellInfo(floor(gl_FragCoord.xy) + vec2(u_cell0)), 0u, 0u);
+}`;
+
+// Pass A: the ground itself, cached per view. Alpha carries what the texel is (0 soil, 0.25 a
+// blade or flower, 0.5 a stone), so the marks pass knows what trampling flattens.
+const BASE_FS = `${GROUND_LIB}
+uniform highp usampler2D u_cells;
+uniform ivec2 u_cell0;
+out vec4 o;
+
 
 void main() {
   vec2 T = floor(u_cam * u_m + 0.5) + floor(gl_FragCoord.xy);
@@ -158,136 +264,161 @@ void main() {
 
   // Scattered things, one candidate per cell of 4 x 2.5 map px: tufts, stones, pebbles, flowers,
   // cracks. The frontmost (lowest on screen) wins where two overlap.
-  const float CW = 4.0;
-  const float CH = 2.5;
-  vec2 cell = floor(p / vec2(CW, CH));
+  //
+  // Written for a SIMD rasteriser that runs both sides of every branch (software GL does, for
+  // each 2 x 2 texels) and only leaves a loop early: what a cell holds comes from the baked cells
+  // (cellInfo), not from noise here; first a cheap pass lists the cells whose box holds this
+  // texel, in their order (rows, then columns), then one code path walks their parts (blades,
+  // pebbles, flowers, a crack's two strokes), the same arithmetic for every kind, so a texel pays
+  // for the parts near it, not for every kind's code in every cell around it.
+  vec2 c0 = floor((p - vec2(2.61, 1.21)) / vec2(CW, CH));
+  vec2 c1 = floor((p + vec2(2.61, 3.61)) / vec2(CW, CH));
+  int ncx = int(c1.x - c0.x);
+  int ncy = int(c1.y - c0.y);
+  ivec2 csz = textureSize(u_cells, 0);
+  vec2 lci[9];
+  uvec2 linfo[9];
+  int nl = 0;
+  for (int dy = 0; dy <= 3; dy++) {
+    if (dy > ncy) break;
+    for (int dx = 0; dx <= 2; dx++) {
+      if (dx > ncx) break;
+      vec2 ci = c0 + vec2(float(dx), float(dy));
+      ivec2 ti = ivec2(ci) - u_cell0;
+      uvec2 info = all(greaterThanEqual(ti, ivec2(0))) && all(lessThan(ti, csz)) ? texelFetch(u_cells, ti, 0).xy : uvec2(0u);
+      vec2 o0 = ci * vec2(CW, CH) - vec2(2.75, 3.75);
+      vec2 lo = vec2(float((info.x >> 4) & 127u), float((info.x >> 18) & 63u)) / 8.0 + o0;
+      vec2 hi = vec2(float((info.x >> 11) & 127u), float((info.x >> 24) & 63u)) / 8.0 + o0;
+      if (info.x != 0u && all(greaterThanEqual(p, lo)) && all(lessThanEqual(p, hi)) && nl < 9) {
+        lci[nl] = ci;
+        linfo[nl] = info;
+        nl++;
+      }
+    }
+  }
   float bestY = -1e9;
   vec3 fc = c;
   float shadow = 1.0;
-  for (int dy = -1; dy <= 2; dy++)
-    for (int dx = -1; dx <= 1; dx++) {
-      vec2 ci = cell + vec2(float(dx), float(dy));
-      uvec2 cu = uvec2(ivec2(ci));
-      uint h0 = hash3(cu.x, cu.y, 101u);
-      vec2 b = (ci + vec2(h01(h0), h01(h0 * 747796405u + 1u))) * vec2(CW, CH);
-      // Out of this cell's reach first: the noise and hashes below are most of the shader's cost,
-      // and most of the 12 cells looked at reach no texel here (the result is the same).
-      vec2 q = p - b;
-      if (abs(q.x) > 2.6 || q.y < -3.6 || q.y > 1.2) continue;
-      vec2 bw = world(b);
-      float br = abs(bw.y - road(bw.x));
-      float clump = gnoise(bw, 26.0, u_salt.y ^ 0x5bd1e995u);
-      float dens = 0.1 + smoothstep(0.3, 0.75, clump) * 0.85;
-      float pick = h01(hash3(cu.x, cu.y, 102u));
-      if (pick > dens) continue;
-      float k = h01(hash3(cu.x, cu.y, 103u));
-      uint hk = hash3(cu.x, cu.y, 104u);
-      if (br < 7.0) {
-        // Pale pebbles on the road.
-        if (k > 0.5) continue;
-        k = 0.7;
+  float hwm = max(0.26, 0.5 / u_m) + 0.01;
+  for (int k = 0; k < 9; k++) {
+    if (k >= nl) break;
+    vec2 ci = lci[k];
+    uvec2 info = linfo[k];
+    uvec2 cu = uvec2(ivec2(ci));
+    uint h0 = hash3(cu.x, cu.y, 101u);
+    vec2 b = (ci + vec2(h01(h0), h01(h0 * 747796405u + 1u))) * vec2(CW, CH);
+    vec2 q = p - b;
+    bool reach = !(abs(q.x) > 2.6 || q.y < -3.6 || q.y > 1.2);
+    uint kind = reach ? info.x & 7u : 0u;
+    if (kind == 4u && (onRoad || bare)) kind = 0u; // no flowers on the road or bare earth
+    bool rd = (info.x & 8u) != 0u;
+    uint hk = info.y;
+    // A tuft: three to five tapering blades fanning up from one root, the left edge of each blade
+    // lit, dry or green with the zone.
+    bool dry = h01(hk) < 0.25 + zone * 0.5;
+    int nb = 3 + int(hk % 3u);
+    float fn = float(nb);
+    float sc = 0.7 + h01(hk * 3u + 1u) * 0.6;
+    // Its blades: those whose columns (where a blade of it can lean) and rows (from the root up to
+    // 2.7 sc) hold this texel, as bits.
+    uint parts = 0u;
+    if (q.y <= hwm && q.y >= -2.7 * sc - hwm)
+      for (int i = 0; i < 5; i++) {
+        if (i >= nb) break;
+        float o2 = (float(i) - (fn - 1.0) * 0.5);
+        float xl = min(o2 * 0.42, o2 * 0.9 + min(0.0, o2 * 0.6) - 0.3) - hwm;
+        float xh = max(o2 * 0.42, o2 * 0.9 + max(0.0, o2 * 0.6) + 0.3) + hwm;
+        if (q.x >= xl && q.x <= xh) parts |= 1u << uint(i);
       }
-      if (k < 0.58) {
-        // A tuft: three to five tapering blades fanning up from one root, the left edge of each
-        // blade lit, dry or green with the zone.
-        bool dry = h01(hk) < 0.25 + zone * 0.5;
-        vec3 cBase = dry ? hex(0x5a5032) : hex(0x36401f);
-        vec3 cMid = dry ? hex(0x7e7244) : hex(0x55602e);
-        vec3 cTip = dry ? hex(0xa49464) : hex(0x7e8a44);
-        vec3 cLit = dry ? hex(0xbcae7a) : hex(0x96a256);
-        int nb = 3 + int(hk % 3u);
-        float fn = float(nb);
-        float sc = 0.7 + h01(hk * 3u + 1u) * 0.6;
-        for (int i = 0; i < 5; i++) {
-          if (i >= nb) break;
-          uint hb = hash3(cu.x, cu.y, 200u + uint(i));
-          float o2 = (float(i) - (fn - 1.0) * 0.5);
-          vec2 root = b + vec2(o2 * 0.42, 0.0);
-          vec2 tip = b + vec2(o2 * (0.9 + h01(hb) * 0.6) + (h01(hb * 5u) - 0.5) * 0.6, -(1.2 + h01(hb * 9u) * 1.5) * sc);
-          float t;
-          float dd = segDist(p, root, tip, t);
-          float hw = max(mix(0.26, 0.04, t), 0.5 / u_m);
-          if (dd < hw && b.y >= bestY) {
-            bestY = b.y;
-            vec2 ba = tip - root;
-            float side = (p.x - root.x) * ba.y - (p.y - root.y) * ba.x; // > 0: left of the blade
-            fc = t < 0.3 ? cBase : t < 0.7 ? cMid : cTip;
-            if (side < 0.0 && t > 0.2 && u_m >= 2.0) fc = t < 0.6 ? cTip : cLit;
-            cls = 0.25;
-          }
-        }
-        // A dark contact shadow at the root.
-        vec2 e = (p - b - vec2(0.15, 0.05)) / vec2(1.25, 0.32);
-        if (dot(e, e) < 1.0) shadow = min(shadow, 0.72);
-      } else if (k < 0.67) {
-        // A stone: lit upper left, a hard dark underside, a cast shadow down right.
-        float rx = 0.55 + h01(hk) * 0.9;
-        float ryy = rx * 0.6;
-        vec2 cc = b + vec2(0.0, -ryy * 0.55);
-        vec2 nn = (p - cc) / vec2(rx, ryy);
-        float qq = dot(nn, nn) + (h01(hk * 7u) - 0.5) * 0.1 * sin(atan(nn.y, nn.x) * 3.0);
-        if (qq < 1.0 && b.y >= bestY) {
+    // A tuft's dark contact shadow at the root.
+    vec2 e = (p - b - vec2(0.15, 0.05)) / vec2(1.25, 0.32);
+    if (kind == 1u && dot(e, e) < 1.0) shadow = min(shadow, 0.72);
+    // A stone: lit upper left, a hard dark underside, a cast shadow down right.
+    float rx = 0.55 + h01(hk) * 0.9;
+    float ryy = rx * 0.6;
+    vec2 cs = b + vec2(0.0, -ryy * 0.55);
+    if (kind == 2u) {
+      vec2 nn = (p - cs) / vec2(rx, ryy);
+      float qq = dot(nn, nn) + (h01(hk * 7u) - 0.5) * 0.1 * sin(atan(nn.y, nn.x) * 3.0);
+      if (qq < 1.0 && b.y >= bestY) {
+        bestY = b.y;
+        float l = -nn.x * 0.62 - nn.y * 0.78 + sqrt(max(0.0, 1.0 - qq)) * 0.4 + (bayer(T) - 0.5) * 0.2;
+        fc = l > 0.75 ? hex(0xaaa28e) : l > 0.3 ? hex(0x7f7868) : l > -0.15 ? hex(0x5c574c) : hex(0x3b3832);
+        if (qq > 0.8 && l < 0.0) fc = hex(0x2a2822);
+        cls = 0.5;
+      }
+      vec2 es = (p - cs - vec2(rx * 0.35, ryy * 0.5)) / vec2(rx * 1.15, ryy * 0.9);
+      if (dot(es, es) < 1.0) shadow = min(shadow, 0.62);
+    }
+    // A crack in the dry earth, its lower lip catching the light: two strokes.
+    float len = 1.2 + h01(hk) * 2.0;
+    vec2 ca = b - vec2(len * 0.5, 0.0);
+    vec2 ce = b + vec2(len * 0.5, (h01(hk * 3u) - 0.5) * 0.8);
+    vec2 cm = (ca + ce) * 0.5 + vec2(0.0, (h01(hk * 5u) - 0.5) * 0.5);
+    parts = kind == 1u ? parts : kind == 3u || kind == 4u ? 7u : kind == 5u ? 3u : 0u;
+    uint salt = kind == 1u ? 200u : kind == 3u ? 300u : 400u;
+    float crack = 1e9;
+    for (int j = 0; j < 5; j++) {
+      if (parts == 0u) break;
+      uint lsb = parts & (~parts + 1u);
+      int i = lsb == 1u ? 0 : lsb == 2u ? 1 : lsb == 4u ? 2 : lsb == 8u ? 3 : 4;
+      parts ^= lsb;
+      uint hb = hash3(cu.x, cu.y, salt + uint(i));
+      float u1 = h01(hb), u3 = h01(hb * 3u), u5 = h01(hb * 5u), u7 = h01(hb * 7u), u9 = h01(hb * 9u);
+      float o2 = (float(i) - (fn - 1.0) * 0.5);
+      // Flowers: a few heads on short stems; poppies, daisies, yellow and blue.
+      vec2 hc = b + vec2((u1 - 0.5) * 1.8, -0.5 - u3 * 0.9);
+      // The part's stroke: a blade, a stem or a crack's half.
+      vec2 sa = kind == 1u ? b + vec2(o2 * 0.42, 0.0) : kind == 4u ? hc : i == 0 ? ca : cm;
+      vec2 sb = kind == 1u ? b + vec2(o2 * (0.9 + u1 * 0.6) + (u5 - 0.5) * 0.6, -(1.2 + u9 * 1.5) * sc) : kind == 4u ? hc + vec2(0.1, 0.8) : i == 0 ? cm : ce;
+      float t;
+      float dd = segDist(p, sa, sb, t);
+      // Its round: a pebble or a flower's head.
+      vec2 ec = kind == 3u ? b + vec2((u1 - 0.5) * 2.2, (u3 - 0.5) * 0.9) : hc;
+      float r = kind == 3u ? max(0.18 + u5 * 0.25, 0.5 / u_m) : max(0.2 + u7 * 0.1, 0.5 / u_m);
+      vec2 nn = (p - ec) / vec2(r, r * (kind == 3u ? 0.7 : 0.8));
+      float qq = dot(nn, nn);
+      if (kind == 1u) {
+        float hw = max(mix(0.26, 0.04, t), 0.5 / u_m);
+        if (dd < hw && b.y >= bestY) {
           bestY = b.y;
-          float l = -nn.x * 0.62 - nn.y * 0.78 + sqrt(max(0.0, 1.0 - qq)) * 0.4 + (bayer(T) - 0.5) * 0.2;
-          fc = l > 0.75 ? hex(0xaaa28e) : l > 0.3 ? hex(0x7f7868) : l > -0.15 ? hex(0x5c574c) : hex(0x3b3832);
-          if (qq > 0.8 && l < 0.0) fc = hex(0x2a2822);
+          vec2 ba = sb - sa;
+          float side = (p.x - sa.x) * ba.y - (p.y - sa.y) * ba.x; // > 0: left of the blade
+          bool lit = side < 0.0 && t > 0.2 && u_m >= 2.0;
+          int band = lit ? (t < 0.6 ? 2 : 3) : t < 0.3 ? 0 : t < 0.7 ? 1 : 2;
+          fc = band == 0 ? (dry ? hex(0x5a5032) : hex(0x36401f)) : band == 1 ? (dry ? hex(0x7e7244) : hex(0x55602e)) : band == 2 ? (dry ? hex(0xa49464) : hex(0x7e8a44)) : (dry ? hex(0xbcae7a) : hex(0x96a256));
+          cls = 0.25;
+        }
+      } else if (kind == 3u) {
+        // Pebbles: two or three small stones.
+        if (qq < 1.0 && ec.y >= bestY) {
+          bestY = ec.y;
+          float l = -nn.x * 0.62 - nn.y * 0.78;
+          fc = rd ? (l > 0.1 ? hex(0xc4b898) : hex(0x9a8c6c)) : (l > 0.1 ? hex(0x9a9380) : hex(0x5e594e));
           cls = 0.5;
         }
-        vec2 e = (p - cc - vec2(rx * 0.35, ryy * 0.5)) / vec2(rx * 1.15, ryy * 0.9);
-        if (dot(e, e) < 1.0) shadow = min(shadow, 0.62);
-      } else if (k < 0.71) {
-        // Pebbles: two or three small stones.
-        for (int i = 0; i < 3; i++) {
-          uint hb = hash3(cu.x, cu.y, 300u + uint(i));
-          vec2 cc = b + vec2((h01(hb) - 0.5) * 2.2, (h01(hb * 3u) - 0.5) * 0.9);
-          float r = max(0.18 + h01(hb * 5u) * 0.25, 0.5 / u_m);
-          vec2 nn = (p - cc) / vec2(r, r * 0.7);
-          float qq = dot(nn, nn);
-          if (qq < 1.0 && cc.y >= bestY) {
-            bestY = cc.y;
-            float l = -nn.x * 0.62 - nn.y * 0.78;
-            fc = br < 7.0 ? (l > 0.1 ? hex(0xc4b898) : hex(0x9a8c6c)) : (l > 0.1 ? hex(0x9a9380) : hex(0x5e594e));
-            cls = 0.5;
-          }
+      } else if (kind == 4u) {
+        if (dd < max(0.05, 0.5 / u_m) && hc.y + 0.8 >= bestY) {
+          bestY = hc.y + 0.8;
+          fc = hex(0x3a4a22);
+          cls = 0.25;
         }
-      } else if (k < 0.9) {
-        // Flowers: a few heads on short stems; poppies, daisies, yellow and blue.
-        if (onRoad || bare) continue;
-        int kind = int(hk % 5u);
-        vec3 petal = kind == 0 ? hex(0xb8322a) : kind == 1 ? hex(0xe6e0cc) : kind == 2 ? hex(0xd8b040) : kind == 3 ? hex(0x6a76b8) : hex(0x9a6aa6);
-        vec3 eye = kind == 0 ? hex(0x2a1a14) : hex(0xd89a30);
-        for (int i = 0; i < 3; i++) {
-          uint hb = hash3(cu.x, cu.y, 400u + uint(i));
-          vec2 hc = b + vec2((h01(hb) - 0.5) * 1.8, -0.5 - h01(hb * 3u) * 0.9);
-          float t;
-          if (segDist(p, hc, hc + vec2(0.1, 0.8), t) < max(0.05, 0.5 / u_m) && hc.y + 0.8 >= bestY) {
-            bestY = hc.y + 0.8;
-            fc = hex(0x3a4a22);
-            cls = 0.25;
-          }
-          float r = max(0.2 + h01(hb * 7u) * 0.1, 0.5 / u_m);
-          vec2 nn = (p - hc) / vec2(r, r * 0.8);
-          float qq = dot(nn, nn);
-          if (qq < 1.0 && hc.y + 0.9 >= bestY) {
-            bestY = hc.y + 0.9;
-            fc = (nn.x + nn.y < -0.4 && u_m >= 4.0) ? mix(petal, vec3(1.0), 0.3) : petal;
-            if (qq < 0.18 && u_m >= 4.0) fc = eye;
-            cls = 0.25;
-          }
+        if (qq < 1.0 && hc.y + 0.9 >= bestY) {
+          bestY = hc.y + 0.9;
+          int fk = int(hk % 5u);
+          vec3 petal = fk == 0 ? hex(0xb8322a) : fk == 1 ? hex(0xe6e0cc) : fk == 2 ? hex(0xd8b040) : fk == 3 ? hex(0x6a76b8) : hex(0x9a6aa6);
+          fc = (nn.x + nn.y < -0.4 && u_m >= 4.0) ? mix(petal, vec3(1.0), 0.3) : petal;
+          if (qq < 0.18 && u_m >= 4.0) fc = fk == 0 ? hex(0x2a1a14) : hex(0xd89a30);
+          cls = 0.25;
         }
-      } else {
-        // A crack in the dry earth, its lower lip catching the light.
-        float len = 1.2 + h01(hk) * 2.0;
-        vec2 a = b - vec2(len * 0.5, 0.0);
-        vec2 e2 = b + vec2(len * 0.5, (h01(hk * 3u) - 0.5) * 0.8);
-        vec2 mid = (a + e2) * 0.5 + vec2(0.0, (h01(hk * 5u) - 0.5) * 0.5);
-        float t;
-        float dd = min(segDist(p, a, mid, t), segDist(p, mid, e2, t));
-        float wd = max(0.08, 0.5 / u_m);
-        if (dd < wd) fc = mix(c, hex(0x2a2016), 0.7);
-        else if (dd < wd + 1.0 / u_m && u_m >= 4.0 && p.y > mid.y) fc = mix(c, hex(0xc0aa80), 0.3);
-      }
+      } else crack = min(crack, dd);
     }
+    if (kind == 5u) {
+      float wd = max(0.08, 0.5 / u_m);
+      if (crack < wd) fc = mix(c, hex(0x2a2016), 0.7);
+      else if (crack < wd + 1.0 / u_m && u_m >= 4.0 && p.y > cm.y) fc = mix(c, hex(0xc0aa80), 0.3);
+    }
+  }
   if (bestY > -1e8) c = fc;
   else c *= shadow;
   o = vec4(c, cls);
@@ -295,6 +426,7 @@ void main() {
 
 // Pass B: every frame, the cached ground with the marks laid over it.
 const MARKS_FS = `${COMMON}
+out vec4 o;
 uniform sampler2D u_base;
 uniform sampler2D u_marks;
 uniform vec2 u_msize;
@@ -354,6 +486,15 @@ void main() {
   o = vec4(c, 1.0);
 }`;
 
+// Pass B where no marks are near: the ground as it is (what pass B gives there).
+const CLEAN_FS = `#version 300 es
+precision highp float;
+uniform sampler2D u_base;
+out vec4 o;
+void main() {
+  o = vec4(texelFetch(u_base, ivec2(gl_FragCoord.xy), 0).rgb, 1.0);
+}`;
+
 // Zoomed out (scene.ts view.direct): the view copied out of the cache onto a target the canvas's
 // size, each device px the cache px the post pass would pick from a buffer (post.ts fetch()).
 const COPY_FS = `#version 300 es
@@ -395,12 +536,16 @@ interface FieldGl {
   gl: WebGL2RenderingContext;
   base: WebGLProgram;
   comp: WebGLProgram;
+  clean: WebGLProgram;
+  uclean: WebGLUniformLocation | null;
   copy: WebGLProgram;
   ucopy: Record<string, WebGLUniformLocation | null>;
   ub: Record<string, WebGLUniformLocation | null>;
   uc: Record<string, WebGLUniformLocation | null>;
   vao: WebGLVertexArrayObject;
   marks: WebGLTexture;
+  /** The scattered things' cells (CELL_FS), the cell CELL0 at texel (0, 0). */
+  cells: WebGLTexture;
   /**
    * The ground cache (see plan() and drawGround()): the ground (pass A) and the ground with its
    * marks and decals (pass B) over a window of tiles around the view, in slots that wrap.
@@ -426,6 +571,10 @@ interface FieldGl {
 }
 
 const TILE = 64;
+/** The first cell of the baked grid (cells of CELL_W x CELL_H map px), a few cells past the field. */
+const CELL_W = 4;
+const CELL_H = 2.5;
+const CELL0 = -64;
 /** Ground cache tiles, in buffer texels. */
 const CT = 64;
 /** The most texels a ground cache target holds (two of them: 64 MB each at most). */
@@ -467,6 +616,8 @@ export class HdField {
   /** Map tiles whose look (marks or decals) changed since the ground was last composed. */
   private readonly cdirty: Uint8Array;
   private anyCdirty = true;
+  /** Map tiles with marks on or within 2 px of them (marks only ever grow). */
+  private readonly marked: Uint8Array;
   /** Per map tile, the battle second blood last fell there (its colour ages for BLOOD_AGE_S). */
   private readonly bloodT: Float32Array;
   /**
@@ -502,6 +653,7 @@ export class HdField {
     this.dirty = new Uint8Array(this.tilesX * this.tilesY).fill(1);
     this.cdirty = new Uint8Array(this.tilesX * this.tilesY).fill(1);
     this.bloodT = new Float32Array(this.tilesX * this.tilesY).fill(-1e9);
+    this.marked = new Uint8Array(this.tilesX * this.tilesY);
     this.bucketsX = Math.ceil(this.W / BUCKET_W);
     this.buckets = new Array(this.bucketsX * Math.ceil(this.H / BUCKET_H));
   }
@@ -557,7 +709,7 @@ export class HdField {
     for (let ty = ty0; ty <= ty1; ty++)
       for (let tx = tx0; tx <= tx1; tx++) {
         const i = ty * this.tilesX + tx;
-        if (marks) this.dirty[i] = 1;
+        if (marks) this.dirty[i] = this.marked[i] = 1;
         this.cdirty[i] = 1;
         if (bloodT > this.bloodT[i]!) this.bloodT[i] = bloodT;
       }
@@ -773,11 +925,12 @@ export class HdField {
     const base = compile(gl, VS, BASE_FS);
     const comp = compile(gl, VS, MARKS_FS);
     const copy = compile(gl, VS, COPY_FS);
+    const clean = compile(gl, VS, CLEAN_FS);
     const ucopy: Record<string, WebGLUniformLocation | null> = {};
     for (const k of ['u_src', 'u_dir', 'u_dirb', 'u_cs']) ucopy[k] = gl.getUniformLocation(copy, k);
     const ub: Record<string, WebGLUniformLocation | null> = {};
     const uc: Record<string, WebGLUniformLocation | null> = {};
-    for (const k of ['u_cam', 'u_m', 'u_seed', 'u_org', 'u_salt', 'u_road']) ub[k] = gl.getUniformLocation(base, k);
+    for (const k of ['u_cam', 'u_m', 'u_seed', 'u_org', 'u_salt', 'u_road', 'u_cells', 'u_cell0']) ub[k] = gl.getUniformLocation(base, k);
     for (const k of ['u_cam', 'u_m', 'u_seed', 'u_base', 'u_marks', 'u_msize', 'u_now']) uc[k] = gl.getUniformLocation(comp, k);
     const marks = gl.createTexture()!;
     gl.bindTexture(gl.TEXTURE_2D, marks);
@@ -789,8 +942,63 @@ export class HdField {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     this.dirty.fill(0);
     this.anyDirty = false;
-    this.g = { gl, base, comp, copy, ucopy, ub, uc, vao: gl.createVertexArray()!, marks, baseT: null, compT: null, cm: -1, nx: 0, ny: 0, baseOwn: new Int32Array(0), compOwn: new Int32Array(0), compAt: -1e9, compNow: -1e9, compAge: -1e9, sheets: new Map(), standards: new Map() };
+    const vao = gl.createVertexArray()!;
+    const cells = this.bakeCells(gl, vao);
+    this.g = { gl, base, comp, clean, uclean: gl.getUniformLocation(clean, 'u_base'), copy, ucopy, ub, uc, vao, marks, cells, baseT: null, compT: null, cm: -1, nx: 0, ny: 0, baseOwn: new Int32Array(0), compOwn: new Int32Array(0), compAt: -1e9, compNow: -1e9, compAge: -1e9, sheets: new Map(), standards: new Map() };
     return this.g;
+  }
+
+  /** Ground noise uniforms shared by the bake and pass A. */
+  private groundUniforms(gl: WebGL2RenderingContext, prog: WebGLProgram): void {
+    const gr = this.ground;
+    const nz = gr.noise;
+    gl.uniform1ui(gl.getUniformLocation(prog, 'u_seed'), (nz.seed * 2654435761) >>> 0);
+    gl.uniform2f(gl.getUniformLocation(prog, 'u_org'), gr.ox, gr.oy);
+    gl.uniform4ui(gl.getUniformLocation(prog, 'u_salt'), nz.salts[0], nz.salts[1], nz.salts[2], nz.salts[3]);
+    gl.uniform3f(gl.getUniformLocation(prog, 'u_road'), nz.roadY0, nz.roadBend, nz.roadPhase);
+  }
+
+  /** Tools: ms the last cell bake took (CPU side, plus the GPU when syncParts). */
+  lastBakeMs = 0;
+
+  /**
+   * Bakes the scattered things' cells over the field (and a couple of cells past it) into an
+   * RG32UI texture: what each cell holds and where it can paint (CELL_FS / cellInfo), so pass A
+   * reads them instead of computing them per texel. Cells past the texture are computed in place.
+   */
+  private bakeCells(gl: WebGL2RenderingContext, vao: WebGLVertexArrayObject): WebGLTexture {
+    const t0 = typeof performance !== 'undefined' ? performance.now() : 0;
+    const max = gl.getParameter(gl.MAX_TEXTURE_SIZE) as number;
+    const w = Math.min(max, Math.ceil(this.W / CELL_W) - 2 * CELL0 + 1);
+    const h = Math.min(max, Math.ceil(this.H / CELL_H) - 2 * CELL0 + 1);
+    const tex = gl.createTexture()!;
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RG32UI, w, h);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.bindTexture(gl.TEXTURE_2D, null);
+    const prog = compile(gl, VS, CELL_FS);
+    const fbo = gl.createFramebuffer()!;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+    gl.viewport(0, 0, w, h);
+    gl.disable(gl.DEPTH_TEST);
+    gl.disable(gl.BLEND);
+    gl.disable(gl.STENCIL_TEST);
+    gl.disable(gl.SCISSOR_TEST);
+    gl.useProgram(prog);
+    this.groundUniforms(gl, prog);
+    gl.uniform2i(gl.getUniformLocation(prog, 'u_cell0'), CELL0, CELL0);
+    gl.bindVertexArray(vao);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    gl.bindVertexArray(null);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.deleteFramebuffer(fbo);
+    gl.deleteProgram(prog);
+    this.lastBakeMs = this.sync(gl) - t0;
+    return tex;
   }
 
   /** The context was lost: every GL object is gone (the CPU copies remain). */
@@ -806,8 +1014,10 @@ export class HdField {
     gl.deleteProgram(g.base);
     gl.deleteProgram(g.comp);
     gl.deleteProgram(g.copy);
+    gl.deleteProgram(g.clean);
     gl.deleteVertexArray(g.vao);
     gl.deleteTexture(g.marks);
+    gl.deleteTexture(g.cells);
     if (g.baseT) dropTarget(gl, g.baseT);
     if (g.compT) dropTarget(gl, g.compT);
     for (const t of [...g.sheets.values(), ...g.standards.values()]) gl.deleteTexture(t);
@@ -872,7 +1082,7 @@ export class HdField {
 
   /** Tools: wait for the GPU after each ground pass and time them (ms; texels painted). */
   syncParts = false;
-  readonly lastParts = { base: 0, comp: 0, decals: 0, baseTexels: 0, compTexels: 0 };
+  readonly lastParts = { base: 0, comp: 0, decals: 0, baseTexels: 0, compTexels: 0, cleanTexels: 0 };
   private sync(gl: WebGL2RenderingContext): number {
     if (this.syncParts) gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
     return typeof performance !== 'undefined' ? performance.now() : 0;
@@ -889,6 +1099,8 @@ export class HdField {
   private cand = new Float64Array(0);
   private readonly baseRuns: number[] = [];
   private readonly compRuns: number[] = [];
+  private readonly markRuns: number[] = [];
+  private readonly cleanRuns: number[] = [];
 
   /** The ground cache's window as last planned: level, size in CT-texel tiles, first tile (tools, tests). */
   get cacheWindow(): { m: number; nx: number; ny: number; wx0: number; wy0: number; tile: number } {
@@ -1116,14 +1328,24 @@ export class HdField {
         }
       }
     };
-    runs(this.baseRuns, (t) => t === 1);
+    // Composed tiles with no marks near them are the ground as it is (pass B would only copy it):
+    // a plain copy paints them (bit 4 of todo).
+    for (let ty = wy0; ty < wy0 + ny; ty++)
+      for (let tx = wx0; tx < wx0 + nx; tx++) {
+        const slot = mod(ty, ny) * nx + mod(tx, nx);
+        if (todo[slot] !== 0 && !this.markedNear(tx, ty, m)) todo[slot] = todo[slot]! | 4;
+      }
+    runs(this.baseRuns, (t) => (t & 3) === 1);
     runs(this.compRuns, (t) => t !== 0);
+    runs(this.markRuns, (t) => t !== 0 && (t & 4) === 0);
+    runs(this.cleanRuns, (t) => (t & 4) !== 0);
     const B = this.baseRuns;
     const C = this.compRuns;
     const lp = this.lastParts;
-    lp.base = lp.comp = lp.decals = lp.baseTexels = lp.compTexels = 0;
+    lp.base = lp.comp = lp.decals = lp.baseTexels = lp.compTexels = lp.cleanTexels = 0;
     for (let i = 0; i < B.length; i += 6) lp.baseTexels += B[i + 2]! * B[i + 3]!;
     for (let i = 0; i < C.length; i += 6) lp.compTexels += C[i + 2]! * C[i + 3]!;
+    for (let i = 0; i < this.cleanRuns.length; i += 6) lp.cleanTexels += this.cleanRuns[i + 2]! * this.cleanRuns[i + 3]!;
     if (C.length > 0) {
       let t0 = this.sync(gl);
       gl.enable(gl.SCISSOR_TEST);
@@ -1136,12 +1358,16 @@ export class HdField {
         gl.uniform2f(g.ub.u_org!, gr.ox, gr.oy);
         gl.uniform4ui(g.ub.u_salt!, nz.salts[0], nz.salts[1], nz.salts[2], nz.salts[3]);
         gl.uniform3f(g.ub.u_road!, nz.roadY0, nz.roadBend, nz.roadPhase);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, g.cells);
+        gl.uniform1i(g.ub.u_cells!, 0);
+        gl.uniform2i(g.ub.u_cell0!, CELL0, CELL0);
         for (let i = 0; i < B.length; i += 6) {
           gl.uniform2f(g.ub.u_cam!, B[i + 4]! / m, B[i + 5]! / m);
           gl.scissor(B[i]!, B[i + 1]!, B[i + 2]!, B[i + 3]!);
           gl.drawArrays(gl.TRIANGLES, 0, 3);
         }
-        for (let i = 0; i < todo.length; i++) if (todo[i] === 1) g.baseOwn[i] = this.slotKey(i, nx, ny, wx0, wy0);
+        for (let i = 0; i < todo.length; i++) if ((todo[i]! & 3) === 1) g.baseOwn[i] = this.slotKey(i, nx, ny, wx0, wy0);
       }
       let t1 = this.sync(gl);
       lp.base = t1 - t0;
@@ -1159,10 +1385,20 @@ export class HdField {
       gl.uniform1ui(g.uc.u_seed!, seed);
       gl.uniform2f(g.uc.u_msize!, this.W, this.H);
       gl.uniform1f(g.uc.u_now!, g.compAge);
-      for (let i = 0; i < C.length; i += 6) {
-        gl.uniform2f(g.uc.u_cam!, C[i + 4]! / m, C[i + 5]! / m);
-        gl.scissor(C[i]!, C[i + 1]!, C[i + 2]!, C[i + 3]!);
+      const M = this.markRuns;
+      for (let i = 0; i < M.length; i += 6) {
+        gl.uniform2f(g.uc.u_cam!, M[i + 4]! / m, M[i + 5]! / m);
+        gl.scissor(M[i]!, M[i + 1]!, M[i + 2]!, M[i + 3]!);
         gl.drawArrays(gl.TRIANGLES, 0, 3);
+      }
+      const K = this.cleanRuns;
+      if (K.length > 0) {
+        gl.useProgram(g.clean);
+        gl.uniform1i(g.uclean!, 0);
+        for (let i = 0; i < K.length; i += 6) {
+          gl.scissor(K[i]!, K[i + 1]!, K[i + 2]!, K[i + 3]!);
+          gl.drawArrays(gl.TRIANGLES, 0, 3);
+        }
       }
       gl.activeTexture(gl.TEXTURE1);
       gl.bindTexture(gl.TEXTURE_2D, null);
@@ -1238,6 +1474,22 @@ export class HdField {
     }
     gl.bindFramebuffer(gl.FRAMEBUFFER, scene.fbo);
     gl.viewport(0, 0, bw, bh);
+  }
+
+  /**
+   * Whether the marks are anywhere near the cache tile (tx, ty) at level m: under it or within the
+   * few map px pass B samples around a texel (the map tiles a mark flags reach 2 px past it, and
+   * pass B's cache tiles are taken 3 px wider, as for a changed mark).
+   */
+  private markedNear(tx: number, ty: number, m: number): boolean {
+    // (Clamped to the map, as the marks texture is sampled: off it, its edge.)
+    const cl = (v: number, n: number) => Math.max(0, Math.min(n - 1, v));
+    const x0 = cl(Math.floor(((tx * CT) / m - 3) / TILE), this.tilesX);
+    const x1 = cl(Math.floor((((tx + 1) * CT) / m + 3) / TILE), this.tilesX);
+    const y0 = cl(Math.floor(((ty * CT) / m - 3) / TILE), this.tilesY);
+    const y1 = cl(Math.floor((((ty + 1) * CT) / m + 3) / TILE), this.tilesY);
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) if (this.marked[y * this.tilesX + x]) return true;
+    return false;
   }
 
   /** The world tile of the window held by cache slot i. */
