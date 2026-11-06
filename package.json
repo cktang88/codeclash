@@ -12,6 +12,7 @@
     "build": "vite build && esbuild src/server/main.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/server/main.js && esbuild src/ingest/parseWorker.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/server/parseWorker.js",
     "start": "node dist/server/main.js",
     "test": "vitest run",
+    "test:fast": "vitest run --exclude 'src/game/game-*.test.ts' --exclude 'src/server/league.test.ts' --exclude 'src/measure/gaming.test.ts' --exclude 'src/game/doctrine.test.ts' --exclude 'src/game/behaviour.test.ts' --exclude 'src/game/crossing.test.ts' --exclude 'src/game/cohesion.test.ts' --exclude 'src/game/battle.test.ts' --exclude 'src/game/undead.test.ts' --exclude 'src/client/render/downscale.test.ts' --exclude 'src/client/render/paper/skin-memo.test.ts' --exclude 'src/client/render/paper/determinism.test.ts'",
     "typecheck": "tsc --noEmit",
     "grammars": "tsx scripts/vendor-grammars.ts",
     "bench": "tsx scripts/battle-bench.ts",

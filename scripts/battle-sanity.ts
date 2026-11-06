@@ -24,6 +24,9 @@
 // - jumps: a man of a formed block moved over 2.2 times his speed in a tick (snapped).
 // - missile-idle (report): a loaded shooter, his block not routed nor fighting hand to hand, an
 //   enemy block within his range, has not loosed for twice his reload and 3 s more.
+//   missile-idle-clear (context) is the part of it with a target he could have shot at clear of
+//   our own men (the danger-close rule, battle v17): the rest hold their shot for good reason.
+//   --why splits it: all-in-melee, free-but-danger-close, clear-target.
 // Context (not faults): the idle share of men in engaged blocks with no foe in reach; the share of
 // fighters standing beyond the end of their foe's block's front (wrapping); the front rank's
 // spread along the facing while advancing (how wavy a line on the move is, units).
@@ -46,7 +49,7 @@ const EVERY = 2;
 
 const FAULTS = ['idle-free-foe', 'idle-near-fight', 'idle-gap', 'walks-away', 'foe-ignored', 'stacked', 'jumps', 'block-idle', 'missile-idle'] as const;
 type Fault = (typeof FAULTS)[number];
-const CONTEXT = ['engaged-idle', 'wrapping', 'march-wave'] as const;
+const CONTEXT = ['missile-idle-clear', 'engaged-idle', 'wrapping', 'march-wave'] as const;
 
 interface Tally {
   hit: Record<string, number>;
@@ -279,7 +282,21 @@ function audit(b: Battle, T: Tally): void {
         if (inRange) {
           const idle = tick - Math.max(lastShot[i]!, 0) > 2 * fireEvery(st) + 30;
           add(T, 'missile-idle', idle);
-          if (idle) why(`missile-idle ${free ? 'free-target' : 'all-in-melee'} ${r.targetReg >= 0 ? 'has-target' : 'no-target-reg'}`, b, i);
+          if (idle) {
+            // Why (v17, QA #13): is there a block in range he could shoot at without his scatter
+            // coming down among our own men (`clearTarget`, the danger-close rule)? If not, his
+            // silence is right: he holds rather than shoot into his own men.
+            const kind = (b as any).fire[r.team][r.cls];
+            let clear = false;
+            for (const o of b.regiments) {
+              if (o.team === d.team[i] || o.alive === 0 || o.routed || o.engaged) continue;
+              const q = Math.hypot(o.cx - d.x[i], o.cy - d.y[i]);
+              if (q - o.radius * 0.7 < st.range && (b as any).clearTarget(r, o, Math.max(q, 1), kind, st)) clear = true;
+            }
+            const cause = !free ? 'all-in-melee (holds: danger close)' : !clear ? 'free-but-danger-close (holds)' : 'clear-target';
+            add(T, 'missile-idle-clear', cause === 'clear-target');
+            why(`missile-idle ${cause} ${r.targetReg >= 0 ? 'has-target' : 'no-target-reg'}`, b, i);
+          } else add(T, 'missile-idle-clear', false);
         }
       }
     }

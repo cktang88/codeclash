@@ -135,6 +135,55 @@ export { COHESION, DOCTRINE, MORALE, REGROUP, UNDEAD } from './command.ts';
  *   (with runners 87 then 5); anchor faster than twice its men's run, out of re-forming, 642
  *   then 92; routers running at the enemy's edge 1.4% then 0.5%, into an enemy 0.6% then 0.3%;
  *   men who fled off the enemy's edge 30 then 0.
+ * - Nobody shoots into his own men (QA review 2026-11-06, #2 #3 #5 #7 #11 #13). Danger close: a
+ *   shot is held when one of our men stands, or will stand when it lands, inside its scatter
+ *   and a man's width more (a stone's splash too: `friendsNear`, DANGER); the shooter tries
+ *   other men of the target first, and a block that held most of its shots gives that target
+ *   up for 6 s (`fouled`). Targets are picked clear of our men (`clearTarget`): bows lob over a
+ *   melee only at rear ranks the scatter can reach without our men under it; engines lift onto
+ *   the second line and the reserves, and hold with nothing clear. No flat shot at a block
+ *   locked with ours, nor while a man of ours is about to walk across its line
+ *   (`friendCrossing`); a bombard's ball holds if any man of ours is on its whole run. Direct
+ *   fire strikes along its flight, the man on its line as it reaches him (`strikeAlong`; it was
+ *   the whole line as it landed). Crossbows no longer loft a blocked bolt at four times the
+ *   scatter: they stand before the line while the lines are apart (FLAT_SCREEN, the samurai's
+ *   screen drill), fall back through it as the enemy closes (horse from 420), and behind it step
+ *   along to a clear line (`clearLane`) or wait. Engines deploy 40 behind the second line, never
+ *   within 80 of the field's edge, and come up behind the line when nothing is in range.
+ *   Skirmishers go out again only with 1.5 javelins a man and keep a place behind the line that
+ *   moves with it only past 30; missile blocks keep out of our own foot's ranks (`freeSpot`).
+ *   Seeds 1-4 at 450 and seed 1 at 1200: own hits from engines 55 then 1 (of 150 and 138 hits),
+ *   crossbows 179 then 6 (14.9% then 0.6%), archers 187 then 2 (4.8% then 0.1%), horse archers
+ *   16 then 1; archers' hits on the enemy 3,684 then 2,477, engines' 95 then 137. Loaded shooters
+ *   silent with a target in range (seeds 3,7,11,23 at 450): 10.6% then 20.4%, of which 8.5
+ *   points hold their shot for our men in the way or under the scatter, 7.2 are on the move
+ *   (the crossbow screen going out or back) and 3.6 (5.9) have no such reason. Spent
+ *   skirmishers going out again: 9 sorties then 2. Faction pairs, 80 battles at 250 a side:
+ *   undead v templar 53.8, undead v samurai 48.8, samurai v templar 51.3.
+ * - Generals and their horse (docs/qa/battle-realism-review.md, findings 4, 6, 10, 14).
+ *   The household (`thinkCommand`, HOUSEHOLD) weighs every enemy block within 90 before it
+ *   takes one on, fights only with the odds (HOUSEHOLD_ODDS), not when down to a third of its
+ *   riders nor past 10 s of one fight, and then breaks off toward its post for 15 s, whether or
+ *   not its army still has a line (the draw-back used to need one, and with its line gone the
+ *   Lich-Marshal's household fought to its last rider 300-440 u ahead of what was left of his
+ *   army). Its post stands behind the blocks behind the middle of the line, eases after the
+ *   line's front over some 6 s (POST_EASE) and moves only when 40 u off (POST_DEADBAND); the
+ *   household turns its horses to ride there rather than backing (POST_REIN); its riders stray
+ *   40 u from their places after a foe, not without limit; breaking off, they cut at a foe at
+ *   hand. Over 72 battles a faction (seeds 1-4, 450/1200/2800, all pairings,
+ *   scripts/qa/generals.ts): the Lich fell in 24% (18% before the break), now 1% (0%);
+ *   the Templar and samurai generals 4% / 7%, now 0%. Riding backwards in guard 9.5% of samples,
+ *   now 0.5%.
+ *   The light horse goes out by the plan and the odds (`General.horse`, chosen with the plan):
+ *   'contest' rides at the enemy's horse after the general's own delay (0-40 s, HORSE_DELAY);
+ *   'screen' keeps its wing level with the line and meets horse coming within HORSE_SCREEN;
+ *   'wait' keeps it back for the moment the lines meet. In 24 demo battles of 24 the light-horse
+ *   wings met first at 17.6-18.3 s; now the first clash comes at 23-62 s, horse on horse, horse
+ *   on horse archers, or the lines.
+ *   Horse locked in a fight with half its riders standing 2 s with no foe they can get at breaks
+ *   off to charge again (`idleRanks`); a rider breaking off with a foe at his horse's head on his
+ *   way turns out round him first (`foeAt`); horse riding round to a flank keeps `rideRound`'s
+ *   way past friends (the goal put back beside the friend halted knights for good).
  * - Weapon reach (`REACH`, `UnitStats.reach`; docs/art-references/weapon-reach.md, measured by
  *   scripts/reach-sanity.ts): a man strikes from his weapon's reach beyond the two bodies (Templar
  *   spear 16, yari 19.5, ghoul spear 13, naginata 9, other shock foot 4, everyone else 1.6, as
@@ -787,6 +836,19 @@ export class Regiment {
   blockedShots = 0;
   blocker = -1;
   /**
+   * Shots held since the last think because they would have come down among our own men
+   * (danger close, see `friendsNear`), or a flat shot at a block locked with ours. A block that
+   * held most of its shots gives that target up for a while (`fouled`, until `fouledUntil`).
+   */
+  dangerShots = 0;
+  /** Skirmishers: their place behind the line (see `thinkSkirmish`), and when it was set (-1 not yet). */
+  restX = 0;
+  restAt = -1;
+  /** Shots loosed since the last think (against `dangerShots`). */
+  fired = 0;
+  fouled = -1;
+  fouledUntil = -1;
+  /**
    * Formed missile foot: the volley clock. The next volley is ordered at `volleyAt`; the loaded
    * men loose together over the next VOLLEY_SPREAD ticks, and the next comes `volleyEvery` later
    * (the reload and the "make ready, present" beat). See `moveAnchor` and `mayLoose`.
@@ -839,7 +901,7 @@ export class Regiment {
 /** Regiment fields that hold fractions (see the Regiment constructor). */
 const DOUBLE_FIELDS = [
   'arrows', 'cx', 'cy', 'ax', 'ay', 'fx', 'fy', 'dfx', 'dfy', 'tx', 'ty', 'gx0', 'gy0', 'rideX', 'rideY', 'vax', 'vay', 'aspd', 'morale', 'baseMorale', 'chaseX', 'chaseY', 'spacing', 'speed',
-  'dodgeX', 'dodgeY', 'width', 'depth', 'radius', 'recent', 'recentKills', 'flankShock', 'homeX', 'homeY', 'wx', 'wy', 'fatigue', 'fightShare', 'enemyNear', 'friendNear', 'closeIn',
+  'dodgeX', 'dodgeY', 'width', 'depth', 'radius', 'recent', 'recentKills', 'flankShock', 'homeX', 'homeY', 'wx', 'wy', 'fatigue', 'fightShare', 'enemyNear', 'friendNear', 'closeIn', 'restX',
 ] as const;
 
 export interface Projectile {
@@ -862,13 +924,20 @@ export interface Projectile {
   direct: boolean;
   /** Men a cannonball can pass through (0 for anything else). */
   pen: number;
+  /**
+   * Direct fire, resolved along its flight (v17): the share of the way it has gone, and the men
+   * it may still strike (and with what share of its force).
+   */
+  flown: number;
+  left: number;
+  force: number;
 }
 
 /**
  * How a class shoots. 'lob': bows, javelins and slings arc over the heads of anyone in between,
  * less accurate the longer the shot. 'flat': crossbows shoot nearly flat (a short arc) and need a
- * clear line past other regiments (their own ranks kneel or take turns); blocked, they loft the
- * bolt over at half the accuracy. 'gun': matchlocks shoot level with a clear line or not at all,
+ * clear line past other regiments (their own ranks kneel or take turns); blocked, they hold
+ * and step aside (until v17 they lofted the bolt over at a quarter of the accuracy). 'gun': matchlocks shoot level with a clear line or not at all,
  * and the ball strikes the first man on its line. 'cannon': a bombard's ball flies flat, then
  * bounds on along the ground through several men. 'siege': mangonels and trebuchets throw high.
  */
@@ -945,6 +1014,8 @@ export interface BattleEvent {
   note?: string;
 }
 
+type HorsePlan = 'contest' | 'screen' | 'wait';
+
 interface Forces {
   value: number;
   foot: number;
@@ -998,6 +1069,30 @@ export class General {
   firstSpearAt = -1;
   /** S1: when the general fell and his horse rode to avenge him (-1: not). */
   revengeAt = -1;
+  /**
+   * The household (battle v17, QA review #4 and #6): where it keeps behind the line, eased over
+   * some six seconds (`post`), and the spot it rides to, moved only when that drifts more
+   * than POST_DEADBAND off (`guard`); since when it has been locked in its present fight, and
+   * until when, having broken off, it does not take on again (-1: not). `lastStand`: his army
+   * is gone, and he fights to the end.
+   */
+  postX = NaN;
+  postY = NaN;
+  guardX = NaN;
+  guardY = NaN;
+  fightFrom = -1;
+  offUntil = -1;
+  lastStand = false;
+  /**
+   * QA review #10: how it uses its light horse before the lines meet, by the plan and the odds
+   * (`choosePlan`): 'contest' rides at the enemy's horse (or round at his shooters) from
+   * `horseFrom`; 'screen' keeps it on its wing level with the line and meets horse that comes
+   * at it (HORSE_SCREEN); 'wait' keeps it back for when the lines have met. `horseDelay`: how
+   * long (ticks, 0-40 s, from its own rng) it lets the day open before it sends horse out.
+   */
+  horse: HorsePlan = 'contest';
+  horseFrom = 0;
+  readonly horseDelay: number;
   /** The army's spirits on the day (from the general's rng): added to every regiment's morale. */
   readonly mood: number;
   /** A blunder: the knights go in before the lines meet. */
@@ -1009,6 +1104,8 @@ export class General {
     this.skill = 0.55 + this.rng.next() * 0.4;
     this.rashKnights = this.rng.next() < (1 - this.skill) * 0.4;
     this.mood = (this.rng.next() - 0.5) * 2 * MORALE.mood;
+    // (Its own stream, so the draws above and the plan's stay as they were.)
+    this.horseDelay = new Rng(mixSeed(seed, SEED_SALT, 7101 + team)).int(HORSE_DELAY);
   }
 }
 
@@ -1080,6 +1177,9 @@ const WING_FORWARD = 30;
 /** Skirmishers stand this far before the line, engines this far behind the last row. */
 const SKIRMISH_AHEAD = 80;
 const SIEGE_BEHIND = 80;
+/** Engines deploy this far behind the second line's rear rank, and never nearer the field's edge than SIEGE_EDGE. */
+const SIEGE_GAP = 40;
+const SIEGE_EDGE = 80;
 /**
  * Pace in each mode, a share of the men's speed. Formed foot marches at FOOT_MARCH, 11 units a
  * second (about 2 m/s: a brisk march, faster than life so a battle is not all approach), whatever
@@ -1124,8 +1224,32 @@ const SPENT_BLOCK = 0.6;
 const LATE = 4000;
 /** A refused wing holds back until this tick at most (1200 until the scale rework: the approach now takes twice as long). */
 const REFUSE_UNTIL = 2000;
-/** The general's household draws back from a block worth more than this many times itself (see `thinkCommand`). */
+/** The general's household draws back from enemies close by worth more than this many times itself (see `thinkCommand`). */
 const HOUSEHOLD_ODDS = 2;
+/**
+ * The household (battle v17, QA review #4): how near an enemy it weighs before it is upon it;
+ * how long it fights one fight before it breaks off (ticks), and how long after it does not
+ * take on again; at what share of its riders it is spent (it fights no more); how far ahead of
+ * its post it rides back at the canter rather than walks; how far each rider strays from his
+ * place after a foe.
+ */
+const HOUSEHOLD = { wary: 90, fight: 100, off: 150, spent: 1 / 3, ahead: 120, leash: 40 };
+/** How fast the household's post follows the line (a share of the gap each half second: about 6 s), and how far it drifts before the household moves (QA review #6). */
+const POST_EASE = 0.08;
+const POST_DEADBAND = 40;
+/** The household turns its horse to ride a goal farther than this, rather than back (horse otherwise needs HORSE_REIN). */
+const POST_REIN = 8;
+/** The household's post stands behind the blocks behind the middle of the line, but never further than this behind its front. */
+const POST_BACK = 320;
+/**
+ * QA review #10, the light horse before the lines meet (`General.horse`): the most a general lets
+ * the day open before sending it out (ticks); how near enemy horse must come for horse screening
+ * a wing, or held back, to ride at it; how far behind the line's front it keeps on its wing.
+ */
+const HORSE_DELAY = 400;
+const HORSE_SCREEN = 320;
+const HORSE_MEET = 220;
+const HORSE_WING = 40;
 /** A block locked in melee that bows may still shoot over the fight into: deep enough to have rear ranks well clear of it. */
 const overMelee = (o: Regiment) => o.depth >= 14;
 const isCav = (r: Regiment) => r.role === 'flank' || r.role === 'shock-cav' || r.role === 'horse-archer';
@@ -1494,7 +1618,18 @@ export class Battle {
       const sd = Math.max(...skirm.map((r) => r.depth));
       place(skirm, -SKIRMISH_AHEAD - sd, midY - half - 80, midY + half + 80, 50);
     }
-    place(byRole('siege'), behind + secondDepth + SIEGE_BEHIND, midY - half, midY + half, 60);
+    // The engines: just behind the second line, before the general (v17, QA #7: until then
+    // SIEGE_BEHIND behind the general, which in a big battle was the back edge of the field), and
+    // never nearer that edge than SIEGE_EDGE.
+    const engines = byRole('siege');
+    place(engines, secondDepth > 0 ? behind + secondDepth - ROW_GAP + SIEGE_GAP : behind + SIEGE_BEHIND, midY - half, midY + half, 60);
+    for (const reg of engines) {
+      const x = dir > 0 ? Math.max(SIEGE_EDGE + reg.depth, reg.ax) : Math.min(FIELD_W - SIEGE_EDGE - reg.depth, reg.ax);
+      if (x !== reg.ax) {
+        this.formUp(reg, x, reg.ay);
+        reg.homeX = reg.ax;
+      }
+    }
 
     // Wings: cavalry split above and below the line; knights at the back of each wing.
     const wings = [...byRole('flank'), ...byRole('horse-archer'), ...byRole('shock-cav')];
@@ -2302,6 +2437,25 @@ export class Battle {
       best = ok[g.rng.int(ok.length)]!;
     }
     if (g.fixedPlan) best = g.fixedPlan;
+    // QA review #10: the light horse by the plan and the odds. (Until v17 it rode at the enemy's
+    // horse on its wing from the first moment, whatever the plan: in 24 battles of 24 the first
+    // blow of the day was the two light-horse wings meeting at 18 s.) Sweeping round the wings,
+    // or with the better horse, it goes out to drive the enemy's off; outshooting him, or keeping
+    // the knights for the hammer, it waits to exploit; standing to let the archers work, or with
+    // the weaker horse, it screens its wing. Each general lets the day open his own while first.
+    const horse: HorsePlan =
+      best === 'envelop' ? 'contest'
+      : best === 'hold' ? (C > 1.4 ? 'contest' : 'screen')
+      : best === 'hammer' ? (C > 1.4 ? 'contest' : 'wait')
+      : M > 1.25 ? 'wait'
+      : C < 0.8 ? 'screen'
+      : p === 'cautious' && C < 1.2 ? 'screen'
+      : 'contest';
+    if (horse !== g.horse || g.planAt < 0) {
+      g.horse = horse;
+      const k = best === 'envelop' ? 0.25 : p === 'aggressive' ? 0.4 : p === 'cautious' ? 1.5 : 1;
+      g.horseFrom = this.tick + Math.round(g.horseDelay * k);
+    }
     // Overload the wing where the enemy is weaker.
     const low = theirs.wingLow * noise();
     const high = theirs.wingHigh * noise();
@@ -2528,8 +2682,15 @@ export class Battle {
           this.give(r, any ? 'charge' : 'reserve', any ? any.id : -1);
         }
       } else {
+        // (QA review #10: before the lines meet, by the general's use of his horse.)
+        const free = linesMet || (g.horse === 'contest' && this.tick >= g.horseFrom);
+        const meet = enemyCav !== null && sqrt(bd) < (g.horse === 'screen' ? HORSE_SCREEN : HORSE_MEET);
         if (refused && !(enemyCav && sqrt(bd) < 200)) this.give(r, 'reserve', -1, 0, -1, r.homeX, r.homeY);
-        else if (enemyCav) this.give(r, 'attack', enemyCav.id);
+        else if (!free && !meet) {
+          // On its wing, level with the line (a little behind its front), not left at the start.
+          const x = ts.hasLine && (ts.frontX - dir * HORSE_WING - r.homeX) * dir > 0 ? ts.frontX - dir * HORSE_WING : r.homeX;
+          this.give(r, 'reserve', -1, 0, -1, clampX(x), r.homeY);
+        } else if (enemyCav) this.give(r, 'attack', enemyCav.id);
         else if (shooters) this.give(r, 'flank', shooters.id, 0);
         else if (locked) this.give(r, 'flank', locked.id, 3);
         else {
@@ -3077,6 +3238,15 @@ export class Battle {
     }
     this.morale(r);
     if (r.routed) return;
+    if (r.dangerShots > 0) {
+      // Most of its shots held for our own men near the target: shift to another for a while.
+      if (r.dangerShots > r.fired && r.targetReg >= 0) {
+        r.fouled = r.targetReg;
+        r.fouledUntil = this.tick + DANGER.foul;
+      }
+      r.dangerShots = 0;
+    }
+    r.fired = 0;
     switch (r.role) {
       case 'line':
         this.thinkLine(r);
@@ -3993,6 +4163,11 @@ export class Battle {
         const q = sqrt(dx * dx + dy * dy) || 1;
         if (this.spotTaken(r, r.ax, r.ay, -dy / q, dx / q, dx / q, dy / q, true)) {
           this.firingSpot(r, best, Math.min(q, st.range * 0.9));
+          this.freeSpot(r, this.tmp[0]!, this.tmp[1]!);
+          this.goal(r, this.tmp[0]!, this.tmp[1]!);
+        } else if (this.inFriends(r, r.ax, r.ay) >= 0) {
+          // Standing in the ranks of a block of our foot (QA #11): out of them, along the line.
+          this.freeSpot(r, r.ax, r.ay);
           this.goal(r, this.tmp[0]!, this.tmp[1]!);
         }
       }
@@ -4019,6 +4194,11 @@ export class Battle {
         x = dir * Math.min(this.tmp[0]! * dir, x * dir);
         y = this.tmp[1]!;
       }
+      // Never in the ranks of our own foot (the second line comes up behind the first): along the
+      // line to a free spot.
+      this.freeSpot(r, x, y);
+      x = this.tmp[0]!;
+      y = this.tmp[1]!;
       const behind = (x - r.ax) * dir;
       const move = behind > 20 || behind < -6 || (near !== null && Math.abs(y - r.ay) > 20);
       this.setMode(r, move ? 'advance' : 'hold');
@@ -4045,7 +4225,15 @@ export class Battle {
    */
   private screen(r: Regiment): boolean {
     const doc = this.doc[r.team]!;
-    if (doc.screen <= 0 || this.fire[r.team]![r.cls] !== 'gun') return false;
+    const kind = this.fire[r.team]![r.cls];
+    // (v17, QA #3: crossbows too, as the Genoese stood before the line at Crécy. A flat shot
+    // cannot go over our own ranks, and from behind the line a block of crossbows had only the
+    // gaps of the line to shoot through: until v17 it lofted its bolts over at four times the
+    // scatter, and they came down among our own men.)
+    const gun = doc.screen > 0 && kind === 'gun';
+    if (!gun && kind !== 'flat') return false;
+    const scr = gun ? doc.screen : FLAT_SCREEN.screen;
+    const back = gun ? doc.screenBack : FLAT_SCREEN.back;
     const ts = this.ts[r.team]!;
     const es = this.ts[1 - r.team]!;
     const dir = r.team === 0 ? 1 : -1;
@@ -4063,12 +4251,12 @@ export class Battle {
     }
     if (r.retired || !ts.hasLine || !es.hasLine || (ts.engaged && !r.screened) || r.ammoLeft === 0 || this.tick < 30 || r.ord.kind === 'pursue') return false;
     const ahead = (r.ax - ts.frontX) * dir;
-    if (ahead > r.depth + doc.screen) r.screened = true;
+    if (ahead > r.depth + scr) r.screened = true;
     // Skirmishers are a target, not a threat: a formed block coming on, or horse, sends them back.
     let threat = false;
     for (const o of this.teamRegs[1 - r.team]!) {
       if (o.alive === 0 || o.routed || o.role === 'skirmish') continue;
-      const R = doc.screenBack * (isCav(o) ? 2 : 1);
+      const R = isCav(o) ? (gun ? back * 2 : FLAT_SCREEN.horse) : back;
       const dx = o.cx - r.cx;
       const dy = o.cy - r.cy;
       const rr = o.radius + r.radius + R;
@@ -4103,7 +4291,7 @@ export class Battle {
     r.targetReg = -1;
     this.setMode(r, 'advance');
     // (A goal well ahead keeps them marching: one close by is walked to slowly.)
-    this.goal(r, ts.frontX + dir * (r.depth + doc.screen + 40), r.homeY + (ts.midY - FIELD_H / 2));
+    this.goal(r, ts.frontX + dir * (r.depth + scr + 40), r.homeY + (ts.midY - FIELD_H / 2));
     r.dfx = dir;
     r.dfy = 0;
     return true;
@@ -4160,6 +4348,22 @@ export class Battle {
     r.blocker = -1;
     const lx = -r.fy;
     const ly = r.fx;
+    const tgt = r.targetReg >= 0 ? this.regiments[r.targetReg]! : null;
+    if (r.role === 'missile' && tgt) {
+      // (v17, QA #3/#13) Crossbows and guns behind our own line: along it to the nearest spot with
+      // a clear line to the target (an interval of the line, or past its end), up to LANE_SEARCH
+      // away; with none, they stand and wait for one.
+      r.short = 0;
+      r.loosed = 0;
+      if (!this.clearLane(r, tgt)) return false;
+      const sx = this.tmp[0]! - r.ax;
+      const sy = this.tmp[1]! - r.ay;
+      const step = sqrt(sx * sx + sy * sy);
+      this.setMode(r, 'advance');
+      this.goal(r, this.tmp[0]!, this.tmp[1]!);
+      r.stepUntil = this.tick + Math.ceil((step / (FOOT_MARCH * FOOT_RUN)) * TICKS_PER_SECOND);
+      return true;
+    }
     const off = (r.cx - b.cx) * lx + (r.cy - b.cy) * ly;
     const side = off >= 0 ? 1 : -1;
     // Engines edge along; shooters step clear of the block in the way in one move (they shoot
@@ -4172,6 +4376,47 @@ export class Battle {
     r.short = 0;
     r.loosed = 0;
     return true;
+  }
+
+  /**
+   * The nearest spot along the line (either way, LANE_STEP at a time, LANE_SEARCH at most) from
+   * which a block of direct-fire shooters has a clear line to `tgt` past our own men: from the
+   * middle of its front and from either half of it, each at the part of `tgt` before it. Puts it in
+   * tmp[0], tmp[1]; false if there is none.
+   */
+  private clearLane(r: Regiment, tgt: Regiment): boolean {
+    const d = this.d;
+    const st = this.stats[r.team]![r.cls]!;
+    const lx = -r.fy;
+    const ly = r.fx;
+    // (Each file shoots at the part of the target before it: the target's men in line with it.)
+    const half = tgt.width * 0.4;
+    const clearFrom = (x: number, y: number): boolean => {
+      let ok = 0;
+      for (let k = -1; k <= 1; k++) {
+        const fx = x + lx * k * r.width * 0.3;
+        const fy = y + ly * k * r.width * 0.3;
+        const o = Math.max(-half, Math.min(half, (fx - tgt.cx) * lx + (fy - tgt.cy) * ly));
+        const n = this.lineHits(fx, fy, tgt.cx + lx * o, tgt.cy + ly * o, -1, r.id, 1);
+        if (n === 0 || d.team[this.lineIds[0]!] !== r.team) ok++;
+      }
+      return ok === 3;
+    };
+    for (let k = 1; k <= LANE_SEARCH / LANE_STEP; k++) {
+      for (const sg of [1, -1]) {
+        const x = r.ax + lx * sg * k * LANE_STEP;
+        const y = r.ay + ly * sg * k * LANE_STEP;
+        if (x < 10 || x > FIELD_W - 10 || y < r.width * 0.5 || y > FIELD_H - r.width * 0.5) continue;
+        const q = sqrt((tgt.cx - x) * (tgt.cx - x) + (tgt.cy - y) * (tgt.cy - y));
+        if (q > st.range * 0.95) continue;
+        if (this.inFriends(r, x, y) >= 0 || this.spotTaken(r, x, y, lx, ly, r.fx, r.fy)) continue;
+        if (!clearFrom(x, y)) continue;
+        this.tmp[0] = x;
+        this.tmp[1] = y;
+        return true;
+      }
+    }
+    return false;
   }
 
   /**
@@ -4242,6 +4487,51 @@ export class Battle {
       }
     }
     return false;
+  }
+
+  /**
+   * The friendly block of foot (or the general's household) whose ranks a block of shooters `r`
+   * would stand in with its front's middle at (x, y), where it stands or where it is going; -1
+   * none. (Skirmishers and engines are passed through; other shooters: `spotTaken`.)
+   */
+  private inFriends(r: Regiment, x: number, y: number): number {
+    const dir = r.team === 0 ? 1 : -1;
+    for (const o of this.teamRegs[r.team]!) {
+      if (o === r || o.alive === 0 || o.routed || (o.role !== 'line' && o.role !== 'command')) continue;
+      for (let k = 0; k < 2; k++) {
+        const ex = (k === 0 ? o.tx : o.ax) - x;
+        const ey = (k === 0 ? o.ty : o.ay) - y;
+        // (Lines of the same army face the same way, near enough: their frames are r's.)
+        if (Math.abs(ey) < (r.width + o.width) * 0.5 + 6 && Math.abs(ex * dir + (r.depth - o.depth) * 0.5) < (r.depth + o.depth) * 0.5 + 6) return o.id;
+      }
+    }
+    return -1;
+  }
+
+  /**
+   * A spot for a block of shooters near (x, y) out of our own foot's ranks (`inFriends`) and off
+   * other shooters' spots: (x, y) itself if free, else the nearest free one along the line
+   * (QA #11). Puts it in tmp[0], tmp[1].
+   */
+  private freeSpot(r: Regiment, x: number, y: number): void {
+    const b = this.inFriends(r, x, y);
+    if (b < 0) {
+      this.tmp[0] = x;
+      this.tmp[1] = y;
+      return;
+    }
+    const pref = r.ay >= this.regiments[b]!.ay ? 1 : -1;
+    for (let k = 1; k <= 12; k++) {
+      for (const sg of [pref, -pref]) {
+        const ty = clampY(y + sg * k * 20);
+        if (this.inFriends(r, x, ty) >= 0 || this.spotTaken(r, x, ty, 0, 1, r.team === 0 ? 1 : -1, 0)) continue;
+        this.tmp[0] = x;
+        this.tmp[1] = ty;
+        return;
+      }
+    }
+    this.tmp[0] = x;
+    this.tmp[1] = y;
   }
 
   private closeToShoot(r: Regiment, tgt: Regiment, always = false): void {
@@ -4320,13 +4610,16 @@ export class Battle {
     let best: Regiment | null = null;
     let bs = Infinity;
     for (const o of this.teamRegs[1 - r.team]!) {
-      if (o.alive === 0 || o.routed || (o.engaged && !(over && overMelee(o)))) continue;
+      if (o.alive === 0 || o.routed || (o.engaged && !(over && overMelee(o))) || (o.id === r.fouled && this.tick < r.fouledUntil)) continue;
       const dx = o.cx - r.cx;
       const dy = o.cy - r.cy;
       const c = sqrt(dx * dx + dy * dy);
       if (reach && c - o.radius - r.radius > range) continue;
       const q = reach ? this.gapTo(r, o) : c - o.radius * 0.5;
       if (q > range) continue;
+      // Danger close (v17, QA #3): not a block whose men stand among ours, nor one we cannot
+      // reach over a melee without our own men under the scatter.
+      if (!this.clearTarget(r, o, Math.max(1, c), this.fire[r.team]![r.cls]!, this.stats[r.team]![r.cls]!)) continue;
       // Big blocks and horse first; keep the same target when it's still good.
       let s = q - (isCav(o) ? 20 : 0) - (o.id === r.targetReg ? 30 : 0) - (o.id === r.ord.target ? 40 : 0) - Math.min(40, o.alive * 0.3);
       if (o.role === 'skirmish') s += 25;
@@ -4350,13 +4643,25 @@ export class Battle {
     // army's centre, which runs away from them as they walk toward it): they fight it out.
     const noLine = !ts.hasLine;
     let retired = !noLine && (r.mode === 'skirmish' || r.mode === 'reserve' || r.retired);
-    if (retired && r.mode === 'reserve' && r.ammoLeft > 0 && !threat && gap > 160 && e.hasLine && this.tick - r.modeAt > 50) {
+    // (v17, QA #5) Out again only with a real sortie's worth of javelins: not the one or two of a
+    // fugitive taken in. Until v17 any javelin at all sent the block 100-150 before the line, to
+    // throw it and run back, over and over.
+    const sortie = r.ammoLeft >= r.alive * SKIRM.out;
+    if (retired && r.mode === 'reserve' && sortie && !threat && gap > 160 && e.hasLine && this.tick - r.modeAt > 50) {
       // Safe behind the line with javelins left and the lines still apart: go out again.
       retired = false;
       r.retired = false;
       this.setMode(r, 'advance');
     }
-    const home = ts.frontX - dir * (ts.lineDepth + 70);
+    // Their place behind the line, which follows the line only when it has moved SKIRM.deadband
+    // (`frontX` jumps whenever a block of the line is committed, charges or falls back).
+    const hx = ts.frontX - dir * (ts.lineDepth + 70);
+    if (r.restAt < 0 || Math.abs(hx - r.restX) > SKIRM.deadband) {
+      r.restX = hx;
+      r.restAt = this.tick;
+    }
+    const home = r.restX;
+    const homeY = r.ay;
     if (r.ord.kind === 'pursue') {
       const prey = this.nearestFoe(r, 4, 300);
       if (prey && !this.nearestFoe(r, 0, 120)) {
@@ -4369,20 +4674,20 @@ export class Battle {
       this.thinkLine(r);
       return;
     }
-    if (!retired && !noLine && (r.ammoLeft === 0 || threat || (gap < 95 && ts.hasLine && e.hasLine))) {
-      // Fall back through our own line.
+    if (!retired && !noLine && (r.ammoLeft < r.alive * SKIRM.spent || threat || (gap < 95 && ts.hasLine && e.hasLine))) {
+      // Fall back through our own line (spent: a javelin or so a man left, kept for close work).
       this.setMode(r, 'skirmish');
       r.retired = true;
     }
     if (r.mode === 'skirmish' && !noLine) {
-      this.goal(r, home, r.ay);
+      this.goal(r, home, homeY);
       r.dfx = dir;
       r.dfy = 0;
       if ((r.ax - home) * dir < 8) this.setMode(r, 'reserve');
       return;
     }
     if (retired) {
-      this.goal(r, home, r.ay);
+      this.goal(r, home, homeY);
       r.dfx = dir;
       r.dfy = 0;
       const t = r.ammoLeft > 0 ? this.shootable(r, st.range * 0.9) : null;
@@ -4438,7 +4743,7 @@ export class Battle {
       r.meleeAt = this.tick;
       r.meleeTicks += 5;
       this.setMode(r, 'melee');
-      if (prey0 && (this.breaksOff(r, prey0) || this.inOurRanks(r))) {
+      if (prey0 && (this.breaksOff(r, prey0) || this.inOurRanks(r) || this.idleRanks(r))) {
         // Cycle charge: break off, ride back as a loose crowd to re-form on the rally point, and
         // come again (P4).
         this.rallyPoint(r, prey0, shock);
@@ -4713,6 +5018,29 @@ export class Battle {
     return n > 0 && among >= n * RIDER.ranksShare;
   }
 
+  /**
+   * QA review #14: horse locked in a fight with half or more of its riders (RIDER.idleShare)
+   * standing at the back of it with no foe they can get at for RIDER.idleFor (packed behind
+   * their own front riders, or behind our foot) breaks off to charge again, as often as a cycle
+   * charge may. (Until v17 the knights stood there for the rest of the melee: 6.7% of riders
+   * idle over two seconds with an enemy within 40, 12.5% at 2800 a side.)
+   */
+  private idleRanks(r: Regiment): boolean {
+    const C = COHESION;
+    if (r.meleeTicks <= RIDER.idleFor || r.cycles >= C.cavCycles || r.fatigue > C.cavBlown || !this.doc[r.team]!.loose.stepBack) return false;
+    const d = this.d;
+    const slow = r.speed * 0.15;
+    let n = 0;
+    let idle = 0;
+    for (const id of r.members) {
+      if (d.state[id] !== State.Fighting) continue;
+      n++;
+      // (Standing: not riding round to a flank of his own, see `flankPoint`.)
+      if (d.target[id]! < 0 && d.idl[id]! > 0 && this.tick - d.idl[id]! > RIDER.idleFor && d.vx[id]! * d.vx[id]! + d.vy[id]! * d.vy[id]! < slow * slow) idle++;
+    }
+    return n > 0 && idle >= n * RIDER.idleShare;
+  }
+
   /** What a block of horse is worth in a clash of horse: men, class, wind and losses (the fearless's morale says nothing). */
   private cavWorth(r: Regiment): number {
     const v = this.stats[r.team]![r.cls]!.value;
@@ -4824,47 +5152,177 @@ export class Battle {
     this.standOff(r, near, st.range * 0.6);
   }
 
+  /**
+   * Engines shoot at the biggest enemy block in range that they can hit without dropping stones
+   * among our own men (v17, QA #2): danger close, a crew lifts its fire off the front, where the
+   * lines are about to meet or have met, onto the blocks behind (the enemy's second line, its
+   * reserves coming up), and holds when there is none. With no enemy in range at all they come
+   * up behind our line (QA #7: until v17 they stood at the back edge of the field all day).
+   */
   private thinkSiege(r: Regiment): void {
     const st = this.stats[r.team]![r.cls]!;
+    const kind = this.fire[r.team]![r.cls]!;
     let best: Regiment | null = null;
+    let bs = -Infinity;
+    let inRange = false;
     for (const o of this.teamRegs[1 - r.team]!) {
-      if (o.alive === 0 || o.routed || o.engaged) continue;
+      if (o.alive === 0 || o.routed) continue;
       const dx = o.cx - r.cx;
       const dy = o.cy - r.cy;
-      if (dx * dx + dy * dy > st.range * st.range) continue;
-      if (!best || o.alive > best.alive) best = o;
+      const q2 = dx * dx + dy * dy;
+      if (q2 > st.range * st.range) continue;
+      inRange = true;
+      if (o.engaged || (o.id === r.fouled && this.tick < r.fouledUntil)) continue;
+      const q = sqrt(q2);
+      if (!this.clearTarget(r, o, q, kind, st)) continue;
+      const sc = o.alive + (o.id === r.targetReg ? 10 : 0);
+      if (sc > bs) {
+        bs = sc;
+        best = o;
+      }
     }
     r.targetReg = best ? best.id : -1;
+    const ts = this.ts[r.team]!;
+    if (!best && !inRange && ts.hasLine && this.tick >= 30) {
+      // Nothing within reach: come up behind the line (no nearer than the archers stand).
+      const dir = r.team === 0 ? 1 : -1;
+      const x = ts.frontX - dir * (ts.lineDepth + MISSILE_BEHIND + SIEGE_BEHIND + r.depth);
+      if ((x - r.ax) * dir > 30) {
+        this.setMode(r, 'advance');
+        this.goal(r, x, r.ay);
+        r.dfx = dir;
+        r.dfy = 0;
+        return;
+      }
+    }
     this.setMode(r, best ? 'shoot' : 'hold');
     if (!best || !this.sidestep(r)) this.goal(r, r.ax, r.ay);
     if (best) this.faceToward(r, best.cx, best.cy);
   }
 
+  /**
+   * Whether an engine (or shooter) of `r` can shoot at block `o`, `q` away, with its scatter clear
+   * of our own men: aimed at its middle or at its far half.
+   */
+  private clearTarget(r: Regiment, o: Regiment, q: number, kind: Ballistics, st: UnitStats): boolean {
+    const sp = spreadAt(kind, q, st.range, false);
+    const h = sp + (kind === 'siege' ? SIEGE_SPLASH : kind === 'cannon' ? CANNON_BOUND * 0.5 : 0) + DANGER.margin;
+    const fl = Math.max(3, Math.round((q / st.projectileSpeed) * TICKS_PER_SECOND));
+    if (!this.friendsNear(r.team, o.cx, o.cy, h, fl)) return true;
+    const ux = (o.cx - r.cx) / (q || 1);
+    const uy = (o.cy - r.cy) / (q || 1);
+    const back = Math.min(o.radius, o.depth * 0.5 + 4);
+    return !this.friendsNear(r.team, o.cx + ux * back, o.cy + uy * back, h, fl);
+  }
+
   private thinkCommand(r: Regiment): void {
-    const ts = this.ts[r.team]!;
-    const dir = r.team === 0 ? 1 : -1;
-    const reach = this.generals[r.team]!.trait === 'reckless-valour' ? 90 : 40;
-    // The household fights what comes within `reach` of it, its nearest man, where he stands.
-    // (Until v15 it went by the blocks' bounding circles and rode for the centre of the block:
-    // against the big blocks of a big battle that took the general from 100 and more away into
-    // the middle of the enemy's ranks. The fearless Lich-Marshal, whose household never breaks,
-    // fell in more than half of all battles.)
-    const near = this.nearGap(r, reach, false);
-    // A block that outweighs the household HOUSEHOLD_ODDS times over it does not take on while it
-    // has a line to fall back behind: it draws back, straight away from the block's nearest man.
-    // (Until v16 it rode at whatever came near. In a big battle that was the big blocks of the
-    // enemy's second line, and the generals fell ever more often as battles grew: the
-    // Lich-Marshal in three battles of five at 2800 a side.)
-    if (near && ts.hasLine && near.alive * this.stats[near.team]![near.cls]!.value > HOUSEHOLD_ODDS * r.alive * this.stats[r.team]![r.cls]!.value) {
-      this.gapTo(r, near);
-      const dx = r.ax - this.tmp[0]!;
-      const dy = r.ay - this.tmp[1]!;
-      const q = sqrt(dx * dx + dy * dy) || 1;
-      this.setMode(r, 'withdraw');
-      this.goal(r, clampX(r.ax + (dx / q) * 2 * reach), clampY(r.ay + (dy / q) * 2 * reach));
-      return;
+    const t = r.team;
+    const g = this.generals[t]!;
+    const ts = this.ts[t]!;
+    const dir = t === 0 ? 1 : -1;
+    r.dfx = dir;
+    r.dfy = 0;
+    const reach = g.trait === 'reckless-valour' ? 90 : 40;
+    // Where he keeps: behind the middle of our line, in sight of the men; with no line left,
+    // behind the middle of what is left. (The army's centre leaves the general himself out, or
+    // stepping back from it would walk him off the back of the field.)
+    let px: number;
+    let py: number;
+    if (ts.hasLine) {
+      // (Behind the blocks that stand behind the line there, too, the archers and the second
+      // line: a post inside them had the household shoved to and fro about them.)
+      py = ts.midY;
+      let back = ts.lineDepth + 55;
+      for (const o of this.teamRegs[t]!) {
+        if (o === r || o.alive === 0 || o.routed || isCav(o) || o.role === 'skirmish' || o.role === 'siege') continue;
+        if ((o.cy > py ? o.cy - py : py - o.cy) > o.radius + 30) continue;
+        const behind = (ts.frontX - o.cx) * dir + o.radius + 35;
+        if (behind > back && behind < POST_BACK) back = behind;
+      }
+      px = ts.frontX - dir * back;
+    } else {
+      let k = 0;
+      let x = 0;
+      let y = 0;
+      for (const o of this.teamRegs[t]!) {
+        if (o === r || o.alive === 0 || o.routed) continue;
+        k += o.alive;
+        x += o.cx * o.alive;
+        y += o.cy * o.alive;
+      }
+      if (k === 0) {
+        // His army is gone: he and his household ride at the enemy (standing still would
+        // leave two lone generals facing each other until the time limit).
+        g.lastStand = true;
+        const foe = this.nearestFoe(r, 0, Infinity);
+        if (foe) {
+          this.setMode(r, 'advance');
+          this.goal(r, foe.cx, foe.cy);
+          this.faceToward(r, foe.cx, foe.cy);
+        } else this.goal(r, r.ax, r.ay);
+        return;
+      }
+      px = x / k - dir * 80;
+      py = y / k;
     }
-    if (near || r.engaged) {
+    g.lastStand = false;
+    // (QA review #6: the line's front jumps tens of units whenever a block is committed,
+    // charges, runs or is pulled out; until v17 the household followed every jump, backing its
+    // horses to and fro behind the line. It eases after it, and moves only when its spot has
+    // drifted POST_DEADBAND off; but a front gone back a long way at once, it follows at once.)
+    if (Number.isNaN(g.postX) || (r.ax - px) * dir > HOUSEHOLD.ahead) {
+      g.postX = px;
+      g.postY = py;
+    } else {
+      g.postX += (px - g.postX) * POST_EASE;
+      g.postY += (py - g.postY) * POST_EASE;
+    }
+    const gx = g.postX - g.guardX;
+    const gy = g.postY - g.guardY;
+    if (Number.isNaN(g.guardX) || gx * gx + gy * gy > POST_DEADBAND * POST_DEADBAND) {
+      g.guardX = g.postX;
+      g.guardY = g.postY;
+    }
+    // Since when the household has been locked in this fight.
+    if (r.engaged) {
+      if (g.fightFrom < 0) g.fightFrom = this.tick;
+    } else if (r.mode !== 'melee') g.fightFrom = -1;
+    // QA review #4: a lord on whose life his army hangs (the dead crumble when the Lich-Marshal
+    // falls) keeps behind his line and commits his household only with the odds on his side.
+    // He weighs every enemy block within HOUSEHOLD.wary of it (a wavering one at half), and
+    // fights what comes within `reach` only while they are worth no more than HOUSEHOLD_ODDS
+    // times the household, it is not spent (HOUSEHOLD.spent of its riders), and it has not
+    // fought this fight for HOUSEHOLD.fight; else he breaks off, toward his post and away from
+    // them, and does not take on again for HOUSEHOLD.off. (Until v17 he drew back only from
+    // a single block twice his worth, and only while his army had a line: with his line gone
+    // the household fought to its last rider, 300-440 units ahead of what was left of his
+    // army. The Lich-Marshal fell in a quarter of all battles, the other generals in 6-8%.)
+    const val = (o: Regiment) => o.alive * this.stats[o.team]![o.cls]!.value;
+    const ours = val(r);
+    const near = this.nearGap(r, reach, false);
+    let threat = 0;
+    let danger: Regiment | null = null;
+    let dg = Infinity;
+    // (Drawing back, it keeps on until they are a little further off: no to and fro at the edge.)
+    const wary = HOUSEHOLD.wary * (r.mode === 'withdraw' ? 1.4 : 1);
+    for (const o of this.teamRegs[1 - t]!) {
+      if (o.alive === 0 || o.routed) continue;
+      const dx = o.cx - r.cx;
+      const dy = o.cy - r.cy;
+      const rr = o.radius + r.radius + wary;
+      if (dx * dx + dy * dy > rr * rr) continue;
+      const q = this.gapTo(r, o);
+      if (q > wary) continue;
+      threat += val(o) * (o.moraleState === 'wavering' ? 0.5 : 1);
+      if (q < dg) {
+        dg = q;
+        danger = o;
+      }
+    }
+    const spent = r.alive <= r.start * HOUSEHOLD.spent;
+    const long = g.fightFrom >= 0 && this.tick - g.fightFrom > HOUSEHOLD.fight;
+    const odds = threat <= HOUSEHOLD_ODDS * ours;
+    if ((near || r.engaged) && odds && !spent && !long && this.tick >= g.offUntil) {
       this.setMode(r, 'melee');
       r.targetReg = near ? near.id : r.targetReg;
       if (near) {
@@ -4873,35 +5331,43 @@ export class Battle {
       }
       return;
     }
-    this.setMode(r, 'guard');
-    // Behind the middle of our own line, in sight of the men.
-    if (ts.hasLine) this.goal(r, ts.frontX - dir * (ts.lineDepth + 55), ts.midY);
-    else {
-      // No line left: behind the middle of what is left. (The army's centre counts the general
-      // himself, so stepping back from it would walk him off the back of the field.)
-      let k = 0;
-      let x = 0;
-      let y = 0;
-      for (const o of this.teamRegs[r.team]!) {
-        if (o === r || o.alive === 0 || o.routed) continue;
-        k += o.alive;
-        x += o.cx * o.alive;
-        y += o.cy * o.alive;
+    if (danger && (near || r.engaged || !odds)) {
+      // Break off: away from the nearest of them, and toward his post.
+      if (near || r.engaged) g.offUntil = this.tick + HOUSEHOLD.off;
+      g.fightFrom = -1;
+      this.gapTo(r, danger);
+      let ux = r.ax - this.tmp[0]!;
+      let uy = r.ay - this.tmp[1]!;
+      let q = sqrt(ux * ux + uy * uy) || 1;
+      ux /= q;
+      uy /= q;
+      // (Toward his post, unless they stand by it: then back, toward our own edge.)
+      const ex = g.guardX - this.tmp[0]!;
+      const ey = g.guardY - this.tmp[1]!;
+      const safe = ex * ex + ey * ey > HOUSEHOLD.wary * HOUSEHOLD.wary;
+      const hx = safe ? g.guardX - r.ax : -dir * 100;
+      const hy = safe ? g.guardY - r.ay : 0;
+      const h = sqrt(hx * hx + hy * hy);
+      if (h > 1) {
+        ux += hx / h;
+        uy += hy / h;
+        q = sqrt(ux * ux + uy * uy);
+        if (q < 0.1) {
+          // (His post lies straight through them: he rides off to the side, toward our own edge.)
+          ux = -dir * 0.6 - uy;
+          uy = hx / h;
+          q = sqrt(ux * ux + uy * uy) || 1;
+        }
+        ux /= q;
+        uy /= q;
       }
-      if (k > 0) this.goal(r, x / k - dir * 55, y / k);
-      else {
-        // His army is gone: he and his household ride at the enemy (standing still would
-        // leave two lone generals facing each other until the time limit).
-        const foe = this.nearestFoe(r, 0, Infinity);
-        if (foe) {
-          this.setMode(r, 'advance');
-          this.goal(r, foe.cx, foe.cy);
-          this.faceToward(r, foe.cx, foe.cy);
-        } else this.goal(r, r.ax, r.ay);
-      }
+      this.setMode(r, 'withdraw');
+      this.goal(r, clampX(r.ax + ux * 2 * Math.max(reach, 60)), clampY(r.ay + uy * 2 * Math.max(reach, 60)));
+      return;
     }
-    r.dfx = dir;
-    r.dfy = 0;
+    // Keep the post: at a canter when well ahead of it (his front gone back a long way).
+    this.setMode(r, (r.ax - g.guardX) * dir > HOUSEHOLD.ahead ? 'withdraw' : 'guard');
+    this.goal(r, g.guardX, g.guardY);
   }
 
   /** Pins every regiment of a class on one side to a stance (tests and tools). */
@@ -5128,7 +5594,10 @@ export class Battle {
     }
     const horse = isMounted(r);
     // A goal in a friend's place is taken: the block stands beside him instead (`clearGoal`).
-    if ((this.tick + r.phase) % 5 === 0 && !r.engaged && !r.slip && r.role !== 'skirmish' && r.mode !== 'pursue' && r.mode !== 'charge' && r.mode !== 'withdraw') this.clearGoal(r);
+    // (Not horse riding round to a flank: `rideRound` has its way past friends already, and
+    // this put the goal back beside the friend it stood by, where the knights halted for good:
+    // QA review #14.)
+    if ((this.tick + r.phase) % 5 === 0 && !r.engaged && !r.slip && r.role !== 'skirmish' && r.mode !== 'pursue' && r.mode !== 'charge' && r.mode !== 'withdraw' && !(horse && r.mode === 'flank')) this.clearGoal(r);
     const dx = r.tx - r.ax;
     const dy = r.ty - r.ay;
     const q = sqrt(dx * dx + dy * dy);
@@ -5140,7 +5609,7 @@ export class Battle {
     // whole loose block about, a slow pirouette, and back again when they halted.)
     // Likewise a block of shooters stepping sideways to open a line of fire sidles at the double, facing front.
     const aboutTurn = !horse && (r.role === 'skirmish' || r.role === 'missile') && q > 30 && MARCH[r.mode] && (dx * r.dfx + dy * r.dfy < -0.3 * q || this.tick < r.stepUntil);
-    const marching = !aboutTurn && q > (horse ? HORSE_REIN : 30) && MARCH[r.mode];
+    const marching = !aboutTurn && q > (r.role === 'command' ? POST_REIN : horse ? HORSE_REIN : 30) && MARCH[r.mode];
     if (marching) {
       wx = dx / q;
       wy = dy / q;
@@ -5197,7 +5666,7 @@ export class Battle {
           }
           ux = r.fx;
           uy = r.fy;
-        } else pace = Math.min(pace, r.speed * HORSE_WALK); // pulled up: it turns about at a walk
+        } else pace = r.role === 'command' && al < 0 ? 0 : Math.min(pace, r.speed * HORSE_WALK); // pulled up: it turns about at a walk (the household, keeping its post, turns its horses before it rides: QA review #6)
       } else {
         // March facing the way it goes; a block slows while it wheels.
         pace *= al > 0.8 ? 1 : al > 0.3 ? 0.5 : 0.25;
@@ -5707,7 +6176,8 @@ export class Battle {
     }
     const r = this.regiments[d.reg[i]!]!;
     const mode = r.mode;
-    if (mode === 'withdraw' || mode === 'skirmish') {
+    // (The household breaking off still cuts at a foe at hand, below: it rides out of reach.)
+    if ((mode === 'withdraw' && r.role !== 'command') || mode === 'skirmish') {
       d.target[i] = -1;
       return;
     }
@@ -5725,7 +6195,7 @@ export class Battle {
     else if (t < 0 && mode === 'charge' && !d.mt[i] ? true : (this.tick + i - this.firstId[d.team[i]!]!) % (t < 0 ? 3 : 6) === 0) {
       t = this.seek(i, r);
       // Falling back on the General's word, a man fights only a foe at hand.
-      if (t >= 0 && mode === 'reserve' && r.ord.kind === 'withdraw') {
+      if (t >= 0 && ((mode === 'reserve' && r.ord.kind === 'withdraw') || mode === 'withdraw')) {
         const ex = d.x[t]! - d.x[i]!;
         const ey = d.y[t]! - d.y[i]!;
         const reach = d.rad[i]! + d.rad[t]! + d.rc[i]! + 1.4;
@@ -5881,7 +6351,7 @@ export class Battle {
     // (The line meets the point where it stands; shooters shoot on until the point strikes them.)
     const ofLine = r.role === 'line';
     const R02 = R0 * R0;
-    const leash = pursue || roam || r.role === 'command' || r.mode === 'rally' ? 1e9 : mounted ? 34 : near ? (edge ? C.leashEdge : C.leashNear) * this.doc[r.team]!.loose.leash : 9;
+    const leash = pursue || roam || r.mode === 'rally' || (r.role === 'command' && this.generals[r.team]!.lastStand) ? 1e9 : r.role === 'command' ? HOUSEHOLD.leash : mounted ? 34 : near ? (edge ? C.leashEdge : C.leashNear) * this.doc[r.team]!.loose.leash : 9;
     const sxi = d.sx[i]!;
     const x = d.x[i]!;
     const y = d.y[i]!;
@@ -6061,6 +6531,39 @@ export class Battle {
       }
     }
     void r;
+    return best;
+  }
+
+  /** The nearest enemy man still fighting within `R` of man `i` (-1: none). */
+  private foeAt(i: number, R: number): number {
+    const d = this.d;
+    const x = d.x[i]!;
+    const y = d.y[i]!;
+    const team = d.team[i]!;
+    const x0 = Math.max(0, Math.floor((x - R) / CELL));
+    const x1 = Math.min(GW - 1, Math.floor((x + R) / CELL));
+    const y0 = Math.max(0, Math.floor((y - R) / CELL));
+    const y1 = Math.min(GH - 1, Math.floor((y + R) / CELL));
+    let best = -1;
+    let bs = R * R;
+    for (let cy = y0; cy <= y1; cy++) {
+      for (let cx = x0; cx <= x1; cx++) {
+        const c = cy * GW + cx;
+        const from = team === 0 ? this.grid[c]! + this.ofTeam0[c]! : this.grid[c]!;
+        const end = team === 0 ? this.gridEnd[c]! : this.grid[c]! + this.ofTeam0[c]!;
+        for (let k = from; k < end; k++) {
+          const j = this.items[k]!;
+          if (d.state[j] !== State.Fighting) continue;
+          const dx = this.kx[k]! - x;
+          const dy = this.ky[k]! - y;
+          const q = dx * dx + dy * dy;
+          if (q < bs) {
+            bs = q;
+            best = j;
+          }
+        }
+      }
+    }
     return best;
   }
 
@@ -6304,59 +6807,118 @@ export class Battle {
     const d = this.d;
     const tr = this.regiments[r.targetReg]!;
     if (tr.alive === 0) return;
-    const v = tr.engaged ? this.pickRear(tr, d.x[i]!, d.y[i]!, st.range) : this.pickInReach(tr, d.x[i]!, d.y[i]!, st.range, r.atWill);
-    if (v < 0) {
-      d.cd[i] = r.role === 'missile' && !r.atWill ? 1 : 4; // on the volley clock he tries again within the volley
-      return;
-    }
-    const dx = d.x[v]! - d.x[i]!;
-    const dy = d.y[v]! - d.y[i]!;
-    const dist = sqrt(dx * dx + dy * dy);
-    if (dist > st.range || dist < 6) {
-      if (dist > st.range) r.short++;
-      d.cd[i] = r.role === 'missile' && !r.atWill ? 1 : 4;
-      return;
-    }
     const s = this.soldiers[i]!;
     const kind = this.fire[s.team]![s.cls]!;
-    const flight = Math.max(3, Math.round((dist / st.projectileSpeed) * TICKS_PER_SECOND));
-    // Lead the target a little, and scatter more with distance: a lob most of all at long range.
-    const leadX = d.x[v]! + d.vx[v]! * flight * TICK_S * 0.8;
-    const leadY = d.y[v]! + d.vy[v]! * flight * TICK_S * 0.8;
     const lobbed = kind === 'lob' || kind === 'siege';
-    // At will against a foe close at hand, bows shoot flat, point-blank (and as surely as a crossbow).
-    const flatBow = r.atWill && kind === 'lob' && dist < POINT_BLANK;
-    let spread = 2 + dist * (kind === 'siege' ? 0.05 : kind === 'gun' ? 0.018 : kind === 'cannon' ? 0.02 : 0.03);
-    if (lobbed && !flatBow) spread += Math.max(0, dist - st.range * 0.5) * 0.04;
-    // A fast-moving target is guessed at, not known: the further it goes while the shot is in the
-    // air, the wider the miss (riders at the gallop at long range most of all; marching foot not).
-    const vt = sqrt(d.vx[v]! * d.vx[v]! + d.vy[v]! * d.vy[v]!);
-    if (vt > LEAD_EASY) spread += (vt - LEAD_EASY) * flight * TICK_S * LEAD_ERR;
+    const retry = r.role === 'missile' && !r.atWill ? 1 : 4;
+    // v17 (QA #3): a flat shot (crossbow, gun, bombard) cannot go over a melee: its bolt or ball
+    // would strike our own men locked with them first. It waits for a clear target.
+    if (tr.engaged && !lobbed) {
+      r.dangerShots++;
+      d.cd[i] = retry + this.rng.int(4);
+      return;
+    }
+    // Danger close (v17, QA #2 and #3): a man shoots only where the whole scatter of his shot,
+    // and the stone's splash, falls clear of our own men, where they stand and where they will be
+    // when it comes down. He tries a few of the enemy's men (over a melee, its rear ranks); if
+    // every one is too near ours, he holds his shot.
+    let v = -1;
+    let dist = 0;
+    let flight = 0;
+    let leadX = 0;
+    let leadY = 0;
+    let spread = 0;
+    let flatBow = false;
+    const splash = kind === 'siege' ? SIEGE_SPLASH : 0;
+    for (let tries = 0; tries < DANGER.tries; tries++) {
+      const c = tr.engaged ? this.pickRear(tr, d.x[i]!, d.y[i]!, st.range) : this.pickInReach(tr, d.x[i]!, d.y[i]!, st.range, r.atWill);
+      if (c < 0) break;
+      const dx = d.x[c]! - d.x[i]!;
+      const dy = d.y[c]! - d.y[i]!;
+      const q = sqrt(dx * dx + dy * dy);
+      if (q > st.range || q < 6) {
+        if (v < 0) {
+          v = c;
+          dist = q;
+        }
+        break;
+      }
+      const fl = Math.max(3, Math.round((q / st.projectileSpeed) * TICKS_PER_SECOND));
+      // Lead the target a little, and scatter more with distance: a lob most of all at long range.
+      const lx0 = d.x[c]! + d.vx[c]! * fl * TICK_S * 0.8;
+      const ly0 = d.y[c]! + d.vy[c]! * fl * TICK_S * 0.8;
+      // At will against a foe close at hand, bows shoot flat, point-blank (and as surely as a crossbow).
+      const fb = r.atWill && kind === 'lob' && q < POINT_BLANK;
+      let sp = spreadAt(kind, q, st.range, fb);
+      // A fast-moving target is guessed at, not known: the further it goes while the shot is in the
+      // air, the wider the miss (riders at the gallop at long range most of all; marching foot not).
+      const vt = sqrt(d.vx[c]! * d.vx[c]! + d.vy[c]! * d.vy[c]!);
+      if (vt > LEAD_EASY) sp += (vt - LEAD_EASY) * fl * TICK_S * LEAD_ERR;
+      v = c;
+      dist = q;
+      flight = fl;
+      leadX = lx0;
+      leadY = ly0;
+      spread = sp;
+      flatBow = fb;
+      // (A bombard's ball bounds on beyond the aim: the box covers that run too.)
+      const bound = kind === 'cannon' ? CANNON_BOUND * 0.5 : 0;
+      const ux = bound > 0 ? dx / (q || 1) : 0;
+      const uy = bound > 0 ? dy / (q || 1) : 0;
+      // (Point-blank, a man shoots between the files of his own block: he sees them.)
+      if (!this.friendsNear(s.team, lx0 + ux * bound, ly0 + uy * bound, sp + bound + splash + DANGER.margin, fl, fb ? r.id : -1)) break;
+      v = -2;
+    }
+    if (v === -2) {
+      r.dangerShots++;
+      d.cd[i] = retry + 3 + this.rng.int(6);
+      return;
+    }
+    if (v < 0) {
+      d.cd[i] = retry; // on the volley clock he tries again within the volley
+      return;
+    }
+    if (dist > st.range || dist < 6) {
+      if (dist > st.range) r.short++;
+      d.cd[i] = retry;
+      return;
+    }
     let lx = leadX + (this.rng.next() - 0.5) * 2 * spread;
     let ly = leadY + (this.rng.next() - 0.5) * 2 * spread;
-    let lofted = false;
     if (!lobbed) {
       // Direct fire needs a clear line: whoever is first on it is who it hits (see `land`).
       // Crossbows see past their own ranks (they kneel or take turns), and so do guns firing rank by rank (S3).
-      const n = this.lineHits(d.x[i]!, d.y[i]!, lx, ly, i, kind === 'flat' || r.rippling ? r.id : -1, 1);
-      const first = n > 0 ? this.lineIds[0]! : -1;
+      const own = kind === 'flat' || r.rippling ? r.id : -1;
+      // (A bombard's ball goes on through several men, and bounds on beyond: none of them may be ours.)
+      let ex = lx;
+      let ey = ly;
+      if (kind === 'cannon') {
+        ex += ((lx - d.x[i]!) / (dist || 1)) * CANNON_BOUND;
+        ey += ((ly - d.y[i]!) / (dist || 1)) * CANNON_BOUND;
+      }
+      const n = this.lineHits(d.x[i]!, d.y[i]!, ex, ey, i, own, kind === 'cannon' ? CANNON_PEN : 1);
+      let first = n > 0 ? this.lineIds[0]! : -1;
+      for (let k = 1; k < n; k++) if (d.team[this.lineIds[k]!] === s.team) first = this.lineIds[k]!;
+      // (And nobody of ours, from another block, is about to walk across it while it flies: v17.)
+      if (first < 0 || d.team[first] !== s.team) {
+        const c = this.friendCrossing(s.team, d.x[i]!, d.y[i]!, lx, ly, flight * TICK_S, r.id, i);
+        if (c >= 0) first = c;
+      }
       if (first >= 0 && d.team[first] === s.team) {
-        if (kind !== 'flat') {
-          // Friends in the way: hold fire (the rear ranks wait their turn).
-          r.blockedShots++;
-          r.blocker = d.reg[first]!;
-          d.cd[i] = r.role === 'missile' && !r.atWill ? 1 : 4 + this.rng.int(6);
-          return;
-        }
-        // A crossbowman lofts his bolt over them, much less surely.
-        lofted = true;
-        lx = leadX + (this.rng.next() - 0.5) * 4 * spread;
-        ly = leadY + (this.rng.next() - 0.5) * 4 * spread;
+        // Friends in the way: hold fire (the rear ranks wait their turn). (Until v17 a crossbowman
+        // lofted his bolt over them at four times the scatter: a flat-shooting bow cannot lob,
+        // and those bolts came down among our own men. Now, like the guns, the block steps aside
+        // to open its line: `sidestep`.)
+        r.blockedShots++;
+        r.blocker = d.reg[first]!;
+        d.cd[i] = r.role === 'missile' && !r.atWill ? 1 : 4 + this.rng.int(6);
+        return;
       }
     }
     r.loosed++;
+    r.fired++;
     r.volleyShots++;
-    const lob = lobbed || lofted;
+    const lob = lobbed;
     if (kind === 'cannon') {
       // The ball bounds on along the ground beyond where it was aimed.
       const ux = (lx - d.x[i]!) / (dist || 1);
@@ -6369,8 +6931,8 @@ export class Battle {
     d.aim[i] = kind === 'siege' ? 0.85 : flatBow ? 0.1 : lob ? Math.min(1, 0.3 + 0.6 * (dist / range)) : kind === 'flat' ? 0.1 : 0;
     this.projectiles.push({
       team: s.team, cls: s.cls, x0: d.x[i]!, y0: d.y[i]!, x1: lx, y1: ly, born: this.tick, lands: this.tick + flight,
-      damage: st.missileDamage * (s.vet ? 1.1 : 1) * MISSILE_K, pierce: st.pierce, splash: kind === 'siege' ? 9 : 0, shooter: i,
-      arc, direct: !lob, pen: kind === 'cannon' ? CANNON_PEN : 0,
+      damage: st.missileDamage * (s.vet ? 1.1 : 1) * MISSILE_K, pierce: st.pierce, splash, shooter: i,
+      arc, direct: !lob, pen: kind === 'cannon' ? CANNON_PEN : 0, flown: 0, left: kind === 'cannon' ? CANNON_PEN : 1, force: 1,
     });
     d.ammo[i]!--;
     d.acted[i] = this.tick;
@@ -6378,6 +6940,74 @@ export class Battle {
     // (At will, a bowman nocks and looses as fast as he can draw, with no long aim: the burst rate.)
     const reload = r.atWill && kind === 'lob' && r.role === 'missile' ? Math.round(st.reload * BOW_BURST) : st.reload;
     d.cd[i] = reload + this.rng.int(r.role === 'missile' && !r.atWill ? 3 : Math.max(2, Math.floor(reload / 5)));
+  }
+
+  /**
+   * Whether a man of `team` (not of regiment `skipReg`) stands within the box ±h about (x, y),
+   * now or `ticks` from now at his present pace (danger close: see DANGER).
+   */
+  private friendsNear(team: number, x: number, y: number, h: number, ticks: number, skipReg = -1): boolean {
+    const d = this.d;
+    const T = ticks * TICK_S;
+    for (const o of this.teamRegs[team]!) {
+      if (o.alive === 0 || o.id === skipReg) continue;
+      const dx = o.cx - x;
+      const dy = o.cy - y;
+      const reach = o.radius + h * 1.42 + o.speed * 2 * T + 20;
+      if (dx * dx + dy * dy > reach * reach) continue;
+      for (const id of o.members) {
+        if (d.state[id]! > State.Routing) continue;
+        const ex = d.x[id]! - x;
+        const ey = d.y[id]! - y;
+        if (ex <= h && ex >= -h && ey <= h && ey >= -h) return true;
+        const fx = ex + d.vx[id]! * T;
+        const fy = ey + d.vy[id]! * T;
+        if (fx <= h && fx >= -h && fy <= h && fy >= -h) return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * A man of `team` (not of regiment `skipReg`, nor `skip`) who will be on the line from (x0, y0)
+   * to (x1, y1) when a shot taking `flight` seconds over it goes by him, at his present pace; -1
+   * none. (Only those nearer than the end: a friend just beyond the target is the scatter's
+   * business, `friendsNear`.)
+   */
+  private friendCrossing(team: number, x0: number, y0: number, x1: number, y1: number, flight: number, skipReg: number, skip: number): number {
+    const d = this.d;
+    const lx = x1 - x0;
+    const ly = y1 - y0;
+    const L = sqrt(lx * lx + ly * ly) || 1;
+    const ux = lx / L;
+    const uy = ly / L;
+    for (const o of this.teamRegs[team]!) {
+      if (o.alive === 0 || o.id === skipReg) continue;
+      // The regiment's circle against the line, widened by how far its men can go meanwhile.
+      const ex = o.cx - x0;
+      const ey = o.cy - y0;
+      const t = Math.max(0, Math.min(L, ex * ux + ey * uy));
+      const qx = ex - ux * t;
+      const qy = ey - uy * t;
+      const reach = o.radius + o.speed * 2 * flight + 8;
+      if (qx * qx + qy * qy > reach * reach) continue;
+      for (const id of o.members) {
+        if (id === skip || d.state[id]! > State.Routing) continue;
+        const f0 = ((d.x[id]! - x0) * ux + (d.y[id]! - y0) * uy) / L;
+        const when = Math.max(0, Math.min(1, f0)) * flight;
+        const mx = d.x[id]! + d.vx[id]! * when - x0;
+        const my = d.y[id]! + d.vy[id]! * when - y0;
+        const tt = mx * ux + my * uy;
+        if (tt < 0 || tt > L) continue;
+        const px = mx - ux * tt;
+        const py = my - uy * tt;
+        // (The longer till the shot reaches him, the less sure where he will be: men in a press
+        // shuffle a couple of units a second whatever their pace says.)
+        const rr = d.rad[id]! * 0.85 + 2 + when * 2;
+        if (px * px + py * py <= rr * rr) return id;
+      }
+    }
+    return -1;
   }
 
   /**
@@ -7385,9 +8015,31 @@ export class Battle {
           const ey = r.ty + r.dfy * sy + r.dfx * sx - y;
           const q = sqrt(ex * ex + ey * ey) || 1;
           const h = d.hs[i]! || 1;
-          const v = Math.min(spd * PACE.withdraw * h, q * 1.5) / q;
+          let v = Math.min(spd * PACE.withdraw * h, q * 1.5) / q;
           vx = ex * v;
           vy = ey * v;
+          // QA review #14: a foe at his horse's head on the way to his spot (he was fighting on
+          // the far side of him), he turns out round him, away from him, first: he does not ride
+          // into him and stand there. (Until v17 riders were left in contact under half their
+          // speed some 3 s a rider each time horse broke off.)
+          const j = this.foeAt(i, RIDER.clear);
+          if (j >= 0) {
+            let ax = x - d.x[j]!;
+            let ay = y - d.y[j]!;
+            const m = sqrt(ax * ax + ay * ay) || 1;
+            ax /= m;
+            ay /= m;
+            const along = (ex * ax + ey * ay) / q;
+            if (along < 0.3) {
+              // Round him: the part of his way across the line to the foe, and off from him.
+              let wx = ex / q - along * ax + ax;
+              let wy = ey / q - along * ay + ay;
+              const w = sqrt(wx * wx + wy * wy) || 1;
+              v = (spd * PACE.withdraw * h) / w;
+              vx = wx * v;
+              vy = wy * v;
+            }
+          }
           if (this.swerve(i, vx, vy)) {
             vx = this.tmp[0]!;
             vy = this.tmp[1]!;
@@ -7534,6 +8186,7 @@ export class Battle {
     for (let i = 0; i < ps.length; i++) {
       const p = ps[i]!;
       if (p.lands > this.tick) {
+        if (p.direct && p.left > 0) this.strikeAlong(p, (this.tick - p.born) / (p.lands - p.born));
         ps[w++] = p;
         continue;
       }
@@ -7542,25 +8195,40 @@ export class Battle {
     ps.length = w;
   }
 
+  /**
+   * Direct fire strikes the first man on the part of its line it flies over up to share `f` of
+   * the way, friend or foe, where he stands now; a cannonball goes on through several, losing
+   * force with each. (Until v17 the whole line was looked at when it came down: a man who stepped
+   * onto it behind the shot, after it had gone by, took it, and so did our own men walking up
+   * behind a block of crossbows.) A crossbow bolt passes its own regiment's ranks, as it did when
+   * it was aimed (see `shoot`): they kneel or take turns.
+   */
+  private strikeAlong(p: Projectile, f: number): void {
+    const d = this.d;
+    const f0 = p.flown;
+    if (f <= f0) return;
+    p.flown = f;
+    const dx = p.x1 - p.x0;
+    const dy = p.y1 - p.y0;
+    const sr = this.regiments[d.reg[p.shooter]!]!;
+    const own = this.fire[p.team]![p.cls] === 'flat' || sr.rippling ? sr.id : -1;
+    const n = this.lineHits(p.x0 + dx * f0, p.y0 + dy * f0, p.x0 + dx * f, p.y0 + dy * f, p.shooter, own, p.left);
+    for (let k = 0; k < n && p.left > 0; k++) {
+      const j = this.lineIds[k]!;
+      const dmg = p.damage;
+      p.damage = dmg * p.force;
+      this.missileHit(j, p);
+      p.damage = dmg;
+      if (p.pen > 0) this.shake(this.regiments[d.reg[j]!]!, 0.5 * this.shockK);
+      p.force *= 0.7;
+      p.left--;
+    }
+  }
+
   private land(p: Projectile): void {
     const d = this.d;
     if (p.direct) {
-      // The first man along its line takes it, friend or foe; a cannonball goes on through
-      // several, losing force with each. A crossbow bolt passes its own regiment's ranks, as it
-      // did when it was aimed (see `shoot`): they kneel or take turns.
-      const sr = this.regiments[d.reg[p.shooter]!]!;
-      const own = this.fire[p.team]![p.cls] === 'flat' || sr.rippling ? sr.id : -1;
-      const n = this.lineHits(p.x0, p.y0, p.x1, p.y1, p.shooter, own, p.pen > 0 ? p.pen : 1);
-      let force = 1;
-      for (let k = 0; k < n; k++) {
-        const j = this.lineIds[k]!;
-        const dmg = p.damage;
-        p.damage = dmg * force;
-        this.missileHit(j, p);
-        p.damage = dmg;
-        if (p.pen > 0) this.shake(this.regiments[d.reg[j]!]!, 0.5 * this.shockK);
-        force *= 0.7;
-      }
+      if (p.left > 0) this.strikeAlong(p, 1);
       return;
     }
     const radius = p.splash > 0 ? p.splash : 2.4;
@@ -7811,6 +8479,36 @@ export const RISE_TICKS = 16;
 /** U3: the weight of a man getting up from the dead in the press (nothing shoves him: see `rebuildGrid`). */
 const RISING_MASS = 1e6;
 
+/**
+ * Danger close (v17, QA #2-#3): a shot is held when one of our men stands, or will stand when it
+ * lands (at his present pace), inside its scatter (the box of ±spread about the aim point) and
+ * `margin` more (the width of the man it would strike, and a little to spare); a stone's splash
+ * widens the box by SIEGE_SPLASH. A shooter tries `tries` of the enemy's men before he holds.
+ */
+const DANGER = { margin: 4, tries: 3, foul: 60 };
+/** The scatter of a shot `q` away (± this about the aim point): a lob most of all at long range. */
+function spreadAt(kind: Ballistics, q: number, range: number, flatBow: boolean): number {
+  const sp = 2 + q * (kind === 'siege' ? 0.05 : kind === 'gun' ? 0.018 : kind === 'cannon' ? 0.02 : 0.03);
+  return (kind === 'lob' || kind === 'siege') && !flatBow ? sp + Math.max(0, q - range * 0.5) * 0.04 : sp;
+}
+/**
+ * Skirmishers (v17, QA #5): out again from behind the line only with `out` javelins a man; fall
+ * back below `spent` a man; their place behind the line moves only when the line has moved
+ * `deadband`.
+ */
+const SKIRM = { out: 1.5, spent: 0.35, deadband: 30 };
+/**
+ * Crossbows (direct fire, not the samurai's guns, whose doctrine is S3) stand `screen` before
+ * their line while the lines are apart, and fall back through it when enemy foot comes within
+ * `back`, horse within `horse` (a crossbow is spanned in 10 s and more: men who stood to take a
+ * charge of horse before their line were ridden down), or the line comes up to them (`screen`).
+ */
+const FLAT_SCREEN = { screen: 14, back: 70, horse: 420 };
+/** Crossbows and guns blocked by our own men look this far along the line for a clear one, this much at a time. */
+const LANE_SEARCH = 200;
+const LANE_STEP = 20;
+/** A stone strikes whoever is within this of where it lands (friend or foe: see `land`). */
+const SIEGE_SPLASH = 9;
 /** A bombard's ball bounds on this far past its aim point, through at most this many men. */
 const CANNON_BOUND = 45;
 const CANNON_PEN = 5;
@@ -7914,7 +8612,9 @@ const RIDER_SIN = 0.198669330795;
  * for horse re-forming to break off the re-form and meet it (and how far a horse's length and room
  * clears a friend, `rideRound`; how far before our own foot's front a foe counts as its own,
  * `covered`, the pace, a share of his speed, at which a rider in their ranks rides out of
- * them, and the share of a block's riders in them at which it breaks off, `inOurRanks`); how near a foe must be for a horse
+ * them, and the share of a block's riders in them at which it breaks off, `inOurRanks`; how long
+ * a rider stands without a foe he can get at, and the share of a block's riders so, at which it
+ * breaks off, `idleRanks`); how near a foe must be for a horse
  * archer to ride off from him by himself; under what share of his hit points a rider hit
  * among spears pulls out of them, and for how long (ticks); the gap to foot at which horse
  * archers ride off (until the sweep after v16, 35: foot closing at a run caught them).
@@ -7938,6 +8638,9 @@ const RIDER = {
   spearHurt: 0.5,
   spearOut: 20,
   haFoot: 50,
+  clear: 9,
+  idleFor: 20,
+  idleShare: 0.5,
 };
 /** RIDER: the pace (a share of his speed) of a rider riding round to the flank on his own. */
 const RIDER_FREE = 0.8;

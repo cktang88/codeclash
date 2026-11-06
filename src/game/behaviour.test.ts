@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Battle, BATTLE_VERSION, MAX_TICKS, State, type ArmySpec, type BattleSetup } from './battle.ts';
+import { Battle, BATTLE_VERSION, MAX_TICKS, State, type ArmySpec, type BattleSetup, type Projectile } from './battle.ts';
 import type { FactionId } from './factions.ts';
 import { only, placeRegiment, plainArmy } from './testing.ts';
 import { U, UNIT_COUNT } from './units.ts';
@@ -320,14 +320,21 @@ describe('battle: shooters keep their front to the enemy', () => {
     }
   });
 
-  it('archers stand well back, shoot from long range, and keep shooting over their line once it is locked in melee', () => {
+  it('archers stand well back, shoot from long range, over their line into a melee only at the rear ranks, never into their own men', () => {
     let shots = 0;
     let long = 0;
     let overMelee = 0;
     let ahead = 0;
     let standing = 0;
+    let own = 0;
     battles(3, (b) => {
       const seen = new Set<object>();
+      const inside = b as unknown as { missileHit(o: number, p: Projectile): void };
+      const hit0 = inside.missileHit.bind(b);
+      inside.missileHit = (o, p) => {
+        if (p.cls === U.Archers && b.soldiers[o]!.team === p.team) own++;
+        hit0(o, p);
+      };
       while (!b.done() && b.tick < 1500) {
         b.step();
         for (const p of b.projectiles) {
@@ -356,7 +363,10 @@ describe('battle: shooters keep their front to the enemy', () => {
     });
     expect(shots).toBeGreaterThan(1000);
     expect(long).toBeGreaterThan(shots * 0.6);
-    expect(overMelee).toBeGreaterThan(shots * 0.05);
+    // (Until v17 they shot over a melee at its rear half whatever the scatter: 6% of all their
+    // hits fell on their own men, most in that melee. Now only where it falls clear: QA #3.)
+    expect(overMelee).toBeGreaterThan(shots * 0.01);
+    expect(own).toBeLessThan(shots * 0.002);
     expect(ahead).toBeLessThan(standing * 0.08);
   }, 60_000);
 });

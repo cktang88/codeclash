@@ -242,3 +242,28 @@ paint-speed merge): level 2 0.35/0.22/0.85 s → 0.38/0.15/0.50 s; level 4 0.94/
   for the frame-perf work (cc/frame-perf has a tiled ground cache).
 - A level-1 grid costs as much to paint as level 2 (0.3-0.9 s a kind): the paint is per frame,
   not per pixel, at the bottom levels.
+
+## The first look (QA battle-realism #17)
+
+The complaint: on a first HD visit the armies were missing for a few seconds, then stood as dark
+silhouettes (the 48 px level-1 grid blown up 8x) until the level-2 sheets painted, then popped
+again to 8x. `scene.ts` now holds the figures back on a battle's first look until every kind in
+view (living or dead) is drawn from presentable art (zoomed in: a sheet of level 2 or finer;
+zoomed out: its grid), at most 20 s, then fades them in together over 0.45 s
+(`BattleScene.reveal`, mark `codeclash:reveal`). The ground, the stakes and the regiments'
+standards show from the first frame, so the field reads as armies forming up. A scene that takes
+over from another (an art switch) starts revealed; later zooms keep the existing fallbacks.
+
+Measured with `scripts/qa/first-look.cjs` (dev servers, sheet cache off: a cold first visit;
+`battle-perf.html?seed=1&men=1200&t=5&zoom=4&aim=0&art=hd&pause=1`, headless Chromium with
+SwiftShader on a loaded 4-core machine; seconds from the first frame, two runs each):
+
+| | Before | After |
+|---|---|---|
+| Figures first on screen | 0.0, 0.0 | 9.2, 10.6 |
+| Every kind in view presentable (level 2+) | 9.3, 9.1 | 8.8, 10.1 |
+| **Time figures are on screen missing or as blown-up grid art** | **8.8 s, 8.7 s** | **0.0 s, 0.0 s** |
+| Sharp (every kind in view at 8x) | 20.5, 20.3 | 21.5, 22.1 |
+
+Shots: `docs/qa/battle-realism/fixes/17-first-look-before-after.jpg` (top: before at 9 s and 12 s
+after navigation; bottom: after, the field with its standards, then the figures at level 2).
