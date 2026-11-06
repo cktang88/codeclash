@@ -1024,7 +1024,7 @@ export const KATANA_BLADE = 6.0;
  * The nagae-yari (3.6 m: 31 units on a 14-unit man): the shaft behind and ahead of the near hand
  * upright (the butt at the ground), the butt when levelled (the hands slide up the shaft), the blade.
  */
-export const YARI = { butt: 8.0, fore: 21.0, level: 17.5, blade: 2.0 };
+export const YARI = { butt: 8.0, fore: 21.0, level: 14.0, blade: 2.0 };
 /** The rider's yari (2.9 m). */
 export const HORSE_YARI = { butt: 7.0, fore: 16.0, level: 10.5, blade: 1.8 };
 
