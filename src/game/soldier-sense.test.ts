@@ -1,7 +1,7 @@
 // QA round 3 (docs/qa/battle-realism-review-3.md): single men doing what no real man would, in
 // small set pieces. Each test stages a few blocks by hand and measures the men one by one.
 import { describe, expect, it } from 'vitest';
-import { Battle, BATTLE_VERSION, State } from './battle.ts';
+import { Battle, BATTLE_VERSION, State, type Regiment } from './battle.ts';
 import { U, UNIT_COUNT } from './units.ts';
 import type { FactionId } from './factions.ts';
 import { placeRegiment, plainArmy } from './testing.ts';
@@ -132,6 +132,46 @@ describe('QA3: each man fights like a man', () => {
       }
       expect(braced, `seed ${seed}`).toBeLessThan(15);
     }
+  });
+
+  it('spears do not brace against horse riding past to another block, only against horse coming at them (QA3, the extra case)', () => {
+    // 30 Templar spears; 16 enemy knights ride across their front 100 u off, at a block of ours
+    // far beyond them (or, the second time, straight at the spears). Until this fix the spears
+    // braced for any horse charging or riding round within 150, wherever it rode: in the demo
+    // battles a spear block ordered round the enemy's flank stopped to brace each time a squadron
+    // rode by, and stood braced under the enemy's arrows (827 man-s braced with no horse coming
+    // over s1-4 at 450, 29 since).
+    const run = (atSpears: boolean) => {
+      const b = new Battle({ version: BATTLE_VERSION, seed: 2, kind: 'daily', armies: [plainArmy(counts([[U.HeavyInfantry, 30], [U.Spearmen, 30]])), plainArmy(counts([[U.Knights, 16]]), 200, 'samurai')] });
+      b.generals[0]!.fixedPlan = 'hold';
+      const H = b.regiments.find((r) => r.team === 0 && r.cls === U.HeavyInfantry)!;
+      const S = b.regiments.find((r) => r.team === 0 && r.cls === U.Spearmen)!;
+      const K = b.regiments.filter((r) => r.team === 1);
+      placeRegiment(b, S, 1200, 1200, 1, 0);
+      placeRegiment(b, H, 1300, 1900, 0, -1);
+      K.forEach((r, k) => placeRegiment(b, r, 1300 + k * 20, 900, 0, 1));
+      const inside = b as unknown as { think(r: Regiment): void; survey(r: Regiment): void };
+      const think = inside.think.bind(b);
+      inside.think = (r: Regiment) => {
+        if (r.team === 0) return think(r);
+        inside.survey(r);
+        r.mode = atSpears ? 'charge' : 'flank';
+        r.targetReg = atSpears ? S.id : H.id;
+        const [x, y] = atSpears ? [S.cx, S.cy] : [r.ax, 1800];
+        r.tx = x;
+        r.ty = y;
+        r.dfx = 0;
+        r.dfy = 1;
+      };
+      let braced = 0;
+      while (b.tick < 250 && !b.done()) {
+        b.step();
+        if (S.mode === 'brace') braced++;
+      }
+      return braced;
+    };
+    expect(run(false)).toBe(0);
+    expect(run(true)).toBeGreaterThan(20);
   });
 
   it('skirmishers with no line of their own give ground before slower foot, throwing, not stand to be caught (#3)', () => {

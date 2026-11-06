@@ -359,6 +359,11 @@ export { COHESION, DOCTRINE, MORALE, REGROUP, UNDEAD } from './command.ts';
  *   the lines had run into each other, and struck unanswered (98% of the time nobody of ours had
  *   him as his foe). Front-rankers struck from behind while fighting (soldier-sense.ts, seeds 1-3):
  *   clash 1.57% of man-time -> 0.95%, edge 0.61 -> 0.31, rear 1.06 -> 0.75, reserve 1.34 -> 1.12.
+ * - Spears brace only against horse coming at them (QA3, review 3's last case): riding at them,
+ *   within 40, or on a ride that passes within a horse's length of them (`rideNears`); not a
+ *   squadron charging or riding round to another block 100 u off. Spears sent round the enemy's
+ *   flank stopped to brace each time one rode by, under the enemy's arrows. Braced with no horse
+ *   closing on them (brace-idle.ts, s1-4 at 450): 827 man-s, now 219; of it under arrows 101, now 53.
  */
 /**
  * v16: nothing grows with the size of the battle that should not (the undead won two thirds of
@@ -4352,7 +4357,12 @@ export class Battle {
       const cav = this.nearestFoe(r, 2, 150);
       // (Horse locked in a fight with someone else, out of a few strides, is no threat to brace
       // against: spears stand braced while the whole fight goes on beside them otherwise.)
-      if (cav && (cav.mode === 'charge' || cav.mode === 'flank' || (cav.mode === 'melee' && (cav.targetReg === r.id || this.nearestFoe(r, 2, 40) !== null)))) {
+      // (QA3: nor horse riding by at another block, or round to its flank, that is not coming at
+      // this one: riding at it, closing on it, or within a few strides. Spears ordered round the
+      // enemy's flank stopped to brace each time a squadron rode past 100 u off, and stood braced
+      // under the enemy's arrows.)
+      const coming = (cav?.mode === 'charge' || cav?.mode === 'flank') && (cav.targetReg === r.id || this.gapTo(r, cav) < 40 || this.rideNears(cav, r));
+      if (cav && (coming || (cav.mode === 'melee' && (cav.targetReg === r.id || this.nearestFoe(r, 2, 40) !== null)))) {
         // QA3 #2: horse locked in a fight with a friend of ours close by, and no other coming at
         // us: the spears go in at it (horse at a stand among foot is what spears are for), not
         // stand braced against horse that is not coming. (Until then 39 spears stood braced 14 s
@@ -4932,6 +4942,23 @@ export class Battle {
       }
     }
     return best;
+  }
+
+  /**
+   * QA3: whether horse block `o`'s ride, from where it is to its goal, passes within a few strides
+   * of block `r` (its edge and a horse's length more): it will ride into it, or close by its front.
+   */
+  private rideNears(o: Regiment, r: Regiment): boolean {
+    const ux = o.tx - o.cx;
+    const uy = o.ty - o.cy;
+    const L2 = ux * ux + uy * uy;
+    const ex = r.cx - o.cx;
+    const ey = r.cy - o.cy;
+    const k = L2 > 0 ? Math.max(0, Math.min(1, (ex * ux + ey * uy) / L2)) : 0;
+    const dx = ex - ux * k;
+    const dy = ey - uy * k;
+    const m = r.radius + o.radius + 20;
+    return dx * dx + dy * dy < m * m;
   }
 
   /** Whether a formed block of foot of the enemy of `team` (not running) is within `range` of (x, y). */
