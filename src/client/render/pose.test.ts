@@ -26,6 +26,22 @@ describe('facing', () => {
     expect(facing(Anim.Advance, 0, 20, N, N, false, N, N, front[0], front[1], 0)).toBe(dirFor(0, 20, 0));
   });
 
+  it('turns to an enemy at his elbow instead of showing him his back (QA #8)', () => {
+    // Walking back to his slot toward -x in the melee, a foe 6 u behind him at +x: he faces the foe.
+    expect(facing(Anim.Advance, -20, 0, N, N, false, N, N, front[0], front[1], 0, false, 6, 0)).toBe(dirFor(6, 0, 0));
+    expect(facing(Anim.Walk, -20, 0, N, N, false, N, N, front[0], front[1], 0, false, 6, 0)).toBe(dirFor(6, 0, 0));
+    // Squared up to a target 30 u ahead (out of reach), an enemy 5 u at his back: he turns to him.
+    expect(facing(Anim.Brace, 0, 0, 30, 0, false, N, N, front[0], front[1], 0, false, -5, 0)).toBe(dirFor(-5, 0, 0));
+    // No target, his front ahead, an enemy behind: the enemy.
+    expect(facing(Anim.Idle, 0, 0, N, N, false, N, N, front[0], front[1], 0, false, 0, -8)).toBe(dirFor(0, -8, 0));
+    // His own target in reach and nearer than the other: he keeps his target.
+    expect(facing(Anim.Brace, 0, 0, 6, 0, true, N, N, front[0], front[1], 0, false, -8, 0)).toBe(dirFor(6, 0, 0));
+    // A blow goes at his target, whoever stands at his elbow.
+    expect(facing(Anim.Attack, 0, 0, 12, 0, true, N, N, front[0], front[1], 0, false, -4, 0)).toBe(dirFor(12, 0, 0));
+    // Running (a rout, a charge) he faces the way he runs.
+    expect(facing(Anim.Run, -40, 0, N, N, false, N, N, front[0], front[1], 0, false, 5, 0)).toBe(dirFor(-40, 0, 0));
+  });
+
   it('keeps the regiment front for a shooter with no shot yet', () => {
     expect(facing(Anim.Shoot, 0, 0, N, N, false, N, N, 0, 1, 0)).toBe(dirFor(0, 1, 0));
   });

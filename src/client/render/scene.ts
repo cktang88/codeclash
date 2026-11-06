@@ -24,6 +24,7 @@ import { Batch, cornerBuffer, dropTarget, SpriteProgram, SpriteStream, target, t
 import { paintGround, type Ground } from './ground.ts';
 import { projX, projY, PX, unproject } from './iso.ts';
 import { GlPost } from './post.ts';
+import { ELBOW, FoeGrid } from './foes.ts';
 import { facing, ownFront, settleTurn, stillRising, turnVia, TURN_HOLD, TURN_STEP, type Vec } from './pose.ts';
 import { AnimTrack, blankFacts, isGait, pickAnim } from './animstate.ts';
 import { frameBox, nextZoomFloor, NO_INSETS, zoomOutScale, type Insets, type ZoomFloor } from './fit.ts';
@@ -294,6 +295,8 @@ export class BattleScene {
   /** Each man's clip, its start and stride across frames (animstate.ts). */
   private anims: AnimTrack;
   private readonly facts = blankFacts();
+  /** The living by cell, a tick at a time: the enemy at a man's elbow (foes.ts, pose.ts facing). */
+  private readonly foes = new FoeGrid(FIELD_W, FIELD_H);
   /** Scratch for each man's own front (pose.ts ownFront). */
   private readonly front: Vec = { x: 1, y: 0 };
   /** The way each man last moved (world velocity above a crawl): a walker who pauses a tick keeps facing it. */
@@ -1577,6 +1580,7 @@ export class BattleScene {
     const py0 = y0 - v.vh;
     const py1 = y1 + v.vh;
     // Soldiers.
+    this.foes.build(ss, b.tick);
     for (let i = 0; i < ss.length; i++) {
       const s = ss[i]!;
       if (s.state === State.Fled) continue;
@@ -1671,7 +1675,10 @@ export class BattleScene {
         const foeReg = curling ? b.regiments[reg.targetReg] : undefined;
         const rear = facesRear(reg, s.row, s.mounted === true, b.tick);
         const fr = ownFront(reg.fx, reg.fy, rear, curling, foeReg ? foeReg.ax - s.x : NaN, foeReg ? foeReg.ay - s.y : NaN, this.front);
-        const next = settleTurn(facing(anim, vx, vy, tdx, tdy, melee, this.aimX[i]!, this.aimY[i]!, fr.x, fr.y, dir, rear && !curling), dir, anim, T - this.turnAt[i]!, left === 255 ? -1 : (left as Dir));
+        // The enemy at his elbow (foes.ts): a man on foot in the fight turns to him.
+        const elbow = s.state === State.Fighting && !s.s.mounted ? this.foes.nearest(s.x, s.y, s.team, ELBOW) : -1;
+        const nb = elbow >= 0 ? ss[elbow]! : undefined;
+        const next = settleTurn(facing(anim, vx, vy, tdx, tdy, melee, this.aimX[i]!, this.aimY[i]!, fr.x, fr.y, dir, rear && !curling, nb ? nb.x - s.x : NaN, nb ? nb.y - s.y : NaN), dir, anim, T - this.turnAt[i]!, left === 255 ? -1 : (left as Dir));
         if (next !== dir) {
           // A half turn goes through the quarter between (pose.ts turnVia), shown for TURN_STEP.
           const via = anim === Anim.Attack || anim === Anim.Shoot ? next : turnVia(dir, next, vx * vx + vy * vy > 9 ? vx : tgt ? tdx : fr.x, vx * vx + vy * vy > 9 ? vy : tgt ? tdy : fr.y);

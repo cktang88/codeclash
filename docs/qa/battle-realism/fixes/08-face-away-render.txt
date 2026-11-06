@@ -1,0 +1,34 @@
+seed 1 men 450: 54630 samples  face-away old 3.22%  new 2.08%
+seed 1 men 1200: 123776 samples  face-away old 3.68%  new 2.58%
+seed 1 men 2800: 428182 samples  face-away old 3.58%  new 2.50%
+seed 2 men 450: 57505 samples  face-away old 3.08%  new 1.86%
+seed 2 men 1200: 147384 samples  face-away old 4.26%  new 1.81%
+seed 2 men 2800: 436536 samples  face-away old 4.05%  new 1.47%
+seed 3 men 450: 73329 samples  face-away old 3.54%  new 1.49%
+seed 3 men 1200: 163223 samples  face-away old 3.63%  new 1.27%
+seed 3 men 2800: 434300 samples  face-away old 4.28%  new 1.24%
+seed 4 men 450: 61931 samples  face-away old 4.08%  new 1.95%
+seed 4 men 1200: 240904 samples  face-away old 3.68%  new 1.83%
+seed 4 men 2800: 330048 samples  face-away old 3.37%  new 1.61%
+seed 5 men 450: 65090 samples  face-away old 3.19%  new 1.59%
+seed 5 men 1200: 172189 samples  face-away old 4.27%  new 1.56%
+seed 5 men 2800: 374428 samples  face-away old 3.49%  new 1.14%
+seed 6 men 450: 48633 samples  face-away old 3.02%  new 1.98%
+seed 6 men 1200: 162548 samples  face-away old 3.96%  new 2.37%
+seed 6 men 2800: 168520 samples  face-away old 3.53%  new 2.38%
+
+ALL: 3543156 samples  face-away old 3.76%  new 1.74%  turns (men within 18 u of a foe) old 177801 new 143922
+  foot Advance no-tgt moving               old 0.86%  new 0.03%
+  foot Brace tgt-in-reach-not-nearest      old 0.51%  new 0.40%
+  foot Brace no-tgt                        old 0.51%  new 0.03%
+  foot Brace tgt-in-reach-not-nearest moving old 0.34%  new 0.21%
+  foot Attack tgt-in-reach-not-nearest     old 0.27%  new 0.28%
+  foot Advance no-tgt                      old 0.20%  new 0.00%
+  foot Attack tgt-in-reach-not-nearest moving old 0.16%  new 0.16%
+  foot Walk no-tgt moving                  old 0.11%  new 0.01%
+  horse Advance no-tgt (no elbow) moving   old 0.11%  new 0.11%
+  foot Brace tgt moving                    old 0.07%  new 0.04%
+  horse Brace tgt (no elbow) moving        old 0.06%  new 0.06%
+  horse Brace tgt-in-reach-not-nearest (no elbow) old 0.04%  new 0.04%
+  foot Advance tgt-in-reach-not-nearest moving old 0.04%  new 0.02%
+  foot Run no-tgt moving                   old 0.04%  new 0.04%

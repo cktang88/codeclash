@@ -13,11 +13,21 @@ import { dirFor, screenDir } from './iso.ts';
  *
  * `vx, vy`: his velocity; `tdx, tdy`: toward his foe (NaN: none); `melee`: the foe is in reach
  * (or he has no missile); `adx, ady`: his latest shot (NaN: none yet); `fx, fy`: his own
- * front (ownFront); `hold`: he keeps his own front while he steps in his guard (see above); `prev`: last frame's facing (hysteresis, see dirFor).
+ * front (ownFront); `hold`: he keeps his own front while he steps in his guard (see above); `prev`: last frame's facing (hysteresis, see dirFor);
+ * `ndx, ndy`: toward the nearest enemy at his elbow (NaN: none, or not asked), who comes first.
  */
-export function facing(anim: Anim, vx: number, vy: number, tdx: number, tdy: number, melee: boolean, adx: number, ady: number, fx: number, fy: number, prev: Dir, hold = false): Dir {
+export function facing(anim: Anim, vx: number, vy: number, tdx: number, tdy: number, melee: boolean, adx: number, ady: number, fx: number, fy: number, prev: Dir, hold = false, ndx = NaN, ndy = NaN): Dir {
   const hasTarget = tdx === tdx;
   const engaged = hasTarget && melee;
+  // An enemy at his elbow (`ndx, ndy`: the nearest within reach and a step, foes.ts ELBOW; the
+  // scene passes it for a fighting man on foot): unless he runs, or strikes or shoots at his own
+  // target, he faces that man, walking backwards or sidestepping in his guard to his slot, rather
+  // than showing him his back while he looks at a target further off or the way he steps. His
+  // own target in reach keeps him unless the man at his elbow is nearer (under 0.9 of the distance).
+  if (ndx === ndx && anim !== Anim.Run && anim !== Anim.Attack && anim !== Anim.Shoot) {
+    const nd = ndx * ndx + ndy * ndy;
+    if (!engaged || nd < 0.81 * (tdx * tdx + tdy * tdy)) return dirFor(ndx, ndy, prev);
+  }
   // Walking in his guard (pressing, giving ground, closing) he keeps his front to his foe; with
   // none, a man who `hold`s his own front (a rear-ranker turned about, closing on the press
   // behind him) keeps it.
