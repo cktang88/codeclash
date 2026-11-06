@@ -956,7 +956,7 @@ export class General {
   revengeAt = -1;
   /**
    * The household (battle v17, QA review #4 and #6): where it keeps behind the line, eased over
-   * some three seconds (`post`), and the spot it rides to, moved only when that drifts more
+   * some six seconds (`post`), and the spot it rides to, moved only when that drifts more
    * than POST_DEADBAND off (`guard`); since when it has been locked in its present fight, and
    * until when, having broken off, it does not take on again (-1: not). `lastStand`: his army
    * is gone, and he fights to the end.
@@ -1116,11 +1116,11 @@ const HOUSEHOLD_ODDS = 2;
  * place after a foe.
  */
 const HOUSEHOLD = { wary: 90, fight: 100, off: 150, spent: 1 / 3, ahead: 120, leash: 40 };
-/** How fast the household's post follows the line (a share of the gap each half second: about 3 s), and how far it drifts before the household moves (QA review #6). */
-const POST_EASE = 0.15;
-const POST_DEADBAND = 30;
+/** How fast the household's post follows the line (a share of the gap each half second: about 6 s), and how far it drifts before the household moves (QA review #6). */
+const POST_EASE = 0.08;
+const POST_DEADBAND = 40;
 /** The household turns its horse to ride a goal farther than this, rather than back (horse otherwise needs HORSE_REIN). */
-const POST_REIN = 20;
+const POST_REIN = 8;
 /** The household's post stands behind the blocks behind the middle of the line, but never further than this behind its front. */
 const POST_BACK = 320;
 /**
@@ -4642,14 +4642,16 @@ export class Battle {
    */
   private idleRanks(r: Regiment): boolean {
     const C = COHESION;
-    if (r.cycles >= C.cavCycles || r.fatigue > C.cavBlown || !this.doc[r.team]!.loose.stepBack) return false;
+    if (r.meleeTicks <= RIDER.idleFor || r.cycles >= C.cavCycles || r.fatigue > C.cavBlown || !this.doc[r.team]!.loose.stepBack) return false;
     const d = this.d;
+    const slow = r.speed * 0.15;
     let n = 0;
     let idle = 0;
     for (const id of r.members) {
       if (d.state[id] !== State.Fighting) continue;
       n++;
-      if (d.target[id]! < 0 && d.idl[id]! > 0 && this.tick - d.idl[id]! > RIDER.idleFor) idle++;
+      // (Standing: not riding round to a flank of his own, see `flankPoint`.)
+      if (d.target[id]! < 0 && d.idl[id]! > 0 && this.tick - d.idl[id]! > RIDER.idleFor && d.vx[id]! * d.vx[id]! + d.vy[id]! * d.vy[id]! < slow * slow) idle++;
     }
     return n > 0 && idle >= n * RIDER.idleShare;
   }
@@ -5213,7 +5215,7 @@ export class Battle {
           }
           ux = r.fx;
           uy = r.fy;
-        } else pace = Math.min(pace, r.speed * HORSE_WALK); // pulled up: it turns about at a walk
+        } else pace = r.role === 'command' && al < 0 ? 0 : Math.min(pace, r.speed * HORSE_WALK); // pulled up: it turns about at a walk (the household, keeping its post, turns its horses before it rides: QA review #6)
       } else {
         // March facing the way it goes; a block slows while it wheels.
         pace *= al > 0.8 ? 1 : al > 0.3 ? 0.5 : 0.25;
