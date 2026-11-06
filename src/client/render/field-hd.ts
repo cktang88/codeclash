@@ -210,11 +210,6 @@ uniform highp usampler2D u_cells;
 uniform ivec2 u_cell0;
 out vec4 o;
 
-uvec2 cellAt(vec2 ci) {
-  ivec2 t = ivec2(ci) - u_cell0;
-  if (all(greaterThanEqual(t, ivec2(0))) && all(lessThan(t, textureSize(u_cells, 0)))) return texelFetch(u_cells, t, 0).xy;
-  return cellInfo(ci);
-}
 
 void main() {
   vec2 T = floor(u_cam * u_m + 0.5) + floor(gl_FragCoord.xy);
@@ -268,135 +263,160 @@ void main() {
   if (!inside) c = mix(c, DARK, 0.12);
 
   // Scattered things, one candidate per cell of 4 x 2.5 map px: tufts, stones, pebbles, flowers,
-  // cracks. The frontmost (lowest on screen) wins where two overlap. Only the cells whose spot can
-  // be in reach (|dx| <= 2.6, -3.6 <= dy <= 1.2 from it), and of those only the ones with a thing
-  // whose box holds this texel, in the same order as ever.
+  // cracks. The frontmost (lowest on screen) wins where two overlap.
+  //
+  // Written for a SIMD rasteriser that runs both sides of every branch (software GL does, for
+  // each 2 x 2 texels) and only leaves a loop early: what a cell holds comes from the baked cells
+  // (cellInfo), not from noise here; first a cheap pass lists the cells whose box holds this
+  // texel, in their order (rows, then columns), then one code path walks their parts (blades,
+  // pebbles, flowers, a crack's two strokes), the same arithmetic for every kind, so a texel pays
+  // for the parts near it, not for every kind's code in every cell around it.
   vec2 c0 = floor((p - vec2(2.61, 1.21)) / vec2(CW, CH));
   vec2 c1 = floor((p + vec2(2.61, 3.61)) / vec2(CW, CH));
   int ncx = int(c1.x - c0.x);
   int ncy = int(c1.y - c0.y);
-  float bestY = -1e9;
-  vec3 fc = c;
-  float shadow = 1.0;
+  ivec2 csz = textureSize(u_cells, 0);
+  vec2 lci[9];
+  uvec2 linfo[9];
+  int nl = 0;
   for (int dy = 0; dy <= 3; dy++) {
     if (dy > ncy) break;
     for (int dx = 0; dx <= 2; dx++) {
       if (dx > ncx) break;
       vec2 ci = c0 + vec2(float(dx), float(dy));
-      uvec2 info = cellAt(ci);
-      if (info.x == 0u) continue;
+      ivec2 ti = ivec2(ci) - u_cell0;
+      uvec2 info = all(greaterThanEqual(ti, ivec2(0))) && all(lessThan(ti, csz)) ? texelFetch(u_cells, ti, 0).xy : uvec2(0u);
       vec2 o0 = ci * vec2(CW, CH) - vec2(2.75, 3.75);
       vec2 lo = vec2(float((info.x >> 4) & 127u), float((info.x >> 18) & 63u)) / 8.0 + o0;
       vec2 hi = vec2(float((info.x >> 11) & 127u), float((info.x >> 24) & 63u)) / 8.0 + o0;
-      if (any(lessThan(p, lo)) || any(greaterThan(p, hi))) continue;
-      uvec2 cu = uvec2(ivec2(ci));
-      uint h0 = hash3(cu.x, cu.y, 101u);
-      vec2 b = (ci + vec2(h01(h0), h01(h0 * 747796405u + 1u))) * vec2(CW, CH);
-      vec2 q = p - b;
-      if (abs(q.x) > 2.6 || q.y < -3.6 || q.y > 1.2) continue;
-      uint kind = info.x & 7u;
-      bool rd = (info.x & 8u) != 0u;
-      uint hk = info.y;
+      if (info.x != 0u && all(greaterThanEqual(p, lo)) && all(lessThanEqual(p, hi)) && nl < 9) {
+        lci[nl] = ci;
+        linfo[nl] = info;
+        nl++;
+      }
+    }
+  }
+  float bestY = -1e9;
+  vec3 fc = c;
+  float shadow = 1.0;
+  float hwm = max(0.26, 0.5 / u_m) + 0.01;
+  for (int k = 0; k < 9; k++) {
+    if (k >= nl) break;
+    vec2 ci = lci[k];
+    uvec2 info = linfo[k];
+    uvec2 cu = uvec2(ivec2(ci));
+    uint h0 = hash3(cu.x, cu.y, 101u);
+    vec2 b = (ci + vec2(h01(h0), h01(h0 * 747796405u + 1u))) * vec2(CW, CH);
+    vec2 q = p - b;
+    bool reach = !(abs(q.x) > 2.6 || q.y < -3.6 || q.y > 1.2);
+    uint kind = reach ? info.x & 7u : 0u;
+    if (kind == 4u && (onRoad || bare)) kind = 0u; // no flowers on the road or bare earth
+    bool rd = (info.x & 8u) != 0u;
+    uint hk = info.y;
+    // A tuft: three to five tapering blades fanning up from one root, the left edge of each blade
+    // lit, dry or green with the zone.
+    bool dry = h01(hk) < 0.25 + zone * 0.5;
+    int nb = 3 + int(hk % 3u);
+    float fn = float(nb);
+    float sc = 0.7 + h01(hk * 3u + 1u) * 0.6;
+    // Its blades: those whose columns (where a blade of it can lean) and rows (from the root up to
+    // 2.7 sc) hold this texel, as bits.
+    uint parts = 0u;
+    if (q.y <= hwm && q.y >= -2.7 * sc - hwm)
+      for (int i = 0; i < 5; i++) {
+        if (i >= nb) break;
+        float o2 = (float(i) - (fn - 1.0) * 0.5);
+        float xl = min(o2 * 0.42, o2 * 0.9 + min(0.0, o2 * 0.6) - 0.3) - hwm;
+        float xh = max(o2 * 0.42, o2 * 0.9 + max(0.0, o2 * 0.6) + 0.3) + hwm;
+        if (q.x >= xl && q.x <= xh) parts |= 1u << uint(i);
+      }
+    // A tuft's dark contact shadow at the root.
+    vec2 e = (p - b - vec2(0.15, 0.05)) / vec2(1.25, 0.32);
+    if (kind == 1u && dot(e, e) < 1.0) shadow = min(shadow, 0.72);
+    // A stone: lit upper left, a hard dark underside, a cast shadow down right.
+    float rx = 0.55 + h01(hk) * 0.9;
+    float ryy = rx * 0.6;
+    vec2 cs = b + vec2(0.0, -ryy * 0.55);
+    if (kind == 2u) {
+      vec2 nn = (p - cs) / vec2(rx, ryy);
+      float qq = dot(nn, nn) + (h01(hk * 7u) - 0.5) * 0.1 * sin(atan(nn.y, nn.x) * 3.0);
+      if (qq < 1.0 && b.y >= bestY) {
+        bestY = b.y;
+        float l = -nn.x * 0.62 - nn.y * 0.78 + sqrt(max(0.0, 1.0 - qq)) * 0.4 + (bayer(T) - 0.5) * 0.2;
+        fc = l > 0.75 ? hex(0xaaa28e) : l > 0.3 ? hex(0x7f7868) : l > -0.15 ? hex(0x5c574c) : hex(0x3b3832);
+        if (qq > 0.8 && l < 0.0) fc = hex(0x2a2822);
+        cls = 0.5;
+      }
+      vec2 es = (p - cs - vec2(rx * 0.35, ryy * 0.5)) / vec2(rx * 1.15, ryy * 0.9);
+      if (dot(es, es) < 1.0) shadow = min(shadow, 0.62);
+    }
+    // A crack in the dry earth, its lower lip catching the light: two strokes.
+    float len = 1.2 + h01(hk) * 2.0;
+    vec2 ca = b - vec2(len * 0.5, 0.0);
+    vec2 ce = b + vec2(len * 0.5, (h01(hk * 3u) - 0.5) * 0.8);
+    vec2 cm = (ca + ce) * 0.5 + vec2(0.0, (h01(hk * 5u) - 0.5) * 0.5);
+    parts = kind == 1u ? parts : kind == 3u || kind == 4u ? 7u : kind == 5u ? 3u : 0u;
+    uint salt = kind == 1u ? 200u : kind == 3u ? 300u : 400u;
+    float crack = 1e9;
+    for (int j = 0; j < 5; j++) {
+      if (parts == 0u) break;
+      uint lsb = parts & (~parts + 1u);
+      int i = lsb == 1u ? 0 : lsb == 2u ? 1 : lsb == 4u ? 2 : lsb == 8u ? 3 : 4;
+      parts ^= lsb;
+      uint hb = hash3(cu.x, cu.y, salt + uint(i));
+      float u1 = h01(hb), u3 = h01(hb * 3u), u5 = h01(hb * 5u), u7 = h01(hb * 7u), u9 = h01(hb * 9u);
+      float o2 = (float(i) - (fn - 1.0) * 0.5);
+      // Flowers: a few heads on short stems; poppies, daisies, yellow and blue.
+      vec2 hc = b + vec2((u1 - 0.5) * 1.8, -0.5 - u3 * 0.9);
+      // The part's stroke: a blade, a stem or a crack's half.
+      vec2 sa = kind == 1u ? b + vec2(o2 * 0.42, 0.0) : kind == 4u ? hc : i == 0 ? ca : cm;
+      vec2 sb = kind == 1u ? b + vec2(o2 * (0.9 + u1 * 0.6) + (u5 - 0.5) * 0.6, -(1.2 + u9 * 1.5) * sc) : kind == 4u ? hc + vec2(0.1, 0.8) : i == 0 ? cm : ce;
+      float t;
+      float dd = segDist(p, sa, sb, t);
+      // Its round: a pebble or a flower's head.
+      vec2 ec = kind == 3u ? b + vec2((u1 - 0.5) * 2.2, (u3 - 0.5) * 0.9) : hc;
+      float r = kind == 3u ? max(0.18 + u5 * 0.25, 0.5 / u_m) : max(0.2 + u7 * 0.1, 0.5 / u_m);
+      vec2 nn = (p - ec) / vec2(r, r * (kind == 3u ? 0.7 : 0.8));
+      float qq = dot(nn, nn);
       if (kind == 1u) {
-        // A tuft: three to five tapering blades fanning up from one root, the left edge of each
-        // blade lit, dry or green with the zone.
-        bool dry = h01(hk) < 0.25 + zone * 0.5;
-        vec3 cBase = dry ? hex(0x5a5032) : hex(0x36401f);
-        vec3 cMid = dry ? hex(0x7e7244) : hex(0x55602e);
-        vec3 cTip = dry ? hex(0xa49464) : hex(0x7e8a44);
-        vec3 cLit = dry ? hex(0xbcae7a) : hex(0x96a256);
-        int nb = 3 + int(hk % 3u);
-        float fn = float(nb);
-        float sc = 0.7 + h01(hk * 3u + 1u) * 0.6;
-        for (int i = 0; i < 5; i++) {
-          if (i >= nb) break;
-          uint hb = hash3(cu.x, cu.y, 200u + uint(i));
-          float o2 = (float(i) - (fn - 1.0) * 0.5);
-          vec2 root = b + vec2(o2 * 0.42, 0.0);
-          vec2 tip = b + vec2(o2 * (0.9 + h01(hb) * 0.6) + (h01(hb * 5u) - 0.5) * 0.6, -(1.2 + h01(hb * 9u) * 1.5) * sc);
-          float t;
-          float dd = segDist(p, root, tip, t);
-          float hw = max(mix(0.26, 0.04, t), 0.5 / u_m);
-          if (dd < hw && b.y >= bestY) {
-            bestY = b.y;
-            vec2 ba = tip - root;
-            float side = (p.x - root.x) * ba.y - (p.y - root.y) * ba.x; // > 0: left of the blade
-            fc = t < 0.3 ? cBase : t < 0.7 ? cMid : cTip;
-            if (side < 0.0 && t > 0.2 && u_m >= 2.0) fc = t < 0.6 ? cTip : cLit;
-            cls = 0.25;
-          }
-        }
-        // A dark contact shadow at the root.
-        vec2 e = (p - b - vec2(0.15, 0.05)) / vec2(1.25, 0.32);
-        if (dot(e, e) < 1.0) shadow = min(shadow, 0.72);
-      } else if (kind == 2u) {
-        // A stone: lit upper left, a hard dark underside, a cast shadow down right.
-        float rx = 0.55 + h01(hk) * 0.9;
-        float ryy = rx * 0.6;
-        vec2 cc = b + vec2(0.0, -ryy * 0.55);
-        vec2 nn = (p - cc) / vec2(rx, ryy);
-        float qq = dot(nn, nn) + (h01(hk * 7u) - 0.5) * 0.1 * sin(atan(nn.y, nn.x) * 3.0);
-        if (qq < 1.0 && b.y >= bestY) {
+        float hw = max(mix(0.26, 0.04, t), 0.5 / u_m);
+        if (dd < hw && b.y >= bestY) {
           bestY = b.y;
-          float l = -nn.x * 0.62 - nn.y * 0.78 + sqrt(max(0.0, 1.0 - qq)) * 0.4 + (bayer(T) - 0.5) * 0.2;
-          fc = l > 0.75 ? hex(0xaaa28e) : l > 0.3 ? hex(0x7f7868) : l > -0.15 ? hex(0x5c574c) : hex(0x3b3832);
-          if (qq > 0.8 && l < 0.0) fc = hex(0x2a2822);
-          cls = 0.5;
+          vec2 ba = sb - sa;
+          float side = (p.x - sa.x) * ba.y - (p.y - sa.y) * ba.x; // > 0: left of the blade
+          bool lit = side < 0.0 && t > 0.2 && u_m >= 2.0;
+          int band = lit ? (t < 0.6 ? 2 : 3) : t < 0.3 ? 0 : t < 0.7 ? 1 : 2;
+          fc = band == 0 ? (dry ? hex(0x5a5032) : hex(0x36401f)) : band == 1 ? (dry ? hex(0x7e7244) : hex(0x55602e)) : band == 2 ? (dry ? hex(0xa49464) : hex(0x7e8a44)) : (dry ? hex(0xbcae7a) : hex(0x96a256));
+          cls = 0.25;
         }
-        vec2 e = (p - cc - vec2(rx * 0.35, ryy * 0.5)) / vec2(rx * 1.15, ryy * 0.9);
-        if (dot(e, e) < 1.0) shadow = min(shadow, 0.62);
       } else if (kind == 3u) {
         // Pebbles: two or three small stones.
-        for (int i = 0; i < 3; i++) {
-          uint hb = hash3(cu.x, cu.y, 300u + uint(i));
-          vec2 cc = b + vec2((h01(hb) - 0.5) * 2.2, (h01(hb * 3u) - 0.5) * 0.9);
-          float r = max(0.18 + h01(hb * 5u) * 0.25, 0.5 / u_m);
-          vec2 nn = (p - cc) / vec2(r, r * 0.7);
-          float qq = dot(nn, nn);
-          if (qq < 1.0 && cc.y >= bestY) {
-            bestY = cc.y;
-            float l = -nn.x * 0.62 - nn.y * 0.78;
-            fc = rd ? (l > 0.1 ? hex(0xc4b898) : hex(0x9a8c6c)) : (l > 0.1 ? hex(0x9a9380) : hex(0x5e594e));
-            cls = 0.5;
-          }
+        if (qq < 1.0 && ec.y >= bestY) {
+          bestY = ec.y;
+          float l = -nn.x * 0.62 - nn.y * 0.78;
+          fc = rd ? (l > 0.1 ? hex(0xc4b898) : hex(0x9a8c6c)) : (l > 0.1 ? hex(0x9a9380) : hex(0x5e594e));
+          cls = 0.5;
         }
       } else if (kind == 4u) {
-        // Flowers: a few heads on short stems; poppies, daisies, yellow and blue.
-        if (onRoad || bare) continue;
-        int kind = int(hk % 5u);
-        vec3 petal = kind == 0 ? hex(0xb8322a) : kind == 1 ? hex(0xe6e0cc) : kind == 2 ? hex(0xd8b040) : kind == 3 ? hex(0x6a76b8) : hex(0x9a6aa6);
-        vec3 eye = kind == 0 ? hex(0x2a1a14) : hex(0xd89a30);
-        for (int i = 0; i < 3; i++) {
-          uint hb = hash3(cu.x, cu.y, 400u + uint(i));
-          vec2 hc = b + vec2((h01(hb) - 0.5) * 1.8, -0.5 - h01(hb * 3u) * 0.9);
-          float t;
-          if (segDist(p, hc, hc + vec2(0.1, 0.8), t) < max(0.05, 0.5 / u_m) && hc.y + 0.8 >= bestY) {
-            bestY = hc.y + 0.8;
-            fc = hex(0x3a4a22);
-            cls = 0.25;
-          }
-          float r = max(0.2 + h01(hb * 7u) * 0.1, 0.5 / u_m);
-          vec2 nn = (p - hc) / vec2(r, r * 0.8);
-          float qq = dot(nn, nn);
-          if (qq < 1.0 && hc.y + 0.9 >= bestY) {
-            bestY = hc.y + 0.9;
-            fc = (nn.x + nn.y < -0.4 && u_m >= 4.0) ? mix(petal, vec3(1.0), 0.3) : petal;
-            if (qq < 0.18 && u_m >= 4.0) fc = eye;
-            cls = 0.25;
-          }
+        if (dd < max(0.05, 0.5 / u_m) && hc.y + 0.8 >= bestY) {
+          bestY = hc.y + 0.8;
+          fc = hex(0x3a4a22);
+          cls = 0.25;
         }
-      } else {
-        // A crack in the dry earth, its lower lip catching the light.
-        float len = 1.2 + h01(hk) * 2.0;
-        vec2 a = b - vec2(len * 0.5, 0.0);
-        vec2 e2 = b + vec2(len * 0.5, (h01(hk * 3u) - 0.5) * 0.8);
-        vec2 mid = (a + e2) * 0.5 + vec2(0.0, (h01(hk * 5u) - 0.5) * 0.5);
-        float t;
-        float dd = min(segDist(p, a, mid, t), segDist(p, mid, e2, t));
-        float wd = max(0.08, 0.5 / u_m);
-        if (dd < wd) fc = mix(c, hex(0x2a2016), 0.7);
-        else if (dd < wd + 1.0 / u_m && u_m >= 4.0 && p.y > mid.y) fc = mix(c, hex(0xc0aa80), 0.3);
-      }
+        if (qq < 1.0 && hc.y + 0.9 >= bestY) {
+          bestY = hc.y + 0.9;
+          int fk = int(hk % 5u);
+          vec3 petal = fk == 0 ? hex(0xb8322a) : fk == 1 ? hex(0xe6e0cc) : fk == 2 ? hex(0xd8b040) : fk == 3 ? hex(0x6a76b8) : hex(0x9a6aa6);
+          fc = (nn.x + nn.y < -0.4 && u_m >= 4.0) ? mix(petal, vec3(1.0), 0.3) : petal;
+          if (qq < 0.18 && u_m >= 4.0) fc = fk == 0 ? hex(0x2a1a14) : hex(0xd89a30);
+          cls = 0.25;
+        }
+      } else crack = min(crack, dd);
+    }
+    if (kind == 5u) {
+      float wd = max(0.08, 0.5 / u_m);
+      if (crack < wd) fc = mix(c, hex(0x2a2016), 0.7);
+      else if (crack < wd + 1.0 / u_m && u_m >= 4.0 && p.y > cm.y) fc = mix(c, hex(0xc0aa80), 0.3);
     }
   }
   if (bestY > -1e8) c = fc;
@@ -543,7 +563,7 @@ const TILE = 64;
 /** The first cell of the baked grid (cells of CELL_W x CELL_H map px), a few cells past the field. */
 const CELL_W = 4;
 const CELL_H = 2.5;
-const CELL0 = -2;
+const CELL0 = -64;
 /** Ground cache tiles, in buffer texels. */
 const CT = 64;
 /** The most texels a ground cache target holds (two of them: 64 MB each at most). */
