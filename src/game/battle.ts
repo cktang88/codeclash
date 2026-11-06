@@ -208,6 +208,20 @@ export { COHESION, DOCTRINE, MORALE, REGROUP, UNDEAD } from './command.ts';
  *   dead as battles grew (undead-templar 44% at 250, 59% at 1000, 71% at 2000); samurai-templar
  *   56 -> 52 at 1000. With it the price of never routing is eased back: DEAD_HP 0.72 (0.71).
  *   300 battles a cell (docs/factions.md, v17 reach balance).
+ * - Horse charges with sense (docs/qa/battle-realism-review-2.md #3, #4, #6, leftover 5;
+ *   src/game/charge-sense.test.ts). A charge that closes on its prey by under 10 u in 2 s with no
+ *   blow (the prey locked with our own men, the way to it through them) rides once for its open
+ *   side, away from our men, then leaves it be 30 s and takes another (`chargeSpent`); one that
+ *   cannot catch free horse (14 s past CHARGE_MISSED), or any charge 25 s without a blow, rides
+ *   back to re-form. Idle riders in 'charge' at 450 (seeds 1-4, scripts/qa/cav-idle.ts): 26 of
+ *   53 idle rider-seconds, now 1 of 28; charges of 20 s without contact in 36 pairings
+ *   (realism-audit): 18, now 0. A rider after a fugitive rides at the man's pace and more, to
+ *   inside his reach, and cuts at him as he goes: the knights-on-archers set piece (seeds 1-3,
+ *   scripts/qa/pursuit.ts) cut down 27 routers, 9 a rider-minute at their heels at 45% of top
+ *   speed, now 49, 89 a minute at 73%. Two blocks of our horse on one enemy horse from the same
+ *   side aim apart (`besideFriends`): riders knee to knee with the other block in the set piece
+ *   8%, now 1%; s1/450 C27+C29 23%, now 13%. Faction pairs, 80 battles at 450: undead v templar
+ *   33.8 -> 37.5, undead v samurai 33.8 -> 42.5, samurai v templar 50.0 -> 51.3 (noise 5.6).
  */
 /**
  * v16: nothing grows with the size of the battle that should not (the undead won two thirds of
