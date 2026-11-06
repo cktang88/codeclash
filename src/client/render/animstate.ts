@@ -30,7 +30,7 @@ export interface AnimFacts {
   charging: boolean;
   /** State.Fighting. */
   fighting: boolean;
-  /** His foe is in reach (14 units). */
+  /** His foe is in reach (14 units, or his weapon's reach: scene.ts). */
   reach: boolean;
   /** In the fight (scene.ts: his block locked, touching, closing, or his foe near): he walks in his guard. */
   inFight: boolean;

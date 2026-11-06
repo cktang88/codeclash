@@ -1558,7 +1558,10 @@ export class BattleScene {
         const tgt = s.target >= 0 ? ss[s.target] : undefined;
         const tdx = tgt ? tgt.x - s.x : NaN;
         const tdy = tgt ? tgt.y - s.y : NaN;
-        const reach = tgt !== undefined && tdx * tdx + tdy * tdy < 14 * 14;
+        // In reach: within 14, or within his weapon's reach of his foe (a spearman fencing at
+        // his point, battle v17 REACH: he plays his blows and his guard toward his foe).
+        const rr = tgt !== undefined ? Math.max(14, s.s.radius + tgt.s.radius + (s.reach ?? 1.6) + 3) : 0;
+        const reach = tgt !== undefined && tdx * tdx + tdy * tdy < rr * rr;
         const melee = s.s.range === 0 || reach;
         const actAnim = melee ? Anim.Attack : Anim.Shoot;
         // In the fight: his block is locked in or touching an enemy block, an enemy block is close
@@ -1866,12 +1869,12 @@ export class BattleScene {
       }
   }
 
-  /** HD: whether a man is at grips with a foe (his target within arm's reach, struck at lately): an archer shooting is not. */
+  /** HD: whether a man is at grips with a foe (his target within arm's or his spear's reach, struck at lately): an archer shooting is not. */
   private inMelee(s: Battle['soldiers'][number], tick: number): boolean {
     if (tick - s.actedAt >= 15) return false;
     const t = s.target >= 0 ? this.battle.soldiers[s.target] : undefined;
     if (!t) return false;
-    const r = s.s.radius + t.s.radius + 7;
+    const r = s.s.radius + t.s.radius + Math.max(7, (s.reach ?? 1.6) + 3);
     const dx = t.x - s.x;
     const dy = t.y - s.y;
     return dx * dx + dy * dy <= r * r;

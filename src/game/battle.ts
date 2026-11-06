@@ -394,6 +394,10 @@ class Store {
   readonly att: Int32Array;
   /** Foot in contact without a foe: the tick he last had one (or came into contact), 0 while he has one. See `seek`. */
   readonly idl: Int32Array;
+  /** His weapon's reach beyond the two bodies (UnitStats.reach): he strikes from there and stands there. */
+  readonly rc: Float64Array;
+  /** REACH: the tick until which he is through the points of a spear wall (got inside), else 0. See `held`. */
+  readonly ps: Int32Array;
   constructor(n: number) {
     const f = () => new Float64Array(n);
     const i = () => new Int32Array(n);
@@ -403,6 +407,7 @@ class Store {
     this.state = new Uint8Array(n); this.team = new Uint8Array(n); this.cu = new Uint8Array(n); this.mt = new Uint8Array(n);
     this.reg = i(); this.target = i(); this.cd = i(); this.ammo = i();
     this.acted = i(); this.hit = i(); this.died = i(); this.kills = i(); this.stun = i(); this.rose = i(); this.wd = i(); this.att = i(); this.idl = i();
+    this.rc = f(); this.ps = i();
   }
 }
 
@@ -477,6 +482,11 @@ export class Soldier {
   get mounted(): boolean { return this.d.mt[this.id] === 1; }
   /** P6: swinging round the enemy's flank, away from his slot (see `Battle.curl`). Read-only, for the renderer. */
   get curling(): boolean { return this.d.cu[this.id] === 1; }
+  /**
+   * His weapon's reach beyond the two bodies, world units (UnitStats.reach): a man strikes a foe
+   * within `radius + foe's radius + reach`. Read-only, for the renderer.
+   */
+  get reach(): number { return this.d.rc[this.id]!; }
 }
 
 /**
@@ -1290,6 +1300,7 @@ export class Battle {
     d.hp[id] = hp;
     d.ammo[id] = st.ammo;
     d.rad[id] = st.radius;
+    d.rc[id] = st.reach;
     d.mass[id] = st.mass;
     d.mt[id] = st.mounted ? 1 : 0;
     d.spd[id] = st.speed;
@@ -2771,7 +2782,8 @@ export class Battle {
       if (t >= 0) {
         const ex = d.x[t]! - d.x[id]!;
         const ey = d.y[t]! - d.y[id]!;
-        const reach = d.rad[id]! + d.rad[t]! + 3;
+        // (In the fight: within his own reach or his foe's: a man held at the points is fighting.)
+        const reach = d.rad[id]! + d.rad[t]! + Math.max(d.rc[id]!, d.rc[t]!) + 1.4;
         if (ex * ex + ey * ey <= reach * reach) engaged++;
       }
     }
@@ -5504,14 +5516,36 @@ export class Battle {
     // Look again every few ticks (staggered by his place in his own army, so that both sides
     // look on the same ticks): at once only for the men already fighting. (Until v4 this went
     // by id, which put the second army's men out of step with the first's by the first's size.)
-    else if ((this.tick + i - this.firstId[d.team[i]!]!) % (t < 0 ? 3 : 6) === 0) {
+    // (REACH: at the charge, a man with no foe yet looks every tick, or he runs onto the points
+    // of spears between two looks.)
+    else if (t < 0 && mode === 'charge' && !d.mt[i] ? true : (this.tick + i - this.firstId[d.team[i]!]!) % (t < 0 ? 3 : 6) === 0) {
       t = this.seek(i, r);
       // Falling back on the General's word, a man fights only a foe at hand.
       if (t >= 0 && mode === 'reserve' && r.ord.kind === 'withdraw') {
         const ex = d.x[t]! - d.x[i]!;
         const ey = d.y[t]! - d.y[i]!;
-        const reach = d.rad[i]! + d.rad[t]! + 3;
+        const reach = d.rad[i]! + d.rad[t]! + d.rc[i]! + 1.4;
         if (ex * ex + ey * ey > reach * reach) t = -1;
+      }
+    }
+    // REACH: a man held at a spear's points presses on them, and now and then gets in, by a gap
+    // beside his spearman or by luck; once in, he stays in while he is inside the point.
+    if (t >= 0 && d.rc[t]! >= REACH.long) {
+      const ex = d.x[t]! - d.x[i]!;
+      const ey = d.y[t]! - d.y[i]!;
+      const line = this.pointLine(i, t);
+      const q = ex * ex + ey * ey;
+      if (d.ps[i]! > this.tick) {
+        if (q < (line - 1) * (line - 1)) d.ps[i] = this.tick + REACH.through;
+      } else if (t !== d.target[i] || (this.tick + i) % 6 === 0) {
+        if (q <= (line + 2) * (line + 2) && this.held(i, t)) {
+          const gap = this.gapBeside(t);
+          const me = this.soldiers[i]!;
+          if (this.rng.next() < (gap ? REACH.gap : REACH.luck * (1 + me.s.shield) * (me.cls === U.Shock ? REACH.breaker : 1))) {
+            d.ps[i] = this.tick + REACH.through;
+            (globalThis as any).__pass?.(gap);
+          }
+        }
       }
     }
     // (Since when he has stood in contact without a foe: see `seek`.)
@@ -5523,10 +5557,16 @@ export class Battle {
     if (t >= 0) {
       const dx = d.x[t]! - d.x[i]!;
       const dy = d.y[t]! - d.y[i]!;
-      const reach = d.rad[i]! + d.rad[t]! + 1.6;
+      // REACH: he strikes from his weapon's reach (a rank behind a long spear's front, past it).
+      // (A rank behind a spear's front that does not strike past it, the Templar's or the ghoul's,
+      // reaches only a foe come round to him or into a hole before him.)
+      const back = d.row[i]! > 0 && d.rc[i]! >= REACH.long;
+      const reach = d.rad[i]! + d.rad[t]! + (back && !this.supports(i, r) ? d.rc[i]! * REACH.inside : d.rc[i]! + (back ? REACH.lean : 0));
       const q = dx * dx + dy * dy;
       if (d.stun[i]! > 0) return;
-      if (d.imp[i]! > 0.3 && q <= (reach + 1.2) * (reach + 1.2)) {
+      // (A charge lands body to body, a horse's or a short arm's; a spear's at its point.)
+      const hit = d.mt[i] || d.rc[i]! < REACH.long ? d.rad[i]! + d.rad[t]! + 2.8 : reach + 1.2;
+      if (d.imp[i]! > 0.3 && q <= hit * hit) {
         this.impact(i, t);
         return;
       }
@@ -5625,7 +5665,18 @@ export class Battle {
     // (the renderer reads the same rule through `facesRear`: keep them alike).
     const rear = r.rearUntil > this.tick && !mounted && d.row[i]! >= Math.max(1, r.rows >> 1);
     const reach = near || rear ? C.reachNear : 10;
-    const R = pursue ? 24 : mounted ? 15 : roam ? Math.max(reach, C.roamReach * r.spacing) : reach;
+    // REACH: the front rank looks as far as its weapon reaches (and the ranks behind a long
+    // spear's front that strike past it, only that far: `sup`).
+    const sup = !mounted && d.row[i]! > 0 && this.supports(i, r);
+    const wr = d.rc[i]!;
+    let R = pursue ? 24 : mounted ? 15 : roam ? Math.max(reach, C.roamReach * r.spacing) : reach;
+    // (A front-rank man sees a spear's point coming at him before it is on him: `points`.)
+    const R0 = R;
+    const front = !mounted && !pursue && d.row[i] === 0;
+    if (front || sup) R = Math.max(R, wr + 9, POINT_SEEN);
+    // (The line meets the point where it stands; shooters shoot on until the point strikes them.)
+    const ofLine = r.role === 'line';
+    const R02 = R0 * R0;
     const leash = pursue || roam || r.role === 'command' || r.mode === 'rally' ? 1e9 : mounted ? 34 : near ? (edge ? C.leashEdge : C.leashNear) * this.doc[r.team]!.loose.leash : 9;
     const sxi = d.sx[i]!;
     const x = d.x[i]!;
@@ -5670,13 +5721,21 @@ export class Battle {
           const dy = ky[k]! - y;
           let s = dx * dx + dy * dy;
           if (s > R2) continue;
+          // (Past his usual look, only a spear whose point is at him, or a foe his own spear reaches.)
+          const pj = front && d.rc[j]! >= REACH.long && wr < d.rc[j]! * REACH.short;
+          const pa = pj ? ri + d.rad[j]! + (ofLine ? d.rc[j]! * REACH.stand + 3 : d.rc[j]!) : 0;
+          if (s > R02 && !(pj && s <= pa * pa) && wr < REACH.long) continue;
           const lx = kx[k]! - gx;
           const ly = ky[k]! - gy;
           const far = lx * lx + ly * ly > L2;
           if (far && !line) continue;
-          const h = ri + d.rad[j]! + 3;
+          // (At hand: within his weapon's reach, a step more; a spear's reach is far longer than an arm's.)
+          // (And a spear whose point is at a shorter arm is at hand to him: he has to get past it.)
+          const h = pj ? Math.max(pa, ri + d.rad[j]! + 3) : ri + d.rad[j]! + (wr > 1.6 ? wr + 1.4 : 3);
           const hh = h * h;
           const at = s <= hh;
+          // (A man striking past the front rank takes only a foe his point reaches from his place.)
+          if (sup && s > (h + REACH.lean) * (h + REACH.lean)) continue;
           // (A foe at hand he fights wherever he stands.)
           if (far && !at) continue;
           if (line) {
@@ -6164,6 +6223,91 @@ export class Battle {
     return this.tick < dr.formedAt && dot > 0.29 ? 0.29 : dot;
   }
 
+  /**
+   * REACH: where a spear's point stands off man `i` coming at spearman `t`: the two bodies and
+   * `REACH.stand` of the spear's reach. A spearman stands his foe off there, and a man held by
+   * his point (`held`) comes no closer.
+   */
+  private pointLine(i: number, t: number): number {
+    const d = this.d;
+    return d.rad[i]! + d.rad[t]! + d.rc[t]! * REACH.stand;
+  }
+
+  /**
+   * REACH: whether man `i`, coming at `t`, is held at `t`'s levelled point: `t` is a spearman of a
+   * formed block standing to fight (not running, re-forming, in column, reeling, nor making for the
+   * rear hurt), `i` stands before its front (or before the rear ranks it has turned about), his arm
+   * shorter than `REACH.short` of the spear, on foot or on a horse whose charge is spent (a charge
+   * meets the brace and pike-wall rules: `impact`), and he is not through the points already
+   * (`ps`). Push of pike: spear against spear, neither is held; each fences from his own reach.
+   */
+  private held(i: number, t: number): boolean {
+    const d = this.d;
+    const rt = d.rc[t]!;
+    if (rt < REACH.long || d.rc[i]! >= rt * REACH.short || d.ps[i]! > this.tick) return false;
+    if (d.mt[i] && d.imp[i]! > 0.3) return false;
+    if (d.state[t] !== State.Fighting || d.mt[t] || d.stun[t]! > 0 || this.tick < d.wd[t]! || d.cu[t]) return false;
+    const o = this.regiments[d.reg[t]!]!;
+    if (o.routed || this.tick < o.formedAt || o.stance === 'column') return false;
+    const m = o.mode;
+    if (m === 'pursue' || m === 'rout' || m === 'withdraw' || m === 'skirmish') return false;
+    const back = facesRear(o, d.row[t]!, false, this.tick);
+    const ux = d.x[i]! - d.x[t]!;
+    const uy = d.y[i]! - d.y[t]!;
+    const dot = (ux * o.fx + uy * o.fy) * (back ? -1 : 1);
+    return dot > 0.3 * (sqrt(ux * ux + uy * uy) || 1);
+  }
+
+  /** REACH: a gap in the spear wall beside spearman `t`: a man of his rank on either hand down or out of his place. */
+  private gapBeside(t: number): boolean {
+    const d = this.d;
+    const r = this.regiments[d.reg[t]!]!;
+    const K = r.nbK;
+    const row = d.row[t]!;
+    const ck = Math.round(d.col[t]! * 2);
+    const nb = r.nb;
+    if (row * K + ck >= nb.length || nb[row * K + ck] !== t) return true;
+    const wide = r.spacing * 2.1;
+    const deep = this.regStep[r.id]! * 2;
+    for (let side = -2; side <= 2; side += 4) {
+      const kk = ck + side;
+      // (The end of the rank is the flank, not a gap.)
+      if (kk < 0 || kk >= K) continue;
+      const j = nb[row * K + kk]!;
+      if (j < 0) {
+        // (A hole with a man beyond it; nobody beyond is the end of the rank.)
+        const k2 = kk + side;
+        if (k2 >= 0 && k2 < K && nb[row * K + k2]! >= 0) return true;
+        continue;
+      }
+      if (d.state[j] !== State.Fighting) return true;
+      // (Out of his place: a man's breadth and more open between them, or two ranks out of line.)
+      const ex = d.x[j]! - d.x[t]!;
+      const ey = d.y[j]! - d.y[t]!;
+      const lat = ex * -r.fy + ey * r.fx;
+      const fwd = ex * r.fx + ey * r.fy;
+      if ((lat < 0 ? -lat : lat) > wide || (fwd < 0 ? -fwd : fwd) > deep) return true;
+    }
+    return false;
+  }
+
+  /** REACH: a man of the ranks behind a long spear's front who strikes past it (pikes, yari), from his place. */
+  private supports(i: number, r: Regiment): boolean {
+    const d = this.d;
+    return d.rc[i]! >= REACH.support && d.row[i]! <= REACH.supportRows && !d.mt[i] && d.cu[i] === 0 && r.role === 'line';
+  }
+
+  /**
+   * REACH: how close man `i` comes to his foe `t`: a short arm to body contact, a spear to
+   * `REACH.stand` of its reach; held at `t`'s point (`held`), no closer than the point.
+   */
+  private measure(i: number, t: number): number {
+    const d = this.d;
+    const ri = d.rc[i]!;
+    const c = d.rad[i]! + d.rad[t]! + (ri >= REACH.long ? ri * REACH.stand : 0.9);
+    return this.held(i, t) ? Math.max(c, this.pointLine(i, t)) : c;
+  }
+
   private strike(a: number, t: number): void {
     const d = this.d;
     const A = this.soldiers[a]!;
@@ -6177,11 +6321,24 @@ export class Battle {
     let attack = as.attack * (A.vet ? 1.1 : 1) + sa.attack - ar.fatigue * FATIGUE.combat + (ar.moraleState === 'wavering' || ar.moraleState === 'rallying' ? MORALE.waverAttack : 0) + (this.crumbling[ar.team] ? UNDEAD.crumbleAttack : 0);
     let defence = ds.defence * (D.vet ? 1.1 : 1) - dr.fatigue * FATIGUE.combat + (dr.moraleState === 'wavering' || dr.moraleState === 'rallying' ? MORALE.waverDefence : 0) + (this.crumbling[dr.team] ? UNDEAD.crumbleDefence : 0);
     const routing = d.state[t] === State.Routing;
+    let fence = 1;
     if (routing) defence *= 0.2;
     else {
       if (d.stun[t]! > 0) defence *= 0.6;
       const dot = this.facing(a, t, dr);
       defence += dr.stance === 'pikewall' && dot < 0.3 ? -10 : sd.defence;
+      // REACH: a spearman with his foe inside his point fights cramped (he shortens his grip,
+      // drops the spear for a sidearm, or is simply too close to thrust); spear on spear, front
+      // to front, the points fence (below).
+      const ex = d.x[t]! - d.x[a]!;
+      const ey = d.y[t]! - d.y[a]!;
+      const q = sqrt(ex * ex + ey * ey);
+      const body = d.rad[a]! + d.rad[t]!;
+      if (d.rc[a]! >= REACH.long && q < body + d.rc[a]! * REACH.inside) attack -= REACH.insideAttack;
+      if (d.rc[t]! >= REACH.long && q < body + d.rc[t]! * REACH.inside) defence -= REACH.insideDefence;
+      // A man held at the points does nothing but keep them off: most thrusts glance off.
+      else if (this.held(t, a)) fence = REACH.heldHit;
+      if (d.rc[a]! >= REACH.long && d.rc[t]! >= REACH.long && dot > 0.3) fence = REACH.fence;
       if (dot < -0.4) {
         attack += 20;
         defence *= 0.55;
@@ -6191,7 +6348,7 @@ export class Battle {
         dr.flankShock += MORALE.flankBlow * this.shockK;
       }
     }
-    const chance = Math.max(0.08, Math.min(0.92, 0.36 + (attack - defence) * 0.012));
+    const chance = Math.max(0.08, Math.min(0.92, 0.36 + (attack - defence) * 0.012)) * fence;
     d.acted[a] = this.tick;
     d.cd[a] = as.meleeCooldown + this.rng.int(4);
     if (this.rng.next() >= chance) return;
@@ -6819,20 +6976,28 @@ export class Battle {
       cap = spd * 1.25;
     } else {
       const t = d.target[i]!;
-      if (t >= 0) {
+      // (A rank behind a long spear's front strikes past it from his place in the ranks.)
+      if (t >= 0 && !(d.row[i]! > 0 && this.supports(i, r))) {
         let dx = d.x[t]! - x;
         let dy = d.y[t]! - y;
-        const contact = d.rad[i]! + d.rad[t]! + 0.9;
+        // REACH: he closes to his weapon's reach, or is held at a spear's point (`measure`).
+        const held = this.held(i, t);
+        const contact = this.measure(i, t);
         let sg = 0;
         // P6: a man out past the end of the enemy's front closes on his foe from the flank side.
-        if (!mounted && r.role === 'line' && d.imp[i]! <= 0.3 && this.wrapSide(i, t, r)) {
+        // (Not a spear: he keeps his point on his man from where he stands.)
+        if (!mounted && r.role === 'line' && d.imp[i]! <= 0.3 && d.rc[i]! < REACH.long && this.wrapSide(i, t, r)) {
           dx += this.tmp[0]! * contact;
           dy += this.tmp[1]! * contact;
         }
         const q = sqrt(dx * dx + dy * dy) || 1;
-        if (d.imp[i]! > 0.3) {
-          vx = (dx / q) * spd * 1.15;
-          vy = (dy / q) * spd * 1.15;
+        // (A charge on foot runs in on a spear's points no further than the points; a spear's
+        // charge lands at its own point, `act`.)
+        if (d.imp[i]! > 0.3 && !held && (mounted || q > contact)) {
+          // (A spear runs in to its point, not past it: two lines running in meet in one stride.)
+          const v = mounted || d.rc[i]! < REACH.long ? spd * 1.15 : Math.min(spd * 1.15, (q - contact) * 5);
+          vx = (dx / q) * v;
+          vy = (dy / q) * v;
           cap = spd * 1.2;
         } else if (!mounted && this.outOfMeasure(i, r)) {
           // P3: a breather (or the whole front's lull): a step or two back out of measure, at a walk.
@@ -6840,10 +7005,17 @@ export class Battle {
           const v = Math.max(-spd * 0.5, Math.min(spd * 0.5, (q - contact - back) * 3)) / q;
           vx = dx * v;
           vy = dy * v;
-        } else if (q > contact - (sg = r.surgeUntil > this.tick ? this.surge(i, r) : 0)) {
+        } else if (q > contact - (sg = r.surgeUntil > this.tick && !held ? this.surge(i, r) : 0)) {
           // (In a surge his files press in: he leans into his foe, and the press drives the
           // enemy back a step: see `separate`.)
           const v = Math.min(spd, (q - contact + sg) * 4) / q;
+          vx = dx * v;
+          vy = dy * v;
+        } else if (!mounted && q < contact - 1.5 && (d.rc[i]! >= REACH.long ? d.ps[t]! <= this.tick : held)) {
+          // REACH: a spearman with his foe too close (and not through his point) steps back to
+          // bring it to bear, and a man held at the points who finds himself on them steps back
+          // off them: the two lines come apart to the points again.
+          const v = Math.max(-spd * 0.4, (q - contact) * 2) / q;
           vx = dx * v;
           vy = dy * v;
         } else {
@@ -7476,6 +7648,50 @@ function turnRate(r: Regiment, horse: boolean): number {
 }
 
 /** Foot charges: the last stretch at a run. How far it can run before the ranks come apart (ticks). */
+/**
+ * Weapon reach (battle v17; docs/art-references/weapon-reach.md). Every man strikes a foe within
+ * his and his foe's bodies and his weapon's reach (`UnitStats.reach`) and stands there; a
+ * levelled spear holds men with shorter arms at its points.
+ */
+export const REACH = {
+  /** A weapon of this reach and more is a spear (or pike, or yari): it keeps a foe at its point. */
+  long: 9,
+  /** A spearman stands his foe off at this share of his reach: the points in among the enemy's front rank. */
+  stand: 0.75,
+  /** A man whose reach is under this share of a spearman's cannot close on his levelled point (`held`). */
+  short: 0.6,
+  /** From this reach the ranks behind the front strike past it (pikes and yari), up to `supportRows` of them... */
+  support: 17,
+  supportRows: 2,
+  /** ...leaning in on the men ahead by this much. */
+  lean: 2,
+  /** A foe closer than this share of a spearman's reach is inside his point: the spearman fights cramped. */
+  inside: 0.45,
+  insideAttack: 15,
+  insideDefence: 8,
+  /**
+   * A man held at the points, unable to strike, gives all he has to keeping them off (the
+   * shield up, the point beaten aside): a thrust at him lands this much as often.
+   */
+  heldHit: 0.4,
+  /** Spear on spear, front to front, a thrust lands this much as often: the points fence and beat each other aside. */
+  fence: 0.55,
+  /** Each look a man held at the points has this chance to get in by a gap beside his spearman... */
+  gap: 0.2,
+  /** ...or, the wall whole, by luck (times one and his shield): slipping under a point, ducking a thrust. */
+  luck: 0.03,
+  /**
+   * ...and the heaviest foot (shock: Dane axes, naginata, the colossus) this many times as
+   * often: they hack and beat the points aside, as the Doppelsöldner and halberdiers broke a push.
+   */
+  breaker: 3,
+  /** Once through, he stays through this long (renewed while he is inside the point). */
+  through: 30,
+} as const;
+
+/** REACH: how far a front-rank man looks for a spear's point at him (the longest point's line and a stride). */
+const POINT_SEEN = 26;
+
 const RUN_IN = 26;
 const FOOT_RUN = 1.45;
 

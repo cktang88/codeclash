@@ -22,6 +22,11 @@ export interface FactionDef {
   buildings: Record<string, string>;
   /** Multipliers on base stats per class: only the fields named change. */
   tweaks: Partial<Record<number, Partial<Record<keyof UnitStats, number>>>>;
+  /**
+   * Weapon reach per class where the faction's arms differ from the base (units.ts `reach`),
+   * from the drawn weapons (docs/art-references/weapon-reach.md): set, not multiplied.
+   */
+  reach?: Partial<Record<number, number>>;
   /** Main palette for sprites: cloth, trim, metal, leather, skin. */
   palette: { cloth: string; clothShade: string; trim: string; metal: string; metalShade: string; leather: string; skin: string };
   /**
@@ -65,6 +70,9 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
     // old charge x1.1) and hold their morale; its foot archers are pilgrims, a touch weaker.
     tweaks: {
       [U.Archers]: { missileDamage: 0.95 },
+      // Since weapon reach (battle v17, weapon-reach.md) the yari outreaches the Order's spear and
+      // its second rank strikes past the first; the spear levy thrusts harder to make up for it.
+      [U.Spearmen]: { attack: 1.15 },
     },
     palette: { cloth: '#d9d2bf', clothShade: '#9d9480', trim: '#9c1c1c', metal: '#9aa0a6', metalShade: '#5b6066', leather: '#5a3b24', skin: '#c8a07a' },
     rule: 'Discipline. The Marshal’s charge: while the Marshal lives the Knight-Brothers wait for his signal (an enemy block locked with the line faltering, the general charge, or 20 s after the lines meet), then all ride at that one block, hitting 1.2× as hard, ride back to his banner after each charge and hardly chase. Re-form on the banner: a wavering block falls back behind the nearest banner, up to twice a battle, and a broken one may re-form once more after its rally at any friendly banner. Not while the Beauséant flies: Knight-Brothers and Iron Brethren never rout while the Marshal lives, and take his death 1.5× as hard.',
@@ -99,7 +107,13 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
       [U.HorseArchers]: { missileDamage: 1.1 },
       [U.Crossbowmen]: { reload: 2.58, missileDamage: 1.45, range: 0.75, ammo: 0.5 },
       [U.HeavyInfantry]: { morale: 1.05 },
+      // The yari outreaches every other spear (weapon reach, battle v17): the price is in the levy
+      // who carries it, a peasant in a light okegawa cuirass, poor at close quarters.
+      [U.Spearmen]: { damage: 0.9, defence: 0.85 },
     },
+    // The nagae-yari (3.6 m drawn, held toward the butt) reaches furthest of any foot: its
+    // second rank strikes past the first. The sōhei's naginata outreaches a sword.
+    reach: { [U.Spearmen]: 19.5, [U.Shock]: 9 },
     palette: { cloth: '#2c3550', clothShade: '#1a2034', trim: '#b5372b', metal: '#7d7a73', metalShade: '#45423d', leather: '#4b2c1d', skin: '#d6b089' },
     rule: 'Valour and the lord. The uma-jirushi: the daimyō heartens every block within 425 (1.35× the aura); his death is a heavier blow (35 morale, then −20 for the rest of the day) and his hatamoto charge the nearest enemy to avenge him. First spear, long chase: katana samurai run in at any enemy within 140, the first block to strike claims the first spear (+8 morale, +3 to those near it), and samurai and yari riders break ranks to chase readily, 1.4× as far and as long. Drilled teppō fire: the Teppō Ashigaru go out before the line, which waits up to 15 s behind them; their first volley is the whole block at once and costs its target 8 morale (the dead feel nothing); after it they fire rank by rank, and they fall back through the line when the enemy closes.',
   },
@@ -140,6 +154,8 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
       [U.Knights]: { hp: DEAD_HP },
       [U.Shock]: { hp: COLOSSUS_HP },
     },
+    // The ghoul's spear is the shortest of the three (2.6 m drawn).
+    reach: { [U.Spearmen]: 13 },
     palette: { cloth: '#2e2b2a', clothShade: '#1a1817', trim: '#5f8f4e', metal: '#6c6f68', metalShade: '#3a3c38', leather: '#3d3128', skin: '#d8d0b4' },
     rule: 'The dead know no fear: they never waver, rout or rally, but have 71% of the living’s hit points (the Bone Colossus 80%; the trebuchet is timber). The tide: their foot marches at 0.8 of the living’s pace except within 500 of the Lich-Marshal, never halts to shoot or holds back, and charges at a lurch. Unflinching: a charge into them barely knocks them back, stuns nobody and stalls sooner. What falls, rises: every 10 s the Lich-Marshal raises fallen foot of his host within 500 of him (45% of the foot who fall while he stands rise again in time) with 40% of their hit points. If he falls, the raising stops and the whole host crumbles: every man loses 2% of his hit points a second and fights worse. A host down to its last 15% (or its last fifth, against twice as many) is spent: the battle is lost and it crumbles the same way.',
   },
@@ -157,6 +173,8 @@ export function factionStats(id: FactionId): UnitStats[] {
       // Reloads count whole ticks.
       s.reload = Math.round(s.reload);
     }
+    const reach = f.reach?.[k];
+    if (reach !== undefined) s.reach = reach;
     out.push(s);
   }
   return out;

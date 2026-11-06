@@ -296,16 +296,18 @@ describe('battle: missile drill (v11)', () => {
   });
 
   it('under a close charge they fire at will, point-blank, then sling bows and fight', () => {
-    // (Steadier than archers usually are, so that they stand to fight rather than run at once.)
-    const b = new Battle({ version: BATTLE_VERSION, seed: 2, kind: 'daily', armies: [{ ...plainArmy(only(U.Archers, 20)), moraleBonus: 40 }, plainArmy(only(U.Spearmen, 30), 200)] });
+    // (Steadier than archers usually are, so that they stand to fight rather than run at once.
+    // Swordsmen come at them: since v17's weapon reach, spearmen stand them off at their points
+    // and the bowmen hardly strike a blow, see reach.test.ts. Even at 250-290 apart.)
+    const b = new Battle({ version: BATTLE_VERSION, seed: 2, kind: 'daily', armies: [{ ...plainArmy(only(U.Archers, 20)), moraleBonus: 40 }, plainArmy(only(U.HeavyInfantry, 30), 200)] });
     b.generals[0].fixedPlan = 'hold';
     const bows = b.regiments.find((r) => r.team === 0)!;
-    const spears = b.regiments.find((r) => r.team === 1)!;
+    const foot = b.regiments.find((r) => r.team === 1)!;
     placeRegiment(b, bows, 700, 600, 1, 0);
     // (270 apart: with the v17 reloads, a volley every 7.5 s, whether a block gets its at-will shots
     // off before the foe is in among it turns on where the last volley fell in its run-in. From
-    // 230-250 on this seed the last volley came as the spears broke into their charge.)
-    placeRegiment(b, spears, 970, 600, -1, 0);
+    // 230-250 on this seed the last volley came as the foot broke into their charge.)
+    placeRegiment(b, foot, 970, 600, -1, 0);
     const fresh = shotsOf(b);
     let volleyShots = 0;
     let atWill = 0;
@@ -327,8 +329,8 @@ describe('battle: missile drill (v11)', () => {
       engaged ||= bows.engaged;
       for (const id of bows.members) if (struck(b, id, t, shots)) blows++;
     }
-    // Volleys at range; at will as the spears came on, bows level at point-blank. (Since v14 the
-    // eager spearmen run in ahead of their ranks and close before a second volley at will: the
+    // Volleys at range; at will as the foot came on, bows level at point-blank. (Since v14 the
+    // eager foot runs in ahead of their ranks and close before a second volley at will: the
     // flat shots are those of the first, at the men out in front.)
     expect(volleyShots).toBeGreaterThan(40);
     expect(atWill).toBeGreaterThan(10);
