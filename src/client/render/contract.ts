@@ -83,6 +83,14 @@ export type Dir = 0 | 1 | 2 | 3;
 export const COMMANDER_KIND = 10;
 export const KIND_COUNT = 11;
 
+/**
+ * How much a renderer wants an HD sheet it asks for (Atlas.sheet), most first: 'need' (a kind in
+ * view, at the level the view draws), 'fallback' (a kind in view, a cheap coarse level shown
+ * while the needed one paints), 'prefetch' (not drawn now: painted once nothing is needed), or
+ * 'peek' (the sheet if it is painted already; never starts painting).
+ */
+export type SheetAsk = 'need' | 'fallback' | 'prefetch' | 'peek';
+
 export interface Atlas {
   /** One image holding every sprite of one army (faction + heraldic hue). */
   image: HTMLCanvasElement;
@@ -115,9 +123,10 @@ export interface Atlas {
   levels?: readonly number[];
   /**
    * HD painters only: one kind's frames at a level, or null while it is still being painted (the
-   * first call asks for it; painting happens in the background).
+   * first call asks for it; painting happens in the background). `ask` says how much the caller
+   * wants it, which orders the painting (SheetAsk; default 'need').
    */
-  sheet?(kind: number, level: number): KindSheet | null;
+  sheet?(kind: number, level: number, ask?: SheetAsk): KindSheet | null;
   /**
    * Bumped whenever `image` changes after it was built (an HD painter fills its grid in the
    * background); a renderer that uploaded `image` uploads it again.
@@ -143,6 +152,12 @@ export interface KindSheet {
   rects: Int32Array;
   /** Milliseconds it took to paint. */
   ms: number;
+  /**
+   * A first look while the rest paints (HD painters): the animations seen most are painted; Run,
+   * further blows and Hit borrow Walk, the first blow and the Brace, and Die and Dead are empty
+   * (w = 0: the renderer draws those frames from the grid). The whole sheet follows.
+   */
+  partial?: boolean;
 }
 
 export type BuildAtlas = (faction: FactionId, hue: number) => Atlas;

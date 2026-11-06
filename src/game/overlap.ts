@@ -88,3 +88,58 @@ export function percentile(a: readonly number[], p: number): number {
   const s = a.slice().sort((x, y) => x - y);
   return s[Math.min(s.length - 1, Math.floor(s.length * p))]!;
 }
+
+/** Two friendly formed blocks passing through each other (see `blockCrossings`). */
+export interface Crossing {
+  a: number;
+  b: number;
+  /** Men of each standing inside the other's footprint. */
+  inA: number;
+  inB: number;
+  /** The larger of the shares of each block's men standing in the other. */
+  share: number;
+}
+
+/**
+ * Formed blocks of one side standing in each other: for each pair of friendly blocks, neither
+ * routed, the men of one standing inside the other's footprint (the rectangle its places cover,
+ * from its anchor, facing, width and depth, less a man's breadth at the edges). Skirmishers and
+ * blocks passing through their own line on purpose (`slip`, falling back as skirmishers) are left
+ * out: that is drill; so are blocks chasing, a loose crowd, and two blocks of horse both in open
+ * order. Shooters standing on shooters count (each block of them should have its own spot). A pair counts when at least `min` men of either stand in the other.
+ */
+export function blockCrossings(b: Battle, min = 4): Crossing[] {
+  const regs = b.regiments.filter((r) => r.alive >= 6 && !r.routed && r.role !== 'skirmish' && r.role !== 'siege' && !r.slip && r.mode !== 'skirmish' && r.mode !== 'pursue');
+  const out: Crossing[] = [];
+  const inside = (r: (typeof regs)[number], x: number, y: number): boolean => {
+    const dx = x - r.ax;
+    const dy = y - r.ay;
+    const lat = -dx * r.fy + dy * r.fx;
+    const fwd = dx * r.fx + dy * r.fy;
+    const m = r.rad * 1.5;
+    return Math.abs(lat) < r.width / 2 - m && fwd < -m && fwd > -r.depth + m;
+  };
+  for (let i = 0; i < regs.length; i++) {
+    const p = regs[i]!;
+    for (let j = i + 1; j < regs.length; j++) {
+      const q = regs[j]!;
+      if (p.team !== q.team || (p.stance === 'loose' && q.stance === 'loose' && p.role !== 'missile' && q.role !== 'missile')) continue;
+      const dx = p.cx - q.cx;
+      const dy = p.cy - q.cy;
+      const rr = p.radius + q.radius;
+      if (dx * dx + dy * dy > rr * rr) continue;
+      let inA = 0;
+      let inB = 0;
+      for (const id of q.members) {
+        const s = b.soldiers[id]!;
+        if (s.state === State.Fighting && inside(p, s.x, s.y)) inA++;
+      }
+      for (const id of p.members) {
+        const s = b.soldiers[id]!;
+        if (s.state === State.Fighting && inside(q, s.x, s.y)) inB++;
+      }
+      if (inA >= min || inB >= min) out.push({ a: p.id, b: q.id, inA, inB, share: Math.max(inA / q.alive, inB / p.alive) });
+    }
+  }
+  return out;
+}

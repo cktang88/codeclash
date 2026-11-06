@@ -13,7 +13,7 @@ import type { FactionId } from '../game/factions.ts';
 import { BattleScene } from './render/scene.ts';
 import { artMode, nextArt, parseArt, setArtMode, type ArtMode } from './settings.ts';
 import { ART_LABEL } from './ui/useArtMode.ts';
-import { hdMemory } from './render/sprites128.ts';
+import { hdMemory, hdPoolStats } from './render/sprites128.ts';
 
 const q = new URLSearchParams(location.search);
 const num = (k: string, d: number) => (q.has(k) ? Number(q.get(k)) : d);
@@ -177,6 +177,8 @@ const w = window as unknown as {
 };
 w.__perf = perf;
 w.__scene = scene;
+// What the HD painter's workers did: jobs answered in order, with their want and timings.
+(window as unknown as { __hdPool: typeof hdPoolStats }).__hdPool = hdPoolStats;
 w.__battle = real;
 // Swaps the scene's art in place, as BattleView does (for timing a mode switch).
 w.__switch = (to) => {

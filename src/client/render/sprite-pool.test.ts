@@ -46,8 +46,8 @@ describe('sprite worker pool', () => {
     G.Worker = FakeWorker;
     G.document = { createElement: () => ({ width: 0, height: 0, getContext: () => ({ putImageData() {} }) }) };
     G.ImageData = class {};
-    // Two workers (cores - 2).
-    vi.stubGlobal('navigator', { hardwareConcurrency: 4 });
+    // Two workers (cores - 1).
+    vi.stubGlobal('navigator', { hardwareConcurrency: 3 });
     mod = await import('./sprites128.ts');
   });
   afterAll(() => {
@@ -116,7 +116,7 @@ describe('sprite worker pool: HD 64 after HD', () => {
     G.Worker = FakeWorker;
     G.document = { createElement: () => ({ width: 0, height: 0, getContext: () => ({ putImageData() {} }) }) };
     G.ImageData = class {};
-    vi.stubGlobal('navigator', { hardwareConcurrency: 4 });
+    vi.stubGlobal('navigator', { hardwareConcurrency: 3 });
     mod = await import('./sprites128.ts');
   });
   afterAll(() => {
@@ -143,5 +143,117 @@ describe('sprite worker pool: HD 64 after HD', () => {
     expect(pending[0]![1].key).toBe('undead:120:8:4:half');
     expect(pending[0]![1].from).toBe(big);
     expect(hd.sheet!(8, 8)).toBe(big);
+  });
+});
+
+describe('sprite worker pool: what the view needs first', () => {
+  let mod: typeof import('./sprites128.ts');
+  const pending: [FakeWorker, Msg & { progressive?: boolean }][] = [];
+  beforeAll(async () => {
+    vi.resetModules();
+    FakeWorker.all = [];
+    G.Worker = FakeWorker;
+    G.document = { createElement: () => ({ width: 0, height: 0, getContext: () => ({ putImageData() {} }) }) };
+    G.ImageData = class {};
+    // One worker (cores - 1), so the order the queue is served in shows.
+    vi.stubGlobal('navigator', { hardwareConcurrency: 2 });
+    mod = await import('./sprites128.ts');
+  });
+  afterAll(() => {
+    vi.unstubAllGlobals();
+    Object.assign(G, saved);
+  });
+  const next = (): Msg & { progressive?: boolean } => {
+    const [w, m] = pending.shift()!;
+    w.reply(m.level === 1 ? { ...sheet(1), width: 48, height: 192 } : sheet(m.level));
+    return m;
+  };
+
+  it('paints the fallbacks of kinds in view, their grids, then what they need, then the rest', async () => {
+    FakeWorker.answer = (m, w) => void pending.push([w, m]);
+    const atlas = mod.buildAtlas('templar', 40);
+    // The first ask takes the only worker.
+    atlas.sheet!(5, 2, 'prefetch');
+    await tick();
+    expect(pending.map(([, m]) => m.key)).toEqual(['templar:40:5:2']);
+    // Kinds 0..2 on the field (their grids asked for), kind 1 in view at 8x; the others prefetched.
+    for (const k of [0, 1, 2]) atlas.at(k, 0, 0, 0);
+    atlas.sheet!(0, 2, 'prefetch');
+    atlas.sheet!(2, 4, 'prefetch');
+    atlas.sheet!(1, 4, 'prefetch');
+    atlas.sheet!(1, 8, 'need');
+    atlas.sheet!(1, 2, 'fallback');
+    atlas.sheet!(2, 2, 'peek');
+    const order: string[] = [];
+    while (pending.length) order.push(next().key);
+    expect(order).toEqual(['templar:40:5:2', 'templar:40:1:2', 'templar:40:1:1', 'templar:40:1:8', 'templar:40:0:1', 'templar:40:2:1', 'templar:40:0:2', 'templar:40:1:4', 'templar:40:2:4']);
+    // A peek never paints.
+    expect(atlas.sheet!(2, 2, 'peek')).toBeNull();
+    expect(pending.length).toBe(0);
+  });
+
+  it('shows a partial sheet while the whole one paints, then the whole one', async () => {
+    FakeWorker.answer = (m, w) => void pending.push([w, m]);
+    const atlas = mod.buildAtlas('samurai', 75);
+    expect(atlas.sheet!(3, 8, 'need')).toBeNull();
+    await tick();
+    const [w, m] = pending.shift()!;
+    expect(m.progressive).toBe(true);
+    const part = { ...sheet(8), partial: true };
+    w.reply(part);
+    expect(atlas.sheet!(3, 8)).toBe(part);
+    // The worker is still on it: the next job waits.
+    atlas.sheet!(4, 2, 'need');
+    expect(pending.length).toBe(0);
+    const whole = sheet(8);
+    w.reply(whole);
+    expect(atlas.sheet!(3, 8)).toBe(whole);
+    expect(pending.map(([, q]) => q.key)).toEqual(['samurai:75:4:2']);
+    // A prefetch or a fallback is painted in one go.
+    next();
+    atlas.sheet!(4, 4, 'prefetch');
+    expect(pending[0]![1].progressive).toBe(false);
+  });
+});
+
+describe('sprite worker pool: affinity', () => {
+  let mod: typeof import('./sprites128.ts');
+  const pending: [FakeWorker, Msg][] = [];
+  beforeAll(async () => {
+    vi.resetModules();
+    FakeWorker.all = [];
+    G.Worker = FakeWorker;
+    G.document = { createElement: () => ({ width: 0, height: 0, getContext: () => ({ putImageData() {} }) }) };
+    G.ImageData = class {};
+    // Two workers.
+    vi.stubGlobal('navigator', { hardwareConcurrency: 3 });
+    mod = await import('./sprites128.ts');
+  });
+  afterAll(() => {
+    vi.unstubAllGlobals();
+    Object.assign(G, saved);
+  });
+
+  it("gives a worker more of the faction and level it has painted, and does not start one faction's level on every worker", async () => {
+    FakeWorker.answer = (m, w) => void pending.push([w, m]);
+    const tem = mod.buildAtlas('templar', 10);
+    const sam = mod.buildAtlas('samurai', 10);
+    tem.sheet!(0, 8, 'need');
+    await tick();
+    tem.sheet!(5, 2, 'need');
+    const [a, ma] = pending[0]!;
+    const [b, mb] = pending[1]!;
+    expect([ma.key, mb.key]).toEqual(['templar:10:0:8', 'templar:10:5:2']);
+    pending.length = 0;
+    const done = (w: FakeWorker, level: number) => w.reply({ level, width: 1, height: 1, pixels: new Uint8ClampedArray(4), rects: new Int32Array(6), ms: 0 });
+    // Both busy; templar and samurai 8x wait, templar first in the queue.
+    tem.sheet!(1, 8, 'need');
+    sam.sheet!(0, 8, 'need');
+    // B (warm for neither) takes samurai: A is the one warm for templar 8x.
+    done(b, 2);
+    expect(pending.map(([w, m]) => [w === b, m.key])).toEqual([[true, 'samurai:10:0:8']]);
+    done(a, 8);
+    expect(pending.at(-1)![0]).toBe(a);
+    expect(pending.at(-1)![1].key).toBe('templar:10:1:8');
   });
 });

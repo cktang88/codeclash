@@ -26,7 +26,7 @@ import {
 } from './skeleton.ts';
 import { HIT, T } from './templar-clips.ts';
 import { fromGuard, riderOnly } from './guard.ts';
-import { addDrops, at as atT, facingClip, lastFrame, mapFacings, overlayKeys, partMap, restWorld, skinMap, smooth01, type ClipSet, type Drop, type KP, type LagSpec, type Track, type Weights } from './templar-rig.ts';
+import { addDrops, at as atT, facingClip, lastFrame, mapFacings, overlayKeys, partMap, restWorld, skinMap, smooth01, weightSlots, type ClipSet, type Drop, type KP, type LagSpec, type Track, type Weights } from './templar-rig.ts';
 import { MOTION, type MotionKey } from './motion/index.ts';
 
 // ------------------------------------------------------------------ per-kind facts
@@ -155,11 +155,12 @@ function horseSkel(kind: number, m: SMounted, s: HorseSpec): SkeletonData {
 // ------------------------------------------------------------------ the parts
 
 /** The mane: the strands' roots on the crest ride the neck, their ends the trailing mane bone. */
+const MANE_W = weightSlots(['horseNeck', 'mane']);
 const maneWeights: Weights = ([x, y]) => {
   // Distance below the crest line (from [2.9, -11.2] to [6.9, -14.2]).
   const d = (x - 2.9) * 0.6 + (y + 11.2) * 0.8;
   const m = smooth01(d / 1.0);
-  return [['horseNeck', 1 - m], ['mane', m]];
+  return MANE_W(1 - m, m);
 };
 
 function horseParts(kind: number, m: SMounted, s: HorseSpec): AttachmentSet {

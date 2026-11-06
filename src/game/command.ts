@@ -392,6 +392,8 @@ export const COHESION = {
   faceHorse: 150,
   /** ...but horse locked in a fight with another block only from this close (as spears brace). */
   faceHorseNear: 40,
+  /** A block held up behind a friend makes for the ground beside him, and keeps that way round this long after it was last held up (ticks). */
+  dodgeFor: 60,
   rearTurn: 30,
   /** A reserve block goes in on its own for an open enemy flank within this many times its width and depth (and 20) of it. */
   initiative: 1,

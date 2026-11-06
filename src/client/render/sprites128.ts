@@ -14,7 +14,7 @@
 
 import { FACTIONS, type FactionId } from '../../game/factions.ts';
 import { U } from '../../game/units.ts';
-import { Anim, ANIM_COUNT, COMMANDER_KIND, KIND_COUNT, type Atlas, type BuildAtlas, type Dir, type KindSheet } from './contract.ts';
+import { Anim, ANIM_COUNT, COMMANDER_KIND, KIND_COUNT, type Atlas, type BuildAtlas, type Dir, type KindSheet, type SheetAsk } from './contract.ts';
 import { FRAMES, LOOPS, TICKS } from './frames.ts';
 import { paintPaper, paperBlows, paperSheetStart, type PaperFrame } from './paper/index.ts';
 import { paperKindFor } from './paper/registry.ts';
@@ -3234,15 +3234,17 @@ interface Tile {
 /** A paper-doll frame (paper/index.ts) trimmed to what it covers. */
 function paperTile(pf: PaperFrame, slot: number): Tile {
   const src = new Uint32Array(pf.pixels.buffer, pf.pixels.byteOffset, pf.width * pf.height);
-  let x0 = pf.width, y0 = pf.height, x1 = -1, y1 = -1;
-  for (let y = 0; y < pf.height; y++)
-    for (let x = 0; x < pf.width; x++)
-      if (src[y * pf.width + x]! >>> 24) {
-        if (x < x0) x0 = x;
-        if (x > x1) x1 = x;
-        if (y < y0) y0 = y;
-        if (y > y1) y1 = y;
-      }
+  // The box of the opaque pixels: the frame's own when it gives it, else found here.
+  let [x0, y0, x1, y1] = pf.box ?? [pf.width, pf.height, -1, -1];
+  if (!pf.box)
+    for (let y = 0; y < pf.height; y++)
+      for (let x = 0; x < pf.width; x++)
+        if (src[y * pf.width + x]! >>> 24) {
+          if (x < x0) x0 = x;
+          if (x > x1) x1 = x;
+          if (y < y0) y0 = y;
+          if (y > y1) y1 = y;
+        }
   if (x1 < x0) x0 = x1 = Math.min(pf.width - 1, pf.ax), y0 = y1 = Math.min(pf.height - 1, pf.ay);
   const w = x1 - x0 + 1, h = y1 - y0 + 1;
   const px = new Uint32Array(w * h);
@@ -3261,54 +3263,82 @@ function paperCell(pf: PaperFrame, out: Uint32Array, iw: number, ox: number, oy:
     }
 }
 
+/** One run of a sheet's frames: an animation (one blow of Attack) in one facing, from its frame 0. */
+interface Run {
+  dir: Dir;
+  a: Anim;
+  /** Its frames as numbered in paintPaper/slotOf: blow b of Attack is b * n .. (b + 1) * n - 1. */
+  at0: number;
+  at1: number;
+  /** Its first frame's place among all the sheet's frames, in the order paintSheet paints them. */
+  seq: number;
+}
+
 /**
- * Paints every frame of one kind at a detail level and packs them, each trimmed to what it
- * covers, into one RGBA page (shelf packing, at most 4096 wide). Pure, so it runs in a worker.
+ * What paints one kind's sheet at a level, a run at a time: the runs in paintSheet's order, and a
+ * painter that adds a run's trimmed frames (tagged with their place in that order) to `tiles`.
+ * Each run starts from its own frame 0 (the anti-flicker pass follows on within a run only), so
+ * runs may be painted in any order and the sheet packed from the tiles sorted back.
  */
-export function paintSheet(faction: string, hue: number, kind: number, level: number): KindSheet {
-  const t0 = typeof performance !== 'undefined' ? performance.now() : 0;
+function sheetPainter(faction: string, hue: number, kind: number, level: number) {
   const { fill, edge, looks } = armyColours(faction, hue);
   useLevel(level);
   paperSheetStart();
   const scratch = new Uint32Array(W * H);
-  const tiles: Tile[] = [];
   const blows = blowsOf(faction, kind);
   const adv = advancesOf(faction, kind);
+  const runs: Run[] = [];
+  let seq = 0;
   for (let dir = 0; dir < 4; dir++)
     for (let a = 0; a < ANIM_COUNT; a++) {
       if (a === Anim.Shoot && !SHOOTS.has(kind)) continue;
       if (a === Anim.Advance && !adv) continue;
       // Attack: every blow, one after another (blow 0 first, in its classic slots).
-      const runs = a === Anim.Attack ? blows : 1;
-      for (let at = 0; at < runs * FRAMES[a]!; at++) {
-        const fr = at % FRAMES[a]!;
-        const slot = at < FRAMES[a]! ? dir * COLS + COL0[a]! + fr : slotOf(kind, a as Anim, at, dir as Dir, blows);
-        const pf = paintPaper(faction, kind, level, a as Anim, at, dir as Dir, hue);
-        if (pf) {
-          tiles.push(paperTile(pf, slot));
-          continue;
-        }
-        if (LV !== level) useLevel(level);
-        const sh = paint(looks, kind, a as Anim, fr, dir as Dir);
-        prevOk = fr > 0;
-        // The scratch is cleared over everything this frame can touch, then trimmed to what it did.
-        const ex = Math.ceil(Math.max(sh.rx, sh.rz) * LV) + 1;
-        const c0 = Math.max(0, Math.min(bx0 - 1, FX - 2 * ex)), c1 = Math.min(W - 1, Math.max(bx1 + 1, FX + 2 * ex));
-        for (let y = Math.max(0, Math.min(by0 - 1, FY - ex)); y <= Math.min(H - 1, Math.max(by1 + 1, FY + ex)); y++) scratch.fill(0, y * W + c0, y * W + c1 + 1);
-        finish(scratch, W, 0, 0, fill, edge, a === Anim.Dead ? null : sh, dir as Dir);
-        let x0 = Math.max(0, Math.min(bx0 - 1, sx0)), x1 = Math.min(W - 1, Math.max(bx1 + 1, sx1));
-        let y0 = Math.max(0, Math.min(by0 - 1, sy0)), y1 = Math.min(H - 1, Math.max(by1 + 1, sy1));
-        if (x1 < x0 || y1 < y0) {
-          x0 = x1 = FX;
-          y0 = y1 = FY;
-        }
-        const w = x1 - x0 + 1, h = y1 - y0 + 1;
-        const px = new Uint32Array(w * h);
-        for (let y = 0; y < h; y++) px.set(scratch.subarray((y0 + y) * W + x0, (y0 + y) * W + x0 + w), y * w);
-        tiles.push({ slot, w, h, ax: FX - x0, ay: FY - y0, px });
+      const n = FRAMES[a]!;
+      for (let b = 0; b < (a === Anim.Attack ? blows : 1); b++) {
+        runs.push({ dir: dir as Dir, a: a as Anim, at0: b * n, at1: (b + 1) * n, seq });
+        seq += n;
       }
     }
-  // Shelf packing, tallest first, into a page about as wide as it is tall.
+  const paintRun = (run: Run, tiles: (Tile & { seq: number })[]): void => {
+    const { dir, a } = run;
+    for (let at = run.at0; at < run.at1; at++) {
+      const fr = at % FRAMES[a]!;
+      const slot = at < FRAMES[a]! ? dir * COLS + COL0[a]! + fr : slotOf(kind, a, at, dir, blows);
+      const tseq = run.seq + at - run.at0;
+      const pf = paintPaper(faction, kind, level, a, at, dir, hue, undefined, { reuse: true });
+      if (pf) {
+        tiles.push({ ...paperTile(pf, slot), seq: tseq });
+        continue;
+      }
+      if (LV !== level) useLevel(level);
+      const sh = paint(looks, kind, a, fr, dir);
+      prevOk = fr > 0;
+      // The scratch is cleared over everything this frame can touch, then trimmed to what it did.
+      const ex = Math.ceil(Math.max(sh.rx, sh.rz) * LV) + 1;
+      const c0 = Math.max(0, Math.min(bx0 - 1, FX - 2 * ex)), c1 = Math.min(W - 1, Math.max(bx1 + 1, FX + 2 * ex));
+      for (let y = Math.max(0, Math.min(by0 - 1, FY - ex)); y <= Math.min(H - 1, Math.max(by1 + 1, FY + ex)); y++) scratch.fill(0, y * W + c0, y * W + c1 + 1);
+      finish(scratch, W, 0, 0, fill, edge, a === Anim.Dead ? null : sh, dir);
+      let x0 = Math.max(0, Math.min(bx0 - 1, sx0)), x1 = Math.min(W - 1, Math.max(bx1 + 1, sx1));
+      let y0 = Math.max(0, Math.min(by0 - 1, sy0)), y1 = Math.min(H - 1, Math.max(by1 + 1, sy1));
+      if (x1 < x0 || y1 < y0) {
+        x0 = x1 = FX;
+        y0 = y1 = FY;
+      }
+      const w = x1 - x0 + 1, h = y1 - y0 + 1;
+      const px = new Uint32Array(w * h);
+      for (let y = 0; y < h; y++) px.set(scratch.subarray((y0 + y) * W + x0, (y0 + y) * W + x0 + w), y * w);
+      tiles.push({ slot, w, h, ax: FX - x0, ay: FY - y0, px, seq: tseq });
+    }
+  };
+  return { runs, blows, paintRun };
+}
+
+/**
+ * Packs trimmed frames into one RGBA page: shelf packing, tallest first (ties in the order given),
+ * into a page about as wide as it is tall, at most 4096 wide.
+ */
+function packTiles(tiles: Tile[], blows: number, level: number, ms: number): KindSheet {
   const area = tiles.reduce((s, t) => s + (t.w + 1) * (t.h + 1), 0);
   const maxW = tiles.reduce((m, t) => Math.max(m, t.w + 1), 0);
   const pageW = Math.min(4096, Math.max(maxW, Math.ceil(Math.sqrt(area) * 1.08)));
@@ -3334,9 +3364,57 @@ export function paintSheet(faction: string, hue: number, kind: number, level: nu
     for (let r = 0; r < t.h; r++) page.set(t.px.subarray(r * t.w, (r + 1) * t.w), (py0 + r) * pageW + px0);
     rects.set([px0, py0, t.w, t.h, t.ax, t.ay], t.slot * 6);
   });
-  useLevel(1);
-  const ms = typeof performance !== 'undefined' ? performance.now() - t0 : 0;
   return { level, width: pageW, height: pageH, pixels: new Uint8ClampedArray(page.buffer), rects, ms };
+}
+
+/**
+ * Paints every frame of one kind at a detail level and packs them, each trimmed to what it
+ * covers, into one RGBA page (shelf packing, at most 4096 wide). Pure, so it runs in a worker.
+ */
+export function paintSheet(faction: string, hue: number, kind: number, level: number): KindSheet {
+  return paintSheetProgressive(faction, hue, kind, level);
+}
+
+/**
+ * The animations a sheet paints first (KindSheet.partial): the guard, standing, stepping, the
+ * first blow and the shot, which most of a battle's figures show at any time.
+ */
+const EARLY: ReadonlySet<number> = new Set<number>([Anim.Idle, Anim.Brace, Anim.Walk, Anim.Advance, Anim.Attack, Anim.Shoot]);
+const early = (r: Run): boolean => EARLY.has(r.a) && r.at0 === 0;
+
+/**
+ * paintSheet, and with `partial` a first look on the way (KindSheet.partial): the EARLY runs are
+ * painted first and packed into a partial sheet handed to `partial`, then the rest. The whole
+ * sheet is the same, byte for byte, either way (its frames are packed in paintSheet's order).
+ */
+export function paintSheetProgressive(faction: string, hue: number, kind: number, level: number, partial?: (s: KindSheet) => void): KindSheet {
+  const t0 = typeof performance !== 'undefined' ? performance.now() : 0;
+  const ms = (): number => (typeof performance !== 'undefined' ? performance.now() - t0 : 0);
+  const { runs, blows, paintRun } = sheetPainter(faction, hue, kind, level);
+  const tiles: (Tile & { seq: number })[] = [];
+  if (partial) {
+    for (const r of runs) if (early(r)) paintRun(r, tiles);
+    const first = packTiles(tiles, blows, level, ms());
+    first.partial = true;
+    // The rest borrow a painted frame of the same facing: Run the Walk, later blows the first,
+    // Hit the Brace (its first frames); Die and Dead stay empty (drawn from the grid meanwhile).
+    for (const r of runs) {
+      if (early(r)) continue;
+      const n = FRAMES[r.a]!;
+      for (let at = r.at0; at < r.at1; at++) {
+        const fr = at % n;
+        const from = r.a === Anim.Run ? COL0[Anim.Walk]! + (fr % FRAMES[Anim.Walk]) : r.a === Anim.Attack ? COL0[Anim.Attack]! + fr : r.a === Anim.Hit ? COL0[Anim.Brace]! + Math.min(fr, FRAMES[Anim.Brace] - 1) : -1;
+        if (from < 0) continue;
+        const slot = at < n ? r.dir * COLS + COL0[r.a]! + fr : slotOf(kind, r.a, at, r.dir, blows);
+        first.rects.copyWithin(slot * 6, (r.dir * COLS + from) * 6, (r.dir * COLS + from) * 6 + 6);
+      }
+    }
+    partial(first);
+    for (const r of runs) if (!early(r)) paintRun(r, tiles);
+    tiles.sort((p, q) => p.seq - q.seq);
+  } else for (const r of runs) paintRun(r, tiles);
+  useLevel(1);
+  return packTiles(tiles, blows, level, ms());
 }
 
 /**
@@ -3362,7 +3440,7 @@ export function paintGrid(faction: string, hue: number, kind: number): KindSheet
         const fr = at % FRAMES[a]!;
         const col = at < FRAMES[a]! ? COL0[a]! + fr : gridColOf(kind, a as Anim, at, dir as Dir, blows);
         // Paper-doll kinds are drawn natively at level 1 (one unit per pixel), not downscaled.
-        const pf = paintPaper(faction, kind, 1, a as Anim, at, dir as Dir, hue);
+        const pf = paintPaper(faction, kind, 1, a as Anim, at, dir as Dir, hue, undefined, { reuse: true });
         if (pf) {
           paperCell(pf, out, width, col * CELL_W, dir * CELL_H);
           continue;
@@ -3460,16 +3538,44 @@ interface Job {
   from?: KindSheet;
   /** When a renderer last asked for it (the queue serves what is wanted now first). */
   asked: number;
+  /** How much that ask wanted it: WANT (need, fallback, prefetch). */
+  want: number;
+  /** When it went to a worker (for the stats). */
+  sent?: number;
   done: ((s: KindSheet) => void)[];
+  /** Called with a partial sheet (KindSheet.partial) on the way, if the worker sends one. */
+  progress: ((s: KindSheet) => void)[];
   /** Called if it could not be painted. */
   failed: (() => void)[];
   /** HD 64: the level-8 job this halving waits for (not queued until that sheet lands). */
   source?: Job;
 }
 
+/** What the background painter did so far (battle-perf.html `__hdPool()`, the art-loading timings). */
+const stats = {
+  failed: 0,
+  /** Jobs answered: key, want, whether the cache was asked, when sent (ms) and how long it took. */
+  log: [] as { key: string; want: number; cached: boolean; sent: number; ms: number; ok: boolean }[],
+};
+
+/** SheetAsk as a rank: lower is painted sooner. 'peek' never starts a job. */
+const WANT: Record<Exclude<SheetAsk, 'peek'>, number> = { need: 0, fallback: 1, prefetch: 2 };
+
+/**
+ * A painting worker: its job, and the (faction, level) pairs it has painted. A worker builds a
+ * faction's rigs and samples its palette at a level once, a second or two before its first sheet
+ * of them: the queue gives it more of the same where it can (affinity).
+ */
+interface Slot {
+  w: Worker;
+  busy: Job | null;
+  warm: Set<string>;
+}
+const warmKey = (j: Job): string => `${j.faction}:${j.level}`;
+
 /** Hi-res sheets are painted by a small pool of workers (or, without workers, on idle timeouts). */
 const workPool = {
-  workers: [] as { w: Worker; busy: Job | null }[],
+  workers: [] as Slot[],
   queue: [] as Job[],
   jobs: new Map<string, Job>(),
   made: false,
@@ -3489,15 +3595,25 @@ function startPool(): void {
   if (typeof Worker === 'undefined') return;
   try {
     const cores = typeof navigator !== 'undefined' && navigator.hardwareConcurrency ? navigator.hardwareConcurrency : 2;
-    // Leave the main thread and the simulation a core of their own.
-    const n = Math.max(1, Math.min(6, cores - 2));
+    // Leave the main thread (which runs the simulation too) a core of its own; the rest paint.
+    // (cores - 2 left 2 of 4 cores painting while the main thread, a paused or light battle,
+    // mostly waits for them.)
+    const n = Math.max(1, Math.min(8, cores - 1));
     for (let i = 0; i < n; i++) {
       const w = new Worker(new URL('./sprite-worker.ts', import.meta.url), { type: 'module' });
-      const slot = { w, busy: null as Job | null };
+      const slot: Slot = { w, busy: null, warm: new Set() };
       w.onmessage = (e: MessageEvent<KindSheet | PaintError>) => {
         const job = slot.busy;
+        if (!('error' in e.data) && e.data.partial) {
+          // A first look: the whole sheet follows from the same worker.
+          if (job) for (const p of job.progress) p(e.data);
+          if (typeof performance !== 'undefined' && job) performance.mark?.('codeclash:partial', { detail: job.key });
+          return;
+        }
         slot.busy = null;
         if (job) {
+          stats.log.push({ key: job.key, want: job.want, cached: workPool.cached.has(job.key), sent: Math.round(job.sent ?? 0), ms: Math.round(now() - (job.sent ?? now())), ok: !('error' in e.data) });
+          if (stats.log.length > 400) stats.log.shift();
           if ('error' in e.data) failJob(job, e.data.error);
           else finishJob(job, e.data);
         }
@@ -3550,6 +3666,7 @@ const failedLately = (key: string): boolean => {
 };
 
 function failJob(job: Job, error: string): void {
+  stats.failed++;
   workPool.jobs.delete(job.key);
   failed.set(job.key, now());
   console.error(`sprite sheet ${job.key} was not painted: ${error}`);
@@ -3567,35 +3684,63 @@ function finishJob(job: Job, sheet: KindSheet): void {
 let idleTimer = false;
 const STALE_MS = 1000;
 function pump(): void {
-  // Level-1 grids first (the first frame waits for them), then what a renderer asked for in the
-  // last second (after an art switch or a zoom, the previous view's leftovers wait), then the
-  // rest. Among the wanted, level 2 and the finest level asked for a kind go before the levels
-  // between (zoomed in to 8x: 2, then 8, then 4, so the view is sharp sooner); lower levels
-  // first otherwise: they are cheap, and they are what the camera falls back to.
-  // Up to the renderer's latest ask, a few frames' slack (as for the memory, above).
+  // Wanted now (asked within the last second, up to the renderer's latest ask with a few frames'
+  // slack, as for the memory above) before what was wanted before an art switch or a zoom:
+  //   0. the coarsest HD level (2) of kinds in view: a view zoomed in draws them from it, and it
+  //      paints as fast as a level-1 grid,
+  //   1. the level-1 grids of kinds in view (else drawn from the grid until an HD sheet lands),
+  //   2. 'need': the level the view draws, for kinds in view,
+  //   3. the other grids (the zoomed-out field), then 4. 'prefetch', coarse levels first,
+  //   5. anything no longer asked for.
+  // A kind is in view when it has a fresh 'need' or 'fallback' job.
   const t = lastAsk || now();
   const fresh = (j: Job): boolean => t - j.asked <= STALE_MS + 3 * frameGap;
-  const top = new Map<string, number>();
-  for (const j of workPool.jobs.values()) {
-    const ak = `${j.faction}:${j.hue}:${j.kind}`;
-    if (fresh(j) && j.level > (top.get(ak) ?? 0)) top.set(ak, j.level);
-  }
-  const rank = (j: Job): number =>
-    j.level === 1 ? 0 : !fresh(j) ? 3 : j.level <= 2 || j.level >= (top.get(`${j.faction}:${j.hue}:${j.kind}`) ?? 0) ? 1 : 2;
-  workPool.queue.sort((p, q) => rank(p) - rank(q) || p.level - q.level);
+  const inView = new Set<string>();
+  for (const j of workPool.jobs.values()) if (j.level > 1 && j.want <= WANT.fallback && fresh(j)) inView.add(`${j.faction}:${j.hue}:${j.kind}`);
+  const rank = (j: Job): number => {
+    // Grids are asked for once, when a kind first shows: never stale.
+    if (j.level === 1) return inView.has(`${j.faction}:${j.hue}:${j.kind}`) ? 1 : 3;
+    if (!fresh(j)) return 5;
+    if (j.want === WANT.prefetch) return 4;
+    return j.level <= 2 ? 0 : 2;
+  };
+  // Coarse levels first within a rank, then kinds in view (prefetching the levels between).
+  const away = (j: Job): number => (inView.has(`${j.faction}:${j.hue}:${j.kind}`) ? 0 : 1);
+  workPool.queue.sort((p, q) => rank(p) - rank(q) || p.level - q.level || away(p) - away(q));
+  const head = workPool.queue[0];
+  const headRank = head ? rank(head) : 0;
+  /**
+   * The job a free worker takes: among those as wanted as the head of the queue (same rank and
+   * level), the first it is warm for, else the first no other worker is warm for (one faction's
+   * first sheets are not spread over every worker, each building its rigs), else the head.
+   */
+  const pick = (slot: Slot): number => {
+    let cold = -1;
+    for (let i = 0; i < workPool.queue.length; i++) {
+      const j = workPool.queue[i]!;
+      if (rank(j) !== headRank || j.level !== head!.level) break;
+      if (workPool.cached.has(j.key) || slot.warm.has(warmKey(j))) return i;
+      if (cold < 0 && !workPool.workers.some((o) => o !== slot && o.warm.has(warmKey(j)))) cold = i;
+    }
+    return Math.max(0, cold);
+  };
   if (workPool.ok) {
     if (!workPool.ready) return;
     for (const slot of workPool.workers) {
       if (slot.busy || workPool.queue.length === 0) continue;
-      const job = workPool.queue.shift()!;
+      const job = workPool.queue.splice(pick(slot), 1)[0]!;
       slot.busy = job;
+      if (!workPool.cached.has(job.key)) slot.warm.add(warmKey(job));
+      job.sent = now();
       const cached = workPool.cached.has(job.key);
       // The first sheet to paint: every worker starts loading the painter (seconds) at once.
       if (!cached && !workPool.warmed) {
         workPool.warmed = true;
         for (const s of workPool.workers) s.w.postMessage({ warm: true });
       }
-      slot.w.postMessage({ faction: job.faction, hue: job.hue, kind: job.kind, level: job.level, half: job.half, from: job.from, version: workPool.version, key: job.key, cached });
+      // A sheet a view needs, at 4x and 8x (seconds to paint), comes in two goes (KindSheet.partial).
+      const progressive = job.want === WANT.need && job.level >= 4 && !job.half && !job.from && job.progress.length > 0;
+      slot.w.postMessage({ faction: job.faction, hue: job.hue, kind: job.kind, level: job.level, half: job.half, from: job.from, version: workPool.version, key: job.key, cached, progressive });
       // The worker has its copy of the source sheet.
       job.from = undefined;
     }
@@ -3623,36 +3768,51 @@ function pump(): void {
  * What a worker paints for one job: the level-1 grid strip, a hi-res sheet, or (HD 64, `half`)
  * the level-8 sheet halved into a level-4 one with the pixel-art reduction in downscale.ts.
  */
-export function sheetFor(faction: string, hue: number, kind: number, level: number, half = false): KindSheet {
+export function sheetFor(faction: string, hue: number, kind: number, level: number, half = false, partial?: (s: KindSheet) => void): KindSheet {
   if (level === 1) return paintGrid(faction, hue, kind);
   if (half) return halveSheet(paintSheet(faction, hue, kind, level * 2));
-  return paintSheet(faction, hue, kind, level);
+  return paintSheetProgressive(faction, hue, kind, level, partial);
 }
 
 const sheetKey = (faction: string, hue: number, kind: number, level: number, half: boolean): string => `${faction}:${hue}:${kind}:${level}${half ? ':half' : ''}`;
 
-function request(faction: string, hue: number, kind: number, level: number, done: (s: KindSheet) => void, half = false, fail?: () => void): void {
+/**
+ * A fresh ask for a job: how much it is wanted is the strongest ask since it went stale (a
+ * prefetch of a sheet a view needs leaves it needed).
+ */
+function askJob(job: Job, want: number): void {
+  const t = now();
+  if (want <= job.want || t - job.asked > STALE_MS + 3 * frameGap) job.want = want;
+  job.asked = t;
+  // A halving waiting for its level-8 sheet keeps that sheet wanted as much.
+  if (job.source) askJob(job.source, job.want);
+}
+
+function request(faction: string, hue: number, kind: number, level: number, done: (s: KindSheet) => void, half = false, fail?: () => void, want = WANT.need, progress?: (s: KindSheet) => void): void {
   startPool();
   const key = sheetKey(faction, hue, kind, level, half);
   const old = workPool.jobs.get(key);
   if (old) {
     old.done.push(done);
     if (fail) old.failed.push(fail);
-    old.asked = now();
+    if (progress) old.progress.push(progress);
+    askJob(old, want);
     return;
   }
-  const job: Job = { key, faction, hue, kind, level, half, done: [done], failed: fail ? [fail] : [], asked: now() };
+  const job: Job = { key, faction, hue, kind, level, half, done: [done], progress: progress ? [progress] : [], failed: fail ? [fail] : [], asked: now(), want };
   workPool.jobs.set(key, job);
   if (half) {
     // HD 64 after HD: the level-8 sheet may be in memory already; halving it is all that is left.
     const src = sheetKey(faction, hue, kind, level * 2, false);
-    job.from = store.get(src)?.sheet;
+    // (Not a partial one: the whole sheet is on its way.)
+    const got = store.get(src)?.sheet;
+    job.from = got && !got.partial ? got : undefined;
     // Or still being painted for HD (an art switch mid-paint): wait for it rather than paint it
     // again beside it; if it fails, paint it here after all.
     const source = job.from ? undefined : workPool.jobs.get(src);
     if (source) {
       job.source = source;
-      source.asked = now();
+      askJob(source, want);
       const go = (sh?: KindSheet): void => {
         job.source = undefined;
         job.from = sh;
@@ -3678,7 +3838,7 @@ function request(faction: string, hue: number, kind: number, level: number, done
 const store = new Map<string, { sheet: KindSheet; h: Held }>();
 
 /** A painted sheet, or null while it is painted (the first ask starts it, in the background). */
-function storedSheet(faction: string, hue: number, kind: number, level: number, half: boolean): KindSheet | null {
+function storedSheet(faction: string, hue: number, kind: number, level: number, half: boolean, ask: SheetAsk = 'need'): KindSheet | null {
   const key = sheetKey(faction, hue, kind, level, half);
   const got = store.get(key);
   asked();
@@ -3686,22 +3846,34 @@ function storedSheet(faction: string, hue: number, kind: number, level: number, 
     got.h.used = lastAsk;
     return got.sheet;
   }
+  if (ask === 'peek') return null;
   const job = workPool.jobs.get(key);
-  if (job) {
-    job.asked = now();
-    // A halving waiting for its level-8 sheet keeps that sheet wanted.
-    if (job.source) job.source.asked = job.asked;
-  }
-  else if (!failedLately(key))
-    request(faction, hue, kind, level, (sh) => {
-      if (store.has(key)) return;
-      const h: Held = { bytes: sh.pixels.byteLength + sh.rects.byteLength, level, used: now(), drop: () => store.delete(key) };
+  if (job) askJob(job, WANT[ask]);
+  else if (!failedLately(key)) {
+    // A partial sheet (KindSheet.partial) is held until the whole one replaces it.
+    const put = (sh: KindSheet): void => {
+      const old = store.get(key);
+      if (old) {
+        if (!old.sheet.partial) return;
+        release(old.h);
+      }
+      const h: Held = { bytes: sh.pixels.byteLength + sh.rects.byteLength, level, used: now(), drop: () => store.get(key)?.h === h && store.delete(key) };
       store.set(key, { sheet: sh, h });
       // For profiles and the art-loading timings (docs/perf/art-loading.md).
-      if (typeof performance !== 'undefined') performance.mark?.('codeclash:sheet', { detail: key });
+      if (typeof performance !== 'undefined' && !sh.partial) performance.mark?.('codeclash:sheet', { detail: key });
       hold(h);
-    }, half);
+    };
+    const failed = (): void => {
+      const old = store.get(key);
+      if (old?.sheet.partial) release(old.h);
+    };
+    request(faction, hue, kind, level, put, half, failed, WANT[ask], put);
+  }
   return null;
+}
+
+export function hdPoolStats(): { workers: number; queued: number; failed: number; log: typeof stats.log } {
+  return { workers: workPool.workers.length, queued: workPool.queue.length, failed: stats.failed, log: stats.log };
 }
 
 /**
@@ -3805,10 +3977,10 @@ function makeAtlas(faction: string, hue: number, hd64: boolean): Atlas {
       return [gridColOf(kind, a, frame, dir, blowTab[kind] ?? 1, advTab[kind]) * CELL_W, (kind * 4 + dir) * CELL_H];
     },
     levels,
-    sheet: (kind, level) => {
+    sheet: (kind, level, ask) => {
       trim();
       if (kind < 0 || kind >= KIND_COUNT || !levels.includes(level)) return null;
-      return storedSheet(faction, hue, kind, level, hd64 && level === 4);
+      return storedSheet(faction, hue, kind, level, hd64 && level === 4, ask);
     },
     slot: (kind, a, frame, dir) => slotOf(kind, a, frame, dir, blowTab[kind] ?? 1, advTab[kind]),
   };

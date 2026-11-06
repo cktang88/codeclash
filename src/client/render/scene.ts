@@ -16,7 +16,7 @@
 import { Battle, facesRear, FIELD_H, FIELD_W, State, TICK_S, type Projectile } from '../../game/battle.ts';
 import { Rng } from '../../game/rng.ts';
 import { U } from '../../game/units.ts';
-import { Anim, ANIM_COUNT, COMMANDER_KIND, KIND_COUNT, riseFrame, riseTicks, type Atlas, type Dir, type KindSheet, type Stance } from './contract.ts';
+import { Anim, ANIM_COUNT, COMMANDER_KIND, KIND_COUNT, riseFrame, riseTicks, type Atlas, type Dir, type KindSheet, type SheetAsk, type Stance } from './contract.ts';
 import { buildFx, type FxSheet, type Region } from './fx.ts';
 import { HdField } from './field-hd.ts';
 import { ANGLES, fxId, HOOVES, lookOf, PUFF_SIZES, PUFF_VARIANTS, SPLATS } from './fx-hd.ts';
@@ -132,6 +132,8 @@ interface Gfx {
   stamps: SpriteStream;
   /** Detaches the context-loss listeners. */
   unlisten: () => void;
+  /** The largest texture side the GPU takes (an HD sheet over it is drawn from a coarser level). */
+  maxTex: number;
 }
 
 /** Sun: ground offset of a shadow per pixel of height (long, late-afternoon, toward the viewer's right). */
@@ -182,6 +184,13 @@ interface HdTex {
   L: number;
   /** Rows of the sheet uploaded so far. */
   rows: number;
+  /** The whole sheet going up while this partial one (KindSheet.partial) is drawn. */
+  next?: HdTex;
+}
+/** Frees an HD sheet texture (and the one going up to replace it). */
+function dropHd(gl: WebGL2RenderingContext, h: HdTex): void {
+  gl.deleteTexture(h.tex);
+  if (h.next) gl.deleteTexture(h.next.tex);
 }
 const hdKey = (t: number, k: number, L: number) => (t * KIND_COUNT + k) * 16 + L;
 /**
@@ -356,7 +365,7 @@ export class BattleScene {
       // finds them ready (not at once: the grids come first, and the start should not stutter).
       if (atlas.sheet && typeof setTimeout === 'function')
         setTimeout(() => {
-          for (const lv of [2, 4]) for (const k of this.kindsPresent[t]!) atlas.sheet!(k, lv);
+          for (const lv of [2, 4]) for (const k of this.kindsPresent[t]!) atlas.sheet!(k, lv, 'prefetch');
         }, 2500);
     });
     this.fxSheet = buildFx([a, b], battle.setup.seed);
@@ -786,6 +795,7 @@ export class BattleScene {
       softs: new SpriteStream(gl, corners),
       stamps: new SpriteStream(gl, corners),
       unlisten,
+      maxTex: Number(gl.getParameter(gl.MAX_TEXTURE_SIZE)) || 4096,
     };
     // The atlas textures hold the grids as they are now.
     for (let t = 0; t < 2; t++) {
@@ -823,7 +833,7 @@ export class BattleScene {
     const gl = g.gl;
     const hdBatches = [...this.hdBatch.flat(), ...(this.hdFxB ? [this.hdFxB.decal, this.hdFxB.fx, this.hdFxB.soft, this.hdFxB.std] : [])];
     this.hdFxB = null;
-    const hdTextures = [...[...this.hdTex.values()].map((h) => h.tex), ...[...this.fxHi.values()].map((f) => f.tex)];
+    const hdTextures = [...[...this.hdTex.values()].flatMap((h) => (h.next ? [h.tex, h.next.tex] : [h.tex])), ...[...this.fxHi.values()].map((f) => f.tex)];
     this.hdBatch = [];
     this.hdTex.clear();
     this.fxHi.clear();
@@ -865,7 +875,7 @@ export class BattleScene {
   get spriteGpuBytes(): number {
     let b = 0;
     for (const a of this.atlases) b += a.image.width * a.image.height * 4;
-    for (const h of this.hdTex.values()) b += h.rows * h.sheet.width * 4;
+    for (const h of this.hdTex.values()) b += h.rows * h.sheet.width * 4 + (h.next ? h.next.rows * h.next.sheet.width * 4 : 0);
     return b;
   }
 
@@ -1230,6 +1240,38 @@ export class BattleScene {
     const gl = gfx.gl;
     if (this.hdBatch.length === 0) this.hdBatch = [0, 1].map(() => Array.from({ length: KIND_COUNT }, () => new Batch(gl, gfx.corners, 256)));
     let budget = HD_UPLOAD_BYTES;
+    // First, every kind in view with nothing hi-res up gets its coarsest painted sheet up (a few
+    // MB), so no kind waits on the grid while another's 8x sheet takes the frame's budget (a
+    // second visit reads every sheet from the cache at once).
+    for (let t = 0; t < 2 && m > 1; t++) {
+      const atlas = this.atlases[t as 0 | 1];
+      if (!atlas.sheet || !atlas.levels) continue;
+      const L0 = atlas.levels[0]!;
+      for (const k of this.kindsPresent[t]!) {
+        if (budget <= 0) break;
+        if (!((this.seen[t]! | this.seenDead[t]!) & (1 << k))) continue;
+        let isUp = false;
+        for (const L of atlas.levels) {
+          const h = L <= m ? this.hdTex.get(hdKey(t, k, L)) : undefined;
+          if (h && h.rows >= h.sheet.height) isUp = true;
+        }
+        if (isUp) continue;
+        const sh = atlas.sheet(k, L0, 'peek');
+        if (!sh || sh.width > gfx.maxTex || sh.height > gfx.maxTex) continue;
+        const key = hdKey(t, k, L0);
+        let h = this.hdTex.get(key);
+        if (h && h.sheet !== sh) {
+          dropHd(gl, h);
+          this.hdTex.delete(key);
+          h = undefined;
+        }
+        if (!h) {
+          h = { tex: texture(gl, null, sh.width, sh.height), sheet: sh, t, k, L: L0, rows: 0 };
+          this.hdTex.set(key, h);
+        }
+        budget -= uploadRows(gl, h, budget);
+      }
+    }
     for (let t = 0; t < 2; t++) {
       const atlas = this.atlases[t as 0 | 1];
       const lv = this.hdLevel[t]!;
@@ -1240,7 +1282,7 @@ export class BattleScene {
       // the view zooms back in): the GPU holds only what is drawn.
       for (const [key, h] of this.hdTex)
         if (h.t === t && h.L > m) {
-          gl.deleteTexture(h.tex);
+          dropHd(gl, h);
           this.hdTex.delete(key);
         }
       if (!atlas.sheet || !atlas.levels || m <= 1) continue;
@@ -1249,56 +1291,105 @@ export class BattleScene {
         // are tens of MB a kind: only the living in view earn them).
         const live = !!(this.seen[t]! & (1 << k));
         const inView = live || !!(this.seenDead[t]! & (1 << k));
-        // The finest painted level no finer than the view. Asking for the levels keeps them
-        // fresh in the painter's memory (and starts painting the ones still missing); the 8x
-        // sheets (tens of MB a kind) are asked for only by kinds actually in view.
-        let best: KindSheet | null = null;
-        let bestL = 1;
+        // The level the view draws this kind at: the finest no finer than the view (the 8x sheets,
+        // tens of MB a kind, only for the living in view).
         let wantL = 1;
         for (const L of atlas.levels) {
           if (L > m || (L >= 8 && !live)) break;
           wantL = L;
-          const sh = atlas.sheet(k, L);
-          if (sh) {
-            best = sh;
-            bestL = L;
+        }
+        // Asking keeps a sheet fresh in the painter's memory and orders the painting: for a kind
+        // in view, the level drawn is needed and the coarsest is a fallback (cheap: shown in
+        // seconds while the needed one paints), the levels between are painted after anything
+        // needed; a kind out of view only has its coarsest prefetched (for a pan).
+        let best: KindSheet | null = null;
+        let bestL = 1;
+        let coarse: KindSheet | null = null;
+        let coarseL = 1;
+        const L0 = atlas.levels[0]!;
+        for (const L of atlas.levels) {
+          if (L > wantL) break;
+          const ask: SheetAsk = !inView ? (L === L0 ? 'prefetch' : 'peek') : L === wantL ? 'need' : L === L0 ? 'fallback' : 'prefetch';
+          const sh = atlas.sheet(k, L, ask);
+          // A sheet larger than the GPU takes (a small GPU, the 8x sheets) is never drawn.
+          if (!sh || sh.width > gfx.maxTex || sh.height > gfx.maxTex) continue;
+          if (!coarse) {
+            coarse = sh;
+            coarseL = L;
           }
+          best = sh;
+          bestL = L;
         }
         // A finer sheet still being painted: the picture will change by itself.
         if (inView && bestL < wantL) this.settled = false;
         // The best sheet goes up a band of rows at a time, within the frame's budget (several
         // 8x sheets landing together are hundreds of MB): until it is all there the kind is
-        // drawn from the finest level already up, else the level-1 grid.
+        // drawn from the finest level already up; with none up, the coarsest painted level goes
+        // up first (a few MB: one frame), else the level-1 grid.
         let drawn: HdTex | null = null;
-        if (best && inView) {
-          const key = hdKey(t, k, bestL);
+        let going: HdTex | null = null;
+        let goingCoarse: HdTex | null = null;
+        const up = (L: number, sh: KindSheet): HdTex => {
+          const key = hdKey(t, k, L);
           let h = this.hdTex.get(key);
-          if (h && h.sheet !== best) {
+          if (h && h.sheet !== sh) {
             // The painter dropped and repainted it: a new sheet.
-            gl.deleteTexture(h.tex);
+            dropHd(gl, h);
             this.hdTex.delete(key);
             h = undefined;
           }
           if (!h) {
-            h = { tex: texture(gl, null, best.width, best.height), sheet: best, t, k, L: bestL, rows: 0 };
+            h = { tex: texture(gl, null, sh.width, sh.height), sheet: sh, t, k, L, rows: 0 };
             this.hdTex.set(key, h);
           }
-          if (h.rows < best.height && budget > 0) budget -= uploadRows(gl, h, budget);
-          if (h.rows >= best.height) drawn = h;
-          else {
+          return h;
+        };
+        const cur = best && inView ? this.hdTex.get(hdKey(t, k, bestL)) : undefined;
+        if (best && cur && cur.sheet !== best && cur.sheet.partial && cur.rows >= cur.sheet.height) {
+          // The whole sheet replaces a partial one that is up: drawn from the partial one until
+          // the whole one is all there.
+          if (cur.next && cur.next.sheet !== best) {
+            gl.deleteTexture(cur.next.tex);
+            cur.next = undefined;
+          }
+          const nx = (cur.next ??= { tex: texture(gl, null, best.width, best.height), sheet: best, t, k, L: bestL, rows: 0 });
+          if (budget > 0) budget -= uploadRows(gl, nx, budget);
+          if (nx.rows >= best.height) {
+            gl.deleteTexture(cur.tex);
+            this.hdTex.set(hdKey(t, k, bestL), nx);
+            drawn = going = nx;
+          } else {
+            drawn = going = cur;
+            this.settled = false;
+          }
+        } else if (best && inView) {
+          const h = (going = up(bestL, best));
+          if (h.rows >= best.height && !best.partial) drawn = h;
+          else if (h.rows >= best.height) {
+            // A partial sheet: drawn, but the whole one is still to come.
+            drawn = h;
+            this.settled = false;
+          } else {
             this.settled = false;
             for (const L of atlas.levels) {
               const o = L < bestL ? this.hdTex.get(hdKey(t, k, L)) : undefined;
               if (o && o.rows >= o.sheet.height) drawn = o;
             }
+            if (!drawn && coarse && coarseL < bestL) {
+              const c = (goingCoarse = up(coarseL, coarse));
+              if (c.rows < coarse.height && budget > 0) budget -= uploadRows(gl, c, budget);
+              if (c.rows >= coarse.height) drawn = c;
+            }
+            if (budget > 0) budget -= uploadRows(gl, h, budget);
+            if (h.rows >= best.height) drawn = h;
           }
         }
         // Only the drawn level of a kind in view stays on the GPU (and the one going up).
         for (const L of atlas.levels) {
           const key = hdKey(t, k, L);
           const h = this.hdTex.get(key);
-          if (h && h !== drawn && !(inView && L === bestL && h.sheet === best)) {
-            gl.deleteTexture(h.tex);
+          if (h && h !== drawn && h !== going && h !== goingCoarse) {
+            dropHd(gl, h);
             this.hdTex.delete(key);
           }
         }
@@ -1337,20 +1428,24 @@ export class BattleScene {
     return n;
   }
 
-  /** HD: a fallen man drawn at full detail over his low-res stamp (beneath everyone standing). */
-  private hdCorpse(i: number, x0: number, x1: number, y0: number, y1: number): void {
+  /**
+   * HD: a fallen man drawn at full detail over his low-res stamp (beneath everyone standing).
+   * False when his kind's sheet has no corpse yet (a partial sheet): he is drawn from the grid.
+   */
+  private hdCorpse(i: number, x0: number, x1: number, y0: number, y1: number): boolean {
     const s = this.battle.soldiers[i]!;
     const kind = this.kindOf(i);
     const L = this.hdLevel[s.team]![kind]!;
-    if (L <= 1) return;
-    const mx = this.mapX(s.x, s.y);
-    const my = this.mapY(s.x, s.y);
-    if (mx < x0 || mx > x1 || my < y0 || my > y1) return;
-    const atlas = this.atlases[s.team as 0 | 1];
+    if (L <= 1) return false;
     const sh = this.hdSheet[s.team]![kind]!;
     const o = this.slotOf(s.team, kind, Anim.Dead, 0, this.dirs[i] as Dir) * 6;
     const r = sh.rects;
+    if (r[o + 2]! <= 0) return false;
+    const mx = this.mapX(s.x, s.y);
+    const my = this.mapY(s.x, s.y);
+    if (mx < x0 || mx > x1 || my < y0 || my > y1) return true;
     this.hdBatch[s.team]![kind]!.sprite(Math.round(mx), Math.round(my), r[o]!, r[o + 1]!, r[o + 2]! / L, r[o + 3]! / L, r[o + 4]! / L, r[o + 5]! / L, -1e5, 0.78, 0.78, 0.75, 1, 0, 1);
+    return true;
   }
 
   /** Fills the instance buffers for this frame. */
@@ -1499,9 +1594,10 @@ export class BattleScene {
         jy = ((h >>> 2) & 1) - 0.5;
       }
       const lv = hd ? this.hdLevel[s.team]![kind]! : 1;
-      if (lv > 1) {
+      // A partial sheet (KindSheet.partial) lacks some frames (w = 0): those come from the grid.
+      const o = lv > 1 ? this.slotOf(s.team, kind, anim, f, dir) * 6 : 0;
+      if (lv > 1 && this.hdSheet[s.team]![kind]!.rects[o + 2]! > 0) {
         const sh = this.hdSheet[s.team]![kind]!;
-        const o = this.slotOf(s.team, kind, anim, f, dir) * 6;
         const r = sh.rects;
         this.hdBatch[s.team]![kind]!.sprite(Math.round((fmx + jx) * m) / m, Math.round((fmy + jy) * m) / m, r[o]!, r[o + 1]!, r[o + 2]! / lv, r[o + 3]! / lv, r[o + 4]! / lv, r[o + 5]! / lv, fmy, 1, 1, 1, 1, flash);
       } else {
@@ -1907,10 +2003,7 @@ export class BattleScene {
     if (mx < x0 || mx > x1 || my < y0 || my > y1) return;
     // In view: its kind keeps (or gets) a hi-res sheet.
     this.seenDead[s.team] = this.seenDead[s.team]! | (1 << kind);
-    if (hd && this.hdLevel[s.team]![kind]! > 1) {
-      this.hdCorpse(i, x0, x1, y0, y1);
-      return;
-    }
+    if (hd && this.hdLevel[s.team]![kind]! > 1 && this.hdCorpse(i, x0, x1, y0, y1)) return;
     const atlas = this.atlases[s.team as 0 | 1];
     const u = this.cellU(s.team, kind, Anim.Dead, 0, this.dirs[i] as Dir);
     this.gfx!.team[s.team as 0 | 1].sprite(Math.round(mx), Math.round(my), u, this.cellV, atlas.cellW, atlas.cellH, atlas.footX, atlas.footY, -1e5, 0.78, 0.78, 0.75, 1, 0, 1);

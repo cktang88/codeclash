@@ -334,9 +334,13 @@ describe('battle: stances', () => {
    * foot's dead. (90 s: since v6 the archers march into bow range at the drill's pace and loose
    * their first shafts at about 48 s, not 32 s. Since the scale rework 180 s and 300 archers, not
    * 150: the armies deploy twice as far apart, and from three times as far the shafts scatter
-   * wide; 150 emptied their quivers at the waiting foot from 560 for 3 dead a battle.)
+   * wide; 150 emptied their quivers at the waiting foot from 560 for 3 dead a battle. Since v17
+   * 270 s: each block of archers takes its own spot on the ring of its range, beside the others
+   * or behind an interval, where the ten blocks used to stand five deep on two spots and loose
+   * from there; spread out, they take longer to come into action, and at 180 s the line had lost
+   * 3 men in three days, at 270 s 199.)
    */
-  function shot(seed: number, stance: Stance, ticks = 1800): number {
+  function shot(seed: number, stance: Stance, ticks = 2700): number {
     const b = new Battle(setupOf(seed, only(U.Archers, 300), only(U.HeavyInfantry, 100)));
     b.generals[1].fixedPlan = 'hold';
     b.pinStance(1, U.HeavyInfantry, stance);
@@ -356,7 +360,7 @@ describe('battle: stances', () => {
     expect(line).toBeGreaterThan(10);
     expect(loose).toBeLessThan(line * 0.8);
     expect(wall).toBeLessThan(line * 0.8);
-  }, 30_000);
+  }, 90_000);
 
   it('picks stances by itself and says so', () => {
     const b = new Battle(setupOf(4, army(500), army(500)));
