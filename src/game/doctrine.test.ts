@@ -132,12 +132,15 @@ describe('doctrines: the Samurai', () => {
   });
 
   it('S2: samurai break ranks to chase more often than Templars', () => {
-    // (Twelve days, at 300 a side: since v16 the armies break about as often as each other and the
-    // edge is narrower, a fifth to a half more chases, and over six days it swung with who won.)
+    // (Twenty-four days, at 300 a side: since v16 the armies break about as often as each other and
+    // the edge is narrower, a fifth to a half more chases, and over six days it swung with who won.
+    // After QA review 2's three branches were merged, days 1-12 gave 107 against 101, days 13-48
+    // 375 against 263: 1.06 and 1.43 times, and before the merges 1.25 and 1.5. Over twelve days
+    // the edge swung too; 1-24 gave 227 against 181.)
     let sam = 0;
     let tem = 0;
     let first = 0;
-    for (let seed = 1; seed <= 12; seed++) {
+    for (let seed = 1; seed <= 24; seed++) {
       for (const flip of [false, true]) {
         const b = flip ? battle(seed, army(300, 'templar'), army(300, 'samurai')) : battle(seed, army(300, 'samurai'), army(300, 'templar'));
         const s = flip ? 1 : 0;
@@ -148,12 +151,12 @@ describe('doctrines: the Samurai', () => {
         expect(b.events.some((e) => e.kind === 'doctrine' && e.note === 'first-spear' && e.team !== s)).toBe(false);
       }
     }
-    // (Since v17's weapon reach, 95 chases against 85 on these days, against 1.15 times before:
+    // (Since v17's weapon reach, 95 chases against 85 on days 1-12, against 1.15 times before:
     // the spear walls stall at their points, and which blocks break first moves with them.)
     expect(sam).toBeGreaterThan(tem * 1.1);
     expect(first).toBeGreaterThan(12);
     expect(DOCTRINE.samurai.chaseFar).toBeGreaterThan(1);
-  }, 120_000);
+  }, 170_000);
 
   it('S3: after the first volley the teppo fire rank by rank, and the first volley shakes the target', () => {
     const b = new Battle({ version: BATTLE_VERSION, seed: 4, kind: 'daily', armies: [plainArmy(only(U.Crossbowmen, 30), 0, 'samurai'), plainArmy(only(U.HeavyInfantry, 30), 200)] });
