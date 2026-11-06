@@ -122,6 +122,31 @@ export { COHESION, DOCTRINE, MORALE, REGROUP, UNDEAD } from './command.ts';
  *   with horse 0.032 a second sampled, now 0.018 (a quarter deep: 0.010, now 0.009); knights in
  *   melee among our foot in melee, 56 samples, now none in the top pairs; the household, 11 now 2.
  *   Horse kills over 30 battles: 5,337 then 5,166 (losses 3,003, 2,989), length 232 s then 229 s.
+ * - Nobody shoots into his own men (QA review 2026-11-06, #2 #3 #5 #7 #11 #13). Danger close: a
+ *   shot is held when one of our men stands, or will stand when it lands, inside its scatter
+ *   and a man's width more (a stone's splash too: `friendsNear`, DANGER); the shooter tries
+ *   other men of the target first, and a block that held most of its shots gives that target
+ *   up for 6 s (`fouled`). Targets are picked clear of our men (`clearTarget`): bows lob over a
+ *   melee only at rear ranks the scatter can reach without our men under it; engines lift onto
+ *   the second line and the reserves, and hold with nothing clear. No flat shot at a block
+ *   locked with ours, nor while a man of ours is about to walk across its line
+ *   (`friendCrossing`); a bombard's ball holds if any man of ours is on its whole run. Direct
+ *   fire strikes along its flight, the man on its line as it reaches him (`strikeAlong`; it was
+ *   the whole line as it landed). Crossbows no longer loft a blocked bolt at four times the
+ *   scatter: they stand before the line while the lines are apart (FLAT_SCREEN, the samurai's
+ *   screen drill), fall back through it as the enemy closes (horse from 420), and behind it step
+ *   along to a clear line (`clearLane`) or wait. Engines deploy 40 behind the second line, never
+ *   within 80 of the field's edge, and come up behind the line when nothing is in range.
+ *   Skirmishers go out again only with 1.5 javelins a man and keep a place behind the line that
+ *   moves with it only past 30; missile blocks keep out of our own foot's ranks (`freeSpot`).
+ *   Seeds 1-4 at 450 and seed 1 at 1200: own hits from engines 55 then 1 (of 150 and 138 hits),
+ *   crossbows 179 then 6 (14.9% then 0.6%), archers 187 then 2 (4.8% then 0.1%), horse archers
+ *   16 then 1; archers' hits on the enemy 3,684 then 2,477, engines' 95 then 137. Loaded shooters
+ *   silent with a target in range (seeds 3,7,11,23 at 450): 10.6% then 20.4%, of which 8.5
+ *   points hold their shot for our men in the way or under the scatter, 7.2 are on the move
+ *   (the crossbow screen going out or back) and 3.6 (5.9) have no such reason. Spent
+ *   skirmishers going out again: 9 sorties then 2. Faction pairs, 80 battles at 250 a side:
+ *   undead v templar 53.8, undead v samurai 48.8, samurai v templar 51.3.
  */
 /**
  * v16: nothing grows with the size of the battle that should not (the undead won two thirds of
