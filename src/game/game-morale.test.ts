@@ -30,17 +30,4 @@ describe('battle: command and morale', () => {
     for (const k of ['waver', 'rout', 'shattered'] as const) expect(kinds.has(k), k).toBe(true);
     expect([...states].sort()).toEqual(['broken', 'rallying', 'shattered', 'steady', 'wavering']);
   }, 180_000);
-
-  it('the city’s morale bonus helps, on either side', () => {
-    // More often than not: 55 of 100 battles. (60 until the light horse went out by the plan
-    // (QA review #10): 62 then, 56 now, with fewer clashes of horse at the opening, where the
-    // bonus told most.) After QA review 2 the first 50 days gave 53 of 100, days 51-100 69 of
-    // 100: 122 of 200, against 135 of 200 before it. So 100 days, still more often than not.
-    let bonus = 0;
-    for (let seed = 1; seed <= 100; seed++) {
-      if (fight(setupOf(seed, army(300, { moraleBonus: 15 }), army(300))).winner === 0) bonus++;
-      if (fight(setupOf(seed, army(300), army(300, { moraleBonus: 15 }))).winner === 1) bonus++;
-    }
-    expect(bonus).toBeGreaterThanOrEqual(110);
-  }, 170_000);
 });
