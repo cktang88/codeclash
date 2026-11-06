@@ -376,3 +376,15 @@ Still short:
   ghost would need a new material.
 - The wardens' run carries the bow drawn half-back behind them (the string hand stays on the nock).
 - The Bone-Throwers' withdraw (frame 0 to 1) is still one big step from the carry to the arm back.
+
+## The colossus shoulders its club (cc/art3, round 2)
+
+In melee at zoom 3-4 (seed 2, undead against Templars, t900) a block of Bone Colossi held their
+femur clubs level in the guard (Brace, the pose every blow leaves from and returns to), each club
+three men long, so the block and everything it fought read as a lattice of crossed bones. Total
+War's Necrofex Colossus and Darkest Dungeon's Bone Captain (above) carry the club up, over the
+shoulder, ready to fall; a pike block at the port reads as an ordered forest of shafts, not a net.
+`undead-beast.ts` BRACE: the femur raised near upright (weapon 166°, was 100°), the arm bent under
+it. Rounds: (1) 152°: ordered but still leaning a man's width across the next rank; (2) 166°: a
+forest of raised clubs over the block, the enemy in front visible again; (3) checked at zoom 3
+against the sōhei: the colossus block reads as one ordered mass. Pixel lint (kind 8): unchanged.
