@@ -95,3 +95,18 @@ What changed (`templar-static.ts`, `templar-clips.ts`, `templar-foot.ts`):
 
 Lint, kind 8, before -> after: aligned band ends L1 0.349 -> 0.20, L4 0.329 -> 0.278; walk head
 boil L8 0.156 -> 0.147. No other Templar kind changed status.
+
+## Round 2: packed brothers part (cc/art3)
+
+In melee at zoom 4 (seed 2, undead against Templars, t900) a block of Iron Brethren melted into one
+cream mass: white surcoats, pale steel and pale ash, every outline the light class's pale deep tone,
+so nothing marked where one man ended. The San Bevignate fresco and the Morgan Bible battle leaves
+(above) part white-clad men with dark contours, as the Knight-Brothers already do (`litDark`).
+
+What changed: a value class `'knight4'` (`templar-parts.ts` `remapFor`): the knight class (dark
+deep tones under the whites) from level 4, the light class below (at level 2 the dark rim and the
+iron's dark deep tone turned the whole figure a blue-grey on the field's value: figure vs ground
+0.05, FAIL). The Brethren paint in it, with knight-class twins of their iron and haft
+(`templar.k.ironK`, `templar.k.haftK`) and `litDark` from level 4. In battle each brother now has a
+dark contour, and the axes read against the cloth behind. Lint (kind 8, HD): 0 fails; figure vs
+ground warns 1 -> 3 (L4 0.074, L8 0.112, as the Knight-Brothers).

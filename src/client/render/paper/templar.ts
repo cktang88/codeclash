@@ -38,7 +38,7 @@ const pose = poser(FOOT0);
 setFactionPaletteOptions('templar', { perKind: true, minDist: [0.1, 0.18, 0.1, 0.06], keepChroma: 0.12, weightOutlines: true,
   // The charging brothers (Knight-Brothers, the Marshal): a dark rim all round, so packed white
   // riders part from each other (the San Bevignate fresco's dark contours).
-  kinds: { 7: { litDark: true }, [COMMANDER_KIND]: { litDark: true } },
+  kinds: { 7: { litDark: true }, 8: { litDark: true, litDarkFrom: 4 }, [COMMANDER_KIND]: { litDark: true } },
 });
 
 /** Registers a Templar kind with the paper painter (every kind is drawn on paper). */

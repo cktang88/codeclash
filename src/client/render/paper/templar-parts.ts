@@ -148,7 +148,7 @@ export const TK = {
 export const KNIGHT_PAIRS: [Mat, Mat][] = [];
 
 /** A figure's value class: dark, light, or the charging brothers ('knight'). */
-export type ValueClass = boolean | 'knight';
+export type ValueClass = boolean | 'knight' | 'knight4';
 
 /**
  * Every figure is one value class on the field: dark (sergeants, levies, archers, crossbowmen,
@@ -161,7 +161,9 @@ const REMAP = new Map<string, Int16Array>();
 function remapFor(cls: ValueClass, level: number): Int16Array {
   // At level 1 the brothers are the light class: a 13 px figure is mostly edge, and the knight
   // class's dark deep tone (its outline) would sink it to the field's value.
-  const dark: ValueClass = cls === 'knight' && level <= 1 ? false : cls;
+  // 'knight4' (the Iron Brethren): the knight class from level 4, light below (at 26 px the dark
+  // rim and the iron's dark deep tone merged the whole figure into one blue-grey on the field's value).
+  const dark: ValueClass = (cls === 'knight' && level <= 1) || (cls === 'knight4' && level < 4) ? false : cls === 'knight4' ? 'knight' : cls;
   const key = `${dark}:${Math.min(level, 4)}`;
   let t = REMAP.get(key);
   if (t && t.length >= materialCount() * 8) return t;
