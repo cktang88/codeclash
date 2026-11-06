@@ -353,6 +353,12 @@ export { COHESION, DOCTRINE, MORALE, REGROUP, UNDEAD } from './command.ts';
  *   30 heavy foot sent through a 29 u gap between two blocks of 40 archers: it stood in the gap
  *   for good, now through in 13 s, no man walking through another. Stalled foot (stalled.ts,
  *   s1-4 at 450): 388 block-s, now 244.
+ * - Men cover each other's backs (QA3 #6): a foe at hand striking one of ours from behind while he
+ *   fights the man before him is the first foe the men about them go for (`atBack`,
+ *   COHESION.coverBack). Such a foe came round the end of a block or stood among the ranks where
+ *   the lines had run into each other, and struck unanswered (98% of the time nobody of ours had
+ *   him as his foe). Front-rankers struck from behind while fighting (soldier-sense.ts, seeds 1-3):
+ *   clash 1.57% of man-time -> 0.95%, edge 0.61 -> 0.31, rear 1.06 -> 0.75, reserve 1.34 -> 1.12.
  */
 /**
  * v16: nothing grows with the size of the battle that should not (the undead won two thirds of
@@ -7610,6 +7616,10 @@ export class Battle {
             if (!at) s += hh * (1 + 3 * C.crowd);
           }
           if (!mounted && dx * fx + dy * fy < 0 !== rear) s *= 1.7;
+          // QA3 #6: a foe at a friend's back, striking him there while he fights the man before
+          // him, is the first a man near them goes for: he covers his mate's back (not where the
+          // dead fight: they keep to the foe before them).
+          if (line && loose && this.atBack(j)) s *= C.coverBack;
           if (edge && (dx * -fy + dy * fx) * sxi > 0) s *= C.edgeOut;
           if (sj === State.Routing) s = pursue ? s * 0.6 : s * 3 + 30;
           if (s < bs) {
@@ -9188,6 +9198,29 @@ export class Battle {
     this.tmp[1] = py + uy * a2 - o.fy * b2;
     void i;
     return true;
+  }
+
+  /**
+   * QA3 #6: whether enemy man `j` strikes at one of his foes from behind (by that man's block's
+   * front) while that man fights another foe before him: at the back of a man who cannot turn to
+   * him without turning his back on the other.
+   */
+  private atBack(j: number): boolean {
+    const d = this.d;
+    const k = d.target[j]!;
+    if (k < 0 || d.state[k] !== State.Fighting || d.mt[k]) return false;
+    const u = d.target[k]!;
+    if (u < 0 || u === j) return false;
+    const r = this.regiments[d.reg[k]!]!;
+    const kx = d.x[k]!;
+    const ky = d.y[k]!;
+    // (His own foe before him, the one at him behind.)
+    if ((d.x[u]! - kx) * r.fx + (d.y[u]! - ky) * r.fy <= 0) return false;
+    const bx = d.x[j]! - kx;
+    const by = d.y[j]! - ky;
+    if (bx * r.fx + by * r.fy >= -2) return false;
+    const h = d.rad[k]! + d.rad[j]! + d.rc[j]! + 2;
+    return bx * bx + by * by <= h * h;
   }
 
   /**
