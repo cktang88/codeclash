@@ -1198,6 +1198,8 @@ export class Battle {
   private readonly busyCount = new Int32Array(Math.max(GW, GH) + 1);
   private readonly cellOf: Int32Array;
   private readonly tmp = new Float64Array(4);
+  /** Scratch list for `hunt`. */
+  private readonly footNear: Regiment[] = [];
   /** `crowded`: the axis to back out along, and from whom. */
   private gx = 0;
   private gy = 0;
@@ -4262,7 +4264,7 @@ export class Battle {
       r.meleeAt = this.tick;
       r.meleeTicks += 5;
       this.setMode(r, 'melee');
-      if (prey0 && this.breaksOff(r, prey0)) {
+      if (prey0 && (this.breaksOff(r, prey0) || this.inOurRanks(r))) {
         // Cycle charge: break off, ride back as a loose crowd to re-form on the rally point, and
         // come again (P4).
         this.rallyPoint(r, prey0, shock);
@@ -4516,6 +4518,25 @@ export class Battle {
       else line++;
     }
     return line >= shooters;
+  }
+
+  /**
+   * RIDER: horse locked in a fight with many of its riders (`RIDER.ranksShare`) in the ranks of
+   * our own foot fighting the same enemy breaks off to charge again elsewhere (its next charge
+   * rides round that foot, `rideRound`), as often as a cycle charge may (not blown, not the dead).
+   */
+  private inOurRanks(r: Regiment): boolean {
+    const C = COHESION;
+    if (r.cycles >= C.cavCycles || r.fatigue > C.cavBlown || !this.doc[r.team]!.loose.stepBack) return false;
+    const d = this.d;
+    let n = 0;
+    let among = 0;
+    for (const id of r.members) {
+      if (d.state[id] !== State.Fighting) continue;
+      n++;
+      if (this.amongFoot(id)) among++;
+    }
+    return n > 0 && among >= n * RIDER.ranksShare;
   }
 
   /** What a block of horse is worth in a clash of horse: men, class, wind and losses (the fearless's morale says nothing). */
@@ -5014,11 +5035,13 @@ export class Battle {
 
   /**
    * Whether a block gives way to friendly blocks (battle v17, `giveWay`): formed foot on the move
-   * or standing, not locked in a fight, not skirmishers or shooters falling back through their own
+   * or standing, and the household keeping its place, not locked in a fight, not skirmishers or shooters falling back through their own
    * line (that is drill), nor a chase (a loose crowd).
    */
   private yields(r: Regiment, fallingBack: boolean): boolean {
-    return !r.engaged && !fallingBack && !r.slip && r.role !== 'skirmish' && r.role !== 'siege' && r.role !== 'command' && r.mode !== 'pursue' && r.mode !== 'skirmish' && r.mode !== 'rout';
+    // (The general's household too, keeping its place behind the line: not drawing back from a
+    // block too big for it, nor riding to fight.)
+    return !r.engaged && !fallingBack && !r.slip && r.role !== 'skirmish' && r.role !== 'siege' && (r.role !== 'command' || r.mode === 'guard' || r.mode === 'hold') && r.mode !== 'pursue' && r.mode !== 'skirmish' && r.mode !== 'rout';
   }
 
   /** Which of two friendly blocks has the right of way: locked in a fight, then standing, then charging, then marching; the first in the order of battle between equals. */
@@ -5699,8 +5722,9 @@ export class Battle {
         }
       }
     }
-    // A rider with nobody at hand while his block fights looks further, for himself (RIDER).
-    if (best < 0 && mounted && !pursue && r.role !== 'command' && (r.engaged || r.mode === 'melee')) return this.hunt(i, r);
+    // A rider with nobody at hand while his block fights looks further, for himself (RIDER); nor
+    // does he take a man our own foot is fighting at its front (he would ride into its ranks).
+    if (mounted && !pursue && r.role !== 'command' && (r.engaged || r.mode === 'melee') && (best < 0 || this.covered(best, d.team[i]!))) return this.hunt(i, r);
     return best;
   }
 
@@ -5755,6 +5779,16 @@ export class Battle {
     const ky = this.ky;
     const regs = this.regiments;
     const R2 = R * R;
+    // Our foot locked in a fight close by (see `covered`).
+    const foot = this.footNear;
+    foot.length = 0;
+    for (const f of this.teamRegs[team]!) {
+      if (f.alive === 0 || f.routed || !f.engaged || !(f.role === 'line' || f.role === 'missile')) continue;
+      const fx = f.cx - x;
+      const fy = f.cy - y;
+      const q = f.radius + R + RIDER.coverAhead;
+      if (fx * fx + fy * fy < q * q) foot.push(f);
+    }
     let best = -1;
     let bs = Infinity;
     for (let cy = y0; cy <= y1; cy++) {
@@ -5776,6 +5810,8 @@ export class Battle {
           if (o.mode === 'withdraw') continue;
           // (Not across the front of braced spears: the way to their men is round their end.)
           if ((o.stance === 'pikewall' || o.stance === 'braced') && d.mass[j]! <= 2 && (x - o.ax) * o.fx + (y - o.ay) * o.fy > -2) continue;
+          // (Nor a man our own foot is fighting at its front: another stretch, a flank or the rear.)
+          if (foot.length > 0 && this.covered(j, team, foot)) continue;
           if (vx * dx + vy * dy < 0) s *= RIDER.behind;
           if (s < bs) {
             bs = s;
@@ -5786,6 +5822,62 @@ export class Battle {
     }
     void r;
     return best;
+  }
+
+  /**
+   * RIDER: whether enemy `j` stands at the front of a block of our foot (team `team`) locked in a
+   * fight: within its frontage and no more than `RIDER.coverAhead` before its front rank (or in
+   * its ranks). A rider does not go for him: he would have to ride into our own ranks.
+   */
+  private covered(j: number, team: number, near: Regiment[] | null = null): boolean {
+    const d = this.d;
+    const x = d.x[j]!;
+    const y = d.y[j]!;
+    for (const f of near ?? this.teamRegs[team]!) {
+      if (f.alive === 0 || f.routed || !f.engaged || !(f.role === 'line' || f.role === 'missile')) continue;
+      const ex = x - f.ax;
+      const ey = y - f.ay;
+      const fwd = ex * f.fx + ey * f.fy;
+      if (fwd > RIDER.coverAhead || fwd < -f.depth) continue;
+      const lat = ex * -f.fy + ey * f.fx;
+      if ((lat < 0 ? -lat : lat) < f.width * 0.5) return true;
+    }
+    return false;
+  }
+
+  /**
+   * RIDER: whether rider `i` stands in the ranks of a block of our foot (inside its footprint, a
+   * man's breadth in from its edges): then the way out of it, the shorter, in tmp[0], tmp[1]
+   * (a unit vector).
+   */
+  private amongFoot(i: number): boolean {
+    const d = this.d;
+    const x = d.x[i]!;
+    const y = d.y[i]!;
+    const m = d.rad[i]!;
+    for (const f of this.teamRegs[d.team[i]!]!) {
+      if (f.alive === 0 || f.routed || !(f.role === 'line' || f.role === 'missile') || f.slip) continue;
+      const ex = x - f.ax;
+      const ey = y - f.ay;
+      const fwd = ex * f.fx + ey * f.fy;
+      if (fwd > -m || fwd < -f.depth + m) continue;
+      const lat = ex * -f.fy + ey * f.fx;
+      const al = lat < 0 ? -lat : lat;
+      if (al > f.width * 0.5 - m) continue;
+      // Out by the nearer of his sides: to the flank, or back out of the rear.
+      const side = f.width * 0.5 - al;
+      const back = f.depth + fwd;
+      if (side < back) {
+        const sg = lat < 0 ? -1 : 1;
+        this.tmp[0] = -f.fy * sg;
+        this.tmp[1] = f.fx * sg;
+      } else {
+        this.tmp[0] = -f.fx;
+        this.tmp[1] = -f.fy;
+      }
+      return true;
+    }
+    return false;
   }
 
   /**
@@ -6817,6 +6909,14 @@ export class Battle {
       vy = d.hy[i]! * v;
       if ((y < 12 && vy < 0) || (y > FIELD_H - 12 && vy > 0)) vy = 0;
       cap = spd * 1.25;
+    } else if (mounted && r.mode !== 'withdraw' && d.imp[i]! <= 0.3 && this.amongFoot(i)) {
+      // RIDER: a rider who finds himself in the ranks of our own foot rides out of them (to their
+      // flank, or back out of their rear) and looks for another man (see `covered`).
+      vx = this.tmp[0]! * spd * RIDER.outOfRanks;
+      vy = this.tmp[1]! * spd * RIDER.outOfRanks;
+      d.target[i] = -1;
+      if (d.wd[i]! < this.tick + 4) d.wd[i] = this.tick + 4;
+      d.cu[i] = 1;
     } else {
       const t = d.target[i]!;
       if (t >= 0) {
@@ -7441,7 +7541,10 @@ const RIDER_SIN = 0.198669330795;
  * looser than his place in the block his spot at the rally point is; how far horse facing
  * braced spears looks for easier prey (`thinkCav`); how near the rally point the middle of
  * its riders must be for the ride out to be over; how near enemy horse riding at it must be
- * for horse re-forming to break off the re-form and meet it; how near a foe must be for a horse
+ * for horse re-forming to break off the re-form and meet it (and how far a horse's length and room
+ * clears a friend, `rideRound`; how far before our own foot's front a foe counts as its own,
+ * `covered`, the pace, a share of his speed, at which a rider in their ranks rides out of
+ * them, and the share of a block's riders in them at which it breaks off, `inOurRanks`); how near a foe must be for a horse
  * archer to ride off from him by himself; under what share of his hit points a rider hit
  * among spears pulls out of them, and for how long (ticks); the gap to foot at which horse
  * archers ride off (until the sweep after v16, 35: foot closing at a run caught them).
@@ -7458,6 +7561,9 @@ const RIDER = {
   there: 25,
   meet: 90,
   room: 10,
+  coverAhead: 8,
+  outOfRanks: 0.6,
+  ranksShare: 0.3,
   pressed: 15,
   spearHurt: 0.5,
   spearOut: 20,
