@@ -62,8 +62,8 @@ one by one, in small set pieces.
 | 1 | Spear on spear: the second and third ranks are stabbed over their own front rank by men they cannot reach, and stand there with no foe | **High** | struck-idle 3.85% → 1.25% of man-time (`spearwall`, seeds 1-6); demo s1-4 at 450: 0.05-0.36% → 0.04-0.20% | Fixed |
 | 2 | Spears stand braced, 30 u from enemy knights hacking at the foot beside them, for up to 14 s | **High** | braced with the horse fighting a friend: 37% of all braced time (1,641 of 4,427 man-s, longest 14 s) → 8% (270, longest 8 s); set piece 4.9 s → ≤1.3 s | Fixed |
 | 3 | Skirmishers with no line of their own stand and throw until slower foot is on them | **Medium-high** | cut down with javelins in hand 48 of 120 → 0; javelins thrown 357 → 480; spears felled 18 → 41 | Fixed |
-| 4 | A reserve shuffles side to side for 5-12 s in a gap between two friendly shooter blocks too narrow for it | Medium | stalled foot 57-75 block-s a battle, longest 5-7 s | Not fixed (attempt made it worse) |
-| 5 | Retired skirmishers stand behind the line under arrows and are shot down there | Medium-low | 3-13% of their retired time under arrows; 2-16 shot dead there per battle (s3: 16 of 30 skirmisher deaths) | Not fixed (most arrows from circling horse archers) |
+| 4 | A reserve shuffles side to side for 5-12 s in a gap between two friendly shooter blocks too narrow for it | Low (after the merge) | stalled foot 46-72 block-s a battle; held up by loose shooters only 0-6 of it | Not fixed |
+| 5 | Retired skirmishers stand behind the line under arrows and are shot down there | Medium-low | after the horse-wounds merge: shot dead while retired 19 → 6, man-s under arrows 640 → 367 (demo s1-4) | Fixed after the merge |
 | 6 | Front-rank men fighting the man before them while a second foe strikes their back | Low | 1.5% of man-time in a frontal clash, 0.1-0.2% in demos | Not fixed (melee crowding) |
 | 7 | Skirmishers in reserve standing 12 u from an unengaged enemy for 5 s and more | Low | 0-9 runs a battle | Not fixed |
 | 8 | Out of javelins with no line, skirmishers go in against heavy foot | Low | by design ("someone must end it") | Not fixed |
@@ -229,6 +229,41 @@ did not reproduce it, because foot archers shoot at the line.
 **Suggested.** Retired skirmishers under fire from horse archers close in behind or into a formed
 block (as QA2 #1 cover does for shooters and horse), or ask the General to set horse on the horse
 archers. Both touch the missile and cavalry code that is being worked on elsewhere.
+
+## After merging master (horse wounds rounds 1+2)
+
+- **Two collision tests moved, believably.** In "knights break into spearmen who are not braced"
+  and "light horse goes in less deep than knights", fix #1 means the spears' front rank points at
+  the horses in front of it. With HORSE, those blows bring the leading horses down, and their fall
+  checks the riders behind.
+  - With fix #1 off, the knights reached 21.2 u (seed 3); with it on, 12.1, against a block 15.2 deep.
+  - Knights unhorsed, seeds 1-6: 2.0 → 3.2 on average.
+  - On seed 3 alone, one light horseman got deeper than any knight.
+  - Both tests now average five days. Over seeds 1-5:
+
+    | | Deepest | Mean |
+    |---|---|---|
+    | Knights into spears in line | 16.8 (> 0.9 of the depth) | 5.6 |
+    | Pike wall | 3.1 | |
+    | Braced spears | 5.9 | |
+    | Light horse | 6.4 | -0.1 |
+- **Test #2 moved.** On seed 2, one of the two knight blocks now charges the spears themselves, and
+  bracing against it is right. The test now counts bracing only while no horse rides at the spears.
+  It reads 50 ticks with the fix off, under 15 with it on.
+- **#5 fixed.** A spent skirmisher block shot at where it rests goes back out of the enemy's bowshot
+  (in steps of 50, at most 400), and returns only once its place is out of bowshot. The enemy's
+  shooters, holding their arrows off the melee, pick the men standing clear behind it: in s3 foot
+  archers and crossbows as well as horse archers, at 270-580 u.
+  - Demo s1-4: shot dead while retired 19 → 6.
+  - Set piece: on 3 days of 4 the skirmishers broke under the arrows within 30 s; now on none.
+- **The household weighs itself by its riders' remaining hp.** After #5, in s3/450 undead v
+  samurai, a household of seven took on 37 heavy foot as if fresh, and the Lich-Marshal fell 18 s
+  before the break (generals.test "the Lich-Marshal does not fall before his host breaks").
+  Weighed by what its riders have left, it draws back: no Lich falls in the 8 battles.
+- **#4 is now rare.** On the merged code the s2 case does not recur, and stalls caused by loose
+  shooters in the way are 0-6 block-seconds a battle. Most "stalls" are slow wheels of 90° and more,
+  which is drill. Letting foot pass through loose shooters' intervals is left undone: little to win,
+  and it risks the crossing checks.
 
 ## 6. Struck from behind while fighting the man before him — Low (not fixed)
 
