@@ -262,6 +262,11 @@ export { COHESION, DOCTRINE, MORALE, REGROUP, UNDEAD } from './command.ts';
  *   (13-16% -> 9-11% of all shooters), blocks caught by horse 70 -> 64 of 234 (the rest: no friend
  *   in reach, horse never seen coming, or horse riding round the friend); demo seeds 1-4: 240 ->
  *   99 men, 14 -> 9 blocks. Horse beats bows (game-matchups, 60 days) 33 -> 37.
+ * - A fallen man does not rise from under the feet of a living foe (`footOn`): he waits for the
+ *   Lich-Marshal's next pulse. He got up where he lay, inside the enemy over him, and nothing
+ *   shoves a riser (RISE_TICKS): nearly every deep overlap of foes in the collision battles was a
+ *   man just risen. Collision battles (seeds 1-8, 320 against 340): foes' overlap p99 1.10 -> 0.45
+ *   of a man's radius, p95 0.34 -> 0.27; as many risen (the cap, not the ground, sets how many).
  */
 /**
  * v16: nothing grows with the size of the battle that should not (the undead won two thirds of
@@ -2064,6 +2069,10 @@ export class Battle {
       if (dx * dx + dy * dy > R2) continue;
       const r = this.regiments[d.reg[i]!]!;
       if (r.alive === 0) continue;
+      // (Not from under the feet of the living foe: until v17 a man rose where he lay, inside
+      // the enemy standing over him, and was shoved out again over the next ticks. Such deep
+      // overlaps of foes were nearly all men just risen. He waits for the next pulse.)
+      if (this.footOn(i)) continue;
       d.state[i] = State.Fighting;
       d.hp[i] = s.s.hp * doc.raiseHp;
       d.rose[i] = this.tick;
@@ -2080,6 +2089,34 @@ export class Battle {
     }
     this.toRaise[t]! -= n;
     if (n > 0) this.events.push({ tick: this.tick, team: t, kind: 'doctrine', cls: U.HeavyInfantry, note: 'raise', count: n * this.scale });
+  }
+
+  /** Whether a living enemy stands on fallen man `i` (their bodies overlap). */
+  private footOn(i: number): boolean {
+    const d = this.d;
+    const x = d.x[i]!;
+    const y = d.y[i]!;
+    const team = d.team[i]!;
+    // (The grid is from the start of this tick: a cell more for the men's steps since.)
+    const R = d.rad[i]! + 6 + CELL;
+    const x0 = Math.max(0, Math.floor((x - R) / CELL));
+    const x1 = Math.min(GW - 1, Math.floor((x + R) / CELL));
+    const y0 = Math.max(0, Math.floor((y - R) / CELL));
+    const y1 = Math.min(GH - 1, Math.floor((y + R) / CELL));
+    for (let cy = y0; cy <= y1; cy++) {
+      for (let cx = x0; cx <= x1; cx++) {
+        const c = cy * GW + cx;
+        for (let k = this.grid[c]!; k < this.gridEnd[c]!; k++) {
+          const j = this.items[k]!;
+          if (d.team[j] === team || d.state[j]! > State.Routing) continue;
+          const dx = d.x[j]! - x;
+          const dy = d.y[j]! - y;
+          const m = d.rad[i]! + d.rad[j]!;
+          if (dx * dx + dy * dy < m * m) return true;
+        }
+      }
+    }
+    return false;
   }
 
   /**
