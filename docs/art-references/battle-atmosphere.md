@@ -44,3 +44,6 @@ other, three pairs. Draw median per frame: base 1.6 / 1.5 / 1.4 ms, here 1.4 / 1
 base 3.5 / 2.2 / 2.6, here 2.6 / 2.4 / 2.8. `afterStep` per tick: base 5.8 / 3.8 / 5.8, here
 5.8 / 3.3 / 4.3. That is within the machine's noise. The particle cap is unchanged, and dust
 gives way first.
+
+Classic art (`classic-cavalry-dust.jpg`, `classic-gun-smoke.jpg`) uses the same code. Gun smoke
+used to be HD only, and now the classic field has it too.
