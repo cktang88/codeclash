@@ -208,6 +208,17 @@ export { COHESION, DOCTRINE, MORALE, REGROUP, UNDEAD } from './command.ts';
  *   dead as battles grew (undead-templar 44% at 250, 59% at 1000, 71% at 2000); samurai-templar
  *   56 -> 52 at 1000. With it the price of never routing is eased back: DEAD_HP 0.72 (0.71).
  *   300 battles a cell (docs/factions.md, v17 reach balance).
+ * - The volley clock waits on the men, not the men on the clock (QA review 2 #2). A turn of
+ *   formed missile foot within 30 degrees of the front it last stood to (following its target) is
+ *   no move (`tracking`, WHEEL_STILL): it neither stops the men shooting nor restarts the clock.
+ *   The word waits while fewer than half the men are loaded, and comes a beat from now when two
+ *   in three are loaded well before it (a volley most men held back from, for danger close or
+ *   friends on the line, or one called while they reloaded after shooting at will). Reloads are
+ *   as before (bows 7.5 s, teppo 30 s, arbalests 29 s). Of the time a block of foot shooters
+ *   had a loaded man and a foe in range (scripts/qa/missile-silence.ts, seeds 1-4 at 450), archers
+ *   loosed in 67%, now 81-86% (waiting on the clock with most men loaded 7.5% -> under 0.5%;
+ *   "shuffling" 10.7% -> 3-6%, what is left of it walks to a new firing spot), crossbows 75%,
+ *   now 79-84% (waiting 9.4% -> 0.5%, shuffling 2.7% -> 0.4-1.8%).
  */
 /**
  * v16: nothing grows with the size of the battle that should not (the undead won two thirds of
@@ -879,6 +890,12 @@ export class Regiment {
   atWill = false;
   /** Last tick the anchor moved or the block wheeled. Foot shooters loose only standing still. */
   movedAt = -100;
+  /**
+   * Formed missile foot (v17, QA2 #2): the front it last stood to. A small turn from that front,
+   * a few degrees to follow the target, is not a move (`tracking`).
+   */
+  restFx = 1;
+  restFy = 0;
   /** Stepping sideways to open a line of fire (see `sidestep`) until this tick. */
   stepUntil = -1;
   /** Last tick it had something to shoot at (long idle, it goes looking along the line). */
@@ -1887,7 +1904,12 @@ export class Battle {
       const fx = r.fx;
       const fy = r.fy;
       this.moveAnchor(r);
-      if (r.vax !== 0 || r.vay !== 0 || r.fx !== fx || r.fy !== fy) r.movedAt = this.tick;
+      const turned = r.fx !== fx || r.fy !== fy;
+      if (r.vax !== 0 || r.vay !== 0 || (turned && !this.tracking(r))) r.movedAt = this.tick;
+      if (!turned) {
+        r.restFx = r.fx;
+        r.restFy = r.fy;
+      }
       if (r.role === 'missile' && r.alive > 0) this.volleyClock(r);
     }
     const d = this.d;
@@ -6285,11 +6307,26 @@ export class Battle {
   }
 
   /**
+   * Whether a block that turned this tick is only following its target (v17, QA2 #2): formed
+   * missile foot within WHEEL_STILL of the front it last stood to. Its men keep their places, near
+   * enough, and shoot a little to either side (`aimAt` wheels only for a target over 25 degrees
+   * off): not a move that stops them shooting and restarts the volley clock. Until v17 any turn
+   * of any size did, and archers tracking a target lost a tenth of their shooting time.
+   */
+  private tracking(r: Regiment): boolean {
+    return r.role === 'missile' && !isMounted(r) && r.fx * r.restFx + r.fy * r.restFy >= WHEEL_STILL;
+  }
+
+  /**
    * The volley clock of a block of formed missile foot. While it is not standing to shoot in
    * order (moving, out of 'shoot', or firing at will), the next volley is a beat away: "make
    * ready, present" comes as soon as it halts, and whoever is loaded looses (a man who joined the
    * block, or reloaded while it walked, included). Standing, each volley follows the last by the
-   * reload and the beat.
+   * reload and the beat. The word waits for most of the men to be loaded, and comes a beat after
+   * they are (v17, QA2 #2): the officer calls the volley on his men, not on the clock. Until v17
+   * a volley most men held back from (danger close, friends on the line), or one called while
+   * they were still reloading after shooting at will, left them loaded and silent a whole cycle
+   * more (6 s for bows, 29 s for arbalests) with the target clear and in range.
    */
   private volleyClock(r: Regiment): void {
     const t = this.tick;
@@ -6301,6 +6338,24 @@ export class Battle {
         r.volleyAt += Math.ceil(r.volleyEvery / this.ranksOf(r));
         r.volleyN++;
       } else r.volleyAt += r.volleyEvery;
+    }
+    if (!r.rippling && (t === r.volleyAt || r.volleyAt - t > VOLLEY_BEAT)) {
+      const d = this.d;
+      let armed = 0;
+      let soon = 0;
+      let loaded = 0;
+      for (const id of r.members) {
+        if (d.state[id] !== State.Fighting || d.ammo[id]! === 0) continue;
+        armed++;
+        if (d.cd[id]! < VOLLEY_SPREAD) soon++;
+        if (d.cd[id] === 0) loaded++;
+      }
+      // Fewer than half loaded by the end of the volley at the word: it waits for them. Most
+      // loaded well before it: it comes a beat from now.
+      if (t === r.volleyAt) {
+        if (soon * 2 < armed) r.volleyAt = t + 1;
+        else r.volleyShots = 0;
+      } else if (loaded * 3 >= armed * 2 && armed > 0) r.volleyAt = t + VOLLEY_BEAT;
     }
     if (t === r.volleyAt + VOLLEY_SPREAD - 1 && r.volleyShots > 0) {
       r.volleyShots = 0;
@@ -8549,6 +8604,8 @@ const LEAD_ERR = 0.3;
 /** A target this slow (units a second: foot at the march or a jog) is led true; horse at the canter or gallop is not. */
 const LEAD_EASY = 25;
 const VOLLEY_BEAT = 6;
+/** A turn this small (cosine: 30 degrees) of formed missile foot is no move: see `tracking`. */
+const WHEEL_STILL = 0.866;
 /**
  * Fire at will: an enemy whose nearest men are this close to the front (or one charging the
  * block from twice as far) is no target for volleys. 50 units is under a second for charging
