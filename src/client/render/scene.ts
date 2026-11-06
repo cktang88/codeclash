@@ -23,11 +23,12 @@ import { HORSE_COATS, HORSE_FRAMES } from './horse-fx.ts';
 import { ANGLES, fxId, HOOVES, lookOf, PIN_ANGLES, PUFF_SIZES, PUFF_VARIANTS, SPLATS } from './fx-hd.ts';
 import { Batch, cornerBuffer, dropTarget, SpriteProgram, SpriteStream, target, texture, texturePixels, type Part, type Target } from './gl.ts';
 import { paintGround, type Ground } from './ground.ts';
-import { projX, projY, PX, unproject } from './iso.ts';
+import { dirFor, projX, projY, PX, unproject } from './iso.ts';
 import { GlPost } from './post.ts';
 import { ELBOW, FoeGrid } from './foes.ts';
 import { facing, ownFront, settleTurn, stillRising, turnVia, TURN_HOLD, TURN_STEP, type Vec } from './pose.ts';
 import { AnimTrack, blankFacts, isGait, pickAnim } from './animstate.ts';
+import { dieFrame, dieLen, fallFacing, lunge, REACT, Reactions, recoil, slide, weave } from './react.ts';
 import { frameBox, nextZoomFloor, NO_INSETS, zoomOutScale, type Insets, type ZoomFloor } from './fit.ts';
 import { upscaleCanvas } from './upscale.ts';
 import { buildAtlas as buildClassic } from './sprites.ts';
@@ -389,6 +390,8 @@ export class BattleScene {
   private leftDir: Uint8Array;
   /** Each man's clip, its start and stride across frames (animstate.ts). */
   private anims: AnimTrack;
+  /** Who struck each man and from where, and where his fall carries him (react.ts). */
+  private react: Reactions;
   private readonly facts = blankFacts();
   /**
    * Per army, the shade a corpse is drawn with (an RGB multiply): the fallen sink into the ground,
@@ -554,6 +557,7 @@ export class BattleScene {
     this.turnAt = new Float32Array(n).fill(-100);
     this.leftDir = new Uint8Array(n).fill(255);
     this.anims = new AnimTrack(n);
+    this.react = new Reactions(n);
     this.moveX = new Float32Array(n);
     this.moveY = new Float32Array(n);
     this.aimX = new Float32Array(n).fill(NaN);
@@ -579,6 +583,7 @@ export class BattleScene {
       this.turnAt.set(from.turnAt);
       this.leftDir.set(from.leftDir);
       this.anims.copy(from.anims);
+      this.react.copy(from.react);
       this.moveX.set(from.moveX);
       this.moveY.set(from.moveY);
       this.hurtAt.set(from.hurtAt);
@@ -695,6 +700,7 @@ export class BattleScene {
     this.pinsTick();
     this.hurtNow.length = 0;
     this.horsesTick(rng);
+    this.blowsTick(rng);
     for (let i = 0; i < ss.length; i++) {
       const s = ss[i]!;
       if (this.wasMounted[i] && !s.s.mounted) {
@@ -1312,7 +1318,7 @@ export class BattleScene {
 
   private dieTicks(team: number, kind: number): number {
     const a = this.atlases[team as 0 | 1];
-    return a.frames(kind, Anim.Die) * a.ticksPerFrame(Anim.Die);
+    return dieLen(a.frames(kind, Anim.Die), a.ticksPerFrame(Anim.Die));
   }
 
   private impact(x: number, y: number): void {
@@ -1404,8 +1410,12 @@ export class BattleScene {
   private fallDir(i: number): Dir {
     if (!this.fell[i]) {
       this.fell[i] = 1;
-      const h = Math.imul((i + 1) * 0x9e3779b1, 0x85ebca6b) >>> 0;
-      this.dirs[i] = (this.dirs[i]! ^ ((h >>> 13) & 3)) as Dir;
+      // Struck down this tick or the last: he faces the blow and is carried back from it (react.ts).
+      const s = this.battle.soldiers[i]!;
+      const r = this.react;
+      const fresh = r.fall(i, s.diedAt >= 0 ? s.diedAt : this.battle.tick, s.s.mounted);
+      const toward = fresh ? dirFor(-r.blowX[i]!, -r.blowY[i]!, this.dirs[i] as Dir) : -1;
+      this.dirs[i] = fallFacing(i, toward, this.dirs[i]!) as Dir;
     }
     return this.dirs[i] as Dir;
   }
@@ -1426,7 +1436,9 @@ export class BattleScene {
     const s = this.battle.soldiers[i]!;
     const kind = this.kindOf(i);
     const u = this.cellU(s.team, kind, Anim.Dead, 0, this.dirs[i] as Dir);
-    this.stamps.push({ tex: s.team, x: Math.round(this.mapX(s.x, s.y)), y: Math.round(this.mapY(s.x, s.y)), u, v: this.cellV, w: this.cellW, h: this.cellH, ax: this.cellAx, ay: this.cellAy, shade: this.corpseShade[s.team as 0 | 1], a: 1, solid: false, r: 0, g: 0, b: 0 });
+    const cx = s.x + this.react.fallX[i]!;
+    const cy = s.y + this.react.fallY[i]!;
+    this.stamps.push({ tex: s.team, x: Math.round(this.mapX(cx, cy)), y: Math.round(this.mapY(cx, cy)), u, v: this.cellV, w: this.cellW, h: this.cellH, ax: this.cellAx, ay: this.cellAy, shade: this.corpseShade[s.team as 0 | 1], a: 1, solid: false, r: 0, g: 0, b: 0 });
   }
 
   // ---------------------------------------------------------------- GL setup
@@ -2220,8 +2232,10 @@ export class BattleScene {
     const o = this.slotOf(s.team, kind, Anim.Dead, 0, this.dirs[i] as Dir) * 6;
     const r = sh.rects;
     if (r[o + 2]! <= 0) return false;
-    const mx = this.mapX(s.x, s.y);
-    const my = this.mapY(s.x, s.y);
+    const cx = s.x + this.react.fallX[i]!;
+    const cy = s.y + this.react.fallY[i]!;
+    const mx = this.mapX(cx, cy);
+    const my = this.mapY(cx, cy);
     if (mx < x0 || mx > x1 || my < y0 || my > y1) return true;
     this.hdBatch[s.team]![kind]!.sprite(Math.round(mx), Math.round(my), r[o]!, r[o + 1]!, r[o + 2]! / L, r[o + 3]! / L, r[o + 4]! / L, r[o + 5]! / L, -1e5, k, k, k * 0.96, this.veil, 0, 1);
     return true;
@@ -2271,8 +2285,8 @@ export class BattleScene {
       }
       const wx = this.prevX[i]! + (s.x - this.prevX[i]!) * alpha;
       const wy = this.prevY[i]! + (s.y - this.prevY[i]!) * alpha;
-      const fmx = this.mapX(wx, wy);
-      const fmy = this.mapY(wx, wy);
+      let fmx = this.mapX(wx, wy);
+      let fmy = this.mapY(wx, wy);
       if (fmx < x0 || fmx > x1 || fmy < y0 || fmy > y1) {
         if (nearHd && fmx >= px0 && fmx <= px1 && fmy >= py0 && fmy <= py1) this.seenNear[s.team] = this.seenNear[s.team]! | (1 << figureKind(s, this.afoot[s.team]));
         continue;
@@ -2371,9 +2385,59 @@ export class BattleScene {
           this.dirs[i] = dir;
         }
       }
+      // The body off the sim's spot (react.ts): into his blow and out, driven back by a blow,
+      // rocked on his guard by one parried, the ranks behind leaning in; the fallen carried back.
+      const re = this.react;
+      let ox = 0;
+      let oy = 0;
+      if (s.state === State.Dead) {
+        const k = slide(T - s.diedAt, this.dieTicks(s.team, kind));
+        ox = re.fallX[i]! * k;
+        oy = re.fallY[i]! * k;
+      } else if (rising) {
+        const k = 1 - Math.min(1, (T - s.roseAt) / this.riseTicksOf(s.team, kind));
+        ox = re.fallX[i]! * k;
+        oy = re.fallY[i]! * k;
+      } else {
+        const fa = this.facts;
+        const mt = s.s.mounted;
+        const tg = s.target >= 0 ? ss[s.target] : undefined;
+        if (anim === Anim.Attack && tg) {
+          const dx = tg.x - s.x;
+          const dy = tg.y - s.y;
+          const d = Math.sqrt(dx * dx + dy * dy);
+          if (d > 1e-3) {
+            const k = (lunge((T - start) / Math.max(1e-3, fa.actLen)) * (mt ? REACT.lungeMounted : REACT.lunge)) / d;
+            ox += dx * k;
+            oy += dy * k;
+          }
+        }
+        const hk = recoil(T - re.blowAt[i]!) * (mt ? REACT.recoilMounted : REACT.recoil);
+        ox += re.blowX[i]! * hk;
+        oy += re.blowY[i]! * hk;
+        const pk = recoil(T - re.parryAt[i]!, 0.5, 2.6) * REACT.parry * (mt ? 0.5 : 1);
+        ox += re.parryX[i]! * pk;
+        oy += re.parryY[i]! * pk;
+        // Between blows in the fight: the front rank weaves at its foes, the ranks behind lean in.
+        if (!mt && (anim === Anim.Brace || anim === Anim.Advance) && fa.inFight) {
+          const front = fa.reach;
+          const dx = front && tg ? tg.x - s.x : this.front.x;
+          const dy = front && tg ? tg.y - s.y : this.front.y;
+          const d = Math.sqrt(dx * dx + dy * dy);
+          if (d > 1e-3) {
+            const k = (weave(T, (i * 0.618034) % 1, front) * (front ? REACT.weave : REACT.press)) / d;
+            ox += dx * k;
+            oy += dy * k;
+          }
+        }
+      }
+      if (ox !== 0 || oy !== 0) {
+        fmx += projX(ox, oy);
+        fmy += projY(ox, oy);
+      }
       const frames = frameRow[kind * ANIM_COUNT + anim]!;
       const tpf = tpfRow[anim]!;
-      let f = rising ? riseFrame(frames, tpf, T - start) : track.frame(i, T, frames, tpf);
+      let f = rising ? riseFrame(frames, tpf, T - start) : anim === Anim.Die ? dieFrame(T - start, frames, tpf) : track.frame(i, T, frames, tpf);
       if (f < 0) f = 0;
       // Several blows (Atlas.blows): each man picks one per swing, from a hash of who he is and
       // when he swung, so a regiment does not strike in lockstep. Blow b's frames follow blow 0's.
@@ -2652,6 +2716,74 @@ export class BattleScene {
       }
   }
 
+  /**
+   * Who struck whom this step (react.ts): every man who swung at his foe (actedAt the tick just
+   * stepped, his target within a few paces), and whether it landed (the foe's hp fell) or was
+   * parried or taken on the shield. A man hurt with no blow seen (a missile, stakes) is driven
+   * back from the nearest foe, or else from the way he faces. HD: a parried blow strikes sparks.
+   */
+  private blowsTick(rng: Rng): void {
+    const b = this.battle;
+    const ss = b.soldiers;
+    const tick = b.tick;
+    const r = this.react;
+    for (let a = 0; a < ss.length; a++) {
+      const s = ss[a]!;
+      if (s.actedAt !== tick - 1 || r.seen[a] === s.actedAt || s.state > State.Routing) continue;
+      r.seen[a] = s.actedAt;
+      const t = s.target;
+      if (t < 0) continue;
+      const o = ss[t]!;
+      const dx = s.x - o.x;
+      const dy = s.y - o.y;
+      const reach = s.s.radius + o.s.radius + Math.max(7, (s.reach ?? 1.6) + 4);
+      if (dx * dx + dy * dy > reach * reach) continue;
+      if (o.hp < this.prevHp[t]!) r.hurt(t, tick, dx, dy);
+      else if (o.state <= State.Routing) {
+        r.parried(t, tick, dx, dy);
+        // Steel on steel (or on the shield's boss): a few sparks where the blow was stopped.
+        if (this.field && rng.next() < 0.55) {
+          const h = (s.s.mounted || o.s.mounted ? 11 : 7.5) + rng.next() * 2;
+          const mx = o.x + dx * 0.4;
+          const my = o.y + dy * 0.4;
+          const ns = 2 + rng.int(3);
+          for (let k = 0; k < ns; k++) this.spawn(PK.Spark, mx, my, h, (rng.next() - 0.5) * 50, (rng.next() - 0.5) * 50, 10 + rng.next() * 22, 0.12 + rng.next() * 0.12, 1, 1, 0.9, 0.6, 1);
+        }
+      }
+    }
+    for (let i = 0; i < ss.length; i++) {
+      const s = ss[i]!;
+      if (s.state === State.Fled || !(s.hp < this.prevHp[i]!) || r.blowAt[i] === tick) continue;
+      const f = this.foes.nearest(s.x, s.y, s.team, ELBOW);
+      if (f >= 0) r.hurt(i, tick, ss[f]!.x - s.x, ss[f]!.y - s.y);
+      else {
+        // From in front of him (the way he faces: Dir 0 = screen south-east, see contract.ts).
+        const d = this.dirs[i]!;
+        const sx = d === 0 || d === 3 ? 1 : -1;
+        const sy = d === 0 || d === 1 ? 1 : -1;
+        const [wx, wy] = unproject(sx, sy * 0.5);
+        r.hurt(i, tick, wx, wy);
+      }
+    }
+    for (let i = 0; i < ss.length; i++) if (ss[i]!.state === State.Dead && !this.fell[i] && ss[i]!.diedAt >= tick - 1) this.fallDir(i);
+  }
+
+  /** HD: a body hits the ground: a puff of dust round it; the bone of the undead clatters apart. */
+  private landed(x: number, y: number, big: number, shed: Shed, rng: Rng): void {
+    for (let k = 0; k < (big > 1 ? 6 : 4); k++) {
+      const a = rng.next() * Math.PI * 2;
+      const g = 0.7 + rng.next() * 0.08;
+      this.spawn(PK.Dust, x + Math.cos(a) * 2.5 * big, y + Math.sin(a) * 1.5 * big, 0.5 + rng.next(), Math.cos(a) * 7, Math.sin(a) * 7, 1 + rng.next() * 2, 0.9 + rng.next() * 0.7, 2 + rng.int(2), g, g * 0.96, g * 0.86, 0.32, rng.int(PUFF_VARIANTS));
+    }
+    if (shed === Shed.Bone)
+      for (let k = 0; k < 6; k++) {
+        const a = rng.next() * Math.PI * 2;
+        const sp = 6 + rng.next() * 12;
+        const g = rng.next() < 0.6 ? 0.86 : 0.64;
+        this.spawn(PK.Debris, x, y, 1.5 + rng.next() * 2, Math.cos(a) * sp, Math.sin(a) * sp, 8 + rng.next() * 10, 0.8, 1, g, g * 0.95, g * 0.8, 1);
+      }
+  }
+
   /** HD: whether a man is at grips with a foe (his target within arm's or his spear's reach, struck at lately): an archer shooting is not. */
   private inMelee(s: Battle['soldiers'][number], tick: number): boolean {
     if (tick - s.actedAt >= 15) return false;
@@ -2675,6 +2807,7 @@ export class BattleScene {
     this.pinsTick();
     this.hurtNow.length = 0;
     this.horsesTick(rng);
+    this.blowsTick(rng);
     for (let i = 0; i < ss.length; i++) {
       const s = ss[i]!;
       if (this.wasMounted[i] && !s.s.mounted) {
@@ -2735,8 +2868,12 @@ export class BattleScene {
           this.stamped[i] = 1;
           this.fallDir(i);
           const big = s.s.mounted ? 1.7 : 1;
-          const cx = mx + (rng.next() - 0.5) * 2 * big;
-          const cy = my + (rng.next() - 0.5) * big;
+          // Where he lies (carried back by the blow, react.ts), and the dust he raises landing.
+          const lx = s.x + this.react.fallX[i]!;
+          const ly = s.y + this.react.fallY[i]!;
+          this.landed(lx, ly, big, this.shedOf(i), rng);
+          const cx = this.mapX(lx, ly) + (rng.next() - 0.5) * 2 * big;
+          const cy = this.mapY(lx, ly) + (rng.next() - 0.5) * big;
           // (The bone and the spirit leave no pool; a ghoul's is ichor.)
           const shed = this.shedOf(i);
           if (shed === Shed.Blood || shed === Shed.Ichor)
@@ -2838,8 +2975,10 @@ export class BattleScene {
   private corpseHd(i: number, hd: boolean, x0: number, x1: number, y0: number, y1: number, px0: number, px1: number, py0: number, py1: number): void {
     const s = this.battle.soldiers[i]!;
     const kind = this.kindOf(i);
-    const mx = this.mapX(s.x, s.y);
-    const my = this.mapY(s.x, s.y);
+    const cx = s.x + this.react.fallX[i]!;
+    const cy = s.y + this.react.fallY[i]!;
+    const mx = this.mapX(cx, cy);
+    const my = this.mapY(cx, cy);
     if (mx < x0 || mx > x1 || my < y0 || my > y1) {
       // Within a screen: its kind's sheet is kept ready for a scroll (pickLevels).
       if (mx >= px0 && mx <= px1 && my >= py0 && my <= py1) this.seenNear[s.team] = this.seenNear[s.team]! | (1 << kind);
