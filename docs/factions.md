@@ -264,6 +264,9 @@ seed fought both ways round), 200 battles a cell at first (±3.5%), 300-400 for 
 | Undead vs Templar, + friendly crossing, firing spots, DEAD_HP 0.71 (400) | 53.3 | 49.8 |
 | Undead vs Samurai, + friendly crossing, firing spots, DEAD_HP 0.71 (400) | 53.0 | 48.3 |
 | Samurai vs Templar, + friendly crossing, firing spots (400) | 44.8 | 55.0 |
+| Undead vs Templar, + danger close, crossbow screen, engines forward (80) | 53.8 | – |
+| Undead vs Samurai, + danger close, crossbow screen, engines forward (80) | 48.8 | – |
+| Samurai vs Templar, + danger close, crossbow screen, engines forward (80) | 51.3 | – |
 
 Mirrors (200 battles, team 0's share, ±5): Templar 47 / 45, Samurai 40 / 47, Undead 46 / 56
 (250 / 1000); none ran to the time limit (undead mirrors at 1000 a median 323 s).
