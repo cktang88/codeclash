@@ -2,6 +2,7 @@
 import { Battle, BATTLE_VERSION, State, type ArmySpec, type Regiment, type Stance } from './battle.ts';
 import type { FactionId } from './factions.ts';
 import { UNIT_COUNT } from './units.ts';
+import type { TerrainSpec } from './terrain.ts';
 
 export const only = (cls: number, n: number): number[] => {
   const k = new Array<number>(UNIT_COUNT).fill(0);
@@ -81,4 +82,29 @@ export function frontalCharge(horse: number, foot: number, stance: Stance, men =
     if (n > 0) mean = Math.max(mean, sum / n);
   }
   return { deepest, mean, footDepth, battle: b };
+}
+
+/**
+ * Ground for a set piece about (cx, cy), side A standing to the west (fronts `gap` apart, A
+ * facing east), as `scripts/duel.ts --ground=` lays it:
+ * - 'hillA' / 'hillB': a hill (45 high, 340 across) under that side's block: the other comes up at it.
+ * - 'woodA' / 'woodB': a wood about that side's block; 'woodMid': a wood between them.
+ * - 'stream': a stream between them with no ford; 'ford': the same with a ford before them.
+ */
+export function groundPreset(name: string, cx: number, cy: number, gap: number): TerrainSpec | 'flat' {
+  const ax = cx - gap / 2;
+  const bx = cx + gap / 2;
+  const hill = (x: number) => ({ hills: [{ x, y: cy, r: 340, k: 1.6, h: 45, ax: 0, ay: 1 }] });
+  const wood = (x: number) => ({ woods: [{ blobs: [{ x, y: cy, r: 90 }, { x, y: cy - 80, r: 80 }, { x, y: cy + 80, r: 80 }, { x: x + 40, y: cy, r: 70 }] }] });
+  const stream = (ford: boolean) => ({ stream: { pts: [cx, 0, cx, 4000], width: 28, bank: 10, fords: ford ? [{ x: cx, y: cy, r: 70 }] : [] } });
+  switch (name) {
+    case 'hillA': return hill(ax - 40);
+    case 'hillB': return hill(bx + 40);
+    case 'woodA': return wood(ax - 50);
+    case 'woodB': return wood(bx + 50);
+    case 'woodMid': return wood(cx);
+    case 'stream': return stream(false);
+    case 'ford': return stream(true);
+    default: return 'flat';
+  }
 }

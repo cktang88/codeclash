@@ -6,6 +6,7 @@
 
 import { FIELD_H, FIELD_W } from '../../game/battle.ts';
 import { Rng } from '../../game/rng.ts';
+import type { Terrain } from '../../game/terrain.ts';
 import { projX, projY, unproject } from './iso.ts';
 
 const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5].map((v) => v / 16);
@@ -86,7 +87,12 @@ export interface GroundNoise {
   seed: number;
 }
 
-export function paintGround(seed: number): Ground {
+/**
+ * `terrain`: a debug tint of the battle's ground (game/terrain.ts) over the painted field, classic
+ * art only (`?terrain` in the page's address): woods dark green, water blue, fords grey-blue, soft
+ * ground brown, height as light. Not art: the real drawing of terrain is still to come.
+ */
+export function paintGround(seed: number, terrain?: Terrain): Ground {
   const wx0 = -MARGIN;
   const wy0 = -MARGIN;
   const wx1 = FIELD_W + MARGIN;
@@ -144,6 +150,17 @@ export function paintGround(seed: number): Ground {
       }
       // Beyond the fighting area the grass is lusher and darker.
       if (!inside) c = mix(c, DARK, 0.12);
+      if (terrain && !terrain.flat && inside) {
+        const g = terrain.groundAt(x, y);
+        if (g === 3) c = mix([30, 70, 30], c, 0.25);
+        else if (g === 4) c = mix([50, 90, 170], c, 0.15);
+        else if (g === 2) c = mix([120, 140, 160], c, 0.3);
+        else if (g === 1) c = mix([110, 85, 50], c, 0.5);
+        const h = terrain.heightAt(x, y);
+        // (Contour every 10 units of height.)
+        const band = Math.floor(h / 10) !== Math.floor(terrain.heightAt(x + 4, y + 4) / 10);
+        c = band ? mix(c, [40, 30, 20], 0.5) : mix(c, [255, 250, 220], Math.min(0.35, h / 140));
+      }
       // Single-pixel speckle: blades and grit.
       const s = speck.next();
       if (s < 0.04) c = mix(c, [24, 22, 16], 0.35);

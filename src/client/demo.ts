@@ -40,5 +40,5 @@ export function demoSetup(seed: number, men = 450, factions?: readonly [FactionI
   if (nb === na) nb = NAMES[fb][(NAMES[fb].indexOf(nb) + 1) % 6]!;
   const hueA = rng.int(360);
   const hueB = (hueA + 120 + rng.int(120)) % 360;
-  return { version: BATTLE_VERSION, seed, kind: men > 1500 ? 'grand' : 'daily', armies: [army(na, fa, hueA, men, rng), army(nb, fb, hueB, Math.round(men * (0.85 + rng.next() * 0.3)), rng)] };
+  return { version: BATTLE_VERSION, seed, kind: men > 1500 ? 'grand' : 'daily', armies: [army(na, fa, hueA, men, rng), army(nb, fb, hueB, Math.round(men * (0.85 + rng.next() * 0.3)), rng)], terrain: 'field' };
 }

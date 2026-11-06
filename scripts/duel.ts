@@ -12,11 +12,12 @@
 // `spearmen:templar:48+archers:templar:30`. Options: --gap (front to front, default 80),
 // --ticks (default 600 = 60 s), --every (print every N ticks, default 100; 0 = only the end),
 // --seeds (n or a-b, default 1), --stanceA/--stanceB (pin a stance), --hold=a|b|both (that
-// side's general holds: it does not advance), --quiet (one line per seed).
+// side's general holds: it does not advance), --quiet (one line per seed), --ground=hillA|hillB|
+// woodA|woodB|woodMid|stream|ford (terrain about the two blocks: `groundPreset` in testing.ts).
 import { Battle, BATTLE_VERSION, State, type Stance } from '../src/game/battle.ts';
 import { type FactionId } from '../src/game/factions.ts';
 import { UNIT_COUNT, UNIT_KEYS } from '../src/game/units.ts';
-import { placeRegiment, plainArmy } from '../src/game/testing.ts';
+import { groundPreset, placeRegiment, plainArmy } from '../src/game/testing.ts';
 
 const args = process.argv.slice(2);
 const opt = (k: string, d: string) => args.find((a) => a.startsWith(`--${k}=`))?.slice(k.length + 3) ?? d;
@@ -51,7 +52,7 @@ const quiet = flag('quiet');
 
 for (let seed = s0!; seed <= (s1 ?? s0!); seed++) {
   const t0 = performance.now();
-  const b = new Battle({ version: BATTLE_VERSION, seed, kind: 'daily', armies: [plainArmy(A.counts, 0, A.faction), plainArmy(B.counts, 200, B.faction)] });
+  const b = new Battle({ version: BATTLE_VERSION, seed, kind: 'daily', armies: [plainArmy(A.counts, 0, A.faction), plainArmy(B.counts, 200, B.faction)], terrain: groundPreset(opt('ground', ''), 1200, 1200, gap) });
   for (const [team, k] of [[0, 'stanceA'], [1, 'stanceB']] as const) {
     const st = opt(k, '') as Stance | '';
     if (st) for (let c = 0; c < UNIT_COUNT; c++) if ((team === 0 ? A : B).counts[c]) b.pinStance(team, c, st);
