@@ -4226,9 +4226,10 @@ export class Battle {
   /**
    * Man `i`, running from `from`, falls in with `o`: he leaves `from`'s roll for `o`'s (keeping
    * his own class, stats, wounds and ammunition) and takes a place at the back of its shortest
-   * file, the one nearest him. The regiment's spirits dip a little.
+   * file, the one nearest him. The regiment's spirits dip a little. A rider unhorsed (`afootMove`,
+   * not `fugitive`) is no runner: he brings no fear with him and is not told as one who 'joins'.
    */
-  private fallIn(i: number, from: Regiment, o: Regiment): void {
+  private fallIn(i: number, from: Regiment, o: Regiment, fugitive = true): void {
     const d = this.d;
     if (from !== o) {
       const k = from.members.indexOf(i);
@@ -4238,10 +4239,12 @@ export class Battle {
       if (from.routed || d.state[i] !== State.Routing) from.alive--;
       d.reg[i] = o.id;
       o.members.push(i);
-      this.shake(o, REGROUP.moraleCost * this.shockK);
-      o.absorbed++;
-      o.joinPending++;
-      o.joinFrom = from.id;
+      if (fugitive) {
+        this.shake(o, REGROUP.moraleCost * this.shockK);
+        o.absorbed++;
+        o.joinPending++;
+        o.joinFrom = from.id;
+      }
     }
     o.alive++;
     d.state[i] = State.Fighting;
@@ -8783,7 +8786,7 @@ export class Battle {
         const fy = o.cy - y;
         const reach = this.formRadius(o) + 6;
         if (fx * fx + fy * fy < reach * reach) {
-          this.fallIn(i, r, o);
+          this.fallIn(i, r, o, false);
           d.dm[i] = 2;
           this.tmp[0] = 0;
           this.tmp[1] = 0;
