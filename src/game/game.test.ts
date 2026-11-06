@@ -451,13 +451,15 @@ describe('battle: command and morale', () => {
     for (const k of ['waver', 'rout', 'shattered'] as const) expect(kinds.has(k), k).toBe(true);
     expect([...states].sort()).toEqual(['broken', 'rallying', 'shattered', 'steady', 'wavering']);
     // The Chapter House's morale bonus, on either side.
-    // Clearly more often than not: 60 of 100 battles (about two in three today).
+    // More often than not: 55 of 100 battles. (60 until the light horse went out by the plan
+    // (QA review #10): 62 then, 56 now, with fewer clashes of horse at the opening, where the
+    // bonus told most.)
     let bonus = 0;
     for (let seed = 1; seed <= 50; seed++) {
       if (fight(setupOf(seed, army(300, { moraleBonus: 15 }), army(300))).winner === 0) bonus++;
       if (fight(setupOf(seed, army(300), army(300, { moraleBonus: 15 }))).winner === 1) bonus++;
     }
-    expect(bonus).toBeGreaterThanOrEqual(60);
+    expect(bonus).toBeGreaterThanOrEqual(55);
   }, 180_000);
 });
 
