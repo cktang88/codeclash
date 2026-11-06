@@ -12,5 +12,8 @@
 - Delegate design and drawing to subagents (game design, sprites, renderer, city, UI), each told to follow this section, and run them in parallel where their files don't overlap.
 - Every art change is verified with screenshots (Playwright: `require('playwright')`, `chromium.launch()`), looked at, and iterated at least three rounds.
 
+## Iterating on battles: small and headless
+- Follow the `fast-sim` skill (`.claude/skills/fast-sim/SKILL.md`): reproduce and fix in seconds-long headless set pieces (`scripts/duel.ts`, one regiment against one regiment), run single test files and `pnpm test:fast` while iterating, and run full battles, fairness and the full suite once at the end. Never iterate on grand battles or 100-battle runs. No single sim or test command may run longer than a few minutes (`timeout 180`): shrink it or split it across parallel processes.
+
 ## Checks
 `pnpm typecheck`, `pnpm test`, `pnpm build`. Commit messages end with the Co-Authored-By / Claude-Session lines the session gives.
