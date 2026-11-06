@@ -593,7 +593,8 @@ export function footRig(kind: number): SkeletonRig | undefined {
   const f = FOOT[kind], s = FOOT_SPECS[kind];
   if (!f || !s) return undefined;
   const skel = footSkel(kind, f.kit, f.gear, s);
-  const { clips, attacks } = mocapFootClips(skel, { ...s, farHeld: s.front === 'forearmF' || !!s.twoHand || s.shoot === 'crossbow', shield: s.front === 'forearmF' });
+  const R = manRest(f.kit, f.gear);
+  const { clips, attacks } = mocapFootClips(skel, { ...s, farHeld: s.front === 'forearmF' || !!s.twoHand || s.shoot === 'crossbow', shield: s.front === 'forearmF', stance: R.ankF[0] - R.ankN[0] });
   const rig: SkeletonRig = { skel, atts: footParts(f.kit, f.gear, s, f.dark), clips, ...(attacks.length > 1 ? { attacks } : {}) };
   RIGS.set(kind, rig);
   return rig;

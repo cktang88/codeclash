@@ -103,6 +103,14 @@ const KM = {
    * Met hauberk 32781; Medieval II knights (docs/art-references/templar-brethren-hd.md).
    */
   iron: defineMaterial('templar.k.iron', [0.66, 0.42, 0.54, 0.76, 0.86].map((l, i) => oklchRgb(l, [0.03, 0.04, 0.042, 0.036, 0.026][i]!, [250, 252, 240, 222, 205][i]!))),
+  /**
+   * The Dane axe's haft at levels 1 and 4, on the white brothers. Drawn at tone 4, pale ash (L 0.62) where
+   * it stands clear of him over the grass; where it crosses his body the contact pass steps it two
+   * tones down to a dark oiled shaft (L 0.34) that reads across the white surcoat (the manuscripts'
+   * weapons, a dark shaft over light cloth). Its deep tone is the light class's pale one, so its
+   * outline is pale like the rest of the figure's. Kept: never merged or cleaned away.
+   */
+  haft: defineMaterial('templar.k.haft', dye([0.66, 0.26, 0.34, 0.5, 0.62], [0.02, 0.04, 0.045, 0.045, 0.04], 55), { keep: true }),
 };
 // The charging brothers' silver mail gets the knight class's real shadows too.
 KNIGHT_PAIRS.push([KM.silver, TK.silver]);
@@ -340,6 +348,10 @@ export function handS(c: Paper, el: P2, wr: P2, k: SKit, far: boolean): void {
   blob(c, handAt(el, wr), 0.55, 0.52, k.hand, { tone: armTone(c, far) });
 }
 
+/** The surcoat's skirt folds (level 4 up): where each hangs across the skirt, and where it starts under the belt. */
+const FOLD_X = [-1.0, 0.25, 1.35];
+const FOLD_TOP = [-7.0, -6.35, -6.75];
+
 /**
  * The torso: a solid mass, broad at the shoulders, the waist drawn in by the belt, the skirt of
  * the hauberk (or tunic) and the surcoat hanging to the knee with weight and folds.
@@ -394,18 +406,24 @@ function torsoS(c: Paper, k: SKit, back: boolean): void {
     if (uy > -7.6) {
       const fx = ux - (uy + 7.6) * 0.08;
       // (Below level 4 a fold is a 1 px column ending on the hem row with its neighbours: banding, so none.)
-      for (const f0 of c.L >= 4 ? [-1.0, 0.25, 1.35] : []) {
+      for (let n = 0; n < (c.L >= 4 ? 3 : 0); n++) {
+        const f0 = FOLD_X[n]!, top = FOLD_TOP[n]!;
         const dd = c.litX(fx - f0); // the ridge on the light's side of its channel
         // A fold: its shadowed channel, and the lit ridge beside it (a clear two-step contrast).
-        // The ridge stops short of the hem, each fold at its own height, so ridge and channel do
-        // not end on one row.
-        if (dd > 0 && dd < 0.26 && uy > -7.0) return code(garment, t - 1);
-        if (dd > -0.24 && dd <= 0 && uy > -6.8 && uy < hemY - 0.55 - f0 * 0.2) return code(garment, Math.min(4, t + 1 + (t < 3 ? 1 : 0)));
+        // Each fold starts at its own height under the belt and its channel opens from a point as
+        // it falls (cloth gathered at the belt spreads toward the hem), and the ridge stops short
+        // of the hem, each at its own height: neighbouring columns never start or end on one row
+        // (parallel 1 px stripes of equal length read as banding, pixel-art-mistakes M2).
+        const open = Math.min(1, Math.max(0.3, (uy - top) / 1.6));
+        if (dd > 0 && dd < 0.26 * open && uy > top) return code(garment, t - 1);
+        if (dd > -0.24 * open && dd <= 0 && uy > top + 0.6 && uy < top + 1.9 + n * 0.45) return code(garment, Math.min(4, t + 1 + (t < 3 ? 1 : 0)));
       }
       // Dirt and wear rising from the hem.
       const hem = hemY - uy;
       if (hem < 0.9 && c.tex(x, y, 47, 3) < 0.5 - hem * 0.45) return code(garment, t - 1);
-      if (hem < 0.35) return code(garment, Math.max(1, t - 1));
+      // The turned-under hem in shade: its upper edge waves with the folds rather than running as
+      // one straight band parallel to the hem (banding).
+      if (hem < 0.3 + 0.16 * Math.sin(ux * 3.1 + 0.7)) return code(garment, Math.max(1, t - 1));
     }
     if (quilt && uy < -8.5 && ((c.ly(y) % 6 === 0) || (uy < -9.5 && Math.abs(((ux + 5) * 1.6) % 1 - 0.5) < 0.07))) return code(garment, t - 1);
     if (isMailS(garment)) {
@@ -413,7 +431,8 @@ function torsoS(c: Paper, k: SKit, back: boolean): void {
       if (r >= 0) return r;
     }
     // Under the chest and the shoulder blade: a soft shadow that shapes the torso.
-    if (!back && uy > -9.6 && uy < -9.1 && ux > -0.6 && ux < 1.6) return code(garment, t - 1);
+    // (A crescent, thickest under the breast and thinning to nothing at each end, not a bar.)
+    if (!back && Math.abs(uy + 9.35 + 0.12 * (ux - 0.5) * (ux - 0.5)) < 0.26 - 0.2 * Math.abs(ux - 0.5) && ux > -0.6 && ux < 1.6) return code(garment, t - 1);
     return code(garment, t);
   });
 }
@@ -667,9 +686,13 @@ function furS(c: Paper): void {
 
 /** Layered pauldron: three overlapping steel lames over the shoulder, bright on the lit edges. */
 function pauldronS(c: Paper, sh: P2, far: boolean): void {
+  // The lames fan out down the arm, each narrower and a little further out than the one above it
+  // (Medieval II's spaulders), so their lit tops and shadowed lower edges do not stack as equal
+  // bars ending on one column (banding).
+  const outX = sh[0] < 0 ? -1 : 1;
   for (let i = 2; i >= 0; i--) {
-    const o = addP(sh, [0, -0.35 + i * 0.55]);
-    blob(c, o, 1.15 - i * 0.08, 0.55, TM.steel, {
+    const o = addP(sh, [outX * i * 0.16, -0.35 + i * 0.55]);
+    blob(c, o, 1.15 - i * 0.2, 0.55, TM.steel, {
       tone: far ? 1 : 2,
       detail: (_x, _y, nx, ny) => {
         if (ny < -0.45 && c.litX(nx) < 0.3) return code(TM.steel, far ? 3 : 4); // lit rolled edge
@@ -799,8 +822,13 @@ function ailetteS(c: Paper, at0: P2, deg: number): void {
 function daneAxeS(c: Paper, grip: P2, deg: number): void {
   const d = mul([Math.sin(deg * DEG), Math.cos(deg * DEG)], 1);
   const top = addP(grip, mul(d, 7.8)), butt = sub(grip, mul(d, 3.6));
-  vol(c, butt, top, [[0, 0.2], [1, 0.18]], TM.ash, { tone: 2 });
-  if (c.L < 2) lineK(c, butt, top, code(TM.ash, 2));
+  // At levels 1 and 4 the haft is one clean pixel line in KM.haft: dark where it crosses him (see
+  // there), so it reads across the white surcoat and ties the axe to his fists (the pale ash had
+  // sunk into the cloth, and at level 4 a 1.6 px ash band stepped down the surcoat in 2 px stairs,
+  // banding). Level 2's ten-colour palette has no room for it (it merged into a flat grey there and
+  // opened the pale outline), so the ash stays.
+  if (c.L === 1 || c.L === 4) lineK(c, butt, top, code(KM.haft, 4));
+  else vol(c, butt, top, [[0, 0.2], [1, 0.18]], TM.ash, { tone: 2 });
   const out: P2 = [d[1] * -1, d[0]]; // forward of the haft (perpendicular)
   const fwd: P2 = out[0] > 0 ? out : mul(out, -1);
   const a = sub(top, mul(d, 0.3)), b = sub(top, mul(d, 1.8));
