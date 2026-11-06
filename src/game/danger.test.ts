@@ -34,16 +34,26 @@ function overMelee(cls: number, faction: FactionId, seed: number) {
   const hits = { own: 0, melee: 0, reserve: 0 };
   const inside = b as unknown as { missileHit(o: number, p: Projectile): void };
   const hit0 = inside.missileHit.bind(b);
+  // (Our men hit by shots loosed while the reserve stands clear of the fight and our foot holds:
+  // once the reserve comes into the melee, or our foot breaks and runs with the enemy after it, a
+  // shot already on its way at the reserve may fall among our men, and that is not this test's
+  // case. Since v17's weapon reach that happens within the 45 s on some days.)
+  let clearUntil = Infinity;
+  const ours = of(0, U.HeavyInfantry);
   inside.missileHit = (o, p) => {
     const s = b.soldiers[o]!;
     if (p.team === 0) {
-      if (s.team === 0) hits.own++;
-      else if (s.reg === reserve.id) hits.reserve++;
+      if (s.team === 0) {
+        if (p.born < clearUntil) hits.own++;
+      } else if (s.reg === reserve.id) hits.reserve++;
       else hits.melee++;
     }
     hit0(o, p);
   };
-  while (b.tick < 450 && !b.done()) b.step();
+  while (b.tick < 450 && !b.done()) {
+    b.step();
+    if (clearUntil === Infinity && (reserve.engaged || ours.routed || reserve.mode === 'pursue')) clearUntil = b.tick;
+  }
   return hits;
 }
 
