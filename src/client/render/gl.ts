@@ -106,6 +106,10 @@ uniform vec2 u_shear;  // shadow pass: ground offset per pixel of height; (0,0) 
 uniform float u_shadow;
 uniform float u_scale; // target px per map px (HD zoom draws the map larger than one px per map px)
 uniform float u_now;   // battle seconds, for mode 2 (a blood decal whose 'flash' is the second it fell)
+// Zoomed out (u_dir.w = 1): the target is the canvas itself, not a buffer larger than it blown down
+// (post.ts). Each pixel draws what the buffer px the post pass would have picked showed (see the
+// fragment shader), so the quads grow a little to reach every pixel that picks a px inside them.
+uniform vec4 u_dir;    // device px offset of the virtual buffer (x, y), device px per buffer px, on
 // One draw can take its instances from up to PARTS textures: part k is instances
 // [u_end[k-1], u_end[k]) and samples unit k; per part, the texture's size and (texels per map px,
 // scale of the instances' texel coords: an upscaled copy of a sheet has its factor).
@@ -116,11 +120,37 @@ out vec2 v_uv;
 out vec4 v_col;
 out vec2 v_ext;
 flat out int v_slot;
+flat out vec4 v_box;  // u_dir on: anchor (map px), anchor offset in the cell
+flat out vec4 v_box2; // u_dir on: quad size, cell texel origin (scaled)
+flat out vec3 v_tx;   // u_dir on: texture size, texels per map px
+uniform vec4 u_dirb;   // the virtual buffer's size (px), and map px at its top-left
+// Map px of a point of the quad (a shadow: sheared along the ground).
+vec2 xf(vec2 local) {
+  vec2 rel = local - i_src.zw;
+  if (u_shadow > 0.5) {
+    float h = -rel.y;
+    return i_dst.xy + vec2(rel.x + h * u_shear.x, h * u_shear.y);
+  }
+  return i_dst.xy + rel;
+}
 void main() {
   int slot = 0;
   for (int k = 0; k < ${PARTS - 1}; k++) slot += gl_InstanceID >= u_end[k] ? 1 : 0;
   v_slot = slot;
   vec2 local = a_corner * i_dst.zw;
+  if (u_dir.w > 0.5) {
+    // The centre of the buffer px a device px picks is within half a map px of the device px's
+    // own point (a map px of margin; along a sheared shadow, more in its local units), except at
+    // the far right and bottom edges, where the post pass clamps the pick to the last px (3).
+    vec2 hi = max(xf(vec2(i_dst.z, 0.0)), xf(i_dst.zw));
+    vec2 far = vec2(greaterThan(hi, u_dirb.zw + u_dirb.xy - 4.0));
+    vec2 k = 1.0 + 2.0 * far;
+    vec2 mg = u_shadow > 0.5 ? vec2(k.x + abs(u_shear.x / u_shear.y) * k.y, k.y / abs(u_shear.y)) : k;
+    local = mix(-mg, i_dst.zw + mg, a_corner);
+    v_box = vec4(i_dst.xy, i_src.zw);
+    v_box2 = vec4(i_dst.zw, i_src.xy * u_tsc[slot].y);
+    v_tx = vec3(u_texs[slot], u_tsc[slot].x);
+  }
   vec2 rel = local - i_src.zw;
   vec2 p;
   if (u_shadow > 0.5) {
@@ -150,12 +180,33 @@ precision highp float;
 uniform sampler2D u_img[${PARTS}];
 uniform float u_shadow;
 uniform vec4 u_shadowCol;
+uniform vec4 u_dir;
+uniform vec4 u_dirb;   // the virtual buffer's size (px), and map px at its top-left
+uniform vec2 u_shear;
 in vec2 v_uv;
 in vec4 v_col;
 in vec2 v_ext;
 flat in int v_slot;
+flat in vec4 v_box;
+flat in vec4 v_box2;
+flat in vec3 v_tx;
 out vec4 o;
 void main() {
+  vec2 uv = v_uv;
+  if (u_dir.w > 0.5) {
+    // The buffer px the post pass picks for this device px (post.ts fetch(), the same sum), and
+    // the point of the quad at its centre, as the buffer's rasteriser would have sampled it.
+    vec2 cell = clamp(floor((gl_FragCoord.xy - u_dir.xy) / u_dir.z), vec2(0.0), u_dirb.xy - 1.0);
+    vec2 c = u_dirb.zw + cell + 0.5;
+    vec2 rel;
+    if (u_shadow > 0.5) {
+      float h = (c.y - v_box.y) / u_shear.y;
+      rel = vec2(c.x - v_box.x - h * u_shear.x, -h);
+    } else rel = c - v_box.xy;
+    vec2 local = rel + v_box.zw;
+    if (local.x < 0.0 || local.y < 0.0 || local.x >= v_box2.x || local.y >= v_box2.y) discard;
+    uv = (v_box2.zw + local * v_tx.z) / v_tx.xy;
+  }
   if (v_ext.y > 0.5) {
     if (u_shadow > 0.5) discard;
     o = v_col;
@@ -163,7 +214,7 @@ void main() {
   }
   vec4 c;
   // Nearest sampling without mipmaps: no derivatives needed, so the branch is safe.
-  ${Array.from({ length: PARTS }, (_, k) => `${k ? 'else ' : ''}${k < PARTS - 1 ? `if (v_slot == ${k}) ` : ''}c = texture(u_img[${k}], v_uv);`).join('\n  ')}
+  ${Array.from({ length: PARTS }, (_, k) => `${k ? 'else ' : ''}${k < PARTS - 1 ? `if (v_slot == ${k}) ` : ''}c = texture(u_img[${k}], uv);`).join('\n  ')}
   if (c.a < 0.5) discard;
   if (u_shadow > 0.5) { o = u_shadowCol; return; }
   vec3 rgb = mix(c.rgb * v_col.rgb, vec3(1.0, 0.96, 0.9), v_ext.x);
@@ -429,7 +480,7 @@ export class SpriteProgram {
 
   constructor(readonly gl: WebGL2RenderingContext) {
     this.prog = compile(gl, SPRITE_VS, SPRITE_FS);
-    for (const k of ['u_cam', 'u_view', 'u_texs', 'u_tsc', 'u_end', 'u_z', 'u_shear', 'u_shadow', 'u_shadowCol', 'u_img', 'u_scale', 'u_now']) this.u[k] = gl.getUniformLocation(this.prog, k);
+    for (const k of ['u_cam', 'u_view', 'u_texs', 'u_tsc', 'u_end', 'u_z', 'u_shear', 'u_shadow', 'u_shadowCol', 'u_img', 'u_scale', 'u_now', 'u_dir', 'u_dirb']) this.u[k] = gl.getUniformLocation(this.prog, k);
     gl.useProgram(this.prog);
     gl.uniform1iv(this.u.u_img!, Int32Array.from({ length: PARTS }, (_, k) => k));
     this.ends.fill(NO_END);
@@ -445,6 +496,25 @@ export class SpriteProgram {
     gl.uniform2f(this.u.u_view!, w, h);
     gl.uniform2f(this.u.u_z!, zFar, zNear);
     gl.uniform1f(this.u.u_shadow!, 0);
+    if (this.direct) {
+      gl.uniform4f(this.u.u_dir!, 0, 0, 1, 0);
+      this.direct = false;
+    }
+  }
+
+  private direct = false;
+
+  /**
+   * Zoomed out: draws onto a target the canvas's size what a bw × bh buffer whose top-left is map
+   * px (camX, camY), shown at u < 1 device px per buffer px from device px (offX, offY), would
+   * show at each device px (the post pass's pick: post.ts). After use(), which turns it off.
+   */
+  useDirect(camX: number, camY: number, W: number, H: number, zFar: number, zNear: number, bw: number, bh: number, u: number, offX: number, offY: number): void {
+    this.use(camX - offX / u, camY - offY / u, W, H, zFar, zNear, u);
+    const gl = this.gl;
+    gl.uniform4f(this.u.u_dir!, offX, offY, u, 1);
+    gl.uniform4f(this.u.u_dirb!, bw, bh, camX, camY);
+    this.direct = true;
   }
 
   /**

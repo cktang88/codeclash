@@ -277,6 +277,8 @@ export class BattleScene {
   private seen = [0, 0];
   /** HD art: kinds of each army with corpses in view last frame. */
   private seenDead = [0, 0];
+  /** HD: kinds of each army within a screen of the view last frame, not in it (frame-perf: their sheets up to 4x are prefetched for a scroll). */
+  private seenNear = [0, 0];
 
   private prevX: Float32Array;
   private prevY: Float32Array;
@@ -340,7 +342,7 @@ export class BattleScene {
   private readonly solidParts: Part[] = [];
   private readonly softParts: Part[] = [];
   private readonly stampParts: Part[] = [];
-  private view = { px: 1, m: 1, u: 1, bw: 1, bh: 1, vw: 1, vh: 1, camX: 0, camY: 0, offX: 0, offY: 0, W: 1, H: 1 };
+  private view = { px: 1, m: 1, u: 1, bw: 1, bh: 1, vw: 1, vh: 1, camX: 0, camY: 0, offX: 0, offY: 0, W: 1, H: 1, direct: false, tw: 1, th: 1 };
 
   /**
    * `from`: the scene that drew this battle until now (the art was switched mid-battle): its
@@ -1021,7 +1023,12 @@ export class BattleScene {
     // The camera snaps to whole buffer pixels, so nothing crawls as it pans.
     const camX = Math.round((mcx - vw / 2) * m) / m;
     const camY = Math.round((mcy - vh / 2) * m) / m;
-    this.view = { px, m, u, bw, bh, vw, vh, camX, camY, offX: Math.floor((W - bw * u) / 2), offY: Math.floor((H - bh * u) / 2), W, H };
+    // Zoomed out below a device px per buffer px, the buffer would be larger than the canvas (up
+    // to 1 / MIN_SCALE² as many px) only for the post pass to keep one px in so many: the scene is
+    // drawn at the canvas's size instead, each device px as the buffer px it would show (the
+    // same picture, a fraction of the fill).
+    const direct = u < 1 && !this.bufferOnly;
+    this.view = { px, m, u, bw, bh, vw, vh, camX, camY, offX: Math.floor((W - bw * u) / 2), offY: Math.floor((H - bh * u) / 2), W, H, direct, tw: direct ? W : bw, th: direct ? H : bh };
   }
 
   private followAction(dt: number): void {
@@ -1042,6 +1049,18 @@ export class BattleScene {
   }
 
   // ---------------------------------------------------------------- drawing
+
+  /** Tools: zoomed out, draw the buffer larger than the canvas as before (to compare). */
+  bufferOnly = false;
+
+  /** CPU ms of the last drawn frame's parts (tools: battle-render-bench.mjs). */
+  readonly lastPasses = { upload: 0, build: 0, ground: 0, shadows: 0, sprites: 0, post: 0 };
+  /** Tools: wait for the GPU after each part of a frame, so lastPasses times the GPU's work too. */
+  syncPasses = false;
+  private readonly px1 = new Uint8Array(4);
+  private fence(gl: WebGL2RenderingContext): void {
+    if (this.syncPasses) gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, this.px1);
+  }
 
   /** Paints the battle onto `out` (a WebGL2 canvas this scene owns) at tick + alpha. */
   draw(out: HTMLCanvasElement, alpha: number, dt: number): void {
@@ -1082,9 +1101,9 @@ export class BattleScene {
     if (this.follow) this.followAction(dt);
     this.layout(out.width, out.height);
     const v = this.view;
-    if (!gfx.scene || gfx.scene.w !== v.bw || gfx.scene.h !== v.bh) {
+    if (!gfx.scene || gfx.scene.w !== v.tw || gfx.scene.h !== v.th) {
       if (gfx.scene) dropTarget(gl, gfx.scene);
-      gfx.scene = target(gl, v.bw, v.bh, true);
+      gfx.scene = target(gl, v.tw, v.th, true);
     }
     const zFar = -200;
     const zNear = this.ground.h + 200;
@@ -1109,25 +1128,31 @@ export class BattleScene {
       this.atlasVer[t] = ver;
       this.atlasStrips[t] = landed?.length ?? 0;
     }
+    this.fence(gl);
+    const tu = performance.now();
     this.flushStamps(gfx, zFar, zNear);
     const tb = performance.now();
     this.build(gfx, alpha, dt);
     this.lastBuildMs = performance.now() - tb;
+    const lp = this.lastPasses;
+    lp.upload = tb - tu;
+    lp.build = this.lastBuildMs;
 
     // The scene, into the low-resolution buffer.
     const P = gfx.prog;
     gl.bindFramebuffer(gl.FRAMEBUFFER, gfx.scene.fbo);
-    gl.viewport(0, 0, v.bw, v.bh);
+    gl.viewport(0, 0, v.tw, v.th);
     gl.clearColor(0.04, 0.035, 0.03, 1);
     gl.clearDepth(1);
     gl.clearStencil(0);
     gl.depthMask(true);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
-    P.use(v.camX, v.camY, v.bw, v.bh, zFar, zNear, v.m);
+    this.useView(P, zFar, zNear);
 
     gl.disable(gl.DEPTH_TEST);
     gl.disable(gl.BLEND);
     gl.disable(gl.STENCIL_TEST);
+    const tg = performance.now();
     if (this.field) this.drawGroundHd(gfx, this.field);
     else {
       P.tex(gfx.ground.tex, this.ground.w, this.ground.h);
@@ -1135,6 +1160,9 @@ export class BattleScene {
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
       gfx.groundQuad.draw();
     }
+    this.fence(gl);
+    const ts = performance.now();
+    lp.ground = ts - tg;
 
     // HD zoomed in: standards, missiles and puffs from a Scale2x'd copy of the effects sheet.
     const fxF = isHdArt(this.art) ? (v.m >= 4 ? 4 : v.m >= 2 ? 2 : 1) : 1;
@@ -1169,6 +1197,9 @@ export class BattleScene {
     gfx.solid.draw(P);
     P.shadow(false);
     gl.disable(gl.STENCIL_TEST);
+    this.fence(gl);
+    const tsh = performance.now();
+    lp.shadows = tsh - ts;
 
     // Everything solid, depth-tested by the foot's screen y.
     gl.disable(gl.BLEND);
@@ -1183,7 +1214,12 @@ export class BattleScene {
     gl.disable(gl.DEPTH_TEST);
     gl.disable(gl.BLEND);
 
-    gfx.post.apply(gfx.scene.tex, v.W, v.H, v.offX, v.offY, v.u, this.time, this.scanlines);
+    this.fence(gl);
+    const tp = performance.now();
+    lp.sprites = tp - tsh;
+    gfx.post.apply(gfx.scene.tex, v.W, v.H, v.offX, v.offY, v.u, this.time, this.scanlines, v.direct);
+    this.fence(gl);
+    lp.post = performance.now() - tp;
     f.canvas = out;
     f.W = out.width;
     f.H = out.height;
@@ -1309,7 +1345,9 @@ export class BattleScene {
         const L0 = atlas.levels[0]!;
         for (const L of atlas.levels) {
           if (L > wantL) break;
-          const ask: SheetAsk = !inView ? (L === L0 ? 'prefetch' : 'peek') : L === wantL ? 'need' : L === L0 ? 'fallback' : 'prefetch';
+          // (Within a screen of the view, every level up to 4x is prefetched: a scroll meets it sharp.)
+          const near = !!(this.seenNear[t]! & (1 << k));
+          const ask: SheetAsk = !inView ? (L === L0 || near ? 'prefetch' : 'peek') : L === wantL ? 'need' : L === L0 ? 'fallback' : 'prefetch';
           const sh = atlas.sheet(k, L, ask);
           // A sheet larger than the GPU takes (a small GPU, the 8x sheets) is never drawn.
           if (!sh || sh.width > gfx.maxTex || sh.height > gfx.maxTex) continue;
@@ -1465,17 +1503,26 @@ export class BattleScene {
     const hd = this.pickLevels(gfx, m);
     this.seen[0] = this.seen[1] = 0;
     this.seenDead[0] = this.seenDead[1] = 0;
+    this.seenNear[0] = this.seenNear[1] = 0;
     gfx.fx.clear();
     gfx.soft.clear();
     const fx = this.fxSheet;
 
+    // HD: kinds within a screen of the view (seenNear) have their sheets up to 4x prefetched
+    // (pickLevels; the 8x ones stay for the living in view), so a scroll meets them sharp instead
+    // of popping from the level-1 grid.
+    const nearHd = this.atlases[0].sheet !== undefined || this.atlases[1].sheet !== undefined;
+    const px0 = x0 - v.vw;
+    const px1 = x1 + v.vw;
+    const py0 = y0 - v.vh;
+    const py1 = y1 + v.vh;
     // Soldiers.
     for (let i = 0; i < ss.length; i++) {
       const s = ss[i]!;
       if (s.state === State.Fled) continue;
       if (this.stamped[i]) {
         // HD, zoomed in: the corpse stamped into the low-res ground is drawn over at full detail.
-        if (this.field) this.corpseHd(i, hd, x0, x1, y0, y1);
+        if (this.field) this.corpseHd(i, hd, x0, x1, y0, y1, px0, px1, py0, py1);
         else if (hd) this.hdCorpse(i, x0, x1, y0, y1);
         continue;
       }
@@ -1483,7 +1530,10 @@ export class BattleScene {
       const wy = this.prevY[i]! + (s.y - this.prevY[i]!) * alpha;
       const fmx = this.mapX(wx, wy);
       const fmy = this.mapY(wx, wy);
-      if (fmx < x0 || fmx > x1 || fmy < y0 || fmy > y1) continue;
+      if (fmx < x0 || fmx > x1 || fmy < y0 || fmy > y1) {
+        if (nearHd && fmx >= px0 && fmx <= px1 && fmy >= py0 && fmy <= py1) this.seenNear[s.team] = this.seenNear[s.team]! | (1 << (s.commander ? COMMANDER_KIND : s.cls));
+        continue;
+      }
       const atlas = this.atlases[s.team as 0 | 1];
       const kind = s.commander ? COMMANDER_KIND : s.cls;
       this.seen[s.team] = this.seen[s.team]! | (1 << kind);
@@ -1611,8 +1661,9 @@ export class BattleScene {
       if (mx < x0 - 40 || mx > x1 + 40 || my < y0 || my > y1 + 40) continue;
       gfx.fx.sprite(Math.round(mx), Math.round(my), r.u, r.v, r.w, r.h, r.ax, r.ay, my);
     }
-    if (this.field) this.stakesHd(gfx, m);
+    if (this.field) this.stakesHd(gfx, m, x0, x1, y0, y1);
     else for (const k of b.stakes) {
+      if (!this.stakesInView(k, x0, x1, y0, y1)) continue;
       const r = this.stakeRegions[k.team === 0 ? 0 : 1]!;
       for (let y = k.y0; y <= k.y1; y += 3) {
         const mx = this.mapX(k.x, y);
@@ -1982,25 +2033,39 @@ export class BattleScene {
     const v = this.view;
     const gl = gfx.gl;
     const P = gfx.prog;
-    f.drawGround(gl, gfx.scene!, v.camX, v.camY, v.bw, v.bh, v.m, this.battle.tick * TICK_S, (age) => {
+    f.drawGround(gl, gfx.scene!, v.camX, v.camY, v.bw, v.bh, v.m, this.battle.tick * TICK_S, v.direct ? v : null, (age, camX, camY, w, h) => {
       const d = this.hdFxB?.decal;
       if (!d || d.n === 0) return;
-      P.use(v.camX, v.camY, v.bw, v.bh, -200, this.ground.h + 200, v.m);
+      P.use(camX, camY, w, h, -200, this.ground.h + 200, v.m);
       P.now(age);
       const sh = f.sheet(v.m);
       P.tex(f.sheetTexture(gl, v.m), sh.w, sh.h, v.m, 1);
       d.draw();
     });
-    P.use(v.camX, v.camY, v.bw, v.bh, -200, this.ground.h + 200, v.m);
+    this.useView(P, -200, this.ground.h + 200);
+  }
+
+  /**
+   * The sprite program on the scene target: the buffer, or zoomed out (view.direct) the canvas's
+   * size, each device px drawn as the buffer px it would show (gl.ts useDirect).
+   */
+  private useView(P: SpriteProgram, zFar: number, zNear: number): void {
+    const v = this.view;
+    if (v.direct) P.useDirect(v.camX, v.camY, v.W, v.H, zFar, zNear, v.bw, v.bh, v.u, v.offX, v.offY);
+    else P.use(v.camX, v.camY, v.bw, v.bh, zFar, zNear, v.m);
   }
 
   /** HD: a fallen man, every frame (nothing is stamped into the HD ground). */
-  private corpseHd(i: number, hd: boolean, x0: number, x1: number, y0: number, y1: number): void {
+  private corpseHd(i: number, hd: boolean, x0: number, x1: number, y0: number, y1: number, px0: number, px1: number, py0: number, py1: number): void {
     const s = this.battle.soldiers[i]!;
     const kind = this.kindOf(i);
     const mx = this.mapX(s.x, s.y);
     const my = this.mapY(s.x, s.y);
-    if (mx < x0 || mx > x1 || my < y0 || my > y1) return;
+    if (mx < x0 || mx > x1 || my < y0 || my > y1) {
+      // Within a screen: its kind's sheet is kept ready for a scroll (pickLevels).
+      if (mx >= px0 && mx <= px1 && my >= py0 && my <= py1) this.seenNear[s.team] = this.seenNear[s.team]! | (1 << kind);
+      return;
+    }
     // In view: its kind keeps (or gets) a hi-res sheet.
     this.seenDead[s.team] = this.seenDead[s.team]! | (1 << kind);
     if (hd && this.hdLevel[s.team]![kind]! > 1 && this.hdCorpse(i, x0, x1, y0, y1)) return;
@@ -2010,13 +2075,23 @@ export class BattleScene {
   }
 
   /** HD: the stakes, from the level-m sheet (and the HD batches cleared for the frame). */
-  private stakesHd(gfx: Gfx, m: number): void {
+  /** Whether any of a line of stakes (its ends' map box, a stake's height and more round it) is in view. */
+  private stakesInView(k: { x: number; y0: number; y1: number }, x0: number, x1: number, y0: number, y1: number): boolean {
+    const ax = this.mapX(k.x, k.y0);
+    const bx = this.mapX(k.x, k.y1);
+    const ay = this.mapY(k.x, k.y0);
+    const by = this.mapY(k.x, k.y1);
+    return Math.max(ax, bx) >= x0 - 40 && Math.min(ax, bx) <= x1 + 40 && Math.max(ay, by) >= y0 - 40 && Math.min(ay, by) <= y1 + 40;
+  }
+
+  private stakesHd(gfx: Gfx, m: number, x0: number, x1: number, y0: number, y1: number): void {
     const B = this.hdBatches(gfx);
     B.fx.clear();
     B.soft.clear();
     B.std.clear();
     const R = this.field!.sheet(m).regions;
     for (const k of this.battle.stakes) {
+      if (!this.stakesInView(k, x0, x1, y0, y1)) continue;
       const r = R[HD_ID.stake + (k.team === 0 ? 0 : 1)]!;
       for (let y = k.y0; y <= k.y1; y += 3) {
         const mx = this.mapX(k.x, y);
@@ -2033,7 +2108,8 @@ export class BattleScene {
     const R = f.sheet(L).regions;
     const q = (v: number) => Math.round(v * L) / L;
     const now = T * TICK_S;
-    f.buildDecals(B.decal, L, x0 - 24, x1 + 24, y0 - 12, y1 + 24);
+    f.plan(this.view.camX, this.view.camY, this.view.bw, this.view.bh, L);
+    f.buildDecals(B.decal, L);
 
     // Missiles in flight: an arc in the air, a small shadow on the ground.
     const dotR = R[HD_ID.dot]!;

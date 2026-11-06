@@ -170,6 +170,10 @@ void main() {
       uvec2 cu = uvec2(ivec2(ci));
       uint h0 = hash3(cu.x, cu.y, 101u);
       vec2 b = (ci + vec2(h01(h0), h01(h0 * 747796405u + 1u))) * vec2(CW, CH);
+      // Out of this cell's reach first: the noise and hashes below are most of the shader's cost,
+      // and most of the 12 cells looked at reach no texel here (the result is the same).
+      vec2 q = p - b;
+      if (abs(q.x) > 2.6 || q.y < -3.6 || q.y > 1.2) continue;
       vec2 bw = world(b);
       float br = abs(bw.y - road(bw.x));
       float clump = gnoise(bw, 26.0, u_salt.y ^ 0x5bd1e995u);
@@ -183,8 +187,6 @@ void main() {
         if (k > 0.5) continue;
         k = 0.7;
       }
-      vec2 q = p - b;
-      if (abs(q.x) > 2.6 || q.y < -3.6 || q.y > 1.2) continue;
       if (k < 0.58) {
         // A tuft: three to five tapering blades fanning up from one root, the left edge of each
         // blade lit, dry or green with the zone.
@@ -352,6 +354,22 @@ void main() {
   o = vec4(c, 1.0);
 }`;
 
+// Zoomed out (scene.ts view.direct): the view copied out of the cache onto a target the canvas's
+// size, each device px the cache px the post pass would pick from a buffer (post.ts fetch()).
+const COPY_FS = `#version 300 es
+precision highp float;
+precision highp int;
+uniform sampler2D u_src;
+uniform vec4 u_dir;   // device px offset of the virtual buffer (x, y), device px per buffer px
+uniform vec4 u_dirb;  // the virtual buffer's size, and the cache texel at its top-left
+uniform ivec2 u_cs;   // the cache's size
+out vec4 o;
+void main() {
+  vec2 cell = clamp(floor((gl_FragCoord.xy - u_dir.xy) / u_dir.z), vec2(0.0), u_dirb.xy - 1.0);
+  // (% of a negative int is undefined: lift it first; the view is within a few caches of 0)
+  o = texelFetch(u_src, (ivec2(u_dirb.zw + cell) + u_cs * 64) % u_cs, 0);
+}`;
+
 /** A ground decal: a sprite of the HD sheet stamped flat on the ground. */
 interface Decal {
   id: number;
@@ -377,15 +395,25 @@ interface FieldGl {
   gl: WebGL2RenderingContext;
   base: WebGLProgram;
   comp: WebGLProgram;
+  copy: WebGLProgram;
+  ucopy: Record<string, WebGLUniformLocation | null>;
   ub: Record<string, WebGLUniformLocation | null>;
   uc: Record<string, WebGLUniformLocation | null>;
   vao: WebGLVertexArrayObject;
   marks: WebGLTexture;
+  /**
+   * The ground cache (see plan() and drawGround()): the ground (pass A) and the ground with its
+   * marks and decals (pass B) over a window of tiles around the view, in slots that wrap.
+   */
   baseT: Target | null;
-  /** The ground with its marks, as last composed; blitted into the scene each frame. */
   compT: Target | null;
-  key: string;
-  compKey: string;
+  /** Its level (texels per map px) and size in tiles across and down; cm -1: empty. */
+  cm: number;
+  nx: number;
+  ny: number;
+  /** Per cache slot, the world tile (tileKey) its ground and its composition hold, or NO_TILE. */
+  baseOwn: Int32Array;
+  compOwn: Int32Array;
   /**
    * Wall-clock ms and battle second of the last composition, and the blood clock it drew
    * (battle seconds in AGE_STEP_S steps).
@@ -398,6 +426,20 @@ interface FieldGl {
 }
 
 const TILE = 64;
+/** Ground cache tiles, in buffer texels. */
+const CT = 64;
+/** The most texels a ground cache target holds (two of them: 64 MB each at most). */
+const MAX_CACHE_PX = 16 * 1024 * 1024;
+const NO_TILE = -1;
+/** A world tile (texel tile coordinates, which may be negative) as one int. */
+const tileKey = (tx: number, ty: number) => (ty + 4096) * 8192 + (tx + 4096);
+const mod = (a: number, n: number) => ((a % n) + n) % n;
+/**
+ * Margin tiles painted a frame, as a share of the view's area (2 tiles at least), or twice what a
+ * scroll brings into view a frame if more. The ground shader is heavy: on a weak or software GPU
+ * a quarter of the view a frame cost seconds a frame for seconds after a zoom.
+ */
+const PREFETCH_SHARE = 1 / 16;
 /** Decals are kept in buckets of the map (so a frame looks only at those in view), each holding
  * at most so many, the oldest overwritten: a trampled spot keeps its newest hoofprints. */
 const BUCKET_W = 96;
@@ -579,8 +621,26 @@ export class HdField {
    * new one takes the instance of the one it overwrote, else it is appended. Returns false (the
    * batch as it was) when nothing changed.
    */
-  buildDecals(batch: Batch, L: number, x0: number, x1: number, y0: number, y1: number): boolean {
-    const key = `${L}:${Math.floor(x0)}:${Math.floor(y0)}:${Math.floor(x1)}:${Math.floor(y1)}`;
+  buildDecals(batch: Batch, L: number): boolean {
+    // The decals over the cache window (plan()), and a quarter of it more each way, so a scroll
+    // refills the batch only every quarter window.
+    const p = this.pl;
+    const need0 = (p.wx0 * CT) / L - 24;
+    const need1 = ((p.wx0 + p.nx) * CT) / L + 24;
+    const needY0 = (p.wy0 * CT) / L - 12;
+    const needY1 = ((p.wy0 + p.ny) * CT) / L + 24;
+    const e = this.decalExt;
+    if (e.L !== L || need0 < e.x0 || need1 > e.x1 || needY0 < e.y0 || needY1 > e.y1) {
+      const padX = (p.nx * CT) / L / 4;
+      const padY = (p.ny * CT) / L / 4;
+      e.L = L;
+      e.x0 = Math.floor(need0 - padX);
+      e.x1 = Math.ceil(need1 + padX);
+      e.y0 = Math.floor(needY0 - padY);
+      e.y1 = Math.ceil(needY1 + padY);
+    }
+    const { x0, x1, y0, y1 } = e;
+    const key = `${L}:${x0}:${y0}:${x1}:${y1}`;
     const regions = this.sheet(L).regions;
     let gen = this.decalGen;
     const put = (d: Decal, slot: number) => {
@@ -712,6 +772,9 @@ export class HdField {
     if (this.g && this.g.gl === gl) return this.g;
     const base = compile(gl, VS, BASE_FS);
     const comp = compile(gl, VS, MARKS_FS);
+    const copy = compile(gl, VS, COPY_FS);
+    const ucopy: Record<string, WebGLUniformLocation | null> = {};
+    for (const k of ['u_src', 'u_dir', 'u_dirb', 'u_cs']) ucopy[k] = gl.getUniformLocation(copy, k);
     const ub: Record<string, WebGLUniformLocation | null> = {};
     const uc: Record<string, WebGLUniformLocation | null> = {};
     for (const k of ['u_cam', 'u_m', 'u_seed', 'u_org', 'u_salt', 'u_road']) ub[k] = gl.getUniformLocation(base, k);
@@ -726,7 +789,7 @@ export class HdField {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     this.dirty.fill(0);
     this.anyDirty = false;
-    this.g = { gl, base, comp, ub, uc, vao: gl.createVertexArray()!, marks, baseT: null, compT: null, key: '', compKey: '', compAt: -1e9, compNow: -1e9, compAge: -1e9, sheets: new Map(), standards: new Map() };
+    this.g = { gl, base, comp, copy, ucopy, ub, uc, vao: gl.createVertexArray()!, marks, baseT: null, compT: null, cm: -1, nx: 0, ny: 0, baseOwn: new Int32Array(0), compOwn: new Int32Array(0), compAt: -1e9, compNow: -1e9, compAge: -1e9, sheets: new Map(), standards: new Map() };
     return this.g;
   }
 
@@ -742,6 +805,7 @@ export class HdField {
     const gl = g.gl;
     gl.deleteProgram(g.base);
     gl.deleteProgram(g.comp);
+    gl.deleteProgram(g.copy);
     gl.deleteVertexArray(g.vao);
     gl.deleteTexture(g.marks);
     if (g.baseT) dropTarget(gl, g.baseT);
@@ -779,7 +843,9 @@ export class HdField {
   /** Whether a draw at battle second `now` would compose the ground again (marks or decals waiting). */
   composePending(now: number): boolean {
     const g = this.g;
-    if (!g || !this.anyCdirty) return false;
+    if (!g) return false;
+    if (this.prefetching) return true;
+    if (!this.anyCdirty) return false;
     return Math.abs(now - g.compNow) >= 0.6 || Math.floor(now / AGE_STEP_S) * AGE_STEP_S !== g.compAge;
   }
 
@@ -789,58 +855,172 @@ export class HdField {
    */
   invalidate(full: boolean): void {
     if (!this.g) return;
-    if (full) this.g.compKey = '';
+    if (full) this.g.cm = -1;
     else this.g.compAt = this.g.compNow = -1e9;
   }
 
+  // ------------------------------------------------------------------ the ground cache
+  //
+  // The ground (pass A) and its composition (pass B, with the decals) are kept over a window of
+  // CT × CT texel tiles a little larger than the view: about half a screen beyond each edge, more
+  // ahead of the way the view is scrolling. Each world tile has a fixed slot in the cache targets
+  // (its tile coordinates modulo the cache's size in tiles), so the window slides over them like a
+  // ring: as the view moves only the tiles entering the window are painted, the tiles in view at
+  // once and the margin a share of the view's area a frame, nearest first. The view is copied out
+  // of the cache (up to four rectangles where it wraps). Scrolling meets painted ground, and a
+  // static view repaints nothing.
+
+  /** Tools: wait for the GPU after each ground pass and time them (ms; texels painted). */
+  syncParts = false;
+  readonly lastParts = { base: 0, comp: 0, decals: 0, baseTexels: 0, compTexels: 0 };
+  private sync(gl: WebGL2RenderingContext): number {
+    if (this.syncParts) gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
+    return typeof performance !== 'undefined' ? performance.now() : 0;
+  }
+
+  /** The cache window for this frame (plan()). */
+  private readonly pl = { m: -1, nx: 0, ny: 0, bw: 0, bh: 0, cx: 0, cy: 0, wx0: 0, wy0: 0, vx: 0, vy: 0, pcx: 0, pcy: 0 };
+  /** Whether some tile of the window is still to be painted (the margin, a share a frame). */
+  private prefetching = false;
+  /** The map box the decal batch was filled for (buildDecals), and its level. */
+  private readonly decalExt = { L: -1, x0: 0, y0: 0, x1: 0, y1: 0 };
+  /** Reused per frame: what each slot needs (1 base and composition, 2 composition), candidates, runs. */
+  private todo = new Uint8Array(0);
+  private cand = new Float64Array(0);
+  private readonly baseRuns: number[] = [];
+  private readonly compRuns: number[] = [];
+
+  /** The ground cache's window as last planned: level, size in CT-texel tiles, first tile (tools, tests). */
+  get cacheWindow(): { m: number; nx: number; ny: number; wx0: number; wy0: number; tile: number } {
+    const p = this.pl;
+    return { m: p.m, nx: p.nx, ny: p.ny, wx0: p.wx0, wy0: p.wy0, tile: CT };
+  }
+
   /**
-   * Draws the ground with its marks into `scene` (bw × bh buffer px whose top-left is map px
-   * (camX, camY), m buffer px per map px). Leaves `scene` bound. `decals(age)` draws the decal
-   * batch (blood tinted at battle second `age`) into the bound target.
-   *
-   * Both passes are cached: the ground is painted when the view moves, the marks laid over it
-   * when the view moves or, every 0.6 battle seconds at most, where they changed: only the map
-   * tiles marked or decalled since are composed again (scissored), and the marks texture is sent
-   * only then, a row of tiles at a time. Blood is coloured at a clock that moves in AGE_STEP_S
-   * steps; at each step the tiles whose blood is still darkening are composed again, all at the
-   * same clock, so neighbouring tiles never differ in age. Every other frame the composition is
-   * only copied into the scene.
+   * Places the cache window for a view of bw × bh buffer px whose top-left is map px (camX, camY)
+   * at m texels per map px. Call once a frame, before buildDecals and drawGround.
    */
-  drawGround(gl: WebGL2RenderingContext, scene: Target, camX: number, camY: number, bw: number, bh: number, m: number, now: number, decals: (age: number) => void): void {
+  plan(camX: number, camY: number, bw: number, bh: number, m: number): void {
+    const p = this.pl;
+    const vtx = Math.ceil(bw / CT) + 1;
+    const vty = Math.ceil(bh / CT) + 1;
+    // The whole ground (plus a tile for misalignment) is the most a window needs.
+    const gtx = Math.ceil((this.W * m) / CT) + 1;
+    const gty = Math.ceil((this.H * m) / CT) + 1;
+    let nx = Math.max(vtx, Math.min(vtx + 2 * Math.ceil(bw / 2 / CT), gtx));
+    let ny = Math.max(vty, Math.min(vty + 2 * Math.ceil(bh / 2 / CT), gty));
+    while (nx * ny * CT * CT > MAX_CACHE_PX && (nx > vtx || ny > vty)) {
+      if (nx - vtx >= ny - vty && nx > vtx) nx--;
+      else ny--;
+    }
+    const cx = Math.round(camX * m);
+    const cy = Math.round(camY * m);
+    // Scroll velocity in texels a frame, smoothed; a jump (a click on the minimap, a zoom) is not a scroll.
+    if (p.m === m && p.bw === bw && p.bh === bh) {
+      const dx = cx - p.pcx;
+      const dy = cy - p.pcy;
+      p.vx = Math.abs(dx) > bw ? 0 : p.vx * 0.6 + dx * 0.4;
+      p.vy = Math.abs(dy) > bh ? 0 : p.vy * 0.6 + dy * 0.4;
+    } else p.vx = p.vy = 0;
+    p.pcx = cx;
+    p.pcy = cy;
+    const place = (c: number, b: number, n: number, v: number, groundTiles: number) => {
+      const v0 = Math.floor(c / CT);
+      const v1 = Math.floor((c + b - 1) / CT);
+      const slack = n - (v1 - v0 + 1);
+      const half = Math.floor(slack / 2);
+      // Up to all of the slack ahead when scrolling at CT/16 texels a frame or faster.
+      const lead = Math.round(Math.max(-1, Math.min(1, (v * 16) / CT)) * half);
+      let w0 = v0 - (half - lead);
+      // Not past the ground where the view isn't.
+      const lo = Math.min(v0, 0);
+      const hi = Math.max(v1 + 1, groundTiles - 1);
+      w0 = Math.max(lo, Math.min(hi - n, w0));
+      return Math.max(v1 + 1 - n, Math.min(v0, w0));
+    };
+    p.m = m;
+    p.nx = nx;
+    p.ny = ny;
+    p.bw = bw;
+    p.bh = bh;
+    p.cx = cx;
+    p.cy = cy;
+    p.wx0 = place(cx, bw, nx, p.vx, gtx);
+    p.wy0 = place(cy, bh, ny, p.vy, gty);
+  }
+
+  /**
+   * Draws the ground with its marks into `scene` (the view planned by plan(): bw × bh buffer px
+   * whose top-left is map px (camX, camY), m buffer px per map px). Leaves `scene` bound.
+   * `decals(age, camX, camY, w, h)` draws the decal batch (blood tinted at battle second `age`)
+   * into the bound w × h target whose top-left is map px (camX, camY).
+   *
+   * The ground cache (above) is painted where the window has no ground yet. The composition is
+   * redrawn, every 0.6 battle seconds at most, on the cache tiles under map tiles marked or
+   * decalled since (the marks texture is sent only then, a row of tiles at a time). Blood is
+   * coloured at a clock that moves in AGE_STEP_S steps; at each step the tiles whose blood is
+   * still darkening are composed again, all at the same clock, so neighbouring tiles never differ
+   * in age. Every other frame the view is only copied out of the cache.
+   */
+  drawGround(
+    gl: WebGL2RenderingContext,
+    scene: Target,
+    camX: number,
+    camY: number,
+    bw: number,
+    bh: number,
+    m: number,
+    now: number,
+    direct: { W: number; H: number; u: number; offX: number; offY: number } | null,
+    decals: (age: number, camX: number, camY: number, w: number, h: number) => void,
+  ): void {
     const g = this.attach(gl);
+    const p = this.pl;
+    if (p.m !== m || p.bw !== bw || p.bh !== bh || p.cx !== Math.round(camX * m) || p.cy !== Math.round(camY * m)) this.plan(camX, camY, bw, bh, m);
+    const { nx, ny, wx0, wy0, cx, cy } = p;
+    const CW = nx * CT;
+    const CH = ny * CT;
     const gr = this.ground;
     const nz = gr.noise;
     const seed = (nz.seed * 2654435761) >>> 0;
+    const wall = typeof performance !== 'undefined' ? performance.now() : 0;
+    const age = Math.floor(now / AGE_STEP_S) * AGE_STEP_S;
     gl.disable(gl.DEPTH_TEST);
     gl.disable(gl.BLEND);
     gl.disable(gl.STENCIL_TEST);
     gl.bindVertexArray(g.vao);
-    const key = `${camX}:${camY}:${bw}:${bh}:${m}`;
-    const sized = (t: Target | null) => {
-      if (t && (t.w !== bw || t.h !== bh)) {
-        dropTarget(gl, t);
-        t = null;
+    if (g.cm !== m || g.nx !== nx || g.ny !== ny || !g.baseT || !g.compT) {
+      // A new level or size: an empty cache, composed from now on at this clock.
+      if (!g.baseT || g.baseT.w !== CW || g.baseT.h !== CH) {
+        if (g.baseT) dropTarget(gl, g.baseT);
+        if (g.compT) dropTarget(gl, g.compT);
+        g.baseT = target(gl, CW, CH, false);
+        g.compT = target(gl, CW, CH, false);
       }
-      return t ?? target(gl, bw, bh, false);
-    };
-    // The ground itself, redrawn only when the view moved or resized.
-    if (!g.baseT || g.key !== key) {
-      g.baseT = sized(g.baseT);
-      g.key = key;
-      gl.bindFramebuffer(gl.FRAMEBUFFER, g.baseT.fbo);
-      gl.viewport(0, 0, bw, bh);
-      gl.useProgram(g.base);
-      gl.uniform2f(g.ub.u_cam!, camX, camY);
-      gl.uniform1f(g.ub.u_m!, m);
-      gl.uniform1ui(g.ub.u_seed!, seed);
-      gl.uniform2f(g.ub.u_org!, gr.ox, gr.oy);
-      gl.uniform4ui(g.ub.u_salt!, nz.salts[0], nz.salts[1], nz.salts[2], nz.salts[3]);
-      gl.uniform3f(g.ub.u_road!, nz.roadY0, nz.roadBend, nz.roadPhase);
-      gl.drawArrays(gl.TRIANGLES, 0, 3);
+      g.cm = m;
+      g.nx = nx;
+      g.ny = ny;
+      if (g.baseOwn.length !== nx * ny) {
+        g.baseOwn = new Int32Array(nx * ny);
+        g.compOwn = new Int32Array(nx * ny);
+        this.todo = new Uint8Array(nx * ny);
+        this.cand = new Float64Array(nx * ny);
+      }
+      g.baseOwn.fill(NO_TILE);
+      g.compOwn.fill(NO_TILE);
+      g.compAt = wall;
+      g.compNow = now;
+      g.compAge = age;
+      // Every tile is composed afresh from the marks as they are when it is painted.
+      this.cdirty.fill(0);
+      this.anyCdirty = false;
     }
-    const age = Math.floor(now / AGE_STEP_S) * AGE_STEP_S;
-    const full = g.compKey !== key || !g.compT;
-    if (!full && age !== g.compAge) {
+    const baseT = g.baseT!;
+    const compT = g.compT!;
+    const todo = this.todo;
+    todo.fill(0);
+    const inWin = (tx: number, ty: number) => tx >= wx0 && tx < wx0 + nx && ty >= wy0 && ty < wy0 + ny;
+    if (age !== g.compAge) {
       // The blood clock stepped: the tiles whose blood was still darkening at the last one.
       for (let i = 0; i < this.bloodT.length; i++)
         if (this.bloodT[i]! + BLOOD_AGE_S + AGE_STEP_S >= g.compAge) {
@@ -848,108 +1028,224 @@ export class HdField {
           this.anyCdirty = true;
         }
     }
-    const wall = typeof performance !== 'undefined' ? performance.now() : 0;
     // Throttled by both clocks: at most every 0.3 s of wall time and 0.6 battle seconds (a slow
     // frame rate should not recompose every frame), but at once when the blood clock steps.
-    const stale = full || (this.anyCdirty && ((wall - g.compAt > 300 && Math.abs(now - g.compNow) >= 0.6) || age !== g.compAge));
-    if (stale) {
-      // Where to compose: everything, or the runs of changed tiles in view (a few map px wider).
-      const runs = this.runs;
-      runs.length = 0;
-      let area = 0;
-      if (!full) {
-        const tx0 = Math.max(0, Math.floor(camX / TILE));
-        const tx1 = Math.min(this.tilesX - 1, Math.floor((camX + bw / m) / TILE));
-        const ty0 = Math.max(0, Math.floor(camY / TILE));
-        const ty1 = Math.min(this.tilesY - 1, Math.floor((camY + bh / m) / TILE));
-        for (let ty = ty0; ty <= ty1; ty++)
-          for (let tx = tx0; tx <= tx1; tx++) {
-            if (!this.cdirty[ty * this.tilesX + tx]) continue;
-            let e = tx;
-            while (e + 1 <= tx1 && this.cdirty[ty * this.tilesX + e + 1]) e++;
-            const x0 = Math.max(0, Math.floor((tx * TILE - 3 - camX) * m));
-            const x1 = Math.min(bw, Math.ceil(((e + 1) * TILE + 3 - camX) * m));
-            const y0 = Math.max(0, Math.floor((ty * TILE - 3 - camY) * m));
-            const y1 = Math.min(bh, Math.ceil(((ty + 1) * TILE + 3 - camY) * m));
-            if (x1 > x0 && y1 > y0) {
-              // The same span in the row above grows down instead (one scissored pass, not two).
-              let k = runs.length - 4;
-              while (k >= 0 && !(runs[k] === x0 && runs[k + 2] === x1 - x0 && runs[k + 1]! + runs[k + 3]! >= y0)) k -= 4;
-              if (k >= 0) {
-                area += (x1 - x0) * (y1 - runs[k + 1]! - runs[k + 3]!);
-                runs[k + 3] = y1 - runs[k + 1]!;
-              } else {
-                runs.push(x0, y0, x1 - x0, y1 - y0);
-                area += (x1 - x0) * (y1 - y0);
-              }
+    if (this.anyCdirty && ((wall - g.compAt > 300 && Math.abs(now - g.compNow) >= 0.6) || age !== g.compAge)) {
+      // The cache tiles under each changed map tile (a few map px wider: the marks are sampled
+      // with a linear filter and a look up-left) are composed again; out of the window, dropped.
+      for (let ty = 0; ty < this.tilesY; ty++)
+        for (let tx = 0; tx < this.tilesX; tx++) {
+          const i = ty * this.tilesX + tx;
+          if (!this.cdirty[i]) continue;
+          this.cdirty[i] = 0;
+          const c0 = Math.floor(((tx * TILE - 3) * m) / CT);
+          const c1 = Math.floor((((tx + 1) * TILE + 3) * m - 1) / CT);
+          const r0 = Math.floor(((ty * TILE - 3) * m) / CT);
+          const r1 = Math.floor((((ty + 1) * TILE + 3) * m - 1) / CT);
+          for (let r = r0; r <= r1; r++)
+            for (let c = c0; c <= c1; c++) {
+              const slot = mod(r, ny) * nx + mod(c, nx);
+              if (g.compOwn[slot] !== tileKey(c, r)) continue;
+              if (inWin(c, r)) todo[slot] = 2;
+              else g.compOwn[slot] = NO_TILE;
             }
-            tx = e;
-          }
-      }
-      // Mostly changed, or many scattered runs: one pass over everything is cheaper.
-      const whole = full || area > bw * bh * 0.6 || runs.length > 4 * 48;
-      this.cdirty.fill(0);
+        }
       this.anyCdirty = false;
-      this.upload(g);
-      g.compT = sized(g.compT);
-      g.compKey = key;
       g.compAt = wall;
       g.compNow = now;
       g.compAge = age;
-      if (whole || runs.length > 0) {
-        gl.bindFramebuffer(gl.FRAMEBUFFER, g.compT.fbo);
-        gl.viewport(0, 0, bw, bh);
-        gl.useProgram(g.comp);
-        gl.activeTexture(gl.TEXTURE0);
-        gl.bindTexture(gl.TEXTURE_2D, g.baseT.tex);
-        gl.activeTexture(gl.TEXTURE1);
-        gl.bindTexture(gl.TEXTURE_2D, g.marks);
-        gl.uniform1i(g.uc.u_base!, 0);
-        gl.uniform1i(g.uc.u_marks!, 1);
-        gl.uniform2f(g.uc.u_cam!, camX, camY);
-        gl.uniform1f(g.uc.u_m!, m);
-        gl.uniform1ui(g.uc.u_seed!, seed);
-        gl.uniform2f(g.uc.u_msize!, this.W, this.H);
-        gl.uniform1f(g.uc.u_now!, age);
-        let bx0 = 0;
-        let by0 = 0;
-        let bx1 = bw;
-        let by1 = bh;
-        if (whole) gl.drawArrays(gl.TRIANGLES, 0, 3);
-        else {
-          gl.enable(gl.SCISSOR_TEST);
-          bx0 = by0 = 1e9;
-          bx1 = by1 = -1e9;
-          for (let i = 0; i < runs.length; i += 4) {
-            gl.scissor(runs[i]!, runs[i + 1]!, runs[i + 2]!, runs[i + 3]!);
-            gl.drawArrays(gl.TRIANGLES, 0, 3);
-            bx0 = Math.min(bx0, runs[i]!);
-            by0 = Math.min(by0, runs[i + 1]!);
-            bx1 = Math.max(bx1, runs[i]! + runs[i + 2]!);
-            by1 = Math.max(by1, runs[i + 1]! + runs[i + 3]!);
-          }
-          // The decals over what was composed (redrawing one over itself changes nothing).
-          gl.scissor(bx0, by0, bx1 - bx0, by1 - by0);
+    }
+    // What the window lacks: in view now, the margin nearest first (ahead of a scroll first).
+    const vx0 = Math.floor(cx / CT);
+    const vx1 = Math.floor((cx + bw - 1) / CT);
+    const vy0 = Math.floor(cy / CT);
+    const vy1 = Math.floor((cy + bh - 1) / CT);
+    const cand = this.cand;
+    let nc = 0;
+    let visibleNew = 0;
+    for (let ty = wy0; ty < wy0 + ny; ty++)
+      for (let tx = wx0; tx < wx0 + nx; tx++) {
+        const slot = mod(ty, ny) * nx + mod(tx, nx);
+        const key = tileKey(tx, ty);
+        const need = g.baseOwn[slot] !== key ? 1 : g.compOwn[slot] !== key ? 2 : 0;
+        if (!need) continue;
+        const dx = tx < vx0 ? vx0 - tx : tx > vx1 ? tx - vx1 : 0;
+        const dy = ty < vy0 ? vy0 - ty : ty > vy1 ? ty - vy1 : 0;
+        if (dx === 0 && dy === 0) {
+          todo[slot] = need;
+          visibleNew++;
+          continue;
         }
-        gl.activeTexture(gl.TEXTURE1);
-        gl.bindTexture(gl.TEXTURE_2D, null);
-        gl.activeTexture(gl.TEXTURE0);
-        gl.bindVertexArray(null);
-        // The decals, baked in flat (thousands of them late in a battle: not redrawn each frame).
-        decals(age);
-        gl.disable(gl.SCISSOR_TEST);
+        // Ahead of the scroll counts as half a tile nearer.
+        const ahead = (tx > vx1 && p.vx > 0) || (tx < vx0 && p.vx < 0) || (ty > vy1 && p.vy > 0) || (ty < vy0 && p.vy < 0);
+        cand[nc++] = (Math.max(dx, dy) * 2 - (ahead ? 1 : 0)) * 1048576 + slot * 4 + need;
+      }
+    // A frame that paints much of the view (a zoom, a jump) paints no margin besides.
+    const vt = (vx1 - vx0 + 1) * (vy1 - vy0 + 1);
+    const scroll = Math.ceil(((Math.abs(p.vx) * (vy1 - vy0 + 1) + Math.abs(p.vy) * (vx1 - vx0 + 1)) / CT) * 2);
+    const per = Math.max(2, Math.floor((PREFETCH_SHARE * bw * bh) / (CT * CT)), scroll);
+    let budget = visibleNew > vt / 4 ? 0 : per;
+    if (nc > 0) {
+      const sorted = cand.subarray(0, nc).sort();
+      for (let k = 0; k < nc && budget > 0; k++, budget--) {
+        const v = sorted[k]! % 1048576;
+        todo[v >> 2] = v & 3;
       }
     }
+    // Some margin still to paint (budget left over means every candidate went this frame).
+    this.prefetching = nc > 0 && budget <= 0;
+    // Runs of slots along a row (not across the wrap), grown down over the same span: x, y, w,
+    // h (cache px), and the world texel minus the cache px over them.
+    const runs = (out: number[], want: (t: number) => boolean) => {
+      out.length = 0;
+      for (let ty = wy0; ty < wy0 + ny; ty++) {
+        const sy = mod(ty, ny);
+        for (let tx = wx0; tx < wx0 + nx; tx++) {
+          const sx = mod(tx, nx);
+          if (!want(todo[sy * nx + sx]!)) continue;
+          let e = tx;
+          while (e + 1 < wx0 + nx && mod(e + 1, nx) !== 0 && want(todo[sy * nx + mod(e + 1, nx)]!)) e++;
+          const x = sx * CT;
+          const w = (e - tx + 1) * CT;
+          const y = sy * CT;
+          let k = out.length - 6;
+          while (k >= 0 && !(out[k] === x && out[k + 2] === w && out[k + 1]! + out[k + 3]! === y)) k -= 6;
+          if (k >= 0 && sy !== 0) out[k + 3]! += CT;
+          else out.push(x, y, w, CT, tx * CT - x, ty * CT - y);
+          tx = e;
+        }
+      }
+    };
+    runs(this.baseRuns, (t) => t === 1);
+    runs(this.compRuns, (t) => t !== 0);
+    const B = this.baseRuns;
+    const C = this.compRuns;
+    const lp = this.lastParts;
+    lp.base = lp.comp = lp.decals = lp.baseTexels = lp.compTexels = 0;
+    for (let i = 0; i < B.length; i += 6) lp.baseTexels += B[i + 2]! * B[i + 3]!;
+    for (let i = 0; i < C.length; i += 6) lp.compTexels += C[i + 2]! * C[i + 3]!;
+    if (C.length > 0) {
+      let t0 = this.sync(gl);
+      gl.enable(gl.SCISSOR_TEST);
+      if (B.length > 0) {
+        gl.bindFramebuffer(gl.FRAMEBUFFER, baseT.fbo);
+        gl.viewport(0, 0, CW, CH);
+        gl.useProgram(g.base);
+        gl.uniform1f(g.ub.u_m!, m);
+        gl.uniform1ui(g.ub.u_seed!, seed);
+        gl.uniform2f(g.ub.u_org!, gr.ox, gr.oy);
+        gl.uniform4ui(g.ub.u_salt!, nz.salts[0], nz.salts[1], nz.salts[2], nz.salts[3]);
+        gl.uniform3f(g.ub.u_road!, nz.roadY0, nz.roadBend, nz.roadPhase);
+        for (let i = 0; i < B.length; i += 6) {
+          gl.uniform2f(g.ub.u_cam!, B[i + 4]! / m, B[i + 5]! / m);
+          gl.scissor(B[i]!, B[i + 1]!, B[i + 2]!, B[i + 3]!);
+          gl.drawArrays(gl.TRIANGLES, 0, 3);
+        }
+        for (let i = 0; i < todo.length; i++) if (todo[i] === 1) g.baseOwn[i] = this.slotKey(i, nx, ny, wx0, wy0);
+      }
+      let t1 = this.sync(gl);
+      lp.base = t1 - t0;
+      this.upload(g);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, compT.fbo);
+      gl.viewport(0, 0, CW, CH);
+      gl.useProgram(g.comp);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, baseT.tex);
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, g.marks);
+      gl.uniform1i(g.uc.u_base!, 0);
+      gl.uniform1i(g.uc.u_marks!, 1);
+      gl.uniform1f(g.uc.u_m!, m);
+      gl.uniform1ui(g.uc.u_seed!, seed);
+      gl.uniform2f(g.uc.u_msize!, this.W, this.H);
+      gl.uniform1f(g.uc.u_now!, g.compAge);
+      for (let i = 0; i < C.length; i += 6) {
+        gl.uniform2f(g.uc.u_cam!, C[i + 4]! / m, C[i + 5]! / m);
+        gl.scissor(C[i]!, C[i + 1]!, C[i + 2]!, C[i + 3]!);
+        gl.drawArrays(gl.TRIANGLES, 0, 3);
+      }
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, null);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindVertexArray(null);
+      t0 = this.sync(gl);
+      lp.comp = t0 - t1;
+      // The decals, baked in flat (thousands of them late in a battle: not redrawn each frame):
+      // one draw per part of the cache the window wraps into, scissored to the runs' box there
+      // (a decal is opaque where drawn, so redrawing one over itself changes nothing).
+      for (let i = 0; i < C.length; i += 6) {
+        const ox = C[i + 4]!;
+        const oy = C[i + 5]!;
+        let seen = false;
+        for (let k = 0; k < i; k += 6) if (C[k + 4] === ox && C[k + 5] === oy) seen = true;
+        if (seen) continue;
+        let x0 = 1e9;
+        let y0 = 1e9;
+        let x1 = -1e9;
+        let y1 = -1e9;
+        for (let k = i; k < C.length; k += 6) {
+          if (C[k + 4] !== ox || C[k + 5] !== oy) continue;
+          x0 = Math.min(x0, C[k]!);
+          y0 = Math.min(y0, C[k + 1]!);
+          x1 = Math.max(x1, C[k]! + C[k + 2]!);
+          y1 = Math.max(y1, C[k + 1]! + C[k + 3]!);
+        }
+        gl.bindFramebuffer(gl.FRAMEBUFFER, compT.fbo);
+        gl.viewport(0, 0, CW, CH);
+        gl.scissor(x0, y0, x1 - x0, y1 - y0);
+        decals(g.compAge, ox / m, oy / m, CW, CH);
+      }
+      gl.disable(gl.SCISSOR_TEST);
+      t1 = this.sync(gl);
+      lp.decals = t1 - t0;
+      for (let i = 0; i < todo.length; i++) if (todo[i] !== 0) g.compOwn[i] = this.slotKey(i, nx, ny, wx0, wy0);
+    }
+    if (direct) {
+      gl.bindFramebuffer(gl.FRAMEBUFFER, scene.fbo);
+      gl.viewport(0, 0, direct.W, direct.H);
+      gl.useProgram(g.copy);
+      gl.bindVertexArray(g.vao);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, compT.tex);
+      gl.uniform1i(g.ucopy.u_src!, 0);
+      gl.uniform4f(g.ucopy.u_dir!, direct.offX, direct.offY, direct.u, 1);
+      gl.uniform4f(g.ucopy.u_dirb!, bw, bh, cx, cy);
+      gl.uniform2i(g.ucopy.u_cs!, CW, CH);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+      gl.bindVertexArray(null);
+      return;
+    }
     gl.bindVertexArray(null);
-    // Copy the composition into the scene buffer.
-    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, g.compT!.fbo);
+    // Copy the view out of the cache: up to two spans each way where it wraps.
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, compT.fbo);
     gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, scene.fbo);
-    gl.blitFramebuffer(0, 0, bw, bh, 0, 0, bw, bh, gl.COLOR_BUFFER_BIT, gl.NEAREST);
+    const sx = mod(cx, CW);
+    const sy = mod(cy, CH);
+    const w1 = Math.min(bw, CW - sx);
+    const h1 = Math.min(bh, CH - sy);
+    for (let j = 0; j < 2; j++) {
+      const ys = j === 0 ? sy : 0;
+      const yd = j === 0 ? 0 : h1;
+      const hh = j === 0 ? h1 : bh - h1;
+      if (hh <= 0) continue;
+      for (let i = 0; i < 2; i++) {
+        const xs = i === 0 ? sx : 0;
+        const xd = i === 0 ? 0 : w1;
+        const ww = i === 0 ? w1 : bw - w1;
+        if (ww <= 0) continue;
+        gl.blitFramebuffer(xs, ys, xs + ww, ys + hh, xd, yd, xd + ww, yd + hh, gl.COLOR_BUFFER_BIT, gl.NEAREST);
+      }
+    }
     gl.bindFramebuffer(gl.FRAMEBUFFER, scene.fbo);
     gl.viewport(0, 0, bw, bh);
   }
 
-  /** Scissor rects (x, y, w, h in buffer px) of the tile runs composed this frame (reused). */
-  private readonly runs: number[] = [];
+  /** The world tile of the window held by cache slot i. */
+  private slotKey(i: number, nx: number, ny: number, wx0: number, wy0: number): number {
+    const sx = i % nx;
+    const sy = (i - sx) / nx;
+    return tileKey(wx0 + mod(sx - wx0, nx), wy0 + mod(sy - wy0, ny));
+  }
 }
+
 

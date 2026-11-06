@@ -191,3 +191,123 @@ Both builds were run through `shot` mode: 11 views against master cfd7e98 before
 - **Software GL.** On SwiftShader the post pass and the shading of the 1.44 M-pixel canvas are
   most of a frame (~330 ms). Rendering the post pass at the buffer's resolution and letting the
   browser upscale would help software GL a lot, but changes the grain and scanlines, so it is left.
+
+## Round 2: the 2400 × 2400 field (cc/frame-perf)
+
+The field grew from 1600 × 1200 to 2400 × 2400 (the ground canvas from ~3.6 to ~9 Mpx) and
+battles reach 2,800 figures a side. The complaint: sluggish, above all when scrolling.
+
+### Measured (before)
+
+`scripts/battle-render-bench.mjs` now also takes `pan=` (the camera sweeps east and back and drifts
+south, so many world units a frame), `zoomEvery=`, `frame=1` (the game's opening view) and prints
+`BattleScene.lastPasses`: CPU ms per part of a frame (uploads, build, ground, shadows, sprites,
+post); with `sync=1` the scene waits for the GPU after each part (`syncPasses`), so the parts
+include the GPU's work. Software GL (SwiftShader) on a shared, heavily loaded 4-core box: the GPU
+numbers are a proxy for fill and shader cost, not what a real GPU takes.
+
+- **The opening view is zoomed out below 1.** On a 1600 × 900 canvas the armies on the new field
+  are framed at zoom 0.4-0.7 device px per map px, and the scene buffer was drawn at map
+  resolution, 2.1-7× the canvas's pixels (3200 × 1800 at zoom 0.5, 3414 × 1920 at 1280 × 720),
+  only for the post pass to keep one pixel in so many. GPU: ~1.0-1.5 s a frame on SwiftShader,
+  ground, shadows and sprites all scaling with the buffer.
+- **HD scrolling repainted the whole ground every frame.** The ground shader (the heaviest in the
+  game: noise zones, tufts, stones, flowers) and the marks composition were cached for exactly
+  the view: any pan of a pixel painted the whole view again, every frame of a scroll, and refilled
+  and re-uploaded the decal batch (`buildDecals` keyed on the view's box).
+- **A zoom in HD** (to 4x) paints the ground at the new level over the whole view: ~6-8 s of
+  software GL for that one frame, 90 % of it the tuft/stone loop of the ground shader (measured by
+  cutting the loop out: 6 s → 0.4 s). Sheets and uploads are not the cost of that frame.
+- **CPU**: `draw()` ~2-5 ms median at 450-5,600 figures, of which the instance build is most
+  (per-figure animation state for the figures in view: soldiers are already box-culled, and the
+  cull is a few flops for the ones out of view, so a spatial index would not pay). Stake lines
+  were drawn whole wherever they were. The sim's step is ~6.5 ms a tick at 5,143 figures
+  (`pnpm bench 2800 3`), outside the renderer.
+
+### What changed
+
+1. **Zoomed out, the scene is drawn at the canvas's size** (`gl.ts` `useDirect`, `post.ts`
+   `direct`, `scene.ts` `view.direct`). Each device pixel is shaded as the buffer pixel the post
+   pass would have picked: the fragment shader computes that pick with post's own sum
+   (`floor((dev - off) / u)`, clamped to the virtual buffer) and evaluates the quad (or the sheared
+   shadow) at that pixel's centre; quads grow a map px (3 at the far edges, where post clamps) so
+   every pixel that picks a px inside them is reached. The HD ground is copied out with the same
+   pick (`COPY_FS`).
+2. **HD ground: a tiled cache with a margin ring** (`field-hd.ts` `plan()` / `drawGround()`). The
+   ground and its composition live in 64-texel tiles over a window about half a screen wider than
+   the view on each side; while scrolling the window leans ahead (up to all of its slack on the
+   side the view moves to). Each world tile has a fixed slot (tile coordinates modulo the cache's
+   size), so the window slides like a ring and nothing is copied. Tiles in view are painted at
+   once; the margin a sixteenth of the view's area a frame (or twice what the scroll brings into
+   view a frame, if more), nearest and ahead first, none on a frame that paints over a quarter of
+   the view (a zoom). The view is copied out with up to four blits. Changed marks recompose only
+   the cache tiles under them (same throttle, same 2 s blood clock); tiles leaving the window are
+   dropped if they change meanwhile. The decal batch covers the window plus a quarter and is
+   refilled only when the view leaves that. A static view paints nothing; the cache is at most
+   16 Mpx a target.
+3. **Ground shader**: a tuft/stone cell is tested for reach before its noise and hashes (same
+   result).
+4. **Stake lines** off screen are skipped.
+5. **HD sheets near the view**: kinds within a screen of the view (`seenNear`) have their sheets up
+   to 4x asked as `prefetch` (SheetAsk), so a scroll meets them sharp. This is the only piece
+   that touches sheet priorities (cc/hd-load owns them): one mask and one line in `pickLevels`.
+
+### How the margins prevent pop-in
+
+- Ground: the cache always holds the view plus a ring around it; scrolling moves the view into
+  tiles already painted (the ring is refilled ahead of the scroll), and a tile that is not there
+  yet is painted in the same frame before the view is copied, so the ground is never missing,
+  only, at worst, paid for in that frame.
+- Figures: HD sheets for kinds within a screen are prefetched; classic sprites and the classic
+  ground are whole textures (nothing to pop).
+- Everything culled (figures, corpses, props, standards, missiles, particles, stakes) is culled
+  with a margin past the view's edge (40-100 map px), as before.
+
+### Results
+
+Base: master cecad7b (with the bench's timing hooks) against this branch, merged with it, one
+pair each, 1600 × 900, a minute in, software GL on a loaded shared box (load 13-25): CPU numbers
+move ±30 % between runs; read the GPU rows as relative fill and shader cost.
+
+| scenario | base | after |
+|---|---|---|
+| classic, 2,000, opening view (zoom 0.5), GPU waited, median frame | 633 ms (ground 150, shadows 133, sprites 289) | **427 ms** (65, 107, 216) |
+| same view, A/B in one page, alternating frames (gl sum) | 1,005 ms | **452 ms** |
+| classic, 2,000, 1280 × 720 (zoom 0.375: buffer 7× the canvas), A/B | 1,487 ms | **488 ms** |
+| classic, 5,000 (men=20000 per=2500), zoom 0.44, A/B | 1,479 ms | **604 ms** |
+| HD, 2,000, opening view (zoom 0.5), A/B | 1,114 ms | **603 ms** |
+| HD, 2,000, zoom 2, panning, GPU waited, median frame | 3,223 ms (ground 3,423) | **964 ms** (ground 809) |
+| HD, 2,000, zoom 2, panning, CPU `draw()` median / instance build / bytes sent | 2.9 / 2.0 ms / 314 KB | 2.9 / 1.4 ms / **184 KB** (decal batch no longer refilled per pixel of pan) |
+| HD, 5,000, zoom 2, panning, CPU `draw()` median / build / bytes sent | 3.2 / 2.1 ms / 301 KB | 2.6 / 1.5 ms / **180 KB** |
+| classic, 450, opening view, CPU `draw()` median | 1.2 ms | 1.3 ms |
+| classic, 5,000, opening view, CPU median / panning | 3.0 / 3.3 ms | 3.3 / 3.1 ms |
+| classic, 5,000, zoom 3, CPU median | 1.3 ms | 1.3 ms |
+| HD zoom 1 → 3 (m 4): the zoom frame / the frames after (software GL) | 6.3-8.0 s / 0.5-1.5 s | 8-9.5 s / 1.0-1.9 s |
+
+The CPU side was already small and stays so (the work saved is GPU work). The zoom frame in HD is
+the ground shader painting the view at the new level (90 % of it the tuft/stone loop); this
+branch paints ~11 % more texels for it (64-texel tiles over the view's edges) and then the margin
+a sixteenth of a view a frame, which on software GL costs ~0.5 s a frame for a few seconds; on a
+real GPU both are a few ms. Making that shader cheaper (per-cell data baked once into a texture
+instead of noise per texel) is the next step for software GL.
+
+Pictures (`shot` mode, fake clock, same tick and camera, 60 frames with ticks):
+
+- HD zoom 2 still, HD zoom 3 still, HD zoom 2 after 60 frames of panning: **0 differing bytes**,
+  and in every HD shot the incremental compose equals a full one (0 bytes).
+- Zoomed out (direct): 13 px of 1.44 M differ (classic still), 18 (classic panning), 36 (HD):
+  each a single pixel on the edge of a sheared shadow, on or off (the shader evaluates the shadow
+  at the picked pixel's exact centre; the rasteriser snaps its vertices to its sub-pixel grid, so
+  a centre within ~1/256 px of a shadow's slanted edge can fall either way; the same picture on a
+  different GPU differs from SwiftShader's by as much).
+  [HD zoomed out, base | after](../screenshots/frame-perf/hd-frame-base-vs-cur.png),
+  [every differing pixel](../screenshots/frame-perf/hd-frame-diff.png),
+  [classic, differing pixels](../screenshots/frame-perf/cl-frame-diff.png),
+  [HD panning, base | after](../screenshots/frame-perf/hd-z2-pan-base-vs-cur.png).
+
+### Left
+
+- The HD ground shader at 4x and 8x on software GL (above).
+- Classic and level-1 grid sprites are drawn as whole 48 × 48 cells; per-cell trimmed quads (from
+  the painter, contract.ts) would cut sprite and shadow fill 2-4×.
+- The sim step (~6.5 ms a tick at 5,000 figures) lands on one frame in six at 1×.
