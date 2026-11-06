@@ -84,6 +84,13 @@ export { COHESION, DOCTRINE, MORALE, REGROUP, UNDEAD } from './command.ts';
  *   balls; the undead's Revenant Arbalests are heavy cranequin crossbows, every 29 s, each bolt
  *   1.6x and pierce 0.74, 9 bolts. Genoese crossbows (12 s), horse archers, javelins and engines
  *   as they were.
+ * - Balance (docs/factions.md, v17): the dead lose the day in the melee, which runs a fifth
+ *   longer at real scale (the living rally and re-form over it; the dead only fall), not on the
+ *   approach (11-13% of the host lost before contact against 8-9%). Tide, raising and household
+ *   levers changed nothing beyond the noise, so the price of never routing is reset: DEAD_HP 0.71
+ *   (0.66). 400 battles a cell, 250 / 1000 a side: undead-templar 37.0 / 36.5 -> 53.3 / 49.8,
+ *   undead-samurai 36.5 / 27.0 -> 53.0 / 48.3, samurai-templar 50.5 / 55.5 -> 44.8 / 55.0 (the
+ *   last change from the merged friendly-crossing and firing-spot work; ±2.5).
  * - Friendly blocks keep out of each other (`giveWay`, `crowded`, `rightOfWay`; measured by
  *   scripts/battle-crossing.ts): a block about to march into a friend goes round toward its goal
  *   or halts; one standing in a friend with the right of way (engaged, standing, charging, then

@@ -249,6 +249,42 @@ edges; a rule of the factions moves every size alike, and only the order of batt
 shape, which would change every army's deployment (a design decision: how big a block of Shock
 foot should be, for every faction, so that the line looks alike at every size).
 
+v17 (the field at real scale, foot and horse that think for themselves, slower reloads:
+battle.ts v17 changelog). Our own pair runner (the standard mix, equal men, both commanders, each
+seed fought both ways round), 200 battles a cell at first (±3.5%), 300-400 for the last rows:
+
+| Matchup (first faction's wins) | 250 | 1000 |
+|---|---|---|
+| Undead vs Templar, v17 as merged (user's measure) | 33–36 | – |
+| Undead vs Samurai, v17 as merged (user's measure) | 31–34 | – |
+| Samurai vs Templar, v17 as merged (user's measure) | ~55 | – |
+| Undead vs Templar, slower reloads, horse-facing fix | 37.0 | 36.5 |
+| Undead vs Samurai, slower reloads, horse-facing fix | 36.5 | 27.0 |
+| Samurai vs Templar, slower reloads, horse-facing fix | 50.5 | 55.5 |
+| Undead vs Templar, + friendly crossing, firing spots, DEAD_HP 0.71 (400) | 53.3 | 49.8 |
+| Undead vs Samurai, + friendly crossing, firing spots, DEAD_HP 0.71 (400) | 53.0 | 48.3 |
+| Samurai vs Templar, + friendly crossing, firing spots (400) | 44.8 | 55.0 |
+
+Mirrors (200 battles, team 0's share, ±5): Templar 47 / 45, Samurai 40 / 47, Undead 46 / 56
+(250 / 1000); none ran to the time limit (undead mirrors at 1000 a median 323 s).
+
+What was found: the approach under fire is not where the dead lose. Before contact (about 63 s in)
+they lose 11–13% of the host against the living's 8–9%, a gap of three or four points; the gap
+that decides the day opens in the melee after it, which runs a fifth longer at real scale: the
+living rally and re-form over it, the dead only fall. Levers that leave that alone changed
+nothing beyond the noise (100-200 battles a cell): the tide 0.9 (every block already marches
+within 500 of the Lich-Marshal before contact, so it never bites), tide and raising ranges 700
+(99% of the fallen already lie within 500 of him), raising 60% of the fallen (45%), no shield
+wall for the dead under arrows, the Lich-Marshal's household drawing back from even odds, and on
+the samurai side no teppō screen, horse archers at 1.0, no keen charge, the daimyō's aura at 1.2,
+lighter teppō balls, the Marshal sparing spear blocks. The Lich-Marshal falls in about 40% of
+battles, mostly once the host is already down to 0.6 of the enemy's strength: a consequence, not
+the cause. So the price of never routing was re-set: DEAD_HP 0.71 (0.66), about 2.5 points of win
+rate a hundredth. The samurai still gain some 10 points from 250 to 1000 a side against both
+(katana samurai and yari ashigaru take a larger share of the kills in big battles); left as it
+is, inside the band.
+
+
 ## Palettes
 
 FactionDef palette shape (`sprites.ts` adds metalDark, leatherDark, wood and team colours).
