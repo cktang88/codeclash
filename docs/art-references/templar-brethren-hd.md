@@ -34,8 +34,9 @@ in a black surcoat over dark mail, which is right for sergeants).
 - `BRETHREN`: the white surcoat (`TM.white`) with the red cross, belted, to the knee, over mail; no
   mantle and no fur collar. The red cross shows on the back too, so a line seen from behind still
   reads as Templars. Pauldrons, gauntlets, the great helm, the Dane axe and the wide stance stay.
-- New material `templar.k.iron` for the Brethren's mail (body, camail, sleeves, legs, boots): mid grey,
-  two steps under the surcoat's shadow, so the palette never merges it into the white.
+- New material `templar.k.iron` for the Brethren's mail (body, camail, sleeves, legs, boots): a cool
+  blue-grey steel (OKLCH C 0.03-0.042, hue 252 -> 205 into the lights), so the palette never merges it
+  into the white, with the light class's pale deep tone (0.66), so its outline stays light.
 
 Width at level 8 (idle): SE 10.9 -> 10.3 units, NE 15.4 -> 14.5 (the axe), the overhead blow 9.9 -> 6.8.
 
@@ -49,3 +50,11 @@ Width at level 8 (idle): SE 10.9 -> 10.3 units, NE 15.4 -> 14.5 (the axe), the o
    mail with rings at level 8, grey limbs at 4 and 2, the cross front and back. In battle
    (`fixes/09-brethren-after.jpg` against `-before.jpg`, seed 1, 1,200 men, t804, zoom 4) the
    Brethren now stand the samurai's size, as men, legs and arms apart.
+4. Pixel lint (`--kinds=8`): the dark iron's deep tone made the outline half dark, half pale, so it
+   averaged to the field's value (edgeVsGround FAIL at every level), and at level 2 the pale boots
+   under dark shins read as light from below (lightDir FAIL). A pale deep tone alone let the mail
+   merge into the white again (both near-neutral, one family).
+5. The mail given a little blue chroma (its own family), pale deep tone, lights stepped well above
+   it so the level-8 palette keeps a hue drift: edge and light FAILs gone; the figure reads white
+   surcoat over steel at 2, 4 and 8 (`fixes/09-brethren-L248-final.png`) and in HD 64
+   (`fixes/09-brethren-hd64-after.png`).

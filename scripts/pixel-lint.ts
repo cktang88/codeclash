@@ -7,7 +7,7 @@
 //   pnpm pixel-lint --quick               HD levels 1-2 only, two city tiers, no screens
 //   pnpm pixel-lint --only=sprites --hd64 also the HD 64 battle art (level-8 sheets halved, audited at level 4)
 //   pnpm pixel-lint --only=sprites --arts=hd64   the HD 64 art alone
-//   options: --factions=templar,undead --levels=1,4 --out=<dir> --shots=<dir> --strict (exit 1 on any fail)
+//   options: --factions=templar,undead --kinds=8 --levels=1,4 --out=<dir> --shots=<dir> --strict (exit 1 on any fail)
 //
 // Writes <out>/pixel-lint.json and <out>/pixel-lint.md (default docs/art-references/pixel-lint/),
 // and screenshots of the worst offenders (our own art only) to <shots> (default
@@ -33,6 +33,8 @@ const flag = (k: string) => process.argv.includes(`--${k}`);
 const quick = flag('quick');
 const only = new Set((arg('only') ?? 'sprites,city,screens,calibrate').split(','));
 const factions = (arg('factions')?.split(',') ?? [...FACTION_IDS]) as Faction[];
+/** `--kinds=8` (or 0,8): audit only these kinds (fast iteration on one figure; no lineup or silhouettes). */
+const kindSet = arg('kinds') ? new Set(arg('kinds')!.split(',').map(Number)) : null;
 const hdLevels = (arg('levels') ?? (quick ? '1,2' : '1,2,4,8')).split(',').map(Number);
 // Sprite arts: classic, HD and (with --hd64 or --arts=...,hd64) the HD 64 battle art.
 const arts = (arg('arts')?.split(',') ?? ['classic', 'hd', ...(flag('hd64') ? ['hd64'] : [])]) as Art[];
@@ -109,6 +111,7 @@ async function main(): Promise<void> {
           const names = [...FACTIONS[f].units, FACTIONS[f].commander];
           for (const lv of levelsOf(art))
             for (let kind = 0; kind < 11; kind++) {
+              if (kindSet && !kindSet.has(kind)) continue;
               const t0 = performance.now();
               // HD: paper-doll colours differ per level (each level has its own master palette).
               const palL = art !== 'classic' ? P.palette(art, f, lv) : pal;
@@ -117,6 +120,7 @@ async function main(): Promise<void> {
               idle0.set(`${art}:${f}:${kind}:${lv}`, f0);
               log(`sprites ${art} ${f} k${kind} L${lv} ${Math.round(performance.now() - t0)} ms`);
             }
+          if (kindSet) continue;
           if (art === 'hd64') {
             // HD 64: silhouettes of its own (level-4) idle frames, and their lineup.
             const l4 = names.map((_, kind) => idle0.get(`${art}:${f}:${kind}:4`)!);

@@ -96,11 +96,13 @@ const KM = {
   /** Fur collars: grey-white wolf and fox. */
   fur: defineMaterial('templar.k.fur', dye([0.24, 0.5, 0.66, 0.78, 0.87], [0.015, 0.02, 0.022, 0.02, 0.016], 70)),
   /**
-   * The Iron Brethren's mail under the white surcoat: mid grey iron, two steps below the surcoat's
-   * shadow, so mail and cloth stay apart when the palette merges near neutrals (the silver had
-   * folded into the white at levels 2-4: a white man from helm to heel). Met hauberk 32781.
+   * The Iron Brethren's mail under the white surcoat: a cool blue-grey steel, kept apart from the
+   * white by its chroma (two near-neutrals merge as one family in the palette: the silver had
+   * folded into the surcoat at levels 2-4, a white man from helm to heel) and with the light
+   * class's pale deep tone, so its outline stays light against the field like the white's.
+   * Met hauberk 32781; Medieval II knights (docs/art-references/templar-brethren-hd.md).
    */
-  iron: defineMaterial('templar.k.iron', dye([0.24, 0.4, 0.52, 0.63, 0.76], [0.012, 0.016, 0.02, 0.018, 0.014], 240)),
+  iron: defineMaterial('templar.k.iron', [0.66, 0.42, 0.54, 0.76, 0.86].map((l, i) => oklchRgb(l, [0.03, 0.04, 0.042, 0.036, 0.026][i]!, [250, 252, 240, 222, 205][i]!))),
 };
 // The charging brothers' silver mail gets the knight class's real shadows too.
 KNIGHT_PAIRS.push([KM.silver, TK.silver]);
