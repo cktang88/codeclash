@@ -274,6 +274,12 @@ export { COHESION, DOCTRINE, MORALE, REGROUP, UNDEAD } from './command.ts';
  *   third ranks, who (short of a pike) could not answer and stood stabbed at with no foe. Spear on
  *   spear (48 Templar spears v 48 yari, seeds 1-6): men struck at with no foe of their own 3.9% ->
  *   1.3% of their time; demo seeds 1-4 at 450: 0.05-0.36% -> 0.03-0.15%.
+ * - QA review 3 #2 (scripts/qa/brace-idle.ts). Spears go in at enemy horse locked in a fight with
+ *   a friend of theirs close by (`thinkLine`), unless other horse is coming at them: they stood
+ *   braced against horse that was not coming, 30 u from knights hacking at the foot beside them.
+ *   Demo seeds 1-4 at 450: spears braced with the horse fighting a friend 1,641 of 4,427
+ *   man-seconds braced (37%, longest 14 s) -> 270 (8%, longest 8 s). Knights on 120 spears
+ *   (game-matchups, three days): spears in line kill 17 riders (was 10) and lose 97 (was 88).
  */
 /**
  * v16: nothing grows with the size of the battle that should not (the undead won two thirds of
@@ -4058,6 +4064,17 @@ export class Battle {
       // (Horse locked in a fight with someone else, out of a few strides, is no threat to brace
       // against: spears stand braced while the whole fight goes on beside them otherwise.)
       if (cav && (cav.mode === 'charge' || cav.mode === 'flank' || (cav.mode === 'melee' && (cav.targetReg === r.id || this.nearestFoe(r, 2, 40) !== null)))) {
+        // QA3 #2: horse locked in a fight with a friend of ours close by, and no other coming at
+        // us: the spears go in at it (horse at a stand among foot is what spears are for), not
+        // stand braced against horse that is not coming. (Until then 39 spears stood braced 14 s
+        // 30 u from knights hacking at the heavy foot beside them: over a third of all the time
+        // spears stood braced in the demo battles.)
+        if (cav.mode === 'melee' && cav.engaged && cav.targetReg !== r.id && o.kind !== 'withdraw' && !this.horseComing(r, 150, false)) {
+          this.startCharge(r);
+          this.goal(r, cav.cx, cav.cy);
+          this.faceToward(r, cav.cx, cav.cy);
+          return;
+        }
         this.setMode(r, 'brace');
         this.goal(r, r.ax, r.ay);
         this.faceToward(r, cav.cx, cav.cy);

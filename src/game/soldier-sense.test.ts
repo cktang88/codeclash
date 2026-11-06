@@ -61,4 +61,27 @@ describe('QA3: each man fights like a man', () => {
     for (const seed of [1, 2, 3]) sum += struckIdle(faceOff([[U.Spearmen, 48]], 'templar', [[U.Spearmen, 48]], 'samurai', seed), 600);
     expect(sum / 3).toBeLessThan(0.02);
   });
+
+  it('spears go in at horse locked in a fight with the foot beside them, not stand braced against it (#2)', () => {
+    // 30 Templar spears 30 u beside 30 heavy foot, 16 knights charging the heavy foot. Until QA3
+    // the spears stood braced while the knights hacked at their friends 30 u off: 4.9 s on each of
+    // these seeds (in the demo battles, a third of all the time spears stood braced, up to 14 s).
+    for (const seed of [2, 3, 4]) {
+      const b = new Battle({ version: BATTLE_VERSION, seed, kind: 'daily', armies: [plainArmy(counts([[U.HeavyInfantry, 30], [U.Spearmen, 30]])), plainArmy(counts([[U.Knights, 16]]), 200, 'samurai')] });
+      b.generals[0]!.fixedPlan = 'hold';
+      b.generals[1]!.rashKnights = true;
+      const H = b.regiments.find((r) => r.team === 0 && r.cls === U.HeavyInfantry)!;
+      const S = b.regiments.find((r) => r.team === 0 && r.cls === U.Spearmen)!;
+      const K = b.regiments.filter((r) => r.team === 1);
+      placeRegiment(b, H, 1200, 1200, 1, 0);
+      placeRegiment(b, S, 1200, 1200 + H.width / 2 + S.width / 2 + 30, 1, 0);
+      K.forEach((r, k) => placeRegiment(b, r, 1300, 1190 + k * 20, -1, 0));
+      let braced = 0;
+      while (b.tick < 400 && !b.done()) {
+        b.step();
+        if (H.engaged && S.mode === 'brace' && K.some((r) => r.mode === 'melee' && r.targetReg === H.id)) braced++;
+      }
+      expect(braced, `seed ${seed}`).toBeLessThan(15);
+    }
+  });
 });

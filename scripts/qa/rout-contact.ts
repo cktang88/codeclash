@@ -9,6 +9,8 @@ import { placeRegiment, plainArmy } from '../../src/game/testing.ts';
 const arg = (n: string, d: string) => { const i = process.argv.indexOf(`--${n}`); return i >= 0 ? process.argv[i + 1]! : d; };
 const [s0, s1] = arg('seeds', '1-6').split('-').map(Number);
 const V = process.argv.includes('--v');
+// --last: the routing block is the loser's whole army (its army breaks: the end of a battle).
+const LAST = process.argv.includes('--last');
 const K: Record<string, number> = { heavy: U.HeavyInfantry, spear: U.Spearmen, shock: U.Shock, archer: U.Archers, skirm: U.Skirmishers };
 const pairs = arg('pairs', 'heavy:spear,heavy:heavy,spear:heavy,shock:heavy').split(',');
 for (const pr of pairs) {
@@ -16,7 +18,7 @@ for (const pr of pairs) {
   let men = 0, died = 0, hurt = 0, blows = 0, pauses: number[] = [], kills0 = 0, routs = 0;
   for (let seed = s0!; seed <= (s1 ?? s0!); seed++) {
     const ca = new Array(UNIT_COUNT).fill(0); ca[K[wa!]!] = 60;
-    const cb = new Array(UNIT_COUNT).fill(0); cb[K[lb!]!] = 26; cb[U.Archers] = 40;
+    const cb = new Array(UNIT_COUNT).fill(0); cb[K[lb!]!] = 26; if (!LAST) cb[U.Archers] = 40;
     const b = new Battle({ version: BATTLE_VERSION, seed, kind: 'daily', armies: [plainArmy(ca), plainArmy(cb, 200, 'samurai')] });
     b.generals[1]!.fixedPlan = 'hold';
     const A = b.regiments.filter((r) => r.team === 0);
@@ -25,7 +27,7 @@ for (const pr of pairs) {
     const L = b.regiments.find((r) => r.team === 1 && r.cls === K[lb!])!;
     placeRegiment(b, L, 1240, 1200, -1, 0);
     for (const r of b.regiments.filter((q) => q.team === 1 && q !== L)) placeRegiment(b, r, 1900, 600, -1, 0);
-    b.pinStance(1, U.Archers, 'line');
+    if (!LAST) b.pinStance(1, U.Archers, 'line');
     const d = (b as any).d;
     let at = -1;
     const watch: number[] = [];
@@ -53,6 +55,7 @@ for (const pr of pairs) {
           if (bq < 1e9 && (d.vx[j] * bx + d.vy[j] * by) / bq > 12) moved.set(j, b.tick - at);
         }
         if (b.tick - at === 50) break;
+      if (b.done()) break;
       }
     }
     if (at < 0) { if (V) console.log(`  ${pr} s${seed}: no rout by t${b.tick}`); continue; }

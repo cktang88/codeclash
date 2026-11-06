@@ -65,7 +65,10 @@ describe('battle: stances', () => {
     // (Since v17's weapon reach spears in line hold horse at their points too, and kill riders
     // there: over the three days 1 knight fell to spears in line before, 9 now, against 20 and 12
     // to the pike wall. The pike wall's edge is now mostly in what it loses: 15 men against 82.)
-    expect(pikeKnights).toBeGreaterThan(lineKnights);
+    // (QA review 3 #2: spears in line go in at horse stalled in a fight with the block beside
+    // them, so the line now kills more riders than the pike wall, 17 against 14 over
+    // the three days, for 97 men lost against 16. The wall still kills riders, and loses a sixth.)
+    expect(pikeKnights, `line killed ${lineKnights}`).toBeGreaterThanOrEqual(10);
     expect(pikeSpears).toBeLessThan(lineSpears * 0.5);
   }, 30_000);
 

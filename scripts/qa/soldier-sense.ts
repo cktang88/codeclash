@@ -70,8 +70,8 @@ const PIECES: Piece[] = [
 ];
 
 const piecesWanted = arg('pieces', PIECES.map((p) => p.name).join(',')).split(',');
-interface Tally { fireIdle: number; besideIdle: number; handLong: number; handLongS: number; struckIdle: number; idleHand: number; idleNear: number; loneIn: number; through: number; rev: number; lost: number; manS: number; streaks: number }
-const blank = (): Tally => ({ fireIdle: 0, besideIdle: 0, handLong: 0, handLongS: 0, struckIdle: 0, idleHand: 0, idleNear: 0, loneIn: 0, through: 0, rev: 0, lost: 0, manS: 0, streaks: 0 });
+interface Tally { backStruck: number; fireIdle: number; besideIdle: number; handLong: number; handLongS: number; struckIdle: number; idleHand: number; idleNear: number; loneIn: number; through: number; rev: number; lost: number; manS: number; streaks: number }
+const blank = (): Tally => ({ backStruck: 0, fireIdle: 0, besideIdle: 0, handLong: 0, handLongS: 0, struckIdle: 0, idleHand: 0, idleNear: 0, loneIn: 0, through: 0, rev: 0, lost: 0, manS: 0, streaks: 0 });
 
 function counts(side: Side): number[] {
   const k = new Array<number>(UNIT_COUNT).fill(0);
@@ -195,6 +195,21 @@ function measure(b: Battle, seed: number, T: number, tot: Tally, byMode: Record<
           if (WORST && b.tick % 10 === 0) worst.push({ seed, i, what: 'struck-idle', t0: b.tick, t1: b.tick, note: `${mk} reg ${r.id} row ${d.row[i]} sx ${d.sx[i].toFixed(0)} idl ${d.idl[i]} cu ${d.cu[i]} contact ${r.contact} stun ${d.stun[i]}` });
         }
       }
+      // Struck at from behind (relative to his block's front) while his own foe is before him.
+      if (hasT && d.att[i] > 0 && !d.mt[i]) {
+        const t = d.target[i];
+        const tf = (d.x[t] - x) * r.fx + (d.y[t] - y) * r.fy;
+        if (tf > 0) {
+          for (const j of nb) {
+            if (d.target[j] !== i || j === t) continue;
+            const bf = (d.x[j] - x) * r.fx + (d.y[j] - y) * r.fy;
+            if (bf < -2 && Math.hypot(d.x[j] - x, d.y[j] - y) <= d.rad[i] + d.rad[j] + d.rc[j] + 2) {
+              tot.backStruck += 0.2; add(`back row${d.row[i] === 0 ? 0 : d.row[i] >= r.rows - 1 ? 'last' : 'mid'} ${r.mode}${r.rearUntil > b.tick ? ' rearTurned' : ''}`, 0.2);
+              break;
+            }
+          }
+        }
+      }
       if (!friend20 && foes30 >= 3 && sp > 5 && ((d.x[fe] - x) * d.vx[i] + (d.y[fe] - y) * d.vy[i]) > 0.5 * sp * fd && !S[i]!.s.mounted) {
         tot.loneIn += 0.2; add('lone ' + mk, 0.2);
         if (WORST && b.tick % 20 === 0) worst.push({ seed, i, what: 'lone-in', t0: b.tick, t1: b.tick, note: `${mk} reg ${r.id} foes30 ${foes30} hp ${d.hp[i].toFixed(0)} t ${d.target[i]} p ${x.toFixed(0)},${y.toFixed(0)}` });
@@ -219,13 +234,15 @@ function measure(b: Battle, seed: number, T: number, tot: Tally, byMode: Record<
 
 function report(name: string, tot: Tally, byMode: Record<string, number>, worst: Worst[]): void {
   const per = (v: number) => `${v.toFixed(1)} (${((100 * v) / Math.max(1, tot.manS)).toFixed(2)}%)`;
-  console.log(`${name.padEnd(10)} man-s ${tot.manS.toFixed(0)} | struck-idle ${per(tot.struckIdle)} | idle-hand ${per(tot.idleHand)}, 1 s+: ${tot.handLong} runs ${per(tot.handLongS)} | idle-near ${per(tot.idleNear)} in ${tot.streaks} streaks | lone-in ${per(tot.loneIn)} | through ${per(tot.through)} | heading reversals/man-min ${((tot.rev * 60) / Math.max(1, tot.manS)).toFixed(2)} | lost ${per(tot.lost)} | under fire idle ${per(tot.fireIdle)} | idle beside a fight ${per(tot.besideIdle)}`);
+  console.log(`${name.padEnd(10)} man-s ${tot.manS.toFixed(0)} | struck-idle ${per(tot.struckIdle)} | idle-hand ${per(tot.idleHand)}, 1 s+: ${tot.handLong} runs ${per(tot.handLongS)} | idle-near ${per(tot.idleNear)} in ${tot.streaks} streaks | lone-in ${per(tot.loneIn)} | through ${per(tot.through)} | heading reversals/man-min ${((tot.rev * 60) / Math.max(1, tot.manS)).toFixed(2)} | lost ${per(tot.lost)} | under fire idle ${per(tot.fireIdle)} | idle beside a fight ${per(tot.besideIdle)} | facing front, struck from behind ${per(tot.backStruck)}`);
   const roles = Object.keys(byMode).filter((k) => k.startsWith('manS ')).map((k) => k.slice(5));
   console.log('           reversals/man-min by role: ' + roles.map((ro) => `${ro} ${(((byMode['revR ' + ro] ?? 0) * 60) / byMode['manS ' + ro]!).toFixed(2)}`).join(', '));
-  console.log('           ' + Object.entries(byMode).filter(([k]) => !k.startsWith('manS ') && !k.startsWith('revR ') && !k.startsWith('struckBy') && !k.startsWith('fire ') && !k.startsWith('beside ')).sort((a, c) => c[1] - a[1]).slice(0, 10).map(([k, v]) => `${k} ${v.toFixed(0)}`).join(', '));
+  console.log('           ' + Object.entries(byMode).filter(([k]) => !k.startsWith('manS ') && !k.startsWith('revR ') && !k.startsWith('struckBy') && !k.startsWith('fire ') && !k.startsWith('beside ') && !k.startsWith('back ')).sort((a, c) => c[1] - a[1]).slice(0, 10).map(([k, v]) => `${k} ${v.toFixed(0)}`).join(', '));
   console.log('           ' + Object.entries(byMode).filter(([k]) => k.startsWith('struckBy')).sort((a, c) => c[1] - a[1]).slice(0, 10).map(([k, v]) => `${k} ${v.toFixed(0)}`).join(', '));
-  console.log('           ' + Object.entries(byMode).filter(([k]) => k.startsWith('fire ') || k.startsWith('beside ')).sort((a, c) => c[1] - a[1]).slice(0, 10).map(([k, v]) => `${k} ${v.toFixed(0)}`).join(', '));
-  if (WORST) for (const w of worst.sort((a, c) => (c.t1 - c.t0) - (a.t1 - a.t0)).slice(0, 12)) console.log(`   s${w.seed} man ${w.i} ${w.what} t${w.t0}-${w.t1} ${w.note}`);
+  console.log('           ' + Object.entries(byMode).filter(([k]) => k.startsWith('fire ') || k.startsWith('beside ') || k.startsWith('back ')).sort((a, c) => c[1] - a[1]).slice(0, 10).map(([k, v]) => `${k} ${v.toFixed(0)}`).join(', '));
+  const blockW = worst.filter((w) => w.what === 'under-fire' || w.what === 'beside-fight');
+  if (WORST) for (const w of blockW.slice(0, 40)) console.log(`   s${w.seed} ${w.what} t${w.t0} ${w.note}`);
+  if (WORST) for (const w of worst.filter((x) => !blockW.includes(x)).sort((a, c) => (c.t1 - c.t0) - (a.t1 - a.t0)).slice(0, 12)) console.log(`   s${w.seed} man ${w.i} ${w.what} t${w.t0}-${w.t1} ${w.note}`);
 }
 
 const DEMO = arg('demo', '');
