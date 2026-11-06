@@ -122,6 +122,30 @@ export { COHESION, DOCTRINE, MORALE, REGROUP, UNDEAD } from './command.ts';
  *   with horse 0.032 a second sampled, now 0.018 (a quarter deep: 0.010, now 0.009); knights in
  *   melee among our foot in melee, 56 samples, now none in the top pairs; the household, 11 now 2.
  *   Horse kills over 30 battles: 5,337 then 5,166 (losses 3,003, 2,989), length 232 s then 229 s.
+ * - Generals and their horse (docs/qa/battle-realism-review.md, findings 4, 6, 10, 14).
+ *   The household (`thinkCommand`, HOUSEHOLD) weighs every enemy block within 90 before it
+ *   takes one on, fights only with the odds (HOUSEHOLD_ODDS), not when down to a third of its
+ *   riders nor past 10 s of one fight, and then breaks off toward its post for 15 s, whether or
+ *   not its army still has a line (the draw-back used to need one, and with its line gone the
+ *   Lich-Marshal's household fought to its last rider 300-440 u ahead of what was left of his
+ *   army). Its post stands behind the blocks behind the middle of the line, eases after the
+ *   line's front over some 6 s (POST_EASE) and moves only when 40 u off (POST_DEADBAND); the
+ *   household turns its horses to ride there rather than backing (POST_REIN); its riders stray
+ *   40 u from their places after a foe, not without limit; breaking off, they cut at a foe at
+ *   hand. Over 72 battles a faction (seeds 1-4, 450/1200/2800, all pairings,
+ *   scripts/qa/generals.ts): the Lich fell in 24% (18% before the break), now 1% (0%);
+ *   the Templar and samurai generals 4% / 7%, now 0%. Riding backwards in guard 9.5% of samples,
+ *   now 0.5%.
+ *   The light horse goes out by the plan and the odds (`General.horse`, chosen with the plan):
+ *   'contest' rides at the enemy's horse after the general's own delay (0-40 s, HORSE_DELAY);
+ *   'screen' keeps its wing level with the line and meets horse coming within HORSE_SCREEN;
+ *   'wait' keeps it back for the moment the lines meet. In 24 demo battles of 24 the light-horse
+ *   wings met first at 17.6-18.3 s; now the first clash comes at 23-62 s, horse on horse, horse
+ *   on horse archers, or the lines.
+ *   Horse locked in a fight with half its riders standing 2 s with no foe they can get at breaks
+ *   off to charge again (`idleRanks`); a rider breaking off with a foe at his horse's head on his
+ *   way turns out round him first (`foeAt`); horse riding round to a flank keeps `rideRound`'s
+ *   way past friends (the goal put back beside the friend halted knights for good).
  */
 /**
  * v16: nothing grows with the size of the battle that should not (the undead won two thirds of
