@@ -6380,8 +6380,16 @@ export class Battle {
       // Direct fire needs a clear line: whoever is first on it is who it hits (see `land`).
       // Crossbows see past their own ranks (they kneel or take turns), and so do guns firing rank by rank (S3).
       const own = kind === 'flat' || r.rippling ? r.id : -1;
-      const n = this.lineHits(d.x[i]!, d.y[i]!, lx, ly, i, own, 1);
+      // (A bombard's ball goes on through several men, and bounds on beyond: none of them may be ours.)
+      let ex = lx;
+      let ey = ly;
+      if (kind === 'cannon') {
+        ex += ((lx - d.x[i]!) / (dist || 1)) * CANNON_BOUND;
+        ey += ((ly - d.y[i]!) / (dist || 1)) * CANNON_BOUND;
+      }
+      const n = this.lineHits(d.x[i]!, d.y[i]!, ex, ey, i, own, kind === 'cannon' ? CANNON_PEN : 1);
       let first = n > 0 ? this.lineIds[0]! : -1;
+      for (let k = 1; k < n; k++) if (d.team[this.lineIds[k]!] === s.team) first = this.lineIds[k]!;
       // (And nobody of ours, from another block, is about to walk across it while it flies: v17.)
       if (first < 0 || d.team[first] !== s.team) {
         const c = this.friendCrossing(s.team, d.x[i]!, d.y[i]!, lx, ly, flight * TICK_S, r.id, i);
@@ -6484,7 +6492,9 @@ export class Battle {
         if (tt < 0 || tt > L) continue;
         const px = mx - ux * tt;
         const py = my - uy * tt;
-        const rr = d.rad[id]! * 0.85 + 2;
+        // (The longer till the shot reaches him, the less sure where he will be: men in a press
+        // shuffle a couple of units a second whatever their pace says.)
+        const rr = d.rad[id]! * 0.85 + 2 + when * 2;
         if (px * px + py * py <= rr * rr) return id;
       }
     }
