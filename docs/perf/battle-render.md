@@ -265,4 +265,49 @@ numbers are a proxy for fill and shader cost, not what a real GPU takes.
 
 ### Results
 
-See the table in the frame-perf report (commit messages and below).
+Base: master cecad7b (with the bench's timing hooks) against this branch, merged with it, one
+pair each, 1600 × 900, a minute in, software GL on a loaded shared box (load 13-25): CPU numbers
+move ±30 % between runs; read the GPU rows as relative fill and shader cost.
+
+| scenario | base | after |
+|---|---|---|
+| classic, 2,000, opening view (zoom 0.5), GPU waited, median frame | 633 ms (ground 150, shadows 133, sprites 289) | **427 ms** (65, 107, 216) |
+| same view, A/B in one page, alternating frames (gl sum) | 1,005 ms | **452 ms** |
+| classic, 2,000, 1280 × 720 (zoom 0.375: buffer 7× the canvas), A/B | 1,487 ms | **488 ms** |
+| classic, 5,000 (men=20000 per=2500), zoom 0.44, A/B | 1,479 ms | **604 ms** |
+| HD, 2,000, opening view (zoom 0.5), A/B | 1,114 ms | **603 ms** |
+| HD, 2,000, zoom 2, panning, GPU waited, median frame | 3,223 ms (ground 3,423) | **964 ms** (ground 809) |
+| HD, 2,000, zoom 2, panning, CPU `draw()` median / instance build / bytes sent | 2.9 / 2.0 ms / 314 KB | 2.9 / 1.4 ms / **184 KB** (decal batch no longer refilled per pixel of pan) |
+| HD, 5,000, zoom 2, panning, CPU `draw()` median / build / bytes sent | 3.2 / 2.1 ms / 301 KB | 2.6 / 1.5 ms / **180 KB** |
+| classic, 450, opening view, CPU `draw()` median | 1.2 ms | 1.3 ms |
+| classic, 5,000, opening view, CPU median / panning | 3.0 / 3.3 ms | 3.3 / 3.1 ms |
+| classic, 5,000, zoom 3, CPU median | 1.3 ms | 1.3 ms |
+| HD zoom 1 → 3 (m 4): the zoom frame / the frames after (software GL) | 6.3-8.0 s / 0.5-1.5 s | 8-9.5 s / 1.0-1.9 s |
+
+The CPU side was already small and stays so (the work saved is GPU work). The zoom frame in HD is
+the ground shader painting the view at the new level (90 % of it the tuft/stone loop); this
+branch paints ~11 % more texels for it (64-texel tiles over the view's edges) and then the margin
+a sixteenth of a view a frame, which on software GL costs ~0.5 s a frame for a few seconds; on a
+real GPU both are a few ms. Making that shader cheaper (per-cell data baked once into a texture
+instead of noise per texel) is the next step for software GL.
+
+Pictures (`shot` mode, fake clock, same tick and camera, 60 frames with ticks):
+
+- HD zoom 2 still, HD zoom 3 still, HD zoom 2 after 60 frames of panning: **0 differing bytes**,
+  and in every HD shot the incremental compose equals a full one (0 bytes).
+- Zoomed out (direct): 13 px of 1.44 M differ (classic still), 18 (classic panning), 36 (HD):
+  each a single pixel on the edge of a sheared shadow, on or off (the shader evaluates the shadow
+  at the picked pixel's exact centre; the rasteriser snaps its vertices to its sub-pixel grid, so
+  a centre within ~1/256 px of a shadow's slanted edge can fall either way; the same picture on a
+  different GPU differs from SwiftShader's by as much).
+  [HD zoomed out, base | after](../screenshots/frame-perf/hd-frame-base-vs-cur.png),
+  [every differing pixel](../screenshots/frame-perf/hd-frame-diff.png),
+  [classic, differing pixels](../screenshots/frame-perf/cl-frame-diff.png),
+  [HD panning, base | after](../screenshots/frame-perf/hd-z2-pan-base-vs-cur.png).
+
+### Left
+
+- The HD ground shader at 4x and 8x on software GL (above).
+- Classic and level-1 grid sprites are drawn as whole 48 × 48 cells; per-cell trimmed quads (from
+  the painter, contract.ts) would cut sprite and shadow fill 2-4×.
+- The sim step (~6.5 ms a tick at 5,000 figures) lands on one frame in six at 1×.
