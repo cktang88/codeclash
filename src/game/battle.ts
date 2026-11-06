@@ -5095,7 +5095,8 @@ export class Battle {
    */
   private turnFoot(r: Regiment, wx: number, wy: number, marching: boolean): void {
     const C = COHESION;
-    if (r.alive < 2 || r.engaged || r.routed) return;
+    // (Not a chase: a loose crowd turns as it runs.)
+    if (r.alive < 2 || r.engaged || r.routed || r.mode === 'pursue') return;
     if (r.role === 'siege' || r.role === 'command' || r.stance === 'wedge' || r.stance === 'column') return;
     const cav = this.horseNear(r);
     // Faced in place against horse, it takes its proper frontage again once the horse rides off.
