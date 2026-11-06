@@ -73,7 +73,24 @@ export { COHESION, DOCTRINE, MORALE, REGROUP, UNDEAD } from './command.ts';
  *   stands at once, the block deep and narrow to its new front after a quarter turn, and it takes
  *   its frontage again once the horse has gone; horse charging or riding round at it is a threat
  *   to turn to from 150. A block locked to its front turns its rear ranks about on an enemy
- *   behind it (`rearUntil`).
+ *   behind it (`rearUntil`). Horse locked in a fight with another block counts only within 40
+ *   (COHESION.faceHorseNear, as spears brace): the line blocks beside such a fight faced it and
+ *   stood deep and narrow, front turned from the enemy foot, through the whole melee (7.6% of
+ *   their time, 4.8% after), the line came apart and the enemy got in among the archers (long
+ *   shots 55% of a bowman's volleys, 65% after, 66% before facing in place).
+ * - Reloads, slower still (missile-drill.md, "Review after the merge"): those above were the best
+ *   men's bursts. Bows loose a volley every 7.5 s (the 6-8 a minute heavy war bows keep up), at
+ *   will every 5 s (BOW_BURST 0.72), 24 arrows a man; teppō every 30 s (about 2 a minute), 9
+ *   balls; the undead's Revenant Arbalests are heavy cranequin crossbows, every 29 s, each bolt
+ *   1.6x and pierce 0.74, 9 bolts. Genoese crossbows (12 s), horse archers, javelins and engines
+ *   as they were.
+ * - Balance (docs/factions.md, v17): the dead lose the day in the melee, which runs a fifth
+ *   longer at real scale (the living rally and re-form over it; the dead only fall), not on the
+ *   approach (11-13% of the host lost before contact against 8-9%). Tide, raising and household
+ *   levers changed nothing beyond the noise, so the price of never routing is reset: DEAD_HP 0.71
+ *   (0.66). 400 battles a cell, 250 / 1000 a side: undead-templar 37.0 / 36.5 -> 53.3 / 49.8,
+ *   undead-samurai 36.5 / 27.0 -> 53.0 / 48.3, samurai-templar 50.5 / 55.5 -> 44.8 / 55.0 (the
+ *   last change from the merged friendly-crossing and firing-spot work; ±2.5).
  * - Friendly blocks keep out of each other (`giveWay`, `crowded`, `rightOfWay`; measured by
  *   scripts/battle-crossing.ts): a block about to march into a friend goes round toward its goal
  *   or halts; one standing in a friend with the right of way (engaged, standing, charging, then
@@ -5301,10 +5318,30 @@ export class Battle {
     return crowd > this.crowded(r, r.ax, r.ay, r.fx, r.fy, true) + 0.05;
   }
 
-  /** Enemy horse within COHESION.faceHorse of a block, not riding off to rally (see `turnFoot`). */
+  /**
+   * The nearest enemy horse within COHESION.faceHorse of a block that threatens it (see
+   * `turnFoot`): not riding off to rally, and not locked in a fight with another block unless it
+   * is at hand (within COHESION.faceHorseNear), as spears brace (`thinkLine`). A block of the line
+   * that faced in place toward horse busy with its neighbour stood deep and narrow, its front
+   * turned from the enemy foot, all through the melee (it cannot re-form while engaged): its
+   * neighbours were taken in flank and the line came apart, and the archers behind it found the
+   * enemy in among them (behaviour.test.ts, archers shooting from long range).
+   */
   private horseNear(r: Regiment): Regiment | null {
-    const cav = this.nearestFoe(r, 2, COHESION.faceHorse);
-    return cav && cav.mode !== 'withdraw' && cav.mode !== 'rally' ? cav : null;
+    const C = COHESION;
+    let best: Regiment | null = null;
+    let bd: number = C.faceHorse;
+    for (const o of this.teamRegs[1 - r.team]!) {
+      if (o.alive === 0 || o.routed || !isCav(o) || o.mode === 'withdraw' || o.mode === 'rally') continue;
+      const dx = o.cx - r.cx;
+      const dy = o.cy - r.cy;
+      const q = sqrt(dx * dx + dy * dy) - o.radius - r.radius;
+      if (q >= bd) continue;
+      if (o.mode === 'melee' && o.targetReg !== r.id && q >= C.faceHorseNear) continue;
+      bd = q;
+      best = o;
+    }
+    return best;
   }
 
   /**
@@ -7346,7 +7383,7 @@ const AT_WILL_GAP = 50;
  * At will, bows reload in this share of their volley reload: the 10-12 a minute a war bow manages
  * in a short burst, against the sustained, aimed 5-6 (docs/art-references/missile-drill.md).
  */
-const BOW_BURST = 0.6;
+const BOW_BURST = 0.72;
 const POINT_BLANK = 100;
 /** After this long (ticks) with nothing to shoot at, missile foot goes looking for a target along its line. */
 const MISSILE_SEEK = 150;

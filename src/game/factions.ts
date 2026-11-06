@@ -36,7 +36,7 @@ export interface FactionDef {
  * that they win about as often against the Templars and the Samurai as before they were
  * fearless (`pnpm fairness --factions undead,templar`; see docs/factions.md).
  */
-export const DEAD_HP = 0.66;
+export const DEAD_HP = 0.71;
 /** The Bone Colossus keeps a little more. */
 export const COLOSSUS_HP = 0.8;
 
@@ -91,13 +91,13 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
     },
     // Mounted archery is the clan's art; its samurai hold under pressure. The price: ashigaru
     // spears are peasant levies in a light okegawa cuirass. A matchlock loads slower than a
-    // crossbow spans (20-40 s against 15-30 s: docs/art-references/missile-drill.md; 18 s against
-    // 12 in the game) and hits harder: nearly as much shot in a minute, in fewer, heavier volleys. It reaches less far: a
+    // crossbow spans (about 30 s against 12: docs/art-references/missile-drill.md) and hits
+    // harder, in few, heavy volleys fired rank by rank, 9 balls a man. It reaches less far: a
     // matchlock's ball was aimed at 50 to 100 m, a crossbow's bolt at about 150
     // (docs/art-references/battle-scale.md).
     tweaks: {
       [U.HorseArchers]: { missileDamage: 1.1 },
-      [U.Crossbowmen]: { reload: 1.5, missileDamage: 1.45, range: 0.75 },
+      [U.Crossbowmen]: { reload: 2.58, missileDamage: 1.45, range: 0.75, ammo: 0.5 },
       [U.HeavyInfantry]: { morale: 1.05 },
     },
     palette: { cloth: '#2c3550', clothShade: '#1a2034', trim: '#b5372b', metal: '#7d7a73', metalShade: '#45423d', leather: '#4b2c1d', skin: '#d6b089' },
@@ -126,20 +126,22 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
     // The dead know no fear (they never rout: battle.ts `fearless`), but dry bone and rotten
     // sinew break easily: every class of them has far fewer hit points (`DEAD_HP`). The
     // Colossus, a hill of bone, keeps a little more; the trebuchet is timber like anyone's.
-    // Sinew bowstrings are rotten too, so their archery is the weakest of the three.
+    // Sinew bowstrings are rotten too, so their archery is the weakest of the three. Their
+    // arbalests are heavy crossbows spanned with a cranequin: a bolt every 29 s, hitting harder
+    // and piercing more than the Genoese belt-hook bows, 9 a man.
     tweaks: {
       [U.HeavyInfantry]: { hp: DEAD_HP },
       [U.Spearmen]: { hp: DEAD_HP },
       [U.Skirmishers]: { hp: DEAD_HP },
       [U.Archers]: { hp: DEAD_HP, missileDamage: 0.9 },
-      [U.Crossbowmen]: { hp: DEAD_HP },
+      [U.Crossbowmen]: { hp: DEAD_HP, reload: 2.5, missileDamage: 1.6, pierce: 1.35, ammo: 0.5 },
       [U.LightCavalry]: { hp: DEAD_HP },
       [U.HorseArchers]: { hp: DEAD_HP },
       [U.Knights]: { hp: DEAD_HP },
       [U.Shock]: { hp: COLOSSUS_HP },
     },
     palette: { cloth: '#2e2b2a', clothShade: '#1a1817', trim: '#5f8f4e', metal: '#6c6f68', metalShade: '#3a3c38', leather: '#3d3128', skin: '#d8d0b4' },
-    rule: 'The dead know no fear: they never waver, rout or rally, but have 66% of the living’s hit points (the Bone Colossus 80%; the trebuchet is timber). The tide: their foot marches at 0.8 of the living’s pace except within 500 of the Lich-Marshal, never halts to shoot or holds back, and charges at a lurch. Unflinching: a charge into them barely knocks them back, stuns nobody and stalls sooner. What falls, rises: every 10 s the Lich-Marshal raises fallen foot of his host within 500 of him (45% of the foot who fall while he stands rise again in time) with 40% of their hit points. If he falls, the raising stops and the whole host crumbles: every man loses 2% of his hit points a second and fights worse. A host down to its last 15% (or its last fifth, against twice as many) is spent: the battle is lost and it crumbles the same way.',
+    rule: 'The dead know no fear: they never waver, rout or rally, but have 71% of the living’s hit points (the Bone Colossus 80%; the trebuchet is timber). The tide: their foot marches at 0.8 of the living’s pace except within 500 of the Lich-Marshal, never halts to shoot or holds back, and charges at a lurch. Unflinching: a charge into them barely knocks them back, stuns nobody and stalls sooner. What falls, rises: every 10 s the Lich-Marshal raises fallen foot of his host within 500 of him (45% of the foot who fall while he stands rise again in time) with 40% of their hit points. If he falls, the raising stops and the whole host crumbles: every man loses 2% of his hit points a second and fights worse. A host down to its last 15% (or its last fifth, against twice as many) is spent: the battle is lost and it crumbles the same way.',
   },
 };
 

@@ -66,8 +66,9 @@ describe('battle: missiles', () => {
   it('archers loose over the heads of a friendly block; matchlocks behind it hold fire (and step out to find a line)', () => {
     const bows = screened('templar', U.Archers);
     const guns = screened('samurai', U.Crossbowmen);
-    // Arrows from the first volley on, high over the spearmen, landing among the enemy.
-    expect(bows.shots.length).toBeGreaterThan(15);
+    // Arrows from the first volley on, high over the spearmen, landing among the enemy. (One
+    // volley of all 12 before the spearmen go in: since v17 the next comes 7.5 s later.)
+    expect(bows.shots.length).toBeGreaterThanOrEqual(12);
     const lob = bows.shots[0]!;
     expect(lob.arc).toBeGreaterThan(Math.hypot(lob.x1 - lob.x0, lob.y1 - lob.y0) * 0.15);
     expect(lob.direct).toBe(false);
@@ -124,7 +125,8 @@ describe('battle: missiles', () => {
       placeRegiment(b, xb, 700, 600, 1, 0);
       let loosed = 0;
       const seen = new Set<Projectile>();
-      while (b.tick < 200 && !b.done()) {
+      // (400 ticks: two volleys of the undead's heavy arbalests, 29 s apart since the v17 reloads.)
+      while (b.tick < 400 && !b.done()) {
         b.step();
         for (const p of b.projectiles) if (p.team === 0 && !seen.has(p)) seen.add(p) && loosed++;
       }
@@ -246,9 +248,10 @@ describe('battle: missile drill (v11)', () => {
 
   it('formed shooters loose in volleys on the word: the loaded men together, then a pause of a reload', () => {
     // [faction, class, volley every (ticks)]: bows quickest, then crossbows, then matchlocks
-    // (which after their first volley fire rank by rank, S3: a rank's volley every 177 / ranks).
-    // Since the v17 reloads: 5 s, 12 s and 17.7 s (docs/art-references/missile-drill.md).
-    for (const [faction, cls, cycle] of [['templar', U.Archers, 50], ['templar', U.Crossbowmen, 120], ['samurai', U.Crossbowmen, 177]] as const) {
+    // (which after their first volley fire rank by rank, S3: a rank's volley every 300 / ranks),
+    // and the undead's heavy arbalests slowest of all.
+    // Since the v17 reloads: 7.5 s, 12 s, 30 s and 29.1 s (docs/art-references/missile-drill.md).
+    for (const [faction, cls, cycle] of [['templar', U.Archers, 75], ['templar', U.Crossbowmen, 120], ['samurai', U.Crossbowmen, 300], ['undead', U.Crossbowmen, 291]] as const) {
       expect(fireEvery(factionStats(faction)[cls]!), `${faction} ${cls}`).toBe(cycle);
       const { b } = butts(faction, cls);
       const reg = b.regiments.find((r) => r.team === 0 && r.cls === cls)!;
@@ -299,10 +302,10 @@ describe('battle: missile drill (v11)', () => {
     const bows = b.regiments.find((r) => r.team === 0)!;
     const spears = b.regiments.find((r) => r.team === 1)!;
     placeRegiment(b, bows, 700, 600, 1, 0);
-    // (200 apart: with the v17 reloads, a volley every 5 s, whether a block gets its at-will shots
+    // (270 apart: with the v17 reloads, a volley every 7.5 s, whether a block gets its at-will shots
     // off before the foe is in among it turns on where the last volley fell in its run-in. From
-    // 160 on this seed the last volley came as the spears broke into their charge.)
-    placeRegiment(b, spears, 900, 600, -1, 0);
+    // 230-250 on this seed the last volley came as the spears broke into their charge.)
+    placeRegiment(b, spears, 970, 600, -1, 0);
     const fresh = shotsOf(b);
     let volleyShots = 0;
     let atWill = 0;
@@ -368,9 +371,9 @@ describe('battle: missile drill (v11)', () => {
     b.generals[1].rashKnights = true;
     const bows = b.regiments.find((r) => r.team === 0)!;
     placeRegiment(b, bows, 700, 600, 1, 0);
-    // (300 apart: see above; from 200 the last volley flies as the horse is 100 away, and nobody
-    // has reloaded by the time it is in among them.)
-    b.regiments.filter((r) => r.team === 1).forEach((r) => placeRegiment(b, r, 1000, 600, -1, 0));
+    // (200 apart: see above; from 260 and more the last volley flies as the horse is 100 away,
+    // and nobody has reloaded by the time it is in among them.)
+    b.regiments.filter((r) => r.team === 1).forEach((r) => placeRegiment(b, r, 900, 600, -1, 0));
     const fresh = shotsOf(b);
     let lastAtWill = -1;
     let firstBlow = -1;
@@ -383,7 +386,9 @@ describe('battle: missile drill (v11)', () => {
     }
     expect(lastAtWill).toBeGreaterThan(0);
     expect(firstBlow).toBeGreaterThan(0);
-    // (The horse's impact stuns the men it hits for a moment.)
-    expect(firstBlow - lastAtWill).toBeLessThan(15);
+    // (The horse's impact stuns the men it hits for a moment. At will a bowman nocks again in 5 s
+    // since v17 (`BOW_BURST`): he gets one arrow off at the horse in its last 100 or so, then draws
+    // as it comes in, about a second and a half at the gallop.)
+    expect(firstBlow - lastAtWill).toBeLessThan(20);
   });
 });
