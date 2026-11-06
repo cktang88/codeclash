@@ -7,7 +7,7 @@ import { demoSetup } from '../client/demo.ts';
 import { Battle, BATTLE_VERSION, type Regiment } from './battle.ts';
 import { blockCrossings } from './overlap.ts';
 import { only, placeRegiment, plainArmy } from './testing.ts';
-import { U } from './units.ts';
+import { U, UNIT_COUNT } from './units.ts';
 
 const isFoot = (r: Regiment) => r.role === 'line' || r.role === 'missile';
 
@@ -148,4 +148,40 @@ describe('friendly blocks keep out of each other', () => {
     expect(worst).toBeLessThan(0.25);
     expect(shooting).toBeGreaterThanOrEqual(blocks * 0.7);
   }, 120_000);
+
+  it("a rider does not go for a man our own foot is fighting at its front from behind that foot, and one in its ranks rides out", () => {
+    const counts = new Array<number>(UNIT_COUNT).fill(0);
+    counts[U.Knights] = 16;
+    counts[U.HeavyInfantry] = 40;
+    const b = new Battle({ version: BATTLE_VERSION, seed: 2, kind: 'daily', armies: [plainArmy(counts), plainArmy(only(U.HeavyInfantry, 40), 200)] });
+    b.generals[0].fixedPlan = 'hold';
+    b.generals[1].fixedPlan = 'hold';
+    const k = b.regiments.find((r) => r.team === 0 && r.cls === U.Knights)!;
+    const f = b.regiments.find((r) => r.team === 0 && r.cls === U.HeavyInfantry)!;
+    const e = b.regiments.find((r) => r.team === 1)!;
+    placeRegiment(b, e, 1004, 600, -1, 0);
+    placeRegiment(b, f, 1000, 600, 1, 0);
+    // The knights stand in our foot's ranks, half in and half out of its right end.
+    placeRegiment(b, k, 990, 600 + f.width * 0.5, 1, 0);
+    const inside = b as unknown as { covered(j: number, i: number): boolean; amongFoot(i: number): boolean };
+    f.engaged = true;
+    // The enemy man straight before our foot's middle, and two riders: one behind our foot's
+    // front, within its frontage; one out past its end.
+    const foe = e.members.reduce((a, id) => (Math.abs(b.soldiers[id]!.y - 600) < Math.abs(b.soldiers[a]!.y - 600) && b.soldiers[id]!.x <= b.soldiers[a]!.x ? id : a));
+    const riders = k.members.slice().sort((x, y) => b.soldiers[x]!.y - b.soldiers[y]!.y);
+    const behind = riders.find((id) => b.soldiers[id]!.y < 600 + f.width * 0.5 - 4)!;
+    const beyond = riders.find((id) => b.soldiers[id]!.y > 600 + f.width * 0.5 + 6)!;
+    expect(inside.covered(foe, behind)).toBe(true);
+    expect(inside.covered(foe, beyond)).toBe(false);
+    expect(inside.amongFoot(behind)).toBe(true);
+    expect(inside.amongFoot(beyond)).toBe(false);
+    // Left to it, the riders in our ranks ride out of them within a few seconds.
+    let last = 0;
+    while (b.tick < 60) {
+      b.step();
+      last = 0;
+      for (const c of blockCrossings(b, 1)) if (c.a === f.id && c.b === k.id) last = c.inA;
+    }
+    expect(last).toBeLessThanOrEqual(1);
+  }, 60_000);
 });
