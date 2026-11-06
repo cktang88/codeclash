@@ -55,13 +55,20 @@ describe('battle: foot shooters take cover from horse (v17, QA review 2 #1)', ()
       const { b, ks, sh, sp } = piece(seed);
       const a0 = alive(sh);
       const k0 = alive(ks);
-      while (!b.done() && b.tick < 900) b.step();
+      // Where they went: behind the spears' front (the side away from the horse's start). (Since
+      // v17 HORSE the arrows unhorse most of the knights, and once the horse is broken the spears
+      // may go forward after the men on foot and the archers with them: so where they went while
+      // the knights came on, not where they stand at the end.)
+      const went = new Set<number>();
+      while (!b.done() && b.tick < 900) {
+        b.step();
+        for (const r of sh) if (r.alive > 0 && r.ax > Math.min(...sp.map((s) => s.ax))) went.add(r.id);
+      }
       lost += a0 - alive(sh);
       men += a0;
       knightsLost += k0 - alive(ks);
       knights += k0;
-      // Where they ended up: behind the spears' front (the side away from the horse's start).
-      for (const r of sh) if (r.alive > 0 && r.ax > Math.min(...sp.map((s) => s.ax))) behind++;
+      behind += went.size;
     }
     expect(lost / men).toBeLessThan(0.15);
     expect(behind).toBeGreaterThanOrEqual(5);

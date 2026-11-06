@@ -267,6 +267,23 @@ export { COHESION, DOCTRINE, MORALE, REGROUP, UNDEAD } from './command.ts';
  *   shoves a riser (RISE_TICKS): nearly every deep overlap of foes in the collision battles was a
  *   man just risen. Collision battles (seeds 1-8, 320 against 340): foes' overlap p99 1.10 -> 0.45
  *   of a man's radius, p95 0.34 -> 0.27; as many risen (the cap, not the ground, sets how many).
+ * - Horse wounds (`HORSE`, `horseHit`, `dismount`, `afootAct`/`afootMove`; UnitStats `horse`,
+ *   `barding`; docs/art-references/horse-wounds.md). Arrows soaked into a knight's armour and killed
+ *   none; at Crécy and Agincourt it was the horses that went down. A missile striking a rider strikes
+ *   his horse 72% of the time (his shield does not cover it); barding (knights 30, the hatamoto's
+ *   9) turns some, half as much from the side; bows inside about 85 m shoot through more (the
+ *   bodkin, up to +0.3 pierce, rider or horse). A wounded horse slows, loses its charge and may bolt;
+ *   a horse down or bolted leaves its rider on foot (`Store.dm`, `Soldier.dismounted`: his class's
+ *   stats on foot, `footOf`), hurt by the fall and dazed (2-6 s, a knight in plate longer; meanwhile
+ *   daggers find the gaps: `downArmour`), and the riders at his heels are checked by the fallen
+ *   horse. Spears put 35% of their blows into the horse; a pike wall impales it. On foot he fights
+ *   his mates' fight within 45 while fit, else falls in with our nearest foot (`fallIn`) or goes
+ *   back to the general or our rear. Duels (6 seeds, 20 Templar knights riding at archers who hold,
+ *   600 off): 60 bows unhorse 3-12 knights (none before) and are still ridden down; 120 bows
+ *   unhorse 13-17, and on four days of six a fifth of them still stand at 90 s (all six ridden
+ *   down before). Light horse at 60 bows: 1-5 of 30 unhorsed; horse archers trading shots with 60
+ *   bows: 11-16 of 30. Knights into samurai spears: 11-17 of 20 unhorsed, lost as before. Horse
+ *   against bows at equal value (game-matchups): 39 of 120 days, 58 before.
  */
 /**
  * v16: nothing grows with the size of the battle that should not (the undead won two thirds of
@@ -558,6 +575,14 @@ class Store {
   readonly rc: Float64Array;
   /** REACH: the tick until which he is through the points of a spear wall (got inside), else 0. See `held`. */
   readonly ps: Int32Array;
+  /** HORSE: his horse's hit points (0 on foot; see `horseHit`). */
+  readonly hh: Float64Array;
+  /**
+   * HORSE: 1 for a rider left on foot (his horse shot or cut down under him, or bolted and threw
+   * him) who is still with his horse's block and makes his own way (`afoot`); 2 once he has
+   * fallen in with a block of foot. 0 for everyone else.
+   */
+  readonly dm: Uint8Array;
   constructor(n: number) {
     const f = () => new Float64Array(n);
     const i = () => new Int32Array(n);
@@ -567,7 +592,7 @@ class Store {
     this.state = new Uint8Array(n); this.team = new Uint8Array(n); this.cu = new Uint8Array(n); this.jn = new Uint8Array(n); this.mt = new Uint8Array(n);
     this.reg = i(); this.target = i(); this.cd = i(); this.ammo = i();
     this.acted = i(); this.hit = i(); this.died = i(); this.kills = i(); this.stun = i(); this.rose = i(); this.wd = i(); this.att = i(); this.idl = i();
-    this.rc = f(); this.ps = i();
+    this.rc = f(); this.ps = i(); this.hh = f(); this.dm = new Uint8Array(n);
   }
 }
 
@@ -581,7 +606,8 @@ export class Soldier {
     readonly id: number,
     readonly team: number,
     readonly cls: number,
-    readonly s: UnitStats,
+    /** His stats: his class's, or, once unhorsed (`dismounted`), his class's on foot (see `Battle.dismount`). */
+    public s: UnitStats,
     readonly vet: boolean,
     readonly commander: boolean,
   ) {}
@@ -642,6 +668,11 @@ export class Soldier {
   get mounted(): boolean { return this.d.mt[this.id] === 1; }
   /** P6: swinging round the enemy's flank, away from his slot (see `Battle.curl`). Read-only, for the renderer. */
   get curling(): boolean { return this.d.cu[this.id] === 1; }
+  /**
+   * HORSE: a rider whose horse is down or gone, fighting on foot (`s` is then his stats on foot,
+   * `mounted` false). Read-only, for the renderer: drawn as a man of the faction's foot.
+   */
+  get dismounted(): boolean { return this.d.dm[this.id]! > 0; }
   /**
    * His weapon's reach beyond the two bodies, world units (UnitStats.reach): a man strikes a foe
    * within `radius + foe's radius + reach`. Read-only, for the renderer.
@@ -1485,6 +1516,10 @@ export class Battle {
   private readonly busyCount = new Int32Array(Math.max(GW, GH) + 1);
   private readonly cellOf: Int32Array;
   private readonly tmp = new Float64Array(4);
+  /** HORSE: riders' stats on foot, by team * UNIT_COUNT + class (`footOf`). */
+  private readonly footStats = new Map<number, UnitStats>();
+  /** HORSE: riders left on foot so far, by side (horse shot or cut down under them, or bolted). */
+  readonly unhorsed: [number, number] = [0, 0];
   /** Scratch list for `hunt`. */
   private readonly footNear: Regiment[] = [];
   /** `crowded`: the axis to back out along, and from whom. */
@@ -1583,6 +1618,7 @@ export class Battle {
     d.rc[id] = st.reach;
     d.mass[id] = st.mass;
     d.mt[id] = st.mounted ? 1 : 0;
+    d.hh[id] = st.mounted ? st.horse : 0;
     d.spd[id] = st.speed;
     d.team[id] = team;
     d.reg[id] = reg.id;
@@ -3107,6 +3143,8 @@ export class Battle {
     // fugitives from across the field, and it marched to its own rear to fetch them.)
     const formed = !r.routed;
     const atPlace = Math.max(12, r.spacing * 3);
+    // HORSE: riders on foot with a mounted block are not in its ranks (they go their own way).
+    const afoot = formed && isMounted(r);
     let n = 0;
     let ammo = 0;
     let fighting = 0;
@@ -3122,6 +3160,7 @@ export class Battle {
       if (st > State.Routing || (formed && st === State.Routing)) continue;
       n++;
       ammo += d.ammo[id]!;
+      if (afoot && d.dm[id] === 1) continue;
       if (d.jn[id]) {
         // Near his place now, or fighting: he is in the ranks.
         const gx = r.ax + r.fx * d.sy[id]! - r.fy * d.sx[id]! - d.x[id]!;
@@ -3166,6 +3205,7 @@ export class Battle {
     for (const id of r.members) {
       const st = d.state[id]!;
       if (st > State.Routing || (formed && st === State.Routing)) continue;
+      if (afoot && d.dm[id] === 1) continue;
       const t = d.target[id]!;
       if (t >= 0) {
         const ex = d.x[t]! - d.x[id]!;
@@ -6820,6 +6860,11 @@ export class Battle {
       return;
     }
     const r = this.regiments[d.reg[i]!]!;
+    // HORSE: a rider on foot, still with his horse, goes his own way.
+    if (d.dm[i] === 1 && isMounted(r)) {
+      this.afootAct(i, r);
+      return;
+    }
     const mode = r.mode;
     // (The household breaking off still cuts at a foe at hand, below: it rides out of reach.)
     if ((mode === 'withdraw' && r.role !== 'command') || mode === 'skirmish') {
@@ -7913,7 +7958,7 @@ export class Battle {
     let fence = 1;
     if (routing) defence *= 0.2;
     else {
-      if (d.stun[t]! > 0) defence *= 0.6;
+      if (d.stun[t]! > 0) defence *= d.dm[t] ? HORSE.downDefence : 0.6;
       const dot = this.facing(a, t, dr);
       defence += dr.stance === 'pikewall' && dot < 0.3 ? -10 : sd.defence;
       // REACH: a spearman with his foe inside his point fights cramped (he shortens his grip,
@@ -7945,7 +7990,14 @@ export class Battle {
     let damage = as.damage;
     if (ds.mounted) damage *= as.antiCav * (ar.stance === 'pikewall' ? 1.4 : 1);
     const roll = 0.8 + this.rng.next() * 0.4;
-    this.hurt(t, damage * roll * MELEE_K * (50 / (50 + ds.armour)), a);
+    // HORSE: a spear goes for the horse as often as the man.
+    if (ds.mounted && as.antiCav > 1.5 && d.hh[t]! > 0 && dr.role !== 'command' && this.rng.next() < HORSE.spearShare) {
+      this.horseHit(t, damage * roll * MELEE_K, 0, this.facing(a, t, dr) > 0.25, a);
+      return;
+    }
+    // HORSE: a rider thrown and not yet up is stabbed through the gaps of his harness.
+    const armour = d.dm[t] && d.stun[t]! > 0 && !routing ? ds.armour * HORSE.downArmour : ds.armour;
+    this.hurt(t, damage * roll * MELEE_K * (50 / (50 + armour)), a);
   }
 
   /** A charging man hits: knock-back and shock, or a horse impaled on braced spears. */
@@ -7970,6 +8022,8 @@ export class Battle {
       d.vx[a] = -d.vx[a]! * 0.3;
       d.vy[a] = -d.vy[a]! * 0.3;
       this.hurt(a, ds.damage * Math.max(1.5, ds.antiCav) * 2.2 * MELEE_K * (50 / (50 + as.armour)) * (0.6 + energy * 0.6), t);
+      // HORSE: and the horse takes the points in its chest.
+      if (d.state[a] === State.Fighting && d.mt[a] && d.hh[a]! > 0 && this.regiments[A.reg]!.role !== 'command') this.horseHit(a, HORSE.impale * (0.6 + energy * 0.6), 0, true, t);
       return;
     }
     const routing = d.state[t] === State.Routing;
@@ -8070,6 +8124,212 @@ export class Battle {
         this.events.push({ tick: this.tick, team, kind: 'crumble', cls: U.Knights, note: 'commander' });
       }
     }
+  }
+
+  /**
+   * HORSE: rider `i`'s horse takes `raw` damage (before its barding, of which `pierce` is
+   * ignored; from the side the barding covers less). Down, it leaves him on foot (`dismount`);
+   * wounded, it slows, loses its charge and may bolt and throw him.
+   */
+  private horseHit(i: number, raw: number, pierce: number, front: boolean, by: number): void {
+    const d = this.d;
+    const S = this.soldiers[i]!;
+    const st = S.s;
+    const r = this.regiments[d.reg[i]!]!;
+    const bard = st.barding * (front ? 1 : HORSE.sideBard) * (1 - pierce);
+    d.hh[i]! -= raw * (50 / (50 + bard)) * (0.75 + this.rng.next() * 0.5);
+    d.hit[i] = this.tick;
+    this.shake(r, HORSE.woundShock * this.shockK);
+    if (d.hh[i]! <= 0) {
+      this.dismount(i, by);
+      return;
+    }
+    const left = d.hh[i]! / st.horse;
+    d.spd[i] = st.speed * (HORSE.slowMin + (1 - HORSE.slowMin) * left);
+    const gallop = d.imp[i]! > 0.3;
+    d.imp[i]! *= HORSE.impLoss;
+    const bolt = (HORSE.boltMin + HORSE.bolt * (1 - left)) * (gallop ? HORSE.gallop : 1) * (this.fearless[r.team] ? HORSE.deadBolt : 1);
+    if (this.rng.next() < bolt) this.dismount(i, -1);
+  }
+
+  /** HORSE: a rider's stats on foot (his class's, `FOOT_PACE`, a sword, no lance, no bow). */
+  private footOf(team: number, cls: number): UnitStats {
+    const key = team * UNIT_COUNT + cls;
+    const had = this.footStats.get(key);
+    if (had) return had;
+    const st = this.stats[team]![cls]!;
+    const foot: UnitStats = {
+      ...st,
+      mounted: false,
+      horse: 0,
+      barding: 0,
+      speed: FOOT_PACE[cls] ?? 22,
+      radius: cls === U.Knights ? 2.6 : 2.4,
+      mass: cls === U.Knights ? 1.4 : 1.1,
+      reach: 1.6,
+      charge: 0,
+      attack: st.attack * HORSE.footAttack,
+      defence: st.defence * HORSE.footDefence,
+      damage: st.damage * HORSE.footDamage,
+      shield: st.shield * 0.6,
+      range: 0,
+      ammo: 0,
+      missileDamage: 0,
+      meleeCooldown: st.meleeCooldown + 2,
+      value: st.value * 0.4,
+    };
+    this.footStats.set(key, foot);
+    return foot;
+  }
+
+  /**
+   * HORSE: rider `i`'s horse is down or gone (`by`: who brought it down, or -1). He is on foot
+   * (`footOf`), dazed and hurt by the fall, the harder at the gallop, and the riders close behind
+   * him at the gallop are checked by him (some stumble). His block feels it.
+   */
+  private dismount(i: number, by: number): void {
+    const d = this.d;
+    const S = this.soldiers[i]!;
+    const r = this.regiments[d.reg[i]!]!;
+    const vx = d.vx[i]!;
+    const vy = d.vy[i]!;
+    const v = sqrt(vx * vx + vy * vy);
+    const gallop = d.imp[i]! > 0.3 || v > S.s.speed * 0.6;
+    const foot = this.footOf(d.team[i]!, S.cls);
+    S.s = foot;
+    d.mt[i] = 0;
+    d.dm[i] = 1;
+    d.hh[i] = 0;
+    d.spd[i] = foot.speed;
+    d.rad[i] = foot.radius;
+    d.mass[i] = foot.mass;
+    d.rc[i] = foot.reach;
+    d.imp[i] = 0;
+    d.ammo[i] = 0;
+    d.target[i] = -1;
+    d.cu[i] = 0;
+    d.wd[i] = 0;
+    d.ps[i] = 0;
+    d.vx[i] = vx * 0.2;
+    d.vy[i] = vy * 0.2;
+    d.stun[i] = HORSE.stun + this.rng.int(HORSE.stunVar) + (gallop ? 10 : 0) + (S.cls === U.Knights ? HORSE.plateStun : 0);
+    this.unhorsed[d.team[i]!]!++;
+    this.shake(r, HORSE.downShock * this.shockK);
+    if (gallop && v > 1) {
+      // The riders on his heels ride into the fallen horse, or round it.
+      const ux = vx / v;
+      const uy = vy / v;
+      for (const j of r.members) {
+        if (j === i || !d.mt[j] || d.state[j] !== State.Fighting || d.imp[j]! <= 0.3) continue;
+        const ex = d.x[i]! - d.x[j]!;
+        const ey = d.y[i]! - d.y[j]!;
+        const ahead = ex * ux + ey * uy;
+        if (ahead < 0 || ahead > HORSE.pile * 2 || Math.abs(ex * uy - ey * ux) > HORSE.pile * 0.5) continue;
+        d.imp[j]! *= 0.5;
+        if (this.rng.next() < HORSE.pileTrip) d.stun[j] = Math.max(d.stun[j]!, 6);
+      }
+    }
+    this.hurt(i, foot.hp * (HORSE.fall + this.rng.next() * HORSE.fallVar) * (gallop ? HORSE.fallGallop : 1), by);
+  }
+
+  /**
+   * HORSE: a rider on foot, still with his horse's block (`Store.dm` 1): he fights a foe at hand,
+   * and while he is fit one within `joinFight` while his mates fight; nothing else (no bow).
+   */
+  private afootAct(i: number, r: Regiment): void {
+    const d = this.d;
+    let t = d.target[i]!;
+    if (t >= 0 && d.state[t] !== State.Fighting) t = -1;
+    if (t < 0 || (this.tick + i) % 3 === 0) {
+      const fight = d.hp[i]! > this.soldiers[i]!.s.hp * HORSE.fightHp && (r.engaged || r.mode === 'melee' || r.mode === 'charge' || r.mode === 'pursue');
+      const near = this.foeAt(i, fight ? HORSE.joinFight : HORSE.atHand);
+      if (near >= 0 || !fight) t = near;
+    }
+    d.target[i] = t;
+    if (t < 0 || d.stun[i]! > 0) return;
+    const dx = d.x[t]! - d.x[i]!;
+    const dy = d.y[t]! - d.y[i]!;
+    const reach = d.rad[i]! + d.rad[t]! + d.rc[i]! + 1.4;
+    if (dx * dx + dy * dy <= reach * reach && d.cd[i] === 0) this.strike(i, t);
+  }
+
+  /**
+   * HORSE: where a rider on foot (`afootAct`) goes, into `tmp`: at his foe; else to his mates if
+   * they fight close by; else into the nearest block of our foot (he falls in with it when he
+   * reaches it: `Store.dm` 2); else back to the general, or our own rear.
+   */
+  private afootMove(i: number, r: Regiment): void {
+    const d = this.d;
+    const spd = d.spd[i]!;
+    const x = d.x[i]!;
+    const y = d.y[i]!;
+    const t = d.target[i]!;
+    let gx = x;
+    let gy = y;
+    let stop = 0;
+    if (t >= 0) {
+      gx = d.x[t]!;
+      gy = d.y[t]!;
+      stop = this.measure(i, t);
+    } else {
+      const team = d.team[i]!;
+      const mx = r.cx - x;
+      const my = r.cy - y;
+      let o: Regiment | null = null;
+      const mq = mx * mx + my * my;
+      if ((r.engaged || r.mode === 'melee') && mq < HORSE.mates * HORSE.mates && mq > 25 * 25) {
+        gx = r.cx;
+        gy = r.cy;
+        stop = 6;
+      } else {
+        let bd = HORSE.refuge * HORSE.refuge;
+        for (const f of this.teamRegs[team]!) {
+          if (f.alive < 4 || f.routed || isMounted(f) || f.role === 'siege' || f.role === 'skirmish') continue;
+          const fx = f.cx - x;
+          const fy = f.cy - y;
+          const q = fx * fx + fy * fy + (f.role === 'line' ? 0 : 150 * 150);
+          if (q < bd) {
+            bd = q;
+            o = f;
+          }
+        }
+      }
+      if (o) {
+        const fx = o.cx - x;
+        const fy = o.cy - y;
+        const reach = this.formRadius(o) + 6;
+        if (fx * fx + fy * fy < reach * reach) {
+          this.fallIn(i, r, o);
+          d.dm[i] = 2;
+          this.tmp[0] = 0;
+          this.tmp[1] = 0;
+          return;
+        }
+        gx = o.cx;
+        gy = o.cy;
+      } else if (!(r.engaged || r.mode === 'melee')) {
+        const c = this.commander[team]!;
+        if (c >= 0 && d.state[c] === State.Fighting) {
+          gx = d.x[c]!;
+          gy = d.y[c]!;
+          stop = 25;
+        } else {
+          gx = team === 0 ? HORSE.home : FIELD_W - HORSE.home;
+          stop = 10;
+        }
+      }
+    }
+    const ex = gx - x;
+    const ey = gy - y;
+    const q = sqrt(ex * ex + ey * ey);
+    if (q <= stop + 0.5) {
+      this.tmp[0] = 0;
+      this.tmp[1] = 0;
+      return;
+    }
+    const v = Math.min(spd * (t >= 0 ? 1 : 0.8), (q - stop) * 4) / q;
+    this.tmp[0] = ex * v;
+    this.tmp[1] = ey * v;
   }
 
   /**
@@ -8571,6 +8831,10 @@ export class Battle {
       vy = d.hy[i]! * v;
       if ((y < 12 && vy < 0) || (y > FIELD_H - 12 && vy > 0)) vy = 0;
       cap = spd * 1.25;
+    } else if (d.dm[i] === 1 && isMounted(r)) {
+      this.afootMove(i, r);
+      vx = this.tmp[0]!;
+      vy = this.tmp[1]!;
     } else if (mounted && r.mode !== 'withdraw' && this.amongFoot(i)) {
       // RIDER: a rider who finds himself in the ranks of our own foot rides out of them (to their
       // flank, or back out of their rear) and looks for another man (see `covered`); at the
@@ -8968,9 +9232,24 @@ export class Battle {
     const front = (ux * r.fx + uy * r.fy) / un > 0.2;
     r.arrows += this.shockK;
     const sd = STANCES[r.stance];
+    // HORSE: a bow's arrow at short range goes through more (the bodkin); and a rider's horse is
+    // the bigger target, which his shield does not cover.
+    let pierce = p.pierce;
+    if (p.splash === 0 && (p.cls === U.Archers || p.cls === U.HorseArchers)) {
+      const ex = d.x[o]! - p.x0;
+      const ey = d.y[o]! - p.y0;
+      const q = sqrt(ex * ex + ey * ey);
+      const close = Math.max(0, Math.min(1, (HORSE.closeFar - q) / (HORSE.closeFar - HORSE.closeNear)));
+      pierce = Math.min(0.9, pierce + HORSE.bodkin * close);
+    }
+    const shooter0 = p.shooter >= 0 && d.team[p.shooter] !== d.team[o] ? p.shooter : -1;
+    if (p.splash === 0 && d.mt[o] && d.hh[o]! > 0 && r.role !== 'command' && this.rng.next() < HORSE.share) {
+      this.horseHit(o, p.damage * sd.missile, pierce, front, shooter0);
+      return;
+    }
     const shield = S.s.shield + (r.stance === 'shieldwall' ? 0.35 : 0);
-    if (p.splash === 0 && front && d.state[o] === State.Fighting && this.rng.next() < shield * (1 - p.pierce * 0.6)) return;
-    const armour = S.s.armour * (1 - p.pierce);
+    if (p.splash === 0 && front && d.state[o] === State.Fighting && this.rng.next() < shield * (1 - pierce * 0.6)) return;
+    const armour = S.s.armour * (1 - pierce);
     let dmg = p.damage * (50 / (50 + armour)) * (0.75 + this.rng.next() * 0.5) * (p.splash > 0 ? sd.stones : sd.missile);
     if (front) dmg *= 1 - army.pavise;
     this.shake(r, 0.04 * this.shockK);
@@ -9353,6 +9632,66 @@ const RIDER_SIN = 0.198669330795;
  * is left be for `spurnFor` ticks (`chargeSpent`; QA round 2 #3, #4); the cosine within which two
  * blocks of our horse come at one enemy horse from the same side (`besideFriends`).
  */
+/**
+ * HORSE (battle v17; docs/art-references/horse-wounds.md): arrows seldom got through a rider's
+ * plate or mail, but his horse was a big, soft target. At Crécy and Agincourt the French charges
+ * broke up under the arrows: horses shot, wounded horses bolting and throwing their riders, the
+ * fallen tripping those behind, and the unhorsed left on foot in heavy armour. Missiles striking a
+ * rider strike his horse `share` of the time (his shield covers him, not it); barding (UnitStats
+ * `barding`) turns some, less from the side (`sideBard`). Bows shoot through more inside `close`
+ * (the bodkin at short range: `bodkin` more pierce at `closeNear` and nearer, none past
+ * `closeFar`). A wounded horse slows (to `slowMin` of its pace as it nears the end), loses the
+ * charge (`impLoss` of its impetus a hit) and may bolt and throw its rider (`boltMin`, and
+ * `bolt` times its wound share, `gallop` times more at the charge; the dead's horses hardly: `deadBolt`). A horse
+ * down leaves its rider on foot (`dismount`): hurt by the fall (`fall` + `fallVar` of his hit points, `fallGallop`
+ * times more at the gallop), dazed for `stun` + `stunVar` ticks (a knight in plate `plateStun` more:
+ * meanwhile he defends at `downDefence` and his armour counts `downArmour`: daggers through the
+ * gaps), and the riders close behind him at
+ * the gallop lose half their impetus (`pile`), some stumbling (`pileTrip`). Spears put
+ * `spearShare` of their blows into the horse; a pike wall impales it (`impale`). On foot a rider
+ * fights at `footAttack` / `footDefence` / `footDamage`; he joins his mates' fight within
+ * `joinFight` while he is fit (`fightHp`), else defends himself (`atHand`); with no fight he falls
+ * in with our nearest foot within `refuge`, or makes his way back to the general or our own rear.
+ */
+const HORSE = {
+  share: 0.72,
+  sideBard: 0.5,
+  bodkin: 0.3,
+  closeNear: 160,
+  closeFar: 460,
+  slowMin: 0.55,
+  impLoss: 0.75,
+  boltMin: 0.1,
+  bolt: 0.4,
+  gallop: 1.4,
+  deadBolt: 0.15,
+  fall: 0.06,
+  fallVar: 0.1,
+  fallGallop: 2,
+  stun: 15,
+  stunVar: 20,
+  plateStun: 15,
+  downDefence: 0.4,
+  downArmour: 0.35,
+  pile: 9,
+  pileTrip: 0.25,
+  downShock: 1.2,
+  woundShock: 0.15,
+  spearShare: 0.35,
+  impale: 45,
+  footAttack: 0.75,
+  footDefence: 0.8,
+  footDamage: 0.8,
+  atHand: 12,
+  joinFight: 45,
+  fightHp: 0.4,
+  mates: 160,
+  refuge: 700,
+  home: 160,
+} as const;
+/** HORSE: a rider's pace on foot, by class (plate and mail on foot are slow going). */
+const FOOT_PACE: Partial<Record<number, number>> = { [U.LightCavalry]: 24, [U.HorseArchers]: 25, [U.Knights]: 17 };
+
 const RIDER = {
   hunt: 40,
   behind: 1.5,
