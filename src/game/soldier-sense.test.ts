@@ -1,7 +1,7 @@
 // QA round 3 (docs/qa/battle-realism-review-3.md): single men doing what no real man would, in
 // small set pieces. Each test stages a few blocks by hand and measures the men one by one.
 import { describe, expect, it } from 'vitest';
-import { Battle, BATTLE_VERSION, State } from './battle.ts';
+import { Battle, BATTLE_VERSION, State, type Regiment } from './battle.ts';
 import { U, UNIT_COUNT } from './units.ts';
 import type { FactionId } from './factions.ts';
 import { placeRegiment, plainArmy } from './testing.ts';
@@ -51,7 +51,52 @@ function struckIdle(b: Battle, ticks: number): number {
   return idle / Math.max(1, men);
 }
 
+interface DM extends D { att: Int32Array; reg: Int32Array; mt: Uint8Array }
+
+/**
+ * Share of man-ticks (foot still fighting) in which a man fights a foe before him (by his block's
+ * front) while another foe, at hand behind him, strikes at his back.
+ */
+function backStruck(b: Battle, ticks: number): number {
+  const d = (b as unknown as { d: DM }).d;
+  const n = b.soldiers.length;
+  let men = 0;
+  let back = 0;
+  while (!b.done() && b.tick < ticks) {
+    b.step();
+    if (b.tick % 2) continue;
+    for (let i = 0; i < n; i++) {
+      if (d.state[i] !== State.Fighting || d.mt[i]) continue;
+      men++;
+      const t = d.target[i]!;
+      if (t < 0 || d.att[i]! < 2) continue;
+      const r = b.regiments[d.reg[i]!]!;
+      if ((d.x[t]! - d.x[i]!) * r.fx + (d.y[t]! - d.y[i]!) * r.fy <= 0) continue;
+      let hit = false;
+      b.near(d.x[i]!, d.y[i]!, 20, (o) => {
+        const j = o.id;
+        if (j === t || d.target[j] !== i || d.state[j] !== State.Fighting) return;
+        const bx = d.x[j]! - d.x[i]!;
+        const by = d.y[j]! - d.y[i]!;
+        if (bx * r.fx + by * r.fy < -2 && Math.hypot(bx, by) <= d.rad[i]! + d.rad[j]! + d.rc[j]! + 2) hit = true;
+        return hit;
+      });
+      if (hit) back++;
+    }
+  }
+  return back / Math.max(1, men);
+}
+
 describe('QA3: each man fights like a man', () => {
+  it('heavy foot against heavy foot: a foe at a man\'s back while he fights the man before him is taken by the men beside him (#6)', () => {
+    // Until QA3 #6 the men about him each kept to the foe before them, and the foe who had got
+    // round to his back (at the end of a block, or among the ranks where the lines had run into
+    // each other) struck at him unanswered: 1.43 % of the men's time over these days, 0.93 % since.
+    let sum = 0;
+    for (const seed of [1, 2, 3]) sum += backStruck(faceOff([[U.HeavyInfantry, 48]], 'templar', [[U.HeavyInfantry, 48]], 'templar', seed), 700);
+    expect(sum / 3).toBeLessThan(0.0125);
+  });
+
   it('spear on spear: the front ranks fence; the ranks behind them are not speared where they cannot answer (#1)', () => {
     // Until QA3 a man of a spear's front rank (and the pikes striking past it) took as his foe the
     // man behind the enemy's front rank as readily as the man before him: in this set piece 3.9 %
@@ -87,6 +132,46 @@ describe('QA3: each man fights like a man', () => {
       }
       expect(braced, `seed ${seed}`).toBeLessThan(15);
     }
+  });
+
+  it('spears do not brace against horse riding past to another block, only against horse coming at them (QA3, the extra case)', () => {
+    // 30 Templar spears; 16 enemy knights ride across their front 100 u off, at a block of ours
+    // far beyond them (or, the second time, straight at the spears). Until this fix the spears
+    // braced for any horse charging or riding round within 150, wherever it rode: in the demo
+    // battles a spear block ordered round the enemy's flank stopped to brace each time a squadron
+    // rode by, and stood braced under the enemy's arrows (827 man-s braced with no horse coming
+    // over s1-4 at 450, 29 since).
+    const run = (atSpears: boolean) => {
+      const b = new Battle({ version: BATTLE_VERSION, seed: 2, kind: 'daily', armies: [plainArmy(counts([[U.HeavyInfantry, 30], [U.Spearmen, 30]])), plainArmy(counts([[U.Knights, 16]]), 200, 'samurai')] });
+      b.generals[0]!.fixedPlan = 'hold';
+      const H = b.regiments.find((r) => r.team === 0 && r.cls === U.HeavyInfantry)!;
+      const S = b.regiments.find((r) => r.team === 0 && r.cls === U.Spearmen)!;
+      const K = b.regiments.filter((r) => r.team === 1);
+      placeRegiment(b, S, 1200, 1200, 1, 0);
+      placeRegiment(b, H, 1300, 1900, 0, -1);
+      K.forEach((r, k) => placeRegiment(b, r, 1300 + k * 20, 900, 0, 1));
+      const inside = b as unknown as { think(r: Regiment): void; survey(r: Regiment): void };
+      const think = inside.think.bind(b);
+      inside.think = (r: Regiment) => {
+        if (r.team === 0) return think(r);
+        inside.survey(r);
+        r.mode = atSpears ? 'charge' : 'flank';
+        r.targetReg = atSpears ? S.id : H.id;
+        const [x, y] = atSpears ? [S.cx, S.cy] : [r.ax, 1800];
+        r.tx = x;
+        r.ty = y;
+        r.dfx = 0;
+        r.dfy = 1;
+      };
+      let braced = 0;
+      while (b.tick < 250 && !b.done()) {
+        b.step();
+        if (S.mode === 'brace') braced++;
+      }
+      return braced;
+    };
+    expect(run(false)).toBe(0);
+    expect(run(true)).toBeGreaterThan(20);
   });
 
   it('skirmishers with no line of their own give ground before slower foot, throwing, not stand to be caught (#3)', () => {
@@ -150,7 +235,10 @@ describe('QA3: each man fights like a man', () => {
         b.step();
         for (const r of sk) back = Math.max(back, 1100 - r.cx);
       }
-      expect(sk.some((r) => r.routed), `seed ${seed}`).toBe(false);
+      // (Not shot into breaking, that is: once the whole line before them has broken they go with
+      // it, as on day 4 since QA3 #6, when the mirror fight of the foot went the other way.)
+      const lineBroke = b.regiments.filter((r) => r.team === 0 && r.cls === U.HeavyInfantry).every((r) => r.routed);
+      if (!lineBroke) expect(sk.some((r) => r.routed), `seed ${seed}`).toBe(false);
       expect(back, `seed ${seed}`).toBeGreaterThan(150);
     }
   });

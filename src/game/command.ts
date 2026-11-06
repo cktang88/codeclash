@@ -414,6 +414,8 @@ export const COHESION = {
   curlBase: 0.6,
   curlPerFile: 0.1,
   curlMax: 0.84,
+  /** QA3 #6: a foe at hand striking a friend from behind weighs this much of his distance (squared) as a foe: men cover each other's backs. */
+  coverBack: 0.35,
   /** Rear ranks of a block locked in melee lean this far on the front. */
   lean: 2,
   /** P6b: what a place on the flank of an enemy block locked with a friend costs over its front (90 otherwise). */
