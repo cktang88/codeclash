@@ -3499,8 +3499,8 @@ export class Battle {
   }
 
   /**
-   * A running man with a standing enemy close ahead swerves round him, on the side he is already
-   * off to, still bending for home: he does not run into him (finding #16).
+   * A running man with a standing enemy close ahead (not one hunting him) swerves round him, on
+   * the side he is already off to, still bending for home: he does not run into him (finding #16).
    */
   private dodge(i: number, edge: number, R = 36): void {
     const d = this.d;
@@ -3522,7 +3522,8 @@ export class Battle {
         const c = cy * GW + cx;
         for (let k = this.grid[c]!; k < this.gridEnd[c]!; k++) {
           const j = this.items[k]!;
-          if (d.team[j] === team || d.state[j] !== State.Fighting) continue;
+          // (Not the man hunting him: from him he runs, he does not dance round him.)
+          if (d.team[j] === team || d.state[j] !== State.Fighting || d.target[j] === i) continue;
           const dx = d.x[j]! - x;
           const dy = d.y[j]! - y;
           const q = dx * dx + dy * dy;
