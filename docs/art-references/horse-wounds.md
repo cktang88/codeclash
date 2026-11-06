@@ -101,6 +101,38 @@ the field) is still to draw from references.
 - A horse brought down heartens the men who shot it (counted as a kill for their spirits).
 - Bows met in the flank (they shoot no faster there) or locked with foot are still ridden down.
 
+## Round 3: horse with sense
+
+No commander sent his horse across massed bowshot twice. After Crécy and Poitiers the French
+fought on foot. At Patay (1429) the French horse caught the English archers before they could
+plant their stakes and deploy. At Formigny (1450) culverins and a flank attack, not a frontal
+charge, broke the archers. At Bannockburn (1314) Keith's light horse rode down the English archers
+on the flank. Horse wins against bows by timing and by the flank, not by crossing the beaten zone
+head-on.
+
+What the sim does (`SENSE`, `bowCover`, `bowsDeadly`, `openPrey`, `flankWay`, `outOfBowshot`,
+`haEdge`, `ARC`):
+
+- **Weighing a ride.** The fire of the formed, unengaged bows covering the ride's end, scaled by
+  their arrows left and less from their flank (0.85) or rear (0.4), is set against all the riders
+  of the horse going in. It is deadly above 0.15 a tick per rider (1.5 times that against foot that
+  isn't shooters: once the horse is among them, the bows must hold their shot for their own men).
+- **The General.** Outshot by bows that stand off, he stages the horse out of bowshot, further
+  back when it is shot at there. He sends it only at prey it can reach without a deadly ride:
+  straight, or round an open flank with no other enemy foot standing there. Never spears standing
+  to receive it. He waits for the bows to be locked in the fight or shot out.
+- **The block.** Told to ride across massed fire, it goes round to the open flank or draws back
+  out of reach; with nowhere to draw back to, it goes in. A block that loses a quarter of its
+  riders on the way in (at least three, still more than about 23 m off) breaks off and leaves that
+  prey be for 90 s.
+- **Horse archers** outranged by bows stay outside the bows' reach and shoot from its edge.
+- **Shooters' arc.** Foot shooters shoot worse at a target on their flank (scatter x1.6) or rear
+  (x2.4), and loose fast and flat (RAPID) only at horse before their front.
+
+In the equal-value matchup of horse-heavy against bow-heavy armies, horse still wins 3 of 120. The
+horse army has too little foot to pin the bows, and the bows come on with their foot and shoot
+the horse where it waits.
+
 ## Measured (scripts/duel.ts, seeds 1-6)
 
 See the v17 changelog bullet at the top of `battle.ts` for the numbers before and after.
