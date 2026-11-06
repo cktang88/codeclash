@@ -122,6 +122,19 @@ export { COHESION, DOCTRINE, MORALE, REGROUP, UNDEAD } from './command.ts';
  *   with horse 0.032 a second sampled, now 0.018 (a quarter deep: 0.010, now 0.009); knights in
  *   melee among our foot in melee, 56 samples, now none in the top pairs; the household, 11 now 2.
  *   Horse kills over 30 battles: 5,337 then 5,166 (losses 3,003, 2,989), length 232 s then 229 s.
+ * - Rallies and regrouping (QA review #1, #12, #16; `scripts/qa/rally-check.ts`): a formed block
+ *   is the men in its ranks (`survey`). Runners who ran on when it rallied are off its count,
+ *   centre (where its standard is carried), reach and leash, and may come back to its colours
+ *   like any fugitive; a man who falls in walks to his place first (`Store.jn`) and counts only
+ *   once he is near it. Fugitives look for a block by its formation (`formRadius`), not by the
+ *   spread of its men. The leash closes the anchor on its men at no more than their running
+ *   pace. Routers run round an enemy between them and home (`fleeFrom`), never veer toward the
+ *   enemy's side, and swerve round a standing enemy close ahead (`dodge`; not the man hunting
+ *   them). Over 24 demo battles: standard over 40 u from its nearest man, in blocks that rallied
+ *   or took men in, 2,495 samples then 19; blocks spread over 3x their formation 176 then 55
+ *   (with runners 87 then 5); anchor faster than twice its men's run, out of re-forming, 642
+ *   then 92; routers running at the enemy's edge 1.4% then 0.5%, into an enemy 0.6% then 0.3%;
+ *   men who fled off the enemy's edge 30 then 0.
  */
 /**
  * v16: nothing grows with the size of the battle that should not (the undead won two thirds of

@@ -9,6 +9,7 @@
 //   drag          the anchor moving over 6 u/s against its own goal (pulled after men, not marching)
 //   jump          the anchor moving faster than 2x its men's speed (and 30 u/s), outside rally and
 //                 re-framing in place (`facedAt`)
+//   (each also counted for blocks that have rallied or taken fugitives in)
 //   rear-fetch    a formed block not withdrawing whose anchor moves over 6 u/s toward its own edge
 //                 while its goal lies toward the enemy's
 // And over routing men: running toward the enemy's edge, into an enemy within 10 u, and men who
@@ -34,10 +35,12 @@ for (const men of SIZES)
     const prev = regs.map((r) => ({ x: r.ax, y: r.ay }));
     const fled = new Uint8Array(b.soldiers.length);
     const line: Record<string, number> = {};
-    const ln = (k: string, v = 1, mode = '') => {
+    const ln = (k: string, v = 1, mode = '', r?: (typeof regs)[number]) => {
       line[k] = (line[k] ?? 0) + v;
       add(k, v);
       if (mode) add(`${k} [${mode}]`, v);
+      // (Blocks that have rallied or taken fugitives in: finding #1 proper.)
+      if (r && (r.rallies > 0 || r.absorbed > 0)) add(`${k} (rallied/took in)`, v);
     };
     while (!b.done() && b.tick < MAX_TICKS + 5) {
       b.step();
@@ -71,21 +74,21 @@ for (const men of SIZES)
         for (const id of r.members) if (d.state[id] === State.Fighting && !d.cu[id]) far = Math.max(far, Math.hypot(d.x[id] - mx, d.y[id] - my));
         const span = Math.hypot(r.width, r.depth) / 2 + 30;
         if (near > 40) {
-          ln('std-off', 1, r.mode);
+          ln('std-off', 1, r.mode, r);
           if (worst.length < 12 && near > 100) worst.push(`s${seed}/${men} t${b.tick} B${r.id} ${r.mode} standard ${near.toFixed(0)} u from its nearest man`);
         }
-        if (far > Math.max(3 * span, 150)) ln('spread', 1, r.mode);
+        if (far > Math.max(3 * span, 150)) ln('spread', 1, r.mode, r);
         const sp = Math.hypot(vx, vy);
         const gx = r.tx - r.ax;
         const gy = r.ty - r.ay;
         const gq = Math.hypot(gx, gy);
-        if (sp > 6 && gq > 10 && vx * gx + vy * gy < -0.5 * sp * gq) ln('drag', 1, r.mode);
+        if (sp > 6 && gq > 10 && vx * gx + vy * gy < -0.5 * sp * gq) ln('drag', 1, r.mode, r);
         const top = Math.max(r.speed, b.soldiers[r.members[0]!]!.s.speed) * 2;
         // (A block facing round in place lays its frame out afresh where its men stand: the anchor
         // moves, the men do not; that is no lurch.)
         if (r.mode !== 'rally' && sp > Math.max(top, 30) && b.tick - r.facedAt > 5) ln('jump', 1, r.mode);
         const edge = r.team === 0 ? -1 : 1;
-        if (r.mode !== 'withdraw' && r.mode !== 'skirmish' && r.mode !== 'kite' && r.mode !== 'rally' && vx * edge > 6 && gx * edge < -10) ln('rear-fetch', 1, r.mode);
+        if (r.mode !== 'withdraw' && r.mode !== 'skirmish' && r.mode !== 'kite' && r.mode !== 'rally' && vx * edge > 6 && gx * edge < -10) ln('rear-fetch', 1, r.mode, r);
       }
       for (let i = 0; i < b.soldiers.length; i++) {
         const st = d.state[i];
@@ -114,6 +117,7 @@ for (const men of SIZES)
 console.log('\n=== totals ===');
 const per = (k: string, of: string) => `${k.padEnd(16)} ${String(tot[k] ?? 0).padStart(7)}  (${((100 * (tot[k] ?? 0)) / Math.max(1, tot[of] ?? 0)).toFixed(2)}% of ${of})`;
 for (const k of ['runners', 'std-off', 'spread', 'drag', 'jump', 'rear-fetch']) console.log(per(k, 'block-samples'));
+for (const k of ['std-off', 'spread', 'drag', 'rear-fetch']) console.log(per(`${k} (rallied/took in)`, 'block-samples'));
 for (const k of ['rout-wrong', 'rout-into']) console.log(per(k, 'router-samples'));
 console.log(`fled-wrong-edge  ${tot['fled-wrong-edge'] ?? 0}`);
 console.log('\nby mode:');
