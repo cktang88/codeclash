@@ -10,7 +10,7 @@
 // measured time covers the whole frame.
 
 import { Battle, BATTLE_VERSION, TICK_S, type Soldier } from '../game/battle.ts';
-import { only, placeRegiment, plainArmy } from '../game/testing.ts';
+import { placeRegiment, plainArmy } from '../game/testing.ts';
 import { demoSetup } from './demo.ts';
 import type { FactionId } from '../game/factions.ts';
 import { BattleScene } from './render/scene.ts';
@@ -25,13 +25,25 @@ function setPiece(): Battle {
   const n = num('n', 48);
   const fa = (q.get('fa') ?? 'templar') as FactionId;
   const fb = (q.get('fb') ?? fa) as FactionId;
-  const b = new Battle({ version: BATTLE_VERSION, seed: num('seed', 3), kind: 'daily', armies: [plainArmy(only(num('ca', 1), n), 0, fa), plainArmy(only(num('cb', 1), n), 200, fb)] });
+  // `ca`/`cb` may list several classes (`ca=4,1`): each a block of `n`, side by side.
+  const counts = (k: string) => {
+    const c = new Array<number>(10).fill(0);
+    for (const x of (q.get(k) ?? '1').split(',')) c[Number(x)]! += n;
+    return c;
+  };
+  const b = new Battle({ version: BATTLE_VERSION, seed: num('seed', 3), kind: 'daily', armies: [plainArmy(counts('ca'), 0, fa), plainArmy(counts('cb'), 200, fb)] });
   b.generals[0]!.fixedPlan = 'advance';
   b.generals[1]!.fixedPlan = q.get('hold') === '1' ? 'hold' : 'advance';
-  const ra = b.regiments.find((r) => r.team === 0)!;
-  const rb = b.regiments.find((r) => r.team === 1)!;
-  placeRegiment(b, ra, 1120, 1200, 1, 0);
-  placeRegiment(b, rb, 1280, 1200, -1, 0);
+  // Every block placed (as scripts/duel.ts does): fronts `gap` apart across the middle.
+  const gap = num('gap', 160);
+  for (const team of [0, 1] as const) {
+    const regs = b.regiments.filter((r) => r.team === team);
+    let y = 1200 - regs.reduce((a, r) => a + r.width + 20, -20) / 2;
+    for (const r of regs) {
+      placeRegiment(b, r, team === 0 ? 1200 - gap / 2 : 1200 + gap / 2, y + r.width / 2, team === 0 ? 1 : -1, 0);
+      y += r.width + 20;
+    }
+  }
   return b;
 }
 const per = num('per', 0);

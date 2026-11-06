@@ -145,6 +145,8 @@ const SHEAR_X = 0.85;
 const SHEAR_Y = 0.32;
 const SHADOW: [number, number, number, number] = [0.07, 0.06, 0.1, 0.42];
 const MAX_PARTICLES = 3000;
+/** Atmosphere: dust puffs raised a tick, at most, across the moving men in view (scene.ts atmosTick). */
+const DUST_PER_TICK = 45;
 /** Highest zoom level (1 fits the field). */
 export const MAX_ZOOM = 8;
 /** Highest zoom level with the HD art, where each level doubles the scale (8x: the 128 px sprites 1:1). */
@@ -299,6 +301,16 @@ export class BattleScene {
   /** HD: blood still spreading from the fallen: map point, radius, amount, tick due. */
   /** HD: dust particles alive (counted each frame). */
   private dustN = 0;
+  /** Atmosphere (docs/art-references/battle-atmosphere.md): each man's squared speed last tick (a charge's weight at contact). */
+  private prevV2: Float32Array;
+  /** Atmosphere: whether each man was trading blows last tick (contact is the step into it). */
+  private engaged: Uint8Array;
+  /** Atmosphere: dust wanted by the moving men in view last tick, which scales this tick's chances to the budget. */
+  private dustWant = 0;
+  private dustScale = 1;
+  /** Atmosphere: the breeze carrying smoke and dust, battle units a second (gusts slowly; client-side only). */
+  private windX = 5;
+  private windY = -2.5;
   private pools: { x: number; y: number; r: number; a: number; ichor: boolean; at: number }[] = [];
   /** The atlas image versions last uploaded (HD grids fill in the background). */
   private atlasVer = [0, 0];
@@ -462,6 +474,8 @@ export class BattleScene {
     this.prevX = new Float32Array(n);
     this.prevY = new Float32Array(n);
     this.prevHp = new Float64Array(n);
+    this.prevV2 = new Float32Array(n);
+    this.engaged = new Uint8Array(n);
     this.hurtAt = new Float32Array(n).fill(-100);
     this.dirs = new Uint8Array(n);
     this.turnAt = new Float32Array(n).fill(-100);
@@ -591,6 +605,7 @@ export class BattleScene {
     const ss = b.soldiers;
     const rng = this.rng;
     const tick = b.tick;
+    this.atmosTick();
     for (let i = 0; i < ss.length; i++) {
       const s = ss[i]!;
       if (s.state === State.Fled) continue;
@@ -619,16 +634,16 @@ export class BattleScene {
         continue;
       }
       if (s.roseAt >= 0 && !this.rose[i]) this.graveLight(i);
-      // Hooves and marching feet raise dust.
+      // Hooves and marching feet raise dust; blocks meeting kick it up.
       const v2 = s.vx * s.vx + s.vy * s.vy;
-      if (s.s.mounted ? v2 > 700 && rng.next() < 0.3 : v2 > 100 && rng.next() < 0.02) {
-        const big = s.s.mounted ? 1 : 0;
-        this.spawn(PK.Dust, s.x - s.vx * 0.06, s.y - s.vy * 0.06, 1, -s.vx * 0.1 + (rng.next() - 0.5) * 6, -s.vy * 0.1 + (rng.next() - 0.5) * 6, 2 + rng.next() * 3, 1.4 + rng.next() * 1.2 + big, 2 + big * 2, 0.46, 0.4, 0.3, 0.22);
-      }
+      this.raiseDust(s, v2, rng);
+      this.contact(i, s, tick, rng);
+      this.prevV2[i] = v2;
     }
     // Missiles that came down this tick.
     const now = new Set(b.projectiles);
     this.aimShots();
+    this.gunSmoke(rng);
     for (const p of this.flying) {
       if (now.has(p)) continue;
       if (p.splash > 0) this.impact(p.x1, p.y1);
@@ -643,6 +658,158 @@ export class BattleScene {
       if (this.flying.has(p) || p.shooter < 0 || p.shooter >= this.aimX.length) continue;
       this.aimX[p.shooter] = p.x1 - p.x0;
       this.aimY[p.shooter] = p.y1 - p.y0;
+    }
+  }
+
+  // ---------------------------------------------------------------- atmosphere
+  //
+  // Dust under blocks on the move, gun smoke that hangs over the line and drifts downwind, and
+  // the shock of contact (docs/art-references/battle-atmosphere.md). Both arts; spawn() pools.
+
+  /** Whether a battle point is in the last frame's view, give or take `margin` map px (nothing is raised off-screen). */
+  private nearView(x: number, y: number, margin: number): boolean {
+    const v = this.view;
+    const mx = this.mapX(x, y);
+    const my = this.mapY(x, y);
+    return mx >= v.camX - margin && mx <= v.camX + v.vw + margin && my >= v.camY - margin && my <= v.camY + v.vh + margin * 2;
+  }
+
+  /** Per tick, before the men: the dust budget for this tick from last tick's demand, and the breeze. */
+  private atmosTick(): void {
+    // About 45 puffs a tick (~1,400 alive): past that every moving man in view raises
+    // proportionally less, so a whole army on the march thins its haze evenly instead of the
+    // first regiments in the list taking it all.
+    this.dustScale = this.dustWant > DUST_PER_TICK ? DUST_PER_TICK / this.dustWant : 1;
+    this.dustWant = 0;
+    const T = this.battle.tick * TICK_S;
+    this.windX = 5 + 2.2 * Math.sin(T * 0.13) + 0.8 * Math.sin(T * 0.47 + 1.3);
+    this.windY = -2.5 + 1.4 * Math.sin(T * 0.09 + 2.1);
+  }
+
+  /**
+   * Feet and hooves raise dust: a low, pale haze trailing a block on the move (it veils the legs,
+   * ref Etosha), thicker, higher and longer behind horse at the gallop; always thin enough that
+   * the blocks still read as dark masses on the ground (ref Medieval II).
+   */
+  private raiseDust(s: Battle['soldiers'][number], v2: number, rng: Rng): void {
+    const mounted = s.s.mounted;
+    if (v2 < (mounted ? 300 : 36)) return;
+    if (!this.nearView(s.x, s.y, 30)) return;
+    const sp = Math.sqrt(v2);
+    const want = mounted ? Math.min(0.45, sp * 0.0065) : Math.min(0.06, sp * 0.0026);
+    this.dustWant += want;
+    if (rng.next() >= want * this.dustScale) return;
+    const gallop = mounted && sp > 45 ? 1 : 0;
+    const back = mounted ? 0.1 : 0.07;
+    const spread = mounted ? 5 : 4;
+    const kick = mounted ? 0.12 : 0.05;
+    // A tint over 1 lifts the puff's grey shading to a pale, sunlit cream (dust is lighter than
+    // the ground it rises from, ref Etosha), where a plain tan would muddy into brown smoke.
+    const g = 1.08 + rng.next() * 0.1;
+    this.spawn(
+      PK.Dust,
+      s.x - s.vx * back + (rng.next() - 0.5) * spread,
+      s.y - s.vy * back + (rng.next() - 0.5) * spread,
+      0.3,
+      -s.vx * kick + (rng.next() - 0.5) * 4,
+      -s.vy * kick + (rng.next() - 0.5) * 4,
+      mounted ? 2 + rng.next() * (3 + gallop * 4) : 1 + rng.next() * 2.5,
+      mounted ? 2.8 + rng.next() * 2 + gallop : 2.4 + rng.next() * 1.6,
+      mounted ? 3 + gallop * 2 + rng.next() * 2 : 2.5 + rng.next() * 2,
+      g,
+      g * 0.9,
+      g * 0.72,
+      mounted ? 0.15 + gallop * 0.07 : 0.16,
+      rng.int(PUFF_VARIANTS),
+    );
+  }
+
+  /**
+   * Blocks meet: a man's step into the fight (his first blow after none) kicks a puff of dust
+   * where the lines touch, now and then; a charge (he came in fast) always does, with a burst of
+   * dust thrown forward, clods under hooves and sparks off armour.
+   */
+  private contact(i: number, s: Battle['soldiers'][number], tick: number, rng: Rng): void {
+    const fighting = s.target >= 0 && this.inMelee(s, tick) ? 1 : 0;
+    const was = this.engaged[i];
+    this.engaged[i] = fighting;
+    if (!fighting) return;
+    if (was) {
+      // The press of a melee scuffs up a low haze of its own, now and then under each man.
+      if (!this.nearView(s.x, s.y, 20)) return;
+      this.dustWant += 0.02;
+      if (rng.next() >= 0.02 * this.dustScale) return;
+      const g = 1.04 + rng.next() * 0.1;
+      this.spawn(PK.Dust, s.x + (rng.next() - 0.5) * 5, s.y + (rng.next() - 0.5) * 5, 0.3, (rng.next() - 0.5) * 6, (rng.next() - 0.5) * 6, 1 + rng.next() * 2, 2.2 + rng.next() * 1.5, 2 + rng.int(3), g, g * 0.9, g * 0.72, 0.14, rng.int(PUFF_VARIANTS));
+      return;
+    }
+    const t = this.battle.soldiers[s.target]!;
+    const dx = t.x - s.x;
+    const dy = t.y - s.y;
+    const l = Math.hypot(dx, dy) || 1;
+    const ux = dx / l;
+    const uy = dy / l;
+    const x = s.x + dx * 0.55;
+    const y = s.y + dy * 0.55;
+    if (!this.nearView(x, y, 20)) return;
+    const mounted = s.s.mounted;
+    const pv2 = this.prevV2[i]!;
+    const charge = mounted ? pv2 > 900 : pv2 > 250;
+    if (!charge && rng.next() > 0.3) return;
+    const n = charge ? (mounted ? 4 : 2) : 1;
+    for (let k = 0; k < n; k++) {
+      const a = rng.next() * Math.PI * 2;
+      const sp = 6 + rng.next() * (charge ? 14 : 6);
+      const g = 1.02 + rng.next() * 0.1;
+      this.spawn(PK.Dust, x + (rng.next() - 0.5) * 3, y + (rng.next() - 0.5) * 3, 1 + rng.next() * 2, ux * 8 + Math.cos(a) * sp, uy * 8 + Math.sin(a) * sp, 3 + rng.next() * 4, 1.3 + rng.next() * 0.9, (mounted ? 3 : 2) + rng.int(2), g, g * 0.9, g * 0.72, charge ? 0.34 : 0.26, rng.int(PUFF_VARIANTS));
+    }
+    if (!charge) return;
+    if (s.s.armour >= 30 || t.s.armour >= 30)
+      for (let k = 0; k < 2 + rng.int(3); k++) this.spawn(PK.Spark, x, y, 5 + rng.next() * 4, ux * 30 + (rng.next() - 0.5) * 50, uy * 30 + (rng.next() - 0.5) * 50, 14 + rng.next() * 24, 0.14 + rng.next() * 0.14, 1, 1, 0.88, 0.52, 1);
+    if (mounted)
+      for (let k = 0; k < 3; k++) {
+        const g = rng.next() < 0.5 ? 0.24 : 0.36;
+        this.spawn(PK.Debris, s.x + ux * 2, s.y + uy * 2, 1, ux * 20 + (rng.next() - 0.5) * 30, uy * 20 + (rng.next() - 0.5) * 30, 20 + rng.next() * 25, 1.2, 1, g, g * 0.86, g * 0.68, 1);
+      }
+  }
+
+  /**
+   * Shots loosed this tick (before `flying` is replaced). A gun (teppō, ōzutsu) fires in a jet of
+   * white smoke driven out of the muzzle (ref Enfield), then leaves a bank that hangs in front of
+   * the line for many seconds and drifts downwind (ref Napoleon), spread along the rank that
+   * fired (ref Nagashino screen), and a flash.
+   */
+  private gunSmoke(rng: Rng): void {
+    const b = this.battle;
+    for (const p of b.projectiles) {
+      if (this.flying.has(p)) continue;
+      const bombard = p.cls === U.Artillery;
+      if ((p.cls !== U.Crossbowmen && !bombard) || b.setup.armies[p.team]?.faction !== 'samurai') continue;
+      const sh = b.soldiers[p.shooter];
+      const x = sh ? sh.x : p.x0;
+      const y = sh ? sh.y : p.y0;
+      if (!this.nearView(x, y, 80)) continue;
+      const l = Math.hypot(p.x1 - p.x0, p.y1 - p.y0) || 1;
+      const ux = (p.x1 - p.x0) / l;
+      const uy = (p.y1 - p.y0) / l;
+      const k = bombard ? 2.2 : 1;
+      const z0 = bombard ? 4 : 7;
+      // The jet: fast out of the muzzle, dense, gone in a second or so.
+      for (let j = 0; j < (bombard ? 8 : 3); j++) {
+        const g = 0.86 + rng.next() * 0.1;
+        const out = (1 + rng.next() * 3) * k;
+        const sp = (14 + rng.next() * 22) * k;
+        this.spawn(PK.Smoke, x + ux * out, y + uy * out, z0 + rng.next() * 2, ux * sp + (rng.next() - 0.5) * 6, uy * sp + (rng.next() - 0.5) * 6, 1 + rng.next() * 3, 0.9 + rng.next() * 0.8, (bombard ? 3 : 2) + rng.int(2), g, g, g * 0.97, 0.8, rng.int(PUFF_VARIANTS));
+      }
+      // The bank: slow, pale and thin, hanging a body or two in front of the line and spread
+      // along it, so a volley leaves one band of haze rather than a row of puffs (refs Napoleon, Nagashino).
+      for (let j = 0; j < (bombard ? 6 : 3); j++) {
+        const g = 0.8 + rng.next() * 0.1;
+        const out = (3 + rng.next() * 7) * k;
+        const side = (rng.next() - 0.5) * 12 * k;
+        this.spawn(PK.Smoke, x + ux * out - uy * side, y + uy * out + ux * side, z0 - 2 + rng.next() * 3, ux * (2 + rng.next() * 4), uy * (2 + rng.next() * 4), 0.6 + rng.next() * 1.4, (bombard ? 12 : 9) + rng.next() * 5, (bombard ? 5 : 3) + rng.int(3), g, g * 0.99, g * 0.95, bombard ? 0.36 : 0.26, rng.int(PUFF_VARIANTS));
+      }
+      for (let j = 0; j < (bombard ? 6 : 3); j++) this.spawn(PK.Spark, x + ux * 2 * k, y + uy * 2 * k, bombard ? 4 : 7, ux * 40 + (rng.next() - 0.5) * 20, uy * 40 + (rng.next() - 0.5) * 20, rng.next() * 10, 0.1 + rng.next() * 0.08, 1, 1, 0.8, 0.4, 1);
     }
   }
 
@@ -1981,6 +2148,12 @@ export class BattleScene {
           p.vx *= damp;
           p.vy *= damp;
           p.vz *= dampZ;
+          // The breeze carries smoke, and dust a little less (it settles).
+          if (p.kind === PK.Smoke || p.kind === PK.Dust) {
+            const k = (p.kind === PK.Smoke ? 1 : 0.6) * dt;
+            p.x += this.windX * k;
+            p.y += this.windY * k;
+          }
         }
         ps[w++] = p;
         const mx = this.mapX(p.x, p.y);
@@ -2061,6 +2234,7 @@ export class BattleScene {
     const rng = this.hdRng;
     const tick = b.tick;
     const now = tick * TICK_S;
+    this.atmosTick();
     for (let i = 0; i < ss.length; i++) {
       const s = ss[i]!;
       if (s.state === State.Fled) continue;
@@ -2126,11 +2300,10 @@ export class BattleScene {
       }
       if (s.roseAt >= 0 && !this.rose[i]) this.graveLight(i);
       const v2 = s.vx * s.vx + s.vy * s.vy;
-      // Hooves and marching feet raise dust.
-      if (s.s.mounted ? v2 > 700 && rng.next() < 0.22 : v2 > 100 && rng.next() < 0.01) {
-        const big = s.s.mounted ? 1 : 0;
-        this.spawn(PK.Dust, s.x - s.vx * 0.06 + (rng.next() - 0.5) * 3, s.y - s.vy * 0.06 + (rng.next() - 0.5) * 3, 1, -s.vx * 0.1 + (rng.next() - 0.5) * 6, -s.vy * 0.1 + (rng.next() - 0.5) * 6, 2 + rng.next() * 4, 1.6 + rng.next() * 1.4 + big, 2 + big * 4.5 + rng.next() * 2.5, 0.86, 0.76, 0.6, 0.3 + big * 0.18, rng.int(PUFF_VARIANTS));
-      }
+      // Hooves and marching feet raise dust; blocks meeting kick it up.
+      this.raiseDust(s, v2, rng);
+      this.contact(i, s, tick, rng);
+      this.prevV2[i] = v2;
       // Hooves print the soil, the open heel behind.
       if (s.s.mounted && v2 > 300 && rng.next() < 0.22) {
         const sx = -projX(s.vx, s.vy);
@@ -2166,25 +2339,7 @@ export class BattleScene {
       if (rng.next() < 0.3) this.spawn(PK.Dust, p.x1, p.y1, 0.5, (rng.next() - 0.5) * 8, (rng.next() - 0.5) * 8, 3 + rng.next() * 3, 0.7 + rng.next() * 0.5, 1 + rng.int(2), 0.8, 0.7, 0.55, 0.5, rng.int(PUFF_VARIANTS));
     }
     // New shots: the teppō and the ōzutsu fire in a billow of white powder smoke.
-    for (const p of b.projectiles) {
-      if (this.flying.has(p)) continue;
-      const bombard = p.cls === U.Artillery;
-      if ((p.cls !== U.Crossbowmen && !bombard) || b.setup.armies[p.team]?.faction !== 'samurai') continue;
-      const sh = ss[p.shooter];
-      const x = sh ? sh.x : p.x0;
-      const y = sh ? sh.y : p.y0;
-      const l = Math.hypot(p.x1 - p.x0, p.y1 - p.y0) || 1;
-      const ux = (p.x1 - p.x0) / l;
-      const uy = (p.y1 - p.y0) / l;
-      const k = bombard ? 2.2 : 1;
-      const n = bombard ? 14 : 5;
-      for (let j = 0; j < n; j++) {
-        const g = 0.8 + rng.next() * 0.12;
-        const out = (1 + rng.next() * 3) * k;
-        this.spawn(PK.Smoke, x + ux * out, y + uy * out, (bombard ? 4 : 7) + rng.next() * 2, ux * (5 + rng.next() * 12) * k + 2, uy * (5 + rng.next() * 12) * k, 2 + rng.next() * 3, (2.6 + rng.next() * 2.6) * (bombard ? 1.4 : 1), (bombard ? 3 : 2) + rng.int(3), g, g, g * 0.97, 0.75, rng.int(PUFF_VARIANTS));
-      }
-      for (let j = 0; j < (bombard ? 6 : 3); j++) this.spawn(PK.Spark, x + ux * 2 * k, y + uy * 2 * k, bombard ? 4 : 7, ux * 40 + (rng.next() - 0.5) * 20, uy * 40 + (rng.next() - 0.5) * 20, rng.next() * 10, 0.1 + rng.next() * 0.08, 1, 1, 0.8, 0.4, 1);
-    }
+    this.gunSmoke(rng);
     this.flying = live;
   }
 
@@ -2356,6 +2511,12 @@ export class BattleScene {
         p.vx *= damp;
         p.vy *= damp;
         p.vz *= dampZ;
+        // The breeze carries smoke, and dust a little less (it settles).
+        if (p.kind === PK.Smoke || p.kind === PK.Dust) {
+          const k = (p.kind === PK.Smoke ? 1 : 0.6) * dt;
+          p.x += this.windX * k;
+          p.y += this.windY * k;
+        }
       }
       ps[w++] = p;
       if (p.kind === PK.Dust) this.dustN++;
