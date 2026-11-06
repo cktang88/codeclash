@@ -36,7 +36,7 @@ export interface FactionDef {
  * that they win about as often against the Templars and the Samurai as before they were
  * fearless (`pnpm fairness --factions undead,templar`; see docs/factions.md).
  */
-export const DEAD_HP = 0.7;
+export const DEAD_HP = 0.71;
 /** The Bone Colossus keeps a little more. */
 export const COLOSSUS_HP = 0.8;
 
@@ -141,7 +141,7 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
       [U.Shock]: { hp: COLOSSUS_HP },
     },
     palette: { cloth: '#2e2b2a', clothShade: '#1a1817', trim: '#5f8f4e', metal: '#6c6f68', metalShade: '#3a3c38', leather: '#3d3128', skin: '#d8d0b4' },
-    rule: 'The dead know no fear: they never waver, rout or rally, but have 70% of the living’s hit points (the Bone Colossus 80%; the trebuchet is timber). The tide: their foot marches at 0.8 of the living’s pace except within 500 of the Lich-Marshal, never halts to shoot or holds back, and charges at a lurch. Unflinching: a charge into them barely knocks them back, stuns nobody and stalls sooner. What falls, rises: every 10 s the Lich-Marshal raises fallen foot of his host within 500 of him (45% of the foot who fall while he stands rise again in time) with 40% of their hit points. If he falls, the raising stops and the whole host crumbles: every man loses 2% of his hit points a second and fights worse. A host down to its last 15% (or its last fifth, against twice as many) is spent: the battle is lost and it crumbles the same way.',
+    rule: 'The dead know no fear: they never waver, rout or rally, but have 71% of the living’s hit points (the Bone Colossus 80%; the trebuchet is timber). The tide: their foot marches at 0.8 of the living’s pace except within 500 of the Lich-Marshal, never halts to shoot or holds back, and charges at a lurch. Unflinching: a charge into them barely knocks them back, stuns nobody and stalls sooner. What falls, rises: every 10 s the Lich-Marshal raises fallen foot of his host within 500 of him (45% of the foot who fall while he stands rise again in time) with 40% of their hit points. If he falls, the raising stops and the whole host crumbles: every man loses 2% of his hit points a second and fights worse. A host down to its last 15% (or its last fifth, against twice as many) is spent: the battle is lost and it crumbles the same way.',
   },
 };
 

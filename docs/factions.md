@@ -53,7 +53,7 @@ Since battle v13 the factions differ mostly by their **doctrines** (below, and
 | Samurai | **HorseArchers missileDamage ×1.10** | Yabusame, the clan's signature art. Horse archers are 5% of the standard mix and fragile; +10% damage is a flavour edge, not a swing. |
 | Samurai | **HeavyInfantry morale ×1.05, attack ×1.06** | Bushidō: the katana line holds a little longer and cuts harder (attack added in v13's balance). The Spearmen armour ×0.95 malus went in v13. |
 | Samurai | Crossbowmen (teppō) reload ×1.34, missileDamage ×1.3 | The matchlock: fewer, heavier volleys (v11). |
-| Undead | **every class but the Colossus and the trebuchet: hp ×0.7** (`DEAD_HP`; Colossus ×0.8) | The price of never routing (v12: 0.69; v13, with the doctrines: 0.66; v17, at real scale: 0.7). |
+| Undead | **every class but the Colossus and the trebuchet: hp ×0.71** (`DEAD_HP`; Colossus ×0.8) | The price of never routing (v12: 0.69; v13, with the doctrines: 0.66; v17, at real scale: 0.71). |
 | Undead | **Archers missileDamage ×0.90** | Rotten sinew bowstrings: the weakest archery of the three factions. |
 
 ### Balance results
@@ -127,7 +127,7 @@ design. The ticker tells each doctrine's moment (event `doctrine`).
     grave-light); `SideResult.risen` counts them, and dead + fled + alive still make the start.
 - **Undead: the dead know no fear** (built in battle v12; `fearless` in `battle.ts`, `UNDEAD` in
   `command.ts`). Undead regiments never waver, rout or rally, and no morale rule touches them
-  (morale reads 100). The price is hit points: every class has 70% of its own (69% in v12, 66% v13-v16; `DEAD_HP`; the
+  (morale reads 100). The price is hit points: every class has 71% of its own (69% in v12, 66% v13-v16; `DEAD_HP`; the
   Colossus 80%, `COLOSSUS_HP`; the trebuchet, timber, unchanged), which replaced the stand-in
   HeavyInfantry morale ×1.05 and Colossus hp ×1.05 tweaks. If the Lich-Marshal falls, the whole
   host crumbles: every man loses 2% of his hit points a second and fights at -4 attack, -3
