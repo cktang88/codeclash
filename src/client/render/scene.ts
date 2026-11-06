@@ -24,6 +24,7 @@ import { Batch, cornerBuffer, dropTarget, SpriteProgram, SpriteStream, target, t
 import { paintGround, type Ground } from './ground.ts';
 import { projX, projY, PX, unproject } from './iso.ts';
 import { GlPost } from './post.ts';
+import { ELBOW, FoeGrid } from './foes.ts';
 import { facing, ownFront, settleTurn, stillRising, turnVia, TURN_HOLD, TURN_STEP, type Vec } from './pose.ts';
 import { AnimTrack, blankFacts, isGait, pickAnim } from './animstate.ts';
 import { frameBox, nextZoomFloor, NO_INSETS, zoomOutScale, type Insets, type ZoomFloor } from './fit.ts';
@@ -149,6 +150,22 @@ export const MAX_ZOOM = 8;
 /** Highest zoom level with the HD art, where each level doubles the scale (8x: the 128 px sprites 1:1). */
 export const MAX_ZOOM_HD = 5;
 
+/**
+ * The shade a corpse is drawn with, by faction (an RGB multiply, blue a hair lower). Men in
+ * coloured cloth already read as fallen by their pose and the blood under them; bleached bone
+ * lying on the ground had the same palette and size as a skeleton standing, so the undead dead
+ * go down to about the ground's value (Total War keeps its dead darker than the living).
+ */
+/**
+ * The first look: the longest the figures are held back for their art (a cold first visit on a
+ * slow machine paints the level-2 sheets in ~10 s; from the cache they come in well under one),
+ * and their fade in.
+ */
+const REVEAL_MAX_MS = 20000;
+const REVEAL_FADE_MS = 450;
+const CORPSE_SHADE: Record<string, number> = { default: 0.78, undead: 0.5 };
+/** HD: the painted dead already lie dark in their robes and the ground is busier, so the undead go down less far. */
+const CORPSE_SHADE_HD: Record<string, number> = { default: 0.78, undead: 0.62 };
 const BRACING: ReadonlySet<Stance> = new Set<Stance>(['shieldwall', 'pikewall', 'braced']);
 /** A regiment's stance; the sim adds `stance` on Regiment (read loosely until it lands). */
 const stanceOf = (r: object): Stance => (r as { stance?: Stance }).stance ?? 'line';
@@ -294,6 +311,28 @@ export class BattleScene {
   /** Each man's clip, its start and stride across frames (animstate.ts). */
   private anims: AnimTrack;
   private readonly facts = blankFacts();
+  /**
+   * Per army, the shade a corpse is drawn with (an RGB multiply): the fallen sink into the ground,
+   * and the undead's bone far more (CORPSE_SHADE), so a skeleton that still stands is never
+   * mistaken for one that lies (QA battle-realism #15).
+   */
+  private readonly corpseShade: [number, number];
+  /**
+   * The first look (QA battle-realism #17): until every kind in view has presentable art (in HD
+   * zoomed in, a sheet of level 2 or finer: the 48 px grid blown up 4-8x reads as dark blobs; else
+   * its grid), the figures are held back (the regiments' standards already stand where they will
+   * be), then they fade in together over REVEAL_FADE_MS, or after REVEAL_MAX_MS whatever. Page
+   * time of the scene's first frame, and of the reveal (-1: not yet). A scene that takes over from
+   * another (an art switch) starts revealed.
+   */
+  private firstDrawAt = -1;
+  private revealAt = -1;
+  /** Figures' opacity this frame (the reveal's fade). */
+  private veil = 1;
+  /** Page time from the first frame to the moment the figures were revealed (-1: not yet), for the harness. */
+  revealMs = -1;
+  /** The living by cell, a tick at a time: the enemy at a man's elbow (foes.ts, pose.ts facing). */
+  private readonly foes = new FoeGrid(FIELD_W, FIELD_H);
   /** Scratch for each man's own front (pose.ts ownFront). */
   private readonly front: Vec = { x: 1, y: 0 };
   /** The way each man last moved (world velocity above a crawl): a walker who pauses a tick keeps facing it. */
@@ -358,6 +397,8 @@ export class BattleScene {
     const [a, b] = battle.setup.armies;
     const buildAtlas = art === 'hd64' ? buildHd64 : art === 'hd' ? buildHd : buildClassic;
     this.atlases = [buildAtlas(a.faction, a.hue), buildAtlas(b.faction, b.hue)];
+    const shades = isHdArt(art) ? CORPSE_SHADE_HD : CORPSE_SHADE;
+    this.corpseShade = [shades[a.faction] ?? shades.default!, shades[b.faction] ?? shades.default!];
     // The painter fills kinds lazily, but the atlas goes to the GPU once: paint the kinds on the
     // field first (only those: a kind no one fields is never drawn).
     for (const s of battle.soldiers) {
@@ -426,6 +467,7 @@ export class BattleScene {
       this.dirs[i] = s.team === 0 ? 0 : 2;
     }
     this.snapshot();
+    if (from) this.revealAt = this.revealMs = 0;
     if (from && from.battle === battle) {
       this.dirs.set(from.dirs);
       this.riseX.set(from.riseX);
@@ -790,7 +832,7 @@ export class BattleScene {
     const s = this.battle.soldiers[i]!;
     const kind = this.kindOf(i);
     const u = this.cellU(s.team, kind, Anim.Dead, 0, this.dirs[i] as Dir);
-    this.stamps.push({ tex: s.team, x: Math.round(this.mapX(s.x, s.y)), y: Math.round(this.mapY(s.x, s.y)), u, v: this.cellV, w: this.cellW, h: this.cellH, ax: this.cellAx, ay: this.cellAy, shade: 0.78, a: 1, solid: false, r: 0, g: 0, b: 0 });
+    this.stamps.push({ tex: s.team, x: Math.round(this.mapX(s.x, s.y)), y: Math.round(this.mapY(s.x, s.y)), u, v: this.cellV, w: this.cellW, h: this.cellH, ax: this.cellAx, ay: this.cellAy, shade: this.corpseShade[s.team as 0 | 1], a: 1, solid: false, r: 0, g: 0, b: 0 });
   }
 
   // ---------------------------------------------------------------- GL setup
@@ -1253,7 +1295,8 @@ export class BattleScene {
     gl.enable(gl.STENCIL_TEST);
     gl.stencilFunc(gl.EQUAL, 0, 0xff);
     gl.stencilOp(gl.KEEP, gl.KEEP, gl.INCR);
-    P.shadow(true, SHEAR_X, SHEAR_Y, SHADOW);
+    // (The first look's fade: the shadows come in with the figures.)
+    P.shadow(true, SHEAR_X, SHEAR_Y, this.veil < 1 ? [SHADOW[0], SHADOW[1], SHADOW[2], SHADOW[3] * this.veil] : SHADOW);
     gfx.solid.draw(P);
     P.shadow(false);
     gl.disable(gl.STENCIL_TEST);
@@ -1261,8 +1304,10 @@ export class BattleScene {
     const tsh = performance.now();
     lp.shadows = tsh - ts;
 
-    // Everything solid, depth-tested by the foot's screen y.
-    gl.disable(gl.BLEND);
+    // Everything solid, depth-tested by the foot's screen y (blended only while the figures fade
+    // in on the first look: their sprites carry the fade as alpha, everything else is opaque).
+    if (this.veil < 1) gl.enable(gl.BLEND);
+    else gl.disable(gl.BLEND);
     gl.enable(gl.DEPTH_TEST);
     gl.depthFunc(gl.LEQUAL);
     gfx.solid.draw(P);
@@ -1324,6 +1369,47 @@ export class BattleScene {
     gfx.stamps.draw(P);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     gl.disable(gl.BLEND);
+  }
+
+  /** The figures' opacity this frame: 0 while the first look is held back, then the fade in (see firstDrawAt). */
+  private reveal(m: number): number {
+    if (this.revealAt === 0) return 1;
+    const now = performance.now();
+    if (this.revealAt < 0) {
+      // The first frame lays out the view and finds the kinds in it (seen): judge from the next.
+      if (this.firstDrawAt < 0) this.firstDrawAt = now;
+      else if (now - this.firstDrawAt > REVEAL_MAX_MS || this.presentable(m)) {
+        this.revealAt = now;
+        this.revealMs = now - this.firstDrawAt;
+        performance.mark?.('codeclash:reveal');
+      }
+      if (this.revealAt < 0) {
+        this.settled = false;
+        return 0;
+      }
+    }
+    const f = (now - this.revealAt) / REVEAL_FADE_MS;
+    if (f >= 1) {
+      this.revealAt = 0;
+      return 1;
+    }
+    this.settled = false;
+    return f * f * (3 - 2 * f);
+  }
+
+  /** Whether every kind in view (living or dead) is drawn from presentable art (see firstDrawAt). */
+  private presentable(m: number): boolean {
+    for (let t = 0; t < 2; t++) {
+      const atlas = this.atlases[t as 0 | 1];
+      const inView = this.seen[t]! | this.seenDead[t]!;
+      for (const k of this.kindsPresent[t]!) {
+        if (!(inView & (1 << k))) continue;
+        if (atlas.levels && m > 1) {
+          if (this.hdLevel[t]![k]! < atlas.levels[0]!) return false;
+        } else if (atlas.landed && !atlas.landed.includes(k)) return false;
+      }
+    }
+    return true;
   }
 
   /**
@@ -1535,6 +1621,7 @@ export class BattleScene {
     const kind = this.kindOf(i);
     const L = this.hdLevel[s.team]![kind]!;
     if (L <= 1) return false;
+    const k = this.corpseShade[s.team as 0 | 1];
     const sh = this.hdSheet[s.team]![kind]!;
     const o = this.slotOf(s.team, kind, Anim.Dead, 0, this.dirs[i] as Dir) * 6;
     const r = sh.rects;
@@ -1542,7 +1629,7 @@ export class BattleScene {
     const mx = this.mapX(s.x, s.y);
     const my = this.mapY(s.x, s.y);
     if (mx < x0 || mx > x1 || my < y0 || my > y1) return true;
-    this.hdBatch[s.team]![kind]!.sprite(Math.round(mx), Math.round(my), r[o]!, r[o + 1]!, r[o + 2]! / L, r[o + 3]! / L, r[o + 4]! / L, r[o + 5]! / L, -1e5, 0.78, 0.78, 0.75, 1, 0, 1);
+    this.hdBatch[s.team]![kind]!.sprite(Math.round(mx), Math.round(my), r[o]!, r[o + 1]!, r[o + 2]! / L, r[o + 3]! / L, r[o + 4]! / L, r[o + 5]! / L, -1e5, k, k, k * 0.96, this.veil, 0, 1);
     return true;
   }
 
@@ -1561,6 +1648,7 @@ export class BattleScene {
     team[1].clear();
     const m = v.m;
     const hd = this.pickLevels(gfx, m);
+    this.veil = this.reveal(m);
     this.seen[0] = this.seen[1] = 0;
     this.seenDead[0] = this.seenDead[1] = 0;
     this.seenNear[0] = this.seenNear[1] = 0;
@@ -1577,6 +1665,7 @@ export class BattleScene {
     const py0 = y0 - v.vh;
     const py1 = y1 + v.vh;
     // Soldiers.
+    this.foes.build(ss, b.tick);
     for (let i = 0; i < ss.length; i++) {
       const s = ss[i]!;
       if (s.state === State.Fled) continue;
@@ -1671,7 +1760,10 @@ export class BattleScene {
         const foeReg = curling ? b.regiments[reg.targetReg] : undefined;
         const rear = facesRear(reg, s.row, s.mounted === true, b.tick);
         const fr = ownFront(reg.fx, reg.fy, rear, curling, foeReg ? foeReg.ax - s.x : NaN, foeReg ? foeReg.ay - s.y : NaN, this.front);
-        const next = settleTurn(facing(anim, vx, vy, tdx, tdy, melee, this.aimX[i]!, this.aimY[i]!, fr.x, fr.y, dir, rear && !curling), dir, anim, T - this.turnAt[i]!, left === 255 ? -1 : (left as Dir));
+        // The enemy at his elbow (foes.ts): a man on foot in the fight turns to him.
+        const elbow = s.state === State.Fighting && !s.s.mounted ? this.foes.nearest(s.x, s.y, s.team, ELBOW) : -1;
+        const nb = elbow >= 0 ? ss[elbow]! : undefined;
+        const next = settleTurn(facing(anim, vx, vy, tdx, tdy, melee, this.aimX[i]!, this.aimY[i]!, fr.x, fr.y, dir, rear && !curling, nb ? nb.x - s.x : NaN, nb ? nb.y - s.y : NaN), dir, anim, T - this.turnAt[i]!, left === 255 ? -1 : (left as Dir));
         if (next !== dir) {
           // A half turn goes through the quarter between (pose.ts turnVia), shown for TURN_STEP.
           const via = anim === Anim.Attack || anim === Anim.Shoot ? next : turnVia(dir, next, vx * vx + vy * vy > 9 ? vx : tgt ? tdx : fr.x, vx * vx + vy * vy > 9 ? vy : tgt ? tdy : fr.y);
@@ -1702,16 +1794,25 @@ export class BattleScene {
         jx = (h & 3) - 1.5;
         jy = ((h >>> 2) & 1) - 0.5;
       }
+      // A falling man darkens to his corpse's shade as he goes down (and one who may yet rise,
+      // drawn as a figure, lies at it); one getting up brightens again.
+      let shade = 1;
+      if (s.state === State.Dead || rising) {
+        const k = this.corpseShade[s.team as 0 | 1];
+        const dt = this.dieTicks(s.team, kind);
+        const down = rising ? 1 - (T - s.roseAt) / dt : (T - s.diedAt) / dt;
+        shade = 1 + (k - 1) * Math.min(1, Math.max(0, down));
+      }
       const lv = hd ? this.hdLevel[s.team]![kind]! : 1;
       // A partial sheet (KindSheet.partial) lacks some frames (w = 0): those come from the grid.
       const o = lv > 1 ? this.slotOf(s.team, kind, anim, f, dir) * 6 : 0;
       if (lv > 1 && this.hdSheet[s.team]![kind]!.rects[o + 2]! > 0) {
         const sh = this.hdSheet[s.team]![kind]!;
         const r = sh.rects;
-        this.hdBatch[s.team]![kind]!.sprite(Math.round((fmx + jx) * m) / m, Math.round((fmy + jy) * m) / m, r[o]!, r[o + 1]!, r[o + 2]! / lv, r[o + 3]! / lv, r[o + 4]! / lv, r[o + 5]! / lv, fmy, 1, 1, 1, 1, flash);
+        this.hdBatch[s.team]![kind]!.sprite(Math.round((fmx + jx) * m) / m, Math.round((fmy + jy) * m) / m, r[o]!, r[o + 1]!, r[o + 2]! / lv, r[o + 3]! / lv, r[o + 4]! / lv, r[o + 5]! / lv, fmy, shade, shade, shade * (shade < 1 ? 0.96 : 1), this.veil, flash);
       } else {
         const u = this.cellU(s.team, kind, anim, f, dir);
-        team[s.team as 0 | 1].sprite(Math.round(fmx + jx), Math.round(fmy + jy), u, this.cellV, this.cellW, this.cellH, this.cellAx, this.cellAy, fmy, 1, 1, 1, 1, flash, 0, this.cellCutX, this.cellCutY);
+        team[s.team as 0 | 1].sprite(Math.round(fmx + jx), Math.round(fmy + jy), u, this.cellV, this.cellW, this.cellH, this.cellAx, this.cellAy, fmy, shade, shade, shade * (shade < 1 ? 0.96 : 1), this.veil, flash, 0, this.cellCutX, this.cellCutY);
       }
     }
 
@@ -2128,9 +2229,9 @@ export class BattleScene {
     // In view: its kind keeps (or gets) a hi-res sheet.
     this.seenDead[s.team] = this.seenDead[s.team]! | (1 << kind);
     if (hd && this.hdLevel[s.team]![kind]! > 1 && this.hdCorpse(i, x0, x1, y0, y1)) return;
-    const atlas = this.atlases[s.team as 0 | 1];
+    const cs = this.corpseShade[s.team as 0 | 1];
     const u = this.cellU(s.team, kind, Anim.Dead, 0, this.dirs[i] as Dir);
-    this.gfx!.team[s.team as 0 | 1].sprite(Math.round(mx), Math.round(my), u, this.cellV, this.cellW, this.cellH, this.cellAx, this.cellAy, -1e5, 0.78, 0.78, 0.75, 1, 0, 1, this.cellCutX, this.cellCutY);
+    this.gfx!.team[s.team as 0 | 1].sprite(Math.round(mx), Math.round(my), u, this.cellV, this.cellW, this.cellH, this.cellAx, this.cellAy, -1e5, cs, cs, cs * 0.96, this.veil, 0, 1, this.cellCutX, this.cellCutY);
   }
 
   /** HD: the stakes, from the level-m sheet (and the HD batches cleared for the frame). */
