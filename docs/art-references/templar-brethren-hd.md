@@ -110,3 +110,14 @@ iron's dark deep tone turned the whole figure a blue-grey on the field's value: 
 (`templar.k.ironK`, `templar.k.haftK`) and `litDark` from level 4. In battle each brother now has a
 dark contour, and the axes read against the cloth behind. Lint (kind 8, HD): 0 fails; figure vs
 ground warns 1 -> 3 (L4 0.074, L8 0.112, as the Knight-Brothers).
+
+## Unhorsed brothers stay brothers (cc/art3, round 2)
+
+An unhorsed Knight-Brother (game `Soldier.dismounted`) was drawn as the faction's heavy foot: a
+sergeant in black with a kite shield, so a brother whose horse fell beside the white knights turned
+into a different man. The Rule dresses the brothers in white and the sergeants in black, and
+Medieval II's dismounted knights (`0000000848`, above) keep the great helm and surcoat. `scene.ts`
+`AFOOT_BY`: for the Templars an unhorsed knight is drawn as the Iron Brethren (the Order's knights
+on foot); other factions keep the shared mapping. Checked in battle (seed 1, samurai against
+Templars, t1200, zoom 4): three unhorsed brothers stand in white with great helms and axes among the
+samurai where three black sergeants stood.
