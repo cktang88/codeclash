@@ -223,6 +223,20 @@ export { COHESION, DOCTRINE, MORALE, REGROUP, UNDEAD } from './command.ts';
  *   marching to a flank 14 -> 32, stragglers 12 -> 43, all flags 416 -> 430.) The side gap the review
  *   saw in samurai-undead (team 0 +11) did not hold on fresh seeds (301-500 at 250: 49.0 / 49.5);
  *   a swapped pairing mirrors exactly until the men's own draws part it (side-fair.test.ts).
+ * - Horse charges with sense (docs/qa/battle-realism-review-2.md #3, #4, #6, leftover 5;
+ *   src/game/charge-sense.test.ts). A charge that closes on its prey by under 10 u in 2 s with no
+ *   blow (the prey locked with our own men, the way to it through them) rides once for its open
+ *   side, away from our men, then leaves it be 30 s and takes another (`chargeSpent`); one that
+ *   cannot catch free horse (14 s past CHARGE_MISSED), or any charge 25 s without a blow, rides
+ *   back to re-form. Idle riders in 'charge' at 450 (seeds 1-4, scripts/qa/cav-idle.ts): 26 of
+ *   53 idle rider-seconds, now 1 of 28; charges of 20 s without contact in 36 pairings
+ *   (realism-audit): 18, now 0. A rider after a fugitive rides at the man's pace and more, to
+ *   inside his reach, and cuts at him as he goes: the knights-on-archers set piece (seeds 1-3,
+ *   scripts/qa/pursuit.ts) cut down 27 routers, 9 a rider-minute at their heels at 45% of top
+ *   speed, now 49, 89 a minute at 73%. Two blocks of our horse on one enemy horse from the same
+ *   side aim apart (`besideFriends`): riders knee to knee with the other block in the set piece
+ *   8%, now 1%; s1/450 C27+C29 23%, now 13%. Faction pairs, 80 battles at 450: undead v templar
+ *   33.8 -> 37.5, undead v samurai 33.8 -> 42.5, samurai v templar 50.0 -> 51.3 (noise 5.6).
  */
 /**
  * v16: nothing grows with the size of the battle that should not (the undead won two thirds of
@@ -759,6 +773,17 @@ export class Regiment {
   toBanner = false;
   /** Charging: since when, and whether it ran so far the ranks have come apart. */
   chargeAt = -1;
+  /**
+   * Horse (QA round 2 #3, #4): a block it gave up charging (it could not get at it, or could not
+   * catch it) and until when it leaves it be; the nearest it has got to its prey in a charge, and
+   * since when (or since its last blow); the block whose open side (away from our men fighting it) it rides
+   * for.
+   */
+  spurnReg = -1;
+  spurnUntil = 0;
+  stallGap = Infinity;
+  stallAt = 0;
+  openFor = -1;
   ragged = false;
   spacing = 5;
   speed = 20;
@@ -4798,7 +4823,7 @@ export class Battle {
     this.standOff(r, near, st.range * 0.6);
   }
 
-  private thinkCav(r: Regiment, shock: boolean): void {
+  private thinkCav(r: Regiment, shock: boolean, giving = false): void {
     const team = r.team;
     const e = this.ts[1 - team]!;
     const dir = team === 0 ? 1 : -1;
@@ -4838,7 +4863,13 @@ export class Battle {
         this.goal(r, r.wx, r.wy);
         return;
       }
-      if (prey0) this.goal(r, prey0.cx, prey0.cy);
+      if (prey0) {
+        // (Against horse, beside another block of ours on it, not into its riders: leftover 5.)
+        if (isCav(prey0)) {
+          this.besideFriends(r, prey0, prey0.cx, prey0.cy);
+          this.goal(r, this.tmp[0]!, this.tmp[1]!);
+        } else this.goal(r, prey0.cx, prey0.cy);
+      }
       return;
     }
     if (r.mode === 'withdraw') {
@@ -4875,7 +4906,9 @@ export class Battle {
 
     // The order's target, or one of opportunity.
     let prey: Regiment | null = null;
-    const given = o.target >= 0 ? this.regiments[o.target]! : null;
+    // (Not one it has just given up on: see `giveUp`.)
+    const skip = this.tick < r.spurnUntil ? r.spurnReg : -1;
+    const given = o.target >= 0 && o.target !== skip ? this.regiments[o.target]! : null;
     // Fugitives close by tempt the horse out of its place (eager horse readily, the Templars
     // seldom); once off after them it keeps on until called back (see below).
     // (Not horse rallying to charge again (P4): it is re-forming, not looking for fugitives.)
@@ -4886,7 +4919,7 @@ export class Battle {
       // On the wing: counter-charge horse that comes close, fight foot that walks into us. (T1:
       // Templar knights held back by the Marshal ride back to their place from foot instead:
       // the Rule forbids a charge without his word.)
-      prey = this.nearestFoe(r, 2, 90) ?? (shock && this.doc[team]!.signal && this.lordAlive(team) ? null : this.nearestFoe(r, 0, 25));
+      prey = this.nearestFoe(r, 2, 90, skip) ?? (shock && this.doc[team]!.signal && this.lordAlive(team) ? null : this.nearestFoe(r, 0, 25));
       if (!prey) {
         const gx = Number.isNaN(o.x) ? r.ax : o.x;
         const gy = Number.isNaN(o.y) ? r.ay : o.y;
@@ -4903,8 +4936,8 @@ export class Battle {
     else if (given && given.alive > 0 && !given.routed) prey = given;
     // (T1: knights whose horse is gone, with no signal given, look for more horse or wait for the
     // Marshal's word: they do not ride on at the shooters behind it on their own.)
-    else if (shock && this.doc[team]!.signal && this.lordAlive(team) && this.generals[team]!.signalTarget < 0) prey = this.nearestFoe(r, 2, 300);
-    else prey = this.nearestFoe(r, 2, 300) ?? this.nearestFoe(r, 1, Infinity) ?? this.nearestFoe(r, 4, 260) ?? this.nearestFoe(r, 3, Infinity) ?? this.nearestFoe(r, 0, Infinity);
+    else if (shock && this.doc[team]!.signal && this.lordAlive(team) && this.generals[team]!.signalTarget < 0) prey = this.nearestFoe(r, 2, 300, skip);
+    else prey = this.nearestFoe(r, 2, 300, skip) ?? this.nearestFoe(r, 1, Infinity, skip) ?? this.nearestFoe(r, 4, 260) ?? this.nearestFoe(r, 3, Infinity, skip) ?? this.nearestFoe(r, 0, Infinity, skip);
     if (!prey) {
       this.setMode(r, 'hold');
       this.goal(r, r.ax, r.ay);
@@ -5031,18 +5064,175 @@ export class Battle {
         this.events.push({ tick: this.tick, team, kind: 'charge', cls: r.cls, reg: r.id });
         // T1: launched on the Marshal's signal, at his target: the held charge.
         r.held = shock && this.doc[team]!.signal && this.generals[team]!.signalTarget === prey.id;
+        r.stallGap = Infinity;
+        r.stallAt = this.tick;
+        if (r.openFor !== prey.id) r.openFor = -1;
+      } else if (this.chargeSpent(r, prey)) {
+        if (!giving) return this.thinkCav(r, shock, true);
+        this.setMode(r, 'hold');
+        this.goal(r, r.ax, r.ay);
+        return;
       }
       this.setMode(r, 'charge');
       // Aim through the target, so the charge carries into it; a charge that has run on without
       // a blow (it rode past or round its target) makes straight for it instead, or it rides
       // round it for good (see `moveAnchor`).
       const past = this.tick - r.modeAt > CHARGE_MISSED ? 0 : 40;
-      this.goal(r, prey.cx + (dpx / dp) * past, prey.cy + (dpy / dp) * past);
+      let gx = prey.cx + (dpx / dp) * past;
+      let gy = prey.cy + (dpy / dp) * past;
+      // Its open side, away from our men fighting it, until the riders are round on that side.
+      if (r.openFor === prey.id && this.openSide(r, prey)) {
+        gx = this.tmp[0]!;
+        gy = this.tmp[1]!;
+      }
+      this.besideFriends(r, prey, gx, gy);
+      this.goal(r, this.tmp[0]!, this.tmp[1]!);
       this.faceToward(r, prey.cx, prey.cy);
       return;
     }
     this.setMode(r, 'flank');
-    this.goal(r, prey.cx - (dpx / dp) * 90, prey.cy - (dpy / dp) * 90);
+    this.besideFriends(r, prey, prey.cx - (dpx / dp) * 90, prey.cy - (dpy / dp) * 90);
+    this.goal(r, this.tmp[0]!, this.tmp[1]!);
+  }
+
+  /**
+   * QA round 2 #3, #4: whether a charge that has not come to blows is over, and what then.
+   *  - It cannot get at its prey (#3): no headway (the gap to it has not closed by
+   *    `RIDER.stallBy` in `RIDER.stallFor`, and no rider has a foe), as when the prey is locked with our own men and the way to it runs
+   *    through them (`rideRound` puts the goal beside them, where the horse already stands).
+   *    Once a block, it rides for the prey's open side (`openSide`); if there is none, or it is
+   *    stuck again, it leaves the prey be (`RIDER.spurnFor`) and takes another (the caller
+   *    thinks again).
+   *  - It cannot catch it (#4): a charge `RIDER.outrun` past `CHARGE_MISSED` without a blow at
+   *    horse as fast as itself or riding away (horse archers kiting, light horse), or any charge
+   *    `RIDER.chargeFor` without a blow: it gives up the chase, rides back to re-form
+   *    (`rallyPoint`) and leaves that block be a while. (Until v17 a charge never gave up:
+   *    knights rode 400 u circles after horse archers for a minute and more.)
+   * True when the charge is over (and the caller should think again), the block set up for it.
+   */
+  private chargeSpent(r: Regiment, prey: Regiment): boolean {
+    const t = this.tick;
+    // (Headway: the gap to the prey's middle closed by `stallBy` since the best yet; or blows.)
+    const gx = prey.cx - r.cx;
+    const gy = prey.cy - r.cy;
+    const gap = sqrt(gx * gx + gy * gy);
+    if (gap < r.stallGap - RIDER.stallBy || this.blows(r)) {
+      r.stallGap = gap;
+      r.stallAt = t;
+    }
+    const run = t - r.modeAt;
+    // (Fleet: horse riding free, not held in a fight, and as fast or riding away.)
+    const fleet = isCav(prey) && !prey.engaged && prey.mode !== 'melee' && (prey.speed >= r.speed * 0.95 || prey.mode === 'kite' || prey.mode === 'skirmish' || prey.mode === 'withdraw');
+    if ((fleet && run > CHARGE_MISSED + RIDER.outrun) || run > RIDER.chargeFor) {
+      this.giveUp(r, prey, true);
+      return true;
+    }
+    if (t - r.stallAt <= RIDER.stallFor || run <= RIDER.stallFor) return false;
+    r.stallGap = gap;
+    r.stallAt = t;
+    if (r.openFor !== prey.id && prey.engaged && this.openSide(r, prey)) {
+      r.openFor = prey.id;
+      return false;
+    }
+    this.giveUp(r, prey, false);
+    return true;
+  }
+
+  /** Whether any rider of `r` has a foe (in the fight, or about to strike). */
+  private blows(r: Regiment): boolean {
+    const d = this.d;
+    for (const id of r.members) if (d.state[id] === State.Fighting && d.target[id]! >= 0) return true;
+    return false;
+  }
+
+  /** Leaves `prey` be for `RIDER.spurnFor`: rides back to re-form (`back`), or turns to another target at once. */
+  private giveUp(r: Regiment, prey: Regiment, back: boolean): void {
+    r.spurnReg = prey.id;
+    r.spurnUntil = this.tick + RIDER.spurnFor;
+    r.openFor = -1;
+    r.targetReg = -1;
+    if (back) {
+      this.rallyPoint(r, prey, r.role === 'shock-cav');
+      this.rallyFacing(r, prey.cx, prey.cy);
+      for (const id of r.members) this.d.hs[id] = 0.85 + this.rng.next() * 0.3;
+      this.setMode(r, 'withdraw');
+      this.goal(r, r.wx, r.wy);
+    } else this.setMode(r, 'flank');
+  }
+
+  /**
+   * QA round 2 #3: the far side of `prey` from our men fighting it, clear of every friend, as a
+   * goal for horse in `tmp` (false: no such side, or the riders are on it already).
+   */
+  private openSide(r: Regiment, prey: Regiment): boolean {
+    let ux = 0;
+    let uy = 0;
+    for (const f of this.teamRegs[r.team]!) {
+      if (f === r || f.alive === 0 || f.routed || !f.engaged) continue;
+      const fx = prey.cx - f.cx;
+      const fy = prey.cy - f.cy;
+      const q = sqrt(fx * fx + fy * fy);
+      if (q < 1 || q > prey.radius + f.radius + 20) continue;
+      ux += (fx / q) * f.alive;
+      uy += (fy / q) * f.alive;
+    }
+    const m = sqrt(ux * ux + uy * uy);
+    if (m < 1e-6) return false;
+    ux /= m;
+    uy /= m;
+    // (Round on that side already: it charges straight in.)
+    if ((r.cx - prey.cx) * ux + (r.cy - prey.cy) * uy > prey.radius * 0.5) return false;
+    const off = prey.radius + r.depth * 0.5 + RIDER.room;
+    const gx = clampX(prey.cx + ux * off);
+    const gy = clampY(prey.cy + uy * off);
+    for (const f of this.teamRegs[r.team]!) {
+      if (f === r || f.alive === 0 || f.routed) continue;
+      const fx = gx - f.cx;
+      const fy = gy - f.cy;
+      const q = f.radius + r.width * 0.5;
+      if (fx * fx + fy * fy < q * q) return false;
+    }
+    this.tmp[0] = gx;
+    this.tmp[1] = gy;
+    return true;
+  }
+
+  /**
+   * Leftover 5: two blocks of our horse on one enemy horse come at it side by side, not into
+   * each other: a block going for enemy horse that another of ours is riding at, charging or
+   * fighting from
+   * about the same side (within RIDER.sameSide of its bearing from the prey), about as near it,
+   * aims half the room
+   * the two fronts need off the prey's middle, across the line of its ride, away from the friend
+   * (the friend does the same the other way). (Until v17 both aimed at its middle and met there
+   * as one crowd under two standards.) Into `tmp`.
+   */
+  private besideFriends(r: Regiment, prey: Regiment, gx: number, gy: number): void {
+    this.tmp[0] = gx;
+    this.tmp[1] = gy;
+    if (!isCav(prey) || r.role === 'command') return;
+    const dx = prey.cx - r.cx;
+    const dy = prey.cy - r.cy;
+    const L = sqrt(dx * dx + dy * dy) || 1;
+    const px = -dy / L;
+    const py = dx / L;
+    for (const o of this.teamRegs[r.team]!) {
+      if (o === r || o.alive === 0 || o.routed || o.targetReg !== prey.id || !isMounted(o) || o.role === 'command') continue;
+      if (o.mode !== 'charge' && o.mode !== 'melee' && o.mode !== 'flank') continue;
+      const ox = prey.cx - o.cx;
+      const oy = prey.cy - o.cy;
+      const M = sqrt(ox * ox + oy * oy) || 1;
+      if ((ox * dx + oy * dy) / (L * M) < RIDER.sameSide) continue;
+      // (Level with it: one riding behind the other follows it in, round it, see `rideRound`.)
+      const ahead = L - M;
+      if ((ahead < 0 ? -ahead : ahead) > (r.depth + o.depth) * 0.5 + RIDER.room * 2) continue;
+      let lat = (o.cx - r.cx) * px + (o.cy - r.cy) * py;
+      if (lat === 0) lat = r.id < o.id ? 1 : -1;
+      const sg = lat > 0 ? -1 : 1;
+      const need = ((r.width + o.width) * 0.5 + RIDER.room) * RIDER.besideShare;
+      this.tmp[0] = clampX(this.tmp[0]! + px * sg * need);
+      this.tmp[1] = clampY(this.tmp[1]! + py * sg * need);
+    }
   }
 
   /**
@@ -5577,11 +5767,11 @@ export class Battle {
    * The nearest enemy regiment by edge distance within `range`, of a kind:
    * 0 any fighting, 1 missiles and engines, 2 horse, 3 foot locked in melee, 4 routed.
    */
-  private nearestFoe(r: Regiment, kind: number, range: number): Regiment | null {
+  private nearestFoe(r: Regiment, kind: number, range: number, skip = -1): Regiment | null {
     let best: Regiment | null = null;
     let bd = Infinity;
     for (const o of this.teamRegs[1 - r.team]!) {
-      if (o.alive === 0) continue;
+      if (o.alive === 0 || o.id === skip) continue;
       if (kind === 4 ? !o.routed : o.routed) continue;
       if (kind === 1 && o.role !== 'missile' && o.role !== 'siege') continue;
       if (kind === 2 && !isCav(o)) continue;
@@ -8042,7 +8232,17 @@ export class Battle {
         const q = sqrt(dx * dx + dy * dy) || 1;
         // (A charge on foot runs in on a spear's points no further than the points; a spear's
         // charge lands at its own point, `act`.)
-        if (d.imp[i]! > 0.3 && !held && (mounted || q > contact)) {
+        if (mounted && d.state[t] === State.Routing && r.mode === 'pursue') {
+          // QA round 2 #6: a rider after a fugitive rides him down: at the man's own pace and
+          // more, closing to inside his reach, and cuts at him as he rides (`act`), not trotting
+          // at his heels. (No impetus: a knock-back throws the man ahead of the horse again.) (Until v17 he closed only as fast as the gap, and sat 9-11 u
+          // behind a running man for good: 8.8 kills a rider-minute.)
+          const close = Math.max(spd * RIDER.rideDown, (q - contact + RIDER.rideIn) * 4);
+          vx = d.vx[t]! + (dx / q) * close;
+          vy = d.vy[t]! + (dy / q) * close;
+          cap = spd * 1.2;
+          d.cu[i] = 1;
+        } else if (d.imp[i]! > 0.3 && !held && (mounted || q > contact)) {
           // (A spear runs in to its point, not past it: two lines running in meet in one stride.)
           const v = mounted || d.rc[i]! < REACH.long ? spd * 1.15 : Math.min(spd * 1.15, (q - contact) * 5);
           vx = (dx / q) * v;
@@ -8760,7 +8960,13 @@ const RIDER_SIN = 0.198669330795;
  * breaks off, `idleRanks`); how near a foe must be for a horse
  * archer to ride off from him by himself; under what share of his hit points a rider hit
  * among spears pulls out of them, and for how long (ticks); the gap to foot at which horse
- * archers ride off (until the sweep after v16, 35: foot closing at a run caught them).
+ * archers ride off (until the sweep after v16, 35: foot closing at a run caught them); a rider
+ * riding down a fugitive closes on him at least this share of his speed faster than the man runs,
+ * to this far inside the measure (`move`; QA round 2 #6); a charge that closes on its prey by less
+ * than `stallBy` in `stallFor` ticks, with no blow, cannot get at it, one at fleet horse `outrun` ticks past
+ * CHARGE_MISSED without a blow (any charge, `chargeFor`) cannot catch it, and the prey given up
+ * is left be for `spurnFor` ticks (`chargeSpent`; QA round 2 #3, #4); the cosine within which two
+ * blocks of our horse come at one enemy horse from the same side (`besideFriends`).
  */
 const RIDER = {
   hunt: 40,
@@ -8784,6 +8990,15 @@ const RIDER = {
   clear: 9,
   idleFor: 20,
   idleShare: 0.5,
+  rideDown: 0.35,
+  rideIn: 2,
+  stallBy: 10,
+  stallFor: 20,
+  outrun: 100,
+  chargeFor: 250,
+  spurnFor: 300,
+  sameSide: 0.5,
+  besideShare: 0.75,
 };
 /** RIDER: the pace (a share of his speed) of a rider riding round to the flank on his own. */
 const RIDER_FREE = 0.8;
