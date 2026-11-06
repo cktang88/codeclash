@@ -106,10 +106,13 @@ export interface Crossing {
  * from its anchor, facing, width and depth, less a man's breadth at the edges). Skirmishers and
  * blocks passing through their own line on purpose (`slip`, falling back as skirmishers) are left
  * out: that is drill; so are blocks chasing, a loose crowd, and two blocks both in open order
- * (archers among archers pass through each other's files). A pair counts when at least `min` men of either stand in the other.
+ * (archers among archers pass through each other's files). A pair counts when at least `min` men of either stand in the other
+ * (three, with the general's household, a handful of riders). Horse is counted like foot: riders of
+ * one block among the places of another, or men among the riders' places.
  */
 export function blockCrossings(b: Battle, min = 4): Crossing[] {
-  const regs = b.regiments.filter((r) => r.alive >= 6 && !r.routed && r.role !== 'skirmish' && r.role !== 'siege' && !r.slip && r.mode !== 'skirmish' && r.mode !== 'pursue');
+  // (The general's household is a handful of riders: counted from three.)
+  const regs = b.regiments.filter((r) => r.alive >= (r.role === 'command' ? 3 : 6) && !r.routed && r.role !== 'skirmish' && r.role !== 'siege' && !r.slip && r.mode !== 'skirmish' && r.mode !== 'pursue');
   const out: Crossing[] = [];
   const inside = (r: (typeof regs)[number], x: number, y: number): boolean => {
     const dx = x - r.ax;
@@ -138,7 +141,8 @@ export function blockCrossings(b: Battle, min = 4): Crossing[] {
         const s = b.soldiers[id]!;
         if (s.state === State.Fighting && inside(q, s.x, s.y)) inB++;
       }
-      if (inA >= min || inB >= min) out.push({ a: p.id, b: q.id, inA, inB, share: Math.max(inA / q.alive, inB / p.alive) });
+      const least = p.role === 'command' || q.role === 'command' ? Math.min(min, 3) : min;
+      if (inA >= least || inB >= least) out.push({ a: p.id, b: q.id, inA, inB, share: Math.max(inA / q.alive, inB / p.alive) });
     }
   }
   return out;

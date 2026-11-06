@@ -564,6 +564,11 @@ export class Regiment {
   /** Where the anchor is walking. */
   tx = 0;
   ty = 0;
+  /** Where its captain sent the anchor (horse may make for a point on the way round a friend first: see `rideRound`). */
+  gx0 = 0;
+  gy0 = 0;
+  rideX = NaN;
+  rideY = NaN;
   /** Anchor movement this tick, world units. */
   vax = 0;
   vay = 0;
@@ -749,7 +754,7 @@ export class Regiment {
 
 /** Regiment fields that hold fractions (see the Regiment constructor). */
 const DOUBLE_FIELDS = [
-  'arrows', 'cx', 'cy', 'ax', 'ay', 'fx', 'fy', 'dfx', 'dfy', 'tx', 'ty', 'vax', 'vay', 'aspd', 'morale', 'baseMorale', 'chaseX', 'chaseY', 'spacing', 'speed',
+  'arrows', 'cx', 'cy', 'ax', 'ay', 'fx', 'fy', 'dfx', 'dfy', 'tx', 'ty', 'gx0', 'gy0', 'rideX', 'rideY', 'vax', 'vay', 'aspd', 'morale', 'baseMorale', 'chaseX', 'chaseY', 'spacing', 'speed',
   'dodgeX', 'dodgeY', 'width', 'depth', 'radius', 'recent', 'recentKills', 'flankShock', 'homeX', 'homeY', 'wx', 'wy', 'fatigue', 'fightShare', 'enemyNear', 'friendNear', 'closeIn',
 ] as const;
 
@@ -1433,7 +1438,10 @@ export class Battle {
       reg.start = reg.alive = reg.members.length;
       reg.baseMorale = reg.morale = this.fearless[team] ? 100 : 95 + army.moraleBonus;
       shape(reg, reg.members.length);
-      this.formUp(reg, onField(reg, X(Math.max(14, firstDepth) + missileDepth * 0.5 + 4)), midY);
+      // (Behind the archers and the second line, a horse's length clear of them, before the
+      // engines: until v17 it stood in the middle of the archers' row, and rode out through them
+      // and the second line at the start.)
+      this.formUp(reg, onField(reg, X(behind + secondDepth + (missileDepth + secondDepth > 0 ? RIDER.room : 4))), midY);
       reg.homeY = midY;
       reg.homeX = reg.ax;
       reg.veteran = true;
@@ -2828,6 +2836,102 @@ export class Battle {
     r.ty = clampY(y);
   }
 
+  /**
+   * RIDER (battle v17): horse and the general's household ride round friendly blocks, not through
+   * them. A goal inside a friend's footprint (and a rider's room about it) is moved out of it, to
+   * the side of him the block stands on, by the shorter way; a straight ride to the goal that
+   * would cross a friend makes for the end of that friend nearer the line of the ride, a rider's
+   * room clear of it, and on from there (up to three friends deep). Foot is
+   * always ridden round; another block of horse only by the one without the right of way
+   * (`rightOfWay`), so two lines of horse do not both swerve. Rewrites the anchor's goal (tx, ty)
+   * at each word, keeping the captain's in (gx0, gy0): whatever set tx, ty since the last rewrite
+   * (`rideX`, `rideY`) is his.
+   */
+  private rideRound(r: Regiment): void {
+    if (r.alive === 0 || r.routed || r.engaged || r.mode === 'pursue' || r.mode === 'melee' || r.mode === 'rout') return;
+    if (r.tx !== r.rideX || r.ty !== r.rideY) {
+      r.gx0 = r.tx;
+      r.gy0 = r.ty;
+    }
+    // (Room for its half-width, more for riders spread out as they ride out, see `move`.)
+    const room = r.width * 0.5 * (r.mode === 'withdraw' ? RIDER.rallySpread : 1) + RIDER.room;
+    const friends = this.teamRegs[r.team]!;
+    const obstacle = (o: Regiment): boolean => {
+      if (o === r || o.alive === 0 || o.routed || o.role === 'skirmish' || o.role === 'siege' || o.slip || o.mode === 'skirmish' || o.mode === 'pursue' || o.mode === 'rout') return false;
+      if (isMounted(o) && (o.mode === 'charge' || o.mode === 'withdraw' || o.mode === 'flank') && this.rightOfWay(r, o)) return false;
+      return true;
+    };
+    let gx = r.gx0;
+    let gy = r.gy0;
+    // The point out of any friend it lies in, on the side of him the block stands on (so it need
+    // not ride round him to get there), across or along him, whichever is the shorter.
+    const out = (): void => {
+      for (const o of friends) {
+        if (!obstacle(o)) continue;
+        const ocx = o.ax - o.fx * o.depth * 0.5;
+        const ocy = o.ay - o.fy * o.depth * 0.5;
+        const ex = gx - ocx;
+        const ey = gy - ocy;
+        const lat = ex * -o.fy + ey * o.fx;
+        const fwd = ex * o.fx + ey * o.fy;
+        if ((lat < 0 ? -lat : lat) >= o.width * 0.5 + room || (fwd < 0 ? -fwd : fwd) >= o.depth * 0.5 + room) continue;
+        const rx = r.cx - ocx;
+        const ry = r.cy - ocy;
+        const sl = rx * -o.fy + ry * o.fx >= 0 ? 1 : -1;
+        const sf = rx * o.fx + ry * o.fy >= 0 ? 1 : -1;
+        const pl = o.width * 0.5 + room - lat * sl;
+        const pf = o.depth * 0.5 + room - fwd * sf;
+        if (pl < pf) {
+          gx += -o.fy * sl * pl;
+          gy += o.fx * sl * pl;
+        } else {
+          gx += o.fx * sf * pf;
+          gy += o.fy * sf * pf;
+        }
+      }
+    };
+    out();
+    // The ride there round the first friend in the way: past his end nearer the line of the ride
+    // (level with his far side), a rider's room off; and that point clear of the others.
+    for (let k = 0; k < 3; k++) {
+      const dx = gx - r.ax;
+      const dy = gy - r.ay;
+      const L = sqrt(dx * dx + dy * dy);
+      if (L <= 1) break;
+      const ux = dx / L;
+      const uy = dy / L;
+      const px = -uy;
+      const py = ux;
+      let best = Infinity;
+      let wx = gx;
+      let wy = gy;
+      for (const o of friends) {
+        if (!obstacle(o)) continue;
+        const ocx = o.ax - o.fx * o.depth * 0.5;
+        const ocy = o.ay - o.fy * o.depth * 0.5;
+        const t = (ocx - r.ax) * ux + (ocy - r.ay) * uy;
+        const l = (ocx - r.ax) * px + (ocy - r.ay) * py;
+        const lox = -o.fy;
+        const loy = o.fx;
+        const eu = o.width * 0.5 * Math.abs(lox * ux + loy * uy) + o.depth * 0.5 * Math.abs(o.fx * ux + o.fy * uy);
+        const ep = o.width * 0.5 * Math.abs(lox * px + loy * py) + o.depth * 0.5 * Math.abs(o.fx * px + o.fy * py);
+        if (t + eu < 0 || t - eu > L || (l < 0 ? -l : l) >= ep + room || t >= best) continue;
+        best = t;
+        const sg = l > 0 ? -1 : l < 0 ? 1 : (FIELD_H / 2 - r.ay) * py + (FIELD_W / 2 - r.ax) * px >= 0 ? 1 : -1;
+        const along = Math.max(0, Math.min(L, t + eu));
+        wx = r.ax + ux * along + px * (l + sg * (ep + room));
+        wy = r.ay + uy * along + py * (l + sg * (ep + room));
+      }
+      if (best === Infinity) break;
+      gx = wx;
+      gy = wy;
+      out();
+    }
+    r.tx = r.rideX = clampX(gx);
+    r.ty = r.rideY = clampY(gy);
+  }
+
+
   /** The regiment's captain: carries out its order with what it sees, picks its stance. */
   private think(r: Regiment): void {
     this.survey(r);
@@ -2877,6 +2981,7 @@ export class Battle {
         this.thinkCommand(r);
         break;
     }
+    if (isMounted(r)) this.rideRound(r);
     this.chooseStance(r);
   }
 
@@ -6683,8 +6788,9 @@ export class Battle {
           // out (`RIDER.rallySpread`): no wheel of the whole block about its middle.
           const sx = d.sx[i]! * RIDER.rallySpread + (((i * 7) % 11) - 5) * 1.5;
           const sy = d.sy[i]! * RIDER.rallySpread + (((i * 5) % 9) - 4) * 1.5;
-          const ex = r.wx + r.dfx * sy - r.dfy * sx - x;
-          const ey = r.wy + r.dfy * sy + r.dfx * sx - y;
+          // (By way of the block's own goal: round any friend in the way, see `rideRound`.)
+          const ex = r.tx + r.dfx * sy - r.dfy * sx - x;
+          const ey = r.ty + r.dfy * sy + r.dfx * sx - y;
           const q = sqrt(ex * ex + ey * ey) || 1;
           const h = d.hs[i]! || 1;
           const v = Math.min(spd * PACE.withdraw * h, q * 1.5) / q;
@@ -7229,6 +7335,7 @@ const RIDER = {
   spurn: 250,
   there: 25,
   meet: 90,
+  room: 10,
   pressed: 15,
   spearHurt: 0.5,
   spearOut: 20,

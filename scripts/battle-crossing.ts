@@ -18,6 +18,10 @@ let severe = 0;
 const severeWhy: Record<string, number> = {};
 let samples = 0;
 const why: Record<string, number> = {};
+// Pairs with a block of horse (or the general's household) in them.
+let mounted = 0;
+let mountedSevere = 0;
+const mountedWhy: Record<string, number> = {};
 for (const men of sizes) {
   for (const seed of seeds) {
     const b = new Battle(demoSetup(seed, men));
@@ -40,6 +44,12 @@ for (const men of sizes) {
         const q = b.regiments[c.b]!;
         const k = [`${p.role}/${p.mode}/${p.ord.kind}`, `${q.role}/${q.mode}/${q.ord.kind}`].sort().join(' x ');
         why[k] = (why[k] ?? 0) + 1;
+        const horse = (r: typeof p) => r.role === 'flank' || r.role === 'shock-cav' || r.role === 'horse-archer' || r.role === 'command';
+        if (horse(p) || horse(q)) {
+          mounted++;
+          if (c.share >= 0.25) mountedSevere++;
+          mountedWhy[k] = (mountedWhy[k] ?? 0) + 1;
+        }
         if (c.share >= 0.25) {
           severe++;
           severeWhy[k] = (severeWhy[k] ?? 0) + 1;
@@ -59,3 +69,5 @@ console.log(`crossing block-pairs per second sampled: ${(total / samples).toFixe
 for (const [k, v] of Object.entries(why).sort((x, y) => y[1] - x[1]).slice(0, 15)) console.log(String(v).padStart(6), k);
 console.log('a quarter or more:');
 for (const [k, v] of Object.entries(severeWhy).sort((x, y) => y[1] - x[1]).slice(0, 10)) console.log(String(v).padStart(6), k);
+console.log(`with horse in them: ${(mounted / samples).toFixed(3)} a second sampled; through a quarter or more: ${(mountedSevere / samples).toFixed(3)}`);
+for (const [k, v] of Object.entries(mountedWhy).sort((x, y) => y[1] - x[1]).slice(0, 12)) console.log(String(v).padStart(6), k);
