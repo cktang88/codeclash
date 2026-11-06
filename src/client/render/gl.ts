@@ -125,6 +125,7 @@ flat out vec4 v_box2; // u_dir on: quad size, cell texel origin (scaled)
 flat out vec3 v_tx;   // u_dir on: texture size, texels per map px
 flat out vec2 v_cut;  // u_dir on: the quad's offset in its whole cell (a trimmed grid cell)
 uniform vec4 u_dirb;   // the virtual buffer's size (px), and map px at its top-left
+uniform vec2 u_cell;   // size of the cells trimmed quads are cut from (SpriteProgram.cell)
 // Map px of a point of the quad (a shadow: sheared along the ground).
 vec2 xf(vec2 local) {
   vec2 rel = local - i_src.zw;
@@ -140,6 +141,14 @@ void main() {
   v_slot = slot;
   vec2 local = a_corner * i_dst.zw;
   float flags = mod(i_ext.w, 2.0);
+  // A quad trimmed from a larger cell (Batch.sprite's cut): where it sits in that cell.
+  float cc = floor(i_ext.w * 0.5) - 1.0;
+  vec2 cut = cc < 0.0 ? vec2(0.0) : vec2(mod(cc, 128.0), floor(cc / 128.0));
+  // Its shadow at a px or more per map px is the whole cell's quad: the rasteriser snaps a sheared
+  // quad's corners to its sub-pixel grid and interpolates the texel coords between them, so only
+  // the same corners give the same texel at every px (zoomed out, below, each px is evaluated
+  // exactly, and the trimmed quad does).
+  if (u_shadow > 0.5 && u_dir.w < 0.5 && cc >= 0.0) local = mix(-cut, u_cell - cut, a_corner);
   if (u_dir.w > 0.5) {
     // The centre of the buffer px a device px picks is within half a map px of the device px's
     // own point (a map px of margin; along a sheared shadow, more in its local units), except at
@@ -151,8 +160,6 @@ void main() {
     local = mix(-mg, i_dst.zw + mg, a_corner);
     // A trimmed cell is sampled as its whole cell (origin and anchor of the cell, the quad's box
     // inside it): the same sums, so the same texel at every pixel, as drawing the whole cell.
-    float c = floor(i_ext.w * 0.5);
-    vec2 cut = vec2(mod(c, 128.0), floor(c / 128.0));
     v_cut = cut;
     v_box = vec4(i_dst.xy, i_src.zw + cut);
     v_box2 = vec4(i_dst.zw, (i_src.xy - cut) * u_tsc[slot].y);
@@ -287,10 +294,11 @@ export class Batch {
 
   /**
    * A textured sprite: cell at (u, v) of size w×h whose point (ax, ay) lands on map (x, y).
-   * `cutX`, `cutY` (0..127): where the quad sits in a larger cell it was trimmed from (the cell
-   * starts at u - cutX, v - cutY): zoomed out, the sprite is sampled as that whole cell would be.
+   * `cutX`, `cutY` (0..127, or -1 for none): the quad was trimmed from a larger cell (of the
+   * size SpriteProgram.cell() sets) starting at u - cutX, v - cutY; the shader then samples it
+   * exactly as it would that whole cell (see SPRITE_VS).
    */
-  sprite(x: number, y: number, u: number, v: number, w: number, h: number, ax: number, ay: number, depth: number, r = 1, g = 1, b = 1, a = 1, flash = 0, noShadow = 0, cutX = 0, cutY = 0): void {
+  sprite(x: number, y: number, u: number, v: number, w: number, h: number, ax: number, ay: number, depth: number, r = 1, g = 1, b = 1, a = 1, flash = 0, noShadow = 0, cutX = -1, cutY = 0): void {
     const o = this.alloc();
     const d = this.data;
     d[o] = x;
@@ -308,7 +316,7 @@ export class Batch {
     d[o + 12] = depth;
     d[o + 13] = flash;
     d[o + 14] = 0;
-    d[o + 15] = noShadow + 2 * (cutX + 128 * cutY);
+    d[o + 15] = noShadow + (cutX < 0 ? 0 : 2 * (1 + cutX + 128 * cutY));
   }
 
   /** A solid rectangle with its top-left at map (x, y). */
@@ -493,7 +501,7 @@ export class SpriteProgram {
 
   constructor(readonly gl: WebGL2RenderingContext) {
     this.prog = compile(gl, SPRITE_VS, SPRITE_FS);
-    for (const k of ['u_cam', 'u_view', 'u_texs', 'u_tsc', 'u_end', 'u_z', 'u_shear', 'u_shadow', 'u_shadowCol', 'u_img', 'u_scale', 'u_now', 'u_dir', 'u_dirb']) this.u[k] = gl.getUniformLocation(this.prog, k);
+    for (const k of ['u_cam', 'u_view', 'u_texs', 'u_tsc', 'u_end', 'u_z', 'u_shear', 'u_shadow', 'u_shadowCol', 'u_img', 'u_scale', 'u_now', 'u_dir', 'u_dirb', 'u_cell']) this.u[k] = gl.getUniformLocation(this.prog, k);
     gl.useProgram(this.prog);
     gl.uniform1iv(this.u.u_img!, Int32Array.from({ length: PARTS }, (_, k) => k));
     this.ends.fill(NO_END);
@@ -568,6 +576,12 @@ export class SpriteProgram {
       gl.uniform1iv(this.u.u_end!, this.ends);
       this.single = k <= 1;
     }
+  }
+
+  /** Size of the cells trimmed quads are cut from (Batch.sprite's cut). */
+  cell(w: number, h: number): void {
+    this.gl.useProgram(this.prog);
+    this.gl.uniform2f(this.u.u_cell!, w, h);
   }
 
   /** The battle second blood decals (mode 2) are drawn at. */

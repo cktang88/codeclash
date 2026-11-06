@@ -656,7 +656,8 @@ export class BattleScene {
   private cellQuad(team: number, kind: number, anim: Anim, f: number, dir: Dir, out: Int32Array, o: number): void {
     const atlas = this.atlases[team as 0 | 1];
     const [u, v] = atlas.at(kind, anim, f, dir);
-    const box = atlas.trim ? atlas.trim(u, v) : null;
+    const other = this.atlases[(1 - team) as 0 | 1];
+    const box = atlas.trim && other.cellW === atlas.cellW && other.cellH === atlas.cellH ? atlas.trim(u, v) : null;
     const [x, y, w, h] = box ?? [0, 0, atlas.cellW, atlas.cellH];
     out[o] = u + x;
     out[o + 1] = v + y;
@@ -856,6 +857,8 @@ export class BattleScene {
       unlisten,
       maxTex: Number(gl.getParameter(gl.MAX_TEXTURE_SIZE)) || 4096,
     };
+    // Trimmed grid quads are cut from cells this size (both armies' atlases come from one painter).
+    gfx.prog.cell(this.atlases[0].cellW, this.atlases[0].cellH);
     // The atlas textures hold the grids as they are now.
     for (let t = 0; t < 2; t++) {
       this.atlasVer[t] = this.atlases[t as 0 | 1].version ?? 0;
