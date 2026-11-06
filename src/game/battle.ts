@@ -89,6 +89,13 @@ export { COHESION, DOCTRINE, MORALE, REGROUP, UNDEAD } from './command.ts';
  *   interval; one that stopped on top of another block of shooters steps off to its own. Blocks
  *   of shooters give way to each other like the rest (ten blocks used to stand five deep on two
  *   spots); horse in open order still passes through horse.
+ * - Horse and the household ride round their friends (`rideRound`; battle-cohesion.md 8.5d): a
+ *   mounted block's goal comes out of any friend it lies in, and a ride that would cross a friend
+ *   goes round the nearer end of him, a half-width and a horse's length clear; foot is always
+ *   ridden round, horse at the charge or riding out only by the block without the right of way.
+ *   Riders riding out make for their spots about that point. The household deploys behind the
+ *   archers and the second line. Pairs with horse a quarter deep in a friend: 0.157 a second
+ *   sampled in grand battles, now 0.024; the charge lands as soon as before.
  */
 /**
  * v16: nothing grows with the size of the battle that should not (the undead won two thirds of
