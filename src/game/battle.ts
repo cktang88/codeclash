@@ -4233,8 +4233,9 @@ export class Battle {
     if (from !== o) {
       const k = from.members.indexOf(i);
       if (k >= 0) from.members.splice(k, 1);
-      // (A runner of a block that has rallied without him was not counted in it: see `survey`.)
-      if (from.routed) from.alive--;
+      // (A runner of a block that has rallied without him was not counted in it: see `survey`.
+      // A man standing, such as a rider on foot, was.)
+      if (from.routed || d.state[i] !== State.Routing) from.alive--;
       d.reg[i] = o.id;
       o.members.push(i);
       this.shake(o, REGROUP.moraleCost * this.shockK);
