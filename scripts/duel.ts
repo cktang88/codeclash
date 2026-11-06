@@ -68,6 +68,7 @@ for (let seed = s0!; seed <= (s1 ?? s0!); seed++) {
       y += r.width + 20;
     }
   }
+  const dead = (t: number) => b.soldiers.filter((s) => s.team === t && s.state === State.Dead).length;
   const alive = (t: number) => b.soldiers.filter((s) => s.team === t && s.state === State.Fighting).length;
   const start = [alive(0), alive(1)];
   const report = () => {
@@ -84,6 +85,6 @@ for (let seed = s0!; seed <= (s1 ?? s0!); seed++) {
     if (!quiet && every > 0 && b.tick % every === 0) report();
   }
   const ms = performance.now() - t0;
-  const res = `A ${alive(0)}/${start[0]}  B ${alive(1)}/${start[1]}  ${b.done() ? `winner ${b.result?.winner === 0 ? 'A' : 'B'}` : 'running'} at t=${b.tick}  (${ms.toFixed(0)} ms)`;
+  const res = `A ${alive(0)}/${start[0]}  B ${alive(1)}/${start[1]}  ${b.done() ? `winner ${b.result?.winner === 0 ? 'A' : 'B'}` : 'running'} at t=${b.tick}  dead A ${dead(0)} B ${dead(1)}${b.unhorsed[0] + b.unhorsed[1] > 0 ? `  unhorsed A ${b.unhorsed[0]} B ${b.unhorsed[1]}` : ''}  (${ms.toFixed(0)} ms)`;
   console.log(quiet ? `seed ${seed}: ${res}` : `  end: ${res}`);
 }

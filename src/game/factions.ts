@@ -102,6 +102,8 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
     // (docs/art-references/battle-scale.md).
     tweaks: {
       [U.HorseArchers]: { missileDamage: 1.1 },
+      // Hatamoto horses go mostly bare (horse armour, uma-yoroi, was rare): little barding.
+      [U.Knights]: { barding: 0.3 },
       [U.Crossbowmen]: { reload: 2.58, missileDamage: 1.45, range: 0.75, ammo: 0.5 },
       [U.HeavyInfantry]: { morale: 1.05 },
       // The yari outreaches every other spear (weapon reach, battle v17): the price is in the levy

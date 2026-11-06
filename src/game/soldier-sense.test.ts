@@ -79,7 +79,11 @@ describe('QA3: each man fights like a man', () => {
       let braced = 0;
       while (b.tick < 400 && !b.done()) {
         b.step();
-        if (H.engaged && S.mode === 'brace' && K.some((r) => r.mode === 'melee' && r.targetReg === H.id)) braced++;
+        // (Braced against a block of the knights riding at the spears themselves is right: since
+        // v17 HORSE, on seed 2 one of the two blocks charges them while the other fights the
+        // heavy foot. Counted only while none does.)
+        const coming = K.some((r) => !r.routed && r.alive > 0 && r.targetReg === S.id && (r.mode === 'charge' || r.mode === 'flank'));
+        if (H.engaged && S.mode === 'brace' && !coming && K.some((r) => r.mode === 'melee' && r.targetReg === H.id)) braced++;
       }
       expect(braced, `seed ${seed}`).toBeLessThan(15);
     }

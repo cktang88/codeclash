@@ -28,6 +28,8 @@ const moments = {
   'spear-wall': `(b) => b.regiments.find((r) => r.cls === 1 && r.engaged && r.meleeTicks > 30 && r.alive > 12 && r.targetReg >= 0 && b.regiments[r.targetReg].cls === 1 && b.regiments[r.targetReg].engaged)`,
   // Swordsmen held at the points of a spear block.
   'swords-at-points': `(b) => b.regiments.find((r) => r.cls === 0 && r.engaged && r.meleeTicks > 20 && r.alive > 12 && r.targetReg >= 0 && b.regiments[r.targetReg].cls === 1 && !b.regiments[r.targetReg].routed)`,
+  // Battle v17 HORSE: a rider unhorsed, on foot (drawn as his faction's foot), framed on him.
+  'unhorsed': `(b) => { if (b.tick % 10) return null; const s = b.soldiers.find((s) => s.dismounted && s.state === 0 && s.stunned === 0 && b.soldiers.filter((o) => o.dismounted && o.state === 0 && Math.abs(o.x - s.x) < 40 && Math.abs(o.y - s.y) < 40).length >= 3); if (!s) return null; const r = b.regiments[s.reg]; return { cx: s.x, cy: s.y, targetReg: -1, engaged: false, id: r.id, cls: r.cls, mode: r.mode, team: r.team }; }`,
   // Arrows in flight over the field.
   'missiles': `(b) => b.projectiles.length > 40 && b.tick > 150 && b.regiments.find((r) => r.role === 'missile' && r.mode === 'shoot')`,
 };
