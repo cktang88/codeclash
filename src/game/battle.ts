@@ -1138,12 +1138,6 @@ const isCav = (r: Regiment) => r.role === 'flank' || r.role === 'shock-cav' || r
 /** Mounted blocks: the horse and the general's household. */
 const isMounted = (r: Regiment) => isCav(r) || r.role === 'command';
 /**
- * The general's household rides through the files of its own archers, who open for it (QA
- * review #6: held up in the gap between two blocks of them, it was shunted to and fro there,
- * some 280 units behind its post).
- */
-const archersPass = (r: Regiment, o: Regiment) => r.role === 'command' && o.role === 'missile' && !o.engaged;
-/**
  * Who may fall in with whom (REGROUP): 1 foot of the line, 2 foot that shoots (archers,
  * crossbows, skirmishers), 3 horse; 0 never (engines, the general's household).
  */
@@ -2982,7 +2976,6 @@ export class Battle {
     const friends = this.teamRegs[r.team]!;
     const obstacle = (o: Regiment): boolean => {
       if (o === r || o.alive === 0 || o.routed || o.role === 'skirmish' || o.role === 'siege' || o.slip || o.mode === 'skirmish' || o.mode === 'pursue' || o.mode === 'rout') return false;
-      if (archersPass(r, o)) return false;
       if (isMounted(o) && (o.mode === 'charge' || o.mode === 'withdraw' || o.mode === 'flank') && this.rightOfWay(r, o)) return false;
       return true;
     };
@@ -5277,7 +5270,6 @@ export class Battle {
       if (o === r || o.alive === 0 || o.routed || o.role === 'skirmish' || o.slip || o.mode === 'skirmish' || o.mode === 'pursue') continue;
       // (Two bodies in open order pass through each other's files: archers among archers.)
       if (r.stance === 'loose' && o.stance === 'loose' && (isMounted(r) || isMounted(o))) continue;
-      if (archersPass(r, o)) continue;
       const dx = o.cx - r.cx;
       const dy = o.cy - r.cy;
       const reach = o.radius + r.radius + r.spacing + 8;
@@ -5358,7 +5350,6 @@ export class Battle {
       for (const o of this.teamRegs[r.team]!) {
         if (o === r || o.alive === 0 || o.routed || o.role === 'skirmish' || o.slip || o.mode === 'pursue' || o.mode === 'skirmish' || !this.rightOfWay(o, r)) continue;
         if (r.stance === 'loose' && o.stance === 'loose' && (isMounted(r) || isMounted(o))) continue;
-      if (archersPass(r, o)) continue;
         const ocx = o.ax - o.fx * o.depth * 0.5;
         const ocy = o.ay - o.fy * o.depth * 0.5;
         const ex = cx - ocx;
@@ -5925,11 +5916,6 @@ export class Battle {
             if (a > 0) s *= 1 + C.crowd * (a < 3 ? a : 3);
             // ...but any foe at hand before one he would have to turn from him to reach.
             if (!at) s += hh * (1 + 3 * C.crowd);
-          } else if (mounted && !at) {
-            // QA review #14: a rider, too, before a foe whom two or more of ours ring already
-            // (he would stand behind them), takes one he can get at.
-            const a = att[j]! - (j === cur ? 1 : 0);
-            if (a > 1) s *= 1 + RIDER.crowd * (a < 4 ? a - 1 : 3);
           }
           if (!mounted && dx * fx + dy * fy < 0 !== rear) s *= 1.7;
           if (edge && (dx * -fy + dy * fx) * sxi > 0) s *= C.edgeOut;
@@ -6032,9 +6018,6 @@ export class Battle {
           // (Nor a man our own foot is fighting at its front: another stretch, a flank or the rear.)
           if (foot.length > 0 && this.covered(j, i, foot)) continue;
           if (vx * dx + vy * dy < 0) s *= RIDER.behind;
-          // (One whom two or more of ours ring already less readily: QA review #14.)
-          const a = d.att[j]!;
-          if (a > 1) s *= 1 + RIDER.crowd * (a < 4 ? a - 1 : 3);
           if (s < bs) {
             bs = s;
             best = j;
@@ -7832,7 +7815,7 @@ const RIDER_SIN = 0.198669330795;
  * `covered`, the pace, a share of his speed, at which a rider in their ranks rides out of
  * them, and the share of a block's riders in them at which it breaks off, `inOurRanks`; how long
  * a rider stands without a foe he can get at, and the share of a block's riders so, at which it
- * breaks off, `idleRanks`; how much less he likes a foe ringed by ours, by each past the first); how near a foe must be for a horse
+ * breaks off, `idleRanks`); how near a foe must be for a horse
  * archer to ride off from him by himself; under what share of his hit points a rider hit
  * among spears pulls out of them, and for how long (ticks); the gap to foot at which horse
  * archers ride off (until the sweep after v16, 35: foot closing at a run caught them).
@@ -7859,7 +7842,6 @@ const RIDER = {
   clear: 9,
   idleFor: 20,
   idleShare: 0.5,
-  crowd: 0.5,
 };
 /** RIDER: the pace (a share of his speed) of a rider riding round to the flank on his own. */
 const RIDER_FREE = 0.8;
