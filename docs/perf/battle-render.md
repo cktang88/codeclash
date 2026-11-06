@@ -191,3 +191,78 @@ Both builds were run through `shot` mode: 11 views against master cfd7e98 before
 - **Software GL.** On SwiftShader the post pass and the shading of the 1.44 M-pixel canvas are
   most of a frame (~330 ms). Rendering the post pass at the buffer's resolution and letting the
   browser upscale would help software GL a lot, but changes the grain and scanlines, so it is left.
+
+## Round 2: the 2400 × 2400 field (cc/frame-perf)
+
+The field grew from 1600 × 1200 to 2400 × 2400 (the ground canvas from ~3.6 to ~9 Mpx) and
+battles reach 2,800 figures a side. The complaint: sluggish, above all when scrolling.
+
+### Measured (before)
+
+`scripts/battle-render-bench.mjs` now also takes `pan=` (the camera sweeps east and back and drifts
+south, so many world units a frame), `zoomEvery=`, `frame=1` (the game's opening view) and prints
+`BattleScene.lastPasses`: CPU ms per part of a frame (uploads, build, ground, shadows, sprites,
+post); with `sync=1` the scene waits for the GPU after each part (`syncPasses`), so the parts
+include the GPU's work. Software GL (SwiftShader) on a shared, heavily loaded 4-core box: the GPU
+numbers are a proxy for fill and shader cost, not what a real GPU takes.
+
+- **The opening view is zoomed out below 1.** On a 1600 × 900 canvas the armies on the new field
+  are framed at zoom 0.4-0.7 device px per map px, and the scene buffer was drawn at map
+  resolution, 2.1-7× the canvas's pixels (3200 × 1800 at zoom 0.5, 3414 × 1920 at 1280 × 720),
+  only for the post pass to keep one pixel in so many. GPU: ~1.0-1.5 s a frame on SwiftShader,
+  ground, shadows and sprites all scaling with the buffer.
+- **HD scrolling repainted the whole ground every frame.** The ground shader (the heaviest in the
+  game: noise zones, tufts, stones, flowers) and the marks composition were cached for exactly
+  the view: any pan of a pixel painted the whole view again, every frame of a scroll, and refilled
+  and re-uploaded the decal batch (`buildDecals` keyed on the view's box).
+- **A zoom in HD** (to 4x) paints the ground at the new level over the whole view: ~6-8 s of
+  software GL for that one frame, 90 % of it the tuft/stone loop of the ground shader (measured by
+  cutting the loop out: 6 s → 0.4 s). Sheets and uploads are not the cost of that frame.
+- **CPU**: `draw()` ~2-5 ms median at 450-5,600 figures, of which the instance build is most
+  (per-figure animation state for the figures in view: soldiers are already box-culled, and the
+  cull is a few flops for the ones out of view, so a spatial index would not pay). Stake lines
+  were drawn whole wherever they were. The sim's step is ~6.5 ms a tick at 5,143 figures
+  (`pnpm bench 2800 3`), outside the renderer.
+
+### What changed
+
+1. **Zoomed out, the scene is drawn at the canvas's size** (`gl.ts` `useDirect`, `post.ts`
+   `direct`, `scene.ts` `view.direct`). Each device pixel is shaded as the buffer pixel the post
+   pass would have picked: the fragment shader computes that pick with post's own sum
+   (`floor((dev - off) / u)`, clamped to the virtual buffer) and evaluates the quad (or the sheared
+   shadow) at that pixel's centre; quads grow a map px (3 at the far edges, where post clamps) so
+   every pixel that picks a px inside them is reached. The HD ground is copied out with the same
+   pick (`COPY_FS`).
+2. **HD ground: a tiled cache with a margin ring** (`field-hd.ts` `plan()` / `drawGround()`). The
+   ground and its composition live in 64-texel tiles over a window about half a screen wider than
+   the view on each side; while scrolling the window leans ahead (up to all of its slack on the
+   side the view moves to). Each world tile has a fixed slot (tile coordinates modulo the cache's
+   size), so the window slides like a ring and nothing is copied. Tiles in view are painted at
+   once; the margin a sixteenth of the view's area a frame (or twice what the scroll brings into
+   view a frame, if more), nearest and ahead first, none on a frame that paints over a quarter of
+   the view (a zoom). The view is copied out with up to four blits. Changed marks recompose only
+   the cache tiles under them (same throttle, same 2 s blood clock); tiles leaving the window are
+   dropped if they change meanwhile. The decal batch covers the window plus a quarter and is
+   refilled only when the view leaves that. A static view paints nothing; the cache is at most
+   16 Mpx a target.
+3. **Ground shader**: a tuft/stone cell is tested for reach before its noise and hashes (same
+   result).
+4. **Stake lines** off screen are skipped.
+5. **HD sheets near the view**: kinds within a screen of the view (`seenNear`) have their sheets up
+   to 4x asked as `prefetch` (SheetAsk), so a scroll meets them sharp. This is the only piece
+   that touches sheet priorities (cc/hd-load owns them): one mask and one line in `pickLevels`.
+
+### How the margins prevent pop-in
+
+- Ground: the cache always holds the view plus a ring around it; scrolling moves the view into
+  tiles already painted (the ring is refilled ahead of the scroll), and a tile that is not there
+  yet is painted in the same frame before the view is copied, so the ground is never missing,
+  only, at worst, paid for in that frame.
+- Figures: HD sheets for kinds within a screen are prefetched; classic sprites and the classic
+  ground are whole textures (nothing to pop).
+- Everything culled (figures, corpses, props, standards, missiles, particles, stakes) is culled
+  with a margin past the view's edge (40-100 map px), as before.
+
+### Results
+
+See the table in the frame-perf report (commit messages and below).
