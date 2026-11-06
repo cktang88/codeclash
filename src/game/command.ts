@@ -112,6 +112,16 @@ export const MORALE = {
   /** The general alive within `auraRange` (scaled 0.8..1.1 by his skill). */
   aura: 10,
   auraRange: 340,
+  /**
+   * ...for an army of up to this many figures. A bigger army's line is wider, and the general's
+   * presence (his standard seen, his gallopers sent along the line) reaches further with the
+   * fourth root of its size (battle.ts `auraK`), so that he heartens about the same share of his
+   * engaged blocks at any size (three in four at 250, four in five at 1000 and 2000 against the
+   * dead). At 340 for every size he reached three in four at 250, one in two at 1000 and two in
+   * five at 2000, and the living, who need him, lost ground against the fearless dead as battles
+   * grew (docs/factions.md, v17).
+   */
+  auraMen: 250,
   /** The general dead: a shock to every regiment, and a lasting malus. */
   generalDeadShock: 20,
   generalDead: 14,
