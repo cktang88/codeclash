@@ -475,7 +475,9 @@ export class BattleScene {
    */
   constructor(readonly battle: Battle, art: ArtMode = artMode(), from?: BattleScene) {
     this.art = art;
-    this.ground = paintGround(battle.setup.seed);
+    // (A debug tint of the terrain, `?terrain` in the address: ground.ts.)
+    const tint = typeof location !== 'undefined' && new URLSearchParams(location.search).has('terrain');
+    this.ground = paintGround(battle.setup.seed, tint ? battle.terrain : undefined);
     if (isHdArt(art)) this.field = new HdField(this.ground, battle.setup.armies);
     const [a, b] = battle.setup.armies;
     const buildAtlas = art === 'hd64' ? buildHd64 : art === 'hd' ? buildHd : buildClassic;
