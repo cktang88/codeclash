@@ -971,6 +971,47 @@ A spot counts as taken when another block of shooters stands there or is making 
 - Ten archer blocks against heavy foot waiting for them. At most a quarter of one block may stand in another (the base reaches 0.9), and most of the blocks must be shooting.
 - The "shield wall" test in `game.test.ts` now lets the archers shoot for 270 s instead of 180. Spread out, they come into action later: at 180 s the line had lost 3 men over three days, so the old result came from stacked fire. At 270 s the losses were line 199, loose 71, shield wall 19.
 
+### 8.5d Horse and the household ride round their friends (follow-up)
+
+8.5b left two things: horse galloping through friendly horse or foot at the charge or riding out, and the general's household among its own archers. Real riders steer round friends. They open their intervals, pass through gaps in the line, or check their pace.
+
+**The measure.** `blockCrossings` now counts the household from three riders (it is seven), and `scripts/battle-crossing.ts` sums the pairs with horse in them. Same 18 grand battles, merged branch before and after:
+
+| | Before | After |
+|---|---|---|
+| Pairs with horse in them, per sampled second | 0.240 | 0.048 |
+| ...through a quarter of a block or more | 0.157 | 0.024 |
+| All crossing pairs, per sampled second | 0.419 | 0.229 |
+| ...through a quarter of a block or more | 0.184 | 0.055 |
+
+**The causes, by `--why`, before:**
+- Light horse charging through light horse that was charging or in melee: 310 of the samples. Two or three blocks sent at the same enemy horse converged on it.
+- The household guarding through its archers: 83. It was deployed in the middle of their row.
+- Knights in melee among foot fighting the same block: 126. Most of this is still there (below).
+
+**The fix** (`rideRound` in battle.ts, at each word for every mounted block not locked in a fight):
+- **The goal comes out of any friend it lies in.** It moves to the side of that friend the block stands on, across or along him, whichever is shorter, so the block need not ride round him to get there.
+- **The ride goes round the first friend in the way.** A straight ride to the goal that would cross a friend's footprint, plus half the block's width and a horse's length (`RIDER.room`), makes for the end of that friend nearer the line of the ride and goes on from there. Up to three friends deep.
+- **Who goes round.** Foot is always ridden round. Another block of horse that is charging, riding out or riding round is passed only by the block without the right of way (`rightOfWay`), so two lines of horse never both swerve.
+- **Riding out.** Riders make for their spots about that point, not about the rally point, so the loose crowd goes round as well. Its room is the crowd's width, 1.4 times the block's.
+- **The household deploys behind the archers and the second line,** a horse's length clear of them, before the engines.
+
+**The charge keeps its punch.** In a set piece of three blocks of light horse in column charging three abreast, the blocks behind galloped through the one before (40-70% of a block's men inside it). Now none do, and the first blows land at the same tick as before (75-76).
+
+**Effect on the battle:**
+- Battle length: 233 s against 224 s over 40 mirror battles of 500 Templars, the same within the noise for 1,000 samurai or undead.
+- Pre-merge faction pairs (120 battles each): lengths 216-264 s against 222-260 s.
+- Mirror fairness: 55.0% at 250 a side (z 1.4), 47.5% at 120.
+- `pnpm bench`: speed unchanged.
+
+**What is left:**
+- **Horse in a melee mingling with friends about the same enemy block** (knights in melee with our foot in melee, the largest remaining pair). Both are locked in the fight, so `rideRound` does not touch them, and riders fighting at a block's edge stand among its places.
+- **The household passing through its archers once the archers march past it** (14 samples).
+
+**Tests:** `src/game/crossing.test.ts`.
+- Grand battles: pairs with horse through a quarter of a block, neither locked in a fight, under 0.04 per sampled second (before: 0.19). Household pairs under 0.05.
+- The column-of-horse set piece above.
+
 ### 8.6 Not done
 
 - **Idle men face their regiment's front.** The renderer turns a man to his foe only when he has one, so an idle rear-ranker of a block that has turned its rear ranks about still shows his back to the enemy. That fix is in `scene.ts`, which belongs to the renderer.
