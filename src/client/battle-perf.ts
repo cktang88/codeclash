@@ -2,12 +2,15 @@
 //   /battle-perf.html?men=20000&per=2500&seed=3&t=0&speed=1&zoom=1&pause=0&sync=0&cx=&cy=&stances=0&morale=0&hud=1&scan=1&art=classic|hd|hd64&aim=0|1
 //     &fa=templar&fb=undead (either side's faction) &frames=N (stop after N draws: a still for screenshot diffs)
 //     &frame=1 (the default view: everyone framed, as the game opens; overrides zoom/cx/cy)
+//     &piece=1&ca=1&cb=1&n=48&hold=0 (a set piece instead of the demo: one block of class `ca` of
+//     faction `fa` against one of class `cb` of `fb`, `n` men each, 160 apart; `hold=1` stands b)
 // `per` pads each side to that many figures with clones of the simulated ones (the sim caps a
 // side at MAX_FIGURES), so the renderer can be measured at crowd sizes the sim doesn't make.
 // `t` fast-forwards to that tick first; `sync=1` waits for the GPU after each draw so the
 // measured time covers the whole frame.
 
-import { Battle, TICK_S, type Soldier } from '../game/battle.ts';
+import { Battle, BATTLE_VERSION, TICK_S, type Soldier } from '../game/battle.ts';
+import { only, placeRegiment, plainArmy } from '../game/testing.ts';
 import { demoSetup } from './demo.ts';
 import type { FactionId } from '../game/factions.ts';
 import { BattleScene } from './render/scene.ts';
@@ -17,7 +20,20 @@ import { hdMemory, hdPoolStats } from './render/sprites128.ts';
 
 const q = new URLSearchParams(location.search);
 const num = (k: string, d: number) => (q.has(k) ? Number(q.get(k)) : d);
-const real = new Battle(demoSetup(num('seed', 3), num('men', 20000), [q.get('fa') as FactionId | null, q.get('fb') as FactionId | null]));
+const real = q.get('piece') === '1' ? setPiece() : new Battle(demoSetup(num('seed', 3), num('men', 20000), [q.get('fa') as FactionId | null, q.get('fb') as FactionId | null]));
+function setPiece(): Battle {
+  const n = num('n', 48);
+  const fa = (q.get('fa') ?? 'templar') as FactionId;
+  const fb = (q.get('fb') ?? fa) as FactionId;
+  const b = new Battle({ version: BATTLE_VERSION, seed: num('seed', 3), kind: 'daily', armies: [plainArmy(only(num('ca', 1), n), 0, fa), plainArmy(only(num('cb', 1), n), 200, fb)] });
+  b.generals[0]!.fixedPlan = 'advance';
+  b.generals[1]!.fixedPlan = q.get('hold') === '1' ? 'hold' : 'advance';
+  const ra = b.regiments.find((r) => r.team === 0)!;
+  const rb = b.regiments.find((r) => r.team === 1)!;
+  placeRegiment(b, ra, 1120, 1200, 1, 0);
+  placeRegiment(b, rb, 1280, 1200, -1, 0);
+  return b;
+}
 const per = num('per', 0);
 // Until the sim sets Regiment.stance, `stances=1` fakes one per class to exercise the renderer.
 if (q.get('stances') === '1') {

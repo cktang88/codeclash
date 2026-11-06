@@ -552,8 +552,8 @@ const THRUST: Author = (rw, f) => ({
     upperArmN: R(rw.upperArmN!, 11, [1, -8], [2, -30], [3, -14], [4, 30], [5, 38], [6, 38], [8, 0], [9, -8], [10, 20]),
     forearmN: R(rw.forearmN!, 11, [1, 72], [2, 56], [3, 70], [4, 90], [5, 94], [6, 94], [8, 78], [9, 72], [10, 100]),
     // The hand turns to lie along the shaft, so the shaft can slide through it.
-    handN: R(rw.handN!, 11, [1, 102], [9, 102], [10, 130]),
-    weapon: R(rw.weapon!, 11, [1, 102], [9, 102], [10, 140]),
+    handN: R(rw.handN!, 11, [1, 102], [9, 102], [10, 104]),
+    weapon: R(rw.weapon!, 11, [1, 102], [9, 102], [10, 104]),
     head: T([0, rw.head!]),
   },
   dw: { spine: T([0, 0], [2, 8], [3, 0], [4, -12], [6, -13], [8, -4], [11, 0]) },
@@ -563,7 +563,7 @@ const THRUST: Author = (rw, f) => ({
     // The slide: the shaft (and the rear hand gripping it) runs along the hand's line.
     // (From behind the near hand is a step further forward: the slide is shorter, so the 3.6 m
     // shaft's point stays inside the canvas.)
-    weapon: [T([0, 0]), f === 'ne' ? T([0, 0], [2, -2.4], [3, -0.9], [4, 0.3], [6, 0.35], [8, 0], [9, 0], [11, 0]) : T([0, 0], [2, -2.0], [3, 0], [4, 2.2], [6, 2.3], [8, 0.4], [9, 0], [11, 0])],
+    weapon: [T([0, 0]), f === 'ne' ? T([0, 0], [2, -2.4], [3, -1.6], [4, -1.2], [6, -1.6], [8, -0.8], [9, -0.4], [11, 0]) : T([0, 0], [2, -2.0], [3, 0], [4, 2.2], [6, 2.3], [8, 0.4], [9, 0], [11, 0])],
   },
 });
 
@@ -587,7 +587,7 @@ const HARAI: Author = (rw, f) => ({
   tAdd: {
     pelvis: [T([0, 0], [2, 0.2], [3, 0.25], [4, -0.3], [5, 0.7], [6, 1.45], [7, 1.45], [9, 0.5], [11, 0]), T([0, 0], [2, 0.35], [3, 0.5], [4, 0.5], [6, 0.75], [7, 0.75], [9, 0.3], [11, 0])],
     footTargetF: [T([0, 0], [4, 0], [5, 1.0], [6, 2.0], [8, 2.0], [10, 0.7], [11, 0]), T([0, 0], [4, 0], [5, -0.6], [6, 0], [11, 0])],
-    weapon: [T([0, 0]), f === 'ne' ? T([0, 0], [3, 0.3], [4, -1.4], [5, -0.4], [6, 0.4], [7, 0.45], [8, 0], [11, 0]) : T([0, 0], [3, 0.3], [4, -0.9], [5, 0.4], [6, 1.8], [7, 1.9], [8, 0.4], [9, 0], [11, 0])],
+    weapon: [T([0, 0]), f === 'ne' ? T([0, 0], [3, 0.3], [4, -1.4], [5, -1.4], [6, -1.8], [7, -1.8], [8, -0.8], [11, 0]) : T([0, 0], [3, 0.3], [4, -0.9], [5, 0.4], [6, 1.8], [7, 1.9], [8, 0.4], [9, 0], [11, 0])],
   },
 });
 
@@ -608,6 +608,9 @@ const BEAT: Author = (rw, f) => ({
   tAdd: {
     pelvis: [T([0, 0], [3, -0.35], [4, -0.35], [6, 0.45], [7, 0.75], [8, 0.75], [10, 0.25], [11, 0]), T([0, 0], [6, 0.2], [7, 0.4], [8, 0.4], [10, 0.1], [11, 0])],
     footTargetF: [T([0, 0], [4, 0], [5, 0.5], [6, 1.1], [9, 1.1], [10, 0.4], [11, 0]), T([0, 0], [4, -0.2], [5, -0.5], [6, 0], [11, 0])],
+    // (From behind the near hand is a step further forward: the shaft is gripped a little shorter
+    // as it comes down, so the 3.6 m point stays inside the canvas.)
+    weapon: [T([0, 0]), f === 'ne' ? T([0, 0], [5, 0], [6, -1.0], [9, -1.0], [11, 0]) : T([0, 0])],
   },
 });
 
@@ -962,10 +965,13 @@ export const BRACE: Record<Brace, Author> = {
     w: { head: T([0, rw.head! - 4]), upperArmN: T([0, 34]), forearmN: T([0, 88]), weapon: T([0, 100]) },
     tAdd: { pelvis: [T([0, 0.3]), T([0, 0.9])], footTargetF: [T([0, 1.0]), T([0, 0])], footTargetN: [T([0, -0.7]), T([0, 0])] },
   }),
-  // Set against horse: crouched, the butt planted behind the rear foot, the point rising at a horse's chest.
+  // The yari levelled for the push (yaribusuma; the Nagashino screen's spear lines, the sōjutsu
+  // pair fencing point to point, the Zōhyō monogatari's shaft at the waist: yari-guard.md):
+  // crouched, both hands at the hip, the shaft held level and a little up, the point at the
+  // enemy's chest, so a wall of them reaches across to the foe's front rank (and a horse's chest).
   yari: (rw) => ({
     dw: { spine: T([0, -16]) },
-    w: { head: T([0, rw.head! + 4]), upperArmN: T([0, 14]), forearmN: T([0, 62]), weapon: T([0, 126]) },
+    w: { head: T([0, rw.head! + 2]), upperArmN: T([0, -2]), forearmN: T([0, 72]), handN: T([0, 102]), weapon: T([0, 100]) },
     tAdd: { pelvis: [T([0, -0.1]), T([0, 1.1])], footTargetF: [T([0, 1.1]), T([0, 0])], footTargetN: [T([0, -0.8]), T([0, 0])] },
   }),
   // A ready crouch, the weapon held as it is, the weight forward.

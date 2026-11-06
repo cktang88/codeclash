@@ -201,6 +201,13 @@ export { COHESION, DOCTRINE, MORALE, REGROUP, UNDEAD } from './command.ts';
  *   those fighting a spearman stood inside his point within the first minute, now 57%. Balance:
  *   the yari levy damage x0.8, defence x0.8 (docs/factions.md, v17 weapon reach); the pairs stay
  *   within the noise of before at 250 and 1000 a side but samurai-templar at 250 (49 -> 56).
+ * - The general's presence reaches further in a bigger army (`auraK`, MORALE.auraMen): his aura's
+ *   340 grows with the fourth root of the army's figures beyond 250, so he heartens about the
+ *   same share of his engaged blocks at any size (3 in 4 at 250; at a fixed 340, 1 in 2 at 1000
+ *   and 2 in 5 at 2000, now 4 in 5). The living, who need him, lost ground against the fearless
+ *   dead as battles grew (undead-templar 44% at 250, 59% at 1000, 71% at 2000); samurai-templar
+ *   56 -> 52 at 1000. With it the price of never routing is eased back: DEAD_HP 0.72 (0.71).
+ *   300 battles a cell (docs/factions.md, v17 reach balance).
  */
 /**
  * v16: nothing grows with the size of the battle that should not (the undead won two thirds of
@@ -1334,6 +1341,8 @@ export class Battle {
    * its men hit the same, whatever the size of the battle.
    */
   private readonly shockK: number;
+  /** MORALE.auraMen: how much further the general's presence reaches in a bigger army, per team. */
+  private readonly auraK: [number, number] = [1, 1];
   /**
    * Per cell, where its men start and end in `items` (sorted by cell, then id). Only the cells
    * holding anyone (`busy`) are set; every other cell reads start = end = 0.
@@ -1419,6 +1428,7 @@ export class Battle {
       let m = 0;
       for (let c = 0; c < UNIT_COUNT; c++) m += figures(army.counts[c] ?? 0, this.scale);
       most = Math.max(most, m);
+      this.auraK[t] = Math.max(1, sqrt(sqrt(m / MORALE.auraMen)));
       n += m + (army.commander ? 7 : 0);
     }
     this.n = n;
@@ -3339,7 +3349,7 @@ export class Battle {
       const dy = this.d.y[cmd]! - r.cy;
       // S1: the daimyō's uma-jirushi is seen further and heartens more (Doctrine.aura).
       const doc = this.doc[team]!;
-      const range = M.auraRange * doc.auraRange;
+      const range = M.auraRange * doc.auraRange * this.auraK[team]!;
       if (dx * dx + dy * dy < range * range) target += M.aura * doc.aura * (0.5 + this.generals[team]!.skill * 0.6);
     }
     if (this.commanderFell[team]) target -= M.generalDead * this.doc[team]!.generalDead;

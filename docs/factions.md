@@ -55,7 +55,7 @@ Since battle v13 the factions differ mostly by their **doctrines** (below, and
 | Samurai | Crossbowmen (teppō) reload ×1.34, missileDamage ×1.3 | The matchlock: fewer, heavier volleys (v11). |
 | Samurai | **Spearmen damage ×0.8, defence ×0.8** | Weapon reach (v17): the yari (reach 19.5, against the Templar spear's 16 and the ghoul's 13) outreaches every spear and its second rank strikes past the first; the price is the peasant levy who carries it, in a light okegawa cuirass. Without it the samurai won 67% against the Templars at 250 a side. |
 | All | **Weapon reach** (`UnitStats.reach`, factions' `reach`) | Templar spear 16, yari 19.5, ghoul spear 13; naginata 9, other shock foot 4; everything else 1.6. See `docs/art-references/weapon-reach.md`. |
-| Undead | **every class but the Colossus and the trebuchet: hp ×0.71** (`DEAD_HP`; Colossus ×0.8) | The price of never routing (v12: 0.69; v13, with the doctrines: 0.66; v17, at real scale: 0.71). |
+| Undead | **every class but the Colossus and the trebuchet: hp ×0.72** (`DEAD_HP`; Colossus ×0.8) | The price of never routing (v12: 0.69; v13, with the doctrines: 0.66; v17, at real scale: 0.71; v17, with the aura's reach growing with the army: 0.72). |
 | Undead | **Archers missileDamage ×0.90** | Rotten sinew bowstrings: the weakest archery of the three factions. |
 
 ### Balance results
@@ -311,6 +311,30 @@ After merging master (routing, rally and cavalry fixes) and the yari damage at �
 master on the same seeds (80 battles a cell at 250, ±5.6; 40 at 1000, ±7.9): undead-templar 57.5
 (master 55.0) / 47.5 (70.0), undead-samurai 45.0 (47.5) / 45.0 (42.5), samurai-templar 56.3
 (52.5) / 50.0 (65.0); the Templar mirror 50.0 (team 0 45% in `battle-fairness.ts`, 40 seeds).
+
+Re-measured after the merge of the later master work (danger close, crossbow screen, engines
+forward), 300 battles a cell (±2.9), `pnpm fairness --factions a,b --seeds 150 --jobs 4`: the
+cells reported just outside the band over 80 battles were mostly noise at 250 (undead-templar
+45.7, undead-samurai 47.0), but undead-templar at 1000 was out (58.3) and samurai-templar at 1000
+on the edge (56.0). `battle-stats.ts ladder` (80 battles a size) showed undead-templar climbing
+with the size: 44 / 31 / 45 / 59 / 58 / 71% at 250 / 500 / 750 / 1000 / 1500 / 2000. The cause
+was the general's aura: a fixed 340 reaches a smaller share of a wider line, and the Templar's
+engaged blocks within it fell from 75% at 250 to 51% at 1000 and 40% at 2000 (the dead have no
+need of it), their mean morale in contact 57 / 53 / 49 and the blocks that broke 69 / 72 / 84%.
+The aura's reach now grows with the fourth root of the army's figures beyond 250 (`auraK`,
+`MORALE.auraMen`): 75 / 81 / 81% of the engaged blocks at 250 / 1000 / 2000. With that the dead
+fell to 44% at 1000 against both, so DEAD_HP went back up a step, 0.71 -> 0.72 (0.73 gave
+undead-templar 50.0 / 55.7).
+
+| Matchup (first faction's wins, 300 battles) | 250 before | 250 after | 1000 before | 1000 after (aura only) | 1000 after |
+|---|---|---|---|---|---|
+| Undead vs Templar | 45.7 | 53.0 | 58.3 | 44.3 | 53.7 |
+| Undead vs Samurai | 47.0 | 53.7 | 52.3 | 44.7 | 45.3 |
+| Samurai vs Templar | 52.3 | 52.3 | 56.0 | 52.3 | 52.3 |
+
+(250 a side is under `auraMen`, so the aura is unchanged there and the 250 column moves by
+DEAD_HP alone. The samurai still gain some 8 points from 250 to 1000 against the dead, as noted
+above.)
 
 Tried and dropped (each 200-300 battles): a defence bonus for a held man instead of the 0.4
 (clipped by the 8% floor of a blow's chance); the dead walking onto the points (getting in twice

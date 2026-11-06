@@ -19,9 +19,12 @@ describe('battle: the matchups', () => {
     // (Since v14 the horse's edge is narrower, 7-10 of the first 12 days by version against 11 in
     // v13: it breaks off from the foot among the bows to charge again. Since v17 narrower still,
     // 56% of 120 days against 62% in v16: the heavy foot beside the bows turns on horse among
-    // them, and faces round to meet it when it rides off; 12 days swung 3-8 on that alone.)
-    expect(winsOf(30, (seed) => fight(setupOf(seed, valued(V, horse), valued(V, bows))).winner)).toBeGreaterThanOrEqual(16);
-  }, 60_000);
+    // them, and faces round to meet it when it rides off; 12 days swung 3-8 on that alone.
+    // Over 30 days the count swings ±3 with any change to the sim: 17 of the first 30 and 73 of
+    // 120 before the general's aura grew with the army and DEAD_HP 0.72, 14 of 30 and 73 of 120
+    // after; so 60 days, at better than even.)
+    expect(winsOf(60, (seed) => fight(setupOf(seed, valued(V, horse), valued(V, bows))).winner)).toBeGreaterThanOrEqual(31);
+  }, 150_000);
   it('spears hold against horse at equal value', () => {
     expect(winsOf(6, (seed) => fight(setupOf(seed, valued(V, spears), valued(V, horse))).winner)).toBeGreaterThanOrEqual(5);
   }, 30_000);
