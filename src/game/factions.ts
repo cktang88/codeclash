@@ -70,9 +70,6 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
     // old charge x1.1) and hold their morale; its foot archers are pilgrims, a touch weaker.
     tweaks: {
       [U.Archers]: { missileDamage: 0.95 },
-      // Since weapon reach (battle v17, weapon-reach.md) the yari outreaches the Order's spear and
-      // its second rank strikes past the first; the spear levy thrusts harder to make up for it.
-      [U.Spearmen]: { attack: 1.15 },
     },
     palette: { cloth: '#d9d2bf', clothShade: '#9d9480', trim: '#9c1c1c', metal: '#9aa0a6', metalShade: '#5b6066', leather: '#5a3b24', skin: '#c8a07a' },
     rule: 'Discipline. The Marshal’s charge: while the Marshal lives the Knight-Brothers wait for his signal (an enemy block locked with the line faltering, the general charge, or 20 s after the lines meet), then all ride at that one block, hitting 1.2× as hard, ride back to his banner after each charge and hardly chase. Re-form on the banner: a wavering block falls back behind the nearest banner, up to twice a battle, and a broken one may re-form once more after its rally at any friendly banner. Not while the Beauséant flies: Knight-Brothers and Iron Brethren never rout while the Marshal lives, and take his death 1.5× as hard.',
@@ -109,7 +106,7 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
       [U.HeavyInfantry]: { morale: 1.05 },
       // The yari outreaches every other spear (weapon reach, battle v17): the price is in the levy
       // who carries it, a peasant in a light okegawa cuirass, poor at close quarters.
-      [U.Spearmen]: { damage: 0.9, defence: 0.85 },
+      [U.Spearmen]: { damage: 0.9, defence: 0.8 },
     },
     // The nagae-yari (3.6 m drawn, held toward the butt) reaches furthest of any foot: its
     // second rank strikes past the first. The sōhei's naginata outreaches a sword.

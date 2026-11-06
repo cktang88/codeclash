@@ -315,8 +315,11 @@ describe('battle: stances', () => {
       lineSpears += l[0];
       lineKnights += l[1];
     }
-    expect(pikeKnights).toBeGreaterThan(lineKnights * 1.5);
-    expect(pikeSpears).toBeLessThan(lineSpears);
+    // (Since v17's weapon reach spears in line hold horse at their points too, and kill riders
+    // there: over the three days 1 knight fell to spears in line before, 9 now, against 20 and 12
+    // to the pike wall. The pike wall's edge is now mostly in what it loses: 15 men against 82.)
+    expect(pikeKnights).toBeGreaterThan(lineKnights);
+    expect(pikeSpears).toBeLessThan(lineSpears * 0.5);
   }, 30_000);
 
   it('a wedge hits foot harder than a line of horse', () => {

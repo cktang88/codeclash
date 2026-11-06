@@ -39,9 +39,9 @@ const { only, placeRegiment, plainArmy } = T;
 
 /** The reach table of src/game/units.ts and factions.ts (world units beyond the two bodies). */
 const REACH: Record<string, number[]> = {
-  templar: [1.6, 15, 1.6, 1.6, 1.6, 5, 1.6, 1.6, 4, 1.6],
-  samurai: [1.6, 19.5, 1.6, 1.6, 1.6, 5, 1.6, 1.6, 9, 1.6],
-  undead: [1.6, 13, 1.6, 1.6, 1.6, 5, 1.6, 1.6, 4, 1.6],
+  templar: [1.6, 16, 1.6, 1.6, 1.6, 1.6, 1.6, 1.6, 4, 1.6],
+  samurai: [1.6, 19.5, 1.6, 1.6, 1.6, 1.6, 1.6, 1.6, 9, 1.6],
+  undead: [1.6, 13, 1.6, 1.6, 1.6, 1.6, 1.6, 1.6, 4, 1.6],
 };
 type S = { id: number; actedAt: number; team: number; cls: number; x: number; y: number; state: number; target: number; reg: number; row: number; s: { radius: number; reach?: number } };
 const LONG = 9;

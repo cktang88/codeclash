@@ -113,6 +113,23 @@ export { COHESION, DOCTRINE, MORALE, REGROUP, UNDEAD } from './command.ts';
  *   Riders riding out make for their spots about that point. The household deploys behind the
  *   archers and the second line. Pairs with horse a quarter deep in a friend: 0.157 a second
  *   sampled in grand battles, now 0.024; the charge lands as soon as before.
+ * - Weapon reach (`REACH`, `UnitStats.reach`; docs/art-references/weapon-reach.md, measured by
+ *   scripts/reach-sanity.ts): a man strikes from his weapon's reach beyond the two bodies (Templar
+ *   spear 16, yari 19.5, ghoul spear 13, naginata 9, other shock foot 4, everyone else 1.6, as
+ *   before) and closes only that far; a spear stands its foe off at 0.75 of its reach. Spear on
+ *   spear the walls stall at the points and fence (front to front a thrust lands 0.55 as often):
+ *   the front ranks stood 4.8 apart in a melee of spears, now 16 (yari 19), and lost 15% in the
+ *   first 10 s, now 1%. The yari's second rank strikes past the first (the third when close). A shorter arm
+ *   (under 0.6 of the spear's) before the front of formed spears is held at the points (`held`):
+ *   he comes no closer, strikes nothing, and a thrust at him lands 0.4 as often; a charge on foot
+ *   stops there. He gets in by a gap beside his spearman (0.2 a look), rarely by luck (0.03 times
+ *   one and his shield; the heaviest foot thrice), or freely where the wall is not formed
+ *   (re-forming, in column, running, reeling) or from the flank and rear; inside 0.45 of the
+ *   reach the spearman fights at -15 attack, -8 defence. Horse whose charge is spent is held too;
+ *   a charge still meets the brace and pike-wall rules. Sergeants coming at spears' front: 95% of
+ *   those fighting a spearman stood inside his point within the first minute, now 57%. Balance:
+ *   the yari levy damage x0.9, defence x0.8 (docs/factions.md, v17 weapon reach); the pairs stay
+ *   within the noise of before at 250 and 1000 a side but samurai-templar at 250 (49 -> 56).
  */
 /**
  * v16: nothing grows with the size of the battle that should not (the undead won two thirds of
@@ -6336,8 +6353,9 @@ export class Battle {
       const body = d.rad[a]! + d.rad[t]!;
       if (d.rc[a]! >= REACH.long && q < body + d.rc[a]! * REACH.inside) attack -= REACH.insideAttack;
       if (d.rc[t]! >= REACH.long && q < body + d.rc[t]! * REACH.inside) defence -= REACH.insideDefence;
-      // A man held at the points does nothing but keep them off: most thrusts glance off.
-      else if (this.held(t, a)) fence = REACH.heldHit;
+      // A man on foot held at the points does nothing but keep them off: most thrusts glance off.
+      // (Not a horse: it cannot be held back from the points, and is gutted on them.)
+      else if (!d.mt[t] && this.held(t, a)) fence = REACH.heldHit;
       if (d.rc[a]! >= REACH.long && d.rc[t]! >= REACH.long && dot > 0.3) fence = REACH.fence;
       if (dot < -0.4) {
         attack += 20;
@@ -7670,8 +7688,8 @@ export const REACH = {
   insideAttack: 15,
   insideDefence: 8,
   /**
-   * A man held at the points, unable to strike, gives all he has to keeping them off (the
-   * shield up, the point beaten aside): a thrust at him lands this much as often.
+   * A man on foot held at the points, unable to strike, gives all he has to keeping them off
+   * (the shield up, the point beaten aside): a thrust at him lands this much as often.
    */
   heldHit: 0.4,
   /** Spear on spear, front to front, a thrust lands this much as often: the points fence and beat each other aside. */

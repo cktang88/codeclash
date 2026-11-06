@@ -24,6 +24,10 @@ const moments = {
   'melee-line': `(b) => b.tick > 330 && b.regiments.find((r) => r.role === 'line' && r.engaged && r.meleeTicks > 40 && r.alive > 20)`,
   // Knights or horse just into foot.
   'cavalry-charge': `(b) => b.regiments.find((r) => r.role === 'shock-cav' && r.mode === 'charge' && b.soldiers.some((s) => s.reg === r.id && s.impetus > 0.5 && b.soldiers.some((o) => o.team !== s.team && o.state === 0 && Math.abs(o.x - s.x) < 12 && Math.abs(o.y - s.y) < 12)))`,
+  // Weapon reach (battle v17): two spear walls fencing at their points.
+  'spear-wall': `(b) => b.regiments.find((r) => r.cls === 1 && r.engaged && r.meleeTicks > 30 && r.alive > 12 && r.targetReg >= 0 && b.regiments[r.targetReg].cls === 1 && b.regiments[r.targetReg].engaged)`,
+  // Swordsmen held at the points of a spear block.
+  'swords-at-points': `(b) => b.regiments.find((r) => r.cls === 0 && r.engaged && r.meleeTicks > 20 && r.alive > 12 && r.targetReg >= 0 && b.regiments[r.targetReg].cls === 1 && !b.regiments[r.targetReg].routed)`,
   // Arrows in flight over the field.
   'missiles': `(b) => b.projectiles.length > 40 && b.tick > 150 && b.regiments.find((r) => r.role === 'missile' && r.mode === 'shoot')`,
 };
