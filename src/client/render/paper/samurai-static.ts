@@ -531,10 +531,20 @@ function kato(c: Paper, h: P2, back = false): void {
   slab(c, h, ell(0.82 * s, 0.94 * s, -0.04, 0, 18), (fx0, fy0) => {
     const fx = fx0 / s, fy = fy0 / s;
     if (back && fx > 0.6 && fy > -0.2 && fy < 0.1) return code(SM.flesh, 1); // a sliver of the face turning away
-    if (!back && fy > -0.2 && fy < 0.1 && fx > 0.02 && fx < 0.85) {
-      if (Math.abs(fx - 0.45) < 0.1 && fy > -0.13 && fy < 0.03) return code(SM.ink, 0);
-      if (fy < -0.12 && fx > 0.1 && fx < 0.7) return code(SM.hair, 1); // brow
-      return code(SM.flesh, fx > 0.65 ? 1 : 2);
+    if (!back) {
+      // The face in the wrap's opening: brows, eyes and the bridge of the nose, framed by the
+      // cloth's shadowed inner edge (Benkei on the Met's inrō 58396 and in Kuniyoshi's prints: the
+      // katō leaves the eyes and cheeks bare). A slit 1 px high had left a blank cream egg at
+      // battle zoom, the man inside unread.
+      const ex = (fx - 0.36) / 0.52, ey = (fy + 0.02) / 0.36;
+      const r = ex * ex + ey * ey;
+      if (r < 1) {
+        // (Below level 8 the brows would join the eyes in one black visor bar: eyes alone there.)
+        if (c.L >= 8 && ey < -0.4 && Math.abs(ex) < 0.8) return code(SM.hair, 1); // brows
+        if (Math.abs(ey + 0.02) < 0.22 && Math.abs(ex) > 0.14 && Math.abs(ex) < 0.62) return code(SM.ink, 0); // the eyes
+        return code(SM.flesh, ex > 0.5 || ey > 0.45 ? 1 : 2);
+      }
+      if (r < 1.45) return code(KM.silk, 1); // the wrap's inner edge, in its own shadow
     }
     if (Math.abs(fy - fx * 0.35 + 0.45) < 0.05 || Math.abs(fy - fx * 0.3 - 0.45) < 0.05) return code(KM.silk, 1); // wrap folds
     return code(KM.silk, lit(c, 2, c.litX(fx) * 0.7 + fy * 0.5, 0.4, 0.45));
