@@ -156,6 +156,13 @@ export const MAX_ZOOM_HD = 5;
  * lying on the ground had the same palette and size as a skeleton standing, so the undead dead
  * go down to about the ground's value (Total War keeps its dead darker than the living).
  */
+/**
+ * The first look: the longest the figures are held back for their art (a cold first visit on a
+ * slow machine paints the level-2 sheets in ~10 s; from the cache they come in well under one),
+ * and their fade in.
+ */
+const REVEAL_MAX_MS = 20000;
+const REVEAL_FADE_MS = 450;
 const CORPSE_SHADE: Record<string, number> = { default: 0.78, undead: 0.5 };
 /** HD: the painted dead already lie dark in their robes and the ground is busier, so the undead go down less far. */
 const CORPSE_SHADE_HD: Record<string, number> = { default: 0.78, undead: 0.62 };
@@ -310,6 +317,20 @@ export class BattleScene {
    * mistaken for one that lies (QA battle-realism #15).
    */
   private readonly corpseShade: [number, number];
+  /**
+   * The first look (QA battle-realism #17): until every kind in view has presentable art (in HD
+   * zoomed in, a sheet of level 2 or finer: the 48 px grid blown up 4-8x reads as dark blobs; else
+   * its grid), the figures are held back (the regiments' standards already stand where they will
+   * be), then they fade in together over REVEAL_FADE_MS, or after REVEAL_MAX_MS whatever. Page
+   * time of the scene's first frame, and of the reveal (-1: not yet). A scene that takes over from
+   * another (an art switch) starts revealed.
+   */
+  private firstDrawAt = -1;
+  private revealAt = -1;
+  /** Figures' opacity this frame (the reveal's fade). */
+  private veil = 1;
+  /** Page time from the first frame to the moment the figures were revealed (-1: not yet), for the harness. */
+  revealMs = -1;
   /** The living by cell, a tick at a time: the enemy at a man's elbow (foes.ts, pose.ts facing). */
   private readonly foes = new FoeGrid(FIELD_W, FIELD_H);
   /** Scratch for each man's own front (pose.ts ownFront). */
@@ -446,6 +467,7 @@ export class BattleScene {
       this.dirs[i] = s.team === 0 ? 0 : 2;
     }
     this.snapshot();
+    if (from) this.revealAt = this.revealMs = 0;
     if (from && from.battle === battle) {
       this.dirs.set(from.dirs);
       this.riseX.set(from.riseX);
@@ -1273,7 +1295,8 @@ export class BattleScene {
     gl.enable(gl.STENCIL_TEST);
     gl.stencilFunc(gl.EQUAL, 0, 0xff);
     gl.stencilOp(gl.KEEP, gl.KEEP, gl.INCR);
-    P.shadow(true, SHEAR_X, SHEAR_Y, SHADOW);
+    // (The first look's fade: the shadows come in with the figures.)
+    P.shadow(true, SHEAR_X, SHEAR_Y, this.veil < 1 ? [SHADOW[0], SHADOW[1], SHADOW[2], SHADOW[3] * this.veil] : SHADOW);
     gfx.solid.draw(P);
     P.shadow(false);
     gl.disable(gl.STENCIL_TEST);
@@ -1281,8 +1304,10 @@ export class BattleScene {
     const tsh = performance.now();
     lp.shadows = tsh - ts;
 
-    // Everything solid, depth-tested by the foot's screen y.
-    gl.disable(gl.BLEND);
+    // Everything solid, depth-tested by the foot's screen y (blended only while the figures fade
+    // in on the first look: their sprites carry the fade as alpha, everything else is opaque).
+    if (this.veil < 1) gl.enable(gl.BLEND);
+    else gl.disable(gl.BLEND);
     gl.enable(gl.DEPTH_TEST);
     gl.depthFunc(gl.LEQUAL);
     gfx.solid.draw(P);
@@ -1344,6 +1369,47 @@ export class BattleScene {
     gfx.stamps.draw(P);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     gl.disable(gl.BLEND);
+  }
+
+  /** The figures' opacity this frame: 0 while the first look is held back, then the fade in (see firstDrawAt). */
+  private reveal(m: number): number {
+    if (this.revealAt === 0) return 1;
+    const now = performance.now();
+    if (this.revealAt < 0) {
+      // The first frame lays out the view and finds the kinds in it (seen): judge from the next.
+      if (this.firstDrawAt < 0) this.firstDrawAt = now;
+      else if (now - this.firstDrawAt > REVEAL_MAX_MS || this.presentable(m)) {
+        this.revealAt = now;
+        this.revealMs = now - this.firstDrawAt;
+        performance.mark?.('codeclash:reveal');
+      }
+      if (this.revealAt < 0) {
+        this.settled = false;
+        return 0;
+      }
+    }
+    const f = (now - this.revealAt) / REVEAL_FADE_MS;
+    if (f >= 1) {
+      this.revealAt = 0;
+      return 1;
+    }
+    this.settled = false;
+    return f * f * (3 - 2 * f);
+  }
+
+  /** Whether every kind in view (living or dead) is drawn from presentable art (see firstDrawAt). */
+  private presentable(m: number): boolean {
+    for (let t = 0; t < 2; t++) {
+      const atlas = this.atlases[t as 0 | 1];
+      const inView = this.seen[t]! | this.seenDead[t]!;
+      for (const k of this.kindsPresent[t]!) {
+        if (!(inView & (1 << k))) continue;
+        if (atlas.levels && m > 1) {
+          if (this.hdLevel[t]![k]! < atlas.levels[0]!) return false;
+        } else if (atlas.landed && !atlas.landed.includes(k)) return false;
+      }
+    }
+    return true;
   }
 
   /**
@@ -1563,7 +1629,7 @@ export class BattleScene {
     const mx = this.mapX(s.x, s.y);
     const my = this.mapY(s.x, s.y);
     if (mx < x0 || mx > x1 || my < y0 || my > y1) return true;
-    this.hdBatch[s.team]![kind]!.sprite(Math.round(mx), Math.round(my), r[o]!, r[o + 1]!, r[o + 2]! / L, r[o + 3]! / L, r[o + 4]! / L, r[o + 5]! / L, -1e5, k, k, k * 0.96, 1, 0, 1);
+    this.hdBatch[s.team]![kind]!.sprite(Math.round(mx), Math.round(my), r[o]!, r[o + 1]!, r[o + 2]! / L, r[o + 3]! / L, r[o + 4]! / L, r[o + 5]! / L, -1e5, k, k, k * 0.96, this.veil, 0, 1);
     return true;
   }
 
@@ -1582,6 +1648,7 @@ export class BattleScene {
     team[1].clear();
     const m = v.m;
     const hd = this.pickLevels(gfx, m);
+    this.veil = this.reveal(m);
     this.seen[0] = this.seen[1] = 0;
     this.seenDead[0] = this.seenDead[1] = 0;
     this.seenNear[0] = this.seenNear[1] = 0;
@@ -1742,10 +1809,10 @@ export class BattleScene {
       if (lv > 1 && this.hdSheet[s.team]![kind]!.rects[o + 2]! > 0) {
         const sh = this.hdSheet[s.team]![kind]!;
         const r = sh.rects;
-        this.hdBatch[s.team]![kind]!.sprite(Math.round((fmx + jx) * m) / m, Math.round((fmy + jy) * m) / m, r[o]!, r[o + 1]!, r[o + 2]! / lv, r[o + 3]! / lv, r[o + 4]! / lv, r[o + 5]! / lv, fmy, shade, shade, shade * (shade < 1 ? 0.96 : 1), 1, flash);
+        this.hdBatch[s.team]![kind]!.sprite(Math.round((fmx + jx) * m) / m, Math.round((fmy + jy) * m) / m, r[o]!, r[o + 1]!, r[o + 2]! / lv, r[o + 3]! / lv, r[o + 4]! / lv, r[o + 5]! / lv, fmy, shade, shade, shade * (shade < 1 ? 0.96 : 1), this.veil, flash);
       } else {
         const u = this.cellU(s.team, kind, anim, f, dir);
-        team[s.team as 0 | 1].sprite(Math.round(fmx + jx), Math.round(fmy + jy), u, this.cellV, this.cellW, this.cellH, this.cellAx, this.cellAy, fmy, shade, shade, shade * (shade < 1 ? 0.96 : 1), 1, flash, 0, this.cellCutX, this.cellCutY);
+        team[s.team as 0 | 1].sprite(Math.round(fmx + jx), Math.round(fmy + jy), u, this.cellV, this.cellW, this.cellH, this.cellAx, this.cellAy, fmy, shade, shade, shade * (shade < 1 ? 0.96 : 1), this.veil, flash, 0, this.cellCutX, this.cellCutY);
       }
     }
 
@@ -2164,7 +2231,7 @@ export class BattleScene {
     if (hd && this.hdLevel[s.team]![kind]! > 1 && this.hdCorpse(i, x0, x1, y0, y1)) return;
     const cs = this.corpseShade[s.team as 0 | 1];
     const u = this.cellU(s.team, kind, Anim.Dead, 0, this.dirs[i] as Dir);
-    this.gfx!.team[s.team as 0 | 1].sprite(Math.round(mx), Math.round(my), u, this.cellV, this.cellW, this.cellH, this.cellAx, this.cellAy, -1e5, cs, cs, cs * 0.96, 1, 0, 1, this.cellCutX, this.cellCutY);
+    this.gfx!.team[s.team as 0 | 1].sprite(Math.round(mx), Math.round(my), u, this.cellV, this.cellW, this.cellH, this.cellAx, this.cellAy, -1e5, cs, cs, cs * 0.96, this.veil, 0, 1, this.cellCutX, this.cellCutY);
   }
 
   /** HD: the stakes, from the level-m sheet (and the HD batches cleared for the frame). */
