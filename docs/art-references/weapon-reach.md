@@ -105,3 +105,13 @@ through). Losses in the first minute of the demo battles are as before (5/11/23%
 against 5/11/24% and 3/8/20%): the reach moves who kills whom, not how fast the day goes.
 The sergeants "inside" the spears' points in the set piece are mostly men who got in during the
 minute (by gaps as the spearmen fall, by luck) and the ends of the line wrapping the spears' flank.
+
+## On screen (checked after the merge)
+
+Set pieces on `/battle-perf.html?piece=1&fa=..&fb=..&ca=..&cb=..&n=16|48&hold=0|1&art=hd&zoom=5`
+(48 or 16 men a block), HD at zoom 5: Templar spear on spear, yari on yari, ghoul spear on spear,
+sergeants on standing Templar spears and katana samurai on standing yari. The points reach into
+the other front rank (Templar, ghoul) and the sergeants' shields stand at the spear points; the
+katana samurai stand off a clear gap with the yari points across it. The yari guard was the
+anti-horse set, its point over the foe's head: now levelled at the hip and gripped further back,
+so its drawn point meets the sim's reach (`scripts/spear-reach.ts`; `yari-guard.md`).
