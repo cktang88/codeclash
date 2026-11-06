@@ -10,7 +10,8 @@
 //
 // DATA SHAPE (for the renderer and tools; read it from `battle.terrain`, rebuilt by every
 // browser from the setup, nothing to send):
-// - `kind`: 'flat' (no features at all; every array zero) or 'field'. `flat` is true for 'flat'.
+// - `kind`: 'flat' (no features at all; every array zero), 'field' (generated) or 'custom' (laid
+//   out by hand: `TerrainSpec`). `flat` is true for 'flat'.
 // - A grid of `cols` x `rows` cells of `cell` (16) world units, row-major, index
 //   `row * cols + col`, cell (c, r) spanning x in [c*cell, (c+1)*cell), y in [r*cell, (r+1)*cell).
 //   - `height: Float32Array`: ground height at the cell's centre, world units (a man is about 5
@@ -30,6 +31,18 @@
 import { mixSeed, Rng } from './rng.ts';
 
 export type TerrainKind = 'flat' | 'field';
+
+/**
+ * A field laid out by hand (set pieces, tests, scripted scenarios): the features as `Terrain`
+ * holds them; a wood's bounding disc is worked out from its blobs, and a stream's `pts` need only
+ * run from top to bottom (it is resampled).
+ */
+export interface TerrainSpec {
+  hills?: Hill[];
+  woods?: { blobs: Disc[] }[];
+  soft?: Patch[];
+  stream?: Stream;
+}
 
 export const enum Ground {
   Open = 0,
@@ -55,7 +68,7 @@ export const TERRAIN = {
   footPace: [1, 0.78, 0.72, 0.62, 0.35],
   horsePace: [1, 0.62, 0.62, 0.35, 0.28],
   /** Going up a grade g (rise per run) a man keeps 1 - upK g of his pace (no less than upMin). */
-  upK: 2.4,
+  upK: 2,
   upMin: 0.5,
   /** Going down he gains downK |g| (at most downMax). */
   downK: 0.6,
@@ -66,14 +79,14 @@ export const TERRAIN = {
   woodImpetus: 0.15,
   waterImpetus: 0,
   /** Extra fatigue a think (0.5 s) per unit of grade climbed: marching, and running. */
-  climbTire: 0.03,
-  climbRunTire: 0.08,
+  climbTire: 0.008,
+  climbRunTire: 0.025,
   /** A charge's force: x (1 - chargeK g) along the grade it runs down (g < 0), within [chargeMin, chargeMax]. */
-  chargeK: 3,
-  chargeMin: 0.65,
-  chargeMax: 1.5,
+  chargeK: 1.5,
+  chargeMin: 0.85,
+  chargeMax: 1.25,
   /** Melee: attack + heightAttack x the grade down to his foe (within ±heightGrade). */
-  heightAttack: 40,
+  heightAttack: 20,
   heightGrade: 0.25,
   /** Attack and defence lost by a man standing in water (no footing, no ranks). */
   waterAttack: 8,
@@ -126,8 +139,11 @@ export class Terrain {
   /** Stream: its x at each 1/STREAM_STEP of y (for crossing tests), and the y step. */
   private streamX: Float64Array | null = null;
 
-  constructor(readonly kind: TerrainKind, readonly width: number, readonly heightOfField: number, seed: number) {
-    this.flat = kind === 'flat';
+  readonly kind: TerrainKind | 'custom';
+
+  constructor(given: TerrainKind | TerrainSpec, readonly width: number, readonly heightOfField: number, seed: number) {
+    this.kind = typeof given === 'string' ? given : 'custom';
+    this.flat = given === 'flat';
     this.cols = Math.ceil(width / this.cell);
     this.rows = Math.ceil(heightOfField / this.cell);
     const n = this.cols * this.rows;
@@ -136,7 +152,10 @@ export class Terrain {
     this.slopeY = new Float32Array(n);
     this.ground = new Uint8Array(n);
     this.woodDepth = new Float32Array(n);
-    if (!this.flat) {
+    if (typeof given === 'object') {
+      this.lay(given);
+      this.bake();
+    } else if (!this.flat) {
       generate(this, new Rng(mixSeed(seed, 0x7e4a)));
       this.bake();
     }
@@ -239,6 +258,39 @@ export class Terrain {
       if (ex * ex + ey * ey < f.r * f.r * 0.8) return -1;
     }
     return t;
+  }
+
+  /** Sets down the features of a field laid out by hand. */
+  private lay(spec: TerrainSpec): void {
+    for (const h of spec.hills ?? []) this.hills.push({ ...h });
+    for (const p of spec.soft ?? []) this.soft.push({ ...p });
+    for (const w of spec.woods ?? []) {
+      let x = 0;
+      let y = 0;
+      for (const b of w.blobs) {
+        x += b.x / w.blobs.length;
+        y += b.y / w.blobs.length;
+      }
+      let r = 0;
+      for (const b of w.blobs) r = Math.max(r, Math.sqrt((b.x - x) * (b.x - x) + (b.y - y) * (b.y - y)) + b.r);
+      this.woods.push({ x, y, r, blobs: w.blobs.map((b) => ({ ...b })) });
+    }
+    const S = spec.stream;
+    if (S) {
+      // Resampled at every STREAM_STEP of y from the top edge to the bottom (see `bake`).
+      const src = S.pts;
+      const xAt = (y: number): number => {
+        for (let k = 0; k + 3 < src.length; k += 2) {
+          const y0 = src[k + 1]!;
+          const y1 = src[k + 3]!;
+          if (y >= y0 && y <= y1) return src[k]! + ((src[k + 2]! - src[k]!) * (y - y0)) / (y1 - y0 || 1);
+        }
+        return y < src[1]! ? src[0]! : src[src.length - 2]!;
+      };
+      const pts: number[] = [];
+      for (let k = 0; k * STREAM_STEP <= this.heightOfField + STREAM_STEP; k++) pts.push(xAt(k * STREAM_STEP), k * STREAM_STEP);
+      this.stream = { pts, width: S.width, bank: S.bank, fords: S.fords.map((f) => ({ ...f })) };
+    }
   }
 
   /** Fills the grid from the features. */
