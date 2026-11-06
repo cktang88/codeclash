@@ -27,7 +27,7 @@ The sim (`src/game/battle.ts`) is pure TypeScript with no DOM, so a battle runs 
 5. **Before committing or pushing:** `pnpm typecheck`, then **only the relevant tests**: the test files for the code you touched and any test that exercises it (e.g. a melee change: `reach.test.ts`, `collision.test.ts`, `game-matchups.test.ts`; a missile change: `missiles.test.ts`, `danger.test.ts`). Add `pnpm build` if you touched the client. Not the full suite on every commit.
 6. **Occasionally, after a big batch of changes** (not per commit): the full suite in four shards so each stays under the time limit (`for i in 1 2 3 4; do timeout 180 npx vitest run --shard=$i/4 --testTimeout=170000; done`; each shard takes 1–3 minutes), plus:
    - A modest demo audit, e.g. `scripts/battle-sanity.ts` or `scripts/qa/realism-audit.ts` at 4 seeds × 450 men plus one seed at 1,200.
-   - A fairness run only if balance could have moved, at 60–120 battles a pair, split across parallel `npx tsx` processes so each finishes within the 3-minute limit.
+   - A fairness run only if balance could have moved a lot, at 60–120 battles a pair, split across parallel `npx tsx` processes so each finishes within the 3-minute limit. It's a sanity check, not a target: don't retune to chase win rates (see CLAUDE.md).
 
 ## Never
 

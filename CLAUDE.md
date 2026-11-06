@@ -14,6 +14,7 @@
 
 ## Iterating on battles: small and headless
 - Follow the `fast-sim` skill (`.claude/skills/fast-sim/SKILL.md`): reproduce and fix in seconds-long headless set pieces (`scripts/duel.ts`, one regiment against one regiment), run single test files and `pnpm test:fast` while iterating, and run full battles, fairness and the full suite once at the end. Never iterate on grand battles or 100-battle runs. No single sim or test command may run longer than a few minutes (`timeout 180`): shrink it or split it across parallel processes.
+- Don't spend cycles on balance. Win rates between factions or classes only need to stay roughly sane; don't chase percentages with long fairness sweeps. Spend the time on art, animation and battle mechanics (how men and blocks behave). If a change shifts a win-rate test, check the shift has a believable cause and adjust the test; don't retune the game to put the number back.
 
 ## Checks
 Per commit: `pnpm typecheck` and the test files relevant to what changed (`npx vitest run <files>`), plus `pnpm build` for client changes. The full `pnpm test` runs occasionally, after a big batch of changes, not on every commit. Commit messages end with the Co-Authored-By / Claude-Session lines the session gives.
