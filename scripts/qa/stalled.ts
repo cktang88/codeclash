@@ -10,6 +10,7 @@ for (const seed of seeds.length ? seeds : [1, 2, 3, 4]) {
   const B = b as any;
   const hist = new Map<number, [number, number][]>();
   const run = new Map<number, number>();
+  const by = new Map<string, number>();
   let blockS = 0, manS = 0, longest = 0, worst = '';
   while (!b.done()) {
     b.step();
@@ -24,6 +25,10 @@ for (const seed of seeds.length ? seeds : [1, 2, 3, 4]) {
       const moved = h.length === 6 ? Math.hypot(h[5]![0] - h[0]![0], h[5]![1] - h[0]![1]) : 99;
       if (!r.engaged && !r.contact && far && moved < 12 && (r.mode === 'advance' || r.mode === 'reserve' || r.mode === 'hold')) {
         blockS++; manS += r.alive;
+        // Who is in its way: a friend its next step toward the goal would walk into.
+        const gq = Math.hypot(r.tx - r.ax, r.ty - r.ay) || 1;
+        const pen = B.crowded(r, r.ax + ((r.tx - r.ax) / gq) * 3, r.ay + ((r.ty - r.ay) / gq) * 3, r.fx, r.fy, true);
+        if (pen > 0) { const o = b.regiments[B.gWho]!; const k = `${o.role}${o.stance === 'loose' ? '(loose)' : ''}`; by.set(k, (by.get(k) ?? 0) + 1); } else by.set('nobody', (by.get('nobody') ?? 0) + 1);
         const k = (run.get(r.id) ?? 0) + 1;
         run.set(r.id, k);
         if (k > longest) {
@@ -34,5 +39,5 @@ for (const seed of seeds.length ? seeds : [1, 2, 3, 4]) {
       } else run.delete(r.id);
     }
   }
-  console.log(`seed ${seed}/${men}: stalled foot ${blockS} block-s, ${manS} man-s; longest ${longest} s (${worst})`);
+  console.log(`seed ${seed}/${men}: stalled foot ${blockS} block-s, ${manS} man-s; longest ${longest} s (${worst}); in its way: ${[...by].map(([k, v]) => `${k} ${v}`).join(', ')}`);
 }

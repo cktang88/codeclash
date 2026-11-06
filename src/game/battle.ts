@@ -286,6 +286,16 @@ export { COHESION, DOCTRINE, MORALE, REGROUP, UNDEAD } from './command.ts';
  *   and ground behind them. They stood and threw until the foot was on them. 30 skirmishers v 48
  *   undead spears, four days: cut down with javelins in hand 48 -> 0 of 120, javelins thrown
  *   357 -> 480, spears felled 18 -> 41. (Out of javelins they still go in: someone must end it.)
+ * - QA review 3 #5 (scripts/qa/skirm-rest.ts). Retired skirmishers shot at where they rest behind
+ *   the line (`thinkSkirmish`, SKIRM.shelter*) go back out of the enemy's bowshot (or 400 back),
+ *   and come back to their place only once it is out of bowshot. The enemy's shooters, holding
+ *   their arrows off the melee, picked the men standing clear behind it, and spent skirmishers
+ *   were shot down there to the last man. Demo seeds 1-4 at 450 (with HORSE): shot dead while
+ *   retired 19 -> 6, man-seconds under arrows 640 -> 367. Set piece (soldier-sense.test.ts):
+ *   they broke under the arrows within 30 s on three days of four, now on none.
+ * - QA review 3: the household weighs itself by what its riders have left (`thinkCommand`): a
+ *   bloodied household of seven took on a block of 37 as if fresh, and (after #5, in s3/450
+ *   undead v samurai) the Lich-Marshal fell with it 18 s before his host broke.
  * - Horse wounds (`HORSE`, `horseHit`, `dismount`, `afootAct`/`afootMove`; UnitStats `horse`,
  *   `barding`; docs/art-references/horse-wounds.md). Arrows soaked into a knight's armour and killed
  *   none; at Crécy and Agincourt it was the horses that went down. A missile striking a rider strikes
@@ -966,6 +976,8 @@ export class Regiment {
   withdrawals = 0;
   /** Skirmishers that have fallen back behind the line. */
   retired = false;
+  /** Retired skirmishers last shot at where they rested (QA3 #5: see `thinkSkirmish`). */
+  shelterAt = -1000;
   /** Skirmishers with no line of their own giving ground before foot (QA3 #3: see `thinkSkirmish`). */
   giving = false;
   refuseUntil = -100;
@@ -5172,7 +5184,19 @@ export class Battle {
     }
     // Their place behind the line, which follows the line only when it has moved SKIRM.deadband
     // (`frontX` jumps whenever a block of the line is committed, charges or falls back).
-    const hx = ts.frontX - dir * (ts.lineDepth + 70);
+    let hx = ts.frontX - dir * (ts.lineDepth + 70);
+    // QA3 #5: shot at where they rest (the enemy's shooters, holding their arrows off the melee,
+    // pick the men standing clear behind it), they go back out of the enemy's bowshot, or as far
+    // as SKIRM.shelterFar. Until then they stood 70 behind the line and were shot
+    // down to the last man, out of javelins and with nothing to answer with.
+    if (retired && (r.mode === 'reserve' || r.mode === 'shoot') && r.arrows > SKIRM.shot && !this.nearGap(r, 60, false)) r.shelterAt = this.tick;
+    // (Once shot at, they do not come back into the arrows: back to their place only once it is
+    // out of the enemy's bowshot, or after a while with their place clear of arrows.)
+    if (this.tick - r.shelterAt < SKIRM.shelterFor || (r.shelterAt > -1000 && this.bowshotAt(r.team, hx, r.ay, r.radius))) {
+      let back = SKIRM.shelterStep;
+      while (back < SKIRM.shelterFar && this.bowshotAt(r.team, hx - dir * back, r.ay, r.radius)) back += SKIRM.shelterStep;
+      hx = clampX(hx - dir * back);
+    }
     if (r.restAt < 0 || Math.abs(hx - r.restX) > SKIRM.deadband) {
       r.restX = hx;
       r.restAt = this.tick;
@@ -6029,7 +6053,18 @@ export class Battle {
     // the household fought to its last rider, 300-440 units ahead of what was left of his
     // army. The Lich-Marshal fell in a quarter of all battles, the other generals in 6-8%.)
     const val = (o: Regiment) => o.alive * this.stats[o.team]![o.cls]!.value;
-    const ours = val(r);
+    // (QA3: weighed by what its riders have left in them: a household of seven, three of them
+    // bleeding, is not seven fresh riders. Until then a bloodied household took on a block of 37
+    // as if fresh, and the Lich-Marshal fell with it before his host broke.)
+    let left = 0;
+    let riders = 0;
+    const full = this.stats[t]![r.cls]!.hp;
+    for (const id of r.members) {
+      if (this.d.state[id] !== State.Fighting || this.soldiers[id]!.commander) continue;
+      riders++;
+      left += Math.min(1, this.d.hp[id]! / full);
+    }
+    const ours = val(r) * (riders > 0 ? left / riders : 1);
     const near = this.nearGap(r, reach, false);
     let threat = 0;
     let danger: Regiment | null = null;
@@ -9637,8 +9672,10 @@ function spreadAt(kind: Ballistics, q: number, range: number, flatBow: boolean):
  * line moves when the line has moved `deadband`. With no line of their own (QA3 #3) they give
  * ground before foot slower than `faster` of their speed once its men are within `back`, to
  * `backTo` from them, while that is at least `room` of ground behind them, at `run` of their speed.
+ * Retired and shot at (`arrows` over `shot`: QA3 #5), they rest further back, by `shelterStep`s
+ * until out of the enemy's bowshot or `shelterFar`, for `shelterFor` ticks.
  */
-const SKIRM = { out: 1.5, spent: 0.35, deadband: 30, back: 70, backTo: 125, faster: 0.85, room: 30, run: 0.9 };
+const SKIRM = { out: 1.5, spent: 0.35, deadband: 30, back: 70, backTo: 125, faster: 0.85, room: 30, run: 0.9, shot: 1, shelterFor: 300, shelterStep: 50, shelterFar: 400 };
 /**
  * Crossbows (direct fire, not the samurai's guns, whose doctrine is S3) stand `screen` before
  * their line while the lines are apart, and fall back through it when enemy foot comes within

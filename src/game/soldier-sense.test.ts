@@ -117,4 +117,41 @@ describe('QA3: each man fights like a man', () => {
     expect(caught).toBeLessThan(8);
     expect(thrown).toBeGreaterThan(420);
   });
+
+  it('spent skirmishers resting behind their line, shot at there, go back out of the arrows (#5)', () => {
+    // Our 60 heavy foot locked with theirs; our 20 skirmishers, out of javelins, rest 100 behind
+    // it; 48 enemy archers 300 behind their foot, holding their arrows off the melee, shoot at the
+    // men standing clear behind it. Until QA3 the skirmishers stood there and were shot until they
+    // broke (on these three days, within 30 s); now they go back out of bowshot.
+    for (const seed of [1, 2, 4]) {
+      const b = new Battle({ version: BATTLE_VERSION, seed, kind: 'daily', armies: [plainArmy(counts([[U.HeavyInfantry, 60], [U.Skirmishers, 20]])), plainArmy(counts([[U.HeavyInfantry, 60], [U.Archers, 48]]), 200, 'samurai')] });
+      b.generals[0]!.fixedPlan = 'hold';
+      b.generals[1]!.fixedPlan = 'hold';
+      const put = (t: number, c: number, x: number) => {
+        const g = b.regiments.filter((r) => r.team === t && r.cls === c);
+        let y = 1200 - g.reduce((sum, r) => sum + r.width + 8, -8) / 2;
+        for (const r of g) {
+          placeRegiment(b, r, x, y + r.width / 2, t ? -1 : 1, 0);
+          y += r.width + 8;
+        }
+      };
+      put(0, U.HeavyInfantry, 1196);
+      put(0, U.Skirmishers, 1100);
+      put(1, U.HeavyInfantry, 1204);
+      put(1, U.Archers, 1500);
+      const sk = b.regiments.filter((r) => r.team === 0 && r.cls === U.Skirmishers);
+      const d = (b as unknown as { d: { ammo: Int32Array } }).d;
+      for (const r of sk) {
+        r.retired = true;
+        for (const i of r.members) d.ammo[i] = 0;
+      }
+      let back = 0;
+      while (b.tick < 300 && !b.done()) {
+        b.step();
+        for (const r of sk) back = Math.max(back, 1100 - r.cx);
+      }
+      expect(sk.some((r) => r.routed), `seed ${seed}`).toBe(false);
+      expect(back, `seed ${seed}`).toBeGreaterThan(150);
+    }
+  });
 });
