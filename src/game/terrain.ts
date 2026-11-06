@@ -112,6 +112,9 @@ export const TERRAIN = {
   /** Choosing ground: a holding block looks this far ahead for a crest worth this much height. */
   holdLook: 260,
   holdGain: 8,
+  /** A General whose first line has on average a crest this high within `holdLook` before it leans to the hold plan (by `holdPlan`). */
+  holdPlanGain: 12,
+  holdPlan: 0.35,
   /** Shooters holding look this far about for a wood's edge, standing this deep in it. */
   edgeLook: 170,
   edgeIn: [8, 30],

@@ -2699,6 +2699,8 @@ export class Battle {
       hammer: ours.knights > 0 && ours.foot > theirs.foot * 0.7 ? 0.7 + (p === 'aggressive' ? 0.1 : 0) : 0,
       refuse: 0.3 + (p === 'cunning' ? 0.45 : 0) + (S < 1 ? 0.15 : 0),
     };
+    // TERRAIN: a rise just before his line is ground worth standing on: let them come up at us.
+    if (!this.flat && this.hillAhead(t)) score.hold += TERRAIN.holdPlan;
     // U1 The tide: the dead neither stand and wait nor hold a wing back.
     if (this.doc[t]!.unhalting) score.hold = score.refuse = 0;
     if (g.planAt >= 0) score[g.plan] += 0.3;
@@ -3902,6 +3904,22 @@ export class Battle {
     }
     this.tmp[0] = r.hillX;
     this.tmp[1] = r.hillY;
+  }
+
+  /** TERRAIN: whether the blocks of the first line have, on the whole, a crest `holdPlanGain` above them within `holdLook` before them. */
+  private hillAhead(t: number): boolean {
+    const dir = t === 0 ? 1 : -1;
+    let gain = 0;
+    let n = 0;
+    for (const r of this.teamRegs[t]!) {
+      if (r.role !== 'line' || r.line === 2 || r.alive === 0 || r.routed) continue;
+      const here = this.frontHeight(r, r.ax, r.ay);
+      let best = here;
+      for (let s = 32; s <= TERRAIN.holdLook; s += 32) best = Math.max(best, this.frontHeight(r, r.ax + dir * s, r.ay));
+      gain += best - here;
+      n++;
+    }
+    return n > 0 && gain / n >= TERRAIN.holdPlanGain;
   }
 
   /** TERRAIN: the mean height under a block's front (middle and either end) were its anchor at (x, y). */

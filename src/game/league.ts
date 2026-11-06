@@ -156,7 +156,8 @@ export function brigands(of: ArmySpec, seed: number): ArmySpec {
 }
 
 export function battleSetup(seed: number, kind: 'daily' | 'grand', a: ArmySpec, b: ArmySpec): BattleSetup {
-  return { version: BATTLE_VERSION, seed, kind, armies: [a, b] };
+  // (Fought on generated ground, battle v17: terrain.ts.)
+  return { version: BATTLE_VERSION, seed, kind, armies: [a, b], terrain: 'field' };
 }
 
 export function battleSeed(leagueSeed: number, weekStart: number, day: number, a: number, b: number, grand: boolean): number {
