@@ -109,7 +109,8 @@ export interface Crossing {
  * order. Shooters standing on shooters count (each block of them should have its own spot). A
  * pair counts when at least `min` men of either stand in the other (three, with the general's
  * household, a handful of riders). Horse is counted like foot: riders of one block among the
- * places of another, or men among the riders' places.
+ * places of another, or men among the riders' places; but horse locked in a fight has no places
+ * (its riders fight where they stand), so only its riders in others' places count.
  */
 export function blockCrossings(b: Battle, min = 4): Crossing[] {
   // (The general's household is a handful of riders: counted from three.)
@@ -123,6 +124,7 @@ export function blockCrossings(b: Battle, min = 4): Crossing[] {
     const m = r.rad * 1.5;
     return Math.abs(lat) < r.width / 2 - m && fwd < -m && fwd > -r.depth + m;
   };
+  const loose = (r: (typeof regs)[number]): boolean => r.engaged && (r.role === 'flank' || r.role === 'shock-cav' || r.role === 'horse-archer' || r.role === 'command');
   for (let i = 0; i < regs.length; i++) {
     const p = regs[i]!;
     for (let j = i + 1; j < regs.length; j++) {
@@ -142,6 +144,10 @@ export function blockCrossings(b: Battle, min = 4): Crossing[] {
         const s = b.soldiers[id]!;
         if (s.state === State.Fighting && inside(q, s.x, s.y)) inB++;
       }
+      // (Horse locked in a fight stands where its riders fight, not in its places: men in those
+      // places are not in it. Its riders in another block's places count.)
+      if (loose(p)) inA = 0;
+      if (loose(q)) inB = 0;
       const least = p.role === 'command' || q.role === 'command' ? Math.min(min, 3) : min;
       if (inA >= least || inB >= least) out.push({ a: p.id, b: q.id, inA, inB, share: Math.max(inA / q.alive, inB / p.alive) });
     }

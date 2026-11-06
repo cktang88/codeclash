@@ -311,3 +311,62 @@ Pictures (`shot` mode, fake clock, same tick and camera, 60 frames with ticks):
 - Classic and level-1 grid sprites are drawn as whole 48 × 48 cells; per-cell trimmed quads (from
   the painter, contract.ts) would cut sprite and shadow fill 2-4×.
 - The sim step (~6.5 ms a tick at 5,000 figures) lands on one frame in six at 1×.
+
+## Round 3: trimmed quads for the 48-px cells (cc/trim-quads)
+
+Classic figures and the HD level-1 grid were drawn as whole 48 × 48 cells, though a figure
+paints ~13 % of its cell (classic; the HD grid a little more). Now:
+
+- **`Atlas.trim(u, v)`** (contract.ts, both sides): the painted box of a cell (every pixel with
+  any alpha), or null while its strip has not landed. Classic `buildAtlas` scans each kind's
+  strip as it paints it; the HD grid scans each strip as it lands (`cellTrims`, so a strip from
+  a worker or the sheet cache gets its boxes too). The HD 2/4/8 sheets are unchanged.
+- **Battle** (`scene.ts` `cellU` / `cellQuad`): figures, corpses and the corpses stamped into
+  the ground draw the box (u + x, v + y, w × h, foot point footX - x, footY - y), cached per
+  frame like the cell was.
+- **Exactly the same picture.** Two things made a smaller quad differ in a few edge px, both
+  handled in `gl.ts`: `Batch.sprite` takes the quad's offset in its cell (`cut`, packed into the
+  flags float), and
+  - zoomed out (`direct`), the shader samples the quad as its whole cell (the cell's origin and
+    anchor, the same sums), and the quad keeps a px of clear margin inside its cell, so a pick
+    a rounding error across its edge reads a clear texel either way;
+  - at 1+ px per map px, a **shadow** keeps the whole cell's corners: the rasteriser snaps a
+    sheared quad's corners to its sub-pixel grid and interpolates the texel coords between them,
+    so other corners pick another texel at ~85 px of 1.44 M (zoom 1). Sprites (unsheared, every
+    px centre half a texel from an edge) need no such care.
+- **City** (`life.ts`) and the **Units tab** (`ShowcaseUnits.tsx`) draw the box with
+  `cellQuad()` (2D canvas).
+
+Pixel diffs, `battle-render-bench.mjs shot` (fake clock, 60 frames with ticks, same camera),
+master vs this branch, 2,000 men: **0 differing bytes** in every case: classic and HD at zoom
+0.5 (direct), 1 and 3, the opening view (`frame=1`, classic and HD), classic opening view with
+`pan=1`. ([classic opening view, base | after](../screenshots/trim-quads/classic-frame-base-vs-cur.png),
+[classic zoom 3](../screenshots/trim-quads/classic-z3-base-vs-cur.png),
+[HD zoom 3](../screenshots/trim-quads/hd-z3-base-vs-cur.png).)
+
+Timings, software GL (SwiftShader), 1600 × 900, GPU waited per pass (`syncPasses`), ms per frame,
+median. In-page A/B (the same page and moment, trims switched on and off between groups of
+frames: the box's load moves the two builds' runs ±40 % against each other otherwise):
+
+| scenario | quad area (figures) | shadows off → on | sprites off → on |
+|---|---|---|---|
+| classic, 2,000, opening view (zoom 0.5, direct) | 7.3 M → 0.82 M | 66 → 61 | 129 → 118 |
+| classic, 5,000 (men=20000 per=2500), opening view | | 152 → 115 / 101 → 97 | 273 → 181 / 181 → 158 |
+| classic, 2,000, zoom 1 | 6.6 M → 0.51 M | 128 → 125 (whole cells, above) | 228 → 103 |
+| classic, 2,000, zoom 3 | | 19 → 20 | 32 → 16 |
+| HD, 2,000, opening view (grid) | 7.8 M → 1.3 M | 75 → 70 | 102 → 77 |
+| HD, 5,000, opening view (grid) | | 102 → 99 | 142 → 114 |
+| HD, 2,000, zoom 1 | | 81 → 80 | 145 → 69 |
+
+(Two rows of the 5,000 runs: two A/B runs at different load.) The build pair
+(`perf sync=1 frame=1 frames=40 runs=2`, base vs this branch) agrees within its noise: classic
+2,000 sprites 168 / 129 → 151 / 150, HD 5,000 sprites 215 / 193 → 147 / 148.
+
+Fill falls 6-13×, but zoomed out SwiftShader's cost is mostly per instance (a figure is ~25 ×
+25 device px there, and each quad's set-up and the direct shader's pick are paid however small
+it is), so the sprite pass drops 10-35 % there and about half at zoom 1 and up, where the
+quads are big. On a real GPU, where fill is what such a pass costs, the drop is the larger.
+
+Left: shadows at zoom ≥ 1 keep the whole cell (the price of the identical picture); evaluating
+the shadow per px from `gl_FragCoord` as the direct path does would trim them too, at the cost
+of the ~85 edge px a frame at zoom 1 where the base's interpolation rounds the other way.

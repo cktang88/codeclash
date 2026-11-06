@@ -20,6 +20,7 @@ let samples = 0;
 const why: Record<string, number> = {};
 // Pairs with a block of horse (or the general's household) in them.
 let mounted = 0;
+let inRanks = 0;
 let mountedSevere = 0;
 const mountedWhy: Record<string, number> = {};
 for (const men of sizes) {
@@ -31,6 +32,17 @@ for (const men of sizes) {
       b.step();
       if (b.tick % 10) continue;
       samples++;
+      // Riders pressed into the ranks of our own foot (two foot friends within touch).
+      for (const s of b.soldiers) {
+        if (s.state !== 0 || !s.s.mounted) continue;
+        let n = 0;
+        b.near(s.x, s.y, s.s.radius + 3, (o, d2) => {
+          if (o.team !== s.team || o.s.mounted || o.state !== 0) return;
+          const m = (s.s.radius + o.s.radius) * 0.9;
+          if (d2 < m * m && ++n >= 2) return true;
+        });
+        if (n >= 2) inRanks++;
+      }
       const now = new Set<string>();
       for (const c of blockCrossings(b)) {
         const key = `${c.a}-${c.b}`;
@@ -71,3 +83,4 @@ console.log('a quarter or more:');
 for (const [k, v] of Object.entries(severeWhy).sort((x, y) => y[1] - x[1]).slice(0, 10)) console.log(String(v).padStart(6), k);
 console.log(`with horse in them: ${(mounted / samples).toFixed(3)} a second sampled; through a quarter or more: ${(mountedSevere / samples).toFixed(3)}`);
 for (const [k, v] of Object.entries(mountedWhy).sort((x, y) => y[1] - x[1]).slice(0, 12)) console.log(String(v).padStart(6), k);
+console.log(`riders in our own foot's ranks: ${(inRanks / samples).toFixed(2)} a second sampled`);

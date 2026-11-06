@@ -4,7 +4,7 @@
 
 import type { BuildingKey } from '../../../game/city.ts';
 import { U, UNIT_COUNT } from '../../../game/units.ts';
-import { Anim, type Atlas, type Dir } from '../contract.ts';
+import { Anim, cellQuad, type Atlas, type Dir } from '../contract.ts';
 import { GATE_V, tierOf, WALL } from './buildings.ts';
 import { FIELDS, GARDEN, PADDOCK } from './ground.ts';
 import {
@@ -162,11 +162,13 @@ export class Draw {
         }
       }
     }
-    const [cx, cy] = a.at(kind, anim, frame, dir);
+    // The cell trimmed to what it paints (Atlas.trim).
+    const [cx, cy, cw, ch, ax, ay] = cellQuad(a, ...a.at(kind, anim, frame, dir));
+    if (cw <= 0) return;
     // HD, until the sheet lands: the level-1 grid cell at one texel to a buffer pixel (drawn at
     // world scale it was twice the townsfolk's size in doubled pixels, a murky blob).
-    if (k > 1) this.g.drawImage(a.image, cx, cy, a.cellW, a.cellH, x - a.footX / k, y - a.footY / k, a.cellW / k, a.cellH / k);
-    else this.g.drawImage(a.image, cx, cy, a.cellW, a.cellH, x - a.footX, y - a.footY, a.cellW, a.cellH);
+    if (k > 1) this.g.drawImage(a.image, cx, cy, cw, ch, x - ax / k, y - ay / k, cw / k, ch / k);
+    else this.g.drawImage(a.image, cx, cy, cw, ch, x - ax, y - ay, cw, ch);
   }
   /** A soldier on a given frame (for scripted actions). */
   soldierFrame(kind: number, anim: Anim, frame: number, dir: Dir, u: number, v: number, z = 0): void {

@@ -136,6 +136,9 @@ interface Gfx {
   maxTex: number;
 }
 
+/** Int32s per entry of BattleScene.uvTab: u, v, w, h, ax, ay of a frame's trimmed quad, and whether the trim is known. */
+const QUAD = 7;
+
 /** Sun: ground offset of a shadow per pixel of height (long, late-afternoon, toward the viewer's right). */
 const SHEAR_X = 0.85;
 const SHEAR_Y = 0.32;
@@ -391,7 +394,7 @@ export class BattleScene {
       for (let k = 0; k < KIND_COUNT; k++) for (let an = 0; an < ANIM_COUNT; an++) this.maxF = Math.max(this.maxF, frames[k * ANIM_COUNT + an]! * (an === Anim.Attack ? blows[k]! : 1));
     }
     for (let t = 0; t < 2; t++) {
-      this.uvTab.push(new Int32Array(KIND_COUNT * ANIM_COUNT * this.maxF * 4 * 2).fill(-1));
+      this.uvTab.push(new Int32Array(KIND_COUNT * ANIM_COUNT * this.maxF * 4 * QUAD));
       this.slotTab.push(new Int32Array(KIND_COUNT * ANIM_COUNT * this.maxF * 4).fill(-1));
     }
     this.propDraw = this.ground.props.map((p) => ({ r: this.fxSheet.get(`${p.kind}${p.variant}`), mx: this.mapX(p.x, p.y), my: this.mapY(p.x, p.y) }));
@@ -597,25 +600,82 @@ export class BattleScene {
     return ((kind * ANIM_COUNT + anim) * this.maxF + f) * 4 + dir;
   }
 
-  /** The atlas cell of a frame (cached Atlas.at): u, then v at out[1]. */
+  /**
+   * The quad of a frame in the atlas (cached Atlas.at and Atlas.trim): its u, then v, size and
+   * foot point in cellV, cellW, cellH, cellAx, cellAy. The quad is the cell trimmed to what it
+   * paints (the whole cell while the painter does not know that yet).
+   */
   private cellU(team: number, kind: number, anim: Anim, f: number, dir: Dir): number {
     const i = this.cellIndex(kind, anim, f, dir);
     const tab = this.uvTab[team]!;
     if (i < 0) {
-      const [u, v] = this.atlases[team as 0 | 1].at(kind, anim, f, dir);
-      this.cellV = v;
-      return u;
+      this.cellQuad(team, kind, anim, f, dir, this.quadTmp, 0);
+      this.cellV = this.quadTmp[1]!;
+      this.cellW = this.quadTmp[2]!;
+      this.cellH = this.quadTmp[3]!;
+      this.cellAx = this.quadTmp[4]!;
+      this.cellAy = this.quadTmp[5]!;
+      return this.cellCut(team, this.quadTmp[0]!);
     }
-    if (tab[i * 2]! < 0) {
-      const [u, v] = this.atlases[team as 0 | 1].at(kind, anim, f, dir);
-      tab[i * 2] = u;
-      tab[i * 2 + 1] = v;
-    }
-    this.cellV = tab[i * 2 + 1]!;
-    return tab[i * 2]!;
+    const o = i * QUAD;
+    if (tab[o + 6]! <= 0) this.cellQuad(team, kind, anim, f, dir, tab, o);
+    this.cellV = tab[o + 1]!;
+    this.cellW = tab[o + 2]!;
+    this.cellH = tab[o + 3]!;
+    this.cellAx = tab[o + 4]!;
+    this.cellAy = tab[o + 5]!;
+    return this.cellCut(team, tab[o]!);
   }
-  /** v of the last cellU(). */
+  /**
+   * The quad's offset in its cell (cellCutX, cellCutY: gl.ts Batch.sprite's cut). Zoomed out
+   * (view.direct) the quad also grows a px on each side inside its cell, so its edge runs through
+   * clear texels: a pixel whose pick falls a rounding error either side of it shows what the whole
+   * cell would show there (nothing). Returns u.
+   */
+  private cellCut(team: number, u: number): number {
+    const a = this.atlases[team as 0 | 1];
+    let cx = a.footX - this.cellAx;
+    let cy = a.footY - this.cellAy;
+    if (this.view.direct && this.cellW > 0 && (this.cellW < a.cellW || this.cellH < a.cellH)) {
+      const x0 = Math.max(0, cx - 1), y0 = Math.max(0, cy - 1);
+      const x1 = Math.min(a.cellW, cx + this.cellW + 1), y1 = Math.min(a.cellH, cy + this.cellH + 1);
+      u -= cx - x0;
+      this.cellV -= cy - y0;
+      this.cellAx += cx - x0;
+      this.cellAy += cy - y0;
+      this.cellW = x1 - x0;
+      this.cellH = y1 - y0;
+      cx = x0;
+      cy = y0;
+    }
+    this.cellCutX = cx;
+    this.cellCutY = cy;
+    return u;
+  }
+  /** Writes a frame's quad (u, v, w, h, ax, ay, known) at out[o]; known = 0 while its trim is not known. */
+  private cellQuad(team: number, kind: number, anim: Anim, f: number, dir: Dir, out: Int32Array, o: number): void {
+    const atlas = this.atlases[team as 0 | 1];
+    const [u, v] = atlas.at(kind, anim, f, dir);
+    const other = this.atlases[(1 - team) as 0 | 1];
+    const box = atlas.trim && other.cellW === atlas.cellW && other.cellH === atlas.cellH ? atlas.trim(u, v) : null;
+    const [x, y, w, h] = box ?? [0, 0, atlas.cellW, atlas.cellH];
+    out[o] = u + x;
+    out[o + 1] = v + y;
+    out[o + 2] = w;
+    out[o + 3] = h;
+    out[o + 4] = atlas.footX - x;
+    out[o + 5] = atlas.footY - y;
+    out[o + 6] = box || !atlas.trim ? 1 : 0;
+  }
+  private readonly quadTmp = new Int32Array(QUAD);
+  /** v, size and foot point of the last cellU()'s quad. */
   private cellV = 0;
+  private cellW = 0;
+  private cellH = 0;
+  private cellAx = 0;
+  private cellAy = 0;
+  private cellCutX = 0;
+  private cellCutY = 0;
 
   /** The HD sheet slot of a frame (cached Atlas.slot). */
   private slotOf(team: number, kind: number, anim: Anim, f: number, dir: Dir): number {
@@ -728,11 +788,9 @@ export class BattleScene {
   /** The body alone (after a lost context wiped the ground). */
   private restampCorpse(i: number): void {
     const s = this.battle.soldiers[i]!;
-    const atlas = this.atlases[s.team as 0 | 1];
     const kind = this.kindOf(i);
     const u = this.cellU(s.team, kind, Anim.Dead, 0, this.dirs[i] as Dir);
-    const v = this.cellV;
-    this.stamps.push({ tex: s.team, x: Math.round(this.mapX(s.x, s.y)), y: Math.round(this.mapY(s.x, s.y)), u, v, w: atlas.cellW, h: atlas.cellH, ax: atlas.footX, ay: atlas.footY, shade: 0.78, a: 1, solid: false, r: 0, g: 0, b: 0 });
+    this.stamps.push({ tex: s.team, x: Math.round(this.mapX(s.x, s.y)), y: Math.round(this.mapY(s.x, s.y)), u, v: this.cellV, w: this.cellW, h: this.cellH, ax: this.cellAx, ay: this.cellAy, shade: 0.78, a: 1, solid: false, r: 0, g: 0, b: 0 });
   }
 
   // ---------------------------------------------------------------- GL setup
@@ -799,6 +857,8 @@ export class BattleScene {
       unlisten,
       maxTex: Number(gl.getParameter(gl.MAX_TEXTURE_SIZE)) || 4096,
     };
+    // Trimmed grid quads are cut from cells this size (both armies' atlases come from one painter).
+    gfx.prog.cell(this.atlases[0].cellW, this.atlases[0].cellH);
     // The atlas textures hold the grids as they are now.
     for (let t = 0; t < 2; t++) {
       this.atlasVer[t] = this.atlases[t as 0 | 1].version ?? 0;
@@ -1534,7 +1594,6 @@ export class BattleScene {
         if (nearHd && fmx >= px0 && fmx <= px1 && fmy >= py0 && fmy <= py1) this.seenNear[s.team] = this.seenNear[s.team]! | (1 << (s.commander ? COMMANDER_KIND : s.cls));
         continue;
       }
-      const atlas = this.atlases[s.team as 0 | 1];
       const kind = s.commander ? COMMANDER_KIND : s.cls;
       this.seen[s.team] = this.seen[s.team]! | (1 << kind);
       const lens = this.lenTab[s.team]!;
@@ -1655,7 +1714,7 @@ export class BattleScene {
         this.hdBatch[s.team]![kind]!.sprite(Math.round((fmx + jx) * m) / m, Math.round((fmy + jy) * m) / m, r[o]!, r[o + 1]!, r[o + 2]! / lv, r[o + 3]! / lv, r[o + 4]! / lv, r[o + 5]! / lv, fmy, 1, 1, 1, 1, flash);
       } else {
         const u = this.cellU(s.team, kind, anim, f, dir);
-        team[s.team as 0 | 1].sprite(Math.round(fmx + jx), Math.round(fmy + jy), u, this.cellV, atlas.cellW, atlas.cellH, atlas.footX, atlas.footY, fmy, 1, 1, 1, 1, flash);
+        team[s.team as 0 | 1].sprite(Math.round(fmx + jx), Math.round(fmy + jy), u, this.cellV, this.cellW, this.cellH, this.cellAx, this.cellAy, fmy, 1, 1, 1, 1, flash, 0, this.cellCutX, this.cellCutY);
       }
     }
 
@@ -2074,7 +2133,7 @@ export class BattleScene {
     if (hd && this.hdLevel[s.team]![kind]! > 1 && this.hdCorpse(i, x0, x1, y0, y1)) return;
     const atlas = this.atlases[s.team as 0 | 1];
     const u = this.cellU(s.team, kind, Anim.Dead, 0, this.dirs[i] as Dir);
-    this.gfx!.team[s.team as 0 | 1].sprite(Math.round(mx), Math.round(my), u, this.cellV, atlas.cellW, atlas.cellH, atlas.footX, atlas.footY, -1e5, 0.78, 0.78, 0.75, 1, 0, 1);
+    this.gfx!.team[s.team as 0 | 1].sprite(Math.round(mx), Math.round(my), u, this.cellV, this.cellW, this.cellH, this.cellAx, this.cellAy, -1e5, 0.78, 0.78, 0.75, 1, 0, 1, this.cellCutX, this.cellCutY);
   }
 
   /** HD: the stakes, from the level-m sheet (and the HD batches cleared for the frame). */

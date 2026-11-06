@@ -14,7 +14,7 @@
 
 import { FACTIONS, type FactionId } from '../../game/factions.ts';
 import { U } from '../../game/units.ts';
-import { Anim, ANIM_COUNT, COMMANDER_KIND, KIND_COUNT, type Atlas, type BuildAtlas, type Dir, type KindSheet, type SheetAsk } from './contract.ts';
+import { Anim, ANIM_COUNT, cellTrims, COMMANDER_KIND, KIND_COUNT, type Atlas, type BuildAtlas, type Dir, type KindSheet, type SheetAsk } from './contract.ts';
 import { FRAMES, LOOPS, TICKS } from './frames.ts';
 import { paintPaper, paperBlows, paperSheetStart, type PaperFrame } from './paper/index.ts';
 import { paperKindFor } from './paper/registry.ts';
@@ -3888,6 +3888,8 @@ interface Grid {
   version: number;
   /** Those kinds, in the order they landed (an atlas's `landed`). */
   landed: number[];
+  /** Each landed cell's painted box (an atlas's `trim`). */
+  trims: ReturnType<typeof cellTrims>;
 }
 const grids = new Map<string, Grid>();
 const GRIDS_KEPT = 4;
@@ -3903,7 +3905,7 @@ function gridOf(faction: string, hue: number, width: number): Grid {
   const image = document.createElement('canvas');
   image.width = width;
   image.height = KIND_COUNT * 4 * CELL_H;
-  g = { image, ctx: image.getContext('2d')!, painted: new Array<boolean>(KIND_COUNT).fill(false), version: 0, landed: [] };
+  g = { image, ctx: image.getContext('2d')!, painted: new Array<boolean>(KIND_COUNT).fill(false), version: 0, landed: [], trims: cellTrims(CELL_W, CELL_H) };
   grids.set(key, g);
   // An older army's grid lives on only while an atlas still draws it.
   while (grids.size > GRIDS_KEPT) grids.delete(grids.keys().next().value!);
@@ -3934,8 +3936,9 @@ function makeAtlas(faction: string, hue: number, hd64: boolean): Atlas {
   const blowTab = Array.from({ length: KIND_COUNT }, (_, k) => blowsOf(faction, k));
   // Wide enough for the kind with the most blows (their extra columns sit at the right).
   const grid = gridOf(faction, hue, gridCols(Math.max(...blowTab)) * CELL_W);
-  const { image, ctx, painted } = grid;
+  const { image, ctx, painted, trims } = grid;
   const land = (kind: number, g: KindSheet): void => {
+    trims.land(kind, g.pixels, g.width);
     ctx.putImageData(new ImageData(new Uint8ClampedArray(g.pixels.buffer as ArrayBuffer, g.pixels.byteOffset, g.pixels.byteLength), g.width, g.height), 0, kind * 4 * CELL_H);
     grid.version++;
     grid.landed.push(kind);
@@ -3976,6 +3979,7 @@ function makeAtlas(faction: string, hue: number, hd64: boolean): Atlas {
       ensure(kind);
       return [gridColOf(kind, a, frame, dir, blowTab[kind] ?? 1, advTab[kind]) * CELL_W, (kind * 4 + dir) * CELL_H];
     },
+    trim: grid.trims.trim,
     levels,
     sheet: (kind, level, ask) => {
       trim();

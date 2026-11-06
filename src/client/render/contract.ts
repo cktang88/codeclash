@@ -117,6 +117,14 @@ export interface Atlas {
   /** Top-left of a frame's cell in `image`. */
   at(kind: number, anim: Anim, frame: number, dir: Dir): [number, number];
   /**
+   * The painted box of the cell whose top-left at() returned (u, v): [x, y, w, h] relative to the
+   * cell, holding every pixel of it with any alpha (w = h = 0: the cell is empty). A renderer
+   * draws just that box (from u + x, v + y, its foot point at footX - x, footY - y), which shows
+   * exactly what the whole cell shows, for a fraction of the fill. Null (or no `trim`): not known,
+   * e.g. a strip that has not landed yet: draw the whole cell. A box once given never changes.
+   */
+  trim?(u: number, v: number): CellBox | null;
+  /**
    * HD painters only: detail levels beyond the cell grid above (texels per map pixel, ascending,
    * e.g. 2, 4, 8). At level L a figure is L times the size it has in `image`.
    */
@@ -141,6 +149,9 @@ export interface Atlas {
   slot?(kind: number, anim: Anim, frame: number, dir: Dir): number;
 }
 
+/** A cell's painted box (Atlas.trim): x, y, w, h relative to the cell. */
+export type CellBox = readonly [number, number, number, number];
+
 /** One kind's frames at a detail level, each trimmed to what it covers and packed into one page. */
 export interface KindSheet {
   level: number;
@@ -158,6 +169,77 @@ export interface KindSheet {
    * (w = 0: the renderer draws those frames from the grid). The whole sheet follows.
    */
   partial?: boolean;
+}
+
+/**
+ * The painted box of every cols × rows cell of an RGBA strip (`width` px wide, `cellW` × `cellH`
+ * cells from its top-left): four numbers a cell, row after row, as Atlas.trim gives them.
+ */
+export function cellBoxes(pixels: Uint8ClampedArray | Uint32Array, width: number, cellW: number, cellH: number, cols: number, rows: number): Int16Array {
+  const px = pixels instanceof Uint32Array ? pixels : new Uint32Array(pixels.buffer, pixels.byteOffset, pixels.byteLength >> 2);
+  const out = new Int16Array(cols * rows * 4);
+  for (let r = 0; r < rows; r++)
+    for (let c = 0; c < cols; c++) {
+      let x0 = cellW, y0 = cellH, x1 = -1, y1 = -1;
+      for (let y = 0; y < cellH; y++) {
+        const row = (r * cellH + y) * width + c * cellW;
+        for (let x = 0; x < cellW; x++) {
+          // Alpha is the top byte of a little-endian RGBA pixel.
+          if (px[row + x]! >>> 24 === 0) continue;
+          if (x < x0) x0 = x;
+          if (x > x1) x1 = x;
+          if (y < y0) y0 = y;
+          y1 = y;
+        }
+      }
+      const o = (r * cols + c) * 4;
+      if (x1 >= 0) {
+        out[o] = x0;
+        out[o + 1] = y0;
+        out[o + 2] = x1 - x0 + 1;
+        out[o + 3] = y1 - y0 + 1;
+      }
+    }
+  return out;
+}
+
+/**
+ * Atlas.trim for an image of KIND_COUNT strips of 4 rows of cells: `land` a kind's strip (its
+ * pixels, `width` px wide, so width / cellW cells a row) once it is in the image at x = 0; until
+ * then its cells answer null.
+ */
+export function cellTrims(cellW: number, cellH: number): { land(kind: number, pixels: Uint8ClampedArray | Uint32Array, width: number): void; trim(u: number, v: number): CellBox | null } {
+  const boxes: (CellBox[] | null)[] = new Array<CellBox[] | null>(KIND_COUNT).fill(null);
+  const cols: number[] = new Array<number>(KIND_COUNT).fill(0);
+  return {
+    land(kind, pixels, width) {
+      const n = Math.floor(width / cellW);
+      const b = cellBoxes(pixels, width, cellW, cellH, n, 4);
+      const list: CellBox[] = [];
+      for (let i = 0; i < b.length; i += 4) list.push([b[i]!, b[i + 1]!, b[i + 2]!, b[i + 3]!]);
+      boxes[kind] = list;
+      cols[kind] = n;
+    },
+    trim(u, v) {
+      const row = Math.floor(v / cellH);
+      const col = Math.floor(u / cellW);
+      const kind = Math.floor(row / 4);
+      const list = boxes[kind];
+      if (!list || col < 0 || col >= cols[kind]!) return null;
+      return list[(row % 4) * cols[kind]! + col] ?? null;
+    },
+  };
+}
+
+/**
+ * The quad to draw for the cell whose top-left at() returned (u, v): [sx, sy, w, h, ax, ay], its
+ * source in `image`, size and foot point inside it: the trimmed box when the atlas knows it,
+ * else the whole cell. w = 0: nothing to draw.
+ */
+export function cellQuad(atlas: Atlas, u: number, v: number): [number, number, number, number, number, number] {
+  const box = atlas.trim?.(u, v);
+  if (!box) return [u, v, atlas.cellW, atlas.cellH, atlas.footX, atlas.footY];
+  return [u + box[0], v + box[1], box[2], box[3], atlas.footX - box[0], atlas.footY - box[1]];
 }
 
 export type BuildAtlas = (faction: FactionId, hue: number) => Atlas;
