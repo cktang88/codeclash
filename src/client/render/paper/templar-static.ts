@@ -114,8 +114,17 @@ const KM = {
 };
 // The charging brothers' silver mail gets the knight class's real shadows too.
 KNIGHT_PAIRS.push([KM.silver, TK.silver]);
+/**
+ * The Iron Brethren in the knight class (level 4 up): their steel and haft with a dark deep tone,
+ * so the whole figure takes a dark rim like the white cloth's and packed brothers part from each
+ * other instead of melting into one white mass (battle screenshots, round 2;
+ * docs/art-references/templar-brethren-hd.md).
+ */
+const IRON_K = defineMaterial('templar.k.ironK', [0.3, 0.42, 0.54, 0.76, 0.86].map((l, i) => oklchRgb(l, [0.03, 0.04, 0.042, 0.036, 0.026][i]!, [250, 252, 240, 222, 205][i]!)));
+const HAFT_K = defineMaterial('templar.k.haftK', dye([0.26, 0.26, 0.34, 0.5, 0.62], [0.03, 0.04, 0.045, 0.045, 0.04], 55), { keep: true });
+KNIGHT_PAIRS.push([KM.iron, IRON_K], [KM.haft, HAFT_K]);
 /** Mail, including the key art's silver. */
-const isMailS = (m: Mat): boolean => isMail(m) || m === KM.silver || m === KM.iron;
+const isMailS = (m: Mat): boolean => isMail(m) || m === KM.silver || m === KM.iron || m === IRON_K;
 
 // ------------------------------------------------------------------ mail
 
@@ -870,7 +879,7 @@ export const SWORD_LEN = 7.0;
 export const LANCE_FWD = 23;
 export const HORSE_BOW_LEN = 9.6;
 
-export const FOOT: Record<number, { kit: SKit; gear: SGear; dark: boolean }> = {
+export const FOOT: Record<number, { kit: SKit; gear: SGear; dark: boolean; cls?: ValueClass }> = {
   0: {
     kit: SERGEANT,
     dark: true,
@@ -921,6 +930,7 @@ export const FOOT: Record<number, { kit: SKit; gear: SGear; dark: boolean }> = {
   8: {
     kit: BRETHREN,
     dark: false,
+    cls: 'knight4',
     gear: {
       // The Dane axe held at the port, its great bit high and forward of the helm.
       // The Dane axe held low across the body in guard, the bit forward at the shoulder.

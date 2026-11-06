@@ -263,7 +263,11 @@ function colossusClips(skel: SkeletonData): ClipSet & { attacks: Clip[] } {
   });
   const die = fc('die', 12, false, (f) => mk(f, 'idle', { ref: 'first', torso: 0, travel: 0, feet: 0 }, DIE, [1, 2, 3, 4, 5, 6, 7]), [{ f: 6, name: 'apart', len: 2, int: 1 }, { f: 8, name: 'apart', len: 4, int: 2 }, { f: 8, name: 'land' }]);
   const dead = mapFacings(die, (a) => ({ ...lastFrame(a, 'dead'), events: [{ f: 0, name: 'apart', int: 2 }] }));
-  const BRACE: Author = () => ({ dw: { pelvis: T([0, -6]) }, w: { upperArmN: T([0, 70]), forearmN: T([0, 120]), weapon: T([0, 100]) }, tAdd: { pelvis: [T([0, 0]), T([0, 0.8])] } });
+  // The guard: the femur shouldered, its head raised up and forward over the heap (a club carried
+  // at the ready, the Necrofex's and the Bone Captain's), not levelled: held level, every colossus
+  // in a block laid a club three men long across the ranks in front of it, and a block in melee
+  // read as a lattice of bones (battle screenshots, docs/art-references/undead-animation.md).
+  const BRACE: Author = () => ({ dw: { pelvis: T([0, -6]) }, w: { upperArmN: T([0, 88]), forearmN: T([0, 160]), weapon: T([0, 166]) }, tAdd: { pelvis: [T([0, 0]), T([0, 0.8])] } });
   const brace = fc('brace', 8, true, (f) => mk(f, 'brace', { ref: 'mean', torso: 0, travel: 0.3, feet: 0.3 }, BRACE));
   const sweep = fc('attack', 12, false, (f) => mk(f, 'idle', { ref: 'first', torso: 0, travel: 0, feet: 0 }, SWEEP, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]), [{ f: 5, name: 'smear', len: 1 }, { f: 6, name: 'smear', len: 1 }, { f: 6, name: 'strike' }], [0, 1, 2, 3, 4, 4, 6, 7, 8, 9, 10, 11]);
   const stomp = fc('attack', 12, false, (f) => mk(f, 'idle', { ref: 'first', torso: 0, travel: 0, feet: 0 }, STOMP, [1, 2, 3, 4, 4.8, 5, 6, 7, 8, 9, 10]), [{ f: 5, name: 'strike' }, ...[5, 6, 7, 8].map((k) => ({ f: k, name: 'stomp', int: k - 4 }))], [0, 1, 2, 3, 4, 4, 6, 7, 8, 9, 10, 11]);

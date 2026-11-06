@@ -10,7 +10,7 @@ import {
   ALL_ANIMS, WITH_ADVANCE, BREATH, bonesFromJoints, EASE, EASE_IN, EASE_OUT, lazySkeletonKind, smearPart,
   type AnimationData, type AnimEvent, type AttachmentSet, type DrawCtx, type FacingClips, type PartXf, type Track, type Clip, type JointDef, type SkeletonData, type SkeletonRig, type SlotData,
 } from './skeleton.ts';
-import { bow, paintAs, TM } from './templar-parts.ts';
+import { bow, paintAs, TM, type ValueClass } from './templar-parts.ts';
 import { buildAnim, facingClip, lagCloth, memoSkin, partMap, skinMap, smooth01, weightSlots, type ClipSet, type KP, type LagSpec, type Weights } from './templar-rig.ts';
 import { mocapFootClips, type Blow, type RunCarry } from './templar-clips.ts';
 import { FOOT, handAt, manPiece, manRest, withMap, type ManPiece, type ManRest, type SGear, type SKit } from './templar-static.ts';
@@ -195,7 +195,7 @@ const cloakWeights: Weights = ([, y]) => {
   return CLOAK_W(1 - c, c);
 };
 
-function footParts(k: SKit, g: SGear, s: FootSpec, dark: boolean): AttachmentSet {
+function footParts(k: SKit, g: SGear, s: FootSpec, dark: ValueClass): AttachmentSet {
   const rest: Record<Facing, ManRest> = { se: manRest(k, g), ne: neRest(manRest(k, g), s), sw: manRest(k, g), nw: manRest(k, g) };
   const atts: AttachmentSet = {};
   for (const p of ORDER_SE) {
@@ -595,7 +595,7 @@ export function footRig(kind: number): SkeletonRig | undefined {
   const skel = footSkel(kind, f.kit, f.gear, s);
   const R = manRest(f.kit, f.gear);
   const { clips, attacks } = mocapFootClips(skel, { ...s, farHeld: s.front === 'forearmF' || !!s.twoHand || s.shoot === 'crossbow', shield: s.front === 'forearmF', stance: R.ankF[0] - R.ankN[0] });
-  const rig: SkeletonRig = { skel, atts: footParts(f.kit, f.gear, s, f.dark), clips, ...(attacks.length > 1 ? { attacks } : {}) };
+  const rig: SkeletonRig = { skel, atts: footParts(f.kit, f.gear, s, f.cls ?? f.dark), clips, ...(attacks.length > 1 ? { attacks } : {}) };
   RIGS.set(kind, rig);
   return rig;
 }

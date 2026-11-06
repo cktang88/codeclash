@@ -187,11 +187,19 @@ const BRACING: ReadonlySet<Stance> = new Set<Stance>(['shieldwall', 'pikewall', 
  * faction's foot: a knight as its heavy foot, a lancer as its spearman, a horse archer as its archer.
  */
 const AFOOT: Readonly<Record<number, number>> = { [U.Knights]: U.HeavyInfantry, [U.LightCavalry]: U.Spearmen, [U.HorseArchers]: U.Archers };
+/**
+ * Per faction, where it differs: an unhorsed Knight-Brother keeps the brothers' white surcoat and
+ * great helm, so he is drawn as the Iron Brethren (the Order's knights on foot), not as a sergeant
+ * in the sergeants' black (the Rule's white for the brothers, black for the sergeants; Medieval II's
+ * dismounted knights: docs/art-references/templar-brethren-hd.md).
+ */
+const AFOOT_BY: Readonly<Record<string, Readonly<Record<number, number>>>> = { templar: { ...AFOOT, [U.Knights]: U.Shock } };
+const afootOf = (faction: string): Readonly<Record<number, number>> => AFOOT_BY[faction] ?? AFOOT;
 
 /** The atlas kind a figure is drawn with: the commander's own, a foot kind once unhorsed, else his class. */
-function figureKind(s: { commander: boolean; cls: number; dismounted?: boolean }): number {
+function figureKind(s: { commander: boolean; cls: number; dismounted?: boolean }, afoot: Readonly<Record<number, number>> = AFOOT): number {
   if (s.commander) return COMMANDER_KIND;
-  return s.dismounted ? (AFOOT[s.cls] ?? s.cls) : s.cls;
+  return s.dismounted ? (afoot[s.cls] ?? s.cls) : s.cls;
 }
 /** A regiment's stance; the sim adds `stance` on Regiment (read loosely until it lands). */
 const stanceOf = (r: object): Stance => (r as { stance?: Stance }).stance ?? 'line';
@@ -362,6 +370,8 @@ export class BattleScene {
   /** How many of each atlas's landed grid strips (Atlas.landed) its texture holds. */
   private atlasStrips = [0, 0];
   private kindsPresent: number[][] = [[], []];
+  /** Per team, the foot kind an unhorsed rider is drawn as (AFOOT_BY). */
+  private afoot: Readonly<Record<number, number>>[] = [AFOOT, AFOOT];
   /** HD: kinds of each army seen in view last frame (bit per kind): only they get the 8x sheets. */
   private seen = [0, 0];
   /** HD art: kinds of each army with corpses in view last frame. */
@@ -472,13 +482,14 @@ export class BattleScene {
     this.atlases = [buildAtlas(a.faction, a.hue), buildAtlas(b.faction, b.hue)];
     const shades = isHdArt(art) ? CORPSE_SHADE_HD : CORPSE_SHADE;
     this.corpseShade = [shades[a.faction] ?? shades.default!, shades[b.faction] ?? shades.default!];
+    this.afoot = [afootOf(a.faction), afootOf(b.faction)];
     // The painter fills kinds lazily, but the atlas goes to the GPU once: paint the kinds on the
     // field first (only those: a kind no one fields is never drawn).
     for (const s of battle.soldiers) {
       const k = s.commander ? COMMANDER_KIND : s.cls;
       if (!this.kindsPresent[s.team]!.includes(k)) this.kindsPresent[s.team]!.push(k);
       // (A rider may be unhorsed: his foot kind is painted too.)
-      const a = s.commander ? undefined : AFOOT[s.cls];
+      const a = s.commander ? undefined : afootOf(battle.setup.armies[s.team]!.faction)[s.cls];
       if (a !== undefined && !this.kindsPresent[s.team]!.includes(a)) this.kindsPresent[s.team]!.push(a);
     }
     this.atlases.forEach((atlas, t) => {
@@ -1197,7 +1208,8 @@ export class BattleScene {
   }
 
   private kindOf(i: number): number {
-    return figureKind(this.battle.soldiers[i]!);
+    const s = this.battle.soldiers[i]!;
+    return figureKind(s, this.afoot[s.team]);
   }
 
   /** Index of (kind, anim, frame, dir) in uvTab/slotTab, or -1 if the frame is out of the table. */
@@ -2262,10 +2274,10 @@ export class BattleScene {
       const fmx = this.mapX(wx, wy);
       const fmy = this.mapY(wx, wy);
       if (fmx < x0 || fmx > x1 || fmy < y0 || fmy > y1) {
-        if (nearHd && fmx >= px0 && fmx <= px1 && fmy >= py0 && fmy <= py1) this.seenNear[s.team] = this.seenNear[s.team]! | (1 << figureKind(s));
+        if (nearHd && fmx >= px0 && fmx <= px1 && fmy >= py0 && fmy <= py1) this.seenNear[s.team] = this.seenNear[s.team]! | (1 << figureKind(s, this.afoot[s.team]));
         continue;
       }
-      const kind = figureKind(s);
+      const kind = figureKind(s, this.afoot[s.team]);
       this.seen[s.team] = this.seen[s.team]! | (1 << kind);
       const lens = this.lenTab[s.team]!;
       let anim: Anim = Anim.Idle;
