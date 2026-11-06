@@ -254,14 +254,19 @@ describe('battle: the general’s household', () => {
       r.fy = r.dfy = fy;
       inside.formUp(r, x, y);
     };
-    stand(hh, 400, 600, 1, 0);
+    // (At its post's distance behind the front: one well ahead of it canters back to it, in
+    // 'withdraw'. Since QA review 2 #5 the post keeps clear of the engines, so it lies further
+    // back than the fixed x = 400 this test used to take, 290: it finds it first.)
+    inside.thinkCommand(hh);
+    const x0 = Math.round(b.generals[0]!.guardX) + 20;
+    stand(hh, x0, 600, 1, 0);
     // A big block side-on to it: its end file 50 off, its bounding circle's edge much nearer.
-    stand(foe, 400 + foe.depth / 2, 600 + 50 + foe.width / 2, -1, 0);
+    stand(foe, x0 + foe.depth / 2, 600 + 50 + foe.width / 2, -1, 0);
     expect(Math.hypot(foe.cx - hh.cx, foe.cy - hh.cy) - foe.radius - hh.radius).toBeLessThan(40);
     inside.thinkCommand(hh);
     expect(hh.mode).toBe('guard');
     // Within reach of its men: it takes them on, riding for the nearest of them, not the block's middle.
-    stand(foe, 400 + foe.depth / 2, 600 + 25 + foe.width / 2, -1, 0);
+    stand(foe, x0 + foe.depth / 2, 600 + 25 + foe.width / 2, -1, 0);
     inside.thinkCommand(hh);
     expect(hh.mode).toBe('melee');
     expect(hh.ty).toBeLessThan(600 + 40);
