@@ -7,6 +7,10 @@ description: Iterate on battle behaviour fast with headless, small-scale sims (o
 
 The sim (`src/game/battle.ts`) is pure TypeScript with no DOM, so a battle runs in Node with no renderer. Scale is what makes it slow: a 2,800-a-side battle takes seconds per run, a 100-battle fairness run takes many minutes, and the full suite about 6–10 minutes. **Iterate at the smallest scale that shows the behaviour, and go big once, at the end.**
 
+## Hard limit: no run over a few minutes
+
+**No single sim or test command may take more than about 3 minutes.** Wrap every run in a time limit (`timeout 180 npx tsx ...`). If it hits the limit, the run is too big: shrink it (fewer men, seeds or ticks), or split it across parallel processes (`for s in 1 2 3 4; do timeout 180 npx tsx script.ts --seeds=$s & done; wait`). Never sit waiting on a long run. A duel is under a second, a set-piece test file a few seconds, `pnpm test:fast` about a minute.
+
 ## The loop
 
 1. **Reproduce in a duel** (well under a second a run). Use `scripts/duel.ts`:
@@ -23,7 +27,7 @@ The sim (`src/game/battle.ts`) is pure TypeScript with no DOM, so a battle runs 
 5. **Only at the end, once:**
    - `pnpm typecheck`, the full `pnpm test` (`npx vitest run --testTimeout=1800000` on a busy machine) and `pnpm build`.
    - A modest demo audit, e.g. `scripts/battle-sanity.ts` or `scripts/qa/realism-audit.ts` at 4 seeds × 450 men plus one seed at 1,200.
-   - A fairness run only if balance could have moved, at 60–120 battles a pair. Split seeds across a few `npx tsx` processes running in parallel instead of one long run.
+   - A fairness run only if balance could have moved, at 60–120 battles a pair, split across parallel `npx tsx` processes so each finishes within the 3-minute limit.
 
 ## Never
 
