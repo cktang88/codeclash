@@ -327,6 +327,7 @@ describe('battle: shooters keep their front to the enemy', () => {
     let ahead = 0;
     let standing = 0;
     let own = 0;
+    let atHorse = 0;
     battles(3, (b) => {
       const seen = new Set<object>();
       const inside = b as unknown as { missileHit(o: number, p: Projectile): void };
@@ -345,7 +346,11 @@ describe('battle: shooters keep their front to the enemy', () => {
           const r = b.regiments[s.reg]!;
           if (r.atWill) continue;
           shots++;
-          if (Math.hypot(p.x1 - p.x0, p.y1 - p.y0) > s.s.range * 0.7) long++;
+          // (Long range at foot. Horse they shoot as it comes on, nearer and nearer: since v17,
+          // QA2 #1, they shoot it from behind our foot, where they take cover.)
+          const tr = b.regiments[r.targetReg];
+          if (tr && (tr.role === 'flank' || tr.role === 'shock-cav' || tr.role === 'horse-archer')) atHorse++;
+          else if (Math.hypot(p.x1 - p.x0, p.y1 - p.y0) > s.s.range * 0.7) long++;
           if (b.regiments[r.targetReg]?.engaged) overMelee++;
         }
         // Behind the foremost block of their own line (while there is one): out in front only
@@ -362,7 +367,7 @@ describe('battle: shooters keep their front to the enemy', () => {
       }
     });
     expect(shots).toBeGreaterThan(1000);
-    expect(long).toBeGreaterThan(shots * 0.6);
+    expect(long).toBeGreaterThan((shots - atHorse) * 0.6);
     // (Until v17 they shot over a melee at its rear half whatever the scatter: 6% of all their
     // hits fell on their own men, most in that melee. Now only where it falls clear: QA #3.)
     expect(overMelee).toBeGreaterThan(shots * 0.01);

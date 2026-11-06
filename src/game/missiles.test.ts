@@ -218,15 +218,22 @@ describe('battle: missile drill (v11)', () => {
     for (const [seed, faction] of [[1, 'templar'], [2, 'samurai']] as const) {
       const b = new Battle({ version: BATTLE_VERSION, seed, kind: 'daily', armies: [army(0, faction), army(200, faction)] });
       const fresh = shotsOf(b);
-      // The tick on which each regiment last walked or wheeled.
+      // The tick on which each regiment last walked or wheeled. (Since v17, QA2 #2, a block of
+      // foot shooters turning a little to follow its target, within 30 degrees of the front it
+      // last stood to, has not wheeled: its men keep their places and shoot a little to the side.)
       const moved = new Map<number, number>();
+      const rest = new Map<number, [number, number]>();
       while (!b.done() && b.tick < 1500) {
         const before = b.regiments.map((r) => [r.ax, r.ay, r.fx, r.fy]);
         b.step();
         const t = b.tick - 1;
         for (const r of b.regiments) {
           const [ax, ay, fx, fy] = before[r.id]!;
-          if (r.ax === ax && r.ay === ay && r.fx === fx && r.fy === fy) continue;
+          const turned = r.fx !== fx || r.fy !== fy;
+          const [rx, ry] = rest.get(r.id) ?? [fx!, fy!];
+          if (!turned) rest.set(r.id, [r.fx, r.fy]);
+          const tracking = r.role === 'missile' && r.fx * rx + r.fy * ry >= 0.866;
+          if (r.ax === ax && r.ay === ay && (!turned || tracking)) continue;
           moved.set(r.id, t);
           if (r.role === 'missile' && r.alive > 0) movingTicks++;
         }
@@ -394,5 +401,81 @@ describe('battle: missile drill (v11)', () => {
     // since v17 (`BOW_BURST`): he gets one arrow off at the horse in its last 100 or so, then draws
     // as it comes in, about a second and a half at the gallop.)
     expect(firstBlow - lastAtWill).toBeLessThan(20);
+  });
+});
+
+describe('battle: the volley clock (v17, QA review 2 #2)', () => {
+  it('a block of archers following its target round a little keeps its volleys', () => {
+    // Between two volleys the target steps 40 degrees off the archers' front: they wheel toward it
+    // (`aimAt`, to within 25 degrees) and keep the rhythm of their volleys, a reload and a beat
+    // apart. Until v17 the turn restarted the clock: the word came a beat after it, with most
+    // men still reloading, and then a whole cycle later, 3 s late.
+    const { b, shooters: a } = butts('templar', U.Archers);
+    const foe = b.regiments.find((r) => r.team === 1)!;
+    b.regiments.filter((r) => r.team === 1 && r !== foe).forEach((r, i) => placeRegiment(b, r, 1400, 200 + i * 90, -1, 0));
+    placeRegiment(b, foe, 1050, 600, -1, 0);
+    const fresh = shotsOf(b);
+    const ticks: number[] = [];
+    let turned = 0;
+    while (b.tick < 330) {
+      // (cos 40 = 0.766, sin 40 = 0.643)
+      if (b.tick === 120) placeRegiment(b, foe, 700 + 350 * 0.766, 600 + 350 * 0.643, -0.766, -0.643);
+      const fx = a.fx;
+      const fy = a.fy;
+      b.step();
+      if (a.fx !== fx || a.fy !== fy) turned++;
+      for (const p of fresh()) if (b.soldiers[p.shooter]!.reg === a.id) ticks.push(p.born);
+    }
+    expect(turned).toBeGreaterThan(3);
+    expect(a.fx * 0.766 + a.fy * 0.643).toBeGreaterThan(0.9);
+    const starts = bursts(ticks).filter((v) => v.length >= 3).map((v) => v[0]!);
+    expect(starts.length).toBeGreaterThanOrEqual(4);
+    for (let k = 1; k < starts.length; k++) expect(starts[k]! - starts[k - 1]!, `volleys at ${starts.join(', ')}`).toBeLessThanOrEqual(fireEvery(factionStats('templar')[U.Archers]!));
+  });
+
+  it('a volley most men held back from is called again a beat later, not a reload later', () => {
+    const { b, shooters: a } = butts('templar', U.Archers);
+    const fresh = shotsOf(b);
+    // The first volley.
+    let first = -1;
+    while (b.tick < 300 && first < 0) {
+      b.step();
+      if (fresh().some((p) => b.soldiers[p.shooter]!.reg === a.id)) first = b.tick;
+    }
+    expect(first).toBeGreaterThan(0);
+    while (b.tick < first + 10) {
+      b.step();
+      fresh();
+    }
+    // Every man is loaded again, as if he had held his shot (danger close, a friend on the line).
+    for (const id of a.members) (b as unknown as { d: { cd: Int32Array } }).d.cd[id] = 0;
+    const held = b.tick;
+    let next = -1;
+    while (b.tick < held + 80 && next < 0) {
+      b.step();
+      if (fresh().some((p) => b.soldiers[p.shooter]!.reg === a.id)) next = b.tick;
+    }
+    // The word a beat later (and its half second), not the 7.5 s cycle.
+    expect(next).toBeGreaterThan(held);
+    expect(next - held).toBeLessThan(15);
+  });
+
+  it('a word given while most men are still reloading waits for them', () => {
+    const { b, shooters: a } = butts('templar', U.Archers);
+    const fresh = shotsOf(b);
+    while (b.tick < 300 && !fresh().some((p) => b.soldiers[p.shooter]!.reg === a.id)) b.step();
+    // All reloading, and the word is due now: it waits until most are loaded, then they loose together.
+    const d = (b as unknown as { d: { cd: Int32Array } }).d;
+    for (const id of a.members) d.cd[id] = 40;
+    a.volleyAt = b.tick + 1;
+    const ticks: number[] = [];
+    const t0 = b.tick;
+    while (b.tick < t0 + 60) {
+      b.step();
+      for (const p of fresh()) if (b.soldiers[p.shooter]!.reg === a.id) ticks.push(p.born);
+    }
+    expect(ticks.length).toBeGreaterThan(8);
+    expect(Math.min(...ticks)).toBeGreaterThanOrEqual(t0 + 38);
+    expect(Math.max(...ticks) - Math.min(...ticks)).toBeLessThan(5);
   });
 });
