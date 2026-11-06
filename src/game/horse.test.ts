@@ -13,10 +13,15 @@ const counts = (pairs: [number, number][]) => {
 };
 type Inside = { d: { dm: Uint8Array; hh: Float64Array; spd: Float64Array }; horseHit(i: number, raw: number, pierce: number, front: boolean, by: number): void };
 
-/** `riders` of `cls` (side A) ride at `bows` archers standing `gap` off (side B holds), the duel's way. */
-function horseAtBows(cls: number, riders: number, bows: number, gap: number, seed: number): Battle {
+/**
+ * `riders` of `cls` (side A) ride at `bows` archers standing `gap` off (side B holds), the duel's
+ * way. (`rash`: a rash general's knights, who charge across the bows' front all the same; since
+ * round 3 a sensible one does not.)
+ */
+function horseAtBows(cls: number, riders: number, bows: number, gap: number, seed: number, rash = true): Battle {
   const b = new Battle({ version: BATTLE_VERSION, seed, kind: 'daily', armies: [plainArmy(counts([[cls, riders]]), 0), plainArmy(counts([[U.Archers, bows]]), 200)] });
   b.generals[1].fixedPlan = 'hold';
+  b.generals[0].rashKnights = rash;
   for (const team of [0, 1]) {
     const regs = b.regiments.filter((r) => r.team === team);
     let y = 1200 - regs.reduce((s, r) => s + r.width + 20, -20) / 2;
@@ -67,6 +72,28 @@ describe('horse wounds', () => {
     expect(dead).toBeGreaterThanOrEqual(5);
   });
 
+  it('a sensible general does not send his knights across massed bowshot, nor horse archers into it', () => {
+    // (Round 3: until then the horse rode in, and 120 bows broke it every time: 10-15 unhorsed.)
+    for (const seed of [1, 2]) {
+      const b = horseAtBows(U.Knights, 20, 120, 600, seed, false);
+      while (!b.done() && b.tick < 600) b.step();
+      expect(b.unhorsed[0], `seed ${seed}`).toBeLessThanOrEqual(3);
+      const ha = new Battle({ version: BATTLE_VERSION, seed, kind: 'daily', armies: [plainArmy(counts([[U.HorseArchers, 30]]), 0, 'samurai'), plainArmy(counts([[U.Archers, 60]]), 200)] });
+      ha.generals[1].fixedPlan = 'hold';
+      for (const team of [0, 1]) {
+        const regs = ha.regiments.filter((r) => r.team === team);
+        let y = 1200 - regs.reduce((s, r) => s + r.width + 20, -20) / 2;
+        for (const r of regs) {
+          placeRegiment(ha, r, team === 0 ? 850 : 1550, y + r.width / 2, team === 0 ? 1 : -1, 0);
+          y += r.width + 20;
+        }
+      }
+      while (!ha.done() && ha.tick < 900) ha.step();
+      // (Outranged, they skirmish at the edge of the bows' reach: 11-15 of 30 unhorsed before.)
+      expect(ha.unhorsed[0], `seed ${seed}`).toBeLessThanOrEqual(2);
+    }
+  });
+
   it('bows locked in a fight with foot are still ridden down by horse', () => {
     for (const seed of [1, 2, 3]) {
       const b = new Battle({ version: BATTLE_VERSION, seed, kind: 'daily', armies: [plainArmy(counts([[U.Knights, 20], [U.HeavyInfantry, 60]]), 0), plainArmy(counts([[U.Archers, 60], [U.HeavyInfantry, 60]]), 200)] });
@@ -108,6 +135,7 @@ describe('horse wounds', () => {
     const b = new Battle({ version: BATTLE_VERSION, seed: 1, kind: 'daily', armies: [plainArmy(counts([[U.Knights, 20], [U.HeavyInfantry, 60]]), 0), plainArmy(counts([[U.Archers, 120]]), 200)] });
     b.generals[0].fixedPlan = 'hold';
     b.generals[1].fixedPlan = 'hold';
+    b.generals[0].rashKnights = true;
     const of = (t: number, k: number) => b.regiments.filter((r) => r.team === t && r.cls === k);
     placeRegiment(b, of(0, U.HeavyInfantry)[0]!, 700, 1200, 1, 0);
     placeRegiment(b, of(0, U.Knights)[0]!, 760, 1100, 1, 0);

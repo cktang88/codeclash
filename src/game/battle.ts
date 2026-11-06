@@ -329,6 +329,22 @@ export { COHESION, DOCTRINE, MORALE, REGROUP, UNDEAD } from './command.ts';
  *   held the field) -> 1-7 / 10-15 / 0-6 (the charge breaks every time); 60 bows 0 / 1-12 / 28-46
  *   (knights won 8 of 8) -> 0-5 / 6-13 / 0-45 (7 of 8). Bows locked with foot are still ridden
  *   down (17-27 of 60 dead). Horse against bows at equal value (game-matchups): 3 of 120 days.
+ * - Horse wounds, round 3: horse with sense (SENSE; docs/art-references/horse-wounds.md). A ride
+ *   is weighed by the fire of the formed, unengaged bows covering its end (`bowCover`: their
+ *   arrows left, less from their flank and rear) against all the riders going in (`bowsDeadly`).
+ *   The General no longer sends all his horse across bowshot together (`horseStrike` only stages
+ *   it, further back when shot at there); outshot, it goes only for prey it can get at
+ *   (`openPrey`: not spears standing to receive it, straight or round an open flank,
+ *   `flankWay`), else waits for the bows to be locked in the fight or shot out. A block told to
+ *   ride across massed fire goes round to the open flank or draws back out of reach
+ *   (`outOfBowshot`; with nowhere to draw back to it goes in), and one that loses a quarter of its
+ *   riders on the way in breaks off and leaves that prey be. Horse archers keep outside the
+ *   reach of bows that outrange them and skirmish at its edge (`haEdge`). Foot shooters shoot
+ *   worse off their front (ARC), and loose fast and flat only at horse before it (RAPID).
+ *   Set pieces: 20 knights by a sensible general at 120 bows: 10-15 unhorsed -> 0-3 (they stay
+ *   out); 30 horse archers against 60 bows: 11-15 unhorsed -> 0. Horse against bows at equal
+ *   value: still 3 of 120 days (the horse army's 33 foot cannot pin the bows; they come on and
+ *   shoot the horse where it waits).
  */
 /**
  * v16: nothing grows with the size of the battle that should not (the undead won two thirds of
@@ -887,6 +903,9 @@ export class Regiment {
    */
   spurnReg = -1;
   spurnUntil = 0;
+  /** HORSE (round 3): the block it is riding in at, and its riders when it set out (`thinkCav`). */
+  approachReg = -1;
+  approachN = 0;
   stallGap = Infinity;
   stallAt = 0;
   openFor = -1;
@@ -1238,6 +1257,8 @@ export class General {
    */
   stageAt = -1;
   strikeAt = -1;
+  /** HORSE (round 3): how much further back than the edge of bowshot his horse forms up, after it was shot at there. */
+  stageBack = 0;
   /** S3: when its guns first opened fire from before the line (-1: not yet). */
   gunsAt = -1;
   /** S2: when the first block of its line reached the enemy (-1: not yet). */
@@ -2894,7 +2915,12 @@ export class Battle {
       const locked = this.nearestFoe(r, 3, Infinity);
       // An enemy with no line has no clash of lines to wait for (the knights would wait all day).
       const linesMet = ts.engaged || es.engaged || !es.hasLine;
-      if (strike === 'stage' && r.role !== 'horse-archer' && !(enemyCav && sqrt(bd) < 220)) {
+      const open = strike === 'stage' && r.role !== 'horse-archer' && !(enemyCav && sqrt(bd) < 220) ? this.openPrey(r) : null;
+      if (open) {
+        // HORSE (round 3): outshot, but there is prey it can get at without riding into the bows'
+        // massed fire (round to a flank, or bows on the march): it goes for that.
+        this.give(r, 'flank', open.id, 1);
+      } else if (strike === 'stage' && r.role !== 'horse-archer' && !(enemyCav && sqrt(bd) < 220)) {
         // Outshot: form up just out of bowshot, all the horse together, and wait for the word.
         this.stagePoint(t, r);
         this.give(r, 'reserve', -1, 0, -1, this.tmp[0]!, this.tmp[1]!);
@@ -2966,6 +2992,7 @@ export class Battle {
     const mine = this.volleyFire(t);
     const foe = this.volleyFire(1 - t);
     if (foe < 1 || foe < STRIKE_OUTSHOT * mine) return null;
+    // (Bows shot nearly out are no wall: SENSE.spent.)
     let horse = 0;
     let there = 0;
     let shot = false;
@@ -2989,10 +3016,13 @@ export class Battle {
       g.stageAt = this.tick;
       this.announce(t, null, 'reserve', 'forms his horse up out of bowshot');
     }
-    if (there < horse && !shot && this.tick - g.stageAt < STRIKE_WAIT) return 'stage';
-    g.strikeAt = this.tick;
-    this.announce(t, null, 'flank', 'sends all his horse at the archers together');
-    return 'go';
+    // HORSE (round 3): he no longer sends it all across the open at the bows together (Crécy):
+    // shot at where it stands, it draws back further; it waits there until the bows are locked in
+    // a fight (the lines have met), have shot themselves out, or are no longer worth the ride
+    // (`bowsDeadly`), or the enemy's horse comes. (Until then `cavalryOrders` keeps it there.)
+    if (shot) g.stageBack = Math.min(SENSE.stageBackMax, g.stageBack + SENSE.stageBackStep);
+    void there;
+    return 'stage';
   }
 
   /** A side's formed shooters with shot left (bows, crossbows, guns): damage a tick, as `forces` reckons it. */
@@ -3001,9 +3031,160 @@ export class Battle {
     for (const r of this.teamRegs[t]!) {
       if (r.alive === 0 || r.routed || r.role !== 'missile' || r.ammoLeft === 0) continue;
       const st = this.stats[t]![r.cls]!;
-      f += (r.alive * st.missileDamage) / fireEvery(st);
+      f += ((r.alive * st.missileDamage) / fireEvery(st)) * this.arrowsLeft(r, st);
     }
     return f;
+  }
+
+  /** HORSE (round 3): how much of its fire a block of shooters still has, by its arrows left: 1 down to SENSE.spent of a full quiver, less below. */
+  private arrowsLeft(r: Regiment, st: UnitStats): number {
+    if (st.ammo <= 0 || r.alive === 0) return 0;
+    return Math.min(1, r.ammoLeft / (r.alive * st.ammo * SENSE.spent));
+  }
+
+  /**
+   * HORSE (round 3): the fire (as `volleyFire` reckons it) of side `1 - t`'s formed shooters
+   * not locked in a fight, with arrows left, whose reach (and `pad` more) covers (x, y), of those
+   * that shoot at least `minRange`.
+   */
+  private bowCover(t: number, x: number, y: number, pad = 0, minRange = 0, fromX = NaN, fromY = NaN): number {
+    let f = 0;
+    const arc = !Number.isNaN(fromX);
+    for (const e of this.teamRegs[1 - t]!) {
+      if (e.alive === 0 || e.routed || e.role !== 'missile' || e.ammoLeft === 0 || e.engaged) continue;
+      const st = this.stats[1 - t]![e.cls]!;
+      if (st.range < minRange) continue;
+      const R = st.range + e.radius + pad;
+      const dx = e.cx - x;
+      const dy = e.cy - y;
+      if (dx * dx + dy * dy > R * R) continue;
+      // (From `from`: before its front its whole fire, from its flank less, from its rear least:
+      // the men must turn about in their ranks, and shoot no faster nor flat: RAPID.)
+      let k = 1;
+      if (arc) {
+        const ax = fromX - e.cx;
+        const ay = fromY - e.cy;
+        const aq = sqrt(ax * ax + ay * ay) || 1;
+        const dot = (ax * e.fx + ay * e.fy) / aq;
+        k = dot > 0.3 ? 1 : dot > -0.3 ? SENSE.sideK : SENSE.rearK;
+      }
+      // (Bows on the march must halt and loose: horse that catches them so gets in under fewer arrows.)
+      if (e.mode === 'advance' || e.mode === 'reserve') k *= SENSE.marching;
+      f += ((e.alive * st.missileDamage) / fireEvery(st)) * this.arrowsLeft(e, st) * k;
+    }
+    return f;
+  }
+
+  /**
+   * HORSE (round 3): the enemy foot block nearest horse block `r` that it can get at without riding
+   * into massed fire (`bowsDeadly`), straight or round its open flank (`flankWay`); shooters first.
+   */
+  private openPrey(r: Regiment): Regiment | null {
+    let best: Regiment | null = null;
+    let bs = Infinity;
+    for (const o of this.teamRegs[1 - r.team]!) {
+      if (o.alive === 0 || o.routed || isCav(o) || o.role === 'command') continue;
+      // (Not spears standing to receive horse: see RIDER.)
+      if (!o.engaged && this.stats[1 - r.team]![o.cls]!.antiCav > 1.5) continue;
+      const dx = o.cx - r.cx;
+      const dy = o.cy - r.cy;
+      const sc = sqrt(dx * dx + dy * dy) - (o.role === 'missile' || o.role === 'siege' ? 400 : 0);
+      if (sc >= bs) continue;
+      if (this.bowsDeadly(r, o.cx, o.cy, r.cx, r.cy, o) && !this.flankWay(r, o)) continue;
+      bs = sc;
+      best = o;
+    }
+    return best;
+  }
+
+  /** HORSE (round 3): riders of block `r` still on their horses. */
+  private riders(r: Regiment): number {
+    let n = 0;
+    for (const id of r.members) if (this.d.state[id] === State.Fighting && this.d.mt[id]) n++;
+    return n;
+  }
+
+  /**
+   * HORSE (round 3): whether a ride by horse block `r` to (x, y) would be a ride into the bows' massed
+   * fire: the shooters covering it shoot more than SENSE.deadly a tick for each rider it has.
+   */
+  private bowsDeadly(r: Regiment, x: number, y: number, fromX = r.cx, fromY = r.cy, prey: Regiment | null = null): boolean {
+    // (The bows' fire is shared among all the horse that goes in: the General sends it together.)
+    let force = 0;
+    for (const o of this.teamRegs[r.team]!) if (o !== r && o.alive > 0 && !o.routed && (o.role === 'flank' || o.role === 'shock-cav')) force += this.riders(o);
+    const riders = this.riders(r);
+    // (Foot that is not shooters: once the horse is in among it, the bows behind it must hold
+    // their shot for their own men (danger close), so only the ride in is under their fire.)
+    const foot = prey && prey.role !== 'missile' && prey.role !== 'siege' ? SENSE.footPrey : 1;
+    return this.bowCover(r.team, x, y, SENSE.pad, 0, fromX, fromY) > SENSE.deadly * foot * Math.max(1, riders + force * SENSE.together);
+  }
+
+  /**
+   * HORSE (round 3): a way round to the open flank of `prey` (into tmp) from which a ride in at it
+   * is not into massed fire (`bowsDeadly` from there), `wide` beyond its end and `behind` back
+   * from its front, with no other enemy foot standing there; the nearer of the two sides. False
+   * if neither side is open.
+   */
+  private flankWay(r: Regiment, prey: Regiment): boolean {
+    const lx = -prey.fy;
+    const ly = prey.fx;
+    let best = Infinity;
+    let bx = 0;
+    let by = 0;
+    for (const sg of [-1, 1]) {
+      const px = prey.cx + lx * sg * (prey.width * 0.5 + SENSE.wide) - prey.fx * (prey.depth * 0.5 + SENSE.behind);
+      const py = prey.cy + ly * sg * (prey.width * 0.5 + SENSE.wide) - prey.fy * (prey.depth * 0.5 + SENSE.behind);
+      if (px < 40 || px > FIELD_W - 40 || py < 40 || py > FIELD_H - 40) continue;
+      if (this.bowsDeadly(r, prey.cx, prey.cy, px, py, prey)) continue;
+      let blocked = false;
+      for (const o of this.teamRegs[1 - r.team]!) {
+        if (o === prey || o.alive === 0 || o.routed || isCav(o)) continue;
+        const ox = o.cx - px;
+        const oy = o.cy - py;
+        const R = o.radius + SENSE.wide * 0.75;
+        if (ox * ox + oy * oy < R * R) blocked = true;
+      }
+      if (blocked) continue;
+      const q = (px - r.cx) * (px - r.cx) + (py - r.cy) * (py - r.cy);
+      if (q < best) {
+        best = q;
+        bx = px;
+        by = py;
+      }
+    }
+    if (best === Infinity) return false;
+    this.tmp[0] = bx;
+    this.tmp[1] = by;
+    return true;
+  }
+
+  /**
+   * HORSE (round 3): a spot (into tmp) out of the reach of the bows about `from`, back the way
+   * block `r` came (away from `from`, toward its own side): the first of a few steps there where
+   * no formed bow covers it (true), else the furthest (false: nowhere to draw back to).
+   */
+  private outOfBowshot(r: Regiment, from: Regiment): boolean {
+    const dir = r.team === 0 ? 1 : -1;
+    let ux = r.cx - from.cx;
+    let uy = r.cy - from.cy;
+    const q = sqrt(ux * ux + uy * uy) || 1;
+    // (Back toward our own side, more than straight away from it.)
+    ux = ux / q - dir;
+    uy = uy / q;
+    const m = sqrt(ux * ux + uy * uy) || 1;
+    ux /= m;
+    uy /= m;
+    let x = r.cx;
+    let y = r.cy;
+    let clear = false;
+    for (let k = 1; k <= 8 && !clear; k++) {
+      x = clampX(r.cx + ux * 100 * k);
+      y = clampY(r.cy + uy * 100 * k);
+      clear = this.bowCover(r.team, x, y, SENSE.pad + 20) === 0;
+    }
+    this.tmp[0] = x;
+    this.tmp[1] = y;
+    return clear;
   }
 
   /**
@@ -3021,8 +3202,11 @@ export class Battle {
       if (x < front) front = x;
     }
     if (front === Infinity) return false;
-    let x = front * dir - dir * (STRIKE_MARGIN + r.radius + (r.role === 'shock-cav' ? 50 : 0));
-    if ((x - r.homeX) * dir < 0) x = r.homeX;
+    const back = this.generals[t]!.stageBack;
+    let x = front * dir - dir * (STRIKE_MARGIN + back + r.radius + (r.role === 'shock-cav' ? 50 : 0));
+    // (Never back behind its own place, unless shot at there: HORSE round 3, `stageBack`.)
+    if ((x - r.homeX) * dir < 0 && back === 0) x = r.homeX;
+    x = t === 0 ? Math.max(SENSE.edge, x) : Math.min(FIELD_W - SENSE.edge, x);
     this.tmp[0] = clampX(x);
     this.tmp[1] = r.homeY;
     return true;
@@ -4834,7 +5018,10 @@ export class Battle {
       if (o.alive === 0 || o.routed || o.engaged) continue;
       // HORSE (RAPID, `rapid`): bows standing to it loose as fast as they can draw at horse coming
       // on at them within 100 m.
-      const coming = bows && isCav(o) && (o.mode === 'charge' || o.mode === 'flank') && (o.targetReg === r.id || o.vax * (r.cx - o.cx) + o.vay * (r.cy - o.cy) > 0);
+      // (Before its front: horse come round its flank gets no such storm: ARC.)
+      const ox = o.cx - r.cx;
+      const oy = o.cy - r.cy;
+      const coming = bows && isCav(o) && (o.mode === 'charge' || o.mode === 'flank') && (o.targetReg === r.id || o.vax * -ox + o.vay * -oy > 0) && ox * r.fx + oy * r.fy > 0.3 * sqrt(ox * ox + oy * oy);
       const reach = coming ? RAPID.range : o.mode === 'charge' && o.targetReg === r.id ? AT_WILL_GAP * 2 : AT_WILL_GAP;
       const dx = o.cx - r.cx;
       const dy = o.cy - r.cy;
@@ -5439,6 +5626,57 @@ export class Battle {
       return;
     }
     r.chaseAt = -1;
+    // HORSE (round 3): not across massed bowshot. Foot standing under the cover of formed bows
+    // with arrows to spare is left be (unless told to charge, or a rash general's knights): the
+    // horse draws back out of their reach and looks for other prey or waits for the bows to be
+    // locked in the fight or shot out. One that has lost a good share of its riders to them on the
+    // way in breaks off and re-forms out of their reach, unless it is nearly there.
+    const reach = prey.radius + r.radius + SENSE.breakNear * 1.5;
+    const far = (prey.cx - r.cx) * (prey.cx - r.cx) + (prey.cy - r.cy) * (prey.cy - r.cy) > reach * reach;
+    if (far && !isCav(prey) && !prey.engaged && r.mode !== 'charge' && o.kind !== 'charge' && !(shock && this.generals[team]!.rashKnights) && this.bowsDeadly(r, prey.cx, prey.cy, r.cx, r.cy, prey)) {
+      // (A way round to its open flank, out of the worst of its fire, if there is one.)
+      if (this.flankWay(r, prey)) {
+        this.setMode(r, 'flank');
+        this.goal(r, this.tmp[0]!, this.tmp[1]!);
+        r.targetReg = prey.id;
+        return;
+      }
+      // (Nowhere out of their reach to draw back to, the bows coming on, it goes in all the same.)
+      if (this.outOfBowshot(r, prey)) {
+        r.spurnReg = prey.id;
+        r.spurnUntil = this.tick + SENSE.spurn;
+        r.approachReg = -1;
+        this.setMode(r, 'advance');
+        this.goal(r, this.tmp[0]!, this.tmp[1]!);
+        r.targetReg = -1;
+        return;
+      }
+    }
+    if (!isCav(prey) && !prey.engaged) {
+      if (r.approachReg !== prey.id) {
+        r.approachReg = prey.id;
+        r.approachN = this.riders(r);
+      }
+      const lost = r.approachN - this.riders(r);
+      const gx = prey.cx - r.cx;
+      const gy = prey.cy - r.cy;
+      const gap = sqrt(gx * gx + gy * gy) - prey.radius - r.radius;
+      if (r.role !== 'command' && lost >= Math.max(SENSE.breakMin, r.approachN * SENSE.breakLoss) && gap > SENSE.breakNear && r.arrows > 0.2) {
+        r.spurnReg = prey.id;
+        r.spurnUntil = this.tick + SENSE.spurn;
+        r.approachReg = -1;
+        this.outOfBowshot(r, prey);
+        r.wx = this.tmp[0]!;
+        r.wy = this.tmp[1]!;
+        r.toBanner = false;
+        this.rallyFacing(r, prey.cx, prey.cy);
+        for (const id of r.members) this.d.hs[id] = 0.85 + this.rng.next() * 0.3;
+        this.setMode(r, 'withdraw');
+        this.goal(r, r.wx, r.wy);
+        this.events.push({ tick: this.tick, team, kind: 'doctrine', cls: r.cls, reg: r.id, note: 'breaks-off' });
+        return;
+      }
+    } else r.approachReg = -1;
     // Ride round the enemy line rather than through it.
     // Prey behind the enemy line: out past the end of the line, then round behind it.
     const behindFront = (prey.cx - e.frontX) * dir > 15;
@@ -5851,6 +6089,9 @@ export class Battle {
       return;
     }
     const best = this.shootable(r, st.range * 0.9, true);
+    // HORSE (round 3): horse archers do not ride into the reach of bows that outshoot them: they
+    // skirmish at its edge, shooting at whatever they reach from there.
+    if (this.haEdge(r, st, best)) return;
     if (best) {
       this.setMode(r, 'shoot');
       r.targetReg = best.id;
@@ -5876,6 +6117,48 @@ export class Battle {
     r.targetReg = near.id;
     // In bow range of its nearest men, well outside the distance at which they ride off.
     this.standOff(r, near, st.range * 0.6);
+  }
+
+  /**
+   * HORSE (round 3): whether horse archers `r` keep out of the reach of formed bows that outrange
+   * them (and gave the block its orders): when the spot they would shoot `best` from (or where they
+   * stand) lies within that reach (SENSE.haPad more), they stand at its edge, away from the
+   * nearest such bows, and shoot at whatever is in range from there.
+   */
+  private haEdge(r: Regiment, st: UnitStats, best: Regiment | null): boolean {
+    let sx = r.cx;
+    let sy = r.cy;
+    if (best) {
+      const dx = r.cx - best.cx;
+      const dy = r.cy - best.cy;
+      const q = sqrt(dx * dx + dy * dy) || 1;
+      const k = Math.min(q, st.range * 0.85);
+      sx = best.cx + (dx / q) * k;
+      sy = best.cy + (dy / q) * k;
+    }
+    if (this.bowCover(r.team, sx, sy, SENSE.haPad + r.radius, st.range + 1) === 0 && this.bowCover(r.team, r.cx, r.cy, SENSE.haPad + r.radius, st.range + 1) === 0) return false;
+    let e: Regiment | null = null;
+    let bd = Infinity;
+    for (const o of this.teamRegs[1 - r.team]!) {
+      if (o.alive === 0 || o.routed || o.role !== 'missile' || o.ammoLeft === 0 || o.engaged) continue;
+      if (this.stats[1 - r.team]![o.cls]!.range <= st.range) continue;
+      const q = (o.cx - r.cx) * (o.cx - r.cx) + (o.cy - r.cy) * (o.cy - r.cy);
+      if (q < bd) {
+        bd = q;
+        e = o;
+      }
+    }
+    if (!e) return false;
+    const dx = r.cx - e.cx;
+    const dy = r.cy - e.cy;
+    const q = sqrt(dx * dx + dy * dy) || 1;
+    const R = this.stats[1 - r.team]![e.cls]!.range + e.radius + r.radius + SENSE.haPad;
+    this.goal(r, clampX(e.cx + (dx / q) * R), clampY(e.cy + (dy / q) * R));
+    const t = this.shootable(r, st.range * 0.95, true);
+    r.targetReg = t ? t.id : -1;
+    this.setMode(r, t ? 'kite' : 'advance');
+    if (t) this.faceToward(r, t.cx, t.cy);
+    return true;
   }
 
   /**
@@ -7703,9 +7986,14 @@ export class Battle {
       // against horse coming on, from further (RAPID).
       // (Not at horse come round on their flank or rear: men turning about in their ranks to meet
       // it shoot no faster, nor flat, than any at will.)
-      onFront = (dx * r.fx + dy * r.fy) / (q || 1) > 0.3;
+      const arc = (dx * r.fx + dy * r.fy) / (q || 1);
+      onFront = arc > 0.3;
       const fb = r.atWill && kind === 'lob' && q < (horseOn && onFront ? RAPID.flat : POINT_BLANK);
       let sp = spreadAt(kind, q, st.range, fb);
+      // HORSE (round 3): a block of foot shooters shoots worse off its front: on its flank the men
+      // turn in their ranks and shoot past each other, behind it they shoot over or through their
+      // own files (ARC). (Not horse archers: they turn their horses.)
+      if (!onFront && r.role === 'missile') sp *= arc > -0.3 ? ARC.side : ARC.rear;
       // A fast-moving target is guessed at, not known: the further it goes while the shot is in the
       // air, the wider the miss (riders at the gallop at long range most of all; marching foot not).
       // (Shot flat, only his pace across the line counts: one riding straight at the bow rides onto it.)
@@ -9757,6 +10045,8 @@ const POINT_BLANK = 100;
  * burst, BOW_BURST), and inside `flat` (about 50 m) they shoot flat at the horses' chests, where a
  * rider coming straight on needs no lead across: only his crossing pace scatters the shot.
  */
+/** HORSE (round 3): the scatter of a foot shooter's shot at a target on his block's flank, and behind it (`shoot`). */
+const ARC = { side: 1.6, rear: 2.4 } as const;
 const RAPID = { range: 520, flat: 260, reload: 0.58 } as const;
 /** After this long (ticks) with nothing to shoot at, missile foot goes looking for a target along its line. */
 const MISSILE_SEEK = 150;
@@ -9797,6 +10087,19 @@ const RESERVE_WARY_FOR = 60;
  * most), and goes in together.
  */
 const STRIKE_OUTSHOT = 2;
+/**
+ * HORSE (round 3), horse with sense (docs/art-references/horse-wounds.md): no commander rides his
+ * horse frontally across massed bowshot twice. A ride is `deadly` when the formed, unengaged
+ * shooters covering its end (their reach and `pad` more) shoot more than this a tick for each
+ * rider (60 bows against 20 knights about 0.35; 24 bows about 0.14); bows down to under `spent`
+ * of their arrows count for less. Horse goes round to the open flank of such bows, `wide` beyond
+ * their end and `behind` back from their front; a block that loses `breakLoss` of its riders (and
+ * at least `breakMin`) on the way in, still more than `breakNear` off, breaks off out of their
+ * reach and leaves them be for `spurn` ticks. Staged horse shot at draws back `stageBackStep`
+ * more, to `stageBackMax`, no nearer its own edge than `edge`. Horse archers keep `haPad` outside
+ * the reach of bows that outrange them.
+ */
+const SENSE = { footPrey: 1.5, together: 1, marching: 1, sideK: 0.85, rearK: 0.4, deadly: 0.15, spent: 0.3, pad: 30, wide: 160, behind: 40, breakLoss: 0.25, breakMin: 3, breakNear: 120, spurn: 900, stageBackStep: 80, stageBackMax: 600, edge: 150, haPad: 40 } as const;
 const STRIKE_MARGIN = 60;
 const STRIKE_THERE = 80;
 const STRIKE_WAIT = 300;

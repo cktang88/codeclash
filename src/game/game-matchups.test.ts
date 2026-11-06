@@ -36,6 +36,10 @@ describe('battle: the matchups', () => {
     // strike (`horseStrike`) sends all its horse at the bows together across the open, and massed
     // bows shoot it to pieces. (Horse that takes bows in the flank, or bows locked with foot,
     // still rides them down: horse.test.ts.) So now: the bows win, and win big.
+    // Round 3 (horse with sense: it no longer rides across massed bowshot, waits for the bows to be
+    // locked or shot out, goes round open flanks): still 3 of 120, some 57 riders unhorsed a
+    // battle. This horse army has 33 foot, which cannot pin the bows: they come on with their foot
+    // and shoot the horse where it waits, as the English would have; sense saves it no battle here.
     expect(winsOf(120, (seed) => fight(setupOf(seed, valued(V, horse), valued(V, bows))).winner)).toBeLessThanOrEqual(15);
   }, 170_000);
   it('spears hold against horse at equal value', () => {
