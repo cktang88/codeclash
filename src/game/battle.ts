@@ -345,6 +345,14 @@ export { COHESION, DOCTRINE, MORALE, REGROUP, UNDEAD } from './command.ts';
  *   out); 30 horse archers against 60 bows: 11-15 unhorsed -> 0. Horse against bows at equal
  *   value: still 3 of 120 days (the horse army's 33 foot cannot pin the bows; they come on and
  *   shoot the horse where it waits).
+ * - Passage of lines (QA3 #4; docs/qa/battle-realism-review-3.md): formed foot of the line and
+ *   formed horse marching to a goal beyond a block of friendly loose shooters goes through it
+ *   (`letsPass`): the shooters open their files, each man in its lane stepping aside out of it
+ *   and back once it has gone by (`passFor`), as light troops did before a line from the velites
+ *   on. Formed blocks still give way to each other as before. Set piece (scripts/qa/passage.ts),
+ *   30 heavy foot sent through a 29 u gap between two blocks of 40 archers: it stood in the gap
+ *   for good, now through in 13 s, no man walking through another. Stalled foot (stalled.ts,
+ *   s1-4 at 450): 388 block-s, now 244.
  */
 /**
  * v16: nothing grows with the size of the battle that should not (the undead won two thirds of
@@ -1050,6 +1058,13 @@ export class Regiment {
   /** S3: guns out before the line (`screened`: they got there), and passing through their own line (`slip`, like skirmishers). */
   screened = false;
   slip = false;
+  /**
+   * Passage of lines (v17, QA3 #4): a block of loose shooters letting a friendly formed block
+   * march through it opens its files (`letsPass`): its men step aside out of the passer's lane
+   * and squeeze past friends like skirmishers until `passUntil`, then fall back into their places.
+   */
+  passFor = -1;
+  passUntil = 0;
   /** Fire at will: an enemy is charging it or close (it drops volley discipline). */
   atWill = false;
   /** Last tick the anchor moved or the block wheeled. Foot shooters loose only standing still. */
@@ -2316,7 +2331,7 @@ export class Battle {
     const rf = this.regFlags;
     for (let j = 0; j < regs.length; j++) {
       const r = regs[j]!;
-      rf[j] = (r.role === 'skirmish' || r.slip ? 1 : 0) | (r.stance === 'braced' || r.stance === 'pikewall' ? 2 : 0);
+      rf[j] = (r.role === 'skirmish' || r.slip || (r.passFor >= 0 && this.tick < r.passUntil) ? 1 : 0) | (r.stance === 'braced' || r.stance === 'pikewall' ? 2 : 0);
     }
     let bow = false;
     for (let i = 0; i < n; i++) {
@@ -6791,6 +6806,39 @@ export class Battle {
     return !r.engaged && !fallingBack && !r.slip && r.role !== 'skirmish' && r.role !== 'siege' && (r.role !== 'command' || r.mode === 'guard' || r.mode === 'hold') && r.mode !== 'pursue' && r.mode !== 'skirmish' && r.mode !== 'rout';
   }
 
+  /**
+   * Passage of lines (v17, QA3 #4): whether friendly block `o`, loose shooters, opens its files to
+   * let formed block `r` march through it to a goal beyond it (marks `o` as opening: `passFor`).
+   * Light troops before a line stepped aside or filed back through its intervals as drill: the
+   * velites through the maniples, Byzantine and Japanese shot and bows behind or through their
+   * foot, and the foot went forward through the shooters in the same way. Formed foot of the line
+   * and formed horse (not shooters, skirmishers or horse archers, nor a block in a fight), marching,
+   * whose goal does not lie in the shooters' place: it is going through, not stopping there. Not
+   * shooters themselves in a fight, falling back or running for cover.
+   */
+  private letsPass(o: Regiment, r: Regiment): boolean {
+    if (o.role !== 'missile' || o.stance !== 'loose' || o.engaged || o.routed || o.slip || o.coverReg >= 0) return false;
+    if (r.engaged || r.routed || r.stance === 'loose' || !MARCH[r.mode] || r.mode === 'pursue' || r.mode === 'withdraw') return false;
+    if (r.role !== 'line' && !(isMounted(r) && r.role !== 'horse-archer' && r.role !== 'command')) return false;
+    // (Its goal clear of the shooters' place: the overlap `clearGoal` measures, along their front and their depth.)
+    const ocx = o.ax - o.fx * o.depth * 0.5;
+    const ocy = o.ay - o.fy * o.depth * 0.5;
+    const ex = r.tx - r.dfx * r.depth * 0.5 - ocx;
+    const ey = r.ty - r.dfy * r.depth * 0.5 - ocy;
+    const lx = -o.fy;
+    const ly = o.fx;
+    const ra = r.width * 0.5 * Math.abs(-r.dfy * lx + r.dfx * ly) + r.depth * 0.5 * Math.abs(r.dfx * lx + r.dfy * ly);
+    const rb = r.width * 0.5 * Math.abs(-r.dfy * o.fx + r.dfx * o.fy) + r.depth * 0.5 * Math.abs(r.dfx * o.fx + r.dfy * o.fy);
+    if (ra + o.width * 0.5 - Math.abs(ex * lx + ey * ly) > 0 && rb + o.depth * 0.5 - Math.abs(ex * o.fx + ey * o.fy) > 0) return false;
+    if (o.passFor !== r.id || o.passUntil < this.tick + PASSAGE.hold) {
+      // (One passer at a time; a second waits or goes round as before.)
+      if (o.passFor >= 0 && o.passFor !== r.id && this.tick < o.passUntil) return false;
+      o.passFor = r.id;
+      o.passUntil = this.tick + PASSAGE.hold;
+    }
+    return true;
+  }
+
   /** Which of two friendly blocks has the right of way: locked in a fight, then standing, then charging, then marching; the first in the order of battle between equals. */
   private rightOfWay(o: Regiment, r: Regiment): boolean {
     const rank = (x: Regiment) => (x.engaged ? 4 : x.mode === 'melee' || x.mode === 'hold' || x.mode === 'brace' || x.mode === 'guard' || x.mode === 'shoot' ? 3 : x.mode === 'charge' ? 2 : 1);
@@ -6817,6 +6865,9 @@ export class Battle {
       const dy = o.cy - r.cy;
       const reach = o.radius + r.radius + r.spacing + 8;
       if (dx * dx + dy * dy > reach * reach || (!any && !this.rightOfWay(o, r))) continue;
+      // Passage of lines: loose shooters open their files for formed friends going through them
+      // (and, opening, do not hold them up in turn).
+      if (this.letsPass(o, r) || (r.passFor === o.id && this.tick < r.passUntil)) continue;
       const g = Math.max(r.spacing, o.spacing) * 0.5;
       const a1 = r.width * 0.5 + g;
       const b1 = r.depth * 0.5 + g;
@@ -9532,6 +9583,24 @@ export class Battle {
           let tx = gx + r.fx * f;
           let ty = gy + r.fy * f;
           d.cu[i] = 0;
+          // Passage of lines (`letsPass`): a shooter whose place lies in the lane of a friendly
+          // block marching through his own steps aside, out of the lane on his side of it, and
+          // back into his place once it has gone by.
+          if (r.passFor >= 0 && this.tick < r.passUntil) {
+            const o = this.regiments[r.passFor]!;
+            const lx = -o.fy;
+            const ly = o.fx;
+            const ex = tx - o.ax;
+            const ey = ty - o.ay;
+            const along = ex * o.fx + ey * o.fy;
+            const lat = ex * lx + ey * ly;
+            const half = o.width * 0.5 + o.spacing * 0.5 + PASSAGE.room;
+            if (along < PASSAGE.ahead && along > -o.depth - PASSAGE.room && lat < half && lat > -half) {
+              const to = (lat >= 0 ? half : -half) - lat;
+              tx += lx * to;
+              ty += ly * to;
+            }
+          }
           if (!mounted && r.role === 'line' && r.contact && (r.engaged || mode === 'melee' || mode === 'hold') && r.slot === 0 && r.targetReg >= 0 && this.curl(i, r, gx, gy)) {
             // P6: a file beyond the end of the enemy's front swings round its flank.
             tx = this.tmp[0]!;
@@ -9967,6 +10036,12 @@ function spreadAt(kind: Ballistics, q: number, range: number, flatBow: boolean):
  * Retired and shot at (`arrows` over `shot`: QA3 #5), they rest further back, by `shelterStep`s
  * until out of the enemy's bowshot or `shelterFar`, for `shelterFor` ticks.
  */
+/**
+ * Passage of lines (v17, QA3 #4; `letsPass`). hold: ticks a block of shooters stays open after the
+ * passer last needed it; room: the room each side of the passer's files its men step clear of;
+ * ahead: how far before the passer's front they clear its lane.
+ */
+const PASSAGE = { hold: 15, room: 4, ahead: 25 };
 const SKIRM = { out: 1.5, spent: 0.35, deadband: 30, back: 70, backTo: 125, faster: 0.85, room: 30, run: 0.9, shot: 1, shelterFor: 300, shelterStep: 50, shelterFar: 400 };
 /**
  * Crossbows (direct fire, not the samurai's guns, whose doctrine is S3) stand `screen` before

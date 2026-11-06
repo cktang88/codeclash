@@ -21,6 +21,12 @@ const why: Record<string, number> = {};
 // Pairs with a block of horse (or the general's household) in them.
 let mounted = 0;
 let inRanks = 0;
+// Pairs with a block of loose shooters in them (passage of lines, QA3 #4), and the rest: formed x formed.
+let shooters = 0;
+let shootersSevere = 0;
+// Formed x formed with neither block in a melee (marching through a friend, not two blocks pressing one enemy).
+let marching = 0;
+let marchingSevere = 0;
 let mountedSevere = 0;
 const mountedWhy: Record<string, number> = {};
 for (const men of sizes) {
@@ -57,6 +63,15 @@ for (const men of sizes) {
         const k = [`${p.role}/${p.mode}/${p.ord.kind}`, `${q.role}/${q.mode}/${q.ord.kind}`].sort().join(' x ');
         why[k] = (why[k] ?? 0) + 1;
         const horse = (r: typeof p) => r.role === 'flank' || r.role === 'shock-cav' || r.role === 'horse-archer' || r.role === 'command';
+        const looseShot = (r: typeof p) => r.role === 'missile' && r.stance === 'loose';
+        if (looseShot(p) || looseShot(q)) {
+          shooters++;
+          if (c.share >= 0.25) shootersSevere++;
+        }
+        else if (p.mode !== 'melee' && q.mode !== 'melee' && !p.engaged && !q.engaged) {
+          marching++;
+          if (c.share >= 0.25) marchingSevere++;
+        }
         if (horse(p) || horse(q)) {
           mounted++;
           if (c.share >= 0.25) mountedSevere++;
@@ -83,4 +98,7 @@ console.log('a quarter or more:');
 for (const [k, v] of Object.entries(severeWhy).sort((x, y) => y[1] - x[1]).slice(0, 10)) console.log(String(v).padStart(6), k);
 console.log(`with horse in them: ${(mounted / samples).toFixed(3)} a second sampled; through a quarter or more: ${(mountedSevere / samples).toFixed(3)}`);
 for (const [k, v] of Object.entries(mountedWhy).sort((x, y) => y[1] - x[1]).slice(0, 12)) console.log(String(v).padStart(6), k);
+console.log(`with loose shooters in them: ${(shooters / samples).toFixed(3)}; through a quarter or more: ${(shootersSevere / samples).toFixed(3)}`);
+console.log(`formed x formed (no loose shooters): ${((total - shooters) / samples).toFixed(3)}; through a quarter or more: ${((severe - shootersSevere) / samples).toFixed(3)}`);
+console.log(`  of which neither in a melee: ${(marching / samples).toFixed(3)}; through a quarter or more: ${(marchingSevere / samples).toFixed(3)}`);
 console.log(`riders in our own foot's ranks: ${(inRanks / samples).toFixed(2)} a second sampled`);
