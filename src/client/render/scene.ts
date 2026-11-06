@@ -167,6 +167,18 @@ const CORPSE_SHADE: Record<string, number> = { default: 0.78, undead: 0.5 };
 /** HD: the painted dead already lie dark in their robes and the ground is busier, so the undead go down less far. */
 const CORPSE_SHADE_HD: Record<string, number> = { default: 0.78, undead: 0.62 };
 const BRACING: ReadonlySet<Stance> = new Set<Stance>(['shieldwall', 'pikewall', 'braced']);
+
+/**
+ * A rider unhorsed (game Soldier.dismounted, battle v17 HORSE) is drawn, for now, as a man of his
+ * faction's foot: a knight as its heavy foot, a lancer as its spearman, a horse archer as its archer.
+ */
+const AFOOT: Readonly<Record<number, number>> = { [U.Knights]: U.HeavyInfantry, [U.LightCavalry]: U.Spearmen, [U.HorseArchers]: U.Archers };
+
+/** The atlas kind a figure is drawn with: the commander's own, a foot kind once unhorsed, else his class. */
+function figureKind(s: { commander: boolean; cls: number; dismounted?: boolean }): number {
+  if (s.commander) return COMMANDER_KIND;
+  return s.dismounted ? (AFOOT[s.cls] ?? s.cls) : s.cls;
+}
 /** A regiment's stance; the sim adds `stance` on Regiment (read loosely until it lands). */
 const stanceOf = (r: object): Stance => (r as { stance?: Stance }).stance ?? 'line';
 
@@ -404,6 +416,9 @@ export class BattleScene {
     for (const s of battle.soldiers) {
       const k = s.commander ? COMMANDER_KIND : s.cls;
       if (!this.kindsPresent[s.team]!.includes(k)) this.kindsPresent[s.team]!.push(k);
+      // (A rider may be unhorsed: his foot kind is painted too.)
+      const a = s.commander ? undefined : AFOOT[s.cls];
+      if (a !== undefined && !this.kindsPresent[s.team]!.includes(a)) this.kindsPresent[s.team]!.push(a);
     }
     this.atlases.forEach((atlas, t) => {
       for (const k of this.kindsPresent[t]!) atlas.at(k, Anim.Idle, 0, 0);
@@ -632,8 +647,7 @@ export class BattleScene {
   }
 
   private kindOf(i: number): number {
-    const s = this.battle.soldiers[i]!;
-    return s.commander ? COMMANDER_KIND : s.cls;
+    return figureKind(this.battle.soldiers[i]!);
   }
 
   /** Index of (kind, anim, frame, dir) in uvTab/slotTab, or -1 if the frame is out of the table. */
@@ -1680,10 +1694,10 @@ export class BattleScene {
       const fmx = this.mapX(wx, wy);
       const fmy = this.mapY(wx, wy);
       if (fmx < x0 || fmx > x1 || fmy < y0 || fmy > y1) {
-        if (nearHd && fmx >= px0 && fmx <= px1 && fmy >= py0 && fmy <= py1) this.seenNear[s.team] = this.seenNear[s.team]! | (1 << (s.commander ? COMMANDER_KIND : s.cls));
+        if (nearHd && fmx >= px0 && fmx <= px1 && fmy >= py0 && fmy <= py1) this.seenNear[s.team] = this.seenNear[s.team]! | (1 << figureKind(s));
         continue;
       }
-      const kind = s.commander ? COMMANDER_KIND : s.cls;
+      const kind = figureKind(s);
       this.seen[s.team] = this.seen[s.team]! | (1 << kind);
       const lens = this.lenTab[s.team]!;
       let anim: Anim = Anim.Idle;
