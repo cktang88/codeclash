@@ -952,6 +952,20 @@ export class General {
   firstSpearAt = -1;
   /** S1: when the general fell and his horse rode to avenge him (-1: not). */
   revengeAt = -1;
+  /**
+   * The household (battle v17, QA review #4 and #6): where it keeps behind the line, eased over
+   * some three seconds (`post`), and the spot it rides to, moved only when that drifts more
+   * than POST_DEADBAND off (`guard`); since when it has been locked in its present fight, and
+   * until when, having broken off, it does not take on again (-1: not). `lastStand`: his army
+   * is gone, and he fights to the end.
+   */
+  postX = NaN;
+  postY = NaN;
+  guardX = NaN;
+  guardY = NaN;
+  fightFrom = -1;
+  offUntil = -1;
+  lastStand = false;
   /** The army's spirits on the day (from the general's rng): added to every regiment's morale. */
   readonly mood: number;
   /** A blunder: the knights go in before the lines meet. */
@@ -1078,8 +1092,21 @@ const SPENT_BLOCK = 0.6;
 const LATE = 4000;
 /** A refused wing holds back until this tick at most (1200 until the scale rework: the approach now takes twice as long). */
 const REFUSE_UNTIL = 2000;
-/** The general's household draws back from a block worth more than this many times itself (see `thinkCommand`). */
+/** The general's household draws back from enemies close by worth more than this many times itself (see `thinkCommand`). */
 const HOUSEHOLD_ODDS = 2;
+/**
+ * The household (battle v17, QA review #4): how near an enemy it weighs before it is upon it;
+ * how long it fights one fight before it breaks off (ticks), and how long after it does not
+ * take on again; at what share of its riders it is spent (it fights no more); how far ahead of
+ * its post it rides back at the canter rather than walks; how far each rider strays from his
+ * place after a foe.
+ */
+const HOUSEHOLD = { wary: 90, fight: 100, off: 150, spent: 1 / 3, ahead: 120, leash: 40 };
+/** How fast the household's post follows the line (a share of the gap each half second: about 3 s), and how far it drifts before the household moves (QA review #6). */
+const POST_EASE = 0.15;
+const POST_DEADBAND = 30;
+/** The household turns its horse to ride a goal farther than this, rather than back (horse otherwise needs HORSE_REIN). */
+const POST_REIN = 20;
 /** A block locked in melee that bows may still shoot over the fight into: deep enough to have rear ranks well clear of it. */
 const overMelee = (o: Regiment) => o.depth >= 14;
 const isCav = (r: Regiment) => r.role === 'flank' || r.role === 'shock-cav' || r.role === 'horse-archer';
@@ -4676,30 +4703,102 @@ export class Battle {
   }
 
   private thinkCommand(r: Regiment): void {
-    const ts = this.ts[r.team]!;
-    const dir = r.team === 0 ? 1 : -1;
-    const reach = this.generals[r.team]!.trait === 'reckless-valour' ? 90 : 40;
-    // The household fights what comes within `reach` of it, its nearest man, where he stands.
-    // (Until v15 it went by the blocks' bounding circles and rode for the centre of the block:
-    // against the big blocks of a big battle that took the general from 100 and more away into
-    // the middle of the enemy's ranks. The fearless Lich-Marshal, whose household never breaks,
-    // fell in more than half of all battles.)
-    const near = this.nearGap(r, reach, false);
-    // A block that outweighs the household HOUSEHOLD_ODDS times over it does not take on while it
-    // has a line to fall back behind: it draws back, straight away from the block's nearest man.
-    // (Until v16 it rode at whatever came near. In a big battle that was the big blocks of the
-    // enemy's second line, and the generals fell ever more often as battles grew: the
-    // Lich-Marshal in three battles of five at 2800 a side.)
-    if (near && ts.hasLine && near.alive * this.stats[near.team]![near.cls]!.value > HOUSEHOLD_ODDS * r.alive * this.stats[r.team]![r.cls]!.value) {
-      this.gapTo(r, near);
-      const dx = r.ax - this.tmp[0]!;
-      const dy = r.ay - this.tmp[1]!;
-      const q = sqrt(dx * dx + dy * dy) || 1;
-      this.setMode(r, 'withdraw');
-      this.goal(r, clampX(r.ax + (dx / q) * 2 * reach), clampY(r.ay + (dy / q) * 2 * reach));
-      return;
+    const t = r.team;
+    const g = this.generals[t]!;
+    const ts = this.ts[t]!;
+    const dir = t === 0 ? 1 : -1;
+    r.dfx = dir;
+    r.dfy = 0;
+    const reach = g.trait === 'reckless-valour' ? 90 : 40;
+    // Where he keeps: behind the middle of our line, in sight of the men; with no line left,
+    // behind the middle of what is left. (The army's centre leaves the general himself out, or
+    // stepping back from it would walk him off the back of the field.)
+    let px: number;
+    let py: number;
+    if (ts.hasLine) {
+      px = ts.frontX - dir * (ts.lineDepth + 55);
+      py = ts.midY;
+    } else {
+      let k = 0;
+      let x = 0;
+      let y = 0;
+      for (const o of this.teamRegs[t]!) {
+        if (o === r || o.alive === 0 || o.routed) continue;
+        k += o.alive;
+        x += o.cx * o.alive;
+        y += o.cy * o.alive;
+      }
+      if (k === 0) {
+        // His army is gone: he and his household ride at the enemy (standing still would
+        // leave two lone generals facing each other until the time limit).
+        g.lastStand = true;
+        const foe = this.nearestFoe(r, 0, Infinity);
+        if (foe) {
+          this.setMode(r, 'advance');
+          this.goal(r, foe.cx, foe.cy);
+          this.faceToward(r, foe.cx, foe.cy);
+        } else this.goal(r, r.ax, r.ay);
+        return;
+      }
+      px = x / k - dir * 80;
+      py = y / k;
     }
-    if (near || r.engaged) {
+    g.lastStand = false;
+    // (QA review #6: the line's front jumps tens of units whenever a block is committed,
+    // charges, runs or is pulled out; until v17 the household followed every jump, backing its
+    // horses to and fro behind the line. It eases after it, and moves only when its spot has
+    // drifted POST_DEADBAND off; but a front gone back a long way at once, it follows at once.)
+    if (Number.isNaN(g.postX) || (r.ax - px) * dir > HOUSEHOLD.ahead) {
+      g.postX = px;
+      g.postY = py;
+    } else {
+      g.postX += (px - g.postX) * POST_EASE;
+      g.postY += (py - g.postY) * POST_EASE;
+    }
+    const gx = g.postX - g.guardX;
+    const gy = g.postY - g.guardY;
+    if (Number.isNaN(g.guardX) || gx * gx + gy * gy > POST_DEADBAND * POST_DEADBAND) {
+      g.guardX = g.postX;
+      g.guardY = g.postY;
+    }
+    // Since when the household has been locked in this fight.
+    if (r.engaged) {
+      if (g.fightFrom < 0) g.fightFrom = this.tick;
+    } else if (r.mode !== 'melee') g.fightFrom = -1;
+    // QA review #4: a lord on whose life his army hangs (the dead crumble when the Lich-Marshal
+    // falls) keeps behind his line and commits his household only with the odds on his side.
+    // He weighs every enemy block within HOUSEHOLD.wary of it (a wavering one at half), and
+    // fights what comes within `reach` only while they are worth no more than HOUSEHOLD_ODDS
+    // times the household, it is not spent (HOUSEHOLD.spent of its riders), and it has not
+    // fought this fight for HOUSEHOLD.fight; else he breaks off, toward his post and away from
+    // them, and does not take on again for HOUSEHOLD.off. (Until v17 he drew back only from
+    // a single block twice his worth, and only while his army had a line: with his line gone
+    // the household fought to its last rider, 300-440 units ahead of what was left of his
+    // army. The Lich-Marshal fell in a quarter of all battles, the other generals in 6-8%.)
+    const val = (o: Regiment) => o.alive * this.stats[o.team]![o.cls]!.value;
+    const ours = val(r);
+    const near = this.nearGap(r, reach, false);
+    let threat = 0;
+    let danger: Regiment | null = null;
+    let dg = Infinity;
+    for (const o of this.teamRegs[1 - t]!) {
+      if (o.alive === 0 || o.routed) continue;
+      const dx = o.cx - r.cx;
+      const dy = o.cy - r.cy;
+      const rr = o.radius + r.radius + HOUSEHOLD.wary;
+      if (dx * dx + dy * dy > rr * rr) continue;
+      const q = this.gapTo(r, o);
+      if (q > HOUSEHOLD.wary) continue;
+      threat += val(o) * (o.moraleState === 'wavering' ? 0.5 : 1);
+      if (q < dg) {
+        dg = q;
+        danger = o;
+      }
+    }
+    const spent = r.alive <= r.start * HOUSEHOLD.spent;
+    const long = g.fightFrom >= 0 && this.tick - g.fightFrom > HOUSEHOLD.fight;
+    const odds = threat <= HOUSEHOLD_ODDS * ours;
+    if ((near || r.engaged) && odds && !spent && !long && this.tick >= g.offUntil) {
       this.setMode(r, 'melee');
       r.targetReg = near ? near.id : r.targetReg;
       if (near) {
@@ -4708,35 +4807,39 @@ export class Battle {
       }
       return;
     }
-    this.setMode(r, 'guard');
-    // Behind the middle of our own line, in sight of the men.
-    if (ts.hasLine) this.goal(r, ts.frontX - dir * (ts.lineDepth + 55), ts.midY);
-    else {
-      // No line left: behind the middle of what is left. (The army's centre counts the general
-      // himself, so stepping back from it would walk him off the back of the field.)
-      let k = 0;
-      let x = 0;
-      let y = 0;
-      for (const o of this.teamRegs[r.team]!) {
-        if (o === r || o.alive === 0 || o.routed) continue;
-        k += o.alive;
-        x += o.cx * o.alive;
-        y += o.cy * o.alive;
+    if (danger && (near || r.engaged || !odds)) {
+      // Break off: away from the nearest of them, and toward his post.
+      if (near || r.engaged) g.offUntil = this.tick + HOUSEHOLD.off;
+      g.fightFrom = -1;
+      this.gapTo(r, danger);
+      let ux = r.ax - this.tmp[0]!;
+      let uy = r.ay - this.tmp[1]!;
+      let q = sqrt(ux * ux + uy * uy) || 1;
+      ux /= q;
+      uy /= q;
+      const hx = g.guardX - r.ax;
+      const hy = g.guardY - r.ay;
+      const h = sqrt(hx * hx + hy * hy);
+      if (h > 1) {
+        ux += hx / h;
+        uy += hy / h;
+        q = sqrt(ux * ux + uy * uy);
+        if (q < 0.1) {
+          // (His post lies straight through them: he rides off to the side, toward our own edge.)
+          ux = -dir * 0.6 - uy;
+          uy = hx / h;
+          q = sqrt(ux * ux + uy * uy) || 1;
+        }
+        ux /= q;
+        uy /= q;
       }
-      if (k > 0) this.goal(r, x / k - dir * 55, y / k);
-      else {
-        // His army is gone: he and his household ride at the enemy (standing still would
-        // leave two lone generals facing each other until the time limit).
-        const foe = this.nearestFoe(r, 0, Infinity);
-        if (foe) {
-          this.setMode(r, 'advance');
-          this.goal(r, foe.cx, foe.cy);
-          this.faceToward(r, foe.cx, foe.cy);
-        } else this.goal(r, r.ax, r.ay);
-      }
+      this.setMode(r, 'withdraw');
+      this.goal(r, clampX(r.ax + ux * 2 * Math.max(reach, 60)), clampY(r.ay + uy * 2 * Math.max(reach, 60)));
+      return;
     }
-    r.dfx = dir;
-    r.dfy = 0;
+    // Keep the post: at a canter when well ahead of it (his front gone back a long way).
+    this.setMode(r, (r.ax - g.guardX) * dir > HOUSEHOLD.ahead ? 'withdraw' : 'guard');
+    this.goal(r, g.guardX, g.guardY);
   }
 
   /** Pins every regiment of a class on one side to a stance (tests and tools). */
@@ -4956,7 +5059,7 @@ export class Battle {
     // whole loose block about, a slow pirouette, and back again when they halted.)
     // Likewise a block of shooters stepping sideways to open a line of fire sidles at the double, facing front.
     const aboutTurn = !horse && (r.role === 'skirmish' || r.role === 'missile') && q > 30 && MARCH[r.mode] && (dx * r.dfx + dy * r.dfy < -0.3 * q || this.tick < r.stepUntil);
-    const marching = !aboutTurn && q > (horse ? HORSE_REIN : 30) && MARCH[r.mode];
+    const marching = !aboutTurn && q > (r.role === 'command' ? POST_REIN : horse ? HORSE_REIN : 30) && MARCH[r.mode];
     if (marching) {
       wx = dx / q;
       wy = dy / q;
@@ -5523,7 +5626,8 @@ export class Battle {
     }
     const r = this.regiments[d.reg[i]!]!;
     const mode = r.mode;
-    if (mode === 'withdraw' || mode === 'skirmish') {
+    // (The household breaking off still cuts at a foe at hand, below: it rides out of reach.)
+    if ((mode === 'withdraw' && r.role !== 'command') || mode === 'skirmish') {
       d.target[i] = -1;
       return;
     }
@@ -5539,7 +5643,7 @@ export class Battle {
     else if ((this.tick + i - this.firstId[d.team[i]!]!) % (t < 0 ? 3 : 6) === 0) {
       t = this.seek(i, r);
       // Falling back on the General's word, a man fights only a foe at hand.
-      if (t >= 0 && mode === 'reserve' && r.ord.kind === 'withdraw') {
+      if (t >= 0 && ((mode === 'reserve' && r.ord.kind === 'withdraw') || mode === 'withdraw')) {
         const ex = d.x[t]! - d.x[i]!;
         const ey = d.y[t]! - d.y[i]!;
         const reach = d.rad[i]! + d.rad[t]! + 3;
@@ -5658,7 +5762,7 @@ export class Battle {
     const rear = r.rearUntil > this.tick && !mounted && d.row[i]! >= Math.max(1, r.rows >> 1);
     const reach = near || rear ? C.reachNear : 10;
     const R = pursue ? 24 : mounted ? 15 : roam ? Math.max(reach, C.roamReach * r.spacing) : reach;
-    const leash = pursue || roam || r.role === 'command' || r.mode === 'rally' ? 1e9 : mounted ? 34 : near ? (edge ? C.leashEdge : C.leashNear) * this.doc[r.team]!.loose.leash : 9;
+    const leash = pursue || roam || r.mode === 'rally' || (r.role === 'command' && this.generals[r.team]!.lastStand) ? 1e9 : r.role === 'command' ? HOUSEHOLD.leash : mounted ? 34 : near ? (edge ? C.leashEdge : C.leashNear) * this.doc[r.team]!.loose.leash : 9;
     const sxi = d.sx[i]!;
     const x = d.x[i]!;
     const y = d.y[i]!;
