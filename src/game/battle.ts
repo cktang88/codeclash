@@ -208,6 +208,21 @@ export { COHESION, DOCTRINE, MORALE, REGROUP, UNDEAD } from './command.ts';
  *   dead as battles grew (undead-templar 44% at 250, 59% at 1000, 71% at 2000); samurai-templar
  *   56 -> 52 at 1000. With it the price of never routing is eased back: DEAD_HP 0.72 (0.71).
  *   300 battles a cell (docs/factions.md, v17 reach balance).
+ * - Command steadied (QA review 2, #5 and #7; scripts/qa/command-probe.ts). A reserve keeps the
+ *   friend it backs (RESERVE_KEEP, then until another is RESERVE_SWITCH nearer), stands behind
+ *   him as seen from the enemy, and moves or turns only past a dead band, sidestepping short
+ *   shifts facing front; one that has faced a threat close by keeps facing it (RESERVE_WARY).
+ *   The household's post moves along the line only past POST_ALONG, stands POST_STAND after a
+ *   move and keeps clear of the engines. Line foot deploys from column into line BOWSHOT_MARGIN
+ *   short of the enemy foot shooters' reach (it kept column to 240 u of any foe), and a block
+ *   holding for a flank slot faces the enemy, not along its line. Over 36 pairings at 450:
+ *   reserves change friend 0.89 -> 0.30 times a minute and wheel on the spot 2.8 -> 0.9° a
+ *   second; oscillate flags for the household 46 -> 17, for reserves of the line 62 -> 53; line
+ *   foot in column inside bowshot 6.5% -> 0; blocks facing over 45° off the enemy at deployment
+ *   45 of 441 -> 0. (The wider blocks on the march cost a little: oscillate flags for line foot
+ *   marching to a flank 14 -> 32, stragglers 12 -> 43, all flags 416 -> 430.) The side gap the review
+ *   saw in samurai-undead (team 0 +11) did not hold on fresh seeds (301-500 at 250: 49.0 / 49.5);
+ *   a swapped pairing mirrors exactly until the men's own draws part it (side-fair.test.ts).
  * - Horse charges with sense (docs/qa/battle-realism-review-2.md #3, #4, #6, leftover 5;
  *   src/game/charge-sense.test.ts). A charge that closes on its prey by under 10 u in 2 s with no
  *   blow (the prey locked with our own men, the way to it through them) rides once for its open
@@ -870,6 +885,12 @@ export class Regiment {
   ord: Order = newOrder();
   /** Second line thrown in by the General. */
   committed = false;
+  /** Since when a reserve has backed the friend it backs now (`reserveOrder`), and the spot behind him it last made for. */
+  friendAt = -1;
+  resX = NaN;
+  resY = NaN;
+  /** When a reserve last turned to face a threat close by (`thinkLine`). */
+  threatAt = -1000;
   /** Times the General has pulled it out of the line (see Doctrine.withdrawals). */
   withdrawals = 0;
   /** Skirmishers that have fallen back behind the line. */
@@ -1149,6 +1170,8 @@ export class General {
   postY = NaN;
   guardX = NaN;
   guardY = NaN;
+  /** When the household's spot last moved (QA review 2 #5). */
+  guardAt = -1000;
   fightFrom = -1;
   offUntil = -1;
   lastStand = false;
@@ -1306,6 +1329,13 @@ const HOUSEHOLD = { wary: 90, fight: 100, off: 150, spent: 1 / 3, ahead: 120, le
 /** How fast the household's post follows the line (a share of the gap each half second: about 6 s), and how far it drifts before the household moves (QA review #6). */
 const POST_EASE = 0.08;
 const POST_DEADBAND = 40;
+/** How far the household's post drifts along the line before it moves, and how long it stands after a move (ticks: QA review 2 #5). */
+const POST_ALONG = 80;
+const POST_STAND = 60;
+/** The household's post keeps this clear of the engines (QA review 2 #5). */
+const POST_CLEAR = 60;
+/** Within this of its spot (and the spot not just moved) the household stands where it is. */
+const POST_STEADY = 25;
 /** The household turns its horse to ride a goal farther than this, rather than back (horse otherwise needs HORSE_REIN). */
 const POST_REIN = 8;
 /** The household's post stands behind the blocks behind the middle of the line, but never further than this behind its front. */
@@ -2590,18 +2620,29 @@ export class Battle {
     const g = this.generals[t]!;
     let best: Regiment | null = null;
     let bd = Infinity;
+    // QA review 2 #5: the friend it already backs, and what that costs. (Until then it took the
+    // nearest friend at every order, 1.5 s apart: as the line shifted in the fight its goal jumped
+    // 100-300 u every few seconds, and two reserves passing each other swapped friends.)
+    const cur = r.ord.kind === 'reserve' && r.ord.friend >= 0 ? this.regiments[r.ord.friend]! : null;
+    let cd = Infinity;
     for (const o of this.teamRegs[t]!) {
       if (o === r || o.role !== 'line' || o.alive === 0 || o.routed || (o.line === 2 && !o.committed)) continue;
       let q = (o.cx - r.cx) * (o.cx - r.cx) + (o.cy - r.cy) * (o.cy - r.cy);
       if (g.plan === 'refuse') q -= (o.homeY - FIELD_H / 2) * g.strong * 400;
       // (Not behind a block another reserve already stands behind: two would stand in one place.)
-      for (const x of this.teamRegs[t]!) if (x !== r && x.order === 'reserve' && x.ord.friend === o.id && x.alive > 0 && !x.routed) q += 1e6;
+      if (o !== cur) for (const x of this.teamRegs[t]!) if (x !== r && x.order === 'reserve' && x.ord.friend === o.id && x.alive > 0 && !x.routed) q += 1e6;
+      if (o === cur) cd = q;
       if (q < bd) {
         bd = q;
         best = o;
       }
     }
-    this.give(r, 'reserve', -1, 0, best ? best.id : -1);
+    // It keeps its friend while that stands, for RESERVE_KEEP at least, and after that unless
+    // another is a good deal nearer (RESERVE_SWITCH of the distance).
+    if (cur && cd < Infinity && best !== cur && (this.tick - r.friendAt < RESERVE_KEEP || bd > cd * RESERVE_SWITCH * RESERVE_SWITCH)) best = cur;
+    const id = best ? best.id : -1;
+    if (id !== r.ord.friend || r.ord.kind !== 'reserve') r.friendAt = this.tick;
+    this.give(r, 'reserve', -1, 0, id);
   }
 
   /**
@@ -3980,12 +4021,16 @@ export class Battle {
     // A threat on the flank or rear: wheel to meet it (or face it: see `turnFoot`). Horse
     // charging or riding round at this block is a threat from further off.
     const horse = this.horseNear(r);
-    const threat = (horse && (horse.mode === 'charge' || horse.mode === 'flank') && horse.targetReg === r.id ? horse : null) ?? this.nearestFoe(r, 0, 45);
+    // (A reserve that has faced a threat keeps facing it while it stays near, RESERVE_WARY: until
+    // QA review 2 #5 it faced it at 45, back toward its spot at 46, and round again.)
+    const wary = o.kind === 'reserve' && this.tick - r.threatAt < RESERVE_WARY_FOR ? RESERVE_WARY : 45;
+    const threat = (horse && (horse.mode === 'charge' || horse.mode === 'flank') && horse.targetReg === r.id ? horse : null) ?? this.nearestFoe(r, 0, wary);
     if (threat && threat.id !== o.target && o.kind !== 'withdraw') {
       const dx = threat.cx - r.cx;
       const dy = threat.cy - r.cy;
       const q = sqrt(dx * dx + dy * dy) || 1;
-      if ((dx * r.fx + dy * r.fy) / q < 0.2 && (threat.mode === 'charge' || threat.mode === 'melee' || threat.mode === 'flank' || threat.mode === 'advance')) {
+      if ((wary > 45 || (dx * r.fx + dy * r.fy) / q < 0.2) && (threat.mode === 'charge' || threat.mode === 'melee' || threat.mode === 'flank' || threat.mode === 'advance')) {
+        if (wary === 45) r.threatAt = this.tick;
         this.setMode(r, 'hold');
         this.goal(r, r.ax, r.ay);
         this.faceToward(r, threat.cx, threat.cy);
@@ -4043,7 +4088,14 @@ export class Battle {
         if (o.kind === 'hold' && q > 50) {
           this.setMode(r, 'hold');
           this.goal(r, r.ax, r.ay);
-          if (o.side === 0) this.faceToward(r, tgt.cx, tgt.cy);
+          // (Standing, it faces the enemy whatever its slot: QA review 2 #7. Until then a block
+          // told off for a flank faced the way it would take that flank, along its own line,
+          // until it moved. Far off, it faces his edge, square with the line.)
+          if (o.side === 0 || q < HOLD_SQUARE) this.faceToward(r, tgt.cx, tgt.cy);
+          else {
+            r.dfx = r.team === 0 ? 1 : -1;
+            r.dfy = 0;
+          }
           // Counter-charge whatever comes close.
           const close = this.nearestFoe(r, 0, 35);
           if (close && !isCav(close)) {
@@ -4078,10 +4130,31 @@ export class Battle {
       }
     }
     if (best) {
+      // QA review 2 #5: behind its friend as seen from the enemy, the friend's front eased toward
+      // our own (a friend wheeled about in its fight swung its reserve round its rear, ±70°),
+      // and it moves and turns only once that spot and that front have drifted well off.
+      const dir = r.team === 0 ? 1 : -1;
+      let bx = best.dfx + dir * 3;
+      let by = best.dfy;
+      const bq = sqrt(bx * bx + by * by) || 1;
+      bx /= bq;
+      by /= bq;
+      const gx = best.ax - bx * (best.depth + RESERVE_BEHIND);
+      const gy = best.ay - by * (best.depth + RESERVE_BEHIND);
+      // (Against the spot it last made for, not its goal: `clearGoal` moves that aside of friends.)
+      const steady = (r.mode === 'reserve' || r.mode === 'hold') && !Number.isNaN(r.resX);
+      const ox = gx - r.resX;
+      const oy = gy - r.resY;
       this.setMode(r, 'reserve');
-      this.goal(r, best.ax - best.fx * (best.depth + RESERVE_BEHIND), best.ay - best.fy * (best.depth + RESERVE_BEHIND));
-      r.dfx = best.fx;
-      r.dfy = best.fy;
+      if (!steady || ox * ox + oy * oy > RESERVE_DEADBAND * RESERVE_DEADBAND) {
+        r.resX = gx;
+        r.resY = gy;
+      }
+      this.goal(r, r.resX, r.resY);
+      if (!steady || r.dfx * bx + r.dfy * by < RESERVE_TURN) {
+        r.dfx = bx;
+        r.dfy = by;
+      }
       return;
     }
     // Nobody to stand behind: a reserve holds its ground (and fights what comes to it); anyone
@@ -5713,6 +5786,15 @@ export class Battle {
         const behind = (ts.frontX - o.cx) * dir + o.radius + 35;
         if (behind > back && behind < POST_BACK) back = behind;
       }
+      // (Nor on the engines' ground: QA review 2 #5. A post on an engine had the household riding
+      // round it and back as it crept forward. It stands just behind the engine, or with no
+      // room there, just before it.)
+      for (const o of this.teamRegs[t]!) {
+        if (o.role !== 'siege' || o.alive === 0 || o.routed || (o.cy > py ? o.cy - py : py - o.cy) > o.radius + POST_CLEAR) continue;
+        const at = (ts.frontX - o.cx) * dir;
+        if ((at > back ? at - back : back - at) >= o.radius + POST_CLEAR) continue;
+        back = at + o.radius + POST_CLEAR < POST_BACK || at - o.radius - POST_CLEAR < ts.lineDepth + 40 ? at + o.radius + POST_CLEAR : at - o.radius - POST_CLEAR;
+      }
       px = ts.frontX - dir * back;
     } else {
       let k = 0;
@@ -5751,11 +5833,18 @@ export class Battle {
       g.postX += (px - g.postX) * POST_EASE;
       g.postY += (py - g.postY) * POST_EASE;
     }
+    // (QA review 2 #5: the middle of the line shifts to and fro along it as blocks go in, and a
+    // post that followed every shift had the household jigging. It moves along the line only
+    // once its spot has drifted POST_ALONG off, and after a move it stands for POST_STAND unless
+    // its spot has gone well off: HOUSEHOLD.ahead.)
     const gx = g.postX - g.guardX;
     const gy = g.postY - g.guardY;
-    if (Number.isNaN(g.guardX) || gx * gx + gy * gy > POST_DEADBAND * POST_DEADBAND) {
+    const off = (gx * gx) / (POST_DEADBAND * POST_DEADBAND) + (gy * gy) / (POST_ALONG * POST_ALONG);
+    const far = gx * gx + gy * gy > HOUSEHOLD.ahead * HOUSEHOLD.ahead;
+    if (Number.isNaN(g.guardX) || far || (off > 1 && this.tick - g.guardAt >= POST_STAND)) {
       g.guardX = g.postX;
       g.guardY = g.postY;
+      g.guardAt = this.tick;
     }
     // Since when the household has been locked in this fight.
     if (r.engaged) {
@@ -5841,7 +5930,12 @@ export class Battle {
     }
     // Keep the post: at a canter when well ahead of it (his front gone back a long way).
     this.setMode(r, (r.ax - g.guardX) * dir > HOUSEHOLD.ahead ? 'withdraw' : 'guard');
-    this.goal(r, g.guardX, g.guardY);
+    // (Near enough its spot it stands where it is: nudged a few strides by friends going by, it
+    // does not walk back and forth: QA review 2 #5.)
+    const sx = g.guardX - r.ax;
+    const sy = g.guardY - r.ay;
+    if (r.mode === 'guard' && sx * sx + sy * sy < POST_STEADY * POST_STEADY && this.tick - g.guardAt > POST_STAND) this.goal(r, r.ax, r.ay);
+    else this.goal(r, g.guardX, g.guardY);
   }
 
   /** Pins every regiment of a class on one side to a stance (tests and tools). */
@@ -5877,7 +5971,10 @@ export class Battle {
     };
     switch (r.role) {
       case 'line': {
-        const march = (r.mode === 'advance' || r.mode === 'reserve') && !r.engaged && !this.nearestFoe(r, 0, 240);
+        // (QA review 2 #7: it deploys from column into line before it comes into the enemy's
+        // bowshot, BOWSHOT_MARGIN short of it, and forms column again only well out of it. Until
+        // then it kept its column until a foe was within 240, and took the arrows in column.)
+        const march = (r.mode === 'advance' || r.mode === 'reserve') && !r.engaged && !this.nearestFoe(r, 0, 240) && !this.inBowshot(r, BOWSHOT_MARGIN + (r.stance === 'column' ? 0 : BOWSHOT_REFORM));
         const dx = r.tx - r.ax;
         const dy = r.ty - r.ay;
         const far = dx * dx + dy * dy > 230 * 230;
@@ -5925,6 +6022,19 @@ export class Battle {
     if (s === r.stance) return;
     if (!urgent && this.tick - r.stanceAt < 25) return;
     this.setStance(r, s);
+  }
+
+  /** Whether a block stands within `margin` of the reach of an enemy block of foot shooters with arrows left (edge to edge). */
+  private inBowshot(r: Regiment, margin: number): boolean {
+    const st = this.stats[1 - r.team]!;
+    for (const o of this.teamRegs[1 - r.team]!) {
+      if (o.alive === 0 || o.routed || o.role !== 'missile' || o.ammoLeft === 0) continue;
+      const far = st[o.cls]!.range + margin + o.radius + r.radius;
+      const dx = o.cx - r.cx;
+      const dy = o.cy - r.cy;
+      if (dx * dx + dy * dy < far * far) return true;
+    }
+    return false;
   }
 
   /**
@@ -6083,7 +6193,8 @@ export class Battle {
     // whole loose block about, a slow pirouette, and back again when they halted.)
     // Likewise a block of shooters stepping sideways to open a line of fire sidles at the double, facing front.
     const aboutTurn = !horse && (r.role === 'skirmish' || r.role === 'missile') && q > 30 && MARCH[r.mode] && (dx * r.dfx + dy * r.dfy < -0.3 * q || this.tick < r.stepUntil);
-    const marching = !aboutTurn && q > (r.role === 'command' ? POST_REIN : horse ? HORSE_REIN : 30) && MARCH[r.mode];
+    // (A reserve dressing on its friend a short way off sidesteps, facing front: QA review 2 #5.)
+    const marching = !aboutTurn && q > (r.role === 'command' ? POST_REIN : horse ? HORSE_REIN : r.mode === 'reserve' && r.role === 'line' && r.ord.kind === 'reserve' ? RESERVE_SIDESTEP : 30) && MARCH[r.mode];
     if (marching) {
       wx = dx / q;
       wy = dy / q;
@@ -9102,6 +9213,28 @@ const CONTACT_GAP = 8;
  */
 const MISSILE_BEHIND = 70;
 const RESERVE_BEHIND = 170;
+/**
+ * QA review 2 #5: a reserve keeps the friend it backs for RESERVE_KEEP ticks at least, and then
+ * until another is nearer by this share of the distance; it moves only once its spot has drifted
+ * RESERVE_DEADBAND off, and turns only once its facing is RESERVE_TURN (cosine) off; it sidesteps
+ * (dresses its ranks, facing front) to a spot within RESERVE_SIDESTEP rather than wheel to march.
+ */
+/**
+ * Line foot deploys from column into line this far short of the enemy's foot shooters' reach,
+ * and forms column again only BOWSHOT_REFORM further out (QA review 2 #7).
+ */
+const BOWSHOT_MARGIN = 60;
+const BOWSHOT_REFORM = 120;
+const RESERVE_KEEP = 200;
+/** A block holding for a flank slot farther off than this faces the enemy's edge, not its target (QA review 2 #7). */
+const HOLD_SQUARE = 300;
+const RESERVE_SWITCH = 0.6;
+const RESERVE_DEADBAND = 25;
+const RESERVE_TURN = 0.9;
+const RESERVE_SIDESTEP = 90;
+/** A reserve that has turned to face an enemy close by keeps facing it while it stays within RESERVE_WARY, for RESERVE_WARY_FOR ticks after it turned. */
+const RESERVE_WARY = 80;
+const RESERVE_WARY_FOR = 60;
 /**
  * Horse against shooters (`horseStrike`): outshot this many times over, it forms up STRIKE_MARGIN
  * out of their reach, waits until every block is within STRIKE_THERE of its place (STRIKE_WAIT at

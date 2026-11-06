@@ -491,3 +491,22 @@ rising for the glowing units).
   Until it reads these briefs, the new factions render with Templar shapes in their own palette.
 - No `game.test.ts` balance case was added (out of this task's file scope); design.md §4 asks for
   one: each faction vs Templars, 40 seeds, 40–60% wins. Use both sides of the field per seed.
+
+**v17, the undead between 250 and 1000 a side (QA review 2, after the cavalry and command fixes).**
+Our pair runner, 80 battles a cell (±5.6), seeds 1–40 both ways round: undead vs Templar
+41.2 / 41.2 / 50.0 / 48.8% and undead vs Samurai 42.5 / 43.8 / 45.0 / 57.5% at 250 / 450 / 750 /
+1000. Pooled, the dead gain about 10 points from 250 to 1000. The one stubborn cell is undead vs
+Templar at 450: 38.8–41.2% in every run (seeds 1–40 and 41–80, with DEAD_HP 0.72, 0.73 and 0.74,
+with the Shock block moved to the second line), and no Templar doctrine switched off moves it
+(withdrawals, stand fast, the Marshal's signal, the banner: 39–46%, 80 battles each). What was
+tried at 250 and 1000 (120 / 80 battles, undead's share; base 40.8 / 50.0): no outnumbered
+40.8 / 40.0, no friend-rout shock 52.5 / 45.0, no general's aura 54.2 / 76.2, no rallying 41.7 /
+51.2, no casualty-rate shock 29.2 / 22.5, no army-loss shock 38.3 / 37.5, no fatigue fear 38.3 /
+36.2, no tide 45.8 / 51.2, no flank shock 40.0 / 42.5, shocks scaled by each block's own size (not
+the battle's block size) 43 / 58, no Shock foot 46 / 56. None flattens the curve: every morale
+rule of the living is worth more at 1000 than at 250, and the aura, whose reach grows with the
+army, covers 68% of the living's engaged blocks at 250 and 79–84% at 450–1000 (so it already
+leans against the dead in big battles, not small). The tide never bites (0–6% of marching
+blocks beyond its reach) and raising returns the same share at every size (0.21 of the host).
+DEAD_HP 0.74 lifted some cells by 8–24 points and left others where they were (the same seeds),
+so it was not taken. Left open: a layout or Templar-specific cause at 450–750.
