@@ -150,6 +150,15 @@ export const MAX_ZOOM = 8;
 /** Highest zoom level with the HD art, where each level doubles the scale (8x: the 128 px sprites 1:1). */
 export const MAX_ZOOM_HD = 5;
 
+/**
+ * The shade a corpse is drawn with, by faction (an RGB multiply, blue a hair lower). Men in
+ * coloured cloth already read as fallen by their pose and the blood under them; bleached bone
+ * lying on the ground had the same palette and size as a skeleton standing, so the undead dead
+ * go down to about the ground's value (Total War keeps its dead darker than the living).
+ */
+const CORPSE_SHADE: Record<string, number> = { default: 0.78, undead: 0.5 };
+/** HD: the painted dead already lie dark in their robes and the ground is busier, so the undead go down less far. */
+const CORPSE_SHADE_HD: Record<string, number> = { default: 0.78, undead: 0.62 };
 const BRACING: ReadonlySet<Stance> = new Set<Stance>(['shieldwall', 'pikewall', 'braced']);
 /** A regiment's stance; the sim adds `stance` on Regiment (read loosely until it lands). */
 const stanceOf = (r: object): Stance => (r as { stance?: Stance }).stance ?? 'line';
@@ -295,6 +304,12 @@ export class BattleScene {
   /** Each man's clip, its start and stride across frames (animstate.ts). */
   private anims: AnimTrack;
   private readonly facts = blankFacts();
+  /**
+   * Per army, the shade a corpse is drawn with (an RGB multiply): the fallen sink into the ground,
+   * and the undead's bone far more (CORPSE_SHADE), so a skeleton that still stands is never
+   * mistaken for one that lies (QA battle-realism #15).
+   */
+  private readonly corpseShade: [number, number];
   /** The living by cell, a tick at a time: the enemy at a man's elbow (foes.ts, pose.ts facing). */
   private readonly foes = new FoeGrid(FIELD_W, FIELD_H);
   /** Scratch for each man's own front (pose.ts ownFront). */
@@ -361,6 +376,8 @@ export class BattleScene {
     const [a, b] = battle.setup.armies;
     const buildAtlas = art === 'hd64' ? buildHd64 : art === 'hd' ? buildHd : buildClassic;
     this.atlases = [buildAtlas(a.faction, a.hue), buildAtlas(b.faction, b.hue)];
+    const shades = isHdArt(art) ? CORPSE_SHADE_HD : CORPSE_SHADE;
+    this.corpseShade = [shades[a.faction] ?? shades.default!, shades[b.faction] ?? shades.default!];
     // The painter fills kinds lazily, but the atlas goes to the GPU once: paint the kinds on the
     // field first (only those: a kind no one fields is never drawn).
     for (const s of battle.soldiers) {
@@ -793,7 +810,7 @@ export class BattleScene {
     const s = this.battle.soldiers[i]!;
     const kind = this.kindOf(i);
     const u = this.cellU(s.team, kind, Anim.Dead, 0, this.dirs[i] as Dir);
-    this.stamps.push({ tex: s.team, x: Math.round(this.mapX(s.x, s.y)), y: Math.round(this.mapY(s.x, s.y)), u, v: this.cellV, w: this.cellW, h: this.cellH, ax: this.cellAx, ay: this.cellAy, shade: 0.78, a: 1, solid: false, r: 0, g: 0, b: 0 });
+    this.stamps.push({ tex: s.team, x: Math.round(this.mapX(s.x, s.y)), y: Math.round(this.mapY(s.x, s.y)), u, v: this.cellV, w: this.cellW, h: this.cellH, ax: this.cellAx, ay: this.cellAy, shade: this.corpseShade[s.team as 0 | 1], a: 1, solid: false, r: 0, g: 0, b: 0 });
   }
 
   // ---------------------------------------------------------------- GL setup
@@ -1538,6 +1555,7 @@ export class BattleScene {
     const kind = this.kindOf(i);
     const L = this.hdLevel[s.team]![kind]!;
     if (L <= 1) return false;
+    const k = this.corpseShade[s.team as 0 | 1];
     const sh = this.hdSheet[s.team]![kind]!;
     const o = this.slotOf(s.team, kind, Anim.Dead, 0, this.dirs[i] as Dir) * 6;
     const r = sh.rects;
@@ -1545,7 +1563,7 @@ export class BattleScene {
     const mx = this.mapX(s.x, s.y);
     const my = this.mapY(s.x, s.y);
     if (mx < x0 || mx > x1 || my < y0 || my > y1) return true;
-    this.hdBatch[s.team]![kind]!.sprite(Math.round(mx), Math.round(my), r[o]!, r[o + 1]!, r[o + 2]! / L, r[o + 3]! / L, r[o + 4]! / L, r[o + 5]! / L, -1e5, 0.78, 0.78, 0.75, 1, 0, 1);
+    this.hdBatch[s.team]![kind]!.sprite(Math.round(mx), Math.round(my), r[o]!, r[o + 1]!, r[o + 2]! / L, r[o + 3]! / L, r[o + 4]! / L, r[o + 5]! / L, -1e5, k, k, k * 0.96, 1, 0, 1);
     return true;
   }
 
@@ -1709,16 +1727,25 @@ export class BattleScene {
         jx = (h & 3) - 1.5;
         jy = ((h >>> 2) & 1) - 0.5;
       }
+      // A falling man darkens to his corpse's shade as he goes down (and one who may yet rise,
+      // drawn as a figure, lies at it); one getting up brightens again.
+      let shade = 1;
+      if (s.state === State.Dead || rising) {
+        const k = this.corpseShade[s.team as 0 | 1];
+        const dt = this.dieTicks(s.team, kind);
+        const down = rising ? 1 - (T - s.roseAt) / dt : (T - s.diedAt) / dt;
+        shade = 1 + (k - 1) * Math.min(1, Math.max(0, down));
+      }
       const lv = hd ? this.hdLevel[s.team]![kind]! : 1;
       // A partial sheet (KindSheet.partial) lacks some frames (w = 0): those come from the grid.
       const o = lv > 1 ? this.slotOf(s.team, kind, anim, f, dir) * 6 : 0;
       if (lv > 1 && this.hdSheet[s.team]![kind]!.rects[o + 2]! > 0) {
         const sh = this.hdSheet[s.team]![kind]!;
         const r = sh.rects;
-        this.hdBatch[s.team]![kind]!.sprite(Math.round((fmx + jx) * m) / m, Math.round((fmy + jy) * m) / m, r[o]!, r[o + 1]!, r[o + 2]! / lv, r[o + 3]! / lv, r[o + 4]! / lv, r[o + 5]! / lv, fmy, 1, 1, 1, 1, flash);
+        this.hdBatch[s.team]![kind]!.sprite(Math.round((fmx + jx) * m) / m, Math.round((fmy + jy) * m) / m, r[o]!, r[o + 1]!, r[o + 2]! / lv, r[o + 3]! / lv, r[o + 4]! / lv, r[o + 5]! / lv, fmy, shade, shade, shade * (shade < 1 ? 0.96 : 1), 1, flash);
       } else {
         const u = this.cellU(s.team, kind, anim, f, dir);
-        team[s.team as 0 | 1].sprite(Math.round(fmx + jx), Math.round(fmy + jy), u, this.cellV, this.cellW, this.cellH, this.cellAx, this.cellAy, fmy, 1, 1, 1, 1, flash, 0, this.cellCutX, this.cellCutY);
+        team[s.team as 0 | 1].sprite(Math.round(fmx + jx), Math.round(fmy + jy), u, this.cellV, this.cellW, this.cellH, this.cellAx, this.cellAy, fmy, shade, shade, shade * (shade < 1 ? 0.96 : 1), 1, flash, 0, this.cellCutX, this.cellCutY);
       }
     }
 
@@ -2135,9 +2162,9 @@ export class BattleScene {
     // In view: its kind keeps (or gets) a hi-res sheet.
     this.seenDead[s.team] = this.seenDead[s.team]! | (1 << kind);
     if (hd && this.hdLevel[s.team]![kind]! > 1 && this.hdCorpse(i, x0, x1, y0, y1)) return;
-    const atlas = this.atlases[s.team as 0 | 1];
+    const cs = this.corpseShade[s.team as 0 | 1];
     const u = this.cellU(s.team, kind, Anim.Dead, 0, this.dirs[i] as Dir);
-    this.gfx!.team[s.team as 0 | 1].sprite(Math.round(mx), Math.round(my), u, this.cellV, this.cellW, this.cellH, this.cellAx, this.cellAy, -1e5, 0.78, 0.78, 0.75, 1, 0, 1, this.cellCutX, this.cellCutY);
+    this.gfx!.team[s.team as 0 | 1].sprite(Math.round(mx), Math.round(my), u, this.cellV, this.cellW, this.cellH, this.cellAx, this.cellAy, -1e5, cs, cs, cs * 0.96, 1, 0, 1, this.cellCutX, this.cellCutY);
   }
 
   /** HD: the stakes, from the level-m sheet (and the HD batches cleared for the frame). */
