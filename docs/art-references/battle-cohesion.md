@@ -944,6 +944,33 @@ The user saw "two friendly regiments intersecting at an angle like an X shape [.
 - Grand battles: blocks of foot a quarter deep in a friend under 0.1 per sampled second (base 2.06).
 - A set piece of two friendly blocks ordered across each other's roads: at most 5% of either stands in the other (base 20%), and both reach their goals.
 
+### 8.5c Each block of archers on its own spot (follow-up)
+
+Shooters with no target in range made for the spot straight before the nearest enemy, at 0.8-0.85 of their range. Every block sent at the same enemy went to the same spot, so ten blocks stood five deep on two spots.
+
+**Where a block now goes** (`firingSpot`, `spotTaken`):
+- The spot on the ring of its range straight before the enemy, if that is free.
+- If not, one block's width and an interval to either side in turn, staying on the ring so it is still in range.
+- If the front of the ring is full, a spot behind an interval.
+
+A spot counts as taken when another block of shooters stands there or is making for it.
+
+**Two other changes:**
+- A block that stopped on top of another, because both came into range at once, steps off to its own spot if the other is earlier in the order of battle.
+- Shooters now give way to shooters like any other blocks. Only horse in open order still passes through horse.
+
+**Measured.** `blockCrossings` now counts shooters on shooters. Shooter-on-shooter crossings a quarter of a block deep or more, per sampled second over 18 grand battles:
+
+| | Base | With own spots |
+|---|---|---|
+| Both standing to shoot | 1,002 | 20 |
+| Both advancing | 491 | 0 |
+| All pairs, any kind | 0.53 | 0.20 |
+
+**Test** (`crossing.test.ts`):
+- Ten archer blocks against heavy foot waiting for them. At most a quarter of one block may stand in another (the base reaches 0.9), and most of the blocks must be shooting.
+- The "shield wall" test in `game.test.ts` now lets the archers shoot for 270 s instead of 180. Spread out, they come into action later: at 180 s the line had lost 3 men over three days, so the old result came from stacked fire. At 270 s the losses were line 199, loose 71, shield wall 19.
+
 ### 8.6 Not done
 
 - **Idle men face their regiment's front.** The renderer turns a man to his foe only when he has one, so an idle rear-ranker of a block that has turned its rear ranks about still shows his back to the enemy. That fix is in `scene.ts`, which belongs to the renderer.

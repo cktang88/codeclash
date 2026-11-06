@@ -84,6 +84,11 @@ export { COHESION, DOCTRINE, MORALE, REGROUP, UNDEAD } from './command.ts';
  *   makes for the ground beside him (`clearGoal`, `dodgeFor`). Two friendly blocks stood in each
  *   other a quarter deep or more 1.9 times a second sampled in grand battles; 0.15 now, mostly
  *   horse charging horse.
+ * - Archers each take their own firing spot (`firingSpot`, `spotTaken`): on the ring of their
+ *   range, before the enemy, then a block's width and an interval to either side, then behind an
+ *   interval; one that stopped on top of another block of shooters steps off to its own. Blocks
+ *   of shooters give way to each other like the rest (ten blocks used to stand five deep on two
+ *   spots); horse in open order still passes through horse.
  */
 /**
  * v16: nothing grows with the size of the battle that should not (the undead won two thirds of
@@ -3782,6 +3787,17 @@ export class Battle {
         return;
       }
       this.closeToShoot(r, best);
+      // Standing on top of another block of shooters (both stopped where they came into range):
+      // the later in the order of battle steps off to its own spot, as near as it stands now.
+      {
+        const dx = best.cx - r.ax;
+        const dy = best.cy - r.ay;
+        const q = sqrt(dx * dx + dy * dy) || 1;
+        if (this.spotTaken(r, r.ax, r.ay, -dy / q, dx / q, dx / q, dy / q, true)) {
+          this.firingSpot(r, best, Math.min(q, st.range * 0.9));
+          this.goal(r, this.tmp[0]!, this.tmp[1]!);
+        }
+      }
       this.aimAt(r, best);
       return;
     }
@@ -3800,11 +3816,10 @@ export class Battle {
       if (near) {
         // Idle a long while (the fight has moved off along the line): go to bow range of the
         // nearest enemy, but never past their usual place behind the line.
-        const dx = near.cx - r.cx;
-        const dy = near.cy - r.cy;
-        const q = sqrt(dx * dx + dy * dy) || 1;
-        x = dir * Math.min((near.cx - (dx / q) * st.range * 0.85) * dir, x * dir);
-        y = near.cy - (dy / q) * st.range * 0.85;
+        // (Its own spot: see `firingSpot`.)
+        this.firingSpot(r, near, st.range * 0.85);
+        x = dir * Math.min(this.tmp[0]! * dir, x * dir);
+        y = this.tmp[1]!;
       }
       const behind = (x - r.ax) * dir;
       const move = behind > 20 || behind < -6 || (near !== null && Math.abs(y - r.ay) > 20);
@@ -3816,11 +3831,9 @@ export class Battle {
     }
     const near = this.nearestFoe(r, 0, Infinity);
     if (near) {
-      const dx = near.cx - r.cx;
-      const dy = near.cy - r.cy;
-      const q = sqrt(dx * dx + dy * dy) || 1;
       this.setMode(r, 'advance');
-      this.goal(r, near.cx - (dx / q) * st.range * 0.8, near.cy - (dy / q) * st.range * 0.8);
+      this.firingSpot(r, near, st.range * 0.8);
+      this.goal(r, this.tmp[0]!, this.tmp[1]!);
       this.faceToward(r, near.cx, near.cy);
     }
   }
@@ -3969,6 +3982,70 @@ export class Battle {
    * in range while its men are not: two armies of archers would otherwise stand just out of
    * reach of each other all day.)
    */
+  /**
+   * Where a block of shooters makes for to shoot at `o` from `range` (battle v17): its own spot
+   * on that ring, not the same spot as every other block sent at the same enemy. The spot straight
+   * before the enemy first, then one block's width and an interval to either side in turn (on the
+   * ring, so still in range), and if the ring's front is full, a spot behind an interval of those
+   * already placed. A spot is taken when another block of shooters of its side stands there or is
+   * making for it. Puts it in tmp[0], tmp[1].
+   */
+  private firingSpot(r: Regiment, o: Regiment, range: number): void {
+    let ux = o.cx - r.cx;
+    let uy = o.cy - r.cy;
+    const q = sqrt(ux * ux + uy * uy) || 1;
+    ux /= q;
+    uy /= q;
+    const lx = -uy;
+    const ly = ux;
+    const lane = r.width + MISSILE_GAP;
+    let bx = o.cx - ux * range;
+    let by = o.cy - uy * range;
+    for (let row = 0; row < 3; row++) {
+      const back = row * (r.depth + MISSILE_GAP * 0.5);
+      const half = row % 2 === 1 ? 0.5 : 0;
+      for (let k = 0; k < 13; k++) {
+        const n = (k + 1) >> 1;
+        const off = ((k & 1) === 1 ? n : -n) * lane + half * lane;
+        const rr = range - back;
+        if (off * off > rr * rr * 0.6) continue;
+        const fwd = sqrt(rr * rr - off * off);
+        const x = o.cx - ux * fwd + lx * off;
+        const y = o.cy - uy * fwd + ly * off;
+        if (!this.spotTaken(r, x, y, lx, ly, ux, uy)) {
+          this.tmp[0] = x;
+          this.tmp[1] = y;
+          return;
+        }
+        if (k === 0 && row === 0) {
+          bx = x;
+          by = y;
+        }
+      }
+    }
+    this.tmp[0] = bx;
+    this.tmp[1] = by;
+  }
+
+  /**
+   * Whether another block of shooters of `r`'s side stands at, or is making for, a spot near
+   * (x, y) (`prior`: one before `r` in the order of battle, standing there).
+   */
+  private spotTaken(r: Regiment, x: number, y: number, lx: number, ly: number, ux: number, uy: number, prior = false): boolean {
+    for (const o of this.teamRegs[r.team]!) {
+      if (o === r || o.alive === 0 || o.routed || (o.role !== 'missile' && o.role !== 'siege')) continue;
+      if (prior && o.phase > r.phase) continue;
+      for (let k = 0; k < 2; k++) {
+        const ex = (k === 0 ? o.tx : o.ax) - x;
+        const ey = (k === 0 ? o.ty : o.ay) - y;
+        const lat = ex * lx + ey * ly;
+        const fwd = ex * ux + ey * uy;
+        if (Math.abs(lat) < (r.width + o.width) * 0.5 + MISSILE_GAP * 0.5 && Math.abs(fwd) < (r.depth + o.depth) * 0.5 + MISSILE_GAP * 0.25) return true;
+      }
+    }
+    return false;
+  }
+
   private closeToShoot(r: Regiment, tgt: Regiment, always = false): void {
     if (r.short > r.loosed && (always || !this.ts[r.team]!.hasLine)) {
       const dx = tgt.cx - r.cx;
@@ -4941,7 +5018,7 @@ export class Battle {
     for (const o of this.teamRegs[r.team]!) {
       if (o === r || o.alive === 0 || o.routed || o.role === 'skirmish' || o.slip || o.mode === 'skirmish' || o.mode === 'pursue') continue;
       // (Two bodies in open order pass through each other's files: archers among archers.)
-      if (r.stance === 'loose' && o.stance === 'loose') continue;
+      if (r.stance === 'loose' && o.stance === 'loose' && (isMounted(r) || isMounted(o))) continue;
       const dx = o.cx - r.cx;
       const dy = o.cy - r.cy;
       const reach = o.radius + r.radius + r.spacing + 8;
@@ -5021,7 +5098,7 @@ export class Battle {
       const cy = r.ty - r.dfy * r.depth * 0.5;
       for (const o of this.teamRegs[r.team]!) {
         if (o === r || o.alive === 0 || o.routed || o.role === 'skirmish' || o.slip || o.mode === 'pursue' || o.mode === 'skirmish' || !this.rightOfWay(o, r)) continue;
-        if (r.stance === 'loose' && o.stance === 'loose') continue;
+        if (r.stance === 'loose' && o.stance === 'loose' && (isMounted(r) || isMounted(o))) continue;
         const ocx = o.ax - o.fx * o.depth * 0.5;
         const ocy = o.ay - o.fy * o.depth * 0.5;
         const ex = cx - ocx;
@@ -5123,7 +5200,8 @@ export class Battle {
    */
   private turnFoot(r: Regiment, wx: number, wy: number, marching: boolean): void {
     const C = COHESION;
-    if (r.alive < 2 || r.engaged || r.routed) return;
+    // (Not a chase: a loose crowd turns as it runs.)
+    if (r.alive < 2 || r.engaged || r.routed || r.mode === 'pursue') return;
     if (r.role === 'siege' || r.role === 'command' || r.stance === 'wedge' || r.stance === 'column') return;
     const cav = this.horseNear(r);
     // Faced in place against horse, it takes its proper frontage again once the horse rides off.

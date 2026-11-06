@@ -118,4 +118,27 @@ describe('friendly blocks keep out of each other', () => {
       expect(theirs.reduce((a, r) => a + r.start - r.alive, 0)).toBeGreaterThan(4);
     }
   }, 120_000);
+
+  it('blocks of archers sent at the same enemy each take their own spot, and all of them shoot', () => {
+    // Ten blocks of archers against heavy foot standing to receive them: until this fix they
+    // stood five deep on two spots. Now each takes its own on the ring of its range.
+    let worst = 0;
+    let shooting = 0;
+    let blocks = 0;
+    for (const seed of [1, 2]) {
+      const b = new Battle({ version: BATTLE_VERSION, seed, kind: 'daily', armies: [{ ...plainArmy(only(U.Archers, 300)), commander: true }, { ...plainArmy(only(U.HeavyInfantry, 100), 200), commander: true }] });
+      b.generals[1].fixedPlan = 'hold';
+      const bows = b.regiments.filter((r) => r.team === 0 && r.role === 'missile');
+      expect(bows.length).toBeGreaterThan(6);
+      while (b.tick < 2400) {
+        b.step();
+        if (b.tick % 20 || b.tick < 900) continue;
+        for (const c of blockCrossings(b, 2)) if (b.regiments[c.a]!.role === 'missile' && b.regiments[c.b]!.role === 'missile') worst = Math.max(worst, c.share);
+      }
+      blocks += bows.length;
+      shooting += bows.filter((r) => r.mode === 'shoot').length;
+    }
+    expect(worst).toBeLessThan(0.25);
+    expect(shooting).toBeGreaterThanOrEqual(blocks * 0.7);
+  }, 120_000);
 });

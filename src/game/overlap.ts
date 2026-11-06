@@ -105,10 +105,11 @@ export interface Crossing {
  * routed, the men of one standing inside the other's footprint (the rectangle its places cover,
  * from its anchor, facing, width and depth, less a man's breadth at the edges). Skirmishers and
  * blocks passing through their own line on purpose (`slip`, falling back as skirmishers) are left
- * out: that is drill; so are blocks chasing, a loose crowd, and two blocks both in open order
- * (archers among archers pass through each other's files). A pair counts when at least `min` men of either stand in the other
- * (three, with the general's household, a handful of riders). Horse is counted like foot: riders of
- * one block among the places of another, or men among the riders' places.
+ * out: that is drill; so are blocks chasing, a loose crowd, and two blocks of horse both in open
+ * order. Shooters standing on shooters count (each block of them should have its own spot). A
+ * pair counts when at least `min` men of either stand in the other (three, with the general's
+ * household, a handful of riders). Horse is counted like foot: riders of one block among the
+ * places of another, or men among the riders' places.
  */
 export function blockCrossings(b: Battle, min = 4): Crossing[] {
   // (The general's household is a handful of riders: counted from three.)
@@ -126,7 +127,7 @@ export function blockCrossings(b: Battle, min = 4): Crossing[] {
     const p = regs[i]!;
     for (let j = i + 1; j < regs.length; j++) {
       const q = regs[j]!;
-      if (p.team !== q.team || (p.stance === 'loose' && q.stance === 'loose')) continue;
+      if (p.team !== q.team || (p.stance === 'loose' && q.stance === 'loose' && p.role !== 'missile' && q.role !== 'missile')) continue;
       const dx = p.cx - q.cx;
       const dy = p.cy - q.cy;
       const rr = p.radius + q.radius;
