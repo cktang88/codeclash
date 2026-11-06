@@ -58,8 +58,10 @@ describe('cohesion: room between blocks', () => {
 describe('cohesion: a ragged approach (P1)', () => {
   it('men stride ahead of and behind their slots on the march, within bounds; the Templars least, the samurai most', () => {
     const by: Record<string, number[]> = { templar: [], samurai: [], undead: [] };
-    for (const [fa, fb] of [['templar', 'samurai'], ['samurai', 'undead'], ['undead', 'templar']] as const) {
-      const b = battle(7, army(600, fa), army(600, fb));
+    // (Two days: on one, much of a side's line may march in column and few of its men count;
+    // with horse riding round friends, v17, day 7 alone had the samurai in column most of the way.)
+    for (const [seed, fa, fb] of [7, 3].flatMap((d) => [[d, 'templar', 'samurai'], [d, 'samurai', 'undead'], [d, 'undead', 'templar']] as const)) {
+      const b = battle(seed, army(600, fa), army(600, fb));
       // The approach to about contact (60 s; it was 24 s until the scale rework, when the armies
       // deployed half as far apart), blocks marching in line: on the long approach they now march
       // much of the way in column, whose men keep their files.
@@ -79,7 +81,7 @@ describe('cohesion: a ragged approach (P1)', () => {
     expect(pct(all, 0.98)).toBeLessThan(25);
     // The Rule keeps the Templar front tight; the keen samurai run ahead for the first spear.
     expect(pct(by.templar!, 0.5)).toBeLessThan(pct(by.samurai!, 0.5));
-  }, 60_000);
+  }, 120_000);
 });
 
 describe('cohesion: overlapping files wrap the flank (P6)', () => {
