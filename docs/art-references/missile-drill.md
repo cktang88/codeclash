@@ -45,20 +45,30 @@ With ranges about three times longer (bows 590, crossbows 470), the compressed r
 
 The Tastes of History, ACOUP and Wikipedia "Volley fire" entries above give the bow's 10–12 a minute for a short burst and 5–6 sustained, and the matchlock's 20–45 s.
 
+**Review after the merge (still v17).** The first v17 rates were still too quick, taken from the best figures rather than the sustained ones:
+
+| Source | What it gives us |
+| --- | --- |
+| Matthew Strickland and Robert Hardy, *The Great Warbow* (2005) (as summarised in the review brief; not re-read) | 10–12 a minute is a short burst by a skilled man. With heavy war bows (draw weights of 100–150 lb), fatigue holds the rate a man keeps up through a battle to about 6–8 a minute. |
+| [Wikipedia, "Arquebus"](https://en.wikipedia.org/wiki/Arquebus), [Samurai Archives, "Teppō"](https://samurai-archives.com/wiki/Teppo), [Wikipedia, "Firearms of Japan"](https://en.wikipedia.org/wiki/Firearms_of_Japan) | The typical rate is about 2 a minute: 30 s, or 30–40 s for trained ashigaru. The best men's 4 a minute (the 17.7 s we had) is a ceiling, not a battle's pace. Rotating volleys (S3) keep the fire continuous. |
+| Will's Commonplace Book and Ellis-Gorman (above) | A belt-and-claw or goat's-foot field crossbow, the Genoese pavisier's, manages 5–6 a minute in reenactors' trials, so 12 s stands. A windlass or cranequin bow is far slower, about one a minute, but shoots a heavier bolt harder. |
+| docs/factions.md, Revenant Arbalests; undead-animation.md (cranequin spanning) | The Hollow Host's arbalests carry a *heavy* crossbow, spanned with a cranequin, and so are not the Genoese. |
+
 ### What we took
 
 | Weapon | History | Game, volley to volley (ticks of 0.1 s) | Was |
 | --- | --- | --- | --- |
-| War bow | 10–12 a minute in a burst (5–6 s), 5–6 sustained | 5 s (44 + the 0.6 s beat), 12 a minute; at will 0.6 of the reload (about 3 s) | 2.1 s |
-| Crossbow | 2–6 a minute (10–30 s) by spanning device; belt hook and goat's foot for field troops | 12 s (114 + 6), 5 a minute | 4.4 s |
-| Matchlock (teppō) | 20–60 s; about 30 s for drilled men, up to 4 a minute for the best | 17.7 s (171 + 6), rank by rank (S3) so a rank fires every 6 s | 5.7 s |
+| War bow | 10–12 a minute in a burst (5–6 s); 6–8 sustained with heavy bows (Strickland & Hardy) | 7.5 s (69 + the 0.6 s beat), 8 a minute; at will 0.72 of the reload (5 s, 12 a minute: the burst) | 2.1 s; 5 s in the first v17 |
+| Crossbow (Genoese, belt hook) | 2–6 a minute (10–30 s) by spanning device; belt hook and goat's foot for field troops, 5–6 a minute in trials | 12 s (114 + 6), 5 a minute | 4.4 s |
+| Heavy crossbow (Revenant Arbalests, cranequin) | about 1 a minute with windlass or cranequin | 29.1 s (285 + 6), 2 a minute; each bolt 1.6x the Genoese bolt, pierce 0.74 (0.55) | 12 s |
+| Matchlock (teppō) | 20–60 s; about 30 s typical and for trained ashigaru, up to 4 a minute for the best | 30 s (294 + 6), rank by rank (S3) so with three ranks a rank fires every 10 s | 5.7 s; 17.7 s in the first v17 |
 | Horse archer | slower than foot on the move: 5–6 s | 5.5 s | 2.6 s |
 | Javelins | quick, but two to four carried | 3 s, 4 carried (was 5) | 2.6 s |
 | Engines | traction 15–20 s, counterweight minutes, bombards slower | 30 s | 14 s |
 
-- **Ammunition.** Bows 36 arrows a man (was 24: history's 24 a sheaf plus a second from the carts, three minutes of volleys), crossbows 18 (three and a half minutes), horse archers 30 (22), engines 30.
-- **Damage.** Bows are volume (light arrows, pierce 0.1), crossbows slow and armour-piercing (pierce 0.55, unchanged). An arrow hits 9 (was 8): at the slower rate, and with charging horse hard to hit, a battle's arrows were fewer and battles ran longer (a Templar mirror of 500 a side past six minutes). The teppō's ball hits 1.45x a crossbow's bolt (was 1.3x), so a gun block's minute of fire is still a little under a crossbow block's, in fewer, heavier volleys that pierce as well.
-- **Fire at will.** A bowman shooting at will at a foe close at hand nocks and looses at the burst rate, 0.6 of his volley reload (`BOW_BURST`). With volleys 5 s apart, whether a block gets its at-will arrows off before the foe is among it turns on where its last volley fell in the foe's run-in; against horse at the gallop it often does not, as in life.
-- **Rotation.** The teppō already fire rank by rank after their first volley (S3, `rippling`): with three ranks a rank looses every 6 s, keeping the fire up. Nothing new was needed.
+- **Ammunition.** Bows 24 arrows a man, history's sheaf (36 in the first v17), three minutes of volleys at 7.5 s; crossbows 18 (three and a half minutes); teppō and the undead arbalests 9 (four and a half minutes at their pace; with 18 they used a third of their shot); horse archers 30 (22), engines 30. At 250 a side a battle's bowmen loose three quarters of their arrows and a tenth of the survivors run dry (36 at 5 s: three quarters, and a quarter to a third dry); the teppō loose 40% of their 9, the arbalests 60%.
+- **Damage.** Bows are volume (light arrows, pierce 0.1), crossbows slow and armour-piercing (pierce 0.55, unchanged). An arrow hits 9 (was 8): at the slower rate, and with charging horse hard to hit, a battle's arrows were fewer and battles ran longer (a Templar mirror of 500 a side past six minutes). The teppō's ball hits 1.45x a crossbow's bolt (was 1.3x): at 30 s a shot a gun block's minute of fire is about 0.6 of a Genoese block's, in few, heavy volleys that pierce as well, fired rank by rank. The undead arbalests' heavy bolt hits 1.6x the Genoese bolt and pierces 0.74: about 0.65 of the Genoese minute of fire, more of it through armour.
+- **Fire at will.** A bowman shooting at will at a foe close at hand nocks and looses at the burst rate, 0.72 of his volley reload (`BOW_BURST`): 5 s, the 10–12 a minute of a short burst. With volleys 7.5 s apart, whether a block gets its at-will arrows off before the foe is among it turns on where its last volley fell in the foe's run-in; against horse at the gallop it often does not, as in life.
+- **Rotation.** The teppō already fire rank by rank after their first volley (S3, `rippling`): with three ranks a rank looses every 10 s, keeping the fire up. Nothing new was needed.
 - **Moving targets.** A shot is aimed where the target will be (0.8 of its travel in flight), but a target faster than a jog (25 units a second: horse at the canter or gallop, and a little foot at the run) is only guessed at: the scatter grows by 0.3 of the way its speed beyond that carries it in the shot's flight (`LEAD_ERR`). A rider at the gallop 500 away goes some 120 units while an arrow is in the air, so most arrows at charging horse miss; marching and running foot are led true. (Counting all the target's speed cost the undead 8 points against the Templars, and counting it beyond 20 a second still about 5. Where between 20 and 40 it sits moved single-seed tests either way; 25 it is.)
 - **`fireEvery`** stays reload + VOLLEY_BEAT for formed missile foot, so the Generals' reckoning of firepower and the volley drill agree (missiles.test.ts reads its cycles from it).

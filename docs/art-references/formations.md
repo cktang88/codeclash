@@ -144,7 +144,7 @@ A facing is quick but has costs:
 - **A block that has faced round has no front until it has re-formed** (`formedAt`, the estimated facing time). Blows and charges from before it count as from the flank, and its shooters do not loose until then.
 - **It never faces for under about 25 degrees** (`faceMinCos`). Blocks of horse never face: horses cannot face in place (section 3.4). Wedges, columns and engines do not face either.
 - **On the march, with no enemy close, it wheels as it goes.**
-- **With enemy horse within 150** (`faceHorse`), unless that horse is riding off to rally, the block **faces in place** (`faceInPlace`). It does this whenever facing beats the wheel, which costs only `faceDelay`, so in practice for any turn past the threshold:
+- **With enemy horse within 150** (`faceHorse`), unless that horse is riding off to rally or is locked in a fight with another block more than 40 away (`faceHorseNear`, as spears brace: a block faced toward horse busy with its neighbour stood deep and narrow, its front turned from the enemy foot, all through the melee), the block **faces in place** (`faceInPlace`). It does this whenever facing beats the wheel, which costs only `faceDelay`, so in practice for any turn past the threshold:
   - Every man turns where he stands, at once (Aelian's klisis), and nobody walks to a new place.
   - The block takes its new front with the shape it has. After a quarter turn the old files are its ranks, so it is deep and narrow toward the horse, as foot stood against horse.
   - Spears brace as before.
